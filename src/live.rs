@@ -9,14 +9,14 @@
 //! non-blocking semaphore signal; the engine only sleeps on the semaphore with a timeout
 //! equal to its next deadline.
 
-use crate::engine::{Button, Engine, Prepared, Snapshot};
+use crate::engine::{shift_key, Button, Engine, Prepared, Snapshot, Transpose};
 use crate::fingering::{self, Fingering};
 use crate::launchkey;
 use crate::midi::{for_each_message, InputHandler};
 use crate::rt::{self, Histogram, PacketSink, Wakeup};
 use crate::theory::{Chord, Recognizer, CANCEL, ONE_PLUS_EIGHT, ONE_PLUS_FIVE};
 use rtrb::{Consumer, Producer, RingBuffer};
-use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicU8, Ordering::*};
+use std::sync::atomic::{AtomicBool, AtomicI8, AtomicU32, AtomicU64, AtomicU8, Ordering::*};
 use std::sync::Arc;
 
 #[derive(Clone, Copy, Debug)]
@@ -26,6 +26,7 @@ pub enum Cmd {
     PartVolume(u8, u8),
     /// Manual Bass in effect: mute the Style's Bass part.
     ManualBass(bool),
+    Transpose(Transpose),
     Arm,
     Panic,
 }
@@ -44,6 +45,9 @@ pub struct Shared {
     pub upper: AtomicBool,
     /// The Manual Bass setting. It only takes effect in Upper mode; see `manual_bass()`.
     pub manual_bass: AtomicBool,
+    /// Keyboard + Master transpose: the shift applied to played notes. The engine gets
+    /// the individual values through `Cmd::Transpose`.
+    pub key_shift: AtomicI8,
     /// Engine wake lateness vs. its deadline.
     pub lateness: Histogram,
     /// CoreMIDI packet timestamp -> our callback.
@@ -70,6 +74,7 @@ impl Shared {
             fingering: AtomicU8::new(Fingering::FingeredOnBass.to_u8()),
             upper: AtomicBool::new(false),
             manual_bass: AtomicBool::new(true),
+            key_shift: AtomicI8::new(0),
             lateness: Histogram::new(),
             input_lat: Histogram::new(),
             chord_lat: Histogram::new(),
@@ -134,9 +139,10 @@ pub const TAG_PADS: usize = 2;
 pub const RH_CH: u8 = 0;
 pub const LH_CH: u8 = 1;
 
-/// Which side of the split a held key went to at note-on, so its note-off follows it
-/// even if the split or the detection area changed while it was held. Whether a key is
-/// a chord key is not stored: it is decided by its side and the area at the time.
+/// Which side of the split a held key went to at note-on, so it keeps counting for that
+/// side even if the split or the detection area changed while it was held (where its
+/// note-off goes is tracked by `Keys`). Whether a key is a chord key is not stored: it is
+/// decided by its side and the area at the time.
 const R_LH: u8 = 1;
 const R_RH: u8 = 2;
 
@@ -156,11 +162,36 @@ pub fn fingered_star(mask: u16, c: Chord) -> Option<Chord> {
 // Input (CoreMIDI receive thread)
 // ---------------------------------------------------------------------------
 
+/// Where each held key sounded (channel and transposed note), so its note-off goes to the
+/// same place even if the split or transpose changed while it was down.
+pub struct Keys {
+    sounding: [Option<(u8, u8)>; 128],
+}
+
+impl Keys {
+    pub fn new() -> Keys {
+        Keys { sounding: [None; 128] }
+    }
+
+    /// Key down: the (channel, note) to sound, remembered for the release. A retrigger of a
+    /// key that is still sounding first returns the old note to release.
+    pub fn press(&mut self, key: u8, ch: u8, shift: i8) -> ((u8, u8), Option<(u8, u8)>) {
+        let out = (ch, shift_key(key, shift));
+        (out, self.sounding[key as usize & 127].replace(out))
+    }
+
+    /// Key up: the (channel, note) it sounded as, if any.
+    pub fn release(&mut self, key: u8) -> Option<(u8, u8)> {
+        self.sounding[key as usize & 127].take()
+    }
+}
+
 pub struct Input {
     shared: Arc<Shared>,
     rec: Recognizer,
     /// Which side of the split each held key went to (`R_LH` / `R_RH`, 0 = not held).
     route: [u8; 128],
+    keys: Keys,
     current: Option<Chord>,
     generation: u16,
     cmd: Producer<Cmd>,
@@ -176,6 +207,7 @@ impl Input {
             shared,
             rec,
             route: [0; 128],
+            keys: Keys::new(),
             current: None,
             generation: 0,
             cmd,
@@ -235,21 +267,21 @@ impl Input {
         let st = m[0] & 0xF0;
         match (st, m.len()) {
             (0x90, 3) if m[2] > 0 => {
-                let k = m[1];
+                // Chords are recognized from the keys as fingered; the engine applies
+                // Keyboard transpose to the chord. The notes themselves sound transposed.
+                let k = m[1] & 0x7F;
                 // Lower: the chord section is the left hand. Upper: it is the right hand
                 // (above Split Point (Left)), and the left hand only plays the Left part.
                 let left = k <= split;
                 let r = if left { R_LH } else { R_RH };
                 let chord = r == self.chord_side();
-                let prev = self.route[k as usize];
-                // A repeated note-on after the split moved: release where it sounded before.
-                if prev & R_LH != 0 && !left {
-                    self.out.push(&[0x80 | LH_CH, k, 0]);
-                } else if prev & R_RH != 0 && left {
-                    self.out.push(&[0x80 | RH_CH, k, 0]);
-                }
                 self.route[k as usize] = r;
-                self.out.push(&[0x90 | if left { LH_CH } else { RH_CH }, k, m[2]]);
+                let ((ch, note), prev) = self.keys.press(k, if left { LH_CH } else { RH_CH }, self.shared.key_shift.load(Relaxed));
+                // A retrigger (possibly after the split or transpose moved): release where it sounded.
+                if let Some((pch, pnote)) = prev {
+                    self.out.push(&[0x80 | pch, pnote, 0]);
+                }
+                self.out.push(&[0x90 | ch, note, m[2]]);
                 // The Full Keyboard types (Lower only) read both hands.
                 if chord
                     || (!self.shared.upper.load(Relaxed)
@@ -259,15 +291,12 @@ impl Input {
                 }
             }
             (0x80, 3) | (0x90, 3) => {
-                let k = m[1];
+                let k = m[1] & 0x7F;
+                if let Some((ch, note)) = self.keys.release(k) {
+                    self.out.push(&[0x80 | ch, note, 0]);
+                }
                 let r = std::mem::take(&mut self.route[k as usize]);
                 if r != 0 {
-                    if r & R_LH != 0 {
-                        self.out.push(&[0x80 | LH_CH, k, 0]);
-                    }
-                    if r & R_RH != 0 {
-                        self.out.push(&[0x80 | RH_CH, k, 0]);
-                    }
                     // Sync Stop: the last key of the current chord section went up.
                     let side = self.chord_side();
                     if r & side != 0
@@ -275,12 +304,6 @@ impl Input {
                         && self.cmd.push(Cmd::ChordReleased).is_ok()
                     {
                         self.signal = true;
-                    }
-                } else {
-                    self.out.push(&[0x80 | RH_CH, k, 0]);
-                    // Also release on the LH channel in case the split moved while held.
-                    if k <= split {
-                        self.out.push(&[0x80 | LH_CH, k, 0]);
                     }
                 }
             }
@@ -478,6 +501,7 @@ fn apply(engine: &mut Engine, cmd: Cmd, now: u64, out: &mut Out) {
         Cmd::Arm => engine.arm(out),
         Cmd::PartVolume(p, v) => engine.set_gain(p, v, out),
         Cmd::ManualBass(on) => engine.set_manual_bass(on, out),
+        Cmd::Transpose(t) => engine.set_transpose(t, now, out),
         Cmd::Panic => {
             engine.stop(out);
             for ch in 0..16u8 {
@@ -562,6 +586,67 @@ mod tests {
             inp.key_msg(&[0x90, k, 100]);
         }
         assert_eq!(chord(&shared).as_deref(), Some("Am"));
+    }
+
+    /// A key is released at the pitch and channel it sounded at, whatever changed meanwhile.
+    #[test]
+    fn keys_release_where_they_sounded() {
+        let mut k = Keys::new();
+        assert_eq!(k.press(60, RH_CH, 2), ((RH_CH, 62), None));
+        assert_eq!(k.press(48, LH_CH, -12), ((LH_CH, 36), None));
+        // Transpose changes while both are held: the new press uses it, the releases do not.
+        assert_eq!(k.press(64, RH_CH, 5), ((RH_CH, 69), None));
+        assert_eq!(k.release(60), Some((RH_CH, 62)));
+        assert_eq!(k.release(48), Some((LH_CH, 36)));
+        assert_eq!(k.release(48), None);
+        // Retrigger without a release returns the old note to stop first.
+        assert_eq!(k.press(64, RH_CH, 0), ((RH_CH, 64), Some((RH_CH, 69))));
+        assert_eq!(k.release(64), Some((RH_CH, 64)));
+        // Out of MIDI range folds by octaves.
+        assert_eq!(k.press(127, RH_CH, 12).0, (RH_CH, 127));
+        assert_eq!(k.press(2, RH_CH, -12).0, (RH_CH, 2));
+        assert_eq!(k.press(125, RH_CH, 5).0, (RH_CH, 118));
+    }
+
+    /// Through `Input`: notes sound transposed on their split channel, the chord is recognized
+    /// from the keys as fingered, and releases go where the notes sounded even after the split
+    /// and transpose move.
+    #[test]
+    fn input_transposes_notes_not_recognition() {
+        let shared = Arc::new(Shared::new(59));
+        let (cmd, mut cmd_rx) = RingBuffer::new(16);
+        let (synth, mut heard) = RingBuffer::new(64);
+        let out = Out::new(PacketSink::new(rt::Target::Virtual(0)), Some(synth));
+        let mut input = Input::new(shared.clone(), Recognizer::new(), cmd, out);
+        let mut sent = || std::iter::from_fn(|| heard.pop().ok()).collect::<Vec<_>>();
+
+        shared.key_shift.store(2, Relaxed);
+        for k in [48, 52, 55] {
+            input.key_msg(&[0x90, k, 100]);
+        }
+        input.key_msg(&[0x90, 72, 90]);
+        assert_eq!(sent(), vec![[0x91, 50, 100], [0x91, 54, 100], [0x91, 57, 100], [0x90, 74, 90]]);
+        let (c, _) = Chord::unpack(shared.chord.load(Relaxed)).expect("C E G recognized");
+        assert_eq!((c.root, c.ty), (0, 0), "fingered C major, not D");
+
+        // Split and transpose change while keys are down.
+        shared.key_shift.store(-3, Relaxed);
+        shared.split.store(80, Relaxed);
+        input.key_msg(&[0x80, 72, 0]);
+        for k in [48, 52] {
+            input.key_msg(&[0x90, k, 0]);
+        }
+        assert_eq!(sent(), vec![[0x80, 74, 0], [0x81, 50, 0], [0x81, 54, 0]]);
+        assert!(cmd_rx.pop().is_err(), "a chord key is still held");
+        input.key_msg(&[0x80, 55, 0]);
+        assert_eq!(sent(), vec![[0x81, 57, 0]]);
+        assert!(matches!(cmd_rx.pop(), Ok(Cmd::ChordReleased)));
+
+        // Same key again, now in the left zone with the new shift; a retrigger stops it first.
+        input.key_msg(&[0x90, 72, 80]);
+        input.key_msg(&[0x90, 72, 70]);
+        input.key_msg(&[0x80, 72, 0]);
+        assert_eq!(sent(), vec![[0x91, 69, 80], [0x81, 69, 0], [0x91, 69, 70], [0x81, 69, 0]]);
     }
 }
 
