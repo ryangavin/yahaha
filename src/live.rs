@@ -22,6 +22,7 @@ use std::sync::Arc;
 pub enum Cmd {
     Button(Button),
     ChordReleased,
+    PartVolume(u8, u8),
     Arm,
     Panic,
 }
@@ -39,6 +40,8 @@ pub struct Shared {
     /// Chord published by the input thread -> applied by the engine.
     pub chord_lat: Histogram,
     pub engine_rt: AtomicBool,
+    /// Last message from the Launchkey DAW port, packed 0x00SSDDVV (for the on-screen readout).
+    pub last_daw: AtomicU32,
     /// Time spent in engine.process / in the CoreMIDI send, per wake.
     pub flush_lat: Histogram,
     pub work_lat: Histogram,
@@ -57,6 +60,7 @@ impl Shared {
             input_lat: Histogram::new(),
             chord_lat: Histogram::new(),
             engine_rt: AtomicBool::new(false),
+            last_daw: AtomicU32::new(0),
             flush_lat: Histogram::new(),
             work_lat: Histogram::new(),
             spin_ns: AtomicU64::new(150_000),
@@ -120,6 +124,7 @@ pub struct Input {
     out: Out,
     running_status: [u8; 3],
     signal: bool,
+    synth: Option<Arc<crate::synth::SynthControl>>,
 }
 
 impl Input {
@@ -135,7 +140,12 @@ impl Input {
             out,
             running_status: [0; 3],
             signal: false,
+            synth: None,
         }
+    }
+
+    pub fn set_synth(&mut self, ctl: Option<Arc<crate::synth::SynthControl>>) {
+        self.synth = ctl;
     }
 
     fn recompute(&mut self) {
@@ -206,6 +216,35 @@ impl Input {
 
     fn pad_msg(&mut self, m: &[u8]) {
         let st = m[0] & 0xF0;
+        if m.len() == 3 {
+            self.shared.last_daw.store(u32::from_be_bytes([0, m[0], m[1], m[2]]), Relaxed);
+        }
+        if st == 0xB0 && m.len() == 3 {
+            let (cc, v) = (m[1], m[2]);
+            if launchkey::FADER_CC.contains(&cc) {
+                if cc == 13 {
+                    if let Some(s) = &self.synth {
+                        s.master.store(v, Relaxed);
+                    }
+                } else if self.cmd.push(Cmd::PartVolume(cc - 5, v)).is_ok() {
+                    self.signal = true;
+                }
+                return;
+            }
+            if launchkey::FADER_BTN_CC.contains(&cc) {
+                if v > 0 {
+                    if let Some(s) = &self.synth {
+                        if cc == 45 {
+                            let l = !s.layer_mode.load(Relaxed);
+                            s.layer_mode.store(l, Relaxed);
+                        } else {
+                            s.press_slot(cc - 37);
+                        }
+                    }
+                }
+                return;
+            }
+        }
         let b = match (st, m.len()) {
             (0x90, 3) if m[2] > 0 && m[0] & 0x0F == 0 => launchkey::pad_button(m[1]),
             (0xB0, 3) if m[2] > 0 => launchkey::cc_button(m[1]),
@@ -344,6 +383,7 @@ fn apply(engine: &mut Engine, cmd: Cmd, now: u64, out: &mut Out) {
         Cmd::Button(b) => engine.button(b, now, out),
         Cmd::ChordReleased => engine.chord_released(now, out),
         Cmd::Arm => engine.arm(out),
+        Cmd::PartVolume(p, v) => engine.set_gain(p, v, out),
         Cmd::Panic => {
             engine.stop(out);
             for ch in 0..16u8 {

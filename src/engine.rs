@@ -203,6 +203,7 @@ pub enum Button {
     TogglePart(u8),
 }
 
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Snapshot {
     pub running: bool,
@@ -218,6 +219,8 @@ pub struct Snapshot {
     pub chord: Option<Chord>,
     pub bpm: f64,
     pub parts: u8,
+    /// Mixer fader per part (0..=127), applied on top of the style's own volume.
+    pub gains: [u8; 8],
 }
 
 #[derive(Clone, Copy)]
@@ -263,6 +266,9 @@ pub struct Engine {
     anchor_tick: f64,
     ns_per_tick: f64,
     parts: u8,
+    gains: [u8; 8],
+    /// Last volume (CC7) the style itself set on each part.
+    style_vol: [u8; 8],
     taps: [u64; 4],
     tap_n: usize,
     sounding: [Sounding; MAX_SOUNDING],
@@ -289,6 +295,8 @@ impl Engine {
             anchor_tick: 0.0,
             ns_per_tick: 0.0,
             parts: 0xFF,
+            gains: [127; 8],
+            style_vol: [100; 8],
             taps: [0; 4],
             tap_n: 0,
             sounding: [EMPTY; MAX_SOUNDING],
@@ -318,10 +326,35 @@ impl Engine {
         old
     }
 
-    pub fn send_init(&self, sink: &mut impl Sink) {
-        for (m, &l) in self.style.init.iter().zip(&self.style.init_len) {
-            sink.send(&m[..l as usize]);
+    pub fn send_init(&mut self, sink: &mut impl Sink) {
+        for i in 0..self.style.init.len() {
+            let (m, l) = (self.style.init[i], self.style.init_len[i] as usize);
+            if l == 3 && m[0] & 0xF0 == 0xB0 && m[1] == 7 {
+                self.volume(m[0] & 0x0F, m[2], sink);
+            } else {
+                sink.send(&m[..l]);
+            }
         }
+    }
+
+    /// Style volume for a channel, scaled by that part's fader.
+    fn volume(&mut self, ch: u8, style_val: u8, sink: &mut impl Sink) {
+        if (8..16).contains(&ch) {
+            let p = (ch - 8) as usize;
+            self.style_vol[p] = style_val;
+            let v = (style_val as u32 * self.gains[p] as u32 / 127) as u8;
+            sink.send(&[0xB0 | ch, 7, v]);
+        } else {
+            sink.send(&[0xB0 | ch, 7, style_val]);
+        }
+    }
+
+    /// Mixer fader moved for a part (0..8).
+    pub fn set_gain(&mut self, part: u8, value: u8, sink: &mut impl Sink) {
+        let p = (part & 7) as usize;
+        self.gains[p] = value.min(127);
+        let sv = self.style_vol[p];
+        self.volume(8 + p as u8, sv, sink);
     }
 
     // ----- time -----
@@ -376,6 +409,7 @@ impl Engine {
             chord: self.chord,
             bpm: self.bpm,
             parts: self.parts,
+            gains: self.gains,
         }
     }
 
@@ -724,7 +758,11 @@ impl Engine {
             }
             PKind::Cc { cc, val } => {
                 self.ev_idx += 1;
-                sink.send(&[0xB0 | dest, cc, val]);
+                if cc == 7 {
+                    self.volume(dest, val, sink);
+                } else {
+                    sink.send(&[0xB0 | dest, cc, val]);
+                }
             }
             PKind::Pc { prog } => {
                 self.ev_idx += 1;
@@ -758,6 +796,13 @@ impl Engine {
 
     fn all_off(&mut self, sink: &mut impl Sink) {
         self.off_where(sink, |_| true);
+        // Patterns bend (bass slides etc.); leaving a section or style mid-bend would
+        // leave the part detuned. Re-centre bends and clear wheels/pedal on every part.
+        for ch in 8..16u8 {
+            sink.send(&[0xE0 | ch, 0x00, 0x40]);
+            sink.send(&[0xB0 | ch, 1, 0]);
+            sink.send(&[0xB0 | ch, 64, 0]);
+        }
     }
 
     /// Re-pitch sounding notes after a chord change according to each part's retrigger rule.

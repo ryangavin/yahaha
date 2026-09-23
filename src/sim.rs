@@ -77,6 +77,27 @@ mod tests {
         v
     }
 
+    /// Faders scale the style's own part volume instead of replacing it.
+    #[test]
+    fn fader_scales_style_volume() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus/MOX_v2/FunkyFinger.S930.STY");
+        if !path.exists() {
+            return;
+        }
+        let prep = Box::new(Prepared::new(&Style::load(&path).unwrap()));
+        let mut e = Engine::new(prep);
+        let mut rec = Recorder::default();
+        e.send_init(&mut rec);
+        let style_bass = rec.out.iter().rev().find(|(_, m)| m[0] == 0xBA && m[1] == 7).map(|(_, m)| m[2]).unwrap_or(100);
+        rec.out.clear();
+        e.set_gain(2, 64, &mut rec); // part 3 = Bass (ch 11)
+        assert_eq!(rec.out.last().unwrap().1, vec![0xBA, 7, (style_bass as u32 * 64 / 127) as u8]);
+        rec.out.clear();
+        e.send_init(&mut rec); // a later style volume message is still scaled
+        let v = rec.out.iter().rev().find(|(_, m)| m[0] == 0xBA && m[1] == 7).unwrap().1[2];
+        assert_eq!(v, (style_bass as u32 * 64 / 127) as u8);
+    }
+
     /// Every style: play through intro, mains, fills, break, chord changes and ending.
     /// Afterwards the engine must be stopped with no sounding notes, and every note-on
     /// must have a matching note-off.
@@ -118,6 +139,46 @@ mod tests {
             for ((ch, key), n) in on {
                 assert_eq!(n, 0, "{name}: ch{} key {key} unbalanced by {n}", ch + 1);
             }
+            // No part may be left bent after it stops.
+            for ch in 8..16u8 {
+                if let Some((_, m)) = rec.out.iter().rev().find(|(_, m)| m[0] == 0xE0 | ch) {
+                    assert_eq!((m[1], m[2]), (0, 0x40), "{name}: ch{} left bent", ch + 1);
+                }
+            }
         }
+    }
+}
+
+#[cfg(test)]
+mod style_switch {
+    use super::*;
+    use crate::sff::Style;
+
+    /// Switching style mid-bend must re-centre the bend (TenorToTheMAX bends Chord 2 constantly).
+    #[test]
+    fn style_change_recentres_bends() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus/MOX_v2");
+        let (a, b) = (dir.join("TenorToTheMAX.S930.STY"), dir.join("FunkyFinger.S930.STY"));
+        if !a.exists() || !b.exists() {
+            return;
+        }
+        let pa = Box::new(Prepared::new(&Style::load(&a).unwrap()));
+        let pb = Box::new(Prepared::new(&Style::load(&b).unwrap()));
+        let bar = (60e9 / pa.bpm * (pa.tpb as f64 / pa.ppq as f64)) as u64;
+        // Stop right after the first bend away from centre.
+        let (_, full) = run(pa, &[(0, Step::Chord(Chord::new(0, 0)))], bar * 8);
+        let (t_bend, status) = full
+            .out
+            .iter()
+            .find(|(_, m)| m[0] & 0xF0 == 0xE0 && (m[1], m[2]) != (0, 0x40))
+            .map(|(t, m)| (*t, m[0]))
+            .expect("expected the style to bend a part");
+        let pa = Box::new(Prepared::new(&Style::load(&a).unwrap()));
+        let (mut e, mut rec) = run(pa, &[(0, Step::Chord(Chord::new(0, 0)))], t_bend);
+        rec.out.clear();
+        rec.now = t_bend + 1;
+        let _old = e.load(pb, t_bend + 1, &mut rec);
+        let last = rec.out.iter().rev().find(|(_, m)| m[0] == status).map(|(_, m)| (m[1], m[2]));
+        assert_eq!(last, Some((0, 0x40)));
     }
 }

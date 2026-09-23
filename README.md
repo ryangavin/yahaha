@@ -25,7 +25,9 @@ On launch:
 Play a chord left of **F#2** (Yamaha numbering, C3 = middle C) and the band starts.
 
 The built-in synth uses the first `.sf2` file in `soundfonts/` (GeneralUser GS, downloaded separately; it's not in git). It plays on your default audio output with a 64-frame buffer (about 1.3 ms at 48 kHz).
-- Your right hand plays a piano by default. Change its voice with `9` and `0`.
+- **Voices:** your right hand plays one of eight voice slots (Piano, E.Piano, Organ, Strings, Brass, Pad, Guitar, Synth Lead). Pick a slot with the Launchkey buttons under faders 1–8, or `F1`–`F8`. Change the voice in the last-picked slot with `9`/`0`.
+- **Layering:** turn on layer mode with the button under the master fader, or `F9`. Tapping a slot then adds it to or removes it from the layer, so you can play Piano + Strings together.
+- **Mixer:** faders 1–8 set the volume of the band's eight parts, and the master fader sets the synth volume. A fader scales the style's own level for its part, so section changes keep your mix. Part volume also goes out on the `yahaha` port as CC 7.
 - `l` makes your left-hand chord notes sound too.
 - `k` mutes the synth, for example when you're using Ableton sounds instead.
 - The synth plays on outputs 11/12 when the audio device is a TASCAM Model 16, and on 1/2 otherwise. `a` steps through the output pairs while playing, and `--audio-out 11` sets the pair at launch.

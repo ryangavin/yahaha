@@ -33,6 +33,20 @@ pub fn pad_button(note: u8) -> Option<Button> {
     })
 }
 
+/// Faders (DAW mode, Volume): CC 5..=12 are faders 1-8, CC 13 is the master fader.
+pub const FADER_CC: std::ops::RangeInclusive<u8> = 5..=13;
+/// Buttons under the faders: CC 37..=44 under faders 1-8, CC 45 under the master fader.
+pub const FADER_BTN_CC: std::ops::RangeInclusive<u8> = 37..=45;
+
+/// Palette colours for the fader buttons: voice slots and layer mode.
+pub fn fader_button_msgs(active: u8, layer_mode: bool, out: &mut Vec<[u8; 3]>) {
+    for i in 0..8u8 {
+        let c = if active & (1 << i) != 0 { 45 } else { 47 }; // blue / dim blue
+        out.push([0xB0, 37 + i, c]);
+    }
+    out.push([0xB0, 45, if layer_mode { 9 } else { 11 }]); // orange / dim orange
+}
+
 pub fn cc_button(cc: u8) -> Option<Button> {
     Some(match cc {
         115 => Button::StartStop,

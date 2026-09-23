@@ -23,12 +23,25 @@ pub struct SynthInfo {
     pub channels: usize,
 }
 
-/// Knobs the UI can turn without talking to the audio thread through a ring.
+pub const SLOTS: usize = 8;
+/// Default voice slots (GM programs): Piano, E.Piano, Organ, Strings, Brass, Pad, Guitar, Lead.
+pub const DEFAULT_SLOTS: [u8; SLOTS] = [0, 4, 16, 48, 61, 89, 27, 81];
+
+/// Knobs the UI and input thread can turn without a ring: plain atomics.
+///
+/// Your playing (MIDI ch 1) sounds on eight voice slots, synth channels 1-8; `active` is the
+/// set of slots currently layered. The band uses synth channels 9-16.
 pub struct SynthControl {
-    /// Program for the right-hand part (channel 1).
-    pub rh_program: AtomicU8,
-    pub rh_changed: AtomicBool,
-    /// Whether the left-hand (chord zone) notes sound.
+    pub slots: [AtomicU8; SLOTS],
+    /// Bitmask of layered slots.
+    pub active: AtomicU8,
+    /// Slot that 9/0 re-voice.
+    pub focus: AtomicU8,
+    /// Tapping a slot toggles it in/out of the layer instead of selecting it alone.
+    pub layer_mode: AtomicBool,
+    pub slots_changed: AtomicBool,
+    pub master: AtomicU8,
+    /// Whether the left-hand (chord zone) notes sound (on the first layered voice).
     pub lh_sound: AtomicBool,
     pub muted: AtomicBool,
     /// First (left) output channel of the stereo pair, 0-based.
@@ -46,6 +59,50 @@ pub struct Feeds {
     pub engine: Option<Producer<Msg>>,
     pub input: Option<Producer<Msg>>,
     pub consumers: Vec<Consumer<Msg>>,
+}
+
+impl SynthControl {
+    pub fn new(out_ch: u8) -> SynthControl {
+        SynthControl {
+            slots: DEFAULT_SLOTS.map(AtomicU8::new),
+            active: AtomicU8::new(1),
+            focus: AtomicU8::new(0),
+            layer_mode: AtomicBool::new(false),
+            slots_changed: AtomicBool::new(true),
+            master: AtomicU8::new(100),
+            lh_sound: AtomicBool::new(false),
+            muted: AtomicBool::new(false),
+            out_ch: AtomicU8::new(out_ch),
+        }
+    }
+
+    /// A voice-slot button was pressed.
+    pub fn press_slot(&self, i: u8) {
+        let bit = 1u8 << (i & 7);
+        if self.layer_mode.load(Relaxed) {
+            let a = self.active.load(Relaxed) ^ bit;
+            self.active.store(if a == 0 { bit } else { a }, Relaxed);
+        } else {
+            self.active.store(bit, Relaxed);
+        }
+        self.focus.store(i & 7, Relaxed);
+    }
+
+    /// Re-voice the focused slot by `delta` programs.
+    pub fn step_focus_program(&self, delta: i32) {
+        let f = self.focus.load(Relaxed) as usize;
+        let p = (self.slots[f].load(Relaxed) as i32 + delta).rem_euclid(128) as u8;
+        self.slots[f].store(p, Relaxed);
+        self.slots_changed.store(true, Relaxed);
+    }
+}
+
+/// Per-note record of which synth channels a player note went to, so note-offs reach
+/// the same voices even if the layer changed while the key was held.
+struct Player {
+    rh: [u8; 128],
+    lh: [u8; 128],
+    master: u8,
 }
 
 pub fn feeds() -> Feeds {
@@ -67,10 +124,44 @@ pub fn gm_fallback(dest: u8, msb: u8, prog: u8) -> u8 {
     }
 }
 
-fn apply(synth: &mut Synthesizer, m: &Msg, control: &SynthControl, bank: &mut [u8; 16]) {
+fn apply(synth: &mut Synthesizer, m: &Msg, ctl: &SynthControl, bank: &mut [u8; 16], pl: &mut Player) {
     let ch = (m[0] & 0x0F) as i32;
     let st = (m[0] & 0xF0) as i32;
-    if ch == 1 && (st == 0x90 || st == 0x80) && !control.lh_sound.load(Relaxed) {
+    let (k, v) = (m[1] as usize & 127, m[2] as i32);
+    // Your playing: fan out to the layered voice slots (synth channels 0..8).
+    if ch <= 1 {
+        let on = st == 0x90 && v > 0;
+        let off = st == 0x80 || (st == 0x90 && v == 0);
+        let active = ctl.active.load(Relaxed);
+        if ch == 0 {
+            if on {
+                pl.rh[k] |= active;
+                for c in 0..SLOTS as i32 {
+                    if active & (1 << c) != 0 {
+                        synth.note_on(c, k as i32, v);
+                    }
+                }
+            } else if off {
+                for c in 0..SLOTS as i32 {
+                    if pl.rh[k] & (1 << c) != 0 {
+                        synth.note_off(c, k as i32);
+                    }
+                }
+                pl.rh[k] = 0;
+            } else {
+                // Pedal, wheels, pressure: every slot, so releases always land.
+                for c in 0..SLOTS as i32 {
+                    synth.process_midi_message(c, st, m[1] as i32, v);
+                }
+            }
+        } else if on && ctl.lh_sound.load(Relaxed) {
+            let c = active.trailing_zeros() as i32;
+            pl.lh[k] = 1 << c;
+            synth.note_on(c, k as i32, v);
+        } else if off && pl.lh[k] != 0 {
+            synth.note_off(pl.lh[k].trailing_zeros() as i32, k as i32);
+            pl.lh[k] = 0;
+        }
         return;
     }
     match st {
@@ -86,12 +177,10 @@ fn apply(synth: &mut Synthesizer, m: &Msg, control: &SynthControl, bank: &mut [u
             let p = gm_fallback(ch as u8, bank[ch as usize], m[1]);
             synth.process_midi_message(ch, 0xC0, p as i32, 0);
         }
-        _ => synth.process_midi_message(ch, st, m[1] as i32, m[2] as i32),
+        _ => synth.process_midi_message(ch, st, m[1] as i32, v),
     }
 }
 
-/// `out_pair`: 1-based left output channel (e.g. 11 for outputs 11/12); None = auto
-/// (11/12 on a TASCAM Model 16, else 1/2).
 pub fn start(sf2: &Path, consumers: Vec<Consumer<Msg>>, out_pair: Option<u8>) -> Result<Synth> {
     let mut file = std::fs::File::open(sf2).with_context(|| format!("opening {}", sf2.display()))?;
     let font = Arc::new(SoundFont::new(&mut file).map_err(|e| anyhow!("{e:?}"))?);
@@ -122,26 +211,28 @@ pub fn start(sf2: &Path, consumers: Vec<Consumer<Msg>>, out_pair: Option<u8>) ->
     synth.set_master_volume(0.6);
     synth.process_midi_message(8, 0xB0, 0, 128);
 
-    let control = Arc::new(SynthControl {
-        rh_program: AtomicU8::new(0),
-        rh_changed: AtomicBool::new(true),
-        lh_sound: AtomicBool::new(false),
-        muted: AtomicBool::new(false),
-        out_ch: AtomicU8::new(first),
-    });
+    let control = Arc::new(SynthControl::new(first));
     let ctl = control.clone();
     let mut consumers = consumers;
     let mut bank = [0u8; 16];
+    let mut player = Player { rh: [0; 128], lh: [0; 128], master: 255 };
     let mut left = vec![0f32; 8192];
     let mut right = vec![0f32; 8192];
 
     let callback = move |out: &mut [f32], _: &cpal::OutputCallbackInfo| {
-        if ctl.rh_changed.swap(false, Relaxed) {
-            synth.process_midi_message(0, 0xC0, ctl.rh_program.load(Relaxed) as i32, 0);
+        if ctl.slots_changed.swap(false, Relaxed) {
+            for c in 0..SLOTS {
+                synth.process_midi_message(c as i32, 0xC0, ctl.slots[c].load(Relaxed) as i32, 0);
+            }
+        }
+        let master = ctl.master.load(Relaxed);
+        if master != player.master {
+            player.master = master;
+            synth.set_master_volume(0.8 * master as f32 / 127.0);
         }
         for c in consumers.iter_mut() {
             while let Ok(m) = c.pop() {
-                apply(&mut synth, &m, &ctl, &mut bank);
+                apply(&mut synth, &m, &ctl, &mut bank, &mut player);
             }
         }
         let frames = (out.len() / channels).min(left.len());
@@ -205,18 +296,13 @@ mod tests {
         // Fill In AA (uses Rhythm 1 on ch 9) during bar 2.
         script.insert(2, (bar + bar / 8, Step::Button(crate::engine::Button::Main(0))));
         let (_, rec) = run(prep, &script, 4 * bar);
-        let ctl = SynthControl {
-            rh_program: AtomicU8::new(0),
-            rh_changed: AtomicBool::new(false),
-            lh_sound: AtomicBool::new(false),
-            muted: AtomicBool::new(false),
-            out_ch: AtomicU8::new(0),
-        };
+        let ctl = SynthControl::new(0);
         let sr = 48_000;
         let mut rms_by_part = Vec::new();
         for part in 8..16u8 {
             let mut synth = Synthesizer::new(&font, &SynthesizerSettings::new(sr)).unwrap();
             let mut bank = [0u8; 16];
+            let mut pl = Player { rh: [0; 128], lh: [0; 128], master: 0 };
             synth.process_midi_message(8, 0xB0, 0, 128);
             let (mut l, mut r) = (vec![0f32; 64], vec![0f32; 64]);
             let mut t_samples = 0u64;
@@ -233,7 +319,7 @@ mod tests {
                     if !is_note || m[0] & 0x0F == part {
                         let mut a = [0u8; 3];
                         a[..m.len().min(3)].copy_from_slice(&m[..m.len().min(3)]);
-                        apply(&mut synth, &a, &ctl, &mut bank);
+                        apply(&mut synth, &a, &ctl, &mut bank, &mut pl);
                     }
                     i += 1;
                 }
@@ -253,5 +339,50 @@ mod tests {
                 assert!(*rms > 0.001, "ch {ch} played {notes} notes but rendered silence");
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod layer_tests {
+    use super::*;
+
+    #[test]
+    fn slot_selection_and_layering() {
+        let c = SynthControl::new(0);
+        c.press_slot(3);
+        assert_eq!(c.active.load(Relaxed), 0b1000);
+        c.layer_mode.store(true, Relaxed);
+        c.press_slot(0);
+        assert_eq!(c.active.load(Relaxed), 0b1001);
+        c.press_slot(3);
+        assert_eq!(c.active.load(Relaxed), 0b0001);
+        c.press_slot(0); // can't remove the last voice
+        assert_eq!(c.active.load(Relaxed), 0b0001);
+        c.layer_mode.store(false, Relaxed);
+        c.press_slot(5);
+        assert_eq!(c.active.load(Relaxed), 0b100000);
+    }
+
+    /// A note held while the layer changes must still be released on the voices it started on.
+    #[test]
+    fn note_off_follows_note_on_voices() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        let sf2 = root.join("soundfonts/GeneralUser-GS.sf2");
+        if !sf2.exists() {
+            return;
+        }
+        let font = Arc::new(SoundFont::new(&mut std::fs::File::open(&sf2).unwrap()).unwrap());
+        let mut synth = Synthesizer::new(&font, &SynthesizerSettings::new(48_000)).unwrap();
+        let ctl = SynthControl::new(0);
+        let mut bank = [0u8; 16];
+        let mut pl = Player { rh: [0; 128], lh: [0; 128], master: 0 };
+        ctl.layer_mode.store(true, Relaxed);
+        ctl.press_slot(3); // piano + strings
+        apply(&mut synth, &[0x90, 60, 100], &ctl, &mut bank, &mut pl);
+        assert_eq!(pl.rh[60], 0b1001);
+        ctl.layer_mode.store(false, Relaxed);
+        ctl.press_slot(5); // layer changed while held
+        apply(&mut synth, &[0x80, 60, 0], &ctl, &mut bank, &mut pl);
+        assert_eq!(pl.rh[60], 0);
     }
 }
