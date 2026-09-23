@@ -16,13 +16,14 @@
 //! Rows whose behaviour is not implemented yet are `#[ignore = "M1 #<ticket>"]`: run them with
 //! `cargo test --release -- --ignored recognizer_golden`, and un-ignore a row once it passes.
 
-use crate::theory::{Chord, Recognizer, CANCEL, NOTE_NAMES};
+use crate::theory::{Chord, Recognizer, CANCEL, FLAT5, M7B5, MM7B5, NOTE_NAMES};
 
 struct Row {
     /// Row number in the Data List table (DL p.45).
     n: u8,
     name: &'static str,
-    /// MIDI chord type (DL p.111); None for the rows with no code (M7b5, (b5), mM7b5).
+    /// Chord type: the MIDI code (DL p.111), or the display-only id for the rows with no
+    /// code (M7b5, (b5), mM7b5; see `theory::M7B5`).
     ct: Option<u8>,
     /// Semitones above the root, root first. 1+8 uses 12 for the octave.
     tones: &'static [u8],
@@ -41,12 +42,12 @@ const TABLE: [Row; 38] = [
     row(3,  "M",       Some(0),  &[0, 4, 7],            &[]),
     row(4,  "6",       Some(1),  &[0, 4, 7, 9],         &[4]),
     row(5,  "M7",      Some(2),  &[0, 4, 7, 11],        &[7]),
-    row(6,  "M7b5",    None,     &[0, 4, 6, 11],        &[]),
+    row(6,  "M7b5",    Some(M7B5),   &[0, 4, 6, 11],        &[]),
     row(7,  "M7(#11)", Some(3),  &[0, 2, 4, 6, 7, 11],  &[2]),
     row(8,  "(9)",     Some(4),  &[0, 2, 4, 7],         &[]),
     row(9,  "M7_9",    Some(5),  &[0, 2, 4, 7, 11],     &[7]),
     row(10, "6_9",     Some(6),  &[0, 2, 4, 7, 9],      &[7]),
-    row(11, "(b5)",    None,     &[0, 4, 6],            &[]),
+    row(11, "(b5)",    Some(FLAT5),   &[0, 4, 6],            &[]),
     row(12, "aug",     Some(7),  &[0, 4, 8],            &[]),
     row(13, "7aug",    Some(29), &[0, 4, 8, 10],        &[]),
     row(14, "M7aug",   Some(28), &[0, 4, 8, 11],        &[4]),
@@ -57,7 +58,7 @@ const TABLE: [Row; 38] = [
     row(19, "m(9)",    Some(12), &[0, 2, 3, 7],         &[]),
     row(20, "m7(9)",   Some(13), &[0, 2, 3, 7, 10],     &[7]),
     row(21, "m7(11)",  Some(14), &[0, 2, 3, 5, 7, 10],  &[2, 10]),
-    row(22, "mM7b5",   None,     &[0, 3, 6, 11],        &[]),
+    row(22, "mM7b5",   Some(MM7B5),   &[0, 3, 6, 11],        &[]),
     row(23, "mM7",     Some(15), &[0, 3, 7, 11],        &[7]),
     row(24, "mM7(9)",  Some(16), &[0, 2, 3, 7, 11],     &[7]),
     row(25, "dim",     Some(17), &[0, 3, 6],            &[]),
@@ -111,12 +112,12 @@ impl Case {
     }
 }
 
-/// The recognizer's input for a set of held notes. #2/#3 may widen this (1+8 needs the note
-/// count, not just the pitch-class mask); every golden test goes through here.
+/// The recognizer's input for a set of held notes: the pitch-class mask, the lowest note and
+/// the key count (1+8 needs it), in Fingered On Bass. Every golden test goes through here.
 fn recognize(r: &Recognizer, notes: &[u8]) -> Option<Chord> {
     let mask = notes.iter().fold(0u16, |m, n| m | 1 << (n % 12));
     let low = *notes.iter().min()? % 12;
-    r.recognize(mask, low)
+    r.recognize_keys(mask, low, notes.len() as u32, true)
 }
 
 /// Every root x omission subset x inversion of a row. Voicings are close position from
@@ -206,8 +207,7 @@ fn check_row(n: u8) {
         let ok = match (row.ct, got) {
             (Some(CANCEL), Some(g)) => g.ty == CANCEL,
             (Some(_), Some(g)) => g == want,
-            // No MIDI code yet: whatever comes back is a different row (C E F# B read as
-            // Cmaj7#11 names a G that is not played). #2 decides the type and fills in `ct`.
+            // A row with no type (none today; every row has a MIDI code or a display id).
             (None, _) | (_, None) => false,
         };
         if !ok {
@@ -215,7 +215,7 @@ fn check_row(n: u8) {
                 want.name()
             } else {
                 let bass = want.bass.map_or(String::new(), |b| format!("/{}", NOTE_NAMES[b as usize]));
-                format!("{}{}{bass} (type per #2)", NOTE_NAMES[want.root as usize], row.name)
+                format!("{}{}{bass} (no type)", NOTE_NAMES[want.root as usize], row.name)
             };
             let got = got.map_or("nothing".to_string(), |g| g.name());
             fails.push(format!("  {}  want {want}, got {got}", c.describe()));
@@ -231,9 +231,9 @@ fn check_row(n: u8) {
     );
 }
 
-/// Rows marked `#[ignore = "M1 #2"]` below. `octave_doublings_keep_the_chord` holds every
-/// other row to the table; remove a row here when its `ignore` goes.
-const PENDING: &[u8] = &[1, 4, 6, 7, 11, 14, 21, 22, 30];
+/// Rows marked `#[ignore = "M1 #<ticket>"]` below. `octave_doublings_keep_the_chord` holds
+/// every other row to the table; remove a row here when its `ignore` goes.
+const PENDING: &[u8] = &[];
 
 macro_rules! rows {
     ($($(#[$m:meta])* $name:ident = $n:expr;)*) => {
@@ -242,28 +242,28 @@ macro_rules! rows {
 }
 
 rows! {
-    #[ignore = "M1 #2"] row_01_one_plus_eight = 1;
+    row_01_one_plus_eight = 1;
     row_02_one_plus_five = 2;
     row_03_major = 3;
-    #[ignore = "M1 #2"] row_04_sixth = 4;
+    row_04_sixth = 4;
     row_05_major_seventh = 5;
-    #[ignore = "M1 #2"] row_06_major_seventh_flat_five = 6;
-    #[ignore = "M1 #2"] row_07_major_seventh_sharp_eleven = 7;
+    row_06_major_seventh_flat_five = 6;
+    row_07_major_seventh_sharp_eleven = 7;
     row_08_add_nine = 8;
     row_09_major_seventh_nine = 9;
     row_10_six_nine = 10;
-    #[ignore = "M1 #2"] row_11_flat_five = 11;
+    row_11_flat_five = 11;
     row_12_augmented = 12;
     row_13_seventh_augmented = 13;
-    #[ignore = "M1 #2"] row_14_major_seventh_augmented = 14;
+    row_14_major_seventh_augmented = 14;
     row_15_minor = 15;
     row_16_minor_sixth = 16;
     row_17_minor_seventh = 17;
     row_18_minor_seventh_flat_five = 18;
     row_19_minor_add_nine = 19;
     row_20_minor_seventh_nine = 20;
-    #[ignore = "M1 #2"] row_21_minor_seventh_eleven = 21;
-    #[ignore = "M1 #2"] row_22_minor_major_seventh_flat_five = 22;
+    row_21_minor_seventh_eleven = 21;
+    row_22_minor_major_seventh_flat_five = 22;
     row_23_minor_major_seventh = 23;
     row_24_minor_major_seventh_nine = 24;
     row_25_diminished = 25;
@@ -271,7 +271,7 @@ rows! {
     row_27_seventh = 27;
     row_28_seventh_sus_four = 28;
     row_29_seventh_nine = 29;
-    #[ignore = "M1 #2"] row_30_seventh_sharp_eleven = 30;
+    row_30_seventh_sharp_eleven = 30;
     row_31_seventh_thirteen = 31;
     row_32_seventh_flat_five = 32;
     row_33_seventh_flat_nine = 33;
@@ -324,7 +324,6 @@ fn octave_doublings_keep_the_chord() {
 /// two-key interval other than 1+5 and 1+8, a cluster, or Cancel with an extra key is no
 /// chord.
 #[test]
-#[ignore = "M1 #2"]
 fn off_table_inputs() {
     let r = Recognizer::new();
     let mut inputs: Vec<(String, Vec<u8>)> = Vec::new();
@@ -394,7 +393,7 @@ fn table_is_consistent() {
     }
     let mut cts: Vec<u8> = TABLE.iter().filter_map(|r| r.ct).collect();
     cts.sort();
-    assert_eq!(cts, (0..=34).collect::<Vec<u8>>(), "every MIDI chord type appears exactly once");
+    assert_eq!(cts, (0..=37).collect::<Vec<u8>>(), "every chord type appears exactly once");
     // M7: 12 roots x (4 inversions with the 5th + 3 without).
     assert_eq!(cases(&TABLE[4]).len(), 12 * 7);
     let c = &cases(&TABLE[4])[1];
