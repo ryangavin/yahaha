@@ -3,7 +3,7 @@
 
 use crate::engine::{id_of, Button, Engine, Prepared, Snapshot, Transpose, NUM_SLOTS};
 use crate::fingering::Fingering;
-use crate::launchkey::{self, Led};
+use crate::launchkey::{self, Action, Led, Page, Panel};
 use crate::live::{self, Cmd, Input, Shared, TAG_KEYS, TAG_PADS};
 use crate::midi::{self, Client};
 use crate::rt::{PacketSink, Target};
@@ -54,6 +54,79 @@ fn sync_manual_bass(shared: &Shared, ui_tx: &mut rtrb::Producer<Cmd>, synth: Opt
     }
     if let Some(sy) = synth {
         sy.control.set_manual_bass(on);
+    }
+}
+
+/// Panel state for the Launchkey pages and the on-screen pad map.
+fn panel(shared: &Shared, info: &Loaded, synth: Option<&synth::SynthControl>) -> Panel {
+    Panel {
+        page: Page::from_u8(shared.page.load(Relaxed)),
+        fingering: Fingering::from_u8(shared.fingering.load(Relaxed)),
+        upper: shared.upper.load(Relaxed),
+        manual_bass: shared.manual_bass.load(Relaxed),
+        synth: synth.is_some(),
+        ots_count: info.ots.len().min(4) as u8,
+        ots_applied: synth.map_or(0, |c| c.ots_applied.load(Relaxed)),
+        ots_link: synth.is_some_and(|c| c.ots_link.load(Relaxed)),
+        left: synth.is_some_and(|c| c.lh_sound.load(Relaxed)),
+    }
+}
+
+/// Last unmapped Launchkey message, for the status line: "unmapped CC 103 = 127".
+fn unmapped_text(packed: u32) -> String {
+    let [valid, st, d1, d2] = packed.to_be_bytes();
+    if valid == 0 {
+        return String::new();
+    }
+    let kind = if st & 0xF0 == 0xB0 { "CC" } else { "note" };
+    let ch = if st & 0x0F != 0 { format!(" (ch {})", (st & 0x0F) + 1) } else { String::new() };
+    format!("unmapped {kind} {d1} = {d2}{ch}")
+}
+
+/// Keyboard shortcuts for the controls the Launchkey also reaches, so a key and its pad
+/// or button run the same code.
+fn key_action(code: KeyCode) -> Option<Action> {
+    let b = |b| Some(Action::Button(b));
+    match code {
+        KeyCode::Char(' ') => b(Button::StartStop),
+        KeyCode::Char('1') => b(Button::Main(0)),
+        KeyCode::Char('2') => b(Button::Main(1)),
+        KeyCode::Char('3') => b(Button::Main(2)),
+        KeyCode::Char('4') => b(Button::Main(3)),
+        KeyCode::Char('q') => b(Button::Intro(0)),
+        KeyCode::Char('w') => b(Button::Intro(1)),
+        KeyCode::Char('e') => b(Button::Intro(2)),
+        KeyCode::Char('i') => b(Button::Ending(0)),
+        KeyCode::Char('o') => b(Button::Ending(1)),
+        KeyCode::Char('p') => b(Button::Ending(2)),
+        KeyCode::Char('g') => b(Button::Break),
+        KeyCode::Char('y') => b(Button::SyncStart),
+        KeyCode::Char('u') => b(Button::AutoFill),
+        KeyCode::Char('j') => b(Button::SyncStop),
+        KeyCode::Char('t') => b(Button::TapTempo),
+        KeyCode::Char('=') | KeyCode::Char('+') => b(Button::TempoUp),
+        KeyCode::Char('-') => b(Button::TempoDown),
+        KeyCode::Char('h') => b(Button::StopAcmp),
+        KeyCode::Char(c) if "zxcvbnm,".contains(c) => b(Button::TogglePart("zxcvbnm,".find(c).unwrap() as u8)),
+        KeyCode::Char('[') => Some(Action::Split(-1)),
+        KeyCode::Char(']') => Some(Action::Split(1)),
+        KeyCode::Char('f') => Some(Action::NextFingering),
+        KeyCode::Char('d') => Some(Action::ToggleUpper),
+        KeyCode::Char('D') => Some(Action::ToggleManualBass),
+        // TRANSPOSE -/+: ; ' for Keyboard, : " (shifted) for Master, / resets both.
+        KeyCode::Char(';') => Some(Action::Transpose { keyboard: -1, master: 0 }),
+        KeyCode::Char('\'') => Some(Action::Transpose { keyboard: 1, master: 0 }),
+        KeyCode::Char(':') => Some(Action::Transpose { keyboard: 0, master: -1 }),
+        KeyCode::Char('"') => Some(Action::Transpose { keyboard: 0, master: 1 }),
+        KeyCode::Char('/') => Some(Action::TransposeReset),
+        KeyCode::Char(c) if "!@#$".contains(c) => Some(Action::Ots("!@#$".find(c).unwrap() as u8)),
+        KeyCode::F(10) => Some(Action::ToggleOtsLink),
+        KeyCode::Char('l') => Some(Action::ToggleLeft),
+        KeyCode::Char('(') => Some(Action::LeftVoice(-1)),
+        KeyCode::Char(')') => Some(Action::LeftVoice(1)),
+        KeyCode::Left => Some(Action::Style(-1)),
+        KeyCode::Right => Some(Action::Style(1)),
+        _ => None,
     }
 }
 
@@ -154,6 +227,9 @@ pub fn play(opts: Options) -> Result<()> {
         live::Out::new(PacketSink::new(Target::Virtual(out_src)), feeds.input),
     );
     input.set_synth(synth.as_ref().map(|s| s.control.clone()));
+    // Launchkey pads and buttons that run here, like their keyboard shortcuts.
+    let (act_tx, mut act_rx) = rtrb::RingBuffer::<Action>::new(64);
+    input.set_actions(act_tx);
     let port = client.input_port("yahaha in", input)?;
 
     let sources = midi::sources();
@@ -230,7 +306,7 @@ pub fn play(opts: Options) -> Result<()> {
     let mut last_leds: [(u8, Option<Led>); 16] = [(0, None); 16];
     let mut last_rgb: [Option<(u8, u8, u8)>; 16] = [None; 16];
     let mut last_fader_btns: Option<(u8, bool)> = None;
-    let mut last_side: Option<(bool, bool)> = None;
+    let mut last_nav: Option<Page> = None;
     let mut last_ots_key: Option<(usize, u8)> = None;
     let mut last_link = false;
     let mut led_buf = Vec::new();
@@ -260,9 +336,10 @@ pub fn play(opts: Options) -> Result<()> {
         let t = clock.elapsed().as_secs_f64();
         beats += (t - last_tick) * snap.map_or(120.0, |s| s.bpm) / 60.0;
         last_tick = t;
+        let pnl = panel(&shared, &info, synth.as_ref().map(|s| &*s.control));
         if let (Some(s), Some(out)) = (&snap, leds.as_mut()) {
             if opts.palette_leds {
-                for (i, (note, led)) in launchkey::pad_leds(s, &info.has).into_iter().enumerate() {
+                for (i, (note, led)) in launchkey::pad_leds(s, &info.has, &pnl).into_iter().enumerate() {
                     if last_leds[i] != (note, Some(led)) {
                         led_buf.clear();
                         launchkey::led_msgs(note, led, &mut led_buf);
@@ -273,7 +350,7 @@ pub fn play(opts: Options) -> Result<()> {
                     }
                 }
             } else {
-                for (i, (pad, look)) in launchkey::looks(s, &info.has).iter().enumerate() {
+                for (i, (pad, look)) in launchkey::looks(s, &info.has, &pnl).iter().enumerate() {
                     let rgb = launchkey::rgb_at(look, beats);
                     if last_rgb[i] != Some(rgb) {
                         out.push(&launchkey::rgb_sysex(*pad, rgb));
@@ -291,86 +368,49 @@ pub fn play(opts: Options) -> Result<()> {
                     }
                     last_fader_btns = Some(fb);
                 }
-                let side = (sy.control.lh_sound.load(Relaxed), sy.control.ots_link.load(Relaxed));
-                if last_side != Some(side) {
-                    led_buf.clear();
-                    launchkey::side_button_msgs(side.0, side.1, &mut led_buf);
-                    for m in &led_buf {
-                        out.push(m);
-                    }
-                    last_side = Some(side);
+            }
+            if last_nav != Some(pnl.page) {
+                led_buf.clear();
+                launchkey::nav_button_msgs(pnl.page, styles.len() > 1, &mut led_buf);
+                for m in &led_buf {
+                    out.push(m);
                 }
+                last_nav = Some(pnl.page);
             }
             out.flush();
         }
 
-        term.draw(|f| draw(f, &info, snap.as_ref(), &shared, &connected, idx, styles.len(), &message, beats, synth.as_ref().map(|s| (&s.info, &*s.control))))?;
+        term.draw(|f| draw(f, &info, snap.as_ref(), &shared, &pnl, &connected, idx, styles.len(), &message, beats, synth.as_ref().map(|s| (&s.info, &*s.control))))?;
 
+        let mut key_act = None;
         if event::poll(Duration::from_millis(16))? {
             if let Event::Key(k) = event::read()? {
                 if k.kind != KeyEventKind::Press {
                     continue;
                 }
                 let ctrl = k.modifiers.contains(KeyModifiers::CONTROL);
-                let b = match k.code {
+                match k.code {
                     KeyCode::Esc => return Ok(()),
                     KeyCode::Char('c') if ctrl => return Ok(()),
-                    KeyCode::Char(' ') => Some(Button::StartStop),
-                    KeyCode::Char('1') => Some(Button::Main(0)),
-                    KeyCode::Char('2') => Some(Button::Main(1)),
-                    KeyCode::Char('3') => Some(Button::Main(2)),
-                    KeyCode::Char('4') => Some(Button::Main(3)),
-                    KeyCode::Char('q') => Some(Button::Intro(0)),
-                    KeyCode::Char('w') => Some(Button::Intro(1)),
-                    KeyCode::Char('e') => Some(Button::Intro(2)),
-                    KeyCode::Char('i') => Some(Button::Ending(0)),
-                    KeyCode::Char('o') => Some(Button::Ending(1)),
-                    KeyCode::Char('p') => Some(Button::Ending(2)),
-                    KeyCode::Char('g') => Some(Button::Break),
-                    KeyCode::Char('y') => Some(Button::SyncStart),
-                    KeyCode::Char('u') => Some(Button::AutoFill),
-                    KeyCode::Char('j') => Some(Button::SyncStop),
-                    KeyCode::Char('t') => Some(Button::TapTempo),
-                    KeyCode::Char('=') | KeyCode::Char('+') => Some(Button::TempoUp),
-                    KeyCode::Char('-') => Some(Button::TempoDown),
-                    KeyCode::Char(c) if "zxcvbnm,".contains(c) => {
-                        Some(Button::TogglePart("zxcvbnm,".find(c).unwrap() as u8))
-                    }
-                    KeyCode::Char('[') => {
-                        let s = shared.split.load(Relaxed);
-                        shared.split.store(s.saturating_sub(1).max(24), Relaxed);
-                        None
-                    }
-                    KeyCode::Char(']') => {
-                        let s = shared.split.load(Relaxed);
-                        shared.split.store((s + 1).min(96), Relaxed);
-                        None
+                    KeyCode::Tab | KeyCode::BackTab => {
+                        let d = if k.code == KeyCode::Tab { 1 } else { -1 };
+                        shared.step_page(|p| p.cycle(d));
                     }
                     KeyCode::Char('9') | KeyCode::Char('0') => {
                         if let Some(sy) = &synth {
                             sy.control.step_focus_program(if k.code == KeyCode::Char('0') { 1 } else { -1 });
                         }
-                        None
                     }
                     KeyCode::F(n) if (1..=8).contains(&n) => {
                         if let Some(sy) = &synth {
                             sy.control.press_slot(n - 1);
                         }
-                        None
                     }
                     KeyCode::F(9) => {
                         if let Some(sy) = &synth {
                             let l = !sy.control.layer_mode.load(Relaxed);
                             sy.control.layer_mode.store(l, Relaxed);
                         }
-                        None
-                    }
-                    KeyCode::Char('l') => {
-                        if let Some(sy) = &synth {
-                            let v = !sy.control.lh_sound.load(Relaxed);
-                            sy.control.lh_sound.store(v, Relaxed);
-                        }
-                        None
                     }
                     KeyCode::Char('a') => {
                         // Next stereo output pair: 1/2 -> 3/4 -> ... -> back to 1/2.
@@ -379,106 +419,116 @@ pub fn play(opts: Options) -> Result<()> {
                             let c = sy.control.out_ch.load(Relaxed);
                             sy.control.out_ch.store(if c + 4 <= n { c + 2 } else { 0 }, Relaxed);
                         }
-                        None
                     }
                     KeyCode::Char('k') => {
                         if let Some(sy) = &synth {
                             let v = !sy.control.muted.load(Relaxed);
                             sy.control.muted.store(v, Relaxed);
                         }
-                        None
-                    }
-                    KeyCode::Char(c) if "!@#$".contains(c) => {
-                        let n = "!@#$".find(c).unwrap();
-                        if let (Some(sy), Some(o)) = (&synth, info.ots.get(n)) {
-                            sy.control.apply_ots(o, n as u8 + 1);
-                        }
-                        None
-                    }
-                    KeyCode::F(10) => {
-                        if let Some(sy) = &synth {
-                            let v = !sy.control.ots_link.load(Relaxed);
-                            sy.control.ots_link.store(v, Relaxed);
-                        }
-                        None
-                    }
-                    KeyCode::Char('(') | KeyCode::Char(')') => {
-                        if let Some(sy) = &synth {
-                            sy.control.step_left_program(if k.code == KeyCode::Char(')') { 1 } else { -1 });
-                        }
-                        None
-                    }
-                    // TRANSPOSE -/+: ; ' for Keyboard, : " (shifted) for Master, / resets both.
-                    KeyCode::Char(c) if ";':\"/".contains(c) => {
-                        let (kb, m) = (transpose.keyboard, transpose.master);
-                        let t = match c {
-                            ';' => Transpose::new(kb - 1, m),
-                            '\'' => Transpose::new(kb + 1, m),
-                            ':' => Transpose::new(kb, m - 1),
-                            '"' => Transpose::new(kb, m + 1),
-                            _ => Transpose::default(),
-                        };
-                        if set_transpose(t, &mut ch.ui_tx) {
-                            transpose = t;
-                        }
-                        None
-                    }
-                    KeyCode::Char('h') => Some(Button::StopAcmp),
-                    KeyCode::Char('f') => {
-                        let f = Fingering::from_u8(shared.fingering.load(Relaxed)).next();
-                        shared.fingering.store(f.to_u8(), Relaxed);
-                        shared.wake.signal();
-                        None
-                    }
-                    KeyCode::Char('d') => {
-                        let v = !shared.upper.load(Relaxed);
-                        shared.upper.store(v, Relaxed);
-                        // Selecting Upper turns Manual Bass on, its default there.
-                        if v {
-                            shared.manual_bass.store(true, Relaxed);
-                        }
-                        sync_manual_bass(&shared, &mut ch.ui_tx, synth.as_ref());
-                        None
-                    }
-                    KeyCode::Char('D') => {
-                        // Manual Bass is only available in Upper mode.
-                        if shared.upper.load(Relaxed) {
-                            let v = !shared.manual_bass.load(Relaxed);
-                            shared.manual_bass.store(v, Relaxed);
-                            sync_manual_bass(&shared, &mut ch.ui_tx, synth.as_ref());
-                        }
-                        None
                     }
                     KeyCode::Char('\\') => {
                         let _ = ch.ui_tx.push(Cmd::Panic);
                         shared.wake.signal();
-                        None
                     }
-                    KeyCode::Left | KeyCode::Right => {
-                        let n = styles.len();
-                        let next = if k.code == KeyCode::Right { (idx + 1) % n } else { (idx + n - 1) % n };
-                        match load(&styles[next]) {
-                            Ok((p, i)) => {
-                                if ch.style_tx.push(p).is_ok() {
-                                    idx = next;
-                                    info = i;
-                                    if let Some(sy) = &synth {
-                                        sy.control.set_bass_program(synth::style_bass_program(info.voices[10]));
-                                    }
-                                    message.clear();
-                                    shared.wake.signal();
-                                }
-                            }
-                            Err(e) => message = format!("{}: {e:#}", styles[next].display()),
-                        }
-                        None
-                    }
-                    _ => None,
-                };
-                if let Some(b) = b {
+                    code => key_act = key_action(code),
+                }
+            }
+        }
+
+        // Launchkey pad/button actions, then the key pressed: one path for both.
+        while let Some(a) = act_rx.pop().ok().or_else(|| key_act.take()) {
+            match a {
+                Action::Button(b) => {
                     let _ = ch.ui_tx.push(Cmd::Button(b));
                     shared.wake.signal();
                 }
+                Action::Fingering(f) => {
+                    shared.fingering.store(f.to_u8(), Relaxed);
+                    shared.wake.signal();
+                }
+                Action::NextFingering => {
+                    let f = Fingering::from_u8(shared.fingering.load(Relaxed)).next();
+                    shared.fingering.store(f.to_u8(), Relaxed);
+                    shared.wake.signal();
+                }
+                Action::ToggleUpper => {
+                    let v = !shared.upper.load(Relaxed);
+                    shared.upper.store(v, Relaxed);
+                    // Selecting Upper turns Manual Bass on, its default there.
+                    if v {
+                        shared.manual_bass.store(true, Relaxed);
+                    }
+                    sync_manual_bass(&shared, &mut ch.ui_tx, synth.as_ref());
+                }
+                Action::ToggleManualBass => {
+                    // Manual Bass is only available in Upper mode.
+                    if shared.upper.load(Relaxed) {
+                        let v = !shared.manual_bass.load(Relaxed);
+                        shared.manual_bass.store(v, Relaxed);
+                        sync_manual_bass(&shared, &mut ch.ui_tx, synth.as_ref());
+                    }
+                }
+                Action::Split(d) => {
+                    let s = shared.split.load(Relaxed) as i16 + d as i16;
+                    shared.split.store(s.clamp(24, 96) as u8, Relaxed);
+                }
+                Action::Transpose { keyboard, master } => {
+                    let t = Transpose::new(transpose.keyboard + keyboard, transpose.master + master);
+                    if set_transpose(t, &mut ch.ui_tx) {
+                        transpose = t;
+                    }
+                }
+                Action::TransposeReset => {
+                    if set_transpose(Transpose::default(), &mut ch.ui_tx) {
+                        transpose = Transpose::default();
+                    }
+                }
+                Action::Ots(n) => {
+                    if let (Some(sy), Some(o)) = (&synth, info.ots.get(n as usize)) {
+                        sy.control.apply_ots(o, n + 1);
+                    }
+                }
+                Action::ToggleOtsLink => {
+                    if let Some(sy) = &synth {
+                        let v = !sy.control.ots_link.load(Relaxed);
+                        sy.control.ots_link.store(v, Relaxed);
+                    }
+                }
+                Action::ToggleLeft => {
+                    if let Some(sy) = &synth {
+                        let v = !sy.control.lh_sound.load(Relaxed);
+                        sy.control.lh_sound.store(v, Relaxed);
+                    }
+                }
+                Action::LeftVoice(d) => {
+                    if let Some(sy) = &synth {
+                        sy.control.step_left_program(d as i32);
+                    }
+                }
+                // Same path playing or stopped: the engine swaps the style in. With one
+                // style there is nowhere to go, so nothing reloads.
+                Action::Style(d) if styles.len() > 1 => {
+                    let n = styles.len();
+                    let next = if d > 0 { (idx + 1) % n } else { (idx + n - 1) % n };
+                    match load(&styles[next]) {
+                        Ok((p, i)) => {
+                            if ch.style_tx.push(p).is_ok() {
+                                idx = next;
+                                info = i;
+                                if let Some(sy) = &synth {
+                                    sy.control.set_bass_program(synth::style_bass_program(info.voices[10]));
+                                    // No OTS of the new style is recalled yet (OTS Link
+                                    // recalls one on the next pass if it's on).
+                                    sy.control.ots_applied.store(0, Relaxed);
+                                }
+                                message.clear();
+                                shared.wake.signal();
+                            }
+                        }
+                        Err(e) => message = format!("{}: {e:#}", styles[next].display()),
+                    }
+                }
+                Action::Style(_) => {}
             }
         }
     })();
@@ -490,6 +540,11 @@ pub fn play(opts: Options) -> Result<()> {
     if let Some(out) = leds.as_mut() {
         for n in (96..104).chain(112..120) {
             out.push(&[0x90, n, 0]);
+        }
+        led_buf.clear();
+        launchkey::buttons_off_msgs(&mut led_buf);
+        for m in &led_buf {
+            out.push(m);
         }
         out.push(&launchkey::EXIT_DAW);
         out.flush();
@@ -540,6 +595,7 @@ fn draw(
     info: &Loaded,
     snap: Option<&Snapshot>,
     shared: &Shared,
+    panel: &Panel,
     connected: &[String],
     idx: usize,
     total: usize,
@@ -568,7 +624,7 @@ fn draw(
             Span::styled(" yahaha ", St::default().fg(Color::Black).bg(Color::Yellow).add_modifier(Modifier::BOLD)),
             Span::raw(format!("  {}  ", info.name)),
             Span::styled(format!("[{}]", info.format), dim),
-            Span::raw(format!("   {:.0} bpm   style {}/{}   ←/→ change style", bpm, idx + 1, total)),
+            Span::raw(format!("   {:.0} bpm   style {}/{}   ←/→ or Track ◀/▶ change style", bpm, idx + 1, total)),
         ])),
         rows[0],
     );
@@ -611,7 +667,7 @@ fn draw(
         pending_intro: None, main: 0, bar: 0, beat: 0, chord: None, bpm: 120.0, parts: 0xFF, gains: [127; 8], stop_acmp: false,
         transpose: Transpose::default(), played: None,
     };
-    let looks = launchkey::looks(s.as_ref().unwrap_or(&default_snap), &info.has);
+    let looks = launchkey::looks(s.as_ref().unwrap_or(&default_snap), &info.has, panel);
     let pad_lines = |row: &[(u8, launchkey::Look)]| -> [Line<'static>; 3] {
         let mut top = vec![Span::raw(" ")];
         let mut mid = vec![Span::raw(" ")];
@@ -642,7 +698,12 @@ fn draw(
         dim,
     )));
     f.render_widget(
-        Paragraph::new(pad_rows).block(Block::default().borders(Borders::ALL).title(" Launchkey pads (same colours as the hardware) ")),
+        Paragraph::new(pad_rows).block(Block::default().borders(Borders::ALL).title(format!(
+            " Launchkey pads · page {}/{} {} · Pad Bank ▲/▼ or Tab to switch (same colours as the hardware) ",
+            panel.page.to_u8() + 1,
+            Page::ALL.len(),
+            panel.page.name(),
+        ))),
         rows[2],
     );
 
@@ -777,11 +838,16 @@ fn draw(
 
     let mut help = vec![
         Line::from(Span::styled(
-            " space start/stop · 1-4 Main A-D (again = fill) · q w e intro · i o p ending · g break · t tap · -/= tempo · F1-F8 voice · F9 layer · ; ' kbd transpose · : \" master · / reset · \\ panic · esc quit",
+            " space start/stop · 1-4 Main A-D (again = fill) · q w e intro · i o p ending · g break · t tap · -/= tempo · F1-F8 voice · F9 layer · ; ' kbd transpose · : \" master · / reset · tab pad page · \\ panic · esc quit",
             dim,
         )),
         Line::from(Span::styled(
-            format!(" inputs: {}   ·   last Launchkey control msg: {:06X}", connected.join(", "), shared.last_daw.load(Relaxed)),
+            format!(
+                " inputs: {}   ·   last Launchkey control msg: {:06X}   {}",
+                connected.join(", "),
+                shared.last_daw.load(Relaxed),
+                unmapped_text(shared.last_unmapped.load(Relaxed)),
+            ),
             dim,
         )),
     ];
@@ -825,7 +891,7 @@ pub fn screen_html(style: &Path, out: &Path) -> Result<()> {
     }
     sc.ots_link.store(true, Relaxed);
     sc.master.store(110, Relaxed);
-    term.draw(|f| draw(f, &info, Some(&snap), &shared, &["Launchkey MK4 61 MIDI Out".into()], 0, 35, "", 0.25, Some((&si, &sc))))?;
+    term.draw(|f| draw(f, &info, Some(&snap), &shared, &panel(&shared, &info, Some(&sc)), &["Launchkey MK4 61 MIDI Out".into()], 0, 35, "", 0.25, Some((&si, &sc))))?;
     let buf = term.backend().buffer().clone();
     let col = |c: Color, dflt: &str| -> String {
         match c {
@@ -853,4 +919,43 @@ pub fn screen_html(style: &Path, out: &Path) -> Result<()> {
     html.push_str("</pre></body></html>");
     std::fs::write(out, html)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Every Launchkey control on pages 2 and 3, and the Track buttons, is a keyboard
+    /// shortcut's action (the fingering pads select directly what `f` steps through).
+    #[test]
+    fn launchkey_actions_are_keyboard_actions() {
+        let keys: Vec<Action> = (0u8..128)
+            .map(|c| KeyCode::Char(c as char))
+            .chain((1..=12).map(KeyCode::F))
+            .chain([KeyCode::Left, KeyCode::Right])
+            .filter_map(key_action)
+            .collect();
+        let pads = [96u8, 97, 98, 99, 100, 101, 102, 103, 112, 113, 114, 115, 116, 117, 118, 119];
+        for page in [Page::ChordSetup, Page::OtsParts] {
+            for a in pads.iter().filter_map(|&n| launchkey::pad_action(page, n)) {
+                if !matches!(a, Action::Fingering(_)) {
+                    assert!(keys.contains(&a), "{page:?}: {a:?} has no key");
+                }
+            }
+        }
+        for cc in [launchkey::TRACK_LEFT_CC, launchkey::TRACK_RIGHT_CC] {
+            let Some(launchkey::Control::Act(a)) = launchkey::cc_control(cc, false) else { panic!("track button") };
+            assert!(keys.contains(&a));
+        }
+        assert_eq!(key_action(KeyCode::Right), Some(Action::Style(1)));
+        assert_eq!(key_action(KeyCode::Char('f')), Some(Action::NextFingering));
+    }
+
+    #[test]
+    fn unmapped_readout() {
+        assert_eq!(unmapped_text(0), "");
+        assert_eq!(unmapped_text(0x01_B0_67_7F), "unmapped CC 103 = 127");
+        assert_eq!(unmapped_text(0x01_BF_55_41), "unmapped CC 85 = 65 (ch 16)");
+        assert_eq!(unmapped_text(0x01_99_24_5A), "unmapped note 36 = 90 (ch 10)");
+    }
 }

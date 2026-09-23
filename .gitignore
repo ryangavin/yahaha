@@ -1,5 +1,6 @@
 target/
-corpus/
-soundfonts/
+/corpus
+/soundfonts
 docs/manuals/
 tests/golden/local/
+/.claude/worktrees/
