@@ -468,14 +468,17 @@ impl Engine {
 
     /// Returns true if this chord should start playback (sync start).
     pub fn set_chord(&mut self, chord: Chord, now: u64, sink: &mut impl Sink) {
-        let first = self.chord.is_none();
+        let prev = self.chord;
         self.chord = Some(chord);
         if self.sync_armed && !self.running && chord.ty != CANCEL {
             self.start(now, sink);
             return;
         }
-        if self.running && !first {
-            self.revoice(chord, now, sink);
+        if self.running {
+            if prev.is_some() {
+                self.revoice(chord, now, sink);
+            }
+            self.catch_up(prev, chord, now, sink);
         }
         if !self.running && self.stop_acmp {
             self.sound_stop_acmp(chord, now, sink);
@@ -865,6 +868,65 @@ impl Engine {
             sink.send(&[0xE0 | ch, 0x00, 0x40]);
             sink.send(&[0xB0 | ch, 1, 0]);
             sink.send(&[0xB0 | ch, 64, 0]);
+        }
+    }
+
+    /// A chord that lands just after the beat (within `LATE_CHORD_NS`) also brings in
+    /// the parts the previous chord kept silent (no chord yet, Chord Cancel, or CASM
+    /// chord-mute routing). Their notes from that window were skipped, so `revoice` has
+    /// nothing to correct; start the ones the pattern still holds now.
+    fn catch_up(&mut self, prev: Option<Chord>, chord: Chord, now: u64, sink: &mut impl Sink) {
+        let Some(sec) = self.style.sections[self.cur].as_ref() else { return };
+        let lo = self.tick_at(now.saturating_sub(LATE_CHORD_NS)) - self.sec_start;
+        let end = self.ev_idx.min(sec.events.len());
+        let mut i = end;
+        while i > 0 && sec.events[i - 1].tick as f64 >= lo {
+            i -= 1;
+        }
+        // (src, src key, dest, out, vel)
+        let mut buf = [(0u8, 0u8, 0u8, 0u8, 0u8); 32];
+        let mut n_buf = 0;
+        while i < end {
+            let e = sec.events[i];
+            // Group simultaneous note-ons on this source channel, as `emit_at_index` does.
+            let mut keys = [0u8; 8];
+            let mut vels = [0u8; 8];
+            let mut n = 0;
+            let mut j = i;
+            while let Some(g) = sec.events[..end].get(j) {
+                match g.kind {
+                    PKind::On { key, vel } if g.tick == e.tick && g.src == e.src && n < 8 => {
+                        keys[n] = key;
+                        vels[n] = vel;
+                        n += 1;
+                        j += 1;
+                    }
+                    _ => break,
+                }
+            }
+            i = j.max(i + 1);
+            let Some(rule) = sec.rules[e.src as usize].as_ref() else { continue };
+            let part_on = self.parts & (1 << (rule.dest_ch.saturating_sub(8) & 7)) != 0;
+            let was = effective_chord(prev, rule).filter(|&c| plays(rule, c));
+            let Some(now_chord) = effective_chord(Some(chord), rule).filter(|&c| plays(rule, c)) else { continue };
+            if n == 0 || !part_on || was.is_some() {
+                continue;
+            }
+            let mut outs = [None; 8];
+            transpose_group(&keys[..n], rule, now_chord, &mut outs[..n]);
+            for k in 0..n {
+                let released = sec.events[j..end]
+                    .iter()
+                    .any(|o| o.src == e.src && matches!(o.kind, PKind::Off { key } if key == keys[k]));
+                if let (Some(out), false, true) = (outs[k], released, n_buf < buf.len()) {
+                    buf[n_buf] = (e.src, keys[k], rule.dest_ch, out, vels[k]);
+                    n_buf += 1;
+                }
+            }
+        }
+        let slot = self.cur as u8;
+        for &(src, key, dest, out, vel) in &buf[..n_buf] {
+            self.note_on(src, key, dest, out, vel, slot, now, sink);
         }
     }
 

@@ -422,6 +422,54 @@ mod tests {
         }
     }
 
+    /// Notes sounding once everything at time `t` has been sent, as sorted (channel, key).
+    fn held_at(rec: &Recorder, t: u64) -> Vec<(u8, u8)> {
+        let mut held = std::collections::BTreeMap::<(u8, u8), i32>::new();
+        for (_, m) in rec.out.iter().filter(|(at, m)| *at <= t && m[0] & 0xE0 == 0x80) {
+            let n = held.entry((m[0] & 0xF, m[1])).or_default();
+            *n = if m[0] & 0xF0 == 0x90 && m[2] > 0 { *n + 1 } else { 0 };
+        }
+        held.into_iter().filter(|&(_, n)| n > 0).map(|(k, _)| k).collect()
+    }
+
+    /// A chord that ends the no-chord state (Chord Cancel, or Start with no chord yet)
+    /// a little after the barline still gets the downbeat: once it lands, the same notes
+    /// sound as if it had come exactly on the beat.
+    #[test]
+    fn late_chord_after_no_chord_keeps_the_downbeat() {
+        use crate::theory::CANCEL;
+        let files = corpus();
+        if files.is_empty() {
+            eprintln!("no corpus; skipping");
+            return;
+        }
+        let late = 20_000_000;
+        for f in files {
+            let style = Style::load(&f).unwrap();
+            let name = f.file_name().unwrap().to_string_lossy().to_string();
+            let prep = Prepared::new(&style);
+            let bar = bar_ns(&prep);
+            let t_f = 4 * bar + late;
+            let intros: [Vec<(u64, Step)>; 2] = [
+                vec![(0, Step::Chord(Chord::new(0, 0))), (2 * bar + bar / 3, Step::Chord(Chord::new(0, CANCEL)))],
+                vec![(0, Step::Button(Button::StartStop))],
+            ];
+            for (what, intro) in ["Cancel", "no chord"].iter().zip(intros) {
+                let mut held = Vec::new();
+                for at in [4 * bar, t_f] {
+                    let mut script: Vec<(u64, Step)> = intro.iter().map(|(t, s)| (*t, match s {
+                        Step::Chord(c) => Step::Chord(*c),
+                        Step::Button(b) => Step::Button(*b),
+                    })).collect();
+                    script.push((at, Step::Chord(Chord::new(5, 0))));
+                    let (_, rec) = run(Box::new(Prepared::new(&style)), &script, t_f + 1);
+                    held.push(held_at(&rec, t_f));
+                }
+                assert_eq!(held[1], held[0], "{name}: F 20 ms late after {what}");
+            }
+        }
+    }
+
     /// Cancel is not a chord, so it does not trigger Sync Start.
     #[test]
     fn chord_cancel_does_not_sync_start() {
@@ -478,6 +526,25 @@ mod tests {
             if c.iter().any(|&(ch, _)| ch == 10) {
                 assert!(g8.iter().any(|&(ch, _)| ch == 10), "{name}: bass silent under 1+8");
                 assert!(d5.iter().any(|&(ch, _)| ch == 10), "{name}: bass silent under 1+5");
+            }
+            // The pitch checks above pass trivially on a silent channel, so a part whose
+            // Main A rules all allow the chord (CASM chord-mute bit 30 / 31 and the root)
+            // and that plays over the same bars under G / D major must also play under
+            // G1+8 / D1+5.
+            let script = [(0, Step::Chord(Chord::new(7, 0))), (2 * bar, Step::Chord(Chord::new(2, 0)))];
+            let (_, reference) = run(Box::new(Prepared::new(&style)), &script, 4 * bar);
+            let main_a: Vec<_> =
+                style.casm.iter().filter(|s| s.sections.iter().any(|n| n == "Main A")).flat_map(|s| &s.rules).collect();
+            for (ty, root, got, from) in [(30u8, 7u8, &g8, 0), (31, 2, &d5, 2 * bar)] {
+                let major = ons(&reference, from, from + 2 * bar);
+                for ch in 8..16u8 {
+                    let rules: Vec<_> = main_a.iter().filter(|r| r.dest_ch == ch).collect();
+                    let allowed = !rules.is_empty()
+                        && rules.iter().all(|r| r.chord_mute & (1 << ty) != 0 && r.note_mute & (1 << root) != 0);
+                    if allowed && !is_drum_part(ch) && major.iter().any(|&(x, _)| x == ch) {
+                        assert!(got.iter().any(|&(x, _)| x == ch), "{name}: ch{} silent under type {ty}", ch + 1);
+                    }
+                }
             }
         }
     }

@@ -468,6 +468,20 @@ fn five_note_roles(ty: u8, t: &[u8]) -> (u8, u8, u8, u8) {
 }
 
 fn chord_map(d: u8, src_ty: u8, tgt_ty: u8, src_scale: &[u8; 7], tgt_scale: &[u8; 7]) -> i8 {
+    let v = chord_map_raw(d, src_ty, tgt_ty, src_scale, tgt_scale);
+    if tgt_ty == 31 {
+        // Chord parts over 1+5 keep only root and 5th: the 2nd falls to the root, the
+        // 4th rises to the 5th (the Melody scale keeps both as passing tones).
+        return match v.rem_euclid(12) {
+            2 => v - 2,
+            5 => v + 2,
+            _ => v,
+        };
+    }
+    v
+}
+
+fn chord_map_raw(d: u8, src_ty: u8, tgt_ty: u8, src_scale: &[u8; 7], tgt_scale: &[u8; 7]) -> i8 {
     let (si, so, _) = importance(src_ty);
     let (ti, to, _) = importance(tgt_ty);
     let tgt_fifth = if to[1] != 0 { to[1] } else { ti[1] };
@@ -1208,12 +1222,21 @@ mod tests {
         // Root, 5th and the 2nd / 4th that major and minor share; never a 3rd, 6th or 7th.
         let pcs = no_third_outputs(Chord::new(7, 31));
         assert!(pcs.iter().all(|&p| matches!(p, 7 | 9 | 0 | 2)), "{pcs:?}");
-        // Chord parts: CM7 E G B over G1+5 keep only root and 5th.
-        let mut r = rule(Ntr::RootFixed, Ntt::Chord, 11, 0, 127);
-        r.src_type = 2;
-        let mut out = [None; 3];
-        transpose_group(&[64, 67, 71], &r, Chord::new(7, 31), &mut out);
-        assert!(out.iter().all(|o| matches!(o.unwrap() % 12, 7 | 2)), "{out:?}");
+        // Chord parts keep only root and 5th, whatever the source chord and key (chord
+        // tones, tensions and chromatic notes alike).
+        for ntr in [Ntr::RootFixed, Ntr::RootTrans] {
+            for src_type in 0..30u8 {
+                let mut r = rule(ntr, Ntt::Chord, 11, 0, 127);
+                r.src_type = src_type;
+                for k in 48..72u8 {
+                    let out = transpose(k, &r, Chord::new(7, 31)).unwrap() % 12;
+                    assert!(matches!(out, 7 | 2), "{ntr:?} src {src_type} key {k}: {out}");
+                }
+                let mut out = [None; 3];
+                transpose_group(&[64, 67, 71], &r, Chord::new(7, 31), &mut out);
+                assert!(out.iter().all(|o| matches!(o.unwrap() % 12, 7 | 2)), "{out:?}");
+            }
+        }
         // Melody: the 3rd goes to the 5th, the 7th to the octave.
         let m = rule(Ntr::RootTrans, Ntt::Melody, 11, 0, 127);
         let out: Vec<u8> = [60, 64, 67, 71].iter().map(|&k| transpose(k, &m, Chord::new(0, 31)).unwrap()).collect();

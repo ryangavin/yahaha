@@ -730,7 +730,7 @@ Optional.
   - Effect: sets a no-chord state.
   - Available only in **Fingered, Fingered On Bass and AI Fingered**; not in Fingered\*.
   - The MIDI chord type is 34 ("cc"), and the display reads "Cancel".
-  - (Not specified): what each Style channel does under Cancel. **Our rule (#4):** Cancel is the same state as before any chord: rhythm channels and channels with the CASM autostart bit keep playing as recorded; every other part is released at once and rests until the next chord. Cancel does not trigger Sync Start. In the corpus only rhythm channels carry the autostart bit, so in practice this is "rhythm only".
+  - (Not specified): what each Style channel does under Cancel. **Our rule (#4):** Cancel is the same state as before any chord: rhythm channels and channels with the CASM autostart bit keep playing as recorded; every other part is released at once and rests until the next chord. Cancel does not trigger Sync Start. In the corpus only rhythm channels carry the autostart bit, so in practice this is "rhythm only". An Ending pressed under Cancel therefore plays rhythm only. A chord that ends the no-chord state up to 40 ms after the beat still brings in the downbeat notes the resting parts skipped (the same late-chord allowance as any other chord change).
   - Ref: OM p.46; DL p.45, p.111
 - **1+5:**
   - Root plus fifth (for example C+G). A power chord with no third.
