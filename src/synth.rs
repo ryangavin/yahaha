@@ -204,6 +204,24 @@ pub fn gm_fallback(dest: u8, msb: u8, prog: u8) -> u8 {
     }
 }
 
+/// Styles are balanced for Yamaha voices, which respond to volume and velocity far more
+/// gently than a GM SoundFont (some even ignore velocity: parts written at velocity 1).
+/// For the built-in synth only, soften both curves so every part stays audible:
+/// volume/expression on a square-root curve (≈ linear amplitude instead of GM's squared),
+/// and velocity compressed with a floor.
+#[inline]
+fn soften_level(v: u8) -> i32 {
+    ((v as f32 / 127.0).sqrt() * 127.0).round() as i32
+}
+
+#[inline]
+fn soften_velocity(v: u8) -> i32 {
+    if v == 0 {
+        return 0;
+    }
+    (((v as f32 / 127.0).sqrt() * 127.0).round() as i32).max(48)
+}
+
 fn apply(synth: &mut Synthesizer, player: &mut Synthesizer, m: &Msg, ctl: &SynthControl, bank: &mut [u8; 16], pl: &mut Player) {
     let ch = (m[0] & 0x0F) as i32;
     let st = (m[0] & 0xF0) as i32;
@@ -260,6 +278,8 @@ fn apply(synth: &mut Synthesizer, player: &mut Synthesizer, m: &Msg, ctl: &Synth
             let p = gm_fallback(ch as u8, bank[ch as usize], m[1]);
             synth.process_midi_message(ch, 0xC0, p as i32, 0);
         }
+        0xB0 if m[1] == 7 || m[1] == 11 => synth.process_midi_message(ch, 0xB0, m[1] as i32, soften_level(m[2])),
+        0x90 => synth.process_midi_message(ch, 0x90, m[1] as i32, soften_velocity(m[2])),
         _ => synth.process_midi_message(ch, st, m[1] as i32, v),
     }
 }
@@ -503,5 +523,62 @@ mod layer_tests {
         assert!(c.lh_sound.load(Relaxed));
         assert_eq!(c.left_program.load(Relaxed), 52);
         assert_eq!(c.left_vol.load(Relaxed), 40);
+    }
+}
+
+#[cfg(test)]
+mod loudness_probe {
+    use super::*;
+    use crate::engine::Prepared;
+    use crate::sim::{run, Step};
+    use crate::sff::Style;
+    use crate::theory::Chord;
+
+    #[test]
+    #[ignore]
+    fn part_loudness() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        let font = Arc::new(SoundFont::new(&mut std::fs::File::open(root.join("soundfonts/GeneralUser-GS.sf2")).unwrap()).unwrap());
+        let mut files: Vec<_> = std::fs::read_dir(root.join("corpus/MOX_v2")).unwrap().flatten().map(|e| e.path())
+            .filter(|p| p.extension().map_or(false, |x| x.eq_ignore_ascii_case("sty"))).collect();
+        files.sort();
+        for f in files.iter().take(14) {
+            let style = Style::load(f).unwrap();
+            let prep = Box::new(Prepared::new(&style));
+            let bar = (60e9 / prep.bpm * (prep.tpb as f64 / prep.ppq as f64)) as u64;
+            let script: Vec<(u64, Step)> = (0..4).map(|i| (i * bar, Step::Chord(Chord::new([0, 9, 5, 7][i as usize], 0)))).collect();
+            let (_, rec) = run(prep, &script, 4 * bar);
+            let mut line = format!("{:<28}", f.file_name().unwrap().to_string_lossy().chars().take(27).collect::<String>());
+            for part in 8..16u8 {
+                let notes = rec.out.iter().filter(|(_, m)| m[0] == 0x90 | part).count();
+                if notes == 0 { line.push_str("        -        "); continue; }
+                let cc = |n: u8| rec.out.iter().rev().find(|(_, m)| m[0] == 0xB0 | part && m[1] == n).map(|(_, m)| m[2] as i32).unwrap_or(-1);
+                let vel: f64 = rec.out.iter().filter(|(_, m)| m[0] == 0x90 | part).map(|(_, m)| m[2] as f64).sum::<f64>() / notes as f64;
+                let mut synth = Synthesizer::new(&font, &SynthesizerSettings::new(48000)).unwrap();
+                let mut player = Synthesizer::new(&font, &SynthesizerSettings::new(48000)).unwrap();
+                synth.process_midi_message(8, 0xB0, 0, 128);
+                let ctl = SynthControl::new(0);
+                let (mut bank, mut pl) = ([0u8; 16], Player::new());
+                let (mut l, mut r) = (vec![0f32; 64], vec![0f32; 64]);
+                let (mut t, mut i, mut e, mut n) = (0u64, 0usize, 0f64, 0u64);
+                while t < 4 * bar * 48000 / 1_000_000_000 {
+                    let now = t * 1_000_000_000 / 48000;
+                    while i < rec.out.len() && rec.out[i].0 <= now {
+                        let m = &rec.out[i].1;
+                        if !matches!(m[0] & 0xF0, 0x80 | 0x90) || m[0] & 0xF == part {
+                            let mut a = [0u8; 3]; a[..m.len().min(3)].copy_from_slice(&m[..m.len().min(3)]);
+                            apply(&mut synth, &mut player, &a, &ctl, &mut bank, &mut pl);
+                        }
+                        i += 1;
+                    }
+                    synth.render(&mut l, &mut r);
+                    for k in 0..64 { e += (l[k] * l[k] + r[k] * r[k]) as f64; }
+                    n += 64; t += 64;
+                }
+                let db = 10.0 * ((e / n as f64).max(1e-12)).log10();
+                line.push_str(&format!(" {:>5.1}dB v{:>3}e{:>3}vl{:>3.0}", db, cc(7), cc(11), vel));
+            }
+            println!("{line}");
+        }
     }
 }
