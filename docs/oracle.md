@@ -22,6 +22,7 @@ Within one section, two non-drum source channels feeding the same destination pa
 - **They are alternatives.** A is chord-muted on B's source chord (`theory::plays` is false), so on that chord only B sounds. Sources that sound together are layers, not alternatives.
 - **B sounds as written.** B is not muted on its own source chord. Otherwise its notes are never heard unconverted and are no reference. These are counted as "muted on their own chord".
 - **There is something to convert.** A's source chord differs from B's. These are counted as "same source chord".
+- **Both have notes.** Each source starts at least 4 notes in the section. Otherwise the pair is counted as "too few notes": there is nothing to compare, and too little to tell a copy from a different line.
 - **B is an edited copy of A.** Onsets are aligned when both sources start the same number of notes on the same tick. At least half of each source's notes must be aligned, with at least 4 notes in all. At least half of the aligned notes must be within 2 semitones of their partner, after moving A to B's root. Pairs that fail are counted as "not edited copies". They are different lines, and comparing them notes-for-notes would measure the arrangement, not the conversion.
 
 These tests use only the style data, never our transposer. So the set of scored notes (the denominator) stays fixed when the transposer changes, and a score moves only when our conversion does.
@@ -39,8 +40,8 @@ Each pair is scored twice:
 The report sums these per NTT table, per chord change (for example `M>m`, with the table that agrees best), per NTR and per style. `--pairs` also lists every pair: section, part, channels, chord and score.
 
 The report also has an **identity** check. Every chord-following source (not only paired ones) is played on its own source chord. RM p.28 says that plays back "the originally recorded data", so every note should come out as written. Notes are counted per NTR of the note's own zone (a Guitar high zone above a Root Trans middle zone counts as Guitar). A note that moves is split into two kinds:
-- **folded:** written outside the channel's own Note Limit (of an octave or more) and folded into it. That is Note Limit working as documented.
-- **moved inside Note Limit:** anything else. These contradict RM p.28 and are transposer misses. The report prints them per NTR and the pin tracks them.
+- **folded:** written outside the channel's own Note Limit (of an octave or more) and moved by octaves into it, exactly where RM p.30 puts it. That is Note Limit working as documented.
+- **moved inside Note Limit:** anything else, including a note outside the limit that lands in the wrong octave. These contradict RM p.28 and are transposer misses. The report prints them per NTR and the pin tracks them.
 
 ## Tracking changes
 
@@ -51,7 +52,7 @@ The report also has an **identity** check. Every chord-following source (not onl
   identity RootTrans moved-in-limit: [1426] -> [0]
 ```
 
-If the change is intended, run `UPDATE_GOLDEN=1 cargo test --release oracle`, commit the file, and quote the delta in the PR. `yahaha oracle corpus/ --diff tests/oracle/scores.txt` prints the same delta without the test harness. Without `corpus/` the test skips, like the golden snapshots.
+If the change is intended, run `UPDATE_GOLDEN=1 cargo test --release oracle`, commit the file, and quote the delta in the PR. `yahaha oracle corpus/ --diff tests/oracle/scores.txt` prints the same delta without the test harness. It also works on part of the corpus (`yahaha oracle corpus/MOX_v2 --diff tests/oracle/scores.txt`): each style is matched to the pinned key that ends in its path, and since the corpus totals cannot be compared then, only those styles' own lines are. Without `corpus/` the test skips, like the golden snapshots.
 
 The file holds counts only: style paths, table names, chord-change labels and integers. `committed_scores_hold_only_numbers` checks that. No note, pitch or pattern from a style is ever written out.
 
@@ -67,7 +68,7 @@ The file holds counts only: style paths, table names, chord-change labels and in
 
 ## Baseline (208 styles)
 
-- 5210 pairs scored (249112 notes) in 166 styles. Not scored: 1680 pairs that are not edited copies, 1884 with the same source chord, and 511 muted on their own chord.
+- 5210 pairs scored (249112 notes) in 166 styles. Not scored: 1211 pairs that are not edited copies, 469 where one source has fewer than 4 notes in the section (325 of them none), 1884 with the same source chord, and 511 muted on their own chord.
 - As authored: 60.8% exact, 69.3% pitch. 93% of the converted sources (4831 of 5210) are Root Trans + Bypass, because the chord mute already does the work, so "as authored" is close to Bypass (60.7%). It is a hypothetical, not our fidelity (see Scores).
 - Tables across all pairs, exact: Melodic Minor 66.3%, Harmonic Minor 64.1%, Dorian 64.0%, Melody 62.4%, Natural Minor 62.4%, Chord 62.4%, Bypass 60.7%. For both `M>m` and `m>M`, the authors' own minor versions agree best with Melodic Minor, which only moves the 3rd. The 5th variants tie with their base tables (see Limits).
 - Identity, per NTR of the note's zone:

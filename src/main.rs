@@ -82,7 +82,7 @@ fn sim_cmd(args: &[String]) -> Result<()> {
 /// conversion against the authors' own chord-muted alternatives (see docs/oracle.md).
 /// Prints counts only, never notes. `--scores` prints the pinned form
 /// (tests/oracle/scores.txt), `--diff` what changed against such a file, over the styles
-/// that file lists. The three flags are exclusive.
+/// that file lists (only their own lines when the run covers some of them). The three flags are exclusive.
 fn oracle_cmd(args: &[String]) -> Result<()> {
     let usage = "usage: yahaha oracle <style or folder>... [--pairs | --scores | --diff scores.txt]";
     let mut paths = Vec::new();
@@ -103,10 +103,11 @@ fn oracle_cmd(args: &[String]) -> Result<()> {
     let mut rep = oracle::run(&paths);
     if let Some(f) = against {
         let want = std::fs::read_to_string(f)?;
-        let pinned = oracle::pinned_styles(&want);
-        rep.retain(|s| pinned.contains(s));
-        let d = oracle::delta(&want, &rep.pinned());
-        print!("{}", if d.is_empty() { "no change\n".to_string() } else { d });
+        let d = oracle::diff_against(&mut rep, &want);
+        print!("{d}");
+        if !d.lines().any(|l| l.starts_with("  ")) {
+            println!("no change");
+        }
     } else if scores {
         print!("{}", rep.pinned());
     } else {

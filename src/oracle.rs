@@ -88,9 +88,10 @@ impl Score {
 pub struct Identity {
     /// Per note: does it come out as written?
     pub score: Score,
-    /// Notes that moved although Note Limit would not fold them (inside the limit, or the
-    /// limit is narrower than an octave and folds nothing). RM p.28 says the source chord
-    /// plays the recorded data back, so each of these is a transposer miss.
+    /// Notes that came out neither as written nor as Note Limit's fold of what was written
+    /// (`fold_target`). RM p.28 says the source chord plays the recorded data back, and RM
+    /// p.30 that only notes outside the limit are moved (by octaves, into it), so each of
+    /// these is a transposer miss.
     pub moved_in_limit: u32,
 }
 
@@ -134,6 +135,9 @@ pub struct StyleResult {
     pub pairs: Vec<Pair>,
     /// Chord-muted alternatives that are not edited copies of each other.
     pub unrelated: u32,
+    /// Alternatives where one source starts fewer than `MIN_NOTES` notes in the section
+    /// (often none): too little to tell a copy from a different line.
+    pub too_few: u32,
     /// Alternatives with the same source chord: nothing to convert.
     pub same_chord: u32,
     /// Alternatives muted on their own source chord, so their notes never sound as written
@@ -253,21 +257,47 @@ fn score(aligned: &[(&Onset, &Onset)], rule: &ChannelRule, chord: Chord) -> Scor
 /// Play a source on its own source chord and check every note against itself, per NTR of
 /// the note's own zone.
 fn identity(notes: &BTreeMap<u32, Onset>, rule: &ChannelRule, into: &mut [Identity; 3]) {
+    identity_with(notes, rule, into, theory::transpose_group);
+}
+
+/// `identity` with the transposer passed in, so the tests can check the counting against a
+/// transposer that misbehaves in known ways.
+fn identity_with(
+    notes: &BTreeMap<u32, Onset>,
+    rule: &ChannelRule,
+    into: &mut [Identity; 3],
+    transpose: impl Fn(&[u8], &ChannelRule, Chord, &mut [Option<u8>]),
+) {
     let chord = source_chord(rule);
     let mut out = [None; 8];
     for g in notes.values().flat_map(|o| &o.groups) {
-        theory::transpose_group(g, rule, chord, &mut out[..g.len()]);
+        transpose(g, rule, chord, &mut out[..g.len()]);
         for (&k, &o) in g.iter().zip(&out[..g.len()]) {
             let z = rule.zone_for(k);
             let id = &mut into[ntr_index(z.ntr)];
             id.score.notes += 1;
             id.score.exact += (o == Some(k)) as u32;
             id.score.pc += o.is_some_and(|o| o % 12 == k % 12) as u32;
-            // `fold_into` only folds limits of an octave or more.
-            let folds = z.hi as i32 - z.lo as i32 >= 11 && !(z.lo..=z.hi).contains(&k);
-            id.moved_in_limit += (o != Some(k) && !folds) as u32;
+            id.moved_in_limit += (o != Some(k) && o != Some(fold_target(k, z.lo, z.hi))) as u32;
         }
     }
+}
+
+/// Where Note Limit puts a note played unconverted: moved by octaves into `lo..=hi` when it
+/// lies outside (RM p.30). A limit narrower than an octave cannot hold every pitch class, and
+/// what the hardware does there is open (#13); until then such a note should stay as written.
+fn fold_target(k: u8, lo: u8, hi: u8) -> u8 {
+    if hi < lo || hi - lo < 11 {
+        return k;
+    }
+    let mut n = k;
+    while n < lo {
+        n += 12;
+    }
+    while n > hi {
+        n -= 12;
+    }
+    n
 }
 
 /// The rule with every zone of the table's family (Guitar or not) switched to `ntt`.
@@ -317,6 +347,8 @@ pub fn analyse(style: &Style, file: &str) -> StyleResult {
                         res.muted_own += 1;
                     } else if source_chord(from) == chord {
                         res.same_chord += 1;
+                    } else if [i, j].iter().any(|&x| note_count(&notes[x]) < MIN_NOTES) {
+                        res.too_few += 1;
                     } else if let Some(p) = pair(id, from, to, chord, &notes[i], &notes[j]) {
                         res.pairs.push(p);
                     } else {
@@ -327,6 +359,10 @@ pub fn analyse(style: &Style, file: &str) -> StyleResult {
         }
     }
     res
+}
+
+fn note_count(m: &BTreeMap<u32, Onset>) -> u32 {
+    m.values().map(|o| o.keys.len() as u32).sum()
 }
 
 fn pair(
@@ -340,7 +376,7 @@ fn pair(
     let aligned: Vec<(&Onset, &Onset)> =
         a.iter().filter_map(|(t, oa)| b.get(t).filter(|ob| ob.keys.len() == oa.keys.len()).map(|ob| (oa, ob))).collect();
     let n: u32 = aligned.iter().map(|(x, _)| x.keys.len() as u32).sum();
-    let total = |m: &BTreeMap<u32, Onset>| m.values().map(|o| o.keys.len()).sum::<usize>() as f64;
+    let total = |m: &BTreeMap<u32, Onset>| note_count(m) as f64;
     if n < MIN_NOTES || (n as f64) < MIN_ALIGNED * total(a) || (n as f64) < MIN_ALIGNED * total(b) {
         return None;
     }
@@ -403,6 +439,7 @@ pub fn run(paths: &[PathBuf]) -> Report {
 struct Totals {
     pairs: u32,
     unrelated: u32,
+    too_few: u32,
     same_chord: u32,
     muted_own: u32,
     authored: Score,
@@ -423,6 +460,7 @@ impl Report {
         let mut t = Totals {
             pairs: 0,
             unrelated: 0,
+            too_few: 0,
             same_chord: 0,
             muted_own: 0,
             authored: Score::default(),
@@ -442,6 +480,7 @@ impl Report {
         for s in &self.styles {
             t.pairs += s.pairs.len() as u32;
             t.unrelated += s.unrelated;
+            t.too_few += s.too_few;
             t.same_chord += s.same_chord;
             t.muted_own += s.muted_own;
             for (i, x) in s.identity.iter().enumerate() {
@@ -470,8 +509,8 @@ impl Report {
         let _ = writeln!(o, "styles {}  (with scored pairs {with}, unreadable {})", self.styles.len(), self.errors.len());
         let _ = writeln!(
             o,
-            "pairs  {} scored; not scored: {} not edited copies, {} same source chord, {} muted on their own chord",
-            t.pairs, t.unrelated, t.same_chord, t.muted_own
+            "pairs  {} scored; not scored: {} not edited copies, {} with too few notes, {} same source chord, {} muted on their own chord",
+            t.pairs, t.unrelated, t.too_few, t.same_chord, t.muted_own
         );
         let _ = writeln!(o, "\n{:<26} {:>7} {:>7} {:>7}", "", "notes", "exact", "pitch");
         let _ = writeln!(o, "{:<26} {}", "as authored", t.authored.cells());
@@ -485,8 +524,8 @@ impl Report {
             let (c, s) = t.ntr[i];
             let _ = writeln!(o, "  {:<16} {c:>6}  {}", format!("{ntr:?}"), s.cells());
         }
-        // Notes that moved inside their own Note Limit break RM p.28: they are ours to fix.
-        let _ = writeln!(o, "\nNTR of the note's zone, own chord (identity)       moved inside Note Limit");
+        // Notes that moved other than by a Note Limit fold break RM p.28: they are ours to fix.
+        let _ = writeln!(o, "\nNTR of the note's zone, own chord (identity)       moved, not a Note Limit fold");
         for (i, ntr) in NTRS.iter().enumerate() {
             let id = t.identity[i];
             let _ = writeln!(o, "  {:<24} {}  {:>7}", format!("{ntr:?}"), id.score.cells(), id.moved_in_limit);
@@ -550,6 +589,7 @@ impl Report {
         let _ = writeln!(o, "unreadable {}", self.errors.len());
         let _ = writeln!(o, "pairs scored {}", t.pairs);
         let _ = writeln!(o, "pairs unrelated {}", t.unrelated);
+        let _ = writeln!(o, "pairs too-few {}", t.too_few);
         let _ = writeln!(o, "pairs same-chord {}", t.same_chord);
         let _ = writeln!(o, "pairs muted-own {}", t.muted_own);
         let _ = writeln!(o, "authored {}", t.authored.pinned());
@@ -628,6 +668,50 @@ pub fn delta(want: &str, got: &str) -> String {
             (None, None) => Ok(()),
         };
     }
+    o
+}
+
+/// `yahaha oracle <paths> --diff <pinned>`: the delta of this run against a pinned score
+/// file, whatever root the run was given. Style keys are relative to the folder the run
+/// searched, so a run on `corpus/MOX_v2` names a style `X.sty` where the pin (made on
+/// `corpus/`) says `MOX_v2/X.sty`: each style takes the one pinned key that ends in its own.
+/// When the run covers only some of the pinned styles, the corpus totals cannot be
+/// compared, so only those styles' own lines are.
+pub fn diff_against(rep: &mut Report, want: &str) -> String {
+    let pinned = pinned_styles(want);
+    let rekey = |f: &mut String| {
+        if pinned.contains(f.as_str()) {
+            return;
+        }
+        let tail = format!("/{f}");
+        let mut m = pinned.iter().filter(|k| k.ends_with(&tail));
+        if let (Some(k), None) = (m.next(), m.next()) {
+            *f = k.clone();
+        }
+    };
+    rep.styles.iter_mut().for_each(|s| rekey(&mut s.file));
+    rep.errors.iter_mut().for_each(|(f, _)| rekey(f));
+    let before = rep.styles.len() + rep.errors.len();
+    rep.retain(|f| pinned.contains(f));
+    let ran: BTreeSet<&str> =
+        rep.styles.iter().map(|s| s.file.as_str()).chain(rep.errors.iter().map(|(f, _)| f.as_str())).collect();
+    let mut o = String::new();
+    if before > ran.len() {
+        let _ = writeln!(o, "{} styles of this run are not in the pinned file; left out", before - ran.len());
+    }
+    let got = rep.pinned();
+    if ran.len() == pinned.len() {
+        o.push_str(&delta(want, &got));
+        return o;
+    }
+    let _ = writeln!(o, "{} of {} pinned styles in this run: comparing their own lines, not the totals", ran.len(), pinned.len());
+    let own = |t: &str| -> String {
+        t.lines()
+            .filter(|l| l.strip_prefix("style ").and_then(|r| r.split_whitespace().next()).is_some_and(|f| ran.contains(f)))
+            .flat_map(|l| [l, "\n"])
+            .collect()
+    };
+    o.push_str(&delta(&own(want), &own(&got)));
     o
 }
 
@@ -769,16 +853,64 @@ mod tests {
         let rt = id[ntr_index(Ntr::RootTrans)];
         assert_eq!((rt.score, rt.moved_in_limit), (Score { notes: 1, exact: 0, pc: 1 }, 0));
 
-        // Source Root E, High Key D#, played on its own chord Em7. The note lies inside its
-        // Note Limit, so RM p.28 says it plays as written. Today `transpose` applies High Key
-        // with no root change and moves it an octave; the oracle must count exactly that.
-        let r = root_trans(4, 10, 3, 40, 127);
-        let moved = theory::transpose(82, &r, Chord::new(4, 10)) != Some(82);
+        // A transposer that moves every note down an octave: the note inside the limit (60)
+        // and the one written below it (36, whose fold is 48) both count as moved. So does
+        // a note below a limit narrower than an octave, which folds nothing (#13).
+        let down = |g: &[u8], _: &ChannelRule, _: Chord, out: &mut [Option<u8>]| {
+            g.iter().zip(out.iter_mut()).for_each(|(&k, o)| *o = Some(k - 12));
+        };
         let mut id = [Identity::default(); 3];
-        identity(&one_onset(&[&[82]]), &r, &mut id);
+        identity_with(&one_onset(&[&[60, 36]]), &root_trans(0, 0, 11, 48, 71), &mut id, down);
+        identity_with(&one_onset(&[&[40]]), &root_trans(0, 0, 11, 48, 55), &mut id, down);
         let rt = id[ntr_index(Ntr::RootTrans)];
-        assert_eq!(rt.score.exact, !moved as u32);
-        assert_eq!(rt.moved_in_limit, moved as u32);
+        assert_eq!((rt.score, rt.moved_in_limit), (Score { notes: 3, exact: 0, pc: 3 }, 3));
+
+        // Folding a note outside the limit to the wrong octave is a miss too; only the fold
+        // into the limit (36 -> 48) is excused.
+        let fold_two = |g: &[u8], _: &ChannelRule, _: Chord, out: &mut [Option<u8>]| {
+            g.iter().zip(out.iter_mut()).for_each(|(&k, o)| *o = Some(k + 24));
+        };
+        let mut id = [Identity::default(); 3];
+        identity_with(&one_onset(&[&[36, 24]]), &root_trans(0, 0, 11, 48, 71), &mut id, fold_two);
+        let rt = id[ntr_index(Ntr::RootTrans)];
+        assert_eq!((rt.score.exact, rt.moved_in_limit), (0, 1));
+    }
+
+    #[test]
+    fn fold_target_is_the_octave_inside_the_limit() {
+        assert_eq!([fold_target(36, 48, 59), fold_target(75, 48, 59), fold_target(50, 48, 59)], [48, 51, 50]);
+        // Narrower than an octave, or inverted: nothing folds.
+        assert_eq!([fold_target(36, 48, 58), fold_target(36, 60, 48)], [36, 36]);
+        assert_eq!(fold_target(127, 0, 11), 7);
+    }
+
+    #[test]
+    fn a_source_without_notes_is_too_few_not_unrelated() {
+        let mut s = toy([60, 63, 67]);
+        let id = SectionId::Main(0);
+        s.sections.get_mut(&id).unwrap().events.retain(|e| !matches!(e.ev, Ev::NoteOn { ch: 2, .. }));
+        let r = analyse(&s, "toy");
+        assert_eq!((r.pairs.len(), r.unrelated, r.too_few), (0, 0, 2));
+    }
+
+    #[test]
+    fn diff_against_a_subset_run_compares_only_its_styles() {
+        let pin = "styles 2\npairs scored 5\nstyle MOX/X.sty identity 10 9 10\nstyle MOX/X.sty moved-in-limit 0\n\
+                   style Other/Y.sty identity 4 4 4\nstyle Other/Y.sty moved-in-limit 0\n";
+        let run = |file: &str| Report {
+            styles: vec![StyleResult { file: file.into(), ..Default::default() }],
+            errors: vec![],
+        };
+        // Keyed below corpus/MOX, the style still finds its pinned key; totals are skipped.
+        let d = diff_against(&mut run("X.sty"), pin);
+        assert_eq!(
+            d,
+            "1 of 2 pinned styles in this run: comparing their own lines, not the totals\n  \
+             style MOX/X.sty identity: [10, 9, 10] -> [0, 0, 0]  exact 90.0% -> 0.0% (-90.0)\n"
+        );
+        // An unknown style is reported and left out.
+        let d = diff_against(&mut run("Z.sty"), pin);
+        assert!(d.starts_with("1 styles of this run are not in the pinned file; left out\n0 of 2 pinned"), "{d}");
     }
 
     #[test]

@@ -3,7 +3,8 @@
 styles 208
 unreadable 0
 pairs scored 5210
-pairs unrelated 1680
+pairs unrelated 1211
+pairs too-few 469
 pairs same-chord 1884
 pairs muted-own 511
 authored 249112 151488 172708
