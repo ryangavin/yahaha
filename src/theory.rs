@@ -396,21 +396,65 @@ fn scale(ty: u8, ntt: Ntt) -> [u8; 7] {
         33 => s[2] = 2,
         _ => {}
     }
-    // The minor tables leave the perfect 5th alone over aug and dim chords; only their
-    // "5th" variants move it to the chord's #5 / b5 (RM, Style Creator NTT).
-    if matches!(ntt, Ntt::MelodicMinor | Ntt::HarmonicMinor | Ntt::NaturalMinor | Ntt::Dorian)
-        && altered_fifth(ty)
-    {
-        s[4] = 7;
-    }
     s
 }
 
-/// Chords whose 5th is sharpened (aug, M7aug, 7aug) or flattened (dim, dim7, m7b5, 7b5)
-/// with no perfect 5th alongside: what the NTT "5th" tables follow.
+/// The altered 5th of chords whose 5th is sharpened (aug, M7aug, 7aug: 8) or flattened
+/// (dim, dim7, m7b5, 7b5: 6) with no perfect 5th alongside: what the NTT "5th" tables follow.
 #[inline]
-fn altered_fifth(ty: u8) -> bool {
-    matches!(ty, 7 | 28 | 29 | 11 | 17 | 18 | 21)
+fn altered_fifth(ty: u8) -> Option<u8> {
+    match ty {
+        7 | 28 | 29 => Some(8),
+        11 | 17 | 18 | 21 => Some(6),
+        _ => None,
+    }
+}
+
+/// Which 3rd the minor tables read a chord as: Some(true) minor, Some(false) major, None
+/// for chords without one (7sus4, 1+8, 1+5, sus4, 1+2+5).
+#[inline]
+fn minor_side(ty: u8) -> Option<bool> {
+    match ty {
+        20 | 30..=33 => None,
+        _ => Some(matches!(quality(ty), Quality::Minor | Quality::HalfDim | Quality::Dim)),
+    }
+}
+
+/// Melodic / Harmonic / Natural Minor and Dorian (RM, Style Creator NTT): a major <-> minor
+/// switch that moves only the degrees each table names, by a semitone ("Other notes are
+/// not changed"). The "5th" tables also move the perfect 5th to the chord's #5 / b5 over
+/// aug and dim chords. None for other tables, and when the target has no 3rd: that goes
+/// through the scale model like the other tables.
+fn minor_table_map(d: u8, src_ty: u8, tgt_ty: u8, ntt: Ntt) -> Option<u8> {
+    let (sixth, seventh, fifth) = match ntt {
+        Ntt::MelodicMinor => (false, false, false),
+        Ntt::MelodicMinor5 => (false, false, true),
+        Ntt::HarmonicMinor => (true, false, false),
+        Ntt::HarmonicMinor5 => (true, false, true),
+        Ntt::NaturalMinor => (true, true, false),
+        Ntt::NaturalMinor5 => (true, true, true),
+        Ntt::Dorian => (false, true, false),
+        Ntt::Dorian5 => (false, true, true),
+        _ => return None,
+    };
+    let tgt_minor = minor_side(tgt_ty)?;
+    // A pattern recorded without a 3rd is read as major, as `src_scale` does.
+    let src_minor = minor_side(src_ty).unwrap_or(false);
+    if fifth {
+        // A source recorded over aug / dim (no corpus rule is) has its #5 / b5 mapped back.
+        if d == altered_fifth(src_ty).unwrap_or(7) {
+            return Some(altered_fifth(tgt_ty).unwrap_or(7));
+        }
+    }
+    Some(match (src_minor, tgt_minor, d) {
+        (false, true, 4) => 3,
+        (false, true, 9) if sixth => 8,
+        (false, true, 11) if seventh => 10,
+        (true, false, 3) => 4,
+        (true, false, 8) if sixth => 9,
+        (true, false, 10) if seventh => 11,
+        _ => d,
+    })
 }
 
 /// 1+8 and 1+5: no 3rd, so the accompaniment must fit both major and minor.
@@ -601,11 +645,14 @@ pub fn transpose(key: u8, rule: &ChannelRule, chord: Chord) -> Option<u8> {
             }
             d as i32 + delta
         }
-        ntt => {
-            let s = src_scale(rule.src_type, ntt);
-            let t = scale(chord.ty, ntt);
-            scale_map(d, &s, &t, chord.ty) as i32
-        }
+        ntt => match minor_table_map(d, rule.src_type, chord.ty, ntt) {
+            Some(v) => v as i32,
+            None => {
+                let s = src_scale(rule.src_type, ntt);
+                let t = scale(chord.ty, ntt);
+                scale_map(d, &s, &t, chord.ty) as i32
+            }
+        },
     };
     // On-bass: parts with Bass On replace the root with the bass note.
     if let (true, Some(b)) = (rule.bass_on || z.ntt == Ntt::Bass, chord.bass) {
@@ -1223,6 +1270,7 @@ mod tests {
                 (11, ["C3", "Eb3", "G3"], ["C3", "Eb3", "F#3"]),  // m7b5
                 (21, ["C3", "E3", "G3"], ["C3", "E3", "F#3"]),    // 7b5
                 (FLAT5, ["C3", "E3", "G3"], ["C3", "E3", "F#3"]), // (b5), plays as 7b5
+                (28, ["C3", "E3", "G3"], ["C3", "E3", "Ab3"]),    // M7aug
                 (0, ["C3", "E3", "G3"], ["C3", "E3", "G3"]),
                 (8, ["C3", "Eb3", "G3"], ["C3", "Eb3", "G3"]),
                 (3, ["C3", "E3", "G3"], ["C3", "E3", "G3"]), // M7(#11) keeps its perfect 5th
@@ -1231,6 +1279,55 @@ mod tests {
                 assert_eq!(play(fifth, Chord::new(0, ty)), fifth_want, "{fifth:?} ty {ty}");
             }
         }
+    }
+
+    #[test]
+    fn minor_tables_move_only_their_degrees() {
+        // RM: each table moves only the degrees it names ("Other notes are not changed");
+        // each "5th" table is the same plus the 5th. A C major scale source over C chords.
+        let play = |ntt, src_type, keys: &[u8], ty| {
+            let mut r = rule(Ntr::RootTrans, ntt, 11, 0, 127);
+            r.src_type = src_type;
+            names(&keys.iter().map(|&k| transpose(k, &r, Chord::new(0, ty)).unwrap()).collect::<Vec<_>>())
+        };
+        let major = [60u8, 62, 64, 65, 67, 69, 71];
+        let (mm, hm, nm, dor) = (Ntt::MelodicMinor, Ntt::HarmonicMinor, Ntt::NaturalMinor, Ntt::Dorian);
+        for (ntt, ty, want) in [
+            // Over dim / dim7: the table's minor scale, 5th to b5 in the "5th" tables only.
+            (Ntt::MelodicMinor5, 17, ["C3", "D3", "Eb3", "F3", "F#3", "A3", "B3"]),
+            (Ntt::HarmonicMinor5, 17, ["C3", "D3", "Eb3", "F3", "F#3", "Ab3", "B3"]),
+            (Ntt::NaturalMinor5, 17, ["C3", "D3", "Eb3", "F3", "F#3", "Ab3", "Bb3"]),
+            (Ntt::Dorian5, 18, ["C3", "D3", "Eb3", "F3", "F#3", "A3", "Bb3"]),
+            (mm, 18, ["C3", "D3", "Eb3", "F3", "G3", "A3", "B3"]),
+            (hm, 17, ["C3", "D3", "Eb3", "F3", "G3", "Ab3", "B3"]),
+            (nm, 11, ["C3", "D3", "Eb3", "F3", "G3", "Ab3", "Bb3"]),
+            (dor, 17, ["C3", "D3", "Eb3", "F3", "G3", "A3", "Bb3"]),
+            // Over minor chords: the same minor scales, whatever tensions the chord adds.
+            (hm, 10, ["C3", "D3", "Eb3", "F3", "G3", "Ab3", "B3"]),
+            (dor, 15, ["C3", "D3", "Eb3", "F3", "G3", "A3", "Bb3"]),
+            // Over major-3rd chords (7th, aug) nothing moves but the 5th of the "5th" tables.
+            (mm, 19, ["C3", "D3", "E3", "F3", "G3", "A3", "B3"]),
+            (nm, 19, ["C3", "D3", "E3", "F3", "G3", "A3", "B3"]),
+            (Ntt::Dorian5, 19, ["C3", "D3", "E3", "F3", "G3", "A3", "B3"]),
+            (Ntt::NaturalMinor5, 29, ["C3", "D3", "E3", "F3", "Ab3", "A3", "B3"]),
+        ] {
+            assert_eq!(play(ntt, 0, &major, ty), want, "{ntt:?} ty {ty}");
+        }
+        // Chromatic notes a table does not name stay put: a C7 source's Bb is not a major 7th.
+        let c7 = [60u8, 64, 67, 70];
+        for ntt in [Ntt::MelodicMinor5, Ntt::HarmonicMinor, Ntt::NaturalMinor5, Ntt::Dorian] {
+            assert_eq!(play(ntt, 19, &c7, 8), ["C3", "Eb3", "G3", "Bb3"], "{ntt:?}");
+        }
+        // Minor source into major: only the named minor degrees rise (Cm7 source over C).
+        let cm7 = [60u8, 63, 67, 70];
+        assert_eq!(play(Ntt::HarmonicMinor5, 10, &cm7, 0), ["C3", "E3", "G3", "Bb3"]);
+        assert_eq!(play(Ntt::Dorian5, 10, &cm7, 0), ["C3", "E3", "G3", "B3"]);
+        let c_nat_minor = [60u8, 62, 63, 65, 67, 68, 70];
+        assert_eq!(play(nm, 8, &c_nat_minor, 0), ["C3", "D3", "E3", "F3", "G3", "A3", "B3"]);
+        assert_eq!(play(mm, 8, &c_nat_minor, 0), ["C3", "D3", "E3", "F3", "G3", "Ab3", "Bb3"]);
+        // A source recorded over aug has its #5 mapped back to the 5th (5th tables only).
+        assert_eq!(play(Ntt::MelodicMinor5, 7, &[60, 64, 68], 8), ["C3", "Eb3", "G3"]);
+        assert_eq!(play(mm, 7, &[60, 64, 68], 8), ["C3", "Eb3", "Ab3"]);
         // Minor source (C Eb G) into Faug under Harmonic Minor 5th: 3rd up, 5th sharpened.
         let mut r = rule(Ntr::RootTrans, Ntt::HarmonicMinor5, 11, 0, 127);
         r.src_type = 8;
