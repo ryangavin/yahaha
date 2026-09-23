@@ -127,6 +127,11 @@ impl Out {
     #[inline]
     pub fn push(&mut self, msg: &[u8]) {
         self.midi.push(msg);
+        // The built-in synth takes channel messages only; SysEx (the style's XG effect
+        // setup) is for the port.
+        if msg.first() == Some(&0xF0) {
+            return;
+        }
         if let Some(s) = self.synth.as_mut() {
             let mut m = [0u8; 3];
             let n = msg.len().min(3);
@@ -647,6 +652,27 @@ mod tests {
         Chord::unpack(shared.chord.load(Relaxed)).map(|(c, _)| c.name())
     }
 
+    /// Malformed input on the keyboard port (a status byte in a data position, a data byte
+    /// of 0x80 or more reaching `key_msg`) must never index past the 128 keys. A guard for
+    /// the whole input path; `midi::data_bytes_are_always_below_0x80` is the #50 fix's test.
+    #[test]
+    fn malformed_key_bytes_never_panic() {
+        let (mut inp, shared) = input(Fingering::FullKeyboard);
+        use crate::midi::InputHandler;
+        inp.packet(TAG_KEYS, 0, &[0x90, 0xFF, 100, 0x80, 0xC8, 0, 0x90, 60, 0xF0, 0xF7]);
+        inp.packet(TAG_KEYS, 0, &[0x3C, 0x40, 0x90, 0x3C]);
+        // Straight into the handler, past the stream splitter.
+        inp.key_msg(&[0x90, 0xBC, 100]);
+        inp.key_msg(&[0x80, 0xBC, 0]);
+        inp.key_msg(&[0x90, 0xFF, 0x80]);
+        assert_eq!(inp.route[0x3C], 0, "0xBC is key 60 (masked), and it was released");
+        assert!(inp.route[0x7F] != 0, "0xFF is key 127");
+        for k in [36, 40, 43] {
+            inp.key_msg(&[0x90, k, 100]);
+        }
+        assert!(chord(&shared).is_some());
+    }
+
     #[test]
     fn right_hand_ignored_outside_full_keyboard_types() {
         for mode in [Fingering::FingeredOnBass, Fingering::Fingered, Fingering::AiFingered, Fingering::MultiFinger] {
@@ -702,6 +728,17 @@ mod tests {
         assert_eq!(k.press(127, RH_CH, 12).0, (RH_CH, 127));
         assert_eq!(k.press(2, RH_CH, -12).0, (RH_CH, 2));
         assert_eq!(k.press(125, RH_CH, 5).0, (RH_CH, 118));
+    }
+
+    /// The style's SysEx goes to the port only: the synth's ring carries channel messages.
+    #[test]
+    fn sysex_skips_the_synth() {
+        let (synth, mut heard) = RingBuffer::new(8);
+        let mut out = Out::new(PacketSink::new(rt::Target::Virtual(0)), Some(synth));
+        out.push(&[0xF0, 0x43, 0x10, 0x4C, 0x02, 0x01, 0x00, 0x01, 0x10, 0xF7]);
+        out.push(&[0xCC, 5]);
+        assert_eq!(heard.pop().ok(), Some([0xCC, 5, 0]));
+        assert!(heard.pop().is_err());
     }
 
     /// Through `Input`: notes sound transposed on their split channel, the chord is recognized

@@ -146,12 +146,70 @@ pub fn for_each_message(data: &[u8], running: &mut u8, mut f: impl FnMut(&[u8]))
             0xF0 => 0,
             _ => 2,
         };
-        if start + n > data.len() {
-            return;
-        }
         let mut msg = [status, 0, 0];
-        msg[1..1 + n].copy_from_slice(&data[start..start + n]);
+        let (mut got, mut j) = (0, start);
+        while got < n && j < data.len() {
+            let d = data[j];
+            if d >= 0xF8 {
+                j += 1; // realtime may sit inside a message
+                continue;
+            }
+            if d & 0x80 != 0 {
+                break;
+            }
+            msg[1 + got] = d;
+            got += 1;
+            j += 1;
+        }
+        if got < n {
+            if j >= data.len() {
+                return;
+            }
+            // A status byte where a data byte belongs cuts the message short: drop it and
+            // read on from that byte, so no consumer ever sees a data byte of 0x80 or more.
+            i = j;
+            continue;
+        }
         f(&msg[..1 + n]);
-        i = start + n;
+        i = j;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn split(data: &[u8]) -> Vec<Vec<u8>> {
+        let mut out = Vec::new();
+        let mut rs = 0;
+        for_each_message(data, &mut rs, |m| out.push(m.to_vec()));
+        out
+    }
+
+    /// A status byte where a data byte belongs (a malformed or cut-off message) never
+    /// reaches a consumer as data: the cut message is dropped and the new one is read.
+    #[test]
+    fn data_bytes_are_always_below_0x80() {
+        assert_eq!(split(&[0x90, 60, 0x90, 64, 100]), vec![vec![0x90, 64, 100]]);
+        assert_eq!(split(&[0x90, 0x80, 60, 0]), vec![vec![0x80, 60, 0]]);
+        assert_eq!(split(&[0xC0, 0xB0, 7, 100]), vec![vec![0xB0, 7, 100]]);
+        // Running status carries on after the interrupting message.
+        assert_eq!(split(&[0x90, 60, 100, 62, 0x80, 60, 0, 64, 0]), vec![
+            vec![0x90, 60, 100],
+            vec![0x80, 60, 0],
+            vec![0x80, 64, 0]
+        ]);
+        // Realtime bytes may sit inside a message without breaking it.
+        assert_eq!(split(&[0x90, 60, 0xF8, 100]), vec![vec![0x90, 60, 100]]);
+        // Sysex in the middle of a message ends it too.
+        assert_eq!(split(&[0x90, 60, 0xF0, 1, 2, 0xF7, 0x90, 61, 1]), vec![vec![0x90, 61, 1]]);
+        // Every byte value in every position: no panic, and no data byte of 0x80 or more.
+        for a in 0..=255u8 {
+            for b in 0..=255u8 {
+                for m in split(&[0x90, a, b, 0xB0, b, a]) {
+                    assert!(m[1..].iter().all(|&d| d < 0x80), "{m:?}");
+                }
+            }
+        }
     }
 }
