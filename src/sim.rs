@@ -457,10 +457,7 @@ mod tests {
             for (what, intro) in ["Cancel", "no chord"].iter().zip(intros) {
                 let mut held = Vec::new();
                 for at in [4 * bar, t_f] {
-                    let mut script: Vec<(u64, Step)> = intro.iter().map(|(t, s)| (*t, match s {
-                        Step::Chord(c) => Step::Chord(*c),
-                        Step::Button(b) => Step::Button(*b),
-                    })).collect();
+                    let mut script = intro.clone();
                     script.push((at, Step::Chord(Chord::new(5, 0))));
                     let (_, rec) = run(Box::new(Prepared::new(&style)), &script, t_f + 1);
                     held.push(held_at(&rec, t_f));
