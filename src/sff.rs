@@ -488,16 +488,24 @@ fn decode_ntt_new(v: u8, ntr: Ntr) -> Ntt {
     }
 }
 
-fn decode_ntt_old(v: u8) -> Ntt {
-    match v {
+/// SFF1 Ctab NTT byte -> (table, Bass On). Wierzba/Bedesem document 00H..05H only (Bypass,
+/// Melody, Chord, Bass, Melodic Minor, Harmonic Minor; no corpus file uses anything else).
+/// 06H..0AH have no Ctab meaning, so they take the only meaning those numbers have anywhere:
+/// the Cntt/Ctb2 tables (Harmonic Minor 5th Var. .. Dorian 5th Var.), which never collide
+/// with a Ctab code. Bit 7 is Bass On, as in every other NTT byte. Codes above 0AH are
+/// undefined in every structure and play as Melody, like `decode_ntt_new`.
+fn decode_ntt_old(v: u8) -> (Ntt, bool) {
+    let ntt = match v & 0x7F {
         0 => Ntt::Bypass,
         1 => Ntt::Melody,
         2 => Ntt::Chord,
         3 => Ntt::Bass,
         4 => Ntt::MelodicMinor,
         5 => Ntt::HarmonicMinor,
+        t @ 6..=10 => decode_ntt_new(t, Ntr::RootTrans),
         _ => Ntt::Melody,
-    }
+    };
+    (ntt, v & 0x80 != 0 || ntt == Ntt::Bass)
 }
 
 fn decode_ntr(v: u8) -> Ntr {
@@ -596,7 +604,7 @@ fn parse_ctab(d: &[u8], sff2: bool) -> Result<ChannelRule> {
         rule.bass_on = mb || lb || hb;
     } else {
         let ntr = decode_ntr(d[20]);
-        let ntt = decode_ntt_old(d[21]);
+        let (ntt, bass_on) = decode_ntt_old(d[21]);
         let z = Zone {
             ntr,
             ntt,
@@ -606,7 +614,7 @@ fn parse_ctab(d: &[u8], sff2: bool) -> Result<ChannelRule> {
             rtr: decode_rtr(d[25]),
         };
         rule.zones = [z; 3];
-        rule.bass_on = ntt == Ntt::Bass;
+        rule.bass_on = bass_on;
     }
     Ok(rule)
 }
@@ -646,16 +654,21 @@ fn parse_casm(data: &[u8]) -> Result<Vec<Cseg>> {
                 }
                 b"Ctab" => seg.rules.push(parse_ctab(d, false)?),
                 b"Ctb2" => seg.rules.push(parse_ctab(d, true)?),
+                // Cntt refines an SFF1 Ctab's table with the ones Ctab cannot encode (5th Var.,
+                // Natural Minor, Dorian); Wierzba/Bedesem: it overrides the Ctab NTT. It never
+                // touches a Ctb2, which already holds per-zone NTT and Bass On (and no corpus
+                // file mixes the two). Bass On is OR'd, not replaced: every corpus Cntt for a
+                // Ctab "Bass" channel is 01H (Melody, bit 7 clear), so there the Ctab code, not
+                // the Cntt bit, is what carries Bass On.
                 b"Cntt" => {
                     if d.len() >= 2 {
                         let ch = d[0] & 0x0F;
-                        if let Some(r) = seg.rules.iter_mut().find(|r| r.src_ch == ch) {
-                            let ntr = r.zones[1].ntr;
-                            let ntt = decode_ntt_new(d[1], ntr);
+                        if let Some(r) = seg.rules.iter_mut().find(|r| r.src_ch == ch && !r.sff2) {
+                            let ntt = decode_ntt_new(d[1], r.zones[1].ntr);
                             for z in r.zones.iter_mut() {
                                 z.ntt = ntt;
                             }
-                            r.bass_on = d[1] & 0x80 != 0;
+                            r.bass_on |= d[1] & 0x80 != 0;
                         }
                     }
                 }
@@ -885,13 +898,20 @@ mod tests {
     /// Smallest style the parser accepts: one Main A bar with a note on ch 12 plus a CASM
     /// segment holding `rec`.
     fn style_bytes(rec_id: &[u8], rec: &[u8]) -> Vec<u8> {
+        style_bytes_recs(&[(rec_id, rec)])
+    }
+
+    /// As `style_bytes`, with several CSEG records after the Sdec.
+    fn style_bytes_recs(recs: &[(&[u8], &[u8])]) -> Vec<u8> {
         let mut trk = vec![0x00, 0xFF, 0x06, 4];
         trk.extend_from_slice(b"SFF2");
         trk.extend_from_slice(&[0x00, 0xFF, 0x06, 6]);
         trk.extend_from_slice(b"Main A");
         trk.extend_from_slice(&[0x00, 0x9B, 60, 100, 0x83, 0x00, 0x8B, 60, 0, 0x00, 0xFF, 0x2F, 0]);
         let mut cseg = chunk(b"Sdec", b"Main A");
-        cseg.extend(chunk(rec_id, rec));
+        for (id, rec) in recs {
+            cseg.extend(chunk(id, rec));
+        }
         let mut out = chunk(b"MThd", &[0, 0, 0, 1, 0, 96]);
         out.extend(chunk(b"MTrk", &trk));
         out.extend(chunk(b"CASM", &chunk(b"CSEG", &cseg)));
@@ -952,6 +972,107 @@ mod tests {
                 let s = parse(&style_bytes(b"Ctab", &ctb2(src_type, zone)[..27])).unwrap();
                 exercise(&s);
             }
+        }
+    }
+
+    /// A 27-byte SFF1 Ctab record for src ch 12 (see `ctb2`) with the given NTR and NTT bytes.
+    fn ctab(ntr: u8, ntt: u8) -> Vec<u8> {
+        let mut d = ctb2(2, 0)[..27].to_vec();
+        d[20] = ntr;
+        d[21] = ntt;
+        d[24] = 127;
+        d
+    }
+
+    #[test]
+    fn every_ctab_ntt_code_decodes() {
+        let want = [
+            Ntt::Bypass,
+            Ntt::Melody,
+            Ntt::Chord,
+            Ntt::Bass,
+            Ntt::MelodicMinor,
+            Ntt::HarmonicMinor,
+            Ntt::HarmonicMinor5,
+            Ntt::NaturalMinor,
+            Ntt::NaturalMinor5,
+            Ntt::Dorian,
+            Ntt::Dorian5,
+        ];
+        for v in 0..=255u8 {
+            let r = parse_ctab(&ctab(0, v), false).unwrap();
+            let ntt = want.get((v & 0x7F) as usize).copied().unwrap_or(Ntt::Melody);
+            assert!(r.zones.iter().all(|z| z.ntt == ntt), "Ctab NTT {v:#04x}: {:?}", r.zones[1].ntt);
+            assert_eq!(r.bass_on, v & 0x80 != 0 || v & 0x7F == 3, "Ctab NTT {v:#04x} Bass On");
+        }
+    }
+
+    #[test]
+    fn cntt_overrides_ctab_table_and_keeps_bass_on() {
+        let cseg = |ctab_ntt: u8, cntt: u8| {
+            let s = parse(&style_bytes_recs(&[(b"Ctab", &ctab(0, ctab_ntt)), (b"Cntt", &[11, cntt])])).unwrap();
+            let r = s.casm[0].rules[0].clone();
+            assert!(r.zones.iter().all(|z| z.ntt == r.zones[1].ntt));
+            (r.zones[1].ntt, r.bass_on)
+        };
+        // What the corpus writes: Harmonic Minor refined to its 5th Var., Bass kept as Melody
+        // with Bass On even though the Cntt bit is clear.
+        assert_eq!(cseg(5, 0x06), (Ntt::HarmonicMinor5, false));
+        assert_eq!(cseg(3, 0x01), (Ntt::Melody, true));
+        assert_eq!(cseg(2, 0x02), (Ntt::Chord, false));
+        // Every Cntt table, with and without its Bass bit.
+        assert_eq!(cseg(1, 0x09), (Ntt::Dorian, false));
+        assert_eq!(cseg(1, 0x8A), (Ntt::Dorian5, true));
+        assert_eq!(cseg(2, 0x87), (Ntt::NaturalMinor, true));
+        // A Cntt for a channel with no Ctab changes nothing.
+        let s = parse(&style_bytes_recs(&[(b"Ctab", &ctab(0, 2)), (b"Cntt", &[3, 0x8A])])).unwrap();
+        assert_eq!((s.casm[0].rules[0].zones[1].ntt, s.casm[0].rules[0].bass_on), (Ntt::Chord, false));
+    }
+
+    #[test]
+    fn cntt_never_overrides_ctb2() {
+        let mut d = ctb2(2, 0);
+        for z in [22, 28, 34] {
+            d[z] = 0; // Root Trans
+            d[z + 1] = 0x02; // Chord, Bass Off
+            d[z + 4] = 127;
+        }
+        let s = parse(&style_bytes_recs(&[(b"Ctb2", &d), (b"Cntt", &[11, 0x8A])])).unwrap();
+        let r = &s.casm[0].rules[0];
+        assert!(r.zones.iter().all(|z| z.ntt == Ntt::Chord));
+        assert!(!r.bass_on);
+    }
+
+    #[test]
+    fn corpus_cntt_bass_parts_follow_slash_chords() {
+        // Every corpus Cntt style writes its Ctab "Bass" channel's Cntt as plain Melody. The Bass
+        // part must still carry Bass On, as 193 of 194 SFF2 corpus styles give their Bass part.
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus");
+        let mut stack = vec![dir];
+        let mut found = 0;
+        while let Some(d) = stack.pop() {
+            for e in std::fs::read_dir(&d).into_iter().flatten().flatten() {
+                let p = e.path();
+                if p.is_dir() {
+                    stack.push(p);
+                    continue;
+                }
+                let Ok(bytes) = std::fs::read(&p) else { continue };
+                if !bytes.windows(4).any(|w| w == b"Cntt") {
+                    continue;
+                }
+                let s = parse(&bytes).unwrap();
+                found += 1;
+                for r in s.casm.iter().flat_map(|seg| &seg.rules) {
+                    if r.dest_ch == 10 && r.zones[1].ntt != Ntt::Bypass {
+                        assert!(r.bass_on, "{}: Bass part lost Bass On", p.display());
+                        assert_eq!(r.zones[1].ntt, Ntt::Melody, "{}", p.display());
+                    }
+                }
+            }
+        }
+        if found == 0 {
+            eprintln!("no corpus Cntt styles; skipping");
         }
     }
 

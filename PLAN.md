@@ -205,7 +205,7 @@ Keep the corpus git-ignored and never redistribute it. Reverse engineering the f
 ## 7. Open questions
 
 - The undocumented Ctb2 bytes 40–46. They matter for drum channels. Compare channels that differ only in these bytes using the oracle.
-- The "Note generator" RTR and the `Cntt` override precedence.
+- The "Note generator" RTR. (`Cntt` precedence is settled from corpus evidence in #14. See "SFF1 encoding" in docs/genos-features.md.)
 - Whether a Genos-era style carries chunks that the 2015 spec doesn't cover. M0's dump will flag any unknown chunk IDs.
 - +Audio style audio storage. See the "Audio Style file format" write-up at sandsoftwaresound.net before M6.
 

@@ -860,6 +860,8 @@ With NTR = Guitar:
 
 **Storage:** Source Root/Chord, NTR, NTT Type, NTT Bass, High Key, Note Limit Low/High and RTR are all **Style Data** (DL p.90). The Style Creator Basic parameters (pattern length, tempo, time signature, per-section time signature) are also Style data.
 
+**SFF1 encoding (Ctab + Cntt), our rule (#14):** SFF1 stores one NTT byte per channel in `Ctab` with its own numbering (Bypass, Melody, Chord, Bass, Melodic Minor, Harmonic Minor). Old "Bass" is Melody with NTT Bass On. Codes 06H–0AH aren't defined for Ctab, so we read them as the Cntt/Ctb2 tables with the same numbers (Harmonic Minor 5th … Dorian 5th). Bit 7 means Bass On. Anything above 0AH plays as Melody. An optional `Cntt` record after the Ctabs refines a channel's table with the ones Ctab can't hold, using Ctb2 numbering, and it overrides the Ctab table. Bass On is the Ctab "Bass" code **or** the Cntt bit 7. In every corpus Cntt style, the Bass channel's Cntt is plain Melody (01H) with bit 7 clear, while its Ctab says Bass. Every other Cntt either repeats its Ctab table or promotes Harmonic Minor to Harmonic Minor 5th. `Cntt` never overrides a `Ctb2` (SFF2), which already stores NTT and Bass On per zone. No corpus file has both.
+
 ### C.6 Bass-related features
 - **Fingered On Bass:** Uses the lowest chord-section note as the slash bass. Only channels with NTT Bass = On follow it. Ref: RM p.9, p.31
 - **Fingered ⇄ Fingered On Bass toggle:** Assignable (pedal or button) and MIDI External Controller. Ref: RM p.142, p.157
