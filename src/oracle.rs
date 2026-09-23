@@ -284,20 +284,21 @@ fn identity_with(
 }
 
 /// Where Note Limit puts a note played unconverted: moved by octaves into `lo..=hi` when it
-/// lies outside (RM p.30). A limit narrower than an octave cannot hold every pitch class, and
-/// what the hardware does there is open (#13); until then such a note should stay as written.
+/// lies outside (RM p.30), to the octave nearest where it was written. A limit narrower than
+/// an octave cannot hold every pitch class; for those our rule (#13, docs/genos-features.md)
+/// is the octave nearest the limit, the lower one on a tie, and only octaves inside 0..=127
+/// count. A reversed limit is read low to high. Written from the rule, not from
+/// `theory::fold_into`, so the oracle does not grade the transposer against itself.
 fn fold_target(k: u8, lo: u8, hi: u8) -> u8 {
-    if hi < lo || hi - lo < 11 {
+    let (lo, hi) = (lo.min(hi), lo.max(hi));
+    if (lo..=hi).contains(&k) {
         return k;
     }
-    let mut n = k;
-    while n < lo {
-        n += 12;
-    }
-    while n > hi {
-        n -= 12;
-    }
-    n
+    let outside = |n: u8| lo.saturating_sub(n) + n.saturating_sub(hi);
+    (k % 12..=127)
+        .step_by(12)
+        .min_by_key(|&n| (outside(n), if outside(n) == 0 { n.abs_diff(k) } else { n }))
+        .unwrap_or(k)
 }
 
 /// The rule with every zone of the table's family (Guitar or not) switched to `ntt`.
@@ -855,7 +856,7 @@ mod tests {
 
         // A transposer that moves every note down an octave: the note inside the limit (60)
         // and the one written below it (36, whose fold is 48) both count as moved. So does
-        // a note below a limit narrower than an octave, which folds nothing (#13).
+        // a note below a limit narrower than an octave (40 into 48..55 folds to 52, #13).
         let down = |g: &[u8], _: &ChannelRule, _: Chord, out: &mut [Option<u8>]| {
             g.iter().zip(out.iter_mut()).for_each(|(&k, o)| *o = Some(k - 12));
         };
@@ -879,9 +880,15 @@ mod tests {
     #[test]
     fn fold_target_is_the_octave_inside_the_limit() {
         assert_eq!([fold_target(36, 48, 59), fold_target(75, 48, 59), fold_target(50, 48, 59)], [48, 51, 50]);
-        // Narrower than an octave, or inverted: nothing folds.
-        assert_eq!([fold_target(36, 48, 58), fold_target(36, 60, 48)], [36, 36]);
+        // Wider than an octave: the octave nearest where the note was written.
+        assert_eq!([fold_target(36, 48, 71), fold_target(90, 48, 71)], [48, 66]);
         assert_eq!(fold_target(127, 0, 11), 7);
+        // Narrower than an octave (#13): inside if the pitch class fits, else the octave
+        // nearest the limit, the lower one on a tie; a reversed limit reads low to high.
+        assert_eq!([fold_target(36, 48, 58), fold_target(36, 60, 48)], [48, 48]);
+        assert_eq!([fold_target(43, 60, 64), fold_target(81, 60, 64), fold_target(66, 60, 60)], [67, 57, 54]);
+        // At the MIDI edges only octaves that exist count.
+        assert_eq!([fold_target(68, 120, 127), fold_target(10, 0, 5)], [116, 10]);
     }
 
     #[test]

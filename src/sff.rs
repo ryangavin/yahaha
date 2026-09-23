@@ -94,6 +94,9 @@ pub struct Zone {
     pub lo: u8,
     pub hi: u8,
     pub rtr: Rtr,
+    /// NTT Bass On: this zone follows slash chords. SFF2 stores it per zone (bit 7 of
+    /// each zone's NTT byte); SFF1 and Cntt set every zone alike.
+    pub bass_on: bool,
 }
 
 /// Channel rule for one source channel within one or more sections (a Ctab/Ctb2 record).
@@ -116,7 +119,6 @@ pub struct ChannelRule {
     pub mid_lo: u8,
     pub mid_hi: u8,
     pub zones: [Zone; 3],
-    pub bass_on: bool,
     pub sff2: bool,
 }
 
@@ -140,7 +142,7 @@ impl ChannelRule {
             11 | 12 | 13 => (Ntr::RootFixed, Ntt::Chord, false),
             _ => (Ntr::RootTrans, Ntt::Melody, false),
         };
-        let z = Zone { ntr, ntt, high_key: 6, lo: 0, hi: 127, rtr: Rtr::PitchShift };
+        let z = Zone { ntr, ntt, high_key: 6, lo: 0, hi: 127, rtr: Rtr::PitchShift, bass_on: bass };
         ChannelRule {
             src_ch: ch,
             name: String::new(),
@@ -154,7 +156,6 @@ impl ChannelRule {
             mid_lo: 0,
             mid_hi: 127,
             zones: [z; 3],
-            bass_on: bass,
             sff2: false,
         }
     }
@@ -658,17 +659,17 @@ fn decode_rtr(v: u8) -> Rtr {
     }
 }
 
-fn parse_zone(b: &[u8]) -> (Zone, bool) {
+fn parse_zone(b: &[u8]) -> Zone {
     let ntr = decode_ntr(b[0]);
-    let z = Zone {
+    Zone {
         ntr,
         ntt: decode_ntt_new(b[1], ntr),
         high_key: b[2] % 12,
         lo: b[3] & 0x7F,
         hi: b[4] & 0x7F,
         rtr: decode_rtr(b[5]),
-    };
-    (z, b[1] & 0x80 != 0)
+        bass_on: b[1] & 0x80 != 0,
+    }
 }
 
 /// Source chord type ids run 0 (Maj) ..= 33 (sus2). Anything else (including 0x22 Cancel,
@@ -718,8 +719,8 @@ fn parse_ctab(d: &[u8], sff2: bool) -> Result<ChannelRule> {
             lo: 0,
             hi: 127,
             rtr: Rtr::PitchShift,
+            bass_on: false,
         }; 3],
-        bass_on: false,
         sff2,
     };
     if sff2 {
@@ -728,11 +729,7 @@ fn parse_ctab(d: &[u8], sff2: bool) -> Result<ChannelRule> {
         }
         rule.mid_lo = d[20];
         rule.mid_hi = d[21];
-        let (lz, lb) = parse_zone(&d[22..28]);
-        let (mz, mb) = parse_zone(&d[28..34]);
-        let (hz, hb) = parse_zone(&d[34..40]);
-        rule.zones = [lz, mz, hz];
-        rule.bass_on = mb || lb || hb;
+        rule.zones = [parse_zone(&d[22..28]), parse_zone(&d[28..34]), parse_zone(&d[34..40])];
     } else {
         let ntr = decode_ntr(d[20]);
         let (ntt, bass_on) = decode_ntt_old(d[21]);
@@ -743,9 +740,9 @@ fn parse_ctab(d: &[u8], sff2: bool) -> Result<ChannelRule> {
             lo: d[23] & 0x7F,
             hi: d[24] & 0x7F,
             rtr: decode_rtr(d[25]),
+            bass_on,
         };
         rule.zones = [z; 3];
-        rule.bass_on = bass_on;
     }
     Ok(rule)
 }
@@ -799,8 +796,9 @@ fn parse_casm(data: &[u8]) -> Result<Vec<Cseg>> {
                             let ntt = decode_ntt_new(d[1], r.zones[1].ntr);
                             for z in r.zones.iter_mut() {
                                 z.ntt = ntt;
+                                // OR, not replace: the Ctab "Bass" code keeps Bass On (#14).
+                                z.bass_on |= d[1] & 0x80 != 0;
                             }
-                            r.bass_on |= d[1] & 0x80 != 0;
                         }
                     }
                 }
@@ -1135,7 +1133,7 @@ mod tests {
             let r = parse_ctab(&ctab(0, v), false).unwrap();
             let ntt = want.get(v as usize).copied().unwrap_or(Ntt::Melody);
             assert!(r.zones.iter().all(|z| z.ntt == ntt), "Ctab NTT {v:#04x}: {:?}", r.zones[1].ntt);
-            assert_eq!(r.bass_on, v == 3, "Ctab NTT {v:#04x} Bass On");
+            assert!(r.zones.iter().all(|z| z.bass_on == (v == 3)), "Ctab NTT {v:#04x} Bass On");
         }
     }
 
@@ -1144,8 +1142,8 @@ mod tests {
         let cseg = |ctab_ntt: u8, cntt: u8| {
             let s = parse(&style_bytes_recs(&[(b"Ctab", &ctab(0, ctab_ntt)), (b"Cntt", &[11, cntt])])).unwrap();
             let r = s.casm[0].rules[0].clone();
-            assert!(r.zones.iter().all(|z| z.ntt == r.zones[1].ntt));
-            (r.zones[1].ntt, r.bass_on)
+            assert!(r.zones.iter().all(|z| z.ntt == r.zones[1].ntt && z.bass_on == r.zones[1].bass_on));
+            (r.zones[1].ntt, r.zones[1].bass_on)
         };
         // What the corpus writes: Harmonic Minor refined to its 5th Var., Bass kept as Melody
         // with Bass On even though the Cntt bit is clear.
@@ -1158,7 +1156,8 @@ mod tests {
         assert_eq!(cseg(2, 0x87), (Ntt::NaturalMinor, true));
         // A Cntt for a channel with no Ctab changes nothing.
         let s = parse(&style_bytes_recs(&[(b"Ctab", &ctab(0, 2)), (b"Cntt", &[3, 0x8A])])).unwrap();
-        assert_eq!((s.casm[0].rules[0].zones[1].ntt, s.casm[0].rules[0].bass_on), (Ntt::Chord, false));
+        let r = &s.casm[0].rules[0];
+        assert_eq!(r.zones.map(|z| (z.ntt, z.bass_on)), [(Ntt::Chord, false); 3]);
     }
 
     #[test]
@@ -1171,8 +1170,7 @@ mod tests {
         }
         let s = parse(&style_bytes_recs(&[(b"Ctb2", &d), (b"Cntt", &[11, 0x8A])])).unwrap();
         let r = &s.casm[0].rules[0];
-        assert!(r.zones.iter().all(|z| z.ntt == Ntt::Chord));
-        assert!(!r.bass_on);
+        assert!(r.zones.iter().all(|z| z.ntt == Ntt::Chord && !z.bass_on));
     }
 
     #[test]
@@ -1197,7 +1195,7 @@ mod tests {
                 found += 1;
                 for r in s.casm.iter().flat_map(|seg| &seg.rules) {
                     if r.dest_ch == 10 && r.zones[1].ntt != Ntt::Bypass {
-                        assert!(r.bass_on, "{}: Bass part lost Bass On", p.display());
+                        assert!(r.zones.iter().all(|z| z.bass_on), "{}: Bass part lost Bass On", p.display());
                         assert_eq!(r.zones[1].ntt, Ntt::Melody, "{}", p.display());
                         // The audible check: the part's source root plays E under C/E, C under C.
                         let key = 36 + r.src_root % 12;
@@ -1446,5 +1444,29 @@ mod tests {
         if styles > 0 {
             assert!(styles >= 100 && resets > 0 && pending > 0, "{styles} styles, {resets} resets, {pending} pending");
         }
+    }
+
+    /// SFF2 Bass On is read per zone: this piano's left-hand zone (below Mid Low 50)
+    /// follows slash chords, its chord zone does not.
+    #[test]
+    fn bass_on_per_zone() {
+        let p = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus/SX900Style for Genos/6-8ChartBallad.T547.prs");
+        if !p.exists() {
+            return;
+        }
+        let s = Style::load(&p).unwrap();
+        let r = s.casm[0].rules.iter().find(|r| r.src_ch == 12).unwrap();
+        assert_eq!(r.mid_lo, 50);
+        assert!(r.zones[0].bass_on);
+        assert!(!r.zones[1].bass_on && !r.zones[2].bass_on);
+        // Through transpose, over C/E: the left-hand C moves to the slash bass E, the
+        // chord-zone C stays exactly where it plays over plain C.
+        use crate::theory::{transpose, Chord};
+        let (c, c_over_e) = (Chord::new(0, 0), Chord { root: 0, ty: 0, bass: Some(4) });
+        let low = transpose(36, r, c_over_e).unwrap();
+        assert_eq!(low % 12, 4, "low zone C1 over C/E -> {low}");
+        assert_ne!(Some(low), transpose(36, r, c));
+        assert_eq!(transpose(60, r, c_over_e), transpose(60, r, c));
+        assert_eq!(transpose(60, r, c), Some(60));
     }
 }
