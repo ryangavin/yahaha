@@ -602,6 +602,18 @@ mod tests {
                     assert_eq!((m[1], m[2]), (0, 0x40), "{name}: ch{} left bent", ch + 1);
                 }
             }
+            // The Style never speaks on a keyboard part's channel: its setup (SInt, re-sent
+            // on every start and section change) and its patterns stay on ch 9-16, so a
+            // part's volume is only ever its own CC7 and its voice its own program.
+            for (_, m) in &rec.out {
+                let part = if m[0] == 0xF0 {
+                    // XG Multi Part parameter (43 1n 4C 08 pp ..) on a part's channel.
+                    (m.len() > 5 && m[1] == 0x43 && m[3] == 0x4C && m[4] == 0x08).then(|| m[5])
+                } else {
+                    Some(m[0] & 0x0F)
+                };
+                assert!(part.and_then(crate::parts::part_of_channel).is_none(), "{name}: {m:02X?} on a keyboard part");
+            }
         }
     }
 }
@@ -1393,6 +1405,33 @@ mod mixer {
         assert!(!t.waiting(), "the fader is already within 2 of the new value");
         let mut u = Takeover::NEW;
         assert!(u.hardware(100, 101), "first report within 2 picks up at once");
+    }
+
+    /// Back from the Panel fader page, each Style fader picks its part up only once it
+    /// reaches the part's level: a fader moved elsewhere meanwhile must not jump the part.
+    #[test]
+    fn style_faders_rebind_after_a_page_switch() {
+        use crate::engine::HW_UNKNOWN;
+        let Some(p) = prep("TickingAway.T162.sty") else { return };
+        let mut e = Engine::new(p);
+        let mut rec = Recorder::default();
+        e.hw_fader(0, e.snapshot(0).volumes[0], &mut rec);
+        e.hw_fader(0, 90, &mut rec);
+        e.hw_fader(1, e.snapshot(0).volumes[1], &mut rec);
+        let v1 = e.snapshot(0).volumes[1];
+        assert_eq!((e.snapshot(0).volumes[0], e.snapshot(0).pickup), (90, 0));
+        // On the Panel page fader 1 went down to 10; fader 2 stayed at its part's level.
+        let mut hw = [HW_UNKNOWN; 8];
+        hw[0] = 10;
+        hw[1] = v1;
+        e.faders_at(hw);
+        assert_eq!(e.snapshot(0).pickup, 0b01, "fader 1 waits, fader 2 still holds its part");
+        e.hw_fader(0, 12, &mut rec);
+        assert_eq!(e.snapshot(0).volumes[0], 90, "no jump to the fader");
+        e.hw_fader(0, 91, &mut rec);
+        assert_eq!(e.snapshot(0).volumes[0], 91);
+        e.hw_fader(1, v1.saturating_sub(1), &mut rec);
+        assert_eq!(e.snapshot(0).volumes[1], v1.saturating_sub(1));
     }
 
     /// A start keeps a fader the player moved, and its hardware fader stays in control.

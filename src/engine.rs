@@ -398,10 +398,27 @@ pub struct Takeover {
 }
 
 /// `Takeover::hw`: the fader has not reported a position yet.
-const HW_UNKNOWN: u8 = 255;
+pub const HW_UNKNOWN: u8 = 255;
 
 impl Takeover {
     pub const NEW: Takeover = Takeover { hw: HW_UNKNOWN, picked: false };
+
+    /// The physical fader, last reported at `hw` (`HW_UNKNOWN` if never), is handed the
+    /// value `cur` (a fader page switch): it controls it only if it is already there.
+    pub fn at(hw: u8, cur: u8) -> Takeover {
+        let mut t = Takeover { hw, picked: false };
+        t.software_moved(cur);
+        t
+    }
+
+    /// State kept elsewhere (atomics shared between threads), rebuilt for one report.
+    pub fn resume(hw: u8, picked: bool) -> Takeover {
+        Takeover { hw, picked }
+    }
+
+    pub fn picked(&self) -> bool {
+        self.picked
+    }
 
     /// Software set the value to `v`: the fader keeps control only if it is already there.
     pub fn software_moved(&mut self, v: u8) {
@@ -646,6 +663,15 @@ impl Engine {
         let v = value.min(127);
         if self.takeover[p].hardware(self.mixer[p], v) {
             self.set_volume(part, v, sink);
+        }
+    }
+
+    /// The Launchkey faders now control the Style parts again (fader page switch), from
+    /// their physical positions `hw` (`HW_UNKNOWN` = never moved): each picks its part up
+    /// only once it reaches the part's level, as after any software move.
+    pub fn faders_at(&mut self, hw: [u8; 8]) {
+        for ((t, &h), &v) in self.takeover.iter_mut().zip(&hw).zip(&self.mixer) {
+            *t = Takeover::at(h, v);
         }
     }
 

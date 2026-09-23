@@ -8,6 +8,7 @@ mod library;
 mod live;
 mod midi;
 mod oracle;
+mod parts;
 #[cfg(test)]
 mod recognizer_golden;
 mod rt;
