@@ -2108,3 +2108,247 @@ mod mixer {
         assert_eq!(rec.out.last().unwrap().1, vec![0xBA, 7, new_bass - 1]);
     }
 }
+
+#[cfg(test)]
+/// Retrigger Rule pitch shift under a chaotic live performance, checked through a model of
+/// the receiver (its RPN 0 bend range and pitch bend per channel), not the engine's own
+/// bookkeeping.
+mod rtr_chaos {
+    use super::*;
+    use crate::theory::is_drum_part;
+
+    fn bar_ns(p: &Prepared) -> u64 {
+        (60e9 / p.bpm * (p.tpb as f64 / p.ppq as f64)) as u64
+    }
+
+    fn follows(ch: u8) -> bool {
+        (8..16).contains(&ch) && !is_drum_part(ch)
+    }
+
+    enum Act {
+        S(Step),
+        /// Load the other style (as the live engine thread does between wake-ups).
+        Load,
+    }
+
+    /// 80 beats of anything a player might do, at uneven moments (on the beat, up to 40 ms
+    /// either side of it, or anywhere in the beat): chords of every type with slash chords,
+    /// Chord Cancel and rolled chords (a second change 3 ms later), sections, Break, Intro,
+    /// Ending, Auto Fill, part toggles, Manual Bass, transposes, tempo, Sync Start/Stop,
+    /// Stop Accompaniment and chord release. Also, always: stop and restart mid-pattern,
+    /// and a style change while running, 2 ms after a chord change. Then Stop.
+    fn chaos(bar: u64, seed: u64) -> (Vec<(u64, Act)>, u64) {
+        let mut x = seed;
+        let mut rand = |n: u64| {
+            x = x.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            (x >> 33) % n
+        };
+        let mut s = vec![(0, Act::S(Step::Chord(Chord::new(0, 0))))];
+        let beat = bar / 4;
+        for i in 1..80u64 {
+            let base = i * beat;
+            let jitter = match rand(4) { 0 => 0, 1 => rand(40_000_000), 2 => 0u64.wrapping_sub(rand(40_000_000)), _ => rand(beat) };
+            let t = base.wrapping_add(jitter);
+            let act = match rand(34) {
+                0 => Act::S(Step::Button(Button::Main(rand(4) as u8))),
+                1 => Act::S(Step::Button(Button::Break)),
+                2 => Act::S(Step::Button(Button::TogglePart(rand(8) as u8))),
+                3 => Act::S(Step::ManualBass(rand(2) == 0)),
+                4 => Act::S(Step::Transpose(Transpose::new(rand(7) as i8 - 3, rand(7) as i8 - 3))),
+                5 => Act::S(Step::Button(Button::Stop)),
+                6 => Act::S(Step::Button(Button::StartStop)),
+                8 => Act::S(Step::Chord(Chord::new(rand(12) as u8, crate::theory::CANCEL))),
+                24 => Act::S(Step::Button(Button::StopAcmp)),
+                25 => Act::S(Step::Button(Button::SyncStop)),
+                26 if i % 30 == 26 => Act::S(Step::Button(Button::Ending(rand(3) as u8))),
+                27 => Act::S(Step::Button(Button::Intro(rand(3) as u8))),
+                28 => Act::S(Step::Button(Button::AutoFill)),
+                29 => Act::S(Step::Release),
+                30 => Act::S(Step::Button(Button::SyncStart)),
+                31 => Act::S(Step::Button(if rand(2) == 0 { Button::TempoUp } else { Button::TempoDown })),
+                _ => {
+                    let c = Chord { root: rand(12) as u8, ty: rand(34) as u8, bass: (rand(4) == 0).then(|| rand(12) as u8) };
+                    // Sometimes a second change a few ms later (a rolled chord).
+                    if rand(5) == 0 {
+                        s.push((t + 3_000_000, Act::S(Step::Chord(Chord::new(rand(12) as u8, rand(34) as u8)))));
+                    }
+                    Act::S(Step::Chord(c))
+                }
+            };
+            s.push((t, act));
+        }
+        // Fixed: stop and restart mid-pattern, a style change while running (mid-bar, a few
+        // ms after a chord change), and a style change while stopped.
+        s.push((5 * bar + bar / 3, Act::S(Step::Button(Button::Stop))));
+        s.push((6 * bar + bar / 5, Act::S(Step::Button(Button::StartStop))));
+        s.push((10 * bar + bar / 2 + 2_000_000, Act::Load));
+        s.push((10 * bar + bar / 2, Act::S(Step::Chord(Chord::new(5, 0)))));
+        s.push((21 * bar, Act::S(Step::Button(Button::Stop))));
+        s.sort_by_key(|x| x.0);
+        // The live engine thread takes at most one chord per wake-up (one atomic word), and
+        // wakes for each input as it comes: nothing else lands on a chord's very instant.
+        // (A chord and a command in one wake-up can still restrike and cut a note at once;
+        // that predates the pitch shift and is not what this test is about.)
+        let mut last_chord = u64::MAX;
+        s.retain(|(t, a)| !matches!(a, Act::S(Step::Chord(_))) || std::mem::replace(&mut last_chord, *t) != *t);
+        let chords: Vec<u64> = s.iter().filter(|a| matches!(a.1, Act::S(Step::Chord(_)))).map(|a| a.0).collect();
+        for (t, a) in s.iter_mut() {
+            if !matches!(a, Act::S(Step::Chord(_))) && chords.contains(t) {
+                *t += 1_000_000;
+            }
+        }
+        s.sort_by_key(|x| x.0);
+        (s, 22 * bar)
+    }
+
+    /// Every style, 4 seeds each, with a change to another style mid-song. On the parts that
+    /// follow chords, at every note-on the receiver's pitch offset (bend x range) is the
+    /// pitch shift the engine applied, give or take no more than the part's own pattern
+    /// bends: no note starts detuned by a range left behind (a section change resending
+    /// the SInt, a Fill's chased RPN, a style change) or by a pattern bend sent unscaled.
+    /// The bend range is at least 12 at every note-on; no bend is clamped; no key starts
+    /// twice or lasts zero time; nothing is stuck; no part is left bent after Stop; and the
+    /// Style never sends on a keyboard part's channel.
+    #[test]
+    fn corpus_chaos_leaves_no_note_detuned() {
+        let files = tests::corpus();
+        if files.is_empty() {
+            eprintln!("no corpus; skipping");
+            return;
+        }
+        let mut worst = 0.0f64;
+        let mut runs = 0;
+        let mut fails: Vec<String> = Vec::new();
+        let mut notes = 0usize;
+        let mut bends = 0usize;
+        for (fi, f) in files.iter().enumerate() {
+            let style = Style::load(f).unwrap();
+            let other = Style::load(&files[(fi + 7) % files.len()]).unwrap();
+            let name = f.file_name().unwrap().to_string_lossy().to_string();
+            let p0 = Prepared::new(&style);
+            let p1 = Prepared::new(&other);
+            let bar = bar_ns(&p0);
+            for seed in 1..5 {
+                let (script, end) = chaos(bar, seed * 7919 + fi as u64);
+                let mut e = Engine::new(Box::new(Prepared::new(&style)));
+                let mut rec = Recorder::default();
+                let mut pat_max = p0.pat_bend_max;
+                // The other style's pattern bend headroom applies from this index of `out`.
+                let mut loads: Vec<(usize, [u8; 16])> = Vec::new();
+                let mut i = 0;
+                let mut now = 0u64;
+                loop {
+                    let t = [script.get(i).map(|s| s.0), e.next_deadline(), Some(end)].into_iter().flatten().min().unwrap();
+                    now = now.max(t);
+                    rec.now = now;
+                    while let Some((ts, a)) = script.get(i) {
+                        if *ts > now {
+                            break;
+                        }
+                        match a {
+                            Act::S(Step::Chord(c)) => e.set_chord(*c, now, &mut rec),
+                            Act::S(Step::Release) => e.chord_released(now, &mut rec),
+                            Act::S(Step::Button(b)) => e.button(*b, now, &mut rec),
+                            Act::S(Step::ManualBass(on)) => e.set_manual_bass(*on, &mut rec),
+                            Act::S(Step::Transpose(tr)) => e.set_transpose(*tr, now, &mut rec),
+                            Act::Load => {
+                                loads.push((rec.out.len(), p1.pat_bend_max));
+                                let _ = e.load(Box::new(Prepared::new(&other)), now, &mut rec);
+                            }
+                        }
+                        i += 1;
+                    }
+                    e.process(now, &mut rec);
+                    if now >= end {
+                        break;
+                    }
+                }
+                // Stop Accompaniment holds its chord while stopped, by design: switch it off.
+                if e.snapshot(now).stop_acmp {
+                    e.button(Button::StopAcmp, now + 1, &mut rec);
+                }
+                runs += 1;
+                if e.bend_clamps.get() != 0 {
+                    fails.push(format!("{name}/{seed}: {} clamps", e.bend_clamps.get()));
+                }
+                // Replay through the receiver model.
+                let mut rpn = [0x3FFFu16; 16];
+                let mut range = [2.0f64; 16];
+                let mut bend = [8192u16; 16];
+                let mut shift = [0i8; 16];
+                let mut on = std::collections::HashMap::<(u8, u8), u64>::new();
+                let mut r = rec.retunes.iter().peekable();
+                let mut l = loads.iter().peekable();
+                for (idx, (t, m)) in rec.out.iter().enumerate() {
+                    while let Some(&&(at, _, ch, s)) = r.peek() && at <= idx {
+                        r.next();
+                        shift[ch as usize] = s;
+                    }
+                    while let Some(&&(at, pm)) = l.peek() && at <= idx {
+                        l.next();
+                        pat_max = pm;
+                    }
+                    let ch = m[0] & 0x0F;
+                    let c = ch as usize;
+                    if m[0] != 0xF0 && crate::parts::part_of_channel(ch).is_some() {
+                        fails.push(format!("{name}/{seed}: {m:02X?} on keyboard part at {t}"));
+                    }
+                    match m[0] & 0xF0 {
+                        0xB0 => match m[1] {
+                            101 => rpn[c] = (rpn[c] & 0x7F) | (m[2] as u16) << 7,
+                            100 => rpn[c] = (rpn[c] & !0x7F) | m[2] as u16,
+                            98 | 99 => rpn[c] = 0x3FFF,
+                            6 if rpn[c] == 0 => range[c] = m[2] as f64,
+                            _ => {}
+                        },
+                        0xE0 => {
+                            bend[c] = (m[2] as u16) << 7 | m[1] as u16;
+                            bends += (follows(ch) && bend[c] != 8192) as usize;
+                        }
+                        0x90 if m[2] > 0 => {
+                            if follows(ch) {
+                                notes += 1;
+                                if on.insert((ch, m[1]), *t).is_some() {
+                                    fails.push(format!("{name}/{seed}: ch{} key {} doubled at {t}", c + 1, m[1]));
+                                }
+                                let off = (bend[c] as f64 - 8192.0) / 8192.0 * range[c];
+                                let dev = (off - shift[c] as f64).abs();
+                                worst = worst.max(dev - pat_max[c] as f64);
+                                if dev > pat_max[c] as f64 + 0.02 {
+                                    fails.push(format!("{name}/{seed}: ch{} note-on at {t}: device offset {off:.3} vs shift {} (pat max {})", c + 1, shift[c], pat_max[c]));
+                                }
+                                if range[c] < 12.0 {
+                                    fails.push(format!("{name}/{seed}: ch{} range {} at note-on {t}", c + 1, range[c]));
+                                }
+                            }
+                        }
+                        0x80 | 0x90 if follows(ch) => match on.remove(&(ch, m[1])) {
+                            Some(s) if s < *t => {}
+                            s => fails.push(format!("{name}/{seed}: ch{} key {} zero-length/unmatched {s:?} at {t}", c + 1, m[1])),
+                        },
+                        _ => {}
+                    }
+                }
+                if !on.is_empty() {
+                    fails.push(format!("{name}/{seed}: stuck {on:?}"));
+                }
+                // After Stop only the style's own setup may bend a part: a style loaded while
+                // stopped sends its SInt, bends and all.
+                let last_stop = rec.out.iter().rposition(|(_, m)| *m == [0xE8, 0, 0x40]).unwrap_or(0);
+                for ch in 8..16u8 {
+                    let last = rec.out.iter().rposition(|(_, m)| m[0] == 0xE0 | ch);
+                    let from_setup = last.is_some_and(|i| i > last_stop && loads.iter().any(|l| l.0 <= i));
+                    if bend[ch as usize] != 8192 && !from_setup {
+                        fails.push(format!("{name}/{seed}: ch{} left bent {}", ch + 1, bend[ch as usize]));
+                    }
+                }
+            }
+        }
+        eprintln!("{runs} runs, {notes} notes, {bends} off-centre bends, worst excess {worst:.4} semitones");
+        for f in fails.iter().take(40) {
+            eprintln!("{f}");
+        }
+        assert!(runs > 300 && bends > 1000, "{runs} runs, {bends} bends");
+        assert!(fails.is_empty(), "{} failures", fails.len());
+    }
+}
