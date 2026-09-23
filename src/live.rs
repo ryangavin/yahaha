@@ -231,6 +231,15 @@ impl Input {
                 }
                 return;
             }
+            if cc == launchkey::LEFT_BTN_CC || cc == launchkey::OTS_LINK_BTN_CC {
+                if v > 0 {
+                    if let Some(s) = &self.synth {
+                        let flag = if cc == launchkey::LEFT_BTN_CC { &s.lh_sound } else { &s.ots_link };
+                        flag.store(!flag.load(Relaxed), Relaxed);
+                    }
+                }
+                return;
+            }
             if launchkey::FADER_BTN_CC.contains(&cc) {
                 if v > 0 {
                     if let Some(s) = &self.synth {

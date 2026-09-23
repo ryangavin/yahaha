@@ -201,6 +201,7 @@ pub enum Button {
     TempoUp,
     TempoDown,
     TogglePart(u8),
+    StopAcmp,
 }
 
 
@@ -221,6 +222,7 @@ pub struct Snapshot {
     pub parts: u8,
     /// Mixer fader per part (0..=127), applied on top of the style's own volume.
     pub gains: [u8; 8],
+    pub stop_acmp: bool,
 }
 
 #[derive(Clone, Copy)]
@@ -237,6 +239,8 @@ struct Sounding {
 
 const EMPTY: Sounding = Sounding { active: false, src: 0, src_key: 0, dest: 0, out: 0, vel: 0, slot: 0, started_ns: 0 };
 const MAX_SOUNDING: usize = 256;
+/// Pseudo source channel for Stop Accompaniment notes.
+const STOP_ACMP_SRC: u8 = 255;
 /// Notes that started this recently when the chord changes are corrected outright:
 /// the player's chord landed just after the beat.
 const LATE_CHORD_NS: u64 = 40_000_000;
@@ -267,6 +271,7 @@ pub struct Engine {
     ns_per_tick: f64,
     parts: u8,
     gains: [u8; 8],
+    stop_acmp: bool,
     /// Last volume (CC7) the style itself set on each part.
     style_vol: [u8; 8],
     taps: [u64; 4],
@@ -296,6 +301,7 @@ impl Engine {
             ns_per_tick: 0.0,
             parts: 0xFF,
             gains: [127; 8],
+            stop_acmp: false,
             style_vol: [100; 8],
             taps: [0; 4],
             tap_n: 0,
@@ -410,6 +416,7 @@ impl Engine {
             bpm: self.bpm,
             parts: self.parts,
             gains: self.gains,
+            stop_acmp: self.stop_acmp,
         }
     }
 
@@ -441,6 +448,25 @@ impl Engine {
         }
         if self.running && !first {
             self.revoice(chord, now, sink);
+        }
+        if !self.running && self.stop_acmp {
+            self.sound_stop_acmp(chord, now, sink);
+        }
+    }
+
+    /// Stop Accompaniment: with the band stopped, the held chord sounds on the style's
+    /// Bass (root / on-bass note) and Pad (chord tones) voices.
+    fn sound_stop_acmp(&mut self, chord: Chord, now: u64, sink: &mut impl Sink) {
+        self.off_where(sink, |n| n.src == STOP_ACMP_SRC);
+        if chord.ty == CANCEL {
+            return;
+        }
+        let bass = 36 + chord.bass.unwrap_or(chord.root);
+        self.note_on(STOP_ACMP_SRC, 0, 10, bass, 90, 4, now, sink);
+        for (i, &t) in crate::theory::chord_tones(chord.ty).iter().enumerate() {
+            let pc = (chord.root + t) % 12;
+            let key = 55 + (pc + 12 - 7) % 12; // G3..F#4
+            self.note_on(STOP_ACMP_SRC, 1 + i as u8, 13, key, 70, 4, now, sink);
         }
     }
 
@@ -482,6 +508,12 @@ impl Engine {
                 self.parts ^= 1 << (p & 7);
                 if self.parts & (1 << (p & 7)) == 0 {
                     self.off_where(sink, |n| n.dest == 8 + (p & 7));
+                }
+            }
+            Button::StopAcmp => {
+                self.stop_acmp = !self.stop_acmp;
+                if !self.stop_acmp {
+                    self.off_where(sink, |n| n.src == STOP_ACMP_SRC);
                 }
             }
             Button::TempoUp => self.set_bpm_internal(self.bpm + 2.0, now),
@@ -565,6 +597,7 @@ impl Engine {
     // ----- transport -----
 
     fn start(&mut self, now: u64, sink: &mut impl Sink) {
+        self.all_off(sink);
         self.running = true;
         self.sync_armed = false;
         self.set_bpm_internal(self.bpm, now);
@@ -809,7 +842,7 @@ impl Engine {
     fn revoice(&mut self, chord: Chord, now: u64, sink: &mut impl Sink) {
         for i in 0..MAX_SOUNDING {
             let s = self.sounding[i];
-            if !s.active || is_drum_part(s.dest) {
+            if !s.active || is_drum_part(s.dest) || s.src >= 16 {
                 continue;
             }
             let Some(sec) = self.style.sections[s.slot as usize].as_ref() else { continue };

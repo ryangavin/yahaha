@@ -94,6 +94,11 @@ impl Chord {
     }
 }
 
+/// Pitch classes (relative to the root) of a chord type.
+pub fn chord_tones(ty: u8) -> &'static [u8] {
+    TONES[(ty as usize).min(NUM_TYPES - 1)]
+}
+
 fn mask_of(ty: u8) -> u16 {
     TONES[ty as usize].iter().fold(0, |m, &t| m | 1 << t)
 }

@@ -235,6 +235,69 @@ pub struct Section {
     pub events: Vec<TimedEv>,
 }
 
+/// One part of a One Touch Setting: Right 1, Right 2, Right 3 or Left.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct OtsPart {
+    pub on: bool,
+    /// Yamaha bank MSB, LSB, program.
+    pub voice: Option<(u8, u8, u8)>,
+    pub volume: u8,
+    /// Octave shift (-2..=2).
+    pub octave: i8,
+}
+
+/// A One Touch Setting: the panel voices a style suggests for your hands.
+/// Parts: 0-2 = Right 1-3 (MIDI ch 1-3 in the OTS track), 3 = Left (ch 4).
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct Ots {
+    pub parts: [OtsPart; 4],
+}
+
+/// Parse an OTSc chunk: a sequence of MTrk tracks, one per setting. Voices are plain bank
+/// select + program change on channels 1-4; part on/off and octave are Yamaha SysEx
+/// `F0 43 73 01 50 08 <part> <param> <value> F7` (param 00 = on/off, 03 = octave, 0x40 centre).
+pub fn parse_ots(data: &[u8]) -> Vec<Ots> {
+    let mut out = Vec::new();
+    let mut p = 0;
+    while p + 8 <= data.len() && &data[p..p + 4] == b"MTrk" {
+        let len = be32(&data[p + 4..p + 8]);
+        let end = (p + 8 + len).min(data.len());
+        let mut ots = Ots::default();
+        let mut bank = [(0u8, 0u8); 4];
+        for part in ots.parts.iter_mut() {
+            part.volume = 100;
+        }
+        if let Ok(evs) = parse_track(&data[p + 8..end]) {
+            for e in evs {
+                match e.ev {
+                    Ev::Cc { ch, cc, val } if ch < 4 => match cc {
+                        0 => bank[ch as usize].0 = val,
+                        32 => bank[ch as usize].1 = val,
+                        7 => ots.parts[ch as usize].volume = val,
+                        _ => {}
+                    },
+                    Ev::Pc { ch, prog } if ch < 4 => {
+                        let (m, l) = bank[ch as usize];
+                        ots.parts[ch as usize].voice = Some((m, l, prog));
+                    }
+                    Ev::Sysex(ref v) if v.len() == 10 && v[1..6] == [0x43, 0x73, 0x01, 0x50, 0x08] && v[6] < 4 => {
+                        let part = &mut ots.parts[v[6] as usize];
+                        match v[7] {
+                            0x00 => part.on = v[8] >= 0x40,
+                            0x03 => part.octave = (v[8] as i8 - 0x40).clamp(-2, 2),
+                            _ => {}
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+        out.push(ots);
+        p = end;
+    }
+    out
+}
+
 #[derive(Debug, Clone)]
 pub struct Style {
     pub name: String,
@@ -247,6 +310,8 @@ pub struct Style {
     pub init: Vec<Ev>,
     pub sections: BTreeMap<SectionId, Section>,
     pub casm: Vec<Cseg>,
+    /// One Touch Settings (up to 4).
+    pub ots: Vec<Ots>,
     /// Raw trailing chunks we don't interpret (id, bytes).
     pub other_chunks: Vec<(String, Vec<u8>)>,
 }
@@ -697,5 +762,33 @@ fn build_style(
         sections.insert(id, Section { id, start, len, events: evs });
     }
 
-    Ok(Style { name, format: fmt, ppq, tempo_us, timesig, init, sections, casm, other_chunks })
+    let ots = other_chunks.iter().find(|(id, _)| id == "OTSc").map(|(_, d)| parse_ots(d)).unwrap_or_default();
+    Ok(Style { name, format: fmt, ppq, tempo_us, timesig, init, sections, casm, ots, other_chunks })
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ots_parse() {
+        let p = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus/MOX_v2/FunkyFinger.S930.STY");
+        if !p.exists() {
+            return;
+        }
+        let s = Style::load(&p).unwrap();
+        assert_eq!(s.ots.len(), 4);
+        let o = &s.ots[0];
+        assert_eq!(o.parts[0].voice, Some((0, 116, 4)));
+        assert!(o.parts[0].on);
+        assert!(!o.parts[1].on && !o.parts[2].on && !o.parts[3].on);
+        assert_eq!(o.parts[3].voice, Some((0, 117, 95)));
+        assert_eq!(o.parts[3].volume, 75);
+        // SlowWalker OTS 1: Right 1 + Right 2 layered, Left on.
+        let p = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus/MOX_v2/SlowWalker.T552.sty");
+        let s = Style::load(&p).unwrap();
+        let o = &s.ots[0];
+        assert!(o.parts[0].on && o.parts[1].on && !o.parts[2].on && o.parts[3].on);
+    }
 }

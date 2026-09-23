@@ -28,7 +28,9 @@ The built-in synth uses the first `.sf2` file in `soundfonts/` (GeneralUser GS, 
 - **Voices:** your right hand plays one of eight voice slots (Piano, E.Piano, Organ, Strings, Brass, Pad, Guitar, Synth Lead). Pick a slot with the Launchkey buttons under faders 1–8, or `F1`–`F8`. Change the voice in the last-picked slot with `9`/`0`.
 - **Layering:** turn on layer mode with the button under the master fader, or `F9`. Tapping a slot then adds it to or removes it from the layer, so you can play Piano + Strings together.
 - **Mixer:** faders 1–8 set the volume of the band's eight parts, and the master fader sets the synth volume. A fader scales the style's own level for its part, so section changes keep your mix. Part volume also goes out on the `yahaha` port as CC 7.
-- `l` makes your left-hand chord notes sound too.
+- **Left voice:** your left hand can play its own voice (default Strings) while it drives the chords. Toggle it with the side button left of the top pad row, or `l`. Change the voice with `(` / `)`.
+- **One Touch Settings:** each style carries four suggested panel setups. Each one covers Right 1–3 (loaded into voice slots 1–3, with their on/off as the layer) and the Left voice, including volumes and octave shifts. Recall one with `shift+1`–`4`. **OTS Link** (side button left of the bottom pad row, or `F10`) makes Main A–D recall settings 1–4 automatically, and picks the right one when you change style.
+- **Stop Accompaniment** (`h`): with Sync Start off and the band stopped, a held chord sounds on the style's bass and pad voices.
 - `k` mutes the synth, for example when you're using Ableton sounds instead.
 - The synth plays on outputs 11/12 when the audio device is a TASCAM Model 16, and on 1/2 otherwise. `a` steps through the output pairs while playing, and `--audio-out 11` sets the pair at launch.
 
@@ -94,7 +96,7 @@ Terminal keys:
 - `y` Sync Start · `u` Auto Fill · `j` Sync Stop
 - `z…,` mute/unmute parts
 - `←/→` next/previous style
-- `!` panic (all notes off)
+- `\` panic (all notes off)
 - `esc` quit
 
 Chords are recognized in "Fingered On Bass" style, plus some shortcuts:

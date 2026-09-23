@@ -38,6 +38,19 @@ pub const FADER_CC: std::ops::RangeInclusive<u8> = 5..=13;
 /// Buttons under the faders: CC 37..=44 under faders 1-8, CC 45 under the master fader.
 pub const FADER_BTN_CC: std::ops::RangeInclusive<u8> = 37..=45;
 
+/// Side buttons left of the pads: top = Left voice on/off, bottom = OTS Link.
+pub const LEFT_BTN_CC: u8 = 106;
+pub const OTS_LINK_BTN_CC: u8 = 107;
+
+/// Side button lights (palette colour on ch 1, plus brightness on ch 4 in case they're
+/// single-colour LEDs).
+pub fn side_button_msgs(left_on: bool, ots_link: bool, out: &mut Vec<[u8; 3]>) {
+    out.push([0xB0, LEFT_BTN_CC, if left_on { 21 } else { 23 }]);
+    out.push([0xB3, LEFT_BTN_CC, if left_on { 127 } else { 16 }]);
+    out.push([0xB0, OTS_LINK_BTN_CC, if ots_link { 13 } else { 15 }]);
+    out.push([0xB3, OTS_LINK_BTN_CC, if ots_link { 127 } else { 16 }]);
+}
+
 /// Palette colours for the fader buttons: voice slots and layer mode.
 pub fn fader_button_msgs(active: u8, layer_mode: bool, out: &mut Vec<[u8; 3]>) {
     for i in 0..8u8 {

@@ -98,6 +98,33 @@ mod tests {
         assert_eq!(v, (style_bass as u32 * 64 / 127) as u8);
     }
 
+    /// Stop Accompaniment: chords sound on bass + pad while stopped, and clear on start.
+    #[test]
+    fn stop_accompaniment() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus/MOX_v2/FunkyFinger.S930.STY");
+        if !path.exists() {
+            return;
+        }
+        let mut e = Engine::new(Box::new(Prepared::new(&Style::load(&path).unwrap())));
+        let mut rec = Recorder::default();
+        e.button(Button::SyncStart, 0, &mut rec); // disarm sync start
+        e.button(Button::StopAcmp, 0, &mut rec);
+        e.set_chord(Chord::new(9, 8), 1, &mut rec); // Am
+        let ons: Vec<(u8, u8)> = rec.out.iter().filter(|(_, m)| m[0] & 0xF0 == 0x90).map(|(_, m)| (m[0] & 0xF, m[1] % 12)).collect();
+        assert!(ons.contains(&(10, 9)), "bass A: {ons:?}");
+        for pc in [9, 0, 4] {
+            assert!(ons.contains(&(13, pc)), "pad {pc}: {ons:?}");
+        }
+        assert!(!e.is_running());
+        rec.out.clear();
+        e.set_chord(Chord::new(5, 0), 2, &mut rec); // F: old notes off, new on
+        assert!(rec.out.iter().any(|(_, m)| m[0] == 0x8A && m[1] % 12 == 9));
+        assert!(rec.out.iter().any(|(_, m)| m[0] == 0x9A && m[1] % 12 == 5));
+        rec.out.clear();
+        e.button(Button::StartStop, 3, &mut rec);
+        assert!(rec.out.iter().any(|(_, m)| m[0] == 0x8A && m[1] % 12 == 5), "released on start");
+    }
+
     /// Every style: play through intro, mains, fills, break, chord changes and ending.
     /// Afterwards the engine must be stopped with no sounding notes, and every note-on
     /// must have a matching note-off.

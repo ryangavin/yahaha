@@ -73,6 +73,7 @@ struct Loaded {
     format: String,
     has: [bool; NUM_SLOTS],
     voices: [Option<(u8, u8, u8)>; 16],
+    ots: Vec<crate::sff::Ots>,
 }
 
 fn load(path: &Path) -> Result<(Box<Prepared>, Loaded)> {
@@ -87,7 +88,7 @@ fn load(path: &Path) -> Result<(Box<Prepared>, Loaded)> {
     } else {
         style.name.clone()
     };
-    let info = Loaded { name, format: style.format.clone(), has, voices: prep.voices };
+    let info = Loaded { name, format: style.format.clone(), has, voices: prep.voices, ots: style.ots.clone() };
     Ok((prep, info))
 }
 
@@ -184,6 +185,9 @@ pub fn play(opts: Options) -> Result<()> {
     let mut last_leds: [(u8, Option<Led>); 16] = [(0, None); 16];
     let mut last_rgb: [Option<(u8, u8, u8)>; 16] = [None; 16];
     let mut last_fader_btns: Option<(u8, bool)> = None;
+    let mut last_side: Option<(bool, bool)> = None;
+    let mut last_ots_key: Option<(usize, u8)> = None;
+    let mut last_link = false;
     let mut led_buf = Vec::new();
     let mut message = synth_err;
     let clock = std::time::Instant::now();
@@ -192,6 +196,18 @@ pub fn play(opts: Options) -> Result<()> {
     let result: Result<()> = (|| loop {
         while let Ok(s) = ch.snap_rx.pop() {
             snap = Some(s);
+        }
+        // OTS Link: Main A-D recall One Touch Settings 1-4 (also on style change).
+        if let (Some(sy), Some(s)) = (&synth, &snap) {
+            let key = (idx, s.main);
+            let link = sy.control.ots_link.load(Relaxed);
+            if link && (last_ots_key != Some(key) || !last_link) {
+                if let Some(o) = info.ots.get(s.main as usize) {
+                    sy.control.apply_ots(o, s.main + 1);
+                }
+            }
+            last_ots_key = Some(key);
+            last_link = link;
         }
         while ch.old_rx.pop().is_ok() {} // drop old styles here, off the RT thread
 
@@ -229,6 +245,15 @@ pub fn play(opts: Options) -> Result<()> {
                         out.push(m);
                     }
                     last_fader_btns = Some(fb);
+                }
+                let side = (sy.control.lh_sound.load(Relaxed), sy.control.ots_link.load(Relaxed));
+                if last_side != Some(side) {
+                    led_buf.clear();
+                    launchkey::side_button_msgs(side.0, side.1, &mut led_buf);
+                    for m in &led_buf {
+                        out.push(m);
+                    }
+                    last_side = Some(side);
                 }
             }
             out.flush();
@@ -318,7 +343,28 @@ pub fn play(opts: Options) -> Result<()> {
                         }
                         None
                     }
-                    KeyCode::Char('!') => {
+                    KeyCode::Char(c) if "!@#$".contains(c) => {
+                        let n = "!@#$".find(c).unwrap();
+                        if let (Some(sy), Some(o)) = (&synth, info.ots.get(n)) {
+                            sy.control.apply_ots(o, n as u8 + 1);
+                        }
+                        None
+                    }
+                    KeyCode::F(10) => {
+                        if let Some(sy) = &synth {
+                            let v = !sy.control.ots_link.load(Relaxed);
+                            sy.control.ots_link.store(v, Relaxed);
+                        }
+                        None
+                    }
+                    KeyCode::Char('(') | KeyCode::Char(')') => {
+                        if let Some(sy) = &synth {
+                            sy.control.step_left_program(if k.code == KeyCode::Char(')') { 1 } else { -1 });
+                        }
+                        None
+                    }
+                    KeyCode::Char('h') => Some(Button::StopAcmp),
+                    KeyCode::Char('\\') => {
                         let _ = ch.ui_tx.push(Cmd::Panic);
                         shared.wake.signal();
                         None
@@ -463,7 +509,7 @@ fn draw(
     // Pad map: mirrors the Launchkey pads, same colours and animation.
     let default_snap = Snapshot {
         running: false, sync_armed: true, sync_stop: false, auto_fill: true, cur: None, queued: None,
-        pending_intro: None, main: 0, bar: 0, beat: 0, chord: None, bpm: 120.0, parts: 0xFF, gains: [127; 8],
+        pending_intro: None, main: 0, bar: 0, beat: 0, chord: None, bpm: 120.0, parts: 0xFF, gains: [127; 8], stop_acmp: false,
     };
     let looks = launchkey::looks(s.as_ref().unwrap_or(&default_snap), &info.has);
     let pad_lines = |row: &[(u8, launchkey::Look)]| -> [Line<'static>; 3] {
@@ -528,6 +574,16 @@ fn draw(
                 flag(s.map_or(false, |s| s.sync_armed), "SYNC START [y]"),
                 flag(s.map_or(false, |s| s.auto_fill), "AUTO FILL [u]"),
                 flag(s.map_or(false, |s| s.sync_stop), "SYNC STOP [j]"),
+                flag(s.map_or(false, |s| s.stop_acmp), "STOP ACMP [h]"),
+                flag(synth.map_or(false, |(_, c)| c.ots_link.load(Relaxed)), "OTS LINK [F10]"),
+                Span::styled(
+                    match (info.ots.len(), synth.map(|(_, c)| c.ots_applied.load(Relaxed)).unwrap_or(0)) {
+                        (0, _) => " no One Touch Settings".to_string(),
+                        (n, 0) => format!(" {n} OTS [shift 1-{n}]"),
+                        (n, a) => format!(" OTS {a}/{n} loaded [shift 1-{n}]"),
+                    },
+                    dim,
+                ),
                 Span::raw(format!("  split {} [ / ]", note_name(shared.split.load(Relaxed)))),
             ]),
             Line::from(match synth {
@@ -538,14 +594,21 @@ fn draw(
                     for i in 0..crate::synth::SLOTS {
                         let on = active & (1 << i) != 0;
                         let name = gm_name(c.slots[i].load(Relaxed));
-                        let short: String = name.chars().take(10).collect();
+                        let short: String = name.chars().take(8).collect();
                         let st = if on { St::default().fg(Color::Black).bg(Color::Rgb(40, 110, 255)) } else { dim };
                         let st = if i as u8 == focus { st.add_modifier(Modifier::UNDERLINED) } else { st };
-                        v.push(Span::styled(format!(" F{} {short} ", i + 1), st));
+                        v.push(Span::styled(format!("F{} {short} ", i + 1), st));
                     }
                     v.push(Span::styled(
                         " LAYER [F9] ",
                         if c.layer_mode.load(Relaxed) { St::default().fg(Color::Black).bg(Color::Rgb(255, 140, 0)) } else { dim },
+                    ));
+                    v.push(Span::raw(" "));
+                    let left_on = c.lh_sound.load(Relaxed);
+                    let lname: String = gm_name(c.left_program.load(Relaxed)).chars().take(10).collect();
+                    v.push(Span::styled(
+                        format!(" LEFT {lname} [l ( )] "),
+                        if left_on { St::default().fg(Color::Black).bg(Color::Rgb(40, 200, 90)) } else { dim },
                     ));
                     Line::from(v)
                 }
@@ -555,7 +618,7 @@ fn draw(
                 Some((info_s, c)) => {
                     Span::styled(
                         format!(
-                            " synth: {} → {} out {}/{} [a] · {} Hz · {} · master {}% · re-voice slot [9/0] · LH sound {} [l] · {}[k]",
+                            " synth: {} → {} out {}/{} [a] · {} Hz · {} · master {}% · re-voice slot [9/0] · {}[k]",
                             info_s.name,
                             info_s.device,
                             c.out_ch.load(Relaxed) + 1,
@@ -563,7 +626,6 @@ fn draw(
                             info_s.sample_rate,
                             info_s.buffer.map(|b| format!("{b} frames ({:.1} ms)", b as f64 * 1000.0 / info_s.sample_rate as f64)).unwrap_or("default buffer".into()),
                             c.master.load(Relaxed) as u32 * 100 / 127,
-                            if c.lh_sound.load(Relaxed) { "on" } else { "off" },
                             if c.muted.load(Relaxed) { "MUTED " } else { "" },
                         ),
                         dim,
@@ -587,7 +649,7 @@ fn draw(
 
     let mut help = vec![
         Line::from(Span::styled(
-            " space start/stop · 1-4 Main A-D (again = fill) · q w e intro · i o p ending · g break · t tap · -/= tempo · F1-F8 voice · F9 layer · ! panic · esc quit",
+            " space start/stop · 1-4 Main A-D (again = fill) · q w e intro · i o p ending · g break · t tap · -/= tempo · F1-F8 voice · F9 layer · \\ panic · esc quit",
             dim,
         )),
         Line::from(Span::styled(
@@ -623,12 +685,15 @@ pub fn screen_html(style: &Path, out: &Path) -> Result<()> {
         bpm: 110.0,
         parts: 0xFF & !(1 << 5),
         gains: [127, 110, 96, 127, 80, 64, 127, 100],
+        stop_acmp: false,
     };
     let mut term = ratatui::Terminal::new(TestBackend::new(150, 44))?;
     let si = synth::SynthInfo { name: "GeneralUser-GS".into(), sample_rate: 48000, buffer: Some(64), device: "Model 16".into(), channels: 14 };
     let sc = synth::SynthControl::new(10);
-    sc.layer_mode.store(true, Relaxed);
-    sc.press_slot(3);
+    if let Some(o) = info.ots.first() {
+        sc.apply_ots(o, 1);
+    }
+    sc.ots_link.store(true, Relaxed);
     sc.master.store(110, Relaxed);
     term.draw(|f| draw(f, &info, Some(&snap), &shared, &["Launchkey MK4 61 MIDI Out".into()], 0, 35, "", 0.25, Some((&si, &sc))))?;
     let buf = term.backend().buffer().clone();
