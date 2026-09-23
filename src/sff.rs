@@ -284,7 +284,7 @@ pub fn parse_ots(data: &[u8]) -> Vec<Ots> {
                         let part = &mut ots.parts[v[6] as usize];
                         match v[7] {
                             0x00 => part.on = v[8] >= 0x40,
-                            0x03 => part.octave = (v[8] as i8 - 0x40).clamp(-2, 2),
+                            0x03 => part.octave = (v[8] as i16 - 0x40).clamp(-2, 2) as i8,
                             _ => {}
                         }
                     }
@@ -323,7 +323,7 @@ impl Style {
 
     pub fn ticks_per_bar(&self) -> u32 {
         let (n, d) = self.timesig;
-        (self.ppq as u32 * 4 * n as u32) / d.max(1) as u32
+        ((self.ppq as u32 * 4 * n as u32) / d.max(1) as u32).max(1)
     }
 
     /// Channel rules for a section, keyed by source channel. Falls back to defaults
@@ -395,7 +395,7 @@ fn parse_track(data: &[u8]) -> Result<Vec<TimedEv>> {
     let mut tick: u32 = 0;
     let mut running: u8 = 0;
     while r.p < data.len() {
-        tick += r.vlq()?;
+        tick = tick.saturating_add(r.vlq()?);
         let mut status = r.u8()?;
         if status < 0x80 {
             if running == 0 {
@@ -432,26 +432,26 @@ fn parse_track(data: &[u8]) -> Result<Vec<TimedEv>> {
                 let ch = status & 0x0F;
                 match status & 0xF0 {
                     0x80 => {
-                        let key = r.u8()?;
+                        let key = r.u8()? & 0x7F;
                         let _ = r.u8()?;
                         Ev::NoteOff { ch, key }
                     }
                     0x90 => {
-                        let key = r.u8()?;
-                        let vel = r.u8()?;
+                        let key = r.u8()? & 0x7F;
+                        let vel = r.u8()? & 0x7F;
                         if vel == 0 {
                             Ev::NoteOff { ch, key }
                         } else {
                             Ev::NoteOn { ch, key, vel }
                         }
                     }
-                    0xA0 => Ev::PolyAt { ch, key: r.u8()?, val: r.u8()? },
-                    0xB0 => Ev::Cc { ch, cc: r.u8()?, val: r.u8()? },
-                    0xC0 => Ev::Pc { ch, prog: r.u8()? },
-                    0xD0 => Ev::ChanAt { ch, val: r.u8()? },
+                    0xA0 => Ev::PolyAt { ch, key: r.u8()? & 0x7F, val: r.u8()? & 0x7F },
+                    0xB0 => Ev::Cc { ch, cc: r.u8()? & 0x7F, val: r.u8()? & 0x7F },
+                    0xC0 => Ev::Pc { ch, prog: r.u8()? & 0x7F },
+                    0xD0 => Ev::ChanAt { ch, val: r.u8()? & 0x7F },
                     _ => {
-                        let lo = r.u8()? as u16;
-                        let hi = r.u8()? as u16;
+                        let lo = (r.u8()? & 0x7F) as u16;
+                        let hi = (r.u8()? & 0x7F) as u16;
                         Ev::Bend { ch, val: (hi << 7) | lo }
                     }
                 }
@@ -532,6 +532,17 @@ fn parse_zone(b: &[u8]) -> (Zone, bool) {
     (z, b[1] & 0x80 != 0)
 }
 
+/// Source chord type ids run 0 (Maj) ..= 33 (sus2). Anything else (including 0x22 Cancel,
+/// which is not a recordable source chord) falls back to the Style Creator default, Maj7,
+/// so the transposer never sees a type it has no chord tones for.
+fn source_chord_type(v: u8) -> u8 {
+    if (v as usize) < crate::theory::NUM_TYPES {
+        v
+    } else {
+        2
+    }
+}
+
 fn parse_ctab(d: &[u8], sff2: bool) -> Result<ChannelRule> {
     if d.len() < 26 {
         bail!("Ctab record too short ({} bytes)", d.len());
@@ -542,16 +553,23 @@ fn parse_ctab(d: &[u8], sff2: bool) -> Result<ChannelRule> {
     for &x in &d[13..18] {
         cm = (cm << 8) | x as u64;
     }
+    let src_ch = d[0] & 0x0F;
+    // Accompaniment parts live on channels 9-16 (0-based 8-15); 1-8 belong to the keyboard
+    // and pad voices, so a malformed destination falls back to the source channel's part.
+    let dest_ch = match d[9] & 0x0F {
+        ch @ 8..=15 => ch,
+        _ => src_ch | 0x08,
+    };
     let mut rule = ChannelRule {
-        src_ch: d[0] & 0x0F,
+        src_ch,
         name,
-        dest_ch: d[9] & 0x0F,
+        dest_ch,
         editable: d[10] == 0,
         note_mute,
         chord_mute: cm & ((1u64 << 34) - 1),
         autostart: cm & (1u64 << 34) != 0,
         src_root: d[18] % 12,
-        src_type: d[19],
+        src_type: source_chord_type(d[19]),
         mid_lo: 0,
         mid_hi: 127,
         zones: [Zone {
@@ -650,30 +668,7 @@ fn parse_casm(data: &[u8]) -> Result<Vec<Cseg>> {
 }
 
 pub fn parse(bytes: &[u8]) -> Result<Style> {
-    if bytes.len() < 22 || &bytes[0..4] != b"MThd" {
-        bail!("not a MIDI/style file");
-    }
-    let hlen = be32(&bytes[4..8]);
-    let h = &bytes[8..8 + hlen];
-    let format = u16::from_be_bytes([h[0], h[1]]);
-    let ntracks = u16::from_be_bytes([h[2], h[3]]);
-    let ppq = u16::from_be_bytes([h[4], h[5]]);
-    // Some styles carry a garbage track count; instruments only read the first MTrk.
-    let _ = ntracks;
-    if format != 0 {
-        bail!("style MIDI must be type 0 (got type {format})");
-    }
-    if ppq & 0x8000 != 0 {
-        bail!("SMPTE time division not supported");
-    }
-    let mut p = 8 + hlen;
-    if &bytes[p..p + 4] != b"MTrk" {
-        bail!("missing MTrk");
-    }
-    let tlen = be32(&bytes[p + 4..p + 8]);
-    let track = &bytes[p + 8..(p + 8 + tlen).min(bytes.len())];
-    let events = parse_track(track)?;
-    p += 8 + tlen;
+    let (ppq, events, mut p) = parse_header_track(bytes)?;
 
     let mut casm = Vec::new();
     let mut other_chunks = Vec::new();
@@ -693,49 +688,144 @@ pub fn parse(bytes: &[u8]) -> Result<Style> {
     build_style(ppq, events, casm, other_chunks)
 }
 
+/// The MThd header and the style track: (ppq, events, offset just past the track).
+fn parse_header_track(bytes: &[u8]) -> Result<(u16, Vec<TimedEv>, usize)> {
+    if bytes.len() < 22 || &bytes[0..4] != b"MThd" {
+        bail!("not a MIDI/style file");
+    }
+    let hlen = be32(&bytes[4..8]);
+    if hlen < 6 || 8 + hlen + 8 > bytes.len() {
+        bail!("bad MThd length {hlen}");
+    }
+    let h = &bytes[8..8 + hlen];
+    let format = u16::from_be_bytes([h[0], h[1]]);
+    let ntracks = u16::from_be_bytes([h[2], h[3]]);
+    let ppq = u16::from_be_bytes([h[4], h[5]]);
+    // Some styles carry a garbage track count; instruments only read the first MTrk.
+    let _ = ntracks;
+    if format != 0 {
+        bail!("style MIDI must be type 0 (got type {format})");
+    }
+    if ppq & 0x8000 != 0 {
+        bail!("SMPTE time division not supported");
+    }
+    if ppq == 0 {
+        bail!("zero ticks per quarter note");
+    }
+    let p = 8 + hlen;
+    if &bytes[p..p + 4] != b"MTrk" {
+        bail!("missing MTrk");
+    }
+    let tlen = be32(&bytes[p + 4..p + 8]);
+    let track = &bytes[p + 8..(p + 8 + tlen).min(bytes.len())];
+    let events = parse_track(track)?;
+    Ok((ppq, events, p + 8 + tlen))
+}
+
+/// Header facts of a style track: what `Style` and `Summary` take from the meta events.
+struct Meta {
+    name: String,
+    format: String,
+    tempo_us: u32,
+    timesig: (u8, u8),
+    /// Section markers in track order.
+    marks: Vec<(u32, SectionId)>,
+    end_tick: u32,
+}
+
+fn scan_meta(events: &[TimedEv]) -> Meta {
+    let mut m = Meta { name: String::new(), format: String::new(), tempo_us: 500_000, timesig: (4, 4), marks: Vec::new(), end_tick: 0 };
+    for e in events {
+        m.end_tick = m.end_tick.max(e.tick);
+        if let Ev::Meta { ty, data } = &e.ev {
+            // Tempo and time signature count only before the first section.
+            let before_sections = m.marks.is_empty();
+            match *ty {
+                0x06 => {
+                    let t = String::from_utf8_lossy(data).to_string();
+                    if t == "SFF1" || t == "SFF2" {
+                        m.format = t;
+                    } else if let Some(id) = SectionId::parse(&t) {
+                        m.marks.push((e.tick, id));
+                    }
+                }
+                // Names are often NUL-padded to a fixed width; the name ends at the first NUL.
+                0x03 if m.name.is_empty() => {
+                    let text = data.split(|&b| b == 0).next().unwrap_or_default();
+                    m.name = String::from_utf8_lossy(text).trim().to_string()
+                }
+                0x51 if data.len() == 3 && data[..] != [0, 0, 0] && before_sections => {
+                    m.tempo_us = ((data[0] as u32) << 16) | ((data[1] as u32) << 8) | data[2] as u32
+                }
+                // Ignore impossible signatures (n/0, 2^8+) so bar length stays non-zero.
+                0x58 if data.len() >= 2 && data[0] > 0 && data[1] < 8 && before_sections => {
+                    m.timesig = (data[0], 1u8 << data[1])
+                }
+                _ => {}
+            }
+        }
+    }
+    m
+}
+
+/// What the style browser lists: the header facts, without building sections or reading
+/// the chunks after the track (CASM, OTS).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Summary {
+    /// The SFF name marker; empty if the style has none.
+    pub name: String,
+    pub bpm: f64,
+    pub timesig: (u8, u8),
+    /// Sections present, sorted.
+    pub sections: Vec<SectionId>,
+}
+
+impl Summary {
+    /// Reads only the MThd header and the style track, never the whole file.
+    pub fn load(path: &std::path::Path) -> Result<Summary> {
+        use std::io::Read;
+        // No path in the errors: the browser shows it next to them.
+        let mut f = std::fs::File::open(path)?;
+        let mut bytes = Vec::new();
+        (&mut f).take(8).read_to_end(&mut bytes)?;
+        if bytes.len() < 8 || &bytes[0..4] != b"MThd" {
+            bail!("not a MIDI/style file");
+        }
+        // The header body and the MTrk chunk header, then the track itself.
+        let hlen = be32(&bytes[4..8]).min(1 << 16);
+        (&mut f).take(hlen as u64 + 8).read_to_end(&mut bytes)?;
+        if bytes.len() == 8 + hlen + 8 {
+            let tlen = be32(&bytes[8 + hlen + 4..]);
+            (&mut f).take(tlen as u64).read_to_end(&mut bytes)?;
+        }
+        summarize(&bytes)
+    }
+}
+
+/// `Summary` of a style file's bytes; anything after the style track is ignored.
+pub fn summarize(bytes: &[u8]) -> Result<Summary> {
+    let (_, events, _) = parse_header_track(bytes)?;
+    let m = scan_meta(&events);
+    if m.marks.is_empty() {
+        bail!("no section markers found");
+    }
+    let mut sections: Vec<SectionId> = m.marks.iter().map(|&(_, id)| id).collect();
+    sections.sort();
+    sections.dedup();
+    Ok(Summary { name: m.name, bpm: 60_000_000.0 / m.tempo_us as f64, timesig: m.timesig, sections })
+}
+
 fn build_style(
     ppq: u16,
     events: Vec<TimedEv>,
     casm: Vec<Cseg>,
     other_chunks: Vec<(String, Vec<u8>)>,
 ) -> Result<Style> {
-    let mut name = String::new();
-    let mut fmt = String::new();
-    let mut tempo_us = 500_000;
-    let mut timesig = (4u8, 4u8);
-    let mut end_tick = 0;
-
-    // Find section markers.
-    let mut marks: Vec<(u32, SectionId)> = Vec::new();
-    let mut first_section_tick = None;
-    for e in &events {
-        end_tick = end_tick.max(e.tick);
-        if let Ev::Meta { ty, data } = &e.ev {
-            match *ty {
-                0x06 => {
-                    let t = String::from_utf8_lossy(data).to_string();
-                    if t == "SFF1" || t == "SFF2" {
-                        fmt = t;
-                    } else if let Some(id) = SectionId::parse(&t) {
-                        marks.push((e.tick, id));
-                        first_section_tick.get_or_insert(e.tick);
-                    }
-                }
-                0x03 if name.is_empty() => name = String::from_utf8_lossy(data).trim().to_string(),
-                0x51 if data.len() == 3 && first_section_tick.is_none() => {
-                    tempo_us = ((data[0] as u32) << 16) | ((data[1] as u32) << 8) | data[2] as u32
-                }
-                0x58 if data.len() >= 2 && first_section_tick.is_none() => {
-                    timesig = (data[0], 1u8 << data[1])
-                }
-                _ => {}
-            }
-        }
-    }
+    let Meta { name, format: fmt, tempo_us, timesig, marks, end_tick } = scan_meta(&events);
     if marks.is_empty() {
         bail!("no section markers found");
     }
-    let first = first_section_tick.unwrap();
+    let first = marks[0].0;
 
     let init: Vec<Ev> = events
         .iter()
@@ -757,8 +847,10 @@ fn build_style(
             .map(|e| TimedEv { tick: e.tick - start, ev: e.ev.clone() })
             .collect();
         // Round section length to whole bars.
-        let tpb = (ppq as u32 * 4 * timesig.0 as u32) / timesig.1.max(1) as u32;
-        let len = (((end - start) + tpb / 2) / tpb).max(1) * tpb;
+        let tpb = ((ppq as u32 * 4 * timesig.0 as u32) / timesig.1.max(1) as u32).max(1);
+        // Saturating: tick accumulation saturates, so a malformed file can put `end` at u32::MAX.
+        let bars = ((end - start).saturating_add(tpb / 2) / tpb).clamp(1, u32::MAX / tpb);
+        let len = bars * tpb;
         sections.insert(id, Section { id, start, len, events: evs });
     }
 
@@ -770,6 +862,159 @@ fn build_style(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::theory::{self, Chord, NUM_TYPES};
+
+    /// A Ctb2 record: src ch 12 -> dest 12, all roots/types on, source C + `src_type`,
+    /// with every zone byte set to `zone`.
+    fn ctb2(src_type: u8, zone: u8) -> Vec<u8> {
+        let mut d = vec![11];
+        d.extend_from_slice(b"Chord1  ");
+        d.extend_from_slice(&[11, 0, 0x0F, 0xFF, 0x03, 0xFF, 0xFF, 0xFF, 0xFF, 0, src_type, 0, 127]);
+        d.extend_from_slice(&[zone; 18]);
+        assert_eq!(d.len(), 40);
+        d
+    }
+
+    fn chunk(id: &[u8], body: &[u8]) -> Vec<u8> {
+        let mut v = id.to_vec();
+        v.extend_from_slice(&(body.len() as u32).to_be_bytes());
+        v.extend_from_slice(body);
+        v
+    }
+
+    /// Smallest style the parser accepts: one Main A bar with a note on ch 12 plus a CASM
+    /// segment holding `rec`.
+    fn style_bytes(rec_id: &[u8], rec: &[u8]) -> Vec<u8> {
+        let mut trk = vec![0x00, 0xFF, 0x06, 4];
+        trk.extend_from_slice(b"SFF2");
+        trk.extend_from_slice(&[0x00, 0xFF, 0x06, 6]);
+        trk.extend_from_slice(b"Main A");
+        trk.extend_from_slice(&[0x00, 0x9B, 60, 100, 0x83, 0x00, 0x8B, 60, 0, 0x00, 0xFF, 0x2F, 0]);
+        let mut cseg = chunk(b"Sdec", b"Main A");
+        cseg.extend(chunk(rec_id, rec));
+        let mut out = chunk(b"MThd", &[0, 0, 0, 1, 0, 96]);
+        out.extend(chunk(b"MTrk", &trk));
+        out.extend(chunk(b"CASM", &chunk(b"CSEG", &cseg)));
+        out
+    }
+
+    /// Drive every key through every chord for each rule, the way the engine would.
+    fn exercise(style: &Style) {
+        for seg in &style.casm {
+            for r in &seg.rules {
+                assert!((r.src_type as usize) < NUM_TYPES, "src_type {} survived parsing", r.src_type);
+                assert!((8..16).contains(&r.dest_ch), "dest_ch {} survived parsing", r.dest_ch);
+                // Every chord type that exists: CASM types, Cancel and the display-only ids.
+                for ty in 0..theory::TYPE_NAMES.len() as u8 {
+                    let display_only = matches!(ty, theory::M7B5 | theory::FLAT5 | theory::MM7B5);
+                    for root in 0..12 {
+                        let c = Chord::new(root, ty);
+                        let plays = theory::plays(r, c);
+                        if ty == theory::CANCEL {
+                            assert_eq!(plays, theory::is_drum_part(r.dest_ch));
+                        }
+                        if display_only {
+                            assert_eq!(plays, theory::plays(r, c.casm()));
+                        }
+                        let mut out = [None; 3];
+                        for k in 0..=127u8 {
+                            let n = theory::transpose(k, r, c);
+                            assert!(n.is_none_or(|n| n <= 127));
+                            if display_only {
+                                assert_eq!(n, theory::transpose(k, r, c.casm()));
+                            }
+                        }
+                        theory::transpose_group(&[48, 52, 55], r, c, &mut out);
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn source_chord_type_is_clamped() {
+        for (raw, want) in [(0u8, 0u8), (2, 2), (33, 33), (34, 2), (35, 2), (36, 2), (37, 2), (38, 2), (63, 2), (0x7F, 2), (0xFF, 2)] {
+            let r = parse_ctab(&ctb2(raw, 0), true).unwrap();
+            assert_eq!(r.src_type, want, "Ctb2 src_type {raw}");
+            let r = parse_ctab(&ctb2(raw, 0)[..26], false).unwrap();
+            assert_eq!(r.src_type, want, "Ctab src_type {raw}");
+        }
+    }
+
+    #[test]
+    fn malformed_ctab_transposes_without_panicking() {
+        // Out-of-range source types with garbage zone bytes (NTR/NTT/RTR enums, High Key and
+        // inverted note limits), as a whole style file through the real parser.
+        for src_type in [34u8, 35, 36, 37, 38, 63, 64, 0x80, 0xFF] {
+            for zone in [0x00u8, 0x07, 0x7F, 0x80, 0xFF] {
+                let s = parse(&style_bytes(b"Ctb2", &ctb2(src_type, zone))).unwrap();
+                exercise(&s);
+                let s = parse(&style_bytes(b"Ctab", &ctb2(src_type, zone)[..27])).unwrap();
+                exercise(&s);
+            }
+        }
+    }
+
+    #[test]
+    fn dest_channel_stays_on_accompaniment_parts() {
+        for (dest, want) in [(8u8, 8u8), (15, 15), (0x1F, 15), (0, 11), (7, 11), (0xF3, 11)] {
+            let mut d = ctb2(2, 0);
+            d[9] = dest;
+            assert_eq!(parse_ctab(&d, true).unwrap().dest_ch, want, "dest byte {dest:#x}");
+        }
+        // Source channel below 9 too: stay on the matching accompaniment part.
+        let mut d = ctb2(2, 0);
+        d[0] = 2;
+        d[9] = 2;
+        assert_eq!(parse_ctab(&d, true).unwrap().dest_ch, 10);
+    }
+
+    #[test]
+    fn huge_deltas_do_not_overflow_section_length() {
+        // Main A marker, then 20 events each 0x0FFFFFFF ticks apart: the end tick saturates
+        // at u32::MAX and the bar rounding must not overflow.
+        let mut trk = vec![0x00, 0xFF, 0x06, 4];
+        trk.extend_from_slice(b"SFF2");
+        trk.extend_from_slice(&[0x00, 0xFF, 0x06, 6]);
+        trk.extend_from_slice(b"Main A");
+        trk.extend_from_slice(&[0x00, 0x9B, 60, 100]);
+        for _ in 0..20 {
+            trk.extend_from_slice(&[0xFF, 0xFF, 0xFF, 0x7F, 0x8B, 60, 0]);
+        }
+        trk.extend_from_slice(&[0x00, 0xFF, 0x2F, 0]);
+        let mut bytes = chunk(b"MThd", &[0, 0, 0, 1, 0, 96]);
+        bytes.extend(chunk(b"MTrk", &trk));
+        let s = parse(&bytes).unwrap();
+        let sec = &s.sections[&SectionId::Main(0)];
+        let tpb = 96 * 4;
+        assert!(sec.len >= tpb && sec.len % tpb == 0, "len {}", sec.len);
+        assert!(sec.len > u32::MAX - tpb, "len {} should cover the whole saturated span", sec.len);
+    }
+
+    #[test]
+    fn truncated_and_corrupted_files_do_not_panic() {
+        let good = style_bytes(b"Ctb2", &ctb2(0xFF, 0xFF));
+        assert!(parse(&good).is_ok());
+        for n in 0..good.len() {
+            if let Ok(s) = parse(&good[..n]) {
+                exercise(&s);
+            }
+        }
+        // Deterministic byte flips over every position.
+        let mut seed = 0x2545_F491_4F6C_DD1Du64;
+        for i in 0..good.len() {
+            for _ in 0..4 {
+                seed ^= seed << 13;
+                seed ^= seed >> 7;
+                seed ^= seed << 17;
+                let mut b = good.clone();
+                b[i] = seed as u8;
+                if let Ok(s) = parse(&b) {
+                    exercise(&s);
+                }
+            }
+        }
+    }
 
     #[test]
     fn ots_parse() {

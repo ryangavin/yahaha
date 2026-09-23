@@ -1,0 +1,21 @@
+# Golden chord script: played on every style in src/golden.rs. Grammar: README.md.
+# Changing this file changes every snapshot; regenerate them in the same commit.
+
+# Intro A, started by the first chord (Sync Start), then Main A.
+[IntroA] | C | G7 |
+| C | Am | Dm7 | G7 |
+# Four-note qualities and on-bass chords.
+| Cmaj7 | Am7 | Fmaj7 | Fm6 |
+| C/E | Ebdim7 | Dm7 G7 | Caug - - [MainB] - |
+# Fill into Main B: sus chords, 1+5, half-diminished, a descending bass.
+| Csus4 C | Asus2 A | C1+5 | Bm7b5 E7 |
+| Am | Am/G | F#m7b5 | Fmaj7 - - [Break] - |
+# Break, then Main C with tensions.
+| E7sus4 E7 | Am - - [MainC] - |
+| A7 | D9 | Gm | C7b9 |
+| Fm | Bb13 | Ebmaj7 | Ab7#11 - - [MainD] - |
+# Main D: minor-major, augmented seventh, diminished, altered dominants, slash over the fifth.
+| Dbmaj7 | CmMaj7 | Cdim | G7#5 |
+| Cm(add9) | Ab7 | G7#9 | C/G - - [EndingA] - |
+# Ending A, then let it run out.
+| C | - | - | - |
