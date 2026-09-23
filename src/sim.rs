@@ -1048,6 +1048,45 @@ mod mixer {
         assert_eq!(sent_levels(&rec), want.map(Some));
     }
 
+    /// The takeover rule on its own (the master fader uses it directly).
+    #[test]
+    fn takeover_rule() {
+        use crate::engine::Takeover;
+        let mut t = Takeover::NEW;
+        assert!(!t.waiting());
+        assert!(!t.hardware(100, 20), "never reported and far: wait");
+        assert!(t.waiting());
+        assert!(!t.hardware(100, 97), "3 away: still waiting");
+        assert!(t.hardware(100, 98), "within 2: picked up");
+        assert!(t.hardware(100, 10), "then it follows");
+        t.software_moved(60);
+        assert!(t.waiting());
+        assert!(!t.hardware(60, 20));
+        // Moves in between lost (full ring): a jump across the value still picks up.
+        assert!(t.hardware(60, 90));
+        t.software_moved(91);
+        assert!(!t.waiting(), "the fader is already within 2 of the new value");
+        let mut u = Takeover::NEW;
+        assert!(u.hardware(100, 101), "first report within 2 picks up at once");
+    }
+
+    /// A start keeps a fader the player moved, and its hardware fader stays in control.
+    #[test]
+    fn start_keeps_moved_fader_under_hardware_control() {
+        let Some(p) = prep("TickingAway.T162.sty") else { return };
+        let mix = p.mix;
+        let mut e = Engine::new(p);
+        let mut rec = Recorder::default();
+        let part = (0..8).find(|&i| mix[i] > 20).unwrap();
+        e.hw_fader(part as u8, mix[part], &mut rec); // picked up, but the player moved nothing
+        e.set_volume(part as u8, mix[part], &mut rec);
+        assert_eq!(e.snapshot(0).pickup, 0);
+        e.hw_fader(part as u8, 5, &mut rec); // player pulls it down
+        e.button(Button::StartStop, 0, &mut rec);
+        assert_eq!(e.snapshot(0).volumes[part], 5, "a moved fader survives a start");
+        assert_eq!(e.snapshot(0).pickup, 0);
+    }
+
     /// Soft takeover: after software moved a fader, the hardware fader does nothing until
     /// it comes within 2 of the value or crosses it; then it follows.
     #[test]

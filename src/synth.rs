@@ -62,6 +62,10 @@ pub struct SynthControl {
     pub muted: AtomicBool,
     /// First (left) output channel of the stereo pair, 0-based.
     pub out_ch: AtomicU8,
+    /// The Launchkey master fader is waiting to pick up `master` (soft takeover).
+    pub master_waiting: AtomicBool,
+    /// The Style's Bass part fader (its CC7): the Left part's volume under Manual Bass.
+    pub bass_vol: AtomicU8,
 }
 
 pub struct Synth {
@@ -98,6 +102,8 @@ impl SynthControl {
             ots_applied: AtomicU8::new(0),
             muted: AtomicBool::new(false),
             out_ch: AtomicU8::new(out_ch),
+            master_waiting: AtomicBool::new(false),
+            bass_vol: AtomicU8::new(100),
         }
     }
 
@@ -145,7 +151,25 @@ impl SynthControl {
         self.slots_changed.store(true, Relaxed);
     }
 
-    /// Manual Bass on/off: the Left part switches between its own voice and the Style's Bass voice.
+    /// The CC7 of your two parts, as sent on their channels (right hand ch 1, left hand
+    /// ch 2): the right hand's is the lowest layered slot's volume (Right 1 when it is on),
+    /// the left hand's the Left volume, or the Style's Bass fader under Manual Bass.
+    pub fn port_volumes(&self) -> (u8, u8) {
+        let active = self.active.load(Relaxed);
+        let slot = if active == 0 { 0 } else { active.trailing_zeros() as usize & (SLOTS - 1) };
+        let rh = self.slot_vol[slot].load(Relaxed);
+        let lh = if self.manual_bass.load(Relaxed) { self.bass_vol.load(Relaxed) } else { self.left_vol.load(Relaxed) };
+        (rh, lh)
+    }
+
+    /// The Style's Bass fader moved (engine thread): under Manual Bass the Left part follows.
+    pub fn set_bass_vol(&self, v: u8) {
+        if self.bass_vol.swap(v, Relaxed) != v && self.manual_bass.load(Relaxed) {
+            self.slots_changed.store(true, Relaxed);
+        }
+    }
+
+    /// Manual Bass on/off: the Left part switches between its own voice and level and the Style's Bass voice and fader.
     pub fn set_manual_bass(&self, on: bool) {
         self.manual_bass.store(on, Relaxed);
         self.slots_changed.store(true, Relaxed);
@@ -201,7 +225,7 @@ fn sync_player(player: &mut Synthesizer, ctl: &SynthControl) {
     }
     let left = if ctl.manual_bass.load(Relaxed) { &ctl.bass_program } else { &ctl.left_program };
     player.process_midi_message(LEFT_CH, 0xC0, left.load(Relaxed) as i32, 0);
-    player.process_midi_message(LEFT_CH, 0xB0, 7, ctl.left_vol.load(Relaxed) as i32);
+    player.process_midi_message(LEFT_CH, 0xB0, 7, ctl.port_volumes().1 as i32);
 }
 
 pub fn feeds() -> Feeds {
@@ -243,6 +267,23 @@ pub const MASTER_UNITY: u8 = 100;
 #[inline]
 pub fn master_gain(master: u8) -> f32 {
     master.min(127) as f32 / MASTER_UNITY as f32
+}
+
+/// Where the output safety clipper starts: -1 dBFS. Below it the output is untouched.
+pub const CLIP_KNEE: f32 = 0.891_250_9;
+
+/// Safety soft clipper on the final output only (not a level control: nothing below
+/// -1 dBFS changes). Above the knee the sample bends smoothly (slope 1 at the knee, tanh
+/// shape) towards full scale, which it never exceeds, so a hot mix at master 127 plus
+/// your playing saturates gently instead of wrapping into digital clipping.
+#[inline]
+pub fn soft_clip(x: f32) -> f32 {
+    let a = x.abs();
+    if a <= CLIP_KNEE {
+        return x;
+    }
+    let room = 1.0 - CLIP_KNEE;
+    (CLIP_KNEE + room * ((a - CLIP_KNEE) / room).tanh()).copysign(x)
 }
 
 fn apply(synth: &mut Synthesizer, player: &mut Synthesizer, m: &Msg, ctl: &SynthControl, bank: &mut [u8; 16], pl: &mut Player) {
@@ -375,8 +416,8 @@ pub fn start(sf2: &Path, consumers: Vec<Consumer<Msg>>, out_pair: Option<u8>) ->
         for (i, frame) in out.chunks_mut(channels).take(frames).enumerate() {
             frame.fill(0.0);
             if !mute {
-                frame[lc] += left[i];
-                frame[rc] += right[i];
+                frame[lc] += soft_clip(left[i]);
+                frame[rc] += soft_clip(right[i]);
             }
         }
     };
@@ -590,6 +631,47 @@ mod curve_tests {
         assert_eq!(master_gain(50), 0.5);
     }
 
+    #[test]
+    fn soft_clip_is_transparent_below_minus_1_dbfs() {
+        for x in [0.0f32, 0.1, -0.5, 0.7, -0.89, CLIP_KNEE, -CLIP_KNEE] {
+            assert_eq!(soft_clip(x), x);
+        }
+        // Above the knee: continuous, monotonic, never past full scale, odd.
+        let mut prev = CLIP_KNEE;
+        for i in 1..=400 {
+            let x = CLIP_KNEE + i as f32 * 0.01;
+            let y = soft_clip(x);
+            assert!(y >= prev && y < 1.0 + 1e-6, "{x} -> {y}");
+            assert_eq!(soft_clip(-x), -y);
+            prev = y;
+        }
+        assert!((soft_clip(CLIP_KNEE + 1e-4) - (CLIP_KNEE + 1e-4)).abs() < 1e-5, "slope 1 at the knee");
+        assert!(soft_clip(1.0) < 1.0 && soft_clip(1.0) > 0.97);
+    }
+
+    /// Your parts' CC7 for the port: the lowest layered slot, the Left volume, and under
+    /// Manual Bass the Style's Bass fader.
+    #[test]
+    fn port_volumes_follow_slots_left_and_manual_bass() {
+        let c = SynthControl::new(0);
+        assert_eq!(c.port_volumes(), (100, 100));
+        c.slot_vol[0].store(80, Relaxed);
+        c.slot_vol[3].store(60, Relaxed);
+        c.left_vol.store(40, Relaxed);
+        assert_eq!(c.port_volumes(), (80, 40));
+        c.press_slot(3);
+        assert_eq!(c.port_volumes(), (60, 40));
+        c.slots_changed.store(false, Relaxed);
+        c.set_bass_vol(90); // Manual Bass off: the Left part keeps its own level
+        assert!(!c.slots_changed.load(Relaxed));
+        c.set_manual_bass(true);
+        assert_eq!(c.port_volumes(), (60, 90));
+        c.slots_changed.store(false, Relaxed);
+        c.set_bass_vol(70);
+        assert!(c.slots_changed.load(Relaxed), "the player synth's Left channel follows the Bass fader");
+        assert_eq!(c.port_volumes().1, 70);
+    }
+
     /// Level (dB) of a sustained organ note on band channel 11 after `setup`, through `apply`.
     fn level(font: &Arc<SoundFont>, setup: &[Msg], vel: u8) -> f64 {
         let mut synth = Synthesizer::new(font, &SynthesizerSettings::new(48_000)).unwrap();
@@ -647,7 +729,7 @@ mod loudness_probe {
         let mut files: Vec<_> = std::fs::read_dir(root.join("corpus/MOX_v2")).unwrap().flatten().map(|e| e.path())
             .filter(|p| p.extension().map_or(false, |x| x.eq_ignore_ascii_case("sty"))).collect();
         files.sort();
-        for f in files.iter().take(14) {
+        for f in &files {
             let style = Style::load(f).unwrap();
             let prep = Box::new(Prepared::new(&style));
             let bar = (60e9 / prep.bpm * (prep.tpb as f64 / prep.ppq as f64)) as u64;
@@ -683,6 +765,30 @@ mod loudness_probe {
                 let db = 10.0 * ((e / n as f64).max(1e-12)).log10();
                 line.push_str(&format!(" {:>5.1}dB v{:>3}e{:>3}vl{:>3.0}", db, cc(7), cc(11), vel));
             }
+            // The whole band as the audio callback renders it: master at unity, reverb and
+            // chorus on (rustysynth's default), peak before the safety clipper.
+            let mut synth = Synthesizer::new(&font, &SynthesizerSettings::new(48000)).unwrap();
+            let mut player = Synthesizer::new(&font, &SynthesizerSettings::new(48000)).unwrap();
+            synth.set_master_volume(master_gain(MASTER_UNITY));
+            synth.process_midi_message(8, 0xB0, 0, 128);
+            let ctl = SynthControl::new(0);
+            let (mut bank, mut pl) = ([0u8; 16], Player::new());
+            let (mut l, mut r) = (vec![0f32; 64], vec![0f32; 64]);
+            let (mut t, mut i, mut peak) = (0u64, 0usize, 0f32);
+            while t < 4 * bar * 48000 / 1_000_000_000 {
+                let now = t * 1_000_000_000 / 48000;
+                while i < rec.out.len() && rec.out[i].0 <= now {
+                    let m = &rec.out[i].1;
+                    let mut a = [0u8; 3];
+                    a[..m.len().min(3)].copy_from_slice(&m[..m.len().min(3)]);
+                    apply(&mut synth, &mut player, &a, &ctl, &mut bank, &mut pl);
+                    i += 1;
+                }
+                synth.render(&mut l, &mut r);
+                peak = l.iter().chain(&r).fold(peak, |p, x| p.max(x.abs()));
+                t += 64;
+            }
+            line.push_str(&format!("  mix peak {:>5.1} dBFS", 20.0 * peak.max(1e-9).log10()));
             println!("{line}");
         }
     }

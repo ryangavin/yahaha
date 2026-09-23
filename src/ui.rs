@@ -352,6 +352,7 @@ pub fn play(opts: Options) -> Result<()> {
         live::Out::new(PacketSink::new(Target::Virtual(out_src)), feeds.input),
     );
     input.set_synth(synth.as_ref().map(|s| s.control.clone()));
+    ch.io.player = synth.as_ref().map(|s| s.control.clone());
     // Launchkey pads and buttons that run here, like their keyboard shortcuts.
     let (act_tx, mut act_rx) = rtrb::RingBuffer::<Action>::new(64);
     input.set_actions(act_tx);
@@ -975,7 +976,7 @@ fn draw(
                 Some((info_s, c)) => {
                     Span::styled(
                         format!(
-                            " synth: {} → {} out {}/{} [a] · {} Hz · {} · master {} · re-voice slot [9/0] · {}[k]",
+                            " synth: {} → {} out {}/{} [a] · {} Hz · {} · master {}{} · re-voice slot [9/0] · {}[k]",
                             info_s.name,
                             info_s.device,
                             c.out_ch.load(Relaxed) + 1,
@@ -983,6 +984,7 @@ fn draw(
                             info_s.sample_rate,
                             info_s.buffer.map(|b| format!("{b} frames ({:.1} ms)", b as f64 * 1000.0 / info_s.sample_rate as f64)).unwrap_or("default buffer".into()),
                             c.master.load(Relaxed),
+                            if c.master_waiting.load(Relaxed) { " ↕" } else { "" },
                             if c.muted.load(Relaxed) { "MUTED " } else { "" },
                         ),
                         dim,

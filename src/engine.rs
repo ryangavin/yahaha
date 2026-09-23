@@ -320,8 +320,48 @@ struct Sounding {
     started_ns: u64,
 }
 
-/// `Engine::hw`: this hardware fader has not reported a position yet.
+/// Soft takeover for an absolute, non-motorised hardware fader controlling a value that
+/// software can also move (the Launchkey part and master faders). After software moves
+/// the value, the fader is ignored until it comes within `PICKUP_RANGE` of it or crosses
+/// it; then it follows again. A fader that has never reported must also pick up first.
+#[derive(Clone, Copy, Debug)]
+pub struct Takeover {
+    /// Last position the fader reported (`HW_UNKNOWN` until it moves).
+    hw: u8,
+    /// The fader tracks the value.
+    picked: bool,
+}
+
+/// `Takeover::hw`: the fader has not reported a position yet.
 const HW_UNKNOWN: u8 = 255;
+
+impl Takeover {
+    pub const NEW: Takeover = Takeover { hw: HW_UNKNOWN, picked: false };
+
+    /// Software set the value to `v`: the fader keeps control only if it is already there.
+    pub fn software_moved(&mut self, v: u8) {
+        self.picked = self.hw != HW_UNKNOWN && self.hw.abs_diff(v) <= PICKUP_RANGE;
+    }
+
+    /// The fader reported `v` while the value is `cur`. True: the fader controls the value
+    /// and `v` applies. Crossing is judged from the last report, so a move lost on the way
+    /// (a full command ring) still counts as a crossing on the next one.
+    pub fn hardware(&mut self, cur: u8, v: u8) -> bool {
+        let prev = std::mem::replace(&mut self.hw, v);
+        if !self.picked {
+            let (c, a, b) = (cur as i16, prev as i16, v as i16);
+            let near = v.abs_diff(cur) <= PICKUP_RANGE;
+            let crossed = prev != HW_UNKNOWN && (a - c).signum() != (b - c).signum();
+            self.picked = near || crossed;
+        }
+        self.picked
+    }
+
+    /// The fader has reported a position but does not control the value yet.
+    pub fn waiting(&self) -> bool {
+        self.hw != HW_UNKNOWN && !self.picked
+    }
+}
 
 const EMPTY: Sounding = Sounding { active: false, src: 0, src_key: 0, dest: 0, out: 0, vel: 0, slot: 0, started_ns: 0 };
 const MAX_SOUNDING: usize = 256;
@@ -383,10 +423,8 @@ pub struct Engine {
     /// Parts whose fader the player has moved since the style loaded: pattern CC7 no
     /// longer overrides them.
     user_set: u8,
-    /// Last position reported by each hardware fader (`HW_UNKNOWN` until it moves).
-    hw: [u8; 8],
-    /// Hardware faders that track the software value; the others wait for pickup.
-    picked: u8,
+    /// Soft takeover state of each part's hardware fader.
+    takeover: [Takeover; 8],
     stop_acmp: bool,
     /// Manual Bass (Upper detection mode): the Style's Bass part is muted; the player's
     /// left hand plays the bass instead.
@@ -424,8 +462,7 @@ impl Engine {
             parts: 0xFF,
             mixer,
             user_set: 0,
-            hw: [HW_UNKNOWN; 8],
-            picked: 0,
+            takeover: [Takeover::NEW; 8],
             stop_acmp: false,
             manual_bass: false,
             taps: [0; 4],
@@ -483,12 +520,7 @@ impl Engine {
     /// is not already there has to pick the new value up before it takes control again.
     fn set_mixer(&mut self, p: usize, v: u8) {
         self.mixer[p] = v;
-        let bit = 1 << p;
-        if self.hw[p] != HW_UNKNOWN && self.hw[p].abs_diff(v) <= PICKUP_RANGE {
-            self.picked |= bit;
-        } else {
-            self.picked &= !bit;
-        }
+        self.takeover[p].software_moved(v);
     }
 
     /// A CC7 from the style's pattern on `ch`. It is the part's fader value, so it moves the
@@ -521,25 +553,16 @@ impl Engine {
     pub fn hw_fader(&mut self, part: u8, value: u8, sink: &mut impl Sink) {
         let p = (part & 7) as usize;
         let v = value.min(127);
-        let prev = std::mem::replace(&mut self.hw[p], v);
-        let bit = 1 << p;
-        if self.picked & bit == 0 {
-            let cur = self.mixer[p] as i16;
-            let near = v.abs_diff(self.mixer[p]) <= PICKUP_RANGE;
-            let crossed = prev != HW_UNKNOWN && (prev as i16 - cur).signum() != (v as i16 - cur).signum();
-            if !near && !crossed {
-                return;
-            }
-            self.picked |= bit;
+        if self.takeover[p].hardware(self.mixer[p], v) {
+            self.set_volume(part, v, sink);
         }
-        self.set_volume(part, v, sink);
     }
 
     /// Parts whose hardware fader has reported a position but not yet picked up.
     fn pickup_waiting(&self) -> u8 {
         let mut m = 0;
-        for p in 0..8 {
-            if self.hw[p] != HW_UNKNOWN && self.picked & (1 << p) == 0 {
+        for (p, t) in self.takeover.iter().enumerate() {
+            if t.waiting() {
                 m |= 1 << p;
             }
         }
