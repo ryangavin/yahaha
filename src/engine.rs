@@ -259,6 +259,17 @@ const STOP_ACMP_SRC: u8 = 255;
 /// the player's chord landed just after the beat.
 const LATE_CHORD_NS: u64 = 40_000_000;
 
+/// The chord a channel follows. With no chord yet, or after Chord Cancel ("a state in
+/// which no chord is input", OM p.46), only rhythm parts and channels whose CASM
+/// autostart bit is set play, as recorded (their source chord); everything else rests.
+fn effective_chord(chord: Option<Chord>, rule: &ChannelRule) -> Option<Chord> {
+    match chord {
+        Some(c) if c.ty != CANCEL => Some(c),
+        _ if is_drum_part(rule.dest_ch) || rule.autostart => Some(Chord::new(rule.src_root, rule.src_type)),
+        _ => None,
+    }
+}
+
 #[derive(Clone, Copy)]
 struct Queued {
     slot: usize,
@@ -278,6 +289,9 @@ pub struct Engine {
     pending_intro: Option<u8>,
     cur: usize,
     sec_start: f64,
+    /// Section-relative tick this pass of the section started playing from (a Fill or
+    /// Break enters mid-bar; nothing before it has sounded).
+    entry: f64,
     ev_idx: usize,
     queued: Option<Queued>,
     chord: Option<Chord>,
@@ -309,6 +323,7 @@ impl Engine {
             pending_intro: None,
             cur: 4,
             sec_start: 0.0,
+            entry: 0.0,
             ev_idx: 0,
             queued: None,
             chord: None,
@@ -457,14 +472,17 @@ impl Engine {
 
     /// Returns true if this chord should start playback (sync start).
     pub fn set_chord(&mut self, chord: Chord, now: u64, sink: &mut impl Sink) {
-        let first = self.chord.is_none();
+        let prev = self.chord;
         self.chord = Some(chord);
         if self.sync_armed && !self.running && chord.ty != CANCEL {
             self.start(now, sink);
             return;
         }
-        if self.running && !first {
-            self.revoice(chord, now, sink);
+        if self.running {
+            if prev.is_some() {
+                self.revoice(chord, now, sink);
+            }
+            self.catch_up(prev, chord, now, sink);
         }
         if !self.running && self.stop_acmp {
             self.sound_stop_acmp(chord, now, sink);
@@ -638,6 +656,7 @@ impl Engine {
         self.send_init(sink);
         self.cur = slot;
         self.sec_start = 0.0;
+        self.entry = 0.0;
         self.ev_idx = 0;
         self.queued = None;
         self.process(now, sink);
@@ -687,6 +706,7 @@ impl Engine {
 
     fn seek(&mut self, pos: f64) {
         let sec = self.style.sections[self.cur].as_ref().unwrap();
+        self.entry = pos;
         self.ev_idx = sec.events.partition_point(|e| (e.tick as f64) < pos);
     }
 
@@ -754,11 +774,7 @@ impl Engine {
     }
 
     fn chord_for(&self, rule: &ChannelRule) -> Option<Chord> {
-        match self.chord {
-            Some(c) => Some(c),
-            None if is_drum_part(rule.dest_ch) || rule.autostart => Some(Chord::new(rule.src_root, rule.src_type)),
-            None => None,
-        }
+        effective_chord(self.chord, rule)
     }
 
     fn emit_at_index(&mut self, now: u64, sink: &mut impl Sink) {
@@ -861,6 +877,67 @@ impl Engine {
         }
     }
 
+    /// A chord that lands just after the beat (within `LATE_CHORD_NS`) also brings in
+    /// the parts the previous chord kept silent (no chord yet, Chord Cancel, or CASM
+    /// chord-mute routing). Their notes from that window were skipped, so `revoice` has
+    /// nothing to correct; start the ones the pattern still holds now.
+    fn catch_up(&mut self, prev: Option<Chord>, chord: Chord, now: u64, sink: &mut impl Sink) {
+        let Some(sec) = self.style.sections[self.cur].as_ref() else { return };
+        // Never reach back past where this section came in: those notes never played.
+        let lo = (self.tick_at(now.saturating_sub(LATE_CHORD_NS)) - self.sec_start).max(self.entry);
+        let end = self.ev_idx.min(sec.events.len());
+        let mut i = end;
+        while i > 0 && sec.events[i - 1].tick as f64 >= lo {
+            i -= 1;
+        }
+        // (src, src key, dest, out, vel): room for 8 parts x 8 notes; beyond that the
+        // rest are dropped rather than allocating.
+        let mut buf = [(0u8, 0u8, 0u8, 0u8, 0u8); 64];
+        let mut n_buf = 0;
+        while i < end {
+            let e = sec.events[i];
+            // Group simultaneous note-ons on this source channel, as `emit_at_index` does.
+            let mut keys = [0u8; 8];
+            let mut vels = [0u8; 8];
+            let mut n = 0;
+            let mut j = i;
+            while let Some(g) = sec.events[..end].get(j) {
+                match g.kind {
+                    PKind::On { key, vel } if g.tick == e.tick && g.src == e.src && n < 8 => {
+                        keys[n] = key;
+                        vels[n] = vel;
+                        n += 1;
+                        j += 1;
+                    }
+                    _ => break,
+                }
+            }
+            i = j.max(i + 1);
+            let Some(rule) = sec.rules[e.src as usize].as_ref() else { continue };
+            let part_on = self.parts & (1 << (rule.dest_ch.saturating_sub(8) & 7)) != 0;
+            let was = effective_chord(prev, rule).filter(|&c| plays(rule, c));
+            let Some(now_chord) = effective_chord(Some(chord), rule).filter(|&c| plays(rule, c)) else { continue };
+            if n == 0 || !part_on || was.is_some() {
+                continue;
+            }
+            let mut outs = [None; 8];
+            transpose_group(&keys[..n], rule, now_chord, &mut outs[..n]);
+            for k in 0..n {
+                let released = sec.events[j..end]
+                    .iter()
+                    .any(|o| o.src == e.src && matches!(o.kind, PKind::Off { key } if key == keys[k]));
+                if let (Some(out), false, true) = (outs[k], released, n_buf < buf.len()) {
+                    buf[n_buf] = (e.src, keys[k], rule.dest_ch, out, vels[k]);
+                    n_buf += 1;
+                }
+            }
+        }
+        let slot = self.cur as u8;
+        for &(src, key, dest, out, vel) in &buf[..n_buf] {
+            self.note_on(src, key, dest, out, vel, slot, now, sink);
+        }
+    }
+
     /// Re-pitch sounding notes after a chord change according to each part's retrigger rule.
     fn revoice(&mut self, chord: Chord, now: u64, sink: &mut impl Sink) {
         for i in 0..MAX_SOUNDING {
@@ -870,11 +947,11 @@ impl Engine {
             }
             let Some(sec) = self.style.sections[s.slot as usize].as_ref() else { continue };
             let Some(rule) = sec.rules[s.src as usize].as_ref() else { continue };
-            if !plays(rule, chord) {
+            let Some(chord) = effective_chord(Some(chord), rule).filter(|&c| plays(rule, c)) else {
                 self.sounding[i].active = false;
                 sink.send(&[0x80 | s.dest, s.out, 0]);
                 continue;
-            }
+            };
             // Group notes that started together on this channel so Root Fixed voicings move as a unit.
             let mut idx = [0usize; 8];
             let mut keys = [0u8; 8];

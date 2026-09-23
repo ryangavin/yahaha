@@ -364,6 +364,204 @@ mod tests {
         }
     }
 
+    fn bar_ns(prep: &Prepared) -> u64 {
+        (60e9 / prep.bpm * (prep.tpb as f64 / prep.ppq as f64)) as u64
+    }
+
+    /// Note-ons in [from, to) as (channel, key).
+    fn ons(rec: &Recorder, from: u64, to: u64) -> Vec<(u8, u8)> {
+        rec.out
+            .iter()
+            .filter(|(t, m)| *t >= from && *t < to && m[0] & 0xF0 == 0x90 && m[2] > 0)
+            .map(|(_, m)| (m[0] & 0xF, m[1]))
+            .collect()
+    }
+
+    /// Chord Cancel is the no-chord state: every part except rhythm (and CASM autostart
+    /// channels) goes quiet at once, and the band comes back on the next chord.
+    #[test]
+    fn chord_cancel_leaves_only_rhythm() {
+        use crate::theory::{is_drum_part, CANCEL};
+        let files = corpus();
+        if files.is_empty() {
+            eprintln!("no corpus; skipping");
+            return;
+        }
+        for f in files {
+            let style = Style::load(&f).unwrap();
+            let name = f.file_name().unwrap().to_string_lossy().to_string();
+            let autostart: Vec<u8> =
+                style.casm.iter().flat_map(|s| &s.rules).filter(|r| r.autostart).map(|r| r.dest_ch).collect();
+            let rests = |ch: u8| !is_drum_part(ch) && !autostart.contains(&ch);
+            let prep = Box::new(Prepared::new(&style));
+            let bar = bar_ns(&prep);
+            let (t_cancel, t_back) = (2 * bar + bar / 3, 4 * bar + bar / 3);
+            let script = [(0, Step::Chord(Chord::new(0, 0))), (t_cancel, Step::Chord(Chord::new(0, CANCEL))),
+                          (t_back, Step::Chord(Chord::new(5, 0)))];
+            let (_, rec) = run(prep, &script, 6 * bar);
+            // By the end of the Cancel instant every resting part has been released.
+            let mut held = std::collections::HashMap::<(u8, u8), i32>::new();
+            for (_, m) in rec.out.iter().filter(|(t, m)| *t <= t_cancel && rests(m[0] & 0xF)) {
+                match m[0] & 0xF0 {
+                    0x90 if m[2] > 0 => *held.entry((m[0] & 0xF, m[1])).or_default() += 1,
+                    0x80 | 0x90 => *held.entry((m[0] & 0xF, m[1])).or_default() -= 1,
+                    _ => {}
+                }
+            }
+            assert!(held.values().all(|&n| n == 0), "{name}: still sounding after Cancel: {held:?}");
+            let before = ons(&rec, 0, t_cancel);
+            let during = ons(&rec, t_cancel, t_back);
+            let after = ons(&rec, t_back, 6 * bar);
+            assert!(during.iter().all(|&(ch, _)| !rests(ch)), "{name}: plays under Cancel: {during:?}");
+            if before.iter().any(|&(ch, _)| is_drum_part(ch)) {
+                assert!(during.iter().any(|&(ch, _)| is_drum_part(ch)), "{name}: rhythm stopped under Cancel");
+            }
+            if before.iter().any(|&(ch, _)| rests(ch)) {
+                assert!(after.iter().any(|&(ch, _)| rests(ch)), "{name}: band did not come back after Cancel");
+            }
+        }
+    }
+
+    /// Notes sounding once everything at time `t` has been sent, as sorted (channel, key).
+    fn held_at(rec: &Recorder, t: u64) -> Vec<(u8, u8)> {
+        let mut held = std::collections::BTreeMap::<(u8, u8), i32>::new();
+        for (_, m) in rec.out.iter().filter(|(at, m)| *at <= t && m[0] & 0xE0 == 0x80) {
+            let n = held.entry((m[0] & 0xF, m[1])).or_default();
+            *n = if m[0] & 0xF0 == 0x90 && m[2] > 0 { *n + 1 } else { 0 };
+        }
+        held.into_iter().filter(|&(_, n)| n > 0).map(|(k, _)| k).collect()
+    }
+
+    /// A chord that ends the no-chord state (Chord Cancel, or Start with no chord yet)
+    /// a little after the barline still gets the downbeat: once it lands, the same notes
+    /// sound as if it had come exactly on the beat.
+    #[test]
+    fn late_chord_after_no_chord_keeps_the_downbeat() {
+        use crate::theory::CANCEL;
+        let files = corpus();
+        if files.is_empty() {
+            eprintln!("no corpus; skipping");
+            return;
+        }
+        let late = 20_000_000;
+        for f in files {
+            let style = Style::load(&f).unwrap();
+            let name = f.file_name().unwrap().to_string_lossy().to_string();
+            let prep = Prepared::new(&style);
+            let bar = bar_ns(&prep);
+            let t_f = 4 * bar + late;
+            let intros: [Vec<(u64, Step)>; 2] = [
+                vec![(0, Step::Chord(Chord::new(0, 0))), (2 * bar + bar / 3, Step::Chord(Chord::new(0, CANCEL)))],
+                vec![(0, Step::Button(Button::StartStop))],
+            ];
+            for (what, intro) in ["Cancel", "no chord"].iter().zip(intros) {
+                let mut held = Vec::new();
+                for at in [4 * bar, t_f] {
+                    let mut script = intro.clone();
+                    script.push((at, Step::Chord(Chord::new(5, 0))));
+                    let (_, rec) = run(Box::new(Prepared::new(&style)), &script, t_f + 1);
+                    held.push(held_at(&rec, t_f));
+                }
+                assert_eq!(held[1], held[0], "{name}: F 20 ms late after {what}");
+            }
+            // Break pressed under Cancel enters mid-bar on the next beat. A chord just after
+            // that entry must not start Break notes from before it, which never sounded.
+            let beat = bar * prep.ppq as u64 / prep.tpb as u64;
+            let press = 3 * bar + beat + beat / 2;
+            let entry = 3 * bar + 2 * beat;
+            for late in [10_000_000, 20_000_000, 35_000_000] {
+                let t_f = entry + late;
+                let mut held = Vec::new();
+                for at in [entry, t_f] {
+                    let script = [(0, Step::Chord(Chord::new(0, 0))), (2 * bar + bar / 3, Step::Chord(Chord::new(0, CANCEL))),
+                                  (press, Step::Button(Button::Break)), (at, Step::Chord(Chord::new(5, 0)))];
+                    let (_, rec) = run(Box::new(Prepared::new(&style)), &script, t_f + 1);
+                    held.push(held_at(&rec, t_f));
+                }
+                assert_eq!(held[1], held[0], "{name}: F {} ms after a Break entry under Cancel", late / 1_000_000);
+            }
+        }
+    }
+
+    /// Cancel is not a chord, so it does not trigger Sync Start.
+    #[test]
+    fn chord_cancel_does_not_sync_start() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus/MOX_v2/FunkyFinger.S930.STY");
+        if !path.exists() {
+            return;
+        }
+        let prep = Box::new(Prepared::new(&Style::load(&path).unwrap()));
+        let bar = bar_ns(&prep);
+        let (e, rec) = run(prep, &[(0, Step::Chord(Chord::new(0, crate::theory::CANCEL)))], bar);
+        assert!(!e.is_running());
+        assert!(ons(&rec, 0, bar).is_empty());
+    }
+
+    /// 1+8 and 1+5 over every corpus style: parts that follow the chord (NTT other than
+    /// Bypass) play only the root for 1+8, and only root, 5th, 2nd and 4th for 1+5. The
+    /// CASM chord-mute routing in the corpus always gives the bass something to play.
+    #[test]
+    fn corpus_one_plus_eight_and_one_plus_five() {
+        use crate::sff::Ntt;
+        use crate::theory::is_drum_part;
+        let files = corpus();
+        if files.is_empty() {
+            eprintln!("no corpus; skipping");
+            return;
+        }
+        for f in files {
+            let style = Style::load(&f).unwrap();
+            let name = f.file_name().unwrap().to_string_lossy().to_string();
+            // Channels written to play as recorded are exempt.
+            let as_written: Vec<u8> = style
+                .casm
+                .iter()
+                .filter(|s| s.sections.iter().any(|n| n == "Main A"))
+                .flat_map(|s| &s.rules)
+                .filter(|r| r.zones.iter().any(|z| z.ntt == Ntt::Bypass))
+                .map(|r| r.dest_ch)
+                .collect();
+            let follows = |ch: u8| !is_drum_part(ch) && !as_written.contains(&ch);
+            let prep = Box::new(Prepared::new(&style));
+            let bar = bar_ns(&prep);
+            let script = [(0, Step::Chord(Chord::new(7, 30))), (2 * bar, Step::Chord(Chord::new(2, 31))),
+                          (4 * bar, Step::Chord(Chord::new(0, 0)))];
+            let (_, rec) = run(prep, &script, 6 * bar);
+            let g8 = ons(&rec, 0, 2 * bar);
+            let d5 = ons(&rec, 2 * bar, 4 * bar);
+            let c = ons(&rec, 4 * bar, 6 * bar);
+            for &(ch, key) in g8.iter().filter(|(ch, _)| follows(*ch)) {
+                assert_eq!(key % 12, 7, "{name}: ch{} key {key} under G1+8", ch + 1);
+            }
+            for &(ch, key) in d5.iter().filter(|(ch, _)| follows(*ch)) {
+                assert!(matches!(key % 12, 2 | 4 | 7 | 9), "{name}: ch{} key {key} under D1+5", ch + 1);
+            }
+            if c.iter().any(|&(ch, _)| ch == 10) {
+                assert!(g8.iter().any(|&(ch, _)| ch == 10), "{name}: bass silent under 1+8");
+                assert!(d5.iter().any(|&(ch, _)| ch == 10), "{name}: bass silent under 1+5");
+            }
+            // The pitch checks above pass trivially on a silent channel, so a part whose
+            // Main A rules all allow the chord (CASM chord-mute bit 30 / 31 and the root)
+            // and that plays over the same bars under G / D major must also play under
+            // G1+8 / D1+5.
+            let script = [(0, Step::Chord(Chord::new(7, 0))), (2 * bar, Step::Chord(Chord::new(2, 0)))];
+            let (_, reference) = run(Box::new(Prepared::new(&style)), &script, 4 * bar);
+            let main_a: Vec<_> =
+                style.casm.iter().filter(|s| s.sections.iter().any(|n| n == "Main A")).flat_map(|s| &s.rules).collect();
+            for (ty, root, got, from) in [(30u8, 7u8, &g8, 0), (31, 2, &d5, 2 * bar)] {
+                let major = ons(&reference, from, from + 2 * bar);
+                for ch in 8..16u8 {
+                    let rules: Vec<_> = main_a.iter().filter(|r| r.dest_ch == ch).collect();
+                    let allowed = !rules.is_empty()
+                        && rules.iter().all(|r| r.chord_mute & (1 << ty) != 0 && r.note_mute & (1 << root) != 0);
+                    if allowed && !is_drum_part(ch) && major.iter().any(|&(x, _)| x == ch) {
+                        assert!(got.iter().any(|&(x, _)| x == ch), "{name}: ch{} silent under type {ty}", ch + 1);
+                    }
+                }
+            }
+        }
+    }
+
     /// Every style: play through intro, mains, fills, break, chord changes and ending.
     /// Afterwards the engine must be stopped with no sounding notes, and every note-on
     /// must have a matching note-off.

@@ -379,8 +379,11 @@ fn scale(ty: u8, ntt: Ntt) -> [u8; 7] {
             s[4] = 8
         }
         29 => s[4] = 8,
+        // No-3rd chords sound only what is common to major and minor. 1+8: every degree
+        // becomes the root. 1+5: the 3rd moves up to the 5th, the 6th down to it, the 7th
+        // up to the octave; the 2nd and 4th stay. `scale_map` snaps chromatic notes too.
         30 => s = [0, 0, 0, 0, 0, 0, 12],
-        31 => s = [0, 2, 7, 5, 7, 9, 12],
+        31 => s = [0, 2, 7, 5, 7, 7, 12],
         32 => s[2] = 5,
         33 => s[2] = 2,
         _ => {}
@@ -388,14 +391,33 @@ fn scale(ty: u8, ntt: Ntt) -> [u8; 7] {
     s
 }
 
-fn scale_map(d: u8, src: &[u8; 7], tgt: &[u8; 7]) -> i8 {
+/// 1+8 and 1+5: no 3rd, so the accompaniment must fit both major and minor.
+#[inline]
+fn is_no_third(ty: u8) -> bool {
+    matches!(ty, 30 | 31)
+}
+
+/// Scale used when `ty` is the *source* chord. The 1+8 / 1+5 target scales fold several
+/// degrees together, so a pattern recorded over them is read with the plain major scale
+/// (it only contains root, 5th and the quality-neutral 2nd / 4th anyway).
+fn src_scale(ty: u8, ntt: Ntt) -> [u8; 7] {
+    if is_no_third(ty) {
+        scale(0, ntt)
+    } else {
+        scale(ty, ntt)
+    }
+}
+
+fn scale_map(d: u8, src: &[u8; 7], tgt: &[u8; 7], tgt_ty: u8) -> i8 {
     let mut idx = 0;
     for i in 0..7 {
         if src[i] <= d {
             idx = i;
         }
     }
-    let off = d as i8 - src[idx] as i8;
+    // Chromatic passing notes keep their offset, except over 1+8 / 1+5 where they would
+    // bring back a 3rd (Eb over C1+8 would sound C#); snap them to the degree below.
+    let off = if is_no_third(tgt_ty) { 0 } else { d as i8 - src[idx] as i8 };
     tgt[idx] as i8 + off
 }
 
@@ -446,8 +468,31 @@ fn five_note_roles(ty: u8, t: &[u8]) -> (u8, u8, u8, u8) {
 }
 
 fn chord_map(d: u8, src_ty: u8, tgt_ty: u8, src_scale: &[u8; 7], tgt_scale: &[u8; 7]) -> i8 {
+    let v = chord_map_raw(d, src_ty, tgt_ty, src_scale, tgt_scale);
+    if tgt_ty == 31 {
+        // Chord parts over 1+5 keep only root and 5th: the 2nd falls to the root, the
+        // 4th rises to the 5th (the Melody scale keeps both as passing tones).
+        return match v.rem_euclid(12) {
+            2 => v - 2,
+            5 => v + 2,
+            _ => v,
+        };
+    }
+    v
+}
+
+fn chord_map_raw(d: u8, src_ty: u8, tgt_ty: u8, src_scale: &[u8; 7], tgt_scale: &[u8; 7]) -> i8 {
     let (si, so, _) = importance(src_ty);
     let (ti, to, _) = importance(tgt_ty);
+    let tgt_fifth = if to[1] != 0 { to[1] } else { ti[1] };
+    if is_no_third(src_ty) {
+        // Recorded over 1+8 / 1+5: root stays, the 5th follows the target's 5th.
+        return match d {
+            0 => 0,
+            7 => tgt_fifth as i8,
+            _ => scale_map(d, src_scale, tgt_scale, tgt_ty),
+        };
+    }
     for i in 0..3 {
         if si[i] % 12 == d {
             return ti[i] as i8 - if si[i] >= 12 { 12 } else { 0 };
@@ -457,9 +502,9 @@ fn chord_map(d: u8, src_ty: u8, tgt_ty: u8, src_scale: &[u8; 7], tgt_scale: &[u8
         return 0;
     }
     if so[1] != 0 && so[1] % 12 == d {
-        return if to[1] != 0 { to[1] as i8 } else { ti[1] as i8 };
+        return tgt_fifth as i8;
     }
-    scale_map(d, src_scale, tgt_scale)
+    scale_map(d, src_scale, tgt_scale, tgt_ty)
 }
 
 // ---------------------------------------------------------------------------
@@ -485,6 +530,10 @@ pub fn is_drum_part(dest_ch: u8) -> bool {
 }
 
 /// Does this source channel play at all under the chord?
+///
+/// Chord Cancel is resolved by the engine (it is the no-chord state, see
+/// `engine::effective_chord`) before it gets here; the guard keeps the CASM autostart
+/// bit (bit 34) from being read as a chord-mute bit.
 #[inline]
 pub fn plays(rule: &ChannelRule, chord: Chord) -> bool {
     let chord = chord.casm();
@@ -500,6 +549,9 @@ pub fn transpose(key: u8, rule: &ChannelRule, chord: Chord) -> Option<u8> {
     if is_drum_part(rule.dest_ch) {
         return Some(key);
     }
+    if chord.ty as usize >= NUM_TYPES {
+        return None; // Cancel has no pitches to follow
+    }
     let z = rule.zone_for(key);
     if z.ntt == Ntt::Bypass && z.ntr != Ntr::RootTrans {
         return Some(key);
@@ -512,7 +564,7 @@ pub fn transpose(key: u8, rule: &ChannelRule, chord: Chord) -> Option<u8> {
     let mut val: i32 = match z.ntt {
         Ntt::Bypass => d as i32,
         Ntt::Chord => {
-            let s = scale(rule.src_type, Ntt::Melody);
+            let s = src_scale(rule.src_type, Ntt::Melody);
             let t = scale(chord.ty, Ntt::Melody);
             let v = chord_map(d, rule.src_type, chord.ty, &s, &t) as i32;
             // Keep the movement small.
@@ -526,9 +578,9 @@ pub fn transpose(key: u8, rule: &ChannelRule, chord: Chord) -> Option<u8> {
             d as i32 + delta
         }
         ntt => {
-            let s = scale(rule.src_type, ntt);
+            let s = src_scale(rule.src_type, ntt);
             let t = scale(chord.ty, ntt);
-            scale_map(d, &s, &t) as i32
+            scale_map(d, &s, &t, chord.ty) as i32
         }
     };
     // On-bass: parts with Bass On replace the root with the bass note.
@@ -666,9 +718,14 @@ fn guitar(key: u8, rule: &ChannelRule, z: &Zone, chord: Chord) -> Option<u8> {
         4 | 3 => 4,
         2 => 5,
         0 | 1 => {
-            // Root (C) or fifth (C#): the lowest voiced note, or a fifth above it.
+            // Root (C) or fifth (C#): the lowest voiced note, or a fifth above it
+            // (an octave over 1+8, which has no fifth).
             let low = v.iter().rev().flatten().next().copied()?;
-            let n = if d == 0 { low } else { low + 7 };
+            let n = match (d, chord.ty) {
+                (0, _) => low,
+                (_, 30) => low + 12,
+                _ => low + 7,
+            };
             return Some(fold_into(n as i32, z.lo, z.hi) as u8);
         }
         _ => return None,
@@ -1135,6 +1192,77 @@ mod tests {
         let mut r = rule(Ntr::RootTrans, Ntt::Melody, 11, 0, 127);
         r.dest_ch = 9;
         assert_eq!(transpose(38, &r, Chord::new(7, 10)), Some(38));
+    }
+
+    /// Every NTT that follows the chord, over G1+8 and G1+5, for a CM7 and a Cm7 source.
+    fn no_third_outputs(chord: Chord) -> Vec<u8> {
+        let mut pcs = Vec::new();
+        for (ntr, ntt) in [(Ntr::RootTrans, Ntt::Melody), (Ntr::RootFixed, Ntt::Chord), (Ntr::RootTrans, Ntt::Bass),
+                           (Ntr::RootTrans, Ntt::HarmonicMinor), (Ntr::RootTrans, Ntt::Dorian5),
+                           (Ntr::Guitar, Ntt::GuitarAllPurpose)] {
+            for src_type in [2u8, 10] {
+                let mut r = rule(ntr, ntt, 11, 0, 127);
+                r.src_type = src_type;
+                // Guitar mutes strings the voicing does not use (None).
+                pcs.extend((48..72u8).filter_map(|k| transpose(k, &r, chord)).map(|n| n % 12));
+            }
+        }
+        pcs
+    }
+
+    #[test]
+    fn one_plus_eight_plays_only_the_root() {
+        // Chromatic notes (Eb, Bb) included: nothing but G may come out.
+        let pcs = no_third_outputs(Chord::new(7, 30));
+        assert!(pcs.iter().all(|&p| p == 7), "{pcs:?}");
+    }
+
+    #[test]
+    fn one_plus_five_is_quality_neutral() {
+        // Root, 5th and the 2nd / 4th that major and minor share; never a 3rd, 6th or 7th.
+        let pcs = no_third_outputs(Chord::new(7, 31));
+        assert!(pcs.iter().all(|&p| matches!(p, 7 | 9 | 0 | 2)), "{pcs:?}");
+        // Chord parts keep only root and 5th, whatever the source chord (sus, 1+8 and 1+5
+        // included) and key (chord tones, tensions and chromatic notes alike).
+        for ntr in [Ntr::RootFixed, Ntr::RootTrans] {
+            for src_type in 0..34u8 {
+                let mut r = rule(ntr, Ntt::Chord, 11, 0, 127);
+                r.src_type = src_type;
+                for k in 48..72u8 {
+                    let out = transpose(k, &r, Chord::new(7, 31)).unwrap() % 12;
+                    assert!(matches!(out, 7 | 2), "{ntr:?} src {src_type} key {k}: {out}");
+                }
+                let mut out = [None; 3];
+                transpose_group(&[64, 67, 71], &r, Chord::new(7, 31), &mut out);
+                assert!(out.iter().all(|o| matches!(o.unwrap() % 12, 7 | 2)), "{out:?}");
+            }
+        }
+        // Melody: the 3rd goes to the 5th, the 7th to the octave.
+        let m = rule(Ntr::RootTrans, Ntt::Melody, 11, 0, 127);
+        let out: Vec<u8> = [60, 64, 67, 71].iter().map(|&k| transpose(k, &m, Chord::new(0, 31)).unwrap()).collect();
+        assert_eq!(names(&out), ["C3", "G3", "G3", "C4"]);
+    }
+
+    #[test]
+    fn source_recorded_over_one_plus_five() {
+        // A C1+5 pattern (C D F G) follows other chords like a plain major source.
+        let mut r = rule(Ntr::RootTrans, Ntt::Melody, 11, 0, 127);
+        r.src_type = 31;
+        let play = |c| [60u8, 62, 65, 67].map(|k| transpose(k, &r, c).unwrap());
+        assert_eq!(names(&play(Chord::new(0, 31))), ["C3", "D3", "F3", "G3"]);
+        assert_eq!(names(&play(Chord::new(9, 8))), ["A3", "B3", "D4", "E4"]);
+        let mut c = rule(Ntr::RootFixed, Ntt::Chord, 11, 0, 127);
+        c.src_type = 31;
+        let mut out = [None; 2];
+        transpose_group(&[60, 67], &c, Chord::new(0, 17), &mut out); // Cdim: 5th -> b5
+        assert_eq!(names(&out.map(|o| o.unwrap())), ["C3", "F#3"]);
+    }
+
+    #[test]
+    fn cancel_has_no_pitches() {
+        let r = rule(Ntr::RootTrans, Ntt::Melody, 11, 0, 127);
+        assert_eq!(transpose(60, &r, Chord::new(0, CANCEL)), None);
+        assert!(!plays(&r, Chord::new(0, CANCEL)));
     }
 
     #[test]
