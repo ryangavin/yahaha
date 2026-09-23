@@ -503,7 +503,9 @@ mod tests {
 
     /// A chord that ends the no-chord state (Chord Cancel, or Start with no chord yet)
     /// a little after the barline still gets the downbeat: once it lands, the same notes
-    /// sound as if it had come exactly on the beat.
+    /// sound as if it had come exactly on the beat. (A note with less of it left than it
+    /// has missed is not started, as it would be a blip, so keys the on-beat run strikes or
+    /// releases within as long again are not compared.)
     #[test]
     fn late_chord_after_no_chord_keeps_the_downbeat() {
         use crate::theory::CANCEL;
@@ -523,14 +525,22 @@ mod tests {
                 vec![(0, Step::Chord(Chord::new(0, 0))), (2 * bar + bar / 3, Step::Chord(Chord::new(0, CANCEL)))],
                 vec![(0, Step::Button(Button::StartStop))],
             ];
+            // The notes sounding at `t` in `rec`, but for keys the on-beat run `on` strikes or
+            // releases within `late` after it.
+            let settled = |on: &Recorder, rec: &Recorder, t: u64, late: u64| {
+                let moving = |n: &(u8, u8)| {
+                    on.out.iter().any(|(at, m)| *at > t && *at <= t + late && m[0] & 0xE0 == 0x80 && (m[0] & 0xF, m[1]) == *n)
+                };
+                held_at(rec, t).into_iter().filter(|n| !moving(n)).collect::<Vec<_>>()
+            };
             for (what, intro) in ["Cancel", "no chord"].iter().zip(intros) {
-                let mut held = Vec::new();
+                let mut recs = Vec::new();
                 for at in [4 * bar, t_f] {
                     let mut script = intro.clone();
                     script.push((at, Step::Chord(Chord::new(5, 0))));
-                    let (_, rec) = run(Box::new(Prepared::new(&style)), &script, t_f + 1);
-                    held.push(held_at(&rec, t_f));
+                    recs.push(run(Box::new(Prepared::new(&style)), &script, t_f + late + 1).1);
                 }
+                let held = [settled(&recs[0], &recs[0], t_f, late), settled(&recs[0], &recs[1], t_f, late)];
                 assert_eq!(held[1], held[0], "{name}: F 20 ms late after {what}");
             }
             // Break pressed under Cancel enters mid-bar on the next beat. A chord just after
@@ -540,13 +550,13 @@ mod tests {
             let entry = 3 * bar + 2 * beat;
             for late in [10_000_000, 20_000_000, 35_000_000] {
                 let t_f = entry + late;
-                let mut held = Vec::new();
+                let mut recs = Vec::new();
                 for at in [entry, t_f] {
                     let script = [(0, Step::Chord(Chord::new(0, 0))), (2 * bar + bar / 3, Step::Chord(Chord::new(0, CANCEL))),
                                   (press, Step::Button(Button::Break)), (at, Step::Chord(Chord::new(5, 0)))];
-                    let (_, rec) = run(Box::new(Prepared::new(&style)), &script, t_f + 1);
-                    held.push(held_at(&rec, t_f));
+                    recs.push(run(Box::new(Prepared::new(&style)), &script, t_f + late + 1).1);
                 }
+                let held = [settled(&recs[0], &recs[0], t_f, late), settled(&recs[0], &recs[1], t_f, late)];
                 assert_eq!(held[1], held[0], "{name}: F {} ms after a Break entry under Cancel", late / 1_000_000);
             }
         }
@@ -698,6 +708,7 @@ mod tests {
 #[cfg(test)]
 mod rtr {
     use super::*;
+    use crate::engine::EARLY_CHORD_NS;
     use crate::sff::{Rtr, Style};
 
     fn bar_ns(p: &Prepared) -> u64 {
@@ -705,9 +716,10 @@ mod rtr {
     }
 
     /// Chord changes every half bar through Main A-D, alternately on the beat and a
-    /// little after it, over slash chords and, with `fold`, chords that fold voices
-    /// together (1+8, 1+5; without it, major chords in their place).
-    fn script(bar: u64, fold: bool) -> (Vec<(u64, Step)>, Vec<u64>, u64) {
+    /// little after it (or, with `early`, all that long before the beat), over slash
+    /// chords and, with `fold`, chords that fold voices together (1+8, 1+5; without it,
+    /// major chords in their place).
+    fn script(bar: u64, fold: bool, early: u64) -> (Vec<(u64, Step)>, Vec<u64>, u64) {
         let (one8, one5) = if fold { (30, 31) } else { (0, 0) };
         let chords = [Chord::new(0, 0), Chord::new(9, 10), Chord::new(7, one8), Chord::new(5, 2), Chord::new(2, one5),
                       Chord { root: 0, ty: 0, bass: Some(4) }, Chord::new(7, 19), Chord::new(10, 22), Chord::new(4, 8),
@@ -715,7 +727,10 @@ mod rtr {
         let mut s = vec![(0, Step::Chord(chords[0]))];
         let mut changes = Vec::new();
         for i in 1..32u64 {
-            let t = i * bar / 2 + if i % 2 == 1 { bar / 11 } else { 0 };
+            let t = match early {
+                0 => i * bar / 2 + if i % 2 == 1 { bar / 11 } else { 0 },
+                e => i * bar / 2 - e,
+            };
             if i % 8 == 0 {
                 s.push((t - bar / 4, Step::Button(Button::Main((i / 8) as u8 % 4))));
             }
@@ -725,6 +740,29 @@ mod rtr {
         s.push((16 * bar + bar / 3, Step::Button(Button::Stop)));
         s.sort_by_key(|x| x.0);
         (s, changes, 17 * bar)
+    }
+
+    /// A busy performance: a chord change every quarter bar, at an uneven moment, to any
+    /// root and chord type (slash chords among them), through Main A-D, then Stop.
+    fn busy_script(bar: u64, seed: u64) -> (Vec<(u64, Step)>, u64) {
+        let mut x = seed;
+        let mut rand = |n: u64| {
+            x = x.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            (x >> 33) % n
+        };
+        let mut s = vec![(0, Step::Chord(Chord::new(0, 0)))];
+        for i in 1..64u64 {
+            let t = i * bar / 4 + rand(bar / 8);
+            if i % 12 == 0 {
+                s.push((t - bar / 8, Step::Button(Button::Main((i / 12) as u8 % 4))));
+            }
+            let ty = rand(34) as u8;
+            let bass = (rand(4) == 0).then(|| rand(12) as u8);
+            s.push((t, Step::Chord(Chord { root: rand(12) as u8, ty, bass })));
+        }
+        s.push((16 * bar + bar / 3, Step::Button(Button::Stop)));
+        s.sort_by_key(|x| x.0);
+        (s, 17 * bar)
     }
 
     /// On the parts that follow chords, no note starts on a key its channel is already
@@ -741,7 +779,7 @@ mod rtr {
             let style = Style::load(&f).unwrap();
             let name = f.file_name().unwrap().to_string_lossy().to_string();
             let prep = Box::new(Prepared::new(&style));
-            let (script, _, end) = script(bar_ns(&prep), true);
+            let (script, _, end) = script(bar_ns(&prep), true, 0);
             let (e, rec) = run(prep, &script, end);
             assert!(!e.is_running(), "{name}: still running");
             let mut on = std::collections::HashMap::<(u8, u8), u64>::new();
@@ -776,7 +814,9 @@ mod rtr {
 
     /// A pitch shift sounds exactly the notes a retrigger would. Every style plays as
     /// written and again with Pitch Shift (to Root) turned into Retrigger (to Root):
-    /// - from a first chord to a second, the pitches sounding just after the change agree;
+    /// - from a first chord to a second, the pitches sounding just after the change agree
+    ///   (but for notes about to end or be struck again: those are bent, or left as they
+    ///   are);
     /// - through a whole performance, every note started between chord changes sounds the
     ///   same pitch (on a part a pitch shift keeps bent, it is sent compensated).
     ///
@@ -807,14 +847,23 @@ mod rtr {
                 (a, b)
             };
             let bar = bar_ns(&Prepared::new(&style));
-            let (script, changes, end) = script(bar, true);
+            let (script, changes, end) = script(bar, true, 0);
             let chords: Vec<Chord> = script.iter().filter_map(|s| if let Step::Chord(c) = s.1 { Some(c) } else { None }).collect();
             for (i, pair) in chords.windows(2).enumerate() {
                 let t = if i % 2 == 0 { bar + bar / 3 + bar / 11 } else { 2 * bar };
                 let s = [(0, Step::Button(Button::Main(i as u8 % 4))), (1, Step::Chord(pair[0])), (t, Step::Chord(pair[1]))];
-                let (a, b) = both(&s, t + 2);
+                let (a, b) = both(&s, t + EARLY_CHORD_NS + 1);
                 bends += a.retunes.len();
-                assert_eq!(a.sounding_at(t + 1), b.sounding_at(t + 1), "{name}: {:?} to {:?} at {t}", pair[0], pair[1]);
+                // A note about to end, or to be struck again, is bent under Pitch Shift but
+                // left as it is (or stopped) under Retrigger: leave those pitches out.
+                let mut moving = Vec::new();
+                for r in [&a, &b] {
+                    let later = r.sounding_at(t + EARLY_CHORD_NS);
+                    moving.extend(r.sounding_at(t + 1).into_iter().filter(|n| !later.contains(n)));
+                    moving.extend(r.pitch_ons().into_iter().filter(|n| n.0 > t).map(|n| (n.1, n.2)));
+                }
+                let settled = |r: &Recorder| r.sounding_at(t + 1).into_iter().filter(|n| !moving.contains(n)).collect::<Vec<_>>();
+                assert_eq!(settled(&a), settled(&b), "{name}: {:?} to {:?} at {t}", pair[0], pair[1]);
             }
             let (a, b) = both(&script, end);
             bends += a.retunes.len();
@@ -825,6 +874,150 @@ mod rtr {
             }
         }
         assert!(bends > 100, "only {bends} pitch shifts across the corpus");
+    }
+
+    /// A chord played a little before the beat (#49): a note the pattern ends or strikes
+    /// again on the beat is left to end, not retriggered for a moment. Every note a chord
+    /// change retriggers lasts at least `EARLY_CHORD_NS`. (A note it starts because its
+    /// part comes in keeps at least as much of its written length as it has missed.)
+    #[test]
+    fn corpus_early_chords_start_no_blips() {
+        let files = tests::corpus();
+        if files.is_empty() {
+            eprintln!("no corpus; skipping");
+            return;
+        }
+        let mut started = 0;
+        for f in files {
+            let style = Style::load(&f).unwrap();
+            let name = f.file_name().unwrap().to_string_lossy().to_string();
+            let bar = bar_ns(&Prepared::new(&style));
+            // Odd offsets, so no pattern event falls on a chord change by chance.
+            for early in [1_000_003, 3_000_017, 20_000_029, EARLY_CHORD_NS - 1_000_003] {
+                let (script, changes, end) = script(bar, true, early);
+                let (e, rec) = run(Box::new(Prepared::new(&style)), &script, end);
+                let mut on = std::collections::HashMap::<(u8, u8), u64>::new();
+                for (t, m) in rec.out.iter().filter(|(_, m)| !crate::theory::is_drum_part(m[0] & 0x0F)) {
+                    let key = (m[0] & 0x0F, m[1]);
+                    match m[0] & 0xF0 {
+                        0x90 if m[2] > 0 => {
+                            on.insert(key, *t);
+                        }
+                        0x80 | 0x90 => {
+                            let retriggered = |s: &u64| e.retriggered.contains(&(*s, key.0, key.1));
+                            let Some(s) = on.remove(&key).filter(|s| changes.binary_search(s).is_ok() && retriggered(s)) else { continue };
+                            started += 1;
+                            assert!(t - s >= EARLY_CHORD_NS, "{name}: ch{} key {} started {early} ns before the beat at {s} lasts {} ns",
+                                    key.0 + 1, key.1, t - s);
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+        assert!(started > 1000, "only {started} notes started on chord changes");
+    }
+
+    /// Merengue's Main A at the bar line, with the bar length truncated to whole ns so the
+    /// chord lands a fraction of a tick before the beat (review repro): ch12's notes that
+    /// end on the beat used to be retriggered for 1 ns.
+    #[test]
+    fn chord_a_hair_before_the_beat_retriggers_nothing_that_ends_on_it() {
+        let p = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus/T5Style/Merengue.T158.prs");
+        if !p.exists() {
+            return;
+        }
+        let style = Style::load(&p).unwrap();
+        let bar = bar_ns(&Prepared::new(&style));
+        let (script, ..) = script(bar, true, 0);
+        let chords: Vec<Chord> = script.iter().filter_map(|s| if let Step::Chord(c) = s.1 { Some(c) } else { None }).collect();
+        for pair in chords.windows(2) {
+            for t in [2 * bar, 2 * bar - 1, 2 * bar - 1_000_000] {
+                let s = [(0, Step::Button(Button::Main(0))), (1, Step::Chord(pair[0])), (t, Step::Chord(pair[1]))];
+                let (_, rec) = run(Box::new(Prepared::new(&style)), &s, t + bar);
+                for (ch, key) in rec.pitch_ons().into_iter().filter(|n| n.0 == t).map(|n| (n.1, n.2)) {
+                    let sounding = |at: u64| rec.sounding_at(at).contains(&(ch, key));
+                    assert!(sounding(t + EARLY_CHORD_NS - 1), "{:?} to {:?} at {t}: ch{} key {key} is a blip", pair[0], pair[1], ch + 1);
+                }
+            }
+        }
+    }
+
+    /// A part's pitch shift never pushes its pattern's own bends past the output range
+    /// (review: TickingAway's bass slides a full octave down while shifted, and stopped at
+    /// the end of the range). The part gets a wider range, up to 24, and never shifts by
+    /// more than that range leaves over its patterns' widest bend; so no bend is clamped.
+    #[test]
+    fn corpus_pitch_shift_leaves_room_for_pattern_bends() {
+        let files = tests::corpus();
+        if files.is_empty() {
+            eprintln!("no corpus; skipping");
+            return;
+        }
+        let mut runs = 0;
+        for f in files {
+            let style = Style::load(&f).unwrap();
+            let name = f.file_name().unwrap().to_string_lossy().to_string();
+            let bar = bar_ns(&Prepared::new(&style));
+            for seed in 1..4 {
+                let (script, end) = busy_script(bar, seed);
+                let (e, _) = run(Box::new(Prepared::new(&style)), &script, end);
+                assert_eq!(e.bend_clamps.get(), 0, "{name}: pitch bends clamped");
+                runs += 1;
+            }
+        }
+        assert!(runs > 100);
+        // AnalogBallad's bass slides a full octave (its patterns set a range of 12): it
+        // goes out with 24, room for a 12-semitone shift on top.
+        let p = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus/T5Style/AnalogBallad.T160.prs");
+        if !p.exists() {
+            return;
+        }
+        let prep = Box::new(Prepared::new(&Style::load(&p).unwrap()));
+        assert_eq!(prep.pat_bend_max[10], 12);
+        let (_, rec) = run(prep, &[(0, Step::Chord(Chord::new(0, 0)))], 1);
+        let rpn: Vec<u8> = rec.out.iter().filter(|(_, m)| m[0] == 0xB0 | 10 && [101, 100, 6].contains(&m[1])).map(|(_, m)| m[2]).collect();
+        assert!(rpn.windows(3).any(|w| w == [0, 0, 24]), "bass bend range not set to 24: {rpn:?}");
+    }
+
+    /// Voices a 1+8 chord folds onto one key part again on the next chord (#46). With
+    /// every zone set to Retrigger, from C1+8 to C the notes held through the change sound
+    /// what they would had C been played all along, E and G among them. (Styles whose
+    /// chord parts start their C1+8 voices together; where they come in one by one, the
+    /// later one takes the key from the earlier, which then ends.)
+    #[test]
+    fn folded_voices_part_again() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus/T5Style");
+        let mut ran = 0;
+        for name in ["ChoralSymphony.T150.prs", "OrchestralBallad.T153.prs", "RomanticBallet.T150.prs", "AnalogBallad.T160.prs"] {
+            let p = dir.join(name);
+            if !p.exists() {
+                continue;
+            }
+            ran += 1;
+            let mut style = Style::load(&p).unwrap();
+            for z in style.casm.iter_mut().flat_map(|s| s.rules.iter_mut()).flat_map(|r| r.zones.iter_mut()) {
+                z.rtr = Rtr::Retrigger;
+            }
+            let bar = bar_ns(&Prepared::new(&style));
+            let t = bar + bar / 3;
+            let end = t + EARLY_CHORD_NS + 1;
+            let (_, a) = run(Box::new(Prepared::new(&style)), &[(0, Step::Chord(Chord::new(0, 30))), (t, Step::Chord(Chord::new(0, 0)))], end);
+            let (_, b) = run(Box::new(Prepared::new(&style)), &[(0, Step::Chord(Chord::new(0, 0)))], end);
+            // Notes about to end or be struck again are left out: the change leaves those be.
+            let mut moving = Vec::new();
+            for r in [&a, &b] {
+                let later = r.sounding_at(end - 1);
+                moving.extend(r.sounding_at(t + 1).into_iter().filter(|n| !later.contains(n)));
+                moving.extend(r.pitch_ons().into_iter().filter(|n| n.0 > t).map(|n| (n.1, n.2)));
+            }
+            let settled = |r: &Recorder| r.sounding_at(t + 1).into_iter().filter(|n| !moving.contains(n)).collect::<Vec<_>>();
+            let held = settled(&a);
+            assert_eq!(held, settled(&b), "{name}");
+            let parted = held.iter().filter(|n| !crate::theory::is_drum_part(n.0) && n.1 % 12 != 0).count();
+            assert!(parted >= 2, "{name}: {held:?}");
+        }
+        eprintln!("folded voices: {ran} styles");
     }
 
     fn ticking_away() -> Option<Box<Prepared>> {
