@@ -12,9 +12,13 @@ use std::sync::mpsc;
 /// Style file extensions, matched case-insensitively.
 pub const EXTENSIONS: [&str; 7] = ["sty", "prs", "sst", "bcs", "pcs", "pst", "fps"];
 
+/// Dot-files and dot-folders (`.Trashes`, `.git`, AppleDouble `._x.sty`) are never styles.
+fn is_hidden(p: &Path) -> bool {
+    p.file_name().and_then(|n| n.to_str()).is_some_and(|n| n.starts_with('.'))
+}
+
 pub fn is_style(p: &Path) -> bool {
-    let hidden = p.file_name().and_then(|n| n.to_str()).is_some_and(|n| n.starts_with('.'));
-    !hidden && p.extension().and_then(|x| x.to_str()).is_some_and(|x| EXTENSIONS.iter().any(|e| x.eq_ignore_ascii_case(e)))
+    !is_hidden(p) && p.extension().and_then(|x| x.to_str()).is_some_and(|x| EXTENSIONS.iter().any(|e| x.eq_ignore_ascii_case(e)))
 }
 
 /// What the index knows about a file.
@@ -35,6 +39,7 @@ pub struct Entry {
     pub info: Info,
     stem: String,
     // Lowercased copies for sorting and filtering.
+    stem_lc: String,
     name_lc: String,
     folder_lc: String,
 }
@@ -44,7 +49,7 @@ impl Entry {
         let stem = path.file_stem().unwrap_or_default().to_string_lossy().to_string();
         let folder_lc = folder.to_lowercase();
         let name_lc = stem.to_lowercase();
-        Entry { path, folder, info: Info::Pending, stem, name_lc, folder_lc }
+        Entry { path, folder, info: Info::Pending, stem_lc: name_lc.clone(), stem, name_lc, folder_lc }
     }
 
     /// The SFF name marker, or the file stem when there is none (or it isn't indexed yet).
@@ -55,9 +60,11 @@ impl Entry {
         }
     }
 
-    /// Case-insensitive substring match on name and folder. `query_lc` is lowercase.
+    /// Case-insensitive substring match on the style name, the file name or the folder.
+    /// `query_lc` is lowercase. The file name never changes, so a row that matched by it
+    /// stays in the list when the index brings in the style name.
     pub fn matches(&self, query_lc: &str) -> bool {
-        self.name_lc.contains(query_lc) || self.folder_lc.contains(query_lc)
+        self.name_lc.contains(query_lc) || self.stem_lc.contains(query_lc) || self.folder_lc.contains(query_lc)
     }
 }
 
@@ -76,7 +83,11 @@ impl Library {
         let mut seen = std::collections::HashSet::new();
         for root in paths {
             if !root.is_dir() {
-                entries.push(Entry::new(root.clone(), String::new()));
+                // A named file that's missing becomes an error row; a pipe or device is
+                // skipped, since opening one can block forever.
+                if root.is_file() || !root.exists() {
+                    entries.push(Entry::new(root.clone(), String::new()));
+                }
                 continue;
             }
             let prefix = if dirs > 1 { root.file_name().map(|n| n.to_string_lossy().to_string()) } else { None };
@@ -89,8 +100,10 @@ impl Library {
                 for e in std::fs::read_dir(&d).into_iter().flatten().flatten() {
                     let q = e.path();
                     if q.is_dir() {
-                        stack.push(q);
-                    } else if is_style(&q) {
+                        if !is_hidden(&q) {
+                            stack.push(q);
+                        }
+                    } else if q.is_file() && is_style(&q) {
                         let rel = d.strip_prefix(root).unwrap_or(Path::new(""));
                         let parts = prefix.iter().cloned().chain(rel.components().map(|c| c.as_os_str().to_string_lossy().to_string()));
                         entries.push(Entry::new(q, parts.collect::<Vec<_>>().join("/")));
@@ -208,6 +221,10 @@ impl Library {
 
 /// Index one file. Never panics: a file that doesn't parse becomes an error row.
 pub fn index_one(path: &Path) -> Info {
+    // Only regular files: opening a named pipe blocks until a writer appears.
+    if path.exists() && !path.is_file() {
+        return Info::Err("not a regular file".into());
+    }
     match std::panic::catch_unwind(|| Summary::load(path)) {
         Ok(Ok(s)) => Info::Ok(s),
         Ok(Err(e)) => Info::Err(format!("{e:#}")),
@@ -418,6 +435,28 @@ mod tests {
         let _ = std::fs::remove_dir_all(b);
     }
 
+    #[test]
+    fn hidden_folders_and_non_regular_files_are_skipped() {
+        let root = temp_dir("hidden");
+        let st = style("S", 120, (4, 4), &["Main A"]);
+        write(&root, "Pop/ok.sty", &st);
+        write(&root, ".Trashes/501/deleted.sty", &st);
+        write(&root, "Pop/.git/objects/x.sty", &st);
+        // A folder named like a style is still a folder.
+        std::fs::create_dir_all(root.join("Pop/folder.sty")).unwrap();
+        let fifo = root.join("Pop/pipe.sty");
+        let made = std::process::Command::new("mkfifo").arg(&fifo).status().is_ok_and(|s| s.success());
+        let lib = Library::scan(std::slice::from_ref(&root));
+        let found: Vec<String> = lib.order().iter().map(|&i| format!("{}|{}", lib.entry(i).folder, lib.entry(i).name())).collect();
+        assert_eq!(found, ["Pop|ok"]);
+        if made {
+            // Named directly, a pipe is skipped too; the index refuses it without opening it.
+            assert_eq!(Library::scan(std::slice::from_ref(&fifo)).len(), 0);
+            assert_eq!(index_one(&fifo), Info::Err("not a regular file".into()));
+        }
+        let _ = std::fs::remove_dir_all(root);
+    }
+
     fn lib_of(items: &[(&str, &str)]) -> Library {
         Library::from_entries(items.iter().map(|(folder, stem)| Entry::new(PathBuf::from(format!("/x/{folder}/{stem}.sty")), folder.to_string())).collect())
     }
@@ -441,7 +480,8 @@ mod tests {
         lib.set_info(id, Info::Ok(Summary { name: "Modern Pop Groove".into(), bpm: 100.0, timesig: (4, 4), sections: vec![] }));
         lib.sort();
         assert_eq!(f(&lib, "groove"), ["Pop|Modern Pop Groove"]);
-        assert!(f(&lib, "8beat").is_empty());
+        // The file name still matches, so the row doesn't drop out while indexing runs.
+        assert_eq!(f(&lib, "8beat"), ["Pop|Modern Pop Groove"]);
     }
 
     #[test]

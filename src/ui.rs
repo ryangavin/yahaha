@@ -187,7 +187,7 @@ impl Browser {
         (v, pos)
     }
 
-    fn key(&mut self, code: KeyCode, lib: &Library) -> BrowseKey {
+    fn key(&mut self, code: KeyCode, mods: KeyModifiers, lib: &Library) -> BrowseKey {
         let (v, pos) = self.visible(lib);
         let page = self.page.get().max(1);
         let last = v.len().saturating_sub(1);
@@ -204,6 +204,8 @@ impl Browser {
                 self.query.pop();
                 return BrowseKey::Stay;
             }
+            // Ctrl/Alt chords are commands, not text (Ctrl+C quits before this).
+            KeyCode::Char(_) if mods.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) => return BrowseKey::Stay,
             KeyCode::Char(c) => {
                 self.query.push(c);
                 // Keep the cursor if it still matches, else take the first match.
@@ -532,7 +534,7 @@ pub fn play(opts: Options) -> Result<()> {
                 }
                 // The browser takes every key while it's open (typing filters, never plays).
                 let code = if let Some(b) = browser.as_mut() {
-                    match b.key(k.code, &lib) {
+                    match b.key(k.code, k.modifiers, &lib) {
                         BrowseKey::Stay => {}
                         BrowseKey::Close => browser = None,
                         BrowseKey::Load(id) if id == cur => browser = None,
@@ -1222,27 +1224,39 @@ mod tests {
         }
         let first = lib.order()[0];
         let mut b = Browser::open(lib.order()[1]);
-        assert!(matches!(b.key(KeyCode::Up, &lib), BrowseKey::Stay));
+        assert!(matches!(b.key(KeyCode::Up, KeyModifiers::NONE, &lib), BrowseKey::Stay));
         assert_eq!(b.cursor, first);
-        assert!(matches!(b.key(KeyCode::Up, &lib), BrowseKey::Stay));
+        assert!(matches!(b.key(KeyCode::Up, KeyModifiers::NONE, &lib), BrowseKey::Stay));
         assert_eq!(b.cursor, first, "stops at the top");
         for c in "FUNK".chars() {
-            assert!(matches!(b.key(KeyCode::Char(c), &lib), BrowseKey::Stay));
+            assert!(matches!(b.key(KeyCode::Char(c), KeyModifiers::NONE, &lib), BrowseKey::Stay));
         }
         assert_eq!(b.query, "FUNK");
         let (v, pos) = b.visible(&lib);
         assert!(!v.is_empty() && v.iter().all(|&i| lib.entry(i).name().to_lowercase().contains("funk")));
         assert_eq!(v[pos], b.cursor, "the cursor moves onto a match");
-        b.key(KeyCode::End, &lib);
+        b.key(KeyCode::End, KeyModifiers::NONE, &lib);
         assert_eq!(b.cursor, *v.last().unwrap());
-        assert!(matches!(b.key(KeyCode::Enter, &lib), BrowseKey::Load(id) if id == *v.last().unwrap()));
-        b.key(KeyCode::Backspace, &lib);
+        assert!(matches!(b.key(KeyCode::Enter, KeyModifiers::NONE, &lib), BrowseKey::Load(id) if id == *v.last().unwrap()));
+        b.key(KeyCode::Backspace, KeyModifiers::NONE, &lib);
         assert_eq!(b.query, "FUN");
-        assert!(matches!(b.key(KeyCode::Esc, &lib), BrowseKey::Close));
+        assert!(matches!(b.key(KeyCode::Esc, KeyModifiers::NONE, &lib), BrowseKey::Close));
         // Nothing matches: Enter does nothing.
-        b.key(KeyCode::Char('#'), &lib);
-        b.key(KeyCode::Char('#'), &lib);
-        assert!(matches!(b.key(KeyCode::Enter, &lib), BrowseKey::Stay));
+        b.key(KeyCode::Char('#'), KeyModifiers::NONE, &lib);
+        b.key(KeyCode::Char('#'), KeyModifiers::NONE, &lib);
+        assert!(matches!(b.key(KeyCode::Enter, KeyModifiers::NONE, &lib), BrowseKey::Stay));
+    }
+
+    /// Ctrl/Alt + letter is not text: it leaves the filter alone. Shift is just a capital.
+    #[test]
+    fn browser_ignores_ctrl_and_alt_letters() {
+        let lib = Library::scan(&[]);
+        let mut b = Browser::open(0);
+        b.key(KeyCode::Char('u'), KeyModifiers::CONTROL, &lib);
+        b.key(KeyCode::Char('x'), KeyModifiers::ALT, &lib);
+        assert_eq!(b.query, "");
+        b.key(KeyCode::Char('S'), KeyModifiers::SHIFT, &lib);
+        assert_eq!(b.query, "S");
     }
 
     #[test]
