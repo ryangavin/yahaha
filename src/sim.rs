@@ -274,23 +274,7 @@ mod tests {
     use crate::sff::Style;
 
     fn corpus() -> Vec<std::path::PathBuf> {
-        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus");
-        let mut v = Vec::new();
-        let mut stack = vec![dir];
-        while let Some(d) = stack.pop() {
-            for e in std::fs::read_dir(&d).into_iter().flatten().flatten() {
-                let p = e.path();
-                if p.is_dir() {
-                    stack.push(p);
-                } else if p.extension().map_or(false, |x| {
-                    matches!(x.to_ascii_lowercase().to_str(), Some("sty" | "prs" | "sst" | "bcs" | "pcs" | "fps"))
-                }) {
-                    v.push(p);
-                }
-            }
-        }
-        v.sort();
-        v
+        crate::library::corpus_styles()
     }
 
 
