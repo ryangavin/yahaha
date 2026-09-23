@@ -19,6 +19,8 @@ pub struct SynthInfo {
     pub sample_rate: u32,
     pub buffer: Option<u32>,
     pub device: String,
+    /// Number of output channels on the device.
+    pub channels: usize,
 }
 
 /// Knobs the UI can turn without talking to the audio thread through a ring.
@@ -29,6 +31,8 @@ pub struct SynthControl {
     /// Whether the left-hand (chord zone) notes sound.
     pub lh_sound: AtomicBool,
     pub muted: AtomicBool,
+    /// First (left) output channel of the stereo pair, 0-based.
+    pub out_ch: AtomicU8,
 }
 
 pub struct Synth {
@@ -86,7 +90,9 @@ fn apply(synth: &mut Synthesizer, m: &Msg, control: &SynthControl, bank: &mut [u
     }
 }
 
-pub fn start(sf2: &Path, consumers: Vec<Consumer<Msg>>) -> Result<Synth> {
+/// `out_pair`: 1-based left output channel (e.g. 11 for outputs 11/12); None = auto
+/// (11/12 on a TASCAM Model 16, else 1/2).
+pub fn start(sf2: &Path, consumers: Vec<Consumer<Msg>>, out_pair: Option<u8>) -> Result<Synth> {
     let mut file = std::fs::File::open(sf2).with_context(|| format!("opening {}", sf2.display()))?;
     let font = Arc::new(SoundFont::new(&mut file).map_err(|e| anyhow!("{e:?}"))?);
 
@@ -95,7 +101,20 @@ pub fn start(sf2: &Path, consumers: Vec<Consumer<Msg>>) -> Result<Synth> {
     let device_name = device.description().map(|d| d.to_string()).unwrap_or_else(|_| "default output".into());
     let default = device.default_output_config()?;
     let sample_rate = default.sample_rate();
-    let channels = default.channels() as usize;
+    // Open every output channel the device has so any stereo pair can be used.
+    let channels = device
+        .supported_output_configs()
+        .map(|it| {
+            it.filter(|c| c.min_sample_rate() <= sample_rate && sample_rate <= c.max_sample_rate())
+                .filter(|c| c.sample_format() == cpal::SampleFormat::F32)
+                .map(|c| c.channels() as usize)
+                .max()
+                .unwrap_or(0)
+        })
+        .unwrap_or(0)
+        .max(default.channels() as usize);
+    let first = out_pair.map(|c| c.saturating_sub(1)).unwrap_or(if device_name.contains("Model 16") { 10 } else { 0 });
+    let first = (first as usize).min(channels.saturating_sub(2)) as u8;
 
     let mut settings = SynthesizerSettings::new(sample_rate as i32);
     settings.maximum_polyphony = 128;
@@ -108,6 +127,7 @@ pub fn start(sf2: &Path, consumers: Vec<Consumer<Msg>>) -> Result<Synth> {
         rh_changed: AtomicBool::new(true),
         lh_sound: AtomicBool::new(false),
         muted: AtomicBool::new(false),
+        out_ch: AtomicU8::new(first),
     });
     let ctl = control.clone();
     let mut consumers = consumers;
@@ -127,14 +147,13 @@ pub fn start(sf2: &Path, consumers: Vec<Consumer<Msg>>) -> Result<Synth> {
         let frames = (out.len() / channels).min(left.len());
         synth.render(&mut left[..frames], &mut right[..frames]);
         let mute = ctl.muted.load(Relaxed);
+        let lc = (ctl.out_ch.load(Relaxed) as usize).min(channels.saturating_sub(1));
+        let rc = (lc + 1).min(channels - 1);
         for (i, frame) in out.chunks_mut(channels).take(frames).enumerate() {
-            let (l, r) = if mute { (0.0, 0.0) } else { (left[i], right[i]) };
-            frame[0] = l;
-            if channels > 1 {
-                frame[1] = r;
-            }
-            for s in frame.iter_mut().skip(2) {
-                *s = 0.0;
+            frame.fill(0.0);
+            if !mute {
+                frame[lc] += left[i];
+                frame[rc] += right[i];
             }
         }
     };
@@ -153,7 +172,7 @@ pub fn start(sf2: &Path, consumers: Vec<Consumer<Msg>>) -> Result<Synth> {
     let stream = device.build_output_stream(cfg, callback, |e| eprintln!("audio error: {e}"), None)?;
     stream.play()?;
     let name = sf2.file_stem().unwrap_or_default().to_string_lossy().to_string();
-    Ok(Synth { _stream: stream, info: SynthInfo { name, sample_rate, buffer, device: device_name }, control })
+    Ok(Synth { _stream: stream, info: SynthInfo { name, sample_rate, buffer, device: device_name, channels }, control })
 }
 
 #[cfg(test)]
@@ -191,6 +210,7 @@ mod tests {
             rh_changed: AtomicBool::new(false),
             lh_sound: AtomicBool::new(false),
             muted: AtomicBool::new(false),
+            out_ch: AtomicU8::new(0),
         };
         let sr = 48_000;
         let mut rms_by_part = Vec::new();

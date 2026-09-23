@@ -27,7 +27,7 @@ fn main() -> Result<()> {
         Some("screen") => ui::screen_html(std::path::Path::new(&args[2]), std::path::Path::new(&args[3]))?,
         Some("bench") => bench::run(std::path::Path::new(&args[2]), args.get(3).and_then(|s| s.parse().ok()))?,
         _ => eprintln!(
-            "usage:\n  yahaha play <style or folder>... [--split F#2] [--input <name>] [--all-inputs] [--no-pads] [--sf2 file | --no-synth] [--palette-leds]\n  yahaha bench <style> [spin_us]\n  yahaha sim <style> \"C Am F G7\"\n  yahaha dump <style>..."
+            "usage:\n  yahaha play <style or folder>... [--split F#2] [--input <name>] [--all-inputs] [--no-pads] [--sf2 file | --no-synth] [--palette-leds] [--audio-out 11]\n  yahaha bench <style> [spin_us]\n  yahaha sim <style> \"C Am F G7\"\n  yahaha dump <style>..."
         ),
     }
     Ok(())
@@ -110,6 +110,7 @@ fn play_cmd(args: &[String]) -> Result<()> {
     let mut no_pads = false;
     let mut no_synth = false;
     let mut palette_leds = false;
+    let mut audio_out: Option<u8> = None;
     let mut sf2: Option<PathBuf> = None;
     let mut inputs = Vec::new();
     let mut i = 0;
@@ -124,6 +125,10 @@ fn play_cmd(args: &[String]) -> Result<()> {
             "--no-pads" => no_pads = true,
             "--no-synth" => no_synth = true,
             "--palette-leds" => palette_leds = true,
+            "--audio-out" => {
+                i += 1;
+                audio_out = args.get(i).and_then(|s| s.split('/').next()?.parse().ok());
+            }
             "--sf2" => {
                 i += 1;
                 sf2 = args.get(i).map(PathBuf::from);
@@ -147,7 +152,7 @@ fn play_cmd(args: &[String]) -> Result<()> {
     if no_synth {
         sf2 = None;
     }
-    ui::play(ui::Options { paths, split, all_inputs, inputs, no_pads, sf2, palette_leds })
+    ui::play(ui::Options { paths, split, all_inputs, inputs, no_pads, sf2, palette_leds, audio_out })
 }
 
 /// "F#2" (Yamaha numbering, C3 = 60) or a raw MIDI number.

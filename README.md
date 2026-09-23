@@ -20,9 +20,11 @@ The built-in synth uses the first `.sf2` file in `soundfonts/` (GeneralUser GS, 
 - Your right hand plays a piano by default. Change its voice with `9` and `0`.
 - `l` makes your left-hand chord notes sound too.
 - `k` mutes the synth, for example when you're using Ableton sounds instead.
+- The synth plays on outputs 11/12 when the audio device is a TASCAM Model 16, and on 1/2 otherwise. `a` steps through the output pairs while playing, and `--audio-out 11` sets the pair at launch.
 
 Options:
 - `--sf2 file` uses a different SoundFont.
+- `--audio-out N` sends the synth to outputs N/N+1.
 - `--no-synth` turns the synth off, leaving MIDI out only.
 - `--palette-leds` uses the Launchkey's built-in palette colours instead of RGB SysEx.
 - `--split C3` moves the split point. You can also use `[` and `]` while playing.

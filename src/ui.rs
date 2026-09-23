@@ -31,6 +31,8 @@ pub struct Options {
     pub sf2: Option<PathBuf>,
     /// Use Novation palette colours (and hardware flashing) instead of RGB SysEx.
     pub palette_leds: bool,
+    /// 1-based left output channel for the synth (None = auto).
+    pub audio_out: Option<u8>,
 }
 
 fn collect_styles(paths: &[PathBuf]) -> Vec<PathBuf> {
@@ -104,7 +106,7 @@ pub fn play(opts: Options) -> Result<()> {
     let mut feeds = synth::feeds();
     let mut synth_err = String::new();
     let synth = match &opts.sf2 {
-        Some(p) => match synth::start(p, std::mem::take(&mut feeds.consumers)) {
+        Some(p) => match synth::start(p, std::mem::take(&mut feeds.consumers), opts.audio_out) {
             Ok(s) => Some(s),
             Err(e) => {
                 synth_err = format!("synth off: {e:#}");
@@ -274,6 +276,15 @@ pub fn play(opts: Options) -> Result<()> {
                         if let Some(sy) = &synth {
                             let v = !sy.control.lh_sound.load(Relaxed);
                             sy.control.lh_sound.store(v, Relaxed);
+                        }
+                        None
+                    }
+                    KeyCode::Char('a') => {
+                        // Next stereo output pair: 1/2 -> 3/4 -> ... -> back to 1/2.
+                        if let Some(sy) = &synth {
+                            let n = sy.info.channels.max(2) as u8;
+                            let c = sy.control.out_ch.load(Relaxed);
+                            sy.control.out_ch.store(if c + 4 <= n { c + 2 } else { 0 }, Relaxed);
                         }
                         None
                     }
@@ -497,9 +508,11 @@ fn draw(
                 Some(sy) => {
                     let c = &sy.control;
                     Span::raw(format!(
-                        " synth: {} → {} · {} Hz · {} · RH voice {} [9/0] · LH sound {} [l] · {}[k]",
+                        " synth: {} → {} out {}/{} [a] · {} Hz · {} · RH voice {} [9/0] · LH sound {} [l] · {}[k]",
                         sy.info.name,
                         sy.info.device,
+                        c.out_ch.load(Relaxed) + 1,
+                        c.out_ch.load(Relaxed) + 2,
                         sy.info.sample_rate,
                         sy.info.buffer.map(|b| format!("{b} frames ({:.1} ms)", b as f64 * 1000.0 / sy.info.sample_rate as f64)).unwrap_or("default buffer".into()),
                         gm_name(c.rh_program.load(Relaxed)),
