@@ -10,7 +10,7 @@ Many styles give one part several source channels and let the CASM chord mute pi
 
 So for each such pair the oracle:
 1. Takes the chord the **target** source was written for (its Source Root / Source Chord). On that chord the target plays unconverted, so its notes are the author's answer.
-2. Plays the **other** source on that chord through our transposer, calling the public API `theory::transpose_group` (the same call the engine makes for notes that start together).
+2. Plays the **other** source on that chord through our transposer, calling the public API `theory::transpose_group`. Notes are handed over in the groups the engine uses: consecutive note-ons of the channel on one tick, in event order, at most 8 (`engine::emit_at_index`). Root Fixed voice assignment depends on the group, so this keeps the oracle's result equal to what the engine plays.
 3. Counts how many converted notes land on the author's notes.
 
 Both directions are scored: major to minor and minor to major are separate pairs.
@@ -33,37 +33,51 @@ Per aligned tick, the converted notes of A and the authored notes of B are compa
 - **pitch:** same pitch class. This ignores octave placement (High Key, Note Limit), so it isolates the chord-type conversion.
 
 Each pair is scored twice:
-- **as authored:** with A's own CASM settings.
+- **as authored:** with A's own CASM settings. This is a hypothetical: A is chord-muted on that chord, so real hardware never plays it there. Since most such sources are Root Trans + Bypass, it is close to the Bypass row and is not a measure of our fidelity.
 - **per NTT table:** with every zone's table swapped for each table in turn, keeping A's NTR, High Key and limits. Root Trans and Root Fixed sources try Bypass, Melody, Chord and the eight minor tables. Guitar sources try the three Guitar tables.
 
 The report sums these per NTT table, per chord change (for example `M>m`, with the table that agrees best), per NTR and per style. `--pairs` also lists every pair: section, part, channels, chord and score.
 
-The report also has an **identity** check. Every chord-following source (not only paired ones) is played on its own source chord. The spec says that "reproduces the pattern unchanged" (RM p.28), so a miss here is ours, unless the note lies outside the channel's own Note Limit.
+The report also has an **identity** check. Every chord-following source (not only paired ones) is played on its own source chord. RM p.28 says that plays back "the originally recorded data", so every note should come out as written. Notes are counted per NTR of the note's own zone (a Guitar high zone above a Root Trans middle zone counts as Guitar). A note that moves is split into two kinds:
+- **folded:** written outside the channel's own Note Limit (of an octave or more) and folded into it. That is Note Limit working as documented.
+- **moved inside Note Limit:** anything else. These contradict RM p.28 and are transposer misses. The report prints them per NTR and the pin tracks them.
 
 ## Tracking changes
 
-`oracle::tests::corpus_scores` recomputes the scores on `corpus/` and compares them with `tests/oracle/scores.txt`. When a change moves any number, the test fails and prints each changed line with its exact-hit rate before and after:
+`oracle::tests::corpus_scores` recomputes the scores on `corpus/` and compares them with `tests/oracle/scores.txt`. Each line of that file is a key and either one count or one score (`notes exact pitch-class`). Styles are keyed by their path below `corpus/`, and only the styles the file lists are scored, so adding styles to the (unversioned) corpus does not move the pin; the test notes how many it left out. When a change moves any number, the test fails and prints each changed line, with the exact-hit rate before and after for score lines:
 
 ```
   table MelodicMinor: [249112, 165095, 189039] -> [249112, 166001, 189800]  exact 66.3% -> 66.6% (+0.4)
+  identity RootTrans moved-in-limit: [1426] -> [0]
 ```
 
 If the change is intended, run `UPDATE_GOLDEN=1 cargo test --release oracle`, commit the file, and quote the delta in the PR. `yahaha oracle corpus/ --diff tests/oracle/scores.txt` prints the same delta without the test harness. Without `corpus/` the test skips, like the golden snapshots.
 
-The file holds counts only: style file names, table names, chord-change labels and integers. `committed_scores_hold_only_numbers` checks that. No note, pitch or pattern from a style is ever written out.
+The file holds counts only: style paths, table names, chord-change labels and integers. `committed_scores_hold_only_numbers` checks that. No note, pitch or pattern from a style is ever written out.
 
 ## Limits
 
 - **Authors are not the hardware.** A hand-written minor version shows what the author wanted, which need not be what any NTT table produces. Authors split channels exactly where a table would not do what they wanted, so these pairs lean towards the hard cases. A score of 100% is not the goal. Read the scores as comparisons: table against table, and before against after.
 - **Mostly major and minor.** Almost all scored notes are `M>m` and `m>M`. Dominant, diminished, augmented and tension chords have a handful of pairs each, and Guitar sources have none. So the table scores say little about Chord-table voicing, the 5th variants (#11) or Guitar NTR (#12). The identity check still covers Guitar.
+- **Ties are artifacts.** Every 5th-variant table scores the same as its base table: our transposer does not yet implement the 5th variants (#11), and no scored pair converts to or from an aug or dim chord anyway. Melody and Natural Minor tie on every chord change in the pin: on these pairs our two tables produce the same notes. Neither tie says anything about how Yamaha's tables relate.
 - **Root movement is barely tested.** Source roots are nearly always C, so the played chord is on the same root. NTR, High Key and the root half of the conversion are exercised only through the identity check.
 - **Octave.** Converted notes are folded into A's Note Limit. The reference is B's authored notes, which may lie outside B's own limit. Compare the pitch column to leave octave out.
 - **Alignment is strict.** Only ticks where both sources start the same number of notes are compared. Rhythmic edits, added or dropped chord notes, and grace notes fall out of the comparison.
 - **Nothing is played.** This is a note-for-note check of `transpose_group`. It does not run the engine, so RTR, chord changes mid-note and section changes are out of scope; the golden snapshots cover those.
 
-## Baseline (first run, 208 styles)
+## Baseline (208 styles)
 
 - 5210 pairs scored (249112 notes) in 166 styles. Not scored: 1680 pairs that are not edited copies, 1884 with the same source chord, and 511 muted on their own chord.
-- As authored: 60.8% exact, 69.3% pitch. 93% of the converted sources (4831 of 5210) are Root Trans + Bypass, because the chord mute already does the work, so "as authored" is close to Bypass (60.7%).
-- Tables across all pairs, exact: Melodic Minor 66.3%, Harmonic Minor 64.1%, Dorian 64.0%, Melody = Natural Minor 62.4%, Chord 62.4%, Bypass 60.7%. For both `M>m` and `m>M`, the authors' own minor versions agree best with Melodic Minor, which only moves the 3rd.
-- Identity: Root Fixed 98.9% exact, Root Trans 87.3% exact. Both are 100% on pitch class: every miss is an octave fold of a note written outside its own Note Limit. Guitar is 14.5% exact: `guitar()` re-voices patterns even on their own chord (#12).
+- As authored: 60.8% exact, 69.3% pitch. 93% of the converted sources (4831 of 5210) are Root Trans + Bypass, because the chord mute already does the work, so "as authored" is close to Bypass (60.7%). It is a hypothetical, not our fidelity (see Scores).
+- Tables across all pairs, exact: Melodic Minor 66.3%, Harmonic Minor 64.1%, Dorian 64.0%, Melody 62.4%, Natural Minor 62.4%, Chord 62.4%, Bypass 60.7%. For both `M>m` and `m>M`, the authors' own minor versions agree best with Melodic Minor, which only moves the 3rd. The 5th variants tie with their base tables (see Limits).
+- Identity, per NTR of the note's zone:
+
+  | NTR | notes | exact | pitch | moved inside Note Limit |
+  |---|---|---|---|---|
+  | Root Trans | 330282 | 86.1% | 100% | 1426 |
+  | Root Fixed | 101646 | 99.4% | 100% | 0 |
+  | Guitar | 96638 | 10.4% | 18.1% | 86606 |
+
+  - Root Fixed: every miss is a Note Limit fold.
+  - Root Trans: 44559 misses are folds. The other **1426 notes are a transposer bug**. `theory::transpose` applies High Key even when the chord root equals the Source Root: with Source Root E and High Key D#, playing Em7 (the source chord) shifts the pattern down an octave, although the notes lie inside their Note Limit. RM p.28 says the source chord plays the recorded data back. These are channels whose Source Root is above their High Key. The fix belongs in the transposer, not here; the pin will show `identity RootTrans moved-in-limit` drop to 0 when it lands.
+  - Guitar: `guitar()` re-voices patterns even on their own chord (#12).

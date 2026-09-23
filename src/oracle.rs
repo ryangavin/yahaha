@@ -15,9 +15,9 @@
 use crate::library::Library;
 use crate::sff::{ChannelRule, Ev, Ntr, Ntt, SectionId, Style};
 use crate::theory::{self, Chord, NUM_TYPES, TYPE_NAMES};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// Tables tried on Root Trans and Root Fixed sources.
 pub const TABLES: [Ntt; 11] = [
@@ -83,6 +83,24 @@ impl Score {
     }
 }
 
+/// Every chord-following source played on its own source chord, for one NTR.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct Identity {
+    /// Per note: does it come out as written?
+    pub score: Score,
+    /// Notes that moved although Note Limit would not fold them (inside the limit, or the
+    /// limit is narrower than an octave and folds nothing). RM p.28 says the source chord
+    /// plays the recorded data back, so each of these is a transposer miss.
+    pub moved_in_limit: u32,
+}
+
+impl Identity {
+    fn add(&mut self, o: Identity) {
+        self.score.add(o.score);
+        self.moved_in_limit += o.moved_in_limit;
+    }
+}
+
 /// One source played on the chord another source of the same part was written for.
 #[derive(Debug, Clone)]
 pub struct Pair {
@@ -111,6 +129,7 @@ impl Pair {
 
 #[derive(Debug, Default, Clone)]
 pub struct StyleResult {
+    /// The style's path below the folder it was found in, whitespace as `_`.
     pub file: String,
     pub pairs: Vec<Pair>,
     /// Chord-muted alternatives that are not edited copies of each other.
@@ -120,10 +139,10 @@ pub struct StyleResult {
     /// Alternatives muted on their own source chord, so their notes never sound as written
     /// and are no reference.
     pub muted_own: u32,
-    /// Every chord-following source played on its own source chord, per NTR (`NTRS` order).
-    /// The spec says that reproduces the pattern unchanged (RM p.28); Note Limit folding
-    /// and Guitar voicing are what can still move a note.
-    pub identity: [Score; 3],
+    /// Every chord-following source played on its own source chord, per NTR (`NTRS` order)
+    /// of each note's own zone. The spec says that reproduces the pattern unchanged (RM
+    /// p.28); only Note Limit folding a note written outside the limit may still move it.
+    pub identity: [Identity; 3],
 }
 
 impl StyleResult {
@@ -138,6 +157,14 @@ pub struct Report {
     pub errors: Vec<(String, String)>,
 }
 
+impl Report {
+    /// Keep only the styles (and unreadable files) `keep` accepts, by `StyleResult::file`.
+    pub fn retain(&mut self, keep: impl Fn(&str) -> bool) {
+        self.styles.retain(|s| keep(&s.file));
+        self.errors.retain(|(f, _)| keep(f));
+    }
+}
+
 fn type_name(ty: u8) -> &'static str {
     match ty {
         0 => "M",
@@ -149,21 +176,45 @@ fn ntr_index(n: Ntr) -> usize {
     NTRS.iter().position(|&x| x == n).unwrap_or(0)
 }
 
-/// Note-ons of one source channel, grouped by tick, keys sorted.
-fn onsets(style: &Style, id: SectionId, ch: u8) -> BTreeMap<u32, Vec<u8>> {
-    let mut out: BTreeMap<u32, Vec<u8>> = BTreeMap::new();
-    if let Some(sec) = style.sections.get(&id) {
-        for e in &sec.events {
-            if let Ev::NoteOn { ch: c, key, vel } = e.ev
-                && c == ch
-                && vel > 0
-            {
-                out.entry(e.tick).or_default().push(key);
+/// The note-ons one source channel starts on one tick.
+#[derive(Debug, Default)]
+struct Onset {
+    /// As the engine hands them to `transpose_group` (`engine::Prepared` and
+    /// `emit_at_index`): consecutive note-ons of this channel, in event order, at most 8.
+    groups: Vec<Vec<u8>>,
+    /// All of them, sorted.
+    keys: Vec<u8>,
+}
+
+/// Note-ons of one source channel by tick. The engine moves note-offs to the front of their
+/// tick and drops aftertouch, sysex and meta events; any other event between two note-ons
+/// of the channel splits the group, as it does there.
+fn onsets(style: &Style, id: SectionId, ch: u8) -> BTreeMap<u32, Onset> {
+    let mut out: BTreeMap<u32, Onset> = BTreeMap::new();
+    let Some(sec) = style.sections.get(&id) else { return out };
+    let mut open = false; // the previous kept event was a note-on of `ch` at this tick
+    let mut tick = None;
+    for e in &sec.events {
+        if tick != Some(e.tick) {
+            tick = Some(e.tick);
+            open = false;
+        }
+        match e.ev {
+            Ev::NoteOn { ch: c, key, .. } if c == ch => {
+                let o = out.entry(e.tick).or_default();
+                match o.groups.last_mut() {
+                    Some(g) if open && g.len() < 8 => g.push(key),
+                    _ => o.groups.push(vec![key]),
+                }
+                o.keys.push(key);
+                open = true;
             }
+            Ev::NoteOn { .. } | Ev::Cc { .. } | Ev::Pc { .. } | Ev::Bend { .. } => open = false,
+            _ => {}
         }
     }
-    for v in out.values_mut() {
-        v.sort_unstable();
+    for o in out.values_mut() {
+        o.keys.sort_unstable();
     }
     out
 }
@@ -181,20 +232,42 @@ fn common(a: &[u8], b: &[u8], key: impl Fn(u8) -> u8) -> u32 {
     n
 }
 
-/// Convert the first half of every aligned tick for `chord` with `rule` and count the notes
-/// that land on the second half.
-fn score(aligned: &[(&[u8], &[u8])], rule: &ChannelRule, chord: Chord) -> Score {
+/// Convert the first onset of every aligned tick for `chord` with `rule`, group by group,
+/// and count the notes that land on the second onset's notes.
+fn score(aligned: &[(&Onset, &Onset)], rule: &ChannelRule, chord: Chord) -> Score {
     let mut s = Score::default();
-    let mut out = [None; 16];
+    let mut out = [None; 8];
     for &(a, b) in aligned {
-        let n = a.len().min(out.len());
-        theory::transpose_group(&a[..n], rule, chord, &mut out[..n]);
-        let got: Vec<u8> = out[..n].iter().flatten().copied().collect();
-        s.notes += b.len() as u32;
-        s.exact += common(&got, b, |k| k);
-        s.pc += common(&got, b, |k| k % 12);
+        let mut got = Vec::with_capacity(a.keys.len());
+        for g in &a.groups {
+            theory::transpose_group(g, rule, chord, &mut out[..g.len()]);
+            got.extend(out[..g.len()].iter().flatten());
+        }
+        s.notes += b.keys.len() as u32;
+        s.exact += common(&got, &b.keys, |k| k);
+        s.pc += common(&got, &b.keys, |k| k % 12);
     }
     s
+}
+
+/// Play a source on its own source chord and check every note against itself, per NTR of
+/// the note's own zone.
+fn identity(notes: &BTreeMap<u32, Onset>, rule: &ChannelRule, into: &mut [Identity; 3]) {
+    let chord = source_chord(rule);
+    let mut out = [None; 8];
+    for g in notes.values().flat_map(|o| &o.groups) {
+        theory::transpose_group(g, rule, chord, &mut out[..g.len()]);
+        for (&k, &o) in g.iter().zip(&out[..g.len()]) {
+            let z = rule.zone_for(k);
+            let id = &mut into[ntr_index(z.ntr)];
+            id.score.notes += 1;
+            id.score.exact += (o == Some(k)) as u32;
+            id.score.pc += o.is_some_and(|o| o % 12 == k % 12) as u32;
+            // `fold_into` only folds limits of an octave or more.
+            let folds = z.hi as i32 - z.lo as i32 >= 11 && !(z.lo..=z.hi).contains(&k);
+            id.moved_in_limit += (o != Some(k) && !folds) as u32;
+        }
+    }
 }
 
 /// The rule with every zone of the table's family (Guitar or not) switched to `ntt`.
@@ -230,12 +303,11 @@ pub fn analyse(style: &Style, file: &str) -> StyleResult {
             by_dest.entry(r.dest_ch).or_default().push(r);
         }
         for group in by_dest.values() {
-            let notes: Vec<BTreeMap<u32, Vec<u8>>> = group.iter().map(|r| onsets(style, id, r.src_ch)).collect();
+            let notes: Vec<BTreeMap<u32, Onset>> = group.iter().map(|r| onsets(style, id, r.src_ch)).collect();
             for (j, to) in group.iter().enumerate() {
                 let chord = source_chord(to);
                 if sounds_as_written(to) {
-                    let own: Vec<(&[u8], &[u8])> = notes[j].values().map(|v| (v.as_slice(), v.as_slice())).collect();
-                    res.identity[ntr_index(to.zones[1].ntr)].add(score(&own, to, chord));
+                    identity(&notes[j], to, &mut res.identity);
                 }
                 for (i, from) in group.iter().enumerate() {
                     if i == j || (chord.ty as usize) < NUM_TYPES && theory::plays(from, chord) {
@@ -262,15 +334,13 @@ fn pair(
     from: &ChannelRule,
     to: &ChannelRule,
     chord: Chord,
-    a: &BTreeMap<u32, Vec<u8>>,
-    b: &BTreeMap<u32, Vec<u8>>,
+    a: &BTreeMap<u32, Onset>,
+    b: &BTreeMap<u32, Onset>,
 ) -> Option<Pair> {
-    let aligned: Vec<(&[u8], &[u8])> = a
-        .iter()
-        .filter_map(|(t, ka)| b.get(t).filter(|kb| kb.len() == ka.len()).map(|kb| (ka.as_slice(), kb.as_slice())))
-        .collect();
-    let n: u32 = aligned.iter().map(|(x, _)| x.len() as u32).sum();
-    let total = |m: &BTreeMap<u32, Vec<u8>>| m.values().map(Vec::len).sum::<usize>() as f64;
+    let aligned: Vec<(&Onset, &Onset)> =
+        a.iter().filter_map(|(t, oa)| b.get(t).filter(|ob| ob.keys.len() == oa.keys.len()).map(|ob| (oa, ob))).collect();
+    let n: u32 = aligned.iter().map(|(x, _)| x.keys.len() as u32).sum();
+    let total = |m: &BTreeMap<u32, Onset>| m.values().map(|o| o.keys.len()).sum::<usize>() as f64;
     if n < MIN_NOTES || (n as f64) < MIN_ALIGNED * total(a) || (n as f64) < MIN_ALIGNED * total(b) {
         return None;
     }
@@ -280,7 +350,7 @@ fn pair(
     }
     let near = aligned
         .iter()
-        .flat_map(|(x, y)| x.iter().zip(y.iter()))
+        .flat_map(|(x, y)| x.keys.iter().zip(y.keys.iter()))
         .filter(|&(&p, &q)| (p as i32 + shift - q as i32).abs() <= NEAR)
         .count();
     if (near as f64) < MIN_NEAR * n as f64 {
@@ -302,13 +372,25 @@ fn pair(
     })
 }
 
+/// A style's name in the report: its path below the folder it was found in (just the file
+/// name when it was given directly), whitespace as `_` so the pinned file splits on spaces.
+fn style_key(path: &Path, roots: &[PathBuf]) -> String {
+    let rel = roots
+        .iter()
+        .find_map(|r| path.strip_prefix(r).ok().filter(|p| !p.as_os_str().is_empty()))
+        .map(Path::to_path_buf)
+        .or_else(|| path.file_name().map(PathBuf::from))
+        .unwrap_or_default();
+    rel.to_string_lossy().replace(char::is_whitespace, "_")
+}
+
 /// Analyse every style under `paths` (folders searched recursively).
 pub fn run(paths: &[PathBuf]) -> Report {
     let lib = Library::scan(paths);
     let mut rep = Report::default();
     for &id in lib.order() {
         let e = lib.entry(id);
-        let file = e.path.file_name().map(|f| f.to_string_lossy().to_string()).unwrap_or_default();
+        let file = style_key(&e.path, paths);
         match Style::load(&e.path) {
             Ok(style) => rep.styles.push(analyse(&style, &file)),
             Err(err) => rep.errors.push((file, format!("{err:#}"))),
@@ -324,7 +406,7 @@ struct Totals {
     same_chord: u32,
     muted_own: u32,
     authored: Score,
-    identity: [Score; 3],
+    identity: [Identity; 3],
     /// Per table, over all pairs of that table's family.
     tables: Vec<(Ntt, Score)>,
     /// Per NTR (as authored): pairs and score.
@@ -344,7 +426,7 @@ impl Report {
             same_chord: 0,
             muted_own: 0,
             authored: Score::default(),
-            identity: [Score::default(); 3],
+            identity: [Identity::default(); 3],
             tables: TABLES.iter().chain(GUITAR_TABLES.iter()).map(|&n| (n, Score::default())).collect(),
             ntr: [(0, Score::default()); 3],
             changes: BTreeMap::new(),
@@ -393,7 +475,7 @@ impl Report {
         );
         let _ = writeln!(o, "\n{:<26} {:>7} {:>7} {:>7}", "", "notes", "exact", "pitch");
         let _ = writeln!(o, "{:<26} {}", "as authored", t.authored.cells());
-        let _ = writeln!(o, "{:<26} {}", "own chord (identity)", Score::sum(&t.identity).cells());
+        let _ = writeln!(o, "{:<26} {}", "own chord (identity)", identity_total(&t.identity).score.cells());
         let _ = writeln!(o, "\nNTT table, on every pair");
         for (n, s) in &t.tables {
             let _ = writeln!(o, "  {:<24} {}", format!("{n:?}"), s.cells());
@@ -403,9 +485,11 @@ impl Report {
             let (c, s) = t.ntr[i];
             let _ = writeln!(o, "  {:<16} {c:>6}  {}", format!("{ntr:?}"), s.cells());
         }
-        let _ = writeln!(o, "\nNTR, own chord (identity)");
+        // Notes that moved inside their own Note Limit break RM p.28: they are ours to fix.
+        let _ = writeln!(o, "\nNTR of the note's zone, own chord (identity)       moved inside Note Limit");
         for (i, ntr) in NTRS.iter().enumerate() {
-            let _ = writeln!(o, "  {:<24} {}", format!("{ntr:?}"), t.identity[i].cells());
+            let id = t.identity[i];
+            let _ = writeln!(o, "  {:<24} {}  {:>7}", format!("{ntr:?}"), id.score.cells(), id.moved_in_limit);
         }
         // Which table the authors' own edits agree with, per chord change. Ties go to the
         // table listed first.
@@ -422,7 +506,7 @@ impl Report {
         }
         let _ = writeln!(o, "\nstyle                                  pairs    notes  authored  identity");
         for s in self.styles.iter().filter(|s| !s.pairs.is_empty()) {
-            let (a, id) = (s.authored(), Score::sum(&s.identity));
+            let (a, id) = (s.authored(), identity_total(&s.identity).score);
             let _ = writeln!(
                 o,
                 "  {:<36} {:>5} {:>8} {:>8.1}%  {:>7.1}%",
@@ -455,46 +539,68 @@ impl Report {
         o
     }
 
-    /// The numbers the test pins (tests/oracle/scores.txt). Each line is a key and counts;
-    /// score lines end in `notes exact pitch-class`.
+    /// The numbers the test pins (tests/oracle/scores.txt). Each line is a key and either one
+    /// count or a score: `notes exact pitch-class`.
     pub fn pinned(&self) -> String {
         let mut o = String::new();
         let t = self.totals();
         let _ = writeln!(o, "# yahaha oracle (docs/oracle.md). Counts only; score lines end in: notes exact pitch-class.");
         let _ = writeln!(o, "# Regenerate with UPDATE_GOLDEN=1 cargo test --release oracle.");
-        let _ = writeln!(o, "styles {} {}", self.styles.len(), self.errors.len());
-        let _ = writeln!(o, "pairs {} {} {} {}", t.pairs, t.unrelated, t.same_chord, t.muted_own);
+        let _ = writeln!(o, "styles {}", self.styles.len());
+        let _ = writeln!(o, "unreadable {}", self.errors.len());
+        let _ = writeln!(o, "pairs scored {}", t.pairs);
+        let _ = writeln!(o, "pairs unrelated {}", t.unrelated);
+        let _ = writeln!(o, "pairs same-chord {}", t.same_chord);
+        let _ = writeln!(o, "pairs muted-own {}", t.muted_own);
         let _ = writeln!(o, "authored {}", t.authored.pinned());
         for (i, ntr) in NTRS.iter().enumerate() {
-            let _ = writeln!(o, "identity {ntr:?} {}", t.identity[i].pinned());
+            let _ = writeln!(o, "identity {ntr:?} {}", t.identity[i].score.pinned());
+            let _ = writeln!(o, "identity {ntr:?} moved-in-limit {}", t.identity[i].moved_in_limit);
         }
         for (n, s) in &t.tables {
             let _ = writeln!(o, "table {n:?} {}", s.pinned());
         }
         for (i, ntr) in NTRS.iter().enumerate() {
-            let _ = writeln!(o, "ntr {ntr:?} {} {}", t.ntr[i].0, t.ntr[i].1.pinned());
+            let _ = writeln!(o, "ntr {ntr:?} pairs {}", t.ntr[i].0);
+            let _ = writeln!(o, "ntr {ntr:?} {}", t.ntr[i].1.pinned());
         }
         for (k, (c, a, tables)) in &t.changes {
-            let _ = writeln!(o, "change {k} authored {c} {}", a.pinned());
+            let _ = writeln!(o, "change {k} pairs {c}");
+            let _ = writeln!(o, "change {k} authored {}", a.pinned());
             for (n, s) in tables {
                 let _ = writeln!(o, "change {k} {n:?} {}", s.pinned());
             }
         }
-        for s in self.styles.iter().filter(|s| !s.pairs.is_empty()) {
-            let _ = writeln!(
-                o,
-                "style {} {} {} {}",
-                s.file.replace(char::is_whitespace, "_"),
-                s.pairs.len(),
-                s.authored().pinned(),
-                Score::sum(&s.identity).pinned()
-            );
+        // Every style, so the test can pin exactly the styles listed here (see `pinned_styles`).
+        for s in &self.styles {
+            let id = identity_total(&s.identity);
+            let _ = writeln!(o, "style {} identity {}", s.file, id.score.pinned());
+            let _ = writeln!(o, "style {} moved-in-limit {}", s.file, id.moved_in_limit);
+            if !s.pairs.is_empty() {
+                let _ = writeln!(o, "style {} pairs {}", s.file, s.pairs.len());
+                let _ = writeln!(o, "style {} authored {}", s.file, s.authored().pinned());
+            }
+        }
+        for (f, _) in &self.errors {
+            let _ = writeln!(o, "style {f} unreadable 1");
         }
         o
     }
 }
 
-/// Changed lines between two pinned score files, with the exact-hit rate change.
+fn identity_total(ids: &[Identity; 3]) -> Identity {
+    let mut t = Identity::default();
+    ids.iter().for_each(|x| t.add(*x));
+    t
+}
+
+/// The styles a pinned score file covers.
+pub fn pinned_styles(pinned: &str) -> BTreeSet<String> {
+    pinned.lines().filter_map(|l| l.strip_prefix("style ")?.split_whitespace().next().map(str::to_string)).collect()
+}
+
+/// Changed lines between two pinned score files. Score lines (three counts: notes, exact,
+/// pitch class) also show the exact-hit rate change; count lines just the counts.
 pub fn delta(want: &str, got: &str) -> String {
     let parse = |t: &str| -> BTreeMap<String, Vec<i64>> {
         t.lines()
@@ -507,15 +613,12 @@ pub fn delta(want: &str, got: &str) -> String {
             .collect()
     };
     let (a, b) = (parse(want), parse(got));
-    let rate = |v: &[i64]| {
-        let v = &v[v.len() - 3..];
-        if v[0] > 0 { 100.0 * v[1] as f64 / v[0] as f64 } else { 0.0 }
-    };
+    let rate = |v: &[i64]| if v[0] > 0 { 100.0 * v[1] as f64 / v[0] as f64 } else { 0.0 };
     let mut o = String::new();
     for k in a.keys().chain(b.keys().filter(|k| !a.contains_key(*k))) {
         let _ = match (a.get(k), b.get(k)) {
             (Some(x), Some(y)) if x == y => Ok(()),
-            (Some(x), Some(y)) if x.len() >= 3 && y.len() >= 3 => {
+            (Some(x), Some(y)) if x.len() == 3 && y.len() == 3 => {
                 let (rx, ry) = (rate(x), rate(y));
                 writeln!(o, "  {k}: {x:?} -> {y:?}  exact {rx:.1}% -> {ry:.1}% ({:+.1})", ry - rx)
             }
@@ -591,11 +694,14 @@ mod tests {
         assert_eq!(to_major.transition(), "m>M");
         assert_eq!(table(to_major, Ntt::MelodicMinor), Score { notes: 6, exact: 6, pc: 6 });
         // Both sources reproduce themselves on their own source chord.
-        assert_eq!(Score::sum(&r.identity), Score { notes: 12, exact: 12, pc: 12 });
+        let id = identity_total(&r.identity);
+        assert_eq!((id.score, id.moved_in_limit), (Score { notes: 12, exact: 12, pc: 12 }, 0));
 
         let rep = Report { styles: vec![r], errors: vec![] };
         let pinned = rep.pinned();
-        assert!(pinned.contains("\npairs 2 0 0 0\n") && pinned.contains("\nchange M>m MelodicMinor 6 6 6\n"), "{pinned}");
+        for line in ["pairs scored 2", "change M>m MelodicMinor 6 6 6", "style toy pairs 2", "style toy identity 12 12 12"] {
+            assert!(pinned.contains(&format!("\n{line}\n")), "{line} missing from\n{pinned}");
+        }
         assert!(rep.text(true).contains("M>m"));
     }
 
@@ -621,18 +727,114 @@ mod tests {
         assert_eq!(r.pairs[0].transition(), "m>M");
     }
 
+    /// A Root Trans / Bypass source with one zone over the whole keyboard.
+    fn root_trans(src_root: u8, src_type: u8, high_key: u8, lo: u8, hi: u8) -> ChannelRule {
+        let mut r = ChannelRule::default_for(13);
+        r.src_root = src_root;
+        r.src_type = src_type;
+        for z in r.zones.iter_mut() {
+            (z.ntr, z.ntt, z.high_key, z.lo, z.hi) = (Ntr::RootTrans, Ntt::Bypass, high_key, lo, hi);
+        }
+        r
+    }
+
+    fn one_onset(groups: &[&[u8]]) -> BTreeMap<u32, Onset> {
+        let groups: Vec<Vec<u8>> = groups.iter().map(|g| g.to_vec()).collect();
+        let mut keys: Vec<u8> = groups.concat();
+        keys.sort_unstable();
+        [(0, Onset { groups, keys })].into_iter().collect()
+    }
+
+    #[test]
+    fn identity_buckets_each_note_by_its_own_zone() {
+        // Middle zone Root Trans, top zone (above key 88) Guitar: the high note is a Guitar
+        // note, whatever the middle zone says.
+        let mut r = root_trans(0, 0, 11, 0, 127);
+        r.mid_hi = 88;
+        r.zones[2].ntr = Ntr::Guitar;
+        r.zones[2].ntt = Ntt::GuitarAllPurpose;
+        let mut id = [Identity::default(); 3];
+        identity(&one_onset(&[&[60, 64, 91]]), &r, &mut id);
+        assert_eq!(id[ntr_index(Ntr::RootTrans)].score.notes, 2);
+        assert_eq!(id[ntr_index(Ntr::Guitar)].score.notes, 1);
+        assert_eq!(id[ntr_index(Ntr::RootFixed)].score.notes, 0);
+    }
+
+    #[test]
+    fn identity_tells_note_limit_folds_from_transposer_moves() {
+        // Written below its own Note Limit (C3..B3 = 48..59): folding it up is RM p.30, not a miss.
+        let r = root_trans(0, 0, 11, 48, 59);
+        let mut id = [Identity::default(); 3];
+        identity(&one_onset(&[&[36]]), &r, &mut id);
+        let rt = id[ntr_index(Ntr::RootTrans)];
+        assert_eq!((rt.score, rt.moved_in_limit), (Score { notes: 1, exact: 0, pc: 1 }, 0));
+
+        // Source Root E, High Key D#, played on its own chord Em7. The note lies inside its
+        // Note Limit, so RM p.28 says it plays as written. Today `transpose` applies High Key
+        // with no root change and moves it an octave; the oracle must count exactly that.
+        let r = root_trans(4, 10, 3, 40, 127);
+        let moved = theory::transpose(82, &r, Chord::new(4, 10)) != Some(82);
+        let mut id = [Identity::default(); 3];
+        identity(&one_onset(&[&[82]]), &r, &mut id);
+        let rt = id[ntr_index(Ntr::RootTrans)];
+        assert_eq!(rt.score.exact, !moved as u32);
+        assert_eq!(rt.moved_in_limit, moved as u32);
+    }
+
+    #[test]
+    fn onsets_group_like_the_engine() {
+        // Ten notes on one tick: groups of 8 and 2. Another channel's note-on in between
+        // splits a group; a note-off does not (the engine sorts offs to the front).
+        let on = |tick, ch, key| TimedEv { tick, ev: Ev::NoteOn { ch, key, vel: 90 } };
+        let mut events: Vec<TimedEv> = (0..10).map(|k| on(0, 3, 50 + k)).collect();
+        events.extend([on(480, 3, 60), TimedEv { tick: 480, ev: Ev::NoteOff { ch: 3, key: 40 } }, on(480, 3, 64)]);
+        events.extend([on(960, 3, 60), on(960, 4, 30), on(960, 3, 64)]);
+        let mut s = toy([60, 63, 67]);
+        let id = SectionId::Main(0);
+        s.sections.get_mut(&id).unwrap().events = events;
+        let o = onsets(&s, id, 3);
+        let sizes = |t: u32| o[&t].groups.iter().map(Vec::len).collect::<Vec<_>>();
+        assert_eq!((sizes(0), sizes(480), sizes(960)), (vec![8, 2], vec![2], vec![1, 1]));
+        assert_eq!(o[&0].keys.len(), 10);
+    }
+
     #[test]
     fn delta_shows_rate_change() {
-        let d = delta("pairs 3 1 0 0\ntable Melody 10 5 6\n", "pairs 3 1 0 0\ntable Melody 10 7 8\nstyle X.sty 1 2 2 2 4 4 4\n");
+        let d = delta(
+            "pairs scored 3\ntable Melody 10 5 6\nstyle A/X.sty pairs 1\nstyle A/X.sty authored 10 5 5\nstyle A/X.sty identity 20 20 20\n",
+            "pairs scored 4\ntable Melody 10 7 8\nstyle A/X.sty pairs 1\nstyle A/X.sty authored 10 9 9\nstyle A/X.sty identity 20 20 20\nstyle B/X.sty pairs 1\n",
+        );
         assert_eq!(
             d,
-            "  table Melody: [10, 5, 6] -> [10, 7, 8]  exact 50.0% -> 70.0% (+20.0)\n  style X.sty: new [1, 2, 2, 2, 4, 4, 4]\n"
+            "  pairs scored: [3] -> [4]\n  \
+             style A/X.sty authored: [10, 5, 5] -> [10, 9, 9]  exact 50.0% -> 90.0% (+40.0)\n  \
+             table Melody: [10, 5, 6] -> [10, 7, 8]  exact 50.0% -> 70.0% (+20.0)\n  \
+             style B/X.sty pairs: new [1]\n"
         );
         assert_eq!(delta("a 1\n", "# comment\na 1\n"), "");
     }
 
+    #[test]
+    fn styles_are_keyed_by_path_and_filtered_by_the_pin() {
+        let roots = [PathBuf::from("/c")];
+        assert_eq!(style_key(Path::new("/c/My Folder/X.sty"), &roots), "My_Folder/X.sty");
+        let mut rep = Report {
+            styles: ["A/X.sty", "B/X.sty", "C/new.sty"]
+                .iter()
+                .map(|f| StyleResult { file: f.to_string(), ..Default::default() })
+                .collect(),
+            errors: vec![("D/bad.sty".into(), "?".into())],
+        };
+        let pin = "styles 2\nstyle A/X.sty identity 0 0 0\nstyle B/X.sty identity 0 0 0\n";
+        let keep = pinned_styles(pin);
+        rep.retain(|f| keep.contains(f));
+        assert_eq!(rep.styles.iter().map(|s| s.file.as_str()).collect::<Vec<_>>(), ["A/X.sty", "B/X.sty"]);
+        assert!(rep.errors.is_empty());
+    }
+
     /// Pins the corpus scores, so every change to the transposer reports what it did to them.
-    /// Numbers only: nothing in tests/oracle/scores.txt is note content.
+    /// Numbers only: nothing in tests/oracle/scores.txt is note content. Only the styles the
+    /// file lists count, so adding styles to corpus/ does not move the pin.
     #[test]
     fn corpus_scores() {
         let corpus = root().join("corpus");
@@ -640,36 +842,45 @@ mod tests {
             eprintln!("oracle: no corpus; skipping");
             return;
         }
-        let rep = run(&[corpus]);
+        let mut rep = run(&[corpus]);
         assert!(!rep.styles.is_empty(), "corpus/ holds no styles");
-        let got = rep.pinned();
         let file = root().join("tests/oracle/scores.txt");
         if std::env::var_os("UPDATE_GOLDEN").is_some() {
             std::fs::create_dir_all(file.parent().unwrap()).unwrap();
-            std::fs::write(&file, &got).unwrap();
+            std::fs::write(&file, rep.pinned()).unwrap();
             eprintln!("oracle: wrote {}", file.display());
             return;
         }
         let want = std::fs::read_to_string(&file).unwrap_or_default();
-        let d = delta(&want, &got);
+        let keep = pinned_styles(&want);
+        let before = rep.styles.len() + rep.errors.len();
+        rep.retain(|f| keep.contains(f));
+        let extra = before - rep.styles.len() - rep.errors.len();
+        if extra > 0 {
+            eprintln!("oracle: {extra} corpus styles are not in tests/oracle/scores.txt; not scored");
+        }
+        let d = delta(&want, &rep.pinned());
         assert!(
             d.is_empty(),
             "oracle scores changed (want -> got):\n{d}\nIf the change is intended, regenerate with UPDATE_GOLDEN=1 cargo test --release oracle, commit tests/oracle/scores.txt and quote this delta in the PR."
         );
     }
 
-    /// The committed scores are counts: every line is a key followed by integers.
+    /// The committed scores are counts: every line is a short key followed by one count or
+    /// one score (three counts).
     #[test]
     fn committed_scores_hold_only_numbers() {
         let text = std::fs::read_to_string(root().join("tests/oracle/scores.txt")).expect("tests/oracle/scores.txt");
         for line in text.lines().filter(|l| !l.starts_with('#')) {
             let w: Vec<&str> = line.split_whitespace().collect();
-            let key = match w.first() {
-                Some(&"change") => 3,
-                Some(&"style") | Some(&"table") | Some(&"ntr") | Some(&"identity") => 2,
-                _ => 1,
+            let key = w.iter().rposition(|x| x.parse::<u32>().is_err()).map_or(0, |i| i + 1);
+            let max_key = match w.first() {
+                Some(&"styles") | Some(&"unreadable") | Some(&"authored") => 1,
+                Some(&"pairs") | Some(&"table") => 2,
+                Some(&"identity") | Some(&"ntr") | Some(&"change") | Some(&"style") => 3,
+                _ => 0,
             };
-            assert!(w.len() > key && w[key..].iter().all(|x| x.parse::<u32>().is_ok()), "not a score line: {line}");
+            assert!((1..=max_key).contains(&key) && matches!(w.len() - key, 1 | 3), "not a count line: {line}");
         }
     }
 }

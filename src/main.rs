@@ -81,31 +81,36 @@ fn sim_cmd(args: &[String]) -> Result<()> {
 /// `yahaha oracle corpus/ [--pairs | --scores | --diff scores.txt]`: score our chord
 /// conversion against the authors' own chord-muted alternatives (see docs/oracle.md).
 /// Prints counts only, never notes. `--scores` prints the pinned form
-/// (tests/oracle/scores.txt), `--diff` what changed against such a file.
+/// (tests/oracle/scores.txt), `--diff` what changed against such a file, over the styles
+/// that file lists. The three flags are exclusive.
 fn oracle_cmd(args: &[String]) -> Result<()> {
     let usage = "usage: yahaha oracle <style or folder>... [--pairs | --scores | --diff scores.txt]";
     let mut paths = Vec::new();
     let mut against = None;
+    let (mut pairs, mut scores) = (false, false);
     let mut it = args.iter();
     while let Some(a) = it.next() {
         match a.as_str() {
             "--diff" => against = Some(it.next().ok_or_else(|| anyhow::anyhow!(usage))?),
-            "--pairs" | "--scores" => {}
+            "--pairs" => pairs = true,
+            "--scores" => scores = true,
             _ => paths.push(PathBuf::from(a)),
         }
     }
-    if paths.is_empty() {
+    if paths.is_empty() || pairs as u8 + scores as u8 + against.is_some() as u8 > 1 {
         anyhow::bail!(usage);
     }
-    let rep = oracle::run(&paths);
+    let mut rep = oracle::run(&paths);
     if let Some(f) = against {
         let want = std::fs::read_to_string(f)?;
+        let pinned = oracle::pinned_styles(&want);
+        rep.retain(|s| pinned.contains(s));
         let d = oracle::delta(&want, &rep.pinned());
         print!("{}", if d.is_empty() { "no change\n".to_string() } else { d });
-    } else if args.iter().any(|a| a == "--scores") {
+    } else if scores {
         print!("{}", rep.pinned());
     } else {
-        print!("{}", rep.text(args.iter().any(|a| a == "--pairs")));
+        print!("{}", rep.text(pairs));
     }
     Ok(())
 }
