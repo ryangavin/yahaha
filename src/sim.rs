@@ -881,12 +881,13 @@ mod mixer {
         p.exists().then(|| Box::new(Prepared::new(&Style::load(&p).unwrap())))
     }
 
-    /// The last CC7 the style's init (SInt) sets on each part, or the GM default.
-    fn init_levels(p: &Prepared) -> [u8; 8] {
+    /// The last CC7 the style's init (SInt) sets on each part, or the GM default (for a
+    /// style whose parts all keep their own channel).
+    fn init_levels(s: &Style) -> [u8; 8] {
         let mut v = [GM_VOLUME; 8];
-        for (m, &l) in p.init.iter().zip(&p.init_len) {
-            if l == 3 && m[0] & 0xF0 == 0xB0 && m[1] == 7 && m[0] & 0x0F >= 8 {
-                v[(m[0] & 0x0F) as usize - 8] = m[2];
+        for ev in &s.init {
+            if let crate::sff::Ev::Cc { ch: ch @ 8..=15, cc: 7, val } = *ev {
+                v[ch as usize - 8] = val;
             }
         }
         v
@@ -927,7 +928,8 @@ mod mixer {
     fn style_load_sets_faders_from_style_cc7() {
         // AustinCityBlues leaves some parts without a CC7.
         let Some(p) = prep("AustinCityBlues.S930.STY") else { return };
-        let want = init_levels(&p);
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus/MOX_v2/AustinCityBlues.S930.STY");
+        let want = init_levels(&Style::load(&path).unwrap());
         assert!(want.contains(&GM_VOLUME) && want.iter().any(|&v| v != GM_VOLUME), "{want:?}");
         assert_eq!(p.mix, want);
         let mut e = Engine::new(p);
@@ -1013,12 +1015,11 @@ mod mixer {
         let mut rec = Recorder::default();
         e.set_chord(Chord::new(0, 0), 0, &mut rec);
         e.set_volume(4, 33, &mut rec); // a part the player moved keeps its value
-        let mut t = 0;
-        for b in [Button::Intro(1), Button::StartStop, Button::Main(0), Button::Ending(2)] {
-            e.button(b, t, &mut rec);
-            play(&mut e, &mut rec, t, t + 8 * bar);
-            t += 8 * bar;
-        }
+        // Main A, then Ending C to the end: nothing after the Ending puts part 2 back.
+        play(&mut e, &mut rec, 0, bar / 2);
+        e.button(Button::Ending(2), bar / 2, &mut rec);
+        let t = 8 * bar;
+        play(&mut e, &mut rec, bar / 2, t);
         let s = e.snapshot(t);
         assert!(!s.running);
         assert_ne!(s.volumes[1], init, "the Ending should have moved part 2");
@@ -1046,6 +1047,129 @@ mod mixer {
         let _old = e.load(b, 1_000_000, &mut rec);
         assert_eq!(e.snapshot(1_000_000).volumes, want);
         assert_eq!(sent_levels(&rec), want.map(Some));
+    }
+
+    /// A one-bar Main A and Main B at 120 bpm whose SInt sets part 5 (ch 13): bank,
+    /// program 5, CC7 90, pan, an XG part volume and dry level, and part 6 (ch 14) CC7 80,
+    /// with GM and XG System On and an XG reverb type. Main A changes part 5's voice and
+    /// level half way through the bar.
+    fn sint_style() -> Style {
+        use crate::sff::{Ev, Section, SectionId, TimedEv};
+        let at = |tick, ev| TimedEv { tick, ev };
+        let bar = |id, extra: Vec<TimedEv>| {
+            let mut events = vec![
+                at(0, Ev::NoteOn { ch: 12, key: 60, vel: 100 }),
+                at(480, Ev::NoteOff { ch: 12, key: 60 }),
+            ];
+            events.extend(extra);
+            events.sort_by_key(|e| e.tick);
+            (id, Section { id, start: 0, len: 1920, events })
+        };
+        Style {
+            name: "sint".into(),
+            format: String::new(),
+            ppq: 480,
+            tempo_us: 500_000,
+            timesig: (4, 4),
+            init: vec![
+                Ev::Sysex(vec![0xF0, 0x7E, 0x7F, 0x09, 0x01, 0xF7]),
+                Ev::Sysex(vec![0xF0, 0x43, 0x10, 0x4C, 0x00, 0x00, 0x7E, 0x00, 0xF7]),
+                Ev::Sysex(vec![0xF0, 0x43, 0x10, 0x4C, 0x02, 0x01, 0x00, 0x01, 0x10, 0xF7]),
+                Ev::Sysex(vec![0xF0, 0x43, 0x10, 0x4C, 0x08, 0x0C, 0x0B, 0x20, 0xF7]),
+                Ev::Sysex(vec![0xF0, 0x43, 0x10, 0x4C, 0x08, 0x0C, 0x11, 0x7F, 0xF7]),
+                Ev::Pc { ch: 12, prog: 5 },
+                Ev::Cc { ch: 12, cc: 0, val: 0 },
+                Ev::Cc { ch: 12, cc: 32, val: 112 },
+                Ev::Cc { ch: 12, cc: 7, val: 90 },
+                Ev::Cc { ch: 12, cc: 10, val: 40 },
+                Ev::Cc { ch: 13, cc: 7, val: 80 },
+            ],
+            sections: [
+                bar(SectionId::Main(0), vec![
+                    at(960, Ev::Pc { ch: 12, prog: 9 }),
+                    at(960, Ev::Cc { ch: 12, cc: 7, val: 50 }),
+                ]),
+                bar(SectionId::Main(1), vec![]),
+            ]
+            .into(),
+            casm: vec![],
+            ots: vec![],
+            other_chunks: vec![],
+        }
+    }
+
+    /// The SInt is sent structured: no system resets, bank before program, the part's XG
+    /// parameters after its program change, the effect SysEx last, and no part volume but
+    /// the mixer's (neither CC7 nor the XG part volume).
+    #[test]
+    fn init_is_structured_and_mixer_owns_volume() {
+        let p = Prepared::new(&sint_style());
+        let msgs: Vec<Vec<u8>> = p.init.iter().map(|m| m.to_vec()).collect();
+        assert_eq!(msgs, vec![
+            vec![0xBC, 0, 0],
+            vec![0xBC, 32, 112],
+            vec![0xCC, 5],
+            vec![0xBC, 10, 40],
+            vec![0xF0, 0x43, 0x10, 0x4C, 0x08, 0x0C, 0x11, 0x7F, 0xF7],
+            vec![0xF0, 0x43, 0x10, 0x4C, 0x02, 0x01, 0x00, 0x01, 0x10, 0xF7],
+        ]);
+        assert_eq!(p.voices[12], Some((0, 112, 5)));
+        assert_eq!(p.mix, [100, 100, 100, 100, 90, 80, 100, 100]);
+    }
+
+    /// Every section change plays the SInt again: a voice or level the last section's
+    /// pattern changed goes back to the style's, except a fader the player moved, which
+    /// keeps its level and gets no CC7. A section repeating itself is not a change.
+    #[test]
+    fn section_change_reapplies_init() {
+        let p = Box::new(Prepared::new(&sint_style()));
+        let bar = bar_ns(&p);
+        let mut e = Engine::new(p);
+        let mut rec = Recorder::default();
+        e.set_chord(Chord::new(0, 0), 0, &mut rec);
+        e.set_volume(5, 33, &mut rec); // part 6 (ch 14)
+        // Main A plays twice: the repeat is not a section change.
+        play(&mut e, &mut rec, 0, bar + bar / 2);
+        let sent = |rec: &Recorder, from: u64, m: &[u8]| rec.out.iter().filter(|(t, x)| *t >= from && x == m).count();
+        assert_eq!(sent(&rec, 1, &[0xCC, 5]), 0, "no SInt at the Main A repeat");
+        assert_eq!(e.snapshot(bar + bar / 2).volumes[4], 50, "the pattern's CC7 moves the untouched fader");
+        // Main B at the next bar.
+        e.button(Button::Main(1), bar + bar / 2, &mut rec);
+        play(&mut e, &mut rec, bar + bar / 2, 2 * bar + bar / 4);
+        let from = 2 * bar - 1_000_000;
+        assert_eq!(sent(&rec, from, &[0xCC, 5]), 1, "Main B gets the style's voice back");
+        assert_eq!(sent(&rec, from, &[0xBC, 7, 90]), 1, "and the style's level on the untouched part");
+        assert_eq!(sent(&rec, from, &[0xF0, 0x43, 0x10, 0x4C, 0x02, 0x01, 0x00, 0x01, 0x10, 0xF7]), 1);
+        assert_eq!(cc7_count(&Recorder { now: 0, out: rec.out.iter().filter(|(t, _)| *t >= from).cloned().collect() }, 5), 0,
+            "the player's fader is not re-sent");
+        let s = e.snapshot(2 * bar + bar / 4);
+        assert_eq!((s.volumes[4], s.volumes[5]), (90, 33));
+        // Never a system reset, never the XG part volume.
+        assert!(!rec.out.iter().any(|(_, m)| m[0] == 0xF0 && (m[1] == 0x7E || m[4] == 0x00 || m[6] == 0x0B)));
+        // The SInt goes out before Main B's first note.
+        let pc = rec.out.iter().position(|(t, m)| *t >= from && m[..] == [0xCC, 5]).unwrap();
+        let note = rec.out.iter().position(|(t, m)| *t >= from && m[0] == 0x9C).unwrap();
+        assert!(pc < note);
+    }
+
+    /// TickingAway's Intro B sets part 2 (ch 10) to 76 against the SInt's 90, and Main A
+    /// sets no level: Main A starts from the SInt's 90 again.
+    #[test]
+    fn section_change_restores_untouched_style_levels() {
+        let Some(p) = prep("TickingAway.T162.sty") else { return };
+        let bar = bar_ns(&p);
+        let init = p.mix[1];
+        assert_eq!(init, 90);
+        let mut e = Engine::new(p);
+        let mut rec = Recorder::default();
+        e.button(Button::Intro(1), 0, &mut rec);
+        e.set_chord(Chord::new(0, 0), 0, &mut rec);
+        play(&mut e, &mut rec, 0, bar / 2);
+        assert_eq!(e.snapshot(bar / 2).volumes[1], 76, "Intro B's own level");
+        play(&mut e, &mut rec, bar / 2, bar + bar / 2);
+        assert_eq!(e.snapshot(bar + bar / 2).cur, Some(crate::sff::SectionId::Main(0)));
+        assert_eq!(e.snapshot(bar + bar / 2).volumes[1], init);
+        assert_eq!(sent_levels(&rec)[1], Some(init));
     }
 
     /// The takeover rule on its own (the master fader uses it directly).

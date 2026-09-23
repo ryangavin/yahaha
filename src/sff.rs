@@ -298,6 +298,89 @@ pub fn parse_ots(data: &[u8]) -> Vec<Ots> {
     out
 }
 
+/// One MIDI channel's setup in a style's SInt. The named fields keep the last value the
+/// file sets; `None` where it sets none.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct ChannelInit {
+    pub bank_msb: Option<u8>,
+    pub bank_lsb: Option<u8>,
+    pub program: Option<u8>,
+    /// CC7.
+    pub volume: Option<u8>,
+    /// CC10.
+    pub pan: Option<u8>,
+    /// CC91.
+    pub reverb: Option<u8>,
+    /// CC93.
+    pub chorus: Option<u8>,
+    /// XG Multi Part parameters for this channel's part (`F0 43 1n 4C 08 pp aa vv F7`,
+    /// part pp = this channel): (address, value) in file order.
+    pub xg_part: Vec<(u8, u8)>,
+    /// Every other controller (expression, variation send, filter, RPN/NRPN sequences) and
+    /// pitch bend, in file order: their order can matter.
+    pub other: Vec<Ev>,
+}
+
+/// A style's channel setup (the SInt part): per-channel init, keyed by the channel the file
+/// addresses (the source channel), plus the SysEx that isn't a part's.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct SInt {
+    pub channels: [ChannelInit; 16],
+    /// XG effect, insertion effect and drum setup SysEx and any other SysEx, in file order,
+    /// without the system resets (`is_reset`).
+    pub sysex: Vec<Vec<u8>>,
+}
+
+/// GM/GM2 System On/Off, XG System On, XG All Parameter Reset or GS Reset: SysEx that
+/// resets every channel of the receiver, not just the style's parts.
+pub fn is_reset(v: &[u8]) -> bool {
+    match v {
+        [0xF0, 0x7E, _, 0x09, 0x01..=0x03, ..] => true,
+        [0xF0, 0x43, d, 0x4C, 0x00, 0x00, 0x7E | 0x7F, 0x00, ..] => d & 0xF0 == 0x10,
+        [0xF0, 0x41, _, 0x42, 0x12, 0x40, 0x00, 0x7F, 0x00, ..] => true,
+        _ => false,
+    }
+}
+
+/// An XG Multi Part parameter change with one data byte: (part, address, value).
+pub fn xg_part_param(v: &[u8]) -> Option<(u8, u8, u8)> {
+    match *v {
+        [0xF0, 0x43, d, 0x4C, 0x08, part, addr, val, 0xF7] if d & 0xF0 == 0x10 && part < 16 => Some((part, addr, val)),
+        _ => None,
+    }
+}
+
+impl SInt {
+    pub fn parse(init: &[Ev]) -> SInt {
+        let mut s = SInt::default();
+        for ev in init {
+            match *ev {
+                Ev::Cc { ch, cc, val } => {
+                    let c = &mut s.channels[ch as usize & 15];
+                    match cc {
+                        0 => c.bank_msb = Some(val),
+                        32 => c.bank_lsb = Some(val),
+                        7 => c.volume = Some(val),
+                        10 => c.pan = Some(val),
+                        91 => c.reverb = Some(val),
+                        93 => c.chorus = Some(val),
+                        _ => c.other.push(ev.clone()),
+                    }
+                }
+                Ev::Pc { ch, prog } => s.channels[ch as usize & 15].program = Some(prog),
+                Ev::Bend { ch, .. } => s.channels[ch as usize & 15].other.push(ev.clone()),
+                Ev::Sysex(ref v) if is_reset(v) => {}
+                Ev::Sysex(ref v) => match xg_part_param(v) {
+                    Some((part, addr, val)) => s.channels[part as usize].xg_part.push((addr, val)),
+                    None => s.sysex.push(v.clone()),
+                },
+                _ => {}
+            }
+        }
+        s
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Style {
     pub name: String,
@@ -319,6 +402,11 @@ pub struct Style {
 impl Style {
     pub fn bpm(&self) -> f64 {
         60_000_000.0 / self.tempo_us as f64
+    }
+
+    /// The channel setup, structured.
+    pub fn sint(&self) -> SInt {
+        SInt::parse(&self.init)
     }
 
     pub fn ticks_per_bar(&self) -> u32 {
@@ -1035,5 +1123,103 @@ mod tests {
         let s = Style::load(&p).unwrap();
         let o = &s.ots[0];
         assert!(o.parts[0].on && o.parts[1].on && !o.parts[2].on && o.parts[3].on);
+    }
+
+    #[test]
+    fn sint_parses_per_channel() {
+        let xg_part = |part, addr, v| Ev::Sysex(vec![0xF0, 0x43, 0x10, 0x4C, 0x08, part, addr, v, 0xF7]);
+        let reverb = vec![0xF0, 0x43, 0x10, 0x4C, 0x02, 0x01, 0x00, 0x01, 0x10, 0xF7];
+        let init = vec![
+            Ev::Sysex(vec![0xF0, 0x7E, 0x7F, 0x09, 0x01, 0xF7]),
+            Ev::Sysex(vec![0xF0, 0x43, 0x10, 0x4C, 0x00, 0x00, 0x7E, 0x00, 0xF7]),
+            Ev::Sysex(reverb.clone()),
+            Ev::Cc { ch: 9, cc: 0, val: 127 },
+            Ev::Cc { ch: 9, cc: 32, val: 0 },
+            Ev::Pc { ch: 9, prog: 25 },
+            Ev::Cc { ch: 9, cc: 7, val: 100 },
+            Ev::Cc { ch: 9, cc: 7, val: 88 },
+            Ev::Cc { ch: 9, cc: 10, val: 64 },
+            Ev::Cc { ch: 9, cc: 91, val: 30 },
+            Ev::Cc { ch: 9, cc: 93, val: 5 },
+            Ev::Cc { ch: 9, cc: 101, val: 0 },
+            Ev::Cc { ch: 9, cc: 100, val: 0 },
+            Ev::Cc { ch: 9, cc: 6, val: 2 },
+            Ev::Bend { ch: 9, val: 0x2000 },
+            xg_part(9, 0x07, 2),
+            Ev::Cc { ch: 11, cc: 11, val: 120 },
+        ];
+        let s = SInt::parse(&init);
+        let c = &s.channels[9];
+        assert_eq!((c.bank_msb, c.bank_lsb, c.program), (Some(127), Some(0), Some(25)));
+        assert_eq!((c.volume, c.pan, c.reverb, c.chorus), (Some(88), Some(64), Some(30), Some(5)));
+        assert_eq!(c.other, vec![
+            Ev::Cc { ch: 9, cc: 101, val: 0 },
+            Ev::Cc { ch: 9, cc: 100, val: 0 },
+            Ev::Cc { ch: 9, cc: 6, val: 2 },
+            Ev::Bend { ch: 9, val: 0x2000 },
+        ]);
+        assert_eq!(c.xg_part, vec![(0x07, 2)]);
+        assert_eq!(s.channels[11].other, vec![Ev::Cc { ch: 11, cc: 11, val: 120 }]);
+        assert_eq!(s.channels[11].volume, None);
+        assert_eq!(s.sysex, vec![reverb], "resets left out");
+    }
+
+    /// Every corpus style's SInt survives structuring: each channel's last value of every
+    /// controller and program is where the structure says, and every SysEx but the resets
+    /// is kept.
+    #[test]
+    fn sint_structures_every_corpus_style() {
+        let mut stack = vec![std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus")];
+        let (mut styles, mut resets) = (0, 0);
+        while let Some(d) = stack.pop() {
+            for e in std::fs::read_dir(&d).into_iter().flatten().flatten() {
+                let p = e.path();
+                if p.is_dir() {
+                    stack.push(p);
+                    continue;
+                }
+                let Ok(style) = Style::load(&p) else { continue };
+                styles += 1;
+                let s = style.sint();
+                let mut last_cc = BTreeMap::new();
+                let mut last_pc = [None; 16];
+                let mut kept = 0;
+                for ev in &style.init {
+                    match *ev {
+                        Ev::Cc { ch, cc, val } => {
+                            last_cc.insert((ch, cc), val);
+                        }
+                        Ev::Pc { ch, prog } => last_pc[ch as usize] = Some(prog),
+                        Ev::Sysex(ref v) if is_reset(v) => resets += 1,
+                        Ev::Sysex(_) => kept += 1,
+                        _ => {}
+                    }
+                }
+                for (&(ch, cc), &val) in &last_cc {
+                    let c = &s.channels[ch as usize];
+                    let got = match cc {
+                        0 => c.bank_msb,
+                        32 => c.bank_lsb,
+                        7 => c.volume,
+                        10 => c.pan,
+                        91 => c.reverb,
+                        93 => c.chorus,
+                        _ => c.other.iter().rev().find_map(|e| match *e {
+                            Ev::Cc { cc: x, val, .. } if x == cc => Some(val),
+                            _ => None,
+                        }),
+                    };
+                    assert_eq!(got, Some(val), "{p:?} ch {ch} cc {cc}");
+                }
+                for ch in 0..16 {
+                    assert_eq!(s.channels[ch].program, last_pc[ch], "{p:?} ch {ch}");
+                }
+                let xg: usize = s.channels.iter().map(|c| c.xg_part.len()).sum();
+                assert_eq!(xg + s.sysex.len(), kept, "{p:?}");
+            }
+        }
+        if styles > 0 {
+            assert!(styles >= 100 && resets > 0, "{styles} styles, {resets} resets");
+        }
     }
 }

@@ -48,6 +48,16 @@ fn dump(path: &std::path::Path) -> Result<()> {
         println!("  {:<11} {:>2} bars  {:>4} notes  ch {:?}", id.name(), sec.len / s.ticks_per_bar(), notes,
             chans.iter().map(|c| c + 1).collect::<Vec<_>>());
     }
+    let sint = s.sint();
+    for (ch, c) in sint.channels.iter().enumerate() {
+        if *c != sff::ChannelInit::default() {
+            println!("  SInt ch {:>2} bank {:?}/{:?} prog {:?} vol {:?} pan {:?} rev {:?} cho {:?}  +{} ctl  +{} xg",
+                ch + 1, c.bank_msb, c.bank_lsb, c.program, c.volume, c.pan, c.reverb, c.chorus, c.other.len(), c.xg_part.len());
+        }
+    }
+    if !sint.sysex.is_empty() {
+        println!("  SInt sysex {}", sint.sysex.len());
+    }
     for seg in &s.casm {
         println!("  CSEG {:?}", seg.sections);
         for r in &seg.rules {
