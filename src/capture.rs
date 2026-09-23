@@ -106,27 +106,18 @@ pub struct Plan {
     /// The lead (ticks) of the chords on a beat.
     pub chord_lead: u32,
     /// How far (ticks) any chord may land from its tick before it reaches one of those points
-    /// or its slot.
+    /// or its slot, in any of the sections. (`chord_rooms` narrows it to the sections that
+    /// play around each chord.)
+    #[cfg_attr(not(test), allow(dead_code))]
     pub margin: u32,
 }
 
-pub fn plan(style: &Style, script: &str) -> Result<Plan> {
+/// The positions in the beat (ticks) where a chord landing would decide something in the
+/// sections `used`: every note start and end, and every point `LATE_CHORD_MS` after a start.
+/// The rhythm channels 9 and 10 are left out: they play as written whatever the chord.
+fn edges(style: &Style, used: &[SectionId]) -> Vec<bool> {
     let ppq = style.ppq as u32;
-    let (steps, bars) = sim::parse_script(script, style.ticks_per_bar())?;
     let late = (LATE_CHORD_MS / 1000.0 * style.bpm() / 60.0 * ppq as f64).round() as u32;
-    // The sections the script's buttons call up (Main A, and its fill, when it starts).
-    let mut used = vec![SectionId::Main(0), SectionId::Fill(0)];
-    for s in &steps {
-        match s.step {
-            Step::Button(Button::Intro(i)) => used.push(SectionId::Intro(i)),
-            Step::Button(Button::Main(i)) => used.extend([SectionId::Main(i), SectionId::Fill(i)]),
-            Step::Button(Button::Break) => used.push(SectionId::Break),
-            Step::Button(Button::Ending(i)) => used.push(SectionId::Ending(i)),
-            _ => {}
-        }
-    }
-    // Every note start and end in them, and every point `LATE_CHORD_MS` after a start, as a
-    // position in the beat.
     let mut edges = vec![false; ppq as usize];
     for e in style.sections.values().filter(|s| used.contains(&s.id)).flat_map(|s| &s.events) {
         match e.ev {
@@ -138,8 +129,42 @@ pub fn plan(style: &Style, script: &str) -> Result<Plan> {
             _ => {}
         }
     }
-    // Distance from a position in the beat to the nearest edge, round the beat.
-    let room = |p: u32| (0..ppq).find(|&d| edges[((p + d) % ppq) as usize] || edges[((p + ppq - d) % ppq) as usize]).unwrap_or(ppq);
+    edges
+}
+
+/// Distance (ticks) from a position in the beat to the nearest of `edges`, round the beat.
+fn room(edges: &[bool], p: u32) -> u32 {
+    let ppq = edges.len() as u32;
+    (0..ppq).find(|&d| edges[((p + d) % ppq) as usize] || edges[((p + ppq - d) % ppq) as usize]).unwrap_or(ppq)
+}
+
+/// The tick a section button presses at: half a beat ahead of its slot.
+pub fn press_tick(slot: u32, ppq: u32) -> u32 {
+    slot.saturating_sub(ppq / 2)
+}
+
+/// Whether a press at tick `t` falls in the first beat of a bar. There the Genos changes
+/// section at once rather than at the next bar (RM p.12, Section Change Timing = Next Bar),
+/// the one place where our model and its rule differ, so the kit never presses there.
+pub fn in_first_beat(t: u32, tpb: u32, ppq: u32) -> bool {
+    t % tpb < ppq
+}
+
+pub fn plan(style: &Style, script: &str) -> Result<Plan> {
+    let ppq = style.ppq as u32;
+    let (steps, bars) = sim::parse_script(script, style.ticks_per_bar())?;
+    // The sections the script's buttons call up (Main A, and its fill, when it starts).
+    let mut used = vec![SectionId::Main(0), SectionId::Fill(0)];
+    for s in &steps {
+        match s.step {
+            Step::Button(Button::Intro(i)) => used.push(SectionId::Intro(i)),
+            Step::Button(Button::Main(i)) => used.extend([SectionId::Main(i), SectionId::Fill(i)]),
+            Step::Button(Button::Break) => used.push(SectionId::Break),
+            Step::Button(Button::Ending(i)) => used.push(SectionId::Ending(i)),
+            _ => {}
+        }
+    }
+    let edges = edges(style, &used);
     // The best lead for chords on each position in the beat the script uses.
     let mut leads: Vec<(u32, u32, u32)> = Vec::new();
     for s in steps.iter().filter(|s| s.tick > 0 && !matches!(s.step, Step::Button(_))) {
@@ -147,7 +172,7 @@ pub fn plan(style: &Style, script: &str) -> Result<Plan> {
         if leads.iter().any(|l| l.0 == phase) {
             continue;
         }
-        let best = (ppq / 24..=ppq / 4).map(|lead| (phase, lead, room((phase + ppq - lead) % ppq).min(lead))).fold((phase, ppq / 24, 0), |b, c| if c.2 > b.2 { c } else { b });
+        let best = (ppq / 24..=ppq / 4).map(|lead| (phase, lead, room(&edges, (phase + ppq - lead) % ppq).min(lead))).fold((phase, ppq / 24, 0), |b, c| if c.2 > b.2 { c } else { b });
         leads.push(best);
     }
     let lead_at = |t: u32| leads.iter().find(|l| l.0 == t % ppq).map_or(0, |l| l.1);
@@ -155,7 +180,7 @@ pub fn plan(style: &Style, script: &str) -> Result<Plan> {
         .iter()
         .map(|s| match s.step {
             _ if s.tick == 0 => 0,
-            Step::Button(_) => s.tick.saturating_sub(ppq / 2),
+            Step::Button(_) => press_tick(s.tick, ppq),
             _ => s.tick - lead_at(s.tick),
         })
         .collect();
@@ -164,8 +189,38 @@ pub fn plan(style: &Style, script: &str) -> Result<Plan> {
     Ok(Plan { steps, bars, acts, chord_lead, margin })
 }
 
+/// How far (ticks) each chord of a take (by step index; the first, which starts the style,
+/// left out) may land from where it acts before it meets a note start or end, or the point
+/// `LATE_CHORD_MS` after a start, in the sections playing around it, or reaches its slot.
+fn chord_rooms(style: &Style, take: &Take) -> Vec<(usize, u32)> {
+    let ppq = style.ppq as u32;
+    (0..take.steps.len())
+        .filter(|&i| take.steps[i].tick > 0 && matches!(take.steps[i].step, Step::Chord(_)))
+        .map(|i| {
+            let (slot, act) = (take.steps[i].tick, take.acts[i]);
+            let lead = slot - act;
+            let used: Vec<SectionId> = [act.saturating_sub(lead), act, slot].iter().filter_map(|&t| take.section_at(t)).collect();
+            (i, room(&edges(style, &used), act % ppq).min(lead))
+        })
+        .collect()
+}
+
+/// The clock difference (ppm) between the computer and the instrument that `rooms` take:
+/// the chord that goes out at `act` slips by ppm * act from where the first chord put the
+/// style, and must stay within its room. (The first chord starts the style at tick 0.)
+fn clock_budget(take: &Take, rooms: &[(usize, u32)]) -> f64 {
+    rooms.iter().map(|&(i, r)| r as f64 / take.acts[i].max(1) as f64 * 1e6).fold(f64::INFINITY, f64::min)
+}
+
+/// The clock difference (ppm) the kit tolerates on `style`: see `import`. It depends on the
+/// style's patterns and on our section timeline, so the importer works it out again for
+/// each recording.
+pub fn clock_budget_ppm(style: &Style, script: &str) -> Result<f64> {
+    let take = perform(style, script)?;
+    Ok(clock_budget(&take, &chord_rooms(style, &take)))
+}
+
 /// Our engine's take of `script` on `style`, with the steps timed as the kit sends them.
-#[cfg_attr(not(test), allow(dead_code))]
 pub fn perform(style: &Style, script: &str) -> Result<Take> {
     let p = plan(style, script)?;
     Ok(sim::perform_steps(style, p.steps, p.bars, p.acts))
@@ -282,12 +337,16 @@ fn meta(ty: u8, data: &[u8]) -> Vec<u8> {
 /// lead-in of `LEAD_IN_BARS`, then the chord keys on channel 1 and a Section Control
 /// message for every button, each sent at its `plan` tick. A marker names each bar. Main A
 /// is selected during the lead-in, as it is when `sim` starts.
-pub fn kit_midi(style: &Style, script: &str) -> Result<Vec<u8>> {
+///
+/// `clock_ppm` is how fast the owner's instrument clock runs against their computer's, as
+/// `capture-import` measured it from an earlier recording (0 for a new owner): the file runs
+/// that much faster, so the chords keep to the instrument's beat.
+pub fn kit_midi(style: &Style, script: &str, clock_ppm: f64) -> Result<Vec<u8>> {
     let (ppq, tpb) = (style.ppq as u32, style.ticks_per_bar());
     let Plan { steps, bars, acts, .. } = plan(style, script)?;
     let t0 = LEAD_IN_BARS * tpb;
     let rec = Recognizer::new();
-    let us = (60e6 / style.bpm()).round() as u32;
+    let us = (60e6 / (style.bpm() * (1.0 + clock_ppm * 1e-6))).round() as u32;
     let (num, den) = style.timesig;
     let mut ev: Vec<(u32, Vec<u8>)> = vec![
         (0, meta(0x03, format!("yahaha capture: {}", style.name.trim_end_matches(['\0', ' '])).as_bytes())),
@@ -326,6 +385,9 @@ pub fn kit_midi(style: &Style, script: &str) -> Result<Vec<u8>> {
             Step::Release => off(&mut held, t, &mut ev),
             Step::Button(b) => {
                 let code = section_code(b).with_context(|| format!("{} has no MIDI Section Control message", s.label))?;
+                if s.tick > 0 && in_first_beat(act, tpb, ppq) {
+                    bail!("{} in bar {} presses in the first beat of a bar, where the Genos changes section at once", s.label, act / tpb + 1);
+                }
                 ev.push((t, section_control(code, true)));
                 ev.push((t + 1, section_control(code, false)));
             }
@@ -354,8 +416,9 @@ pub fn find_file(root: &Path, name: &str) -> Option<PathBuf> {
 }
 
 /// `yahaha capture-kit <out-dir> [style]...`: one MIDI file per style (the kit styles found
-/// in ./corpus when none are given) and the owner instructions, README.md.
-pub fn write_kit(out: &Path, styles: &[PathBuf]) -> Result<()> {
+/// in ./corpus when none are given) and the owner instructions, README.md. `clock_ppm`: see
+/// `kit_midi`.
+pub fn write_kit(out: &Path, styles: &[PathBuf], clock_ppm: f64) -> Result<()> {
     let mut paths: Vec<(PathBuf, Option<&KitStyle>)> = Vec::new();
     if styles.is_empty() {
         for k in &KIT {
@@ -375,17 +438,20 @@ pub fn write_kit(out: &Path, styles: &[PathBuf]) -> Result<()> {
     }
     std::fs::create_dir_all(out)?;
     let mut table = String::from(
-        "\n## Files in this kit\n\n| MIDI file | Style to load | Where to get it | Tempo | Length | Covers |\n|---|---|---|---|---|---|\n",
+        "\n## Files in this kit\n\n| MIDI file | Style to load | Where to get it | Tempo | Length | Covers | Clock tolerance |\n|---|---|---|---|---|---|---|\n",
     );
+    if clock_ppm != 0.0 {
+        table = format!("\nThese files run {clock_ppm:+.0} ppm fast, to match the clock of the instrument they were made for.\n{table}");
+    }
     for (path, kit) in &paths {
         let style = Style::load(path)?;
         let (_, bars) = sim::parse_script(SCRIPT, style.ticks_per_bar())?;
         let stem = path.file_name().unwrap().to_string_lossy().split('.').next().unwrap_or("style").to_string();
         let file = format!("{stem}.capture.mid");
-        std::fs::write(out.join(&file), kit_midi(&style, SCRIPT)?)?;
+        std::fs::write(out.join(&file), kit_midi(&style, SCRIPT, clock_ppm)?)?;
         let secs = (bars + LEAD_IN_BARS) as f64 * style.ticks_per_bar() as f64 / style.ppq as f64 * 60.0 / style.bpm();
         table += &format!(
-            "| `{file}` | {} (`{}`) | {} | {:.0} bpm | {bars} bars + {LEAD_IN_BARS} lead-in, {}:{:02} | {} |\n",
+            "| `{file}` | {} (`{}`) | {} | {:.0} bpm | {bars} bars + {LEAD_IN_BARS} lead-in, {}:{:02} | {} | {:.0} ppm |\n",
             kit.map_or(stem.as_str(), |k| k.title),
             path.file_name().unwrap().to_string_lossy(),
             kit.map_or("-", |k| k.source),
@@ -393,6 +459,7 @@ pub fn write_kit(out: &Path, styles: &[PathBuf]) -> Result<()> {
             secs as u32 / 60,
             secs as u32 % 60,
             kit.map_or("-", |k| k.covers),
+            clock_budget_ppm(&style, SCRIPT)?,
         );
         println!("wrote {}", out.join(&file).display());
     }
@@ -491,11 +558,13 @@ pub struct ImportOptions {
     pub tolerance_ms: f64,
     /// Where bar 1 starts in the recording (ms), when the automatic alignment fails.
     pub offset_ms: Option<f64>,
+    /// The `--clock-ppm` the kit file was made with.
+    pub clock_ppm: f64,
 }
 
 impl Default for ImportOptions {
     fn default() -> Self {
-        ImportOptions { tolerance_ms: 8.0, offset_ms: None }
+        ImportOptions { tolerance_ms: 8.0, offset_ms: None, clock_ppm: 0.0 }
     }
 }
 
@@ -580,8 +649,9 @@ fn minus(a: &[String], b: &[String]) -> Vec<String> {
 
 /// Line a recording up with our take of `script` on `style` and compare them.
 pub fn import(recording: &[u8], style: &Style, script: &str, opts: &ImportOptions) -> Result<Import> {
-    let Plan { steps, bars, acts, chord_lead, margin } = plan(style, script)?;
+    let Plan { steps, bars, acts, chord_lead, .. } = plan(style, script)?;
     let ours = sim::perform_steps(style, steps, bars, acts);
+    let rooms = chord_rooms(style, &ours);
     let events = read_smf(recording)?;
     let per_sec = ours.bpm / 60.0 * ours.ppq as f64;
     let tol = opts.tolerance_ms / 1000.0 * per_sec;
@@ -745,24 +815,29 @@ pub fn import(recording: &[u8], style: &Style, script: &str, opts: &ImportOption
 
     // Chords the instrument read, against the ones the script meant, and when it read them.
     // The kit sends each chord on the computer's clock; the style plays on the instrument's.
-    // A chord that slipped by the plan's margin may have met a note on the other side than in
-    // our take, so the margin is the limit. The slip is measured from the first chord, which
-    // started the style, so the instrument's own delay in reading a chord cancels out: from
-    // the chord messages, or without them from the drift since the first chord.
+    // A chord that slipped by its room (`chord_rooms`) may have met a note on the other side
+    // than in our take, so the room is the limit. The slip is measured from the first chord,
+    // which started the style, so the instrument's own delay in reading a chord cancels out:
+    // from the chord messages, or without them from the drift since the first chord.
     let chord_steps: Vec<usize> = (0..ours.steps.len()).filter(|&i| matches!(ours.steps[i].step, Step::Chord(_))).collect();
     let act = |i: usize| ours.acts[i] as f64;
     let reach = ours.ppq as f64 / 4.0;
-    // (slip, step) of the chord that slipped furthest; the first one started the style.
-    let mut worst: Option<(f64, usize)> = None;
+    // (slip, room, step) of the chord that came closest to its room, as a share of it.
+    let mut worst: Option<(f64, f64, usize)> = None;
     let mut slipped = |slip: f64, i: usize| {
-        if ours.steps[i].tick > 0 && worst.is_none_or(|(s, _)| slip > s) {
-            worst = Some((slip, i));
+        let Some(&(_, r)) = rooms.iter().find(|r| r.0 == i) else { return };
+        let r = r as f64;
+        if worst.is_none_or(|(s, wr, _)| slip * wr > s * r) {
+            worst = Some((slip, r, i));
         }
     };
+    // The instrument's clock against the computer's (the recorder's), and against the kit's.
+    let clock_ppm = (a - 1.0) * 1e6;
+    let kit_ratio = a / (1.0 + opts.clock_ppm * 1e-6);
     if chords.is_empty() {
         out += "chords: the recording has no Chord Control messages (turn on Chord System Exclusive Message Transmit to check them)\n";
         for &i in &chord_steps {
-            slipped((a - 1.0).abs() * act(i), i);
+            slipped((kit_ratio - 1.0).abs() * act(i), i);
         }
     } else {
         let (mut same, mut silent, mut wrong) = (0, 0, Vec::new());
@@ -793,22 +868,25 @@ pub fn import(recording: &[u8], style: &Style, script: &str, opts: &ImportOption
             out += w;
         }
     }
-    if let Some((slip, i)) = worst {
+    let budget = clock_budget(&ours, &rooms);
+    if let Some((slip, room, i)) = worst {
         let s = &ours.steps[i];
-        let m = margin as f64;
         let at = format!("{} in bar {}", s.label, s.tick / ours.tpb + 1);
         out += &format!(
-            "chord timing: sent {:.1} ms ahead of the beat; furthest off {at}, {:.1} ms from where yahaha plays it (limit {:.1} ms)\n",
+            "chord timing: sent {:.1} ms ahead of the beat; closest call {at}, {:.1} ms from where yahaha plays it (room {:.1} ms)\n",
             ms(chord_lead as f64),
             ms(slip),
-            ms(m)
+            ms(room)
         );
-        if slip >= m {
+        let kit = if opts.clock_ppm != 0.0 { format!(", the kit ran {:+.0} ppm fast", opts.clock_ppm) } else { String::new() };
+        out += &format!("clocks: the instrument's runs {clock_ppm:+.1} ppm against the computer's{kit}; this style takes up to {budget:.0} ppm between the kit and the instrument\n");
+        if slip >= room {
+            // The drift between a computer and an instrument stays put, so recording again
+            // cannot help; a kit that runs at the instrument's speed does.
             problems.push(format!(
-                "{at} reached the instrument {:.1} ms from where yahaha plays it, past the {:.1} ms before a note would follow another chord than in our take. The computer's and the instrument's clocks disagree by {:.0} ppm: record again, and if it happens again send the recording anyway and say so",
+                "{at} reached the instrument {:.1} ms from where yahaha plays it, past the {:.1} ms before a note would follow another chord than in our take. The instrument's clock runs {clock_ppm:+.0} ppm against the computer's, and this style takes {budget:.0} ppm. Recording again on the same computer and instrument will not help: make the owner a kit with `yahaha capture-kit <dir> --clock-ppm {clock_ppm:.0}`, which keeps to the instrument's clock, and import that recording with the same --clock-ppm",
                 ms(slip),
-                ms(m),
-                (a - 1.0).abs() * 1e6
+                ms(room),
             ));
         }
     }
@@ -859,6 +937,29 @@ pub fn import(recording: &[u8], style: &Style, script: &str, opts: &ImportOption
     for (i, (d, n)) in per_part.iter().enumerate().filter(|(_, p)| p.1 > 0) {
         out += &format!("  ch{:<2} {:<8} {d} of {n} bars\n", i + 9, PART_NAMES[i]);
     }
+    // A note-on and note-off on one tick sounds nothing, and the instrument may not send one.
+    let zero = ours.notes.iter().filter(|n| n.len == Some(0)).count();
+    if zero > 0 {
+        let unmatched = (0..ours.notes.len()).filter(|&i| ours.notes[i].len == Some(0) && !hit[i]).count();
+        out += &format!("  yahaha plays {zero} zero-length notes (on and off on one tick); {unmatched} of them are yahaha only\n");
+    }
+    // Where each fill starts is our reading of the Genos (RM p.12 does not say): the drums
+    // of every fill bar, on a line of their own, show whether the instrument agrees.
+    let fills: Vec<(u32, SectionId)> = ours.sections.iter().filter_map(|&(t, id)| id.filter(|id| matches!(id, SectionId::Fill(_))).map(|id| (t, id))).collect();
+    if !fills.is_empty() {
+        out += "\nfill drums (the fill as yahaha starts it; drums that differ mean the instrument started it elsewhere):\n";
+        for (t, id) in fills {
+            let bar = t / ours.tpb;
+            let (mut only_hw, mut only_ours) = (0, 0);
+            for ch in [8, 9] {
+                let ((hi, _), (oi, _)) = (hardware.part_items(bar, ch), ours.part_items(bar, ch));
+                only_hw += minus(&hi, &oi).len();
+                only_ours += minus(&oi, &hi).len();
+            }
+            let what = if only_hw + only_ours == 0 { "same".to_string() } else { format!("differ: {only_hw} instrument only, {only_ours} yahaha only") };
+            out += &format!("  bar {} {} from beat {}: drums {what}\n", bar + 1, id.name(), ours.pos(t));
+        }
+    }
     if !diffs.is_empty() {
         out += "\ndifferences (instrument = the recording, yahaha = our engine):\n";
         out += &diffs;
@@ -896,7 +997,7 @@ pub fn write_reference(imp: &Import, dir: &Path, style_file: &str, recording: &P
 
 /// `yahaha capture-import <recording.mid> <style> [options]`.
 pub fn import_cmd(args: &[String]) -> Result<()> {
-    let usage = "usage: yahaha capture-import <recording.mid> <style> [--tolerance-ms N] [--offset-ms N] [--listing FILE] [--golden DIR [--force]]";
+    let usage = "usage: yahaha capture-import <recording.mid> <style> [--tolerance-ms N] [--offset-ms N] [--clock-ppm N] [--listing FILE] [--golden DIR [--force]]";
     let (Some(recording), Some(style_path)) = (args.first(), args.get(1)) else {
         bail!("{usage}");
     };
@@ -908,6 +1009,7 @@ pub fn import_cmd(args: &[String]) -> Result<()> {
         match flag.as_str() {
             "--tolerance-ms" => opts.tolerance_ms = value()?.parse()?,
             "--offset-ms" => opts.offset_ms = Some(value()?.parse()?),
+            "--clock-ppm" => opts.clock_ppm = value()?.parse()?,
             "--listing" => listing = Some(PathBuf::from(value()?)),
             "--golden" => golden = Some(PathBuf::from(value()?)),
             "--force" => force = true,
@@ -1014,10 +1116,7 @@ mod tests {
                 }
                 Step::Button(b) => {
                     assert!(section_code(b).is_some(), "{} has no Section Control message", s.label);
-                    // Within a bar's first beat the Genos changes section at once, not at the
-                    // next bar (RM p.12): the one place where our model and its rule differ.
-                    let t = s.tick.saturating_sub(960);
-                    assert!(s.tick == 0 || t % 1920 >= 480, "{} at tick {} presses in the first beat of a bar", s.label, s.tick);
+                    assert!(s.tick == 0 || !in_first_beat(press_tick(s.tick, 480), 1920, 480), "{} at tick {} presses in the first beat of a bar", s.label, s.tick);
                 }
                 Step::Release => {}
                 _ => panic!("{} cannot be sent over MIDI", s.label),
@@ -1064,7 +1163,7 @@ mod tests {
         let Some(style) = corpus_style(KIT[0].file) else {
             return;
         };
-        let bytes = kit_midi(&style, "[IntroA] | C | Am - - [MainB] - |").unwrap();
+        let bytes = kit_midi(&style, "[IntroA] | C | Am - - [MainB] - |", 0.0).unwrap();
         let ev = read_smf(&bytes).unwrap();
         let ppq_sec = 60.0 / style.bpm() / style.ppq as f64;
         let tick = |s: f64| (s / ppq_sec).round() as u32;
@@ -1091,7 +1190,27 @@ mod tests {
         }
         let offs = ev.iter().filter(|(_, e)| matches!(e, Ev::NoteOff { ch: 0, .. })).count();
         assert_eq!(offs, 6, "every key is let go");
-        assert!(kit_midi(&style, "| C [SyncStop] |").is_err());
+        assert!(kit_midi(&style, "| C [SyncStop] |", 0.0).is_err());
+    }
+
+    /// A button presses half a beat ahead of its slot, so one on beat 2 presses in beat 1
+    /// (refused) and one on beat 3 presses in beat 2 (fine), and one on a downbeat presses in
+    /// the bar before (fine).
+    #[test]
+    fn first_beat_presses_are_refused() {
+        let (tpb, ppq) = (1920, 480);
+        let pressed = |slot: u32| in_first_beat(press_tick(slot, ppq), tpb, ppq);
+        assert!(pressed(2400), "slot beat 2 of bar 2: press at 2160, in beat 1");
+        assert!(!pressed(2880), "slot beat 3 of bar 2: press at 2640, in beat 2");
+        assert!(!pressed(3840), "slot on bar 3's downbeat: press at 3600, in bar 2's beat 4");
+        let Some(style) = corpus_style(KIT[0].file) else {
+            return;
+        };
+        assert_eq!(style.ticks_per_bar(), 4 * style.ppq as u32, "a 4/4 style");
+        let err = kit_midi(&style, "| C | C [MainB] - - - |", 0.0).unwrap_err().to_string();
+        assert!(err.contains("[MainB] in bar 2 presses in the first beat"), "{err}");
+        assert!(kit_midi(&style, "| C | C - [MainB] - - |", 0.0).is_ok());
+        assert!(kit_midi(&style, "| C | C - - - | [MainB] G |", 0.0).is_ok());
     }
 
     /// How a fake recording differs from a perfect one.
@@ -1103,13 +1222,15 @@ mod tests {
         speed: f64,
         /// The recorder's tempo (its ticks mean nothing to the instrument).
         rec_bpm: f64,
+        /// The kit file runs this much faster than the style (`capture-kit --clock-ppm`).
+        kit_speed: f64,
         /// Style notes played before bar 1 (the owner trying the style first).
         noodling: bool,
         /// Type 1, with the tempo on a track of its own.
         type1: bool,
     }
 
-    const FAKE: Fake = Fake { jitter_ms: 4.0, speed: 1.0, rec_bpm: 120.0, noodling: false, type1: false };
+    const FAKE: Fake = Fake { jitter_ms: 4.0, speed: 1.0, rec_bpm: 120.0, kit_speed: 1.0, noodling: false, type1: false };
 
     /// A fake recording of a take: other ppq and clock, bar 1 somewhere in the file, MIDI
     /// jitter, chord messages, and the instrument's keyboard echo on channel 4.
@@ -1120,7 +1241,7 @@ mod tests {
         let rec_tick = |sec: f64| (sec * f.rec_bpm / 60.0 * ppq as f64).round() as u32;
         // A style note plays on the instrument's clock; a chord arrives on the computer's.
         let style_at = |t: u32| rec_tick(bar1 + t as f64 / per_sec / f.speed);
-        let daw_at = |t: u32| rec_tick(bar1 + t as f64 / per_sec);
+        let daw_at = |t: u32| rec_tick(bar1 + t as f64 / per_sec / f.kit_speed);
         let tempo = meta(0x51, &((60e6 / f.rec_bpm).round() as u32).to_be_bytes()[1..]);
         let mut ev: Vec<(u32, Vec<u8>)> = Vec::new();
         let mut seed = 12345u32;
@@ -1200,6 +1321,10 @@ mod tests {
             assert_eq!(imp.differing_bars, 0, "{what}");
             assert!(imp.report.contains("bar 1 at 3.21"), "{what}");
             assert!(imp.report.contains("read as meant, 0 read differently, 0 with no chord message"), "{what}");
+            // Every fill's drums on their own line, all the same; zero-length notes counted.
+            assert!(imp.report.contains("\nfill drums ") && imp.report.contains(": drums same\n") && !imp.report.contains("drums differ"), "{what}");
+            let zero = ours.notes.iter().filter(|n| n.len == Some(0)).count();
+            assert!(zero == 0 || imp.report.contains(&format!("yahaha plays {zero} zero-length notes (on and off on one tick); 0 of them are yahaha only")), "{what}");
             assert_eq!(reference_digest(&imp), our_reference_digest(&style).unwrap(), "{what}");
         }
     }
@@ -1250,44 +1375,94 @@ mod tests {
         assert!(imp.report.contains("leave the tempo alone"), "{}", imp.report);
     }
 
-    /// The instrument's clock running 0.19% fast is within the tempo check, but by the end
-    /// the chords reach it most of a beat late against the style: not verified, with or
-    /// without chord messages. A drift a real pair of crystals shows (30 ppm) is fine.
+    /// A fake recording with its Chord Control messages taken out.
+    fn without_chord_messages(rec: &[u8]) -> Vec<u8> {
+        let per_q = 60.0 / FAKE.rec_bpm / 480.0;
+        let ev: Vec<(u32, Vec<u8>)> = read_smf(rec)
+            .unwrap()
+            .into_iter()
+            .filter_map(|(s, e)| {
+                let t = (s / per_q).round() as u32;
+                match e {
+                    Ev::NoteOn { ch, key, vel } => Some((t, vec![0x90 | ch, key, vel])),
+                    Ev::NoteOff { ch, key } => Some((t, vec![0x80 | ch, key, 0])),
+                    _ => None,
+                }
+            })
+            .collect();
+        write_smf(480, ev)
+    }
+
+    /// B2: the computer's and the instrument's clocks, over every kit style. Off by half the
+    /// style's clock budget, a recording verifies. Off by twice the budget it does not, with
+    /// or without chord messages, and the report says what helps: a kit made with
+    /// `--clock-ppm` at the measured drift, which verifies again. Recording again does not.
     #[test]
-    fn import_rejects_clock_drift() {
-        let Some(style) = corpus_style("AustinCityBlues.S930.STY") else {
+    fn import_clock_drift_over_every_style() {
+        let mut ran = false;
+        for k in &KIT {
+            let Some(style) = corpus_style(k.file) else {
+                continue;
+            };
+            ran = true;
+            let ours = perform(&style, SCRIPT).unwrap();
+            let budget = clock_budget_ppm(&style, SCRIPT).unwrap();
+            eprintln!("{}: clock budget {budget:.0} ppm", k.file);
+            let opts = ImportOptions::default();
+            let fine = fake(&ours, &Fake { jitter_ms: 2.0, speed: 1.0 + 0.5 * budget * 1e-6, ..FAKE }, |_| {});
+            let imp = import(&fine, &style, SCRIPT, &opts).unwrap();
+            assert!(imp.verified, "{} at {:.0} ppm:\n{}", k.file, 0.5 * budget, imp.report);
+
+            // Twice the budget, and never past the tempo check: the chord timing catches it.
+            let ppm = (2.0 * budget).min(1900.0);
+            assert!(ppm > budget * 1.2, "{}: a {budget:.0} ppm budget is past the tempo check", k.file);
+            let speed = 1.0 + ppm * 1e-6;
+            let drifting = fake(&ours, &Fake { jitter_ms: 2.0, speed, ..FAKE }, |_| {});
+            let mut measured = Vec::new();
+            for rec in [drifting.clone(), without_chord_messages(&drifting)] {
+                let imp = import(&rec, &style, SCRIPT, &opts).unwrap();
+                let what = format!("{} at {ppm:.0} ppm:\n{}", k.file, imp.report);
+                assert!(!imp.verified, "{what}");
+                assert!(!imp.report.contains("leave the tempo alone"), "{what}");
+                assert!(!imp.report.contains("record again"), "{what}");
+                let advice = imp.report.split("will not help: make the owner a kit with `yahaha capture-kit <dir> --clock-ppm ").nth(1).expect(&what);
+                let p: f64 = advice.split('`').next().unwrap().parse().unwrap();
+                assert!((p - ppm).abs() <= 3.0, "{what}");
+                measured.push(p);
+            }
+            // The kit made for that instrument, at the drift the report measured, keeps to its
+            // clock.
+            let kit_speed = 1.0 + measured[0] * 1e-6;
+            let corrected = fake(&ours, &Fake { jitter_ms: 2.0, speed, kit_speed, ..FAKE }, |_| {});
+            let opts = ImportOptions { clock_ppm: measured[0], ..ImportOptions::default() };
+            for rec in [corrected.clone(), without_chord_messages(&corrected)] {
+                let imp = import(&rec, &style, SCRIPT, &opts).unwrap();
+                assert!(imp.verified, "{} at {ppm:.0} ppm with a corrected kit:\n{}", k.file, imp.report);
+                assert_eq!(reference_digest(&imp), our_reference_digest(&style).unwrap(), "{}", k.file);
+            }
+        }
+        if !ran {
+            eprintln!("no corpus; skipping");
+        }
+    }
+
+    /// `--clock-ppm` makes the kit file's tempo that much faster, to the microsecond the
+    /// tempo meta event carries, and changes nothing else.
+    #[test]
+    fn kit_clock_correction_sets_the_tempo() {
+        let Some(style) = corpus_style(KIT[0].file) else {
             return;
         };
-        let ours = perform(&style, SCRIPT).unwrap();
-        let drifting = fake_recording(&ours, 2.0, 1.0019, |_| {});
-        let imp = import(&drifting, &style, SCRIPT, &ImportOptions::default()).unwrap();
-        assert!(!imp.verified, "{}", imp.report);
-        assert!(!imp.report.contains("leave the tempo alone"), "the tempo check alone lets it through:\n{}", imp.report);
-        assert!(imp.report.contains("past the"), "{}", imp.report);
-        // Without chord messages, the fitted tempo bounds the drift.
-        let silent: Vec<u8> = {
-            let events = read_smf(&drifting).unwrap();
-            let per_q = 60.0 / 120.0 / 480.0;
-            let ev: Vec<(u32, Vec<u8>)> = events
-                .into_iter()
-                .filter_map(|(s, e)| {
-                    let t = (s / per_q).round() as u32;
-                    match e {
-                        Ev::NoteOn { ch, key, vel } => Some((t, vec![0x90 | ch, key, vel])),
-                        Ev::NoteOff { ch, key } => Some((t, vec![0x80 | ch, key, 0])),
-                        _ => None,
-                    }
-                })
-                .collect();
-            write_smf(480, ev)
+        let tempo = |bytes: &[u8]| {
+            read_smf(bytes).unwrap().into_iter().find_map(|(_, e)| match e {
+                Ev::Meta { ty: 0x51, data } => Some(u32::from_be_bytes([0, data[0], data[1], data[2]])),
+                _ => None,
+            })
         };
-        let imp = import(&silent, &style, SCRIPT, &ImportOptions::default()).unwrap();
-        assert!(imp.report.contains("no Chord Control messages"), "{}", imp.report);
-        assert!(!imp.verified && imp.report.contains("past the"), "{}", imp.report);
-
-        let fine = fake_recording(&ours, 2.0, 1.00003, |_| {});
-        let imp = import(&fine, &style, SCRIPT, &ImportOptions::default()).unwrap();
-        assert!(imp.verified, "{}", imp.report);
+        let (plain, fast) = (kit_midi(&style, SCRIPT, 0.0).unwrap(), kit_midi(&style, SCRIPT, 120.0).unwrap());
+        let (p, f) = (tempo(&plain).unwrap() as f64, tempo(&fast).unwrap() as f64);
+        assert!((p / f - 1.000120).abs() < 1.5 / p, "{p} us against {f} us");
+        assert_eq!(plain.len(), fast.len());
     }
 
     /// A section button the instrument did not take changes the drums: not verified.
@@ -1412,6 +1587,7 @@ mod tests {
     #[test]
     fn factory_kit_styles_are_genos_presets() {
         let Ok(list) = std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("docs/manuals/Genos_data_list.txt")) else {
+            eprintln!("factory_kit_styles_are_genos_presets: no docs/manuals/Genos_data_list.txt; skipping");
             return;
         };
         // The style list is in columns two or more spaces apart ("US RockShuffle" is one name).

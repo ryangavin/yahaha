@@ -88,7 +88,15 @@ The importer finds bar 1 by lining up the parts that play as written (drums), fi
 
 - where bar 1 is, the instrument's tempo, and how closely the matched notes line up (the MIDI jitter);
 - the chords the instrument read differently (from its Chord SysEx), and how far the chords drifted from where yahaha plays them;
-- every bar and part where the notes differ.
+- how fast the instrument's clock runs against the computer's, in ppm;
+- every bar and part where the notes differ, then the drums of every fill bar on a line of their own.
+
+The computer plays the chords on its clock and the instrument plays the style on its own, so the chords drift against the style through the recording. The "Clock tolerance" column in the table below is how much drift each style takes before a chord could meet a note on the other side than in yahaha's take. A pair of clocks that drifts further fails verification, and recording again on the same computer and instrument will not help, because the drift stays the same. Make that owner a kit that runs at their instrument's speed, with the drift the report measured, and import the new recording with the same value:
+
+```sh
+yahaha capture-kit kit-for-them --clock-ppm 85
+yahaha capture-import rec.mid <style> --clock-ppm 85
+```
 
 To turn a verified recording into a reference digest, run:
 

@@ -20,7 +20,7 @@ yahaha capture-import OrganCruise.recording.mid corpus/MOX_v2/OrganCruise.S930.S
 
 - the parts that play as written (drums) match ours for at least 98% of their notes;
 - the instrument played at the style's tempo (within 0.2%);
-- no chord reached the instrument further from where yahaha plays it than the kit's margin for that style (see `capture::plan`): measured from the Chord SysEx relative to the first chord, or, without it, estimated from the clock drift. The computer plays the chords on its clock and the instrument plays the style on its own, so drift adds up over the take;
+- no chord reached the instrument further from where yahaha plays it than its room: the distance to the nearest note start or end (or late-chord point) in the sections playing around it, or to its slot (see `capture::chord_rooms`). The slip is measured from the Chord SysEx relative to the first chord, or, without it, estimated from the clock drift. The computer plays the chords on its clock and the instrument plays the style on its own, so drift adds up over the take. Each style takes 30 to 110 ppm (the kit's table lists it). A pair of clocks that drifts further fails every time, so the report says to make that owner a kit with `capture-kit --clock-ppm <measured drift>` and to import with the same `--clock-ppm`;
 - the recording runs to the end of the script.
 
 The import report also lists every chord the instrument read differently from the script (from its Chord SysEx). Those bars compare the hardware on one chord with yahaha on another, so look at them first.

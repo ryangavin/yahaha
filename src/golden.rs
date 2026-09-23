@@ -29,18 +29,7 @@ fn root() -> PathBuf {
 }
 
 fn find_style(name: &str) -> Option<PathBuf> {
-    let mut stack = vec![root().join("corpus")];
-    while let Some(d) = stack.pop() {
-        for e in std::fs::read_dir(&d).into_iter().flatten().flatten() {
-            let p = e.path();
-            if p.is_dir() {
-                stack.push(p);
-            } else if p.file_name().is_some_and(|f| f == name) {
-                return Some(p);
-            }
-        }
-    }
-    None
+    crate::capture::find_file(&root().join("corpus"), name)
 }
 
 /// Line diff (longest common subsequence) with the enclosing `bar` line as context and, for

@@ -17,7 +17,7 @@ mod synth;
 mod theory;
 mod ui;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use std::path::PathBuf;
 
 fn main() -> Result<()> {
@@ -36,7 +36,7 @@ fn main() -> Result<()> {
         Some("screen") => ui::screen_html(std::path::Path::new(&args[2]), std::path::Path::new(&args[3]))?,
         Some("bench") => bench::run(std::path::Path::new(&args[2]), args.get(3).and_then(|s| s.parse().ok()))?,
         _ => eprintln!(
-            "usage:\n  yahaha play <style or folder>... [--split F#2] [--input <name>] [--all-inputs] [--no-pads] [--sf2 file | --no-synth] [--palette-leds] [--audio-out 11]\n      [--fingering single|multi|fingered|on-bass|ai|full|ai-full] [--upper [--no-manual-bass]] [--transpose N] [--master-transpose N]\n  yahaha bench <style> [spin_us]\n  yahaha sim <style> <\"C Am F G7\" | script file>\n  yahaha capture-kit <out-dir> [style]...\n  yahaha capture-import <recording.mid> <style> [--tolerance-ms N] [--offset-ms N] [--listing FILE] [--golden DIR [--force]]\n  yahaha dump <style>..."
+            "usage:\n  yahaha play <style or folder>... [--split F#2] [--input <name>] [--all-inputs] [--no-pads] [--sf2 file | --no-synth] [--palette-leds] [--audio-out 11]\n      [--fingering single|multi|fingered|on-bass|ai|full|ai-full] [--upper [--no-manual-bass]] [--transpose N] [--master-transpose N]\n  yahaha bench <style> [spin_us]\n  yahaha sim <style> <\"C Am F G7\" | script file>\n  yahaha capture-kit <out-dir> [--clock-ppm N] [style]...\n  yahaha capture-import <recording.mid> <style> [--tolerance-ms N] [--offset-ms N] [--clock-ppm N] [--listing FILE] [--golden DIR [--force]]\n  yahaha dump <style>..."
         ),
     }
     Ok(())
@@ -79,13 +79,23 @@ fn sim_cmd(args: &[String]) -> Result<()> {
     Ok(())
 }
 
-/// `yahaha capture-kit <out-dir> [style]...`: the Genos-owner capture kit (src/capture.rs).
+/// `yahaha capture-kit <out-dir> [--clock-ppm N] [style]...`: the Genos-owner capture kit
+/// (src/capture.rs).
 fn capture_kit_cmd(args: &[String]) -> Result<()> {
+    let usage = "usage: yahaha capture-kit <out-dir> [--clock-ppm N] [style]...";
     let Some(out) = args.first() else {
-        anyhow::bail!("usage: yahaha capture-kit <out-dir> [style]...");
+        anyhow::bail!("{usage}");
     };
-    let styles: Vec<PathBuf> = args[1..].iter().map(PathBuf::from).collect();
-    capture::write_kit(std::path::Path::new(out), &styles)
+    let (mut styles, mut clock_ppm) = (Vec::new(), 0.0);
+    let mut it = args[1..].iter();
+    while let Some(a) = it.next() {
+        if a == "--clock-ppm" {
+            clock_ppm = it.next().with_context(|| format!("--clock-ppm wants a value\n{usage}"))?.parse()?;
+        } else {
+            styles.push(PathBuf::from(a));
+        }
+    }
+    capture::write_kit(std::path::Path::new(out), &styles, clock_ppm)
 }
 
 /// Parse a chord symbol: root, a `TYPE_NAMES` suffix, and an optional `/bass`.
