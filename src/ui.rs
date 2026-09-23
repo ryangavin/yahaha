@@ -2,6 +2,7 @@
 //! thread at normal priority; talks to the engine only through lock-free rings.
 
 use crate::engine::{id_of, Button, Engine, Prepared, Snapshot, NUM_SLOTS};
+use crate::fingering::Fingering;
 use crate::launchkey::{self, Led};
 use crate::live::{self, Cmd, Input, Shared, TAG_KEYS, TAG_PADS};
 use crate::midi::{self, Client};
@@ -33,6 +34,8 @@ pub struct Options {
     pub palette_leds: bool,
     /// 1-based left output channel for the synth (None = auto).
     pub audio_out: Option<u8>,
+    /// Chord fingering type at startup.
+    pub fingering: Fingering,
 }
 
 fn collect_styles(paths: &[PathBuf]) -> Vec<PathBuf> {
@@ -102,6 +105,7 @@ pub fn play(opts: Options) -> Result<()> {
     let client = Client::new("yahaha")?;
     let out_src = client.virtual_source("yahaha")?;
     let shared = Arc::new(Shared::new(opts.split));
+    shared.fingering.store(opts.fingering.to_u8(), Relaxed);
 
     // --- built-in synth (optional) ---
     let mut feeds = synth::feeds();
@@ -364,6 +368,12 @@ pub fn play(opts: Options) -> Result<()> {
                         None
                     }
                     KeyCode::Char('h') => Some(Button::StopAcmp),
+                    KeyCode::Char('f') => {
+                        let f = Fingering::from_u8(shared.fingering.load(Relaxed)).next();
+                        shared.fingering.store(f.to_u8(), Relaxed);
+                        shared.wake.signal();
+                        None
+                    }
                     KeyCode::Char('\\') => {
                         let _ = ch.ui_tx.push(Cmd::Panic);
                         shared.wake.signal();
@@ -573,7 +583,11 @@ fn draw(
             Line::from(vec![
                 flag(s.map_or(false, |s| s.sync_armed), "SYNC START [y]"),
                 flag(s.map_or(false, |s| s.auto_fill), "AUTO FILL [u]"),
-                flag(s.map_or(false, |s| s.sync_stop), "SYNC STOP [j]"),
+                if Fingering::from_u8(shared.fingering.load(Relaxed)).allows_sync_stop() {
+                    flag(s.map_or(false, |s| s.sync_stop), "SYNC STOP [j]")
+                } else {
+                    Span::styled(" SYNC STOP n/a ", dim)
+                },
                 flag(s.map_or(false, |s| s.stop_acmp), "STOP ACMP [h]"),
                 flag(synth.map_or(false, |(_, c)| c.ots_link.load(Relaxed)), "OTS LINK [F10]"),
                 Span::styled(
@@ -585,6 +599,7 @@ fn draw(
                     dim,
                 ),
                 Span::raw(format!("  split {} [ / ]", note_name(shared.split.load(Relaxed)))),
+                Span::raw(format!("  fingering {} [f]", Fingering::from_u8(shared.fingering.load(Relaxed)).name())),
             ]),
             Line::from(match synth {
                 Some((_, c)) => {
