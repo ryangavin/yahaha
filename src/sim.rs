@@ -1,7 +1,10 @@
 //! Offline driver: runs the engine with simulated time and records what it sends.
 
-use crate::engine::{Button, Engine, Prepared, Sink};
-use crate::theory::Chord;
+use crate::engine::{slot_of, Button, Engine, Prepared, Sink};
+use crate::sff::SectionId;
+use crate::sff::Style;
+use crate::theory::{Chord, NOTE_NAMES};
+use anyhow::{anyhow, bail, Result};
 
 #[derive(Default)]
 pub struct Recorder {
@@ -15,14 +18,27 @@ impl Sink for Recorder {
     }
 }
 
-#[allow(dead_code)]
+#[derive(Clone, Copy)]
 pub enum Step {
     Chord(Chord),
+    /// Every chord-section key let go (Sync Stop listens for this).
+    Release,
     Button(Button),
 }
 
 /// Run a script of (time_ns, step) against the engine until `end_ns`.
+#[cfg_attr(not(test), allow(dead_code))]
 pub fn run(style: Box<Prepared>, script: &[(u64, Step)], end_ns: u64) -> (Engine, Recorder) {
+    run_observed(style, script, end_ns, |_, _| {})
+}
+
+/// `run`, calling `observe` after every engine wake-up (section changes land on one).
+pub fn run_observed(
+    style: Box<Prepared>,
+    script: &[(u64, Step)],
+    end_ns: u64,
+    mut observe: impl FnMut(&Engine, u64),
+) -> (Engine, Recorder) {
     let mut e = Engine::new(style);
     let mut rec = Recorder::default();
     let mut i = 0;
@@ -40,16 +56,208 @@ pub fn run(style: Box<Prepared>, script: &[(u64, Step)], end_ns: u64) -> (Engine
             }
             match step {
                 Step::Chord(c) => e.set_chord(*c, now, &mut rec),
+                Step::Release => e.chord_released(now, &mut rec),
                 Step::Button(b) => e.button(*b, now, &mut rec),
             }
             i += 1;
         }
         e.process(now, &mut rec);
+        observe(&e, now);
         if now >= end_ns {
             break;
         }
     }
     (e, rec)
+}
+
+// ---------------------------------------------------------------------------
+// Scripts and snapshots (`yahaha sim`, tests/golden)
+// ---------------------------------------------------------------------------
+
+/// One script step, at a tick counted from the start of bar 1, with the text shown for it.
+pub struct ScriptStep {
+    pub tick: u32,
+    pub step: Step,
+    pub label: String,
+}
+
+/// Parse a performance script (grammar in tests/golden/README.md). `|` separates bars; the
+/// chords, `-` holds and `^` releases in a bar share it equally; `[Button]` tokens take no
+/// time and press at the next slot. Without any `|`, every chord is its own bar ("C Am F G7").
+/// Returns the steps and the number of bars.
+pub fn parse_script(text: &str, tpb: u32) -> Result<(Vec<ScriptStep>, u32)> {
+    // A token starting with '#' comments out the rest of the line ("F#m7" is a chord).
+    let mut tokens: Vec<&str> = Vec::new();
+    for (i, l) in text.lines().enumerate() {
+        let line: Vec<&str> = l.split_whitespace().take_while(|t| !t.starts_with('#')).collect();
+        // "| |" on one line would silently drop a bar and shift every later one. (A line
+        // ending in '|' followed by one starting with '|' is the normal layout.)
+        if line.windows(2).any(|w| w == ["|", "|"]) {
+            bail!("line {}: empty bar \"| |\"; write \"| - |\" to hold the chord for a bar", i + 1);
+        }
+        tokens.extend(line);
+    }
+    if !tokens.contains(&"|") {
+        tokens = tokens.into_iter().flat_map(|t| if t.starts_with('[') { vec![t] } else { vec![t, "|"] }).collect();
+    }
+    let mut steps = Vec::new();
+    let mut bars = 0u32;
+    let mut carried: Vec<&str> = Vec::new();
+    for bar in tokens.split(|t| *t == "|") {
+        let slots = bar.iter().filter(|t| !t.starts_with('[')).count() as u32;
+        if slots == 0 {
+            // Buttons between bars ("| [MainB] |") press at the start of the next bar; a bar
+            // needs at least one chord or "-".
+            carried.extend_from_slice(bar);
+            continue;
+        }
+        let start = bars * tpb;
+        let mut slot = 0;
+        for &t in carried.drain(..).chain(bar.iter().copied()).collect::<Vec<_>>().iter() {
+            // A button after the last slot presses at the start of the next bar.
+            let tick = start + slot * tpb / slots;
+            if let Some(name) = t.strip_prefix('[').and_then(|t| t.strip_suffix(']')) {
+                let b = parse_button(name).ok_or_else(|| anyhow!("unknown button [{name}]"))?;
+                steps.push(ScriptStep { tick, step: Step::Button(b), label: t.to_string() });
+                continue;
+            }
+            if t == "^" {
+                steps.push(ScriptStep { tick, step: Step::Release, label: t.to_string() });
+            } else if t != "-" {
+                let c = crate::parse_chord(t)?;
+                steps.push(ScriptStep { tick, step: Step::Chord(c), label: t.to_string() });
+            }
+            slot += 1;
+        }
+        bars += 1;
+    }
+    if let Some(t) = carried.first() {
+        bail!("{t} after the last bar never plays");
+    }
+    Ok((steps, bars))
+}
+
+fn parse_button(name: &str) -> Option<Button> {
+    let letter = |s: &str| match s {
+        "A" => Some(0),
+        "B" => Some(1),
+        "C" => Some(2),
+        "D" => Some(3),
+        _ => None,
+    };
+    Some(match name {
+        "Break" => Button::Break,
+        "AutoFill" => Button::AutoFill,
+        "StartStop" => Button::StartStop,
+        "Stop" => Button::Stop,
+        "SyncStart" => Button::SyncStart,
+        "SyncStop" => Button::SyncStop,
+        "StopAcmp" => Button::StopAcmp,
+        _ => {
+            if let Some(l) = name.strip_prefix("Intro") {
+                Button::Intro(letter(l)?)
+            } else if let Some(l) = name.strip_prefix("Main") {
+                Button::Main(letter(l)?)
+            } else if let Some(l) = name.strip_prefix("Ending") {
+                Button::Ending(letter(l)?)
+            } else {
+                return None;
+            }
+        }
+    })
+}
+
+const PART_NAMES: [&str; 8] = ["Rhythm1", "Rhythm2", "Bass", "Chord1", "Chord2", "Pad", "Phrase1", "Phrase2"];
+
+/// Play a script on a style and list, bar by bar, the section playing, the script steps and
+/// every note each part starts, as `beat.tick Note~length` (Yamaha octaves, C3 = 60; `~…` =
+/// still sounding when the script ends). Positions and lengths are in the style's ticks.
+/// Parts that play as written whatever the chord (drums, Root Fixed + Bypass) only get a
+/// per-bar note count: listing them would copy the style's own pattern and says nothing
+/// about chord following. The listing depends only on the style and the script, so it can
+/// be diffed.
+pub fn snapshot(style: &Style, script: &str) -> Result<String> {
+    let prep = Box::new(Prepared::new(style));
+    // as_written[slot][part]: see PSection::plays_as_written.
+    let as_written: Vec<[bool; 8]> = prep
+        .sections
+        .iter()
+        .map(|s| s.as_ref().map_or([false; 8], |s| std::array::from_fn(|p| s.plays_as_written(8 + p as u8))))
+        .collect();
+    let (ppq, tpb) = (prep.ppq, prep.tpb);
+    let ns_per_tick = 60e9 / (prep.bpm * ppq as f64);
+    let ns = |tick: u32| (tick as f64 * ns_per_tick).ceil() as u64;
+    let tick = |ns: u64| (ns as f64 / ns_per_tick).round() as u32;
+    let (steps, bars) = parse_script(script, tpb)?;
+    // Buttons press one tick ahead of their slot, as a player would: a press exactly on a
+    // beat or bar line would otherwise depend on float rounding (this beat or the next?).
+    // The listing shows them at that tick, which may be in the previous bar.
+    let at = |s: &ScriptStep| match s.step {
+        Step::Button(_) => s.tick.saturating_sub(1),
+        _ => s.tick,
+    };
+    let mut timed: Vec<(u64, Step)> = steps.iter().map(|s| (ns(at(s)), s.step)).collect();
+    timed.sort_by_key(|s| s.0);
+    let (num, den) = style.timesig;
+    let header = format!("style  {}  {:.0} bpm  {num}/{den}  ppq {ppq}\nbars   {bars}\n", style.name.trim_end_matches(|c: char| c.is_whitespace() || c == '\0'), prep.bpm);
+
+    let mut sections: Vec<(u32, Option<SectionId>)> = Vec::new();
+    let mut last = None;
+    let (_, rec) = run_observed(prep, &timed, ns(bars * tpb), |e, now| {
+        let cur = e.snapshot(now).cur;
+        if cur != last {
+            sections.push((tick(now), cur));
+            last = cur;
+        }
+    });
+    let section_at = |t: u32| sections.iter().rev().find(|(s, _)| *s <= t).and_then(|(_, id)| *id);
+    let name = |id: Option<SectionId>| id.map_or("stopped".into(), |c| c.name());
+
+    // (start, channel, key, length): each note-off closes the oldest open note of its key.
+    let mut notes: Vec<(u32, u8, u8, Option<u32>)> = Vec::new();
+    for (t, m) in &rec.out {
+        let (kind, ch) = (m[0] & 0xF0, m[0] & 0x0F);
+        if kind == 0x90 && m[2] > 0 {
+            notes.push((tick(*t), ch, m[1], None));
+        } else if (kind == 0x80 || kind == 0x90)
+            && let Some(n) = notes.iter_mut().find(|n| n.1 == ch && n.2 == m[1] && n.3.is_none())
+        {
+            n.3 = Some(tick(*t) - n.0);
+        }
+    }
+
+    let width = (ppq - 1).to_string().len();
+    let pos = |t: u32| format!("{}.{:0width$}", (t % tpb) / ppq + 1, t % ppq);
+    let mut out = header;
+    for bar in 0..bars {
+        let (lo, hi) = (bar * tpb, (bar + 1) * tpb);
+        out += &format!("\nbar {}  {}", bar + 1, name(section_at(lo)));
+        for (t, s) in sections.iter().filter(|(t, _)| *t > lo && *t < hi) {
+            out += &format!(" > {}@{}", name(*s), pos(*t));
+        }
+        for s in steps.iter().filter(|s| at(s) >= lo && at(s) < hi) {
+            out += &format!("  {}@{}", s.label, pos(at(s)));
+        }
+        out.push('\n');
+        for ch in 8..16u8 {
+            let (mut items, mut written) = (Vec::new(), 0);
+            for &(t, _, key, len) in notes.iter().filter(|n| n.1 == ch && n.0 >= lo && n.0 < hi) {
+                if section_at(t).is_some_and(|id| as_written[slot_of(id)][ch as usize - 8]) {
+                    written += 1;
+                    continue;
+                }
+                let len = len.map_or("…".to_string(), |l| l.to_string());
+                items.push(format!("{} {}{}~{len}", pos(t), NOTE_NAMES[key as usize % 12], key as i32 / 12 - 2));
+            }
+            if written > 0 {
+                items.push(format!("{written} as written"));
+            }
+            if !items.is_empty() {
+                out += &format!("  ch{} {:<8}{}\n", ch + 1, PART_NAMES[ch as usize - 8], items.join("  "));
+            }
+        }
+    }
+    Ok(out)
 }
 
 #[cfg(test)]

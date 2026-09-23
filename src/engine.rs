@@ -42,6 +42,20 @@ impl PSection {
     pub fn first_note_tick(&self) -> Option<u32> {
         self.events.iter().find(|e| matches!(e.kind, PKind::On { .. })).map(|e| e.tick)
     }
+
+    /// Does part `dest_ch` play its notes exactly as written in this section, whatever the
+    /// chord? True for the drum parts, and for parts whose every source channel is Root Fixed
+    /// (or Guitar) + Bypass for every key: the same test `theory::transpose` passes through on.
+    pub fn plays_as_written(&self, dest_ch: u8) -> bool {
+        use crate::sff::{Ntr, Ntt};
+        crate::theory::is_drum_part(dest_ch)
+            || self.rules.iter().flatten().filter(|r| r.dest_ch == dest_ch).all(|r| {
+                (0..=127).all(|k| {
+                    let z = r.zone_for(k);
+                    z.ntt == Ntt::Bypass && z.ntr != Ntr::RootTrans
+                })
+            })
+    }
 }
 
 pub const NUM_SLOTS: usize = 17;

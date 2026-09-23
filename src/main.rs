@@ -1,8 +1,12 @@
 mod bench;
 mod engine;
+#[cfg(test)]
+mod golden;
 mod launchkey;
 mod live;
 mod midi;
+#[cfg(test)]
+mod recognizer_golden;
 mod rt;
 mod sff;
 mod sim;
@@ -27,7 +31,7 @@ fn main() -> Result<()> {
         Some("screen") => ui::screen_html(std::path::Path::new(&args[2]), std::path::Path::new(&args[3]))?,
         Some("bench") => bench::run(std::path::Path::new(&args[2]), args.get(3).and_then(|s| s.parse().ok()))?,
         _ => eprintln!(
-            "usage:\n  yahaha play <style or folder>... [--split F#2] [--input <name>] [--all-inputs] [--no-pads] [--sf2 file | --no-synth] [--palette-leds] [--audio-out 11]\n  yahaha bench <style> [spin_us]\n  yahaha sim <style> \"C Am F G7\"\n  yahaha dump <style>..."
+            "usage:\n  yahaha play <style or folder>... [--split F#2] [--input <name>] [--all-inputs] [--no-pads] [--sf2 file | --no-synth] [--palette-leds] [--audio-out 11]\n  yahaha bench <style> [spin_us]\n  yahaha sim <style> <\"C Am F G7\" | script file>\n  yahaha dump <style>..."
         ),
     }
     Ok(())
@@ -57,36 +61,21 @@ fn dump(path: &std::path::Path) -> Result<()> {
     Ok(())
 }
 
-/// `yahaha sim style.sty "C Am F G7"`: one chord per bar on Main A, printed per part.
+/// `yahaha sim style.sty "C Am F G7"` (one chord per bar) or `yahaha sim style.sty script.txt`:
+/// plays a script (grammar in tests/golden/README.md) and lists what each part plays.
 fn sim_cmd(args: &[String]) -> Result<()> {
-    use theory::{Chord, Recognizer};
-    let style = sff::Style::load(std::path::Path::new(&args[0]))?;
-    let prep = Box::new(engine::Prepared::new(&style));
-    let rec = Recognizer::new();
-    let chords: Vec<Chord> = args[1].split_whitespace().map(|c| parse_chord(&rec, c)).collect::<Result<_>>()?;
-    let bar_ns = (60e9 / prep.bpm * (prep.tpb as f64 / prep.ppq as f64)) as u64;
-    let script: Vec<(u64, sim::Step)> =
-        chords.iter().enumerate().map(|(i, c)| (i as u64 * bar_ns, sim::Step::Chord(*c))).collect();
-    let (_, r) = sim::run(prep, &script, chords.len() as u64 * bar_ns);
-    for (bar, c) in chords.iter().enumerate() {
-        println!("bar {} {}", bar + 1, c.name());
-        for ch in 8..16u8 {
-            let notes: Vec<String> = r
-                .out
-                .iter()
-                .filter(|(t, m)| *t >= bar as u64 * bar_ns && *t < (bar as u64 + 1) * bar_ns && m[0] == 0x90 | ch)
-                .map(|(_, m)| format!("{}{}", theory::NOTE_NAMES[m[1] as usize % 12], m[1] as i32 / 12 - 2))
-                .collect();
-            if !notes.is_empty() {
-                println!("  ch{:>2}: {}", ch + 1, notes.join(" "));
-            }
-        }
-    }
+    let (Some(style), Some(script)) = (args.first(), args.get(1)) else {
+        anyhow::bail!("usage: yahaha sim <style> <\"C Am F G7\" | script file>");
+    };
+    let style = sff::Style::load(std::path::Path::new(style))?;
+    let path = std::path::Path::new(script);
+    let script = if path.is_file() { std::fs::read_to_string(path)? } else { script.clone() };
+    print!("{}", sim::snapshot(&style, &script)?);
     Ok(())
 }
 
-/// Parse a chord symbol by building its notes and running the recognizer.
-fn parse_chord(rec: &theory::Recognizer, s: &str) -> Result<theory::Chord> {
+/// Parse a chord symbol: root, a `TYPE_NAMES` suffix, and an optional `/bass`.
+fn parse_chord(s: &str) -> Result<theory::Chord> {
     let (body, bass) = match s.split_once('/') {
         Some((b, bass)) => (b, Some(bass)),
         None => (s, None),
@@ -95,11 +84,10 @@ fn parse_chord(rec: &theory::Recognizer, s: &str) -> Result<theory::Chord> {
     let pc = |n: &str| theory::NOTE_NAMES.iter().position(|x| *x == n).or_else(|| {
         ["C", "Db", "D", "D#", "E", "F", "Gb", "G", "G#", "A", "A#", "B"].iter().position(|x| *x == n)
     });
-    let root = pc(&body[..root_len]).ok_or_else(|| anyhow::anyhow!("bad chord {s}"))? as u8;
+    let root = body.get(..root_len).and_then(pc).ok_or_else(|| anyhow::anyhow!("bad chord {s}"))? as u8;
     let suffix = &body[root_len..];
     let ty = theory::TYPE_NAMES.iter().position(|t| *t == suffix).ok_or_else(|| anyhow::anyhow!("bad chord type {suffix}"))? as u8;
     let bass = bass.map(|b| pc(b).map(|p| p as u8).ok_or_else(|| anyhow::anyhow!("bad bass {b}"))).transpose()?;
-    let _ = rec;
     Ok(theory::Chord { root, ty, bass: bass.filter(|&b| b != root) })
 }
 
