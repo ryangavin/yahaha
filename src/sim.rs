@@ -24,6 +24,9 @@ pub enum Step {
     /// Every chord-section key let go (Sync Stop listens for this).
     Release,
     Button(Button),
+    /// Not in the script grammar yet; only the Manual Bass tests use it.
+    #[cfg_attr(not(test), allow(dead_code))]
+    ManualBass(bool),
 }
 
 /// Run a script of (time_ns, step) against the engine until `end_ns`.
@@ -58,6 +61,7 @@ pub fn run_observed(
                 Step::Chord(c) => e.set_chord(*c, now, &mut rec),
                 Step::Release => e.chord_released(now, &mut rec),
                 Step::Button(b) => e.button(*b, now, &mut rec),
+                Step::ManualBass(on) => e.set_manual_bass(*on, &mut rec),
             }
             i += 1;
         }
@@ -644,5 +648,66 @@ mod style_switch {
         let _old = e.load(pb, t_bend + 1, &mut rec);
         let last = rec.out.iter().rev().find(|(_, m)| m[0] == status).map(|(_, m)| (m[1], m[2]));
         assert_eq!(last, Some((0, 0x40)));
+    }
+}
+
+#[cfg(test)]
+mod manual_bass {
+    use super::*;
+    use crate::sff::Style;
+
+    fn style() -> Option<Box<Prepared>> {
+        let p = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus/MOX_v2/SlowWalker.T552.sty");
+        if !p.exists() {
+            eprintln!("corpus missing; skipping");
+            return None;
+        }
+        Some(Box::new(Prepared::new(&Style::load(&p).unwrap())))
+    }
+
+    fn bass_ons(rec: &Recorder, from: u64, to: u64) -> usize {
+        rec.out.iter().filter(|(t, m)| *t >= from && *t < to && m[0] == 0x9A && m[2] > 0).count()
+    }
+
+    /// Manual Bass mutes the Style's Bass part (ch 11) from the moment it is turned on,
+    /// cuts the bass note that is sounding, and gives the part back when turned off.
+    #[test]
+    fn mutes_the_style_bass_part() {
+        let Some(prep) = style() else { return };
+        let bar = (60e9 / prep.bpm * (prep.tpb as f64 / prep.ppq as f64)) as u64;
+        let (_, plain) = run(prep, &[(0, Step::Chord(Chord::new(0, 0)))], 4 * bar);
+        assert!(bass_ons(&plain, 0, 4 * bar) > 0, "Main A should play the Bass part");
+
+        let script = [
+            (0, Step::Chord(Chord::new(0, 0))),
+            (bar + bar / 2, Step::ManualBass(true)),
+            (3 * bar, Step::ManualBass(false)),
+        ];
+        let (_, rec) = run(style().unwrap(), &script, 4 * bar);
+        assert_eq!(bass_ons(&rec, 0, bar), bass_ons(&plain, 0, bar));
+        assert_eq!(bass_ons(&rec, bar + bar / 2, 3 * bar), 0, "Bass part must be silent under Manual Bass");
+        assert!(bass_ons(&rec, 3 * bar, 4 * bar) > 0, "Bass part must come back");
+        // Every bass note started before the switch was released by it.
+        let ons = bass_ons(&rec, 0, bar + bar / 2);
+        let offs = rec.out.iter().filter(|(t, m)| *t <= bar + bar / 2 && (m[0] == 0x8A || (m[0] == 0x9A && m[2] == 0))).count();
+        assert_eq!(ons, offs);
+        // The other parts are untouched.
+        let others = |r: &Recorder| r.out.iter().filter(|(_, m)| m[0] & 0xF0 == 0x90 && m[0] != 0x9A && m[2] > 0).count();
+        assert_eq!(others(&rec), others(&plain));
+    }
+
+    /// Stop Accompaniment's bass note goes quiet too; its chord still sounds.
+    #[test]
+    fn mutes_stop_accompaniment_bass() {
+        let Some(prep) = style() else { return };
+        let script = [
+            (0, Step::Button(Button::SyncStart)),
+            (0, Step::Button(Button::StopAcmp)),
+            (0, Step::ManualBass(true)),
+            (1_000, Step::Chord(Chord::new(0, 0))),
+        ];
+        let (_, rec) = run(prep, &script, 2_000);
+        assert_eq!(bass_ons(&rec, 0, 2_000), 0);
+        assert!(rec.out.iter().any(|(_, m)| m[0] == 0x9D && m[2] > 0), "Pad still sounds the chord");
     }
 }

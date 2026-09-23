@@ -255,6 +255,8 @@ const EMPTY: Sounding = Sounding { active: false, src: 0, src_key: 0, dest: 0, o
 const MAX_SOUNDING: usize = 256;
 /// Pseudo source channel for Stop Accompaniment notes.
 const STOP_ACMP_SRC: u8 = 255;
+/// The Style's Bass part (MIDI channel 11).
+const BASS_CH: u8 = 10;
 /// Notes that started this recently when the chord changes are corrected outright:
 /// the player's chord landed just after the beat.
 const LATE_CHORD_NS: u64 = 40_000_000;
@@ -302,6 +304,9 @@ pub struct Engine {
     parts: u8,
     gains: [u8; 8],
     stop_acmp: bool,
+    /// Manual Bass (Upper detection mode): the Style's Bass part is muted; the player's
+    /// left hand plays the bass instead.
+    manual_bass: bool,
     /// Last volume (CC7) the style itself set on each part.
     style_vol: [u8; 8],
     taps: [u64; 4],
@@ -334,6 +339,7 @@ impl Engine {
             parts: 0xFF,
             gains: [127; 8],
             stop_acmp: false,
+            manual_bass: false,
             style_vol: [100; 8],
             taps: [0; 4],
             tap_n: 0,
@@ -393,6 +399,14 @@ impl Engine {
         self.gains[p] = value.min(127);
         let sv = self.style_vol[p];
         self.volume(8 + p as u8, sv, sink);
+    }
+
+    /// Manual Bass on/off: mutes the Style's Bass part (and its Stop Accompaniment note).
+    pub fn set_manual_bass(&mut self, on: bool, sink: &mut impl Sink) {
+        self.manual_bass = on;
+        if on {
+            self.off_where(sink, |n| n.dest == BASS_CH);
+        }
     }
 
     // ----- time -----
@@ -849,6 +863,9 @@ impl Engine {
 
     #[allow(clippy::too_many_arguments)]
     fn note_on(&mut self, src: u8, src_key: u8, dest: u8, out: u8, vel: u8, slot: u8, now: u64, sink: &mut impl Sink) {
+        if self.manual_bass && dest == BASS_CH {
+            return;
+        }
         // Steal an identical sounding note on the same channel so offs stay balanced.
         self.off_where(sink, |s| s.dest == dest && s.out == out);
         if let Some(free) = self.sounding.iter_mut().find(|s| !s.active) {

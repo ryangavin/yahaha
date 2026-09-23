@@ -5,6 +5,9 @@
 use crate::sff::{ChannelRule, Ntr, Ntt, Zone};
 
 pub const CANCEL: u8 = 0x22;
+/// The two-note Fingered shapes: 1+8 (root alone or in octaves) and 1+5 (root and fifth).
+pub const ONE_PLUS_EIGHT: u8 = 30;
+pub const ONE_PLUS_FIVE: u8 = 31;
 /// Chord types a style's CASM data knows about (chord mute bits, source chord).
 pub const NUM_TYPES: usize = 34;
 
