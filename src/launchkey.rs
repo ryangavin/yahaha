@@ -67,6 +67,11 @@ pub const SCENE_CC: u8 = 104;
 pub const FUNCTION_CC: u8 = 105;
 pub const PLAY_CC: u8 = 115;
 pub const STOP_CC: u8 = 116;
+/// Channel 7 CCs are mode reports and feature-control replies (Programmer's Reference
+/// Guide v3.0, pp.10 and 21), not button presses.
+pub const FEATURE_CH_STATUS: u8 = 0xB6;
+/// Pad mode report on channel 7 (p.10); 2 = DAW layout.
+pub const PAD_MODE_CC: u8 = 29;
 
 /// Pad pages.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
@@ -215,6 +220,14 @@ pub fn nav_button_msgs(page: Page, styles: bool, out: &mut Vec<[u8; 3]>) {
     ] {
         out.push([0xB0, cc, if on { colour } else { OFF }]);
         out.push([0xB3, cc, if on { 127 } else { 0 }]);
+    }
+}
+
+/// On exit: the Pad Bank, Track and fader button lights off.
+pub fn buttons_off_msgs(out: &mut Vec<[u8; 3]>) {
+    for cc in [PAD_UP_CC, PAD_DOWN_CC, TRACK_LEFT_CC, TRACK_RIGHT_CC].into_iter().chain(FADER_BTN_CC) {
+        out.push([0xB0, cc, OFF]);
+        out.push([0xB3, cc, 0]);
     }
 }
 
@@ -497,7 +510,8 @@ const FINGERING_LABELS: [&str; 7] = ["SINGLE", "FINGERED", "ON BASS", "MULTI", "
 
 fn chord_looks(s: &Snapshot, p: &Panel) -> [(u8, Look); 16] {
     let pl = |label, key, available, on| page_look(Page::ChordSetup, label, key, available, on);
-    let fing = |i: usize| pl(FINGERING_LABELS[i], "f", true, p.fingering == Fingering::ALL[i]);
+    // No key selects a type directly (`f` steps through them), so the hint says "pad".
+    let fing = |i: usize| pl(FINGERING_LABELS[i], "pad", true, p.fingering == Fingering::ALL[i]);
     let t = s.transpose;
     [
         (96, fing(0)),
@@ -769,5 +783,10 @@ mod tests {
         out.clear();
         nav_button_msgs(Page::OtsParts, true, &mut out);
         assert!(out.contains(&[0xB0, PAD_UP_CC, PINK]) && out.contains(&[0xB0, PAD_DOWN_CC, OFF]));
+        out.clear();
+        buttons_off_msgs(&mut out);
+        for cc in [PAD_UP_CC, PAD_DOWN_CC, TRACK_LEFT_CC, TRACK_RIGHT_CC, 37, 45] {
+            assert!(out.contains(&[0xB0, cc, OFF]) && out.contains(&[0xB3, cc, 0]), "{cc}");
+        }
     }
 }

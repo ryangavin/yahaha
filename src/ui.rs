@@ -393,8 +393,8 @@ pub fn play(opts: Options) -> Result<()> {
                     KeyCode::Esc => return Ok(()),
                     KeyCode::Char('c') if ctrl => return Ok(()),
                     KeyCode::Tab | KeyCode::BackTab => {
-                        let p = Page::from_u8(shared.page.load(Relaxed)).cycle(if k.code == KeyCode::Tab { 1 } else { -1 });
-                        shared.page.store(p.to_u8(), Relaxed);
+                        let d = if k.code == KeyCode::Tab { 1 } else { -1 };
+                        shared.step_page(|p| p.cycle(d));
                     }
                     KeyCode::Char('9') | KeyCode::Char('0') => {
                         if let Some(sy) = &synth {
@@ -505,8 +505,9 @@ pub fn play(opts: Options) -> Result<()> {
                         sy.control.step_left_program(d as i32);
                     }
                 }
-                Action::Style(d) => {
-                    // Same path playing or stopped: the engine swaps the style in.
+                // Same path playing or stopped: the engine swaps the style in. With one
+                // style there is nowhere to go, so nothing reloads.
+                Action::Style(d) if styles.len() > 1 => {
                     let n = styles.len();
                     let next = if d > 0 { (idx + 1) % n } else { (idx + n - 1) % n };
                     match load(&styles[next]) {
@@ -516,6 +517,9 @@ pub fn play(opts: Options) -> Result<()> {
                                 info = i;
                                 if let Some(sy) = &synth {
                                     sy.control.set_bass_program(synth::style_bass_program(info.voices[10]));
+                                    // No OTS of the new style is recalled yet (OTS Link
+                                    // recalls one on the next pass if it's on).
+                                    sy.control.ots_applied.store(0, Relaxed);
                                 }
                                 message.clear();
                                 shared.wake.signal();
@@ -524,6 +528,7 @@ pub fn play(opts: Options) -> Result<()> {
                         Err(e) => message = format!("{}: {e:#}", styles[next].display()),
                     }
                 }
+                Action::Style(_) => {}
             }
         }
     })();
@@ -535,6 +540,11 @@ pub fn play(opts: Options) -> Result<()> {
     if let Some(out) = leds.as_mut() {
         for n in (96..104).chain(112..120) {
             out.push(&[0x90, n, 0]);
+        }
+        led_buf.clear();
+        launchkey::buttons_off_msgs(&mut led_buf);
+        for m in &led_buf {
+            out.push(m);
         }
         out.push(&launchkey::EXIT_DAW);
         out.flush();

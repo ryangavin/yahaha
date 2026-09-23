@@ -100,6 +100,12 @@ impl Shared {
         self.upper.load(Relaxed) || Fingering::from_u8(self.fingering.load(Relaxed)).allows_sync_stop()
     }
 
+    /// Move the Launchkey pad page. Pad Bank ▲/▼ (input thread) and Tab (UI thread) both
+    /// do this; a compare-and-swap keeps either from losing the other's change.
+    pub fn step_page(&self, f: impl Fn(Page) -> Page) {
+        let _ = self.page.fetch_update(Relaxed, Relaxed, |p| Some(f(Page::from_u8(p)).to_u8()));
+    }
+
     /// Manual Bass in effect: Upper detection mode with the Manual Bass setting on.
     pub fn manual_bass(&self) -> bool {
         self.upper.load(Relaxed) && self.manual_bass.load(Relaxed)
@@ -344,6 +350,20 @@ impl Input {
         }
         if st == 0xB0 && m.len() == 3 {
             let (cc, v) = (m[1], m[2]);
+            if cc == launchkey::SHIFT_CC {
+                self.shift = v > 0;
+                return;
+            }
+            if m[0] == launchkey::FEATURE_CH_STATUS {
+                // Channel 7 carries mode reports and feature-control replies, whose CC
+                // numbers overlap the buttons and faders: never act on them. A pad mode
+                // report means the firmware's Shift menu was used (or DAW mode came
+                // back), which can swallow the Shift release.
+                if cc == launchkey::PAD_MODE_CC {
+                    self.shift = false;
+                }
+                return;
+            }
             if launchkey::FADER_CC.contains(&cc) {
                 if cc == 13 {
                     if let Some(s) = &self.synth {
@@ -352,10 +372,6 @@ impl Input {
                 } else if self.cmd.push(Cmd::PartVolume(cc - 5, v)).is_ok() {
                     self.signal = true;
                 }
-                return;
-            }
-            if cc == launchkey::SHIFT_CC {
-                self.shift = v > 0;
                 return;
             }
             if launchkey::FADER_BTN_CC.contains(&cc) {
@@ -373,8 +389,7 @@ impl Input {
             }
             match launchkey::cc_control(cc, self.shift) {
                 Some(Control::Page(d)) if v > 0 => {
-                    let p = Page::from_u8(self.shared.page.load(Relaxed)).step(d);
-                    self.shared.page.store(p.to_u8(), Relaxed);
+                    self.shared.step_page(|p| p.step(d));
                 }
                 Some(Control::Act(a)) if v > 0 => self.act(a),
                 Some(_) => {}
@@ -385,6 +400,9 @@ impl Input {
         }
         if st == 0x90 && m.len() == 3 && m[2] > 0 {
             if m[0] & 0x0F == 0 && launchkey::is_pad(m[1]) {
+                // The firmware keeps Shift + pad for itself, so a pad note means Shift
+                // is up, whatever release we missed.
+                self.shift = false;
                 let page = Page::from_u8(self.shared.page.load(Relaxed));
                 if let Some(a) = launchkey::pad_action(page, m[1]) {
                     self.act(a);
@@ -750,6 +768,67 @@ mod tests {
         input.pad_msg(&[0x90, 119, 100]); // blank pad on page 2: a known pad, not unmapped
         assert_eq!(shared.last_unmapped.load(Relaxed), 0x01_99_24_5A);
         assert!(cmds.pop().is_err() && acts.pop().is_err());
+    }
+
+    fn pads_rig() -> (Input, Arc<Shared>, Consumer<Cmd>, Consumer<Action>) {
+        let shared = Arc::new(Shared::new(54));
+        let (cmd, cmds) = RingBuffer::new(16);
+        let (act, acts) = RingBuffer::new(16);
+        let mut input = Input::new(shared.clone(), Recognizer::new(), cmd, Out::new(PacketSink::new(rt::Target::Virtual(0)), None));
+        input.set_actions(act);
+        (input, shared, cmds, acts)
+    }
+
+    /// Channel 7 carries feature-control replies whose CC numbers overlap the buttons
+    /// (e.g. 6Bh = 107 is Arp velocity) and faders: they must never act.
+    #[test]
+    fn channel_7_replies_are_not_button_presses() {
+        let (mut input, shared, mut cmds, mut acts) = pads_rig();
+        for cc in [102, 103, 104, 105, 106, 107, 115, 116, 5, 6, 7, 37, 45] {
+            input.pad_msg(&[0xB6, cc, 127]);
+        }
+        assert_eq!(Page::from_u8(shared.page.load(Relaxed)), Page::Sections);
+        assert!(cmds.pop().is_err() && acts.pop().is_err());
+        assert_eq!(shared.last_unmapped.load(Relaxed), 0, "not reported as unmapped either");
+        // The same numbers on channel 1 are the buttons.
+        input.pad_msg(&[0xB0, launchkey::PAD_DOWN_CC, 127]);
+        assert_eq!(Page::from_u8(shared.page.load(Relaxed)), Page::ChordSetup);
+    }
+
+    /// A lost Shift release doesn't stick: a pad note (the firmware keeps Shift + pad for
+    /// itself) or a pad mode report (Shift menu used, or DAW mode re-entered) clears it.
+    #[test]
+    fn shift_does_not_stick() {
+        let (mut input, shared, _cmds, mut acts) = pads_rig();
+        let page = || Page::from_u8(shared.page.load(Relaxed));
+
+        input.pad_msg(&[0xB0, launchkey::SHIFT_CC, 127]); // release never arrives
+        input.pad_msg(&[0xB0, launchkey::PAD_DOWN_CC, 127]);
+        assert_eq!(acts.pop(), Ok(Action::ToggleOtsLink));
+        input.pad_msg(&[0x90, 96, 100]);
+        input.pad_msg(&[0xB0, launchkey::PAD_DOWN_CC, 127]);
+        assert_eq!(page(), Page::ChordSetup, "a pad press cleared Shift");
+
+        input.pad_msg(&[0xB6, launchkey::SHIFT_CC, 127]); // Shift reported on channel 7 counts too
+        input.pad_msg(&[0xB0, launchkey::PAD_UP_CC, 127]);
+        assert_eq!(acts.pop(), Ok(Action::ToggleLeft));
+        input.pad_msg(&[0xB6, launchkey::PAD_MODE_CC, 2]); // back in DAW pad mode
+        input.pad_msg(&[0xB0, launchkey::PAD_UP_CC, 127]);
+        assert_eq!(page(), Page::Sections, "the pad mode report cleared Shift");
+        assert!(acts.pop().is_err());
+    }
+
+    /// Page moves from both threads go through one compare-and-swap.
+    #[test]
+    fn page_steps_from_either_side() {
+        let shared = Shared::new(54);
+        shared.step_page(|p| p.step(1));
+        shared.step_page(|p| p.cycle(1));
+        assert_eq!(Page::from_u8(shared.page.load(Relaxed)), Page::OtsParts);
+        shared.step_page(|p| p.step(1));
+        assert_eq!(Page::from_u8(shared.page.load(Relaxed)), Page::OtsParts);
+        shared.step_page(|p| p.cycle(1));
+        assert_eq!(Page::from_u8(shared.page.load(Relaxed)), Page::Sections);
     }
 }
 
