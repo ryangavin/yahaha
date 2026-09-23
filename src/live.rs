@@ -151,14 +151,16 @@ impl Input {
     fn recompute(&mut self) {
         let mut mask = 0u16;
         let mut low = None;
+        let mut keys = 0;
         for k in 0..128 {
             if self.held[k] {
                 mask |= 1 << (k % 12);
                 low.get_or_insert(k as u8);
+                keys += 1;
             }
         }
         let Some(low) = low else { return };
-        if let Some(c) = self.rec.recognize(mask, low % 12) {
+        if let Some(c) = self.rec.recognize_keys(mask, low % 12, keys, true) {
             if Some(c) != self.current {
                 self.current = Some(c);
                 self.generation = self.generation.wrapping_add(1);

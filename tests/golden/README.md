@@ -68,7 +68,7 @@ bar 14  Main A > Fill In BB@4.0000  Caug@1.0000  [MainB]@3.1919
 [SyncStop] | C - ^ - | - | F |    # '^' lets go of the chord: Sync Stop stops there, F restarts
 ```
 
-- **Chords:** a root (`C`, `F#`, `Bb`…), then a type suffix from `theory::TYPE_NAMES`, then an optional `/bass`. Examples: `C`, `Am7`, `Bm7b5`, `Cmaj7`, `Csus4`, `C5` (1+5), `CmMaj7`, `Cm(add9)`, `G7#9`, `C/E`. `6/9` cannot be written, because the `/` is read as a bass note.
+- **Chords:** a root (`C`, `F#`, `Bb`…), then a type suffix from `theory::TYPE_NAMES`, then an optional `/bass`. Examples: `C`, `Am7`, `Bm7b5`, `Cmaj7`, `Csus4`, `C1+5`, `C1+8`, `CmMaj7`, `Cm(add9)`, `G7#9`, `C/E`. `6/9` cannot be written, because the `/` is read as a bass note.
 - **`-`:** holds the previous chord for one slot.
 - **`^`:** lets go of every chord key for one slot (for Sync Stop). The engine remembers the last chord, and the next chord is a new press.
 - **Buttons:** `[IntroA-D]`, `[MainA-D]`, `[Break]`, `[EndingA-D]`, `[AutoFill]`, `[StartStop]` (a toggle), `[Stop]`, `[SyncStart]`, `[SyncStop]` and `[StopAcmp]` take no time.
