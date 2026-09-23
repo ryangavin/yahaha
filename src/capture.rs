@@ -1303,6 +1303,9 @@ mod tests {
                 continue;
             };
             let ours = perform(&style, SCRIPT).unwrap();
+            // The importer keeps only the recording's style channels (9-16): the keyboard
+            // parts (1-4) echo the kit's keys there. Our take must have nothing else either.
+            assert!(ours.notes.iter().all(|n| (8..16).contains(&n.ch)), "{}: our take plays outside ch 9-16", k.file);
             let rec = fake_recording(&ours, 4.0, 1.0, |_| {});
             let imp = import(&rec, &style, SCRIPT, &ImportOptions::default()).unwrap();
             let what = format!("{}:\n{}", k.file, imp.report);
@@ -1621,6 +1624,20 @@ mod tests {
             }
         }
         assert!(failures.is_empty(), "{}", failures.join("\n"));
+    }
+
+    /// A recording transcribes the style (tests/reference/README.md keeps it off the repo),
+    /// so what owners read asks for it privately and never for a public post or issue.
+    #[test]
+    fn owner_docs_ask_for_recordings_privately() {
+        let forum = include_str!("../docs/capture-kit/forum-post.md");
+        for (name, text) in [("README", INSTRUCTIONS), ("forum post", forum)] {
+            let t = text.to_lowercase();
+            assert!(t.contains("private message"), "{name} should ask for recordings by private message");
+            for bad in ["yours to share", "post them in the forum thread", "attach them to an issue", "attach them to a github issue", "reply here, message me"] {
+                assert!(!t.contains(bad), "{name} still says {bad:?}");
+            }
+        }
     }
 
     /// Committed reference digests hold hashes only, like the golden ones.

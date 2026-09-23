@@ -22,10 +22,10 @@ I'm building **yahaha**, a free, open-source program (https://github.com/ryangav
 1. Download the attached kit. For each style it has a MIDI file with left-hand chords on channel 1, plus the section changes as Section Control messages. There are about 100 bars, covering every chord type in the Genos chord table, slash chords, fast changes, Break, fills and an Ending.
 2. Load the style. Most are from Paul Drongowski's free *MOX performance styles V2* pack (sandsoftwaresound.net), so your instrument plays exactly the same file I have. A few are factory presets.
 3. Set ACMP on, Fingered On Bass, and a couple of MIDI settings (listed step by step in the kit's README). Arm SYNC START.
-4. Play the MIDI file into the instrument from the DAW, and record what comes back on MIDI channels 9–16.
-5. Send me the recording(s): reply here, message me, or attach them to a GitHub issue.
+4. Play the MIDI file into the instrument from the DAW, and record what the instrument sends back (the style parts arrive on MIDI channels 9–16).
+5. Send me the recording(s) by private message, please, not in this thread: a recording is a note-for-note performance of the style, and the styles belong to their authors (Yamaha, for the presets), so I don't want them posted publicly.
 
-**What happens with your recording:** my importer lines it up with what yahaha plays for the same chords and shows every bar and part where they differ. Those differences are exactly the bugs to fix. The recording contains only what your instrument played for my chord script. Nothing readable from it is published: the project keeps only a hash of each bar, so the style's content can't be reconstructed from the repository.
+**What happens with your recording:** my importer lines it up with what yahaha plays for the same chords and shows every bar and part where they differ. Those differences are exactly the bugs to fix. I never publish the recording or a readable listing made from it: the project keeps only a hash of each bar, so the style's content can't be reconstructed from the repository.
 
 A bonus: if you turn on "Chord System Exclusive Message Transmit", the recording also shows how your instrument *reads* each chord. That includes a few ambiguous shapes, like Am7 over G or Dm11 over G. The manuals don't say how the instrument reads those.
 

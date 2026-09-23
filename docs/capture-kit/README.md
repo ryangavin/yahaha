@@ -74,9 +74,9 @@ Start from a clean state: power on, or select the style fresh. Then check the fo
 - Your instrument model (Genos or Genos2) and firmware version.
 - Anything you changed from the list above, and anything odd you noticed, such as a section that did not change or notes that hung.
 
-Post them in the forum thread, or attach them to an issue at https://github.com/ryangavin/yahaha/issues.
+Send the recordings **privately**: a private message on the forum, or ask there for another private way. Please don't post them in a public thread or attach them to a public GitHub issue. A recording is a note-for-note performance of the style, and the style belongs to its author (for the factory styles, Yamaha), so it should not be published. Reports of what you noticed can go anywhere.
 
-The recording holds only what your instrument played for our script, so it is yours to share. We never publish it, and we never publish a readable note listing made from it. yahaha keeps only hashes of each bar (see `tests/reference/README.md` in the repository).
+We never publish a recording, and we never publish a readable note listing made from it. yahaha keeps only a hash of each bar (see `tests/reference/README.md` in the repository), from which the style cannot be rebuilt.
 
 ## For the yahaha developer
 
