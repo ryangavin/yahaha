@@ -100,7 +100,8 @@ impl Chord {
         if self.ty == CANCEL {
             return "N.C.".into();
         }
-        let mut s = format!("{}{}", NOTE_NAMES[self.root as usize % 12], TYPE_NAMES[self.ty as usize]);
+        let ty = TYPE_NAMES.get(self.ty as usize).copied().unwrap_or("?");
+        let mut s = format!("{}{}", NOTE_NAMES[self.root as usize % 12], ty);
         if let Some(b) = self.bass {
             s.push('/');
             s.push_str(NOTE_NAMES[b as usize % 12]);
@@ -130,12 +131,16 @@ impl Chord {
 }
 
 /// Pitch classes (relative to the root) of a chord type, as played (M7b5 has a b5).
+/// Every id in the table (0..=37, incl. the display-only M7b5 / (b5) / mM7b5) reads its own
+/// tones and Cancel reads as no notes. Ids past the table (anything a malformed style or a
+/// hand-built chord smuggles in) read as a major triad, so no chord-type value can index
+/// out of bounds on the real-time path.
 pub fn chord_tones(ty: u8) -> &'static [u8] {
-    TONES[(ty as usize).min(TONES.len() - 1)]
+    TONES.get(ty as usize).copied().unwrap_or(TONES[0])
 }
 
 fn mask_of(ty: u8) -> u16 {
-    mask_of_set(TONES[ty as usize])
+    mask_of_set(chord_tones(ty))
 }
 
 fn mask_of_set(set: &[u8]) -> u16 {
@@ -427,7 +432,7 @@ fn scale_map(d: u8, src: &[u8; 7], tgt: &[u8; 7], tgt_ty: u8) -> i8 {
 /// Chord tones ordered by importance (the notes the Chord table keeps), followed by the rest.
 /// Returns (important, others) as semitone lists.
 fn importance(ty: u8) -> ([u8; 3], [u8; 2], usize) {
-    let t = TONES[ty as usize];
+    let t = chord_tones(ty);
     match t.len() {
         1 => ([0, 0, 12], [0, 0], 0),
         2 => ([0, 7, 12], [0, 0], 0),
@@ -543,7 +548,9 @@ pub fn plays(rule: &ChannelRule, chord: Chord) -> bool {
     if chord.ty == CANCEL {
         return is_drum_part(rule.dest_ch);
     }
-    rule.chord_mute & (1u64 << chord.ty) != 0 && rule.note_mute & (1 << chord.root) != 0
+    // Checked shifts: a type or root outside the mute masks simply doesn't play.
+    rule.chord_mute.checked_shr(chord.ty as u32).unwrap_or(0) & 1 != 0
+        && rule.note_mute.checked_shr(chord.root as u32).unwrap_or(0) & 1 != 0
 }
 
 /// Transpose one source note for the target chord. Returns None if the note should not sound.
@@ -693,7 +700,7 @@ pub fn guitar_voicing(chord: Chord, position: usize) -> [Option<u8>; 6] {
         (start..=start + 4).map(|f| OPEN[s] + f).find(|n| want & (1 << (n % 12)) != 0)
     };
     let mut out = [None; 6];
-    let bass_pc = chord.bass.unwrap_or(chord.root);
+    let bass_pc = chord.bass.unwrap_or(chord.root) % 12;
     // Lowest string that can take the bass note sets the bottom of the voicing.
     let low = (3..6).rev().find(|&s| win(s, 1 << bass_pc).is_some()).unwrap_or(3);
     out[low] = win(low, 1 << bass_pc);
@@ -1266,6 +1273,112 @@ mod tests {
         let r = rule(Ntr::RootTrans, Ntt::Melody, 11, 0, 127);
         assert_eq!(transpose(60, &r, Chord::new(0, CANCEL)), None);
         assert!(!plays(&r, Chord::new(0, CANCEL)));
+    }
+
+    /// Every chord type that exists (0..=37: CASM types, Cancel and the display-only
+    /// M7b5 / (b5) / mM7b5), every root, with and without a slash bass, and the rule's own
+    /// source chord (what autostart/drum parts play before a chord is held).
+    fn every_chord(rule: &ChannelRule) -> impl Iterator<Item = Chord> {
+        let plain = (0..TYPE_NAMES.len() as u8).flat_map(|ty| (0..12).map(move |root| Chord::new(root, ty)));
+        let slash = (0..12).flat_map(|b| {
+            [(0u8, 0u8), (9, 10), (7, 19), (2, 18), (0, M7B5), (5, FLAT5), (9, MM7B5)]
+                .map(|(root, ty)| Chord { root, ty, bass: Some(b) })
+        });
+        plain.chain(slash).chain([Chord::new(rule.src_root, rule.src_type)])
+    }
+
+    /// Everything the engine does with a rule and a chord, over every key.
+    fn exercise(rule: &ChannelRule) {
+        for c in every_chord(rule) {
+            let p = plays(rule, c);
+            if c.ty == CANCEL {
+                assert_eq!(p, is_drum_part(rule.dest_ch));
+            }
+            // A display-only type is a valid chord: it plays exactly as its CASM type.
+            let display_only = matches!(c.ty, M7B5 | FLAT5 | MM7B5);
+            if display_only {
+                assert_eq!(p, plays(rule, c.casm()), "{c:?}");
+            }
+            for k in 0..=127u8 {
+                let n = transpose(k, rule, c);
+                assert!(n.is_none_or(|n| n <= 127));
+                if display_only {
+                    assert_eq!(n, transpose(k, rule, c.casm()), "{c:?} key {k}");
+                }
+            }
+            for base in (0..=120u8).step_by(12) {
+                let keys = [base, base + 4, base + 7];
+                let mut out = [None; 3];
+                transpose_group(&keys, rule, c, &mut out);
+            }
+        }
+    }
+
+    #[test]
+    fn out_of_range_types_do_not_panic() {
+        // Rules built by hand bypass the parser's clamp; the transposer must still cope.
+        for ntr in [Ntr::RootTrans, Ntr::RootFixed, Ntr::Guitar] {
+            for ntt in [Ntt::Melody, Ntt::Chord, Ntt::Bass, Ntt::Dorian] {
+                let mut r = rule(ntr, ntt, 11, 0, 127);
+                // Anything >= 34 is not a CASM source chord (the display-only ids included).
+                for src_type in [CANCEL, M7B5, FLAT5, MM7B5, 38, 63, 64, 0xFF] {
+                    r.src_type = src_type;
+                    exercise(&r);
+                }
+            }
+        }
+        let r = rule(Ntr::RootTrans, Ntt::Melody, 11, 0, 127);
+        for ty in [CANCEL, 38, 63, 64, 0xFF] {
+            let c = Chord { root: 15, ty, bass: Some(15) };
+            assert!(!plays(&r, c));
+            let _ = transpose(60, &r, c);
+            let _ = guitar_voicing(c, 9);
+            assert!(!c.name().is_empty());
+        }
+        // The display-only ids are in range: they name, play and voice as real chords.
+        for ty in [M7B5, FLAT5, MM7B5] {
+            let c = Chord::new(0, ty);
+            assert!(!c.name().contains('?'), "{}", c.name());
+            assert!(plays(&r, c));
+            assert!(transpose(60, &r, c).is_some());
+            assert_eq!(chord_tones(ty), TONES[ty as usize]);
+            assert_eq!(guitar_voicing(c, 0), guitar_voicing(c.casm(), 0));
+        }
+    }
+
+    /// Every channel rule of every corpus style (plus the defaults used for channels without
+    /// CASM) transposes every key under every chord without panicking.
+    #[test]
+    fn corpus_every_rule_every_chord() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus");
+        let mut files = Vec::new();
+        let mut stack = vec![dir];
+        while let Some(d) = stack.pop() {
+            for e in std::fs::read_dir(&d).into_iter().flatten().flatten() {
+                let p = e.path();
+                if p.is_dir() {
+                    stack.push(p);
+                } else if p.extension().is_some_and(|x| x.eq_ignore_ascii_case("sty")) {
+                    files.push(p);
+                }
+            }
+        }
+        if files.is_empty() {
+            eprintln!("no corpus; skipping");
+            return;
+        }
+        let mut rules: Vec<ChannelRule> = (8..16).map(ChannelRule::default_for).collect();
+        for f in &files {
+            let s = crate::sff::Style::load(f).unwrap();
+            for r in s.casm.iter().flat_map(|seg| &seg.rules) {
+                assert!((r.src_type as usize) < NUM_TYPES, "{}: src_type {}", f.display(), r.src_type);
+                rules.push(r.clone());
+            }
+        }
+        eprintln!("{} styles, {} channel rules", files.len(), rules.len());
+        for r in &rules {
+            exercise(r);
+        }
     }
 
     #[test]
