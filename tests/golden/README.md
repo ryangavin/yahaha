@@ -75,4 +75,5 @@ bar 14  Main A > Fill In BB@4.0000  Caug@1.0000  [MainB]@3.1919
   - A button fires just before the next slot, one tick early, the way a player presses ahead of the beat. This means a press on a beat or bar line always counts for that beat.
   - A button written between bars (`| [MainB] |`) fires at the start of the next bar.
 - **Starting:** Sync Start is armed, so the first chord starts the style. An `[IntroX]` written before that chord picks the intro.
+- **Empty bars:** `| |` on one line is an error, because it would drop a bar and shift every bar after it. Write `| - |` to hold a chord for a bar. A line that ends in `|` followed by a line that starts with `|` is fine.
 - **Short form:** if the script has no `|` at all, every chord is its own bar (`"C Am F G7"`).

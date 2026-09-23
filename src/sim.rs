@@ -87,8 +87,16 @@ pub struct ScriptStep {
 /// Returns the steps and the number of bars.
 pub fn parse_script(text: &str, tpb: u32) -> Result<(Vec<ScriptStep>, u32)> {
     // A token starting with '#' comments out the rest of the line ("F#m7" is a chord).
-    let mut tokens: Vec<&str> =
-        text.lines().flat_map(|l| l.split_whitespace().take_while(|t| !t.starts_with('#'))).collect();
+    let mut tokens: Vec<&str> = Vec::new();
+    for (i, l) in text.lines().enumerate() {
+        let line: Vec<&str> = l.split_whitespace().take_while(|t| !t.starts_with('#')).collect();
+        // "| |" on one line would silently drop a bar and shift every later one. (A line
+        // ending in '|' followed by one starting with '|' is the normal layout.)
+        if line.windows(2).any(|w| w == ["|", "|"]) {
+            bail!("line {}: empty bar \"| |\"; write \"| - |\" to hold the chord for a bar", i + 1);
+        }
+        tokens.extend(line);
+    }
     if !tokens.contains(&"|") {
         tokens = tokens.into_iter().flat_map(|t| if t.starts_with('[') { vec![t] } else { vec![t, "|"] }).collect();
     }

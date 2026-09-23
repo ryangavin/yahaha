@@ -266,6 +266,8 @@ fn script_grammar() {
     assert!(matches!(steps[1].step, Step::Chord(c) if c.name() == "Am/E"));
     assert!(sim::parse_script("| C | [Nope] |", 1920).is_err());
     assert!(sim::parse_script("| C | [MainB]", 1920).is_err());
+    assert!(sim::parse_script("| C | | G7 |", 1920).is_err(), "empty bar on one line");
+    assert!(sim::parse_script("| C | [MainB] | G7 |", 1920).is_ok(), "a bar with only a button is not empty");
     // Labels keep the script's spelling; `^` releases the chord and takes a slot.
     let (steps, _) = sim::parse_script("| Dbmaj7 ^ [StartStop] - [StopAcmp] C5 |", 1920).unwrap();
     let got: Vec<(u32, &str)> = steps.iter().map(|s| (s.tick, s.label.as_str())).collect();

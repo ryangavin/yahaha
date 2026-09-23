@@ -128,8 +128,17 @@ fn cases(row: &'static Row) -> Vec<Case> {
             let omitted: Vec<u8> =
                 row.optional.iter().enumerate().filter(|(i, _)| subset & 1 << i != 0).map(|(_, &t)| t).collect();
             let tones: Vec<u8> = row.tones.iter().copied().filter(|t| !omitted.contains(t)).collect();
-            // 1+8: the octave is a second key, not a new pitch class to invert on.
-            let inversions = if row.tones.contains(&12) { 1 } else { tones.len() };
+            // 1+8: the octave is a second key, not a new pitch class to invert on. Cancel is
+            // the three adjacent keys 1+b2+2 only (DL p.45); spread shapes are left to #4.
+            if row.tones.contains(&12) {
+                // One, two and three octaves of the same key.
+                let k = 48 + root;
+                for notes in [vec![k, k + 12], vec![k, k + 24], vec![k, k + 12, k + 24]] {
+                    out.push(Case { row, root, notes, omitted: Vec::new() });
+                }
+                continue;
+            }
+            let inversions = if row.ct == Some(CANCEL) { 1 } else { tones.len() };
             for inv in 0..inversions {
                 let mut notes = Vec::with_capacity(tones.len());
                 let mut prev = 0u8;
@@ -222,6 +231,10 @@ fn check_row(n: u8) {
     );
 }
 
+/// Rows marked `#[ignore = "M1 #2"]` below. `octave_doublings_keep_the_chord` holds every
+/// other row to the table; remove a row here when its `ignore` goes.
+const PENDING: &[u8] = &[1, 4, 6, 7, 11, 14, 21, 22, 30];
+
 macro_rules! rows {
     ($($(#[$m:meta])* $name:ident = $n:expr;)*) => {
         $( $(#[$m])* #[test] fn $name() { check_row($n); } )*
@@ -271,8 +284,9 @@ rows! {
 
 /// Doubling notes in other octaves does not change the chord: every single-reading voicing
 /// of every row, with its lowest note doubled an octave up and its root added above the top,
-/// reads the same as the close voicing. (1+8 is its own doubling and Cancel is an exact
-/// three-key shape, so both are left out; #2 settles what doubling does to them.)
+/// reads the same as the close voicing, and for rows that pass (not in `PENDING`) that is the
+/// table's answer. (1+8 is its own doubling and Cancel is an exact three-key shape, so both
+/// are left out; #2 settles what doubling does to them.)
 #[test]
 fn octave_doublings_keep_the_chord() {
     let r = Recognizer::new();
@@ -285,9 +299,19 @@ fn octave_doublings_keep_the_chord() {
             let up = (c.root + 12 - top % 12) % 12;
             doubled.push(top + if up == 0 { 12 } else { up });
             let (close, got) = (recognize(&r, &c.notes), recognize(&r, &doubled));
-            if close != got {
+            // A voicing whose one reading is this row must give the table's chord; one that
+            // spells another row (Eb G Bb C) is held to that row's close voicing.
+            let own = matches!(intended(&c).as_slice(), [(rw, root)] if rw.n == row.n && *root == c.root);
+            let want = if own && !PENDING.contains(&row.n) { Some(c.expected()) } else { close };
+            if got != want {
                 let name = |g: Option<Chord>| g.map_or("nothing".to_string(), |g| g.name());
-                fails.push(format!("  {} doubled {doubled:?}: close {}, doubled {}", c.describe(), name(close), name(got)));
+                fails.push(format!(
+                    "  {} doubled {doubled:?}: want {}, close {}, doubled {}",
+                    c.describe(),
+                    name(want),
+                    name(close),
+                    name(got)
+                ));
             }
         }
     }
@@ -375,4 +399,7 @@ fn table_is_consistent() {
     assert_eq!(cases(&TABLE[4]).len(), 12 * 7);
     let c = &cases(&TABLE[4])[1];
     assert_eq!(c.describe(), "row  5 M7 on C: [E2 G2 B2 C3]");
+    // 1+8: one, two and three octaves; Cancel: the close cluster only.
+    assert_eq!(cases(&TABLE[0]).len(), 12 * 3);
+    assert_eq!(cases(&TABLE[37]).iter().map(|c| c.notes.clone()).collect::<Vec<_>>()[..2], [vec![48, 49, 50], vec![49, 50, 51]]);
 }
