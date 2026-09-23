@@ -144,7 +144,7 @@ The last Launchkey note or CC that nothing is mapped to shows at the bottom of t
 - `tab` / `shift+tab` next/previous pad page
 - `a` next audio output pair · `k` mute the synth
 - `\` panic (all notes off)
-- `esc` quit (or close the style browser)
+- `esc` twice (within 1.5 s) quit, or `ctrl+c`; one `esc` closes the style browser
 
 ### Style browser
 
@@ -156,7 +156,7 @@ The last Launchkey note or CC that nothing is mapped to shows at the bottom of t
 - **Type** to filter: a case-insensitive match on the name or folder. `backspace` edits the filter.
 - `↑/↓`, `PgUp/PgDn` and `Home/End` move the cursor.
 - `enter` loads the style and closes the browser. It works like `←/→`: while the band plays it keeps playing and follows your next chord in the new style.
-- `esc` closes the browser without changing the style (`esc` quits only when the browser is closed).
+- `esc` closes the browser without changing the style (with the browser closed, `esc` twice quits, so one extra `esc` never stops the band).
 - While the browser is open, typed keys only go to the filter, never to the performance shortcuts. Your MIDI keyboard, the Launchkey pads and the Launchkey buttons keep working as usual, including **< Track / Track >**.
 
 Chords are recognized in "Fingered On Bass" style, plus some shortcuts:

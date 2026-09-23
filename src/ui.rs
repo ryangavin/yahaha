@@ -132,6 +132,33 @@ fn key_action(code: KeyCode) -> Option<Action> {
     }
 }
 
+/// `Esc` quits only when pressed twice within `WINDOW`. `Esc` also closes the browser, and
+/// `Enter` closes it by loading, so one habitual `Esc` too many mustn't stop the band.
+#[derive(Default)]
+struct QuitGuard {
+    armed: Option<Duration>,
+}
+
+impl QuitGuard {
+    const WINDOW: Duration = Duration::from_millis(1500);
+    const MSG: &str = "press esc again to quit";
+
+    /// `Esc` at `now` (time since start). True means quit.
+    fn esc(&mut self, now: Duration) -> bool {
+        let quit = self.armed.is_some_and(|t| now.saturating_sub(t) < Self::WINDOW);
+        self.armed = (!quit).then_some(now);
+        quit
+    }
+
+    /// Whether a second `Esc` at `now` would quit (the prompt shows while it would).
+    fn is_armed(&mut self, now: Duration) -> bool {
+        if self.armed.is_some_and(|t| now.saturating_sub(t) >= Self::WINDOW) {
+            self.armed = None;
+        }
+        self.armed.is_some()
+    }
+}
+
 /// The style browser overlay (`Enter` opens it). While it is open every typed key goes
 /// here, never to the performance shortcuts; MIDI and the Launchkey are separate paths.
 struct Browser {
@@ -408,6 +435,7 @@ pub fn play(opts: Options) -> Result<()> {
     let mut led_buf = Vec::new();
     let mut message = synth_err;
     let clock = std::time::Instant::now();
+    let mut quit_guard = QuitGuard::default();
     let mut beats = 0.0f64;
     let mut last_tick = 0.0f64;
     let result: Result<()> = (|| loop {
@@ -477,6 +505,9 @@ pub fn play(opts: Options) -> Result<()> {
         }
 
         lib.apply(&index_rx);
+        if message == QuitGuard::MSG && !quit_guard.is_armed(clock.elapsed()) {
+            message.clear();
+        }
         term.draw(|f| {
             draw(f, &info, snap.as_ref(), &shared, &pnl, &connected, lib.position(cur), lib.len(), &message, beats, synth.as_ref().map(|s| (&s.info, &*s.control)));
             if let Some(b) = &browser {
@@ -495,6 +526,10 @@ pub fn play(opts: Options) -> Result<()> {
                 if ctrl && k.code == KeyCode::Char('c') {
                     return Ok(());
                 }
+                // Only two presses of Esc in a row quit.
+                if k.code != KeyCode::Esc || browser.is_some() {
+                    quit_guard.armed = None;
+                }
                 // The browser takes every key while it's open (typing filters, never plays).
                 let code = if let Some(b) = browser.as_mut() {
                     match b.key(k.code, &lib) {
@@ -509,7 +544,12 @@ pub fn play(opts: Options) -> Result<()> {
                 };
                 match code {
                     KeyCode::Null => {}
-                    KeyCode::Esc => return Ok(()),
+                    KeyCode::Esc => {
+                        if quit_guard.esc(clock.elapsed()) {
+                            return Ok(());
+                        }
+                        message = QuitGuard::MSG.into();
+                    }
                     KeyCode::Enter => browser = Some(Browser::open(cur)),
                     KeyCode::Tab | KeyCode::BackTab => {
                         let d = if k.code == KeyCode::Tab { 1 } else { -1 };
@@ -961,7 +1001,7 @@ fn draw(
 
     let mut help = vec![
         Line::from(Span::styled(
-            " space start/stop · 1-4 Main A-D (again = fill) · q w e intro · i o p ending · g break · t tap · -/= tempo · F1-F8 voice · F9 layer · ; ' kbd transpose · : \" master · / reset · tab pad page · enter browse styles · \\ panic · esc quit",
+            " space start/stop · 1-4 Main A-D (again = fill) · q w e intro · i o p ending · g break · t tap · -/= tempo · F1-F8 voice · F9 layer · ; ' kbd transpose · : \" master · / reset · tab pad page · enter browse styles · \\ panic · esc twice quit",
             dim,
         )),
         Line::from(Span::styled(
@@ -1203,6 +1243,26 @@ mod tests {
         b.key(KeyCode::Char('#'), &lib);
         b.key(KeyCode::Char('#'), &lib);
         assert!(matches!(b.key(KeyCode::Enter, &lib), BrowseKey::Stay));
+    }
+
+    #[test]
+    fn esc_quits_only_when_pressed_twice_quickly() {
+        let ms = Duration::from_millis;
+        let mut g = QuitGuard::default();
+        assert!(!g.esc(ms(1000)), "one esc only arms");
+        assert!(g.is_armed(ms(1100)));
+        assert!(g.esc(ms(1200)), "a second esc quits");
+        // Too slow: the second press arms again instead.
+        let mut g = QuitGuard::default();
+        assert!(!g.esc(ms(0)));
+        assert!(!g.is_armed(ms(1600)), "the prompt runs out");
+        assert!(!g.esc(ms(1700)));
+        assert!(g.esc(ms(2000)));
+        // Another key in between disarms (the play loop clears `armed`).
+        let mut g = QuitGuard::default();
+        assert!(!g.esc(ms(0)));
+        g.armed = None;
+        assert!(!g.esc(ms(100)));
     }
 
     #[test]
