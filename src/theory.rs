@@ -1310,6 +1310,12 @@ mod tests {
             (nm, 19, ["C3", "D3", "E3", "F3", "G3", "A3", "B3"]),
             (Ntt::Dorian5, 19, ["C3", "D3", "E3", "F3", "G3", "A3", "B3"]),
             (Ntt::NaturalMinor5, 29, ["C3", "D3", "E3", "F3", "Ab3", "A3", "B3"]),
+            (Ntt::Dorian5, 21, ["C3", "D3", "E3", "F3", "F#3", "A3", "B3"]),        // 7b5
+            (Ntt::HarmonicMinor5, 21, ["C3", "D3", "E3", "F3", "F#3", "A3", "B3"]),
+            (dor, 21, ["C3", "D3", "E3", "F3", "G3", "A3", "B3"]),
+            (Ntt::MelodicMinor5, 28, ["C3", "D3", "E3", "F3", "Ab3", "A3", "B3"]),  // M7aug
+            (Ntt::NaturalMinor5, 28, ["C3", "D3", "E3", "F3", "Ab3", "A3", "B3"]),
+            (hm, 28, ["C3", "D3", "E3", "F3", "G3", "A3", "B3"]),
         ] {
             assert_eq!(play(ntt, 0, &major, ty), want, "{ntt:?} ty {ty}");
         }
