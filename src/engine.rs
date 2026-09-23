@@ -91,6 +91,9 @@ pub struct Prepared {
     pub init_len: Vec<u8>,
     /// Voice (bank MSB, LSB, program) per destination channel 8..16, for display.
     pub voices: [Option<(u8, u8, u8)>; 16],
+    /// Destination channels that Master transpose leaves alone: the drum parts and any
+    /// part whose voice is a drum or SFX kit (bank MSB 126/127).
+    pub kit: [bool; 16],
 }
 
 impl Prepared {
@@ -166,6 +169,10 @@ impl Prepared {
             init.push(msg);
             init_len.push(len);
         }
+        let mut kit = [false; 16];
+        for (d, k) in kit.iter_mut().enumerate() {
+            *k = is_drum_part(d as u8) || voices[d].is_some_and(|(msb, _, _)| msb >= 126);
+        }
         Prepared {
             name: style.name.clone(),
             ppq: style.ppq as u32,
@@ -175,6 +182,7 @@ impl Prepared {
             init,
             init_len,
             voices,
+            kit,
         }
     }
 
@@ -237,6 +245,51 @@ pub struct Snapshot {
     /// Mixer fader per part (0..=127), applied on top of the style's own volume.
     pub gains: [u8; 8],
     pub stop_acmp: bool,
+    /// Keyboard and Master transpose in semitones (-12..=12 each).
+    pub transpose: Transpose,
+    /// The chord as fingered, before Keyboard transpose (`chord` is what the style follows).
+    pub played: Option<Chord>,
+}
+
+/// Genos TRANSPOSE targets that matter for live play (RM p.42). Keyboard shifts the keys
+/// and the chord root sent to the Style; Master shifts everything that sounds, the Style
+/// output included, except drum and SFX kits. Song transpose has nothing to act on here.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Transpose {
+    pub keyboard: i8,
+    pub master: i8,
+}
+
+impl Transpose {
+    pub const RANGE: i8 = 12;
+
+    pub fn new(keyboard: i8, master: i8) -> Transpose {
+        Transpose { keyboard: keyboard.clamp(-Self::RANGE, Self::RANGE), master: master.clamp(-Self::RANGE, Self::RANGE) }
+    }
+
+    /// Total shift applied to the notes the player plays.
+    pub fn keys(self) -> i8 {
+        self.keyboard + self.master
+    }
+}
+
+/// Shift a key by `d` semitones, folding by octaves to stay inside the MIDI range.
+#[inline]
+pub fn shift_key(key: u8, d: i8) -> u8 {
+    let mut k = key as i32 + d as i32;
+    while k > 127 {
+        k -= 12;
+    }
+    while k < 0 {
+        k += 12;
+    }
+    k as u8
+}
+
+/// A chord moved by `d` semitones (root and on-bass note).
+pub fn shift_chord(c: Chord, d: i8) -> Chord {
+    let pc = |p: u8| (p as i32 + d as i32).rem_euclid(12) as u8;
+    Chord { root: pc(c.root), bass: c.bass.map(pc), ..c }
 }
 
 #[derive(Clone, Copy)]
@@ -296,7 +349,10 @@ pub struct Engine {
     entry: f64,
     ev_idx: usize,
     queued: Option<Queued>,
+    /// The chord the style follows: `played` moved by Keyboard transpose.
     chord: Option<Chord>,
+    played: Option<Chord>,
+    transpose: Transpose,
     bpm: f64,
     anchor_ns: u64,
     anchor_tick: f64,
@@ -332,6 +388,8 @@ impl Engine {
             ev_idx: 0,
             queued: None,
             chord: None,
+            played: None,
+            transpose: Transpose::default(),
             bpm,
             anchor_ns: 0,
             anchor_tick: 0.0,
@@ -463,6 +521,8 @@ impl Engine {
             parts: self.parts,
             gains: self.gains,
             stop_acmp: self.stop_acmp,
+            transpose: self.transpose,
+            played: self.played,
         }
     }
 
@@ -484,8 +544,10 @@ impl Engine {
 
     // ----- input -----
 
-    /// Returns true if this chord should start playback (sync start).
-    pub fn set_chord(&mut self, chord: Chord, now: u64, sink: &mut impl Sink) {
+    /// A chord as fingered (before Keyboard transpose). Starts playback when sync start is armed.
+    pub fn set_chord(&mut self, played: Chord, now: u64, sink: &mut impl Sink) {
+        self.played = Some(played);
+        let chord = shift_chord(played, self.transpose.keyboard);
         let prev = self.chord;
         self.chord = Some(chord);
         if self.sync_armed && !self.running && chord.ty != CANCEL {
@@ -500,6 +562,38 @@ impl Engine {
         }
         if !self.running && self.stop_acmp {
             self.sound_stop_acmp(chord, now, sink);
+        }
+    }
+
+    /// New transpose settings. They apply to notes started from now on; sounding notes keep
+    /// their pitch until they end or the next chord change revoices them. A Keyboard change
+    /// moves the held chord at once, so the band follows as if the same keys had been played
+    /// in the new key. Stop Accompaniment notes move only if they are still sounding.
+    pub fn set_transpose(&mut self, t: Transpose, now: u64, sink: &mut impl Sink) {
+        let old = self.transpose;
+        self.transpose = Transpose::new(t.keyboard, t.master);
+        if self.transpose.keyboard == old.keyboard {
+            return;
+        }
+        let Some(played) = self.played else { return };
+        let chord = shift_chord(played, self.transpose.keyboard);
+        let prev = self.chord;
+        self.chord = Some(chord);
+        if self.running {
+            self.revoice(chord, now, sink);
+            self.catch_up(prev, chord, now, sink);
+        } else if self.stop_acmp && self.sounding.iter().any(|n| n.active && n.src == STOP_ACMP_SRC) {
+            self.sound_stop_acmp(chord, now, sink);
+        }
+    }
+
+    /// Master transpose for a note on `dest` (never on drum/SFX kits).
+    #[inline]
+    fn master(&self, dest: u8, key: u8) -> u8 {
+        if self.style.kit[dest as usize & 15] {
+            key
+        } else {
+            shift_key(key, self.transpose.master)
         }
     }
 
@@ -866,6 +960,7 @@ impl Engine {
         if self.manual_bass && dest == BASS_CH {
             return;
         }
+        let out = self.master(dest, out);
         // Steal an identical sounding note on the same channel so offs stay balanced.
         self.off_where(sink, |s| s.dest == dest && s.out == out);
         if let Some(free) = self.sounding.iter_mut().find(|s| !s.active) {
@@ -992,10 +1087,10 @@ impl Engine {
                 let late = now.saturating_sub(o.started_ns) < LATE_CHORD_NS;
                 let zone = rule.zone_for(o.src_key);
                 let target = match (late, zone.rtr) {
-                    (true, _) => outs[k],
+                    (true, _) => outs[k].map(|t| self.master(o.dest, t)),
                     (false, Rtr::Stop) => None,
                     (false, Rtr::PitchShiftToRoot | Rtr::RetriggerToRoot) => {
-                        let pc = chord.bass.unwrap_or(chord.root) as i32;
+                        let pc = self.master(o.dest, chord.bass.unwrap_or(chord.root)) as i32;
                         let cur = o.out as i32;
                         let mut d = (pc - cur).rem_euclid(12);
                         if d > 6 {
@@ -1003,7 +1098,7 @@ impl Engine {
                         }
                         Some((cur + d).clamp(0, 127) as u8)
                     }
-                    (false, _) => outs[k],
+                    (false, _) => outs[k].map(|t| self.master(o.dest, t)),
                 };
                 if target == Some(o.out) {
                     self.sounding[j].started_ns = u64::MAX;

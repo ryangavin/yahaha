@@ -32,7 +32,7 @@ fn main() -> Result<()> {
         Some("screen") => ui::screen_html(std::path::Path::new(&args[2]), std::path::Path::new(&args[3]))?,
         Some("bench") => bench::run(std::path::Path::new(&args[2]), args.get(3).and_then(|s| s.parse().ok()))?,
         _ => eprintln!(
-            "usage:\n  yahaha play <style or folder>... [--split F#2] [--input <name>] [--all-inputs] [--no-pads] [--sf2 file | --no-synth] [--palette-leds] [--audio-out 11]\n      [--fingering single|multi|fingered|on-bass|ai|full|ai-full] [--upper [--no-manual-bass]]\n  yahaha bench <style> [spin_us]\n  yahaha sim <style> <\"C Am F G7\" | script file>\n  yahaha dump <style>..."
+            "usage:\n  yahaha play <style or folder>... [--split F#2] [--input <name>] [--all-inputs] [--no-pads] [--sf2 file | --no-synth] [--palette-leds] [--audio-out 11]\n      [--fingering single|multi|fingered|on-bass|ai|full|ai-full] [--upper [--no-manual-bass]] [--transpose N] [--master-transpose N]\n  yahaha bench <style> [spin_us]\n  yahaha sim <style> <\"C Am F G7\" | script file>\n  yahaha dump <style>..."
         ),
     }
     Ok(())
@@ -104,6 +104,7 @@ fn play_cmd(args: &[String]) -> Result<()> {
     let mut manual_bass = true;
     let mut sf2: Option<PathBuf> = None;
     let mut fingering = fingering::Fingering::FingeredOnBass;
+    let mut transpose = engine::Transpose::default();
     let mut inputs = Vec::new();
     let mut i = 0;
     while i < args.len() {
@@ -133,6 +134,18 @@ fn play_cmd(args: &[String]) -> Result<()> {
                     anyhow::anyhow!("--fingering wants single, multi, fingered, on-bass, ai, full or ai-full")
                 })?;
             }
+            "--transpose" | "--master-transpose" => {
+                let flag = args[i].clone();
+                i += 1;
+                let n = args.get(i).and_then(|s| s.trim_start_matches('+').parse::<i8>().ok())
+                    .filter(|n| (-engine::Transpose::RANGE..=engine::Transpose::RANGE).contains(n))
+                    .ok_or_else(|| anyhow::anyhow!("{flag} wants semitones from -12 to 12"))?;
+                if flag == "--transpose" {
+                    transpose.keyboard = n;
+                } else {
+                    transpose.master = n;
+                }
+            }
             "--input" => {
                 i += 1;
                 inputs.push(args.get(i).cloned().unwrap_or_default());
@@ -152,7 +165,7 @@ fn play_cmd(args: &[String]) -> Result<()> {
     if no_synth {
         sf2 = None;
     }
-    ui::play(ui::Options { paths, split, all_inputs, inputs, no_pads, sf2, palette_leds, audio_out, fingering, upper, manual_bass })
+    ui::play(ui::Options { paths, split, all_inputs, inputs, no_pads, sf2, palette_leds, audio_out, fingering, upper, manual_bass, transpose })
 }
 
 /// "F#2" (Yamaha numbering, C3 = 60) or a raw MIDI number.
