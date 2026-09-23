@@ -338,7 +338,12 @@ mod tests {
     #[test]
     fn corpus_every_chord_type() {
         use crate::theory::{casm_type, CANCEL, TYPE_NAMES};
-        for f in corpus() {
+        let files = corpus();
+        if files.is_empty() {
+            eprintln!("no corpus; skipping");
+            return;
+        }
+        for f in files {
             let style = Style::load(&f).unwrap();
             let prep = Prepared::new(&style);
             let bar = (60e9 / prep.bpm * (prep.tpb as f64 / prep.ppq as f64)) as u64;
@@ -350,6 +355,8 @@ mod tests {
                 let out = play(ty);
                 // Cancel does not sync-start the style.
                 assert!(ty == CANCEL || out.iter().any(|(_, m)| m[0] & 0xF0 == 0x90), "{}: silent under {ty}", f.display());
+                // Regression guard, not a fidelity check: plays/transpose map through
+                // casm() on entry, so this holds by construction unless that is bypassed.
                 if casm_type(ty) != ty {
                     assert_eq!(out, play(casm_type(ty)), "{}: type {}", f.display(), TYPE_NAMES[ty as usize]);
                 }

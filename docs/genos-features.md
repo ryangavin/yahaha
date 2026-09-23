@@ -766,15 +766,17 @@ Optional.
 These fill the gaps above. Each one is a decision the owner may overrule after playtesting.
 1. **Shapes:** A chord is any pitch-class set that contains every required note of a §D row and nothing outside that row. Notes in parentheses may be left out, one or all of them. Octave doublings and voicing order do not matter.
 2. **Fewer than three notes:** Only 1+5 and 1+8 are chords. A single key and any other two-note set (C E, C E♭, C B♭) are not recognised, and the previous chord stays. "Fewer than three notes" is what sets AI Fingered apart (RM p.9).
+   Consequence: a single key or a two-note set other than 1+5/1+8 does not start the style under Sync Start, because Sync Start fires on the first recognised chord (OM p.46).
 3. **1+8:** Two or more keys that all share one pitch class. 1+5 accepts the fifth either way up: G C is C1+5, with bass G in On Bass.
 4. **Ambiguous sets** (C6 = Am7, Cm6 = Am7♭5, C6(9) = Am7(11), Csus4 = Fsus2, C7♭5 = F♯7♭5, dim7, aug) are decided in this order:
    1. The reading whose root is the lowest note wins. C E G A is C6 and A C E G is Am7. dim7 and aug take the lowest note as root.
    2. Fewest omitted notes. For D E G A C, C6(9)/D is complete but Am7(11) would be missing its 9th.
    3. The lowest note's role in the chord: root, then 5th, then 3rd, then ♭5/♯5/4th, then 6th/7th, then tensions. E G A C is Am7/E (E is the 5th of Am7 but the 3rd of C6). G A C E is C6/G. E♭ G A C is Cm6/E♭. G C F is Csus4/G.
    4. Data List table order.
+   Readings to playtest: E G A C gives Am7/E (some players would expect C6/E), and C D G B♭ gives B♭6(9)/C.
 5. **Inversions:** Fingered On Bass reports the lowest note as bass whenever it is not the root. Plain Fingered reads the same chord with the bass dropped.
-6. **Bass outside the chord (On Bass only):** If the whole set is not a chord, but the notes above the lowest one form a chord of three or more notes, the result is that chord over the bass: F♯ C E G is C/F♯. Plain Fingered does not recognise such a set. A complete table reading always comes first, so D C E G is Cadd9/D and not C/D.
-7. **Chords without a MIDI code:** These are shown as themselves, but the style follows them as a CASM type (chord mute bit, NTT tables). The rule is the smallest CASM type that holds every played note, or, if none does, the largest CASM type made only of played notes. That way the band never adds a note that clashes with what you play.
+6. **Bass outside the chord (On Bass only):** If the whole set is not a chord, but the notes above the lowest one form a chord of three or more notes, the result is that chord over the bass: F♯ C E G is C/F♯. The upper chord must be a complete three- or four-note chord (no omitted notes), so a tension-laden set never becomes an unrelated root over the bass: C E G B F and C E G B♭ C♯ E♭ are not chords (not G13/C or E♭7♭9/C), and the previous chord stays. Plain Fingered does not recognise such a set. A complete table reading always comes first, so D C E G is Cadd9/D and not C/D.
+7. **Chords without a MIDI code:** These are shown as themselves, but the style follows them as a CASM type (chord mute bit, NTT tables). The rule is the smallest CASM type that holds every played note, or, if none does, the largest CASM type made only of played notes. The mapped type never drops a played note when a superset exists, but it can add one: M7♭5 → M7(♯11) adds the natural 5th a semitone above the ♭5, and (♭5) → 7♭5 adds a ♭7. Only mM7♭5, which has no superset, drops a played note (its M7).
    - M7♭5 → **M7(♯11)** (type 3). The ♭5 is the ♯11.
    - (♭5) → **7♭5** (type 21).
    - mM7♭5 → **dim** (type 17). No CASM type contains all four notes.

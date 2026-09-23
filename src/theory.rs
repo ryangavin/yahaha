@@ -65,7 +65,9 @@ const TONES: [&[u8]; 38] = [
 
 /// The CASM chord type a style follows for `ty`. The three Data List chords without a
 /// code map to the nearest CASM type: the smallest type holding every played note, else
-/// the largest one using only played notes, so the band never adds a clashing note.
+/// the largest one using only played notes. The mapped type may add a note (M7b5 -> M7(#11)
+/// adds the natural 5th, (b5) -> 7b5 adds the b7) but never drops a played one, except
+/// mM7b5, which has no superset and drops its M7.
 /// M7b5 -> M7(#11) (b5 = #11), (b5) -> 7b5, mM7b5 -> dim.
 pub const fn casm_type(ty: u8) -> u8 {
     match ty {
@@ -274,11 +276,14 @@ impl Recognizer {
         if let Some(c) = Self::table_match(mask, low) {
             return Some((c, false));
         }
-        // On Bass: a table chord over a bass note that is not part of it (C E G over D = C/D).
+        // On Bass: a table chord over a bass note that is not part of it (C E G over F# = C/F#).
+        // Only a complete three- or four-note chord counts, so a tension-laden set does not
+        // turn into an unrelated root over the bass (C E G B F is not G13/C).
         let upper = mask & !(1 << low);
-        if upper.count_ones() >= 3 {
+        if (3..=4).contains(&upper.count_ones()) {
             let lowest_upper = (1..12u8).map(|i| (low + i) % 12).find(|&p| upper & (1 << p) != 0).unwrap();
-            if let Some(c) = Self::table_match(upper, lowest_upper).filter(|c| c.ty != CANCEL) {
+            let complete = |c: &Chord| c.ty != CANCEL && rot(mask_of(c.ty), c.root) == upper;
+            if let Some(c) = Self::table_match(upper, lowest_upper).filter(complete) {
                 return Some((Chord { bass: Some(low), ..c }, true));
             }
         }
@@ -1013,6 +1018,12 @@ mod tests {
         assert_eq!(keys(&r, &[42, 48, 52, 55], false), None);
         // A whole table chord over the bass wins over the slash reading: D C E G = Cadd9/D.
         assert_eq!(name(keys(&r, &[50, 60, 64, 67], true)), "Cadd9/D");
+        // Only a complete three- or four-note chord goes over a foreign bass: Cm7/F# works,
+        // but tension-laden sets do not become an unrelated root over the bass.
+        assert_eq!(name(keys(&r, &[42, 48, 51, 55, 58], true)), "Cm7/F#");
+        assert_eq!(keys(&r, &[48, 52, 55, 59, 65], true), None); // C E G B F, not G13/C
+        assert_eq!(keys(&r, &[48, 52, 55, 58, 61, 63], true), None); // not Eb7b9/C
+        assert_eq!(keys(&r, &[48, 52, 55, 58, 61, 63], false), None);
     }
 
     #[test]
