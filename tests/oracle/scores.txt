@@ -7,7 +7,7 @@ pairs unrelated 1211
 pairs too-few 469
 pairs same-chord 1884
 pairs muted-own 511
-authored 249112 151488 172708
+authored 249112 151368 172196
 identity RootTrans 330282 284297 330282
 identity RootTrans moved-in-limit 1426
 identity RootFixed 101646 101041 101646
@@ -17,19 +17,19 @@ identity Guitar moved-in-limit 86606
 table Bypass 249112 151089 171328
 table Melody 249112 155532 179452
 table Chord 249112 155363 179328
-table MelodicMinor 249112 165095 189039
-table MelodicMinor5 249112 165095 189039
-table HarmonicMinor 249112 159574 183611
-table HarmonicMinor5 249112 159574 183611
-table NaturalMinor 249112 155532 179452
-table NaturalMinor5 249112 155532 179452
-table Dorian 249112 159365 183104
-table Dorian5 249112 159365 183104
+table MelodicMinor 249112 166908 190219
+table MelodicMinor5 249112 166912 190223
+table HarmonicMinor 249112 168944 192720
+table HarmonicMinor5 249112 168948 192724
+table NaturalMinor 249112 165587 189262
+table NaturalMinor5 249112 165591 189266
+table Dorian 249112 163551 186761
+table Dorian5 249112 163555 186765
 table GuitarAllPurpose 0 0 0
 table GuitarStroke 0 0 0
 table GuitarArpeggio 0 0 0
 ntr RootTrans pairs 5172
-ntr RootTrans 247534 150687 171621
+ntr RootTrans 247534 150567 171109
 ntr RootFixed pairs 38
 ntr RootFixed 1578 801 1087
 ntr Guitar pairs 0
@@ -91,10 +91,10 @@ change 7>m authored 90 90 90
 change 7>m Bypass 90 70 70
 change 7>m Melody 90 90 90
 change 7>m Chord 90 70 70
-change 7>m MelodicMinor 90 70 70
-change 7>m MelodicMinor5 90 70 70
-change 7>m HarmonicMinor 90 70 70
-change 7>m HarmonicMinor5 90 70 70
+change 7>m MelodicMinor 90 90 90
+change 7>m MelodicMinor5 90 90 90
+change 7>m HarmonicMinor 90 90 90
+change 7>m HarmonicMinor5 90 90 90
 change 7>m NaturalMinor 90 90 90
 change 7>m NaturalMinor5 90 90 90
 change 7>m Dorian 90 90 90
@@ -113,18 +113,18 @@ change 7>m7 NaturalMinor5 23 17 17
 change 7>m7 Dorian 23 17 17
 change 7>m7 Dorian5 23 17 17
 change 7>maj7 pairs 87
-change 7>maj7 authored 3326 1878 2529
+change 7>maj7 authored 3326 1813 2270
 change 7>maj7 Bypass 3326 1795 2252
 change 7>maj7 Melody 3326 1741 2392
 change 7>maj7 Chord 3326 1741 2392
-change 7>maj7 MelodicMinor 3326 1741 2392
-change 7>maj7 MelodicMinor5 3326 1741 2392
-change 7>maj7 HarmonicMinor 3326 1741 2392
-change 7>maj7 HarmonicMinor5 3326 1741 2392
-change 7>maj7 NaturalMinor 3326 1741 2392
-change 7>maj7 NaturalMinor5 3326 1741 2392
-change 7>maj7 Dorian 3326 1741 2392
-change 7>maj7 Dorian5 3326 1741 2392
+change 7>maj7 MelodicMinor 3326 1795 2252
+change 7>maj7 MelodicMinor5 3326 1795 2252
+change 7>maj7 HarmonicMinor 3326 1795 2252
+change 7>maj7 HarmonicMinor5 3326 1795 2252
+change 7>maj7 NaturalMinor 3326 1795 2252
+change 7>maj7 NaturalMinor5 3326 1795 2252
+change 7>maj7 Dorian 3326 1795 2252
+change 7>maj7 Dorian5 3326 1795 2252
 change M>7 pairs 7
 change M>7 authored 201 154 154
 change M>7 Bypass 201 137 137
@@ -139,16 +139,16 @@ change M>7 NaturalMinor5 201 137 137
 change M>7 Dorian 201 137 137
 change M>7 Dorian5 201 137 137
 change M>m pairs 2414
-change M>m authored 117236 71772 81035
+change M>m authored 117236 71777 81040
 change M>m Bypass 117236 71734 80980
 change M>m Melody 117236 76069 86920
 change M>m Chord 117236 76069 86920
 change M>m MelodicMinor 117236 80059 90905
 change M>m MelodicMinor5 117236 80059 90905
-change M>m HarmonicMinor 117236 77551 88403
-change M>m HarmonicMinor5 117236 77551 88403
-change M>m NaturalMinor 117236 76069 86920
-change M>m NaturalMinor5 117236 76069 86920
+change M>m HarmonicMinor 117236 80783 91810
+change M>m HarmonicMinor5 117236 80783 91810
+change M>m NaturalMinor 117236 79298 90271
+change M>m NaturalMinor5 117236 79298 90271
 change M>m Dorian 117236 78574 89366
 change M>m Dorian5 117236 78574 89366
 change M>m11 pairs 6
@@ -156,10 +156,10 @@ change M>m11 authored 194 80 106
 change M>m11 Bypass 194 18 21
 change M>m11 Melody 194 68 71
 change M>m11 Chord 194 86 114
-change M>m11 MelodicMinor 194 68 71
-change M>m11 MelodicMinor5 194 68 71
-change M>m11 HarmonicMinor 194 68 71
-change M>m11 HarmonicMinor5 194 68 71
+change M>m11 MelodicMinor 194 61 64
+change M>m11 MelodicMinor5 194 61 64
+change M>m11 HarmonicMinor 194 61 64
+change M>m11 HarmonicMinor5 194 61 64
 change M>m11 NaturalMinor 194 68 71
 change M>m11 NaturalMinor5 194 68 71
 change M>m11 Dorian 194 68 71
@@ -182,10 +182,10 @@ change m11>M authored 194 109 116
 change m11>M Bypass 194 20 21
 change m11>M Melody 194 68 71
 change m11>M Chord 194 109 116
-change m11>M MelodicMinor 194 68 71
-change m11>M MelodicMinor5 194 68 71
-change m11>M HarmonicMinor 194 68 71
-change m11>M HarmonicMinor5 194 68 71
+change m11>M MelodicMinor 194 61 64
+change m11>M MelodicMinor5 194 61 64
+change m11>M HarmonicMinor 194 61 64
+change m11>M HarmonicMinor5 194 61 64
 change m11>M NaturalMinor 194 68 71
 change m11>M NaturalMinor5 194 68 71
 change m11>M Dorian 194 68 71
@@ -195,10 +195,10 @@ change m11>m authored 252 106 111
 change m11>m Bypass 252 140 144
 change m11>m Melody 252 140 144
 change m11>m Chord 252 106 111
-change m11>m MelodicMinor 252 79 82
-change m11>m MelodicMinor5 252 79 82
-change m11>m HarmonicMinor 252 79 82
-change m11>m HarmonicMinor5 252 79 82
+change m11>m MelodicMinor 252 140 144
+change m11>m MelodicMinor5 252 140 144
+change m11>m HarmonicMinor 252 140 144
+change m11>m HarmonicMinor5 252 140 144
 change m11>m NaturalMinor 252 140 144
 change m11>m NaturalMinor5 252 140 144
 change m11>m Dorian 252 140 144
@@ -221,39 +221,39 @@ change m7>7 authored 1498 503 1318
 change m7>7 Bypass 1498 487 1224
 change m7>7 Melody 1498 406 1180
 change m7>7 Chord 1498 406 1180
-change m7>7 MelodicMinor 1498 494 1309
-change m7>7 MelodicMinor5 1498 494 1309
-change m7>7 HarmonicMinor 1498 406 1180
-change m7>7 HarmonicMinor5 1498 406 1180
-change m7>7 NaturalMinor 1498 406 1180
-change m7>7 NaturalMinor5 1498 406 1180
-change m7>7 Dorian 1498 494 1309
-change m7>7 Dorian5 1498 494 1309
+change m7>7 MelodicMinor 1498 499 1314
+change m7>7 MelodicMinor5 1498 499 1314
+change m7>7 HarmonicMinor 1498 470 1285
+change m7>7 HarmonicMinor5 1498 470 1285
+change m7>7 NaturalMinor 1498 344 949
+change m7>7 NaturalMinor5 1498 344 949
+change m7>7 Dorian 1498 373 978
+change m7>7 Dorian5 1498 373 978
 change m7>maj7 pairs 14
-change m7>maj7 authored 1439 532 1130
+change m7>maj7 authored 1439 511 911
 change m7>maj7 Bypass 1439 482 782
 change m7>maj7 Melody 1439 285 883
 change m7>maj7 Chord 1439 285 883
-change m7>maj7 MelodicMinor 1439 373 971
-change m7>maj7 MelodicMinor5 1439 373 971
-change m7>maj7 HarmonicMinor 1439 285 883
-change m7>maj7 HarmonicMinor5 1439 285 883
-change m7>maj7 NaturalMinor 1439 285 883
-change m7>maj7 NaturalMinor5 1439 285 883
-change m7>maj7 Dorian 1439 373 971
-change m7>maj7 Dorian5 1439 373 971
+change m7>maj7 MelodicMinor 1439 503 903
+change m7>maj7 MelodicMinor5 1439 503 903
+change m7>maj7 HarmonicMinor 1439 474 874
+change m7>maj7 HarmonicMinor5 1439 474 874
+change m7>maj7 NaturalMinor 1439 403 1001
+change m7>maj7 NaturalMinor5 1439 403 1001
+change m7>maj7 Dorian 1439 432 1030
+change m7>maj7 Dorian5 1439 432 1030
 change m7b5>maj7 pairs 1
 change m7b5>maj7 authored 16 6 6
 change m7b5>maj7 Bypass 16 4 4
 change m7b5>maj7 Melody 16 6 6
 change m7b5>maj7 Chord 16 6 6
-change m7b5>maj7 MelodicMinor 16 6 6
+change m7b5>maj7 MelodicMinor 16 4 4
 change m7b5>maj7 MelodicMinor5 16 6 6
-change m7b5>maj7 HarmonicMinor 16 6 6
+change m7b5>maj7 HarmonicMinor 16 4 4
 change m7b5>maj7 HarmonicMinor5 16 6 6
-change m7b5>maj7 NaturalMinor 16 6 6
+change m7b5>maj7 NaturalMinor 16 4 4
 change m7b5>maj7 NaturalMinor5 16 6 6
-change m7b5>maj7 Dorian 16 6 6
+change m7b5>maj7 Dorian 16 4 4
 change m7b5>maj7 Dorian5 16 6 6
 change m>7 pairs 2
 change m>7 authored 90 70 70
@@ -262,25 +262,25 @@ change m>7 Melody 90 90 90
 change m>7 Chord 90 60 60
 change m>7 MelodicMinor 90 90 90
 change m>7 MelodicMinor5 90 90 90
-change m>7 HarmonicMinor 90 70 70
-change m>7 HarmonicMinor5 90 70 70
-change m>7 NaturalMinor 90 90 90
-change m>7 NaturalMinor5 90 90 90
-change m>7 Dorian 90 90 90
-change m>7 Dorian5 90 90 90
+change m>7 HarmonicMinor 90 90 90
+change m>7 HarmonicMinor5 90 90 90
+change m>7 NaturalMinor 90 70 70
+change m>7 NaturalMinor5 90 70 70
+change m>7 Dorian 90 70 70
+change m>7 Dorian5 90 70 70
 change m>M pairs 2412
-change m>M authored 117105 71730 80967
+change m>M authored 117105 71735 80972
 change m>M Bypass 117105 71695 80915
 change m>M Melody 117105 72071 82499
 change m>M Chord 117105 72071 82499
-change m>M MelodicMinor 117105 77554 87971
-change m>M MelodicMinor5 117105 77554 87971
-change m>M HarmonicMinor 117105 74724 85269
-change m>M HarmonicMinor5 117105 74724 85269
-change m>M NaturalMinor 117105 72071 82499
-change m>M NaturalMinor5 117105 72071 82499
-change m>M Dorian 117105 73236 83501
-change m>M Dorian5 117105 73236 83501
+change m>M MelodicMinor 117105 79135 89504
+change m>M MelodicMinor5 117105 79135 89504
+change m>M HarmonicMinor 117105 80492 91145
+change m>M HarmonicMinor5 117105 80492 91145
+change m>M NaturalMinor 117105 78827 89445
+change m>M NaturalMinor5 117105 78827 89445
+change m>M Dorian 117105 77470 87804
+change m>M Dorian5 117105 77470 87804
 change m>m11 pairs 7
 change m>m11 authored 252 149 155
 change m>m11 Bypass 252 140 144
@@ -303,10 +303,10 @@ change m>maj7 MelodicMinor 102 93 95
 change m>maj7 MelodicMinor5 102 93 95
 change m>maj7 HarmonicMinor 102 100 102
 change m>maj7 HarmonicMinor5 102 100 102
-change m>maj7 NaturalMinor 102 96 98
-change m>maj7 NaturalMinor5 102 96 98
-change m>maj7 Dorian 102 89 91
-change m>maj7 Dorian5 102 89 91
+change m>maj7 NaturalMinor 102 100 102
+change m>maj7 NaturalMinor5 102 100 102
+change m>maj7 Dorian 102 93 95
+change m>maj7 Dorian5 102 93 95
 change maj7>6 pairs 2
 change maj7>6 authored 34 34 34
 change maj7>6 Bypass 34 24 24
@@ -321,18 +321,18 @@ change maj7>6 NaturalMinor5 34 24 24
 change maj7>6 Dorian 34 24 24
 change maj7>6 Dorian5 34 24 24
 change maj7>7 pairs 59
-change maj7>7 authored 2714 1466 2060
+change maj7>7 authored 2714 1422 2016
 change maj7>7 Bypass 2714 1539 1796
 change maj7>7 Melody 2714 1416 2010
 change maj7>7 Chord 2714 1416 2010
-change maj7>7 MelodicMinor 2714 1416 2010
-change maj7>7 MelodicMinor5 2714 1416 2010
-change maj7>7 HarmonicMinor 2714 1416 2010
-change maj7>7 HarmonicMinor5 2714 1416 2010
-change maj7>7 NaturalMinor 2714 1416 2010
-change maj7>7 NaturalMinor5 2714 1416 2010
-change maj7>7 Dorian 2714 1416 2010
-change maj7>7 Dorian5 2714 1416 2010
+change maj7>7 MelodicMinor 2714 1396 1796
+change maj7>7 MelodicMinor5 2714 1396 1796
+change maj7>7 HarmonicMinor 2714 1396 1796
+change maj7>7 HarmonicMinor5 2714 1396 1796
+change maj7>7 NaturalMinor 2714 1396 1796
+change maj7>7 NaturalMinor5 2714 1396 1796
+change maj7>7 Dorian 2714 1396 1796
+change maj7>7 Dorian5 2714 1396 1796
 change maj7>M pairs 75
 change maj7>M authored 1969 1337 1348
 change maj7>M Bypass 1969 1246 1249
@@ -377,13 +377,13 @@ change maj7>m7b5 authored 16 6 6
 change maj7>m7b5 Bypass 16 4 4
 change maj7>m7b5 Melody 16 6 6
 change maj7>m7b5 Chord 16 6 6
-change maj7>m7b5 MelodicMinor 16 6 6
+change maj7>m7b5 MelodicMinor 16 4 4
 change maj7>m7b5 MelodicMinor5 16 6 6
-change maj7>m7b5 HarmonicMinor 16 6 6
+change maj7>m7b5 HarmonicMinor 16 4 4
 change maj7>m7b5 HarmonicMinor5 16 6 6
-change maj7>m7b5 NaturalMinor 16 6 6
+change maj7>m7b5 NaturalMinor 16 4 4
 change maj7>m7b5 NaturalMinor5 16 6 6
-change maj7>m7b5 Dorian 16 6 6
+change maj7>m7b5 Dorian 16 4 4
 change maj7>m7b5 Dorian5 16 6 6
 change maj7>maj9 pairs 2
 change maj7>maj9 authored 30 0 0
@@ -672,7 +672,7 @@ style T5Style/AnalogBallad.T160.prs authored 648 402 424
 style T5Style/BandaPolka.T171.sst identity 2274 1735 2274
 style T5Style/BandaPolka.T171.sst moved-in-limit 539
 style T5Style/BandaPolka.T171.sst pairs 56
-style T5Style/BandaPolka.T171.sst authored 1196 583 914
+style T5Style/BandaPolka.T171.sst authored 1196 589 920
 style T5Style/BandaVals.T171.prs identity 3051 3051 3051
 style T5Style/BandaVals.T171.prs moved-in-limit 0
 style T5Style/BandaVals.T171.prs pairs 48
@@ -680,7 +680,7 @@ style T5Style/BandaVals.T171.prs authored 2216 1674 1674
 style T5Style/BaroqueConcerto.T150.sst identity 3167 3167 3167
 style T5Style/BaroqueConcerto.T150.sst moved-in-limit 0
 style T5Style/BaroqueConcerto.T150.sst pairs 77
-style T5Style/BaroqueConcerto.T150.sst authored 2641 2118 2118
+style T5Style/BaroqueConcerto.T150.sst authored 2641 2070 2070
 style T5Style/Bebop.T157.sst identity 2801 1772 2014
 style T5Style/Bebop.T157.sst moved-in-limit 787
 style T5Style/Bebop.T157.sst pairs 16
@@ -808,7 +808,7 @@ style T5Style/CountrySwing2.T151.prs moved-in-limit 1044
 style T5Style/CountryTwoStep.T151.prs identity 2726 1742 2207
 style T5Style/CountryTwoStep.T151.prs moved-in-limit 523
 style T5Style/CountryTwoStep.T151.prs pairs 4
-style T5Style/CountryTwoStep.T151.prs authored 52 37 37
+style T5Style/CountryTwoStep.T151.prs authored 52 47 47
 style T5Style/CountryWaltz.T151.prs identity 2146 1474 1776
 style T5Style/CountryWaltz.T151.prs moved-in-limit 477
 style T5Style/CountryWaltz.T151.prs pairs 42
@@ -920,7 +920,7 @@ style T5Style/JerseyPop.T160.prs authored 1766 1436 1540
 style T5Style/KoolFunk.T161.sst identity 7241 3996 7241
 style T5Style/KoolFunk.T161.sst moved-in-limit 0
 style T5Style/KoolFunk.T161.sst pairs 121
-style T5Style/KoolFunk.T161.sst authored 8160 3396 6441
+style T5Style/KoolFunk.T161.sst authored 8160 3308 5961
 style T5Style/LACoolSwing.T157.sst identity 2317 1698 2154
 style T5Style/LACoolSwing.T157.sst moved-in-limit 163
 style T5Style/LACoolSwing.T157.sst pairs 38

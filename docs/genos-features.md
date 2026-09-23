@@ -837,6 +837,7 @@ With NTR = Guitar:
 - When On, the channel follows slash chords: for Dm7/G, the bass transposes to G instead of D.
 - With NTR = Guitar and NTT Bass On, only the lowest (bass) note of the guitar voicing follows the slash bass.
 - This is what makes Fingered On Bass audible. Only channels with NTT Bass On move to the played bass note.
+- SFF2 stores Bass On per zone (low / mid / high, split at Mid Low and Mid High), so a piano can have its left-hand zone follow the slash bass while its chord zone keeps the root.
 
 **Rhythm channels** must be NTR = Root Fixed, NTT = Bypass, NTT Bass = Off. They never follow chords.
 
@@ -849,6 +850,7 @@ With NTR = Guitar:
 - The allowed pitch range after conversion. Any converted note outside it is octave-shifted back inside.
 - Example: Low C3, High D4.
 - Keeps bass from going too high and piccolo from going too low.
+- A range narrower than an octave can't hold every pitch class. The manual doesn't cover this. Our choice: a note with no octave inside the range goes to the octave nearest the range, the lower one on a tie (#13). No corpus style uses a range this narrow.
 
 **RTR (Retrigger Rule): notes already sounding when the chord changes**
 

@@ -40,7 +40,7 @@ Each pair is scored twice:
 The report sums these per NTT table, per chord change (for example `M>m`, with the table that agrees best), per NTR and per style. `--pairs` also lists every pair: section, part, channels, chord and score.
 
 The report also has an **identity** check. Every chord-following source (not only paired ones) is played on its own source chord. RM p.28 says that plays back "the originally recorded data", so every note should come out as written. Notes are counted per NTR of the note's own zone (a Guitar high zone above a Root Trans middle zone counts as Guitar). A note that moves is split into two kinds:
-- **folded:** written outside the channel's own Note Limit (of an octave or more) and moved by octaves into it, exactly where RM p.30 puts it. That is Note Limit working as documented.
+- **folded:** written outside the channel's own Note Limit and moved by octaves into it, exactly where RM p.30 puts it. That is Note Limit working as documented. A limit narrower than an octave cannot hold every pitch class; there the note may land on the octave nearest the limit, the lower one on a tie, which is our rule for that case (#13). No corpus style has such a limit.
 - **moved inside Note Limit:** anything else, including a note outside the limit that lands in the wrong octave. These contradict RM p.28 and are transposer misses. The report prints them per NTR and the pin tracks them.
 
 ## Tracking changes
@@ -60,11 +60,15 @@ The file holds counts only: style paths, table names, chord-change labels and in
 
 - **Authors are not the hardware.** A hand-written minor version shows what the author wanted, which need not be what any NTT table produces. Authors split channels exactly where a table would not do what they wanted, so these pairs lean towards the hard cases. A score of 100% is not the goal. Read the scores as comparisons: table against table, and before against after.
 - **Mostly major and minor.** Almost all scored notes are `M>m` and `m>M`. Dominant, diminished, augmented and tension chords have a handful of pairs each, and Guitar sources have none. So the table scores say little about Chord-table voicing, the 5th variants (#11) or Guitar NTR (#12). The identity check still covers Guitar.
-- **Ties are artifacts.** Every 5th-variant table scores the same as its base table: our transposer does not yet implement the 5th variants (#11), and no scored pair converts to or from an aug or dim chord anyway. Melody and Natural Minor tie on every chord change in the pin: on these pairs our two tables produce the same notes. Neither tie says anything about how Yamaha's tables relate.
+- **Ties are artifacts.** Each 5th-variant table scores within a few notes of its base table: the tables differ only over aug and dim chords (#11), and almost no scored pair converts to or from one. Before #11 landed, Melody and Natural Minor also tied on every chord change. Neither says anything about how Yamaha's tables relate.
 - **Root movement is barely tested.** Source roots are nearly always C, so the played chord is on the same root. NTR, High Key and the root half of the conversion are exercised only through the identity check.
 - **Octave.** Converted notes are folded into A's Note Limit. The reference is B's authored notes, which may lie outside B's own limit. Compare the pitch column to leave octave out.
 - **Alignment is strict.** Only ticks where both sources start the same number of notes are compared. Rhythmic edits, added or dropped chord notes, and grace notes fall out of the comparison.
 - **Nothing is played.** This is a note-for-note check of `transpose_group`. It does not run the engine, so RTR, chord changes mid-note and section changes are out of scope; the golden snapshots cover those.
+
+## Pin history
+
+- **#55 (NTT 5th-variation tables, #11)** moved the pin; #56, #59 and #57 did not. Measured by cherry-picking the oracle onto each merge commit. Across all pairs, exact: Harmonic Minor 64.1% -> 67.8%, Melodic Minor 66.3% -> 67.0%, Natural Minor 62.4% -> 66.5%, Dorian 64.0% -> 65.7%. Harmonic Minor now agrees best on both `M>m` (68.9% against Melodic Minor's 68.3%) and `m>M`, so the baseline's "Melodic Minor agrees best" no longer holds. As authored fell by 120 of 249112 notes (512 pitch class), all in Melodic Minor 5th pairs of BaroqueConcerto and KoolFunk between a 7 and a maj7 source: the authors' copies take the played chord's 7th, and #55 keeps the source's 7th ("other notes are not changed"). This is #55's playtest flag; see the PR #57 notes.
 
 ## Baseline (208 styles)
 
