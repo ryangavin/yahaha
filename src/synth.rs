@@ -85,7 +85,7 @@ impl SynthControl {
             focus: AtomicU8::new(0),
             layer_mode: AtomicBool::new(false),
             slots_changed: AtomicBool::new(true),
-            master: AtomicU8::new(100),
+            master: AtomicU8::new(MASTER_UNITY),
             lh_sound: AtomicBool::new(false),
             left_program: AtomicU8::new(48),
             left_vol: AtomicU8::new(100),
@@ -233,22 +233,16 @@ pub fn style_bass_program(voice: Option<(u8, u8, u8)>) -> u8 {
     }
 }
 
-/// Styles are balanced for Yamaha voices, which respond to volume and velocity far more
-/// gently than a GM SoundFont (some even ignore velocity: parts written at velocity 1).
-/// For the built-in synth only, soften both curves so every part stays audible:
-/// volume/expression on a square-root curve (≈ linear amplitude instead of GM's squared),
-/// and velocity compressed with a floor.
-#[inline]
-fn soften_level(v: u8) -> i32 {
-    ((v as f32 / 127.0).sqrt() * 127.0).round() as i32
-}
+/// Master fader value at which the synth's output is at unity gain (the SoundFont's own
+/// level). The master fader is the only gain here that is not a MIDI message: part levels
+/// come from each channel's CC7 (the mixer faders), CC11 and velocity alone, on the
+/// standard GM curves (rustysynth: gain = (vel/127)² · ((CC7/127)·(CC11/127))²).
+pub const MASTER_UNITY: u8 = 100;
 
+/// Output gain for a master fader value: linear, 1.0 at `MASTER_UNITY`.
 #[inline]
-fn soften_velocity(v: u8) -> i32 {
-    if v == 0 {
-        return 0;
-    }
-    (((v as f32 / 127.0).sqrt() * 127.0).round() as i32).max(48)
+pub fn master_gain(master: u8) -> f32 {
+    master.min(127) as f32 / MASTER_UNITY as f32
 }
 
 fn apply(synth: &mut Synthesizer, player: &mut Synthesizer, m: &Msg, ctl: &SynthControl, bank: &mut [u8; 16], pl: &mut Player) {
@@ -307,8 +301,8 @@ fn apply(synth: &mut Synthesizer, player: &mut Synthesizer, m: &Msg, ctl: &Synth
             let p = gm_fallback(ch as u8, bank[ch as usize], m[1]);
             synth.process_midi_message(ch, 0xC0, p as i32, 0);
         }
-        0xB0 if m[1] == 7 || m[1] == 11 => synth.process_midi_message(ch, 0xB0, m[1] as i32, soften_level(m[2])),
-        0x90 => synth.process_midi_message(ch, 0x90, m[1] as i32, soften_velocity(m[2])),
+        // Everything else as sent: CC7 (the mixer fader), CC11 and velocity reach the voice
+        // unchanged, so the SoundFont answers them exactly as an external GM instrument would.
         _ => synth.process_midi_message(ch, st, m[1] as i32, v),
     }
 }
@@ -341,7 +335,6 @@ pub fn start(sf2: &Path, consumers: Vec<Consumer<Msg>>, out_pair: Option<u8>) ->
     settings.maximum_polyphony = 128;
     let mut synth = Synthesizer::new(&font, &settings).map_err(|e| anyhow!("{e:?}"))?;
     let mut player_synth = Synthesizer::new(&font, &settings).map_err(|e| anyhow!("{e:?}"))?;
-    synth.set_master_volume(0.6);
     synth.process_midi_message(8, 0xB0, 0, 128);
 
     let control = Arc::new(SynthControl::new(first));
@@ -361,8 +354,8 @@ pub fn start(sf2: &Path, consumers: Vec<Consumer<Msg>>, out_pair: Option<u8>) ->
         let master = ctl.master.load(Relaxed);
         if master != player.master {
             player.master = master;
-            synth.set_master_volume(0.8 * master as f32 / 127.0);
-            player_synth.set_master_volume(0.8 * master as f32 / 127.0);
+            synth.set_master_volume(master_gain(master));
+            player_synth.set_master_volume(master_gain(master));
         }
         for c in consumers.iter_mut() {
             while let Ok(m) = c.pop() {
@@ -580,6 +573,61 @@ mod layer_tests {
         assert!(c.lh_sound.load(Relaxed));
         assert_eq!(c.left_program.load(Relaxed), 52);
         assert_eq!(c.left_vol.load(Relaxed), 40);
+    }
+}
+
+/// The synth answers velocity, CC7 and CC11 on the standard GM curves (each 40·log10(v/127)
+/// dB), with nothing in between, and the master fader is unity at its default.
+#[cfg(test)]
+mod curve_tests {
+    use super::*;
+
+    #[test]
+    fn master_is_unity_at_default() {
+        assert_eq!(SynthControl::new(0).master.load(Relaxed), MASTER_UNITY);
+        assert_eq!(master_gain(MASTER_UNITY), 1.0);
+        assert_eq!(master_gain(0), 0.0);
+        assert_eq!(master_gain(50), 0.5);
+    }
+
+    /// Level (dB) of a sustained organ note on band channel 11 after `setup`, through `apply`.
+    fn level(font: &Arc<SoundFont>, setup: &[Msg], vel: u8) -> f64 {
+        let mut synth = Synthesizer::new(font, &SynthesizerSettings::new(48_000)).unwrap();
+        let mut player = Synthesizer::new(font, &SynthesizerSettings::new(48_000)).unwrap();
+        let ctl = SynthControl::new(0);
+        let (mut bank, mut pl) = ([0u8; 16], Player::new());
+        for m in [[0xCA, 16, 0]].iter().chain(setup).chain(&[[0x9A, 60, vel]]) {
+            apply(&mut synth, &mut player, m, &ctl, &mut bank, &mut pl);
+        }
+        let (mut l, mut r) = (vec![0f32; 4800], vec![0f32; 4800]);
+        synth.render(&mut l, &mut r); // attack
+        synth.render(&mut l, &mut r);
+        let e: f64 = l.iter().zip(&r).map(|(a, b)| (a * a + b * b) as f64).sum();
+        10.0 * (e / l.len() as f64).log10()
+    }
+
+    #[test]
+    fn velocity_cc7_cc11_follow_gm_curves() {
+        let sf2 = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("soundfonts/GeneralUser-GS.sf2");
+        if !sf2.exists() {
+            eprintln!("soundfont missing; skipping");
+            return;
+        }
+        let font = Arc::new(SoundFont::new(&mut std::fs::File::open(&sf2).unwrap()).unwrap());
+        let gm = |v: f64| 40.0 * (v / 127.0).log10();
+        let full = level(&font, &[[0xBA, 7, 127], [0xBA, 11, 127]], 127);
+        let cases: [(&[Msg], u8, f64); 6] = [
+            (&[[0xBA, 7, 64], [0xBA, 11, 127]], 127, gm(64.0)),
+            (&[[0xBA, 7, 100], [0xBA, 11, 127]], 127, gm(100.0)),
+            (&[[0xBA, 7, 32], [0xBA, 11, 127]], 127, gm(32.0)),
+            (&[[0xBA, 7, 127], [0xBA, 11, 64]], 127, gm(64.0)),
+            (&[[0xBA, 7, 127], [0xBA, 11, 127]], 64, gm(64.0)),
+            (&[[0xBA, 7, 100], [0xBA, 11, 90]], 80, gm(100.0) + gm(90.0) + gm(80.0)),
+        ];
+        for (setup, vel, want) in cases {
+            let got = level(&font, setup, vel) - full;
+            assert!((got - want).abs() < 0.2, "{setup:?} vel {vel}: {got:.2} dB, GM says {want:.2} dB");
+        }
     }
 }
 

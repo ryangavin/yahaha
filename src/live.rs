@@ -23,6 +23,7 @@ use std::sync::Arc;
 pub enum Cmd {
     Button(Button),
     ChordReleased,
+    /// A Launchkey part fader (0..8) moved to a value (soft takeover in the engine).
     PartVolume(u8, u8),
     /// Manual Bass in effect: mute the Style's Bass part.
     ManualBass(bool),
@@ -563,7 +564,7 @@ fn apply(engine: &mut Engine, cmd: Cmd, now: u64, out: &mut Out) {
         Cmd::Button(b) => engine.button(b, now, out),
         Cmd::ChordReleased => engine.chord_released(now, out),
         Cmd::Arm => engine.arm(out),
-        Cmd::PartVolume(p, v) => engine.set_gain(p, v, out),
+        Cmd::PartVolume(p, v) => engine.hw_fader(p, v, out),
         Cmd::ManualBass(on) => engine.set_manual_bass(on, out),
         Cmd::Transpose(t) => engine.set_transpose(t, now, out),
         Cmd::Panic => {
