@@ -8,6 +8,8 @@ There is one test per row of the Data List chord table (docs/genos-features.md �
 
 Some pitch-class sets can be read as more than one chord. When exactly one of those readings has the lowest note as its root, that reading is the expected answer (C E G A = C6, A C E G = Am7). All other shared sets, such as E G A C, are covered by `ambiguous_voicings`. That test accepts any valid reading until #2 sets the priority rules.
 
+Two more tests cover input outside the table rows. `octave_doublings_keep_the_chord` checks that doubling notes in other octaves gives the same chord. `off_table_inputs` (ignored until #2) expects no chord for note sets the table does not list: a single key, two keys other than 1+5 or 1+8, clusters, and Cancel with an extra key. The rows with no MIDI chord code (M7b5, (b5), mM7b5) fail until #2 decides which type they play as.
+
 Rows that are not implemented yet are marked `#[ignore = "M1 #2"]`. To run them:
 
 ```sh
@@ -18,7 +20,7 @@ A failing row lists every wrong voicing, for example `row 21 m7(11) on C: [C2 D2
 
 ## Style snapshots (`src/golden.rs`)
 
-`golden_snapshots` plays `chords.script` on six corpus styles. It compares each result with the stored `<style file name>.txt` in this folder. The styles cover Guitar NTR (stroke and all-purpose), minor-5th NTT tables, chord-mute routing, SFF1, and a style with no CASM. The stored files contain only the output of our own script. Style files and corpus data are never committed. When the corpus is missing, the test skips (see the setup notes in the top-level README).
+`golden_snapshots` plays `chords.script` on six corpus styles. It compares each result with the stored `<style file name>.txt` in this folder. The styles cover Guitar NTR (stroke and all-purpose), minor-5th NTT tables, chord-mute routing, SFF1, and a style with no CASM. The stored files contain only the output of our own script, and list notes only for the parts that follow the chord. Style files and corpus data are never committed. When the corpus is missing, the test skips (see the setup notes in the top-level README).
 
 When a snapshot differs, the test prints a diff. The diff groups changed lines by bar and lists the notes that changed on each part line:
 
@@ -45,27 +47,31 @@ cargo run --release -- sim corpus/MOX_v2/FunkyFinger.S930.STY "C Am F G7"
 ### Listing format
 
 ```
-bar 14  Main A > Fill In BB@4.0000  Caug@1.0000  [MainB]@4.0000
+bar 14  Main A > Fill In BB@4.0000  Caug@1.0000  [MainB]@3.1919
+  ch10 Rhythm2 14 as written
   ch11 Bass    1.0000 C1~712  1.0960 G#0~452  ...
 ```
 
-- The header line shows the bar number, then the section playing at the start of the bar. Each `> Section@beat.tick` marks a section change inside the bar, and after that come the script steps in the bar.
+- The header line shows the bar number, then the section playing at the start of the bar. Each `> Section@beat.tick` marks a section change inside the bar, and after that come the script steps in the bar, spelled as the script wrote them. A button shows at the tick it was pressed (see below), so a button written on a bar line shows at the end of the bar before.
 - Each part line (ch9–16, empty parts left out) lists every note the part starts in that bar, written as `beat.tick Note~length`.
   - Ticks are the style's own (ppq), and notes use Yamaha octave numbers (C3 = MIDI 60).
   - `~…` marks a note that is still sounding when the script ends.
   - A zero length means the note was cut on the same tick it started.
+  - Parts that play as written whatever the chord only get a count, `N as written`. These are the drum parts (ch9, ch10) and any part whose every source channel is Root Fixed (or Guitar) + Bypass for every key in that section. Listing them would copy the style's own patterns and says nothing about chord following.
 
 ## Script grammar
 
 ```
 # comment: a token that starts with '#' comments out the rest of its line
 [IntroA] | C | G7 |               # '|' separates bars
-| Dm7 G7 | C - - [MainB] - |      # the chords and '-' holds in a bar split it evenly
+| Dm7 G7 | C - - [MainB] - |      # the chords, '-' holds and '^' releases in a bar split it evenly
+[SyncStop] | C - ^ - | - | F |    # '^' lets go of the chord: Sync Stop stops there, F restarts
 ```
 
 - **Chords:** a root (`C`, `F#`, `Bb`…), then a type suffix from `theory::TYPE_NAMES`, then an optional `/bass`. Examples: `C`, `Am7`, `Bm7b5`, `Cmaj7`, `Csus4`, `C5` (1+5), `CmMaj7`, `Cm(add9)`, `G7#9`, `C/E`. `6/9` cannot be written, because the `/` is read as a bass note.
 - **`-`:** holds the previous chord for one slot.
-- **Buttons:** `[IntroA-D]`, `[MainA-D]`, `[Break]`, `[EndingA-D]`, `[AutoFill]`, `[Start]`, `[Stop]`, `[SyncStart]` and `[SyncStop]` take no time.
+- **`^`:** lets go of every chord key for one slot (for Sync Stop). The engine remembers the last chord, and the next chord is a new press.
+- **Buttons:** `[IntroA-D]`, `[MainA-D]`, `[Break]`, `[EndingA-D]`, `[AutoFill]`, `[StartStop]` (a toggle), `[Stop]`, `[SyncStart]`, `[SyncStop]` and `[StopAcmp]` take no time.
   - A button fires just before the next slot, one tick early, the way a player presses ahead of the beat. This means a press on a beat or bar line always counts for that beat.
   - A button written between bars (`| [MainB] |`) fires at the start of the next bar.
 - **Starting:** Sync Start is armed, so the first chord starts the style. An `[IntroX]` written before that chord picks the intro.

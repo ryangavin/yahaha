@@ -68,14 +68,29 @@ fn diff(want: &str, got: &str) -> String {
                 out.push(format!("+ {ad}"));
                 let words = |s: &str| s.split("  ").map(str::trim).map(String::from).collect::<Vec<_>>();
                 let (wr, wa) = (words(r), words(ad));
-                let gone: Vec<&String> = wr.iter().filter(|w| !wa.contains(w)).collect();
-                let new: Vec<&String> = wa.iter().filter(|w| !wr.contains(w)).collect();
-                if !gone.is_empty() && gone.len() + new.len() < wr.len() {
-                    out.push(format!(
-                        "    ^ {} -> {}",
-                        gone.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", "),
-                        new.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", ")
-                    ));
+                // Multiset difference, so a note that loses one of two copies still shows.
+                fn minus<'a>(a: &'a [String], b: &[String]) -> Vec<&'a String> {
+                    let mut rest: Vec<&String> = b.iter().collect();
+                    a.iter()
+                        .filter(|w| match rest.iter().position(|x| x == w) {
+                            Some(i) => {
+                                rest.remove(i);
+                                false
+                            }
+                            None => true,
+                        })
+                        .collect()
+                }
+                let (gone, new) = (minus(&wr, &wa), minus(&wa, &wr));
+                let list = |v: &[&String]| {
+                    if v.is_empty() {
+                        "nothing".to_string()
+                    } else {
+                        v.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", ")
+                    }
+                };
+                if !(gone.is_empty() && new.is_empty()) && gone.len() + new.len() < wr.len() {
+                    out.push(format!("    ^ {} -> {}", list(&gone), list(&new)));
                 }
             }
         }
@@ -151,15 +166,87 @@ fn golden_snapshots() {
     );
 }
 
-/// Same script, same style, same listing: nothing in the snapshot depends on the run.
+/// Same script, same style, same listing: nothing in the snapshot depends on the run (two
+/// separate loads, two engines). The listing must also carry what the golden test relies on:
+/// the intro, a fill inside a bar, the ending running out, and the chord parts.
 #[test]
 fn snapshot_is_deterministic() {
     let Some(path) = find_style(STYLES[0]) else {
         return;
     };
-    let style = Style::load(&path).unwrap();
-    let script = "[IntroA] | C | Am/E - - [MainB] - | Fm6 | G7 - - [EndingA] - | - |";
-    assert_eq!(sim::snapshot(&style, script).unwrap(), sim::snapshot(&style, script).unwrap());
+    let script = "[IntroA] | C | - | Am/E - - [MainB] - | Fm6 | G7 - - [EndingA] - | - | - | - |";
+    let a = sim::snapshot(&Style::load(&path).unwrap(), script).unwrap();
+    let b = sim::snapshot(&Style::load(&path).unwrap(), script).unwrap();
+    assert_eq!(a, b);
+    for want in ["bar 1  Intro A", "> Fill In BB@4.0000", "bar 6  Ending A", "bar 7  stopped", "ch11 Bass ", "ch12 Chord1 "] {
+        assert!(a.contains(want), "missing {want:?} in\n{a}");
+    }
+}
+
+/// Parts that play as written whatever the chord (drums, Root Fixed + Bypass) are only
+/// counted, so neither the stored listings nor a fresh one transcribe the style's own
+/// patterns. The stored files are checked even without the corpus.
+#[test]
+fn snapshots_do_not_list_parts_played_as_written() {
+    let dir = root().join("tests/golden");
+    let mut listings: Vec<(String, String)> = Vec::new();
+    for name in STYLES {
+        if let Ok(stored) = std::fs::read_to_string(dir.join(format!("{name}.txt"))) {
+            listings.push((format!("stored {name}"), stored));
+        }
+    }
+    assert!(!listings.is_empty(), "no stored snapshots in {}", dir.display());
+    if let Some(path) = find_style("OrganCruise.S930.STY") {
+        let style = Style::load(&path).unwrap();
+        // Its fills route Phrase 1 (ch15) through Root Fixed + Bypass: a melodic part that
+        // still plays as written.
+        let prep = crate::engine::Prepared::new(&style);
+        let fill = prep.sections[crate::engine::slot_of(crate::sff::SectionId::Fill(0))].as_ref().unwrap();
+        assert!(fill.plays_as_written(8) && fill.plays_as_written(9) && fill.plays_as_written(14));
+        assert!(!fill.plays_as_written(10), "the Bass follows the chord");
+        let got = sim::snapshot(&style, "| C | - - - [MainA] | F |").unwrap();
+        assert!(got.contains("  ch15 Phrase1 "), "Phrase 1 should still be counted:\n{got}");
+        for line in got.lines().filter(|l| l.starts_with("  ch15 ")) {
+            assert!(line.ends_with(" as written"), "Phrase 1 notes listed: {line}");
+        }
+        listings.push(("OrganCruise now".into(), got));
+    }
+    for (what, text) in &listings {
+        for line in text.lines().filter(|l| l.starts_with("  ch9 ") || l.starts_with("  ch10 ")) {
+            assert!(line.ends_with(" as written") && !line.contains('~'), "{what}: drum notes listed: {line}");
+        }
+    }
+}
+
+/// A button written on a beat fires for that beat (one tick early, see `sim::snapshot`) and
+/// shows at the tick it was pressed, even when that is in the previous bar.
+#[test]
+fn buttons_count_for_their_beat() {
+    let Some(path) = find_style(STYLES[0]) else {
+        return;
+    };
+    let got = sim::snapshot(&Style::load(&path).unwrap(), "| C - [Break] - - | [StartStop] | - |").unwrap();
+    let bars: Vec<&str> = got.lines().filter(|l| l.starts_with("bar ")).collect();
+    assert_eq!(
+        bars[0],
+        "bar 1  Main A > Fill In BA@3.0000 > stopped@4.1919  C@1.0000  [Break]@2.1919  [StartStop]@4.1919",
+        "{got}"
+    );
+    assert!(bars[1].starts_with("bar 2  stopped"), "{got}");
+}
+
+/// `^` lets go of the chord: with Sync Stop on the style stops there, and the next chord
+/// starts it again.
+#[test]
+fn release_triggers_sync_stop() {
+    let Some(path) = find_style(STYLES[0]) else {
+        return;
+    };
+    let got = sim::snapshot(&Style::load(&path).unwrap(), "[SyncStop] | C - ^ - | - | F |").unwrap();
+    let bars: Vec<&str> = got.lines().filter(|l| l.starts_with("bar ")).collect();
+    assert_eq!(bars[0], "bar 1  Main A > stopped@3.0000  [SyncStop]@1.0000  C@1.0000  ^@3.0000", "{got}");
+    assert!(bars[1].starts_with("bar 2  stopped"), "{got}");
+    assert!(bars[2].starts_with("bar 3  Main A"), "{got}");
 }
 
 #[test]
@@ -179,6 +266,13 @@ fn script_grammar() {
     assert!(matches!(steps[1].step, Step::Chord(c) if c.name() == "Am/E"));
     assert!(sim::parse_script("| C | [Nope] |", 1920).is_err());
     assert!(sim::parse_script("| C | [MainB]", 1920).is_err());
+    // Labels keep the script's spelling; `^` releases the chord and takes a slot.
+    let (steps, _) = sim::parse_script("| Dbmaj7 ^ [StartStop] - [StopAcmp] C5 |", 1920).unwrap();
+    let got: Vec<(u32, &str)> = steps.iter().map(|s| (s.tick, s.label.as_str())).collect();
+    assert_eq!(got, [(0, "Dbmaj7"), (480, "^"), (960, "[StartStop]"), (1440, "[StopAcmp]"), (1440, "C5")]);
+    assert!(matches!(steps[1].step, Step::Release));
+    assert!(matches!(steps[2].step, Step::Button(Button::StartStop)));
+    assert!(matches!(steps[3].step, Step::Button(Button::StopAcmp)));
 }
 
 #[test]
@@ -192,4 +286,8 @@ fn diff_is_readable() {
          +   ch11 Bass    1.0000 C1~460  2.0000 A1~460\n    \
          ^ 2.0000 G1~460 -> 2.0000 A1~460"
     );
+    // Notes compare as a multiset: losing one of two copies still names the note.
+    let want = "bar 1  Main A\n  ch11 Bass    1.0000 C1~460  1.0000 C1~460  2.0000 G1~460\n";
+    let got = "bar 1  Main A\n  ch11 Bass    1.0000 C1~460  2.0000 G1~460\n";
+    assert!(diff(want, got).ends_with("^ 1.0000 C1~460 -> nothing"), "{}", diff(want, got));
 }

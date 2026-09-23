@@ -136,9 +136,6 @@ fn cases(row: &'static Row) -> Vec<Case> {
                 for (i, &t) in tones[inv..].iter().chain(&tones[..inv]).enumerate() {
                     let pc = (root + t) % 12;
                     let mut k = 48 + pc;
-                    if i == 0 && t == 12 {
-                        k += 12;
-                    }
                     while i > 0 && k <= prev {
                         k += 12;
                     }
@@ -200,12 +197,17 @@ fn check_row(n: u8) {
         let ok = match (row.ct, got) {
             (Some(CANCEL), Some(g)) => g.ty == CANCEL,
             (Some(_), Some(g)) => g == want,
-            // No MIDI code yet: #2 decides the type, so only root and bass are pinned here.
-            (None, Some(g)) => g.ty != CANCEL && g.root == want.root && g.bass == want.bass,
-            (_, None) => false,
+            // No MIDI code yet: whatever comes back is a different row (C E F# B read as
+            // Cmaj7#11 names a G that is not played). #2 decides the type and fills in `ct`.
+            (None, _) | (_, None) => false,
         };
         if !ok {
-            let want = if row.ct.is_some() { want.name() } else { format!("{} (type per #2)", want.name()) };
+            let want = if row.ct.is_some() {
+                want.name()
+            } else {
+                let bass = want.bass.map_or(String::new(), |b| format!("/{}", NOTE_NAMES[b as usize]));
+                format!("{}{}{bass} (type per #2)", NOTE_NAMES[want.root as usize], row.name)
+            };
             let got = got.map_or("nothing".to_string(), |g| g.name());
             fails.push(format!("  {}  want {want}, got {got}", c.describe()));
         }
@@ -232,7 +234,7 @@ rows! {
     row_03_major = 3;
     #[ignore = "M1 #2"] row_04_sixth = 4;
     row_05_major_seventh = 5;
-    row_06_major_seventh_flat_five = 6;
+    #[ignore = "M1 #2"] row_06_major_seventh_flat_five = 6;
     #[ignore = "M1 #2"] row_07_major_seventh_sharp_eleven = 7;
     row_08_add_nine = 8;
     row_09_major_seventh_nine = 9;
@@ -265,6 +267,64 @@ rows! {
     row_36_sus_four = 36;
     row_37_sus_two = 37;
     row_38_cancel = 38;
+}
+
+/// Doubling notes in other octaves does not change the chord: every single-reading voicing
+/// of every row, with its lowest note doubled an octave up and its root added above the top,
+/// reads the same as the close voicing. (1+8 is its own doubling and Cancel is an exact
+/// three-key shape, so both are left out; #2 settles what doubling does to them.)
+#[test]
+fn octave_doublings_keep_the_chord() {
+    let r = Recognizer::new();
+    let mut fails = Vec::new();
+    for row in TABLE.iter().filter(|r| r.ct.is_some_and(|ct| ct != CANCEL && ct != 30)) {
+        for c in cases(row).into_iter().filter(|c| !ambiguous(c)) {
+            let mut doubled = c.notes.clone();
+            doubled.push(c.notes[0] + 12);
+            let top = c.notes[c.notes.len() - 1];
+            let up = (c.root + 12 - top % 12) % 12;
+            doubled.push(top + if up == 0 { 12 } else { up });
+            let (close, got) = (recognize(&r, &c.notes), recognize(&r, &doubled));
+            if close != got {
+                let name = |g: Option<Chord>| g.map_or("nothing".to_string(), |g| g.name());
+                fails.push(format!("  {} doubled {doubled:?}: close {}, doubled {}", c.describe(), name(close), name(got)));
+            }
+        }
+    }
+    assert!(fails.is_empty(), "{} doubled voicings changed\n{}", fails.len(), fails.iter().take(40).cloned().collect::<Vec<_>>().join("\n"));
+}
+
+/// Note sets that are not in the Data List table give no chord (the previous chord keeps
+/// playing). The table is the complete list for Fingered, and only AI Fingered accepts
+/// "less than three notes" (RM p.9), so in Fingered / Fingered On Bass a single key, a
+/// two-key interval other than 1+5 and 1+8, a cluster, or Cancel with an extra key is no
+/// chord.
+#[test]
+#[ignore = "M1 #2"]
+fn off_table_inputs() {
+    let r = Recognizer::new();
+    let mut inputs: Vec<(String, Vec<u8>)> = Vec::new();
+    for root in 0..12u8 {
+        let k = 48 + root;
+        inputs.push(("single key".into(), vec![k]));
+        // 5 is 1+5 with the fifth below, 7 is 1+5 and 12 is 1+8.
+        for iv in [1, 2, 3, 4, 6, 8, 9, 10, 11] {
+            inputs.push((format!("two keys {iv} apart"), vec![k, k + iv]));
+        }
+        inputs.push(("cluster".into(), vec![k, k + 1, k + 2, k + 3]));
+        inputs.push(("whole-tone cluster".into(), vec![k, k + 2, k + 4]));
+        inputs.push(("Cancel + 3rd".into(), vec![k, k + 1, k + 2, k + 4]));
+        inputs.push(("Cancel + 5th".into(), vec![k, k + 1, k + 2, k + 7]));
+    }
+    let mut fails = Vec::new();
+    for (what, notes) in &inputs {
+        if let Some(g) = recognize(&r, notes) {
+            let names: Vec<String> =
+                notes.iter().map(|&k| format!("{}{}", NOTE_NAMES[k as usize % 12], k as i32 / 12 - 2)).collect();
+            fails.push(format!("  {what}: [{}]  want nothing, got {}", names.join(" "), g.name()));
+        }
+    }
+    assert!(fails.is_empty(), "{} of {} off-table inputs gave a chord\n{}", fails.len(), inputs.len(), fails.iter().take(60).cloned().collect::<Vec<_>>().join("\n"));
 }
 
 /// Pitch-class sets with more than one reading: the result must be one of them, spelled
