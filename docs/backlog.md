@@ -88,7 +88,7 @@ labels: chord-following
 ### SFF1 NTT codes above 5, and Cntt precedence (#14)
 labels: chord-following, sff
 - Decode every SFF1 NTT value instead of falling back to Melody.
-- Confirm Cntt vs Ctb2 precedence using the oracle.
+- Cntt vs Ctab/Ctb2 precedence: settled from corpus evidence (see "SFF1 encoding" in docs/genos-features.md). The oracle may still overrule the Cntt Bass On rule.
 
 ### Parse SInt properly and re-apply it on section change (#15)
 labels: sff, engine
@@ -162,7 +162,8 @@ labels: mixer, transport
 ## M6 · Parts, voices & live play
 ### Parts model: Right 1–3 + Left, three split points, Left Hold, per-part octave (#31)
 labels: voices
-- Replaces the current "voice slots" with the Genos part model. OTS and Registration target these parts.
+- Done: the Genos part model (Right 1–3 + Left, per-part voice, volume, octave, on/off) replaced the voice slots; OTS targets these parts.
+- Still open: three split points (Style, Left, Right 3) and Left Hold.
 
 ### Keyboard Harmony (our own implementation of the documented types) (#32)
 labels: voices

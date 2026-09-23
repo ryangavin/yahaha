@@ -25,11 +25,15 @@ On launch:
 Play a chord left of **F#2** (Yamaha numbering, C3 = middle C) and the band starts.
 
 The built-in synth uses the first `.sf2` file in `soundfonts/` (GeneralUser GS, downloaded separately; it's not in git). It plays on your default audio output with a 64-frame buffer (about 1.3 ms at 48 kHz).
-- **Voices:** your right hand plays one of eight voice slots (Piano, E.Piano, Organ, Strings, Brass, Pad, Guitar, Synth Lead). Pick a slot with the Launchkey buttons under faders 1–8, or `F1`–`F8`. Change the voice in the last-picked slot with `9`/`0`.
-- **Layering:** turn on layer mode with the button under the master fader, or `F9`. Tapping a slot then adds it to or removes it from the layer, so you can play Piano + Strings together.
-- **Mixer:** faders 1–8 are the band's eight part volumes: each fader value is that part's CC 7, sent unchanged to the `yahaha` port and the built-in synth. Loading a style sets the faders to the style's own levels (100 where it sets none). A volume change inside a style's pattern moves its part's fader too, until you move that fader yourself. Section changes keep the levels you set. Start/Stop puts only the parts you have not touched back to the style's levels. Changing style resets all of them. The Launchkey faders, master included, use soft takeover: whenever software moves a level (a style load, a pattern's volume change, or a restart resetting an untouched part), the hardware fader does nothing until it comes within 2 of that level or crosses it (`↕` on screen until then). The master fader sets the synth's output level (100 = unity); a safety soft clipper above -1 dBFS keeps the output from hard clipping. Your own parts' levels (voice slot, OTS, Left) go out on the port as CC 7 too: the right hand's lowest layered slot on ch 1, and the Left volume on ch 2. Under Manual Bass, ch 2 gets the Bass part fader instead.
-- **Left voice:** your left hand can play its own voice (default Strings) while it drives the chords. Toggle it with the LEFT pad on pad page 3, Shift + Pad Bank ▲, or `l`. Change the voice with `(` / `)`.
-- **One Touch Settings:** each style carries four suggested panel setups. Each one covers Right 1–3 (loaded into voice slots 1–3, with their on/off as the layer) and the Left voice, including volumes and octave shifts. Recall one with `shift+1`–`4`. **OTS Link** (pad page 3, Shift + Pad Bank ▼, or `F10`) makes Main A–D recall settings 1–4 automatically, and picks the right one when you change style.
+- **Keyboard parts:** like the Genos, you play four parts: **Right 1**, **Right 2** and **Right 3** right of the split, and **Left** left of it. Each part has its own voice, volume, octave shift and on/off. The Right parts that are on sound together, which is how you layer (Piano + Strings = Right 1 + Right 2 on). At start only Right 1 (Grand Piano) is on; Right 2 is Strings, Right 3 Brass, Left Strings. Turn parts on/off with the buttons under faders 1–4 (fader Panel page), the bottom-left pads on pad page 3, or `5` `6` `7` `8` (`l` also toggles Left). Pick the part whose voice you want to change with `F1`–`F4`, the EDIT pads on pad page 3, or Shift + the button under its fader, then step its voice with `9`/`0` or the VOICE −/+ pads.
+- **Where your parts go:** each part has its own channel, on the `yahaha` port and in the built-in synth alike: Right 1 = ch 1, Left = ch 2 (the channels your right and left hand always had), Right 2 = ch 3, Right 3 = ch 4. A part that is off sends nothing. With Left off, the Right parts play over the whole keyboard, as on the Genos, except that in Lower chord detection (outside the Full Keyboard fingerings) the keys left of the split only drive the chords. Each part's octave shift is applied to the notes it sends. Pedals, wheels and pressure go to all four parts (polyphonic aftertouch to the notes its key sounds); the keyboard's own volume (CC 7), bank select and program changes are ignored, because each part's voice and volume are its own.
+- **Mixer:** the faders have two pages, like the Genos Mixer's Panel and Style tabs. The button under the master fader (or `F9`) switches between them; it lights blue on Panel and green on Style, and the screen outlines the active page in yellow.
+  - **Panel:** faders 1–4 are the volumes of Right 1, Right 2, Right 3 and Left; their buttons turn the parts on/off (lit while on). Faders 5–8 do nothing on this page.
+  - **Style:** faders 1–8 are the band's eight part volumes; their buttons mute and unmute the parts (lit while they play).
+  - Every level is its part's CC 7, sent unchanged to the `yahaha` port and the built-in synth; there is no other per-part gain. Under Manual Bass, Left plays the Style's Bass voice at Left's own level (Panel fader 4), at the pitch you play (Left's octave shift is for its own voice), and Left can't be switched off until Manual Bass is. The master fader is always the synth's output level (100 = unity); a safety soft clipper above -1 dBFS keeps the output from hard clipping.
+  - Loading a style sets the Style faders to the style's own levels (100 where it sets none). A volume change inside a style's pattern moves its part's fader too, until you move that fader yourself. Every section change plays the style's part setup (SInt: voices, pan, effect sends, XG part parameters, and the drum setup, which a drum part's program change resets) again, as newer instruments do, so parts you have not touched go back to the style's levels before the new section's own changes; the levels you set are kept. A Fill or Break that comes in mid-bar also plays the voice changes from its skipped first beats. Start/Stop does the same, and also sends the style's XG effects, with insertion and variation effects moved to the parts' destination channels. The SInt's GM/XG System On resets are never sent, and its SysEx goes to the `yahaha` port only. Changing style resets all of them.
+  - The Launchkey faders, master included, use soft takeover: whenever a level moves without the fader (a style load, a pattern's volume change, a restart resetting an untouched part, an OTS recall, or switching the fader page), the hardware fader does nothing until it comes within 2 of that level or crosses it (`↕` on screen until then).
+- **One Touch Settings:** each style carries four suggested panel setups. Each one sets Right 1–3 and Left: voice, on/off, volume and octave shift; the Panel faders then pick the new volumes up. Recall one with `shift+1`–`4` or the OTS pads on pad page 3. **OTS Link** (pad page 3, Shift + Pad Bank ▼, or `F10`) makes Main A–D recall settings 1–4 automatically, and picks the right one when you change style.
 - **Stop Accompaniment** (`h`): with Sync Start off and the band stopped, a held chord sounds on the style's bass and pad voices.
 - `k` mutes the synth, for example when you're using Ableton sounds instead.
 - The synth plays on outputs 11/12 when the audio device is a TASCAM Model 16, and on 1/2 otherwise. `a` steps through the output pairs while playing, and `--audio-out 11` sets the pair at launch.
@@ -54,12 +58,12 @@ Options:
 
    | ch | part | ch | part |
    |---|---|---|---|
-   | 1 | your right hand | 11 | Bass |
-   | 2 | your left hand (chord zone) | 12 | Chord 1 |
-   | 9 | Rhythm 1 (sub drums) | 13 | Chord 2 |
-   | 10 | Rhythm 2 (main drums) | 14 | Pad |
-   | | | 15 | Phrase 1 |
-   | | | 16 | Phrase 2 |
+   | 1 | Right 1 (your right hand) | 11 | Bass |
+   | 2 | Left (your left hand, when the Left part is on) | 12 | Chord 1 |
+   | 3 | Right 2 (right-hand layer) | 13 | Chord 2 |
+   | 4 | Right 3 (right-hand layer) | 14 | Pad |
+   | 9 | Rhythm 1 (sub drums) | 15 | Phrase 1 |
+   | 10 | Rhythm 2 (main drums) | 16 | Phrase 2 |
 
    The screen shows which Yamaha voice each part was written for (e.g. "≈ Finger Bass"), so you know what sound to load. Drum parts use the GM drum map.
 3. Arm the tracks, or set Monitor to *In*.
@@ -101,11 +105,12 @@ Pressing the current Main again plays its fill. With Auto Fill on, switching Mai
 
 | pad | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 |
 |---|---|---|---|---|---|---|---|---|
-| top | OTS 1 | OTS 2 | OTS 3 | OTS 4 | OTS Link | Left voice on/off | Left voice − | Left voice + |
-| bottom | Rhythm 1 | Rhythm 2 | Bass | Chord 1 | Chord 2 | Pad | Phrase 1 | Phrase 2 |
+| top | OTS 1 | OTS 2 | OTS 3 | OTS 4 | OTS Link | — | Voice − | Voice + |
+| bottom | Right 1 on/off | Right 2 on/off | Right 3 on/off | Left on/off | Edit Right 1 | Edit Right 2 | Edit Right 3 | Edit Left |
 
-- The lit OTS pad is the last one recalled. OTS pads the style doesn't have are dark, as are the OTS and Left pads when the synth is off.
-- The part pads mute and unmute the eight accompaniment parts. They're lit while the part plays. Bass is shown off while Manual Bass mutes it.
+- The lit OTS pad is the last one recalled. OTS pads the style doesn't have are dark.
+- The on/off pads are lit while the part is on. The lit Edit pad is the part whose voice Voice −/+ (`9`/`0`) changes.
+- The accompaniment parts are muted with the buttons under the faders on the Style fader page, or `z`…`,`.
 
 ### Buttons
 
@@ -115,9 +120,10 @@ Pressing the current Main again plays its fill. With Auto Fill on, switching Mai
 | **Stop** | stop |
 | **< Track** / **Track >** | previous/next style, playing or stopped (folder, then name: the browser's order) |
 | **Pad Bank ▲ / ▼** (left of the pads) | previous/next pad page |
-| **Shift + Pad Bank ▲ / ▼** | Left voice on/off / OTS Link on/off |
+| **Shift + Pad Bank ▲ / ▼** | Left part on/off / OTS Link on/off |
 | **> (Scene Launch)** / **Function** (right of the pads) | tempo + / − |
-| buttons under faders 1–8 / master | voice slots / layer mode |
+| buttons under faders 1–8 | Panel page: Right 1–3, Left on/off (Shift: edit that part's voice) · Style page: mute/unmute the style parts |
+| button under the master fader | fader page Panel / Style |
 
 The last Launchkey note or CC that nothing is mapped to shows at the bottom of the screen, e.g. `unmapped CC 103 = 127`. If a button does nothing, that shows the number it really sends.
 
@@ -135,10 +141,11 @@ The last Launchkey note or CC that nothing is mapped to shows at the bottom of t
 - `f` next fingering type · `d` Lower/Upper · `D` Manual Bass
 - `[ ]` split point down/up
 - `; '` Keyboard transpose −/+ · `: "` Master transpose −/+ · `/` reset both
-- `z…,` mute/unmute parts
+- `z…,` mute/unmute the style parts
 - `shift+1`–`4` OTS 1–4 · `F10` OTS Link
-- `l` Left voice on/off · `( )` previous/next Left voice
-- `F1`–`F8` voice slots · `F9` layer · `9 0` previous/next voice in the slot
+- `5 6 7 8` Right 1, Right 2, Right 3, Left on/off · `l` Left on/off
+- `F1`–`F4` pick the part to edit (Right 1–3, Left) · `9 0` previous/next voice for it
+- `F9` fader page Panel / Style
 - `←/→` previous/next style, in the style browser's order (folder, then name)
 - `enter` open the style browser (see below)
 - `tab` / `shift+tab` next/previous pad page
@@ -174,7 +181,7 @@ engine thread ──snapshots, old styles (SPSC)──▶ UI thread
 ```
 
 - **Input thread** (CoreMIDI's own receive thread, running our callback):
-  - forwards your notes straight to the output (right hand ch 1, left hand ch 2)
+  - forwards your notes straight to the output, on each keyboard part that is on (Right 1 ch 1, Left ch 2, Right 2 ch 3, Right 3 ch 4)
   - recognizes chords with a precomputed table of 4096×12 entries
   - publishes the result without locking
 - **Engine thread**:
@@ -199,10 +206,11 @@ engine thread ──snapshots, old styles (SPSC)──▶ UI thread
 - `yahaha sim <style> "C Am7 F G7"`: offline render, one chord per bar, printed per part.
 - `yahaha capture-kit <out-dir> [--clock-ppm N] [style]...`: writes the Genos-owner reference capture kit, with a chord-script MIDI file per style and instructions (`docs/capture-kit/`). `--clock-ppm` runs the files that much faster, for an instrument whose clock drifts past a style's tolerance.
 - `yahaha capture-import <recording.mid> <style>`: compares a hardware recording of that kit with what yahaha plays, bar by bar and part by part. `--golden tests/reference` turns a verified recording into a reference digest (`tests/reference/README.md`).
+- `yahaha oracle corpus/ [--pairs | --scores | --diff tests/oracle/scores.txt]`: scores our chord conversion against the authors' own major/minor source channels (docs/oracle.md). Counts only.
 - `yahaha bench <style> [spin_us]`: latency benchmark using virtual ports.
 - `yahaha drive`: fake keyboard for testing against a running `yahaha play --input TestKbd`.
 
-Tests: run `cargo test --release`. It covers the spec's transposition examples, chord recognition, and a full performance of every style in `corpus/`, checking for stuck notes.
+Tests: run `cargo test --release`. It covers the spec's transposition examples, chord recognition, and a full performance of every style in `corpus/`, checking for stuck notes. The oracle scores in `tests/oracle/scores.txt` are pinned too: a change to note conversion fails `oracle::tests::corpus_scores` with the score delta until you regenerate them with `UPDATE_GOLDEN=1`.
 
 ## Known gaps
 

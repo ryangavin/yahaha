@@ -399,20 +399,9 @@ pub fn kit_midi(style: &Style, script: &str, clock_ppm: f64) -> Result<Vec<u8>> 
     Ok(write_smf(style.ppq, ev))
 }
 
-/// Find a style by file name under `root` (recursively).
+/// Find a style by file name under `root` (recursively, through `library::style_files`).
 pub fn find_file(root: &Path, name: &str) -> Option<PathBuf> {
-    let mut stack = vec![root.to_path_buf()];
-    while let Some(d) = stack.pop() {
-        for e in std::fs::read_dir(&d).into_iter().flatten().flatten() {
-            let p = e.path();
-            if p.is_dir() {
-                stack.push(p);
-            } else if p.file_name().is_some_and(|f| f == name) {
-                return Some(p);
-            }
-        }
-    }
-    None
+    crate::library::style_files(root).into_iter().find(|p| p.file_name().is_some_and(|f| f == name))
 }
 
 /// `yahaha capture-kit <out-dir> [style]...`: one MIDI file per style (the kit styles found
@@ -1605,8 +1594,7 @@ mod tests {
     fn reference_captures() {
         let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/reference");
         let mut failures = Vec::new();
-        for e in std::fs::read_dir(&dir).into_iter().flatten().flatten() {
-            let path = e.path();
+        for path in crate::library::files_in(&dir) {
             let Some(name) = path.file_name().and_then(|f| f.to_str()).and_then(|f| f.strip_suffix(".digest")) else {
                 continue;
             };
@@ -1639,8 +1627,7 @@ mod tests {
     #[test]
     fn committed_references_hold_no_notes() {
         let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/reference");
-        for e in std::fs::read_dir(&dir).into_iter().flatten().flatten() {
-            let path = e.path();
+        for path in crate::library::files_in(&dir) {
             let name = path.file_name().unwrap().to_string_lossy().to_string();
             assert!(
                 name.ends_with(".digest") || name.ends_with(".known") || name == "README.md",

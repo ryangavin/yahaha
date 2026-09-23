@@ -94,6 +94,9 @@ pub struct Zone {
     pub lo: u8,
     pub hi: u8,
     pub rtr: Rtr,
+    /// NTT Bass On: this zone follows slash chords. SFF2 stores it per zone (bit 7 of
+    /// each zone's NTT byte); SFF1 and Cntt set every zone alike.
+    pub bass_on: bool,
 }
 
 /// Channel rule for one source channel within one or more sections (a Ctab/Ctb2 record).
@@ -116,7 +119,6 @@ pub struct ChannelRule {
     pub mid_lo: u8,
     pub mid_hi: u8,
     pub zones: [Zone; 3],
-    pub bass_on: bool,
     pub sff2: bool,
 }
 
@@ -140,7 +142,7 @@ impl ChannelRule {
             11 | 12 | 13 => (Ntr::RootFixed, Ntt::Chord, false),
             _ => (Ntr::RootTrans, Ntt::Melody, false),
         };
-        let z = Zone { ntr, ntt, high_key: 6, lo: 0, hi: 127, rtr: Rtr::PitchShift };
+        let z = Zone { ntr, ntt, high_key: 6, lo: 0, hi: 127, rtr: Rtr::PitchShift, bass_on: bass };
         ChannelRule {
             src_ch: ch,
             name: String::new(),
@@ -154,7 +156,6 @@ impl ChannelRule {
             mid_lo: 0,
             mid_hi: 127,
             zones: [z; 3],
-            bass_on: bass,
             sff2: false,
         }
     }
@@ -298,6 +299,131 @@ pub fn parse_ots(data: &[u8]) -> Vec<Ots> {
     out
 }
 
+/// One MIDI channel's setup in a style's SInt. The named fields keep the last value the
+/// file sets; `None` where it sets none.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct ChannelInit {
+    /// The bank select in effect when the (last) program change arrives: the voice's bank.
+    /// Without a program change, the last bank select.
+    pub bank_msb: Option<u8>,
+    pub bank_lsb: Option<u8>,
+    pub program: Option<u8>,
+    /// A bank select after the last program change. It selects no voice; it waits for the
+    /// next program change (a pattern's), so it goes out after the program change.
+    pub pending_msb: Option<u8>,
+    pub pending_lsb: Option<u8>,
+    /// CC7.
+    pub volume: Option<u8>,
+    /// CC10.
+    pub pan: Option<u8>,
+    /// CC91.
+    pub reverb: Option<u8>,
+    /// CC93.
+    pub chorus: Option<u8>,
+    /// XG Multi Part parameters for this channel's part (`F0 43 1n 4C 08 pp aa vv F7`,
+    /// part pp = this channel): (address, value) in file order.
+    pub xg_part: Vec<(u8, u8)>,
+    /// Every other controller (expression, variation send, filter, RPN/NRPN sequences) and
+    /// pitch bend, in file order: their order can matter.
+    pub other: Vec<Ev>,
+}
+
+/// A style's channel setup (the SInt part): per-channel init, keyed by the channel the file
+/// addresses (the source channel), plus the SysEx that isn't a part's.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct SInt {
+    pub channels: [ChannelInit; 16],
+    /// XG effect, insertion effect and drum setup SysEx and any other SysEx, in file order,
+    /// without the system resets (`is_reset`).
+    pub sysex: Vec<Vec<u8>>,
+}
+
+/// GM/GM2 System On/Off, XG System On, XG All Parameter Reset or GS Reset: SysEx that
+/// resets every channel of the receiver, not just the style's parts.
+pub fn is_reset(v: &[u8]) -> bool {
+    match v {
+        [0xF0, 0x7E, _, 0x09, 0x01..=0x03, ..] => true,
+        [0xF0, 0x43, d, 0x4C, 0x00, 0x00, 0x7E | 0x7F, 0x00, ..] => d & 0xF0 == 0x10,
+        [0xF0, 0x41, _, 0x42, 0x12, 0x40, 0x00, 0x7F, 0x00, ..] => true,
+        _ => false,
+    }
+}
+
+/// An XG Multi Part parameter change with one data byte: (part, address, value).
+pub fn xg_part_param(v: &[u8]) -> Option<(u8, u8, u8)> {
+    match *v {
+        [0xF0, 0x43, d, 0x4C, 0x08, part, addr, val, 0xF7] if d & 0xF0 == 0x10 && part < 16 => Some((part, addr, val)),
+        _ => None,
+    }
+}
+
+/// XG Drum Setup SysEx: a Drum Setup n parameter (`F0 43 1n 4C 3n rr pp vv F7`) or a
+/// Drum Setup Reset (`F0 43 1n 4C 00 00 7D nn F7`). A program change on a part that uses
+/// Drum Setup n initializes it (Data List, Drum Setup note).
+pub fn is_drum_setup(v: &[u8]) -> bool {
+    match *v {
+        [0xF0, 0x43, d, 0x4C, 0x30 | 0x31, ..] | [0xF0, 0x43, d, 0x4C, 0x00, 0x00, 0x7D, ..] => d & 0xF0 == 0x10,
+        _ => false,
+    }
+}
+
+/// Where an XG effect block's part assignment keeps its part number, if `v` is one: the
+/// Insertion Effect Part (`F0 43 1n 4C 03 nn 0C pp F7`) or the Variation Part
+/// (`F0 43 1n 4C 02 01 5B pp F7`). The part is a source channel, so it needs routing.
+pub fn xg_effect_part(v: &[u8]) -> Option<usize> {
+    match *v {
+        [0xF0, 0x43, d, 0x4C, 0x03, _, 0x0C, _, 0xF7] | [0xF0, 0x43, d, 0x4C, 0x02, 0x01, 0x5B, _, 0xF7]
+            if d & 0xF0 == 0x10 =>
+        {
+            Some(7)
+        }
+        _ => None,
+    }
+}
+
+impl SInt {
+    pub fn parse(init: &[Ev]) -> SInt {
+        let mut s = SInt::default();
+        for ev in init {
+            match *ev {
+                Ev::Cc { ch, cc, val } => {
+                    let c = &mut s.channels[ch as usize & 15];
+                    let voiced = c.program.is_some();
+                    match cc {
+                        0 if voiced => c.pending_msb = Some(val),
+                        0 => c.bank_msb = Some(val),
+                        32 if voiced => c.pending_lsb = Some(val),
+                        32 => c.bank_lsb = Some(val),
+                        7 => c.volume = Some(val),
+                        10 => c.pan = Some(val),
+                        91 => c.reverb = Some(val),
+                        93 => c.chorus = Some(val),
+                        _ => c.other.push(ev.clone()),
+                    }
+                }
+                Ev::Pc { ch, prog } => {
+                    let c = &mut s.channels[ch as usize & 15];
+                    if let Some(v) = c.pending_msb.take() {
+                        c.bank_msb = Some(v);
+                    }
+                    if let Some(v) = c.pending_lsb.take() {
+                        c.bank_lsb = Some(v);
+                    }
+                    c.program = Some(prog);
+                }
+                Ev::Bend { ch, .. } => s.channels[ch as usize & 15].other.push(ev.clone()),
+                Ev::Sysex(ref v) if is_reset(v) => {}
+                Ev::Sysex(ref v) => match xg_part_param(v) {
+                    Some((part, addr, val)) => s.channels[part as usize].xg_part.push((addr, val)),
+                    None => s.sysex.push(v.clone()),
+                },
+                _ => {}
+            }
+        }
+        s
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Style {
     pub name: String,
@@ -319,6 +445,11 @@ pub struct Style {
 impl Style {
     pub fn bpm(&self) -> f64 {
         60_000_000.0 / self.tempo_us as f64
+    }
+
+    /// The channel setup, structured.
+    pub fn sint(&self) -> SInt {
+        SInt::parse(&self.init)
     }
 
     pub fn ticks_per_bar(&self) -> u32 {
@@ -488,16 +619,25 @@ fn decode_ntt_new(v: u8, ntr: Ntr) -> Ntt {
     }
 }
 
-fn decode_ntt_old(v: u8) -> Ntt {
-    match v {
+/// SFF1 Ctab NTT byte -> (table, Bass On). Wierzba/Bedesem document 00H..05H only (Bypass,
+/// Melody, Chord, Bass, Melodic Minor, Harmonic Minor; no corpus file uses anything else).
+/// 06H..0AH have no Ctab meaning, so they take the only meaning those numbers have anywhere:
+/// the Cntt/Ctb2 tables (Harmonic Minor 5th Var. .. Dorian 5th Var.), which never collide
+/// with a Ctab code. Nothing documents a Bass On bit in a Ctab byte (Bass On is the "Bass"
+/// code), so every other value, 80H..FFH included, is undefined and plays as Melody without
+/// Bass On, like `decode_ntt_new`'s fallback.
+fn decode_ntt_old(v: u8) -> (Ntt, bool) {
+    let ntt = match v {
         0 => Ntt::Bypass,
         1 => Ntt::Melody,
         2 => Ntt::Chord,
         3 => Ntt::Bass,
         4 => Ntt::MelodicMinor,
         5 => Ntt::HarmonicMinor,
+        t @ 6..=10 => decode_ntt_new(t, Ntr::RootTrans),
         _ => Ntt::Melody,
-    }
+    };
+    (ntt, ntt == Ntt::Bass)
 }
 
 fn decode_ntr(v: u8) -> Ntr {
@@ -519,17 +659,17 @@ fn decode_rtr(v: u8) -> Rtr {
     }
 }
 
-fn parse_zone(b: &[u8]) -> (Zone, bool) {
+fn parse_zone(b: &[u8]) -> Zone {
     let ntr = decode_ntr(b[0]);
-    let z = Zone {
+    Zone {
         ntr,
         ntt: decode_ntt_new(b[1], ntr),
         high_key: b[2] % 12,
         lo: b[3] & 0x7F,
         hi: b[4] & 0x7F,
         rtr: decode_rtr(b[5]),
-    };
-    (z, b[1] & 0x80 != 0)
+        bass_on: b[1] & 0x80 != 0,
+    }
 }
 
 /// Source chord type ids run 0 (Maj) ..= 33 (sus2). Anything else (including 0x22 Cancel,
@@ -579,8 +719,8 @@ fn parse_ctab(d: &[u8], sff2: bool) -> Result<ChannelRule> {
             lo: 0,
             hi: 127,
             rtr: Rtr::PitchShift,
+            bass_on: false,
         }; 3],
-        bass_on: false,
         sff2,
     };
     if sff2 {
@@ -589,14 +729,10 @@ fn parse_ctab(d: &[u8], sff2: bool) -> Result<ChannelRule> {
         }
         rule.mid_lo = d[20];
         rule.mid_hi = d[21];
-        let (lz, lb) = parse_zone(&d[22..28]);
-        let (mz, mb) = parse_zone(&d[28..34]);
-        let (hz, hb) = parse_zone(&d[34..40]);
-        rule.zones = [lz, mz, hz];
-        rule.bass_on = mb || lb || hb;
+        rule.zones = [parse_zone(&d[22..28]), parse_zone(&d[28..34]), parse_zone(&d[34..40])];
     } else {
         let ntr = decode_ntr(d[20]);
-        let ntt = decode_ntt_old(d[21]);
+        let (ntt, bass_on) = decode_ntt_old(d[21]);
         let z = Zone {
             ntr,
             ntt,
@@ -604,9 +740,9 @@ fn parse_ctab(d: &[u8], sff2: bool) -> Result<ChannelRule> {
             lo: d[23] & 0x7F,
             hi: d[24] & 0x7F,
             rtr: decode_rtr(d[25]),
+            bass_on,
         };
         rule.zones = [z; 3];
-        rule.bass_on = ntt == Ntt::Bass;
     }
     Ok(rule)
 }
@@ -646,16 +782,23 @@ fn parse_casm(data: &[u8]) -> Result<Vec<Cseg>> {
                 }
                 b"Ctab" => seg.rules.push(parse_ctab(d, false)?),
                 b"Ctb2" => seg.rules.push(parse_ctab(d, true)?),
+                // Cntt refines an SFF1 Ctab's table with the ones Ctab cannot encode (5th Var.,
+                // Natural Minor, Dorian); Wierzba/Bedesem: it overrides the Ctab NTT. It never
+                // touches a Ctb2, which already holds per-zone NTT and Bass On (and no corpus
+                // file mixes the two). Bass On is OR'd, not replaced: every corpus Cntt for a
+                // Ctab "Bass" channel is 01H (Melody, bit 7 clear), so there the Ctab code, not
+                // the Cntt bit, is what carries Bass On. (Read literally, the spec's Cntt bit 7
+                // "Bass on/off" would switch those Bass parts off; we don't, see genos-features.)
                 b"Cntt" => {
                     if d.len() >= 2 {
                         let ch = d[0] & 0x0F;
-                        if let Some(r) = seg.rules.iter_mut().find(|r| r.src_ch == ch) {
-                            let ntr = r.zones[1].ntr;
-                            let ntt = decode_ntt_new(d[1], ntr);
+                        if let Some(r) = seg.rules.iter_mut().find(|r| r.src_ch == ch && !r.sff2) {
+                            let ntt = decode_ntt_new(d[1], r.zones[1].ntr);
                             for z in r.zones.iter_mut() {
                                 z.ntt = ntt;
+                                // OR, not replace: the Ctab "Bass" code keeps Bass On (#14).
+                                z.bass_on |= d[1] & 0x80 != 0;
                             }
-                            r.bass_on = d[1] & 0x80 != 0;
                         }
                     }
                 }
@@ -885,13 +1028,20 @@ mod tests {
     /// Smallest style the parser accepts: one Main A bar with a note on ch 12 plus a CASM
     /// segment holding `rec`.
     fn style_bytes(rec_id: &[u8], rec: &[u8]) -> Vec<u8> {
+        style_bytes_recs(&[(rec_id, rec)])
+    }
+
+    /// As `style_bytes`, with several CSEG records after the Sdec.
+    fn style_bytes_recs(recs: &[(&[u8], &[u8])]) -> Vec<u8> {
         let mut trk = vec![0x00, 0xFF, 0x06, 4];
         trk.extend_from_slice(b"SFF2");
         trk.extend_from_slice(&[0x00, 0xFF, 0x06, 6]);
         trk.extend_from_slice(b"Main A");
         trk.extend_from_slice(&[0x00, 0x9B, 60, 100, 0x83, 0x00, 0x8B, 60, 0, 0x00, 0xFF, 0x2F, 0]);
         let mut cseg = chunk(b"Sdec", b"Main A");
-        cseg.extend(chunk(rec_id, rec));
+        for (id, rec) in recs {
+            cseg.extend(chunk(id, rec));
+        }
         let mut out = chunk(b"MThd", &[0, 0, 0, 1, 0, 96]);
         out.extend(chunk(b"MTrk", &trk));
         out.extend(chunk(b"CASM", &chunk(b"CSEG", &cseg)));
@@ -952,6 +1102,108 @@ mod tests {
                 let s = parse(&style_bytes(b"Ctab", &ctb2(src_type, zone)[..27])).unwrap();
                 exercise(&s);
             }
+        }
+    }
+
+    /// A 27-byte SFF1 Ctab record for src ch 12 (see `ctb2`) with the given NTR and NTT bytes.
+    fn ctab(ntr: u8, ntt: u8) -> Vec<u8> {
+        let mut d = ctb2(2, 0)[..27].to_vec();
+        d[20] = ntr;
+        d[21] = ntt;
+        d[24] = 127;
+        d
+    }
+
+    #[test]
+    fn every_ctab_ntt_code_decodes() {
+        let want = [
+            Ntt::Bypass,
+            Ntt::Melody,
+            Ntt::Chord,
+            Ntt::Bass,
+            Ntt::MelodicMinor,
+            Ntt::HarmonicMinor,
+            Ntt::HarmonicMinor5,
+            Ntt::NaturalMinor,
+            Ntt::NaturalMinor5,
+            Ntt::Dorian,
+            Ntt::Dorian5,
+        ];
+        for v in 0..=255u8 {
+            let r = parse_ctab(&ctab(0, v), false).unwrap();
+            let ntt = want.get(v as usize).copied().unwrap_or(Ntt::Melody);
+            assert!(r.zones.iter().all(|z| z.ntt == ntt), "Ctab NTT {v:#04x}: {:?}", r.zones[1].ntt);
+            assert!(r.zones.iter().all(|z| z.bass_on == (v == 3)), "Ctab NTT {v:#04x} Bass On");
+        }
+    }
+
+    #[test]
+    fn cntt_overrides_ctab_table_and_keeps_bass_on() {
+        let cseg = |ctab_ntt: u8, cntt: u8| {
+            let s = parse(&style_bytes_recs(&[(b"Ctab", &ctab(0, ctab_ntt)), (b"Cntt", &[11, cntt])])).unwrap();
+            let r = s.casm[0].rules[0].clone();
+            assert!(r.zones.iter().all(|z| z.ntt == r.zones[1].ntt && z.bass_on == r.zones[1].bass_on));
+            (r.zones[1].ntt, r.zones[1].bass_on)
+        };
+        // What the corpus writes: Harmonic Minor refined to its 5th Var., Bass kept as Melody
+        // with Bass On even though the Cntt bit is clear.
+        assert_eq!(cseg(5, 0x06), (Ntt::HarmonicMinor5, false));
+        assert_eq!(cseg(3, 0x01), (Ntt::Melody, true));
+        assert_eq!(cseg(2, 0x02), (Ntt::Chord, false));
+        // Every Cntt table, with and without its Bass bit.
+        assert_eq!(cseg(1, 0x09), (Ntt::Dorian, false));
+        assert_eq!(cseg(1, 0x8A), (Ntt::Dorian5, true));
+        assert_eq!(cseg(2, 0x87), (Ntt::NaturalMinor, true));
+        // A Cntt for a channel with no Ctab changes nothing.
+        let s = parse(&style_bytes_recs(&[(b"Ctab", &ctab(0, 2)), (b"Cntt", &[3, 0x8A])])).unwrap();
+        let r = &s.casm[0].rules[0];
+        assert_eq!(r.zones.map(|z| (z.ntt, z.bass_on)), [(Ntt::Chord, false); 3]);
+    }
+
+    #[test]
+    fn cntt_never_overrides_ctb2() {
+        let mut d = ctb2(2, 0);
+        for z in [22, 28, 34] {
+            d[z] = 0; // Root Trans
+            d[z + 1] = 0x02; // Chord, Bass Off
+            d[z + 4] = 127;
+        }
+        let s = parse(&style_bytes_recs(&[(b"Ctb2", &d), (b"Cntt", &[11, 0x8A])])).unwrap();
+        let r = &s.casm[0].rules[0];
+        assert!(r.zones.iter().all(|z| z.ntt == Ntt::Chord && !z.bass_on));
+    }
+
+    #[test]
+    fn corpus_cntt_bass_parts_follow_slash_chords() {
+        // Every corpus Cntt style writes its Ctab "Bass" channel's Cntt as plain Melody. The Bass
+        // part must still carry Bass On, as 193 of 194 SFF2 corpus styles give their Bass part.
+        let (mut found, mut bass_parts) = (0, 0);
+        for p in crate::library::corpus_styles() {
+            let Ok(bytes) = std::fs::read(&p) else { continue };
+            if !bytes.windows(4).any(|w| w == b"Cntt") {
+                continue;
+            }
+            let s = parse(&bytes).unwrap();
+            found += 1;
+            for r in s.casm.iter().flat_map(|seg| &seg.rules) {
+                if r.dest_ch == 10 && r.zones[1].ntt != Ntt::Bypass {
+                    assert!(r.zones.iter().all(|z| z.bass_on), "{}: Bass part lost Bass On", p.display());
+                    assert_eq!(r.zones[1].ntt, Ntt::Melody, "{}", p.display());
+                    // The audible check: the part's source root plays E under C/E, C under C.
+                    let key = 36 + r.src_root % 12;
+                    let c = crate::theory::Chord::new(0, 0);
+                    let c_over_e = crate::theory::Chord { bass: Some(4), ..c };
+                    let pc = |ch| crate::theory::transpose(key, r, ch).map(|n| n % 12);
+                    assert_eq!(pc(c), Some(0), "{}: root under C", p.display());
+                    assert_eq!(pc(c_over_e), Some(4), "{}: root under C/E", p.display());
+                    bass_parts += 1;
+                }
+            }
+        }
+        if found == 0 {
+            eprintln!("no corpus Cntt styles; skipping");
+        } else {
+            assert!(bass_parts > 0, "Cntt styles found but no Bass part checked");
         }
     }
 
@@ -1035,5 +1287,169 @@ mod tests {
         let s = Style::load(&p).unwrap();
         let o = &s.ots[0];
         assert!(o.parts[0].on && o.parts[1].on && !o.parts[2].on && o.parts[3].on);
+    }
+
+    #[test]
+    fn sint_parses_per_channel() {
+        let xg_part = |part, addr, v| Ev::Sysex(vec![0xF0, 0x43, 0x10, 0x4C, 0x08, part, addr, v, 0xF7]);
+        let reverb = vec![0xF0, 0x43, 0x10, 0x4C, 0x02, 0x01, 0x00, 0x01, 0x10, 0xF7];
+        let init = vec![
+            Ev::Sysex(vec![0xF0, 0x7E, 0x7F, 0x09, 0x01, 0xF7]),
+            Ev::Sysex(vec![0xF0, 0x43, 0x10, 0x4C, 0x00, 0x00, 0x7E, 0x00, 0xF7]),
+            Ev::Sysex(reverb.clone()),
+            Ev::Cc { ch: 9, cc: 0, val: 127 },
+            Ev::Cc { ch: 9, cc: 32, val: 0 },
+            Ev::Pc { ch: 9, prog: 25 },
+            Ev::Cc { ch: 9, cc: 7, val: 100 },
+            Ev::Cc { ch: 9, cc: 7, val: 88 },
+            Ev::Cc { ch: 9, cc: 10, val: 64 },
+            Ev::Cc { ch: 9, cc: 91, val: 30 },
+            Ev::Cc { ch: 9, cc: 93, val: 5 },
+            Ev::Cc { ch: 9, cc: 101, val: 0 },
+            Ev::Cc { ch: 9, cc: 100, val: 0 },
+            Ev::Cc { ch: 9, cc: 6, val: 2 },
+            Ev::Bend { ch: 9, val: 0x2000 },
+            xg_part(9, 0x07, 2),
+            Ev::Cc { ch: 11, cc: 11, val: 120 },
+        ];
+        let s = SInt::parse(&init);
+        let c = &s.channels[9];
+        assert_eq!((c.bank_msb, c.bank_lsb, c.program), (Some(127), Some(0), Some(25)));
+        assert_eq!((c.volume, c.pan, c.reverb, c.chorus), (Some(88), Some(64), Some(30), Some(5)));
+        assert_eq!(c.other, vec![
+            Ev::Cc { ch: 9, cc: 101, val: 0 },
+            Ev::Cc { ch: 9, cc: 100, val: 0 },
+            Ev::Cc { ch: 9, cc: 6, val: 2 },
+            Ev::Bend { ch: 9, val: 0x2000 },
+        ]);
+        assert_eq!(c.xg_part, vec![(0x07, 2)]);
+        assert_eq!(s.channels[11].other, vec![Ev::Cc { ch: 11, cc: 11, val: 120 }]);
+        assert_eq!(s.channels[11].volume, None);
+        assert_eq!(s.sysex, vec![reverb], "resets left out");
+    }
+
+    /// A receiver's bank registers and selected voice after `msgs` (bank MSB/LSB CCs and
+    /// program changes on one channel): ((MSB, LSB), voice).
+    type Voiced = ((Option<u8>, Option<u8>), Option<(Option<u8>, Option<u8>, u8)>);
+    fn receive<'a>(msgs: impl IntoIterator<Item = &'a Ev>) -> Voiced {
+        let (mut bank, mut voice) = ((None, None), None);
+        for ev in msgs {
+            match *ev {
+                Ev::Cc { cc: 0, val, .. } => bank.0 = Some(val),
+                Ev::Cc { cc: 32, val, .. } => bank.1 = Some(val),
+                Ev::Pc { prog, .. } => voice = Some((bank.0, bank.1, prog)),
+                _ => {}
+            }
+        }
+        (bank, voice)
+    }
+
+    /// What the structure sends for a channel's voice: bank, program, then the pending bank.
+    fn voice_msgs(ch: u8, c: &ChannelInit) -> Vec<Ev> {
+        let cc = |cc, v: Option<u8>| v.map(|val| Ev::Cc { ch, cc, val });
+        [cc(0, c.bank_msb), cc(32, c.bank_lsb), c.program.map(|prog| Ev::Pc { ch, prog }), cc(0, c.pending_msb), cc(32, c.pending_lsb)]
+            .into_iter()
+            .flatten()
+            .collect()
+    }
+
+    /// A bank select after the program change selects no voice: the voice keeps the bank in
+    /// effect at the program change, and the late bank select stays pending.
+    #[test]
+    fn sint_bank_after_program_is_pending() {
+        // ChartPop1's ch 15: CC0 8, CC32 2, PC 3, CC0 104 selects 8/2/3.
+        let init = vec![
+            Ev::Cc { ch: 14, cc: 0, val: 8 },
+            Ev::Cc { ch: 14, cc: 32, val: 2 },
+            Ev::Pc { ch: 14, prog: 3 },
+            Ev::Cc { ch: 14, cc: 0, val: 104 },
+        ];
+        let c = &SInt::parse(&init).channels[14];
+        assert_eq!((c.bank_msb, c.bank_lsb, c.program), (Some(8), Some(2), Some(3)));
+        assert_eq!((c.pending_msb, c.pending_lsb), (Some(104), None));
+        assert_eq!(receive(&voice_msgs(14, c)), receive(&init));
+        assert_eq!(receive(&init).1, Some((Some(8), Some(2), 3)));
+        // A bank select before a later program change is that program's bank.
+        let init = [&init[..], &[Ev::Pc { ch: 14, prog: 7 }]].concat();
+        let c = &SInt::parse(&init).channels[14];
+        assert_eq!((c.bank_msb, c.bank_lsb, c.program, c.pending_msb), (Some(104), Some(2), Some(7), None));
+    }
+
+    /// Every corpus style's SInt survives structuring: each channel's last value of every
+    /// controller is where the structure says, its voice and bank registers end up as the
+    /// file leaves them, and every SysEx but the resets is kept.
+    #[test]
+    fn sint_structures_every_corpus_style() {
+        let (mut styles, mut resets, mut pending) = (0, 0, 0);
+        for p in crate::library::corpus_styles() {
+            let style = Style::load(&p).unwrap_or_else(|e| panic!("{}: {e:#}", p.display()));
+            styles += 1;
+            let s = style.sint();
+            let mut last_cc = BTreeMap::new();
+            let mut last_pc = [None; 16];
+            let mut kept = 0;
+            for ev in &style.init {
+                match *ev {
+                    Ev::Cc { ch, cc, val } => {
+                        last_cc.insert((ch, cc), val);
+                    }
+                    Ev::Pc { ch, prog } => last_pc[ch as usize] = Some(prog),
+                    Ev::Sysex(ref v) if is_reset(v) => resets += 1,
+                    Ev::Sysex(_) => kept += 1,
+                    _ => {}
+                }
+            }
+            for (&(ch, cc), &val) in &last_cc {
+                let c = &s.channels[ch as usize];
+                let got = match cc {
+                    0 | 32 => continue,
+                    7 => c.volume,
+                    10 => c.pan,
+                    91 => c.reverb,
+                    93 => c.chorus,
+                    _ => c.other.iter().rev().find_map(|e| match *e {
+                        Ev::Cc { cc: x, val, .. } if x == cc => Some(val),
+                        _ => None,
+                    }),
+                };
+                assert_eq!(got, Some(val), "{p:?} ch {ch} cc {cc}");
+            }
+            for ch in 0..16u8 {
+                let c = &s.channels[ch as usize];
+                assert_eq!(c.program, last_pc[ch as usize], "{p:?} ch {ch}");
+                let file = style.init.iter().filter(|e| e.channel() == Some(ch));
+                assert_eq!(receive(&voice_msgs(ch, c)), receive(file), "{p:?} ch {ch}");
+                pending += (c.pending_msb.is_some() || c.pending_lsb.is_some()) as usize;
+            }
+            let xg: usize = s.channels.iter().map(|c| c.xg_part.len()).sum();
+            assert_eq!(xg + s.sysex.len(), kept, "{p:?}");
+        }
+        if styles > 0 {
+            assert!(styles >= 100 && resets > 0 && pending > 0, "{styles} styles, {resets} resets, {pending} pending");
+        }
+    }
+
+    /// SFF2 Bass On is read per zone: this piano's left-hand zone (below Mid Low 50)
+    /// follows slash chords, its chord zone does not.
+    #[test]
+    fn bass_on_per_zone() {
+        let p = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus/SX900Style for Genos/6-8ChartBallad.T547.prs");
+        if !p.exists() {
+            return;
+        }
+        let s = Style::load(&p).unwrap();
+        let r = s.casm[0].rules.iter().find(|r| r.src_ch == 12).unwrap();
+        assert_eq!(r.mid_lo, 50);
+        assert!(r.zones[0].bass_on);
+        assert!(!r.zones[1].bass_on && !r.zones[2].bass_on);
+        // Through transpose, over C/E: the left-hand C moves to the slash bass E, the
+        // chord-zone C stays exactly where it plays over plain C.
+        use crate::theory::{transpose, Chord};
+        let (c, c_over_e) = (Chord::new(0, 0), Chord { root: 0, ty: 0, bass: Some(4) });
+        let low = transpose(36, r, c_over_e).unwrap();
+        assert_eq!(low % 12, 4, "low zone C1 over C/E -> {low}");
+        assert_ne!(Some(low), transpose(36, r, c));
+        assert_eq!(transpose(60, r, c_over_e), transpose(60, r, c));
+        assert_eq!(transpose(60, r, c), Some(60));
     }
 }

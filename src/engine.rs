@@ -86,9 +86,13 @@ pub struct Prepared {
     pub bpm: f64,
     pub tpb: u32,
     pub sections: Vec<Option<PSection>>,
-    /// Channel setup messages (already remapped to destination channels).
-    pub init: Vec<[u8; 3]>,
-    pub init_len: Vec<u8>,
+    /// The style's channel setup (SInt), remapped to destination channels, without the
+    /// parts' CC7 (the mixer sends those).
+    pub init: Msgs,
+    /// How many of `init`'s messages a section change sends again: the parts' setup
+    /// (voices, controllers, XG part parameters) and the drum setup SysEx, which the
+    /// parts' program changes reset. The rest is the effect SysEx.
+    pub init_resend: usize,
     /// Voice (bank MSB, LSB, program) per destination channel 8..16, for display.
     pub voices: [Option<(u8, u8, u8)>; 16],
     /// Destination channels that Master transpose leaves alone: the drum parts and any
@@ -99,6 +103,37 @@ pub struct Prepared {
     /// faders to these.
     pub mix: [u8; 8],
 }
+
+/// MIDI messages of any length (SysEx too), stored back to back so sending them from the
+/// engine thread allocates nothing.
+#[derive(Default)]
+pub struct Msgs {
+    bytes: Vec<u8>,
+    ends: Vec<u32>,
+}
+
+impl Msgs {
+    fn push(&mut self, m: &[u8]) {
+        self.bytes.extend_from_slice(m);
+        self.ends.push(self.bytes.len() as u32);
+    }
+
+    pub fn len(&self) -> usize {
+        self.ends.len()
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = &[u8]> + '_ {
+        let mut start = 0;
+        self.ends.iter().map(move |&end| {
+            let m = &self.bytes[start..end as usize];
+            start = end as usize;
+            m
+        })
+    }
+}
+
+/// XG Multi Part parameter address of a part's volume. The part fader owns the volume.
+const XG_PART_VOLUME: u8 = 0x0B;
 
 /// GM default channel volume (CC7) for a part the style never sets.
 pub const GM_VOLUME: u8 = 100;
@@ -149,38 +184,68 @@ impl Prepared {
             .or_else(|| sections.iter().flatten().next())
             .map(|s| s.rules.clone())
             .unwrap_or_default();
-        let mut init = Vec::new();
-        let mut init_len = Vec::new();
+        // Per part: bank, program, then the controllers, then its XG part parameters (after
+        // the program change, which resets them on an XG receiver). Then the drum setup
+        // SysEx, once every part's voice and part mode is in place (a program change on a
+        // drum setup part resets its drum setup), and the effect SysEx last.
+        let sint = style.sint();
+        let mut init = Msgs::default();
         let mut voices: [Option<(u8, u8, u8)>; 16] = [None; 16];
-        let mut bank = [(0u8, 0u8); 16];
         let mut mix = [GM_VOLUME; 8];
-        for ev in &style.init {
-            let Some(ch) = ev.channel() else { continue };
-            let Some(rule) = &route[ch as usize] else { continue };
+        for (src, c) in sint.channels.iter().enumerate() {
+            let Some(rule) = &route[src] else { continue };
             let d = rule.dest_ch;
-            let (msg, len) = match *ev {
-                Ev::Cc { cc, val, .. } => {
-                    if cc == 0 {
-                        bank[d as usize].0 = val;
-                    }
-                    if cc == 32 {
-                        bank[d as usize].1 = val;
-                    }
-                    if cc == 7 && (8..16).contains(&d) {
-                        mix[d as usize - 8] = val;
-                    }
-                    ([0xB0 | d, cc, val], 3)
+            let part = (8..16).contains(&d);
+            for (cc, v) in [(0, c.bank_msb), (32, c.bank_lsb)] {
+                if let Some(v) = v {
+                    init.push(&[0xB0 | d, cc, v]);
                 }
-                Ev::Pc { prog, .. } => {
-                    let (m, l) = bank[d as usize];
-                    voices[d as usize] = Some((m, l, prog));
-                    ([0xC0 | d, prog, 0], 2)
+            }
+            if let Some(prog) = c.program {
+                init.push(&[0xC0 | d, prog]);
+                voices[d as usize] = Some((c.bank_msb.unwrap_or(0), c.bank_lsb.unwrap_or(0), prog));
+            }
+            for (cc, v) in [(0, c.pending_msb), (32, c.pending_lsb)] {
+                if let Some(v) = v {
+                    init.push(&[0xB0 | d, cc, v]);
                 }
-                Ev::Bend { val, .. } => ([0xE0 | d, (val & 0x7F) as u8, (val >> 7) as u8], 3),
-                _ => continue,
-            };
-            init.push(msg);
-            init_len.push(len);
+            }
+            match c.volume {
+                Some(v) if part => mix[d as usize - 8] = v,
+                Some(v) => init.push(&[0xB0 | d, 7, v]),
+                None => {}
+            }
+            for (cc, v) in [(10, c.pan), (91, c.reverb), (93, c.chorus)] {
+                if let Some(v) = v {
+                    init.push(&[0xB0 | d, cc, v]);
+                }
+            }
+            for ev in &c.other {
+                match *ev {
+                    Ev::Cc { cc, val, .. } => init.push(&[0xB0 | d, cc, val]),
+                    Ev::Bend { val, .. } => init.push(&[0xE0 | d, (val & 0x7F) as u8, (val >> 7) as u8]),
+                    _ => {}
+                }
+            }
+            for &(addr, v) in &c.xg_part {
+                if !(part && addr == XG_PART_VOLUME) {
+                    init.push(&[0xF0, 0x43, 0x10, 0x4C, 0x08, d, addr, v, 0xF7]);
+                }
+            }
+        }
+        for v in sint.sysex.iter().filter(|v| crate::sff::is_drum_setup(v)) {
+            init.push(v);
+        }
+        let init_resend = init.len();
+        let mut buf = Vec::new();
+        for v in sint.sysex.iter().filter(|v| !crate::sff::is_drum_setup(v)) {
+            buf.clone_from(v);
+            // An insertion or variation effect assigned to a part follows that part to its
+            // destination channel; a part the style never routes gets none (7F = off).
+            if let Some((i, part)) = crate::sff::xg_effect_part(v).and_then(|i| Some((i, route.get(v[i] as usize)?))) {
+                buf[i] = part.as_ref().map_or(0x7F, |r| r.dest_ch);
+            }
+            init.push(&buf);
         }
         let mut kit = [false; 16];
         for (d, k) in kit.iter_mut().enumerate() {
@@ -193,7 +258,7 @@ impl Prepared {
             tpb: style.ticks_per_bar(),
             sections,
             init,
-            init_len,
+            init_resend,
             voices,
             kit,
             mix,
@@ -333,10 +398,27 @@ pub struct Takeover {
 }
 
 /// `Takeover::hw`: the fader has not reported a position yet.
-const HW_UNKNOWN: u8 = 255;
+pub const HW_UNKNOWN: u8 = 255;
 
 impl Takeover {
     pub const NEW: Takeover = Takeover { hw: HW_UNKNOWN, picked: false };
+
+    /// The physical fader, last reported at `hw` (`HW_UNKNOWN` if never), is handed the
+    /// value `cur` (a fader page switch): it controls it only if it is already there.
+    pub fn at(hw: u8, cur: u8) -> Takeover {
+        let mut t = Takeover { hw, picked: false };
+        t.software_moved(cur);
+        t
+    }
+
+    /// State kept elsewhere (atomics shared between threads), rebuilt for one report.
+    pub fn resume(hw: u8, picked: bool) -> Takeover {
+        Takeover { hw, picked }
+    }
+
+    pub fn picked(&self) -> bool {
+        self.picked
+    }
 
     /// Software set the value to `v`: the fader keeps control only if it is already there.
     pub fn software_moved(&mut self, v: u8) {
@@ -504,15 +586,41 @@ impl Engine {
     /// The style's channel setup, with the mixer's volume on each part in place of the
     /// style's own CC7 so a restart never undoes a fader the player moved.
     pub fn send_init(&mut self, sink: &mut impl Sink) {
-        for i in 0..self.style.init.len() {
-            let (m, l) = (self.style.init[i], self.style.init_len[i] as usize);
-            let part_vol = l == 3 && m[0] & 0xF0 == 0xB0 && m[1] == 7 && m[0] & 0x0F >= 8;
-            if !part_vol {
-                sink.send(&m[..l]);
-            }
+        for m in self.style.init.iter() {
+            sink.send(m);
         }
         for p in 0..8u8 {
             sink.send(&[0xB0 | (8 + p), 7, self.mixer[p as usize]]);
+        }
+    }
+
+    /// Parts the player has not moved go back to the style's own level (the SInt CC7). A
+    /// level already there is left alone, so its hardware fader keeps control.
+    fn restore_untouched_levels(&mut self) {
+        for p in 0..8 {
+            if self.user_set & (1 << p) == 0 && self.mixer[p] != self.style.mix[p] {
+                let v = self.style.mix[p];
+                self.set_mixer(p, v);
+            }
+        }
+    }
+
+    /// A section change plays the style's part setup (SInt) again, as newer instruments
+    /// do, so a voice or controller a pattern changed does not carry into the next section.
+    /// Its CC7 is a part's fader value, so like a pattern CC7 it moves only the faders the
+    /// player has not moved; the others keep their level and are not re-sent. The drum
+    /// setup SysEx goes again after the parts: their program changes reset it. The effect
+    /// SysEx is not re-sent: no pattern changes it, and an XG receiver would cut the
+    /// reverb and delay tails.
+    fn reapply_init(&mut self, sink: &mut impl Sink) {
+        self.restore_untouched_levels();
+        for m in self.style.init.iter().take(self.style.init_resend) {
+            sink.send(m);
+        }
+        for p in 0..8u8 {
+            if self.user_set & (1 << p) == 0 {
+                sink.send(&[0xB0 | (8 + p), 7, self.mixer[p as usize]]);
+            }
         }
     }
 
@@ -555,6 +663,15 @@ impl Engine {
         let v = value.min(127);
         if self.takeover[p].hardware(self.mixer[p], v) {
             self.set_volume(part, v, sink);
+        }
+    }
+
+    /// The Launchkey faders now control the Style parts again (fader page switch), from
+    /// their physical positions `hw` (`HW_UNKNOWN` = never moved): each picks its part up
+    /// only once it reaches the part's level, as after any software move.
+    pub fn faders_at(&mut self, hw: [u8; 8]) {
+        for ((t, &h), &v) in self.takeover.iter_mut().zip(&hw).zip(&self.mixer) {
+            *t = Takeover::at(h, v);
         }
     }
 
@@ -875,12 +992,7 @@ impl Engine {
         // A start plays the style's channel setup (SInt) again: parts the player has not
         // moved go back to the style's own level, so an Intro/Ending pattern's CC7 from the
         // last run does not stick. Faders the player moved keep their value.
-        for p in 0..8 {
-            if self.user_set & (1 << p) == 0 {
-                let v = self.style.mix[p];
-                self.set_mixer(p, v);
-            }
-        }
+        self.restore_untouched_levels();
         self.send_init(sink);
         self.cur = slot;
         self.sec_start = 0.0;
@@ -995,10 +1107,39 @@ impl Engine {
             self.sync_armed = true;
             return;
         }
+        // A section repeating itself is not a change: its own pattern carries on.
+        if next != self.cur {
+            self.reapply_init(sink);
+        }
         self.cur = next;
         self.sec_start = start;
         self.seek(at - start);
+        self.chase(sink);
         let _ = now;
+    }
+
+    /// A section entered mid-bar (a Fill or Break at the next beat) skips its events before
+    /// the entry point. Its notes stay skipped, but its voice and controller changes are
+    /// sent, in order, so the part plays the section's voice from the entry on.
+    fn chase(&mut self, sink: &mut impl Sink) {
+        for i in 0..self.ev_idx {
+            let sec = self.style.sections[self.cur].as_ref().unwrap();
+            let e = sec.events[i];
+            let Some(dest) = sec.rules[e.src as usize].as_ref().map(|r| r.dest_ch) else { continue };
+            self.emit_control(dest, e.kind, sink);
+        }
+    }
+
+    /// A pattern's controller, program change or pitch bend on `dest`; notes are not
+    /// controls and send nothing here.
+    fn emit_control(&mut self, dest: u8, kind: PKind, sink: &mut impl Sink) {
+        match kind {
+            PKind::Cc { cc: 7, val } => self.pattern_volume(dest, val, sink),
+            PKind::Cc { cc, val } => sink.send(&[0xB0 | dest, cc, val]),
+            PKind::Pc { prog } => sink.send(&[0xC0 | dest, prog]),
+            PKind::Bend { lo, hi } => sink.send(&[0xE0 | dest, lo, hi]),
+            PKind::On { .. } | PKind::Off { .. } => {}
+        }
     }
 
     fn chord_for(&self, rule: &ChannelRule) -> Option<Chord> {
@@ -1056,21 +1197,9 @@ impl Engine {
                 self.ev_idx += 1;
                 self.off_where(sink, |s| s.src == e.src && s.src_key == key);
             }
-            PKind::Cc { cc, val } => {
+            PKind::Cc { .. } | PKind::Pc { .. } | PKind::Bend { .. } => {
                 self.ev_idx += 1;
-                if cc == 7 {
-                    self.pattern_volume(dest, val, sink);
-                } else {
-                    sink.send(&[0xB0 | dest, cc, val]);
-                }
-            }
-            PKind::Pc { prog } => {
-                self.ev_idx += 1;
-                sink.send(&[0xC0 | dest, prog]);
-            }
-            PKind::Bend { lo, hi } => {
-                self.ev_idx += 1;
-                sink.send(&[0xE0 | dest, lo, hi]);
+                self.emit_control(dest, e.kind, sink);
             }
         }
     }

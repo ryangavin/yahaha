@@ -29,7 +29,7 @@ fn root() -> PathBuf {
 }
 
 fn find_style(name: &str) -> Option<PathBuf> {
-    crate::capture::find_file(&root().join("corpus"), name)
+    crate::library::corpus_styles().into_iter().find(|p| p.file_name().is_some_and(|f| f == name))
 }
 
 /// Line diff (longest common subsequence) with the enclosing `bar` line as context and, for

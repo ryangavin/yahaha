@@ -8,6 +8,8 @@ mod launchkey;
 mod library;
 mod live;
 mod midi;
+mod oracle;
+mod parts;
 #[cfg(test)]
 mod recognizer_golden;
 mod rt;
@@ -31,12 +33,13 @@ fn main() -> Result<()> {
         Some("sim") => sim_cmd(&args[2..])?,
         Some("capture-kit") => capture_kit_cmd(&args[2..])?,
         Some("capture-import") => capture::import_cmd(&args[2..])?,
+        Some("oracle") => oracle_cmd(&args[2..])?,
         Some("play") | None if args.len() > 2 || args.get(1).map_or(false, |a| a == "play") => play_cmd(&args[2..])?,
         Some("drive") => bench::drive()?,
         Some("screen") => ui::screen_html(std::path::Path::new(&args[2]), std::path::Path::new(&args[3]))?,
         Some("bench") => bench::run(std::path::Path::new(&args[2]), args.get(3).and_then(|s| s.parse().ok()))?,
         _ => eprintln!(
-            "usage:\n  yahaha play <style or folder>... [--split F#2] [--input <name>] [--all-inputs] [--no-pads] [--sf2 file | --no-synth] [--palette-leds] [--audio-out 11]\n      [--fingering single|multi|fingered|on-bass|ai|full|ai-full] [--upper [--no-manual-bass]] [--transpose N] [--master-transpose N]\n  yahaha bench <style> [spin_us]\n  yahaha sim <style> <\"C Am F G7\" | script file>\n  yahaha capture-kit <out-dir> [--clock-ppm N] [style]...\n  yahaha capture-import <recording.mid> <style> [--tolerance-ms N] [--offset-ms N] [--clock-ppm N] [--listing FILE] [--golden DIR [--force]]\n  yahaha dump <style>..."
+            "usage:\n  yahaha play <style or folder>... [--split F#2] [--input <name>] [--all-inputs] [--no-pads] [--sf2 file | --no-synth] [--palette-leds] [--audio-out 11]\n      [--fingering single|multi|fingered|on-bass|ai|full|ai-full] [--upper [--no-manual-bass]] [--transpose N] [--master-transpose N]\n  yahaha bench <style> [spin_us]\n  yahaha sim <style> <\"C Am F G7\" | script file>\n  yahaha capture-kit <out-dir> [--clock-ppm N] [style]...\n  yahaha capture-import <recording.mid> <style> [--tolerance-ms N] [--offset-ms N] [--clock-ppm N] [--listing FILE] [--golden DIR [--force]]\n  yahaha oracle <style or folder>... [--pairs | --scores | --diff scores.txt]\n  yahaha dump <style>..."
         ),
     }
     Ok(())
@@ -51,13 +54,29 @@ fn dump(path: &std::path::Path) -> Result<()> {
         println!("  {:<11} {:>2} bars  {:>4} notes  ch {:?}", id.name(), sec.len / s.ticks_per_bar(), notes,
             chans.iter().map(|c| c + 1).collect::<Vec<_>>());
     }
+    let sint = s.sint();
+    for (ch, c) in sint.channels.iter().enumerate() {
+        if *c != sff::ChannelInit::default() {
+            let pending = match (c.pending_msb, c.pending_lsb) {
+                (None, None) => String::new(),
+                (m, l) => format!(" (then bank {m:?}/{l:?})"),
+            };
+            println!("  SInt ch {:>2} bank {:?}/{:?} prog {:?}{pending} vol {:?} pan {:?} rev {:?} cho {:?}  +{} ctl  +{} xg",
+                ch + 1, c.bank_msb, c.bank_lsb, c.program, c.volume, c.pan, c.reverb, c.chorus, c.other.len(), c.xg_part.len());
+        }
+    }
+    if !sint.sysex.is_empty() {
+        println!("  SInt sysex {}", sint.sysex.len());
+    }
     for seg in &s.casm {
         println!("  CSEG {:?}", seg.sections);
         for r in &seg.rules {
             let z = &r.zones[1];
-            println!("    src {:>2} -> {:>2} {:<8} root {} type {:>2} mid {}..{} {:?}/{:?} hk {} lim {}..{} {:?} bass {} nm {:03x} cm {:09x}",
+            // Bass On per zone, low/mid/high: "1--" is the low zone only.
+            let b = |i: usize| if r.zones[i].bass_on { '1' } else { '-' };
+            println!("    src {:>2} -> {:>2} {:<8} root {} type {:>2} mid {}..{} {:?}/{:?} hk {} lim {}..{} {:?} bass {}{}{} nm {:03x} cm {:09x}",
                 r.src_ch + 1, r.dest_ch + 1, r.name, r.src_root, r.src_type, r.mid_lo, r.mid_hi,
-                z.ntr, z.ntt, z.high_key, z.lo, z.hi, z.rtr, r.bass_on, r.note_mute, r.chord_mute);
+                z.ntr, z.ntt, z.high_key, z.lo, z.hi, z.rtr, b(0), b(1), b(2), r.note_mute, r.chord_mute);
         }
     }
     for (id, d) in &s.other_chunks {
@@ -96,6 +115,44 @@ fn capture_kit_cmd(args: &[String]) -> Result<()> {
         }
     }
     capture::write_kit(std::path::Path::new(out), &styles, clock_ppm)
+}
+
+/// `yahaha oracle corpus/ [--pairs | --scores | --diff scores.txt]`: score our chord
+/// conversion against the authors' own chord-muted alternatives (see docs/oracle.md).
+/// Prints counts only, never notes. `--scores` prints the pinned form
+/// (tests/oracle/scores.txt), `--diff` what changed against such a file, over the styles
+/// that file lists (only their own lines when the run covers some of them). The three flags are exclusive.
+fn oracle_cmd(args: &[String]) -> Result<()> {
+    let usage = "usage: yahaha oracle <style or folder>... [--pairs | --scores | --diff scores.txt]";
+    let mut paths = Vec::new();
+    let mut against = None;
+    let (mut pairs, mut scores) = (false, false);
+    let mut it = args.iter();
+    while let Some(a) = it.next() {
+        match a.as_str() {
+            "--diff" => against = Some(it.next().ok_or_else(|| anyhow::anyhow!(usage))?),
+            "--pairs" => pairs = true,
+            "--scores" => scores = true,
+            _ => paths.push(PathBuf::from(a)),
+        }
+    }
+    if paths.is_empty() || pairs as u8 + scores as u8 + against.is_some() as u8 > 1 {
+        anyhow::bail!(usage);
+    }
+    let mut rep = oracle::run(&paths);
+    if let Some(f) = against {
+        let want = std::fs::read_to_string(f)?;
+        let d = oracle::diff_against(&mut rep, &want);
+        print!("{d}");
+        if !d.lines().any(|l| l.starts_with("  ")) {
+            println!("no change");
+        }
+    } else if scores {
+        print!("{}", rep.pinned());
+    } else {
+        print!("{}", rep.text(pairs));
+    }
+    Ok(())
 }
 
 /// Parse a chord symbol: root, a `TYPE_NAMES` suffix, and an optional `/bass`.
