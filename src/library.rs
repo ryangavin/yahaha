@@ -36,6 +36,15 @@ pub fn corpus_styles() -> Vec<PathBuf> {
     style_files(&Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus"))
 }
 
+/// The files directly in `dir` (not its folders), in path order: for tests that check what
+/// a folder of fixtures holds (tests/reference), so they need not list folders themselves.
+#[cfg(test)]
+pub fn files_in(dir: &Path) -> Vec<PathBuf> {
+    let mut v: Vec<PathBuf> = std::fs::read_dir(dir).into_iter().flatten().flatten().map(|e| e.path()).filter(|p| p.is_file()).collect();
+    v.sort();
+    v
+}
+
 /// The style files under `root`. Symlinked folders are followed, once each (`seen` is
 /// shared across roots), so a link loop can't hang the scan.
 fn walk(root: &Path, seen: &mut std::collections::HashSet<PathBuf>) -> Vec<PathBuf> {

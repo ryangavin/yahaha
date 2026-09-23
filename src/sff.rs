@@ -520,7 +520,7 @@ impl<'a> Reader<'a> {
     }
 }
 
-fn parse_track(data: &[u8]) -> Result<Vec<TimedEv>> {
+pub(crate) fn parse_track(data: &[u8]) -> Result<Vec<TimedEv>> {
     let mut r = Reader { b: data, p: 0 };
     let mut out = Vec::new();
     let mut tick: u32 = 0;
