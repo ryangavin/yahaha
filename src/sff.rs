@@ -1177,35 +1177,26 @@ mod tests {
     fn corpus_cntt_bass_parts_follow_slash_chords() {
         // Every corpus Cntt style writes its Ctab "Bass" channel's Cntt as plain Melody. The Bass
         // part must still carry Bass On, as 193 of 194 SFF2 corpus styles give their Bass part.
-        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus");
-        let mut stack = vec![dir];
         let (mut found, mut bass_parts) = (0, 0);
-        while let Some(d) = stack.pop() {
-            for e in std::fs::read_dir(&d).into_iter().flatten().flatten() {
-                let p = e.path();
-                if p.is_dir() {
-                    stack.push(p);
-                    continue;
-                }
-                let Ok(bytes) = std::fs::read(&p) else { continue };
-                if !bytes.windows(4).any(|w| w == b"Cntt") {
-                    continue;
-                }
-                let s = parse(&bytes).unwrap();
-                found += 1;
-                for r in s.casm.iter().flat_map(|seg| &seg.rules) {
-                    if r.dest_ch == 10 && r.zones[1].ntt != Ntt::Bypass {
-                        assert!(r.zones.iter().all(|z| z.bass_on), "{}: Bass part lost Bass On", p.display());
-                        assert_eq!(r.zones[1].ntt, Ntt::Melody, "{}", p.display());
-                        // The audible check: the part's source root plays E under C/E, C under C.
-                        let key = 36 + r.src_root % 12;
-                        let c = crate::theory::Chord::new(0, 0);
-                        let c_over_e = crate::theory::Chord { bass: Some(4), ..c };
-                        let pc = |ch| crate::theory::transpose(key, r, ch).map(|n| n % 12);
-                        assert_eq!(pc(c), Some(0), "{}: root under C", p.display());
-                        assert_eq!(pc(c_over_e), Some(4), "{}: root under C/E", p.display());
-                        bass_parts += 1;
-                    }
+        for p in crate::library::corpus_styles() {
+            let Ok(bytes) = std::fs::read(&p) else { continue };
+            if !bytes.windows(4).any(|w| w == b"Cntt") {
+                continue;
+            }
+            let s = parse(&bytes).unwrap();
+            found += 1;
+            for r in s.casm.iter().flat_map(|seg| &seg.rules) {
+                if r.dest_ch == 10 && r.zones[1].ntt != Ntt::Bypass {
+                    assert!(r.zones.iter().all(|z| z.bass_on), "{}: Bass part lost Bass On", p.display());
+                    assert_eq!(r.zones[1].ntt, Ntt::Melody, "{}", p.display());
+                    // The audible check: the part's source root plays E under C/E, C under C.
+                    let key = 36 + r.src_root % 12;
+                    let c = crate::theory::Chord::new(0, 0);
+                    let c_over_e = crate::theory::Chord { bass: Some(4), ..c };
+                    let pc = |ch| crate::theory::transpose(key, r, ch).map(|n| n % 12);
+                    assert_eq!(pc(c), Some(0), "{}: root under C", p.display());
+                    assert_eq!(pc(c_over_e), Some(4), "{}: root under C/E", p.display());
+                    bass_parts += 1;
                 }
             }
         }
@@ -1389,57 +1380,49 @@ mod tests {
     /// file leaves them, and every SysEx but the resets is kept.
     #[test]
     fn sint_structures_every_corpus_style() {
-        let mut stack = vec![std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus")];
         let (mut styles, mut resets, mut pending) = (0, 0, 0);
-        while let Some(d) = stack.pop() {
-            for e in std::fs::read_dir(&d).into_iter().flatten().flatten() {
-                let p = e.path();
-                if p.is_dir() {
-                    stack.push(p);
-                    continue;
-                }
-                let Ok(style) = Style::load(&p) else { continue };
-                styles += 1;
-                let s = style.sint();
-                let mut last_cc = BTreeMap::new();
-                let mut last_pc = [None; 16];
-                let mut kept = 0;
-                for ev in &style.init {
-                    match *ev {
-                        Ev::Cc { ch, cc, val } => {
-                            last_cc.insert((ch, cc), val);
-                        }
-                        Ev::Pc { ch, prog } => last_pc[ch as usize] = Some(prog),
-                        Ev::Sysex(ref v) if is_reset(v) => resets += 1,
-                        Ev::Sysex(_) => kept += 1,
-                        _ => {}
+        for p in crate::library::corpus_styles() {
+            let style = Style::load(&p).unwrap_or_else(|e| panic!("{}: {e:#}", p.display()));
+            styles += 1;
+            let s = style.sint();
+            let mut last_cc = BTreeMap::new();
+            let mut last_pc = [None; 16];
+            let mut kept = 0;
+            for ev in &style.init {
+                match *ev {
+                    Ev::Cc { ch, cc, val } => {
+                        last_cc.insert((ch, cc), val);
                     }
+                    Ev::Pc { ch, prog } => last_pc[ch as usize] = Some(prog),
+                    Ev::Sysex(ref v) if is_reset(v) => resets += 1,
+                    Ev::Sysex(_) => kept += 1,
+                    _ => {}
                 }
-                for (&(ch, cc), &val) in &last_cc {
-                    let c = &s.channels[ch as usize];
-                    let got = match cc {
-                        0 | 32 => continue,
-                        7 => c.volume,
-                        10 => c.pan,
-                        91 => c.reverb,
-                        93 => c.chorus,
-                        _ => c.other.iter().rev().find_map(|e| match *e {
-                            Ev::Cc { cc: x, val, .. } if x == cc => Some(val),
-                            _ => None,
-                        }),
-                    };
-                    assert_eq!(got, Some(val), "{p:?} ch {ch} cc {cc}");
-                }
-                for ch in 0..16u8 {
-                    let c = &s.channels[ch as usize];
-                    assert_eq!(c.program, last_pc[ch as usize], "{p:?} ch {ch}");
-                    let file = style.init.iter().filter(|e| e.channel() == Some(ch));
-                    assert_eq!(receive(&voice_msgs(ch, c)), receive(file), "{p:?} ch {ch}");
-                    pending += (c.pending_msb.is_some() || c.pending_lsb.is_some()) as usize;
-                }
-                let xg: usize = s.channels.iter().map(|c| c.xg_part.len()).sum();
-                assert_eq!(xg + s.sysex.len(), kept, "{p:?}");
             }
+            for (&(ch, cc), &val) in &last_cc {
+                let c = &s.channels[ch as usize];
+                let got = match cc {
+                    0 | 32 => continue,
+                    7 => c.volume,
+                    10 => c.pan,
+                    91 => c.reverb,
+                    93 => c.chorus,
+                    _ => c.other.iter().rev().find_map(|e| match *e {
+                        Ev::Cc { cc: x, val, .. } if x == cc => Some(val),
+                        _ => None,
+                    }),
+                };
+                assert_eq!(got, Some(val), "{p:?} ch {ch} cc {cc}");
+            }
+            for ch in 0..16u8 {
+                let c = &s.channels[ch as usize];
+                assert_eq!(c.program, last_pc[ch as usize], "{p:?} ch {ch}");
+                let file = style.init.iter().filter(|e| e.channel() == Some(ch));
+                assert_eq!(receive(&voice_msgs(ch, c)), receive(file), "{p:?} ch {ch}");
+                pending += (c.pending_msb.is_some() || c.pending_lsb.is_some()) as usize;
+            }
+            let xg: usize = s.channels.iter().map(|c| c.xg_part.len()).sum();
+            assert_eq!(xg + s.sysex.len(), kept, "{p:?}");
         }
         if styles > 0 {
             assert!(styles >= 100 && resets > 0 && pending > 0, "{styles} styles, {resets} resets, {pending} pending");

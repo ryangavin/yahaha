@@ -453,9 +453,7 @@ mod loudness_probe {
     fn part_loudness() {
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
         let font = Arc::new(SoundFont::new(&mut std::fs::File::open(root.join("soundfonts/GeneralUser-GS.sf2")).unwrap()).unwrap());
-        let mut files: Vec<_> = std::fs::read_dir(root.join("corpus/MOX_v2")).unwrap().flatten().map(|e| e.path())
-            .filter(|p| p.extension().map_or(false, |x| x.eq_ignore_ascii_case("sty"))).collect();
-        files.sort();
+        let files = crate::library::corpus_styles();
         for f in &files {
             let style = Style::load(f).unwrap();
             let prep = Box::new(Prepared::new(&style));

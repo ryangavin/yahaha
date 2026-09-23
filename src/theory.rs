@@ -1641,19 +1641,7 @@ mod tests {
     /// CASM) transposes every key under every chord without panicking.
     #[test]
     fn corpus_every_rule_every_chord() {
-        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus");
-        let mut files = Vec::new();
-        let mut stack = vec![dir];
-        while let Some(d) = stack.pop() {
-            for e in std::fs::read_dir(&d).into_iter().flatten().flatten() {
-                let p = e.path();
-                if p.is_dir() {
-                    stack.push(p);
-                } else if p.extension().is_some_and(|x| x.eq_ignore_ascii_case("sty")) {
-                    files.push(p);
-                }
-            }
-        }
+        let files = crate::library::corpus_styles();
         if files.is_empty() {
             eprintln!("no corpus; skipping");
             return;

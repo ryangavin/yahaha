@@ -21,6 +21,44 @@ pub fn is_style(p: &Path) -> bool {
     !is_hidden(p) && p.extension().and_then(|x| x.to_str()).is_some_and(|x| EXTENSIONS.iter().any(|e| x.eq_ignore_ascii_case(e)))
 }
 
+/// Every style file under `root`, recursively, in path order: every extension in
+/// [`EXTENSIONS`], any case, hidden files and folders skipped. The one scan behind the
+/// browser, the oracle and every corpus test, so none of them sees a partial corpus.
+pub fn style_files(root: &Path) -> Vec<PathBuf> {
+    let mut v = walk(root, &mut std::collections::HashSet::new());
+    v.sort();
+    v
+}
+
+/// Every style under the checkout's `corpus/` (empty when there is none), in path order.
+#[cfg(test)]
+pub fn corpus_styles() -> Vec<PathBuf> {
+    style_files(&Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus"))
+}
+
+/// The style files under `root`. Symlinked folders are followed, once each (`seen` is
+/// shared across roots), so a link loop can't hang the scan.
+fn walk(root: &Path, seen: &mut std::collections::HashSet<PathBuf>) -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    let mut stack = vec![root.to_path_buf()];
+    while let Some(d) = stack.pop() {
+        if !seen.insert(d.canonicalize().unwrap_or_else(|_| d.clone())) {
+            continue;
+        }
+        for e in std::fs::read_dir(&d).into_iter().flatten().flatten() {
+            let q = e.path();
+            if q.is_dir() {
+                if !is_hidden(&q) {
+                    stack.push(q);
+                }
+            } else if q.is_file() && is_style(&q) {
+                out.push(q);
+            }
+        }
+    }
+    out
+}
+
 /// What the index knows about a file.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Info {
@@ -91,24 +129,11 @@ impl Library {
                 continue;
             }
             let prefix = if dirs > 1 { root.file_name().map(|n| n.to_string_lossy().to_string()) } else { None };
-            let mut stack = vec![root.clone()];
-            while let Some(d) = stack.pop() {
-                // Symlinked folders are followed, once each, so a link loop can't hang the scan.
-                if !seen.insert(d.canonicalize().unwrap_or_else(|_| d.clone())) {
-                    continue;
-                }
-                for e in std::fs::read_dir(&d).into_iter().flatten().flatten() {
-                    let q = e.path();
-                    if q.is_dir() {
-                        if !is_hidden(&q) {
-                            stack.push(q);
-                        }
-                    } else if q.is_file() && is_style(&q) {
-                        let rel = d.strip_prefix(root).unwrap_or(Path::new(""));
-                        let parts = prefix.iter().cloned().chain(rel.components().map(|c| c.as_os_str().to_string_lossy().to_string()));
-                        entries.push(Entry::new(q, parts.collect::<Vec<_>>().join("/")));
-                    }
-                }
+            for q in walk(root, &mut seen) {
+                let rel = q.parent().and_then(|d| d.strip_prefix(root).ok()).unwrap_or(Path::new(""));
+                let parts = prefix.iter().cloned().chain(rel.components().map(|c| c.as_os_str().to_string_lossy().to_string()));
+                let folder = parts.collect::<Vec<_>>().join("/");
+                entries.push(Entry::new(q, folder));
             }
         }
         Library::from_entries(entries)
@@ -344,6 +369,44 @@ mod tests {
         let deep = lib.order().iter().map(|&i| lib.entry(i)).find(|e| e.name() == "f3").unwrap();
         assert_eq!(deep.folder, "d3/deeper");
         let _ = std::fs::remove_dir_all(root);
+    }
+
+    /// The helper every corpus test and tool enumerates styles with finds a style in any
+    /// container, not only `.sty`, in any subfolder.
+    #[test]
+    fn style_files_finds_every_style_type_in_subfolders() {
+        let root = temp_dir("style_files");
+        let s = style("Same", 100, (4, 4), &["Main A"]);
+        write(&root, "a.sty", &s);
+        write(&root, "Registrations/b.prs", &s);
+        write(&root, "Registrations/deeper/c.SST", &s);
+        write(&root, "notes.txt", b"no");
+        write(&root, ".hidden/d.prs", &s);
+        let got: Vec<String> = style_files(&root)
+            .iter()
+            .map(|p| p.strip_prefix(&root).unwrap().to_string_lossy().replace('\\', "/"))
+            .collect();
+        assert_eq!(got, ["Registrations/b.prs", "Registrations/deeper/c.SST", "a.sty"]);
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    /// No module walks folders on its own: a hand-rolled walk is how corpus tests came to
+    /// see only `.sty` files, or only one folder. Everything goes through `style_files`
+    /// (`main.rs` only looks for a `.sf2` in `soundfonts/`).
+    #[test]
+    fn only_the_library_walks_folders() {
+        let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let needle = ["read", "_dir("].concat();
+        for f in std::fs::read_dir(&src).unwrap().flatten().map(|e| e.path()) {
+            let name = f.file_name().unwrap().to_string_lossy().to_string();
+            if !name.ends_with(".rs") || name == "library.rs" {
+                continue;
+            }
+            let text = std::fs::read_to_string(&f).unwrap();
+            let n = text.matches(&needle).count();
+            let allowed = if name == "main.rs" { 1 } else { 0 };
+            assert!(n <= allowed, "src/{name} lists folders itself ({n}x); use library::style_files");
+        }
     }
 
     #[test]
