@@ -1,0 +1,211 @@
+style  AustinCityBlues.S930.STY  82 bpm  4/4  ppq 1920
+bars   44
+
+bar 1  Intro A  [IntroA]@1.0000  C@1.0000
+  ch10 Rhythm2 a157f1fbe6663cd3
+
+bar 2  Main A  G7@1.0000
+  ch10 Rhythm2 f3e424d69b9a7912
+  ch11 Bass    1f9df205e685e363
+  ch12 Chord1  9eb183c24d8190c2
+
+bar 3  Main A  C@1.0000
+  ch10 Rhythm2 9f2cc6e97dc64527
+  ch11 Bass    b8763ce7cb08e25e
+  ch12 Chord1  8a0e2e1e7f03a9e1
+
+bar 4  Main A  Am@1.0000
+  ch10 Rhythm2 f3e424d69b9a7912
+  ch11 Bass    ef887e315d89df25
+  ch12 Chord1  1cbd7bad991a3f2b
+
+bar 5  Main A  Dm7@1.0000
+  ch10 Rhythm2 6e98be60fcb85bb6
+  ch11 Bass    efdab9dee53d3374
+  ch12 Chord1  b5018b505e41e6b6
+
+bar 6  Main A  G7@1.0000
+  ch10 Rhythm2 f3e424d69b9a7912
+  ch11 Bass    1f9df205e685e363
+  ch12 Chord1  9eb183c24d8190c2
+
+bar 7  Main A  Cmaj7@1.0000
+  ch10 Rhythm2 9f2cc6e97dc64527
+  ch11 Bass    b8763ce7cb08e25e
+  ch12 Chord1  8a0e2e1e7f03a9e1
+
+bar 8  Main A  Am7@1.0000
+  ch10 Rhythm2 f3e424d69b9a7912
+  ch11 Bass    ef887e315d89df25
+  ch12 Chord1  1cbd7bad991a3f2b
+
+bar 9  Main A  Fmaj7@1.0000
+  ch10 Rhythm2 6e98be60fcb85bb6
+  ch11 Bass    e88f9623f7e6d66f
+  ch12 Chord1  640ea433e0f451fd
+
+bar 10  Main A  Fm6@1.0000
+  ch10 Rhythm2 f3e424d69b9a7912
+  ch11 Bass    09037509dcb65cd9
+  ch12 Chord1  3bfd667151928cb2
+
+bar 11  Main A  C/E@1.0000
+  ch10 Rhythm2 9f2cc6e97dc64527
+  ch11 Bass    afce4dded7c5d01a
+  ch12 Chord1  8a0e2e1e7f03a9e1
+
+bar 12  Main A  Ebdim7@1.0000
+  ch10 Rhythm2 f3e424d69b9a7912
+  ch11 Bass    6d1889d294705966
+  ch12 Chord1  2a2803bbb929b2e1
+
+bar 13  Main A  Dm7@1.0000  G7@3.0000
+  ch10 Rhythm2 6e98be60fcb85bb6
+  ch11 Bass    ee4ddb442a1d1d17
+  ch12 Chord1  c2bf898263a49953
+
+bar 14  Main A > Fill In BB@4.0000  Caug@1.0000  [MainB]@3.1919
+  ch10 Rhythm2 9f2cc6e97dc64527
+  ch11 Bass    dca012d7b102f719
+  ch12 Chord1  dd37e7bc17ee8737
+
+bar 15  Main B  Csus4@1.0000  C@3.0000
+  ch10 Rhythm2 bf922045219bd89a
+  ch11 Bass    0d7d5a413b0b6d51
+  ch12 Chord1  2d280cf897bac1b4
+
+bar 16  Main B  Asus2@1.0000  A@3.0000
+  ch10 Rhythm2 c155c7838ebd28d9
+  ch11 Bass    0070b2423a16865b
+  ch12 Chord1  b999fe2c51af9280
+
+bar 17  Main B  C1+5@1.0000
+  ch10 Rhythm2 c9149c4167618249
+  ch11 Bass    3a245fd8c5e35bbe
+  ch12 Chord1  b2b1902dfb7817c1
+
+bar 18  Main B  Bm7b5@1.0000  E7@3.0000
+  ch10 Rhythm2 5f4c692e74b17498
+  ch11 Bass    7fc096ba7e310241
+  ch12 Chord1  eeee54436075a40a
+
+bar 19  Main B  Am@1.0000
+  ch10 Rhythm2 bf922045219bd89a
+  ch11 Bass    8b4e020d43c14831
+  ch12 Chord1  0cb11ff271212c80
+
+bar 20  Main B  Am/G@1.0000
+  ch10 Rhythm2 c155c7838ebd28d9
+  ch11 Bass    60121ae23fd427ec
+  ch12 Chord1  b999fe2c51af9280
+
+bar 21  Main B  F#m7b5@1.0000
+  ch10 Rhythm2 c9149c4167618249
+  ch11 Bass    e343b2b8b6ced4cb
+  ch12 Chord1  ef717103753eae69
+
+bar 22  Main B > Fill In BA@4.0000  Fmaj7@1.0000  [Break]@3.1919
+  ch10 Rhythm2 2b7fca7e50f768a6
+  ch11 Bass    237aadceb7e83a31
+  ch12 Chord1  b76ed53ac85aa4ec
+  ch15 Phrase1 80ab9a8bbe297589
+
+bar 23  Main B  E7sus4@1.0000  E7@3.0000
+  ch10 Rhythm2 bf922045219bd89a
+  ch11 Bass    c79d51e3865931c9
+  ch12 Chord1  f934efc33214e987
+
+bar 24  Main B > Fill In CC@4.0000  Am@1.0000  [MainC]@3.1919
+  ch10 Rhythm2 c155c7838ebd28d9
+  ch11 Bass    99e55e8c0e449779
+  ch12 Chord1  71b22036d63a2500
+
+bar 25  Main C  A7@1.0000
+  ch10 Rhythm2 812e435480727ee0
+  ch11 Bass    48cdae20309ac536
+  ch12 Chord1  0cb11ff271212c80
+
+bar 26  Main C  D9@1.0000
+  ch10 Rhythm2 81d02b626f9cd5ae
+  ch11 Bass    ad7ab185a8e76aca
+  ch12 Chord1  fb9d5a6ad4a2d923
+
+bar 27  Main C  Gm@1.0000
+  ch10 Rhythm2 d1f1a69bdbf889ab
+  ch11 Bass    e525d1729d3ff38c
+  ch12 Chord1  6636169817dc3a5c
+
+bar 28  Main C  C7b9@1.0000
+  ch10 Rhythm2 a4dca5e1c375ccff
+  ch11 Bass    21ee133e96e98a65
+  ch12 Chord1  9df57f10a8bf74dc
+
+bar 29  Main C  Fm@1.0000
+  ch10 Rhythm2 812e435480727ee0
+  ch11 Bass    62b475d0ef8591ed
+  ch12 Chord1  141477e5689c3c6f
+
+bar 30  Main C  Bb13@1.0000
+  ch10 Rhythm2 81d02b626f9cd5ae
+  ch11 Bass    b401d6b1d0b95f30
+  ch12 Chord1  2dc527fbc0f4b7e3
+
+bar 31  Main C  Ebmaj7@1.0000
+  ch10 Rhythm2 d1f1a69bdbf889ab
+  ch11 Bass    31b79f26f22f9194
+  ch12 Chord1  d1e4588c056162e0
+
+bar 32  Main C > Fill In DD@4.0000  Ab7#11@1.0000  [MainD]@3.1919
+  ch10 Rhythm2 d1f1a69bdbf889ab
+  ch11 Bass    637138b8a7bf1363
+  ch12 Chord1  802c125260b63692
+
+bar 33  Main D  Dbmaj7@1.0000
+  ch10 Rhythm2 6d93ddf27f03ebe3
+  ch11 Bass    9a5f0a87f69dde5b
+  ch12 Chord1  c226dce33e73274c
+
+bar 34  Main D  CmMaj7@1.0000
+  ch10 Rhythm2 9f2cc6e97dc64527
+  ch11 Bass    2e28f59696441838
+  ch12 Chord1  8a0e2e1e7f03a9e1
+
+bar 35  Main D  Cdim@1.0000
+  ch10 Rhythm2 f3e424d69b9a7912
+  ch11 Bass    b9339f5d35a4e94e
+  ch12 Chord1  10cee15669051c55
+
+bar 36  Main D  G7#5@1.0000
+  ch10 Rhythm2 6e98be60fcb85bb6
+  ch11 Bass    eadb4ff18bbb23fa
+  ch12 Chord1  b2e2bb55836a4ca9
+
+bar 37  Main D  Cm(add9)@1.0000
+  ch10 Rhythm2 6d93ddf27f03ebe3
+  ch11 Bass    d0f19eb613f8ab03
+  ch12 Chord1  942883f3b0d4481e
+
+bar 38  Main D  Ab7@1.0000
+  ch10 Rhythm2 9f2cc6e97dc64527
+  ch11 Bass    c4c53416c61f1a1f
+  ch12 Chord1  8e8ade4eab3f3d2d
+
+bar 39  Main D  G7#9@1.0000
+  ch10 Rhythm2 f3e424d69b9a7912
+  ch11 Bass    03207328dfca10ab
+  ch12 Chord1  a80387fc7430b250
+
+bar 40  Main D  C/G@1.0000  [EndingA]@3.1919
+  ch10 Rhythm2 6e98be60fcb85bb6
+  ch11 Bass    0fae28992599e300
+  ch12 Chord1  95675955868bf737
+
+bar 41  Ending A  C@1.0000
+  ch10 Rhythm2 382de60447ded3d7
+  ch11 Bass    565418123b9aabf3
+
+bar 42  stopped
+
+bar 43  stopped
+
+bar 44  stopped

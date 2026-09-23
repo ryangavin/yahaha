@@ -2,3 +2,4 @@ target/
 corpus/
 soundfonts/
 docs/manuals/
+tests/golden/local/

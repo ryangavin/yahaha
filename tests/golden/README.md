@@ -20,18 +20,51 @@ A failing row lists every wrong voicing, for example `row 21 m7(11) on C: [C2 D2
 
 ## Style snapshots (`src/golden.rs`)
 
-`golden_snapshots` plays `chords.script` on six corpus styles. It compares each result with the stored `<style file name>.txt` in this folder. The styles cover Guitar NTR (stroke and all-purpose), minor-5th NTT tables, chord-mute routing, SFF1, and a style with no CASM. The stored files contain only the output of our own script, and list notes only for the parts that follow the chord. Style files and corpus data are never committed. When the corpus is missing, the test skips (see the setup notes in the top-level README).
+`golden_snapshots` plays `chords.script` on six corpus styles and renders what each part plays as a readable listing (format below). The styles cover Guitar NTR (stroke and all-purpose), minor-5th NTT tables, chord-mute routing, SFF1, and a style with no CASM. When the corpus is missing, the test skips (see the setup notes in the top-level README).
 
-When a snapshot differs, the test prints a diff. The diff groups changed lines by bar and lists the notes that changed on each part line:
+### Why only digests are committed
+
+This repo is public, and the styles are commercial Yamaha content. A listing of the notes each part plays, bar by bar, is a transcription of the style's bass and chord patterns, so committing it would redistribute them. The listings therefore stay on your machine, and the repo keeps only a digest that pins them down without revealing them.
+
+| File | Committed | Contents |
+| --- | --- | --- |
+| `<style>.digest` | yes | The listing's style and bar header lines as they are (our own script's sections and chords), and for each part line only its channel, name and a 64-bit FNV-1a hash of the line. |
+| `local/<style>.txt` | no (git-ignored) | The full listing from the latest run. |
+| `local/<style>.baseline.txt` | no (git-ignored) | The full listing from the last `UPDATE_GOLDEN=1` run. It is used to show which notes changed. |
+
+A digest looks like this:
+
+```
+bar 14  Main A > Fill In BB@4.0000  Caug@1.0000  [MainB]@3.1919
+  ch10 Rhythm2 5d0c3e8a91f2b7c4
+  ch11 Bass    a3f19e02c47d6b58
+```
+
+`committed_digests_hold_no_notes` checks that every committed part line is a key and a hash, and that no readable listing sits in this folder. Never commit anything from `local/`, and don't paste listing lines into issues, PRs or docs.
+
+### When a digest differs
+
+The test names each bar that changed, which parts changed, and the expected and actual header:
+
+```
+Example.S930.STY: 1 bar(s) changed
+  bar 5: ch11 Bass changed
+    want bar 5  Main A  Dm7@1.0000
+    got  bar 5  Main A  Dm7@1.0000
+```
+
+If `local/<style>.baseline.txt` exists, the report then shows a line diff of the notes in just those bars. Changed lines are grouped by bar, and for each changed part line it lists the notes that differ:
 
 ```
   bar 5  Main A  Dm7@1.0000
--   ch11 Bass    1.0000 D1~712  ...  2.0000 A0~452
-+   ch11 Bass    1.0000 D1~712  ...  2.0000 G0~452
-    ^ 2.0000 A0~452 -> 2.0000 G0~452
+-   ch11 Bass    1.0000 D1~480  2.0000 A0~480
++   ch11 Bass    1.0000 D1~480  2.0000 G0~480
+    ^ 2.0000 A0~480 -> 2.0000 G0~480
 ```
 
-If the change is intended, regenerate the snapshots and commit them together with the code change:
+The first passing run on a fresh checkout writes the baseline. If the digests already differ on your checkout, check out the last good revision and run `UPDATE_GOLDEN=1` there to get a baseline. The report says so if the baseline doesn't match the committed digest.
+
+If the change is intended, regenerate the digests and the local baselines, then commit the digests together with the code change:
 
 ```sh
 UPDATE_GOLDEN=1 cargo test --release golden
@@ -49,7 +82,7 @@ cargo run --release -- sim corpus/MOX_v2/FunkyFinger.S930.STY "C Am F G7"
 ```
 bar 14  Main A > Fill In BB@4.0000  Caug@1.0000  [MainB]@3.1919
   ch10 Rhythm2 14 as written
-  ch11 Bass    1.0000 C1~712  1.0960 G#0~452  ...
+  ch11 Bass    1.0000 C1~480  2.0000 G0~480  ...
 ```
 
 - The header line shows the bar number, then the section playing at the start of the bar. Each `> Section@beat.tick` marks a section change inside the bar, and after that come the script steps in the bar, spelled as the script wrote them. A button shows at the tick it was pressed (see below), so a button written on a bar line shows at the end of the bar before.
