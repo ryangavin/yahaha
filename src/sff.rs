@@ -668,6 +668,28 @@ fn parse_casm(data: &[u8]) -> Result<Vec<Cseg>> {
 }
 
 pub fn parse(bytes: &[u8]) -> Result<Style> {
+    let (ppq, events, mut p) = parse_header_track(bytes)?;
+
+    let mut casm = Vec::new();
+    let mut other_chunks = Vec::new();
+    while p + 8 <= bytes.len() {
+        let id = String::from_utf8_lossy(&bytes[p..p + 4]).to_string();
+        let len = be32(&bytes[p + 4..p + 8]);
+        let end = (p + 8 + len).min(bytes.len());
+        let data = &bytes[p + 8..end];
+        if id == "CASM" {
+            casm = parse_casm(data)?;
+        } else {
+            other_chunks.push((id, data.to_vec()));
+        }
+        p = end;
+    }
+
+    build_style(ppq, events, casm, other_chunks)
+}
+
+/// The MThd header and the style track: (ppq, events, offset just past the track).
+fn parse_header_track(bytes: &[u8]) -> Result<(u16, Vec<TimedEv>, usize)> {
     if bytes.len() < 22 || &bytes[0..4] != b"MThd" {
         bail!("not a MIDI/style file");
     }
@@ -690,31 +712,107 @@ pub fn parse(bytes: &[u8]) -> Result<Style> {
     if ppq == 0 {
         bail!("zero ticks per quarter note");
     }
-    let mut p = 8 + hlen;
+    let p = 8 + hlen;
     if &bytes[p..p + 4] != b"MTrk" {
         bail!("missing MTrk");
     }
     let tlen = be32(&bytes[p + 4..p + 8]);
     let track = &bytes[p + 8..(p + 8 + tlen).min(bytes.len())];
     let events = parse_track(track)?;
-    p += 8 + tlen;
+    Ok((ppq, events, p + 8 + tlen))
+}
 
-    let mut casm = Vec::new();
-    let mut other_chunks = Vec::new();
-    while p + 8 <= bytes.len() {
-        let id = String::from_utf8_lossy(&bytes[p..p + 4]).to_string();
-        let len = be32(&bytes[p + 4..p + 8]);
-        let end = (p + 8 + len).min(bytes.len());
-        let data = &bytes[p + 8..end];
-        if id == "CASM" {
-            casm = parse_casm(data)?;
-        } else {
-            other_chunks.push((id, data.to_vec()));
+/// Header facts of a style track: what `Style` and `Summary` take from the meta events.
+struct Meta {
+    name: String,
+    format: String,
+    tempo_us: u32,
+    timesig: (u8, u8),
+    /// Section markers in track order.
+    marks: Vec<(u32, SectionId)>,
+    end_tick: u32,
+}
+
+fn scan_meta(events: &[TimedEv]) -> Meta {
+    let mut m = Meta { name: String::new(), format: String::new(), tempo_us: 500_000, timesig: (4, 4), marks: Vec::new(), end_tick: 0 };
+    for e in events {
+        m.end_tick = m.end_tick.max(e.tick);
+        if let Ev::Meta { ty, data } = &e.ev {
+            // Tempo and time signature count only before the first section.
+            let before_sections = m.marks.is_empty();
+            match *ty {
+                0x06 => {
+                    let t = String::from_utf8_lossy(data).to_string();
+                    if t == "SFF1" || t == "SFF2" {
+                        m.format = t;
+                    } else if let Some(id) = SectionId::parse(&t) {
+                        m.marks.push((e.tick, id));
+                    }
+                }
+                // Names are often NUL-padded to a fixed width; the name ends at the first NUL.
+                0x03 if m.name.is_empty() => {
+                    let text = data.split(|&b| b == 0).next().unwrap_or_default();
+                    m.name = String::from_utf8_lossy(text).trim().to_string()
+                }
+                0x51 if data.len() == 3 && data[..] != [0, 0, 0] && before_sections => {
+                    m.tempo_us = ((data[0] as u32) << 16) | ((data[1] as u32) << 8) | data[2] as u32
+                }
+                // Ignore impossible signatures (n/0, 2^8+) so bar length stays non-zero.
+                0x58 if data.len() >= 2 && data[0] > 0 && data[1] < 8 && before_sections => {
+                    m.timesig = (data[0], 1u8 << data[1])
+                }
+                _ => {}
+            }
         }
-        p = end;
     }
+    m
+}
 
-    build_style(ppq, events, casm, other_chunks)
+/// What the style browser lists: the header facts, without building sections or reading
+/// the chunks after the track (CASM, OTS).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Summary {
+    /// The SFF name marker; empty if the style has none.
+    pub name: String,
+    pub bpm: f64,
+    pub timesig: (u8, u8),
+    /// Sections present, sorted.
+    pub sections: Vec<SectionId>,
+}
+
+impl Summary {
+    /// Reads only the MThd header and the style track, never the whole file.
+    pub fn load(path: &std::path::Path) -> Result<Summary> {
+        use std::io::Read;
+        // No path in the errors: the browser shows it next to them.
+        let mut f = std::fs::File::open(path)?;
+        let mut bytes = Vec::new();
+        (&mut f).take(8).read_to_end(&mut bytes)?;
+        if bytes.len() < 8 || &bytes[0..4] != b"MThd" {
+            bail!("not a MIDI/style file");
+        }
+        // The header body and the MTrk chunk header, then the track itself.
+        let hlen = be32(&bytes[4..8]).min(1 << 16);
+        (&mut f).take(hlen as u64 + 8).read_to_end(&mut bytes)?;
+        if bytes.len() == 8 + hlen + 8 {
+            let tlen = be32(&bytes[8 + hlen + 4..]);
+            (&mut f).take(tlen as u64).read_to_end(&mut bytes)?;
+        }
+        summarize(&bytes)
+    }
+}
+
+/// `Summary` of a style file's bytes; anything after the style track is ignored.
+pub fn summarize(bytes: &[u8]) -> Result<Summary> {
+    let (_, events, _) = parse_header_track(bytes)?;
+    let m = scan_meta(&events);
+    if m.marks.is_empty() {
+        bail!("no section markers found");
+    }
+    let mut sections: Vec<SectionId> = m.marks.iter().map(|&(_, id)| id).collect();
+    sections.sort();
+    sections.dedup();
+    Ok(Summary { name: m.name, bpm: 60_000_000.0 / m.tempo_us as f64, timesig: m.timesig, sections })
 }
 
 fn build_style(
@@ -723,44 +821,11 @@ fn build_style(
     casm: Vec<Cseg>,
     other_chunks: Vec<(String, Vec<u8>)>,
 ) -> Result<Style> {
-    let mut name = String::new();
-    let mut fmt = String::new();
-    let mut tempo_us = 500_000;
-    let mut timesig = (4u8, 4u8);
-    let mut end_tick = 0;
-
-    // Find section markers.
-    let mut marks: Vec<(u32, SectionId)> = Vec::new();
-    let mut first_section_tick = None;
-    for e in &events {
-        end_tick = end_tick.max(e.tick);
-        if let Ev::Meta { ty, data } = &e.ev {
-            match *ty {
-                0x06 => {
-                    let t = String::from_utf8_lossy(data).to_string();
-                    if t == "SFF1" || t == "SFF2" {
-                        fmt = t;
-                    } else if let Some(id) = SectionId::parse(&t) {
-                        marks.push((e.tick, id));
-                        first_section_tick.get_or_insert(e.tick);
-                    }
-                }
-                0x03 if name.is_empty() => name = String::from_utf8_lossy(data).trim().to_string(),
-                0x51 if data.len() == 3 && data[..] != [0, 0, 0] && first_section_tick.is_none() => {
-                    tempo_us = ((data[0] as u32) << 16) | ((data[1] as u32) << 8) | data[2] as u32
-                }
-                // Ignore impossible signatures (n/0, 2^8+) so bar length stays non-zero.
-                0x58 if data.len() >= 2 && data[0] > 0 && data[1] < 8 && first_section_tick.is_none() => {
-                    timesig = (data[0], 1u8 << data[1])
-                }
-                _ => {}
-            }
-        }
-    }
+    let Meta { name, format: fmt, tempo_us, timesig, marks, end_tick } = scan_meta(&events);
     if marks.is_empty() {
         bail!("no section markers found");
     }
-    let first = first_section_tick.unwrap();
+    let first = marks[0].0;
 
     let init: Vec<Ev> = events
         .iter()

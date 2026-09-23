@@ -14,7 +14,7 @@ macOS only; it uses CoreMIDI and CoreAudio directly.
 
 ```bash
 cargo build --release
-./target/release/yahaha play corpus/          # a style file or a folder of them
+./target/release/yahaha play corpus/          # a style file or a folder of them (searched recursively)
 ```
 
 On launch:
@@ -113,7 +113,7 @@ Pressing the current Main again plays its fill. With Auto Fill on, switching Mai
 |---|---|
 | **Play** | start/stop |
 | **Stop** | stop |
-| **< Track** / **Track >** | previous/next style, playing or stopped |
+| **< Track** / **Track >** | previous/next style, playing or stopped (folder, then name: the browser's order) |
 | **Pad Bank ▲ / ▼** (left of the pads) | previous/next pad page |
 | **Shift + Pad Bank ▲ / ▼** | Left voice on/off / OTS Link on/off |
 | **> (Scene Launch)** / **Function** (right of the pads) | tempo + / − |
@@ -139,11 +139,25 @@ The last Launchkey note or CC that nothing is mapped to shows at the bottom of t
 - `shift+1`–`4` OTS 1–4 · `F10` OTS Link
 - `l` Left voice on/off · `( )` previous/next Left voice
 - `F1`–`F8` voice slots · `F9` layer · `9 0` previous/next voice in the slot
-- `←/→` previous/next style
+- `←/→` previous/next style, in the style browser's order (folder, then name)
+- `enter` open the style browser (see below)
 - `tab` / `shift+tab` next/previous pad page
 - `a` next audio output pair · `k` mute the synth
 - `\` panic (all notes off)
-- `esc` quit
+- `esc` twice (within 1.5 s) quit, or `ctrl+c`; one `esc` closes the style browser
+
+### Style browser
+
+`yahaha play <folder>` finds every style under the folder and its subfolders (`.sty .prs .sst .bcs .pcs .pst .fps`, any case). Press `enter` to browse them:
+
+- Each row shows the style's name (from the file, or the file name if it has none), its folder, tempo and time signature, plus the sections it has. The folder is the category.
+- The list fills in right after launch while a background thread reads the files; rows show `…` until they're read. A file that can't be read shows as a red error row and is skipped by `←/→`.
+- The style that's loaded is marked `▶`, and the cursor starts on it.
+- **Type** to filter: a case-insensitive match on the name or folder. `backspace` edits the filter.
+- `↑/↓`, `PgUp/PgDn` and `Home/End` move the cursor.
+- `enter` loads the style and closes the browser. It works like `←/→`: while the band plays it keeps playing and follows your next chord in the new style.
+- `esc` closes the browser without changing the style (with the browser closed, `esc` twice quits, so one extra `esc` never stops the band).
+- While the browser is open, typed keys only go to the filter, never to the performance shortcuts. Your MIDI keyboard, the Launchkey pads and the Launchkey buttons keep working as usual, including **< Track / Track >**.
 
 Chords are recognized in "Fingered On Bass" style, plus some shortcuts:
 - one key = major

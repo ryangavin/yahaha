@@ -4,6 +4,7 @@ mod fingering;
 #[cfg(test)]
 mod golden;
 mod launchkey;
+mod library;
 mod live;
 mod midi;
 #[cfg(test)]
