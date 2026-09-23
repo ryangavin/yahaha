@@ -823,6 +823,8 @@ With NTR = Root Trans or Root Fixed:
 | **Dorian** | Moves the 3rd and 7th |
 | **Dorian 5th** | Dorian, plus 5th handling for aug/dim |
 
+- **Our rule (#11):** The four base minor tables keep the perfect 5th over aug and dim chords. Their "5th" variants move it to the chord's ♯5 (aug, 7aug, M7aug) or ♭5 (dim, dim7, m7♭5, 7♭5, and (♭5), which plays as 7♭5). M7♭5 plays as M7(♯11), which has a perfect 5th, so it does not count. The 3rd follows the chord in both. Corpus (208 styles): authors use the base tables mostly in Intros and Endings, and the 5th tables mostly in Mains and Fills.
+
 With NTR = Guitar:
 
 | NTT | Behaviour |

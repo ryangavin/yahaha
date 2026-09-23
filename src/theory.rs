@@ -396,7 +396,21 @@ fn scale(ty: u8, ntt: Ntt) -> [u8; 7] {
         33 => s[2] = 2,
         _ => {}
     }
+    // The minor tables leave the perfect 5th alone over aug and dim chords; only their
+    // "5th" variants move it to the chord's #5 / b5 (RM, Style Creator NTT).
+    if matches!(ntt, Ntt::MelodicMinor | Ntt::HarmonicMinor | Ntt::NaturalMinor | Ntt::Dorian)
+        && altered_fifth(ty)
+    {
+        s[4] = 7;
+    }
     s
+}
+
+/// Chords whose 5th is sharpened (aug, M7aug, 7aug) or flattened (dim, dim7, m7b5, 7b5)
+/// with no perfect 5th alongside: what the NTT "5th" tables follow.
+#[inline]
+fn altered_fifth(ty: u8) -> bool {
+    matches!(ty, 7 | 28 | 29 | 11 | 17 | 18 | 21)
 }
 
 /// 1+8 and 1+5: no 3rd, so the accompaniment must fit both major and minor.
@@ -1187,6 +1201,42 @@ mod tests {
         assert_eq!(v(Chord::new(0, 0)), ["E3", "G3", "C4"]); // B -> C
         assert_eq!(v(Chord::new(0, 19)), ["E3", "G3", "Bb3"]);
         assert_eq!(v(Chord::new(7, 19)), ["D3", "F3", "B3"]); // G7: 3rd, 5th, 7th, minimal movement
+    }
+
+    #[test]
+    fn minor_tables_fifth_variants() {
+        // A C major source (C E G). The base tables keep the perfect 5th over aug and dim;
+        // the "5th" tables move it to the #5 / b5. The 3rd follows either way.
+        let pairs = [(Ntt::MelodicMinor, Ntt::MelodicMinor5), (Ntt::HarmonicMinor, Ntt::HarmonicMinor5),
+                     (Ntt::NaturalMinor, Ntt::NaturalMinor5), (Ntt::Dorian, Ntt::Dorian5)];
+        for (base, fifth) in pairs {
+            let play = |ntt, c| {
+                let mut r = rule(Ntr::RootTrans, ntt, 11, 0, 127);
+                r.src_type = 0;
+                names(&[60u8, 64, 67].map(|k| transpose(k, &r, c).unwrap()))
+            };
+            for (ty, base_want, fifth_want) in [
+                (7, ["C3", "E3", "G3"], ["C3", "E3", "Ab3"]),     // aug
+                (29, ["C3", "E3", "G3"], ["C3", "E3", "Ab3"]),    // 7aug
+                (17, ["C3", "Eb3", "G3"], ["C3", "Eb3", "F#3"]),  // dim
+                (18, ["C3", "Eb3", "G3"], ["C3", "Eb3", "F#3"]),  // dim7
+                (11, ["C3", "Eb3", "G3"], ["C3", "Eb3", "F#3"]),  // m7b5
+                (21, ["C3", "E3", "G3"], ["C3", "E3", "F#3"]),    // 7b5
+                (FLAT5, ["C3", "E3", "G3"], ["C3", "E3", "F#3"]), // (b5), plays as 7b5
+                (0, ["C3", "E3", "G3"], ["C3", "E3", "G3"]),
+                (8, ["C3", "Eb3", "G3"], ["C3", "Eb3", "G3"]),
+                (3, ["C3", "E3", "G3"], ["C3", "E3", "G3"]), // M7(#11) keeps its perfect 5th
+            ] {
+                assert_eq!(play(base, Chord::new(0, ty)), base_want, "{base:?} ty {ty}");
+                assert_eq!(play(fifth, Chord::new(0, ty)), fifth_want, "{fifth:?} ty {ty}");
+            }
+        }
+        // Minor source (C Eb G) into Faug under Harmonic Minor 5th: 3rd up, 5th sharpened.
+        let mut r = rule(Ntr::RootTrans, Ntt::HarmonicMinor5, 11, 0, 127);
+        r.src_type = 8;
+        assert_eq!(names(&[60u8, 63, 67].map(|k| transpose(k, &r, Chord::new(5, 7)).unwrap())), ["F3", "A3", "C#4"]);
+        r.zones[1].ntt = Ntt::HarmonicMinor;
+        assert_eq!(names(&[60u8, 63, 67].map(|k| transpose(k, &r, Chord::new(5, 7)).unwrap())), ["F3", "A3", "C4"]);
     }
 
     #[test]
