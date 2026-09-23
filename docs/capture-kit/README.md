@@ -1,12 +1,13 @@
 # yahaha reference capture kit
 
-Thank you for helping. [yahaha](https://github.com/ryangavin/yahaha) is an open-source program that plays Yamaha style files from a MIDI keyboard. The aim is for it to follow chords the way a Genos does. Only real hardware can tell us whether it does, so this kit asks a Genos or PSR-SX owner to play a fixed chord script into ACMP and record what the style sends back over MIDI. We compare that recording with what yahaha plays for the same script, bar by bar and part by part.
+Thank you for helping. [yahaha](https://github.com/ryangavin/yahaha) is an open-source program that plays Yamaha style files from a MIDI keyboard. The aim is for it to follow chords the way a Genos does. Only real hardware can tell us whether it does, so this kit asks a Genos or Genos2 owner to play a fixed chord script into ACMP and record what the style sends back over MIDI. We compare that recording with what yahaha plays for the same script, bar by bar and part by part.
 
 It takes about half an hour per style. You need the instrument, a computer with a DAW or any MIDI player that can record at the same time (Cubase, Logic, Reaper, Ableton, Cakewalk, GarageBand, MIDI-OX and similar all work), and a USB cable.
 
 ## What is in the kit
 
-- One `<Style>.capture.mid` per style, listed at the end of this file. It contains only yahaha's chord script: left-hand chords on MIDI channel 1, a Section Control message for each INTRO, MAIN, BREAK and ENDING press, and a marker at every bar. It holds no style data.
+- One `<Style>.capture.mid` per style. The kit's copy of this file ends with a table of them, with the style each one is for, its tempo and its length (`yahaha capture-kit` adds the table). Each file contains only yahaha's chord script: left-hand chords on MIDI channel 1, a Section Control message for each INTRO, MAIN, BREAK and ENDING press, and a marker at every bar. It holds no style data.
+- The file sends each chord a little before its beat, and each section button half a beat before. That is on purpose: nothing arrives exactly on a beat, where a millisecond either way would change what the instrument plays.
 - `capture.script`: the same script as text, if you want to see what will be played.
 
 The script runs through:
@@ -16,14 +17,14 @@ The script runs through:
 - inversions and slash chords;
 - changes of two, four and eight chords per bar, some off the beat;
 - Cancel, 1+5 and 1+8;
-- every Main section, a Break, fills, and an Ending.
+- every Main section, whole-bar fills, a whole-bar Break, a one-beat fill, and an Ending.
 
 ## Which styles
 
-Record the styles in the table at the end of this file, in that order. Each style is one recording, and even one is useful.
+Record the styles in the table at the end of the kit's copy of this file, in that order. Each style is one recording, and even one is useful.
 
 - **Free pack styles (first six).** These come from Paul J. Drongowski's free *MOX performance styles V2* pack (sandsoftwaresound.net). Download the pack and load the style from USB. That way your instrument plays exactly the same file we have.
-- **Factory styles (last three).** These are preset styles on the Genos and Genos2. Load them from the Preset tab. If you own a PSR-SX, skip any that your model does not have.
+- **Factory styles (last three: 60s8Beat, SoulShuffle and 90sDisco).** These are preset styles on the Genos and Genos2. Load them from the Preset tab.
 
 Do not edit or re-save the styles.
 
@@ -31,20 +32,21 @@ Do not edit or re-save the styles.
 
 Start from a clean state: power on, or select the style fresh. Then check the following.
 
-1. **Style:** select the style. Leave the **tempo** at the style's own tempo, which is shown in the table below. The MIDI file runs at that tempo, so if the tempo differs the chords land in the wrong place.
+1. **Style:** select the style. Leave the **tempo** at the style's own tempo, which is shown in the table at the end of the kit's copy of this file. The MIDI file runs at that tempo, so if the tempo differs the chords land in the wrong place.
 2. **ACMP:** on.
-3. **Fingering type:** *Fingered On Bass* (Genos: [MENU] → Split & Fingering; PSR-SX: [MENU] → Split Point/Chord Fingering). The script uses slash chords, and they only reach the bass in On Bass.
+3. **Fingering type:** *Fingered On Bass* ([MENU] → Split & Fingering). The script uses slash chords, and they only reach the bass in On Bass.
 4. **Split point (Style):** F#2, the default. Chord Detection Area: *Lower*.
 5. **AUTO FILL IN:** on. **Transpose** (Keyboard and Master): 0.
-6. **Off:** OTS Link, Style Retrigger, Bass Hold, Synchro Stop, Unison & Accent (PSR-SX), Chord Looper, and Keyboard Harmony/Arpeggio.
-7. **MAIN A** lit.
+6. **Off:** OTS Link, Style Retrigger, Bass Hold, Synchro Stop, Stop ACMP, Chord Looper, and Keyboard Harmony/Arpeggio.
+7. **Style Setting** ([MENU] → Style Setting): *Dynamics Control* off, and *Section Change Timing* at *Next Bar* for both settings (if your firmware has them).
+8. **Style parts:** all eight style channels on (Rhythm1 to Phrase2 in the channel on/off display), and none muted on the mixer.
+9. **MAIN A** lit.
 
 ## MIDI settings ([MENU] → MIDI)
 
 1. Select the template **All Parts**.
 2. **Transmit:** check that the style parts go out on channels 9–16 (Rhythm1 = 9, Rhythm2 = 10, Bass = 11, Chord1 = 12, Chord2 = 13, Pad = 14, Phrase1 = 15, Phrase2 = 16).
 3. **Receive:** set **USB1 channel 1** to **Keyboard**, so the chords the computer sends act as if they were played on the left of the keyboard.
-   - If your model has no "Keyboard" part, tick channel 1 on the **Chord Detect** and **On Bass Note** pages instead.
 4. **System:**
    - System Exclusive Message Transmit and Receive: **on**. The section buttons in the file are SysEx.
    - Chord System Exclusive Message Transmit: **on**. This lets us see which chord your instrument read.
@@ -56,7 +58,7 @@ Start from a clean state: power on, or select the style fresh. Then check the fo
 2. In the DAW, add two tracks:
    - **Playback track:** holds the kit's `.mid` file, with its output set to the instrument's USB port 1.
    - **Record track:** input set to the instrument's USB port 1, all channels. Turn off MIDI thru/echo on this track, so the instrument's output is not sent back to it.
-3. Set the DAW project tempo to the file's tempo, or let the DAW import the tempo from the file. Turn off any count-in or metronome that sends MIDI.
+3. Let the DAW take the tempo from the file (import it with the file, rather than typing it in), so it plays at exactly the style's tempo. Turn off any count-in or metronome that sends MIDI.
 4. On the instrument, press **[SYNC START]**. The lamp flashes.
 5. Start recording in the DAW from the beginning of the project.
    - The file has two empty bars first.
@@ -69,7 +71,7 @@ Start from a clean state: power on, or select the style fresh. Then check the fo
 ## What to send back
 
 - The recording(s).
-- Your instrument model and firmware version (Genos, Genos2, PSR-SX900 …).
+- Your instrument model (Genos or Genos2) and firmware version.
 - Anything you changed from the list above, and anything odd you noticed, such as a section that did not change or notes that hung.
 
 Post them in the forum thread, or attach them to an issue at https://github.com/ryangavin/yahaha/issues.
@@ -84,8 +86,8 @@ yahaha capture-import OrganCruise.recording.mid corpus/MOX_v2/OrganCruise.S930.S
 
 The importer finds bar 1 by lining up the parts that play as written (drums), fits the tempo, and prints:
 
-- where bar 1 is and how well the drums matched;
-- the chords the instrument read differently (from its Chord SysEx);
+- where bar 1 is, the instrument's tempo, and how closely the matched notes line up (the MIDI jitter);
+- the chords the instrument read differently (from its Chord SysEx), and how far the chords drifted from where yahaha plays them;
 - every bar and part where the notes differ.
 
 To turn a verified recording into a reference digest, run:

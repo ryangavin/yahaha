@@ -7,13 +7,13 @@ Draft for Ryan to post in the PSR Tutorial forum, for example under Genos or Gen
 
 ---
 
-**Subject:** Genos / PSR-SX owners: 30 minutes of MIDI recording to help an open-source arranger follow chords like the real thing
+**Subject:** Genos / Genos2 owners: 30 minutes of MIDI recording to help an open-source arranger follow chords like the real thing
 
 Hi all,
 
 I'm building **yahaha**, a free, open-source program (https://github.com/ryangavin/yahaha) that plays Yamaha style files live from any MIDI keyboard. The goal is for it to follow chords *exactly* the way a Genos does: which notes each part plays for every chord type, slash chords, what happens to held notes when the chord changes, fills and endings. It reads the style's own conversion settings (NTR, NTT, High Key, Note Limit, Retrigger Rule), but the manuals only describe those in words. The only real reference is the instrument itself.
 
-**What I'm asking:** if you have a Genos, Genos2 or a PSR-SX (SX600/700/900/920), could you record your instrument playing a style along to a MIDI file I provide? It takes about half an hour per style, and even one style helps.
+**What I'm asking:** if you have a Genos or Genos2, could you record your instrument playing a style along to a MIDI file I provide? It takes about half an hour per style, and even one style helps.
 
 **What you need:** your instrument, a USB cable, and a computer with any DAW or MIDI recorder (Cubase, Logic, Reaper, Cakewalk, GarageBand, MIDI-OX …).
 

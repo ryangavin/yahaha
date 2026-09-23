@@ -1,4 +1,4 @@
-//! Reference capture kit (#9): a Genos or PSR-SX owner plays our chord script into the
+//! Reference capture kit (#9): a Genos or Genos2 owner plays our chord script into the
 //! instrument's ACMP and records what the style parts send over MIDI. We then compare that
 //! recording with what our engine plays for the same script.
 //!
@@ -13,15 +13,16 @@
 //!   notes a style plays would copy the style.
 //!
 //! Timing: the kit starts with a lead-in, then the owner's instrument starts the style on the
-//! first chord (Sync Start), exactly as `sim` starts it. A recording's clock is its own, so
-//! the importer finds bar 1 by lining up the parts that play as written (drums), which are
-//! the same on both sides whatever the chord, and fits the tempo from all matched notes.
-//! Notes that agree within the tolerance take our timing, so MIDI jitter never shows up as
-//! a difference or changes a digest.
+//! first chord (Sync Start), exactly as `sim` starts it. Every later step goes out a little
+//! ahead of its slot, never on a beat line (`plan`), and our engine plays it at the same
+//! tick. A recording's clock is its own, so the importer finds bar 1 by lining up the parts
+//! that play as written (drums), which are the same on both sides whatever the chord, and
+//! fits the tempo from all matched notes. Notes that agree within the tolerance take our
+//! timing, so MIDI jitter never shows up as a difference or changes a digest.
 
 use crate::engine::Button;
 use crate::fingering::{self, Fingering};
-use crate::sff::{self, Ev, Style};
+use crate::sff::{self, Ev, SectionId, Style};
 use crate::sim::{self, PlayedNote, ScriptStep, Step, Take, PART_NAMES};
 use crate::theory::{self, Chord, Recognizer};
 use anyhow::{bail, Context, Result};
@@ -33,6 +34,11 @@ pub const SCRIPT: &str = include_str!("../docs/capture-kit/capture.script");
 /// Owner instructions; `capture-kit` adds a table of the files it wrote.
 const INSTRUCTIONS: &str = include_str!("../docs/capture-kit/README.md");
 
+/// A chord that comes this soon after a note started revoices that note outright rather than
+/// by its Retrigger Rule: our engine's window (`engine::LATE_CHORD_NS`) when the kit was
+/// made, and a guess at the instrument's. Part of the kit's timing (see `plan`), so it stays
+/// fixed even if the engine's changes.
+const LATE_CHORD_MS: f64 = 40.0;
 /// Bars of silence before bar 1, so the owner can start the recorder and the player first.
 pub const LEAD_IN_BARS: u32 = 2;
 /// Chord keys go out on MIDI channel 1 (the owner sets it to receive as Keyboard).
@@ -66,12 +72,104 @@ pub const KIT: [KitStyle; 9] = [
     KitStyle { file: "TickingAway.T162.sty", title: "Ticking Away", source: MOX, covers: "a style without CASM (default channel rules)" },
     KitStyle { file: "60s8Beat.T160.prs", title: "60s8Beat", source: FACTORY, covers: "SFF GE guitar parts" },
     KitStyle { file: "SoulShuffle.T161.prs", title: "SoulShuffle", source: FACTORY, covers: "SFF GE, shuffle" },
-    KitStyle { file: "RockShuffle.T162.prs", title: "RockShuffle", source: FACTORY, covers: "SFF GE, shuffle" },
+    KitStyle { file: "90sDisco.T161.prs", title: "90sDisco", source: FACTORY, covers: "SFF GE, several source channels per part" },
 ];
 
 // ---------------------------------------------------------------------------
 // The kit: chord keys and the MIDI file
 // ---------------------------------------------------------------------------
+
+/// When the kit sends each step of a script on a style, and when our engine plays it for the
+/// comparison. Nothing goes out on a beat or bar line, where USB jitter and the drift between
+/// the computer's clock and the instrument's (bounded by `import`) would decide which side of
+/// the line the instrument sees it: this beat's fill or the next one's, the old chord or the
+/// new one on the downbeat.
+///
+/// - A section button presses half a beat ahead of its slot. The Genos changes sections on a
+///   beat or a bar line (RM p.12, Section Change Timing), and half a beat is as far from both
+///   as a press can be.
+/// - A chord (or release) goes out a little ahead of its slot. A chord a few ms either side
+///   of a note start or end would decide whether that note starts on the old chord, is cut
+///   or is retriggered, and one that comes `LATE_CHORD_MS` after a note started decides how
+///   it is revoiced. So for each position in the beat the script puts chords on, the lead is
+///   the shortest, between a 24th and a quarter of a beat, that keeps furthest from all of
+///   those points in the sections the script calls up, taken round the beat. It depends
+///   only on the style's patterns (the rhythm channels 9 and 10 left out: they play as
+///   written whatever the chord), never on what our engine does with them, so a kit file
+///   stays valid while the engine changes. The first chord starts the style (Sync Start)
+///   and is bar 1 itself.
+pub struct Plan {
+    pub steps: Vec<ScriptStep>,
+    pub bars: u32,
+    /// The tick each step acts at, from the start of bar 1 (by index).
+    pub acts: Vec<u32>,
+    /// The lead (ticks) of the chords on a beat.
+    pub chord_lead: u32,
+    /// How far (ticks) any chord may land from its tick before it reaches one of those points
+    /// or its slot.
+    pub margin: u32,
+}
+
+pub fn plan(style: &Style, script: &str) -> Result<Plan> {
+    let ppq = style.ppq as u32;
+    let (steps, bars) = sim::parse_script(script, style.ticks_per_bar())?;
+    let late = (LATE_CHORD_MS / 1000.0 * style.bpm() / 60.0 * ppq as f64).round() as u32;
+    // The sections the script's buttons call up (Main A, and its fill, when it starts).
+    let mut used = vec![SectionId::Main(0), SectionId::Fill(0)];
+    for s in &steps {
+        match s.step {
+            Step::Button(Button::Intro(i)) => used.push(SectionId::Intro(i)),
+            Step::Button(Button::Main(i)) => used.extend([SectionId::Main(i), SectionId::Fill(i)]),
+            Step::Button(Button::Break) => used.push(SectionId::Break),
+            Step::Button(Button::Ending(i)) => used.push(SectionId::Ending(i)),
+            _ => {}
+        }
+    }
+    // Every note start and end in them, and every point `LATE_CHORD_MS` after a start, as a
+    // position in the beat.
+    let mut edges = vec![false; ppq as usize];
+    for e in style.sections.values().filter(|s| used.contains(&s.id)).flat_map(|s| &s.events) {
+        match e.ev {
+            Ev::NoteOn { ch, vel, .. } if ch != 8 && ch != 9 && vel > 0 => {
+                edges[(e.tick % ppq) as usize] = true;
+                edges[((e.tick + late) % ppq) as usize] = true;
+            }
+            Ev::NoteOn { ch, .. } | Ev::NoteOff { ch, .. } if ch != 8 && ch != 9 => edges[(e.tick % ppq) as usize] = true,
+            _ => {}
+        }
+    }
+    // Distance from a position in the beat to the nearest edge, round the beat.
+    let room = |p: u32| (0..ppq).find(|&d| edges[((p + d) % ppq) as usize] || edges[((p + ppq - d) % ppq) as usize]).unwrap_or(ppq);
+    // The best lead for chords on each position in the beat the script uses.
+    let mut leads: Vec<(u32, u32, u32)> = Vec::new();
+    for s in steps.iter().filter(|s| s.tick > 0 && !matches!(s.step, Step::Button(_))) {
+        let phase = s.tick % ppq;
+        if leads.iter().any(|l| l.0 == phase) {
+            continue;
+        }
+        let best = (ppq / 24..=ppq / 4).map(|lead| (phase, lead, room((phase + ppq - lead) % ppq).min(lead))).fold((phase, ppq / 24, 0), |b, c| if c.2 > b.2 { c } else { b });
+        leads.push(best);
+    }
+    let lead_at = |t: u32| leads.iter().find(|l| l.0 == t % ppq).map_or(0, |l| l.1);
+    let acts = steps
+        .iter()
+        .map(|s| match s.step {
+            _ if s.tick == 0 => 0,
+            Step::Button(_) => s.tick.saturating_sub(ppq / 2),
+            _ => s.tick - lead_at(s.tick),
+        })
+        .collect();
+    let margin = leads.iter().map(|l| l.2).min().unwrap_or(0);
+    let chord_lead = leads.iter().find(|l| l.0 == 0).map_or(0, |l| l.1);
+    Ok(Plan { steps, bars, acts, chord_lead, margin })
+}
+
+/// Our engine's take of `script` on `style`, with the steps timed as the kit sends them.
+#[cfg_attr(not(test), allow(dead_code))]
+pub fn perform(style: &Style, script: &str) -> Result<Take> {
+    let p = plan(style, script)?;
+    Ok(sim::perform_steps(style, p.steps, p.bars, p.acts))
+}
 
 /// The keys the kit holds for a chord: close root position with the on-bass note (if any)
 /// lowest, all between E0 and the default split point F#2. Cancel is root + b2 + 2, 1+8 is
@@ -182,11 +280,11 @@ fn meta(ty: u8, data: &[u8]) -> Vec<u8> {
 
 /// The capture script as a MIDI file for one style: its tempo, time signature and ppq, a
 /// lead-in of `LEAD_IN_BARS`, then the chord keys on channel 1 and a Section Control
-/// message for every button (pressed one tick ahead, as `sim` presses it). A marker names
-/// each bar. Main A is selected during the lead-in, as it is when `sim` starts.
+/// message for every button, each sent at its `plan` tick. A marker names each bar. Main A
+/// is selected during the lead-in, as it is when `sim` starts.
 pub fn kit_midi(style: &Style, script: &str) -> Result<Vec<u8>> {
     let (ppq, tpb) = (style.ppq as u32, style.ticks_per_bar());
-    let (steps, bars) = sim::parse_script(script, tpb)?;
+    let Plan { steps, bars, acts, .. } = plan(style, script)?;
     let t0 = LEAD_IN_BARS * tpb;
     let rec = Recognizer::new();
     let us = (60e6 / style.bpm()).round() as u32;
@@ -210,11 +308,9 @@ pub fn kit_midi(style: &Style, script: &str) -> Result<Vec<u8>> {
         }
     };
     let mut held: Vec<u8> = Vec::new();
-    for s in &steps {
-        let t = match s.step {
-            Step::Button(_) => t0 + s.tick - 1,
-            _ => t0 + s.tick,
-        };
+    for (s, &act) in steps.iter().zip(&acts) {
+        // A button before the first chord (an Intro) goes out in the lead-in.
+        let t = if s.tick == 0 && matches!(s.step, Step::Button(_)) { t0 - ppq / 2 } else { t0 + act };
         match s.step {
             Step::Chord(c) => {
                 off(&mut held, t, &mut ev);
@@ -399,12 +495,14 @@ pub struct ImportOptions {
 
 impl Default for ImportOptions {
     fn default() -> Self {
-        ImportOptions { tolerance_ms: 25.0, offset_ms: None }
+        ImportOptions { tolerance_ms: 8.0, offset_ms: None }
     }
 }
 
 pub struct Import {
-    /// What the instrument played, as a take of our script (sections and steps are ours).
+    /// What the instrument played, as a take of our script. Its steps are the script's; its
+    /// sections are ours (the instrument does not send its own), so only the report and
+    /// `--listing` use them, never the reference digest (`Take::render_reference`).
     pub hardware: Take,
     /// What our engine plays for the same script.
     pub ours: Take,
@@ -482,7 +580,8 @@ fn minus(a: &[String], b: &[String]) -> Vec<String> {
 
 /// Line a recording up with our take of `script` on `style` and compare them.
 pub fn import(recording: &[u8], style: &Style, script: &str, opts: &ImportOptions) -> Result<Import> {
-    let ours = sim::perform(style, script)?;
+    let Plan { steps, bars, acts, chord_lead, margin } = plan(style, script)?;
+    let ours = sim::perform_steps(style, steps, bars, acts);
     let events = read_smf(recording)?;
     let per_sec = ours.bpm / 60.0 * ours.ppq as f64;
     let tol = opts.tolerance_ms / 1000.0 * per_sec;
@@ -574,8 +673,9 @@ pub fn import(recording: &[u8], style: &Style, script: &str, opts: &ImportOption
         let tick = our.map_or(t.round().max(0.0) as u32, |o| o.tick);
         let len = r.end.map(|e| a * e + b).filter(|&e| e <= end + tol).map(|e| {
             let l = (e - tick as f64).round().max(0.0) as u32;
+            // Its start is ours, but its end can come a burst of MIDI traffic late.
             match our.and_then(|o| o.len) {
-                Some(ol) if (ol as f64 - l as f64).abs() <= tol => ol,
+                Some(ol) if (ol as f64 - l as f64).abs() <= 2.0 * tol => ol,
                 _ => l,
             }
         });
@@ -587,14 +687,22 @@ pub fn import(recording: &[u8], style: &Style, script: &str, opts: &ImportOption
     let mut out = String::new();
     let matched_n = matched.iter().filter(|m| m.is_some()).count();
     let secs = |t: f64| (t - b) / a / per_sec;
+    let ms = |ticks: f64| ticks / per_sec * 1000.0;
+    // How far matched notes sit from ours after the fit: the MIDI jitter. If it comes near the
+    // tolerance, the tolerance is too tight for this setup (or too loose, if it is far below).
+    let mut spread: Vec<f64> = rec.iter().zip(&matched).filter_map(|(r, m)| m.map(|i| (a * r.x + b - ours.notes[i].tick as f64).abs())).collect();
+    spread.sort_by(f64::total_cmp);
+    let pct = |p: f64| spread.get(((spread.len() as f64 * p) as usize).min(spread.len().saturating_sub(1))).map_or(0.0, |&t| ms(t));
     out += &format!(
-        "alignment: bar 1 at {:.3} s in the recording; tempo {:.2} bpm (style {:.2}, ratio {:.5}); {matched_n} of {} recorded notes within {} ms of ours\n",
+        "alignment: bar 1 at {:.3} s in the recording; tempo {:.3} bpm (style {:.3}, ratio {:.6}); {matched_n} of {} recorded notes within {} ms of ours (median {:.1} ms off, 99% within {:.1} ms)\n",
         secs(0.0),
         ours.bpm * a,
         ours.bpm,
         a,
         rec.len(),
-        opts.tolerance_ms
+        opts.tolerance_ms,
+        pct(0.5),
+        pct(0.99)
     );
     if before > 0 {
         out += &format!("           {before} recorded notes before bar 1 ignored\n");
@@ -635,18 +743,40 @@ pub fn import(recording: &[u8], style: &Style, script: &str, opts: &ImportOption
         ));
     }
 
-    // Chords the instrument read, against the ones the script meant.
-    let steps: Vec<&ScriptStep> = ours.steps.iter().filter(|s| matches!(s.step, Step::Chord(_))).collect();
+    // Chords the instrument read, against the ones the script meant, and when it read them.
+    // The kit sends each chord on the computer's clock; the style plays on the instrument's.
+    // A chord that slipped by the plan's margin may have met a note on the other side than in
+    // our take, so the margin is the limit. The slip is measured from the first chord, which
+    // started the style, so the instrument's own delay in reading a chord cancels out: from
+    // the chord messages, or without them from the drift since the first chord.
+    let chord_steps: Vec<usize> = (0..ours.steps.len()).filter(|&i| matches!(ours.steps[i].step, Step::Chord(_))).collect();
+    let act = |i: usize| ours.acts[i] as f64;
+    let reach = ours.ppq as f64 / 4.0;
+    // (slip, step) of the chord that slipped furthest; the first one started the style.
+    let mut worst: Option<(f64, usize)> = None;
+    let mut slipped = |slip: f64, i: usize| {
+        if ours.steps[i].tick > 0 && worst.is_none_or(|(s, _)| slip > s) {
+            worst = Some((slip, i));
+        }
+    };
     if chords.is_empty() {
         out += "chords: the recording has no Chord Control messages (turn on Chord System Exclusive Message Transmit to check them)\n";
+        for &i in &chord_steps {
+            slipped((a - 1.0).abs() * act(i), i);
+        }
     } else {
         let (mut same, mut silent, mut wrong) = (0, 0, Vec::new());
-        for (k, s) in steps.iter().enumerate() {
-            let Step::Chord(want) = s.step else { continue };
-            let lo = s.tick as f64 - tol;
-            let hi = steps.get(k + 1).map_or(end, |n| n.tick as f64 - tol).min(s.tick as f64 + ours.ppq as f64);
-            let got = chords.iter().rev().map(|(x, c)| (a * x + b, *c)).find(|(t, _)| *t >= lo && *t < hi).map(|(_, c)| c);
-            match got {
+        let mut delay = None;
+        for (k, &i) in chord_steps.iter().enumerate() {
+            let (s, Step::Chord(want)) = (&ours.steps[i], ours.steps[i].step) else { continue };
+            let lo = act(i) - reach;
+            let hi = chord_steps.get(k + 1).map_or(end, |&n| act(n) - reach).min(act(i) + ours.ppq as f64);
+            let got = chords.iter().rev().map(|(x, c)| (a * x + b, *c)).find(|(t, _)| *t >= lo && *t < hi);
+            if let Some((t, _)) = got {
+                let d = *delay.get_or_insert(t - act(i));
+                slipped((t - act(i) - d).abs(), i);
+            }
+            match got.map(|(_, c)| c) {
                 Some(c) if c == want.casm() => same += 1,
                 Some(c) => wrong.push(format!(
                     "  bar {} beat {}: played {}, read as {}\n",
@@ -658,9 +788,28 @@ pub fn import(recording: &[u8], style: &Style, script: &str, opts: &ImportOption
                 None => silent += 1,
             }
         }
-        out += &format!("chords: {same} of {} chord changes read as meant, {} read differently, {silent} with no chord message\n", steps.len(), wrong.len());
+        out += &format!("chords: {same} of {} chord changes read as meant, {} read differently, {silent} with no chord message\n", chord_steps.len(), wrong.len());
         for w in &wrong {
             out += w;
+        }
+    }
+    if let Some((slip, i)) = worst {
+        let s = &ours.steps[i];
+        let m = margin as f64;
+        let at = format!("{} in bar {}", s.label, s.tick / ours.tpb + 1);
+        out += &format!(
+            "chord timing: sent {:.1} ms ahead of the beat; furthest off {at}, {:.1} ms from where yahaha plays it (limit {:.1} ms)\n",
+            ms(chord_lead as f64),
+            ms(slip),
+            ms(m)
+        );
+        if slip >= m {
+            problems.push(format!(
+                "{at} reached the instrument {:.1} ms from where yahaha plays it, past the {:.1} ms before a note would follow another chord than in our take. The computer's and the instrument's clocks disagree by {:.0} ppm: record again, and if it happens again send the recording anyway and say so",
+                ms(slip),
+                ms(m),
+                (a - 1.0).abs() * 1e6
+            ));
         }
     }
     let verified = problems.is_empty();
@@ -719,7 +868,30 @@ pub fn import(recording: &[u8], style: &Style, script: &str, opts: &ImportOption
 
 /// The reference digest of a recording, as `tests/reference/<style file>.digest`.
 pub fn reference_digest(imp: &Import) -> String {
-    sim::digest(&imp.hardware.render())
+    sim::digest(&imp.hardware.render_reference())
+}
+
+/// Write `<style file>.digest` and `<style file>.known` for a recording into `dir`: the
+/// recording's reference digest, and the `bar N chX` keys where yahaha differs from it today
+/// (the reference test allows these until they are fixed, and says so once they are).
+/// Refuses an unverified recording unless `force`. Returns the number of known differences.
+pub fn write_reference(imp: &Import, dir: &Path, style_file: &str, recording: &Path, force: bool) -> Result<usize> {
+    if !imp.verified && !force {
+        bail!("the recording is not verified (see above); not writing a reference digest (--force overrides)");
+    }
+    std::fs::create_dir_all(dir)?;
+    let reference = reference_digest(imp);
+    std::fs::write(dir.join(format!("{style_file}.digest")), &reference)?;
+    let diffs = digest_differences(&reference, &sim::digest(&imp.ours.render_reference()));
+    // The file name only: the full path would put the owner's home directory in the repo.
+    let from = recording.file_name().map_or("the recording".into(), |f| f.to_string_lossy());
+    let mut text = format!("# Where yahaha differed from {from} when it was imported. One `bar N chX` per line.\n");
+    for d in &diffs {
+        text += d;
+        text.push('\n');
+    }
+    std::fs::write(dir.join(format!("{style_file}.known")), text)?;
+    Ok(diffs.len())
 }
 
 /// `yahaha capture-import <recording.mid> <style> [options]`.
@@ -753,26 +925,9 @@ pub fn import_cmd(args: &[String]) -> Result<()> {
         println!("wrote the recording's listing to {} (keep it local: it transcribes the style)", path.display());
     }
     if let Some(dir) = golden {
-        if !imp.verified && !force {
-            bail!("the recording is not verified (see above); not writing a reference digest (--force overrides)");
-        }
-        std::fs::create_dir_all(&dir)?;
         let name = style_path.file_name().unwrap().to_string_lossy().to_string();
-        let file = dir.join(format!("{name}.digest"));
-        let reference = reference_digest(&imp);
-        std::fs::write(&file, &reference)?;
-        println!("wrote {}", file.display());
-        // Where we differ from the hardware today: the reference test allows these until
-        // they are fixed (and says so once they are).
-        let known = dir.join(format!("{name}.known"));
-        let diffs = digest_differences(&reference, &sim::digest(&imp.ours.render()));
-        let mut text = format!("# Where yahaha differed from {recording} when it was imported. One `bar N chX` per line.\n");
-        for d in &diffs {
-            text += d;
-            text.push('\n');
-        }
-        std::fs::write(&known, text)?;
-        println!("wrote {} ({} known differences)", known.display(), diffs.len());
+        let known = write_reference(&imp, &dir, &name, Path::new(recording), force)?;
+        println!("wrote {} and {} ({known} known differences)", dir.join(format!("{name}.digest")).display(), dir.join(format!("{name}.known")).display());
     }
     Ok(())
 }
@@ -823,15 +978,32 @@ mod tests {
         find_file(&root, name).map(|p| Style::load(&p).unwrap())
     }
 
-    /// Every chord in the script fits the chord section and reads back as itself, every
-    /// button has a Section Control message, and the script covers what the kit promises.
+    /// What yahaha plays for the capture script on `style`, in the reference digest's form.
+    fn our_reference_digest(style: &Style) -> Result<String> {
+        Ok(sim::digest(&perform(style, SCRIPT)?.render_reference()))
+    }
+
+    /// Every chord in the script fits the chord section and reads back as itself, no chord is
+    /// struck again while it is held, every button has a Section Control message and presses
+    /// outside a bar's first beat, and the script covers what the kit promises.
     #[test]
     fn script_reads_back_and_covers_the_kit() {
         let rec = Recognizer::new();
         let (steps, bars) = sim::parse_script(SCRIPT, 1920).unwrap();
         let mut types = [false; 38];
         let (mut slash, mut busiest) = (0, 0);
+        let mut held: Option<Chord> = None;
         for s in &steps {
+            // A key let go and pressed again on the same tick is no legato player's chord
+            // change, and the instrument may not even send a chord message for it.
+            if let Step::Chord(c) = s.step {
+                assert_ne!(held, Some(c), "{} at tick {} strikes the held chord again; write \"-\"", s.label, s.tick);
+            }
+            held = match s.step {
+                Step::Chord(c) => Some(c),
+                Step::Release => None,
+                _ => held,
+            };
             match s.step {
                 Step::Chord(c) => {
                     let keys = voicing(c);
@@ -840,7 +1012,13 @@ mod tests {
                     types[c.ty as usize] = true;
                     slash += c.bass.is_some() as usize;
                 }
-                Step::Button(b) => assert!(section_code(b).is_some(), "{} has no Section Control message", s.label),
+                Step::Button(b) => {
+                    assert!(section_code(b).is_some(), "{} has no Section Control message", s.label);
+                    // Within a bar's first beat the Genos changes section at once, not at the
+                    // next bar (RM p.12): the one place where our model and its rule differ.
+                    let t = s.tick.saturating_sub(960);
+                    assert!(s.tick == 0 || t % 1920 >= 480, "{} at tick {} presses in the first beat of a bar", s.label, s.tick);
+                }
                 Step::Release => {}
                 _ => panic!("{} cannot be sent over MIDI", s.label),
             }
@@ -878,8 +1056,9 @@ mod tests {
         assert_eq!(chord_from_bytes(0x31, 40, 127), None, "bad type");
     }
 
-    /// The kit file plays the script's keys on channel 1 after the lead-in, with a Section
-    /// Control press for every button one tick ahead of its slot.
+    /// The kit file plays the script's keys on channel 1 after the lead-in, a 64th note ahead
+    /// of their slot except the first, with a Section Control press for every button half a
+    /// beat ahead of its slot.
     #[test]
     fn kit_midi_plays_the_script() {
         let Some(style) = corpus_style(KIT[0].file) else {
@@ -889,46 +1068,81 @@ mod tests {
         let ev = read_smf(&bytes).unwrap();
         let ppq_sec = 60.0 / style.bpm() / style.ppq as f64;
         let tick = |s: f64| (s / ppq_sec).round() as u32;
-        let t0 = LEAD_IN_BARS * style.ticks_per_bar();
+        let (t0, tpb, ppq) = (LEAD_IN_BARS * style.ticks_per_bar(), style.ticks_per_bar(), style.ppq as u32);
         let ons: Vec<(u32, u8)> = ev.iter().filter_map(|(s, e)| match e {
             Ev::NoteOn { ch: 0, key, .. } => Some((tick(*s), *key)),
             _ => None,
         }).collect();
-        assert_eq!(ons, [(t0, 36), (t0, 40), (t0, 43), (t0 + style.ticks_per_bar(), 45), (t0 + style.ticks_per_bar(), 48), (t0 + style.ticks_per_bar(), 52)]);
+        let am = t0 + plan(&style, "[IntroA] | C | Am - - [MainB] - |").unwrap().acts[2];
+        assert_eq!(ons, [(t0, 36), (t0, 40), (t0, 43), (am, 45), (am, 48), (am, 52)]);
         let sections: Vec<(u32, Vec<u8>)> = ev.iter().filter_map(|(s, e)| match e {
             Ev::Sysex(d) if d[5] == 0x7F => Some((tick(*s), d.clone())),
             _ => None,
         }).collect();
-        let mb = t0 + style.ticks_per_bar() + 3 * style.ppq as u32 - 1;
-        assert_eq!(sections, [(style.ppq as u32, section_control(0x08, true)), (t0 - 1, section_control(0, true)), (mb, section_control(0x09, true))]);
+        let mb = t0 + tpb + 3 * ppq - ppq / 2;
+        assert_eq!(sections, [(ppq, section_control(0x08, true)), (t0 - ppq / 2, section_control(0, true)), (mb, section_control(0x09, true))]);
+        // No step goes out within 5% of a beat of a beat line (the first chord starts the style).
+        for (s, e) in &ev {
+            let t = tick(*s);
+            if t > t0 && matches!(e, Ev::NoteOn { ch: 0, .. } | Ev::Sysex(_)) {
+                let off = (t % ppq).min(ppq - t % ppq);
+                assert!(off >= ppq / 20, "an event {off} ticks from a beat line at tick {t}");
+            }
+        }
         let offs = ev.iter().filter(|(_, e)| matches!(e, Ev::NoteOff { ch: 0, .. })).count();
         assert_eq!(offs, 6, "every key is let go");
         assert!(kit_midi(&style, "| C [SyncStop] |").is_err());
     }
 
-    /// A fake recording of our own take: other ppq and clock, bar 1 somewhere in the file,
-    /// a little MIDI jitter, chord messages, and the instrument's keyboard echo on channel 4.
-    fn fake_recording(take: &Take, jitter_ms: f64, speed: f64, tweak: impl Fn(&mut PlayedNote)) -> Vec<u8> {
+    /// How a fake recording differs from a perfect one.
+    struct Fake {
+        /// Random MIDI jitter on the style notes, up to this many ms either way.
+        jitter_ms: f64,
+        /// The instrument's clock against the computer's: the style runs this much faster,
+        /// while the chords and the recorder keep the computer's time.
+        speed: f64,
+        /// The recorder's tempo (its ticks mean nothing to the instrument).
+        rec_bpm: f64,
+        /// Style notes played before bar 1 (the owner trying the style first).
+        noodling: bool,
+        /// Type 1, with the tempo on a track of its own.
+        type1: bool,
+    }
+
+    const FAKE: Fake = Fake { jitter_ms: 4.0, speed: 1.0, rec_bpm: 120.0, noodling: false, type1: false };
+
+    /// A fake recording of a take: other ppq and clock, bar 1 somewhere in the file, MIDI
+    /// jitter, chord messages, and the instrument's keyboard echo on channel 4.
+    fn fake(take: &Take, f: &Fake, tweak: impl Fn(&mut PlayedNote)) -> Vec<u8> {
         let ppq = 480u16;
-        let bpm = 120.0;
-        let to_rec = |t: u32| {
-            let sec = 3.217 + t as f64 / (take.bpm / 60.0 * take.ppq as f64) / speed;
-            (sec * bpm / 60.0 * ppq as f64).round() as u32
-        };
-        let mut ev: Vec<(u32, Vec<u8>)> = vec![(0, meta(0x51, &500_000u32.to_be_bytes()[1..]))];
+        let bar1 = 3.217;
+        let per_sec = take.bpm / 60.0 * take.ppq as f64;
+        let rec_tick = |sec: f64| (sec * f.rec_bpm / 60.0 * ppq as f64).round() as u32;
+        // A style note plays on the instrument's clock; a chord arrives on the computer's.
+        let style_at = |t: u32| rec_tick(bar1 + t as f64 / per_sec / f.speed);
+        let daw_at = |t: u32| rec_tick(bar1 + t as f64 / per_sec);
+        let tempo = meta(0x51, &((60e6 / f.rec_bpm).round() as u32).to_be_bytes()[1..]);
+        let mut ev: Vec<(u32, Vec<u8>)> = Vec::new();
         let mut seed = 12345u32;
         let mut jit = || {
             seed = seed.wrapping_mul(1_103_515_245).wrapping_add(12345);
             let j = ((seed >> 16) % 1000) as f64 / 1000.0 * 2.0 - 1.0;
-            (j * jitter_ms / 1000.0 * bpm / 60.0 * ppq as f64).round() as i64
+            (j * f.jitter_ms / 1000.0 * f.rec_bpm / 60.0 * ppq as f64).round() as i64
         };
         let mut notes: Vec<(u32, Vec<u8>)> = Vec::new();
         for n in &take.notes {
             let mut n = *n;
             tweak(&mut n);
-            notes.push((to_rec(n.tick), vec![0x90 | n.ch, n.key, 90]));
+            notes.push((style_at(n.tick), vec![0x90 | n.ch, n.key, 90]));
             // A note still sounding at the end of the script is let go a bar later.
-            notes.push((to_rec(n.tick + n.len.unwrap_or(take.bars * take.tpb + take.tpb - n.tick)), vec![0x80 | n.ch, n.key, 0]));
+            notes.push((style_at(n.tick + n.len.unwrap_or(take.bars * take.tpb + take.tpb - n.tick)), vec![0x80 | n.ch, n.key, 0]));
+        }
+        if f.noodling {
+            for (i, key) in [60u8, 64, 67].into_iter().enumerate() {
+                let t = rec_tick(1.0 + i as f64 * 0.2);
+                notes.push((t, vec![0x9B, key, 90]));
+                notes.push((t + 50, vec![0x8B, key, 0]));
+            }
         }
         // Jitter moves the time stamps but, like a real MIDI cable, never the order.
         notes.sort_by_key(|e| e.0);
@@ -937,9 +1151,9 @@ mod tests {
             last = (t as i64 + jit()).max(last);
             ev.push((last as u32, m));
         }
-        for s in &take.steps {
+        for (s, &act) in take.steps.iter().zip(&take.acts) {
             if let Step::Chord(c) = s.step {
-                let t = to_rec(s.tick) + 2;
+                let t = daw_at(act) + 2;
                 ev.push((t, vec![0x93, 60, 80]));
                 // C# = 0x41: natural letters 1..7 with the accidental in the high bits.
                 let (letter, acc) = [(1, 3), (1, 4), (2, 3), (3, 2), (3, 3), (4, 3), (4, 4), (5, 3), (6, 2), (6, 3), (7, 2), (7, 3)][c.root as usize];
@@ -950,19 +1164,35 @@ mod tests {
                 ev.push((t + 1, vec![0xF0, 0x43, 0x7E, 0x02, (acc << 4) | letter, c.casm().ty, bn, 127, 0xF7]));
             }
         }
-        write_smf(ppq, ev)
+        if !f.type1 {
+            ev.push((0, tempo));
+            return write_smf(ppq, ev);
+        }
+        // Type 1: the tempo track, then the performance; each is a type 0 file's track chunk.
+        let chunk = |events: Vec<(u32, Vec<u8>)>| write_smf(ppq, events)[14..].to_vec();
+        let mut out = b"MThd".to_vec();
+        out.extend_from_slice(&6u32.to_be_bytes());
+        out.extend_from_slice(&[0, 1, 0, 2]);
+        out.extend_from_slice(&ppq.to_be_bytes());
+        out.extend(chunk(vec![(0, tempo)]));
+        out.extend(chunk(ev));
+        out
+    }
+
+    fn fake_recording(take: &Take, jitter_ms: f64, speed: f64, tweak: impl Fn(&mut PlayedNote)) -> Vec<u8> {
+        fake(take, &Fake { jitter_ms, speed, ..FAKE }, tweak)
     }
 
     /// A recording of exactly what we play (jittered, shifted, another clock) imports with no
-    /// differences, verifies, and its reference digest is our own snapshot's digest. Every
-    /// kit style in the corpus.
+    /// differences, verifies, and its reference digest is our own. Every kit style in the
+    /// corpus.
     #[test]
     fn import_round_trip() {
         for k in &KIT {
             let Some(style) = corpus_style(k.file) else {
                 continue;
             };
-            let ours = sim::perform(&style, SCRIPT).unwrap();
+            let ours = perform(&style, SCRIPT).unwrap();
             let rec = fake_recording(&ours, 4.0, 1.0, |_| {});
             let imp = import(&rec, &style, SCRIPT, &ImportOptions::default()).unwrap();
             let what = format!("{}:\n{}", k.file, imp.report);
@@ -970,8 +1200,26 @@ mod tests {
             assert_eq!(imp.differing_bars, 0, "{what}");
             assert!(imp.report.contains("bar 1 at 3.21"), "{what}");
             assert!(imp.report.contains("read as meant, 0 read differently, 0 with no chord message"), "{what}");
-            assert_eq!(reference_digest(&imp), sim::digest(&sim::snapshot(&style, SCRIPT).unwrap()), "{what}");
+            assert_eq!(reference_digest(&imp), our_reference_digest(&style).unwrap(), "{what}");
         }
+    }
+
+    /// A type 1 file with the tempo on its own track, at another tempo, with notes played
+    /// before bar 1: those are ignored and said so, and the rest imports as before.
+    #[test]
+    fn import_type1_with_notes_before_bar_1() {
+        let Some(style) = corpus_style(KIT[1].file) else {
+            return;
+        };
+        let ours = perform(&style, SCRIPT).unwrap();
+        let rec = fake(&ours, &Fake { rec_bpm: 97.0, noodling: true, type1: true, ..FAKE }, |_| {});
+        assert_eq!(&rec[8..12], &[0, 1, 0, 2], "a type 1 file with two tracks");
+        let imp = import(&rec, &style, SCRIPT, &ImportOptions::default()).unwrap();
+        assert!(imp.verified, "{}", imp.report);
+        assert!(imp.report.contains("bar 1 at 3.21"), "{}", imp.report);
+        assert!(imp.report.contains("3 recorded notes before bar 1 ignored"), "{}", imp.report);
+        assert_eq!(imp.differing_bars, 0, "{}", imp.report);
+        assert_eq!(reference_digest(&imp), our_reference_digest(&style).unwrap());
     }
 
     /// A changed bass note shows up in its bar and part only; a wrong tempo fails verification.
@@ -980,7 +1228,7 @@ mod tests {
         let Some(style) = corpus_style(KIT[0].file) else {
             return;
         };
-        let ours = sim::perform(&style, SCRIPT).unwrap();
+        let ours = perform(&style, SCRIPT).unwrap();
         let tpb = ours.tpb;
         let target = *ours.notes.iter().find(|n| n.ch == 10 && n.tick / tpb == 19 && !ours.as_written(n.tick, 10)).expect("a bass note in bar 20");
         let rec = fake_recording(&ours, 0.0, 1.0, |n| {
@@ -994,14 +1242,184 @@ mod tests {
         let diffs = imp.report.split("differences").nth(1).unwrap();
         assert!(diffs.starts_with(" (instrument = the recording, yahaha = our engine):\nbar 20 "), "{}", imp.report);
         assert!(diffs.contains("  ch11 Bass     instrument only: "), "{}", imp.report);
-        let got = reference_digest(&imp);
-        let want = sim::digest(&sim::snapshot(&style, SCRIPT).unwrap());
-        assert_eq!(digest_differences(&got, &want), ["bar 20 ch11"]);
+        assert_eq!(digest_differences(&reference_digest(&imp), &our_reference_digest(&style).unwrap()), ["bar 20 ch11"]);
 
         let fast = fake_recording(&ours, 3.0, 1.01, |_| {});
         let imp = import(&fast, &style, SCRIPT, &ImportOptions::default()).unwrap();
         assert!(!imp.verified, "{}", imp.report);
         assert!(imp.report.contains("leave the tempo alone"), "{}", imp.report);
+    }
+
+    /// The instrument's clock running 0.19% fast is within the tempo check, but by the end
+    /// the chords reach it most of a beat late against the style: not verified, with or
+    /// without chord messages. A drift a real pair of crystals shows (30 ppm) is fine.
+    #[test]
+    fn import_rejects_clock_drift() {
+        let Some(style) = corpus_style("AustinCityBlues.S930.STY") else {
+            return;
+        };
+        let ours = perform(&style, SCRIPT).unwrap();
+        let drifting = fake_recording(&ours, 2.0, 1.0019, |_| {});
+        let imp = import(&drifting, &style, SCRIPT, &ImportOptions::default()).unwrap();
+        assert!(!imp.verified, "{}", imp.report);
+        assert!(!imp.report.contains("leave the tempo alone"), "the tempo check alone lets it through:\n{}", imp.report);
+        assert!(imp.report.contains("past the"), "{}", imp.report);
+        // Without chord messages, the fitted tempo bounds the drift.
+        let silent: Vec<u8> = {
+            let events = read_smf(&drifting).unwrap();
+            let per_q = 60.0 / 120.0 / 480.0;
+            let ev: Vec<(u32, Vec<u8>)> = events
+                .into_iter()
+                .filter_map(|(s, e)| {
+                    let t = (s / per_q).round() as u32;
+                    match e {
+                        Ev::NoteOn { ch, key, vel } => Some((t, vec![0x90 | ch, key, vel])),
+                        Ev::NoteOff { ch, key } => Some((t, vec![0x80 | ch, key, 0])),
+                        _ => None,
+                    }
+                })
+                .collect();
+            write_smf(480, ev)
+        };
+        let imp = import(&silent, &style, SCRIPT, &ImportOptions::default()).unwrap();
+        assert!(imp.report.contains("no Chord Control messages"), "{}", imp.report);
+        assert!(!imp.verified && imp.report.contains("past the"), "{}", imp.report);
+
+        let fine = fake_recording(&ours, 2.0, 1.00003, |_| {});
+        let imp = import(&fine, &style, SCRIPT, &ImportOptions::default()).unwrap();
+        assert!(imp.verified, "{}", imp.report);
+    }
+
+    /// A section button the instrument did not take changes the drums: not verified.
+    #[test]
+    fn import_rejects_a_missed_section_change() {
+        let Some(style) = corpus_style(KIT[0].file) else {
+            return;
+        };
+        let script = SCRIPT.replacen("[MainB] G7", "G7", 1);
+        assert_ne!(script, SCRIPT);
+        let missed = perform(&style, &script).unwrap();
+        let imp = import(&fake_recording(&missed, 2.0, 1.0, |_| {}), &style, SCRIPT, &ImportOptions::default()).unwrap();
+        assert!(!imp.verified, "{}", imp.report);
+        assert!(imp.report.contains("notes of the parts that play as written (drums) match"), "{}", imp.report);
+    }
+
+    /// `--golden` refuses an unverified recording unless forced, and writes the digest and a
+    /// `.known` list naming the recording by file name only.
+    #[test]
+    fn write_reference_files() {
+        let Some(style) = corpus_style(KIT[0].file) else {
+            return;
+        };
+        let dir = std::env::temp_dir().join(format!("yahaha-reference-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let recording = Path::new("/Users/someone/Music/OrganCruise.recording.mid");
+        let ours = perform(&style, SCRIPT).unwrap();
+
+        let fast = import(&fake_recording(&ours, 3.0, 1.01, |_| {}), &style, SCRIPT, &ImportOptions::default()).unwrap();
+        assert!(write_reference(&fast, &dir, KIT[0].file, recording, false).is_err());
+        assert!(!dir.join(format!("{}.digest", KIT[0].file)).exists());
+        assert!(write_reference(&fast, &dir, KIT[0].file, recording, true).is_ok(), "--force writes it anyway");
+
+        let tpb = ours.tpb;
+        let target = *ours.notes.iter().find(|n| n.ch == 10 && n.tick / tpb == 19 && !ours.as_written(n.tick, 10)).unwrap();
+        let rec = fake_recording(&ours, 0.0, 1.0, |n| {
+            if *n == target {
+                n.key += 2;
+            }
+        });
+        let imp = import(&rec, &style, SCRIPT, &ImportOptions::default()).unwrap();
+        assert_eq!(write_reference(&imp, &dir, KIT[0].file, recording, false).unwrap(), 1);
+        let digest = std::fs::read_to_string(dir.join(format!("{}.digest", KIT[0].file))).unwrap();
+        assert_eq!(digest, reference_digest(&imp));
+        let known = std::fs::read_to_string(dir.join(format!("{}.known", KIT[0].file))).unwrap();
+        assert_eq!(known, "# Where yahaha differed from OrganCruise.recording.mid when it was imported. One `bar N chX` per line.\nbar 20 ch11\n");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// The reference digest depends on the notes and the script only: moving one of our
+    /// section changes (as an M2 fix might) leaves it alone, while the golden listing changes.
+    #[test]
+    fn reference_digest_ignores_our_sections() {
+        let Some(style) = corpus_style(KIT[0].file) else {
+            return;
+        };
+        let ours = perform(&style, SCRIPT).unwrap();
+        let mut moved = ours.clone();
+        let k = moved.sections.iter().position(|(t, _)| *t > 0).unwrap();
+        moved.sections[k].0 += moved.ppq;
+        assert_ne!(moved.render(), ours.render());
+        assert_eq!(moved.render_reference(), ours.render_reference());
+    }
+
+    /// B1: whether a step reaches the instrument a few ms early or late does not change what
+    /// it plays, because the kit sends nothing on a beat line. Steps sent on the line (as the
+    /// golden snapshots time them) do change it when they arrive late.
+    #[test]
+    fn kit_timing_survives_jitter() {
+        // The same sections, and the same notes give or take the shift: a note the chord
+        // cuts or retriggers moves with it.
+        let same = |a: &Take, b: &Take, d: u32| -> Result<(), String> {
+            if a.sections != b.sections {
+                return Err("the sections change".into());
+            }
+            let rec: Vec<RecNote> = b.notes.iter().map(|n| RecNote { x: n.tick as f64, ch: n.ch, key: n.key, end: n.len.map(|l| (n.tick + l) as f64) }).collect();
+            let m = match_notes(&rec, &a.notes, 1.0, 0.0, 2.0 * d as f64);
+            for (r, m) in rec.iter().zip(&m) {
+                let Some(i) = *m else {
+                    return Err(format!("only the shifted take plays key {} on ch{} at tick {}", r.key, r.ch + 1, r.x));
+                };
+                let ends = (a.notes[i].len.map(|l| (a.notes[i].tick + l) as f64), r.end);
+                if !matches!(ends, (None, None)) && !matches!(ends, (Some(p), Some(q)) if (p - q).abs() <= 2.0 * d as f64) {
+                    return Err(format!("key {} on ch{} at tick {}: ends {ends:?}", r.key, r.ch + 1, r.x));
+                }
+            }
+            if m.iter().flatten().count() != a.notes.len() {
+                return Err(format!("{} notes against {}", a.notes.len(), b.notes.len()));
+            }
+            Ok(())
+        };
+        let shifted = |take: &Take, by: i64| -> Vec<u32> {
+            take.steps.iter().zip(&take.acts).map(|(s, &t)| if s.tick == 0 { t } else { (t as i64 + by) as u32 }).collect()
+        };
+        let mut on_line_differs = false;
+        for k in &KIT {
+            let Some(style) = corpus_style(k.file) else {
+                continue;
+            };
+            // 3 ms of USB jitter and clock drift, in ticks.
+            let d = (0.003 * style.bpm() / 60.0 * style.ppq as f64).ceil() as i64;
+            let p = plan(&style, SCRIPT).unwrap();
+            eprintln!("{}: chords {} ticks ahead, {} ticks of room ({:.1} ms)", k.file, p.chord_lead, p.margin, p.margin as f64 / style.ppq as f64 * 60_000.0 / style.bpm());
+            assert!(p.margin as i64 > d, "{}: only {} ticks of room", k.file, p.margin);
+            let take = perform(&style, SCRIPT).unwrap();
+            for by in [-d, d] {
+                let other = sim::perform_steps(&style, take.steps.clone(), take.bars, shifted(&take, by));
+                if let Err(e) = same(&take, &other, d as u32) {
+                    panic!("{}: steps {by} ticks late: {e}", k.file);
+                }
+            }
+            let on_line = sim::perform(&style, SCRIPT).unwrap();
+            let late = sim::perform_steps(&style, on_line.steps.clone(), on_line.bars, shifted(&on_line, d));
+            on_line_differs |= same(&on_line, &late, d as u32).is_err();
+        }
+        assert!(on_line_differs || corpus_style(KIT[0].file).is_none(), "steps on the line should be sensitive to jitter");
+    }
+
+    /// Each factory kit style is a Genos preset of exactly that name (the Data List's style
+    /// list), so an owner finds it on the Preset tab. The kit's old RockShuffle is not one.
+    /// Skipped without the (git-ignored) manuals.
+    #[test]
+    fn factory_kit_styles_are_genos_presets() {
+        let Ok(list) = std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("docs/manuals/Genos_data_list.txt")) else {
+            return;
+        };
+        // The style list is in columns two or more spaces apart ("US RockShuffle" is one name).
+        let names: std::collections::HashSet<&str> = list.lines().flat_map(|l| l.split("  ")).map(str::trim).filter(|w| !w.is_empty()).collect();
+        assert!(names.contains("US RockShuffle") && !names.contains("RockShuffle"));
+        for k in KIT.iter().filter(|k| k.source == FACTORY) {
+            assert!(names.contains(k.title), "{} is not a Genos preset style", k.title);
+        }
     }
 
     /// Every reference digest in tests/reference matches what we play now, except the
@@ -1021,7 +1439,7 @@ mod tests {
                 continue;
             };
             let want = std::fs::read_to_string(&path).unwrap();
-            let got = sim::digest(&sim::snapshot(&style, SCRIPT).unwrap());
+            let got = our_reference_digest(&style).unwrap();
             let known: Vec<String> = std::fs::read_to_string(dir.join(format!("{name}.known")))
                 .unwrap_or_default()
                 .lines()

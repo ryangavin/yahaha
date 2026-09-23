@@ -370,7 +370,7 @@ fn snapshots_do_not_list_parts_played_as_written() {
     }
 }
 
-/// A button written on a beat fires for that beat (one tick early, see `sim::snapshot`) and
+/// A button written on a beat fires for that beat (one tick early, see `sim::golden_act`) and
 /// shows at the tick it was pressed, even when that is in the previous bar.
 #[test]
 fn buttons_count_for_their_beat() {

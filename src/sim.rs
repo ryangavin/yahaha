@@ -199,6 +199,9 @@ pub struct Take {
     pub tpb: u32,
     pub bars: u32,
     pub steps: Vec<ScriptStep>,
+    /// The tick each step acted at (by index). The listing shows a step there, which may be
+    /// in the bar before its slot.
+    pub acts: Vec<u32>,
     /// (tick, section) at every section change; None = stopped.
     pub sections: Vec<(u32, Option<SectionId>)>,
     /// as_written[slot][part]: see PSection::plays_as_written.
@@ -206,8 +209,25 @@ pub struct Take {
     pub notes: Vec<PlayedNote>,
 }
 
+/// The tick a script step acts at in `yahaha sim` and the golden snapshots. Buttons press
+/// one tick ahead of their slot, as a player would: a press exactly on a beat or bar line
+/// would otherwise depend on float rounding (this beat or the next?). Chords act on it.
+pub fn golden_act(s: &ScriptStep) -> u32 {
+    match s.step {
+        Step::Button(_) => s.tick.saturating_sub(1),
+        _ => s.tick,
+    }
+}
+
 /// Play a script on a style and record what every part plays (see [`Take`]).
 pub fn perform(style: &Style, script: &str) -> Result<Take> {
+    let (steps, bars) = parse_script(script, style.ticks_per_bar())?;
+    let acts = steps.iter().map(golden_act).collect();
+    Ok(perform_steps(style, steps, bars, acts))
+}
+
+/// Play parsed script steps, each at its tick in `acts` (by index), for `bars` bars.
+pub fn perform_steps(style: &Style, steps: Vec<ScriptStep>, bars: u32, acts: Vec<u32>) -> Take {
     let prep = Box::new(Prepared::new(style));
     let as_written: Vec<[bool; 8]> = prep
         .sections
@@ -218,8 +238,7 @@ pub fn perform(style: &Style, script: &str) -> Result<Take> {
     let ns_per_tick = 60e9 / (bpm * ppq as f64);
     let ns = |tick: u32| (tick as f64 * ns_per_tick).ceil() as u64;
     let tick = |ns: u64| (ns as f64 / ns_per_tick).round() as u32;
-    let (steps, bars) = parse_script(script, tpb)?;
-    let mut timed: Vec<(u64, Step)> = steps.iter().map(|s| (ns(press_tick(s)), s.step)).collect();
+    let mut timed: Vec<(u64, Step)> = steps.iter().zip(&acts).map(|(s, &t)| (ns(t), s.step)).collect();
     timed.sort_by_key(|s| s.0);
 
     let mut sections: Vec<(u32, Option<SectionId>)> = Vec::new();
@@ -245,18 +264,7 @@ pub fn perform(style: &Style, script: &str) -> Result<Take> {
         }
     }
     let name = style.name.trim_end_matches(|c: char| c.is_whitespace() || c == '\0').to_string();
-    Ok(Take { name, bpm, timesig: style.timesig, ppq, tpb, bars, steps, sections, as_written, notes })
-}
-
-/// The tick a script step acts at. Buttons press one tick ahead of their slot, as a player
-/// would: a press exactly on a beat or bar line would otherwise depend on float rounding
-/// (this beat or the next?). The listing shows them at that tick, which may be in the
-/// previous bar.
-pub fn press_tick(s: &ScriptStep) -> u32 {
-    match s.step {
-        Step::Button(_) => s.tick.saturating_sub(1),
-        _ => s.tick,
-    }
+    Take { name, bpm, timesig: style.timesig, ppq, tpb, bars, steps, acts, sections, as_written, notes }
 }
 
 impl Take {
@@ -290,10 +298,23 @@ impl Take {
         for (t, s) in self.sections.iter().filter(|(t, _)| *t > lo && *t < hi) {
             out += &format!(" > {}@{}", name(*s), self.pos(*t));
         }
-        for s in self.steps.iter().filter(|s| press_tick(s) >= lo && press_tick(s) < hi) {
-            out += &format!("  {}@{}", s.label, self.pos(press_tick(s)));
+        out + &self.steps_in(bar)
+    }
+
+    /// The script steps acting in a bar, as the listing's bar line shows them.
+    fn steps_in(&self, bar: u32) -> String {
+        let (lo, hi) = (bar * self.tpb, (bar + 1) * self.tpb);
+        let mut out = String::new();
+        for (s, &t) in self.steps.iter().zip(&self.acts).filter(|(_, t)| (lo..hi).contains(*t)) {
+            out += &format!("  {}@{}", s.label, self.pos(t));
         }
         out
+    }
+
+    /// The listing's first lines: style, tempo, time signature, ppq and bar count.
+    fn head(&self) -> String {
+        let (num, den) = self.timesig;
+        format!("style  {}  {:.0} bpm  {num}/{den}  ppq {}\nbars   {}\n", self.name, self.bpm, self.ppq, self.bars)
     }
 
     /// What the part on `ch` starts in a bar: the listed notes, and the number of notes it
@@ -322,8 +343,7 @@ impl Take {
 
     /// The listing (format in tests/golden/README.md).
     pub fn render(&self) -> String {
-        let (num, den) = self.timesig;
-        let mut out = format!("style  {}  {:.0} bpm  {num}/{den}  ppq {}\nbars   {}\n", self.name, self.bpm, self.ppq, self.bars);
+        let mut out = self.head();
         for bar in 0..self.bars {
             out.push('\n');
             out += &self.bar_header(bar);
@@ -332,6 +352,26 @@ impl Take {
                 if let Some(line) = self.part_line(bar, ch) {
                     out += &line;
                     out.push('\n');
+                }
+            }
+        }
+        out
+    }
+
+    /// The listing reference captures are compared in (tests/reference). Unlike `render` it
+    /// holds nothing yahaha decides: the bar line has only the script steps, because the
+    /// instrument does not send its section changes and ours would be a guess, and every part
+    /// lists all its notes, drums included, because which notes play as written depends on
+    /// the section. Only its digest is ever kept.
+    pub fn render_reference(&self) -> String {
+        let mut out = self.head();
+        for bar in 0..self.bars {
+            let (lo, hi) = (bar * self.tpb, (bar + 1) * self.tpb);
+            out += &format!("\nbar {}{}\n", bar + 1, self.steps_in(bar));
+            for ch in 8..16u8 {
+                let items: Vec<String> = self.notes.iter().filter(|n| n.ch == ch && n.tick >= lo && n.tick < hi).map(|n| self.note_item(n)).collect();
+                if !items.is_empty() {
+                    out += &format!("  ch{} {:<8}{}\n", ch + 1, PART_NAMES[ch as usize - 8], items.join("  "));
                 }
             }
         }
