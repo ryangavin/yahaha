@@ -43,6 +43,7 @@ labels: chord-following
 ### Chord detection area: Upper, and Manual Bass (#5)
 labels: chord-following
 - Upper mode: the chord comes from the right hand, fingering becomes Fingered* (no 1+5, 1+8 or Cancel), Manual Bass is on, the style's Bass channel is muted, and the Left part plays bass.
+- Follow-up: Manual Bass takes the Bass voice from the Style's init setup only. A Bass program change inside a section (per-section voice) is not followed yet.
 
 ### Keyboard transpose feeds the chord root (#6)
 labels: chord-following

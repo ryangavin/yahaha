@@ -48,6 +48,10 @@ pub struct SynthControl {
     pub left_vol: AtomicU8,
     /// Octave shift + 2 (0..=4).
     pub left_oct: AtomicU8,
+    /// Manual Bass in effect: the left hand sounds, on the Style's Bass voice.
+    pub manual_bass: AtomicBool,
+    /// GM program for the current Style's Bass part (see `style_bass_program`).
+    pub bass_program: AtomicU8,
     pub slot_vol: [AtomicU8; SLOTS],
     /// Octave shift + 2 (0..=4) per slot.
     pub slot_oct: [AtomicU8; SLOTS],
@@ -86,6 +90,8 @@ impl SynthControl {
             left_program: AtomicU8::new(48),
             left_vol: AtomicU8::new(100),
             left_oct: AtomicU8::new(2),
+            manual_bass: AtomicBool::new(false),
+            bass_program: AtomicU8::new(33),
             slot_vol: [const { AtomicU8::new(100) }; SLOTS],
             slot_oct: [const { AtomicU8::new(2) }; SLOTS],
             ots_link: AtomicBool::new(false),
@@ -139,6 +145,18 @@ impl SynthControl {
         self.slots_changed.store(true, Relaxed);
     }
 
+    /// Manual Bass on/off: the Left part switches between its own voice and the Style's Bass voice.
+    pub fn set_manual_bass(&self, on: bool) {
+        self.manual_bass.store(on, Relaxed);
+        self.slots_changed.store(true, Relaxed);
+    }
+
+    /// A new Style is loaded: its Bass voice is what Manual Bass plays.
+    pub fn set_bass_program(&self, prog: u8) {
+        self.bass_program.store(prog, Relaxed);
+        self.slots_changed.store(true, Relaxed);
+    }
+
     pub fn step_left_program(&self, delta: i32) {
         let p = (self.left_program.load(Relaxed) as i32 + delta).rem_euclid(128) as u8;
         self.left_program.store(p, Relaxed);
@@ -181,7 +199,8 @@ fn sync_player(player: &mut Synthesizer, ctl: &SynthControl) {
         player.process_midi_message(c as i32, 0xC0, ctl.slots[c].load(Relaxed) as i32, 0);
         player.process_midi_message(c as i32, 0xB0, 7, ctl.slot_vol[c].load(Relaxed) as i32);
     }
-    player.process_midi_message(LEFT_CH, 0xC0, ctl.left_program.load(Relaxed) as i32, 0);
+    let left = if ctl.manual_bass.load(Relaxed) { &ctl.bass_program } else { &ctl.left_program };
+    player.process_midi_message(LEFT_CH, 0xC0, left.load(Relaxed) as i32, 0);
     player.process_midi_message(LEFT_CH, 0xB0, 7, ctl.left_vol.load(Relaxed) as i32);
 }
 
@@ -201,6 +220,16 @@ pub fn gm_fallback(dest: u8, msb: u8, prog: u8) -> u8 {
     match dest {
         10 if !(32..=39).contains(&prog) => 33, // Bass part -> Finger Bass
         _ => prog,
+    }
+}
+
+/// GM program for the Style's Bass part voice, which Manual Bass moves onto the Left part.
+/// TODO: this is the voice from the Style's init setup only; a Bass program change inside a
+/// section is not followed yet (see docs/backlog.md, #5 follow-ups).
+pub fn style_bass_program(voice: Option<(u8, u8, u8)>) -> u8 {
+    match voice {
+        Some((msb, _, pc)) if msb < 126 => gm_fallback(10, msb, pc),
+        _ => 33,
     }
 }
 
@@ -255,7 +284,7 @@ fn apply(synth: &mut Synthesizer, player: &mut Synthesizer, m: &Msg, ctl: &Synth
                     player.process_midi_message(c, st, m[1] as i32, v);
                 }
             }
-        } else if on && ctl.lh_sound.load(Relaxed) {
+        } else if on && (ctl.lh_sound.load(Relaxed) || ctl.manual_bass.load(Relaxed)) {
             let key = shifted(k, ctl.left_oct.load(Relaxed));
             pl.lh[k] = key as u8;
             player.note_on(LEFT_CH, key, v);
@@ -504,6 +533,34 @@ mod layer_tests {
         apply(&mut synth, &mut player, &[0x91, 40, 90], &ctl, &mut bank, &mut pl);
         assert_eq!(pl.lh[40], 40);
         ctl.lh_sound.store(false, Relaxed); // turned off while held: still released
+        apply(&mut synth, &mut player, &[0x81, 40, 0], &ctl, &mut bank, &mut pl);
+        assert_eq!(pl.lh[40], 255);
+    }
+
+    /// Manual Bass: the left hand sounds even with the Left voice off.
+    #[test]
+    fn manual_bass_sounds_the_left_hand() {
+        assert_eq!(style_bass_program(Some((0, 0, 35))), 35);
+        assert_eq!(style_bass_program(Some((8, 0, 4))), 33); // Genos-only bank, not a bass number
+        assert_eq!(style_bass_program(None), 33);
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        let sf2 = root.join("soundfonts/GeneralUser-GS.sf2");
+        if !sf2.exists() {
+            eprintln!("soundfont missing; skipping");
+            return;
+        }
+        let font = Arc::new(SoundFont::new(&mut std::fs::File::open(&sf2).unwrap()).unwrap());
+        let mut synth = Synthesizer::new(&font, &SynthesizerSettings::new(48_000)).unwrap();
+        let mut player = Synthesizer::new(&font, &SynthesizerSettings::new(48_000)).unwrap();
+        let ctl = SynthControl::new(0);
+        let (mut bank, mut pl) = ([0u8; 16], Player::new());
+        apply(&mut synth, &mut player, &[0x91, 40, 90], &ctl, &mut bank, &mut pl);
+        assert_eq!(pl.lh[40], 255, "Left voice off: silent");
+        ctl.set_manual_bass(true);
+        assert!(ctl.slots_changed.load(Relaxed));
+        apply(&mut synth, &mut player, &[0x91, 40, 90], &ctl, &mut bank, &mut pl);
+        assert_eq!(pl.lh[40], 40);
+        ctl.set_manual_bass(false); // turned off while held: still released
         apply(&mut synth, &mut player, &[0x81, 40, 0], &ctl, &mut bank, &mut pl);
         assert_eq!(pl.lh[40], 255);
     }
