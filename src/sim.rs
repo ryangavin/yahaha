@@ -15,6 +15,7 @@ impl Sink for Recorder {
     }
 }
 
+#[allow(dead_code)]
 pub enum Step {
     Chord(Chord),
     Button(Button),

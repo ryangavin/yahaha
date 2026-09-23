@@ -7,6 +7,7 @@ mod rt;
 mod sff;
 mod sim;
 mod theory;
+mod ui;
 
 use anyhow::Result;
 use std::path::PathBuf;
@@ -20,8 +21,12 @@ fn main() -> Result<()> {
             }
         }
         Some("sim") => sim_cmd(&args[2..])?,
+        Some("play") | None if args.len() > 2 || args.get(1).map_or(false, |a| a == "play") => play_cmd(&args[2..])?,
+        Some("drive") => bench::drive()?,
         Some("bench") => bench::run(std::path::Path::new(&args[2]), args.get(3).and_then(|s| s.parse().ok()))?,
-        _ => eprintln!("usage: yahaha dump <style>... | yahaha sim <style> \"C Am F G7\""),
+        _ => eprintln!(
+            "usage:\n  yahaha play <style or folder>... [--split F#2] [--input <name>] [--all-inputs] [--no-pads]\n  yahaha bench <style> [spin_us]\n  yahaha sim <style> \"C Am F G7\"\n  yahaha dump <style>..."
+        ),
     }
     Ok(())
 }
@@ -94,4 +99,46 @@ fn parse_chord(rec: &theory::Recognizer, s: &str) -> Result<theory::Chord> {
     let bass = bass.map(|b| pc(b).map(|p| p as u8).ok_or_else(|| anyhow::anyhow!("bad bass {b}"))).transpose()?;
     let _ = rec;
     Ok(theory::Chord { root, ty, bass: bass.filter(|&b| b != root) })
+}
+
+fn play_cmd(args: &[String]) -> Result<()> {
+    let mut paths = Vec::new();
+    let mut split = 54; // F#2 in Yamaha octave numbering (C3 = 60), the Genos default
+    let mut all_inputs = false;
+    let mut no_pads = false;
+    let mut inputs = Vec::new();
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--split" => {
+                i += 1;
+                split = parse_note(args.get(i).map(|s| s.as_str()).unwrap_or(""))
+                    .ok_or_else(|| anyhow::anyhow!("--split wants a note like F#2 or a MIDI number"))?;
+            }
+            "--all-inputs" => all_inputs = true,
+            "--no-pads" => no_pads = true,
+            "--input" => {
+                i += 1;
+                inputs.push(args.get(i).cloned().unwrap_or_default());
+            }
+            p => paths.push(PathBuf::from(p)),
+        }
+        i += 1;
+    }
+    if paths.is_empty() {
+        paths.push(PathBuf::from("corpus"));
+    }
+    ui::play(ui::Options { paths, split, all_inputs, inputs, no_pads })
+}
+
+/// "F#2" (Yamaha numbering, C3 = 60) or a raw MIDI number.
+fn parse_note(s: &str) -> Option<u8> {
+    if let Ok(n) = s.parse::<u8>() {
+        return Some(n);
+    }
+    let (name, oct) = s.split_at(s.find(|c: char| c.is_ascii_digit() || c == '-')?);
+    let pc = theory::NOTE_NAMES.iter().position(|n| n.eq_ignore_ascii_case(name))
+        .or_else(|| ["C", "Db", "D", "D#", "E", "F", "Gb", "G", "G#", "A", "A#", "B"].iter().position(|n| n.eq_ignore_ascii_case(name)))?;
+    let oct: i32 = oct.parse().ok()?;
+    u8::try_from((oct + 2) * 12 + pc as i32).ok()
 }

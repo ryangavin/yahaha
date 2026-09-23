@@ -182,3 +182,92 @@ pub fn run(path: &std::path::Path, spin_us: Option<u64>) -> Result<()> {
     drop((port, rx_port));
     Ok(())
 }
+
+/// `yahaha drive`: pretend to be a keyboard ("TestKbd" virtual source) against a running
+/// `yahaha play --all-inputs`, and report what comes out of the "yahaha" port.
+pub fn drive() -> Result<()> {
+    let client = Client::new("yahaha-driver")?;
+    let kbd_src = client.virtual_source("TestKbd")?;
+    let (rx_tx, mut rx) = RingBuffer::new(1 << 16);
+    let rx_port = client.input_port("driver-rx", Rx { tx: rx_tx })?;
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    let out = loop {
+        if let Some((e, _)) = crate::midi::sources().into_iter().find(|(_, n)| n == "yahaha") {
+            break e;
+        }
+        anyhow::ensure!(std::time::Instant::now() < deadline, "no \"yahaha\" source; is `yahaha play` running?");
+        // CoreMIDI only learns about endpoints created by other processes via the run loop.
+        unsafe {
+            core_foundation::runloop::CFRunLoopRunInMode(core_foundation::runloop::kCFRunLoopDefaultMode, 0.1, 0);
+        }
+    };
+    rx_port.connect(out, 0)?;
+    // Give `play` a moment to see TestKbd if it was started after us.
+    std::thread::sleep(Duration::from_millis(300));
+    let mut kbd = PacketSink::new(Target::Virtual(kbd_src));
+    let mut send = |msgs: &[[u8; 3]]| -> u64 {
+        for m in msgs {
+            kbd.push(m);
+        }
+        let t = rt::now_ns();
+        kbd.flush();
+        t
+    };
+    let mut log: Vec<(u64, [u8; 3])> = Vec::new();
+    let mut pump = |log: &mut Vec<(u64, [u8; 3])>, ms: u64| {
+        let end = std::time::Instant::now() + Duration::from_millis(ms);
+        while std::time::Instant::now() < end {
+            while let Ok(x) = rx.pop() {
+                log.push(x);
+            }
+            std::thread::sleep(Duration::from_millis(1));
+        }
+    };
+    let prog: [(&str, [u8; 3]); 4] = [("C", [48, 52, 55]), ("Am", [45, 48, 52]), ("F", [41, 45, 48]), ("G", [43, 47, 50])];
+    let mut marks = Vec::new();
+    for (name, c) in prog {
+        let t = send(&[[0x90, c[0], 90], [0x90, c[1], 90], [0x90, c[2], 90]]);
+        marks.push((name, t));
+        let rh = send(&[[0x90, 76, 100]]);
+        marks.push(("RH E4", rh));
+        pump(&mut log, 1500);
+        send(&[[0x80, 76, 0]]);
+        send(&[[0x80, c[0], 0], [0x80, c[1], 0], [0x80, c[2], 0]]);
+        pump(&mut log, 20);
+    }
+    pump(&mut log, 300);
+    let mut per_ch = [0usize; 16];
+    for (_, m) in &log {
+        if m[0] & 0xF0 == 0x90 && m[2] > 0 {
+            per_ch[(m[0] & 0xF) as usize] += 1;
+        }
+    }
+    println!("note-ons per channel on \"yahaha\":");
+    for (i, n) in per_ch.iter().enumerate() {
+        if *n > 0 {
+            println!("  ch {:>2}: {n}", i + 1);
+        }
+    }
+    for (name, t) in &marks {
+        let first = log.iter().find(|(tt, m)| {
+            *tt >= *t
+                && m[0] & 0xF0 == 0x90
+                && if name.starts_with("RH") { m[0] & 0xF == 0 && m[1] == 76 } else { m[0] & 0xF == 1 }
+        });
+        if let Some((tt, _)) = first {
+            println!("  {name:<6} -> passthrough after {:.0} µs", (tt - t) as f64 / 1000.0);
+        }
+    }
+    // Bass part (ch 11) pitch classes heard during each chord.
+    for (k, (name, t)) in marks.iter().filter(|m| !m.0.starts_with("RH")).enumerate() {
+        let end = t + 1_500_000_000;
+        let mut pcs: Vec<&str> = log
+            .iter()
+            .filter(|(tt, m)| *tt >= *t && *tt < end && m[0] == 0x9A && m[2] > 0)
+            .map(|(_, m)| crate::theory::NOTE_NAMES[m[1] as usize % 12])
+            .collect();
+        pcs.dedup();
+        println!("  chord {} {name:<3} bass notes: {}", k + 1, pcs.join(" "));
+    }
+    Ok(())
+}

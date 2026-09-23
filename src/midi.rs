@@ -98,17 +98,21 @@ pub trait InputHandler: Send {
 }
 
 unsafe extern "C" fn read_proc(list: *const MIDIPacketList, ctx: *mut c_void, src: *mut c_void) {
-    let handler = &mut **(ctx as *mut Box<dyn InputHandler>);
-    let n = (*list).numPackets;
-    let mut p = std::ptr::addr_of!((*list).packet) as *const MIDIPacket;
-    for _ in 0..n {
-        let len = std::ptr::addr_of!((*p).length).read_unaligned() as usize;
-        let ts = std::ptr::addr_of!((*p).timeStamp).read_unaligned();
-        let data = std::slice::from_raw_parts(std::ptr::addr_of!((*p).data) as *const u8, len);
-        handler.packet(src as usize, ts, data);
-        p = MIDIPacketNext(p);
+    // SAFETY: `ctx` is the leaked Box<Box<dyn InputHandler>> from `input_port`; CoreMIDI
+    // calls this serially on its receive thread, and `list` is valid for the call.
+    unsafe {
+        let handler = &mut **(ctx as *mut Box<dyn InputHandler>);
+        let n = (*list).numPackets;
+        let mut p = std::ptr::addr_of!((*list).packet) as *const MIDIPacket;
+        for _ in 0..n {
+            let len = std::ptr::addr_of!((*p).length).read_unaligned() as usize;
+            let ts = std::ptr::addr_of!((*p).timeStamp).read_unaligned();
+            let data = std::slice::from_raw_parts(std::ptr::addr_of!((*p).data) as *const u8, len);
+            handler.packet(src as usize, ts, data);
+            p = MIDIPacketNext(p);
+        }
+        handler.end_of_list();
     }
-    handler.end_of_list();
 }
 
 /// Split a MIDI byte stream into messages (handles running status, skips sysex/realtime).

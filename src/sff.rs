@@ -97,6 +97,7 @@ pub struct Zone {
 }
 
 /// Channel rule for one source channel within one or more sections (a Ctab/Ctb2 record).
+#[allow(dead_code)] // editable/sff2 kept for dump/debugging
 #[derive(Debug, Clone)]
 pub struct ChannelRule {
     pub src_ch: u8,
@@ -224,6 +225,7 @@ impl SectionId {
     }
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct Section {
     pub id: SectionId,

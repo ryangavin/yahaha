@@ -246,7 +246,3 @@ impl Histogram {
         BUCKETS
     }
 }
-
-pub fn ok(kr: i32) -> bool {
-    kr == KERN_SUCCESS
-}

@@ -349,6 +349,7 @@ impl Engine {
 
     // ----- queries -----
 
+    #[allow(dead_code)]
     pub fn is_running(&self) -> bool {
         self.running
     }
