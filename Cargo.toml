@@ -2,6 +2,9 @@
 name = "yahaha"
 version = "0.1.0"
 edition = "2024"
+description = "A software arranger keyboard that plays Yamaha Genos/PSR style files live from your MIDI keyboard"
+license = "MIT"
+repository = "https://github.com/ryangavin/yahaha"
 
 [dependencies]
 anyhow = "1.0.104"

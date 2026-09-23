@@ -2,6 +2,14 @@
 
 A software arranger keyboard. It loads Yamaha Genos/PSR/Tyros style files (`.sty .prs .sst ...`) and follows the chords you play on a MIDI keyboard. The band plays through a built-in SoundFont synth, and also out of a virtual MIDI port called **yahaha** so you can use your own sounds in Ableton.
 
+## Setup
+
+yahaha doesn't ship any styles or sounds. You add two things yourself (both folders are git-ignored):
+- **Styles:** put `.sty/.prs/.sst` files in `corpus/`. Free ones are available from Yamaha, PSR Tutorial, and Sand, Software and Sound. Encrypted Expansion Packs (`.cpi`/`.ppi`) are not supported.
+- **SoundFont (optional):** put a General MIDI `.sf2` in `soundfonts/`, for example [GeneralUser GS](https://github.com/mrbumpy409/GeneralUser-GS).
+
+macOS only; it uses CoreMIDI and CoreAudio directly.
+
 ## Run
 
 ```bash
@@ -134,3 +142,7 @@ Tests: run `cargo test --release`. It covers the spec's transposition examples, 
 
 - The NTT transposition tables are reconstructed from documentation and have not yet been checked against a real Genos (see PLAN.md §4).
 - Not done yet: ritardando on a second Ending press, Ableton Link, audio styles, OTS voice changes, and the Ctb2 bytes that are still undocumented.
+
+## License
+
+MIT. Yamaha, Genos, PSR, and Tyros are trademarks of Yamaha Corporation. yahaha is an independent project, not affiliated with Yamaha; it reads the publicly documented style file format for interoperability.
