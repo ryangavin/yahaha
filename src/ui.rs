@@ -4,6 +4,7 @@
 use crate::engine::{id_of, Button, Engine, Prepared, Snapshot, Transpose, NUM_SLOTS};
 use crate::fingering::Fingering;
 use crate::launchkey::{self, Action, Led, Page, Panel};
+use crate::library::{self, Info, Library};
 use crate::live::{self, Cmd, Input, Shared, TAG_KEYS, TAG_PADS};
 use crate::midi::{self, Client};
 use crate::rt::{PacketSink, Target};
@@ -15,7 +16,8 @@ use crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
 use ratatui::layout::{Constraint, Layout};
 use ratatui::style::{Color, Modifier, Style as St};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Paragraph};
+use ratatui::widgets::{Block, Borders, Clear, Paragraph};
+use std::cell::Cell;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::Ordering::Relaxed;
 use std::sync::Arc;
@@ -130,32 +132,110 @@ fn key_action(code: KeyCode) -> Option<Action> {
     }
 }
 
-fn collect_styles(paths: &[PathBuf]) -> Vec<PathBuf> {
-    let mut out = Vec::new();
-    let is_style = |p: &Path| {
-        p.extension().map_or(false, |x| {
-            matches!(x.to_ascii_lowercase().to_str(), Some("sty" | "prs" | "sst" | "bcs" | "pcs" | "pst" | "fps"))
-        })
-    };
-    for p in paths {
-        if p.is_dir() {
-            let mut stack = vec![p.clone()];
-            while let Some(d) = stack.pop() {
-                for e in std::fs::read_dir(&d).into_iter().flatten().flatten() {
-                    let q = e.path();
-                    if q.is_dir() {
-                        stack.push(q);
-                    } else if is_style(&q) {
-                        out.push(q);
-                    }
-                }
+/// The style browser overlay (`Enter` opens it). While it is open every typed key goes
+/// here, never to the performance shortcuts; MIDI and the Launchkey are separate paths.
+struct Browser {
+    query: String,
+    /// Entry id under the cursor. If the filter hides it, the first match is the cursor.
+    cursor: usize,
+    /// Rows the list showed last frame, for PgUp/PgDn.
+    page: Cell<usize>,
+}
+
+enum BrowseKey {
+    Stay,
+    Close,
+    Load(usize),
+}
+
+impl Browser {
+    fn open(current: usize) -> Browser {
+        Browser { query: String::new(), cursor: current, page: Cell::new(10) }
+    }
+
+    /// Matching entry ids and the cursor's position among them.
+    fn visible(&self, lib: &Library) -> (Vec<usize>, usize) {
+        let v = lib.filter(&self.query);
+        let pos = v.iter().position(|&i| i == self.cursor).unwrap_or(0);
+        (v, pos)
+    }
+
+    fn key(&mut self, code: KeyCode, lib: &Library) -> BrowseKey {
+        let (v, pos) = self.visible(lib);
+        let page = self.page.get().max(1);
+        let last = v.len().saturating_sub(1);
+        let to = match code {
+            KeyCode::Esc => return BrowseKey::Close,
+            KeyCode::Enter => return v.get(pos).map_or(BrowseKey::Stay, |&id| BrowseKey::Load(id)),
+            KeyCode::Up => pos.saturating_sub(1),
+            KeyCode::Down => (pos + 1).min(last),
+            KeyCode::PageUp => pos.saturating_sub(page),
+            KeyCode::PageDown => (pos + page).min(last),
+            KeyCode::Home => 0,
+            KeyCode::End => last,
+            KeyCode::Backspace => {
+                self.query.pop();
+                return BrowseKey::Stay;
             }
-        } else {
-            out.push(p.clone());
+            KeyCode::Char(c) => {
+                self.query.push(c);
+                // Keep the cursor if it still matches, else take the first match.
+                let (v, pos) = self.visible(lib);
+                if let Some(&id) = v.get(pos) {
+                    self.cursor = id;
+                }
+                return BrowseKey::Stay;
+            }
+            _ => return BrowseKey::Stay,
+        };
+        if let Some(&id) = v.get(to) {
+            self.cursor = id;
+        }
+        BrowseKey::Stay
+    }
+}
+
+/// Load a style and hand it to the engine, playing or stopped: the one path ←/→, Track
+/// ◀/▶ and the browser share. `Ok(None)` if the engine's style ring is full (try again).
+/// A file that fails to load is marked as an error row, so stepping skips it next time.
+fn switch_style(
+    lib: &mut Library,
+    id: usize,
+    style_tx: &mut rtrb::Producer<Box<Prepared>>,
+    synth: Option<&synth::Synth>,
+    shared: &Shared,
+) -> std::result::Result<Option<Loaded>, String> {
+    let path = lib.entry(id).path.clone();
+    match load(&path) {
+        Ok((p, info)) => {
+            if style_tx.push(p).is_err() {
+                return Ok(None);
+            }
+            if let Some(sy) = synth {
+                sy.control.set_bass_program(synth::style_bass_program(info.voices[10]));
+                // No OTS of the new style is recalled yet (OTS Link recalls one on the
+                // next pass if it's on).
+                sy.control.ots_applied.store(0, Relaxed);
+            }
+            shared.wake.signal();
+            Ok(Some(info))
+        }
+        Err(e) => {
+            lib.set_info(id, Info::Err(format!("{e:#}")));
+            lib.sort();
+            Err(format!("{}: {e:#}", path.display()))
         }
     }
-    out.sort_by_key(|p| p.file_name().map(|n| n.to_ascii_lowercase()));
-    out
+}
+
+/// `s` cut or padded to exactly `w` characters.
+fn fit(s: &str, w: usize) -> String {
+    let n = s.chars().count();
+    if n > w {
+        s.chars().take(w.saturating_sub(1)).chain(['…']).collect()
+    } else {
+        format!("{s}{}", " ".repeat(w - n))
+    }
 }
 
 pub fn note_name(n: u8) -> String {
@@ -188,10 +268,26 @@ fn load(path: &Path) -> Result<(Box<Prepared>, Loaded)> {
 }
 
 pub fn play(opts: Options) -> Result<()> {
-    let styles = collect_styles(&opts.paths);
-    anyhow::ensure!(!styles.is_empty(), "no style files found");
-    let mut idx = 0;
-    let (prep, mut info) = load(&styles[0]).with_context(|| format!("loading {}", styles[0].display()))?;
+    // The folder walk is quick; the index (names, tempos) fills in on a background thread.
+    let mut lib = Library::scan(&opts.paths);
+    anyhow::ensure!(!lib.is_empty(), "no style files found");
+    let index_rx = lib.spawn_indexer();
+    // Start on the first style that loads.
+    let mut first = None;
+    for &id in lib.order() {
+        match load(&lib.entry(id).path) {
+            Ok(l) => {
+                first = Some((id, l));
+                break;
+            }
+            Err(e) if lib.len() == 1 => {
+                return Err(e).with_context(|| format!("loading {}", lib.entry(id).path.display()));
+            }
+            Err(_) => {}
+        }
+    }
+    let (mut cur, (prep, mut info)) = first.context("no style file loads")?;
+    let mut browser: Option<Browser> = None;
 
     // --- MIDI setup ---
     let client = Client::new("yahaha")?;
@@ -320,7 +416,7 @@ pub fn play(opts: Options) -> Result<()> {
         }
         // OTS Link: Main A-D recall One Touch Settings 1-4 (also on style change).
         if let (Some(sy), Some(s)) = (&synth, &snap) {
-            let key = (idx, s.main);
+            let key = (cur, s.main);
             let link = sy.control.ots_link.load(Relaxed);
             if link && (last_ots_key != Some(key) || !last_link) {
                 if let Some(o) = info.ots.get(s.main as usize) {
@@ -371,7 +467,7 @@ pub fn play(opts: Options) -> Result<()> {
             }
             if last_nav != Some(pnl.page) {
                 led_buf.clear();
-                launchkey::nav_button_msgs(pnl.page, styles.len() > 1, &mut led_buf);
+                launchkey::nav_button_msgs(pnl.page, lib.len() > 1, &mut led_buf);
                 for m in &led_buf {
                     out.push(m);
                 }
@@ -380,18 +476,41 @@ pub fn play(opts: Options) -> Result<()> {
             out.flush();
         }
 
-        term.draw(|f| draw(f, &info, snap.as_ref(), &shared, &pnl, &connected, idx, styles.len(), &message, beats, synth.as_ref().map(|s| (&s.info, &*s.control))))?;
+        lib.apply(&index_rx);
+        term.draw(|f| {
+            draw(f, &info, snap.as_ref(), &shared, &pnl, &connected, lib.position(cur), lib.len(), &message, beats, synth.as_ref().map(|s| (&s.info, &*s.control)));
+            if let Some(b) = &browser {
+                draw_browser(f, b, &lib, cur, &message);
+            }
+        })?;
 
         let mut key_act = None;
+        let mut browse_load = None;
         if event::poll(Duration::from_millis(16))? {
             if let Event::Key(k) = event::read()? {
                 if k.kind != KeyEventKind::Press {
                     continue;
                 }
                 let ctrl = k.modifiers.contains(KeyModifiers::CONTROL);
-                match k.code {
+                if ctrl && k.code == KeyCode::Char('c') {
+                    return Ok(());
+                }
+                // The browser takes every key while it's open (typing filters, never plays).
+                let code = if let Some(b) = browser.as_mut() {
+                    match b.key(k.code, &lib) {
+                        BrowseKey::Stay => {}
+                        BrowseKey::Close => browser = None,
+                        BrowseKey::Load(id) if id == cur => browser = None,
+                        BrowseKey::Load(id) => browse_load = Some(id),
+                    }
+                    KeyCode::Null
+                } else {
+                    k.code
+                };
+                match code {
+                    KeyCode::Null => {}
                     KeyCode::Esc => return Ok(()),
-                    KeyCode::Char('c') if ctrl => return Ok(()),
+                    KeyCode::Enter => browser = Some(Browser::open(cur)),
                     KeyCode::Tab | KeyCode::BackTab => {
                         let d = if k.code == KeyCode::Tab { 1 } else { -1 };
                         shared.step_page(|p| p.cycle(d));
@@ -507,28 +626,32 @@ pub fn play(opts: Options) -> Result<()> {
                 }
                 // Same path playing or stopped: the engine swaps the style in. With one
                 // style there is nowhere to go, so nothing reloads.
-                Action::Style(d) if styles.len() > 1 => {
-                    let n = styles.len();
-                    let next = if d > 0 { (idx + 1) % n } else { (idx + n - 1) % n };
-                    match load(&styles[next]) {
-                        Ok((p, i)) => {
-                            if ch.style_tx.push(p).is_ok() {
-                                idx = next;
-                                info = i;
-                                if let Some(sy) = &synth {
-                                    sy.control.set_bass_program(synth::style_bass_program(info.voices[10]));
-                                    // No OTS of the new style is recalled yet (OTS Link
-                                    // recalls one on the next pass if it's on).
-                                    sy.control.ots_applied.store(0, Relaxed);
-                                }
+                // Folder-then-name order, the browser's unfiltered list.
+                Action::Style(d) => {
+                    let next = lib.step(cur, d);
+                    if next != cur {
+                        match switch_style(&mut lib, next, &mut ch.style_tx, synth.as_ref(), &shared) {
+                            Ok(Some(i)) => {
+                                (cur, info) = (next, i);
                                 message.clear();
-                                shared.wake.signal();
                             }
+                            Ok(None) => {}
+                            Err(e) => message = e,
                         }
-                        Err(e) => message = format!("{}: {e:#}", styles[next].display()),
                     }
                 }
-                Action::Style(_) => {}
+            }
+        }
+        // The browser's pick goes through the same path; the browser closes once it loads.
+        if let Some(id) = browse_load {
+            match switch_style(&mut lib, id, &mut ch.style_tx, synth.as_ref(), &shared) {
+                Ok(Some(i)) => {
+                    (cur, info) = (id, i);
+                    message.clear();
+                    browser = None;
+                }
+                Ok(None) => {}
+                Err(e) => message = e,
             }
         }
     })();
@@ -624,7 +747,7 @@ fn draw(
             Span::styled(" yahaha ", St::default().fg(Color::Black).bg(Color::Yellow).add_modifier(Modifier::BOLD)),
             Span::raw(format!("  {}  ", info.name)),
             Span::styled(format!("[{}]", info.format), dim),
-            Span::raw(format!("   {:.0} bpm   style {}/{}   ←/→ or Track ◀/▶ change style", bpm, idx + 1, total)),
+            Span::raw(format!("   {:.0} bpm   style {}/{}   ←/→ or Track ◀/▶ change style · enter browse", bpm, idx + 1, total)),
         ])),
         rows[0],
     );
@@ -838,7 +961,7 @@ fn draw(
 
     let mut help = vec![
         Line::from(Span::styled(
-            " space start/stop · 1-4 Main A-D (again = fill) · q w e intro · i o p ending · g break · t tap · -/= tempo · F1-F8 voice · F9 layer · ; ' kbd transpose · : \" master · / reset · tab pad page · \\ panic · esc quit",
+            " space start/stop · 1-4 Main A-D (again = fill) · q w e intro · i o p ending · g break · t tap · -/= tempo · F1-F8 voice · F9 layer · ; ' kbd transpose · : \" master · / reset · tab pad page · enter browse styles · \\ panic · esc quit",
             dim,
         )),
         Line::from(Span::styled(
@@ -858,11 +981,104 @@ fn draw(
     f.render_widget(Paragraph::new(help), rows[5]);
 }
 
+/// The style browser, drawn over the front panel.
+fn draw_browser(f: &mut ratatui::Frame, b: &Browser, lib: &Library, current: usize, message: &str) {
+    let full = f.area();
+    let area = ratatui::layout::Rect {
+        x: full.x + 2.min(full.width / 10),
+        y: full.y + 1.min(full.height / 10),
+        width: full.width.saturating_sub(2 * 2.min(full.width / 10)),
+        height: full.height.saturating_sub(2 * 1.min(full.height / 10)),
+    };
+    let dim = St::default().fg(Color::DarkGray);
+    let (v, pos) = b.visible(lib);
+    let pending = lib.pending();
+    let title = if pending > 0 {
+        format!(" Styles · {} of {} · indexing, {pending} to go ", v.len(), lib.len())
+    } else {
+        format!(" Styles · {} of {} ", v.len(), lib.len())
+    };
+    let block = Block::default().borders(Borders::ALL).title(title).border_style(St::default().fg(Color::Yellow));
+    let inner = block.inner(area);
+    f.render_widget(Clear, area);
+    f.render_widget(block, area);
+    let rows = Layout::vertical([Constraint::Length(2), Constraint::Min(1), Constraint::Length(3)]).split(inner);
+
+    f.render_widget(
+        Paragraph::new(vec![
+            Line::from(vec![
+                Span::raw(" filter: "),
+                Span::styled(format!("{}▏", b.query), St::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+                Span::styled(if b.query.is_empty() { "  type to filter by name or folder" } else { "" }, dim),
+            ]),
+            Line::from(Span::styled(
+                format!("   {}{}{:>8}  {:<5} sections", fit("name", 34), fit("folder", 28), "tempo", "time"),
+                dim.add_modifier(Modifier::UNDERLINED),
+            )),
+        ]),
+        rows[0],
+    );
+
+    // A window of the list with the cursor kept near the middle.
+    let h = rows[1].height as usize;
+    b.page.set(h.saturating_sub(1).max(1));
+    let top = pos.saturating_sub(h / 2).min(v.len().saturating_sub(h));
+    let mut lines = Vec::new();
+    for (i, &id) in v.iter().enumerate().skip(top).take(h) {
+        let e = lib.entry(id);
+        let mut st = if id == current { St::default().fg(Color::Yellow).add_modifier(Modifier::BOLD) } else { St::default() };
+        if i == pos {
+            st = st.bg(Color::Rgb(40, 60, 110));
+        }
+        let mark = if id == current { " ▶ " } else { "   " };
+        let (right, right_st) = match &e.info {
+            Info::Pending => ("…".to_string(), dim),
+            Info::Ok(s) => (
+                format!("{:>4.0} bpm  {:<5} {}", s.bpm, format!("{}/{}", s.timesig.0, s.timesig.1), library::sections_text(&s.sections)),
+                St::default(),
+            ),
+            Info::Err(err) => (format!("✗ {err}"), St::default().fg(Color::Red)),
+        };
+        let right_st = if i == pos { right_st.bg(Color::Rgb(40, 60, 110)) } else { right_st };
+        lines.push(Line::from(vec![
+            Span::styled(format!("{mark}{}{}", fit(e.name(), 34), fit(&e.folder, 28)), st),
+            Span::styled(right, right_st),
+        ]));
+    }
+    if v.is_empty() {
+        lines.push(Line::from(Span::styled("   no style matches", dim)));
+    }
+    f.render_widget(Paragraph::new(lines), rows[1]);
+
+    let detail = v.get(pos).map(|&id| lib.entry(id).path.display().to_string()).unwrap_or_default();
+    let mut foot = vec![
+        Line::from(Span::styled(format!(" {detail}"), dim)),
+        Line::from(Span::styled(
+            " type to filter · backspace edit · ↑/↓ PgUp/PgDn Home/End move · enter load (the band keeps playing) · esc close",
+            dim,
+        )),
+    ];
+    if !message.is_empty() {
+        foot.push(Line::from(Span::styled(format!(" {message}"), St::default().fg(Color::Red))));
+    }
+    f.render_widget(Paragraph::new(foot), rows[2]);
+}
+
 /// Debug: render one frame (with a sample playing state) to HTML so the layout can be
-/// checked without a terminal. `yahaha screen <style> out.html`
+/// checked without a terminal. `yahaha screen <style> out.html`; give a folder instead of a
+/// style to see the browser open over it.
 pub fn screen_html(style: &Path, out: &Path) -> Result<()> {
     use ratatui::backend::TestBackend;
-    let (_, info) = load(style)?;
+    let mut lib = Library::scan(&[style.to_path_buf()]);
+    anyhow::ensure!(!lib.is_empty(), "no style files found");
+    let rx = lib.spawn_indexer();
+    for (id, i) in rx.iter() {
+        lib.set_info(id, i);
+    }
+    lib.sort();
+    let current = lib.order()[lib.len() / 3];
+    let browser = style.is_dir().then(|| Browser::open(current));
+    let (_, info) = load(&lib.entry(current).path)?;
     let shared = Shared::new(54);
     let snap = Snapshot {
         running: true,
@@ -891,7 +1107,12 @@ pub fn screen_html(style: &Path, out: &Path) -> Result<()> {
     }
     sc.ots_link.store(true, Relaxed);
     sc.master.store(110, Relaxed);
-    term.draw(|f| draw(f, &info, Some(&snap), &shared, &panel(&shared, &info, Some(&sc)), &["Launchkey MK4 61 MIDI Out".into()], 0, 35, "", 0.25, Some((&si, &sc))))?;
+    term.draw(|f| {
+        draw(f, &info, Some(&snap), &shared, &panel(&shared, &info, Some(&sc)), &["Launchkey MK4 61 MIDI Out".into()], lib.position(current), lib.len(), "", 0.25, Some((&si, &sc)));
+        if let Some(b) = &browser {
+            draw_browser(f, b, &lib, current, "");
+        }
+    })?;
     let buf = term.backend().buffer().clone();
     let col = |c: Color, dflt: &str| -> String {
         match c {
@@ -949,6 +1170,39 @@ mod tests {
         }
         assert_eq!(key_action(KeyCode::Right), Some(Action::Style(1)));
         assert_eq!(key_action(KeyCode::Char('f')), Some(Action::NextFingering));
+    }
+
+    /// Letters typed into the browser filter; they never reach the performance shortcuts
+    /// (the caller hands the browser every key while it's open).
+    #[test]
+    fn browser_keys_filter_move_and_load() {
+        let lib = Library::scan(&[PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("corpus")]);
+        if lib.len() < 3 {
+            return;
+        }
+        let first = lib.order()[0];
+        let mut b = Browser::open(lib.order()[1]);
+        assert!(matches!(b.key(KeyCode::Up, &lib), BrowseKey::Stay));
+        assert_eq!(b.cursor, first);
+        assert!(matches!(b.key(KeyCode::Up, &lib), BrowseKey::Stay));
+        assert_eq!(b.cursor, first, "stops at the top");
+        for c in "FUNK".chars() {
+            assert!(matches!(b.key(KeyCode::Char(c), &lib), BrowseKey::Stay));
+        }
+        assert_eq!(b.query, "FUNK");
+        let (v, pos) = b.visible(&lib);
+        assert!(!v.is_empty() && v.iter().all(|&i| lib.entry(i).name().to_lowercase().contains("funk")));
+        assert_eq!(v[pos], b.cursor, "the cursor moves onto a match");
+        b.key(KeyCode::End, &lib);
+        assert_eq!(b.cursor, *v.last().unwrap());
+        assert!(matches!(b.key(KeyCode::Enter, &lib), BrowseKey::Load(id) if id == *v.last().unwrap()));
+        b.key(KeyCode::Backspace, &lib);
+        assert_eq!(b.query, "FUN");
+        assert!(matches!(b.key(KeyCode::Esc, &lib), BrowseKey::Close));
+        // Nothing matches: Enter does nothing.
+        b.key(KeyCode::Char('#'), &lib);
+        b.key(KeyCode::Char('#'), &lib);
+        assert!(matches!(b.key(KeyCode::Enter, &lib), BrowseKey::Stay));
     }
 
     #[test]
