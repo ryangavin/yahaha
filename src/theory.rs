@@ -399,6 +399,64 @@ fn scale(ty: u8, ntt: Ntt) -> [u8; 7] {
     s
 }
 
+/// The altered 5th of chords whose 5th is sharpened (aug, M7aug, 7aug: 8) or flattened
+/// (dim, dim7, m7b5, 7b5: 6) with no perfect 5th alongside: what the NTT "5th" tables follow.
+#[inline]
+fn altered_fifth(ty: u8) -> Option<u8> {
+    match ty {
+        7 | 28 | 29 => Some(8),
+        11 | 17 | 18 | 21 => Some(6),
+        _ => None,
+    }
+}
+
+/// Which 3rd the minor tables read a chord as: Some(true) minor, Some(false) major, None
+/// for chords without one (7sus4, 1+8, 1+5, sus4, 1+2+5).
+#[inline]
+fn minor_side(ty: u8) -> Option<bool> {
+    match ty {
+        20 | 30..=33 => None,
+        _ => Some(matches!(quality(ty), Quality::Minor | Quality::HalfDim | Quality::Dim)),
+    }
+}
+
+/// Melodic / Harmonic / Natural Minor and Dorian (RM, Style Creator NTT): a major <-> minor
+/// switch that moves only the degrees each table names, by a semitone ("Other notes are
+/// not changed"). The "5th" tables also move the perfect 5th to the chord's #5 / b5 over
+/// aug and dim chords. None for other tables, and when the target has no 3rd: that goes
+/// through the scale model like the other tables.
+fn minor_table_map(d: u8, src_ty: u8, tgt_ty: u8, ntt: Ntt) -> Option<u8> {
+    let (sixth, seventh, fifth) = match ntt {
+        Ntt::MelodicMinor => (false, false, false),
+        Ntt::MelodicMinor5 => (false, false, true),
+        Ntt::HarmonicMinor => (true, false, false),
+        Ntt::HarmonicMinor5 => (true, false, true),
+        Ntt::NaturalMinor => (true, true, false),
+        Ntt::NaturalMinor5 => (true, true, true),
+        Ntt::Dorian => (false, true, false),
+        Ntt::Dorian5 => (false, true, true),
+        _ => return None,
+    };
+    let tgt_minor = minor_side(tgt_ty)?;
+    // A pattern recorded without a 3rd is read as major, as `src_scale` does.
+    let src_minor = minor_side(src_ty).unwrap_or(false);
+    if fifth {
+        // A source recorded over aug / dim (no corpus rule is) has its #5 / b5 mapped back.
+        if d == altered_fifth(src_ty).unwrap_or(7) {
+            return Some(altered_fifth(tgt_ty).unwrap_or(7));
+        }
+    }
+    Some(match (src_minor, tgt_minor, d) {
+        (false, true, 4) => 3,
+        (false, true, 9) if sixth => 8,
+        (false, true, 11) if seventh => 10,
+        (true, false, 3) => 4,
+        (true, false, 8) if sixth => 9,
+        (true, false, 10) if seventh => 11,
+        _ => d,
+    })
+}
+
 /// 1+8 and 1+5: no 3rd, so the accompaniment must fit both major and minor.
 #[inline]
 fn is_no_third(ty: u8) -> bool {
@@ -519,15 +577,24 @@ fn chord_map_raw(d: u8, src_ty: u8, tgt_ty: u8, src_scale: &[u8; 7], tgt_scale: 
 // Transposition
 // ---------------------------------------------------------------------------
 
+/// Note Limit: octave-shift `n` into `lo..=hi`. A range of an octave or more always has
+/// room for every pitch class. A narrower range cannot hold all twelve, so a pitch class
+/// that has no octave inside it goes to the octave nearest the range (the lower one on a
+/// tie), which keeps it within a tritone of the limits. At the edges of the MIDI range
+/// the nearest octave may not exist; the other one is taken so the pitch class survives.
+/// A reversed range is read as `hi..=lo`.
 #[inline]
 fn fold_into(mut n: i32, lo: u8, hi: u8) -> i32 {
-    let (lo, hi) = (lo as i32, hi as i32);
-    if hi - lo >= 11 {
-        while n < lo {
-            n += 12;
-        }
-        while n > hi {
+    let (lo, hi) = (lo.min(hi) as i32, lo.max(hi) as i32);
+    if n < lo {
+        n += (lo - n + 11) / 12 * 12; // lowest octave at or above lo
+        if n > hi && (lo - (n - 12) <= n - hi || n > 127) && n - 12 >= 0 {
             n -= 12;
+        }
+    } else if n > hi {
+        n -= (n - hi + 11) / 12 * 12; // highest octave at or below hi
+        if n < lo && ((n + 12) - hi < lo - n || n < 0) && n + 12 <= 127 {
+            n += 12;
         }
     }
     n.clamp(0, 127)
@@ -587,14 +654,17 @@ pub fn transpose(key: u8, rule: &ChannelRule, chord: Chord) -> Option<u8> {
             }
             d as i32 + delta
         }
-        ntt => {
-            let s = src_scale(rule.src_type, ntt);
-            let t = scale(chord.ty, ntt);
-            scale_map(d, &s, &t, chord.ty) as i32
-        }
+        ntt => match minor_table_map(d, rule.src_type, chord.ty, ntt) {
+            Some(v) => v as i32,
+            None => {
+                let s = src_scale(rule.src_type, ntt);
+                let t = scale(chord.ty, ntt);
+                scale_map(d, &s, &t, chord.ty) as i32
+            }
+        },
     };
     // On-bass: parts with Bass On replace the root with the bass note.
-    if let (true, Some(b)) = (rule.bass_on || z.ntt == Ntt::Bass, chord.bass) {
+    if let (true, Some(b)) = (z.bass_on || z.ntt == Ntt::Bass, chord.bass) {
         if val.rem_euclid(12) == 0 {
             let mut off = (b as i32 - chord.root as i32).rem_euclid(12);
             if off > 6 {
@@ -633,6 +703,15 @@ pub fn transpose_group(keys: &[u8], rule: &ChannelRule, chord: Chord, out: &mut 
         return;
     }
     if keys.iter().any(|&k| rule.zone_for(k).ntr != Ntr::RootFixed || rule.zone_for(k).ntt == Ntt::Bypass) {
+        return;
+    }
+    // With a slash chord, zones that disagree on Bass On must keep their own notes: the
+    // permutation would otherwise hand the slash bass to a zone without Bass On.
+    let on_bass = |k: u8| {
+        let z = rule.zone_for(k);
+        z.bass_on || z.ntt == Ntt::Bass
+    };
+    if chord.bass.is_some() && keys.iter().any(|&k| on_bass(k) != on_bass(keys[0])) {
         return;
     }
     let mut pcs = [0u8; 6];
@@ -750,7 +829,7 @@ mod tests {
 
     fn rule(ntr: Ntr, ntt: Ntt, hk: u8, lo: u8, hi: u8) -> ChannelRule {
         let mut r = ChannelRule::default_for(12);
-        r.zones = [Zone { ntr, ntt, high_key: hk, lo, hi, rtr: Rtr::PitchShift }; 3];
+        r.zones = [Zone { ntr, ntt, high_key: hk, lo, hi, rtr: Rtr::PitchShift, bass_on: false }; 3];
         r
     }
 
@@ -1190,11 +1269,223 @@ mod tests {
     }
 
     #[test]
+    fn minor_tables_fifth_variants() {
+        // A C major source (C E G). The base tables keep the perfect 5th over aug and dim;
+        // the "5th" tables move it to the #5 / b5. The 3rd follows either way.
+        let pairs = [(Ntt::MelodicMinor, Ntt::MelodicMinor5), (Ntt::HarmonicMinor, Ntt::HarmonicMinor5),
+                     (Ntt::NaturalMinor, Ntt::NaturalMinor5), (Ntt::Dorian, Ntt::Dorian5)];
+        for (base, fifth) in pairs {
+            let play = |ntt, c| {
+                let mut r = rule(Ntr::RootTrans, ntt, 11, 0, 127);
+                r.src_type = 0;
+                names(&[60u8, 64, 67].map(|k| transpose(k, &r, c).unwrap()))
+            };
+            for (ty, base_want, fifth_want) in [
+                (7, ["C3", "E3", "G3"], ["C3", "E3", "Ab3"]),     // aug
+                (29, ["C3", "E3", "G3"], ["C3", "E3", "Ab3"]),    // 7aug
+                (17, ["C3", "Eb3", "G3"], ["C3", "Eb3", "F#3"]),  // dim
+                (18, ["C3", "Eb3", "G3"], ["C3", "Eb3", "F#3"]),  // dim7
+                (11, ["C3", "Eb3", "G3"], ["C3", "Eb3", "F#3"]),  // m7b5
+                (21, ["C3", "E3", "G3"], ["C3", "E3", "F#3"]),    // 7b5
+                (FLAT5, ["C3", "E3", "G3"], ["C3", "E3", "F#3"]), // (b5), plays as 7b5
+                (28, ["C3", "E3", "G3"], ["C3", "E3", "Ab3"]),    // M7aug
+                (0, ["C3", "E3", "G3"], ["C3", "E3", "G3"]),
+                (8, ["C3", "Eb3", "G3"], ["C3", "Eb3", "G3"]),
+                (3, ["C3", "E3", "G3"], ["C3", "E3", "G3"]), // M7(#11) keeps its perfect 5th
+            ] {
+                assert_eq!(play(base, Chord::new(0, ty)), base_want, "{base:?} ty {ty}");
+                assert_eq!(play(fifth, Chord::new(0, ty)), fifth_want, "{fifth:?} ty {ty}");
+            }
+        }
+    }
+
+    #[test]
+    fn minor_tables_move_only_their_degrees() {
+        // RM: each table moves only the degrees it names ("Other notes are not changed");
+        // each "5th" table is the same plus the 5th. A C major scale source over C chords.
+        let play = |ntt, src_type, keys: &[u8], ty| {
+            let mut r = rule(Ntr::RootTrans, ntt, 11, 0, 127);
+            r.src_type = src_type;
+            names(&keys.iter().map(|&k| transpose(k, &r, Chord::new(0, ty)).unwrap()).collect::<Vec<_>>())
+        };
+        let major = [60u8, 62, 64, 65, 67, 69, 71];
+        let (mm, hm, nm, dor) = (Ntt::MelodicMinor, Ntt::HarmonicMinor, Ntt::NaturalMinor, Ntt::Dorian);
+        for (ntt, ty, want) in [
+            // Over dim / dim7: the table's minor scale, 5th to b5 in the "5th" tables only.
+            (Ntt::MelodicMinor5, 17, ["C3", "D3", "Eb3", "F3", "F#3", "A3", "B3"]),
+            (Ntt::HarmonicMinor5, 17, ["C3", "D3", "Eb3", "F3", "F#3", "Ab3", "B3"]),
+            (Ntt::NaturalMinor5, 17, ["C3", "D3", "Eb3", "F3", "F#3", "Ab3", "Bb3"]),
+            (Ntt::Dorian5, 18, ["C3", "D3", "Eb3", "F3", "F#3", "A3", "Bb3"]),
+            (mm, 18, ["C3", "D3", "Eb3", "F3", "G3", "A3", "B3"]),
+            (hm, 17, ["C3", "D3", "Eb3", "F3", "G3", "Ab3", "B3"]),
+            (nm, 11, ["C3", "D3", "Eb3", "F3", "G3", "Ab3", "Bb3"]),
+            (dor, 17, ["C3", "D3", "Eb3", "F3", "G3", "A3", "Bb3"]),
+            // Over minor chords: the same minor scales, whatever tensions the chord adds.
+            (hm, 10, ["C3", "D3", "Eb3", "F3", "G3", "Ab3", "B3"]),
+            (dor, 15, ["C3", "D3", "Eb3", "F3", "G3", "A3", "Bb3"]),
+            // Over major-3rd chords (7th, aug) nothing moves but the 5th of the "5th" tables.
+            (mm, 19, ["C3", "D3", "E3", "F3", "G3", "A3", "B3"]),
+            (nm, 19, ["C3", "D3", "E3", "F3", "G3", "A3", "B3"]),
+            (Ntt::Dorian5, 19, ["C3", "D3", "E3", "F3", "G3", "A3", "B3"]),
+            (Ntt::NaturalMinor5, 29, ["C3", "D3", "E3", "F3", "Ab3", "A3", "B3"]),
+            (Ntt::Dorian5, 21, ["C3", "D3", "E3", "F3", "F#3", "A3", "B3"]),        // 7b5
+            (Ntt::HarmonicMinor5, 21, ["C3", "D3", "E3", "F3", "F#3", "A3", "B3"]),
+            (dor, 21, ["C3", "D3", "E3", "F3", "G3", "A3", "B3"]),
+            (Ntt::MelodicMinor5, 28, ["C3", "D3", "E3", "F3", "Ab3", "A3", "B3"]),  // M7aug
+            (Ntt::NaturalMinor5, 28, ["C3", "D3", "E3", "F3", "Ab3", "A3", "B3"]),
+            (hm, 28, ["C3", "D3", "E3", "F3", "G3", "A3", "B3"]),
+        ] {
+            assert_eq!(play(ntt, 0, &major, ty), want, "{ntt:?} ty {ty}");
+        }
+        // Chromatic notes a table does not name stay put: a C7 source's Bb is not a major 7th.
+        let c7 = [60u8, 64, 67, 70];
+        for ntt in [Ntt::MelodicMinor5, Ntt::HarmonicMinor, Ntt::NaturalMinor5, Ntt::Dorian] {
+            assert_eq!(play(ntt, 19, &c7, 8), ["C3", "Eb3", "G3", "Bb3"], "{ntt:?}");
+        }
+        // Minor source into major: only the named minor degrees rise (Cm7 source over C).
+        let cm7 = [60u8, 63, 67, 70];
+        assert_eq!(play(Ntt::HarmonicMinor5, 10, &cm7, 0), ["C3", "E3", "G3", "Bb3"]);
+        assert_eq!(play(Ntt::Dorian5, 10, &cm7, 0), ["C3", "E3", "G3", "B3"]);
+        let c_nat_minor = [60u8, 62, 63, 65, 67, 68, 70];
+        assert_eq!(play(nm, 8, &c_nat_minor, 0), ["C3", "D3", "E3", "F3", "G3", "A3", "B3"]);
+        assert_eq!(play(mm, 8, &c_nat_minor, 0), ["C3", "D3", "E3", "F3", "G3", "Ab3", "Bb3"]);
+        // A source recorded over aug has its #5 mapped back to the 5th (5th tables only).
+        assert_eq!(play(Ntt::MelodicMinor5, 7, &[60, 64, 68], 8), ["C3", "Eb3", "G3"]);
+        assert_eq!(play(mm, 7, &[60, 64, 68], 8), ["C3", "Eb3", "Ab3"]);
+        // Minor source (C Eb G) into Faug under Harmonic Minor 5th: 3rd up, 5th sharpened.
+        let mut r = rule(Ntr::RootTrans, Ntt::HarmonicMinor5, 11, 0, 127);
+        r.src_type = 8;
+        assert_eq!(names(&[60u8, 63, 67].map(|k| transpose(k, &r, Chord::new(5, 7)).unwrap())), ["F3", "A3", "C#4"]);
+        r.zones[1].ntt = Ntt::HarmonicMinor;
+        assert_eq!(names(&[60u8, 63, 67].map(|k| transpose(k, &r, Chord::new(5, 7)).unwrap())), ["F3", "A3", "C4"]);
+    }
+
+    #[test]
     fn bass_on_slash() {
         let mut r = rule(Ntr::RootTrans, Ntt::Melody, 11, 0, 127);
-        r.bass_on = true;
+        r.zones[1].bass_on = true;
         let c_over_e = Chord { root: 0, ty: 0, bass: Some(4) };
         assert_eq!(transpose(36, &r, c_over_e), Some(40));
+    }
+
+    /// SFF2 Bass On is per zone: a piano whose left-hand zone (below Mid Low) follows the
+    /// slash bass while its chord zone keeps the root.
+    #[test]
+    fn bass_on_per_zone() {
+        let mut r = rule(Ntr::RootTrans, Ntt::Melody, 11, 0, 127);
+        r.mid_lo = 50;
+        r.zones[0].bass_on = true;
+        let c_over_e = Chord { root: 0, ty: 0, bass: Some(4) };
+        assert_eq!(transpose(36, &r, c_over_e), Some(40)); // low zone: C2 -> E2
+        assert_eq!(transpose(60, &r, c_over_e), Some(60)); // mid zone: C3 stays C3
+    }
+
+    /// A Root Fixed group straddling Mid Low with Bass On in one zone only: each note keeps
+    /// what its own zone gives it, so the slash bass stays in the Bass On zone.
+    #[test]
+    fn group_keeps_bass_on_per_zone() {
+        let mut r = rule(Ntr::RootFixed, Ntt::Melody, 11, 0, 127);
+        r.mid_lo = 50;
+        r.zones[0].bass_on = true;
+        let eb_over_c = Chord { root: 3, ty: 0, bass: Some(0) };
+        let keys = [45, 50, 51];
+        let each: Vec<_> = keys.iter().map(|&k| transpose(k, &r, eb_over_c)).collect();
+        assert_eq!(each, [Some(48), Some(53), Some(54)]);
+        let mut out = [None; 3];
+        transpose_group(&keys, &r, eb_over_c, &mut out);
+        assert_eq!(out.to_vec(), each);
+        // Without a slash bass the group still voice-leads across the zones.
+        let mut plain = [None; 3];
+        transpose_group(&keys, &r, Chord::new(3, 0), &mut plain);
+        let mut each_plain = [None; 3];
+        for (o, &k) in each_plain.iter_mut().zip(&keys) {
+            *o = transpose(k, &r, Chord::new(3, 0));
+        }
+        let pcs = |v: &[Option<u8>]| {
+            let mut p: Vec<_> = v.iter().map(|n| n.unwrap() % 12).collect();
+            p.sort();
+            p
+        };
+        assert_eq!(pcs(&plain), pcs(&each_plain));
+    }
+
+    #[test]
+    fn fold_into_wide_ranges() {
+        // An octave or more: plain octave folding, notes inside are untouched.
+        assert_eq!(fold_into(40, 48, 59), 52);
+        assert_eq!(fold_into(70, 48, 59), 58);
+        assert_eq!(fold_into(55, 48, 59), 55);
+        assert_eq!(fold_into(30, 60, 74), 66);
+        assert_eq!(fold_into(90, 60, 74), 66);
+        assert_eq!(fold_into(200, 0, 127), 116);
+    }
+
+    #[test]
+    fn fold_into_narrow_ranges() {
+        // C3..E3 (60..64): every pitch class that fits lands inside.
+        for n in [36, 48, 60, 72, 84] {
+            assert_eq!(fold_into(n, 60, 64), 60);
+        }
+        assert_eq!(fold_into(76, 60, 64), 64);
+        assert_eq!(fold_into(51, 60, 64), 63);
+        // Those that don't go to the nearest octave: G is 3 above E3, 5 below C3.
+        assert_eq!(fold_into(43, 60, 64), 67);
+        assert_eq!(fold_into(79, 60, 64), 67);
+        // A is 5 above E3, 3 below C3.
+        assert_eq!(fold_into(81, 60, 64), 57);
+        assert_eq!(fold_into(45, 60, 64), 57);
+        // A single note: the tritone is a tie and goes down.
+        assert_eq!(fold_into(66, 60, 60), 54);
+        assert_eq!(fold_into(54, 60, 60), 54);
+        assert_eq!(fold_into(65, 60, 60), 65);
+        assert_eq!(fold_into(55, 60, 60), 55);
+        assert_eq!(fold_into(79, 60, 60), 55);
+        // The result keeps the pitch class, stays in 0..=127, and is never more than a
+        // tritone outside the range unless that octave would leave the MIDI range.
+        for lo in 0..=127u8 {
+            for w in 0..11u8 {
+                let hi = lo.saturating_add(w).min(127);
+                for n in 0..128 {
+                    let out = fold_into(n, lo, hi);
+                    assert_eq!((out - n).rem_euclid(12), 0, "{n} in {lo}..{hi} -> {out}");
+                    assert!((0..=127).contains(&out), "{n} in {lo}..{hi} -> {out}");
+                    let near = out >= lo as i32 - 6 && out <= hi as i32 + 6;
+                    assert!(near || out + 12 > 127 || out - 12 < 0, "{n} in {lo}..{hi} -> {out}");
+                }
+            }
+        }
+    }
+
+    /// At the MIDI range edges the nearest octave may not exist; the pitch class must
+    /// survive rather than being clamped into another note.
+    #[test]
+    fn fold_into_midi_edges() {
+        // Ab (68) into 120..127: 128 does not exist, so 116 rather than 127 (G).
+        assert_eq!(fold_into(68, 120, 127), 116);
+        // Bb (10) into 0..5: -2 does not exist, so 10 rather than 0 (C).
+        assert_eq!(fold_into(10, 0, 5), 10);
+        // Where the nearest octave exists it still wins.
+        assert_eq!(fold_into(60, 120, 127), 120);
+        assert_eq!(fold_into(55, 0, 5), 7);
+        // Through transpose: C8 under Ab major with a 120..127 limit plays Ab7, not G8.
+        let mut r = rule(Ntr::RootTrans, Ntt::Melody, 11, 120, 127);
+        r.src_type = 0;
+        assert_eq!(transpose(120, &r, Chord::new(8, 0)), Some(116));
+    }
+
+    #[test]
+    fn fold_into_reversed_range() {
+        assert_eq!(fold_into(40, 59, 48), 52);
+        assert_eq!(fold_into(70, 59, 48), 58);
+    }
+
+    /// A bass limited to E1..G1 (40..43) over a moving root stays in that pocket.
+    #[test]
+    fn narrow_note_limit_transpose() {
+        let mut r = rule(Ntr::RootTrans, Ntt::Melody, 11, 40, 43);
+        r.src_type = 0;
+        let out: Vec<u8> = (0..12).map(|root| transpose(36, &r, Chord::new(root, 0)).unwrap()).collect();
+        assert_eq!(names(&out), ["C1", "C#1", "D1", "Eb1", "E1", "F1", "F#1", "G1", "Ab1", "A1", "Bb1", "B1"]);
     }
 
     #[test]

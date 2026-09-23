@@ -709,7 +709,7 @@ mod tests {
 mod rtr {
     use super::*;
     use crate::engine::EARLY_CHORD_NS;
-    use crate::sff::{Rtr, Style};
+    use crate::sff::{Ev, Rtr, SectionId, Style};
 
     fn bar_ns(p: &Prepared) -> u64 {
         (60e9 / p.bpm * (p.tpb as f64 / p.ppq as f64)) as u64
@@ -804,6 +804,21 @@ mod rtr {
             });
             assert_eq!(ons, offs, "{name}: note-ons and note-offs unbalanced");
             assert!(rec.retunes.last().is_none_or(|r| r.3 == 0), "{name}: left pitch-shifted");
+            // Through every section change, a part that follows chords keeps a bend range
+            // of at least 12 (the SInt's and the patterns' own RPN 0 go out raised).
+            let mut rpn = [[127u8; 2]; 16];
+            for (t, m) in rec.out.iter().filter(|(_, m)| m.len() == 3 && m[0] & 0xF0 == 0xB0) {
+                let ch = (m[0] & 0x0F) as usize;
+                match m[1] {
+                    101 => rpn[ch][0] = m[2],
+                    100 => rpn[ch][1] = m[2],
+                    98 | 99 => rpn[ch] = [127; 2],
+                    6 if rpn[ch] == [0, 0] && (8..16).contains(&ch) && !crate::theory::is_drum_part(ch as u8) => {
+                        assert!(m[2] >= 12, "{name}: ch{} bend range {} at {t}", ch + 1, m[2]);
+                    }
+                    _ => {}
+                }
+            }
             for ch in 8..16u8 {
                 if let Some((_, m)) = rec.out.iter().rev().find(|(_, m)| m[0] == 0xE0 | ch) {
                     assert_eq!((m[1], m[2]), (0, 0x40), "{name}: ch{} left bent", ch + 1);
@@ -1017,7 +1032,147 @@ mod rtr {
             let parted = held.iter().filter(|n| !crate::theory::is_drum_part(n.0) && n.1 % 12 != 0).count();
             assert!(parted >= 2, "{name}: {held:?}");
         }
-        eprintln!("folded voices: {ran} styles");
+        assert!(ran > 0 || tests::corpus().is_empty(), "corpus present but none of the folded-voice styles found");
+    }
+
+    /// Part 6 (ch 14, Root Trans, Pitch Shift) in a one-bar style at 120 bpm. Its SInt sets
+    /// a bend range of 2 and bends up 1 semitone (0x3000). Main A and Fill A set the range
+    /// to 4 on their first beat (the same bend is then 2 semitones). Main A and Main B hold
+    /// C3 through the bar; Fill A plays it on beat 4. The part goes out with a range of 14:
+    /// the widest bend is 2 semitones, with a 12-semitone shift on top.
+    fn bend_style() -> Style {
+        use crate::sff::{Section, TimedEv};
+        let at = |tick, ev| TimedEv { tick, ev };
+        let range4 = || [101, 100, 6].map(|cc| at(0, Ev::Cc { ch: 13, cc, val: if cc == 6 { 4 } else { 0 } }));
+        let bar = |id, on: u32, rpn: bool| {
+            let mut events = vec![at(on, Ev::NoteOn { ch: 13, key: 60, vel: 100 }), at(1900, Ev::NoteOff { ch: 13, key: 60 })];
+            if rpn {
+                events.splice(0..0, range4());
+            }
+            (id, Section { id, start: 0, len: 1920, events })
+        };
+        Style {
+            name: "bend".into(),
+            format: String::new(),
+            ppq: 480,
+            tempo_us: 500_000,
+            timesig: (4, 4),
+            init: vec![
+                Ev::Cc { ch: 13, cc: 101, val: 0 },
+                Ev::Cc { ch: 13, cc: 100, val: 0 },
+                Ev::Cc { ch: 13, cc: 6, val: 2 },
+                Ev::Bend { ch: 13, val: 0x3000 },
+            ],
+            sections: [bar(SectionId::Main(0), 0, true), bar(SectionId::Main(1), 0, false), bar(SectionId::Fill(0), 1440, true)].into(),
+            casm: vec![],
+            ots: vec![],
+            other_chunks: vec![],
+        }
+    }
+
+    /// Ch 14's bend range data entries, and its pitch bends as (time, 14-bit value).
+    fn ch14_bends(rec: &Recorder) -> (Vec<u8>, Vec<(u64, u16)>) {
+        let ranges = rec.out.iter().filter(|(_, m)| m[0] == 0xBD && m[1] == 6).map(|(_, m)| m[2]).collect();
+        let bends = rec.out.iter().filter(|(_, m)| m[0] == 0xED).map(|(t, m)| (*t, (m[2] as u16) << 7 | m[1] as u16)).collect();
+        (ranges, bends)
+    }
+
+    /// The SInt's bend `semis` in the output range of 14, plus a pitch shift of `shift`.
+    fn out_bend(semis: f64, shift: f64) -> u16 {
+        (8192.0 + (semis + shift) * 8192.0 / 14.0).round() as u16
+    }
+
+    /// A section change sends the SInt again (#15): the part's bend range goes back to 14
+    /// (not the style's 2), the pattern's RPN 0 of 4 is forgotten, and the SInt's bend goes
+    /// out rescaled (1 semitone, not 7). A Pitch Shift then bends by exactly 5 on top.
+    #[test]
+    fn section_change_keeps_the_output_bend_range() {
+        let prep = Box::new(Prepared::new(&bend_style()));
+        assert_eq!(prep.pat_bend_max[13], 2);
+        let bar = bar_ns(&prep);
+        let script = [(0, Step::Chord(Chord::new(0, 0))), (bar / 2, Step::Button(Button::Main(1))),
+                      (bar + bar / 2, Step::Chord(Chord::new(5, 0)))];
+        let (_, rec) = run(prep, &script, bar + bar / 2 + 1);
+        let (ranges, bends) = ch14_bends(&rec);
+        assert!(ranges.len() >= 3 && ranges.iter().all(|&r| r == 14), "bend ranges sent: {ranges:?}");
+        let last_before = |t: u64| bends.iter().rev().find(|b| b.0 < t).unwrap().1;
+        assert_eq!(last_before(bar / 2), out_bend(2.0, 0.0), "Main A: 0x3000 in its range of 4");
+        assert_eq!(last_before(bar + bar / 2), out_bend(1.0, 0.0), "Main B: the SInt's range of 2 again");
+        assert_eq!(bends.last().unwrap(), &(bar + bar / 2, out_bend(1.0, 5.0)), "C to F: bent up 5");
+        assert!(!rec.out.iter().any(|(t, m)| *t == bar + bar / 2 && m[0] & 0xEF == 0x8D), "retriggered");
+        assert!(rec.sounding_at(bar + bar / 2 + 1).contains(&(13, 65)));
+    }
+
+    /// A Fill entered mid-bar gets the SInt again, then its own first-beat controllers
+    /// (chased): its RPN 0 of 4 sets the range the SInt's bend is read in, and still goes
+    /// out as 14. A Pitch Shift during the Fill bends by exactly 5 on top.
+    #[test]
+    fn mid_bar_fill_keeps_the_output_bend_range() {
+        let prep = Box::new(Prepared::new(&bend_style()));
+        let bar = bar_ns(&prep);
+        let change = bar * 4 / 5;
+        let script = [(0, Step::Chord(Chord::new(0, 0))), (bar / 2 + 1_000_000, Step::Button(Button::Main(0))),
+                      (change, Step::Chord(Chord::new(5, 0)))];
+        let (e, rec) = run(prep, &script, change + 1);
+        assert_eq!(e.snapshot(change).cur, Some(SectionId::Fill(0)));
+        let (ranges, bends) = ch14_bends(&rec);
+        assert!(ranges.len() >= 4 && ranges.iter().all(|&r| r == 14), "bend ranges sent: {ranges:?}");
+        let entry = 3 * bar / 4;
+        assert!(bends.iter().any(|b| b.0 == entry && b.1 == out_bend(1.0, 0.0)), "SInt at the entry");
+        assert_eq!(bends.iter().rev().find(|b| b.0 < change).unwrap(), &(entry, out_bend(2.0, 0.0)), "then the Fill's range");
+        assert_eq!(bends.last().unwrap(), &(change, out_bend(2.0, 5.0)), "C to F: bent up 5");
+        assert!(rec.sounding_at(change + 1).contains(&(13, 65)));
+    }
+
+    /// The pitch shift a part can take leaves room for its patterns' bends in the
+    /// narrowest range it can have: with a channel setup of 24 and a pattern that sets 2,
+    /// the part may go out with 12, so it shifts by 12 at most, not 24.
+    #[test]
+    fn shift_room_fits_the_narrowest_range() {
+        let mut style = bend_style();
+        style.init = vec![Ev::Cc { ch: 13, cc: 101, val: 0 }, Ev::Cc { ch: 13, cc: 100, val: 0 }, Ev::Cc { ch: 13, cc: 6, val: 24 }];
+        let p = Prepared::new(&style);
+        assert_eq!((p.bend_range[13], p.pat_bend_max[13], p.shift_room[13]), (24, 0, 12));
+        let p = Prepared::new(&bend_style());
+        assert_eq!((p.bend_range[13], p.pat_bend_max[13], p.shift_room[13]), (2, 2, 12));
+    }
+
+    /// A key two voices share (a muted twin) votes once for the part's bend. Ch 13 (Root
+    /// Fixed, Chord, Pitch Shift) holds C3 twice, E3 and E4; from C to Cm, both Es go down
+    /// a semitone and C stays. Counted per voice it would be a 2-2 tie, won by no bend; per
+    /// key, the Es carry it: the part bends down 1, and only C is struck again.
+    #[test]
+    fn muted_twin_votes_once() {
+        use crate::sff::{Section, TimedEv};
+        let at = |tick, ev| TimedEv { tick, ev };
+        let mut events = Vec::new();
+        for key in [60, 60, 64, 76] {
+            events.push(at(0, Ev::NoteOn { ch: 12, key, vel: 100 }));
+            events.push(at(1900, Ev::NoteOff { ch: 12, key }));
+        }
+        let id = SectionId::Main(0);
+        let style = Style {
+            name: "twins".into(),
+            format: String::new(),
+            ppq: 480,
+            tempo_us: 500_000,
+            timesig: (4, 4),
+            init: vec![],
+            sections: [(id, Section { id, start: 0, len: 1920, events })].into(),
+            casm: vec![],
+            ots: vec![],
+            other_chunks: vec![],
+        };
+        let prep = Box::new(Prepared::new(&style));
+        let bar = bar_ns(&prep);
+        let script = [(0, Step::Chord(Chord::new(0, 0))), (bar / 2, Step::Chord(Chord::new(0, 8)))];
+        let (e, rec) = run(prep, &script, bar / 2 + 1);
+        assert_eq!(rec.retunes.last().map(|r| (r.1, r.2, r.3)), Some((bar / 2, 12, -1)));
+        let struck: Vec<u8> = e.retriggered.iter().filter(|r| r.0 == bar / 2).map(|r| r.2).collect();
+        assert_eq!(struck, vec![61], "C3 sent a semitone up under the bend");
+        let mut sounding = rec.sounding_at(bar / 2 + 1);
+        sounding.sort();
+        assert_eq!(sounding, vec![(12, 60), (12, 63), (12, 75)]);
     }
 
     fn ticking_away() -> Option<Box<Prepared>> {
@@ -1327,12 +1482,13 @@ mod mixer {
         p.exists().then(|| Box::new(Prepared::new(&Style::load(&p).unwrap())))
     }
 
-    /// The last CC7 the style's init (SInt) sets on each part, or the GM default.
-    fn init_levels(p: &Prepared) -> [u8; 8] {
+    /// The last CC7 the style's init (SInt) sets on each part, or the GM default (for a
+    /// style whose parts all keep their own channel).
+    fn init_levels(s: &Style) -> [u8; 8] {
         let mut v = [GM_VOLUME; 8];
-        for (m, &l) in p.init.iter().zip(&p.init_len) {
-            if l == 3 && m[0] & 0xF0 == 0xB0 && m[1] == 7 && m[0] & 0x0F >= 8 {
-                v[(m[0] & 0x0F) as usize - 8] = m[2];
+        for ev in &s.init {
+            if let crate::sff::Ev::Cc { ch: ch @ 8..=15, cc: 7, val } = *ev {
+                v[ch as usize - 8] = val;
             }
         }
         v
@@ -1373,7 +1529,8 @@ mod mixer {
     fn style_load_sets_faders_from_style_cc7() {
         // AustinCityBlues leaves some parts without a CC7.
         let Some(p) = prep("AustinCityBlues.S930.STY") else { return };
-        let want = init_levels(&p);
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus/MOX_v2/AustinCityBlues.S930.STY");
+        let want = init_levels(&Style::load(&path).unwrap());
         assert!(want.contains(&GM_VOLUME) && want.iter().any(|&v| v != GM_VOLUME), "{want:?}");
         assert_eq!(p.mix, want);
         let mut e = Engine::new(p);
@@ -1459,12 +1616,11 @@ mod mixer {
         let mut rec = Recorder::default();
         e.set_chord(Chord::new(0, 0), 0, &mut rec);
         e.set_volume(4, 33, &mut rec); // a part the player moved keeps its value
-        let mut t = 0;
-        for b in [Button::Intro(1), Button::StartStop, Button::Main(0), Button::Ending(2)] {
-            e.button(b, t, &mut rec);
-            play(&mut e, &mut rec, t, t + 8 * bar);
-            t += 8 * bar;
-        }
+        // Main A, then Ending C to the end: nothing after the Ending puts part 2 back.
+        play(&mut e, &mut rec, 0, bar / 2);
+        e.button(Button::Ending(2), bar / 2, &mut rec);
+        let t = 8 * bar;
+        play(&mut e, &mut rec, bar / 2, t);
         let s = e.snapshot(t);
         assert!(!s.running);
         assert_ne!(s.volumes[1], init, "the Ending should have moved part 2");
@@ -1492,6 +1648,340 @@ mod mixer {
         let _old = e.load(b, 1_000_000, &mut rec);
         assert_eq!(e.snapshot(1_000_000).volumes, want);
         assert_eq!(sent_levels(&rec), want.map(Some));
+    }
+
+    /// A one-bar Main A and Main B at 120 bpm whose SInt sets part 5 (ch 13): bank,
+    /// program 5, CC7 90, pan, an XG part volume and dry level, and part 6 (ch 14) CC7 80,
+    /// with GM and XG System On and an XG reverb type. Main A changes part 5's voice and
+    /// level half way through the bar.
+    fn sint_style() -> Style {
+        use crate::sff::{Ev, Section, SectionId, TimedEv};
+        let at = |tick, ev| TimedEv { tick, ev };
+        let bar = |id, extra: Vec<TimedEv>| {
+            let mut events = vec![
+                at(0, Ev::NoteOn { ch: 12, key: 60, vel: 100 }),
+                at(480, Ev::NoteOff { ch: 12, key: 60 }),
+            ];
+            events.extend(extra);
+            events.sort_by_key(|e| e.tick);
+            (id, Section { id, start: 0, len: 1920, events })
+        };
+        Style {
+            name: "sint".into(),
+            format: String::new(),
+            ppq: 480,
+            tempo_us: 500_000,
+            timesig: (4, 4),
+            init: vec![
+                Ev::Sysex(vec![0xF0, 0x7E, 0x7F, 0x09, 0x01, 0xF7]),
+                Ev::Sysex(vec![0xF0, 0x43, 0x10, 0x4C, 0x00, 0x00, 0x7E, 0x00, 0xF7]),
+                Ev::Sysex(vec![0xF0, 0x43, 0x10, 0x4C, 0x02, 0x01, 0x00, 0x01, 0x10, 0xF7]),
+                Ev::Sysex(vec![0xF0, 0x43, 0x10, 0x4C, 0x08, 0x0C, 0x0B, 0x20, 0xF7]),
+                Ev::Sysex(vec![0xF0, 0x43, 0x10, 0x4C, 0x08, 0x0C, 0x11, 0x7F, 0xF7]),
+                Ev::Cc { ch: 12, cc: 32, val: 112 },
+                Ev::Cc { ch: 12, cc: 0, val: 0 },
+                Ev::Pc { ch: 12, prog: 5 },
+                Ev::Cc { ch: 12, cc: 7, val: 90 },
+                Ev::Cc { ch: 12, cc: 10, val: 40 },
+                Ev::Cc { ch: 13, cc: 7, val: 80 },
+            ],
+            sections: [
+                bar(SectionId::Main(0), vec![
+                    at(960, Ev::Pc { ch: 12, prog: 9 }),
+                    at(960, Ev::Cc { ch: 12, cc: 7, val: 50 }),
+                ]),
+                bar(SectionId::Main(1), vec![]),
+            ]
+            .into(),
+            casm: vec![],
+            ots: vec![],
+            other_chunks: vec![],
+        }
+    }
+
+    /// A bend range (RPN 0) message: the engine sets one on every part that follows chords.
+    fn is_rpn(m: &[u8]) -> bool {
+        m.len() == 3 && m[0] & 0xF0 == 0xB0 && matches!(m[1], 6 | 38 | 100 | 101)
+    }
+
+    /// The SInt is sent structured: no system resets, bank before program, the part's XG
+    /// parameters after its program change, the effect SysEx last, and no part volume but
+    /// the mixer's (neither CC7 nor the XG part volume). Each part that follows chords gets
+    /// its bend range set with the part setup, before the effects, so a section change
+    /// sends it again.
+    #[test]
+    fn init_is_structured_and_mixer_owns_volume() {
+        let p = Prepared::new(&sint_style());
+        let all: Vec<Vec<u8>> = p.init.iter().map(|m| m.to_vec()).collect();
+        let (rpn, msgs): (Vec<_>, Vec<_>) = all.iter().cloned().partition(|m| is_rpn(m));
+        assert_eq!(rpn.len(), 6 * 6, "RPN 0 on ch 11-16");
+        assert!(all.iter().rposition(|m| is_rpn(m)).unwrap() < p.init_resend);
+        assert_eq!(msgs, vec![
+            vec![0xBC, 0, 0],
+            vec![0xBC, 32, 112],
+            vec![0xCC, 5],
+            vec![0xBC, 10, 40],
+            vec![0xF0, 0x43, 0x10, 0x4C, 0x08, 0x0C, 0x11, 0x7F, 0xF7],
+            vec![0xF0, 0x43, 0x10, 0x4C, 0x02, 0x01, 0x00, 0x01, 0x10, 0xF7],
+        ]);
+        assert_eq!(p.voices[12], Some((0, 112, 5)));
+        assert_eq!(p.mix, [100, 100, 100, 100, 90, 80, 100, 100]);
+    }
+
+    /// Every section change plays the SInt again: a voice or level the last section's
+    /// pattern changed goes back to the style's, except a fader the player moved, which
+    /// keeps its level and gets no CC7. A section repeating itself is not a change.
+    #[test]
+    fn section_change_reapplies_init() {
+        let p = Box::new(Prepared::new(&sint_style()));
+        let bar = bar_ns(&p);
+        let mut e = Engine::new(p);
+        let mut rec = Recorder::default();
+        e.set_chord(Chord::new(0, 0), 0, &mut rec);
+        e.set_volume(5, 33, &mut rec); // part 6 (ch 14)
+        // Main A plays twice: the repeat is not a section change.
+        play(&mut e, &mut rec, 0, bar + bar / 2);
+        let sent = |rec: &Recorder, from: u64, m: &[u8]| rec.out.iter().filter(|(t, x)| *t >= from && x == m).count();
+        assert_eq!(sent(&rec, 1, &[0xCC, 5]), 0, "no SInt at the Main A repeat");
+        assert_eq!(e.snapshot(bar + bar / 2).volumes[4], 50, "the pattern's CC7 moves the untouched fader");
+        // Main B at the next bar.
+        e.button(Button::Main(1), bar + bar / 2, &mut rec);
+        play(&mut e, &mut rec, bar + bar / 2, 2 * bar + bar / 4);
+        let from = 2 * bar - 1_000_000;
+        assert_eq!(sent(&rec, from, &[0xCC, 5]), 1, "Main B gets the style's voice back");
+        assert_eq!(sent(&rec, from, &[0xBC, 7, 90]), 1, "and the style's level on the untouched part");
+        assert_eq!(sent(&rec, from, &[0xF0, 0x43, 0x10, 0x4C, 0x02, 0x01, 0x00, 0x01, 0x10, 0xF7]), 0,
+            "the effect setup is not re-sent: no pattern changes it");
+        assert_eq!(sent(&rec, from, &[0xF0, 0x43, 0x10, 0x4C, 0x08, 0x0C, 0x11, 0x7F, 0xF7]), 1, "the part's are");
+        assert_eq!(cc7_count(&Recorder { out: rec.out.iter().filter(|(t, _)| *t >= from).cloned().collect(), ..Default::default() }, 5), 0,
+            "the player's fader is not re-sent");
+        let s = e.snapshot(2 * bar + bar / 4);
+        assert_eq!((s.volumes[4], s.volumes[5]), (90, 33));
+        // Never a system reset, never the XG part volume.
+        assert!(!rec.out.iter().any(|(_, m)| m[0] == 0xF0 && (m[1] == 0x7E || m[4] == 0x00 || m[6] == 0x0B)));
+        // The SInt goes out before Main B's first note.
+        let pc = rec.out.iter().position(|(t, m)| *t >= from && m[..] == [0xCC, 5]).unwrap();
+        let note = rec.out.iter().position(|(t, m)| *t >= from && m[0] == 0x9C).unwrap();
+        assert!(pc < note);
+    }
+
+    /// A program change on a part that uses a drum setup resets that drum setup (Data List,
+    /// Drum Setup note), so a section change sends the SInt's drum setup SysEx again, after
+    /// the parts' program changes, as Start does. The effect SysEx is still not re-sent.
+    #[test]
+    fn section_change_resends_drum_setup_after_program_changes() {
+        use crate::sff::Ev;
+        let mut s = sint_style();
+        let drum_mode = vec![0xF0, 0x43, 0x10, 0x4C, 0x08, 0x0C, 0x07, 0x02, 0xF7];
+        let reset = vec![0xF0, 0x43, 0x10, 0x4C, 0x00, 0x00, 0x7D, 0x00, 0xF7];
+        let level = vec![0xF0, 0x43, 0x10, 0x4C, 0x30, 0x24, 0x02, 0x50, 0xF7];
+        let reverb = vec![0xF0, 0x43, 0x10, 0x4C, 0x02, 0x01, 0x00, 0x01, 0x10, 0xF7];
+        // In the file the drum setup comes before the part's own setup.
+        s.init.insert(2, Ev::Sysex(reset.clone()));
+        s.init.insert(3, Ev::Sysex(level.clone()));
+        s.init.push(Ev::Sysex(drum_mode.clone()));
+        let p = Box::new(Prepared::new(&s));
+        let order = |msgs: &[Vec<u8>]| -> Vec<usize> {
+            [&[0xCC, 5][..], &drum_mode, &reset, &level, &reverb]
+                .iter()
+                .map(|w| msgs.iter().position(|m| m == w).unwrap_or(usize::MAX))
+                .collect()
+        };
+        let init: Vec<Vec<u8>> = p.init.iter().map(|m| m.to_vec()).filter(|m| !is_rpn(m)).collect();
+        assert_eq!(order(&init), vec![2, 5, 6, 7, 8], "PC, part mode, drum setup, then effects");
+
+        let bar = bar_ns(&p);
+        let mut e = Engine::new(p);
+        let mut rec = Recorder::default();
+        e.set_chord(Chord::new(0, 0), 0, &mut rec);
+        play(&mut e, &mut rec, 0, bar + bar / 2);
+        e.button(Button::Main(1), bar + bar / 2, &mut rec);
+        play(&mut e, &mut rec, bar + bar / 2, 2 * bar + bar / 4);
+        let from = 2 * bar - 1_000_000;
+        let change: Vec<Vec<u8>> = rec.out.iter().filter(|(t, _)| *t >= from).map(|(_, m)| m.clone()).collect();
+        let o = order(&change);
+        assert!(o[0] < o[1] && o[1] < o[2] && o[2] < o[3], "PC, part mode, then the drum setup: {o:?}");
+        assert_eq!(o[4], usize::MAX, "no effect SysEx at a section change");
+        assert_eq!(change.iter().filter(|m| **m == level).count(), 1);
+    }
+
+    /// AustinCityBlues sets up a drum kit's notes: Start and every section change send
+    /// that drum setup after the program changes that would reset it.
+    #[test]
+    fn corpus_drum_setup_survives_section_change() {
+        let Some(p) = prep("AustinCityBlues.S930.STY") else { return };
+        let drum: Vec<Vec<u8>> = p.init.iter().filter(|m| crate::sff::is_drum_setup(m)).map(|m| m.to_vec()).collect();
+        assert!(!drum.is_empty());
+        let pcs = p.init.iter().filter(|m| m.len() == 2 && m[0] & 0xF0 == 0xC0).count();
+        let bar = bar_ns(&p);
+        let mut e = Engine::new(p);
+        let mut rec = Recorder::default();
+        e.set_chord(Chord::new(0, 0), 0, &mut rec);
+        let mut t = 0;
+        for m in [1u8, 2, 0] {
+            play(&mut e, &mut rec, t, t + bar / 2);
+            let from = rec.out.len();
+            e.button(Button::Main(m), t + bar / 2, &mut rec);
+            play(&mut e, &mut rec, t + bar / 2, t + 3 * bar);
+            t += 3 * bar;
+            // The drum setup goes out whole, after every SInt program change.
+            let out = &rec.out[from..];
+            let first = out.iter().position(|(_, m)| crate::sff::is_drum_setup(m)).expect("drum setup re-sent");
+            let block: Vec<Vec<u8>> = out[first..].iter().take(drum.len()).map(|(_, m)| m.clone()).collect();
+            assert_eq!(block, drum);
+            let is_pc = |m: &[u8]| m.len() == 2 && m[0] & 0xF0 == 0xC0;
+            assert_eq!(out[..first].iter().filter(|(_, m)| is_pc(m)).count(), pcs);
+        }
+    }
+
+    /// TickingAway's Intro B sets part 2 (ch 10) to 76 against the SInt's 90, and Main A
+    /// sets no level: Main A starts from the SInt's 90 again.
+    #[test]
+    fn section_change_restores_untouched_style_levels() {
+        let Some(p) = prep("TickingAway.T162.sty") else { return };
+        let bar = bar_ns(&p);
+        let init = p.mix[1];
+        assert_eq!(init, 90);
+        let mut e = Engine::new(p);
+        let mut rec = Recorder::default();
+        e.button(Button::Intro(1), 0, &mut rec);
+        e.set_chord(Chord::new(0, 0), 0, &mut rec);
+        play(&mut e, &mut rec, 0, bar / 2);
+        assert_eq!(e.snapshot(bar / 2).volumes[1], 76, "Intro B's own level");
+        play(&mut e, &mut rec, bar / 2, bar + bar / 2);
+        assert_eq!(e.snapshot(bar + bar / 2).cur, Some(crate::sff::SectionId::Main(0)));
+        assert_eq!(e.snapshot(bar + bar / 2).volumes[1], init);
+        assert_eq!(sent_levels(&rec)[1], Some(init));
+    }
+
+    fn t5(name: &str) -> Option<Style> {
+        let p = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus/T5Style").join(name);
+        p.exists().then(|| Style::load(&p).unwrap())
+    }
+
+    /// A receiver's voice on `ch` after `msgs`: (bank MSB, LSB, program).
+    fn voice_after<'a>(msgs: impl IntoIterator<Item = &'a [u8]>, ch: u8) -> (u8, u8, u8) {
+        let (mut msb, mut lsb, mut voice) = (0, 0, (0, 0, 0));
+        for m in msgs {
+            match *m {
+                [s, 0, v] if s == 0xB0 | ch => msb = v,
+                [s, 32, v] if s == 0xB0 | ch => lsb = v,
+                [s, p] if s == 0xC0 | ch => voice = (msb, lsb, p),
+                _ => {}
+            }
+        }
+        voice
+    }
+
+    fn effect_parts(p: &Prepared) -> Vec<u8> {
+        p.init.iter().filter(|m| crate::sff::xg_effect_part(m).is_some()).map(|m| m[7]).collect()
+    }
+
+    /// An insertion or variation effect assigned to a part follows the part to its
+    /// destination channel. CountryTwoStep routes source ch 15 to 14 and 16 to 13 (MIDI
+    /// numbering); a part the style never routes gets its insertion switched off.
+    #[test]
+    fn effect_part_assignments_follow_the_routing() {
+        use crate::sff::{ChannelRule, Cseg, Ev};
+        let mut s = sint_style();
+        let rule = |src, dest| ChannelRule { dest_ch: dest, ..ChannelRule::default_for(src) };
+        s.casm = vec![Cseg {
+            sections: vec!["Main A".into(), "Main B".into()],
+            rules: vec![rule(12, 12), rule(14, 13), rule(15, 14)],
+        }];
+        let ins = |block, part| Ev::Sysex(vec![0xF0, 0x43, 0x10, 0x4C, 0x03, block, 0x0C, part, 0xF7]);
+        s.init.extend([
+            ins(0, 0x0E),
+            ins(1, 0x0F),
+            ins(2, 0x0D), // ch 14's own destination is taken by ch 15: unrouted
+            ins(3, 0x7F),
+            Ev::Sysex(vec![0xF0, 0x43, 0x10, 0x4C, 0x02, 0x01, 0x5B, 0x0F, 0xF7]),
+        ]);
+        assert_eq!(effect_parts(&Prepared::new(&s)), vec![0x0D, 0x0E, 0x7F, 0x7F, 0x0E]);
+
+        let Some(s) = t5("CountryTwoStep.T151.prs") else { return };
+        assert_eq!(effect_parts(&Prepared::new(&s)), vec![0x0D, 0x0C]);
+        let Some(s) = t5("JazzWaltzFast.T157.prs") else { return };
+        assert_eq!(effect_parts(&Prepared::new(&s)), vec![0x7F], "source ch 12 plays nowhere");
+    }
+
+    /// A bank select after the SInt's program change selects no voice. ChartPop1's ch 15
+    /// sends CC0 8, CC32 2, PC 3, CC0 104: the voice is 8/2/3, with 104 left pending.
+    #[test]
+    fn sint_voice_keeps_the_bank_of_its_program_change() {
+        let Some(s) = t5("ChartPop1.T160.prs") else { return };
+        let p = Prepared::new(&s);
+        assert_eq!(p.voices[14], Some((8, 2, 3)));
+        let file: Vec<Vec<u8>> = s
+            .init
+            .iter()
+            .filter_map(|e| match *e {
+                crate::sff::Ev::Cc { ch: 14, cc, val } => Some(vec![0xBE, cc, val]),
+                crate::sff::Ev::Pc { ch: 14, prog } => Some(vec![0xCE, prog]),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(voice_after(p.init.iter(), 14), voice_after(file.iter().map(|m| &m[..]), 14));
+        assert_eq!(voice_after(p.init.iter(), 14), (8, 2, 3));
+        let Some(s) = t5("Let'sFunk.T161.prs") else { return };
+        assert_eq!(Prepared::new(&s).voices[14], Some((104, 5, 0)));
+    }
+
+    /// sint_style with a Fill A that changes part 5's voice on its first beat and plays a
+    /// note on beat 4.
+    fn sint_style_with_fill() -> Style {
+        use crate::sff::{Ev, Section, SectionId, TimedEv};
+        let mut s = sint_style();
+        let id = SectionId::Fill(0);
+        let events = vec![
+            TimedEv { tick: 0, ev: Ev::Cc { ch: 12, cc: 0, val: 8 } },
+            TimedEv { tick: 0, ev: Ev::Pc { ch: 12, prog: 20 } },
+            TimedEv { tick: 1440, ev: Ev::NoteOn { ch: 12, key: 64, vel: 100 } },
+            TimedEv { tick: 1900, ev: Ev::NoteOff { ch: 12, key: 64 } },
+        ];
+        s.sections.insert(id, Section { id, start: 0, len: 1920, events });
+        s
+    }
+
+    /// A Fill entering mid-bar skips its first beat's notes but not its voice: the SInt
+    /// goes out at the entry, then the Fill's own bank and program change from before the
+    /// entry, so its note plays on the Fill's voice, not the SInt's.
+    #[test]
+    fn mid_bar_fill_plays_its_own_voice() {
+        let p = Box::new(Prepared::new(&sint_style_with_fill()));
+        let bar = bar_ns(&p);
+        let mut e = Engine::new(p);
+        let mut rec = Recorder::default();
+        e.set_chord(Chord::new(0, 0), 0, &mut rec);
+        play(&mut e, &mut rec, 0, bar / 2 + 1_000_000);
+        // Just after beat 2: the Fill comes in on beat 3.
+        e.button(Button::Main(0), bar / 2 + 1_000_000, &mut rec);
+        play(&mut e, &mut rec, bar / 2 + 1_000_000, bar);
+        let entry = 3 * bar / 4;
+        let at = |want: &dyn Fn(&[u8]) -> bool| rec.out.iter().position(|(t, m)| *t >= entry && want(m));
+        let init = at(&|m| m == [0xCC, 5]).expect("the SInt");
+        let pc = at(&|m| m == [0xCC, 20]).expect("the Fill's program change");
+        let note = at(&|m| m[0] == 0x9C && m[2] > 0).expect("the Fill's note");
+        assert!(init < pc && pc < note, "{init} {pc} {note}");
+        assert_eq!(rec.out[note].1, vec![0x9C, 64, 100]);
+        assert_eq!(voice_after(rec.out[..note].iter().map(|(_, m)| &m[..]), 12), (8, 112, 20));
+    }
+
+    /// ChartPop1's Fill A from beat 3: its part on ch 15 plays Fill A's first-beat voice
+    /// (104/8/4), not the SInt's.
+    #[test]
+    fn mid_bar_fill_voice_in_corpus() {
+        let Some(s) = t5("ChartPop1.T160.prs") else { return };
+        let p = Box::new(Prepared::new(&s));
+        let bar = bar_ns(&p);
+        let mut e = Engine::new(p);
+        let mut rec = Recorder::default();
+        e.set_chord(Chord::new(0, 0), 0, &mut rec); // Sync Start
+        play(&mut e, &mut rec, 0, bar / 2 + 1_000_000);
+        e.button(Button::Main(0), bar / 2 + 1_000_000, &mut rec);
+        play(&mut e, &mut rec, bar / 2 + 1_000_000, bar - 1_000_000);
+        assert_eq!(e.snapshot(bar - 1_000_000).cur, Some(crate::sff::SectionId::Fill(0)));
+        assert_eq!(voice_after(rec.out.iter().map(|(_, m)| &m[..]), 14), (104, 8, 4));
     }
 
     /// The takeover rule on its own (the master fader uses it directly).

@@ -823,6 +823,8 @@ With NTR = Root Trans or Root Fixed:
 | **Dorian** | Moves the 3rd and 7th |
 | **Dorian 5th** | Dorian, plus 5th handling for aug/dim |
 
+- **Our rule (#11):** The four minor tables are a major ↔ minor switch, not a scale. A chord counts as minor when its 3rd is minor (m, m6, m7, m7♭5, dim, dim7, mM7 and the minor tension chords) and as major otherwise. Going from a major-3rd source to a minor-3rd chord, the table lowers exactly the degrees it names: the major 3rd, plus the major 6th (Harmonic, Natural) and the major 7th (Natural, Dorian). Going the other way it raises the minor 3rd, 6th and 7th it names. Every other note, chromatic ones included, keeps its interval above the root: over C7 a major 7th stays B, and a C7 source keeps its B♭ over Cm. The "5th" variants are the same switch plus the 5th: the source's perfect 5th moves to the chord's ♯5 (aug, 7aug, M7aug) or ♭5 (dim, dim7, m7♭5, 7♭5, and (♭5), which plays as 7♭5). M7♭5 plays as M7(♯11), which has a perfect 5th, so it does not count. The base tables keep the perfect 5th. A source recorded over aug or dim has its ♯5 / ♭5 mapped back to the 5th by the "5th" tables; no corpus rule does this. Chords with no 3rd (sus4, 7sus4, 1+8, 1+5, 1+2+5) go through the Melody scale model instead, and a source with no 3rd counts as major. Corpus (208 styles): authors use the base tables mostly in Intros and Endings, and the 5th tables mostly in Mains and Fills. Recording a separate source per chord family (a C7 source for 7th chords, a CM7 source muted off them) is a Melodic Minor 5th habit only, and a partial one (28 of 68 CM7-source rules). Base-table channels often play a major-7th source over 7th chords (103 rules), and there that B now stays B against the chord's B♭, where the scale model lowered it. This is the literal manual reading and is flagged for playtest.
+
 With NTR = Guitar:
 
 | NTT | Behaviour |
@@ -835,6 +837,7 @@ With NTR = Guitar:
 - When On, the channel follows slash chords: for Dm7/G, the bass transposes to G instead of D.
 - With NTR = Guitar and NTT Bass On, only the lowest (bass) note of the guitar voicing follows the slash bass.
 - This is what makes Fingered On Bass audible. Only channels with NTT Bass On move to the played bass note.
+- SFF2 stores Bass On per zone (low / mid / high, split at Mid Low and Mid High), so a piano can have its left-hand zone follow the slash bass while its chord zone keeps the root.
 
 **Rhythm channels** must be NTR = Root Fixed, NTT = Bypass, NTT Bass = Off. They never follow chords.
 
@@ -847,6 +850,7 @@ With NTR = Guitar:
 - The allowed pitch range after conversion. Any converted note outside it is octave-shifted back inside.
 - Example: Low C3, High D4.
 - Keeps bass from going too high and piccolo from going too low.
+- A range narrower than an octave can't hold every pitch class. The manual doesn't cover this. Our choice: a note with no octave inside the range goes to the octave nearest the range, the lower one on a tie (#13). No corpus style uses a range this narrow.
 
 **RTR (Retrigger Rule): notes already sounding when the chord changes**
 
@@ -859,11 +863,13 @@ With NTR = Guitar:
 | **Retrigger to Root** | Restarts at the new root, in the same octave |
 
 - **Note Generator** (SFF RTR value 5) is not in the Genos editor, and no corpus style uses it. yahaha plays it as Retrigger.
-- **How yahaha does Pitch Shift over MIDI:** with the part's pitch bend, so there is no new attack. Each part following chords (ch 11–16) gets a bend range of at least 12 semitones: RPN 0, sent with the style's setup. A part whose patterns bend on their own gets 12 more than its widest pattern bend, up to 24 (the most a Genos part takes, DL p.98), and never shifts by more than that leaves over the pattern's bend, so the two together always fit. The pattern's own bends are rescaled from the style's range. Pitch bend is per channel, so all the notes on a part bend together, by the shift that suits most of its continuing notes. A note that needs a different shift is retriggered at its new pitch, and so is a held note the bend would detune. Notes started while a part is bent are sent that much lower, so they sound true. The bend returns to centre at the part's next note once it has fallen silent, so release tails keep their pitch.
+- **How yahaha does Pitch Shift over MIDI:** with the part's pitch bend, so there is no new attack. Each part following chords (ch 11–16) gets a bend range of at least 12 semitones: RPN 0, sent with the part setup, so every section change (which plays the setup again) sets it again. A part whose patterns bend on their own gets 12 more than its widest pattern bend, up to 24 (the most a Genos part takes, DL p.98), and never shifts by more than the narrowest range it can have (a pattern may set a narrower one) leaves over the pattern's bend, so the two together always fit. The pattern's own bends, and the channel setup's, are rescaled from the style's range, including those a section change sends again and those a Fill entered mid-bar catches up on. Pitch bend is per channel, so all the notes on a part bend together, by the shift that suits most of its continuing notes. A note that needs a different shift is retriggered at its new pitch, and so is a held note the bend would detune. Notes started while a part is bent are sent that much lower, so they sound true. The bend returns to centre at the part's next note once it has fallen silent, so release tails keep their pitch.
 - **Notes ending on the change:** a chord played up to 40 ms before a note's pattern note-off, before the pattern strikes its new pitch again, or before the section ends, does not attack that note again: where it would be retriggered it plays out as it is (or stops, if the part's bend moves). A note brought in by the chord (a part coming back from Chord Cancel) is not started if less of it is left than it has missed.
 - **Two voices on one key:** when a chord folds two voices onto one key at the same moment (1+8, 1+5), the key sounds once and the second voice is kept muted beside it, so the next chord parts them again.
 
 **Storage:** Source Root/Chord, NTR, NTT Type, NTT Bass, High Key, Note Limit Low/High and RTR are all **Style Data** (DL p.90). The Style Creator Basic parameters (pattern length, tempo, time signature, per-section time signature) are also Style data.
+
+**SFF1 encoding (Ctab + Cntt), our rule (#14):** SFF1 stores one NTT byte per channel in `Ctab` with its own numbering (Bypass, Melody, Chord, Bass, Melodic Minor, Harmonic Minor). Old "Bass" is Melody with NTT Bass On. Codes 06H–0AH aren't defined for Ctab, so we read them as the Cntt/Ctb2 tables with the same numbers (Harmonic Minor 5th … Dorian 5th). Nothing documents a Bass On bit in a Ctab byte, so every other value, 80H–FFH included, plays as Melody without Bass On. An optional `Cntt` record after the Ctabs refines a channel's table with the ones Ctab can't hold, using Ctb2 numbering, and it overrides the Ctab table. Bass On is the Ctab "Bass" code **or** the Cntt bit 7. This departs from the literal reading of the Wierzba/Bedesem Cntt table, where bit 7 is "Bass on/off" and the Cntt overrides the NTT, so a 01H Cntt would switch Bass On off. We don't follow that reading because in every corpus Cntt style, the Bass channel's Cntt is plain Melody (01H) with bit 7 clear, while its Ctab says Bass. Read literally, every one of those Bass parts would stop following slash chords. The evidence is narrow: all 7 Cntt styles come from one library (`MOX_v2/*.T552.sty`), so the oracle may still overrule this. Every other Cntt either repeats its Ctab table or promotes Harmonic Minor to Harmonic Minor 5th. `Cntt` never overrides a `Ctb2` (SFF2), which already stores NTT and Bass On per zone. No corpus file has both.
 
 ### C.6 Bass-related features
 - **Fingered On Bass:** Uses the lowest chord-section note as the slash bass. Only channels with NTT Bass = On follow it. Ref: RM p.9, p.31
