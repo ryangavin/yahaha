@@ -333,6 +333,30 @@ mod tests {
         assert!(rec.out.iter().any(|(_, m)| m[0] == 0x8A && m[1] % 12 == 5), "released on start");
     }
 
+    /// Every style under every chord type, including 1+8, Cancel and the display-only
+    /// Data List types, which must play exactly like the CASM type they map to.
+    #[test]
+    fn corpus_every_chord_type() {
+        use crate::theory::{casm_type, CANCEL, TYPE_NAMES};
+        for f in corpus() {
+            let style = Style::load(&f).unwrap();
+            let prep = Prepared::new(&style);
+            let bar = (60e9 / prep.bpm * (prep.tpb as f64 / prep.ppq as f64)) as u64;
+            let play = |ty: u8| {
+                let script = [(0, Step::Chord(Chord { root: 2, ty, bass: Some(9) }))];
+                run(Box::new(Prepared::new(&style)), &script, bar * 2).1.out
+            };
+            for ty in 0..TYPE_NAMES.len() as u8 {
+                let out = play(ty);
+                // Cancel does not sync-start the style.
+                assert!(ty == CANCEL || out.iter().any(|(_, m)| m[0] & 0xF0 == 0x90), "{}: silent under {ty}", f.display());
+                if casm_type(ty) != ty {
+                    assert_eq!(out, play(casm_type(ty)), "{}: type {}", f.display(), TYPE_NAMES[ty as usize]);
+                }
+            }
+        }
+    }
+
     /// Every style: play through intro, mains, fills, break, chord changes and ending.
     /// Afterwards the engine must be stopped with no sounding notes, and every note-on
     /// must have a matching note-off.

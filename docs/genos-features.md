@@ -762,6 +762,23 @@ Optional.
   - How long a partial chord change is debounced.
   - We must define these rules ourselves.
 
+### C.4a Recognition rules we chose (Fingered / Fingered On Bass, `src/theory.rs`)
+These fill the gaps above. Each one is a decision the owner may overrule after playtesting.
+1. **Shapes:** A chord is any pitch-class set that contains every required note of a §D row and nothing outside that row. Notes in parentheses may be left out, one or all of them. Octave doublings and voicing order do not matter.
+2. **Fewer than three notes:** Only 1+5 and 1+8 are chords. A single key and any other two-note set (C E, C E♭, C B♭) are not recognised, and the previous chord stays. "Fewer than three notes" is what sets AI Fingered apart (RM p.9).
+3. **1+8:** Two or more keys that all share one pitch class. 1+5 accepts the fifth either way up: G C is C1+5, with bass G in On Bass.
+4. **Ambiguous sets** (C6 = Am7, Cm6 = Am7♭5, C6(9) = Am7(11), Csus4 = Fsus2, C7♭5 = F♯7♭5, dim7, aug) are decided in this order:
+   1. The reading whose root is the lowest note wins. C E G A is C6 and A C E G is Am7. dim7 and aug take the lowest note as root.
+   2. Fewest omitted notes. For D E G A C, C6(9)/D is complete but Am7(11) would be missing its 9th.
+   3. The lowest note's role in the chord: root, then 5th, then 3rd, then ♭5/♯5/4th, then 6th/7th, then tensions. E G A C is Am7/E (E is the 5th of Am7 but the 3rd of C6). G A C E is C6/G. E♭ G A C is Cm6/E♭. G C F is Csus4/G.
+   4. Data List table order.
+5. **Inversions:** Fingered On Bass reports the lowest note as bass whenever it is not the root. Plain Fingered reads the same chord with the bass dropped.
+6. **Bass outside the chord (On Bass only):** If the whole set is not a chord, but the notes above the lowest one form a chord of three or more notes, the result is that chord over the bass: F♯ C E G is C/F♯. Plain Fingered does not recognise such a set. A complete table reading always comes first, so D C E G is Cadd9/D and not C/D.
+7. **Chords without a MIDI code:** These are shown as themselves, but the style follows them as a CASM type (chord mute bit, NTT tables). The rule is the smallest CASM type that holds every played note, or, if none does, the largest CASM type made only of played notes. That way the band never adds a note that clashes with what you play.
+   - M7♭5 → **M7(♯11)** (type 3). The ♭5 is the ♯11.
+   - (♭5) → **7♭5** (type 21).
+   - mM7♭5 → **dim** (type 17). No CASM type contains all four notes.
+
 ### C.5 Note conversion: how Style channels follow the chord
 This is our spec from the Style Creator "SFF Edit" pages. RM p.28–31. All these values are per channel and per section, stored in the Style file's CASM/SFF data.
 
@@ -934,6 +951,8 @@ In the Voicing column, the numbers are intervals above the root. Notes in parent
 | 38 | cancel | 1+b2+2 | Cancel | C D♭ D | 34 ("cc") |
 
 Footnote from the source: "Notes in parentheses can be omitted."
+
+yahaha gives the three dash rows internal ids 35 (M7♭5), 36 ((♭5)) and 37 (mM7♭5). They are displayed as themselves and followed as their CASM type (§C.4a rule 7).
 
 ---
 
