@@ -858,6 +858,10 @@ With NTR = Guitar:
 | **Retrigger** | Restarts with a new attack at the new chord's corresponding note |
 | **Retrigger to Root** | Restarts at the new root, in the same octave |
 
+- **Note Generator** (SFF RTR value 5) is not in the Genos editor, and no corpus style uses it. yahaha plays it as Retrigger.
+- **How yahaha does Pitch Shift over MIDI:** with the part's pitch bend, so there is no new attack. Each part following chords (ch 11–16) gets a bend range of at least 12 semitones: RPN 0, sent with the style's setup. The pattern's own bends are rescaled from the style's range. Pitch bend is per channel, so all the notes on a part bend together, by the shift that suits most of its continuing notes. A note that needs a different shift is retriggered at its new pitch, and so is a held note the bend would detune. Notes started while a part is bent are sent that much lower, so they sound true. The bend returns to centre once the part falls silent.
+- **Notes ending on the change:** a note whose pattern note-off, or the section's end, falls on the chord change is left to end, not retriggered. When two voices land on one key, one sounds.
+
 **Storage:** Source Root/Chord, NTR, NTT Type, NTT Bass, High Key, Note Limit Low/High and RTR are all **Style Data** (DL p.90). The Style Creator Basic parameters (pattern length, tempo, time signature, per-section time signature) are also Style data.
 
 ### C.6 Bass-related features

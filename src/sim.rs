@@ -10,11 +10,76 @@ use anyhow::{anyhow, bail, Result};
 pub struct Recorder {
     pub now: u64,
     pub out: Vec<(u64, Vec<u8>)>,
+    /// Retrigger Rule pitch shifts: (index into `out` they apply from, time, channel, semitones).
+    pub retunes: Vec<(usize, u64, u8, i8)>,
 }
 
 impl Sink for Recorder {
     fn send(&mut self, msg: &[u8]) {
         self.out.push((self.now, msg.to_vec()));
+    }
+
+    fn retune(&mut self, ch: u8, semis: i8) {
+        self.retunes.push((self.out.len(), self.now, ch, semis));
+    }
+}
+
+impl Recorder {
+    /// Every note-on as (time, channel, pitch that sounds): the key sent plus the pitch
+    /// shift its channel was bent by at the time.
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub fn pitch_ons(&self) -> Vec<(u64, u8, u8)> {
+        let mut bend = [0i8; 16];
+        let mut r = self.retunes.iter().peekable();
+        let mut v = Vec::new();
+        for (i, (t, m)) in self.out.iter().enumerate() {
+            while let Some(&&(at, _, ch, semis)) = r.peek()
+                && at <= i
+            {
+                r.next();
+                bend[ch as usize] = semis;
+            }
+            if m[0] & 0xF0 == 0x90 && m[2] > 0 {
+                let ch = m[0] & 0x0F;
+                v.push((*t, ch, (m[1] as i32 + bend[ch as usize] as i32) as u8));
+            }
+        }
+        v
+    }
+
+    /// The notes sounding at time `t` as (channel, pitch that sounds), sorted.
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub fn sounding_at(&self, t: u64) -> Vec<(u8, u8)> {
+        let mut bend = [0i8; 16];
+        let mut held = std::collections::BTreeMap::<(u8, u8), i32>::new();
+        let mut r = self.retunes.iter().peekable();
+        for (i, (at, m)) in self.out.iter().enumerate() {
+            while let Some(&&(idx, when, ch, semis)) = r.peek()
+                && idx <= i
+                && when <= t
+            {
+                r.next();
+                bend[ch as usize] = semis;
+            }
+            if *at > t {
+                break;
+            }
+            if m[0] & 0xE0 == 0x80 {
+                let n = held.entry((m[0] & 0xF, m[1])).or_default();
+                *n = if m[0] & 0xF0 == 0x90 && m[2] > 0 { *n + 1 } else { 0 };
+            }
+        }
+        // Shifts after the last message.
+        for &(_, _, ch, semis) in r.filter(|r| r.1 <= t) {
+            bend[ch as usize] = semis;
+        }
+        let mut v: Vec<(u8, u8)> = held
+            .into_iter()
+            .filter(|&(_, n)| n > 0)
+            .map(|((ch, key), _)| (ch, (key as i32 + bend[ch as usize] as i32) as u8))
+            .collect();
+        v.sort();
+        v
     }
 }
 
@@ -221,18 +286,36 @@ pub fn snapshot(style: &Style, script: &str) -> Result<String> {
     let section_at = |t: u32| sections.iter().rev().find(|(s, _)| *s <= t).and_then(|(_, id)| *id);
     let name = |id: Option<SectionId>| id.map_or("stopped".into(), |c| c.name());
 
-    // (start, channel, key, length): each note-off closes the oldest open note of its key.
-    let mut notes: Vec<(u32, u8, u8, Option<u32>)> = Vec::new();
-    for (t, m) in &rec.out {
+    // (start, channel, key sent, pitch at the start, length): each note-off closes the
+    // oldest open note of its key. A note sounds `bend[ch]` above its key while a Retrigger
+    // Rule pitch shift bends its channel; each shift of an open note is kept as (tick, note
+    // index, from, to).
+    let mut notes: Vec<(u32, u8, u8, u8, Option<u32>)> = Vec::new();
+    let mut shifts: Vec<(u32, usize, u8, u8)> = Vec::new();
+    let mut bend = [0i8; 16];
+    let mut retunes = rec.retunes.iter().peekable();
+    for (i, (t, m)) in rec.out.iter().enumerate() {
+        while let Some(&&(at, when, ch, semis)) = retunes.peek()
+            && at <= i
+        {
+            retunes.next();
+            let d = semis as i32 - bend[ch as usize] as i32;
+            bend[ch as usize] = semis;
+            for (k, n) in notes.iter().enumerate().filter(|(_, n)| n.1 == ch && n.4.is_none()) {
+                let from = (n.2 as i32 + bend[ch as usize] as i32 - d) as u8;
+                shifts.push((tick(when), k, from, (from as i32 + d) as u8));
+            }
+        }
         let (kind, ch) = (m[0] & 0xF0, m[0] & 0x0F);
         if kind == 0x90 && m[2] > 0 {
-            notes.push((tick(*t), ch, m[1], None));
+            notes.push((tick(*t), ch, m[1], (m[1] as i32 + bend[ch as usize] as i32) as u8, None));
         } else if (kind == 0x80 || kind == 0x90)
-            && let Some(n) = notes.iter_mut().find(|n| n.1 == ch && n.2 == m[1] && n.3.is_none())
+            && let Some(n) = notes.iter_mut().find(|n| n.1 == ch && n.2 == m[1] && n.4.is_none())
         {
-            n.3 = Some(tick(*t) - n.0);
+            n.4 = Some(tick(*t) - n.0);
         }
     }
+    let name_of = |key: u8| format!("{}{}", NOTE_NAMES[key as usize % 12], key as i32 / 12 - 2);
 
     let width = (ppq - 1).to_string().len();
     let pos = |t: u32| format!("{}.{:0width$}", (t % tpb) / ppq + 1, t % ppq);
@@ -249,14 +332,21 @@ pub fn snapshot(style: &Style, script: &str) -> Result<String> {
         out.push('\n');
         for ch in 8..16u8 {
             let (mut items, mut written) = (Vec::new(), 0);
-            for &(t, _, key, len) in notes.iter().filter(|n| n.1 == ch && n.0 >= lo && n.0 < hi) {
+            for &(t, _, _, pitch, len) in notes.iter().filter(|n| n.1 == ch && n.0 >= lo && n.0 < hi) {
                 if section_at(t).is_some_and(|id| as_written[slot_of(id)][ch as usize - 8]) {
                     written += 1;
                     continue;
                 }
                 let len = len.map_or("…".to_string(), |l| l.to_string());
-                items.push(format!("{} {}{}~{len}", pos(t), NOTE_NAMES[key as usize % 12], key as i32 / 12 - 2));
+                items.push((t, format!("{} {}~{len}", pos(t), name_of(pitch))));
             }
+            // A note that ends on the tick it is bent never sounds at the new pitch.
+            let sounds_on = |s: &&(u32, usize, u8, u8)| notes[s.1].4.is_none_or(|l| notes[s.1].0 + l > s.0);
+            for &(t, _, from, to) in shifts.iter().filter(|s| notes[s.1].1 == ch && s.0 >= lo && s.0 < hi).filter(sounds_on) {
+                items.push((t, format!("{} {}>{}", pos(t), name_of(from), name_of(to))));
+            }
+            items.sort_by_key(|i| i.0);
+            let mut items: Vec<String> = items.into_iter().map(|i| i.1).collect();
             if written > 0 {
                 items.push(format!("{written} as written"));
             }
@@ -273,7 +363,7 @@ mod tests {
     use super::*;
     use crate::sff::Style;
 
-    fn corpus() -> Vec<std::path::PathBuf> {
+    pub(super) fn corpus() -> Vec<std::path::PathBuf> {
         let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus");
         let mut v = Vec::new();
         let mut stack = vec![dir];
@@ -358,11 +448,7 @@ mod tests {
 
     /// Note-ons in [from, to) as (channel, key).
     fn ons(rec: &Recorder, from: u64, to: u64) -> Vec<(u8, u8)> {
-        rec.out
-            .iter()
-            .filter(|(t, m)| *t >= from && *t < to && m[0] & 0xF0 == 0x90 && m[2] > 0)
-            .map(|(_, m)| (m[0] & 0xF, m[1]))
-            .collect()
+        rec.pitch_ons().into_iter().filter(|&(t, _, _)| t >= from && t < to).map(|(_, ch, p)| (ch, p)).collect()
     }
 
     /// Chord Cancel is the no-chord state: every part except rhythm (and CASM autostart
@@ -412,12 +498,7 @@ mod tests {
 
     /// Notes sounding once everything at time `t` has been sent, as sorted (channel, key).
     fn held_at(rec: &Recorder, t: u64) -> Vec<(u8, u8)> {
-        let mut held = std::collections::BTreeMap::<(u8, u8), i32>::new();
-        for (_, m) in rec.out.iter().filter(|(at, m)| *at <= t && m[0] & 0xE0 == 0x80) {
-            let n = held.entry((m[0] & 0xF, m[1])).or_default();
-            *n = if m[0] & 0xF0 == 0x90 && m[2] > 0 { *n + 1 } else { 0 };
-        }
-        held.into_iter().filter(|&(_, n)| n > 0).map(|(k, _)| k).collect()
+        rec.sounding_at(t)
     }
 
     /// A chord that ends the no-chord state (Chord Cancel, or Start with no chord yet)
@@ -515,9 +596,15 @@ mod tests {
             let script = [(0, Step::Chord(Chord::new(7, 30))), (2 * bar, Step::Chord(Chord::new(2, 31))),
                           (4 * bar, Step::Chord(Chord::new(0, 0)))];
             let (_, rec) = run(prep, &script, 6 * bar);
-            let g8 = ons(&rec, 0, 2 * bar);
-            let d5 = ons(&rec, 2 * bar, 4 * bar);
-            let c = ons(&rec, 4 * bar, 6 * bar);
+            // Notes started in the window, and notes held into it (a pitch shift bends them).
+            let heard = |from: u64, to: u64| {
+                let mut v = ons(&rec, from, to);
+                v.extend(rec.sounding_at(from + 1));
+                v
+            };
+            let g8 = heard(0, 2 * bar);
+            let d5 = heard(2 * bar, 4 * bar);
+            let c = heard(4 * bar, 6 * bar);
             for &(ch, key) in g8.iter().filter(|(ch, _)| follows(*ch)) {
                 assert_eq!(key % 12, 7, "{name}: ch{} key {key} under G1+8", ch + 1);
             }
@@ -603,6 +690,172 @@ mod tests {
                 }
             }
         }
+    }
+}
+
+/// Retrigger Rule on chord changes: Pitch Shift bends, and revoicing never leaves blips,
+/// doubled keys or stuck notes.
+#[cfg(test)]
+mod rtr {
+    use super::*;
+    use crate::sff::{Rtr, Style};
+
+    fn bar_ns(p: &Prepared) -> u64 {
+        (60e9 / p.bpm * (p.tpb as f64 / p.ppq as f64)) as u64
+    }
+
+    /// Chord changes every half bar through Main A-D, alternately on the beat and a
+    /// little after it, over slash chords and, with `fold`, chords that fold voices
+    /// together (1+8, 1+5; without it, major chords in their place).
+    fn script(bar: u64, fold: bool) -> (Vec<(u64, Step)>, Vec<u64>, u64) {
+        let (one8, one5) = if fold { (30, 31) } else { (0, 0) };
+        let chords = [Chord::new(0, 0), Chord::new(9, 10), Chord::new(7, one8), Chord::new(5, 2), Chord::new(2, one5),
+                      Chord { root: 0, ty: 0, bass: Some(4) }, Chord::new(7, 19), Chord::new(10, 22), Chord::new(4, 8),
+                      Chord::new(6, 11), Chord::new(1, 0), Chord::new(11, one8)];
+        let mut s = vec![(0, Step::Chord(chords[0]))];
+        let mut changes = Vec::new();
+        for i in 1..32u64 {
+            let t = i * bar / 2 + if i % 2 == 1 { bar / 11 } else { 0 };
+            if i % 8 == 0 {
+                s.push((t - bar / 4, Step::Button(Button::Main((i / 8) as u8 % 4))));
+            }
+            s.push((t, Step::Chord(chords[i as usize % chords.len()])));
+            changes.push(t);
+        }
+        s.push((16 * bar + bar / 3, Step::Button(Button::Stop)));
+        s.sort_by_key(|x| x.0);
+        (s, changes, 17 * bar)
+    }
+
+    /// On the parts that follow chords, no note starts on a key its channel is already
+    /// sounding (#46) and none lasts zero time (#49). On every part, no note is left
+    /// sounding and no part is left bent. (Rhythm parts play as written, doubled hits too.)
+    #[test]
+    fn corpus_chord_changes_leave_no_blips_or_doubled_keys() {
+        let files = tests::corpus();
+        if files.is_empty() {
+            eprintln!("no corpus; skipping");
+            return;
+        }
+        for f in files {
+            let style = Style::load(&f).unwrap();
+            let name = f.file_name().unwrap().to_string_lossy().to_string();
+            let prep = Box::new(Prepared::new(&style));
+            let (script, _, end) = script(bar_ns(&prep), true);
+            let (e, rec) = run(prep, &script, end);
+            assert!(!e.is_running(), "{name}: still running");
+            let mut on = std::collections::HashMap::<(u8, u8), u64>::new();
+            for (t, m) in rec.out.iter().filter(|(_, m)| !crate::theory::is_drum_part(m[0] & 0x0F)) {
+                let key = (m[0] & 0x0F, m[1]);
+                match m[0] & 0xF0 {
+                    0x90 if m[2] > 0 => {
+                        assert!(on.insert(key, *t).is_none(), "{name}: ch{} key {} started twice at {t}", key.0 + 1, key.1);
+                    }
+                    0x80 | 0x90 => {
+                        let start = on.remove(&key);
+                        assert!(start.is_some_and(|s| s < *t), "{name}: ch{} key {} zero-length or unmatched at {t}", key.0 + 1, key.1);
+                    }
+                    _ => {}
+                }
+            }
+            assert!(on.is_empty(), "{name}: stuck notes {on:?}");
+            let (ons, offs) = rec.out.iter().fold((0, 0), |(a, b), (_, m)| match m[0] & 0xF0 {
+                0x90 if m[2] > 0 => (a + 1, b),
+                0x80 | 0x90 => (a, b + 1),
+                _ => (a, b),
+            });
+            assert_eq!(ons, offs, "{name}: note-ons and note-offs unbalanced");
+            assert!(rec.retunes.last().is_none_or(|r| r.3 == 0), "{name}: left pitch-shifted");
+            for ch in 8..16u8 {
+                if let Some((_, m)) = rec.out.iter().rev().find(|(_, m)| m[0] == 0xE0 | ch) {
+                    assert_eq!((m[1], m[2]), (0, 0x40), "{name}: ch{} left bent", ch + 1);
+                }
+            }
+        }
+    }
+
+    /// A pitch shift sounds exactly the notes a retrigger would. Every style plays as
+    /// written and again with Pitch Shift (to Root) turned into Retrigger (to Root):
+    /// - from a first chord to a second, the pitches sounding just after the change agree;
+    /// - through a whole performance, every note started between chord changes sounds the
+    ///   same pitch (on a part a pitch shift keeps bent, it is sent compensated).
+    ///
+    /// (Later on, the two runs may differ in which of two voices that met on one key kept
+    /// sounding, and so in when it ends.)
+    #[test]
+    fn corpus_pitch_shift_sounds_what_retrigger_would() {
+        let files = tests::corpus();
+        if files.is_empty() {
+            eprintln!("no corpus; skipping");
+            return;
+        }
+        let mut bends = 0;
+        for f in files {
+            let style = Style::load(&f).unwrap();
+            let name = f.file_name().unwrap().to_string_lossy().to_string();
+            let mut retrig = Style::load(&f).unwrap();
+            for z in retrig.casm.iter_mut().flat_map(|s| s.rules.iter_mut()).flat_map(|r| r.zones.iter_mut()) {
+                z.rtr = match z.rtr {
+                    Rtr::PitchShift => Rtr::Retrigger,
+                    Rtr::PitchShiftToRoot => Rtr::RetriggerToRoot,
+                    r => r,
+                };
+            }
+            let both = |script: &[(u64, Step)], end: u64| {
+                let (_, a) = run(Box::new(Prepared::new(&style)), script, end);
+                let (_, b) = run(Box::new(Prepared::new(&retrig)), script, end);
+                (a, b)
+            };
+            let bar = bar_ns(&Prepared::new(&style));
+            let (script, changes, end) = script(bar, true);
+            let chords: Vec<Chord> = script.iter().filter_map(|s| if let Step::Chord(c) = s.1 { Some(c) } else { None }).collect();
+            for (i, pair) in chords.windows(2).enumerate() {
+                let t = if i % 2 == 0 { bar + bar / 3 + bar / 11 } else { 2 * bar };
+                let s = [(0, Step::Button(Button::Main(i as u8 % 4))), (1, Step::Chord(pair[0])), (t, Step::Chord(pair[1]))];
+                let (a, b) = both(&s, t + 2);
+                bends += a.retunes.len();
+                assert_eq!(a.sounding_at(t + 1), b.sounding_at(t + 1), "{name}: {:?} to {:?} at {t}", pair[0], pair[1]);
+            }
+            let (a, b) = both(&script, end);
+            bends += a.retunes.len();
+            let (pa, pb) = (a.pitch_ons(), b.pitch_ons());
+            for w in changes.windows(2) {
+                let started = |p: &[(u64, u8, u8)]| p.iter().filter(|n| n.0 > w[0] && n.0 < w[1]).copied().collect::<Vec<_>>();
+                assert_eq!(started(&pa), started(&pb), "{name}: notes between {} and {}", w[0], w[1]);
+            }
+        }
+        assert!(bends > 100, "only {bends} pitch shifts across the corpus");
+    }
+
+    fn ticking_away() -> Option<Box<Prepared>> {
+        let p = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus/MOX_v2/TickingAway.T162.sty");
+        p.exists().then(|| Box::new(Prepared::new(&Style::load(&p).unwrap())))
+    }
+
+    /// TickingAway's bass (Root Trans, Pitch Shift to Root) holds one note through four
+    /// bars. From G1+8 to D1+5 it bends down a fourth, with no new attack, in a 12-semitone
+    /// bend range; the next note after the bend is sent at its true pitch, straight.
+    #[test]
+    fn pitch_shift_bends_the_held_bass() {
+        let Some(prep) = ticking_away() else { return };
+        let bar = bar_ns(&prep);
+        let script = [(0, Step::Chord(Chord::new(7, 30))), (2 * bar, Step::Chord(Chord::new(2, 31))),
+                      (4 * bar, Step::Chord(Chord::new(0, 0)))];
+        let (_, rec) = run(prep, &script, 5 * bar);
+        const BASS: u8 = 10;
+        let rpn: Vec<u8> = rec.out.iter().filter(|(_, m)| m[0] == 0xB0 | BASS && [101, 100, 6].contains(&m[1])).map(|(_, m)| m[2]).collect();
+        assert!(rpn.windows(3).any(|w| w == [0, 0, 12]), "bass bend range not set to 12: {rpn:?}");
+        let at_change: Vec<&Vec<u8>> = rec.out.iter().filter(|(t, m)| *t == 2 * bar && m[0] & 0x0F == BASS).map(|(_, m)| m).collect();
+        assert!(!at_change.iter().any(|m| m[0] & 0xE0 == 0x80), "bass retriggered: {at_change:?}");
+        // G1 (43) down 5 to D1 (38): centre - 5/12 of the half range.
+        let v = 0x2000 - (5.0f64 * 8192.0 / 12.0).round() as u16;
+        assert!(at_change.iter().any(|m| **m == [0xE0 | BASS, (v & 0x7F) as u8, (v >> 7) as u8]), "{at_change:?}");
+        assert!(rec.sounding_at(2 * bar + 1).contains(&(BASS, 38)));
+        // Under C the next bass note starts straight, at its own pitch.
+        let first_c = rec.pitch_ons().into_iter().find(|&(t, ch, _)| t >= 4 * bar && ch == BASS).unwrap();
+        assert_eq!(first_c.2 % 12, 0);
+        let last_bend = rec.out.iter().rev().find(|(t, m)| *t <= first_c.0 && m[0] == 0xE0 | BASS).unwrap();
+        assert_eq!(last_bend.1, vec![0xE0 | BASS, 0, 0x40]);
     }
 }
 

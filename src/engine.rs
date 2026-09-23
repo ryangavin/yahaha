@@ -9,6 +9,32 @@ use crate::theory::{is_drum_part, plays, transpose_group, Chord, CANCEL};
 
 pub trait Sink {
     fn send(&mut self, msg: &[u8]);
+
+    /// Retrigger Rule pitch shift: every note on `ch` now sounds `semis` above the key it
+    /// was sent with (the engine has already sent the pitch bend). MIDI sinks ignore it; the
+    /// sim listing uses it to show the pitch that sounds.
+    fn retune(&mut self, _ch: u8, _semis: i8) {}
+}
+
+/// Pitch bend range (RPN 0) a part has before the style sets one: the GM/XG default.
+pub const GM_BEND_RANGE: u8 = 2;
+/// The smallest pitch bend range the engine gives a part that follows chords, so that a
+/// Pitch Shift can bend a sounding note up to an octave either way. It is also the Genos
+/// maximum (RM p.140: Pitch Bend Range 0-12).
+pub const RTR_BEND_RANGE: u8 = 12;
+
+/// Parts whose sounding notes a chord change can re-pitch: every accompaniment part but
+/// the two rhythm parts.
+#[inline]
+fn follows_chords(ch: u8) -> bool {
+    (8..16).contains(&ch) && !is_drum_part(ch)
+}
+
+/// The pitch bend range a part gets on the output: the style's own, raised to at least
+/// `RTR_BEND_RANGE`. The pattern's own bends are rescaled to it (see `Engine::send_bend`).
+#[inline]
+fn out_bend_range(style_range: u8) -> u8 {
+    style_range.max(RTR_BEND_RANGE)
 }
 
 // ---------------------------------------------------------------------------
@@ -98,10 +124,17 @@ pub struct Prepared {
     /// part 1-8 (MIDI ch 9-16), or the GM default 100. Loading the style sets the mixer
     /// faders to these.
     pub mix: [u8; 8],
+    /// Each part's pitch bend range as the style's channel setup leaves it (RPN 0, in
+    /// semitones). `init` sends `out_bend_range` of it instead.
+    pub bend_range: [u8; 16],
 }
 
 /// GM default channel volume (CC7) for a part the style never sets.
 pub const GM_VOLUME: u8 = 100;
+/// No RPN selected (MSB and LSB 127).
+const RPN_NULL: u16 = 0x3FFF;
+/// Pitch bend centre.
+const BEND_CENTRE: u16 = 0x2000;
 /// Soft takeover: a hardware fader within this distance of the software value picks it up.
 pub const PICKUP_RANGE: u8 = 2;
 
@@ -182,6 +215,31 @@ impl Prepared {
             init.push(msg);
             init_len.push(len);
         }
+        // Pitch bend range: note what the style sets on each part that follows chords and
+        // send at least RTR_BEND_RANGE instead, then set it on every such part (a style
+        // that sets none leaves the GM default) and deselect the RPN.
+        let mut bend_range = [GM_BEND_RANGE; 16];
+        let mut rpn = [RPN_NULL; 16];
+        for m in init.iter_mut().filter(|m| m[0] & 0xF0 == 0xB0) {
+            let ch = m[0] & 0x0F;
+            let c = ch as usize;
+            match m[1] {
+                101 => rpn[c] = (rpn[c] & 0x7F) | (m[2] as u16) << 7,
+                100 => rpn[c] = (rpn[c] & !0x7F) | m[2] as u16,
+                6 if rpn[c] == 0 && follows_chords(ch) => {
+                    bend_range[c] = m[2];
+                    m[2] = out_bend_range(m[2]);
+                }
+                _ => {}
+            }
+        }
+        for ch in (8..16u8).filter(|&ch| follows_chords(ch)) {
+            let range = out_bend_range(bend_range[ch as usize]);
+            for (cc, val) in [(101, 0), (100, 0), (6, range), (38, 0), (101, 127), (100, 127)] {
+                init.push([0xB0 | ch, cc, val]);
+                init_len.push(3);
+            }
+        }
         let mut kit = [false; 16];
         for (d, k) in kit.iter_mut().enumerate() {
             *k = is_drum_part(d as u8) || voices[d].is_some_and(|(msb, _, _)| msb >= 126);
@@ -197,6 +255,7 @@ impl Prepared {
             voices,
             kit,
             mix,
+            bend_range,
         }
     }
 
@@ -318,6 +377,8 @@ struct Sounding {
     vel: u8,
     slot: u8,
     started_ns: u64,
+    /// When the note last got an attack: its start, or a retrigger on a chord change.
+    attack_ns: u64,
 }
 
 /// Soft takeover for an absolute, non-motorised hardware fader controlling a value that
@@ -363,7 +424,7 @@ impl Takeover {
     }
 }
 
-const EMPTY: Sounding = Sounding { active: false, src: 0, src_key: 0, dest: 0, out: 0, vel: 0, slot: 0, started_ns: 0 };
+const EMPTY: Sounding = Sounding { active: false, src: 0, src_key: 0, dest: 0, out: 0, vel: 0, slot: 0, started_ns: 0, attack_ns: 0 };
 const MAX_SOUNDING: usize = 256;
 /// Pseudo source channel for Stop Accompaniment notes.
 const STOP_ACMP_SRC: u8 = 255;
@@ -432,6 +493,31 @@ pub struct Engine {
     taps: [u64; 4],
     tap_n: usize,
     sounding: [Sounding; MAX_SOUNDING],
+    /// Retrigger Rule pitch shift per channel: the semitones every note on the channel is
+    /// bent by. A note sent while it is set goes out that much lower so it sounds true
+    /// (`Sounding::out` is the key sent). It returns to 0 when the channel falls silent.
+    rtr_bend: [i8; 16],
+    /// The pattern's own pitch bend per channel (14-bit, in the style's bend range).
+    pat_bend: [u16; 16],
+    /// The style's pitch bend range per channel (RPN 0, semitones).
+    bend_range: [u8; 16],
+    /// The RPN a pattern has selected per channel (MSB << 7 | LSB).
+    rpn: [u16; 16],
+}
+
+/// What a chord change does to one sounding note (`Engine::revoice_part`). Pitches are
+/// what sounds (key sent plus the channel's `rtr_bend`).
+#[derive(Clone, Copy, PartialEq)]
+enum Revoice {
+    /// Untouched: its pattern note-off is due right now.
+    Leave,
+    /// Keeps sounding at its pitch.
+    Hold,
+    Cut,
+    /// Bend to this pitch, no new attack (Pitch Shift, Pitch Shift to Root).
+    Shift(u8),
+    /// New attack at this pitch.
+    Retrigger(u8),
 }
 
 impl Engine {
@@ -468,6 +554,10 @@ impl Engine {
             taps: [0; 4],
             tap_n: 0,
             sounding: [EMPTY; MAX_SOUNDING],
+            rtr_bend: [0; 16],
+            pat_bend: [BEND_CENTRE; 16],
+            bend_range: [GM_BEND_RANGE; 16],
+            rpn: [RPN_NULL; 16],
         };
         e.set_bpm_internal(bpm, 0);
         e
@@ -504,10 +594,16 @@ impl Engine {
     /// The style's channel setup, with the mixer's volume on each part in place of the
     /// style's own CC7 so a restart never undoes a fader the player moved.
     pub fn send_init(&mut self, sink: &mut impl Sink) {
+        self.bend_range = self.style.bend_range;
+        self.rpn = [RPN_NULL; 16];
         for i in 0..self.style.init.len() {
             let (m, l) = (self.style.init[i], self.style.init_len[i] as usize);
             let part_vol = l == 3 && m[0] & 0xF0 == 0xB0 && m[1] == 7 && m[0] & 0x0F >= 8;
-            if !part_vol {
+            let ch = m[0] & 0x0F;
+            if m[0] & 0xF0 == 0xE0 && follows_chords(ch) {
+                self.pat_bend[ch as usize] = (m[2] as u16) << 7 | m[1] as u16;
+                self.send_bend(ch, sink);
+            } else if !part_vol {
                 sink.send(&m[..l]);
             }
         }
@@ -1060,6 +1156,8 @@ impl Engine {
                 self.ev_idx += 1;
                 if cc == 7 {
                     self.pattern_volume(dest, val, sink);
+                } else if matches!(cc, 6 | 100 | 101) && follows_chords(dest) {
+                    self.pattern_rpn(dest, cc, val, sink);
                 } else {
                     sink.send(&[0xB0 | dest, cc, val]);
                 }
@@ -1070,7 +1168,12 @@ impl Engine {
             }
             PKind::Bend { lo, hi } => {
                 self.ev_idx += 1;
-                sink.send(&[0xE0 | dest, lo, hi]);
+                if follows_chords(dest) {
+                    self.pat_bend[dest as usize] = (hi as u16) << 7 | lo as u16;
+                    self.send_bend(dest, sink);
+                } else {
+                    sink.send(&[0xE0 | dest, lo, hi]);
+                }
             }
         }
     }
@@ -1080,13 +1183,106 @@ impl Engine {
         if self.manual_bass && dest == BASS_CH {
             return;
         }
-        let out = self.master(dest, out);
+        let pitch = self.master(dest, out);
+        // A part a pitch shift left bent is straightened once it has fallen silent.
+        if self.rtr_bend[dest as usize & 15] != 0 && !self.sounding.iter().any(|s| s.active && s.dest == dest) {
+            self.set_rtr_bend(dest, 0, sink);
+        }
+        // On a part still bent, the key goes out that much lower so it sounds at `pitch`.
+        let out = shift_key(pitch, -self.rtr_bend[dest as usize & 15]);
+        // Two voices landing on one key at the same instant (a chord that folds voices
+        // together, such as 1+8, or a pattern note on the key a chord change just
+        // retriggered) sound once: stealing would leave a zero-length note. The note takes
+        // on the later voice, so that voice's note-off ends it. (Rhythm parts play as
+        // written: a doubled hit stays doubled.)
+        let same_instant = |s: &Sounding| s.active && s.dest == dest && s.out == out && s.attack_ns == now;
+        if let Some(s) = self.sounding.iter_mut().find(|s| follows_chords(dest) && same_instant(s)) {
+            (s.src, s.src_key, s.slot, s.started_ns) = (src, src_key, slot, now);
+            return;
+        }
         // Steal an identical sounding note on the same channel so offs stay balanced.
         self.off_where(sink, |s| s.dest == dest && s.out == out);
         if let Some(free) = self.sounding.iter_mut().find(|s| !s.active) {
-            *free = Sounding { active: true, src, src_key, dest, out, vel, slot, started_ns: now };
+            *free = Sounding { active: true, src, src_key, dest, out, vel, slot, started_ns: now, attack_ns: now };
             sink.send(&[0x90 | dest, out, vel]);
         }
+    }
+
+    /// Send a part's pitch bend: the pattern's own bend, rescaled from the style's bend
+    /// range to the part's output range, plus the Retrigger Rule pitch shift.
+    fn send_bend(&self, ch: u8, sink: &mut impl Sink) {
+        let c = ch as usize & 15;
+        let (style, out) = (self.bend_range[c] as f32, out_bend_range(self.bend_range[c]) as f32);
+        let centre = BEND_CENTRE as f32;
+        let pat = (self.pat_bend[c] as f32 - centre) * style / out;
+        let rtr = self.rtr_bend[c] as f32 * centre / out;
+        let v = (centre + pat + rtr).round().clamp(0.0, 16383.0) as u16;
+        sink.send(&[0xE0 | ch, (v & 0x7F) as u8, (v >> 7) as u8]);
+    }
+
+    /// Bend every note on `ch` by `semis` (the Retrigger Rule pitch shift).
+    fn set_rtr_bend(&mut self, ch: u8, semis: i8, sink: &mut impl Sink) {
+        let c = ch as usize & 15;
+        if self.rtr_bend[c] != semis {
+            self.rtr_bend[c] = semis;
+            self.send_bend(ch, sink);
+            sink.retune(ch, semis);
+        }
+    }
+
+    /// RPN messages from a pattern on a part that follows chords. A pitch bend range
+    /// (RPN 0) becomes the style's range the part's bends are rescaled from; the part
+    /// itself gets `out_bend_range` of it.
+    fn pattern_rpn(&mut self, ch: u8, cc: u8, val: u8, sink: &mut impl Sink) {
+        let c = ch as usize & 15;
+        match cc {
+            101 => self.rpn[c] = (self.rpn[c] & 0x7F) | (val as u16) << 7,
+            100 => self.rpn[c] = (self.rpn[c] & !0x7F) | val as u16,
+            _ if self.rpn[c] == 0 => {
+                self.bend_range[c] = val;
+                sink.send(&[0xB0 | ch, 6, out_bend_range(val)]);
+                self.send_bend(ch, sink);
+                return;
+            }
+            _ => {}
+        }
+        sink.send(&[0xB0 | ch, cc, val]);
+    }
+
+    /// Pattern events due at `now` that `process` has not played yet: they run from
+    /// `ev_idx` to the index returned. None when the section itself ends now: the all-off
+    /// at its boundary cuts every note.
+    fn due_now(&self, now: u64) -> Option<usize> {
+        let sec = self.style.sections[self.cur].as_ref()?;
+        let target = self.tick_at(now) + 1e-6;
+        let sec_end = self.sec_start + sec.len as f64;
+        let (boundary, inclusive) = match self.queued {
+            Some(q) if q.at < sec_end => (q.at, false),
+            _ => (sec_end, true),
+        };
+        if boundary <= target {
+            return None;
+        }
+        let mut k = self.ev_idx;
+        while let Some(e) = sec.events.get(k) {
+            let t = self.sec_start + e.tick as f64;
+            let before = if inclusive { t <= boundary + 1e-6 } else { t < boundary - 1e-6 };
+            if !before || t > target {
+                break;
+            }
+            k += 1;
+        }
+        Some(k)
+    }
+
+    /// The pattern releases source key `key` on `src` among the events due now (`due`
+    /// from `due_now`): a note started or retriggered for it now would last zero ticks.
+    fn ends_now(&self, src: u8, key: u8, due: usize) -> bool {
+        let Some(sec) = self.style.sections[self.cur].as_ref() else { return true };
+        let due = due.min(sec.events.len());
+        sec.events[self.ev_idx.min(due)..due]
+            .iter()
+            .any(|e| e.src == src && matches!(e.kind, PKind::Off { key: k } if k == key))
     }
 
     fn off_where(&mut self, sink: &mut impl Sink, f: impl Fn(&Sounding) -> bool) {
@@ -1107,6 +1303,13 @@ impl Engine {
             sink.send(&[0xB0 | ch, 1, 0]);
             sink.send(&[0xB0 | ch, 64, 0]);
         }
+        self.pat_bend = [BEND_CENTRE; 16];
+        for ch in 0..16u8 {
+            if self.rtr_bend[ch as usize] != 0 {
+                self.rtr_bend[ch as usize] = 0;
+                sink.retune(ch, 0);
+            }
+        }
     }
 
     /// A chord that lands just after the beat (within `LATE_CHORD_NS`) also brings in
@@ -1114,6 +1317,8 @@ impl Engine {
     /// chord-mute routing). Their notes from that window were skipped, so `revoice` has
     /// nothing to correct; start the ones the pattern still holds now.
     fn catch_up(&mut self, prev: Option<Chord>, chord: Chord, now: u64, sink: &mut impl Sink) {
+        // A note the section boundary or its own pattern note-off ends right now is not started.
+        let Some(due) = self.due_now(now) else { return };
         let Some(sec) = self.style.sections[self.cur].as_ref() else { return };
         // Never reach back past where this section came in: those notes never played.
         let lo = (self.tick_at(now.saturating_sub(LATE_CHORD_NS)) - self.sec_start).max(self.entry);
@@ -1157,7 +1362,8 @@ impl Engine {
             for k in 0..n {
                 let released = sec.events[j..end]
                     .iter()
-                    .any(|o| o.src == e.src && matches!(o.kind, PKind::Off { key } if key == keys[k]));
+                    .any(|o| o.src == e.src && matches!(o.kind, PKind::Off { key } if key == keys[k]))
+                    || self.ends_now(e.src, keys[k], due);
                 if let (Some(out), false, true) = (outs[k], released, n_buf < buf.len()) {
                     buf[n_buf] = (e.src, keys[k], rule.dest_ch, out, vels[k]);
                     n_buf += 1;
@@ -1172,74 +1378,165 @@ impl Engine {
 
     /// Re-pitch sounding notes after a chord change according to each part's retrigger rule.
     fn revoice(&mut self, chord: Chord, now: u64, sink: &mut impl Sink) {
-        for i in 0..MAX_SOUNDING {
-            let s = self.sounding[i];
-            if !s.active || is_drum_part(s.dest) || s.src >= 16 {
+        // At a section boundary the all-off cuts every note now: nothing to re-pitch.
+        let Some(due) = self.due_now(now) else { return };
+        for dest in 8..16u8 {
+            if follows_chords(dest) {
+                self.revoice_part(dest, chord, now, due, sink);
+            }
+        }
+    }
+
+    /// Revoice the notes sounding on part `dest` (RM p.31, RTR). Pitch Shift bends a note
+    /// with no new attack, but pitch bend is per channel, so every note on the part moves
+    /// by the same bend: the one that serves the most of the part's continuing notes (a
+    /// note that keeps its pitch counts for no change). A Pitch Shift note that needs a
+    /// different shift is retriggered at its new pitch instead, and so is a held note the
+    /// bend would detune. Two voices that land on one key keep one (a second note-on for a
+    /// sounding key would be cut by the first note-off). A note whose pattern note-off is
+    /// due right now is left to end.
+    fn revoice_part(&mut self, dest: u8, chord: Chord, now: u64, due: usize, sink: &mut impl Sink) {
+        let bend = self.rtr_bend[dest as usize & 15] as i16;
+        // The part's sounding notes (indices into `sounding`) and what happens to each.
+        let mut notes = [0u8; MAX_SOUNDING];
+        let mut plan = [Revoice::Leave; MAX_SOUNDING];
+        let mut m = 0;
+        for (i, s) in self.sounding.iter().enumerate() {
+            if s.active && s.dest == dest {
+                notes[m] = i as u8;
+                plan[m] = Revoice::Hold;
+                m += 1;
+            }
+        }
+        let mut done = [false; MAX_SOUNDING];
+        for a in 0..m {
+            let s = self.sounding[notes[a] as usize];
+            if done[a] || s.src >= 16 {
                 continue;
             }
             let Some(sec) = self.style.sections[s.slot as usize].as_ref() else { continue };
             let Some(rule) = sec.rules[s.src as usize].as_ref() else { continue };
-            let Some(chord) = effective_chord(Some(chord), rule).filter(|&c| plays(rule, c)) else {
-                self.sounding[i].active = false;
-                sink.send(&[0x80 | s.dest, s.out, 0]);
-                continue;
-            };
             // Group notes that started together on this channel so Root Fixed voicings move as a unit.
-            let mut idx = [0usize; 8];
+            let mut grp = [0usize; 8];
             let mut keys = [0u8; 8];
             let mut n = 0;
-            for j in i..MAX_SOUNDING {
-                let o = self.sounding[j];
-                if o.active && o.src == s.src && o.slot == s.slot && o.started_ns == s.started_ns && n < 8 {
-                    idx[n] = j;
+            for b in a..m {
+                let o = self.sounding[notes[b] as usize];
+                if !done[b] && o.src == s.src && o.slot == s.slot && o.started_ns == s.started_ns && n < 8 {
+                    done[b] = true;
+                    grp[n] = b;
                     keys[n] = o.src_key;
                     n += 1;
                 }
             }
+            let chord = effective_chord(Some(chord), rule).filter(|&c| plays(rule, c));
             let mut outs = [None; 8];
-            transpose_group(&keys[..n], rule, chord, &mut outs[..n]);
+            if let Some(c) = chord {
+                transpose_group(&keys[..n], rule, c, &mut outs[..n]);
+            }
+            // The player's chord landed just after these notes started: correct them outright.
+            let late = now.saturating_sub(s.started_ns) < LATE_CHORD_NS;
             for k in 0..n {
-                let j = idx[k];
-                let o = self.sounding[j];
-                if o.started_ns == u64::MAX {
-                    continue; // already handled this pass
-                }
-                let late = now.saturating_sub(o.started_ns) < LATE_CHORD_NS;
-                let zone = rule.zone_for(o.src_key);
-                let target = match (late, zone.rtr) {
-                    (true, _) => outs[k].map(|t| self.master(o.dest, t)),
-                    (false, Rtr::Stop) => None,
-                    (false, Rtr::PitchShiftToRoot | Rtr::RetriggerToRoot) => {
-                        let pc = self.master(o.dest, chord.bass.unwrap_or(chord.root)) as i32;
-                        let cur = o.out as i32;
-                        let mut d = (pc - cur).rem_euclid(12);
-                        if d > 6 {
-                            d -= 12;
-                        }
-                        Some((cur + d).clamp(0, 127) as u8)
-                    }
-                    (false, _) => outs[k].map(|t| self.master(o.dest, t)),
-                };
-                if target == Some(o.out) {
-                    self.sounding[j].started_ns = u64::MAX;
+                let b = grp[k];
+                let o = self.sounding[notes[b] as usize];
+                if o.slot as usize == self.cur && self.ends_now(o.src, o.src_key, due) {
+                    plan[b] = Revoice::Leave;
                     continue;
                 }
-                sink.send(&[0x80 | o.dest, o.out, 0]);
-                match target {
-                    Some(t) => {
-                        sink.send(&[0x90 | o.dest, t, o.vel]);
-                        self.sounding[j].out = t;
-                        self.sounding[j].started_ns = u64::MAX;
+                let Some(c) = chord else {
+                    plan[b] = Revoice::Cut;
+                    continue;
+                };
+                let cur = o.out as i16 + bend;
+                let to = |t: Option<u8>| t.map(|t| self.master(dest, t));
+                // Nearest note, up or down, with the pitch class of the new root (the slash
+                // bass on a Bass On channel), in the same octave or the next.
+                let to_root = || {
+                    let pc = self.master(dest, if rule.bass_on { c.bass.unwrap_or(c.root) } else { c.root }) as i16;
+                    let mut d = (pc - cur).rem_euclid(12);
+                    if d > 6 {
+                        d -= 12;
                     }
-                    None => self.sounding[j].active = false,
-                }
+                    (cur + d).clamp(0, 127) as u8
+                };
+                let target = match (late, rule.zone_for(o.src_key).rtr) {
+                    (true, _) => to(outs[k]).map(Revoice::Retrigger),
+                    (false, Rtr::Stop) => None,
+                    (false, Rtr::PitchShift) => to(outs[k]).map(Revoice::Shift),
+                    (false, Rtr::PitchShiftToRoot) => Some(Revoice::Shift(to_root())),
+                    (false, Rtr::Retrigger | Rtr::NoteGenerator) => to(outs[k]).map(Revoice::Retrigger),
+                    (false, Rtr::RetriggerToRoot) => Some(Revoice::Retrigger(to_root())),
+                };
+                plan[b] = match target {
+                    None => Revoice::Cut,
+                    Some(Revoice::Shift(p) | Revoice::Retrigger(p)) if p as i16 == cur => Revoice::Hold,
+                    Some(t) => t,
+                };
             }
-            // Restore start times for grouping on the next chord change.
-            for k in 0..n {
-                if self.sounding[idx[k]].started_ns == u64::MAX {
-                    self.sounding[idx[k]].started_ns = s.started_ns;
-                }
+        }
+
+        // The shift the bend makes: the one most continuing notes need, within the range.
+        let range = out_bend_range(self.bend_range[dest as usize & 15]) as i16;
+        let shift_of = |a: usize, plan: &[Revoice]| match plan[a] {
+            Revoice::Hold => Some(0),
+            Revoice::Shift(p) => Some(p as i16 - (self.sounding[notes[a] as usize].out as i16 + bend)),
+            _ => None,
+        };
+        let mut continuing = false;
+        let mut best: Option<(usize, i16)> = None;
+        for a in 0..m {
+            let Some(d) = shift_of(a, &plan) else { continue };
+            continuing = true;
+            if (bend + d).abs() > range {
+                continue;
             }
+            let votes = (0..m).filter(|&b| shift_of(b, &plan) == Some(d)).count();
+            // Ties: the smaller shift, then upwards.
+            let better = best.is_none_or(|(v, bd)| (votes, -d.abs(), d) > (v, -bd.abs(), bd));
+            if better {
+                best = Some((votes, d));
+            }
+        }
+        // With nothing left sounding through the change, the part is straightened.
+        let new_bend = if continuing { bend + best.map_or(0, |b| b.1) } else { 0 };
+
+        // Note-offs first, so a retriggered note never lands on a key that is still held.
+        for a in 0..m {
+            let i = notes[a] as usize;
+            let cur = self.sounding[i].out as i16 + bend;
+            plan[a] = match plan[a] {
+                Revoice::Hold if new_bend != bend => Revoice::Retrigger(cur.clamp(0, 127) as u8),
+                Revoice::Shift(p) if p as i16 - cur != new_bend - bend => Revoice::Retrigger(p),
+                p => p,
+            };
+            if matches!(plan[a], Revoice::Cut | Revoice::Retrigger(_)) {
+                let s = &mut self.sounding[i];
+                s.active = false;
+                sink.send(&[0x80 | s.dest, s.out, 0]);
+            }
+        }
+        self.set_rtr_bend(dest, new_bend as i8, sink);
+        for a in 0..m {
+            let Revoice::Retrigger(p) = plan[a] else { continue };
+            let i = notes[a] as usize;
+            let out = shift_key(p, -(new_bend as i8));
+            if let Some(b) = (0..m).find(|&b| {
+                let o = self.sounding[notes[b] as usize];
+                o.active && o.out == out
+            }) {
+                if plan[b] != Revoice::Leave {
+                    continue; // the key already sounds on and on: this voice is dropped
+                }
+                // A note about to end on that key makes way.
+                let o = &mut self.sounding[notes[b] as usize];
+                o.active = false;
+                sink.send(&[0x80 | o.dest, o.out, 0]);
+            }
+            let s = &mut self.sounding[i];
+            s.active = true;
+            s.out = out;
+            s.attack_ns = now;
+            sink.send(&[0x90 | s.dest, out, s.vel]);
         }
     }
 }
