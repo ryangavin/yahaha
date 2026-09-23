@@ -23,6 +23,7 @@ use std::sync::Arc;
 pub enum Cmd {
     Button(Button),
     ChordReleased,
+    /// A Launchkey part fader (0..8) moved to a value (soft takeover in the engine).
     PartVolume(u8, u8),
     /// Manual Bass in effect: mute the Style's Bass part.
     ManualBass(bool),
@@ -218,6 +219,8 @@ pub struct Input {
     actions: Option<Producer<Action>>,
     /// The Launchkey's Shift button is held.
     shift: bool,
+    /// Soft takeover of the Launchkey master fader (the synth master level).
+    master_takeover: crate::engine::Takeover,
 }
 
 impl Input {
@@ -236,6 +239,7 @@ impl Input {
             synth: None,
             actions: None,
             shift: false,
+            master_takeover: crate::engine::Takeover::NEW,
         }
     }
 
@@ -366,10 +370,16 @@ impl Input {
             }
             if launchkey::FADER_CC.contains(&cc) {
                 if cc == 13 {
+                    // Soft takeover, as for the part faders (in the engine).
                     if let Some(s) = &self.synth {
-                        s.master.store(v, Relaxed);
+                        if self.master_takeover.hardware(s.master.load(Relaxed), v) {
+                            s.master.store(v, Relaxed);
+                        }
+                        s.master_waiting.store(self.master_takeover.waiting(), Relaxed);
                     }
                 } else if self.cmd.push(Cmd::PartVolume(cc - 5, v)).is_ok() {
+                    // The part faders' takeover state lives in the engine and only changes
+                    // when a move arrives; a move lost to a full ring leaves it consistent.
                     self.signal = true;
                 }
                 return;
@@ -472,12 +482,33 @@ pub struct EngineIo {
     pub old: Producer<Box<Prepared>>,
     pub snaps: Producer<Snapshot>,
     pub out: Out,
+    /// Your parts' levels (voice slots, OTS, Left), when the built-in synth runs: their
+    /// CC7 also goes out on the port, on your channels.
+    pub player: Option<Arc<crate::synth::SynthControl>>,
+}
+
+/// Send your parts' CC7 on the port when it changed: the right hand's on ch 1, the left
+/// hand's on ch 2. Port only: the built-in synth already has them per voice slot, and a
+/// CC7 on ch 1 there would set every slot alike. Also hands the Style's Bass fader to the
+/// synth for Manual Bass.
+fn sync_player_volumes(io: &mut EngineIo, bass_fader: u8, last: &mut [u8; 2]) {
+    let Some(p) = &io.player else { return };
+    p.set_bass_vol(bass_fader);
+    let (rh, lh) = p.port_volumes();
+    for (i, (ch, v)) in [(RH_CH, rh), (LH_CH, lh)].into_iter().enumerate() {
+        if last[i] != v {
+            last[i] = v;
+            io.out.midi.push(&[0xB0 | ch, 7, v]);
+        }
+    }
 }
 
 pub fn run_engine(mut engine: Engine, mut io: EngineIo, shared: Arc<Shared>) {
     let rt_ok = std::env::var("YAHAHA_NO_RT").is_err() && rt::make_realtime(1_000_000, 300_000, 1_000_000);
     shared.engine_rt.store(rt_ok, Relaxed);
     let mut last_packed = 0u32;
+    // Out of range, so the first wake sends both.
+    let mut last_player_vol = [255u8; 2];
     let mut last_snap: Option<Snapshot> = None;
     let mut last_snap_ns = 0u64;
     engine.send_init(&mut io.out);
@@ -542,6 +573,7 @@ pub fn run_engine(mut engine: Engine, mut io: EngineIo, shared: Arc<Shared>) {
             apply(&mut engine, cmd, now, &mut io.out);
         }
         engine.process(now, &mut io.out);
+        sync_player_volumes(&mut io, engine.snapshot(now).volumes[2], &mut last_player_vol);
         let t1 = rt::now_ns();
         io.out.flush();
         let t2 = rt::now_ns();
@@ -563,7 +595,7 @@ fn apply(engine: &mut Engine, cmd: Cmd, now: u64, out: &mut Out) {
         Cmd::Button(b) => engine.button(b, now, out),
         Cmd::ChordReleased => engine.chord_released(now, out),
         Cmd::Arm => engine.arm(out),
-        Cmd::PartVolume(p, v) => engine.set_gain(p, v, out),
+        Cmd::PartVolume(p, v) => engine.hw_fader(p, v, out),
         Cmd::ManualBass(on) => engine.set_manual_bass(on, out),
         Cmd::Transpose(t) => engine.set_transpose(t, now, out),
         Cmd::Panic => {
@@ -594,7 +626,7 @@ pub fn channels(out: Out) -> Channels {
     let (style_tx, styles) = RingBuffer::new(4);
     let (old, old_rx) = RingBuffer::new(8);
     let (snaps, snap_rx) = RingBuffer::new(256);
-    Channels { input_tx, ui_tx, style_tx, old_rx, snap_rx, io: EngineIo { input, ui, styles, old, snaps, out } }
+    Channels { input_tx, ui_tx, style_tx, old_rx, snap_rx, io: EngineIo { input, ui, styles, old, snaps, out, player: None } }
 }
 
 #[cfg(test)]

@@ -352,6 +352,7 @@ pub fn play(opts: Options) -> Result<()> {
         live::Out::new(PacketSink::new(Target::Virtual(out_src)), feeds.input),
     );
     input.set_synth(synth.as_ref().map(|s| s.control.clone()));
+    ch.io.player = synth.as_ref().map(|s| s.control.clone());
     // Launchkey pads and buttons that run here, like their keyboard shortcuts.
     let (act_tx, mut act_rx) = rtrb::RingBuffer::<Action>::new(64);
     input.set_actions(act_tx);
@@ -829,7 +830,7 @@ fn draw(
     // Pad map: mirrors the Launchkey pads, same colours and animation.
     let default_snap = Snapshot {
         running: false, sync_armed: true, sync_stop: false, auto_fill: true, cur: None, queued: None,
-        pending_intro: None, main: 0, bar: 0, beat: 0, chord: None, bpm: 120.0, parts: 0xFF, gains: [127; 8], stop_acmp: false,
+        pending_intro: None, main: 0, bar: 0, beat: 0, chord: None, bpm: 120.0, parts: 0xFF, volumes: [100; 8], pickup: 0, stop_acmp: false,
         transpose: Transpose::default(), played: None,
     };
     let looks = launchkey::looks(s.as_ref().unwrap_or(&default_snap), &info.has, panel);
@@ -880,18 +881,21 @@ fn draw(
         let manual_bass = p == 2 && shared.manual_bass();
         let on = parts & (1 << p) != 0 && !manual_bass;
         let key = "zxcvbnm,".chars().nth(p as usize).unwrap();
-        let g = s.map_or(127, |s| s.gains[p as usize]);
+        // The part's volume (its CC7, 0-127); "↕" = the Launchkey fader must reach it first.
+        let g = s.map_or(100, |s| s.volumes[p as usize]);
+        let waiting = s.is_some_and(|s| s.pickup & (1 << p) != 0);
         let bar = "█".repeat((g as usize * 8).div_ceil(127)) + &"·".repeat(8 - (g as usize * 8).div_ceil(127));
         lines.push(Line::from(vec![
             Span::styled(format!(" [{key}] ch {:>2} ", 9 + p), dim),
-            Span::styled(format!("{bar} "), if on { St::default().fg(Color::Green) } else { dim }),
+            Span::styled(format!("{bar} {g:>3}"), if on { St::default().fg(Color::Green) } else { dim }),
+            Span::styled(if waiting { "↕ " } else { "  " }, St::default().fg(Color::Yellow)),
             Span::styled(format!("{:<9}", PART_NAMES[p as usize]), if on { bold } else { dim }),
             Span::styled(format!(" {}", voice_label(8 + p, info.voices[8 + p as usize])), if on { St::default() } else { dim }),
             Span::styled(if manual_bass { "  (muted: Manual Bass)" } else { "" }, St::default().fg(Color::Yellow)),
         ]));
     }
     f.render_widget(
-        Paragraph::new(lines).block(Block::default().borders(Borders::ALL).title(" parts / faders 1-8 → virtual port \"yahaha\" (you: RH ch 1, LH ch 2) ")),
+        Paragraph::new(lines).block(Block::default().borders(Borders::ALL).title(" parts / faders 1-8 = CC7 → virtual port \"yahaha\" (you: RH ch 1, LH ch 2) · ↕ move fader to pick up ")),
         rows[3],
     );
 
@@ -972,14 +976,15 @@ fn draw(
                 Some((info_s, c)) => {
                     Span::styled(
                         format!(
-                            " synth: {} → {} out {}/{} [a] · {} Hz · {} · master {}% · re-voice slot [9/0] · {}[k]",
+                            " synth: {} → {} out {}/{} [a] · {} Hz · {} · master {}{} · re-voice slot [9/0] · {}[k]",
                             info_s.name,
                             info_s.device,
                             c.out_ch.load(Relaxed) + 1,
                             c.out_ch.load(Relaxed) + 2,
                             info_s.sample_rate,
                             info_s.buffer.map(|b| format!("{b} frames ({:.1} ms)", b as f64 * 1000.0 / info_s.sample_rate as f64)).unwrap_or("default buffer".into()),
-                            c.master.load(Relaxed) as u32 * 100 / 127,
+                            c.master.load(Relaxed),
+                            if c.master_waiting.load(Relaxed) { " ↕" } else { "" },
                             if c.muted.load(Relaxed) { "MUTED " } else { "" },
                         ),
                         dim,
@@ -1136,7 +1141,8 @@ pub fn screen_html(style: &Path, out: &Path) -> Result<()> {
         chord: Some(crate::theory::Chord { root: 9, ty: 10, bass: Some(7) }),
         bpm: 110.0,
         parts: 0xFF & !(1 << 5),
-        gains: [127, 110, 96, 127, 80, 64, 127, 100],
+        volumes: [127, 110, 96, 127, 80, 64, 127, 100],
+        pickup: 1 << 4,
         stop_acmp: false,
         transpose: Transpose::new(2, 0),
         played: Some(crate::theory::Chord { root: 7, ty: 10, bass: Some(5) }),

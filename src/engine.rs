@@ -94,7 +94,16 @@ pub struct Prepared {
     /// Destination channels that Master transpose leaves alone: the drum parts and any
     /// part whose voice is a drum or SFX kit (bank MSB 126/127).
     pub kit: [bool; 16],
+    /// The style's own part levels: the last init (SInt) CC7 routed to each accompaniment
+    /// part 1-8 (MIDI ch 9-16), or the GM default 100. Loading the style sets the mixer
+    /// faders to these.
+    pub mix: [u8; 8],
 }
+
+/// GM default channel volume (CC7) for a part the style never sets.
+pub const GM_VOLUME: u8 = 100;
+/// Soft takeover: a hardware fader within this distance of the software value picks it up.
+pub const PICKUP_RANGE: u8 = 2;
 
 impl Prepared {
     pub fn new(style: &Style) -> Prepared {
@@ -144,6 +153,7 @@ impl Prepared {
         let mut init_len = Vec::new();
         let mut voices: [Option<(u8, u8, u8)>; 16] = [None; 16];
         let mut bank = [(0u8, 0u8); 16];
+        let mut mix = [GM_VOLUME; 8];
         for ev in &style.init {
             let Some(ch) = ev.channel() else { continue };
             let Some(rule) = &route[ch as usize] else { continue };
@@ -155,6 +165,9 @@ impl Prepared {
                     }
                     if cc == 32 {
                         bank[d as usize].1 = val;
+                    }
+                    if cc == 7 && (8..16).contains(&d) {
+                        mix[d as usize - 8] = val;
                     }
                     ([0xB0 | d, cc, val], 3)
                 }
@@ -183,6 +196,7 @@ impl Prepared {
             init_len,
             voices,
             kit,
+            mix,
         }
     }
 
@@ -242,8 +256,10 @@ pub struct Snapshot {
     pub chord: Option<Chord>,
     pub bpm: f64,
     pub parts: u8,
-    /// Mixer fader per part (0..=127), applied on top of the style's own volume.
-    pub gains: [u8; 8],
+    /// Mixer fader per part (0..=127): the part's volume, sent as its CC7 unchanged.
+    pub volumes: [u8; 8],
+    /// Parts whose hardware fader is waiting to pick up the software value (soft takeover).
+    pub pickup: u8,
     pub stop_acmp: bool,
     /// Keyboard and Master transpose in semitones (-12..=12 each).
     pub transpose: Transpose,
@@ -304,6 +320,49 @@ struct Sounding {
     started_ns: u64,
 }
 
+/// Soft takeover for an absolute, non-motorised hardware fader controlling a value that
+/// software can also move (the Launchkey part and master faders). After software moves
+/// the value, the fader is ignored until it comes within `PICKUP_RANGE` of it or crosses
+/// it; then it follows again. A fader that has never reported must also pick up first.
+#[derive(Clone, Copy, Debug)]
+pub struct Takeover {
+    /// Last position the fader reported (`HW_UNKNOWN` until it moves).
+    hw: u8,
+    /// The fader tracks the value.
+    picked: bool,
+}
+
+/// `Takeover::hw`: the fader has not reported a position yet.
+const HW_UNKNOWN: u8 = 255;
+
+impl Takeover {
+    pub const NEW: Takeover = Takeover { hw: HW_UNKNOWN, picked: false };
+
+    /// Software set the value to `v`: the fader keeps control only if it is already there.
+    pub fn software_moved(&mut self, v: u8) {
+        self.picked = self.hw != HW_UNKNOWN && self.hw.abs_diff(v) <= PICKUP_RANGE;
+    }
+
+    /// The fader reported `v` while the value is `cur`. True: the fader controls the value
+    /// and `v` applies. Crossing is judged from the last report, so a move lost on the way
+    /// (a full command ring) still counts as a crossing on the next one.
+    pub fn hardware(&mut self, cur: u8, v: u8) -> bool {
+        let prev = std::mem::replace(&mut self.hw, v);
+        if !self.picked {
+            let (c, a, b) = (cur as i16, prev as i16, v as i16);
+            let near = v.abs_diff(cur) <= PICKUP_RANGE;
+            let crossed = prev != HW_UNKNOWN && (a - c).signum() != (b - c).signum();
+            self.picked = near || crossed;
+        }
+        self.picked
+    }
+
+    /// The fader has reported a position but does not control the value yet.
+    pub fn waiting(&self) -> bool {
+        self.hw != HW_UNKNOWN && !self.picked
+    }
+}
+
 const EMPTY: Sounding = Sounding { active: false, src: 0, src_key: 0, dest: 0, out: 0, vel: 0, slot: 0, started_ns: 0 };
 const MAX_SOUNDING: usize = 256;
 /// Pseudo source channel for Stop Accompaniment notes.
@@ -358,13 +417,18 @@ pub struct Engine {
     anchor_tick: f64,
     ns_per_tick: f64,
     parts: u8,
-    gains: [u8; 8],
+    /// Mixer faders: each part's channel volume (CC7), sent as is. A style load sets them
+    /// from the style's own levels.
+    mixer: [u8; 8],
+    /// Parts whose fader the player has moved since the style loaded: pattern CC7 no
+    /// longer overrides them.
+    user_set: u8,
+    /// Soft takeover state of each part's hardware fader.
+    takeover: [Takeover; 8],
     stop_acmp: bool,
     /// Manual Bass (Upper detection mode): the Style's Bass part is muted; the player's
     /// left hand plays the bass instead.
     manual_bass: bool,
-    /// Last volume (CC7) the style itself set on each part.
-    style_vol: [u8; 8],
     taps: [u64; 4],
     tap_n: usize,
     sounding: [Sounding; MAX_SOUNDING],
@@ -373,6 +437,7 @@ pub struct Engine {
 impl Engine {
     pub fn new(style: Box<Prepared>) -> Engine {
         let bpm = style.bpm;
+        let mixer = style.mix;
         let mut e = Engine {
             style,
             running: false,
@@ -395,10 +460,11 @@ impl Engine {
             anchor_tick: 0.0,
             ns_per_tick: 0.0,
             parts: 0xFF,
-            gains: [127; 8],
+            mixer,
+            user_set: 0,
+            takeover: [Takeover::NEW; 8],
             stop_acmp: false,
             manual_bass: false,
-            style_vol: [100; 8],
             taps: [0; 4],
             tap_n: 0,
             sounding: [EMPTY; MAX_SOUNDING],
@@ -412,6 +478,13 @@ impl Engine {
         self.all_off(sink);
         let old = std::mem::replace(&mut self.style, style);
         self.queued = None;
+        // A new style brings its own part levels (no parameter lock): the faders move to
+        // them and the player's earlier moves are forgotten.
+        self.user_set = 0;
+        for p in 0..8 {
+            let v = self.style.mix[p];
+            self.set_mixer(p, v);
+        }
         if !self.running {
             let bpm = self.style.bpm;
             self.set_bpm_internal(bpm, now);
@@ -428,35 +501,72 @@ impl Engine {
         old
     }
 
+    /// The style's channel setup, with the mixer's volume on each part in place of the
+    /// style's own CC7 so a restart never undoes a fader the player moved.
     pub fn send_init(&mut self, sink: &mut impl Sink) {
         for i in 0..self.style.init.len() {
             let (m, l) = (self.style.init[i], self.style.init_len[i] as usize);
-            if l == 3 && m[0] & 0xF0 == 0xB0 && m[1] == 7 {
-                self.volume(m[0] & 0x0F, m[2], sink);
-            } else {
+            let part_vol = l == 3 && m[0] & 0xF0 == 0xB0 && m[1] == 7 && m[0] & 0x0F >= 8;
+            if !part_vol {
                 sink.send(&m[..l]);
             }
         }
-    }
-
-    /// Style volume for a channel, scaled by that part's fader.
-    fn volume(&mut self, ch: u8, style_val: u8, sink: &mut impl Sink) {
-        if (8..16).contains(&ch) {
-            let p = (ch - 8) as usize;
-            self.style_vol[p] = style_val;
-            let v = (style_val as u32 * self.gains[p] as u32 / 127) as u8;
-            sink.send(&[0xB0 | ch, 7, v]);
-        } else {
-            sink.send(&[0xB0 | ch, 7, style_val]);
+        for p in 0..8u8 {
+            sink.send(&[0xB0 | (8 + p), 7, self.mixer[p as usize]]);
         }
     }
 
-    /// Mixer fader moved for a part (0..8).
-    pub fn set_gain(&mut self, part: u8, value: u8, sink: &mut impl Sink) {
+    /// Set a part's fader from software (style load, pattern CC7). A hardware fader that
+    /// is not already there has to pick the new value up before it takes control again.
+    fn set_mixer(&mut self, p: usize, v: u8) {
+        self.mixer[p] = v;
+        self.takeover[p].software_moved(v);
+    }
+
+    /// A CC7 from the style's pattern on `ch`. It is the part's fader value, so it moves the
+    /// fader, unless the player has moved that fader since the style loaded.
+    fn pattern_volume(&mut self, ch: u8, val: u8, sink: &mut impl Sink) {
+        if !(8..16).contains(&ch) {
+            sink.send(&[0xB0 | ch, 7, val]);
+            return;
+        }
+        let p = (ch - 8) as usize;
+        if self.user_set & (1 << p) != 0 {
+            return;
+        }
+        self.set_mixer(p, val);
+        sink.send(&[0xB0 | ch, 7, val]);
+    }
+
+    /// A part fader (0..8) moved to `value`: sent as that part's CC7, unchanged.
+    pub fn set_volume(&mut self, part: u8, value: u8, sink: &mut impl Sink) {
         let p = (part & 7) as usize;
-        self.gains[p] = value.min(127);
-        let sv = self.style_vol[p];
-        self.volume(8 + p as u8, sv, sink);
+        let v = value.min(127);
+        self.mixer[p] = v;
+        self.user_set |= 1 << p;
+        sink.send(&[0xB0 | (8 + p as u8), 7, v]);
+    }
+
+    /// A hardware fader (absolute, not motorised) reported `value` for part 0..8. Soft
+    /// takeover: after the software value moved on its own, the fader is ignored until it
+    /// comes within `PICKUP_RANGE` of that value or crosses it; then it follows again.
+    pub fn hw_fader(&mut self, part: u8, value: u8, sink: &mut impl Sink) {
+        let p = (part & 7) as usize;
+        let v = value.min(127);
+        if self.takeover[p].hardware(self.mixer[p], v) {
+            self.set_volume(part, v, sink);
+        }
+    }
+
+    /// Parts whose hardware fader has reported a position but not yet picked up.
+    fn pickup_waiting(&self) -> u8 {
+        let mut m = 0;
+        for (p, t) in self.takeover.iter().enumerate() {
+            if t.waiting() {
+                m |= 1 << p;
+            }
+        }
+        m
     }
 
     /// Manual Bass on/off: mutes the Style's Bass part (and its Stop Accompaniment note).
@@ -519,7 +629,8 @@ impl Engine {
             chord: self.chord,
             bpm: self.bpm,
             parts: self.parts,
-            gains: self.gains,
+            volumes: self.mixer,
+            pickup: self.pickup_waiting(),
             stop_acmp: self.stop_acmp,
             transpose: self.transpose,
             played: self.played,
@@ -761,6 +872,15 @@ impl Engine {
             self.running = false;
             return;
         };
+        // A start plays the style's channel setup (SInt) again: parts the player has not
+        // moved go back to the style's own level, so an Intro/Ending pattern's CC7 from the
+        // last run does not stick. Faders the player moved keep their value.
+        for p in 0..8 {
+            if self.user_set & (1 << p) == 0 {
+                let v = self.style.mix[p];
+                self.set_mixer(p, v);
+            }
+        }
         self.send_init(sink);
         self.cur = slot;
         self.sec_start = 0.0;
@@ -939,7 +1059,7 @@ impl Engine {
             PKind::Cc { cc, val } => {
                 self.ev_idx += 1;
                 if cc == 7 {
-                    self.volume(dest, val, sink);
+                    self.pattern_volume(dest, val, sink);
                 } else {
                     sink.send(&[0xB0 | dest, cc, val]);
                 }

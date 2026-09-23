@@ -602,7 +602,7 @@ mod tests {
     fn snap() -> Snapshot {
         Snapshot {
             running: false, sync_armed: false, sync_stop: false, auto_fill: false, cur: None, queued: None,
-            pending_intro: None, main: 0, bar: 0, beat: 0, chord: None, bpm: 120.0, parts: 0xFF, gains: [127; 8],
+            pending_intro: None, main: 0, bar: 0, beat: 0, chord: None, bpm: 120.0, parts: 0xFF, volumes: [100; 8], pickup: 0,
             stop_acmp: false, transpose: Transpose::default(), played: None,
         }
     }

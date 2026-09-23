@@ -293,26 +293,6 @@ mod tests {
         v
     }
 
-    /// Faders scale the style's own part volume instead of replacing it.
-    #[test]
-    fn fader_scales_style_volume() {
-        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus/MOX_v2/FunkyFinger.S930.STY");
-        if !path.exists() {
-            return;
-        }
-        let prep = Box::new(Prepared::new(&Style::load(&path).unwrap()));
-        let mut e = Engine::new(prep);
-        let mut rec = Recorder::default();
-        e.send_init(&mut rec);
-        let style_bass = rec.out.iter().rev().find(|(_, m)| m[0] == 0xBA && m[1] == 7).map(|(_, m)| m[2]).unwrap_or(100);
-        rec.out.clear();
-        e.set_gain(2, 64, &mut rec); // part 3 = Bass (ch 11)
-        assert_eq!(rec.out.last().unwrap().1, vec![0xBA, 7, (style_bass as u32 * 64 / 127) as u8]);
-        rec.out.clear();
-        e.send_init(&mut rec); // a later style volume message is still scaled
-        let v = rec.out.iter().rev().find(|(_, m)| m[0] == 0xBA && m[1] == 7).unwrap().1[2];
-        assert_eq!(v, (style_bass as u32 * 64 / 127) as u8);
-    }
 
     /// Stop Accompaniment: chords sound on bass + pad while stopped, and clear on start.
     #[test]
@@ -887,5 +867,269 @@ mod manual_bass {
         let (_, rec) = run(prep, &script, 2_000);
         assert_eq!(bass_ons(&rec, 0, 2_000), 0);
         assert!(rec.out.iter().any(|(_, m)| m[0] == 0x9D && m[2] > 0), "Pad still sounds the chord");
+    }
+}
+
+#[cfg(test)]
+mod mixer {
+    use super::*;
+    use crate::engine::GM_VOLUME;
+    use crate::sff::Style;
+
+    fn prep(name: &str) -> Option<Box<Prepared>> {
+        let p = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus/MOX_v2").join(name);
+        p.exists().then(|| Box::new(Prepared::new(&Style::load(&p).unwrap())))
+    }
+
+    /// The last CC7 the style's init (SInt) sets on each part, or the GM default.
+    fn init_levels(p: &Prepared) -> [u8; 8] {
+        let mut v = [GM_VOLUME; 8];
+        for (m, &l) in p.init.iter().zip(&p.init_len) {
+            if l == 3 && m[0] & 0xF0 == 0xB0 && m[1] == 7 && m[0] & 0x0F >= 8 {
+                v[(m[0] & 0x0F) as usize - 8] = m[2];
+            }
+        }
+        v
+    }
+
+    /// The last CC7 sent on each part channel.
+    fn sent_levels(rec: &Recorder) -> [Option<u8>; 8] {
+        let mut v = [None; 8];
+        for (_, m) in &rec.out {
+            if m.len() == 3 && m[0] & 0xF0 == 0xB0 && m[1] == 7 && m[0] & 0x0F >= 8 {
+                v[(m[0] & 0x0F) as usize - 8] = Some(m[2]);
+            }
+        }
+        v
+    }
+
+    fn cc7_count(rec: &Recorder, part: u8) -> usize {
+        rec.out.iter().filter(|(_, m)| m.len() == 3 && m[0] == 0xB8 + part && m[1] == 7).count()
+    }
+
+    /// Play from `from` to `to` (ns) in 1 ms steps.
+    fn play(e: &mut Engine, rec: &mut Recorder, from: u64, to: u64) {
+        let mut t = from;
+        while t <= to {
+            rec.now = t;
+            e.process(t, rec);
+            t += 1_000_000;
+        }
+    }
+
+    fn bar_ns(p: &Prepared) -> u64 {
+        (60e9 / p.bpm * (p.tpb as f64 / p.ppq as f64)) as u64
+    }
+
+    /// Loading a style sets each part fader to the style's own CC7 (GM 100 where it has
+    /// none), and the init sends exactly those values.
+    #[test]
+    fn style_load_sets_faders_from_style_cc7() {
+        // AustinCityBlues leaves some parts without a CC7.
+        let Some(p) = prep("AustinCityBlues.S930.STY") else { return };
+        let want = init_levels(&p);
+        assert!(want.contains(&GM_VOLUME) && want.iter().any(|&v| v != GM_VOLUME), "{want:?}");
+        assert_eq!(p.mix, want);
+        let mut e = Engine::new(p);
+        assert_eq!(e.snapshot(0).volumes, want);
+        let mut rec = Recorder::default();
+        e.send_init(&mut rec);
+        assert_eq!(sent_levels(&rec), want.map(Some), "every part gets its level, the defaults too");
+        for part in 0..8 {
+            assert_eq!(cc7_count(&rec, part), 1, "one CC7 per part, not the style's then ours");
+        }
+    }
+
+    /// A fader value goes out as that part's CC7, unchanged: no scaling by the style level.
+    #[test]
+    fn fader_sends_its_value_as_cc7() {
+        let Some(p) = prep("FunkyFinger.S930.STY") else { return };
+        let mut e = Engine::new(p);
+        let mut rec = Recorder::default();
+        for v in [0u8, 1, 64, 100, 127] {
+            e.set_volume(2, v, &mut rec); // part 3 = Bass (ch 11)
+            assert_eq!(rec.out.last().unwrap().1, vec![0xBA, 7, v]);
+            assert_eq!(e.snapshot(0).volumes[2], v);
+        }
+        // A restart re-sends the channel setup: the mixer's value wins over the style's CC7.
+        rec.out.clear();
+        e.send_init(&mut rec);
+        assert_eq!(sent_levels(&rec)[2], Some(127));
+        assert_eq!(cc7_count(&rec, 2), 1);
+    }
+
+    /// A section change keeps a fader the player moved, even where the new section carries
+    /// its own CC7 for that part; parts the player left alone follow the pattern's CC7.
+    #[test]
+    fn section_change_keeps_user_fader() {
+        // SmoothItOver: every section sets part levels at its start, some unlike the init.
+        let Some(p) = prep("SmoothItOver.S930.STY") else { return };
+        let bar = bar_ns(&p);
+        let init = p.mix;
+        let mut e = Engine::new(p);
+        let mut rec = Recorder::default();
+        e.set_chord(Chord::new(0, 0), 0, &mut rec);
+        // Walk every Main and fill; note which parts the patterns set.
+        let mut t = 0;
+        let mut moved = None;
+        for m in [0u8, 1, 2, 3, 3, 0, 1, 2] {
+            e.button(Button::Main(m), t, &mut rec);
+            play(&mut e, &mut rec, t, t + 3 * bar);
+            t += 3 * bar;
+            let s = e.snapshot(t);
+            moved = moved.or((0..8).find(|&i| s.volumes[i] != init[i]));
+        }
+        let part = moved.expect("expected a pattern CC7 to move a fader");
+        // The fader shows what the channel was last sent.
+        assert_eq!(sent_levels(&rec)[part], Some(e.snapshot(t).volumes[part]));
+
+        // Now the player sets that part, and every section plays again.
+        e.set_volume(part as u8, 40, &mut rec);
+        rec.out.clear();
+        for m in [0u8, 1, 2, 3, 3, 0, 1, 2] {
+            e.button(Button::Main(m), t, &mut rec);
+            play(&mut e, &mut rec, t, t + 3 * bar);
+            t += 3 * bar;
+        }
+        assert_eq!(e.snapshot(t).volumes[part], 40);
+        assert_eq!(cc7_count(&rec, part as u8), 0, "no section may resend its own level");
+        // Stop and start again: the init goes out with the mixer's level.
+        e.button(Button::StartStop, t, &mut rec);
+        rec.out.clear();
+        e.button(Button::StartStop, t, &mut rec);
+        assert_eq!(sent_levels(&rec)[part], Some(40));
+    }
+
+    /// A start re-plays the style's channel setup: a part the player has not moved goes back
+    /// to the style's own level instead of keeping a level the last Intro/Ending pattern set.
+    #[test]
+    fn restart_restores_untouched_style_levels() {
+        // TickingAway: Intro B and Ending C set part 2 (ch 10) to 76 against an init of 90,
+        // and no other section sets it.
+        let Some(p) = prep("TickingAway.T162.sty") else { return };
+        let bar = bar_ns(&p);
+        let init = p.mix[1];
+        let mut e = Engine::new(p);
+        let mut rec = Recorder::default();
+        e.set_chord(Chord::new(0, 0), 0, &mut rec);
+        e.set_volume(4, 33, &mut rec); // a part the player moved keeps its value
+        let mut t = 0;
+        for b in [Button::Intro(1), Button::StartStop, Button::Main(0), Button::Ending(2)] {
+            e.button(b, t, &mut rec);
+            play(&mut e, &mut rec, t, t + 8 * bar);
+            t += 8 * bar;
+        }
+        let s = e.snapshot(t);
+        assert!(!s.running);
+        assert_ne!(s.volumes[1], init, "the Ending should have moved part 2");
+        rec.out.clear();
+        e.button(Button::Intro(0), t, &mut rec);
+        e.button(Button::StartStop, t, &mut rec);
+        assert_eq!(sent_levels(&rec)[1], Some(init));
+        assert_eq!(sent_levels(&rec)[4], Some(33));
+        assert_eq!(e.snapshot(t).volumes[1], init);
+        assert_eq!(e.snapshot(t).volumes[4], 33);
+    }
+
+    /// Changing style resets every fader to the new style's levels.
+    #[test]
+    fn style_change_resets_faders() {
+        let (Some(a), Some(b)) = (prep("FunkyFinger.S930.STY"), prep("SlowWalker.T552.sty")) else { return };
+        let want = b.mix;
+        let mut e = Engine::new(a);
+        let mut rec = Recorder::default();
+        for p in 0..8 {
+            e.set_volume(p, 11, &mut rec);
+        }
+        e.set_chord(Chord::new(0, 0), 0, &mut rec);
+        rec.out.clear();
+        let _old = e.load(b, 1_000_000, &mut rec);
+        assert_eq!(e.snapshot(1_000_000).volumes, want);
+        assert_eq!(sent_levels(&rec), want.map(Some));
+    }
+
+    /// The takeover rule on its own (the master fader uses it directly).
+    #[test]
+    fn takeover_rule() {
+        use crate::engine::Takeover;
+        let mut t = Takeover::NEW;
+        assert!(!t.waiting());
+        assert!(!t.hardware(100, 20), "never reported and far: wait");
+        assert!(t.waiting());
+        assert!(!t.hardware(100, 97), "3 away: still waiting");
+        assert!(t.hardware(100, 98), "within 2: picked up");
+        assert!(t.hardware(100, 10), "then it follows");
+        t.software_moved(60);
+        assert!(t.waiting());
+        assert!(!t.hardware(60, 20));
+        // Moves in between lost (full ring): a jump across the value still picks up.
+        assert!(t.hardware(60, 90));
+        t.software_moved(91);
+        assert!(!t.waiting(), "the fader is already within 2 of the new value");
+        let mut u = Takeover::NEW;
+        assert!(u.hardware(100, 101), "first report within 2 picks up at once");
+    }
+
+    /// A start keeps a fader the player moved, and its hardware fader stays in control.
+    #[test]
+    fn start_keeps_moved_fader_under_hardware_control() {
+        let Some(p) = prep("TickingAway.T162.sty") else { return };
+        let mix = p.mix;
+        let mut e = Engine::new(p);
+        let mut rec = Recorder::default();
+        let part = (0..8).find(|&i| mix[i] > 20).unwrap();
+        e.hw_fader(part as u8, mix[part], &mut rec); // picked up, but the player moved nothing
+        e.set_volume(part as u8, mix[part], &mut rec);
+        assert_eq!(e.snapshot(0).pickup, 0);
+        e.hw_fader(part as u8, 5, &mut rec); // player pulls it down
+        e.button(Button::StartStop, 0, &mut rec);
+        assert_eq!(e.snapshot(0).volumes[part], 5, "a moved fader survives a start");
+        assert_eq!(e.snapshot(0).pickup, 0);
+    }
+
+    /// Soft takeover: after software moved a fader, the hardware fader does nothing until
+    /// it comes within 2 of the value or crosses it; then it follows.
+    #[test]
+    fn hardware_fader_soft_takeover() {
+        let Some(p) = prep("FunkyFinger.S930.STY") else { return };
+        let bass = p.mix[2];
+        assert!(bass > 20 && bass < 120, "{bass}");
+        let mut e = Engine::new(p);
+        let mut rec = Recorder::default();
+        assert_eq!(e.snapshot(0).pickup, 0, "no marker before the hardware has reported");
+
+        // Hardware far below: ignored, and marked as waiting.
+        e.hw_fader(2, 5, &mut rec);
+        assert!(rec.out.is_empty());
+        assert_eq!(e.snapshot(0).volumes[2], bass);
+        assert_eq!(e.snapshot(0).pickup, 1 << 2);
+        e.hw_fader(2, bass - 10, &mut rec);
+        assert!(rec.out.is_empty(), "still below, not within 2");
+        // Crossing the value picks it up, at the hardware position.
+        e.hw_fader(2, bass + 5, &mut rec);
+        assert_eq!(rec.out.last().unwrap().1, vec![0xBA, 7, bass + 5]);
+        assert_eq!(e.snapshot(0).pickup, 0);
+        // From then on it follows directly.
+        e.hw_fader(2, 3, &mut rec);
+        assert_eq!(rec.out.last().unwrap().1, vec![0xBA, 7, 3]);
+
+        // Unknown hardware position (never moved): a first report within 2 picks up at once.
+        rec.out.clear();
+        let other = e.snapshot(0).volumes[3];
+        e.hw_fader(3, other.saturating_sub(2), &mut rec);
+        assert_eq!(rec.out.last().unwrap().1, vec![0xBB, 7, other.saturating_sub(2)]);
+
+        // A style load moves the software fader away from the hardware: wait again.
+        let Some(q) = prep("CoolRevibed.T552.sty") else { return };
+        let new_bass = q.mix[2];
+        assert!(new_bass.abs_diff(3) > 2);
+        let _old = e.load(q, 0, &mut rec);
+        assert_eq!(e.snapshot(0).pickup & (1 << 2), 1 << 2);
+        rec.out.clear();
+        e.hw_fader(2, 4, &mut rec);
+        assert!(rec.out.is_empty(), "hardware must not jump the new level");
+        assert_eq!(e.snapshot(0).volumes[2], new_bass);
+        e.hw_fader(2, new_bass - 1, &mut rec);
+        assert_eq!(rec.out.last().unwrap().1, vec![0xBA, 7, new_bass - 1]);
     }
 }
