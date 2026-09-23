@@ -64,6 +64,41 @@ impl Shared {
     }
 }
 
+/// Output fan-out: the virtual MIDI port, plus the built-in synth when it's running.
+pub struct Out {
+    pub midi: PacketSink,
+    pub synth: Option<Producer<[u8; 3]>>,
+}
+
+impl Out {
+    pub fn new(midi: PacketSink, synth: Option<Producer<[u8; 3]>>) -> Out {
+        Out { midi, synth }
+    }
+
+    #[inline]
+    pub fn push(&mut self, msg: &[u8]) {
+        self.midi.push(msg);
+        if let Some(s) = self.synth.as_mut() {
+            let mut m = [0u8; 3];
+            let n = msg.len().min(3);
+            m[..n].copy_from_slice(&msg[..n]);
+            let _ = s.push(m);
+        }
+    }
+
+    #[inline]
+    pub fn flush(&mut self) {
+        self.midi.flush();
+    }
+}
+
+impl crate::engine::Sink for Out {
+    #[inline]
+    fn send(&mut self, msg: &[u8]) {
+        self.push(msg);
+    }
+}
+
 pub const TAG_KEYS: usize = 1;
 pub const TAG_PADS: usize = 2;
 
@@ -82,13 +117,13 @@ pub struct Input {
     current: Option<Chord>,
     generation: u16,
     cmd: Producer<Cmd>,
-    out: PacketSink,
+    out: Out,
     running_status: [u8; 3],
     signal: bool,
 }
 
 impl Input {
-    pub fn new(shared: Arc<Shared>, rec: Recognizer, cmd: Producer<Cmd>, out: PacketSink) -> Input {
+    pub fn new(shared: Arc<Shared>, rec: Recognizer, cmd: Producer<Cmd>, out: Out) -> Input {
         Input {
             shared,
             rec,
@@ -220,7 +255,7 @@ pub struct EngineIo {
     pub styles: Consumer<Box<Prepared>>,
     pub old: Producer<Box<Prepared>>,
     pub snaps: Producer<Snapshot>,
-    pub out: PacketSink,
+    pub out: Out,
 }
 
 pub fn run_engine(mut engine: Engine, mut io: EngineIo, shared: Arc<Shared>) {
@@ -304,7 +339,7 @@ pub fn run_engine(mut engine: Engine, mut io: EngineIo, shared: Arc<Shared>) {
     }
 }
 
-fn apply(engine: &mut Engine, cmd: Cmd, now: u64, out: &mut PacketSink) {
+fn apply(engine: &mut Engine, cmd: Cmd, now: u64, out: &mut Out) {
     match cmd {
         Cmd::Button(b) => engine.button(b, now, out),
         Cmd::ChordReleased => engine.chord_released(now, out),
@@ -331,7 +366,7 @@ pub struct Channels {
     pub io: EngineIo,
 }
 
-pub fn channels(out: PacketSink) -> Channels {
+pub fn channels(out: Out) -> Channels {
     let (input_tx, input) = RingBuffer::new(256);
     let (ui_tx, ui) = RingBuffer::new(256);
     let (style_tx, styles) = RingBuffer::new(4);

@@ -134,3 +134,130 @@ pub fn led_msgs(note: u8, led: Led, out: &mut Vec<[u8; 3]>) {
         Led::Pulse(c) => out.push([0x92, note, c]),
     }
 }
+
+// ---------------------------------------------------------------------------
+// RGB look model: one description drives both the hardware pads and the on-screen map.
+// ---------------------------------------------------------------------------
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Level {
+    Off,
+    Dim,
+    Bright,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Anim {
+    Solid,
+    /// Alternates dim/bright every half beat: queued, waiting for the bar/beat.
+    Flash,
+    /// Breathes over two beats: armed, waiting for you.
+    Pulse,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct Look {
+    pub label: &'static str,
+    pub key: &'static str,
+    /// Full-brightness colour, 0..=127 per channel.
+    pub rgb: (u8, u8, u8),
+    pub level: Level,
+    pub anim: Anim,
+}
+
+pub const C_INTRO: (u8, u8, u8) = (127, 95, 0);
+pub const C_MAIN: (u8, u8, u8) = (0, 127, 16);
+pub const C_ENDING: (u8, u8, u8) = (127, 0, 0);
+pub const C_BREAK: (u8, u8, u8) = (90, 0, 127);
+pub const C_SYNC: (u8, u8, u8) = (127, 45, 0);
+pub const C_FILL: (u8, u8, u8) = (0, 45, 127);
+pub const C_TAP: (u8, u8, u8) = (100, 100, 100);
+pub const C_STOPSYNC: (u8, u8, u8) = (0, 110, 110);
+pub const C_RUN: (u8, u8, u8) = (0, 127, 0);
+pub const C_IDLE: (u8, u8, u8) = (127, 0, 0);
+
+/// Brightness of "dim" relative to full.
+const DIM: f32 = 0.18;
+
+pub fn looks(s: &Snapshot, has: &[bool]) -> [(u8, Look); 16] {
+    let l = |label, key, rgb, level, anim| Look { label, key, rgb, level, anim };
+    let sec = |id: SectionId, label, key, rgb| -> Look {
+        if !has[slot_of(id)] {
+            l(label, key, rgb, Level::Off, Anim::Solid)
+        } else if s.queued == Some(id) {
+            l(label, key, rgb, Level::Bright, Anim::Flash)
+        } else if s.cur == Some(id) {
+            l(label, key, rgb, Level::Bright, Anim::Solid)
+        } else {
+            l(label, key, rgb, Level::Dim, Anim::Solid)
+        }
+    };
+    let main = |i: u8, label, key| -> Look {
+        let id = SectionId::Main(i);
+        let fill = SectionId::Fill(i);
+        if !has[slot_of(id)] {
+            l(label, key, C_MAIN, Level::Off, Anim::Solid)
+        } else if s.queued == Some(id) || s.queued == Some(fill) || s.cur == Some(fill) {
+            l(label, key, C_MAIN, Level::Bright, Anim::Flash)
+        } else if s.cur == Some(id) || (s.main == i && !matches!(s.cur, Some(SectionId::Main(_)))) {
+            l(label, key, C_MAIN, Level::Bright, Anim::Solid)
+        } else {
+            l(label, key, C_MAIN, Level::Dim, Anim::Solid)
+        }
+    };
+    let intro = |i: u8, label, key| -> Look {
+        if s.pending_intro == Some(i) && has[slot_of(SectionId::Intro(i))] {
+            l(label, key, C_INTRO, Level::Bright, Anim::Pulse)
+        } else {
+            sec(SectionId::Intro(i), label, key, C_INTRO)
+        }
+    };
+    let toggle = |on: bool, label, key, rgb| l(label, key, rgb, if on { Level::Bright } else { Level::Dim }, Anim::Solid);
+    [
+        (96, intro(0, "INTRO 1", "q")),
+        (97, intro(1, "INTRO 2", "w")),
+        (98, intro(2, "INTRO 3", "e")),
+        (99, if s.sync_armed { l("SYNC ST", "y", C_SYNC, Level::Bright, Anim::Pulse) } else { toggle(false, "SYNC ST", "y", C_SYNC) }),
+        (100, sec(SectionId::Ending(0), "ENDING 1", "i", C_ENDING)),
+        (101, sec(SectionId::Ending(1), "ENDING 2", "o", C_ENDING)),
+        (102, sec(SectionId::Ending(2), "ENDING 3", "p", C_ENDING)),
+        (103, toggle(s.auto_fill, "AUTOFILL", "u", C_FILL)),
+        (112, main(0, "MAIN A", "1")),
+        (113, main(1, "MAIN B", "2")),
+        (114, main(2, "MAIN C", "3")),
+        (115, main(3, "MAIN D", "4")),
+        (116, sec(SectionId::Break, "BREAK", "g", C_BREAK)),
+        (117, toggle(s.running && s.beat == 0, "TAP", "t", C_TAP)),
+        (118, toggle(s.sync_stop, "SYNC STP", "j", C_STOPSYNC)),
+        (119, if s.running { toggle(true, "START", "spc", C_RUN) } else { toggle(true, "STOP", "spc", C_IDLE) }),
+    ]
+}
+
+/// Colour at a point in time. `beats` is a free-running beat clock (fractional).
+pub fn rgb_at(look: &Look, beats: f64) -> (u8, u8, u8) {
+    let k = match (look.level, look.anim) {
+        (Level::Off, _) => 0.0,
+        (Level::Dim, _) => DIM,
+        (Level::Bright, Anim::Solid) => 1.0,
+        (Level::Bright, Anim::Flash) => {
+            if beats.fract() < 0.5 {
+                1.0
+            } else {
+                DIM
+            }
+        }
+        (Level::Bright, Anim::Pulse) => {
+            // Two-beat triangle between 25% and 100%.
+            let p = (beats / 2.0).fract() as f32;
+            let tri = if p < 0.5 { p * 2.0 } else { 2.0 - p * 2.0 };
+            0.25 + 0.75 * tri
+        }
+    };
+    let f = |c: u8| ((c as f32 * k).round() as u8).min(127);
+    (f(look.rgb.0), f(look.rgb.1), f(look.rgb.2))
+}
+
+/// SysEx that sets a pad to an RGB colour (0..=127 per channel). Regular (non-Mini) SKU.
+pub fn rgb_sysex(pad: u8, (r, g, b): (u8, u8, u8)) -> [u8; 13] {
+    [0xF0, 0x00, 0x20, 0x29, 0x02, 0x14, 0x01, 0x43, pad, r, g, b, 0xF7]
+}

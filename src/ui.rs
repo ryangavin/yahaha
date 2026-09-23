@@ -1,12 +1,13 @@
 //! `yahaha play`: device setup, terminal front panel, Launchkey LEDs. Runs on the main
 //! thread at normal priority; talks to the engine only through lock-free rings.
 
-use crate::engine::{id_of, slot_of, Button, Engine, Prepared, Snapshot, NUM_SLOTS};
+use crate::engine::{id_of, Button, Engine, Prepared, Snapshot, NUM_SLOTS};
 use crate::launchkey::{self, Led};
 use crate::live::{self, Cmd, Input, Shared, TAG_KEYS, TAG_PADS};
 use crate::midi::{self, Client};
 use crate::rt::{PacketSink, Target};
-use crate::sff::{SectionId, Style};
+use crate::synth::{self, Synth};
+use crate::sff::Style;
 use crate::theory::{Recognizer, NOTE_NAMES};
 use anyhow::{Context, Result};
 use crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
@@ -26,6 +27,10 @@ pub struct Options {
     /// Only connect sources whose name contains one of these.
     pub inputs: Vec<String>,
     pub no_pads: bool,
+    /// SoundFont for the built-in synth; None = no synth.
+    pub sf2: Option<PathBuf>,
+    /// Use Novation palette colours (and hardware flashing) instead of RGB SysEx.
+    pub palette_leds: bool,
 }
 
 fn collect_styles(paths: &[PathBuf]) -> Vec<PathBuf> {
@@ -94,8 +99,32 @@ pub fn play(opts: Options) -> Result<()> {
     let client = Client::new("yahaha")?;
     let out_src = client.virtual_source("yahaha")?;
     let shared = Arc::new(Shared::new(opts.split));
-    let mut ch = live::channels(PacketSink::new(Target::Virtual(out_src)));
-    let input = Input::new(shared.clone(), Recognizer::new(), ch.input_tx, PacketSink::new(Target::Virtual(out_src)));
+
+    // --- built-in synth (optional) ---
+    let mut feeds = synth::feeds();
+    let mut synth_err = String::new();
+    let synth = match &opts.sf2 {
+        Some(p) => match synth::start(p, std::mem::take(&mut feeds.consumers)) {
+            Ok(s) => Some(s),
+            Err(e) => {
+                synth_err = format!("synth off: {e:#}");
+                None
+            }
+        },
+        None => None,
+    };
+    if synth.is_none() {
+        feeds.engine = None;
+        feeds.input = None;
+    }
+
+    let mut ch = live::channels(live::Out::new(PacketSink::new(Target::Virtual(out_src)), feeds.engine));
+    let input = Input::new(
+        shared.clone(),
+        Recognizer::new(),
+        ch.input_tx,
+        live::Out::new(PacketSink::new(Target::Virtual(out_src)), feeds.input),
+    );
     let port = client.input_port("yahaha in", input)?;
 
     let sources = midi::sources();
@@ -103,18 +132,14 @@ pub fn play(opts: Options) -> Result<()> {
     let lk_daw = sources.iter().find(|(_, n)| n.contains("Launchkey") && n.contains("DAW"));
     let mut connected = Vec::new();
     if !opts.inputs.is_empty() {
-        let deadline = std::time::Instant::now() + Duration::from_secs(5);
-        while connected.is_empty() {
-            for (e, n) in midi::sources() {
-                if opts.inputs.iter().any(|want| n.contains(want.as_str())) {
-                    port.connect(e, TAG_KEYS)?;
-                    connected.push(n.clone());
-                }
+        for (e, n) in midi::sources() {
+            if opts.inputs.iter().any(|want| n.contains(want.as_str())) {
+                port.connect(e, TAG_KEYS)?;
+                connected.push(n.clone());
             }
-            anyhow::ensure!(!connected.is_empty() || std::time::Instant::now() < deadline, "no MIDI source matching {:?}", opts.inputs);
-            if connected.is_empty() {
-                std::thread::sleep(Duration::from_millis(100));
-            }
+        }
+        if connected.is_empty() {
+            connected.push(format!("(nothing matched {:?})", opts.inputs));
         }
     } else if lk_keys.is_empty() || opts.all_inputs {
         for (e, n) in &sources {
@@ -154,29 +179,47 @@ pub fn play(opts: Options) -> Result<()> {
     let mut term = ratatui::init();
     let mut snap: Option<Snapshot> = None;
     let mut last_leds: [(u8, Option<Led>); 16] = [(0, None); 16];
+    let mut last_rgb: [Option<(u8, u8, u8)>; 16] = [None; 16];
     let mut led_buf = Vec::new();
-    let mut message = String::new();
+    let mut message = synth_err;
+    let clock = std::time::Instant::now();
+    let mut beats = 0.0f64;
+    let mut last_tick = 0.0f64;
     let result: Result<()> = (|| loop {
         while let Ok(s) = ch.snap_rx.pop() {
             snap = Some(s);
         }
         while ch.old_rx.pop().is_ok() {} // drop old styles here, off the RT thread
 
+        // Free-running beat clock for flashing/pulsing, following the current tempo.
+        let t = clock.elapsed().as_secs_f64();
+        beats += (t - last_tick) * snap.map_or(120.0, |s| s.bpm) / 60.0;
+        last_tick = t;
         if let (Some(s), Some(out)) = (&snap, leds.as_mut()) {
-            for (i, (note, led)) in launchkey::pad_leds(s, &info.has).into_iter().enumerate() {
-                if last_leds[i] != (note, Some(led)) {
-                    led_buf.clear();
-                    launchkey::led_msgs(note, led, &mut led_buf);
-                    for m in &led_buf {
-                        out.push(m);
+            if opts.palette_leds {
+                for (i, (note, led)) in launchkey::pad_leds(s, &info.has).into_iter().enumerate() {
+                    if last_leds[i] != (note, Some(led)) {
+                        led_buf.clear();
+                        launchkey::led_msgs(note, led, &mut led_buf);
+                        for m in &led_buf {
+                            out.push(m);
+                        }
+                        last_leds[i] = (note, Some(led));
                     }
-                    last_leds[i] = (note, Some(led));
+                }
+            } else {
+                for (i, (pad, look)) in launchkey::looks(s, &info.has).iter().enumerate() {
+                    let rgb = launchkey::rgb_at(look, beats);
+                    if last_rgb[i] != Some(rgb) {
+                        out.push(&launchkey::rgb_sysex(*pad, rgb));
+                        last_rgb[i] = Some(rgb);
+                    }
                 }
             }
             out.flush();
         }
 
-        term.draw(|f| draw(f, &info, snap.as_ref(), &shared, &connected, idx, styles.len(), &message))?;
+        term.draw(|f| draw(f, &info, snap.as_ref(), &shared, &connected, idx, styles.len(), &message, beats, synth.as_ref()))?;
 
         if event::poll(Duration::from_millis(16))? {
             if let Event::Key(k) = event::read()? {
@@ -216,6 +259,29 @@ pub fn play(opts: Options) -> Result<()> {
                     KeyCode::Char(']') => {
                         let s = shared.split.load(Relaxed);
                         shared.split.store((s + 1).min(96), Relaxed);
+                        None
+                    }
+                    KeyCode::Char('9') | KeyCode::Char('0') => {
+                        if let Some(sy) = &synth {
+                            let p = sy.control.rh_program.load(Relaxed);
+                            let p = if k.code == KeyCode::Char('0') { (p + 1) % 128 } else { (p + 127) % 128 };
+                            sy.control.rh_program.store(p, Relaxed);
+                            sy.control.rh_changed.store(true, Relaxed);
+                        }
+                        None
+                    }
+                    KeyCode::Char('l') => {
+                        if let Some(sy) = &synth {
+                            let v = !sy.control.lh_sound.load(Relaxed);
+                            sy.control.lh_sound.store(v, Relaxed);
+                        }
+                        None
+                    }
+                    KeyCode::Char('k') => {
+                        if let Some(sy) = &synth {
+                            let v = !sy.control.muted.load(Relaxed);
+                            sy.control.muted.store(v, Relaxed);
+                        }
                         None
                     }
                     KeyCode::Char('!') => {
@@ -264,7 +330,7 @@ pub fn play(opts: Options) -> Result<()> {
     result
 }
 
-fn gm_name(prog: u8) -> &'static str {
+pub fn gm_name(prog: u8) -> &'static str {
     const GM: [&str; 128] = [
         "Grand Piano", "Bright Piano", "E.Grand", "Honky-tonk", "E.Piano 1", "E.Piano 2", "Harpsichord", "Clavinet",
         "Celesta", "Glockenspiel", "Music Box", "Vibraphone", "Marimba", "Xylophone", "Tubular Bells", "Dulcimer",
@@ -291,7 +357,10 @@ fn voice_label(dest: u8, v: Option<(u8, u8, u8)>) -> String {
         None => "—".into(),
         Some((msb, lsb, pc)) if msb >= 126 || dest == 8 || dest == 9 => format!("drum kit {msb}/{lsb}/{}", pc + 1),
         Some((0, 0, pc)) => format!("{} (GM {})", gm_name(pc), pc + 1),
-        Some((msb, lsb, pc)) => format!("≈ {}  [{msb}/{lsb}/{}]", gm_name(pc), pc + 1),
+        Some((msb, lsb, pc)) => {
+            let gm = crate::synth::gm_fallback(dest, msb, pc);
+            format!("≈ {}  [Yamaha {msb}/{lsb}/{}]", gm_name(gm), pc + 1)
+        }
     }
 }
 
@@ -307,14 +376,16 @@ fn draw(
     idx: usize,
     total: usize,
     message: &str,
+    beats: f64,
+    synth: Option<&Synth>,
 ) {
     let area = f.area();
     let rows = Layout::vertical([
         Constraint::Length(1),
         Constraint::Length(5),
-        Constraint::Length(4),
         Constraint::Length(10),
-        Constraint::Length(3),
+        Constraint::Length(10),
+        Constraint::Length(4),
         Constraint::Min(4),
     ])
     .split(area);
@@ -355,44 +426,43 @@ fn draw(
         rows[1],
     );
 
-    // Sections.
-    let sec_span = |id: SectionId| -> Span {
-        let name = match id {
-            SectionId::Intro(i) => format!("Intro {}", ["I", "II", "III", "IV"][i as usize]),
-            SectionId::Ending(i) => format!("End {}", ["I", "II", "III", "IV"][i as usize]),
-            SectionId::Break => "Break".into(),
-            other => other.name(),
-        };
-        let st = if !info.has[slot_of(id)] {
-            dim
-        } else if s.and_then(|s| s.cur) == Some(id) {
-            St::default().fg(Color::Black).bg(Color::Green)
-        } else if s.and_then(|s| s.queued) == Some(id) {
-            St::default().fg(Color::Black).bg(Color::Yellow)
-        } else {
-            St::default()
-        };
-        Span::styled(format!(" {name} "), st)
+    // Pad map: mirrors the Launchkey pads, same colours and animation.
+    let default_snap = Snapshot {
+        running: false, sync_armed: true, sync_stop: false, auto_fill: true, cur: None, queued: None,
+        pending_intro: None, main: 0, bar: 0, beat: 0, chord: None, bpm: 120.0, parts: 0xFF,
     };
-    let mut l1 = vec![];
-    for i in 0..3 {
-        l1.push(sec_span(SectionId::Intro(i)));
-    }
-    l1.push(Span::raw("   "));
-    for i in 0..4 {
-        l1.push(sec_span(SectionId::Main(i)));
-    }
-    let mut l2 = vec![];
-    for i in 0..4 {
-        l2.push(sec_span(SectionId::Fill(i)));
-    }
-    l2.push(sec_span(SectionId::Break));
-    l2.push(Span::raw("   "));
-    for i in 0..3 {
-        l2.push(sec_span(SectionId::Ending(i)));
-    }
+    let looks = launchkey::looks(s.as_ref().unwrap_or(&default_snap), &info.has);
+    let pad_lines = |row: &[(u8, launchkey::Look)]| -> [Line<'static>; 3] {
+        let mut top = vec![Span::raw(" ")];
+        let mut mid = vec![Span::raw(" ")];
+        let mut bot = vec![Span::raw(" ")];
+        for (_, look) in row {
+            let (r, g, b) = launchkey::rgb_at(look, beats);
+            // Lift low levels a little on screen; terminals render dark colours darker than LEDs.
+            let lift = |c: u8| ((c as f32 / 127.0).powf(0.8) * 255.0) as u8;
+            let bg = Color::Rgb(lift(r), lift(g), lift(b));
+            let lum = r as u32 * 3 + g as u32 * 6 + b as u32;
+            let fg = if lum > 500 { Color::Black } else { Color::Gray };
+            let st = St::default().bg(bg).fg(fg);
+            top.push(Span::styled(format!("{:^10}", ""), st));
+            mid.push(Span::styled(format!("{:^10}", look.label), st.add_modifier(Modifier::BOLD)));
+            bot.push(Span::styled(format!("{:^10}", format!("[{}]", look.key)), st));
+            for v in [&mut top, &mut mid, &mut bot] {
+                v.push(Span::raw(" "));
+            }
+        }
+        [Line::from(top), Line::from(mid), Line::from(bot)]
+    };
+    let mut pad_rows: Vec<Line> = Vec::new();
+    pad_rows.extend(pad_lines(&looks[..8]));
+    pad_rows.push(Line::raw(""));
+    pad_rows.extend(pad_lines(&looks[8..]));
+    pad_rows.push(Line::from(Span::styled(
+        " dim = available · bright = playing / on · flashing = queued (next bar; fills next beat) · pulsing = armed, waiting for you · dark = style lacks it",
+        dim,
+    )));
     f.render_widget(
-        Paragraph::new(vec![Line::from(l1), Line::from(l2)]).block(Block::default().borders(Borders::ALL).title(" sections ")),
+        Paragraph::new(pad_rows).block(Block::default().borders(Borders::ALL).title(" Launchkey pads (same colours as the hardware) ")),
         rows[2],
     );
 
@@ -423,6 +493,22 @@ fn draw(
                 flag(s.map_or(false, |s| s.sync_stop), "SYNC STOP [j]"),
                 Span::raw(format!("  split {} [ / ]", note_name(shared.split.load(Relaxed)))),
             ]),
+            Line::from(match synth {
+                Some(sy) => {
+                    let c = &sy.control;
+                    Span::raw(format!(
+                        " synth: {} → {} · {} Hz · {} · RH voice {} [9/0] · LH sound {} [l] · {}[k]",
+                        sy.info.name,
+                        sy.info.device,
+                        sy.info.sample_rate,
+                        sy.info.buffer.map(|b| format!("{b} frames ({:.1} ms)", b as f64 * 1000.0 / sy.info.sample_rate as f64)).unwrap_or("default buffer".into()),
+                        gm_name(c.rh_program.load(Relaxed)),
+                        if c.lh_sound.load(Relaxed) { "on" } else { "off" },
+                        if c.muted.load(Relaxed) { "MUTED " } else { "" },
+                    ))
+                }
+                None => Span::styled(" synth: off (MIDI out only; use --sf2 <file>)", dim),
+            }),
             Line::from(Span::styled(
                 format!(
                     " engine: RT {}  wake err p99 <{}µs  chord→engine p99 <{}µs  midi-in p99 <{}µs",
@@ -449,4 +535,56 @@ fn draw(
     }
     let _ = id_of;
     f.render_widget(Paragraph::new(help), rows[5]);
+}
+
+/// Debug: render one frame (with a sample playing state) to HTML so the layout can be
+/// checked without a terminal. `yahaha screen <style> out.html`
+pub fn screen_html(style: &Path, out: &Path) -> Result<()> {
+    use ratatui::backend::TestBackend;
+    let (_, info) = load(style)?;
+    let shared = Shared::new(54);
+    let snap = Snapshot {
+        running: true,
+        sync_armed: false,
+        sync_stop: false,
+        auto_fill: true,
+        cur: Some(crate::sff::SectionId::Main(0)),
+        queued: Some(crate::sff::SectionId::Fill(1)),
+        pending_intro: None,
+        main: 1,
+        bar: 1,
+        beat: 2,
+        chord: Some(crate::theory::Chord { root: 9, ty: 10, bass: Some(7) }),
+        bpm: 110.0,
+        parts: 0xFF & !(1 << 5),
+    };
+    let mut term = ratatui::Terminal::new(TestBackend::new(150, 44))?;
+    term.draw(|f| draw(f, &info, Some(&snap), &shared, &["Launchkey MK4 61 MIDI Out".into()], 0, 35, "", 0.25, None))?;
+    let buf = term.backend().buffer().clone();
+    let col = |c: Color, dflt: &str| -> String {
+        match c {
+            Color::Rgb(r, g, b) => format!("#{r:02x}{g:02x}{b:02x}"),
+            Color::Black => "#000".into(),
+            Color::Gray => "#bbb".into(),
+            Color::DarkGray => "#666".into(),
+            Color::Yellow => "#e5c000".into(),
+            Color::Green => "#3c3".into(),
+            Color::Cyan => "#3cc".into(),
+            Color::Red => "#e33".into(),
+            _ => dflt.into(),
+        }
+    };
+    let mut html = String::from("<html><body style='background:#111;margin:0'><pre style='font:14px Menlo,monospace;line-height:1.15;color:#ddd;margin:8px'>");
+    for y in 0..buf.area.height {
+        for x in 0..buf.area.width {
+            let c = &buf[(x, y)];
+            let sym = c.symbol().replace('&', "&amp;").replace('<', "&lt;");
+            let bold = if c.modifier.contains(Modifier::BOLD) { "font-weight:bold;" } else { "" };
+            html.push_str(&format!("<span style='color:{};background:{};{bold}'>{sym}</span>", col(c.fg, "#ddd"), col(c.bg, "transparent")));
+        }
+        html.push('\n');
+    }
+    html.push_str("</pre></body></html>");
+    std::fs::write(out, html)?;
+    Ok(())
 }

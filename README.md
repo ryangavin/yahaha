@@ -1,6 +1,6 @@
 # yahaha
 
-A software arranger keyboard. It loads Yamaha Genos/PSR/Tyros style files (`.sty .prs .sst ...`), follows the chords you play on a MIDI keyboard, and plays the band out of a virtual MIDI port called **yahaha**. You pick the sounds in Ableton (or any synth).
+A software arranger keyboard. It loads Yamaha Genos/PSR/Tyros style files (`.sty .prs .sst ...`) and follows the chords you play on a MIDI keyboard. The band plays through a built-in SoundFont synth, and also out of a virtual MIDI port called **yahaha** so you can use your own sounds in Ableton.
 
 ## Run
 
@@ -16,7 +16,15 @@ On launch:
 
 Play a chord left of **F#2** (Yamaha numbering, C3 = middle C) and the band starts.
 
+The built-in synth uses the first `.sf2` file in `soundfonts/` (GeneralUser GS, downloaded separately; it's not in git). It plays on your default audio output with a 64-frame buffer (about 1.3 ms at 48 kHz).
+- Your right hand plays a piano by default. Change its voice with `9` and `0`.
+- `l` makes your left-hand chord notes sound too.
+- `k` mutes the synth, for example when you're using Ableton sounds instead.
+
 Options:
+- `--sf2 file` uses a different SoundFont.
+- `--no-synth` turns the synth off, leaving MIDI out only.
+- `--palette-leds` uses the Launchkey's built-in palette colours instead of RGB SysEx.
 - `--split C3` moves the split point. You can also use `[` and `]` while playing.
 - `--input "Name"` picks MIDI sources by name.
 - `--all-inputs` merges every connected keyboard.
@@ -43,6 +51,13 @@ Options:
 3. Arm the tracks, or set Monitor to *In*.
 
 ## Controls
+
+The screen shows a live map of the pads, in the same colours as the hardware:
+- **dim**: the section is available
+- **bright**: playing, or the feature is on
+- **flashing**: queued; takes over at the next bar (fills at the next beat)
+- **pulsing**: armed and waiting for you
+- **dark**: this style doesn't have it
 
 | Launchkey pad | top row | bottom row |
 |---|---|---|
