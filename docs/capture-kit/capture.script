@@ -1,0 +1,48 @@
+# Reference capture script (#9). `yahaha capture-kit` turns it into a MIDI file for a Genos
+# or PSR-SX owner to play into ACMP, and `yahaha capture-import` plays the same script
+# through our engine and compares the two. Grammar: tests/golden/README.md.
+#
+# Only buttons that have a MIDI Section Control message can be used here: [IntroA-D],
+# [MainA-D], [Break] and [EndingA-D]. Every chord must read back as itself from the keys
+# the kit plays (Fingered On Bass); src/capture.rs checks both.
+# Changing this file invalidates every recording made with it, and every digest in
+# tests/reference.
+
+# Intro A, started by the first chord (Sync Start), then Main A.
+[IntroA] | C | - |
+# Main A: every chord type in the Data List table, one a bar, with the root moving round the
+# circle of fourths so every root comes up.
+| C | F6 | Bbmaj7 | Ebmaj7#11 |
+| Abadd9 | Dbmaj9 | F#6(9) | Baug |
+| E7#5 | Amaj7#5 | Dm | Gm6 |
+| Cm7 | Fm7b5 | Bbm(add9) | Ebm9 |
+| Abm11 | C#mMaj7 | F#mMaj9 | Bdim |
+| Edim7 | A7 | D7sus4 | G9 |
+| C7#11 | F13 | Bb7b5 | Eb7b9 |
+| Ab7b13 | Db7#9 | F#sus4 | Bsus2 |
+| Emaj7b5 | A(b5) | DmMaj7b5 | G1+5 |
+# Main A again from inside Main A (its own fill), then a fill into Main B.
+| C1+8 | C - - [MainA] - | F | G7 - - [MainB] - |
+# Main B: major and minor on all twelve roots, two chords a bar (High Key, Note Limit).
+| C Db | D Eb | E F | F# G | Ab A | Bb B |
+| Cm C#m | Dm Ebm | Em Fm | F#m Gm | G#m Am | Bbm Bm |
+# Inversions and slash chords: with Fingered On Bass the lowest key is the bass. Some
+# are written the way they read: F over G is Fadd9/G, C over Bb is C7/Bb, and Am7 over G
+# (G A C E) is C6/G, Dm11 over G is F6(9)/G. The chord messages in a recording show how
+# the instrument reads them.
+| C/E | C/G | C6/G | D/F# | Fadd9/G | F6(9)/G | C7/Bb | Fmaj7/E |
+| Am/C | G/B | Em/B | C/F# | Bbadd9/C | Eb/G | E7/G# | G7/F - - [Break] - |
+# Break, then Main C: quick changes while notes sound (Retrigger Rule). Two, four and
+# eight chords a bar, changes off the beat, and a release (the chord stays in memory).
+| Am - - [MainC] - |
+| C F | G7 C | Am Dm7 | G7 C |
+| C Am F G7 | Em A7 Dm7 G7 | Cmaj7 Fmaj7 Bm7b5 E7 | Am D7 G7 C |
+| C F C F G7 C G7 C | Am E7 Am E7 Am Dm E7 Am |
+| C - - F - - G7 - | C - - - Am - - - |
+| Dm7 - G7 - - - C - | C - ^ - | F - - [MainD] - |
+# Main D: Cancel, 1+5 and 1+8 in context, and a chord change on the first beat of a fill.
+| Am | Ccancel | - | F |
+| C1+5 | F1+5 | G1+8 | C - - [MainA] G7 |
+# Main A, then Ending A, left to run out.
+| C | Dm7 - G7 [EndingA] - |
+| C | - | - | - |

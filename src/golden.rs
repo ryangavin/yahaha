@@ -9,7 +9,7 @@
 //! See tests/golden/README.md.
 
 use crate::sff::Style;
-use crate::sim;
+use crate::sim::{self, digest, fnv1a, part_key};
 use std::path::{Path, PathBuf};
 
 /// Chosen for coverage: Guitar NTR (stroke and all-purpose), minor-5th NTT tables and several
@@ -132,33 +132,6 @@ fn diff(want: &str, got: &str) -> String {
         s += &format!("\n  ... {} more diff lines", total - 120);
     }
     s
-}
-
-/// 64-bit FNV-1a. Fixed and dependency-free, so a digest means the same on every machine and
-/// toolchain (std's `DefaultHasher` makes no such promise).
-fn fnv1a(s: &str) -> u64 {
-    s.bytes().fold(0xcbf2_9ce4_8422_2325, |h, b| (h ^ b as u64).wrapping_mul(0x0000_0100_0000_01b3))
-}
-
-/// A part line's key: channel and part name (`ch11 Bass`).
-fn part_key(line: &str) -> String {
-    line.split_whitespace().take(2).collect::<Vec<_>>().join(" ")
-}
-
-/// The committed form of a listing. Lines before the first bar (style name, tempo, bar count)
-/// and every `bar` header stay as they are: they come from our script. Each part line becomes
-/// its key and the hash of the whole line, so the notes cannot be read back from it.
-fn digest(listing: &str) -> String {
-    let mut out = String::new();
-    for line in listing.lines() {
-        if line.starts_with("  ch") {
-            out += &format!("  {:<12} {:016x}\n", part_key(line), fnv1a(line.trim()));
-        } else {
-            out += line;
-            out.push('\n');
-        }
-    }
-    out
 }
 
 /// One bar of a digest or listing: its header and its part lines as (key, line).

@@ -1,4 +1,5 @@
 mod bench;
+mod capture;
 mod engine;
 mod fingering;
 #[cfg(test)]
@@ -28,12 +29,14 @@ fn main() -> Result<()> {
             }
         }
         Some("sim") => sim_cmd(&args[2..])?,
+        Some("capture-kit") => capture_kit_cmd(&args[2..])?,
+        Some("capture-import") => capture::import_cmd(&args[2..])?,
         Some("play") | None if args.len() > 2 || args.get(1).map_or(false, |a| a == "play") => play_cmd(&args[2..])?,
         Some("drive") => bench::drive()?,
         Some("screen") => ui::screen_html(std::path::Path::new(&args[2]), std::path::Path::new(&args[3]))?,
         Some("bench") => bench::run(std::path::Path::new(&args[2]), args.get(3).and_then(|s| s.parse().ok()))?,
         _ => eprintln!(
-            "usage:\n  yahaha play <style or folder>... [--split F#2] [--input <name>] [--all-inputs] [--no-pads] [--sf2 file | --no-synth] [--palette-leds] [--audio-out 11]\n      [--fingering single|multi|fingered|on-bass|ai|full|ai-full] [--upper [--no-manual-bass]] [--transpose N] [--master-transpose N]\n  yahaha bench <style> [spin_us]\n  yahaha sim <style> <\"C Am F G7\" | script file>\n  yahaha dump <style>..."
+            "usage:\n  yahaha play <style or folder>... [--split F#2] [--input <name>] [--all-inputs] [--no-pads] [--sf2 file | --no-synth] [--palette-leds] [--audio-out 11]\n      [--fingering single|multi|fingered|on-bass|ai|full|ai-full] [--upper [--no-manual-bass]] [--transpose N] [--master-transpose N]\n  yahaha bench <style> [spin_us]\n  yahaha sim <style> <\"C Am F G7\" | script file>\n  yahaha capture-kit <out-dir> [style]...\n  yahaha capture-import <recording.mid> <style> [--tolerance-ms N] [--offset-ms N] [--listing FILE] [--golden DIR [--force]]\n  yahaha dump <style>..."
         ),
     }
     Ok(())
@@ -76,6 +79,15 @@ fn sim_cmd(args: &[String]) -> Result<()> {
     Ok(())
 }
 
+/// `yahaha capture-kit <out-dir> [style]...`: the Genos-owner capture kit (src/capture.rs).
+fn capture_kit_cmd(args: &[String]) -> Result<()> {
+    let Some(out) = args.first() else {
+        anyhow::bail!("usage: yahaha capture-kit <out-dir> [style]...");
+    };
+    let styles: Vec<PathBuf> = args[1..].iter().map(PathBuf::from).collect();
+    capture::write_kit(std::path::Path::new(out), &styles)
+}
+
 /// Parse a chord symbol: root, a `TYPE_NAMES` suffix, and an optional `/bass`.
 fn parse_chord(s: &str) -> Result<theory::Chord> {
     let (body, bass) = match s.split_once('/') {
@@ -88,7 +100,10 @@ fn parse_chord(s: &str) -> Result<theory::Chord> {
     });
     let root = body.get(..root_len).and_then(pc).ok_or_else(|| anyhow::anyhow!("bad chord {s}"))? as u8;
     let suffix = &body[root_len..];
-    let ty = theory::TYPE_NAMES.iter().position(|t| *t == suffix).ok_or_else(|| anyhow::anyhow!("bad chord type {suffix}"))? as u8;
+    let ty = theory::TYPE_NAMES.iter().position(|t| *t == suffix)
+        // "6/9" would read as a bass note, so the 6(9) chord is also spelled "6(9)" or "69".
+        .or_else(|| matches!(suffix, "6(9)" | "69").then_some(6))
+        .ok_or_else(|| anyhow::anyhow!("bad chord type {suffix}"))? as u8;
     let bass = bass.map(|b| pc(b).map(|p| p as u8).ok_or_else(|| anyhow::anyhow!("bad bass {b}"))).transpose()?;
     Ok(theory::Chord { root, ty, bass: bass.filter(|&b| b != root) })
 }

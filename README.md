@@ -197,6 +197,8 @@ engine thread ──snapshots, old styles (SPSC)──▶ UI thread
 
 - `yahaha dump <style>`: sections, channels, and CASM rules.
 - `yahaha sim <style> "C Am7 F G7"`: offline render, one chord per bar, printed per part.
+- `yahaha capture-kit <out-dir> [style]...`: writes the Genos-owner reference capture kit, with a chord-script MIDI file per style and instructions (`docs/capture-kit/`).
+- `yahaha capture-import <recording.mid> <style>`: compares a hardware recording of that kit with what yahaha plays, bar by bar and part by part. `--golden tests/reference` turns a verified recording into a reference digest (`tests/reference/README.md`).
 - `yahaha bench <style> [spin_us]`: latency benchmark using virtual ports.
 - `yahaha drive`: fake keyboard for testing against a running `yahaha play --input TestKbd`.
 
