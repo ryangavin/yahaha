@@ -88,7 +88,7 @@ labels: chord-following
 ### SFF1 NTT codes above 5, and Cntt precedence (#14)
 labels: chord-following, sff
 - Decode every SFF1 NTT value instead of falling back to Melody.
-- Confirm Cntt vs Ctb2 precedence using the oracle.
+- Cntt vs Ctab/Ctb2 precedence: settled from corpus evidence (see "SFF1 encoding" in docs/genos-features.md). The oracle may still overrule the Cntt Bass On rule.
 
 ### Parse SInt properly and re-apply it on section change (#15)
 labels: sff, engine

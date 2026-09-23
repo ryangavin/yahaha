@@ -492,10 +492,11 @@ fn decode_ntt_new(v: u8, ntr: Ntr) -> Ntt {
 /// Melody, Chord, Bass, Melodic Minor, Harmonic Minor; no corpus file uses anything else).
 /// 06H..0AH have no Ctab meaning, so they take the only meaning those numbers have anywhere:
 /// the Cntt/Ctb2 tables (Harmonic Minor 5th Var. .. Dorian 5th Var.), which never collide
-/// with a Ctab code. Bit 7 is Bass On, as in every other NTT byte. Codes above 0AH are
-/// undefined in every structure and play as Melody, like `decode_ntt_new`.
+/// with a Ctab code. Nothing documents a Bass On bit in a Ctab byte (Bass On is the "Bass"
+/// code), so every other value, 80H..FFH included, is undefined and plays as Melody without
+/// Bass On, like `decode_ntt_new`'s fallback.
 fn decode_ntt_old(v: u8) -> (Ntt, bool) {
-    let ntt = match v & 0x7F {
+    let ntt = match v {
         0 => Ntt::Bypass,
         1 => Ntt::Melody,
         2 => Ntt::Chord,
@@ -505,7 +506,7 @@ fn decode_ntt_old(v: u8) -> (Ntt, bool) {
         t @ 6..=10 => decode_ntt_new(t, Ntr::RootTrans),
         _ => Ntt::Melody,
     };
-    (ntt, v & 0x80 != 0 || ntt == Ntt::Bass)
+    (ntt, ntt == Ntt::Bass)
 }
 
 fn decode_ntr(v: u8) -> Ntr {
@@ -659,7 +660,8 @@ fn parse_casm(data: &[u8]) -> Result<Vec<Cseg>> {
                 // touches a Ctb2, which already holds per-zone NTT and Bass On (and no corpus
                 // file mixes the two). Bass On is OR'd, not replaced: every corpus Cntt for a
                 // Ctab "Bass" channel is 01H (Melody, bit 7 clear), so there the Ctab code, not
-                // the Cntt bit, is what carries Bass On.
+                // the Cntt bit, is what carries Bass On. (Read literally, the spec's Cntt bit 7
+                // "Bass on/off" would switch those Bass parts off; we don't, see genos-features.)
                 b"Cntt" => {
                     if d.len() >= 2 {
                         let ch = d[0] & 0x0F;
@@ -1001,9 +1003,9 @@ mod tests {
         ];
         for v in 0..=255u8 {
             let r = parse_ctab(&ctab(0, v), false).unwrap();
-            let ntt = want.get((v & 0x7F) as usize).copied().unwrap_or(Ntt::Melody);
+            let ntt = want.get(v as usize).copied().unwrap_or(Ntt::Melody);
             assert!(r.zones.iter().all(|z| z.ntt == ntt), "Ctab NTT {v:#04x}: {:?}", r.zones[1].ntt);
-            assert_eq!(r.bass_on, v & 0x80 != 0 || v & 0x7F == 3, "Ctab NTT {v:#04x} Bass On");
+            assert_eq!(r.bass_on, v == 3, "Ctab NTT {v:#04x} Bass On");
         }
     }
 
@@ -1049,7 +1051,7 @@ mod tests {
         // part must still carry Bass On, as 193 of 194 SFF2 corpus styles give their Bass part.
         let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus");
         let mut stack = vec![dir];
-        let mut found = 0;
+        let (mut found, mut bass_parts) = (0, 0);
         while let Some(d) = stack.pop() {
             for e in std::fs::read_dir(&d).into_iter().flatten().flatten() {
                 let p = e.path();
@@ -1067,12 +1069,22 @@ mod tests {
                     if r.dest_ch == 10 && r.zones[1].ntt != Ntt::Bypass {
                         assert!(r.bass_on, "{}: Bass part lost Bass On", p.display());
                         assert_eq!(r.zones[1].ntt, Ntt::Melody, "{}", p.display());
+                        // The audible check: the part's source root plays E under C/E, C under C.
+                        let key = 36 + r.src_root % 12;
+                        let c = crate::theory::Chord::new(0, 0);
+                        let c_over_e = crate::theory::Chord { bass: Some(4), ..c };
+                        let pc = |ch| crate::theory::transpose(key, r, ch).map(|n| n % 12);
+                        assert_eq!(pc(c), Some(0), "{}: root under C", p.display());
+                        assert_eq!(pc(c_over_e), Some(4), "{}: root under C/E", p.display());
+                        bass_parts += 1;
                     }
                 }
             }
         }
         if found == 0 {
             eprintln!("no corpus Cntt styles; skipping");
+        } else {
+            assert!(bass_parts > 0, "Cntt styles found but no Bass part checked");
         }
     }
 
