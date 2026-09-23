@@ -11,7 +11,7 @@
 
 use crate::engine::{shift_key, Button, Engine, Prepared, Snapshot, Transpose};
 use crate::fingering::{self, Fingering};
-use crate::launchkey;
+use crate::launchkey::{self, Action, Control, Page};
 use crate::midi::{for_each_message, InputHandler};
 use crate::rt::{self, Histogram, PacketSink, Wakeup};
 use crate::theory::{Chord, Recognizer, CANCEL, ONE_PLUS_EIGHT, ONE_PLUS_FIVE};
@@ -57,6 +57,12 @@ pub struct Shared {
     pub engine_rt: AtomicBool,
     /// Last message from the Launchkey DAW port, packed 0x00SSDDVV (for the on-screen readout).
     pub last_daw: AtomicU32,
+    /// Last Launchkey DAW-port note or CC that nothing is mapped to, packed 0x01SSDDVV
+    /// (0 = none yet), so a wrong CC number shows on screen.
+    pub last_unmapped: AtomicU32,
+    /// Launchkey pad page (`launchkey::Page::to_u8`): set by the Pad Bank buttons on the
+    /// input thread and Tab on the UI thread, read by both.
+    pub page: AtomicU8,
     /// Time spent in engine.process / in the CoreMIDI send, per wake.
     pub flush_lat: Histogram,
     pub work_lat: Histogram,
@@ -80,6 +86,8 @@ impl Shared {
             chord_lat: Histogram::new(),
             engine_rt: AtomicBool::new(false),
             last_daw: AtomicU32::new(0),
+            last_unmapped: AtomicU32::new(0),
+            page: AtomicU8::new(0),
             flush_lat: Histogram::new(),
             work_lat: Histogram::new(),
             spin_ns: AtomicU64::new(150_000),
@@ -199,6 +207,11 @@ pub struct Input {
     running_status: [u8; 3],
     signal: bool,
     synth: Option<Arc<crate::synth::SynthControl>>,
+    /// Launchkey pad and button actions for the UI thread (anything that isn't an engine
+    /// button: settings, OTS, style change).
+    actions: Option<Producer<Action>>,
+    /// The Launchkey's Shift button is held.
+    shift: bool,
 }
 
 impl Input {
@@ -215,11 +228,17 @@ impl Input {
             running_status: [0; 3],
             signal: false,
             synth: None,
+            actions: None,
+            shift: false,
         }
     }
 
     pub fn set_synth(&mut self, ctl: Option<Arc<crate::synth::SynthControl>>) {
         self.synth = ctl;
+    }
+
+    pub fn set_actions(&mut self, tx: Producer<Action>) {
+        self.actions = Some(tx);
     }
 
     /// The route bit of the chord section in the current area: the left hand in Lower,
@@ -335,13 +354,8 @@ impl Input {
                 }
                 return;
             }
-            if cc == launchkey::LEFT_BTN_CC || cc == launchkey::OTS_LINK_BTN_CC {
-                if v > 0 {
-                    if let Some(s) = &self.synth {
-                        let flag = if cc == launchkey::LEFT_BTN_CC { &s.lh_sound } else { &s.ots_link };
-                        flag.store(!flag.load(Relaxed), Relaxed);
-                    }
-                }
+            if cc == launchkey::SHIFT_CC {
+                self.shift = v > 0;
                 return;
             }
             if launchkey::FADER_BTN_CC.contains(&cc) {
@@ -357,17 +371,49 @@ impl Input {
                 }
                 return;
             }
+            match launchkey::cc_control(cc, self.shift) {
+                Some(Control::Page(d)) if v > 0 => {
+                    let p = Page::from_u8(self.shared.page.load(Relaxed)).step(d);
+                    self.shared.page.store(p.to_u8(), Relaxed);
+                }
+                Some(Control::Act(a)) if v > 0 => self.act(a),
+                Some(_) => {}
+                None if v > 0 => self.unmapped(m),
+                None => {}
+            }
+            return;
         }
-        let b = match (st, m.len()) {
-            (0x90, 3) if m[2] > 0 && m[0] & 0x0F == 0 => launchkey::pad_button(m[1]),
-            (0xB0, 3) if m[2] > 0 => launchkey::cc_button(m[1]),
-            _ => None,
-        };
-        if let Some(b) = b {
-            if self.cmd.push(Cmd::Button(b)).is_ok() {
-                self.signal = true;
+        if st == 0x90 && m.len() == 3 && m[2] > 0 {
+            if m[0] & 0x0F == 0 && launchkey::is_pad(m[1]) {
+                let page = Page::from_u8(self.shared.page.load(Relaxed));
+                if let Some(a) = launchkey::pad_action(page, m[1]) {
+                    self.act(a);
+                }
+            } else {
+                self.unmapped(m);
             }
         }
+    }
+
+    /// Engine buttons go straight to the engine; the rest to the UI thread, which runs
+    /// them like the keyboard shortcuts.
+    fn act(&mut self, a: Action) {
+        match a {
+            Action::Button(b) => {
+                if self.cmd.push(Cmd::Button(b)).is_ok() {
+                    self.signal = true;
+                }
+            }
+            _ => {
+                if let Some(tx) = self.actions.as_mut() {
+                    let _ = tx.push(a);
+                }
+            }
+        }
+    }
+
+    fn unmapped(&self, m: &[u8]) {
+        self.shared.last_unmapped.store(u32::from_be_bytes([1, m[0], m[1], m[2]]), Relaxed);
     }
 }
 
@@ -647,6 +693,63 @@ mod tests {
         input.key_msg(&[0x90, 72, 70]);
         input.key_msg(&[0x80, 72, 0]);
         assert_eq!(sent(), vec![[0x91, 69, 80], [0x81, 69, 0], [0x91, 69, 70], [0x81, 69, 0]]);
+    }
+
+    /// Through `Input`: Pad Bank ▼/▲ switch pages, pads follow the page, engine buttons go
+    /// to the engine and the rest to the UI ring, Shift turns ▲/▼ into the old toggles, and
+    /// anything unmapped is recorded for the screen.
+    #[test]
+    fn launchkey_pages_route_pads_and_buttons() {
+        use crate::engine::Button;
+        let shared = Arc::new(Shared::new(54));
+        let (cmd, mut cmds) = RingBuffer::new(16);
+        let (act, mut acts) = RingBuffer::new(16);
+        let mut input = Input::new(shared.clone(), Recognizer::new(), cmd, Out::new(PacketSink::new(rt::Target::Virtual(0)), None));
+        input.set_actions(act);
+        let page = || Page::from_u8(shared.page.load(Relaxed));
+
+        input.pad_msg(&[0x90, 96, 100]);
+        assert!(matches!(cmds.pop(), Ok(Cmd::Button(Button::Intro(0)))));
+        input.pad_msg(&[0xB0, launchkey::PAD_DOWN_CC, 127]);
+        input.pad_msg(&[0xB0, launchkey::PAD_DOWN_CC, 0]); // release does nothing
+        assert_eq!(page(), Page::ChordSetup);
+        input.pad_msg(&[0x90, 97, 100]);
+        assert_eq!(acts.pop(), Ok(Action::Fingering(Fingering::Fingered)));
+        input.pad_msg(&[0x90, 113, 100]);
+        assert!(matches!(cmds.pop(), Ok(Cmd::Button(Button::StopAcmp))));
+        input.pad_msg(&[0x90, 113, 0]); // pad release
+        assert!(cmds.pop().is_err() && acts.pop().is_err());
+
+        input.pad_msg(&[0xB0, launchkey::PAD_DOWN_CC, 127]);
+        input.pad_msg(&[0xB0, launchkey::PAD_DOWN_CC, 127]); // stops at the last page
+        assert_eq!(page(), Page::OtsParts);
+        input.pad_msg(&[0x90, 114, 100]);
+        assert!(matches!(cmds.pop(), Ok(Cmd::Button(Button::TogglePart(2)))));
+        input.pad_msg(&[0x90, 99, 100]);
+        assert_eq!(acts.pop(), Ok(Action::Ots(3)));
+
+        // Shift + ▲ toggles the Left voice and leaves the page alone.
+        input.pad_msg(&[0xB0, launchkey::SHIFT_CC, 127]);
+        input.pad_msg(&[0xB0, launchkey::PAD_UP_CC, 127]);
+        input.pad_msg(&[0xB0, launchkey::SHIFT_CC, 0]);
+        assert_eq!(acts.pop(), Ok(Action::ToggleLeft));
+        assert_eq!(page(), Page::OtsParts);
+        input.pad_msg(&[0xB0, launchkey::PAD_UP_CC, 127]);
+        assert_eq!(page(), Page::ChordSetup);
+
+        // Track buttons change style on any page.
+        input.pad_msg(&[0xB0, launchkey::TRACK_RIGHT_CC, 127]);
+        input.pad_msg(&[0xB0, launchkey::TRACK_LEFT_CC, 127]);
+        assert_eq!((acts.pop(), acts.pop()), (Ok(Action::Style(1)), Ok(Action::Style(-1))));
+
+        assert_eq!(shared.last_unmapped.load(Relaxed), 0);
+        input.pad_msg(&[0xB0, 51, 127]);
+        assert_eq!(shared.last_unmapped.load(Relaxed), 0x01_B0_33_7F);
+        input.pad_msg(&[0x99, 36, 90]); // a Drum-mode pad
+        assert_eq!(shared.last_unmapped.load(Relaxed), 0x01_99_24_5A);
+        input.pad_msg(&[0x90, 119, 100]); // blank pad on page 2: a known pad, not unmapped
+        assert_eq!(shared.last_unmapped.load(Relaxed), 0x01_99_24_5A);
+        assert!(cmds.pop().is_err() && acts.pop().is_err());
     }
 }
 

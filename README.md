@@ -28,8 +28,8 @@ The built-in synth uses the first `.sf2` file in `soundfonts/` (GeneralUser GS, 
 - **Voices:** your right hand plays one of eight voice slots (Piano, E.Piano, Organ, Strings, Brass, Pad, Guitar, Synth Lead). Pick a slot with the Launchkey buttons under faders 1–8, or `F1`–`F8`. Change the voice in the last-picked slot with `9`/`0`.
 - **Layering:** turn on layer mode with the button under the master fader, or `F9`. Tapping a slot then adds it to or removes it from the layer, so you can play Piano + Strings together.
 - **Mixer:** faders 1–8 set the volume of the band's eight parts, and the master fader sets the synth volume. A fader scales the style's own level for its part, so section changes keep your mix. Part volume also goes out on the `yahaha` port as CC 7.
-- **Left voice:** your left hand can play its own voice (default Strings) while it drives the chords. Toggle it with the side button left of the top pad row, or `l`. Change the voice with `(` / `)`.
-- **One Touch Settings:** each style carries four suggested panel setups. Each one covers Right 1–3 (loaded into voice slots 1–3, with their on/off as the layer) and the Left voice, including volumes and octave shifts. Recall one with `shift+1`–`4`. **OTS Link** (side button left of the bottom pad row, or `F10`) makes Main A–D recall settings 1–4 automatically, and picks the right one when you change style.
+- **Left voice:** your left hand can play its own voice (default Strings) while it drives the chords. Toggle it with the LEFT pad on pad page 3, Shift + Pad Bank ▲, or `l`. Change the voice with `(` / `)`.
+- **One Touch Settings:** each style carries four suggested panel setups. Each one covers Right 1–3 (loaded into voice slots 1–3, with their on/off as the layer) and the Left voice, including volumes and octave shifts. Recall one with `shift+1`–`4`. **OTS Link** (pad page 3, Shift + Pad Bank ▼, or `F10`) makes Main A–D recall settings 1–4 automatically, and picks the right one when you change style.
 - **Stop Accompaniment** (`h`): with Sync Start off and the band stopped, a held chord sounds on the style's bass and pad voices.
 - `k` mutes the synth, for example when you're using Ableton sounds instead.
 - The synth plays on outputs 11/12 when the audio device is a TASCAM Model 16, and on 1/2 otherwise. `a` steps through the output pairs while playing, and `--audio-out 11` sets the pair at launch.
@@ -73,19 +73,56 @@ The screen shows a live map of the pads, in the same colours as the hardware:
 - **pulsing**: armed and waiting for you
 - **dark**: this style doesn't have it
 
-| Launchkey pad | top row | bottom row |
-|---|---|---|
-| 1–3 | Intro I–III | Main A–C |
-| 4 | Sync Start | Main D |
-| 5–7 | Ending I–III | Break · Tap tempo · Sync Stop |
-| 8 | Auto Fill | Start/Stop |
+### Pad pages
 
-- **Play** button: start/stop.
-- **Stop** button: stop.
-- Right-side arrows: tempo +/−.
-- Pressing the current Main again plays its fill. With Auto Fill on, switching Main plays a fill into the new one.
+The 16 pads have three pages. The **Pad Bank ▲/▼** buttons left of the pads switch pages: ▼ goes to the next page, ▲ to the previous one, and they stop at the ends, so a few presses of ▲ always take you home to page 1. The arrows light in the current page's colour where there is a page to go to. `Tab` / `Shift+Tab` switch pages from the terminal too, and the on-screen pad map always shows the current page and its name.
 
-Terminal keys:
+**Page 1 · Sections** (per-section colours, the original layout):
+
+| pad | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 |
+|---|---|---|---|---|---|---|---|---|
+| top | Intro I | Intro II | Intro III | Sync Start | Ending I | Ending II | Ending III | Auto Fill |
+| bottom | Main A | Main B | Main C | Main D | Break | Tap tempo | Sync Stop | Start/Stop |
+
+Pressing the current Main again plays its fill. With Auto Fill on, switching Main plays a fill into the new one.
+
+**Page 2 · Chord/Setup** (all cyan):
+
+| pad | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 |
+|---|---|---|---|---|---|---|---|---|
+| top | Single Finger | Fingered | Fingered On Bass | Multi Finger | AI Fingered | Full Keyboard | AI Full Keyboard | Upper (on) / Lower (off) |
+| bottom | Manual Bass | Stop ACMP | Split − | Split + | Keyboard transpose − | Keyboard transpose + | Transpose reset | — |
+
+- The lit fingering pad is the active type. Upper overrides it with Fingered* until you go back to Lower.
+- Manual Bass is dark in Lower, where it isn't available.
+- The transpose pads light while the transpose is down, up, or not zero.
+
+**Page 3 · OTS/Parts** (all magenta):
+
+| pad | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 |
+|---|---|---|---|---|---|---|---|---|
+| top | OTS 1 | OTS 2 | OTS 3 | OTS 4 | OTS Link | Left voice on/off | Left voice − | Left voice + |
+| bottom | Rhythm 1 | Rhythm 2 | Bass | Chord 1 | Chord 2 | Pad | Phrase 1 | Phrase 2 |
+
+- The lit OTS pad is the last one recalled. OTS pads the style doesn't have are dark, as are the OTS and Left pads when the synth is off.
+- The part pads mute and unmute the eight accompaniment parts. They're lit while the part plays. Bass is shown off while Manual Bass mutes it.
+
+### Buttons
+
+| button | does |
+|---|---|
+| **Play** | start/stop |
+| **Stop** | stop |
+| **< Track** / **Track >** | previous/next style, playing or stopped |
+| **Pad Bank ▲ / ▼** (left of the pads) | previous/next pad page |
+| **Shift + Pad Bank ▲ / ▼** | Left voice on/off / OTS Link on/off |
+| **> (Scene Launch)** / **Function** (right of the pads) | tempo + / − |
+| buttons under faders 1–8 / master | voice slots / layer mode |
+
+The last Launchkey note or CC that nothing is mapped to shows at the bottom of the screen, e.g. `unmapped CC 103 = 127`. If a button does nothing, that shows the number it really sends.
+
+### Terminal keys
+
 - `space` start/stop
 - `1-4` Main A–D
 - `q w e` Intro I–III
@@ -94,8 +131,17 @@ Terminal keys:
 - `t` tap tempo
 - `- =` tempo down/up
 - `y` Sync Start · `u` Auto Fill · `j` Sync Stop
+- `h` Stop ACMP
+- `f` next fingering type · `d` Lower/Upper · `D` Manual Bass
+- `[ ]` split point down/up
+- `; '` Keyboard transpose −/+ · `: "` Master transpose −/+ · `/` reset both
 - `z…,` mute/unmute parts
-- `←/→` next/previous style
+- `shift+1`–`4` OTS 1–4 · `F10` OTS Link
+- `l` Left voice on/off · `( )` previous/next Left voice
+- `F1`–`F8` voice slots · `F9` layer · `9 0` previous/next voice in the slot
+- `←/→` previous/next style
+- `tab` / `shift+tab` next/previous pad page
+- `a` next audio output pair · `k` mute the synth
 - `\` panic (all notes off)
 - `esc` quit
 
