@@ -7,16 +7,22 @@
 //!                  Main A   Main B    Main C     Main D    | Break     Tap       SyncStop    Start/Stop
 //!   2 Chord/Setup  Single   Fingered  On Bass    Multi     | AI Fing.  Full Kbd  AI Full     Upper
 //!                  ManBass  StopAcmp  Split -    Split +   | Kbd tr -  Kbd tr +  Tr reset    —
-//!   3 OTS/Parts    OTS 1    OTS 2     OTS 3      OTS 4     | OTS Link  Left      Left voice -/+
-//!                  Rhythm 1 Rhythm 2  Bass       Chord 1   | Chord 2   Pad       Phrase 1    Phrase 2
+//!   3 OTS/Parts    OTS 1    OTS 2     OTS 3      OTS 4     | OTS Link  —         Voice -/+
+//!                  Right 1  Right 2   Right 3    Left      | Select R1 Select R2 Select R3   Select Left
 //!
 //! Buttons (CC in DAW mode; numbers from the MK4 Programmer's Reference Guide v3.0, p.9,
 //! Figure 3): 115 Play = Start/Stop, 116 Stop, 104 (Scene Launch >) / 105 (Function) =
-//! tempo +/-, 106/107 (Pad Bank ▲/▼) = page up/down, Shift + ▲/▼ = Left voice / OTS Link,
+//! tempo +/-, 106/107 (Pad Bank ▲/▼) = page up/down, Shift + ▲/▼ = Left on/off / OTS Link,
 //! 103/102 (< Track / Track >) = previous/next style, 63 = Shift.
+//!
+//! Faders have two pages, like the Genos Mixer's Panel and Style tabs; the button under
+//! the master fader switches them (see `parts`). Panel: faders 1-4 = Right 1, Right 2,
+//! Right 3, Left volumes, their buttons = part on/off (Shift: select the part). Style:
+//! faders 1-8 = the Style parts, their buttons = part mute. Master is always master.
 
 use crate::engine::{slot_of, Button, Snapshot, Transpose};
 use crate::fingering::Fingering;
+use crate::parts::{self, FaderPage};
 use crate::sff::SectionId;
 
 pub const ENTER_DAW: [u8; 3] = [0x9F, 0x0C, 0x7F];
@@ -52,6 +58,7 @@ pub fn is_pad(note: u8) -> bool {
 
 /// Faders (DAW mode, Volume): CC 5..=12 are faders 1-8, CC 13 is the master fader.
 pub const FADER_CC: std::ops::RangeInclusive<u8> = 5..=13;
+pub const MASTER_FADER_CC: u8 = 13;
 /// Buttons under the faders: CC 37..=44 under faders 1-8, CC 45 under the master fader.
 pub const FADER_BTN_CC: std::ops::RangeInclusive<u8> = 37..=45;
 
@@ -146,10 +153,14 @@ pub enum Action {
     Ots(u8),
     /// OTS Link on/off (`F10`).
     ToggleOtsLink,
-    /// Left voice on/off (`l`).
-    ToggleLeft,
-    /// Previous/next Left voice (`(` `)`).
-    LeftVoice(i8),
+    /// Keyboard part on/off: 0-2 = Right 1-3, 3 = Left (`5`-`8`; `l` for Left).
+    PartOnOff(u8),
+    /// Select the keyboard part the voice keys edit (`F1`-`F4`).
+    SelectPart(u8),
+    /// Previous/next voice for the selected part (`9` `0`).
+    PartVoice(i8),
+    /// Fader page Panel/Style (`F9`; the button under the master fader).
+    ToggleFaderPage,
     /// Previous/next style (`←` `→`).
     Style(i8),
 }
@@ -169,10 +180,10 @@ pub fn pad_action(page: Page, note: u8) -> Option<Action> {
         (Page::ChordSetup, 118) => Action::TransposeReset,
         (Page::OtsParts, 96..=99) => Action::Ots(note - 96),
         (Page::OtsParts, 100) => Action::ToggleOtsLink,
-        (Page::OtsParts, 101) => Action::ToggleLeft,
-        (Page::OtsParts, 102) => Action::LeftVoice(-1),
-        (Page::OtsParts, 103) => Action::LeftVoice(1),
-        (Page::OtsParts, 112..=119) => Action::Button(Button::TogglePart(note - 112)),
+        (Page::OtsParts, 102) => Action::PartVoice(-1),
+        (Page::OtsParts, 103) => Action::PartVoice(1),
+        (Page::OtsParts, 112..=115) => Action::PartOnOff(note - 112),
+        (Page::OtsParts, 116..=119) => Action::SelectPart(note - 116),
         _ => return None,
     })
 }
@@ -197,7 +208,7 @@ pub fn cc_control(cc: u8, shift: bool) -> Option<Control> {
         TRACK_LEFT_CC => act(Action::Style(-1)),
         TRACK_RIGHT_CC => act(Action::Style(1)),
         // Shift + Pad Bank ▲/▼: the toggles these buttons had before pages (also on page 3).
-        PAD_UP_CC if shift => act(Action::ToggleLeft),
+        PAD_UP_CC if shift => act(Action::PartOnOff(parts::LEFT as u8)),
         PAD_DOWN_CC if shift => act(Action::ToggleOtsLink),
         PAD_UP_CC => Some(Control::Page(-1)),
         PAD_DOWN_CC => Some(Control::Page(1)),
@@ -231,13 +242,19 @@ pub fn buttons_off_msgs(out: &mut Vec<[u8; 3]>) {
     }
 }
 
-/// Palette colours for the fader buttons: voice slots and layer mode.
-pub fn fader_button_msgs(active: u8, layer_mode: bool, out: &mut Vec<[u8; 3]>) {
+/// Palette colours for the fader buttons. Panel page (blue): Right 1-3 and Left lit while
+/// on (`parts_on`, bit = part), 5-8 dark. Style page (green): the Style parts lit while
+/// they play (`style_on`). The master button shows the page's colour.
+pub fn fader_button_msgs(page: FaderPage, parts_on: u8, style_on: u8, out: &mut Vec<[u8; 3]>) {
+    let (on, n, (bright, dim)) = match page {
+        FaderPage::Panel => (parts_on, parts::COUNT as u8, (BLUE, DIM_BLUE)),
+        FaderPage::Style => (style_on, 8, (GREEN, DIM_GREEN)),
+    };
     for i in 0..8u8 {
-        let c = if active & (1 << i) != 0 { 45 } else { 47 }; // blue / dim blue
+        let c = if i >= n { OFF } else if on & (1 << i) != 0 { bright } else { dim };
         out.push([0xB0, 37 + i, c]);
     }
-    out.push([0xB0, 45, if layer_mode { 9 } else { 11 }]); // orange / dim orange
+    out.push([0xB0, 45, bright]);
 }
 
 /// Panel state outside the engine snapshot that pages 2 and 3 show.
@@ -248,13 +265,13 @@ pub struct Panel {
     pub upper: bool,
     /// The Manual Bass setting (in effect only in Upper).
     pub manual_bass: bool,
-    /// The built-in synth is running (OTS and the Left voice need it).
-    pub synth: bool,
     /// One Touch Settings in the style, and the last one recalled (1-based, 0 = none).
     pub ots_count: u8,
     pub ots_applied: u8,
     pub ots_link: bool,
-    pub left: bool,
+    /// Keyboard parts that are on (bit = `parts::RIGHT1`..`LEFT`), and the selected one.
+    pub parts_on: u8,
+    pub selected: u8,
 }
 
 impl Default for Panel {
@@ -264,11 +281,11 @@ impl Default for Panel {
             fingering: Fingering::FingeredOnBass,
             upper: false,
             manual_bass: true,
-            synth: false,
             ots_count: 0,
             ots_applied: 0,
             ots_link: false,
-            left: false,
+            parts_on: 1 << parts::RIGHT1,
+            selected: parts::RIGHT1 as u8,
         }
     }
 }
@@ -287,6 +304,7 @@ const DIM_GREEN: u8 = 23;
 const CYAN: u8 = 37;
 const DIM_CYAN: u8 = 39;
 const BLUE: u8 = 45;
+const DIM_BLUE: u8 = 47;
 const PURPLE: u8 = 53;
 const DIM_PURPLE: u8 = 55;
 const PINK: u8 = 57;
@@ -438,7 +456,7 @@ pub fn looks(s: &Snapshot, has: &[bool], panel: &Panel) -> [(u8, Look); 16] {
     match panel.page {
         Page::Sections => section_looks(s, has),
         Page::ChordSetup => chord_looks(s, panel),
-        Page::OtsParts => ots_looks(s, panel),
+        Page::OtsParts => ots_looks(panel),
     }
 }
 
@@ -534,35 +552,33 @@ fn chord_looks(s: &Snapshot, p: &Panel) -> [(u8, Look); 16] {
     ]
 }
 
-const PART_LABELS: [&str; 8] = ["RHYTHM 1", "RHYTHM 2", "BASS", "CHORD 1", "CHORD 2", "PAD", "PHRASE 1", "PHRASE 2"];
-const PART_KEYS: [&str; 8] = ["z", "x", "c", "v", "b", "n", "m", ","];
+const PART_LABELS: [&str; 4] = ["RIGHT 1", "RIGHT 2", "RIGHT 3", "LEFT"];
+const PART_KEYS: [&str; 4] = ["5", "6", "7", "8/l"];
+const SELECT_LABELS: [&str; 4] = ["EDIT R1", "EDIT R2", "EDIT R3", "EDIT L"];
+const SELECT_KEYS: [&str; 4] = ["F1", "F2", "F3", "F4"];
 
-fn ots_looks(s: &Snapshot, p: &Panel) -> [(u8, Look); 16] {
+fn ots_looks(p: &Panel) -> [(u8, Look); 16] {
     let pl = |label, key, available, on| page_look(Page::OtsParts, label, key, available, on);
-    let ots = |n: u8, label, key| pl(label, key, p.synth && n < p.ots_count, p.ots_applied == n + 1);
-    // Manual Bass mutes the Style's Bass part in the engine: show it off, as on screen.
-    let manual_bass = p.upper && p.manual_bass;
-    let part = |i: u8| {
-        let on = s.parts & (1 << i) != 0 && !(i == 2 && manual_bass);
-        pl(PART_LABELS[i as usize], PART_KEYS[i as usize], true, on)
-    };
+    let ots = |n: u8, label, key| pl(label, key, n < p.ots_count, p.ots_applied == n + 1);
+    let part = |i: usize| pl(PART_LABELS[i], PART_KEYS[i], true, p.parts_on & (1 << i) != 0);
+    let select = |i: usize| pl(SELECT_LABELS[i], SELECT_KEYS[i], true, p.selected as usize == i);
     [
         (96, ots(0, "OTS 1", "⇧1")),
         (97, ots(1, "OTS 2", "⇧2")),
         (98, ots(2, "OTS 3", "⇧3")),
         (99, ots(3, "OTS 4", "⇧4")),
-        (100, pl("OTS LINK", "F10", p.synth, p.ots_link)),
-        (101, pl("LEFT", "l", p.synth, p.left)),
-        (102, pl("LEFT -", "(", p.synth, false)),
-        (103, pl("LEFT +", ")", p.synth, false)),
+        (100, pl("OTS LINK", "F10", true, p.ots_link)),
+        (101, pl("", "", false, false)),
+        (102, pl("VOICE -", "9", true, false)),
+        (103, pl("VOICE +", "0", true, false)),
         (112, part(0)),
         (113, part(1)),
         (114, part(2)),
         (115, part(3)),
-        (116, part(4)),
-        (117, part(5)),
-        (118, part(6)),
-        (119, part(7)),
+        (116, select(0)),
+        (117, select(1)),
+        (118, select(2)),
+        (119, select(3)),
     ]
 }
 
@@ -645,11 +661,12 @@ mod tests {
             assert_eq!(pad_action(p, 96 + n), Some(Action::Ots(n)));
         }
         assert_eq!(pad_action(p, 100), Some(Action::ToggleOtsLink));
-        assert_eq!(pad_action(p, 101), Some(Action::ToggleLeft));
-        assert_eq!(pad_action(p, 102), Some(Action::LeftVoice(-1)));
-        assert_eq!(pad_action(p, 103), Some(Action::LeftVoice(1)));
-        for n in 0..8u8 {
-            assert_eq!(pad_action(p, 112 + n), Some(Action::Button(Button::TogglePart(n))));
+        assert_eq!(pad_action(p, 101), None);
+        assert_eq!(pad_action(p, 102), Some(Action::PartVoice(-1)));
+        assert_eq!(pad_action(p, 103), Some(Action::PartVoice(1)));
+        for n in 0..4u8 {
+            assert_eq!(pad_action(p, 112 + n), Some(Action::PartOnOff(n)));
+            assert_eq!(pad_action(p, 116 + n), Some(Action::SelectPart(n)));
         }
         assert_eq!(pad_action(p, 104), None);
     }
@@ -660,7 +677,7 @@ mod tests {
         assert_eq!(cc_control(102, false), Some(Control::Act(Action::Style(1))));
         assert_eq!(cc_control(106, false), Some(Control::Page(-1)));
         assert_eq!(cc_control(107, false), Some(Control::Page(1)));
-        assert_eq!(cc_control(106, true), Some(Control::Act(Action::ToggleLeft)));
+        assert_eq!(cc_control(106, true), Some(Control::Act(Action::PartOnOff(3))));
         assert_eq!(cc_control(107, true), Some(Control::Act(Action::ToggleOtsLink)));
         // Tempo and transport stay where they were.
         assert_eq!(cc_control(104, false), Some(Control::Act(Action::Button(Button::TempoUp))));
@@ -732,31 +749,43 @@ mod tests {
     #[test]
     fn page_3_leds() {
         let has = [true; crate::engine::NUM_SLOTS];
-        let mut s = snap();
+        let s = snap();
         let mut panel = Panel { page: Page::OtsParts, ..Panel::default() };
         let lk = |s: &Snapshot, p: &Panel| looks(s, &has, p).map(|(_, l)| l);
 
-        // No synth: OTS, Link and Left do nothing, so they are dark. Parts still work.
+        // A style without OTS: those pads are dark. Right 1 is on and selected.
         let l = lk(&s, &panel);
         assert!(l.iter().all(|l| l.rgb == C_PAGE_OTS), "one colour for the page");
-        assert!(l[..8].iter().all(|l| l.level == Level::Off));
-        assert!(l[8..].iter().all(|l| l.level == Level::Bright));
+        assert!(l[..4].iter().all(|l| l.level == Level::Off));
+        assert_eq!(l[5].level, Level::Off, "unassigned");
+        assert_eq!(l[8..12].iter().map(|l| l.level).collect::<Vec<_>>(), [Level::Bright, Level::Dim, Level::Dim, Level::Dim]);
+        assert_eq!(l[12..].iter().map(|l| l.level).collect::<Vec<_>>(), [Level::Bright, Level::Dim, Level::Dim, Level::Dim]);
 
-        panel.synth = true;
         panel.ots_count = 3;
         panel.ots_applied = 2;
         panel.ots_link = true;
-        s.parts = !(1 << 5);
+        panel.parts_on = 0b1011;
+        panel.selected = 3;
         let l = lk(&s, &panel);
         assert_eq!(l[..4].iter().map(|l| l.level).collect::<Vec<_>>(), [Level::Dim, Level::Bright, Level::Dim, Level::Off]);
-        assert_eq!((l[4].level, l[5].level), (Level::Bright, Level::Dim), "Link on, Left off");
-        assert_eq!(l[13].level, Level::Dim, "Pad part muted");
-        assert_eq!(l[10].level, Level::Bright, "Bass on");
-        // Manual Bass in effect mutes the style's Bass part.
-        panel.upper = true;
-        assert_eq!(lk(&s, &panel)[10].level, Level::Dim);
+        assert_eq!(l[4].level, Level::Bright, "Link on");
+        assert_eq!(l[8..12].iter().map(|l| l.level).collect::<Vec<_>>(), [Level::Bright, Level::Bright, Level::Dim, Level::Bright]);
+        assert_eq!(l[15].level, Level::Bright, "Left selected");
         let leds = pad_leds(&s, &has, &panel).map(|(_, l)| l);
         assert_eq!((leds[1], leds[0], leds[3]), (Led::Solid(PINK), Led::Solid(DIM_PINK), Led::Solid(OFF)));
+    }
+
+    #[test]
+    fn fader_buttons_follow_the_page() {
+        let mut out = Vec::new();
+        fader_button_msgs(FaderPage::Panel, 0b1001, 0xFF, &mut out);
+        assert_eq!(out[..4], [[0xB0, 37, BLUE], [0xB0, 38, DIM_BLUE], [0xB0, 39, DIM_BLUE], [0xB0, 40, BLUE]]);
+        assert!(out[4..8].iter().all(|m| m[2] == OFF), "faders 5-8 unused on Panel");
+        assert_eq!(out[8], [0xB0, 45, BLUE]);
+        out.clear();
+        fader_button_msgs(FaderPage::Style, 0b1001, !(1 << 5), &mut out);
+        assert_eq!(out[5], [0xB0, 42, DIM_GREEN], "Pad muted");
+        assert!(out.iter().enumerate().all(|(i, m)| i == 5 || m[2] == GREEN));
     }
 
     #[test]
@@ -764,7 +793,7 @@ mod tests {
         let has = [true; crate::engine::NUM_SLOTS];
         let s = Snapshot { running: true, cur: Some(SectionId::Main(1)), main: 1, auto_fill: true, ..snap() };
         let a = Panel::default();
-        let b = Panel { upper: true, synth: true, ots_count: 4, ots_applied: 1, left: true, ..Panel::default() };
+        let b = Panel { upper: true, ots_count: 4, ots_applied: 1, parts_on: 0b1111, ..Panel::default() };
         assert_eq!(pad_leds(&s, &has, &a), pad_leds(&s, &has, &b));
         assert_eq!(looks(&s, &has, &a), looks(&s, &has, &b));
         assert_eq!(pad_leds(&s, &has, &a)[9], (113, Led::Solid(GREEN)));
