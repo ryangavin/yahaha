@@ -197,10 +197,11 @@ engine thread ──snapshots, old styles (SPSC)──▶ UI thread
 
 - `yahaha dump <style>`: sections, channels, and CASM rules.
 - `yahaha sim <style> "C Am7 F G7"`: offline render, one chord per bar, printed per part.
+- `yahaha oracle corpus/ [--pairs | --scores | --diff tests/oracle/scores.txt]`: scores our chord conversion against the authors' own major/minor source channels (docs/oracle.md). Counts only.
 - `yahaha bench <style> [spin_us]`: latency benchmark using virtual ports.
 - `yahaha drive`: fake keyboard for testing against a running `yahaha play --input TestKbd`.
 
-Tests: run `cargo test --release`. It covers the spec's transposition examples, chord recognition, and a full performance of every style in `corpus/`, checking for stuck notes.
+Tests: run `cargo test --release`. It covers the spec's transposition examples, chord recognition, and a full performance of every style in `corpus/`, checking for stuck notes. The oracle scores in `tests/oracle/scores.txt` are pinned too: a change to note conversion fails `oracle::tests::corpus_scores` with the score delta until you regenerate them with `UPDATE_GOLDEN=1`.
 
 ## Known gaps
 
