@@ -259,6 +259,17 @@ const STOP_ACMP_SRC: u8 = 255;
 /// the player's chord landed just after the beat.
 const LATE_CHORD_NS: u64 = 40_000_000;
 
+/// The chord a channel follows. With no chord yet, or after Chord Cancel ("a state in
+/// which no chord is input", OM p.46), only rhythm parts and channels whose CASM
+/// autostart bit is set play, as recorded (their source chord); everything else rests.
+fn effective_chord(chord: Option<Chord>, rule: &ChannelRule) -> Option<Chord> {
+    match chord {
+        Some(c) if c.ty != CANCEL => Some(c),
+        _ if is_drum_part(rule.dest_ch) || rule.autostart => Some(Chord::new(rule.src_root, rule.src_type)),
+        _ => None,
+    }
+}
+
 #[derive(Clone, Copy)]
 struct Queued {
     slot: usize,
@@ -754,11 +765,7 @@ impl Engine {
     }
 
     fn chord_for(&self, rule: &ChannelRule) -> Option<Chord> {
-        match self.chord {
-            Some(c) => Some(c),
-            None if is_drum_part(rule.dest_ch) || rule.autostart => Some(Chord::new(rule.src_root, rule.src_type)),
-            None => None,
-        }
+        effective_chord(self.chord, rule)
     }
 
     fn emit_at_index(&mut self, now: u64, sink: &mut impl Sink) {
@@ -870,11 +877,11 @@ impl Engine {
             }
             let Some(sec) = self.style.sections[s.slot as usize].as_ref() else { continue };
             let Some(rule) = sec.rules[s.src as usize].as_ref() else { continue };
-            if !plays(rule, chord) {
+            let Some(chord) = effective_chord(Some(chord), rule).filter(|&c| plays(rule, c)) else {
                 self.sounding[i].active = false;
                 sink.send(&[0x80 | s.dest, s.out, 0]);
                 continue;
-            }
+            };
             // Group notes that started together on this channel so Root Fixed voicings move as a unit.
             let mut idx = [0usize; 8];
             let mut keys = [0u8; 8];

@@ -730,16 +730,18 @@ Optional.
   - Effect: sets a no-chord state.
   - Available only in **Fingered, Fingered On Bass and AI Fingered**; not in Fingered\*.
   - The MIDI chord type is 34 ("cc"), and the display reads "Cancel".
-  - (Not specified): what each Style channel does under Cancel. On Yamaha arrangers, typically only rhythm and bass/fixed parts continue.
+  - (Not specified): what each Style channel does under Cancel. **Our rule (#4):** Cancel is the same state as before any chord: rhythm channels and channels with the CASM autostart bit keep playing as recorded; every other part is released at once and rests until the next chord. Cancel does not trigger Sync Start. In the corpus only rhythm channels carry the autostart bit, so in practice this is "rhythm only".
   - Ref: OM p.46; DL p.45, p.111
 - **1+5:**
   - Root plus fifth (for example C+G). A power chord with no third.
   - MIDI chord type 31.
   - Style tables handle it through the "C1+5" playable-note set.
+  - **Our rule (#4):** CASM chord-mute bit 31 decides which channels play (corpus styles use it to route 1+5 to the major-family source channel). Parts that follow the chord play only what major and minor share: root, 5th and the 2nd/4th. The 3rd moves to the 5th, the 6th to the 5th, the 7th to the octave, and chromatic passing notes snap to the scale degree below. Chord-table parts keep root and 5th only.
   - Ref: DL p.45; RM p.29
 - **1+8:**
   - Root plus its octave (for example C+C). A unison or octave chord.
   - MIDI chord type 30.
+  - **Our rule (#4):** CASM chord-mute bit 30 decides which channels play. Parts that follow the chord play only the root (in octaves), including chromatic notes and the Guitar table's "fifth" string. NTT Bypass parts still play as written.
   - Ref: DL p.45; RM p.29
 - **Keyboard Harmony note:** Harmony types "1+5" and "Octave" are harmony types, not chord types. They ignore the detected chord. Ref: OM p.56
 
@@ -1003,7 +1005,7 @@ yahaha gives the three dash rows internal ids 35 (M7♭5), 36 ((♭5)) and 37 (m
 
 1. Factory defaults of every Style Setting option (section timing, OTS link timing, Stop ACMP, Synchro Stop Window values, Change Behavior modes).
 2. Chord-recognition priority for ambiguous pitch sets, how inversions are handled in Fingered, AI Fingered inference, and Multi Finger disambiguation.
-3. What each channel plays under Chord Cancel.
+3. What each channel plays under Chord Cancel. (Decided in #4; see §C.3.)
 4. Quantisation and length rules for Chord Looper.
 5. The exact algorithm for each NTT table ("Melody" and "Chord" are described only by purpose), and the Guitar NTR voicings. The SFF binary specifics must come from reverse-engineered SFF documentation, not these manuals.
 6. Multi Pad Chord Match conversion rules and the .pad binary format.
