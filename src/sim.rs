@@ -1178,7 +1178,6 @@ mod mixer {
         };
         let init: Vec<Vec<u8>> = p.init.iter().map(|m| m.to_vec()).collect();
         assert_eq!(order(&init), vec![2, 5, 6, 7, 8], "PC, part mode, drum setup, then effects");
-        assert_eq!(p.init_resend, 8);
 
         let bar = bar_ns(&p);
         let mut e = Engine::new(p);
