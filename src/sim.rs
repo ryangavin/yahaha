@@ -1154,6 +1154,76 @@ mod mixer {
         assert!(pc < note);
     }
 
+    /// A program change on a part that uses a drum setup resets that drum setup (Data List,
+    /// Drum Setup note), so a section change sends the SInt's drum setup SysEx again, after
+    /// the parts' program changes, as Start does. The effect SysEx is still not re-sent.
+    #[test]
+    fn section_change_resends_drum_setup_after_program_changes() {
+        use crate::sff::Ev;
+        let mut s = sint_style();
+        let drum_mode = vec![0xF0, 0x43, 0x10, 0x4C, 0x08, 0x0C, 0x07, 0x02, 0xF7];
+        let reset = vec![0xF0, 0x43, 0x10, 0x4C, 0x00, 0x00, 0x7D, 0x00, 0xF7];
+        let level = vec![0xF0, 0x43, 0x10, 0x4C, 0x30, 0x24, 0x02, 0x50, 0xF7];
+        let reverb = vec![0xF0, 0x43, 0x10, 0x4C, 0x02, 0x01, 0x00, 0x01, 0x10, 0xF7];
+        // In the file the drum setup comes before the part's own setup.
+        s.init.insert(2, Ev::Sysex(reset.clone()));
+        s.init.insert(3, Ev::Sysex(level.clone()));
+        s.init.push(Ev::Sysex(drum_mode.clone()));
+        let p = Box::new(Prepared::new(&s));
+        let order = |msgs: &[Vec<u8>]| -> Vec<usize> {
+            [&[0xCC, 5][..], &drum_mode, &reset, &level, &reverb]
+                .iter()
+                .map(|w| msgs.iter().position(|m| m == w).unwrap_or(usize::MAX))
+                .collect()
+        };
+        let init: Vec<Vec<u8>> = p.init.iter().map(|m| m.to_vec()).collect();
+        assert_eq!(order(&init), vec![2, 5, 6, 7, 8], "PC, part mode, drum setup, then effects");
+        assert_eq!(p.init_resend, 8);
+
+        let bar = bar_ns(&p);
+        let mut e = Engine::new(p);
+        let mut rec = Recorder::default();
+        e.set_chord(Chord::new(0, 0), 0, &mut rec);
+        play(&mut e, &mut rec, 0, bar + bar / 2);
+        e.button(Button::Main(1), bar + bar / 2, &mut rec);
+        play(&mut e, &mut rec, bar + bar / 2, 2 * bar + bar / 4);
+        let from = 2 * bar - 1_000_000;
+        let change: Vec<Vec<u8>> = rec.out.iter().filter(|(t, _)| *t >= from).map(|(_, m)| m.clone()).collect();
+        let o = order(&change);
+        assert!(o[0] < o[1] && o[1] < o[2] && o[2] < o[3], "PC, part mode, then the drum setup: {o:?}");
+        assert_eq!(o[4], usize::MAX, "no effect SysEx at a section change");
+        assert_eq!(change.iter().filter(|m| **m == level).count(), 1);
+    }
+
+    /// AustinCityBlues sets up a drum kit's notes: Start and every section change send
+    /// that drum setup after the program changes that would reset it.
+    #[test]
+    fn corpus_drum_setup_survives_section_change() {
+        let Some(p) = prep("AustinCityBlues.S930.STY") else { return };
+        let drum: Vec<Vec<u8>> = p.init.iter().filter(|m| crate::sff::is_drum_setup(m)).map(|m| m.to_vec()).collect();
+        assert!(!drum.is_empty());
+        let pcs = p.init.iter().filter(|m| m.len() == 2 && m[0] & 0xF0 == 0xC0).count();
+        let bar = bar_ns(&p);
+        let mut e = Engine::new(p);
+        let mut rec = Recorder::default();
+        e.set_chord(Chord::new(0, 0), 0, &mut rec);
+        let mut t = 0;
+        for m in [1u8, 2, 0] {
+            play(&mut e, &mut rec, t, t + bar / 2);
+            let from = rec.out.len();
+            e.button(Button::Main(m), t + bar / 2, &mut rec);
+            play(&mut e, &mut rec, t + bar / 2, t + 3 * bar);
+            t += 3 * bar;
+            // The drum setup goes out whole, after every SInt program change.
+            let out = &rec.out[from..];
+            let first = out.iter().position(|(_, m)| crate::sff::is_drum_setup(m)).expect("drum setup re-sent");
+            let block: Vec<Vec<u8>> = out[first..].iter().take(drum.len()).map(|(_, m)| m.clone()).collect();
+            assert_eq!(block, drum);
+            let is_pc = |m: &[u8]| m.len() == 2 && m[0] & 0xF0 == 0xC0;
+            assert_eq!(out[..first].iter().filter(|(_, m)| is_pc(m)).count(), pcs);
+        }
+    }
+
     /// TickingAway's Intro B sets part 2 (ch 10) to 76 against the SInt's 90, and Main A
     /// sets no level: Main A starts from the SInt's 90 again.
     #[test]

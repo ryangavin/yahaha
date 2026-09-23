@@ -89,9 +89,10 @@ pub struct Prepared {
     /// The style's channel setup (SInt), remapped to destination channels, without the
     /// parts' CC7 (the mixer sends those).
     pub init: Msgs,
-    /// How many of `init`'s messages set up the parts (voices, controllers, XG part
-    /// parameters). The rest is the effect and drum setup SysEx.
-    pub init_parts: usize,
+    /// How many of `init`'s messages a section change sends again: the parts' setup
+    /// (voices, controllers, XG part parameters) and the drum setup SysEx, which the
+    /// parts' program changes reset. The rest is the effect SysEx.
+    pub init_resend: usize,
     /// Voice (bank MSB, LSB, program) per destination channel 8..16, for display.
     pub voices: [Option<(u8, u8, u8)>; 16],
     /// Destination channels that Master transpose leaves alone: the drum parts and any
@@ -184,8 +185,9 @@ impl Prepared {
             .map(|s| s.rules.clone())
             .unwrap_or_default();
         // Per part: bank, program, then the controllers, then its XG part parameters (after
-        // the program change, which resets them on an XG receiver). The effect and drum
-        // setup SysEx go last, once every part's voice is in place.
+        // the program change, which resets them on an XG receiver). Then the drum setup
+        // SysEx, once every part's voice and part mode is in place (a program change on a
+        // drum setup part resets its drum setup), and the effect SysEx last.
         let sint = style.sint();
         let mut init = Msgs::default();
         let mut voices: [Option<(u8, u8, u8)>; 16] = [None; 16];
@@ -231,9 +233,12 @@ impl Prepared {
                 }
             }
         }
-        let init_parts = init.len();
+        for v in sint.sysex.iter().filter(|v| crate::sff::is_drum_setup(v)) {
+            init.push(v);
+        }
+        let init_resend = init.len();
         let mut buf = Vec::new();
-        for v in &sint.sysex {
+        for v in sint.sysex.iter().filter(|v| !crate::sff::is_drum_setup(v)) {
             buf.clone_from(v);
             // An insertion or variation effect assigned to a part follows that part to its
             // destination channel; a part the style never routes gets none (7F = off).
@@ -253,7 +258,7 @@ impl Prepared {
             tpb: style.ticks_per_bar(),
             sections,
             init,
-            init_parts,
+            init_resend,
             voices,
             kit,
             mix,
@@ -586,12 +591,13 @@ impl Engine {
     /// A section change plays the style's part setup (SInt) again, as newer instruments
     /// do, so a voice or controller a pattern changed does not carry into the next section.
     /// Its CC7 is a part's fader value, so like a pattern CC7 it moves only the faders the
-    /// player has not moved; the others keep their level and are not re-sent. The effect
-    /// and drum setup SysEx is not re-sent: no pattern changes it, and an XG receiver
-    /// would cut the reverb and delay tails.
+    /// player has not moved; the others keep their level and are not re-sent. The drum
+    /// setup SysEx goes again after the parts: their program changes reset it. The effect
+    /// SysEx is not re-sent: no pattern changes it, and an XG receiver would cut the
+    /// reverb and delay tails.
     fn reapply_init(&mut self, sink: &mut impl Sink) {
         self.restore_untouched_levels();
-        for m in self.style.init.iter().take(self.style.init_parts) {
+        for m in self.style.init.iter().take(self.style.init_resend) {
             sink.send(m);
         }
         for p in 0..8u8 {

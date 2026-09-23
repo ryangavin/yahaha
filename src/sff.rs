@@ -356,6 +356,16 @@ pub fn xg_part_param(v: &[u8]) -> Option<(u8, u8, u8)> {
     }
 }
 
+/// XG Drum Setup SysEx: a Drum Setup n parameter (`F0 43 1n 4C 3n rr pp vv F7`) or a
+/// Drum Setup Reset (`F0 43 1n 4C 00 00 7D nn F7`). A program change on a part that uses
+/// Drum Setup n initializes it (Data List, Drum Setup note).
+pub fn is_drum_setup(v: &[u8]) -> bool {
+    match *v {
+        [0xF0, 0x43, d, 0x4C, 0x30 | 0x31, ..] | [0xF0, 0x43, d, 0x4C, 0x00, 0x00, 0x7D, ..] => d & 0xF0 == 0x10,
+        _ => false,
+    }
+}
+
 /// Where an XG effect block's part assignment keeps its part number, if `v` is one: the
 /// Insertion Effect Part (`F0 43 1n 4C 03 nn 0C pp F7`) or the Variation Part
 /// (`F0 43 1n 4C 02 01 5B pp F7`). The part is a source channel, so it needs routing.
