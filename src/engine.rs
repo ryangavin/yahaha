@@ -849,6 +849,15 @@ impl Engine {
             self.running = false;
             return;
         };
+        // A start plays the style's channel setup (SInt) again: parts the player has not
+        // moved go back to the style's own level, so an Intro/Ending pattern's CC7 from the
+        // last run does not stick. Faders the player moved keep their value.
+        for p in 0..8 {
+            if self.user_set & (1 << p) == 0 {
+                let v = self.style.mix[p];
+                self.set_mixer(p, v);
+            }
+        }
         self.send_init(sink);
         self.cur = slot;
         self.sec_start = 0.0;

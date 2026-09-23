@@ -1000,6 +1000,37 @@ mod mixer {
         assert_eq!(sent_levels(&rec)[part], Some(40));
     }
 
+    /// A start re-plays the style's channel setup: a part the player has not moved goes back
+    /// to the style's own level instead of keeping a level the last Intro/Ending pattern set.
+    #[test]
+    fn restart_restores_untouched_style_levels() {
+        // TickingAway: Intro B and Ending C set part 2 (ch 10) to 76 against an init of 90,
+        // and no other section sets it.
+        let Some(p) = prep("TickingAway.T162.sty") else { return };
+        let bar = bar_ns(&p);
+        let init = p.mix[1];
+        let mut e = Engine::new(p);
+        let mut rec = Recorder::default();
+        e.set_chord(Chord::new(0, 0), 0, &mut rec);
+        e.set_volume(4, 33, &mut rec); // a part the player moved keeps its value
+        let mut t = 0;
+        for b in [Button::Intro(1), Button::StartStop, Button::Main(0), Button::Ending(2)] {
+            e.button(b, t, &mut rec);
+            play(&mut e, &mut rec, t, t + 8 * bar);
+            t += 8 * bar;
+        }
+        let s = e.snapshot(t);
+        assert!(!s.running);
+        assert_ne!(s.volumes[1], init, "the Ending should have moved part 2");
+        rec.out.clear();
+        e.button(Button::Intro(0), t, &mut rec);
+        e.button(Button::StartStop, t, &mut rec);
+        assert_eq!(sent_levels(&rec)[1], Some(init));
+        assert_eq!(sent_levels(&rec)[4], Some(33));
+        assert_eq!(e.snapshot(t).volumes[1], init);
+        assert_eq!(e.snapshot(t).volumes[4], 33);
+    }
+
     /// Changing style resets every fader to the new style's levels.
     #[test]
     fn style_change_resets_faders() {
