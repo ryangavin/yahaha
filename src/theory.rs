@@ -1222,10 +1222,10 @@ mod tests {
         // Root, 5th and the 2nd / 4th that major and minor share; never a 3rd, 6th or 7th.
         let pcs = no_third_outputs(Chord::new(7, 31));
         assert!(pcs.iter().all(|&p| matches!(p, 7 | 9 | 0 | 2)), "{pcs:?}");
-        // Chord parts keep only root and 5th, whatever the source chord and key (chord
-        // tones, tensions and chromatic notes alike).
+        // Chord parts keep only root and 5th, whatever the source chord (sus, 1+8 and 1+5
+        // included) and key (chord tones, tensions and chromatic notes alike).
         for ntr in [Ntr::RootFixed, Ntr::RootTrans] {
-            for src_type in 0..30u8 {
+            for src_type in 0..34u8 {
                 let mut r = rule(ntr, Ntt::Chord, 11, 0, 127);
                 r.src_type = src_type;
                 for k in 48..72u8 {

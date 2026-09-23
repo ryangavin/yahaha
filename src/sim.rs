@@ -467,6 +467,22 @@ mod tests {
                 }
                 assert_eq!(held[1], held[0], "{name}: F 20 ms late after {what}");
             }
+            // Break pressed under Cancel enters mid-bar on the next beat. A chord just after
+            // that entry must not start Break notes from before it, which never sounded.
+            let beat = bar * prep.ppq as u64 / prep.tpb as u64;
+            let press = 3 * bar + beat + beat / 2;
+            let entry = 3 * bar + 2 * beat;
+            for late in [10_000_000, 20_000_000, 35_000_000] {
+                let t_f = entry + late;
+                let mut held = Vec::new();
+                for at in [entry, t_f] {
+                    let script = [(0, Step::Chord(Chord::new(0, 0))), (2 * bar + bar / 3, Step::Chord(Chord::new(0, CANCEL))),
+                                  (press, Step::Button(Button::Break)), (at, Step::Chord(Chord::new(5, 0)))];
+                    let (_, rec) = run(Box::new(Prepared::new(&style)), &script, t_f + 1);
+                    held.push(held_at(&rec, t_f));
+                }
+                assert_eq!(held[1], held[0], "{name}: F {} ms after a Break entry under Cancel", late / 1_000_000);
+            }
         }
     }
 

@@ -289,6 +289,9 @@ pub struct Engine {
     pending_intro: Option<u8>,
     cur: usize,
     sec_start: f64,
+    /// Section-relative tick this pass of the section started playing from (a Fill or
+    /// Break enters mid-bar; nothing before it has sounded).
+    entry: f64,
     ev_idx: usize,
     queued: Option<Queued>,
     chord: Option<Chord>,
@@ -320,6 +323,7 @@ impl Engine {
             pending_intro: None,
             cur: 4,
             sec_start: 0.0,
+            entry: 0.0,
             ev_idx: 0,
             queued: None,
             chord: None,
@@ -652,6 +656,7 @@ impl Engine {
         self.send_init(sink);
         self.cur = slot;
         self.sec_start = 0.0;
+        self.entry = 0.0;
         self.ev_idx = 0;
         self.queued = None;
         self.process(now, sink);
@@ -701,6 +706,7 @@ impl Engine {
 
     fn seek(&mut self, pos: f64) {
         let sec = self.style.sections[self.cur].as_ref().unwrap();
+        self.entry = pos;
         self.ev_idx = sec.events.partition_point(|e| (e.tick as f64) < pos);
     }
 
@@ -877,14 +883,16 @@ impl Engine {
     /// nothing to correct; start the ones the pattern still holds now.
     fn catch_up(&mut self, prev: Option<Chord>, chord: Chord, now: u64, sink: &mut impl Sink) {
         let Some(sec) = self.style.sections[self.cur].as_ref() else { return };
-        let lo = self.tick_at(now.saturating_sub(LATE_CHORD_NS)) - self.sec_start;
+        // Never reach back past where this section came in: those notes never played.
+        let lo = (self.tick_at(now.saturating_sub(LATE_CHORD_NS)) - self.sec_start).max(self.entry);
         let end = self.ev_idx.min(sec.events.len());
         let mut i = end;
         while i > 0 && sec.events[i - 1].tick as f64 >= lo {
             i -= 1;
         }
-        // (src, src key, dest, out, vel)
-        let mut buf = [(0u8, 0u8, 0u8, 0u8, 0u8); 32];
+        // (src, src key, dest, out, vel): room for 8 parts x 8 notes; beyond that the
+        // rest are dropped rather than allocating.
+        let mut buf = [(0u8, 0u8, 0u8, 0u8, 0u8); 64];
         let mut n_buf = 0;
         while i < end {
             let e = sec.events[i];
