@@ -51,7 +51,11 @@ fn dump(path: &std::path::Path) -> Result<()> {
     let sint = s.sint();
     for (ch, c) in sint.channels.iter().enumerate() {
         if *c != sff::ChannelInit::default() {
-            println!("  SInt ch {:>2} bank {:?}/{:?} prog {:?} vol {:?} pan {:?} rev {:?} cho {:?}  +{} ctl  +{} xg",
+            let pending = match (c.pending_msb, c.pending_lsb) {
+                (None, None) => String::new(),
+                (m, l) => format!(" (then bank {m:?}/{l:?})"),
+            };
+            println!("  SInt ch {:>2} bank {:?}/{:?} prog {:?}{pending} vol {:?} pan {:?} rev {:?} cho {:?}  +{} ctl  +{} xg",
                 ch + 1, c.bank_msb, c.bank_lsb, c.program, c.volume, c.pan, c.reverb, c.chorus, c.other.len(), c.xg_part.len());
         }
     }

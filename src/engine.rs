@@ -89,6 +89,9 @@ pub struct Prepared {
     /// The style's channel setup (SInt), remapped to destination channels, without the
     /// parts' CC7 (the mixer sends those).
     pub init: Msgs,
+    /// How many of `init`'s messages set up the parts (voices, controllers, XG part
+    /// parameters). The rest is the effect and drum setup SysEx.
+    pub init_parts: usize,
     /// Voice (bank MSB, LSB, program) per destination channel 8..16, for display.
     pub voices: [Option<(u8, u8, u8)>; 16],
     /// Destination channels that Master transpose leaves alone: the drum parts and any
@@ -112,6 +115,10 @@ impl Msgs {
     fn push(&mut self, m: &[u8]) {
         self.bytes.extend_from_slice(m);
         self.ends.push(self.bytes.len() as u32);
+    }
+
+    pub fn len(&self) -> usize {
+        self.ends.len()
     }
 
     pub fn iter(&self) -> impl Iterator<Item = &[u8]> + '_ {
@@ -196,6 +203,11 @@ impl Prepared {
                 init.push(&[0xC0 | d, prog]);
                 voices[d as usize] = Some((c.bank_msb.unwrap_or(0), c.bank_lsb.unwrap_or(0), prog));
             }
+            for (cc, v) in [(0, c.pending_msb), (32, c.pending_lsb)] {
+                if let Some(v) = v {
+                    init.push(&[0xB0 | d, cc, v]);
+                }
+            }
             match c.volume {
                 Some(v) if part => mix[d as usize - 8] = v,
                 Some(v) => init.push(&[0xB0 | d, 7, v]),
@@ -219,8 +231,16 @@ impl Prepared {
                 }
             }
         }
+        let init_parts = init.len();
+        let mut buf = Vec::new();
         for v in &sint.sysex {
-            init.push(v);
+            buf.clone_from(v);
+            // An insertion or variation effect assigned to a part follows that part to its
+            // destination channel; a part the style never routes gets none (7F = off).
+            if let Some((i, part)) = crate::sff::xg_effect_part(v).and_then(|i| Some((i, route.get(v[i] as usize)?))) {
+                buf[i] = part.as_ref().map_or(0x7F, |r| r.dest_ch);
+            }
+            init.push(&buf);
         }
         let mut kit = [false; 16];
         for (d, k) in kit.iter_mut().enumerate() {
@@ -233,6 +253,7 @@ impl Prepared {
             tpb: style.ticks_per_bar(),
             sections,
             init,
+            init_parts,
             voices,
             kit,
             mix,
@@ -551,23 +572,26 @@ impl Engine {
         }
     }
 
-    /// Parts the player has not moved go back to the style's own level (the SInt CC7).
+    /// Parts the player has not moved go back to the style's own level (the SInt CC7). A
+    /// level already there is left alone, so its hardware fader keeps control.
     fn restore_untouched_levels(&mut self) {
         for p in 0..8 {
-            if self.user_set & (1 << p) == 0 {
+            if self.user_set & (1 << p) == 0 && self.mixer[p] != self.style.mix[p] {
                 let v = self.style.mix[p];
                 self.set_mixer(p, v);
             }
         }
     }
 
-    /// A section change plays the style's channel setup (SInt) again, as newer instruments
+    /// A section change plays the style's part setup (SInt) again, as newer instruments
     /// do, so a voice or controller a pattern changed does not carry into the next section.
     /// Its CC7 is a part's fader value, so like a pattern CC7 it moves only the faders the
-    /// player has not moved; the others keep their level and are not re-sent.
+    /// player has not moved; the others keep their level and are not re-sent. The effect
+    /// and drum setup SysEx is not re-sent: no pattern changes it, and an XG receiver
+    /// would cut the reverb and delay tails.
     fn reapply_init(&mut self, sink: &mut impl Sink) {
         self.restore_untouched_levels();
-        for m in self.style.init.iter() {
+        for m in self.style.init.iter().take(self.style.init_parts) {
             sink.send(m);
         }
         for p in 0..8u8 {
@@ -1058,7 +1082,32 @@ impl Engine {
         self.cur = next;
         self.sec_start = start;
         self.seek(at - start);
+        self.chase(sink);
         let _ = now;
+    }
+
+    /// A section entered mid-bar (a Fill or Break at the next beat) skips its events before
+    /// the entry point. Its notes stay skipped, but its voice and controller changes are
+    /// sent, in order, so the part plays the section's voice from the entry on.
+    fn chase(&mut self, sink: &mut impl Sink) {
+        for i in 0..self.ev_idx {
+            let sec = self.style.sections[self.cur].as_ref().unwrap();
+            let e = sec.events[i];
+            let Some(dest) = sec.rules[e.src as usize].as_ref().map(|r| r.dest_ch) else { continue };
+            self.emit_control(dest, e.kind, sink);
+        }
+    }
+
+    /// A pattern's controller, program change or pitch bend on `dest`; notes are not
+    /// controls and send nothing here.
+    fn emit_control(&mut self, dest: u8, kind: PKind, sink: &mut impl Sink) {
+        match kind {
+            PKind::Cc { cc: 7, val } => self.pattern_volume(dest, val, sink),
+            PKind::Cc { cc, val } => sink.send(&[0xB0 | dest, cc, val]),
+            PKind::Pc { prog } => sink.send(&[0xC0 | dest, prog]),
+            PKind::Bend { lo, hi } => sink.send(&[0xE0 | dest, lo, hi]),
+            PKind::On { .. } | PKind::Off { .. } => {}
+        }
     }
 
     fn chord_for(&self, rule: &ChannelRule) -> Option<Chord> {
@@ -1116,21 +1165,9 @@ impl Engine {
                 self.ev_idx += 1;
                 self.off_where(sink, |s| s.src == e.src && s.src_key == key);
             }
-            PKind::Cc { cc, val } => {
+            PKind::Cc { .. } | PKind::Pc { .. } | PKind::Bend { .. } => {
                 self.ev_idx += 1;
-                if cc == 7 {
-                    self.pattern_volume(dest, val, sink);
-                } else {
-                    sink.send(&[0xB0 | dest, cc, val]);
-                }
-            }
-            PKind::Pc { prog } => {
-                self.ev_idx += 1;
-                sink.send(&[0xC0 | dest, prog]);
-            }
-            PKind::Bend { lo, hi } => {
-                self.ev_idx += 1;
-                sink.send(&[0xE0 | dest, lo, hi]);
+                self.emit_control(dest, e.kind, sink);
             }
         }
     }

@@ -653,7 +653,8 @@ mod tests {
     }
 
     /// Malformed input on the keyboard port (a status byte in a data position, a data byte
-    /// of 0x80 or more reaching `key_msg`) must never index past the 128 keys.
+    /// of 0x80 or more reaching `key_msg`) must never index past the 128 keys. A guard for
+    /// the whole input path; `midi::data_bytes_are_always_below_0x80` is the #50 fix's test.
     #[test]
     fn malformed_key_bytes_never_panic() {
         let (mut inp, shared) = input(Fingering::FullKeyboard);

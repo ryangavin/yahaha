@@ -1077,9 +1077,9 @@ mod mixer {
                 Ev::Sysex(vec![0xF0, 0x43, 0x10, 0x4C, 0x02, 0x01, 0x00, 0x01, 0x10, 0xF7]),
                 Ev::Sysex(vec![0xF0, 0x43, 0x10, 0x4C, 0x08, 0x0C, 0x0B, 0x20, 0xF7]),
                 Ev::Sysex(vec![0xF0, 0x43, 0x10, 0x4C, 0x08, 0x0C, 0x11, 0x7F, 0xF7]),
-                Ev::Pc { ch: 12, prog: 5 },
-                Ev::Cc { ch: 12, cc: 0, val: 0 },
                 Ev::Cc { ch: 12, cc: 32, val: 112 },
+                Ev::Cc { ch: 12, cc: 0, val: 0 },
+                Ev::Pc { ch: 12, prog: 5 },
                 Ev::Cc { ch: 12, cc: 7, val: 90 },
                 Ev::Cc { ch: 12, cc: 10, val: 40 },
                 Ev::Cc { ch: 13, cc: 7, val: 80 },
@@ -1139,7 +1139,9 @@ mod mixer {
         let from = 2 * bar - 1_000_000;
         assert_eq!(sent(&rec, from, &[0xCC, 5]), 1, "Main B gets the style's voice back");
         assert_eq!(sent(&rec, from, &[0xBC, 7, 90]), 1, "and the style's level on the untouched part");
-        assert_eq!(sent(&rec, from, &[0xF0, 0x43, 0x10, 0x4C, 0x02, 0x01, 0x00, 0x01, 0x10, 0xF7]), 1);
+        assert_eq!(sent(&rec, from, &[0xF0, 0x43, 0x10, 0x4C, 0x02, 0x01, 0x00, 0x01, 0x10, 0xF7]), 0,
+            "the effect setup is not re-sent: no pattern changes it");
+        assert_eq!(sent(&rec, from, &[0xF0, 0x43, 0x10, 0x4C, 0x08, 0x0C, 0x11, 0x7F, 0xF7]), 1, "the part's are");
         assert_eq!(cc7_count(&Recorder { now: 0, out: rec.out.iter().filter(|(t, _)| *t >= from).cloned().collect() }, 5), 0,
             "the player's fader is not re-sent");
         let s = e.snapshot(2 * bar + bar / 4);
@@ -1170,6 +1172,136 @@ mod mixer {
         assert_eq!(e.snapshot(bar + bar / 2).cur, Some(crate::sff::SectionId::Main(0)));
         assert_eq!(e.snapshot(bar + bar / 2).volumes[1], init);
         assert_eq!(sent_levels(&rec)[1], Some(init));
+    }
+
+    fn t5(name: &str) -> Option<Style> {
+        let p = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus/T5Style").join(name);
+        p.exists().then(|| Style::load(&p).unwrap())
+    }
+
+    /// A receiver's voice on `ch` after `msgs`: (bank MSB, LSB, program).
+    fn voice_after<'a>(msgs: impl IntoIterator<Item = &'a [u8]>, ch: u8) -> (u8, u8, u8) {
+        let (mut msb, mut lsb, mut voice) = (0, 0, (0, 0, 0));
+        for m in msgs {
+            match *m {
+                [s, 0, v] if s == 0xB0 | ch => msb = v,
+                [s, 32, v] if s == 0xB0 | ch => lsb = v,
+                [s, p] if s == 0xC0 | ch => voice = (msb, lsb, p),
+                _ => {}
+            }
+        }
+        voice
+    }
+
+    fn effect_parts(p: &Prepared) -> Vec<u8> {
+        p.init.iter().filter(|m| crate::sff::xg_effect_part(m).is_some()).map(|m| m[7]).collect()
+    }
+
+    /// An insertion or variation effect assigned to a part follows the part to its
+    /// destination channel. CountryTwoStep routes source ch 15 to 14 and 16 to 13 (MIDI
+    /// numbering); a part the style never routes gets its insertion switched off.
+    #[test]
+    fn effect_part_assignments_follow_the_routing() {
+        use crate::sff::{ChannelRule, Cseg, Ev};
+        let mut s = sint_style();
+        let rule = |src, dest| ChannelRule { dest_ch: dest, ..ChannelRule::default_for(src) };
+        s.casm = vec![Cseg {
+            sections: vec!["Main A".into(), "Main B".into()],
+            rules: vec![rule(12, 12), rule(14, 13), rule(15, 14)],
+        }];
+        let ins = |block, part| Ev::Sysex(vec![0xF0, 0x43, 0x10, 0x4C, 0x03, block, 0x0C, part, 0xF7]);
+        s.init.extend([
+            ins(0, 0x0E),
+            ins(1, 0x0F),
+            ins(2, 0x0D), // ch 14's own destination is taken by ch 15: unrouted
+            ins(3, 0x7F),
+            Ev::Sysex(vec![0xF0, 0x43, 0x10, 0x4C, 0x02, 0x01, 0x5B, 0x0F, 0xF7]),
+        ]);
+        assert_eq!(effect_parts(&Prepared::new(&s)), vec![0x0D, 0x0E, 0x7F, 0x7F, 0x0E]);
+
+        let Some(s) = t5("CountryTwoStep.T151.prs") else { return };
+        assert_eq!(effect_parts(&Prepared::new(&s)), vec![0x0D, 0x0C]);
+        let Some(s) = t5("JazzWaltzFast.T157.prs") else { return };
+        assert_eq!(effect_parts(&Prepared::new(&s)), vec![0x7F], "source ch 12 plays nowhere");
+    }
+
+    /// A bank select after the SInt's program change selects no voice. ChartPop1's ch 15
+    /// sends CC0 8, CC32 2, PC 3, CC0 104: the voice is 8/2/3, with 104 left pending.
+    #[test]
+    fn sint_voice_keeps_the_bank_of_its_program_change() {
+        let Some(s) = t5("ChartPop1.T160.prs") else { return };
+        let p = Prepared::new(&s);
+        assert_eq!(p.voices[14], Some((8, 2, 3)));
+        let file: Vec<Vec<u8>> = s
+            .init
+            .iter()
+            .filter_map(|e| match *e {
+                crate::sff::Ev::Cc { ch: 14, cc, val } => Some(vec![0xBE, cc, val]),
+                crate::sff::Ev::Pc { ch: 14, prog } => Some(vec![0xCE, prog]),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(voice_after(p.init.iter(), 14), voice_after(file.iter().map(|m| &m[..]), 14));
+        assert_eq!(voice_after(p.init.iter(), 14), (8, 2, 3));
+        let Some(s) = t5("Let'sFunk.T161.prs") else { return };
+        assert_eq!(Prepared::new(&s).voices[14], Some((104, 5, 0)));
+    }
+
+    /// sint_style with a Fill A that changes part 5's voice on its first beat and plays a
+    /// note on beat 4.
+    fn sint_style_with_fill() -> Style {
+        use crate::sff::{Ev, Section, SectionId, TimedEv};
+        let mut s = sint_style();
+        let id = SectionId::Fill(0);
+        let events = vec![
+            TimedEv { tick: 0, ev: Ev::Cc { ch: 12, cc: 0, val: 8 } },
+            TimedEv { tick: 0, ev: Ev::Pc { ch: 12, prog: 20 } },
+            TimedEv { tick: 1440, ev: Ev::NoteOn { ch: 12, key: 64, vel: 100 } },
+            TimedEv { tick: 1900, ev: Ev::NoteOff { ch: 12, key: 64 } },
+        ];
+        s.sections.insert(id, Section { id, start: 0, len: 1920, events });
+        s
+    }
+
+    /// A Fill entering mid-bar skips its first beat's notes but not its voice: the SInt
+    /// goes out at the entry, then the Fill's own bank and program change from before the
+    /// entry, so its note plays on the Fill's voice, not the SInt's.
+    #[test]
+    fn mid_bar_fill_plays_its_own_voice() {
+        let p = Box::new(Prepared::new(&sint_style_with_fill()));
+        let bar = bar_ns(&p);
+        let mut e = Engine::new(p);
+        let mut rec = Recorder::default();
+        e.set_chord(Chord::new(0, 0), 0, &mut rec);
+        play(&mut e, &mut rec, 0, bar / 2 + 1_000_000);
+        // Just after beat 2: the Fill comes in on beat 3.
+        e.button(Button::Main(0), bar / 2 + 1_000_000, &mut rec);
+        play(&mut e, &mut rec, bar / 2 + 1_000_000, bar);
+        let entry = 3 * bar / 4;
+        let at = |want: &dyn Fn(&[u8]) -> bool| rec.out.iter().position(|(t, m)| *t >= entry && want(m));
+        let init = at(&|m| m == [0xCC, 5]).expect("the SInt");
+        let pc = at(&|m| m == [0xCC, 20]).expect("the Fill's program change");
+        let note = at(&|m| m[0] == 0x9C && m[2] > 0).expect("the Fill's note");
+        assert!(init < pc && pc < note, "{init} {pc} {note}");
+        assert_eq!(rec.out[note].1, vec![0x9C, 64, 100]);
+        assert_eq!(voice_after(rec.out[..note].iter().map(|(_, m)| &m[..]), 12), (8, 112, 20));
+    }
+
+    /// ChartPop1's Fill A from beat 3: its part on ch 15 plays Fill A's first-beat voice
+    /// (104/8/4), not the SInt's.
+    #[test]
+    fn mid_bar_fill_voice_in_corpus() {
+        let Some(s) = t5("ChartPop1.T160.prs") else { return };
+        let p = Box::new(Prepared::new(&s));
+        let bar = bar_ns(&p);
+        let mut e = Engine::new(p);
+        let mut rec = Recorder::default();
+        e.set_chord(Chord::new(0, 0), 0, &mut rec); // Sync Start
+        play(&mut e, &mut rec, 0, bar / 2 + 1_000_000);
+        e.button(Button::Main(0), bar / 2 + 1_000_000, &mut rec);
+        play(&mut e, &mut rec, bar / 2 + 1_000_000, bar - 1_000_000);
+        assert_eq!(e.snapshot(bar - 1_000_000).cur, Some(crate::sff::SectionId::Fill(0)));
+        assert_eq!(voice_after(rec.out.iter().map(|(_, m)| &m[..]), 14), (104, 8, 4));
     }
 
     /// The takeover rule on its own (the master fader uses it directly).

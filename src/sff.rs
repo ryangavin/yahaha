@@ -302,9 +302,15 @@ pub fn parse_ots(data: &[u8]) -> Vec<Ots> {
 /// file sets; `None` where it sets none.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct ChannelInit {
+    /// The bank select in effect when the (last) program change arrives: the voice's bank.
+    /// Without a program change, the last bank select.
     pub bank_msb: Option<u8>,
     pub bank_lsb: Option<u8>,
     pub program: Option<u8>,
+    /// A bank select after the last program change. It selects no voice; it waits for the
+    /// next program change (a pattern's), so it goes out after the program change.
+    pub pending_msb: Option<u8>,
+    pub pending_lsb: Option<u8>,
     /// CC7.
     pub volume: Option<u8>,
     /// CC10.
@@ -350,6 +356,20 @@ pub fn xg_part_param(v: &[u8]) -> Option<(u8, u8, u8)> {
     }
 }
 
+/// Where an XG effect block's part assignment keeps its part number, if `v` is one: the
+/// Insertion Effect Part (`F0 43 1n 4C 03 nn 0C pp F7`) or the Variation Part
+/// (`F0 43 1n 4C 02 01 5B pp F7`). The part is a source channel, so it needs routing.
+pub fn xg_effect_part(v: &[u8]) -> Option<usize> {
+    match *v {
+        [0xF0, 0x43, d, 0x4C, 0x03, _, 0x0C, _, 0xF7] | [0xF0, 0x43, d, 0x4C, 0x02, 0x01, 0x5B, _, 0xF7]
+            if d & 0xF0 == 0x10 =>
+        {
+            Some(7)
+        }
+        _ => None,
+    }
+}
+
 impl SInt {
     pub fn parse(init: &[Ev]) -> SInt {
         let mut s = SInt::default();
@@ -357,8 +377,11 @@ impl SInt {
             match *ev {
                 Ev::Cc { ch, cc, val } => {
                     let c = &mut s.channels[ch as usize & 15];
+                    let voiced = c.program.is_some();
                     match cc {
+                        0 if voiced => c.pending_msb = Some(val),
                         0 => c.bank_msb = Some(val),
+                        32 if voiced => c.pending_lsb = Some(val),
                         32 => c.bank_lsb = Some(val),
                         7 => c.volume = Some(val),
                         10 => c.pan = Some(val),
@@ -367,7 +390,16 @@ impl SInt {
                         _ => c.other.push(ev.clone()),
                     }
                 }
-                Ev::Pc { ch, prog } => s.channels[ch as usize & 15].program = Some(prog),
+                Ev::Pc { ch, prog } => {
+                    let c = &mut s.channels[ch as usize & 15];
+                    if let Some(v) = c.pending_msb.take() {
+                        c.bank_msb = Some(v);
+                    }
+                    if let Some(v) = c.pending_lsb.take() {
+                        c.bank_lsb = Some(v);
+                    }
+                    c.program = Some(prog);
+                }
                 Ev::Bend { ch, .. } => s.channels[ch as usize & 15].other.push(ev.clone()),
                 Ev::Sysex(ref v) if is_reset(v) => {}
                 Ev::Sysex(ref v) => match xg_part_param(v) {
@@ -1164,13 +1196,60 @@ mod tests {
         assert_eq!(s.sysex, vec![reverb], "resets left out");
     }
 
+    /// A receiver's bank registers and selected voice after `msgs` (bank MSB/LSB CCs and
+    /// program changes on one channel): ((MSB, LSB), voice).
+    type Voiced = ((Option<u8>, Option<u8>), Option<(Option<u8>, Option<u8>, u8)>);
+    fn receive<'a>(msgs: impl IntoIterator<Item = &'a Ev>) -> Voiced {
+        let (mut bank, mut voice) = ((None, None), None);
+        for ev in msgs {
+            match *ev {
+                Ev::Cc { cc: 0, val, .. } => bank.0 = Some(val),
+                Ev::Cc { cc: 32, val, .. } => bank.1 = Some(val),
+                Ev::Pc { prog, .. } => voice = Some((bank.0, bank.1, prog)),
+                _ => {}
+            }
+        }
+        (bank, voice)
+    }
+
+    /// What the structure sends for a channel's voice: bank, program, then the pending bank.
+    fn voice_msgs(ch: u8, c: &ChannelInit) -> Vec<Ev> {
+        let cc = |cc, v: Option<u8>| v.map(|val| Ev::Cc { ch, cc, val });
+        [cc(0, c.bank_msb), cc(32, c.bank_lsb), c.program.map(|prog| Ev::Pc { ch, prog }), cc(0, c.pending_msb), cc(32, c.pending_lsb)]
+            .into_iter()
+            .flatten()
+            .collect()
+    }
+
+    /// A bank select after the program change selects no voice: the voice keeps the bank in
+    /// effect at the program change, and the late bank select stays pending.
+    #[test]
+    fn sint_bank_after_program_is_pending() {
+        // ChartPop1's ch 15: CC0 8, CC32 2, PC 3, CC0 104 selects 8/2/3.
+        let init = vec![
+            Ev::Cc { ch: 14, cc: 0, val: 8 },
+            Ev::Cc { ch: 14, cc: 32, val: 2 },
+            Ev::Pc { ch: 14, prog: 3 },
+            Ev::Cc { ch: 14, cc: 0, val: 104 },
+        ];
+        let c = &SInt::parse(&init).channels[14];
+        assert_eq!((c.bank_msb, c.bank_lsb, c.program), (Some(8), Some(2), Some(3)));
+        assert_eq!((c.pending_msb, c.pending_lsb), (Some(104), None));
+        assert_eq!(receive(&voice_msgs(14, c)), receive(&init));
+        assert_eq!(receive(&init).1, Some((Some(8), Some(2), 3)));
+        // A bank select before a later program change is that program's bank.
+        let init = [&init[..], &[Ev::Pc { ch: 14, prog: 7 }]].concat();
+        let c = &SInt::parse(&init).channels[14];
+        assert_eq!((c.bank_msb, c.bank_lsb, c.program, c.pending_msb), (Some(104), Some(2), Some(7), None));
+    }
+
     /// Every corpus style's SInt survives structuring: each channel's last value of every
-    /// controller and program is where the structure says, and every SysEx but the resets
-    /// is kept.
+    /// controller is where the structure says, its voice and bank registers end up as the
+    /// file leaves them, and every SysEx but the resets is kept.
     #[test]
     fn sint_structures_every_corpus_style() {
         let mut stack = vec![std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus")];
-        let (mut styles, mut resets) = (0, 0);
+        let (mut styles, mut resets, mut pending) = (0, 0, 0);
         while let Some(d) = stack.pop() {
             for e in std::fs::read_dir(&d).into_iter().flatten().flatten() {
                 let p = e.path();
@@ -1198,8 +1277,7 @@ mod tests {
                 for (&(ch, cc), &val) in &last_cc {
                     let c = &s.channels[ch as usize];
                     let got = match cc {
-                        0 => c.bank_msb,
-                        32 => c.bank_lsb,
+                        0 | 32 => continue,
                         7 => c.volume,
                         10 => c.pan,
                         91 => c.reverb,
@@ -1211,15 +1289,19 @@ mod tests {
                     };
                     assert_eq!(got, Some(val), "{p:?} ch {ch} cc {cc}");
                 }
-                for ch in 0..16 {
-                    assert_eq!(s.channels[ch].program, last_pc[ch], "{p:?} ch {ch}");
+                for ch in 0..16u8 {
+                    let c = &s.channels[ch as usize];
+                    assert_eq!(c.program, last_pc[ch as usize], "{p:?} ch {ch}");
+                    let file = style.init.iter().filter(|e| e.channel() == Some(ch));
+                    assert_eq!(receive(&voice_msgs(ch, c)), receive(file), "{p:?} ch {ch}");
+                    pending += (c.pending_msb.is_some() || c.pending_lsb.is_some()) as usize;
                 }
                 let xg: usize = s.channels.iter().map(|c| c.xg_part.len()).sum();
                 assert_eq!(xg + s.sysex.len(), kept, "{p:?}");
             }
         }
         if styles > 0 {
-            assert!(styles >= 100 && resets > 0, "{styles} styles, {resets} resets");
+            assert!(styles >= 100 && resets > 0 && pending > 0, "{styles} styles, {resets} resets, {pending} pending");
         }
     }
 }
