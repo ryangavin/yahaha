@@ -585,3 +585,7 @@ impl Control {
         }
     }
 }
+
+#[cfg(all(test, feature = "plugins"))]
+#[path = "plugins_tests.rs"]
+mod tests;
