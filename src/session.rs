@@ -684,76 +684,76 @@ impl Control {
         }
         let parts = self.shared.parts.clone();
         match cmd {
-            AppCmd::SetStylePartVolume { part, volume } => return self.engine_cmd(Cmd::StyleVolume(part & 7, volume.min(127))),
-            AppCmd::SetFingering { fingering } => {
+            AppCmd::Mixer(MixerCmd::SetStylePartVolume { part, volume }) => return self.engine_cmd(Cmd::StyleVolume(part & 7, volume.min(127))),
+            AppCmd::Chord(ChordCmd::SetFingering { fingering }) => {
                 self.shared.fingering.store(fingering.to_u8(), Relaxed);
                 self.wake_engine();
             }
-            AppCmd::NextFingering => {
+            AppCmd::Chord(ChordCmd::NextFingering) => {
                 let f = Fingering::from_u8(self.shared.fingering.load(Relaxed)).next();
                 self.shared.fingering.store(f.to_u8(), Relaxed);
                 self.wake_engine();
             }
-            AppCmd::SetUpper { on } => {
+            AppCmd::Chord(ChordCmd::SetUpper { on }) => {
                 if on != self.shared.upper.load(Relaxed) {
                     self.set_upper(on);
                 }
             }
-            AppCmd::ToggleUpper => {
+            AppCmd::Chord(ChordCmd::ToggleUpper) => {
                 let on = !self.shared.upper.load(Relaxed);
                 self.set_upper(on);
             }
             // Manual Bass is only available in Upper mode.
-            AppCmd::SetManualBass { on } => {
+            AppCmd::Chord(ChordCmd::SetManualBass { on }) => {
                 if self.shared.upper.load(Relaxed) {
                     self.shared.manual_bass.store(on, Relaxed);
                     self.sync_manual_bass();
                 }
             }
-            AppCmd::ToggleManualBass => {
+            AppCmd::Chord(ChordCmd::ToggleManualBass) => {
                 if self.shared.upper.load(Relaxed) {
                     let v = !self.shared.manual_bass.load(Relaxed);
                     self.shared.manual_bass.store(v, Relaxed);
                     self.sync_manual_bass();
                 }
             }
-            AppCmd::SetSplit { note } => self.shared.split.store(note.clamp(24, 96), Relaxed),
-            AppCmd::MoveSplit { delta } => {
+            AppCmd::Chord(ChordCmd::SetSplit { note }) => self.shared.split.store(note.clamp(24, 96), Relaxed),
+            AppCmd::Chord(ChordCmd::MoveSplit { delta }) => {
                 let s = self.shared.split.load(Relaxed) as i16 + delta as i16;
                 self.shared.split.store(s.clamp(24, 96) as u8, Relaxed);
             }
-            AppCmd::SetTranspose { keyboard, master } => return self.set_transpose(Transpose::new(keyboard, master)),
-            AppCmd::StepTranspose { keyboard, master } => {
+            AppCmd::Chord(ChordCmd::SetTranspose { keyboard, master }) => return self.set_transpose(Transpose::new(keyboard, master)),
+            AppCmd::Chord(ChordCmd::StepTranspose { keyboard, master }) => {
                 let t = self.transpose;
                 return self.set_transpose(Transpose::new(t.keyboard.saturating_add(keyboard), t.master.saturating_add(master)));
             }
-            AppCmd::ResetTranspose => return self.set_transpose(Transpose::default()),
-            AppCmd::SetPartOn { part, on } => return self.set_part_on(part, on),
-            AppCmd::TogglePart { part } => {
+            AppCmd::Chord(ChordCmd::ResetTranspose) => return self.set_transpose(Transpose::default()),
+            AppCmd::Parts(PartsCmd::SetPartOn { part, on }) => return self.set_part_on(part, on),
+            AppCmd::Parts(PartsCmd::TogglePart { part }) => {
                 let on = !parts.is_on((part & 3) as usize);
                 return self.set_part_on(part, on);
             }
-            AppCmd::SelectPart { part } => parts.select(part as usize),
-            AppCmd::SetPartVoice { part, program } => parts.set_program((part & 3) as usize, program),
-            AppCmd::StepVoice { delta } => parts.step_program(delta as i32),
-            AppCmd::SetPartVolume { part, volume } => {
+            AppCmd::Parts(PartsCmd::SelectPart { part }) => parts.select(part as usize),
+            AppCmd::Parts(PartsCmd::SetPartVoice { part, program }) => parts.set_program((part & 3) as usize, program),
+            AppCmd::Parts(PartsCmd::StepVoice { delta }) => parts.step_program(delta as i32),
+            AppCmd::Parts(PartsCmd::SetPartVolume { part, volume }) => {
                 parts.set_volume((part & 3) as usize, volume);
                 self.wake_engine();
             }
-            AppCmd::SetPartOctave { part, octave } => parts.octave[(part & 3) as usize].store(octave.clamp(-2, 2), Relaxed),
-            AppCmd::SetFaderPage { page } => {
+            AppCmd::Parts(PartsCmd::SetPartOctave { part, octave }) => parts.octave[(part & 3) as usize].store(octave.clamp(-2, 2), Relaxed),
+            AppCmd::Mixer(MixerCmd::SetFaderPage { page }) => {
                 if parts.fader_page() != page {
                     parts.set_fader_page(page);
                     self.wake_engine();
                 }
             }
-            AppCmd::ToggleFaderPage => {
+            AppCmd::Mixer(MixerCmd::ToggleFaderPage) => {
                 parts.toggle_fader_page();
                 self.wake_engine();
             }
-            AppCmd::SetPadPage { page } => self.shared.page.store(page.to_u8(), Relaxed),
-            AppCmd::CyclePadPage { delta } => self.shared.step_page(|p| p.cycle(delta)),
-            AppCmd::SetMasterVolume { volume } => match &self.synth {
+            AppCmd::Pads(PadsCmd::SetPadPage { page }) => self.shared.page.store(page.to_u8(), Relaxed),
+            AppCmd::Pads(PadsCmd::CyclePadPage { delta }) => self.shared.step_page(|p| p.cycle(delta)),
+            AppCmd::Mixer(MixerCmd::SetMasterVolume { volume }) => match &self.synth {
                 Some(s) => {
                     let v = volume.min(127);
                     s.control.master.store(v, Relaxed);
@@ -764,29 +764,29 @@ impl Control {
                 }
                 None => return self.fail("the synth is off"),
             },
-            AppCmd::RecallOts { index } => self.recall_ots(index),
-            AppCmd::SetOtsLink { on } => parts.ots_link.store(on, Relaxed),
-            AppCmd::ToggleOtsLink => {
+            AppCmd::Ots(OtsCmd::RecallOts { index }) => self.recall_ots(index),
+            AppCmd::Ots(OtsCmd::SetOtsLink { on }) => parts.ots_link.store(on, Relaxed),
+            AppCmd::Ots(OtsCmd::ToggleOtsLink) => {
                 parts.ots_link.fetch_xor(true, Relaxed);
             }
             // With one style there is nowhere to go, and the loaded one isn't reloaded.
-            AppCmd::LoadStyle { id } | AppCmd::QueueStyle { id } => return self.choose_style(id),
-            AppCmd::AuditionStyle { id } => return self.audition(id),
-            AppCmd::StopAudition => return self.engine_cmd(Cmd::StopAudition),
-            AppCmd::RescanLibrary => self.rescan(),
-            AppCmd::SetSoundFont { file } => return self.set_sound_font(file),
-            AppCmd::SetMidiInputs { all, names } => {
+            AppCmd::Library(LibraryCmd::LoadStyle { id }) | AppCmd::Library(LibraryCmd::QueueStyle { id }) => return self.choose_style(id),
+            AppCmd::Preview(PreviewCmd::AuditionStyle { id }) => return self.audition(id),
+            AppCmd::Preview(PreviewCmd::StopAudition) => return self.engine_cmd(Cmd::StopAudition),
+            AppCmd::Library(LibraryCmd::RescanLibrary) => self.rescan(),
+            AppCmd::Settings(SettingsCmd::SetSoundFont { file }) => return self.set_sound_font(file),
+            AppCmd::Settings(SettingsCmd::SetMidiInputs { all, names }) => {
                 self.all_inputs = all;
                 self.input_names = names;
                 self.connect_inputs();
             }
-            AppCmd::SetPaletteLeds { on } => {
+            AppCmd::Settings(SettingsCmd::SetPaletteLeds { on }) => {
                 self.palette_leds = on;
                 if let Some(l) = self.leds.as_mut() {
                     l.set_palette(on);
                 }
             }
-            AppCmd::LoadStylePath { path } => {
+            AppCmd::Library(LibraryCmd::LoadStylePath { path }) => {
                 let path = PathBuf::from(path);
                 let id = match self.lib.find(&path) {
                     Some(id) => id,
@@ -800,36 +800,36 @@ impl Control {
                 return self.choose_style(id);
             }
             // Folder-then-name order, the browser's unfiltered list.
-            AppCmd::StepStyle { delta } => {
+            AppCmd::Library(LibraryCmd::StepStyle { delta }) => {
                 let next = self.lib.step(self.target_style(), delta);
                 return self.choose_style(next);
             }
-            AppCmd::SetSynthMuted { on } => {
+            AppCmd::Mixer(MixerCmd::SetSynthMuted { on }) => {
                 if let Some(s) = &self.synth {
                     s.control.muted.store(on, Relaxed);
                 }
             }
-            AppCmd::ToggleSynthMute => {
+            AppCmd::Mixer(MixerCmd::ToggleSynthMute) => {
                 if let Some(s) = &self.synth {
                     s.control.muted.fetch_xor(true, Relaxed);
                 }
             }
-            AppCmd::SetAudioOutput { first } => {
+            AppCmd::Settings(SettingsCmd::SetAudioOutput { first }) => {
                 if let Some(s) = &self.synth {
                     let n = s.info.channels.max(2) as u8;
                     s.control.out_ch.store(first.min(n - 2), Relaxed);
                 }
             }
             // Next stereo output pair: 1/2 -> 3/4 -> ... -> back to 1/2.
-            AppCmd::NextAudioOutput => {
+            AppCmd::Settings(SettingsCmd::NextAudioOutput) => {
                 if let Some(s) = &self.synth {
                     let n = s.info.channels.max(2) as u8;
                     let c = s.control.out_ch.load(Relaxed);
                     s.control.out_ch.store(if c + 4 <= n { c + 2 } else { 0 }, Relaxed);
                 }
             }
-            AppCmd::Panic => return self.engine_cmd(Cmd::Panic),
-            AppCmd::ClearMessage => self.message = None,
+            AppCmd::System(SystemCmd::Panic) => return self.engine_cmd(Cmd::Panic),
+            AppCmd::System(SystemCmd::ClearMessage) => self.message = None,
             // Engine buttons were handled above.
             _ => {}
         }
@@ -924,7 +924,7 @@ impl Control {
             match cc_control(cc, shift)? {
                 C::Page(d) => {
                     let to = page.step(d);
-                    (to != page).then_some(AppCmd::SetPadPage { page: to })
+                    (to != page).then_some(AppCmd::Pads(PadsCmd::SetPadPage { page: to }))
                 }
                 C::Act(Action::Style(_)) if !styles => None,
                 C::Act(a) => Some(a.into()),
@@ -974,13 +974,13 @@ impl Control {
             match fader_page {
                 FaderPage::Panel if (i as usize) < parts::COUNT => {
                     let p = i as usize;
-                    let shift = (launchkey::SELECT_LABELS[p], Some(AppCmd::SelectPart { part: i }));
-                    push(id, cc, launchkey::PART_LABELS[p], Some(AppCmd::TogglePart { part: i }), Some(shift));
+                    let shift = (launchkey::SELECT_LABELS[p], Some(AppCmd::Parts(PartsCmd::SelectPart { part: i })));
+                    push(id, cc, launchkey::PART_LABELS[p], Some(AppCmd::Parts(PartsCmd::TogglePart { part: i })), Some(shift));
                 }
                 FaderPage::Panel => push(id, cc, "", None, None),
                 FaderPage::Style => {
                     let name = STYLE_PART_NAMES[i as usize].to_uppercase();
-                    push(id, cc, &name, Some(AppCmd::ToggleStylePart { part: i }), None);
+                    push(id, cc, &name, Some(AppCmd::Mixer(MixerCmd::ToggleStylePart { part: i })), None);
                 }
             }
         }
@@ -988,7 +988,7 @@ impl Control {
             FaderPage::Panel => "PANEL",
             FaderPage::Style => "STYLE",
         };
-        push("masterButton".into(), *launchkey::FADER_BTN_CC.end(), master, Some(AppCmd::ToggleFaderPage), None);
+        push("masterButton".into(), *launchkey::FADER_BTN_CC.end(), master, Some(AppCmd::Mixer(MixerCmd::ToggleFaderPage)), None);
 
         // The faders: the parts they control on this page, and where they physically are.
         let s = &self.snap;
@@ -1002,7 +1002,7 @@ impl Control {
                         value: Some(kp.volume(p)),
                         waiting: kp.waiting(p),
                         position,
-                        set: Some(AppCmd::SetPartVolume { part: i, volume: 0 }),
+                        set: Some(AppCmd::Parts(PartsCmd::SetPartVolume { part: i, volume: 0 })),
                     },
                     FaderPage::Panel => SurfaceFader { position, ..SurfaceFader::default() },
                     FaderPage::Style => SurfaceFader {
@@ -1010,7 +1010,7 @@ impl Control {
                         value: Some(s.volumes[p]),
                         waiting: s.pickup & (1 << p) != 0,
                         position,
-                        set: Some(AppCmd::SetStylePartVolume { part: i, volume: 0 }),
+                        set: Some(AppCmd::Mixer(MixerCmd::SetStylePartVolume { part: i, volume: 0 })),
                     },
                 }
             })
@@ -1022,7 +1022,7 @@ impl Control {
                 value: Some(sy.control.master.load(Relaxed)),
                 waiting: sy.control.master_waiting.load(Relaxed),
                 position: master_pos,
-                set: Some(AppCmd::SetMasterVolume { volume: 0 }),
+                set: Some(AppCmd::Mixer(MixerCmd::SetMasterVolume { volume: 0 })),
             },
             None => SurfaceFader { position: master_pos, ..SurfaceFader::default() },
         });
@@ -1581,9 +1581,9 @@ impl Session {
     /// Run a command. Returns once it has been applied on the control side; what it does
     /// in the engine (sections, tempo, mixer) shows in the state a moment later (live) or
     /// at once (offline). The Launchkey sends the same commands.
-    pub fn send(&self, cmd: AppCmd) -> Result<(), CmdError> {
+    pub fn send(&self, cmd: impl Into<AppCmd>) -> Result<(), CmdError> {
         let mut ctl = self.inner.lock();
-        let r = ctl.apply(cmd);
+        let r = ctl.apply(cmd.into());
         if ctl.offline.is_some() {
             drop(ctl);
             self.settle();
