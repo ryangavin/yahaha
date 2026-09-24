@@ -573,6 +573,7 @@ mod tests {
         e.button(Button::SyncStart, 0, &mut rec); // disarm sync start
         e.button(Button::StopAcmp, 0, &mut rec);
         e.set_chord(Chord::new(9, 8), 1, &mut rec); // Am
+        e.process(1, &mut rec); // the chord settles at the wake's process
         let ons: Vec<(u8, u8)> = rec.out.iter().filter(|(_, m)| m[0] & 0xF0 == 0x90).map(|(_, m)| (m[0] & 0xF, m[1] % 12)).collect();
         assert!(ons.contains(&(10, 9)), "bass A: {ons:?}");
         for pc in [9, 0, 4] {
@@ -581,6 +582,7 @@ mod tests {
         assert!(!e.is_running());
         rec.out.clear();
         e.set_chord(Chord::new(5, 0), 2, &mut rec); // F: old notes off, new on
+        e.process(2, &mut rec); // the chord settles at the wake's process
         assert!(rec.out.iter().any(|(_, m)| m[0] == 0x8A && m[1] % 12 == 9));
         assert!(rec.out.iter().any(|(_, m)| m[0] == 0x9A && m[1] % 12 == 5));
         rec.out.clear();
@@ -1614,8 +1616,10 @@ mod transpose {
         e.button(Button::SyncStart, 0, &mut rec);
         e.button(Button::StopAcmp, 0, &mut rec);
         e.set_chord(Chord::new(0, 0), 1, &mut rec);
+        e.process(1, &mut rec);
         rec.out.clear();
         e.set_transpose(Transpose::new(-1, 2), 2, &mut rec);
+        e.process(2, &mut rec);
         // Chord is now B; the bass sounds B + 2 = C#.
         assert!(rec.out.iter().any(|(_, m)| m[0] == 0x9A && m[1] % 12 == 1), "{:?}", rec.out);
         assert_eq!(snap(&e).chord, Some(Chord::new(11, 0)));
@@ -1631,10 +1635,13 @@ mod transpose {
         e.button(Button::SyncStart, 0, &mut rec);
         e.button(Button::StopAcmp, 0, &mut rec);
         e.set_chord(Chord::new(0, 0), 1, &mut rec);
+        e.process(1, &mut rec);
         e.button(Button::StartStop, 2, &mut rec);
+        e.process(2, &mut rec);
         e.button(Button::StartStop, 3, &mut rec);
         rec.out.clear();
         e.set_transpose(Transpose::new(4, 0), 4, &mut rec);
+        e.process(4, &mut rec);
         assert!(!rec.out.iter().any(|(_, m)| m[0] & 0xF0 == 0x90), "{:?}", rec.out);
         assert_eq!(snap(&e).chord, Some(Chord::new(4, 0)));
     }
@@ -2989,3 +2996,7 @@ mod style_queue {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "sim_settle_tests.rs"]
+mod settle_tests;

@@ -22,26 +22,26 @@ impl Engine {
     // ----- input -----
 
     /// A chord as fingered (before Keyboard transpose). Starts playback when sync start is
-    /// armed. While the band plays, the band follows it once it settles (settle.rs): in
-    /// `process`, after the other inputs of this wake, and after the chord-settle window.
+    /// armed. While the band plays (or Stop Accompaniment sounds the chord), the band
+    /// follows it once it settles (settle.rs): in `process`, after the other inputs of
+    /// this wake, and after the chord-settle window.
     pub fn set_chord(&mut self, played: Chord, now: u64, sink: &mut impl Sink) {
         self.played = Some(played);
-        if self.running {
-            self.unsettle(now);
+        let sync_start = self.starts_on_chord() && played.ty != CANCEL;
+        if self.running || self.stop_acmp && !sync_start {
+            self.unsettle(now, true);
             return;
         }
         let chord = shift_chord(played, self.transpose.keyboard);
         let prev = self.chord;
         self.chord = Some(chord);
-        if self.sync_armed && chord.ty != CANCEL {
-            // A Sync Start chord starts the band at once; its chord parts wait for the chord
-            // to settle, like any chord change's.
-            if self.settle_ns > 0 {
-                self.unsettle(now);
-            }
+        if sync_start {
+            // A Sync Start chord starts the band at once (the rhythm parts play); its chord
+            // parts wait for the chord to settle, like any chord change's: at the end of
+            // this wake (a command in the same wake may still move or cancel it), and after
+            // the chord-settle window.
+            self.unsettle(now, true);
             self.start(now, sink);
-        } else if self.stop_acmp {
-            self.sound_stop_acmp(chord, now, sink);
         }
         self.on_chord(prev, now, sink);
     }
@@ -58,16 +58,13 @@ impl Engine {
             return;
         }
         let Some(played) = self.played else { return };
-        if self.running {
-            self.unsettle(now);
+        if self.running || self.stop_acmp {
+            self.unsettle(now, false);
             return;
         }
         let chord = shift_chord(played, self.transpose.keyboard);
         let prev = self.chord;
         self.chord = Some(chord);
-        if self.stop_acmp && self.sounding.iter().any(|n| n.active && n.src == STOP_ACMP_SRC) {
-            self.sound_stop_acmp(chord, now, sink);
-        }
         self.on_chord(prev, now, sink);
     }
 

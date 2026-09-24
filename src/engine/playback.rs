@@ -6,12 +6,17 @@ impl Engine {
     // ----- playback -----
 
     /// Emit everything due up to `now`. A chord change waiting to settle goes first
-    /// (settle.rs).
+    /// (settle.rs). The caller runs this once per wake, after every other input of the wake.
     pub fn process(&mut self, now: u64, sink: &mut impl Sink) {
+        self.settle_due(now, sink);
+        self.play_due(now, sink);
+    }
+
+    /// The pattern's events, lines and section boundaries due up to `now`.
+    pub(super) fn play_due(&mut self, now: u64, sink: &mut impl Sink) {
         if !self.running {
             return;
         }
-        self.settle_due(now, sink);
         let mut target = self.tick_at(now) + 1e-6;
         loop {
             let Some(sec) = self.style.sections[self.cur].as_ref() else {

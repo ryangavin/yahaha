@@ -186,7 +186,9 @@ impl Engine {
         self.queued = None;
         self.lines_from(0.0);
         self.on_start(now, sink);
-        self.process(now, sink);
+        // Not `process`: a Sync Start chord settles at the wake's own `process`, after the
+        // other inputs of the wake (settle.rs); until then its chord parts wait.
+        self.play_due(now, sink);
     }
 
     /// Stop (if running) and wait for the next chord to start.

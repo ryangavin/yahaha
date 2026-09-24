@@ -465,10 +465,11 @@ impl Engine {
         }
     }
 
-    /// Time of the next thing the engine needs to do, if running.
+    /// Time of the next thing the engine needs to do: if running, or a chord change is
+    /// waiting to settle (settle.rs).
     pub fn next_deadline(&self) -> Option<u64> {
         if !self.running {
-            return None;
+            return self.settle_at();
         }
         let sec = self.style.sections[self.cur].as_ref()?;
         let mut t = self.sec_start + sec.len as f64;

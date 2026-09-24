@@ -46,6 +46,9 @@ pub(super) struct Unsettled {
     pub(super) first: u64,
     /// When the latest one did.
     pub(super) last: u64,
+    /// A chord was played in it (not only a Keyboard transpose): with the band stopped,
+    /// Stop Accompaniment sounds it even if nothing sounds yet.
+    pub(super) chord: bool,
 }
 
 /// Where the pattern's held-back notes start: section slot `slot` (entered at
@@ -67,11 +70,12 @@ impl Engine {
         self.settle_ns
     }
 
-    /// A chord change at `now` for the band to follow once it settles.
-    pub(super) fn unsettle(&mut self, now: u64) {
+    /// A chord change at `now` (a chord played, or only a Keyboard transpose) for the band
+    /// to follow once it settles.
+    pub(super) fn unsettle(&mut self, now: u64, chord: bool) {
         self.unsettled = Some(match self.unsettled {
-            Some(u) => Unsettled { first: u.first, last: now.max(u.last) },
-            None => Unsettled { first: now, last: now },
+            Some(u) => Unsettled { first: u.first, last: now.max(u.last), chord: u.chord || chord },
+            None => Unsettled { first: now, last: now, chord },
         });
     }
 
@@ -110,7 +114,8 @@ impl Engine {
     }
 
     /// The band follows the chord change waiting, now: it re-voices the notes sounding and
-    /// starts the notes it held back.
+    /// starts the notes it held back. With the band stopped, Stop Accompaniment sounds the
+    /// chord (a transpose alone moves its notes only if they still sound).
     pub(super) fn settle(&mut self, now: u64, sink: &mut impl Sink) {
         let Some(u) = self.unsettled.take() else { return };
         let Some(played) = self.played else {
@@ -125,19 +130,31 @@ impl Engine {
                 self.revoice(chord, u.first, now, sink);
             }
             self.catch_up(prev, chord, u.first, now, sink);
+        } else if self.stop_acmp && (u.chord || self.sounding.iter().any(|n| n.active && n.src == STOP_ACMP_SRC)) {
+            self.sound_stop_acmp(chord, now, sink);
         }
         self.hold = None;
-        self.on_chord(prev, now, sink);
+        // (A Sync Start chord was the chord from the start: it only settles here.)
+        if prev != Some(chord) {
+            self.on_chord(prev, now, sink);
+        }
     }
 
-    /// The band stops (or leaves the notes) before a waiting chord change settled: the
-    /// chord takes effect with nothing to re-voice.
+    /// The band stops before a waiting chord change settled: the chord takes effect with
+    /// nothing to re-voice. (Stopped, a change Stop Accompaniment waits on is left to
+    /// settle.)
     pub(super) fn settle_silently(&mut self, sink: &mut impl Sink) {
+        if !self.running {
+            return;
+        }
         let Some(u) = self.unsettled.take() else { return };
         self.hold = None;
         let Some(played) = self.played else { return };
         let prev = self.chord;
-        self.chord = Some(shift_chord(played, self.transpose.keyboard));
-        self.on_chord(prev, u.last, sink);
+        let chord = shift_chord(played, self.transpose.keyboard);
+        self.chord = Some(chord);
+        if prev != Some(chord) {
+            self.on_chord(prev, u.last, sink);
+        }
     }
 }
