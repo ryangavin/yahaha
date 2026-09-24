@@ -270,7 +270,6 @@ pub enum FxKey {
 /// Room in the ring for key messages (a burst of a full keyboard, twice, with strums).
 pub const FX_RING: usize = 512;
 
-/// The Right parts as the harmony sees them. yahaha's parts are all Poly.
 /// The Right parts an arpeggio sounds on for `assign` (RM p.46). Auto: every Right part
 /// that is on, as the keys would play; Right 1-3: that part. Multi is only offered for the
 /// Harmony and Echo categories (RM p.46), so the app hides it for an arpeggio; a Multi left
@@ -281,6 +280,7 @@ pub fn arp_mask(assign: Assign, on: RightParts) -> PartMask {
     if assign == Assign::Auto { r.melody } else { r.effect[0] }
 }
 
+/// The Right parts as the harmony sees them. yahaha's parts are all Poly.
 pub fn right_parts(parts: &Parts) -> RightParts {
     RightParts { on: [parts.is_on(parts::RIGHT1), parts.is_on(parts::RIGHT2), parts.is_on(parts::RIGHT3)], mono: [false; 3] }
 }
