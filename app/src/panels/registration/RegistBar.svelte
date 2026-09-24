@@ -85,8 +85,10 @@
 <style>
   .rbar {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
-    gap: 0.9rem;
+    column-gap: 0.9rem;
+    row-gap: 0.3rem;
     padding: 0.3rem 0.7rem;
     border-radius: 6px;
     font-size: 13px;
@@ -98,6 +100,10 @@
     align-items: center;
     gap: 0.35rem;
     min-width: 0;
+    flex: 0 1 auto;
+  }
+  .buttons {
+    flex: none;
   }
   .group.off {
     opacity: 0.55;
@@ -138,10 +144,12 @@
     text-overflow: ellipsis;
   }
   .bank .name {
-    width: 9rem;
+    flex: 0 1 9rem;
+    min-width: 4.5rem;
   }
   .song .name {
-    width: 10rem;
+    flex: 0 1 10rem;
+    min-width: 4.5rem;
   }
   .pos {
     width: 4.2rem;
@@ -155,6 +163,17 @@
     }
     .slot {
       width: auto;
+    }
+  }
+  @media (max-width: 1150px) {
+    .rbar {
+      column-gap: 0.5rem;
+    }
+    .buttons {
+      gap: 0.15rem;
+    }
+    .pos {
+      width: 3.4rem;
     }
   }
 </style>
