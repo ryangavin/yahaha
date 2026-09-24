@@ -81,8 +81,19 @@ export type AppCmd =
   | { type: 'nextAudioOutput' }
   | { type: 'panic' }
   | { type: 'clearMessage' }
-  // Provisional (#21, not in the engine yet): see PreviewState below.
+  // Style preview and queue: see PreviewState below.
   | PreviewCmd
+  // Settings (docs/app-api.md)
+  /** Reload the synth from another `.sf2` in its folder (`io.soundFonts`); loads in the
+   * background (`io.soundFontLoading`). */
+  | { type: 'setSoundFont'; file: string }
+  /** Keyboard sources: every one (`all`), or those whose name contains one of `names`
+   * (`all` false, no names: a Launchkey's keys, else every source). */
+  | { type: 'setMidiInputs'; all: boolean; names: string[] }
+  /** Launchkey LEDs in Novation palette colours instead of RGB. */
+  | { type: 'setPaletteLeds'; on: boolean }
+  /** Re-walk the style folders (`library.roots`); `library.scanning` while it runs. */
+  | { type: 'rescanLibrary' }
 
 export type CmdError = { kind: 'busy' } | { kind: 'failed'; message: string }
 
@@ -222,6 +233,8 @@ export interface PadsState {
   /** This page's 16 pads: the top row, then the bottom row. */
   pads: Pad[]
   connected: boolean
+  /** The LEDs use the Novation palette (`setPaletteLeds`). */
+  paletteLeds: boolean
 }
 
 export interface OtsPart {
@@ -248,6 +261,20 @@ export interface LibraryStatus {
   position: number
   /** Entries still being indexed. */
   pending: number
+  /** The style folders (and files) scanned. */
+  roots: string[]
+  /** A rescan (`rescanLibrary`) is running. */
+  scanning: boolean
+}
+
+/** A MIDI source (`io.sources`). */
+export interface MidiSource {
+  /** As `setMidiInputs` matches it. */
+  name: string
+  /** yahaha listens to it (as a keyboard, or as the pads). */
+  listening: boolean
+  /** The Launchkey DAW port (pads, buttons, faders). */
+  pads: boolean
 }
 
 export interface SynthState {
@@ -271,6 +298,37 @@ export interface IoState {
   /** e.g. "unmapped CC 103 = 127"; empty if none. */
   unmapped: string
   offline: boolean
+  /** Every MIDI source, and whether yahaha listens to it. */
+  sources: MidiSource[]
+  /** Every source is a keyboard (`setMidiInputs { all: true }`). */
+  allInputs: boolean
+  /** The `.sf2` files in the synth's folder, for `setSoundFont`. */
+  soundFonts: string[]
+  /** The file the synth plays; null without the synth. */
+  soundFontFile: string | null
+  /** A `setSoundFont` is loading. */
+  soundFontLoading: boolean
+}
+
+/** The keys held, as played (before transpose and octave), ascending MIDI notes. */
+export interface KeysState {
+  held: number[]
+  /** Those chord detection reads (left of the split in Lower, right in Upper, all in the
+   * Full Keyboard types). */
+  chord: number[]
+}
+
+/** Output levels (`meters()`): peaks since the last call, linear (1 = full scale). The
+ * client applies its own decay and peak hold. */
+export interface Meters {
+  atMs: number
+  /** Keyboard parts (ch 1–4) and Style parts (ch 9–16), before the soft clipper. Empty
+   * without the synth. */
+  channels: { channel: number; peak: number }[]
+  /** Left, right after the soft clipper. */
+  master: [number, number]
+  /** Audio buffers in which the soft clipper worked, since start. */
+  clips: number
 }
 
 // ── Provisional: the Launchkey surface (the follow-up API PR after #71) ──────
@@ -331,11 +389,10 @@ export interface SurfaceState {
   clock: { bar: number; beat: number; phase: number; tempo: number; atMs: number }
 }
 
-// ── Provisional: style preview (#21, not in the engine yet) ──────────────
+// ── Style preview (#21) ─────────────────────────────────────────────────
 // The browser auditions a style while the band is stopped, and queues one for the next
-// bar line while it plays. The mock implements both; the engine will send
-// `state.preview` once it does, and until then the browser hides these controls when
-// `preview` is absent. Proposed on the coordination board (NEED, #20/#21 ui-browser).
+// bar line while it plays (docs/app-api.md). `loadStyle`/`stepStyle` while playing wait
+// for the bar line too; `preview.queued` shows the style waiting.
 
 export type PreviewCmd =
   /** Stopped only: plays the style's Main A over the default progression (one chord a
@@ -377,8 +434,9 @@ export interface AppState {
   message: { seq: number; text: string; error: boolean } | null
   /** Provisional (see SurfaceState); absent from the engine until the follow-up API PR. */
   surface?: SurfaceState
-  /** Provisional (see PreviewState); absent from the engine until it can audition. */
-  preview?: PreviewState
+  preview: PreviewState
+  /** The keys held, for the key strip. */
+  keys: KeysState
 }
 
 export interface LibraryEntry {
@@ -393,14 +451,23 @@ export interface LibraryEntry {
   timeSignature: [number, number] | null
   /** e.g. "Main ABCD · Intro ABC · Ending ABC · Fill ABCD · Break". */
   sections: string
-  /** Provisional (#20): "SFF1" or "SFF2", null until indexed or unreadable. Absent from
-   * the engine until it lists it (the loaded style's is `style.format`). */
-  format?: string | null
+  /** "SFF1" or "SFF2" from the file's header; null until indexed, or unreadable. */
+  format: string | null
+}
+
+/** A voice `setPartVoice` can pick (a GM program on bank 0). */
+export interface VoiceOption {
+  program: number
+  bankMsb: number
+  bankLsb: number
+  name: string
 }
 
 export interface LibraryList {
   revision: number
   entries: LibraryEntry[]
+  /** The voices `setPartVoice` picks from (the same every revision). */
+  voices: VoiceOption[]
 }
 
 // ── Names the UI uses ─────────────────────────────────────────────────────
