@@ -208,8 +208,10 @@ pub struct Unit {
 /// threads at once, which `load_async` (a thread per load) and a retired instance dropping
 /// on the control side make possible. Per component rather than global, so one plugin that
 /// hangs in `AudioUnitInitialize` (the load deadline's case) holds up only its own kind.
+type LifecycleLocks = Mutex<HashMap<[u32; 3], Arc<Mutex<()>>>>;
+
 fn lifecycle_lock(desc: [u32; 3]) -> Arc<Mutex<()>> {
-    static LOCKS: OnceLock<Mutex<HashMap<[u32; 3], Arc<Mutex<()>>>>> = OnceLock::new();
+    static LOCKS: OnceLock<LifecycleLocks> = OnceLock::new();
     let mut m = LOCKS.get_or_init(Default::default).lock().unwrap_or_else(|e| e.into_inner());
     m.entry(desc).or_default().clone()
 }
