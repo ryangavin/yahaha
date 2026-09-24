@@ -589,7 +589,7 @@ impl Input {
             // Pedals and the modulation wheel: the pedals' functions, and the switches and
             // wheel on the parts they reach (controllers.rs).
             (0xB0, 3) => match self.shared.controllers.control_change(slot, m[1] & 0x7F, m[2] & 0x7F, &mut self.pedal_edges) {
-                Handled::Pass => self.to_all_parts(m),
+                Handled::Pass => self.send_to_all_parts(m),
                 Handled::Sync => self.sync_controllers(),
                 Handled::Learned => self.ctl_signal = true,
                 Handled::Fire(f) => {
@@ -610,13 +610,13 @@ impl Input {
                 self.sync_controllers();
             }
             // Other controllers and pressure: to every keyboard part, on or off.
-            (0xB0 | 0xD0, _) => self.to_all_parts(m),
+            (0xB0 | 0xD0, _) => self.send_to_all_parts(m),
             _ => {}
         }
     }
 
     /// A keyboard message for every keyboard part's channel.
-    fn to_all_parts(&mut self, m: &[u8]) {
+    fn send_to_all_parts(&mut self, m: &[u8]) {
         let st = m[0] & 0xF0;
         match m.len() {
             2 | 3 => {
