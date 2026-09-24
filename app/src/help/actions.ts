@@ -77,5 +77,8 @@ export function tipFor(cmd: AppCmd | null): TipKey {
     case 'nextAudioOutput': return 'audio.output'
     case 'panic': return 'transport.panic'
     case 'clearMessage': return 'display.status'
+    case 'auditionStyle': return 'browser.preview'
+    case 'stopAudition': return 'browser.preview_stop'
+    case 'queueStyle': return 'browser.queue'
   }
 }

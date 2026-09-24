@@ -6,6 +6,7 @@
 //   ?tip=<key>     show the tooltip of the first control with that catalog key
 //   ?open=browser|settings|parts|mixer   open an overlay or drawer
 //   ?shift=1       latch the Launchkey mirror's Shift layer
+//   ?styles=N      mock: add N synthetic styles to the library (e.g. 60000; read in api/session.ts)
 
 import { isTipKey } from '../help/tooltips'
 import { ui } from './store.svelte'
