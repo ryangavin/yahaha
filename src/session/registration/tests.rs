@@ -59,7 +59,8 @@ fn panel(s: &Session) -> Panel {
     let st = s.state();
     Panel {
         style: st.style.path.clone(),
-        tempo: st.transport.tempo,
+        // Whole BPM: a recall sets the tempo as the panel does (a style's own may be 82.99997).
+        tempo: st.transport.tempo.round(),
         main: st.transport.main,
         parts: st.keyboard_parts.iter().map(|p| (p.on, p.program, p.volume, p.octave)).collect(),
         transpose: (st.chord.transpose_keyboard, st.chord.transpose_master),

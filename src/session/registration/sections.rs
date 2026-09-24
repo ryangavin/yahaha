@@ -10,7 +10,7 @@
 use super::super::Control;
 use super::LockItem;
 use crate::api::{gm_name, ChordCmd, LibraryCmd, MultiPadCmd, PartsCmd};
-use crate::engine::{StyleControls, Transpose};
+use crate::engine::{Button, StyleControls, Transpose};
 use crate::fingering::Fingering;
 use crate::live::Cmd;
 use crate::parts;
@@ -137,7 +137,7 @@ struct TempoReg {
 }
 
 fn tempo_capture(c: &Control, g: Groups) -> Option<Value> {
-    g.has(Group::Tempo).then(|| to_value(&TempoReg { bpm: c.snap.bpm })).flatten()
+    g.has(Group::Tempo).then(|| to_value(&TempoReg { bpm: c.snap.bpm.round() })).flatten()
 }
 
 fn tempo_recall(c: &mut Control, v: &Value, g: Groups) -> Result<(), String> {
@@ -145,7 +145,14 @@ fn tempo_recall(c: &mut Control, v: &Value, g: Groups) -> Result<(), String> {
         return Ok(());
     }
     let t: TempoReg = parse("tempo", v)?;
-    c.engine_cmd(Cmd::SetTempo(t.bpm)).map_err(|e| e.to_string())
+    c.engine_cmd(tempo_cmd(t.bpm)).map_err(|e| e.to_string())
+}
+
+/// The engine command for a recalled tempo: the panel's SET TEMPO, whole BPM as on the
+/// Genos (the engine clamps it to its range).
+pub(in crate::session) fn tempo_cmd(bpm: f64) -> Cmd {
+    let bpm = if bpm.is_finite() { bpm.round().clamp(0.0, u16::MAX as f64) as u16 } else { 0 };
+    Cmd::Button(Button::SetTempo(bpm))
 }
 
 // ----- chord detection and split (group Style; Parameter Lock items) -----

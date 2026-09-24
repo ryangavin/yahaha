@@ -32,6 +32,8 @@ mod controllers;
 mod keyboard;
 mod leds;
 mod library;
+mod looper;
+mod metronome;
 mod mixer;
 mod multipad;
 mod offline;
@@ -250,6 +252,10 @@ struct Control {
     reg: registration::RegState,
     /// The Playlist.
     playlist: playlist::PlaylistCtl,
+    /// Chord Looper memories and the rings to the engine's looper.
+    looper: looper::LooperCtl,
+    /// Metronome settings.
+    metronome: metronome::MetronomeCtl,
     /// Multi Pad banks to the engine thread, and replaced players back to free here.
     pad_tx: Producer<live::PadBank>,
     old_pad_rx: Consumer<Box<crate::multipad::MultiPadPlayer>>,
@@ -306,6 +312,8 @@ impl Control {
             AppCmd::System(c) => self.system_cmd(c),
             AppCmd::Registration(c) => self.registration_cmd(c),
             AppCmd::Playlist(c) => self.playlist_cmd(c),
+            AppCmd::Looper(c) => self.looper_cmd(c),
+            AppCmd::Metronome(c) => self.metronome_cmd(c),
             AppCmd::MultiPad(c) => self.multipad_cmd(c),
             AppCmd::Controllers(c) => self.controllers_cmd(c),
         }
@@ -356,6 +364,8 @@ impl Control {
         self.pump_rescan();
         self.pump_inputs(now);
         self.pump_registration(now);
+        self.pump_looper();
+        self.pump_metronome();
 
         // Free-running beat clock for flashing/pulsing, following the current tempo.
         let s = self.snap;
@@ -407,6 +417,8 @@ impl Control {
             multi_pad: self.multipad_state(),
             controllers: self.controllers_state(),
             message: self.message.clone(),
+            looper: self.looper_state(),
+            metronome: self.metronome_state(),
         }
     }
 }
@@ -556,6 +568,8 @@ fn assemble(opts: &Options, engine_out: live::Out, input_out: live::Out, offline
         sources_ns: 0,
         reg: registration::RegState::new(opts.data_dir.as_ref().map(|d| d.join("Registration"))),
         playlist: playlist::PlaylistCtl::new(opts.data_dir.as_ref().map(|d| d.join("Playlists"))),
+        looper: looper::LooperCtl::new(ch.looper_tx, ch.recorded_rx),
+        metronome: Default::default(),
         pad_tx: ch.pad_tx,
         old_pad_rx: ch.old_pad_rx,
         multipad: multipad::Pads::scan(&opts.paths),

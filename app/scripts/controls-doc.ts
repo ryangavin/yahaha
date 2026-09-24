@@ -23,6 +23,8 @@ const GROUPS: [string, string][] = [
   ['playlist', 'Playlist'],
   ['part', 'Keyboard parts'],
   ['mixer', 'Mixer'],
+  ['metronome', 'Metronome'],
+  ['looper', 'Chord Looper'],
   ['multipad', 'Multi Pads'],
   ['padpage', 'Launchkey pad pages'],
   ['launchkey', 'Launchkey'],

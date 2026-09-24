@@ -83,6 +83,8 @@ const STATES: [string, Setup][] = [
   ['registration panel: sequence', () => ((ui.registTab = 'sequence'), (ui.regist = true))],
   ['registration panel: playlist', () => ((ui.registTab = 'playlist'), (ui.regist = true))],
   ['registration panel: playlist sorted', (s) => (s.send({ type: 'setPlaylistSort', sort: 'aToZ' }), (ui.registTab = 'playlist'), (ui.regist = true))],
+  ['chord looper drawer open', () => (ui.looper = true)],
+  ['chord looper drawer, recording armed, Memory latched', (s) => ((ui.looper = true), s.send({ type: 'looperRec' }))],
   ['multi pad drawer, no bank', () => (ui.multipad = true)],
   ['multi pad drawer, bank loaded, pads playing and armed', (s) => (
     (ui.multipad = true),
@@ -102,6 +104,7 @@ afterEach(() => {
   ui.mixer = false
   ui.regist = false
   ui.registTab = 'bank'
+  ui.looper = false
   ui.multipad = false
   ui.shiftLatched = false
   tips.help = false

@@ -119,6 +119,20 @@ export function tipFor(cmd: AppCmd | null): TipKey {
     case 'setPlaylistSort': return 'playlist.sort'
     case 'loadPlaylistRecord': return 'playlist.record'
     case 'stepPlaylist': return cmd.delta < 0 ? 'playlist.prev' : 'playlist.next'
+    case 'setTempo': return 'display.tempo'
+    case 'setStyleSolo':
+    case 'setPartSolo': return 'mixer.solo'
+    case 'styleTrackMute': return 'mixer.track_mute'
+    case 'looperRec': return 'looper.rec'
+    case 'looperOnOff': return 'looper.on_off'
+    case 'selectLooperMemory': return 'looper.memory'
+    case 'storeLooperMemory': return 'looper.store'
+    case 'clearLooperMemory': return 'looper.clear'
+    case 'newLooperBank': return 'looper.new_bank'
+    case 'toggleMetronome':
+    case 'setMetronome': return 'metronome.on'
+    case 'setMetronomeVolume': return 'metronome.volume'
+    case 'setMetronomeBell': return 'metronome.bell'
     case 'loadMultiPad':
     case 'loadMultiPadPath': return 'multipad.bank'
     case 'clearMultiPad': return 'multipad.clear'

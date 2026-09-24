@@ -475,7 +475,7 @@ impl Control {
             let d = self.reg.deferred.take().unwrap();
             let mut errors = self.recall_late(&d.memory, d.groups);
             if let Some(bpm) = d.keep_bpm
-                && let Err(e) = self.engine_cmd(crate::live::Cmd::SetTempo(bpm))
+                && let Err(e) = self.engine_cmd(sections::tempo_cmd(bpm))
             {
                 errors.push(e.to_string());
             }

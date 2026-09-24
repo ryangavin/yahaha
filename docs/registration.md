@@ -142,7 +142,7 @@ first).
 |---|---|
 | Style | the style, section (Main, armed Intro), Sync Start/Stop, Stop ACMP, OTS Link, the Style part mixer, the **Left** part, split point, fingering, Chord Detection Area / Manual Bass |
 | Voice | Right 1–3: voice, on/off, volume, octave |
-| Tempo | the tempo |
+| Tempo | the tempo, in whole BPM as on the Genos panel (recalled as SET TEMPO) |
 | Transpose | Keyboard and Master transpose |
 | Multi Pad | the Multi Pad bank (Data List "Multi Pad File"; a bank already chosen is left playing). Not the pads' Synchro Start standby |
 | Keyboard Harmony/Arpeggio, Chord Looper, Live Control | reserved for those features |
