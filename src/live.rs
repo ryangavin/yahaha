@@ -624,15 +624,15 @@ impl Input {
         } else {
             fingering::detect(&self.rec, mode, &held, split, self.current)
         };
-        if let Some(c) = c {
-            if Some(c) != self.current || self.let_go {
-                self.current = Some(c);
-                self.let_go = false;
-                self.generation = self.generation.wrapping_add(1);
-                self.shared.chord_ns.store(rt::now_ns(), Relaxed);
-                self.shared.chord.store(c.pack(self.generation), Release);
-                self.signal = true;
-            }
+        if let Some(c) = c
+            && (Some(c) != self.current || self.let_go)
+        {
+            self.current = Some(c);
+            self.let_go = false;
+            self.generation = self.generation.wrapping_add(1);
+            self.shared.chord_ns.store(rt::now_ns(), Relaxed);
+            self.shared.chord.store(c.pack(self.generation), Release);
+            self.signal = true;
         }
     }
 
