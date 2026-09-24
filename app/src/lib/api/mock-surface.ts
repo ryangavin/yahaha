@@ -80,10 +80,10 @@ export function mockSurface(s: AppState, lib: LibraryList, hw: MockHardware): Su
     control('padBankDown', 107, 'PAGE ▼', toPage(1), page < PAD_PAGES.length - 1 ? pageColour : OFF, { label: 'OTS LINK', action: { type: 'toggleOtsLink' } }),
     control('trackPrev', 103, '◀ STYLE', styles ? { type: 'stepStyle', delta: -1 } : null, styles ? WHITE : OFF),
     control('trackNext', 102, 'STYLE ▶', styles ? { type: 'stepStyle', delta: 1 } : null, styles ? WHITE : OFF),
-    control('play', 115, 'PLAY', { type: 'startStop' }, null),
-    control('stop', 116, 'STOP', { type: 'stop' }, null),
-    control('scene', 104, 'TEMPO +', { type: 'tempoUp' }, null),
-    control('function', 105, 'TEMPO -', { type: 'tempoDown' }, null),
+    control('play', 115, 'PLAY', { type: 'startStop' }, null, { label: 'RESET', action: { type: 'sectionReset' } }),
+    control('stop', 116, 'STOP', { type: 'stop' }, null, { label: 'FADE', action: { type: 'toggleFade' } }),
+    control('scene', 104, 'TEMPO +', { type: 'tempoUp' }, null, { label: 'RTG SHORT', action: { type: 'stepRetriggerRate', delta: 1 } }),
+    control('function', 105, 'TEMPO -', { type: 'tempoDown' }, null, { label: 'RTG LONG', action: { type: 'stepRetriggerRate', delta: -1 } }),
   ]
   for (let i = 0; i < 8; i++) {
     const id = `faderButton${i + 1}` as ControlId
