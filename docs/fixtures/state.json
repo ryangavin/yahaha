@@ -339,7 +339,8 @@
       "program": 0,
       "voiceName": "Grand Piano",
       "playsBass": false,
-      "octave": 0
+      "octave": 0,
+      "patch": null
     },
     {
       "name": "Right 2",
@@ -353,7 +354,8 @@
       "program": 48,
       "voiceName": "Strings",
       "playsBass": false,
-      "octave": 0
+      "octave": 0,
+      "patch": null
     },
     {
       "name": "Right 3",
@@ -367,7 +369,8 @@
       "program": 61,
       "voiceName": "Brass Section",
       "playsBass": false,
-      "octave": 0
+      "octave": 0,
+      "patch": null
     },
     {
       "name": "Left",
@@ -381,7 +384,8 @@
       "program": 48,
       "voiceName": "Strings",
       "playsBass": false,
-      "octave": 0
+      "octave": 0,
+      "patch": null
     }
   ],
   "mixer": {
@@ -1583,5 +1587,250 @@
     "volume": 90,
     "bell": true,
     "audible": false
+  },
+  "plugins": {
+    "available": false,
+    "scanning": false,
+    "list": []
+  },
+  "soundLibrary": {
+    "patches": [],
+    "categories": [
+      {
+        "id": "piano",
+        "label": "Piano"
+      },
+      {
+        "id": "ePiano",
+        "label": "E.Piano"
+      },
+      {
+        "id": "organ",
+        "label": "Organ"
+      },
+      {
+        "id": "guitar",
+        "label": "Guitar"
+      },
+      {
+        "id": "bass",
+        "label": "Bass"
+      },
+      {
+        "id": "strings",
+        "label": "Strings"
+      },
+      {
+        "id": "brass",
+        "label": "Brass"
+      },
+      {
+        "id": "saxWoodwind",
+        "label": "Sax/Woodwind"
+      },
+      {
+        "id": "synthLead",
+        "label": "Synth Lead"
+      },
+      {
+        "id": "pad",
+        "label": "Pad"
+      },
+      {
+        "id": "choir",
+        "label": "Choir"
+      },
+      {
+        "id": "drumsPerc",
+        "label": "Drums/Perc"
+      },
+      {
+        "id": "sfx",
+        "label": "SFX"
+      }
+    ],
+    "families": [
+      "Piano",
+      "Chromatic Perc.",
+      "Organ",
+      "Guitar",
+      "Bass",
+      "Strings",
+      "Ensemble",
+      "Brass",
+      "Reed",
+      "Pipe",
+      "Synth Lead",
+      "Synth Pad",
+      "Synth FX",
+      "Ethnic",
+      "Percussive",
+      "Sound FX"
+    ],
+    "map": {
+      "families": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null
+      ],
+      "overrides": [],
+      "drums": null
+    },
+    "styleMap": {
+      "families": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null
+      ],
+      "overrides": [],
+      "drums": null
+    },
+    "styleKey": "SlowWalker.T552.sty",
+    "usage": [
+      {
+        "channel": 9,
+        "part": "Rhythm 1",
+        "msb": 127,
+        "lsb": 0,
+        "program": 57,
+        "gmProgram": 57,
+        "voice": "drum kit 127/0/58",
+        "drums": true,
+        "patch": null,
+        "rule": "fallback",
+        "fromStyle": false,
+        "plays": "drum kit 127/0/58"
+      },
+      {
+        "channel": 10,
+        "part": "Rhythm 2",
+        "msb": 127,
+        "lsb": 0,
+        "program": 56,
+        "gmProgram": 56,
+        "voice": "drum kit 127/0/57",
+        "drums": true,
+        "patch": null,
+        "rule": "fallback",
+        "fromStyle": false,
+        "plays": "drum kit 127/0/57"
+      },
+      {
+        "channel": 10,
+        "part": "Rhythm 2",
+        "msb": 127,
+        "lsb": 0,
+        "program": 57,
+        "gmProgram": 57,
+        "voice": "drum kit 127/0/58",
+        "drums": true,
+        "patch": null,
+        "rule": "fallback",
+        "fromStyle": false,
+        "plays": "drum kit 127/0/58"
+      },
+      {
+        "channel": 11,
+        "part": "Bass",
+        "msb": 104,
+        "lsb": 18,
+        "program": 87,
+        "gmProgram": 33,
+        "voice": "≈ Finger Bass  [Yamaha 104/18/88]",
+        "drums": false,
+        "patch": null,
+        "rule": "fallback",
+        "fromStyle": false,
+        "plays": "≈ Finger Bass  [Yamaha 104/18/88]"
+      },
+      {
+        "channel": 12,
+        "part": "Chord 1",
+        "msb": 0,
+        "lsb": 117,
+        "program": 18,
+        "gmProgram": 18,
+        "voice": "≈ Rock Organ  [Yamaha 0/117/19]",
+        "drums": false,
+        "patch": null,
+        "rule": "fallback",
+        "fromStyle": false,
+        "plays": "≈ Rock Organ  [Yamaha 0/117/19]"
+      },
+      {
+        "channel": 14,
+        "part": "Pad",
+        "msb": 0,
+        "lsb": 115,
+        "program": 89,
+        "gmProgram": 89,
+        "voice": "≈ Warm Pad  [Yamaha 0/115/90]",
+        "drums": false,
+        "patch": null,
+        "rule": "fallback",
+        "fromStyle": false,
+        "plays": "≈ Warm Pad  [Yamaha 0/115/90]"
+      },
+      {
+        "channel": 15,
+        "part": "Phrase 1",
+        "msb": 0,
+        "lsb": 113,
+        "program": 7,
+        "gmProgram": 7,
+        "voice": "≈ Clavinet  [Yamaha 0/113/8]",
+        "drums": false,
+        "patch": null,
+        "rule": "fallback",
+        "fromStyle": false,
+        "plays": "≈ Clavinet  [Yamaha 0/113/8]"
+      },
+      {
+        "channel": 16,
+        "part": "Phrase 2",
+        "msb": 104,
+        "lsb": 24,
+        "program": 80,
+        "gmProgram": 80,
+        "voice": "≈ Square Lead  [Yamaha 104/24/81]",
+        "drums": false,
+        "patch": null,
+        "rule": "fallback",
+        "fromStyle": false,
+        "plays": "≈ Square Lead  [Yamaha 104/24/81]"
+      }
+    ],
+    "portSendsMapped": false,
+    "auditioning": null,
+    "browse": null,
+    "file": null,
+    "extraSoundFonts": [],
+    "lastAdded": null
   }
 }

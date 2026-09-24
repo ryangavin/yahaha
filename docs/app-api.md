@@ -224,6 +224,35 @@ Pedals, the wheels and the assignable functions (docs/controllers.md).
 | `setBendRange` | `part` 0–3, `semitones` 0–12 | The part's Pitch Bend Range (RPN 0 on its channel). |
 | `triggerFunction` | `function` | Runs an assignable function as a pedal press would (Sustain, Sostenuto and Soft toggle). Fails for a function yahaha doesn't have yet (`available` false) and for Modulation and Pitch Bend, which need a foot controller. |
 
+### Sound library
+The sound library (#103, docs/sound-library.md): a short user list of patches, and the
+program map that sends every Style part (and every keyboard part's GM voice) to one of
+them. It is saved to `sound-library.json` in the data folder (`soundLibrary.file`) after
+every change. A patch id that doesn't exist fails the command.
+
+| Command | Fields | What it does |
+|---|---|---|
+| `createPatch` | `patch`: PatchFields | Adds a patch at the end of the list; its new id is `soundLibrary.lastAdded`. PatchFields: `name`, `category`, `tags`, `favourite`, `source`, `defaults` (see [`soundLibrary`](#soundlibrary)). |
+| `updatePatch` | `id`, `patch` | Replaces a patch's fields (rename, recategorise, tags, favourite, source, defaults); the id stays. |
+| `deletePatch` | `id` | Deletes it. Map rules that name it go; a keyboard part playing it goes back to its GM voice. |
+| `duplicatePatch` | `id` | A copy ("… copy") right after it, with a new id. |
+| `movePatch` | `id`, `to` | Moves it to position `to` (0-based) in the list. |
+| `setPatchFavourite` | `id`, `favourite` | Marks or unmarks a favourite. |
+| `savePartAsPatch` | `part` 0–3, `name` or null | Saves a keyboard part's sound as a new patch: its own patch, else its GM voice on the synth's SoundFont, with its volume and octave as defaults. |
+| `addPresetAsPatch` | `file`, `bank`, `program`, `name` or null | Adds a SoundFont preset (`browseSoundFont`) as a patch, named after the preset and categorised from its bank and program. |
+| `auditionPatch` | `id` | Plays the patch on its own for about 3 s (an arpeggio and a chord; a drum kit plays a beat), on channel 16 of the built-in synth, which the band is not using while stopped. Refused while the band plays (like `auditionStyle`); `soundLibrary.auditioning` names it. |
+| `auditionPreset` | `file`, `bank`, `program` | The same for a SoundFont preset, before adding it. A SoundFont the synth hasn't loaded loads first. |
+| `stopPatchAudition` | | Ends the audition now. |
+| `setFamilyRule` | `family` 0–15, `patch` or null, `style` | A GM family (programs 8·family … 8·family+7) plays `patch`; null clears the rule. `style`: the current style's own map instead of the global one (may be left out: false). |
+| `setProgramOverride` | `program` 0–127, `patch` or null, `style` | One GM program plays `patch`, whatever its family's rule. |
+| `setDrumRule` | `patch` or null, `style` | The drum parts (Rhythm 1 and 2, and any part on a Yamaha drum kit bank, MSB 126/127) play `patch`. |
+| `clearStyleMap` | | Forgets the current style's own map. |
+| `setPartPatch` | `part` 0–3, `id` or null | A keyboard part plays a library patch; its defaults (volume, octave, pan, reverb and chorus sends) go to the part as CCs. Null: back to its GM voice (through the map). `setPartVoice`, `stepVoice` and an OTS recall that gives the part a voice also end it. |
+| `setPortSendsMapped` | `on` | The `yahaha` MIDI port gets the mapped bank and program for the band's program changes the map sends to a SoundFont patch, instead of the style's own (default off: the port mirrors the style). |
+| `browseSoundFont` | `file` or null | Lists a SoundFont's presets in `soundLibrary.browse` (a file in `io.soundFonts`); null closes the list. |
+| `importSoundLibrary` | `path`, `replace`, `maps` | Reads a library file (a full library, or a bare list of patches). Its patches are added (ids that clash get new ones); `maps`: its program maps' rules are added too; `replace`: it replaces the library instead. `replace` and `maps` may be left out (false). |
+| `exportSoundLibrary` | `path` or null | Writes the library to `path` (null: `sound-library-export.json` in the data folder). |
+
 ### Result: `CmdError`
 
 `send` returns `Ok(())` or one of these errors:
@@ -314,10 +343,11 @@ Indices are 0-based unless a field says otherwise.
 | `volume` | 0–127 | CC7. |
 | `waiting` | bool | The Launchkey fader has moved but not yet reached `volume`. The terminal UI shows ↕. |
 | `program` | 0–127 | The part's GM voice. |
-| `voiceName` | string | What its channel plays. For Left under Manual Bass, that is the Style's Bass voice. |
+| `voiceName` | string | What its channel plays: its own patch's name, the patch its GM voice maps to, or the GM voice. For Left under Manual Bass, that is the Style's Bass voice. |
 | `playsBass` | bool | Left is playing the bass (Manual Bass). |
 | `octave` | −2..2 | The octave setting. It is not applied while `playsBass` is true. |
 | `fader` | 0–127? | Where its Launchkey fader (Panel page, faders 1–4) physically is, as last reported. Null until that fader moves. |
+| `patch` | string? | Its own sound library patch (`setPartPatch`). Null: its GM voice plays, through the program map; `voiceName` then names the patch the map sends it to, if any. |
 
 ### `mixer`
 | Field | Type | Meaning |
@@ -593,6 +623,25 @@ Multi Pads (docs/multipad.md).
 | `synchroStop` | object | `styleStop`, `ending` (`setMultiPadSynchroStop`). |
 | `banks` | MultiPadBankEntry[] | The `.pad` files in the style folders, folder then name: `id`, `name`, `folder` (relative to its root, `/`-separated), `path`. A `rescanLibrary` refreshes it; a file still there keeps its id. Banks loaded by path from outside the style folders follow, while their file is there; the bank loaded is always listed. |
 
+### `soundLibrary`
+The sound library (docs/sound-library.md).
+
+| Field | Type | Meaning |
+|---|---|---|
+| `patches` | PatchInfo[] | In the user's order: `id`, `name`, `category`, `tags`, `favourite`, `source`, `defaults`, `available` (false: it plays the SoundFont fallback) and `note` (why, e.g. "needs plugin hosting (#91)"). `source` is `{ "kind": "soundFont", "file", "bank", "program" }` (bank 128 = drum kits) or `{ "kind": "plugin", "componentId", "state" }` (the Audio Unit's id, as #91 writes it, and its state, base64). `defaults`: `volume`, `pan`, `reverb`, `chorus` (0–127 or null) and `octave` (−2..2). |
+| `categories` | object[] | The Genos voice categories in display order: `id` (`piano`, `ePiano`, `organ`, `guitar`, `bass`, `strings`, `brass`, `saxWoodwind`, `synthLead`, `pad`, `choir`, `drumsPerc`, `sfx`) and `label`. |
+| `families` | string[16] | The GM family names; family `i` is programs 8i … 8i+7. |
+| `map` | ProgramMap | The global map: `families` (16 patch ids or null), `overrides` (`{ program, patch }`, by program) and `drums` (a patch id or null). |
+| `styleMap` | ProgramMap | The current style's own map (empty: none). Its rules win over the global map's; what it leaves unset falls through. |
+| `styleKey` | string | What the style's own map is stored under: its file name. |
+| `usage` | ProgramUse[] | Every program the current style sends its parts (its setup and every section), by channel: `channel` (9–16), `part`, `msb`, `lsb`, `program`, `gmProgram` (what the map looks up), `voice` (the voice without the library), `drums`, `patch` (null: the fallback), `rule` (`drums` \| `override` \| `family` \| `fallback`), `fromStyle`, `plays` (the patch's name, or the voice). |
+| `portSendsMapped` | bool | `setPortSendsMapped`. |
+| `auditioning` | string? | The patch id being auditioned, or `preset`. |
+| `browse` | object? | The SoundFont being browsed: `file`, `presets` (`{ bank, program, name }`), `error`. |
+| `file` | string? | Where the library is saved; null when it isn't (an offline session, `state-json`). |
+| `extraSoundFonts` | string[] | The SoundFonts the synth has loaded for library patches besides its own. |
+| `lastAdded` | string? | The id of the patch last created, duplicated or saved. |
+
 ### `message`
 `{ seq, text, error }` or null. It holds the last notice or error, for example a style
 that fails to load. `seq` increases with every new message, so the same text arriving
@@ -721,7 +770,8 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
       "program": 80,
       "voiceName": "Square Lead",
       "playsBass": false,
-      "octave": -1
+      "octave": -1,
+      "patch": null
     },
     {
       "name": "Right 2",
@@ -735,7 +785,8 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
       "program": 94,
       "voiceName": "Halo Pad",
       "playsBass": false,
-      "octave": 0
+      "octave": 0,
+      "patch": null
     },
     {
       "name": "Right 3",
@@ -749,7 +800,8 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
       "program": 94,
       "voiceName": "Halo Pad",
       "playsBass": false,
-      "octave": 0
+      "octave": 0,
+      "patch": null
     },
     {
       "name": "Left",
@@ -763,7 +815,8 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
       "program": 52,
       "voiceName": "Choir Aahs",
       "playsBass": false,
-      "octave": 1
+      "octave": 1,
+      "patch": null
     }
   ],
   "mixer": {
@@ -1060,6 +1113,51 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
     "sustain": true,
     "sostenuto": false,
     "soft": false
+  },
+  "plugins": { "available": false, "scanning": false, "list": [] },
+  "soundLibrary": {
+    "patches": [
+      {
+        "id": "my-bass",
+        "name": "My Bass",
+        "category": "bass",
+        "tags": ["warm"],
+        "favourite": true,
+        "source": { "kind": "soundFont", "file": "GeneralUser-GS.sf2", "bank": 0, "program": 33 },
+        "defaults": { "volume": 100, "pan": null, "reverb": 20, "chorus": null, "octave": 0 },
+        "available": true,
+        "note": null
+      },
+      {
+        "id": "keys",
+        "name": "Keys",
+        "category": "ePiano",
+        "tags": [],
+        "favourite": false,
+        "source": { "kind": "plugin", "componentId": "aumu dls  appl", "state": "" },
+        "defaults": { "volume": null, "pan": null, "reverb": null, "chorus": null, "octave": 0 },
+        "available": false,
+        "note": "needs plugin hosting (#91)"
+      }
+    ],
+    "categories": [{ "id": "piano", "label": "Piano" }, { "id": "bass", "label": "Bass" }],
+    "families": ["Piano", "Chromatic Perc.", "Organ", "Guitar", "Bass", "Strings", "Ensemble", "Brass", "Reed", "Pipe", "Synth Lead", "Synth Pad", "Synth FX", "Ethnic", "Percussive", "Sound FX"],
+    "map": {
+      "families": [null, null, null, null, "my-bass", null, null, null, null, null, null, null, null, null, null, null],
+      "overrides": [{ "program": 4, "patch": "keys" }],
+      "drums": null
+    },
+    "styleMap": { "families": [null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null], "overrides": [], "drums": null },
+    "styleKey": "SlowWalker.T552.sty",
+    "usage": [
+      { "channel": 11, "part": "Bass", "msb": 0, "lsb": 0, "program": 33, "gmProgram": 33, "voice": "Finger Bass (GM 34)", "drums": false, "patch": "my-bass", "rule": "family", "fromStyle": false, "plays": "My Bass" }
+    ],
+    "portSendsMapped": false,
+    "auditioning": null,
+    "browse": null,
+    "file": "/Users/me/Documents/yahaha/sound-library.json",
+    "extraSoundFonts": [],
+    "lastAdded": "my-bass"
   },
   "message": null
 }
