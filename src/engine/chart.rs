@@ -62,6 +62,9 @@ pub struct ChartPlan {
     pub bars: Vec<PlanBar>,
     /// The chart's tempo: set when the plan arrives with the band stopped.
     pub bpm: Option<f64>,
+    /// A new song (not the same one with another chorus count): a band that plays starts it
+    /// from its first bar at the next bar line.
+    pub fresh: bool,
 }
 
 /// The Main a chart section plays: A-D are Main A-D; any other section (a verse, the
@@ -97,7 +100,7 @@ impl ChartPlan {
                 p
             })
             .collect();
-        ChartPlan { tag, bars: out, bpm }
+        ChartPlan { tag, bars: out, bpm, fresh: false }
     }
 }
 
@@ -128,6 +131,10 @@ pub(super) struct ChartPlayer {
     applied: Option<Chord>,
     /// The time of the last start: a Sync Start chord only starts the band.
     start_ns: Option<u64>,
+    /// The section change the chart queued for the next bar line (a Main, a fill, the
+    /// Ending or the stop), and the Main selected before it: a new plan or new settings
+    /// take it back.
+    owned: Option<(Queued, u8)>,
 }
 
 impl Engine {
@@ -160,22 +167,64 @@ impl Engine {
         if let (false, Some(bpm)) = (self.running, plan.bpm) {
             self.set_bpm_internal(bpm, now);
         }
+        // What the old plan queued for the next bar line is not the new plan's.
+        self.chart_unqueue();
         let len = plan.bars.len() as u32;
+        let fresh = plan.fresh;
         let c = &mut self.features.chart;
-        if let Some(b) = c.bar {
+        if fresh {
+            // A new song starts from its first bar.
+            c.bar = None;
+            c.overridden = false;
+        } else if let Some(b) = c.bar {
             c.bar = (len > 0).then(|| b.min(len - 1));
         }
-        c.plan.replace(plan)
+        let old = c.plan.replace(plan);
+        if fresh && self.chart_active() && matches!(id_of(self.cur), SectionId::Intro(_)) {
+            // The Intro goes on to the new song's first Main.
+            if let Some(b) = self.plan_bar(0) {
+                self.main = b.main;
+            }
+        }
+        self.chart_requeue(now);
+        old
     }
 
-    /// New chart settings. Turning chart mode off hands the chords back to the player.
-    pub fn set_chart_settings(&mut self, s: ChartSettings) {
+    /// New chart settings. Turning chart mode off hands the chords back to the player (and
+    /// takes back what the chart queued); new settings (a loop, an Ending) queue the next
+    /// bar line again.
+    pub fn set_chart_settings(&mut self, s: ChartSettings, now: u64) {
+        self.chart_unqueue();
         let c = &mut self.features.chart;
         c.settings = s;
         if !s.on {
             c.bar = None;
             c.overridden = false;
         }
+        self.chart_requeue(now);
+    }
+
+    /// Take back the change the chart queued, if it is still the one queued (the player may
+    /// have queued another since), and the Main it selected.
+    fn chart_unqueue(&mut self) {
+        let Some((q, main)) = self.features.chart.owned.take() else { return };
+        if self.queued.is_some_and(|cur| id_of(cur.slot) == id_of(q.slot) || cur.slot == usize::MAX && q.slot == usize::MAX) {
+            self.queued = None;
+            self.main = main;
+        }
+    }
+
+    /// Queue the next bar line's change again (a new plan or new settings mid-bar), while
+    /// the chart plays a Main, fill or break.
+    fn chart_requeue(&mut self, now: u64) {
+        if !self.running || !self.chart_active() || self.queued.is_some() {
+            return;
+        }
+        if matches!(id_of(self.cur), SectionId::Intro(_) | SectionId::Ending(_)) {
+            return;
+        }
+        let end = self.next_bar(now);
+        self.chart_queue(end);
     }
 
     /// (tag of the plan, bar playing, player override) for the snapshot.
@@ -205,6 +254,7 @@ impl Engine {
         let c = &mut self.features.chart;
         c.bar = None;
         c.overridden = false;
+        c.owned = None;
         c.start_ns = Some(now);
         if !self.chart_active() {
             return;
@@ -230,6 +280,7 @@ impl Engine {
         let c = &mut self.features.chart;
         c.bar = None;
         c.overridden = false;
+        c.owned = None;
     }
 
     /// `on_bar`: the chart moves on a bar (outside an Intro or Ending), the player's
@@ -260,28 +311,54 @@ impl Engine {
         self.features.chart.bar = Some(idx);
         let tpb = self.style.tpb.max(1) as f64;
         let end = self.sec_start + (bar as f64 + 1.0) * tpb;
-        let n1 = self.chart_next(idx);
+        self.features.chart.owned = None;
+        self.chart_queue(end);
+    }
+
+    /// Queue the change for the bar line at tick `end`, after the plan bar playing (None:
+    /// before the first): the next bar's Main when a section starts there (a section mark,
+    /// the top of a chorus, the top of the loop, the chart's first bar), else, with Auto
+    /// Fill on, the fill when one starts the bar after; the Ending (or the stop) after the
+    /// last bar.
+    fn chart_queue(&mut self, end: f64) {
+        let cur = self.features.chart.bar;
+        let n1 = match cur {
+            None => Some(0),
+            Some(i) => self.chart_next(i),
+        };
         let n2 = n1.and_then(|n| self.chart_next(n));
+        // A section starts on bar `to` coming from `from`: its mark, or a jump back.
+        let starts = |e: &Engine, from: Option<u32>, to: u32| -> bool {
+            from.is_none_or(|f| to <= f) || e.plan_bar(to).is_some_and(|b| b.section_start)
+        };
         let (Some(b1), b2) = (n1.and_then(|n| self.plan_bar(n)).copied(), n2.and_then(|n| self.plan_bar(n)).copied()) else {
             // The last bar: the Ending (or the stop) at its end.
             let ending = self.features.chart.settings.ending.and_then(|e| self.style.resolve(13 + e as usize));
-            self.queued = Some(Queued { slot: ending.unwrap_or(usize::MAX), at: end, sec_start: end });
+            self.chart_own(Queued { slot: ending.unwrap_or(usize::MAX), at: end, sec_start: end }, self.main);
             return;
         };
-        if b1.section_start {
+        let (n1, n2) = (n1.unwrap_or(0), n2.unwrap_or(0));
+        if starts(self, cur, n1) {
             // The new section's Main from its first bar (a fill queued for this bar hands
             // over to it as well).
-            self.main = b1.main;
             if let Some(slot) = self.style.resolve(4 + b1.main as usize) {
-                self.queued = Some(Queued { slot, at: end, sec_start: end });
+                let before = self.main;
+                self.main = b1.main;
+                self.chart_own(Queued { slot, at: end, sec_start: end }, before);
             }
-        } else if let Some(b2) = b2.filter(|b| b.section_start && self.auto_fill) {
+        } else if let Some(b2) = b2.filter(|_| starts(self, Some(n1), n2) && self.auto_fill) {
             // Auto Fill: the next bar is the new section's fill.
             if let Some(fill) = self.style.resolve(8 + b2.main as usize) {
+                let before = self.main;
                 self.main = b2.main;
-                self.queued = Some(Queued { slot: fill, at: end, sec_start: end });
+                self.chart_own(Queued { slot: fill, at: end, sec_start: end }, before);
             }
         }
+    }
+
+    fn chart_own(&mut self, q: Queued, main_before: u8) {
+        self.queued = Some(q);
+        self.features.chart.owned = Some((q, main_before));
     }
 
     /// `on_beat`: the chart's chord for this beat, unless the player has taken over.
@@ -349,6 +426,8 @@ mod tests {
         section: String,
         chord: String,
         beat: u32,
+        /// The bar of the section playing.
+        sbar: u32,
     }
 
     /// Play from `from` for `bars` bars (of the style) in 1/8-beat steps, noting each change.
@@ -366,6 +445,7 @@ mod tests {
                 section: s.cur.map_or("-".into(), |c| c.name()),
                 chord: s.played.map_or("-".into(), |c| c.name()),
                 beat: s.beat,
+                sbar: s.bar,
             };
             if out.last() != Some(&l) {
                 out.push(l);
@@ -389,7 +469,7 @@ mod tests {
     fn sections_fills_and_chords_follow_the_chart() {
         let Some(mut e) = engine() else { return };
         e.set_chart(plan("*A[C |D-7 G7 |C |C ]*B[F |F |G |G Z", 1), 0);
-        e.set_chart_settings(settings(None, None));
+        e.set_chart_settings(settings(None, None), 0);
         start(&mut e);
         let (lines, _) = play(&mut e, 0, 10);
         assert_eq!(at(&lines, 0)[0].section, "Main A");
@@ -413,7 +493,7 @@ mod tests {
         let Some(mut e) = engine() else { return };
         e.button(Button::AutoFill, 0, &mut Nop);
         e.set_chart(plan("*A[C |C ]*B[F |F Z", 1), 0);
-        e.set_chart_settings(settings(None, None));
+        e.set_chart_settings(settings(None, None), 0);
         start(&mut e);
         let (lines, _) = play(&mut e, 0, 5);
         assert!(lines.iter().all(|l| !l.section.starts_with("Fill")), "{lines:?}");
@@ -425,7 +505,7 @@ mod tests {
     fn intro_before_and_ending_after() {
         let Some(mut e) = engine() else { return };
         e.set_chart(plan("*A[F |B-7 E7 Z", 1), 0);
-        e.set_chart_settings(settings(Some(0), Some(0)));
+        e.set_chart_settings(settings(Some(0), Some(0)), 0);
         start(&mut e);
         let (lines, _) = play(&mut e, 0, 20);
         assert_eq!(lines[0].section, "Intro A");
@@ -443,7 +523,7 @@ mod tests {
     fn the_left_hand_overrides_until_the_next_bar() {
         let Some(mut e) = engine() else { return };
         e.set_chart(plan("*A[C |C |F |F Z", 1), 0);
-        e.set_chart_settings(settings(None, None));
+        e.set_chart_settings(settings(None, None), 0);
         start(&mut e);
         let bar = e.ns_at_bar(1);
         // Mid bar 2 the player plays Ab.
@@ -466,7 +546,7 @@ mod tests {
     fn a_sync_start_chord_only_starts() {
         let Some(mut e) = engine() else { return };
         e.set_chart(plan("*A[E-7 |A7 Z", 1), 0);
-        e.set_chart_settings(settings(None, None));
+        e.set_chart_settings(settings(None, None), 0);
         e.set_chord(crate::parse_chord("C").unwrap(), 0, &mut Nop);
         let s = e.snapshot(0);
         assert!(s.running);
@@ -479,7 +559,7 @@ mod tests {
     fn keyboard_transpose_applies_to_the_chart() {
         let Some(mut e) = engine() else { return };
         e.set_chart(plan("*A[C |F Z", 1), 0);
-        e.set_chart_settings(settings(None, None));
+        e.set_chart_settings(settings(None, None), 0);
         e.set_transpose(Transpose::new(2, 0), 0, &mut Nop);
         start(&mut e);
         let s = e.snapshot(0);
@@ -499,7 +579,7 @@ mod tests {
     fn a_loop_repeats() {
         let Some(mut e) = engine() else { return };
         e.set_chart(plan("*A[C |D |E |F Z", 1), 0);
-        e.set_chart_settings(ChartSettings { loop_range: Some((1, 3)), ..settings(None, Some(0)) });
+        e.set_chart_settings(ChartSettings { loop_range: Some((1, 3)), ..settings(None, Some(0)) }, 0);
         start(&mut e);
         let (lines, _) = play(&mut e, 0, 9);
         let mut bars: Vec<u32> = lines.iter().filter_map(|l| l.bar).collect();
@@ -513,7 +593,7 @@ mod tests {
     fn choruses_play_the_form_again() {
         let Some(mut e) = engine() else { return };
         e.set_chart(plan("*A[C |G Z", 2), 0);
-        e.set_chart_settings(settings(None, None));
+        e.set_chart_settings(settings(None, None), 0);
         start(&mut e);
         let (lines, _) = play(&mut e, 0, 6);
         assert_eq!(lines.iter().filter_map(|l| l.bar).max(), Some(3));
@@ -528,6 +608,107 @@ mod tests {
         e.set_chord(crate::parse_chord("Bb").unwrap(), 0, &mut Nop);
         let (lines, _) = play(&mut e, 0, 3);
         assert!(lines.iter().all(|l| l.chord == "Bb" && l.bar.is_none()), "{lines:?}");
+    }
+
+    /// The top of a loop restarts its Main: a whole-song loop on an AB chart goes back to
+    /// Main A (with Auto Fill, through its fill), and a loop inside a section restarts the
+    /// section's phrase on each pass.
+    #[test]
+    fn the_loop_top_restarts_its_main() {
+        let Some(mut e) = engine() else { return };
+        e.set_chart(plan("*A[C |C ]*B[F |F Z", 1), 0);
+        e.set_chart_settings(ChartSettings { loop_range: Some((0, 4)), ..settings(None, None) }, 0);
+        start(&mut e);
+        let (lines, _) = play(&mut e, 0, 9);
+        let pass2 = lines.iter().position(|l| l.bar == Some(3)).unwrap();
+        let top: Vec<_> = lines[pass2..].iter().filter(|l| l.bar == Some(0)).collect();
+        assert!(!top.is_empty() && top.iter().all(|l| l.section == "Main A"), "{lines:?}");
+        assert_eq!(top[0].sbar, 0, "{lines:?}");
+        assert!(at(&lines, 3).iter().all(|l| l.section == "Fill In AA"), "{lines:?}");
+
+        // Auto Fill off: a loop of three bars in a long section restarts the Main each pass.
+        let Some(mut e) = engine() else { return };
+        e.button(Button::AutoFill, 0, &mut Nop);
+        e.set_chart(plan("*A[C |D |E |F |G |A |B |C Z", 1), 0);
+        e.set_chart_settings(ChartSettings { loop_range: Some((0, 3)), ..settings(None, None) }, 0);
+        start(&mut e);
+        let (lines, _) = play(&mut e, 0, 10);
+        let tops: Vec<_> = lines.iter().filter(|l| l.bar == Some(0)).map(|l| (l.sbar, l.section.clone())).collect();
+        assert!(tops.len() > 3, "{lines:?}");
+        assert!(tops.iter().all(|(b, s)| *b == 0 && s == "Main A"), "{tops:?}");
+    }
+
+    /// Chart mode off in the last bar: the stop the chart queued for its end goes too.
+    #[test]
+    fn chart_mode_off_takes_back_the_queued_stop() {
+        let Some(mut e) = engine() else { return };
+        e.set_chart(plan("*A[C |F Z", 1), 0);
+        e.set_chart_settings(settings(None, Some(0)), 0);
+        start(&mut e);
+        let bar = e.ns_at_bar(1);
+        let (_, now) = play(&mut e, 0, 1);
+        let t = now + bar / 4;
+        e.process(t, &mut Nop);
+        assert_eq!(e.snapshot(t).chart_bar, Some(1));
+        assert!(matches!(e.snapshot(t).queued, Some(SectionId::Ending(0))));
+        e.set_chart_settings(ChartSettings { on: false, ..settings(None, Some(0)) }, t);
+        assert!(e.snapshot(t).queued.is_none());
+        let (lines, _) = play(&mut e, t, 3);
+        assert!(e.running, "{lines:?}");
+        assert!(lines.iter().all(|l| l.section == "Main A"), "{lines:?}");
+    }
+
+    /// More choruses (the same song, a longer plan) in the last bar: the band plays on
+    /// into the next chorus instead of the old plan's Ending; a loop set there does too.
+    #[test]
+    fn a_new_plan_or_loop_in_the_last_bar_replans_its_end() {
+        let Some(mut e) = engine() else { return };
+        e.set_chart(plan("*A[C |F Z", 1), 0);
+        e.set_chart_settings(settings(None, Some(0)), 0);
+        start(&mut e);
+        let bar = e.ns_at_bar(1);
+        let (_, now) = play(&mut e, 0, 1);
+        let t = now + bar / 4;
+        e.process(t, &mut Nop);
+        assert_eq!(e.snapshot(t).chart_bar, Some(1));
+        let old = e.set_chart(plan("*A[C |F Z", 2), t);
+        assert!(old.is_some());
+        assert!(!matches!(e.snapshot(t).queued, Some(SectionId::Ending(_))));
+        let (lines, now) = play(&mut e, t, 2);
+        assert!(e.running, "{lines:?}");
+        assert!(at(&lines, 2).iter().all(|l| l.section == "Main A" && l.chord == "C"), "{lines:?}");
+        // In the new last bar, a loop over the song replaces the Ending queued for its end.
+        let t = now;
+        e.process(t, &mut Nop);
+        assert_eq!(e.snapshot(t).chart_bar, Some(3));
+        e.set_chart_settings(ChartSettings { loop_range: Some((0, 4)), ..settings(None, Some(0)) }, t);
+        let (lines, _) = play(&mut e, t, 2);
+        assert!(e.running, "{lines:?}");
+        assert!(lines.iter().any(|l| l.bar == Some(0)), "{lines:?}");
+        assert!(lines.iter().all(|l| !l.section.starts_with("Ending")), "{lines:?}");
+    }
+
+    /// A new song mid-play starts from its first bar (its Main) at the next bar line.
+    #[test]
+    fn a_new_song_mid_play_starts_at_its_first_bar() {
+        let Some(mut e) = engine() else { return };
+        e.button(Button::AutoFill, 0, &mut Nop);
+        e.set_chart(plan("*A[C |C |C ]*B[F |F |F |F Z", 1), 0);
+        e.set_chart_settings(settings(None, None), 0);
+        start(&mut e);
+        let bar = e.ns_at_bar(1);
+        let (_, now) = play(&mut e, 0, 4);
+        let t = now + bar / 4;
+        e.process(t, &mut Nop);
+        assert_eq!(e.snapshot(t).chart_bar, Some(4));
+        assert_eq!(e.snapshot(t).cur, Some(SectionId::Main(1)));
+        let mut song = plan("*A[G |D Z", 1);
+        song.fresh = true;
+        song.tag = 2;
+        e.set_chart(song, t);
+        let (lines, _) = play(&mut e, t, 2);
+        let first = lines.iter().position(|l| l.bar == Some(0)).expect("the new song's first bar");
+        assert_eq!((lines[first].section.as_str(), lines[first].chord.as_str(), lines[first].sbar), ("Main A", "G", 0), "{lines:?}");
     }
 
     #[test]

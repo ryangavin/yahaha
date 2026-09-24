@@ -1642,6 +1642,11 @@ impl MockSession {
                 if let Some([p, s]) = self.state.chart.selected {
                     self.select_chart(p, s, false);
                 }
+                // Fewer choruses: a loop past the new end goes.
+                let n = self.state.chart.song.as_ref().map_or(0, |s| s.bars.len()) as u32;
+                if self.state.chart.loop_range.is_some_and(|[_, b]| b > n) {
+                    self.state.chart.loop_range = None;
+                }
             }
             ChartCmd::SetChartLoop { range } => {
                 let n = self.state.chart.song.as_ref().map_or(0, |s| s.bars.len()) as u32;

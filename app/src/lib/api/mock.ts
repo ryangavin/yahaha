@@ -685,6 +685,8 @@ export class MockSession implements Session {
       case 'setChartChoruses':
         c.choruses = Math.max(1, Math.min(99, Math.round(cmd.choruses)))
         if (c.selected) this.selectChart(c.selected[0], c.selected[1], false)
+        // Fewer choruses: a loop past the new end goes.
+        if (c.loop && c.loop[1] > (c.song?.bars.length ?? 0)) c.loop = null
         break
       case 'setChartLoop': {
         const n = c.song?.bars.length ?? 0

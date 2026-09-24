@@ -1230,6 +1230,8 @@ fn chart_player_imports_selects_and_plays() {
     let Some(s) = offline("SlowWalker.T552.sty") else { return };
     // Nothing imported: chart mode refuses to turn on.
     assert!(s.send(ChartCmd::ToggleChartMode).is_err());
+    assert!(s.send(ChartCmd::SetChartMode { on: true }).is_err());
+    assert!(!s.state().chart.on);
     assert!(s.send(ChartCmd::ImportCharts { text: "no links here".into() }).is_err());
     s.send(ChartCmd::ImportCharts { text: format!("<html><a href=\"{}\">x</a></html>", TEST_CHART.replace(' ', "%20")) }).unwrap();
     let st = s.state();
@@ -1285,6 +1287,13 @@ fn chart_player_imports_selects_and_plays() {
     let st = s.state();
     assert_eq!(st.chart.song.as_ref().unwrap().bars.len(), 12);
     assert_eq!(st.chart.choruses, 3);
+    // Fewer choruses: a loop past the new end goes.
+    s.send(ChartCmd::SetChartLoop { range: Some([8, 12]) }).unwrap();
+    s.send(ChartCmd::SetChartChoruses { choruses: 1 }).unwrap();
+    assert_eq!(s.state().chart.loop_range, None);
+    s.send(ChartCmd::SetChartLoop { range: Some([0, 2]) }).unwrap();
+    s.send(ChartCmd::SetChartChoruses { choruses: 2 }).unwrap();
+    assert_eq!(s.state().chart.loop_range, Some([0, 2]));
     s.send(ChartCmd::RemoveChartPlaylist { playlist: 0 }).unwrap();
     let st = s.state();
     assert!(st.chart.song.is_none() && !st.chart.on && st.chart.playlists.is_empty());

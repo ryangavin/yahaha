@@ -126,20 +126,18 @@ impl Control {
                 }
                 Ok(())
             }
-            ChartCmd::SetChartMode { on } => self.chart_settings(ChartSettings { on, ..self.charts.settings }),
-            ChartCmd::ToggleChartMode => {
-                let on = !self.charts.settings.on;
-                if on && self.charts.song.is_none() {
-                    return self.fail("Import an iReal Pro chart first");
-                }
-                self.chart_settings(ChartSettings { on, ..self.charts.settings })
-            }
+            ChartCmd::SetChartMode { on } => self.set_chart_mode(on),
+            ChartCmd::ToggleChartMode => self.set_chart_mode(!self.charts.settings.on),
             ChartCmd::SetChartChoruses { choruses } => {
                 self.charts.choruses = choruses.clamp(1, MAX_CHORUSES);
-                match self.charts.selected {
-                    Some((p, s)) => self.load_chart(p, s, false),
-                    None => Ok(()),
+                let Some((p, s)) = self.charts.selected else { return Ok(()) };
+                self.load_chart(p, s, false)?;
+                // Fewer choruses: a loop past the new end goes.
+                let n = self.charts.bars.len() as u32;
+                if self.charts.settings.loop_range.is_some_and(|(_, b)| b > n) {
+                    self.chart_settings(ChartSettings { loop_range: None, ..self.charts.settings })?;
                 }
+                Ok(())
             }
             ChartCmd::SetChartLoop { range } => {
                 let n = self.charts.bars.len() as u32;
@@ -159,6 +157,14 @@ impl Control {
                 Ok(())
             }
         }
+    }
+
+    /// Chart mode on needs a chart.
+    fn set_chart_mode(&mut self, on: bool) -> Result<(), CmdError> {
+        if on && self.charts.song.is_none() {
+            return self.fail("Import an iReal Pro chart first");
+        }
+        self.chart_settings(ChartSettings { on, ..self.charts.settings })
     }
 
     fn chart_settings(&mut self, s: ChartSettings) -> Result<(), CmdError> {
@@ -209,7 +215,7 @@ impl Control {
         let bars = s.bars(self.charts.choruses);
         let tag = self.charts.tag + 1;
         let bpm = (fresh && s.tempo > 0).then_some(s.tempo as f64);
-        let plan = ChartPlan::from_bars(&bars, tag, bpm);
+        let plan = ChartPlan { fresh, ..ChartPlan::from_bars(&bars, tag, bpm) };
         let state = song_state(&s, &bars, &plan);
         if fresh {
             self.charts.suggested = self.suggest_style(&s, &bars);
