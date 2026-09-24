@@ -1,105 +1,25 @@
-//! `yahaha play`: device setup, terminal front panel, Launchkey LEDs. Runs on the main
-//! thread at normal priority; talks to the engine only through lock-free rings.
+//! `yahaha play`: the terminal front panel. The first client of the Session API: it
+//! draws `AppState` and sends `AppCmd`s; the session runs everything else (MIDI, the
+//! engine, the synth, the Launchkey). Runs on the main thread at normal priority.
 
-use crate::engine::{id_of, Button, Engine, Prepared, Snapshot, Transpose, NUM_SLOTS};
-use crate::fingering::Fingering;
-use crate::launchkey::{self, Action, Led, Page, Panel};
-use crate::library::{self, Info, Library};
-use crate::live::{self, Cmd, Input, Shared, TAG_KEYS, TAG_PADS};
-use crate::midi::{self, Client};
-use crate::parts::{self, FaderPage};
-use crate::rt::{PacketSink, Target};
-use crate::synth;
-use crate::sff::Style;
-use crate::theory::{Recognizer, NOTE_NAMES};
-use anyhow::{Context, Result};
+use anyhow::Result;
 use crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
 use ratatui::layout::{Constraint, Layout};
 use ratatui::style::{Color, Modifier, Style as St};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 use std::cell::Cell;
-use std::path::{Path, PathBuf};
-use std::sync::atomic::Ordering::Relaxed;
-use std::sync::Arc;
+use std::path::Path;
 use std::time::Duration;
-
-pub struct Options {
-    pub paths: Vec<PathBuf>,
-    pub split: u8,
-    pub all_inputs: bool,
-    /// Only connect sources whose name contains one of these.
-    pub inputs: Vec<String>,
-    pub no_pads: bool,
-    /// SoundFont for the built-in synth; None = no synth.
-    pub sf2: Option<PathBuf>,
-    /// Use Novation palette colours (and hardware flashing) instead of RGB SysEx.
-    pub palette_leds: bool,
-    /// 1-based left output channel for the synth (None = auto).
-    pub audio_out: Option<u8>,
-    /// Chord fingering type at startup.
-    pub fingering: Fingering,
-    /// Chord Detection Area = Upper.
-    pub upper: bool,
-    /// The Manual Bass setting (takes effect in Upper mode only).
-    pub manual_bass: bool,
-    /// Initial Keyboard / Master transpose.
-    pub transpose: Transpose,
-}
-
-/// Push the effective Manual Bass state (Upper mode and the setting both on) to the
-/// engine, which mutes the Style's Bass part, and to the keyboard parts, where the Left
-/// part takes the Style's Bass voice and fader.
-fn sync_manual_bass(shared: &Shared, ui_tx: &mut rtrb::Producer<Cmd>) {
-    let on = shared.manual_bass();
-    if ui_tx.push(Cmd::ManualBass(on)).is_ok() {
-        shared.wake.signal();
-    }
-    shared.parts.set_manual_bass(on);
-}
-
-/// Panel state for the Launchkey pages and the on-screen pad map.
-fn panel(shared: &Shared, info: &Loaded) -> Panel {
-    let parts = &shared.parts;
-    Panel {
-        page: Page::from_u8(shared.page.load(Relaxed)),
-        fingering: Fingering::from_u8(shared.fingering.load(Relaxed)),
-        upper: shared.upper.load(Relaxed),
-        manual_bass: shared.manual_bass.load(Relaxed),
-        ots_count: info.ots.len().min(4) as u8,
-        ots_applied: parts.ots_applied.load(Relaxed),
-        ots_link: parts.ots_link.load(Relaxed),
-        parts_on: parts.sounding_mask(),
-        selected: parts.selected() as u8,
-    }
-}
-
-/// Recall a One Touch Setting into the keyboard parts; the engine thread sends the new
-/// volumes as CC7 on its next wake.
-fn recall_ots(shared: &Shared, ots: &crate::sff::Ots, number: u8) {
-    shared.parts.apply_ots(ots, number);
-    shared.wake.signal();
-}
-
-/// Switch the fader page; the engine rebinds the Style faders to where the hardware is.
-fn toggle_fader_page(shared: &Shared) {
-    shared.parts.toggle_fader_page();
-    shared.wake.signal();
-}
-
-/// Last unmapped Launchkey message, for the status line: "unmapped CC 103 = 127".
-fn unmapped_text(packed: u32) -> String {
-    let [valid, st, d1, d2] = packed.to_be_bytes();
-    if valid == 0 {
-        return String::new();
-    }
-    let kind = if st & 0xF0 == 0xB0 { "CC" } else { "note" };
-    let ch = if st & 0x0F != 0 { format!(" (ch {})", (st & 0x0F) + 1) } else { String::new() };
-    format!("unmapped {kind} {d1} = {d2}{ch}")
-}
+use yahaha::api::{AppCmd, AppState, Pad};
+use yahaha::engine::Button;
+use yahaha::launchkey::{self, Action};
+use yahaha::library::{self, Info, Library};
+use yahaha::parts::{self, FaderPage};
+use yahaha::session::{Options, Session};
 
 /// Keyboard shortcuts for the controls the Launchkey also reaches, so a key and its pad
-/// or button run the same code.
+/// or button send the same command.
 fn key_action(code: KeyCode) -> Option<Action> {
     let b = |b| Some(Action::Button(b));
     match code {
@@ -145,6 +65,19 @@ fn key_action(code: KeyCode) -> Option<Action> {
         KeyCode::Left => Some(Action::Style(-1)),
         KeyCode::Right => Some(Action::Style(1)),
         _ => None,
+    }
+}
+
+/// The keys that are commands but not Launchkey actions.
+fn key_cmd(code: KeyCode) -> Option<AppCmd> {
+    match code {
+        KeyCode::Tab => Some(AppCmd::CyclePadPage { delta: 1 }),
+        KeyCode::BackTab => Some(AppCmd::CyclePadPage { delta: -1 }),
+        // Next stereo output pair: 1/2 -> 3/4 -> ... -> back to 1/2.
+        KeyCode::Char('a') => Some(AppCmd::NextAudioOutput),
+        KeyCode::Char('k') => Some(AppCmd::ToggleSynthMute),
+        KeyCode::Char('\\') => Some(AppCmd::Panic),
+        code => key_action(code).map(AppCmd::from),
     }
 }
 
@@ -240,36 +173,6 @@ impl Browser {
     }
 }
 
-/// Load a style and hand it to the engine, playing or stopped: the one path ←/→, Track
-/// ◀/▶ and the browser share. `Ok(None)` if the engine's style ring is full (try again).
-/// A file that fails to load is marked as an error row, so stepping skips it next time.
-fn switch_style(
-    lib: &mut Library,
-    id: usize,
-    style_tx: &mut rtrb::Producer<Box<Prepared>>,
-    shared: &Shared,
-) -> std::result::Result<Option<Loaded>, String> {
-    let path = lib.entry(id).path.clone();
-    match load(&path) {
-        Ok((p, info)) => {
-            if style_tx.push(p).is_err() {
-                return Ok(None);
-            }
-            shared.parts.set_bass_program(synth::style_bass_program(info.voices[10]));
-            // No OTS of the new style is recalled yet (OTS Link recalls one on the next
-            // pass if it's on).
-            shared.parts.ots_applied.store(0, Relaxed);
-            shared.wake.signal();
-            Ok(Some(info))
-        }
-        Err(e) => {
-            lib.set_info(id, Info::Err(format!("{e:#}")));
-            lib.sort();
-            Err(format!("{}: {e:#}", path.display()))
-        }
-    }
-}
-
 /// `s` cut or padded to exactly `w` characters.
 fn fit(s: &str, w: usize) -> String {
     let n = s.chars().count();
@@ -280,482 +183,85 @@ fn fit(s: &str, w: usize) -> String {
     }
 }
 
-pub fn note_name(n: u8) -> String {
-    // Yamaha octave numbering (C3 = MIDI 60), as on the Genos.
-    format!("{}{}", NOTE_NAMES[n as usize % 12], n as i32 / 12 - 2)
-}
-
-struct Loaded {
-    name: String,
-    format: String,
-    has: [bool; NUM_SLOTS],
-    voices: [Option<(u8, u8, u8)>; 16],
-    ots: Vec<crate::sff::Ots>,
-}
-
-fn load(path: &Path) -> Result<(Box<Prepared>, Loaded)> {
-    let style = Style::load(path)?;
-    let prep = Box::new(Prepared::new(&style));
-    let mut has = [false; NUM_SLOTS];
-    for (i, s) in prep.sections.iter().enumerate() {
-        has[i] = s.is_some();
-    }
-    let name = if style.name.is_empty() {
-        path.file_stem().unwrap_or_default().to_string_lossy().to_string()
-    } else {
-        style.name.clone()
-    };
-    let info = Loaded { name, format: style.format.clone(), has, voices: prep.voices, ots: style.ots.clone() };
-    Ok((prep, info))
-}
-
 pub fn play(opts: Options) -> Result<()> {
-    // The folder walk is quick; the index (names, tempos) fills in on a background thread.
-    let mut lib = Library::scan(&opts.paths);
-    anyhow::ensure!(!lib.is_empty(), "no style files found");
-    let index_rx = lib.spawn_indexer();
-    // Start on the first style that loads.
-    let mut first = None;
-    for &id in lib.order() {
-        match load(&lib.entry(id).path) {
-            Ok(l) => {
-                first = Some((id, l));
-                break;
-            }
-            Err(e) if lib.len() == 1 => {
-                return Err(e).with_context(|| format!("loading {}", lib.entry(id).path.display()));
-            }
-            Err(_) => {}
-        }
-    }
-    let (mut cur, (prep, mut info)) = first.context("no style file loads")?;
+    let session = Session::start(opts)?;
     let mut browser: Option<Browser> = None;
-
-    // --- MIDI setup ---
-    let client = Client::new("yahaha")?;
-    let out_src = client.virtual_source("yahaha")?;
-    let shared = Arc::new(Shared::new(opts.split));
-    shared.fingering.store(opts.fingering.to_u8(), Relaxed);
-    shared.upper.store(opts.upper, Relaxed);
-    shared.manual_bass.store(opts.manual_bass, Relaxed);
-
-    // --- built-in synth (optional) ---
-    let mut feeds = synth::feeds();
-    let mut synth_err = String::new();
-    let synth = match &opts.sf2 {
-        Some(p) => match synth::start(p, std::mem::take(&mut feeds.consumers), opts.audio_out, shared.parts.clone()) {
-            Ok(s) => Some(s),
-            Err(e) => {
-                synth_err = format!("synth off: {e:#}");
-                None
-            }
-        },
-        None => None,
-    };
-    if synth.is_none() {
-        feeds.engine = None;
-        feeds.input = None;
-    }
-
-    let mut ch = live::channels(live::Out::new(PacketSink::new(Target::Virtual(out_src)), feeds.engine));
-    let mut input = Input::new(
-        shared.clone(),
-        Recognizer::new(),
-        ch.input_tx,
-        live::Out::new(PacketSink::new(Target::Virtual(out_src)), feeds.input),
-    );
-    input.set_synth(synth.as_ref().map(|s| s.control.clone()));
-    // Launchkey pads and buttons that run here, like their keyboard shortcuts.
-    let (act_tx, mut act_rx) = rtrb::RingBuffer::<Action>::new(64);
-    input.set_actions(act_tx);
-    let port = client.input_port("yahaha in", input)?;
-
-    let sources = midi::sources();
-    let lk_keys: Vec<_> = sources.iter().filter(|(_, n)| n.contains("Launchkey") && !n.contains("DAW")).collect();
-    let lk_daw = sources.iter().find(|(_, n)| n.contains("Launchkey") && n.contains("DAW"));
-    let mut connected = Vec::new();
-    if !opts.inputs.is_empty() {
-        for (e, n) in midi::sources() {
-            if opts.inputs.iter().any(|want| n.contains(want.as_str())) {
-                port.connect(e, TAG_KEYS)?;
-                connected.push(n.clone());
-            }
-        }
-        if connected.is_empty() {
-            connected.push(format!("(nothing matched {:?})", opts.inputs));
-        }
-    } else if lk_keys.is_empty() || opts.all_inputs {
-        for (e, n) in &sources {
-            if n.starts_with("yahaha") || n.contains("DAW") {
-                continue;
-            }
-            port.connect(*e, TAG_KEYS)?;
-            connected.push(n.clone());
-        }
-    } else {
-        for (e, n) in &lk_keys {
-            port.connect(*e, TAG_KEYS)?;
-            connected.push(n.clone());
-        }
-    }
-    let mut leds: Option<PacketSink> = None;
-    if let Some((e, n)) = lk_daw.filter(|_| !opts.no_pads) {
-        port.connect(*e, TAG_PADS)?;
-        connected.push(format!("{n} (pads)"));
-        if let Some((d, _)) = midi::destinations().into_iter().find(|(_, n)| n.contains("Launchkey") && n.contains("DAW")) {
-            let out_port = client.output_port("yahaha leds")?;
-            let mut s = PacketSink::new(Target::Port(out_port, d));
-            s.push(&launchkey::ENTER_DAW);
-            s.flush();
-            leds = Some(s);
-        }
-    }
-
-    // --- transpose ---
-    let mut transpose = opts.transpose;
-    // Played notes and the engine must agree, so the key shift only changes once the
-    // engine has the command. Returns false (nothing changed) if the ring is full.
-    let set_transpose = |t: Transpose, tx: &mut rtrb::Producer<Cmd>| -> bool {
-        if tx.push(Cmd::Transpose(t)).is_err() {
-            return false;
-        }
-        shared.key_shift.store(t.keys(), Relaxed);
-        shared.wake.signal();
-        true
-    };
-    if !set_transpose(transpose, &mut ch.ui_tx) {
-        transpose = Transpose::default();
-    }
-
-    // --- engine thread ---
-    let engine = Engine::new(prep);
-    let sh = shared.clone();
-    let io = ch.io;
-    let engine_thread =
-        std::thread::Builder::new().name("yahaha-engine".into()).spawn(move || live::run_engine(engine, io, sh))?;
-    shared.parts.set_bass_program(synth::style_bass_program(info.voices[10]));
-    sync_manual_bass(&shared, &mut ch.ui_tx);
-
-    // --- terminal ---
     let mut term = ratatui::init();
-    let mut snap: Option<Snapshot> = None;
-    let mut last_leds: [(u8, Option<Led>); 16] = [(0, None); 16];
-    let mut last_rgb: [Option<(u8, u8, u8)>; 16] = [None; 16];
-    let mut last_fader_btns: Option<(FaderPage, u8, u8)> = None;
-    let mut last_nav: Option<Page> = None;
-    let mut last_ots_key: Option<(usize, u8)> = None;
-    let mut last_link = false;
-    let mut led_buf = Vec::new();
-    let mut message = synth_err;
     let clock = std::time::Instant::now();
     let mut quit_guard = QuitGuard::default();
-    let mut beats = 0.0f64;
-    let mut last_tick = 0.0f64;
+    // The quit prompt shows in the message line; it hides the session's message it
+    // replaced for good, and a newer message replaces it.
+    let mut quit_prompt = false;
+    let mut hidden_msg: Option<u64> = None;
     let result: Result<()> = (|| loop {
-        while let Ok(s) = ch.snap_rx.pop() {
-            snap = Some(s);
+        let st = session.state();
+        let lib = session.library();
+        let msg = st.message.as_ref().filter(|m| Some(m.seq) != hidden_msg);
+        if quit_prompt && (msg.is_some() || !quit_guard.is_armed(clock.elapsed())) {
+            quit_prompt = false;
         }
-        // OTS Link: Main A-D recall One Touch Settings 1-4 (also on style change).
-        if let Some(s) = &snap {
-            let key = (cur, s.main);
-            let link = shared.parts.ots_link.load(Relaxed);
-            let due = link && (last_ots_key != Some(key) || !last_link);
-            if let Some(o) = info.ots.get(s.main as usize).filter(|_| due) {
-                recall_ots(&shared, o, s.main + 1);
-            }
-            last_ots_key = Some(key);
-            last_link = link;
-        }
-        while ch.old_rx.pop().is_ok() {} // drop old styles here, off the RT thread
-
-        // Free-running beat clock for flashing/pulsing, following the current tempo.
-        let t = clock.elapsed().as_secs_f64();
-        beats += (t - last_tick) * snap.map_or(120.0, |s| s.bpm) / 60.0;
-        last_tick = t;
-        let pnl = panel(&shared, &info);
-        if let (Some(s), Some(out)) = (&snap, leds.as_mut()) {
-            if opts.palette_leds {
-                for (i, (note, led)) in launchkey::pad_leds(s, &info.has, &pnl).into_iter().enumerate() {
-                    if last_leds[i] != (note, Some(led)) {
-                        led_buf.clear();
-                        launchkey::led_msgs(note, led, &mut led_buf);
-                        for m in &led_buf {
-                            out.push(m);
-                        }
-                        last_leds[i] = (note, Some(led));
-                    }
-                }
-            } else {
-                for (i, (pad, look)) in launchkey::looks(s, &info.has, &pnl).iter().enumerate() {
-                    let rgb = launchkey::rgb_at(look, beats);
-                    if last_rgb[i] != Some(rgb) {
-                        out.push(&launchkey::rgb_sysex(*pad, rgb));
-                        last_rgb[i] = Some(rgb);
-                    }
-                }
-            }
-            // Manual Bass mutes the Style's Bass part in the engine: shown off, as on screen.
-            let style_on = if shared.manual_bass() { s.parts & !(1 << 2) } else { s.parts };
-            let fb = (shared.parts.fader_page(), pnl.parts_on, style_on);
-            if last_fader_btns != Some(fb) {
-                led_buf.clear();
-                launchkey::fader_button_msgs(fb.0, fb.1, fb.2, &mut led_buf);
-                for m in &led_buf {
-                    out.push(m);
-                }
-                last_fader_btns = Some(fb);
-            }
-            if last_nav != Some(pnl.page) {
-                led_buf.clear();
-                launchkey::nav_button_msgs(pnl.page, lib.len() > 1, &mut led_buf);
-                for m in &led_buf {
-                    out.push(m);
-                }
-                last_nav = Some(pnl.page);
-            }
-            out.flush();
-        }
-
-        lib.apply(&index_rx);
-        if message == QuitGuard::MSG && !quit_guard.is_armed(clock.elapsed()) {
-            message.clear();
-        }
+        let message = if quit_prompt { QuitGuard::MSG.to_string() } else { msg.map(|m| m.text.clone()).unwrap_or_default() };
+        let beats = session.beats();
         term.draw(|f| {
-            draw(f, &info, snap.as_ref(), &shared, &pnl, &connected, lib.position(cur), lib.len(), &message, beats, synth.as_ref().map(|s| (&s.info, &*s.control)));
+            draw(f, &st, &message, beats);
             if let Some(b) = &browser {
-                draw_browser(f, b, &lib, cur, &message);
+                draw_browser(f, b, &lib, st.style.id, &message);
             }
         })?;
 
-        let mut key_act = None;
-        let mut browse_load = None;
-        if event::poll(Duration::from_millis(16))? {
-            if let Event::Key(k) = event::read()? {
-                if k.kind != KeyEventKind::Press {
-                    continue;
+        if !event::poll(Duration::from_millis(16))? {
+            continue;
+        }
+        let Event::Key(k) = event::read()? else { continue };
+        if k.kind != KeyEventKind::Press {
+            continue;
+        }
+        if k.modifiers.contains(KeyModifiers::CONTROL) && k.code == KeyCode::Char('c') {
+            return Ok(());
+        }
+        // Only two presses of Esc in a row quit.
+        if k.code != KeyCode::Esc || browser.is_some() {
+            quit_guard.armed = None;
+        }
+        // The browser takes every key while it's open (typing filters, never plays). Its
+        // pick loads through the same command as ←/→; the browser closes once it loads.
+        if let Some(b) = browser.as_mut() {
+            match b.key(k.code, k.modifiers, &lib) {
+                BrowseKey::Stay => {}
+                BrowseKey::Close => browser = None,
+                BrowseKey::Load(id) if id == st.style.id => browser = None,
+                BrowseKey::Load(id) => {
+                    if session.send(AppCmd::LoadStyle { id }).is_ok() {
+                        browser = None;
+                    }
                 }
-                let ctrl = k.modifiers.contains(KeyModifiers::CONTROL);
-                if ctrl && k.code == KeyCode::Char('c') {
+            }
+            continue;
+        }
+        match k.code {
+            KeyCode::Esc => {
+                if quit_guard.esc(clock.elapsed()) {
                     return Ok(());
                 }
-                // Only two presses of Esc in a row quit.
-                if k.code != KeyCode::Esc || browser.is_some() {
-                    quit_guard.armed = None;
-                }
-                // The browser takes every key while it's open (typing filters, never plays).
-                let code = if let Some(b) = browser.as_mut() {
-                    match b.key(k.code, k.modifiers, &lib) {
-                        BrowseKey::Stay => {}
-                        BrowseKey::Close => browser = None,
-                        BrowseKey::Load(id) if id == cur => browser = None,
-                        BrowseKey::Load(id) => browse_load = Some(id),
-                    }
-                    KeyCode::Null
-                } else {
-                    k.code
-                };
-                match code {
-                    KeyCode::Null => {}
-                    KeyCode::Esc => {
-                        if quit_guard.esc(clock.elapsed()) {
-                            return Ok(());
-                        }
-                        message = QuitGuard::MSG.into();
-                    }
-                    KeyCode::Enter => browser = Some(Browser::open(cur)),
-                    KeyCode::Tab | KeyCode::BackTab => {
-                        let d = if k.code == KeyCode::Tab { 1 } else { -1 };
-                        shared.step_page(|p| p.cycle(d));
-                    }
-                    KeyCode::Char('a') => {
-                        // Next stereo output pair: 1/2 -> 3/4 -> ... -> back to 1/2.
-                        if let Some(sy) = &synth {
-                            let n = sy.info.channels.max(2) as u8;
-                            let c = sy.control.out_ch.load(Relaxed);
-                            sy.control.out_ch.store(if c + 4 <= n { c + 2 } else { 0 }, Relaxed);
-                        }
-                    }
-                    KeyCode::Char('k') => {
-                        if let Some(sy) = &synth {
-                            let v = !sy.control.muted.load(Relaxed);
-                            sy.control.muted.store(v, Relaxed);
-                        }
-                    }
-                    KeyCode::Char('\\') => {
-                        let _ = ch.ui_tx.push(Cmd::Panic);
-                        shared.wake.signal();
-                    }
-                    code => key_act = key_action(code),
-                }
+                quit_prompt = true;
+                hidden_msg = st.message.as_ref().map(|m| m.seq);
             }
-        }
-
-        // Launchkey pad/button actions, then the key pressed: one path for both.
-        while let Some(a) = act_rx.pop().ok().or_else(|| key_act.take()) {
-            match a {
-                Action::Button(b) => {
-                    let _ = ch.ui_tx.push(Cmd::Button(b));
-                    shared.wake.signal();
+            KeyCode::Enter => browser = Some(Browser::open(st.style.id)),
+            code => {
+                // Errors show in the message line (the session sets it).
+                if let Some(c) = key_cmd(code) {
+                    let _ = session.send(c);
                 }
-                Action::Fingering(f) => {
-                    shared.fingering.store(f.to_u8(), Relaxed);
-                    shared.wake.signal();
-                }
-                Action::NextFingering => {
-                    let f = Fingering::from_u8(shared.fingering.load(Relaxed)).next();
-                    shared.fingering.store(f.to_u8(), Relaxed);
-                    shared.wake.signal();
-                }
-                Action::ToggleUpper => {
-                    let v = !shared.upper.load(Relaxed);
-                    shared.upper.store(v, Relaxed);
-                    // Selecting Upper turns Manual Bass on, its default there.
-                    if v {
-                        shared.manual_bass.store(true, Relaxed);
-                    }
-                    sync_manual_bass(&shared, &mut ch.ui_tx);
-                }
-                Action::ToggleManualBass => {
-                    // Manual Bass is only available in Upper mode.
-                    if shared.upper.load(Relaxed) {
-                        let v = !shared.manual_bass.load(Relaxed);
-                        shared.manual_bass.store(v, Relaxed);
-                        sync_manual_bass(&shared, &mut ch.ui_tx);
-                    }
-                }
-                Action::Split(d) => {
-                    let s = shared.split.load(Relaxed) as i16 + d as i16;
-                    shared.split.store(s.clamp(24, 96) as u8, Relaxed);
-                }
-                Action::Transpose { keyboard, master } => {
-                    let t = Transpose::new(transpose.keyboard + keyboard, transpose.master + master);
-                    if set_transpose(t, &mut ch.ui_tx) {
-                        transpose = t;
-                    }
-                }
-                Action::TransposeReset => {
-                    if set_transpose(Transpose::default(), &mut ch.ui_tx) {
-                        transpose = Transpose::default();
-                    }
-                }
-                Action::Ots(n) => {
-                    if let Some(o) = info.ots.get(n as usize) {
-                        recall_ots(&shared, o, n + 1);
-                    }
-                }
-                Action::ToggleOtsLink => {
-                    shared.parts.ots_link.fetch_xor(true, Relaxed);
-                }
-                Action::PartOnOff(p) => {
-                    if !shared.parts.toggle(p as usize) {
-                        message = "Left plays the bass under Manual Bass: turn Manual Bass off [D] to switch Left".into();
-                    }
-                }
-                Action::SelectPart(p) => shared.parts.select(p as usize),
-                Action::PartVoice(d) => shared.parts.step_program(d as i32),
-                Action::ToggleFaderPage => toggle_fader_page(&shared),
-                // Same path playing or stopped: the engine swaps the style in. With one
-                // style there is nowhere to go, so nothing reloads.
-                // Folder-then-name order, the browser's unfiltered list.
-                Action::Style(d) => {
-                    let next = lib.step(cur, d);
-                    if next != cur {
-                        match switch_style(&mut lib, next, &mut ch.style_tx, &shared) {
-                            Ok(Some(i)) => {
-                                (cur, info) = (next, i);
-                                message.clear();
-                            }
-                            Ok(None) => {}
-                            Err(e) => message = e,
-                        }
-                    }
-                }
-            }
-        }
-        // The browser's pick goes through the same path; the browser closes once it loads.
-        if let Some(id) = browse_load {
-            match switch_style(&mut lib, id, &mut ch.style_tx, &shared) {
-                Ok(Some(i)) => {
-                    (cur, info) = (id, i);
-                    message.clear();
-                    browser = None;
-                }
-                Ok(None) => {}
-                Err(e) => message = e,
             }
         }
     })();
-
     ratatui::restore();
-    shared.quit.store(true, Relaxed);
-    shared.wake.signal();
-    let _ = engine_thread.join();
-    if let Some(out) = leds.as_mut() {
-        for n in (96..104).chain(112..120) {
-            out.push(&[0x90, n, 0]);
-        }
-        led_buf.clear();
-        launchkey::buttons_off_msgs(&mut led_buf);
-        for m in &led_buf {
-            out.push(m);
-        }
-        out.push(&launchkey::EXIT_DAW);
-        out.flush();
-    }
-    drop(port);
+    session.stop();
     result
 }
 
-pub fn gm_name(prog: u8) -> &'static str {
-    const GM: [&str; 128] = [
-        "Grand Piano", "Bright Piano", "E.Grand", "Honky-tonk", "E.Piano 1", "E.Piano 2", "Harpsichord", "Clavinet",
-        "Celesta", "Glockenspiel", "Music Box", "Vibraphone", "Marimba", "Xylophone", "Tubular Bells", "Dulcimer",
-        "Drawbar Organ", "Perc. Organ", "Rock Organ", "Church Organ", "Reed Organ", "Accordion", "Harmonica", "Bandoneon",
-        "Nylon Gtr", "Steel Gtr", "Jazz Gtr", "Clean Gtr", "Muted Gtr", "Overdrive Gtr", "Distortion Gtr", "Gtr Harmonics",
-        "Acoustic Bass", "Finger Bass", "Pick Bass", "Fretless Bass", "Slap Bass 1", "Slap Bass 2", "Synth Bass 1", "Synth Bass 2",
-        "Violin", "Viola", "Cello", "Contrabass", "Tremolo Str", "Pizzicato Str", "Harp", "Timpani",
-        "Strings", "Slow Strings", "Synth Str 1", "Synth Str 2", "Choir Aahs", "Voice Oohs", "Synth Voice", "Orch. Hit",
-        "Trumpet", "Trombone", "Tuba", "Muted Trumpet", "French Horn", "Brass Section", "Synth Brass 1", "Synth Brass 2",
-        "Soprano Sax", "Alto Sax", "Tenor Sax", "Baritone Sax", "Oboe", "English Horn", "Bassoon", "Clarinet",
-        "Piccolo", "Flute", "Recorder", "Pan Flute", "Blown Bottle", "Shakuhachi", "Whistle", "Ocarina",
-        "Square Lead", "Saw Lead", "Calliope", "Chiff Lead", "Charang", "Voice Lead", "Fifths Lead", "Bass+Lead",
-        "New Age Pad", "Warm Pad", "Polysynth", "Choir Pad", "Bowed Pad", "Metallic Pad", "Halo Pad", "Sweep Pad",
-        "Rain", "Soundtrack", "Crystal", "Atmosphere", "Brightness", "Goblins", "Echoes", "Sci-fi",
-        "Sitar", "Banjo", "Shamisen", "Koto", "Kalimba", "Bagpipe", "Fiddle", "Shanai",
-        "Tinkle Bell", "Agogo", "Steel Drums", "Woodblock", "Taiko", "Melodic Tom", "Synth Drum", "Reverse Cymbal",
-        "Fret Noise", "Breath Noise", "Seashore", "Bird", "Telephone", "Helicopter", "Applause", "Gunshot",
-    ];
-    GM[prog as usize & 127]
-}
-
-fn voice_label(dest: u8, v: Option<(u8, u8, u8)>) -> String {
-    match v {
-        None => "—".into(),
-        Some((msb, lsb, pc)) if msb >= 126 || dest == 8 || dest == 9 => format!("drum kit {msb}/{lsb}/{}", pc + 1),
-        Some((0, 0, pc)) => format!("{} (GM {})", gm_name(pc), pc + 1),
-        Some((msb, lsb, pc)) => {
-            let gm = crate::synth::gm_fallback(dest, msb, pc);
-            format!("≈ {}  [Yamaha {msb}/{lsb}/{}]", gm_name(gm), pc + 1)
-        }
-    }
-}
-
-const PART_NAMES: [&str; 8] = ["Rhythm 1", "Rhythm 2", "Bass", "Chord 1", "Chord 2", "Pad", "Phrase 1", "Phrase 2"];
-
-#[allow(clippy::too_many_arguments)]
-fn draw(
-    f: &mut ratatui::Frame,
-    info: &Loaded,
-    snap: Option<&Snapshot>,
-    shared: &Shared,
-    panel: &Panel,
-    connected: &[String],
-    idx: usize,
-    total: usize,
-    message: &str,
-    beats: f64,
-    synth: Option<(&synth::SynthInfo, &synth::SynthControl)>,
-) {
+#[allow(clippy::too_many_lines)]
+fn draw(f: &mut ratatui::Frame, st: &AppState, message: &str, beats: f64) {
     let area = f.area();
     let rows = Layout::vertical([
         Constraint::Length(1),
@@ -769,36 +275,39 @@ fn draw(
 
     let bold = St::default().add_modifier(Modifier::BOLD);
     let dim = St::default().fg(Color::DarkGray);
-    let s = snap.copied();
-    let bpm = s.map(|s| s.bpm).unwrap_or(0.0);
+    let t = &st.transport;
+    let ch = &st.chord;
 
     f.render_widget(
         Paragraph::new(Line::from(vec![
             Span::styled(" yahaha ", St::default().fg(Color::Black).bg(Color::Yellow).add_modifier(Modifier::BOLD)),
-            Span::raw(format!("  {}  ", info.name)),
-            Span::styled(format!("[{}]", info.format), dim),
-            Span::raw(format!("   {:.0} bpm   style {}/{}   ←/→ or Track ◀/▶ change style · enter browse", bpm, idx + 1, total)),
+            Span::raw(format!("  {}  ", st.style.name)),
+            Span::styled(format!("[{}]", st.style.format), dim),
+            Span::raw(format!(
+                "   {:.0} bpm   style {}/{}   ←/→ or Track ◀/▶ change style · enter browse",
+                t.tempo,
+                st.library.position + 1,
+                st.library.count
+            )),
         ])),
         rows[0],
     );
 
     // Transport + chord.
-    let (state, pos) = match s {
-        Some(s) if s.running => (
-            format!("▶ {}", s.cur.map(|c| c.name().to_uppercase()).unwrap_or_default()),
-            format!("bar {}  beat {}", s.bar + 1, s.beat + 1),
-        ),
-        Some(s) if s.sync_armed => ("◆ SYNC START — play a chord".to_string(), String::new()),
-        _ => ("■ stopped".to_string(), String::new()),
+    let (state, pos) = if t.running {
+        (format!("▶ {}", t.section.as_deref().unwrap_or_default().to_uppercase()), format!("bar {}  beat {}", t.bar, t.beat))
+    } else if t.sync_start {
+        ("◆ SYNC START — play a chord".to_string(), String::new())
+    } else {
+        ("■ stopped".to_string(), String::new())
     };
-    let next = s.and_then(|s| s.queued).map(|q| format!("next: {}", q.name())).unwrap_or_default();
-    let chord = s.and_then(|s| s.chord).map(|c| c.name()).unwrap_or_else(|| "—".into());
-    let tr = s.map(|s| s.transpose).unwrap_or_default();
-    let fingered = match s.and_then(|s| s.played) {
-        Some(p) if tr.keyboard != 0 => format!("  (fingered {})", p.name()),
+    let next = t.queued.as_ref().map(|q| format!("next: {q}")).unwrap_or_default();
+    let chord = ch.name.clone().unwrap_or_else(|| "—".into());
+    let fingered = match &ch.fingered {
+        Some(p) if ch.transpose_keyboard != 0 => format!("  (fingered {p})"),
         _ => String::new(),
     };
-    let tr_st = if tr == Transpose::default() { dim } else { St::default().fg(Color::Yellow) };
+    let tr_st = if ch.transpose_keyboard == 0 && ch.transpose_master == 0 { dim } else { St::default().fg(Color::Yellow) };
     f.render_widget(
         Paragraph::new(vec![
             Line::from(vec![Span::styled(state, bold), Span::raw(format!("   {pos}   ")), Span::styled(next, St::default().fg(Color::Yellow))]),
@@ -807,7 +316,7 @@ fn draw(
                 Span::raw("  chord  "),
                 Span::styled(chord, bold.fg(Color::Cyan)),
                 Span::styled(fingered, dim),
-                Span::styled(format!("   transpose kbd {:+} master {:+}", tr.keyboard, tr.master), tr_st),
+                Span::styled(format!("   transpose kbd {:+} master {:+}", ch.transpose_keyboard, ch.transpose_master), tr_st),
             ]),
         ])
         .block(Block::default().borders(Borders::ALL)),
@@ -815,18 +324,12 @@ fn draw(
     );
 
     // Pad map: mirrors the Launchkey pads, same colours and animation.
-    let default_snap = Snapshot {
-        running: false, sync_armed: true, sync_stop: false, auto_fill: true, cur: None, queued: None,
-        pending_intro: None, main: 0, bar: 0, beat: 0, chord: None, bpm: 120.0, parts: 0xFF, volumes: [100; 8], pickup: 0, stop_acmp: false,
-        transpose: Transpose::default(), played: None,
-    };
-    let looks = launchkey::looks(s.as_ref().unwrap_or(&default_snap), &info.has, panel);
-    let pad_lines = |row: &[(u8, launchkey::Look)]| -> [Line<'static>; 3] {
+    let pad_lines = |row: &[Pad]| -> [Line<'static>; 3] {
         let mut top = vec![Span::raw(" ")];
         let mut mid = vec![Span::raw(" ")];
         let mut bot = vec![Span::raw(" ")];
-        for (_, look) in row {
-            let (r, g, b) = launchkey::rgb_at(look, beats);
+        for pad in row {
+            let (r, g, b) = launchkey::lit((pad.rgb[0], pad.rgb[1], pad.rgb[2]), pad.level, pad.anim, beats);
             // Lift low levels a little on screen; terminals render dark colours darker than LEDs.
             let lift = |c: u8| ((c as f32 / 127.0).powf(0.8) * 255.0) as u8;
             let bg = Color::Rgb(lift(r), lift(g), lift(b));
@@ -834,18 +337,19 @@ fn draw(
             let fg = if lum > 500 { Color::Black } else { Color::Gray };
             let st = St::default().bg(bg).fg(fg);
             top.push(Span::styled(format!("{:^10}", ""), st));
-            mid.push(Span::styled(format!("{:^10}", look.label), st.add_modifier(Modifier::BOLD)));
-            bot.push(Span::styled(format!("{:^10}", format!("[{}]", look.key)), st));
+            mid.push(Span::styled(format!("{:^10}", pad.label), st.add_modifier(Modifier::BOLD)));
+            bot.push(Span::styled(format!("{:^10}", format!("[{}]", pad.key)), st));
             for v in [&mut top, &mut mid, &mut bot] {
                 v.push(Span::raw(" "));
             }
         }
         [Line::from(top), Line::from(mid), Line::from(bot)]
     };
+    let pads = &st.pads.pads;
     let mut pad_rows: Vec<Line> = Vec::new();
-    pad_rows.extend(pad_lines(&looks[..8]));
+    pad_rows.extend(pad_lines(&pads[..8.min(pads.len())]));
     pad_rows.push(Line::raw(""));
-    pad_rows.extend(pad_lines(&looks[8..]));
+    pad_rows.extend(pad_lines(&pads[8.min(pads.len())..]));
     pad_rows.push(Line::from(Span::styled(
         " dim = available · bright = playing / on · flashing = queued (next bar; fills next beat) · pulsing = armed, waiting for you · dark = style lacks it",
         dim,
@@ -853,9 +357,7 @@ fn draw(
     f.render_widget(
         Paragraph::new(pad_rows).block(Block::default().borders(Borders::ALL).title(format!(
             " Launchkey pads · page {}/{} {} · Pad Bank ▲/▼ or Tab to switch (same colours as the hardware) ",
-            panel.page.to_u8() + 1,
-            Page::ALL.len(),
-            panel.page.name(),
+            st.pads.page_number, st.pads.page_count, st.pads.page_name,
         ))),
         rows[2],
     );
@@ -869,28 +371,24 @@ fn draw(
             Span::styled(if waiting { "↕ " } else { "  " }, St::default().fg(Color::Yellow)),
         ]
     };
-    let kp = &shared.parts;
-    let page = kp.fader_page();
+    let page = st.mixer.fader_page;
     let mut lines = vec![];
-    for p in 0..parts::COUNT {
-        let on = if p == parts::LEFT { kp.left_sounds() } else { kp.is_on(p) };
-        let mb = p == parts::LEFT && kp.manual_bass.load(Relaxed);
-        let sel = kp.selected() == p;
-        let oct = kp.octave_of(p);
-        let mut v = vec![Span::styled(format!(" {}[F{}] ch {} ", if sel { "▶" } else { " " }, p + 1, parts::CHANNEL[p] + 1), if sel { bold } else { dim })];
-        v.extend(level(kp.volume(p), on, kp.waiting(p)));
-        v.push(Span::styled(format!("{:<8}", parts::NAMES[p]), if on { bold } else { dim }));
-        v.push(Span::styled(
-            format!(" {}{}", if mb { "bass: " } else { "" }, gm_name(kp.channel_program(p))),
-            if on { St::default() } else { dim },
-        ));
+    for (p, kp) in st.keyboard_parts.iter().enumerate() {
+        let on = kp.sounding;
+        let sel = kp.selected;
+        // The octave the part plays at: not applied to the bass under Manual Bass.
+        let oct = if kp.plays_bass { 0 } else { kp.octave };
+        let mut v = vec![Span::styled(format!(" {}[F{}] ch {} ", if sel { "▶" } else { " " }, p + 1, kp.channel), if sel { bold } else { dim })];
+        v.extend(level(kp.volume, on, kp.waiting));
+        v.push(Span::styled(format!("{:<8}", kp.name), if on { bold } else { dim }));
+        v.push(Span::styled(format!(" {}{}", if kp.plays_bass { "bass: " } else { "" }, kp.voice_name), if on { St::default() } else { dim }));
         v.push(Span::styled(if oct != 0 { format!("  oct {oct:+}") } else { String::new() }, dim));
         lines.push(Line::from(v));
     }
     lines.push(Line::raw(""));
     lines.push(Line::from(Span::styled(" F1-F4 edit · 9/0 voice · 5 6 7 8 (l) on/off", dim)));
     lines.push(Line::from(Span::styled(
-        match synth {
+        match st.io.synth {
             Some(_) => " → port + synth, one channel per part",
             None => " → port only (synth off: --sf2 <file>)",
         },
@@ -898,7 +396,10 @@ fn draw(
     )));
     let active = St::default().fg(Color::Yellow);
     let title = |name: &str, faders: &str, on: bool| {
-        Line::from(Span::styled(format!(" {name}{} ", if on { format!(" · faders {faders} [F9]") } else { String::new() }), if on { active.add_modifier(Modifier::BOLD) } else { St::default() }))
+        Line::from(Span::styled(
+            format!(" {name}{} ", if on { format!(" · faders {faders} [F9]") } else { String::new() }),
+            if on { active.add_modifier(Modifier::BOLD) } else { St::default() },
+        ))
     };
     let cols = Layout::horizontal([Constraint::Length(58), Constraint::Min(20)]).split(rows[3]);
     let border = |on: bool| if on { active } else { dim };
@@ -909,20 +410,15 @@ fn draw(
         cols[0],
     );
 
-    let style_parts = s.map(|s| s.parts).unwrap_or(0xFF);
     let mut lines = vec![];
-    for p in 0..8u8 {
-        // Manual Bass mutes the Style's Bass part in the engine (its voice moves to the left hand).
-        let manual_bass = p == 2 && shared.manual_bass();
-        let on = style_parts & (1 << p) != 0 && !manual_bass;
-        let key = "zxcvbnm,".chars().nth(p as usize).unwrap();
-        let g = s.map_or(100, |s| s.volumes[p as usize]);
-        let waiting = s.is_some_and(|s| s.pickup & (1 << p) != 0);
-        let mut v = vec![Span::styled(format!(" [{key}] ch {:>2} ", 9 + p), dim)];
-        v.extend(level(g, on, waiting));
-        v.push(Span::styled(format!("{:<9}", PART_NAMES[p as usize]), if on { bold } else { dim }));
-        v.push(Span::styled(format!(" {}", voice_label(8 + p, info.voices[8 + p as usize])), if on { St::default() } else { dim }));
-        v.push(Span::styled(if manual_bass { "  (muted: Manual Bass)" } else { "" }, St::default().fg(Color::Yellow)));
+    for (p, sp) in st.mixer.style_parts.iter().enumerate() {
+        let key = "zxcvbnm,".chars().nth(p).unwrap_or(' ');
+        let mut v = vec![Span::styled(format!(" [{key}] ch {:>2} ", sp.channel), dim)];
+        v.extend(level(sp.volume, sp.on, sp.waiting));
+        v.push(Span::styled(format!("{:<9}", sp.name), if sp.on { bold } else { dim }));
+        let voice = sp.voice.as_ref().map_or("—", |v| v.label.as_str());
+        v.push(Span::styled(format!(" {voice}"), if sp.on { St::default() } else { dim }));
+        v.push(Span::styled(if sp.muted_by_manual_bass { "  (muted: Manual Bass)" } else { "" }, St::default().fg(Color::Yellow)));
         lines.push(Line::from(v));
     }
     f.render_widget(
@@ -938,74 +434,69 @@ fn draw(
 
     // Status.
     let flag = |on: bool, name: &str| Span::styled(format!(" {name} "), if on { St::default().fg(Color::Black).bg(Color::Cyan) } else { dim });
+    let ots = &st.ots;
     f.render_widget(
         Paragraph::new(vec![
             Line::from(vec![
-                flag(s.map_or(false, |s| s.sync_armed), "SYNC START [y]"),
-                flag(s.map_or(false, |s| s.auto_fill), "AUTO FILL [u]"),
-                if shared.sync_stop_allowed() {
-                    flag(s.map_or(false, |s| s.sync_stop), "SYNC STOP [j]")
-                } else {
-                    Span::styled(" SYNC STOP n/a ", dim)
-                },
-                flag(s.map_or(false, |s| s.stop_acmp), "STOP ACMP [h]"),
-                flag(shared.parts.ots_link.load(Relaxed), "OTS LINK [F10]"),
+                flag(t.sync_start, "SYNC START [y]"),
+                flag(t.auto_fill, "AUTO FILL [u]"),
+                if t.sync_stop_available { flag(t.sync_stop, "SYNC STOP [j]") } else { Span::styled(" SYNC STOP n/a ", dim) },
+                flag(t.stop_acmp, "STOP ACMP [h]"),
+                flag(ots.link, "OTS LINK [F10]"),
                 Span::styled(
-                    match (info.ots.len(), shared.parts.ots_applied.load(Relaxed)) {
+                    match (ots.settings.len(), ots.applied) {
                         (0, _) => " no One Touch Settings".to_string(),
                         (n, 0) => format!(" {n} OTS [shift 1-{n}]"),
                         (n, a) => format!(" OTS {a}/{n} loaded [shift 1-{n}]"),
                     },
                     dim,
                 ),
-                Span::raw(format!("  split {} [ / ]", note_name(shared.split.load(Relaxed)))),
+                Span::raw(format!("  split {} [ / ]", ch.split_name)),
                 Span::raw(format!(
                     "  fingering {}{} [f]",
-                    Fingering::from_u8(shared.fingering.load(Relaxed)).name(),
+                    ch.fingering_name,
                     // Upper overrides the selected type; it applies again back in Lower.
-                    if shared.upper.load(Relaxed) { " (Upper: Fingered*)" } else { "" }
+                    if ch.upper { " (Upper: Fingered*)" } else { "" }
                 )),
             ]),
             Line::from({
-                let upper = shared.upper.load(Relaxed);
-                let split = note_name(shared.split.load(Relaxed));
-                let mut v = vec![Span::raw(" chord detection "), flag(upper, if upper { "UPPER · Fingered* [d]" } else { "LOWER [d]" })];
-                if upper {
-                    v.push(flag(shared.manual_bass.load(Relaxed), "MANUAL BASS [D]"));
-                    let lh = if shared.manual_bass() { "bass (style Bass part muted)" } else { "Left voice" };
-                    v.push(Span::styled(format!(" chord: keys above {split} · left hand: {lh}"), dim));
+                let mut v = vec![Span::raw(" chord detection "), flag(ch.upper, if ch.upper { "UPPER · Fingered* [d]" } else { "LOWER [d]" })];
+                if ch.upper {
+                    v.push(flag(ch.manual_bass, "MANUAL BASS [D]"));
+                    let lh = if ch.manual_bass_active { "bass (style Bass part muted)" } else { "Left voice" };
+                    v.push(Span::styled(format!(" chord: keys above {} · left hand: {lh}", ch.split_name), dim));
                 } else {
-                    v.push(Span::styled(format!(" chord: keys up to {split}"), dim));
+                    v.push(Span::styled(format!(" chord: keys up to {}", ch.split_name), dim));
                 }
                 v
             }),
-            Line::from(match synth {
-                Some((info_s, c)) => {
-                    Span::styled(
-                        format!(
-                            " synth: {} → {} out {}/{} [a] · {} Hz · {} · master {}{} · {}[k]",
-                            info_s.name,
-                            info_s.device,
-                            c.out_ch.load(Relaxed) + 1,
-                            c.out_ch.load(Relaxed) + 2,
-                            info_s.sample_rate,
-                            info_s.buffer.map(|b| format!("{b} frames ({:.1} ms)", b as f64 * 1000.0 / info_s.sample_rate as f64)).unwrap_or("default buffer".into()),
-                            c.master.load(Relaxed),
-                            if c.master_waiting.load(Relaxed) { " ↕" } else { "" },
-                            if c.muted.load(Relaxed) { "MUTED " } else { "" },
-                        ),
-                        dim,
-                    )
-                }
+            Line::from(match &st.io.synth {
+                Some(sy) => Span::styled(
+                    format!(
+                        " synth: {} → {} out {}/{} [a] · {} Hz · {} · master {}{} · {}[k]",
+                        sy.sound_font,
+                        sy.device,
+                        sy.output_pair[0],
+                        sy.output_pair[1],
+                        sy.sample_rate,
+                        sy.buffer_frames
+                            .map(|b| format!("{b} frames ({:.1} ms)", b as f64 * 1000.0 / sy.sample_rate as f64))
+                            .unwrap_or("default buffer".into()),
+                        st.mixer.master.unwrap_or(0),
+                        if st.mixer.master_waiting { " ↕" } else { "" },
+                        if sy.muted { "MUTED " } else { "" },
+                    ),
+                    dim,
+                ),
                 None => Span::styled(" synth: off (MIDI out only; use --sf2 <file>)", dim),
             }),
             Line::from(Span::styled(
                 format!(
                     " engine: RT {}  wake err p99 <{}µs  chord→engine p99 <{}µs  midi-in p99 <{}µs",
-                    if shared.engine_rt.load(Relaxed) { "on" } else { "OFF" },
-                    shared.lateness.percentile_us(0.99),
-                    shared.chord_lat.percentile_us(0.99),
-                    shared.input_lat.percentile_us(0.99),
+                    if st.io.engine.realtime { "on" } else { "OFF" },
+                    st.io.engine.wake_p99_us,
+                    st.io.engine.chord_p99_us,
+                    st.io.engine.midi_in_p99_us,
                 ),
                 dim,
             )),
@@ -1019,19 +510,13 @@ fn draw(
             dim,
         )),
         Line::from(Span::styled(
-            format!(
-                " inputs: {}   ·   last Launchkey control msg: {:06X}   {}",
-                connected.join(", "),
-                shared.last_daw.load(Relaxed),
-                unmapped_text(shared.last_unmapped.load(Relaxed)),
-            ),
+            format!(" inputs: {}   ·   last Launchkey control msg: {:06X}   {}", st.io.inputs.join(", "), st.io.last_control, st.io.unmapped),
             dim,
         )),
     ];
     if !message.is_empty() {
         help.push(Line::from(Span::styled(format!(" {message}"), St::default().fg(Color::Red))));
     }
-    let _ = id_of;
     f.render_widget(Paragraph::new(help), rows[5]);
 }
 
@@ -1120,51 +605,57 @@ fn draw_browser(f: &mut ratatui::Frame, b: &Browser, lib: &Library, current: usi
 
 /// Debug: render one frame (with a sample playing state) to HTML so the layout can be
 /// checked without a terminal. `yahaha screen <style> out.html`; give a folder instead of a
-/// style to see the browser open over it.
+/// style to see the browser open over it. The state comes from an offline session.
 pub fn screen_html(style: &Path, out: &Path) -> Result<()> {
     use ratatui::backend::TestBackend;
-    let mut lib = Library::scan(&[style.to_path_buf()]);
-    anyhow::ensure!(!lib.is_empty(), "no style files found");
-    let rx = lib.spawn_indexer();
-    for (id, i) in rx.iter() {
-        lib.set_info(id, i);
-    }
-    lib.sort();
+    use yahaha::api::SynthState;
+    use yahaha::engine::{Snapshot, Transpose};
+    let session = Session::offline(Options { paths: vec![style.to_path_buf()], ..Options::default() })?;
+    session.finish_indexing();
+    let lib = session.library();
     let current = lib.order()[lib.len() / 3];
+    let _ = session.send(AppCmd::LoadStyle { id: current });
     let browser = style.is_dir().then(|| Browser::open(current));
-    let (_, info) = load(&lib.entry(current).path)?;
-    let shared = Shared::new(54);
-    let snap = Snapshot {
+    let _ = session.send(AppCmd::RecallOts { index: 0 });
+    let _ = session.send(AppCmd::SetOtsLink { on: true });
+    let _ = session.send(AppCmd::SelectPart { part: parts::RIGHT2 as u8 });
+    session.show_snapshot(Snapshot {
         running: true,
         sync_armed: false,
         sync_stop: false,
         auto_fill: true,
-        cur: Some(crate::sff::SectionId::Main(0)),
-        queued: Some(crate::sff::SectionId::Fill(1)),
+        cur: Some(yahaha::sff::SectionId::Main(0)),
+        queued: Some(yahaha::sff::SectionId::Fill(1)),
         pending_intro: None,
         main: 1,
         bar: 1,
         beat: 2,
-        chord: Some(crate::theory::Chord { root: 9, ty: 10, bass: Some(7) }),
+        chord: Some(yahaha::theory::Chord { root: 9, ty: 10, bass: Some(7) }),
         bpm: 110.0,
         parts: 0xFF & !(1 << 5),
         volumes: [127, 110, 96, 127, 80, 64, 127, 100],
         pickup: 1 << 4,
         stop_acmp: false,
         transpose: Transpose::new(2, 0),
-        played: Some(crate::theory::Chord { root: 7, ty: 10, bass: Some(5) }),
-    };
+        played: Some(yahaha::theory::Chord { root: 7, ty: 10, bass: Some(5) }),
+    });
+    // What a live session with the synth and a Launchkey would add.
+    let mut st = (*session.state()).clone();
+    st.io.synth = Some(SynthState {
+        sound_font: "GeneralUser-GS".into(),
+        device: "Model 16".into(),
+        sample_rate: 48000,
+        buffer_frames: Some(64),
+        channels: 14,
+        output_pair: [11, 12],
+        muted: false,
+    });
+    st.mixer.master = Some(110);
+    st.io.inputs = vec!["Launchkey MK4 61 MIDI Out".into()];
+    st.message = None;
     let mut term = ratatui::Terminal::new(TestBackend::new(150, 44))?;
-    let si = synth::SynthInfo { name: "GeneralUser-GS".into(), sample_rate: 48000, buffer: Some(64), device: "Model 16".into(), channels: 14 };
-    let sc = synth::SynthControl::new(10);
-    if let Some(o) = info.ots.first() {
-        shared.parts.apply_ots(o, 1);
-    }
-    shared.parts.ots_link.store(true, Relaxed);
-    shared.parts.select(parts::RIGHT2);
-    sc.master.store(110, Relaxed);
     term.draw(|f| {
-        draw(f, &info, Some(&snap), &shared, &panel(&shared, &info), &["Launchkey MK4 61 MIDI Out".into()], lib.position(current), lib.len(), "", 0.25, Some((&si, &sc)));
+        draw(f, &st, "", 0.25);
         if let Some(b) = &browser {
             draw_browser(f, b, &lib, current, "");
         }
@@ -1201,6 +692,8 @@ pub fn screen_html(style: &Path, out: &Path) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::PathBuf;
+    use yahaha::launchkey::Page;
 
     /// Every Launchkey control on pages 2 and 3, and the Track buttons, is a keyboard
     /// shortcut's action (the fingering pads select directly what `f` steps through).
@@ -1226,6 +719,18 @@ mod tests {
         }
         assert_eq!(key_action(KeyCode::Right), Some(Action::Style(1)));
         assert_eq!(key_action(KeyCode::Char('f')), Some(Action::NextFingering));
+    }
+
+    /// Every key is a command: the Launchkey's, and the terminal's own.
+    #[test]
+    fn keys_send_commands() {
+        assert_eq!(key_cmd(KeyCode::Char('2')), Some(AppCmd::Main { index: 1 }));
+        assert_eq!(key_cmd(KeyCode::Char('[')), Some(AppCmd::MoveSplit { delta: -1 }));
+        assert_eq!(key_cmd(KeyCode::Char('!')), Some(AppCmd::RecallOts { index: 0 }));
+        assert_eq!(key_cmd(KeyCode::BackTab), Some(AppCmd::CyclePadPage { delta: -1 }));
+        assert_eq!(key_cmd(KeyCode::Char('\\')), Some(AppCmd::Panic));
+        assert_eq!(key_cmd(KeyCode::Char('k')), Some(AppCmd::ToggleSynthMute));
+        assert_eq!(key_cmd(KeyCode::Char('Z')), None);
     }
 
     /// Letters typed into the browser filter; they never reach the performance shortcuts
@@ -1295,6 +800,7 @@ mod tests {
 
     #[test]
     fn unmapped_readout() {
+        use yahaha::api::unmapped_text;
         assert_eq!(unmapped_text(0), "");
         assert_eq!(unmapped_text(0x01_B0_67_7F), "unmapped CC 103 = 127");
         assert_eq!(unmapped_text(0x01_BF_55_41), "unmapped CC 85 = 65 (ch 16)");

@@ -81,7 +81,8 @@ pub const FEATURE_CH_STATUS: u8 = 0xB6;
 pub const PAD_MODE_CC: u8 = 29;
 
 /// Pad pages.
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub enum Page {
     #[default]
     Sections,
@@ -115,8 +116,8 @@ impl Page {
 
     /// The page `d` steps away, wrapping around (the terminal's Tab / Shift+Tab).
     pub fn cycle(self, d: i8) -> Page {
-        let n = Page::ALL.len() as i8;
-        Page::from_u8((self as i8 + d).rem_euclid(n) as u8)
+        let n = Page::ALL.len() as i16;
+        Page::from_u8((self as i16 + d as i16).rem_euclid(n) as u8)
     }
 
     /// The page's LED identity: RGB for the pads, plus bright and dim palette colours.
@@ -131,8 +132,8 @@ impl Page {
 }
 
 /// What a pad or button does. Engine buttons go straight to the engine from the MIDI
-/// thread; everything else runs on the UI thread through the same code as its keyboard
-/// shortcut.
+/// thread; everything else runs on the session's control side as the `AppCmd` its
+/// keyboard shortcut sends (`impl From<Action> for AppCmd`).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Action {
     Button(Button),
@@ -408,15 +409,19 @@ pub fn led_msgs(note: u8, led: Led, out: &mut Vec<[u8; 3]>) {
 // RGB look model: one description drives both the hardware pads and the on-screen map.
 // ---------------------------------------------------------------------------
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub enum Level {
+    #[default]
     Off,
     Dim,
     Bright,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub enum Anim {
+    #[default]
     Solid,
     /// Alternates dim/bright every half beat: queued, waiting for the bar/beat.
     Flash,
@@ -584,7 +589,13 @@ fn ots_looks(p: &Panel) -> [(u8, Look); 16] {
 
 /// Colour at a point in time. `beats` is a free-running beat clock (fractional).
 pub fn rgb_at(look: &Look, beats: f64) -> (u8, u8, u8) {
-    let k = match (look.level, look.anim) {
+    lit(look.rgb, look.level, look.anim, beats)
+}
+
+/// Colour at a point in time for a pad's full colour, level and animation (a `Look`, or
+/// an `api::Pad`).
+pub fn lit(rgb: (u8, u8, u8), level: Level, anim: Anim, beats: f64) -> (u8, u8, u8) {
+    let k = match (level, anim) {
         (Level::Off, _) => 0.0,
         (Level::Dim, _) => DIM,
         (Level::Bright, Anim::Solid) => 1.0,
@@ -603,7 +614,7 @@ pub fn rgb_at(look: &Look, beats: f64) -> (u8, u8, u8) {
         }
     };
     let f = |c: u8| ((c as f32 * k).round() as u8).min(127);
-    (f(look.rgb.0), f(look.rgb.1), f(look.rgb.2))
+    (f(rgb.0), f(rgb.1), f(rgb.2))
 }
 
 /// SysEx that sets a pad to an RGB colour (0..=127 per channel). Regular (non-Mini) SKU.

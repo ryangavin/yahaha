@@ -115,6 +115,7 @@ impl Entry {
     }
 }
 
+#[derive(Clone)]
 pub struct Library {
     entries: Vec<Entry>,
     /// Entry ids in display order.
@@ -185,6 +186,23 @@ impl Library {
             let (a, b) = (&entries[a], &entries[b]);
             (&a.folder_lc, &a.name_lc, &a.path).cmp(&(&b.folder_lc, &b.name_lc, &b.path))
         });
+    }
+
+    /// The entry for `path`, if the library has it.
+    pub fn find(&self, path: &Path) -> Option<usize> {
+        self.entries.iter().position(|e| e.path == path)
+    }
+
+    /// Add one file (a style opened by path) at the root; returns its id.
+    pub fn add_file(&mut self, path: PathBuf) -> usize {
+        let id = self.entries.len();
+        let mut e = Entry::new(path, String::new());
+        e.info = index_one(&e.path);
+        e.name_lc = e.name().to_lowercase();
+        self.entries.push(e);
+        self.order.push(id);
+        self.sort();
+        id
     }
 
     /// Position of an entry in display order.
