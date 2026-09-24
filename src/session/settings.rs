@@ -20,6 +20,9 @@ pub(super) struct SynthRef {
     pub(super) control: Arc<SynthControl>,
     /// Swapping SoundFonts (None: the synth can't).
     pub(super) swap: Option<synth::RackSwap>,
+    /// The plugin rack's control half (feature `plugins`; None: no plugin rack).
+    #[cfg_attr(not(feature = "plugins"), allow(dead_code))]
+    pub(super) plugins: Option<synth::PluginLink>,
 }
 
 /// What the SoundFont loader thread sends back.
@@ -60,7 +63,8 @@ pub(super) fn start_synth(sf2: &Path, consumers: Vec<Consumer<synth::Msg>>, audi
     let thread = std::thread::Builder::new().name("yahaha-synth".into()).spawn(move || match synth::start(&sf2, consumers, audio_out, parts) {
         Ok(mut s) => {
             let swap = s.swap.take();
-            let _ = tx.send(Ok(SynthRef { info: s.info.clone(), control: s.control.clone(), swap }));
+            let plugins = s.plugins.take();
+            let _ = tx.send(Ok(SynthRef { info: s.info.clone(), control: s.control.clone(), swap, plugins }));
             let _ = stop_rx.recv();
             drop(s);
         }

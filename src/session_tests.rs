@@ -837,6 +837,7 @@ fn fader_positions_and_master_takeover() {
             info: SynthInfo { name: "test".into(), sample_rate: 48000, buffer: None, device: "none".into(), channels: 2 },
             control: ctl.clone(),
             swap: None,
+            plugins: None,
         });
     }
     s.midi_in(Port::Pads, &[0xB0, 13, 100]); // at unity: picks up
@@ -1192,6 +1193,7 @@ fn sound_font_switch_needs_the_synth_and_a_file_in_its_folder() {
         info: SynthInfo { name: "test".into(), sample_rate: 48000, buffer: None, device: "none".into(), channels: 2 },
         control: Arc::new(SynthControl::new(0)),
         swap: Some(synth::RackSwap { tx, old }),
+        plugins: None,
     });
     for bad in ["../x.sf2", "nope.sf2", "a/b.sf2"] {
         assert!(s.send(SettingsCmd::SetSoundFont { file: bad.into() }).is_err(), "{bad}");
