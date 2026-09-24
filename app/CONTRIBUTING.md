@@ -5,7 +5,9 @@ frontend (`src/`), built with Vite. It works fully offline because the fonts are
 and nothing loads from a CDN.
 
 The main screen is a **mirror of the Launchkey 49/61 MK4 control surface**. What you see
-maps 1:1 onto the hardware under your hands. Everything else opens in panels around it:
+maps 1:1 onto the hardware under your hands. Above it sits the **lead-sheet band** (where
+the song is, what's next; later the chord chart), and below it the **keyboard strip** (the
+keys you hold, the splits, the chord). Everything else opens in panels around it:
 Keyboard parts + OTS, Mixer, Settings (right-side drawers), and the style browser (a
 modal).
 
@@ -55,12 +57,15 @@ app/
   docs/screenshots/          npm run screenshots
   scripts/                   controls-doc.ts (catalog → docs/controls.md), engine-shape.ts, screenshots.sh
   src-tauri/                 the Rust shell
+    icons/icon.svg           the app icon's source (original artwork); `cargo tauri icon
+                             icons/icon.svg` in src-tauri regenerates the set
     src/lib.rs               commands send/state/library and the `yahaha` event, backed by
                              yahaha::Session (the engine) or the mock; env: YAHAHA_STYLES,
                              YAHAHA_SF2, YAHAHA_MOCK (see the file's header)
     src/mock.rs              mock session on the engine's own AppState types
   src/
-    App.svelte               the layout shell: app bar, Launchkey mirror, drawers, browser
+    App.svelte               the layout shell: app bar, the stage (lead-sheet band, Launchkey
+                             mirror, keyboard strip) and its scaling, drawers, browser
     main.ts                  entry point
     app.css                  DESIGN TOKENS AND MATERIAL RECIPES (see "Design")
     help/
@@ -84,7 +89,9 @@ app/
       ui/                    shared components: HwButton, Fader, Toggle, Overlay, PanelSlot
     panels/
       header/Header.svelte         BUILT: the app bar (panel buttons, help, theme)
+      leadsheet/                   BUILT: the lead-sheet band above the mirror (see below)
       launchkey/                   BUILT: the hardware mirror (see below)
+      keystrip/                    BUILT: the keyboard strip under the mirror (see below)
       parts/Parts.svelte           SLOT: Keyboard parts + OTS drawer
       mixer/Mixer.svelte           SLOT: Mixer detail drawer
       browser/Browser.svelte       SLOT: style browser (modal)
@@ -102,30 +109,106 @@ app/
 | `FaderBank.svelte` | 8 faders + master and their buttons, from the surface state |
 | `Launchkey.test.ts` | behaviour tests: pages, pad presses, Shift layer, fader pages, pickup |
 
-The whole surface scales with the window. It sets its font size from its own width
-(`--u` in `Launchkey.svelte`), and every size inside is in `em`. Below 820 px, the fader
-bank moves under the pads.
+### Scaling: the stage (`App.svelte`)
+
+The lead-sheet band, the mirror and the keyboard strip form one **stage** that fills the
+window by width *and* height, with no page scroll at any size down to the 900×600 minimum
+window. The stage is a size container (`container: stage / size`); the stack inside sets
+its font size to
+
+```css
+--u: min(100cqw / var(--w), 100cqh / var(--h));
+```
+
+and every size on the stage is in `em` of it. `--w` is the mirror's design width (96em)
+and `--h` the stack's least height (lead band min + mirror + strip min + gaps). The mirror
+keeps the hardware's proportions; the band and the strip take the height left over, up to
+a limit, then the stack centres. Nothing is scaled with `transform`, so text and borders
+stay crisp at any size.
+
+When the stage is taller than 1.45:1 (a 1024-wide window, say), the mirror switches to
+its **stacked layout**, `@container stage (aspect-ratio < 1.45)`: the fader bank moves
+under the pads, the design width drops to 66em, and so everything grows. If you change the
+mirror's rows or the band's or strip's minimum heights, re-measure the mirror's height in
+em (`.device` height ÷ `--u`) in both layouts and update `--h` in `App.svelte`.
+
+Panel print on the stage is `0.78em` (the global `.engraved` is in `rem`, for drawers).
+Anything that can grow (a style name under Track ◀/▶) wraps rather than being cut off.
 
 Shift: the on-screen Shift button latches the layer (`ui.shiftLatched`), and holding
 Shift on the computer keyboard shows it too (`ui.shiftHeld`). The layer shows when
 `ui.shift || surface.shift` (the hardware's Shift).
 
+### The lead-sheet band (`panels/leadsheet/`): the chart slot
+
+The band above the mirror answers "where am I, what's next":
+
+| column | what |
+|---|---|
+| now | the section playing (`transport.section`), or what the band will start with; "bar 3 of 4" |
+| **lane** (`[data-slot="chart"]`) | one cell per bar of the section (`transport.sectionBars`, provisional), a slash per beat lit as it passes, and a progress bar across the section (`transform: scaleX` on the beat clock, so it runs at 60 Hz) |
+| next | the queued section (`transport.queued`), amber |
+
+**The lane is the slot for the iReal chord-chart player (M8).** When a chart is loaded, the
+chart renders into the lane instead of the section cells, and the now/next columns stay.
+The contract for whoever builds it:
+
+- Put the chart in `panels/leadsheet/` (e.g. `ChartLane.svelte`) and switch on it in
+  `LeadSheet.svelte`: `{#if chart}<ChartLane {chart} />{:else}…section cells…{/if}`. The
+  lane is a flex column that fills the band's middle; keep `data-slot="chart"` on it.
+- Draw the chart as rows of the same bar cells (`.cell.mat-screen`): a chord symbol per
+  bar or half bar, the current bar ringed (`.current`), beat slashes for bars without a
+  new chord. Show about two rows: the current line and the next.
+- The band's height comes from the shell: at least 5.2em and at most 10em of `--u`
+  (`.lead-slot` in `App.svelte`). Size everything in `em`, and never let the band grow
+  the page. If the chart needs more room, raise `max-height` on `.lead-slot` and re-check
+  1024, 1440 and 1920.
+- The chart's position comes from the engine (a proposed `state.chart`: the chart, the
+  bar and chorus playing, the next section's first bar). Don't advance a cursor in
+  TypeScript; animate between states on `clock.beats` as the progress bar does.
+
+### The keyboard strip (`panels/keystrip/`)
+
+The strip under the mirror shows the keys held, coloured by the part that sounds them
+(`--part-r1`, `--part-r2`, `--part-r3`, `--part-left`, and `--part-chord` for a left-hand
+key that only feeds chord detection; layered parts show as bands), the split point (drag
+it, or arrows with focus: `setSplit` / `moveSplit`), the Left split when it differs, the
+chord-detection area (Lower, Upper or Full Keyboard) and the recognised chord's tones
+(dots; the ringed one is the bass). `keyboard.ts` has the geometry: keys are
+percentage-positioned boxes, so a key press only changes one class and one custom
+property.
+
+Its size matches the connected Launchkey (49 or 61, from the port name) until the user
+picks 49, 61 or 88 on the strip's cheek (`ui.keyRange`, remembered). Held keys, the Left
+split and the chord tones come from the provisional `state.keyboard` (`KeyboardState` in
+`types.ts`); the mock sends them, and until the engine does the strip shows the splits and
+the detection area only.
+
 ### The surface (`lib/surface.ts`)
 
 No button's function is hard-coded in the mirror. Pads come from `state.pads.pads`, and
-everything else comes from a `SurfaceState` (`lib/api/types.ts`), which holds:
+everything else comes from `state.surface` (#77, docs/app-api.md "surface"):
 
 - every non-pad control (Pad Bank, Track, Play/Stop, Scene/Function, the fader buttons,
-  the master button) with its label, action, Shift label/action and LED;
+  the master button) with its CC, label, action, Shift label/action and LED (`colour` is
+  the palette index; Play, Stop, Scene and Function are reported off);
 - the faders with their label, level, waiting flag, physical position and the command
   moving them sends;
-- the Track neighbour names and the beat clock.
+- Shift (the hardware's), the Track neighbours, and the clocks.
 
-The engine will send it as `state.surface` (the API follow-up to #71). Until then,
-`surfaceOf(state, library)` derives it with the rules in `src/launchkey.rs`, and the mock
-sends it already, with hardware fader positions and a clock. When the engine sends it,
-the derivation simply stops being used. If the API PR names fields differently, rename
-them in `types.ts` and `surface.ts`; the components read nothing else.
+`surfaceOf(state)` returns it; `lib/surface.ts` turns controls and faders into tooltips
+and commands. The browser mock builds the same surface in `lib/api/mock-surface.ts` (a
+port of `Session::surface` in src/session.rs), and the Rust mock in `src-tauri` sends it
+too.
+
+**Clocks.** A state carries anchors, not a ticking position (docs/app-api.md
+"surface.clock"). `clock` in `lib/store.svelte.ts` notes when each state arrived and runs
+them on every frame: `clock.beats` is the free-running **LED clock** the lamps flash and
+pulse on (as the hardware pads do), and `clock.pos` is quarter notes into the section
+playing (0 when stopped). Never mix `transport.bar`/`beat` with the clock's phase.
+
+**Palette LEDs.** When `pads.paletteLeds` is set, pads light from `pad.palette` (a flash
+alternates between its two palette colours): `padLight()` in `lib/leds.ts`.
 
 ## Building a drawer or the browser
 
@@ -230,6 +313,8 @@ LEDs and the chord, and keep everything else quiet.
 | `--ink`, `--engrave`, `--muted` | text on the panel: values, engraved labels, secondary |
 | `--screen-bg`, `--screen-ink`, `--screen-dim`, `--screen-glow` | the display |
 | `--accent`, `--accent-ink` | amber: selected, latched, waiting for you (fader pickup), focus |
+| `--part-r1`, `--part-r2`, `--part-r3`, `--part-left`, `--part-chord` | a keyboard part's colour (held keys; any panel showing parts), and grey for chord-detection-only keys |
+| `--key-white`, `--key-black` (+ `-lo`/`-hi`, `--key-gap`, `--key-print`) | the keyboard strip's keys |
 | `--lamp-off` | an unlit LED |
 
 LED colours are never tokens. They come from the engine (`rgb`, 0–127), so the screen
@@ -266,3 +351,10 @@ always matches the hardware.
   `yahaha state-json <style> ["C Am F G7"]` and `--library` print real JSON: re-record
   `src/lib/api/engine-shape.json` with `scripts/engine-shape.ts` and the shape test tells
   you what moved.
+- The store (`lib/store.svelte.ts`) applies a snapshot only when its `version` is higher
+  than the last one applied, so a state fetch that resolves late never overwrites a newer
+  one. Attaching a new session starts the count again.
+- Provisional fields the UI already reads, until the engine sends them (each has a NEED
+  on the coordination board): `state.surface` (the Launchkey surface), `state.keyboard`
+  (held keys, the Left split, chord tones) and `transport.sectionBars` (the section's
+  length). All are optional in `types.ts`, and the UI works without them.

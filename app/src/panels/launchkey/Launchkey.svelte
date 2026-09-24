@@ -12,8 +12,10 @@
    └──────────────┴────────────────────────────────────────────────────────────────────────┘
 
   Every element shows its function on the current pad/fader page and Shift layer, has a
-  tooltip from the catalog, and clicking it sends exactly what the hardware sends. The
-  whole surface scales with the window (sizes are in em of a width-derived font size).
+  tooltip from the catalog, and clicking it sends exactly what the hardware sends. Every
+  size is in em: the shell (App.svelte) sets the font size (`--u`) so the surface fills
+  the window by width and height at the hardware's proportions (96em wide; 66em in the
+  stacked layout that tall windows get).
 -->
 <script lang="ts">
   import { PAD_PAGES, type Pad, type PadPage, type Rgb } from '../../lib/api/types'
@@ -93,8 +95,8 @@
     </div>
 
     <div class="pads mat-well" role="group" aria-label="Pads: page {pageIndex + 1}, {s.pads.pageName}">
-      {#each top as p (p.note)}<HwPad pad={p} {beats} onpress={press} />{/each}
-      {#each bottom as p (p.note)}<HwPad pad={p} {beats} onpress={press} />{/each}
+      {#each top as p (p.note)}<HwPad pad={p} {beats} paletteLeds={s.pads.paletteLeds} onpress={press} />{/each}
+      {#each bottom as p (p.note)}<HwPad pad={p} {beats} paletteLeds={s.pads.paletteLeds} onpress={press} />{/each}
     </div>
 
     <div class="side" role="group" aria-label="Scene Launch and Function">
@@ -103,23 +105,20 @@
     </div>
 
     <div class="transport" role="group" aria-label="Transport">
-      <Control {surface} id="stop" legend="■" shape="square" caption="Stop" />
-      <Control {surface} id="play" legend="▶" shape="square" caption="Play" />
+      <Control {surface} id="stop" legend="■" shape="square" caption={surface.controls.find((c) => c.id === 'stop')?.label} />
+      <Control {surface} id="play" legend="▶" shape="square" caption={surface.controls.find((c) => c.id === 'play')?.label} />
     </div>
   </div>
 </section>
 
 <style>
-  .wrap {
-    container-type: inline-size;
-  }
-  /* The surface scales with the window: every size below is in em of this font size. */
+  /* The surface scales with the window: every size below is in em of `--u`, which the
+     shell derives from the space it has (App.svelte). 16px when shown on its own. */
   .device {
-    --u: clamp(10.5px, calc(100cqw / 96), 19px);
-    font-size: var(--u);
+    font-size: var(--u, 16px);
     position: relative;
     display: grid;
-    grid-template-columns: 30em 11.5em 3.3em minmax(0, 1fr) 3.6em 3.6em;
+    grid-template-columns: 30em 11.5em 3.3em minmax(0, 1fr) 4.2em 4.2em;
     grid-template-rows: 9.5em auto auto;
     grid-template-areas:
       'faders screen screen screen screen screen'
@@ -204,6 +203,13 @@
     gap: 0.4em;
     min-width: 0;
   }
+  /* The neighbouring styles' names: wrap onto two lines rather than cut off. */
+  .track :global(.caption) {
+    white-space: normal;
+    overflow-wrap: anywhere;
+    line-height: 1.1;
+    min-height: 2.2em;
+  }
   .track-label {
     grid-column: 2;
     text-align: center;
@@ -259,40 +265,28 @@
     font-size: 1.05em;
     line-height: 1;
   }
+  /* Panel print scales with the surface (the global .engraved is in rem, for drawers). */
+  .device :global(.engraved) {
+    font-size: 0.78em;
+  }
 
-  /* Narrow windows: the fader bank moves under the pads. */
-  @container (max-width: 820px) {
+  /* Tall windows (the shell's stage narrower than 1.45:1): the fader bank moves under the
+     pads, so the surface is 66em wide and can grow larger. */
+  @container stage (aspect-ratio < 1.45) {
     .device {
-      --u: clamp(9px, calc(100cqw / 62), 15px);
-      grid-template-columns: 3.3em minmax(0, 1fr) 3.6em;
-      grid-template-rows: auto auto auto auto auto auto;
+      grid-template-columns: 11.5em 3.3em minmax(0, 1fr) 4.2em 4.2em;
+      grid-template-rows: 9.5em auto auto 19em;
       grid-template-areas:
-        'screen screen screen'
-        'pagebar pagebar pagebar'
-        'padbank pads side'
-        'left left left'
-        'transport transport transport'
-        'faders faders faders';
-    }
-    .screen-area {
-      height: 11em;
-    }
-    .pagebar {
-      flex-wrap: wrap;
-    }
-    .transport {
-      flex-direction: row;
-      justify-content: center;
-      align-items: center;
-    }
-    .transport :global(.hw) {
-      width: 4em;
+        'screen screen screen screen screen'
+        'pagebar pagebar pagebar pagebar pagebar'
+        'left padbank pads side transport'
+        'faders faders faders faders faders';
     }
     .faders {
-      padding-right: 0;
+      padding: 0.7em 0 0;
       border-right: none;
-      box-shadow: none;
-      height: 20em;
+      border-top: 1px solid var(--seam);
+      box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.04);
     }
   }
 </style>

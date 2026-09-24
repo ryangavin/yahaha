@@ -294,8 +294,8 @@ pub struct AppState {
     pub io: IoState,
     /// The style preview and the style waiting for the bar line.
     pub preview: PreviewState,
-    /// The keys held on the keyboard, for the key strip.
-    pub keys: KeysState,
+    /// The keys held and the chord, for the app's keyboard strip.
+    pub keyboard: KeyboardState,
     /// The last notice or error, until the next one or `ClearMessage`.
     pub message: Option<Message>,
 }
@@ -322,15 +322,45 @@ pub struct AuditionState {
     pub chord: Option<String>,
 }
 
-/// The keys held, as played (MIDI notes before transpose and octave), ascending.
+/// The keyboard as the key strip draws it.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct KeysState {
-    /// Every key held, from any keyboard source.
-    pub held: Vec<u8>,
-    /// Those the chord detection reads (the chord section: left of the split in Lower,
-    /// right in Upper, the whole keyboard in the Full Keyboard types).
-    pub chord: Vec<u8>,
+pub struct KeyboardState {
+    /// The keys held, from any keyboard source, low to high.
+    pub held: Vec<HeldNote>,
+    /// Split Point (Left): keys at or below it play the Left part (the same split as
+    /// `chord.split`; yahaha has one).
+    pub left_split: u8,
+    /// Pitch classes (0-11, C = 0) of the chord as fingered (`chord.fingered`), root
+    /// first; empty for none.
+    pub chord_tones: Vec<u8>,
+    /// Its bass (pitch class): the root, or the slash / on-bass note. None: no chord.
+    pub chord_bass: Option<u8>,
+    /// The keys chord detection reads, as [lo, hi] MIDI notes (inclusive): up to the split
+    /// in Lower, above it in Upper (Fingered*), every key in the Full Keyboard types.
+    pub detection: [u8; 2],
+}
+
+/// A key held.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HeldNote {
+    /// The MIDI note as played (before Keyboard transpose and the parts' octaves).
+    pub note: u8,
+    /// The side of the split it went to when pressed.
+    pub zone: Zone,
+    /// The keyboard parts sounding it (0-3 = Right 1, Right 2, Right 3, Left); empty for
+    /// a key that only gives the chord.
+    pub parts: Vec<u8>,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Zone {
+    /// At or below the split: the Left part, the chord section in Lower.
+    #[default]
+    Left,
+    Right,
 }
 
 /// The loaded style.
@@ -378,6 +408,9 @@ pub struct TransportState {
     pub beat: u32,
     /// Beats per bar (the time signature's numerator).
     pub beats_per_bar: u8,
+    /// How many bars the section playing lasts (a Main's pattern length; it loops). None
+    /// when stopped.
+    pub section_bars: Option<u32>,
     /// Current tempo in BPM.
     pub tempo: f64,
     /// Page 1 of the Launchkey pads (sections, Sync Start/Stop, Auto Fill, Tap, Start/Stop),
@@ -700,12 +733,14 @@ pub struct ClockState {
 }
 
 impl ClockState {
-    /// Quarter notes into the section at `t` (ms on the session clock).
+    /// Quarter notes into the section at `t` (ms on the session clock). Never below 0: a
+    /// time before the anchor (a client clock a hair behind the session's) reads as the
+    /// section's start.
     pub fn position(&self, t: f64) -> f64 {
         if !self.running {
             return 0.0;
         }
-        self.section_anchor_beats + (t - self.section_anchor_ms) * self.tempo / 60e3
+        (self.section_anchor_beats + (t - self.section_anchor_ms) * self.tempo / 60e3).max(0.0)
     }
 
     /// The pad flash/pulse clock at `t` (ms).

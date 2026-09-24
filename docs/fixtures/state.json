@@ -42,6 +42,7 @@
     "bar": 1,
     "beat": 1,
     "beatsPerBar": 4,
+    "sectionBars": 4,
     "tempo": 75.0,
     "lamps": [
       {
@@ -1386,18 +1387,40 @@
     "audition": null,
     "queued": null
   },
-  "keys": {
+  "keyboard": {
     "held": [
-      31,
-      35,
-      38,
-      41
+      {
+        "note": 31,
+        "zone": "left",
+        "parts": []
+      },
+      {
+        "note": 35,
+        "zone": "left",
+        "parts": []
+      },
+      {
+        "note": 38,
+        "zone": "left",
+        "parts": []
+      },
+      {
+        "note": 41,
+        "zone": "left",
+        "parts": []
+      }
     ],
-    "chord": [
-      31,
-      35,
-      38,
-      41
+    "leftSplit": 54,
+    "chordTones": [
+      7,
+      11,
+      2,
+      5
+    ],
+    "chordBass": 7,
+    "detection": [
+      0,
+      54
     ]
   },
   "message": null

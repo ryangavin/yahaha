@@ -1,38 +1,53 @@
 // The stores every panel reads:
 //
 // - `app.state`: the latest `AppState` from the session, replaced whole on every change
-//   (up to ~60 times a second while playing). Read slices of it with `$derived`; Svelte
+//   (up to ~60 times a second while playing). Only a snapshot with a higher `version`
+//   than the last one applied replaces it. Read slices of it with `$derived`; Svelte
 //   only touches the DOM where a value really changed.
 // - `app.send(cmd)`: every action goes through here.
 // - `app.library`: the style list, re-fetched when `state.library.revision` changes.
-// - `clock.beats`: a beat clock running at the current tempo, for lamp animation
-//   (flash/pulse), advanced every animation frame.
+// - `clock.beats`: the engine's LED clock (lamps flash and pulse on it) and `clock.pos`:
+//   the position in the section, both run on from the state's anchors every frame.
 // - `ui`: app-only state (overlays, theme) that the engine doesn't know about.
 
 import { initialState } from './api/mock'
 import type { Session } from './api/session'
-import type { AppCmd, AppState, LibraryList } from './api/types'
+import type { AppCmd, AppState, ClockState, LibraryList } from './api/types'
 
 class AppStore {
   state = $state.raw<AppState>(initialState())
-  library = $state.raw<LibraryList>({ revision: 0, entries: [] })
+  library = $state.raw<LibraryList>({ revision: 0, entries: [], voices: [] })
   kind = $state<'mock' | 'tauri' | null>(null)
   private session: Session | null = null
   private unsub: (() => void) | null = null
   private libraryRevision = -1
 
+  /** The version of the state last applied; older or repeated snapshots are dropped. */
+  private version = -Infinity
+
   attach(session: Session) {
     this.detach()
     this.session = session
     this.kind = session.kind
-    this.unsub = session.subscribe((s) => {
-      this.state = s
-      clock.sync(s)
-      if (s.library.revision !== this.libraryRevision) {
-        this.libraryRevision = s.library.revision
-        session.library().then((l) => (this.library = l))
-      }
-    })
+    this.version = -Infinity
+    this.unsub = session.subscribe((s) => this.apply(s))
+  }
+
+  /**
+   * Applies a snapshot only if it's newer than the last one applied. State fetches can
+   * resolve out of order (two `invoke('state')` in flight), and an older snapshot must
+   * never overwrite a newer one. Returns whether it was applied.
+   */
+  apply(s: AppState): boolean {
+    if (!(s.version > this.version)) return false
+    this.version = s.version
+    this.state = s
+    clock.sync(s)
+    if (s.library.revision !== this.libraryRevision && this.session) {
+      this.libraryRevision = s.library.revision
+      this.session.library().then((l) => (this.library = l))
+    }
+    return true
   }
 
   detach() {
@@ -49,39 +64,38 @@ class AppStore {
 export const app = new AppStore()
 
 /**
- * The beat clock the lamps flash and pulse on. The state says which beat the band is on;
- * between beats this runs on at the tempo. Stopped, it free-runs at the tempo, so an
- * armed Sync Start still breathes.
+ * The engine's clocks, run on between states (docs/app-api.md, "surface.clock"). A state
+ * carries anchors, not a ticking position: on each one we note when it arrived, and every
+ * animation frame reads
+ *
+ *   t   = atMs + (now − receivedMs)                       session ms, now
+ *   pos = running ? max(0, sectionAnchorBeats + (t − sectionAnchorMs)·tempo/60000) : 0
+ *   led = ledAnchorBeats + (t − ledAnchorMs)·tempo/60000
+ *
+ * - `beats`: the LED clock, free-running. Lamps flash and pulse on it, as the hardware pads do.
+ * - `pos`: quarter notes into the section playing (0 stopped), for position displays.
  */
 class BeatClock {
   beats = $state(0)
-  private base = 0
-  private at = 0
-  private tempo = 120
-  private key = ''
+  pos = $state(0)
+  private c: ClockState | null = null
+  private receivedMs = 0
   private raf = 0
 
   sync(s: AppState) {
-    const t = s.transport
-    this.tempo = t.tempo
-    // The engine's clock, when it sends one (provisional `surface.clock`), includes the
-    // phase within the beat, so the lamps run in step with the hardware.
-    const c = s.surface?.clock
-    const key = t.running ? `${t.section}:${t.bar}:${t.beat}` : 'stopped'
-    if (key === this.key && !c?.atMs) return
-    this.key = key
-    this.at = now()
-    const phase = c && t.running ? c.phase : 0
-    this.base = t.running ? (t.bar - 1) * t.beatsPerBar + (t.beat - 1) + phase : this.beats
-    this.running = t.running
+    this.c = s.surface?.clock ?? null
+    this.receivedMs = now()
+    this.tick()
   }
 
-  private running = false
-
   tick() {
-    const elapsed = ((now() - this.at) / 60000) * this.tempo
-    // While playing, never run past the next beat before the state says we're there.
-    this.beats = this.base + (this.running ? Math.min(elapsed, 0.999) : elapsed)
+    const c = this.c
+    if (!c) return
+    const t = c.atMs + (now() - this.receivedMs)
+    const perMs = c.tempo / 60000
+    // Never before the section's start (a local clock a hair behind the engine's).
+    this.pos = c.running ? Math.max(0, c.sectionAnchorBeats + (t - c.sectionAnchorMs) * perMs) : 0
+    this.beats = c.ledAnchorBeats + (t - c.ledAnchorMs) * perMs
   }
 
   start() {
@@ -113,6 +127,18 @@ function storedTheme(): Theme {
   }
 }
 
+/** Keys on the keyboard strip: the Launchkey 49 or 61, or a full 88. */
+export type KeyRange = 49 | 61 | 88
+
+function storedKeyRange(): KeyRange | null {
+  try {
+    const n = Number(localStorage.getItem('yahaha.keys'))
+    return n === 49 || n === 61 || n === 88 ? n : null
+  } catch {
+    return null
+  }
+}
+
 class UiStore {
   /** Overlays and drawers around the hardware view. */
   browser = $state(false)
@@ -120,6 +146,8 @@ class UiStore {
   parts = $state(false)
   mixer = $state(false)
   theme = $state<Theme>(storedTheme())
+  /** The keyboard strip's size; null: match the connected Launchkey (49 or 61). */
+  keyRange = $state<KeyRange | null>(storedKeyRange())
   /** The Launchkey mirror's Shift layer: latched on screen, or the Shift key held. */
   shiftLatched = $state(false)
   shiftHeld = $state(false)
@@ -141,6 +169,16 @@ class UiStore {
       localStorage.setItem('yahaha.theme', t)
     } catch {
       /* private window: the theme just isn't remembered */
+    }
+  }
+
+  setKeyRange(k: KeyRange | null) {
+    this.keyRange = k
+    try {
+      if (k) localStorage.setItem('yahaha.keys', String(k))
+      else localStorage.removeItem('yahaha.keys')
+    } catch {
+      /* not remembered */
     }
   }
 

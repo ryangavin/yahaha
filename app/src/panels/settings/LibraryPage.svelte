@@ -1,7 +1,6 @@
 <!--
-  Library: the folders yahaha reads styles from, what's indexed, and a rescan. The
-  folder list and rescan are mocked until the engine has `library.roots` and
-  `rescanLibrary`; the counts are the engine's.
+  Library: the folders yahaha reads styles from (`library.roots`), what's indexed, and a
+  rescan (`rescanLibrary`, `library.scanning`).
 -->
 <script lang="ts">
   import { settings } from '../../lib/api/settings.svelte'
@@ -11,10 +10,9 @@
   import Field from './Field.svelte'
 
   const lib = $derived(app.state.library)
-  const real = $derived(app.kind === 'tauri')
-  const view = $derived(settings.view(app.state, real))
-  // On the real engine a setting it lacks is badged and inert: it never pretends to work.
-  const inert = $derived(real && view.mocked.library)
+  const view = $derived(settings.view(app.state))
+  // A setting the engine lacks (an older engine) is badged and inert: it never pretends to work.
+  const inert = $derived(view.mocked.library)
   const errors = $derived(app.library.entries.filter((e) => e.status === 'error').length)
   const categories = $derived(new Set(app.library.entries.map((e) => e.folder)).size)
 </script>

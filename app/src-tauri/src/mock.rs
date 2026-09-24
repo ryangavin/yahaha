@@ -5,10 +5,12 @@
 //! over at the bar (fills at the beat), chords change, faders wait for pickup. No audio,
 //! no MIDI.
 
+use std::time::Instant;
+
 use yahaha::api::*;
 use yahaha::fingering::Fingering;
-use yahaha::launchkey::{Anim, Level, Page};
-use yahaha::parts::FaderPage;
+use yahaha::launchkey::{self as lk, Action, Anim, Control, Level, Page};
+use yahaha::parts::{self, FaderPage};
 
 const FIXTURE: &str = include_str!("../../src/lib/api/mock-fixture.json");
 const ROOT: &str = "/Users/me/Styles";
@@ -89,6 +91,19 @@ fn beats_per_bar([n, d]: [u8; 2]) -> u8 {
     if d == 8 && n % 3 == 0 { n / 3 } else { n }
 }
 
+/// Quarter notes per bar, as the engine's `quarters_per_bar`: 4 in 4/4, 3 in 3/4 and 6/8.
+/// The mock's bars are this long, and `surface.clock` counts in quarter notes.
+fn quarters_per_bar([n, d]: [u8; 2]) -> f64 {
+    n as f64 * 4.0 / d.max(1) as f64
+}
+
+/// Where the hardware faders start (1-8, master), as app/src/lib/api/mock.ts has them.
+const HW_FADERS: [u8; 9] = [100, 72, 100, 100, 0, 0, 0, 0, 100];
+
+/// What moves the section anchor (docs/app-api.md `surface.clock`): the tempo, the bar
+/// length, the section and where it started, running or not.
+type SectionKey = (u64, u64, Option<String>, u32, bool);
+
 fn sections_text(sections: &[String]) -> String {
     let letters = |names: &[&str]| -> String {
         names.iter().filter(|n| sections.iter().any(|s| s == *n)).map(|n| n.chars().last().unwrap()).collect()
@@ -115,6 +130,16 @@ pub struct MockSession {
     now: f64,
     progression: usize,
     message_seq: u64,
+    /// The hardware faders 1-8 and master, where they physically are (they never move:
+    /// the mock has no Launchkey).
+    hw_faders: [u8; 9],
+    /// `surface.clock`: the section anchor (ms, quarter notes) and what it was taken for.
+    section_anchor: (f64, f64),
+    section_key: Option<SectionKey>,
+    /// The free-running LED clock: at ms it read beats, moving on at tempo.
+    led_anchor: (f64, f64, f64),
+    /// The wall clock at the last `catch_up`.
+    wall: Option<Instant>,
 }
 
 impl Default for MockSession {
@@ -180,6 +205,7 @@ impl MockSession {
                 bar: 12,
                 beat: 1,
                 beats_per_bar: beats_per_bar(s0.time_signature),
+                section_bars: Some(4),
                 tempo: s0.tempo,
                 lamps: vec![],
             },
@@ -226,8 +252,6 @@ impl MockSession {
                 roots: vec![ROOT.to_string()],
                 scanning: false,
             },
-            // The mock has no surface of its own: `state` leaves it out, and the UI derives
-            // it (lib/surface.ts), as the browser mock does.
             surface: SurfaceState::default(),
             io: IoState {
                 output_port: "yahaha".into(),
@@ -255,7 +279,14 @@ impl MockSession {
                 sound_font_loading: false,
             },
             preview: PreviewState::default(),
-            keys: KeysState::default(),
+            // Mid-song: the left hand holds the Am7 it fingered.
+            keyboard: KeyboardState {
+                held: [45, 48, 52, 55].map(|note| HeldNote { note, zone: Zone::Left, parts: vec![] }).to_vec(),
+                left_split: 54,
+                chord_tones: vec![9, 0, 4, 7],
+                chord_bass: Some(9),
+                detection: [0, 54],
+            },
             message: None,
         };
         let mut m = MockSession {
@@ -269,12 +300,17 @@ impl MockSession {
             now: 0.0,
             progression: 0,
             message_seq: 0,
+            hw_faders: HW_FADERS,
+            section_anchor: (0.0, 0.0),
+            section_key: None,
+            led_anchor: (0.0, 0.0, 0.0), // anchored by the first `derive`
+            wall: None,
         };
         m.set_style(0);
         m.state.ots.applied = 2;
         m.state.mixer.style_parts[5].volume = 58;
         m.state.mixer.style_parts[5].waiting = true;
-        m.clock = 11.0 * m.state.transport.beats_per_bar as f64;
+        m.clock = 11.0 * m.bar_quarters();
         m.position();
         m.derive();
         m
@@ -289,6 +325,9 @@ impl MockSession {
         m.state.io.inputs.clear();
         m.state.io.synth = None;
         m.state.pads.connected = false;
+        // No synth, no master volume (as the engine without one).
+        m.state.mixer.master = None;
+        m.derive();
         m.message(reason, true);
         m
     }
@@ -306,12 +345,37 @@ impl MockSession {
         self.state.message = Some(Message { seq: self.message_seq, text: text.into(), error });
     }
 
+    /// Quarter notes per bar of the loaded style (`clock` counts quarter notes).
+    fn bar_quarters(&self) -> f64 {
+        quarters_per_bar(self.state.style.time_signature)
+    }
+
     fn position(&mut self) {
+        let qpb = self.bar_quarters();
         let t = &mut self.state.transport;
-        let bpb = t.beats_per_bar as f64;
-        let bar = (self.clock / bpb).floor() as u32;
+        let bpb = t.beats_per_bar.max(1);
+        let bar = (self.clock / qpb).floor() as u32;
         t.bar = bar.saturating_sub(self.section_start) + 1;
-        t.beat = (self.clock.floor() as u32) % t.beats_per_bar as u32 + 1;
+        // Beats as `beats_per_bar` counts them (dotted quarters in 6/8).
+        t.beat = ((self.clock.rem_euclid(qpb) / (qpb / bpb as f64)).floor() as u32).min(bpb as u32 - 1) + 1;
+    }
+
+    /// Move the mock's clock on to the wall clock (the first call only starts it); true if
+    /// anything changed. The app's 60 Hz tick and the `state` command both call it, so the
+    /// clock has been read whenever the state is.
+    pub fn catch_up(&mut self) -> bool {
+        let now = Instant::now();
+        let ms = self.wall.map_or(0.0, |w| now.duration_since(w).as_secs_f64() * 1000.0);
+        self.wall = Some(now);
+        self.advance(ms)
+    }
+
+    /// The state with its clock read now (`surface.clock.atMs`), as the engine's
+    /// `Session::state_now`.
+    pub fn state_now(&self) -> AppState {
+        let mut st = self.state.clone();
+        st.surface.clock = st.surface.clock.at(self.now);
+        st
     }
 
     /// Move the clock on by `ms` milliseconds; true if anything changed.
@@ -334,9 +398,14 @@ impl MockSession {
 
     fn bump(&mut self, before: &AppState) -> bool {
         self.derive();
+        // The clock as read when the state last changed: time passing alone changes nothing.
+        let clock = &mut self.state.surface.clock;
+        *clock = clock.at(before.surface.clock.at_ms);
         let changed = self.state != *before;
         if changed {
             self.state.version = before.version + 1;
+            let clock = &mut self.state.surface.clock;
+            *clock = clock.at(self.now);
         }
         changed
     }
@@ -346,7 +415,7 @@ impl MockSession {
         if !self.state.transport.running {
             return;
         }
-        let bpb = self.state.transport.beats_per_bar as f64;
+        let bpb = self.bar_quarters();
         let before = self.clock;
         self.clock += ms / 60000.0 * self.state.transport.tempo;
         if self.clock.floor() != before.floor() {
@@ -361,11 +430,12 @@ impl MockSession {
     }
 
     fn on_beat(&mut self) {
+        let qpb = self.bar_quarters();
         let t = &mut self.state.transport;
         if let Some(q) = t.queued.clone().filter(|q| FILLS.contains(&q.as_str())) {
             t.section = Some(q);
             t.queued = None;
-            self.section_start = (self.clock / t.beats_per_bar as f64).floor() as u32;
+            self.section_start = (self.clock / qpb).floor() as u32;
         }
     }
 
@@ -532,7 +602,19 @@ impl MockSession {
         c.fingering_name = if c.upper { "Fingered*".into() } else { c.fingering.name().into() };
         c.manual_bass_active = c.upper && c.manual_bass;
         c.split_name = note_name(c.split);
-        st.transport.sync_stop_available = c.upper || !matches!(c.fingering, Fingering::FullKeyboard | Fingering::AiFullKeyboard);
+        let full = matches!(c.fingering, Fingering::FullKeyboard | Fingering::AiFullKeyboard);
+        st.transport.sync_stop_available = c.upper || !full;
+        // The keyboard strip: the split and where chord detection listens (no keys held).
+        st.keyboard.left_split = c.split;
+        st.keyboard.detection = if c.upper {
+            [c.split.saturating_add(1).min(127), 127]
+        } else if full {
+            [0, 127]
+        } else {
+            [0, c.split]
+        };
+        // The mock's patterns: a Main is 4 bars, an Intro or Ending 2, a fill 1.
+        st.transport.section_bars = st.transport.section.as_deref().map(|s| if s.starts_with("Main") { 4 } else if s.starts_with("Intro") || s.starts_with("Ending") { 2 } else { 1 });
         let mb = c.manual_bass_active;
         for (i, p) in st.keyboard_parts.iter_mut().enumerate() {
             p.plays_bass = i == 3 && mb;
@@ -542,10 +624,199 @@ impl MockSession {
         for (i, p) in st.mixer.style_parts.iter_mut().enumerate() {
             p.muted_by_manual_bass = i == 2 && mb;
         }
+        // Where each part's hardware fader physically is (Panel faders 1-4, Style 1-8).
+        for (p, hw) in st.keyboard_parts.iter_mut().zip(self.hw_faders) {
+            p.fader = Some(hw);
+        }
+        for (p, hw) in st.mixer.style_parts.iter_mut().zip(self.hw_faders) {
+            p.fader = Some(hw);
+        }
         st.pads.page_name = st.pads.page.name().into();
         st.pads.page_number = st.pads.page as u8 + 1;
         st.transport.lamps = pads_for(st, Page::Sections);
         st.pads.pads = pads_for(st, st.pads.page);
+        self.anchor_clocks();
+        self.state.surface = self.surface();
+    }
+
+    /// Re-anchor `surface.clock` as the engine does: the section anchor when the tempo,
+    /// the section or where it started changes (or the band starts or stops), the
+    /// free-running LED clock when the tempo changes, carrying on from where it was.
+    fn anchor_clocks(&mut self) {
+        let t = &self.state.transport;
+        let qpb = self.bar_quarters();
+        let key = (t.tempo.to_bits(), qpb.to_bits(), t.section.clone(), self.section_start, t.running);
+        if self.section_key.as_ref() != Some(&key) {
+            let beats = if t.running { self.clock - self.section_start as f64 * qpb } else { 0.0 };
+            self.section_anchor = (self.now, beats);
+            self.section_key = Some(key);
+        }
+        let (ms, beats, tempo) = self.led_anchor;
+        if tempo != t.tempo {
+            self.led_anchor = (self.now, beats + (self.now - ms) * tempo / 60e3, t.tempo);
+        }
+    }
+
+    /// The Launchkey beyond the pads, as the engine's `Session::surface` (src/session.rs)
+    /// builds it, from the mock's state. No Shift: the mock has no hardware.
+    fn surface(&self) -> SurfaceState {
+        let st = &self.state;
+        let page = st.pads.page;
+        let styles = self.library.entries.len() > 1;
+        let fader_page = st.mixer.fader_page;
+        let mask = |bits: Vec<bool>| bits.iter().enumerate().fold(0u8, |m, (i, on)| m | (*on as u8) << i);
+        let parts_on = mask(st.keyboard_parts.iter().map(|p| p.sounding).collect());
+        let style_on = lk::style_lit(mask(st.mixer.style_parts.iter().map(|p| p.on).collect()), st.chord.manual_bass_active);
+        let colours = lk::button_colours(page, styles, fader_page, parts_on, style_on);
+        let act = |cc: u8, shift: bool| -> Option<AppCmd> {
+            match lk::cc_control(cc, shift)? {
+                Control::Page(d) => {
+                    let to = page.step(d);
+                    (to != page).then_some(AppCmd::SetPadPage { page: to })
+                }
+                Control::Act(Action::Style(_)) if !styles => None,
+                Control::Act(a) => Some(a.into()),
+            }
+        };
+        let mut controls = Vec::new();
+        let mut push = |id: String, cc: u8, label: &str, action: Option<AppCmd>, shift: Option<(&str, Option<AppCmd>)>| {
+            let label = if action.is_some() { label.to_string() } else { String::new() };
+            let (shift_label, shift_action) = match shift {
+                Some((l, a)) => (if a.is_some() { l.to_string() } else { String::new() }, a),
+                None => (label.clone(), action.clone()),
+            };
+            let colour = colours.iter().find(|c| c.0 == cc).map(|c| c.1);
+            let (rgb, level) = colour.map_or(((0, 0, 0), Level::Off), lk::palette_colour);
+            controls.push(SurfaceControl {
+                id,
+                cc,
+                label,
+                action,
+                shift_label,
+                shift_action,
+                rgb: [rgb.0, rgb.1, rgb.2],
+                level,
+                anim: Anim::Solid,
+                colour,
+            });
+        };
+        for (id, cc, label, shift_label) in [
+            ("padBankUp", lk::PAD_UP_CC, "PAGE ▲", "LEFT"),
+            ("padBankDown", lk::PAD_DOWN_CC, "PAGE ▼", "OTS LINK"),
+            ("trackPrev", lk::TRACK_LEFT_CC, "◀ STYLE", ""),
+            ("trackNext", lk::TRACK_RIGHT_CC, "STYLE ▶", ""),
+            ("play", lk::PLAY_CC, "PLAY", ""),
+            ("stop", lk::STOP_CC, "STOP", ""),
+            ("scene", lk::SCENE_CC, "TEMPO +", ""),
+            ("function", lk::FUNCTION_CC, "TEMPO -", ""),
+        ] {
+            let (a, sa) = (act(cc, false), act(cc, true));
+            let shift = (sa != a).then_some((shift_label, sa));
+            push(id.to_string(), cc, label, a, shift);
+        }
+        // The buttons under faders 1-8: Panel = Right 1-3 and Left on/off (Shift: select),
+        // Style = the Style parts' mute.
+        for i in 0..8u8 {
+            let cc = lk::FADER_BTN_CC.start() + i;
+            let id = format!("faderButton{}", i + 1);
+            match fader_page {
+                FaderPage::Panel if (i as usize) < parts::COUNT => {
+                    let p = i as usize;
+                    let shift = (lk::SELECT_LABELS[p], Some(AppCmd::SelectPart { part: i }));
+                    push(id, cc, lk::PART_LABELS[p], Some(AppCmd::TogglePart { part: i }), Some(shift));
+                }
+                FaderPage::Panel => push(id, cc, "", None, None),
+                FaderPage::Style => {
+                    let name = STYLE_PART_NAMES[i as usize].to_uppercase();
+                    push(id, cc, &name, Some(AppCmd::ToggleStylePart { part: i }), None);
+                }
+            }
+        }
+        let master = match fader_page {
+            FaderPage::Panel => "PANEL",
+            FaderPage::Style => "STYLE",
+        };
+        push("masterButton".into(), *lk::FADER_BTN_CC.end(), master, Some(AppCmd::ToggleFaderPage), None);
+
+        // The faders: the parts they control on this page, and where they physically are.
+        let mut faders: Vec<SurfaceFader> = (0..8u8)
+            .map(|i| {
+                let p = i as usize;
+                let position = Some(self.hw_faders[p]);
+                match fader_page {
+                    FaderPage::Panel if p < parts::COUNT => SurfaceFader {
+                        label: lk::PART_LABELS[p].to_string(),
+                        value: Some(st.keyboard_parts[p].volume),
+                        waiting: st.keyboard_parts[p].waiting,
+                        position,
+                        set: Some(AppCmd::SetPartVolume { part: i, volume: 0 }),
+                    },
+                    FaderPage::Panel => SurfaceFader { position, ..SurfaceFader::default() },
+                    FaderPage::Style => SurfaceFader {
+                        label: STYLE_PART_NAMES[p].to_uppercase(),
+                        value: Some(st.mixer.style_parts[p].volume),
+                        waiting: st.mixer.style_parts[p].waiting,
+                        position,
+                        set: Some(AppCmd::SetStylePartVolume { part: i, volume: 0 }),
+                    },
+                }
+            })
+            .collect();
+        let master_pos = Some(self.hw_faders[8]);
+        faders.push(match st.mixer.master {
+            Some(v) => SurfaceFader {
+                label: "MASTER".into(),
+                value: Some(v),
+                waiting: st.mixer.master_waiting,
+                position: master_pos,
+                set: Some(AppCmd::SetMasterVolume { volume: 0 }),
+            },
+            None => SurfaceFader { position: master_pos, ..SurfaceFader::default() },
+        });
+
+        let t = &st.transport;
+        SurfaceState {
+            shift: false,
+            controls,
+            faders,
+            track_prev: self.neighbour(-1),
+            track_next: self.neighbour(1),
+            clock: ClockState {
+                at_ms: 0.0,
+                running: t.running,
+                tempo: t.tempo,
+                beats_per_bar: self.bar_quarters(),
+                bar: 1,
+                beat: 1,
+                phase: 0.0,
+                section_anchor_ms: self.section_anchor.0,
+                section_anchor_beats: self.section_anchor.1,
+                led_anchor_ms: self.led_anchor.0,
+                led_anchor_beats: self.led_anchor.1,
+            }
+            .at(self.now),
+        }
+    }
+
+    /// The style `StepStyle { delta }` would load, if it goes anywhere: the engine's
+    /// `neighbour` and `Library::step` (src/session.rs, src/library.rs, private there)
+    /// over the mock's library order, skipping entries that don't load, wrapping.
+    fn neighbour(&self, delta: i8) -> Option<Neighbour> {
+        let lib = &self.library.entries;
+        let n = lib.len();
+        let cur = self.state.library.position;
+        if cur >= n {
+            return None;
+        }
+        let mut pos = cur;
+        for _ in 1..n {
+            pos = if delta > 0 { (pos + 1) % n } else { (pos + n - 1) % n };
+            let e = &lib[pos];
+            if e.status != "error" {
+                return Some(Neighbour { id: e.id, name: e.name.clone(), path: e.path.clone() });
+            }
+        }
+        None
     }
 
     fn cmd(&mut self, cmd: AppCmd) {
@@ -714,8 +985,10 @@ impl MockSession {
                 self.state.pads.page = Page::ALL[(i + delta).rem_euclid(3) as usize];
             }
             AppCmd::SetMasterVolume { volume } => {
-                self.state.mixer.master = Some(vol(volume));
-                self.state.mixer.master_waiting = false;
+                if self.state.io.synth.is_some() {
+                    self.state.mixer.master = Some(vol(volume));
+                    self.state.mixer.master_waiting = false;
+                }
             }
             AppCmd::RecallOts { index } => {
                 if (index as usize) < self.state.ots.settings.len() {
@@ -1056,6 +1329,96 @@ mod tests {
                 assert!(kind == "null" || *got == "null" || *got == kind, "{key}: {path} engine {kind}, mock {got}");
             }
         }
+    }
+
+    #[test]
+    fn the_surface_has_every_control_and_fader_on_both_fader_pages() {
+        let mut m = MockSession::new();
+        let ids = |m: &MockSession| m.state.surface.controls.iter().map(|c| c.id.clone()).collect::<Vec<_>>();
+        let labels = |m: &MockSession| m.state.surface.controls.iter().map(|c| c.label.clone()).collect::<Vec<_>>();
+        let faders = |m: &MockSession| m.state.surface.faders.iter().map(|f| f.label.clone()).collect::<Vec<_>>();
+        let mut want: Vec<String> = ["padBankUp", "padBankDown", "trackPrev", "trackNext", "play", "stop", "scene", "function"].map(String::from).to_vec();
+        want.extend((1..=8).map(|i| format!("faderButton{i}")));
+        want.push("masterButton".into());
+        assert_eq!(ids(&m), want);
+        assert_eq!(m.state.surface.faders.len(), 9);
+        assert!(!m.state.surface.shift);
+
+        // Panel page, pad page 1: no Pad Bank ▲.
+        let s = &m.state.surface;
+        assert_eq!(
+            labels(&m),
+            ["", "PAGE ▼", "◀ STYLE", "STYLE ▶", "PLAY", "STOP", "TEMPO +", "TEMPO -", "RIGHT 1", "RIGHT 2", "RIGHT 3", "LEFT", "", "", "", "", "PANEL"]
+        );
+        assert_eq!((s.controls[0].shift_label.as_str(), s.controls[1].shift_label.as_str()), ("LEFT", "OTS LINK"));
+        assert_eq!(s.controls[0].action, None);
+        assert_eq!(s.controls[0].shift_action, Some(AppCmd::TogglePart { part: 3 }));
+        assert_eq!(s.controls[8].shift_label, "EDIT R1");
+        assert_eq!(s.controls[8].shift_action, Some(AppCmd::SelectPart { part: 0 }));
+        assert_eq!(s.controls[3].action, Some(AppCmd::StepStyle { delta: 1 }));
+        assert!(s.controls[4..8].iter().all(|c| c.colour.is_none() && c.level == Level::Off));
+        assert!(s.controls.iter().all(|c| c.anim == Anim::Solid));
+        assert_eq!(s.controls[16].level, Level::Bright);
+        assert_eq!(faders(&m), ["RIGHT 1", "RIGHT 2", "RIGHT 3", "LEFT", "", "", "", "", "MASTER"]);
+        assert_eq!(s.faders.iter().map(|f| f.position).collect::<Vec<_>>(), HW_FADERS.map(Some));
+        assert_eq!(s.faders[4].set, None);
+        assert_eq!(m.state.keyboard_parts[1].fader, Some(72));
+        assert_eq!(m.state.mixer.style_parts[7].fader, Some(0));
+
+        // Style page.
+        m.send(AppCmd::ToggleFaderPage);
+        m.send(AppCmd::SetPadPage { page: Page::OtsParts });
+        let s = &m.state.surface;
+        assert_eq!(
+            labels(&m),
+            ["PAGE ▲", "", "◀ STYLE", "STYLE ▶", "PLAY", "STOP", "TEMPO +", "TEMPO -", "RHYTHM 1", "RHYTHM 2", "BASS", "CHORD 1", "CHORD 2", "PAD", "PHRASE 1", "PHRASE 2", "STYLE"]
+        );
+        assert_eq!(s.controls[8].shift_label, "RHYTHM 1");
+        assert_eq!(s.controls[13].action, Some(AppCmd::ToggleStylePart { part: 5 }));
+        assert_eq!(faders(&m), ["RHYTHM 1", "RHYTHM 2", "BASS", "CHORD 1", "CHORD 2", "PAD", "PHRASE 1", "PHRASE 2", "MASTER"]);
+        assert_eq!(s.faders[5].set, Some(AppCmd::SetStylePartVolume { part: 5, volume: 0 }));
+    }
+
+    #[test]
+    fn track_neighbours_skip_styles_that_do_not_load_and_wrap() {
+        let m = MockSession::new();
+        let lib = &m.library().entries;
+        let prev = m.state.surface.track_prev.clone().unwrap();
+        let next = m.state.surface.track_next.clone().unwrap();
+        assert_eq!(prev.id, lib.iter().rev().find(|e| e.status == "ok").unwrap().id, "wraps to the last that loads");
+        assert_eq!(next.id, lib.iter().skip(1).find(|e| e.status == "ok").unwrap().id);
+        assert_eq!(next.path, lib[next.id].path);
+    }
+
+    #[test]
+    fn the_clock_follows_the_band_and_is_read_when_the_state_changes() {
+        let mut m = MockSession::new();
+        let c = m.state.surface.clock.clone();
+        assert_eq!((c.bar, c.beat, c.running), (12, 1, true));
+        assert_eq!(c.beats_per_bar, quarters_per_bar(m.state.style.time_signature));
+        // Time passing alone changes nothing: the anchors carry the position.
+        let v = m.state.version;
+        m.advance(10.0);
+        assert_eq!(m.state.version, v);
+        assert_eq!(m.state.surface.clock, c);
+        let now = m.state_now().surface.clock;
+        assert_eq!(now.at_ms, 10.0);
+        assert!((now.phase - 10.0 * c.tempo / 60e3).abs() < 1e-9);
+        // A tempo change re-anchors both clocks where they were.
+        let led = c.led_beats(10.0);
+        m.send(AppCmd::TempoUp);
+        let c2 = m.state.surface.clock.clone();
+        assert_eq!((c2.at_ms, c2.section_anchor_ms, c2.led_anchor_ms), (10.0, 10.0, 10.0));
+        assert!((c2.led_anchor_beats - led).abs() < 1e-9);
+        assert!((c2.position(10.0) - c.position(10.0)).abs() < 1e-9);
+        // The transport and the clock agree on the bar.
+        m.advance(bar_ms(&m) * 1.5);
+        let st = m.state_now();
+        assert_eq!(st.surface.clock.bar, st.transport.bar);
+        // Stopped: 1, 1, 0.
+        m.send(AppCmd::Stop);
+        let c3 = m.state_now().surface.clock;
+        assert_eq!((c3.running, c3.bar, c3.beat, c3.phase), (false, 1, 1, 0.0));
     }
 
     #[test]

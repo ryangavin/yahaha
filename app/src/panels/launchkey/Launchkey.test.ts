@@ -98,7 +98,7 @@ describe('Launchkey mirror', () => {
     setup()
     const n = neighbours(LIBRARY, 0)
     expect(n.next?.name).toBe(LIBRARY.entries[1].name)
-    expect(n.prev?.status).toBe('ok')
+    expect(LIBRARY.entries.find((e) => e.id === n.prev?.id)?.status).toBe('ok')
     expect(document.body.textContent).toContain(n.next!.name)
   })
 
@@ -108,7 +108,7 @@ describe('Launchkey mirror', () => {
     const scene = st.surface!.controls.find((c) => c.id === 'scene')!
     scene.label = 'Fill Up'
     scene.action = { type: 'main', index: 2 }
-    app.attach({ kind: 'mock', subscribe: (fn) => (fn(st), () => {}), send: (c) => session.send(c), library: () => session.library(), dispose: () => {} })
+    app.attach({ kind: 'mock', subscribe: (fn) => (fn(st), () => {}), send: (c) => session.send(c), library: () => session.library(), meters: () => session.meters(), dispose: () => {} })
     flushSync()
     render(Launchkey)
     expect(document.body.textContent).toContain('Fill Up')

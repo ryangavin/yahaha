@@ -615,6 +615,8 @@ pub struct Snapshot {
     pub style_tag: u64,
     /// A style waits for the next bar line to take over (`Engine::change_style`).
     pub style_pending: bool,
+    /// Bars in the section playing (0 when stopped).
+    pub section_bars: u32,
     /// A style preview playing beside the (stopped) band (`live::EngineLoop`); the engine
     /// itself always reports None.
     pub audition: Option<AuditionPos>,
@@ -1412,6 +1414,10 @@ impl Engine {
             anchor_beats,
             style_tag: self.style.tag,
             style_pending: self.pending.is_some(),
+            section_bars: match self.style.sections[self.cur].as_ref() {
+                Some(s) if self.running => s.len.div_ceil(self.style.tpb.max(1)),
+                _ => 0,
+            },
             audition: None,
         }
     }

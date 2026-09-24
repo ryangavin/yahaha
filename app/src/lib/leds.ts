@@ -20,6 +20,22 @@ export function brightness(pad: Pick<Pad, 'level' | 'anim'>, beats: number): num
   return 1
 }
 
+/**
+ * What a pad shows at a point on the LED clock: its colour and brightness. In RGB mode
+ * that's `rgb` at `brightness()`. In palette mode (`pads.paletteLeds`) it's what the pad
+ * was sent (`pad.palette`): a flash alternates between its two palette colours every half
+ * beat, a pulse breathes; the hardware runs these on its own timing (docs/app-api.md).
+ */
+export function padLight(pad: Pad, paletteLeds: boolean, beats: number): { rgb: Rgb; b: number } {
+  const p = paletteLeds ? pad.palette : null
+  if (!p) return { rgb: pad.rgb, b: brightness(pad, beats) }
+  if (p.mode === 'flash' && p.flashRgb && beats - Math.floor(beats) >= 0.5) {
+    return { rgb: p.flashRgb, b: brightness({ level: p.flashLevel ?? 'off', anim: 'solid' }, beats) }
+  }
+  const anim = p.mode === 'flash' ? 'solid' : p.mode
+  return { rgb: p.rgb, b: brightness({ level: p.level, anim }, beats) }
+}
+
 /** CSS colour for an LED colour at full brightness (0–127 per channel → 0–255). */
 export function css([r, g, b]: Rgb, alpha = 1): string {
   const s = (c: number) => Math.round((c / 127) * 255)
@@ -42,7 +58,7 @@ export const LAMP = {
   startStop: 119,
 } as const
 
-const OFF_PAD: Pad = { note: 0, label: '', key: '', rgb: [0, 0, 0], level: 'off', anim: 'solid', action: null }
+const OFF_PAD: Pad = { note: 0, label: '', key: '', rgb: [0, 0, 0], level: 'off', anim: 'solid', action: null, palette: null }
 
 /** The section lamp on page-1 note `note`. */
 export function lamp(s: AppState, note: number): Pad {

@@ -2,7 +2,7 @@ import { cleanup, fireEvent, render } from '@testing-library/svelte'
 import { flushSync } from 'svelte'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { MockSession } from '../../lib/api/mock'
-import { settings } from '../../lib/api/settings.svelte'
+import type { AppState } from '../../lib/api/types'
 import { app, ui } from '../../lib/store.svelte'
 import { nav } from './nav.svelte'
 import { keyAt, keysBetween, noteName, SPLIT_MAX, SPLIT_MIN } from './notes'
@@ -22,7 +22,6 @@ afterEach(() => {
   app.detach()
   ui.settings = false
   nav.tab = 'chord'
-  settings.reset()
 })
 
 const q = <T extends HTMLElement = HTMLElement>(sel: string) => document.querySelector<T>(sel)!
@@ -145,36 +144,48 @@ describe('Settings drawer', () => {
     expect(s.state.mixer.master).toBe(90)
   })
 
-  it('switches the SoundFont through the settings adapter', async () => {
-    setup()
+  it('switches the SoundFont', async () => {
+    const s = setup()
     const fonts = byTip('audio.soundfont')
-    expect(fonts.length).toBeGreaterThan(1)
-    expect(fonts[0].getAttribute('aria-checked')).toBe('true') // GeneralUser-GS, from io.synth
+    expect(fonts.length).toBe(s.state.io.soundFonts.length)
+    expect(fonts[0].getAttribute('aria-checked')).toBe('true') // GeneralUser-GS, io.soundFontFile
     await fireEvent.click(fonts[1])
+    expect(s.state.io.soundFontFile).toBe('FluidR3_GM.sf2')
     expect(fonts[1].getAttribute('aria-checked')).toBe('true')
-    expect(settings.soundFontFile).toBe('FluidR3_GM.sf2')
   })
 
   it('MIDI: merging all inputs, or picking sources', async () => {
-    setup()
+    const s = setup()
     const sources = () => byTip('midi.input')
     expect(sources().every((b) => b.getAttribute('aria-checked') === 'true')).toBe(true)
     await fireEvent.click(sources()[0]) // switching one off in All mode moves to Selected
-    expect(settings.allInputs).toBe(false)
+    expect(s.state.io.allInputs).toBe(false)
     expect(sources()[0].getAttribute('aria-checked')).toBe('false')
     expect(sources()[1].getAttribute('aria-checked')).toBe('true')
     await fireEvent.click(byTip('midi.merge_all')[0])
-    expect(settings.allInputs).toBe(true)
+    expect(s.state.io.allInputs).toBe(true)
     expect(page('midi').textContent).toContain('yahaha')
     expect(page('midi').textContent).toContain('Connected')
     await fireEvent.click(byTip('midi.palette_leds')[0])
-    expect(settings.paletteLeds).toBe(true)
+    expect(s.state.pads.paletteLeds).toBe(true)
   })
 
-  it('on the real engine, settings it lacks are badged, inert and show no sample data', async () => {
+  it('on the real engine every setting is live: no badges', async () => {
+    const s = setup()
+    app.kind = 'tauri'
+    flushSync()
+    expect(document.querySelectorAll('.badge.mock').length).toBe(0)
+    await fireEvent.click(byTip('settings.rescan')[0])
+    expect(s.state.library.scanning).toBe(true)
+  })
+
+  it('on an engine older than these settings, they are badged, inert and show no sample data', async () => {
     const s = new MockSession({ manual: true, demo: false })
-    app.attach(s)
-    app.kind = 'tauri' // what a Tauri session reports; the mock state stands in for the engine's
+    const st = structuredClone(s.state) as unknown as { io: Record<string, unknown>; library: Record<string, unknown> }
+    for (const k of ['sources', 'allInputs', 'soundFonts', 'soundFontFile', 'soundFontLoading']) delete st.io[k]
+    for (const k of ['roots', 'scanning']) delete st.library[k]
+    const sent = vi.fn()
+    app.attach({ kind: 'tauri', subscribe: (fn) => (fn(st as unknown as AppState), () => {}), send: sent, library: () => s.library(), meters: () => s.meters(), dispose: () => {} })
     ui.settings = true
     flushSync()
     render(Settings)
@@ -183,39 +194,27 @@ describe('Settings drawer', () => {
     const fonts = byTip('audio.soundfont')
     expect(fonts).toHaveLength(1) // only the one the synth plays, no made-up files
     await fireEvent.click(fonts[0])
-    expect(settings.soundFontFile).toBe(null)
-
     const sources = byTip('midi.input')
-    expect(sources).toHaveLength(s.state.io.inputs.length) // no mock-only sources
+    expect(sources).toHaveLength(s.state.io.inputs.length) // the inputs it has open
     await fireEvent.click(sources[0])
-    expect(settings.chosen).toBe(null)
     expect(sources[0].getAttribute('aria-checked')).toBe('true')
     expect(byTip('midi.merge_all').every((b) => b.getAttribute('aria-checked') === 'false')).toBe(true)
     await fireEvent.click(byTip('midi.merge_all')[1])
-    expect(settings.allInputs).toBe(true)
-
     await fireEvent.click(byTip('midi.palette_leds')[0])
-    expect(settings.paletteLeds).toBe(false)
-    expect(byTip('midi.palette_leds')[0].textContent).toContain('Set at launch')
-
     expect(byTip('settings.style_folders')[0].textContent).toContain("doesn't report")
     await fireEvent.click(byTip('settings.rescan')[0])
     expect(page('library').textContent).not.toContain('Scanning')
+    expect(sent).not.toHaveBeenCalled() // nothing sent that the engine can't run
   })
 
   it('library: lists the folders and rescans', async () => {
-    vi.useFakeTimers()
-    try {
-      setup()
-      expect(byTip('settings.style_folders')[0].querySelectorAll('li').length).toBeGreaterThan(0)
-      await fireEvent.click(byTip('settings.rescan')[0])
-      expect(page('library').textContent).toContain('Scanning')
-      vi.advanceTimersByTime(1500)
-      flushSync()
-      expect(page('library').textContent).toContain('Rescan styles')
-    } finally {
-      vi.useRealTimers()
-    }
+    const s = setup()
+    expect(byTip('settings.style_folders')[0].querySelectorAll('li').length).toBeGreaterThan(0)
+    await fireEvent.click(byTip('settings.rescan')[0])
+    expect(page('library').textContent).toContain('Scanning')
+    s.advance(1500)
+    flushSync()
+    expect(page('library').textContent).toContain('Rescan styles')
   })
 })
 

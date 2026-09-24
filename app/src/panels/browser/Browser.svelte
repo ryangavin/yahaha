@@ -72,7 +72,7 @@
   const auditionId = $derived(app.state.preview?.audition?.id ?? null)
   const queuedId = $derived(app.state.preview?.queued ?? null)
   const rowAction = $derived(!canPreview ? null : running ? ('queue' as const) : ('preview' as const))
-  // < Track / Track > neighbours: the engine's (`state.surface`), derived only while it doesn't send them.
+  // < Track / Track > neighbours: the engine's (`state.surface`).
   const near = $derived(surfaceOf(app.state, app.library))
   const prevId = $derived(near.trackPrev?.id ?? null)
   const nextId = $derived(near.trackNext?.id ?? null)

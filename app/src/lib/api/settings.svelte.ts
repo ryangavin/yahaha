@@ -1,30 +1,21 @@
-// The settings adapter: settings the Settings drawer shows that `AppCmd` / `AppState`
-// don't have yet. Everything the engine already has goes straight through `app.send`;
-// only the gaps below are mocked here, in the shape proposed to the engine (NEED lines on
-// the coordination board). When the engine grows them, `view()` reads the real fields and
-// `send()` forwards the command, and the mock state here stops being used.
+// The settings adapter: the Settings drawer's view of the SoundFont, MIDI input, palette
+// LED and style-folder settings, and the commands that change them. The engine has all of
+// them (docs/app-api.md):
 //
-// Proposed engine API (AppCmd JSON, camelCase like the rest):
-//   {"type":"setSoundFont","file":"FluidR3_GM.sf2"}          reloads the synth's SoundFont from soundfonts/
-//   {"type":"setMidiInputs","all":true,"names":[]}            merge every source, or only `names`
-//   {"type":"setPaletteLeds","on":true}                        Novation palette colours instead of RGB SysEx
-//   {"type":"rescanLibrary"}                                   re-walk the style folders
-// Proposed AppState fields:
-//   io.soundFonts: string[]            the .sf2 files in soundfonts/, by file name
-//   io.soundFontFile: string           the file the synth plays (io.synth.soundFont is its display name)
-//   io.sources: {name, listening}[]    every MIDI source, connected or chosen
-//   io.allInputs: bool                 merging every source (--all-inputs)
-//   pads.paletteLeds: bool             --palette-leds
-//   library.roots: string[]            the style folders scanned (Options.paths)
-//   library.scanning: bool             a rescan is running
+//   {"type":"setSoundFont","file":"FluidR3_GM.sf2"}   io.soundFonts, io.soundFontFile, io.soundFontLoading
+//   {"type":"setMidiInputs","all":true,"names":[]}    io.sources, io.allInputs
+//   {"type":"setPaletteLeds","on":true}               pads.paletteLeds
+//   {"type":"rescanLibrary"}                          library.roots, library.scanning
+//
+// `view()` reads those fields and `send()` sends the command. `mocked` says, per setting,
+// whether the engine lacks it: only an engine older than these fields does. The drawer
+// then badges the setting and makes it inert, and the view shows only what that engine
+// reports (the SoundFont playing, the inputs it has open), never made-up data.
 
-import type { AppState } from './types'
+import { app } from '../store.svelte'
+import type { AppCmd, AppState } from './types'
 
-export type ProposedCmd =
-  | { type: 'setSoundFont'; file: string }
-  | { type: 'setMidiInputs'; all: boolean; names: string[] }
-  | { type: 'setPaletteLeds'; on: boolean }
-  | { type: 'rescanLibrary' }
+export type SettingsCmd = Extract<AppCmd, { type: 'setSoundFont' | 'setMidiInputs' | 'setPaletteLeds' | 'rescanLibrary' }>
 
 export interface MidiSource {
   name: string
@@ -37,139 +28,77 @@ export interface MidiSource {
 export interface SettingsView {
   soundFonts: string[]
   soundFontFile: string | null
+  /** A SoundFont is loading. */
+  soundFontLoading: boolean
   sources: MidiSource[]
-  /** null: the engine doesn't say (real engine, field not there yet). */
+  /** null: the engine doesn't say. */
   allInputs: boolean | null
   paletteLeds: boolean | null
   roots: string[]
   scanning: boolean
-  /**
-   * Per setting: true while the engine doesn't have it. On the mock session these are
-   * simulated here; on the real engine the drawer badges them and makes them inert, and
-   * this view shows only what the engine really reports (never the mock's sample data).
-   */
+  /** Per setting: the engine lacks it (an engine older than these settings). */
   mocked: { soundFont: boolean; inputs: boolean; paletteLeds: boolean; library: boolean }
 }
 
-/** The proposed fields, as they'd arrive on AppState. */
-type Proposed = {
-  io?: { soundFonts?: string[]; soundFontFile?: string; sources?: { name: string; listening: boolean }[]; allInputs?: boolean }
-  pads?: { paletteLeds?: boolean }
-  library?: { roots?: string[]; scanning?: boolean }
+/** The fields as an older engine may lack them. */
+type Maybe = {
+  io: Partial<Pick<AppState['io'], 'soundFonts' | 'soundFontFile' | 'soundFontLoading' | 'sources' | 'allInputs'>>
+  pads: Partial<Pick<AppState['pads'], 'paletteLeds'>>
+  library: Partial<Pick<AppState['library'], 'roots' | 'scanning'>>
 }
-
-/** Sources the mock adds to what `io.inputs` lists: the owner's audio interface and the IAC bus. */
-const MOCK_EXTRA_SOURCES = ['TASCAM Model 16', 'IAC Driver Bus 1']
-const MOCK_SOUNDFONTS = ['GeneralUser-GS.sf2', 'FluidR3_GM.sf2', 'MuseScore_General.sf2']
-const MOCK_ROOTS = ['~/Music/Styles/Genos', '~/Music/Styles/PSR-SX900', 'corpus']
-const RESCAN_MS = 1200
 
 function isPadsPort(name: string): boolean {
   return name.endsWith(' (pads)')
 }
 
+/** Which settings the engine behind `s` has. */
+function mockedIn(s: AppState): SettingsView['mocked'] {
+  const p = s as unknown as Maybe
+  const inputs = p.io.sources === undefined
+  return {
+    soundFont: p.io.soundFonts === undefined,
+    inputs,
+    // pads.paletteLeds came before setPaletteLeds (#77), so the command's age goes by the
+    // fields that came with it.
+    paletteLeds: inputs || p.pads.paletteLeds === undefined,
+    library: p.library.roots === undefined,
+  }
+}
+
+const KIND: Record<SettingsCmd['type'], keyof SettingsView['mocked']> = {
+  setSoundFont: 'soundFont',
+  setMidiInputs: 'inputs',
+  setPaletteLeds: 'paletteLeds',
+  rescanLibrary: 'library',
+}
+
 class SettingsAdapter {
-  soundFontFile = $state<string | null>(null)
-  allInputs = $state(true)
-  chosen = $state<string[] | null>(null)
-  paletteLeds = $state(false)
-  scanning = $state(false)
-  private timer: ReturnType<typeof setTimeout> | null = null
-
-  /**
-   * Everything the drawer shows, from the engine when it has the field. A missing field
-   * is simulated on the mock session; on the real engine (`real`) it shows only what the
-   * engine does report, so nothing made up appears there.
-   */
-  view(s: AppState, real = false): SettingsView {
-    const p = s as unknown as Proposed
-    const mocked = {
-      soundFont: p.io?.soundFonts === undefined,
-      inputs: p.io?.sources === undefined,
-      paletteLeds: p.pads?.paletteLeds === undefined,
-      library: p.library?.roots === undefined,
-    }
-    const connected = s.io.inputs
+  /** Everything the drawer shows, from the engine's state. */
+  view(s: AppState): SettingsView {
+    const p = s as unknown as Maybe
+    const mocked = mockedIn(s)
     const synthFile = s.io.synth ? `${s.io.synth.soundFont}.sf2` : null
-
-    let sources: MidiSource[]
-    let allInputs: boolean | null
-    if (!mocked.inputs) {
-      sources = p.io!.sources!.map((x) => ({ name: x.name, pads: isPadsPort(x.name), listening: x.listening }))
-      allInputs = p.io?.allInputs ?? null
-    } else if (real) {
-      // The engine lists only the inputs it has open, and all of them play.
-      sources = connected.map((name) => ({ name, pads: isPadsPort(name), listening: true }))
-      allInputs = null
-    } else {
-      const chosen = this.chosen ?? connected
-      sources = [...connected, ...MOCK_EXTRA_SOURCES.filter((n) => !connected.includes(n))].map((name) => ({
-        name,
-        pads: isPadsPort(name),
-        listening: this.allInputs || chosen.includes(name),
-      }))
-      allInputs = this.allInputs
-    }
-
-    let soundFonts: string[]
-    let soundFontFile: string | null
-    if (!mocked.soundFont) {
-      soundFonts = p.io!.soundFonts!
-      soundFontFile = p.io?.soundFontFile ?? null
-    } else if (real) {
-      // Only the one the synth is playing: the engine can't list or switch them yet.
-      soundFonts = synthFile ? [synthFile] : []
-      soundFontFile = synthFile
-    } else {
-      soundFonts = MOCK_SOUNDFONTS
-      soundFontFile = this.soundFontFile ?? (synthFile && MOCK_SOUNDFONTS.includes(synthFile) ? synthFile : null)
-    }
-
+    const sources = mocked.inputs
+      ? // The inputs it has open, and all of them play.
+        s.io.inputs.map((name) => ({ name, pads: isPadsPort(name), listening: true }))
+      : p.io.sources!.map((x) => ({ name: x.name, pads: x.pads ?? isPadsPort(x.name), listening: x.listening }))
     return {
-      soundFonts,
-      soundFontFile,
+      // Without the list: only the one the synth plays.
+      soundFonts: mocked.soundFont ? (synthFile ? [synthFile] : []) : p.io.soundFonts!,
+      soundFontFile: mocked.soundFont ? synthFile : (p.io.soundFontFile ?? null),
+      soundFontLoading: p.io.soundFontLoading ?? false,
       sources,
-      allInputs,
-      paletteLeds: p.pads?.paletteLeds ?? (real ? null : this.paletteLeds),
-      roots: p.library?.roots ?? (real ? [] : MOCK_ROOTS),
-      scanning: p.library?.scanning ?? ((!real && this.scanning) || s.library.pending > 0),
+      allInputs: p.io.allInputs ?? null,
+      paletteLeds: p.pads.paletteLeds ?? null,
+      roots: p.library.roots ?? [],
+      scanning: p.library.scanning ?? s.library.pending > 0,
       mocked,
     }
   }
 
-  /** Applies a proposed command to the mock. (When the engine has it: `app.send(cmd)`.) */
-  send(cmd: ProposedCmd) {
-    switch (cmd.type) {
-      case 'setSoundFont':
-        this.soundFontFile = cmd.file
-        break
-      case 'setMidiInputs':
-        this.allInputs = cmd.all
-        this.chosen = cmd.names
-        break
-      case 'setPaletteLeds':
-        this.paletteLeds = cmd.on
-        break
-      case 'rescanLibrary':
-        this.scanning = true
-        if (this.timer) clearTimeout(this.timer)
-        this.timer = setTimeout(() => {
-          this.scanning = false
-          this.timer = null
-        }, RESCAN_MS)
-        break
-    }
-  }
-
-  /** Back to the defaults (tests). */
-  reset() {
-    if (this.timer) clearTimeout(this.timer)
-    this.timer = null
-    this.soundFontFile = null
-    this.allInputs = true
-    this.chosen = null
-    this.paletteLeds = false
-    this.scanning = false
+  /** Send a settings command, if the engine has it. */
+  send(cmd: SettingsCmd) {
+    if (!mockedIn(app.state)[KIND[cmd.type]]) app.send(cmd)
   }
 }
 

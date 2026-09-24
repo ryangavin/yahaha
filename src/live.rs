@@ -104,10 +104,10 @@ pub struct Shared {
     pub spin_ns: AtomicU64,
     /// The keyboard parts (Right 1-3, Left) and the fader page.
     pub parts: Arc<Parts>,
-    /// Keys held (as played, 128 bits in two words), by the side of the split they went
-    /// to (see `R_LH`, `R_RH`): the app's key strip. The input thread keeps them.
-    pub held_lh: [AtomicU64; 2],
-    pub held_rh: [AtomicU64; 2],
+    /// Each key as the input thread last saw it, for the app's key strip: `KEY_HELD`, the
+    /// side of the split it went to (`KEY_RIGHT`), and the keyboard parts sounding it
+    /// (bits 0-3 = Right 1, Right 2, Right 3, Left).
+    pub keys: [AtomicU8; 128],
     /// How many keys each keyboard source slot holds (`key_tag`).
     pub src_held: [AtomicU8; MAX_KEY_SOURCES],
 }
@@ -139,8 +139,7 @@ impl Shared {
             work_lat: Histogram::new(),
             spin_ns: AtomicU64::new(150_000),
             parts: Arc::new(Parts::new()),
-            held_lh: [AtomicU64::new(0), AtomicU64::new(0)],
-            held_rh: [AtomicU64::new(0), AtomicU64::new(0)],
+            keys: std::array::from_fn(|_| AtomicU8::new(0)),
             src_held: std::array::from_fn(|_| AtomicU8::new(0)),
         }
     }
@@ -148,9 +147,17 @@ impl Shared {
     /// The keys held: (all of them, the ones on the right of the split), as bit masks
     /// (bit k of word k / 64).
     pub fn held_keys(&self) -> ([u64; 2], [u64; 2]) {
-        let w = |a: &[AtomicU64; 2]| [a[0].load(Relaxed), a[1].load(Relaxed)];
-        let (l, r) = (w(&self.held_lh), w(&self.held_rh));
-        ([l[0] | r[0], l[1] | r[1]], r)
+        let (mut held, mut right) = ([0u64; 2], [0u64; 2]);
+        for (k, a) in self.keys.iter().enumerate() {
+            let v = a.load(Relaxed);
+            if v & KEY_HELD != 0 {
+                held[k / 64] |= 1 << (k % 64);
+                if v & KEY_RIGHT != 0 {
+                    right[k / 64] |= 1 << (k % 64);
+                }
+            }
+        }
+        (held, right)
     }
 
     /// Sync Stop is available: always in Upper (Fingered*), else unless the fingering type
@@ -216,6 +223,13 @@ impl crate::engine::Sink for Out {
 /// source holds are known when it is disconnected.
 pub const TAG_KEYS: usize = 1;
 pub const TAG_PADS: usize = 2;
+
+/// `Shared::keys`: the key is held, and on the right of the split; the low 4 bits are the
+/// keyboard parts sounding it.
+pub const KEY_HELD: u8 = 0x80;
+pub const KEY_RIGHT: u8 = 0x40;
+pub const KEY_PARTS: u8 = 0x0F;
+
 pub const KEY_TAG_BASE: usize = 16;
 /// Keyboard source slots (slot 0 is `TAG_KEYS`).
 pub const MAX_KEY_SOURCES: usize = 16;
@@ -462,21 +476,18 @@ impl Input {
         self.release = Some(rx);
     }
 
-    /// Note key `k` held (`r` = its side) or let go (`r` = 0) for the key strip, and by
-    /// source slot.
-    fn track_key(&mut self, slot: usize, k: u8, r: u8) {
+    /// Note key `k` held (`r` = its side, `sounded` where it sounds) or let go (`r` = 0)
+    /// for the key strip, and by source slot.
+    fn track_key(&mut self, slot: usize, k: u8, r: u8, sounded: Sounded) {
         let (w, b) = ((k >> 6) as usize, 1u64 << (k & 63));
         let sh = &self.shared;
-        if r == R_LH {
-            sh.held_lh[w].fetch_or(b, Relaxed);
-            sh.held_rh[w].fetch_and(!b, Relaxed);
-        } else if r == R_RH {
-            sh.held_rh[w].fetch_or(b, Relaxed);
-            sh.held_lh[w].fetch_and(!b, Relaxed);
+        let v = if r == 0 {
+            0
         } else {
-            sh.held_lh[w].fetch_and(!b, Relaxed);
-            sh.held_rh[w].fetch_and(!b, Relaxed);
-        }
+            let parts = sounded.iter().filter_map(|(ch, _)| parts::part_of_channel(ch)).fold(0u8, |m, p| m | 1 << p);
+            KEY_HELD | if r == R_RH { KEY_RIGHT } else { 0 } | (parts & KEY_PARTS)
+        };
+        sh.keys[k as usize & 127].store(v, Relaxed);
         let slot = slot.min(MAX_KEY_SOURCES - 1);
         if r != 0 {
             if self.src_keys[slot][w] & b == 0 {
@@ -556,7 +567,6 @@ impl Input {
                 let r = if left { R_LH } else { R_RH };
                 let chord = r == self.chord_side();
                 self.route[k as usize] = r;
-                self.track_key(slot, k, r);
                 let full = !self.shared.upper.load(Relaxed) && Fingering::from_u8(self.shared.fingering.load(Relaxed)).full_keyboard();
                 let chord_only = !self.shared.upper.load(Relaxed) && !full;
                 let now = sounds(&self.shared.parts, left, chord_only, k, self.shared.key_shift.load(Relaxed));
@@ -568,6 +578,7 @@ impl Input {
                 for (ch, note) in now.iter() {
                     self.out.push(&[0x90 | ch, note, m[2]]);
                 }
+                self.track_key(slot, k, r, now);
                 // The Full Keyboard types (Lower only) read both hands.
                 if chord || full {
                     self.recompute();
@@ -579,7 +590,7 @@ impl Input {
                     self.out.push(&[0x80 | ch, note, 0]);
                 }
                 let r = std::mem::take(&mut self.route[k as usize]);
-                self.track_key(slot, k, 0);
+                self.track_key(slot, k, 0, Sounded::default());
                 if r != 0 {
                     // Sync Stop: the last key of the current chord section went up.
                     let side = self.chord_side();

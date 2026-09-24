@@ -20,7 +20,7 @@ export const PAGE_RGB: Record<PadPage, Rgb> = { sections: C_TAP, chordSetup: [0,
 type Look = { rgb: Rgb; level: Level; anim: Anim }
 const look = (rgb: Rgb, level: Level, anim: Anim = 'solid'): Look => ({ rgb, level, anim })
 const toggle = (on: boolean, rgb: Rgb) => look(rgb, on ? 'bright' : 'dim')
-const pad = (note: number, label: string, key: string, action: AppCmd | null, l: Look): Pad => ({ note, label, key, action, ...l })
+const pad = (note: number, label: string, key: string, action: AppCmd | null, l: Look): Pad => ({ note, label, key, action, ...l, palette: null })
 
 function sectionPads(s: AppState): Pad[] {
   const t = s.transport

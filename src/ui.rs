@@ -642,6 +642,7 @@ pub fn screen_html(style: &Path, out: &Path) -> Result<()> {
         anchor_beats: 6.0,
         style_tag: 0,
         style_pending: false,
+        section_bars: 4,
         audition: None,
     });
     // What a live session with the synth and a Launchkey would add.

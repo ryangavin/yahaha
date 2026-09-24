@@ -6,7 +6,7 @@
 
 import fixture from './mock-fixture.json'
 import { syntheticStyles } from './mock-library'
-import { deriveSurface } from '../surface'
+import { clockAt, mockSurface, type MockHardware } from './mock-surface'
 import { padsFor } from './mock-pads'
 import type { Session } from './session'
 import {
@@ -68,7 +68,10 @@ function entryOf(s: FixtureStyle): LibraryEntry {
   }
 }
 
-export const LIBRARY: LibraryList = { revision: 1, entries: STYLES.map(entryOf) }
+/** The voices `setPartVoice` picks from, as the engine lists them (GM, bank 0). */
+export const VOICES: LibraryList['voices'] = GM.map((name, program) => ({ program, bankMsb: 0, bankLsb: 0, name }))
+
+export const LIBRARY: LibraryList = { revision: 1, entries: STYLES.map(entryOf), voices: VOICES }
 
 /** The fixture plus `extra` synthetic styles, in the engine's order (folder, then name). */
 function bigLibrary(extra: number): { lib: LibraryList; styles: FixtureStyle[] } {
@@ -80,10 +83,21 @@ function bigLibrary(extra: number): { lib: LibraryList; styles: FixtureStyle[] }
     for (let i = 0; i < 3; i++) if (x[i] !== y[i]) return x[i] < y[i] ? -1 : 1
     return 0
   })
-  return { lib: { revision: 1, entries }, styles }
+  return { lib: { revision: 1, entries, voices: VOICES }, styles }
 }
 
-/** The default progression an audition plays, one chord a bar (provisional, #21). */
+/** The MIDI sources the mock rig has (every one a keyboard: `allInputs`). */
+const MOCK_SOURCES = [
+  { name: 'Launchkey 49 MK4 LKMK4 MIDI Out', listening: true, pads: false },
+  { name: 'Launchkey 49 MK4 LKMK4 DAW Out', listening: true, pads: true },
+  { name: 'TASCAM Model 16', listening: true, pads: false },
+  { name: 'IAC Driver Bus 1', listening: true, pads: false },
+]
+const MOCK_SOUND_FONTS = ['GeneralUser-GS.sf2', 'FluidR3_GM.sf2', 'MuseScore_General.sf2']
+/** How long the mock's rescan takes. */
+const RESCAN_MS = 1200
+
+/** The default progression an audition plays, one chord a bar (#21). */
 export const AUDITION_PROGRESSION = ['C', 'Am', 'F', 'G7']
 
 const NOTE_NAMES = ['C', 'C#', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'Ab', 'A', 'Bb', 'B']
@@ -100,6 +114,22 @@ export function transposeChord(name: string, d: number): string {
     return i < 0 ? root : NOTE_NAMES[(((i + d) % 12) + 12) % 12]
   }
   return name.replace(/^([A-G][b#]?)/, (m) => shift(m)).replace(/\/([A-G][b#]?)$/, (_, m) => '/' + shift(m))
+}
+
+/** Intervals of the chord qualities the mock's progression uses (the engine recognises many more). */
+const QUALITIES: Record<string, number[]> = {
+  '': [0, 4, 7], m: [0, 3, 7], '7': [0, 4, 7, 10], m7: [0, 3, 7, 10], maj7: [0, 4, 7, 11], '6': [0, 4, 7, 9],
+  m6: [0, 3, 7, 9], sus4: [0, 5, 7], '7sus4': [0, 5, 7, 10], dim: [0, 3, 6], aug: [0, 4, 8],
+}
+
+/** The mock's stand-in for the engine's chord tones: pitch classes, root first, and the bass. */
+export function chordTones(name: string | null): { tones: number[]; bass: number | null } {
+  const m = name ? /^([A-G][b#]?)([^/]*)(?:\/([A-G][b#]?))?$/.exec(name) : null
+  const root = m ? NOTE_NAMES.indexOf(m[1]) : -1
+  if (!m || root < 0) return { tones: [], bass: null }
+  const tones = (QUALITIES[m[2]] ?? QUALITIES['']).map((i) => (root + i) % 12)
+  const slash = m[3] ? NOTE_NAMES.indexOf(m[3]) : -1
+  return { tones, bass: slash >= 0 ? slash : root }
 }
 
 const PROGRESSION = ['C', 'Am7', 'Fmaj7', 'G7', 'Em7', 'A7', 'Dm7', 'G7sus4', 'C/E', 'F', 'Fm6', 'C']
@@ -144,12 +174,17 @@ function beatsPerBar([n, d]: [number, number]): number {
   return d === 8 && n % 3 === 0 ? n / 3 : n
 }
 
+/** How long a section's pattern is, in bars (the mock's; real styles vary). */
+function patternBars(s: string): number {
+  return MAINS.includes(s) ? 4 : sectionBars(s)
+}
+
 /** A stopped session with the first style loaded and Sync Start armed. */
 export function initialState(): AppState {
   const s = STYLES[0]
   const part = (i: number, program: number, on: boolean) => ({
     name: KEYBOARD_PART_NAMES[i], channel: [1, 3, 4, 2][i], on, sounding: on, selected: i === 0,
-    volume: 100, waiting: false, program, voiceName: GM[program], playsBass: false, octave: 0,
+    volume: 100, waiting: false, program, voiceName: GM[program], playsBass: false, octave: 0, fader: null,
   })
   const state: AppState = {
     version: 1,
@@ -157,29 +192,30 @@ export function initialState(): AppState {
     transport: {
       running: false, syncStart: true, syncStop: false, syncStopAvailable: true, autoFill: false, stopAcmp: false,
       section: null, queued: null, pendingIntro: null, main: 0, bar: 1, beat: 1,
-      beatsPerBar: beatsPerBar([s.timeSignature[0], s.timeSignature[1]]), tempo: s.tempo, lamps: [],
+      beatsPerBar: beatsPerBar([s.timeSignature[0], s.timeSignature[1]]), tempo: s.tempo, lamps: [], sectionBars: null,
     },
     chord: {
       name: null, fingered: null, fingering: 'fingeredOnBass', fingeringName: 'Fingered On Bass', upper: false,
       manualBass: true, manualBassActive: false, split: 54, splitName: noteName(54), transposeKeyboard: 0, transposeMaster: 0,
     },
     keyboardParts: [part(0, 0, true), part(1, 48, false), part(2, 61, false), part(3, 48, false)],
+    keyboard: { held: [], leftSplit: 54, chordTones: [], chordBass: null, detection: [0, 54] },
     mixer: {
       faderPage: 'panel',
       styleParts: STYLE_PART_NAMES.map((name, i) => ({
         name, channel: 9 + i, on: true, mutedByManualBass: false,
-        volume: [100, 100, 96, 80, 76, 70, 88, 84][i], waiting: false,
+        volume: [100, 100, 96, 80, 76, 70, 88, 84][i], waiting: false, fader: null,
         voice: { bankMsb: STYLE_VOICES[i][0], bankLsb: STYLE_VOICES[i][1], program: STYLE_VOICES[i][2], kit: STYLE_VOICES[i][3], label: STYLE_VOICES[i][4] },
       })),
       master: 100,
       masterWaiting: false,
     },
-    pads: { page: 'sections', pageName: 'Sections', pageNumber: 1, pageCount: 3, pads: [], connected: true },
+    pads: { page: 'sections', pageName: 'Sections', pageNumber: 1, pageCount: 3, pads: [], connected: true, paletteLeds: false },
     ots: { settings: otsSettings(s.ots), applied: 0, link: false },
-    library: { revision: LIBRARY.revision, count: LIBRARY.entries.length, position: 0, pending: 0 },
+    library: { revision: LIBRARY.revision, count: LIBRARY.entries.length, position: 0, pending: 0, roots: [ROOT], scanning: false },
     io: {
       outputPort: 'yahaha',
-      inputs: ['Launchkey 49 MK4 LKMK4 MIDI Out', 'Launchkey 49 MK4 LKMK4 DAW Out (pads)'],
+      inputs: MOCK_SOURCES.map((s) => (s.pads ? `${s.name} (pads)` : s.name)),
       synth: {
         soundFont: 'GeneralUser-GS', device: 'MacBook Pro Speakers', sampleRate: 48000, bufferFrames: 64,
         channels: 2, outputPair: [1, 2], muted: false,
@@ -188,17 +224,32 @@ export function initialState(): AppState {
       lastControl: 0,
       unmapped: '',
       offline: false,
+      sources: MOCK_SOURCES.map((s) => ({ ...s })),
+      allInputs: true,
+      soundFonts: [...MOCK_SOUND_FONTS],
+      soundFontFile: MOCK_SOUND_FONTS[0],
+      soundFontLoading: false,
     },
     message: null,
+    surface: null as unknown as AppState['surface'], // filled in by derive()
     preview: { audition: null, queued: null },
   }
   derive(state, LIBRARY)
   return state
 }
 
+/** A stopped clock at session time 0, and faders that haven't moved. */
+function idleHardware(st: AppState): MockHardware {
+  const clock = {
+    atMs: 0, running: false, tempo: st.transport.tempo, beatsPerBar: st.transport.beatsPerBar, bar: 1, beat: 1, phase: 0,
+    sectionAnchorMs: 0, sectionAnchorBeats: 0, ledAnchorMs: 0, ledAnchorBeats: 0,
+  }
+  return { faders: Array(9).fill(null), clock }
+}
+
 /** The fields the engine computes from the others: pads, lamps, names, flags, and the
- * provisional `surface` (with the mock's hardware fader positions and beat clock). */
-function derive(st: AppState, lib: LibraryList, hw: { faders: number[]; beats: number; atMs: number } | null = null) {
+ * `surface` (with the mock's hardware fader positions and clocks). */
+function derive(st: AppState, lib: LibraryList, hw: MockHardware | null = null, held: number[] = []) {
   const c = st.chord
   c.fingeringName = c.upper ? 'Fingered*' : FINGERINGS.find((f) => f.id === c.fingering)!.name
   c.manualBassActive = c.upper && c.manualBass
@@ -210,17 +261,35 @@ function derive(st: AppState, lib: LibraryList, hw: { faders: number[]; beats: n
     p.voiceName = p.playsBass ? 'Finger Bass' : GM[p.program]
   })
   st.mixer.styleParts.forEach((p, i) => (p.mutedByManualBass = i === 2 && c.manualBassActive))
+  st.transport.sectionBars = st.transport.section ? patternBars(st.transport.section) : null
+  // The keyboard strip: which part sounds each held key, and the chord's tones.
+  const right = st.keyboardParts.slice(0, 3).flatMap((p, i) => (p.on ? [i] : []))
+  const left = st.keyboardParts[3].sounding ? [3] : []
+  const ct = chordTones(c.name)
+  st.keyboard = {
+    held: [...held].sort((a, b) => a - b).map((note) => {
+      const lower = note <= c.split
+      return { note, zone: lower ? ('left' as const) : ('right' as const), parts: lower ? left : right }
+    }),
+    leftSplit: c.split,
+    chordTones: ct.tones,
+    chordBass: ct.bass,
+    // Lower: up to the split; Upper: above it; the Full Keyboard types: every key.
+    detection: c.upper
+      ? [Math.min(127, c.split + 1), 127]
+      : c.fingering === 'fullKeyboard' || c.fingering === 'aiFullKeyboard'
+        ? [0, 127]
+        : [0, c.split],
+  }
   const page = PAD_PAGES.findIndex((p) => p.id === st.pads.page)
   st.pads.pageName = PAD_PAGES[page].name
   st.pads.pageNumber = page + 1
   st.transport.lamps = padsFor(st, 'sections')
   st.pads.pads = padsFor(st, st.pads.page)
-  const surface = deriveSurface(st, lib)
-  if (hw) {
-    surface.faders.forEach((f, i) => (f.position = f.set ? hw.faders[i] : null))
-    surface.clock = { ...surface.clock, phase: hw.beats - Math.floor(hw.beats), atMs: hw.atMs }
-  }
-  st.surface = surface
+  const h = hw ?? idleHardware(st)
+  st.keyboardParts.forEach((p, i) => (p.fader = h.faders[i] ?? null))
+  st.mixer.styleParts.forEach((p, i) => (p.fader = h.faders[i] ?? null))
+  st.surface = mockSurface(st, lib, h)
 }
 
 /** How many bars a section lasts before it moves on (Intro/Ending: 2, Break/Fill: 1). */
@@ -251,11 +320,42 @@ export class MockSession implements Session {
   private progression = 0
   private messageSeq = 0
   private demo: boolean
+  /** Keys the (imaginary) player holds: a left-hand chord and a right-hand melody. */
+  private leftHand: number[] = []
+  private rightHand: number[] = []
   /** Where the (imaginary) hardware faders physically are: 1–8, master. */
   private hwFaders = [100, 72, 100, 100, 0, 0, 0, 0, 100]
+  /** The clocks as the engine anchors them (docs/app-api.md "surface.clock"). */
+  private anchor = { key: '', sectionMs: 0, sectionBeats: 0, ledMs: 0, ledBeats: 0, tempo: 0 }
+
+  /** The hardware faders and the clocks, read now. */
+  private hardware(): MockHardware {
+    const t = this.state.transport
+    const a = this.anchor
+    // The LED clock runs free; on a tempo change it re-anchors, carrying on.
+    if (t.tempo !== a.tempo) {
+      a.ledBeats = a.tempo ? a.ledBeats + ((this.now - a.ledMs) * a.tempo) / 60000 : 0
+      a.ledMs = this.now
+      a.tempo = t.tempo
+    }
+    // The section clock re-anchors when the section, its start or the tempo changes.
+    const key = `${t.running}:${t.section}:${this.sectionStart}:${t.tempo}`
+    if (key !== a.key) {
+      a.key = key
+      a.sectionMs = this.now
+      a.sectionBeats = t.running ? this.clock - this.sectionStart * t.beatsPerBar : 0
+    }
+    const clock = clockAt({
+      atMs: this.now, running: t.running, tempo: t.tempo, beatsPerBar: t.beatsPerBar, bar: 1, beat: 1, phase: 0,
+      sectionAnchorMs: a.sectionMs, sectionAnchorBeats: a.sectionBeats, ledAnchorMs: a.ledMs, ledAnchorBeats: a.ledBeats,
+    }, this.now)
+    return { faders: this.hwFaders, clock }
+  }
   private lib: LibraryList = LIBRARY
   private styles: FixtureStyle[] = STYLES
-  /** Beats into the audition playing (provisional, #21). */
+  /** Milliseconds left of a rescan (`rescanLibrary`). */
+  private scanLeft = 0
+  /** Beats into the audition playing (#21). */
   private auditionBeats = 0
 
   constructor(opts: MockOptions = {}) {
@@ -269,7 +369,7 @@ export class MockSession implements Session {
       this.state.library.position = this.lib.entries.findIndex((e) => e.id === this.state.style.id)
     }
     if (this.demo) this.demoStart()
-    derive(this.state, this.lib, { faders: this.hwFaders, beats: this.clock, atMs: this.now })
+    derive(this.state, this.lib, this.hardware(), [...this.leftHand, ...this.rightHand])
     if (!opts.manual) {
       this.last = performance.now()
       this.timer = setInterval(() => {
@@ -295,6 +395,8 @@ export class MockSession implements Session {
     st.ots.applied = 2
     st.chord.name = 'Am7'
     st.chord.fingered = 'Am7'
+    this.leftHand = this.leftVoicing('Am7')
+    this.rightHand = [72, 76]
     st.mixer.styleParts[5].waiting = true
     st.mixer.styleParts[5].volume = 58
     this.position()
@@ -310,6 +412,11 @@ export class MockSession implements Session {
     return Promise.resolve(this.lib)
   }
 
+  /** No audio: silent meters with no channels, as the engine without its synth. */
+  meters() {
+    return Promise.resolve({ atMs: this.now, channels: [], master: [0, 0] as [number, number], clips: 0 })
+  }
+
   dispose() {
     if (this.timer) clearInterval(this.timer)
     this.subs.clear()
@@ -322,7 +429,7 @@ export class MockSession implements Session {
 
   private publish() {
     this.state.version++
-    derive(this.state, this.lib, { faders: this.hwFaders, beats: this.clock, atMs: this.now })
+    derive(this.state, this.lib, this.hardware(), [...this.leftHand, ...this.rightHand])
     const snap = this.snapshot()
     for (const f of this.subs) f(snap)
   }
@@ -364,11 +471,15 @@ export class MockSession implements Session {
       this.chordArrives('C')
     }
     if (!t.running) this.stepAudition(ms)
+    if (this.scanLeft > 0) {
+      this.scanLeft -= ms
+      if (this.scanLeft <= 0) this.state.library.scanning = false
+    }
   }
 
-  // ── Style preview (provisional, #21): what the engine would do ──────────────
+  // ── Style preview (#21): what the engine does ─────────────────────────────
   private get preview(): PreviewState {
-    return (this.state.preview ??= { audition: null, queued: null })
+    return this.state.preview
   }
 
   private startAudition(id: number) {
@@ -403,6 +514,7 @@ export class MockSession implements Session {
 
   private onBeat() {
     const t = this.state.transport
+    if (this.demo) this.melody()
     if (t.queued && FILLS.includes(t.queued)) {
       t.section = t.queued
       t.queued = null
@@ -461,8 +573,35 @@ export class MockSession implements Session {
     }
   }
 
+  /** The demo's right hand: a chord tone per beat above the split, resting on the last beat. */
+  private melody() {
+    const beat = Math.floor(this.clock)
+    const bpb = this.state.transport.beatsPerBar
+    const { tones } = chordTones(this.state.chord.fingered)
+    if (!tones.length || beat % bpb === bpb - 1) {
+      this.rightHand = []
+      return
+    }
+    const tone = tones[(beat * 3) % tones.length]
+    const top = 72 + tone
+    this.rightHand = beat % bpb === 0 ? [60 + tones[0] + (tones[0] < 5 ? 12 : 0), top] : [top]
+  }
+
+  /** The demo's left hand: `chord` in close position, root at or just below the split. */
+  private leftVoicing(chord: string) {
+    const { tones } = chordTones(chord)
+    const split = this.state.chord.split
+    if (!tones.length) return []
+    const root = split - ((((split - tones[0]) % 12) + 12) % 12)
+    return tones.map((pc) => {
+      const n = root + ((pc - tones[0] + 12) % 12)
+      return n > split ? n - 12 : n
+    }).sort((a, b) => a - b)
+  }
+
   private chordArrives(chord: string) {
     const t = this.state.transport
+    if (this.demo) this.leftHand = this.leftVoicing(chord)
     const k = this.state.chord.transposeKeyboard
     this.state.chord.name = transposeChord(chord, k)
     this.state.chord.fingered = chord
@@ -484,6 +623,7 @@ export class MockSession implements Session {
 
   private stopBand() {
     const t = this.state.transport
+    this.rightHand = []
     // A style queued for the next bar loads when the band stops first.
     const q = this.preview.queued
     this.preview.queued = null
@@ -743,6 +883,25 @@ export class MockSession implements Session {
           const next = st.io.synth.outputPair[1] + 1
           st.io.synth.outputPair = next < st.io.synth.channels ? [next, next + 1] : [1, 2]
         }
+        break
+      case 'setSoundFont':
+        if (st.io.soundFonts.includes(cmd.file)) {
+          st.io.soundFontFile = cmd.file
+          if (st.io.synth) st.io.synth.soundFont = cmd.file.replace(/\.sf2$/i, '')
+        } else this.message(`no SoundFont ${cmd.file} in the SoundFont folder`, true)
+        break
+      case 'setMidiInputs': {
+        st.io.allInputs = cmd.all
+        for (const s of st.io.sources) s.listening = s.pads || cmd.all || cmd.names.some((n) => n && s.name.includes(n))
+        st.io.inputs = st.io.sources.filter((s) => s.listening).map((s) => (s.pads ? `${s.name} (pads)` : s.name))
+        break
+      }
+      case 'setPaletteLeds':
+        st.pads.paletteLeds = cmd.on
+        break
+      case 'rescanLibrary':
+        st.library.scanning = true
+        this.scanLeft = RESCAN_MS
         break
       case 'panic':
         this.stopBand()

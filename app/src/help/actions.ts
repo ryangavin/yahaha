@@ -80,5 +80,9 @@ export function tipFor(cmd: AppCmd | null): TipKey {
     case 'auditionStyle': return 'browser.preview'
     case 'stopAudition': return 'browser.preview_stop'
     case 'queueStyle': return 'browser.queue'
+    case 'setSoundFont': return 'audio.soundfont'
+    case 'setMidiInputs': return cmd.all ? 'midi.merge_all' : 'midi.input'
+    case 'setPaletteLeds': return 'midi.palette_leds'
+    case 'rescanLibrary': return 'settings.rescan'
   }
 }

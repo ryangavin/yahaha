@@ -1,7 +1,7 @@
 <!--
   Audio: the built-in SoundFont synth (yahaha-only; the Genos has its own tone
   generator). On/off, the output pair (multi-output interfaces list every pair), the
-  SoundFont (switching is mocked until the engine has `setSoundFont`) and master volume.
+  SoundFont (`setSoundFont`, from the .sf2 files in the synth's folder) and master volume.
 -->
 <script lang="ts">
   import { settings } from '../../lib/api/settings.svelte'
@@ -13,10 +13,9 @@
 
   const synth = $derived(app.state.io.synth)
   const master = $derived(app.state.mixer.master)
-  const real = $derived(app.kind === 'tauri')
-  const view = $derived(settings.view(app.state, real))
-  // On the real engine a setting it lacks is badged and inert: it never pretends to work.
-  const inert = $derived(real && view.mocked.soundFont)
+  const view = $derived(settings.view(app.state))
+  // A setting the engine lacks (an older engine) is badged and inert: it never pretends to work.
+  const inert = $derived(view.mocked.soundFont)
 
   const pairs = $derived.by(() => {
     const n = synth ? Math.max(1, Math.floor(synth.channels / 2)) : 1

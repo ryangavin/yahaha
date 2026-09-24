@@ -24,7 +24,7 @@ pub mod mock;
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use mock::MockSession;
 use serde_json::Value;
@@ -62,17 +62,17 @@ fn send(cmd: Value, backend: State<'_, Shared>, app: tauri::AppHandle) -> Result
 }
 
 #[tauri::command]
-fn state(backend: State<'_, Shared>) -> Value {
+fn state(backend: State<'_, Shared>, app: tauri::AppHandle) -> Value {
     match &**backend {
         // With its clock read now (docs/app-api.md, `surface.clock`).
         Backend::Live(s) => serde_json::to_value(s.state_now()).unwrap_or(Value::Null),
         Backend::Mock(m) => {
-            let mut v = serde_json::to_value(&m.lock().unwrap().state).unwrap_or(Value::Null);
-            // The mock has no surface of its own: the UI derives it (lib/surface.ts).
-            if let Some(o) = v.as_object_mut() {
-                o.remove("surface");
+            let mut m = m.lock().unwrap();
+            // The mock's clock moved on to now first, as the engine's is always now.
+            if m.catch_up() {
+                let _ = app.emit("yahaha", yahaha::Event::StateChanged { version: m.state.version });
             }
-            v
+            serde_json::to_value(m.state_now()).unwrap_or(Value::Null)
         }
     }
 }
@@ -111,15 +111,13 @@ fn forward_events(app: tauri::AppHandle, backend: Shared) {
 fn tick_mock(app: tauri::AppHandle, backend: Shared) {
     let Backend::Mock(m) = &*backend else { return };
     let frame = Duration::from_micros(16_667);
-    let mut last = Instant::now();
+    m.lock().unwrap().catch_up(); // start the mock's clock
     loop {
         std::thread::sleep(frame);
-        let now = Instant::now();
         let changed = {
             let mut m = m.lock().unwrap();
-            m.advance(now.duration_since(last).as_secs_f64() * 1000.0).then_some(m.state.version)
+            m.catch_up().then_some(m.state.version)
         };
-        last = now;
         if let Some(version) = changed {
             if app.emit("yahaha", yahaha::Event::StateChanged { version }).is_err() {
                 break;

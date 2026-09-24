@@ -41,6 +41,7 @@ A Tauri shell needs about four pieces:
 | `#[tauri::command] fn send(cmd: AppCmd) -> Result<(), CmdError>` | `session.send(cmd)` |
 | `#[tauri::command] fn state() -> AppState` | `session.state_now()` (the state, with its clock read now: see [`surface.clock`](#surfaceclock)) |
 | `#[tauri::command] fn library() -> LibraryList` | `session.library_list()` |
+| `#[tauri::command] fn meters() -> Meters` | `session.meters()` (output levels; see [Meters](#meters)) |
 | a thread that emits events to the webview | `for e in session.subscribe() { app.emit("yahaha", e) }` |
 
 The frontend listens for `yahaha` events. On `stateChanged` it fetches `state()`. On
@@ -143,15 +144,27 @@ state, and pressing the button is the action. For settings, a GUI checkbox can u
 | `panic` | | All notes off, and the style stops. |
 | `clearMessage` | | Clears `state.message`. |
 
+### Settings
+
+| Command | Fields | Does |
+|---|---|---|
+| `setSoundFont` | `file` | Reloads the synth from another `.sf2` in its folder (`io.soundFonts`, by file name; the folder is the one the `--sf2` file is in). The SoundFont loads on a thread of its own (`io.soundFontLoading`) and swaps in between two audio buffers: the voices and controllers every channel has carry over, notes sounding fade out over one buffer. Fails when the synth is off or the file isn't there. |
+| `setMidiInputs` | `all`, `names` | Which MIDI sources play the keyboard: every one (`all`), or the ones whose name contains one of `names`. `all` false with no names is the default: a Launchkey's keys when there is one, else every source. yahaha's own port and DAW ports are never keyboards; the Launchkey DAW port is always the pads. Sources connect and disconnect at once. Keys held on a source that is dropped are released: their notes stop at once (All Notes Off on the keyboard parts' channels, which also stops notes other sources hold) and the chord section lets go. |
+| `setPaletteLeds` | `on` | Launchkey LEDs in Novation palette colours (and hardware flashing) instead of RGB. Every pad is sent again. |
+| `rescanLibrary` | | Walks the style folders (`library.roots`) again on a thread of its own (`library.scanning`). A file still there keeps its id and index; new files are added and indexed; a file gone leaves the list (its id stays valid). |
+
 ### One Touch Settings and styles
 
 | Command | Fields | Does |
 |---|---|---|
 | `recallOts` | `index` 0–3 | Recalls OTS 1–4 into the keyboard parts. Ignored if the style has no such OTS. |
 | `setOtsLink` / `toggleOtsLink` | `on` | OTS Link: Main A–D recall OTS 1–4, and so does a style change. |
-| `loadStyle` | `id` | A library entry (`LibraryEntry.id`). Playing or stopped, the band carries on. |
+| `loadStyle` | `id` | A library entry (`LibraryEntry.id`). Stopped, it loads at once. Playing, it takes over at the next bar line, as on a Genos: the band carries on in the same section (the same Main, or the nearest the new style has) at the same bar position, at the same tempo. Until then `preview.queued` names it and `style` is still the old one. A later style change before the bar line replaces it; stopping first loads it then. |
+| `queueStyle` | `id` | The same as `loadStyle` (the browser's "next bar" button). |
 | `loadStylePath` | `path` | Any style file. It is added to the library if it isn't there already. |
-| `stepStyle` | `delta` | Previous or next style in library order. Files that don't load are skipped. |
+| `stepStyle` | `delta` | Previous or next style in library order, from the style waiting for the bar line if there is one. Files that don't load are skipped. |
+| `auditionStyle` | `id` | Previews a style while the band is stopped: its Main A, at its own tempo, with its own voices and levels, over C Am F G7 (a chord a bar) for 4 bars, then it stops by itself (`preview.audition`). The loaded style, OTS, keyboard parts, mixer and transport are untouched; the loaded style's setup is sent again when it ends. Refused (`failed`) while the band plays. A new one replaces the one playing; it ends early on `stopAudition`, a style change, START/STOP, `panic` or a chord that starts the band (Sync Start). |
+| `stopAudition` | | Ends the preview now. |
 
 ### Result: `CmdError`
 
@@ -214,6 +227,7 @@ Indices are 0-based unless a field says otherwise.
 | `main` | 0–3 | The Main (A–D) that is playing or queued to follow. Changes as soon as a Main is pressed. |
 | `bar`, `beat` | 1-based | Position within the section playing. Both are 1 when stopped. |
 | `beatsPerBar` | number | The numerator of the time signature. |
+| `sectionBars` | number? | How many bars the section playing lasts (a Main's pattern length; it loops). Null when stopped. |
 | `tempo` | number | Current tempo in BPM. |
 | `lamps` | Pad[16] | Page 1 of the pads, whatever page the hardware is on. These are the section, Sync, Auto Fill, Tap and Start/Stop lamps exactly as the pads light them. See [Pad](#pad). |
 
@@ -278,7 +292,7 @@ control's meaning, and every LED as the hardware shows it.
 | `pageName`, `pageNumber` (1-based), `pageCount` | | For example `Chord/Setup`, 2, 3. |
 | `pads` | Pad[16] | This page: the top row (notes 96–103), then the bottom row (112–119). |
 | `connected` | bool | A Launchkey DAW port is connected. It is set once, at start: see the limitation below. |
-| `paletteLeds` | bool | The session runs the LEDs in Novation palette mode (`--palette-leds`). The pads then carry `palette`. |
+| `paletteLeds` | bool | The session runs the LEDs in Novation palette mode (`setPaletteLeds`, `--palette-leds`). The pads then carry `palette`. |
 
 #### Pad
 | Field | Type | Meaning |
@@ -313,9 +327,11 @@ itself, on its own timing. yahaha sends it no MIDI clock, so in palette mode:
 `palette` describes what was sent. Animate it on the LED clock: it won't match the
 hardware's phase, and nothing can.
 
-**Devices are connected once, at start** (#74). A Launchkey or keyboard plugged in later
-is not seen. A replugged Launchkey stays out of DAW mode until the session restarts.
-`connected` and `io.inputs` describe the start.
+**The Launchkey is connected once, at start** (#74). A Launchkey plugged in later is not
+seen, and a replugged one stays out of DAW mode until the session restarts. `connected`
+describes the start. Keyboards are different: the session lists the MIDI sources every
+2 s and connects what `setMidiInputs` chose, so a keyboard plugged in later plays
+(`io.sources`, `io.inputs`).
 
 ### `ots`
 | Field | Type | Meaning |
@@ -331,9 +347,13 @@ is not seen. A replugged Launchkey stays out of DAW mode until the session resta
 | `count` | number | Entries. |
 | `position` | number | The loaded style's position in library order, 0-based. |
 | `pending` | number | Entries still being indexed. |
+| `roots` | string[] | The style folders (and files) the library scans. |
+| `scanning` | bool | A rescan (`rescanLibrary`) is walking the folders. |
 
-`library()` returns `LibraryList { revision, entries }` in display order (folder, then
-name). Each `LibraryEntry` has these fields:
+`library()` returns `LibraryList { revision, entries, voices }`. `entries` are in display
+order (folder, then name). `voices` is the list `setPartVoice` picks from, the same for
+every revision: `{ program, bankMsb, bankLsb, name }`, the 128 GM voices on bank 0 (the
+names are `gm_name`'s). Each `LibraryEntry` has these fields:
 - `id`
 - `name`
 - `folder`
@@ -343,6 +363,7 @@ name). Each `LibraryEntry` has these fields:
 - `tempo`
 - `timeSignature`
 - `sections`: a short list, for example `Main ABCD · Intro ABC · Ending ABC · Fill ABCD · Break`
+- `format`: `SFF1` or `SFF2` from the file's header; null while pending or unreadable
 
 Filter on the client. The terminal UI matches a case-insensitive substring of the name,
 the file name or the folder.
@@ -411,7 +432,7 @@ arrives, then on every frame:
 
 ```
 t     = atMs + (performance.now() − receivedMs)                  // session ms, now
-pos   = running ? sectionAnchorBeats + (t − sectionAnchorMs) · tempo / 60000 : 0
+pos   = running ? max(0, sectionAnchorBeats + (t − sectionAnchorMs) · tempo / 60000) : 0
 bar   = floor(pos / beatsPerBar) + 1
 beat  = floor(pos mod beatsPerBar) + 1
 phase = pos − floor(pos)
@@ -423,6 +444,10 @@ led   = ledAnchorBeats + (t − ledAnchorMs) · tempo / 60000        // `beats` 
   The error is then only the IPC latency.
 - **When the section loops or changes,** the engine re-anchors and a new state follows.
   Between the two, `pos` can briefly run past the section's end.
+- **The position clamps at 0.** A `t` a hair before the anchor (a client clock behind the
+  session's, or a state read just as a section starts) would give a negative `pos`; it
+  reads as 0, the section's start. `ClockState::position` does the same, and `bar`/`beat`
+  are never below 1.
 - **In Rust,** `ClockState::at(t)`, `position(t)` and `led_beats(t)` compute the same
   thing in ms. `ns_to_ms(session.now_ns())` is "now": the virtual clock offline.
 
@@ -430,12 +455,36 @@ led   = ledAnchorBeats + (t − ledAnchorMs) · tempo / 60000        // `beats` 
 | Field | Type | Meaning |
 |---|---|---|
 | `outputPort` | string | The virtual MIDI output, `yahaha`. Empty offline. |
-| `inputs` | string[] | The MIDI sources connected at start. The Launchkey DAW port is listed with ` (pads)`. |
+| `inputs` | string[] | The MIDI sources connected now. The Launchkey DAW port is listed with ` (pads)`. |
+| `sources` | MidiSource[] | Every MIDI source but yahaha's own: `name` (as `setMidiInputs` matches it), `listening` (yahaha listens to it, as a keyboard or as the pads), `pads` (the Launchkey DAW port). Empty offline. |
+| `allInputs` | bool | Every source is a keyboard (`setMidiInputs { all: true }`, `--all-inputs`). |
+| `soundFonts` | string[] | The `.sf2` files in the synth's folder, for `setSoundFont`. |
+| `soundFontFile` | string? | The file the synth plays. Null without the synth. |
+| `soundFontLoading` | bool | A `setSoundFont` is loading. |
 | `synth` | SynthState? | `soundFont`, `device`, `sampleRate` (Hz), `bufferFrames`, `channels`, `outputPair` (1-based, for example [1, 2]), `muted`. Null when the synth is off. |
 | `engine` | EngineStats | `realtime` (the engine thread got real-time scheduling), and 99th percentiles in µs: `wakeP99Us` (wake versus deadline), `chordP99Us` (chord to engine), `midiInP99Us` (MIDI in to callback). |
 | `lastControl` | number | The last Launchkey DAW-port message, packed 0x00SSDDVV. |
 | `unmapped` | string | The last Launchkey control nothing is mapped to, for example `unmapped CC 51 = 127`. |
 | `offline` | bool | An offline session. |
+
+### `keyboard`
+What the app's keyboard strip draws.
+
+| Field | Type | Meaning |
+|---|---|---|
+| `held` | HeldNote[] | The keys held, from any keyboard source, low to high: `note` (as played, before Keyboard transpose and the parts' octaves), `zone` (`left` \| `right`: the side of the split it went to when pressed), `parts` (the keyboard parts sounding it, 0–3 = Right 1, Right 2, Right 3, Left; empty for a key that only gives the chord). |
+| `leftSplit` | MIDI note | Split Point (Left): keys at or below it play the Left part. yahaha has one split, so it equals `chord.split`. |
+| `chordTones` | number[] | Pitch classes (0–11, C = 0) of the chord as fingered (`chord.fingered`), root first. Empty for none. |
+| `chordBass` | number? | Its bass: the root, or the slash / on-bass note. |
+| `detection` | [lo, hi] | The keys chord detection reads, as MIDI notes (inclusive): `[0, split]` in Lower, `[split + 1, 127]` in Upper (Fingered*), `[0, 127]` in the Full Keyboard types. Clip it to the keys you draw. |
+
+### `preview`
+The style browser's preview and queue.
+
+| Field | Type | Meaning |
+|---|---|---|
+| `audition` | object? | The preview playing (`auditionStyle`): `id` (the library id), `bar` (1-based) of `bars` (4), `chord` (the chord playing: `C`, `Am`, `F`, `G7`). Null when none. |
+| `queued` | number? | The library id of a style waiting for the next bar line (`loadStyle`, `queueStyle` or `stepStyle` while playing). Null when none. |
 
 ### `message`
 `{ seq, text, error }` or null. It holds the last notice or error, for example a style
@@ -443,12 +492,31 @@ that fails to load. `seq` increases with every new message, so the same text arr
 twice counts as two messages. A successful style change clears it, and so does
 `clearMessage`.
 
+## Meters
+
+`session.meters()` (the Tauri `meters` command) returns the output levels, measured on
+the audio thread (every part plays on a synthesizer of its own, so each is measured as it
+sounds, with its reverb and chorus). It is not part of `AppState`: levels change with
+every audio buffer, and republishing the state for them would flood the clients. Poll it
+at display rate.
+
+| Field | Type | Meaning |
+|---|---|---|
+| `atMs` | ms | The session clock at the read. |
+| `channels` | `{ channel, peak }[]` | Channels 1–4 (the keyboard parts) and 9–16 (the Style parts): the peak since the last call, linear (1.0 = full scale), after the master level, before the soft clipper. Empty without the synth. |
+| `master` | [l, r] | The peaks after the soft clipper. |
+| `clips` | number | Audio buffers in which the soft clipper worked (above −1 dBFS), since start. |
+
+Each call takes the peaks (they restart from 0), so use one reader, and do the decay and
+peak hold in the client.
+
 ## Events
 
 JSON form `{"type": …}`:
 - `stateChanged { version }`: `state()` has a new version.
 - `libraryChanged { revision }`: `library()` changed. This happens while indexing (at
-  most every 250 ms), when a file fails to load, and when a path is added.
+  most every 250 ms), when a file fails to load, when a path is added, and after a
+  rescan.
 - `stopped`: the session stopped.
 
 Events carry no state. Always read the latest.
@@ -494,6 +562,7 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
     "bar": 1,
     "beat": 3,
     "beatsPerBar": 4,
+    "sectionBars": 4,
     "tempo": 75.0,
     "lamps": [
       {
@@ -677,7 +746,7 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
     "applied": 1,
     "link": false
   },
-  "library": { "revision": 3, "count": 35, "position": 23, "pending": 0 },
+  "library": { "revision": 3, "count": 35, "position": 23, "pending": 0, "roots": ["/Users/me/Styles/MOX_v2"], "scanning": false },
   "surface": {
     "shift": false,
     "controls": [
@@ -790,7 +859,29 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
     "engine": { "realtime": true, "wakeP99Us": 1, "chordP99Us": 12, "midiInP99Us": 90 },
     "lastControl": 0,
     "unmapped": "",
-    "offline": false
+    "offline": false,
+    "sources": [
+      { "name": "Launchkey MK4 61 MIDI Out", "listening": true, "pads": false },
+      { "name": "Launchkey MK4 61 DAW Out", "listening": true, "pads": true },
+      { "name": "IAC Driver Bus 1", "listening": false, "pads": false }
+    ],
+    "allInputs": false,
+    "soundFonts": ["GeneralUser-GS.sf2", "MuseScore_General.sf2"],
+    "soundFontFile": "GeneralUser-GS.sf2",
+    "soundFontLoading": false
+  },
+  "preview": { "audition": null, "queued": null },
+  "keyboard": {
+    "held": [
+      { "note": 43, "zone": "left", "parts": [] },
+      { "note": 47, "zone": "left", "parts": [] },
+      { "note": 50, "zone": "left", "parts": [] },
+      { "note": 53, "zone": "left", "parts": [] }
+    ],
+    "leftSplit": 54,
+    "chordTones": [7, 11, 2, 5],
+    "chordBass": 7,
+    "detection": [0, 54]
   },
   "message": null
 }
@@ -809,4 +900,16 @@ These are for maintainers.
   - republishes `AppState` if anything changed
 - The CoreMIDI and engine threads never lock or allocate. They talk to the control side
   only through SPSC rings, atomics and non-blocking semaphore signals.
+  - A style preview is an `Engine` of its own, built on the control side and handed to
+    the engine thread through a ring; it plays there beside the (stopped) band and goes
+    back through another ring to be freed. A style change while playing waits inside the
+    engine for the bar line; the style it replaces goes back the same way.
+    `tests/engine_no_alloc.rs` checks both allocate and free nothing on the engine thread.
+  - The input thread keeps each key's state (held, side, parts) and each source's held
+    keys in atomics for the key strip; the control side reads them.
+- The audio thread measures each part's and the master's peak into atomics (`meters`).
+  A new SoundFont (`setSoundFont`) loads on a thread of its own into a new rack of
+  synthesizers, which the control side hands to the audio thread through a ring; the old
+  rack comes back through another ring and is freed on the control side.
+- A rescan (`rescanLibrary`) walks the folders on a thread of its own.
 - The synth's audio stream lives on a thread of its own, which keeps `Session` `Send`.

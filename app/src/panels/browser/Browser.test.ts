@@ -8,7 +8,8 @@ import { BrowserPrefs, prefs, type PrefsStorage } from './prefs.svelte'
 
 async function setup(opts: { demo?: boolean; styles?: number; preview?: boolean } = {}) {
   const session = new MockSession({ manual: true, demo: opts.demo ?? false, styles: opts.styles })
-  if (opts.preview === false) delete session.state.preview
+  // An engine without the preview (older than #21): the browser hides its controls.
+  if (opts.preview === false) delete (session.state as Partial<typeof session.state>).preview
   app.attach(session)
   // The store fetches a library when its revision changes; each test's session starts at
   // the same revision, so hand it over directly.

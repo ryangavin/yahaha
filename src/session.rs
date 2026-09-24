@@ -1101,6 +1101,7 @@ impl Control {
                 bar: s.bar + 1,
                 beat: s.beat + 1,
                 beats_per_bar: info.timesig.0,
+                section_bars: (s.section_bars > 0).then_some(s.section_bars),
                 tempo: s.bpm,
                 lamps: pads_of(Page::Sections),
             },
@@ -1249,13 +1250,31 @@ impl Control {
                 }),
                 queued: self.pending_style.as_ref().map(|p| p.0),
             },
-            keys: {
-                let (held, rh) = shared.held_keys();
-                let full = !upper && fingering.full_keyboard();
-                let zone = |w: usize| if full { held[w] } else if upper { rh[w] } else { held[w] & !rh[w] };
-                let chord = [zone(0), zone(1)];
-                let list = |m: [u64; 2]| (0..128u8).filter(|&k| m[(k >> 6) as usize] & (1 << (k & 63)) != 0).collect();
-                KeysState { held: list(held), chord: list(chord) }
+            keyboard: KeyboardState {
+                held: (0..128u8)
+                    .filter_map(|k| {
+                        let v = shared.keys[k as usize].load(Relaxed);
+                        (v & live::KEY_HELD != 0).then(|| HeldNote {
+                            note: k,
+                            zone: if v & live::KEY_RIGHT != 0 { Zone::Right } else { Zone::Left },
+                            parts: (0..parts::COUNT as u8).filter(|p| v & (1 << p) != 0).collect(),
+                        })
+                    })
+                    .collect(),
+                left_split: split,
+                chord_tones: s
+                    .played
+                    .filter(|c| c.ty != crate::theory::CANCEL)
+                    .map(|c| crate::theory::chord_tones(c.ty).iter().map(|t| (c.root + t) % 12).collect())
+                    .unwrap_or_default(),
+                chord_bass: s.played.filter(|c| c.ty != crate::theory::CANCEL).map(|c| c.bass.unwrap_or(c.root)),
+                detection: if !upper && fingering.full_keyboard() {
+                    [0, 127]
+                } else if upper {
+                    [split.saturating_add(1).min(127), 127]
+                } else {
+                    [0, split]
+                },
             },
             message: self.message.clone(),
         }

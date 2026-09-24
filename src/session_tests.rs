@@ -1086,18 +1086,33 @@ fn rescan_adds_and_drops_files_keeping_ids() {
 }
 
 #[test]
-fn held_keys_show_with_their_chord_zone() {
+fn the_keyboard_strip_sees_held_keys_parts_chord_and_detection() {
     let Some(s) = offline("SlowWalker.T552.sty") else { return };
+    s.send(AppCmd::SetPartOn { part: 1, on: true }).unwrap(); // Right 2 layered on Right 1
     keys(&s, true, &[36, 40, 43, 72]);
-    let k = s.state().keys.clone();
-    assert_eq!((k.held, k.chord), (vec![36, 40, 43, 72], vec![36, 40, 43]), "Lower: the left hand is the chord zone");
+    let k = s.state().keyboard.clone();
+    let held: Vec<(u8, Zone, Vec<u8>)> = k.held.iter().map(|h| (h.note, h.zone, h.parts.clone())).collect();
+    assert_eq!(held, vec![
+        (36, Zone::Left, vec![]),
+        (40, Zone::Left, vec![]),
+        (43, Zone::Left, vec![]),
+        (72, Zone::Right, vec![0, 1]),
+    ], "Lower, Left off: the left hand only gives the chord; the right plays Right 1 + 2");
+    assert_eq!((k.left_split, k.detection), (54, [0, 54]));
+    assert_eq!((k.chord_tones.clone(), k.chord_bass), (vec![0, 4, 7], Some(0)), "C");
     s.send(AppCmd::SetUpper { on: true }).unwrap();
-    assert_eq!(s.state().keys.chord, vec![72], "Upper: the right hand");
+    assert_eq!(s.state().keyboard.detection, [55, 127], "Upper: above the split");
     s.send(AppCmd::SetUpper { on: false }).unwrap();
     s.send(AppCmd::SetFingering { fingering: Fingering::FullKeyboard }).unwrap();
-    assert_eq!(s.state().keys.chord, vec![36, 40, 43, 72], "Full Keyboard: every key");
+    assert_eq!(s.state().keyboard.detection, [0, 127], "Full Keyboard: every key");
     keys(&s, false, &[36, 40, 43, 72]);
-    assert_eq!(s.state().keys, KeysState::default());
+    assert!(s.state().keyboard.held.is_empty());
+    // The section's length for the lead band (the chord started the band): the Main's
+    // bars playing, none stopped.
+    assert!(s.state().transport.running);
+    assert!(s.state().transport.section_bars.is_some_and(|b| b >= 1));
+    s.send(AppCmd::Stop).unwrap();
+    assert_eq!(s.state().transport.section_bars, None);
 }
 
 #[test]
@@ -1193,7 +1208,9 @@ fn new_state_and_commands_serialize_as_documented() {
     let Some(s) = offline("SlowWalker.T552.sty") else { return };
     let v = serde_json::to_value(&*s.state()).unwrap();
     assert_eq!(v["preview"], json!({"audition": null, "queued": null}));
-    assert_eq!(v["keys"], json!({"held": [], "chord": []}));
+    assert_eq!(v["keyboard"]["held"], json!([]));
+    assert_eq!(v["keyboard"]["detection"], json!([0, 54]));
+    assert!(v["transport"].get("sectionBars").is_some());
     for k in ["sources", "allInputs", "soundFonts", "soundFontFile", "soundFontLoading"] {
         assert!(v["io"].get(k).is_some(), "io.{k}");
     }
