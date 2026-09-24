@@ -21,7 +21,7 @@
   import Overlay from '../../lib/ui/Overlay.svelte'
   import Toggle from '../../lib/ui/Toggle.svelte'
   import PadButton from './PadButton.svelte'
-  import { byFolder, PAD_KEYS } from './multipad'
+  import { byFolder, PAD_KEYS, synchroStopText } from './multipad'
 
   const mp = $derived(app.state.multiPad)
   const running = $derived(app.state.transport.running)
@@ -59,7 +59,7 @@
       </div>
       <div class="stoprow">
         <HwButton tip="multipad.stop_all" led={busy ? red : null} onclick={() => app.send({ type: 'stopAllMultiPads' })}>STOP</HwButton>
-        <span class="note engraved">Z X C V play the pads · B stops them</span>
+        <span class="note engraved">Shift+Z X C V play the pads · Shift+B stops them</span>
       </div>
     </section>
 
@@ -79,7 +79,6 @@
                 role="option"
                 aria-selected={mp.bank?.id === b.id}
                 class:current={mp.bank?.id === b.id}
-                title={b.path}
                 use:tip={'multipad.bank'}
                 onclick={() => app.send({ type: 'loadMultiPad', id: b.id })}
               >
@@ -109,7 +108,7 @@
           onclick={() => app.send({ type: 'setMultiPadSynchroStop', styleStop: mp.synchroStop.styleStop, ending: !mp.synchroStop.ending })}
         >Style Ending</Toggle>
       </div>
-      <p class="explain">Looping pads stop when the band stops or an Ending starts. One-shot pads always play out.</p>
+      <p class="explain">{synchroStopText(mp.synchroStop)}</p>
     </section>
   </div>
 </Overlay>

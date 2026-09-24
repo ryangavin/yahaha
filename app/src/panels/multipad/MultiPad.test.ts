@@ -5,7 +5,7 @@ import { MockSession } from '../../lib/api/mock'
 import { binding } from '../../lib/keys'
 import { app, ui } from '../../lib/store.svelte'
 import MultiPad from './MultiPad.svelte'
-import { byFolder, lampLight } from './multipad'
+import { byFolder, lampLight, synchroStopText } from './multipad'
 
 function setup(demo = false) {
   const session = new MockSession({ manual: true, demo })
@@ -75,6 +75,12 @@ describe('Multi Pad drawer', () => {
     expect(key('Z')).toEqual({ cmd: { type: 'triggerMultiPad', pad: 0 } })
     expect(key('V')).toEqual({ cmd: { type: 'triggerMultiPad', pad: 3 } })
     expect(key('B')).toEqual({ cmd: { type: 'stopAllMultiPads' } })
+  })
+
+  it('the Synchro Stop note follows the settings', () => {
+    expect(synchroStopText({ styleStop: true, ending: false })).toBe('Looping pads stop when the band stops. One-shot pads always play out.')
+    expect(synchroStopText({ styleStop: true, ending: true })).toContain('the band stops or an Ending starts')
+    expect(synchroStopText({ styleStop: false, ending: false })).toContain('play on until you stop them')
   })
 
   it('lamp colours: dark, dim blue, red, flashing', () => {

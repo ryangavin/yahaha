@@ -31,8 +31,16 @@ export const LAMP_TEXT: Record<PadLamp, string> = {
   queued: 'starts at the next bar',
 }
 
-/** The pads' keys (README "Terminal keys"): Shift + z x c v. */
-export const PAD_KEYS = ['Z', 'X', 'C', 'V']
+/** The pads' key labels (README "Terminal keys"): Shift + z x c v (plain z x c v toggle
+ * Style parts). */
+export const PAD_KEYS = ['⇧Z', '⇧X', '⇧C', '⇧V']
+
+/** What Multi Pad Synchro Stop does with these settings, in one sentence. */
+export function synchroStopText(s: { styleStop: boolean; ending: boolean }): string {
+  const when = [s.styleStop && 'the band stops', s.ending && 'an Ending starts'].filter(Boolean).join(' or ')
+  const loops = when ? `Looping pads stop when ${when}.` : 'Looping pads play on until you stop them.'
+  return `${loops} One-shot pads always play out.`
+}
 
 /** Banks by folder, in list order. */
 export function byFolder(banks: MultiPadBankEntry[]): { folder: string; banks: MultiPadBankEntry[] }[] {

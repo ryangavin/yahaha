@@ -51,16 +51,27 @@ engine thread never allocates or frees for pads (`tests/multipad_no_alloc.rs`).
   phrase-authoring rule, RM p.65).
 - **Synchro Start** (SELECT + pad): arms a pad (lamp flashing red). A chord played in the
   chord section, or the band starting, starts every armed pad; while the band plays, at the
-  next measure. Pressing any pad starts the armed ones with it (OM p.75). Arming again, or
-  STOP, disarms.
+  next measure. With pads in standby, pressing any one of them starts them all (OM p.75);
+  pressing a pad that is not in standby starts only that pad. Arming again, or STOP,
+  disarms.
 - **STOP** stops every pad and cancels standby; **STOP + pad** stops one pad.
 - **Multi Pad Synchro Stop** (Style Setting, RM p.12): *Style Stop* stops repeating pads
   when the band stops (any stop: START/STOP, an Ending finishing, Sync Stop); *Style Ending*
-  stops them when an Ending section starts. One-shot pads always play out.
-- **Panic** stops every pad.
+  stops them when an Ending section starts. One-shot pads always play out. A press still
+  waiting for the band's bar line when the band stops starts at once (stopped, pads start
+  at once) instead of later at the old bar line.
+- **Controllers.** A pad that bent, modulated or held the sustain pedal on its channel
+  re-centres the bend and releases the wheel and pedal there when it stops (STOP, STOP +
+  pad, a bank swap, Synchro Stop), restarts, or ends as a one-shot, as the style parts do
+  when they stop.
+- **Master transpose** moves the pads' notes (after Chord Match), except drum-kit pads
+  (bank MSB 126/127 before the first note), as it moves the style (RM p.41). A note ends on
+  the key it sounded on, so a transpose change while a pad plays leaves no note hanging.
+- **Panic** stops every pad and resets the bend, modulation and sustain pedal on ch 5-8.
 - **Bank list.** Every `.pad` file under the style folders (`library.roots`), found by the
-  same walk as the styles and refreshed by `rescanLibrary`. `loadMultiPadPath` loads any
-  file (Registration can use it).
+  same walk as the styles and refreshed by `rescanLibrary` (on a thread of its own).
+  `loadMultiPadPath` loads any file (Registration can use it); a file outside the library
+  joins the list only once it has loaded.
 
 ## Decisions (where the manuals are silent)
 
@@ -78,9 +89,9 @@ engine thread never allocates or frees for pads (`tests/multipad_no_alloc.rs`).
   manual gives no defaults; the Owner's Manual says START/STOP "also stops" the pads (Style
   Stop on), and repeating pads playing on through an Ending until the band stops is the
   behaviour before firmware 1.20 added the setting.
-- **Decision: Master transpose does not move pads yet.** The Genos shifts everything but drum
-  kits; doing it needs the pad notes' sent pitch kept per note across a transpose change.
-  Keyboard transpose moves the chord, so Chord Match pads follow it.
+- **Decision: a pad's drum-kit test is its bank MSB (126/127) before its first note**, fixed
+  when the bank loads, because pads carry their own voice setup; the style engine's `kit`
+  table is per style part and does not cover ch 5-8.
 - **Decision: pads that don't parse fail the load** and keep the loaded bank; the message
   says why.
 

@@ -1014,14 +1014,14 @@ const catalog = {
   },
   'multipad.pad': {
     title: 'Multi Pad',
-    body: 'Plays the pad\'s phrase from the top: at once when the band is stopped, at the next bar line while it plays. Blue: has data; red: playing; flashing red: waiting for Synchro Start; amber: waiting for the bar line.',
+    body: 'Plays the pad\'s phrase from the top (keys Shift+Z, X, C, V): at once when the band is stopped, at the next bar line while it plays. With pads in Synchro Start standby, pressing one of them starts them all. Blue: has data; red: playing; flashing red: waiting for Synchro Start; amber: waiting for the bar line.',
     genos: 'MULTI PAD CONTROL [1]–[4]',
     keys: ['Z', 'X', 'C', 'V'],
     launchkey: null,
   },
   'multipad.stop_all': {
     title: 'Stop all pads',
-    body: 'Stops every Multi Pad at once and cancels Synchro Start standby. The band keeps playing.',
+    body: 'Stops every Multi Pad at once and cancels Synchro Start standby. The band keeps playing. Key: Shift+B.',
     genos: 'MULTI PAD CONTROL [STOP]',
     keys: ['B'],
     launchkey: null,
@@ -1035,7 +1035,7 @@ const catalog = {
   },
   'multipad.arm': {
     title: 'Synchro Start',
-    body: 'Puts the pad in standby (flashing red): it starts with your next chord in the chord section, or when the band starts; while the band plays, at the next bar line. Press again to cancel.',
+    body: 'Puts the pad in standby (flashing red): it starts with your next chord in the chord section, when the band starts, or when you press any pad in standby; while the band plays, at the next bar line. Press again to cancel.',
     genos: '[SELECT] + pad (Synchro Start)',
     keys: [],
     launchkey: null,

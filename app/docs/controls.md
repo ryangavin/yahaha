@@ -172,10 +172,10 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 
 | control | what it does | Genos | key | Launchkey |
 |---|---|---|---|---|
-| **Multi Pad** | Plays the pad's phrase from the top: at once when the band is stopped, at the next bar line while it plays. Blue: has data; red: playing; flashing red: waiting for Synchro Start; amber: waiting for the bar line. | MULTI PAD CONTROL [1]–[4] | `Shift+Z` `Shift+X` `Shift+C` `Shift+V` | — |
-| **Stop all pads** | Stops every Multi Pad at once and cancels Synchro Start standby. The band keeps playing. | MULTI PAD CONTROL [STOP] | `Shift+B` | — |
+| **Multi Pad** | Plays the pad's phrase from the top (keys Shift+Z, X, C, V): at once when the band is stopped, at the next bar line while it plays. With pads in Synchro Start standby, pressing one of them starts them all. Blue: has data; red: playing; flashing red: waiting for Synchro Start; amber: waiting for the bar line. | MULTI PAD CONTROL [1]–[4] | `Shift+Z` `Shift+X` `Shift+C` `Shift+V` | — |
+| **Stop all pads** | Stops every Multi Pad at once and cancels Synchro Start standby. The band keeps playing. Key: Shift+B. | MULTI PAD CONTROL [STOP] | `Shift+B` | — |
 | **Stop this pad** | Stops only this pad, now. The other pads keep playing. | [STOP] + pad | — | — |
-| **Synchro Start** | Puts the pad in standby (flashing red): it starts with your next chord in the chord section, or when the band starts; while the band plays, at the next bar line. Press again to cancel. | [SELECT] + pad (Synchro Start) | — | — |
+| **Synchro Start** | Puts the pad in standby (flashing red): it starts with your next chord in the chord section, when the band starts, or when you press any pad in standby; while the band plays, at the next bar line. Press again to cancel. | [SELECT] + pad (Synchro Start) | — | — |
 | **Repeat** | On: the pad loops until you stop it. Off: it plays once. The bank file sets it; a change here lasts until another bank loads. | Repeat (Multi Pad Edit) | — | — |
 | **Chord Match** | On: the pad follows the chord you play, like the band does. Off: it plays exactly as recorded, as drum pads usually do. | Chord Match (Multi Pad Edit) | — | — |
 | **Multi Pad bank** | Loads this bank's four pads. Pads playing stop. The list is every .pad file in your style folders. | Multi Pad Bank Selection | — | — |
