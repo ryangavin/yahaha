@@ -214,6 +214,12 @@
   .tab.pressed {
     outline: 1px solid var(--accent);
   }
+  /* Only the selected tab takes focus (roving tabindex), so the focus ring must beat the
+     selected outline above or keyboard focus is invisible. */
+  .tab:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
   .dot {
     width: 0.5em;
     height: 0.5em;
@@ -270,6 +276,12 @@
     border-radius: var(--r-key);
     background: rgb(0 0 0 / 0.12);
     box-shadow: inset 0 1px 3px rgb(0 0 0 / 0.35);
+  }
+  /* A Fader's cap rides a full-height carrier moved by transform, so at a low value the
+     (invisible) carrier hangs up to a whole track below it and makes the drawer scroll
+     into empty space. The cap and ghost always sit inside the track: clip there. */
+  .strips :global(.track) {
+    overflow: clip;
   }
   .master {
     display: grid;
