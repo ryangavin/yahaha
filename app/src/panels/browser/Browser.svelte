@@ -23,7 +23,7 @@
   import type { AppCmd } from '../../lib/api/types'
   import { css } from '../../lib/leds'
   import { app, ui } from '../../lib/store.svelte'
-  import { neighbours } from '../../lib/surface'
+  import { surfaceOf } from '../../lib/surface'
   import { tip, tips } from '../../lib/tooltip/tip.svelte'
   import HwButton from '../../lib/ui/HwButton.svelte'
   import Overlay from '../../lib/ui/Overlay.svelte'
@@ -72,11 +72,12 @@
   const auditionId = $derived(app.state.preview?.audition?.id ?? null)
   const queuedId = $derived(app.state.preview?.queued ?? null)
   const rowAction = $derived(!canPreview ? null : running ? ('queue' as const) : ('preview' as const))
-  const near = $derived(neighbours(app.library, app.state.library.position))
-  const prevId = $derived(near.prev?.id ?? null)
-  const nextId = $derived(near.next?.id ?? null)
-  const trackPrev = $derived(near.prev?.name ?? '')
-  const trackNext = $derived(near.next?.name ?? '')
+  // < Track / Track > neighbours: the engine's (`state.surface`), derived only while it doesn't send them.
+  const near = $derived(surfaceOf(app.state, app.library))
+  const prevId = $derived(near.trackPrev?.id ?? null)
+  const nextId = $derived(near.trackNext?.id ?? null)
+  const trackPrev = $derived(near.trackPrev?.name ?? '')
+  const trackNext = $derived(near.trackNext?.name ?? '')
 
   // Section lamp colours: the section pads' own, from the engine.
   const lampRgb = (t: AppCmd['type'], fallback: string) => {

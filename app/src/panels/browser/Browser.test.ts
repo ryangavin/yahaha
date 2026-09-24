@@ -210,6 +210,16 @@ describe('style browser', () => {
     expect(document.querySelector('[data-tip="style.next"]')!.closest('.hw')!.textContent).toContain(LIBRARY.entries[3].name)
   })
 
+  it('takes the Track neighbours from the engine (state.surface), not its own guess', async () => {
+    await setup()
+    const next = LIBRARY.entries[9]
+    const surface = app.state.surface!
+    app.state = { ...app.state, surface: { ...surface, trackNext: { id: next.id, name: next.name, path: next.path } } }
+    flushSync()
+    expect(document.querySelector('[data-tip="style.next"]')!.closest('.hw')!.textContent).toContain(next.name)
+    expect(document.getElementById(`style-${next.id}`)?.querySelector('.mark')?.textContent).toBe('›')
+  })
+
   it('Recent lists loaded styles, newest first', async () => {
     const s = await setup()
     s.send({ type: 'loadStyle', id: 5 })
