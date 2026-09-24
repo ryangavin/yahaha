@@ -5,12 +5,13 @@
 // app shell runs until the engine's `Session` is wired in.
 
 import fixture from './mock-fixture.json'
+import { syntheticStyles } from './mock-library'
 import { deriveSurface } from '../surface'
 import { padsFor } from './mock-pads'
 import type { Session } from './session'
 import {
   BREAK, ENDINGS, FILLS, FINGERINGS, INTROS, KEYBOARD_PART_NAMES, MAINS, PAD_PAGES, STYLE_PART_NAMES,
-  type AppCmd, type AppState, type LibraryEntry, type LibraryList, type OtsPart, type StyleState,
+  type AppCmd, type AppState, type LibraryEntry, type LibraryList, type OtsPart, type PreviewState, type StyleState,
 } from './types'
 
 export const GM: string[] = fixture.gm
@@ -24,6 +25,8 @@ interface FixtureStyle {
   timeSignature: number[]
   sections: string[]
   ots: number
+  /** SFF1/SFF2; the fixture's own styles go by file extension. */
+  format?: string
   error?: string
 }
 const STYLES = fixture.styles as FixtureStyle[]
@@ -42,20 +45,46 @@ function sectionsText(sections: string[]): string {
   return parts.join(' · ')
 }
 
-export const LIBRARY: LibraryList = {
-  revision: 1,
-  entries: STYLES.map((s): LibraryEntry => ({
+function formatOf(s: FixtureStyle): string {
+  return s.format ?? (s.file.endsWith('.sty') ? 'SFF1' : 'SFF2')
+}
+
+function stylePath(s: FixtureStyle): string {
+  return s.folder ? `${ROOT}/${s.folder}/${s.file}` : `${ROOT}/${s.file}`
+}
+
+function entryOf(s: FixtureStyle): LibraryEntry {
+  return {
     id: s.id,
     name: s.name,
     folder: s.folder,
-    path: `${ROOT}/${s.folder}/${s.file}`,
+    path: stylePath(s),
     status: s.error ? 'error' : 'ok',
     error: s.error ?? null,
     tempo: s.error ? null : s.tempo,
     timeSignature: s.error ? null : [s.timeSignature[0], s.timeSignature[1]],
     sections: s.error ? '' : sectionsText(s.sections),
-  })),
+    format: s.error ? null : formatOf(s),
+  }
 }
+
+export const LIBRARY: LibraryList = { revision: 1, entries: STYLES.map(entryOf) }
+
+/** The fixture plus `extra` synthetic styles, in the engine's order (folder, then name). */
+function bigLibrary(extra: number): { lib: LibraryList; styles: FixtureStyle[] } {
+  const styles: FixtureStyle[] = [...STYLES, ...syntheticStyles(extra, STYLES.length)]
+  const entries = styles.map(entryOf)
+  const key = (e: LibraryEntry) => [e.folder.toLowerCase(), e.name.toLowerCase(), e.path]
+  entries.sort((a, b) => {
+    const [x, y] = [key(a), key(b)]
+    for (let i = 0; i < 3; i++) if (x[i] !== y[i]) return x[i] < y[i] ? -1 : 1
+    return 0
+  })
+  return { lib: { revision: 1, entries }, styles }
+}
+
+/** The default progression an audition plays, one chord a bar (provisional, #21). */
+export const AUDITION_PROGRESSION = ['C', 'Am', 'F', 'G7']
 
 const NOTE_NAMES = ['C', 'C#', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'Ab', 'A', 'Bb', 'B']
 
@@ -95,9 +124,9 @@ const OTS_SETUPS: [number, boolean, number, number][][] = [
 function styleState(s: FixtureStyle): StyleState {
   return {
     id: s.id,
-    path: `${ROOT}/${s.folder}/${s.file}`,
+    path: stylePath(s),
     name: s.name,
-    format: s.file.endsWith('.sty') ? 'SFF1' : 'SFF2',
+    format: formatOf(s),
     tempo: s.tempo,
     timeSignature: [s.timeSignature[0], s.timeSignature[1]],
     sections: s.sections,
@@ -161,14 +190,15 @@ export function initialState(): AppState {
       offline: false,
     },
     message: null,
+    preview: { audition: null, queued: null },
   }
-  derive(state)
+  derive(state, LIBRARY)
   return state
 }
 
 /** The fields the engine computes from the others: pads, lamps, names, flags, and the
  * provisional `surface` (with the mock's hardware fader positions and beat clock). */
-function derive(st: AppState, hw: { faders: number[]; beats: number; atMs: number } | null = null) {
+function derive(st: AppState, lib: LibraryList, hw: { faders: number[]; beats: number; atMs: number } | null = null) {
   const c = st.chord
   c.fingeringName = c.upper ? 'Fingered*' : FINGERINGS.find((f) => f.id === c.fingering)!.name
   c.manualBassActive = c.upper && c.manualBass
@@ -185,7 +215,7 @@ function derive(st: AppState, hw: { faders: number[]; beats: number; atMs: numbe
   st.pads.pageNumber = page + 1
   st.transport.lamps = padsFor(st, 'sections')
   st.pads.pads = padsFor(st, st.pads.page)
-  const surface = deriveSurface(st, LIBRARY)
+  const surface = deriveSurface(st, lib)
   if (hw) {
     surface.faders.forEach((f, i) => (f.position = f.set ? hw.faders[i] : null))
     surface.clock = { ...surface.clock, phase: hw.beats - Math.floor(hw.beats), atMs: hw.atMs }
@@ -203,6 +233,8 @@ export interface MockOptions {
   demo?: boolean
   /** Drive the clock yourself with `advance(ms)` instead of a 60 Hz timer (tests). */
   manual?: boolean
+  /** Add this many synthetic styles to the library (`?styles=60000`), to test a big one. */
+  styles?: number
 }
 
 export class MockSession implements Session {
@@ -221,12 +253,23 @@ export class MockSession implements Session {
   private demo: boolean
   /** Where the (imaginary) hardware faders physically are: 1–8, master. */
   private hwFaders = [100, 72, 100, 100, 0, 0, 0, 0, 100]
+  private lib: LibraryList = LIBRARY
+  private styles: FixtureStyle[] = STYLES
+  /** Beats into the audition playing (provisional, #21). */
+  private auditionBeats = 0
 
   constructor(opts: MockOptions = {}) {
     this.demo = opts.demo ?? false
     this.state = initialState()
+    if (opts.styles) {
+      const big = bigLibrary(opts.styles)
+      this.lib = big.lib
+      this.styles = big.styles
+      this.state.library.count = this.lib.entries.length
+      this.state.library.position = this.lib.entries.findIndex((e) => e.id === this.state.style.id)
+    }
     if (this.demo) this.demoStart()
-    derive(this.state, { faders: this.hwFaders, beats: this.clock, atMs: this.now })
+    derive(this.state, this.lib, { faders: this.hwFaders, beats: this.clock, atMs: this.now })
     if (!opts.manual) {
       this.last = performance.now()
       this.timer = setInterval(() => {
@@ -264,7 +307,7 @@ export class MockSession implements Session {
   }
 
   library() {
-    return Promise.resolve(LIBRARY)
+    return Promise.resolve(this.lib)
   }
 
   dispose() {
@@ -279,7 +322,7 @@ export class MockSession implements Session {
 
   private publish() {
     this.state.version++
-    derive(this.state, { faders: this.hwFaders, beats: this.clock, atMs: this.now })
+    derive(this.state, this.lib, { faders: this.hwFaders, beats: this.clock, atMs: this.now })
     const snap = this.snapshot()
     for (const f of this.subs) f(snap)
   }
@@ -320,6 +363,42 @@ export class MockSession implements Session {
     } else if (this.demo && t.syncStart && this.now > 2500 && this.now - ms <= 2500) {
       this.chordArrives('C')
     }
+    if (!t.running) this.stepAudition(ms)
+  }
+
+  // ── Style preview (provisional, #21): what the engine would do ──────────────
+  private get preview(): PreviewState {
+    return (this.state.preview ??= { audition: null, queued: null })
+  }
+
+  private startAudition(id: number) {
+    const s = this.styles[id]
+    if (!s) return
+    if (this.state.transport.running) {
+      this.message('Preview works while the band is stopped; queue the style for the next bar instead', true)
+      return
+    }
+    if (s.error) {
+      this.message(`${s.folder}/${s.file}: ${s.error}`, true)
+      return
+    }
+    this.auditionBeats = 0
+    this.preview.audition = { id, bar: 1, bars: AUDITION_PROGRESSION.length, chord: AUDITION_PROGRESSION[0] }
+  }
+
+  private stepAudition(ms: number) {
+    const a = this.preview.audition
+    const s = a && this.styles[a.id]
+    if (!a || !s) return
+    this.auditionBeats += (ms / 60000) * s.tempo
+    const bar = Math.floor(this.auditionBeats / beatsPerBar([s.timeSignature[0], s.timeSignature[1]]))
+    if (bar >= a.bars) this.preview.audition = null
+    else if (bar + 1 !== a.bar) this.preview.audition = { ...a, bar: bar + 1, chord: AUDITION_PROGRESSION[bar] }
+  }
+
+  private queueStyle(id: number) {
+    if (this.state.transport.running) this.preview.queued = id
+    else this.loadStyle(id)
   }
 
   private onBeat() {
@@ -333,6 +412,11 @@ export class MockSession implements Session {
 
   private onBar(bar: number) {
     const t = this.state.transport
+    const q = this.preview.queued
+    if (q !== null) {
+      this.preview.queued = null
+      this.loadStyle(q)
+    }
     const played = bar - this.sectionStart
     const main = MAINS[t.main]
     if (t.section && FILLS.includes(t.section)) {
@@ -387,6 +471,7 @@ export class MockSession implements Session {
 
   private startBand() {
     const t = this.state.transport
+    this.preview.audition = null
     t.running = true
     t.syncStart = false
     this.clock = 0
@@ -399,6 +484,10 @@ export class MockSession implements Session {
 
   private stopBand() {
     const t = this.state.transport
+    // A style queued for the next bar loads when the band stops first.
+    const q = this.preview.queued
+    this.preview.queued = null
+    if (q !== null) this.loadStyle(q)
     t.running = false
     t.section = null
     t.queued = null
@@ -420,8 +509,10 @@ export class MockSession implements Session {
   }
 
   private loadStyle(id: number) {
-    const s = STYLES[id]
+    const s = this.styles[id]
     if (!s) return
+    // Loading hands over cleanly from an audition: it ends, the band stays as it was.
+    this.preview.audition = null
     if (s.error) {
       this.message(`${s.folder}/${s.file}: ${s.error}`, true)
       return
@@ -438,7 +529,7 @@ export class MockSession implements Session {
       p.waiting = st.mixer.faderPage === 'style'
     }
     if (t.section && !this.has(t.section)) t.section = MAINS.find((m) => this.has(m)) ?? null
-    st.library.position = LIBRARY.entries.findIndex((e) => e.id === id)
+    st.library.position = this.lib.entries.findIndex((e) => e.id === id)
     st.message = null
   }
 
@@ -615,21 +706,31 @@ export class MockSession implements Session {
         this.loadStyle(cmd.id)
         break
       case 'loadStylePath': {
-        const e = LIBRARY.entries.find((x) => x.path === cmd.path)
+        const e = this.lib.entries.find((x) => x.path === cmd.path)
         if (e) this.loadStyle(e.id)
         else this.message(`${cmd.path}: not found`, true)
         break
       }
       case 'stepStyle': {
-        const n = LIBRARY.entries.length
+        const entries = this.lib.entries
+        const n = entries.length
         let i = st.library.position
         for (let k = 0; k < n; k++) {
           i = (((i + cmd.delta) % n) + n) % n
-          if (LIBRARY.entries[i].status === 'ok') break
+          if (entries[i].status === 'ok') break
         }
-        this.loadStyle(LIBRARY.entries[i].id)
+        this.loadStyle(entries[i].id)
         break
       }
+      case 'auditionStyle':
+        this.startAudition(cmd.id)
+        break
+      case 'stopAudition':
+        this.preview.audition = null
+        break
+      case 'queueStyle':
+        this.queueStyle(cmd.id)
+        break
       case 'setSynthMuted':
       case 'toggleSynthMute':
         if (st.io.synth) st.io.synth.muted = cmd.type === 'setSynthMuted' ? cmd.on : !st.io.synth.muted

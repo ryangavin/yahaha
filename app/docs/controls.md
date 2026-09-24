@@ -64,10 +64,19 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | control | what it does | Genos | key | Launchkey |
 |---|---|---|---|---|
 | **Browse styles** | Opens the style browser: every style under the library folder, by folder. Your keyboard and the Launchkey keep playing while it's open. | Style selection display | `Enter` | — |
-| **Filter** | Type to filter by name or folder (not case-sensitive). ↑/↓ move, Enter loads, Esc closes without changing the style. | — | — | — |
-| **Folder** | Shows only the styles in this folder. The folder a style is in is its category. | Style category | — | — |
-| **Load style** | Loads this style and closes the browser. While the band plays it keeps playing and follows your next chord in the new style. ▶ marks the style that's loaded. | — | — | — |
-| **Close browser** | Closes the browser without changing the style. | — | `Esc` | — |
+| **Filter** | Type to filter by style name, file name or folder (not case-sensitive). ↑/↓, PgUp/PgDn and Home/End move; Enter loads; Shift+Enter previews, or queues for the next bar while the band plays. | — | — | — |
+| **All styles** | Every style in the library, in the order < Track and Track > step through: folder, then name. | — | — | < Track and Track > step through this order |
+| **Folder** | Shows only the styles in this folder and its subfolders. The folder a style is in is its category. | Style category | — | — |
+| **Favourites** | The styles you starred, in library order. Favourites are remembered on this computer. | Favorite | — | — |
+| **Recent** | The styles you loaded lately, newest first, however you loaded them. Remembered on this computer. | — | — | — |
+| **Load style** | Click or Enter loads this style and closes the browser. While the band plays it keeps playing and follows your next chord in the new style. ▶ marks the loaded style; ‹ and › mark the ones < Track and Track > would load. | — | — | < Track / Track > load the neighbouring rows |
+| **Unreadable style** | This file couldn't be read as a style, so it can't be loaded and < Track / Track > skip it. The reason is shown on the row. | — | — | — |
+| **Favourite** | Stars or unstars this style, adding it to Favourites. Ctrl+D does the same for the highlighted row. | Favorite | — | — |
+| **Preview** | While the band is stopped, plays a few bars of this style over a short default progression without loading it. Shift+Enter previews the highlighted row. | — | — | — |
+| **Stop preview** | Stops the preview at once. Loading a style, starting the band or closing the browser stops it too. | — | — | — |
+| **Load at next bar** | While the band plays, loads this style on the next bar line instead of right away, so the change lands on the beat. Shift+Enter queues the highlighted row. | — | — | — |
+| **Preview on select** | When on and the band is stopped, the highlighted or hovered row previews after a short pause. Remembered on this computer. | — | — | — |
+| **Close browser** | Closes the browser without changing the style, and stops any preview. | — | `Esc` | — |
 
 ## Fingering
 
