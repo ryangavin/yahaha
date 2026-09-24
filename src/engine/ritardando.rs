@@ -52,6 +52,16 @@ impl Engine {
         }
     }
 
+    /// A tempo set outright during a ritardando (TAP TEMPO, with Style Section Reset off):
+    /// it becomes the tempo the ritardando slows from and comes back to, and the band
+    /// slows on from it at once.
+    pub(super) fn rit_retempo(&mut self, now: u64) {
+        if self.features.rit.active {
+            self.features.rit.base = self.bpm;
+            self.rit_wake(now);
+        }
+    }
+
     /// The tempo where the ritardando has got to at `now`.
     pub(super) fn rit_wake(&mut self, now: u64) {
         let r = self.features.rit;

@@ -174,6 +174,7 @@ impl Engine {
             let iv = (newest - oldest) as f64 / (n - 1) as f64;
             if iv > 0.0 {
                 self.set_bpm_internal(60e9 / iv, now);
+                self.rit_retempo(now);
             }
         }
     }

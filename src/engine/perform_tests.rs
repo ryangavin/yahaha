@@ -512,6 +512,33 @@ fn in_ending_rit() -> Option<(Engine, Rec, u64)> {
     Some((e, rec, bar2))
 }
 
+/// TAP TEMPO during a ritardando (Style Section Reset off): the tapped tempo is the one the
+/// band slows from and comes back to at the stop.
+#[test]
+fn tap_tempo_during_a_ritardando_is_the_tempo_it_comes_back_to() {
+    let Some((mut e, mut rec, t)) = in_ending_rit() else { return };
+    e.set_style_settings(StyleSettings { section_reset: false, ..e.style_settings() });
+    play(&mut e, &mut rec, t, t + 200_000_000);
+    let t1 = t + 200_000_000;
+    e.button(Button::TapTempo, t1, &mut rec);
+    e.button(Button::TapTempo, t1 + 500_000_000, &mut rec);
+    assert!(e.ritardando(), "still slowing");
+    assert!((e.features.rit.base - 120.0).abs() < 1e-6, "tapped 120: base {}", e.features.rit.base);
+    assert!(e.bpm < 120.0 && e.bpm > 120.0 * RIT_END, "slows on from the tapped tempo: {}", e.bpm);
+    let mut now = t1 + 500_000_000;
+    let mut last = e.bpm;
+    while e.running {
+        now = e.next_deadline().unwrap().max(now + 1).min(now + 5_000_000);
+        rec.now = now;
+        e.process(now, &mut rec);
+        if e.running {
+            assert!(e.bpm <= last + 1e-9, "only slows: {} after {last}", e.bpm);
+            last = e.bpm;
+        }
+    }
+    assert!((e.bpm - 120.0).abs() < 1e-6, "back to the tapped tempo: {}", e.bpm);
+}
+
 /// Stopped during a ritardando with a style change waiting: the new style comes in at its
 /// own tempo, not the one the ritardando started from.
 #[test]
