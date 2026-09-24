@@ -189,6 +189,7 @@
     font-weight: 600;
     letter-spacing: 0.05em;
     text-transform: uppercase;
+    white-space: nowrap;
     cursor: pointer;
   }
   .tabs button.sel {
