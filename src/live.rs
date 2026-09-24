@@ -1874,6 +1874,35 @@ mod tests {
         assert!(l.engine.is_running(), "let go after the window: the band plays on");
     }
 
+    /// Only a chord struck after letting go of every chord key is published again: a held
+    /// chord, a key added that keeps it, or one key of it lifted and struck again is not.
+    #[test]
+    fn a_held_chord_is_published_once() {
+        let shared = Arc::new(Shared::new(54));
+        let ch = channels(Out::new(PacketSink::new(rt::Target::Null), None));
+        let mut input = Input::new(shared.clone(), Recognizer::new(), ch.input_tx, Out::new(PacketSink::new(rt::Target::Null), None));
+        let packed = || shared.chord.load(Relaxed);
+        keys_msg(&mut input, &C_KEYS, true);
+        let first = packed();
+        assert!(Chord::unpack(first).is_some());
+        keys_msg(&mut input, &[48], true); // C an octave up: still C
+        keys_msg(&mut input, &[40], false);
+        keys_msg(&mut input, &[40], true);
+        assert_eq!(packed(), first, "held: not published again");
+        keys_msg(&mut input, &[36, 40, 43, 48], false);
+        assert_eq!(packed(), first, "letting go publishes nothing");
+        keys_msg(&mut input, &C_KEYS, true);
+        let again = packed();
+        assert_ne!(again, first, "struck again: a new generation");
+        assert_eq!(Chord::unpack(again).map(|(c, _)| c), Chord::unpack(first).map(|(c, _)| c));
+        // A key on the right hand is not a chord key: it neither lets go nor re-strikes.
+        keys_msg(&mut input, &[72], true);
+        keys_msg(&mut input, &[72], false);
+        keys_msg(&mut input, &[36], false);
+        keys_msg(&mut input, &[36], true);
+        assert_eq!(packed(), again);
+    }
+
     /// Two held keys that land on the same note (an octave shift folding past the MIDI
     /// range, or a transpose change between presses): the note stops only when the last
     /// key holding it lets go.
