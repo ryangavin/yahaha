@@ -39,16 +39,18 @@ impl Control {
     /// once); At Main Section Change, when that Main starts playing (the section playing;
     /// an Intro, fill or break in between changes nothing). Stopped, both follow the press,
     /// except that stopping the band is not itself a change: a Main pressed but not yet
-    /// played when the band stops waits for the band to start it (or another press). The
-    /// OTS number is the button's: a Main the style lacks plays its neighbour, and recalls
-    /// the pressed button's OTS under both timings.
+    /// played when the band stops waits for the band to start it or for a Main press (the
+    /// same Main again included). Switching the timing while it waits changes nothing
+    /// either: it waits under both. The OTS number is the button's: a Main the style lacks
+    /// plays its neighbour, and recalls the pressed button's OTS under both timings.
     pub(super) fn pump_ots_link(&mut self) {
         let s = self.snap;
         let at_change = self.ots_timing == OtsLinkTiming::MainChange;
+        let stop_key = (s.main, s.main_presses);
         if at_change && self.ots_was_running && !s.running {
-            self.ots_stop_main = Some(s.main);
+            self.ots_stop_main = Some(stop_key);
         }
-        if s.running || self.ots_stop_main != Some(s.main) {
+        if s.running || self.ots_stop_main != Some(stop_key) {
             self.ots_stop_main = None;
         }
         self.ots_was_running = s.running;
@@ -57,7 +59,7 @@ impl Control {
             (true, true, Some(SectionId::Main(m))) if resolve_main(&self.info.has, s.main) == Some(m) => s.main,
             (true, true, Some(SectionId::Main(m))) => m,
             (true, true, _) => held,
-            (true, false, _) if self.ots_stop_main.is_some() => held,
+            (_, false, _) if self.ots_stop_main.is_some() => held,
             _ => s.main,
         };
         let key = (self.cur, main);

@@ -9,6 +9,9 @@ pub struct Fills {
     /// Half Bar Fill In: a Main change (or a fill) asked for on the first beat of a bar
     /// plays a fill from the middle of that bar, then the Main at the next bar line.
     pub(super) half_bar: bool,
+    /// Main presses (and fill functions) so far, wrapping: a press of the Main already
+    /// selected changes nothing else the snapshot shows (OTS Link reads it).
+    pub(super) main_presses: u16,
 }
 
 impl Engine {
@@ -19,6 +22,7 @@ impl Engine {
     /// Intro, fill or break the selected Main follows when it ends.
     pub(super) fn press_main(&mut self, i: u8, force_fill: bool, now: u64) {
         self.main = i;
+        self.features.fills.main_presses = self.features.fills.main_presses.wrapping_add(1);
         if !self.running {
             return;
         }

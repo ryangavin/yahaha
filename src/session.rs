@@ -190,9 +190,10 @@ struct Control {
     /// OTS Link Timing.
     ots_timing: OtsLinkTiming,
     /// OTS Link at Main Section Change: whether the band played at the last pump, and the
-    /// Main selected when it stopped (held until another Main is pressed).
+    /// Main selected when it stopped with the engine's Main press count then (held until
+    /// a Main is pressed, the selected one included).
     ots_was_running: bool,
-    ots_stop_main: Option<u8>,
+    ots_stop_main: Option<(u8, u16)>,
     /// Style Setting > Change Behavior (the engine has a copy).
     style_change: StyleChangeState,
     leds: Option<Leds>,

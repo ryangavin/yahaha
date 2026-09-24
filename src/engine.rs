@@ -152,6 +152,9 @@ pub struct Snapshot {
     pub stop_acmp_mode: StopAcmp,
     /// Half Bar Fill In.
     pub half_bar_fill: bool,
+    /// Main presses so far (wrapping), fill functions included: tells a press of the
+    /// selected Main from no press.
+    pub main_presses: u16,
     /// Keyboard and Master transpose in semitones (-12..=12 each).
     pub transpose: Transpose,
     /// The chord as fingered, before Keyboard transpose (`chord` is what the style follows).
@@ -460,6 +463,7 @@ impl Engine {
             stop_acmp: self.stop_acmp != StopAcmp::Off,
             stop_acmp_mode: self.stop_acmp,
             half_bar_fill: self.features.fills.half_bar,
+            main_presses: self.features.fills.main_presses,
             transpose: self.transpose,
             played: self.played,
             anchor_ns,

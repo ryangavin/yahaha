@@ -646,6 +646,7 @@ pub fn screen_html(style: &Path, out: &Path) -> Result<()> {
         stop_acmp: false,
         stop_acmp_mode: yahaha::engine::StopAcmp::Off,
         half_bar_fill: false,
+        main_presses: 0,
         transpose: Transpose::new(2, 0),
         played: Some(yahaha::theory::Chord { root: 7, ty: 10, bass: Some(5) }),
         anchor_ns: 0,

@@ -49,6 +49,34 @@ mod tests {
         }
     }
 
+    /// Release C and play F: a chord the session has not sent yet (it never re-sends an
+    /// unchanged chord, so replaying C could not start the band even with Sync Start on).
+    fn chord_f(s: &Session) {
+        for n in [36, 40, 43] {
+            s.midi_in(Port::Keys, &[0x80, n, 0]);
+        }
+        for n in [41, 45, 48] {
+            s.midi_in(Port::Keys, &[0x90, n, 100]);
+        }
+    }
+
+    /// SlowWalker, OTS Link on at At Main Section Change, band playing Main A, Main B
+    /// pressed and the band stopped before B plays: B waits.
+    fn stopped_with_main_b_waiting() -> Option<Session> {
+        let s = offline("SlowWalker.T552.sty")?;
+        s.send(OtsCmd::SetOtsLinkTiming { timing: OtsLinkTiming::MainChange }).unwrap();
+        s.send(OtsCmd::SetOtsLink { on: true }).unwrap();
+        chord_c(&s);
+        s.advance(500 * MS);
+        s.send(TransportCmd::Main { index: 1 }).unwrap();
+        s.advance(10 * MS);
+        s.send(TransportCmd::StartStop).unwrap();
+        s.advance(10 * MS);
+        let st = s.state();
+        assert_eq!((st.transport.running, st.transport.main, st.ots.applied, st.transport.sync_start), (false, 1, 1, false));
+        Some(s)
+    }
+
     /// Advance in 10 ms steps until `f` holds (at most `max_ms`).
     fn until(s: &Session, max_ms: u64, f: impl Fn(&AppState) -> bool) -> bool {
         for _ in 0..max_ms / 10 {
@@ -122,7 +150,7 @@ mod tests {
         let st = s.state();
         assert!(!st.transport.running);
         assert_eq!((st.transport.main, st.ots.applied, st.transport.sync_start), (1, 1, false), "the stop recalls nothing");
-        chord_c(&s);
+        chord_f(&s);
         s.advance(50 * MS);
         assert!(!s.state().transport.running, "the next chord does not restart the band");
         // Starting it plays Main B: its OTS then.
@@ -139,6 +167,49 @@ mod tests {
         s.advance(10 * MS);
         let st = s.state();
         assert_eq!((st.ots.applied, st.transport.sync_start), (4, true), "stopped: follows the press");
+    }
+
+    /// Review #92 round 2: switching the timing to Immediate while a Main waits is a
+    /// settings change, not a Main press: no recall and no Sync Start, and the band stays
+    /// stopped on the next (new) chord. The waiting Main's OTS comes when the band starts.
+    #[test]
+    fn ots_link_timing_switch_while_stopped_recalls_nothing() {
+        let Some(s) = stopped_with_main_b_waiting() else { return };
+        s.send(OtsCmd::SetOtsLinkTiming { timing: OtsLinkTiming::Immediate }).unwrap();
+        s.advance(10 * MS);
+        let st = s.state();
+        assert_eq!((st.ots.applied, st.transport.sync_start), (1, false), "the switch recalls nothing");
+        chord_f(&s);
+        s.advance(50 * MS);
+        assert!(!s.state().transport.running, "the next chord does not start the band");
+        s.send(OtsCmd::SetOtsLinkTiming { timing: OtsLinkTiming::MainChange }).unwrap();
+        s.send(OtsCmd::SetOtsLinkTiming { timing: OtsLinkTiming::Immediate }).unwrap();
+        s.advance(10 * MS);
+        assert_eq!(s.state().ots.applied, 1, "back and forth: still nothing");
+        s.send(TransportCmd::StartStop).unwrap();
+        s.advance(10 * MS);
+        let st = s.state();
+        assert!(st.transport.running);
+        assert_eq!(st.ots.applied, 2, "Immediate: Main B's OTS as the band starts on it");
+    }
+
+    /// Review #92 round 2: pressing the waiting Main again while stopped is a press, so
+    /// both timings follow it (recall, Sync Start on), as for any other Main.
+    #[test]
+    fn ots_link_same_main_pressed_again_while_stopped_recalls() {
+        let Some(s) = stopped_with_main_b_waiting() else { return };
+        s.send(TransportCmd::Main { index: 1 }).unwrap();
+        s.advance(10 * MS);
+        let st = s.state();
+        assert_eq!((st.transport.main, st.ots.applied, st.transport.sync_start), (1, 2, true), "the press recalls");
+        chord_f(&s);
+        s.advance(50 * MS);
+        assert!(s.state().transport.running, "Sync Start: the next chord starts the band");
+        // Fill Self on the waiting Main is a press of it too.
+        let Some(s) = stopped_with_main_b_waiting() else { return };
+        s.send(TransportCmd::FillSelf).unwrap();
+        s.advance(10 * MS);
+        assert_eq!(s.state().ots.applied, 2, "Fill Self presses the selected Main");
     }
 
     /// Immediate and At Main Section Change recall the same OTS for a Main the style
