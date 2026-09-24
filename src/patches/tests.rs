@@ -227,7 +227,8 @@ fn an_import_merges_with_new_ids_and_follows_its_maps() {
 fn plugin_patches_say_why_they_play_the_fallback() {
     let lib = library();
     let fonts = vec!["GeneralUser-GS.sf2".to_string()];
-    assert_eq!(unavailable_reason(lib.patch("keys").unwrap(), &fonts).as_deref(), Some("needs plugin hosting (#91)"));
+    let want = if cfg!(feature = "plugins") { None } else { Some("needs plugin hosting (#91)") };
+    assert_eq!(unavailable_reason(lib.patch("keys").unwrap(), &fonts).as_deref(), want);
     assert_eq!(unavailable_reason(lib.patch("bass").unwrap(), &fonts), None);
     assert!(unavailable_reason(lib.patch("bass").unwrap(), &[]).unwrap().contains("not in the SoundFont folder"));
 }

@@ -123,8 +123,9 @@ pub enum PatchSource {
     /// (128 = drum kits) and program.
     SoundFont { file: String, bank: u16, program: u8 },
     /// An instrument plugin (an Audio Unit today): its component id ("aumu:abcd:manu")
-    /// and saved state (opaque, hex). Plugin patches play once plugin hosting reaches the
-    /// parts (#91); until then they play the SoundFont fallback.
+    /// and saved state (its ClassInfo bytes, base64, as #91 stores it). Plugin patches play
+    /// through #91's per-channel plugin rack when the build has it; otherwise the
+    /// SoundFont fallback.
     Plugin { component_id: String, #[serde(default)] state: String },
 }
 
@@ -185,7 +186,8 @@ pub struct Patch {
 /// Why a patch plays its SoundFont fallback instead of itself, if it does.
 pub fn unavailable_reason(p: &Patch, sound_fonts: &[String]) -> Option<String> {
     match &p.source {
-        PatchSource::Plugin { .. } => Some("needs plugin hosting (#91)".into()),
+        PatchSource::Plugin { .. } if !cfg!(feature = "plugins") => Some("needs plugin hosting (#91)".into()),
+        PatchSource::Plugin { .. } => None,
         PatchSource::SoundFont { file, .. } if !sound_fonts.iter().any(|f| f == file) => {
             Some(format!("{file} is not in the SoundFont folder"))
         }

@@ -102,6 +102,9 @@ pub(super) struct SoundLib {
     /// The same for a style handed to the engine that it hasn't taken over yet (its tag).
     pending: Option<(u8, String, Vec<(u8, u8, u8, u8)>, u64)>,
     audition: Option<Audition>,
+    /// The channels the map put on a plugin (the patch id), through #91's
+    /// `assign_channel_plugin`.
+    plugin_channels: [Option<String>; 16],
     /// Auditions to the synth (the control side's ring), when it runs.
     pub(super) audition_tx: Option<Producer<synth::Msg>>,
     browse: Option<SoundFontBrowse>,
@@ -132,6 +135,7 @@ impl SoundLib {
             cur_usage: Vec::new(),
             pending: None,
             audition: None,
+            plugin_channels: Default::default(),
             audition_tx: None,
             browse: None,
             last_added: None,
@@ -294,6 +298,7 @@ impl Control {
         let avail = self.avail_fonts();
         let routes = self.shared.routes.clone();
         self.sound.write_all(&routes, &avail);
+        self.sync_channel_routes();
         if let (Some(path), None) = (&self.sound.path, &self.sound.locked)
             && let Err(e) = self.sound.lib.save(path)
         {
@@ -417,7 +422,9 @@ impl Control {
                 if let Some(why) = patches::unavailable_reason(&p, &self.avail_fonts()) {
                     return self.sl_fail(format!("{}: {why}", p.name));
                 }
-                let PatchSource::SoundFont { file, bank, program } = p.source else { unreachable!() };
+                let PatchSource::SoundFont { file, bank, program } = p.source else {
+                    return self.sl_fail(format!("{}: a plugin patch auditions on a part (pick it for Right 1)", p.name));
+                };
                 return self.start_audition(id, file, bank, program, p.defaults.volume);
             }
             SoundLibraryCmd::AuditionPreset { file, bank, program } => {
@@ -576,6 +583,76 @@ impl Control {
         }
     }
 
+    // ----- the per-channel routes (#91's `ChannelRoutes`) -----
+
+    /// The patch a channel plays by the map now: a Style part's by its setup voice, a
+    /// keyboard part's own patch or its GM voice through the map.
+    fn channel_patch(&self, ch: u8) -> Option<String> {
+        let lib = &self.sound.lib;
+        let style = lib.style_maps.get(&self.sound.cur_key);
+        if let Some(p) = parts::part_of_channel(ch) {
+            if let Some(own) = self.sound.part_patch[p].clone() {
+                return Some(own);
+            }
+            let prog = self.shared.parts.channel_program(p);
+            return patches::resolve(&lib.map, style, false, prog).patch.map(str::to_string);
+        }
+        let (msb, _, pc) = self.info.voices[ch as usize & 15]?;
+        let drum = patches::is_drum(ch, msb);
+        let prog = if drum { pc } else { patches::map_program(ch, msb, pc) };
+        patches::resolve(&lib.map, style, drum, prog).patch.map(str::to_string)
+    }
+
+    /// Bring the synth's per-channel route table (`SynthControl::routes`, #91) to the map,
+    /// off the real-time threads: each Style part and keyboard part on the SoundFont slot
+    /// its patch plays from (`Source::SoundFont(n)`, n = its slot in the rack, 0 = the main
+    /// font), or, for a plugin patch, on a plugin (`assign_channel_plugin`). A channel the
+    /// map put on a plugin goes back to the SoundFont when it no longer resolves to one.
+    /// A keyboard part's own plugin (`SetPartPlugin`, #91) is left alone.
+    ///
+    /// Program changes inside a section still pick their SoundFont on the audio thread,
+    /// from the per-program table (`patches::Routes`): they can't be known here in time.
+    pub(super) fn sync_channel_routes(&mut self) {
+        if self.synth.is_none() {
+            return;
+        }
+        let channels: Vec<u8> = (0..parts::COUNT as u8).map(|p| parts::CHANNEL[p as usize]).chain(8..16).collect();
+        for ch in channels {
+            let patch = self.channel_patch(ch).and_then(|id| self.sound.lib.patch(&id).cloned());
+            let mine = self.sound.plugin_channels[ch as usize].clone();
+            match patch.as_ref().map(|p| (&p.id, &p.source)) {
+                Some((id, PatchSource::Plugin { component_id, state })) if parts::part_of_channel(ch).is_none() => {
+                    if mine.as_deref() == Some(id.as_str()) {
+                        continue;
+                    }
+                    // TODO(#91): the plugin state format is #91's (ClassInfo bytes, base64).
+                    let voice = super::PluginVoice { id: component_id.clone(), state: crate::api::base64_decode(state) };
+                    match self.assign_channel_plugin(ch, voice) {
+                        Ok(()) => self.sound.plugin_channels[ch as usize] = Some(id.clone()),
+                        // No plugin host (this build, or no synth): the SoundFont fallback.
+                        Err(_) => self.sound.plugin_channels[ch as usize] = None,
+                    }
+                }
+                other => {
+                    let n = match other {
+                        Some((_, PatchSource::SoundFont { file, .. })) => {
+                            self.sound.rack_fonts.iter().position(|f| f == file).unwrap_or(0).min(crate::route::MAX_FONT as usize) as u8
+                        }
+                        _ => 0,
+                    };
+                    if mine.is_some() {
+                        self.sound.plugin_channels[ch as usize] = None;
+                        self.route_channel_sound_font(ch, n);
+                    } else if let Some(sy) = &self.synth
+                        && sy.control.routes.source(ch) != crate::route::Source::Plugin
+                    {
+                        sy.control.routes.set(ch, crate::route::Source::SoundFont(n));
+                    }
+                }
+            }
+        }
+    }
+
     // ----- auditions -----
 
     fn start_audition(&mut self, label: String, file: String, bank: u16, program: u8, volume: Option<u8>) -> Result<(), CmdError> {
@@ -695,6 +772,7 @@ impl Control {
             self.sound.cur_key = key;
             self.sound.cur_usage = usage;
             self.shared.routes.current.store(bank, Relaxed);
+            self.sync_channel_routes();
         }
     }
 
@@ -714,6 +792,7 @@ impl Control {
         self.sound.rack_fonts = fonts.iter().map(|(f, _)| f.clone()).collect();
         self.sound.cache = fonts.into_iter().collect();
         self.sound.loading = None;
+        self.sync_channel_routes();
     }
 
     /// Each pump: a rack with the SoundFonts the library needs, and the audition.
