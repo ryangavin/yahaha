@@ -8,6 +8,7 @@
 use std::time::Instant;
 
 use yahaha::api::*;
+use yahaha::engine::{FadeState, StyleSettings};
 use yahaha::fingering::Fingering;
 use yahaha::launchkey::{self as lk, Action, Anim, Control, Level, Page};
 use yahaha::parts::{self, FaderPage};
@@ -140,6 +141,10 @@ pub struct MockSession {
     led_anchor: (f64, f64, f64),
     /// The wall clock at the last `catch_up`.
     wall: Option<Instant>,
+    /// The Style settings (`StyleSettingsCmd`), and how long the fade phase playing has
+    /// left (ms).
+    settings: StyleSettings,
+    fade_left: f64,
 }
 
 impl Default for MockSession {
@@ -208,6 +213,9 @@ impl MockSession {
                 section_bars: Some(4),
                 tempo: s0.tempo,
                 lamps: vec![],
+                fade: FadeState::Off,
+                retrigger: false,
+                ritardando: false,
             },
             chord: ChordState {
                 name: Some("Am7".into()),
@@ -287,6 +295,7 @@ impl MockSession {
                 chord_bass: Some(9),
                 detection: [0, 54],
             },
+            style_settings: StyleSettingsState::default(),
             message: None,
         };
         let mut m = MockSession {
@@ -305,6 +314,8 @@ impl MockSession {
             section_key: None,
             led_anchor: (0.0, 0.0, 0.0), // anchored by the first `derive`
             wall: None,
+            settings: StyleSettings::default(),
+            fade_left: 0.0,
         };
         m.set_style(0);
         m.state.ots.applied = 2;
@@ -412,6 +423,7 @@ impl MockSession {
 
     fn step(&mut self, ms: f64) {
         self.now += ms;
+        self.step_fade(ms);
         if !self.state.transport.running {
             return;
         }
@@ -499,7 +511,44 @@ impl MockSession {
         }
     }
 
+    /// Fade In/Out: a fade in runs out, a fade out stops the band and holds, a hold ends.
+    fn step_fade(&mut self, ms: f64) {
+        if matches!(self.state.transport.fade, FadeState::Off | FadeState::Armed) {
+            return;
+        }
+        self.fade_left -= ms;
+        if self.fade_left > 0.0 {
+            return;
+        }
+        match self.state.transport.fade {
+            FadeState::FadingOut => {
+                self.stop_band();
+                self.state.transport.fade = FadeState::Holding;
+                self.fade_left += self.settings.fade_hold_ms as f64;
+            }
+            _ => self.state.transport.fade = FadeState::Off,
+        }
+    }
+
+    /// Style Section Reset: the section starts again from its top, now.
+    fn reset_section(&mut self) {
+        if self.state.transport.running {
+            let qpb = self.bar_quarters();
+            self.section_start = (self.clock / qpb).floor() as u32;
+            self.clock = self.section_start as f64 * qpb;
+            self.position();
+        }
+    }
+
     fn start_band(&mut self) {
+        match self.state.transport.fade {
+            FadeState::Armed => {
+                self.state.transport.fade = FadeState::FadingIn;
+                self.fade_left = self.settings.fade_in_ms as f64;
+            }
+            FadeState::Holding => self.state.transport.fade = FadeState::Off,
+            _ => {}
+        }
         let intro = self.state.transport.pending_intro.map(|i| INTROS[i as usize]).filter(|s| self.has(s));
         let t = &mut self.state.transport;
         t.running = true;
@@ -514,6 +563,10 @@ impl MockSession {
 
     fn stop_band(&mut self) {
         let t = &mut self.state.transport;
+        if matches!(t.fade, FadeState::FadingIn | FadeState::FadingOut) {
+            t.fade = FadeState::Off;
+        }
+        t.ritardando = false;
         t.running = false;
         t.section = None;
         t.queued = None;
@@ -705,10 +758,10 @@ impl MockSession {
             ("padBankDown", lk::PAD_DOWN_CC, "PAGE ▼", "OTS LINK"),
             ("trackPrev", lk::TRACK_LEFT_CC, "◀ STYLE", ""),
             ("trackNext", lk::TRACK_RIGHT_CC, "STYLE ▶", ""),
-            ("play", lk::PLAY_CC, "PLAY", ""),
-            ("stop", lk::STOP_CC, "STOP", ""),
-            ("scene", lk::SCENE_CC, "TEMPO +", ""),
-            ("function", lk::FUNCTION_CC, "TEMPO -", ""),
+            ("play", lk::PLAY_CC, "PLAY", "RESET"),
+            ("stop", lk::STOP_CC, "STOP", "FADE"),
+            ("scene", lk::SCENE_CC, "TEMPO +", "RTG SHORT"),
+            ("function", lk::FUNCTION_CC, "TEMPO -", "RTG LONG"),
         ] {
             let (a, sa) = (act(cc, false), act(cc, true));
             let shift = (sa != a).then_some((shift_label, sa));
@@ -871,9 +924,28 @@ impl MockSession {
             }
             AppCmd::Transport(TransportCmd::Ending { index }) => {
                 let id = ENDINGS[index.min(2) as usize];
-                if running && self.has(id) {
+                if running && self.state.transport.section.as_deref() == Some(id) {
+                    // The Ending playing, pressed again: ritardando.
+                    self.state.transport.ritardando = true;
+                } else if running && self.has(id) {
                     self.state.transport.queued = Some(id.into());
                 }
+            }
+            AppCmd::Transport(TransportCmd::ToggleFade) => {
+                let t = &mut self.state.transport;
+                if !running {
+                    t.fade = if t.fade == FadeState::Armed { FadeState::Off } else { FadeState::Armed };
+                } else if t.fade != FadeState::FadingOut {
+                    t.fade = FadeState::FadingOut;
+                    self.fade_left = self.settings.fade_out_ms as f64;
+                }
+            }
+            AppCmd::Transport(TransportCmd::SectionReset) => self.reset_section(),
+            AppCmd::Transport(TransportCmd::ToggleRetrigger) => self.state.transport.retrigger = !self.state.transport.retrigger,
+            AppCmd::Transport(TransportCmd::TapTempo) if running && self.settings.section_reset => self.reset_section(),
+            AppCmd::StyleSettings(c) => {
+                self.settings = c.apply(self.settings);
+                self.state.style_settings = self.settings.into();
             }
             AppCmd::Transport(TransportCmd::ToggleSyncStart) => {
                 if running {
@@ -1212,7 +1284,7 @@ fn pads_for(s: &AppState, page: Page) -> Vec<Pad> {
                 page_pad(116, "KBD TR -", ";", Some(AppCmd::Chord(ChordCmd::StepTranspose { keyboard: -1, master: 0 })), true, c.transpose_keyboard < 0),
                 page_pad(117, "KBD TR +", "'", Some(AppCmd::Chord(ChordCmd::StepTranspose { keyboard: 1, master: 0 })), true, c.transpose_keyboard > 0),
                 page_pad(118, "TR RESET", "/", Some(AppCmd::Chord(ChordCmd::ResetTranspose)), true, c.transpose_keyboard != 0 || c.transpose_master != 0),
-                page_pad(119, "", "", None, false, false),
+                page_pad(119, "RETRIG", "R", Some(AppCmd::Transport(TransportCmd::ToggleRetrigger)), true, t.retrigger),
             ]);
             v
         }
@@ -1223,7 +1295,7 @@ fn pads_for(s: &AppState, page: Page) -> Vec<Pad> {
                 .collect();
             v.extend([
                 page_pad(100, "OTS LINK", "F10", Some(AppCmd::Ots(OtsCmd::ToggleOtsLink)), true, s.ots.link),
-                page_pad(101, "", "", None, false, false),
+                page_pad(101, "FADE", "F", Some(AppCmd::Transport(TransportCmd::ToggleFade)), true, t.fade != FadeState::Off),
                 page_pad(102, "VOICE -", "9", Some(AppCmd::Parts(PartsCmd::StepVoice { delta: -1 })), true, false),
                 page_pad(103, "VOICE +", "0", Some(AppCmd::Parts(PartsCmd::StepVoice { delta: 1 })), true, false),
             ]);
@@ -1244,6 +1316,29 @@ mod tests {
 
     fn bar_ms(m: &MockSession) -> f64 {
         60000.0 / m.state.transport.tempo * m.state.transport.beats_per_bar as f64
+    }
+
+    #[test]
+    fn fade_out_stops_the_band_then_holds_and_settings_apply() {
+        let mut m = MockSession::new();
+        m.send(StyleSettingsCmd::SetFadeOutTime { ms: 1000 });
+        m.send(StyleSettingsCmd::SetFadeHoldTime { ms: 500 });
+        assert_eq!((m.state.style_settings.fade_out_ms, m.state.style_settings.fade_hold_ms), (1000, 500));
+        m.send(TransportCmd::ToggleFade);
+        assert_eq!(m.state.transport.fade, FadeState::FadingOut);
+        m.advance(1010.0);
+        assert!(!m.state.transport.running);
+        assert_eq!(m.state.transport.fade, FadeState::Holding);
+        m.advance(500.0);
+        assert_eq!(m.state.transport.fade, FadeState::Off);
+        m.send(TransportCmd::ToggleFade);
+        assert_eq!(m.state.transport.fade, FadeState::Armed);
+        m.send(TransportCmd::StartStop);
+        assert_eq!(m.state.transport.fade, FadeState::FadingIn);
+        m.send(TransportCmd::ToggleRetrigger);
+        assert!(m.state.transport.retrigger);
+        m.send(StyleSettingsCmd::StepRetriggerRate { delta: 1 });
+        assert_eq!(m.state.style_settings.retrigger_rate, 16);
     }
 
     #[test]
