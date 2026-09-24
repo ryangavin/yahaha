@@ -127,7 +127,9 @@ export function tipFor(cmd: AppCmd | null): TipKey {
     case 'setTouchLimit': return 'harmony.touch_limit'
     case 'setArpQuantize': return 'harmony.arp_quantize'
     case 'setArpHold':
-    case 'toggleArpHold': return 'harmony.arp_hold'
+    case 'toggleArpHold':
+    case 'setArpPedalHold':
+    case 'toggleArpPedalHold': return 'harmony.arp_hold'
     case 'setArpVelocity': return 'harmony.arp_velocity'
     case 'setArpKeepKeyOn': return 'harmony.arp_keep_key_on'
   }
