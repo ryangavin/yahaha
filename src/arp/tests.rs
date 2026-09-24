@@ -520,6 +520,73 @@ fn stop_cuts_everything() {
     assert!(!a.is_running());
 }
 
+// --- clock jumps and bad input ---------------------------------------------------
+
+#[test]
+fn clock_going_back_cuts_and_restarts() {
+    // The style restarts at tick 0 while arp notes sound at a high tick.
+    let mut a = arp("Four Stabs"); // gate 192
+    chord(&mut a, &[C, E, G], 100_000);
+    let mut ev = run(&mut a, 100_000, 100_010);
+    assert_eq!(a.sounding(), 3);
+    let back = run(&mut a, 0, 1000);
+    // The old notes are released at the new tick, and the pattern starts over there.
+    assert_eq!(offs(&back)[..3], [(0, C), (0, E), (0, G)]);
+    assert_eq!(ticks(&back), [0, 0, 0, 480, 480, 480, 960, 960, 960]);
+    ev.extend(back);
+    a.all_off(1000, &mut ev);
+    assert_eq!(a.sounding(), 0);
+    assert_eq!(ons(&ev).len(), offs(&ev).len());
+    // With Quantize on, the restart waits for the grid.
+    let mut a = with("Climb 16", Settings { quantize: Quantize::Sixteenth, ..Settings::default() });
+    chord(&mut a, &[C], 5_000);
+    run(&mut a, 5_000, 5_050);
+    assert_eq!(ticks(&run(&mut a, 30, 300)), [120, 240]);
+}
+
+#[test]
+fn clock_gap_plays_one_step_not_a_burst() {
+    let mut a = arp("Sky Ladder 32");
+    chord(&mut a, &[C, E, G], 0);
+    let mut ev = run(&mut a, 0, 100);
+    let n = ev.len();
+    a.process(96_000..96_010, &mut ev);
+    assert_eq!(ons(&ev[n..]).len(), 1);
+    assert_eq!(check(&ev), 1);
+    // A late quantized start (snapped back several steps) also plays just one note now.
+    let mut a = with("Sky Ladder 32", Settings { quantize: Quantize::Eighth, ..Settings::default() });
+    chord(&mut a, &[C], 1070); // snaps back to 960: the 32nds at 960 and 1020 are late
+    assert_eq!(ticks(&run(&mut a, 1070, 1150)), [1070, 1080, 1140]);
+}
+
+#[test]
+fn empty_ranges_do_nothing() {
+    let mut a = arp("Climb 16");
+    chord(&mut a, &[C, E], 0);
+    let mut ev = Vec::new();
+    a.process(0..0, &mut ev);
+    let (from, to) = (500, 100);
+    a.process(from..to, &mut ev);
+    assert!(ev.is_empty());
+}
+
+#[test]
+fn unvalidated_patterns_do_not_panic_or_hang() {
+    let mut p = library::find("Climb 16").unwrap().clone();
+    p.steps = std::borrow::Cow::Owned(vec![]);
+    let mut a = Arp::new(PPQ, p);
+    chord(&mut a, &[C], 0);
+    assert!(run(&mut a, 0, 480).is_empty());
+
+    let mut p = library::find("Climb 16").unwrap().clone();
+    p.step_len = 0;
+    let mut a = Arp::new(PPQ, p);
+    chord(&mut a, &[C], 0);
+    let mut ev = run(&mut a, 0, 480);
+    a.all_off(480, &mut ev);
+    assert_eq!(check(&ev), 0);
+}
+
 struct Rng(u32);
 impl Rng {
     fn next(&mut self, n: u32) -> u32 {

@@ -56,6 +56,14 @@ fn process_does_not_allocate() {
         a.note_off(60, t);
         a.set_hold(false, t);
         a.process(t..t + 7680, &mut sink);
+        // Clock jumps back (style restart), a gap, and a pattern swap between borrowed
+        // library patterns.
+        a.note_on(62, 100, 0);
+        a.process(0..500, &mut sink);
+        a.process(90_000..90_500, &mut sink);
+        a.set_pattern(library::PATTERNS[0].clone(), 90_500);
+        a.process(90_500..91_000, &mut sink);
+        a.note_off(62, 91_000);
         a.all_off(t + 7680, &mut sink);
     }
     let after = ALLOCS.load(Ordering::Relaxed);

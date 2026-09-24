@@ -174,6 +174,8 @@ pub struct Arp {
     nsounding: usize,
     pend: [Pend; MAX_PENDING],
     npend: usize,
+    /// End of the last processed range, `NONE` before the first.
+    last_end: u64,
 }
 
 impl Arp {
@@ -198,6 +200,7 @@ impl Arp {
             nsounding: 0,
             pend: [Pend::default(); MAX_PENDING],
             npend: 0,
+            last_end: NONE,
         }
     }
 
@@ -343,8 +346,22 @@ impl Arp {
     /// Sends every event in `range` to `sink`, in time order. Events due before
     /// `range.start` (a late start, or a cut at an earlier tick) go out at
     /// `range.start`. Call it with contiguous ranges.
+    ///
+    /// The clock may jump. A range that starts before the previous one ended (the style
+    /// restarting at tick 0) cuts every sounding note at `range.start` and, if the
+    /// pattern is running, starts it again from step 1 there (on the next grid line with
+    /// Quantize on). A range that starts after the previous one ended skips the steps
+    /// in the gap: only the latest one plays, at `range.start`. An empty range does
+    /// nothing.
     pub fn process(&mut self, range: Range<u64>, sink: &mut impl ArpSink) {
         let (from, to) = (range.start, range.end);
+        if from >= to {
+            return;
+        }
+        if self.last_end != NONE && from < self.last_end {
+            self.clock_reset(from);
+        }
+        self.last_end = to;
         loop {
             let (off_t, off_n) = self.next_off();
             let (pend_t, pend_i) = self.next_pending();
@@ -365,9 +382,48 @@ impl Arp {
                 self.npend -= 1;
                 self.start_note(p, at, sink);
             } else {
+                if t < from {
+                    self.skip_late_steps(from);
+                }
+                let t = self.step_tick(self.next_step);
                 self.play_step(t);
             }
         }
+    }
+
+    /// The clock went back to `tick`: cut what is sounding, drop queued notes and start
+    /// a running pattern over.
+    fn clock_reset(&mut self, tick: u64) {
+        for t in self.off_at.iter_mut() {
+            if *t != NONE {
+                *t = tick;
+            }
+        }
+        self.npend = 0;
+        if self.running {
+            self.anchor = match self.settings.quantize.grid(self.ppq) {
+                Some(g) => tick.div_ceil(g) * g,
+                None => tick,
+            };
+            self.anchor_step = 0;
+            self.next_step = 0;
+            self.reset_walk();
+        }
+    }
+
+    /// Moves `next_step` to the latest step due at or before `from`, so a late start
+    /// or a gap in the clock plays one step instead of a burst of every missed one.
+    fn skip_late_steps(&mut self, from: u64) {
+        let num = self.step_num();
+        let base = self.anchor_step + (from - self.anchor) * STEP_DEN / num;
+        let mut k = base.max(self.next_step);
+        while k > self.next_step && self.step_tick(k) > from {
+            k -= 1;
+        }
+        while self.step_tick(k + 1) <= from {
+            k += 1;
+        }
+        self.next_step = k;
     }
 
     // --- held notes ---------------------------------------------------------------
@@ -457,8 +513,10 @@ impl Arp {
     }
 
     /// Step length numerator (over `STEP_DEN`).
+    /// A zero step length (an unvalidated pattern) counts as one tick at
+    /// [`PATTERN_PPQ`], so the clock always moves forward.
     fn step_num(&self) -> u64 {
-        self.pattern.step_len as u64 * self.ppq as u64 * self.settings.unit_multiply as u64
+        self.pattern.step_len.max(1) as u64 * self.ppq as u64 * self.settings.unit_multiply as u64
     }
 
     /// Unswung time of step `k`.
@@ -524,6 +582,10 @@ impl Arp {
             return;
         }
         let steps = self.pattern.steps.len();
+        if steps == 0 {
+            // An unvalidated pattern with no steps plays nothing.
+            return;
+        }
         let step = self.pattern.steps[(k % steps as u64) as usize];
         let gate = (self.step_num() * step.gate as u64 * self.settings.gate_scale as u64 / (STEP_DEN * 10_000)).max(1);
         let n = self.npool;

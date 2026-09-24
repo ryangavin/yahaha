@@ -38,6 +38,14 @@ arp.all_off(now, &mut sink);        // stop and send the note-offs right away
   out at `range.start`. This happens with a quantized start that snapped back to a grid
   line just behind the key press, and with a cut at an earlier tick. Output does not
   depend on how the ranges are chunked (tested with 1-, 7- and 4995-tick chunks).
+- **Clock jumps.** If a range starts before the previous one ended (for example, the
+  style restarts at tick 0), every sounding note is cut at `range.start`. A running
+  pattern then starts again from step 1 at that tick, or on the next grid line when
+  Quantize is on. If a range starts after the previous one ended, the steps in the
+  gap are skipped and only the latest one plays, at `range.start`. A late quantized
+  start works the same way. Empty and reversed ranges do nothing. An unvalidated
+  pattern with no steps plays nothing, and a zero step length counts as one tick, so
+  neither can panic or hang the real-time thread.
 - **No allocation** in `process`, `note_on`, `note_off`, `set_sustain`, `set_settings`,
   `set_hold`, `stop` or `all_off`. `tests/arp_no_alloc.rs` checks this with a counting
   global allocator. `set_pattern` moves the new pattern in and drops the old one. The
