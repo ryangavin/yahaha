@@ -565,7 +565,7 @@ The iReal Pro chart player.
 | `autoStyle` | bool | Choosing a song loads its suggested style. |
 | `suggestedStyle` | number? | The library style the chart's style label suggests (`LibraryEntry.id`). |
 | `bar` | number? | The bar of `song.bars` playing. Null when stopped, in the Intro or the Ending, or with chart mode off. |
-| `overridden` | bool | A chord you played has taken over until the next bar line. |
+| `overridden` | bool | A chord you played has taken over until the next bar line (through the next bar too, when played in the last half beat before its line). |
 
 ### `multiPad`
 Multi Pads (docs/multipad.md).

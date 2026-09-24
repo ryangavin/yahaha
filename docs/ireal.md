@@ -237,8 +237,11 @@ state are `chart` in [app-api.md](app-api.md).
   again from the new plan. A new song starts from its first bar (its Main) at the next bar
   line. Turning chart mode on mid-song starts the chart from its first bar there too.
 - **Your left hand.** A chord you play takes over at once and holds until the next bar
-  line, where the chart takes over again (`chart.overridden` shows it). A Sync Start chord
-  only starts the band: the chart's own chord plays from the first beat.
+  line, where the chart takes over again (`chart.overridden` shows it). A chord played in
+  the last half beat before a bar line is taken as an anticipation of the next bar: it holds
+  through that bar as well, and the chart takes over at the line after it
+  (`ANTICIPATE_BEATS` in `src/engine/chart.rs`). A Sync Start chord only starts the band:
+  the chart's own chord plays from the first beat.
 - **Transpose.** Keyboard transpose moves the chart's chords just as it moves the chords you
   play (the chart is "played" in its written key). Master transpose moves everything, as
   always.
@@ -283,8 +286,13 @@ good once Auto Style is off.
   A, as a band would play one.
 - **The left hand overrides until the next bar line**, as the task specifies. A shorter
   override (to the next chart chord) would cut a reharmonization off mid-bar.
+- **A chord in the last half beat of a bar carries over into the next bar.** Players push
+  (anticipate) a change by an eighth; ending the override at the line would drop a chord
+  struck 20 ms early after 20 ms. Half a beat covers an anticipated eighth and a late
+  hand, but not a chord played on the bar's last beat itself.
 - **The chord names shown are yahaha's** (`Dm7`, `G7(9)`), from the mapped chords, not the
-  chart's own spelling. They are the chords the band plays.
+  chart's own spelling. They are the chart's chords as written: with Keyboard transpose on,
+  the band plays them transposed, and the lane still shows the written key.
 - **Playlists are kept in memory only** (nothing is written to disk). The app imports again
   from the file or the link.
 - **Choruses are a setting (default 1)**, not the song's own repeat count (iReal's default

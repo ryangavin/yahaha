@@ -15,7 +15,8 @@
 //!   bar; after the last bar the Ending plays (or the band stops, with no Ending). A loop
 //!   range plays over and over instead, until the player stops or presses an Ending.
 //! - A chord the player plays overrides the chart until the next bar line, where the chart
-//!   takes over again.
+//!   takes over again. A chord played in the last eighth of a bar (half a beat before the
+//!   line) is an anticipation of the next bar: it holds through that bar as well.
 //!
 //! Real-time: the plan arrives in a `Box` built on the control side (`live::EngineIo::charts`),
 //! and the one it replaces goes back out to be freed there (`Engine::set_chart` returns it).
@@ -26,6 +27,10 @@ use super::*;
 /// Chords a plan bar holds; more on one bar are dropped (iReal writes at most 4 cells a
 /// beat, so 8 is already generous).
 pub const CHART_CHORDS: usize = 8;
+
+/// A player's chord this close to the next bar line (in beats) is meant for the bar after
+/// it: the override carries over that line.
+pub const ANTICIPATE_BEATS: f64 = 0.5;
 
 /// One chart bar as the engine plays it.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -139,6 +144,9 @@ pub(super) struct ChartPlayer {
     bar: Option<u32>,
     /// The player's chord is in charge until the next bar line.
     overridden: bool,
+    /// The bar line (tick) the player's override carries over: their chord came just
+    /// before it (`ANTICIPATE_BEATS`).
+    carry: Option<f64>,
     /// The chord the chart last gave the band (as written, before Keyboard transpose): a
     /// chord change to anything else is the player's.
     applied: Option<Chord>,
@@ -191,6 +199,7 @@ impl Engine {
             // A new song starts from its first bar.
             c.bar = None;
             c.overridden = false;
+            c.carry = None;
         } else if let Some(b) = c.bar {
             c.bar = (len > 0).then(|| b.min(len - 1));
         }
@@ -215,6 +224,7 @@ impl Engine {
         if !s.on {
             c.bar = None;
             c.overridden = false;
+            c.carry = None;
         }
         self.chart_requeue(now, due);
     }
@@ -274,6 +284,7 @@ impl Engine {
         let c = &mut self.features.chart;
         c.bar = None;
         c.overridden = false;
+        c.carry = None;
         c.owned = None;
         c.start_ns = Some(now);
         if !self.chart_active() {
@@ -300,6 +311,7 @@ impl Engine {
         let c = &mut self.features.chart;
         c.bar = None;
         c.overridden = false;
+        c.carry = None;
         c.owned = None;
     }
 
@@ -309,7 +321,13 @@ impl Engine {
         if !self.chart_active() {
             return;
         }
-        let was_overridden = std::mem::take(&mut self.features.chart.overridden);
+        let tpb = self.style.tpb.max(1) as f64;
+        let line = self.sec_start + bar as f64 * tpb;
+        // An override ends here, unless the player's chord came just before this line (an
+        // anticipation of this bar): then it holds through this bar too.
+        let c = &mut self.features.chart;
+        let carried = c.overridden && c.carry.take().is_some_and(|t| (t - line).abs() < 1.0);
+        let was_overridden = std::mem::replace(&mut c.overridden, carried) && !carried;
         match id_of(self.cur) {
             SectionId::Ending(_) => return,
             SectionId::Intro(_) => {
@@ -329,8 +347,6 @@ impl Engine {
             },
         };
         self.features.chart.bar = Some(idx);
-        let tpb = self.style.tpb.max(1) as f64;
-        let line = self.sec_start + bar as f64 * tpb;
         // A change the chart queued for a later line (settings changed just before this
         // one) is replaced by this bar's; one for this line has happened.
         match self.features.chart.owned {
@@ -439,13 +455,18 @@ impl Engine {
     }
 
     /// `on_chord`: a chord that isn't the chart's is the player's; it holds until the next
-    /// bar line. A Sync Start chord only starts the band.
+    /// bar line, or, played within `ANTICIPATE_BEATS` of that line, through the bar after
+    /// it. A Sync Start chord only starts the band.
     pub(super) fn chart_chord_changed(&mut self, now: u64) {
-        let c = &mut self.features.chart;
+        let c = &self.features.chart;
         if !self.running || !c.settings.on || self.played == c.applied || c.start_ns == Some(now) {
             return;
         }
+        let line = self.next_bar(now);
+        let early = line - self.tick_at(now) <= ANTICIPATE_BEATS * self.style.ppq.max(1) as f64 + 1e-6;
+        let c = &mut self.features.chart;
         c.overridden = true;
+        c.carry = early.then_some(line);
     }
 
     /// `hook_deadline`: every beat line while the chart plays (its bar lines queue the
@@ -604,6 +625,35 @@ mod tests {
         assert!(at(&lines, 1).iter().all(|l| l.chord == "Ab"), "{lines:?}");
         assert_eq!(at(&lines, 2)[0].chord, "F");
         assert!(!e.snapshot(e.ns_at_bar(2) + 1).chart_override);
+    }
+
+    /// A chord played just before a bar line (an anticipation) holds through the next bar;
+    /// the chart takes over at the line after it. One played earlier than half a beat
+    /// before the line ends at it, as before.
+    #[test]
+    fn an_anticipated_chord_holds_through_the_next_bar() {
+        for (early_beats, carries) in [(0.02, true), (0.45, true), (0.6, false), (2.0, false)] {
+            let Some(mut e) = engine() else { return };
+            e.set_chart(plan("*A[C |C |F |G |A- Z", 1), 0);
+            e.set_chart_settings(settings(None, None), 0);
+            start(&mut e);
+            let bar = e.ns_at_bar(1) - e.ns_at_bar(0);
+            let beat = bar / (e.style.tpb / e.style.ppq) as u64;
+            // Just before bar 3 (the chart's F) the player plays Ab.
+            let t = e.ns_at_bar(2) - (early_beats * beat as f64) as u64;
+            let _ = play(&mut e, 0, 1);
+            e.process(t, &mut Nop);
+            e.set_chord(crate::parse_chord("Ab").unwrap(), t, &mut Nop);
+            assert_eq!(e.snapshot(t).chart_bar, Some(1), "{early_beats}");
+            let (lines, _) = play(&mut e, t, 3);
+            let b2 = at(&lines, 2);
+            if carries {
+                assert!(b2.iter().all(|l| l.chord == "Ab"), "{early_beats}: {b2:?}");
+            } else {
+                assert_eq!(b2[0].chord, "F", "{early_beats}: {b2:?}");
+            }
+            assert_eq!(at(&lines, 3)[0].chord, "G", "{early_beats}: {lines:?}");
+        }
     }
 
     /// A Sync Start chord starts the band on the chart's chord, with no override.
