@@ -156,10 +156,22 @@ Timing, the synth's master level, the fader page, the pad page, the selected par
 
 ## Parameter Lock
 
-Recall asks `Control::param_locked(LockItem)` before changing a lockable item. Today:
-`SplitPoint` (the split) and `FingeringType` (fingering, Upper/Lower, Manual Bass), as the
-Data List's lock groups; Parameter Lock itself (M5) owns that function and its state, and
-nothing is locked until it lands.
+Parameter Lock (RM p.163; `setParamLock`, `paramLocks`, `src/session/param_lock.rs`): a
+locked group changes only from the panel. Registration, OTS and Playlist recalls leave it
+alone. The groups are the Data List's Parameter Lock column, where yahaha has the items:
+
+| Lock group | Items here |
+|---|---|
+| Split Point | the split point |
+| Fingering Type | the fingering type, the Chord Detection Area (Upper) and Manual Bass |
+
+The Genos's other groups (Master EQ, Reverb Type, the Reverb/Chorus/Variation Return
+Levels, Vocal Harmony/Mic Setting) cover things yahaha doesn't have. A recall asks
+`Control::param_locked(LockItem)` before it changes an item of a lock group; a new
+registrable with such an item (a Left or Right 3 split point, say) must ask too. A One
+Touch Setting has no item in any lock group (the Data List's OTS column), so an OTS recall
+never needs to ask. The lock state is a setup setting: it is kept in `setup.json` beside
+Sequence On/Off, never in a bank.
 
 ## Launchkey, keys, app
 

@@ -244,6 +244,9 @@ const EVERY_CMD: &[&str] = &[
     r#"{"type":"browseSoundFont","file":null}"#,
     r#"{"type":"importSoundLibrary","path":"/tmp/lib.json","replace":false,"maps":true}"#,
     r#"{"type":"exportSoundLibrary","path":null}"#,
+    // Parameter Lock
+    r#"{"type":"setParamLock","item":"splitPoint","on":true}"#,
+    r#"{"type":"setParamLock","item":"fingeringType","on":false}"#,
 ];
 
 fn type_of(json: &str) -> String {
@@ -353,6 +356,7 @@ fn bad_commands_are_refused() {
         r#"{"type":"setMidiInputs","all":false}"#,
         r#"{"type":"setPedal","pedal":0,"cc":64,"function":"noSuchFunction"}"#,
         r#"{"type":"triggerFunction"}"#,
+        r#"{"type":"setParamLock","item":"masterEq","on":true}"#,
         r#"[1,2]"#,
         r#""startStop""#,
     ] {

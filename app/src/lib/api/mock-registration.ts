@@ -347,7 +347,9 @@ export class MockRegistration {
     if (keepTempo !== null) st.transport.tempo = keepTempo
     if (allowed('tempo') && m.tempo !== undefined) st.transport.tempo = m.tempo
     if (allowed('style') && m.chord) {
-      Object.assign(st.chord, { fingering: m.chord.fingering, upper: m.chord.upper, manualBass: m.chord.manualBass, split: m.chord.split })
+      // Parameter Lock: a locked group keeps what the player set.
+      if (!st.paramLocks.fingeringType) Object.assign(st.chord, { fingering: m.chord.fingering, upper: m.chord.upper, manualBass: m.chord.manualBass })
+      if (!st.paramLocks.splitPoint) st.chord.split = m.chord.split
     }
     if (allowed('style') && m.control) {
       st.ots.link = m.control.otsLink
