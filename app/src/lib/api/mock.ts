@@ -267,6 +267,7 @@ export function initialState(): AppState {
     plugins: initialPlugins(),
     harmonyArp: initialHarmonyArp(),
     soundLibrary: initialSoundLibrary(),
+    paramLocks: { splitPoint: false, fingeringType: false },
   }
   derive(state, LIBRARY)
   return state
@@ -1610,6 +1611,9 @@ export class MockSession implements Session {
         else if (cmd.type === 'exportSoundLibrary') this.message(`Sound library exported to ${cmd.path ?? '/Users/me/Documents/yahaha/sound-library-export.json'}`)
         break
       }
+      case 'setParamLock':
+        this.state.paramLocks[cmd.item] = cmd.on
+        break
     }
   }
 }
