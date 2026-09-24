@@ -323,6 +323,19 @@ struct PartReg {
     volume: u8,
     /// -2..=2.
     octave: i8,
+    /// The part's own sound library patch (#103), played instead of `voice`. None: the
+    /// GM voice (and a bank from an earlier build). A patch that is gone from the library
+    /// falls back to `voice`, which is the GM voice the part had underneath.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    patch: Option<PatchReg>,
+}
+
+/// A library patch in a registration: its id, and its name for Regist Bank Info (and the
+/// message when it is gone).
+#[derive(Clone, Serialize, Deserialize)]
+struct PatchReg {
+    id: String,
+    name: String,
 }
 
 /// Right 1, Right 2, Right 3, Left; None for a part outside the memorized groups.
@@ -350,6 +363,7 @@ fn parts_capture(c: &Control, g: Groups) -> Option<Value> {
             voice: Some(VoiceRef::gm(kp.program[p].load(Relaxed))),
             volume: kp.volume(p),
             octave: kp.octave[p].load(Relaxed).clamp(-2, 2),
+            patch: c.part_patch(p).map(|(id, name)| PatchReg { id, name }),
         })
     });
     to_value(&PartsReg { parts })
@@ -362,9 +376,15 @@ fn parts_recall(c: &mut Control, v: &Value, g: Groups) -> Result<(), String> {
         let Some(part) = part.as_ref().filter(|_| g.has(part_group(p))) else { continue };
         let kp = c.shared.parts.clone();
         match part.voice.as_ref().and_then(VoiceRef::program) {
-            Some(prog) => kp.set_program(p, prog),
+            Some(prog) => {
+                kp.set_program(p, prog);
+                if let Err(e) = recall_patch(c, p, part.patch.as_ref()) {
+                    err = Some(e);
+                }
+            }
             None => err = Some(format!("{}: voice not available", parts::NAMES[p])),
         }
+        // After the patch: its defaults give way to the registration's level and octave.
         kp.set_volume(p, part.volume.min(127));
         kp.octave[p].store(part.octave.clamp(-2, 2), Relaxed);
         // Left plays the bass under Manual Bass: its switch stays as it is.
@@ -376,6 +396,25 @@ fn parts_recall(c: &mut Control, v: &Value, g: Groups) -> Result<(), String> {
     // The engine sends the new volumes (CC7) on its next wake.
     c.wake_engine();
     err.map_or(Ok(()), Err)
+}
+
+/// Part `p`'s own patch, as the registration has it: the patch (if it isn't already the
+/// part's), or none (the GM voice just set). A patch no longer in the sound library leaves
+/// the part on its GM voice, and says so.
+fn recall_patch(c: &mut Control, p: usize, patch: Option<&PatchReg>) -> Result<(), String> {
+    let now = c.part_patch(p).map(|(id, _)| id);
+    match patch {
+        Some(r) if now.as_deref() == Some(r.id.as_str()) => Ok(()),
+        Some(r) if c.has_patch(&r.id) => c.set_part_patch(p, Some(r.id.clone())).map_err(|e| e.to_string()),
+        Some(r) => {
+            c.sound_library_part_voice(p);
+            Err(format!("{}: patch {} is not in the sound library; it plays its GM voice", parts::NAMES[p], r.name))
+        }
+        None => {
+            c.sound_library_part_voice(p);
+            Ok(())
+        }
+    }
 }
 
 // ----- transpose (group Transpose) -----
@@ -418,7 +457,10 @@ pub(in crate::session) fn info(m: &Memory) -> Info {
             r.parts
                 .iter()
                 .map(|p| match p {
-                    Some(p) => (p.voice.as_ref().and_then(VoiceRef::program).map_or("?", gm_name).to_string(), p.on),
+                    Some(p) => match &p.patch {
+                        Some(patch) => (patch.name.clone(), p.on),
+                        None => (p.voice.as_ref().and_then(VoiceRef::program).map_or("?", gm_name).to_string(), p.on),
+                    },
                     None => (String::new(), false),
                 })
                 .collect()

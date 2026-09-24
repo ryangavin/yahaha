@@ -95,7 +95,8 @@ Today's sections: `style` (early), `multiPad` (early: the bank file, or null for
 `tempo`, `chord` (fingering, Upper, Manual Bass, split), `styleControl` (Main, Intro, Sync
 Start/Stop, Stop ACMP and its mode `stopAcmpMode` (Data List p.91: group Style; a bank without it
 recalls only on/off), OTS Link), `styleMixer` (the 8 Style parts' CC7, on/off, and `set`:
-which levels the player had set), `parts` (Right 1–3 and Left: on, voice, CC7, octave),
+which levels the player had set), `parts` (Right 1–3 and Left: on, voice, CC7, octave, and the part's own sound library
+patch `patch: { id, name }` (#109), recalled through `setPartPatch`),
 `transpose`, `harmonyArp` (Keyboard Harmony/Arpeggio: the switch, the type and pattern by
 name, Volume, Speed, Assign, Chord Note Only, Touch Limit, and the arpeggio's Quantize, Hold
 setting, velocity and Keep Key On; not the Arpeggio Hold pedal function, which is the
@@ -209,6 +210,12 @@ nothing is locked until it lands.
   otherwise the rest of the registration is still recalled and the message says so.
 - **Playlist style records**: yahaha records may point straight at a style file (the
   Genos goes through a bank); handy for a set list of styles.
+- **A part's library patch** (#109): stored with its GM voice underneath. A recall sets
+  the GM voice, then the patch (skipped if the part already plays it), then the stored
+  level and octave, which win over the patch's defaults (its pan and sends still apply).
+  A patch deleted from the library leaves the part on the GM voice, and the message says
+  so. A memory without a patch (a GM voice, or a bank from an earlier build) clears the
+  part's own patch, since the GM voice is what it stored.
 - **Launchkey**: a fourth pad page rather than a Shift layer on page 1, so the lamps can
   show which buttons are stored and which is in use. Shift + Track was free and is where a
   set list's "next song" belongs.
