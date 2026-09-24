@@ -44,9 +44,11 @@ fn keyboard_note_path_does_not_allocate() {
     let mut input = Input::new(shared.clone(), Recognizer::new(), tx, Out::new(PacketSink::new(Target::Null), None));
     let (actions, mut actions_rx) = rtrb::RingBuffer::new(64);
     input.set_actions(actions);
-    // Pedals: 2 runs Start/Stop (an engine button) or, every other round, OTS + (a
-    // control-side function, through the actions ring); 3 is a pitch-bend foot controller.
-    use yahaha::controllers::{Function, PedalSetup, Range};
+    // Pedals: 2 runs Start/Stop (an engine button), OTS + (a control-side function, through
+    // the actions ring), or Arpeggio Hold / Kbd Harmony/Arpeggio (control-side switches:
+    // Hold A sets on the edges, Toggle runs on the press), by round; 3 is a pitch-bend foot
+    // controller.
+    use yahaha::controllers::{ControlType, Function, PedalSetup, Range};
     let ctl = &shared.controllers;
     ctl.set_pedal(1, PedalSetup { cc: Some(66), function: Function::StartStop, ..PedalSetup::default() });
     ctl.set_pedal(2, PedalSetup { cc: Some(4), function: Function::PitchBend, range: Range::Full, ..PedalSetup::default() });
@@ -57,8 +59,13 @@ fn keyboard_note_path_does_not_allocate() {
     let (allocs, frees) = (ALLOCS.load(Ordering::Relaxed), FREES.load(Ordering::Relaxed));
     let mut assigned = 0;
     for round in 0..50u8 {
-        let function = if round % 2 == 0 { Function::StartStop } else { Function::OtsNext };
-        ctl.set_pedal(1, PedalSetup { cc: Some(66), function, ..PedalSetup::default() });
+        let (function, control_type) = match round % 4 {
+            0 => (Function::StartStop, ControlType::HoldA),
+            1 => (Function::OtsNext, ControlType::HoldA),
+            2 => (Function::ArpHold, ControlType::HoldA),
+            _ => (Function::KbdHarmonyArp, ControlType::Toggle),
+        };
+        ctl.set_pedal(1, PedalSetup { cc: Some(66), function, control_type, ..PedalSetup::default() });
         while actions_rx.pop().is_ok() {
             assigned += 1;
         }
