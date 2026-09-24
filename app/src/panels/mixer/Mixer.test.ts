@@ -116,11 +116,16 @@ describe('Mixer drawer', () => {
     expect(document.querySelector('[data-tip="mixer.track_mute"]')).toBeNull()
     await fireEvent.click(tab('Style'))
     flushSync()
+    // Two parts switched off by hand: choosing an order leaves them off (it only chooses
+    // what the knob does next).
+    s.send({ type: 'toggleStylePart', part: 0 })
+    s.send({ type: 'toggleStylePart', part: 5 })
+    flushSync()
     const b = [...document.querySelectorAll<HTMLButtonElement>('button[data-tip="mixer.track_mute_order"]')].find((x) => x.textContent === 'B')!
     await fireEvent.click(b)
     flushSync()
-    // Order B with the knob fully right: every part on.
-    expect(s.state.mixer.styleParts.every((p) => p.on)).toBe(true)
+    expect(b.getAttribute('aria-pressed')).toBe('true')
+    expect(s.state.mixer.styleParts.filter((p) => !p.on)).toHaveLength(2)
     const knob = document.querySelector<HTMLElement>('[data-tip="mixer.track_mute"]')!
     await fireEvent.keyDown(knob, { key: 'Home' })
     flushSync()

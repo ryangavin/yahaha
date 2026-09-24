@@ -39,7 +39,8 @@
   const metronome = $derived(app.state.metronome)
 
   // Style Track Mute is a knob: the engine keeps only the parts' switches it sets, so the
-  // knob's position and order are this drawer's.
+  // knob's position and order are this drawer's. Choosing an order only chooses what the
+  // knob does next: it sends nothing, so parts switched off by hand stay off.
   let muteOrder = $state<TrackMuteOrder>('a')
   let muteValue = $state(127)
   function trackMute(v: number) {
@@ -48,7 +49,6 @@
   }
   function setMuteOrder(o: TrackMuteOrder) {
     muteOrder = o
-    app.send({ type: 'styleTrackMute', order: o, value: muteValue })
   }
 
   /** Where Launchkey fader `i` (0–7, 8 = master) physically is, when the engine says. */
