@@ -6,7 +6,7 @@ import { MockSession } from './api/mock'
 import type { Pad } from './api/types'
 import { DIM, padLight } from './leds'
 import { app, clock } from './store.svelte'
-import { surfaceOf } from './surface'
+import { hasShiftFunction, surfaceOf } from './surface'
 
 afterEach(() => {
   app.detach()
@@ -46,6 +46,17 @@ describe('the mock surface matches the engine (src/session.rs surface)', () => {
     expect(m.state.surface.faders[1].position).toBe(72)
     expect(m.state.keyboardParts[1].fader).toBe(72)
     expect(m.state.mixer.styleParts[1].fader).toBe(72)
+  })
+})
+
+describe('Shift layer, as the engine JSON arrives', () => {
+  it('only controls whose Shift function differs count as shifted (compared by value)', () => {
+    const m = new MockSession({ manual: true, demo: true })
+    // Over IPC, `action` and `shiftAction` are separate objects even when equal.
+    const wire = JSON.parse(JSON.stringify(m.state.surface)) as typeof m.state.surface
+    expect(wire.controls.filter(hasShiftFunction).map((c) => c.id)).toEqual([
+      'padBankUp', 'padBankDown', 'faderButton1', 'faderButton2', 'faderButton3', 'faderButton4',
+    ])
   })
 })
 

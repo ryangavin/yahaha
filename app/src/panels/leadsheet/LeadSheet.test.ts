@@ -52,4 +52,17 @@ describe('lead-sheet band', () => {
     setup()
     expect(document.querySelector('[data-slot="chart"]')).not.toBeNull()
   })
+
+  it('without the section length (the engine today): one cell, and the bar counted from the clock', () => {
+    const session = new MockSession({ manual: true, demo: true })
+    const st = { ...session.state, transport: { ...session.state.transport, sectionBars: undefined } }
+    app.attach({ kind: 'tauri', subscribe: (fn) => (fn(st), () => {}), send: () => {}, library: () => session.library(), dispose: () => {} })
+    flushSync()
+    render(LeadSheet)
+    const c = st.surface.clock
+    const pos = c.sectionAnchorBeats + ((c.atMs - c.sectionAnchorMs) * c.tempo) / 60000
+    expect(document.querySelectorAll('.cell')).toHaveLength(1)
+    expect(text('.now')).toContain(`bar ${Math.floor(pos / c.beatsPerBar) + 1}`)
+    expect(text('.now')).not.toContain(' of ')
+  })
 })

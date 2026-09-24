@@ -71,4 +71,18 @@ describe('keyboard strip', () => {
     await fireEvent.keyDown(marker, { key: 'ArrowLeft' })
     expect(session.state.chord.split).toBe(split)
   })
+
+  it('on an engine that sends no held keys, says so rather than showing none', () => {
+    const session = new MockSession({ manual: true, demo: true })
+    const st = { ...session.state, keyboard: undefined }
+    app.attach({ ...session, kind: 'tauri', subscribe: (fn) => (fn(st), () => {}), send: () => {}, library: () => session.library(), dispose: () => {} })
+    flushSync()
+    render(KeyStrip)
+    expect(held()).toHaveLength(0)
+    expect(document.querySelector('.cheek')!.textContent).toContain('Not reported yet')
+    expect(document.querySelector('.bed')!.getAttribute('aria-label')).toContain('not reported')
+    // The split and the detection area are the engine's own: still shown.
+    expect(document.querySelector('[role="slider"]')).not.toBeNull()
+    expect(document.querySelector('.area')).not.toBeNull()
+  })
 })

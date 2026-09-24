@@ -81,7 +81,10 @@
   <div class="cheek">
     <span class="engraved">Chord tones</span>
     <span class="tones" aria-live="off">
-      {#if kb?.chordTones.length}
+      {#if !kb}
+        <!-- The engine doesn't report held keys or chord tones yet: say so, not "none". -->
+        <span class="none unreported">Not reported yet</span>
+      {:else if kb.chordTones.length}
         {#each kb.chordTones as t, i (i)}<span class:root={i === 0} class:bass={t === bass}>{pcName(t)}</span>{/each}
       {:else}
         <span class="none">–</span>
@@ -114,7 +117,7 @@
     </div>
 
     <!-- svelte-ignore a11y_no_noninteractive_tabindex (focusable so its tooltip, the colour legend, is reachable from the keyboard) -->
-    <div class="bed mat-well" bind:this={bed} tabindex="0" role="img" aria-label="Keys held: {kb?.held.map((h) => noteName(h.note)).join(' ') || 'none'}" use:tip={'keystrip.keys'}>
+    <div class="bed mat-well" bind:this={bed} tabindex="0" role="img" aria-label={kb ? `Keys held: ${kb.held.map((h) => noteName(h.note)).join(' ') || 'none'}` : 'Keys held: not reported by the engine yet'} use:tip={'keystrip.keys'}>
       {#each whites as k (k.note)}
         {@const h = held.get(k.note)}
         <div class="key white" data-note={k.note} class:held={h} style:left={pct(k.x)} style:width={pct(k.w)} style:--fill={h ? heldFill(h) : null}>
@@ -197,6 +200,12 @@
   }
   .none {
     color: var(--muted);
+  }
+  .unreported {
+    font-family: var(--font-body);
+    font-weight: 500;
+    font-size: 0.62em;
+    line-height: 1.2;
   }
   .sizes {
     display: flex;

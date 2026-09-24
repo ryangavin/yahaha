@@ -44,7 +44,10 @@
   )
   const state = $derived(
     t.running
-      ? `bar ${cell + 1}${t.sectionBars ? ` of ${bars}` : ''}`
+      ? // Without the section's length the one cell loops every bar: count bars from the clock.
+        t.sectionBars
+        ? `bar ${cell + 1} of ${bars}`
+        : `bar ${Math.floor(pos / bpb) + 1}`
       : t.syncStart
         ? 'waiting for your chord'
         : 'stopped',
@@ -114,6 +117,8 @@
     font-weight: 700;
     font-size: 1.7em;
     line-height: 1.1;
+    /* At the band's least height, overhang into the padding rather than clip the glyphs. */
+    flex-shrink: 0;
     color: var(--ink);
     white-space: nowrap;
     overflow: hidden;

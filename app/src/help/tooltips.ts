@@ -1028,7 +1028,7 @@ const catalog = {
   },
   'keystrip.keys': {
     title: 'Keyboard',
-    body: 'The keys you are holding, coloured by the part that sounds them: Right 1–3 above the split, Left below it, grey where a key only feeds chord detection. The shaded band is where chord detection listens, and dots mark the tones of the recognised chord, the ringed one its bass.',
+    body: 'The keys you are holding, coloured by the part that sounds them: Right 1–3 above the split, Left below it, grey where a key only feeds chord detection. The shaded band is where chord detection listens, and dots mark the tones of the recognised chord, the ringed one its bass. The engine doesn\'t report held keys or chord tones yet; until it does, the strip shows only the split and the detection area.',
     genos: 'Keyboard (Split Point, chord detection area)',
     keys: [],
     launchkey: "The Launchkey's keys",

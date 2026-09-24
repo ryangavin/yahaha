@@ -20,6 +20,14 @@ export function layer(c: SurfaceControl, shift: boolean): { label: string; actio
   return shift ? { label: c.shiftLabel, action: c.shiftAction } : { label: c.label, action: c.action }
 }
 
+/**
+ * Whether Shift gives a control a different function. Compared by value: the engine's
+ * JSON gives `action` and `shiftAction` separate objects even when they're the same command.
+ */
+export function hasShiftFunction(c: SurfaceControl): boolean {
+  return c.shiftLabel !== c.label || JSON.stringify(c.shiftAction) !== JSON.stringify(c.action)
+}
+
 /** The catalog entry for a control on the layer showing. */
 export function controlTip(c: SurfaceControl, shift: boolean): TipKey {
   const { action } = layer(c, shift)
