@@ -1,0 +1,495 @@
+{
+  "revision": 3,
+  "entries": [
+    {
+      "id": 5,
+      "name": "AustinCityBlues.S930.STY",
+      "folder": "",
+      "path": "corpus/MOX_v2/AustinCityBlues.S930.STY",
+      "status": "ok",
+      "error": null,
+      "tempo": 82.00003553334874,
+      "timeSignature": [
+        4,
+        4
+      ],
+      "sections": "Main ABCD · Intro ABC · Ending ABC · Fill ABCD · Break"
+    },
+    {
+      "id": 17,
+      "name": "BluesOrganTrio.S930.STY",
+      "folder": "",
+      "path": "corpus/MOX_v2/BluesOrganTrio.S930.STY",
+      "status": "ok",
+      "error": null,
+      "tempo": 172.00010320006191,
+      "timeSignature": [
+        4,
+        4
+      ],
+      "sections": "Main ABCD · Intro ABC · Ending ABC · Fill ABCD · Break"
+    },
+    {
+      "id": 24,
+      "name": "ClubJazz1.S930.STY",
+      "folder": "",
+      "path": "corpus/MOX_v2/ClubJazz1.S930.STY",
+      "status": "ok",
+      "error": null,
+      "tempo": 120.0,
+      "timeSignature": [
+        4,
+        4
+      ],
+      "sections": "Main ABCD · Intro ABC · Ending ABC · Fill ABCD · Break"
+    },
+    {
+      "id": 4,
+      "name": "ClubJazz2.S930.STY",
+      "folder": "",
+      "path": "corpus/MOX_v2/ClubJazz2.S930.sty",
+      "status": "ok",
+      "error": null,
+      "tempo": 91.99998773333498,
+      "timeSignature": [
+        4,
+        4
+      ],
+      "sections": "Main ABCD · Intro ABC · Ending ABC · Fill ABCD · Break"
+    },
+    {
+      "id": 6,
+      "name": "CoolRevibed style",
+      "folder": "",
+      "path": "corpus/MOX_v2/CoolRevibed.T552.sty",
+      "status": "ok",
+      "error": null,
+      "tempo": 85.00004250002125,
+      "timeSignature": [
+        4,
+        4
+      ],
+      "sections": "Main ABCD · Intro ABC · Ending ABC · Fill ABCD · Break"
+    },
+    {
+      "id": 22,
+      "name": "DJ Style: SlowWalkerDJ",
+      "folder": "",
+      "path": "corpus/MOX_v2/SlowWalkerDJ.T552.sty",
+      "status": "ok",
+      "error": null,
+      "tempo": 75.0,
+      "timeSignature": [
+        4,
+        4
+      ],
+      "sections": "Main ABCD · Intro ABC · Ending ABC · Fill ABCD · Break"
+    },
+    {
+      "id": 1,
+      "name": "DoubleDipTheFunk.S930.STY",
+      "folder": "",
+      "path": "corpus/MOX_v2/DoubleDipTheFunk.S930.STY",
+      "status": "ok",
+      "error": null,
+      "tempo": 104.99992125005906,
+      "timeSignature": [
+        4,
+        4
+      ],
+      "sections": "Main ABCD · Intro AB · Ending AB · Fill ABCD · Break"
+    },
+    {
+      "id": 25,
+      "name": "DresdenAtNight.S930.sty",
+      "folder": "",
+      "path": "corpus/MOX_v2/DresdenAtNight.S930.sty",
+      "status": "ok",
+      "error": null,
+      "tempo": 90.99995298335763,
+      "timeSignature": [
+        4,
+        4
+      ],
+      "sections": "Main ABCD · Ending A · Fill ABCD · Break"
+    },
+    {
+      "id": 32,
+      "name": "DuckGroove.S930.STY",
+      "folder": "",
+      "path": "corpus/MOX_v2/DuckGroove.S930.STY",
+      "status": "ok",
+      "error": null,
+      "tempo": 80.99997165000993,
+      "timeSignature": [
+        4,
+        4
+      ],
+      "sections": "Main ABC · Intro AB · Ending AB · Fill ABCD · Break"
+    },
+    {
+      "id": 29,
+      "name": "Funkhunters.S930.STY",
+      "folder": "",
+      "path": "corpus/MOX_v2/Funkhunters.S930.STY",
+      "status": "ok",
+      "error": null,
+      "tempo": 115.00002875000719,
+      "timeSignature": [
+        4,
+        4
+      ],
+      "sections": "Main ABC · Intro AB · Ending AB · Fill ABCD · Break"
+    },
+    {
+      "id": 34,
+      "name": "FunkinStyle",
+      "folder": "",
+      "path": "corpus/MOX_v2/FunkinStyle.T552.sty",
+      "status": "ok",
+      "error": null,
+      "tempo": 113.99995440001824,
+      "timeSignature": [
+        4,
+        4
+      ],
+      "sections": "Main ABCD · Intro ABC · Ending ABC · Fill ABCD · Break"
+    },
+    {
+      "id": 31,
+      "name": "FunkNight.S930.STY",
+      "folder": "",
+      "path": "corpus/MOX_v2/FunkNight.S930.STY",
+      "status": "ok",
+      "error": null,
+      "tempo": 115.00002875000719,
+      "timeSignature": [
+        4,
+        4
+      ],
+      "sections": "Main ABCD · Intro AB · Ending AB · Fill ABCD · Break"
+    },
+    {
+      "id": 20,
+      "name": "FunkyFinger.S930.STY",
+      "folder": "",
+      "path": "corpus/MOX_v2/FunkyFinger.S930.STY",
+      "status": "ok",
+      "error": null,
+      "tempo": 109.99990833340972,
+      "timeSignature": [
+        4,
+        4
+      ],
+      "sections": "Main ABCD · Intro AB · Ending AB · Fill ABCD · Break"
+    },
+    {
+      "id": 23,
+      "name": "FunkyJump.S930.STY",
+      "folder": "",
+      "path": "corpus/MOX_v2/FunkyJump.S930.STY",
+      "status": "ok",
+      "error": null,
+      "tempo": 89.9999550000225,
+      "timeSignature": [
+        4,
+        4
+      ],
+      "sections": "Main ABC · Intro AB · Ending AB · Fill ABCD · Break"
+    },
+    {
+      "id": 0,
+      "name": "GirlsFolk.S930.STY",
+      "folder": "",
+      "path": "corpus/MOX_v2/GirlsFolk.S930.STY",
+      "status": "ok",
+      "error": null,
+      "tempo": 104.00001386666851,
+      "timeSignature": [
+        4,
+        4
+      ],
+      "sections": "Main ABC · Intro ABC · Ending ABC · Fill ABCD · Break"
+    },
+    {
+      "id": 19,
+      "name": "HeySixteen.S930.STY",
+      "folder": "",
+      "path": "corpus/MOX_v2/HeySixteen.S930.STY",
+      "status": "ok",
+      "error": null,
+      "tempo": 100.0,
+      "timeSignature": [
+        4,
+        4
+      ],
+      "sections": "Main ABC · Intro ABC · Ending ABC · Fill ABCD · Break"
+    },
+    {
+      "id": 10,
+      "name": "HoldOnAMinute.S930.STY",
+      "folder": "",
+      "path": "corpus/MOX_v2/HoldOnAMinute.S930.STY",
+      "status": "ok",
+      "error": null,
+      "tempo": 100.0,
+      "timeSignature": [
+        4,
+        4
+      ],
+      "sections": "Main ABC · Intro ABC · Ending ABC · Fill ABCD · Break"
+    },
+    {
+      "id": 11,
+      "name": "JackDoesItAgain.S930.STY",
+      "folder": "",
+      "path": "corpus/MOX_v2/JackDoesItAgain.S930.STY",
+      "status": "ok",
+      "error": null,
+      "tempo": 113.00009605008164,
+      "timeSignature": [
+        4,
+        4
+      ],
+      "sections": "Main ABC · Intro ABC · Ending ABC · Fill ABCD · Break"
+    },
+    {
+      "id": 27,
+      "name": "JumpinJiveOrgan.S930.STY",
+      "folder": "",
+      "path": "corpus/MOX_v2/JumpinJiveOrgan.S930.STY",
+      "status": "ok",
+      "error": null,
+      "tempo": 96.99995311668933,
+      "timeSignature": [
+        4,
+        4
+      ],
+      "sections": "Main ABC · Intro ABC · Ending ABC · Fill ABCD · Break"
+    },
+    {
+      "id": 26,
+      "name": "NewSong3",
+      "folder": "",
+      "path": "corpus/MOX_v2/BubblyDub.T552.sty",
+      "status": "ok",
+      "error": null,
+      "tempo": 76.99997818333952,
+      "timeSignature": [
+        4,
+        4
+      ],
+      "sections": "Main ABCD · Intro ABC · Ending ABC · Fill ABCD · Break"
+    },
+    {
+      "id": 33,
+      "name": "NightCruiser.STY",
+      "folder": "",
+      "path": "corpus/MOX_v2/NightCruiser.S930.STY",
+      "status": "ok",
+      "error": null,
+      "tempo": 120.0,
+      "timeSignature": [
+        4,
+        4
+      ],
+      "sections": "Main ABCD · Intro ABC · Ending AB · Fill ABCD · Break"
+    },
+    {
+      "id": 15,
+      "name": "OrganCruise.S930.STY",
+      "folder": "",
+      "path": "corpus/MOX_v2/OrganCruise.S930.STY",
+      "status": "ok",
+      "error": null,
+      "tempo": 116.00008506672904,
+      "timeSignature": [
+        4,
+        4
+      ],
+      "sections": "Main ABCD · Intro ABC · Ending ABC · Fill ABCD · Break"
+    },
+    {
+      "id": 2,
+      "name": "Poppyhanger style",
+      "folder": "",
+      "path": "corpus/MOX_v2/Poppyhanger.T552.sty",
+      "status": "ok",
+      "error": null,
+      "tempo": 89.9999550000225,
+      "timeSignature": [
+        4,
+        4
+      ],
+      "sections": "Main ABCD · Intro ABC · Ending ABC · Fill ABCD · Break"
+    },
+    {
+      "id": 12,
+      "name": "Regular style: SlowWalker",
+      "folder": "",
+      "path": "corpus/MOX_v2/SlowWalker.T552.sty",
+      "status": "ok",
+      "error": null,
+      "tempo": 75.0,
+      "timeSignature": [
+        4,
+        4
+      ],
+      "sections": "Main ABCD · Intro ABC · Ending ABC · Fill ABCD · Break"
+    },
+    {
+      "id": 21,
+      "name": "SmoothItOver.S837.STY",
+      "folder": "",
+      "path": "corpus/MOX_v2/SmoothItOver.S930.STY",
+      "status": "ok",
+      "error": null,
+      "tempo": 94.00012846684224,
+      "timeSignature": [
+        4,
+        4
+      ],
+      "sections": "Main ABCD · Intro ABC · Ending ABC · Fill ABC · Break"
+    },
+    {
+      "id": 30,
+      "name": "SmoothLeadJam.S930.STY",
+      "folder": "",
+      "path": "corpus/MOX_v2/SmoothLeadJam.S930.STY",
+      "status": "ok",
+      "error": null,
+      "tempo": 86.00005160003096,
+      "timeSignature": [
+        4,
+        4
+      ],
+      "sections": "Main ABC · Intro AB · Ending AB · Fill ABCD · Break"
+    },
+    {
+      "id": 3,
+      "name": "StreetGenos.T552",
+      "folder": "",
+      "path": "corpus/MOX_v2/StreetGenos.T552.sty",
+      "status": "ok",
+      "error": null,
+      "tempo": 89.9999550000225,
+      "timeSignature": [
+        4,
+        4
+      ],
+      "sections": "Main ABCD · Intro ABC · Ending ABC · Fill ABCD · Break"
+    },
+    {
+      "id": 9,
+      "name": "Style: DownTime",
+      "folder": "",
+      "path": "corpus/MOX_v2/DownTime.T552.sty",
+      "status": "ok",
+      "error": null,
+      "tempo": 71.00003550001774,
+      "timeSignature": [
+        4,
+        4
+      ],
+      "sections": "Main ABCD · Intro ABC · Ending ABC · Fill ABCD · Break"
+    },
+    {
+      "id": 13,
+      "name": "Style: SeeTheShow",
+      "folder": "",
+      "path": "corpus/MOX_v2/SeeTheShow.T162.sty",
+      "status": "ok",
+      "error": null,
+      "tempo": 100.0,
+      "timeSignature": [
+        4,
+        4
+      ],
+      "sections": "Main ABCD · Intro ABC · Ending ABC · Fill ABCD · Break"
+    },
+    {
+      "id": 14,
+      "name": "SunsetDrive",
+      "folder": "",
+      "path": "corpus/MOX_v2/SunsetDriveStyle.sty",
+      "status": "ok",
+      "error": null,
+      "tempo": 136.0001450668214,
+      "timeSignature": [
+        4,
+        4
+      ],
+      "sections": "Main ABCD · Intro ABC · Ending ABCD · Fill ABCD · Break"
+    },
+    {
+      "id": 18,
+      "name": "TalkShowBand.S930.STY",
+      "folder": "",
+      "path": "corpus/MOX_v2/TalkShowBand.S930.STY",
+      "status": "ok",
+      "error": null,
+      "tempo": 100.0,
+      "timeSignature": [
+        4,
+        4
+      ],
+      "sections": "Main ABCD · Intro ABC · Ending ABC · Fill ABCD · Break"
+    },
+    {
+      "id": 8,
+      "name": "TenorToTheMAX.S930.STY",
+      "folder": "",
+      "path": "corpus/MOX_v2/TenorToTheMAX.S930.STY",
+      "status": "ok",
+      "error": null,
+      "tempo": 105.99995053335641,
+      "timeSignature": [
+        4,
+        4
+      ],
+      "sections": "Main ABCD · Intro ABC · Ending ABC · Fill ABCD · Break"
+    },
+    {
+      "id": 7,
+      "name": "Thrust.S930.STY",
+      "folder": "",
+      "path": "corpus/MOX_v2/Thrust.S930.STY",
+      "status": "ok",
+      "error": null,
+      "tempo": 103.0000480666891,
+      "timeSignature": [
+        4,
+        4
+      ],
+      "sections": "Main ABC · Intro AB · Ending AB · Fill ABCD · Break"
+    },
+    {
+      "id": 28,
+      "name": "TickingAway",
+      "folder": "",
+      "path": "corpus/MOX_v2/TickingAway.T162.sty",
+      "status": "ok",
+      "error": null,
+      "tempo": 120.0,
+      "timeSignature": [
+        4,
+        4
+      ],
+      "sections": "Main ABCD · Intro ABC · Ending ABCD · Fill ABCD · Break"
+    },
+    {
+      "id": 16,
+      "name": "WickedBreaks (PJ Drongowski)",
+      "folder": "",
+      "path": "corpus/MOX_v2/WickedBreaks.S930.STY",
+      "status": "ok",
+      "error": null,
+      "tempo": 82.99995020002989,
+      "timeSignature": [
+        4,
+        4
+      ],
+      "sections": "Main ABCD · Intro ABC · Ending ABC · Fill ABCD · Break"
+    }
+  ]
+}

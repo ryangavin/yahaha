@@ -767,7 +767,7 @@ fn records(buf: &[u8]) -> Result<Vec<(&[u8], &[u8])>> {
     Ok(out)
 }
 
-fn parse_casm(data: &[u8]) -> Result<Vec<Cseg>> {
+pub(crate) fn parse_casm(data: &[u8]) -> Result<Vec<Cseg>> {
     let mut segs = Vec::new();
     for (id, cseg) in records(data)? {
         if id != b"CSEG" {

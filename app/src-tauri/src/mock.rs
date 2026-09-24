@@ -150,6 +150,7 @@ impl MockSession {
             voice_name: gm[program as usize].clone(),
             plays_bass: false,
             octave: 0,
+            fader: None,
         };
         let s0 = &f.styles[0];
         let state = AppState {
@@ -198,15 +199,19 @@ impl MockSession {
                         muted_by_manual_bass: false,
                         volume: *volume,
                         waiting: false,
+                        fader: None,
                         voice: Some(Voice { bank_msb: *msb, bank_lsb: *lsb, program: *program, kit: *kit, label: label.to_string() }),
                     })
                     .collect(),
                 master: Some(100),
                 master_waiting: false,
             },
-            pads: PadsState { page: Page::Sections, page_name: String::new(), page_number: 1, page_count: 3, pads: vec![], connected: true },
+            pads: PadsState { page: Page::Sections, page_name: String::new(), page_number: 1, page_count: 3, pads: vec![], connected: true, palette_leds: false },
             ots: OtsState { settings: vec![], applied: 0, link: false },
             library: LibraryStatus { revision: 1, count: library.entries.len(), position: 0, pending: 0 },
+            // The mock has no surface of its own: `state` leaves it out, and the UI derives
+            // it (lib/surface.ts), as the browser mock does.
+            surface: SurfaceState::default(),
             io: IoState {
                 output_port: "yahaha".into(),
                 inputs: vec!["Launchkey 49 MK4 LKMK4 MIDI Out".into(), "Launchkey 49 MK4 LKMK4 DAW Out (pads)".into()],
@@ -793,7 +798,7 @@ const C_CHORD: [u8; 3] = [0, 100, 127];
 const C_OTS: [u8; 3] = [127, 0, 70];
 
 fn pad(note: u8, label: &str, key: &str, action: Option<AppCmd>, (rgb, level, anim): ([u8; 3], Level, Anim)) -> Pad {
-    Pad { note, label: label.into(), key: key.into(), rgb, level, anim, action }
+    Pad { note, label: label.into(), key: key.into(), rgb, level, anim, action, palette: None }
 }
 
 fn toggle(on: bool, rgb: [u8; 3]) -> ([u8; 3], Level, Anim) {

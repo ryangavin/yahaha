@@ -310,6 +310,13 @@ export interface SurfaceFader {
   set: Extract<AppCmd, { volume: number }> | null
 }
 
+/** A library entry next to the loaded style. */
+export interface Neighbour {
+  id: number
+  name: string
+  path: string
+}
+
 export interface SurfaceState {
   /** Shift is held on the Launchkey. */
   shift: boolean
@@ -317,9 +324,9 @@ export interface SurfaceState {
   controls: SurfaceControl[]
   /** Faders 1–8 and master, for the active fader page. */
   faders: SurfaceFader[]
-  /** The styles Track ◀/▶ would load. */
-  trackPrev: string | null
-  trackNext: string | null
+  /** The styles Track ◀/▶ would load (the engine sends `{ id, name, path }`). */
+  trackPrev: Neighbour | null
+  trackNext: Neighbour | null
   /** The beat clock the LEDs run on: position at `atMs` (engine clock, ms), and tempo. */
   clock: { bar: number; beat: number; phase: number; tempo: number; atMs: number }
 }

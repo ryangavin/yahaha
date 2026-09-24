@@ -122,11 +122,12 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 
 | control | what it does | Genos | key | Launchkey |
 |---|---|---|---|---|
-| **OTS 1** | Recalls the style's first suggested panel setup: voice, on/off, volume and octave for Right 1–3 and Left. Dark if the style has none. | ONE TOUCH SETTING 1 | `Shift+1` | Pad page 3 (OTS/Parts), top row, pad 1 |
-| **OTS 2** | Recalls the style's second suggested panel setup: voice, on/off, volume and octave for Right 1–3 and Left. | ONE TOUCH SETTING 2 | `Shift+2` | Pad page 3 (OTS/Parts), top row, pad 2 |
-| **OTS 3** | Recalls the style's third suggested panel setup: voice, on/off, volume and octave for Right 1–3 and Left. | ONE TOUCH SETTING 3 | `Shift+3` | Pad page 3 (OTS/Parts), top row, pad 3 |
-| **OTS 4** | Recalls the style's fourth suggested panel setup: voice, on/off, volume and octave for Right 1–3 and Left. | ONE TOUCH SETTING 4 | `Shift+4` | Pad page 3 (OTS/Parts), top row, pad 4 |
-| **OTS Link** | When on, Main A–D recall OTS 1–4 automatically, and changing style picks the setting for the Main that's playing. | OTS LINK | `F10` | Pad page 3 (OTS/Parts), top row, pad 5; Shift + Pad Bank ▼ |
+| **OTS 1** | A sound setup for your own hands that the style's author picked to suit it: the voice, on/off, volume and octave of Right 1–3 and Left. Pressing it swaps your keyboard sounds, and the band doesn't change. Dark if the style has none. | ONE TOUCH SETTING 1 | `Shift+1` | Pad page 3 (OTS/Parts), top row, pad 1 |
+| **OTS 2** | The style's second suggested setup for your hands: the voice, on/off, volume and octave of Right 1–3 and Left. Pressing it swaps your keyboard sounds, and the band doesn't change. | ONE TOUCH SETTING 2 | `Shift+2` | Pad page 3 (OTS/Parts), top row, pad 2 |
+| **OTS 3** | The style's third suggested setup for your hands: the voice, on/off, volume and octave of Right 1–3 and Left. Pressing it swaps your keyboard sounds, and the band doesn't change. | ONE TOUCH SETTING 3 | `Shift+3` | Pad page 3 (OTS/Parts), top row, pad 3 |
+| **OTS 4** | The style's fourth suggested setup for your hands: the voice, on/off, volume and octave of Right 1–3 and Left. Pressing it swaps your keyboard sounds, and the band doesn't change. | ONE TOUCH SETTING 4 | `Shift+4` | Pad page 3 (OTS/Parts), top row, pad 4 |
+| **OTS Link** | When on, your hands' sounds follow the band: pressing Main A, B, C or D also recalls OTS 1, 2, 3 or 4. Changing style recalls the setting for the Main that's playing. | OTS LINK | `F10` | Pad page 3 (OTS/Parts), top row, pad 5; Shift + Pad Bank ▼ |
+| **OTS Link timing** | When OTS Link swaps the setting: as soon as you press a Main button, not when the band reaches the new Main at the bar line. The Genos calls this Real Time. | OTS Link Timing: Real Time | — | — |
 
 ## Keyboard parts
 
@@ -144,6 +145,10 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | **Voice +** | Steps the selected part (the lit Edit pad) to the next voice. | Voice select | `0` | Pad page 3 (OTS/Parts), top row, pad 8 |
 | **Octave −** | Shifts this part down an octave (down to −2). OTS recalls set it too. | Voice Setting → Tune → Octave | — | — |
 | **Octave +** | Shifts this part up an octave (up to +2). OTS recalls set it too. | Voice Setting → Tune → Octave | — | — |
+| **Voice** | Picks this part's voice. Under Manual Bass, Left plays the style's Bass voice instead, and this is the voice it goes back to. | Voice select (VOICE buttons) | — | Pad page 3 (OTS/Parts): the Edit pads (bottom row, pads 5–8) pick the part, Voice −/+ (top row, pads 7–8) step its voice |
+| **Layer** | The Right parts that are on all sound together on every key above the split: that's a layer. Turn on Right 1 and Right 2 to stack, for example, piano and strings. | PART ON/OFF (Right 1–3 layered) | `5` `6` `7` | Panel fader page: buttons under faders 1–3 |
+| **Left hand** | Left plays the keys at and below the split point, with its own voice. Under Manual Bass it plays the style's Bass voice there instead, and the band's own bass goes quiet. | Split Point (Left) | — | — |
+| **As written for** | The voice the style's author wrote this band part for, and its MIDI channel on the yahaha port. Load a matching instrument on that channel in Ableton to hear the style as intended; ≈ marks the nearest General MIDI voice to a Yamaha one. | Style parts (Mixer › Style) | — | — |
 
 ## Mixer
 
@@ -194,8 +199,21 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 
 | control | what it does | Genos | key | Launchkey |
 |---|---|---|---|---|
-| **Settings** | Fingering, chord detection and split, audio output, SoundFont, synth mute and MIDI inputs. | — | — | — |
+| **Settings** | Chord detection, split, transpose, style behaviour, audio, MIDI and the style library. Changes apply at once. | — | — | — |
 | **Close settings** | Closes the settings panel. | — | `Esc` | — |
+| **Settings: Chord** | Fingering type, chord detection area (Lower or Upper) and Manual Bass. | Menu › Split & Fingering | — | Pad page 2 (Chord/Setup), top row (fingering, Upper) and bottom row, pad 1 (Manual Bass) |
+| **Settings: Split point** | Where the keyboard divides between the chord section and the right hand. | Menu › Split & Fingering › Split Point | — | Pad page 2 (Chord/Setup), bottom row, pads 3–4 |
+| **Settings: Transpose** | Keyboard and Master transpose, in semitones. | Menu › Transpose | — | Pad page 2 (Chord/Setup), bottom row, pads 5–7 |
+| **Settings: Style** | How the band starts, stops and fills: Sync Start/Stop, Auto Fill and Stop Accompaniment. | Menu › Style Setting | — | Pad page 1 (Sections) (Sync Start, Sync Stop, Auto Fill); Pad page 2 (Chord/Setup), bottom row, pad 2 (Stop ACMP) |
+| **Settings: Audio** | The built-in synth: on or off, which output pair it plays on, its SoundFont and its master volume. | — | — | — |
+| **Settings: MIDI** | Which MIDI inputs play yahaha, the yahaha output port, and the Launchkey connection. | Menu › MIDI | — | — |
+| **Settings: Library** | The folders yahaha looks for style files in, and a rescan. | Style selection (USB / User folders) | — | — |
+| **Split point** | Drag the marker, or click a key, to set the split (C3 = middle C). Keys at and below it are Left and the chord section, keys above it play Right 1–3. With focus, ←/→ move it a key and PgUp/PgDn an octave. | Split Point (Style + Left) | `[` `]` | Pad page 2 (Chord/Setup), bottom row, pads 3–4 |
+| **Section change timing (coming soon)** | When a Main you press takes over: Immediate (at the next beat) or Next Bar. Coming in M5; for now a new Main always waits for the next bar line (with Auto Fill, its fill starts at the next beat). | Section Change Timing | — | — |
+| **OTS Link timing (coming soon)** | With OTS Link on, whether the One Touch Setting changes the moment you press a Main (Immediate) or when the new Main actually starts (At Main Section Change). Coming in M5; for now it is always Immediate. | OTS Link Timing | — | — |
+| **Synchro Stop window (coming soon)** | With Sync Stop on: hold a chord longer than this and Sync Stop cancels itself, so the style keeps playing when you let go. A quicker release still stops the style. Coming in M5. | Synchro Stop Window | — | — |
+| **Style folders** | The folders yahaha reads style files from (.sty, .prs, .sst and more), with subfolders as categories. Pass them on the command line or set YAHAHA_STYLES. | Style selection (User / USB) | — | — |
+| **Rescan styles** | Reads the style folders again, picking up files you added, changed or removed. The band keeps playing. | — | — | — |
 
 ## Audio
 
@@ -204,12 +222,16 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | **Audio output** | The output pair the built-in synth plays on. `--audio-out N` sets it at launch. | — | `A` | — |
 | **SoundFont** | The General MIDI SoundFont (.sf2) the built-in synth plays, from the soundfonts folder. `--sf2 file` sets it at launch. | — | — | — |
 | **Mute synth** | Silences the built-in synth, for when you play Ableton's sounds from the yahaha MIDI port instead. | — | `K` | — |
+| **Built-in synth** | Turns the built-in SoundFont synth's sound on or off. The yahaha MIDI port keeps playing either way, for Ableton or other sounds. | — | `K` | — |
 
 ## MIDI
 
 | control | what it does | Genos | key | Launchkey |
 |---|---|---|---|---|
 | **MIDI input** | Whether this MIDI source plays yahaha. The Launchkey's DAW port carries its pads and buttons. | — | — | — |
+| **Inputs: all or selected** | All: every MIDI source plays yahaha, merged. Selected: only the sources you switch on below. `--all-inputs` and `--input name` set it at launch. | — | — | — |
+| **yahaha MIDI output** | The virtual MIDI port yahaha plays the band and your parts on. Pick it as a MIDI input in Ableton to use your own sounds. | MIDI Transmit | — | — |
+| **Palette LEDs** | Lights the Launchkey with its built-in palette colours and hardware flashing instead of exact RGB colours. Try it if the pads look wrong or lag. `--palette-leds` sets it at launch. | — | — | Every pad and button light |
 
 ## App
 

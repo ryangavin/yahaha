@@ -65,6 +65,8 @@ const STATES: [string, Setup][] = [
   ['style browser, style queued for the next bar', (s) => (s.send({ type: 'queueStyle', id: 1 }), (ui.browser = true))],
   ['settings open', () => (ui.settings = true)],
   ['parts drawer open', () => (ui.parts = true)],
+  ['parts drawer, Upper + Manual Bass, OTS Link', (s) => ((ui.parts = true), s.send({ type: 'toggleUpper' }), s.send({ type: 'toggleOtsLink' }))],
+  ['parts drawer, fader page Style', (s) => ((ui.parts = true), s.send({ type: 'toggleFaderPage' }))],
   ['mixer drawer open', () => (ui.mixer = true)],
   ['mixer drawer open, Style tab', (s) => ((ui.mixer = true), s.send({ type: 'setFaderPage', page: 'style' }))],
   ['Shift layer on', () => (ui.shiftLatched = true)],

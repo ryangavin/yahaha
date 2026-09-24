@@ -80,8 +80,8 @@
         <span class="icon">⇧</span>
       </HwButton>
       <div class="track">
-        <Control {surface} id="trackPrev" legend="◀" caption={surface.trackPrev ?? ''} />
-        <Control {surface} id="trackNext" legend="▶" caption={surface.trackNext ?? ''} />
+        <Control {surface} id="trackPrev" legend="◀" caption={surface.trackPrev?.name ?? ''} />
+        <Control {surface} id="trackNext" legend="▶" caption={surface.trackNext?.name ?? ''} />
       </div>
       <span class="engraved track-label">Track</span>
     </div>
