@@ -372,6 +372,45 @@ fn a_swap_during_a_crossfade_waits_for_it() {
     assert_eq!(swapped(&mut ctl), 1, "then it lands");
 }
 
+/// The strongest autocorrelation lag (the pitch period, in samples) between `lo` and `hi`.
+fn period(x: &[f32], lo: usize, hi: usize) -> usize {
+    (lo..hi)
+        .max_by(|&a, &b| {
+            let c = |lag: usize| x.iter().zip(&x[lag..]).map(|(p, q)| (p * q) as f64).sum::<f64>();
+            c(a).partial_cmp(&c(b)).unwrap()
+        })
+        .unwrap()
+}
+
+/// A plugin assigned after the part's Pitch Bend Range (RPN 0) was set plays with that
+/// range: the rack replays RPN 0-2 into the incoming instance, as the SoundFont side's
+/// `Shadow` does for a new SoundFont (#105 review B1).
+#[test]
+fn a_plugin_assigned_later_gets_the_parts_bend_range() {
+    let run = |range_before_assign: bool| {
+        let (mut rack, mut ctl) = rack(512, RATE);
+        let range: [[u8; 3]; 5] = [[0xB0, 101, 0], [0xB0, 100, 0], [0xB0, 6, 12], [0xB0, 38, 0], [0xB0, 101, 127]];
+        if range_before_assign {
+            for m in range {
+                assert!(!rack.midi(m, 0));
+            }
+        }
+        ctl.assign(0, dls(512), Swap { fade_frames: 0, trim: 1.0 }).ok().unwrap();
+        let mut first: Vec<[u8; 3]> = if range_before_assign { vec![] } else { range.to_vec() };
+        first.extend([[0xE0, 127, 127], [0x90, 57, 110]]);
+        let _ = block(&mut rack, &first, 512);
+        let mut l = Vec::new();
+        for _ in 0..8 {
+            l.extend(block(&mut rack, &[], 512).0);
+        }
+        period(&l[2048..], 60, 400)
+    };
+    let (sent_after, replayed) = (run(false), run(true));
+    // A3 (220 Hz) bent up 12 semitones: 440 Hz, a 109-sample period at 48 kHz (+2 would be 196).
+    assert!((100..120).contains(&sent_after), "the range sent to the plugin itself: {sent_after}");
+    assert!(replayed.abs_diff(sent_after) <= 2, "replayed on assign: {replayed} vs {sent_after}");
+}
+
 #[test]
 fn an_instance_at_another_sample_rate_is_refused() {
     let (_rack, mut ctl) = rack(256, 44_100.0);
