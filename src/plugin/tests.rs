@@ -372,6 +372,56 @@ fn a_swap_during_a_crossfade_waits_for_it() {
     assert_eq!(swapped(&mut ctl), 1, "then it lands");
 }
 
+/// A command waiting for one channel's crossfade does not hold up another channel's
+/// (#104 review item 2): Right 2's assign, sent after Right 1's, lands at once.
+#[test]
+fn a_waiting_swap_does_not_hold_up_other_channels() {
+    let (mut rack, mut ctl) = rack(64, RATE);
+    ctl.assign(0, dls(64), Swap::default()).ok().unwrap();
+    let _ = block(&mut rack, &[[0x90, 60, 110]], 64);
+    ctl.assign(0, dls(64), Swap::default()).ok().unwrap();
+    block(&mut rack, &[], 64);
+    assert!(rack.is_fading(0));
+    let _ = ctl.poll_events();
+    ctl.assign(0, dls(64), Swap::default()).ok().unwrap();
+    ctl.assign(2, dls(64), Swap::default()).ok().unwrap();
+    block(&mut rack, &[], 64);
+    let ev = ctl.poll_events();
+    assert_eq!(ev.iter().filter(|e| matches!(e, RackEvent::Swapped { channel: 2, .. })).count(), 1, "Right 2 lands now: {ev:?}");
+    assert!(!ev.iter().any(|e| matches!(e, RackEvent::Swapped { channel: 0, .. })), "Right 1 still waits: {ev:?}");
+    assert!(rack.owns(2));
+    for _ in 0..4 {
+        block(&mut rack, &[], 64);
+    }
+    let ev = ctl.poll_events();
+    assert_eq!(ev.iter().filter(|e| matches!(e, RackEvent::Swapped { channel: 0, .. })).count(), 1, "then Right 1's: {ev:?}");
+}
+
+/// Two commands for a crossfading channel: the later one counts. A clear after an assign
+/// that was still waiting clears the channel, and the waiting instance goes back to the
+/// control side without playing.
+#[test]
+fn the_latest_waiting_command_for_a_channel_wins() {
+    let (mut rack, mut ctl) = rack(64, RATE);
+    ctl.assign(0, dls(64), Swap::default()).ok().unwrap();
+    block(&mut rack, &[], 64);
+    ctl.assign(0, dls(64), Swap::default()).ok().unwrap();
+    block(&mut rack, &[], 64);
+    assert!(rack.is_fading(0));
+    let _ = ctl.poll_events();
+    ctl.assign(0, dls(64), Swap::default()).ok().unwrap();
+    assert!(ctl.clear(0, 0));
+    block(&mut rack, &[], 64);
+    assert_eq!(ctl.take_retired().len(), 1, "the replaced assign's instance came back unplayed");
+    for _ in 0..4 {
+        block(&mut rack, &[], 64);
+    }
+    let ev = ctl.poll_events();
+    assert!(!ev.iter().any(|e| matches!(e, RackEvent::Swapped { .. })), "{ev:?}");
+    assert!(ev.contains(&RackEvent::Cleared { channel: 0 }), "{ev:?}");
+    assert!(!rack.owns(0) && !rack.active());
+}
+
 /// The strongest autocorrelation lag (the pitch period, in samples) between `lo` and `hi`.
 fn period(x: &[f32], lo: usize, hi: usize) -> usize {
     (lo..hi)
