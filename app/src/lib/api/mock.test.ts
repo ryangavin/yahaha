@@ -81,6 +81,31 @@ describe('mock session', () => {
     expect(seen[1].version).toBeGreaterThan(seen[0].version)
   })
 
+  it('Registration stores Keyboard Harmony/Arpeggio, as the harmonyArp registrable', () => {
+    const m = new MockSession({ manual: true })
+    m.send({ type: 'setArpPattern', index: 4 })
+    m.send({ type: 'setHarmonyArpOn', on: true })
+    m.send({ type: 'setHarmonyVolume', volume: 60 })
+    const want = structuredClone(m.state.harmonyArp)
+    m.send({ type: 'memorizeRegist', index: 5 })
+    const scramble = () => {
+      m.send({ type: 'setHarmonyType', index: 1 })
+      m.send({ type: 'setHarmonyArpOn', on: false })
+      m.send({ type: 'setHarmonyVolume', volume: 100 })
+    }
+    scramble()
+    m.send({ type: 'setArpPedalHold', on: true })
+    m.send({ type: 'recallRegist', index: 5 })
+    // The pedal's Arpeggio Hold is not recalled.
+    expect(m.state.harmonyArp).toEqual({ ...want, arp: { ...want.arp, pedalHold: true } })
+    scramble()
+    const scrambled = structuredClone(m.state.harmonyArp)
+    m.send({ type: 'setFreezeGroup', group: 'harmonyArp', on: true })
+    m.send({ type: 'setFreeze', on: true })
+    m.send({ type: 'recallRegist', index: 5 })
+    expect(m.state.harmonyArp).toEqual(scrambled)
+  })
+
   it('Kbd Harmony/Arpeggio and Arpeggio Hold are control-side switches, as the engine keeps them', () => {
     const m = new MockSession({ manual: true })
     // Try: a press switches them; no pedal switch field is written.

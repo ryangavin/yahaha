@@ -95,8 +95,11 @@ Today's sections: `style` (early), `multiPad` (early: the bank file, or null for
 `tempo`, `chord` (fingering, Upper, Manual Bass, split), `styleControl` (Main, Intro, Sync
 Start/Stop, Stop ACMP, OTS Link), `styleMixer` (the 8 Style parts' CC7, on/off, and `set`:
 which levels the player had set), `parts` (Right 1–3 and Left: on, voice, CC7, octave),
-`transpose`. Keyboard Harmony/Arpeggio (#32/#33), the Chord Looper and Live Control add
-theirs when they're wired in (their groups already exist).
+`transpose`, `harmonyArp` (Keyboard Harmony/Arpeggio: the switch, the type and pattern by
+name, Volume, Speed, Assign, Chord Note Only, Touch Limit, and the arpeggio's Quantize, Hold
+setting, velocity and Keep Key On; not the Arpeggio Hold pedal function, which is the
+pedal's). The Chord Looper and Live Control add theirs when they're wired in (their groups
+already exist).
 
 The voice is a `VoiceRef` tagged by `kind` (`{"kind":"gm","program":…}`), so plugin
 instruments (#35 phase 2) become a new kind without breaking old banks. A voice kind the

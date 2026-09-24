@@ -11,6 +11,7 @@ use crate::api::{
 use crate::arp::{library::PATTERNS, Quantize, Velocity};
 use crate::harmony::{Assign, EchoSpeed, ALL_TYPES};
 use crate::live::{type_index, FxMode};
+use crate::registration::{Group, Groups};
 use std::sync::atomic::Ordering::Release;
 
 impl Control {
@@ -132,6 +133,96 @@ impl Control {
             },
         }
     }
+}
+
+// ----- Registration (group Keyboard Harmony/Arpeggio) -----
+
+/// The `harmonyArp` section of a Registration Memory (Data List, Freeze group "Keyboard
+/// Harmony/Arpeggio"): the HARMONY/ARPEGGIO switch, the selected type and the detail
+/// settings. The type and pattern are stored by name, so a list that grows or reorders
+/// still finds them. The Arpeggio Hold pedal function (`pedalHold`) is not stored: it is
+/// the pedal's, not a setting.
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct HarmonyArpReg {
+    on: bool,
+    mode: HarmonyArpMode,
+    harmony_type: String,
+    arp_pattern: String,
+    volume: u8,
+    speed: HarmonySpeed,
+    assign: HarmonyAssign,
+    chord_note_only: bool,
+    touch_limit: u8,
+    arp_quantize: ArpQuantize,
+    arp_hold: bool,
+    arp_velocity: ArpVelocityMode,
+    arp_fixed_velocity: u8,
+    arp_keep_key_on: bool,
+}
+
+pub(super) fn harmony_arp_capture(c: &Control, g: Groups) -> Option<serde_json::Value> {
+    if !g.has(Group::HarmonyArp) {
+        return None;
+    }
+    let s = c.harmony_arp_state();
+    let h = &c.harmony_arp;
+    let r = HarmonyArpReg {
+        on: s.on,
+        mode: s.mode,
+        harmony_type: h.harmony.ty.name().to_string(),
+        arp_pattern: PATTERNS[(h.pattern as usize).min(PATTERNS.len() - 1)].name.to_string(),
+        volume: s.volume,
+        speed: s.speed,
+        assign: s.assign,
+        chord_note_only: s.chord_note_only,
+        touch_limit: s.touch_limit,
+        arp_quantize: s.arp.quantize,
+        arp_hold: s.arp.hold,
+        arp_velocity: s.arp.velocity,
+        arp_fixed_velocity: s.arp.fixed_velocity,
+        arp_keep_key_on: s.arp.keep_key_on,
+    };
+    serde_json::to_value(&r).ok()
+}
+
+/// Recall the `harmonyArp` section. A type or pattern this build doesn't have is reported;
+/// the other settings are still recalled and the selection stays as it is.
+pub(super) fn harmony_arp_recall(c: &mut Control, v: &serde_json::Value, g: Groups) -> Result<(), String> {
+    if !g.has(Group::HarmonyArp) {
+        return Ok(());
+    }
+    let r: HarmonyArpReg = serde_json::from_value(v.clone()).map_err(|e| format!("registration harmonyArp: {e}"))?;
+    let ty = ALL_TYPES.iter().position(|t| t.name() == r.harmony_type).map(|i| i as u8);
+    let pattern = PATTERNS.iter().position(|p| p.name == r.arp_pattern).map(|i| i as u8);
+    let mut err = None;
+    let mut cmds = vec![
+        HarmonyArpCmd::SetHarmonyVolume { volume: r.volume },
+        HarmonyArpCmd::SetHarmonySpeed { speed: r.speed },
+        HarmonyArpCmd::SetHarmonyAssign { assign: r.assign },
+        HarmonyArpCmd::SetChordNoteOnly { on: r.chord_note_only },
+        HarmonyArpCmd::SetTouchLimit { velocity: r.touch_limit },
+        HarmonyArpCmd::SetArpQuantize { quantize: r.arp_quantize },
+        HarmonyArpCmd::SetArpHold { on: r.arp_hold },
+        HarmonyArpCmd::SetArpVelocity { mode: r.arp_velocity, velocity: r.arp_fixed_velocity },
+        HarmonyArpCmd::SetArpKeepKeyOn { on: r.arp_keep_key_on },
+    ];
+    // Both selections, the one in use last (it sets the mode).
+    let (harmony, arp) = (ty.map(|index| HarmonyArpCmd::SetHarmonyType { index }), pattern.map(|index| HarmonyArpCmd::SetArpPattern { index }));
+    let (first, last, missing) = match r.mode {
+        HarmonyArpMode::Harmony => (arp, harmony, ty.is_none().then_some(&r.harmony_type)),
+        HarmonyArpMode::Arpeggio => (harmony, arp, pattern.is_none().then_some(&r.arp_pattern)),
+    };
+    if let Some(name) = missing {
+        err = Some(format!("Harmony/Arpeggio type not found: {name}"));
+    }
+    cmds.extend(first);
+    cmds.extend(last);
+    cmds.push(HarmonyArpCmd::SetHarmonyArpOn { on: r.on });
+    for cmd in cmds {
+        c.harmony_arp_cmd(cmd).map_err(|e| e.to_string())?;
+    }
+    err.map_or(Ok(()), Err)
 }
 
 fn speed_of(s: HarmonySpeed) -> EchoSpeed {

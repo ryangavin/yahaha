@@ -1800,6 +1800,36 @@ mod tests {
         assert_eq!(m.state.transport.tempo, 72.0);
     }
 
+    /// As the session's `harmonyArp` registrable: Memorize stores Keyboard Harmony/Arpeggio,
+    /// a recall puts it back (not the pedal's Arpeggio Hold), Freeze leaves it.
+    #[test]
+    fn registration_stores_harmony_arpeggio() {
+        let mut m = MockSession::new();
+        m.send(HarmonyArpCmd::SetArpPattern { index: 4 });
+        m.send(HarmonyArpCmd::SetHarmonyArpOn { on: true });
+        m.send(HarmonyArpCmd::SetHarmonyVolume { volume: 60 });
+        let want = m.state.harmony_arp.clone();
+        m.send(RegistrationCmd::MemorizeRegist { index: 5 });
+        let scramble = |m: &mut MockSession| {
+            m.send(HarmonyArpCmd::SetHarmonyType { index: 1 });
+            m.send(HarmonyArpCmd::SetHarmonyArpOn { on: false });
+            m.send(HarmonyArpCmd::SetHarmonyVolume { volume: 100 });
+        };
+        scramble(&mut m);
+        m.send(HarmonyArpCmd::SetArpPedalHold { on: true });
+        m.send(RegistrationCmd::RecallRegist { index: 5 });
+        let mut got = m.state.harmony_arp.clone();
+        assert!(got.arp.pedal_hold, "the pedal's, not recalled");
+        got.arp.pedal_hold = false;
+        assert_eq!(got, want);
+        scramble(&mut m);
+        let scrambled = m.state.harmony_arp.clone();
+        m.send(RegistrationCmd::SetFreezeGroup { group: yahaha::registration::Group::HarmonyArp, on: true });
+        m.send(RegistrationCmd::SetFreeze { on: true });
+        m.send(RegistrationCmd::RecallRegist { index: 5 });
+        assert_eq!(m.state.harmony_arp, scrambled, "frozen");
+    }
+
     /// Save As names files as the session does ("A:B" is "A_B") and, like the Mac's file
     /// system, ignores case: your own bank in another case is renamed, not refused.
     #[test]

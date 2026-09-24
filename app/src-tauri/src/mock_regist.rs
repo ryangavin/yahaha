@@ -28,6 +28,9 @@ struct Memory {
     /// Right 1, Right 2, Right 3, Left: (on, program, volume, octave).
     parts: Option<Vec<Option<(bool, u8, u8, i8)>>>,
     transpose: Option<(i8, i8)>,
+    /// Keyboard Harmony/Arpeggio (the session's `harmonyArp` section); its `pedalHold` is
+    /// the pedal's and is never recalled.
+    harmony_arp: Option<HarmonyArpState>,
 }
 
 #[derive(Clone, Debug)]
@@ -101,6 +104,7 @@ fn demo(name: &str, style: &(String, String), tempo: f64, programs: [u8; 4], on:
         mixer: Some((vec![100, 100, 96, 80, 76, 70, 88, 84], vec![true; 8])),
         parts: Some((0..4).map(|i| Some((on[i], programs[i], 100, 0))).collect()),
         transpose: Some((0, 0)),
+        harmony_arp: None,
     }
 }
 
@@ -334,6 +338,7 @@ impl MockRegist {
                     .collect()
             }),
             transpose: g.has(Group::Transpose).then_some((c.transpose_keyboard, c.transpose_master)),
+            harmony_arp: g.has(Group::HarmonyArp).then(|| st.harmony_arp.clone()),
         };
         self.bank.memories[index as usize] = Some(m);
         self.selected = Some(index);
@@ -409,6 +414,11 @@ impl MockRegist {
         if let (true, Some((k, mst))) = (allowed.has(Group::Transpose), m.transpose) {
             st.chord.transpose_keyboard = k;
             st.chord.transpose_master = mst;
+        }
+        if let (true, Some(h)) = (allowed.has(Group::HarmonyArp), &m.harmony_arp) {
+            let pedal_hold = st.harmony_arp.arp.pedal_hold;
+            st.harmony_arp = h.clone();
+            st.harmony_arp.arp.pedal_hold = pedal_hold;
         }
     }
 

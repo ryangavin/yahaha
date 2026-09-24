@@ -822,3 +822,93 @@ fn style_mixer_without_player_set_recalls_as_before() {
     assert_eq!(got[0], own[0], "the stored level that differs is set, as before");
     let _ = std::fs::remove_dir_all(dir);
 }
+
+/// Keyboard Harmony/Arpeggio (#32/#33) is registered: Memorize stores the switch, the
+/// selected type and the settings; a recall puts them back; Freeze on the Keyboard
+/// Harmony/Arpeggio group leaves them, and so does a button memorized without it. The
+/// Arpeggio Hold pedal function is the pedal's, not the registration's.
+#[test]
+fn harmony_arp_is_registered() {
+    let Some((s, dir)) = session("harmony-arp") else { return };
+    let arp = |s: &Session| {
+        let mut h = s.state().harmony_arp.clone();
+        h.arp.pedal_hold = false;
+        h
+    };
+    let set = |cmds: &[HarmonyArpCmd]| {
+        for c in cmds {
+            s.send(c.clone()).unwrap();
+        }
+    };
+    let recall = |index: u8| {
+        s.send(RegistrationCmd::RecallRegist { index }).unwrap();
+        s.advance(MS);
+    };
+    // An arpeggio, on, with its settings (and a Harmony type kept behind it).
+    set(&[
+        HarmonyArpCmd::SetHarmonyType { index: 3 },
+        HarmonyArpCmd::SetArpPattern { index: 5 },
+        HarmonyArpCmd::SetHarmonyArpOn { on: true },
+        HarmonyArpCmd::SetHarmonyVolume { volume: 77 },
+        HarmonyArpCmd::SetHarmonySpeed { speed: HarmonySpeed::Sixteenth },
+        HarmonyArpCmd::SetHarmonyAssign { assign: HarmonyAssign::Right2 },
+        HarmonyArpCmd::SetChordNoteOnly { on: true },
+        HarmonyArpCmd::SetTouchLimit { velocity: 40 },
+        HarmonyArpCmd::SetArpQuantize { quantize: ArpQuantize::Sixteenth },
+        HarmonyArpCmd::SetArpHold { on: true },
+        HarmonyArpCmd::SetArpVelocity { mode: ArpVelocityMode::Fixed, velocity: 90 },
+        HarmonyArpCmd::SetArpKeepKeyOn { on: true },
+    ]);
+    let want = arp(&s);
+    assert_eq!(want.mode, HarmonyArpMode::Arpeggio);
+    s.send(RegistrationCmd::MemorizeRegist { index: 0 }).unwrap();
+    assert!(s.state().registration.buttons[0].groups.has(Group::HarmonyArp));
+    let scramble = || {
+        set(&[
+            HarmonyArpCmd::SetArpPattern { index: 1 },
+            HarmonyArpCmd::SetHarmonyType { index: 0 },
+            HarmonyArpCmd::SetHarmonyArpOn { on: false },
+            HarmonyArpCmd::SetHarmonyVolume { volume: 100 },
+            HarmonyArpCmd::SetHarmonySpeed { speed: HarmonySpeed::Eighth },
+            HarmonyArpCmd::SetHarmonyAssign { assign: HarmonyAssign::Auto },
+            HarmonyArpCmd::SetChordNoteOnly { on: false },
+            HarmonyArpCmd::SetTouchLimit { velocity: 1 },
+            HarmonyArpCmd::SetArpQuantize { quantize: ArpQuantize::Off },
+            HarmonyArpCmd::SetArpHold { on: false },
+            HarmonyArpCmd::SetArpVelocity { mode: ArpVelocityMode::Original, velocity: 100 },
+            HarmonyArpCmd::SetArpKeepKeyOn { on: false },
+            // The pedal function: not the registration's.
+            HarmonyArpCmd::SetArpPedalHold { on: true },
+        ]);
+    };
+    scramble();
+    let scrambled = arp(&s);
+    assert_ne!(scrambled, want);
+    recall(0);
+    assert_eq!(arp(&s), want, "recalled");
+    assert!(s.state().harmony_arp.arp.pedal_hold, "the pedal's Arpeggio Hold stays as it was");
+    // A Harmony type memorized: the recall selects it (mode Harmony), keeping the pattern.
+    set(&[HarmonyArpCmd::SetHarmonyType { index: 2 }]);
+    let harmony = arp(&s);
+    s.send(RegistrationCmd::MemorizeRegist { index: 1 }).unwrap();
+    scramble();
+    recall(1);
+    assert_eq!(arp(&s), harmony);
+    // Frozen: left alone.
+    scramble();
+    s.send(RegistrationCmd::SetFreezeGroup { group: Group::HarmonyArp, on: true }).unwrap();
+    s.send(RegistrationCmd::SetFreeze { on: true }).unwrap();
+    recall(0);
+    assert_eq!(arp(&s), scrambled, "frozen");
+    s.send(RegistrationCmd::SetFreeze { on: false }).unwrap();
+    recall(0);
+    assert_eq!(arp(&s), want, "Freeze off: recalled");
+    // A button memorized without the group leaves it.
+    s.send(RegistrationCmd::SetMemorizeGroup { group: Group::HarmonyArp, on: false }).unwrap();
+    s.send(RegistrationCmd::MemorizeRegist { index: 2 }).unwrap();
+    assert!(!s.state().registration.buttons[2].groups.has(Group::HarmonyArp));
+    scramble();
+    recall(2);
+    assert_eq!(arp(&s), scrambled, "a button without the group leaves it");
+    let _ = std::fs::remove_dir_all(dir);
+}

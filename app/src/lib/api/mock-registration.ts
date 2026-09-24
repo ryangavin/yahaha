@@ -4,7 +4,7 @@
 // drawer have something to show.
 
 import fixture from './mock-fixture.json'
-import type { AppCmd, AppState, Fingering } from './types'
+import type { AppCmd, AppState, Fingering, HarmonyArpState } from './types'
 import {
   emptyPlaylist, emptyRegistration, fileStem, REGIST_GROUPS,
   type PlaylistCmd, type PlaylistRecord, type PlaylistSort, type RegistGroup, type RegistrationCmd, type SequenceEnd,
@@ -28,6 +28,9 @@ interface Memory {
   /** Right 1, Right 2, Right 3, Left; null for a part outside the memorized groups. */
   parts?: ({ on: boolean; program: number; volume: number; octave: number } | null)[]
   transpose?: [number, number]
+  /** Keyboard Harmony/Arpeggio (the session's `harmonyArp` section); its `pedalHold` is the
+   * pedal's and is never recalled. */
+  harmonyArp?: HarmonyArpState
 }
 
 interface Bank {
@@ -304,6 +307,7 @@ export class MockRegistration {
     }
     if (g.includes('tempo')) m.tempo = st.transport.tempo
     if (g.includes('transpose')) m.transpose = [st.chord.transposeKeyboard, st.chord.transposeMaster]
+    if (g.includes('harmonyArp')) m.harmonyArp = clone(st.harmonyArp)
     m.name = m.style?.name ?? `Registration ${index + 1}`
     this.bank.memories[index] = m
     this.selected = index
@@ -369,6 +373,10 @@ export class MockRegistration {
     if (allowed('transpose') && m.transpose) {
       st.chord.transposeKeyboard = m.transpose[0]
       st.chord.transposeMaster = m.transpose[1]
+    }
+    if (allowed('harmonyArp') && m.harmonyArp) {
+      // A fresh object, so the published snapshots never share it.
+      st.harmonyArp = { ...clone(m.harmonyArp), arp: { ...clone(m.harmonyArp.arp), pedalHold: st.harmonyArp.arp.pedalHold } }
     }
     const text = label ?? `Registration ${index + 1}: ${m.name || `Registration ${index + 1}`}`
     if (errors.length) host.message(`${text}: ${errors.join('; ')}`, true)
