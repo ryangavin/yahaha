@@ -59,6 +59,12 @@ class AppStore {
   send(cmd: AppCmd) {
     this.session?.send(cmd)
   }
+
+  /** Open (focus) or close a keyboard part's plugin editor window (the app shell's, on
+   * its main thread). */
+  pluginEditor(part: number, open: boolean) {
+    this.session?.pluginEditor?.(part, open)
+  }
 }
 
 export const app = new AppStore()

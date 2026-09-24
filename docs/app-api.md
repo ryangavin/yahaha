@@ -312,6 +312,23 @@ Pedals, the wheels and the assignable functions (docs/controllers.md).
 | `setBendRange` | `part` 0–3, `semitones` 0–12 | The part's Pitch Bend Range (RPN 0 on its channel). |
 | `triggerFunction` | `function` | Runs an assignable function as a pedal press would (Sustain, Sostenuto and Soft toggle). Fails for a function yahaha doesn't have yet (`available` false) and for Modulation and Pitch Bend, which need a foot controller. |
 
+### Instrument plugins
+
+Audio Unit instruments for the keyboard parts (docs/plugin-hosting.md). They need a build
+with the `plugins` feature (the desktop app has it) and the built-in synth
+(`plugins.available`).
+
+| Command | Fields | Does |
+|---|---|---|
+| `setPartPlugin` | `part` 0–3, `id`, `state`? | Plays the part on an instrument plugin: `id` from `plugins.list` (for example `"aumu dls  appl"`), `state` a saved preset (base64) or null for the plugin's default. It loads in the background (`keyboardParts[i].plugin.status` `loading`, with the `stage`). The part keeps its SoundFont voice until the plugin is ready, then switches without a click. If the load fails, a plugin that was playing keeps the part; otherwise the part plays its SoundFont voice (`failed`, with the `error`), and picking the plugin again with a null `state` retries it with the state it kept (a restore that timed out, or a plugin reinstalled since, comes back as saved; go back to the SoundFont voice first to start it fresh). A state over 64 MB is refused. Fails at once for an unknown id or with no synth. |
+| `clearPartPlugin` | `part` 0–3 | Back to the part's SoundFont voice (a 5 ms fade). |
+| `savePartPluginState` | `part` 0–3 | Stores the plugin's current preset (what its editor changed) with the part, so it is kept across restarts. Send it when the editor window closes. |
+| `rescanPlugins` | | Scans the installed instruments again, ignoring the cache (`plugins.scanning` meanwhile). |
+
+The plugin's editor window is not a command: it opens on the app's main thread. The
+Tauri shell has the commands `open_plugin_editor(part)` and `close_plugin_editor(part)` for it
+(`Session::plugin_editor` gives the shell the handle).
+
 ### Keyboard Harmony / Arpeggio
 
 One HARMONY/ARPEGGIO switch and one type, as on the Genos: a Keyboard Harmony type or an
@@ -433,6 +450,7 @@ Indices are 0-based unless a field says otherwise.
 | `playsBass` | bool | Left is playing the bass (Manual Bass). |
 | `octave` | −2..2 | The octave setting. It is not applied while `playsBass` is true. |
 | `fader` | 0–127? | Where its Launchkey fader (Panel page, faders 1–4) physically is, as last reported. Null until that fader moves. |
+| `plugin` | PartPlugin? | The instrument plugin the part plays instead of its SoundFont voice. The key is absent when there is none. `id`, `name`, `manufacturer`, `status` (`loading` \| `playing` \| `failed` \| `muted`: still on the SoundFont, or the previous plugin, while loading; on the SoundFont after a failed load, keeping the choice so it is saved and can be retried; silent after the plugin crashed or produced bad audio), `stage` (while loading: `queued`, `instantiating`, `initializing`, `restoringState`), `error`, `outOfProcess` (runs in its own process), `cpu` (share of real time, updated once a second), `overruns` (renders slower than half the buffer), `editor` (its window can be opened). Its volume is still `volume` (CC7), and its pan is CC10; the host applies both to the plugin's output. |
 
 ### `mixer`
 | Field | Type | Meaning |
@@ -756,6 +774,15 @@ The Chord Looper.
 | `bell` | bool | A bell on the first beat of each bar. |
 | `audible` | bool | The built-in synth is running: the only place the click sounds. |
 
+### `plugins`
+The instrument plugin host.
+
+| Field | Type | Meaning |
+|---|---|---|
+| `available` | bool | Plugins can be used: the build hosts them and the built-in synth runs. |
+| `scanning` | bool | A scan is running. |
+| `list` | PluginEntry[] | The installed instrument Audio Units, by manufacturer then name, from the cached scan: `id` (what `setPartPlugin` takes), `name`, `manufacturer`, `version`, `format` (`AUv2` \| `AUv3`), `lastError` (why the last load failed, or null). |
+
 ### `multiPad`
 Multi Pads (docs/multipad.md).
 
@@ -917,7 +944,19 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
       "program": 80,
       "voiceName": "Square Lead",
       "playsBass": false,
-      "octave": -1
+      "octave": -1,
+      "plugin": {
+        "id": "aumu dls  appl",
+        "name": "DLSMusicDevice",
+        "manufacturer": "Apple",
+        "status": "playing",
+        "stage": null,
+        "error": null,
+        "outOfProcess": false,
+        "cpu": 0.015625,
+        "overruns": 0,
+        "editor": true
+      }
     },
     {
       "name": "Right 2",
@@ -1304,6 +1343,13 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
     "volume": 90,
     "bell": true,
     "audible": true
+  },
+  "plugins": {
+    "available": true,
+    "scanning": false,
+    "list": [
+      { "id": "aumu dls  appl", "name": "DLSMusicDevice", "manufacturer": "Apple", "version": "1.0.0", "format": "AUv2", "lastError": null }
+    ]
   },
   "multiPad": {
     "bank": { "id": 0, "name": "Demo", "path": "/Users/me/Styles/Pads/Demo.pad" },

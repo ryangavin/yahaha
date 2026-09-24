@@ -180,6 +180,12 @@ const EVERY_CMD: &[&str] = &[
     r#"{"type":"setPartControllers","part":3,"sustain":false,"pitchBend":true,"modulation":false}"#,
     r#"{"type":"setBendRange","part":0,"semitones":12}"#,
     r#"{"type":"triggerFunction","function":"ots2"}"#,
+    // Instrument plugins
+    r#"{"type":"setPartPlugin","part":0,"id":"aumu dls  appl","state":null}"#,
+    r#"{"type":"setPartPlugin","part":1,"id":"aumu Xf2X XFER","state":"YnBsaXN0MDA="}"#,
+    r#"{"type":"clearPartPlugin","part":0}"#,
+    r#"{"type":"savePartPluginState","part":3}"#,
+    r#"{"type":"rescanPlugins"}"#,
     // Keyboard Harmony / Arpeggio
     r#"{"type":"toggleHarmonyArp"}"#,
     r#"{"type":"setHarmonyArpOn","on":true}"#,

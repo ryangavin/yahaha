@@ -17,6 +17,9 @@ export interface Session {
   /** Output levels since the last call (one reader: poll at display rate, apply your own
    * decay and peak hold). No channels without the synth. */
   meters(): Promise<Meters>
+  /** Open (or focus) / close keyboard part `part`'s plugin editor window. The app shell
+   * opens it on its main thread; the browser mock can't (it says so). */
+  pluginEditor?(part: number, open: boolean): void
   dispose(): void
 }
 

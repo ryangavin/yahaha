@@ -12,6 +12,7 @@ import { clockAt, mockSurface, type MockHardware } from './mock-surface'
 import { emptyLooper, MockLooper } from './mock-looper'
 import { initialMultiPad, MockPads } from './mock-multipad'
 import { padsFor } from './mock-pads'
+import { initialPlugins, MockPlugins } from './mock-plugins'
 import { ARP_PATTERNS, HARMONY_TYPES, harmonyArpCmd, initialHarmonyArp } from './mock-harmony'
 import { MockRegistration } from './mock-registration'
 import { emptyPlaylist, emptyRegistration } from './registration'
@@ -260,6 +261,7 @@ export function initialState(): AppState {
     metronome: { on: false, volume: 90, bell: true, audible: true },
     multiPad: initialMultiPad(),
     controllers: defaultControllers(),
+    plugins: initialPlugins(),
     harmonyArp: initialHarmonyArp(),
   }
   derive(state, LIBRARY)
@@ -406,6 +408,11 @@ export class MockSession implements Session {
   private reg: MockRegistration
   /** Multi Pads (mock-multipad.ts). */
   private multiPads = new MockPads(() => this.state.multiPad)
+  /** Instrument plugins (mock-plugins.ts). */
+  private plugins = new MockPlugins(
+    () => this.state,
+    (t, e) => this.message(t, e),
+  )
 
   constructor(opts: MockOptions = {}) {
     this.demo = opts.demo ?? false
@@ -484,6 +491,13 @@ export class MockSession implements Session {
     return Promise.resolve({ atMs: this.now, channels: [], master: [0, 0] as [number, number], clips: 0 })
   }
 
+  pluginEditor(part: number, open: boolean) {
+    if (!open) return
+    const p = this.state.keyboardParts[part & 3]?.plugin
+    this.message(p ? `${p.name}'s window opens in the desktop app` : 'the part plays its SoundFont voice', !p)
+    this.publish()
+  }
+
   dispose() {
     if (this.timer) clearInterval(this.timer)
     this.subs.clear()
@@ -542,6 +556,7 @@ export class MockSession implements Session {
     }
     if (!t.running) this.stepAudition(ms)
     this.multiPads.beats((ms / 60000) * t.tempo)
+    this.plugins.step(ms)
     if (this.scanLeft > 0) {
       this.scanLeft -= ms
       if (this.scanLeft <= 0) this.state.library.scanning = false
@@ -1451,6 +1466,12 @@ export class MockSession implements Session {
       case 'setChartEnding':
       case 'setChartAutoStyle':
         this.chartCmd(cmd)
+        break
+      case 'setPartPlugin':
+      case 'clearPartPlugin':
+      case 'savePartPluginState':
+      case 'rescanPlugins':
+        this.plugins.cmd(cmd)
         break
       case 'loadMultiPad':
       case 'loadMultiPadPath':

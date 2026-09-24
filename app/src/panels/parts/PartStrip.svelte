@@ -1,7 +1,8 @@
 <!--
   One keyboard part as a channel strip: Edit (the part Voice −/+ changes), on/off, the
-  voice (a small screen with the voice picker over it), octave shift, and the volume
-  fader, which is fader 1–4 on the Launchkey's Panel page. Hovering or focusing the strip
+  voice (a small screen with the voice picker over it; its GM / Plugins tabs pick a
+  SoundFont voice or an instrument plugin, with the plugin's editor window and a rescan),
+  octave shift, and the volume fader, which is fader 1–4 on the Launchkey's Panel page. Hovering or focusing the strip
   lights that fader on the mirror (lib/mirror).
 -->
 <script lang="ts">
@@ -12,7 +13,7 @@
   import { tip } from '../../lib/tooltip/tip.svelte'
   import Fader from '../../lib/ui/Fader.svelte'
   import Toggle from '../../lib/ui/Toggle.svelte'
-  import { launchkeyPlace, octaveLabel, onTip, selectTip, volumeTip } from './parts'
+  import { launchkeyPlace, octaveLabel, onTip, pluginGroups, pluginPickValue, pluginStatusLine, selectTip, volumeTip } from './parts'
 
   let {
     part,
@@ -31,6 +32,23 @@
   } = $props()
 
   const groups = $derived(voiceGroups(voices))
+  const plugins = $derived(app.state.plugins)
+  const plugin = $derived(part.plugin)
+  // The picker's tab: the plugin list while the part has a plugin, else the GM voices.
+  let tab = $state<'gm' | 'plugins' | null>(null)
+  const shown = $derived(tab ?? (part.plugin ? 'plugins' : 'gm'))
+  const byMaker = $derived(pluginGroups(plugins.list))
+  const pluginLine = $derived(pluginStatusLine(plugin, plugins.available))
+
+  function pickPlugin(e: Event & { currentTarget: HTMLSelectElement }) {
+    const id = e.currentTarget.value
+    if (id) app.send({ type: 'setPartPlugin', part: index, id, state: null })
+    else app.send({ type: 'clearPartPlugin', part: index })
+    e.currentTarget.blur()
+  }
+  function edit() {
+    if (plugin?.editor) app.pluginEditor(index, true)
+  }
   const own = $derived(voices.find((v) => v.program === part.program)?.name ?? `Program ${part.program + 1}`)
 
   function pick(e: Event & { currentTarget: HTMLSelectElement }) {
@@ -91,19 +109,45 @@
     {part.playsBass ? 'Bass' : part.on ? 'On' : 'Off'}
   </Toggle>
 
-  <label class="voice mat-screen">
-    <span class="glow-text vname">{part.voiceName}</span>
-    <span class="sub">
-      {#if part.playsBass}<span class="badge">own: {own}</span>{:else}Voice ▾{/if}
-    </span>
-    <select value={String(part.program)} aria-label="{part.name} voice" use:tip={'part.voice'} onchange={pick} onkeydown={pickerKey}>
-      {#each groups as g (g.family)}
-        <optgroup label={g.family}>
-          {#each g.voices as v (v.program)}<option value={String(v.program)}>{v.name}</option>{/each}
-        </optgroup>
-      {/each}
-    </select>
-  </label>
+  <div class="tabs" role="tablist" aria-label="{part.name} sound">
+    <button type="button" role="tab" aria-selected={shown === 'gm'} class:sel={shown === 'gm'} use:tip={'part.source_gm'} onclick={() => (tab = 'gm')}>GM</button>
+    <button type="button" role="tab" aria-selected={shown === 'plugins'} class:sel={shown === 'plugins'} class:has={!!plugin} use:tip={'part.source_plugins'} onclick={() => (tab = 'plugins')}>Plugins</button>
+  </div>
+
+  {#if shown === 'gm'}
+    <label class="voice mat-screen">
+      <span class="glow-text vname">{part.voiceName}</span>
+      <span class="sub">
+        {#if part.playsBass}<span class="badge">own: {own}</span>{:else if plugin}<span class="badge">plugin plays</span>{:else}Voice ▾{/if}
+      </span>
+      <select value={String(part.program)} aria-label="{part.name} voice" use:tip={'part.voice'} onchange={pick} onkeydown={pickerKey}>
+        {#each groups as g (g.family)}
+          <optgroup label={g.family}>
+            {#each g.voices as v (v.program)}<option value={String(v.program)}>{v.name}</option>{/each}
+          </optgroup>
+        {/each}
+      </select>
+    </label>
+  {:else}
+    <label class="voice mat-screen" class:failed={plugin?.status === 'failed' || plugin?.status === 'muted'}>
+      <span class="glow-text vname">{plugin?.name ?? 'SoundFont voice'}</span>
+      <span class="sub">{pluginLine}</span>
+      <select value={pluginPickValue(plugin)} aria-label="{part.name} plugin" disabled={!plugins.available} use:tip={'part.plugin'} onchange={pickPlugin} onkeydown={pickerKey}>
+        <option value="">SoundFont voice ({part.voiceName})</option>
+        {#each byMaker as g (g.manufacturer)}
+          <optgroup label={g.manufacturer}>
+            {#each g.plugins as p (p.id)}<option value={p.id}>{p.name}{p.format === 'AUv3' ? ' (AUv3)' : ''}{p.lastError ? ' ⚠' : ''}</option>{/each}
+          </optgroup>
+        {/each}
+      </select>
+    </label>
+    <div class="prow">
+      <button type="button" class="mini mat-raised wide" aria-disabled={!plugin?.editor} use:tip={'part.plugin_edit'} onclick={edit}>Edit…</button>
+      <button type="button" class="mini mat-raised wide" aria-disabled={!plugins.available || plugins.scanning} use:tip={'part.plugin_rescan'} onclick={() => app.send({ type: 'rescanPlugins' })}>
+        {plugins.scanning ? 'Scanning' : 'Rescan'}
+      </button>
+    </div>
+  {/if}
 
   <div class="octave">
     <button type="button" class="mini mat-raised" aria-label="{part.name} octave down" aria-disabled={part.octave <= -2} use:tip={'part.octave_down'} onclick={() => octave(-1)}>−</button>
@@ -126,6 +170,48 @@
 </div>
 
 <style>
+  .tabs {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 2px;
+    padding: 2px;
+    border-radius: 5px;
+    background: var(--well);
+  }
+  .tabs button {
+    padding: 0.12rem 0;
+    border: 0;
+    border-radius: 3px;
+    background: transparent;
+    color: var(--muted);
+    font-family: var(--font-display);
+    font-size: 0.7rem;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    white-space: nowrap;
+    cursor: pointer;
+  }
+  .tabs button.sel {
+    background: var(--lamp-off);
+    color: var(--ink);
+  }
+  .tabs button.has::after {
+    content: ' •';
+    color: var(--accent);
+  }
+  .voice.failed .vname {
+    color: var(--danger, #e66);
+  }
+  .prow {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.25rem;
+  }
+  .mini.wide {
+    width: auto;
+    font-size: 0.7rem;
+  }
   .strip {
     position: relative;
     display: flex;

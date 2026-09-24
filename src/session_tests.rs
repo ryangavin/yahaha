@@ -863,6 +863,7 @@ fn fader_positions_and_master_takeover() {
             info: SynthInfo { name: "test".into(), sample_rate: 48000, buffer: None, device: "none".into(), channels: 2 },
             control: ctl.clone(),
             swap: None,
+            plugins: None,
         });
     }
     s.midi_in(Port::Pads, &[0xB0, 13, 100]); // at unity: picks up
@@ -1114,7 +1115,10 @@ fn rescan_adds_and_drops_files_keeping_ids() {
     let ids: Vec<(usize, String)> = s.library_list().entries.iter().map(|e| (e.id, e.path.clone())).collect();
     std::fs::copy(src.with_file_name("CoolRevibed.T552.sty"), dir.join("Sub/C.sty")).unwrap();
     s.send(LibraryCmd::RescanLibrary).unwrap();
-    assert!(s.state().library.scanning);
+    // A three-file scan can finish before we look, so either it's still walking or it has
+    // already merged the new file; it must not be neither (the rescan never started).
+    let st = s.state();
+    assert!(st.library.scanning || st.library.count == 3, "rescan did not start: {:?}", st.library);
     assert!(wait_for(&s, |st| !st.library.scanning && st.library.count == 3 && st.library.pending == 0));
     let lib = s.library_list();
     for (id, path) in &ids {
@@ -1220,6 +1224,7 @@ fn sound_font_switch_needs_the_synth_and_a_file_in_its_folder() {
         info: SynthInfo { name: "test".into(), sample_rate: 48000, buffer: None, device: "none".into(), channels: 2 },
         control: Arc::new(SynthControl::new(0)),
         swap: Some(synth::RackSwap { tx, old }),
+        plugins: None,
     });
     for bad in ["../x.sf2", "nope.sf2", "a/b.sf2"] {
         assert!(s.send(SettingsCmd::SetSoundFont { file: bad.into() }).is_err(), "{bad}");
