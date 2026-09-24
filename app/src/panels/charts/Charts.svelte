@@ -5,10 +5,12 @@
   ┌ iReal Pro charts ───────────────────────────── Close ┐
   │ [Open playlist…]  [irealb://… paste      ] [Import]  │
   │ Chart mode ◉  · ◀ Song title (Style, key) ▶          │
-  │ Choruses − 1 +  · Intro None A B C · Ending …        │
-  │ Loop Off Song A B …  · Auto style ◉  [Suggested]     │
-  │ Playlists            │ Songs                         │
-  │  ▸ Demo playlist  ✕  │  ▶ Title   Style   Key  Tempo │
+  │ Choruses − 1 +                                       │
+  │ Intro  None A B C  ·  Ending  None A B C             │
+  │ Loop   Off Song A 1–8 A 9–16 B 17–24 …               │
+  │ Style  Auto style ◉  [Suggested style]               │
+  │ Playlists:  ▸ Demo playlist                      4 ✕ │
+  │ Songs:      ▶ Title          Style        Key  Tempo │
   └──────────────────────────────────────────────────────┘
 
   Everything shown comes from `state.chart`; the drawer keeps only which playlist's songs
