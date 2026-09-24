@@ -15,7 +15,7 @@ import { MockRegistration } from './mock-registration'
 import { emptyPlaylist, emptyRegistration } from './registration'
 import type { Session } from './session'
 import {
-  BREAK, ENDINGS, FILLS, FINGERINGS, INTROS, KEYBOARD_PART_NAMES, MAINS, PAD_PAGES, STYLE_PART_NAMES,
+  BREAK, CHORD_SETTLE_MAX_MS, ENDINGS, FILLS, FINGERINGS, INTROS, KEYBOARD_PART_NAMES, MAINS, PAD_PAGES, STYLE_PART_NAMES,
   type AppCmd, type AppState, type LibraryEntry, type LibraryList, type OtsPart, type PreviewState, type StyleState,
 } from './types'
 
@@ -201,7 +201,7 @@ export function initialState(): AppState {
     },
     chord: {
       name: null, fingered: null, fingering: 'fingeredOnBass', fingeringName: 'Fingered On Bass', upper: false,
-      manualBass: true, manualBassActive: false, split: 54, splitName: noteName(54), transposeKeyboard: 0, transposeMaster: 0,
+      manualBass: true, manualBassActive: false, split: 54, splitName: noteName(54), transposeKeyboard: 0, transposeMaster: 0, settleMs: 10,
     },
     keyboardParts: [part(0, 0, true), part(1, 48, false), part(2, 61, false), part(3, 48, false)],
     keyboard: { held: [], leftSplit: 54, chordTones: [], chordBass: null, detection: [0, 54] },
@@ -923,6 +923,9 @@ export class MockSession implements Session {
       case 'resetTranspose':
         c.transposeKeyboard = 0
         c.transposeMaster = 0
+        break
+      case 'setChordSettle':
+        c.settleMs = clamp(cmd.ms, 0, CHORD_SETTLE_MAX_MS)
         break
       case 'setPartOn':
       case 'togglePart': {

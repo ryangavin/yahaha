@@ -19,6 +19,7 @@ mod multipad;
 mod playback;
 mod prepared;
 mod sections;
+mod settle;
 mod setup;
 mod style_change;
 mod transport;
@@ -31,7 +32,9 @@ pub use mixer::{Takeover, HW_UNKNOWN};
 pub use transport::StyleControls;
 pub use multipad::{PadCmd, PadsSnap, SynchroStop, PAD_PPQ};
 use prepared::PKind;
-pub use prepared::{id_of, slot_of, Msgs, PSection, Prepared, NUM_SLOTS};
+pub use prepared::{id_of, slot_of, Msgs, PSection, Prepared, Setup, NUM_SLOTS};
+pub use settle::{CHORD_SETTLE_DEFAULT_MS, CHORD_SETTLE_MAX_MS};
+use settle::{Hold, Unsettled};
 
 use crate::sff::{ChannelRule, Ntr, Ntt, Rtr, SectionId, Style};
 use crate::theory::{is_drum_part, plays, transpose_group, Chord, CANCEL, GUITAR_NOISE};
@@ -352,6 +355,12 @@ pub struct Engine {
     retired: [Option<Box<Prepared>>; 4],
     /// The next bar or beat line for the `on_bar`/`on_beat` hooks (hooks.rs).
     lines: Lines,
+    /// The chord-settle window (settle.rs), in ns.
+    settle_ns: u64,
+    /// A chord change the band has not followed yet (settle.rs).
+    unsettled: Option<Unsettled>,
+    /// Where the pattern's notes held back while the chord settles begin.
+    hold: Option<Hold>,
     /// The engine-side state of the features that plug into the hooks (hooks.rs).
     features: Features,
     /// Pitch bends that did not fit the output range and were clamped.
@@ -368,7 +377,7 @@ pub struct Engine {
 impl Engine {
     pub fn new(style: Box<Prepared>) -> Engine {
         let bpm = style.bpm;
-        let mixer = style.mix;
+        let mixer = style.setups[0].mix;
         let mut e = Engine {
             style,
             running: false,
@@ -408,6 +417,9 @@ impl Engine {
             pending: None,
             retired: [None, None, None, None],
             lines: Lines::default(),
+            settle_ns: 0,
+            unsettled: None,
+            hold: None,
             features: Features::default(),
             #[cfg(test)]
             bend_clamps: Default::default(),
@@ -484,11 +496,13 @@ impl Engine {
         }
     }
 
-    /// Time of the next thing the engine needs to do, if running.
+    /// Time of the next thing the engine needs to do: if running, or a chord change is
+    /// waiting to settle (settle.rs), or the stopped metronome ticks.
     pub fn next_deadline(&self) -> Option<u64> {
         if !self.running {
-            // Stopped, only the metronome keeps time.
-            return self.metronome_idle_deadline();
+            // Stopped, only the metronome keeps time, and a chord change Stop
+            // Accompaniment (or a Chord Match pad) waits on settles.
+            return [self.settle_at(), self.metronome_idle_deadline()].into_iter().flatten().min();
         }
         let sec = self.style.sections[self.cur].as_ref()?;
         let mut t = self.sec_start + sec.len as f64;
@@ -504,7 +518,8 @@ impl Engine {
         if let Some(h) = self.hook_deadline() {
             t = t.min(h);
         }
-        Some(self.ns_at(t))
+        let t = self.ns_at(t);
+        Some(self.settle_at().map_or(t, |s| s.min(t)))
     }
 }
 

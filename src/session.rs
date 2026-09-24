@@ -8,6 +8,7 @@
 //! Threads (live):
 //!
 //!   CoreMIDI thread  keys, Launchkey pads/buttons/faders (`live::Input`)
+//!   MIDI run loop    CoreMIDI's setup-change notifications (`midi::init`; devices.rs)
 //!   engine thread    real-time playback (`live::run_engine`)
 //!   control thread   runs Launchkey actions as `AppCmd`s, OTS Link, Launchkey LEDs,
 //!                    library indexing, and republishes `AppState` when it changes
@@ -29,6 +30,7 @@
 
 mod chord;
 mod controllers;
+mod devices;
 mod keyboard;
 mod leds;
 mod library;
@@ -55,9 +57,9 @@ pub use settings::choose_keys;
 use crate::api::*;
 use crate::engine::{Engine, Prepared, Snapshot, Transpose};
 use crate::fingering::Fingering;
-use crate::launchkey::{self, Action, Page, Panel};
+use crate::launchkey::{Action, Page, Panel};
 use crate::library::{Info, Library};
-use crate::live::{self, Audition, Cmd, Input, Shared, MAX_KEY_SOURCES, TAG_PADS};
+use crate::live::{self, Audition, Cmd, Input, Shared, MAX_KEY_SOURCES};
 use crate::midi::{self, Client};
 use crate::rt::{self, PacketSink, Target};
 use crate::synth;
@@ -99,6 +101,8 @@ pub struct Options {
     pub manual_bass: bool,
     /// Initial Keyboard / Master transpose.
     pub transpose: Transpose,
+    /// The chord-settle window, in ms (`ChordCmd::SetChordSettle`).
+    pub chord_settle_ms: u32,
     /// Where Registration banks (`<dir>/Registration`) and Playlists (`<dir>/Playlists`) are
     /// saved. None: they can't be saved (tests, `state-json`). `default_data_dir()` is
     /// the usual one.
@@ -126,6 +130,7 @@ impl Default for Options {
             upper: false,
             manual_bass: true,
             transpose: Transpose::default(),
+            chord_settle_ms: crate::engine::CHORD_SETTLE_DEFAULT_MS,
             data_dir: None,
         }
     }
@@ -199,6 +204,8 @@ struct Control {
     snap_rx: Consumer<Snapshot>,
     act_rx: Consumer<Action>,
     transpose: Transpose,
+    /// The chord-settle window, in ms (session/chord.rs).
+    chord_settle_ms: u32,
     message: Option<Message>,
     msg_seq: u64,
     last_ots_key: Option<(usize, u8)>,
@@ -362,7 +369,7 @@ impl Control {
         while self.old_audition_rx.pop().is_ok() {}
         self.pump_sound_font();
         self.pump_rescan();
-        self.pump_inputs(now);
+        self.pump_devices(now);
         self.pump_registration(now);
         self.pump_looper();
         self.pump_metronome();
@@ -514,7 +521,9 @@ fn assemble(opts: &Options, engine_out: live::Out, input_out: live::Out, offline
     input.set_actions(act_tx);
     let (release_tx, release_rx) = RingBuffer::<u8>::new(MAX_KEY_SOURCES);
     input.set_release(release_rx);
-    let engine = Engine::new(prep);
+    let mut engine = Engine::new(prep);
+    let chord_settle_ms = opts.chord_settle_ms.min(crate::engine::CHORD_SETTLE_MAX_MS);
+    engine.set_chord_settle(chord_settle_ms as u64 * 1_000_000);
     let snap = engine.snapshot(0);
     let published = Arc::new(lib.clone());
     let control = Control {
@@ -535,6 +544,7 @@ fn assemble(opts: &Options, engine_out: live::Out, input_out: live::Out, offline
         snap_rx: ch.snap_rx,
         act_rx,
         transpose: Transpose::default(),
+        chord_settle_ms,
         message: None,
         msg_seq: 0,
         last_ots_key: None,
@@ -583,6 +593,8 @@ impl Session {
     /// Start a live session: open MIDI, start the synth (if `opts.sf2`), connect the
     /// keyboards and the Launchkey, start the engine and control threads.
     pub fn start(opts: Options) -> Result<Session> {
+        // (`midi::init` makes the process's first CoreMIDI call on a run-loop thread of
+        // its own, so the session hears of devices coming and going: session/devices.rs.)
         let client = Client::new("yahaha")?;
         let out_src = client.virtual_source("yahaha")?;
 
@@ -618,22 +630,9 @@ impl Session {
         }
 
         let port = client.input_port("yahaha in", p.input)?;
-        let sources = midi::sources();
-        let lk_daw = sources.iter().find(|(_, n)| is_daw(n));
-        let mut io = MidiIo { port, slots: Default::default(), daw: None };
-        if let Some((e, n)) = lk_daw.filter(|_| !opts.no_pads) {
-            port.connect(*e, TAG_PADS)?;
-            io.daw = Some((*e, n.clone()));
-            p.control.pads_connected = true;
-            if let Some((d, _)) = midi::destinations().into_iter().find(|(_, n)| n.contains("Launchkey") && n.contains("DAW")) {
-                let out_port = client.output_port("yahaha leds")?;
-                let mut s = PacketSink::new(Target::Port(out_port, d));
-                s.push(&launchkey::ENTER_DAW);
-                s.flush();
-                p.control.leds = Some(Leds::new(s, opts.palette_leds));
-            }
-        }
-        p.control.midi = Some(io);
+        let leds_port = if opts.no_pads { None } else { Some(client.output_port("yahaha leds")?) };
+        p.control.midi = Some(MidiIo { port, slots: Default::default(), daw: None, leds_port, leds_dest: None, no_pads: opts.no_pads, setup_gen: midi::setup_generation() });
+        p.control.connect_pads();
         p.control.connect_inputs();
         p.control.sources_ns = rt::now_ns();
 
@@ -651,7 +650,10 @@ impl Session {
         let inner = Arc::new(Inner::new(shared, p.control));
         let i2 = inner.clone();
         let control = std::thread::Builder::new().name("yahaha-control".into()).spawn(move || i2.control_loop())?;
-        Ok(Session { inner, live: Mutex::new(Some(Live { client, _port: port, engine: engine_thread, control, synth: synth_thread })) })
+        Ok(Session {
+            inner,
+            live: Mutex::new(Some(Live { client, _port: port, engine: engine_thread, control, synth: synth_thread })),
+        })
     }
 
     /// Run a command. Returns once it has been applied on the control side; what it does

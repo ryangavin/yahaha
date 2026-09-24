@@ -43,6 +43,8 @@ pub enum Cmd {
     /// All Notes Off on the keyboard parts' channels: a MIDI source with keys held was
     /// disconnected (its note-offs will never come).
     KeysOff,
+    /// The chord-settle window, in ms (`Engine::set_chord_settle`).
+    ChordSettle(u32),
     /// Set the Style controls (section, Sync Start/Stop, Stop ACMP, Style part on/off) to
     /// given states: a Registration recall.
     StyleControls(crate::engine::StyleControls),
@@ -1220,6 +1222,7 @@ fn apply(engine: &mut Engine, shared: &Shared, cmd: Cmd, now: u64, out: &mut Out
         Cmd::ManualBass(on) => engine.set_manual_bass(on, out),
         Cmd::Transpose(t) => engine.set_transpose(t, now, out),
         Cmd::StopAudition => {}
+        Cmd::ChordSettle(ms) => engine.set_chord_settle(ms as u64 * 1_000_000),
         Cmd::StyleControls(c) => engine.set_style_controls(c, now, out),
         Cmd::Looper(true) => engine.looper_rec(),
         Cmd::Looper(false) => engine.looper_on_off(),

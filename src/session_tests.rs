@@ -59,6 +59,7 @@ fn all_cmds() -> Vec<AppCmd> {
         AppCmd::Chord(ChordCmd::SetTranspose { keyboard: 2, master: -1 }),
         AppCmd::Chord(ChordCmd::StepTranspose { keyboard: 1, master: 0 }),
         AppCmd::Chord(ChordCmd::ResetTranspose),
+        AppCmd::Chord(ChordCmd::SetChordSettle { ms: 10 }),
         AppCmd::Parts(PartsCmd::SetPartOn { part: 1, on: true }),
         AppCmd::Parts(PartsCmd::TogglePart { part: 3 }),
         AppCmd::Parts(PartsCmd::SelectPart { part: 2 }),
@@ -239,6 +240,13 @@ fn chord_settings_split_and_transpose() {
     assert_eq!(s.state().chord.transpose_keyboard, 12);
     s.send(ChordCmd::ResetTranspose).unwrap();
     assert_eq!(s.state().chord.transpose_keyboard, 0);
+
+    // The chord-settle window: the default, clamped to its range, and 0.
+    assert_eq!(s.state().chord.settle_ms, crate::engine::CHORD_SETTLE_DEFAULT_MS);
+    s.send(ChordCmd::SetChordSettle { ms: 500 }).unwrap();
+    assert_eq!(s.state().chord.settle_ms, crate::engine::CHORD_SETTLE_MAX_MS);
+    s.send(ChordCmd::SetChordSettle { ms: 0 }).unwrap();
+    assert_eq!(s.state().chord.settle_ms, 0);
 }
 
 /// Transpose reaches the notes you play: a key sounds shifted on its part's channel.
