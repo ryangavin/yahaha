@@ -29,6 +29,9 @@ impl Control {
             section_bars: (s.section_bars > 0).then_some(s.section_bars),
             tempo: s.bpm,
             lamps: self.pads(&v.pnl, Page::Sections),
+            fade: s.fade,
+            retrigger: s.retrigger,
+            ritardando: s.ritardando,
         }
     }
 }

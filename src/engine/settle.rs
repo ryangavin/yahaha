@@ -114,15 +114,21 @@ impl Engine {
 
     /// The style follows chord `played` (as fingered) at once, with no chord-settle window:
     /// the path for exact, machine-made chord changes that are never rolled, such as the
-    /// Chord Looper's playback (looper.rs) and, later, a chart's chords (iReal, #98). A
-    /// keyboard chord goes through `set_chord` and waits for the window instead.
+    /// Chord Looper's playback (looper.rs) and a chart's chords (chart.rs, with `held`
+    /// false: no keys are held, so no Synchro Stop Window and no Retrigger). A keyboard
+    /// chord goes through `set_chord` and waits for the window instead.
     ///
     /// It settles every change waiting (a Keyboard transpose too) before the notes of its
     /// own tick, so none of them are held back. Call it where no other input of the wake
     /// follows (from `process`, or a hook it runs): an input handled after it in the same
     /// wake would move the notes it just struck again (#47).
     pub(super) fn apply_chord_unsettled(&mut self, played: Chord, now: u64, sink: &mut impl Sink) {
-        self.apply_chord(played, now, sink);
+        self.apply_chord_unsettled_from(played, true, now, sink);
+    }
+
+    /// `apply_chord_unsettled`; `held` as in `apply_chord_from`.
+    pub(super) fn apply_chord_unsettled_from(&mut self, played: Chord, held: bool, now: u64, sink: &mut impl Sink) {
+        self.apply_chord_from(played, held, now, sink);
         // Playing, or stopped under Stop Accompaniment (`apply_chord` left it unsettled).
         self.settle(now, sink);
     }
@@ -148,7 +154,11 @@ impl Engine {
         let prev = self.chord;
         self.chord = Some(chord);
         if self.running {
-            if prev.is_some() {
+            // The same chord struck again (after letting go), or a roll or transpose that
+            // came back to it, is no chord change: the Retrigger Rules move nothing (a
+            // Pitch Shift to Root bass would otherwise jump to the root at every
+            // re-strike). The notes held back still start.
+            if prev.is_some_and(|p| p != chord) {
                 self.revoice(chord, u.first, now, sink);
             }
             self.catch_up(prev, chord, u.first, now, sink);

@@ -36,7 +36,8 @@ impl Engine {
             }
         }
         for p in 0..8u8 {
-            self.mirror.send(sink, &[0xB0 | (8 + p), 7, self.mixer[p as usize]]);
+            let v = self.faded(self.mixer[p as usize]);
+            self.mirror.send(sink, &[0xB0 | (8 + p), 7, v]);
         }
         self.pattern_pc = 0;
         self.sync_rpn();
@@ -180,7 +181,7 @@ impl Engine {
         self.pattern_pc &= own_voice;
         self.sync_rpn();
         for p in 0..8u8 {
-            let v = self.mixer[p as usize];
+            let v = self.faded(self.mixer[p as usize]);
             if self.user_set & (1 << p) == 0 && self.mirror.cc[8 + p as usize][7] != v {
                 self.mirror.send(sink, &[0xB0 | (8 + p), 7, v]);
             }

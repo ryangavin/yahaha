@@ -6,8 +6,8 @@
 //!   1 Sections     Intro I  Intro II  Intro III  SyncStart | Ending I  Ending II  Ending III  AutoFill
 //!                  Main A   Main B    Main C     Main D    | Break     Tap       SyncStop    Start/Stop
 //!   2 Chord/Setup  Single   Fingered  On Bass    Multi     | AI Fing.  Full Kbd  AI Full     Upper
-//!                  ManBass  StopAcmp  Split -    Split +   | Kbd tr -  Kbd tr +  Tr reset    —
-//!   3 OTS/Parts    OTS 1    OTS 2     OTS 3      OTS 4     | OTS Link  —         Voice -/+
+//!                  ManBass  StopAcmp  Split -    Split +   | Kbd tr -  Kbd tr +  Tr reset    Retrigger
+//!   3 OTS/Parts    OTS 1    OTS 2     OTS 3      OTS 4     | OTS Link  Fade      Voice -/+
 //!                  Right 1  Right 2   Right 3    Left      | Select R1 Select R2 Select R3   Select Left
 //!   4 Registration Regist 1 Regist 2  Regist 3   Regist 4  | Regist 5  Regist 6  Regist 7    Regist 8
 //!                  Regist 9 Regist 10 Bank -     Bank +    | Memory    Freeze    Regist -    Regist +
@@ -16,14 +16,15 @@
 //! Figure 3): 115 Play = Start/Stop, 116 Stop, 104 (Scene Launch >) / 105 (Function) =
 //! tempo +/-, 106/107 (Pad Bank ▲/▼) = page up/down, Shift + ▲/▼ = Left on/off / OTS Link,
 //! 103/102 (< Track / Track >) = previous/next style (Shift: previous/next Playlist record),
-//! 63 = Shift.
+//! 63 = Shift. Shift + Play = Style Section Reset, Shift + Stop = Fade In/Out, Shift +
+//! Scene Launch / Function = Retrigger length shorter / longer.
 //!
 //! Faders have two pages, like the Genos Mixer's Panel and Style tabs; the button under
 //! the master fader switches them (see `parts`). Panel: faders 1-4 = Right 1, Right 2,
 //! Right 3, Left volumes, their buttons = part on/off (Shift: select the part). Style:
 //! faders 1-8 = the Style parts, their buttons = part mute. Master is always master.
 
-use crate::engine::{slot_of, Button, Snapshot, Transpose};
+use crate::engine::{slot_of, Button, FadeState, Snapshot, Transpose};
 use crate::fingering::Fingering;
 use crate::parts::{self, FaderPage};
 use crate::sff::SectionId;
@@ -171,6 +172,8 @@ pub enum Action {
     ToggleFaderPage,
     /// Previous/next style (`←` `→`).
     Style(i8),
+    /// Style Retrigger length shorter (+1) / longer (-1) (`}` `{`).
+    RetriggerRate(i8),
     /// A Registration Memory button 1-10 (0-based; `Q`-`P` with Shift): recall, or
     /// memorize while Memory is armed.
     Regist(u8),
@@ -206,8 +209,10 @@ pub fn pad_action(page: Page, note: u8) -> Option<Action> {
         (Page::ChordSetup, 116) => Action::Transpose { keyboard: -1, master: 0 },
         (Page::ChordSetup, 117) => Action::Transpose { keyboard: 1, master: 0 },
         (Page::ChordSetup, 118) => Action::TransposeReset,
+        (Page::ChordSetup, 119) => Action::Button(Button::Retrigger),
         (Page::OtsParts, 96..=99) => Action::Ots(note - 96),
         (Page::OtsParts, 100) => Action::ToggleOtsLink,
+        (Page::OtsParts, 101) => Action::Button(Button::Fade),
         (Page::OtsParts, 102) => Action::PartVoice(-1),
         (Page::OtsParts, 103) => Action::PartVoice(1),
         (Page::OtsParts, 112..=115) => Action::PartOnOff(note - 112),
@@ -237,6 +242,10 @@ pub enum Control {
 pub fn cc_control(cc: u8, shift: bool) -> Option<Control> {
     let act = |a| Some(Control::Act(a));
     match cc {
+        PLAY_CC if shift => act(Action::Button(Button::SectionReset)),
+        STOP_CC if shift => act(Action::Button(Button::Fade)),
+        SCENE_CC if shift => act(Action::RetriggerRate(1)),
+        FUNCTION_CC if shift => act(Action::RetriggerRate(-1)),
         PLAY_CC => act(Action::Button(Button::StartStop)),
         STOP_CC => act(Action::Button(Button::Stop)),
         SCENE_CC => act(Action::Button(Button::TempoUp)),
@@ -627,7 +636,7 @@ pub fn looks(s: &Snapshot, has: &[bool], panel: &Panel) -> [(u8, Look); 16] {
     match panel.page {
         Page::Sections => section_looks(s, has),
         Page::ChordSetup => chord_looks(s, panel),
-        Page::OtsParts => ots_looks(panel),
+        Page::OtsParts => ots_looks(s, panel),
         Page::Registration => regist_looks(&panel.regist),
     }
 }
@@ -720,7 +729,7 @@ fn chord_looks(s: &Snapshot, p: &Panel) -> [(u8, Look); 16] {
         (116, pl("KBD TR -", ";", true, t.keyboard < 0)),
         (117, pl("KBD TR +", "'", true, t.keyboard > 0)),
         (118, pl("TR RESET", "/", true, t != Transpose::default())),
-        (119, pl("", "", false, false)),
+        (119, pl("RETRIG", "R", true, s.retrigger)),
     ]
 }
 
@@ -729,7 +738,7 @@ const PART_KEYS: [&str; 4] = ["5", "6", "7", "8/l"];
 pub const SELECT_LABELS: [&str; 4] = ["EDIT R1", "EDIT R2", "EDIT R3", "EDIT L"];
 const SELECT_KEYS: [&str; 4] = ["F1", "F2", "F3", "F4"];
 
-fn ots_looks(p: &Panel) -> [(u8, Look); 16] {
+fn ots_looks(s: &Snapshot, p: &Panel) -> [(u8, Look); 16] {
     let pl = |label, key, available, on| page_look(Page::OtsParts, label, key, available, on);
     let ots = |n: u8, label, key| pl(label, key, n < p.ots_count, p.ots_applied == n + 1);
     let part = |i: usize| pl(PART_LABELS[i], PART_KEYS[i], true, p.parts_on & (1 << i) != 0);
@@ -740,7 +749,7 @@ fn ots_looks(p: &Panel) -> [(u8, Look); 16] {
         (98, ots(2, "OTS 3", "⇧3")),
         (99, ots(3, "OTS 4", "⇧4")),
         (100, pl("OTS LINK", "F10", true, p.ots_link)),
-        (101, pl("", "", false, false)),
+        (101, pl("FADE", "F", true, s.fade != FadeState::Off)),
         (102, pl("VOICE -", "9", true, false)),
         (103, pl("VOICE +", "0", true, false)),
         (112, part(0)),
@@ -843,7 +852,8 @@ mod tests {
             running: false, sync_armed: false, sync_stop: false, auto_fill: false, cur: None, queued: None,
             pending_intro: None, main: 0, bar: 0, beat: 0, chord: None, bpm: 120.0, parts: 0xFF, volumes: [100; 8], user_set: 0, pickup: 0,
             stop_acmp: false, transpose: Transpose::default(), played: None, anchor_ns: 0, anchor_beats: 0.0, style_tag: 0,
-            style_pending: false, section_bars: 0, audition: None, looper: Default::default(), style_solo: None,
+            style_pending: false, section_bars: 0, audition: None, fade: FadeState::Off, retrigger: false, ritardando: false,
+            looper: Default::default(), style_solo: None,
             multipad: Default::default(), chart_tag: 0, chart_bar: None, chart_override: false,
         }
     }
@@ -890,7 +900,7 @@ mod tests {
         assert_eq!(pad_action(p, 116), Some(Action::Transpose { keyboard: -1, master: 0 }));
         assert_eq!(pad_action(p, 117), Some(Action::Transpose { keyboard: 1, master: 0 }));
         assert_eq!(pad_action(p, 118), Some(Action::TransposeReset));
-        assert_eq!(pad_action(p, 119), None);
+        assert_eq!(pad_action(p, 119), Some(Action::Button(Button::Retrigger)));
         assert_eq!(pad_action(p, 60), None);
     }
 
@@ -901,7 +911,7 @@ mod tests {
             assert_eq!(pad_action(p, 96 + n), Some(Action::Ots(n)));
         }
         assert_eq!(pad_action(p, 100), Some(Action::ToggleOtsLink));
-        assert_eq!(pad_action(p, 101), None);
+        assert_eq!(pad_action(p, 101), Some(Action::Button(Button::Fade)));
         assert_eq!(pad_action(p, 102), Some(Action::PartVoice(-1)));
         assert_eq!(pad_action(p, 103), Some(Action::PartVoice(1)));
         for n in 0..4u8 {
@@ -1010,15 +1020,17 @@ mod tests {
         assert_eq!(bright, vec![3], "only the selected fingering type is lit");
         assert_eq!(l[7].level, Level::Dim, "Lower");
         assert_eq!(l[8].level, Level::Off, "Manual Bass is unavailable in Lower");
-        assert_eq!(l[15].level, Level::Off, "unassigned");
+        assert_eq!(l[15].level, Level::Dim, "Retrigger off");
         assert_eq!(leds(&s, &panel)[3], Led::Solid(CYAN));
         assert_eq!(leds(&s, &panel)[0], Led::Solid(DIM_CYAN));
-        assert_eq!(leds(&s, &panel)[15], Led::Solid(OFF));
+        assert_eq!(leds(&s, &panel)[15], Led::Solid(DIM_CYAN));
 
         panel.upper = true;
         s.stop_acmp = true;
         s.transpose = Transpose::new(-2, 0);
+        s.retrigger = true;
         let l = lk(&s, &panel);
+        assert_eq!(l[15].level, Level::Bright, "Retrigger on");
         assert_eq!(l[7].level, Level::Bright, "Upper");
         assert_eq!(l[8].level, Level::Bright, "Manual Bass on");
         assert_eq!(l[9].level, Level::Bright, "Stop ACMP");
@@ -1030,7 +1042,7 @@ mod tests {
     #[test]
     fn page_3_leds() {
         let has = [true; crate::engine::NUM_SLOTS];
-        let s = snap();
+        let mut s = snap();
         let mut panel = Panel { page: Page::OtsParts, ..Panel::default() };
         let lk = |s: &Snapshot, p: &Panel| looks(s, &has, p).map(|(_, l)| l);
 
@@ -1038,7 +1050,10 @@ mod tests {
         let l = lk(&s, &panel);
         assert!(l.iter().all(|l| l.rgb == C_PAGE_OTS), "one colour for the page");
         assert!(l[..4].iter().all(|l| l.level == Level::Off));
-        assert_eq!(l[5].level, Level::Off, "unassigned");
+        assert_eq!(l[5].level, Level::Dim, "Fade off");
+        s.fade = FadeState::Armed;
+        assert_eq!(lk(&s, &panel)[5].level, Level::Bright, "Fade armed");
+        s.fade = FadeState::Off;
         assert_eq!(l[8..12].iter().map(|l| l.level).collect::<Vec<_>>(), [Level::Bright, Level::Dim, Level::Dim, Level::Dim]);
         assert_eq!(l[12..].iter().map(|l| l.level).collect::<Vec<_>>(), [Level::Bright, Level::Dim, Level::Dim, Level::Dim]);
 

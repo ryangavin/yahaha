@@ -48,6 +48,7 @@ mod playlist;
 mod preview;
 mod registration;
 mod settings;
+mod style_settings;
 mod surface;
 mod system;
 mod transport;
@@ -58,7 +59,7 @@ pub use preview::AUDITION_CHORDS;
 pub use settings::choose_keys;
 
 use crate::api::*;
-use crate::engine::{Engine, Prepared, Snapshot, Transpose};
+use crate::engine::{Engine, Prepared, Snapshot, StyleSettings, Transpose};
 use crate::fingering::Fingering;
 use crate::launchkey::{Action, Page, Panel};
 use crate::library::{Info, Library};
@@ -260,6 +261,8 @@ struct Control {
     sources_ns: u64,
     /// The iReal Pro chart player (session/chart.rs).
     charts: chart::Charts,
+    /// The Style settings the engine plays by (`StyleSettingsCmd`).
+    style_settings: StyleSettings,
     /// Registration Memory (banks, Freeze, Sequence).
     reg: registration::RegState,
     /// The Playlist.
@@ -325,6 +328,7 @@ impl Control {
             AppCmd::Settings(c) => self.settings_cmd(c),
             AppCmd::System(c) => self.system_cmd(c),
             AppCmd::Chart(c) => self.chart_cmd(c),
+            AppCmd::StyleSettings(c) => self.style_settings_cmd(c),
             AppCmd::Registration(c) => self.registration_cmd(c),
             AppCmd::Playlist(c) => self.playlist_cmd(c),
             AppCmd::Looper(c) => self.looper_cmd(c),
@@ -432,6 +436,7 @@ impl Control {
             preview: self.preview_state(),
             keyboard: self.keyboard_state(&v),
             chart: self.chart_state(),
+            style_settings: self.style_settings.into(),
             registration: self.registration_state(),
             playlist: self.playlist_state(),
             multi_pad: self.multipad_state(),
@@ -593,6 +598,7 @@ fn assemble(opts: &Options, engine_out: live::Out, input_out: live::Out, offline
         release_tx,
         sources_ns: 0,
         charts: chart::Charts::new(ch.chart_tx, ch.old_chart_rx),
+        style_settings: StyleSettings::default(),
         reg: registration::RegState::new(opts.data_dir.as_ref().map(|d| d.join("Registration"))),
         playlist: playlist::PlaylistCtl::new(opts.data_dir.as_ref().map(|d| d.join("Playlists"))),
         looper: looper::LooperCtl::new(ch.looper_tx, ch.recorded_rx),

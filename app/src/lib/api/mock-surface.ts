@@ -92,10 +92,10 @@ export function mockSurface(s: AppState, lib: LibraryList, hw: MockHardware): Su
       { label: '◀ SONG', action: songs ? { type: 'stepPlaylist', delta: -1 } : null }),
     control('trackNext', 102, 'STYLE ▶', styles ? { type: 'stepStyle', delta: 1 } : null, styles ? WHITE : OFF,
       { label: 'SONG ▶', action: songs ? { type: 'stepPlaylist', delta: 1 } : null }),
-    control('play', 115, 'PLAY', { type: 'startStop' }, null),
-    control('stop', 116, 'STOP', { type: 'stop' }, null),
-    control('scene', 104, 'TEMPO +', { type: 'tempoUp' }, null),
-    control('function', 105, 'TEMPO -', { type: 'tempoDown' }, null),
+    control('play', 115, 'PLAY', { type: 'startStop' }, null, { label: 'RESET', action: { type: 'sectionReset' } }),
+    control('stop', 116, 'STOP', { type: 'stop' }, null, { label: 'FADE', action: { type: 'toggleFade' } }),
+    control('scene', 104, 'TEMPO +', { type: 'tempoUp' }, null, { label: 'RTG SHORT', action: { type: 'stepRetriggerRate', delta: 1 } }),
+    control('function', 105, 'TEMPO -', { type: 'tempoDown' }, null, { label: 'RTG LONG', action: { type: 'stepRetriggerRate', delta: -1 } }),
   ]
   for (let i = 0; i < 8; i++) {
     const id = `faderButton${i + 1}` as ControlId

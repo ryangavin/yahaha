@@ -21,7 +21,9 @@
 //! | `after_section_change` | after it: the new section is set up, its first events not yet played |
 //! | `on_chord` | the chord the style follows changed (a new chord, or a Keyboard transpose) |
 //! | `on_style_loaded` | a new style took over (at once when stopped, at the bar line when playing) |
+//! | `on_wake` | every `process` call, first, band running or not (features on engine nanoseconds) |
 //! | `hook_deadline` | a tick by which a feature needs `process` to run (see below) |
+//! | `hook_wake_ns` | a time (ns) by which a feature needs `process` to run, running or not |
 //! | `hook_due`, `on_due` | a feature's own tick between the lines (the chart's chords, the Chord Looper's chord changes); `process` runs `on_due` at it |
 //!
 //! Timing: bar and beat hooks run when `process` passes the line, before the pattern's
@@ -46,6 +48,17 @@ use super::*;
 pub(super) struct Features {
     /// The iReal chart player (chart.rs).
     pub(super) chart: super::chart::ChartPlayer,
+    /// The Style settings (section-change timing, Synchro Stop Window, fade times, Section
+    /// Reset, Retrigger length): timing.rs.
+    pub(super) settings: StyleSettings,
+    /// Fade In/Out: fade.rs.
+    pub(super) fade: fade::Fade,
+    /// Ending ritardando: ritardando.rs.
+    pub(super) rit: ritardando::Rit,
+    /// Style Retrigger: retrigger.rs.
+    pub(super) retrigger: retrigger::Retrigger,
+    /// Synchro Stop Window: sync_stop.rs.
+    pub(super) sync_window: sync_stop::SyncWindow,
     /// Chord Looper (looper.rs). Boxed: its sequences are a few KB.
     pub(super) looper: Box<super::looper::Looper>,
     /// Metronome (metronome.rs).
@@ -91,22 +104,26 @@ impl Engine {
     /// The band started (`start`): the first section is set up at position 0, nothing of
     /// it played yet.
     #[inline]
-    pub(super) fn on_start(&mut self, now: u64, _sink: &mut impl Sink) {
+    pub(super) fn on_start(&mut self, now: u64, sink: &mut impl Sink) {
         #[cfg(test)]
         self.log(Hook::Start);
         self.chart_start(now);
+        self.fade_on_start(now, sink);
         self.pads_on_start(now);
     }
 
     /// The band stopped: every note is off.
     #[inline]
-    pub(super) fn on_stop(&mut self, _sink: &mut impl Sink) {
+    pub(super) fn on_stop(&mut self, sink: &mut impl Sink) {
         #[cfg(test)]
         self.log(Hook::Stop);
         self.chart_stop();
+        self.fade_on_stop(sink);
+        self.end_rit(self.anchor_ns);
+        self.retrigger_on_stop();
         self.looper_on_stop();
         self.metronome_on_stop();
-        self.pads_on_stop(_sink);
+        self.pads_on_stop(sink);
     }
 
     /// Bar `bar` (0-based in this pass of the section) begins; `on_beat` for its first beat
@@ -144,12 +161,14 @@ impl Engine {
     /// The section changed from slot `_from` (to `self.cur`, which may be the same slot
     /// repeating): its setup has gone out, its first events have not played.
     #[inline]
-    pub(super) fn after_section_change(&mut self, _from: usize, _now: u64, _sink: &mut impl Sink) {
+    pub(super) fn after_section_change(&mut self, from: usize, now: u64, _sink: &mut impl Sink) {
         #[cfg(test)]
         {
             let to = self.cur;
-            self.log(Hook::AfterSection { from: _from, to });
+            self.log(Hook::AfterSection { from, to });
         }
+        self.rit_after_section(now);
+        self.retrigger_after_section(from);
     }
 
     /// The chord the style follows (`self.chord`) changed from `_prev`, and the band has
@@ -167,16 +186,34 @@ impl Engine {
     pub(super) fn on_style_loaded(&mut self, _now: u64, _sink: &mut impl Sink) {
         #[cfg(test)]
         self.log(Hook::StyleLoaded);
+        self.retrigger_on_style_loaded();
+    }
+
+    /// Every `process` call, before anything else, whether the band runs or not: features
+    /// that work on engine nanoseconds (a fade, a timeout) and those that must act before
+    /// the events due now (a ritardando's tempo). Not logged: it runs at every wake.
+    #[inline]
+    pub(super) fn on_wake(&mut self, now: u64, sink: &mut impl Sink) {
+        self.fade_wake(now, sink);
+        self.sync_window_wake(now);
+        self.rit_wake(now);
     }
 
     /// A tick (on the section's timeline) by which a feature needs `process` to run, if
-    /// any: `next_deadline` wakes the engine for it. The metronome's next beat line, the
-    /// chart player's (every beat line while it plays, and its next chord), the Chord
-    /// Looper's next chord change; with none, the engine wakes only for pattern events and
-    /// boundaries.
+    /// any: `next_deadline` wakes the engine for it while the band runs. The metronome's
+    /// next beat line, the chart player's (every beat line while it plays, and its next
+    /// chord), the Chord Looper's next chord change, a ritardando's next tempo step; with
+    /// none, the engine wakes only for pattern events and boundaries.
     #[inline]
     pub(super) fn hook_deadline(&self) -> Option<f64> {
-        [self.metronome_line(), self.chart_deadline(), self.looper_due()].into_iter().flatten().reduce(f64::min)
+        [self.metronome_line(), self.chart_deadline(), self.hook_due(), self.rit_deadline()].into_iter().flatten().reduce(f64::min)
+    }
+
+    /// A time (engine ns) by which a feature needs `process` to run, band running or not:
+    /// `next_deadline` wakes the engine for it.
+    #[inline]
+    pub(super) fn hook_wake_ns(&self) -> Option<u64> {
+        [self.fade_deadline(), self.sync_window_deadline()].into_iter().flatten().min()
     }
 
     /// The tick of a feature's next timed action between lines, for `on_due`: the chart
@@ -325,7 +362,7 @@ mod tests {
         e.set_chord(crate::parse_chord("C").unwrap(), 0, &mut Nop);
         let (tpb, ppq) = (e.style.tpb as f64, e.style.ppq as f64);
         let now = e.ns_at(tpb + 1.5 * ppq);
-        assert_eq!(e.change_point(Change::Section, now), (2.0 * tpb, 2.0 * tpb));
+        assert_eq!(e.change_point(Change::Main, now), (2.0 * tpb, 2.0 * tpb));
         assert_eq!(e.change_point(Change::Style, now), (2.0 * tpb, 2.0 * tpb));
         assert_eq!(e.change_point(Change::Fill, now), (tpb + 2.0 * ppq, tpb));
     }

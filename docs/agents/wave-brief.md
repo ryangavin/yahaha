@@ -45,3 +45,12 @@ For app work, run `cd app && npm install` once.
 12. Open the PR against integration/m3-ui. The body includes Decisions and "Closes #N", and ends with `🤖 Generated with [Claude Code](https://claude.com/claude-code)`. DO NOT MERGE.
 13. If git signing fails, stop and report.
 14. Quote paths containing spaces. Never backslash-escape spaces.
+
+**Landing policy (owner, 2026-09-24):**
+- A PR is reviewed only once it is green (all gates pass) and MERGEABLE against the latest integration branch. Before reporting or requesting review, merge integration in with a merge commit.
+- Review findings block only for real bugs (wrong behaviour in normal use, stuck notes, crashes, data loss, real-time safety violations) or big regressions. Edge cases in new features, polish and extra permutations go into a follow-up issue linked from the PR. They do not get another review round.
+- The coordinator merges every approved, green and mergeable PR at once. After each merge, the other in-flight branches merge integration in again right away, so none stays conflicting.
+
+**Small PRs (owner, 2026-09-24):** each PR covers ONE concern, aiming to be approved on the first look. Split big tickets into a chain of small PRs: engine, then session/API, then UI. Final acceptance happens on the integration branch, not in the PR.
+
+**Handing a PR to the merge steward:** once it is green and mergeable against the latest integration, and verified or approved, post a PR comment `READY <full-40-char-head-sha>` and add the `ready-to-merge` label. The steward merges it at exactly that SHA. If you push again after that, post a new READY comment.

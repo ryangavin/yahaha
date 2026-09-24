@@ -19,10 +19,10 @@
 //!   line) is an anticipation of the next bar: it holds through that bar as well.
 //!
 //! - Chart chords are exact, machine-made chord changes: they go in through
-//!   `Engine::apply_chord_unsettled`, always from `process` (a bar, beat or `on_due` hook),
-//!   so they are never `settleMs` late and never move the notes twice in a wake (settle.rs,
-//!   #47). The song's first chord at START waits for the first beat line for the same
-//!   reason (`first`).
+//!   `Engine::apply_chord_unsettled` (`_from`, with no keys held: no Synchro Stop Window,
+//!   no Retrigger), always from `process` (a bar, beat or `on_due` hook), so they are never
+//!   `settleMs` late and never move the notes twice in a wake (settle.rs, #47). The song's
+//!   first chord at START waits for the first beat line for the same reason (`first`).
 //! - The Chord Looper: only one of them gives the band its chords. Chart mode on stops a
 //!   loop that plays or is armed; while chart mode is on, the looper's ON/OFF doesn't arm a
 //!   loop (the session turns chart mode off first: session/looper.rs). Recording still
@@ -294,7 +294,8 @@ impl Engine {
         let Some(c) = c else { return };
         self.features.chart.applied = Some(c);
         if self.played != Some(c) {
-            self.apply_chord_unsettled(c, now, sink);
+            // No keys are held: no Synchro Stop Window, no Retrigger (#94).
+            self.apply_chord_unsettled_from(c, false, now, sink);
         }
     }
 
@@ -978,6 +979,24 @@ mod tests {
             assert_eq!(name(&e), want, "at {t}");
             assert!(e.unsettled.is_none(), "at {t}");
         }
+    }
+
+    /// A chart chord holds no keys: with Retrigger on it doesn't restart the Main, and it
+    /// doesn't start the Synchro Stop Window (#94), which would turn Sync Stop off.
+    #[test]
+    fn chart_chords_neither_retrigger_nor_time_the_sync_stop_window() {
+        let Some(mut e) = engine() else { return };
+        e.set_style_settings(StyleSettings { sync_stop_window_ms: 50, ..StyleSettings::default() });
+        e.set_chart(plan("*A[C |F |D-7 G7 |C Z", 1), 0);
+        e.set_chart_settings(settings(None, None), 0);
+        start(&mut e);
+        e.button(Button::Retrigger, 0, &mut Nop);
+        e.sync_stop = true;
+        let (lines, _) = play(&mut e, 0, 3);
+        assert!(e.sync_stop, "Sync Stop stays on");
+        assert!(!e.features.retrigger.looping, "no Retrigger");
+        let sbars: Vec<u32> = lines.iter().map(|l| l.sbar).collect();
+        assert!(sbars.windows(2).all(|w| w[1] >= w[0]) && sbars.contains(&2), "the Main plays on: {lines:?}");
     }
 
     /// Only one of the chart and the Chord Looper gives the chords: chart mode on stops a

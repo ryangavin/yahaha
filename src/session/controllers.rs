@@ -149,6 +149,22 @@ mod tests {
         assert!(s.state().controllers.sustain);
     }
 
+    /// Fade In/Out (RM p.142) is the FADE IN/OUT button (OM p.67): stopped, a pedal press
+    /// arms the fade in and the next takes it off; software runs it the same way.
+    #[test]
+    fn fade_in_out_is_assignable() {
+        use crate::engine::FadeState;
+        let Some(s) = offline() else { return };
+        assert_eq!(Function::FadeInOut.info().name, "Fade In/Out");
+        s.send(pedal(1, 66, Function::FadeInOut)).unwrap();
+        assert_eq!(s.state().transport.fade, FadeState::Off);
+        s.midi_in(Port::Keys, &[0xB0, 66, 127]);
+        s.midi_in(Port::Keys, &[0xB0, 66, 0]);
+        assert_eq!(s.state().transport.fade, FadeState::Armed, "the pedal armed the fade in");
+        s.send(ControllersCmd::TriggerFunction { function: Function::FadeInOut }).unwrap();
+        assert_eq!(s.state().transport.fade, FadeState::Off, "and software takes it off");
+    }
+
     /// Kbd Harmony/Arpeggio On/Off and Arpeggio Hold as pedal functions (RM p.141): a Hold
     /// A pedal holds the arpeggio while it is down, a Toggle pedal switches Harmony/Arpeggio.
     #[test]

@@ -12,7 +12,7 @@
 //! equal to its next deadline.
 
 use crate::controllers::{Controllers, Handled};
-use crate::engine::{shift_key, AuditionPos, Button, ChartPlan, ChartSettings, Engine, PadCmd, Prepared, Snapshot, Transpose};
+use crate::engine::{shift_key, AuditionPos, Button, ChartPlan, ChartSettings, Engine, PadCmd, Prepared, Snapshot, StyleSettings, Transpose};
 use crate::multipad::MultiPadPlayer;
 use crate::fingering::{self, Fingering};
 use crate::harmony::{self, HarmonySettings};
@@ -47,6 +47,9 @@ pub enum Cmd {
     /// Chart player settings (chart mode, Intro, Ending, loop; engine/chart.rs). The
     /// chart itself comes in on its own ring (`EngineIo::charts`).
     Chart(ChartSettings),
+    /// New Style settings (section-change timing, Synchro Stop Window, fade times,
+    /// Section Reset, Retrigger length).
+    StyleSettings(StyleSettings),
     /// The chord-settle window, in ms (`Engine::set_chord_settle`).
     ChordSettle(u32),
     /// Set the Style controls (section, Sync Start/Stop, Stop ACMP, Style part on/off) to
@@ -477,6 +480,10 @@ pub struct Input {
     current: Option<Chord>,
     /// `Shared::loops` when `current` was recognized.
     loops: u32,
+    /// Every key the chord is read from went up since `current` was published: the next
+    /// chord recognized is a new one even when it is the same chord (a re-struck chord
+    /// retriggers, starts a Sync Stop band again, is timed by the Synchro Stop Window).
+    let_go: bool,
     generation: u16,
     cmd: Producer<Cmd>,
     out: Out,
@@ -528,6 +535,7 @@ impl Input {
             keys: Keys::new(),
             current: None,
             loops: 0,
+            let_go: false,
             generation: 0,
             cmd,
             out,
@@ -641,6 +649,14 @@ impl Input {
         if self.shared.upper.load(Relaxed) { R_RH } else { R_LH }
     }
 
+    /// The sides of the split the chord is read from: the chord section of the current
+    /// area, or the whole keyboard for the Full Keyboard types (Lower only).
+    fn chord_read_side(&self) -> u8 {
+        let upper = self.shared.upper.load(Relaxed);
+        let mode = Fingering::from_u8(self.shared.fingering.load(Relaxed));
+        if !upper && mode.full_keyboard() { R_LH | R_RH } else { self.chord_side() }
+    }
+
     fn recompute(&mut self) {
         // While the Chord Looper loops, chord input from the keyboard is disabled (RM p.15,
         // OM p.68): the keys are for performance only, and nothing they hold is the chord
@@ -658,7 +674,7 @@ impl Input {
         // the whole keyboard for the Full Keyboard types (Lower only).
         let upper = self.shared.upper.load(Relaxed);
         let mode = Fingering::from_u8(self.shared.fingering.load(Relaxed));
-        let side = if !upper && mode.full_keyboard() { R_LH | R_RH } else { self.chord_side() };
+        let side = self.chord_read_side();
         let mut held = [false; 128];
         let mut mask = 0u16;
         for (k, (h, &r)) in held.iter_mut().zip(&self.route).enumerate() {
@@ -675,14 +691,15 @@ impl Input {
         } else {
             fingering::detect(&self.rec, mode, &held, split, self.current)
         };
-        if let Some(c) = c {
-            if Some(c) != self.current {
-                self.current = Some(c);
-                self.generation = self.generation.wrapping_add(1);
-                self.shared.chord_ns.store(rt::now_ns(), Relaxed);
-                self.shared.chord.store(c.pack(self.generation), Release);
-                self.signal = true;
-            }
+        if let Some(c) = c
+            && (Some(c) != self.current || self.let_go)
+        {
+            self.current = Some(c);
+            self.let_go = false;
+            self.generation = self.generation.wrapping_add(1);
+            self.shared.chord_ns.store(rt::now_ns(), Relaxed);
+            self.shared.chord.store(c.pack(self.generation), Release);
+            self.signal = true;
         }
     }
 
@@ -1316,6 +1333,7 @@ fn apply(engine: &mut Engine, shared: &Shared, cmd: Cmd, now: u64, out: &mut Out
         Cmd::Transpose(t) => engine.set_transpose(t, now, out),
         Cmd::StopAudition => {}
         Cmd::Chart(s) => engine.set_chart_settings(s, now),
+        Cmd::StyleSettings(s) => engine.set_style_settings(s),
         Cmd::ChordSettle(ms) => engine.set_chord_settle(ms as u64 * 1_000_000),
         Cmd::StyleControls(c) => engine.set_style_controls(c, now, out),
         Cmd::Looper(true) => engine.looper_rec(),
@@ -1337,6 +1355,8 @@ fn apply(engine: &mut Engine, shared: &Shared, cmd: Cmd, now: u64, out: &mut Out
         }
         Cmd::Panic => {
             engine.stop(out);
+            // A fade's hold outlasts the stop: Panic brings the Style's volume back too.
+            engine.fade_cancel(out);
             // A held pedal would keep every note: release it (and centre the wheels) on
             // the keyboard parts before All Notes Off. The pedal counts as up until it is
             // pressed again.
@@ -1856,6 +1876,157 @@ mod tests {
         assert_eq!(played(&l, now).as_deref(), Some("F"), "F after loop off is the chord");
     }
 
+    /// An engine loop and an Input wired as the live threads are (the Input's commands,
+    /// Sync Stop's release among them, reach the engine), on SlowWalker, with `settings`.
+    /// None when the corpus is missing.
+    #[allow(clippy::type_complexity)]
+    fn live_rig(settings: StyleSettings) -> Option<(EngineLoop, Producer<Cmd>, Input, u64)> {
+        let p = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus/MOX_v2/SlowWalker.T552.sty");
+        if !p.exists() {
+            eprintln!("corpus missing; skipping");
+            return None;
+        }
+        let prep = Box::new(Prepared::new(&crate::sff::Style::load(&p).unwrap()));
+        let bar = (60e9 / prep.bpm * (prep.tpb as f64 / prep.ppq as f64)) as u64;
+        let shared = Arc::new(Shared::new(54));
+        let ch = channels(Out::new(PacketSink::new(rt::Target::Null), None));
+        let mut l = EngineLoop::new(Engine::new(prep), ch.io, shared.clone());
+        let input = Input::new(shared, Recognizer::new(), ch.input_tx, Out::new(PacketSink::new(rt::Target::Null), None));
+        let mut ui = ch.ui_tx;
+        ui.push(Cmd::StyleSettings(settings)).ok().unwrap();
+        l.step(1_000);
+        Some((l, ui, input, bar))
+    }
+
+    fn run_until(l: &mut EngineLoop, now: &mut u64, until: u64) {
+        while *now < until {
+            *now = l.next_deadline().unwrap_or(*now + 5_000_000).max(*now + 1).min(until);
+            l.step(*now);
+        }
+    }
+
+    fn keys_msg(input: &mut Input, keys: &[u8], down: bool) {
+        for &k in keys {
+            input.key_msg(&if down { [0x90, k, 90] } else { [0x80, k, 0] });
+        }
+    }
+
+    const C_KEYS: [u8; 3] = [36, 40, 43];
+
+    /// Review #94 r3: Style Retrigger restarts the Main at every chord played (RM p.147),
+    /// the same chord struck again after letting go too, not only a different one.
+    #[test]
+    fn restruck_same_chord_retriggers() {
+        let s = StyleSettings { retrigger_rate: 4, ..StyleSettings::default() };
+        let Some((mut l, mut ui, mut input, bar)) = live_rig(s) else { return };
+        let mut now = 1_000;
+        ui.push(Cmd::Button(Button::Retrigger)).ok().unwrap();
+        l.step(now);
+        assert!(l.engine.snapshot(now).sync_armed, "Sync Start is armed from the start");
+        // C starts the band (a start, not a retrigger).
+        keys_msg(&mut input, &C_KEYS, true);
+        l.step(now);
+        assert!(l.engine.is_running());
+        let start = l.engine.snapshot(now);
+        run_until(&mut l, &mut now, 1_000 + bar + bar / 2);
+        assert_ne!((l.engine.snapshot(now).bar, l.engine.snapshot(now).beat), (start.bar, start.beat), "plays on");
+        // Let go of C and strike it again: the Main restarts there and loops its first
+        // quarter note, so three beats on it is still in its first beat.
+        keys_msg(&mut input, &C_KEYS, false);
+        l.step(now);
+        keys_msg(&mut input, &C_KEYS, true);
+        l.step(now);
+        let until = now + bar * 3 / 4;
+        run_until(&mut l, &mut now, until);
+        let sn = l.engine.snapshot(now);
+        assert_eq!((sn.bar, sn.beat), (start.bar, start.beat), "re-struck C retriggers");
+        assert!(sn.running);
+    }
+
+    /// Sync Stop stops the band when the chord is let go; the same chord struck again
+    /// starts it again (Sync Start stays armed after a Sync Stop, OM p.47).
+    #[test]
+    fn sync_stop_restarts_on_the_same_chord() {
+        let Some((mut l, mut ui, mut input, bar)) = live_rig(StyleSettings::default()) else { return };
+        let mut now = 1_000;
+        ui.push(Cmd::Button(Button::SyncStop)).ok().unwrap();
+        l.step(now);
+        assert!(l.engine.snapshot(now).sync_armed, "Sync Start is armed from the start");
+        keys_msg(&mut input, &C_KEYS, true);
+        l.step(now);
+        assert!(l.engine.is_running());
+        run_until(&mut l, &mut now, 1_000 + bar / 2);
+        keys_msg(&mut input, &C_KEYS, false);
+        now += 1;
+        l.step(now);
+        assert!(!l.engine.is_running(), "let go: Sync Stop stops the band");
+        keys_msg(&mut input, &C_KEYS, true);
+        now += 1;
+        l.step(now);
+        assert!(l.engine.is_running(), "the same chord again starts it again");
+    }
+
+    /// Synchro Stop Window (RM p.12): the hold of a re-struck chord is timed too. Held past
+    /// the window, Sync Stop turns off and letting go no longer stops the band.
+    #[test]
+    fn sync_stop_window_times_a_restruck_chord() {
+        let s = StyleSettings { sync_stop_window_ms: 500, ..StyleSettings::default() };
+        let Some((mut l, mut ui, mut input, _bar)) = live_rig(s) else { return };
+        let mut now = 1_000;
+        ui.push(Cmd::Button(Button::SyncStop)).ok().unwrap();
+        l.step(now);
+        assert!(l.engine.snapshot(now).sync_armed, "Sync Start is armed from the start");
+        // A quick C: starts, and stops on release.
+        keys_msg(&mut input, &C_KEYS, true);
+        l.step(now);
+        run_until(&mut l, &mut now, 1_000 + 200_000_000);
+        keys_msg(&mut input, &C_KEYS, false);
+        now += 1;
+        l.step(now);
+        assert!(!l.engine.is_running());
+        // C again, held 2 s: past the window, so Sync Stop goes off and the band plays on.
+        keys_msg(&mut input, &C_KEYS, true);
+        now += 1;
+        l.step(now);
+        assert!(l.engine.is_running());
+        let until = now + 2_000_000_000;
+        run_until(&mut l, &mut now, until);
+        assert!(!l.engine.snapshot(now).sync_stop, "held past the window: Sync Stop off");
+        keys_msg(&mut input, &C_KEYS, false);
+        now += 1;
+        l.step(now);
+        assert!(l.engine.is_running(), "let go after the window: the band plays on");
+    }
+
+    /// Only a chord struck after letting go of every chord key is published again: a held
+    /// chord, a key added that keeps it, or one key of it lifted and struck again is not.
+    #[test]
+    fn a_held_chord_is_published_once() {
+        let shared = Arc::new(Shared::new(54));
+        let ch = channels(Out::new(PacketSink::new(rt::Target::Null), None));
+        let mut input = Input::new(shared.clone(), Recognizer::new(), ch.input_tx, Out::new(PacketSink::new(rt::Target::Null), None));
+        let packed = || shared.chord.load(Relaxed);
+        keys_msg(&mut input, &C_KEYS, true);
+        let first = packed();
+        assert!(Chord::unpack(first).is_some());
+        keys_msg(&mut input, &[48], true); // C an octave up: still C
+        keys_msg(&mut input, &[40], false);
+        keys_msg(&mut input, &[40], true);
+        assert_eq!(packed(), first, "held: not published again");
+        keys_msg(&mut input, &[36, 40, 43, 48], false);
+        assert_eq!(packed(), first, "letting go publishes nothing");
+        keys_msg(&mut input, &C_KEYS, true);
+        let again = packed();
+        assert_ne!(again, first, "struck again: a new generation");
+        assert_eq!(Chord::unpack(again).map(|(c, _)| c), Chord::unpack(first).map(|(c, _)| c));
+        // A key on the right hand is not a chord key: it neither lets go nor re-strikes.
+        keys_msg(&mut input, &[72], true);
+        keys_msg(&mut input, &[72], false);
+        keys_msg(&mut input, &[36], false);
+        keys_msg(&mut input, &[36], true);
+        assert_eq!(packed(), again);
+    }
+
     /// Two held keys that land on the same note (an octave shift folding past the MIDI
     /// range, or a transpose change between presses): the note stops only when the last
     /// key holding it lets go.
@@ -2117,8 +2288,18 @@ mod tests {
         assert_eq!(shared.last_unmapped.load(Relaxed), 0x01_B0_33_7F);
         input.pad_msg(&[0x99, 36, 90]); // a Drum-mode pad
         assert_eq!(shared.last_unmapped.load(Relaxed), 0x01_99_24_5A);
-        input.pad_msg(&[0x90, 119, 100]); // blank pad on page 2: a known pad, not unmapped
+        input.pad_msg(&[0x90, 119, 100]); // Retrigger on page 2
         assert_eq!(shared.last_unmapped.load(Relaxed), 0x01_99_24_5A);
+        assert!(matches!(cmds.pop(), Ok(Cmd::Button(Button::Retrigger))));
+        // Shift + Play / Stop: Section Reset / Fade; Shift + Scene: Retrigger shorter.
+        input.pad_msg(&[0xB0, launchkey::SHIFT_CC, 127]);
+        input.pad_msg(&[0xB0, launchkey::PLAY_CC, 127]);
+        input.pad_msg(&[0xB0, launchkey::STOP_CC, 127]);
+        input.pad_msg(&[0xB0, launchkey::SCENE_CC, 127]);
+        input.pad_msg(&[0xB0, launchkey::SHIFT_CC, 0]);
+        assert!(matches!(cmds.pop(), Ok(Cmd::Button(Button::SectionReset))));
+        assert!(matches!(cmds.pop(), Ok(Cmd::Button(Button::Fade))));
+        assert_eq!(acts.pop(), Ok(Action::RetriggerRate(1)));
         assert!(cmds.pop().is_err() && acts.pop().is_err());
     }
 
