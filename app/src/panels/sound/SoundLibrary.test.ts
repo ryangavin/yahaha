@@ -48,8 +48,28 @@ describe('Sound Library drawer', () => {
     await fireEvent.click(tipped('sound.favourites')[0])
     flushSync()
     expect(names()).toEqual(['Stage Grand', 'Warm Rhodes'])
-    // A plugin patch says why it plays the fallback.
-    expect(filterPatches(s.state.soundLibrary.patches, 'keys', 'all', false)[0].note).toContain('#91')
+    // A plugin patch plays itself (the app builds with plugin hosting).
+    expect(filterPatches(s.state.soundLibrary.patches, 'keys', 'all', false)[0].available).toBe(true)
+  })
+
+  it('a plugin patch on a part plays its plugin, until the part leaves the patch', () => {
+    const s = setup()
+    s.send({ type: 'setPartPatch', part: 0, id: 'keys-au' })
+    const r1 = () => s.state.keyboardParts[0]
+    expect(r1().patch).toBe('keys-au')
+    expect(r1().voiceName).toBe('Keys (AU)')
+    expect(r1().plugin?.id).toBe('aumu dls  appl')
+    // A SoundFont patch: the plugin goes.
+    s.send({ type: 'setPartPatch', part: 0, id: 'stage-grand' })
+    expect(r1().plugin).toBeUndefined()
+    // A GM voice ends a plugin patch and its plugin.
+    s.send({ type: 'setPartPatch', part: 0, id: 'keys-au' })
+    s.send({ type: 'setPartVoice', part: 0, program: 0 })
+    expect([r1().patch, r1().plugin]).toEqual([null, undefined])
+    // A plugin picked on the Plugins tab ends the patch, and stays when a patch is left.
+    s.send({ type: 'setPartPatch', part: 0, id: 'keys-au' })
+    s.send({ type: 'setPartPlugin', part: 0, id: 'aumu dls  appl', state: null })
+    expect([r1().patch, r1().plugin?.id]).toEqual([null, 'aumu dls  appl'])
   })
 
   it('edits a patch, plays it on a part, reorders, duplicates and deletes', async () => {

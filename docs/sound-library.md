@@ -50,7 +50,10 @@ through to the global map. It is stored in the library file, keyed by the style'
 name, and never in the style file.
 
 Keyboard parts use the map too. A part can pick a library patch of its own
-(`setPartPatch`, the voice picker's Library tab), which then applies its defaults.
+(`setPartPatch`, the voice picker's Library tab), which then applies its defaults. A
+plugin patch picked there plays its plugin with the patch's state, through #91's
+`assign_channel_plugin` (the `setPartPlugin` path); leaving the patch takes the plugin
+away again (`sync_part_plugins`).
 Otherwise the part's GM voice, whether from the GM list or an OTS, resolves through the
 map in the same way as a Style part's voice.
 
@@ -125,6 +128,12 @@ value as it is.
   band is stopped. Its setup comes back afterwards from the synth's record of it.
 - **Decision: Multi Pad channels (5–8) are not mapped.** Pads are short phrases written
   for their voices.
+- **Decision: a keyboard part plays whatever was picked last.** A plugin patch on a part
+  is the part's plugin, as `setPartPlugin` would make it: the Plugins tab shows it, the
+  editor edits it and #91 saves it with the part. A plugin picked on the Plugins tab ends
+  the part's patch, and a SoundFont patch picked over such a plugin ends the plugin. A GM
+  voice picked over a Plugins-tab plugin still leaves the plugin playing (#91's rule).
+  The link from the part to its patch lasts for the session, like every part patch.
 - **Decision: the per-style map is keyed by the style's file name.** It survives moving
   the style folder. Two styles with the same file name share a map.
 - **Decision: there is no user OTS memory yet, so OTS stores no patch id.** OTS voices
@@ -135,4 +144,6 @@ value as it is.
 
 - A user OTS / Registration item for a part's patch (after #99).
 - Plugin patch auditions (they need #91's rack; pick the patch on a part to hear it).
+- A keyboard part's GM voice that the map sends to a plugin patch plays the SoundFont
+  fallback; only a part's own plugin patch plays its plugin.
 - A patch's optional keyboard range.
