@@ -123,8 +123,7 @@ fn ids_are_readable_and_unique() {
 }
 
 fn library() -> SoundLibrary {
-    let mut lib = SoundLibrary::default();
-    lib.patches = vec![sf("bass", 33), sf("piano", 0), sf("rhodes", 4), sf("kit", 0)];
+    let mut lib = SoundLibrary { patches: vec![sf("bass", 33), sf("piano", 0), sf("rhodes", 4), sf("kit", 0)], ..SoundLibrary::default() };
     lib.patches[3].source = PatchSource::SoundFont { file: "GeneralUser-GS.sf2".into(), bank: 128, program: 25 };
     lib.patches[0].defaults = PatchDefaults { volume: Some(90), pan: Some(64), reverb: Some(20), chorus: None, octave: -1 };
     lib.patches.push(Patch {
@@ -187,8 +186,7 @@ fn old_and_future_versions() {
 
 #[test]
 fn normalize_fixes_duplicate_ids_and_ranges() {
-    let mut lib = SoundLibrary::default();
-    lib.patches = vec![sf("a", 1), sf("a", 2), sf("", 3)];
+    let mut lib = SoundLibrary { patches: vec![sf("a", 1), sf("a", 2), sf("", 3)], ..SoundLibrary::default() };
     lib.patches[0].defaults.octave = 7;
     lib.patches[0].defaults.volume = Some(200);
     lib.normalize();
@@ -203,8 +201,7 @@ fn normalize_fixes_duplicate_ids_and_ranges() {
 #[test]
 fn an_import_merges_with_new_ids_and_follows_its_maps() {
     let mut lib = library();
-    let mut other = SoundLibrary::default();
-    other.patches = vec![sf("bass", 38), sf("pad", 89)];
+    let mut other = SoundLibrary { patches: vec![sf("bass", 38), sf("pad", 89)], ..SoundLibrary::default() };
     other.map.set_family(11, Some("pad".into()));
     other.map.set_family(4, Some("bass".into()));
     let added = lib.merge(other, true);
@@ -216,8 +213,7 @@ fn an_import_merges_with_new_ids_and_follows_its_maps() {
     assert_eq!(lib.map.families[11].as_deref(), Some("pad"));
     // Patches only: the maps stay.
     let mut lib2 = library();
-    let mut other = SoundLibrary::default();
-    other.patches = vec![sf("pad", 89)];
+    let mut other = SoundLibrary { patches: vec![sf("pad", 89)], ..SoundLibrary::default() };
     other.map.set_family(0, Some("pad".into()));
     lib2.merge(other, false);
     assert_eq!(lib2.map.families[0].as_deref(), Some("piano"));

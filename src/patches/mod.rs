@@ -131,7 +131,7 @@ pub enum PatchSource {
 
 /// What a patch brings with it when it is picked: plain MIDI settings, sent as CCs so the
 /// mixer shows them (the mixer principle: no hidden gain).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PatchDefaults {
     /// CC7. A keyboard part picking the patch takes it as its volume; a Style part only
@@ -145,12 +145,6 @@ pub struct PatchDefaults {
     pub chorus: Option<u8>,
     /// Octave shift (-2..=2). Keyboard parts only.
     pub octave: i8,
-}
-
-impl Default for PatchDefaults {
-    fn default() -> PatchDefaults {
-        PatchDefaults { volume: None, pan: None, reverb: None, chorus: None, octave: 0 }
-    }
 }
 
 impl PatchDefaults {

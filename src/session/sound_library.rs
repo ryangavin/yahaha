@@ -77,6 +77,12 @@ const DRUMS: [(u64, [u8; 3]); 14] = [
     (2000, [0x90, 36, 110]),
 ];
 
+/// A style's program changes: (channel, bank MSB, LSB, program).
+type Usage = Vec<(u8, u8, u8, u8)>;
+
+/// A style handed to the engine: its table bank, style key, program list and tag.
+type Pending = (u8, String, Usage, u64);
+
 /// The control side's sound library.
 pub(super) struct SoundLib {
     lib: SoundLibrary,
@@ -100,7 +106,7 @@ pub(super) struct SoundLib {
     cur_key: String,
     cur_usage: Vec<(u8, u8, u8, u8)>,
     /// The same for a style handed to the engine that it hasn't taken over yet (its tag).
-    pending: Option<(u8, String, Vec<(u8, u8, u8, u8)>, u64)>,
+    pending: Option<Pending>,
     audition: Option<Audition>,
     /// The channels the map put on a plugin (the patch id), through #91's
     /// `assign_channel_plugin`.

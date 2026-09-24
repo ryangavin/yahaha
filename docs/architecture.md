@@ -23,6 +23,7 @@ This document is about the inside.
 | `src/theory.rs`, `src/fingering.rs` | Chords, chord recognition, fingering types. |
 | `src/parts.rs`, `src/launchkey.rs` | Keyboard parts (Right 1-3, Left) and the Launchkey mapping. |
 | `src/multipad/` | Multi Pads: bank parser, player core, bank scan; wired through `engine/multipad.rs` (docs/multipad.md). |
+| `src/patches/` | The sound library (#103): patches, the program map and its resolution, the versioned library file, the route table the synth and the port read, `.sf2` preset headers (docs/sound-library.md). The synth's side is `src/synth/routing.rs`. |
 | `src/controllers.rs` | Pedals, wheels and the assignable-function table (atomics in `Shared`; the input thread and the engine thread send them to the parts). docs/controllers.md. |
 | `src/harmony.rs`, `src/arp/`, `src/ireal/`, `src/plugin/` | Feature libraries not yet wired in (pure, real-time safe). |
 | `src/looper.rs`, `src/click.rs` | The Chord Looper's sequence type; the metronome's click voice (mixed by the synth). |

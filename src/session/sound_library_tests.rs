@@ -299,11 +299,11 @@ fn a_patch_volume_fills_in_where_the_style_sets_none() {
     let styled = prep.mix;
     prep.mix_set = 0b1111_0000;
     sl.prepare(&mut prep, "x");
-    for part in 0..8 {
+    for (part, &style_level) in styled.iter().enumerate() {
         if prep.voices[8 + part].is_none() {
             continue;
         }
-        let want = if part >= 4 { styled[part] } else { 77 };
+        let want = if part >= 4 { style_level } else { 77 };
         assert_eq!(prep.mix[part], want, "part {part}");
     }
 }

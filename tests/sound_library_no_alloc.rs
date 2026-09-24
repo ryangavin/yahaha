@@ -51,8 +51,8 @@ fn the_audio_callback_with_a_map_does_not_allocate() {
     let rack = Box::new(Rack::with_fonts(&[(0, font.clone()), (5, font)], 48_000).unwrap());
     let routes = Arc::new(Routes::new());
     let mut prog = [None; 128];
-    for p in 32..40 {
-        prog[p] = Some(Route::sound_font(5, 0, 33));
+    for r in &mut prog[32..40] {
+        *r = Some(Route::sound_font(5, 0, 33));
     }
     prog[48] = Some(Route::sound_font(5, 0, 49));
     routes.write_bank(0, &prog, Some(Route::sound_font(5, 128, 0)));

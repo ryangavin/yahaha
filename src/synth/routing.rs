@@ -295,8 +295,8 @@ mod tests {
         assert_eq!(rack.slot_of.iter().filter(|&&s| s != NO_SLOT).count(), 2);
         let routes = Arc::new(Routes::new());
         let mut prog = [None; 128];
-        for p in 32..40 {
-            prog[p] = Some(Route::sound_font(7, 0, 33));
+        for r in &mut prog[32..40] {
+            *r = Some(Route::sound_font(7, 0, 33));
         }
         routes.write_bank(0, &prog, None);
         let mut router = Router::new(routes.clone());
