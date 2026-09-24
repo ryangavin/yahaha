@@ -5,9 +5,12 @@
 //! real-time output thread can drive it directly.
 //!
 //! Layout: this file holds the types and the `Engine` state; its behaviour is split by
-//! concern into `impl Engine` blocks in the modules below.
+//! concern into `impl Engine` blocks in the modules below. Features plug in through the
+//! hooks in hooks.rs; when a queued section change happens is `Engine::change_point`
+//! (sections.rs). See docs/architecture.md.
 
 mod chords;
+mod hooks;
 mod mirror;
 mod mixer;
 mod playback;
@@ -17,7 +20,9 @@ mod setup;
 mod style_change;
 mod transport;
 
+use hooks::{Features, Lines};
 use mirror::{Mirror, NRPN_BIT, UNSENT};
+use sections::Change;
 pub use mixer::{Takeover, HW_UNKNOWN};
 use prepared::PKind;
 pub use prepared::{id_of, slot_of, Msgs, PSection, Prepared, NUM_SLOTS};
@@ -317,12 +322,20 @@ pub struct Engine {
     /// Styles the engine is done with, for the caller to free off the real-time thread
     /// (`take_retired`).
     retired: [Option<Box<Prepared>>; 4],
+    /// The next bar or beat line for the `on_bar`/`on_beat` hooks (hooks.rs).
+    lines: Lines,
+    /// The engine-side state of the features that plug into the hooks (hooks.rs).
+    #[allow(dead_code)]
+    features: Features,
     /// Pitch bends that did not fit the output range and were clamped.
     #[cfg(test)]
     pub(crate) bend_clamps: std::cell::Cell<u32>,
     /// Notes a chord change retriggered, as (time, channel, key sent).
     #[cfg(test)]
     pub(crate) retriggered: Vec<(u64, u8, u8)>,
+    /// The hooks that ran, in order.
+    #[cfg(test)]
+    pub(crate) hook_log: Vec<hooks::Hook>,
 }
 
 impl Engine {
@@ -367,10 +380,14 @@ impl Engine {
             pattern_pc: 0,
             pending: None,
             retired: [None, None, None, None],
+            lines: Lines::default(),
+            features: Features::default(),
             #[cfg(test)]
             bend_clamps: Default::default(),
             #[cfg(test)]
             retriggered: Vec::new(),
+            #[cfg(test)]
+            hook_log: Vec::new(),
         };
         e.set_bpm_internal(bpm, 0);
         e
@@ -451,6 +468,9 @@ impl Engine {
         }
         if let Some(e) = sec.events.get(self.ev_idx) {
             t = t.min(self.sec_start + e.tick as f64);
+        }
+        if let Some(h) = self.hook_deadline() {
+            t = t.min(h);
         }
         Some(self.ns_at(t))
     }

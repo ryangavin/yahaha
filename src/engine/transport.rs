@@ -184,6 +184,8 @@ impl Engine {
         self.entry = 0.0;
         self.ev_idx = 0;
         self.queued = None;
+        self.lines_from(0.0);
+        self.on_start(now, sink);
         self.process(now, sink);
     }
 
@@ -194,6 +196,7 @@ impl Engine {
     }
 
     pub fn stop(&mut self, sink: &mut impl Sink) {
+        let was_running = self.running;
         self.running = false;
         self.queued = None;
         self.all_off(sink);
@@ -201,6 +204,9 @@ impl Engine {
         if let Some(p) = self.pending.take() {
             let old = self.load(p.style, self.anchor_ns, sink);
             self.retire(old);
+        }
+        if was_running {
+            self.on_stop(sink);
         }
     }
 }

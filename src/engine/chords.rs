@@ -27,6 +27,13 @@ impl Engine {
         let chord = shift_chord(played, self.transpose.keyboard);
         let prev = self.chord;
         self.chord = Some(chord);
+        self.follow_chord(prev, chord, now, sink);
+        self.on_chord(prev, now, sink);
+    }
+
+    /// The band follows a new chord: a Sync Start chord starts it, a playing band
+    /// re-voices, a stopped one with Stop ACMP on sounds it.
+    fn follow_chord(&mut self, prev: Option<Chord>, chord: Chord, now: u64, sink: &mut impl Sink) {
         if self.sync_armed && !self.running && chord.ty != CANCEL {
             self.start(now, sink);
             return;
@@ -62,6 +69,7 @@ impl Engine {
         } else if self.stop_acmp && self.sounding.iter().any(|n| n.active && n.src == STOP_ACMP_SRC) {
             self.sound_stop_acmp(chord, now, sink);
         }
+        self.on_chord(prev, now, sink);
     }
 
     /// Master transpose for a note on `dest` (never on drum/SFX kits).

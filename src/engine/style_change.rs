@@ -16,7 +16,7 @@ impl Engine {
             self.retire(old);
             return;
         }
-        let at = self.next_bar(now);
+        let (at, _) = self.change_point(Change::Style, now);
         if let Some(p) = self.pending.replace(PendingStyle { style, at }) {
             self.retire(p.style);
         }
@@ -89,12 +89,16 @@ impl Engine {
             self.sync_armed = true;
             self.set_bpm_internal(self.style.bpm, ns_b);
             self.send_init(sink);
+            self.on_style_loaded(now, sink);
+            self.on_stop(sink);
             return;
         }
         let new_slot = if self.style.has(slot) { Some(slot) } else { self.style.resolve(slot) };
         let Some(new_slot) = new_slot.or_else(|| self.style.resolve(4 + self.main as usize)) else {
             self.running = false;
             self.send_init(sink);
+            self.on_style_loaded(now, sink);
+            self.on_stop(sink);
             return;
         };
         if let SectionId::Main(m) = id_of(new_slot) {
@@ -116,13 +120,14 @@ impl Engine {
         self.sec_start = 0.0;
         self.ns_per_tick = 60e9 / (self.bpm * ppq);
         self.seek(pos);
+        self.lines_from(pos);
         if let Some(q) = later {
             let t = |x: f64| pos + (x - at) / old_ppq * ppq;
             self.queued = Some(Queued { slot: if q.slot == usize::MAX { q.slot } else { self.style.resolve(q.slot).unwrap_or(new_slot) }, at: t(q.at), sec_start: t(q.sec_start) });
         }
         self.send_init(sink);
         self.chase(sink);
-        let _ = now;
+        self.on_style_loaded(now, sink);
     }
 
     /// Swap in a new style at once; returns the old one so the caller can free it off the
@@ -151,7 +156,9 @@ impl Engine {
             self.cur = slot;
             self.sec_start = t;
             self.seek(0.0);
+            self.lines_from(t);
         }
+        self.on_style_loaded(now, sink);
         old
     }
 }

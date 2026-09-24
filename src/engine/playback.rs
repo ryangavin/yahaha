@@ -18,6 +18,15 @@ impl Engine {
             };
             let sec_end = self.sec_start + sec.len as f64;
             let (boundary, inclusive, swap) = self.boundary(sec_end);
+            // A bar or beat line before the next event and the boundary: its hooks first.
+            let line = self.lines.next;
+            if line <= target
+                && line < boundary - 1e-6
+                && sec.events.get(self.ev_idx).is_none_or(|e| line <= self.sec_start + e.tick as f64 + 1e-6)
+            {
+                self.beat_line(now, sink);
+                continue;
+            }
             if let Some(e) = sec.events.get(self.ev_idx) {
                 let t = self.sec_start + e.tick as f64;
                 let before = if inclusive { t <= boundary + 1e-6 } else { t < boundary - 1e-6 };

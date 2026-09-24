@@ -2,6 +2,19 @@
 
 use super::*;
 
+/// What kind of change is being queued (`Engine::change_point`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Change {
+    /// An Intro, Main or Ending.
+    Section,
+    /// A Fill In or Break.
+    Fill,
+    /// The band stops (an Ending the style doesn't have).
+    Stop,
+    /// Another style takes over while the band plays.
+    Style,
+}
+
 impl Engine {
     /// The section's next boundary before `sec_end`: a queued section, or a style change
     /// (`swap` true), else the section's end; and whether events at it still belong to
@@ -17,6 +30,47 @@ impl Engine {
         }
     }
 
+    /// When a change asked for at `now` takes effect: the tick it starts at, and the tick
+    /// the section it brings counts its bars from (both on the section's timeline). The
+    /// one policy for section-change timing: every queued change asks here (Intro, Main
+    /// and Ending buttons, fills and breaks, the stop an Ending the style lacks makes, and
+    /// a style change while playing).
+    ///
+    /// Sections, stops and style changes wait for the next bar line. Fills and breaks
+    /// start at the next beat and play the rest of that bar, aligned so the fill's beat
+    /// matches the bar position.
+    pub(super) fn change_point(&self, change: Change, now: u64) -> (f64, f64) {
+        match change {
+            Change::Section | Change::Stop | Change::Style => {
+                let at = self.next_bar(now);
+                (at, at)
+            }
+            Change::Fill => {
+                let t = self.tick_at(now);
+                let ppq = self.style.ppq as f64;
+                let tpb = self.style.tpb as f64;
+                let pos = t - self.sec_start;
+                let beat = (pos / ppq).ceil() * ppq;
+                let at = self.sec_start + beat;
+                let bar_start = self.sec_start + (beat / tpb).floor() * tpb;
+                (at, bar_start)
+            }
+        }
+    }
+
+    /// What plays when the section playing ends with no change queued for its end: a Main
+    /// repeats (or becomes the Main selected meanwhile), an Intro, Fill or Break goes on to
+    /// the Main, an Ending stops the band (`usize::MAX`).
+    pub(super) fn follow_on(&self) -> usize {
+        let main_slot = self.style.resolve(4 + self.main as usize).unwrap_or(4);
+        match id_of(self.cur) {
+            SectionId::Main(_) => main_slot,
+            SectionId::Ending(_) => usize::MAX,
+            _ => main_slot,
+        }
+    }
+
+    /// The next bar line after `now`.
     pub(super) fn next_bar(&self, now: u64) -> f64 {
         let t = self.tick_at(now);
         let tpb = self.style.tpb as f64;
@@ -24,27 +78,22 @@ impl Engine {
         self.sec_start + ((pos / tpb).floor() + 1.0) * tpb
     }
 
+    /// Queue section `slot` (an Intro, a Main, an Ending) for its change point.
     pub(super) fn queue_at_bar(&mut self, slot: usize, now: u64) {
-        let at = self.next_bar(now);
-        self.queued = Some(Queued { slot, at, sec_start: at });
+        let (at, sec_start) = self.change_point(Change::Section, now);
+        self.queued = Some(Queued { slot, at, sec_start });
     }
 
+    /// Queue the band's stop (an Ending the style doesn't have).
     pub(super) fn queue_stop_at_bar(&mut self, now: u64) {
-        let at = self.next_bar(now);
-        self.queued = Some(Queued { slot: usize::MAX, at, sec_start: at });
+        let (at, sec_start) = self.change_point(Change::Stop, now);
+        self.queued = Some(Queued { slot: usize::MAX, at, sec_start });
     }
 
-    /// Fills and breaks start at the next beat and play the rest of the bar, aligned so the
-    /// fill's beat matches the bar position.
+    /// Queue a fill or break.
     pub(super) fn queue_fill(&mut self, slot: usize, now: u64) {
-        let t = self.tick_at(now);
-        let ppq = self.style.ppq as f64;
-        let tpb = self.style.tpb as f64;
-        let pos = t - self.sec_start;
-        let beat = (pos / ppq).ceil() * ppq;
-        let at = self.sec_start + beat;
-        let bar_start = self.sec_start + (beat / tpb).floor() * tpb;
-        self.queued = Some(Queued { slot, at, sec_start: bar_start });
+        let (at, sec_start) = self.change_point(Change::Fill, now);
+        self.queued = Some(Queued { slot, at, sec_start });
     }
 
     pub(super) fn seek(&mut self, pos: f64) {
@@ -53,21 +102,20 @@ impl Engine {
         self.ev_idx = sec.events.partition_point(|e| (e.tick as f64) < pos);
     }
 
+    /// A section boundary at tick `at`: the section queued for it, else `follow_on`, takes
+    /// over.
     pub(super) fn transition(&mut self, at: f64, now: u64, sink: &mut impl Sink) {
-        self.notes_off(true, sink);
         let sec_end = self.sec_start + self.style.sections[self.cur].as_ref().map_or(0, |s| s.len) as f64;
         let (next, start) = match self.queued.take() {
             Some(q) if q.at <= sec_end + 1e-6 => (q.slot, q.sec_start),
             q => {
                 self.queued = q;
-                let main_slot = self.style.resolve(4 + self.main as usize).unwrap_or(4);
-                match id_of(self.cur) {
-                    SectionId::Main(_) => (main_slot, at),
-                    SectionId::Ending(_) => (usize::MAX, at),
-                    _ => (main_slot, at),
-                }
+                (self.follow_on(), at)
             }
         };
+        let from = self.cur;
+        self.before_section_change(next, at, now, sink);
+        self.notes_off(true, sink);
         if next == usize::MAX {
             self.stop(sink);
             self.sync_armed = true;
@@ -83,7 +131,8 @@ impl Engine {
             self.reapply_init(own_voice, sink);
         }
         self.chase(sink);
-        let _ = now;
+        self.lines_from(at);
+        self.after_section_change(from, now, sink);
     }
 
     /// Channels whose current section sends a program change up to section tick `entry`
