@@ -1567,8 +1567,6 @@ impl Engine {
         false
     }
 
-    /// End the voices `f` picks. A muted voice ends silently; a sounding one hands its key
-    /// to a muted voice that shares it and sounds on, if there is one.
     /// Does this source note follow the chord as a guitar string (NTR Guitar)?
     fn is_guitar(&self, slot: u8, src: u8, src_key: u8) -> bool {
         let rule = self.style.sections.get(slot as usize).and_then(|s| s.as_ref()).and_then(|s| s.rules.get(src as usize));
@@ -1586,6 +1584,16 @@ impl Engine {
             .sum()
     }
 
+    /// Tests: sounding guitar noise keys (`GUITAR_NOISE` and up) as (going out as another
+    /// key, sounding on a part the pitch shift has bent).
+    #[cfg(test)]
+    pub fn guitar_noise_voices(&self) -> (usize, usize) {
+        let noise = |s: &&Sounding| s.active && s.src_key >= GUITAR_NOISE && self.is_guitar(s.slot, s.src, s.src_key);
+        let moved = self.sounding.iter().filter(noise).filter(|s| s.out != s.src_key).count();
+        let bent = self.sounding.iter().filter(noise).filter(|s| self.rtr_bend[s.dest as usize & 15] != 0).count();
+        (moved, bent)
+    }
+
     /// Tests: the guitar strings of one part struck at or after `since`, muted twins
     /// included, as (source key, sounding pitch).
     #[cfg(test)]
@@ -1601,6 +1609,8 @@ impl Engine {
         v
     }
 
+    /// End the voices `f` picks. A muted voice ends silently; a sounding one hands its key
+    /// to a muted voice that shares it and sounds on, if there is one.
     fn off_where(&mut self, sink: &mut impl Sink, f: impl Fn(&Sounding) -> bool) {
         for i in 0..MAX_SOUNDING {
             let s = self.sounding[i];

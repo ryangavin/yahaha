@@ -1198,6 +1198,43 @@ mod rtr {
         assert!(bends > 100, "only {bends} pitch shifts across the corpus");
     }
 
+    /// Guitar noise keys (MegaVoice strum and fret noises, `theory::GUITAR_NOISE` and up)
+    /// are samples picked by their key: through chord changes, Pitch Shift bends among them,
+    /// no corpus Guitar part ever sends one as another key (moved by a chord, or
+    /// key-compensated for the part's bend). Guitar zones keep their authored Pitch Shift,
+    /// so some noise keys do sound on a bent part: the test checks it sees them.
+    #[test]
+    fn corpus_guitar_noise_keys_are_never_moved() {
+        let files = tests::corpus();
+        if files.is_empty() {
+            eprintln!("no corpus; skipping");
+            return;
+        }
+        let (mut styles, mut bent) = (0, 0);
+        for f in files {
+            let style = Style::load(&f).unwrap();
+            if !style.casm.iter().flat_map(|s| &s.rules).any(|r| r.zones.iter().any(|z| z.ntr == crate::sff::Ntr::Guitar)) {
+                continue;
+            }
+            styles += 1;
+            let name = f.file_name().unwrap().to_string_lossy().to_string();
+            let bar = bar_ns(&Prepared::new(&style));
+            let (fold, _, end) = script(bar, true, 0);
+            let (busy, busy_end) = busy_script(bar, 5);
+            for (s, end) in [(fold, end), (busy, busy_end)] {
+                let mut moved = 0;
+                run_observed(Box::new(Prepared::new(&style)), &s, end, |e, _| {
+                    let (m, b) = e.guitar_noise_voices();
+                    moved += m;
+                    bent += b;
+                });
+                assert_eq!(moved, 0, "{name}: a guitar noise key went out as another key");
+            }
+        }
+        eprintln!("{styles} Guitar styles; {bent} noise-key observations on a bent part");
+        assert!(styles > 0 && bent > 0, "no noise key sounded on a bent Guitar part ({styles} styles)");
+    }
+
     /// A chord played a little before the beat (#49): a note the pattern ends or strikes
     /// again on the beat is left to end, not retriggered for a moment. Every note a chord
     /// change retriggers lasts at least `EARLY_CHORD_NS`. (A note it starts because its

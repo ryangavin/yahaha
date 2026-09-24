@@ -787,9 +787,10 @@ pub fn transpose_group(keys: &[u8], rule: &ChannelRule, chord: Chord, out: &mut 
 //   corpus writes a strum's bass and string codes in one octave) plays one voicing.
 // - Voicing (`voicing`): the bass (the root, or the slash bass with Bass On) goes on the
 //   lowest string that reaches it in the window. Each string above takes, in the window,
-//   the lowest fret of a chord tone not yet sounding, the chord's important ones first
-//   (3rd, 5th, 7th; for five-note chords 3rd, 7th, tension), then the lowest chord tone.
-//   So CM7 is x32000, C x32010, G 320003, C9 x3233x-like C D Bb C E.
+//   the 3rd if it is not yet sounding, else the lowest fret of a chord tone not yet
+//   sounding, the chord's important ones first (5th, 7th; for five-note chords 7th,
+//   tension), then the lowest chord tone. So CM7 is x32000, C x32010, G 320003, C9
+//   x32333, D9 xx0212 (the 3rd, not the 9th on a lower fret).
 // - Keys from C7 (96) up are MegaVoice noise keys (strum, fret and body noises), not
 //   pitches: they pass through untouched.
 // - Nothing sounds below the open low E (MIDI 40). Note Limit folds what sounds.
@@ -861,6 +862,10 @@ fn voicing(chord: Chord, bass: u8, start: u8, ntt: Ntt) -> [Option<u8>; 6] {
     let tones = rot(mask_of(ty), root);
     let (imp, _, _) = importance(ty);
     let important = rot(imp.iter().filter(|&&i| i != 12).fold(0u16, |m, &i| m | 1 << (i % 12)), root) & tones;
+    // The 3rd (the sus tone of a sus chord) decides the chord's quality: a string that
+    // reaches it takes it before any other important tone, so no voicing leaves it out
+    // for a tension on a lower fret (D9 open: xx0212, not xx0210).
+    let third = rot(1 << (imp[0] % 12), root) & tones;
     let end = start + REACH;
     let mut out = [None; 6];
     // The bass: the lowest string that reaches it. Arpeggio keeps it on string 6 or 5 (a
@@ -874,7 +879,8 @@ fn voicing(chord: Chord, bass: u8, start: u8, ntt: Ntt) -> [Option<u8>; 6] {
     out[low] = fret(low, start, end, bass_bit).or_else(|| fret(low, start, start + 11, bass_bit));
     let mut covered = bass_bit;
     for (s, o) in out.iter_mut().enumerate().take(low).rev() {
-        let n = fret(s, start, end, important & !covered)
+        let n = fret(s, start, end, third & !covered)
+            .or_else(|| fret(s, start, end, important & !covered))
             .or_else(|| fret(s, start, end, tones & !covered))
             .or_else(|| fret(s, start, end, tones))
             .or_else(|| if ntt == Ntt::GuitarStroke { None } else { fret(s, start, start + 11, tones) });
@@ -884,7 +890,7 @@ fn voicing(chord: Chord, bass: u8, start: u8, ntt: Ntt) -> [Option<u8>; 6] {
         *o = n;
     }
     if ntt == Ntt::GuitarArpeggio {
-        arpeggio_voices(&mut out, low, start, tones, important);
+        arpeggio_voices(&mut out, low, start, tones, important, third);
     }
     // Strings below the bass: Stroke leaves them out. The others play the 5th or the root
     // where the hand reaches one (the alternate bass of 332010), else the string above's
@@ -901,10 +907,10 @@ fn voicing(chord: Chord, bass: u8, start: u8, ntt: Ntt) -> [Option<u8>; 6] {
 }
 
 /// Arpeggio: strings 1-4 (those above the bass) take the frets, within the hand's reach,
-/// that rise from the bass to string 1 and sound the most chord tones together with the
-/// bass, the important ones first, then the lowest frets. At most 5^4
+/// that rise from the bass to string 1 and sound the 3rd, then the most chord tones
+/// together with the bass, the important ones first, then the lowest frets. At most 5^4
 /// fingerings, on the stack.
-fn arpeggio_voices(out: &mut [Option<u8>; 6], low: usize, start: u8, tones: u16, important: u16) {
+fn arpeggio_voices(out: &mut [Option<u8>; 6], low: usize, start: u8, tones: u16, important: u16, third: u16) {
     let top = low.min(4);
     let mut cand = [[0u8; REACH as usize + 1]; 4];
     let mut len = [0usize; 4];
@@ -936,7 +942,8 @@ fn arpeggio_voices(out: &mut [Option<u8>; 6], low: usize, start: u8, tones: u16,
         let mask = pick[..top].iter().fold(below, |m, n| m | 1 << (n % 12));
         let rising = (0..top).all(|s| pick[s] >= if s + 1 < top { pick[s + 1] } else { floor });
         let sum: i32 = pick[..top].iter().map(|&n| n as i32).sum();
-        let score = rising as i32 * 10_000_000 + (mask & tones).count_ones() as i32 * 100_000
+        let score = rising as i32 * 10_000_000 + (mask & third != 0) as i32 * 1_000_000
+            + (mask & tones).count_ones() as i32 * 100_000
             + (mask & important).count_ones() as i32 * 1_000
             - sum;
         if i == 0 || score > best.0 {
@@ -1864,7 +1871,9 @@ mod tests {
         assert_eq!(v(&st, 9, 8), ["x", "A1", "E2", "A2", "C3", "E3"]); // x02210
         assert_eq!(v(&st, 4, 0), ["E1", "B1", "E2", "Ab2", "B2", "E3"]); // 022100
         assert_eq!(v(&st, 7, 19), ["G1", "B1", "D2", "G2", "B2", "F3"]); // 320001
-        assert_eq!(v(&st, 0, 22), ["x", "C2", "D2", "Bb2", "C3", "E3"]); // C9: 3rd, 7th, 9th
+        assert_eq!(v(&st, 0, 22), ["x", "C2", "E2", "Bb2", "D3", "G3"]); // C9 x32333: 3rd, 7th, 9th
+        assert_eq!(v(&st, 2, 22), ["x", "x", "D2", "A2", "C3", "F#3"]); // D9 xx0212: the 3rd, not the 9th
+        assert_eq!(v(&st, 9, 13), ["x", "A1", "E2", "G2", "C3", "E3"]); // Am9 x02010: the 3rd, not the 9th
         // C is the bass, C# the fifth above it; the octave picks the neck position.
         let c = Chord::new(7, 0);
         assert_eq!(strum(&st, c, &[48, 49, 60, 61]), ["G1", "D2", "G2", "D3"]);
@@ -1958,7 +1967,32 @@ mod tests {
             let pcs = STRINGS[2..].iter().filter_map(|&k| transpose(k, &guitar(ntt), c)).fold(0u16, |m, n| m | 1 << (n % 12));
             assert_eq!(pcs & (1 << 4 | 1 << 3 | 1 << 10), 1 << 4 | 1 << 3 | 1 << 10, "{ntt:?}: {pcs:012b}");
         }
-        assert_eq!(strum(&guitar(Ntt::GuitarStroke), Chord::new(0, 27), &STRINGS[2..]), ["Eb2", "Bb2", "C3", "E3"]);
+        assert_eq!(strum(&guitar(Ntt::GuitarStroke), Chord::new(0, 27), &STRINGS[2..]), ["E2", "Bb2", "Eb3", "G3"]); // x32344
+    }
+
+    /// A full strum keeps the chord's 3rd (the sus tone of a sus chord) on every table, in
+    /// every position, over every chord that has one, slash chords with Bass On included:
+    /// a guitar voicing without its 3rd has lost the chord's quality. (Before the 3rd went
+    /// first, D9, A9, Am9, Dm9, D6/9, Dadd9 and 11 more open-position chords lost it for
+    /// a 9th on a lower fret; Arpeggio lost it over Gm9, Bbm9 and 4 more.)
+    #[test]
+    fn guitar_strums_keep_the_third() {
+        for ntt in [Ntt::GuitarAllPurpose, Ntt::GuitarStroke, Ntt::GuitarArpeggio] {
+            for bass_on in [false, true] {
+                let mut r = guitar(ntt);
+                r.zones.iter_mut().for_each(|z| (z.bass_on, z.lo) = (bass_on, 0));
+                let slash = (0..12).flat_map(|b| [Chord { root: 0, ty: 0, bass: Some(b) }, Chord { root: 9, ty: 10, bass: Some(b) }]);
+                for c in every_target().chain(slash) {
+                    let Some(&third) = importance(c.ty).0.first().filter(|&&t| t != 0 && t != 7 && t != 12) else { continue };
+                    for base in [48u8, 60, 72] {
+                        let keys = [base, base + 2, base + 4, base + 5, base + 7, base + 9, base + 11];
+                        let pcs = keys.iter().filter_map(|&k| transpose(k, &r, c)).fold(0u16, |m, n| m | 1 << (n % 12));
+                        let want = (c.root + third) % 12;
+                        assert!(pcs & 1 << want != 0, "{ntt:?} {} at {base}: no 3rd ({pcs:012b})", c.name());
+                    }
+                }
+            }
+        }
     }
 
     #[test]
