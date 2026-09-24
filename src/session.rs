@@ -28,6 +28,7 @@
 //! `build_state` below call them in a fixed order (docs/architecture.md).
 
 mod chord;
+mod devices;
 mod keyboard;
 mod leds;
 mod library;
@@ -49,9 +50,9 @@ pub use settings::choose_keys;
 use crate::api::*;
 use crate::engine::{Engine, Prepared, Snapshot, Transpose};
 use crate::fingering::Fingering;
-use crate::launchkey::{self, Action, Page, Panel};
+use crate::launchkey::{Action, Page, Panel};
 use crate::library::{Info, Library};
-use crate::live::{self, Audition, Cmd, Input, Shared, MAX_KEY_SOURCES, TAG_PADS};
+use crate::live::{self, Audition, Cmd, Input, Shared, MAX_KEY_SOURCES};
 use crate::midi::{self, Client};
 use crate::rt::{self, PacketSink, Target};
 use crate::synth;
@@ -148,6 +149,9 @@ struct Inner {
 /// What only a live session has.
 struct Live {
     client: Client,
+    /// The thread the client was made on: it runs the run loop CoreMIDI delivers the
+    /// client's notifications through (session/devices.rs).
+    midi_thread: midi::ClientThread,
     /// Its handler runs on CoreMIDI's thread until the client is disposed.
     _port: midi::InputPort,
     engine: std::thread::JoinHandle<()>,
@@ -330,7 +334,7 @@ impl Control {
         while self.old_audition_rx.pop().is_ok() {}
         self.pump_sound_font();
         self.pump_rescan();
-        self.pump_inputs(now);
+        self.pump_devices(now);
 
         // Free-running beat clock for flashing/pulsing, following the current tempo.
         let s = self.snap;
@@ -537,7 +541,10 @@ impl Session {
     /// Start a live session: open MIDI, start the synth (if `opts.sf2`), connect the
     /// keyboards and the Launchkey, start the engine and control threads.
     pub fn start(opts: Options) -> Result<Session> {
-        let client = Client::new("yahaha")?;
+        // The client lives on a thread of its own that runs its run loop, so CoreMIDI can
+        // tell it when devices come and go (session/devices.rs).
+        let changed = Arc::new(AtomicBool::new(false));
+        let (client, midi_thread) = midi::spawn_client("yahaha", changed.clone())?;
         let out_src = client.virtual_source("yahaha")?;
 
         // The synth reads the keyboard parts, so they exist before it starts.
@@ -572,22 +579,9 @@ impl Session {
         }
 
         let port = client.input_port("yahaha in", p.input)?;
-        let sources = midi::sources();
-        let lk_daw = sources.iter().find(|(_, n)| is_daw(n));
-        let mut io = MidiIo { port, slots: Default::default(), daw: None };
-        if let Some((e, n)) = lk_daw.filter(|_| !opts.no_pads) {
-            port.connect(*e, TAG_PADS)?;
-            io.daw = Some((*e, n.clone()));
-            p.control.pads_connected = true;
-            if let Some((d, _)) = midi::destinations().into_iter().find(|(_, n)| n.contains("Launchkey") && n.contains("DAW")) {
-                let out_port = client.output_port("yahaha leds")?;
-                let mut s = PacketSink::new(Target::Port(out_port, d));
-                s.push(&launchkey::ENTER_DAW);
-                s.flush();
-                p.control.leds = Some(Leds::new(s, opts.palette_leds));
-            }
-        }
-        p.control.midi = Some(io);
+        let leds_port = if opts.no_pads { None } else { Some(client.output_port("yahaha leds")?) };
+        p.control.midi = Some(MidiIo { port, slots: Default::default(), daw: None, leds_port, no_pads: opts.no_pads, changed });
+        p.control.connect_pads();
         p.control.connect_inputs();
         p.control.sources_ns = rt::now_ns();
 
@@ -605,7 +599,10 @@ impl Session {
         let inner = Arc::new(Inner::new(shared, p.control));
         let i2 = inner.clone();
         let control = std::thread::Builder::new().name("yahaha-control".into()).spawn(move || i2.control_loop())?;
-        Ok(Session { inner, live: Mutex::new(Some(Live { client, _port: port, engine: engine_thread, control, synth: synth_thread })) })
+        Ok(Session {
+            inner,
+            live: Mutex::new(Some(Live { client, midi_thread, _port: port, engine: engine_thread, control, synth: synth_thread })),
+        })
     }
 
     /// Run a command. Returns once it has been applied on the control side; what it does
@@ -727,6 +724,7 @@ impl Session {
                 let _ = s.thread.join();
             }
             live.client.dispose();
+            live.midi_thread.stop();
         } else {
             let mut ctl = self.inner.lock();
             if let Some(o) = ctl.offline.as_mut() {

@@ -12,6 +12,7 @@ use anyhow::{Context, Result};
 use rtrb::Consumer;
 use std::path::Path;
 use std::sync::atomic::Ordering::Relaxed;
+use std::sync::atomic::AtomicBool;
 use std::sync::{mpsc, Arc};
 
 /// The synth as the control side sees it.
@@ -32,6 +33,12 @@ pub(super) struct MidiIo {
     pub(super) slots: [Option<(midi::Endpoint, String)>; MAX_KEY_SOURCES],
     /// The Launchkey DAW port, when yahaha drives it.
     pub(super) daw: Option<(midi::Endpoint, String)>,
+    /// The output port the Launchkey LEDs go out through (None with `--no-pads`).
+    pub(super) leds_port: Option<midi::OutPort>,
+    /// `--no-pads`: leave the Launchkey DAW port alone.
+    pub(super) no_pads: bool,
+    /// Set by CoreMIDI when the MIDI setup changes (session/devices.rs).
+    pub(super) changed: Arc<AtomicBool>,
 }
 
 /// The Launchkey's DAW port (pads, buttons, faders), by its source name.
@@ -167,19 +174,12 @@ impl Control {
         }
     }
 
-    /// Live: list the sources again every 2 s, for hot-plugged keyboards.
-    pub(super) fn pump_inputs(&mut self, now: u64) {
-        if self.midi.is_some() && now.saturating_sub(self.sources_ns) >= 2_000_000_000 {
-            self.sources_ns = now;
-            self.connect_inputs();
-        }
-    }
-
     /// Connect the keyboard sources `all_inputs`/`input_names` choose and disconnect the
-    /// rest; list every source. A source dropped with keys held has them released.
+    /// rest (and those that went offline); list every source online. A source dropped
+    /// with keys held has them released.
     pub(super) fn connect_inputs(&mut self) {
         let Some(m) = self.midi.as_mut() else { return };
-        let sources = midi::sources();
+        let sources = midi::online_sources();
         let names: Vec<String> = sources.iter().map(|(_, n)| n.clone()).collect();
         let want: Vec<midi::Endpoint> = choose_keys(&names, self.all_inputs, &self.input_names).into_iter().map(|i| sources[i].0).collect();
         let mut dropped = Vec::new();
