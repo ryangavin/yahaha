@@ -16,7 +16,9 @@
 //! **The chord.** Chord Match follows the chord the style follows (`Engine::chord`: the
 //! chord section, after Keyboard transpose). yahaha has no ACMP switch (the chord section
 //! is always read), so the Genos case "ACMP off: the LEFT section's chord" is the same chord
-//! here.
+//! here. While a chord change settles (engine/settle.rs), a Chord Match pad's new notes
+//! wait for it, as the style's chord parts' do, band playing or not: `Engine::chord` only
+//! changes at the settle, and a pad note, once struck, is never re-voiced.
 //!
 //! Everything here runs on the engine thread: no allocation (the player never allocates in
 //! `process`, and banks come in and go out as `Box`es through `live`'s rings).
@@ -217,7 +219,7 @@ impl Engine {
     /// or not.
     pub fn process_pads(&mut self, now: u64, sink: &mut impl Sink) {
         self.pad_clock(now);
-        let (chord, master) = (self.chord, self.transpose.master);
+        let (chord, master, hold) = (self.chord, self.transpose.master, self.holding());
         let start = if self.features.pads.retime { Some(self.pad_start(now)) } else { None };
         let d = &mut self.features.pads;
         d.retime = false;
@@ -227,6 +229,9 @@ impl Engine {
             p.retime_pending(start);
         }
         p.set_master(master);
+        // A chord change still settling (settle.rs): Chord Match pads' new notes wait for
+        // it, as the style's chord parts do, and start with the settled chord.
+        p.set_hold(hold);
         // Always run it, even with no new tick: a press on the tick already played starts
         // now (the player plays whatever is due before the range's end).
         p.process(d.done.min(end)..end, chord, sink);
@@ -435,6 +440,74 @@ mod tests {
         assert_eq!(keys, [5, 9, 0]);
     }
 
+    /// Chord settle (#65) x Chord Match (#37): a chord played just before the bar line a
+    /// pad waits for is still settling on the line. The pad's first notes wait for it and
+    /// start with the new chord (as with no window), and a pad without Chord Match starts
+    /// on the line. Stopped, under Stop Accompaniment, a Chord Match pad waits too.
+    #[test]
+    fn chord_match_waits_for_a_settling_chord() {
+        let first_note = |settle_ms: u64| {
+            let mut e = engine()?;
+            e.set_chord_settle(settle_ms * 1_000_000);
+            let mut rec = Rec::default();
+            e.load_pads(Some(demo()), 1, 0, &mut rec);
+            e.set_chord(crate::parse_chord("C").unwrap(), 0, &mut rec);
+            let bar = bar_ns(&e);
+            let press = bar + bar / 3;
+            run(&mut e, &mut rec, 0, press);
+            rec.1 = press;
+            e.pad_cmd(PadCmd::Trigger(2), press, &mut rec);
+            e.pad_cmd(PadCmd::Trigger(0), press, &mut rec);
+            let line = e.ns_at_bar(2);
+            let chord_at = line - 2_000_000;
+            run(&mut e, &mut rec, press + 1_000_000, chord_at - 1_000_000);
+            rec.1 = chord_at;
+            e.set_chord(crate::parse_chord("F").unwrap(), chord_at, &mut rec);
+            // Wake as the engine loop does: at the next deadline, never busy.
+            let mut now = chord_at;
+            let mut wakes = 0;
+            while now < line + bar / 2 {
+                rec.1 = now;
+                e.process(now, &mut rec);
+                e.process_pads(now, &mut rec);
+                let next = [e.next_deadline(), e.pads_deadline()].into_iter().flatten().min().unwrap();
+                assert!(next > now, "a wake at {now} asks for {next}: busy");
+                now = next;
+                wakes += 1;
+            }
+            assert!(wakes < 200, "{wakes} wakes");
+            let bass = rec.ons(6)[0];
+            let shaker = rec.ons(4)[0];
+            Some((bass.1 % 12, bass.0 - line, shaker.0.abs_diff(line)))
+        };
+        let Some((pc0, late0, shaker0)) = first_note(0) else { return };
+        let (pc, late, shaker) = first_note(CHORD_SETTLE_DEFAULT_MS as u64).unwrap();
+        assert_eq!(pc0, 5, "no window: the bar-2 pad note is F's");
+        assert_eq!(pc, 5, "under the window: the pad note waits for F, not C's");
+        assert!(late0 <= 1_000, "no window: on the line ({late0} ns late)");
+        assert!(late <= 8_000_000 + 1_000, "under the window: at the settle, 8 ms after the line ({late} ns)");
+        assert!(shaker0 <= 1_000 && shaker <= 1_000, "a pad without Chord Match plays on the line: {shaker0} {shaker}");
+    }
+
+    #[test]
+    fn chord_match_waits_for_a_stop_accompaniment_chord_to_settle() {
+        let Some(mut e) = engine() else { return };
+        e.set_chord_settle(10_000_000);
+        let mut rec = Rec::default();
+        e.load_pads(Some(demo()), 1, 0, &mut rec);
+        e.button(Button::SyncStart, 0, &mut rec);
+        e.button(Button::StopAcmp, 0, &mut rec);
+        e.set_chord(crate::parse_chord("C").unwrap(), 0, &mut rec);
+        run(&mut e, &mut rec, 0, 50_000_000);
+        e.set_chord(crate::parse_chord("F").unwrap(), 50_000_000, &mut rec);
+        e.pad_cmd(PadCmd::Trigger(1), 50_000_000, &mut rec);
+        assert!(rec.ons(5).is_empty(), "the Chord Match pad waits for the chord");
+        run(&mut e, &mut rec, 50_000_000, 100_000_000);
+        let (t, k) = rec.ons(5)[0];
+        assert_eq!(k % 12, 5, "Rise Arp starts on F");
+        assert_eq!(t, 60_000_000, "at the settle");
+    }
+
     #[test]
     fn synchro_start_fires_on_a_chord_and_on_style_start() {
         let Some(mut e) = engine() else { return };
@@ -446,6 +519,8 @@ mod tests {
         // Sync Start is armed on a new engine: the chord starts the band, and the pads with it.
         e.set_chord(crate::parse_chord("C").unwrap(), 10_000_000, &mut rec);
         rec.1 = 10_000_000;
+        // One wake, as the engine loop runs it: the band (the chord settles), then the pads.
+        e.process(10_000_000, &mut rec);
         e.process_pads(10_000_000, &mut rec);
         assert_eq!(e.pads_snapshot().states[0], PadState::Playing);
         assert_eq!(e.pads_snapshot().states[3], PadState::Playing);

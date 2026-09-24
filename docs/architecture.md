@@ -36,6 +36,7 @@ A live `Session` runs these threads:
 | Thread | Code | May |
 |---|---|---|
 | CoreMIDI receive | `live::Input` (`InputHandler::packet`) | atomics, SPSC ring pushes, `Wakeup::signal`. **No allocation, no locks, no blocking.** |
+| CoreMIDI run loop | `midi::init` ("yahaha-midi", one per process) | runs the run loop CoreMIDI reports setup changes through (devices coming and going) and counts them (`midi::setup_generation`); the control side follows them (`session/devices.rs`). Makes the process's first CoreMIDI call. |
 | Engine | `live::run_engine` → `EngineLoop::step` → `Engine` | real-time policy; waits on a semaphore or a deadline, then spins. **No allocation or freeing, no locks.** |
 | Audio | `synth` (cpal callback) | renders from its `[u8; 3]` MIDI ring. **No allocation, no locks.** |
 | Control | `session` (`Inner` / `Control`) | locks, allocation, files. Runs Launchkey actions as `AppCmd`s, OTS Link, the Launchkey LEDs, library indexing, SoundFont loads; publishes `AppState`. |

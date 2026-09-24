@@ -48,6 +48,7 @@ const EVERY_CMD: &[&str] = &[
     r#"{"type":"setTranspose","keyboard":2,"master":-1}"#,
     r#"{"type":"stepTranspose","keyboard":1,"master":0}"#,
     r#"{"type":"resetTranspose"}"#,
+    r#"{"type":"setChordSettle","ms":10}"#,
     // Keyboard parts
     r#"{"type":"setPartOn","part":1,"on":true}"#,
     r#"{"type":"togglePart","part":3}"#,

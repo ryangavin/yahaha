@@ -5,8 +5,9 @@
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
-use yahaha::engine::{Button, Engine, Prepared, StyleControls};
-use yahaha::live::{self, Audition, Cmd, EngineLoop, FxConfig, FxKey, FxMode, Out, Shared};
+use yahaha::engine::{Button, Engine, PadCmd, Prepared, StyleControls, Transpose, PAD_PPQ};
+use yahaha::live::{self, Audition, Cmd, EngineLoop, FxConfig, FxKey, FxMode, Out, PadBank, Shared};
+use yahaha::multipad::{file::parse, synthetic, MultiPadPlayer};
 use yahaha::rt::{PacketSink, Target};
 use yahaha::sff::Style;
 
@@ -14,13 +15,27 @@ struct Counting;
 static ALLOCS: AtomicUsize = AtomicUsize::new(0);
 static FREES: AtomicUsize = AtomicUsize::new(0);
 
+thread_local! {
+    /// Count on this thread: the test's own (the test harness allocates on its threads
+    /// while another test runs).
+    static COUNT: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+fn counting() -> bool {
+    COUNT.try_with(|c| c.get()).unwrap_or(false)
+}
+
 unsafe impl GlobalAlloc for Counting {
     unsafe fn alloc(&self, l: Layout) -> *mut u8 {
-        ALLOCS.fetch_add(1, Ordering::Relaxed);
+        if counting() {
+            ALLOCS.fetch_add(1, Ordering::Relaxed);
+        }
         unsafe { System.alloc(l) }
     }
     unsafe fn dealloc(&self, p: *mut u8, l: Layout) {
-        FREES.fetch_add(1, Ordering::Relaxed);
+        if counting() {
+            FREES.fetch_add(1, Ordering::Relaxed);
+        }
         unsafe { System.dealloc(p, l) }
     }
 }
@@ -28,8 +43,14 @@ unsafe impl GlobalAlloc for Counting {
 #[global_allocator]
 static A: Counting = Counting;
 
-/// The counters are global: the tests take turns.
-static SERIAL: std::sync::Mutex<()> = std::sync::Mutex::new(());
+/// The counters are global: one test at a time, each counting on its own thread.
+static ONE_AT_A_TIME: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+fn count_here() -> std::sync::MutexGuard<'static, ()> {
+    let g = ONE_AT_A_TIME.lock().unwrap_or_else(|e| e.into_inner());
+    COUNT.with(|c| c.set(true));
+    g
+}
 
 fn prep(name: &str) -> Option<Box<Prepared>> {
     let p = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus/MOX_v2").join(name);
@@ -38,11 +59,11 @@ fn prep(name: &str) -> Option<Box<Prepared>> {
 
 #[test]
 fn preview_and_next_bar_style_change_do_not_allocate() {
-    let _serial = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
     let (Some(a), Some(b), Some(c)) = (prep("SlowWalker.T552.sty"), prep("TickingAway.T162.sty"), prep("CoolRevibed.T552.sty")) else {
         eprintln!("corpus missing; skipping");
         return;
     };
+    let _one = count_here();
     let bar = (60e9 / a.bpm * (a.tpb as f64 / a.ppq as f64)) as u64;
     let preview_bar = (60e9 / c.bpm * (c.tpb as f64 / c.ppq as f64)) as u64;
     let shared = Arc::new(Shared::new(54));
@@ -110,11 +131,11 @@ fn preview_and_next_bar_style_change_do_not_allocate() {
 /// resolution and PANIC, all without allocating.
 #[test]
 fn harmony_and_arpeggio_do_not_allocate() {
-    let _serial = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
     let (Some(a), Some(b)) = (prep("SlowWalker.T552.sty"), prep("TickingAway.T162.sty")) else {
         eprintln!("corpus missing; skipping");
         return;
     };
+    let _one = count_here();
     let shared = Arc::new(Shared::new(54));
     for p in 0..3 {
         shared.parts.on[p].store(true, Ordering::Relaxed);
@@ -187,6 +208,76 @@ fn harmony_and_arpeggio_do_not_allocate() {
     assert!(ons.iter().sum::<usize>() > 50, "the arpeggio and the trill played: {ons:?}");
 }
 
+/// Chord settling (engine/settle.rs) under the chord-settle window: a Sync Start chord,
+/// rolled chords, a chord and a transpose in one wake, Stop Accompaniment chords while
+/// stopped. Notes held back and started at the settle, all on the engine thread, with
+/// Chord Match pads playing (their notes wait for the settle too).
+#[test]
+fn chord_settling_does_not_allocate() {
+    let Some(a) = prep("SlowWalker.T552.sty") else {
+        eprintln!("corpus missing; skipping");
+        return;
+    };
+    let _one = count_here();
+    let bar = (60e9 / a.bpm * (a.tpb as f64 / a.ppq as f64)) as u64;
+    let shared = Arc::new(Shared::new(54));
+    let mut ch = live::channels(Out::new(PacketSink::new(Target::Null), None));
+    let mut l = EngineLoop::new(Engine::new(a), ch.io, shared.clone());
+    let pads = Box::new(MultiPadPlayer::new(&parse(&synthetic::demo_bank()).unwrap(), PAD_PPQ));
+    l.step(1);
+
+    let (allocs, frees) = (ALLOCS.load(Ordering::Relaxed), FREES.load(Ordering::Relaxed));
+    let mut now = 1_000;
+    ch.ui_tx.push(Cmd::ChordSettle(10)).ok().unwrap();
+    ch.pad_tx.push(PadBank { player: Some(pads), tag: 1 }).ok().unwrap();
+    // Bass Riff (Repeat, Chord Match) and the Shaker Loop play throughout.
+    ch.ui_tx.push(Cmd::MultiPad(PadCmd::Trigger(2))).ok().unwrap();
+    ch.ui_tx.push(Cmd::MultiPad(PadCmd::Trigger(0))).ok().unwrap();
+    l.step(now);
+    let chord = |s: &str| yahaha::parse_chord(s).unwrap();
+    let mut generation = 1;
+    let mut play = |c: &str, at: u64, l: &mut EngineLoop| {
+        shared.chord.store(chord(c).pack(generation), Ordering::Release);
+        generation += 1;
+        l.step(at);
+    };
+    // Sync Start, then a rolled chord every half bar, 3 ms apart, some with a transpose.
+    play("C", now, &mut l);
+    let run = |l: &mut EngineLoop, now: &mut u64, to: u64| {
+        while *now < to {
+            *now = l.next_deadline().unwrap_or(*now + 5_000_000).max(*now + 1).min(to);
+            l.step(*now);
+        }
+    };
+    for (i, (c1, c2)) in [("F", "F7"), ("G", "G7"), ("Am", "Am7"), ("D", "Dm")].into_iter().enumerate() {
+        run(&mut l, &mut now, (i as u64 + 1) * bar / 2 - 2_000_000);
+        play(c1, now, &mut l);
+        if i % 2 == 0 {
+            ch.ui_tx.push(Cmd::Transpose(Transpose::new(i as i8 - 1, 0))).ok().unwrap();
+        }
+        let to = now + 3_000_000;
+        run(&mut l, &mut now, to);
+        play(c2, now, &mut l);
+    }
+    run(&mut l, &mut now, 3 * bar);
+    // Stopped, with Stop Accompaniment: a rolled chord settles too.
+    ch.ui_tx.push(Cmd::Button(Button::StartStop)).ok().unwrap();
+    ch.ui_tx.push(Cmd::Button(Button::SyncStart)).ok().unwrap();
+    ch.ui_tx.push(Cmd::Button(Button::StopAcmp)).ok().unwrap();
+    l.step(now + 1);
+    now += 1;
+    play("E", now, &mut l);
+    let to = now + 3_000_000;
+        run(&mut l, &mut now, to);
+    play("E7", now, &mut l);
+    let to = now + 50_000_000;
+        run(&mut l, &mut now, to);
+    assert_eq!(ALLOCS.load(Ordering::Relaxed) - allocs, 0, "allocations on the engine thread");
+    assert_eq!(FREES.load(Ordering::Relaxed) - frees, 0, "frees on the engine thread");
+    let snaps: Vec<_> = std::iter::from_fn(|| ch.snap_rx.pop().ok()).collect();
+    assert!(snaps.iter().any(|s| s.running && s.played.is_some_and(|c| c.name() == "Dm")), "the band followed the rolls");
+}
+
 /// Run the engine loop as its thread does, waking at each deadline, until `until`.
 fn run(l: &mut EngineLoop, now: &mut u64, until: u64) {
     while *now < until {
@@ -199,7 +290,7 @@ fn run(l: &mut EngineLoop, now: &mut u64, until: u64) {
 /// solos and Style Track Mute run on the engine thread too.
 #[test]
 fn looper_metronome_and_solo_do_not_allocate() {
-    let _serial = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+    let _one = count_here();
     use yahaha::engine::LoopState;
     use yahaha::looper::{ChordSeq, LoopEvent};
     let Some(a) = prep("SlowWalker.T552.sty") else {
