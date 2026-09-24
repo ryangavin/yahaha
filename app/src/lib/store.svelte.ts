@@ -1,0 +1,134 @@
+// The stores every panel reads:
+//
+// - `app.state`: the latest `AppState` from the session, replaced whole on every change
+//   (up to ~60 times a second while playing). Read slices of it with `$derived`; Svelte
+//   only touches the DOM where a value really changed.
+// - `app.send(cmd)`: every action goes through here.
+// - `app.library`: the style list, re-fetched when `state.library.revision` changes.
+// - `clock.beats`: a beat clock running at the current tempo, for lamp animation
+//   (flash/pulse), advanced every animation frame.
+// - `ui`: app-only state (overlays, theme) that the engine doesn't know about.
+
+import { initialState } from './api/mock'
+import type { Session } from './api/session'
+import type { AppCmd, AppState, LibraryList } from './api/types'
+
+class AppStore {
+  state = $state.raw<AppState>(initialState())
+  library = $state.raw<LibraryList>({ revision: 0, entries: [] })
+  kind = $state<'mock' | 'tauri' | null>(null)
+  private session: Session | null = null
+  private unsub: (() => void) | null = null
+  private libraryRevision = -1
+
+  attach(session: Session) {
+    this.detach()
+    this.session = session
+    this.kind = session.kind
+    this.unsub = session.subscribe((s) => {
+      this.state = s
+      clock.sync(s)
+      if (s.library.revision !== this.libraryRevision) {
+        this.libraryRevision = s.library.revision
+        session.library().then((l) => (this.library = l))
+      }
+    })
+  }
+
+  detach() {
+    this.unsub?.()
+    this.unsub = null
+    this.session = null
+  }
+
+  send(cmd: AppCmd) {
+    this.session?.send(cmd)
+  }
+}
+
+export const app = new AppStore()
+
+/**
+ * The beat clock the lamps flash and pulse on. The state says which beat the band is on;
+ * between beats this runs on at the tempo. Stopped, it free-runs at the tempo, so an
+ * armed Sync Start still breathes.
+ */
+class BeatClock {
+  beats = $state(0)
+  private base = 0
+  private at = 0
+  private tempo = 120
+  private key = ''
+  private raf = 0
+
+  sync(s: AppState) {
+    const t = s.transport
+    this.tempo = t.tempo
+    const key = t.running ? `${t.section}:${t.bar}:${t.beat}` : 'stopped'
+    if (key === this.key) return
+    this.key = key
+    this.at = now()
+    this.base = t.running ? (t.bar - 1) * t.beatsPerBar + (t.beat - 1) : this.beats
+    this.running = t.running
+  }
+
+  private running = false
+
+  tick() {
+    const elapsed = ((now() - this.at) / 60000) * this.tempo
+    // While playing, never run past the next beat before the state says we're there.
+    this.beats = this.base + (this.running ? Math.min(elapsed, 0.999) : elapsed)
+  }
+
+  start() {
+    if (typeof requestAnimationFrame === 'undefined' || this.raf) return
+    const loop = () => {
+      this.tick()
+      this.raf = requestAnimationFrame(loop)
+    }
+    this.raf = requestAnimationFrame(loop)
+  }
+
+  stop() {
+    if (this.raf) cancelAnimationFrame(this.raf)
+    this.raf = 0
+  }
+}
+
+const now = () => (typeof performance !== 'undefined' ? performance.now() : Date.now())
+
+export const clock = new BeatClock()
+
+export type Theme = 'dark' | 'light'
+
+function storedTheme(): Theme {
+  try {
+    return localStorage.getItem('yahaha.theme') === 'light' ? 'light' : 'dark'
+  } catch {
+    return 'dark'
+  }
+}
+
+class UiStore {
+  browser = $state(false)
+  settings = $state(false)
+  theme = $state<Theme>(storedTheme())
+
+  setTheme(t: Theme) {
+    this.theme = t
+    try {
+      localStorage.setItem('yahaha.theme', t)
+    } catch {
+      /* private window: the theme just isn't remembered */
+    }
+  }
+
+  /** Esc: close the topmost overlay. Returns whether anything closed. */
+  escape(): boolean {
+    if (this.browser) return !(this.browser = false)
+    if (this.settings) return !(this.settings = false)
+    return false
+  }
+}
+
+export const ui = new UiStore()
