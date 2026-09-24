@@ -34,6 +34,7 @@ mod playlist;
 mod preview;
 mod registration;
 mod settings;
+mod style_change;
 mod sound_library;
 mod style_settings;
 mod surface;
@@ -58,6 +59,7 @@ pub use playlist::*;
 pub use preview::*;
 pub use registration::*;
 pub use settings::*;
+pub use style_change::*;
 pub use sound_library::*;
 pub use style_settings::*;
 pub use surface::*;
@@ -137,6 +139,8 @@ app_cmd! {
     Settings(SettingsCmd),
     /// Panic, the message line.
     System(SystemCmd),
+    /// Style Setting > Change Behavior: tempo, part on/off, Section Set.
+    StyleChange(StyleChangeCmd),
     /// The iReal Pro chart player.
     Chart(ChartCmd),
     /// Section Change Timing, Synchro Stop Window, fade times, Section Reset, Retrigger length.
@@ -180,6 +184,12 @@ impl From<Button> for AppCmd {
             Button::SetTempo(bpm) => TransportCmd::SetTempo { bpm }.into(),
             Button::TogglePart(p) => MixerCmd::ToggleStylePart { part: p }.into(),
             Button::StopAcmp => TransportCmd::ToggleStopAcmp.into(),
+            Button::SetStopAcmp(m) => TransportCmd::SetStopAcmp { mode: m.into() }.into(),
+            Button::FillUp => TransportCmd::FillUp.into(),
+            Button::FillDown => TransportCmd::FillDown.into(),
+            Button::FillSelf => TransportCmd::FillSelf.into(),
+            Button::HalfBarFill => TransportCmd::ToggleHalfBarFill.into(),
+            Button::SetHalfBarFill(on) => TransportCmd::SetHalfBarFill { on }.into(),
             Button::Fade => TransportCmd::ToggleFade.into(),
             Button::SectionReset => TransportCmd::SectionReset.into(),
             Button::Retrigger => TransportCmd::ToggleRetrigger.into(),
@@ -299,6 +309,8 @@ pub struct AppState {
     pub preview: PreviewState,
     /// The keys held and the chord, for the app's keyboard strip.
     pub keyboard: KeyboardState,
+    /// Style Setting > Change Behavior.
+    pub style_change: StyleChangeState,
     /// The iReal Pro chart player: imported playlists, the chart, the bar playing.
     pub chart: ChartState,
     /// Section Change Timing, Synchro Stop Window, fade times, Section Reset, Retrigger length.

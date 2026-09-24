@@ -20,7 +20,7 @@ import { emptyPlaylist, emptyRegistration } from './registration'
 import type { Session } from './session'
 import {
   BREAK, CHORD_SETTLE_MAX_MS, ENDINGS, FILLS, FINGERINGS, INTROS, KEYBOARD_PART_NAMES, MAINS, PAD_PAGES, RETRIGGER_RATES,
-  STYLE_PART_NAMES, type AppCmd, type AppState, type LibraryEntry, type LibraryList, type OtsPart, type PreviewState,
+  STYLE_PART_NAMES, type AppCmd, type AppState, type LibraryEntry, type LibraryList, type OtsPart, type PreviewState, type StopAcmpMode,
   type StyleSettingsState, type StyleState,
 } from './types'
 
@@ -211,6 +211,7 @@ export function initialState(): AppState {
       running: false, syncStart: true, syncStop: false, syncStopAvailable: true, autoFill: false, stopAcmp: false,
       section: null, queued: null, pendingIntro: null, main: 0, bar: 1, beat: 1,
       beatsPerBar: beatsPerBar([s.timeSignature[0], s.timeSignature[1]]), tempo: s.tempo, lamps: [], sectionBars: null,
+      halfBarFill: false, stopAcmpMode: 'off',
       fade: 'off', retrigger: false, ritardando: false,
     },
     chord: {
@@ -232,7 +233,7 @@ export function initialState(): AppState {
       partSolo: null,
     },
     pads: { page: 'sections', pageName: 'Sections', pageNumber: 1, pageCount: PAD_PAGES.length, pads: [], connected: true, paletteLeds: false },
-    ots: { settings: otsSettings(s.ots), applied: 0, link: false },
+    ots: { settings: otsSettings(s.ots), applied: 0, link: false, linkTiming: 'mainChange' },
     library: { revision: LIBRARY.revision, count: LIBRARY.entries.length, position: 0, pending: 0, roots: [ROOT], scanning: false },
     io: {
       outputPort: 'yahaha',
@@ -252,6 +253,7 @@ export function initialState(): AppState {
       soundFontLoading: false,
     },
     message: null,
+    styleChange: { tempo: 'hold', parts: 'hold', sectionSet: null },
     surface: null as unknown as AppState['surface'], // filled in by derive()
     preview: { audition: null, queued: null },
     chart: emptyChart(),
@@ -357,6 +359,8 @@ export class MockSession implements Session {
   private clock = 0
   private sectionStart = 0
   private taps: number[] = []
+  /** The Stop Accompaniment mode the toggle turns back on. */
+  private lastStopAcmp: StopAcmpMode = 'style'
   private now = 0
   private progression = 0
   private messageSeq = 0
@@ -873,7 +877,9 @@ export class MockSession implements Session {
     const m = MAINS.indexOf(s)
     if (m >= 0) {
       t.main = m
-      if (this.state.ots.link && m < this.state.ots.settings.length) this.recallOts(m)
+      // OTS Link Timing "At Main Section Change": as the Main starts playing.
+      const ots = this.state.ots
+      if (ots.link && ots.linkTiming === 'mainChange' && m < ots.settings.length && ots.applied !== m + 1) this.recallOts(m)
     }
   }
 
@@ -979,6 +985,26 @@ export class MockSession implements Session {
       p.volume = o.volume
     })
     this.state.ots.applied = n + 1
+    // OTS turns Sync Start on (ACMP is always on): the next chord starts a stopped band.
+    if (!this.state.transport.running) this.state.transport.syncStart = true
+  }
+
+  /** The Main `from` + `step` the style has (Fill Up / Down), or `from` at the end of the row. */
+  private neighbourMain(from: number, step: number): number {
+    for (let j = from + step; j >= 0 && j < 4; j += step) if (this.has(MAINS[j])) return j
+    return from
+  }
+
+  /** Fill Up / Down / Self: a fill, then Main `target`. Stopped: selects it. */
+  private fillTo(target: number) {
+    const t = this.state.transport
+    if (!t.running) {
+      t.main = target
+      return
+    }
+    t.queued = this.has(FILLS[target]) ? FILLS[target] : MAINS[target]
+    t.main = target
+    if (this.state.ots.link && this.state.ots.linkTiming === 'immediate' && target < this.state.ots.settings.length) this.recallOts(target)
   }
 
   private loadStyle(id: number) {
@@ -993,9 +1019,14 @@ export class MockSession implements Session {
     const st = this.state
     const t = st.transport
     st.style = styleState(s)
-    t.tempo = s.tempo
+    // Change Behavior: Lock keeps, Hold keeps while playing, Reset takes the new style's.
+    const resets = (rule: string) => rule === 'reset' || (rule === 'hold' && !t.running)
+    if (resets(st.styleChange.tempo)) t.tempo = s.tempo
+    if (resets(st.styleChange.parts)) for (const p of st.mixer.styleParts) p.on = true
+    const set = st.styleChange.sectionSet
+    if (!t.running && set !== null) t.main = [0, 1, 2, 3].map((d) => [set - d, set + d]).flat().find((j) => j >= 0 && j < 4 && s.sections.includes(MAINS[j])) ?? set
     t.beatsPerBar = beatsPerBar(st.style.timeSignature)
-    st.ots = { settings: otsSettings(s.ots), applied: 0, link: st.ots.link }
+    st.ots = { settings: otsSettings(s.ots), applied: 0, link: st.ots.link, linkTiming: st.ots.linkTiming }
     if (st.ots.link && t.main < s.ots) this.recallOts(t.main)
     for (const p of st.mixer.styleParts) {
       p.volume = 100
@@ -1054,8 +1085,25 @@ export class MockSession implements Session {
           t.queued = FILLS[t.main]
           t.main = cmd.index
         } else t.queued = m
+        if (t.running && st.ots.link && st.ots.linkTiming === 'immediate' && cmd.index < st.ots.settings.length) this.recallOts(cmd.index)
         break
       }
+      case 'fillUp':
+        this.fillTo(this.neighbourMain(t.main, 1))
+        break
+      case 'fillDown':
+        this.fillTo(this.neighbourMain(t.main, -1))
+        break
+      case 'fillSelf':
+        if (t.running) this.fillTo(t.main)
+        break
+      case 'fillBreak':
+        if (t.running && this.has(BREAK)) t.queued = BREAK
+        break
+      case 'toggleHalfBarFill':
+      case 'setHalfBarFill':
+        t.halfBarFill = cmd.type === 'setHalfBarFill' ? cmd.on : !t.halfBarFill
+        break
       case 'break':
         if (t.running && this.has(BREAK)) t.queued = BREAK
         break
@@ -1109,8 +1157,13 @@ export class MockSession implements Session {
         t.autoFill = !t.autoFill
         break
       case 'toggleStopAcmp':
-        t.stopAcmp = !t.stopAcmp
+      case 'setStopAcmp': {
+        const mode = cmd.type === 'setStopAcmp' ? cmd.mode : t.stopAcmpMode === 'off' ? this.lastStopAcmp : 'off'
+        if (mode !== 'off') this.lastStopAcmp = mode
+        t.stopAcmpMode = mode
+        t.stopAcmp = mode !== 'off'
         break
+      }
       case 'tapTempo': {
         if (t.running && st.styleSettings.sectionReset) {
           this.resetSection()
@@ -1293,6 +1346,24 @@ export class MockSession implements Session {
       case 'toggleOtsLink':
         st.ots.link = cmd.type === 'setOtsLink' ? cmd.on : !st.ots.link
         break
+      case 'setOtsLinkTiming':
+        st.ots.linkTiming = cmd.timing
+        break
+      case 'setTempoChange':
+        st.styleChange.tempo = cmd.rule
+        break
+      case 'setPartsChange':
+        st.styleChange.parts = cmd.rule
+        break
+      case 'setSectionSet':
+        st.styleChange.sectionSet = cmd.section === null ? null : clamp(cmd.section, 0, 3)
+        break
+      case 'toggleStyleTempoLock':
+      case 'toggleStyleTempoHold': {
+        const to = cmd.type === 'toggleStyleTempoLock' ? 'lock' : 'hold'
+        st.styleChange.tempo = st.styleChange.tempo === 'reset' ? to : 'reset'
+        break
+      }
       case 'loadStyle':
         this.loadStyle(cmd.id)
         break

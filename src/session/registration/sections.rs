@@ -10,7 +10,7 @@
 use super::super::harmony_arp::{harmony_arp_capture, harmony_arp_recall};
 use super::super::Control;
 use super::LockItem;
-use crate::api::{gm_name, ChordCmd, LibraryCmd, MultiPadCmd, PartsCmd};
+use crate::api::{gm_name, ChordCmd, LibraryCmd, MultiPadCmd, PartsCmd, StopAcmpMode};
 use crate::engine::{Button, StyleControls, Transpose};
 use crate::fingering::Fingering;
 use crate::live::Cmd;
@@ -214,6 +214,10 @@ struct ControlReg {
     sync_start: bool,
     sync_stop: bool,
     stop_acmp: bool,
+    /// Style Setting > Stop ACMP (Data List: registrable, group Style). Missing (a bank
+    /// from an earlier build): `stop_acmp` turns it on or off.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    stop_acmp_mode: Option<StopAcmpMode>,
     ots_link: bool,
 }
 
@@ -228,6 +232,7 @@ fn control_capture(c: &Control, g: Groups) -> Option<Value> {
         sync_start: s.sync_armed,
         sync_stop: s.sync_stop,
         stop_acmp: s.stop_acmp,
+        stop_acmp_mode: Some(s.stop_acmp_mode.into()),
         ots_link: c.shared.parts.ots_link.load(Relaxed),
     })
 }
@@ -250,6 +255,7 @@ fn control_recall(c: &mut Control, v: &Value, g: Groups) -> Result<(), String> {
         sync_start: Some(r.sync_start),
         sync_stop: Some(r.sync_stop),
         stop_acmp: Some(r.stop_acmp),
+        stop_acmp_mode: r.stop_acmp_mode.map(Into::into),
         parts: None,
         volumes: None,
         player_set: None,

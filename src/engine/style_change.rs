@@ -52,7 +52,9 @@ impl Engine {
     /// hands over as it would have (a Fill to its Main, an Ending stops the band). A
     /// section that carries on keeps its bar position (bar 3 of Main A goes on in bar 3 of
     /// the new Main A, wrapping at its length). The tempo stays, re-timed to the new
-    /// style's resolution; the new style's setup and part levels go out, as on any load.
+    /// style's resolution (unless Change Behavior Tempo is Reset: then the new
+    /// style's tempo); Part On/Off Reset turns every part on. The new style's setup and part
+    /// levels go out, as on any load.
     pub(super) fn swap_style(&mut self, at: f64, now: u64, sink: &mut impl Sink) {
         let Some(p) = self.pending.take() else { return };
         let old_len = self.style.sections[self.cur].as_ref().map_or(0, |s| s.len) as f64;
@@ -87,7 +89,9 @@ impl Engine {
             self.running = false;
             self.sync_armed = true;
             self.rit_drop();
-            self.set_bpm_internal(self.style.bpm, ns_b);
+            let bpm = self.tempo_after_change();
+            self.set_bpm_internal(bpm, ns_b);
+            self.parts_after_change();
             self.cur = self.home_slot();
             self.restore_untouched_levels();
             self.send_init(sink);
@@ -108,6 +112,8 @@ impl Engine {
         if let SectionId::Main(m) = id_of(new_slot) {
             self.main = m;
         }
+        let bpm = self.tempo_after_change();
+        self.parts_after_change();
         let (tpb, ppq) = (self.style.tpb.max(1) as f64, self.style.ppq.max(1) as f64);
         let len = self.style.sections[new_slot].as_ref().map_or(0, |s| s.len) as f64;
         // Whole bars, then the rest in beats.
@@ -118,11 +124,12 @@ impl Engine {
             pos = pos.rem_euclid(len);
         }
         // Re-time: tick `pos` of the new section at the bar line's time, same tempo.
+        // The tempo through the one setter (its range), then the anchor at `pos`.
         self.cur = new_slot;
+        self.set_bpm_internal(bpm, ns_b);
         self.anchor_ns = ns_b;
         self.anchor_tick = pos;
         self.sec_start = 0.0;
-        self.ns_per_tick = 60e9 / (self.bpm * ppq);
         self.seek(pos);
         self.lines_from(pos);
         self.rit_rebase();
@@ -147,10 +154,12 @@ impl Engine {
         // them, as the section it plays (or, stopped, would start on) routes them, and the
         // player's earlier moves are forgotten.
         self.user_set = 0;
-        // Stopped, the new style's tempo; running, the same tempo re-timed to the new
-        // style's resolution (ticks per quarter differ between styles: 480, 960, 1920).
-        let bpm = if self.running { self.bpm } else { self.style.bpm };
+        // The tempo Change Behavior leaves (by default: stopped, the new style's; running,
+        // the same tempo), re-timed to the new style's resolution (ticks per quarter differ
+        // between styles: 480, 960, 1920). Then the part on/off states and Section Set.
+        let bpm = self.tempo_after_change();
         self.set_bpm_internal(bpm, now);
+        self.parts_after_change();
         if self.running {
             // Continue from the next bar of the equivalent section, with the setup as it
             // routes it.

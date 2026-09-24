@@ -12,7 +12,7 @@
 //! equal to its next deadline.
 
 use crate::controllers::{Controllers, Handled};
-use crate::engine::{shift_key, AuditionPos, Button, ChartPlan, ChartSettings, Engine, PadCmd, Prepared, Snapshot, StyleSettings, Transpose};
+use crate::engine::{shift_key, AuditionPos, Button, ChangeRules, ChartPlan, ChartSettings, Engine, PadCmd, Prepared, Snapshot, StyleSettings, Transpose};
 use crate::multipad::MultiPadPlayer;
 use crate::fingering::{self, Fingering};
 use crate::harmony::{self, HarmonySettings};
@@ -44,6 +44,10 @@ pub enum Cmd {
     /// All Notes Off on the keyboard parts' channels: a MIDI source with keys held was
     /// disconnected (its note-offs will never come).
     KeysOff,
+    /// Style Setting Change Behavior (tempo, part on/off, Section Set) for style changes.
+    ChangeRules(ChangeRules),
+    /// An OTS recall turns Sync Start on (stopped only).
+    SyncStartOn,
     /// Chart player settings (chart mode, Intro, Ending, loop; engine/chart.rs). The
     /// chart itself comes in on its own ring (`EngineIo::charts`).
     Chart(ChartSettings),
@@ -1349,6 +1353,8 @@ fn apply(engine: &mut Engine, shared: &Shared, cmd: Cmd, now: u64, out: &mut Out
         Cmd::ManualBass(on) => engine.set_manual_bass(on, out),
         Cmd::Transpose(t) => engine.set_transpose(t, now, out),
         Cmd::StopAudition => {}
+        Cmd::ChangeRules(r) => engine.set_change_rules(r),
+        Cmd::SyncStartOn => engine.sync_start_on(),
         Cmd::Chart(s) => engine.set_chart_settings(s, now),
         Cmd::StyleSettings(s) => engine.set_style_settings(s),
         Cmd::ChordSettle(ms) => engine.set_chord_settle(ms as u64 * 1_000_000),
