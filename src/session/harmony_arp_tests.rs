@@ -360,7 +360,7 @@ fn randomized_play_leaves_no_note_stuck() {
     let ids: Vec<usize> = s.library_list().entries.iter().map(|e| e.id).collect();
     let mut h = Heard::default();
     for seed in 1..=12u64 {
-        let mut r = Rng(seed * 0x9E37_79B9_7F4A_7C15);
+        let mut r = Rng(seed.wrapping_mul(0x9E37_79B9_7F4A_7C15));
         let mut down = [false; 128];
         send(&s, &mut h, HarmonyArpCmd::SetHarmonyArpOn { on: true });
         for _ in 0..600 {
