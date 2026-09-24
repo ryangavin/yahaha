@@ -11,6 +11,7 @@ use crate::live::{Cmd, PadBank};
 use crate::multipad::library::{self, BankFile};
 use crate::multipad::{MultiPadPlayer, PadBank as PadFile, PadState, PADS};
 use std::path::{Path, PathBuf};
+use std::sync::mpsc;
 
 /// The control side's Multi Pad state (a `Control` field).
 #[derive(Default)]
@@ -22,8 +23,9 @@ pub(super) struct Pads {
     loaded: Option<Loaded>,
     pending: Option<Loaded>,
     seq: u64,
-    /// `library.scanning` at the last pump: a finished rescan rescans the banks too.
-    was_scanning: bool,
+    /// A rescan of the bank files running on a thread of its own (started with the style
+    /// library's `RescanLibrary`).
+    scan_rx: Option<mpsc::Receiver<Vec<BankFile>>>,
 }
 
 #[derive(Clone)]
@@ -80,18 +82,20 @@ impl Control {
             MultiPadCmd::LoadMultiPad { id } => return self.load_bank(id),
             MultiPadCmd::LoadMultiPadPath { path } => {
                 let path = PathBuf::from(path);
-                let id = match self.multipad.find(&path) {
-                    Some(id) => id,
-                    None => {
-                        let root = path.parent().map(Path::to_path_buf).unwrap_or_default();
-                        let f = library::bank_file(&path, &root);
-                        let id = self.multipad.next_id;
-                        self.multipad.next_id += 1;
-                        self.multipad.banks.push((id, f));
-                        id
-                    }
+                if let Some(id) = self.multipad.find(&path) {
+                    return self.load_bank(id);
+                }
+                // A file outside the library joins the bank list only once it has loaded.
+                let root = path.parent().map(Path::to_path_buf).unwrap_or_default();
+                let f = library::bank_file(&path, &root);
+                let bank = match PadFile::load(&f.path) {
+                    Ok(b) => b,
+                    Err(e) => return self.fail(format!("{}: {e:#}", f.path.display())),
                 };
-                return self.load_bank(id);
+                let id = self.multipad.next_id;
+                self.multipad.next_id += 1;
+                self.multipad.banks.push((id, f.clone()));
+                return self.send_parsed(id, f, &bank);
             }
             MultiPadCmd::ClearMultiPad => return self.send_bank(None, None),
             MultiPadCmd::TriggerMultiPad { pad } => pad_index(pad).map(PadCmd::Trigger),
@@ -119,8 +123,13 @@ impl Control {
             Ok(b) => b,
             Err(e) => return self.fail(format!("{}: {e:#}", f.path.display())),
         };
+        self.send_parsed(id, f, &bank)
+    }
+
+    /// Build bank `id`'s player from its parsed file and hand it to the engine.
+    fn send_parsed(&mut self, id: usize, f: BankFile, bank: &PadFile) -> Result<(), CmdError> {
         let names = std::array::from_fn(|i| bank.pads[i].as_ref().map(|p| p.name.clone()).unwrap_or_default());
-        let player = Box::new(MultiPadPlayer::new(&bank, PAD_PPQ));
+        let player = Box::new(MultiPadPlayer::new(bank, PAD_PPQ));
         self.send_bank(Some(player), Some((id, f.name, f.path, names)))
     }
 
@@ -140,8 +149,22 @@ impl Control {
         Ok(())
     }
 
+    /// Rescan the bank files off the control thread (the style library's rescan calls
+    /// this when it starts its own).
+    pub(super) fn rescan_pads(&mut self) {
+        if self.multipad.scan_rx.is_some() {
+            return;
+        }
+        let roots = self.roots.clone();
+        let (tx, rx) = mpsc::channel();
+        let scan = move || drop(tx.send(library::scan(&roots)));
+        if std::thread::Builder::new().name("yahaha-pad-scan".into()).spawn(scan).is_ok() {
+            self.multipad.scan_rx = Some(rx);
+        }
+    }
+
     /// Replaced players back from the engine are freed here; the bank the engine now plays
-    /// becomes the loaded one; a finished library rescan rescans the banks.
+    /// becomes the loaded one; a finished bank rescan is merged in.
     pub(super) fn pump_multipad(&mut self) {
         while self.old_pad_rx.pop().is_ok() {}
         if let Some(p) = &self.multipad.pending
@@ -149,12 +172,16 @@ impl Control {
         {
             self.multipad.loaded = self.multipad.pending.take();
         }
-        let scanning = self.scan_rx.is_some();
-        if self.multipad.was_scanning && !scanning {
-            let found = library::scan(&self.roots);
-            self.multipad.merge(found);
+        if let Some(rx) = &self.multipad.scan_rx {
+            match rx.try_recv() {
+                Ok(found) => {
+                    self.multipad.scan_rx = None;
+                    self.multipad.merge(found);
+                }
+                Err(mpsc::TryRecvError::Empty) => {}
+                Err(mpsc::TryRecvError::Disconnected) => self.multipad.scan_rx = None,
+            }
         }
-        self.multipad.was_scanning = scanning;
     }
 
     pub(super) fn multipad_state(&self) -> MultiPadState {

@@ -135,6 +135,11 @@ fn a_bank_by_path_overrides_clear_and_errors() {
     std::fs::write(&bad, b"not a bank").unwrap();
     assert!(s.send(MultiPadCmd::LoadMultiPadPath { path: bad.display().to_string() }).is_err());
     assert_eq!(s.state().multi_pad.bank.as_ref().map(|b| b.name.as_str()), Some("Other"), "a bad file keeps the bank");
+    // Files that do not load (missing, or not a bank) stay out of the bank list.
+    assert!(s.send(MultiPadCmd::LoadMultiPadPath { path: dir.join("Nope.pad").display().to_string() }).is_err());
+    let listed: Vec<String> = s.state().multi_pad.banks.iter().map(|b| b.name.clone()).collect();
+    assert_eq!(listed.len(), 2, "{listed:?}");
+    assert!(!listed.iter().any(|n| n == "bad" || n == "Nope"), "{listed:?}");
     assert!(s.send(MultiPadCmd::LoadMultiPad { id: 999 }).is_err());
 
     s.send(MultiPadCmd::ClearMultiPad).unwrap();
