@@ -152,6 +152,7 @@ The last Launchkey note or CC that nothing is mapped to shows at the bottom of t
 - `enter` open the style browser (see below)
 - `tab` / `shift+tab` next/previous pad page
 - `a` next audio output pair · `k` mute the synth
+- `r` chart mode on/off · `( )` previous/next chart song (see "iReal Pro charts" below)
 - `\` panic (all notes off)
 - `esc` twice (within 1.5 s) quit, or `ctrl+c`; one `esc` closes the style browser
 
@@ -167,6 +168,18 @@ The last Launchkey note or CC that nothing is mapped to shows at the bottom of t
 - `enter` loads the style and closes the browser. It works like `←/→`: while the band plays it keeps playing and follows your next chord in the new style.
 - `esc` closes the browser without changing the style (with the browser closed, `esc` twice quits, so one extra `esc` never stops the band).
 - While the browser is open, typed keys only go to the filter, never to the performance shortcuts. Your MIDI keyboard, the Launchkey pads and the Launchkey buttons keep working as usual, including **< Track / Track >**.
+
+### iReal Pro charts
+
+`yahaha play <styles> --ireal <playlist.html | irealb://…>` imports an iReal Pro playlist (an exported `.html` file, or a link), chooses its first song and turns **chart mode** on. In chart mode the band takes its chords from the chart instead of your left hand:
+
+- Press `space` (or play a chord with Sync Start on) to start. An Intro plays first, then the chart, then an Ending.
+- Chart sections A–D play Main A–D. With Auto Fill on, a fill leads into each new section.
+- Play a chord to reharmonize: it holds until the next bar line, then the chart takes over again.
+- Keyboard transpose (`; '`) moves the chart too.
+- `r` turns chart mode on/off; `( )` pick the previous/next song of the playlist.
+
+The desktop app has the same player, with a song browser, the chart in the lead-sheet band and the choruses, loop, Intro/Ending and style settings. [docs/ireal.md](docs/ireal.md) has the details.
 
 Chords are recognized in "Fingered On Bass" style, plus some shortcuts:
 - one key = major
