@@ -1046,6 +1046,13 @@ const catalog = {
     keys: ['a'],
     launchkey: null,
   },
+  'audio.buffer': {
+    title: 'Audio buffer',
+    body: 'Frames the built-in synth renders at a time: 64 (1.3 ms at 48 kHz) feels tightest, while 128 or 256 give heavy plugins more time per block for up to 5 ms more latency. Changing it reopens the output with a moment of silence; held notes and plugins carry over. It is remembered, and `--buffer N` sets it at launch.',
+    genos: null,
+    keys: [],
+    launchkey: null,
+  },
   'audio.soundfont': {
     title: 'SoundFont',
     body: 'The General MIDI SoundFont (.sf2) the built-in synth plays, from the soundfonts folder. `--sf2 file` sets it at launch.',

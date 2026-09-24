@@ -136,6 +136,9 @@ export type AppCmd =
   | { type: 'setMidiInputs'; all: boolean; names: string[] }
   /** Launchkey LEDs in Novation palette colours instead of RGB. */
   | { type: 'setPaletteLeds'; on: boolean }
+  /** The synth's audio buffer, 64, 128 or 256 frames (`io.synth.bufferFrames`). The
+   * output reopens; voices, plugins and held notes carry over. */
+  | { type: 'setAudioBuffer'; frames: 64 | 128 | 256 }
   /** Re-walk the style folders (`library.roots`); `library.scanning` while it runs. */
   | { type: 'rescanLibrary' }
   // iReal Pro chart player: see ChartState below.
