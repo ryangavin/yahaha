@@ -510,6 +510,10 @@ pub struct AudioCore {
     right2: Vec<f32>,
     /// A rack just replaced: it plays out one buffer, fading, then goes back to be freed.
     fading: Option<Box<Rack>>,
+    /// A played-out rack the return ring had no room for: it waits here and goes back on a
+    /// later buffer, so it is never freed on the audio thread. No new rack is taken while
+    /// it waits.
+    parked: Option<Box<Rack>>,
     unmetered: [AtomicU32; 16],
     click: Click,
     #[cfg(feature = "plugins")]
@@ -555,6 +559,7 @@ impl AudioCore {
             left2: vec![0f32; 8192],
             right2: vec![0f32; 8192],
             fading: None,
+            parked: None,
             unmetered: std::array::from_fn(|_| AtomicU32::new(0)),
             click: Click::new(sample_rate),
             #[cfg(feature = "plugins")]
@@ -580,14 +585,21 @@ impl AudioCore {
     pub fn process(&mut self, out: &mut [f32]) {
         let channels = self.channels;
         let ctl = &*self.ctl;
+        // A rack still waiting to go back: try again.
+        if let Some(p) = self.parked.take() {
+            retire(&mut self.old_tx, &mut self.parked, p);
+        }
         // A new SoundFont: the new rack takes over with the channels' voices and controllers.
-        if let Ok(mut new) = self.swap_rx.pop() {
+        // Only when the one it replaces has a place to go back to: a free slot in the return
+        // ring (the audio thread is its only producer, so the slot is still free when the
+        // fade ends below). Otherwise the new rack waits in its ring for a later buffer.
+        if self.parked.is_none()
+            && self.fading.is_none()
+            && self.old_tx.slots() > 0
+            && let Ok(mut new) = self.swap_rx.pop()
+        {
             self.shadow.replay(&mut new, &mut self.bank, &self.parts, self.router.as_ref());
-            if let Some(old) = self.rack.replace(new)
-                && let Some(f) = self.fading.replace(old)
-            {
-                let _ = self.old_tx.push(f);
-            }
+            self.fading = self.rack.replace(new);
             self.last_master = 255;
             ctl.swaps.fetch_add(1, Relaxed);
         }
@@ -698,7 +710,7 @@ impl AudioCore {
                 left[i] += left2[i];
                 right[i] += right2[i];
             }
-            let _ = self.old_tx.push(f);
+            retire(&mut self.old_tx, &mut self.parked, f);
         }
         // The plugin parts: their own CC7/CC11/CC10 applied in the rack, then the master
         // fader (rustysynth applies it inside its render; the rack does not).
@@ -739,6 +751,20 @@ impl AudioCore {
         ctl.master_peaks[1].fetch_max(pr.to_bits(), Relaxed);
         if clipped {
             ctl.clips.fetch_add(1, Relaxed);
+        }
+    }
+}
+
+/// Send a played-out rack back to the control side to be freed there. The ring is never
+/// full here (a swap waits for a free slot), but if it were, the rack is parked for a later
+/// buffer rather than dropped on the audio thread.
+fn retire(old_tx: &mut Producer<Box<Rack>>, parked: &mut Option<Box<Rack>>, rack: Box<Rack>) {
+    if let Err(rtrb::PushError::Full(rack)) = old_tx.push(rack) {
+        // `parked` is empty whenever a rack is retired (it is retried first, and a swap
+        // waits for it), so this never drops one; if it somehow held one, leaking it beats
+        // freeing it here.
+        if let Some(stray) = parked.replace(rack) {
+            std::mem::forget(stray);
         }
     }
 }
