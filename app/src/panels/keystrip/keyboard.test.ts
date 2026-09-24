@@ -47,14 +47,12 @@ describe('keyboard strip geometry', () => {
     expect(rangeFor(88, ['Launchkey 49 MK4'])).toBe(88)
   })
 
-  it('puts the chord-detection area where the engine listens', () => {
+  it('puts the chord-detection area where the engine listens, clipped to the strip', () => {
     const s = initialState()
-    expect(detectionArea(s, RANGES[49])).toEqual([36, 54])
-    s.chord.upper = true
-    expect(detectionArea(s, RANGES[49])).toEqual([55, 84])
-    s.chord.upper = false
-    s.chord.fingering = 'fullKeyboard'
-    expect(detectionArea(s, RANGES[49])).toEqual([36, 84])
+    expect(detectionArea(s.keyboard.detection, RANGES[49])).toEqual([36, 54])
+    expect(detectionArea([55, 127], RANGES[49])).toEqual([55, 84])
+    expect(detectionArea([0, 127], RANGES[49])).toEqual([36, 84])
+    expect(detectionArea([0, 30], RANGES[49])).toBe(null)
   })
 
   it('colours a held key by its parts: bands when layered, grey when it only feeds detection', () => {

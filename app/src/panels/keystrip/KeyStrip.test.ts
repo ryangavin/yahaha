@@ -2,6 +2,7 @@ import { cleanup, fireEvent, render } from '@testing-library/svelte'
 import { flushSync } from 'svelte'
 import { afterEach, describe, expect, it } from 'vitest'
 import { MockSession } from '../../lib/api/mock'
+import type { AppState } from '../../lib/api/types'
 import { app, ui } from '../../lib/store.svelte'
 import KeyStrip from './KeyStrip.svelte'
 
@@ -74,15 +75,15 @@ describe('keyboard strip', () => {
 
   it('on an engine that sends no held keys, says so rather than showing none', () => {
     const session = new MockSession({ manual: true, demo: true })
-    const st = { ...session.state, keyboard: undefined }
-    app.attach({ ...session, kind: 'tauri', subscribe: (fn) => (fn(st), () => {}), send: () => {}, library: () => session.library(), dispose: () => {} })
+    const st = { ...session.state, keyboard: undefined } as unknown as AppState
+    app.attach({ ...session, kind: 'tauri', subscribe: (fn) => (fn(st), () => {}), send: () => {}, library: () => session.library(), meters: () => session.meters(), dispose: () => {} })
     flushSync()
     render(KeyStrip)
     expect(held()).toHaveLength(0)
     expect(document.querySelector('.cheek')!.textContent).toContain('Not reported yet')
     expect(document.querySelector('.bed')!.getAttribute('aria-label')).toContain('not reported')
-    // The split and the detection area are the engine's own: still shown.
+    // The split is still shown; where detection listens comes with `keyboard`, so no area.
     expect(document.querySelector('[role="slider"]')).not.toBeNull()
-    expect(document.querySelector('.area')).not.toBeNull()
+    expect(document.querySelector('.area')).toBeNull()
   })
 })

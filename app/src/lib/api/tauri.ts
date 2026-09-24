@@ -1,11 +1,11 @@
 import { invoke } from '@tauri-apps/api/core'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import type { Session } from './session'
-import type { AppCmd, AppState, CmdError, LibraryList, SessionEvent } from './types'
+import type { AppCmd, AppState, CmdError, LibraryList, Meters, SessionEvent } from './types'
 
 /**
- * The app shell's session, wired as docs/app-api.md describes: commands `send`, `state`
- * and `library`, and `yahaha` events. On `stateChanged` it fetches the state, at most
+ * The app shell's session, wired as docs/app-api.md describes: commands `send`, `state`,
+ * `library` and `meters`, and `yahaha` events. On `stateChanged` it fetches the state, at most
  * once per animation frame (several changes merge into one fetch; the state is always
  * complete).
  */
@@ -56,6 +56,10 @@ export class TauriSession implements Session {
 
   library() {
     return invoke<LibraryList>('library')
+  }
+
+  meters() {
+    return invoke<Meters>('meters')
   }
 
   dispose() {

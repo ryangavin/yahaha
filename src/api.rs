@@ -120,6 +120,23 @@ pub enum AppCmd {
     LoadStylePath { path: String },
     /// Previous/next style in library order, skipping files that don't load.
     StepStyle { delta: i8 },
+    /// Load a style at the next bar line (playing), keeping the section and the bar
+    /// position; stopped, the same as `LoadStyle`. A later one before that bar line
+    /// replaces it; if the band stops first, it loads then. (`LoadStyle` and `StepStyle`
+    /// wait for the bar line too while playing: `preview.queued` shows the style waiting.)
+    QueueStyle { id: usize },
+    /// Preview a style while the band is stopped: its Main A, at its own tempo, with its own
+    /// voices and levels, over C Am F G7 (a chord a bar) for 4 bars, then it stops by itself.
+    /// The loaded style, OTS, keyboard parts, mixer and transport are untouched. Refused
+    /// (`failed`) while the band plays; a new one replaces the one playing. It ends early
+    /// on `StopAudition`, a style change, START/STOP or a Sync Start chord.
+    AuditionStyle { id: usize },
+    /// End the style preview now.
+    StopAudition,
+    /// Rescan the style folders (`library.roots`) for files added or removed, on a
+    /// background thread (`library.scanning`). Ids stay the same for files still there;
+    /// files gone leave the list.
+    RescanLibrary,
 
     // --- Output ---
     /// Mute/unmute the built-in synth's audio.
@@ -129,6 +146,17 @@ pub enum AppCmd {
     SetAudioOutput { first: u8 },
     /// Next stereo output pair, wrapping: 1/2 -> 3/4 -> ... -> 1/2.
     NextAudioOutput,
+    /// Reload the synth from another SoundFont in its folder (`io.soundFonts`, by file
+    /// name). It loads in the background (`io.soundFontLoading`) and swaps in between two
+    /// audio buffers; the voices and controllers in use carry over, notes sounding stop.
+    SetSoundFont { file: String },
+    /// Which MIDI sources play the keyboard: every one (`all`), or those named in `names`
+    /// (a name matches a source whose name contains it). `all` false with no names: the
+    /// default, a Launchkey's keys when there is one, else every source. The Launchkey's
+    /// DAW port is always the pads. Keys held on a source that is dropped are released.
+    SetMidiInputs { all: bool, names: Vec<String> },
+    /// Launchkey LEDs in Novation palette colours (and hardware flashing) instead of RGB.
+    SetPaletteLeds { on: bool },
     /// All notes off, the style stops.
     Panic,
     /// Clear `AppState::message`.
@@ -264,8 +292,75 @@ pub struct AppState {
     /// the beat clock. With `pads`, a 1:1 mirror of the hardware.
     pub surface: SurfaceState,
     pub io: IoState,
+    /// The style preview and the style waiting for the bar line.
+    pub preview: PreviewState,
+    /// The keys held and the chord, for the app's keyboard strip.
+    pub keyboard: KeyboardState,
     /// The last notice or error, until the next one or `ClearMessage`.
     pub message: Option<Message>,
+}
+
+/// Style preview and queue (`AuditionStyle`, `QueueStyle`).
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PreviewState {
+    /// The preview playing (None: none).
+    pub audition: Option<AuditionState>,
+    /// The library id of a style waiting for the next bar line to take over.
+    pub queued: Option<usize>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AuditionState {
+    /// The library id it previews.
+    pub id: usize,
+    /// The bar playing, 1-based, of `bars`.
+    pub bar: u8,
+    pub bars: u8,
+    /// The chord playing, e.g. "Am".
+    pub chord: Option<String>,
+}
+
+/// The keyboard as the key strip draws it.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KeyboardState {
+    /// The keys held, from any keyboard source, low to high.
+    pub held: Vec<HeldNote>,
+    /// Split Point (Left): keys at or below it play the Left part (the same split as
+    /// `chord.split`; yahaha has one).
+    pub left_split: u8,
+    /// Pitch classes (0-11, C = 0) of the chord as fingered (`chord.fingered`), root
+    /// first; empty for none.
+    pub chord_tones: Vec<u8>,
+    /// Its bass (pitch class): the root, or the slash / on-bass note. None: no chord.
+    pub chord_bass: Option<u8>,
+    /// The keys chord detection reads, as [lo, hi] MIDI notes (inclusive): up to the split
+    /// in Lower, above it in Upper (Fingered*), every key in the Full Keyboard types.
+    pub detection: [u8; 2],
+}
+
+/// A key held.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HeldNote {
+    /// The MIDI note as played (before Keyboard transpose and the parts' octaves).
+    pub note: u8,
+    /// The side of the split it went to when pressed.
+    pub zone: Zone,
+    /// The keyboard parts sounding it (0-3 = Right 1, Right 2, Right 3, Left); empty for
+    /// a key that only gives the chord.
+    pub parts: Vec<u8>,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Zone {
+    /// At or below the split: the Left part, the chord section in Lower.
+    #[default]
+    Left,
+    Right,
 }
 
 /// The loaded style.
@@ -313,6 +408,9 @@ pub struct TransportState {
     pub beat: u32,
     /// Beats per bar (the time signature's numerator).
     pub beats_per_bar: u8,
+    /// How many bars the section playing lasts (a Main's pattern length; it loops). None
+    /// when stopped.
+    pub section_bars: Option<u32>,
     /// Current tempo in BPM.
     pub tempo: f64,
     /// Page 1 of the Launchkey pads (sections, Sync Start/Stop, Auto Fill, Tap, Start/Stop),
@@ -591,6 +689,10 @@ pub struct LibraryStatus {
     pub position: usize,
     /// Entries still waiting to be indexed.
     pub pending: usize,
+    /// The style folders (and files) the library scans.
+    pub roots: Vec<String>,
+    /// A rescan (`RescanLibrary`) is walking the folders.
+    pub scanning: bool,
 }
 
 /// A library entry next to the loaded style.
@@ -631,12 +733,14 @@ pub struct ClockState {
 }
 
 impl ClockState {
-    /// Quarter notes into the section at `t` (ms on the session clock).
+    /// Quarter notes into the section at `t` (ms on the session clock). Never below 0: a
+    /// time before the anchor (a client clock a hair behind the session's) reads as the
+    /// section's start.
     pub fn position(&self, t: f64) -> f64 {
         if !self.running {
             return 0.0;
         }
-        self.section_anchor_beats + (t - self.section_anchor_ms) * self.tempo / 60e3
+        (self.section_anchor_beats + (t - self.section_anchor_ms) * self.tempo / 60e3).max(0.0)
     }
 
     /// The pad flash/pulse clock at `t` (ms).
@@ -681,6 +785,8 @@ pub struct LibraryEntry {
     pub time_signature: Option<[u8; 2]>,
     /// Short section list, e.g. "Main ABCD · Intro ABC · Ending ABC · Fill ABCD · Break".
     pub sections: String,
+    /// "SFF1" or "SFF2" from the file's header; None while pending or unreadable.
+    pub format: Option<String>,
 }
 
 /// The library in display order (folder, then name).
@@ -689,6 +795,50 @@ pub struct LibraryEntry {
 pub struct LibraryList {
     pub revision: u64,
     pub entries: Vec<LibraryEntry>,
+    /// The voices `SetPartVoice` picks from (the same for every revision).
+    pub voices: Vec<VoiceOption>,
+}
+
+/// A voice a keyboard part can play: a GM program on bank 0 (the built-in synth plays
+/// the SoundFont's GM bank; `SetPartVoice` takes the program).
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VoiceOption {
+    pub program: u8,
+    pub bank_msb: u8,
+    pub bank_lsb: u8,
+    /// e.g. "Grand Piano".
+    pub name: String,
+}
+
+/// Every voice `SetPartVoice` can use.
+pub fn voice_options() -> Vec<VoiceOption> {
+    (0..128u8).map(|p| VoiceOption { program: p, bank_msb: 0, bank_lsb: 0, name: gm_name(p).to_string() }).collect()
+}
+
+/// Output levels (`Session::meters`), read on the audio thread. Peaks are linear
+/// amplitude (1.0 = full scale), the highest since the previous read: the client applies
+/// its own decay and peak hold. Meant for one reader (the app's meter bridge).
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Meters {
+    /// The session clock (ms) at the read.
+    pub at_ms: f64,
+    /// Keyboard parts (ch 1-4) and Style parts (ch 9-16), after the master level, with
+    /// their reverb and chorus, before the soft clipper.
+    pub channels: Vec<ChannelMeter>,
+    /// Left and right after the soft clipper.
+    pub master: [f32; 2],
+    /// Audio buffers in which the soft clipper was working (above -1 dBFS), since start.
+    pub clips: u64,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChannelMeter {
+    /// MIDI channel, 1-based.
+    pub channel: u8,
+    pub peak: f32,
 }
 
 /// MIDI and audio.
@@ -708,6 +858,29 @@ pub struct IoState {
     pub unmapped: String,
     /// An offline session (no MIDI, no audio; tests and the app's dev mode).
     pub offline: bool,
+    /// Every MIDI source there is (the keyboard sources `SetMidiInputs` chooses from, and
+    /// the Launchkey DAW port), and whether yahaha listens to it.
+    pub sources: Vec<MidiSource>,
+    /// Every source is a keyboard (`SetMidiInputs { all: true }`, `--all-inputs`).
+    pub all_inputs: bool,
+    /// The SoundFonts (`.sf2` file names) in the synth's folder, for `SetSoundFont`.
+    pub sound_fonts: Vec<String>,
+    /// The file the synth plays (None without the synth).
+    pub sound_font_file: Option<String>,
+    /// A `SetSoundFont` is loading.
+    pub sound_font_loading: bool,
+}
+
+/// A MIDI source.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MidiSource {
+    /// Its name, as `SetMidiInputs` matches it.
+    pub name: String,
+    /// yahaha listens to it (as a keyboard, or as the pads).
+    pub listening: bool,
+    /// The Launchkey DAW port: the pads, buttons and faders.
+    pub pads: bool,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]

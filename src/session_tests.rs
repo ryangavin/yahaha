@@ -820,6 +820,7 @@ fn fader_positions_and_master_takeover() {
         c.synth = Some(SynthRef {
             info: SynthInfo { name: "test".into(), sample_rate: 48000, buffer: None, device: "none".into(), channels: 2 },
             control: ctl.clone(),
+            swap: None,
         });
     }
     s.midi_in(Port::Pads, &[0xB0, 13, 100]); // at unity: picks up
@@ -863,7 +864,9 @@ fn palette_leds_are_described() {
 }
 
 /// A style change while playing, to a style of another resolution (SlowWalker is 960 ticks
-/// per quarter, TickingAway 480): the band keeps the tempo, and the clock stays on it.
+/// per quarter, TickingAway 480): it waits for the next bar line, as on a Genos, then the
+/// band carries on in the same section at the same bar position, at the same tempo, and
+/// the clock runs on as if nothing had changed.
 #[test]
 fn style_change_keeps_tempo_across_resolutions() {
     let Some(p) = style("SlowWalker.T552.sty") else { return };
@@ -871,17 +874,29 @@ fn style_change_keeps_tempo_across_resolutions() {
     let s = Session::offline(Options { paths: vec![p], ..Options::default() }).unwrap();
     keys(&s, true, &[36, 40, 43]);
     s.advance(1_000 * MS);
-    s.send(AppCmd::LoadStylePath { path: other.display().to_string() }).unwrap();
     let c = s.state_now().surface.clock;
     let (t0, tempo) = (ns_to_ms(s.now()), c.tempo);
-    // 5 beats later, less a hair so no beat boundary is at stake.
+    let first = s.state().style.clone();
+    s.send(AppCmd::LoadStylePath { path: other.display().to_string() }).unwrap();
+    let st = s.state();
+    assert_eq!(st.style.path, first.path, "the style waits for the bar line");
+    assert!(st.preview.queued.is_some_and(|id| id != first.id));
+    // Past the next bar line.
+    let bar_ms = c.beats_per_bar * 60e3 / tempo;
+    let to_bar = bar_ms - (c.at(t0).beat as f64 - 1.0 + c.at(t0).phase) * 60e3 / tempo;
+    s.advance((to_bar + 30.0) as u64 * MS);
+    let st = s.state_now();
+    assert!(st.style.path.ends_with("TickingAway.T162.sty"));
+    assert_eq!(st.preview.queued, None);
+    assert_eq!(st.transport.section.as_deref(), Some("Main A"));
+    assert_eq!(st.transport.tempo, tempo);
+    // 5 beats later, less a hair so no beat boundary is at stake: the clock never jumped.
     let ahead = (5.0 * 60e3 / tempo - 20.0) as u64 * MS;
+    let t1 = ns_to_ms(s.now());
     s.advance(ahead);
     let st = s.state_now();
-    assert_eq!(st.transport.tempo, tempo);
-    let want = c.at(t0 + ns_to_ms(ahead));
-    assert_eq!((st.transport.bar, st.transport.beat), (want.bar, want.beat), "clock from the switch");
-    assert_eq!((st.transport.bar, st.transport.beat), (2, 1), "5 beats in 4/4 at {tempo}");
+    let want = c.at(t1 + ns_to_ms(ahead));
+    assert_eq!((st.transport.bar, st.transport.beat), (want.bar, want.beat), "the bar position carries on");
 }
 
 /// The hardware Track ◀/▶ LEDs are re-sent when the library gains its second style, as the
@@ -898,4 +913,309 @@ fn track_leds_follow_the_library() {
     assert_eq!(leds.out.sent, n, "nothing changed, nothing sent");
     leds.update(&snap, &[true; 16], &pnl, false, FaderPage::Panel, true, 0.0);
     assert!(leds.out.sent > n, "Track LEDs re-sent");
+}
+
+// ---------------------------------------------------------------------------
+// Engine NEEDs batch (m3/engine-needs): preview, queue, library, voices, keys, settings.
+// ---------------------------------------------------------------------------
+
+/// A session on a folder of three corpus styles.
+fn library_session() -> Option<Session> {
+    let p = style("SlowWalker.T552.sty")?;
+    let dir = p.parent().unwrap();
+    let paths = ["SlowWalker.T552.sty", "TickingAway.T162.sty", "CoolRevibed.T552.sty"].map(|n| dir.join(n)).to_vec();
+    if !paths.iter().all(|p| p.exists()) {
+        return None;
+    }
+    let s = Session::offline(Options { paths, ..Options::default() }).unwrap();
+    s.finish_indexing();
+    Some(s)
+}
+
+/// Another style than the loaded one (its library id).
+fn other_style(s: &Session) -> usize {
+    let cur = s.state().style.id;
+    s.library_list().entries.iter().find(|e| e.id != cur && e.status == "ok").unwrap().id
+}
+
+/// Advance in 10 ms steps until `f` holds (or 10 s pass on the virtual clock).
+fn advance_until(s: &Session, mut f: impl FnMut(&AppState) -> bool) -> bool {
+    for _ in 0..1000 {
+        if f(&s.state()) {
+            return true;
+        }
+        s.advance(10 * MS);
+    }
+    f(&s.state())
+}
+
+/// Wait in real time (a background thread) for `f`, advancing the offline clock.
+fn wait_for(s: &Session, mut f: impl FnMut(&AppState) -> bool) -> bool {
+    let t0 = std::time::Instant::now();
+    while t0.elapsed() < std::time::Duration::from_secs(60) {
+        s.advance(MS);
+        if f(&s.state()) {
+            return true;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    false
+}
+
+#[test]
+fn style_preview_plays_four_bars_and_leaves_the_setup_alone() {
+    let Some(s) = library_session() else { return };
+    s.send(AppCmd::SetStylePartVolume { part: 2, volume: 33 }).unwrap();
+    s.send(AppCmd::RecallOts { index: 0 }).unwrap();
+    let before = s.state();
+    let id = other_style(&s);
+    s.take_output();
+    s.send(AppCmd::AuditionStyle { id }).unwrap();
+    let st = s.state();
+    let a = st.preview.audition.clone().expect("preview playing");
+    assert_eq!((a.id, a.bar, a.bars, a.chord.as_deref()), (id, 1, 4, Some("C")));
+    assert!(!st.transport.running, "the band stays stopped");
+    assert_eq!(st.style, before.style, "the loaded style stays");
+    assert!(s.take_output().iter().any(|m| m[0] & 0xF0 == 0x90 && m[0] & 0x0F >= 8), "the preview plays on the band's channels");
+    assert!(advance_until(&s, |st| st.preview.audition.as_ref().is_some_and(|a| a.bar == 2)));
+    assert_eq!(s.state().preview.audition.as_ref().unwrap().chord.as_deref(), Some("Am"));
+    assert!(advance_until(&s, |st| st.preview.audition.is_none()), "it stops by itself");
+    let st = s.state();
+    assert!(!st.transport.running);
+    assert_eq!((&st.style, &st.keyboard_parts, &st.ots), (&before.style, &before.keyboard_parts, &before.ots));
+    assert_eq!(st.mixer.style_parts[2].volume, 33, "the mixer stays");
+    // Afterwards the loaded style's setup is back on its channels: its fader levels.
+    let out = s.take_output();
+    assert!(out.contains(&[0xBA, 7, 33]), "the Bass level goes out again");
+}
+
+#[test]
+fn style_preview_is_refused_while_the_band_plays_and_ends_on_start() {
+    let Some(s) = library_session() else { return };
+    let id = other_style(&s);
+    // A Sync Start chord ends the preview and starts the band.
+    s.send(AppCmd::AuditionStyle { id }).unwrap();
+    assert!(s.state().preview.audition.is_some());
+    keys(&s, true, &[36, 40, 43]);
+    let st = s.state();
+    assert!(st.transport.running && st.preview.audition.is_none());
+    let r = s.send(AppCmd::AuditionStyle { id });
+    assert!(matches!(r, Err(CmdError::Failed(_))), "{r:?}");
+    s.send(AppCmd::Stop).unwrap();
+    // StopAudition and START/STOP end it too.
+    s.send(AppCmd::AuditionStyle { id }).unwrap();
+    s.send(AppCmd::StopAudition).unwrap();
+    assert!(s.state().preview.audition.is_none());
+    s.send(AppCmd::AuditionStyle { id }).unwrap();
+    s.send(AppCmd::StartStop).unwrap();
+    let st = s.state();
+    assert!(st.transport.running && st.preview.audition.is_none());
+}
+
+#[test]
+fn queue_style_waits_for_the_bar_line_and_loads_at_once_when_stopped() {
+    let Some(s) = library_session() else { return };
+    let first = s.state().style.id;
+    let id = other_style(&s);
+    // Stopped: the same as LoadStyle.
+    s.send(AppCmd::QueueStyle { id }).unwrap();
+    let st = s.state();
+    assert_eq!((st.style.id, st.preview.queued), (id, None));
+    s.send(AppCmd::LoadStyle { id: first }).unwrap();
+    // Playing: the next bar line.
+    keys(&s, true, &[36, 40, 43]);
+    s.advance(300 * MS);
+    s.send(AppCmd::QueueStyle { id }).unwrap();
+    let st = s.state();
+    assert_eq!((st.style.id, st.preview.queued), (first, Some(id)));
+    let section = st.transport.section.clone();
+    assert!(advance_until(&s, |st| st.style.id == id));
+    let st = s.state();
+    assert_eq!(st.preview.queued, None);
+    assert_eq!(st.transport.section, section, "the section carries on");
+    // StepStyle while playing waits too, from the style waiting.
+    s.send(AppCmd::StepStyle { delta: 1 }).unwrap();
+    let waiting = s.state().preview.queued.expect("a style waits");
+    assert_ne!(waiting, id);
+    // Stopping first loads it then.
+    s.send(AppCmd::Stop).unwrap();
+    let st = s.state();
+    assert_eq!((st.style.id, st.preview.queued), (waiting, None));
+}
+
+#[test]
+fn library_entries_carry_the_sff_format_and_the_voice_list() {
+    let Some(s) = library_session() else { return };
+    let lib = s.library_list();
+    assert!(lib.entries.iter().all(|e| matches!(e.format.as_deref(), Some("SFF1" | "SFF2"))), "{:?}", lib.entries);
+    let loaded = lib.entries.iter().find(|e| e.id == s.state().style.id).unwrap();
+    assert_eq!(loaded.format.as_deref(), Some(s.state().style.format.as_str()));
+    assert_eq!(lib.voices.len(), 128);
+    assert_eq!((lib.voices[0].program, lib.voices[0].name.as_str()), (0, "Grand Piano"));
+    assert!(lib.voices.iter().enumerate().all(|(i, v)| v.program as usize == i && v.bank_msb == 0 && v.name == gm_name(v.program)));
+}
+
+#[test]
+fn rescan_adds_and_drops_files_keeping_ids() {
+    let Some(src) = style("SlowWalker.T552.sty") else { return };
+    let dir = std::env::temp_dir().join(format!("yahaha-rescan-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(dir.join("Sub")).unwrap();
+    std::fs::copy(&src, dir.join("A.sty")).unwrap();
+    std::fs::copy(src.with_file_name("TickingAway.T162.sty"), dir.join("Sub/B.sty")).unwrap();
+    let s = Session::offline(Options { paths: vec![dir.clone()], ..Options::default() }).unwrap();
+    s.finish_indexing();
+    let st = s.state();
+    assert_eq!((st.library.count, st.library.roots.clone(), st.library.scanning), (2, vec![dir.display().to_string()], false));
+    let ids: Vec<(usize, String)> = s.library_list().entries.iter().map(|e| (e.id, e.path.clone())).collect();
+    std::fs::copy(src.with_file_name("CoolRevibed.T552.sty"), dir.join("Sub/C.sty")).unwrap();
+    s.send(AppCmd::RescanLibrary).unwrap();
+    assert!(s.state().library.scanning);
+    assert!(wait_for(&s, |st| !st.library.scanning && st.library.count == 3 && st.library.pending == 0));
+    let lib = s.library_list();
+    for (id, path) in &ids {
+        assert!(lib.entries.iter().any(|e| e.id == *id && e.path == *path), "{path} keeps id {id}");
+    }
+    let c = lib.entries.iter().find(|e| e.path.ends_with("C.sty")).unwrap();
+    assert_eq!((c.folder.as_str(), c.status.as_str()), ("Sub", "ok"));
+    std::fs::remove_file(dir.join("Sub/B.sty")).unwrap();
+    s.send(AppCmd::RescanLibrary).unwrap();
+    assert!(wait_for(&s, |st| !st.library.scanning && st.library.count == 2));
+    assert!(!s.library_list().entries.iter().any(|e| e.path.ends_with("B.sty")));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn the_keyboard_strip_sees_held_keys_parts_chord_and_detection() {
+    let Some(s) = offline("SlowWalker.T552.sty") else { return };
+    s.send(AppCmd::SetPartOn { part: 1, on: true }).unwrap(); // Right 2 layered on Right 1
+    keys(&s, true, &[36, 40, 43, 72]);
+    let k = s.state().keyboard.clone();
+    let held: Vec<(u8, Zone, Vec<u8>)> = k.held.iter().map(|h| (h.note, h.zone, h.parts.clone())).collect();
+    assert_eq!(held, vec![
+        (36, Zone::Left, vec![]),
+        (40, Zone::Left, vec![]),
+        (43, Zone::Left, vec![]),
+        (72, Zone::Right, vec![0, 1]),
+    ], "Lower, Left off: the left hand only gives the chord; the right plays Right 1 + 2");
+    assert_eq!((k.left_split, k.detection), (54, [0, 54]));
+    assert_eq!((k.chord_tones.clone(), k.chord_bass), (vec![0, 4, 7], Some(0)), "C");
+    s.send(AppCmd::SetUpper { on: true }).unwrap();
+    assert_eq!(s.state().keyboard.detection, [55, 127], "Upper: above the split");
+    s.send(AppCmd::SetUpper { on: false }).unwrap();
+    s.send(AppCmd::SetFingering { fingering: Fingering::FullKeyboard }).unwrap();
+    assert_eq!(s.state().keyboard.detection, [0, 127], "Full Keyboard: every key");
+    keys(&s, false, &[36, 40, 43, 72]);
+    assert!(s.state().keyboard.held.is_empty());
+    // The section's length for the lead band (the chord started the band): the Main's
+    // bars playing, none stopped.
+    assert!(s.state().transport.running);
+    assert!(s.state().transport.section_bars.is_some_and(|b| b >= 1));
+    s.send(AppCmd::Stop).unwrap();
+    assert_eq!(s.state().transport.section_bars, None);
+}
+
+#[test]
+fn palette_leds_switch_at_runtime() {
+    let Some(s) = offline("SlowWalker.T552.sty") else { return };
+    assert!(!s.state().pads.palette_leds);
+    s.send(AppCmd::SetPaletteLeds { on: true }).unwrap();
+    let st = s.state();
+    assert!(st.pads.palette_leds && st.pads.pads.iter().all(|p| p.palette.is_some()));
+    // The hardware gets every pad again, in the new mode.
+    let mut leds = Leds::new(PacketSink::new(crate::rt::Target::Null), false);
+    let snap = s.inner.lock().snap;
+    let pnl = Panel::default();
+    leds.update(&snap, &[true; 16], &pnl, false, FaderPage::Panel, false, 0.0);
+    let n = leds.out.sent;
+    leds.set_palette(true);
+    leds.update(&snap, &[true; 16], &pnl, false, FaderPage::Panel, false, 0.0);
+    assert!(leds.out.sent > n, "the pads in palette colours");
+    // Back to RGB: every pad again, though its colour hasn't changed since RGB was last on.
+    let n = leds.out.sent;
+    leds.set_palette(false);
+    leds.update(&snap, &[true; 16], &pnl, false, FaderPage::Panel, false, 0.0);
+    assert!(leds.out.sent > n, "every pad re-sent");
+    s.send(AppCmd::SetPaletteLeds { on: false }).unwrap();
+    assert!(s.state().pads.pads.iter().all(|p| p.palette.is_none()));
+}
+
+#[test]
+fn midi_input_choice() {
+    let names: Vec<String> =
+        ["yahaha", "Launchkey 49 MK4 LKMK4 MIDI Out", "Launchkey 49 MK4 LKMK4 DAW Out", "Roland A-88", "IAC Driver Bus 1"].map(String::from).to_vec();
+    assert_eq!(choose_keys(&names, false, &[]), vec![1], "default: the Launchkey's keys");
+    assert_eq!(choose_keys(&names, true, &[]), vec![1, 3, 4], "all: never yahaha, never the DAW port");
+    assert_eq!(choose_keys(&names, false, &["Roland".into(), "IAC".into()]), vec![3, 4]);
+    assert_eq!(choose_keys(&names[3..], false, &[]), vec![0, 1], "no Launchkey: every source");
+    // Offline there are no sources, but the setting is kept and shown.
+    let Some(s) = offline("SlowWalker.T552.sty") else { return };
+    assert!(!s.state().io.all_inputs);
+    s.send(AppCmd::SetMidiInputs { all: true, names: vec![] }).unwrap();
+    assert!(s.state().io.all_inputs);
+}
+
+#[test]
+fn sound_font_switch_needs_the_synth_and_a_file_in_its_folder() {
+    let Some(p) = style("SlowWalker.T552.sty") else { return };
+    let sf_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("soundfonts");
+    let fonts = library::sound_font_files(&sf_dir);
+    let sf2 = fonts.first().map(|f| sf_dir.join(f));
+    let s = Session::offline(Options { paths: vec![p], sf2: sf2.clone(), ..Options::default() }).unwrap();
+    let st = s.state();
+    assert_eq!(st.io.sound_fonts, fonts);
+    assert_eq!(st.io.sound_font_file, None, "no synth offline");
+    let r = s.send(AppCmd::SetSoundFont { file: "x.sf2".into() });
+    assert!(matches!(r, Err(CmdError::Failed(_))));
+    assert_eq!(s.meters().channels.len(), 0, "no synth, no meters");
+    let Some(file) = fonts.first().cloned() else { return };
+    // A synth as a live session has one, with the rings its audio thread would drain.
+    let (tx, mut rx) = RingBuffer::<Box<synth::Rack>>::new(2);
+    let (_old_tx, old) = RingBuffer::<Box<synth::Rack>>::new(4);
+    s.inner.lock().synth = Some(SynthRef {
+        info: SynthInfo { name: "test".into(), sample_rate: 48000, buffer: None, device: "none".into(), channels: 2 },
+        control: Arc::new(SynthControl::new(0)),
+        swap: Some(synth::RackSwap { tx, old }),
+    });
+    for bad in ["../x.sf2", "nope.sf2", "a/b.sf2"] {
+        assert!(s.send(AppCmd::SetSoundFont { file: bad.into() }).is_err(), "{bad}");
+    }
+    s.send(AppCmd::SetSoundFont { file: file.clone() }).unwrap();
+    assert!(s.state().io.sound_font_loading);
+    assert!(wait_for(&s, |st| !st.io.sound_font_loading), "loads in the background");
+    let st = s.state();
+    assert_eq!(st.io.sound_font_file.as_deref(), Some(file.as_str()));
+    assert!(rx.pop().is_ok(), "the new rack went to the audio thread");
+    let m = s.meters();
+    assert_eq!(m.channels.iter().map(|c| c.channel).collect::<Vec<_>>(), vec![1, 2, 3, 4, 9, 10, 11, 12, 13, 14, 15, 16]);
+}
+
+#[test]
+fn new_state_and_commands_serialize_as_documented() {
+    use serde_json::json;
+    for (cmd, want) in [
+        (AppCmd::AuditionStyle { id: 3 }, json!({"type": "auditionStyle", "id": 3})),
+        (AppCmd::StopAudition, json!({"type": "stopAudition"})),
+        (AppCmd::QueueStyle { id: 4 }, json!({"type": "queueStyle", "id": 4})),
+        (AppCmd::RescanLibrary, json!({"type": "rescanLibrary"})),
+        (AppCmd::SetSoundFont { file: "A.sf2".into() }, json!({"type": "setSoundFont", "file": "A.sf2"})),
+        (AppCmd::SetMidiInputs { all: false, names: vec!["K".into()] }, json!({"type": "setMidiInputs", "all": false, "names": ["K"]})),
+        (AppCmd::SetPaletteLeds { on: true }, json!({"type": "setPaletteLeds", "on": true})),
+    ] {
+        assert_eq!(serde_json::to_value(&cmd).unwrap(), want);
+        assert_eq!(serde_json::from_value::<AppCmd>(want).unwrap(), cmd);
+    }
+    let Some(s) = offline("SlowWalker.T552.sty") else { return };
+    let v = serde_json::to_value(&*s.state()).unwrap();
+    assert_eq!(v["preview"], json!({"audition": null, "queued": null}));
+    assert_eq!(v["keyboard"]["held"], json!([]));
+    assert_eq!(v["keyboard"]["detection"], json!([0, 54]));
+    assert!(v["transport"].get("sectionBars").is_some());
+    for k in ["sources", "allInputs", "soundFonts", "soundFontFile", "soundFontLoading"] {
+        assert!(v["io"].get(k).is_some(), "io.{k}");
+    }
+    for k in ["roots", "scanning"] {
+        assert!(v["library"].get(k).is_some(), "library.{k}");
+    }
+    assert!(v["pads"].get("paletteLeds").is_some());
 }

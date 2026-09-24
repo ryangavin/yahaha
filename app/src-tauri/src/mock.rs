@@ -14,6 +14,14 @@ use yahaha::parts::{self, FaderPage};
 
 const FIXTURE: &str = include_str!("../../src/lib/api/mock-fixture.json");
 const ROOT: &str = "/Users/me/Styles";
+/// The MIDI sources the mock rig has: (name, the Launchkey DAW port).
+const MOCK_SOURCES: [(&str, bool); 4] = [
+    ("Launchkey 49 MK4 LKMK4 MIDI Out", false),
+    ("Launchkey 49 MK4 LKMK4 DAW Out", true),
+    ("TASCAM Model 16", false),
+    ("IAC Driver Bus 1", false),
+];
+const MOCK_SOUND_FONTS: [&str; 3] = ["GeneralUser-GS.sf2", "FluidR3_GM.sf2", "MuseScore_General.sf2"];
 
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -159,8 +167,10 @@ impl MockSession {
                     tempo: s.error.is_none().then_some(s.tempo),
                     time_signature: s.error.is_none().then_some(s.time_signature),
                     sections: if s.error.is_some() { String::new() } else { sections_text(&s.sections) },
+                    format: s.error.is_none().then(|| if s.file.to_lowercase().ends_with(".sty") { "SFF1" } else { "SFF2" }.to_string()),
                 })
                 .collect(),
+            voices: voice_options(),
         };
         let gm = f.gm;
         let part = |i: usize, program: u8, on: bool| KeyboardPart {
@@ -195,6 +205,7 @@ impl MockSession {
                 bar: 12,
                 beat: 1,
                 beats_per_bar: beats_per_bar(s0.time_signature),
+                section_bars: Some(4),
                 tempo: s0.tempo,
                 lamps: vec![],
             },
@@ -233,7 +244,14 @@ impl MockSession {
             },
             pads: PadsState { page: Page::Sections, page_name: String::new(), page_number: 1, page_count: 3, pads: vec![], connected: true, palette_leds: false },
             ots: OtsState { settings: vec![], applied: 0, link: false },
-            library: LibraryStatus { revision: 1, count: library.entries.len(), position: 0, pending: 0 },
+            library: LibraryStatus {
+                revision: 1,
+                count: library.entries.len(),
+                position: 0,
+                pending: 0,
+                roots: vec![ROOT.to_string()],
+                scanning: false,
+            },
             surface: SurfaceState::default(),
             io: IoState {
                 output_port: "yahaha".into(),
@@ -251,6 +269,23 @@ impl MockSession {
                 last_control: 0,
                 unmapped: String::new(),
                 offline: false,
+                sources: MOCK_SOURCES
+                    .iter()
+                    .map(|&(name, pads)| MidiSource { name: name.into(), listening: true, pads })
+                    .collect(),
+                all_inputs: true,
+                sound_fonts: MOCK_SOUND_FONTS.iter().map(|f| f.to_string()).collect(),
+                sound_font_file: Some(MOCK_SOUND_FONTS[0].into()),
+                sound_font_loading: false,
+            },
+            preview: PreviewState::default(),
+            // Mid-song: the left hand holds the Am7 it fingered.
+            keyboard: KeyboardState {
+                held: [45, 48, 52, 55].map(|note| HeldNote { note, zone: Zone::Left, parts: vec![] }).to_vec(),
+                left_split: 54,
+                chord_tones: vec![9, 0, 4, 7],
+                chord_bass: Some(9),
+                detection: [0, 54],
             },
             message: None,
         };
@@ -567,7 +602,19 @@ impl MockSession {
         c.fingering_name = if c.upper { "Fingered*".into() } else { c.fingering.name().into() };
         c.manual_bass_active = c.upper && c.manual_bass;
         c.split_name = note_name(c.split);
-        st.transport.sync_stop_available = c.upper || !matches!(c.fingering, Fingering::FullKeyboard | Fingering::AiFullKeyboard);
+        let full = matches!(c.fingering, Fingering::FullKeyboard | Fingering::AiFullKeyboard);
+        st.transport.sync_stop_available = c.upper || !full;
+        // The keyboard strip: the split and where chord detection listens (no keys held).
+        st.keyboard.left_split = c.split;
+        st.keyboard.detection = if c.upper {
+            [c.split.saturating_add(1).min(127), 127]
+        } else if full {
+            [0, 127]
+        } else {
+            [0, c.split]
+        };
+        // The mock's patterns: a Main is 4 bars, an Intro or Ending 2, a fill 1.
+        st.transport.section_bars = st.transport.section.as_deref().map(|s| if s.starts_with("Main") { 4 } else if s.starts_with("Intro") || s.starts_with("Ending") { 2 } else { 1 });
         let mb = c.manual_bass_active;
         for (i, p) in st.keyboard_parts.iter_mut().enumerate() {
             p.plays_bass = i == 3 && mb;
@@ -995,6 +1042,36 @@ impl MockSession {
                 self.message("All notes off", false);
             }
             AppCmd::ClearMessage => self.state.message = None,
+            // Without a clock of its own for the bar line, the mock loads at once.
+            AppCmd::QueueStyle { id } => self.load_style(id),
+            AppCmd::AuditionStyle { id } => {
+                if self.state.transport.running {
+                    self.message("Stop the band to preview a style", true);
+                } else if id < self.styles.len() {
+                    self.state.preview.audition = Some(AuditionState { id, bar: 1, bars: 4, chord: Some("C".into()) });
+                }
+            }
+            AppCmd::StopAudition => self.state.preview.audition = None,
+            AppCmd::RescanLibrary => self.message("Style folders rescanned", false),
+            AppCmd::SetSoundFont { file } => {
+                if self.state.io.sound_fonts.contains(&file) {
+                    if let Some(s) = self.state.io.synth.as_mut() {
+                        s.sound_font = file.trim_end_matches(".sf2").to_string();
+                    }
+                    self.state.io.sound_font_file = Some(file);
+                } else {
+                    self.message(format!("no SoundFont {file} in the SoundFont folder"), true);
+                }
+            }
+            AppCmd::SetMidiInputs { all, names } => {
+                let io = &mut self.state.io;
+                io.all_inputs = all;
+                for src in &mut io.sources {
+                    src.listening = src.pads || all || names.iter().any(|n| !n.is_empty() && src.name.contains(n.as_str()));
+                }
+                io.inputs = io.sources.iter().filter(|s| s.listening).map(|s| if s.pads { format!("{} (pads)", s.name) } else { s.name.clone() }).collect();
+            }
+            AppCmd::SetPaletteLeds { on } => self.state.pads.palette_leds = on,
         }
     }
 

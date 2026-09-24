@@ -81,8 +81,19 @@ export type AppCmd =
   | { type: 'nextAudioOutput' }
   | { type: 'panic' }
   | { type: 'clearMessage' }
-  // Provisional (#21, not in the engine yet): see PreviewState below.
+  // Style preview and queue: see PreviewState below.
   | PreviewCmd
+  // Settings (docs/app-api.md)
+  /** Reload the synth from another `.sf2` in its folder (`io.soundFonts`); loads in the
+   * background (`io.soundFontLoading`). */
+  | { type: 'setSoundFont'; file: string }
+  /** Keyboard sources: every one (`all`), or those whose name contains one of `names`
+   * (`all` false, no names: a Launchkey's keys, else every source). */
+  | { type: 'setMidiInputs'; all: boolean; names: string[] }
+  /** Launchkey LEDs in Novation palette colours instead of RGB. */
+  | { type: 'setPaletteLeds'; on: boolean }
+  /** Re-walk the style folders (`library.roots`); `library.scanning` while it runs. */
+  | { type: 'rescanLibrary' }
 
 export type CmdError = { kind: 'busy' } | { kind: 'failed'; message: string }
 
@@ -160,9 +171,9 @@ export interface TransportState {
   tempo: number
   /** Page 1 of the pads, whatever page the hardware is on: the section lamps. */
   lamps: Pad[]
-  /** Provisional (NEED on the board): how many bars the section playing lasts (a Main's
-   * pattern length; it loops), for the lead-sheet band's progress. Absent: unknown. */
-  sectionBars?: number | null
+  /** How many bars the section playing lasts (a Main's pattern length; it loops), for
+   * the lead-sheet band's progress. Null when stopped. */
+  sectionBars: number | null
 }
 
 export interface ChordState {
@@ -244,7 +255,8 @@ export interface PadsState {
   /** This page's 16 pads: the top row, then the bottom row. */
   pads: Pad[]
   connected: boolean
-  /** The LEDs run in Novation palette mode (`--palette-leds`): the pads carry `palette`. */
+  /** The LEDs run in Novation palette mode (`setPaletteLeds`, `--palette-leds`): the
+   * pads carry `palette`. */
   paletteLeds: boolean
 }
 
@@ -272,6 +284,20 @@ export interface LibraryStatus {
   position: number
   /** Entries still being indexed. */
   pending: number
+  /** The style folders (and files) scanned. */
+  roots: string[]
+  /** A rescan (`rescanLibrary`) is running. */
+  scanning: boolean
+}
+
+/** A MIDI source (`io.sources`). */
+export interface MidiSource {
+  /** As `setMidiInputs` matches it. */
+  name: string
+  /** yahaha listens to it (as a keyboard, or as the pads). */
+  listening: boolean
+  /** The Launchkey DAW port (pads, buttons, faders). */
+  pads: boolean
 }
 
 export interface SynthState {
@@ -295,6 +321,29 @@ export interface IoState {
   /** e.g. "unmapped CC 103 = 127"; empty if none. */
   unmapped: string
   offline: boolean
+  /** Every MIDI source, and whether yahaha listens to it. */
+  sources: MidiSource[]
+  /** Every source is a keyboard (`setMidiInputs { all: true }`). */
+  allInputs: boolean
+  /** The `.sf2` files in the synth's folder, for `setSoundFont`. */
+  soundFonts: string[]
+  /** The file the synth plays; null without the synth. */
+  soundFontFile: string | null
+  /** A `setSoundFont` is loading. */
+  soundFontLoading: boolean
+}
+
+/** Output levels (`meters()`): peaks since the last call, linear (1 = full scale). The
+ * client applies its own decay and peak hold. */
+export interface Meters {
+  atMs: number
+  /** Keyboard parts (ch 1–4) and Style parts (ch 9–16), before the soft clipper. Empty
+   * without the synth. */
+  channels: { channel: number; peak: number }[]
+  /** Left, right after the soft clipper. */
+  master: [number, number]
+  /** Audio buffers in which the soft clipper worked, since start. */
+  clips: number
 }
 
 // ── The Launchkey surface (#77, docs/app-api.md "surface") ────────────────────
@@ -381,8 +430,8 @@ export interface ClockState {
   ledAnchorBeats: number
 }
 
-// ── Provisional: the keyboard (NEED on the board) ────────────────────────
-// What the keyboard strip under the mirror shows. Not in the engine yet; the mock sends it.
+// ── The keyboard (docs/app-api.md "keyboard") ─────────────────────────────
+// What the keyboard strip under the mirror shows.
 
 /** A key held on the controller now. */
 export interface HeldNote {
@@ -405,13 +454,15 @@ export interface KeyboardState {
   chordTones: number[]
   /** The bass the style plays (pitch class): the root, or the slash / on-bass note. */
   chordBass: number | null
+  /** The keys chord detection reads, as [lo, hi] MIDI notes (inclusive): up to the split
+   * in Lower, above it in Upper, every key in the Full Keyboard types. */
+  detection: [number, number]
 }
 
-// ── Provisional: style preview (#21, not in the engine yet) ──────────────
+// ── Style preview (#21) ─────────────────────────────────────────────────
 // The browser auditions a style while the band is stopped, and queues one for the next
-// bar line while it plays. The mock implements both; the engine will send
-// `state.preview` once it does, and until then the browser hides these controls when
-// `preview` is absent. Proposed on the coordination board (NEED, #20/#21 ui-browser).
+// bar line while it plays (docs/app-api.md). `loadStyle`/`stepStyle` while playing wait
+// for the bar line too; `preview.queued` shows the style waiting.
 
 export type PreviewCmd =
   /** Stopped only: plays the style's Main A over the default progression (one chord a
@@ -453,10 +504,10 @@ export interface AppState {
   message: { seq: number; text: string; error: boolean } | null
   /** The Launchkey beyond the pads: controls, Shift, faders, Track neighbours, clocks. */
   surface: SurfaceState
-  /** Provisional (see KeyboardState): held keys and chord tones for the keyboard strip. */
-  keyboard?: KeyboardState
-  /** Provisional (see PreviewState); absent from the engine until it can audition. */
-  preview?: PreviewState
+  /** The keys held and the chord, for the keyboard strip. */
+  keyboard: KeyboardState
+  /** The style preview and the style waiting for the bar line. */
+  preview: PreviewState
 }
 
 export interface LibraryEntry {
@@ -471,14 +522,23 @@ export interface LibraryEntry {
   timeSignature: [number, number] | null
   /** e.g. "Main ABCD · Intro ABC · Ending ABC · Fill ABCD · Break". */
   sections: string
-  /** Provisional (#20): "SFF1" or "SFF2", null until indexed or unreadable. Absent from
-   * the engine until it lists it (the loaded style's is `style.format`). */
-  format?: string | null
+  /** "SFF1" or "SFF2" from the file's header; null until indexed, or unreadable. */
+  format: string | null
+}
+
+/** A voice `setPartVoice` can pick (a GM program on bank 0). */
+export interface VoiceOption {
+  program: number
+  bankMsb: number
+  bankLsb: number
+  name: string
 }
 
 export interface LibraryList {
   revision: number
   entries: LibraryEntry[]
+  /** The voices `setPartVoice` picks from (the same every revision). */
+  voices: VoiceOption[]
 }
 
 // ── Names the UI uses ─────────────────────────────────────────────────────

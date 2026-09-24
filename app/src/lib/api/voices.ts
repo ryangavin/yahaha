@@ -1,12 +1,11 @@
 // The voices a keyboard part can play: the list `setPartVoice` picks from.
 //
-// Provisional. The engine names voices with `gm_name()` (src/api.rs) but doesn't send the
-// list yet. The proposed shape is `AppState.voices` (or `LibraryList.voices`):
-// `{ program: number; name: string }[]`, the GM list today, and later whatever the synth
-// or a plugin can play. Until the engine sends it, this falls back to the same 128 GM
-// names (the mock fixture carries the engine's list). Components read `voiceList()` only.
+// The engine sends it with the library (`LibraryList.voices`: `{ program, bankMsb,
+// bankLsb, name }[]`), the GM list today, and later whatever the synth or a plugin can
+// play. Before the first library arrives this falls back to the same 128 GM names.
+// Components read `voiceList()` only.
 
-import type { AppState } from './types'
+import type { LibraryList } from './types'
 import { GM } from './mock'
 
 export interface VoiceEntry {
@@ -22,9 +21,9 @@ export const GM_FAMILIES = [
 
 const FALLBACK: VoiceEntry[] = GM.map((name, program) => ({ program, name }))
 
-/** The voice list the engine sends (`state.voices`, proposed), else the GM list. */
-export function voiceList(s: AppState): VoiceEntry[] {
-  const sent = (s as AppState & { voices?: VoiceEntry[] }).voices
+/** The voice list the engine sends (`library.voices`), else the GM list. */
+export function voiceList(lib: Pick<LibraryList, 'voices'> | null | undefined): VoiceEntry[] {
+  const sent = lib?.voices
   return sent && sent.length ? sent : FALLBACK
 }
 

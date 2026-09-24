@@ -87,6 +87,8 @@ impl Client {
     }
 }
 
+/// An input port: a plain reference, valid until the client is disposed.
+#[derive(Clone, Copy, Debug)]
 pub struct InputPort {
     port: MIDIPortRef,
 }
@@ -95,6 +97,11 @@ impl InputPort {
     /// Connect a source; `tag` is handed to the handler with every packet from it.
     pub fn connect(&self, src: Endpoint, tag: usize) -> Result<()> {
         check(unsafe { MIDIPortConnectSource(self.port, src, tag as *mut c_void) }, "MIDIPortConnectSource")
+    }
+
+    /// Stop listening to a source.
+    pub fn disconnect(&self, src: Endpoint) -> Result<()> {
+        check(unsafe { MIDIPortDisconnectSource(self.port, src) }, "MIDIPortDisconnectSource")
     }
 }
 

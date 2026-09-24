@@ -3,6 +3,7 @@
 //! - command `send(cmd: AppCmd) -> Result<(), CmdError>`
 //! - command `state() -> AppState`
 //! - command `library() -> LibraryList`
+//! - command `meters() -> Meters` (output levels since the last call; poll at display rate)
 //! - event `yahaha` (`Event`): `stateChanged { version }`, `libraryChanged { revision }`,
 //!   `stopped`
 //!
@@ -81,6 +82,16 @@ fn library(backend: State<'_, Shared>) -> Value {
     match &**backend {
         Backend::Live(s) => serde_json::to_value(s.library_list()).unwrap_or(Value::Null),
         Backend::Mock(m) => serde_json::to_value(m.lock().unwrap().library()).unwrap_or(Value::Null),
+    }
+}
+
+/// Output levels: each part's and the master's peak since the last call, and the clip
+/// count. The mock has no audio: zero levels, no channels.
+#[tauri::command]
+fn meters(backend: State<'_, Shared>) -> Value {
+    match &**backend {
+        Backend::Live(s) => serde_json::to_value(s.meters()).unwrap_or(Value::Null),
+        Backend::Mock(_) => serde_json::to_value(yahaha::api::Meters::default()).unwrap_or(Value::Null),
     }
 }
 
@@ -183,7 +194,7 @@ pub fn run() {
                 .spawn(move || if live { forward_events(handle, b) } else { tick_mock(handle, b) })?;
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![send, state, library])
+        .invoke_handler(tauri::generate_handler![send, state, library, meters])
         .build(tauri::generate_context!())
         .expect("error while building tauri application");
     app.run(|app, event| {

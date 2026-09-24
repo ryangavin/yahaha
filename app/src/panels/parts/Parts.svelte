@@ -31,7 +31,7 @@
   const parts = $derived(s.keyboardParts)
   const chord = $derived(s.chord)
   const ots = $derived(s.ots)
-  const voices = $derived(voiceList(s))
+  const voices = $derived(voiceList(app.library))
   const layer = $derived(layerOf(parts))
   const zone = $derived(leftZone(s))
   const chords = $derived(chordsWhere(s))

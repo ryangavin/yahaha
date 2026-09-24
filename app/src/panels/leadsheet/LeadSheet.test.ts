@@ -2,6 +2,7 @@ import { cleanup, render } from '@testing-library/svelte'
 import { flushSync } from 'svelte'
 import { afterEach, describe, expect, it } from 'vitest'
 import { MockSession } from '../../lib/api/mock'
+import type { AppState } from '../../lib/api/types'
 import { app } from '../../lib/store.svelte'
 import LeadSheet from './LeadSheet.svelte'
 
@@ -53,10 +54,10 @@ describe('lead-sheet band', () => {
     expect(document.querySelector('[data-slot="chart"]')).not.toBeNull()
   })
 
-  it('without the section length (the engine today): one cell, and the bar counted from the clock', () => {
+  it('without the section length (an engine older than sectionBars): one cell, and the bar counted from the clock', () => {
     const session = new MockSession({ manual: true, demo: true })
-    const st = { ...session.state, transport: { ...session.state.transport, sectionBars: undefined } }
-    app.attach({ kind: 'tauri', subscribe: (fn) => (fn(st), () => {}), send: () => {}, library: () => session.library(), dispose: () => {} })
+    const st = { ...session.state, transport: { ...session.state.transport, sectionBars: undefined } } as unknown as AppState
+    app.attach({ kind: 'tauri', subscribe: (fn) => (fn(st), () => {}), send: () => {}, library: () => session.library(), meters: () => session.meters(), dispose: () => {} })
     flushSync()
     render(LeadSheet)
     const c = st.surface.clock

@@ -9,9 +9,8 @@
    │ [49 61 88] │ │ ●│  │ ● │  ●  │  ◉ │   ● chord tone  ◉ bass                     │ │
    └────────────┴─┴──┴──┴───┴─────┴────┴──────────────────────────────────────────┴─┘
 
-  Held keys and chord tones come from the provisional `state.keyboard` (types.ts); the
-  engine doesn't send them yet, so on the real engine the strip shows the splits and the
-  detection area only. Everything is percentage-positioned boxes: a key only changes a
+  Held keys, chord tones and the detection area come from the engine's `state.keyboard`.
+  Everything is percentage-positioned boxes: a key only changes a
   class and one custom property when it's pressed, so 60 Hz updates stay cheap.
 -->
 <script lang="ts">
@@ -35,7 +34,8 @@
   const tones = $derived(new Set(kb?.chordTones ?? []))
   const bass = $derived(kb?.chordBass ?? null)
 
-  const area = $derived(detectionArea(s, range))
+  // An engine older than `keyboard` doesn't say where detection listens: no area.
+  const area = $derived(kb ? detectionArea(kb.detection, range) : null)
   const areaX = $derived(area ? [boundary(keys, area[0] - 1), boundary(keys, area[1])] : null)
   const areaName = $derived(
     c.upper ? 'Upper' : c.fingering === 'fullKeyboard' || c.fingering === 'aiFullKeyboard' ? 'Full Keyboard' : 'Lower',

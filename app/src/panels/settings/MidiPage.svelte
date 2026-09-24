@@ -1,7 +1,7 @@
 <!--
   MIDI: which sources play yahaha (all merged, or the ones you pick), the virtual
-  "yahaha" output port, the Launchkey connection and its LED mode. Input selection and
-  palette LEDs are mocked until the engine has `setMidiInputs` / `setPaletteLeds`.
+  "yahaha" output port, the Launchkey connection and its LED mode (`setMidiInputs`,
+  `setPaletteLeds`; badged and inert on an engine older than them).
 -->
 <script lang="ts">
   import { settings } from '../../lib/api/settings.svelte'
@@ -13,11 +13,10 @@
 
   const io = $derived(app.state.io)
   const connected = $derived(app.state.pads.connected)
-  const real = $derived(app.kind === 'tauri')
-  const view = $derived(settings.view(app.state, real))
-  // On the real engine a setting it lacks is badged and inert: it never pretends to work.
-  const inputsInert = $derived(real && view.mocked.inputs)
-  const ledsInert = $derived(real && view.mocked.paletteLeds)
+  const view = $derived(settings.view(app.state))
+  // A setting the engine lacks (an older engine) is badged and inert: it never pretends to work.
+  const inputsInert = $derived(view.mocked.inputs)
+  const ledsInert = $derived(view.mocked.paletteLeds)
   const inputsNote = $derived(
     inputsInert
       ? 'The inputs yahaha has open. Choosing them here needs an engine update; for now use --all-inputs or --input name at launch.'

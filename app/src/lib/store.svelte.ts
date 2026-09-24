@@ -16,7 +16,7 @@ import type { AppCmd, AppState, ClockState, LibraryList } from './api/types'
 
 class AppStore {
   state = $state.raw<AppState>(initialState())
-  library = $state.raw<LibraryList>({ revision: 0, entries: [] })
+  library = $state.raw<LibraryList>({ revision: 0, entries: [], voices: [] })
   kind = $state<'mock' | 'tauri' | null>(null)
   private session: Session | null = null
   private unsub: (() => void) | null = null
@@ -69,7 +69,7 @@ export const app = new AppStore()
  * animation frame reads
  *
  *   t   = atMs + (now − receivedMs)                       session ms, now
- *   pos = running ? sectionAnchorBeats + (t − sectionAnchorMs)·tempo/60000 : 0
+ *   pos = running ? max(0, sectionAnchorBeats + (t − sectionAnchorMs)·tempo/60000) : 0
  *   led = ledAnchorBeats + (t − ledAnchorMs)·tempo/60000
  *
  * - `beats`: the LED clock, free-running. Lamps flash and pulse on it, as the hardware pads do.
@@ -93,7 +93,8 @@ class BeatClock {
     if (!c) return
     const t = c.atMs + (now() - this.receivedMs)
     const perMs = c.tempo / 60000
-    this.pos = c.running ? c.sectionAnchorBeats + (t - c.sectionAnchorMs) * perMs : 0
+    // Never before the section's start (a local clock a hair behind the engine's).
+    this.pos = c.running ? Math.max(0, c.sectionAnchorBeats + (t - c.sectionAnchorMs) * perMs) : 0
     this.beats = c.ledAnchorBeats + (t - c.ledAnchorMs) * perMs
   }
 

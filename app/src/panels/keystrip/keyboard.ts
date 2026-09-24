@@ -2,7 +2,7 @@
 // as fractions of the strip's width, so the strip is plain percentage-positioned boxes
 // that stay crisp at any size. Display maths only; what the keys *do* is the engine's.
 
-import type { AppState, HeldNote } from '../../lib/api/types'
+import type { HeldNote } from '../../lib/api/types'
 import type { KeyRange } from '../../lib/store.svelte'
 
 /** Lowest and highest MIDI note: Launchkey 49 = C1–C5, 61 = C1–C6 (Yamaha numbering,
@@ -67,12 +67,12 @@ export function rangeFor(choice: KeyRange | null, inputs: string[]): KeyRange {
   return n <= 49 ? 49 : n <= 61 ? 61 : 88
 }
 
-/** The keys chord detection listens to, as [lo, hi] MIDI notes (inclusive), or null for none. */
-export function detectionArea(s: AppState, [lo, hi]: [number, number]): [number, number] | null {
-  const c = s.chord
-  if (c.upper) return c.split < hi ? [c.split + 1, hi] : null
-  if (c.fingering === 'fullKeyboard' || c.fingering === 'aiFullKeyboard') return [lo, hi]
-  return c.split >= lo ? [lo, Math.min(c.split, hi)] : null
+/** The part of the strip chord detection listens to: the engine's `keyboard.detection`
+ * clipped to the keys shown, as [lo, hi] MIDI notes (inclusive), or null for none. */
+export function detectionArea([dlo, dhi]: [number, number], [lo, hi]: [number, number]): [number, number] | null {
+  const a = Math.max(dlo, lo)
+  const b = Math.min(dhi, hi)
+  return a <= b ? [a, b] : null
 }
 
 /** The CSS colour tokens for the parts a held key sounds on (see app.css, "Keyboard parts"). */

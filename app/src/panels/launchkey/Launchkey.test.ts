@@ -108,7 +108,7 @@ describe('Launchkey mirror', () => {
     const scene = st.surface!.controls.find((c) => c.id === 'scene')!
     scene.label = 'Fill Up'
     scene.action = { type: 'main', index: 2 }
-    app.attach({ kind: 'mock', subscribe: (fn) => (fn(st), () => {}), send: (c) => session.send(c), library: () => session.library(), dispose: () => {} })
+    app.attach({ kind: 'mock', subscribe: (fn) => (fn(st), () => {}), send: (c) => session.send(c), library: () => session.library(), meters: () => session.meters(), dispose: () => {} })
     flushSync()
     render(Launchkey)
     expect(document.body.textContent).toContain('Fill Up')

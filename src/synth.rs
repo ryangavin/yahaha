@@ -3,13 +3,18 @@
 //! MIDI reaches the audio thread through SPSC rings (one per producer thread), drained at
 //! the start of each buffer. With a 64-frame buffer at 48 kHz, an event waits at most
 //! 1.3 ms before it is rendered.
+//!
+//! The band and your playing each have a synthesizer (a [`Rack`]), with the same
+//! SoundFont. They measure each channel's level as they mix it, for the meters. A new
+//! SoundFont is loaded into a new rack off the audio thread and swapped in between two
+//! buffers (`SetSoundFont`).
 
 use anyhow::{anyhow, Context, Result};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use rtrb::{Consumer, Producer, RingBuffer};
 use rustysynth::{SoundFont, Synthesizer, SynthesizerSettings};
 use std::path::Path;
-use std::sync::atomic::{AtomicBool, AtomicU8, Ordering::{Acquire, Relaxed}};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicU8, Ordering::{Acquire, Relaxed}};
 use std::sync::Arc;
 
 use crate::parts::{self, Parts};
@@ -38,12 +43,214 @@ pub struct SynthControl {
     pub out_ch: AtomicU8,
     /// The Launchkey master fader is waiting to pick up `master` (soft takeover).
     pub master_waiting: AtomicBool,
+    /// Peak level per MIDI channel since the last `take_meters` (f32 bits; a positive
+    /// f32's bits order as the value does, so `fetch_max` works on them).
+    pub peaks: [AtomicU32; 16],
+    /// Left and right peaks after the soft clipper.
+    pub master_peaks: [AtomicU32; 2],
+    /// Buffers in which the soft clipper worked.
+    pub clips: AtomicU64,
+    /// Racks swapped in (`SetSoundFont`).
+    pub swaps: AtomicU64,
 }
 
 pub struct Synth {
     _stream: cpal::Stream,
     pub info: SynthInfo,
     pub control: Arc<SynthControl>,
+    /// The ends of the rings that swap racks: new ones to the audio thread, old ones back
+    /// to be freed off it. Taken by whoever runs `SetSoundFont`.
+    pub swap: Option<RackSwap>,
+}
+
+/// Swapping SoundFonts: `tx` hands a new rack to the audio thread, `old` brings back the
+/// one it replaced (drop it there, not on the audio thread).
+pub struct RackSwap {
+    pub tx: Producer<Box<Rack>>,
+    pub old: Consumer<Box<Rack>>,
+}
+
+/// The channels the meters report: the keyboard parts and the Style parts.
+pub const RACK_CHANNELS: [u8; 12] = [0, 1, 2, 3, 8, 9, 10, 11, 12, 13, 14, 15];
+
+/// The built-in synth's synthesizers, one SoundFont: the band's (ch 9-16) and your
+/// playing's (the keyboard parts, ch 1-4), 128 voices each. Each measures its channels'
+/// levels as it mixes them (`Synthesizer::channel_peaks`, a patch in vendor/rustysynth),
+/// so the meters cost no extra synthesizers. (A synthesizer per part would run each
+/// part's reverb and chorus again and give every part 128 voices of its own: up to 12 x
+/// 128 voices on the audio thread, about 1 ms of a 64-frame buffer's 1.33 ms.)
+pub struct Rack {
+    band: Synthesizer,
+    player: Synthesizer,
+    tmp_l: Vec<f32>,
+    tmp_r: Vec<f32>,
+}
+
+impl Rack {
+    pub fn new(font: &Arc<SoundFont>, sample_rate: i32) -> Result<Rack> {
+        let mut settings = SynthesizerSettings::new(sample_rate);
+        settings.maximum_polyphony = 128;
+        let band = Synthesizer::new(font, &settings).map_err(|e| anyhow!("{e:?}"))?;
+        let player = Synthesizer::new(font, &settings).map_err(|e| anyhow!("{e:?}"))?;
+        let mut r = Rack { band, player, tmp_l: vec![0.0; 8192], tmp_r: vec![0.0; 8192] };
+        // Rhythm 1 (ch 9) is a drum part too: on the drum bank.
+        r.process(8, 0xB0, 0, 128);
+        Ok(r)
+    }
+
+    /// Load a SoundFont into a new rack (slow: call it off the audio thread).
+    pub fn load(sf2: &Path, sample_rate: u32) -> Result<Box<Rack>> {
+        let mut file = std::fs::File::open(sf2).with_context(|| format!("opening {}", sf2.display()))?;
+        let font = Arc::new(SoundFont::new(&mut file).map_err(|e| anyhow!("{e:?}"))?);
+        Ok(Box::new(Rack::new(&font, sample_rate as i32)?))
+    }
+
+    /// A channel message to the synthesizer that plays the channel: the keyboard parts'
+    /// to the player's, everything else to the band's.
+    #[inline]
+    fn process(&mut self, ch: i32, st: i32, d1: i32, d2: i32) {
+        if parts::part_of_channel(ch as u8).is_some() {
+            self.player.process_midi_message(ch, st, d1, d2);
+        } else {
+            self.band.process_midi_message(ch, st, d1, d2);
+        }
+    }
+
+    fn set_master_volume(&mut self, v: f32) {
+        self.band.set_master_volume(v);
+        self.player.set_master_volume(v);
+    }
+
+    /// Render `left.len()` frames of the mix into `left`/`right` (overwritten), noting each
+    /// channel's peak in `peaks`. `fade` ramps the whole from one gain to another over the
+    /// buffer.
+    fn render(&mut self, left: &mut [f32], right: &mut [f32], peaks: &[AtomicU32; 16], fade: Option<(f32, f32)>) {
+        let n = left.len().min(self.tmp_l.len());
+        let (left, right) = (&mut left[..n], &mut right[..n]);
+        self.band.render(left, right);
+        let (l, r) = (&mut self.tmp_l[..n], &mut self.tmp_r[..n]);
+        self.player.render(l, r);
+        for k in 0..n {
+            left[k] += l[k];
+            right[k] += r[k];
+        }
+        let mut most = 1f32;
+        if let Some((a, b)) = fade {
+            most = a.max(b);
+            for k in 0..n {
+                let g = a + (b - a) * k as f32 / n as f32;
+                left[k] *= g;
+                right[k] *= g;
+            }
+        }
+        for s in [&mut self.band, &mut self.player] {
+            for (ch, &p) in s.channel_peaks().iter().enumerate() {
+                if p > 0.0 {
+                    peaks[ch].fetch_max((p * most).to_bits(), Relaxed);
+                }
+            }
+            s.reset_channel_peaks();
+        }
+    }
+}
+
+/// What the audio thread last sent each channel, so a new rack (`SetSoundFont`) takes over
+/// with the same voices and controllers.
+struct Shadow {
+    cc: [[u8; 128]; 16],
+    program: [Option<u8>; 16],
+    bend: [Option<(u8, u8)>; 16],
+    /// Data entry (CC6, CC38) per channel for RPN 0-2 (bend range, fine and coarse tune).
+    /// Data entry reaches the RPN selected when it comes, so it is kept by RPN.
+    rpn: [[(u8, u8); 3]; 16],
+    /// An NRPN (CC98/99) was selected after the last RPN: data entry goes nowhere.
+    nrpn: [bool; 16],
+}
+
+const NO_CC: u8 = 0xFF;
+
+impl Shadow {
+    fn new() -> Shadow {
+        Shadow { cc: [[NO_CC; 128]; 16], program: [None; 16], bend: [None; 16], rpn: [[(NO_CC, NO_CC); 3]; 16], nrpn: [false; 16] }
+    }
+
+    fn note(&mut self, m: &Msg) {
+        let ch = (m[0] & 0x0F) as usize;
+        match m[0] & 0xF0 {
+            // Channel mode messages (120-127) are actions, not settings.
+            0xB0 if m[1] < 120 => {
+                let cc = m[1] as usize & 127;
+                self.cc[ch][cc] = m[2];
+                match cc {
+                    98 | 99 => self.nrpn[ch] = true,
+                    100 | 101 => self.nrpn[ch] = false,
+                    6 | 38 => {
+                        let (msb, lsb) = (self.cc[ch][101], self.cc[ch][100]);
+                        if !self.nrpn[ch] && msb == 0 && lsb < 3 {
+                            let e = &mut self.rpn[ch][lsb as usize];
+                            if cc == 6 { e.0 = m[2] } else { e.1 = m[2] }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            0xC0 => self.program[ch] = Some(m[1]),
+            0xE0 => self.bend[ch] = Some((m[1], m[2])),
+            _ => {}
+        }
+    }
+
+    /// Bring `rack` to what the channels have: bank and voice, controllers, pitch bend.
+    fn replay(&self, rack: &mut Rack, bank: &mut [u8; 16], parts: &Parts) {
+        for ch in RACK_CHANNELS {
+            let c = ch as usize;
+            if self.cc[c][0] != NO_CC {
+                apply_rack(rack, &[0xB0 | ch, 0, self.cc[c][0]], bank);
+            }
+            if let Some(p) = self.program[c] {
+                apply_rack(rack, &[0xC0 | ch, p, 0], bank);
+            }
+            // Data entry and parameter selects are not settings of their own: the RPNs'
+            // values go out under their own select, then the select the channel had.
+            for (n, &(msb, lsb)) in self.rpn[c].iter().enumerate() {
+                if msb == NO_CC && lsb == NO_CC {
+                    continue;
+                }
+                apply_rack(rack, &[0xB0 | ch, 101, 0], bank);
+                apply_rack(rack, &[0xB0 | ch, 100, n as u8], bank);
+                if msb != NO_CC {
+                    apply_rack(rack, &[0xB0 | ch, 6, msb], bank);
+                }
+                if lsb != NO_CC {
+                    apply_rack(rack, &[0xB0 | ch, 38, lsb], bank);
+                }
+            }
+            for cc in 1..120u8 {
+                let v = self.cc[c][cc as usize];
+                if v != NO_CC && !matches!(cc, 6 | 32 | 38 | 98..=101) {
+                    apply_rack(rack, &[0xB0 | ch, cc, v], bank);
+                }
+            }
+            let select = if self.nrpn[c] { [99, 98] } else { [101, 100] };
+            for cc in select {
+                if self.cc[c][cc as usize] != NO_CC {
+                    apply_rack(rack, &[0xB0 | ch, cc, self.cc[c][cc as usize]], bank);
+                }
+            }
+            if let Some((lo, hi)) = self.bend[c] {
+                apply_rack(rack, &[0xE0 | ch, lo, hi], bank);
+            }
+        }
+        sync_player_rack(rack, parts);
+    }
+}
+
+/// Take the meters: each channel's and the master's peak since the last take, and the
+/// clip count. For one reader.
+pub fn take_meters(c: &SynthControl) -> ([f32; 16], [f32; 2], u64) {
+    let peaks = std::array::from_fn(|i| f32::from_bits(c.peaks[i].swap(0, Relaxed)));
+    let master = std::array::from_fn(|i| f32::from_bits(c.master_peaks[i].swap(0, Relaxed)));
+    (peaks, master, c.clips.load(Relaxed))
 }
 
 /// Rings feeding the synth: hand the producers to the threads that generate MIDI.
@@ -60,15 +267,26 @@ impl SynthControl {
             muted: AtomicBool::new(false),
             out_ch: AtomicU8::new(out_ch),
             master_waiting: AtomicBool::new(false),
+            peaks: std::array::from_fn(|_| AtomicU32::new(0)),
+            master_peaks: std::array::from_fn(|_| AtomicU32::new(0)),
+            clips: AtomicU64::new(0),
+            swaps: AtomicU64::new(0),
         }
     }
 }
 
 /// Push the keyboard parts' programs to the player synth. Their volumes arrive as CC7 on
 /// their channels, like any other message.
+#[cfg(test)]
 fn sync_player(player: &mut Synthesizer, parts: &Parts) {
     for p in 0..parts::COUNT {
         player.process_midi_message(parts::CHANNEL[p] as i32, 0xC0, parts.channel_program(p) as i32, 0);
+    }
+}
+
+fn sync_player_rack(rack: &mut Rack, parts: &Parts) {
+    for p in 0..parts::COUNT {
+        rack.process(parts::CHANNEL[p] as i32, 0xC0, parts.channel_program(p) as i32, 0);
     }
 }
 
@@ -130,14 +348,17 @@ pub fn soft_clip(x: f32) -> f32 {
     (CLIP_KNEE + room * ((a - CLIP_KNEE) / room).tanh()).copysign(x)
 }
 
-fn apply(synth: &mut Synthesizer, player: &mut Synthesizer, m: &Msg, bank: &mut [u8; 16]) {
+/// A message as the SoundFont gets it: `out(channel, status, data1, data2)` for each
+/// channel message to process (none, one, or two).
+#[inline]
+fn translate(m: &Msg, bank: &mut [u8; 16], mut out: impl FnMut(i32, i32, i32, i32)) {
     let ch = (m[0] & 0x0F) as i32;
     let st = (m[0] & 0xF0) as i32;
     let v = m[2] as i32;
-    // Your playing goes to the player synth, each keyboard part on its own channel. The
-    // input thread already decided which parts sound and where (on/off, octave).
+    // Your playing: each keyboard part on its own channel, as sent. The input thread
+    // already decided which parts sound and where (on/off, octave).
     if parts::part_of_channel(ch as u8).is_some() {
-        player.process_midi_message(ch, st, m[1] as i32, v);
+        out(ch, st, m[1] as i32, v);
         return;
     }
     match st {
@@ -146,17 +367,35 @@ fn apply(synth: &mut Synthesizer, player: &mut Synthesizer, m: &Msg, bank: &mut 
         0xB0 if m[1] == 32 => {}
         // Rhythm 1 (ch 9) is a drum part too: keep it on the drum bank.
         0xC0 if ch == 8 => {
-            synth.process_midi_message(8, 0xB0, 0, 128);
-            synth.process_midi_message(8, 0xC0, m[1] as i32, 0);
+            out(8, 0xB0, 0, 128);
+            out(8, 0xC0, m[1] as i32, 0);
         }
         0xC0 => {
             let p = gm_fallback(ch as u8, bank[ch as usize], m[1]);
-            synth.process_midi_message(ch, 0xC0, p as i32, 0);
+            out(ch, 0xC0, p as i32, 0);
         }
         // Everything else as sent: CC7 (the mixer fader), CC11 and velocity reach the voice
         // unchanged, so the SoundFont answers them exactly as an external GM instrument would.
-        _ => synth.process_midi_message(ch, st, m[1] as i32, v),
+        _ => out(ch, st, m[1] as i32, v),
     }
+}
+
+/// A message to a band synth and a player synth (the keyboard parts' channels).
+#[cfg(test)]
+fn apply(synth: &mut Synthesizer, player: &mut Synthesizer, m: &Msg, bank: &mut [u8; 16]) {
+    translate(m, bank, |ch, st, a, b| {
+        if parts::part_of_channel(ch as u8).is_some() {
+            player.process_midi_message(ch, st, a, b)
+        } else {
+            synth.process_midi_message(ch, st, a, b)
+        }
+    });
+}
+
+/// A message to a rack: each channel to its own synthesizer.
+#[inline]
+fn apply_rack(rack: &mut Rack, m: &Msg, bank: &mut [u8; 16]) {
+    translate(m, bank, |ch, st, a, b| rack.process(ch, st, a, b));
 }
 
 pub fn start(sf2: &Path, consumers: Vec<Consumer<Msg>>, out_pair: Option<u8>, parts: Arc<Parts>) -> Result<Synth> {
@@ -183,54 +422,83 @@ pub fn start(sf2: &Path, consumers: Vec<Consumer<Msg>>, out_pair: Option<u8>, pa
     let first = out_pair.map(|c| c.saturating_sub(1)).unwrap_or(if device_name.contains("Model 16") { 10 } else { 0 });
     let first = (first as usize).min(channels.saturating_sub(2)) as u8;
 
-    let mut settings = SynthesizerSettings::new(sample_rate as i32);
-    settings.maximum_polyphony = 128;
-    let mut synth = Synthesizer::new(&font, &settings).map_err(|e| anyhow!("{e:?}"))?;
-    let mut player_synth = Synthesizer::new(&font, &settings).map_err(|e| anyhow!("{e:?}"))?;
-    synth.process_midi_message(8, 0xB0, 0, 128);
+    let mut rack = Box::new(Rack::new(&font, sample_rate as i32)?);
+    drop(font);
+    let (swap_tx, mut swap_rx) = RingBuffer::<Box<Rack>>::new(2);
+    let (mut old_tx, old_rx) = RingBuffer::<Box<Rack>>::new(4);
 
     let control = Arc::new(SynthControl::new(first));
     let ctl = control.clone();
     let mut consumers = consumers;
     let mut bank = [0u8; 16];
+    let mut shadow = Box::new(Shadow::new());
     let mut last_master = 255u8;
     let mut left = vec![0f32; 8192];
     let mut right = vec![0f32; 8192];
     let mut left2 = vec![0f32; 8192];
     let mut right2 = vec![0f32; 8192];
+    // A rack just replaced: it plays out one buffer, fading, then goes back to be freed.
+    let mut fading: Option<Box<Rack>> = None;
+    let unmetered: [AtomicU32; 16] = std::array::from_fn(|_| AtomicU32::new(0));
 
     let callback = move |out: &mut [f32], _: &cpal::OutputCallbackInfo| {
+        // A new SoundFont: the new rack takes over with the channels' voices and controllers.
+        if let Ok(mut new) = swap_rx.pop() {
+            shadow.replay(&mut new, &mut bank, &parts);
+            let old = std::mem::replace(&mut rack, new);
+            if let Some(f) = fading.replace(old) {
+                let _ = old_tx.push(f);
+            }
+            last_master = 255;
+            ctl.swaps.fetch_add(1, Relaxed);
+        }
         // Acquire pairs with the Release stores in `Parts`: the new programs are visible.
         if parts.changed.swap(false, Acquire) {
-            sync_player(&mut player_synth, &parts);
+            sync_player_rack(&mut rack, &parts);
         }
         let master = ctl.master.load(Relaxed);
         if master != last_master {
             last_master = master;
-            synth.set_master_volume(master_gain(master));
-            player_synth.set_master_volume(master_gain(master));
+            rack.set_master_volume(master_gain(master));
+            if let Some(f) = fading.as_mut() {
+                f.set_master_volume(master_gain(master));
+            }
         }
         for c in consumers.iter_mut() {
             while let Ok(m) = c.pop() {
-                apply(&mut synth, &mut player_synth, &m, &mut bank);
+                shadow.note(&m);
+                apply_rack(&mut rack, &m, &mut bank);
             }
         }
         let frames = (out.len() / channels).min(left.len());
-        synth.render(&mut left[..frames], &mut right[..frames]);
-        player_synth.render(&mut left2[..frames], &mut right2[..frames]);
-        for i in 0..frames {
-            left[i] += left2[i];
-            right[i] += right2[i];
+        rack.render(&mut left[..frames], &mut right[..frames], &ctl.peaks, None);
+        if let Some(mut f) = fading.take() {
+            f.render(&mut left2[..frames], &mut right2[..frames], &unmetered, Some((1.0, 0.0)));
+            for i in 0..frames {
+                left[i] += left2[i];
+                right[i] += right2[i];
+            }
+            let _ = old_tx.push(f);
         }
         let mute = ctl.muted.load(Relaxed);
         let lc = (ctl.out_ch.load(Relaxed) as usize).min(channels.saturating_sub(1));
         let rc = (lc + 1).min(channels - 1);
+        let (mut pl, mut pr, mut clipped) = (0f32, 0f32, false);
         for (i, frame) in out.chunks_mut(channels).take(frames).enumerate() {
             frame.fill(0.0);
+            clipped |= left[i].abs() > CLIP_KNEE || right[i].abs() > CLIP_KNEE;
+            let (l, r) = (soft_clip(left[i]), soft_clip(right[i]));
+            pl = pl.max(l.abs());
+            pr = pr.max(r.abs());
             if !mute {
-                frame[lc] += soft_clip(left[i]);
-                frame[rc] += soft_clip(right[i]);
+                frame[lc] += l;
+                frame[rc] += r;
             }
+        }
+        ctl.master_peaks[0].fetch_max(pl.to_bits(), Relaxed);
+        ctl.master_peaks[1].fetch_max(pr.to_bits(), Relaxed);
+        if clipped {
+            ctl.clips.fetch_add(1, Relaxed);
         }
     };
 
@@ -248,7 +516,12 @@ pub fn start(sf2: &Path, consumers: Vec<Consumer<Msg>>, out_pair: Option<u8>, pa
     let stream = device.build_output_stream(cfg, callback, |e| eprintln!("audio error: {e}"), None)?;
     stream.play()?;
     let name = sf2.file_stem().unwrap_or_default().to_string_lossy().to_string();
-    Ok(Synth { _stream: stream, info: SynthInfo { name, sample_rate, buffer, device: device_name, channels }, control })
+    Ok(Synth {
+        _stream: stream,
+        info: SynthInfo { name, sample_rate, buffer, device: device_name, channels },
+        control,
+        swap: Some(RackSwap { tx: swap_tx, old: old_rx }),
+    })
 }
 
 #[cfg(test)]
@@ -515,5 +788,134 @@ mod loudness_probe {
             line.push_str(&format!("  mix peak {:>5.1} dBFS", 20.0 * peak.max(1e-9).log10()));
             println!("{line}");
         }
+    }
+}
+
+/// The rack: one synthesizer per part, metered per channel, and a new rack (another
+/// SoundFont) takes over with the voices and controllers the channels had.
+#[cfg(test)]
+mod rack_tests {
+    use super::*;
+
+    /// The smallest SoundFont in the checkout's soundfonts/ (None: skip).
+    fn font() -> Option<Arc<SoundFont>> {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("soundfonts");
+        let f = crate::library::sound_font_files(&dir).into_iter().map(|f| dir.join(f)).min_by_key(|p| p.metadata().map(|m| m.len()).unwrap_or(u64::MAX));
+        let Some(f) = f else {
+            eprintln!("no SoundFont; skipping");
+            return None;
+        };
+        Some(Arc::new(SoundFont::new(&mut std::fs::File::open(f).unwrap()).unwrap()))
+    }
+
+    fn peaks() -> [AtomicU32; 16] {
+        std::array::from_fn(|_| AtomicU32::new(0))
+    }
+
+    fn level(p: &[AtomicU32; 16], ch: usize) -> f32 {
+        f32::from_bits(p[ch].swap(0, Relaxed))
+    }
+
+    #[test]
+    fn each_part_is_metered_on_its_own_channel() {
+        let Some(font) = font() else { return };
+        let mut rack = Rack::new(&font, 48_000).unwrap();
+        let mut bank = [0u8; 16];
+        let p = peaks();
+        let (mut l, mut r) = (vec![0f32; 512], vec![0f32; 512]);
+        for m in [[0xCA, 32, 0], [0xBA, 7, 100], [0x9A, 40, 110], [0x90, 60, 100]] {
+            apply_rack(&mut rack, &m, &mut bank);
+        }
+        for _ in 0..8 {
+            rack.render(&mut l, &mut r, &p, None);
+        }
+        let (bass, right1) = (level(&p, 10), level(&p, 0));
+        assert!(bass > 1e-3 && right1 > 1e-3, "bass {bass}, right 1 {right1}");
+        for ch in [1, 2, 3, 8, 9, 11, 12, 13, 14, 15] {
+            assert_eq!(level(&p, ch), 0.0, "ch {} is silent", ch + 1);
+        }
+        // CC7 is the part's level: the meter follows it.
+        apply_rack(&mut rack, &[0xBA, 7, 30], &mut bank);
+        for _ in 0..8 {
+            rack.render(&mut l, &mut r, &p, None);
+        }
+        assert!(level(&p, 10) < bass * 0.5);
+    }
+
+    #[test]
+    fn a_new_rack_takes_over_the_channels_voices_and_levels() {
+        let Some(font) = font() else { return };
+        let parts = Parts::new();
+        let p = peaks();
+        let (mut l, mut r) = (vec![0f32; 4800], vec![0f32; 4800]);
+        // What the band sent: a voice and a level on ch 11.
+        let setup = [[0xBA, 0, 0], [0xCA, 32, 0], [0xBA, 7, 60], [0xBA, 11, 90]];
+        let (mut bank, mut shadow) = ([0u8; 16], Shadow::new());
+        let mut old = Rack::new(&font, 48_000).unwrap();
+        for m in &setup {
+            shadow.note(m);
+            apply_rack(&mut old, m, &mut bank);
+        }
+        // A fresh rack with the same setup sent directly, and one that took over by replay.
+        let mut sent = Rack::new(&font, 48_000).unwrap();
+        let mut b2 = [0u8; 16];
+        for m in &setup {
+            apply_rack(&mut sent, m, &mut b2);
+        }
+        sync_player_rack(&mut sent, &parts);
+        let mut replayed = Rack::new(&font, 48_000).unwrap();
+        shadow.replay(&mut replayed, &mut bank, &parts);
+        let mut energy = |rack: &mut Rack| {
+            apply_rack(rack, &[0x9A, 45, 100], &mut [0u8; 16]);
+            rack.render(&mut l, &mut r, &p, None);
+            l.iter().zip(&r).map(|(a, b)| (a * a + b * b) as f64).sum::<f64>()
+        };
+        let (a, b) = (energy(&mut sent), energy(&mut replayed));
+        assert!(a > 1e-6 && (a - b).abs() < a * 1e-6, "{a} vs {b}");
+    }
+
+    /// The RPNs a channel was set to (pitch bend range, tuning) carry over too: a bent
+    /// bass slide sounds the same after a SoundFont change. Data entry only reaches the
+    /// RPN selected when it is sent, so a replay in controller order (CC6 before CC100/101)
+    /// would lose it.
+    #[test]
+    fn a_new_rack_keeps_the_bend_range_and_tuning() {
+        let Some(font) = font() else { return };
+        let parts = Parts::new();
+        let p = peaks();
+        // As the engine sends a style's setup: bend range 12, fine tune, coarse tune -2,
+        // then RPN null; the part bent all the way up.
+        let setup = [
+            [0xCA, 38, 0],
+            [0xBA, 101, 0], [0xBA, 100, 0], [0xBA, 6, 12], [0xBA, 38, 0],
+            [0xBA, 101, 0], [0xBA, 100, 1], [0xBA, 6, 80], [0xBA, 38, 0],
+            [0xBA, 101, 0], [0xBA, 100, 2], [0xBA, 6, 62],
+            [0xBA, 101, 127], [0xBA, 100, 127],
+            [0xEA, 127, 127],
+        ];
+        let (mut bank, mut shadow) = ([0u8; 16], Shadow::new());
+        let mut sent = Rack::new(&font, 48_000).unwrap();
+        for m in &setup {
+            shadow.note(m);
+            apply_rack(&mut sent, m, &mut bank);
+        }
+        sync_player_rack(&mut sent, &parts);
+        let mut replayed = Rack::new(&font, 48_000).unwrap();
+        shadow.replay(&mut replayed, &mut [0u8; 16], &parts);
+        let render = |rack: &mut Rack| {
+            let (mut l, mut r) = (vec![0f32; 4800], vec![0f32; 4800]);
+            apply_rack(rack, &[0x9A, 40, 100], &mut [0u8; 16]);
+            rack.render(&mut l, &mut r, &p, None);
+            l
+        };
+        let (a, b) = (render(&mut sent), render(&mut replayed));
+        let diff = a.iter().zip(&b).map(|(x, y)| (x - y).abs()).fold(0f32, f32::max);
+        assert!(a.iter().any(|x| x.abs() > 1e-3) && diff < 1e-6, "the replayed rack plays another pitch (max diff {diff})");
+        // A data entry after that (RPN null selected) changes nothing, as on the channel.
+        let mut s2 = Shadow::new();
+        for m in setup.iter().chain(&[[0xBA, 6, 2]]) {
+            s2.note(m);
+        }
+        assert_eq!(s2.rpn[10], shadow.rpn[10]);
     }
 }

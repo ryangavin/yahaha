@@ -68,7 +68,10 @@ function entryOf(s: FixtureStyle): LibraryEntry {
   }
 }
 
-export const LIBRARY: LibraryList = { revision: 1, entries: STYLES.map(entryOf) }
+/** The voices `setPartVoice` picks from, as the engine lists them (GM, bank 0). */
+export const VOICES: LibraryList['voices'] = GM.map((name, program) => ({ program, bankMsb: 0, bankLsb: 0, name }))
+
+export const LIBRARY: LibraryList = { revision: 1, entries: STYLES.map(entryOf), voices: VOICES }
 
 /** The fixture plus `extra` synthetic styles, in the engine's order (folder, then name). */
 function bigLibrary(extra: number): { lib: LibraryList; styles: FixtureStyle[] } {
@@ -80,10 +83,21 @@ function bigLibrary(extra: number): { lib: LibraryList; styles: FixtureStyle[] }
     for (let i = 0; i < 3; i++) if (x[i] !== y[i]) return x[i] < y[i] ? -1 : 1
     return 0
   })
-  return { lib: { revision: 1, entries }, styles }
+  return { lib: { revision: 1, entries, voices: VOICES }, styles }
 }
 
-/** The default progression an audition plays, one chord a bar (provisional, #21). */
+/** The MIDI sources the mock rig has (every one a keyboard: `allInputs`). */
+const MOCK_SOURCES = [
+  { name: 'Launchkey 49 MK4 LKMK4 MIDI Out', listening: true, pads: false },
+  { name: 'Launchkey 49 MK4 LKMK4 DAW Out', listening: true, pads: true },
+  { name: 'TASCAM Model 16', listening: true, pads: false },
+  { name: 'IAC Driver Bus 1', listening: true, pads: false },
+]
+const MOCK_SOUND_FONTS = ['GeneralUser-GS.sf2', 'FluidR3_GM.sf2', 'MuseScore_General.sf2']
+/** How long the mock's rescan takes. */
+const RESCAN_MS = 1200
+
+/** The default progression an audition plays, one chord a bar (#21). */
 export const AUDITION_PROGRESSION = ['C', 'Am', 'F', 'G7']
 
 const NOTE_NAMES = ['C', 'C#', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'Ab', 'A', 'Bb', 'B']
@@ -178,14 +192,14 @@ export function initialState(): AppState {
     transport: {
       running: false, syncStart: true, syncStop: false, syncStopAvailable: true, autoFill: false, stopAcmp: false,
       section: null, queued: null, pendingIntro: null, main: 0, bar: 1, beat: 1,
-      beatsPerBar: beatsPerBar([s.timeSignature[0], s.timeSignature[1]]), tempo: s.tempo, lamps: [],
+      beatsPerBar: beatsPerBar([s.timeSignature[0], s.timeSignature[1]]), tempo: s.tempo, lamps: [], sectionBars: null,
     },
     chord: {
       name: null, fingered: null, fingering: 'fingeredOnBass', fingeringName: 'Fingered On Bass', upper: false,
       manualBass: true, manualBassActive: false, split: 54, splitName: noteName(54), transposeKeyboard: 0, transposeMaster: 0,
     },
     keyboardParts: [part(0, 0, true), part(1, 48, false), part(2, 61, false), part(3, 48, false)],
-    keyboard: { held: [], leftSplit: 54, chordTones: [], chordBass: null },
+    keyboard: { held: [], leftSplit: 54, chordTones: [], chordBass: null, detection: [0, 54] },
     mixer: {
       faderPage: 'panel',
       styleParts: STYLE_PART_NAMES.map((name, i) => ({
@@ -198,10 +212,10 @@ export function initialState(): AppState {
     },
     pads: { page: 'sections', pageName: 'Sections', pageNumber: 1, pageCount: 3, pads: [], connected: true, paletteLeds: false },
     ots: { settings: otsSettings(s.ots), applied: 0, link: false },
-    library: { revision: LIBRARY.revision, count: LIBRARY.entries.length, position: 0, pending: 0 },
+    library: { revision: LIBRARY.revision, count: LIBRARY.entries.length, position: 0, pending: 0, roots: [ROOT], scanning: false },
     io: {
       outputPort: 'yahaha',
-      inputs: ['Launchkey 49 MK4 LKMK4 MIDI Out', 'Launchkey 49 MK4 LKMK4 DAW Out (pads)'],
+      inputs: MOCK_SOURCES.map((s) => (s.pads ? `${s.name} (pads)` : s.name)),
       synth: {
         soundFont: 'GeneralUser-GS', device: 'MacBook Pro Speakers', sampleRate: 48000, bufferFrames: 64,
         channels: 2, outputPair: [1, 2], muted: false,
@@ -210,6 +224,11 @@ export function initialState(): AppState {
       lastControl: 0,
       unmapped: '',
       offline: false,
+      sources: MOCK_SOURCES.map((s) => ({ ...s })),
+      allInputs: true,
+      soundFonts: [...MOCK_SOUND_FONTS],
+      soundFontFile: MOCK_SOUND_FONTS[0],
+      soundFontLoading: false,
     },
     message: null,
     surface: null as unknown as AppState['surface'], // filled in by derive()
@@ -255,6 +274,12 @@ function derive(st: AppState, lib: LibraryList, hw: MockHardware | null = null, 
     leftSplit: c.split,
     chordTones: ct.tones,
     chordBass: ct.bass,
+    // Lower: up to the split; Upper: above it; the Full Keyboard types: every key.
+    detection: c.upper
+      ? [Math.min(127, c.split + 1), 127]
+      : c.fingering === 'fullKeyboard' || c.fingering === 'aiFullKeyboard'
+        ? [0, 127]
+        : [0, c.split],
   }
   const page = PAD_PAGES.findIndex((p) => p.id === st.pads.page)
   st.pads.pageName = PAD_PAGES[page].name
@@ -328,7 +353,9 @@ export class MockSession implements Session {
   }
   private lib: LibraryList = LIBRARY
   private styles: FixtureStyle[] = STYLES
-  /** Beats into the audition playing (provisional, #21). */
+  /** Milliseconds left of a rescan (`rescanLibrary`). */
+  private scanLeft = 0
+  /** Beats into the audition playing (#21). */
   private auditionBeats = 0
 
   constructor(opts: MockOptions = {}) {
@@ -385,6 +412,11 @@ export class MockSession implements Session {
     return Promise.resolve(this.lib)
   }
 
+  /** No audio: silent meters with no channels, as the engine without its synth. */
+  meters() {
+    return Promise.resolve({ atMs: this.now, channels: [], master: [0, 0] as [number, number], clips: 0 })
+  }
+
   dispose() {
     if (this.timer) clearInterval(this.timer)
     this.subs.clear()
@@ -439,11 +471,15 @@ export class MockSession implements Session {
       this.chordArrives('C')
     }
     if (!t.running) this.stepAudition(ms)
+    if (this.scanLeft > 0) {
+      this.scanLeft -= ms
+      if (this.scanLeft <= 0) this.state.library.scanning = false
+    }
   }
 
-  // ── Style preview (provisional, #21): what the engine would do ──────────────
+  // ── Style preview (#21): what the engine does ─────────────────────────────
   private get preview(): PreviewState {
-    return (this.state.preview ??= { audition: null, queued: null })
+    return this.state.preview
   }
 
   private startAudition(id: number) {
@@ -847,6 +883,25 @@ export class MockSession implements Session {
           const next = st.io.synth.outputPair[1] + 1
           st.io.synth.outputPair = next < st.io.synth.channels ? [next, next + 1] : [1, 2]
         }
+        break
+      case 'setSoundFont':
+        if (st.io.soundFonts.includes(cmd.file)) {
+          st.io.soundFontFile = cmd.file
+          if (st.io.synth) st.io.synth.soundFont = cmd.file.replace(/\.sf2$/i, '')
+        } else this.message(`no SoundFont ${cmd.file} in the SoundFont folder`, true)
+        break
+      case 'setMidiInputs': {
+        st.io.allInputs = cmd.all
+        for (const s of st.io.sources) s.listening = s.pads || cmd.all || cmd.names.some((n) => n && s.name.includes(n))
+        st.io.inputs = st.io.sources.filter((s) => s.listening).map((s) => (s.pads ? `${s.name} (pads)` : s.name))
+        break
+      }
+      case 'setPaletteLeds':
+        st.pads.paletteLeds = cmd.on
+        break
+      case 'rescanLibrary':
+        st.library.scanning = true
+        this.scanLeft = RESCAN_MS
         break
       case 'panic':
         this.stopBand()
