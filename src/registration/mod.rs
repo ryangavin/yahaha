@@ -187,13 +187,56 @@ impl VoiceRef {
 
 /// One Registration Memory button's contents.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(from = "MemoryFile", into = "MemoryFile")]
 pub struct Memory {
     pub name: String,
     /// The groups memorized (the Memory window's checkboxes). A recall changes only these.
     pub groups: Groups,
+    /// Memorized groups this build does not know (a newer build's, e.g. `footPedals`):
+    /// written back as they were, so saving the bank here does not forget them.
+    pub other_groups: Vec<String>,
     /// One entry per registrable feature, by its key.
     pub sections: BTreeMap<String, serde_json::Value>,
+}
+
+/// A memory as the bank file has it: `groups` is one list, known and unknown names alike.
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct MemoryFile {
+    #[serde(default)]
+    name: String,
+    #[serde(default)]
+    groups: Vec<serde_json::Value>,
+    #[serde(default)]
+    sections: BTreeMap<String, serde_json::Value>,
+}
+
+impl From<MemoryFile> for Memory {
+    fn from(f: MemoryFile) -> Memory {
+        let mut groups = Groups::NONE;
+        let mut other_groups = Vec::new();
+        for g in f.groups {
+            match serde_json::from_value::<Group>(g.clone()) {
+                Ok(g) => groups.set(g, true),
+                Err(_) => {
+                    if let serde_json::Value::String(s) = g
+                        && !other_groups.contains(&s)
+                    {
+                        other_groups.push(s);
+                    }
+                }
+            }
+        }
+        Memory { name: f.name, groups, other_groups, sections: f.sections }
+    }
+}
+
+impl From<Memory> for MemoryFile {
+    fn from(m: Memory) -> MemoryFile {
+        let mut groups: Vec<serde_json::Value> = m.groups.list().into_iter().map(|g| serde_json::to_value(g).expect("a group serializes")).collect();
+        groups.extend(m.other_groups.into_iter().map(serde_json::Value::String));
+        MemoryFile { name: m.name, groups, sections: m.sections }
+    }
 }
 
 /// A Registration Memory bank: ten buttons and the bank's Registration Sequence.
@@ -322,6 +365,22 @@ mod tests {
         assert_eq!(back, g);
         assert_eq!(Groups::all().list().len(), Group::ALL.len());
         assert!(!Groups::all().minus(g).has(Group::Style));
+    }
+
+    #[test]
+    fn unknown_groups_survive_a_round_trip() {
+        // A newer build memorized Foot Pedals: this build recalls what it knows and writes
+        // the rest back as it was (review N1).
+        let text = r#"{"format":"yahaha.registration-bank","version":1,"name":"x","memories":[
+            {"name":"A","groups":["style","footPedals","tempo"],"sections":{"footPedals":{"p":1}}}]}"#;
+        let b = Bank::from_json(text).unwrap();
+        let m = b.memories[0].as_ref().unwrap();
+        assert_eq!(m.groups, Groups::NONE.with(Group::Style).with(Group::Tempo));
+        assert_eq!(m.other_groups, ["footPedals"]);
+        let again = Bank::from_json(&b.to_json()).unwrap();
+        assert_eq!(again, b);
+        let v: serde_json::Value = serde_json::from_str(&b.to_json()).unwrap();
+        assert_eq!(v["memories"][0]["groups"], serde_json::json!(["style", "tempo", "footPedals"]));
     }
 
     #[test]

@@ -42,6 +42,9 @@ pub enum Cmd {
     KeysOff,
     /// Set the tempo (BPM): a Registration recall.
     SetTempo(f64),
+    /// Set the Style controls (section, Sync Start/Stop, Stop ACMP, Style part on/off) to
+    /// given states: a Registration recall.
+    StyleControls(crate::engine::StyleControls),
 }
 
 /// How many bars a style preview plays.
@@ -1053,6 +1056,7 @@ fn apply(engine: &mut Engine, parts: &Parts, cmd: Cmd, now: u64, out: &mut Out) 
         Cmd::Transpose(t) => engine.set_transpose(t, now, out),
         Cmd::StopAudition => {}
         Cmd::SetTempo(bpm) => engine.set_tempo(bpm, now),
+        Cmd::StyleControls(c) => engine.set_style_controls(c, now, out),
         Cmd::KeysOff => {
             // The source's pedal, wheels and pressure went to every keyboard part too, and
             // its releases will never come: with the pedal left down, All Notes Off would

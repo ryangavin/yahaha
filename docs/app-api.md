@@ -184,11 +184,11 @@ Freeze groups; docs/registration.md lists what each covers).
 | `stepRegistBank` | `delta` | REGIST BANK −/+: the previous/next bank file in the folder (stops at the ends). Loading a bank recalls nothing. |
 | `selectRegistBank` | `path` | Loads a bank file. |
 | `newRegistBank` | | A new, empty, unsaved bank. |
-| `saveRegistBank` | `name` (null: its own file) | Saves the bank; with a name, as a new file in the folder. Fails without a data folder. |
+| `saveRegistBank` | `name` (null: its own file), `overwrite`? | Saves the bank; with a name, as a file of that name in the folder. Refused when another bank already has that file, unless `overwrite: true`. Fails without a data folder. |
 | `setFreeze` / `toggleFreeze` | `on` | Registration Freeze. |
 | `setFreezeGroup` | `group`, `on` | Ticks a group on the Freeze display: it stays unchanged on recall while Freeze is on. |
 | `setRegistSequence` | `steps` (buttons 0–9), `end`: `stop` \| `top` \| `next` | Programs the bank's Registration Sequence. |
-| `setRegistSequenceOn` / `toggleRegistSequence` | `on` | Registration Sequence on/off (saved in the bank). |
+| `setRegistSequenceOn` / `toggleRegistSequence` | `on` | Registration Sequence on/off. A panel setting, not part of the bank (as on the Genos): it stays when the bank changes, and is kept in the Registration folder's `setup.json`. |
 | `stepRegistSequence` | `delta` | Regist +/−: recalls the next/previous step. Past the end: `stop` stays, `top` wraps, `next` loads the next bank and recalls its first step. Refused while the sequence is off. |
 
 ### Playlist
@@ -201,7 +201,7 @@ file, and the button to recall after loading it) or `{ "name", "kind": "style", 
 |---|---|---|
 | `newPlaylist` | | A new, empty, unsaved playlist. |
 | `loadPlaylist` | `path` | Opens a playlist file. |
-| `savePlaylist` | `name` (null: its own file) | Saves in the displayed order and sets the sort back to `normal`; with a name, as a new file in the folder. |
+| `savePlaylist` | `name` (null: its own file), `overwrite`? | Saves in the displayed order and sets the sort back to `normal`; with a name, as a file of that name in the folder (refused when another playlist has it, unless `overwrite: true`). |
 | `addPlaylistRecord` | `record` | Adds a record at the end (at most 2,500). An empty name takes the file's. |
 | `addCurrentBank` | | Adds the bank in use (it must be saved), recalling the lit button. |
 | `addCurrentStyle` | | Adds the loaded style. |

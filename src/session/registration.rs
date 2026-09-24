@@ -22,6 +22,17 @@ use std::path::{Path, PathBuf};
 /// because the player chose another one first).
 const OTS_HOLD_NS: u64 = 8_000_000_000;
 
+/// The Registration settings kept across banks, in the Registration folder (the Genos keeps
+/// them in its Setup/Backup; they are not in a bank file).
+const SETUP_FILE: &str = "setup.json";
+
+#[derive(Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct Setup {
+    #[serde(default)]
+    sequence_on: bool,
+}
+
 /// Items Parameter Lock can protect from Registration (and Playlist) recall. The lock
 /// state belongs to Parameter Lock (#m5-rules); recall asks `param_locked`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -57,6 +68,9 @@ pub(super) struct RegState {
     freeze: bool,
     frozen: Groups,
     seq_pos: Option<usize>,
+    /// Registration Sequence On/Off: a panel setting kept across banks (not in the bank
+    /// file; Data List: Regist = X, Setup = O), saved in `SETUP_FILE`.
+    seq_on: bool,
     /// A recall waiting for its style to play.
     deferred: Option<Deferred>,
     /// OTS Link waits for this recall to settle: the Main it selected (None: only a style
@@ -80,13 +94,23 @@ impl RegState {
             freeze: false,
             frozen: Groups::NONE,
             seq_pos: None,
+            seq_on: false,
             deferred: None,
             ots_hold: None,
             buttons: Vec::new(),
         };
+        let setup = r.dir.as_deref().and_then(|d| std::fs::read_to_string(d.join(SETUP_FILE)).ok());
+        r.seq_on = setup.and_then(|t| serde_json::from_str::<Setup>(&t).ok()).is_some_and(|s| s.sequence_on);
         r.list_banks();
         r.summarize();
         r
+    }
+
+    /// Save the Registration settings that are not part of a bank.
+    fn save_setup(&self) -> anyhow::Result<()> {
+        let Some(dir) = &self.dir else { return Ok(()) };
+        let text = serde_json::to_string_pretty(&Setup { sequence_on: self.seq_on })?;
+        reg::write_atomic(&dir.join(SETUP_FILE), &text)
     }
 
     fn list_banks(&mut self) {
@@ -163,27 +187,29 @@ impl Control {
                 self.reg.seq_pos = None;
                 self.reg.summarize();
             }
-            RegistrationCmd::SaveRegistBank { name } => return self.save_bank(name),
+            RegistrationCmd::SaveRegistBank { name, overwrite } => return self.save_bank(name, overwrite),
             RegistrationCmd::SetFreeze { on } => self.reg.freeze = on,
             RegistrationCmd::ToggleFreeze => self.reg.freeze = !self.reg.freeze,
             RegistrationCmd::SetFreezeGroup { group, on } => self.reg.frozen.set(group, on),
             RegistrationCmd::SetRegistSequence { steps, end } => {
-                let on = self.reg.bank.sequence.on;
-                self.reg.bank.sequence = reg::Sequence { on, steps, end }.clean();
+                self.reg.bank.sequence = reg::Sequence { steps, end }.clean();
                 self.reg.seq_pos = None;
                 return self.bank_changed();
             }
-            RegistrationCmd::SetRegistSequenceOn { on } => {
-                self.reg.bank.sequence.on = on;
-                return self.bank_changed();
-            }
-            RegistrationCmd::ToggleRegistSequence => {
-                self.reg.bank.sequence.on = !self.reg.bank.sequence.on;
-                return self.bank_changed();
-            }
+            RegistrationCmd::SetRegistSequenceOn { on } => return self.set_sequence_on(on),
+            RegistrationCmd::ToggleRegistSequence => return self.set_sequence_on(!self.reg.seq_on),
             RegistrationCmd::StepRegistSequence { delta } => return self.step_sequence(delta),
         }
         Ok(())
+    }
+
+    /// Registration Sequence On/Off: it stays as it is when the bank changes.
+    fn set_sequence_on(&mut self, on: bool) -> Result<(), CmdError> {
+        self.reg.seq_on = on;
+        match self.reg.save_setup() {
+            Ok(()) => Ok(()),
+            Err(e) => self.fail(format!("saving the Registration setup: {e:#}")),
+        }
     }
 
     fn button(&mut self, index: u8) -> Result<usize, CmdError> {
@@ -202,7 +228,7 @@ impl Control {
         if groups.is_empty() {
             return self.fail("Memorize: no groups ticked");
         }
-        let mut m = Memory { name: String::new(), groups, sections: Default::default() };
+        let mut m = Memory { name: String::new(), groups, ..Memory::default() };
         for r in REGISTRABLES {
             if let Some(v) = (r.capture)(self, groups) {
                 m.sections.insert(r.key.to_string(), v);
@@ -237,16 +263,22 @@ impl Control {
         }
     }
 
-    fn save_bank(&mut self, name: Option<String>) -> Result<(), CmdError> {
+    /// Save the bank: to its own file, or (`name`) as a file of that name in the folder. A
+    /// file of that name that belongs to another bank is only replaced with `overwrite`.
+    fn save_bank(&mut self, name: Option<String>, overwrite: bool) -> Result<(), CmdError> {
         let path = match (name, &self.reg.path) {
             (None, Some(p)) => p.clone(),
             (name, _) => {
                 let Some(dir) = self.reg.dir.clone() else {
                     return self.fail("no Registration folder to save to");
                 };
-                let name = name.unwrap_or_else(|| self.reg.bank.name.clone());
-                self.reg.bank.name = name.trim().to_string();
-                dir.join(reg::file_name(&name, BANK_EXT))
+                let name = name.unwrap_or_else(|| self.reg.bank.name.clone()).trim().to_string();
+                let path = dir.join(reg::file_name(&name, BANK_EXT));
+                if path.exists() && self.reg.path.as_ref() != Some(&path) && !overwrite {
+                    return self.fail(format!("a bank called {name} already exists: save under another name, or overwrite it"));
+                }
+                self.reg.bank.name = name;
+                path
             }
         };
         self.write_bank(&path)?;
@@ -303,10 +335,10 @@ impl Control {
 
     /// Regist +/-: the Registration Sequence's next/previous step.
     fn step_sequence(&mut self, delta: i8) -> Result<(), CmdError> {
-        let seq = &self.reg.bank.sequence;
-        if !seq.on {
+        if !self.reg.seq_on {
             return self.fail("Registration Sequence is off");
         }
+        let seq = &self.reg.bank.sequence;
         match seq.step(self.reg.seq_pos, delta) {
             SeqMove::Stay => Ok(()),
             SeqMove::Step(p) => {
@@ -338,11 +370,29 @@ impl Control {
         self.recall_index(index, true)
     }
 
-    /// Recall button `index` of the bank in use.
-    pub(super) fn recall_index(&mut self, index: u8, follow: bool) -> Result<(), CmdError> {
+    /// Recall button `index` of the bank in use, and say so (and what could not be
+    /// recalled).
+    fn recall_index(&mut self, index: u8, follow: bool) -> Result<(), CmdError> {
+        let (label, errors) = self.recall_quiet(index, follow)?;
+        self.say_recalled(label, &errors);
+        Ok(())
+    }
+
+    /// The message for a recall: its label, and what could not be recalled (an error).
+    pub(super) fn say_recalled(&mut self, label: String, errors: &[String]) {
+        if errors.is_empty() {
+            self.say(label, false);
+        } else {
+            self.say(format!("{label}: {}", errors.join("; ")), true);
+        }
+    }
+
+    /// Recall button `index` without a message: its label ("Registration 3: Ballad") and
+    /// what could not be recalled now (a recall waiting for its style reports later).
+    pub(super) fn recall_quiet(&mut self, index: u8, follow: bool) -> Result<(String, Vec<String>), CmdError> {
         let i = self.button(index)?;
         let Some(m) = self.reg.bank.memories[i].clone() else {
-            return self.fail(format!("Registration {} is empty", i + 1));
+            return Err(self.fail(format!("Registration {} is empty", i + 1)).unwrap_err());
         };
         self.reg.memory = false;
         self.reg.selected = Some(index);
@@ -351,16 +401,14 @@ impl Control {
         }
         let groups = self.reg.recall_groups(&m);
         let name = if m.name.is_empty() { format!("Registration {}", i + 1) } else { m.name.clone() };
-        self.recall(m, groups);
-        self.say(format!("Registration {}: {name}", i + 1), false);
-        Ok(())
+        let errors = self.recall(m, groups);
+        Ok((format!("Registration {}: {name}", i + 1), errors))
     }
 
     /// Recall a memory's sections in `groups`: the early ones now; the rest now, or once
-    /// the style the recall loads plays.
-    fn recall(&mut self, m: Memory, groups: Groups) {
+    /// the style waiting for the bar line plays. Returns what could not be recalled now.
+    fn recall(&mut self, m: Memory, groups: Groups) -> Vec<String> {
         self.reg.deferred = None;
-        let before = self.pending_style.as_ref().map(|p| p.1);
         let mut errors = Vec::new();
         for r in REGISTRABLES.iter().filter(|r| r.early) {
             if let Some(v) = m.sections.get(r.key)
@@ -369,8 +417,10 @@ impl Control {
                 errors.push(e);
             }
         }
-        let waiting = self.pending_style.as_ref().map(|p| p.1) != before && self.pending_style.is_some();
-        if waiting {
+        // Any style still to come (this recall's, or one chosen before it, e.g. by the first
+        // of two quick presses) resets the tempo, the Style mixer and the section when it
+        // plays: the rest waits for it, or the style load would undo it.
+        if self.pending_style.is_some() {
             self.reg.ots_hold = Some((None, 0));
             // Memorized but frozen: the tempo stays what it is, whatever the style's.
             let keep_bpm = (m.groups.has(Group::Tempo) && !groups.has(Group::Tempo)).then_some(self.snap.bpm);
@@ -378,9 +428,7 @@ impl Control {
         } else {
             errors.extend(self.recall_late(&m, groups));
         }
-        if !errors.is_empty() {
-            self.say(errors.join("; "), true);
-        }
+        errors
     }
 
     /// The sections after the style, in order.
@@ -420,7 +468,7 @@ impl Control {
                 errors.push(e.to_string());
             }
             if !errors.is_empty() {
-                self.say(errors.join("; "), true);
+                self.say(format!("Registration: {}", errors.join("; ")), true);
             }
         }
         if let Some((main, since)) = self.reg.ots_hold {
@@ -468,7 +516,7 @@ impl Control {
             selected: r.selected.map_or(0, |s| s + 1),
             memory: r.memory,
             freeze: r.freeze,
-            sequence: r.bank.sequence.on && !r.bank.sequence.steps.is_empty(),
+            sequence: r.seq_on && !r.bank.sequence.steps.is_empty(),
             banks: !r.banks.is_empty(),
         }
     }
@@ -491,7 +539,7 @@ impl Control {
             freeze: r.freeze,
             freeze_groups: r.frozen,
             sequence: SequenceState {
-                on: r.bank.sequence.on,
+                on: r.seq_on,
                 steps: r.bank.sequence.steps.clone(),
                 end: r.bank.sequence.end,
                 position: r.seq_pos,

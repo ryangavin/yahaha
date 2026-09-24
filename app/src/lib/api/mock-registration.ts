@@ -33,7 +33,7 @@ interface Memory {
 interface Bank {
   name: string
   memories: (Memory | null)[]
-  sequence: { on: boolean; steps: number[]; end: SequenceEnd }
+  sequence: { steps: number[]; end: SequenceEnd }
 }
 
 interface List {
@@ -72,7 +72,7 @@ function demoMemory(name: string, style: [string, string], tempo: number, progra
 export class MockRegistration {
   private banks = new Map<string, Bank>()
   private lists = new Map<string, List>()
-  private bank: Bank = { name: 'New Bank', memories: Array(10).fill(null), sequence: { on: false, steps: [], end: 'stop' } }
+  private bank: Bank = { name: 'New Bank', memories: Array(10).fill(null), sequence: { steps: [], end: 'stop' } }
   private path: string | null = null
   private dirty = false
   private selected: number | null = null
@@ -81,6 +81,8 @@ export class MockRegistration {
   private freeze = false
   private frozen: RegistGroup[] = []
   private seqPos: number | null = null
+  /** Sequence On/Off: a panel setting, not part of the bank (Genos Data List). */
+  private seqOn = true
   private list: List = { name: 'New Playlist', records: [] }
   private listPath: string | null = null
   private listDirty = false
@@ -100,12 +102,12 @@ export class MockRegistration {
         demoMemory('Swing', st(2), 132, [26, 48, 65, 32], [true, false, true, false]),
         ...Array(6).fill(null),
       ],
-      sequence: { on: true, steps: [0, 1, 2, 1, 2, 3], end: 'next' },
+      sequence: { steps: [0, 1, 2, 1, 2, 3], end: 'next' },
     }
     const jazz: Bank = {
       name: 'Jazz Set',
       memories: [demoMemory('Trio', st(3), 120, [0, 32, 48, 32], [true, false, false, false]), null, null, null, null, null, null, null, null, null],
-      sequence: { on: false, steps: [], end: 'stop' },
+      sequence: { steps: [], end: 'stop' },
     }
     this.banks.set(bankPath(gig.name), gig)
     this.banks.set(bankPath(jazz.name), jazz)
@@ -173,7 +175,7 @@ export class MockRegistration {
         if (!this.loadBank(cmd.path)) this.fail(host, `${cmd.path}: not found`)
         break
       case 'newRegistBank':
-        this.bank = { name: 'New Bank', memories: Array(10).fill(null), sequence: { on: false, steps: [], end: 'stop' } }
+        this.bank = { name: 'New Bank', memories: Array(10).fill(null), sequence: { steps: [], end: 'stop' } }
         this.path = null
         this.dirty = false
         this.selected = null
@@ -181,8 +183,13 @@ export class MockRegistration {
         break
       case 'saveRegistBank': {
         if (cmd.name !== null || !this.path) {
-          this.bank.name = (cmd.name ?? this.bank.name).trim() || 'Untitled'
-          this.path = bankPath(this.bank.name)
+          const name = (cmd.name ?? this.bank.name).trim() || 'Untitled'
+          const path = bankPath(name)
+          if (this.banks.has(path) && path !== this.path && !cmd.overwrite) {
+            return this.fail(host, `a bank called ${name} already exists: save under another name, or overwrite it`)
+          }
+          this.bank.name = name
+          this.path = path
         }
         this.banks.set(this.path, clone(this.bank))
         this.dirty = false
@@ -199,17 +206,15 @@ export class MockRegistration {
         this.frozen = toggled(this.frozen, cmd.group, cmd.on)
         break
       case 'setRegistSequence':
-        this.bank.sequence = { on: this.bank.sequence.on, steps: cmd.steps.filter((b) => b >= 0 && b < 10).slice(0, 128), end: cmd.end }
+        this.bank.sequence = { steps: cmd.steps.filter((b) => b >= 0 && b < 10).slice(0, 128), end: cmd.end }
         this.seqPos = null
         this.changed()
         break
       case 'setRegistSequenceOn':
-        this.bank.sequence.on = cmd.on
-        this.changed()
+        this.seqOn = cmd.on
         break
       case 'toggleRegistSequence':
-        this.bank.sequence.on = !this.bank.sequence.on
-        this.changed()
+        this.seqOn = !this.seqOn
         break
       case 'stepRegistSequence':
         this.stepSequence(cmd.delta, host)
@@ -258,7 +263,7 @@ export class MockRegistration {
 
   private stepSequence(delta: number, host: RegistHost) {
     const seq = this.bank.sequence
-    if (!seq.on) return this.fail(host, 'Registration Sequence is off')
+    if (!this.seqOn) return this.fail(host, 'Registration Sequence is off')
     const n = seq.steps.length
     if (n === 0 || delta === 0) return
     const pos = this.seqPos !== null && this.seqPos < n ? this.seqPos : null
@@ -301,9 +306,11 @@ export class MockRegistration {
     this.changed()
   }
 
-  private recall(index: number, host: RegistHost, follow: boolean) {
+  /** Recall a button and say so; `label` is the message (what could not be recalled follows it, as an error). */
+  private recall(index: number, host: RegistHost, follow: boolean, label?: string) {
     const m = this.bank.memories[index]
     if (!m) return this.fail(host, `Registration ${index + 1} is empty`)
+    const errors: string[] = []
     this.memory = false
     this.selected = index
     const seq = this.bank.sequence
@@ -326,7 +333,7 @@ export class MockRegistration {
       const path = host.findStyle(m.style.path, m.style.name)
       if (path) {
         if (path !== st.style.path) host.command({ type: 'loadStylePath', path })
-      } else host.message(`style not found: ${m.style.path}`, true)
+      } else errors.push(`style not found: ${m.style.path}`)
     }
     if (keepTempo !== null) st.transport.tempo = keepTempo
     if (allowed('tempo') && m.tempo !== undefined) st.transport.tempo = m.tempo
@@ -358,7 +365,9 @@ export class MockRegistration {
       st.chord.transposeKeyboard = m.transpose[0]
       st.chord.transposeMaster = m.transpose[1]
     }
-    host.message(`Registration ${index + 1}: ${m.name || `Registration ${index + 1}`}`)
+    const text = label ?? `Registration ${index + 1}: ${m.name || `Registration ${index + 1}`}`
+    if (errors.length) host.message(`${text}: ${errors.join('; ')}`, true)
+    else host.message(text)
   }
 
   // ── Playlist ──────────────────────────────────────────────────────────
@@ -400,7 +409,7 @@ export class MockRegistration {
     this.current = index
     if (r.kind === 'bank') {
       if (!this.loadBank(r.path)) return this.fail(host, `${r.path}: not found`)
-      if (r.regist !== undefined && r.regist !== null) this.recall(r.regist, host, true)
+      if (r.regist !== undefined && r.regist !== null) return this.recall(r.regist, host, true, `Playlist ${index + 1}: ${r.name}`)
     } else host.command({ type: 'loadStylePath', path: r.path })
     host.message(`Playlist ${index + 1}: ${r.name}`)
   }
@@ -425,8 +434,13 @@ export class MockRegistration {
           this.sort = 'normal'
         }
         if (cmd.name !== null || !this.listPath) {
-          this.list.name = (cmd.name ?? this.list.name).trim() || 'Untitled'
-          this.listPath = listPath(this.list.name)
+          const name = (cmd.name ?? this.list.name).trim() || 'Untitled'
+          const path = listPath(name)
+          if (this.lists.has(path) && path !== this.listPath && !cmd.overwrite) {
+            return this.fail(host, `a playlist called ${name} already exists: save under another name, or overwrite it`)
+          }
+          this.list.name = name
+          this.listPath = path
         }
         this.lists.set(this.listPath, clone(this.list))
         this.listDirty = false
@@ -515,7 +529,7 @@ export class MockRegistration {
     r.memorizeGroups = REGIST_GROUPS.map((g) => g.id).filter((g) => this.memorize.includes(g))
     r.freeze = this.freeze
     r.freezeGroups = REGIST_GROUPS.map((g) => g.id).filter((g) => this.frozen.includes(g))
-    r.sequence = { ...this.bank.sequence, steps: [...this.bank.sequence.steps], position: this.seqPos }
+    r.sequence = { on: this.seqOn, ...this.bank.sequence, steps: [...this.bank.sequence.steps], position: this.seqPos }
     st.registration = r
 
     const p = emptyPlaylist()

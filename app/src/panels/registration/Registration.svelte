@@ -46,13 +46,19 @@
     const name = (e.currentTarget as HTMLInputElement).value
     if (name !== r.buttons[i].name) app.send({ type: 'renameRegist', index: i, name })
   }
-  function saveBank() {
-    app.send({ type: 'saveRegistBank', name: bankName.trim() || null })
-    bankName = ''
+  /** The typed name is another file's: Save is refused, Overwrite replaces that file. */
+  const clash = (name: string, files: { name: string; path: string }[], own: string | null) =>
+    !!name.trim() && files.some((f) => f.name.toLowerCase() === name.trim().toLowerCase() && f.path !== own)
+  const bankClash = $derived(clash(bankName, r.banks, r.bank.path))
+  const listClash = $derived(clash(listName, pl.playlists, pl.path))
+
+  function saveBank(overwrite = false) {
+    app.send({ type: 'saveRegistBank', name: bankName.trim() || null, ...(overwrite ? { overwrite } : {}) })
+    if (overwrite || !bankClash) bankName = ''
   }
-  function savePlaylist() {
-    app.send({ type: 'savePlaylist', name: listName.trim() || null })
-    listName = ''
+  function savePlaylist(overwrite = false) {
+    app.send({ type: 'savePlaylist', name: listName.trim() || null, ...(overwrite ? { overwrite } : {}) })
+    if (overwrite || !listClash) listName = ''
   }
   function removeStep(k: number) {
     app.send({ type: 'setRegistSequence', steps: r.sequence.steps.filter((_, j) => j !== k), end: r.sequence.end })
@@ -81,7 +87,8 @@
       </div>
       <div class="row">
         <input class="field" type="text" aria-label="Bank name" placeholder={r.bank.path ? `Save as… (${r.bank.name})` : 'Name this bank'} use:tip={'regist.bank_name'} bind:value={bankName} />
-        <HwButton tip="regist.save_bank" onclick={saveBank}>Save{r.bank.dirty ? ' *' : ''}</HwButton>
+        <HwButton tip="regist.save_bank" onclick={() => saveBank()}>Save{r.bank.dirty ? ' *' : ''}</HwButton>
+        {#if bankClash}<HwButton tip="regist.overwrite_bank" onclick={() => saveBank(true)}>Overwrite</HwButton>{/if}
       </div>
       <p class="note">{r.folder ? `Banks live in ${r.folder}.` : 'This session has no Registration folder: banks can be used but not saved.'}</p>
     </section>
@@ -164,7 +171,8 @@
       </div>
       <div class="row">
         <input class="field" type="text" aria-label="Playlist name" placeholder={pl.path ? `Save as… (${pl.name})` : 'Name this playlist'} use:tip={'playlist.name'} bind:value={listName} />
-        <HwButton tip="playlist.save" onclick={savePlaylist}>Save{pl.dirty ? ' *' : ''}</HwButton>
+        <HwButton tip="playlist.save" onclick={() => savePlaylist()}>Save{pl.dirty ? ' *' : ''}</HwButton>
+        {#if listClash}<HwButton tip="playlist.overwrite" onclick={() => savePlaylist(true)}>Overwrite</HwButton>{/if}
       </div>
       <div class="row">
         <HwButton tip="playlist.add_bank" onclick={() => app.send({ type: 'addCurrentBank' })}>+ This bank</HwButton>

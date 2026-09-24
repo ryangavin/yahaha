@@ -13,8 +13,13 @@ pub enum PlaylistCmd {
     /// Open a playlist file (a path from `playlist.playlists`, or any file).
     LoadPlaylist { path: String },
     /// Save: to its file, or with `name` as a new file in the folder (Save As). Saves the
-    /// displayed order and sets the sort back to Normal.
-    SavePlaylist { name: Option<String> },
+    /// displayed order and sets the sort back to Normal. Saving with the name of another
+    /// playlist's file is refused unless `overwrite` is set.
+    SavePlaylist {
+        name: Option<String>,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        overwrite: bool,
+    },
     /// Add a record at the end.
     AddPlaylistRecord { record: Record },
     /// Add the bank in use as a record, recalling the selected button if one is lit.

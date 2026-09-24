@@ -10,7 +10,7 @@
 use super::super::Control;
 use super::LockItem;
 use crate::api::{gm_name, ChordCmd, LibraryCmd, PartsCmd};
-use crate::engine::{Button, Transpose};
+use crate::engine::{StyleControls, Transpose};
 use crate::fingering::Fingering;
 use crate::live::Cmd;
 use crate::parts;
@@ -190,34 +190,22 @@ fn control_recall(c: &mut Control, v: &Value, g: Groups) -> Result<(), String> {
         return Ok(());
     }
     let r: ControlReg = parse("styleControl", v)?;
-    let s = c.snap;
-    let press = |c: &mut Control, b: Button| c.engine_cmd(Cmd::Button(b)).map_err(|e| e.to_string());
     // OTS Link is part of the registration; it does not fire for the registration's own
     // section (its voices are the registration's).
     c.hold_ots_for(Some(r.main.min(3)));
     c.shared.parts.ots_link.store(r.ots_link, Relaxed);
-    if r.main.min(3) != s.main {
-        // Playing: the section changes at the next bar line, as a Main press does.
-        press(c, Button::Main(r.main.min(3)))?;
-    }
-    if !s.running {
-        match (r.intro, s.pending_intro) {
-            (Some(i), cur) if cur != Some(i) => press(c, Button::Intro(i.min(2)))?,
-            (None, Some(cur)) => press(c, Button::Intro(cur))?,
-            _ => {}
-        }
-        // Sync Start while playing would stop the band: it's only recalled when stopped.
-        if r.sync_start != s.sync_armed {
-            press(c, Button::SyncStart)?;
-        }
-    }
-    if r.sync_stop != s.sync_stop {
-        press(c, Button::SyncStop)?;
-    }
-    if r.stop_acmp != s.stop_acmp {
-        press(c, Button::StopAcmp)?;
-    }
-    Ok(())
+    // States, not presses: the engine compares them with its own (a snapshot here may be
+    // behind an earlier recall's changes). Playing, the section changes at the next bar
+    // line; Intro and Sync Start only change while stopped.
+    let set = StyleControls {
+        main: Some(r.main),
+        intro: Some(r.intro),
+        sync_start: Some(r.sync_start),
+        sync_stop: Some(r.sync_stop),
+        stop_acmp: Some(r.stop_acmp),
+        parts: None,
+    };
+    c.engine_cmd(Cmd::StyleControls(set)).map_err(|e| e.to_string())
 }
 
 // ----- the Style part mixer (group Style) -----
@@ -243,17 +231,13 @@ fn mixer_recall(c: &mut Control, v: &Value, g: Groups) -> Result<(), String> {
         return Ok(());
     }
     let r: MixerReg = parse("styleMixer", v)?;
-    let s = c.snap;
+    // Absolute levels and states only: nothing here depends on the snapshot, which may be
+    // behind an earlier recall's changes.
     for p in 0..8u8 {
-        let (vol, on) = (r.volumes[p as usize].min(127), r.on[p as usize]);
-        if vol != s.volumes[p as usize] {
-            c.engine_cmd(Cmd::StyleVolume(p, vol)).map_err(|e| e.to_string())?;
-        }
-        if on != (s.parts & (1 << p) != 0) {
-            c.engine_cmd(Cmd::Button(Button::TogglePart(p))).map_err(|e| e.to_string())?;
-        }
+        c.engine_cmd(Cmd::StyleVolume(p, r.volumes[p as usize].min(127))).map_err(|e| e.to_string())?;
     }
-    Ok(())
+    let parts = (0..8).filter(|&p| r.on[p]).fold(0u8, |m, p| m | 1 << p);
+    c.engine_cmd(Cmd::StyleControls(StyleControls { parts: Some(parts), ..StyleControls::default() })).map_err(|e| e.to_string())
 }
 
 // ----- the keyboard parts (Right 1-3: group Voice; Left: group Style) -----
@@ -262,7 +246,10 @@ fn mixer_recall(c: &mut Control, v: &Value, g: Groups) -> Result<(), String> {
 #[serde(rename_all = "camelCase")]
 struct PartReg {
     on: bool,
-    voice: VoiceRef,
+    /// None: a voice this build can't read (a newer `kind`, e.g. a plugin instrument). The
+    /// part's other settings still recall, and so do the other parts; the file keeps it.
+    #[serde(deserialize_with = "lenient_voice")]
+    voice: Option<VoiceRef>,
     /// CC7.
     volume: u8,
     /// -2..=2.
@@ -273,6 +260,10 @@ struct PartReg {
 #[derive(Serialize, Deserialize)]
 struct PartsReg {
     parts: [Option<PartReg>; 4],
+}
+
+fn lenient_voice<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<VoiceRef>, D::Error> {
+    Ok(serde_json::from_value(Value::deserialize(d)?).ok())
 }
 
 fn part_group(p: usize) -> Group {
@@ -287,7 +278,7 @@ fn parts_capture(c: &Control, g: Groups) -> Option<Value> {
     let parts = std::array::from_fn(|p| {
         g.has(part_group(p)).then(|| PartReg {
             on: kp.is_on(p),
-            voice: VoiceRef::gm(kp.program[p].load(Relaxed)),
+            voice: Some(VoiceRef::gm(kp.program[p].load(Relaxed))),
             volume: kp.volume(p),
             octave: kp.octave[p].load(Relaxed).clamp(-2, 2),
         })
@@ -301,7 +292,7 @@ fn parts_recall(c: &mut Control, v: &Value, g: Groups) -> Result<(), String> {
     for (p, part) in r.parts.iter().enumerate() {
         let Some(part) = part.as_ref().filter(|_| g.has(part_group(p))) else { continue };
         let kp = c.shared.parts.clone();
-        match part.voice.program() {
+        match part.voice.as_ref().and_then(VoiceRef::program) {
             Some(prog) => kp.set_program(p, prog),
             None => err = Some(format!("{}: voice not available", parts::NAMES[p])),
         }
@@ -358,7 +349,7 @@ pub(in crate::session) fn info(m: &Memory) -> Info {
             r.parts
                 .iter()
                 .map(|p| match p {
-                    Some(p) => (p.voice.program().map_or("?", gm_name).to_string(), p.on),
+                    Some(p) => (p.voice.as_ref().and_then(VoiceRef::program).map_or("?", gm_name).to_string(), p.on),
                     None => (String::new(), false),
                 })
                 .collect()

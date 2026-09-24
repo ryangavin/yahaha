@@ -63,6 +63,8 @@ pub struct MockRegist {
     freeze: bool,
     frozen: Groups,
     seq_pos: Option<usize>,
+    /// Sequence On/Off: a panel setting, not part of the bank (Genos Data List).
+    seq_on: bool,
     list: Playlist,
     list_path: Option<String>,
     list_dirty: bool,
@@ -110,6 +112,7 @@ impl MockRegist {
             freeze: false,
             frozen: Groups::NONE,
             seq_pos: None,
+            seq_on: true,
             list: Playlist::default(),
             list_path: None,
             list_dirty: false,
@@ -126,7 +129,7 @@ impl MockRegist {
         gig.memories[1] = Some(demo("Verse", st(1), 96.0, [4, 48, 61, 32], [true, false, false, false]));
         gig.memories[2] = Some(demo("Chorus", st(1), 96.0, [61, 48, 56, 32], [true, true, true, false]));
         gig.memories[3] = Some(demo("Swing", st(2), 132.0, [26, 48, 65, 32], [true, false, true, false]));
-        gig.sequence = Sequence { on: true, steps: vec![0, 1, 2, 1, 2, 3], end: SequenceEnd::Next };
+        gig.sequence = Sequence { steps: vec![0, 1, 2, 1, 2, 3], end: SequenceEnd::Next };
         let mut jazz = Bank::empty("Jazz Set");
         jazz.memories[0] = Some(demo("Trio", st(3), 120.0, [0, 32, 48, 32], [true, false, false, false]));
         let mut list = Playlist::new("Friday");
@@ -237,11 +240,18 @@ impl MockRegist {
                 self.selected = None;
                 self.seq_pos = None;
             }
-            RegistrationCmd::SaveRegistBank { name } => {
+            RegistrationCmd::SaveRegistBank { name, overwrite } => {
                 if name.is_some() || self.path.is_none() {
                     let n = name.unwrap_or_else(|| self.bank.name.clone());
-                    self.bank.name = if n.trim().is_empty() { "Untitled".into() } else { n.trim().into() };
-                    self.path = Some(bank_path(&self.bank.name));
+                    let n: String = if n.trim().is_empty() { "Untitled".into() } else { n.trim().into() };
+                    let path = bank_path(&n);
+                    if self.banks.contains_key(&path) && self.path.as_ref() != Some(&path) && !overwrite {
+                        let text = format!("a bank called {n} already exists: save under another name, or overwrite it");
+                        fx.push(Effect::Message(text, true));
+                        return fx;
+                    }
+                    self.bank.name = n;
+                    self.path = Some(path);
                 }
                 self.banks.insert(self.path.clone().unwrap(), self.bank.clone());
                 self.dirty = false;
@@ -251,20 +261,14 @@ impl MockRegist {
             RegistrationCmd::ToggleFreeze => self.freeze = !self.freeze,
             RegistrationCmd::SetFreezeGroup { group, on } => self.frozen.set(group, on),
             RegistrationCmd::SetRegistSequence { steps, end } => {
-                self.bank.sequence = Sequence { on: self.bank.sequence.on, steps, end }.clean();
+                self.bank.sequence = Sequence { steps, end }.clean();
                 self.seq_pos = None;
                 self.changed();
             }
-            RegistrationCmd::SetRegistSequenceOn { on } => {
-                self.bank.sequence.on = on;
-                self.changed();
-            }
-            RegistrationCmd::ToggleRegistSequence => {
-                self.bank.sequence.on = !self.bank.sequence.on;
-                self.changed();
-            }
+            RegistrationCmd::SetRegistSequenceOn { on } => self.seq_on = on,
+            RegistrationCmd::ToggleRegistSequence => self.seq_on = !self.seq_on,
             RegistrationCmd::StepRegistSequence { delta } => {
-                if !self.bank.sequence.on {
+                if !self.seq_on {
                     fx.push(Effect::Message("Registration Sequence is off".into(), true));
                     return fx;
                 }
@@ -412,7 +416,15 @@ impl MockRegist {
                     fx.push(Effect::Message(format!("{path}: not found"), true));
                 }
             }
-            PlaylistCmd::SavePlaylist { name } => {
+            PlaylistCmd::SavePlaylist { name, overwrite } => {
+                if let Some(n) = name.as_ref().map(|n| n.trim()).filter(|n| !n.is_empty()) {
+                    let path = list_path(n);
+                    if self.lists.contains_key(&path) && self.list_path.as_ref() != Some(&path) && !overwrite {
+                        let text = format!("a playlist called {n} already exists: save under another name, or overwrite it");
+                        fx.push(Effect::Message(text, true));
+                        return fx;
+                    }
+                }
                 if sorted {
                     let order = self.list.order(self.sort);
                     self.current = self.current.and_then(|c| order.iter().position(|&i| i == c));
@@ -569,7 +581,7 @@ impl MockRegist {
             freeze: self.freeze,
             freeze_groups: self.frozen,
             sequence: SequenceState {
-                on: self.bank.sequence.on,
+                on: self.seq_on,
                 steps: self.bank.sequence.steps.clone(),
                 end: self.bank.sequence.end,
                 position: self.seq_pos,
@@ -614,7 +626,7 @@ impl MockRegist {
             palette: None,
         };
         let page = |on: bool, avail: bool| (PAGE, if !avail { Level::Off } else if on { Level::Bright } else { Level::Dim }, Anim::Solid);
-        let seq = self.bank.sequence.on && !self.bank.sequence.steps.is_empty();
+        let seq = self.seq_on && !self.bank.sequence.steps.is_empty();
         let banks = !self.banks.is_empty();
         let mut v: Vec<Pad> = (0..10u8)
             .map(|i| {

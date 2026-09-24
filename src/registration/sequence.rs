@@ -17,13 +17,14 @@ pub enum SequenceEnd {
     Next,
 }
 
-/// A bank's Registration Sequence: saved in the bank file.
+/// A bank's Registration Sequence: saved in the bank file. Whether the sequence is in use
+/// (Sequence On/Off) is not part of it: on the Genos that is a panel setting kept across
+/// banks (Data List, Regist Sequence: On/Off is not a Registration item, Setup = O), so
+/// it lives in the session (docs/registration.md). An `on` field in an older bank file is
+/// ignored.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Sequence {
-    /// The sequence is in use (Regist +/- step it).
-    #[serde(default)]
-    pub on: bool,
     /// Button indices (0-9) in order; a button may appear more than once.
     #[serde(default)]
     pub steps: Vec<u8>,
@@ -113,7 +114,7 @@ mod tests {
     use super::*;
 
     fn seq(steps: &[u8], end: SequenceEnd) -> Sequence {
-        Sequence { on: true, steps: steps.to_vec(), end }
+        Sequence { steps: steps.to_vec(), end }
     }
 
     #[test]
@@ -155,7 +156,7 @@ mod tests {
 
     #[test]
     fn clean_drops_bad_steps() {
-        let s = Sequence { on: false, steps: vec![1, 10, 9, 200], end: SequenceEnd::Stop }.clean();
+        let s = Sequence { steps: vec![1, 10, 9, 200], end: SequenceEnd::Stop }.clean();
         assert_eq!(s.steps, [1, 9]);
     }
 }

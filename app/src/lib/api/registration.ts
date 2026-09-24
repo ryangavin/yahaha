@@ -31,8 +31,8 @@ export type RegistrationCmd =
   | { type: 'stepRegistBank'; delta: number }
   | { type: 'selectRegistBank'; path: string }
   | { type: 'newRegistBank' }
-  /** Save to its file (`name` null) or as a new file in the folder. */
-  | { type: 'saveRegistBank'; name: string | null }
+  /** Save to its file (`name` null) or as a file of that name in the folder; another bank's file of that name is only replaced with `overwrite`. */
+  | { type: 'saveRegistBank'; name: string | null; overwrite?: boolean }
   | { type: 'setFreeze'; on: boolean }
   | { type: 'toggleFreeze' }
   | { type: 'setFreezeGroup'; group: RegistGroup; on: boolean }
@@ -46,7 +46,7 @@ export type RegistrationCmd =
 export type PlaylistCmd =
   | { type: 'newPlaylist' }
   | { type: 'loadPlaylist'; path: string }
-  | { type: 'savePlaylist'; name: string | null }
+  | { type: 'savePlaylist'; name: string | null; overwrite?: boolean }
   | { type: 'addPlaylistRecord'; record: PlaylistRecord }
   | { type: 'addCurrentBank' }
   | { type: 'addCurrentStyle' }

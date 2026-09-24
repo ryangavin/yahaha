@@ -5,7 +5,7 @@
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
-use yahaha::engine::{Button, Engine, Prepared};
+use yahaha::engine::{Button, Engine, Prepared, StyleControls};
 use yahaha::live::{self, Audition, Cmd, EngineLoop, Out, Shared};
 use yahaha::rt::{PacketSink, Target};
 use yahaha::sff::Style;
@@ -71,6 +71,8 @@ fn preview_and_next_bar_style_change_do_not_allocate() {
     ch.ui_tx.push(Cmd::SetTempo(96.0)).ok().unwrap();
     ch.ui_tx.push(Cmd::StyleVolume(3, 64)).ok().unwrap();
     ch.ui_tx.push(Cmd::Button(Button::TogglePart(5))).ok().unwrap();
+    let controls = StyleControls { main: Some(1), intro: None, sync_start: None, sync_stop: Some(true), stop_acmp: Some(true), parts: Some(0b1011_1111) };
+    ch.ui_tx.push(Cmd::StyleControls(controls)).ok().unwrap();
     while now < t0 + 2 * bar {
         now = l.next_deadline().unwrap_or(now + 5_000_000).max(now + 1);
         l.step(now);

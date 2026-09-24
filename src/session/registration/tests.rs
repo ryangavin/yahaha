@@ -258,7 +258,7 @@ fn banks_save_step_and_the_sequence_runs_into_the_next_bank() {
     s.send(RegistrationCmd::MemorizeRegist { index: 2 }).unwrap();
     s.send(RegistrationCmd::SetRegistSequence { steps: vec![2, 0], end: SequenceEnd::Next }).unwrap();
     s.send(RegistrationCmd::SetRegistSequenceOn { on: true }).unwrap();
-    s.send(RegistrationCmd::SaveRegistBank { name: Some("A".into()) }).unwrap();
+    s.send(RegistrationCmd::SaveRegistBank { name: Some("A".into()), overwrite: false }).unwrap();
     let st = s.state();
     assert_eq!(st.registration.bank.name, "A");
     assert!(!st.registration.bank.dirty);
@@ -268,7 +268,7 @@ fn banks_save_step_and_the_sequence_runs_into_the_next_bank() {
     s.send(PartsCmd::SetPartVoice { part: 0, program: 50 }).unwrap();
     s.send(RegistrationCmd::MemorizeRegist { index: 1 }).unwrap();
     s.send(RegistrationCmd::SetRegistSequence { steps: vec![1], end: SequenceEnd::Stop }).unwrap();
-    s.send(RegistrationCmd::SaveRegistBank { name: Some("B".into()) }).unwrap();
+    s.send(RegistrationCmd::SaveRegistBank { name: Some("B".into()), overwrite: false }).unwrap();
     // Memorizing into a saved bank writes its file at once.
     s.send(RegistrationCmd::MemorizeRegist { index: 4 }).unwrap();
     let st = s.state();
@@ -290,8 +290,13 @@ fn banks_save_step_and_the_sequence_runs_into_the_next_bank() {
     let st = s.state();
     assert_eq!((st.registration.bank.name.as_str(), st.registration.selected), ("B", Some(1)));
     assert_eq!(st.keyboard_parts[0].program, 50);
-    // Bank B's sequence is off: Regist + is refused.
-    assert!(s.send(RegistrationCmd::StepRegistSequence { delta: 1 }).is_err());
+    // Sequence On/Off is not a bank setting: it is still on in bank B, whose sequence ends
+    // (End = Stop) on its only step.
+    assert!(st.registration.sequence.on);
+    s.send(RegistrationCmd::StepRegistSequence { delta: 1 }).unwrap();
+    assert_eq!(s.state().registration.selected, Some(1));
+    s.send(RegistrationCmd::SetRegistSequenceOn { on: false }).unwrap();
+    assert!(s.send(RegistrationCmd::StepRegistSequence { delta: 1 }).is_err(), "off: Regist + is refused");
     // Rename and clear.
     s.send(RegistrationCmd::RenameRegist { index: 1, name: "Verse".into() }).unwrap();
     assert_eq!(s.state().registration.buttons[1].name, "Verse");
@@ -326,7 +331,7 @@ fn playlist_records_load_banks_buttons_and_styles() {
     assert!(s.send(PlaylistCmd::AddCurrentBank).is_err(), "the bank has no file yet");
     s.send(PartsCmd::SetPartVoice { part: 0, program: 22 }).unwrap();
     s.send(RegistrationCmd::MemorizeRegist { index: 6 }).unwrap();
-    s.send(RegistrationCmd::SaveRegistBank { name: Some("Gig".into()) }).unwrap();
+    s.send(RegistrationCmd::SaveRegistBank { name: Some("Gig".into()), overwrite: false }).unwrap();
     s.send(PlaylistCmd::AddCurrentBank).unwrap();
     s.send(LibraryCmd::LoadStyle { id: style_id(&s, "BubblyDub") }).unwrap();
     s.advance(MS);
@@ -338,7 +343,7 @@ fn playlist_records_load_banks_buttons_and_styles() {
     assert_eq!(recs[0].record.target, RecordTarget::Bank { path: bank, regist: Some(6) });
     assert_eq!(recs[0].record.name, "Gig [7]");
     assert!(!recs[0].missing);
-    s.send(PlaylistCmd::SavePlaylist { name: Some("Friday".into()) }).unwrap();
+    s.send(PlaylistCmd::SavePlaylist { name: Some("Friday".into()), overwrite: false }).unwrap();
     let file = dir.join("Playlists/Friday.playlist.json");
     assert!(file.is_file());
 
@@ -362,7 +367,7 @@ fn playlist_records_load_banks_buttons_and_styles() {
     s.send(PlaylistCmd::SetPlaylistSort { sort: PlaylistSort::AToZ }).unwrap();
     assert_eq!(s.state().playlist.records[0].record.name, "Aardvark");
     assert!(s.send(PlaylistCmd::DeletePlaylistRecord { index: 0 }).is_err());
-    s.send(PlaylistCmd::SavePlaylist { name: None }).unwrap();
+    s.send(PlaylistCmd::SavePlaylist { name: None, overwrite: false }).unwrap();
     let st = s.state();
     assert_eq!(st.playlist.sort, PlaylistSort::Normal);
     assert_eq!((st.playlist.records[0].index, st.playlist.records[0].record.name.as_str()), (0, "Aardvark"));
@@ -381,5 +386,178 @@ fn without_a_data_dir_banks_cannot_be_saved() {
     assert_eq!(st.registration.buttons.len(), 10);
     assert_eq!(st.registration.memorize_groups, Groups::all());
     s.send(RegistrationCmd::MemorizeRegist { index: 0 }).unwrap();
-    assert!(s.send(RegistrationCmd::SaveRegistBank { name: Some("x".into()) }).is_err());
+    assert!(s.send(RegistrationCmd::SaveRegistBank { name: Some("x".into()), overwrite: false }).is_err());
+}
+
+fn save(s: &Session, name: &str) {
+    s.send(RegistrationCmd::SaveRegistBank { name: Some(name.into()), overwrite: false }).unwrap();
+}
+
+fn message(s: &Session) -> (String, bool) {
+    let m = s.state().message.clone().expect("a message");
+    (m.text, m.error)
+}
+
+/// Review B1: a second press before the bar line (a double tap, or another button with
+/// the same style) must still recall the tempo and the Style mixer after the style loads.
+#[test]
+fn double_press_while_playing_keeps_tempo_and_mixer() {
+    let Some((s, dir)) = session("double") else { return };
+    dress(&s);
+    let want = panel(&s);
+    s.send(RegistrationCmd::MemorizeRegist { index: 0 }).unwrap();
+    // Button 2: the same style, but Style part 4 at another level.
+    s.send(MixerCmd::SetStylePartVolume { part: 3, volume: 100 }).unwrap();
+    s.advance(MS);
+    s.send(RegistrationCmd::MemorizeRegist { index: 1 }).unwrap();
+    scramble(&s);
+    s.send(TransportCmd::StartStop).unwrap();
+    s.advance(10 * MS);
+    s.send(RegistrationCmd::RecallRegist { index: 0 }).unwrap();
+    s.send(RegistrationCmd::RecallRegist { index: 0 }).unwrap(); // double tap
+    assert!(s.state().registration.pending, "still waiting for the bar line");
+    s.advance(4_000 * MS);
+    let got = panel(&s);
+    assert_eq!((&got.style, got.tempo, &got.style_vol, &got.style_on), (&want.style, want.tempo, &want.style_vol, &want.style_on));
+    assert_eq!(got.style_vol[3], 64);
+
+    // Button 1, then button 2 (same style) before the bar: button 2's mixer wins.
+    scramble(&s);
+    s.advance(4_000 * MS);
+    s.send(RegistrationCmd::RecallRegist { index: 0 }).unwrap();
+    s.send(RegistrationCmd::RecallRegist { index: 1 }).unwrap();
+    s.advance(4_000 * MS);
+    let got = panel(&s);
+    assert_eq!((&got.style, got.tempo, got.style_vol[3]), (&want.style, want.tempo, 100));
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+/// Review B2: what a recall could not do is reported, and the rest still recalls.
+#[test]
+fn missing_style_is_reported() {
+    let Some((s, dir)) = session("missing") else { return };
+    s.send(PartsCmd::SetPartVoice { part: 0, program: 61 }).unwrap();
+    s.send(RegistrationCmd::MemorizeRegist { index: 0 }).unwrap();
+    save(&s, "M");
+    let file = dir.join("Registration/M.regist.json");
+    let mut v: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&file).unwrap()).unwrap();
+    v["memories"][0]["sections"]["style"]["path"] = "/gone/Nope.sty".into();
+    std::fs::write(&file, v.to_string()).unwrap();
+    s.send(RegistrationCmd::SelectRegistBank { path: file.display().to_string() }).unwrap();
+    s.send(PartsCmd::SetPartVoice { part: 0, program: 1 }).unwrap();
+    s.send(RegistrationCmd::RecallRegist { index: 0 }).unwrap();
+    s.advance(MS);
+    let (text, error) = message(&s);
+    assert!(error && text.contains("Registration 1") && text.contains("style not found: /gone/Nope.sty"), "{text}");
+    assert_eq!(s.state().keyboard_parts[0].program, 61, "the rest is recalled");
+    // Through a Playlist record too.
+    s.send(PlaylistCmd::AddCurrentBank).unwrap();
+    s.send(PlaylistCmd::LoadPlaylistRecord { index: 0 }).unwrap();
+    let (text, error) = message(&s);
+    assert!(error && text.starts_with("Playlist 1") && text.contains("style not found"), "{text}");
+    // A recall that works says so, not as an error.
+    s.send(RegistrationCmd::MemorizeRegist { index: 1 }).unwrap();
+    s.send(RegistrationCmd::RecallRegist { index: 1 }).unwrap();
+    assert!(!message(&s).1);
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+/// Review B3: Sequence On/Off is not a Registration item (Data List, Regist Sequence:
+/// On/Off Regist = X): it stays when the bank changes, and it is kept across sessions.
+#[test]
+fn sequence_on_off_stays_across_banks() {
+    let Some((s, dir)) = session("seqon") else { return };
+    s.send(RegistrationCmd::MemorizeRegist { index: 0 }).unwrap();
+    s.send(RegistrationCmd::SetRegistSequence { steps: vec![0], end: SequenceEnd::Next }).unwrap();
+    save(&s, "A");
+    s.send(RegistrationCmd::NewRegistBank).unwrap();
+    s.send(RegistrationCmd::MemorizeRegist { index: 1 }).unwrap();
+    s.send(RegistrationCmd::SetRegistSequence { steps: vec![1], end: SequenceEnd::Stop }).unwrap();
+    save(&s, "B");
+    s.send(RegistrationCmd::SetRegistSequenceOn { on: true }).unwrap();
+    let b_file = std::fs::read_to_string(dir.join("Registration/B.regist.json")).unwrap();
+    s.send(RegistrationCmd::StepRegistBank { delta: -1 }).unwrap();
+    let st = s.state();
+    assert_eq!(st.registration.bank.name, "A");
+    assert!(st.registration.sequence.on, "On/Off stays when the bank changes");
+    // The bank files don't hold it (turning it on didn't rewrite B).
+    assert_eq!(std::fs::read_to_string(dir.join("Registration/B.regist.json")).unwrap(), b_file);
+    let bv: serde_json::Value = serde_json::from_str(&b_file).unwrap();
+    assert!(bv["sequence"].get("on").is_none(), "{b_file}");
+    // End = Next runs on into B, whatever B was saved with.
+    s.send(RegistrationCmd::StepRegistSequence { delta: 1 }).unwrap();
+    s.send(RegistrationCmd::StepRegistSequence { delta: 1 }).unwrap();
+    let st = s.state();
+    assert_eq!((st.registration.bank.name.as_str(), st.registration.selected), ("B", Some(1)));
+    drop(s);
+    // A new session keeps the setting (the Genos's Setup/Backup).
+    let s = Session::offline(Options { paths: vec![corpus("SlowWalker.T552.sty").unwrap()], data_dir: Some(dir.clone()), ..Options::default() }).unwrap();
+    assert!(s.state().registration.sequence.on);
+    // An older bank file's `on` is ignored.
+    let old = r#"{"format":"yahaha.registration-bank","version":1,"name":"x","memories":[],"sequence":{"on":false,"steps":[3],"end":"top"}}"#;
+    let seq = crate::registration::Bank::from_json(old).unwrap().sequence;
+    assert_eq!((seq.steps, seq.end), (vec![3], SequenceEnd::Top));
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+/// Review B4: Save As with the name of another bank's (or playlist's) file does not
+/// replace it unless asked to.
+#[test]
+fn save_as_existing_name_needs_overwrite() {
+    let Some((s, dir)) = session("saveas") else { return };
+    s.send(RegistrationCmd::MemorizeRegist { index: 0 }).unwrap();
+    s.send(RegistrationCmd::MemorizeRegist { index: 1 }).unwrap();
+    save(&s, "Gig");
+    let gig = dir.join("Registration/Gig.regist.json");
+    s.send(RegistrationCmd::NewRegistBank).unwrap();
+    assert!(s.send(RegistrationCmd::SaveRegistBank { name: Some("Gig".into()), overwrite: false }).is_err());
+    assert!(message(&s).0.contains("already exists"));
+    assert_eq!(crate::registration::Bank::load(&gig).unwrap().stored_mask(), 0b11);
+    let st = s.state();
+    assert_eq!((st.registration.bank.path.clone(), st.registration.bank.name.as_str()), (None, "New Bank"));
+    // Memorizing into the unsaved bank still doesn't touch Gig.
+    s.send(RegistrationCmd::MemorizeRegist { index: 5 }).unwrap();
+    assert_eq!(crate::registration::Bank::load(&gig).unwrap().stored_mask(), 0b11);
+    // Saving a bank under its own name again is fine; overwriting is on request.
+    s.send(RegistrationCmd::SaveRegistBank { name: Some("Gig".into()), overwrite: true }).unwrap();
+    assert_eq!(crate::registration::Bank::load(&gig).unwrap().stored_mask(), 1 << 5);
+    save(&s, "Gig");
+
+    // Playlists alike.
+    s.send(PlaylistCmd::AddCurrentBank).unwrap();
+    s.send(PlaylistCmd::SavePlaylist { name: Some("Friday".into()), overwrite: false }).unwrap();
+    s.send(PlaylistCmd::NewPlaylist).unwrap();
+    assert!(s.send(PlaylistCmd::SavePlaylist { name: Some("Friday".into()), overwrite: false }).is_err());
+    let file = dir.join("Playlists/Friday.playlist.json");
+    assert_eq!(crate::registration::Playlist::load(&file).unwrap().records.len(), 1);
+    s.send(PlaylistCmd::SavePlaylist { name: Some("Friday".into()), overwrite: true }).unwrap();
+    assert_eq!(crate::registration::Playlist::load(&file).unwrap().records.len(), 0);
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+/// Review N2: a part whose voice this build can't read (a newer `kind`) doesn't stop the
+/// other parts from recalling; the message says which part.
+#[test]
+fn unknown_voice_kind_blocks_only_that_part() {
+    let Some((s, dir)) = session("voicekind") else { return };
+    s.send(PartsCmd::SetPartOn { part: 1, on: true }).unwrap();
+    s.send(PartsCmd::SetPartVoice { part: 1, program: 55 }).unwrap();
+    s.send(RegistrationCmd::MemorizeRegist { index: 0 }).unwrap();
+    save(&s, "V");
+    let file = dir.join("Registration/V.regist.json");
+    let mut v: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&file).unwrap()).unwrap();
+    v["memories"][0]["sections"]["parts"]["parts"][0]["voice"] = serde_json::json!({ "kind": "plugin", "id": "au.x", "state": "..." });
+    std::fs::write(&file, v.to_string()).unwrap();
+    s.send(RegistrationCmd::SelectRegistBank { path: file.display().to_string() }).unwrap();
+    s.send(PartsCmd::SetPartVoice { part: 1, program: 3 }).unwrap();
+    s.send(RegistrationCmd::RecallRegist { index: 0 }).unwrap();
+    s.advance(MS);
+    assert_eq!(s.state().keyboard_parts[1].program, 55);
+    let (text, error) = message(&s);
+    assert!(error && text.contains("voice not available"), "{text}");
+    // Regist Bank Info still lists the part, and the file keeps the voice.
+    assert_eq!(s.state().registration.buttons[0].voices[0].name, "?");
+    s.send(RegistrationCmd::RenameRegist { index: 0, name: "Keep".into() }).unwrap();
+    assert!(std::fs::read_to_string(&file).unwrap().contains("au.x"));
+    let _ = std::fs::remove_dir_all(dir);
 }

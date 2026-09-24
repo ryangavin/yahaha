@@ -2,6 +2,21 @@
 
 use super::*;
 
+/// Style control states for `Engine::set_style_controls`; None leaves one as it is.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct StyleControls {
+    /// Main A-D (0-3).
+    pub main: Option<u8>,
+    /// The Intro armed to start with (only while stopped).
+    pub intro: Option<Option<u8>>,
+    /// Sync Start armed (only while stopped).
+    pub sync_start: Option<bool>,
+    pub sync_stop: Option<bool>,
+    pub stop_acmp: Option<bool>,
+    /// The Style parts that play (bit 0 = Rhythm 1).
+    pub parts: Option<u8>,
+}
+
 impl Engine {
     // ----- time -----
 
@@ -18,6 +33,45 @@ impl Engine {
     pub fn set_tempo(&mut self, bpm: f64, now: u64) {
         if bpm.is_finite() {
             self.set_bpm_internal(bpm, now);
+        }
+    }
+
+    /// Set the Style controls to given states (a Registration recall): each is compared
+    /// with the engine's own state here, so a recall never depends on a snapshot the
+    /// control side may not have seen yet (two recalls in one snapshot period would flip a
+    /// toggle twice). Changes go through the same paths as the panel buttons.
+    pub fn set_style_controls(&mut self, c: StyleControls, now: u64, sink: &mut impl Sink) {
+        if let Some(m) = c.main.map(|m| m.min(3))
+            && m != self.main
+        {
+            // Playing: the section changes at the next bar line, as a Main press does.
+            self.button(Button::Main(m), now, sink);
+        }
+        if !self.running {
+            if let Some(i) = c.intro {
+                self.pending_intro = i.map(|i| i.min(2));
+            }
+            // Sync Start while playing would stop the band: only set when stopped.
+            if let Some(on) = c.sync_start {
+                self.sync_armed = on;
+            }
+        }
+        if let Some(on) = c.sync_stop
+            && on != self.sync_stop
+        {
+            self.button(Button::SyncStop, now, sink);
+        }
+        if let Some(on) = c.stop_acmp
+            && on != self.stop_acmp
+        {
+            self.button(Button::StopAcmp, now, sink);
+        }
+        if let Some(parts) = c.parts {
+            for p in 0..8u8 {
+                if (self.parts ^ parts) & (1 << p) != 0 {
+                    self.button(Button::TogglePart(p), now, sink);
+                }
+            }
         }
     }
 
@@ -216,5 +270,44 @@ impl Engine {
         if was_running {
             self.on_stop(sink);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct Nop;
+    impl Sink for Nop {
+        fn send(&mut self, _: &[u8]) {}
+    }
+
+    /// Two recalls before the control side sees a new snapshot send the same states twice:
+    /// the engine compares with its own state, so nothing flips back (review N3).
+    #[test]
+    fn style_controls_are_states_not_toggles() {
+        let p = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus/MOX_v2/SlowWalker.T552.sty");
+        if !p.exists() {
+            eprintln!("corpus missing; skipping");
+            return;
+        }
+        let mut e = Engine::new(Box::new(Prepared::new(&Style::load(&p).unwrap())));
+        let set = StyleControls {
+            main: Some(2),
+            intro: Some(Some(1)),
+            sync_start: Some(true),
+            sync_stop: Some(true),
+            stop_acmp: Some(true),
+            parts: Some(0b1101_0111),
+        };
+        for _ in 0..2 {
+            e.set_style_controls(set, 1, &mut Nop);
+            let s = e.snapshot(1);
+            assert_eq!((s.main, s.pending_intro, s.sync_armed, s.sync_stop, s.stop_acmp, s.parts), (2, Some(1), true, true, true, 0b1101_0111));
+        }
+        // None leaves a control as it is.
+        e.set_style_controls(StyleControls { parts: Some(0xff), ..StyleControls::default() }, 1, &mut Nop);
+        let s = e.snapshot(1);
+        assert_eq!((s.main, s.sync_stop, s.parts), (2, true, 0xff));
     }
 }

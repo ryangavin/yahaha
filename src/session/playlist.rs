@@ -72,7 +72,7 @@ impl Control {
                 self.playlist.check();
             }
             PlaylistCmd::LoadPlaylist { path } => return self.load_playlist(Path::new(&path)),
-            PlaylistCmd::SavePlaylist { name } => return self.save_playlist(name),
+            PlaylistCmd::SavePlaylist { name, overwrite } => return self.save_playlist(name, overwrite),
             PlaylistCmd::AddPlaylistRecord { record } => return self.add_record(record),
             PlaylistCmd::AddCurrentBank => {
                 let Some(path) = self.reg_bank_path() else {
@@ -204,17 +204,22 @@ impl Control {
         }
     }
 
-    /// Save: the displayed order, then back to Normal (OM p.102).
-    fn save_playlist(&mut self, name: Option<String>) -> Result<(), CmdError> {
+    /// Save: the displayed order, then back to Normal (OM p.102). A file of that name that
+    /// belongs to another playlist is only replaced with `overwrite`.
+    fn save_playlist(&mut self, name: Option<String>, overwrite: bool) -> Result<(), CmdError> {
         let path = match (name, &self.playlist.path) {
             (None, Some(p)) => p.clone(),
             (name, _) => {
                 let Some(dir) = self.playlist.dir.clone() else {
                     return self.fail("no Playlist folder to save to");
                 };
-                let name = name.unwrap_or_else(|| self.playlist.list.name.clone());
-                self.playlist.list.name = name.trim().to_string();
-                dir.join(reg::file_name(&name, PLAYLIST_EXT))
+                let name = name.unwrap_or_else(|| self.playlist.list.name.clone()).trim().to_string();
+                let path = dir.join(reg::file_name(&name, PLAYLIST_EXT));
+                if path.exists() && self.playlist.path.as_ref() != Some(&path) && !overwrite {
+                    return self.fail(format!("a playlist called {name} already exists: save under another name, or overwrite it"));
+                }
+                self.playlist.list.name = name;
+                path
             }
         };
         let c = &mut self.playlist;
@@ -246,7 +251,10 @@ impl Control {
             RecordTarget::Bank { regist, .. } => {
                 self.load_bank(&path)?;
                 if let Some(i) = regist {
-                    self.recall_index(i, true)?;
+                    // What the button could not recall stays in the message.
+                    let (_, errors) = self.recall_quiet(i, true)?;
+                    self.say_recalled(format!("Playlist {}: {}", index + 1, r.name), &errors);
+                    return Ok(());
                 }
             }
             RecordTarget::Style { .. } => {

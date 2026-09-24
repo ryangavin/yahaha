@@ -30,7 +30,12 @@ pub enum RegistrationCmd {
     /// Start a new, empty, unsaved bank.
     NewRegistBank,
     /// Save the bank: to its file, or with `name` as a new file in the folder (Save As).
-    SaveRegistBank { name: Option<String> },
+    /// Saving with the name of another bank's file is refused unless `overwrite` is set.
+    SaveRegistBank {
+        name: Option<String>,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        overwrite: bool,
+    },
     /// Registration Freeze on/off (the FREEZE button).
     SetFreeze { on: bool },
     ToggleFreeze,

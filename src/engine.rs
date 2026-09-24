@@ -24,6 +24,7 @@ use hooks::{Features, Lines};
 use mirror::{Mirror, NRPN_BIT, UNSENT};
 use sections::Change;
 pub use mixer::{Takeover, HW_UNKNOWN};
+pub use transport::StyleControls;
 use prepared::PKind;
 pub use prepared::{id_of, slot_of, Msgs, PSection, Prepared, NUM_SLOTS};
 

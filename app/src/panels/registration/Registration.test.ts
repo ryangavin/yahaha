@@ -133,4 +133,29 @@ describe('Registration panel', () => {
     expect(r.bank.dirty).toBe(false)
     expect(r.banks.map((b) => b.name)).toContain('Sunday')
   })
+
+  it("saving under another bank's name needs Overwrite", async () => {
+    const s = setup()
+    render(Registration)
+    const gig = s.state.registration.bank.name
+    s.send({ type: 'newRegistBank' })
+    s.send({ type: 'memorizeRegist', index: 0 })
+    flushSync()
+    const name = q<HTMLInputElement>('[data-tip="regist.bank_name"]')
+    await fireEvent.input(name, { target: { value: gig } })
+    flushSync()
+    await fireEvent.click(q('[data-tip="regist.save_bank"]'))
+    expect(s.state.registration.bank.path).toBe(null)
+    expect(s.state.message?.error).toBe(true)
+    await fireEvent.click(q('[data-tip="regist.overwrite_bank"]'))
+    expect(s.state.registration.bank.name).toBe(gig)
+    expect(s.state.registration.bank.dirty).toBe(false)
+  })
+
+  it('sequence on/off stays when the bank changes', () => {
+    const s = setup()
+    s.send({ type: 'setRegistSequenceOn', on: true })
+    s.send({ type: 'stepRegistBank', delta: 1 })
+    expect(s.state.registration.sequence.on).toBe(true)
+  })
 })
