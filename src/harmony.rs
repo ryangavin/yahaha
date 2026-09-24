@@ -1,8 +1,9 @@
 //! Keyboard Harmony: our own implementation of the documented Genos harmony types.
 //!
 //! Pure and real-time safe: nothing here allocates, locks or panics, so the input thread
-//! can call it per note. It is not wired into the engine yet; see docs/harmony.md for
-//! every type's rule and which parts of it are guesses.
+//! can call it per note. The live wiring is `live/pipeline.rs` (the input thread's
+//! processor) and `live/kbdfx.rs` (Echo and Strum on the engine thread); see
+//! docs/harmony.md for every type's rule and which parts of it are guesses.
 //!
 //! The pieces:
 //! - [`chord_zone`] / [`harmony_chord`]: which keys and which chord drive the harmony in

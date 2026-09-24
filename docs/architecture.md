@@ -22,7 +22,8 @@ This document is about the inside.
 | `src/sff.rs`, `src/library.rs` | Style files (SFF1/SFF2) and the style library index. |
 | `src/theory.rs`, `src/fingering.rs` | Chords, chord recognition, fingering types. |
 | `src/parts.rs`, `src/launchkey.rs` | Keyboard parts (Right 1-3, Left) and the Launchkey mapping. |
-| `src/harmony.rs`, `src/arp/`, `src/multipad/`, `src/ireal/`, `src/plugin/` | Feature libraries not yet wired in (pure, real-time safe). |
+| `src/harmony.rs`, `src/arp/` | Keyboard Harmony and the arpeggio (pure, real-time safe), wired in by `src/live/pipeline.rs` and `src/live/kbdfx.rs`. |
+| `src/multipad/`, `src/ireal/`, `src/plugin/` | Feature libraries not yet wired in (pure, real-time safe). |
 | `app/` | The desktop app: Svelte frontend (`app/src`), Tauri shell (`app/src-tauri`). |
 
 ## Threads
@@ -164,10 +165,19 @@ transpose → processor → part routing, held-note bookkeeping, output**. The p
 (`live::Processor`, an enum) is where Keyboard Harmony (`src/harmony.rs`) and the
 Arpeggiator (`src/arp/`) go, as variants: they are mutually exclusive, as on the Genos.
 A processor sees every note-on (after transpose) and note-off; it passes the note on, or
-swallows it, and sends any extra notes itself. Time-domain work does not happen on the
-input thread: Harmony's Echo/Tremolo/Trill (`harmony::EchoGen`) run on engine
-nanoseconds and the arp on style ticks, both pulled by the engine thread through an
-engine hook and `hook_deadline`. The module docs have the details.
+swallows it, and sends any extra notes itself. The mode comes from one packed settings
+word (`Shared::kbd_fx`, `live::FxConfig`), and each held key remembers the way it went,
+so its note-off takes the same way whatever the settings are by then.
+
+Time-domain work does not happen on the input thread: Harmony's Echo/Tremolo/Trill
+(`harmony::EchoGen`, engine nanoseconds), the arpeggio (`arp::Arp`, style ticks) and
+Strum's later notes run on the engine thread in `live::KbdFx` (`src/live/kbdfx.rs`), fed
+through a ring of `FxKey`s and a held-key mask. `KbdFx` is driven by `EngineLoop::step`
+after `Engine::process`, and its deadline is part of `EngineLoop::next_deadline`: it
+sits beside the engine rather than in `hooks::Features` because the arpeggio must run
+with the band stopped (the engine's `process` and `next_deadline` do nothing then) and
+must not run in a style preview's engine. It reads the style clock through
+`Engine::style_tick` / `ns_at_tick`. The module docs have the details.
 
 The chord section (recognition, Sync Stop) reads the keys as pressed, before the
 pipeline's transpose and processor.

@@ -3,8 +3,7 @@
 `src/arp` is the arpeggio core for #33. It takes the held right-hand notes, the style
 tick clock and the arpeggio settings, and produces note events. It is pure and
 deterministic like `engine.rs`: there are no threads and no wall time, and nothing
-allocates after construction. Wiring it into the live input path, the session, the API
-and the UI is a later ticket.
+allocates after construction. The live wiring is `src/live/kbdfx.rs` (see "Wiring").
 
 The Genos arpeggio *engine* is in scope, but its preset *patterns* are not
 (genos-features.md §6 and "Out of scope"). Yamaha's pattern data is copyrighted and
@@ -137,9 +136,38 @@ PPQ) round per step and never drift.
 | Guitar | Strum Quarters, Campfire Strum (down/up), Muted Sixteens |
 | Sequence | Octave Pulse, Root Fifth Seq, Pluck Line |
 
-## Not done yet (later tickets)
+## Wiring (#33)
 
-- Wiring into `live.rs`/`engine.rs`: feeding right-hand keys, output to Right 1–3 by
-  Assign, HrmArpVol, and the HARMONY/ARPEGGIO button.
-- Session/API/UI: pattern browser, settings, Arpeggio Hold pedal assignment.
+- **One switch, one type** with Keyboard Harmony (docs/harmony.md): the arpeggio is the
+  HARMONY/ARPEGGIO type when an arpeggio pattern is selected.
+- **Keys:** the input thread's processor swallows the keys right of the split and hands
+  them to the engine thread (a ring), marking them in a held-key mask. Every engine wake
+  releases from the arp any key no longer in the mask, so a lost key-up can never leave a
+  note in the pattern (`Arp::keys_down`).
+- **Clock:** the arp runs on the engine thread in ticks of the style clock, at eight
+  sub-ticks per style tick (`live::kbdfx::SUB`, so its ppq is the style's × 8). It plays what
+  is due before the current sub-tick: never early, at most 1/8 tick late. The engine wakes
+  for `Arp::next_due`.
+  - With the band running, the pattern is in phase with the style and Quantize snaps to its
+    grid. START resets the style clock to 0: `Arp::jump` cuts and restarts the pattern
+    there.
+  - With the band stopped, the engine's clock runs on at the tempo from where it stopped:
+    that is the arp's own clock (the grid is then arbitrary, but steady).
+  - A style change to another resolution calls `Arp::set_ppq` at the bar line: sounding
+    notes are cut (their off ticks meant the old clock) and the pattern starts again from
+    step 1 there.
+- **Output:** on the Right parts Assign picks (Auto: every Right part that is on, as the
+  keys would play; Multi: the first; Right 1-3: that part), at each part's octave and the
+  Keyboard transpose, with velocities scaled by Volume (HrmArpVol, 127 = unchanged).
+  Every note is counted per (channel, note) and released where it sounded.
+- **Stop:** the switch off or another type calls `Arp::all_off` (the offs go out at once);
+  PANIC and shutdown too.
+- **Settings in the app:** pattern, Quantize, Hold, Velocity (Original/Thru/Fixed), Keep Key
+  On, plus Volume and Assign. The Live Control percentages (ArpVel, ArpGateT, ArpUnitM) stay
+  at 100%: the Launchkey has no spare controls for them yet.
+
+## Not done yet
+
+- The Live Control percentages and the sustain-pedal hold (`sustain_holds`) in the app.
+- Arpeggio Hold on a pedal.
 - Loading user patterns from TOML files. The format already (de)serialises.
