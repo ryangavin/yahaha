@@ -95,8 +95,8 @@
     </div>
 
     <div class="pads mat-well" role="group" aria-label="Pads: page {pageIndex + 1}, {s.pads.pageName}">
-      {#each top as p (p.note)}<HwPad pad={p} {beats} onpress={press} />{/each}
-      {#each bottom as p (p.note)}<HwPad pad={p} {beats} onpress={press} />{/each}
+      {#each top as p (p.note)}<HwPad pad={p} {beats} paletteLeds={s.pads.paletteLeds} onpress={press} />{/each}
+      {#each bottom as p (p.note)}<HwPad pad={p} {beats} paletteLeds={s.pads.paletteLeds} onpress={press} />{/each}
     </div>
 
     <div class="side" role="group" aria-label="Scene Launch and Function">
@@ -105,8 +105,8 @@
     </div>
 
     <div class="transport" role="group" aria-label="Transport">
-      <Control {surface} id="stop" legend="■" shape="square" caption="Stop" />
-      <Control {surface} id="play" legend="▶" shape="square" caption="Play" />
+      <Control {surface} id="stop" legend="■" shape="square" caption={surface.controls.find((c) => c.id === 'stop')?.label} />
+      <Control {surface} id="play" legend="▶" shape="square" caption={surface.controls.find((c) => c.id === 'play')?.label} />
     </div>
   </div>
 </section>

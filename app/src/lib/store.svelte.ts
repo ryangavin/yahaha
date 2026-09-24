@@ -6,13 +6,13 @@
 //   only touches the DOM where a value really changed.
 // - `app.send(cmd)`: every action goes through here.
 // - `app.library`: the style list, re-fetched when `state.library.revision` changes.
-// - `clock.beats`: a beat clock running at the current tempo, for lamp animation
-//   (flash/pulse), advanced every animation frame.
+// - `clock.beats`: the engine's LED clock (lamps flash and pulse on it) and `clock.pos`:
+//   the position in the section, both run on from the state's anchors every frame.
 // - `ui`: app-only state (overlays, theme) that the engine doesn't know about.
 
 import { initialState } from './api/mock'
 import type { Session } from './api/session'
-import type { AppCmd, AppState, LibraryList } from './api/types'
+import type { AppCmd, AppState, ClockState, LibraryList } from './api/types'
 
 class AppStore {
   state = $state.raw<AppState>(initialState())
@@ -64,39 +64,37 @@ class AppStore {
 export const app = new AppStore()
 
 /**
- * The beat clock the lamps flash and pulse on. The state says which beat the band is on;
- * between beats this runs on at the tempo. Stopped, it free-runs at the tempo, so an
- * armed Sync Start still breathes.
+ * The engine's clocks, run on between states (docs/app-api.md, "surface.clock"). A state
+ * carries anchors, not a ticking position: on each one we note when it arrived, and every
+ * animation frame reads
+ *
+ *   t   = atMs + (now − receivedMs)                       session ms, now
+ *   pos = running ? sectionAnchorBeats + (t − sectionAnchorMs)·tempo/60000 : 0
+ *   led = ledAnchorBeats + (t − ledAnchorMs)·tempo/60000
+ *
+ * - `beats`: the LED clock, free-running. Lamps flash and pulse on it, as the hardware pads do.
+ * - `pos`: quarter notes into the section playing (0 stopped), for position displays.
  */
 class BeatClock {
   beats = $state(0)
-  private base = 0
-  private at = 0
-  private tempo = 120
-  private key = ''
+  pos = $state(0)
+  private c: ClockState | null = null
+  private receivedMs = 0
   private raf = 0
 
   sync(s: AppState) {
-    const t = s.transport
-    this.tempo = t.tempo
-    // The engine's clock, when it sends one (provisional `surface.clock`), includes the
-    // phase within the beat, so the lamps run in step with the hardware.
-    const c = s.surface?.clock
-    const key = t.running ? `${t.section}:${t.bar}:${t.beat}` : 'stopped'
-    if (key === this.key && !c?.atMs) return
-    this.key = key
-    this.at = now()
-    const phase = c && t.running ? c.phase : 0
-    this.base = t.running ? (t.bar - 1) * t.beatsPerBar + (t.beat - 1) + phase : this.beats
-    this.running = t.running
+    this.c = s.surface?.clock ?? null
+    this.receivedMs = now()
+    this.tick()
   }
 
-  private running = false
-
   tick() {
-    const elapsed = ((now() - this.at) / 60000) * this.tempo
-    // While playing, never run past the next beat before the state says we're there.
-    this.beats = this.base + (this.running ? Math.min(elapsed, 0.999) : elapsed)
+    const c = this.c
+    if (!c) return
+    const t = c.atMs + (now() - this.receivedMs)
+    const perMs = c.tempo / 60000
+    this.pos = c.running ? c.sectionAnchorBeats + (t - c.sectionAnchorMs) * perMs : 0
+    this.beats = c.ledAnchorBeats + (t - c.ledAnchorMs) * perMs
   }
 
   start() {

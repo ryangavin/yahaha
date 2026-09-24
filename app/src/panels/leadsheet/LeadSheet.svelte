@@ -24,10 +24,12 @@
   /** Bars in the section's pattern; unknown (the engine doesn't send it yet): one cell. */
   const bars = $derived(Math.max(1, Math.min(32, t.sectionBars ?? 1)))
   const bpb = $derived(Math.max(1, t.beatsPerBar))
+  /** Quarter notes into the section, run on from the engine's clock anchors every frame. */
+  const pos = $derived(t.running ? Math.max(0, clock.pos) : 0)
   /** The bar playing within the pattern (0-based); it loops for a Main. */
-  const cell = $derived(t.running ? (t.bar - 1) % bars : -1)
-  /** Beats into the current bar (0 to bpb), smooth on the beat clock. */
-  const inBar = $derived(t.running ? Math.min(bpb, ((clock.beats % bpb) + bpb) % bpb) : 0)
+  const cell = $derived(t.running ? Math.floor(pos / bpb) % bars : -1)
+  /** Beats into the current bar (0 to bpb). */
+  const inBar = $derived(t.running ? pos % bpb : 0)
   /** How far through the section (0–1): the progress bar under the cells. */
   const progress = $derived(t.running ? Math.min(1, (cell + inBar / bpb) / bars) : 0)
   /** The beat playing in the current bar (0-based). */

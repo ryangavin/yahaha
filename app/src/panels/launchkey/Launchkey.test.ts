@@ -98,7 +98,7 @@ describe('Launchkey mirror', () => {
     setup()
     const n = neighbours(LIBRARY, 0)
     expect(n.next?.name).toBe(LIBRARY.entries[1].name)
-    expect(n.prev?.status).toBe('ok')
+    expect(LIBRARY.entries.find((e) => e.id === n.prev?.id)?.status).toBe('ok')
     expect(document.body.textContent).toContain(n.next!.name)
   })
 

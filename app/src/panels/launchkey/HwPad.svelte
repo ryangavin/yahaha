@@ -8,12 +8,13 @@
   import { tipFor } from '../../help/actions'
   import { TIPS, keyLabel } from '../../help/tooltips'
   import type { Pad } from '../../lib/api/types'
-  import { brightness, css } from '../../lib/leds'
+  import { css, padLight } from '../../lib/leds'
   import { tip } from '../../lib/tooltip/tip.svelte'
 
-  let { pad, beats, onpress }: { pad: Pad; beats: number; onpress: (p: Pad) => void } = $props()
+  let { pad, beats, onpress, paletteLeds = false }: { pad: Pad; beats: number; onpress: (p: Pad) => void; paletteLeds?: boolean } = $props()
 
-  const b = $derived(brightness(pad, beats))
+  const light = $derived(padLight(pad, paletteLeds, beats))
+  const b = $derived(light.b)
   const key = $derived.by(() => {
     const t = TIPS[tipFor(pad.action)]
     const k = (t.app_keys ?? t.keys)[0]
@@ -33,7 +34,7 @@
   data-level={pad.level}
   data-anim={pad.anim}
   aria-disabled={!pad.action || pad.level === 'off' || undefined}
-  style:--led={css(pad.rgb)}
+  style:--led={css(light.rgb)}
   style:--b={b}
   use:tip={tipFor(pad.action)}
   onclick={() => pad.action && onpress(pad)}

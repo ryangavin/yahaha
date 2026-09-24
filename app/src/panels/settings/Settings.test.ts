@@ -196,7 +196,7 @@ describe('Settings drawer', () => {
 
     await fireEvent.click(byTip('midi.palette_leds')[0])
     expect(settings.paletteLeds).toBe(false)
-    expect(byTip('midi.palette_leds')[0].textContent).toContain('Set at launch')
+    expect(byTip('midi.palette_leds')[0].textContent).toContain('Off') // the engine reports it (#77); it can't switch it yet
 
     expect(byTip('settings.style_folders')[0].textContent).toContain("doesn't report")
     await fireEvent.click(byTip('settings.rescan')[0])

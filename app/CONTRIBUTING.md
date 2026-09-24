@@ -186,19 +186,28 @@ the detection area only.
 ### The surface (`lib/surface.ts`)
 
 No button's function is hard-coded in the mirror. Pads come from `state.pads.pads`, and
-everything else comes from a `SurfaceState` (`lib/api/types.ts`), which holds:
+everything else comes from `state.surface` (#77, docs/app-api.md "surface"):
 
 - every non-pad control (Pad Bank, Track, Play/Stop, Scene/Function, the fader buttons,
-  the master button) with its label, action, Shift label/action and LED;
+  the master button) with its CC, label, action, Shift label/action and LED (`colour` is
+  the palette index; Play, Stop, Scene and Function are reported off);
 - the faders with their label, level, waiting flag, physical position and the command
   moving them sends;
-- the Track neighbour names and the beat clock.
+- Shift (the hardware's), the Track neighbours, and the clocks.
 
-The engine will send it as `state.surface` (the API follow-up to #71). Until then,
-`surfaceOf(state, library)` derives it with the rules in `src/launchkey.rs`, and the mock
-sends it already, with hardware fader positions and a clock. When the engine sends it,
-the derivation simply stops being used. If the API PR names fields differently, rename
-them in `types.ts` and `surface.ts`; the components read nothing else.
+`surfaceOf(state)` returns it; `lib/surface.ts` turns controls and faders into tooltips
+and commands. The browser mock builds the same surface in `lib/api/mock-surface.ts` (a
+port of `Session::surface` in src/session.rs), and the Rust mock in `src-tauri` sends it
+too.
+
+**Clocks.** A state carries anchors, not a ticking position (docs/app-api.md
+"surface.clock"). `clock` in `lib/store.svelte.ts` notes when each state arrived and runs
+them on every frame: `clock.beats` is the free-running **LED clock** the lamps flash and
+pulse on (as the hardware pads do), and `clock.pos` is quarter notes into the section
+playing (0 when stopped). Never mix `transport.bar`/`beat` with the clock's phase.
+
+**Palette LEDs.** When `pads.paletteLeds` is set, pads light from `pad.palette` (a flash
+alternates between its two palette colours): `padLight()` in `lib/leds.ts`.
 
 ## Building a drawer or the browser
 

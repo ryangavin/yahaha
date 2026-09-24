@@ -5,7 +5,7 @@
 // app shell runs until the engine's `Session` is wired in.
 
 import fixture from './mock-fixture.json'
-import { deriveSurface } from '../surface'
+import { clockAt, mockSurface, type MockHardware } from './mock-surface'
 import { padsFor } from './mock-pads'
 import type { Session } from './session'
 import {
@@ -141,7 +141,7 @@ export function initialState(): AppState {
   const s = STYLES[0]
   const part = (i: number, program: number, on: boolean) => ({
     name: KEYBOARD_PART_NAMES[i], channel: [1, 3, 4, 2][i], on, sounding: on, selected: i === 0,
-    volume: 100, waiting: false, program, voiceName: GM[program], playsBass: false, octave: 0,
+    volume: 100, waiting: false, program, voiceName: GM[program], playsBass: false, octave: 0, fader: null,
   })
   const state: AppState = {
     version: 1,
@@ -161,13 +161,13 @@ export function initialState(): AppState {
       faderPage: 'panel',
       styleParts: STYLE_PART_NAMES.map((name, i) => ({
         name, channel: 9 + i, on: true, mutedByManualBass: false,
-        volume: [100, 100, 96, 80, 76, 70, 88, 84][i], waiting: false,
+        volume: [100, 100, 96, 80, 76, 70, 88, 84][i], waiting: false, fader: null,
         voice: { bankMsb: STYLE_VOICES[i][0], bankLsb: STYLE_VOICES[i][1], program: STYLE_VOICES[i][2], kit: STYLE_VOICES[i][3], label: STYLE_VOICES[i][4] },
       })),
       master: 100,
       masterWaiting: false,
     },
-    pads: { page: 'sections', pageName: 'Sections', pageNumber: 1, pageCount: 3, pads: [], connected: true },
+    pads: { page: 'sections', pageName: 'Sections', pageNumber: 1, pageCount: 3, pads: [], connected: true, paletteLeds: false },
     ots: { settings: otsSettings(s.ots), applied: 0, link: false },
     library: { revision: LIBRARY.revision, count: LIBRARY.entries.length, position: 0, pending: 0 },
     io: {
@@ -183,14 +183,24 @@ export function initialState(): AppState {
       offline: false,
     },
     message: null,
+    surface: null as unknown as AppState['surface'], // filled in by derive()
   }
   derive(state)
   return state
 }
 
+/** A stopped clock at session time 0, and faders that haven't moved. */
+function idleHardware(st: AppState): MockHardware {
+  const clock = {
+    atMs: 0, running: false, tempo: st.transport.tempo, beatsPerBar: st.transport.beatsPerBar, bar: 1, beat: 1, phase: 0,
+    sectionAnchorMs: 0, sectionAnchorBeats: 0, ledAnchorMs: 0, ledAnchorBeats: 0,
+  }
+  return { faders: Array(9).fill(null), clock }
+}
+
 /** The fields the engine computes from the others: pads, lamps, names, flags, and the
- * provisional `surface` (with the mock's hardware fader positions and beat clock). */
-function derive(st: AppState, hw: { faders: number[]; beats: number; atMs: number } | null = null, held: number[] = []) {
+ * `surface` (with the mock's hardware fader positions and clocks). */
+function derive(st: AppState, hw: MockHardware | null = null, held: number[] = []) {
   const c = st.chord
   c.fingeringName = c.upper ? 'Fingered*' : FINGERINGS.find((f) => f.id === c.fingering)!.name
   c.manualBassActive = c.upper && c.manualBass
@@ -221,12 +231,10 @@ function derive(st: AppState, hw: { faders: number[]; beats: number; atMs: numbe
   st.pads.pageNumber = page + 1
   st.transport.lamps = padsFor(st, 'sections')
   st.pads.pads = padsFor(st, st.pads.page)
-  const surface = deriveSurface(st, LIBRARY)
-  if (hw) {
-    surface.faders.forEach((f, i) => (f.position = f.set ? hw.faders[i] : null))
-    surface.clock = { ...surface.clock, phase: hw.beats - Math.floor(hw.beats), atMs: hw.atMs }
-  }
-  st.surface = surface
+  const h = hw ?? idleHardware(st)
+  st.keyboardParts.forEach((p, i) => (p.fader = h.faders[i] ?? null))
+  st.mixer.styleParts.forEach((p, i) => (p.fader = h.faders[i] ?? null))
+  st.surface = mockSurface(st, LIBRARY, h)
 }
 
 /** How many bars a section lasts before it moves on (Intro/Ending: 2, Break/Fill: 1). */
@@ -260,12 +268,38 @@ export class MockSession implements Session {
   private rightHand: number[] = []
   /** Where the (imaginary) hardware faders physically are: 1–8, master. */
   private hwFaders = [100, 72, 100, 100, 0, 0, 0, 0, 100]
+  /** The clocks as the engine anchors them (docs/app-api.md "surface.clock"). */
+  private anchor = { key: '', sectionMs: 0, sectionBeats: 0, ledMs: 0, ledBeats: 0, tempo: 0 }
+
+  /** The hardware faders and the clocks, read now. */
+  private hardware(): MockHardware {
+    const t = this.state.transport
+    const a = this.anchor
+    // The LED clock runs free; on a tempo change it re-anchors, carrying on.
+    if (t.tempo !== a.tempo) {
+      a.ledBeats = a.tempo ? a.ledBeats + ((this.now - a.ledMs) * a.tempo) / 60000 : 0
+      a.ledMs = this.now
+      a.tempo = t.tempo
+    }
+    // The section clock re-anchors when the section, its start or the tempo changes.
+    const key = `${t.running}:${t.section}:${this.sectionStart}:${t.tempo}`
+    if (key !== a.key) {
+      a.key = key
+      a.sectionMs = this.now
+      a.sectionBeats = t.running ? this.clock - this.sectionStart * t.beatsPerBar : 0
+    }
+    const clock = clockAt({
+      atMs: this.now, running: t.running, tempo: t.tempo, beatsPerBar: t.beatsPerBar, bar: 1, beat: 1, phase: 0,
+      sectionAnchorMs: a.sectionMs, sectionAnchorBeats: a.sectionBeats, ledAnchorMs: a.ledMs, ledAnchorBeats: a.ledBeats,
+    }, this.now)
+    return { faders: this.hwFaders, clock }
+  }
 
   constructor(opts: MockOptions = {}) {
     this.demo = opts.demo ?? false
     this.state = initialState()
     if (this.demo) this.demoStart()
-    derive(this.state, { faders: this.hwFaders, beats: this.clock, atMs: this.now }, [...this.leftHand, ...this.rightHand])
+    derive(this.state, this.hardware(), [...this.leftHand, ...this.rightHand])
     if (!opts.manual) {
       this.last = performance.now()
       this.timer = setInterval(() => {
@@ -320,7 +354,7 @@ export class MockSession implements Session {
 
   private publish() {
     this.state.version++
-    derive(this.state, { faders: this.hwFaders, beats: this.clock, atMs: this.now }, [...this.leftHand, ...this.rightHand])
+    derive(this.state, this.hardware(), [...this.leftHand, ...this.rightHand])
     const snap = this.snapshot()
     for (const f of this.subs) f(snap)
   }
