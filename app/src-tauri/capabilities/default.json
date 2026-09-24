@@ -1,0 +1,11 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "the webview only listens to the yahaha event; the app commands need no permission",
+  "windows": [
+    "main"
+  ],
+  "permissions": [
+    "core:event:default"
+  ]
+}

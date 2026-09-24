@@ -5,18 +5,23 @@
 //! [`Session`]: [`AppCmd`] in, [`AppState`] out. See docs/app-api.md.
 
 pub mod api;
+pub mod arp;
 pub mod bench;
 pub mod capture;
 pub mod engine;
 pub mod fingering;
+pub mod ireal;
 #[cfg(test)]
 mod golden;
+pub mod harmony;
 pub mod launchkey;
 pub mod library;
 pub mod live;
 pub mod midi;
 pub mod oracle;
 pub mod parts;
+#[cfg(feature = "plugins")]
+pub mod plugin;
 #[cfg(test)]
 mod recognizer_golden;
 pub mod rt;
