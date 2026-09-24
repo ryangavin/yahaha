@@ -28,6 +28,7 @@
 //! `build_state` below call them in a fixed order (docs/architecture.md).
 
 mod chord;
+mod harmony_arp;
 mod keyboard;
 mod leds;
 mod library;
@@ -231,6 +232,8 @@ struct Control {
     release_tx: Producer<u8>,
     /// When the sources were last listed (live: every 2 s, for hot-plugged keyboards).
     sources_ns: u64,
+    /// Keyboard Harmony / Arpeggio settings (`Shared::kbd_fx` is their packed copy).
+    harmony_arp: live::FxConfig,
 }
 
 /// What several parts of the state read, read once per `build_state` so they all agree.
@@ -280,6 +283,7 @@ impl Control {
             AppCmd::Preview(c) => self.preview_cmd(c),
             AppCmd::Settings(c) => self.settings_cmd(c),
             AppCmd::System(c) => self.system_cmd(c),
+            AppCmd::HarmonyArp(c) => self.harmony_arp_cmd(c),
         }
     }
 
@@ -293,6 +297,7 @@ impl Control {
             ots_count: self.info.ots.len().min(4) as u8,
             ots_applied: parts.ots_applied.load(Relaxed),
             ots_link: parts.ots_link.load(Relaxed),
+            harmony_arp: self.harmony_arp.on,
             parts_on: parts.sounding_mask(),
             selected: parts.selected() as u8,
         }
@@ -371,6 +376,7 @@ impl Control {
             io: self.io_state(),
             preview: self.preview_state(),
             keyboard: self.keyboard_state(&v),
+            harmony_arp: self.harmony_arp_state(),
             message: self.message.clone(),
         }
     }
@@ -521,6 +527,7 @@ fn assemble(opts: &Options, engine_out: live::Out, input_out: live::Out, offline
         midi: None,
         release_tx,
         sources_ns: 0,
+        harmony_arp: live::FxConfig::default(),
     };
     let mut control = control;
     control.list_sound_fonts();
@@ -640,7 +647,13 @@ impl Session {
     /// The library as plain data, in display order (folder, then name).
     pub fn library_list(&self) -> LibraryList {
         let (lib, revision) = self.inner.library.lock().unwrap_or_else(|e| e.into_inner()).clone();
-        LibraryList { revision, entries: lib.order().iter().map(|&id| library_entry(&lib, id)).collect(), voices: voice_options() }
+        LibraryList {
+            revision,
+            entries: lib.order().iter().map(|&id| library_entry(&lib, id)).collect(),
+            voices: voice_options(),
+            harmony_types: harmony_type_options(),
+            arp_patterns: arp_pattern_options(),
+        }
     }
 
     /// Notifications: a `StateChanged` whenever the state's version moves, a

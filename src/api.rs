@@ -17,6 +17,7 @@
 //! (docs/architecture.md, "Adding a feature").
 
 mod chord;
+mod harmony_arp;
 mod keyboard;
 mod library;
 mod mixer;
@@ -30,6 +31,7 @@ mod system;
 mod transport;
 
 pub use chord::*;
+pub use harmony_arp::*;
 pub use keyboard::*;
 pub use library::*;
 pub use mixer::*;
@@ -115,6 +117,8 @@ app_cmd! {
     Settings(SettingsCmd),
     /// Panic, the message line.
     System(SystemCmd),
+    /// Keyboard Harmony / Arpeggio.
+    HarmonyArp(HarmonyArpCmd),
 }
 
 impl From<Button> for AppCmd {
@@ -168,6 +172,7 @@ impl From<Action> for AppCmd {
             Action::PartVoice(d) => PartsCmd::StepVoice { delta: d }.into(),
             Action::ToggleFaderPage => MixerCmd::ToggleFaderPage.into(),
             Action::Style(d) => LibraryCmd::StepStyle { delta: d }.into(),
+            Action::ToggleHarmonyArp => HarmonyArpCmd::ToggleHarmonyArp.into(),
         }
     }
 }
@@ -240,6 +245,9 @@ pub struct AppState {
     pub preview: PreviewState,
     /// The keys held and the chord, for the app's keyboard strip.
     pub keyboard: KeyboardState,
+    /// Keyboard Harmony / Arpeggio: the switch, the type, the settings.
+    #[serde(default)]
+    pub harmony_arp: HarmonyArpState,
     /// The last notice or error, until the next one or `ClearMessage`.
     pub message: Option<Message>,
 }

@@ -1423,5 +1423,25 @@
       54
     ]
   },
+  "harmonyArp": {
+    "on": false,
+    "mode": "harmony",
+    "harmonyType": 0,
+    "arpPattern": 0,
+    "typeName": "Standard Duet 1",
+    "category": "Harmony",
+    "volume": 100,
+    "speed": "1/8",
+    "assign": "auto",
+    "chordNoteOnly": false,
+    "touchLimit": 1,
+    "arp": {
+      "quantize": "off",
+      "hold": false,
+      "velocity": "original",
+      "fixedVelocity": 100,
+      "keepKeyOn": false
+    }
+  },
   "message": null
 }

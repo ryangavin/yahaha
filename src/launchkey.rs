@@ -164,6 +164,8 @@ pub enum Action {
     ToggleFaderPage,
     /// Previous/next style (`←` `→`).
     Style(i8),
+    /// The HARMONY/ARPEGGIO button: the selected Harmony type or arpeggio on/off (`r`).
+    ToggleHarmonyArp,
 }
 
 /// What a pad does on a page.
@@ -181,6 +183,7 @@ pub fn pad_action(page: Page, note: u8) -> Option<Action> {
         (Page::ChordSetup, 118) => Action::TransposeReset,
         (Page::OtsParts, 96..=99) => Action::Ots(note - 96),
         (Page::OtsParts, 100) => Action::ToggleOtsLink,
+        (Page::OtsParts, 101) => Action::ToggleHarmonyArp,
         (Page::OtsParts, 102) => Action::PartVoice(-1),
         (Page::OtsParts, 103) => Action::PartVoice(1),
         (Page::OtsParts, 112..=115) => Action::PartOnOff(note - 112),
@@ -313,6 +316,8 @@ pub struct Panel {
     pub ots_count: u8,
     pub ots_applied: u8,
     pub ots_link: bool,
+    /// The HARMONY/ARPEGGIO switch.
+    pub harmony_arp: bool,
     /// Keyboard parts that are on (bit = `parts::RIGHT1`..`LEFT`), and the selected one.
     pub parts_on: u8,
     pub selected: u8,
@@ -328,6 +333,7 @@ impl Default for Panel {
             ots_count: 0,
             ots_applied: 0,
             ots_link: false,
+            harmony_arp: false,
             parts_on: 1 << parts::RIGHT1,
             selected: parts::RIGHT1 as u8,
         }
@@ -616,7 +622,7 @@ fn ots_looks(p: &Panel) -> [(u8, Look); 16] {
         (98, ots(2, "OTS 3", "⇧3")),
         (99, ots(3, "OTS 4", "⇧4")),
         (100, pl("OTS LINK", "F10", true, p.ots_link)),
-        (101, pl("", "", false, false)),
+        (101, pl("HARM/ARP", "r", true, p.harmony_arp)),
         (102, pl("VOICE -", "9", true, false)),
         (103, pl("VOICE +", "0", true, false)),
         (112, part(0)),
@@ -731,7 +737,7 @@ mod tests {
             assert_eq!(pad_action(p, 96 + n), Some(Action::Ots(n)));
         }
         assert_eq!(pad_action(p, 100), Some(Action::ToggleOtsLink));
-        assert_eq!(pad_action(p, 101), None);
+        assert_eq!(pad_action(p, 101), Some(Action::ToggleHarmonyArp));
         assert_eq!(pad_action(p, 102), Some(Action::PartVoice(-1)));
         assert_eq!(pad_action(p, 103), Some(Action::PartVoice(1)));
         for n in 0..4u8 {
@@ -827,7 +833,7 @@ mod tests {
         let l = lk(&s, &panel);
         assert!(l.iter().all(|l| l.rgb == C_PAGE_OTS), "one colour for the page");
         assert!(l[..4].iter().all(|l| l.level == Level::Off));
-        assert_eq!(l[5].level, Level::Off, "unassigned");
+        assert_eq!(l[5].level, Level::Dim, "Harmony/Arpeggio off");
         assert_eq!(l[8..12].iter().map(|l| l.level).collect::<Vec<_>>(), [Level::Bright, Level::Dim, Level::Dim, Level::Dim]);
         assert_eq!(l[12..].iter().map(|l| l.level).collect::<Vec<_>>(), [Level::Bright, Level::Dim, Level::Dim, Level::Dim]);
 
@@ -839,6 +845,8 @@ mod tests {
         let l = lk(&s, &panel);
         assert_eq!(l[..4].iter().map(|l| l.level).collect::<Vec<_>>(), [Level::Dim, Level::Bright, Level::Dim, Level::Off]);
         assert_eq!(l[4].level, Level::Bright, "Link on");
+        panel.harmony_arp = true;
+        assert_eq!(lk(&s, &panel)[5].level, Level::Bright, "Harmony/Arpeggio on");
         assert_eq!(l[8..12].iter().map(|l| l.level).collect::<Vec<_>>(), [Level::Bright, Level::Bright, Level::Dim, Level::Bright]);
         assert_eq!(l[15].level, Level::Bright, "Left selected");
         let leds = pad_leds(&s, &has, &panel).map(|(_, l)| l);

@@ -11,7 +11,7 @@ use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 use std::cell::Cell;
 use std::path::Path;
 use std::time::Duration;
-use yahaha::api::{AppCmd, AppState, LibraryCmd, MixerCmd, OtsCmd, Pad, PadsCmd, PartsCmd, SettingsCmd, SystemCmd};
+use yahaha::api::{AppCmd, AppState, HarmonyArpCmd, HarmonyArpMode, LibraryCmd, MixerCmd, OtsCmd, Pad, PadsCmd, PartsCmd, SettingsCmd, SystemCmd};
 use yahaha::engine::Button;
 use yahaha::launchkey::{self, Action};
 use yahaha::library::{self, Info, Library};
@@ -64,6 +64,7 @@ fn key_action(code: KeyCode) -> Option<Action> {
         KeyCode::Char('0') => Some(Action::PartVoice(1)),
         KeyCode::Left => Some(Action::Style(-1)),
         KeyCode::Right => Some(Action::Style(1)),
+        KeyCode::Char('r') => Some(Action::ToggleHarmonyArp),
         _ => None,
     }
 }
@@ -77,6 +78,9 @@ fn key_cmd(code: KeyCode) -> Option<AppCmd> {
         KeyCode::Char('a') => Some(AppCmd::Settings(SettingsCmd::NextAudioOutput)),
         KeyCode::Char('k') => Some(AppCmd::Mixer(MixerCmd::ToggleSynthMute)),
         KeyCode::Char('\\') => Some(AppCmd::System(SystemCmd::Panic)),
+        // Harmony/Arpeggio: next type (the Harmony types, then the arpeggios), Arp Hold.
+        KeyCode::Char('R') => Some(AppCmd::HarmonyArp(HarmonyArpCmd::StepHarmonyArpType { delta: 1 })),
+        KeyCode::Char('H') => Some(AppCmd::HarmonyArp(HarmonyArpCmd::ToggleArpHold)),
         code => key_action(code).map(AppCmd::from),
     }
 }
@@ -468,6 +472,13 @@ fn draw(f: &mut ratatui::Frame, st: &AppState, message: &str, beats: f64) {
                 } else {
                     v.push(Span::styled(format!(" chord: keys up to {}", ch.split_name), dim));
                 }
+                let h = &st.harmony_arp;
+                v.push(Span::raw("  "));
+                v.push(flag(h.on, "HARM/ARP [r]"));
+                v.push(Span::raw(format!(" {} · {} [R]", h.type_name, h.category)));
+                if h.mode == HarmonyArpMode::Arpeggio {
+                    v.push(flag(h.arp.hold, "HOLD [H]"));
+                }
                 v
             }),
             Line::from(match &st.io.synth {
@@ -506,7 +517,7 @@ fn draw(f: &mut ratatui::Frame, st: &AppState, message: &str, beats: f64) {
 
     let mut help = vec![
         Line::from(Span::styled(
-            " space start/stop · 1-4 Main A-D (again = fill) · q w e intro · i o p ending · g break · t tap · -/= tempo · F1-F4 part · 9/0 voice · 5-8 part on/off · F9 faders Panel/Style · ; ' kbd transpose · : \" master · / reset · tab pad page · enter browse styles · \\ panic · esc twice quit",
+            " space start/stop · 1-4 Main A-D (again = fill) · q w e intro · i o p ending · g break · t tap · -/= tempo · F1-F4 part · 9/0 voice · 5-8 part on/off · r harmony/arp (R type, H hold) · F9 faders Panel/Style · ; ' kbd transpose · : \" master · / reset · tab pad page · enter browse styles · \\ panic · esc twice quit",
             dim,
         )),
         Line::from(Span::styled(
@@ -737,6 +748,9 @@ mod tests {
         assert_eq!(key_cmd(KeyCode::BackTab), Some(AppCmd::Pads(PadsCmd::CyclePadPage { delta: -1 })));
         assert_eq!(key_cmd(KeyCode::Char('\\')), Some(AppCmd::System(SystemCmd::Panic)));
         assert_eq!(key_cmd(KeyCode::Char('k')), Some(AppCmd::Mixer(MixerCmd::ToggleSynthMute)));
+        assert_eq!(key_cmd(KeyCode::Char('r')), Some(AppCmd::HarmonyArp(HarmonyArpCmd::ToggleHarmonyArp)));
+        assert_eq!(key_cmd(KeyCode::Char('R')), Some(AppCmd::HarmonyArp(HarmonyArpCmd::StepHarmonyArpType { delta: 1 })));
+        assert_eq!(key_cmd(KeyCode::Char('H')), Some(AppCmd::HarmonyArp(HarmonyArpCmd::ToggleArpHold)));
         assert_eq!(key_cmd(KeyCode::Char('Z')), None);
     }
 
