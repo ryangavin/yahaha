@@ -8,6 +8,7 @@ import { defaultControllers, functionCmd, functionInfo, pedalCcRefused } from '.
 import fixture from './mock-fixture.json'
 import { syntheticStyles } from './mock-library'
 import { clockAt, mockSurface, type MockHardware } from './mock-surface'
+import { emptyLooper, MockLooper } from './mock-looper'
 import { initialMultiPad, MockPads } from './mock-multipad'
 import { padsFor } from './mock-pads'
 import type { Session } from './session'
@@ -211,6 +212,8 @@ export function initialState(): AppState {
       })),
       master: 100,
       masterWaiting: false,
+      styleSolo: null,
+      partSolo: null,
     },
     pads: { page: 'sections', pageName: 'Sections', pageNumber: 1, pageCount: 3, pads: [], connected: true, paletteLeds: false },
     ots: { settings: otsSettings(s.ots), applied: 0, link: false },
@@ -235,6 +238,8 @@ export function initialState(): AppState {
     message: null,
     surface: null as unknown as AppState['surface'], // filled in by derive()
     preview: { audition: null, queued: null },
+    looper: emptyLooper(),
+    metronome: { on: false, volume: 90, bell: true, audible: true },
     multiPad: initialMultiPad(),
     controllers: defaultControllers(),
   }
@@ -261,13 +266,14 @@ function derive(st: AppState, lib: LibraryList, hw: MockHardware | null = null, 
   st.transport.syncStopAvailable = c.upper || !(c.fingering === 'fullKeyboard' || c.fingering === 'aiFullKeyboard')
   st.keyboardParts.forEach((p, i) => {
     p.playsBass = i === 3 && c.manualBassActive
-    p.sounding = p.on || p.playsBass
+    // A keyboard solo: only that part sounds, even if it is off.
+    p.sounding = st.mixer.partSolo === null ? p.on || p.playsBass : st.mixer.partSolo === i
     p.voiceName = p.playsBass ? 'Finger Bass' : GM[p.program]
   })
   st.mixer.styleParts.forEach((p, i) => (p.mutedByManualBass = i === 2 && c.manualBassActive))
   st.transport.sectionBars = st.transport.section ? patternBars(st.transport.section) : null
   // The keyboard strip: which part sounds each held key, and the chord's tones.
-  const right = st.keyboardParts.slice(0, 3).flatMap((p, i) => (p.on ? [i] : []))
+  const right = st.keyboardParts.slice(0, 3).flatMap((p, i) => (p.sounding ? [i] : []))
   const left = st.keyboardParts[3].sounding ? [3] : []
   const ct = chordTones(c.name)
   st.keyboard = {
@@ -335,6 +341,8 @@ export class MockSession implements Session {
   private hwFaders = [100, 72, 100, 100, 0, 0, 0, 0, 100]
   /** The clocks as the engine anchors them (docs/app-api.md "surface.clock"). */
   private anchor = { key: '', sectionMs: 0, sectionBeats: 0, ledMs: 0, ledBeats: 0, tempo: 0 }
+  /** The Chord Looper, as the engine runs it (mock-looper.ts). */
+  private looper = new MockLooper(() => this.state.looper)
 
   /** The hardware faders and the clocks, read now. */
   private hardware(): MockHardware {
@@ -444,6 +452,7 @@ export class MockSession implements Session {
 
   private publish() {
     this.state.version++
+    this.looper.publish()
     derive(this.state, this.lib, this.hardware(), [...this.leftHand, ...this.rightHand])
     const snap = this.snapshot()
     for (const f of this.subs) f(snap)
@@ -563,9 +572,19 @@ export class MockSession implements Session {
       this.enter(main, bar)
     }
     if (this.demo) this.demoBar(bar)
-    // The style follows a new chord every other bar.
-    if (t.running && bar % 2 === 0) this.chordArrives(PROGRESSION[this.progression++ % PROGRESSION.length])
+    // The style follows a new chord every other bar (the imaginary left hand).
+    if (t.running && bar % 2 === 0) this.keyboardChord(PROGRESSION[this.progression++ % PROGRESSION.length])
+    const loop = this.looper.onBar(bar, this.state.chord.fingered || null)
+    if (loop && loop !== this.state.chord.fingered) this.chordArrives(loop)
   }
+
+  /** A chord from the keyboard: the Chord Looper ignores it while it loops, records it
+   *  while it records. */
+  private keyboardChord(chord: string) {
+    const bpb = this.state.transport.beatsPerBar
+    if (this.looper.keyboardChord(chord, Math.floor(this.clock / bpb), (Math.floor(this.clock) % bpb) + 1)) this.chordArrives(chord)
+  }
+
 
   private demoBar(bar: number) {
     const t = this.state.transport
@@ -642,6 +661,9 @@ export class MockSession implements Session {
     t.pendingIntro = null
     t.queued = null
     this.position()
+    // Bar 1: a Chord Looper armed starts recording (with this chord) or looping here.
+    const loop = this.looper.onBar(0, this.state.chord.fingered || null)
+    if (loop && loop !== this.state.chord.fingered) this.chordArrives(loop)
     this.multiPads.bandStarted()
   }
 
@@ -658,6 +680,7 @@ export class MockSession implements Session {
     t.queued = null
     t.bar = 1
     t.beat = 1
+    this.looper.onStop()
     if (was) this.multiPads.bandStopped()
   }
 
@@ -767,18 +790,73 @@ export class MockSession implements Session {
         t.stopAcmp = !t.stopAcmp
         break
       case 'tapTempo': {
-        this.taps = [...this.taps.filter((x) => this.now - x < 2000), this.now].slice(-4)
+        // As the engine: taps up to 12.5 s apart count (down to 5 BPM); a jump in the
+        // interval by more than half starts a fresh average from the tap before.
+        const last = this.taps[this.taps.length - 1]
+        if (last !== undefined && this.now - last > 12500) this.taps = []
+        else if (this.taps.length >= 2) {
+          const r = (this.now - last) / Math.max(1, last - this.taps[this.taps.length - 2])
+          if (r > 1.5 || r < 1 / 1.5) this.taps = [last]
+        }
+        this.taps = [...this.taps, this.now].slice(-4)
         if (this.taps.length >= 2) {
           const avg = (this.taps[this.taps.length - 1] - this.taps[0]) / (this.taps.length - 1)
-          if (avg > 0) t.tempo = clamp(Math.round(60000 / avg), 30, 300)
+          if (avg > 0) t.tempo = clamp(Math.round(60000 / avg), 5, 500)
         }
         break
       }
       case 'tempoUp':
-        t.tempo = clamp(t.tempo + 1, 30, 300)
+        t.tempo = clamp(t.tempo + 1, 5, 500)
         break
       case 'tempoDown':
-        t.tempo = clamp(t.tempo - 1, 30, 300)
+        t.tempo = clamp(t.tempo - 1, 5, 500)
+        break
+      case 'setTempo':
+        t.tempo = clamp(Math.round(cmd.bpm), 5, 500)
+        break
+      case 'setStyleSolo':
+        st.mixer.styleSolo = cmd.part === null ? null : cmd.part & 7
+        break
+      case 'setPartSolo':
+        st.mixer.partSolo = cmd.part === null ? null : cmd.part & 3
+        break
+      case 'styleTrackMute': {
+        const order = cmd.order === 'a' ? [1, 0, 2, 3, 4, 5, 6, 7] : [3, 4, 5, 2, 6, 7, 0, 1]
+        const n = 1 + Math.floor((clamp(cmd.value, 0, 127) * 7 + 63) / 127)
+        st.mixer.styleParts.forEach((p, i) => (p.on = order.slice(0, n).includes(i)))
+        break
+      }
+      case 'looperRec':
+        if (this.looper.rec(t.running)) t.syncStart = true
+        break
+      case 'looperOnOff':
+        this.looper.onOff()
+        break
+      case 'selectLooperMemory': {
+        const err = this.looper.select(cmd.index & 7)
+        if (err) this.message(err, true)
+        break
+      }
+      case 'storeLooperMemory': {
+        const err = this.looper.store(cmd.index & 7)
+        if (err) this.message(err, true)
+        break
+      }
+      case 'clearLooperMemory':
+        this.looper.clear(cmd.index & 7)
+        break
+      case 'newLooperBank':
+        this.looper.newBank()
+        break
+      case 'toggleMetronome':
+      case 'setMetronome':
+        st.metronome.on = cmd.type === 'setMetronome' ? cmd.on : !st.metronome.on
+        break
+      case 'setMetronomeVolume':
+        st.metronome.volume = vol(cmd.volume)
+        break
+      case 'setMetronomeBell':
+        st.metronome.bell = cmd.on
         break
       case 'toggleStylePart':
         st.mixer.styleParts[cmd.part].on = !st.mixer.styleParts[cmd.part].on

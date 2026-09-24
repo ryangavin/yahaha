@@ -103,8 +103,11 @@ state, and pressing the button is the action. For settings, a GUI checkbox can u
 | `toggleStopAcmp` | | STOP ACMP on/off. |
 | `tapTempo` | | TAP TEMPO. |
 | `tempoUp`, `tempoDown` | | One tempo step. |
+| `setTempo` | `bpm` | Sets the tempo. The range is 5–500 BPM (Genos, OM p.46); values outside are clamped. |
 | `toggleStylePart` | `part` 0–7 | Mutes or unmutes a Style part. |
 | `setStylePartVolume` | `part` 0–7, `volume` 0–127 | The part's CC7. The Launchkey fader has to reach the new value before it takes over again. |
+| `setStyleSolo` | `part` 0–7 or null | Solos a Style part: only it plays, even if it is switched off; the other parts' notes stop. `null` ends the solo. The on/off switches are not changed (`mixer.styleSolo`). |
+| `styleTrackMute` | `order` `a` \| `b`, `value` 0–127 | Style Track Mute, a Genos Live Control knob (RM p.148). `value` is the knob: fully left (0) leaves one part on, and turning up adds parts until all eight are on at 127. Order A: Rhythm 2, Rhythm 1, Bass, Chord 1, Chord 2, Pad, Phrase 1, Phrase 2. Order B: Chord 1, Chord 2, Pad, Bass, Phrase 1, Phrase 2, Rhythm 1, Rhythm 2. It sets the parts' on/off switches. |
 
 ### Chord detection, split, transpose
 
@@ -130,6 +133,7 @@ state, and pressing the button is the action. For settings, a GUI checkbox can u
 | `stepVoice` | `delta` | Previous or next voice for the selected part. |
 | `setPartVolume` | `part`, `volume` 0–127 | The part's CC7. The Launchkey fader has to reach it before it takes over. |
 | `setPartOctave` | `part`, `octave` −2..2 | Octave shift. |
+| `setPartSolo` | `part` 0–3 or null | Solos a keyboard part: only it sounds from the keys, even if it is switched off (Left soloed plays the left hand; another part soloed plays the whole keyboard when Left is not sounding). `null` ends it. The switches are not changed (`mixer.partSolo`). |
 
 ### Mixer, Launchkey pages, synth
 
@@ -166,6 +170,30 @@ state, and pressing the button is the action. For settings, a GUI checkbox can u
 | `stepStyle` | `delta` | Previous or next style in library order, from the style waiting for the bar line if there is one. Files that don't load are skipped. |
 | `auditionStyle` | `id` | Previews a style while the band is stopped: its Main A, at its own tempo, with its own voices and levels, over C Am F G7 (a chord a bar) for 4 bars, then it stops by itself (`preview.audition`). The loaded style, OTS, keyboard parts, mixer and transport are untouched; the loaded style's setup is sent again when it ends. Refused (`failed`) while the band plays. A new one replaces the one playing; it ends early on `stopAudition`, a style change, START/STOP, `panic` or a chord that starts the band (Sync Start). |
 | `stopAudition` | | Ends the preview now. |
+
+### Chord Looper
+
+Genos CHORD LOOPER (RM p.14–19): record a chord progression while the style plays, then
+loop it; the looper feeds its chords to the style as if they were played. Recording, loop
+playback and a memory change start at the next bar line; stopping the loop is immediate.
+Details and decisions: [chord-looper.md](chord-looper.md).
+
+| Command | Fields | Does |
+|---|---|---|
+| `looperRec` | | REC/STOP. Playing: recording starts at the next bar line, with the chord held then as its first. Stopped: Sync Start turns on and the first chord starts the style and the recording together. Recording: stops recording (the style plays on). Armed: cancels. While looping: the loop stops and recording arms. |
+| `looperOnOff` | | ON/OFF. Recording: recording stops (the bars recorded, counting the one playing) and the loop starts at the next bar line. With a sequence: the loop starts at the next bar line (stopped: when the style starts). Armed: cancels. Looping: the loop stops at once and the style keeps the loop's chord until a chord is played. |
+| `selectLooperMemory` | `index` 0–7 | Selects a memory. One that holds a sequence replaces the current one; while looping, at the next bar line (`looper.pendingMemory` until then). Refused while recording. |
+| `storeLooperMemory` | `index` 0–7 | Stores the current sequence in the memory (named `CLD_001` and on). Refused with nothing recorded. |
+| `clearLooperMemory` | `index` 0–7 | Empties the memory. |
+| `newLooperBank` | | Empties all eight memories. The current sequence stays. |
+
+### Metronome
+
+| Command | Fields | Does |
+|---|---|---|
+| `setMetronome` / `toggleMetronome` | `on` | Metronome on/off. It clicks on every beat, with the style while it plays and free-running at the tempo while stopped. The click sounds on the built-in synth only, never on the MIDI port. |
+| `setMetronomeVolume` | `volume` 0–127 | The click's own volume (the synth master applies on top). |
+| `setMetronomeBell` | `on` | A bell on the first beat of each bar. |
 
 ### Multi Pads
 
@@ -281,7 +309,7 @@ Indices are 0-based unless a field says otherwise.
 | `name` | string | `Right 1` … `Left`. |
 | `channel` | 1–16 | Right 1 = 1, Left = 2, Right 2 = 3, Right 3 = 4. The same on the MIDI port and in the synth. |
 | `on` | bool | The part's switch. |
-| `sounding` | bool | The part sounds: it is on, or it is Left playing the bass under Manual Bass. Light the part's lamp from this. |
+| `sounding` | bool | The part sounds: it is on, or it is Left playing the bass under Manual Bass; while a keyboard part is soloed, only that part. Light the part's lamp from this. |
 | `selected` | bool | The part the voice commands edit. |
 | `volume` | 0–127 | CC7. |
 | `waiting` | bool | The Launchkey fader has moved but not yet reached `volume`. The terminal UI shows ↕. |
@@ -298,13 +326,15 @@ Indices are 0-based unless a field says otherwise.
 | `styleParts` | StylePart[8] | See the table below. |
 | `master` | 0–127? | The synth master level (100 = unity). Null without the synth. |
 | `masterWaiting` | bool | The master fader has not yet reached `master`. It turns on as soon as `setMasterVolume` moves the level away from the fader. |
+| `styleSolo` | 0–7? | The Style part soloed (`setStyleSolo`): only it plays. Null when none. |
+| `partSolo` | 0–3? | The keyboard part soloed (`setPartSolo`). Null when none. |
 
 StylePart:
 
 | Field | Type | Meaning |
 |---|---|---|
 | `name`, `channel` | | `Rhythm 1` on channel 9 through `Phrase 2` on channel 16. |
-| `on` | bool | Not muted, and not muted by Manual Bass. |
+| `on` | bool | Not muted, and not muted by Manual Bass. (A solo does not change it: see `mixer.styleSolo`.) |
 | `mutedByManualBass` | bool | The Bass part while Manual Bass is in effect. |
 | `volume` | 0–127 | CC7. |
 | `waiting` | bool | The fader is waiting to pick up the value. |
@@ -529,6 +559,28 @@ The style browser's preview and queue.
 |---|---|---|
 | `audition` | object? | The preview playing (`auditionStyle`): `id` (the library id), `bar` (1-based) of `bars` (4), `chord` (the chord playing: `C`, `Am`, `F`, `G7`). Null when none. |
 | `queued` | number? | The library id of a style waiting for the next bar line (`loadStyle`, `queueStyle` or `stepStyle` while playing). Null when none. |
+
+### `looper`
+The Chord Looper.
+
+| Field | Type | Meaning |
+|---|---|---|
+| `mode` | `off` \| `recArmed` \| `recording` \| `loopArmed` \| `looping` | `recArmed`: REC/STOP flashing, recording starts at the next bar line (stopped: with the first chord). `recording`: REC/STOP lit. `loopArmed`: ON/OFF flashing, the loop starts at the next bar line (stopped: when the style starts). `looping`: ON/OFF lit, the keyboard's chords are ignored (the ACMP lamp flashes on a Genos). `off` with `hasData`: ON/OFF lit blue. |
+| `hasData` | bool | There is a sequence to loop. |
+| `bar` | number? | Recording: the bar being recorded; looping: the loop's bar playing (1-based). |
+| `bars` | number | Recording: bars so far; otherwise the sequence's length. |
+| `chords` | LoopChord[] | The current sequence (empty while recording): `bar` (1-based), `beat` (1-based quarter notes; 2.5 is the "and" of 2), `chord` (as fingered, e.g. `Cm7`). |
+| `memory` | 0–7? | The memory selected. A new recording is in no memory until stored. |
+| `pendingMemory` | 0–7? | A memory selected while looping, taking over at the next bar line. |
+| `memories` | LooperMemory[8] | `name` (`CLD_001`…, null when empty), `bars`, `chords` (LoopChord[]). |
+
+### `metronome`
+| Field | Type | Meaning |
+|---|---|---|
+| `on` | bool | The metronome is on. |
+| `volume` | 0–127 | The click's volume. |
+| `bell` | bool | A bell on the first beat of each bar. |
+| `audible` | bool | The built-in synth is running: the only place the click sounds. |
 
 ### `multiPad`
 Multi Pads (docs/multipad.md).
@@ -755,7 +807,9 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
       }
     ],
     "master": 100,
-    "masterWaiting": false
+    "masterWaiting": false,
+    "styleSolo": null,
+    "partSolo": null
   },
   "pads": {
     "page": "sections",
@@ -938,6 +992,45 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
     "chordTones": [7, 11, 2, 5],
     "chordBass": 7,
     "detection": [0, 54]
+  },
+  "looper": {
+    "mode": "looping",
+    "hasData": true,
+    "bar": 2,
+    "bars": 4,
+    "chords": [
+      { "bar": 1, "beat": 1.0, "chord": "C" },
+      { "bar": 2, "beat": 1.0, "chord": "Am" },
+      { "bar": 3, "beat": 1.0, "chord": "F" },
+      { "bar": 4, "beat": 1.0, "chord": "G7" }
+    ],
+    "memory": 0,
+    "pendingMemory": null,
+    "memories": [
+      {
+        "name": "CLD_001",
+        "bars": 4,
+        "chords": [
+          { "bar": 1, "beat": 1.0, "chord": "C" },
+          { "bar": 2, "beat": 1.0, "chord": "Am" },
+          { "bar": 3, "beat": 1.0, "chord": "F" },
+          { "bar": 4, "beat": 1.0, "chord": "G7" }
+        ]
+      },
+      { "name": null, "bars": 0, "chords": [] },
+      { "name": null, "bars": 0, "chords": [] },
+      { "name": null, "bars": 0, "chords": [] },
+      { "name": null, "bars": 0, "chords": [] },
+      { "name": null, "bars": 0, "chords": [] },
+      { "name": null, "bars": 0, "chords": [] },
+      { "name": null, "bars": 0, "chords": [] }
+    ]
+  },
+  "metronome": {
+    "on": false,
+    "volume": 90,
+    "bell": true,
+    "audible": true
   },
   "multiPad": {
     "bank": { "id": 0, "name": "Demo", "path": "/Users/me/Styles/Pads/Demo.pad" },

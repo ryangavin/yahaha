@@ -10,10 +10,15 @@
     style sets the Style faders to the style's own levels.
   - Soft takeover: ↕ while a level waits for its Launchkey fader, and a dashed ghost cap
     where that fader physically sits (from the provisional `state.surface`).
-  - No level meters and Solo disabled: the engine has neither yet (#30).
+  - Solo (S): only that part plays, even if it is off; the Style tab solos a band part,
+    the Panel tab a keyboard part (`setStyleSolo` / `setPartSolo`, #30). Press again to end.
+  - The metronome (on/off, bell, its own volume) sits above the strips: it is the
+    built-in synth's click voice, never on the MIDI port. The Style tab adds Style Track
+    Mute (a Genos Live Control knob, A/B order).
+  - No level meters yet.
 -->
 <script lang="ts">
-  import type { FaderPage, KeyboardPart, StylePart } from '../../lib/api/types'
+  import type { FaderPage, KeyboardPart, StylePart, TrackMuteOrder } from '../../lib/api/types'
   import { app, ui } from '../../lib/store.svelte'
   import { tipFor } from '../../help/actions'
   import { css } from '../../lib/leds'
@@ -21,6 +26,8 @@
   import { tip } from '../../lib/tooltip/tip.svelte'
   import Fader from '../../lib/ui/Fader.svelte'
   import Overlay from '../../lib/ui/Overlay.svelte'
+  import Toggle from '../../lib/ui/Toggle.svelte'
+  import HSlider from '../settings/HSlider.svelte'
   import Strip from './Strip.svelte'
   import { partVoice, styleVoice } from './voice'
 
@@ -29,6 +36,20 @@
   const parts = $derived(app.state.keyboardParts)
   const surface = $derived(surfaceOf(app.state, app.library))
   const outPort = $derived(app.state.io.outputPort)
+  const metronome = $derived(app.state.metronome)
+
+  // Style Track Mute is a knob: the engine keeps only the parts' switches it sets, so the
+  // knob's position and order are this drawer's. Choosing an order only chooses what the
+  // knob does next: it sends nothing, so parts switched off by hand stay off.
+  let muteOrder = $state<TrackMuteOrder>('a')
+  let muteValue = $state(127)
+  function trackMute(v: number) {
+    muteValue = v
+    app.send({ type: 'styleTrackMute', order: muteOrder, value: v })
+  }
+  function setMuteOrder(o: TrackMuteOrder) {
+    muteOrder = o
+  }
 
   /** Where Launchkey fader `i` (0–7, 8 = master) physically is, when the engine says. */
   const hwAt = (i: number): number | null => surface.faders[i]?.position ?? null
@@ -74,6 +95,10 @@
     },
     voice: partVoice(p),
     badge: p.playsBass ? { text: 'Plays bass', tip: 'detection.manual_bass' as const } : null,
+    solo: {
+      isSolo: mixer.partSolo === i,
+      onclick: () => app.send({ type: 'setPartSolo', part: mixer.partSolo === i ? null : i }),
+    },
   })
 
   const styleStrip = (p: StylePart, i: number) => ({
@@ -84,7 +109,7 @@
     hw: hwAt(i),
     faderTip: 'mixer.style.volume' as const,
     onchange: (v: number) => app.send({ type: 'setStylePartVolume', part: i, volume: v }),
-    lit: p.on,
+    lit: mixer.styleSolo === null ? p.on : mixer.styleSolo === i,
     on: {
       led: ledAt(i),
       isOn: p.on,
@@ -93,6 +118,10 @@
     },
     voice: styleVoice(p.voice),
     badge: p.mutedByManualBass ? { text: 'Manual Bass', tip: 'detection.manual_bass' as const } : null,
+    solo: {
+      isSolo: mixer.styleSolo === i,
+      onclick: () => app.send({ type: 'setStyleSolo', part: mixer.styleSolo === i ? null : i }),
+    },
   })
 </script>
 
@@ -129,6 +158,41 @@
       <div class="out" use:tip={'mixer.channel'}>
         <span class="engraved">MIDI out</span> <b>{outPort || '—'}</b>
       </div>
+    </div>
+
+    <div class="extras">
+      <div class="metronome">
+        <Toggle on={metronome.on} tip="metronome.on" onclick={() => app.send({ type: 'toggleMetronome' })}>Metronome</Toggle>
+        <Toggle on={metronome.bell} tip="metronome.bell" onclick={() => app.send({ type: 'setMetronomeBell', on: !metronome.bell })}>Bell</Toggle>
+        <div class="slider">
+          <HSlider
+            value={metronome.volume}
+            tip="metronome.volume"
+            label="Metronome volume"
+            disabled={!metronome.audible}
+            onchange={(v) => app.send({ type: 'setMetronomeVolume', volume: v })}
+          />
+        </div>
+        {#if !metronome.audible}<span class="note">Synth off: no click</span>{/if}
+      </div>
+      {#if page === 'style'}
+        <div class="trackmute">
+          <span class="engraved">Track Mute</span>
+          {#each ['a', 'b'] as const as o (o)}
+            <button
+              type="button"
+              class="order mat-raised"
+              class:pressed={muteOrder === o}
+              aria-pressed={muteOrder === o}
+              use:tip={'mixer.track_mute_order'}
+              onclick={() => setMuteOrder(o)}>{o.toUpperCase()}</button
+            >
+          {/each}
+          <div class="slider">
+            <HSlider value={muteValue} tip="mixer.track_mute" label="Style Track Mute" onchange={trackMute} />
+          </div>
+        </div>
+      {/if}
     </div>
 
     <p class="info" use:tip={'mixer.info'}>
@@ -182,7 +246,7 @@
   }
   .mixer {
     display: grid;
-    grid-template-rows: auto auto 1fr;
+    grid-template-rows: auto auto auto 1fr;
     gap: 0.7rem;
     height: 100%;
     min-height: 27rem;
@@ -249,6 +313,37 @@
     font-family: var(--font-display);
     font-size: 0.9rem;
     white-space: nowrap;
+  }
+  .extras {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.6rem 1.4rem;
+    align-items: center;
+    font-size: 0.9rem;
+  }
+  .metronome,
+  .trackmute {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  .slider {
+    width: 9rem;
+  }
+  .note {
+    font-size: var(--fs-small);
+    color: var(--muted);
+  }
+  .order {
+    min-width: 2rem;
+    min-height: 2rem;
+    border-radius: 5px;
+    font-family: var(--font-display);
+    font-weight: 600;
+    color: var(--ink);
+  }
+  .order.pressed {
+    outline: 1px solid var(--accent);
   }
   .info {
     margin: 0;

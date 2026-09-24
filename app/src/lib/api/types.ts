@@ -41,8 +41,14 @@ export type AppCmd =
   | { type: 'tapTempo' }
   | { type: 'tempoUp' }
   | { type: 'tempoDown' }
+  /** Tempo in BPM, 5–500 (clamped). */
+  | { type: 'setTempo'; bpm: number }
   | { type: 'toggleStylePart'; part: number }
   | { type: 'setStylePartVolume'; part: number; volume: number }
+  /** Solo a Style part 0–7 (only it plays, even if off); null ends the solo. */
+  | { type: 'setStyleSolo'; part: number | null }
+  /** Style Track Mute (a Genos Live Control knob): `value` 0–127 turns parts on in `order`. */
+  | { type: 'styleTrackMute'; order: TrackMuteOrder; value: number }
   // Chord detection, split, transpose
   | { type: 'setFingering'; fingering: Fingering }
   | { type: 'nextFingering' }
@@ -63,6 +69,8 @@ export type AppCmd =
   | { type: 'stepVoice'; delta: number }
   | { type: 'setPartVolume'; part: number; volume: number }
   | { type: 'setPartOctave'; part: number; octave: number }
+  /** Solo a keyboard part 0–3 (only it sounds from the keys); null ends the solo. */
+  | { type: 'setPartSolo'; part: number | null }
   // Mixer and Launchkey pages
   | { type: 'setFaderPage'; page: FaderPage }
   | { type: 'toggleFaderPage' }
@@ -97,9 +105,24 @@ export type AppCmd =
   | { type: 'setPaletteLeds'; on: boolean }
   /** Re-walk the style folders (`library.roots`); `library.scanning` while it runs. */
   | { type: 'rescanLibrary' }
+  // Chord Looper (docs/chord-looper.md)
+  | { type: 'looperRec' }
+  | { type: 'looperOnOff' }
+  | { type: 'selectLooperMemory'; index: number }
+  | { type: 'storeLooperMemory'; index: number }
+  | { type: 'clearLooperMemory'; index: number }
+  | { type: 'newLooperBank' }
+  // Metronome: the built-in synth's click voice, never on the MIDI port.
+  | { type: 'toggleMetronome' }
+  | { type: 'setMetronome'; on: boolean }
+  | { type: 'setMetronomeVolume'; volume: number }
+  | { type: 'setMetronomeBell'; on: boolean }
   | MultiPadCmd
   // Controllers: pedals, wheels, assignable functions (docs/controllers.md)
   | ControllersCmd
+
+/** Style Track Mute order (RM p.148). A: Rhythm 2 first; B: Chord 1 first. */
+export type TrackMuteOrder = 'a' | 'b'
 
 export type CmdError = { kind: 'busy' } | { kind: 'failed'; message: string }
 
@@ -250,6 +273,51 @@ export interface MixerState {
   /** Synth master volume (100 = unity); null without the synth. */
   master: number | null
   masterWaiting: boolean
+  /** The Style part soloed (0–7), or null. */
+  styleSolo: number | null
+  /** The keyboard part soloed (0–3), or null. */
+  partSolo: number | null
+}
+
+/** Where the Chord Looper is. */
+export type LooperMode = 'off' | 'recArmed' | 'recording' | 'loopArmed' | 'looping'
+
+export interface LoopChord {
+  /** 1-based bar of the sequence. */
+  bar: number
+  /** 1-based beat in quarter notes (2.5 = the "and" of 2). */
+  beat: number
+  chord: string
+}
+
+export interface LooperMemory {
+  /** "CLD_001"…; null when empty. */
+  name: string | null
+  bars: number
+  chords: LoopChord[]
+}
+
+export interface LooperState {
+  mode: LooperMode
+  hasData: boolean
+  /** Recording: the bar recorded; looping: the loop's bar (1-based). */
+  bar: number | null
+  bars: number
+  /** The current sequence (empty while recording). */
+  chords: LoopChord[]
+  memory: number | null
+  pendingMemory: number | null
+  /** Always 8. */
+  memories: LooperMemory[]
+}
+
+export interface MetronomeState {
+  on: boolean
+  /** 0–127. */
+  volume: number
+  bell: boolean
+  /** The built-in synth runs (the only place the click sounds). */
+  audible: boolean
 }
 
 export interface PadsState {
@@ -514,6 +582,9 @@ export interface AppState {
   keyboard: KeyboardState
   /** The style preview and the style waiting for the bar line. */
   preview: PreviewState
+  /** The Chord Looper. */
+  looper: LooperState
+  metronome: MetronomeState
   /** Multi Pads: the bank, the four pads, Synchro Stop, the bank files. */
   multiPad: MultiPadState
   /** Pedals, wheels, the parts they reach and the pedals' assignable functions. */

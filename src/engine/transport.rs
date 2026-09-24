@@ -7,7 +7,7 @@ impl Engine {
 
     pub(super) fn set_bpm_internal(&mut self, bpm: f64, now: u64) {
         let t = if self.ns_per_tick > 0.0 { self.tick_at(now) } else { 0.0 };
-        self.bpm = bpm.clamp(30.0, 300.0);
+        self.bpm = bpm.clamp(MIN_BPM, MAX_BPM);
         self.anchor_ns = now;
         self.anchor_tick = t;
         self.ns_per_tick = 60e9 / (self.bpm * self.style.ppq as f64);
@@ -34,7 +34,8 @@ impl Engine {
 
     /// Chord-zone keys all released (for Sync Stop).
     pub fn chord_released(&mut self, now: u64, sink: &mut impl Sink) {
-        if self.sync_stop && self.running {
+        // The Chord Looper plays the chords: the keyboard's releases don't count either.
+        if self.sync_stop && self.running && !self.looper_owns_chords() {
             self.stop(sink);
             self.sync_armed = true;
         }
@@ -57,6 +58,8 @@ impl Engine {
                 }
             }
             Button::SyncStart => {
+                // The player's own choice now: cancelling REC leaves it alone.
+                self.features.looper.forget_sync();
                 if self.running {
                     self.stop(sink);
                     self.sync_armed = true;
@@ -68,9 +71,7 @@ impl Engine {
             Button::AutoFill => self.auto_fill = !self.auto_fill,
             Button::TogglePart(p) => {
                 self.parts ^= 1 << (p & 7);
-                if self.parts & (1 << (p & 7)) == 0 {
-                    self.off_where(sink, |n| n.dest == 8 + (p & 7));
-                }
+                self.silence_inaudible(sink);
             }
             Button::StopAcmp => {
                 self.stop_acmp = !self.stop_acmp;
@@ -80,6 +81,7 @@ impl Engine {
             }
             Button::TempoUp => self.set_bpm_internal(self.bpm + 2.0, now),
             Button::TempoDown => self.set_bpm_internal(self.bpm - 2.0, now),
+            Button::SetTempo(bpm) => self.set_bpm_internal(bpm as f64, now),
             Button::TapTempo => self.tap(now),
             Button::Intro(i) => {
                 if !self.running {
@@ -148,9 +150,25 @@ impl Engine {
         }
     }
 
+    /// Tap Tempo: the tempo from the last taps (up to four), down to `MIN_BPM`. Taps
+    /// further apart than a beat at `MIN_BPM` (12 s) plus half a second of slack (12.5 s)
+    /// start again; a tap whose interval is
+    /// far from the one before (a change of mind) averages only with the tap before it.
     pub(super) fn tap(&mut self, now: u64) {
-        if self.tap_n > 0 && now.saturating_sub(self.taps[(self.tap_n - 1) % 4]) > 2_000_000_000 {
-            self.tap_n = 0;
+        const FORGET_NS: u64 = (60e9 / MIN_BPM) as u64 + 500_000_000;
+        if self.tap_n > 0 {
+            let last = self.taps[(self.tap_n - 1) % 4];
+            let iv = now.saturating_sub(last);
+            if iv > FORGET_NS {
+                self.tap_n = 0;
+            } else if self.tap_n >= 2 {
+                let prev = last.saturating_sub(self.taps[(self.tap_n - 2) % 4]) as f64;
+                let ratio = iv as f64 / prev.max(1.0);
+                if !(1.0 / 1.5..=1.5).contains(&ratio) {
+                    self.taps[0] = last;
+                    self.tap_n = 1;
+                }
+            }
         }
         self.taps[self.tap_n % 4] = now;
         self.tap_n += 1;
