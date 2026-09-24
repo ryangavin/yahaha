@@ -934,6 +934,13 @@ export class MockSession implements Session {
           this.message(`there is no pedal ${cmd.pedal + 1}`, true)
           break
         }
+        if (p.function !== cmd.function || p.cc !== cmd.cc) {
+          // As the engine: what the old function drove lets go, and the pedal counts as up.
+          const sw = { sustain: 'sustain', sostenuto: 'sostenuto', soft: 'soft' } as const
+          const held = st.controllers.pedals.some((q, j) => j !== cmd.pedal && q.down && q.function === p.function)
+          if (p.function in sw && !held) st.controllers[sw[p.function as keyof typeof sw]] = false
+          p.down = false
+        }
         Object.assign(p, { cc: cmd.cc, function: cmd.function, controlType: cmd.controlType, reverse: cmd.reverse, range: cmd.range })
         break
       }

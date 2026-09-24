@@ -1012,7 +1012,7 @@ const catalog = {
   },
   'pedal.try': {
     title: 'Try',
-    body: "Runs the pedal's function now, as a press would. Sustain, Sostenuto and Soft switch on or off.",
+    body: "Runs the pedal's function now, as a press would. Sustain, Sostenuto and Soft switch on or off, and stay that way until you press Try again. Modulation and Pitch Bend follow the pedal, so there is nothing to try here.",
     genos: null,
     keys: [],
     launchkey: null,

@@ -591,6 +591,10 @@ impl Input {
             (0xB0, 3) => match self.shared.controllers.control_change(slot, m[1] & 0x7F, m[2] & 0x7F, &mut self.pedal_edges) {
                 Handled::Pass => self.send_to_all_parts(m),
                 Handled::Sync => self.sync_controllers(),
+                Handled::SyncAndPass => {
+                    self.sync_controllers();
+                    self.send_to_all_parts(m);
+                }
                 Handled::Learned => self.ctl_signal = true,
                 Handled::Fire(f) => {
                     if f.sync {
@@ -1977,6 +1981,43 @@ mod source_tests {
             let (pedal, off) = (at([0xB0 | ch, 64, 0]), at([0xB0 | ch, 123, 0]));
             assert!(pedal.is_some() && off.is_some() && pedal < off, "ch {}: pedal up, then all notes off", ch + 1);
             assert!(at([0xE0 | ch, 0, 0x40]).is_some(), "ch {}: bend centred", ch + 1);
+        }
+    }
+
+    /// A keyboard unplugged with its pedal down, then plugged back: after the reset the
+    /// pedal counts as up, so the first press sustains again (it is not read as "still
+    /// down"), and the Pedals lamp is out meanwhile.
+    #[test]
+    fn after_a_dropped_pedal_the_next_press_sustains() {
+        let (mut inp, shared, mut heard, _cmds, mut rel) = rig();
+        let a = key_tag(1);
+        inp.packet(a, 0, &[0xB0, 64, 127]);
+        inp.end_of_list();
+        assert_eq!(shared.controllers.down(), 1);
+        shared.controllers.reset(&mut |_| {});
+        rel.push(1).unwrap();
+        assert_eq!(shared.controllers.down(), 0);
+        drain(&mut heard);
+        inp.packet(a, 0, &[0xB0, 64, 127]);
+        inp.end_of_list();
+        assert_eq!(shared.controllers.switches(), crate::controllers::SUSTAIN);
+        assert!(drain(&mut heard).iter().any(|m| m[0] & 0xF0 == 0xB0 && m[1] == 64 && m[2] == 127));
+    }
+
+    /// Reset All Controllers from a keyboard resets the pedals and wheels and still reaches
+    /// every keyboard part (it resets expression and the rest on the synth).
+    #[test]
+    fn reset_all_controllers_reaches_the_parts() {
+        let (mut inp, shared, mut heard, _cmds, _rel) = rig();
+        inp.packet(key_tag(1), 0, &[0xB0, 64, 127, 0xB0, 11, 40]);
+        inp.end_of_list();
+        drain(&mut heard);
+        inp.packet(key_tag(1), 0, &[0xB0, 121, 0]);
+        inp.end_of_list();
+        assert_eq!(shared.controllers.switches(), 0);
+        let sent = drain(&mut heard);
+        for ch in parts::CHANNEL {
+            assert!(sent.contains(&[0xB0 | ch, 121, 0]), "ch {}", ch + 1);
         }
     }
 

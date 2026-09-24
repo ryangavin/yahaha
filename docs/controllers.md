@@ -3,7 +3,7 @@
 Issue #34. Code: `src/controllers.rs` (the model and the assignable-function table),
 `src/api/controllers.rs`, `src/session/controllers.rs`, the input thread in `src/live.rs`
 (`Input::key_msg_from`), the engine loop's sync (`EngineLoop::step`). The app's page is
-Settings → Controllers (`app/src/panels/settings/ControllersPage.svelte`).
+Settings → Pedals (`app/src/panels/settings/PedalsPage.svelte`).
 
 ## What the Genos does (and yahaha follows)
 
@@ -30,8 +30,15 @@ an expression pedal), `available`.
 | Voice | Sustain, Sostenuto, Soft (switch); Modulation, Pitch Bend (continuous) |
 | Style | Start/Stop, Sync Start, Sync Stop, Intro 1-3, Main A-D, Fill Down, Fill Self, Fill Break, Fill Up, Ending 1-3, Auto Fill, Stop Acmp, Fingered/Fingered On Bass |
 | OTS | OTS Link, OTS 1-4, OTS +, OTS − |
-| Registration | Registration +, Registration − (not available yet: yahaha has no Registration Memory; a pedal can hold them and says so when pressed) |
+| Registration | Registration Bank +, Registration Bank − (the REGIST BANK [+]/[−] buttons; not available yet: yahaha has no Registration Memory, and a pedal can hold them and says so when pressed). Registration Sequence +/− is not pedal-assignable on the Genos (a pedal drives it through Pedal Control on the Registration Sequence display), so it is not in the table. |
 | Overall | Tempo +, Tempo −, Tap Tempo, Transpose +, Transpose −, Right 1-3 and Left On/Off |
+
+Two rows are yahaha's, not the Genos's:
+- **Stop Acmp On/Off.** The Genos list has Acmp On/Off (the [ACMP] button), which yahaha
+  doesn't have; Stop Acmp is the nearest yahaha control.
+- **Right 1/2/3 and Left On/Off, one row each.** The Genos has a single Part On/Off that
+  switches the parts chosen for it together; one row per part does the same one part at a
+  time without a second setting.
 
 Engine buttons (sections, Start/Stop, tempo) go from the input thread straight to the
 engine, as a Launchkey button does; the rest go to the control side as a Launchkey action
@@ -55,13 +62,18 @@ or off, a setting changed).
 
 - **Panic**: the engine sends pedal off (CC 64/66/67 = 0), modulation 0 and bend centre to
   every keyboard part, then All Notes Off on all 16 channels. The pedal counts as up until
-  it is pressed again, whatever it physically is.
+  it is pressed again, whatever it physically is: the next press is a press (the input
+  thread forgets the pedal's last edge), and the Pedals page lamp goes out.
 - **A keyboard unplugged** (or deselected in Settings → MIDI) with keys held, **or with a
   pedal or wheel it moved** (`Controllers::touched`): the same reset, then All Notes Off on
   the keyboard parts. Before, a pedal left down with no keys held stayed down.
 - **Reset All Controllers (CC 121)** from a keyboard: the pedal switches and wheels go
-  back to neutral on the parts (the CC itself is not passed on, so what yahaha thinks each
-  channel holds stays true).
+  back to neutral on the parts, then the CC goes on to all four parts (it also resets
+  expression, pressure and the rest on the synth).
+- **A pedal given another function or CC** (Settings, or Learn) while its switch is on
+  (held, or latched by Toggle) or mid-sweep: what the old setup drove is released first
+  (the switch goes off unless another pedal on the same switch is held; modulation to 0,
+  bend to centre). The pedal then counts as up until it is pressed again.
 - **Style and section changes, Start and Stop** send nothing on channels 1-4 (tested):
   a held pedal and a bend carry across them.
 - A part switched **off** under a held pedal or a bend is released and centred; switched
@@ -70,7 +82,7 @@ or off, a setting changed).
 ## Decisions
 
 - **Sustain reaches Left by default.** Decision: the sustain pedal holds Right 1-3 and
-  Left (each can be taken out in Settings → Controllers), because the Genos RM describes
+  Left (each can be taken out in Settings → Pedals), because the Genos RM describes
   Sustain as affecting "all notes played on the keyboard" and makes the parts a per-function
   setting; the panel SUSTAIN button (Right 1-3 only) and LEFT HOLD are different features.
   Under Manual Bass, Left plays the Style's bass voice, and the pedal holds it too when
@@ -89,6 +101,6 @@ or off, a setting changed).
 - **Pitch Bend Range defaults to 2** semitones (GM and the Genos default).
 - **Fill Up at Main D / Fill Down at Main A** play the fill of the Main at the end and stay
   there (the Genos has no Main to go to); stopped, Fill Up/Down select the next Main.
-- **Registration +/−** are in the table but unavailable until Registration Memory exists.
+- **Registration Bank +/−** are in the table but unavailable until Registration Memory exists.
 - **Not done**: Left Hold, Glide, Portamento, Mono/Poly, Pedal Wah, Organ Rotary, the
   Assignable buttons A-F (the Launchkey has none free), Joystick Hold, a Volume pedal.

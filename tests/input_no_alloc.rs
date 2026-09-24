@@ -38,7 +38,10 @@ fn keyboard_note_path_does_not_allocate() {
     }
     let (tx, _rx) = rtrb::RingBuffer::new(256);
     let mut input = Input::new(shared.clone(), Recognizer::new(), tx, Out::new(PacketSink::new(Target::Null), None));
-    // Pedals: 2 runs Start/Stop (an engine button), 3 is a pitch-bend foot controller.
+    let (actions, mut actions_rx) = rtrb::RingBuffer::new(64);
+    input.set_actions(actions);
+    // Pedals: 2 runs Start/Stop (an engine button) or, every other round, OTS + (a
+    // control-side function, through the actions ring); 3 is a pitch-bend foot controller.
     use yahaha::controllers::{Function, PedalSetup, Range};
     let ctl = &shared.controllers;
     ctl.set_pedal(1, PedalSetup { cc: Some(66), function: Function::StartStop, ..PedalSetup::default() });
@@ -48,7 +51,13 @@ fn keyboard_note_path_does_not_allocate() {
     input.end_of_list();
 
     let (allocs, frees) = (ALLOCS.load(Ordering::Relaxed), FREES.load(Ordering::Relaxed));
+    let mut assigned = 0;
     for round in 0..50u8 {
+        let function = if round % 2 == 0 { Function::StartStop } else { Function::OtsNext };
+        ctl.set_pedal(1, PedalSetup { cc: Some(66), function, ..PedalSetup::default() });
+        while actions_rx.pop().is_ok() {
+            assigned += 1;
+        }
         shared.key_shift.store((round % 5) as i8 - 2, Ordering::Relaxed);
         // A left-hand chord, a right-hand melody over layered parts, a retrigger, the
         // sustain pedal, poly aftertouch, then everything up (one note-off as a note-on
@@ -63,7 +72,9 @@ fn keyboard_note_path_does_not_allocate() {
         shared.parts.toggle(1);
         input.packet(1, 0, &[0xB0, 66, 0, 0xB0, 64, 127, 0xB0, 121, 0, 0xB0, 64, 0]);
         input.end_of_list();
+        ctl.reset(&mut |_| {});
     }
     assert_eq!(ALLOCS.load(Ordering::Relaxed) - allocs, 0, "the input thread allocated");
     assert_eq!(FREES.load(Ordering::Relaxed) - frees, 0, "the input thread freed");
+    assert!(assigned > 0, "OTS + went through the actions ring");
 }

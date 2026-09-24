@@ -142,8 +142,8 @@ pub enum Function {
     Ots4,
     OtsNext,
     OtsPrev,
-    RegistNext,
-    RegistPrev,
+    RegistBankNext,
+    RegistBankPrev,
     TempoUp,
     TempoDown,
     TapTempo,
@@ -161,7 +161,9 @@ pub enum Function {
 #[serde(rename_all = "camelCase")]
 pub struct FunctionInfo {
     pub id: Function,
-    /// As the Genos names it.
+    /// As the Genos names it (RM p.139-144), except yahaha's own rows: Stop Acmp On/Off
+    /// (the Genos list has Acmp On/Off, which yahaha doesn't have) and one row per part for
+    /// the Genos's single Part On/Off (see docs/controllers.md).
     pub name: &'static str,
     pub category: Category,
     pub kind: Kind,
@@ -217,8 +219,8 @@ pub const FUNCTIONS: [FunctionInfo; 44] = [
     f(Function::Ots4, "One Touch Setting 4", Ots, Trigger),
     f(Function::OtsNext, "One Touch Setting +", Ots, Trigger),
     f(Function::OtsPrev, "One Touch Setting −", Ots, Trigger),
-    later(Function::RegistNext, "Registration +", Registration, Trigger),
-    later(Function::RegistPrev, "Registration −", Registration, Trigger),
+    later(Function::RegistBankNext, "Registration Bank +", Registration, Trigger),
+    later(Function::RegistBankPrev, "Registration Bank −", Registration, Trigger),
     f(Function::TempoUp, "Tempo +", Overall, Trigger),
     f(Function::TempoDown, "Tempo −", Overall, Trigger),
     f(Function::TapTempo, "Tap Tempo", Overall, Trigger),
@@ -419,6 +421,9 @@ pub struct Controllers {
     touched: AtomicU16,
     /// The pedal waiting to learn its CC (`NOT_LEARNING`: none).
     learn: AtomicU8,
+    /// Pedals whose edge the input thread must forget (bit = pedal): set by a reset or a
+    /// changed setup, so the next press is a press even if the last read was "down".
+    forget: AtomicU8,
 }
 
 impl Default for Controllers {
@@ -445,6 +450,7 @@ impl Controllers {
             sent_range: [const { AtomicU8::new(0xFF) }; COUNT],
             touched: AtomicU16::new(0),
             learn: AtomicU8::new(NOT_LEARNING),
+            forget: AtomicU8::new(0),
         }
     }
 
@@ -454,8 +460,32 @@ impl Controllers {
         PedalSetup::unpack(self.pedal[i % PEDALS].load(Relaxed))
     }
 
+    /// Set pedal `i`. When its function or CC changes, whatever the old setup was driving is
+    /// released first (a switch it held or latched, a wheel it moved), so a pedal re-picked
+    /// while down, latched by Toggle or mid-sweep never leaves a stuck pedal or bend. The
+    /// pedal then counts as up until it is next pressed.
     pub fn set_pedal(&self, i: usize, p: PedalSetup) {
-        self.pedal[i % PEDALS].store(p.pack(), Relaxed);
+        let i = i % PEDALS;
+        let old = PedalSetup::unpack(self.pedal[i].swap(p.pack(), Relaxed));
+        if old.function == p.function && old.cc == p.cc {
+            return;
+        }
+        let bit = 1u8 << i;
+        self.down.fetch_and(!bit, Relaxed);
+        self.forget.fetch_or(bit, Relaxed);
+        match old.function.effect() {
+            Effect::Switch(b) => {
+                // Another pedal held down on the same switch keeps it on.
+                let down = self.down.load(Relaxed);
+                let held = (0..PEDALS).any(|j| j != i && down >> j & 1 != 0 && self.pedal(j).function.effect() == Effect::Switch(b));
+                if !held {
+                    self.set_switch(b, false);
+                }
+            }
+            Effect::Modulation => self.modulation.store(0, Relaxed),
+            Effect::PitchBend => self.bend.store(BEND_CENTRE, Relaxed),
+            Effect::Nothing | Effect::Engine(_) | Effect::Control => {}
+        }
     }
 
     pub fn part_targets(&self, part: usize) -> PartTargets {
@@ -534,17 +564,19 @@ impl Controllers {
         let learning = self.learn.load(Relaxed);
         if learning != NOT_LEARNING && learnable(cc) && v >= 64 {
             let i = learning as usize % PEDALS;
-            let p = PedalSetup { cc: Some(cc), ..self.pedal(i) };
-            self.pedal[i].store(p.pack(), Relaxed);
+            self.set_pedal(i, PedalSetup { cc: Some(cc), ..self.pedal(i) });
             self.learn.store(NOT_LEARNING, Relaxed);
             return Handled::Learned;
         }
+        let forget = self.forget.swap(0, Relaxed);
+        *edges &= !forget;
         if cc == 121 {
-            // Reset All Controllers: everything this module keeps back to neutral.
+            // Reset All Controllers: everything this module keeps back to neutral, and the
+            // message still goes to the parts (it resets expression, pressure and the rest).
             self.switches.store(0, Relaxed);
             self.modulation.store(0, Relaxed);
             self.bend.store(BEND_CENTRE, Relaxed);
-            return Handled::Sync;
+            return Handled::SyncAndPass;
         }
         let mut claimed = false;
         let mut fire = Fire::default();
@@ -696,6 +728,9 @@ impl Controllers {
         self.modulation.store(0, Relaxed);
         self.bend.store(BEND_CENTRE, Relaxed);
         self.touched.store(0, Relaxed);
+        // The pedals count as up until pressed again: the next press is a press.
+        self.down.store(0, Relaxed);
+        self.forget.store(u8::MAX, Relaxed);
         for p in 0..COUNT {
             let ch = parts::CHANNEL[p];
             self.sent_switches[p].store(0, Relaxed);
@@ -723,6 +758,8 @@ pub enum Handled {
     Pass,
     /// A switch or wheel changed: `sync`.
     Sync,
+    /// `sync`, then send the message on to all the parts too (Reset All Controllers).
+    SyncAndPass,
     /// A pedal's: sync if `sync`, and run what it fired.
     Fire(Fire),
     /// A pedal learned its CC: the screen shows it.
@@ -889,7 +926,7 @@ mod tests {
         assert_eq!(c.control_change(0, 64, 127, &mut e), Handled::Sync);
         assert_eq!(c.switches(), SUSTAIN);
         assert_eq!(c.control_change(0, 11, 100, &mut e), Handled::Pass);
-        assert_eq!(c.control_change(0, 121, 0, &mut e), Handled::Sync);
+        assert_eq!(c.control_change(0, 121, 0, &mut e), Handled::SyncAndPass);
         assert_eq!(c.switches(), 0);
     }
 
@@ -948,5 +985,66 @@ mod tests {
         c.sync_ranges(&mut |m| v.push([m[0], m[1], m[2]]));
         assert_eq!(v[2], [0xB1, 6, 12], "clamped to 12");
         assert_eq!(v.len(), 6);
+    }
+
+    #[test]
+    fn a_pedal_given_a_new_setup_releases_what_it_drove() {
+        let mut e = 0;
+        // Held: re-picked while down.
+        let c = Controllers::new();
+        c.control_change(0, 64, 127, &mut e);
+        assert_eq!(c.switches(), SUSTAIN);
+        c.set_pedal(0, PedalSetup { function: Function::StartStop, ..c.pedal(0) });
+        assert_eq!((c.switches(), c.down()), (0, 0));
+        assert_eq!(c.control_change(0, 64, 0, &mut e), Handled::Fire(Fire::default()), "the release does nothing");
+        assert_eq!(c.control_change(0, 64, 127, &mut e), Handled::Fire(Fire { shown: true, engine: Some(Button::StartStop), ..Fire::default() }));
+        // Toggle: latched on, then re-picked with the pedal up.
+        let c = Controllers::new();
+        let mut e = 0;
+        c.set_pedal(0, PedalSetup { control_type: ControlType::Toggle, ..c.pedal(0) });
+        c.control_change(0, 64, 127, &mut e);
+        c.control_change(0, 64, 0, &mut e);
+        assert_eq!(c.switches(), SUSTAIN, "latched");
+        c.set_pedal(0, PedalSetup { function: Function::None, ..c.pedal(0) });
+        assert_eq!(c.switches(), 0);
+        // A new CC (Learn) releases too; a new Control Type alone does not.
+        let c = Controllers::new();
+        let mut e = 0;
+        c.control_change(0, 64, 127, &mut e);
+        c.set_pedal(0, PedalSetup { reverse: true, ..c.pedal(0) });
+        assert_eq!(c.switches(), SUSTAIN);
+        c.learn(Some(0));
+        assert_eq!(c.control_change(0, 85, 127, &mut e), Handled::Learned);
+        assert_eq!(c.switches(), 0);
+        // Another pedal held on the same switch keeps it on.
+        let c = Controllers::new();
+        let mut e = 0;
+        c.set_pedal(1, PedalSetup { cc: Some(80), function: Function::Sustain, ..PedalSetup::default() });
+        c.control_change(0, 64, 127, &mut e);
+        c.control_change(0, 80, 127, &mut e);
+        c.set_pedal(0, PedalSetup { function: Function::None, ..c.pedal(0) });
+        assert_eq!(c.switches(), SUSTAIN);
+        // A Pitch Bend pedal mid-sweep: the bend centres.
+        let c = Controllers::new();
+        let mut e = 0;
+        c.set_pedal(2, PedalSetup { cc: Some(4), function: Function::PitchBend, ..PedalSetup::default() });
+        c.control_change(0, 4, 127, &mut e);
+        assert_eq!(c.bend(), 16383);
+        assert_eq!(sent(&c, 0b0001), vec![[0xE0, 0x7F, 0x7F]]);
+        c.set_pedal(2, PedalSetup { function: Function::None, ..c.pedal(2) });
+        assert_eq!(sent(&c, 0b0001), vec![[0xE0, 0, 0x40]], "centred on the next sync");
+        c.control_change(0, 4, 0, &mut e);
+        assert_eq!(c.bend(), BEND_CENTRE);
+    }
+
+    #[test]
+    fn after_a_reset_the_next_press_is_a_press() {
+        let c = Controllers::new();
+        let mut e = 0;
+        c.control_change(0, 64, 127, &mut e);
+        c.reset(&mut |_| {});
+        assert_eq!(c.down(), 0, "the lamp goes out");
+        c.control_change(0, 64, 127, &mut e);
+        assert_eq!((c.switches(), c.down()), (SUSTAIN, 1), "not swallowed");
     }
 }

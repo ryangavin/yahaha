@@ -224,15 +224,15 @@
     "available": true
   },
   {
-    "id": "registNext",
-    "name": "Registration +",
+    "id": "registBankNext",
+    "name": "Registration Bank +",
     "category": "registration",
     "kind": "trigger",
     "available": false
   },
   {
-    "id": "registPrev",
-    "name": "Registration −",
+    "id": "registBankPrev",
+    "name": "Registration Bank −",
     "category": "registration",
     "kind": "trigger",
     "available": false

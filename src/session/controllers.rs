@@ -112,7 +112,7 @@ mod tests {
         let f = s.state().chord.fingering;
         s.send(ControllersCmd::TriggerFunction { function: Function::FingeredOnBass }).unwrap();
         assert_ne!(s.state().chord.fingering, f, "it alternates");
-        let e = s.send(ControllersCmd::TriggerFunction { function: Function::RegistNext }).unwrap_err();
+        let e = s.send(ControllersCmd::TriggerFunction { function: Function::RegistBankNext }).unwrap_err();
         assert!(matches!(e, CmdError::Failed(t) if t.contains("not in yahaha yet")));
         s.send(ControllersCmd::TriggerFunction { function: Function::Sustain }).unwrap();
         assert!(s.state().controllers.sustain);
@@ -141,6 +141,22 @@ mod tests {
         assert!(!keyboard_msgs(&s).contains(&[0xB1, 64, 127]));
         s.midi_in(Port::Keys, &[0xB0, 64, 0]);
         assert!(keyboard_msgs(&s).contains(&[0xB2, 64, 0]));
+    }
+
+    /// A Toggle sustain latched on, then the pedal given another function in Settings: the
+    /// sustain lets go (it would otherwise stay on with nothing left to turn it off).
+    #[test]
+    fn a_pedal_given_another_function_releases_its_sustain() {
+        let Some(s) = offline() else { return };
+        let toggle = |function| ControllersCmd::SetPedal { pedal: 0, cc: Some(64), function, control_type: crate::controllers::ControlType::Toggle, reverse: false, range: Default::default() };
+        s.send(toggle(Function::Sustain)).unwrap();
+        s.midi_in(Port::Keys, &[0xB0, 64, 127]);
+        s.midi_in(Port::Keys, &[0xB0, 64, 0]);
+        assert!(s.state().controllers.sustain, "latched");
+        s.take_output();
+        s.send(toggle(Function::OtsNext)).unwrap();
+        assert!(!s.state().controllers.sustain);
+        assert!(keyboard_msgs(&s).contains(&[0xB0, 64, 0]), "Right 1 released");
     }
 
     #[test]

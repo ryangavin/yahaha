@@ -66,16 +66,24 @@ describe('Pedals page', () => {
     expect(app.state.controllers.parts[0].bendRange).toBe(12)
   })
 
-  it('Registration +/− are listed but not selectable yet', () => {
+  it('Try is off for a foot-controller function (it follows the pedal)', () => {
+    const s = setup()
+    s.send({ type: 'setPedal', pedal: 2, cc: 4, function: 'pitchBend', controlType: 'holdA', reverse: false, range: 'upper' })
+    flushSync()
+    expect(byTip<HTMLButtonElement>('pedal.try')[2].disabled).toBe(true)
+    expect(byTip<HTMLButtonElement>('pedal.try')[0].disabled).toBe(false)
+  })
+
+  it('Registration Bank +/− are listed but not selectable yet', () => {
     setup()
-    const opt = byTip<HTMLSelectElement>('pedal.function')[0].querySelector<HTMLOptionElement>('option[value="registNext"]')!
+    const opt = byTip<HTMLSelectElement>('pedal.function')[0].querySelector<HTMLOptionElement>('option[value="registBankNext"]')!
     expect(opt.disabled).toBe(true)
   })
 })
 
 describe('assignable functions', () => {
   it('every trigger the engine runs as a command maps to one here (the mock)', () => {
-    const control = ['otsNext', 'otsPrev', 'registNext', 'registPrev', 'none']
+    const control = ['otsNext', 'otsPrev', 'registBankNext', 'registBankPrev', 'none']
     for (const f of FUNCTIONS.filter((f) => f.kind === 'trigger' && !control.includes(f.id))) {
       expect(functionCmd(f.id, { fingering: 'fingered' }), f.id).not.toBeNull()
     }

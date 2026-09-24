@@ -534,7 +534,7 @@ export interface AssignableFunction {
   category: 'voice' | 'style' | 'ots' | 'registration' | 'overall'
   /** switch: Control Type applies; trigger: fires on the press; continuous: an expression pedal. */
   kind: 'switch' | 'trigger' | 'continuous'
-  /** yahaha has it (Registration +/− not yet). */
+  /** yahaha has it (Registration Bank +/− not yet). */
   available: boolean
 }
 

@@ -102,7 +102,7 @@
           <button
             type="button"
             class="mini mat-raised"
-            disabled={p.function === 'none'}
+            disabled={p.function === 'none' || info?.kind === 'continuous' || info?.available === false}
             use:tip={'pedal.try'}
             onclick={() => app.send({ type: 'triggerFunction', function: p.function })}
           >

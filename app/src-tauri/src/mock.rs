@@ -1319,7 +1319,7 @@ mod tests {
         assert!(m.state.controllers.sustain);
         m.send(SystemCmd::Panic);
         assert!(!m.state.controllers.sustain);
-        m.send(ControllersCmd::TriggerFunction { function: Function::RegistNext });
+        m.send(ControllersCmd::TriggerFunction { function: Function::RegistBankNext });
         assert!(m.state.message.as_ref().is_some_and(|x| x.error));
     }
 
