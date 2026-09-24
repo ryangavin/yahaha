@@ -1039,6 +1039,9 @@ fn a_bank_without_style_settings_leaves_them() {
     s.advance(MS);
     assert_eq!(settings(&s), before);
     assert!(!s.state().registration.buttons[0].groups.has(Group::Assignable));
+    let _ = std::fs::remove_dir_all(dir);
+}
+
 // ----- a keyboard part's library patch (#109) -----
 
 /// A session with a data folder holding a SoundFont folder (`<data>/sf/Test.sf2`, the

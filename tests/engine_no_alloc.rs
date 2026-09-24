@@ -96,7 +96,7 @@ fn preview_and_next_bar_style_change_do_not_allocate() {
     ch.ui_tx.push(Cmd::Button(Button::SetTempo(96))).ok().unwrap();
     ch.ui_tx.push(Cmd::StyleVolume(3, 64)).ok().unwrap();
     ch.ui_tx.push(Cmd::Button(Button::TogglePart(5))).ok().unwrap();
-    let controls = StyleControls { main: Some(1), intro: None, sync_start: None, sync_stop: Some(true), stop_acmp: Some(true), stop_acmp_mode: None, parts: Some(0b1011_1111), volumes: Some([90, 80, 100, 64, 100, 100, 100, 70]), player_set: Some(0b1000_0001) };
+    let controls = StyleControls { main: Some(1), intro: None, sync_start: None, sync_stop: Some(true), stop_acmp: Some(true), stop_acmp_mode: None, parts: Some(0b1011_1111), volumes: Some([90, 80, 100, 64, 100, 100, 100, 70]), player_set: Some(0b1000_0001), retrigger: Some(true) };
     // Part 4 (moved above) goes back to the style: the player_set mask leaves it out.
     ch.ui_tx.push(Cmd::StyleControls(controls)).ok().unwrap();
     while now < t0 + 2 * bar {
