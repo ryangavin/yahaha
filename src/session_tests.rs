@@ -665,6 +665,7 @@ fn launchkey_button_descriptions() {
     let play = b(&s, "play");
     assert_eq!((play.action.clone(), play.colour, play.shift_action, play.shift_label.as_str()), (Some(AppCmd::StartStop), None, Some(AppCmd::StartStop), "PLAY"));
     assert_eq!(b(&s, "scene").action, Some(AppCmd::TempoUp));
+    assert_eq!((b(&s, "scene").label.as_str(), b(&s, "function").label.as_str()), ("TEMPO +", "TEMPO -"));
     // Panel faders: Right 1 on (blue), Right 2 off (dim blue), 5-8 do nothing.
     let f1 = b(&s, "faderButton1");
     assert_eq!((f1.label.as_str(), f1.action, f1.shift_action), ("RIGHT 1", Some(AppCmd::TogglePart { part: 0 }), Some(AppCmd::SelectPart { part: 0 })));
@@ -681,6 +682,14 @@ fn launchkey_button_descriptions() {
     assert_eq!(f6.level, Level::Dim, "muted");
     assert_eq!((b(&s, "faderButton1").level, b(&s, "faderButton1").rgb), (Level::Bright, [0, 127, 0]));
     assert_eq!(b(&s, "masterButton").label, "STYLE");
+    // Manual Bass (with Upper) mutes the Style's Bass part: its button dims, as on the
+    // hardware.
+    s.send(AppCmd::SetUpper { on: true }).unwrap();
+    s.send(AppCmd::SetManualBass { on: true }).unwrap();
+    let f3 = b(&s, "faderButton3");
+    assert_eq!((f3.level, f3.rgb), (Level::Dim, [0, 127, 0]), "Manual Bass");
+    s.send(AppCmd::SetManualBass { on: false }).unwrap();
+    assert_eq!(b(&s, "faderButton3").level, Level::Bright);
     // Page 3: ▼ goes nowhere, ▲ back to page 2, both pink.
     s.send(AppCmd::SetPadPage { page: Page::OtsParts }).unwrap();
     assert_eq!(b(&s, "padBankDown").action, None);
@@ -851,4 +860,42 @@ fn palette_leds_are_described() {
     assert!(st.transport.lamps.iter().all(|p| p.palette.is_some()));
     let rgb = offline("SlowWalker.T552.sty").unwrap();
     assert!(rgb.state().pads.pads.iter().all(|p| p.palette.is_none()));
+}
+
+/// A style change while playing, to a style of another resolution (SlowWalker is 960 ticks
+/// per quarter, TickingAway 480): the band keeps the tempo, and the clock stays on it.
+#[test]
+fn style_change_keeps_tempo_across_resolutions() {
+    let Some(p) = style("SlowWalker.T552.sty") else { return };
+    let Some(other) = style("TickingAway.T162.sty") else { return };
+    let s = Session::offline(Options { paths: vec![p], ..Options::default() }).unwrap();
+    keys(&s, true, &[36, 40, 43]);
+    s.advance(1_000 * MS);
+    s.send(AppCmd::LoadStylePath { path: other.display().to_string() }).unwrap();
+    let c = s.state_now().surface.clock;
+    let (t0, tempo) = (ns_to_ms(s.now()), c.tempo);
+    // 5 beats later, less a hair so no beat boundary is at stake.
+    let ahead = (5.0 * 60e3 / tempo - 20.0) as u64 * MS;
+    s.advance(ahead);
+    let st = s.state_now();
+    assert_eq!(st.transport.tempo, tempo);
+    let want = c.at(t0 + ns_to_ms(ahead));
+    assert_eq!((st.transport.bar, st.transport.beat), (want.bar, want.beat), "clock from the switch");
+    assert_eq!((st.transport.bar, st.transport.beat), (2, 1), "5 beats in 4/4 at {tempo}");
+}
+
+/// The hardware Track ◀/▶ LEDs are re-sent when the library gains its second style, as the
+/// mirror shows them.
+#[test]
+fn track_leds_follow_the_library() {
+    let Some(s) = offline("SlowWalker.T552.sty") else { return };
+    let snap = s.inner.lock().snap;
+    let mut leds = Leds::new(PacketSink::new(crate::rt::Target::Null), false);
+    let pnl = Panel::default();
+    leds.update(&snap, &[true; 16], &pnl, false, FaderPage::Panel, false, 0.0);
+    let n = leds.out.sent;
+    leds.update(&snap, &[true; 16], &pnl, false, FaderPage::Panel, false, 0.0);
+    assert_eq!(leds.out.sent, n, "nothing changed, nothing sent");
+    leds.update(&snap, &[true; 16], &pnl, false, FaderPage::Panel, true, 0.0);
+    assert!(leds.out.sent > n, "Track LEDs re-sent");
 }

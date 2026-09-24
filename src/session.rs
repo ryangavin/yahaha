@@ -179,7 +179,7 @@ struct Leds {
     last_leds: [(u8, Option<Led>); 16],
     last_rgb: [Option<(u8, u8, u8)>; 16],
     last_fader_btns: Option<(FaderPage, u8, u8)>,
-    last_nav: Option<Page>,
+    last_nav: Option<(Page, bool)>,
     buf: Vec<[u8; 3]>,
 }
 
@@ -210,8 +210,7 @@ impl Leds {
                 }
             }
         }
-        // Manual Bass mutes the Style's Bass part in the engine: shown off, as on screen.
-        let style_on = if manual_bass { s.parts & !(1 << 2) } else { s.parts };
+        let style_on = launchkey::style_lit(s.parts, manual_bass);
         let fb = (fader_page, pnl.parts_on, style_on);
         if self.last_fader_btns != Some(fb) {
             self.buf.clear();
@@ -221,13 +220,13 @@ impl Leds {
             }
             self.last_fader_btns = Some(fb);
         }
-        if self.last_nav != Some(pnl.page) {
+        if self.last_nav != Some((pnl.page, styles)) {
             self.buf.clear();
             launchkey::nav_button_msgs(pnl.page, styles, &mut self.buf);
             for m in &self.buf {
                 self.out.push(m);
             }
-            self.last_nav = Some(pnl.page);
+            self.last_nav = Some((pnl.page, styles));
         }
         self.out.flush();
     }
@@ -636,7 +635,7 @@ impl Control {
         let page = pnl.page;
         let styles = self.published.len() > 1;
         let fader_page = kp.fader_page();
-        let style_on = if manual_bass_active { self.snap.parts & !(1 << 2) } else { self.snap.parts };
+        let style_on = launchkey::style_lit(self.snap.parts, manual_bass_active);
         let colours = launchkey::button_colours(page, styles, fader_page, pnl.parts_on, style_on);
         let act = |cc: u8, shift: bool| -> Option<AppCmd> {
             match cc_control(cc, shift)? {

@@ -902,10 +902,10 @@ impl Engine {
             let v = self.style.mix[p];
             self.set_mixer(p, v);
         }
-        if !self.running {
-            let bpm = self.style.bpm;
-            self.set_bpm_internal(bpm, now);
-        }
+        // Stopped, the new style's tempo; running, the same tempo re-timed to the new
+        // style's resolution (ticks per quarter differ between styles: 480, 960, 1920).
+        let bpm = if self.running { self.bpm } else { self.style.bpm };
+        self.set_bpm_internal(bpm, now);
         self.send_init(sink);
         if self.running {
             // Continue from the next bar of the equivalent section.

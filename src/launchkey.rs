@@ -258,6 +258,13 @@ pub fn fader_button_msgs(page: FaderPage, parts_on: u8, style_on: u8, out: &mut 
     out.push([0xB0, 45, bright]);
 }
 
+/// The Style parts the Style-page fader buttons show as playing (`style_on` of
+/// `fader_button_msgs`): Manual Bass mutes the Style's Bass part in the engine, so it
+/// shows off, as on screen.
+pub fn style_lit(parts: u8, manual_bass: bool) -> u8 {
+    if manual_bass { parts & !(1 << 2) } else { parts }
+}
+
 /// The button LEDs as `nav_button_msgs` and `fader_button_msgs` set them: (CC, palette
 /// colour) for Pad Bank ▲/▼, Track ◀/▶, the fader buttons and the master fader button.
 pub fn button_colours(page: Page, styles: bool, fader_page: FaderPage, parts_on: u8, style_on: u8) -> Vec<(u8, u8)> {
