@@ -89,9 +89,10 @@ impl Engine {
                     }
                 } else if self.user_set & bit != 0 {
                     // The registration left this part to the style: forget the player's
-                    // level. The style's own level now, its patterns' CC7 from here on.
+                    // level. The style's own level now (as the section routes it, #64), its
+                    // patterns' CC7 from here on.
                     self.user_set &= !bit;
-                    let v = self.style.mix[p];
+                    let v = self.style.setup(self.cur).mix[p];
                     if self.mixer[p] != v {
                         self.set_mixer(p, v);
                         self.mirror.send(sink, &[0xB0 | (8 + p as u8), 7, v]);
@@ -310,16 +311,19 @@ impl Engine {
         // A start plays the style's channel setup (SInt) again: parts the player has not
         // moved go back to the style's own level, so an Intro/Ending pattern's CC7 from the
         // last run does not stick. Faders the player moved keep their value.
-        self.restore_untouched_levels();
-        self.send_init(sink);
         self.cur = slot;
+        self.restore_untouched_levels();
+        // The setup as the first section routes it (#64).
+        self.send_init(sink);
         self.sec_start = 0.0;
         self.entry = 0.0;
         self.ev_idx = 0;
         self.queued = None;
         self.lines_from(0.0);
         self.on_start(now, sink);
-        self.process(now, sink);
+        // Not `process`: a Sync Start chord settles at the wake's own `process`, after the
+        // other inputs of the wake (settle.rs); until then its chord parts wait.
+        self.play_due(now, sink);
     }
 
     /// Stop (if running) and wait for the next chord to start.
@@ -329,6 +333,8 @@ impl Engine {
     }
 
     pub fn stop(&mut self, sink: &mut impl Sink) {
+        // A chord change still settling takes effect with nothing left to re-voice.
+        self.settle_silently(sink);
         let was_running = self.running;
         self.running = false;
         self.queued = None;
@@ -417,7 +423,7 @@ mod tests {
             return;
         }
         let mut e = Engine::new(Box::new(Prepared::new(&Style::load(&p).unwrap())));
-        let own = e.style.mix;
+        let own = e.style.setup(e.cur).mix;
         // The player moved parts 0 and 5.
         e.set_volume(0, 11, &mut Nop);
         e.set_volume(5, 22, &mut Nop);

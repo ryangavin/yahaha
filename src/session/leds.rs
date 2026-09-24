@@ -65,6 +65,21 @@ impl Leds {
         self.out.flush();
     }
 
+    /// Send through `out` from now on (the Launchkey came back, maybe as another
+    /// endpoint), and send every LED again: it comes back with them dark.
+    pub(super) fn reconnect(&mut self, out: PacketSink) {
+        self.out = out;
+        self.forget();
+    }
+
+    /// Forget what was sent: the next `update` sends every LED.
+    pub(super) fn forget(&mut self) {
+        self.last_leds = [(0, None); 16];
+        self.last_rgb = [None; 16];
+        self.last_fader_btns = None;
+        self.last_nav = None;
+    }
+
     /// Palette colours or RGB from now on: every pad is sent again.
     pub(super) fn set_palette(&mut self, on: bool) {
         if self.palette != on {
@@ -86,5 +101,36 @@ impl Leds {
         }
         self.out.push(&launchkey::EXIT_DAW);
         self.out.flush();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::rt::Target;
+
+    /// A Launchkey plugged back in comes back dark: `reconnect` sends every LED again,
+    /// where an `update` with nothing changed sends nothing.
+    #[test]
+    fn reconnect_sends_every_led_again() {
+        let p = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus/MOX_v2/SlowWalker.T552.sty");
+        if !p.exists() {
+            return;
+        }
+        let e = crate::engine::Engine::new(Box::new(crate::engine::Prepared::new(&crate::sff::Style::load(&p).unwrap())));
+        let s = e.snapshot(0);
+        let has = [true; 17];
+        let pnl = Panel::default();
+        for palette in [false, true] {
+            let mut l = Leds::new(PacketSink::new(Target::Null), palette);
+            l.update(&s, &has, &pnl, false, FaderPage::Panel, true, 0.0);
+            let first = l.out.sent;
+            assert!(first > 0);
+            l.update(&s, &has, &pnl, false, FaderPage::Panel, true, 0.0);
+            assert_eq!(l.out.sent, first, "nothing changed, nothing sent");
+            l.reconnect(PacketSink::new(Target::Null));
+            l.update(&s, &has, &pnl, false, FaderPage::Panel, true, 0.0);
+            assert_eq!(l.out.sent, first, "every LED again, through the new output");
+        }
     }
 }

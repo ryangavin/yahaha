@@ -26,6 +26,10 @@ pub enum ChordCmd {
     StepTranspose { keyboard: i8, master: i8 },
     /// Keyboard and Master transpose back to 0.
     ResetTranspose,
+    /// The chord-settle window, in ms (clamped to 0-`CHORD_SETTLE_MAX_MS`): while the style
+    /// plays, a chord change reaches the accompaniment once the chord has held still this
+    /// long, so a rolled chord is followed once (docs/genos-features.md, Chord settle).
+    SetChordSettle { ms: u32 },
 }
 
 /// Chord detection.
@@ -54,4 +58,6 @@ pub struct ChordState {
     pub transpose_keyboard: i8,
     /// Master transpose (everything that sounds but drum kits), semitones -12..=12.
     pub transpose_master: i8,
+    /// The chord-settle window, in ms (`SetChordSettle`).
+    pub settle_ms: u32,
 }

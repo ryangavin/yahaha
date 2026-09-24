@@ -22,6 +22,7 @@ mod prepared;
 mod retrigger;
 mod ritardando;
 mod sections;
+mod settle;
 mod setup;
 mod style_change;
 mod sync_stop;
@@ -37,8 +38,10 @@ pub use transport::StyleControls;
 pub use multipad::{PadCmd, PadsSnap, SynchroStop, PAD_PPQ};
 use prepared::PKind;
 pub use fade::FadeState;
-pub use prepared::{id_of, slot_of, Msgs, PSection, Prepared, NUM_SLOTS};
+pub use prepared::{id_of, slot_of, Msgs, PSection, Prepared, Setup, NUM_SLOTS};
 pub use ritardando::RIT_END;
+pub use settle::{CHORD_SETTLE_DEFAULT_MS, CHORD_SETTLE_MAX_MS};
+use settle::{Hold, Unsettled};
 pub use timing::{IntroEndingTiming, MainTiming, StyleSettings, MAX_FADE_HOLD_MS, MAX_FADE_MS, MAX_SYNC_STOP_WINDOW_MS, RETRIGGER_RATES};
 
 use crate::sff::{ChannelRule, Ntr, Ntt, Rtr, SectionId, Style};
@@ -372,6 +375,12 @@ pub struct Engine {
     retired: [Option<Box<Prepared>>; 4],
     /// The next bar or beat line for the `on_bar`/`on_beat` hooks (hooks.rs).
     lines: Lines,
+    /// The chord-settle window (settle.rs), in ns.
+    settle_ns: u64,
+    /// A chord change the band has not followed yet (settle.rs).
+    unsettled: Option<Unsettled>,
+    /// Where the pattern's notes held back while the chord settles begin.
+    hold: Option<Hold>,
     /// The engine-side state of the features that plug into the hooks (hooks.rs).
     features: Features,
     /// Pitch bends that did not fit the output range and were clamped.
@@ -388,7 +397,7 @@ pub struct Engine {
 impl Engine {
     pub fn new(style: Box<Prepared>) -> Engine {
         let bpm = style.bpm;
-        let mixer = style.mix;
+        let mixer = style.setups[0].mix;
         let mut e = Engine {
             style,
             running: false,
@@ -428,6 +437,9 @@ impl Engine {
             pending: None,
             retired: [None, None, None, None],
             lines: Lines::default(),
+            settle_ns: 0,
+            unsettled: None,
+            hold: None,
             features: Features::default(),
             #[cfg(test)]
             bend_clamps: Default::default(),
@@ -507,11 +519,14 @@ impl Engine {
         }
     }
 
-    /// Time of the next thing the engine needs to do, if running.
+    /// Time of the next thing the engine needs to do: if running, or a chord change is
+    /// waiting to settle (settle.rs), or the stopped metronome ticks.
     pub fn next_deadline(&self) -> Option<u64> {
-        let wake = self.hook_wake_ns();
+        // The features' own wakes (a fade, the Synchro Stop Window) and a chord change
+        // waiting to settle (Stop Accompaniment or a Chord Match pad waits on it too).
+        let wake = [self.hook_wake_ns(), self.settle_at()].into_iter().flatten().min();
         if !self.running {
-            // Stopped: the features' own wakes and the free-running metronome.
+            // Stopped: those, and the free-running metronome.
             return [wake, self.metronome_idle_deadline()].into_iter().flatten().min();
         }
         let Some(sec) = self.style.sections[self.cur].as_ref() else { return wake };

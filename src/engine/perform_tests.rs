@@ -626,9 +626,46 @@ fn a_style_change_ends_the_retrigger_loop() {
     assert!(e.tick_at(now + 2 * beat_ns) - from > ppq + 1e-6 && (e.sec_start - from).abs() < 1e-6, "it plays past the head");
 }
 
+/// Retrigger with the chord-settle window (#101): the restart is at the chord, and the
+/// head's chord-part notes wait for the settle and start once, on the settled chord. No
+/// note is struck and cut again within the window (#47, #65), for a new chord or the same
+/// one struck again.
+#[test]
+fn a_retrigger_chord_settles_once() {
+    let settings = StyleSettings { retrigger_rate: 4, ..StyleSettings::default() };
+    let Some((mut e, mut rec)) = started(settings) else { return };
+    let win = 10_000_000;
+    e.set_chord_settle(win);
+    let (_, _, beat) = grid(&e);
+    e.button(Button::Retrigger, 0, &mut rec);
+    let mut now = 0;
+    for (k, name) in ["F", "F", "G7", "G7", "C"].into_iter().enumerate() {
+        let t = beat * (5 + 7 * k as u64) / 3;
+        play(&mut e, &mut rec, now, t);
+        now = t;
+        let from = rec.msgs.len();
+        e.set_chord(chord(name), now, &mut rec);
+        assert!(e.features.retrigger.looping);
+        play(&mut e, &mut rec, now, now + 4 * win);
+        now += 4 * win;
+        let sent = &rec.msgs[from..];
+        assert!(sent.iter().any(|(_, m)| m[0] & 0xF0 == 0x90 && m[2] > 0 && (9..16).contains(&(m[0] & 0x0F))), "{name}: the head plays");
+        for (i, (t_on, m)) in sent.iter().enumerate() {
+            if m[0] & 0xF0 != 0x90 || m[2] == 0 {
+                continue;
+            }
+            let cut = sent[i + 1..].iter().find(|(_, o)| (o[0] & 0xF0 == 0x80 || o[0] & 0xF0 == 0x90 && o[2] == 0) && o[0] & 0x0F == m[0] & 0x0F && o[1] == m[1]);
+            if let Some((t_off, _)) = cut {
+                assert!(t_off - t_on >= win, "{name}: ch{} note {} struck at {t_on} and cut at {t_off}", m[0] & 0x0F, m[1]);
+            }
+        }
+    }
+}
+
 /// The same chord struck again (the input thread publishes it since review #94 r3) with
-/// Retrigger off is no chord change: the Retrigger Rules move nothing. On BluesOrganTrio
-/// the walking bass jumped to the root (and on Thrust a part bent) at every re-strike.
+/// Retrigger off is no chord change: when it settles, the Retrigger Rules move nothing,
+/// so the band plays exactly as if it had not been struck. On BluesOrganTrio the walking
+/// bass jumped to the root (and on Thrust a part bent) at every re-strike.
 #[test]
 fn a_restruck_chord_moves_no_note() {
     for name in ["BluesOrganTrio.S930.STY", "Thrust.S930.STY"] {
@@ -637,23 +674,32 @@ fn a_restruck_chord_moves_no_note() {
             eprintln!("corpus missing; skipping");
             return;
         }
-        let mut e = Engine::new(Box::new(Prepared::new(&Style::load(&p).unwrap())));
-        let mut rec = Rec::default();
-        e.set_chord(chord("C"), 0, &mut rec);
-        let (_, _, beat) = grid(&e);
+        let style = Style::load(&p).unwrap();
+        // `a` has the chord struck again and again; `b` only its changes. A settle window
+        // of 0 settles in the same wake, so nothing is held back and the two can match.
+        let (mut a, mut b) = (Engine::new(Box::new(Prepared::new(&style))), Engine::new(Box::new(Prepared::new(&style))));
+        let (mut ra, mut rb) = (Rec::default(), Rec::default());
+        for (e, r) in [(&mut a, &mut ra), (&mut b, &mut rb)] {
+            e.set_chord_settle(0);
+            e.set_chord(chord("C"), 0, r);
+        }
+        let (_, _, beat) = grid(&a);
         let mut now = 0;
         for i in 1..40u64 {
             let t = i * beat * 3 / 7;
-            play(&mut e, &mut rec, now, t);
+            play(&mut a, &mut ra, now, t);
+            play(&mut b, &mut rb, now, t);
             now = t;
-            let c = if i < 20 { "C" } else { "Am7" };
+            let c = chord(if i < 20 { "C" } else { "Am7" });
+            a.set_chord(c, now, &mut ra);
             if i == 20 {
-                e.set_chord(chord(c), now, &mut rec);
-                continue;
+                b.set_chord(c, now, &mut rb);
             }
-            rec.msgs.clear();
-            e.set_chord(chord(c), now, &mut rec);
-            assert!(rec.msgs.is_empty(), "{name}: {c} again at beat {:.2}: {:?}", i as f64 * 3.0 / 7.0, rec.msgs);
         }
+        play(&mut a, &mut ra, now, now + beat);
+        play(&mut b, &mut rb, now, now + beat);
+        let first = ra.msgs.iter().zip(&rb.msgs).position(|(x, y)| x != y);
+        assert!(first.is_none() && ra.msgs.len() == rb.msgs.len(), "{name}: re-struck differs at {first:?}: {:?} vs {:?}", first.map(|i| &ra.msgs[i]), first.map(|i| &rb.msgs[i]));
     }
 }
+

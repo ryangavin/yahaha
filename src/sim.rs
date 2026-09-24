@@ -573,6 +573,7 @@ mod tests {
         e.button(Button::SyncStart, 0, &mut rec); // disarm sync start
         e.button(Button::StopAcmp, 0, &mut rec);
         e.set_chord(Chord::new(9, 8), 1, &mut rec); // Am
+        e.process(1, &mut rec); // the chord settles at the wake's process
         let ons: Vec<(u8, u8)> = rec.out.iter().filter(|(_, m)| m[0] & 0xF0 == 0x90).map(|(_, m)| (m[0] & 0xF, m[1] % 12)).collect();
         assert!(ons.contains(&(10, 9)), "bass A: {ons:?}");
         for pc in [9, 0, 4] {
@@ -581,6 +582,7 @@ mod tests {
         assert!(!e.is_running());
         rec.out.clear();
         e.set_chord(Chord::new(5, 0), 2, &mut rec); // F: old notes off, new on
+        e.process(2, &mut rec); // the chord settles at the wake's process
         assert!(rec.out.iter().any(|(_, m)| m[0] == 0x8A && m[1] % 12 == 9));
         assert!(rec.out.iter().any(|(_, m)| m[0] == 0x9A && m[1] % 12 == 5));
         rec.out.clear();
@@ -1439,9 +1441,9 @@ mod rtr {
         let mut style = bend_style();
         style.init = vec![Ev::Cc { ch: 13, cc: 101, val: 0 }, Ev::Cc { ch: 13, cc: 100, val: 0 }, Ev::Cc { ch: 13, cc: 6, val: 24 }];
         let p = Prepared::new(&style);
-        assert_eq!((p.bend_range[13], p.pat_bend_max[13], p.shift_room[13]), (24, 0, 12));
+        assert_eq!((p.setups[0].bend_range[13], p.pat_bend_max[13], p.shift_room[13]), (24, 0, 12));
         let p = Prepared::new(&bend_style());
-        assert_eq!((p.bend_range[13], p.pat_bend_max[13], p.shift_room[13]), (2, 2, 12));
+        assert_eq!((p.setups[0].bend_range[13], p.pat_bend_max[13], p.shift_room[13]), (2, 2, 12));
     }
 
     /// A key two voices share (a muted twin) votes once for the part's bend. Ch 13 (Root
@@ -1564,7 +1566,7 @@ mod transpose {
     #[test]
     fn master_transpose_shifts_output_not_drums() {
         let Some(p) = funky() else { return };
-        let kit = p.kit;
+        let kit = p.setups[0].kit;
         let end = bar_ns(&p) * 4;
         let script = |m: i8| vec![(0, Step::Transpose(Transpose::new(0, m))), (0, Step::Chord(Chord::new(9, 8))), (end / 2, Step::Chord(Chord::new(5, 0)))];
         let (e, a) = run(p, &script(-3), end);
@@ -1614,8 +1616,10 @@ mod transpose {
         e.button(Button::SyncStart, 0, &mut rec);
         e.button(Button::StopAcmp, 0, &mut rec);
         e.set_chord(Chord::new(0, 0), 1, &mut rec);
+        e.process(1, &mut rec);
         rec.out.clear();
         e.set_transpose(Transpose::new(-1, 2), 2, &mut rec);
+        e.process(2, &mut rec);
         // Chord is now B; the bass sounds B + 2 = C#.
         assert!(rec.out.iter().any(|(_, m)| m[0] == 0x9A && m[1] % 12 == 1), "{:?}", rec.out);
         assert_eq!(snap(&e).chord, Some(Chord::new(11, 0)));
@@ -1631,10 +1635,13 @@ mod transpose {
         e.button(Button::SyncStart, 0, &mut rec);
         e.button(Button::StopAcmp, 0, &mut rec);
         e.set_chord(Chord::new(0, 0), 1, &mut rec);
+        e.process(1, &mut rec);
         e.button(Button::StartStop, 2, &mut rec);
+        e.process(2, &mut rec);
         e.button(Button::StartStop, 3, &mut rec);
         rec.out.clear();
         e.set_transpose(Transpose::new(4, 0), 4, &mut rec);
+        e.process(4, &mut rec);
         assert!(!rec.out.iter().any(|(_, m)| m[0] & 0xF0 == 0x90), "{:?}", rec.out);
         assert_eq!(snap(&e).chord, Some(Chord::new(4, 0)));
     }
@@ -1669,7 +1676,7 @@ mod transpose {
             other_chunks: vec![],
         };
         let p = Prepared::new(&style);
-        let kits: Vec<usize> = (0..16).filter(|&d| p.kit[d]).collect();
+        let kits: Vec<usize> = (0..16).filter(|&d| p.setups[0].kit[d]).collect();
         assert_eq!(kits, vec![8, 9, 13]);
         let ons = |m: i8| {
             let (_, rec) = run(Box::new(Prepared::new(&style)), &[(0, Step::Transpose(Transpose::new(0, m))), (0, Step::Chord(Chord::new(0, 0)))], 500_000_000);
@@ -1839,7 +1846,7 @@ mod mixer {
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus/MOX_v2/AustinCityBlues.S930.STY");
         let want = init_levels(&Style::load(&path).unwrap());
         assert!(want.contains(&GM_VOLUME) && want.iter().any(|&v| v != GM_VOLUME), "{want:?}");
-        assert_eq!(p.mix, want);
+        assert_eq!(p.setups[0].mix, want);
         let mut e = Engine::new(p);
         assert_eq!(e.snapshot(0).volumes, want);
         let mut rec = Recorder::default();
@@ -1875,7 +1882,7 @@ mod mixer {
         // SmoothItOver: every section sets part levels at its start, some unlike the init.
         let Some(p) = prep("SmoothItOver.S930.STY") else { return };
         let bar = bar_ns(&p);
-        let init = p.mix;
+        let init = p.setups[0].mix;
         let mut e = Engine::new(p);
         let mut rec = Recorder::default();
         e.set_chord(Chord::new(0, 0), 0, &mut rec);
@@ -1918,7 +1925,7 @@ mod mixer {
         // and no other section sets it.
         let Some(p) = prep("TickingAway.T162.sty") else { return };
         let bar = bar_ns(&p);
-        let init = p.mix[1];
+        let init = p.setups[0].mix[1];
         let mut e = Engine::new(p);
         let mut rec = Recorder::default();
         e.set_chord(Chord::new(0, 0), 0, &mut rec);
@@ -1944,7 +1951,7 @@ mod mixer {
     #[test]
     fn style_change_resets_faders() {
         let (Some(a), Some(b)) = (prep("FunkyFinger.S930.STY"), prep("SlowWalker.T552.sty")) else { return };
-        let want = b.mix;
+        let want = b.setups[0].mix;
         let mut e = Engine::new(a);
         let mut rec = Recorder::default();
         for p in 0..8 {
@@ -2019,10 +2026,10 @@ mod mixer {
     #[test]
     fn init_is_structured_and_mixer_owns_volume() {
         let p = Prepared::new(&sint_style());
-        let all: Vec<Vec<u8>> = p.init.iter().map(|m| m.to_vec()).collect();
+        let all: Vec<Vec<u8>> = p.setups[0].init.iter().map(|m| m.to_vec()).collect();
         let (rpn, msgs): (Vec<_>, Vec<_>) = all.iter().cloned().partition(|m| is_rpn(m));
         assert_eq!(rpn.len(), 6 * 6, "RPN 0 on ch 11-16");
-        assert!(all.iter().rposition(|m| is_rpn(m)).unwrap() < p.init_resend);
+        assert!(all.iter().rposition(|m| is_rpn(m)).unwrap() < p.setups[0].init_resend);
         assert_eq!(msgs, vec![
             vec![0xBC, 0, 0],
             vec![0xBC, 32, 112],
@@ -2031,8 +2038,8 @@ mod mixer {
             vec![0xF0, 0x43, 0x10, 0x4C, 0x08, 0x0C, 0x11, 0x7F, 0xF7],
             vec![0xF0, 0x43, 0x10, 0x4C, 0x02, 0x01, 0x00, 0x01, 0x10, 0xF7],
         ]);
-        assert_eq!(p.voices[12], Some((0, 112, 5)));
-        assert_eq!(p.mix, [100, 100, 100, 100, 90, 80, 100, 100]);
+        assert_eq!(p.setups[0].voices[12], Some((0, 112, 5)));
+        assert_eq!(p.setups[0].mix, [100, 100, 100, 100, 90, 80, 100, 100]);
     }
 
     /// Every section change plays the SInt again: a voice or level the last section's
@@ -2094,7 +2101,7 @@ mod mixer {
                 .map(|w| msgs.iter().position(|m| m == w).unwrap_or(usize::MAX))
                 .collect()
         };
-        let init: Vec<Vec<u8>> = p.init.iter().map(|m| m.to_vec()).filter(|m| !is_rpn(m)).collect();
+        let init: Vec<Vec<u8>> = p.setups[0].init.iter().map(|m| m.to_vec()).filter(|m| !is_rpn(m)).collect();
         assert_eq!(order(&init), vec![2, 5, 6, 7, 8], "PC, part mode, drum setup, then effects");
 
         let bar = bar_ns(&p);
@@ -2118,9 +2125,9 @@ mod mixer {
     #[test]
     fn corpus_drum_setup_survives_section_change() {
         let Some(p) = prep("AustinCityBlues.S930.STY") else { return };
-        let drum: Vec<Vec<u8>> = p.init.iter().filter(|m| crate::sff::is_drum_setup(m)).map(|m| m.to_vec()).collect();
+        let drum: Vec<Vec<u8>> = p.setups[0].init.iter().filter(|m| crate::sff::is_drum_setup(m)).map(|m| m.to_vec()).collect();
         assert!(!drum.is_empty());
-        let voices = p.voices;
+        let voices = p.setups[0].voices;
         let bar = bar_ns(&p);
         let mut e = Engine::new(p);
         let mut rec = Recorder::default();
@@ -2153,7 +2160,7 @@ mod mixer {
     fn section_change_restores_untouched_style_levels() {
         let Some(p) = prep("TickingAway.T162.sty") else { return };
         let bar = bar_ns(&p);
-        let init = p.mix[1];
+        let init = p.setups[0].mix[1];
         assert_eq!(init, 90);
         let mut e = Engine::new(p);
         let mut rec = Recorder::default();
@@ -2187,7 +2194,7 @@ mod mixer {
     }
 
     fn effect_parts(p: &Prepared) -> Vec<u8> {
-        p.init.iter().filter(|m| crate::sff::xg_effect_part(m).is_some()).map(|m| m[7]).collect()
+        p.setups[0].init.iter().filter(|m| crate::sff::xg_effect_part(m).is_some()).map(|m| m[7]).collect()
     }
 
     /// An insertion or variation effect assigned to a part follows the part to its
@@ -2224,7 +2231,7 @@ mod mixer {
     fn sint_voice_keeps_the_bank_of_its_program_change() {
         let Some(s) = t5("ChartPop1.T160.prs") else { return };
         let p = Prepared::new(&s);
-        assert_eq!(p.voices[14], Some((8, 2, 3)));
+        assert_eq!(p.setups[0].voices[14], Some((8, 2, 3)));
         let file: Vec<Vec<u8>> = s
             .init
             .iter()
@@ -2234,10 +2241,10 @@ mod mixer {
                 _ => None,
             })
             .collect();
-        assert_eq!(voice_after(p.init.iter(), 14), voice_after(file.iter().map(|m| &m[..]), 14));
-        assert_eq!(voice_after(p.init.iter(), 14), (8, 2, 3));
+        assert_eq!(voice_after(p.setups[0].init.iter(), 14), voice_after(file.iter().map(|m| &m[..]), 14));
+        assert_eq!(voice_after(p.setups[0].init.iter(), 14), (8, 2, 3));
         let Some(s) = t5("Let'sFunk.T161.prs") else { return };
-        assert_eq!(Prepared::new(&s).voices[14], Some((104, 5, 0)));
+        assert_eq!(Prepared::new(&s).setups[0].voices[14], Some((104, 5, 0)));
     }
 
     /// sint_style with a Fill A that changes part 5's voice on its first beat and plays a
@@ -2413,7 +2420,7 @@ mod mixer {
         b.events.sort_by_key(|e| e.tick);
         let p = Box::new(Prepared::new(&s));
         let bar = bar_ns(&p);
-        let xg = p.init.iter().find(|m| m[0] == 0xF0 && m.len() > 5 && m[4] == 0x08 && m[5] == 12).unwrap().to_vec();
+        let xg = p.setups[0].init.iter().find(|m| m[0] == 0xF0 && m.len() > 5 && m[4] == 0x08 && m[5] == 12).unwrap().to_vec();
         let mut e = Engine::new(p);
         let mut rec = Recorder::default();
         e.set_chord(Chord::new(0, 0), 0, &mut rec);
@@ -2533,7 +2540,7 @@ mod mixer {
     #[test]
     fn start_keeps_moved_fader_under_hardware_control() {
         let Some(p) = prep("TickingAway.T162.sty") else { return };
-        let mix = p.mix;
+        let mix = p.setups[0].mix;
         let mut e = Engine::new(p);
         let mut rec = Recorder::default();
         let part = (0..8).find(|&i| mix[i] > 20).unwrap();
@@ -2551,7 +2558,7 @@ mod mixer {
     #[test]
     fn hardware_fader_soft_takeover() {
         let Some(p) = prep("FunkyFinger.S930.STY") else { return };
-        let bass = p.mix[2];
+        let bass = p.setups[0].mix[2];
         assert!(bass > 20 && bass < 120, "{bass}");
         let mut e = Engine::new(p);
         let mut rec = Recorder::default();
@@ -2580,7 +2587,7 @@ mod mixer {
 
         // A style load moves the software fader away from the hardware: wait again.
         let Some(q) = prep("CoolRevibed.T552.sty") else { return };
-        let new_bass = q.mix[2];
+        let new_bass = q.setups[0].mix[2];
         assert!(new_bass.abs_diff(3) > 2);
         let _old = e.load(q, 0, &mut rec);
         assert_eq!(e.snapshot(0).pickup & (1 << 2), 1 << 2);
@@ -2670,18 +2677,11 @@ mod rtr_chaos {
         s.push((21 * bar, Act::S(Step::Button(Button::Stop))));
         s.sort_by_key(|x| x.0);
         // The live engine thread takes at most one chord per wake-up (one atomic word), and
-        // wakes for each input as it comes: nothing else lands on a chord's very instant.
-        // (A chord and a command in one wake-up can still restrike and cut a note at once;
-        // that predates the pitch shift and is not what this test is about.)
+        // reads it before the commands of the wake (`EngineLoop::step`). A command may land
+        // in the same wake as a chord (#47: the chord settles in `process`, after it).
         let mut last_chord = u64::MAX;
         s.retain(|(t, a)| !matches!(a, Act::S(Step::Chord(_))) || std::mem::replace(&mut last_chord, *t) != *t);
-        let chords: Vec<u64> = s.iter().filter(|a| matches!(a.1, Act::S(Step::Chord(_)))).map(|a| a.0).collect();
-        for (t, a) in s.iter_mut() {
-            if !matches!(a, Act::S(Step::Chord(_))) && chords.contains(t) {
-                *t += 1_000_000;
-            }
-        }
-        s.sort_by_key(|x| x.0);
+        s.sort_by_key(|x| (x.0, !matches!(x.1, Act::S(Step::Chord(_)))));
         (s, 22 * bar)
     }
 
@@ -2715,6 +2715,10 @@ mod rtr_chaos {
             for seed in 1..5 {
                 let (script, end) = chaos(bar, seed * 7919 + fi as u64);
                 let mut e = Engine::new(Box::new(Prepared::new(&style)));
+                // Half the runs with the chord-settle window a session starts with.
+                if seed % 2 == 0 {
+                    e.set_chord_settle(crate::engine::CHORD_SETTLE_DEFAULT_MS as u64 * 1_000_000);
+                }
                 let mut rec = Recorder::default();
                 let mut pat_max = p0.pat_bend_max;
                 // The other style's pattern bend headroom applies from this index of `out`.
@@ -2989,3 +2993,11 @@ mod style_queue {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "sim_settle_tests.rs"]
+mod settle_tests;
+
+#[cfg(test)]
+#[path = "sim_setup_tests.rs"]
+mod setup_tests;

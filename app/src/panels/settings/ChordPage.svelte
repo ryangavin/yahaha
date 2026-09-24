@@ -4,12 +4,13 @@
 -->
 <script lang="ts">
   import type { TipKey } from '../../help/tooltips'
-  import { FINGERINGS, type Fingering } from '../../lib/api/types'
+  import { CHORD_SETTLE_MAX_MS, FINGERINGS, type Fingering } from '../../lib/api/types'
   import { app } from '../../lib/store.svelte'
   import { tip } from '../../lib/tooltip/tip.svelte'
   import Toggle from '../../lib/ui/Toggle.svelte'
   import Choice from './Choice.svelte'
   import Field from './Field.svelte'
+  import HSlider from './HSlider.svelte'
   import SingleFingerChart from './SingleFingerChart.svelte'
 
   const chord = $derived(app.state.chord)
@@ -86,6 +87,21 @@
       {chord.upper ? (chord.manualBass ? 'On' : 'Off') : 'Upper only'}
     </Toggle>
   </span>
+</Field>
+
+<Field
+  name="Chord settle"
+  note={chord.settleMs === 0
+    ? 'Off: the style follows every chord change at once, even the passing chords of a roll.'
+    : `${chord.settleMs} ms: a rolled chord is followed once. Chord parts (and Stop Accompaniment and Chord Match pads, band stopped or not) wait at most ${chord.settleMs} ms (${3 * chord.settleMs} ms through a long roll) when you change chord on their beat.`}
+>
+  <HSlider
+    label="Chord settle"
+    tip="settings.chord_settle"
+    value={chord.settleMs}
+    max={CHORD_SETTLE_MAX_MS}
+    onchange={(ms) => app.send({ type: 'setChordSettle', ms })}
+  />
 </Field>
 
 <style>

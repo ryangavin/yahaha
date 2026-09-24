@@ -202,6 +202,9 @@ pub struct MultiPadPlayer {
     touched: [u16; PADS],
     /// Master transpose in semitones, applied to every note-on but a kit pad's.
     master: i8,
+    /// The chord is settling (engine/settle.rs): Chord Match pads' next note-ons wait
+    /// (`set_hold`).
+    hold: bool,
 }
 
 impl MultiPadPlayer {
@@ -281,6 +284,7 @@ impl MultiPadPlayer {
             sysex,
             touched: [0; PADS],
             master: 0,
+            hold: false,
         }
     }
 
@@ -288,6 +292,14 @@ impl MultiPadPlayer {
     /// the key they started on.
     pub fn set_master(&mut self, semitones: i8) {
         self.master = semitones;
+    }
+
+    /// The chord Chord Match follows is settling (engine/settle.rs): while `on`, a Chord
+    /// Match pad's next note-on, and everything after it on that pad, waits, so it starts
+    /// with the settled chord, not the one it replaces. Pads without Chord Match play on
+    /// time. Once off, what waited plays at the next `process` (late, by the wait).
+    pub fn set_hold(&mut self, on: bool) {
+        self.hold = on;
     }
 
     /// The pad's voice is a drum or SFX kit (Master transpose leaves it alone).
@@ -508,8 +520,11 @@ impl MultiPadPlayer {
             if let Some(pass) = v.pass {
                 match p.events.get(pass.idx) {
                     Some(e) => {
-                        let step = if matches!(e.kind, Kind::On { .. }) { Step::NoteOn } else { Step::Event };
-                        consider(pass.start.saturating_add(e.tick), step)
+                        let on = matches!(e.kind, Kind::On { .. });
+                        // A Chord Match note-on waits for the chord to settle (`set_hold`).
+                        if !(on && self.hold && p.chord_match) {
+                            consider(pass.start.saturating_add(e.tick), if on { Step::NoteOn } else { Step::Event });
+                        }
                     }
                     None => consider(pass.start.saturating_add(p.len), Step::End),
                 }

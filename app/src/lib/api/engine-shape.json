@@ -6,6 +6,7 @@
   "chord.manualBass: boolean",
   "chord.manualBassActive: boolean",
   "chord.name: string",
+  "chord.settleMs: number",
   "chord.split: number",
   "chord.splitName: string",
   "chord.transposeKeyboard: number",

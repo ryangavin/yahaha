@@ -46,6 +46,8 @@ pub enum Cmd {
     /// New Style settings (section-change timing, Synchro Stop Window, fade times,
     /// Section Reset, Retrigger length).
     StyleSettings(StyleSettings),
+    /// The chord-settle window, in ms (`Engine::set_chord_settle`).
+    ChordSettle(u32),
     /// Set the Style controls (section, Sync Start/Stop, Stop ACMP, Style part on/off) to
     /// given states: a Registration recall.
     StyleControls(crate::engine::StyleControls),
@@ -1238,6 +1240,7 @@ fn apply(engine: &mut Engine, shared: &Shared, cmd: Cmd, now: u64, out: &mut Out
         Cmd::Transpose(t) => engine.set_transpose(t, now, out),
         Cmd::StopAudition => {}
         Cmd::StyleSettings(s) => engine.set_style_settings(s),
+        Cmd::ChordSettle(ms) => engine.set_chord_settle(ms as u64 * 1_000_000),
         Cmd::StyleControls(c) => engine.set_style_controls(c, now, out),
         Cmd::Looper(true) => engine.looper_rec(),
         Cmd::Looper(false) => engine.looper_on_off(),

@@ -142,6 +142,7 @@ Style Section Reset, the Fade In/Out times and the Style Retrigger length. The s
 | `setTranspose` | `keyboard`, `master` | Semitones, each clamped to −12..12. |
 | `stepTranspose` | `keyboard`, `master` | Adds to the current transpose. |
 | `resetTranspose` | | Both back to 0. |
+| `setChordSettle` | `ms` | The chord-settle window, clamped to 0–30 ms (default 10). While the style plays (and, with it stopped, for Stop Accompaniment and Chord Match Multi Pads), a chord change reaches the accompaniment once the chord has held still this long (at most three windows after the first change), so a rolled chord is followed once. 0: at once. Not a Genos setting; see docs/genos-features.md (Chord settle). |
 
 ### Keyboard parts
 
@@ -372,6 +373,7 @@ Indices are 0-based unless a field says otherwise.
 | `split` | MIDI note | Keys at or below it are the left hand. |
 | `splitName` | string | Yamaha octave numbering (C3 = 60), for example `F#2` or `Ab2`. |
 | `transposeKeyboard`, `transposeMaster` | −12..12 | Semitones. |
+| `settleMs` | 0–30 | The chord-settle window in ms (`setChordSettle`). |
 
 ### `keyboardParts`: always four, Right 1, Right 2, Right 3, Left
 | Field | Type | Meaning |
@@ -819,7 +821,8 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
     "split": 54,
     "splitName": "F#2",
     "transposeKeyboard": 0,
-    "transposeMaster": 0
+    "transposeMaster": 0,
+    "settleMs": 10
   },
   "keyboardParts": [
     {
