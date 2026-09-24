@@ -35,6 +35,11 @@ fn key_action(code: KeyCode) -> Option<Action> {
         KeyCode::Char('o') => b(Button::Ending(1)),
         KeyCode::Char('p') => b(Button::Ending(2)),
         KeyCode::Char('g') => b(Button::Break),
+        // Fill Down / Fill Up / Fill Self, Half Bar Fill In (Genos assignable functions).
+        KeyCode::Char('<') => b(Button::FillDown),
+        KeyCode::Char('>') => b(Button::FillUp),
+        KeyCode::Char('.') => b(Button::FillSelf),
+        KeyCode::Char('H') => b(Button::HalfBarFill),
         KeyCode::Char('y') => b(Button::SyncStart),
         KeyCode::Char('u') => b(Button::AutoFill),
         KeyCode::Char('j') => b(Button::SyncStop),
@@ -441,7 +446,7 @@ fn draw(f: &mut ratatui::Frame, st: &AppState, message: &str, beats: f64) {
                 flag(t.sync_start, "SYNC START [y]"),
                 flag(t.auto_fill, "AUTO FILL [u]"),
                 if t.sync_stop_available { flag(t.sync_stop, "SYNC STOP [j]") } else { Span::styled(" SYNC STOP n/a ", dim) },
-                flag(t.stop_acmp, "STOP ACMP [h]"),
+                flag(t.stop_acmp, if t.stop_acmp_mode == yahaha::api::StopAcmpMode::Fixed { "STOP ACMP FIXED [h]" } else { "STOP ACMP [h]" }),
                 flag(ots.link, "OTS LINK [F10]"),
                 Span::styled(
                     match (ots.settings.len(), ots.applied) {
@@ -468,6 +473,8 @@ fn draw(f: &mut ratatui::Frame, st: &AppState, message: &str, beats: f64) {
                 } else {
                     v.push(Span::styled(format!(" chord: keys up to {}", ch.split_name), dim));
                 }
+                v.push(Span::raw("   "));
+                v.push(flag(t.half_bar_fill, "HALF BAR FILL [H]"));
                 v
             }),
             Line::from(match &st.io.synth {
@@ -506,7 +513,7 @@ fn draw(f: &mut ratatui::Frame, st: &AppState, message: &str, beats: f64) {
 
     let mut help = vec![
         Line::from(Span::styled(
-            " space start/stop · 1-4 Main A-D (again = fill) · q w e intro · i o p ending · g break · t tap · -/= tempo · F1-F4 part · 9/0 voice · 5-8 part on/off · F9 faders Panel/Style · ; ' kbd transpose · : \" master · / reset · tab pad page · enter browse styles · \\ panic · esc twice quit",
+            " space start/stop · 1-4 Main A-D (again = fill) · q w e intro · i o p ending · g break · < > . fill down/up/self · H half bar fill · t tap · -/= tempo · F1-F4 part · 9/0 voice · 5-8 part on/off · F9 faders Panel/Style · ; ' kbd transpose · : \" master · / reset · tab pad page · enter browse styles · \\ panic · esc twice quit",
             dim,
         )),
         Line::from(Span::styled(
@@ -739,6 +746,10 @@ mod tests {
         assert_eq!(key_cmd(KeyCode::BackTab), Some(AppCmd::Pads(PadsCmd::CyclePadPage { delta: -1 })));
         assert_eq!(key_cmd(KeyCode::Char('\\')), Some(AppCmd::System(SystemCmd::Panic)));
         assert_eq!(key_cmd(KeyCode::Char('k')), Some(AppCmd::Mixer(MixerCmd::ToggleSynthMute)));
+        assert_eq!(key_cmd(KeyCode::Char('>')), Some(AppCmd::Transport(TransportCmd::FillUp)));
+        assert_eq!(key_cmd(KeyCode::Char('<')), Some(AppCmd::Transport(TransportCmd::FillDown)));
+        assert_eq!(key_cmd(KeyCode::Char('.')), Some(AppCmd::Transport(TransportCmd::FillSelf)));
+        assert_eq!(key_cmd(KeyCode::Char('H')), Some(AppCmd::Transport(TransportCmd::ToggleHalfBarFill)));
         assert_eq!(key_cmd(KeyCode::Char('Z')), None);
     }
 
