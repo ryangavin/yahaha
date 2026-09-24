@@ -1,0 +1,1320 @@
+# yahaha oracle (docs/oracle.md). Counts only; score lines end in: notes exact pitch-class.
+# Regenerate with UPDATE_GOLDEN=1 cargo test --release oracle.
+styles 208
+unreadable 0
+pairs scored 5210
+pairs unrelated 1211
+pairs too-few 469
+pairs same-chord 1884
+pairs muted-own 511
+authored 249112 151368 172196
+identity RootTrans 330282 284297 330282
+identity RootTrans moved-in-limit 1426
+identity RootFixed 101646 101041 101646
+identity RootFixed moved-in-limit 0
+guitar GuitarAllPurpose notes 1463
+guitar GuitarAllPurpose noise 33
+guitar GuitarAllPurpose noise-moved 0
+guitar GuitarAllPurpose plays 583440
+guitar GuitarAllPurpose muted 0
+guitar GuitarAllPurpose not-chord-tone 0
+guitar GuitarAllPurpose out-of-range 0
+guitar GuitarStroke notes 70770
+guitar GuitarStroke noise 15426
+guitar GuitarStroke noise-moved 0
+guitar GuitarStroke plays 22506408
+guitar GuitarStroke muted 719196
+guitar GuitarStroke not-chord-tone 0
+guitar GuitarStroke out-of-range 0
+guitar GuitarArpeggio notes 24923
+guitar GuitarArpeggio noise 5428
+guitar GuitarArpeggio noise-moved 0
+guitar GuitarArpeggio plays 7848768
+guitar GuitarArpeggio muted 0
+guitar GuitarArpeggio not-chord-tone 0
+guitar GuitarArpeggio out-of-range 0
+table Bypass 249112 151089 171328
+table Melody 249112 155532 179452
+table Chord 249112 155363 179328
+table MelodicMinor 249112 166908 190219
+table MelodicMinor5 249112 166912 190223
+table HarmonicMinor 249112 168944 192720
+table HarmonicMinor5 249112 168948 192724
+table NaturalMinor 249112 165587 189262
+table NaturalMinor5 249112 165591 189266
+table Dorian 249112 163551 186761
+table Dorian5 249112 163555 186765
+table GuitarAllPurpose 0 0 0
+table GuitarStroke 0 0 0
+table GuitarArpeggio 0 0 0
+ntr RootTrans pairs 5172
+ntr RootTrans 247534 150567 171109
+ntr RootFixed pairs 38
+ntr RootFixed 1578 801 1087
+ntr Guitar pairs 0
+ntr Guitar 0 0 0
+change 6/9>7 pairs 2
+change 6/9>7 authored 134 116 116
+change 6/9>7 Bypass 134 116 116
+change 6/9>7 Melody 134 116 116
+change 6/9>7 Chord 134 116 116
+change 6/9>7 MelodicMinor 134 116 116
+change 6/9>7 MelodicMinor5 134 116 116
+change 6/9>7 HarmonicMinor 134 116 116
+change 6/9>7 HarmonicMinor5 134 116 116
+change 6/9>7 NaturalMinor 134 116 116
+change 6/9>7 NaturalMinor5 134 116 116
+change 6/9>7 Dorian 134 116 116
+change 6/9>7 Dorian5 134 116 116
+change 6/9>M pairs 1
+change 6/9>M authored 72 56 56
+change 6/9>M Bypass 72 56 56
+change 6/9>M Melody 72 56 56
+change 6/9>M Chord 72 56 56
+change 6/9>M MelodicMinor 72 56 56
+change 6/9>M MelodicMinor5 72 56 56
+change 6/9>M HarmonicMinor 72 56 56
+change 6/9>M HarmonicMinor5 72 56 56
+change 6/9>M NaturalMinor 72 56 56
+change 6/9>M NaturalMinor5 72 56 56
+change 6/9>M Dorian 72 56 56
+change 6/9>M Dorian5 72 56 56
+change 6>maj7 pairs 2
+change 6>maj7 authored 34 24 24
+change 6>maj7 Bypass 34 24 24
+change 6>maj7 Melody 34 24 24
+change 6>maj7 Chord 34 34 34
+change 6>maj7 MelodicMinor 34 24 24
+change 6>maj7 MelodicMinor5 34 24 24
+change 6>maj7 HarmonicMinor 34 24 24
+change 6>maj7 HarmonicMinor5 34 24 24
+change 6>maj7 NaturalMinor 34 24 24
+change 6>maj7 NaturalMinor5 34 24 24
+change 6>maj7 Dorian 34 24 24
+change 6>maj7 Dorian5 34 24 24
+change 7>M pairs 7
+change 7>M authored 201 154 154
+change 7>M Bypass 201 137 137
+change 7>M Melody 201 137 137
+change 7>M Chord 201 154 154
+change 7>M MelodicMinor 201 137 137
+change 7>M MelodicMinor5 201 137 137
+change 7>M HarmonicMinor 201 137 137
+change 7>M HarmonicMinor5 201 137 137
+change 7>M NaturalMinor 201 137 137
+change 7>M NaturalMinor5 201 137 137
+change 7>M Dorian 201 137 137
+change 7>M Dorian5 201 137 137
+change 7>m pairs 2
+change 7>m authored 90 90 90
+change 7>m Bypass 90 70 70
+change 7>m Melody 90 90 90
+change 7>m Chord 90 70 70
+change 7>m MelodicMinor 90 90 90
+change 7>m MelodicMinor5 90 90 90
+change 7>m HarmonicMinor 90 90 90
+change 7>m HarmonicMinor5 90 90 90
+change 7>m NaturalMinor 90 90 90
+change 7>m NaturalMinor5 90 90 90
+change 7>m Dorian 90 90 90
+change 7>m Dorian5 90 90 90
+change 7>m7 pairs 2
+change 7>m7 authored 23 17 17
+change 7>m7 Bypass 23 17 17
+change 7>m7 Melody 23 17 17
+change 7>m7 Chord 23 17 17
+change 7>m7 MelodicMinor 23 17 17
+change 7>m7 MelodicMinor5 23 17 17
+change 7>m7 HarmonicMinor 23 17 17
+change 7>m7 HarmonicMinor5 23 17 17
+change 7>m7 NaturalMinor 23 17 17
+change 7>m7 NaturalMinor5 23 17 17
+change 7>m7 Dorian 23 17 17
+change 7>m7 Dorian5 23 17 17
+change 7>maj7 pairs 87
+change 7>maj7 authored 3326 1813 2270
+change 7>maj7 Bypass 3326 1795 2252
+change 7>maj7 Melody 3326 1741 2392
+change 7>maj7 Chord 3326 1741 2392
+change 7>maj7 MelodicMinor 3326 1795 2252
+change 7>maj7 MelodicMinor5 3326 1795 2252
+change 7>maj7 HarmonicMinor 3326 1795 2252
+change 7>maj7 HarmonicMinor5 3326 1795 2252
+change 7>maj7 NaturalMinor 3326 1795 2252
+change 7>maj7 NaturalMinor5 3326 1795 2252
+change 7>maj7 Dorian 3326 1795 2252
+change 7>maj7 Dorian5 3326 1795 2252
+change M>7 pairs 7
+change M>7 authored 201 154 154
+change M>7 Bypass 201 137 137
+change M>7 Melody 201 137 137
+change M>7 Chord 201 94 94
+change M>7 MelodicMinor 201 137 137
+change M>7 MelodicMinor5 201 137 137
+change M>7 HarmonicMinor 201 137 137
+change M>7 HarmonicMinor5 201 137 137
+change M>7 NaturalMinor 201 137 137
+change M>7 NaturalMinor5 201 137 137
+change M>7 Dorian 201 137 137
+change M>7 Dorian5 201 137 137
+change M>m pairs 2414
+change M>m authored 117236 71777 81040
+change M>m Bypass 117236 71734 80980
+change M>m Melody 117236 76069 86920
+change M>m Chord 117236 76069 86920
+change M>m MelodicMinor 117236 80059 90905
+change M>m MelodicMinor5 117236 80059 90905
+change M>m HarmonicMinor 117236 80783 91810
+change M>m HarmonicMinor5 117236 80783 91810
+change M>m NaturalMinor 117236 79298 90271
+change M>m NaturalMinor5 117236 79298 90271
+change M>m Dorian 117236 78574 89366
+change M>m Dorian5 117236 78574 89366
+change M>m11 pairs 6
+change M>m11 authored 194 80 106
+change M>m11 Bypass 194 18 21
+change M>m11 Melody 194 68 71
+change M>m11 Chord 194 86 114
+change M>m11 MelodicMinor 194 61 64
+change M>m11 MelodicMinor5 194 61 64
+change M>m11 HarmonicMinor 194 61 64
+change M>m11 HarmonicMinor5 194 61 64
+change M>m11 NaturalMinor 194 68 71
+change M>m11 NaturalMinor5 194 68 71
+change M>m11 Dorian 194 68 71
+change M>m11 Dorian5 194 68 71
+change M>maj7 pairs 52
+change M>maj7 authored 1534 893 896
+change M>maj7 Bypass 1534 893 896
+change M>maj7 Melody 1534 893 896
+change M>maj7 Chord 1534 697 703
+change M>maj7 MelodicMinor 1534 893 896
+change M>maj7 MelodicMinor5 1534 893 896
+change M>maj7 HarmonicMinor 1534 893 896
+change M>maj7 HarmonicMinor5 1534 893 896
+change M>maj7 NaturalMinor 1534 893 896
+change M>maj7 NaturalMinor5 1534 893 896
+change M>maj7 Dorian 1534 893 896
+change M>maj7 Dorian5 1534 893 896
+change m11>M pairs 6
+change m11>M authored 194 109 116
+change m11>M Bypass 194 20 21
+change m11>M Melody 194 68 71
+change m11>M Chord 194 109 116
+change m11>M MelodicMinor 194 61 64
+change m11>M MelodicMinor5 194 61 64
+change m11>M HarmonicMinor 194 61 64
+change m11>M HarmonicMinor5 194 61 64
+change m11>M NaturalMinor 194 68 71
+change m11>M NaturalMinor5 194 68 71
+change m11>M Dorian 194 68 71
+change m11>M Dorian5 194 68 71
+change m11>m pairs 7
+change m11>m authored 252 106 111
+change m11>m Bypass 252 140 144
+change m11>m Melody 252 140 144
+change m11>m Chord 252 106 111
+change m11>m MelodicMinor 252 140 144
+change m11>m MelodicMinor5 252 140 144
+change m11>m HarmonicMinor 252 140 144
+change m11>m HarmonicMinor5 252 140 144
+change m11>m NaturalMinor 252 140 144
+change m11>m NaturalMinor5 252 140 144
+change m11>m Dorian 252 140 144
+change m11>m Dorian5 252 140 144
+change m11>maj7 pairs 4
+change m11>maj7 authored 76 8 8
+change m11>maj7 Bypass 76 8 8
+change m11>maj7 Melody 76 7 7
+change m11>maj7 Chord 76 6 6
+change m11>maj7 MelodicMinor 76 8 8
+change m11>maj7 MelodicMinor5 76 8 8
+change m11>maj7 HarmonicMinor 76 7 7
+change m11>maj7 HarmonicMinor5 76 7 7
+change m11>maj7 NaturalMinor 76 7 7
+change m11>maj7 NaturalMinor5 76 7 7
+change m11>maj7 Dorian 76 8 8
+change m11>maj7 Dorian5 76 8 8
+change m7>7 pairs 18
+change m7>7 authored 1498 503 1318
+change m7>7 Bypass 1498 487 1224
+change m7>7 Melody 1498 406 1180
+change m7>7 Chord 1498 406 1180
+change m7>7 MelodicMinor 1498 499 1314
+change m7>7 MelodicMinor5 1498 499 1314
+change m7>7 HarmonicMinor 1498 470 1285
+change m7>7 HarmonicMinor5 1498 470 1285
+change m7>7 NaturalMinor 1498 344 949
+change m7>7 NaturalMinor5 1498 344 949
+change m7>7 Dorian 1498 373 978
+change m7>7 Dorian5 1498 373 978
+change m7>maj7 pairs 14
+change m7>maj7 authored 1439 511 911
+change m7>maj7 Bypass 1439 482 782
+change m7>maj7 Melody 1439 285 883
+change m7>maj7 Chord 1439 285 883
+change m7>maj7 MelodicMinor 1439 503 903
+change m7>maj7 MelodicMinor5 1439 503 903
+change m7>maj7 HarmonicMinor 1439 474 874
+change m7>maj7 HarmonicMinor5 1439 474 874
+change m7>maj7 NaturalMinor 1439 403 1001
+change m7>maj7 NaturalMinor5 1439 403 1001
+change m7>maj7 Dorian 1439 432 1030
+change m7>maj7 Dorian5 1439 432 1030
+change m7b5>maj7 pairs 1
+change m7b5>maj7 authored 16 6 6
+change m7b5>maj7 Bypass 16 4 4
+change m7b5>maj7 Melody 16 6 6
+change m7b5>maj7 Chord 16 6 6
+change m7b5>maj7 MelodicMinor 16 4 4
+change m7b5>maj7 MelodicMinor5 16 6 6
+change m7b5>maj7 HarmonicMinor 16 4 4
+change m7b5>maj7 HarmonicMinor5 16 6 6
+change m7b5>maj7 NaturalMinor 16 4 4
+change m7b5>maj7 NaturalMinor5 16 6 6
+change m7b5>maj7 Dorian 16 4 4
+change m7b5>maj7 Dorian5 16 6 6
+change m>7 pairs 2
+change m>7 authored 90 70 70
+change m>7 Bypass 90 70 70
+change m>7 Melody 90 90 90
+change m>7 Chord 90 60 60
+change m>7 MelodicMinor 90 90 90
+change m>7 MelodicMinor5 90 90 90
+change m>7 HarmonicMinor 90 90 90
+change m>7 HarmonicMinor5 90 90 90
+change m>7 NaturalMinor 90 70 70
+change m>7 NaturalMinor5 90 70 70
+change m>7 Dorian 90 70 70
+change m>7 Dorian5 90 70 70
+change m>M pairs 2412
+change m>M authored 117105 71735 80972
+change m>M Bypass 117105 71695 80915
+change m>M Melody 117105 72071 82499
+change m>M Chord 117105 72071 82499
+change m>M MelodicMinor 117105 79135 89504
+change m>M MelodicMinor5 117105 79135 89504
+change m>M HarmonicMinor 117105 80492 91145
+change m>M HarmonicMinor5 117105 80492 91145
+change m>M NaturalMinor 117105 78827 89445
+change m>M NaturalMinor5 117105 78827 89445
+change m>M Dorian 117105 77470 87804
+change m>M Dorian5 117105 77470 87804
+change m>m11 pairs 7
+change m>m11 authored 252 149 155
+change m>m11 Bypass 252 140 144
+change m>m11 Melody 252 140 144
+change m>m11 Chord 252 140 148
+change m>m11 MelodicMinor 252 140 144
+change m>m11 MelodicMinor5 252 140 144
+change m>m11 HarmonicMinor 252 140 144
+change m>m11 HarmonicMinor5 252 140 144
+change m>m11 NaturalMinor 252 140 144
+change m>m11 NaturalMinor5 252 140 144
+change m>m11 Dorian 252 140 144
+change m>m11 Dorian5 252 140 144
+change m>maj7 pairs 5
+change m>maj7 authored 102 73 75
+change m>maj7 Bypass 102 73 75
+change m>maj7 Melody 102 96 98
+change m>maj7 Chord 102 61 63
+change m>maj7 MelodicMinor 102 93 95
+change m>maj7 MelodicMinor5 102 93 95
+change m>maj7 HarmonicMinor 102 100 102
+change m>maj7 HarmonicMinor5 102 100 102
+change m>maj7 NaturalMinor 102 100 102
+change m>maj7 NaturalMinor5 102 100 102
+change m>maj7 Dorian 102 93 95
+change m>maj7 Dorian5 102 93 95
+change maj7>6 pairs 2
+change maj7>6 authored 34 34 34
+change maj7>6 Bypass 34 24 24
+change maj7>6 Melody 34 24 24
+change maj7>6 Chord 34 34 34
+change maj7>6 MelodicMinor 34 24 24
+change maj7>6 MelodicMinor5 34 24 24
+change maj7>6 HarmonicMinor 34 24 24
+change maj7>6 HarmonicMinor5 34 24 24
+change maj7>6 NaturalMinor 34 24 24
+change maj7>6 NaturalMinor5 34 24 24
+change maj7>6 Dorian 34 24 24
+change maj7>6 Dorian5 34 24 24
+change maj7>7 pairs 59
+change maj7>7 authored 2714 1422 2016
+change maj7>7 Bypass 2714 1539 1796
+change maj7>7 Melody 2714 1416 2010
+change maj7>7 Chord 2714 1416 2010
+change maj7>7 MelodicMinor 2714 1396 1796
+change maj7>7 MelodicMinor5 2714 1396 1796
+change maj7>7 HarmonicMinor 2714 1396 1796
+change maj7>7 HarmonicMinor5 2714 1396 1796
+change maj7>7 NaturalMinor 2714 1396 1796
+change maj7>7 NaturalMinor5 2714 1396 1796
+change maj7>7 Dorian 2714 1396 1796
+change maj7>7 Dorian5 2714 1396 1796
+change maj7>M pairs 75
+change maj7>M authored 1969 1337 1348
+change maj7>M Bypass 1969 1246 1249
+change maj7>M Melody 1969 1246 1249
+change maj7>M Chord 1969 1375 1386
+change maj7>M MelodicMinor 1969 1246 1249
+change maj7>M MelodicMinor5 1969 1246 1249
+change maj7>M HarmonicMinor 1969 1246 1249
+change maj7>M HarmonicMinor5 1969 1246 1249
+change maj7>M NaturalMinor 1969 1246 1249
+change maj7>M NaturalMinor5 1969 1246 1249
+change maj7>M Dorian 1969 1246 1249
+change maj7>M Dorian5 1969 1246 1249
+change maj7>m pairs 5
+change maj7>m authored 102 73 75
+change maj7>m Bypass 102 73 75
+change maj7>m Melody 102 96 98
+change maj7>m Chord 102 96 98
+change maj7>m MelodicMinor 102 93 95
+change maj7>m MelodicMinor5 102 93 95
+change maj7>m HarmonicMinor 102 100 102
+change maj7>m HarmonicMinor5 102 100 102
+change maj7>m NaturalMinor 102 96 98
+change maj7>m NaturalMinor5 102 96 98
+change maj7>m Dorian 102 89 91
+change maj7>m Dorian5 102 89 91
+change maj7>m11 pairs 6
+change maj7>m11 authored 148 52 52
+change maj7>m11 Bypass 148 77 77
+change maj7>m11 Melody 148 77 77
+change maj7>m11 Chord 148 52 52
+change maj7>m11 MelodicMinor 148 77 77
+change maj7>m11 MelodicMinor5 148 77 77
+change maj7>m11 HarmonicMinor 148 77 77
+change maj7>m11 HarmonicMinor5 148 77 77
+change maj7>m11 NaturalMinor 148 77 77
+change maj7>m11 NaturalMinor5 148 77 77
+change maj7>m11 Dorian 148 77 77
+change maj7>m11 Dorian5 148 77 77
+change maj7>m7b5 pairs 1
+change maj7>m7b5 authored 16 6 6
+change maj7>m7b5 Bypass 16 4 4
+change maj7>m7b5 Melody 16 6 6
+change maj7>m7b5 Chord 16 6 6
+change maj7>m7b5 MelodicMinor 16 4 4
+change maj7>m7b5 MelodicMinor5 16 6 6
+change maj7>m7b5 HarmonicMinor 16 4 4
+change maj7>m7b5 HarmonicMinor5 16 6 6
+change maj7>m7b5 NaturalMinor 16 4 4
+change maj7>m7b5 NaturalMinor5 16 6 6
+change maj7>m7b5 Dorian 16 4 4
+change maj7>m7b5 Dorian5 16 6 6
+change maj7>maj9 pairs 2
+change maj7>maj9 authored 30 0 0
+change maj7>maj9 Bypass 30 5 5
+change maj7>maj9 Melody 30 5 5
+change maj7>maj9 Chord 30 0 0
+change maj7>maj9 MelodicMinor 30 5 5
+change maj7>maj9 MelodicMinor5 30 5 5
+change maj7>maj9 HarmonicMinor 30 5 5
+change maj7>maj9 HarmonicMinor5 30 5 5
+change maj7>maj9 NaturalMinor 30 5 5
+change maj7>maj9 NaturalMinor5 30 5 5
+change maj7>maj9 Dorian 30 5 5
+change maj7>maj9 Dorian5 30 5 5
+change maj9>maj7 pairs 2
+change maj9>maj7 authored 30 0 0
+change maj9>maj7 Bypass 30 5 5
+change maj9>maj7 Melody 30 5 5
+change maj9>maj7 Chord 30 0 0
+change maj9>maj7 MelodicMinor 30 5 5
+change maj9>maj7 MelodicMinor5 30 5 5
+change maj9>maj7 HarmonicMinor 30 5 5
+change maj9>maj7 HarmonicMinor5 30 5 5
+change maj9>maj7 NaturalMinor 30 5 5
+change maj9>maj7 NaturalMinor5 30 5 5
+change maj9>maj7 Dorian 30 5 5
+change maj9>maj7 Dorian5 30 5 5
+style MOX_v2/AustinCityBlues.S930.STY identity 0 0 0
+style MOX_v2/AustinCityBlues.S930.STY moved-in-limit 0
+style MOX_v2/BluesOrganTrio.S930.STY identity 83 83 83
+style MOX_v2/BluesOrganTrio.S930.STY moved-in-limit 0
+style MOX_v2/BluesOrganTrio.S930.STY guitar 140720 140720 140720
+style MOX_v2/BubblyDub.T552.sty identity 1309 1309 1309
+style MOX_v2/BubblyDub.T552.sty moved-in-limit 0
+style MOX_v2/ClubJazz1.S930.STY identity 583 572 583
+style MOX_v2/ClubJazz1.S930.STY moved-in-limit 0
+style MOX_v2/ClubJazz2.S930.sty identity 825 807 825
+style MOX_v2/ClubJazz2.S930.sty moved-in-limit 0
+style MOX_v2/CoolRevibed.T552.sty identity 1378 1278 1378
+style MOX_v2/CoolRevibed.T552.sty moved-in-limit 80
+style MOX_v2/DoubleDipTheFunk.S930.STY identity 773 772 773
+style MOX_v2/DoubleDipTheFunk.S930.STY moved-in-limit 0
+style MOX_v2/DownTime.T552.sty identity 717 293 717
+style MOX_v2/DownTime.T552.sty moved-in-limit 0
+style MOX_v2/DresdenAtNight.S930.sty identity 127 127 127
+style MOX_v2/DresdenAtNight.S930.sty moved-in-limit 0
+style MOX_v2/DuckGroove.S930.STY identity 258 257 258
+style MOX_v2/DuckGroove.S930.STY moved-in-limit 0
+style MOX_v2/Funkhunters.S930.STY identity 533 461 533
+style MOX_v2/Funkhunters.S930.STY moved-in-limit 0
+style MOX_v2/FunkinStyle.T552.sty identity 867 865 867
+style MOX_v2/FunkinStyle.T552.sty moved-in-limit 0
+style MOX_v2/FunkNight.S930.STY identity 208 104 208
+style MOX_v2/FunkNight.S930.STY moved-in-limit 0
+style MOX_v2/FunkyFinger.S930.STY identity 253 252 253
+style MOX_v2/FunkyFinger.S930.STY moved-in-limit 0
+style MOX_v2/FunkyJump.S930.STY identity 517 516 517
+style MOX_v2/FunkyJump.S930.STY moved-in-limit 0
+style MOX_v2/GirlsFolk.S930.STY identity 186 142 186
+style MOX_v2/GirlsFolk.S930.STY moved-in-limit 0
+style MOX_v2/GirlsFolk.S930.STY guitar 148512 148512 148512
+style MOX_v2/HeySixteen.S930.STY identity 334 334 334
+style MOX_v2/HeySixteen.S930.STY moved-in-limit 0
+style MOX_v2/HeySixteen.S930.STY guitar 245369 245369 245369
+style MOX_v2/HoldOnAMinute.S930.STY identity 99 99 99
+style MOX_v2/HoldOnAMinute.S930.STY moved-in-limit 0
+style MOX_v2/HoldOnAMinute.S930.STY guitar 34272 34272 34272
+style MOX_v2/JackDoesItAgain.S930.STY identity 263 263 263
+style MOX_v2/JackDoesItAgain.S930.STY moved-in-limit 0
+style MOX_v2/JackDoesItAgain.S930.STY guitar 90576 90576 90576
+style MOX_v2/JumpinJiveOrgan.S930.STY identity 408 408 408
+style MOX_v2/JumpinJiveOrgan.S930.STY moved-in-limit 0
+style MOX_v2/JumpinJiveOrgan.S930.STY guitar 139458 139458 139458
+style MOX_v2/NightCruiser.S930.STY identity 141 139 141
+style MOX_v2/NightCruiser.S930.STY moved-in-limit 0
+style MOX_v2/OrganCruise.S930.STY identity 12 12 12
+style MOX_v2/OrganCruise.S930.STY moved-in-limit 0
+style MOX_v2/Poppyhanger.T552.sty identity 1050 1050 1050
+style MOX_v2/Poppyhanger.T552.sty moved-in-limit 0
+style MOX_v2/SeeTheShow.T162.sty identity 904 897 904
+style MOX_v2/SeeTheShow.T162.sty moved-in-limit 0
+style MOX_v2/SlowWalker.T552.sty identity 521 521 521
+style MOX_v2/SlowWalker.T552.sty moved-in-limit 0
+style MOX_v2/SlowWalkerDJ.T552.sty identity 521 521 521
+style MOX_v2/SlowWalkerDJ.T552.sty moved-in-limit 0
+style MOX_v2/SmoothItOver.S930.STY identity 230 109 230
+style MOX_v2/SmoothItOver.S930.STY moved-in-limit 0
+style MOX_v2/SmoothItOver.S930.STY pairs 4
+style MOX_v2/SmoothItOver.S930.STY authored 124 60 112
+style MOX_v2/SmoothLeadJam.S930.STY identity 147 146 147
+style MOX_v2/SmoothLeadJam.S930.STY moved-in-limit 0
+style MOX_v2/StreetGenos.T552.sty identity 197 98 197
+style MOX_v2/StreetGenos.T552.sty moved-in-limit 99
+style MOX_v2/SunsetDriveStyle.sty identity 629 586 629
+style MOX_v2/SunsetDriveStyle.sty moved-in-limit 0
+style MOX_v2/TalkShowBand.S930.STY identity 0 0 0
+style MOX_v2/TalkShowBand.S930.STY moved-in-limit 0
+style MOX_v2/TenorToTheMAX.S930.STY identity 869 837 869
+style MOX_v2/TenorToTheMAX.S930.STY moved-in-limit 0
+style MOX_v2/Thrust.S930.STY identity 240 239 240
+style MOX_v2/Thrust.S930.STY moved-in-limit 0
+style MOX_v2/TickingAway.T162.sty identity 253 248 253
+style MOX_v2/TickingAway.T162.sty moved-in-limit 0
+style MOX_v2/WickedBreaks.S930.STY identity 117 39 117
+style MOX_v2/WickedBreaks.S930.STY moved-in-limit 0
+style SX900Style_for_Genos/6-8ChartBallad.T547.prs identity 2788 2582 2788
+style SX900Style_for_Genos/6-8ChartBallad.T547.prs moved-in-limit 0
+style SX900Style_for_Genos/6-8ChartBallad.T547.prs guitar 352688 352688 352688
+style SX900Style_for_Genos/6-8ChartBallad.T547.prs pairs 36
+style SX900Style_for_Genos/6-8ChartBallad.T547.prs authored 2034 1186 1280
+style SX900Style_for_Genos/70sSpanishDisco.T549.prs identity 2971 2499 2971
+style SX900Style_for_Genos/70sSpanishDisco.T549.prs moved-in-limit 0
+style SX900Style_for_Genos/70sSpanishDisco.T549.prs pairs 24
+style SX900Style_for_Genos/70sSpanishDisco.T549.prs authored 1338 680 934
+style SX900Style_for_Genos/80sBrazilianPop.T557.prs identity 1925 1548 1925
+style SX900Style_for_Genos/80sBrazilianPop.T557.prs moved-in-limit 0
+style SX900Style_for_Genos/80sBrazilianPop.T557.prs guitar 132136 132136 132136
+style SX900Style_for_Genos/80sBrazilianPop.T557.prs pairs 38
+style SX900Style_for_Genos/80sBrazilianPop.T557.prs authored 1346 760 932
+style SX900Style_for_Genos/90sAussiePop.T547.prs identity 1565 1425 1565
+style SX900Style_for_Genos/90sAussiePop.T547.prs moved-in-limit 0
+style SX900Style_for_Genos/90sAussiePop.T547.prs guitar 26112 26112 26112
+style SX900Style_for_Genos/90sAussiePop.T547.prs pairs 32
+style SX900Style_for_Genos/90sAussiePop.T547.prs authored 676 308 344
+style SX900Style_for_Genos/90sDancePop.T547.prs identity 1946 1751 1946
+style SX900Style_for_Genos/90sDancePop.T547.prs moved-in-limit 0
+style SX900Style_for_Genos/90sDancePop.T547.prs guitar 19176 19176 19176
+style SX900Style_for_Genos/90sDancePop.T547.prs pairs 16
+style SX900Style_for_Genos/90sDancePop.T547.prs authored 1156 640 704
+style SX900Style_for_Genos/90sPopBallad.T549.prs identity 1399 1278 1399
+style SX900Style_for_Genos/90sPopBallad.T549.prs moved-in-limit 0
+style SX900Style_for_Genos/90sPopBallad.T549.prs guitar 175032 175032 175032
+style SX900Style_for_Genos/90sPopBallad.T549.prs pairs 44
+style SX900Style_for_Genos/90sPopBallad.T549.prs authored 924 552 576
+style SX900Style_for_Genos/90sUS_ChartBallad.T554.prs identity 1471 1362 1471
+style SX900Style_for_Genos/90sUS_ChartBallad.T554.prs moved-in-limit 0
+style SX900Style_for_Genos/90sUS_ChartBallad.T554.prs guitar 177480 177480 177480
+style SX900Style_for_Genos/90sUS_ChartBallad.T554.prs pairs 38
+style SX900Style_for_Genos/90sUS_ChartBallad.T554.prs authored 926 422 450
+style SX900Style_for_Genos/BlockbusterBallad.T559.prs identity 2508 2323 2508
+style SX900Style_for_Genos/BlockbusterBallad.T559.prs moved-in-limit 0
+style SX900Style_for_Genos/BlockbusterBallad.T559.prs guitar 232560 232560 232560
+style SX900Style_for_Genos/BlockbusterBallad.T559.prs pairs 40
+style SX900Style_for_Genos/BlockbusterBallad.T559.prs authored 1764 1186 1258
+style SX900Style_for_Genos/CanadianTeenPop.T547.prs identity 2433 2372 2433
+style SX900Style_for_Genos/CanadianTeenPop.T547.prs moved-in-limit 0
+style SX900Style_for_Genos/CanadianTeenPop.T547.prs guitar 170906 170906 170906
+style SX900Style_for_Genos/CanadianTeenPop.T547.prs pairs 24
+style SX900Style_for_Genos/CanadianTeenPop.T547.prs authored 858 616 630
+style SX900Style_for_Genos/ClassicalPop.T549.prs identity 2311 2304 2311
+style SX900Style_for_Genos/ClassicalPop.T549.prs moved-in-limit 0
+style SX900Style_for_Genos/ClassicalPop.T549.prs pairs 14
+style SX900Style_for_Genos/ClassicalPop.T549.prs authored 934 402 412
+style SX900Style_for_Genos/CountryPopDuo.T554.prs identity 2601 1889 2601
+style SX900Style_for_Genos/CountryPopDuo.T554.prs moved-in-limit 0
+style SX900Style_for_Genos/CountryPopDuo.T554.prs guitar 319464 319464 319464
+style SX900Style_for_Genos/CountryPopDuo.T554.prs pairs 38
+style SX900Style_for_Genos/CountryPopDuo.T554.prs authored 2030 1158 1452
+style SX900Style_for_Genos/DancehallPop.T547.prs identity 3107 2899 3107
+style SX900Style_for_Genos/DancehallPop.T547.prs moved-in-limit 0
+style SX900Style_for_Genos/DancehallPop.T547.prs guitar 191760 191760 191760
+style SX900Style_for_Genos/DancehallPop.T547.prs pairs 28
+style SX900Style_for_Genos/DancehallPop.T547.prs authored 2144 1388 1436
+style SX900Style_for_Genos/DiscoSurvival.T549.prs identity 1245 1089 1245
+style SX900Style_for_Genos/DiscoSurvival.T549.prs moved-in-limit 0
+style SX900Style_for_Genos/DiscoSurvival.T549.prs guitar 179896 179896 179896
+style SX900Style_for_Genos/DiscoSurvival.T549.prs pairs 16
+style SX900Style_for_Genos/DiscoSurvival.T549.prs authored 504 262 304
+style SX900Style_for_Genos/ElectroRock.T548.prs identity 3202 3129 3202
+style SX900Style_for_Genos/ElectroRock.T548.prs moved-in-limit 0
+style SX900Style_for_Genos/ElectroRock.T548.prs guitar 557752 557752 557752
+style SX900Style_for_Genos/ElectroRock.T548.prs pairs 36
+style SX900Style_for_Genos/ElectroRock.T548.prs authored 2870 1544 1576
+style SX900Style_for_Genos/EuroPopMambo.T557.prs identity 2060 1704 2060
+style SX900Style_for_Genos/EuroPopMambo.T557.prs moved-in-limit 0
+style SX900Style_for_Genos/EuroPopMambo.T557.prs guitar 194000 194000 194000
+style SX900Style_for_Genos/EuroPopMambo.T557.prs pairs 20
+style SX900Style_for_Genos/EuroPopMambo.T557.prs authored 1768 890 1158
+style SX900Style_for_Genos/FastCha-Cha.T557.prs identity 1899 1896 1899
+style SX900Style_for_Genos/FastCha-Cha.T557.prs moved-in-limit 0
+style SX900Style_for_Genos/GrungeRock.T548.prs identity 1702 1396 1702
+style SX900Style_for_Genos/GrungeRock.T548.prs moved-in-limit 0
+style SX900Style_for_Genos/GrungeRock.T548.prs guitar 507648 507648 507648
+style SX900Style_for_Genos/GrungeRock.T548.prs pairs 26
+style SX900Style_for_Genos/GrungeRock.T548.prs authored 1260 635 680
+style SX900Style_for_Genos/Gunslinger.T559.prs identity 2858 2560 2858
+style SX900Style_for_Genos/Gunslinger.T559.prs moved-in-limit 0
+style SX900Style_for_Genos/Gunslinger.T559.prs guitar 330062 330062 330062
+style SX900Style_for_Genos/Gunslinger.T559.prs pairs 40
+style SX900Style_for_Genos/Gunslinger.T559.prs authored 2326 1736 1900
+style SX900Style_for_Genos/IcyBallad.T559.prs identity 3490 3279 3490
+style SX900Style_for_Genos/IcyBallad.T559.prs moved-in-limit 0
+style SX900Style_for_Genos/IcyBallad.T559.prs guitar 210920 210920 210920
+style SX900Style_for_Genos/IcyBallad.T559.prs pairs 34
+style SX900Style_for_Genos/IcyBallad.T559.prs authored 2382 1656 1796
+style SX900Style_for_Genos/IrishPopRock.T547.prs identity 1553 1470 1553
+style SX900Style_for_Genos/IrishPopRock.T547.prs moved-in-limit 0
+style SX900Style_for_Genos/IrishPopRock.T547.prs guitar 88944 88944 88944
+style SX900Style_for_Genos/IrishPopRock.T547.prs pairs 28
+style SX900Style_for_Genos/IrishPopRock.T547.prs authored 1010 546 578
+style SX900Style_for_Genos/JustRnB.T552.prs identity 1897 1783 1897
+style SX900Style_for_Genos/JustRnB.T552.prs moved-in-limit 0
+style SX900Style_for_Genos/JustRnB.T552.prs pairs 28
+style SX900Style_for_Genos/JustRnB.T552.prs authored 1200 606 688
+style SX900Style_for_Genos/OrchMovieBallad.T559.prs identity 1851 1801 1851
+style SX900Style_for_Genos/OrchMovieBallad.T559.prs moved-in-limit 0
+style SX900Style_for_Genos/OrchMovieBallad.T559.prs guitar 113016 113016 113016
+style SX900Style_for_Genos/OrchMovieBallad.T559.prs pairs 36
+style SX900Style_for_Genos/OrchMovieBallad.T559.prs authored 1246 708 718
+style SX900Style_for_Genos/PopBachata.T557.prs identity 1527 1398 1527
+style SX900Style_for_Genos/PopBachata.T557.prs moved-in-limit 0
+style SX900Style_for_Genos/PopBachata.T557.prs guitar 178838 178838 178838
+style SX900Style_for_Genos/PopBachata.T557.prs pairs 32
+style SX900Style_for_Genos/PopBachata.T557.prs authored 888 488 522
+style SX900Style_for_Genos/PopMusical.T559.prs identity 1447 1418 1447
+style SX900Style_for_Genos/PopMusical.T559.prs moved-in-limit 0
+style SX900Style_for_Genos/Reggaeton1.T557.prs identity 2148 2033 2148
+style SX900Style_for_Genos/Reggaeton1.T557.prs moved-in-limit 0
+style SX900Style_for_Genos/Reggaeton1.T557.prs guitar 98704 98704 98704
+style SX900Style_for_Genos/Reggaeton1.T557.prs pairs 40
+style SX900Style_for_Genos/Reggaeton1.T557.prs authored 1558 427 462
+style SX900Style_for_Genos/Reggaeton2.T557.prs identity 1703 1643 1703
+style SX900Style_for_Genos/Reggaeton2.T557.prs moved-in-limit 0
+style SX900Style_for_Genos/Reggaeton2.T557.prs guitar 550036 550036 550036
+style SX900Style_for_Genos/ReggaetonPop.T547.prs identity 3874 2962 3874
+style SX900Style_for_Genos/ReggaetonPop.T547.prs moved-in-limit 0
+style SX900Style_for_Genos/ReggaetonPop.T547.prs guitar 79600 79600 79600
+style SX900Style_for_Genos/ReggaetonPop.T547.prs pairs 38
+style SX900Style_for_Genos/ReggaetonPop.T547.prs authored 2756 1006 1332
+style SX900Style_for_Genos/ReggaetonSlowJam.T547.prs identity 1660 1653 1660
+style SX900Style_for_Genos/ReggaetonSlowJam.T547.prs moved-in-limit 0
+style SX900Style_for_Genos/ReggaetonSlowJam.T547.prs pairs 24
+style SX900Style_for_Genos/ReggaetonSlowJam.T547.prs authored 866 542 544
+style SX900Style_for_Genos/UK_FolkPop.T547.prs identity 1575 1394 1575
+style SX900Style_for_Genos/UK_FolkPop.T547.prs moved-in-limit 0
+style SX900Style_for_Genos/UK_FolkPop.T547.prs guitar 310896 310896 310896
+style SX900Style_for_Genos/UK_FolkPop.T547.prs pairs 24
+style SX900Style_for_Genos/UK_FolkPop.T547.prs authored 1136 592 668
+style SX900Style_for_Genos/UK_SoftRock.T548.prs identity 2226 2151 2226
+style SX900Style_for_Genos/UK_SoftRock.T548.prs moved-in-limit 0
+style SX900Style_for_Genos/UK_SoftRock.T548.prs guitar 323293 323293 323293
+style SX900Style_for_Genos/UK_SoftRock.T548.prs pairs 30
+style SX900Style_for_Genos/UK_SoftRock.T548.prs authored 1778 1052 1058
+style SX900Style_for_Genos/UK_Soul.T552.prs identity 886 793 886
+style SX900Style_for_Genos/UK_Soul.T552.prs moved-in-limit 0
+style SX900Style_for_Genos/UK_Soul.T552.prs pairs 14
+style SX900Style_for_Genos/UK_Soul.T552.prs authored 198 52 58
+style SX900Style_for_Genos/US_CountryPop.T554.prs identity 3486 3137 3486
+style SX900Style_for_Genos/US_CountryPop.T554.prs moved-in-limit 0
+style SX900Style_for_Genos/US_CountryPop.T554.prs guitar 146880 146880 146880
+style SX900Style_for_Genos/US_CountryPop.T554.prs pairs 32
+style SX900Style_for_Genos/US_CountryPop.T554.prs authored 1932 1218 1462
+style SX900Style_for_Genos/US_ElectroPop.T547.prs identity 2194 2038 2194
+style SX900Style_for_Genos/US_ElectroPop.T547.prs moved-in-limit 0
+style SX900Style_for_Genos/US_ElectroPop.T547.prs guitar 221288 221288 221288
+style SX900Style_for_Genos/US_ElectroPop.T547.prs pairs 26
+style SX900Style_for_Genos/US_ElectroPop.T547.prs authored 1754 842 998
+style SX900Style_for_Genos/US_FolkPop.T547.prs identity 2329 1966 2329
+style SX900Style_for_Genos/US_FolkPop.T547.prs moved-in-limit 0
+style SX900Style_for_Genos/US_FolkPop.T547.prs guitar 183910 183910 183910
+style SX900Style_for_Genos/US_FolkPop.T547.prs pairs 18
+style SX900Style_for_Genos/US_FolkPop.T547.prs authored 1528 532 618
+style SX900Style_for_Genos/US_SingerPop.T547.prs identity 844 771 844
+style SX900Style_for_Genos/US_SingerPop.T547.prs moved-in-limit 0
+style SX900Style_for_Genos/US_SingerPop.T547.prs guitar 116688 116688 116688
+style SX900Style_for_Genos/US_SingerPop.T547.prs pairs 24
+style SX900Style_for_Genos/US_SingerPop.T547.prs authored 652 474 498
+style T5Style/30sBigBand.T157.prs identity 2287 1991 2287
+style T5Style/30sBigBand.T157.prs moved-in-limit 0
+style T5Style/30sBigBand.T157.prs guitar 127758 127758 127758
+style T5Style/30sBigBand.T157.prs pairs 12
+style T5Style/30sBigBand.T157.prs authored 410 230 258
+style T5Style/6-8SlowRock2.T161.prs identity 898 827 898
+style T5Style/6-8SlowRock2.T161.prs moved-in-limit 0
+style T5Style/6-8SlowRock2.T161.prs guitar 311634 311634 311634
+style T5Style/6-8SlowRock2.T161.prs pairs 2
+style T5Style/6-8SlowRock2.T161.prs authored 74 42 42
+style T5Style/60s8Beat.T160.prs identity 2491 2305 2491
+style T5Style/60s8Beat.T160.prs moved-in-limit 0
+style T5Style/60s8Beat.T160.prs guitar 192948 192948 192948
+style T5Style/60s8Beat.T160.prs pairs 38
+style T5Style/60s8Beat.T160.prs authored 2044 1346 1452
+style T5Style/70sR&BPopBld.T161.prs identity 1738 1411 1738
+style T5Style/70sR&BPopBld.T161.prs moved-in-limit 0
+style T5Style/70sR&BPopBld.T161.prs guitar 88536 88536 88536
+style T5Style/70sR&BPopBld.T161.prs pairs 38
+style T5Style/70sR&BPopBld.T161.prs authored 1008 368 436
+style T5Style/70sRockBros.T162.prs identity 4431 3795 4431
+style T5Style/70sRockBros.T162.prs moved-in-limit 0
+style T5Style/70sRockBros.T162.prs guitar 283016 283016 283016
+style T5Style/70sRockBros.T162.prs pairs 40
+style T5Style/70sRockBros.T162.prs authored 3108 2394 2904
+style T5Style/80sSynthDisco.T161.prs identity 3833 3492 3833
+style T5Style/80sSynthDisco.T161.prs moved-in-limit 0
+style T5Style/80sSynthDisco.T161.prs guitar 143678 143678 143678
+style T5Style/80sSynthDisco.T161.prs pairs 24
+style T5Style/80sSynthDisco.T161.prs authored 408 181 252
+style T5Style/8BeatModern.T160.prs identity 1655 1354 1655
+style T5Style/8BeatModern.T160.prs moved-in-limit 0
+style T5Style/8BeatModern.T160.prs guitar 60496 60496 60496
+style T5Style/8BeatModern.T160.prs pairs 46
+style T5Style/8BeatModern.T160.prs authored 1404 592 780
+style T5Style/90sDisco.T161.prs identity 2156 1995 2156
+style T5Style/90sDisco.T161.prs moved-in-limit 0
+style T5Style/90sDisco.T161.prs guitar 66068 66068 66068
+style T5Style/90sDisco.T161.prs pairs 28
+style T5Style/90sDisco.T161.prs authored 1352 932 1036
+style T5Style/AcousticBallad.T160.prs identity 1093 1090 1093
+style T5Style/AcousticBallad.T160.prs moved-in-limit 0
+style T5Style/AcousticBallad.T160.prs guitar 248744 248744 248744
+style T5Style/AcousticBallad.T160.prs pairs 30
+style T5Style/AcousticBallad.T160.prs authored 548 351 356
+style T5Style/AlpenLand3-4.T411.prs identity 1563 1452 1563
+style T5Style/AlpenLand3-4.T411.prs moved-in-limit 0
+style T5Style/AlpenLand3-4.T411.prs guitar 122808 122808 122808
+style T5Style/AlpenLand3-4.T411.prs pairs 8
+style T5Style/AlpenLand3-4.T411.prs authored 372 216 226
+style T5Style/AlpenSchlager.T407.prs identity 3351 3216 3351
+style T5Style/AlpenSchlager.T407.prs moved-in-limit 0
+style T5Style/AlpenSchlager.T407.prs guitar 301261 301261 301261
+style T5Style/AlpenSchlager.T407.prs pairs 44
+style T5Style/AlpenSchlager.T407.prs authored 2456 1854 1932
+style T5Style/AlpRock.T407.prs identity 2968 2790 2968
+style T5Style/AlpRock.T407.prs moved-in-limit 0
+style T5Style/AlpRock.T407.prs pairs 42
+style T5Style/AlpRock.T407.prs authored 2196 1920 2004
+style T5Style/AnalogBallad.T160.prs identity 1089 1065 1089
+style T5Style/AnalogBallad.T160.prs moved-in-limit 0
+style T5Style/AnalogBallad.T160.prs guitar 62088 62088 62088
+style T5Style/AnalogBallad.T160.prs pairs 30
+style T5Style/AnalogBallad.T160.prs authored 648 402 424
+style T5Style/BandaPolka.T171.sst identity 2274 1735 2274
+style T5Style/BandaPolka.T171.sst moved-in-limit 539
+style T5Style/BandaPolka.T171.sst pairs 56
+style T5Style/BandaPolka.T171.sst authored 1196 589 920
+style T5Style/BandaVals.T171.prs identity 3051 3051 3051
+style T5Style/BandaVals.T171.prs moved-in-limit 0
+style T5Style/BandaVals.T171.prs pairs 48
+style T5Style/BandaVals.T171.prs authored 2216 1674 1674
+style T5Style/BaroqueConcerto.T150.sst identity 3167 3167 3167
+style T5Style/BaroqueConcerto.T150.sst moved-in-limit 0
+style T5Style/BaroqueConcerto.T150.sst pairs 77
+style T5Style/BaroqueConcerto.T150.sst authored 2641 2070 2070
+style T5Style/Bebop.T157.sst identity 1905 1663 1905
+style T5Style/Bebop.T157.sst moved-in-limit 0
+style T5Style/Bebop.T157.sst guitar 356608 356608 356608
+style T5Style/Bebop.T157.sst pairs 16
+style T5Style/Bebop.T157.sst authored 624 307 354
+style T5Style/BigBandMambo.T158.sst identity 3352 3352 3352
+style T5Style/BigBandMambo.T158.sst moved-in-limit 0
+style T5Style/BigBandMambo.T158.sst pairs 63
+style T5Style/BigBandMambo.T158.sst authored 2008 1094 1095
+style T5Style/BigBandMed2.T157.prs identity 1668 1182 1668
+style T5Style/BigBandMed2.T157.prs moved-in-limit 0
+style T5Style/BigBandMed2.T157.prs guitar 173960 173960 173960
+style T5Style/BigBandMed2.T157.prs pairs 32
+style T5Style/BigBandMed2.T157.prs authored 1110 380 574
+style T5Style/BigBandSalsa.T158.sst identity 3713 3713 3713
+style T5Style/BigBandSalsa.T158.sst moved-in-limit 0
+style T5Style/BigBandSalsa.T158.sst pairs 58
+style T5Style/BigBandSalsa.T158.sst authored 2025 1560 1561
+style T5Style/BigBandSamba.T158.prs identity 2207 1863 2207
+style T5Style/BigBandSamba.T158.prs moved-in-limit 0
+style T5Style/BigBandSamba.T158.prs guitar 238004 238004 238004
+style T5Style/BigBandSamba.T158.prs pairs 20
+style T5Style/BigBandSamba.T158.prs authored 742 498 554
+style T5Style/Blockbuster.T163.prs identity 2696 2690 2696
+style T5Style/Blockbuster.T163.prs moved-in-limit 0
+style T5Style/Blockbuster.T163.prs pairs 8
+style T5Style/Blockbuster.T163.prs authored 778 282 282
+style T5Style/Bluegrass.T151.prs identity 1909 1450 1909
+style T5Style/Bluegrass.T151.prs moved-in-limit 0
+style T5Style/Bluegrass.T151.prs guitar 322864 322864 322864
+style T5Style/Bluegrass.T151.prs pairs 40
+style T5Style/Bluegrass.T151.prs authored 1394 748 930
+style T5Style/Bomba2.T158.sst identity 4105 3648 4105
+style T5Style/Bomba2.T158.sst moved-in-limit 0
+style T5Style/Bomba2.T158.sst guitar 157220 157220 157220
+style T5Style/Bomba2.T158.sst pairs 25
+style T5Style/Bomba2.T158.sst authored 2104 1163 1318
+style T5Style/BrassBand.S747.prs identity 2972 2702 2972
+style T5Style/BrassBand.S747.prs moved-in-limit 0
+style T5Style/BrassBand.S747.prs pairs 42
+style T5Style/BrassBand.S747.prs authored 1214 614 738
+style T5Style/BrazilianSamba.T158.prs identity 2069 1070 2069
+style T5Style/BrazilianSamba.T158.prs moved-in-limit 0
+style T5Style/BrazilianSamba.T158.prs guitar 226064 226064 226064
+style T5Style/BrazilianSamba.T158.prs pairs 10
+style T5Style/BrazilianSamba.T158.prs authored 494 108 254
+style T5Style/BritPop.T160.prs identity 3086 2578 3086
+style T5Style/BritPop.T160.prs moved-in-limit 0
+style T5Style/BritPop.T160.prs guitar 1021303 1021303 1021303
+style T5Style/BritPop.T160.prs pairs 44
+style T5Style/BritPop.T160.prs authored 2750 1662 1940
+style T5Style/Calypso.T158.prs identity 3346 2387 3346
+style T5Style/Calypso.T158.prs moved-in-limit 0
+style T5Style/Calypso.T158.prs guitar 420228 420228 420228
+style T5Style/Calypso.T158.prs pairs 44
+style T5Style/Calypso.T158.prs authored 2606 1168 1922
+style T5Style/Caribbean.T158.prs identity 895 657 895
+style T5Style/Caribbean.T158.prs moved-in-limit 0
+style T5Style/Caribbean.T158.prs guitar 205368 205368 205368
+style T5Style/CaribbeanRock.T158.prs identity 2282 2011 2282
+style T5Style/CaribbeanRock.T158.prs moved-in-limit 0
+style T5Style/CaribbeanRock.T158.prs guitar 288234 288234 288234
+style T5Style/CaribbeanRock.T158.prs pairs 40
+style T5Style/CaribbeanRock.T158.prs authored 1702 1080 1216
+style T5Style/CelticTrance.T152.prs identity 2169 1972 2169
+style T5Style/CelticTrance.T152.prs moved-in-limit 0
+style T5Style/CelticTrance.T152.prs guitar 35088 35088 35088
+style T5Style/CelticTrance.T152.prs pairs 42
+style T5Style/CelticTrance.T152.prs authored 1218 604 688
+style T5Style/CelticXmas.T156.prs identity 3965 3415 3965
+style T5Style/CelticXmas.T156.prs moved-in-limit 0
+style T5Style/CelticXmas.T156.prs guitar 243198 243198 243198
+style T5Style/CelticXmas.T156.prs pairs 44
+style T5Style/CelticXmas.T156.prs authored 3252 1894 2172
+style T5Style/ChartBallad.T160.prs identity 1722 1478 1722
+style T5Style/ChartBallad.T160.prs moved-in-limit 0
+style T5Style/ChartBallad.T160.prs guitar 199760 199760 199760
+style T5Style/ChartBallad.T160.prs pairs 8
+style T5Style/ChartBallad.T160.prs authored 224 48 74
+style T5Style/ChartGuitarPop.T160.prs identity 3358 2631 3358
+style T5Style/ChartGuitarPop.T160.prs moved-in-limit 0
+style T5Style/ChartGuitarPop.T160.prs guitar 406048 406048 406048
+style T5Style/ChartGuitarPop.T160.prs pairs 28
+style T5Style/ChartGuitarPop.T160.prs authored 2698 1286 1624
+style T5Style/ChartPop1.T160.prs identity 3686 3654 3686
+style T5Style/ChartPop1.T160.prs moved-in-limit 0
+style T5Style/ChartPop1.T160.prs guitar 148688 148688 148688
+style T5Style/ChartPop1.T160.prs pairs 32
+style T5Style/ChartPop1.T160.prs authored 2634 1798 1798
+style T5Style/ChartPop2.T160.prs identity 2636 2552 2636
+style T5Style/ChartPop2.T160.prs moved-in-limit 0
+style T5Style/ChartPop2.T160.prs guitar 98814 98814 98814
+style T5Style/ChartPop2.T160.prs pairs 38
+style T5Style/ChartPop2.T160.prs authored 1772 1090 1132
+style T5Style/ChartR&B.T161.prs identity 2628 2482 2628
+style T5Style/ChartR&B.T161.prs moved-in-limit 0
+style T5Style/ChartR&B.T161.prs pairs 24
+style T5Style/ChartR&B.T161.prs authored 852 413 456
+style T5Style/ChoralSymphony.T150.prs identity 4301 4301 4301
+style T5Style/ChoralSymphony.T150.prs moved-in-limit 0
+style T5Style/ChoralSymphony.T150.prs pairs 12
+style T5Style/ChoralSymphony.T150.prs authored 772 602 602
+style T5Style/ChristmasShuffle.T156.prs identity 1824 1607 1824
+style T5Style/ChristmasShuffle.T156.prs moved-in-limit 0
+style T5Style/ChristmasShuffle.T156.prs guitar 91392 91392 91392
+style T5Style/ChristmasShuffle.T156.prs pairs 40
+style T5Style/ChristmasShuffle.T156.prs authored 1384 500 582
+style T5Style/ChristmasSwing2.T156.prs identity 1056 1035 1056
+style T5Style/ChristmasSwing2.T156.prs moved-in-limit 0
+style T5Style/ChristmasSwing2.T156.prs guitar 189312 189312 189312
+style T5Style/ChristmasSwing2.T156.prs pairs 20
+style T5Style/ChristmasSwing2.T156.prs authored 476 350 354
+style T5Style/ClassicalMenuet.T150.sst identity 1227 1225 1227
+style T5Style/ClassicalMenuet.T150.sst moved-in-limit 0
+style T5Style/ClassicalMenuet.T150.sst pairs 44
+style T5Style/ClassicalMenuet.T150.sst authored 854 680 682
+style T5Style/ClassicalSerenad.T150.prs identity 1417 1412 1417
+style T5Style/ClassicalSerenad.T150.prs moved-in-limit 0
+style T5Style/ClassicalSerenad.T150.prs pairs 50
+style T5Style/ClassicalSerenad.T150.prs authored 892 618 618
+style T5Style/ClassicHipHop.T155.prs identity 2241 2119 2241
+style T5Style/ClassicHipHop.T155.prs moved-in-limit 0
+style T5Style/ClassicHipHop.T155.prs guitar 36616 36616 36616
+style T5Style/ClassicHipHop.T155.prs pairs 16
+style T5Style/ClassicHipHop.T155.prs authored 544 376 378
+style T5Style/ClassicPianoBld.T160.prs identity 1678 1618 1678
+style T5Style/ClassicPianoBld.T160.prs moved-in-limit 0
+style T5Style/ClassicPianoBld.T160.prs guitar 93522 93522 93522
+style T5Style/ClassicPianoBld.T160.prs pairs 40
+style T5Style/ClassicPianoBld.T160.prs authored 1148 588 604
+style T5Style/ContempRock.T162.prs identity 4844 3258 4844
+style T5Style/ContempRock.T162.prs moved-in-limit 0
+style T5Style/ContempRock.T162.prs guitar 322146 322146 322146
+style T5Style/ContempRock.T162.prs pairs 46
+style T5Style/ContempRock.T162.prs authored 3362 1437 1862
+style T5Style/CountryBrothers.T151.prs identity 1266 1128 1266
+style T5Style/CountryBrothers.T151.prs moved-in-limit 0
+style T5Style/CountryBrothers.T151.prs guitar 258622 258622 258622
+style T5Style/CountryBrothers.T151.prs pairs 32
+style T5Style/CountryBrothers.T151.prs authored 1120 620 764
+style T5Style/CountryRockBld.T151.prs identity 2314 1822 2314
+style T5Style/CountryRockBld.T151.prs moved-in-limit 0
+style T5Style/CountryRockBld.T151.prs guitar 350248 350248 350248
+style T5Style/CountryRockBld.T151.prs pairs 32
+style T5Style/CountryRockBld.T151.prs authored 1376 754 996
+style T5Style/CountrySwing2.T151.prs identity 742 626 742
+style T5Style/CountrySwing2.T151.prs moved-in-limit 0
+style T5Style/CountrySwing2.T151.prs guitar 339107 339107 339107
+style T5Style/CountryTwoStep.T151.prs identity 2070 1609 2070
+style T5Style/CountryTwoStep.T151.prs moved-in-limit 0
+style T5Style/CountryTwoStep.T151.prs guitar 207358 207358 207358
+style T5Style/CountryTwoStep.T151.prs pairs 4
+style T5Style/CountryTwoStep.T151.prs authored 52 47 47
+style T5Style/CountryWaltz.T151.prs identity 1564 1369 1564
+style T5Style/CountryWaltz.T151.prs moved-in-limit 0
+style T5Style/CountryWaltz.T151.prs guitar 201682 201682 201682
+style T5Style/CountryWaltz.T151.prs pairs 42
+style T5Style/CountryWaltz.T151.prs authored 1292 802 934
+style T5Style/CrocoTwist.T161.sst identity 1597 1484 1597
+style T5Style/CrocoTwist.T161.sst moved-in-limit 0
+style T5Style/CrocoTwist.T161.sst guitar 138120 138120 138120
+style T5Style/CrocoTwist.T161.sst pairs 8
+style T5Style/CrocoTwist.T161.sst authored 312 210 236
+style T5Style/Cumbia.T158.sst identity 2022 1654 2022
+style T5Style/Cumbia.T158.sst moved-in-limit 0
+style T5Style/Cumbia.T158.sst guitar 178702 178702 178702
+style T5Style/Cumbia.T158.sst pairs 20
+style T5Style/Cumbia.T158.sst authored 1706 1220 1524
+style T5Style/Dancefloor.T152.prs identity 4724 4716 4724
+style T5Style/Dancefloor.T152.prs moved-in-limit 0
+style T5Style/Dancefloor.T152.prs pairs 18
+style T5Style/Dancefloor.T152.prs authored 1456 864 864
+style T5Style/Dancehall.T152.prs identity 1999 1999 1999
+style T5Style/Dancehall.T152.prs moved-in-limit 0
+style T5Style/Dancehall.T152.prs pairs 30
+style T5Style/Dancehall.T152.prs authored 732 456 456
+style T5Style/Danzon.T158.prs identity 2590 2282 2590
+style T5Style/Danzon.T158.prs moved-in-limit 0
+style T5Style/Danzon.T158.prs guitar 121584 121584 121584
+style T5Style/Danzon.T158.prs pairs 28
+style T5Style/Danzon.T158.prs authored 1080 521 630
+style T5Style/DeepHousePop.T152.prs identity 2500 2482 2500
+style T5Style/DeepHousePop.T152.prs moved-in-limit 0
+style T5Style/DeepHousePop.T152.prs guitar 119720 119720 119720
+style T5Style/DeepHousePop.T152.prs pairs 22
+style T5Style/DeepHousePop.T152.prs authored 1040 806 806
+style T5Style/DetroitPop1.T161.prs identity 1271 946 1271
+style T5Style/DetroitPop1.T161.prs moved-in-limit 0
+style T5Style/DetroitPop1.T161.prs guitar 97510 97510 97510
+style T5Style/DetroitPop1.T161.prs pairs 16
+style T5Style/DetroitPop1.T161.prs authored 484 257 392
+style T5Style/DiscoHands.T407.prs identity 3475 3292 3475
+style T5Style/DiscoHands.T407.prs moved-in-limit 0
+style T5Style/DiscoHands.T407.prs guitar 238800 238800 238800
+style T5Style/DiscoHands.T407.prs pairs 26
+style T5Style/DiscoHands.T407.prs authored 2468 1479 1514
+style T5Style/DiscoTeens.T161.prs identity 2016 1910 2016
+style T5Style/DiscoTeens.T161.prs moved-in-limit 0
+style T5Style/DiscoTeens.T161.prs pairs 22
+style T5Style/DiscoTeens.T161.prs authored 898 655 684
+style T5Style/EasyCountry2.T151.prs identity 1153 1087 1153
+style T5Style/EasyCountry2.T151.prs moved-in-limit 0
+style T5Style/EasyCountry2.T151.prs guitar 79496 79496 79496
+style T5Style/EasyCountry2.T151.prs pairs 30
+style T5Style/EasyCountry2.T151.prs authored 666 342 360
+style T5Style/EPBallad.T160.prs identity 1975 1850 1975
+style T5Style/EPBallad.T160.prs moved-in-limit 0
+style T5Style/EPBallad.T160.prs guitar 54264 54264 54264
+style T5Style/EPBallad.T160.prs pairs 36
+style T5Style/EPBallad.T160.prs authored 1386 604 668
+style T5Style/EuroHipHop.T155.prs identity 3255 3186 3255
+style T5Style/EuroHipHop.T155.prs moved-in-limit 0
+style T5Style/EuroHipHop.T155.prs guitar 157608 157608 157608
+style T5Style/EuroHipHop.T155.prs pairs 38
+style T5Style/EuroHipHop.T155.prs authored 1836 1466 1484
+style T5Style/FastBossa.T158.prs identity 2766 2554 2766
+style T5Style/FastBossa.T158.prs moved-in-limit 0
+style T5Style/FastBossa.T158.prs guitar 88536 88536 88536
+style T5Style/FastBossa.T158.prs pairs 26
+style T5Style/FastBossa.T158.prs authored 1772 910 1070
+style T5Style/FingerPickin'.T151.prs identity 1574 1440 1574
+style T5Style/FingerPickin'.T151.prs moved-in-limit 0
+style T5Style/FingerPickin'.T151.prs guitar 915620 915620 915620
+style T5Style/FingerPickin'.T151.prs pairs 34
+style T5Style/FingerPickin'.T151.prs authored 1124 757 774
+style T5Style/French50s.T163.prs identity 2817 2576 2817
+style T5Style/French50s.T163.prs moved-in-limit 0
+style T5Style/French50s.T163.prs guitar 450536 450536 450536
+style T5Style/French50s.T163.prs pairs 44
+style T5Style/French50s.T163.prs authored 1792 1320 1512
+style T5Style/Garage.T152.prs identity 2000 1942 2000
+style T5Style/Garage.T152.prs moved-in-limit 0
+style T5Style/Garage.T152.prs pairs 26
+style T5Style/Garage.T152.prs authored 1256 776 776
+style T5Style/GospelFunk.T154.sst identity 4999 4664 4999
+style T5Style/GospelFunk.T154.sst moved-in-limit 0
+style T5Style/GospelFunk.T154.sst guitar 329142 329142 329142
+style T5Style/GospelFunk.T154.sst pairs 48
+style T5Style/GospelFunk.T154.sst authored 3810 3153 3287
+style T5Style/GospelParty.T154.sst identity 4965 4363 4965
+style T5Style/GospelParty.T154.sst moved-in-limit 0
+style T5Style/GospelParty.T154.sst guitar 144672 144672 144672
+style T5Style/GospelParty.T154.sst pairs 42
+style T5Style/GospelParty.T154.sst authored 3292 1872 2166
+style T5Style/Groundbeat.T152.prs identity 2149 1876 2149
+style T5Style/Groundbeat.T152.prs moved-in-limit 0
+style T5Style/Groundbeat.T152.prs pairs 42
+style T5Style/Groundbeat.T152.prs authored 1378 1006 1182
+style T5Style/HullyGully.S745.prs identity 828 813 828
+style T5Style/HullyGully.S745.prs moved-in-limit 0
+style T5Style/HullyGully.S745.prs guitar 110064 110064 110064
+style T5Style/HullyGully.S745.prs pairs 2
+style T5Style/HullyGully.S745.prs authored 24 17 17
+style T5Style/IrishHymn2.S942.prs identity 2062 1955 2062
+style T5Style/IrishHymn2.S942.prs moved-in-limit 0
+style T5Style/IrishHymn2.S942.prs pairs 28
+style T5Style/IrishHymn2.S942.prs authored 994 488 512
+style T5Style/ItalianPolka.S749.prs identity 2003 1546 2003
+style T5Style/ItalianPolka.S749.prs moved-in-limit 0
+style T5Style/ItalianPolka.S749.prs guitar 125004 125004 125004
+style T5Style/ItalianPolka.S749.prs pairs 34
+style T5Style/ItalianPolka.S749.prs authored 1502 816 1088
+style T5Style/ItalianTango.S749.prs identity 1556 1046 1556
+style T5Style/ItalianTango.S749.prs moved-in-limit 0
+style T5Style/ItalianTango.S749.prs guitar 149224 149224 149224
+style T5Style/ItalianTango.S749.prs pairs 38
+style T5Style/ItalianTango.S749.prs authored 1250 668 1012
+style T5Style/JazzClub.T157.prs identity 1185 1036 1185
+style T5Style/JazzClub.T157.prs moved-in-limit 0
+style T5Style/JazzClub.T157.prs guitar 227656 227656 227656
+style T5Style/JazzClub.T157.prs pairs 22
+style T5Style/JazzClub.T157.prs authored 586 368 450
+style T5Style/JazzWaltzFast.T157.prs identity 928 685 928
+style T5Style/JazzWaltzFast.T157.prs moved-in-limit 0
+style T5Style/JazzWaltzFast.T157.prs guitar 79600 79600 79600
+style T5Style/JazzWaltzFast.T157.prs pairs 29
+style T5Style/JazzWaltzFast.T157.prs authored 604 166 279
+style T5Style/JerseyPop.T160.prs identity 2392 2183 2392
+style T5Style/JerseyPop.T160.prs moved-in-limit 0
+style T5Style/JerseyPop.T160.prs guitar 164000 164000 164000
+style T5Style/JerseyPop.T160.prs pairs 36
+style T5Style/JerseyPop.T160.prs authored 1766 1436 1540
+style T5Style/KoolFunk.T161.sst identity 7241 3996 7241
+style T5Style/KoolFunk.T161.sst moved-in-limit 0
+style T5Style/KoolFunk.T161.sst pairs 121
+style T5Style/KoolFunk.T161.sst authored 8160 3308 5961
+style T5Style/LACoolSwing.T157.sst identity 2145 1689 2145
+style T5Style/LACoolSwing.T157.sst moved-in-limit 0
+style T5Style/LACoolSwing.T157.sst guitar 68456 68456 68456
+style T5Style/LACoolSwing.T157.sst pairs 38
+style T5Style/LACoolSwing.T157.sst authored 1304 499 678
+style T5Style/LatinDisco1.T158.prs identity 1429 1295 1429
+style T5Style/LatinDisco1.T158.prs moved-in-limit 0
+style T5Style/LatinDisco1.T158.prs guitar 137904 137904 137904
+style T5Style/LatinDisco1.T158.prs pairs 11
+style T5Style/LatinDisco1.T158.prs authored 778 381 395
+style T5Style/LatinDisco2.T158.prs identity 2046 1901 2046
+style T5Style/LatinDisco2.T158.prs moved-in-limit 0
+style T5Style/LatinDisco2.T158.prs guitar 540752 540752 540752
+style T5Style/Let'sFunk.T161.prs identity 5379 4363 5379
+style T5Style/Let'sFunk.T161.prs moved-in-limit 0
+style T5Style/Let'sFunk.T161.prs guitar 61292 61292 61292
+style T5Style/Let'sFunk.T161.prs pairs 26
+style T5Style/Let'sFunk.T161.prs authored 1388 1086 1238
+style T5Style/Merengue.T158.prs identity 6446 6176 6446
+style T5Style/Merengue.T158.prs moved-in-limit 0
+style T5Style/Merengue.T158.prs guitar 217464 217464 217464
+style T5Style/Merengue.T158.prs pairs 40
+style T5Style/Merengue.T158.prs authored 5310 3682 3828
+style T5Style/ModBluegrass.T151.prs identity 2790 2524 2790
+style T5Style/ModBluegrass.T151.prs moved-in-limit 0
+style T5Style/ModBluegrass.T151.prs guitar 292382 292382 292382
+style T5Style/ModBluegrass.T151.prs pairs 48
+style T5Style/ModBluegrass.T151.prs authored 2134 1476 1656
+style T5Style/Modern16BtBld.T160.prs identity 2307 2157 2307
+style T5Style/Modern16BtBld.T160.prs moved-in-limit 0
+style T5Style/Modern16BtBld.T160.prs guitar 96168 96168 96168
+style T5Style/Modern16BtBld.T160.prs pairs 34
+style T5Style/Modern16BtBld.T160.prs authored 1296 687 746
+style T5Style/ModernCntryPop.T151.prs identity 2195 1982 2195
+style T5Style/ModernCntryPop.T151.prs moved-in-limit 0
+style T5Style/ModernCntryPop.T151.prs guitar 360991 360991 360991
+style T5Style/ModernCntryPop.T151.prs pairs 42
+style T5Style/ModernCntryPop.T151.prs authored 2024 1478 1614
+style T5Style/ModernJazzBld.T157.prs identity 2293 2208 2293
+style T5Style/ModernJazzBld.T157.prs moved-in-limit 0
+style T5Style/ModernJazzBld.T157.prs pairs 20
+style T5Style/ModernJazzBld.T157.prs authored 1071 571 623
+style T5Style/ModernR&B.T161.prs identity 1800 1746 1800
+style T5Style/ModernR&B.T161.prs moved-in-limit 0
+style T5Style/ModernR&B.T161.prs guitar 124440 124440 124440
+style T5Style/ModernR&B.T161.prs pairs 24
+style T5Style/ModernR&B.T161.prs authored 704 462 470
+style T5Style/ModernSchlager.T407.prs identity 5218 5079 5218
+style T5Style/ModernSchlager.T407.prs moved-in-limit 0
+style T5Style/ModernSchlager.T407.prs guitar 65925 65925 65925
+style T5Style/ModernSchlager.T407.prs pairs 34
+style T5Style/ModernSchlager.T407.prs authored 2500 1620 1628
+style T5Style/MoonlightBallad.T157.prs identity 1658 1629 1658
+style T5Style/MoonlightBallad.T157.prs moved-in-limit 0
+style T5Style/MoonlightBallad.T157.prs guitar 122584 122584 122584
+style T5Style/MoonlightBallad.T157.prs pairs 34
+style T5Style/MoonlightBallad.T157.prs authored 1034 568 581
+style T5Style/NewR&B.T161.prs identity 1059 1002 1059
+style T5Style/NewR&B.T161.prs moved-in-limit 0
+style T5Style/NewR&B.T161.prs guitar 109256 109256 109256
+style T5Style/NewR&B.T161.prs pairs 30
+style T5Style/NewR&B.T161.prs authored 612 498 502
+style T5Style/NewR&BBallad.T161.prs identity 1584 1543 1584
+style T5Style/NewR&BBallad.T161.prs moved-in-limit 0
+style T5Style/NewR&BBallad.T161.prs guitar 203875 203875 203875
+style T5Style/NewR&BBallad.T161.prs pairs 2
+style T5Style/NewR&BBallad.T161.prs authored 302 188 188
+style T5Style/Norteno.T171.prs identity 3010 2952 3010
+style T5Style/Norteno.T171.prs moved-in-limit 0
+style T5Style/Norteno.T171.prs guitar 301040 301040 301040
+style T5Style/Norteno.T171.prs pairs 48
+style T5Style/Norteno.T171.prs authored 2596 1822 1824
+style T5Style/OberPolka2.S748.prs identity 1704 1684 1704
+style T5Style/OberPolka2.S748.prs moved-in-limit 0
+style T5Style/OberPolka2.S748.prs guitar 232432 232432 232432
+style T5Style/OberPolka2.S748.prs pairs 6
+style T5Style/OberPolka2.S748.prs authored 60 26 26
+style T5Style/OberWalzer2.S748.prs identity 1044 1020 1044
+style T5Style/OberWalzer2.S748.prs moved-in-limit 0
+style T5Style/OberWalzer2.S748.prs guitar 238800 238800 238800
+style T5Style/OberWalzer2.S748.prs pairs 4
+style T5Style/OberWalzer2.S748.prs authored 52 24 24
+style T5Style/OrchestralBallad.T153.prs identity 1513 1404 1513
+style T5Style/OrchestralBallad.T153.prs moved-in-limit 0
+style T5Style/OrchestralBallad.T153.prs guitar 107062 107062 107062
+style T5Style/OrchestralBallad.T153.prs pairs 36
+style T5Style/OrchestralBallad.T153.prs authored 910 630 684
+style T5Style/OrchestralBolero.T150.prs identity 4019 3756 4019
+style T5Style/OrchestralBolero.T150.prs moved-in-limit 0
+style T5Style/OrchestralBolero.T150.prs pairs 40
+style T5Style/OrchestralBolero.T150.prs authored 2154 1546 1692
+style T5Style/OrchestralBossa.T158.prs identity 2983 1834 2983
+style T5Style/OrchestralBossa.T158.prs moved-in-limit 0
+style T5Style/OrchestralBossa.T158.prs pairs 28
+style T5Style/OrchestralBossa.T158.prs authored 1002 383 660
+style T5Style/OrientalPop.T160.prs identity 2823 2528 2823
+style T5Style/OrientalPop.T160.prs moved-in-limit 0
+style T5Style/OrientalPop.T160.prs guitar 343148 343148 343148
+style T5Style/OrientalPop.T160.prs pairs 36
+style T5Style/OrientalPop.T160.prs authored 2284 1722 1902
+style T5Style/PopBossa2.T158.prs identity 1898 1688 1898
+style T5Style/PopBossa2.T158.prs moved-in-limit 0
+style T5Style/PopBossa2.T158.prs guitar 113828 113828 113828
+style T5Style/PopBossa2.T158.prs pairs 22
+style T5Style/PopBossa2.T158.prs authored 1272 625 724
+style T5Style/PopFlamenco.S751.prs identity 3682 3602 3682
+style T5Style/PopFlamenco.S751.prs moved-in-limit 0
+style T5Style/PopFlamenco.S751.prs guitar 602526 602526 602526
+style T5Style/PopFlamenco.S751.prs pairs 18
+style T5Style/PopFlamenco.S751.prs authored 3586 2156 2176
+style T5Style/PopPianoBallad.T160.prs identity 1168 1166 1168
+style T5Style/PopPianoBallad.T160.prs moved-in-limit 0
+style T5Style/PopPianoBallad.T160.prs guitar 195728 195728 195728
+style T5Style/PopPianoBallad.T160.prs pairs 22
+style T5Style/PopPianoBallad.T160.prs authored 468 276 280
+style T5Style/PopR&B.T161.prs identity 2400 2168 2400
+style T5Style/PopR&B.T161.prs moved-in-limit 0
+style T5Style/PopR&B.T161.prs guitar 39264 39264 39264
+style T5Style/PopR&B.T161.prs pairs 40
+style T5Style/PopR&B.T161.prs authored 1388 974 1030
+style T5Style/PopRumba.T158.prs identity 472 428 472
+style T5Style/PopRumba.T158.prs moved-in-limit 0
+style T5Style/PopRumba.T158.prs guitar 529318 529318 529318
+style T5Style/PopShuffle.T161.prs identity 2710 2633 2710
+style T5Style/PopShuffle.T161.prs moved-in-limit 0
+style T5Style/PopShuffle.T161.prs pairs 40
+style T5Style/PopShuffle.T161.prs authored 1814 1586 1590
+style T5Style/Ragtime2.T157.prs identity 2472 2370 2472
+style T5Style/Ragtime2.T157.prs moved-in-limit 0
+style T5Style/Ragtime2.T157.prs guitar 97112 97112 97112
+style T5Style/Ragtime2.T157.prs pairs 28
+style T5Style/Ragtime2.T157.prs authored 1472 1016 1050
+style T5Style/RockChaCha.T158.prs identity 2049 1896 2049
+style T5Style/RockChaCha.T158.prs moved-in-limit 0
+style T5Style/RockChaCha.T158.prs pairs 42
+style T5Style/RockChaCha.T158.prs authored 1372 1102 1186
+style T5Style/RockShuffle.T162.prs identity 2955 2693 2955
+style T5Style/RockShuffle.T162.prs moved-in-limit 0
+style T5Style/RockShuffle.T162.prs pairs 36
+style T5Style/RockShuffle.T162.prs authored 1776 1470 1548
+style T5Style/RomanticBallad.T153.prs identity 1289 1193 1289
+style T5Style/RomanticBallad.T153.prs moved-in-limit 0
+style T5Style/RomanticBallad.T153.prs guitar 131914 131914 131914
+style T5Style/RomanticBallad.T153.prs pairs 24
+style T5Style/RomanticBallad.T153.prs authored 940 574 616
+style T5Style/RomanticBallet.T150.prs identity 1644 1644 1644
+style T5Style/RomanticBallet.T150.prs moved-in-limit 0
+style T5Style/RomanticBallet.T150.prs pairs 24
+style T5Style/RomanticBallet.T150.prs authored 604 386 386
+style T5Style/RumbaFlamenco.T158.sst identity 3225 2230 3225
+style T5Style/RumbaFlamenco.T158.sst moved-in-limit 0
+style T5Style/RumbaFlamenco.T158.sst guitar 624460 624460 624460
+style T5Style/RumbaFlamenco.T158.sst pairs 28
+style T5Style/RumbaFlamenco.T158.sst authored 2252 1319 1754
+style T5Style/Saeidy.T164.prs identity 2624 2401 2624
+style T5Style/Saeidy.T164.prs moved-in-limit 0
+style T5Style/Saeidy.T164.prs guitar 277008 277008 277008
+style T5Style/Saeidy.T164.prs pairs 18
+style T5Style/Saeidy.T164.prs authored 1198 424 560
+style T5Style/ScandCountry2.T151.prs identity 2337 1242 2337
+style T5Style/ScandCountry2.T151.prs moved-in-limit 0
+style T5Style/ScandCountry2.T151.prs guitar 254720 254720 254720
+style T5Style/ScandCountry2.T151.prs pairs 22
+style T5Style/ScandCountry2.T151.prs authored 1734 688 1352
+style T5Style/ScandHambo.T169.prs identity 1677 1636 1677
+style T5Style/ScandHambo.T169.prs moved-in-limit 0
+style T5Style/ScandHambo.T169.prs guitar 62088 62088 62088
+style T5Style/ScandHambo.T169.prs pairs 44
+style T5Style/ScandHambo.T169.prs authored 1122 826 852
+style T5Style/ScandSchottis.T169.prs identity 1751 1447 1751
+style T5Style/ScandSchottis.T169.prs moved-in-limit 0
+style T5Style/ScandSchottis.T169.prs guitar 90744 90744 90744
+style T5Style/ScandSchottis.T169.prs pairs 40
+style T5Style/ScandSchottis.T169.prs authored 1098 544 728
+style T5Style/SchlagerItalia.T407.prs identity 2156 1893 2156
+style T5Style/SchlagerItalia.T407.prs moved-in-limit 0
+style T5Style/SchlagerItalia.T407.prs guitar 114624 114624 114624
+style T5Style/SchlagerItalia.T407.prs pairs 44
+style T5Style/SchlagerItalia.T407.prs authored 1754 1002 1136
+style T5Style/Slow&Easy.T160.prs identity 1589 1492 1589
+style T5Style/Slow&Easy.T160.prs moved-in-limit 0
+style T5Style/Slow&Easy.T160.prs guitar 99898 99898 99898
+style T5Style/Slow&Easy.T160.prs pairs 38
+style T5Style/Slow&Easy.T160.prs authored 1071 769 845
+style T5Style/SoftRock.T162.prs identity 1909 1630 1909
+style T5Style/SoftRock.T162.prs moved-in-limit 0
+style T5Style/SoftRock.T162.prs guitar 233376 233376 233376
+style T5Style/SoftRock.T162.prs pairs 34
+style T5Style/SoftRock.T162.prs authored 1260 726 830
+style T5Style/SoulBrothers.T161.prs identity 2052 1702 2052
+style T5Style/SoulBrothers.T161.prs moved-in-limit 0
+style T5Style/SoulBrothers.T161.prs guitar 114624 114624 114624
+style T5Style/SoulBrothers.T161.prs pairs 38
+style T5Style/SoulBrothers.T161.prs authored 1534 1072 1324
+style T5Style/SoulShuffle.T161.prs identity 3401 3211 3401
+style T5Style/SoulShuffle.T161.prs moved-in-limit 0
+style T5Style/SoulShuffle.T161.prs guitar 339078 339078 339078
+style T5Style/SoulShuffle.T161.prs pairs 40
+style T5Style/SoulShuffle.T161.prs authored 2262 1916 2008
+style T5Style/SoulSwing.T161.sst identity 3350 3028 3350
+style T5Style/SoulSwing.T161.sst moved-in-limit 0
+style T5Style/SoulSwing.T161.sst guitar 104914 104914 104914
+style T5Style/SoulSwing.T161.sst pairs 66
+style T5Style/SoulSwing.T161.sst authored 2728 1416 1569
+style T5Style/StringConcerto.T150.prs identity 1265 1196 1265
+style T5Style/StringConcerto.T150.prs moved-in-limit 0
+style T5Style/StringConcerto.T150.prs pairs 6
+style T5Style/StringConcerto.T150.prs authored 178 146 146
+style T5Style/Swingin'Boogie.T161.sst identity 3229 2851 3229
+style T5Style/Swingin'Boogie.T161.sst moved-in-limit 0
+style T5Style/Swingin'Boogie.T161.sst guitar 226860 226860 226860
+style T5Style/Swingin'Boogie.T161.sst pairs 54
+style T5Style/Swingin'Boogie.T161.sst authored 2532 1539 1707
+style T5Style/SwingWaltz.T406.prs identity 1225 1107 1225
+style T5Style/SwingWaltz.T406.prs moved-in-limit 0
+style T5Style/SwingWaltz.T406.prs guitar 233519 233519 233519
+style T5Style/Tango2.T406.prs identity 2281 2192 2281
+style T5Style/Tango2.T406.prs moved-in-limit 0
+style T5Style/Tango2.T406.prs guitar 206960 206960 206960
+style T5Style/Tango2.T406.prs pairs 38
+style T5Style/Tango2.T406.prs authored 1296 1086 1090
+style T5Style/TechnoParty.T152.prs identity 3698 3411 3698
+style T5Style/TechnoParty.T152.prs moved-in-limit 0
+style T5Style/TechnoParty.T152.prs pairs 26
+style T5Style/TechnoParty.T152.prs authored 2134 1134 1238
+style T5Style/TheJazzSingers.T157.sst identity 3572 3169 3572
+style T5Style/TheJazzSingers.T157.sst moved-in-limit 0
+style T5Style/TheJazzSingers.T157.sst guitar 117012 117012 117012
+style T5Style/TheJazzSingers.T157.sst pairs 40
+style T5Style/TheJazzSingers.T157.sst authored 2810 2126 2450
+style T5Style/Toccata.T150.prs identity 2300 1592 2300
+style T5Style/Toccata.T150.prs moved-in-limit 708
+style T5Style/Toccata.T150.prs pairs 30
+style T5Style/Toccata.T150.prs authored 1346 422 890
+style T5Style/TripHop.T152.prs identity 892 719 892
+style T5Style/TripHop.T152.prs moved-in-limit 0
+style T5Style/TripHop.T152.prs guitar 63368 63368 63368
+style T5Style/TripHop.T152.prs pairs 24
+style T5Style/TripHop.T152.prs authored 552 266 358
+style T5Style/TurkishEuro2.T170.prs identity 3739 3379 3739
+style T5Style/TurkishEuro2.T170.prs moved-in-limit 0
+style T5Style/TurkishEuro2.T170.prs pairs 42
+style T5Style/TurkishEuro2.T170.prs authored 2010 1406 1646
+style T5Style/UKSoulPop.T161.prs identity 2487 2316 2487
+style T5Style/UKSoulPop.T161.prs moved-in-limit 0
+style T5Style/UKSoulPop.T161.prs guitar 78347 78347 78347
+style T5Style/UKSoulPop.T161.prs pairs 28
+style T5Style/UKSoulPop.T161.prs authored 1574 760 812
+style T5Style/USHipHop.T155.prs identity 1757 1757 1757
+style T5Style/USHipHop.T155.prs moved-in-limit 0
+style T5Style/USHipHop.T155.prs pairs 28
+style T5Style/USHipHop.T155.prs authored 634 484 485
+style T5Style/Vallenato4-4.T158.prs identity 1778 1752 1778
+style T5Style/Vallenato4-4.T158.prs moved-in-limit 0
+style T5Style/Vallenato4-4.T158.prs guitar 236000 236000 236000
+style T5Style/Vallenato4-4.T158.prs pairs 32
+style T5Style/Vallenato4-4.T158.prs authored 1424 1098 1102
+style T5Style/VienneseWaltz2.T406.prs identity 1143 1104 1143
+style T5Style/VienneseWaltz2.T406.prs moved-in-limit 0
+style T5Style/VienneseWaltz2.T406.prs pairs 16
+style T5Style/VienneseWaltz2.T406.prs authored 562 346 356
+style T5Style/WorshipFast.T154.sst identity 5129 3374 5129
+style T5Style/WorshipFast.T154.sst moved-in-limit 0
+style T5Style/WorshipFast.T154.sst guitar 626368 626368 626368
+style T5Style/WorshipFast.T154.sst pairs 32
+style T5Style/WorshipFast.T154.sst authored 3078 1180 1902
+style T5Style/WorshipIrishRk.T154.prs identity 6026 5786 6026
+style T5Style/WorshipIrishRk.T154.prs moved-in-limit 0
+style T5Style/WorshipIrishRk.T154.prs guitar 484366 484366 484366
+style T5Style/WorshipIrishRk.T154.prs pairs 44
+style T5Style/WorshipIrishRk.T154.prs authored 5400 4590 4744
+style T5Style/WorshipMed.T154.prs identity 1285 1032 1285
+style T5Style/WorshipMed.T154.prs moved-in-limit 0
+style T5Style/WorshipMed.T154.prs guitar 177072 177072 177072
+style T5Style/WorshipMed.T154.prs pairs 24
+style T5Style/WorshipMed.T154.prs authored 636 430 506
+style T5Style/WorshpPowerBld.T154.prs identity 2033 1966 2033
+style T5Style/WorshpPowerBld.T154.prs moved-in-limit 0
+style T5Style/WorshpPowerBld.T154.prs guitar 271484 271484 271484
+style T5Style/WorshpPowerBld.T154.prs pairs 18
+style T5Style/WorshpPowerBld.T154.prs authored 1004 692 700
+style T5Style/Zouk.S750.prs identity 4601 4112 4601
+style T5Style/Zouk.S750.prs moved-in-limit 0
+style T5Style/Zouk.S750.prs guitar 249930 249930 249930
+style T5Style/Zouk.S750.prs pairs 32
+style T5Style/Zouk.S750.prs authored 2928 2008 2308

@@ -90,6 +90,8 @@ bar 14  Main A > Fill In BB@4.0000  Caug@1.0000  [MainB]@3.1919
   - Ticks are the style's own (ppq), and notes use Yamaha octave numbers (C3 = MIDI 60).
   - `~…` marks a note that is still sounding when the script ends.
   - A zero length means the note was cut on the same tick it started.
+  - Notes show the pitch that sounds: the key sent plus any Retrigger Rule pitch shift the part is bent by.
+  - `beat.tick C2>F2` marks a Pitch Shift. A note sounding C2 bends to F2 there, with no new attack, and keeps its length from where it started. It is listed in the bar where the bend happens.
   - Parts that play as written whatever the chord only get a count, `N as written`. These are the drum parts (ch9, ch10) and any part whose every source channel is Root Fixed (or Guitar) + Bypass for every key in that section. Listing them would copy the style's own patterns and says nothing about chord following.
 
 ## Script grammar
@@ -101,11 +103,12 @@ bar 14  Main A > Fill In BB@4.0000  Caug@1.0000  [MainB]@3.1919
 [SyncStop] | C - ^ - | - | F |    # '^' lets go of the chord: Sync Stop stops there, F restarts
 ```
 
-- **Chords:** a root (`C`, `F#`, `Bb`…), then a type suffix from `theory::TYPE_NAMES`, then an optional `/bass`. Examples: `C`, `Am7`, `Bm7b5`, `Cmaj7`, `Csus4`, `C1+5`, `C1+8`, `CmMaj7`, `Cm(add9)`, `G7#9`, `C/E`. `6/9` cannot be written, because the `/` is read as a bass note.
+- **Chords:** a root (`C`, `F#`, `Bb`…), then a type suffix from `theory::TYPE_NAMES`, then an optional `/bass`. Examples: `C`, `Am7`, `Bm7b5`, `Cmaj7`, `Csus4`, `C1+5`, `C1+8`, `CmMaj7`, `Cm(add9)`, `G7#9`, `C/E`. The six-nine chord is written `C6(9)` (or `C69`), because in `C6/9` the `/` would be read as a bass note.
 - **`-`:** holds the previous chord for one slot.
 - **`^`:** lets go of every chord key for one slot (for Sync Stop). The engine remembers the last chord, and the next chord is a new press.
 - **Buttons:** `[IntroA-D]`, `[MainA-D]`, `[Break]`, `[EndingA-D]`, `[AutoFill]`, `[StartStop]` (a toggle), `[Stop]`, `[SyncStart]`, `[SyncStop]` and `[StopAcmp]` take no time.
   - A button fires just before the next slot, one tick early, the way a player presses ahead of the beat. This means a press on a beat or bar line always counts for that beat.
+  - The capture kit (`capture::plan`) times the same script differently: buttons half a beat early and chords a little early, because real MIDI jitters.
   - A button written between bars (`| [MainB] |`) fires at the start of the next bar.
 - **Starting:** Sync Start is armed, so the first chord starts the style. An `[IntroX]` written before that chord picks the intro.
 - **Empty bars:** `| |` on one line is an error, because it would drop a bar and shift every bar after it. Write `| - |` to hold a chord for a bar. A line that ends in `|` followed by a line that starts with `|` is fine.

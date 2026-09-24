@@ -741,7 +741,7 @@ Optional.
 - **1+8:**
   - Root plus its octave (for example C+C). A unison or octave chord.
   - MIDI chord type 30.
-  - **Our rule (#4):** CASM chord-mute bit 30 decides which channels play. Parts that follow the chord play only the root (in octaves), including chromatic notes and the Guitar table's "fifth" string. NTT Bypass parts still play as written.
+  - **Our rule (#4):** CASM chord-mute bit 30 decides which channels play. Parts that follow the chord play only the root (in octaves), including chromatic notes and every Guitar string. NTT Bypass parts still play as written.
   - Ref: DL p.45; RM p.29
 - **Keyboard Harmony note:** Harmony types "1+5" and "Octave" are harmony types, not chord types. They ignore the detected chord. Ref: OM p.56
 
@@ -823,6 +823,8 @@ With NTR = Root Trans or Root Fixed:
 | **Dorian** | Moves the 3rd and 7th |
 | **Dorian 5th** | Dorian, plus 5th handling for aug/dim |
 
+- **Our rule (#11):** The four minor tables are a major ↔ minor switch, not a scale. A chord counts as minor when its 3rd is minor (m, m6, m7, m7♭5, dim, dim7, mM7 and the minor tension chords) and as major otherwise. Going from a major-3rd source to a minor-3rd chord, the table lowers exactly the degrees it names: the major 3rd, plus the major 6th (Harmonic, Natural) and the major 7th (Natural, Dorian). Going the other way it raises the minor 3rd, 6th and 7th it names. Every other note, chromatic ones included, keeps its interval above the root: over C7 a major 7th stays B, and a C7 source keeps its B♭ over Cm. The "5th" variants are the same switch plus the 5th: the source's perfect 5th moves to the chord's ♯5 (aug, 7aug, M7aug) or ♭5 (dim, dim7, m7♭5, 7♭5, and (♭5), which plays as 7♭5). M7♭5 plays as M7(♯11), which has a perfect 5th, so it does not count. The base tables keep the perfect 5th. A source recorded over aug or dim has its ♯5 / ♭5 mapped back to the 5th by the "5th" tables; no corpus rule does this. Chords with no 3rd (sus4, 7sus4, 1+8, 1+5, 1+2+5) go through the Melody scale model instead, and a source with no 3rd counts as major. Corpus (208 styles): authors use the base tables mostly in Intros and Endings, and the 5th tables mostly in Mains and Fills. Recording a separate source per chord family (a C7 source for 7th chords, a CM7 source muted off them) is a Melodic Minor 5th habit only, and a partial one (28 of 68 CM7-source rules). Base-table channels often play a major-7th source over 7th chords (103 rules), and there that B now stays B against the chord's B♭, where the scale model lowered it. This is the literal manual reading and is flagged for playtest.
+
 With NTR = Guitar:
 
 | NTT | Behaviour |
@@ -831,10 +833,48 @@ With NTR = Guitar:
 | **Stroke** | Strumming. Some notes deliberately sound muted |
 | **Arpeggio** | Four-note arpeggio voicings |
 
+**Guitar NTR voicing model (#12, our model).** The manuals give only each table's purpose, so this is our model (`theory::guitar`).
+- **Source: string codes, not pitches.**
+  - A key's pitch class picks a string of a guitar voicing of the played chord: B (and B♭) = string 1, A (A♭) = 2, G = 3, F (F♯) = 4, E (E♭) = 5, D = 6.
+  - C is the bass, the voicing's lowest string, and C♯ is the fifth above the bass (the octave over 1+8).
+  - Keys from C7 (96) up are MegaVoice noise keys (strum, fret and body noises). They pass through untouched on every chord.
+  - **Corpus evidence (all 208 styles, every file type):**
+    - 382 CASM records in 140 styles have a Guitar zone: 26 All Purpose, 236 Stroke and 117 Arpeggio as the middle zone, plus 3 with a Guitar outer zone.
+    - Of the strums of three or more strings (notes at most 30 ticks apart, below the noise keys), 13,372 of 14,153 are stacked seconds. That is 10,633 of 11,092 in T5Style, 2,739 of 2,787 in SX900, and 0 of 274 in MOX_v2.
+    - In the playable range, Stroke uses F, G, A and B about equally often (10–12k each) and C, D and E much less. That is one note per string per strum, not a fingering.
+    - About a fifth of the Guitar notes (20,887 of 97,156) are noise keys at 96 or above.
+- **Source Root/Chord are ignored** (RM p.29). 42 Guitar rules declare another chord (32 Cm11, 3 Cm7, 3 AM7, 2 F♯M7, 1 C6/9, 1 C). Their codes are the same as the CM7 rules', and they play exactly like them.
+- **Position:** the key's octave. Keys up to B2 (59) play in the open position (frets 0–4), C3–B3 (60–71) at frets 5–9, and from C4 (72) at frets 10–14. The corpus writes the bass and string codes of a strum inside one octave, so one strum plays one voicing.
+- **Voicing:**
+  - The bass (the root, or the slash bass with Bass On) goes on the lowest string that reaches it within the position.
+  - Each string above takes the lowest fret of a chord tone not yet sounding, the important ones first (3rd, 5th and 7th; for five-note chords the 3rd, 7th and tension), then the lowest chord tone.
+  - So the open position gives x32000 for CM7, x32010 for C, 320003 for G, xx0232 for D, x02210 for Am, 320001 for G7, and C D B♭ C E (x3233x-like) for C9. 7♯9 keeps its major 3rd next to the ♯9.
+- **Per note:** each note is converted on its own, so a source key under a chord always gives the same result. That matters because most strums spread their notes over several ticks: 14,919 of 19,742 groups of two or more notes span more than one tick.
+- **Range:** nothing sounds below the open low E (MIDI 40). Note Limit folds what sounds. It never decides which strings sound.
+- **Bass On (per SFF2 zone, #13):** with Bass On, the voicing is built over the slash bass, which takes the lowest string. C/E is 032010 and C/G is 332010. With Bass Off, the slash is ignored. RM p.30: "only the bottom note as Bass inside the Guitar voicings" follows slash chords. 158 of the 382 records set Bass On in at least one zone.
+- **All Purpose:** every string sounds. A string below the bass plays the 5th or the root when the hand reaches one (the alternate bass of 332010), else doubles the string above it.
+- **Stroke:** strings below the bass, and strings with no chord tone within reach (1+8), are muted: "some notes may sound as if they are muted" (RM p.30). Over the corpus, Stroke leaves out 719,196 of 22,506,408 note × chord plays.
+- **Arpeggio:** "four-note arpeggio sounds" (RM p.30). The bass stays on string 6 or 5, and strings 1–4 take the fingering within reach that rises from the bass and, with it, sounds the most chord tones. Every tone of a four-note chord sounds for 332 of the 336 four-note chords in the two main positions; All Purpose manages 248. A triad doubles its root.
+- **Pitch-written sources (MOX_v2).** The 43 MOX_v2 Guitar rules are written as real fingerings, x32000 C E G B E for example. They are read as codes too: C as the bass, E as string 5, G as string 3, B as string 1, and the high E as string 5 one position up.
+  - The strum becomes a subset of the target chord's guitar voicing. Every note is a chord tone, the root is always there, and there is never a cluster.
+  - Over CM7, x32000 plays C E G (the B is lost). Over G it plays G B G G D.
+  - Over 286 of the 348 chords with a 3rd, it keeps the 3rd. When the bass sits on string 5, the E written on that string doubles the bass.
+  - The goldens' Guitar parts (BluesOrganTrio and JackDoesItAgain, ch12) are MOX_v2 pitch-written sources and show this.
+- **One strike per pitch:** strings that land on the same key (1+8, 1+5, or two codes for one string) are struck once.
+  - A Guitar string on a key another string of the part struck within a 32nd note (the same strum) joins it as a muted voice, like #63's twin voices for notes that meet at one instant. The key sounds until both have ended, and a later chord can part them again.
+  - On one MIDI channel the unison would cut the first string short and strike the pitch again. A later strum strikes the pitch again, as a guitarist would.
+  - A chord that lands just after the strum (the 40 ms late-chord allowance) corrects it outright. Strings the previous chord left out (muted by Stroke) come in, because they have no voice for `revoice` to re-pitch.
+- **Retrigger Rule:** Guitar zones follow their own RTR through #63's revoice.
+  - The Yamaha-authored guitar parts are written for Pitch Shift: 374 of the 375 Guitar zones in T5Style and SX900 (one is Retrigger to Root). All 43 MOX_v2 Guitar zones are Retrigger.
+  - Under Pitch Shift, the part's bend takes the shift most of its ringing strings need. Strings that need another shift are retriggered, as for any part.
+  - Noise keys are not pitches. A chord change never moves them, and they have no say in the bend. A noise key struck on a bent part goes out as written, since compensating it would pick a different noise. It sounds with the bend.
+- **Unverified:** the string codes and the octave-as-position reading come from the corpus, not from a manual. How the Genos voices each chord, and exactly which strings each table mutes or doubles, are our choices. They are flagged for a hardware capture (#9).
+
 **NTT Bass (On/Off)**
 - When On, the channel follows slash chords: for Dm7/G, the bass transposes to G instead of D.
 - With NTR = Guitar and NTT Bass On, only the lowest (bass) note of the guitar voicing follows the slash bass.
 - This is what makes Fingered On Bass audible. Only channels with NTT Bass On move to the played bass note.
+- SFF2 stores Bass On per zone (low / mid / high, split at Mid Low and Mid High), so a piano can have its left-hand zone follow the slash bass while its chord zone keeps the root.
 
 **Rhythm channels** must be NTR = Root Fixed, NTT = Bypass, NTT Bass = Off. They never follow chords.
 
@@ -847,6 +887,7 @@ With NTR = Guitar:
 - The allowed pitch range after conversion. Any converted note outside it is octave-shifted back inside.
 - Example: Low C3, High D4.
 - Keeps bass from going too high and piccolo from going too low.
+- A range narrower than an octave can't hold every pitch class. The manual doesn't cover this. Our choice: a note with no octave inside the range goes to the octave nearest the range, the lower one on a tie (#13). No corpus style uses a range this narrow.
 
 **RTR (Retrigger Rule): notes already sounding when the chord changes**
 
@@ -858,7 +899,14 @@ With NTR = Guitar:
 | **Retrigger** | Restarts with a new attack at the new chord's corresponding note |
 | **Retrigger to Root** | Restarts at the new root, in the same octave |
 
+- **Note Generator** (SFF RTR value 5) is not in the Genos editor, and no corpus style uses it. yahaha plays it as Retrigger.
+- **How yahaha does Pitch Shift over MIDI:** with the part's pitch bend, so there is no new attack. Each part following chords (ch 11–16) gets a bend range of at least 12 semitones: RPN 0, sent with the part setup, so a section change sets it again wherever a pattern changed it. A part whose patterns bend on their own gets 12 more than its widest pattern bend, up to 24 (the most a Genos part takes, DL p.98), and never shifts by more than the narrowest range it can have (a pattern may set a narrower one) leaves over the pattern's bend, so the two together always fit. The pattern's own bends, and the channel setup's, are rescaled from the style's range, including those a section change sends again and those a Fill entered mid-bar catches up on. Pitch bend is per channel, so all the notes on a part bend together, by the shift that suits most of its continuing notes. A note that needs a different shift is retriggered at its new pitch, and so is a held note the bend would detune. Notes started while a part is bent are sent that much lower, so they sound true. The bend returns to centre at the part's next note once it has fallen silent, so release tails keep their pitch.
+- **Notes ending on the change:** a chord played up to 40 ms before a note's pattern note-off, before the pattern strikes its new pitch again, or before the section ends, does not attack that note again: where it would be retriggered it plays out as it is (or stops, if the part's bend moves). A note brought in by the chord (a part coming back from Chord Cancel) is not started if less of it is left than it has missed.
+- **Two voices on one key:** when a chord folds two voices onto one key at the same moment (1+8, 1+5), the key sounds once and the second voice is kept muted beside it, so the next chord parts them again.
+
 **Storage:** Source Root/Chord, NTR, NTT Type, NTT Bass, High Key, Note Limit Low/High and RTR are all **Style Data** (DL p.90). The Style Creator Basic parameters (pattern length, tempo, time signature, per-section time signature) are also Style data.
+
+**SFF1 encoding (Ctab + Cntt), our rule (#14):** SFF1 stores one NTT byte per channel in `Ctab` with its own numbering (Bypass, Melody, Chord, Bass, Melodic Minor, Harmonic Minor). Old "Bass" is Melody with NTT Bass On. Codes 06H–0AH aren't defined for Ctab, so we read them as the Cntt/Ctb2 tables with the same numbers (Harmonic Minor 5th … Dorian 5th). Nothing documents a Bass On bit in a Ctab byte, so every other value, 80H–FFH included, plays as Melody without Bass On. An optional `Cntt` record after the Ctabs refines a channel's table with the ones Ctab can't hold, using Ctb2 numbering, and it overrides the Ctab table. Bass On is the Ctab "Bass" code **or** the Cntt bit 7. This departs from the literal reading of the Wierzba/Bedesem Cntt table, where bit 7 is "Bass on/off" and the Cntt overrides the NTT, so a 01H Cntt would switch Bass On off. We don't follow that reading because in every corpus Cntt style, the Bass channel's Cntt is plain Melody (01H) with bit 7 clear, while its Ctab says Bass. Read literally, every one of those Bass parts would stop following slash chords. The evidence is narrow: all 7 Cntt styles come from one library (`MOX_v2/*.T552.sty`), so the oracle may still overrule this. Every other Cntt either repeats its Ctab table or promotes Harmonic Minor to Harmonic Minor 5th. `Cntt` never overrides a `Ctb2` (SFF2), which already stores NTT and Bass On per zone. No corpus file has both.
 
 ### C.6 Bass-related features
 - **Fingered On Bass:** Uses the lowest chord-section note as the slash bass. Only channels with NTT Bass = On follow it. Ref: RM p.9, p.31

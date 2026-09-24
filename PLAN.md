@@ -19,7 +19,7 @@ Every extension uses the same container. It is a **type-0 Standard MIDI File** w
 **Markers in the MIDI track:**
 - Measure 1 holds `SFF1` or `SFF2` (the format flag), the style name, then `SInt`. After `SInt` come bank select, program change, volume, reverb and chorus sends, and XG effect SysEx for each channel.
 - The sections follow from measure 2: `Intro A–C`, `Main A–D`, `Fill In AA/BB/CC/DD`, `Fill In BA` (= Break), `Ending A–C`.
-- Newer instruments re-apply `SInt` every time the section changes. yahaha should do the same.
+- Newer instruments re-apply `SInt` every time the section changes. yahaha does, sending only what a pattern changed since: resending all of it (a program change per part, the drum setup SysEx) queued hundreds of bytes ahead of every section's first notes.
 
 **Parts.** Output lands on the 8 accompaniment channels:
 
@@ -163,7 +163,7 @@ The NTT tables are not published. The one open-source SFF2 tool (sff2-tools) ski
    - Melody = scale-degree mapping for the new chord type.
    - Chord = map the "most important" notes of the source chord to the target chord's most important notes. For 4-note chords that means dropping the root first; for 5-note chords, the root and the 5th. No doubled notes.
    - Melodic and Harmonic minor = lower or raise the 3rd, or the 3rd and 6th.
-   - Guitar NTR = source notes B, A, G, F, E, D mapped to strings 1–6; C/C# = root/5th; the octave selects the fret position.
+   - Guitar NTR = string codes: a key's pitch class picks a string of a guitar voicing of the target chord (B..D = strings 1..6, C the bass, C# its fifth), its octave the neck position; keys from 96 are MegaVoice noises and pass through. Stroke mutes strings below the bass, Arpeggio puts four chord voices on strings 1-4. See docs/genos-features.md, "Guitar NTR voicing model".
    - High Key and Note Limit examples are given explicitly in the spec. Encode them as unit tests.
 2. **Read JJazzLab's YamJJazz engine (Java, LGPL-2.1).** It is the most mature open-source Yamaha style player. Use it for approach, not as copied code.
 3. **Get ground truth from an oracle**, best first:
@@ -205,7 +205,7 @@ Keep the corpus git-ignored and never redistribute it. Reverse engineering the f
 ## 7. Open questions
 
 - The undocumented Ctb2 bytes 40–46. They matter for drum channels. Compare channels that differ only in these bytes using the oracle.
-- The "Note generator" RTR and the `Cntt` override precedence.
+- The "Note generator" RTR. (`Cntt` precedence is settled from corpus evidence in #14. See "SFF1 encoding" in docs/genos-features.md.)
 - Whether a Genos-era style carries chunks that the 2015 spec doesn't cover. M0's dump will flag any unknown chunk IDs.
 - +Audio style audio storage. See the "Audio Style file format" write-up at sandsoftwaresound.net before M6.
 
