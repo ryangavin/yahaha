@@ -62,6 +62,10 @@ export class TauriSession implements Session {
     return invoke<Meters>('meters')
   }
 
+  pluginEditor(part: number, open: boolean) {
+    invoke(open ? 'open_plugin_editor' : 'close_plugin_editor', { part }).catch(() => {})
+  }
+
   dispose() {
     this.unlisten?.()
     this.subs.clear()

@@ -145,6 +145,12 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | **Voice +** | Steps the selected part (the lit Edit pad) to the next voice. | Voice select | `0` | Pad page 3 (OTS/Parts), top row, pad 8 |
 | **Octave −** | Shifts this part down an octave (down to −2). OTS recalls set it too. | Voice Setting → Tune → Octave | — | — |
 | **Octave +** | Shifts this part up an octave (up to +2). OTS recalls set it too. | Voice Setting → Tune → Octave | — | — |
+| **GM voices** | Shows the built-in SoundFont voices for this part. A part playing a plugin keeps its SoundFont voice here for when you go back to it. | Voice select (VOICE buttons) | — | — |
+| **Library** | Shows your sound library's patches for this part. A dot means the part plays one of its own. | Voice Selection | — | — |
+| **Plugins** | Shows your instrument plugins (Audio Units) for this part. A dot means the part plays one. | — | — | — |
+| **Plugin** | Plays this part on an instrument plugin instead of its SoundFont voice. It loads in the background, and the part keeps its SoundFont voice until the plugin is ready. The fader stays the part's volume (CC 7). | — | — | — |
+| **Edit plugin** | Opens the plugin's own window to change its sound. yahaha keeps the plugin's settings with the part. | — | — | — |
+| **Rescan plugins** | Looks for newly installed or removed instrument plugins. A ⚠ in the list marks a plugin that failed to load last time. | — | — | — |
 | **Voice** | Picks this part's voice. Under Manual Bass, Left plays the style's Bass voice instead, and this is the voice it goes back to. | Voice select (VOICE buttons) | — | Pad page 3 (OTS/Parts): the Edit pads (bottom row, pads 5–8) pick the part, Voice −/+ (top row, pads 7–8) step its voice |
 | **Layer** | The Right parts that are on all sound together on every key above the split: that's a layer. Turn on Right 1 and Right 2 to stack, for example, piano and strings. | PART ON/OFF (Right 1–3 layered) | `5` `6` `7` | Panel fader page: buttons under faders 1–3 |
 | **Left hand** | Left plays the keys at and below the split point, with its own voice. Under Manual Bass it plays the style's Bass voice there instead, and the band's own bass goes quiet. | Split Point (Left) | — | — |
@@ -162,6 +168,7 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | **Left volume** | Left's volume. The fader is channel 2's CC 7 itself, with no hidden gain behind it; under Manual Bass it is the bass's level too. | Mixer › Panel › Left Volume | — | Panel fader page: fader 4 |
 | **Style part volume** | This band part's volume. The fader is its channel's CC 7 itself (channels 9–16), with no hidden gain behind it. Loading a style sets the faders to the style's own levels, and a pattern that changes its volume moves the fader too, until you move it yourself. | Mixer › Style › Volume | — | Style fader page: faders 1–8 (Rhythm 1 … Phrase 2) |
 | **Style part on/off** | Mutes or unmutes this band part. The Launchkey button is lit while the part plays. | Channel On/Off | `Z` `X` `C` `V` `B` `N` `M` `,` | Style fader page: buttons under faders 1–8 |
+| **Plugin part** | This part plays an instrument plugin, shown with its share of the CPU. Its fader is still the part's CC 7, applied to the plugin's output. | — | — | — |
 | **Master volume** | The built-in synth's output level (100 = unity), the only gain after the channel faders. A safety soft clipper above −1 dBFS keeps loud passages from hard clipping; below that the output is untouched. It does not change the MIDI output. | MASTER VOLUME | — | Master fader (both fader pages) |
 | **Solo** | Plays only this part, even if it is switched off; press again to end the solo. The Style tab solos a band part, the Panel tab a keyboard part, and the On switches stay as they were. | Mixer › touch and hold a channel (Solo) | — | — |
 | **Style Track Mute** | A knob for the band: fully left leaves one part on, and turning it up brings the others in one by one until all eight play. It switches the Style parts on and off, so the On buttons follow it. | Live Control › Style Track Mute A/B (StyMuteA, StyMuteB) | — | — |

@@ -14,8 +14,12 @@ Status:
   bytes, a real-time rack that applies the part's CC7/CC11 and swaps instances glitch-free,
   editor windows, and `yahaha plugin-test` to measure it all. Nothing in the engine,
   session, API or built-in synth uses it yet, and the default build is unchanged.
-- **Phase 2** (plan at the end): wiring it into the Session, the synth callback, the app
-  and Registration Memory.
+- **Phase 2** (#91, "Phase 2 as built" below): the keyboard parts play Audio Unit
+  instruments. The rack renders in the synth callback behind a per-channel route table,
+  the Session loads plugins asynchronously and saves each part's plugin and state, and the
+  app has a Plugins tab in the voice picker, the editor window and a mixer badge. The
+  desktop app builds with `plugins`. Follow-ups (Registration preload, buffer size, the
+  in-process override) are in #104.
 
 ## Phase 1: the library
 

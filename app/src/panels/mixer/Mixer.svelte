@@ -29,7 +29,7 @@
   import Toggle from '../../lib/ui/Toggle.svelte'
   import HSlider from '../settings/HSlider.svelte'
   import Strip from './Strip.svelte'
-  import { partVoice, styleVoice } from './voice'
+  import { partVoice, pluginBadge, styleVoice } from './voice'
 
   const mixer = $derived(app.state.mixer)
   const page = $derived(mixer.faderPage)
@@ -94,7 +94,11 @@
       onclick: () => app.send({ type: 'togglePart', part: i }),
     },
     voice: partVoice(p),
-    badge: p.playsBass ? { text: 'Plays bass', tip: 'detection.manual_bass' as const } : null,
+    badge: p.playsBass
+      ? { text: 'Plays bass', tip: 'detection.manual_bass' as const }
+      : p.plugin
+        ? { text: pluginBadge(p.plugin), tip: 'mixer.plugin' as const }
+        : null,
     solo: {
       isSolo: mixer.partSolo === i,
       onclick: () => app.send({ type: 'setPartSolo', part: mixer.partSolo === i ? null : i }),

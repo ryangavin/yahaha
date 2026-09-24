@@ -341,7 +341,7 @@ fn silent_input_proc() -> objc2_audio_toolbox::AURenderCallback {
     type Raw = unsafe extern "C-unwind" fn(*mut c_void, *mut AudioUnitRenderActionFlags, *const AudioTimeStamp, u32, u32, *mut AudioBufferList) -> OSStatus;
     let f: Raw = silent_input;
     // SAFETY: same ABI; `NonNull<T>` is guaranteed to have the layout of `*mut T`.
-    Some(unsafe { std::mem::transmute::<Raw, _>(f) })
+    Some(unsafe { std::mem::transmute::<Raw, unsafe extern "C-unwind" fn(NonNull<c_void>, NonNull<AudioUnitRenderActionFlags>, NonNull<AudioTimeStamp>, u32, u32, *mut AudioBufferList) -> OSStatus>(f) })
 }
 
 /// # Safety

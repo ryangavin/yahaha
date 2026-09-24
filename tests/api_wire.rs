@@ -115,6 +115,12 @@ const EVERY_CMD: &[&str] = &[
     r#"{"type":"setPartControllers","part":3,"sustain":false,"pitchBend":true,"modulation":false}"#,
     r#"{"type":"setBendRange","part":0,"semitones":12}"#,
     r#"{"type":"triggerFunction","function":"ots2"}"#,
+    // Instrument plugins
+    r#"{"type":"setPartPlugin","part":0,"id":"aumu dls  appl","state":null}"#,
+    r#"{"type":"setPartPlugin","part":1,"id":"aumu Xf2X XFER","state":"YnBsaXN0MDA="}"#,
+    r#"{"type":"clearPartPlugin","part":0}"#,
+    r#"{"type":"savePartPluginState","part":3}"#,
+    r#"{"type":"rescanPlugins"}"#,
     // Sound library
     r#"{"type":"createPatch","patch":{"name":"My Bass","category":"bass","tags":["warm"],"favourite":false,"source":{"kind":"soundFont","file":"GeneralUser-GS.sf2","bank":0,"program":33},"defaults":{"volume":100,"pan":null,"reverb":20,"chorus":null,"octave":-1}}}"#,
     r#"{"type":"updatePatch","id":"keys","patch":{"name":"Keys","category":"ePiano","tags":[],"favourite":true,"source":{"kind":"plugin","componentId":"aumu dls  appl","state":"AAE="},"defaults":{"volume":null,"pan":64,"reverb":null,"chorus":null,"octave":0}}}"#,

@@ -52,20 +52,24 @@ describe('Keyboard parts drawer', () => {
     await fireEvent.click(strip('Right 1').querySelector('[data-tip="part.octave_up"]')!)
     expect(session.state.keyboardParts[0].octave).toBe(1)
     const pick = strip('Right 2').querySelector('select')!
-    pick.value = 'gm:40'
+    pick.value = '40'
     await fireEvent.change(pick)
     expect(session.state.keyboardParts[1].program).toBe(40)
     // Violin is in the Strings family, which the mock's program map sends to a patch.
     expect(session.state.keyboardParts[1].voiceName).toBe('Silk Strings')
     expect(session.state.keyboardParts[1].patch).toBe(null)
-    // The Library group: a patch of the part's own.
-    pick.value = 'patch:warm-rhodes'
-    await fireEvent.change(pick)
+    // The Library tab: a patch of the part's own.
+    await fireEvent.click(strip('Right 2').querySelector('[data-tip="part.source_library"]')!)
+    const lib = strip('Right 2').querySelector<HTMLSelectElement>('select[data-tip="part.library"]')!
+    lib.value = 'warm-rhodes'
+    await fireEvent.change(lib)
     expect(session.state.keyboardParts[1].patch).toBe('warm-rhodes')
     expect(session.state.keyboardParts[1].voiceName).toBe('Warm Rhodes')
     // A GM voice again: the part's own patch goes.
-    pick.value = 'gm:73'
-    await fireEvent.change(pick)
+    await fireEvent.click(strip('Right 2').querySelector('[data-tip="part.source_gm"]')!)
+    const gm = strip('Right 2').querySelector<HTMLSelectElement>('select[data-tip="part.voice"]')!
+    gm.value = '73'
+    await fireEvent.change(gm)
     expect(session.state.keyboardParts[1].patch).toBe(null)
     expect(session.state.keyboardParts[1].voiceName).toBe('Flute')
   })
