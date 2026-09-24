@@ -45,6 +45,9 @@ pub enum Cmd {
     KeysOff,
     /// The chord-settle window, in ms (`Engine::set_chord_settle`).
     ChordSettle(u32),
+    /// Set the Style controls (section, Sync Start/Stop, Stop ACMP, Style part on/off) to
+    /// given states: a Registration recall.
+    StyleControls(crate::engine::StyleControls),
     /// Chord Looper REC/STOP (`true`) or ON/OFF (`false`).
     Looper(bool),
     /// Solo a Style part (0-7), or end the solo.
@@ -1220,6 +1223,7 @@ fn apply(engine: &mut Engine, shared: &Shared, cmd: Cmd, now: u64, out: &mut Out
         Cmd::Transpose(t) => engine.set_transpose(t, now, out),
         Cmd::StopAudition => {}
         Cmd::ChordSettle(ms) => engine.set_chord_settle(ms as u64 * 1_000_000),
+        Cmd::StyleControls(c) => engine.set_style_controls(c, now, out),
         Cmd::Looper(true) => engine.looper_rec(),
         Cmd::Looper(false) => engine.looper_on_off(),
         Cmd::StyleSolo(p) => engine.set_style_solo(p, out),
@@ -1957,7 +1961,12 @@ mod tests {
         assert!(cmds.pop().is_err() && acts.pop().is_err());
 
         input.pad_msg(&[0xB0, launchkey::PAD_DOWN_CC, 127]);
+        input.pad_msg(&[0xB0, launchkey::PAD_DOWN_CC, 127]);
         input.pad_msg(&[0xB0, launchkey::PAD_DOWN_CC, 127]); // stops at the last page
+        assert_eq!(page(), Page::Registration);
+        input.pad_msg(&[0x90, 113, 100]);
+        assert_eq!(acts.pop(), Ok(Action::Regist(9)));
+        input.pad_msg(&[0xB0, launchkey::PAD_UP_CC, 127]);
         assert_eq!(page(), Page::OtsParts);
         input.pad_msg(&[0x90, 114, 100]);
         assert_eq!(acts.pop(), Ok(Action::PartOnOff(2)));
@@ -2044,7 +2053,8 @@ mod tests {
         shared.step_page(|p| p.cycle(1));
         assert_eq!(Page::from_u8(shared.page.load(Relaxed)), Page::OtsParts);
         shared.step_page(|p| p.step(1));
-        assert_eq!(Page::from_u8(shared.page.load(Relaxed)), Page::OtsParts);
+        shared.step_page(|p| p.step(1));
+        assert_eq!(Page::from_u8(shared.page.load(Relaxed)), Page::Registration);
         shared.step_page(|p| p.cycle(1));
         assert_eq!(Page::from_u8(shared.page.load(Relaxed)), Page::Sections);
     }

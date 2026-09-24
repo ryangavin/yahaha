@@ -137,6 +137,13 @@ impl Control {
         }
     }
 
+    /// The bank the player chose: the one on its way to the engine, else the one playing
+    /// (None: no bank). The multiPad Registrable stores it.
+    pub(super) fn multipad_bank_path(&self) -> Option<&Path> {
+        let m = &self.multipad;
+        m.pending.as_ref().or(m.loaded.as_ref()).and_then(|l| l.bank.as_ref()).map(|b| b.2.as_path())
+    }
+
     /// Parse bank `id` and hand its player to the engine.
     fn load_bank(&mut self, id: usize) -> Result<(), CmdError> {
         let Some(f) = self.multipad.entry(id).cloned() else {

@@ -190,10 +190,6 @@ const fn f(id: Function, name: &'static str, category: Category, kind: Kind) -> 
     FunctionInfo { id, name, category, kind, available: true }
 }
 
-const fn later(id: Function, name: &'static str, category: Category, kind: Kind) -> FunctionInfo {
-    FunctionInfo { id, name, category, kind, available: false }
-}
-
 use Category::*;
 use Kind::*;
 
@@ -233,8 +229,8 @@ pub const FUNCTIONS: [FunctionInfo; 44] = [
     f(Function::Ots4, "One Touch Setting 4", Ots, Trigger),
     f(Function::OtsNext, "One Touch Setting +", Ots, Trigger),
     f(Function::OtsPrev, "One Touch Setting −", Ots, Trigger),
-    later(Function::RegistBankNext, "Registration Bank +", Registration, Trigger),
-    later(Function::RegistBankPrev, "Registration Bank −", Registration, Trigger),
+    f(Function::RegistBankNext, "Registration Bank +", Registration, Trigger),
+    f(Function::RegistBankPrev, "Registration Bank −", Registration, Trigger),
     f(Function::TempoUp, "Tempo +", Overall, Trigger),
     f(Function::TempoDown, "Tempo −", Overall, Trigger),
     f(Function::TapTempo, "Tap Tempo", Overall, Trigger),

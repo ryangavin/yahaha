@@ -20,6 +20,8 @@ const PART_ON: TipKey[] = ['part.right1.on', 'part.right2.on', 'part.right3.on',
 const PART_SELECT: TipKey[] = ['part.right1.select', 'part.right2.select', 'part.right3.select', 'part.left.select']
 const PART_VOLUME: TipKey[] = ['mixer.panel.right1', 'mixer.panel.right2', 'mixer.panel.right3', 'mixer.panel.left']
 const OTS: TipKey[] = ['ots.1', 'ots.2', 'ots.3', 'ots.4']
+const REGIST: TipKey[] = ['regist.1', 'regist.2', 'regist.3', 'regist.4', 'regist.5', 'regist.6', 'regist.7', 'regist.8', 'regist.9', 'regist.10']
+const PAGE: Record<string, TipKey> = { sections: 'padpage.sections', chordSetup: 'padpage.chord_setup', otsParts: 'padpage.ots_parts', registration: 'padpage.registration' }
 
 /** The catalog entry for a command; an unused pad (null) has its own. */
 export function tipFor(cmd: AppCmd | null): TipKey {
@@ -63,7 +65,7 @@ export function tipFor(cmd: AppCmd | null): TipKey {
     case 'setPartOctave': return 'part.octave_up'
     case 'setFaderPage':
     case 'toggleFaderPage': return 'mixer.page'
-    case 'setPadPage': return cmd.page === 'sections' ? 'padpage.sections' : cmd.page === 'chordSetup' ? 'padpage.chord_setup' : 'padpage.ots_parts'
+    case 'setPadPage': return PAGE[cmd.page]
     case 'cyclePadPage': return cmd.delta < 0 ? 'padpage.prev' : 'padpage.next'
     case 'setMasterVolume': return 'mixer.master'
     case 'recallOts': return OTS[cmd.index]
@@ -85,6 +87,39 @@ export function tipFor(cmd: AppCmd | null): TipKey {
     case 'setMidiInputs': return cmd.all ? 'midi.merge_all' : 'midi.input'
     case 'setPaletteLeds': return 'midi.palette_leds'
     case 'rescanLibrary': return 'settings.rescan'
+    // Registration Memory
+    case 'pressRegist':
+    case 'recallRegist': return REGIST[cmd.index]
+    case 'memorizeRegist':
+    case 'toggleRegistMemory': return 'regist.memory'
+    case 'setMemorizeGroup': return 'regist.memorize_group'
+    case 'clearRegist': return 'regist.clear'
+    case 'renameRegist': return 'regist.rename'
+    case 'stepRegistBank': return cmd.delta < 0 ? 'regist.bank_prev' : 'regist.bank_next'
+    case 'selectRegistBank': return 'regist.bank'
+    case 'newRegistBank': return 'regist.new_bank'
+    case 'saveRegistBank': return 'regist.save_bank'
+    case 'setFreeze':
+    case 'toggleFreeze': return 'regist.freeze'
+    case 'setFreezeGroup': return 'regist.freeze_group'
+    case 'setRegistSequence': return 'regist.sequence_steps'
+    case 'setRegistSequenceOn':
+    case 'toggleRegistSequence': return 'regist.sequence_on'
+    case 'stepRegistSequence': return cmd.delta < 0 ? 'regist.seq_prev' : 'regist.seq_next'
+    // Playlist
+    case 'newPlaylist': return 'playlist.new'
+    case 'loadPlaylist': return 'playlist.file'
+    case 'savePlaylist': return 'playlist.save'
+    case 'addPlaylistRecord':
+    case 'addCurrentBank': return 'playlist.add_bank'
+    case 'addCurrentStyle': return 'playlist.add_style'
+    case 'appendPlaylist': return 'playlist.append'
+    case 'setPlaylistRecord': return 'playlist.edit'
+    case 'movePlaylistRecord': return cmd.delta < 0 ? 'playlist.up' : 'playlist.down'
+    case 'deletePlaylistRecord': return 'playlist.delete'
+    case 'setPlaylistSort': return 'playlist.sort'
+    case 'loadPlaylistRecord': return 'playlist.record'
+    case 'stepPlaylist': return cmd.delta < 0 ? 'playlist.prev' : 'playlist.next'
     case 'setTempo': return 'display.tempo'
     case 'setStyleSolo':
     case 'setPartSolo': return 'mixer.solo'

@@ -171,6 +171,8 @@ The screen shows `sus` beside each part the pedal is holding.
 - `5 6 7 8` Right 1, Right 2, Right 3, Left on/off · `l` Left on/off
 - `F1`–`F4` pick the part to edit (Right 1–3, Left) · `9 0` previous/next voice for it
 - `F9` fader page Panel / Style
+- `Q W E R T Y U I O P` (with Shift) Registration Memory 1–10 · `F5` Memory (the next button memorizes) · `F6` Freeze
+- `F7 F8` Regist −/+ (the Registration Sequence) · `F11 F12` Registration bank −/+ (on macOS, F11 is Show Desktop until you turn that shortcut off in System Settings › Keyboard) · `< >` previous/next Playlist record
 - `←/→` previous/next style, in the style browser's order (folder, then name)
 - `enter` open the style browser (see below)
 - `tab` / `shift+tab` next/previous pad page
