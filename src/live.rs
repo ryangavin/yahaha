@@ -11,7 +11,7 @@
 //! non-blocking semaphore signal; the engine only sleeps on the semaphore with a timeout
 //! equal to its next deadline.
 
-use crate::engine::{master_volume_of, shift_key, AuditionPos, Button, Engine, Prepared, Snapshot, StyleSettings, Transpose};
+use crate::engine::{shift_key, AuditionPos, Button, Engine, Prepared, Snapshot, StyleSettings, Transpose};
 use crate::fingering::{self, Fingering};
 use crate::launchkey::{self, Action, Control, Page};
 use crate::midi::{for_each_message, InputHandler};
@@ -196,12 +196,8 @@ impl Out {
     pub fn push(&mut self, msg: &[u8]) {
         self.midi.push(msg);
         // The built-in synth takes channel messages only; SysEx (the style's XG effect
-        // setup) is for the port. Master Volume (a fade) is the exception: the synth gets
-        // it as `synth::master_volume_msg`, its own 3-byte form.
+        // setup) is for the port.
         if msg.first() == Some(&0xF0) {
-            if let (Some(v), Some(s)) = (master_volume_of(msg), self.synth.as_mut()) {
-                let _ = s.push(crate::synth::master_volume_msg(v));
-            }
             return;
         }
         if let Some(s) = self.synth.as_mut() {
@@ -1073,6 +1069,8 @@ fn apply(engine: &mut Engine, parts: &Parts, cmd: Cmd, now: u64, out: &mut Out) 
         }
         Cmd::Panic => {
             engine.stop(out);
+            // A fade's hold outlasts the stop: Panic brings the Style's volume back too.
+            engine.fade_cancel(out);
             for ch in 0..16u8 {
                 out.push(&[0xB0 | ch, 123, 0]);
             }

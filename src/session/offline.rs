@@ -103,8 +103,7 @@ impl Session {
     }
 
     /// Offline only: everything played since the last call, as the built-in synth gets
-    /// it (channel messages, and a fade's Master Volume as `synth::master_volume_msg`):
-    /// the band's output, then the keyboard parts'.
+    /// it (channel messages): the band's output, then the keyboard parts'.
     pub fn take_output(&self) -> Vec<[u8; 3]> {
         let mut ctl = self.inner.lock();
         let Some(o) = ctl.offline.as_mut() else { return Vec::new() };

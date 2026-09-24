@@ -325,20 +325,6 @@ pub fn style_bass_program(voice: Option<(u8, u8, u8)>) -> u8 {
 /// standard GM curves (rustysynth: gain = (vel/127)² · ((CC7/127)·(CC11/127))²).
 pub const MASTER_UNITY: u8 = 100;
 
-/// The synth's form of the MIDI Master Volume message (Universal SysEx `F0 7F 7F 04 01 ll
-/// mm F7`, a fade: engine/fade.rs), which does not fit its 3-byte ring: status 0xF0 (never
-/// a channel message), then the 14-bit level's LSB and MSB.
-pub fn master_volume_msg(level: u16) -> Msg {
-    [0xF0, (level & 0x7F) as u8, (level >> 7 & 0x7F) as u8]
-}
-
-/// The gain of a Master Volume level: linear, 1.0 at full (0x3FFF). It multiplies the
-/// master fader's gain.
-#[inline]
-pub fn master_volume_gain(m: &Msg) -> f32 {
-    ((m[2] as u16 & 0x7F) << 7 | (m[1] as u16 & 0x7F)) as f32 / 16383.0
-}
-
 /// Output gain for a master fader value: linear, 1.0 at `MASTER_UNITY`.
 #[inline]
 pub fn master_gain(master: u8) -> f32 {
@@ -447,8 +433,6 @@ pub fn start(sf2: &Path, consumers: Vec<Consumer<Msg>>, out_pair: Option<u8>, pa
     let mut bank = [0u8; 16];
     let mut shadow = Box::new(Shadow::new());
     let mut last_master = 255u8;
-    // Master Volume (a fade), as a gain on top of the master fader.
-    let mut volume = 1.0f32;
     let mut left = vec![0f32; 8192];
     let mut right = vec![0f32; 8192];
     let mut left2 = vec![0f32; 8192];
@@ -472,24 +456,18 @@ pub fn start(sf2: &Path, consumers: Vec<Consumer<Msg>>, out_pair: Option<u8>, pa
         if parts.changed.swap(false, Acquire) {
             sync_player_rack(&mut rack, &parts);
         }
-        let mut new_volume = volume;
-        for c in consumers.iter_mut() {
-            while let Ok(m) = c.pop() {
-                if m[0] == 0xF0 {
-                    new_volume = master_volume_gain(&m);
-                    continue;
-                }
-                shadow.note(&m);
-                apply_rack(&mut rack, &m, &mut bank);
+        let master = ctl.master.load(Relaxed);
+        if master != last_master {
+            last_master = master;
+            rack.set_master_volume(master_gain(master));
+            if let Some(f) = fading.as_mut() {
+                f.set_master_volume(master_gain(master));
             }
         }
-        let master = ctl.master.load(Relaxed);
-        if master != last_master || new_volume != volume {
-            last_master = master;
-            volume = new_volume;
-            rack.set_master_volume(master_gain(master) * volume);
-            if let Some(f) = fading.as_mut() {
-                f.set_master_volume(master_gain(master) * volume);
+        for c in consumers.iter_mut() {
+            while let Ok(m) = c.pop() {
+                shadow.note(&m);
+                apply_rack(&mut rack, &m, &mut bank);
             }
         }
         let frames = (out.len() / channels).min(left.len());
@@ -669,14 +647,6 @@ mod parts_tests {
 #[cfg(test)]
 mod curve_tests {
     use super::*;
-
-    /// A fade's Master Volume reaches the synth as a gain on top of the master fader.
-    #[test]
-    fn master_volume_is_a_linear_gain() {
-        assert_eq!(master_volume_gain(&master_volume_msg(0x3FFF)), 1.0);
-        assert_eq!(master_volume_gain(&master_volume_msg(0)), 0.0);
-        assert!((master_volume_gain(&master_volume_msg(0x2000)) - 0.5).abs() < 1e-3);
-    }
 
     #[test]
     fn master_is_unity_at_default() {

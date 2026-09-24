@@ -1253,10 +1253,16 @@ fn style_settings_fade_and_retrigger_through_the_session() {
     assert_eq!(s.state().transport.fade, FadeState::FadingIn);
     s.advance(400 * MS);
     assert_eq!(s.state().transport.fade, FadeState::Off);
-    // Master Volume went to the synth: silence first, full at the end.
+    // The Style parts' CC7 went to the synth: silence first, the fader value at the end;
+    // no Master Volume, and the keyboard parts' levels untouched.
     let out = s.take_output();
-    let vols: Vec<u16> = out.iter().filter(|m| m[0] == 0xF0).map(|m| (m[2] as u16) << 7 | m[1] as u16).collect();
-    assert_eq!((vols.first(), vols.last()), (Some(&0), Some(&crate::engine::MASTER_VOLUME_FULL)), "{vols:?}");
+    let mixer = s.state().mixer.style_parts.clone();
+    let part = (0..8).max_by_key(|&p| mixer[p].volume).unwrap();
+    let full = mixer[part].volume;
+    let vols: Vec<u8> = out.iter().filter(|m| m[0] == 0xB0 | (8 + part as u8) && m[1] == 7).map(|m| m[2]).collect();
+    let rise = &vols[vols.iter().position(|&v| v == 0).expect("silence first")..];
+    assert_eq!(rise.last(), Some(&full), "{vols:?}");
+    assert!(out.iter().all(|m| m[0] != 0xF0 && !(m[0] & 0xF0 == 0xB0 && m[1] == 7 && m[0] & 0x0F < 8)));
     s.send(TransportCmd::ToggleRetrigger).unwrap();
     assert!(s.state().transport.retrigger);
     // Section Reset: back to bar 1, beat 1.

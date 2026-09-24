@@ -16,10 +16,23 @@ impl Sink for Rec {
 }
 
 impl Rec {
-    /// The Master Volume levels sent, in order.
-    fn volumes(&self) -> Vec<(u64, u16)> {
-        self.msgs.iter().filter_map(|(t, m)| master_volume_of(m).map(|v| (*t, v))).collect()
+    /// The CC7 levels sent on channel `ch`, in order.
+    fn volumes(&self, ch: u8) -> Vec<(u64, u8)> {
+        self.msgs.iter().filter(|(_, m)| m.len() == 3 && m[0] == 0xB0 | ch && m[1] == 7).map(|(t, m)| (*t, m[2])).collect()
     }
+
+    /// Anything a fade must never send: a CC7 outside the Style parts (8-15), or a
+    /// Master Volume.
+    fn outside_style(&self) -> bool {
+        self.msgs.iter().any(|(_, m)| m.starts_with(&[0xF0, 0x7F, 0x7F, 0x04, 0x01]) || (m.len() == 3 && m[0] & 0xF0 == 0xB0 && m[1] == 7 && m[0] & 0x0F < 8))
+    }
+}
+
+/// The Style part with the loudest fader, and its channel.
+fn loudest(e: &Engine) -> (usize, u8) {
+    let p = (0..8).max_by_key(|&p| e.mixer[p]).unwrap();
+    assert!(e.mixer[p] > 20);
+    (p, 8 + p as u8)
 }
 
 fn engine() -> Option<Engine> {
@@ -187,6 +200,55 @@ fn retrigger_loops_the_main_head_from_each_chord() {
     assert!(e.retrigger_on() && !e.features.retrigger.looping);
 }
 
+/// Retrigger chords coming faster than the queued change's wait never hold it off: a Main
+/// (and a style change, and the Ending) queued for the next bar comes at that bar.
+#[test]
+fn retrigger_chords_do_not_hold_off_a_queued_change() {
+    let Some((mut e, mut rec)) = started(StyleSettings { retrigger_rate: 1, ..StyleSettings::default() }) else { return };
+    let (ppq, tpb, beat_ns) = grid(&e);
+    e.button(Button::AutoFill, 0, &mut rec); // off: Main B itself, no fill
+    e.button(Button::Retrigger, 0, &mut rec);
+    let names = ["G", "Am", "Dm", "C"];
+    let mut now = e.ns_at(tpb + 1.5 * ppq);
+    play(&mut e, &mut rec, 0, now);
+    e.button(Button::Main(1), now, &mut rec);
+    let main_b = slot_of(SectionId::Main(1));
+    let due = e.queued.expect("Main B queued").at;
+    e.set_chord(chord("F"), now, &mut rec);
+    assert!(e.features.retrigger.looping, "the chord restarted the Main");
+    assert!(e.queued.is_some_and(|q| (q.at - due).abs() < 1e-6), "the chord moved the change");
+    // A chord every 3 beats.
+    for i in 1..=8 {
+        let next = now + 3 * beat_ns;
+        play(&mut e, &mut rec, now, next);
+        now = next;
+        if e.cur == main_b {
+            break;
+        }
+        e.set_chord(chord(names[i % 4]), now, &mut rec);
+        assert!(e.queued.is_some_and(|q| (q.at - due).abs() < 1e-6), "chord {i} moved the change");
+    }
+    assert_eq!(e.cur, main_b, "Main B came");
+    // And the Ending, the same way: the band stops.
+    let end1 = slot_of(SectionId::Ending(0));
+    if !e.style.has(end1) {
+        return;
+    }
+    e.button(Button::Ending(0), now, &mut rec);
+    for i in 0..16 {
+        if !e.running {
+            break;
+        }
+        let next = now + 3 * beat_ns;
+        play(&mut e, &mut rec, now, next);
+        now = next;
+        if e.running && e.cur != end1 {
+            e.set_chord(chord(names[i % 4]), now, &mut rec);
+        }
+    }
+    assert!(!e.running, "the Ending came and ended");
+}
+
 #[test]
 fn pressing_the_ending_again_slows_down_and_the_tempo_comes_back() {
     let Some((mut e, mut rec)) = started(StyleSettings::default()) else { return };
@@ -227,22 +289,30 @@ fn fade_in_from_start_and_fade_out_to_a_stop_then_hold() {
     let Some(mut e) = engine() else { return };
     e.set_style_settings(s);
     let mut rec = Rec::default();
+    let (p, ch) = loudest(&e);
+    let full = e.mixer[p];
     e.button(Button::Fade, 0, &mut rec);
     assert_eq!(e.fade_state(), FadeState::Armed);
-    assert!(rec.volumes().is_empty(), "arming sends nothing");
+    assert!(rec.msgs.is_empty(), "arming sends nothing");
     e.set_chord(chord("C"), 0, &mut rec);
     assert_eq!(e.fade_state(), FadeState::FadingIn);
-    // Silence goes out before the first note.
-    let first_vol = rec.msgs.iter().position(|(_, m)| master_volume_of(m).is_some()).unwrap();
+    // Every Style part is at 0 before the first note.
     let first_note = rec.msgs.iter().position(|(_, m)| m[0] & 0xF0 == 0x90 && m[2] > 0).unwrap();
-    assert!(first_vol < first_note);
-    assert_eq!(rec.volumes()[0].1, 0);
+    for c in 8..16u8 {
+        let last = rec.msgs[..first_note].iter().rev().find(|(_, m)| m.len() == 3 && m[0] == 0xB0 | c && m[1] == 7);
+        assert!(last.is_none_or(|(_, m)| m[2] == 0), "part {c} at {last:?} before the first note");
+    }
     play(&mut e, &mut rec, 0, 1_100_000_000);
-    let v = rec.volumes();
-    assert!(v.windows(2).all(|w| w[1].1 >= w[0].1), "rising");
-    assert_eq!(v.last().unwrap().1, MASTER_VOLUME_FULL);
-    assert!(v.len() > 50, "steps every 10 ms: {}", v.len());
+    let v = rec.volumes(ch);
+    let rise = &v[v.iter().position(|x| x.1 == 0).unwrap()..];
+    assert!(rise.windows(2).all(|w| w[1].1 >= w[0].1), "rising: {rise:?}");
+    assert_eq!(v.last().unwrap().1, full, "back to the fader value");
+    assert!(rise.len() > 30, "steps as it goes: {}", rise.len());
     assert_eq!(e.fade_state(), FadeState::Off);
+    // The fade is the Style's CC7 alone: no Master Volume, no keyboard part touched, and
+    // the faders never moved.
+    assert!(!rec.outside_style());
+    assert_eq!(e.mixer[p], full);
 
     rec.msgs.clear();
     let t = 2_000_000_000;
@@ -254,29 +324,68 @@ fn fade_in_from_start_and_fade_out_to_a_stop_then_hold() {
     play(&mut e, &mut rec, t + 499_000_000, t + 510_000_000);
     assert!(!e.running, "the fade out's end stops the band");
     assert_eq!(e.fade_state(), FadeState::Holding);
-    assert_eq!(rec.volumes().last().unwrap().1, 0);
+    assert_eq!(rec.volumes(ch).last().unwrap().1, 0);
     // Stopped, the engine still wakes for the hold's end.
     assert_eq!(e.next_deadline(), Some(t + 800_000_000));
     play(&mut e, &mut rec, t + 510_000_000, t + 800_000_000);
     assert_eq!(e.fade_state(), FadeState::Off);
-    assert_eq!(rec.volumes().last(), Some(&(t + 800_000_000, MASTER_VOLUME_FULL)));
+    assert_eq!(rec.volumes(ch).last(), Some(&(t + 800_000_000, full)));
     assert_eq!(e.next_deadline(), None);
+    assert!(!rec.outside_style());
+    assert_eq!(e.mixer[p], full);
+}
+
+/// A fader moved during a fade keeps its value (the mixer shows it) and goes out scaled;
+/// when the fade ends the new value goes out as it is.
+#[test]
+fn a_fader_moved_mid_fade_is_scaled_then_restored() {
+    let s = StyleSettings { fade_out_ms: 1000, ..StyleSettings::default() };
+    let Some((mut e, mut rec)) = started(s) else { return };
+    let (p, ch) = loudest(&e);
+    play(&mut e, &mut rec, 0, 100_000_000);
+    e.button(Button::Fade, 100_000_000, &mut rec);
+    play(&mut e, &mut rec, 100_000_000, 600_000_000);
+    e.set_volume(p as u8, 100, &mut rec);
+    assert_eq!(e.mixer[p], 100);
+    let sent = rec.volumes(ch).last().unwrap().1;
+    assert!((45..=55).contains(&sent), "100 at half way: {sent}");
+    e.button(Button::StartStop, 700_000_000, &mut rec);
+    assert_eq!(rec.volumes(ch).last().unwrap().1, 100);
 }
 
 #[test]
 fn stopping_mid_fade_goes_back_to_full() {
     let Some(mut e) = engine() else { return };
     let mut rec = Rec::default();
+    let (p, ch) = loudest(&e);
     e.button(Button::Fade, 0, &mut rec);
     e.set_chord(chord("C"), 0, &mut rec);
     play(&mut e, &mut rec, 0, 500_000_000);
     e.button(Button::StartStop, 500_000_000, &mut rec);
     assert_eq!(e.fade_state(), FadeState::Off);
-    assert_eq!(rec.volumes().last().unwrap().1, MASTER_VOLUME_FULL);
+    assert_eq!(rec.volumes(ch).last().unwrap().1, e.mixer[p]);
     // Pressed twice while stopped: armed, then not.
     e.button(Button::Fade, 600_000_000, &mut rec);
     e.button(Button::Fade, 700_000_000, &mut rec);
     assert_eq!(e.fade_state(), FadeState::Off);
+}
+
+/// Panic during the hold after a fade out brings the Style's volume back at once.
+#[test]
+fn panic_ends_the_fade_hold() {
+    let s = StyleSettings { fade_out_ms: 100, fade_hold_ms: 5000, ..StyleSettings::default() };
+    let Some((mut e, mut rec)) = started(s) else { return };
+    let (p, ch) = loudest(&e);
+    e.button(Button::Fade, 10_000_000, &mut rec);
+    play(&mut e, &mut rec, 10_000_000, 200_000_000);
+    assert_eq!(e.fade_state(), FadeState::Holding);
+    assert_eq!(rec.volumes(ch).last().unwrap().1, 0);
+    e.stop(&mut rec); // already stopped: does nothing
+    assert_eq!(e.fade_state(), FadeState::Holding);
+    e.fade_cancel(&mut rec);
+    assert_eq!(e.fade_state(), FadeState::Off);
+    assert_eq!(rec.volumes(ch).last().unwrap().1, e.mixer[p]);
+    assert_eq!(e.next_deadline(), None);
 }
 
 #[test]

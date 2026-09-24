@@ -7,7 +7,8 @@
 //! - **Retrigger**: while on, each chord played in a Main restarts the Main at the chord,
 //!   and from then on only its head plays, `4 / rate` beats long (a whole note .. a 32nd),
 //!   repeating, until a section change or Retrigger goes off (then the section plays on
-//!   from where the head is). Only Mains retrigger.
+//!   from where the head is). Only Mains retrigger. A change already queued keeps its
+//!   time (a chord does not move the bar grid it was queued on).
 
 use super::*;
 
@@ -67,7 +68,12 @@ impl Engine {
             return;
         }
         self.features.retrigger.looping = true;
-        self.reset_section(now, sink);
+        // Only the section restarts: a change queued (a Main, an Ending, a fill, a style)
+        // keeps its time. Moving it to the new grid, as Section Reset does, would push it
+        // back with every chord, and with chords coming faster than a bar it would never
+        // come.
+        let at = self.tick_at(now);
+        self.restart_section(at, now, sink);
     }
 
     /// Style Section Reset: the section playing starts again from its top at `now`; a

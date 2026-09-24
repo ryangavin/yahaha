@@ -30,7 +30,7 @@ use mirror::{Mirror, NRPN_BIT, UNSENT};
 use sections::Change;
 pub use mixer::{Takeover, HW_UNKNOWN};
 use prepared::PKind;
-pub use fade::{master_volume_msg, master_volume_of, FadeState, FULL as MASTER_VOLUME_FULL};
+pub use fade::FadeState;
 pub use prepared::{id_of, slot_of, Msgs, PSection, Prepared, NUM_SLOTS};
 pub use ritardando::RIT_END;
 pub use timing::{IntroEndingTiming, MainTiming, StyleSettings, MAX_FADE_HOLD_MS, MAX_FADE_MS, MAX_SYNC_STOP_WINDOW_MS, RETRIGGER_RATES};

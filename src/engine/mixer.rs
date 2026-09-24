@@ -93,15 +93,18 @@ impl Engine {
             return;
         }
         self.set_mixer(p, val);
-        self.mirror.send(sink, &[0xB0 | ch, 7, val]);
+        let v = self.faded(val);
+        self.mirror.send(sink, &[0xB0 | ch, 7, v]);
     }
 
-    /// A part fader (0..8) moved to `value`: sent as that part's CC7, unchanged.
+    /// A part fader (0..8) moved to `value`: sent as that part's CC7, unchanged (scaled only
+    /// while a Fade In/Out runs: fade.rs).
     pub fn set_volume(&mut self, part: u8, value: u8, sink: &mut impl Sink) {
         let p = (part & 7) as usize;
         let v = value.min(127);
         self.mixer[p] = v;
         self.user_set |= 1 << p;
+        let v = self.faded(v);
         self.mirror.send(sink, &[0xB0 | (8 + p as u8), 7, v]);
     }
 

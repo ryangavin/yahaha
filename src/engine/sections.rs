@@ -223,7 +223,7 @@ impl Engine {
                 }
                 if cc == 7 && (8..16).contains(&d) {
                     let p = d as usize - 8;
-                    if self.user_set & (1 << p) == 0 && (self.mixer[p] != val || self.mirror.cc[d as usize][7] != val) {
+                    if self.user_set & (1 << p) == 0 && (self.mixer[p] != val || self.mirror.cc[d as usize][7] != self.faded(val)) {
                         self.pattern_volume(d, val, sink);
                     }
                 } else if self.mirror.cc[d as usize][cc as usize] != val {

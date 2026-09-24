@@ -2,36 +2,23 @@
 //! while it plays, the style fades out and stops, and the volume stays at 0 for the Fade
 //! Out Hold Time before it comes back.
 //!
-//! The fade is the instrument's volume, not a part's: yahaha sends it as the MIDI
-//! Universal Master Volume message (`F0 7F 7F 04 01 ll mm F7`), to the port and the
-//! built-in synth alike (`live::Out` hands it to the synth, which scales its output by
-//! it). The part faders (CC7) never move. Your playing fades with the band, as on the
-//! Genos, where the hold silences the whole instrument.
+//! The fade is the Style's volume (RM p.142: "the Style/Song volume"), not the
+//! instrument's: your own playing (Right 1-3, Left, the Multi Pads) never fades. It is
+//! made of the Style parts' CC7, the only part volume there is (the mixer principle): while
+//! a fade runs, each Style part's CC7 goes out as its fader value scaled by the fade
+//! position, to the port and the built-in synth alike, so what the wire shows is what
+//! sounds. The faders themselves (`Engine::mixer`, the app's mixer, soft takeover) never
+//! move, and when the fade ends the fader values go out again unchanged. A fader moved, or
+//! a pattern CC7, during a fade goes out scaled too.
 //!
-//! The level follows a fader-like curve: the gain is the square of the fade position,
-//! which moves linearly with time. The engine sends a new level every `STEP_NS` while it
+//! The level follows a fader-like curve: the position moves linearly with time, and CC7
+//! is a squared gain on a GM receiver. The engine sends new levels every `STEP_NS` while it
 //! moves, on its own clock (`hook_wake_ns`), band running or not.
 
 use super::*;
 
 /// How often the level moves during a fade.
 pub(super) const STEP_NS: u64 = 10_000_000;
-/// Full volume, as Master Volume's 14-bit value.
-pub const FULL: u16 = 0x3FFF;
-
-/// The MIDI Universal Real Time SysEx Master Volume message for a 14-bit level.
-pub fn master_volume_msg(level: u16) -> [u8; 8] {
-    let v = level.min(FULL);
-    [0xF0, 0x7F, 0x7F, 0x04, 0x01, (v & 0x7F) as u8, (v >> 7) as u8, 0xF7]
-}
-
-/// The level a Master Volume message sets, if `msg` is one.
-pub fn master_volume_of(msg: &[u8]) -> Option<u16> {
-    match *msg {
-        [0xF0, 0x7F, _, 0x04, 0x01, lsb, msb, 0xF7] => Some((msb as u16 & 0x7F) << 7 | (lsb as u16 & 0x7F)),
-        _ => None,
-    }
-}
 
 /// What the fade is doing, as the state shows it.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -65,17 +52,15 @@ pub(super) struct Fade {
     phase: Phase,
     /// START fades in.
     armed: bool,
-    /// The fade position (the gain is its square), 1 = full.
+    /// The fade position (the Style parts' CC7 scale), 1 = full.
     pos: f32,
-    /// The level last sent.
-    sent: u16,
     /// When the level moves next (during a fade).
     next_ns: u64,
 }
 
 impl Default for Fade {
     fn default() -> Fade {
-        Fade { phase: Phase::Idle, armed: false, pos: 1.0, sent: FULL, next_ns: 0 }
+        Fade { phase: Phase::Idle, armed: false, pos: 1.0, next_ns: 0 }
     }
 }
 
@@ -165,7 +150,27 @@ impl Engine {
                 }
             }
         }
-        self.features.fade.next_ns = now + STEP_NS;
+        if matches!(self.features.fade.phase, Phase::In { .. } | Phase::Out { .. }) {
+            self.features.fade.next_ns = now + STEP_NS;
+        }
+    }
+
+    /// Panic: any fade (or its hold) ends at once, at full volume, and the arming goes.
+    pub fn fade_cancel(&mut self, sink: &mut impl Sink) {
+        self.features.fade.armed = false;
+        self.features.fade.phase = Phase::Idle;
+        self.fade_set(1.0, sink);
+    }
+
+    /// A Style part's level as it goes out: fader value `v` scaled by the fade.
+    #[inline]
+    pub(super) fn faded(&self, v: u8) -> u8 {
+        let pos = self.features.fade.pos;
+        if pos >= 1.0 {
+            v
+        } else {
+            (v as f32 * pos).round() as u8
+        }
     }
 
     /// When the fade needs the engine next (ns), if it is doing anything.
@@ -177,29 +182,20 @@ impl Engine {
         }
     }
 
-    /// Set the fade position and send its level if that changed.
+    /// Set the fade position and send each Style part's level (its fader value scaled)
+    /// where it changed.
     fn fade_set(&mut self, pos: f32, sink: &mut impl Sink) {
         let pos = pos.clamp(0.0, 1.0);
-        let f = &mut self.features.fade;
-        f.pos = pos;
-        let level = (pos * pos * FULL as f32).round() as u16;
-        if level != f.sent {
-            f.sent = level;
-            sink.send(&master_volume_msg(level));
+        if pos == self.features.fade.pos {
+            return;
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn master_volume_round_trips() {
-        for v in [0, 1, 127, 128, 8191, FULL] {
-            assert_eq!(master_volume_of(&master_volume_msg(v)), Some(v));
+        self.features.fade.pos = pos;
+        for p in 0..8u8 {
+            let v = self.faded(self.mixer[p as usize]);
+            let ch = 8 + p;
+            if self.mirror.cc[ch as usize][7] != v {
+                self.mirror.send(sink, &[0xB0 | ch, 7, v]);
+            }
         }
-        assert_eq!(master_volume_msg(FULL), [0xF0, 0x7F, 0x7F, 0x04, 0x01, 0x7F, 0x7F, 0xF7]);
-        assert_eq!(master_volume_of(&[0xF0, 0x43, 0x10, 0x4C, 0, 0, 0x7E, 0xF7]), None);
     }
 }
