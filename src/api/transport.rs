@@ -1,6 +1,6 @@
 //! Sections and transport: the Genos panel buttons the engine runs.
 
-use crate::engine::{Button, StopAcmp};
+use crate::engine::{Button, FadeState, StopAcmp};
 use serde::{Deserialize, Serialize};
 
 use super::Pad;
@@ -46,11 +46,20 @@ pub enum TransportCmd {
     /// Half Bar Fill In on/off, and set.
     ToggleHalfBarFill,
     SetHalfBarFill { on: bool },
-    /// TAP TEMPO: taps set the tempo; stopped, four taps start the style.
+    /// TAP TEMPO: taps set the tempo. While the style plays with Style Section Reset on
+    /// (`styleSettings.sectionReset`, the default), a tap rewinds the section instead.
     TapTempo,
     /// Tempo up/down one step.
     TempoUp,
     TempoDown,
+    /// FADE IN/OUT: stopped, arm (or disarm) a fade in for the next start; playing, fade
+    /// out and stop (`transport.fade`).
+    ToggleFade,
+    /// Style Section Reset: the section playing starts again from its top, now.
+    SectionReset,
+    /// Style Retrigger on/off: while on, each chord played in a Main restarts it and its
+    /// first `styleSettings.retriggerRate`-th note loops (`transport.retrigger`).
+    ToggleRetrigger,
     /// Set the tempo, in BPM (5-500; clamped).
     SetTempo { bpm: u16 },
 }
@@ -81,6 +90,9 @@ impl TransportCmd {
             TransportCmd::FillBreak => Button::Break,
             TransportCmd::ToggleHalfBarFill => Button::HalfBarFill,
             TransportCmd::SetHalfBarFill { on } => Button::SetHalfBarFill(on),
+            TransportCmd::ToggleFade => Button::Fade,
+            TransportCmd::SectionReset => Button::SectionReset,
+            TransportCmd::ToggleRetrigger => Button::Retrigger,
         }
     }
 }
@@ -119,6 +131,13 @@ pub struct TransportState {
     /// Page 1 of the Launchkey pads (sections, Sync Start/Stop, Auto Fill, Tap, Start/Stop),
     /// whatever page the hardware is on: the section lamps exactly as the pads show them.
     pub lamps: Vec<Pad>,
+    /// Fade In/Out: "off", "armed" (stopped; START fades in), "fadingIn", "fadingOut",
+    /// "holding" (faded out and stopped; silent for the hold time).
+    pub fade: FadeState,
+    /// Style Retrigger is on.
+    pub retrigger: bool,
+    /// The Ending is slowing down (pressed again while it plays).
+    pub ritardando: bool,
     /// Half Bar Fill In.
     pub half_bar_fill: bool,
     /// Stop Accompaniment: what a chord sounds on with the band stopped and Sync Start off.

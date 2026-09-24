@@ -54,6 +54,12 @@ export type AppCmd =
   | { type: 'tapTempo' }
   | { type: 'tempoUp' }
   | { type: 'tempoDown' }
+  /** FADE IN/OUT: stopped, arm a fade in; playing, fade out and stop (`transport.fade`). */
+  | { type: 'toggleFade' }
+  /** Style Section Reset: the section playing starts again from its top, now. */
+  | { type: 'sectionReset' }
+  /** Style Retrigger on/off (`transport.retrigger`). */
+  | { type: 'toggleRetrigger' }
   /** Tempo in BPM, 5–500 (clamped). */
   | { type: 'setTempo'; bpm: number }
   | { type: 'toggleStylePart'; part: number }
@@ -130,6 +136,8 @@ export type AppCmd =
   | { type: 'setPaletteLeds'; on: boolean }
   /** Re-walk the style folders (`library.roots`); `library.scanning` while it runs. */
   | { type: 'rescanLibrary' }
+  // Style settings (`styleSettings`)
+  | StyleSettingsCmd
   // Registration Memory and the Playlist (lib/api/registration.ts)
   | RegistrationCmd
   | PlaylistCmd
@@ -197,6 +205,47 @@ export interface StyleChangeState {
   /** The Main (0–3) a style chosen while stopped starts on; null = Off (keep it). */
   sectionSet: number | null
 }
+
+/** Section Change Timing, To Main (and a style change while playing). */
+export type MainTiming = 'immediate' | 'nextBar'
+/** Section Change Timing, Inside Intro/Ending. */
+export type IntroEndingTiming = 'nextBar' | 'endOfSection'
+/** The Style Retrigger lengths: a whole note .. a 32nd. */
+export const RETRIGGER_RATES = [1, 2, 4, 8, 16, 32] as const
+
+/** Genos Style Setting, Tap Tempo › Style Section Reset, Fade and Retrigger settings. */
+export type StyleSettingsCmd =
+  | { type: 'setMainTiming'; timing: MainTiming }
+  | { type: 'setIntroEndingTiming'; timing: IntroEndingTiming }
+  /** 0 = Off, up to 5000. */
+  | { type: 'setSyncStopWindow'; ms: number }
+  /** 0–20000. */
+  | { type: 'setFadeInTime'; ms: number }
+  | { type: 'setFadeOutTime'; ms: number }
+  /** 0–5000. */
+  | { type: 'setFadeHoldTime'; ms: number }
+  | { type: 'setSectionReset'; on: boolean }
+  /** 1, 2, 4, 8, 16 or 32. */
+  | { type: 'setRetriggerRate'; rate: number }
+  /** Positive: shorter. */
+  | { type: 'stepRetriggerRate'; delta: number }
+
+export interface StyleSettingsState {
+  mainTiming: MainTiming
+  introEndingTiming: IntroEndingTiming
+  /** Synchro Stop Window; 0 = Off. */
+  syncStopWindowMs: number
+  fadeInMs: number
+  fadeOutMs: number
+  fadeHoldMs: number
+  /** TAP TEMPO while playing rewinds the section (else sets the tempo). */
+  sectionReset: boolean
+  /** 1, 2, 4, 8, 16 or 32. */
+  retriggerRate: number
+}
+
+/** Fade In/Out: armed = stopped, START fades in; holding = faded out, silent for the hold. */
+export type FadeState = 'off' | 'armed' | 'fadingIn' | 'fadingOut' | 'holding'
 
 /** Notifications; they carry no state (read `state()` / `library()`). */
 export type SessionEvent =
@@ -279,6 +328,12 @@ export interface TransportState {
   /** Half Bar Fill In. */
   halfBarFill: boolean
   stopAcmpMode: StopAcmpMode
+  /** Fade In/Out. */
+  fade: FadeState
+  /** Style Retrigger is on. */
+  retrigger: boolean
+  /** The Ending is slowing down (pressed again while it plays). */
+  ritardando: boolean
 }
 
 export interface ChordState {
@@ -668,6 +723,8 @@ export interface AppState {
   keyboard: KeyboardState
   /** The style preview and the style waiting for the bar line. */
   preview: PreviewState
+  /** Section Change Timing, Synchro Stop Window, fade times, Section Reset, Retrigger length. */
+  styleSettings: StyleSettingsState
   /** Registration Memory: the bank, its ten buttons, Freeze, the Registration Sequence. */
   registration: RegistrationState
   /** The Playlist. */

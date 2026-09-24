@@ -144,8 +144,10 @@ A feature that lives in the engine:
   builds it on the control side);
 - adds **one call** to its own function in the **hook** it needs (`src/engine/hooks.rs`):
   `on_start`, `on_stop`, `on_bar`, `on_beat`, `before_section_change`,
-  `after_section_change`, `on_chord`, `on_style_loaded`; and returns its next deadline from
-  `hook_deadline` if it must act exactly on a tick (a metronome click on a beat line). A
+  `after_section_change`, `on_chord`, `on_style_loaded`, or `on_wake` (every `process`
+  call, band running or not); and returns its next deadline from `hook_deadline` if it
+  must act exactly on a tick (a metronome click on a beat line), or from `hook_wake_ns`
+  for a time in engine nanoseconds that also counts while stopped (a fade's hold). A
   feature that acts between lines (the Chord Looper's chord changes, an arp step) names
   the tick in `hook_due` and acts in `on_due`, which `process` calls there. The
   hooks run at fixed points in a fixed order (the table in hooks.rs; tests there pin it);
@@ -252,6 +254,12 @@ Rules:
   order; add to the end of a group unless there's a reason (and say it).
 - **Real-time rules** (engine, input, audio threads): no allocation, freeing, locks,
   blocking or I/O; no wall clock in the engine. The no-alloc tests must pass.
+- **The mixer rule.** A part's volume is only its CC7, sent unchanged to the synth and
+  the yahaha port; no hidden per-part gain anywhere. The master fader is the only gain
+  that is not a MIDI message. One exception, and it is still CC7: while a Fade In/Out
+  runs (`src/engine/fade.rs`), each Style part's CC7 goes out as its fader value scaled
+  by the fade; the fader value itself never moves and goes out unchanged when the fade
+  ends. The synth gets exactly what the port gets.
 - **Behaviour stays pinned.** The golden digests (`src/golden.rs`, `tests/golden`),
   `yahaha screen` and `yahaha state-json` output only change on purpose.
 

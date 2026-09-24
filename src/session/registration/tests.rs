@@ -55,6 +55,14 @@ struct Panel {
     ots_link: bool,
 }
 
+/// Play on to the middle of the first bar's second beat: a style change asked for
+/// within the first beat comes in at once (Section Change Timing, #94), so a recall that
+/// waits for the bar line must be made later.
+fn past_first_beat(s: &Session) {
+    let beat_ms = 60_000.0 / s.state().transport.tempo;
+    s.advance((beat_ms * 1.5) as u64 * MS);
+}
+
 fn panel(s: &Session) -> Panel {
     let st = s.state();
     Panel {
@@ -202,7 +210,7 @@ fn a_recall_while_playing_changes_style_at_the_bar_line() {
     s.send(RegistrationCmd::MemorizeRegist { index: 0 }).unwrap();
     scramble(&s);
     s.send(TransportCmd::StartStop).unwrap();
-    s.advance(10 * MS);
+    past_first_beat(&s);
     let playing = s.state().style.path.clone();
     s.send(RegistrationCmd::RecallRegist { index: 0 }).unwrap();
     let st = s.state();
@@ -413,7 +421,7 @@ fn double_press_while_playing_keeps_tempo_and_mixer() {
     s.send(RegistrationCmd::MemorizeRegist { index: 1 }).unwrap();
     scramble(&s);
     s.send(TransportCmd::StartStop).unwrap();
-    s.advance(10 * MS);
+    past_first_beat(&s);
     s.send(RegistrationCmd::RecallRegist { index: 0 }).unwrap();
     s.send(RegistrationCmd::RecallRegist { index: 0 }).unwrap(); // double tap
     assert!(s.state().registration.pending, "still waiting for the bar line");
@@ -721,7 +729,7 @@ fn style_chosen_after_a_waiting_recall_keeps_its_own_panel() {
     let own = panel(&s);
     assert!(own.style.contains("SlowWalker"));
     s.send(TransportCmd::StartStop).unwrap();
-    s.advance(10 * MS);
+    past_first_beat(&s);
     s.send(RegistrationCmd::RecallRegist { index: 0 }).unwrap();
     assert!(s.state().registration.pending);
     // Before the bar line the player goes back to SlowWalker (a new load of it).

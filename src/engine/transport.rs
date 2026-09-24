@@ -153,6 +153,7 @@ impl Engine {
 
     /// Chord-zone keys all released (for Sync Stop).
     pub fn chord_released(&mut self, now: u64, sink: &mut impl Sink) {
+        self.sync_window_released();
         // The Chord Looper plays the chords: the keyboard's releases don't count either.
         if self.sync_stop && self.running && !self.looper_owns_chords() {
             self.stop(sink);
@@ -199,10 +200,25 @@ impl Engine {
             Button::FillSelf => self.fill_to(self.main, now),
             Button::HalfBarFill => self.features.fills.half_bar = !self.features.fills.half_bar,
             Button::SetHalfBarFill(on) => self.features.fills.half_bar = on,
-            Button::TempoUp => self.set_bpm_internal(self.bpm + 2.0, now),
-            Button::TempoDown => self.set_bpm_internal(self.bpm - 2.0, now),
-            Button::SetTempo(bpm) => self.set_bpm_internal(bpm as f64, now),
+            Button::TempoUp => {
+                self.rit_tempo(2.0);
+                self.set_bpm_internal(self.bpm + 2.0, now)
+            }
+            Button::TempoDown => {
+                self.rit_tempo(-2.0);
+                self.set_bpm_internal(self.bpm - 2.0, now)
+            }
+            // Playing, with Style Section Reset on: rewind the section (OM p.46).
+            Button::TapTempo if self.running && self.features.settings.section_reset => self.reset_section(now, sink),
+            // A tempo set outright during a ritardando becomes the tempo it slows from.
+            Button::SetTempo(bpm) => {
+                self.set_bpm_internal(bpm as f64, now);
+                self.rit_retempo(now);
+            }
             Button::TapTempo => self.tap(now),
+            Button::SectionReset => self.reset_section(now, sink),
+            Button::Fade => self.fade_button(now, sink),
+            Button::Retrigger => self.toggle_retrigger(),
             Button::Intro(i) => {
                 if !self.running {
                     self.pending_intro = if self.pending_intro == Some(i) { None } else { Some(i) };
@@ -228,7 +244,8 @@ impl Engine {
                 if self.running {
                     match s.resolve(13 + i as usize) {
                         Some(slot) if slot != self.cur => self.queue_at_bar(slot, now),
-                        Some(_) => {}
+                        // The Ending playing, pressed again: ritardando.
+                        Some(_) => self.start_rit(now),
                         None => self.queue_stop_at_bar(now),
                     }
                 }
@@ -265,6 +282,7 @@ impl Engine {
             let iv = (newest - oldest) as f64 / (n - 1) as f64;
             if iv > 0.0 {
                 self.set_bpm_internal(60e9 / iv, now);
+                self.rit_retempo(now);
             }
         }
     }
@@ -318,8 +336,10 @@ impl Engine {
         self.running = false;
         self.queued = None;
         self.all_off(sink);
-        // A style change waiting for the bar line takes over now.
+        // A style change waiting for the bar line takes over now, at its own tempo: a
+        // ritardando's tempo must not come back over it.
         if let Some(p) = self.pending.take() {
+            self.rit_drop();
             let old = self.load(p.style, self.anchor_ns, sink);
             self.retire(old);
         }

@@ -84,6 +84,12 @@ fn all_cmds() -> Vec<AppCmd> {
         AppCmd::Settings(SettingsCmd::NextAudioOutput),
         AppCmd::System(SystemCmd::Panic),
         AppCmd::System(SystemCmd::ClearMessage),
+        AppCmd::Transport(TransportCmd::ToggleFade),
+        AppCmd::Transport(TransportCmd::SectionReset),
+        AppCmd::Transport(TransportCmd::ToggleRetrigger),
+        AppCmd::StyleSettings(StyleSettingsCmd::SetMainTiming { timing: crate::engine::MainTiming::Immediate }),
+        AppCmd::StyleSettings(StyleSettingsCmd::SetFadeOutTime { ms: 1200 }),
+        AppCmd::StyleSettings(StyleSettingsCmd::StepRetriggerRate { delta: 1 }),
         AppCmd::Transport(TransportCmd::SetTempo { bpm: 480 }),
         AppCmd::Mixer(MixerCmd::SetStyleSolo { part: Some(3) }),
         AppCmd::Mixer(MixerCmd::SetPartSolo { part: None }),
@@ -690,7 +696,10 @@ fn launchkey_button_descriptions() {
     let tl = b(&s, "trackPrev");
     assert_eq!((tl.action, tl.level, tl.shift_action), (None, Level::Off, None));
     let play = b(&s, "play");
-    assert_eq!((play.action.clone(), play.colour, play.shift_action, play.shift_label.as_str()), (Some(AppCmd::Transport(TransportCmd::StartStop)), None, Some(AppCmd::Transport(TransportCmd::StartStop)), "PLAY"));
+    assert_eq!((play.action.clone(), play.colour, play.shift_action, play.shift_label.as_str()), (Some(AppCmd::Transport(TransportCmd::StartStop)), None, Some(AppCmd::Transport(TransportCmd::SectionReset)), "RESET"));
+    let stop = b(&s, "stop");
+    assert_eq!((stop.shift_action, stop.shift_label.as_str()), (Some(AppCmd::Transport(TransportCmd::ToggleFade)), "FADE"));
+    assert_eq!(b(&s, "scene").shift_action, Some(AppCmd::StyleSettings(StyleSettingsCmd::StepRetriggerRate { delta: 1 })));
     assert_eq!(b(&s, "scene").action, Some(AppCmd::Transport(TransportCmd::TempoUp)));
     assert_eq!((b(&s, "scene").label.as_str(), b(&s, "function").label.as_str()), ("TEMPO +", "TEMPO -"));
     // Panel faders: Right 1 on (blue), Right 2 off (dim blue).
@@ -1055,9 +1064,10 @@ fn queue_style_waits_for_the_bar_line_and_loads_at_once_when_stopped() {
     let st = s.state();
     assert_eq!((st.style.id, st.preview.queued), (id, None));
     s.send(LibraryCmd::LoadStyle { id: first }).unwrap();
-    // Playing: the next bar line.
+    // Playing, past the bar's first beat (Next Bar: within it, the style changes at
+    // once): the next bar line.
     keys(&s, true, &[36, 40, 43]);
-    s.advance(300 * MS);
+    assert!(advance_until(&s, |st| st.transport.beat >= 2));
     s.send(LibraryCmd::QueueStyle { id }).unwrap();
     let st = s.state();
     assert_eq!((st.style.id, st.preview.queued), (first, Some(id)));
@@ -1067,6 +1077,7 @@ fn queue_style_waits_for_the_bar_line_and_loads_at_once_when_stopped() {
     assert_eq!(st.preview.queued, None);
     assert_eq!(st.transport.section, section, "the section carries on");
     // StepStyle while playing waits too, from the style waiting.
+    assert!(advance_until(&s, |st| st.transport.beat >= 2));
     s.send(LibraryCmd::StepStyle { delta: 1 }).unwrap();
     let waiting = s.state().preview.queued.expect("a style waits");
     assert_ne!(waiting, id);
@@ -1251,6 +1262,49 @@ fn new_state_and_commands_serialize_as_documented() {
         assert!(v["library"].get(k).is_some(), "library.{k}");
     }
     assert!(v["pads"].get("paletteLeds").is_some());
+}
+
+/// Style settings reach the engine and the state; the fade, Retrigger and Section Reset
+/// buttons show in `transport`.
+#[test]
+fn style_settings_fade_and_retrigger_through_the_session() {
+    use crate::engine::FadeState;
+    let Some(s) = offline("SlowWalker.T552.sty") else { return };
+    assert_eq!(s.state().style_settings, StyleSettingsState::default());
+    s.send(StyleSettingsCmd::SetFadeInTime { ms: 300 }).unwrap();
+    s.send(StyleSettingsCmd::SetFadeOutTime { ms: 60_000 }).unwrap();
+    s.send(StyleSettingsCmd::SetRetriggerRate { rate: 12 }).unwrap();
+    s.send(StyleSettingsCmd::SetSyncStopWindow { ms: 700 }).unwrap();
+    let st = s.state().style_settings.clone();
+    assert_eq!((st.fade_in_ms, st.fade_out_ms, st.retrigger_rate, st.sync_stop_window_ms), (300, 20_000, 8, 700), "clamped");
+    // Armed while stopped, then the Sync Start chord fades in.
+    s.send(TransportCmd::ToggleFade).unwrap();
+    assert_eq!(s.state().transport.fade, FadeState::Armed);
+    keys(&s, true, &[36, 40, 43]);
+    assert_eq!(s.state().transport.fade, FadeState::FadingIn);
+    s.advance(400 * MS);
+    assert_eq!(s.state().transport.fade, FadeState::Off);
+    // The Style parts' CC7 went to the synth: silence first, the fader value at the end;
+    // no Master Volume, and the keyboard parts' levels untouched.
+    let out = s.take_output();
+    let mixer = s.state().mixer.style_parts.clone();
+    let part = (0..8).max_by_key(|&p| mixer[p].volume).unwrap();
+    let full = mixer[part].volume;
+    let vols: Vec<u8> = out.iter().filter(|m| m[0] == 0xB0 | (8 + part as u8) && m[1] == 7).map(|m| m[2]).collect();
+    let rise = &vols[vols.iter().position(|&v| v == 0).expect("silence first")..];
+    assert_eq!(rise.last(), Some(&full), "{vols:?}");
+    assert!(out.iter().all(|m| m[0] != 0xF0));
+    for ch in 0..8u8 {
+        let kbd: Vec<u8> = out.iter().filter(|m| m[0] == 0xB0 | ch && m[1] == 7).map(|m| m[2]).collect();
+        assert!(kbd.windows(2).all(|w| w[0] == w[1]), "channel {ch} faded: {kbd:?}");
+    }
+    s.send(TransportCmd::ToggleRetrigger).unwrap();
+    assert!(s.state().transport.retrigger);
+    // Section Reset: back to bar 1, beat 1.
+    assert!(advance_until(&s, |st| st.transport.bar >= 2));
+    s.send(TransportCmd::SectionReset).unwrap();
+    let t = s.state().transport.clone();
+    assert_eq!((t.bar, t.beat), (1, 1));
 }
 
 /// The length of a bar at the state's tempo and time signature.

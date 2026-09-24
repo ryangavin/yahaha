@@ -148,7 +148,11 @@ impl Engine {
         let prev = self.chord;
         self.chord = Some(chord);
         if self.running {
-            if prev.is_some() {
+            // The same chord struck again (after letting go), or a roll or transpose that
+            // came back to it, is no chord change: the Retrigger Rules move nothing (a
+            // Pitch Shift to Root bass would otherwise jump to the root at every
+            // re-strike). The notes held back still start.
+            if prev.is_some_and(|p| p != chord) {
                 self.revoice(chord, u.first, now, sink);
             }
             self.catch_up(prev, chord, u.first, now, sink);

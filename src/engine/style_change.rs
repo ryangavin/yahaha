@@ -88,6 +88,7 @@ impl Engine {
             // load while stopped leaves it.
             self.running = false;
             self.sync_armed = true;
+            self.rit_drop();
             let bpm = self.tempo_after_change();
             self.set_bpm_internal(bpm, ns_b);
             self.parts_after_change();
@@ -131,6 +132,7 @@ impl Engine {
         self.sec_start = 0.0;
         self.seek(pos);
         self.lines_from(pos);
+        self.rit_rebase();
         if let Some(q) = later {
             let t = |x: f64| pos + (x - at) / old_ppq * ppq;
             self.queued = Some(Queued { slot: if q.slot == usize::MAX { q.slot } else { self.style.resolve(q.slot).unwrap_or(new_slot) }, at: t(q.at), sec_start: t(q.sec_start) });

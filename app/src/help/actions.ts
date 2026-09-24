@@ -100,6 +100,18 @@ export function tipFor(cmd: AppCmd | null): TipKey {
     case 'setMidiInputs': return cmd.all ? 'midi.merge_all' : 'midi.input'
     case 'setPaletteLeds': return 'midi.palette_leds'
     case 'rescanLibrary': return 'settings.rescan'
+    case 'toggleFade': return 'transport.fade'
+    case 'sectionReset': return 'transport.section_reset'
+    case 'toggleRetrigger': return 'transport.retrigger'
+    case 'stepRetriggerRate': return cmd.delta < 0 ? 'transport.retrigger_longer' : 'transport.retrigger_shorter'
+    case 'setRetriggerRate': return 'settings.retrigger_rate'
+    case 'setMainTiming': return 'settings.section_timing'
+    case 'setIntroEndingTiming': return 'settings.intro_ending_timing'
+    case 'setSyncStopWindow': return 'settings.synchro_stop_window'
+    case 'setFadeInTime': return 'settings.fade_in'
+    case 'setFadeOutTime': return 'settings.fade_out'
+    case 'setFadeHoldTime': return 'settings.fade_hold'
+    case 'setSectionReset': return 'settings.section_reset'
     // Registration Memory
     case 'pressRegist':
     case 'recallRegist': return REGIST[cmd.index]

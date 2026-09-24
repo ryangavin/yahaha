@@ -31,6 +31,9 @@ impl Control {
             lamps: self.pads(&v.pnl, Page::Sections),
             half_bar_fill: s.half_bar_fill,
             stop_acmp_mode: s.stop_acmp_mode.into(),
+            fade: s.fade,
+            retrigger: s.retrigger,
+            ritardando: s.ritardando,
         }
     }
 }
