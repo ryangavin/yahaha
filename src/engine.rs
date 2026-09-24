@@ -11,6 +11,8 @@
 
 mod chords;
 mod hooks;
+mod looper;
+mod metronome;
 mod mirror;
 mod mixer;
 mod multipad;
@@ -25,6 +27,7 @@ mod transport;
 use hooks::{Features, Lines};
 use mirror::{Mirror, NRPN_BIT, UNSENT};
 use sections::Change;
+pub use looper::{LoopState, LooperSnap};
 pub use mixer::{Takeover, HW_UNKNOWN};
 pub use multipad::{PadCmd, PadsSnap, SynchroStop, PAD_PPQ};
 use prepared::PKind;
@@ -42,7 +45,15 @@ pub trait Sink {
     /// was sent with (the engine has already sent the pitch bend). MIDI sinks ignore it; the
     /// sim listing uses it to show the pitch that sounds.
     fn retune(&mut self, _ch: u8, _semis: i8) {}
+
+    /// A metronome click (`accent`: the bell on beat 1), for the built-in synth's click
+    /// voice only: it never goes out as MIDI. Sinks without a synth ignore it.
+    fn click(&mut self, _accent: bool) {}
 }
+
+/// The tempo range, BPM (Genos: 5-500, OM p.46, p.133).
+pub const MIN_BPM: f64 = 5.0;
+pub const MAX_BPM: f64 = 500.0;
 
 /// Pitch bend range (RPN 0) a part has before the style sets one: the GM/XG default.
 pub const GM_BEND_RANGE: u8 = 2;
@@ -115,6 +126,8 @@ pub enum Button {
     TapTempo,
     TempoUp,
     TempoDown,
+    /// Set the tempo (BPM; clamped to `MIN_BPM`..=`MAX_BPM`).
+    SetTempo(u16),
     TogglePart(u8),
     StopAcmp,
 }
@@ -158,6 +171,10 @@ pub struct Snapshot {
     /// A style preview playing beside the (stopped) band (`live::EngineLoop`); the engine
     /// itself always reports None.
     pub audition: Option<AuditionPos>,
+    /// The Chord Looper.
+    pub looper: LooperSnap,
+    /// The Style part soloed (0-7), if any.
+    pub style_solo: Option<u8>,
     /// Multi Pads: the bank playing and each pad's state (engine/multipad.rs).
     pub multipad: PadsSnap,
 }
@@ -341,7 +358,6 @@ pub struct Engine {
     /// Where the pattern's notes held back while the chord settles begin.
     hold: Option<Hold>,
     /// The engine-side state of the features that plug into the hooks (hooks.rs).
-    #[allow(dead_code)]
     features: Features,
     /// Pitch bends that did not fit the output range and were clamped.
     #[cfg(test)]
@@ -469,15 +485,19 @@ impl Engine {
                 _ => 0,
             },
             audition: None,
+            looper: self.looper_snapshot(),
+            style_solo: self.features.solo,
             multipad: self.pads_snapshot(),
         }
     }
 
     /// Time of the next thing the engine needs to do: if running, or a chord change is
-    /// waiting to settle (settle.rs).
+    /// waiting to settle (settle.rs), or the stopped metronome ticks.
     pub fn next_deadline(&self) -> Option<u64> {
         if !self.running {
-            return self.settle_at();
+            // Stopped, only the metronome keeps time, and a chord change Stop
+            // Accompaniment (or a Chord Match pad) waits on settles.
+            return [self.settle_at(), self.metronome_idle_deadline()].into_iter().flatten().min();
         }
         let sec = self.style.sections[self.cur].as_ref()?;
         let mut t = self.sec_start + sec.len as f64;

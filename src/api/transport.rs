@@ -38,6 +38,8 @@ pub enum TransportCmd {
     /// Tempo up/down one step.
     TempoUp,
     TempoDown,
+    /// Set the tempo, in BPM (5-500; clamped).
+    SetTempo { bpm: u16 },
 }
 
 impl TransportCmd {
@@ -57,6 +59,7 @@ impl TransportCmd {
             TransportCmd::TapTempo => Button::TapTempo,
             TransportCmd::TempoUp => Button::TempoUp,
             TransportCmd::TempoDown => Button::TempoDown,
+            TransportCmd::SetTempo { bpm } => Button::SetTempo(bpm),
             TransportCmd::ToggleStopAcmp => Button::StopAcmp,
         }
     }

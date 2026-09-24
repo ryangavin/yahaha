@@ -29,8 +29,12 @@ const EVERY_CMD: &[&str] = &[
     r#"{"type":"tapTempo"}"#,
     r#"{"type":"tempoUp"}"#,
     r#"{"type":"tempoDown"}"#,
+    r#"{"type":"setTempo","bpm":480}"#,
     r#"{"type":"toggleStylePart","part":5}"#,
     r#"{"type":"setStylePartVolume","part":2,"volume":90}"#,
+    r#"{"type":"setStyleSolo","part":3}"#,
+    r#"{"type":"setStyleSolo","part":null}"#,
+    r#"{"type":"styleTrackMute","order":"b","value":64}"#,
     // Chord detection, split, transpose
     r#"{"type":"setFingering","fingering":"aiFullKeyboard"}"#,
     r#"{"type":"setFingering","fingering":"fingered"}"#,
@@ -53,6 +57,7 @@ const EVERY_CMD: &[&str] = &[
     r#"{"type":"stepVoice","delta":-1}"#,
     r#"{"type":"setPartVolume","part":1,"volume":64}"#,
     r#"{"type":"setPartOctave","part":2,"octave":-2}"#,
+    r#"{"type":"setPartSolo","part":1}"#,
     // Mixer, Launchkey pages, synth
     r#"{"type":"setFaderPage","page":"style"}"#,
     r#"{"type":"toggleFaderPage"}"#,
@@ -80,6 +85,18 @@ const EVERY_CMD: &[&str] = &[
     r#"{"type":"stepStyle","delta":-1}"#,
     r#"{"type":"auditionStyle","id":3}"#,
     r#"{"type":"stopAudition"}"#,
+    // Chord Looper
+    r#"{"type":"looperRec"}"#,
+    r#"{"type":"looperOnOff"}"#,
+    r#"{"type":"selectLooperMemory","index":2}"#,
+    r#"{"type":"storeLooperMemory","index":7}"#,
+    r#"{"type":"clearLooperMemory","index":0}"#,
+    r#"{"type":"newLooperBank"}"#,
+    // Metronome
+    r#"{"type":"toggleMetronome"}"#,
+    r#"{"type":"setMetronome","on":true}"#,
+    r#"{"type":"setMetronomeVolume","volume":70}"#,
+    r#"{"type":"setMetronomeBell","on":false}"#,
     // Multi Pads
     r#"{"type":"loadMultiPad","id":2}"#,
     r#"{"type":"loadMultiPadPath","path":"/tmp/Demo.pad"}"#,

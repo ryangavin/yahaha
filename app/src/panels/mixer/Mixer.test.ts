@@ -86,11 +86,50 @@ describe('Mixer drawer', () => {
     expect(pad.querySelector('.hw')).not.toBeNull()
   })
 
-  it('Solo is disabled (the engine has none yet) but explained', () => {
-    setup()
-    const solo = document.querySelectorAll<HTMLButtonElement>('button[data-tip="mixer.solo"]')
-    expect(solo).toHaveLength(4)
-    expect([...solo].every((b) => b.getAttribute('aria-disabled') === 'true')).toBe(true)
+  it('Solo solos a keyboard part on the Panel tab and a band part on the Style tab; again ends it', async () => {
+    const s = setup()
+    const solos = () => [...document.querySelectorAll<HTMLButtonElement>('button[data-tip="mixer.solo"]')]
+    expect(solos()).toHaveLength(4)
+    await fireEvent.click(solos()[1])
+    flushSync()
+    expect(s.state.mixer.partSolo).toBe(1)
+    expect(s.state.keyboardParts.map((p) => p.sounding)).toEqual([false, true, false, false])
+    expect(solos()[1].getAttribute('aria-pressed')).toBe('true')
+    await fireEvent.click(solos()[1])
+    flushSync()
+    expect(s.state.mixer.partSolo).toBeNull()
+    await fireEvent.click(tab('Style'))
+    flushSync()
+    expect(solos()).toHaveLength(8)
+    await fireEvent.click(solos()[2])
+    flushSync()
+    expect(s.state.mixer.styleSolo).toBe(2)
+    expect(s.state.mixer.partSolo).toBeNull()
+  })
+
+  it('the metronome and Style Track Mute', async () => {
+    const s = setup()
+    const metronome = document.querySelector<HTMLButtonElement>('button[data-tip="metronome.on"]')!
+    await fireEvent.click(metronome)
+    flushSync()
+    expect(s.state.metronome.on).toBe(true)
+    expect(document.querySelector('[data-tip="mixer.track_mute"]')).toBeNull()
+    await fireEvent.click(tab('Style'))
+    flushSync()
+    // Two parts switched off by hand: choosing an order leaves them off (it only chooses
+    // what the knob does next).
+    s.send({ type: 'toggleStylePart', part: 0 })
+    s.send({ type: 'toggleStylePart', part: 5 })
+    flushSync()
+    const b = [...document.querySelectorAll<HTMLButtonElement>('button[data-tip="mixer.track_mute_order"]')].find((x) => x.textContent === 'B')!
+    await fireEvent.click(b)
+    flushSync()
+    expect(b.getAttribute('aria-pressed')).toBe('true')
+    expect(s.state.mixer.styleParts.filter((p) => !p.on)).toHaveLength(2)
+    const knob = document.querySelector<HTMLElement>('[data-tip="mixer.track_mute"]')!
+    await fireEvent.keyDown(knob, { key: 'Home' })
+    flushSync()
+    expect(s.state.mixer.styleParts.map((p) => p.on)).toEqual([false, false, false, true, false, false, false, false])
   })
 
   it('every control has a tooltip, on both tabs', async () => {

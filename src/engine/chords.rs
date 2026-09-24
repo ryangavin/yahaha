@@ -21,11 +21,20 @@ enum Revoice {
 impl Engine {
     // ----- input -----
 
-    /// A chord as fingered (before Keyboard transpose). Starts playback when sync start is
-    /// armed. While the band plays (or Stop Accompaniment sounds the chord), the band
-    /// follows it once it settles (settle.rs): in `process`, after the other inputs of
-    /// this wake, and after the chord-settle window.
+    /// A chord from the keyboard, as fingered (before Keyboard transpose). Starts
+    /// playback when sync start is armed. While the Chord Looper plays, it is ignored (and
+    /// while it records, recorded): see looper.rs.
     pub fn set_chord(&mut self, played: Chord, now: u64, sink: &mut impl Sink) {
+        if self.looper_keyboard_chord(played, now) {
+            self.apply_chord(played, now, sink);
+        }
+    }
+
+    /// The style follows chord `played` (as fingered): from the keyboard, or the Chord
+    /// Looper playing it back. While the band plays (or Stop Accompaniment sounds the
+    /// chord), the band follows it once it settles (settle.rs): in `process`, after the
+    /// other inputs of this wake, and after the chord-settle window.
+    pub(super) fn apply_chord(&mut self, played: Chord, now: u64, sink: &mut impl Sink) {
         self.played = Some(played);
         let sync_start = self.starts_on_chord() && played.ty != CANCEL;
         if self.running || self.stop_acmp && !sync_start {
@@ -137,7 +146,7 @@ impl Engine {
     /// short by that attack.
     pub(super) fn struck_now(&self, dest: u8, pitch: u8, chord: Chord, due: usize) -> bool {
         let Some(sec) = self.style.sections[self.cur].as_ref() else { return false };
-        if self.parts & (1 << (dest.saturating_sub(8) & 7)) == 0 {
+        if self.audible() & (1 << (dest.saturating_sub(8) & 7)) == 0 {
             return false;
         }
         let due = due.min(sec.events.len());
@@ -216,7 +225,7 @@ impl Engine {
             let Some(rule) = sec.rules[e.src as usize].as_ref() else { continue };
             // Held back while the chord settled: never voiced, whatever the previous chord.
             let deferred = held.is_some_and(|h| start >= h) && follows_chords(rule.dest_ch);
-            let part_on = self.parts & (1 << (rule.dest_ch.saturating_sub(8) & 7)) != 0;
+            let part_on = self.audible() & (1 << (rule.dest_ch.saturating_sub(8) & 7)) != 0;
             let was = effective_chord(prev, rule).filter(|&c| plays(rule, c));
             let Some(now_chord) = effective_chord(Some(chord), rule).filter(|&c| plays(rule, c)) else { continue };
             // A part that was playing has its notes re-voiced by `revoice`, except guitar

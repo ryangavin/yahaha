@@ -216,6 +216,7 @@ Tags: `[chord-following]` `[transport]` `[sections]` `[voices]` `[registration]`
 - **Controls:** Panel CHORD LOOPER [REC/STOP] and [ON/OFF]; also assignable to pedals and buttons.
 - **Storage:** Registration, Freeze group "Chord Looper".
 - **(Not specified):** quantisation of recorded chord timing, maximum sequence length, and whether the loop length rounds to whole bars.
+- **yahaha (#29):** see [chord-looper.md](chord-looper.md): chord times snap to 16ths, the loop is whole bars, 128 changes / 64 bars.
 - **Ref:** OM p.68–69; RM p.14–19, p.141; DL p.82
 
 ---
@@ -1057,7 +1058,7 @@ yahaha gives the three dash rows internal ids 35 (M7♭5), 36 ((♭5)) and 37 (m
 1. Factory defaults of every Style Setting option (section timing, OTS link timing, Stop ACMP, Synchro Stop Window values, Change Behavior modes).
 2. Chord-recognition priority for ambiguous pitch sets, how inversions are handled in Fingered, AI Fingered inference, and Multi Finger disambiguation.
 3. What each channel plays under Chord Cancel. (Decided in #4; see §C.3.)
-4. Quantisation and length rules for Chord Looper.
+4. Quantisation and length rules for Chord Looper. (Decided in #29; see chord-looper.md.)
 5. The exact algorithm for each NTT table ("Melody" and "Chord" are described only by purpose), and the Guitar NTR voicings. The SFF binary specifics must come from reverse-engineered SFF documentation, not these manuals.
 6. Multi Pad Chord Match conversion rules and the .pad binary format.
 7. The Style Dynamics Control response curve.
