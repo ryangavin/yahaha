@@ -4,14 +4,24 @@
 // It speaks #16's API (types.ts); `app/src-tauri/src/mock.rs` is the Rust twin that the
 // app shell runs until the engine's `Session` is wired in.
 
+import { controlSwitchSets, defaultControllers, functionCmd, functionInfo, functionSet, isPedalSwitch, pedalCcRefused, resetRelease } from './assignable'
 import fixture from './mock-fixture.json'
+import { DEMO_PLAYLIST, DEMO_SONGS, chordAt, emptyChart, info, nextBar, songState, styleWords } from './mock-chart'
 import { syntheticStyles } from './mock-library'
 import { clockAt, mockSurface, type MockHardware } from './mock-surface'
+import { emptyLooper, MockLooper } from './mock-looper'
+import { initialMultiPad, MockPads } from './mock-multipad'
+import { initialSoundLibrary, MockSoundLibrary } from './mock-sound-library'
 import { padsFor } from './mock-pads'
+import { initialPlugins, MockPlugins } from './mock-plugins'
+import { ARP_PATTERNS, HARMONY_TYPES, harmonyArpCmd, initialHarmonyArp } from './mock-harmony'
+import { MockRegistration } from './mock-registration'
+import { emptyPlaylist, emptyRegistration } from './registration'
 import type { Session } from './session'
 import {
-  BREAK, ENDINGS, FILLS, FINGERINGS, INTROS, KEYBOARD_PART_NAMES, MAINS, PAD_PAGES, STYLE_PART_NAMES,
-  type AppCmd, type AppState, type LibraryEntry, type LibraryList, type OtsPart, type PreviewState, type StyleState,
+  BREAK, CHORD_SETTLE_MAX_MS, ENDINGS, FILLS, FINGERINGS, INTROS, KEYBOARD_PART_NAMES, MAINS, PAD_PAGES, RETRIGGER_RATES,
+  STYLE_PART_NAMES, type AppCmd, type AppState, type LibraryEntry, type LibraryList, type OtsPart, type PreviewState, type StopAcmpMode,
+  type StyleSettingsState, type StyleState,
 } from './types'
 
 export const GM: string[] = fixture.gm
@@ -71,7 +81,9 @@ function entryOf(s: FixtureStyle): LibraryEntry {
 /** The voices `setPartVoice` picks from, as the engine lists them (GM, bank 0). */
 export const VOICES: LibraryList['voices'] = GM.map((name, program) => ({ program, bankMsb: 0, bankLsb: 0, name }))
 
-export const LIBRARY: LibraryList = { revision: 1, entries: STYLES.map(entryOf), voices: VOICES }
+export const LIBRARY: LibraryList = {
+  revision: 1, entries: STYLES.map(entryOf), voices: VOICES, harmonyTypes: HARMONY_TYPES, arpPatterns: ARP_PATTERNS,
+}
 
 /** The fixture plus `extra` synthetic styles, in the engine's order (folder, then name). */
 function bigLibrary(extra: number): { lib: LibraryList; styles: FixtureStyle[] } {
@@ -83,7 +95,7 @@ function bigLibrary(extra: number): { lib: LibraryList; styles: FixtureStyle[] }
     for (let i = 0; i < 3; i++) if (x[i] !== y[i]) return x[i] < y[i] ? -1 : 1
     return 0
   })
-  return { lib: { revision: 1, entries, voices: VOICES }, styles }
+  return { lib: { revision: 1, entries, voices: VOICES, harmonyTypes: HARMONY_TYPES, arpPatterns: ARP_PATTERNS }, styles }
 }
 
 /** The MIDI sources the mock rig has (every one a keyboard: `allInputs`). */
@@ -179,12 +191,18 @@ function patternBars(s: string): number {
   return MAINS.includes(s) ? 4 : sectionBars(s)
 }
 
+/** The engine's default Style settings (src/engine/timing.rs). */
+export const DEFAULT_STYLE_SETTINGS: StyleSettingsState = {
+  mainTiming: 'nextBar', introEndingTiming: 'nextBar', syncStopWindowMs: 0,
+  fadeInMs: 5000, fadeOutMs: 5000, fadeHoldMs: 2000, sectionReset: true, retriggerRate: 8,
+}
+
 /** A stopped session with the first style loaded and Sync Start armed. */
 export function initialState(): AppState {
   const s = STYLES[0]
   const part = (i: number, program: number, on: boolean) => ({
     name: KEYBOARD_PART_NAMES[i], channel: [1, 3, 4, 2][i], on, sounding: on, selected: i === 0,
-    volume: 100, waiting: false, program, voiceName: GM[program], playsBass: false, octave: 0, fader: null,
+    volume: 100, waiting: false, program, voiceName: GM[program], playsBass: false, octave: 0, fader: null, patch: null as string | null,
   })
   const state: AppState = {
     version: 1,
@@ -193,10 +211,12 @@ export function initialState(): AppState {
       running: false, syncStart: true, syncStop: false, syncStopAvailable: true, autoFill: false, stopAcmp: false,
       section: null, queued: null, pendingIntro: null, main: 0, bar: 1, beat: 1,
       beatsPerBar: beatsPerBar([s.timeSignature[0], s.timeSignature[1]]), tempo: s.tempo, lamps: [], sectionBars: null,
+      halfBarFill: false, stopAcmpMode: 'off',
+      fade: 'off', retrigger: false, ritardando: false,
     },
     chord: {
       name: null, fingered: null, fingering: 'fingeredOnBass', fingeringName: 'Fingered On Bass', upper: false,
-      manualBass: true, manualBassActive: false, split: 54, splitName: noteName(54), transposeKeyboard: 0, transposeMaster: 0,
+      manualBass: true, manualBassActive: false, split: 54, splitName: noteName(54), transposeKeyboard: 0, transposeMaster: 0, settleMs: 10,
     },
     keyboardParts: [part(0, 0, true), part(1, 48, false), part(2, 61, false), part(3, 48, false)],
     keyboard: { held: [], leftSplit: 54, chordTones: [], chordBass: null, detection: [0, 54] },
@@ -209,9 +229,11 @@ export function initialState(): AppState {
       })),
       master: 100,
       masterWaiting: false,
+      styleSolo: null,
+      partSolo: null,
     },
-    pads: { page: 'sections', pageName: 'Sections', pageNumber: 1, pageCount: 3, pads: [], connected: true, paletteLeds: false },
-    ots: { settings: otsSettings(s.ots), applied: 0, link: false },
+    pads: { page: 'sections', pageName: 'Sections', pageNumber: 1, pageCount: PAD_PAGES.length, pads: [], connected: true, paletteLeds: false },
+    ots: { settings: otsSettings(s.ots), applied: 0, link: false, linkTiming: 'mainChange' },
     library: { revision: LIBRARY.revision, count: LIBRARY.entries.length, position: 0, pending: 0, roots: [ROOT], scanning: false },
     io: {
       outputPort: 'yahaha',
@@ -231,8 +253,20 @@ export function initialState(): AppState {
       soundFontLoading: false,
     },
     message: null,
+    styleChange: { tempo: 'hold', parts: 'hold', sectionSet: null },
     surface: null as unknown as AppState['surface'], // filled in by derive()
     preview: { audition: null, queued: null },
+    chart: emptyChart(),
+    styleSettings: { ...DEFAULT_STYLE_SETTINGS },
+    registration: emptyRegistration(),
+    playlist: emptyPlaylist(),
+    looper: emptyLooper(),
+    metronome: { on: false, volume: 90, bell: true, audible: true },
+    multiPad: initialMultiPad(),
+    controllers: defaultControllers(),
+    plugins: initialPlugins(),
+    harmonyArp: initialHarmonyArp(),
+    soundLibrary: initialSoundLibrary(),
   }
   derive(state, LIBRARY)
   return state
@@ -257,13 +291,14 @@ function derive(st: AppState, lib: LibraryList, hw: MockHardware | null = null, 
   st.transport.syncStopAvailable = c.upper || !(c.fingering === 'fullKeyboard' || c.fingering === 'aiFullKeyboard')
   st.keyboardParts.forEach((p, i) => {
     p.playsBass = i === 3 && c.manualBassActive
-    p.sounding = p.on || p.playsBass
+    // A keyboard solo: only that part sounds, even if it is off.
+    p.sounding = st.mixer.partSolo === null ? p.on || p.playsBass : st.mixer.partSolo === i
     p.voiceName = p.playsBass ? 'Finger Bass' : GM[p.program]
   })
   st.mixer.styleParts.forEach((p, i) => (p.mutedByManualBass = i === 2 && c.manualBassActive))
   st.transport.sectionBars = st.transport.section ? patternBars(st.transport.section) : null
   // The keyboard strip: which part sounds each held key, and the chord's tones.
-  const right = st.keyboardParts.slice(0, 3).flatMap((p, i) => (p.on ? [i] : []))
+  const right = st.keyboardParts.slice(0, 3).flatMap((p, i) => (p.sounding ? [i] : []))
   const left = st.keyboardParts[3].sounding ? [3] : []
   const ct = chordTones(c.name)
   st.keyboard = {
@@ -308,6 +343,10 @@ export interface MockOptions {
   manual?: boolean
   /** Add this many synthetic styles to the library (`?styles=60000`), to test a big one. */
   styles?: number
+  /** Import the demo chart playlist and turn chart mode on (`?chart=1`). */
+  chart?: boolean
+  /** Start with the demo Registration banks and Playlist (default true). */
+  registration?: boolean
 }
 
 export class MockSession implements Session {
@@ -320,6 +359,8 @@ export class MockSession implements Session {
   private clock = 0
   private sectionStart = 0
   private taps: number[] = []
+  /** The Stop Accompaniment mode the toggle turns back on. */
+  private lastStopAcmp: StopAcmpMode = 'style'
   private now = 0
   private progression = 0
   private messageSeq = 0
@@ -331,6 +372,8 @@ export class MockSession implements Session {
   private hwFaders = [100, 72, 100, 100, 0, 0, 0, 0, 100]
   /** The clocks as the engine anchors them (docs/app-api.md "surface.clock"). */
   private anchor = { key: '', sectionMs: 0, sectionBeats: 0, ledMs: 0, ledBeats: 0, tempo: 0 }
+  /** The Chord Looper, as the engine runs it (mock-looper.ts). */
+  private looper = new MockLooper(() => this.state.looper)
 
   /** The hardware faders and the clocks, read now. */
   private hardware(): MockHardware {
@@ -361,10 +404,29 @@ export class MockSession implements Session {
   private scanLeft = 0
   /** Beats into the audition playing (#21). */
   private auditionBeats = 0
+  /** The imported playlists' songs (#89); the mock only has its demo playlist. */
+  private chartSongs: (typeof DEMO_SONGS)[] = []
+  /** The chart's last bar has played and it has no Ending: stop at the next bar line. */
+  private chartEnd = false
+  /** Milliseconds left of the fade phase playing (fading in or out, holding). */
+  private fadeLeft = 0
+  /** Registration Memory and the Playlist (in-memory banks and playlists). */
+  private reg: MockRegistration
+  /** Multi Pads (mock-multipad.ts). */
+  private multiPads = new MockPads(() => this.state.multiPad)
+  /** Instrument plugins (mock-plugins.ts). */
+  private plugins = new MockPlugins(
+    () => this.state,
+    (t, e) => this.message(t, e),
+  )
+  /** The sound library (mock-sound-library.ts). */
+  private sound = new MockSoundLibrary(() => this.state)
 
   constructor(opts: MockOptions = {}) {
     this.demo = opts.demo ?? false
     this.state = initialState()
+    this.reg = new MockRegistration(STYLES.filter((s) => !s.error).map((s) => ({ path: stylePath(s), name: s.name })), opts.registration ?? true)
+    this.reg.fill(this.state)
     if (opts.styles) {
       const big = bigLibrary(opts.styles)
       this.lib = big.lib
@@ -373,7 +435,19 @@ export class MockSession implements Session {
       this.state.library.position = this.lib.entries.findIndex((e) => e.id === this.state.style.id)
     }
     if (this.demo) this.demoStart()
+    if (opts.chart) {
+      this.cmd({ type: 'importCharts', text: 'irealb://demo' })
+      this.cmd({ type: 'setChartMode', on: true })
+      this.state.message = null
+      // The demo plays the chart from its start (straight into bar 1: no Intro).
+      if (this.demo) {
+        this.stopBand()
+        this.cmd({ type: 'setChartIntro', index: null })
+        this.startBand()
+      }
+    }
     derive(this.state, this.lib, this.hardware(), [...this.leftHand, ...this.rightHand])
+    this.sound.derive(this.state)
     if (!opts.manual) {
       this.last = performance.now()
       this.timer = setInterval(() => {
@@ -403,6 +477,10 @@ export class MockSession implements Session {
     this.rightHand = [72, 76]
     st.mixer.styleParts[5].waiting = true
     st.mixer.styleParts[5].volume = 58
+    // The demo Multi Pad bank, its shaker loop playing and the brass hit in standby.
+    this.multiPads.cmd({ type: 'loadMultiPad', id: 0 }, false)
+    this.multiPads.cmd({ type: 'triggerMultiPad', pad: 0 }, false)
+    this.multiPads.cmd({ type: 'armMultiPad', pad: 3 }, false)
     st.io.lastControl = padPress(MAINS.indexOf('Main B'))
     this.position()
   }
@@ -422,6 +500,13 @@ export class MockSession implements Session {
     return Promise.resolve({ atMs: this.now, channels: [], master: [0, 0] as [number, number], clips: 0 })
   }
 
+  pluginEditor(part: number, open: boolean) {
+    if (!open) return
+    const p = this.state.keyboardParts[part & 3]?.plugin
+    this.message(p ? `${p.name}'s window opens in the desktop app` : 'the part plays its SoundFont voice', !p)
+    this.publish()
+  }
+
   dispose() {
     if (this.timer) clearInterval(this.timer)
     this.subs.clear()
@@ -434,7 +519,10 @@ export class MockSession implements Session {
 
   private publish() {
     this.state.version++
+    this.reg.fill(this.state)
+    this.looper.publish()
     derive(this.state, this.lib, this.hardware(), [...this.leftHand, ...this.rightHand])
+    this.sound.derive(this.state)
     const snap = this.snapshot()
     for (const f of this.subs) f(snap)
   }
@@ -464,6 +552,7 @@ export class MockSession implements Session {
 
   private step(ms: number) {
     this.now += ms
+    this.stepFade(ms)
     const t = this.state.transport
     if (t.running) {
       const before = this.clock
@@ -476,9 +565,71 @@ export class MockSession implements Session {
       this.chordArrives('C')
     }
     if (!t.running) this.stepAudition(ms)
+    else this.state.soundLibrary.auditioning = null
+    this.sound.advance(ms)
+    this.multiPads.beats((ms / 60000) * t.tempo)
+    this.plugins.step(ms)
     if (this.scanLeft > 0) {
       this.scanLeft -= ms
       if (this.scanLeft <= 0) this.state.library.scanning = false
+    }
+  }
+
+  /** Fade In/Out: a fade in runs out, a fade out stops the band and holds, a hold ends. */
+  private stepFade(ms: number) {
+    const t = this.state.transport
+    if (t.fade === 'off' || t.fade === 'armed') return
+    this.fadeLeft -= ms
+    if (this.fadeLeft > 0) return
+    if (t.fade === 'fadingOut') {
+      this.stopBand()
+      t.fade = 'holding'
+      this.fadeLeft += this.state.styleSettings.fadeHoldMs
+    } else t.fade = 'off'
+  }
+
+  /** Style Section Reset: the section starts again from its top, now. */
+  private resetSection() {
+    const t = this.state.transport
+    if (!t.running) return
+    this.sectionStart = Math.floor(this.clock / t.beatsPerBar)
+    this.clock = this.sectionStart * t.beatsPerBar
+    this.position()
+  }
+
+  private styleSettings(cmd: Extract<AppCmd, { type: `set${string}` | 'stepRetriggerRate' }>) {
+    const s = this.state.styleSettings
+    const ms = (v: number, max: number) => Math.max(0, Math.min(max, Math.round(v)))
+    switch (cmd.type) {
+      case 'setMainTiming':
+        s.mainTiming = cmd.timing
+        break
+      case 'setIntroEndingTiming':
+        s.introEndingTiming = cmd.timing
+        break
+      case 'setSyncStopWindow':
+        s.syncStopWindowMs = ms(cmd.ms, 5000)
+        break
+      case 'setFadeInTime':
+        s.fadeInMs = ms(cmd.ms, 20000)
+        break
+      case 'setFadeOutTime':
+        s.fadeOutMs = ms(cmd.ms, 20000)
+        break
+      case 'setFadeHoldTime':
+        s.fadeHoldMs = ms(cmd.ms, 5000)
+        break
+      case 'setSectionReset':
+        s.sectionReset = cmd.on
+        break
+      case 'setRetriggerRate':
+        s.retriggerRate = [...RETRIGGER_RATES].reverse().find((r) => r <= Math.max(1, cmd.rate)) ?? 1
+        break
+      case 'stepRetriggerRate': {
+        const i = RETRIGGER_RATES.indexOf(s.retriggerRate as (typeof RETRIGGER_RATES)[number])
+        s.retriggerRate = RETRIGGER_RATES[Math.max(0, Math.min(RETRIGGER_RATES.length - 1, (i < 0 ? 3 : i) + Math.sign(cmd.delta)))]
+        break
+      }
     }
   }
 
@@ -520,6 +671,10 @@ export class MockSession implements Session {
   private onBeat() {
     const t = this.state.transport
     if (this.demo) this.melody()
+    const c = this.state.chart
+    if (c.on && c.song && c.bar !== null && t.section && MAINS.concat(FILLS, [BREAK]).includes(t.section)) {
+      this.chartChord(chordAt(c.song, c.bar, Math.floor(this.clock) % t.beatsPerBar))
+    }
     if (t.queued && FILLS.includes(t.queued)) {
       t.section = t.queued
       t.queued = null
@@ -529,6 +684,11 @@ export class MockSession implements Session {
 
   private onBar(bar: number) {
     const t = this.state.transport
+    if (this.chartEnd) {
+      this.stopBand()
+      return
+    }
+    this.multiPads.bar()
     const q = this.preview.queued
     if (q !== null) {
       this.preview.queued = null
@@ -550,10 +710,148 @@ export class MockSession implements Session {
       }
       this.enter(main, bar)
     }
+    if (this.chartPlaying()) {
+      this.chartBar()
+      this.looper.onBar(bar, this.state.chord.fingered || null)
+      return
+    }
     if (this.demo) this.demoBar(bar)
-    // The style follows a new chord every other bar.
-    if (t.running && bar % 2 === 0) this.chordArrives(PROGRESSION[this.progression++ % PROGRESSION.length])
+    // The style follows a new chord every other bar (the imaginary left hand).
+    if (t.running && bar % 2 === 0) this.keyboardChord(PROGRESSION[this.progression++ % PROGRESSION.length])
+    const loop = this.looper.onBar(bar, this.state.chord.fingered || null)
+    if (loop && loop !== this.state.chord.fingered) this.chordArrives(loop)
   }
+
+  // ── iReal chart player (#89): what engine/chart.rs does, bar by bar ─────────
+  private chartPlaying(): boolean {
+    const c = this.state.chart
+    return c.on && !!c.song && this.state.transport.running
+  }
+
+  /** A bar line: the chart moves on a bar (not in an Intro or Ending) and queues its next section. */
+  private chartBar() {
+    const t = this.state.transport
+    const c = this.state.chart
+    const song = c.song!
+    if (!t.section || INTROS.includes(t.section) || ENDINGS.includes(t.section)) return
+    const i = c.bar === null ? 0 : nextBar(c, c.bar)
+    if (i === null) return
+    c.bar = i
+    this.chartChord(chordAt(song, i, 0))
+    const n1 = nextBar(c, i)
+    if (n1 === null) {
+      const e = c.ending !== null ? ENDINGS[c.ending] : null
+      if (e && this.has(e)) t.queued = e
+      else this.chartEnd = true
+      return
+    }
+    const next = song.bars[n1]
+    if (next.sectionStart) {
+      // The mock plays fills from the next beat: the rest of this bar leads in.
+      t.main = next.main
+      t.queued = t.autoFill && this.has(FILLS[next.main]) ? FILLS[next.main] : MAINS[next.main]
+    }
+  }
+
+  private chartChord(name: string | null) {
+    if (!name) return
+    this.state.chord.fingered = name
+    this.state.chord.name = transposeChord(name, this.state.chord.transposeKeyboard)
+  }
+
+  /** Choose a song: its chart, suggested style (loaded with Auto Style) and, stopped, its tempo. */
+  private selectChart(playlist: number, song: number, fresh = true) {
+    const def = this.chartSongs[playlist]?.[song]
+    const c = this.state.chart
+    if (!def) {
+      this.message(`no song ${song} in playlist ${playlist}`, true)
+      return
+    }
+    c.selected = [playlist, song]
+    c.song = songState(def, c.choruses)
+    if (c.bar !== null) c.bar = Math.min(c.bar, c.song.bars.length - 1)
+    if (!fresh) return
+    c.loop = null
+    const words = styleWords(def.style)
+    const hit = this.lib.entries.find((e) => e.status === 'ok' && words.some((w) => `${e.name} ${e.folder}`.toLowerCase().includes(w)))
+    c.suggestedStyle = hit?.id ?? null
+    if (c.autoStyle && hit && hit.id !== this.state.style.id) this.loadStyle(hit.id)
+    if (!this.state.transport.running && def.tempo) this.state.transport.tempo = def.tempo
+  }
+
+  private chartCmd(cmd: Extract<AppCmd, { type: `${string}Chart${string}` | 'importCharts' | 'importChartFile' }>) {
+    const c = this.state.chart
+    switch (cmd.type) {
+      case 'importCharts':
+      case 'importChartFile':
+        // The mock can't decode iReal links; it imports its demo playlist instead.
+        this.chartSongs.push(DEMO_SONGS)
+        c.playlists.push({ name: DEMO_PLAYLIST, songs: DEMO_SONGS.map(info) })
+        if (!c.selected) this.selectChart(c.playlists.length - 1, 0)
+        this.message(`Imported ${DEMO_SONGS.length} songs (1 playlist)`)
+        break
+      case 'selectChart':
+        this.selectChart(cmd.playlist, cmd.song)
+        break
+      case 'stepChart': {
+        if (!c.selected) break
+        const [p, s] = c.selected
+        const to = Math.max(0, Math.min(c.playlists[p].songs.length - 1, s + cmd.delta))
+        if (to !== s) this.selectChart(p, to)
+        break
+      }
+      case 'removeChartPlaylist':
+        if (cmd.playlist >= c.playlists.length) break
+        c.playlists.splice(cmd.playlist, 1)
+        this.chartSongs.splice(cmd.playlist, 1)
+        if (c.selected?.[0] === cmd.playlist) Object.assign(c, { selected: null, song: null, on: false, loop: null, suggestedStyle: null, bar: null })
+        else if (c.selected && c.selected[0] > cmd.playlist) c.selected = [c.selected[0] - 1, c.selected[1]]
+        break
+      case 'setChartMode':
+      case 'toggleChartMode': {
+        const on = cmd.type === 'setChartMode' ? cmd.on : !c.on
+        if (on && !c.song) {
+          this.message('Import an iReal Pro chart first', true)
+          break
+        }
+        // Only one of the chart and the Chord Looper gives the chords: chart mode on stops a loop.
+        const m = this.state.looper.mode
+        if (on && (m === 'looping' || m === 'loopArmed')) this.looper.onOff()
+        c.on = on
+        if (!on) c.bar = null
+        break
+      }
+      case 'setChartChoruses':
+        c.choruses = Math.max(1, Math.min(99, Math.round(cmd.choruses)))
+        if (c.selected) this.selectChart(c.selected[0], c.selected[1], false)
+        // Fewer choruses: a loop past the new end goes.
+        if (c.loop && c.loop[1] > (c.song?.bars.length ?? 0)) c.loop = null
+        break
+      case 'setChartLoop': {
+        const n = c.song?.bars.length ?? 0
+        if (cmd.range && !(cmd.range[0] < cmd.range[1] && cmd.range[1] <= n)) this.message(`no bars ${cmd.range[0] + 1}-${cmd.range[1]} in the chart`, true)
+        else c.loop = cmd.range
+        break
+      }
+      case 'setChartIntro':
+        c.intro = cmd.index
+        break
+      case 'setChartEnding':
+        c.ending = cmd.index
+        break
+      case 'setChartAutoStyle':
+        c.autoStyle = cmd.on
+        break
+    }
+  }
+
+  /** A chord from the keyboard: the Chord Looper ignores it while it loops, records it
+   *  while it records. */
+  private keyboardChord(chord: string) {
+    const bpb = this.state.transport.beatsPerBar
+    if (this.looper.keyboardChord(chord, Math.floor(this.clock / bpb), (Math.floor(this.clock) % bpb) + 1)) this.chordArrives(chord)
+  }
+
 
   private demoBar(bar: number) {
     const t = this.state.transport
@@ -573,12 +871,15 @@ export class MockSession implements Session {
 
   private enter(s: string, bar: number) {
     const t = this.state.transport
+    if (ENDINGS.includes(s) && !(t.section && ENDINGS.includes(t.section))) this.multiPads.endingStarted()
     t.section = s
     this.sectionStart = bar
     const m = MAINS.indexOf(s)
     if (m >= 0) {
       t.main = m
-      if (this.state.ots.link && m < this.state.ots.settings.length) this.recallOts(m)
+      // OTS Link Timing "At Main Section Change": as the Main starts playing.
+      const ots = this.state.ots
+      if (ots.link && ots.linkTiming === 'mainChange' && m < ots.settings.length && ots.applied !== m + 1) this.recallOts(m)
     }
   }
 
@@ -615,11 +916,25 @@ export class MockSession implements Session {
     this.state.chord.name = transposeChord(chord, k)
     this.state.chord.fingered = chord
     if (!t.running && t.syncStart) this.startBand()
+    this.multiPads.chord(t.running)
   }
 
   private startBand() {
     const t = this.state.transport
+    const c = this.state.chart
+    if (t.fade === 'armed') {
+      t.fade = 'fadingIn'
+      this.fadeLeft = this.state.styleSettings.fadeInMs
+    } else if (t.fade === 'holding') t.fade = 'off'
     this.preview.audition = null
+    this.chartEnd = false
+    if (c.on && c.song) {
+      // The chart's Intro (unless one is armed), its first Main and first chord.
+      if (t.pendingIntro === null && c.intro !== null && this.has(INTROS[c.intro])) t.pendingIntro = c.intro
+      t.main = c.song.bars[0].main
+      c.bar = null
+      this.chartChord(chordAt(c.song, 0, 0))
+    }
     t.running = true
     t.syncStart = false
     this.clock = 0
@@ -628,33 +943,68 @@ export class MockSession implements Session {
     t.pendingIntro = null
     t.queued = null
     this.position()
+    if (this.chartPlaying() && MAINS.includes(t.section ?? '')) this.chartBar()
+    // Bar 1: a Chord Looper armed starts recording (with this chord) or looping here.
+    const loop = this.looper.onBar(0, this.state.chord.fingered || null)
+    if (loop && loop !== this.state.chord.fingered) this.chordArrives(loop)
+    this.multiPads.bandStarted()
   }
 
   private stopBand() {
     const t = this.state.transport
+    if (t.fade === 'fadingIn' || t.fade === 'fadingOut') t.fade = 'off'
+    t.ritardando = false
     this.rightHand = []
+    this.state.chart.bar = null
+    this.chartEnd = false
     // A style queued for the next bar loads when the band stops first.
     const q = this.preview.queued
     this.preview.queued = null
     if (q !== null) this.loadStyle(q)
+    const was = t.running
     t.running = false
     t.section = null
     t.queued = null
     t.bar = 1
     t.beat = 1
+    this.looper.onStop()
+    if (was) this.multiPads.bandStopped()
   }
 
   private recallOts(n: number) {
     const panel = this.state.mixer.faderPage === 'panel'
     this.state.ots.settings[n].parts.forEach((o, i) => {
       const p = this.state.keyboardParts[i]
-      if (o.program !== null) p.program = o.program
+      if (o.program !== null) {
+        p.program = o.program
+        this.sound.partVoice(i)
+      }
       p.on = o.on
       p.octave = o.octave
       if (p.volume !== o.volume) p.waiting = panel
       p.volume = o.volume
     })
     this.state.ots.applied = n + 1
+    // OTS turns Sync Start on (ACMP is always on): the next chord starts a stopped band.
+    if (!this.state.transport.running) this.state.transport.syncStart = true
+  }
+
+  /** The Main `from` + `step` the style has (Fill Up / Down), or `from` at the end of the row. */
+  private neighbourMain(from: number, step: number): number {
+    for (let j = from + step; j >= 0 && j < 4; j += step) if (this.has(MAINS[j])) return j
+    return from
+  }
+
+  /** Fill Up / Down / Self: a fill, then Main `target`. Stopped: selects it. */
+  private fillTo(target: number) {
+    const t = this.state.transport
+    if (!t.running) {
+      t.main = target
+      return
+    }
+    t.queued = this.has(FILLS[target]) ? FILLS[target] : MAINS[target]
+    t.main = target
+    if (this.state.ots.link && this.state.ots.linkTiming === 'immediate' && target < this.state.ots.settings.length) this.recallOts(target)
   }
 
   private loadStyle(id: number) {
@@ -669,9 +1019,14 @@ export class MockSession implements Session {
     const st = this.state
     const t = st.transport
     st.style = styleState(s)
-    t.tempo = s.tempo
+    // Change Behavior: Lock keeps, Hold keeps while playing, Reset takes the new style's.
+    const resets = (rule: string) => rule === 'reset' || (rule === 'hold' && !t.running)
+    if (resets(st.styleChange.tempo)) t.tempo = s.tempo
+    if (resets(st.styleChange.parts)) for (const p of st.mixer.styleParts) p.on = true
+    const set = st.styleChange.sectionSet
+    if (!t.running && set !== null) t.main = [0, 1, 2, 3].map((d) => [set - d, set + d]).flat().find((j) => j >= 0 && j < 4 && s.sections.includes(MAINS[j])) ?? set
     t.beatsPerBar = beatsPerBar(st.style.timeSignature)
-    st.ots = { settings: otsSettings(s.ots), applied: 0, link: st.ots.link }
+    st.ots = { settings: otsSettings(s.ots), applied: 0, link: st.ots.link, linkTiming: st.ots.linkTiming }
     if (st.ots.link && t.main < s.ots) this.recallOts(t.main)
     for (const p of st.mixer.styleParts) {
       p.volume = 100
@@ -688,6 +1043,18 @@ export class MockSession implements Session {
   }
 
   private cmd(cmd: AppCmd) {
+    if (this.reg.handles(cmd)) {
+      this.reg.cmd(cmd, {
+        state: this.state,
+        command: (c) => this.cmd(c),
+        message: (text, error) => this.message(text, error),
+        findStyle: (path, name) =>
+          this.lib.entries.find((e) => e.path === path)?.path ??
+          this.lib.entries.find((e) => e.path.split('/').pop() === path.split('/').pop() || e.name === name)?.path ??
+          null,
+      })
+      return
+    }
     const st = this.state
     const t = st.transport
     const c = st.chord
@@ -718,13 +1085,65 @@ export class MockSession implements Session {
           t.queued = FILLS[t.main]
           t.main = cmd.index
         } else t.queued = m
+        if (t.running && st.ots.link && st.ots.linkTiming === 'immediate' && cmd.index < st.ots.settings.length) this.recallOts(cmd.index)
         break
       }
+      case 'fillUp':
+        this.fillTo(this.neighbourMain(t.main, 1))
+        break
+      case 'fillDown':
+        this.fillTo(this.neighbourMain(t.main, -1))
+        break
+      case 'fillSelf':
+        if (t.running) this.fillTo(t.main)
+        break
+      case 'fillBreak':
+        if (t.running && this.has(BREAK)) t.queued = BREAK
+        break
+      case 'toggleHalfBarFill':
+      case 'setHalfBarFill':
+        t.halfBarFill = cmd.type === 'setHalfBarFill' ? cmd.on : !t.halfBarFill
+        break
       case 'break':
         if (t.running && this.has(BREAK)) t.queued = BREAK
         break
+      case 'fill': {
+        // The Main to the left/right (or the same), always with a fill.
+        const to = clamp(t.main + Math.sign(cmd.delta), 0, 3)
+        const auto = t.autoFill
+        t.autoFill = true
+        this.cmd({ type: 'main', index: to })
+        t.autoFill = auto
+        break
+      }
       case 'ending':
-        if (t.running && this.has(ENDINGS[cmd.index])) t.queued = ENDINGS[cmd.index]
+        // The Ending playing, pressed again: ritardando.
+        if (t.running && t.section === ENDINGS[cmd.index]) t.ritardando = true
+        else if (t.running && this.has(ENDINGS[cmd.index])) t.queued = ENDINGS[cmd.index]
+        break
+      case 'toggleFade':
+        if (!t.running) t.fade = t.fade === 'armed' ? 'off' : 'armed'
+        else if (t.fade !== 'fadingOut') {
+          t.fade = 'fadingOut'
+          this.fadeLeft = st.styleSettings.fadeOutMs
+        }
+        break
+      case 'sectionReset':
+        this.resetSection()
+        break
+      case 'toggleRetrigger':
+        t.retrigger = !t.retrigger
+        break
+      case 'setMainTiming':
+      case 'setIntroEndingTiming':
+      case 'setSyncStopWindow':
+      case 'setFadeInTime':
+      case 'setFadeOutTime':
+      case 'setFadeHoldTime':
+      case 'setSectionReset':
+      case 'setRetriggerRate':
+      case 'stepRetriggerRate':
+        this.styleSettings(cmd)
         break
       case 'toggleSyncStart':
         if (t.running) this.stopBand()
@@ -738,21 +1157,92 @@ export class MockSession implements Session {
         t.autoFill = !t.autoFill
         break
       case 'toggleStopAcmp':
-        t.stopAcmp = !t.stopAcmp
+      case 'setStopAcmp': {
+        const mode = cmd.type === 'setStopAcmp' ? cmd.mode : t.stopAcmpMode === 'off' ? this.lastStopAcmp : 'off'
+        if (mode !== 'off') this.lastStopAcmp = mode
+        t.stopAcmpMode = mode
+        t.stopAcmp = mode !== 'off'
         break
+      }
       case 'tapTempo': {
-        this.taps = [...this.taps.filter((x) => this.now - x < 2000), this.now].slice(-4)
+        if (t.running && st.styleSettings.sectionReset) {
+          this.resetSection()
+          break
+        }
+        // As the engine: taps up to 12.5 s apart count (down to 5 BPM); a jump in the
+        // interval by more than half starts a fresh average from the tap before.
+        const last = this.taps[this.taps.length - 1]
+        if (last !== undefined && this.now - last > 12500) this.taps = []
+        else if (this.taps.length >= 2) {
+          const r = (this.now - last) / Math.max(1, last - this.taps[this.taps.length - 2])
+          if (r > 1.5 || r < 1 / 1.5) this.taps = [last]
+        }
+        this.taps = [...this.taps, this.now].slice(-4)
         if (this.taps.length >= 2) {
           const avg = (this.taps[this.taps.length - 1] - this.taps[0]) / (this.taps.length - 1)
-          if (avg > 0) t.tempo = clamp(Math.round(60000 / avg), 30, 300)
+          if (avg > 0) t.tempo = clamp(Math.round(60000 / avg), 5, 500)
         }
         break
       }
       case 'tempoUp':
-        t.tempo = clamp(t.tempo + 1, 30, 300)
+        t.tempo = clamp(t.tempo + 1, 5, 500)
         break
       case 'tempoDown':
-        t.tempo = clamp(t.tempo - 1, 30, 300)
+        t.tempo = clamp(t.tempo - 1, 5, 500)
+        break
+      case 'setTempo':
+        t.tempo = clamp(Math.round(cmd.bpm), 5, 500)
+        break
+      case 'setStyleSolo':
+        st.mixer.styleSolo = cmd.part === null ? null : cmd.part & 7
+        break
+      case 'setPartSolo':
+        st.mixer.partSolo = cmd.part === null ? null : cmd.part & 3
+        break
+      case 'styleTrackMute': {
+        const order = cmd.order === 'a' ? [1, 0, 2, 3, 4, 5, 6, 7] : [3, 4, 5, 2, 6, 7, 0, 1]
+        const n = 1 + Math.floor((clamp(cmd.value, 0, 127) * 7 + 63) / 127)
+        st.mixer.styleParts.forEach((p, i) => (p.on = order.slice(0, n).includes(i)))
+        break
+      }
+      case 'looperRec':
+        if (this.looper.rec(t.running)) t.syncStart = true
+        break
+      case 'looperOnOff': {
+        // A loop about to arm turns chart mode off first (only one of them gives the chords).
+        const l = this.state.looper
+        if (this.state.chart.on && (l.mode === 'recording' || (l.mode === 'off' && l.hasData))) {
+          this.state.chart.on = false
+          this.state.chart.bar = null
+        }
+        this.looper.onOff()
+        break
+      }
+      case 'selectLooperMemory': {
+        const err = this.looper.select(cmd.index & 7)
+        if (err) this.message(err, true)
+        break
+      }
+      case 'storeLooperMemory': {
+        const err = this.looper.store(cmd.index & 7)
+        if (err) this.message(err, true)
+        break
+      }
+      case 'clearLooperMemory':
+        this.looper.clear(cmd.index & 7)
+        break
+      case 'newLooperBank':
+        this.looper.newBank()
+        break
+      case 'toggleMetronome':
+      case 'setMetronome':
+        st.metronome.on = cmd.type === 'setMetronome' ? cmd.on : !st.metronome.on
+        break
+      case 'setMetronomeVolume':
+        st.metronome.volume = vol(cmd.volume)
+        break
+      case 'setMetronomeBell':
+        st.metronome.bell = cmd.on
         break
       case 'toggleStylePart':
         st.mixer.styleParts[cmd.part].on = !st.mixer.styleParts[cmd.part].on
@@ -797,6 +1287,9 @@ export class MockSession implements Session {
         c.transposeKeyboard = 0
         c.transposeMaster = 0
         break
+      case 'setChordSettle':
+        c.settleMs = clamp(cmd.ms, 0, CHORD_SETTLE_MAX_MS)
+        break
       case 'setPartOn':
       case 'togglePart': {
         const p = st.keyboardParts[cmd.part]
@@ -810,10 +1303,12 @@ export class MockSession implements Session {
         break
       case 'setPartVoice':
         st.keyboardParts[cmd.part].program = cmd.program & 127
+        this.sound.partVoice(cmd.part)
         break
       case 'stepVoice': {
         const p = st.keyboardParts.find((x) => x.selected) ?? st.keyboardParts[0]
         p.program = (p.program + cmd.delta + 128) % 128
+        this.sound.partVoice(st.keyboardParts.indexOf(p))
         break
       }
       case 'setPartVolume':
@@ -837,7 +1332,7 @@ export class MockSession implements Session {
         break
       case 'cyclePadPage': {
         const i = PAD_PAGES.findIndex((p) => p.id === st.pads.page)
-        st.pads.page = PAD_PAGES[(((i + cmd.delta) % 3) + 3) % 3].id
+        st.pads.page = PAD_PAGES[(((i + cmd.delta) % PAD_PAGES.length) + PAD_PAGES.length) % PAD_PAGES.length].id
         break
       }
       case 'setMasterVolume':
@@ -851,6 +1346,24 @@ export class MockSession implements Session {
       case 'toggleOtsLink':
         st.ots.link = cmd.type === 'setOtsLink' ? cmd.on : !st.ots.link
         break
+      case 'setOtsLinkTiming':
+        st.ots.linkTiming = cmd.timing
+        break
+      case 'setTempoChange':
+        st.styleChange.tempo = cmd.rule
+        break
+      case 'setPartsChange':
+        st.styleChange.parts = cmd.rule
+        break
+      case 'setSectionSet':
+        st.styleChange.sectionSet = cmd.section === null ? null : clamp(cmd.section, 0, 3)
+        break
+      case 'toggleStyleTempoLock':
+      case 'toggleStyleTempoHold': {
+        const to = cmd.type === 'toggleStyleTempoLock' ? 'lock' : 'hold'
+        st.styleChange.tempo = st.styleChange.tempo === 'reset' ? to : 'reset'
+        break
+      }
       case 'loadStyle':
         this.loadStyle(cmd.id)
         break
@@ -912,13 +1425,177 @@ export class MockSession implements Session {
         st.library.scanning = true
         this.scanLeft = RESCAN_MS
         break
+      case 'toggleHarmonyArp':
+      case 'setHarmonyArpOn':
+      case 'setHarmonyType':
+      case 'setArpPattern':
+      case 'stepHarmonyArpType':
+      case 'setHarmonyVolume':
+      case 'setHarmonySpeed':
+      case 'setHarmonyAssign':
+      case 'setChordNoteOnly':
+      case 'setTouchLimit':
+      case 'setArpQuantize':
+      case 'setArpHold':
+      case 'toggleArpHold':
+      case 'setArpPedalHold':
+      case 'toggleArpPedalHold':
+      case 'setArpVelocity':
+      case 'setArpKeepKeyOn': {
+        // A fresh object, so the published snapshots never share it.
+        st.harmonyArp = { ...st.harmonyArp, arp: { ...st.harmonyArp.arp } }
+        const err = harmonyArpCmd(st.harmonyArp, cmd)
+        if (err) this.message(err, true)
+        break
+      }
       case 'panic':
         this.stopBand()
+        this.multiPads.panic()
+        Object.assign(st.controllers, { sustain: false, sostenuto: false, soft: false })
+        // As the engine's reset: the pedals count as up, and the control-side switches a
+        // Hold pedal was keeping on go off (`pump_pedal_releases`).
+        for (const p of st.controllers.pedals) {
+          const f = resetRelease(p, p.down)
+          p.down = false
+          const set = f && functionSet(f, false)
+          if (set) this.cmd(set)
+        }
         this.message('All notes off')
         break
+      case 'setPedal': {
+        const p = st.controllers.pedals[cmd.pedal]
+        if (!p) {
+          this.message(`there is no pedal ${cmd.pedal + 1}`, true)
+          break
+        }
+        const why = cmd.cc === null ? null : pedalCcRefused(cmd.cc)
+        if (why) {
+          this.message(`a pedal can't use CC ${cmd.cc}: it is ${why}`, true)
+          break
+        }
+        const sw = { sustain: 'sustain', sostenuto: 'sostenuto', soft: 'soft' } as const
+        type Sw = keyof typeof sw
+        // As the engine: another pedal on the switch keeps it on (Hold A held, Hold B up).
+        const keptOn = (f: string) =>
+          st.controllers.pedals.some((q, j) => j !== cmd.pedal && q.function === f && (q.controlType === 'holdA' ? q.down : q.controlType === 'holdB' && !q.down))
+        const rebound = p.function !== cmd.function || p.cc !== cmd.cc
+        const old = { cc: p.cc, function: p.function, controlType: p.controlType }
+        const oldDown = p.down
+        if (rebound) {
+          // What the old function drove lets go, and the pedal counts as up.
+          if (p.function in sw && !keptOn(p.function)) st.controllers[p.function as Sw] = false
+          p.down = false
+        }
+        const typeChanged = p.controlType !== cmd.controlType
+        Object.assign(p, { cc: cmd.cc, function: cmd.function, controlType: cmd.controlType, reverse: cmd.reverse, range: cmd.range })
+        // Hold A / Hold B follow the pedal's position: Hold B picked with the pedal up is on.
+        if (p.function in sw && p.controlType !== 'toggle' && (rebound || typeChanged)) {
+          const on = (p.controlType === 'holdB') !== p.down
+          if (on || !keptOn(p.function)) st.controllers[p.function as Sw] = on
+        }
+        // Kbd Harmony/Arpeggio and Arpeggio Hold: the control side keeps them, so it sets
+        // them where the new setup puts them (`controllers::control_switch_sets`).
+        for (const [f, on] of controlSwitchSets(old, p, oldDown, p.down)) {
+          const set = functionSet(f, on)
+          if (set) this.cmd(set)
+        }
+        break
+      }
+      case 'learnPedal':
+        // No keyboard here: the mock "hears" the Launchkey's sustain jack (CC 64) at once.
+        if (cmd.pedal !== null && st.controllers.pedals[cmd.pedal]) st.controllers.pedals[cmd.pedal].cc = 64
+        st.controllers.learning = null
+        break
+      case 'setPartControllers':
+        Object.assign(st.controllers.parts[cmd.part & 3], { sustain: cmd.sustain, pitchBend: cmd.pitchBend, modulation: cmd.modulation })
+        break
+      case 'setBendRange':
+        st.controllers.parts[cmd.part & 3].bendRange = clamp(cmd.semitones, 0, 12)
+        break
+      case 'triggerFunction': {
+        const info = functionInfo(cmd.function)
+        if (!info || !info.available) {
+          this.message(`${info?.name ?? cmd.function} is not in yahaha yet`, true)
+          break
+        }
+        if (isPedalSwitch(cmd.function)) {
+          st.controllers[cmd.function] = !st.controllers[cmd.function]
+        } else if (info.kind === 'continuous') {
+          this.message(`${info.name} needs a foot controller (an expression pedal)`, true)
+        } else if (cmd.function === 'otsNext' || cmd.function === 'otsPrev') {
+          const n = st.ots.settings.length
+          if (n) {
+            const a = st.ots.applied
+            this.cmd({ type: 'recallOts', index: cmd.function === 'otsNext' ? a % n : a ? (a + n - 2) % n : n - 1 })
+          }
+        } else {
+          const run = functionCmd(cmd.function, c)
+          if (run) this.cmd(run)
+        }
+        break
+      }
       case 'clearMessage':
         st.message = null
         break
+      case 'importCharts':
+      case 'importChartFile':
+      case 'selectChart':
+      case 'stepChart':
+      case 'removeChartPlaylist':
+      case 'setChartMode':
+      case 'toggleChartMode':
+      case 'setChartChoruses':
+      case 'setChartLoop':
+      case 'setChartIntro':
+      case 'setChartEnding':
+      case 'setChartAutoStyle':
+        this.chartCmd(cmd)
+        break
+      case 'setPartPlugin':
+      case 'clearPartPlugin':
+      case 'savePartPluginState':
+      case 'rescanPlugins':
+        this.plugins.cmd(cmd)
+        break
+      case 'loadMultiPad':
+      case 'loadMultiPadPath':
+      case 'clearMultiPad':
+      case 'triggerMultiPad':
+      case 'stopMultiPad':
+      case 'stopAllMultiPads':
+      case 'armMultiPad':
+      case 'setMultiPadRepeat':
+      case 'setMultiPadChordMatch':
+      case 'setMultiPadSynchroStop': {
+        const err = this.multiPads.cmd(cmd, t.running)
+        if (err) this.message(err, true)
+        break
+      }
+      case 'createPatch':
+      case 'updatePatch':
+      case 'deletePatch':
+      case 'duplicatePatch':
+      case 'movePatch':
+      case 'setPatchFavourite':
+      case 'savePartAsPatch':
+      case 'addPresetAsPatch':
+      case 'auditionPatch':
+      case 'auditionPreset':
+      case 'stopPatchAudition':
+      case 'setFamilyRule':
+      case 'setProgramOverride':
+      case 'setDrumRule':
+      case 'clearStyleMap':
+      case 'setPartPatch':
+      case 'setPortSendsMapped':
+      case 'browseSoundFont':
+      case 'importSoundLibrary':
+      case 'exportSoundLibrary': {
+        const err = this.sound.cmd(cmd, t.running)
+        if (err) this.message(err, true)
+        else if (cmd.type === 'exportSoundLibrary') this.message(`Sound library exported to ${cmd.path ?? '/Users/me/Documents/yahaha/sound-library-export.json'}`)
+        break
+      }
     }
   }
 }

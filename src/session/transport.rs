@@ -29,6 +29,11 @@ impl Control {
             section_bars: (s.section_bars > 0).then_some(s.section_bars),
             tempo: s.bpm,
             lamps: self.pads(&v.pnl, Page::Sections),
+            half_bar_fill: s.half_bar_fill,
+            stop_acmp_mode: s.stop_acmp_mode.into(),
+            fade: s.fade,
+            retrigger: s.retrigger,
+            ritardando: s.ritardando,
         }
     }
 }

@@ -20,10 +20,14 @@ pub(super) struct SynthRef {
     pub(super) control: Arc<SynthControl>,
     /// Swapping SoundFonts (None: the synth can't).
     pub(super) swap: Option<synth::RackSwap>,
+    /// The plugin rack's control half (feature `plugins`; None: no plugin rack).
+    #[cfg_attr(not(feature = "plugins"), allow(dead_code))]
+    pub(super) plugins: Option<synth::PluginLink>,
 }
 
-/// What the SoundFont loader thread sends back.
-pub(super) type RackLoad = Result<Box<synth::Rack>, String>;
+/// What the SoundFont loader thread sends back: the rack, and the SoundFonts in it (the
+/// sound library keeps them parsed for the next rack).
+pub(super) type RackLoad = Result<super::sound_library::RackLoaded, String>;
 
 /// A live session's MIDI input: the port, and which sources it listens to.
 pub(super) struct MidiIo {
@@ -32,6 +36,16 @@ pub(super) struct MidiIo {
     pub(super) slots: [Option<(midi::Endpoint, String)>; MAX_KEY_SOURCES],
     /// The Launchkey DAW port, when yahaha drives it.
     pub(super) daw: Option<(midi::Endpoint, String)>,
+    /// The output port the Launchkey LEDs go out through (None with `--no-pads`).
+    pub(super) leds_port: Option<midi::OutPort>,
+    /// The Launchkey DAW destination the LEDs (and the DAW-mode message) last went to:
+    /// None until it is online after the DAW port connected (session/devices.rs).
+    pub(super) leds_dest: Option<midi::Endpoint>,
+    /// `--no-pads`: leave the Launchkey DAW port alone.
+    pub(super) no_pads: bool,
+    /// The MIDI setup generation last followed (`midi::setup_generation`,
+    /// session/devices.rs).
+    pub(super) setup_gen: u64,
 }
 
 /// The Launchkey's DAW port (pads, buttons, faders), by its source name.
@@ -53,14 +67,21 @@ pub fn choose_keys(sources: &[String], all: bool, names: &[String]) -> Vec<usize
 
 /// Start the synth on a thread of its own, which keeps the audio stream (not `Send`)
 /// until told to stop.
-pub(super) fn start_synth(sf2: &Path, consumers: Vec<Consumer<synth::Msg>>, audio_out: Option<u8>, parts: Arc<parts::Parts>) -> Result<(SynthRef, SynthThread)> {
+pub(super) fn start_synth(
+    sf2: &Path,
+    consumers: Vec<Consumer<synth::Msg>>,
+    audio_out: Option<u8>,
+    parts: Arc<parts::Parts>,
+    routing: synth::Routing,
+) -> Result<(SynthRef, SynthThread)> {
     let (tx, rx) = mpsc::channel();
     let (stop, stop_rx) = mpsc::channel::<()>();
     let sf2 = sf2.to_path_buf();
-    let thread = std::thread::Builder::new().name("yahaha-synth".into()).spawn(move || match synth::start(&sf2, consumers, audio_out, parts) {
+    let thread = std::thread::Builder::new().name("yahaha-synth".into()).spawn(move || match synth::start(&sf2, consumers, audio_out, parts, routing) {
         Ok(mut s) => {
             let swap = s.swap.take();
-            let _ = tx.send(Ok(SynthRef { info: s.info.clone(), control: s.control.clone(), swap }));
+            let plugins = s.plugins.take();
+            let _ = tx.send(Ok(SynthRef { info: s.info.clone(), control: s.control.clone(), swap, plugins }));
             let _ = stop_rx.recv();
             drop(s);
         }
@@ -118,20 +139,16 @@ impl Control {
         if sy.swap.is_none() {
             return self.fail("this synth can't change SoundFonts");
         }
-        let sample_rate = sy.info.sample_rate;
         self.list_sound_fonts();
         let bad = file.contains('/') || file.contains('\\') || file.starts_with('.') || !file.to_lowercase().ends_with(".sf2");
         let path = self.sf_dir.as_ref().map(|d| d.join(&file));
-        let Some(path) = path.filter(|p| !bad && p.is_file()) else {
+        if path.filter(|p| !bad && p.is_file()).is_none() {
             return self.fail(format!("no SoundFont {file} in the SoundFont folder"));
-        };
-        let (tx, rx) = mpsc::channel();
-        let spawned = std::thread::Builder::new().name("yahaha-sf2".into()).spawn(move || {
-            let _ = tx.send(synth::Rack::load(&path, sample_rate).map_err(|e| format!("{e:#}")));
-        });
-        if spawned.is_err() {
-            return self.fail("couldn't start loading the SoundFont");
         }
+        // The new SoundFont, with the ones the sound library plays (#103).
+        let Some(rx) = self.sound_library_rack(&file) else {
+            return self.fail("couldn't start loading the SoundFont");
+        };
         self.sf_load = Some((file, rx));
         Ok(())
     }
@@ -140,13 +157,17 @@ impl Control {
     pub(super) fn pump_sound_font(&mut self) {
         if let Some((file, rx)) = &self.sf_load {
             match rx.try_recv() {
-                Ok(Ok(rack)) => {
+                Ok(Ok((rack, fonts, failed))) => {
                     self.sf_ready = Some((file.clone(), rack));
                     self.sf_load = None;
+                    self.sound_library_loaded(fonts, failed);
                 }
                 Ok(Err(e)) => {
                     let msg = format!("SoundFont {file}: {e}");
+                    // Not tried again (by the sound library's pump) until the file changes.
+                    let (f, dir) = (file.clone(), self.sf_dir.clone());
                     self.sf_load = None;
+                    self.sound_library_failed(&f, dir.as_deref());
                     self.say(msg, true);
                 }
                 Err(mpsc::TryRecvError::Empty) => {}
@@ -167,19 +188,12 @@ impl Control {
         }
     }
 
-    /// Live: list the sources again every 2 s, for hot-plugged keyboards.
-    pub(super) fn pump_inputs(&mut self, now: u64) {
-        if self.midi.is_some() && now.saturating_sub(self.sources_ns) >= 2_000_000_000 {
-            self.sources_ns = now;
-            self.connect_inputs();
-        }
-    }
-
     /// Connect the keyboard sources `all_inputs`/`input_names` choose and disconnect the
-    /// rest; list every source. A source dropped with keys held has them released.
+    /// rest (and those that went offline); list every source online. A source dropped
+    /// with keys held has them released.
     pub(super) fn connect_inputs(&mut self) {
         let Some(m) = self.midi.as_mut() else { return };
-        let sources = midi::sources();
+        let sources = midi::online_sources();
         let names: Vec<String> = sources.iter().map(|(_, n)| n.clone()).collect();
         let want: Vec<midi::Endpoint> = choose_keys(&names, self.all_inputs, &self.input_names).into_iter().map(|i| sources[i].0).collect();
         let mut dropped = Vec::new();
@@ -195,7 +209,8 @@ impl Control {
         // Queue the releases before a new source can take a freed slot: the input thread
         // applies them before that source's first packet, so they never release its keys.
         for slot in dropped {
-            if self.shared.src_held[slot].load(Relaxed) > 0 {
+            // A source that moved a pedal or wheel is reset too: its release never comes.
+            if self.shared.src_held[slot].load(Relaxed) > 0 || self.shared.controllers.touched(slot) {
                 // The input thread releases the keys (and the chord) on its next message;
                 // the notes stop now.
                 let _ = self.release_tx.push(slot as u8);

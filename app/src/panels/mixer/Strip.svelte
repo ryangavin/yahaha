@@ -24,8 +24,10 @@
     lit = true,
     unused = false,
     on = null,
+    button = null,
     voice = null,
     badge = null,
+    solo = null,
   }: {
     name: string
     /** 1-based MIDI channel at yahaha's output; null for an unused strip. */
@@ -41,9 +43,14 @@
     unused?: boolean
     /** The on/off button: its light (the Launchkey fader button's), tooltip and command. */
     on?: { led: Pick<Pad, 'rgb' | 'level' | 'anim'> | null; isOn: boolean; tip: TipKey; onclick: () => void } | null
+    /** Another function on the Launchkey fader button (an unused strip's: Panel button 5 is
+     *  HARMONY/ARPEGGIO), drawn in place of On/Solo. */
+    button?: { led: Pick<Pad, 'rgb' | 'level' | 'anim'> | null; text: string; label: string; tip: TipKey; onclick: () => void } | null
     voice?: VoiceLines | null
     /** A note under the name, e.g. "Manual Bass" when the engine mutes the Bass part. */
     badge?: { text: string; tip: TipKey } | null
+    /** Solo: whether this part is the one soloed, and the command that toggles it. */
+    solo?: { isSolo: boolean; onclick: () => void } | null
   } = $props()
 </script>
 
@@ -61,8 +68,19 @@
       <HwButton tip={on.tip} led={on.led} beats={clock.beats} onclick={on.onclick} label="{name} {on.isOn ? 'on' : 'off'}">
         {on.isOn ? 'On' : 'Off'}
       </HwButton>
-      <!-- Solo: the engine has none yet (#30). Disabled, but still hoverable for its tooltip. -->
-      <button type="button" class="solo mat-raised" aria-disabled="true" aria-label="Solo {name} (not available yet)" use:tip={'mixer.solo'}>S</button>
+      <button
+        type="button"
+        class="solo mat-raised"
+        class:on={solo?.isSolo}
+        aria-pressed={solo?.isSolo ?? false}
+        aria-label="Solo {name}"
+        use:tip={'mixer.solo'}
+        onclick={() => solo?.onclick()}>S</button
+      >
+    {:else if button}
+      <HwButton tip={button.tip} led={button.led} beats={clock.beats} onclick={button.onclick} label={button.label}>
+        {button.text}
+      </HwButton>
     {/if}
   </div>
 
@@ -130,8 +148,12 @@
     font-weight: 600;
     font-size: 0.9em;
     color: var(--muted);
-    opacity: 0.5;
-    cursor: not-allowed;
+  }
+  /* The Genos lights a soloed channel purple. */
+  .solo.on {
+    color: #fff;
+    background: var(--solo);
+    box-shadow: 0 0 8px var(--solo);
   }
   .voice {
     display: grid;

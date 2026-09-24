@@ -22,7 +22,13 @@ This document is about the inside.
 | `src/sff.rs`, `src/library.rs` | Style files (SFF1/SFF2) and the style library index. |
 | `src/theory.rs`, `src/fingering.rs` | Chords, chord recognition, fingering types. |
 | `src/parts.rs`, `src/launchkey.rs` | Keyboard parts (Right 1-3, Left) and the Launchkey mapping. |
-| `src/harmony.rs`, `src/arp/`, `src/multipad/`, `src/ireal/`, `src/plugin/` | Feature libraries not yet wired in (pure, real-time safe). |
+| `src/multipad/` | Multi Pads: bank parser, player core, bank scan; wired through `engine/multipad.rs` (docs/multipad.md). |
+| `src/patches/` | The sound library (#103): patches, the program map and its resolution, the versioned library file, the route table the synth and the port read, `.sf2` preset headers (docs/sound-library.md). The synth's side is `src/synth/routing.rs`. |
+| `src/controllers.rs` | Pedals, wheels and the assignable-function table (atomics in `Shared`; the input thread and the engine thread send them to the parts). docs/controllers.md. |
+| `src/harmony.rs`, `src/arp/` | Keyboard Harmony and the arpeggio (pure, real-time safe), wired in by `src/live/pipeline.rs` and `src/live/kbdfx.rs`. |
+| `src/plugin/` | Feature libraries not yet wired in (pure, real-time safe). |
+| `src/ireal/` | iReal Pro charts (pure); the chart player plays them: `engine/chart.rs`, `session/chart.rs`, `api/chart.rs` (docs/ireal.md). |
+| `src/looper.rs`, `src/click.rs` | The Chord Looper's sequence type; the metronome's click voice (mixed by the synth). |
 | `app/` | The desktop app: Svelte frontend (`app/src`), Tauri shell (`app/src-tauri`). |
 
 ## Threads
@@ -32,6 +38,7 @@ A live `Session` runs these threads:
 | Thread | Code | May |
 |---|---|---|
 | CoreMIDI receive | `live::Input` (`InputHandler::packet`) | atomics, SPSC ring pushes, `Wakeup::signal`. **No allocation, no locks, no blocking.** |
+| CoreMIDI run loop | `midi::init` ("yahaha-midi", one per process) | runs the run loop CoreMIDI reports setup changes through (devices coming and going) and counts them (`midi::setup_generation`); the control side follows them (`session/devices.rs`). Makes the process's first CoreMIDI call. |
 | Engine | `live::run_engine` → `EngineLoop::step` → `Engine` | real-time policy; waits on a semaphore or a deadline, then spins. **No allocation or freeing, no locks.** |
 | Audio | `synth` (cpal callback) | renders from its `[u8; 3]` MIDI ring. **No allocation, no locks.** |
 | Control | `session` (`Inner` / `Control`) | locks, allocation, files. Runs Launchkey actions as `AppCmd`s, OTS Link, the Launchkey LEDs, library indexing, SoundFont loads; publishes `AppState`. |
@@ -139,8 +146,12 @@ A feature that lives in the engine:
   builds it on the control side);
 - adds **one call** to its own function in the **hook** it needs (`src/engine/hooks.rs`):
   `on_start`, `on_stop`, `on_bar`, `on_beat`, `before_section_change`,
-  `after_section_change`, `on_chord`, `on_style_loaded`; and returns its next deadline from
-  `hook_deadline` if it must act exactly on a tick (a metronome click, an arp step). The
+  `after_section_change`, `on_chord`, `on_style_loaded`, or `on_wake` (every `process`
+  call, band running or not); and returns its next deadline from `hook_deadline` if it
+  must act exactly on a tick (a metronome click on a beat line), or from `hook_wake_ns`
+  for a time in engine nanoseconds that also counts while stopped (a fade's hold). A
+  feature that acts between lines (the Chord Looper's chord changes, an arp step) names
+  the tick in `hook_due` and acts in `on_due`, which `process` calls there. The
   hooks run at fixed points in a fixed order (the table in hooks.rs; tests there pin it);
 - gets commands through a new `live::Cmd` variant (one arm in `live::apply`) or reads an
   atomic in `Shared` at the top of `EngineLoop::step`;
@@ -152,7 +163,7 @@ Everything in the engine is deterministic (time is the `now` passed in) and allo
 
 "When does a queued change take effect" has one answer: `Engine::change_point(Change,
 now)` in `src/engine/sections.rs`. Sections, stops and style changes wait for the next bar
-line; fills and breaks start at the next beat. "What plays when a section ends with
+line; fills and breaks start at the next beat (a Half Bar Fill, `Change::HalfBar`, at the middle of the bar). "What plays when a section ends with
 nothing queued" is `Engine::follow_on`. A feature that changes timing (Genos Section Change
 Timing, OTS Link Timing, a chart player driving sections) changes these policies (a new
 `Change` kind or a setting they read), not the call sites.
@@ -164,10 +175,22 @@ transpose → processor → part routing, held-note bookkeeping, output**. The p
 (`live::Processor`, an enum) is where Keyboard Harmony (`src/harmony.rs`) and the
 Arpeggiator (`src/arp/`) go, as variants: they are mutually exclusive, as on the Genos.
 A processor sees every note-on (after transpose) and note-off; it passes the note on, or
-swallows it, and sends any extra notes itself. Time-domain work does not happen on the
-input thread: Harmony's Echo/Tremolo/Trill (`harmony::EchoGen`) run on engine
-nanoseconds and the arp on style ticks, both pulled by the engine thread through an
-engine hook and `hook_deadline`. The module docs have the details.
+swallows it, and sends any extra notes itself. The mode comes from one packed settings
+word (`Shared::kbd_fx`, `live::FxConfig`), and each held key remembers the way it went,
+so its note-off takes the same way whatever the settings are by then.
+
+Time-domain work does not happen on the input thread: Harmony's Echo/Tremolo/Trill
+(`harmony::EchoGen`, engine nanoseconds), the arpeggio (`arp::Arp`, style ticks) and
+Strum's later notes run on the engine thread in `live::KbdFx` (`src/live/kbdfx.rs`), fed
+through a ring of `FxKey`s and a held-key mask. `KbdFx` is driven by `EngineLoop::step`
+after `Engine::process`, and its deadline is part of `EngineLoop::next_deadline`. It
+sits beside the engine rather than in `hooks::Features` because it is live-keyboard
+state, not the band's: every `Engine` has `Features`, including a style preview's
+engine, which must never play the player's arpeggio or echoes, and the keys come from
+`EngineLoop`'s input ring, which only the live loop has. (The arpeggio also runs with
+the band stopped; that alone no longer rules out a hook once a wake-while-stopped hook
+exists, so it is not the reason.) It reads the style clock through `Engine::style_tick`
+/ `ns_at_tick`. The module docs have the details.
 
 The chord section (recognition, Sync Stop) reads the keys as pressed, before the
 pipeline's transpose and processor.
@@ -233,6 +256,12 @@ Rules:
   order; add to the end of a group unless there's a reason (and say it).
 - **Real-time rules** (engine, input, audio threads): no allocation, freeing, locks,
   blocking or I/O; no wall clock in the engine. The no-alloc tests must pass.
+- **The mixer rule.** A part's volume is only its CC7, sent unchanged to the synth and
+  the yahaha port; no hidden per-part gain anywhere. The master fader is the only gain
+  that is not a MIDI message. One exception, and it is still CC7: while a Fade In/Out
+  runs (`src/engine/fade.rs`), each Style part's CC7 goes out as its fader value scaled
+  by the fade; the fader value itself never moves and goes out unchanged when the fade
+  ends. The synth gets exactly what the port gets.
 - **Behaviour stays pinned.** The golden digests (`src/golden.rs`, `tests/golden`),
   `yahaha screen` and `yahaha state-json` output only change on purpose.
 

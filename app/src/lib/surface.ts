@@ -33,8 +33,8 @@ export function controlTip(c: SurfaceControl, shift: boolean): TipKey {
   const { action } = layer(c, shift)
   if (!shift && c.id === 'padBankUp') return 'padpage.prev'
   if (!shift && c.id === 'padBankDown') return 'padpage.next'
-  if (c.id === 'trackPrev') return 'style.prev'
-  if (c.id === 'trackNext') return 'style.next'
+  if (c.id === 'trackPrev') return shift && action ? 'playlist.prev' : 'style.prev'
+  if (c.id === 'trackNext') return shift && action ? 'playlist.next' : 'style.next'
   if (!action) return c.id.startsWith('faderButton') ? 'launchkey.fader_unused' : 'launchkey.unused'
   return tipFor(action)
 }

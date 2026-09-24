@@ -45,6 +45,21 @@ describe('Mixer drawer', () => {
     expect(chans).toEqual(['Ch 1', 'Ch 3', 'Ch 4', 'Ch 2'])
   })
 
+  it('Panel strip 5 has the HARMONY/ARPEGGIO button, as the Launchkey button under fader 5', async () => {
+    const s = setup()
+    const strips = [...document.querySelectorAll<HTMLElement>('.strips .strip')]
+    const buttons = (i: number) => [...strips[i].querySelectorAll<HTMLButtonElement>('.buttons button')]
+    expect(buttons(4)).toHaveLength(1)
+    expect(buttons(4)[0].dataset.tip).toBe('harmony.switch')
+    expect(buttons(4)[0].textContent?.trim()).toBe('Harm/Arp')
+    for (const i of [5, 6, 7]) expect(buttons(i)).toHaveLength(0)
+    const was = s.state.harmonyArp.on
+    await fireEvent.click(buttons(4)[0])
+    expect(s.state.harmonyArp.on).toBe(!was)
+    // The Launchkey surface agrees: faderButton5 on the Panel page is HARM/ARP.
+    expect(s.state.surface.controls.find((c) => c.id === 'faderButton5')?.label).toBe('HARM/ARP')
+  })
+
   it('switching tabs sends the fader page, so the Launchkey follows, and shows the 8 style parts', async () => {
     const s = setup()
     await fireEvent.click(tab('Style'))
@@ -86,11 +101,50 @@ describe('Mixer drawer', () => {
     expect(pad.querySelector('.hw')).not.toBeNull()
   })
 
-  it('Solo is disabled (the engine has none yet) but explained', () => {
-    setup()
-    const solo = document.querySelectorAll<HTMLButtonElement>('button[data-tip="mixer.solo"]')
-    expect(solo).toHaveLength(4)
-    expect([...solo].every((b) => b.getAttribute('aria-disabled') === 'true')).toBe(true)
+  it('Solo solos a keyboard part on the Panel tab and a band part on the Style tab; again ends it', async () => {
+    const s = setup()
+    const solos = () => [...document.querySelectorAll<HTMLButtonElement>('button[data-tip="mixer.solo"]')]
+    expect(solos()).toHaveLength(4)
+    await fireEvent.click(solos()[1])
+    flushSync()
+    expect(s.state.mixer.partSolo).toBe(1)
+    expect(s.state.keyboardParts.map((p) => p.sounding)).toEqual([false, true, false, false])
+    expect(solos()[1].getAttribute('aria-pressed')).toBe('true')
+    await fireEvent.click(solos()[1])
+    flushSync()
+    expect(s.state.mixer.partSolo).toBeNull()
+    await fireEvent.click(tab('Style'))
+    flushSync()
+    expect(solos()).toHaveLength(8)
+    await fireEvent.click(solos()[2])
+    flushSync()
+    expect(s.state.mixer.styleSolo).toBe(2)
+    expect(s.state.mixer.partSolo).toBeNull()
+  })
+
+  it('the metronome and Style Track Mute', async () => {
+    const s = setup()
+    const metronome = document.querySelector<HTMLButtonElement>('button[data-tip="metronome.on"]')!
+    await fireEvent.click(metronome)
+    flushSync()
+    expect(s.state.metronome.on).toBe(true)
+    expect(document.querySelector('[data-tip="mixer.track_mute"]')).toBeNull()
+    await fireEvent.click(tab('Style'))
+    flushSync()
+    // Two parts switched off by hand: choosing an order leaves them off (it only chooses
+    // what the knob does next).
+    s.send({ type: 'toggleStylePart', part: 0 })
+    s.send({ type: 'toggleStylePart', part: 5 })
+    flushSync()
+    const b = [...document.querySelectorAll<HTMLButtonElement>('button[data-tip="mixer.track_mute_order"]')].find((x) => x.textContent === 'B')!
+    await fireEvent.click(b)
+    flushSync()
+    expect(b.getAttribute('aria-pressed')).toBe('true')
+    expect(s.state.mixer.styleParts.filter((p) => !p.on)).toHaveLength(2)
+    const knob = document.querySelector<HTMLElement>('[data-tip="mixer.track_mute"]')!
+    await fireEvent.keyDown(knob, { key: 'Home' })
+    flushSync()
+    expect(s.state.mixer.styleParts.map((p) => p.on)).toEqual([false, false, false, true, false, false, false, false])
   })
 
   it('every control has a tooltip, on both tabs', async () => {
@@ -111,7 +165,7 @@ describe('voice lines', () => {
     expect(styleVoice(null)).toEqual({ plays: '—', writtenFor: '' })
   })
   it('a keyboard part under Manual Bass plays the Style Bass', () => {
-    const p = { name: 'Left', channel: 2, on: false, sounding: true, selected: false, volume: 100, waiting: false, program: 48, voiceName: 'Finger Bass', playsBass: true, octave: 0, fader: null }
+    const p = { name: 'Left', channel: 2, on: false, sounding: true, selected: false, volume: 100, waiting: false, program: 48, voiceName: 'Finger Bass', playsBass: true, octave: 0, fader: null, patch: null }
     expect(partVoice(p).writtenFor).toContain('Manual Bass')
     expect(partVoice({ ...p, playsBass: false, voiceName: 'Strings' })).toEqual({ plays: 'Strings', writtenFor: 'GM 49' })
   })

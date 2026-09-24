@@ -33,9 +33,10 @@ URL switches for browser dev mode:
 | `?theme=light` | starts in the light theme |
 | `?help=1` | starts with help mode on |
 | `?tip=<catalog key>` | shows that entry in the help footer, as if you hovered that control |
-| `?open=browser` \| `parts` \| `mixer` \| `settings` | opens that panel |
+| `?open=browser` \| `parts` \| `mixer` \| `settings` \| `harmony` \| `charts` | opens that panel |
 | `?shift=1` | latches the Shift layer |
 | `?styles=N` | adds N synthetic styles to the mock's library (try 60000 in the browser) |
+| `?chart=1` | imports the mock's demo chart playlist and turns chart mode on (with the demo: playing it) |
 | `?mock` | uses the mock even inside Tauri |
 
 ## Why Svelte 5 + Vite + TypeScript
@@ -89,13 +90,16 @@ app/
       ui/                    shared components: HwButton, Fader, Toggle, Overlay, PanelSlot
     panels/
       header/Header.svelte         BUILT: the app bar (panel buttons, help, theme)
-      leadsheet/                   BUILT: the lead-sheet band above the mirror (see below)
+      leadsheet/                   BUILT: the lead-sheet band above the mirror (see below), and
+                                   ChartLane.svelte: the iReal chord chart in it (chart mode)
+      charts/Charts.svelte         BUILT: the iReal Pro chart player drawer (import, songs, settings)
       launchkey/                   BUILT: the hardware mirror (see below)
       keystrip/                    BUILT: the keyboard strip under the mirror (see below)
       parts/Parts.svelte           SLOT: Keyboard parts + OTS drawer
       mixer/Mixer.svelte           SLOT: Mixer detail drawer
       browser/Browser.svelte       SLOT: style browser (modal)
       settings/Settings.svelte     SLOT: settings drawer
+      harmony/Harmony.svelte       BUILT: Harmony/Arpeggio drawer (switch, type lists, settings)
 ```
 
 ### The Launchkey mirror (`panels/launchkey/`)
@@ -149,9 +153,9 @@ The band above the mirror answers "where am I, what's next":
 | **lane** (`[data-slot="chart"]`) | one cell per bar of the section (`transport.sectionBars`, provisional), a slash per beat lit as it passes, and a progress bar across the section (`transform: scaleX` on the beat clock, so it runs at 60 Hz) |
 | next | the queued section (`transport.queued`), amber |
 
-**The lane is the slot for the iReal chord-chart player (M8).** When a chart is loaded, the
-chart renders into the lane instead of the section cells, and the now/next columns stay.
-The contract for whoever builds it:
+**The lane is where the iReal chord chart shows (M8, #89).** In chart mode (`state.chart.on`
+with a song chosen) `ChartLane.svelte` renders the chart into the lane instead of the
+section cells, and the now/next columns stay ("bar 5 of 32"). It is built to this contract:
 
 - Put the chart in `panels/leadsheet/` (e.g. `ChartLane.svelte`) and switch on it in
   `LeadSheet.svelte`: `{#if chart}<ChartLane {chart} />{:else}…section cells…{/if}`. The
@@ -163,9 +167,15 @@ The contract for whoever builds it:
   (`.lead-slot` in `App.svelte`). Size everything in `em`, and never let the band grow
   the page. If the chart needs more room, raise `max-height` on `.lead-slot` and re-check
   1024, 1440 and 1920.
-- The chart's position comes from the engine (a proposed `state.chart`: the chart, the
-  bar and chorus playing, the next section's first bar). Don't advance a cursor in
-  TypeScript; animate between states on `clock.beats` as the progress bar does.
+- The chart's position comes from the engine (`state.chart.bar`, an index into
+  `state.chart.song.bars`). Nothing advances a cursor in TypeScript; the bar's own progress
+  line runs on `clock.pos`, as the section progress bar does.
+
+The Charts drawer (`panels/charts/`) imports playlists (an `.html` file read in the
+browser and sent as `importCharts` text, or a pasted `irealb://` link), lists playlists
+and songs, and sets chart mode, choruses, Intro, Ending, loop and Auto style. The browser
+mock can't decode iReal links: `importCharts` adds its demo playlist
+(`lib/api/mock-chart.ts`, made-up progressions). The Rust mock uses the engine's parser.
 
 ### The keyboard strip (`panels/keystrip/`)
 
@@ -322,6 +332,7 @@ LEDs and the chord, and keep everything else quiet.
 | `--ink`, `--engrave`, `--muted` | text on the panel: values, engraved labels, secondary |
 | `--screen-bg`, `--screen-ink`, `--screen-dim`, `--screen-glow` | the display |
 | `--accent`, `--accent-ink` | amber: selected, latched, waiting for you (fader pickup), focus |
+| `--solo` | a soloed mixer channel's S button (the Genos lights it purple) |
 | `--part-r1`, `--part-r2`, `--part-r3`, `--part-left`, `--part-chord` | a keyboard part's colour (held keys; any panel showing parts), and grey for chord-detection-only keys |
 | `--key-white`, `--key-black` (+ `-lo`/`-hi`, `--key-gap`, `--key-print`) | the keyboard strip's keys |
 | `--lamp-off` | an unlit LED |

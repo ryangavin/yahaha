@@ -54,6 +54,31 @@ describe('lead-sheet band', () => {
     expect(document.querySelector('[data-slot="chart"]')).not.toBeNull()
   })
 
+  it('in chart mode shows the chart, eight bars a line, with the bar playing ringed', () => {
+    const session = setup(false)
+    session.send({ type: 'importCharts', text: 'irealb://demo' })
+    session.send({ type: 'setChartIntro', index: null })
+    session.send({ type: 'setChartMode', on: true })
+    flushSync()
+    const lane = document.querySelector('[data-slot="chart"]')!
+    expect(lane.getAttribute('data-tip')).toBe('lead.chart')
+    expect(lane.querySelectorAll('.line')).toHaveLength(2)
+    expect(lane.querySelectorAll('.cell')).toHaveLength(16)
+    expect(lane.querySelector('.sec')!.textContent).toBe('A')
+    expect(lane.querySelectorAll('.cell')[0].textContent).toContain('Bb6')
+    session.send({ type: 'startStop' })
+    const bar = (60000 / session.state.transport.tempo) * session.state.transport.beatsPerBar
+    session.advance(bar * 9.1)
+    flushSync()
+    const n = session.state.chart.bar!
+    expect(n).toBeGreaterThanOrEqual(8)
+    // The line playing comes first: bars 9-16, the current one ringed.
+    const cells = [...lane.querySelectorAll('.cell')]
+    expect(cells[0].querySelector('.num')!.textContent).toBe('9')
+    expect(cells.findIndex((c) => c.classList.contains('current'))).toBe(n - 8)
+    expect(text('.now')).toContain(`bar ${n + 1} of 32`)
+  })
+
   it('without the section length (an engine older than sectionBars): one cell, and the bar counted from the clock', () => {
     const session = new MockSession({ manual: true, demo: true })
     const st = { ...session.state, transport: { ...session.state.transport, sectionBars: undefined } } as unknown as AppState

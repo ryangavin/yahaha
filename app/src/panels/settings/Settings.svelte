@@ -1,7 +1,7 @@
 <!--
   The Settings drawer (right side, not modal: performance keys keep working). Pages
   follow the Genos menus: Chord and Split (Split & Fingering), Transpose, Style (Style
-  Setting), then yahaha's own Audio, MIDI and Library. Every change applies at once:
+  Setting), Pedals (Assignable and Controller), then yahaha's own Audio, MIDI and Library. Every change applies at once:
   there is no Save. Settings the engine has go through `app.send`; the few it doesn't
   yet (SoundFont, MIDI inputs, palette LEDs, library folders) go through the settings
   adapter in lib/api/settings.svelte.ts.
@@ -17,6 +17,7 @@
   import ChordPage from './ChordPage.svelte'
   import LibraryPage from './LibraryPage.svelte'
   import MidiPage from './MidiPage.svelte'
+  import PedalsPage from './PedalsPage.svelte'
   import { nav, TABS, type SettingsTab } from './nav.svelte'
   import SplitPage from './SplitPage.svelte'
   import StylePage from './StylePage.svelte'
@@ -74,6 +75,7 @@
     {@render page('split', SplitPage)}
     {@render page('transpose', TransposePage)}
     {@render page('style', StylePage)}
+    {@render page('pedals', PedalsPage)}
     {@render page('audio', AudioPage)}
     {@render page('midi', MidiPage)}
     {@render page('library', LibraryPage)}
@@ -88,7 +90,7 @@
   }
   .tabs {
     display: grid;
-    grid-template-columns: repeat(7, minmax(0, 1fr));
+    grid-template-columns: repeat(8, minmax(0, 1fr));
     gap: 2px;
     padding: 3px;
     border-radius: 6px;
@@ -103,8 +105,8 @@
     color: var(--screen-dim);
     font-family: var(--font-display);
     font-weight: 600;
-    font-size: 0.9rem;
-    letter-spacing: 0.02em;
+    font-size: 0.86rem;
+    letter-spacing: 0;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;

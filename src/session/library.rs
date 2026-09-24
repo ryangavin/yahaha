@@ -45,7 +45,7 @@ pub(super) fn load(path: &Path) -> Result<(Box<Prepared>, Loaded)> {
         timesig: style.timesig,
         quarters_per_bar: prep.tpb as f64 / prep.ppq.max(1) as f64,
         has,
-        voices: prep.voices,
+        voices: prep.setups[0].voices,
         ots: style.ots.clone(),
     };
     Ok((prep, info))
@@ -112,9 +112,12 @@ impl Control {
             Ok((mut p, info)) => {
                 self.style_seq += 1;
                 p.tag = self.style_seq;
+                let pending = self.sound_library_on_style(&mut p, &info.path);
                 if self.style_tx.push(p).is_err() {
                     return Err(CmdError::Busy);
                 }
+                // Only a style the engine has now names the pending bank.
+                self.sound.set_pending(pending);
                 self.pending_style = Some((id, self.style_seq, info));
                 self.wake_engine();
                 self.message = None;
@@ -160,13 +163,15 @@ impl Control {
         if self.snap.style_tag != *tag {
             return;
         }
-        let (id, _, info) = self.pending_style.take().unwrap();
+        let (id, tag, info) = self.pending_style.take().unwrap();
         self.shared.parts.set_bass_program(synth::style_bass_program(info.voices[10]));
         // No OTS of the new style is recalled yet (OTS Link recalls one on the next pass
         // if it's on).
         self.shared.parts.ots_applied.store(0, Relaxed);
         self.cur = id;
         self.info = info;
+        // After `info`: the per-channel routes follow the new style's voices.
+        self.sound_library_promoted(tag);
     }
 
     /// Start a rescan of the style folders on a thread of its own.
@@ -179,6 +184,7 @@ impl Control {
         if std::thread::Builder::new().name("yahaha-scan".into()).spawn(move || drop(tx.send(Library::scan(&roots)))).is_ok() {
             self.scan_rx = Some(rx);
         }
+        self.rescan_pads();
     }
 
     /// A finished rescan: merge it, and index what's new.

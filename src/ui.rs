@@ -11,12 +11,26 @@ use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 use std::cell::Cell;
 use std::path::Path;
 use std::time::Duration;
-use yahaha::api::{AppCmd, AppState, LibraryCmd, MixerCmd, OtsCmd, Pad, PadsCmd, PartsCmd, SettingsCmd, SystemCmd};
-use yahaha::engine::Button;
+use yahaha::api::{
+    AppCmd, AppState, ChartCmd, ChartState, HarmonyArpCmd, HarmonyArpMode, LibraryCmd, LooperCmd, MetronomeCmd, MixerCmd, MultiPadCmd,
+    MultiPadState, OtsCmd, Pad, PadLamp, PadsCmd, PartsCmd, SettingsCmd, SystemCmd,
+};
+use yahaha::engine::{Button, FadeState};
 use yahaha::launchkey::{self, Action};
 use yahaha::library::{self, Info, Library};
 use yahaha::parts::{self, FaderPage};
 use yahaha::session::{Options, Session};
+
+/// The fade state in a word, for the status line.
+fn fade_name(f: FadeState) -> &'static str {
+    match f {
+        FadeState::Off => "",
+        FadeState::Armed => "IN ARMED",
+        FadeState::FadingIn => "IN",
+        FadeState::FadingOut => "OUT",
+        FadeState::Holding => "HOLD",
+    }
+}
 
 /// Keyboard shortcuts for the controls the Launchkey also reaches, so a key and its pad
 /// or button send the same command.
@@ -35,6 +49,12 @@ fn key_action(code: KeyCode) -> Option<Action> {
         KeyCode::Char('o') => b(Button::Ending(1)),
         KeyCode::Char('p') => b(Button::Ending(2)),
         KeyCode::Char('g') => b(Button::Break),
+        // Fill Down / Fill Up (Shift + the left-hand pair), Fill Self (Shift + the Break
+        // key), Half Bar Fill In (Genos assignable functions).
+        KeyCode::Char('A') => b(Button::FillDown),
+        KeyCode::Char('S') => b(Button::FillUp),
+        KeyCode::Char('G') => b(Button::FillSelf),
+        KeyCode::Char('N') => b(Button::HalfBarFill),
         KeyCode::Char('y') => b(Button::SyncStart),
         KeyCode::Char('u') => b(Button::AutoFill),
         KeyCode::Char('j') => b(Button::SyncStop),
@@ -42,6 +62,11 @@ fn key_action(code: KeyCode) -> Option<Action> {
         KeyCode::Char('=') | KeyCode::Char('+') => b(Button::TempoUp),
         KeyCode::Char('-') => b(Button::TempoDown),
         KeyCode::Char('h') => b(Button::StopAcmp),
+        KeyCode::Char('|') => b(Button::SectionReset),
+        KeyCode::Char('F') => b(Button::Fade),
+        KeyCode::Char('~') => b(Button::Retrigger),
+        KeyCode::Char('{') => Some(Action::RetriggerRate(-1)),
+        KeyCode::Char('}') => Some(Action::RetriggerRate(1)),
         KeyCode::Char(c) if "zxcvbnm,".contains(c) => b(Button::TogglePart("zxcvbnm,".find(c).unwrap() as u8)),
         KeyCode::Char('[') => Some(Action::Split(-1)),
         KeyCode::Char(']') => Some(Action::Split(1)),
@@ -64,6 +89,19 @@ fn key_action(code: KeyCode) -> Option<Action> {
         KeyCode::Char('0') => Some(Action::PartVoice(1)),
         KeyCode::Left => Some(Action::Style(-1)),
         KeyCode::Right => Some(Action::Style(1)),
+        KeyCode::Char('J') => Some(Action::ToggleHarmonyArp),
+        // Registration Memory: Shift + the top letter row = buttons 1-10 (a row of ten, as
+        // on the panel), F5 Memory, F6 Freeze, F7/F8 Regist -/+, F11/F12 Bank -/+.
+        KeyCode::Char(c) if "QWERTYUIOP".contains(c) => Some(Action::Regist("QWERTYUIOP".find(c).unwrap() as u8)),
+        KeyCode::F(5) => Some(Action::RegistMemory),
+        KeyCode::F(6) => Some(Action::RegistFreeze),
+        KeyCode::F(7) => Some(Action::RegistSeq(-1)),
+        KeyCode::F(8) => Some(Action::RegistSeq(1)),
+        KeyCode::F(11) => Some(Action::RegistBank(-1)),
+        KeyCode::F(12) => Some(Action::RegistBank(1)),
+        // The Playlist's previous/next record (Shift + Track on the Launchkey).
+        KeyCode::Char('<') => Some(Action::Playlist(-1)),
+        KeyCode::Char('>') => Some(Action::Playlist(1)),
         _ => None,
     }
 }
@@ -77,8 +115,43 @@ fn key_cmd(code: KeyCode) -> Option<AppCmd> {
         KeyCode::Char('a') => Some(AppCmd::Settings(SettingsCmd::NextAudioOutput)),
         KeyCode::Char('k') => Some(AppCmd::Mixer(MixerCmd::ToggleSynthMute)),
         KeyCode::Char('\\') => Some(AppCmd::System(SystemCmd::Panic)),
+        // iReal chart player: chart mode on/off, previous/next song of the playlist.
+        // (Shift+m: plain m toggles Style part 7.)
+        KeyCode::Char('M') => Some(AppCmd::Chart(ChartCmd::ToggleChartMode)),
+        KeyCode::Char('(') => Some(AppCmd::Chart(ChartCmd::StepChart { delta: -1 })),
+        KeyCode::Char(')') => Some(AppCmd::Chart(ChartCmd::StepChart { delta: 1 })),
+        // Harmony/Arpeggio: next type (the Harmony types, then the arpeggios), Arp Hold.
+        KeyCode::Char('L') => Some(AppCmd::HarmonyArp(HarmonyArpCmd::StepHarmonyArpType { delta: 1 })),
+        KeyCode::Char('*') => Some(AppCmd::HarmonyArp(HarmonyArpCmd::ToggleArpHold)),
+        // Chord Looper REC/STOP and ON/OFF; the metronome.
+        KeyCode::Char('r') => Some(AppCmd::Looper(LooperCmd::LooperRec)),
+        KeyCode::Char('^') => Some(AppCmd::Looper(LooperCmd::LooperOnOff)),
+        KeyCode::Char('.') => Some(AppCmd::Metronome(MetronomeCmd::ToggleMetronome)),
+        // Multi Pads 1-4 (Shift+z x c v, above the Style part keys) and their STOP (Shift+b).
+        KeyCode::Char(c) if "ZXCV".contains(c) => {
+            Some(AppCmd::MultiPad(MultiPadCmd::TriggerMultiPad { pad: "ZXCV".find(c).unwrap() as u8 }))
+        }
+        KeyCode::Char('B') => Some(AppCmd::MultiPad(MultiPadCmd::StopAllMultiPads)),
         code => key_action(code).map(AppCmd::from),
     }
+}
+
+/// The Multi Pads on the status line: the bank and each pad's lamp (· ready, > playing,
+/// ~ waiting for the bar, * armed, blank empty).
+fn multi_pad_line(mp: &MultiPadState) -> String {
+    let Some(bank) = &mp.bank else { return "multi pad: none [Z X C V · B stop]".into() };
+    let lamps: String = mp
+        .pads
+        .iter()
+        .map(|p| match p.lamp {
+            PadLamp::Empty => ' ',
+            PadLamp::Ready => '·',
+            PadLamp::Armed => '*',
+            PadLamp::Queued => '~',
+            PadLamp::Playing => '>',
+        })
+        .collect();
+    format!("multi pad: {} [{lamps}] [Z X C V · B stop]", bank.name)
 }
 
 /// `Esc` quits only when pressed twice within `WINDOW`. `Esc` also closes the browser, and
@@ -183,8 +256,13 @@ fn fit(s: &str, w: usize) -> String {
     }
 }
 
-pub fn play(opts: Options) -> Result<()> {
+/// Run the terminal front panel on a live session; `startup` commands run first (their
+/// errors show in the message line).
+pub fn play(opts: Options, startup: Vec<AppCmd>) -> Result<()> {
     let session = Session::start(opts)?;
+    for c in startup {
+        let _ = session.send(c);
+    }
     let mut browser: Option<Browser> = None;
     let mut term = ratatui::init();
     let clock = std::time::Instant::now();
@@ -311,7 +389,7 @@ fn draw(f: &mut ratatui::Frame, st: &AppState, message: &str, beats: f64) {
     f.render_widget(
         Paragraph::new(vec![
             Line::from(vec![Span::styled(state, bold), Span::raw(format!("   {pos}   ")), Span::styled(next, St::default().fg(Color::Yellow))]),
-            Line::raw(""),
+            chart_line(&st.chart, dim),
             Line::from(vec![
                 Span::raw("  chord  "),
                 Span::styled(chord, bold.fg(Color::Cyan)),
@@ -383,6 +461,9 @@ fn draw(f: &mut ratatui::Frame, st: &AppState, message: &str, beats: f64) {
         v.push(Span::styled(format!("{:<8}", kp.name), if on { bold } else { dim }));
         v.push(Span::styled(format!(" {}{}", if kp.plays_bass { "bass: " } else { "" }, kp.voice_name), if on { St::default() } else { dim }));
         v.push(Span::styled(if oct != 0 { format!("  oct {oct:+}") } else { String::new() }, dim));
+        // The sustain pedal holds this part's notes.
+        let sus = st.controllers.sustain && on && st.controllers.parts.get(p).is_some_and(|c| c.sustain);
+        v.push(Span::styled(if sus { "  sus" } else { "" }, St::default().fg(Color::Yellow)));
         lines.push(Line::from(v));
     }
     lines.push(Line::raw(""));
@@ -441,7 +522,10 @@ fn draw(f: &mut ratatui::Frame, st: &AppState, message: &str, beats: f64) {
                 flag(t.sync_start, "SYNC START [y]"),
                 flag(t.auto_fill, "AUTO FILL [u]"),
                 if t.sync_stop_available { flag(t.sync_stop, "SYNC STOP [j]") } else { Span::styled(" SYNC STOP n/a ", dim) },
-                flag(t.stop_acmp, "STOP ACMP [h]"),
+                flag(t.stop_acmp, if t.stop_acmp_mode == yahaha::api::StopAcmpMode::Fixed { "STOP ACMP FIXED [h]" } else { "STOP ACMP [h]" }),
+                flag(t.fade != FadeState::Off, &format!("FADE {} [F]", fade_name(t.fade))),
+                flag(t.retrigger, &format!("RETRIG 1/{} [~ {{ }}]", st.style_settings.retrigger_rate)),
+                flag(t.ritardando, "RIT."),
                 flag(ots.link, "OTS LINK [F10]"),
                 Span::styled(
                     match (ots.settings.len(), ots.applied) {
@@ -467,6 +551,48 @@ fn draw(f: &mut ratatui::Frame, st: &AppState, message: &str, beats: f64) {
                     v.push(Span::styled(format!(" chord: keys above {} · left hand: {lh}", ch.split_name), dim));
                 } else {
                     v.push(Span::styled(format!(" chord: keys up to {}", ch.split_name), dim));
+                }
+                v.push(Span::raw("   "));
+                v.push(flag(t.half_bar_fill, "HALF BAR FILL [N]"));
+                let h = &st.harmony_arp;
+                v.push(Span::raw("  "));
+                v.push(flag(h.on, "HARM/ARP [J]"));
+                v.push(Span::raw(format!(" {} · {} [L]", h.type_name, h.category)));
+                if h.mode == HarmonyArpMode::Arpeggio {
+                    v.push(flag(h.arp.hold, "HOLD [*]"));
+                }
+                v.push(Span::raw(format!("   {}", multi_pad_line(&st.multi_pad))));
+                v
+            }),
+            Line::from({
+                // Registration: the bank, its ten lamps ([n] stored, >n< selected), Memory,
+                // Freeze, the sequence and the playlist.
+                let r = &st.registration;
+                let mut v = vec![Span::raw(format!(" regist {}{} ", r.bank.name, if r.bank.dirty { "*" } else { "" }))];
+                for b in &r.buttons {
+                    let n = b.index + 1;
+                    let (text, style) = if r.selected == Some(b.index) && b.stored {
+                        (format!(">{n}<"), St::default().fg(Color::Black).bg(Color::Red))
+                    } else if b.stored {
+                        (format!("[{n}]"), St::default().fg(Color::Blue))
+                    } else {
+                        (format!(" {n} "), dim)
+                    };
+                    v.push(Span::styled(text, if r.memory { style.add_modifier(Modifier::SLOW_BLINK) } else { style }));
+                }
+                v.push(Span::styled(" ⇧Q-P", dim));
+                v.push(flag(r.memory, "MEMORY [F5]"));
+                v.push(flag(r.freeze, "FREEZE [F6]"));
+                let seq = &r.sequence;
+                if seq.on && !seq.steps.is_empty() {
+                    let pos = seq.position.map_or("-".to_string(), |p| (p + 1).to_string());
+                    v.push(Span::raw(format!(" seq {pos}/{} [F7 F8]", seq.steps.len())));
+                }
+                v.push(Span::styled(" bank [F11 F12]", dim));
+                let pl = &st.playlist;
+                if !pl.records.is_empty() {
+                    let cur = pl.current.and_then(|c| pl.records.iter().position(|row| row.index == c)).map_or("-".into(), |p| (p + 1).to_string());
+                    v.push(Span::raw(format!("  playlist {} {cur}/{} [< >]", pl.name, pl.records.len())));
                 }
                 v
             }),
@@ -506,7 +632,7 @@ fn draw(f: &mut ratatui::Frame, st: &AppState, message: &str, beats: f64) {
 
     let mut help = vec![
         Line::from(Span::styled(
-            " space start/stop · 1-4 Main A-D (again = fill) · q w e intro · i o p ending · g break · t tap · -/= tempo · F1-F4 part · 9/0 voice · 5-8 part on/off · F9 faders Panel/Style · ; ' kbd transpose · : \" master · / reset · tab pad page · enter browse styles · \\ panic · esc twice quit",
+            " space start/stop · 1-4 Main A-D (again = fill) · q w e intro · i o p ending (again = rit.) · g break · A S G fill down/up/self · N half bar fill · t tap · | reset · ~ retrig · F fade · -/= tempo · F1-F4 part · 9/0 voice · 5-8 part on/off · J harmony/arp (L type, * hold) · F9 faders Panel/Style · ; ' kbd transpose · : \" master · / reset · r/^ chord looper rec, on/off · . metronome · Z X C V multi pads · B pad stop · M chart mode · ( ) chart song · tab pad page · enter browse styles · \\ panic · esc twice quit",
             dim,
         )),
         Line::from(Span::styled(
@@ -518,6 +644,23 @@ fn draw(f: &mut ratatui::Frame, st: &AppState, message: &str, beats: f64) {
         help.push(Line::from(Span::styled(format!(" {message}"), St::default().fg(Color::Red))));
     }
     f.render_widget(Paragraph::new(help), rows[5]);
+}
+
+/// The chart player's line: the song, chart mode, the bar playing and its section.
+fn chart_line(c: &ChartState, dim: St) -> Line<'static> {
+    let Some(song) = &c.song else { return Line::raw("") };
+    let on = if c.on { St::default().fg(Color::Black).bg(Color::Cyan) } else { dim };
+    let mut v = vec![Span::raw("  "), Span::styled(" CHART [r] ", on), Span::raw(format!(" {}", song.info.title))];
+    v.push(Span::styled(format!("  ({})  ( ) song", song.info.style), dim));
+    if let Some(b) = c.bar.and_then(|i| song.bars.get(i as usize).map(|b| (i, b))) {
+        let (i, bar) = b;
+        let sec = bar.section.as_deref().unwrap_or("");
+        v.push(Span::raw(format!("   bar {}/{} {sec}", i + 1, song.bars.len())));
+        if c.overridden {
+            v.push(Span::styled("  left hand", St::default().fg(Color::Yellow)));
+        }
+    }
+    Line::from(v)
 }
 
 /// The style browser, drawn over the front panel.
@@ -634,8 +777,12 @@ pub fn screen_html(style: &Path, out: &Path) -> Result<()> {
         bpm: 110.0,
         parts: 0xFF & !(1 << 5),
         volumes: [127, 110, 96, 127, 80, 64, 127, 100],
+        user_set: 0,
         pickup: 1 << 4,
         stop_acmp: false,
+        stop_acmp_mode: yahaha::engine::StopAcmp::Off,
+        half_bar_fill: false,
+        main_presses: 0,
         transpose: Transpose::new(2, 0),
         played: Some(yahaha::theory::Chord { root: 7, ty: 10, bass: Some(5) }),
         anchor_ns: 0,
@@ -644,6 +791,15 @@ pub fn screen_html(style: &Path, out: &Path) -> Result<()> {
         style_pending: false,
         section_bars: 4,
         audition: None,
+        chart_tag: 0,
+        chart_bar: None,
+        chart_override: false,
+        fade: FadeState::Off,
+        retrigger: false,
+        ritardando: false,
+        looper: Default::default(),
+        style_solo: None,
+        multipad: Default::default(),
     });
     // What a live session with the synth and a Launchkey would add.
     let mut st = (*session.state()).clone();
@@ -699,7 +855,7 @@ pub fn screen_html(style: &Path, out: &Path) -> Result<()> {
 mod tests {
     use super::*;
     use std::path::PathBuf;
-    use yahaha::api::{ChordCmd, TransportCmd};
+    use yahaha::api::{ChordCmd, StyleSettingsCmd, TransportCmd};
     use yahaha::launchkey::Page;
 
     /// Every Launchkey control on pages 2 and 3, and the Track buttons, is a keyboard
@@ -713,7 +869,7 @@ mod tests {
             .filter_map(key_action)
             .collect();
         let pads = [96u8, 97, 98, 99, 100, 101, 102, 103, 112, 113, 114, 115, 116, 117, 118, 119];
-        for page in [Page::ChordSetup, Page::OtsParts] {
+        for page in [Page::ChordSetup, Page::OtsParts, Page::Registration] {
             for a in pads.iter().filter_map(|&n| launchkey::pad_action(page, n)) {
                 if !matches!(a, Action::Fingering(_)) {
                     assert!(keys.contains(&a), "{page:?}: {a:?} has no key");
@@ -721,9 +877,12 @@ mod tests {
             }
         }
         for cc in [launchkey::TRACK_LEFT_CC, launchkey::TRACK_RIGHT_CC] {
-            let Some(launchkey::Control::Act(a)) = launchkey::cc_control(cc, false) else { panic!("track button") };
-            assert!(keys.contains(&a));
+            for shift in [false, true] {
+                let Some(launchkey::Control::Act(a)) = launchkey::cc_control(cc, shift) else { panic!("track button") };
+                assert!(keys.contains(&a), "{a:?}");
+            }
         }
+        assert_eq!(key_action(KeyCode::Char('P')), Some(Action::Regist(9)));
         assert_eq!(key_action(KeyCode::Right), Some(Action::Style(1)));
         assert_eq!(key_action(KeyCode::Char('f')), Some(Action::NextFingering));
     }
@@ -737,7 +896,40 @@ mod tests {
         assert_eq!(key_cmd(KeyCode::BackTab), Some(AppCmd::Pads(PadsCmd::CyclePadPage { delta: -1 })));
         assert_eq!(key_cmd(KeyCode::Char('\\')), Some(AppCmd::System(SystemCmd::Panic)));
         assert_eq!(key_cmd(KeyCode::Char('k')), Some(AppCmd::Mixer(MixerCmd::ToggleSynthMute)));
-        assert_eq!(key_cmd(KeyCode::Char('Z')), None);
+        assert_eq!(key_cmd(KeyCode::Char('S')), Some(AppCmd::Transport(TransportCmd::FillUp)));
+        assert_eq!(key_cmd(KeyCode::Char('A')), Some(AppCmd::Transport(TransportCmd::FillDown)));
+        assert_eq!(key_cmd(KeyCode::Char('G')), Some(AppCmd::Transport(TransportCmd::FillSelf)));
+        assert_eq!(key_cmd(KeyCode::Char('N')), Some(AppCmd::Transport(TransportCmd::ToggleHalfBarFill)));
+        assert_eq!(key_cmd(KeyCode::Char('M')), Some(AppCmd::Chart(ChartCmd::ToggleChartMode)));
+        // Plain m stays the Style part 7 toggle (the z..comma row).
+        assert_eq!(key_cmd(KeyCode::Char('m')), key_action(KeyCode::Char('m')).map(AppCmd::from));
+        assert!(matches!(key_action(KeyCode::Char('m')), Some(Action::Button(Button::TogglePart(6)))));
+        assert_eq!(key_cmd(KeyCode::Char(')')), Some(AppCmd::Chart(ChartCmd::StepChart { delta: 1 })));
+        assert_eq!(key_cmd(KeyCode::Char('|')), Some(AppCmd::Transport(TransportCmd::SectionReset)));
+        assert_eq!(key_cmd(KeyCode::Char('F')), Some(AppCmd::Transport(TransportCmd::ToggleFade)));
+        assert_eq!(key_cmd(KeyCode::Char('~')), Some(AppCmd::Transport(TransportCmd::ToggleRetrigger)));
+        assert_eq!(key_cmd(KeyCode::Char('}')), Some(AppCmd::StyleSettings(StyleSettingsCmd::StepRetriggerRate { delta: 1 })));
+        assert_eq!(key_cmd(KeyCode::Char('r')), Some(AppCmd::Looper(LooperCmd::LooperRec)));
+        assert_eq!(key_cmd(KeyCode::Char('^')), Some(AppCmd::Looper(LooperCmd::LooperOnOff)));
+        // Shift+R belongs to Registration (#99): the looper leaves it alone.
+        assert_eq!(key_cmd(KeyCode::Char('R')), Some(AppCmd::Registration(yahaha::api::RegistrationCmd::PressRegist { index: 3 })));
+        assert_eq!(key_cmd(KeyCode::Char('.')), Some(AppCmd::Metronome(MetronomeCmd::ToggleMetronome)));
+        assert_eq!(key_cmd(KeyCode::Char('J')), Some(AppCmd::HarmonyArp(HarmonyArpCmd::ToggleHarmonyArp)));
+        assert_eq!(key_cmd(KeyCode::Char('L')), Some(AppCmd::HarmonyArp(HarmonyArpCmd::StepHarmonyArpType { delta: 1 })));
+        assert_eq!(key_cmd(KeyCode::Char('*')), Some(AppCmd::HarmonyArp(HarmonyArpCmd::ToggleArpHold)));
+        // Keys sibling branches own (#92 fills, #94 section timing, #96 looper, #98 chart,
+        // #99 Registration: Shift+Q..P, #95 Multi Pads: Z X C V B), or assert unbound (#92 H,
+        // #95 K): not Harmony/Arp.
+        for k in [
+            'r', '^', 'R', 'H', 'K', 'm', 'M', 'Q', 'W', 'E', 'T', 'Y', 'U', 'I', 'O', 'P', 'F', 'A', 'S', 'G', 'N', '.', '<', '>', '(', ')', '{', '}',
+            'Z', 'X', 'C', 'V', 'B',
+        ] {
+            assert!(!matches!(key_cmd(KeyCode::Char(k)), Some(AppCmd::HarmonyArp(_))), "{k}");
+        }
+        assert_eq!(key_cmd(KeyCode::Char('Z')), Some(AppCmd::MultiPad(MultiPadCmd::TriggerMultiPad { pad: 0 })));
+        assert_eq!(key_cmd(KeyCode::Char('V')), Some(AppCmd::MultiPad(MultiPadCmd::TriggerMultiPad { pad: 3 })));
+        assert_eq!(key_cmd(KeyCode::Char('B')), Some(AppCmd::MultiPad(MultiPadCmd::StopAllMultiPads)));
+        assert_eq!(key_cmd(KeyCode::Char('K')), None);
     }
 
     /// Letters typed into the browser filter; they never reach the performance shortcuts

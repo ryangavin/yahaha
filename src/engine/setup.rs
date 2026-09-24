@@ -1,16 +1,25 @@
 //! The style's channel setup (SInt): sent on load and start, re-applied (only what
-//! differs) at section changes.
+//! differs) at section changes. Each section plays the setup as its own channel rules
+//! route it (`Prepared::setup`, #64).
 
 use super::*;
 
 impl Engine {
     /// The style's channel setup, with the mixer's volume on each part in place of the
     /// style's own CC7 so a restart never undoes a fader the player moved.
+    ///
+    /// Playing, it is the setup as the section playing (`self.cur`) routes it. Stopped (a
+    /// style loaded, a style change after an Ending, a resync after a preview), it is the
+    /// setup as the Main the band would start on routes it: `self.cur` still names the
+    /// section that played last (an Ending), whose routing is not the stopped style's.
     pub fn send_init(&mut self, sink: &mut impl Sink) {
-        self.bend_range = self.style.bend_range;
+        if !self.running {
+            self.cur = self.home_slot();
+        }
+        self.bend_range = self.style.setup(self.cur).bend_range;
         self.rpn = [RPN_NULL; 16];
-        for i in 0..self.style.init.len() {
-            let m = self.style.init.get(i);
+        for i in 0..self.style.setup(self.cur).init.len() {
+            let m = self.style.setup(self.cur).init.get(i);
             if m[0] == 0xF0 || m.len() > 3 {
                 sink.send(m);
                 continue;
@@ -27,10 +36,17 @@ impl Engine {
             }
         }
         for p in 0..8u8 {
-            self.mirror.send(sink, &[0xB0 | (8 + p), 7, self.mixer[p as usize]]);
+            let v = self.faded(self.mixer[p as usize]);
+            self.mirror.send(sink, &[0xB0 | (8 + p), 7, v]);
         }
         self.pattern_pc = 0;
         self.sync_rpn();
+    }
+
+    /// The section the band would start on (the Main in use), whose routing of the setup a
+    /// stopped style has.
+    pub(super) fn home_slot(&self) -> usize {
+        self.style.resolve(4 + self.main as usize).unwrap_or(4)
     }
 
     /// The RPN each channel has selected, as far as a pattern's data entry is concerned.
@@ -59,20 +75,20 @@ impl Engine {
     /// the SInt's moves only the faders the player has not moved.
     pub(super) fn reapply_init(&mut self, own_voice: u16, sink: &mut impl Sink) {
         self.restore_untouched_levels();
-        self.bend_range = self.style.bend_range;
+        self.bend_range = self.style.setup(self.cur).bend_range;
         let mut voice_sent = 0u16;
         // A pattern's program change reset these parts' XG parameters and drum setup on the
         // receiver, even if it went back to the setup's voice (no program change here). Not
         // on the parts whose new section sets its own voice: the setup's parameters belong
         // to the setup's voice. They are put back at the first section change that doesn't.
         let reset = self.pattern_pc & !own_voice;
-        let kits = (0..16).filter(|&c| self.style.kit[c]).fold(0u16, |m, c| m | 1 << c);
+        let kits = (0..16).filter(|&c| self.style.setup(self.cur).kit[c]).fold(0u16, |m, c| m | 1 << c);
         // The (N)RPN the setup selects on each channel as it goes, and the channels where it
         // selects one.
         let (mut rpn, mut nrpn, mut nrpn_on) = ([RPN_NULL; 16], [RPN_NULL; 16], 0u16);
         let mut selects = 0u16;
-        for i in 0..self.style.init_resend {
-            let m = self.style.init.get(i);
+        for i in 0..self.style.setup(self.cur).init_resend {
+            let m = self.style.setup(self.cur).init.get(i);
             if m[0] == 0xF0 {
                 // XG Multi Part parameter (08 pp): after that part's program change only.
                 let send = match *m {
@@ -165,7 +181,7 @@ impl Engine {
         self.pattern_pc &= own_voice;
         self.sync_rpn();
         for p in 0..8u8 {
-            let v = self.mixer[p as usize];
+            let v = self.faded(self.mixer[p as usize]);
             if self.user_set & (1 << p) == 0 && self.mirror.cc[8 + p as usize][7] != v {
                 self.mirror.send(sink, &[0xB0 | (8 + p), 7, v]);
             }

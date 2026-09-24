@@ -6,7 +6,7 @@ import { mirror } from '../../lib/mirror.svelte'
 import { app } from '../../lib/store.svelte'
 import Launchkey from '../launchkey/Launchkey.svelte'
 import Parts from './Parts.svelte'
-import { layerText, leftZone } from './parts'
+import { layerText, leftZone, pluginPickValue } from './parts'
 
 function setup(demo = true) {
   const session = new MockSession({ manual: true, demo })
@@ -55,7 +55,23 @@ describe('Keyboard parts drawer', () => {
     pick.value = '40'
     await fireEvent.change(pick)
     expect(session.state.keyboardParts[1].program).toBe(40)
-    expect(session.state.keyboardParts[1].voiceName).toBe('Violin')
+    // Violin is in the Strings family, which the mock's program map sends to a patch.
+    expect(session.state.keyboardParts[1].voiceName).toBe('Silk Strings')
+    expect(session.state.keyboardParts[1].patch).toBe(null)
+    // The Library tab: a patch of the part's own.
+    await fireEvent.click(strip('Right 2').querySelector('[data-tip="part.source_library"]')!)
+    const lib = strip('Right 2').querySelector<HTMLSelectElement>('select[data-tip="part.library"]')!
+    lib.value = 'warm-rhodes'
+    await fireEvent.change(lib)
+    expect(session.state.keyboardParts[1].patch).toBe('warm-rhodes')
+    expect(session.state.keyboardParts[1].voiceName).toBe('Warm Rhodes')
+    // A GM voice again: the part's own patch goes.
+    await fireEvent.click(strip('Right 2').querySelector('[data-tip="part.source_gm"]')!)
+    const gm = strip('Right 2').querySelector<HTMLSelectElement>('select[data-tip="part.voice"]')!
+    gm.value = '73'
+    await fireEvent.change(gm)
+    expect(session.state.keyboardParts[1].patch).toBe(null)
+    expect(session.state.keyboardParts[1].voiceName).toBe('Flute')
   })
 
   it('recalling an OTS updates the parts and marks the faders it moved as waiting', async () => {
@@ -77,7 +93,11 @@ describe('Keyboard parts drawer', () => {
     flushSync()
     expect(session.state.ots.link).toBe(true)
     expect(tipped('ots.1').textContent).toContain('Main A')
-    expect(tipped('ots.link_timing').textContent).toContain('Real Time')
+    // The default (owner preference): at the Main section change.
+    expect(tipped('ots.link_timing').textContent).toContain('At Main Section Change')
+    session.send({ type: 'setOtsLinkTiming', timing: 'immediate' })
+    flushSync()
+    expect(tipped('ots.link_timing').textContent).toContain('Immediate')
   })
 
   it('under Manual Bass, Left plays the Bass voice and the style Bass is marked', () => {
@@ -113,7 +133,7 @@ describe('Keyboard parts drawer', () => {
       await fireEvent.keyDown(pick, { key: '7', code: 'Digit7' })
       expect(session.state.keyboardParts[2].on).toBe(true) // Right 3 toggled
       expect(document.activeElement).not.toBe(pick)
-      expect(session.state.keyboardParts[0].voiceName).toBe('Grand Piano')
+      expect(session.state.keyboardParts[0].voiceName).toBe('Stage Grand') // Piano family → the map's patch
       pick.focus()
       await fireEvent.keyDown(pick, { key: 'ArrowDown', code: 'ArrowDown' })
       expect(document.activeElement).toBe(pick) // list navigation stays with the picker
@@ -142,5 +162,19 @@ describe('Keyboard parts drawer', () => {
     expect([...bank.children].indexOf(bank.querySelector('.linked')!)).toBe(8)
     await fireEvent.pointerLeave(strip('Right 2'))
     expect(bank.querySelector('.linked')).toBeNull()
+  })
+})
+
+describe('plugin picker', () => {
+  it('a failed plugin can be picked again (the picker shows the SoundFont voice)', () => {
+    const s = new MockSession({ manual: true, demo: false })
+    s.send({ type: 'setPartPlugin', part: 0, id: 'aumu Mock Demo', state: null })
+    s.advance(1000)
+    const p = s.state.keyboardParts[0].plugin
+    expect(p?.status).toBe('failed')
+    expect(pluginPickValue(p)).toBe('')
+    s.send({ type: 'setPartPlugin', part: 0, id: 'aumu dls  appl', state: null })
+    s.advance(1000)
+    expect(pluginPickValue(s.state.keyboardParts[0].plugin)).toBe('aumu dls  appl')
   })
 })

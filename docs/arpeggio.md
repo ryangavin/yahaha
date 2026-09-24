@@ -3,8 +3,7 @@
 `src/arp` is the arpeggio core for #33. It takes the held right-hand notes, the style
 tick clock and the arpeggio settings, and produces note events. It is pure and
 deterministic like `engine.rs`: there are no threads and no wall time, and nothing
-allocates after construction. Wiring it into the live input path, the session, the API
-and the UI is a later ticket.
+allocates after construction. The live wiring is `src/live/kbdfx.rs` (see "Wiring").
 
 The Genos arpeggio *engine* is in scope, but its preset *patterns* are not
 (genos-features.md §6 and "Out of scope"). Yamaha's pattern data is copyrighted and
@@ -109,11 +108,11 @@ the whole chord. Notes that would fall outside 0–127 are skipped.
 |---|---|
 | `quantize` | Arpeggio Quantize (RM p.41): Off, Eighth or Sixteenth. The pattern starts on the grid line **nearest** the first key. A key pressed slightly late plays at once and the following steps land on the grid; a key pressed slightly early waits for the grid. The grid is counted from tick 0 of the caller's clock (the style's bar line). A pattern change with quantize on waits for the next grid line |
 | `hold` | Arpeggio Hold / latch (RM p.41, p.141): the pattern keeps playing after release. The first key after a full release starts a new chord that replaces the latched one; keys added while others are down join the chord. Turning hold off drops every note that is no longer physically down |
-| `velocity` | `Original` (the pattern's step velocities), `Thru` (the velocity the source key was played with) or `Fixed(v)` |
+| `velocity` | `Original` (the pattern's step velocities), `Thru` (the velocity the source key was played with) or `Fixed(v)`. A yahaha extension: the Genos manuals have no such setting (it is a Motif/MONTAGE idea) |
 | `vel_scale` | ArpVel, percent, 0–200. Results are clamped to 1–127 |
 | `gate_scale` | ArpGateT, percent, 1–400. The gate is never shorter than one tick |
 | `unit_multiply` | ArpUnitM, percent, 25–400: 200 is half speed and 50 is double speed. A change takes effect from the next step, which keeps its time |
-| `keep_key_on` | The pattern clock keeps running through a full release, so the next chord picks up mid-phrase, in phase, instead of restarting from step 1. Steps with nothing held are silent. Only `stop` (or turning this off with nothing held) stops the clock |
+| `keep_key_on` | The pattern clock keeps running through a full release, so the next chord picks up mid-phrase, in phase, instead of restarting from step 1. Steps with nothing held are silent. Only `stop` (or turning this off with nothing held) stops the clock. A yahaha extension, not a Genos setting |
 | `sustain_holds` | While the sustain pedal is down, released keys stay in the arpeggio, and new keys join them. Pedal up drops the released ones |
 
 Without Hold or Keep Key On, releasing every key stops the pattern, and the next key
@@ -137,9 +136,53 @@ PPQ) round per step and never drift.
 | Guitar | Strum Quarters, Campfire Strum (down/up), Muted Sixteens |
 | Sequence | Octave Pulse, Root Fifth Seq, Pluck Line |
 
-## Not done yet (later tickets)
+## Wiring (#33)
 
-- Wiring into `live.rs`/`engine.rs`: feeding right-hand keys, output to Right 1–3 by
-  Assign, HrmArpVol, and the HARMONY/ARPEGGIO button.
-- Session/API/UI: pattern browser, settings, Arpeggio Hold pedal assignment.
+- **One switch, one type** with Keyboard Harmony (docs/harmony.md): the arpeggio is the
+  HARMONY/ARPEGGIO type when an arpeggio pattern is selected.
+- **Keys:** the input thread's processor swallows the keys right of the split and hands
+  them to the engine thread (a ring), marking them in a held-key mask. Every engine wake
+  releases from the arp any key no longer in the mask, so a lost key-up can never leave a
+  note in the pattern (`Arp::keys_down`).
+- **Clock:** the arp runs on the engine thread in ticks of the style clock, at eight
+  sub-ticks per style tick (`live::kbdfx::SUB`, so its ppq is the style's × 8). It plays what
+  is due before the current sub-tick: never early, at most 1/8 tick late. The engine wakes
+  for `Arp::next_due`.
+  - With the band running, the pattern is in phase with the style and Quantize snaps to its
+    grid. START resets the style clock to 0: `Arp::jump` cuts and restarts the pattern
+    there.
+  - With the band stopped, the engine's clock runs on at the tempo from where it stopped:
+    that is the arp's own clock (the grid is then arbitrary, but steady).
+  - A style change to another resolution calls `Arp::set_ppq` at the bar line: sounding
+    notes are cut (their off ticks meant the old clock) and the pattern starts again from
+    step 1 there.
+- **Output:** on the Right parts Assign picks (Auto: every Right part that is on, as the
+  keys would play; Right 1-3: that part). Multi is only offered for the Harmony and Echo
+  categories (RM p.46): the app hides it for an arpeggio, and a Multi left over from a
+  Harmony type plays as Auto (Decision, #100 review N2), at each part's octave and the
+  Keyboard transpose, with velocities scaled by Volume (HrmArpVol, 127 = unchanged).
+  Every note is counted per (channel, note) and released where it sounded.
+- **Stop:** the switch off or another type calls `Arp::all_off` (the offs go out at once);
+  PANIC and shutdown too.
+- **Settings in the app:** pattern, Quantize, Hold, Velocity (Original/Thru/Fixed), Keep Key
+  On, plus Volume and Assign. The Live Control percentages (ArpVel, ArpGateT, ArpUnitM) stay
+  at 100%: the Launchkey has no spare controls for them yet.
+
+Arpeggio Hold and the HARMONY/ARPEGGIO switch are also pedal functions (Settings ›
+Pedals: Arpeggio Hold, Kbd Harmony/Arpeggio On/Off; RM p.141), with a Control Type:
+Hold A holds the arpeggio while the pedal is down (docs/controllers.md).
+
+Decision: the Arpeggio Hold pedal function is kept apart from the Hold setting
+(`harmonyArp.arp.pedalHold`, `FxConfig::pedal_hold`), and the arpeggio holds while either
+is on. The manual describes two mechanisms: the menu's Hold (RM p.41) is a setting, and the
+pattern it holds stops when the [HARMONY/ARPEGGIO] button is pressed again; the pedal
+function (RM p.141) holds "while this function is on" and stops the pattern "when this
+function is turned off". A pedal that wrote the setting would turn off a Hold the player
+set in the menu on its first release. PANIC and an unplugged keyboard turn the pedal
+function off where a Hold pedal was keeping it on (the pedal counts as up after them); they
+leave the setting.
+
+## Not done yet
+
+- The Live Control percentages and the sustain-pedal hold (`sustain_holds`) in the app.
 - Loading user patterns from TOML files. The format already (de)serialises.

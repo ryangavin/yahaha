@@ -16,28 +16,52 @@
 //! feature adds a module, one line in `app_cmd!` below and/or one field in `AppState`
 //! (docs/architecture.md, "Adding a feature").
 
+mod chart;
 mod chord;
+mod controllers;
+mod harmony_arp;
 mod keyboard;
 mod library;
+mod looper;
+mod metronome;
 mod mixer;
+mod multipad;
 mod ots;
 mod pads;
+mod plugins;
 mod parts;
+mod playlist;
 mod preview;
+mod registration;
 mod settings;
+mod style_change;
+mod sound_library;
+mod style_settings;
 mod surface;
 mod system;
 mod transport;
 
+pub use chart::*;
 pub use chord::*;
+pub use controllers::*;
+pub use harmony_arp::*;
 pub use keyboard::*;
 pub use library::*;
+pub use looper::*;
+pub use metronome::*;
 pub use mixer::*;
+pub use multipad::*;
 pub use ots::*;
 pub use pads::*;
+pub use plugins::*;
 pub use parts::*;
+pub use playlist::*;
 pub use preview::*;
+pub use registration::*;
 pub use settings::*;
+pub use style_change::*;
+pub use sound_library::*;
+pub use style_settings::*;
 pub use surface::*;
 pub use system::*;
 pub use transport::*;
@@ -115,6 +139,30 @@ app_cmd! {
     Settings(SettingsCmd),
     /// Panic, the message line.
     System(SystemCmd),
+    /// Style Setting > Change Behavior: tempo, part on/off, Section Set.
+    StyleChange(StyleChangeCmd),
+    /// The iReal Pro chart player.
+    Chart(ChartCmd),
+    /// Section Change Timing, Synchro Stop Window, fade times, Section Reset, Retrigger length.
+    StyleSettings(StyleSettingsCmd),
+    /// Registration Memory: buttons, banks, Memorize, Freeze, Registration Sequence.
+    Registration(RegistrationCmd),
+    /// The Playlist.
+    Playlist(PlaylistCmd),
+    /// Chord Looper: record, loop, memories.
+    Looper(LooperCmd),
+    /// Metronome on/off, volume, bell.
+    Metronome(MetronomeCmd),
+    /// Multi Pads: the bank, the pads, Synchro Stop.
+    MultiPad(MultiPadCmd),
+    /// Pedals, wheels and assignable functions.
+    Controllers(ControllersCmd),
+    /// Instrument plugins (Audio Units) for the keyboard parts.
+    Plugins(PluginCmd),
+    /// Keyboard Harmony / Arpeggio.
+    HarmonyArp(HarmonyArpCmd),
+    /// The sound library: patches, the program map, auditions, import/export.
+    SoundLibrary(SoundLibraryCmd),
 }
 
 impl From<Button> for AppCmd {
@@ -123,6 +171,7 @@ impl From<Button> for AppCmd {
             Button::Intro(i) => TransportCmd::Intro { index: i }.into(),
             Button::Main(i) => TransportCmd::Main { index: i }.into(),
             Button::Break => TransportCmd::Break.into(),
+            Button::Fill(d) => TransportCmd::Fill { delta: d }.into(),
             Button::Ending(i) => TransportCmd::Ending { index: i }.into(),
             Button::StartStop => TransportCmd::StartStop.into(),
             Button::Stop => TransportCmd::Stop.into(),
@@ -132,8 +181,18 @@ impl From<Button> for AppCmd {
             Button::TapTempo => TransportCmd::TapTempo.into(),
             Button::TempoUp => TransportCmd::TempoUp.into(),
             Button::TempoDown => TransportCmd::TempoDown.into(),
+            Button::SetTempo(bpm) => TransportCmd::SetTempo { bpm }.into(),
             Button::TogglePart(p) => MixerCmd::ToggleStylePart { part: p }.into(),
             Button::StopAcmp => TransportCmd::ToggleStopAcmp.into(),
+            Button::SetStopAcmp(m) => TransportCmd::SetStopAcmp { mode: m.into() }.into(),
+            Button::FillUp => TransportCmd::FillUp.into(),
+            Button::FillDown => TransportCmd::FillDown.into(),
+            Button::FillSelf => TransportCmd::FillSelf.into(),
+            Button::HalfBarFill => TransportCmd::ToggleHalfBarFill.into(),
+            Button::SetHalfBarFill(on) => TransportCmd::SetHalfBarFill { on }.into(),
+            Button::Fade => TransportCmd::ToggleFade.into(),
+            Button::SectionReset => TransportCmd::SectionReset.into(),
+            Button::Retrigger => TransportCmd::ToggleRetrigger.into(),
         }
     }
 }
@@ -168,6 +227,16 @@ impl From<Action> for AppCmd {
             Action::PartVoice(d) => PartsCmd::StepVoice { delta: d }.into(),
             Action::ToggleFaderPage => MixerCmd::ToggleFaderPage.into(),
             Action::Style(d) => LibraryCmd::StepStyle { delta: d }.into(),
+            Action::RetriggerRate(d) => StyleSettingsCmd::StepRetriggerRate { delta: d }.into(),
+            Action::Regist(i) => RegistrationCmd::PressRegist { index: i }.into(),
+            Action::RegistMemory => RegistrationCmd::ToggleRegistMemory.into(),
+            Action::RegistFreeze => RegistrationCmd::ToggleFreeze.into(),
+            Action::RegistBank(d) => RegistrationCmd::StepRegistBank { delta: d }.into(),
+            Action::RegistSeq(d) => RegistrationCmd::StepRegistSequence { delta: d }.into(),
+            Action::Playlist(d) => PlaylistCmd::StepPlaylist { delta: d }.into(),
+            Action::Assign(f) => ControllersCmd::TriggerFunction { function: f }.into(),
+            Action::AssignSet(f, on) => function_set(f, on).unwrap_or(ControllersCmd::TriggerFunction { function: f }.into()),
+            Action::ToggleHarmonyArp => HarmonyArpCmd::ToggleHarmonyArp.into(),
         }
     }
 }
@@ -240,8 +309,35 @@ pub struct AppState {
     pub preview: PreviewState,
     /// The keys held and the chord, for the app's keyboard strip.
     pub keyboard: KeyboardState,
+    /// Style Setting > Change Behavior.
+    pub style_change: StyleChangeState,
+    /// The iReal Pro chart player: imported playlists, the chart, the bar playing.
+    pub chart: ChartState,
+    /// Section Change Timing, Synchro Stop Window, fade times, Section Reset, Retrigger length.
+    pub style_settings: StyleSettingsState,
+    /// Registration Memory: the bank, its ten buttons, Freeze, the Registration Sequence.
+    pub registration: RegistrationState,
+    /// The Playlist.
+    pub playlist: PlaylistState,
+    /// Multi Pads: the bank, the four pads, Synchro Stop, the bank files.
+    pub multi_pad: MultiPadState,
+    /// Pedals, wheels, their parts and the pedals' assignable functions.
+    pub controllers: ControllersState,
+    /// Keyboard Harmony / Arpeggio: the switch, the type, the settings.
+    #[serde(default)]
+    pub harmony_arp: HarmonyArpState,
     /// The last notice or error, until the next one or `ClearMessage`.
     pub message: Option<Message>,
+    /// The Chord Looper.
+    pub looper: LooperState,
+    /// The metronome.
+    pub metronome: MetronomeState,
+    /// The instrument plugin host: the installed plugins (keyboard parts' plugins are in
+    /// `keyboard_parts[i].plugin`).
+    #[serde(default)]
+    pub plugins: PluginsState,
+    /// The sound library: patches, the program map, what the current style uses.
+    pub sound_library: SoundLibraryState,
 }
 
 // ---------------------------------------------------------------------------

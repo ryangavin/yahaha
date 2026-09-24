@@ -2,7 +2,8 @@
   The layout shell: the app bar, the stage (lead-sheet band, Launchkey mirror, keyboard
   strip) and the panels that open around it. Each lives in its own folder under src/panels/.
 
-  ┌ app bar: Parts & OTS · Mixer · Browse · Settings ·············· ? · theme ┐
+  ┌ app bar: Parts & OTS · Mixer · Browse · Charts · Settings ······· ? · theme ┐
+  │ Registration bar: bank · buttons 1–10 · Memory · Freeze · sequence · playlist │
   │ ┌ stage ──────────────────────────────────────────────────────────────┐   │
   │ │ lead-sheet band (panels/leadsheet): now · bar cells / chart · next  │   │
   │ │ Launchkey mirror (panels/launchkey)                                 │ ┌ drawer ┐
@@ -31,13 +32,20 @@
   import Tooltip from './lib/tooltip/Tooltip.svelte'
   import { tip, tips } from './lib/tooltip/tip.svelte'
   import Browser from './panels/browser/Browser.svelte'
+  import Charts from './panels/charts/Charts.svelte'
   import Header from './panels/header/Header.svelte'
   import KeyStrip from './panels/keystrip/KeyStrip.svelte'
   import Launchkey from './panels/launchkey/Launchkey.svelte'
   import LeadSheet from './panels/leadsheet/LeadSheet.svelte'
+  import Harmony from './panels/harmony/Harmony.svelte'
   import Mixer from './panels/mixer/Mixer.svelte'
+  import Looper from './panels/looper/Looper.svelte'
+  import MultiPad from './panels/multipad/MultiPad.svelte'
   import Parts from './panels/parts/Parts.svelte'
+  import RegistBar from './panels/registration/RegistBar.svelte'
+  import Registration from './panels/registration/Registration.svelte'
   import Settings from './panels/settings/Settings.svelte'
+  import SoundLibrary from './panels/sound/SoundLibrary.svelte'
 
   let { session }: { session: Session } = $props()
 
@@ -64,6 +72,7 @@
 
 <div class="app">
   <Header />
+  <RegistBar />
 
   <main class="stage">
     <div class="stack">
@@ -84,7 +93,13 @@
 
 {#if ui.parts}<Parts />{/if}
 {#if ui.mixer}<Mixer />{/if}
+{#if ui.looper}<Looper />{/if}
+{#if ui.multipad}<MultiPad />{/if}
+{#if ui.sound}<SoundLibrary />{/if}
 {#if ui.settings}<Settings />{/if}
+{#if ui.charts}<Charts />{/if}
+{#if ui.harmony}<Harmony />{/if}
+{#if ui.regist}<Registration />{/if}
 {#if ui.browser}<Browser />{/if}
 {#if tips.floating}<Tooltip />{/if}
 

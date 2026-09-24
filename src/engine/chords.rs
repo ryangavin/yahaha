@@ -21,38 +21,62 @@ enum Revoice {
 impl Engine {
     // ----- input -----
 
-    /// A chord as fingered (before Keyboard transpose). Starts playback when sync start is armed.
+    /// A chord from the keyboard, as fingered (before Keyboard transpose). Starts
+    /// playback when sync start is armed. While the Chord Looper plays, it is ignored (and
+    /// while it records, recorded): see looper.rs.
     pub fn set_chord(&mut self, played: Chord, now: u64, sink: &mut impl Sink) {
+        if self.looper_keyboard_chord(played, now) {
+            self.apply_chord(played, now, sink);
+        }
+    }
+
+    /// The style follows chord `played` (as fingered): from the keyboard, or the Chord
+    /// Looper playing it back. While the band plays (or Stop Accompaniment sounds the
+    /// chord), the band follows it once it settles (settle.rs): in `process`, after the
+    /// other inputs of this wake, and after the chord-settle window. An exact chord change
+    /// that must not wait (loop playback, a chart's chords) uses `apply_chord_unsettled`.
+    pub(super) fn apply_chord(&mut self, played: Chord, now: u64, sink: &mut impl Sink) {
+        self.apply_chord_from(played, true, now, sink);
+    }
+
+    /// `apply_chord`; `held`: the chord comes from keys held (the keyboard, or the Chord
+    /// Looper playing it back as if played). A chart's chord (engine/chart.rs) holds no
+    /// keys: it neither starts the Synchro Stop Window nor retriggers the Main.
+    pub(super) fn apply_chord_from(&mut self, played: Chord, held: bool, now: u64, sink: &mut impl Sink) {
         self.played = Some(played);
+        let sync_start = self.starts_on_chord() && played.ty != CANCEL;
+        // A chord played: the Synchro Stop Window times the hold; Retrigger restarts the
+        // Main at it, at once (the restart follows the player; the new pass's chord-part
+        // notes wait for the settle, as any chord change's do).
+        if held {
+            self.sync_window_chord(now);
+            if played.ty != CANCEL {
+                self.retrigger_chord(self.running, now, sink);
+            }
+        }
+        if self.running || self.stop_acmp != StopAcmp::Off && !sync_start {
+            self.unsettle(now, true);
+            return;
+        }
         let chord = shift_chord(played, self.transpose.keyboard);
         let prev = self.chord;
         self.chord = Some(chord);
-        self.follow_chord(prev, chord, now, sink);
-        self.on_chord(prev, now, sink);
-    }
-
-    /// The band follows a new chord: a Sync Start chord starts it, a playing band
-    /// re-voices, a stopped one with Stop ACMP on sounds it.
-    fn follow_chord(&mut self, prev: Option<Chord>, chord: Chord, now: u64, sink: &mut impl Sink) {
-        if self.sync_armed && !self.running && chord.ty != CANCEL {
+        if sync_start {
+            // A Sync Start chord starts the band at once (the rhythm parts play); its chord
+            // parts wait for the chord to settle, like any chord change's: at the end of
+            // this wake (a command in the same wake may still move or cancel it), and after
+            // the chord-settle window.
+            self.unsettle(now, true);
             self.start(now, sink);
-            return;
         }
-        if self.running {
-            if prev.is_some() {
-                self.revoice(chord, now, sink);
-            }
-            self.catch_up(prev, chord, now, sink);
-        }
-        if !self.running && self.stop_acmp {
-            self.sound_stop_acmp(chord, now, sink);
-        }
+        self.on_chord(prev, now, sink);
     }
 
     /// New transpose settings. They apply to notes started from now on; sounding notes keep
     /// their pitch until they end or the next chord change revoices them. A Keyboard change
-    /// moves the held chord at once, so the band follows as if the same keys had been played
-    /// in the new key. Stop Accompaniment notes move only if they are still sounding.
+    /// moves the held chord, so the band follows as if the same keys had been played in the
+    /// new key (while it plays: once the change settles, as a chord change does). Stop
+    /// Accompaniment notes move only if they are still sounding.
     pub fn set_transpose(&mut self, t: Transpose, now: u64, sink: &mut impl Sink) {
         let old = self.transpose;
         self.transpose = Transpose::new(t.keyboard, t.master);
@@ -60,35 +84,35 @@ impl Engine {
             return;
         }
         let Some(played) = self.played else { return };
+        if self.running || self.stop_acmp != StopAcmp::Off {
+            self.unsettle(now, false);
+            return;
+        }
         let chord = shift_chord(played, self.transpose.keyboard);
         let prev = self.chord;
         self.chord = Some(chord);
-        if self.running {
-            self.revoice(chord, now, sink);
-            self.catch_up(prev, chord, now, sink);
-        } else if self.stop_acmp && self.sounding.iter().any(|n| n.active && n.src == STOP_ACMP_SRC) {
-            self.sound_stop_acmp(chord, now, sink);
-        }
         self.on_chord(prev, now, sink);
     }
 
     /// Master transpose for a note on `dest` (never on drum/SFX kits).
     #[inline]
     pub(super) fn master(&self, dest: u8, key: u8) -> u8 {
-        if self.style.kit[dest as usize & 15] {
+        if self.style.setup(self.cur).kit[dest as usize & 15] {
             key
         } else {
             shift_key(key, self.transpose.master)
         }
     }
 
-    /// Stop Accompaniment: with the band stopped, the held chord sounds on the style's
-    /// Bass (root / on-bass note) and Pad (chord tones) voices.
+    /// Stop Accompaniment: with the band stopped, the held chord sounds on the Bass (root /
+    /// on-bass note) and Pad (chord tones) channels, with the style's voices (Style) or
+    /// fixed ones (Fixed, `stop_acmp_voices`).
     pub(super) fn sound_stop_acmp(&mut self, chord: Chord, now: u64, sink: &mut impl Sink) {
         self.off_where(sink, |n| n.src == STOP_ACMP_SRC);
         if chord.ty == CANCEL {
             return;
         }
+        self.stop_acmp_voices(sink);
         let bass = 36 + chord.bass.unwrap_or(chord.root);
         self.note_on(STOP_ACMP_SRC, 0, 10, bass, 90, 4, now, sink);
         for (i, &t) in crate::theory::chord_tones(chord.ty).iter().enumerate() {
@@ -109,8 +133,7 @@ impl Engine {
     pub(super) fn due_within(&self, now: u64, window: u64) -> Option<usize> {
         let sec = self.style.sections[self.cur].as_ref()?;
         let target = self.tick_at(now + window) + 1e-6;
-        let sec_end = self.sec_start + sec.len as f64;
-        let (boundary, inclusive, _) = self.boundary(sec_end);
+        let (boundary, inclusive, _) = self.boundary();
         if boundary <= target {
             return None;
         }
@@ -141,7 +164,7 @@ impl Engine {
     /// short by that attack.
     pub(super) fn struck_now(&self, dest: u8, pitch: u8, chord: Chord, due: usize) -> bool {
         let Some(sec) = self.style.sections[self.cur].as_ref() else { return false };
-        if self.parts & (1 << (dest.saturating_sub(8) & 7)) == 0 {
+        if self.audible() & (1 << (dest.saturating_sub(8) & 7)) == 0 {
             return false;
         }
         let due = due.min(sec.events.len());
@@ -177,17 +200,20 @@ impl Engine {
         false
     }
 
-    /// A chord that lands just after the beat (within `LATE_CHORD_NS`) also brings in
-    /// the parts the previous chord kept silent (no chord yet, Chord Cancel, or CASM
-    /// chord-mute routing). Their notes from that window were skipped, so `revoice` has
-    /// nothing to correct; start the ones the pattern still holds now.
-    pub(super) fn catch_up(&mut self, prev: Option<Chord>, chord: Chord, now: u64, sink: &mut impl Sink) {
+    /// A chord that lands just after the beat (within `LATE_CHORD_NS` of `at`, when it
+    /// arrived) also brings in the parts the previous chord kept silent (no chord yet,
+    /// Chord Cancel, or CASM chord-mute routing). Their notes from that window were
+    /// skipped, so `revoice` has nothing to correct; start the ones the pattern still holds
+    /// now. So do the notes held back while the chord settled (`Engine::held_from`), on
+    /// every part.
+    pub(super) fn catch_up(&mut self, prev: Option<Chord>, chord: Chord, at: u64, now: u64, sink: &mut impl Sink) {
+        let held = self.held_from();
         let Some(sec) = self.style.sections[self.cur].as_ref() else { return };
         // Never reach back past where this section came in: those notes never played.
-        let lo = (self.tick_at(now.saturating_sub(LATE_CHORD_NS)) - self.sec_start).max(self.entry);
+        let lo = (self.tick_at(at.saturating_sub(LATE_CHORD_NS)) - self.sec_start).max(self.entry);
         let end = self.ev_idx.min(sec.events.len());
         let mut i = end;
-        while i > 0 && sec.events[i - 1].tick as f64 >= lo {
+        while i > 0 && (sec.events[i - 1].tick as f64 >= lo || held.is_some_and(|h| i > h)) {
             i -= 1;
         }
         // (src, src key, dest, out, vel): room for 8 parts x 8 notes; beyond that the
@@ -212,21 +238,24 @@ impl Engine {
                     _ => break,
                 }
             }
+            let start = i;
             i = j.max(i + 1);
             let Some(rule) = sec.rules[e.src as usize].as_ref() else { continue };
-            let part_on = self.parts & (1 << (rule.dest_ch.saturating_sub(8) & 7)) != 0;
+            // Held back while the chord settled: never voiced, whatever the previous chord.
+            let deferred = held.is_some_and(|h| start >= h) && follows_chords(rule.dest_ch);
+            let part_on = self.audible() & (1 << (rule.dest_ch.saturating_sub(8) & 7)) != 0;
             let was = effective_chord(prev, rule).filter(|&c| plays(rule, c));
             let Some(now_chord) = effective_chord(Some(chord), rule).filter(|&c| plays(rule, c)) else { continue };
             // A part that was playing has its notes re-voiced by `revoice`, except guitar
             // strings the previous chord left out (muted by Stroke, or voiced nowhere):
             // those have no voice to re-pitch, so they come in here.
             let guitar = (0..n).any(|k| rule.zone_for(keys[k]).ntr == Ntr::Guitar);
-            if n == 0 || !part_on || was.is_some() && !guitar {
+            if n == 0 || !part_on || was.is_some() && !guitar && !deferred {
                 continue;
             }
             let mut outs = [None; 8];
             transpose_group(&keys[..n], rule, now_chord, &mut outs[..n]);
-            if was.is_some() {
+            if was.is_some() && !deferred {
                 let slot = self.cur as u8;
                 for k in 0..n {
                     let voiced = rule.zone_for(keys[k]).ntr == Ntr::Guitar
@@ -259,13 +288,14 @@ impl Engine {
         }
     }
 
-    /// Re-pitch sounding notes after a chord change according to each part's retrigger rule.
-    pub(super) fn revoice(&mut self, chord: Chord, now: u64, sink: &mut impl Sink) {
+    /// Re-pitch sounding notes after a chord change (that arrived at `at`) according to
+    /// each part's retrigger rule.
+    pub(super) fn revoice(&mut self, chord: Chord, at: u64, now: u64, sink: &mut impl Sink) {
         // At a section boundary the all-off cuts every note now: nothing to re-pitch.
         let Some(due) = self.due_now(now) else { return };
         for dest in 8..16u8 {
             if follows_chords(dest) {
-                self.revoice_part(dest, chord, now, due, sink);
+                self.revoice_part(dest, chord, at, now, due, sink);
             }
         }
     }
@@ -280,7 +310,8 @@ impl Engine {
     /// next chord can part them again. A note whose pattern note-off is
     /// due now or within `EARLY_CHORD_NS` is never attacked again: where it would be
     /// retriggered it plays out as it is, or stops if the part's bend moves.
-    pub(super) fn revoice_part(&mut self, dest: u8, chord: Chord, now: u64, due: usize, sink: &mut impl Sink) {
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn revoice_part(&mut self, dest: u8, chord: Chord, at: u64, now: u64, due: usize, sink: &mut impl Sink) {
         let bend = self.rtr_bend[dest as usize & 15] as i16;
         // The part's sounding notes (indices into `sounding`) and what happens to each.
         let mut notes = [0u8; MAX_SOUNDING];
@@ -322,7 +353,7 @@ impl Engine {
                 transpose_group(&keys[..n], rule, c, &mut outs[..n]);
             }
             // The player's chord landed just after these notes started: correct them outright.
-            let late = now.saturating_sub(s.started_ns) < LATE_CHORD_NS;
+            let late = at.saturating_sub(s.started_ns) < LATE_CHORD_NS;
             for k in 0..n {
                 let b = grp[k];
                 let o = self.sounding[notes[b] as usize];

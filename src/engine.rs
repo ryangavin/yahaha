@@ -9,23 +9,47 @@
 //! hooks in hooks.rs; when a queued section change happens is `Engine::change_point`
 //! (sections.rs). See docs/architecture.md.
 
+mod change_rules;
+mod chart;
 mod chords;
+mod fills;
+mod fade;
 mod hooks;
+mod looper;
+mod metronome;
 mod mirror;
 mod mixer;
+mod multipad;
 mod playback;
 mod prepared;
+#[cfg(test)]
+mod rules_tests;
+mod retrigger;
+mod ritardando;
 mod sections;
+mod settle;
 mod setup;
 mod style_change;
+mod sync_stop;
+mod timing;
 mod transport;
 
+pub use chart::{ChartPlan, ChartSettings, PlanBar, CHART_CHORDS};
 use hooks::{Features, Lines};
 use mirror::{Mirror, NRPN_BIT, UNSENT};
 use sections::Change;
+pub use change_rules::{ChangeRule, ChangeRules, StopAcmp, FIXED_BASS_PROGRAM, FIXED_PAD_PROGRAM};
+pub use looper::{LoopState, LooperSnap};
 pub use mixer::{Takeover, HW_UNKNOWN};
+pub use transport::StyleControls;
+pub use multipad::{PadCmd, PadsSnap, SynchroStop, PAD_PPQ};
 use prepared::PKind;
-pub use prepared::{id_of, slot_of, Msgs, PSection, Prepared, NUM_SLOTS};
+pub use fade::FadeState;
+pub use prepared::{id_of, slot_of, Msgs, PSection, Prepared, Setup, NUM_SLOTS};
+pub use ritardando::RIT_END;
+pub use settle::{CHORD_SETTLE_DEFAULT_MS, CHORD_SETTLE_MAX_MS};
+use settle::{Hold, Unsettled};
+pub use timing::{IntroEndingTiming, MainTiming, StyleSettings, MAX_FADE_HOLD_MS, MAX_FADE_MS, MAX_SYNC_STOP_WINDOW_MS, RETRIGGER_RATES};
 
 use crate::sff::{ChannelRule, Ntr, Ntt, Rtr, SectionId, Style};
 use crate::theory::{is_drum_part, plays, transpose_group, Chord, CANCEL, GUITAR_NOISE};
@@ -37,7 +61,20 @@ pub trait Sink {
     /// was sent with (the engine has already sent the pitch bend). MIDI sinks ignore it; the
     /// sim listing uses it to show the pitch that sounds.
     fn retune(&mut self, _ch: u8, _semis: i8) {}
+
+    /// A metronome click (`accent`: the bell on beat 1), for the built-in synth's click
+    /// voice only: it never goes out as MIDI. Sinks without a synth ignore it.
+    fn click(&mut self, _accent: bool) {}
+
+    /// The style just taken over plays with bank `bank` of the sound library's route table
+    /// (#103, `patches::route`): for the built-in synth and the port's program mapping
+    /// only, never MIDI. Sinks without them ignore it.
+    fn route_bank(&mut self, _bank: u8) {}
 }
+
+/// The tempo range, BPM (Genos: 5-500, OM p.46, p.133).
+pub const MIN_BPM: f64 = 5.0;
+pub const MAX_BPM: f64 = 500.0;
 
 /// Pitch bend range (RPN 0) a part has before the style sets one: the GM/XG default.
 pub const GM_BEND_RANGE: u8 = 2;
@@ -98,6 +135,10 @@ pub enum Button {
     Intro(u8),
     Main(u8),
     Break,
+    /// Fill Down (-1), Fill Self (0), Fill Up (+1): a fill, then the Main to the left, the
+    /// same Main, or the Main to the right (an assignable function, RM p.142). The same as
+    /// `FillDown`, `FillSelf` and `FillUp`.
+    Fill(i8),
     Ending(u8),
     StartStop,
     Stop,
@@ -107,8 +148,27 @@ pub enum Button {
     TapTempo,
     TempoUp,
     TempoDown,
+    /// Set the tempo (BPM; clamped to `MIN_BPM`..=`MAX_BPM`).
+    SetTempo(u16),
     TogglePart(u8),
+    /// Stop Accompaniment on/off: Off <-> the last mode that sounds (Style at first).
     StopAcmp,
+    /// Stop Accompaniment mode: Off, Style or Fixed voices.
+    SetStopAcmp(StopAcmp),
+    /// Fill Up / Fill Down: a fill, then the next Main to the right / left.
+    FillUp,
+    FillDown,
+    /// Fill Self: the Main's own fill (the same as pressing the Main playing).
+    FillSelf,
+    /// Half Bar Fill In on/off, and set.
+    HalfBarFill,
+    SetHalfBarFill(bool),
+    /// FADE IN/OUT: stopped, arm the fade in; playing, fade out and stop.
+    Fade,
+    /// Style Section Reset: the section playing starts again from its top.
+    SectionReset,
+    /// Style Retrigger on/off.
+    Retrigger,
 }
 
 
@@ -129,9 +189,19 @@ pub struct Snapshot {
     pub parts: u8,
     /// Mixer fader per part (0..=127): the part's volume, sent as its CC7 unchanged.
     pub volumes: [u8; 8],
+    /// Parts whose level the player has set since the style loaded (bit 0 = Rhythm 1):
+    /// the patterns' CC7 no longer move them. The others' `volumes` are the style's.
+    pub user_set: u8,
     /// Parts whose hardware fader is waiting to pick up the software value (soft takeover).
     pub pickup: u8,
+    /// Stop Accompaniment sounds the chord (`stop_acmp_mode` is not Off).
     pub stop_acmp: bool,
+    pub stop_acmp_mode: StopAcmp,
+    /// Half Bar Fill In.
+    pub half_bar_fill: bool,
+    /// Main presses so far (wrapping), fill functions included: tells a press of the
+    /// selected Main from no press.
+    pub main_presses: u16,
     /// Keyboard and Master transpose in semitones (-12..=12 each).
     pub transpose: Transpose,
     /// The chord as fingered, before Keyboard transpose (`chord` is what the style follows).
@@ -150,6 +220,24 @@ pub struct Snapshot {
     /// A style preview playing beside the (stopped) band (`live::EngineLoop`); the engine
     /// itself always reports None.
     pub audition: Option<AuditionPos>,
+    /// Chart player (engine/chart.rs): the tag of the plan it holds (0: none), the plan
+    /// bar playing (None: stopped, in the Intro, or chart mode off), and whether the
+    /// player's chord has taken over until the next bar line.
+    pub chart_tag: u64,
+    pub chart_bar: Option<u32>,
+    pub chart_override: bool,
+    /// Fade In/Out.
+    pub fade: FadeState,
+    /// Style Retrigger is on.
+    pub retrigger: bool,
+    /// An Ending ritardando is slowing the band.
+    pub ritardando: bool,
+    /// The Chord Looper.
+    pub looper: LooperSnap,
+    /// The Style part soloed (0-7), if any.
+    pub style_solo: Option<u8>,
+    /// Multi Pads: the bank playing and each pad's state (engine/multipad.rs).
+    pub multipad: PadsSnap,
 }
 
 /// Where a style preview is: style `id` (the session's library id), bar `bar` of `bars`
@@ -294,7 +382,7 @@ pub struct Engine {
     user_set: u8,
     /// Soft takeover state of each part's hardware fader.
     takeover: [Takeover; 8],
-    stop_acmp: bool,
+    stop_acmp: StopAcmp,
     /// Manual Bass (Upper detection mode): the Style's Bass part is muted; the player's
     /// left hand plays the bass instead.
     manual_bass: bool,
@@ -324,8 +412,13 @@ pub struct Engine {
     retired: [Option<Box<Prepared>>; 4],
     /// The next bar or beat line for the `on_bar`/`on_beat` hooks (hooks.rs).
     lines: Lines,
+    /// The chord-settle window (settle.rs), in ns.
+    settle_ns: u64,
+    /// A chord change the band has not followed yet (settle.rs).
+    unsettled: Option<Unsettled>,
+    /// Where the pattern's notes held back while the chord settles begin.
+    hold: Option<Hold>,
     /// The engine-side state of the features that plug into the hooks (hooks.rs).
-    #[allow(dead_code)]
     features: Features,
     /// Pitch bends that did not fit the output range and were clamped.
     #[cfg(test)]
@@ -341,7 +434,7 @@ pub struct Engine {
 impl Engine {
     pub fn new(style: Box<Prepared>) -> Engine {
         let bpm = style.bpm;
-        let mixer = style.mix;
+        let mixer = style.setups[0].mix;
         let mut e = Engine {
             style,
             running: false,
@@ -367,7 +460,7 @@ impl Engine {
             mixer,
             user_set: 0,
             takeover: [Takeover::NEW; 8],
-            stop_acmp: false,
+            stop_acmp: StopAcmp::Off,
             manual_bass: false,
             taps: [0; 4],
             tap_n: 0,
@@ -381,6 +474,9 @@ impl Engine {
             pending: None,
             retired: [None, None, None, None],
             lines: Lines::default(),
+            settle_ns: 0,
+            unsettled: None,
+            hold: None,
             features: Features::default(),
             #[cfg(test)]
             bend_clamps: Default::default(),
@@ -422,6 +518,7 @@ impl Engine {
         } else {
             (0, 0)
         };
+        let (chart_tag, chart_bar, chart_override) = self.chart_pos();
         Snapshot {
             running: self.running,
             sync_armed: self.sync_armed,
@@ -437,8 +534,12 @@ impl Engine {
             bpm: self.bpm,
             parts: self.parts,
             volumes: self.mixer,
+            user_set: self.user_set,
             pickup: self.pickup_waiting(),
-            stop_acmp: self.stop_acmp,
+            stop_acmp: self.stop_acmp != StopAcmp::Off,
+            stop_acmp_mode: self.stop_acmp,
+            half_bar_fill: self.features.fills.half_bar,
+            main_presses: self.features.fills.main_presses,
             transpose: self.transpose,
             played: self.played,
             anchor_ns,
@@ -450,16 +551,30 @@ impl Engine {
                 _ => 0,
             },
             audition: None,
+            chart_tag,
+            chart_bar,
+            chart_override,
+            fade: self.fade_state(),
+            retrigger: self.retrigger_on(),
+            ritardando: self.ritardando(),
+            looper: self.looper_snapshot(),
+            style_solo: self.features.solo,
+            multipad: self.pads_snapshot(),
         }
     }
 
-    /// Time of the next thing the engine needs to do, if running.
+    /// Time of the next thing the engine needs to do: if running, or a chord change is
+    /// waiting to settle (settle.rs), or the stopped metronome ticks.
     pub fn next_deadline(&self) -> Option<u64> {
+        // The features' own wakes (a fade, the Synchro Stop Window) and a chord change
+        // waiting to settle (Stop Accompaniment or a Chord Match pad waits on it too).
+        let wake = [self.hook_wake_ns(), self.settle_at()].into_iter().flatten().min();
         if !self.running {
-            return None;
+            // Stopped: those, and the free-running metronome.
+            return [wake, self.metronome_idle_deadline()].into_iter().flatten().min();
         }
-        let sec = self.style.sections[self.cur].as_ref()?;
-        let mut t = self.sec_start + sec.len as f64;
+        let Some(sec) = self.style.sections[self.cur].as_ref() else { return wake };
+        let mut t = self.section_end().0;
         if let Some(q) = self.queued {
             t = t.min(q.at);
         }
@@ -472,9 +587,13 @@ impl Engine {
         if let Some(h) = self.hook_deadline() {
             t = t.min(h);
         }
-        Some(self.ns_at(t))
+        let band = self.ns_at(t);
+        Some(wake.map_or(band, |w| w.min(band)))
     }
 }
+
+#[cfg(test)]
+mod perform_tests;
 
 #[cfg(test)]
 mod tests {

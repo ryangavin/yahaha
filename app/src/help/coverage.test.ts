@@ -14,6 +14,7 @@ import App from '../App.svelte'
 import { MockSession } from '../lib/api/mock'
 import { ui } from '../lib/store.svelte'
 import { tips } from '../lib/tooltip/tip.svelte'
+import { nav as soundNav } from '../panels/sound/nav.svelte'
 import { TIPS, isTipKey } from './tooltips'
 
 export const INTERACTIVE = [
@@ -66,11 +67,59 @@ const STATES: [string, Setup][] = [
   ['style browser, previewing', (s) => (s.send({ type: 'stop' }), s.send({ type: 'auditionStyle', id: 1 }), (ui.browser = true))],
   ['style browser, style queued for the next bar', (s) => (s.send({ type: 'queueStyle', id: 1 }), (ui.browser = true))],
   ['settings open', () => (ui.settings = true)],
+  ['settings open, a pitch-bend pedal learning its CC', (s) => {
+    s.send({ type: 'setPedal', pedal: 2, cc: 4, function: 'pitchBend', controlType: 'holdA', reverse: false, range: 'full' })
+    ui.settings = true
+  }],
   ['parts drawer open', () => (ui.parts = true)],
   ['parts drawer, Upper + Manual Bass, OTS Link', (s) => ((ui.parts = true), s.send({ type: 'toggleUpper' }), s.send({ type: 'toggleOtsLink' }))],
   ['parts drawer, fader page Style', (s) => ((ui.parts = true), s.send({ type: 'toggleFaderPage' }))],
+  ['parts drawer, Right 1 on a plugin', (s) => ((ui.parts = true), s.send({ type: 'setPartPlugin', part: 0, id: 'aumu dls  appl', state: null }), s.advance(1000))],
+  ['parts drawer, Right 2 loading a plugin', (s) => ((ui.parts = true), s.send({ type: 'setPartPlugin', part: 1, id: 'aumu samp appl', state: null }))],
   ['mixer drawer open', () => (ui.mixer = true)],
+  ['mixer drawer, a plugin part', (s) => ((ui.mixer = true), s.send({ type: 'setPartPlugin', part: 0, id: 'aumu dls  appl', state: null }), s.advance(1000))],
+  ['harmony drawer open', () => (ui.harmony = true)],
+  ['harmony drawer, arpeggio on, Fixed velocity', (s) => ((ui.harmony = true), s.send({ type: 'setArpPattern', index: 2 }), s.send({ type: 'setArpVelocity', mode: 'fixed', velocity: 90 }), s.send({ type: 'toggleHarmonyArp' }))],
+  ['harmony drawer, Echo type', (s) => ((ui.harmony = true), s.send({ type: 'setHarmonyType', index: 20 }))],
   ['mixer drawer open, Style tab', (s) => ((ui.mixer = true), s.send({ type: 'setFaderPage', page: 'style' }))],
+  ['charts drawer, nothing imported', () => (ui.charts = true)],
+  ['charts drawer, a playlist, chart mode playing', (s) => ((ui.charts = true), s.send({ type: 'importCharts', text: 'irealb://demo' }), s.send({ type: 'setChartMode', on: true }))],
+  ['chart in the lead-sheet band', (s) => (s.send({ type: 'importCharts', text: 'irealb://demo' }), s.send({ type: 'setChartMode', on: true }))],
+  ['pad page 4 (Registration)', (s) => s.send({ type: 'setPadPage', page: 'registration' })],
+  ['Registration Memory armed', (s) => s.send({ type: 'toggleRegistMemory' })],
+  ['registration panel: bank', () => ((ui.registTab = 'bank'), (ui.regist = true))],
+  ['registration panel: new unsaved bank', (s) => (s.send({ type: 'newRegistBank' }), (ui.registTab = 'bank'), (ui.regist = true))],
+  ['registration panel: memory and freeze groups', () => ((ui.registTab = 'groups'), (ui.regist = true))],
+  ['registration panel: sequence', () => ((ui.registTab = 'sequence'), (ui.regist = true))],
+  ['registration panel: playlist', () => ((ui.registTab = 'playlist'), (ui.regist = true))],
+  ['registration panel: playlist sorted', (s) => (s.send({ type: 'setPlaylistSort', sort: 'aToZ' }), (ui.registTab = 'playlist'), (ui.regist = true))],
+  ['chord looper drawer open', () => (ui.looper = true)],
+  ['chord looper drawer, recording armed, Memory latched', (s) => ((ui.looper = true), s.send({ type: 'looperRec' }))],
+  ['multi pad drawer, no bank', () => (ui.multipad = true)],
+  ['multi pad drawer, bank loaded, pads playing and armed', (s) => (
+    (ui.multipad = true),
+    s.send({ type: 'loadMultiPad', id: 0 }),
+    s.send({ type: 'triggerMultiPad', pad: 0 }),
+    s.send({ type: 'armMultiPad', pad: 3 })
+  )],
+  ['sound library drawer: patches, a patch selected', (s) => {
+    ui.sound = true
+    s.send({ type: 'duplicatePatch', id: 'stage-grand' })
+  }],
+  ['sound library drawer: program map, this style', () => {
+    ui.sound = true
+    soundNav.tab = 'map'
+    soundNav.styleScope = true
+  }],
+  ['sound library drawer: this style', () => ((ui.sound = true), (soundNav.tab = 'style'))],
+  ['sound library drawer: SoundFont presets, auditioning', (s) => {
+    ui.sound = true
+    soundNav.tab = 'add'
+    s.send({ type: 'stop' })
+    s.send({ type: 'browseSoundFont', file: 'GeneralUser-GS.sf2' })
+    s.send({ type: 'auditionPreset', file: 'GeneralUser-GS.sf2', bank: 0, program: 4 })
+  }],
+  ['parts drawer, a part on a library patch', (s) => ((ui.parts = true), s.send({ type: 'setPartPatch', part: 0, id: 'warm-rhodes' }))],
   ['Shift layer on', () => (ui.shiftLatched = true)],
   ['Shift layer on, fader page Style', (s) => ((ui.shiftLatched = true), s.send({ type: 'toggleFaderPage' }))],
 ]
@@ -81,6 +130,16 @@ afterEach(() => {
   ui.settings = false
   ui.parts = false
   ui.mixer = false
+  ui.charts = false
+  ui.regist = false
+  ui.registTab = 'bank'
+  ui.looper = false
+  ui.multipad = false
+  ui.harmony = false
+  ui.sound = false
+  soundNav.tab = 'patches'
+  soundNav.styleScope = false
+  soundNav.selected = null
   ui.shiftLatched = false
   tips.help = false
   tips.setFloating(false)

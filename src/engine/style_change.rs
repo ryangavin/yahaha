@@ -52,7 +52,9 @@ impl Engine {
     /// hands over as it would have (a Fill to its Main, an Ending stops the band). A
     /// section that carries on keeps its bar position (bar 3 of Main A goes on in bar 3 of
     /// the new Main A, wrapping at its length). The tempo stays, re-timed to the new
-    /// style's resolution; the new style's setup and part levels go out, as on any load.
+    /// style's resolution (unless Change Behavior Tempo is Reset: then the new
+    /// style's tempo); Part On/Off Reset turns every part on. The new style's setup and part
+    /// levels go out, as on any load.
     pub(super) fn swap_style(&mut self, at: f64, now: u64, sink: &mut impl Sink) {
         let Some(p) = self.pending.take() else { return };
         let old_len = self.style.sections[self.cur].as_ref().map_or(0, |s| s.len) as f64;
@@ -76,18 +78,22 @@ impl Engine {
         let ns_b = self.ns_at(at);
         self.notes_off(false, sink);
         let old = std::mem::replace(&mut self.style, p.style);
+        // A new style brings its own part levels (no parameter lock): the faders move to
+        // them as the section that plays on routes them (`restore_untouched_levels`
+        // below), and the player's earlier moves are forgotten.
         self.user_set = 0;
-        for i in 0..8 {
-            let v = self.style.mix[i];
-            self.set_mixer(i, v);
-        }
         self.retire(old);
         if slot == usize::MAX {
             // The Ending ended here: stopped, with the new style at its own tempo, as a
             // load while stopped leaves it.
             self.running = false;
             self.sync_armed = true;
-            self.set_bpm_internal(self.style.bpm, ns_b);
+            self.rit_drop();
+            let bpm = self.tempo_after_change();
+            self.set_bpm_internal(bpm, ns_b);
+            self.parts_after_change();
+            self.cur = self.home_slot();
+            self.restore_untouched_levels();
             self.send_init(sink);
             self.on_style_loaded(now, sink);
             self.on_stop(sink);
@@ -96,6 +102,8 @@ impl Engine {
         let new_slot = if self.style.has(slot) { Some(slot) } else { self.style.resolve(slot) };
         let Some(new_slot) = new_slot.or_else(|| self.style.resolve(4 + self.main as usize)) else {
             self.running = false;
+            self.cur = self.home_slot();
+            self.restore_untouched_levels();
             self.send_init(sink);
             self.on_style_loaded(now, sink);
             self.on_stop(sink);
@@ -104,6 +112,8 @@ impl Engine {
         if let SectionId::Main(m) = id_of(new_slot) {
             self.main = m;
         }
+        let bpm = self.tempo_after_change();
+        self.parts_after_change();
         let (tpb, ppq) = (self.style.tpb.max(1) as f64, self.style.ppq.max(1) as f64);
         let len = self.style.sections[new_slot].as_ref().map_or(0, |s| s.len) as f64;
         // Whole bars, then the rest in beats.
@@ -114,17 +124,20 @@ impl Engine {
             pos = pos.rem_euclid(len);
         }
         // Re-time: tick `pos` of the new section at the bar line's time, same tempo.
+        // The tempo through the one setter (its range), then the anchor at `pos`.
         self.cur = new_slot;
+        self.set_bpm_internal(bpm, ns_b);
         self.anchor_ns = ns_b;
         self.anchor_tick = pos;
         self.sec_start = 0.0;
-        self.ns_per_tick = 60e9 / (self.bpm * ppq);
         self.seek(pos);
         self.lines_from(pos);
+        self.rit_rebase();
         if let Some(q) = later {
             let t = |x: f64| pos + (x - at) / old_ppq * ppq;
             self.queued = Some(Queued { slot: if q.slot == usize::MAX { q.slot } else { self.style.resolve(q.slot).unwrap_or(new_slot) }, at: t(q.at), sec_start: t(q.sec_start) });
         }
+        self.restore_untouched_levels();
         self.send_init(sink);
         self.chase(sink);
         self.on_style_loaded(now, sink);
@@ -138,25 +151,30 @@ impl Engine {
         let old = std::mem::replace(&mut self.style, style);
         self.queued = None;
         // A new style brings its own part levels (no parameter lock): the faders move to
-        // them and the player's earlier moves are forgotten.
+        // them, as the section it plays (or, stopped, would start on) routes them, and the
+        // player's earlier moves are forgotten.
         self.user_set = 0;
-        for p in 0..8 {
-            let v = self.style.mix[p];
-            self.set_mixer(p, v);
-        }
-        // Stopped, the new style's tempo; running, the same tempo re-timed to the new
-        // style's resolution (ticks per quarter differ between styles: 480, 960, 1920).
-        let bpm = if self.running { self.bpm } else { self.style.bpm };
+        // The tempo Change Behavior leaves (by default: stopped, the new style's; running,
+        // the same tempo), re-timed to the new style's resolution (ticks per quarter differ
+        // between styles: 480, 960, 1920). Then the part on/off states and Section Set.
+        let bpm = self.tempo_after_change();
         self.set_bpm_internal(bpm, now);
-        self.send_init(sink);
+        self.parts_after_change();
         if self.running {
-            // Continue from the next bar of the equivalent section.
+            // Continue from the next bar of the equivalent section, with the setup as it
+            // routes it.
             let slot = self.style.resolve(slot_of(SectionId::Main(self.main))).unwrap_or(4);
             let t = self.tick_at(now);
             self.cur = slot;
+            self.restore_untouched_levels();
+            self.send_init(sink);
             self.sec_start = t;
             self.seek(0.0);
             self.lines_from(t);
+        } else {
+            self.cur = self.home_slot();
+            self.restore_untouched_levels();
+            self.send_init(sink);
         }
         self.on_style_loaded(now, sink);
         old

@@ -59,6 +59,7 @@ fn all_cmds() -> Vec<AppCmd> {
         AppCmd::Chord(ChordCmd::SetTranspose { keyboard: 2, master: -1 }),
         AppCmd::Chord(ChordCmd::StepTranspose { keyboard: 1, master: 0 }),
         AppCmd::Chord(ChordCmd::ResetTranspose),
+        AppCmd::Chord(ChordCmd::SetChordSettle { ms: 10 }),
         AppCmd::Parts(PartsCmd::SetPartOn { part: 1, on: true }),
         AppCmd::Parts(PartsCmd::TogglePart { part: 3 }),
         AppCmd::Parts(PartsCmd::SelectPart { part: 2 }),
@@ -83,6 +84,26 @@ fn all_cmds() -> Vec<AppCmd> {
         AppCmd::Settings(SettingsCmd::NextAudioOutput),
         AppCmd::System(SystemCmd::Panic),
         AppCmd::System(SystemCmd::ClearMessage),
+        AppCmd::Transport(TransportCmd::ToggleFade),
+        AppCmd::Transport(TransportCmd::SectionReset),
+        AppCmd::Transport(TransportCmd::ToggleRetrigger),
+        AppCmd::StyleSettings(StyleSettingsCmd::SetMainTiming { timing: crate::engine::MainTiming::Immediate }),
+        AppCmd::StyleSettings(StyleSettingsCmd::SetFadeOutTime { ms: 1200 }),
+        AppCmd::StyleSettings(StyleSettingsCmd::StepRetriggerRate { delta: 1 }),
+        AppCmd::Transport(TransportCmd::SetTempo { bpm: 480 }),
+        AppCmd::Mixer(MixerCmd::SetStyleSolo { part: Some(3) }),
+        AppCmd::Mixer(MixerCmd::SetPartSolo { part: None }),
+        AppCmd::Mixer(MixerCmd::StyleTrackMute { order: TrackMuteOrder::B, value: 64 }),
+        AppCmd::Looper(LooperCmd::LooperRec),
+        AppCmd::Looper(LooperCmd::LooperOnOff),
+        AppCmd::Looper(LooperCmd::SelectLooperMemory { index: 1 }),
+        AppCmd::Looper(LooperCmd::StoreLooperMemory { index: 1 }),
+        AppCmd::Looper(LooperCmd::ClearLooperMemory { index: 1 }),
+        AppCmd::Looper(LooperCmd::NewLooperBank),
+        AppCmd::Metronome(MetronomeCmd::ToggleMetronome),
+        AppCmd::Metronome(MetronomeCmd::SetMetronome { on: true }),
+        AppCmd::Metronome(MetronomeCmd::SetMetronomeVolume { volume: 64 }),
+        AppCmd::Metronome(MetronomeCmd::SetMetronomeBell { on: false }),
     ]
 }
 
@@ -225,6 +246,13 @@ fn chord_settings_split_and_transpose() {
     assert_eq!(s.state().chord.transpose_keyboard, 12);
     s.send(ChordCmd::ResetTranspose).unwrap();
     assert_eq!(s.state().chord.transpose_keyboard, 0);
+
+    // The chord-settle window: the default, clamped to its range, and 0.
+    assert_eq!(s.state().chord.settle_ms, crate::engine::CHORD_SETTLE_DEFAULT_MS);
+    s.send(ChordCmd::SetChordSettle { ms: 500 }).unwrap();
+    assert_eq!(s.state().chord.settle_ms, crate::engine::CHORD_SETTLE_MAX_MS);
+    s.send(ChordCmd::SetChordSettle { ms: 0 }).unwrap();
+    assert_eq!(s.state().chord.settle_ms, 0);
 }
 
 /// Transpose reaches the notes you play: a key sounds shifted on its part's channel.
@@ -279,9 +307,9 @@ fn keyboard_parts_mixer_and_pages() {
     assert!(s.send(MixerCmd::SetMasterVolume { volume: 90 }).is_err());
 
     assert_eq!(st.pads.page, Page::Sections);
-    s.send(PadsCmd::CyclePadPage { delta: -1 }).unwrap();
+    s.send(PadsCmd::CyclePadPage { delta: -2 }).unwrap();
     let st = s.state();
-    assert_eq!((st.pads.page, st.pads.page_number, st.pads.page_count), (Page::OtsParts, 3, 3));
+    assert_eq!((st.pads.page, st.pads.page_number, st.pads.page_count), (Page::OtsParts, 3, 4));
     assert_eq!(st.pads.pads.len(), 16);
     assert_eq!(st.pads.pads[0].label, "OTS 1");
     assert_eq!(st.pads.pads[0].action, Some(AppCmd::Ots(OtsCmd::RecallOts { index: 0 })));
@@ -443,6 +471,8 @@ fn launchkey_hardware_matches_its_commands() {
     let Some(p) = style("SlowWalker.T552.sty") else { return };
     let mk = |setup: u8| {
         let s = Session::offline(Options { paths: vec![p.clone()], ..Options::default() }).unwrap();
+        // The index thread would otherwise land in one twin and not the other under load.
+        s.finish_indexing();
         match setup {
             0 => {}
             1 => {
@@ -482,8 +512,21 @@ fn launchkey_hardware_matches_its_commands() {
         if let Some(c) = cmd {
             let _ = b.send(c);
         }
-        if norm(&a) != norm(&b) {
-            bad.push(format!("setup {setup}: {what}"));
+        let (na, nb) = (norm(&a), norm(&b));
+        if na != nb {
+            let (ja, jb) = (serde_json::to_value(&na.0).unwrap(), serde_json::to_value(&nb.0).unwrap());
+            let mut d = Vec::new();
+            if let (Some(oa), Some(ob)) = (ja.as_object(), jb.as_object()) {
+                for (k, v) in oa {
+                    if ob.get(k) != Some(v) {
+                        d.push(format!("{k}: {v} VS {:?}", ob.get(k)));
+                    }
+                }
+            }
+            if na.1 != nb.1 {
+                d.push(format!("output {:?} VS {:?}", na.1, nb.1));
+            }
+            bad.push(format!("setup {setup}: {what}: {}", d.join(" | ")));
         }
     };
     for setup in 0..3 {
@@ -522,6 +565,7 @@ fn launchkey_hardware_matches_its_commands() {
                         (8, _, _) => Some(AppCmd::Mixer(MixerCmd::ToggleFaderPage)),
                         (0..=3, FaderPage::Panel, true) => Some(AppCmd::Parts(PartsCmd::SelectPart { part: i })),
                         (0..=3, FaderPage::Panel, false) => Some(AppCmd::Parts(PartsCmd::TogglePart { part: i })),
+                        (4, FaderPage::Panel, _) => Some(AppCmd::HarmonyArp(HarmonyArpCmd::ToggleHarmonyArp)),
                         (_, FaderPage::Panel, _) => None,
                         (_, FaderPage::Style, _) => Some(AppCmd::Mixer(MixerCmd::ToggleStylePart { part: i })),
                     };
@@ -541,10 +585,12 @@ fn launchkey_hardware_matches_its_commands() {
 fn cycle_pad_page_takes_any_delta() {
     let Some(s) = offline("SlowWalker.T552.sty") else { return };
     s.send(PadsCmd::SetPadPage { page: Page::OtsParts }).unwrap();
-    s.send(PadsCmd::CyclePadPage { delta: 127 }).unwrap(); // 2 + 127 = 129 = 0 mod 3
-    assert_eq!(s.state().pads.page, Page::Sections);
-    s.send(PadsCmd::CyclePadPage { delta: -128 }).unwrap(); // 0 - 128 = 1 mod 3
+    s.send(PadsCmd::CyclePadPage { delta: 127 }).unwrap(); // 2 + 127 = 129 = 1 mod 4
     assert_eq!(s.state().pads.page, Page::ChordSetup);
+    s.send(PadsCmd::CyclePadPage { delta: -128 }).unwrap(); // 1 - 128 = -127 = 1 mod 4
+    assert_eq!(s.state().pads.page, Page::ChordSetup);
+    s.send(PadsCmd::CyclePadPage { delta: -2 }).unwrap();
+    assert_eq!(s.state().pads.page, Page::Registration);
 }
 
 /// While the library indexes, `library_list()` is labelled with the revision its entries
@@ -665,16 +711,25 @@ fn launchkey_button_descriptions() {
     let tl = b(&s, "trackPrev");
     assert_eq!((tl.action, tl.level, tl.shift_action), (None, Level::Off, None));
     let play = b(&s, "play");
-    assert_eq!((play.action.clone(), play.colour, play.shift_action, play.shift_label.as_str()), (Some(AppCmd::Transport(TransportCmd::StartStop)), None, Some(AppCmd::Transport(TransportCmd::StartStop)), "PLAY"));
+    assert_eq!((play.action.clone(), play.colour, play.shift_action, play.shift_label.as_str()), (Some(AppCmd::Transport(TransportCmd::StartStop)), None, Some(AppCmd::Transport(TransportCmd::SectionReset)), "RESET"));
+    let stop = b(&s, "stop");
+    assert_eq!((stop.shift_action, stop.shift_label.as_str()), (Some(AppCmd::Transport(TransportCmd::ToggleFade)), "FADE"));
+    assert_eq!(b(&s, "scene").shift_action, Some(AppCmd::StyleSettings(StyleSettingsCmd::StepRetriggerRate { delta: 1 })));
     assert_eq!(b(&s, "scene").action, Some(AppCmd::Transport(TransportCmd::TempoUp)));
     assert_eq!((b(&s, "scene").label.as_str(), b(&s, "function").label.as_str()), ("TEMPO +", "TEMPO -"));
-    // Panel faders: Right 1 on (blue), Right 2 off (dim blue), 5-8 do nothing.
+    // Panel faders: Right 1 on (blue), Right 2 off (dim blue).
     let f1 = b(&s, "faderButton1");
     assert_eq!((f1.label.as_str(), f1.action, f1.shift_action), ("RIGHT 1", Some(AppCmd::Parts(PartsCmd::TogglePart { part: 0 })), Some(AppCmd::Parts(PartsCmd::SelectPart { part: 0 }))));
     assert_eq!((f1.level, f1.rgb), (Level::Bright, [0, 0, 127]));
     assert_eq!(b(&s, "faderButton2").level, Level::Dim);
+    // Button 5: HARMONY/ARPEGGIO, dim purple while off, bright while on; 6-8 do nothing.
     let f5 = b(&s, "faderButton5");
-    assert_eq!((f5.action, f5.level), (None, Level::Off));
+    assert_eq!((f5.label.as_str(), f5.action, f5.level), ("HARM/ARP", Some(AppCmd::HarmonyArp(HarmonyArpCmd::ToggleHarmonyArp)), Level::Dim));
+    s.send(HarmonyArpCmd::ToggleHarmonyArp).unwrap();
+    assert_eq!((b(&s, "faderButton5").level, b(&s, "faderButton5").rgb), (Level::Bright, [90, 0, 127]));
+    s.send(HarmonyArpCmd::ToggleHarmonyArp).unwrap();
+    let f6 = b(&s, "faderButton6");
+    assert_eq!((f6.action, f6.level), (None, Level::Off));
     assert_eq!(b(&s, "masterButton").label, "PANEL");
     // Style page: the Style parts' mutes, green.
     s.send(MixerCmd::ToggleFaderPage).unwrap();
@@ -692,9 +747,9 @@ fn launchkey_button_descriptions() {
     assert_eq!((f3.level, f3.rgb), (Level::Dim, [0, 127, 0]), "Manual Bass");
     s.send(ChordCmd::SetManualBass { on: false }).unwrap();
     assert_eq!(b(&s, "faderButton3").level, Level::Bright);
-    // Page 3: ▼ goes nowhere, ▲ back to page 2, both pink.
+    // Page 3: ▼ to page 4 (Registration), ▲ back to page 2, both pink.
     s.send(PadsCmd::SetPadPage { page: Page::OtsParts }).unwrap();
-    assert_eq!(b(&s, "padBankDown").action, None);
+    assert_eq!(b(&s, "padBankDown").action, Some(AppCmd::Pads(PadsCmd::SetPadPage { page: Page::Registration })));
     let up = b(&s, "padBankUp");
     assert_eq!(up.action, Some(AppCmd::Pads(PadsCmd::SetPadPage { page: Page::ChordSetup })));
     assert_eq!(up.rgb, [127, 0, 70]);
@@ -823,6 +878,7 @@ fn fader_positions_and_master_takeover() {
             info: SynthInfo { name: "test".into(), sample_rate: 48000, buffer: None, device: "none".into(), channels: 2 },
             control: ctl.clone(),
             swap: None,
+            plugins: None,
         });
     }
     s.midi_in(Port::Pads, &[0xB0, 13, 100]); // at unity: picks up
@@ -1024,9 +1080,10 @@ fn queue_style_waits_for_the_bar_line_and_loads_at_once_when_stopped() {
     let st = s.state();
     assert_eq!((st.style.id, st.preview.queued), (id, None));
     s.send(LibraryCmd::LoadStyle { id: first }).unwrap();
-    // Playing: the next bar line.
+    // Playing, past the bar's first beat (Next Bar: within it, the style changes at
+    // once): the next bar line.
     keys(&s, true, &[36, 40, 43]);
-    s.advance(300 * MS);
+    assert!(advance_until(&s, |st| st.transport.beat >= 2));
     s.send(LibraryCmd::QueueStyle { id }).unwrap();
     let st = s.state();
     assert_eq!((st.style.id, st.preview.queued), (first, Some(id)));
@@ -1036,6 +1093,7 @@ fn queue_style_waits_for_the_bar_line_and_loads_at_once_when_stopped() {
     assert_eq!(st.preview.queued, None);
     assert_eq!(st.transport.section, section, "the section carries on");
     // StepStyle while playing waits too, from the style waiting.
+    assert!(advance_until(&s, |st| st.transport.beat >= 2));
     s.send(LibraryCmd::StepStyle { delta: 1 }).unwrap();
     let waiting = s.state().preview.queued.expect("a style waits");
     assert_ne!(waiting, id);
@@ -1072,7 +1130,10 @@ fn rescan_adds_and_drops_files_keeping_ids() {
     let ids: Vec<(usize, String)> = s.library_list().entries.iter().map(|e| (e.id, e.path.clone())).collect();
     std::fs::copy(src.with_file_name("CoolRevibed.T552.sty"), dir.join("Sub/C.sty")).unwrap();
     s.send(LibraryCmd::RescanLibrary).unwrap();
-    assert!(s.state().library.scanning);
+    // A three-file scan can finish before we look, so either it's still walking or it has
+    // already merged the new file; it must not be neither (the rescan never started).
+    let st = s.state();
+    assert!(st.library.scanning || st.library.count == 3, "rescan did not start: {:?}", st.library);
     assert!(wait_for(&s, |st| !st.library.scanning && st.library.count == 3 && st.library.pending == 0));
     let lib = s.library_list();
     for (id, path) in &ids {
@@ -1178,6 +1239,7 @@ fn sound_font_switch_needs_the_synth_and_a_file_in_its_folder() {
         info: SynthInfo { name: "test".into(), sample_rate: 48000, buffer: None, device: "none".into(), channels: 2 },
         control: Arc::new(SynthControl::new(0)),
         swap: Some(synth::RackSwap { tx, old }),
+        plugins: None,
     });
     for bad in ["../x.sf2", "nope.sf2", "a/b.sf2"] {
         assert!(s.send(SettingsCmd::SetSoundFont { file: bad.into() }).is_err(), "{bad}");
@@ -1220,4 +1282,309 @@ fn new_state_and_commands_serialize_as_documented() {
         assert!(v["library"].get(k).is_some(), "library.{k}");
     }
     assert!(v["pads"].get("paletteLeds").is_some());
+}
+
+/// A synthetic chart (no real song): two sections.
+const TEST_CHART: &str = "irealbook://Test Tune=Doe John=Bossa Nova=C=n=*A[C^7 |D-7 G7 ]*B[F^7 |G7 Z";
+
+#[test]
+fn chart_player_imports_selects_and_plays() {
+    let Some(s) = offline("SlowWalker.T552.sty") else { return };
+    // Nothing imported: chart mode refuses to turn on.
+    assert!(s.send(ChartCmd::ToggleChartMode).is_err());
+    assert!(s.send(ChartCmd::SetChartMode { on: true }).is_err());
+    assert!(!s.state().chart.on);
+    assert!(s.send(ChartCmd::ImportCharts { text: "no links here".into() }).is_err());
+    s.send(ChartCmd::ImportCharts { text: format!("<html><a href=\"{}\">x</a></html>", TEST_CHART.replace(' ', "%20")) }).unwrap();
+    let st = s.state();
+    let c = &st.chart;
+    assert_eq!(c.playlists.len(), 1);
+    assert_eq!(c.playlists[0].name, "Test Tune");
+    assert_eq!(c.selected, Some([0, 0]));
+    let song = c.song.as_ref().unwrap();
+    assert_eq!(song.info.style, "Bossa Nova");
+    let names: Vec<Vec<&str>> = song.bars.iter().map(|b| b.chords.iter().map(|c| c.name.as_str()).collect()).collect();
+    assert_eq!(names, [vec!["Cmaj7"], vec!["Dm7", "G7"], vec!["Fmaj7"], vec!["G7"]]);
+    assert_eq!(song.sections.iter().map(|x| (x.label.as_str(), x.start, x.bars)).collect::<Vec<_>>(), [("A", 0, 2), ("B", 2, 2)]);
+    assert_eq!(song.bars[2].main, 1);
+    assert!(!c.on && c.bar.is_none());
+    assert!(st.message.as_ref().is_some_and(|m| m.text.contains("Imported 1 song")));
+
+    s.send(ChartCmd::SetChartMode { on: true }).unwrap();
+    s.send(ChartCmd::SetChartIntro { index: None }).unwrap();
+    s.send(ChartCmd::SetChartLoop { range: Some([0, 4]) }).unwrap();
+    assert!(s.send(ChartCmd::SetChartLoop { range: Some([2, 9]) }).is_err());
+    s.send(TransportCmd::StartStop).unwrap();
+    let st = s.state();
+    assert!(st.transport.running);
+    assert_eq!(st.chart.bar, Some(0));
+    assert_eq!(st.chord.name.as_deref(), Some("Cmaj7"));
+    let bar = (60e9 / st.transport.tempo * st.transport.beats_per_bar as f64) as u64;
+    s.advance(bar + bar / 8);
+    let st = s.state();
+    assert_eq!(st.chart.bar, Some(1));
+    assert_eq!(st.chord.name.as_deref(), Some("Dm7"));
+    // The left hand takes over until the next bar line.
+    keys(&s, true, &[36, 39, 43]);
+    s.advance(20 * MS); // the chord settles
+    let st = s.state();
+    assert!(st.chart.overridden);
+    assert_eq!(st.chord.name.as_deref(), Some("Cm"));
+    keys(&s, false, &[36, 39, 43]);
+    s.advance(bar);
+    let st = s.state();
+    assert_eq!(st.chart.bar, Some(2));
+    assert!(!st.chart.overridden);
+    assert_eq!(st.chord.name.as_deref(), Some("Fmaj7"));
+    assert_eq!(st.transport.section.as_deref(), Some("Main B"));
+    // Keyboard transpose moves the chart.
+    s.send(ChordCmd::SetTranspose { keyboard: 2, master: 0 }).unwrap();
+    s.advance(20 * MS); // the change settles
+    assert_eq!(s.state().chord.name.as_deref(), Some("Gmaj7"));
+    // The loop goes round.
+    s.advance(2 * bar - 20 * MS);
+    assert_eq!(s.state().chart.bar, Some(0));
+    s.send(TransportCmd::StartStop).unwrap();
+    assert_eq!(s.state().chart.bar, None);
+    // Choruses expand the form.
+    s.send(ChartCmd::SetChartChoruses { choruses: 3 }).unwrap();
+    let st = s.state();
+    assert_eq!(st.chart.song.as_ref().unwrap().bars.len(), 12);
+    assert_eq!(st.chart.choruses, 3);
+    // Fewer choruses: a loop past the new end goes.
+    s.send(ChartCmd::SetChartLoop { range: Some([8, 12]) }).unwrap();
+    s.send(ChartCmd::SetChartChoruses { choruses: 1 }).unwrap();
+    assert_eq!(s.state().chart.loop_range, None);
+    s.send(ChartCmd::SetChartLoop { range: Some([0, 2]) }).unwrap();
+    s.send(ChartCmd::SetChartChoruses { choruses: 2 }).unwrap();
+    assert_eq!(s.state().chart.loop_range, Some([0, 2]));
+    s.send(ChartCmd::RemoveChartPlaylist { playlist: 0 }).unwrap();
+    let st = s.state();
+    assert!(st.chart.song.is_none() && !st.chart.on && st.chart.playlists.is_empty());
+}
+
+/// Only one of the chart player and the Chord Looper gives the chords: ON/OFF arming a
+/// loop turns chart mode off; chart mode on stops the loop.
+#[test]
+fn chart_mode_and_the_chord_looper_take_turns() {
+    let Some(s) = offline("SlowWalker.T552.sty") else { return };
+    s.send(ChartCmd::ImportCharts { text: TEST_CHART.into() }).unwrap();
+    s.send(LooperCmd::LooperRec).unwrap();
+    keys(&s, true, &[36, 40, 43]); // C: starts the band and the recording
+    s.advance(20 * MS);
+    s.send(ChartCmd::SetChartMode { on: true }).unwrap();
+    assert_eq!(s.state().looper.mode, LooperMode::Recording, "chart mode leaves a recording alone");
+    s.advance(bar_ns(&s));
+    keys(&s, false, &[36, 40, 43]);
+    s.send(LooperCmd::LooperOnOff).unwrap();
+    let st = s.state();
+    assert!(!st.chart.on, "arming the loop turns chart mode off");
+    assert_eq!(st.looper.mode, LooperMode::LoopArmed);
+    s.send(ChartCmd::SetChartMode { on: true }).unwrap();
+    let st = s.state();
+    assert!(st.chart.on);
+    assert_eq!(st.looper.mode, LooperMode::Off, "chart mode on stops the loop");
+}
+
+#[test]
+fn chart_commands_serialize_as_documented() {
+    use serde_json::json;
+    for (cmd, want) in [
+        (AppCmd::Chart(ChartCmd::ImportCharts { text: "irealb://x".into() }), json!({"type": "importCharts", "text": "irealb://x"})),
+        (AppCmd::Chart(ChartCmd::SelectChart { playlist: 0, song: 2 }), json!({"type": "selectChart", "playlist": 0, "song": 2})),
+        (AppCmd::Chart(ChartCmd::SetChartLoop { range: Some([4, 12]) }), json!({"type": "setChartLoop", "range": [4, 12]})),
+        (AppCmd::Chart(ChartCmd::SetChartIntro { index: None }), json!({"type": "setChartIntro", "index": null})),
+    ] {
+        assert_eq!(serde_json::to_value(&cmd).unwrap(), want);
+        assert_eq!(serde_json::from_value::<AppCmd>(want).unwrap(), cmd);
+    }
+    let Some(s) = offline("SlowWalker.T552.sty") else { return };
+    let v = serde_json::to_value(&*s.state()).unwrap();
+    assert_eq!(v["chart"]["loop"], json!(null));
+    assert_eq!(v["chart"]["intro"], json!(0));
+    assert_eq!(v["chart"]["autoStyle"], json!(true));
+}
+
+/// Style settings reach the engine and the state; the fade, Retrigger and Section Reset
+/// buttons show in `transport`.
+#[test]
+fn style_settings_fade_and_retrigger_through_the_session() {
+    use crate::engine::FadeState;
+    let Some(s) = offline("SlowWalker.T552.sty") else { return };
+    assert_eq!(s.state().style_settings, StyleSettingsState::default());
+    s.send(StyleSettingsCmd::SetFadeInTime { ms: 300 }).unwrap();
+    s.send(StyleSettingsCmd::SetFadeOutTime { ms: 60_000 }).unwrap();
+    s.send(StyleSettingsCmd::SetRetriggerRate { rate: 12 }).unwrap();
+    s.send(StyleSettingsCmd::SetSyncStopWindow { ms: 700 }).unwrap();
+    let st = s.state().style_settings.clone();
+    assert_eq!((st.fade_in_ms, st.fade_out_ms, st.retrigger_rate, st.sync_stop_window_ms), (300, 20_000, 8, 700), "clamped");
+    // Armed while stopped, then the Sync Start chord fades in.
+    s.send(TransportCmd::ToggleFade).unwrap();
+    assert_eq!(s.state().transport.fade, FadeState::Armed);
+    keys(&s, true, &[36, 40, 43]);
+    assert_eq!(s.state().transport.fade, FadeState::FadingIn);
+    s.advance(400 * MS);
+    assert_eq!(s.state().transport.fade, FadeState::Off);
+    // The Style parts' CC7 went to the synth: silence first, the fader value at the end;
+    // no Master Volume, and the keyboard parts' levels untouched.
+    let out = s.take_output();
+    let mixer = s.state().mixer.style_parts.clone();
+    let part = (0..8).max_by_key(|&p| mixer[p].volume).unwrap();
+    let full = mixer[part].volume;
+    let vols: Vec<u8> = out.iter().filter(|m| m[0] == 0xB0 | (8 + part as u8) && m[1] == 7).map(|m| m[2]).collect();
+    let rise = &vols[vols.iter().position(|&v| v == 0).expect("silence first")..];
+    assert_eq!(rise.last(), Some(&full), "{vols:?}");
+    assert!(out.iter().all(|m| m[0] != 0xF0));
+    for ch in 0..8u8 {
+        let kbd: Vec<u8> = out.iter().filter(|m| m[0] == 0xB0 | ch && m[1] == 7).map(|m| m[2]).collect();
+        assert!(kbd.windows(2).all(|w| w[0] == w[1]), "channel {ch} faded: {kbd:?}");
+    }
+    s.send(TransportCmd::ToggleRetrigger).unwrap();
+    assert!(s.state().transport.retrigger);
+    // Section Reset: back to bar 1, beat 1.
+    assert!(advance_until(&s, |st| st.transport.bar >= 2));
+    s.send(TransportCmd::SectionReset).unwrap();
+    let t = s.state().transport.clone();
+    assert_eq!((t.bar, t.beat), (1, 1));
+}
+
+/// The length of a bar at the state's tempo and time signature.
+fn bar_ns(s: &Session) -> u64 {
+    let t = &s.state().transport;
+    (60e9 / t.tempo * t.beats_per_bar as f64) as u64
+}
+
+/// Chord Looper through the API: REC while stopped arms Sync Start, the first chord starts
+/// the band and the recording; ON/OFF loops it from the next bar; memories keep it.
+#[test]
+fn chord_looper_records_loops_and_keeps_memories() {
+    let Some(s) = offline("SlowWalker.T552.sty") else { return };
+    s.send(TransportCmd::ToggleSyncStart).unwrap(); // off: REC turns it back on
+    assert!(!s.state().transport.sync_start);
+    s.send(LooperCmd::LooperRec).unwrap();
+    let st = s.state();
+    assert_eq!(st.looper.mode, LooperMode::RecArmed);
+    assert!(st.transport.sync_start);
+    // A memory can't be chosen while recording.
+    assert!(s.send(LooperCmd::SelectLooperMemory { index: 0 }).is_err());
+    let bar = bar_ns(&s);
+    keys(&s, true, &[36, 40, 43]); // C
+    assert_eq!(s.state().looper.mode, LooperMode::Recording);
+    assert!(s.state().transport.running);
+    s.advance(bar);
+    keys(&s, false, &[36, 40, 43]);
+    keys(&s, true, &[33, 36, 40]); // Am, on bar 2
+    s.advance(bar - bar / 4);
+    assert_eq!(s.state().looper.bar, Some(2));
+    s.send(LooperCmd::LooperOnOff).unwrap();
+    assert_eq!(s.state().looper.mode, LooperMode::LoopArmed);
+    s.advance(bar / 2);
+    let st = s.state();
+    assert_eq!(st.looper.mode, LooperMode::Looping);
+    assert_eq!(st.looper.bars, 2);
+    let names: Vec<_> = st.looper.chords.iter().map(|c| (c.bar, c.beat, c.chord.as_str())).collect();
+    assert_eq!(names, [(1, 1.0, "C"), (2, 1.0, "Am")]);
+    assert_eq!(st.looper.memory, None);
+    s.send(LooperCmd::StoreLooperMemory { index: 2 }).unwrap();
+    let st = s.state();
+    assert_eq!(st.looper.memory, Some(2));
+    assert_eq!(st.looper.memories[2].name.as_deref(), Some("CLD_001"));
+    assert_eq!(st.looper.memories[2].bars, 2);
+    assert!(st.looper.memories[0].name.is_none());
+    // ON/OFF: the loop stops at once.
+    s.send(LooperCmd::LooperOnOff).unwrap();
+    let st = s.state();
+    assert_eq!(st.looper.mode, LooperMode::Off);
+    assert!(st.looper.has_data);
+    s.send(LooperCmd::NewLooperBank).unwrap();
+    assert!(s.state().looper.memories.iter().all(|m| m.name.is_none()));
+    assert!(s.send(LooperCmd::StoreLooperMemory { index: 9 }).is_ok(), "index wraps, the sequence is still there");
+}
+
+#[test]
+fn solo_track_mute_tempo_and_metronome() {
+    let Some(s) = offline("SlowWalker.T552.sty") else { return };
+    s.send(MixerCmd::SetStyleSolo { part: Some(2) }).unwrap();
+    assert_eq!(s.state().mixer.style_solo, Some(2));
+    s.send(MixerCmd::SetStyleSolo { part: None }).unwrap();
+    assert_eq!(s.state().mixer.style_solo, None);
+    s.send(MixerCmd::StyleTrackMute { order: TrackMuteOrder::A, value: 0 }).unwrap();
+    let on: Vec<_> = s.state().mixer.style_parts.iter().map(|p| p.on).collect();
+    assert_eq!(on, [false, true, false, false, false, false, false, false]);
+    s.send(MixerCmd::StyleTrackMute { order: TrackMuteOrder::A, value: 127 }).unwrap();
+    assert!(s.state().mixer.style_parts.iter().all(|p| p.on));
+
+    // Keyboard solo: Right 2 alone sounds, though it is off.
+    s.send(MixerCmd::SetPartSolo { part: Some(1) }).unwrap();
+    let st = s.state();
+    assert_eq!(st.mixer.part_solo, Some(1));
+    let sounding: Vec<_> = st.keyboard_parts.iter().map(|p| p.sounding).collect();
+    assert_eq!(sounding, [false, true, false, false]);
+    assert!(!st.keyboard_parts[1].on);
+    s.take_output();
+    keys(&s, true, &[72]);
+    let out = s.take_output();
+    let (r1, r2) = (crate::parts::CHANNEL[crate::parts::RIGHT1], crate::parts::CHANNEL[crate::parts::RIGHT2]);
+    assert!(out.iter().any(|m| m[0] == 0x90 | r2 && m[1] == 72), "{out:?}");
+    assert!(!out.iter().any(|m| m[0] == 0x90 | r1), "{out:?}");
+    keys(&s, false, &[72]);
+    s.send(MixerCmd::SetPartSolo { part: None }).unwrap();
+    s.take_output();
+    keys(&s, true, &[72]);
+    assert!(s.take_output().iter().any(|m| m[0] == 0x90 | r1));
+
+    s.send(TransportCmd::SetTempo { bpm: 500 }).unwrap();
+    assert_eq!(s.state().transport.tempo, 500.0);
+    s.send(TransportCmd::SetTempo { bpm: 1 }).unwrap();
+    assert_eq!(s.state().transport.tempo, 5.0);
+    s.send(TransportCmd::SetTempo { bpm: 120 }).unwrap();
+
+    s.send(MetronomeCmd::ToggleMetronome).unwrap();
+    s.send(MetronomeCmd::SetMetronomeVolume { volume: 200 }).unwrap();
+    let m = s.state().metronome.clone();
+    assert!(m.on && m.bell && !m.audible);
+    assert_eq!(m.volume, 127);
+    s.take_output();
+    s.advance(2_000 * MS);
+    let clicks = s.take_output().iter().filter(|m| m[0] == crate::click::CLICK).count();
+    assert_eq!(clicks, 4, "120 BPM, stopped: a click every 500 ms");
+}
+
+/// Chart mode with OTS Link on (At Main Section Change, the default) and Half Bar Fill
+/// In on (#92 vs #98): the chart's chords never recall an OTS or start a fill; only its
+/// section change does, and the OTS comes when Main B starts (not during its fill).
+#[test]
+fn chart_chords_trigger_no_ots_or_fill() {
+    let Some(s) = offline("SlowWalker.T552.sty") else { return };
+    s.send(ChartCmd::ImportCharts { text: TEST_CHART.into() }).unwrap();
+    s.send(ChartCmd::SetChartMode { on: true }).unwrap();
+    s.send(ChartCmd::SetChartIntro { index: None }).unwrap();
+    s.send(TransportCmd::SetHalfBarFill { on: true }).unwrap();
+    s.send(OtsCmd::SetOtsLink { on: true }).unwrap();
+    s.advance(10 * MS);
+    assert_eq!(s.state().ots.link_timing, OtsLinkTiming::MainChange);
+    s.send(TransportCmd::StartStop).unwrap();
+    s.advance(5 * MS);
+    let st = s.state();
+    assert!(st.transport.running);
+    assert_eq!((st.transport.section.as_deref(), st.ots.applied), (Some("Main A"), 1));
+    let sounds = |st: &AppState| st.keyboard_parts.iter().map(|p| (p.on, p.program, p.volume, p.octave)).collect::<Vec<_>>();
+    let before = sounds(&st);
+    let mut chords = std::collections::BTreeSet::new();
+    // Bars 0-1 (section A: Cmaj7, then Dm7 G7, with Main B's fill in bar 1): OTS 1 throughout.
+    for _ in 0..15_000 / 5 {
+        let st = s.state();
+        if st.transport.section.as_deref() == Some("Main B") {
+            break;
+        }
+        chords.extend(st.chord.name.clone());
+        if st.chart.bar == Some(0) {
+            assert_eq!(st.transport.section.as_deref(), Some("Main A"), "a chart chord started no fill");
+        }
+        assert_eq!((st.ots.applied, sounds(&st)), (1, before.clone()), "no OTS before Main B ({:?})", st.transport.section);
+        s.advance(5 * MS);
+    }
+    assert!(chords.len() >= 3, "the chart's chords played: {chords:?}");
+    let st = s.state();
+    assert_eq!((st.transport.section.as_deref(), st.ots.applied), (Some("Main B"), 2), "OTS 2 as Main B starts");
 }

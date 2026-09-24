@@ -84,7 +84,22 @@ pub struct Parts {
     rebind: AtomicBool,
     /// The physical fader positions when the faders went to the Style page.
     rebind_hw: [AtomicU8; 8],
+    /// The part soloed (`NO_SOLO`: none): only it sounds, whatever the on/off switches say.
+    solo: AtomicU8,
+    /// Each part's pan and reverb/chorus sends (CC10, 91, 93; `NO_FX` = not set) as a sound
+    /// library patch set them (#103), and the parts whose values the engine thread still
+    /// has to send (bit = part).
+    fx: [[AtomicU8; 3]; COUNT],
+    fx_dirty: AtomicU8,
 }
+
+/// `Parts::fx`: not set.
+const NO_FX: u8 = 0xFF;
+/// The controllers `Parts::fx` holds: pan, reverb send, chorus send.
+const FX_CC: [u8; 3] = [10, 91, 93];
+
+/// `Parts::solo`: no part soloed.
+pub const NO_SOLO: u8 = 255;
 
 impl Default for Parts {
     fn default() -> Parts {
@@ -109,6 +124,66 @@ impl Parts {
             fader_hw: [const { AtomicU8::new(HW_UNKNOWN) }; 8],
             rebind: AtomicBool::new(false),
             rebind_hw: [const { AtomicU8::new(HW_UNKNOWN) }; 8],
+            solo: AtomicU8::new(NO_SOLO),
+            fx: [const { [const { AtomicU8::new(NO_FX) }; 3] }; COUNT],
+            fx_dirty: AtomicU8::new(0),
+        }
+    }
+
+    /// A part's pan, reverb and chorus sends from a sound library patch (None: leave it).
+    /// The engine thread sends them as CCs on the part's channel, to the port and the synth.
+    pub fn set_fx(&self, part: usize, fx: [Option<u8>; 3]) {
+        let part = part % COUNT;
+        for (a, v) in self.fx[part].iter().zip(fx) {
+            if let Some(v) = v {
+                a.store(v.min(127), Relaxed);
+            }
+        }
+        self.fx_dirty.fetch_or(1 << part, Release);
+    }
+
+    /// Engine thread: send the pan and sends set since the last call.
+    pub fn send_fx(&self, out: &mut impl FnMut(&[u8])) {
+        let dirty = self.fx_dirty.swap(0, Acquire);
+        if dirty == 0 {
+            return;
+        }
+        for p in (0..COUNT).filter(|p| dirty & 1 << p != 0) {
+            for (a, cc) in self.fx[p].iter().zip(FX_CC) {
+                let v = a.load(Relaxed);
+                if v != NO_FX {
+                    out(&[0xB0 | CHANNEL[p], cc, v]);
+                }
+            }
+        }
+    }
+
+    /// The part soloed, if any.
+    pub fn solo(&self) -> Option<usize> {
+        let s = self.solo.load(Relaxed);
+        (s != NO_SOLO).then_some(s as usize & 3)
+    }
+
+    /// Solo a part (only it sounds, even if switched off), or end the solo. Notes already
+    /// sounding keep their note-offs (`live::Keys`).
+    pub fn set_solo(&self, part: Option<usize>) {
+        self.solo.store(part.map_or(NO_SOLO, |p| (p & 3) as u8), Relaxed);
+    }
+
+    /// The part sounds for the keys: the soloed part alone, else when it is on.
+    pub fn audible(&self, part: usize) -> bool {
+        match self.solo() {
+            Some(s) => s == part,
+            None => self.is_on(part),
+        }
+    }
+
+    /// The left hand plays the Left part: `left_sounds`, or Left soloed; not while another
+    /// part is soloed.
+    pub fn left_audible(&self) -> bool {
+        match self.solo() {
+            Some(s) => s == LEFT,
+            None => self.left_sounds(),
         }
     }
 
@@ -130,6 +205,16 @@ impl Parts {
     /// What the LEDs and the screen show.
     pub fn sounding_mask(&self) -> u8 {
         self.on_mask() | (self.left_sounds() as u8) << LEFT
+    }
+
+    /// Bitmask of the parts the keys play now: `sounding_mask`, except that a solo leaves
+    /// the soloed part alone (switched off or not). Where the pedals and wheels go
+    /// (`Controllers::sync`).
+    pub fn audible_mask(&self) -> u8 {
+        match self.solo() {
+            Some(s) => 1 << s,
+            None => self.sounding_mask(),
+        }
     }
 
     /// Turn a part on or off. Refused for Left while Manual Bass is in effect (false): the

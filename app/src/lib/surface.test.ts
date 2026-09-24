@@ -23,13 +23,21 @@ describe('the mock surface matches the engine (src/session.rs surface)', () => {
       'padBankUp', 'padBankDown', 'trackPrev', 'trackNext', 'play', 'stop', 'scene', 'function',
       'faderButton1', 'faderButton2', 'faderButton3', 'faderButton4', 'faderButton5', 'faderButton6', 'faderButton7', 'faderButton8', 'masterButton',
     ])
-    expect(labels(m)).toEqual(['', 'PAGE ▼', '◀ STYLE', 'STYLE ▶', 'PLAY', 'STOP', 'TEMPO +', 'TEMPO -', 'RIGHT 1', 'RIGHT 2', 'RIGHT 3', 'LEFT', '', '', '', '', 'PANEL'])
+    expect(labels(m)).toEqual(['', 'PAGE ▼', '◀ STYLE', 'STYLE ▶', 'PLAY', 'STOP', 'TEMPO +', 'TEMPO -', 'RIGHT 1', 'RIGHT 2', 'RIGHT 3', 'LEFT', 'HARM/ARP', '', '', '', 'PANEL'])
     expect(m.state.surface.controls.map((c) => c.shiftLabel).slice(0, 2)).toEqual(['LEFT', 'OTS LINK'])
     expect(m.state.surface.controls[8].shiftLabel).toBe('EDIT R1')
     expect(m.state.surface.faders).toHaveLength(9)
     expect(m.state.surface.faders.map((f) => f.label)).toEqual(['RIGHT 1', 'RIGHT 2', 'RIGHT 3', 'LEFT', '', '', '', '', 'MASTER'])
     m.send({ type: 'toggleFaderPage' })
     expect(labels(m).slice(8)).toEqual(['RHYTHM 1', 'RHYTHM 2', 'BASS', 'CHORD 1', 'CHORD 2', 'PAD', 'PHRASE 1', 'PHRASE 2', 'STYLE'])
+  })
+
+  it('Panel button 5 is the HARMONY/ARPEGGIO switch: dim purple off, bright on', () => {
+    const m = new MockSession({ manual: true, demo: true })
+    const b5 = () => m.state.surface.controls.find((x) => x.id === 'faderButton5')!
+    expect([b5().action, b5().level, b5().rgb]).toEqual([{ type: 'toggleHarmonyArp' }, 'dim', [90, 0, 127]])
+    m.send({ type: 'toggleHarmonyArp' })
+    expect(b5().level).toBe('bright')
   })
 
   it('Play, Stop, Scene and Function are not driven: off, no colour', () => {
@@ -55,7 +63,8 @@ describe('Shift layer, as the engine JSON arrives', () => {
     // Over IPC, `action` and `shiftAction` are separate objects even when equal.
     const wire = JSON.parse(JSON.stringify(m.state.surface)) as typeof m.state.surface
     expect(wire.controls.filter(hasShiftFunction).map((c) => c.id)).toEqual([
-      'padBankUp', 'padBankDown', 'faderButton1', 'faderButton2', 'faderButton3', 'faderButton4',
+      'padBankUp', 'padBankDown', 'trackPrev', 'trackNext', 'play', 'stop', 'scene', 'function',
+      'faderButton1', 'faderButton2', 'faderButton3', 'faderButton4',
     ])
   })
 })

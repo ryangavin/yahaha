@@ -4,6 +4,9 @@
 //! - command `state() -> AppState`
 //! - command `library() -> LibraryList`
 //! - command `meters() -> Meters` (output levels since the last call; poll at display rate)
+//! - commands `open_plugin_editor(part)` / `close_plugin_editor(part)`: a keyboard part's
+//!   instrument plugin window, opened on the main thread (AppKit); closing it keeps the
+//!   plugin's settings with the part (`savePartPluginState`)
 //! - event `yahaha` (`Event`): `stateChanged { version }`, `libraryChanged { revision }`,
 //!   `stopped`
 //!
@@ -21,6 +24,8 @@
 //! On exit the engine is stopped, which puts the Launchkey back in standalone mode.
 
 pub mod mock;
+mod mock_regist;
+mod mock_looper;
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -95,6 +100,56 @@ fn meters(backend: State<'_, Shared>) -> Value {
     }
 }
 
+thread_local! {
+    /// The open plugin editor windows, by keyboard part. Main thread only (AppKit).
+    static EDITORS: std::cell::RefCell<std::collections::HashMap<u8, yahaha::plugin::editor::Editor>> = Default::default();
+}
+
+/// Open keyboard part `part`'s plugin editor (or bring it to the front). The mock has no
+/// plugins: it says so in the message line.
+#[tauri::command]
+fn open_plugin_editor(part: u8, backend: State<'_, Shared>, app: tauri::AppHandle) -> Result<(), Value> {
+    let target = match &**backend {
+        Backend::Live(s) => s.plugin_editor(part).ok_or_else(|| failed("the part is not playing a plugin"))?,
+        Backend::Mock(_) => return Err(failed("the demo session has no plugins")),
+    };
+    let part = part & 3;
+    app.run_on_main_thread(move || {
+        let Ok(mtm) = yahaha::plugin::editor::main_thread() else { return };
+        EDITORS.with(|eds| {
+            let mut eds = eds.borrow_mut();
+            // The same plugin's window still open: focus it. Otherwise (closed by the user,
+            // or another plugin now) a new one.
+            if let Some(e) = eds.get(&part)
+                && e.is_open()
+                && e.is_for(&target)
+            {
+                e.focus();
+                return;
+            }
+            eds.remove(&part);
+            match yahaha::plugin::editor::open_editor(mtm, &target) {
+                Ok(e) => {
+                    eds.insert(part, e);
+                }
+                Err(e) => eprintln!("plugin editor: {e:#}"),
+            }
+        });
+    })
+    .map_err(failed)
+}
+
+/// Close keyboard part `part`'s plugin editor and keep the plugin's settings with the part.
+#[tauri::command]
+fn close_plugin_editor(part: u8, backend: State<'_, Shared>, app: tauri::AppHandle) -> Result<(), Value> {
+    let part = part & 3;
+    app.run_on_main_thread(move || EDITORS.with(|eds| drop(eds.borrow_mut().remove(&part)))).map_err(failed)?;
+    if let Backend::Live(s) = &**backend {
+        let _ = s.send(yahaha::api::PluginCmd::SavePartPluginState { part });
+    }
+    Ok(())
+}
+
 /// Forward the engine's events to the webview. The frontend coalesces `stateChanged` to
 /// one fetch per animation frame.
 fn forward_events(app: tauri::AppHandle, backend: Shared) {
@@ -159,7 +214,7 @@ fn backend() -> Backend {
         ))));
     }
     let sf2 = std::env::var_os("YAHAHA_SF2").map(PathBuf::from).or_else(|| first_sf2(&repo_root().join("soundfonts")));
-    match yahaha::Session::start(yahaha::Options { paths, sf2, ..yahaha::Options::default() }) {
+    match yahaha::Session::start(yahaha::Options { paths, sf2, data_dir: yahaha::session::default_data_dir(), ..yahaha::Options::default() }) {
         Ok(s) => Backend::Live(s),
         Err(e) => {
             eprintln!("yahaha: the engine didn't start ({e:#}); running the mock session");
@@ -194,7 +249,7 @@ pub fn run() {
                 .spawn(move || if live { forward_events(handle, b) } else { tick_mock(handle, b) })?;
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![send, state, library, meters])
+        .invoke_handler(tauri::generate_handler![send, state, library, meters, open_plugin_editor, close_plugin_editor])
         .build(tauri::generate_context!())
         .expect("error while building tauri application");
     app.run(|app, event| {
@@ -238,5 +293,27 @@ mod tests {
         assert!(v["message"]["text"].as_str().unwrap().contains("didn't start"));
         let normal = serde_json::to_value(&MockSession::new().state).unwrap();
         assert_eq!(normal["pads"]["connected"], true, "YAHAHA_MOCK=1 keeps the demo rig");
+    }
+
+    /// The mock imports iReal links with the engine's parser and plays the chart bar by
+    /// bar (a synthetic chart, no real song).
+    #[test]
+    fn the_mock_plays_a_chart() {
+        use yahaha::api::{ChartCmd, TransportCmd};
+        let mut m = MockSession::new();
+        m.send(TransportCmd::StartStop); // the demo is mid-song: stop it
+        m.send(ChartCmd::ImportCharts { text: "irealbook://Mock Tune=Doe John=Bossa Nova=C=n=*A[C^7 |D-7 G7 ]*B[F^7 |G7 Z".into() });
+        let c = &m.state.chart;
+        assert_eq!(c.playlists[0].songs[0].title, "Mock Tune");
+        assert_eq!(c.song.as_ref().unwrap().bars.len(), 4);
+        m.send(ChartCmd::SetChartMode { on: true });
+        m.send(ChartCmd::SetChartIntro { index: None });
+        m.send(TransportCmd::StartStop);
+        assert_eq!(m.state.chart.bar, Some(0));
+        assert_eq!(m.state.chord.name.as_deref(), Some("Cmaj7"));
+        let bar_ms = 60_000.0 / m.state.transport.tempo * m.state.transport.beats_per_bar as f64;
+        m.advance(bar_ms * 1.1);
+        assert_eq!(m.state.chart.bar, Some(1));
+        assert_eq!(m.state.chord.name.as_deref(), Some("Dm7"));
     }
 }

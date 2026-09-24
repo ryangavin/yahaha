@@ -8,6 +8,8 @@ pub mod api;
 pub mod arp;
 pub mod bench;
 pub mod capture;
+pub mod click;
+pub mod controllers;
 pub mod engine;
 pub mod fingering;
 pub mod ireal;
@@ -17,14 +19,18 @@ pub mod harmony;
 pub mod launchkey;
 pub mod library;
 pub mod live;
+pub mod looper;
 pub mod midi;
 pub mod multipad;
 pub mod oracle;
 pub mod parts;
+pub mod patches;
 #[cfg(feature = "plugins")]
 pub mod plugin;
 #[cfg(test)]
 mod recognizer_golden;
+pub mod registration;
+pub mod route;
 pub mod rt;
 pub mod session;
 pub mod sff;

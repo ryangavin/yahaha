@@ -311,7 +311,12 @@
         },
         "palette": null
       }
-    ]
+    ],
+    "fade": "off",
+    "retrigger": false,
+    "ritardando": false,
+    "halfBarFill": false,
+    "stopAcmpMode": "off"
   },
   "chord": {
     "name": "G7",
@@ -324,7 +329,8 @@
     "split": 54,
     "splitName": "F#2",
     "transposeKeyboard": 0,
-    "transposeMaster": 0
+    "transposeMaster": 0,
+    "settleMs": 10
   },
   "keyboardParts": [
     {
@@ -339,7 +345,8 @@
       "program": 0,
       "voiceName": "Grand Piano",
       "playsBass": false,
-      "octave": 0
+      "octave": 0,
+      "patch": null
     },
     {
       "name": "Right 2",
@@ -353,7 +360,8 @@
       "program": 48,
       "voiceName": "Strings",
       "playsBass": false,
-      "octave": 0
+      "octave": 0,
+      "patch": null
     },
     {
       "name": "Right 3",
@@ -367,7 +375,8 @@
       "program": 61,
       "voiceName": "Brass Section",
       "playsBass": false,
-      "octave": 0
+      "octave": 0,
+      "patch": null
     },
     {
       "name": "Left",
@@ -381,7 +390,8 @@
       "program": 48,
       "voiceName": "Strings",
       "playsBass": false,
-      "octave": 0
+      "octave": 0,
+      "patch": null
     }
   ],
   "mixer": {
@@ -511,13 +521,15 @@
       }
     ],
     "master": null,
-    "masterWaiting": false
+    "masterWaiting": false,
+    "styleSolo": null,
+    "partSolo": null
   },
   "pads": {
     "page": "sections",
     "pageName": "Sections",
     "pageNumber": 1,
-    "pageCount": 3,
+    "pageCount": 4,
     "pads": [
       {
         "note": 96,
@@ -925,7 +937,8 @@
       }
     ],
     "applied": 0,
-    "link": false
+    "link": false,
+    "linkTiming": "mainChange"
   },
   "library": {
     "revision": 3,
@@ -1019,9 +1032,9 @@
         "action": {
           "type": "startStop"
         },
-        "shiftLabel": "PLAY",
+        "shiftLabel": "RESET",
         "shiftAction": {
-          "type": "startStop"
+          "type": "sectionReset"
         },
         "rgb": [
           0,
@@ -1039,9 +1052,9 @@
         "action": {
           "type": "stop"
         },
-        "shiftLabel": "STOP",
+        "shiftLabel": "FADE",
         "shiftAction": {
-          "type": "stop"
+          "type": "toggleFade"
         },
         "rgb": [
           0,
@@ -1059,9 +1072,10 @@
         "action": {
           "type": "tempoUp"
         },
-        "shiftLabel": "TEMPO +",
+        "shiftLabel": "RTG SHORT",
         "shiftAction": {
-          "type": "tempoUp"
+          "type": "stepRetriggerRate",
+          "delta": 1
         },
         "rgb": [
           0,
@@ -1079,9 +1093,10 @@
         "action": {
           "type": "tempoDown"
         },
-        "shiftLabel": "TEMPO -",
+        "shiftLabel": "RTG LONG",
         "shiftAction": {
-          "type": "tempoDown"
+          "type": "stepRetriggerRate",
+          "delta": -1
         },
         "rgb": [
           0,
@@ -1183,18 +1198,22 @@
       {
         "id": "faderButton5",
         "cc": 41,
-        "label": "",
-        "action": null,
-        "shiftLabel": "",
-        "shiftAction": null,
+        "label": "HARM/ARP",
+        "action": {
+          "type": "toggleHarmonyArp"
+        },
+        "shiftLabel": "HARM/ARP",
+        "shiftAction": {
+          "type": "toggleHarmonyArp"
+        },
         "rgb": [
+          90,
           0,
-          0,
-          0
+          127
         ],
-        "level": "off",
+        "level": "dim",
         "anim": "solid",
-        "colour": 0
+        "colour": 55
       },
       {
         "id": "faderButton6",
@@ -1423,5 +1442,591 @@
       54
     ]
   },
-  "message": null
+  "styleChange": {
+    "tempo": "hold",
+    "parts": "hold",
+    "sectionSet": null
+  },
+  "chart": {
+    "on": false,
+    "playlists": [],
+    "selected": null,
+    "song": null,
+    "choruses": 1,
+    "intro": 0,
+    "ending": 0,
+    "loop": null,
+    "autoStyle": true,
+    "suggestedStyle": null,
+    "bar": null,
+    "overridden": false
+  },
+  "styleSettings": {
+    "mainTiming": "nextBar",
+    "introEndingTiming": "nextBar",
+    "syncStopWindowMs": 0,
+    "fadeInMs": 5000,
+    "fadeOutMs": 5000,
+    "fadeHoldMs": 2000,
+    "sectionReset": true,
+    "retriggerRate": 8
+  },
+  "registration": {
+    "bank": {
+      "name": "New Bank",
+      "path": null,
+      "dirty": false,
+      "position": null
+    },
+    "banks": [],
+    "folder": null,
+    "buttons": [
+      {
+        "index": 0,
+        "stored": false,
+        "name": "",
+        "groups": [],
+        "style": null,
+        "tempo": null,
+        "voices": []
+      },
+      {
+        "index": 1,
+        "stored": false,
+        "name": "",
+        "groups": [],
+        "style": null,
+        "tempo": null,
+        "voices": []
+      },
+      {
+        "index": 2,
+        "stored": false,
+        "name": "",
+        "groups": [],
+        "style": null,
+        "tempo": null,
+        "voices": []
+      },
+      {
+        "index": 3,
+        "stored": false,
+        "name": "",
+        "groups": [],
+        "style": null,
+        "tempo": null,
+        "voices": []
+      },
+      {
+        "index": 4,
+        "stored": false,
+        "name": "",
+        "groups": [],
+        "style": null,
+        "tempo": null,
+        "voices": []
+      },
+      {
+        "index": 5,
+        "stored": false,
+        "name": "",
+        "groups": [],
+        "style": null,
+        "tempo": null,
+        "voices": []
+      },
+      {
+        "index": 6,
+        "stored": false,
+        "name": "",
+        "groups": [],
+        "style": null,
+        "tempo": null,
+        "voices": []
+      },
+      {
+        "index": 7,
+        "stored": false,
+        "name": "",
+        "groups": [],
+        "style": null,
+        "tempo": null,
+        "voices": []
+      },
+      {
+        "index": 8,
+        "stored": false,
+        "name": "",
+        "groups": [],
+        "style": null,
+        "tempo": null,
+        "voices": []
+      },
+      {
+        "index": 9,
+        "stored": false,
+        "name": "",
+        "groups": [],
+        "style": null,
+        "tempo": null,
+        "voices": []
+      }
+    ],
+    "selected": null,
+    "memory": false,
+    "memorizeGroups": [
+      "style",
+      "voice",
+      "harmonyArp",
+      "multiPad",
+      "tempo",
+      "transpose",
+      "chordLooper",
+      "liveControl"
+    ],
+    "freeze": false,
+    "freezeGroups": [],
+    "sequence": {
+      "on": false,
+      "steps": [],
+      "end": "stop",
+      "position": null
+    },
+    "pending": false
+  },
+  "playlist": {
+    "name": "New Playlist",
+    "path": null,
+    "dirty": false,
+    "sort": "normal",
+    "records": [],
+    "current": null,
+    "playlists": [],
+    "folder": null
+  },
+  "multiPad": {
+    "bank": null,
+    "loading": false,
+    "pads": [
+      {
+        "index": 0,
+        "name": "",
+        "lamp": "empty",
+        "repeat": false,
+        "chordMatch": false,
+        "channel": 5
+      },
+      {
+        "index": 1,
+        "name": "",
+        "lamp": "empty",
+        "repeat": false,
+        "chordMatch": false,
+        "channel": 6
+      },
+      {
+        "index": 2,
+        "name": "",
+        "lamp": "empty",
+        "repeat": false,
+        "chordMatch": false,
+        "channel": 7
+      },
+      {
+        "index": 3,
+        "name": "",
+        "lamp": "empty",
+        "repeat": false,
+        "chordMatch": false,
+        "channel": 8
+      }
+    ],
+    "synchroStop": {
+      "styleStop": true,
+      "ending": false
+    },
+    "banks": []
+  },
+  "controllers": {
+    "pedals": [
+      {
+        "cc": 64,
+        "function": "sustain",
+        "controlType": "holdA",
+        "reverse": false,
+        "range": "upper",
+        "down": false
+      },
+      {
+        "cc": 66,
+        "function": "sostenuto",
+        "controlType": "holdA",
+        "reverse": false,
+        "range": "upper",
+        "down": false
+      },
+      {
+        "cc": 67,
+        "function": "soft",
+        "controlType": "holdA",
+        "reverse": false,
+        "range": "upper",
+        "down": false
+      }
+    ],
+    "learning": null,
+    "parts": [
+      {
+        "sustain": true,
+        "pitchBend": true,
+        "modulation": true,
+        "bendRange": 2
+      },
+      {
+        "sustain": true,
+        "pitchBend": true,
+        "modulation": true,
+        "bendRange": 2
+      },
+      {
+        "sustain": true,
+        "pitchBend": true,
+        "modulation": true,
+        "bendRange": 2
+      },
+      {
+        "sustain": true,
+        "pitchBend": true,
+        "modulation": false,
+        "bendRange": 2
+      }
+    ],
+    "sustain": false,
+    "sostenuto": false,
+    "soft": false
+  },
+  "harmonyArp": {
+    "on": false,
+    "mode": "harmony",
+    "harmonyType": 0,
+    "arpPattern": 0,
+    "typeName": "Standard Duet 1",
+    "category": "Harmony",
+    "volume": 100,
+    "speed": "1/8",
+    "assign": "auto",
+    "chordNoteOnly": false,
+    "touchLimit": 1,
+    "arp": {
+      "quantize": "off",
+      "hold": false,
+      "pedalHold": false,
+      "velocity": "original",
+      "fixedVelocity": 100,
+      "keepKeyOn": false
+    }
+  },
+  "message": null,
+  "looper": {
+    "mode": "off",
+    "hasData": false,
+    "bar": null,
+    "bars": 0,
+    "chords": [],
+    "memory": null,
+    "pendingMemory": null,
+    "memories": [
+      {
+        "name": null,
+        "bars": 0,
+        "chords": []
+      },
+      {
+        "name": null,
+        "bars": 0,
+        "chords": []
+      },
+      {
+        "name": null,
+        "bars": 0,
+        "chords": []
+      },
+      {
+        "name": null,
+        "bars": 0,
+        "chords": []
+      },
+      {
+        "name": null,
+        "bars": 0,
+        "chords": []
+      },
+      {
+        "name": null,
+        "bars": 0,
+        "chords": []
+      },
+      {
+        "name": null,
+        "bars": 0,
+        "chords": []
+      },
+      {
+        "name": null,
+        "bars": 0,
+        "chords": []
+      }
+    ]
+  },
+  "metronome": {
+    "on": false,
+    "volume": 90,
+    "bell": true,
+    "audible": false
+  },
+  "plugins": {
+    "available": false,
+    "scanning": false,
+    "list": []
+  },
+  "soundLibrary": {
+    "patches": [],
+    "categories": [
+      {
+        "id": "piano",
+        "label": "Piano"
+      },
+      {
+        "id": "ePiano",
+        "label": "E.Piano"
+      },
+      {
+        "id": "organ",
+        "label": "Organ"
+      },
+      {
+        "id": "guitar",
+        "label": "Guitar"
+      },
+      {
+        "id": "bass",
+        "label": "Bass"
+      },
+      {
+        "id": "strings",
+        "label": "Strings"
+      },
+      {
+        "id": "brass",
+        "label": "Brass"
+      },
+      {
+        "id": "saxWoodwind",
+        "label": "Sax/Woodwind"
+      },
+      {
+        "id": "synthLead",
+        "label": "Synth Lead"
+      },
+      {
+        "id": "pad",
+        "label": "Pad"
+      },
+      {
+        "id": "choir",
+        "label": "Choir"
+      },
+      {
+        "id": "drumsPerc",
+        "label": "Drums/Perc"
+      },
+      {
+        "id": "sfx",
+        "label": "SFX"
+      }
+    ],
+    "families": [
+      "Piano",
+      "Chromatic Perc.",
+      "Organ",
+      "Guitar",
+      "Bass",
+      "Strings",
+      "Ensemble",
+      "Brass",
+      "Reed",
+      "Pipe",
+      "Synth Lead",
+      "Synth Pad",
+      "Synth FX",
+      "Ethnic",
+      "Percussive",
+      "Sound FX"
+    ],
+    "map": {
+      "families": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null
+      ],
+      "overrides": [],
+      "drums": null
+    },
+    "styleMap": {
+      "families": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null
+      ],
+      "overrides": [],
+      "drums": null
+    },
+    "styleKey": "SlowWalker.T552.sty",
+    "usage": [
+      {
+        "channel": 9,
+        "part": "Rhythm 1",
+        "msb": 127,
+        "lsb": 0,
+        "program": 57,
+        "gmProgram": 57,
+        "voice": "drum kit 127/0/58",
+        "drums": true,
+        "patch": null,
+        "rule": "fallback",
+        "fromStyle": false,
+        "plays": "drum kit 127/0/58"
+      },
+      {
+        "channel": 10,
+        "part": "Rhythm 2",
+        "msb": 127,
+        "lsb": 0,
+        "program": 56,
+        "gmProgram": 56,
+        "voice": "drum kit 127/0/57",
+        "drums": true,
+        "patch": null,
+        "rule": "fallback",
+        "fromStyle": false,
+        "plays": "drum kit 127/0/57"
+      },
+      {
+        "channel": 10,
+        "part": "Rhythm 2",
+        "msb": 127,
+        "lsb": 0,
+        "program": 57,
+        "gmProgram": 57,
+        "voice": "drum kit 127/0/58",
+        "drums": true,
+        "patch": null,
+        "rule": "fallback",
+        "fromStyle": false,
+        "plays": "drum kit 127/0/58"
+      },
+      {
+        "channel": 11,
+        "part": "Bass",
+        "msb": 104,
+        "lsb": 18,
+        "program": 87,
+        "gmProgram": 33,
+        "voice": "≈ Finger Bass  [Yamaha 104/18/88]",
+        "drums": false,
+        "patch": null,
+        "rule": "fallback",
+        "fromStyle": false,
+        "plays": "≈ Finger Bass  [Yamaha 104/18/88]"
+      },
+      {
+        "channel": 12,
+        "part": "Chord 1",
+        "msb": 0,
+        "lsb": 117,
+        "program": 18,
+        "gmProgram": 18,
+        "voice": "≈ Rock Organ  [Yamaha 0/117/19]",
+        "drums": false,
+        "patch": null,
+        "rule": "fallback",
+        "fromStyle": false,
+        "plays": "≈ Rock Organ  [Yamaha 0/117/19]"
+      },
+      {
+        "channel": 14,
+        "part": "Pad",
+        "msb": 0,
+        "lsb": 115,
+        "program": 89,
+        "gmProgram": 89,
+        "voice": "≈ Warm Pad  [Yamaha 0/115/90]",
+        "drums": false,
+        "patch": null,
+        "rule": "fallback",
+        "fromStyle": false,
+        "plays": "≈ Warm Pad  [Yamaha 0/115/90]"
+      },
+      {
+        "channel": 15,
+        "part": "Phrase 1",
+        "msb": 0,
+        "lsb": 113,
+        "program": 7,
+        "gmProgram": 7,
+        "voice": "≈ Clavinet  [Yamaha 0/113/8]",
+        "drums": false,
+        "patch": null,
+        "rule": "fallback",
+        "fromStyle": false,
+        "plays": "≈ Clavinet  [Yamaha 0/113/8]"
+      },
+      {
+        "channel": 16,
+        "part": "Phrase 2",
+        "msb": 104,
+        "lsb": 24,
+        "program": 80,
+        "gmProgram": 80,
+        "voice": "≈ Square Lead  [Yamaha 104/24/81]",
+        "drums": false,
+        "patch": null,
+        "rule": "fallback",
+        "fromStyle": false,
+        "plays": "≈ Square Lead  [Yamaha 104/24/81]"
+      }
+    ],
+    "portSendsMapped": false,
+    "auditioning": null,
+    "browse": null,
+    "file": null,
+    "extraSoundFonts": [],
+    "lastAdded": null
+  }
 }
