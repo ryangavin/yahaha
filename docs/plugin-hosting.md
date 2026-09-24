@@ -192,6 +192,12 @@ playing; Serum 1.4% and FM8 0.6% of real time; no overruns, deadline misses or e
   few bytes longer (timestamps and the like), so compare states by restoring them, not by
   bytes. DLS round-trips byte-identical.
 - **CC7.** Unchanged from the spike: plugins disagree about CC7, so the rack owns it.
+- **Lifecycle calls are serialised per component.** Two DLSMusicDevice instances going
+  through `AudioUnitInitialize` / `AudioUnitUninitialize` on two threads at once trip a
+  CoreAudio assertion or segfault (about 1 in 4 runs of the parallel unit tests). `sys.rs`
+  holds a per-component lock around Initialize, Uninitialize and Dispose. Per component,
+  not global, so a plugin hung in Initialize (the load deadline's case) holds up only
+  other loads of the same plugin.
 
 ## The spike's options report
 
