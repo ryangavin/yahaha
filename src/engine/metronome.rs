@@ -161,4 +161,32 @@ mod tests {
         e.button(Button::TempoUp, 0, &mut Clicks::default());
         assert_eq!(e.snapshot(0).bpm, 500.0);
     }
+
+    /// Tap Tempo covers the whole range: taps 10 s apart give 6 BPM, 0.125 s apart 480;
+    /// a pause past 12 s forgets the taps, and a sudden change starts a fresh average.
+    #[test]
+    fn tap_tempo_reaches_5_to_500() {
+        let Some(mut e) = engine() else { return };
+        let tap = |e: &mut Engine, t: u64| e.button(Button::TapTempo, t, &mut Clicks::default());
+        for i in 0..3 {
+            tap(&mut e, 1 + i * 10_000_000_000);
+        }
+        assert!((e.snapshot(0).bpm - 6.0).abs() < 1e-6, "{}", e.snapshot(0).bpm);
+        let t0 = 100_000_000_000;
+        for i in 0..4 {
+            tap(&mut e, t0 + i * 125_000_000);
+        }
+        assert!((e.snapshot(0).bpm - 480.0).abs() < 1e-6, "{}", e.snapshot(0).bpm);
+        // 120 BPM, then quarter-speed taps: the new tempo at once, not an average.
+        let t1 = 200_000_000_000;
+        for i in 0..3 {
+            tap(&mut e, t1 + i * 500_000_000);
+        }
+        assert!((e.snapshot(0).bpm - 120.0).abs() < 1e-6);
+        tap(&mut e, t1 + 1_000_000_000 + 2_000_000_000);
+        assert!((e.snapshot(0).bpm - 30.0).abs() < 1e-6, "{}", e.snapshot(0).bpm);
+        // A tap after 13 s starts again: no tempo from it alone.
+        tap(&mut e, t1 + 16_000_000_000);
+        assert!((e.snapshot(0).bpm - 30.0).abs() < 1e-6);
+    }
 }

@@ -764,7 +764,15 @@ export class MockSession implements Session {
         t.stopAcmp = !t.stopAcmp
         break
       case 'tapTempo': {
-        this.taps = [...this.taps.filter((x) => this.now - x < 2000), this.now].slice(-4)
+        // As the engine: taps up to 12.5 s apart count (down to 5 BPM); a jump in the
+        // interval by more than half starts a fresh average from the tap before.
+        const last = this.taps[this.taps.length - 1]
+        if (last !== undefined && this.now - last > 12500) this.taps = []
+        else if (this.taps.length >= 2) {
+          const r = (this.now - last) / Math.max(1, last - this.taps[this.taps.length - 2])
+          if (r > 1.5 || r < 1 / 1.5) this.taps = [last]
+        }
+        this.taps = [...this.taps, this.now].slice(-4)
         if (this.taps.length >= 2) {
           const avg = (this.taps[this.taps.length - 1] - this.taps[0]) / (this.taps.length - 1)
           if (avg > 0) t.tempo = clamp(Math.round(60000 / avg), 5, 500)

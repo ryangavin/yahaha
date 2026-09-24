@@ -929,7 +929,18 @@ impl MockSession {
             AppCmd::Transport(TransportCmd::ToggleStopAcmp) => self.state.transport.stop_acmp = !self.state.transport.stop_acmp,
             AppCmd::Transport(TransportCmd::TapTempo) => {
                 let now = self.now;
-                self.taps.retain(|x| now - x < 2000.0);
+                // As the engine: taps up to 12.5 s apart count (down to 5 BPM); a jump in
+                // the interval by more than half starts a fresh average from the tap before.
+                if let Some(&last) = self.taps.last() {
+                    if now - last > 12_500.0 {
+                        self.taps.clear();
+                    } else if self.taps.len() >= 2 {
+                        let r = (now - last) / (last - self.taps[self.taps.len() - 2]).max(1.0);
+                        if !(1.0 / 1.5..=1.5).contains(&r) {
+                            self.taps = vec![last];
+                        }
+                    }
+                }
                 self.taps.push(now);
                 if self.taps.len() > 4 {
                     self.taps.remove(0);
