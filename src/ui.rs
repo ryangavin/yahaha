@@ -12,8 +12,8 @@ use std::cell::Cell;
 use std::path::Path;
 use std::time::Duration;
 use yahaha::api::{
-    AppCmd, AppState, HarmonyArpCmd, HarmonyArpMode, LibraryCmd, LooperCmd, MetronomeCmd, MixerCmd, MultiPadCmd, MultiPadState, OtsCmd,
-    Pad, PadLamp, PadsCmd, PartsCmd, SettingsCmd, SystemCmd,
+    AppCmd, AppState, ChartCmd, ChartState, HarmonyArpCmd, HarmonyArpMode, LibraryCmd, LooperCmd, MetronomeCmd, MixerCmd, MultiPadCmd,
+    MultiPadState, OtsCmd, Pad, PadLamp, PadsCmd, PartsCmd, SettingsCmd, SystemCmd,
 };
 use yahaha::engine::{Button, FadeState};
 use yahaha::launchkey::{self, Action};
@@ -109,6 +109,11 @@ fn key_cmd(code: KeyCode) -> Option<AppCmd> {
         KeyCode::Char('a') => Some(AppCmd::Settings(SettingsCmd::NextAudioOutput)),
         KeyCode::Char('k') => Some(AppCmd::Mixer(MixerCmd::ToggleSynthMute)),
         KeyCode::Char('\\') => Some(AppCmd::System(SystemCmd::Panic)),
+        // iReal chart player: chart mode on/off, previous/next song of the playlist.
+        // (Shift+m: plain m toggles Style part 7.)
+        KeyCode::Char('M') => Some(AppCmd::Chart(ChartCmd::ToggleChartMode)),
+        KeyCode::Char('(') => Some(AppCmd::Chart(ChartCmd::StepChart { delta: -1 })),
+        KeyCode::Char(')') => Some(AppCmd::Chart(ChartCmd::StepChart { delta: 1 })),
         // Harmony/Arpeggio: next type (the Harmony types, then the arpeggios), Arp Hold.
         KeyCode::Char('L') => Some(AppCmd::HarmonyArp(HarmonyArpCmd::StepHarmonyArpType { delta: 1 })),
         KeyCode::Char('*') => Some(AppCmd::HarmonyArp(HarmonyArpCmd::ToggleArpHold)),
@@ -245,8 +250,13 @@ fn fit(s: &str, w: usize) -> String {
     }
 }
 
-pub fn play(opts: Options) -> Result<()> {
+/// Run the terminal front panel on a live session; `startup` commands run first (their
+/// errors show in the message line).
+pub fn play(opts: Options, startup: Vec<AppCmd>) -> Result<()> {
     let session = Session::start(opts)?;
+    for c in startup {
+        let _ = session.send(c);
+    }
     let mut browser: Option<Browser> = None;
     let mut term = ratatui::init();
     let clock = std::time::Instant::now();
@@ -373,7 +383,7 @@ fn draw(f: &mut ratatui::Frame, st: &AppState, message: &str, beats: f64) {
     f.render_widget(
         Paragraph::new(vec![
             Line::from(vec![Span::styled(state, bold), Span::raw(format!("   {pos}   ")), Span::styled(next, St::default().fg(Color::Yellow))]),
-            Line::raw(""),
+            chart_line(&st.chart, dim),
             Line::from(vec![
                 Span::raw("  chord  "),
                 Span::styled(chord, bold.fg(Color::Cyan)),
@@ -614,7 +624,7 @@ fn draw(f: &mut ratatui::Frame, st: &AppState, message: &str, beats: f64) {
 
     let mut help = vec![
         Line::from(Span::styled(
-            " space start/stop · 1-4 Main A-D (again = fill) · q w e intro · i o p ending (again = rit.) · g break · t tap · | reset · ~ retrig · F fade · -/= tempo · F1-F4 part · 9/0 voice · 5-8 part on/off · J harmony/arp (L type, * hold) · F9 faders Panel/Style · ; ' kbd transpose · : \" master · / reset · r/^ chord looper rec, on/off · . metronome · Z X C V multi pads · B pad stop · tab pad page · enter browse styles · \\ panic · esc twice quit",
+            " space start/stop · 1-4 Main A-D (again = fill) · q w e intro · i o p ending (again = rit.) · g break · t tap · | reset · ~ retrig · F fade · -/= tempo · F1-F4 part · 9/0 voice · 5-8 part on/off · J harmony/arp (L type, * hold) · F9 faders Panel/Style · ; ' kbd transpose · : \" master · / reset · r/^ chord looper rec, on/off · . metronome · Z X C V multi pads · B pad stop · M chart mode · ( ) chart song · tab pad page · enter browse styles · \\ panic · esc twice quit",
             dim,
         )),
         Line::from(Span::styled(
@@ -626,6 +636,23 @@ fn draw(f: &mut ratatui::Frame, st: &AppState, message: &str, beats: f64) {
         help.push(Line::from(Span::styled(format!(" {message}"), St::default().fg(Color::Red))));
     }
     f.render_widget(Paragraph::new(help), rows[5]);
+}
+
+/// The chart player's line: the song, chart mode, the bar playing and its section.
+fn chart_line(c: &ChartState, dim: St) -> Line<'static> {
+    let Some(song) = &c.song else { return Line::raw("") };
+    let on = if c.on { St::default().fg(Color::Black).bg(Color::Cyan) } else { dim };
+    let mut v = vec![Span::raw("  "), Span::styled(" CHART [r] ", on), Span::raw(format!(" {}", song.info.title))];
+    v.push(Span::styled(format!("  ({})  ( ) song", song.info.style), dim));
+    if let Some(b) = c.bar.and_then(|i| song.bars.get(i as usize).map(|b| (i, b))) {
+        let (i, bar) = b;
+        let sec = bar.section.as_deref().unwrap_or("");
+        v.push(Span::raw(format!("   bar {}/{} {sec}", i + 1, song.bars.len())));
+        if c.overridden {
+            v.push(Span::styled("  left hand", St::default().fg(Color::Yellow)));
+        }
+    }
+    Line::from(v)
 }
 
 /// The style browser, drawn over the front panel.
@@ -753,6 +780,9 @@ pub fn screen_html(style: &Path, out: &Path) -> Result<()> {
         style_pending: false,
         section_bars: 4,
         audition: None,
+        chart_tag: 0,
+        chart_bar: None,
+        chart_override: false,
         fade: FadeState::Off,
         retrigger: false,
         ritardando: false,
@@ -855,6 +885,11 @@ mod tests {
         assert_eq!(key_cmd(KeyCode::BackTab), Some(AppCmd::Pads(PadsCmd::CyclePadPage { delta: -1 })));
         assert_eq!(key_cmd(KeyCode::Char('\\')), Some(AppCmd::System(SystemCmd::Panic)));
         assert_eq!(key_cmd(KeyCode::Char('k')), Some(AppCmd::Mixer(MixerCmd::ToggleSynthMute)));
+        assert_eq!(key_cmd(KeyCode::Char('M')), Some(AppCmd::Chart(ChartCmd::ToggleChartMode)));
+        // Plain m stays the Style part 7 toggle (the z..comma row).
+        assert_eq!(key_cmd(KeyCode::Char('m')), key_action(KeyCode::Char('m')).map(AppCmd::from));
+        assert!(matches!(key_action(KeyCode::Char('m')), Some(Action::Button(Button::TogglePart(6)))));
+        assert_eq!(key_cmd(KeyCode::Char(')')), Some(AppCmd::Chart(ChartCmd::StepChart { delta: 1 })));
         assert_eq!(key_cmd(KeyCode::Char('|')), Some(AppCmd::Transport(TransportCmd::SectionReset)));
         assert_eq!(key_cmd(KeyCode::Char('F')), Some(AppCmd::Transport(TransportCmd::ToggleFade)));
         assert_eq!(key_cmd(KeyCode::Char('~')), Some(AppCmd::Transport(TransportCmd::ToggleRetrigger)));

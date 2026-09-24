@@ -26,7 +26,8 @@ This document is about the inside.
 | `src/patches/` | The sound library (#103): patches, the program map and its resolution, the versioned library file, the route table the synth and the port read, `.sf2` preset headers (docs/sound-library.md). The synth's side is `src/synth/routing.rs`. |
 | `src/controllers.rs` | Pedals, wheels and the assignable-function table (atomics in `Shared`; the input thread and the engine thread send them to the parts). docs/controllers.md. |
 | `src/harmony.rs`, `src/arp/` | Keyboard Harmony and the arpeggio (pure, real-time safe), wired in by `src/live/pipeline.rs` and `src/live/kbdfx.rs`. |
-| `src/ireal/`, `src/plugin/` | Feature libraries not yet wired in (pure, real-time safe). |
+| `src/plugin/` | Feature libraries not yet wired in (pure, real-time safe). |
+| `src/ireal/` | iReal Pro charts (pure); the chart player plays them: `engine/chart.rs`, `session/chart.rs`, `api/chart.rs` (docs/ireal.md). |
 | `src/looper.rs`, `src/click.rs` | The Chord Looper's sequence type; the metronome's click voice (mixed by the synth). |
 | `app/` | The desktop app: Svelte frontend (`app/src`), Tauri shell (`app/src-tauri`). |
 

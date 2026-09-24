@@ -151,6 +151,7 @@ class UiStore {
   settings = $state(false)
   parts = $state(false)
   mixer = $state(false)
+  charts = $state(false)
   /** The Registration panel (bank, groups, sequence, playlist) and its page. */
   regist = $state(false)
   registTab = $state<'bank' | 'groups' | 'sequence' | 'playlist'>('bank')
@@ -170,9 +171,9 @@ class UiStore {
   }
 
   /** Open one side drawer (closing the others), or close it if it's open. */
-  toggleDrawer(d: 'parts' | 'mixer' | 'settings' | 'regist' | 'looper' | 'multipad' | 'harmony' | 'sound') {
+  toggleDrawer(d: 'parts' | 'mixer' | 'settings' | 'charts' | 'regist' | 'looper' | 'multipad' | 'harmony' | 'sound') {
     const open = !this[d]
-    this.parts = this.mixer = this.settings = this.regist = this.looper = this.multipad = this.harmony = this.sound = false
+    this.parts = this.mixer = this.settings = this.charts = this.regist = this.looper = this.multipad = this.harmony = this.sound = false
     this[d] = open
   }
 
@@ -201,6 +202,7 @@ class UiStore {
     if (this.settings) return !(this.settings = false)
     if (this.parts) return !(this.parts = false)
     if (this.mixer) return !(this.mixer = false)
+    if (this.charts) return !(this.charts = false)
     if (this.regist) return !(this.regist = false)
     if (this.looper) return !(this.looper = false)
     if (this.multipad) return !(this.multipad = false)

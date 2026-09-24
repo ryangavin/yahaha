@@ -6,6 +6,7 @@
 
 import { controlSwitchSets, defaultControllers, functionCmd, functionInfo, functionSet, isPedalSwitch, pedalCcRefused, resetRelease } from './assignable'
 import fixture from './mock-fixture.json'
+import { DEMO_PLAYLIST, DEMO_SONGS, chordAt, emptyChart, info, nextBar, songState, styleWords } from './mock-chart'
 import { syntheticStyles } from './mock-library'
 import { clockAt, mockSurface, type MockHardware } from './mock-surface'
 import { emptyLooper, MockLooper } from './mock-looper'
@@ -253,6 +254,7 @@ export function initialState(): AppState {
     message: null,
     surface: null as unknown as AppState['surface'], // filled in by derive()
     preview: { audition: null, queued: null },
+    chart: emptyChart(),
     styleSettings: { ...DEFAULT_STYLE_SETTINGS },
     registration: emptyRegistration(),
     playlist: emptyPlaylist(),
@@ -339,6 +341,8 @@ export interface MockOptions {
   manual?: boolean
   /** Add this many synthetic styles to the library (`?styles=60000`), to test a big one. */
   styles?: number
+  /** Import the demo chart playlist and turn chart mode on (`?chart=1`). */
+  chart?: boolean
   /** Start with the demo Registration banks and Playlist (default true). */
   registration?: boolean
 }
@@ -396,6 +400,10 @@ export class MockSession implements Session {
   private scanLeft = 0
   /** Beats into the audition playing (#21). */
   private auditionBeats = 0
+  /** The imported playlists' songs (#89); the mock only has its demo playlist. */
+  private chartSongs: (typeof DEMO_SONGS)[] = []
+  /** The chart's last bar has played and it has no Ending: stop at the next bar line. */
+  private chartEnd = false
   /** Milliseconds left of the fade phase playing (fading in or out, holding). */
   private fadeLeft = 0
   /** Registration Memory and the Playlist (in-memory banks and playlists). */
@@ -423,6 +431,17 @@ export class MockSession implements Session {
       this.state.library.position = this.lib.entries.findIndex((e) => e.id === this.state.style.id)
     }
     if (this.demo) this.demoStart()
+    if (opts.chart) {
+      this.cmd({ type: 'importCharts', text: 'irealb://demo' })
+      this.cmd({ type: 'setChartMode', on: true })
+      this.state.message = null
+      // The demo plays the chart from its start (straight into bar 1: no Intro).
+      if (this.demo) {
+        this.stopBand()
+        this.cmd({ type: 'setChartIntro', index: null })
+        this.startBand()
+      }
+    }
     derive(this.state, this.lib, this.hardware(), [...this.leftHand, ...this.rightHand])
     this.sound.derive(this.state)
     if (!opts.manual) {
@@ -648,6 +667,10 @@ export class MockSession implements Session {
   private onBeat() {
     const t = this.state.transport
     if (this.demo) this.melody()
+    const c = this.state.chart
+    if (c.on && c.song && c.bar !== null && t.section && MAINS.concat(FILLS, [BREAK]).includes(t.section)) {
+      this.chartChord(chordAt(c.song, c.bar, Math.floor(this.clock) % t.beatsPerBar))
+    }
     if (t.queued && FILLS.includes(t.queued)) {
       t.section = t.queued
       t.queued = null
@@ -657,6 +680,10 @@ export class MockSession implements Session {
 
   private onBar(bar: number) {
     const t = this.state.transport
+    if (this.chartEnd) {
+      this.stopBand()
+      return
+    }
     this.multiPads.bar()
     const q = this.preview.queued
     if (q !== null) {
@@ -679,11 +706,139 @@ export class MockSession implements Session {
       }
       this.enter(main, bar)
     }
+    if (this.chartPlaying()) {
+      this.chartBar()
+      this.looper.onBar(bar, this.state.chord.fingered || null)
+      return
+    }
     if (this.demo) this.demoBar(bar)
     // The style follows a new chord every other bar (the imaginary left hand).
     if (t.running && bar % 2 === 0) this.keyboardChord(PROGRESSION[this.progression++ % PROGRESSION.length])
     const loop = this.looper.onBar(bar, this.state.chord.fingered || null)
     if (loop && loop !== this.state.chord.fingered) this.chordArrives(loop)
+  }
+
+  // ── iReal chart player (#89): what engine/chart.rs does, bar by bar ─────────
+  private chartPlaying(): boolean {
+    const c = this.state.chart
+    return c.on && !!c.song && this.state.transport.running
+  }
+
+  /** A bar line: the chart moves on a bar (not in an Intro or Ending) and queues its next section. */
+  private chartBar() {
+    const t = this.state.transport
+    const c = this.state.chart
+    const song = c.song!
+    if (!t.section || INTROS.includes(t.section) || ENDINGS.includes(t.section)) return
+    const i = c.bar === null ? 0 : nextBar(c, c.bar)
+    if (i === null) return
+    c.bar = i
+    this.chartChord(chordAt(song, i, 0))
+    const n1 = nextBar(c, i)
+    if (n1 === null) {
+      const e = c.ending !== null ? ENDINGS[c.ending] : null
+      if (e && this.has(e)) t.queued = e
+      else this.chartEnd = true
+      return
+    }
+    const next = song.bars[n1]
+    if (next.sectionStart) {
+      // The mock plays fills from the next beat: the rest of this bar leads in.
+      t.main = next.main
+      t.queued = t.autoFill && this.has(FILLS[next.main]) ? FILLS[next.main] : MAINS[next.main]
+    }
+  }
+
+  private chartChord(name: string | null) {
+    if (!name) return
+    this.state.chord.fingered = name
+    this.state.chord.name = transposeChord(name, this.state.chord.transposeKeyboard)
+  }
+
+  /** Choose a song: its chart, suggested style (loaded with Auto Style) and, stopped, its tempo. */
+  private selectChart(playlist: number, song: number, fresh = true) {
+    const def = this.chartSongs[playlist]?.[song]
+    const c = this.state.chart
+    if (!def) {
+      this.message(`no song ${song} in playlist ${playlist}`, true)
+      return
+    }
+    c.selected = [playlist, song]
+    c.song = songState(def, c.choruses)
+    if (c.bar !== null) c.bar = Math.min(c.bar, c.song.bars.length - 1)
+    if (!fresh) return
+    c.loop = null
+    const words = styleWords(def.style)
+    const hit = this.lib.entries.find((e) => e.status === 'ok' && words.some((w) => `${e.name} ${e.folder}`.toLowerCase().includes(w)))
+    c.suggestedStyle = hit?.id ?? null
+    if (c.autoStyle && hit && hit.id !== this.state.style.id) this.loadStyle(hit.id)
+    if (!this.state.transport.running && def.tempo) this.state.transport.tempo = def.tempo
+  }
+
+  private chartCmd(cmd: Extract<AppCmd, { type: `${string}Chart${string}` | 'importCharts' | 'importChartFile' }>) {
+    const c = this.state.chart
+    switch (cmd.type) {
+      case 'importCharts':
+      case 'importChartFile':
+        // The mock can't decode iReal links; it imports its demo playlist instead.
+        this.chartSongs.push(DEMO_SONGS)
+        c.playlists.push({ name: DEMO_PLAYLIST, songs: DEMO_SONGS.map(info) })
+        if (!c.selected) this.selectChart(c.playlists.length - 1, 0)
+        this.message(`Imported ${DEMO_SONGS.length} songs (1 playlist)`)
+        break
+      case 'selectChart':
+        this.selectChart(cmd.playlist, cmd.song)
+        break
+      case 'stepChart': {
+        if (!c.selected) break
+        const [p, s] = c.selected
+        const to = Math.max(0, Math.min(c.playlists[p].songs.length - 1, s + cmd.delta))
+        if (to !== s) this.selectChart(p, to)
+        break
+      }
+      case 'removeChartPlaylist':
+        if (cmd.playlist >= c.playlists.length) break
+        c.playlists.splice(cmd.playlist, 1)
+        this.chartSongs.splice(cmd.playlist, 1)
+        if (c.selected?.[0] === cmd.playlist) Object.assign(c, { selected: null, song: null, on: false, loop: null, suggestedStyle: null, bar: null })
+        else if (c.selected && c.selected[0] > cmd.playlist) c.selected = [c.selected[0] - 1, c.selected[1]]
+        break
+      case 'setChartMode':
+      case 'toggleChartMode': {
+        const on = cmd.type === 'setChartMode' ? cmd.on : !c.on
+        if (on && !c.song) {
+          this.message('Import an iReal Pro chart first', true)
+          break
+        }
+        // Only one of the chart and the Chord Looper gives the chords: chart mode on stops a loop.
+        const m = this.state.looper.mode
+        if (on && (m === 'looping' || m === 'loopArmed')) this.looper.onOff()
+        c.on = on
+        if (!on) c.bar = null
+        break
+      }
+      case 'setChartChoruses':
+        c.choruses = Math.max(1, Math.min(99, Math.round(cmd.choruses)))
+        if (c.selected) this.selectChart(c.selected[0], c.selected[1], false)
+        // Fewer choruses: a loop past the new end goes.
+        if (c.loop && c.loop[1] > (c.song?.bars.length ?? 0)) c.loop = null
+        break
+      case 'setChartLoop': {
+        const n = c.song?.bars.length ?? 0
+        if (cmd.range && !(cmd.range[0] < cmd.range[1] && cmd.range[1] <= n)) this.message(`no bars ${cmd.range[0] + 1}-${cmd.range[1]} in the chart`, true)
+        else c.loop = cmd.range
+        break
+      }
+      case 'setChartIntro':
+        c.intro = cmd.index
+        break
+      case 'setChartEnding':
+        c.ending = cmd.index
+        break
+      case 'setChartAutoStyle':
+        c.autoStyle = cmd.on
+        break
+    }
   }
 
   /** A chord from the keyboard: the Chord Looper ignores it while it loops, records it
@@ -760,11 +915,20 @@ export class MockSession implements Session {
 
   private startBand() {
     const t = this.state.transport
+    const c = this.state.chart
     if (t.fade === 'armed') {
       t.fade = 'fadingIn'
       this.fadeLeft = this.state.styleSettings.fadeInMs
     } else if (t.fade === 'holding') t.fade = 'off'
     this.preview.audition = null
+    this.chartEnd = false
+    if (c.on && c.song) {
+      // The chart's Intro (unless one is armed), its first Main and first chord.
+      if (t.pendingIntro === null && c.intro !== null && this.has(INTROS[c.intro])) t.pendingIntro = c.intro
+      t.main = c.song.bars[0].main
+      c.bar = null
+      this.chartChord(chordAt(c.song, 0, 0))
+    }
     t.running = true
     t.syncStart = false
     this.clock = 0
@@ -773,6 +937,7 @@ export class MockSession implements Session {
     t.pendingIntro = null
     t.queued = null
     this.position()
+    if (this.chartPlaying() && MAINS.includes(t.section ?? '')) this.chartBar()
     // Bar 1: a Chord Looper armed starts recording (with this chord) or looping here.
     const loop = this.looper.onBar(0, this.state.chord.fingered || null)
     if (loop && loop !== this.state.chord.fingered) this.chordArrives(loop)
@@ -784,6 +949,8 @@ export class MockSession implements Session {
     if (t.fade === 'fadingIn' || t.fade === 'fadingOut') t.fade = 'off'
     t.ritardando = false
     this.rightHand = []
+    this.state.chart.bar = null
+    this.chartEnd = false
     // A style queued for the next bar loads when the band stops first.
     const q = this.preview.queued
     this.preview.queued = null
@@ -988,9 +1155,16 @@ export class MockSession implements Session {
       case 'looperRec':
         if (this.looper.rec(t.running)) t.syncStart = true
         break
-      case 'looperOnOff':
+      case 'looperOnOff': {
+        // A loop about to arm turns chart mode off first (only one of them gives the chords).
+        const l = this.state.looper
+        if (this.state.chart.on && (l.mode === 'recording' || (l.mode === 'off' && l.hasData))) {
+          this.state.chart.on = false
+          this.state.chart.bar = null
+        }
         this.looper.onOff()
         break
+      }
       case 'selectLooperMemory': {
         const err = this.looper.select(cmd.index & 7)
         if (err) this.message(err, true)
@@ -1291,6 +1465,20 @@ export class MockSession implements Session {
       }
       case 'clearMessage':
         st.message = null
+        break
+      case 'importCharts':
+      case 'importChartFile':
+      case 'selectChart':
+      case 'stepChart':
+      case 'removeChartPlaylist':
+      case 'setChartMode':
+      case 'toggleChartMode':
+      case 'setChartChoruses':
+      case 'setChartLoop':
+      case 'setChartIntro':
+      case 'setChartEnding':
+      case 'setChartAutoStyle':
+        this.chartCmd(cmd)
         break
       case 'setPartPlugin':
       case 'clearPartPlugin':

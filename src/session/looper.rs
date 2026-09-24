@@ -47,7 +47,16 @@ impl Control {
         let recording = matches!(state, LoopState::Recording | LoopState::RecArmed);
         match c {
             LooperCmd::LooperRec => self.engine_cmd(Cmd::Looper(true)),
-            LooperCmd::LooperOnOff => self.engine_cmd(Cmd::Looper(false)),
+            LooperCmd::LooperOnOff => {
+                // Only one of the chart player and the Chord Looper gives the chords: a loop
+                // that is about to arm turns chart mode off first (engine/chart.rs).
+                let arms = state == LoopState::Recording || state == LoopState::Off && self.snap.looper.has_data;
+                if arms && self.chart_mode_on() {
+                    self.chart_cmd(crate::api::ChartCmd::SetChartMode { on: false })?;
+                    self.say("Chart mode off: the Chord Looper plays", false);
+                }
+                self.engine_cmd(Cmd::Looper(false))
+            }
             LooperCmd::SelectLooperMemory { index } => {
                 let i = index as usize % MEMORIES;
                 if recording {

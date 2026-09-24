@@ -294,4 +294,26 @@ mod tests {
         let normal = serde_json::to_value(&MockSession::new().state).unwrap();
         assert_eq!(normal["pads"]["connected"], true, "YAHAHA_MOCK=1 keeps the demo rig");
     }
+
+    /// The mock imports iReal links with the engine's parser and plays the chart bar by
+    /// bar (a synthetic chart, no real song).
+    #[test]
+    fn the_mock_plays_a_chart() {
+        use yahaha::api::{ChartCmd, TransportCmd};
+        let mut m = MockSession::new();
+        m.send(TransportCmd::StartStop); // the demo is mid-song: stop it
+        m.send(ChartCmd::ImportCharts { text: "irealbook://Mock Tune=Doe John=Bossa Nova=C=n=*A[C^7 |D-7 G7 ]*B[F^7 |G7 Z".into() });
+        let c = &m.state.chart;
+        assert_eq!(c.playlists[0].songs[0].title, "Mock Tune");
+        assert_eq!(c.song.as_ref().unwrap().bars.len(), 4);
+        m.send(ChartCmd::SetChartMode { on: true });
+        m.send(ChartCmd::SetChartIntro { index: None });
+        m.send(TransportCmd::StartStop);
+        assert_eq!(m.state.chart.bar, Some(0));
+        assert_eq!(m.state.chord.name.as_deref(), Some("Cmaj7"));
+        let bar_ms = 60_000.0 / m.state.transport.tempo * m.state.transport.beats_per_bar as f64;
+        m.advance(bar_ms * 1.1);
+        assert_eq!(m.state.chart.bar, Some(1));
+        assert_eq!(m.state.chord.name.as_deref(), Some("Dm7"));
+    }
 }

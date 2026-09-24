@@ -189,6 +189,7 @@ The screen shows `sus` beside each part the pedal is holding.
 - `tab` / `shift+tab` next/previous pad page
 - `Z X C V` Multi Pads 1–4 (shift+z…v) · `B` Multi Pad STOP (shift+b). The banks (the .pad files in the style folders) load from the app's Multi Pads drawer; yahaha pad --demo writes a synthetic bank to try. See docs/multipad.md, which also proposes a Launchkey Multi Pad page.
 - `a` next audio output pair · `k` mute the synth
+- `M` (shift+m) chart mode on/off · `( )` previous/next chart song (see "iReal Pro charts" below)
 - `r` Chord Looper REC/STOP · `^` Chord Looper ON/OFF (recording, looping and memory changes start at the next bar)
 - `.` metronome on/off (built-in synth only, never on the MIDI port)
 - `\` panic (all notes off)
@@ -206,6 +207,18 @@ The screen shows `sus` beside each part the pedal is holding.
 - `enter` loads the style and closes the browser. It works like `←/→`: while the band plays it keeps playing and follows your next chord in the new style.
 - `esc` closes the browser without changing the style (with the browser closed, `esc` twice quits, so one extra `esc` never stops the band).
 - While the browser is open, typed keys only go to the filter, never to the performance shortcuts. Your MIDI keyboard, the Launchkey pads and the Launchkey buttons keep working as usual, including **< Track / Track >**.
+
+### iReal Pro charts
+
+`yahaha play <styles> --ireal <playlist.html | irealb://…>` imports an iReal Pro playlist (an exported `.html` file, or a link), chooses its first song and turns **chart mode** on. In chart mode the band takes its chords from the chart instead of your left hand:
+
+- Press `space` (or play a chord with Sync Start on) to start. An Intro plays first, then the chart, then an Ending.
+- Chart sections A–D play Main A–D. With Auto Fill on, a fill leads into each new section.
+- Play a chord to reharmonize: it holds until the next bar line, then the chart takes over again.
+- Keyboard transpose (`; '`) moves the chart too.
+- `M` (shift+m) turns chart mode on/off (plain `m` is Style part 7); `( )` pick the previous/next song of the playlist.
+
+The desktop app has the same player, with a song browser, the chart in the lead-sheet band and the choruses, loop, Intro/Ending and style settings. [docs/ireal.md](docs/ireal.md) has the details.
 
 Chords are recognized in "Fingered On Bass" style, plus some shortcuts:
 - one key = major

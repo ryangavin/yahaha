@@ -279,7 +279,7 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | control | what it does | Genos | key | Launchkey |
 |---|---|---|---|---|
 | **Chord Looper REC/STOP** | Records the chords you play, from the next bar line; stopped, it arms Sync Start and your first chord starts the band and the recording together. Press again to stop recording while the band plays on. | CHORD LOOPER [REC/STOP] | `R` | — |
-| **Chord Looper ON/OFF** | Loops the recorded chords from the next bar line, feeding them to the band as if you played them, so both hands are free. While it loops your chords are ignored; press again to stop it at once. | CHORD LOOPER [ON/OFF] | `^` | — |
+| **Chord Looper ON/OFF** | Loops the recorded chords from the next bar line, feeding them to the band as if you played them, so both hands are free. While it loops your chords are ignored; press again to stop it at once. Arming a loop turns chart mode off. | CHORD LOOPER [ON/OFF] | `^` | — |
 | **Chord Looper memory** | One of eight memories. Selecting one that holds a sequence makes it the loop; while looping it takes over at the next bar line. | Chord Looper › Memory 1–8 | — | — |
 | **Memory** | Stores the current sequence: press it, then a memory number. The memory is named CLD_001 and on. | Chord Looper › [Memory] | — | — |
 | **Clear** | Empties a memory: press it, then a memory number. | Chord Looper › [Clear] | — | — |
@@ -375,6 +375,7 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | **Section playing** | The section the band is playing now, and before the start the Main (and any Intro) it will start with. | Section (MAIN VARIATION, INTRO, ENDING) | — | Pad page 1 (Sections) shows it lit |
 | **Section progress** | One cell per bar of the section, filling beat by beat, so you can see how far into the pattern the band is. This band will also show the chord chart when one is loaded. | — | — | — |
 | **Next section** | The section queued to play next. A Main or Ending takes over at the next bar line, a fill at the next beat. | — | — | Pad page 1 (Sections): the queued pad flashes |
+| **Chord chart** | The iReal Pro chart the band is playing, eight bars to a line, with the bar playing ringed. Section letters mark where Main A–D take over; an amber ring means your left hand has taken over until the next bar line. | — | — | — |
 
 ## Keyboard strip
 
@@ -384,12 +385,34 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | **Split point** | Where the left-hand section ends (C3 = middle C). Drag the marker, or focus it and use the arrow keys, to move it one key at a time. | Split Point (Style + Left) | `[` `]` | Pad page 2 (Chord/Setup), bottom row, pad 3 and 4 |
 | **Keyboard size** | How many keys the strip shows: 49 or 61 like your Launchkey, or a full 88. It matches the connected Launchkey until you pick one; pick the lit one again to go back to matching. | — | — | — |
 
+## iReal Pro chart player
+
+| control | what it does | Genos | key | Launchkey |
+|---|---|---|---|---|
+| **Chart mode** | While the band plays, it takes its chords and Main sections from the chosen chart instead of your left hand. A chord you play still takes over, until the next bar line. Turning it on stops a Chord Looper loop. | — | `Shift+M` | — |
+| **Previous song** | Chooses the song before this one in the playlist. | — | `(` | — |
+| **Next song** | Chooses the song after this one in the playlist. | — | `)` | — |
+| **Open playlist** | Imports an iReal Pro playlist exported as an .html file (in iReal Pro: Share, then HTML). Its songs are kept until you quit. | — | — | — |
+| **iReal Pro link** | Paste an irealb:// link here (a song or a whole playlist, as iReal Pro shares it), then press Import. | — | — | — |
+| **Import link** | Imports the songs in the pasted irealb:// link. | — | — | — |
+| **Playlist** | Shows this playlist's songs. | — | — | — |
+| **Remove playlist** | Forgets this playlist. If the song playing is in it, chart mode turns off. | — | — | — |
+| **Song** | Chooses this chart for the band. With Auto style on, the style its iReal label suggests loads too; with the band stopped, the tempo becomes the chart's. | — | — | — |
+| **Fewer choruses** | Plays the form one time fewer before the Ending. | — | — | — |
+| **More choruses** | Plays the form one more time before the Ending. | — | — | — |
+| **Chart Intro** | The Intro the band plays before the chart's first bar, or none. An Intro you arm yourself before starting plays instead. | INTRO | — | — |
+| **Chart Ending** | The Ending the band plays after the chart's last bar. With none, the band stops at the end of the last bar. | ENDING/rit. | — | — |
+| **Loop** | Plays the whole song, or one section, over and over instead of ending. Stop the band or press an Ending to finish. | — | — | — |
+| **Auto style** | Choosing a song loads the library style its iReal style label suggests. Pick any other style in the browser to override it. | — | — | — |
+| **Suggested style** | The library style that best matches the chart's iReal style label. Press it to load that style now. | — | — | — |
+
 ## Panels around the hardware view
 
 | control | what it does | Genos | key | Launchkey |
 |---|---|---|---|---|
 | **Keyboard parts and OTS** | Opens the detail of Right 1–3 and Left (voice, volume, octave, on/off) and the style's One Touch Settings. | PART ON/OFF, Voice Setting, ONE TOUCH SETTING | — | Pad page 3 (OTS/Parts) has the same controls |
 | **Mixer** | Opens the full mixer: both fader pages side by side, with each band part's voice. | Mixer (Panel / Style tabs) | — | The faders and the buttons under them |
+| **Charts** | Opens the iReal Pro chart player: import playlists, pick a song, and set how the band plays it. | — | — | — |
 | **Harmony/Arpeggio** | Opens the Keyboard Harmony and Arpeggio panel: the switch, the type and its settings. | HARMONY/ARPEGGIO, Keyboard Harmony/Arpeggio settings | — | Panel fader page: the button under fader 5 is the on/off switch |
 | **Chord Looper** | Opens the Chord Looper: record a chord progression, loop it, and keep it in one of eight memories. | Menu › Chord Looper | — | — |
 | **Close** | Closes this panel. The band keeps playing. | — | `Esc` | — |

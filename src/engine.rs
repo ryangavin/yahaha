@@ -9,6 +9,7 @@
 //! hooks in hooks.rs; when a queued section change happens is `Engine::change_point`
 //! (sections.rs). See docs/architecture.md.
 
+mod chart;
 mod chords;
 mod fade;
 mod hooks;
@@ -29,6 +30,7 @@ mod sync_stop;
 mod timing;
 mod transport;
 
+pub use chart::{ChartPlan, ChartSettings, PlanBar, CHART_CHORDS};
 use hooks::{Features, Lines};
 use mirror::{Mirror, NRPN_BIT, UNSENT};
 use sections::Change;
@@ -194,6 +196,12 @@ pub struct Snapshot {
     /// A style preview playing beside the (stopped) band (`live::EngineLoop`); the engine
     /// itself always reports None.
     pub audition: Option<AuditionPos>,
+    /// Chart player (engine/chart.rs): the tag of the plan it holds (0: none), the plan
+    /// bar playing (None: stopped, in the Intro, or chart mode off), and whether the
+    /// player's chord has taken over until the next bar line.
+    pub chart_tag: u64,
+    pub chart_bar: Option<u32>,
+    pub chart_override: bool,
     /// Fade In/Out.
     pub fade: FadeState,
     /// Style Retrigger is on.
@@ -486,6 +494,7 @@ impl Engine {
         } else {
             (0, 0)
         };
+        let (chart_tag, chart_bar, chart_override) = self.chart_pos();
         Snapshot {
             running: self.running,
             sync_armed: self.sync_armed,
@@ -515,6 +524,9 @@ impl Engine {
                 _ => 0,
             },
             audition: None,
+            chart_tag,
+            chart_bar,
+            chart_override,
             fade: self.fade_state(),
             retrigger: self.retrigger_on(),
             ritardando: self.ritardando(),

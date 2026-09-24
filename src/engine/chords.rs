@@ -36,14 +36,23 @@ impl Engine {
     /// other inputs of this wake, and after the chord-settle window. An exact chord change
     /// that must not wait (loop playback, a chart's chords) uses `apply_chord_unsettled`.
     pub(super) fn apply_chord(&mut self, played: Chord, now: u64, sink: &mut impl Sink) {
+        self.apply_chord_from(played, true, now, sink);
+    }
+
+    /// `apply_chord`; `held`: the chord comes from keys held (the keyboard, or the Chord
+    /// Looper playing it back as if played). A chart's chord (engine/chart.rs) holds no
+    /// keys: it neither starts the Synchro Stop Window nor retriggers the Main.
+    pub(super) fn apply_chord_from(&mut self, played: Chord, held: bool, now: u64, sink: &mut impl Sink) {
         self.played = Some(played);
         let sync_start = self.starts_on_chord() && played.ty != CANCEL;
         // A chord played: the Synchro Stop Window times the hold; Retrigger restarts the
         // Main at it, at once (the restart follows the player; the new pass's chord-part
         // notes wait for the settle, as any chord change's do).
-        self.sync_window_chord(now);
-        if played.ty != CANCEL {
-            self.retrigger_chord(self.running, now, sink);
+        if held {
+            self.sync_window_chord(now);
+            if played.ty != CANCEL {
+                self.retrigger_chord(self.running, now, sink);
+            }
         }
         if self.running || self.stop_acmp && !sync_start {
             self.unsettle(now, true);

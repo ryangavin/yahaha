@@ -192,6 +192,26 @@ Style Section Reset, the Fade In/Out times and the Style Retrigger length. The s
 | `auditionStyle` | `id` | Previews a style while the band is stopped: its Main A, at its own tempo, with its own voices and levels, over C Am F G7 (a chord a bar) for 4 bars, then it stops by itself (`preview.audition`). The loaded style, OTS, keyboard parts, mixer and transport are untouched; the loaded style's setup is sent again when it ends. Refused (`failed`) while the band plays. A new one replaces the one playing; it ends early on `stopAudition`, a style change, START/STOP, `panic` or a chord that starts the band (Sync Start). |
 | `stopAudition` | | Ends the preview now. |
 
+### iReal Pro chart player
+
+The band takes its chords, and its Main sections, from an iReal Pro chart instead of the
+left hand ([ireal.md](ireal.md), "Chart player"). Playlists live in the session's memory
+(nothing is saved).
+
+| Command | Fields | Does |
+|---|---|---|
+| `importCharts` | `text` | Imports playlists from an `irealb://` / `irealbook://` link, or the text of an exported `.html` playlist, into `chart.playlists`, e.g. `{"type":"importCharts","text":"irealb://..."}`. With no song chosen yet, it chooses the first one imported. Fails when there is no link in the text. |
+| `importChartFile` | `path` | The same, reading a file. |
+| `selectChart` | `playlist`, `song` | Chooses the chart the band plays (`chart.selected`, `chart.song`). It suggests a library style from the chart's style label (`chart.suggestedStyle`) and, with `chart.autoStyle`, loads it as `loadStyle` would. With the band stopped, the tempo becomes the chart's when it has one; a playing band starts the new song from its first bar at the next bar line. The loop is cleared. |
+| `stepChart` | `delta` | The previous / next song of the playlist. |
+| `removeChartPlaylist` | `playlist` | Forgets a playlist. If the chosen song was in it, there is no chart any more and chart mode turns off. |
+| `setChartMode` / `toggleChartMode` | `on` | Chart mode (`chart.on`). While the band plays, the chart gives the chords at their places in the bar (beat / beats of the chart bar) and the Mains at its section marks. Turning it on with no chart fails. Only one of the chart and the Chord Looper gives the chords: turning chart mode on stops a loop that plays or is armed. |
+| `setChartChoruses` | `choruses` 1–99 | Times through the form. The chart is expanded again; a playing band keeps its bar. A loop past the new last bar is cleared. |
+| `setChartLoop` | `range` | Loops bars `[start, end)` of `chart.song.bars` instead of ending (e.g. `{"type":"setChartLoop","range":[8,16]}`); `null` for no loop. Fails for bars the chart doesn't have. |
+| `setChartIntro` | `index` | The Intro 0–2 (A–C) before the chart, or `null` for none. An Intro pressed before the start plays instead. |
+| `setChartEnding` | `index` | The Ending 0–2 after the last bar, or `null`: the band stops at the end of the last bar. |
+| `setChartAutoStyle` | `on` | Load the suggested style whenever a song is chosen. |
+
 ### Registration Memory
 
 Buttons are 0-based (`index` 0–9 = the panel's [1]–[10]). Groups are `style`, `voice`,
@@ -249,7 +269,7 @@ Details and decisions: [chord-looper.md](chord-looper.md).
 | Command | Fields | Does |
 |---|---|---|
 | `looperRec` | | REC/STOP. Playing: recording starts at the next bar line, with the chord held then as its first. Stopped: Sync Start turns on and the first chord starts the style and the recording together. Recording: stops recording (the style plays on). Armed: cancels. While looping: the loop stops and recording arms. |
-| `looperOnOff` | | ON/OFF. Recording: recording stops (the bars recorded, counting the one playing) and the loop starts at the next bar line. With a sequence: the loop starts at the next bar line (stopped: when the style starts). Armed: cancels. Looping: the loop stops at once and the style keeps the loop's chord until a chord is played. |
+| `looperOnOff` | | ON/OFF. Recording: recording stops (the bars recorded, counting the one playing) and the loop starts at the next bar line. With a sequence: the loop starts at the next bar line (stopped: when the style starts). Armed: cancels. Looping: the loop stops at once and the style keeps the loop's chord until a chord is played. With chart mode on, an ON/OFF that would arm a loop turns chart mode off first. |
 | `selectLooperMemory` | `index` 0–7 | Selects a memory. One that holds a sequence replaces the current one; while looping, at the next bar line (`looper.pendingMemory` until then). Refused while recording. |
 | `storeLooperMemory` | `index` 0–7 | Stores the current sequence in the memory (named `CLD_001` and on). Refused with nothing recorded. |
 | `clearLooperMemory` | `index` 0–7 | Empties the memory. |
@@ -705,6 +725,23 @@ The style browser's preview and queue.
 |---|---|---|
 | `audition` | object? | The preview playing (`auditionStyle`): `id` (the library id), `bar` (1-based) of `bars` (4), `chord` (the chord playing: `C`, `Am`, `F`, `G7`). Null when none. |
 | `queued` | number? | The library id of a style waiting for the next bar line (`loadStyle`, `queueStyle` or `stepStyle` while playing). Null when none. |
+
+### `chart`
+The iReal Pro chart player.
+
+| Field | Type | Meaning |
+|---|---|---|
+| `on` | bool | Chart mode. |
+| `playlists` | ChartPlaylist[] | The imported playlists: `name`, `songs` (`title`, `composer` as iReal stores it, `style` (iReal's label, e.g. `Bossa Nova`), `key` (`Eb`, `A-` for minor), `tempo` (BPM, or null)). |
+| `selected` | [playlist, song]? | The song chosen. |
+| `song` | ChartSong? | The chart chosen: the `playlists` song fields, plus `bars` (the form played `choruses` times through: `section` (`A`, `B`, `V`, `i`, or null), `sectionStart`, `main` (the Main it plays, 0–3), `time` ([4, 4]), `chorus` (1-based), `chords` (`{ beat, name }`, beat 0-based; a bar with none holds the chord before)) and `sections` (runs of bars: `label`, `chorus`, `start`, `bars`). |
+| `choruses` | number | Times through the form (1–99). |
+| `intro`, `ending` | number? | Intro / Ending 0–2 around the chart, or null. |
+| `loop` | [start, end]? | The bars looped, or null. |
+| `autoStyle` | bool | Choosing a song loads its suggested style. |
+| `suggestedStyle` | number? | The library style the chart's style label suggests (`LibraryEntry.id`). |
+| `bar` | number? | The bar of `song.bars` playing. Null when stopped, in the Intro or the Ending, or with chart mode off. |
+| `overridden` | bool | A chord you played has taken over until the next bar line (through the next bar too, when played in the last half beat before its line). |
 
 ### `styleSettings`
 The settings the `Style settings` commands set.
@@ -1243,6 +1280,20 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
     "chordTones": [7, 11, 2, 5],
     "chordBass": 7,
     "detection": [0, 54]
+  },
+  "chart": {
+    "on": false,
+    "playlists": [],
+    "selected": null,
+    "song": null,
+    "choruses": 1,
+    "intro": 0,
+    "ending": 0,
+    "loop": null,
+    "autoStyle": true,
+    "suggestedStyle": null,
+    "bar": null,
+    "overridden": false
   },
   "styleSettings": {
     "mainTiming": "nextBar",

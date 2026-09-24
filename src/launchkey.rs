@@ -854,7 +854,7 @@ mod tests {
             stop_acmp: false, transpose: Transpose::default(), played: None, anchor_ns: 0, anchor_beats: 0.0, style_tag: 0,
             style_pending: false, section_bars: 0, audition: None, fade: FadeState::Off, retrigger: false, ritardando: false,
             looper: Default::default(), style_solo: None,
-            multipad: Default::default(),
+            multipad: Default::default(), chart_tag: 0, chart_bar: None, chart_override: false,
         }
     }
 
