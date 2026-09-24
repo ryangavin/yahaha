@@ -400,6 +400,16 @@ every change. A patch id that doesn't exist fails the command.
 | `importSoundLibrary` | `path`, `replace`, `maps` | Reads a library file (a full library, or a bare list of patches). Its patches are added (ids that clash get new ones); `maps`: its program maps' rules are added too; `replace`: it replaces the library instead. `replace` and `maps` may be left out (false). |
 | `exportSoundLibrary` | `path` or null | Writes the library to `path` (null: `sound-library-export.json` in the data folder). |
 
+### Parameter Lock
+Genos Menu › Utility › Parameter Lock (RM p.163): a locked group changes only from the
+panel. Registration Memory, One Touch Setting and Playlist recalls leave it as it is. The
+groups are the Data List's lock groups that yahaha has: `splitPoint` (the split point) and
+`fingeringType` (the fingering type and the Chord Detection Area: Upper, Manual Bass).
+
+| Command | Fields | What it does |
+|---|---|---|
+| `setParamLock` | `item` (`splitPoint` \| `fingeringType`), `on` | Locks or unlocks a group. A setup setting, not part of a bank: it is kept in the Registration folder's `setup.json`. |
+
 ### Result: `CmdError`
 
 `send` returns `Ok(())` or one of these errors:
@@ -883,6 +893,10 @@ The sound library (docs/sound-library.md).
 | `file` | string? | Where the library is saved; null when it isn't (an offline session, `state-json`). |
 | `extraSoundFonts` | string[] | The SoundFonts the synth has loaded for library patches besides its own. |
 | `lastAdded` | string? | The id of the patch last created, duplicated or saved. |
+
+### `paramLocks`
+Parameter Lock: `{ splitPoint, fingeringType }`, each a bool (true: locked). All false by
+default.
 
 ### `message`
 `{ seq, text, error }` or null. It holds the last notice or error, for example a style
@@ -1521,6 +1535,7 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
     "extraSoundFonts": [],
     "lastAdded": "my-bass"
   },
+  "paramLocks": { "splitPoint": false, "fingeringType": true },
   "message": null
 }
 ```
