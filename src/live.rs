@@ -434,6 +434,10 @@ pub struct Input {
     current: Option<Chord>,
     /// `Shared::loops` when `current` was recognized.
     loops: u32,
+    /// Every key the chord is read from went up since `current` was published: the next
+    /// chord recognized is a new one even when it is the same chord (a re-struck chord
+    /// retriggers, starts a Sync Stop band again, is timed by the Synchro Stop Window).
+    let_go: bool,
     generation: u16,
     cmd: Producer<Cmd>,
     out: Out,
@@ -475,6 +479,7 @@ impl Input {
             keys: Keys::new(),
             current: None,
             loops: 0,
+            let_go: false,
             generation: 0,
             cmd,
             out,
@@ -577,6 +582,14 @@ impl Input {
         if self.shared.upper.load(Relaxed) { R_RH } else { R_LH }
     }
 
+    /// The sides of the split the chord is read from: the chord section of the current
+    /// area, or the whole keyboard for the Full Keyboard types (Lower only).
+    fn chord_read_side(&self) -> u8 {
+        let upper = self.shared.upper.load(Relaxed);
+        let mode = Fingering::from_u8(self.shared.fingering.load(Relaxed));
+        if !upper && mode.full_keyboard() { R_LH | R_RH } else { self.chord_side() }
+    }
+
     fn recompute(&mut self) {
         // While the Chord Looper loops, chord input from the keyboard is disabled (RM p.15,
         // OM p.68): the keys are for performance only, and nothing they hold is the chord
@@ -594,7 +607,7 @@ impl Input {
         // the whole keyboard for the Full Keyboard types (Lower only).
         let upper = self.shared.upper.load(Relaxed);
         let mode = Fingering::from_u8(self.shared.fingering.load(Relaxed));
-        let side = if !upper && mode.full_keyboard() { R_LH | R_RH } else { self.chord_side() };
+        let side = self.chord_read_side();
         let mut held = [false; 128];
         let mut mask = 0u16;
         for (k, (h, &r)) in held.iter_mut().zip(&self.route).enumerate() {
@@ -612,8 +625,9 @@ impl Input {
             fingering::detect(&self.rec, mode, &held, split, self.current)
         };
         if let Some(c) = c {
-            if Some(c) != self.current {
+            if Some(c) != self.current || self.let_go {
                 self.current = Some(c);
+                self.let_go = false;
                 self.generation = self.generation.wrapping_add(1);
                 self.shared.chord_ns.store(rt::now_ns(), Relaxed);
                 self.shared.chord.store(c.pack(self.generation), Release);
@@ -1736,6 +1750,128 @@ mod tests {
         let until = now + bar / 8;
         run(&mut l, &mut now, until);
         assert_eq!(played(&l, now).as_deref(), Some("F"), "F after loop off is the chord");
+    }
+
+    /// An engine loop and an Input wired as the live threads are (the Input's commands,
+    /// Sync Stop's release among them, reach the engine), on SlowWalker, with `settings`.
+    /// None when the corpus is missing.
+    #[allow(clippy::type_complexity)]
+    fn live_rig(settings: StyleSettings) -> Option<(EngineLoop, Producer<Cmd>, Input, u64)> {
+        let p = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus/MOX_v2/SlowWalker.T552.sty");
+        if !p.exists() {
+            eprintln!("corpus missing; skipping");
+            return None;
+        }
+        let prep = Box::new(Prepared::new(&crate::sff::Style::load(&p).unwrap()));
+        let bar = (60e9 / prep.bpm * (prep.tpb as f64 / prep.ppq as f64)) as u64;
+        let shared = Arc::new(Shared::new(54));
+        let ch = channels(Out::new(PacketSink::new(rt::Target::Null), None));
+        let mut l = EngineLoop::new(Engine::new(prep), ch.io, shared.clone());
+        let input = Input::new(shared, Recognizer::new(), ch.input_tx, Out::new(PacketSink::new(rt::Target::Null), None));
+        let mut ui = ch.ui_tx;
+        ui.push(Cmd::StyleSettings(settings)).ok().unwrap();
+        l.step(1_000);
+        Some((l, ui, input, bar))
+    }
+
+    fn run_until(l: &mut EngineLoop, now: &mut u64, until: u64) {
+        while *now < until {
+            *now = l.next_deadline().unwrap_or(*now + 5_000_000).max(*now + 1).min(until);
+            l.step(*now);
+        }
+    }
+
+    fn keys_msg(input: &mut Input, keys: &[u8], down: bool) {
+        for &k in keys {
+            input.key_msg(&if down { [0x90, k, 90] } else { [0x80, k, 0] });
+        }
+    }
+
+    const C_KEYS: [u8; 3] = [36, 40, 43];
+
+    /// Review #94 r3: Style Retrigger restarts the Main at every chord played (RM p.147),
+    /// the same chord struck again after letting go too, not only a different one.
+    #[test]
+    fn restruck_same_chord_retriggers() {
+        let s = StyleSettings { retrigger_rate: 4, ..StyleSettings::default() };
+        let Some((mut l, mut ui, mut input, bar)) = live_rig(s) else { return };
+        let mut now = 1_000;
+        ui.push(Cmd::Button(Button::Retrigger)).ok().unwrap();
+        l.step(now);
+        assert!(l.engine.snapshot(now).sync_armed, "Sync Start is armed from the start");
+        // C starts the band (a start, not a retrigger).
+        keys_msg(&mut input, &C_KEYS, true);
+        l.step(now);
+        assert!(l.engine.is_running());
+        let start = l.engine.snapshot(now);
+        run_until(&mut l, &mut now, 1_000 + bar + bar / 2);
+        assert_ne!((l.engine.snapshot(now).bar, l.engine.snapshot(now).beat), (start.bar, start.beat), "plays on");
+        // Let go of C and strike it again: the Main restarts there and loops its first
+        // quarter note, so three beats on it is still in its first beat.
+        keys_msg(&mut input, &C_KEYS, false);
+        l.step(now);
+        keys_msg(&mut input, &C_KEYS, true);
+        l.step(now);
+        let until = now + bar * 3 / 4;
+        run_until(&mut l, &mut now, until);
+        let sn = l.engine.snapshot(now);
+        assert_eq!((sn.bar, sn.beat), (start.bar, start.beat), "re-struck C retriggers");
+        assert!(sn.running);
+    }
+
+    /// Sync Stop stops the band when the chord is let go; the same chord struck again
+    /// starts it again (Sync Start stays armed after a Sync Stop, OM p.47).
+    #[test]
+    fn sync_stop_restarts_on_the_same_chord() {
+        let Some((mut l, mut ui, mut input, bar)) = live_rig(StyleSettings::default()) else { return };
+        let mut now = 1_000;
+        ui.push(Cmd::Button(Button::SyncStop)).ok().unwrap();
+        l.step(now);
+        assert!(l.engine.snapshot(now).sync_armed, "Sync Start is armed from the start");
+        keys_msg(&mut input, &C_KEYS, true);
+        l.step(now);
+        assert!(l.engine.is_running());
+        run_until(&mut l, &mut now, 1_000 + bar / 2);
+        keys_msg(&mut input, &C_KEYS, false);
+        now += 1;
+        l.step(now);
+        assert!(!l.engine.is_running(), "let go: Sync Stop stops the band");
+        keys_msg(&mut input, &C_KEYS, true);
+        now += 1;
+        l.step(now);
+        assert!(l.engine.is_running(), "the same chord again starts it again");
+    }
+
+    /// Synchro Stop Window (RM p.12): the hold of a re-struck chord is timed too. Held past
+    /// the window, Sync Stop turns off and letting go no longer stops the band.
+    #[test]
+    fn sync_stop_window_times_a_restruck_chord() {
+        let s = StyleSettings { sync_stop_window_ms: 500, ..StyleSettings::default() };
+        let Some((mut l, mut ui, mut input, _bar)) = live_rig(s) else { return };
+        let mut now = 1_000;
+        ui.push(Cmd::Button(Button::SyncStop)).ok().unwrap();
+        l.step(now);
+        assert!(l.engine.snapshot(now).sync_armed, "Sync Start is armed from the start");
+        // A quick C: starts, and stops on release.
+        keys_msg(&mut input, &C_KEYS, true);
+        l.step(now);
+        run_until(&mut l, &mut now, 1_000 + 200_000_000);
+        keys_msg(&mut input, &C_KEYS, false);
+        now += 1;
+        l.step(now);
+        assert!(!l.engine.is_running());
+        // C again, held 2 s: past the window, so Sync Stop goes off and the band plays on.
+        keys_msg(&mut input, &C_KEYS, true);
+        now += 1;
+        l.step(now);
+        assert!(l.engine.is_running());
+        let until = now + 2_000_000_000;
+        run_until(&mut l, &mut now, until);
+        assert!(!l.engine.snapshot(now).sync_stop, "held past the window: Sync Stop off");
+        keys_msg(&mut input, &C_KEYS, false);
+        now += 1;
+        l.step(now);
+        assert!(l.engine.is_running(), "let go after the window: the band plays on");
     }
 
     /// Two held keys that land on the same note (an octave shift folding past the MIDI
