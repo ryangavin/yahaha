@@ -21,6 +21,9 @@ required-features = ["tui"]
 default = ["tui"]
 # The terminal UI (ratatui, crossterm). Only the binary needs it.
 tui = ["dep:ratatui", "dep:crossterm"]
+# Plugin hosting spike (#35): Audio Unit instruments, `yahaha plugin-test`. Off by default;
+# no extra dependencies (AudioToolbox is called through hand-written FFI).
+plugins = []
 
 [dependencies]
 anyhow = "1.0.104"
