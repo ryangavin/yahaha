@@ -28,11 +28,14 @@ impl Engine {
                 continue;
             }
             // A feature's tick (a chart chord) before the next line, event and boundary.
-            if let Some((t, pos)) = self.hook_due() {
-                if t <= target && t < line && t < boundary - 1e-6 && sec.events.get(self.ev_idx).is_none_or(|e| t <= self.sec_start + e.tick as f64 + 1e-6) {
-                    self.on_due(pos, now, sink);
-                    continue;
-                }
+            if let Some((t, pos)) = self.hook_due()
+                && t <= target
+                && t < line
+                && t < boundary - 1e-6
+                && sec.events.get(self.ev_idx).is_none_or(|e| t <= self.sec_start + e.tick as f64 + 1e-6)
+            {
+                self.on_due(pos, now, sink);
+                continue;
             }
             if let Some(e) = sec.events.get(self.ev_idx) {
                 let t = self.sec_start + e.tick as f64;
