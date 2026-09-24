@@ -177,9 +177,10 @@ impl Engine {
         // A start plays the style's channel setup (SInt) again: parts the player has not
         // moved go back to the style's own level, so an Intro/Ending pattern's CC7 from the
         // last run does not stick. Faders the player moved keep their value.
-        self.restore_untouched_levels();
-        self.send_init(sink);
         self.cur = slot;
+        self.restore_untouched_levels();
+        // The setup as the first section routes it (#64).
+        self.send_init(sink);
         self.sec_start = 0.0;
         self.entry = 0.0;
         self.ev_idx = 0;

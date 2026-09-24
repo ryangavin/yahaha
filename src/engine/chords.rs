@@ -71,7 +71,7 @@ impl Engine {
     /// Master transpose for a note on `dest` (never on drum/SFX kits).
     #[inline]
     pub(super) fn master(&self, dest: u8, key: u8) -> u8 {
-        if self.style.kit[dest as usize & 15] {
+        if self.style.setup(self.cur).kit[dest as usize & 15] {
             key
         } else {
             shift_key(key, self.transpose.master)

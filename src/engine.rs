@@ -26,7 +26,7 @@ use mirror::{Mirror, NRPN_BIT, UNSENT};
 use sections::Change;
 pub use mixer::{Takeover, HW_UNKNOWN};
 use prepared::PKind;
-pub use prepared::{id_of, slot_of, Msgs, PSection, Prepared, NUM_SLOTS};
+pub use prepared::{id_of, slot_of, Msgs, PSection, Prepared, Setup, NUM_SLOTS};
 pub use settle::{CHORD_SETTLE_DEFAULT_MS, CHORD_SETTLE_MAX_MS};
 use settle::{Hold, Unsettled};
 
@@ -350,7 +350,7 @@ pub struct Engine {
 impl Engine {
     pub fn new(style: Box<Prepared>) -> Engine {
         let bpm = style.bpm;
-        let mixer = style.mix;
+        let mixer = style.setups[0].mix;
         let mut e = Engine {
             style,
             running: false,

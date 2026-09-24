@@ -67,8 +67,8 @@ impl Engine {
     /// level already there is left alone, so its hardware fader keeps control.
     pub(super) fn restore_untouched_levels(&mut self) {
         for p in 0..8 {
-            if self.user_set & (1 << p) == 0 && self.mixer[p] != self.style.mix[p] {
-                let v = self.style.mix[p];
+            if self.user_set & (1 << p) == 0 && self.mixer[p] != self.style.setups[0].mix[p] {
+                let v = self.style.setups[0].mix[p];
                 self.set_mixer(p, v);
             }
         }

@@ -78,7 +78,7 @@ impl Engine {
         let old = std::mem::replace(&mut self.style, p.style);
         self.user_set = 0;
         for i in 0..8 {
-            let v = self.style.mix[i];
+            let v = self.style.setups[0].mix[i];
             self.set_mixer(i, v);
         }
         self.retire(old);
@@ -141,22 +141,25 @@ impl Engine {
         // them and the player's earlier moves are forgotten.
         self.user_set = 0;
         for p in 0..8 {
-            let v = self.style.mix[p];
+            let v = self.style.setups[0].mix[p];
             self.set_mixer(p, v);
         }
         // Stopped, the new style's tempo; running, the same tempo re-timed to the new
         // style's resolution (ticks per quarter differ between styles: 480, 960, 1920).
         let bpm = if self.running { self.bpm } else { self.style.bpm };
         self.set_bpm_internal(bpm, now);
-        self.send_init(sink);
         if self.running {
-            // Continue from the next bar of the equivalent section.
+            // Continue from the next bar of the equivalent section, with the setup as it
+            // routes it.
             let slot = self.style.resolve(slot_of(SectionId::Main(self.main))).unwrap_or(4);
             let t = self.tick_at(now);
             self.cur = slot;
+            self.send_init(sink);
             self.sec_start = t;
             self.seek(0.0);
             self.lines_from(t);
+        } else {
+            self.send_init(sink);
         }
         self.on_style_loaded(now, sink);
         old
