@@ -2677,18 +2677,11 @@ mod rtr_chaos {
         s.push((21 * bar, Act::S(Step::Button(Button::Stop))));
         s.sort_by_key(|x| x.0);
         // The live engine thread takes at most one chord per wake-up (one atomic word), and
-        // wakes for each input as it comes: nothing else lands on a chord's very instant.
-        // (A chord and a command in one wake-up can still restrike and cut a note at once;
-        // that predates the pitch shift and is not what this test is about.)
+        // reads it before the commands of the wake (`EngineLoop::step`). A command may land
+        // in the same wake as a chord (#47: the chord settles in `process`, after it).
         let mut last_chord = u64::MAX;
         s.retain(|(t, a)| !matches!(a, Act::S(Step::Chord(_))) || std::mem::replace(&mut last_chord, *t) != *t);
-        let chords: Vec<u64> = s.iter().filter(|a| matches!(a.1, Act::S(Step::Chord(_)))).map(|a| a.0).collect();
-        for (t, a) in s.iter_mut() {
-            if !matches!(a, Act::S(Step::Chord(_))) && chords.contains(t) {
-                *t += 1_000_000;
-            }
-        }
-        s.sort_by_key(|x| x.0);
+        s.sort_by_key(|x| (x.0, !matches!(x.1, Act::S(Step::Chord(_)))));
         (s, 22 * bar)
     }
 
@@ -2722,6 +2715,10 @@ mod rtr_chaos {
             for seed in 1..5 {
                 let (script, end) = chaos(bar, seed * 7919 + fi as u64);
                 let mut e = Engine::new(Box::new(Prepared::new(&style)));
+                // Half the runs with the chord-settle window a session starts with.
+                if seed % 2 == 0 {
+                    e.set_chord_settle(crate::engine::CHORD_SETTLE_DEFAULT_MS as u64 * 1_000_000);
+                }
                 let mut rec = Recorder::default();
                 let mut pat_max = p0.pat_bend_max;
                 // The other style's pattern bend headroom applies from this index of `out`.

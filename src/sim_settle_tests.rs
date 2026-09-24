@@ -169,11 +169,6 @@ fn corpus_chord_and_command_in_one_wake_leave_no_blips() {
                     .map(|x| format!("{:+}ms {}", (x.0 as i64 - st as i64) / 1_000_000, step_name(&x.1)))
                     .collect();
                 let bar_pos = st as f64 / bar as f64;
-                if std::env::var("SETTLE_DEBUG").is_ok_and(|v| name.starts_with(&v)) {
-                    for (t, m) in rec.out.iter().filter(|(t, _)| *t + 2_000_000 >= st && *t <= st + 2_000_000) {
-                        eprintln!("  {t} {m:02X?}");
-                    }
-                }
                 fails.push(format!("{name}: ch{} key {key} zero-length at {st} (bar {bar_pos:.3}) near {near:?}", ch + 1));
             }
         }
