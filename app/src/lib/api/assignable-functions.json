@@ -1,0 +1,310 @@
+[
+  {
+    "id": "none",
+    "name": "No Assign",
+    "category": "overall",
+    "kind": "trigger",
+    "available": true
+  },
+  {
+    "id": "sustain",
+    "name": "Sustain",
+    "category": "voice",
+    "kind": "switch",
+    "available": true
+  },
+  {
+    "id": "sostenuto",
+    "name": "Sostenuto",
+    "category": "voice",
+    "kind": "switch",
+    "available": true
+  },
+  {
+    "id": "soft",
+    "name": "Soft",
+    "category": "voice",
+    "kind": "switch",
+    "available": true
+  },
+  {
+    "id": "modulation",
+    "name": "Modulation",
+    "category": "voice",
+    "kind": "continuous",
+    "available": true
+  },
+  {
+    "id": "pitchBend",
+    "name": "Pitch Bend",
+    "category": "voice",
+    "kind": "continuous",
+    "available": true
+  },
+  {
+    "id": "startStop",
+    "name": "Style Start/Stop",
+    "category": "style",
+    "kind": "trigger",
+    "available": true
+  },
+  {
+    "id": "syncStart",
+    "name": "Synchro Start On/Off",
+    "category": "style",
+    "kind": "trigger",
+    "available": true
+  },
+  {
+    "id": "syncStop",
+    "name": "Synchro Stop On/Off",
+    "category": "style",
+    "kind": "trigger",
+    "available": true
+  },
+  {
+    "id": "intro1",
+    "name": "Intro 1",
+    "category": "style",
+    "kind": "trigger",
+    "available": true
+  },
+  {
+    "id": "intro2",
+    "name": "Intro 2",
+    "category": "style",
+    "kind": "trigger",
+    "available": true
+  },
+  {
+    "id": "intro3",
+    "name": "Intro 3",
+    "category": "style",
+    "kind": "trigger",
+    "available": true
+  },
+  {
+    "id": "mainA",
+    "name": "Main A",
+    "category": "style",
+    "kind": "trigger",
+    "available": true
+  },
+  {
+    "id": "mainB",
+    "name": "Main B",
+    "category": "style",
+    "kind": "trigger",
+    "available": true
+  },
+  {
+    "id": "mainC",
+    "name": "Main C",
+    "category": "style",
+    "kind": "trigger",
+    "available": true
+  },
+  {
+    "id": "mainD",
+    "name": "Main D",
+    "category": "style",
+    "kind": "trigger",
+    "available": true
+  },
+  {
+    "id": "fillDown",
+    "name": "Fill Down",
+    "category": "style",
+    "kind": "trigger",
+    "available": true
+  },
+  {
+    "id": "fillSelf",
+    "name": "Fill Self",
+    "category": "style",
+    "kind": "trigger",
+    "available": true
+  },
+  {
+    "id": "fillBreak",
+    "name": "Fill Break",
+    "category": "style",
+    "kind": "trigger",
+    "available": true
+  },
+  {
+    "id": "fillUp",
+    "name": "Fill Up",
+    "category": "style",
+    "kind": "trigger",
+    "available": true
+  },
+  {
+    "id": "ending1",
+    "name": "Ending 1",
+    "category": "style",
+    "kind": "trigger",
+    "available": true
+  },
+  {
+    "id": "ending2",
+    "name": "Ending 2",
+    "category": "style",
+    "kind": "trigger",
+    "available": true
+  },
+  {
+    "id": "ending3",
+    "name": "Ending 3",
+    "category": "style",
+    "kind": "trigger",
+    "available": true
+  },
+  {
+    "id": "autoFill",
+    "name": "Auto Fill In On/Off",
+    "category": "style",
+    "kind": "trigger",
+    "available": true
+  },
+  {
+    "id": "stopAcmp",
+    "name": "Stop Acmp On/Off",
+    "category": "style",
+    "kind": "trigger",
+    "available": true
+  },
+  {
+    "id": "otsLink",
+    "name": "OTS Link On/Off",
+    "category": "ots",
+    "kind": "trigger",
+    "available": true
+  },
+  {
+    "id": "ots1",
+    "name": "One Touch Setting 1",
+    "category": "ots",
+    "kind": "trigger",
+    "available": true
+  },
+  {
+    "id": "ots2",
+    "name": "One Touch Setting 2",
+    "category": "ots",
+    "kind": "trigger",
+    "available": true
+  },
+  {
+    "id": "ots3",
+    "name": "One Touch Setting 3",
+    "category": "ots",
+    "kind": "trigger",
+    "available": true
+  },
+  {
+    "id": "ots4",
+    "name": "One Touch Setting 4",
+    "category": "ots",
+    "kind": "trigger",
+    "available": true
+  },
+  {
+    "id": "otsNext",
+    "name": "One Touch Setting +",
+    "category": "ots",
+    "kind": "trigger",
+    "available": true
+  },
+  {
+    "id": "otsPrev",
+    "name": "One Touch Setting −",
+    "category": "ots",
+    "kind": "trigger",
+    "available": true
+  },
+  {
+    "id": "registNext",
+    "name": "Registration +",
+    "category": "registration",
+    "kind": "trigger",
+    "available": false
+  },
+  {
+    "id": "registPrev",
+    "name": "Registration −",
+    "category": "registration",
+    "kind": "trigger",
+    "available": false
+  },
+  {
+    "id": "tempoUp",
+    "name": "Tempo +",
+    "category": "overall",
+    "kind": "trigger",
+    "available": true
+  },
+  {
+    "id": "tempoDown",
+    "name": "Tempo −",
+    "category": "overall",
+    "kind": "trigger",
+    "available": true
+  },
+  {
+    "id": "tapTempo",
+    "name": "Tap Tempo",
+    "category": "overall",
+    "kind": "trigger",
+    "available": true
+  },
+  {
+    "id": "transposeUp",
+    "name": "Transpose +",
+    "category": "overall",
+    "kind": "trigger",
+    "available": true
+  },
+  {
+    "id": "transposeDown",
+    "name": "Transpose −",
+    "category": "overall",
+    "kind": "trigger",
+    "available": true
+  },
+  {
+    "id": "right1OnOff",
+    "name": "Right 1 On/Off",
+    "category": "overall",
+    "kind": "trigger",
+    "available": true
+  },
+  {
+    "id": "right2OnOff",
+    "name": "Right 2 On/Off",
+    "category": "overall",
+    "kind": "trigger",
+    "available": true
+  },
+  {
+    "id": "right3OnOff",
+    "name": "Right 3 On/Off",
+    "category": "overall",
+    "kind": "trigger",
+    "available": true
+  },
+  {
+    "id": "leftOnOff",
+    "name": "Left On/Off",
+    "category": "overall",
+    "kind": "trigger",
+    "available": true
+  },
+  {
+    "id": "fingeredOnBass",
+    "name": "Fingered/Fingered On Bass",
+    "category": "style",
+    "kind": "trigger",
+    "available": true
+  }
+]

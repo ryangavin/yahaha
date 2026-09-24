@@ -98,6 +98,9 @@ pub enum Button {
     Intro(u8),
     Main(u8),
     Break,
+    /// Fill Down (-1), Fill Self (0), Fill Up (+1): a fill, then the Main to the left, the
+    /// same Main, or the Main to the right (an assignable function, RM p.142).
+    Fill(i8),
     Ending(u8),
     StartStop,
     Stop,
