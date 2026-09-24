@@ -104,7 +104,7 @@ fn state_json(args: &[String]) -> Result<()> {
         }
         s.advance(bar);
     }
-    println!("{}", serde_json::to_string_pretty(&*s.state())?);
+    println!("{}", serde_json::to_string_pretty(&s.state_now())?);
     Ok(())
 }
 

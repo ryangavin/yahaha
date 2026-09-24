@@ -48,6 +48,10 @@ pub struct Shared {
     pub ctl_wake: Wakeup,
     /// Software moved the synth master level: the master fader has to pick it up again.
     pub master_moved: AtomicBool,
+    /// The Launchkey's Shift button is held (for the screen: the Shift layer).
+    pub shift: AtomicBool,
+    /// Where the Launchkey master fader physically is (`HW_UNKNOWN` until it moves).
+    pub master_hw: AtomicU8,
     pub quit: AtomicBool,
     pub split: AtomicU8,
     /// Chord fingering type (`Fingering::to_u8`), read by the input thread on each chord
@@ -92,6 +96,8 @@ impl Shared {
             wake: Wakeup::new(),
             ctl_wake: Wakeup::new(),
             master_moved: AtomicBool::new(false),
+            shift: AtomicBool::new(false),
+            master_hw: AtomicU8::new(crate::engine::HW_UNKNOWN),
             quit: AtomicBool::new(false),
             split: AtomicU8::new(split),
             fingering: AtomicU8::new(Fingering::FingeredOnBass.to_u8()),
@@ -482,7 +488,7 @@ impl Input {
         if st == 0xB0 && m.len() == 3 {
             let (cc, v) = (m[1], m[2]);
             if cc == launchkey::SHIFT_CC {
-                self.shift = v > 0;
+                self.set_shift(v > 0);
                 return;
             }
             if m[0] == launchkey::FEATURE_CH_STATUS {
@@ -491,12 +497,14 @@ impl Input {
                 // report means the firmware's Shift menu was used (or DAW mode came
                 // back), which can swallow the Shift release.
                 if cc == launchkey::PAD_MODE_CC {
-                    self.shift = false;
+                    self.set_shift(false);
                 }
                 return;
             }
             if launchkey::FADER_CC.contains(&cc) {
                 if cc == launchkey::MASTER_FADER_CC {
+                    self.shared.master_hw.store(v, Relaxed);
+                    self.ctl_signal = true;
                     // Soft takeover, as for the part faders (in the engine).
                     if let Some(s) = &self.synth {
                         if self.shared.master_moved.swap(false, Relaxed) {
@@ -554,7 +562,7 @@ impl Input {
             if m[0] & 0x0F == 0 && launchkey::is_pad(m[1]) {
                 // The firmware keeps Shift + pad for itself, so a pad note means Shift
                 // is up, whatever release we missed.
-                self.shift = false;
+                self.set_shift(false);
                 let page = Page::from_u8(self.shared.page.load(Relaxed));
                 if let Some(a) = launchkey::pad_action(page, m[1]) {
                     self.act(a);
@@ -604,6 +612,15 @@ impl Input {
                     self.ctl_signal = true;
                 }
             }
+        }
+    }
+
+    /// Shift pressed or released: mirrored for the screen when it changes.
+    fn set_shift(&mut self, on: bool) {
+        if self.shift != on {
+            self.shift = on;
+            self.shared.shift.store(on, Relaxed);
+            self.ctl_signal = true;
         }
     }
 
