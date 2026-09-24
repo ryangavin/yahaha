@@ -63,18 +63,22 @@ band stops and the volume is held at 0 for the hold time. Times: 0–20.0 s in, 
 out, 0–5.0 s hold (RM p.142).
 
 Decisions:
-- **The fade is the MIDI Master Volume message** (Universal Real Time SysEx
-  `F0 7F 7F 04 01 ll mm F7`), sent on the yahaha port and handed to the built-in synth
-  (`live::Out`), which multiplies its output by it on top of the master fader. The part
-  faders (CC7) never move, so the mixer rule (a part's volume is only its CC7) holds: a
-  fade is a MIDI message, not a hidden gain.
-- **The whole instrument fades, your playing too.** The Fade Out Hold Time ("the volume is
-  held at 0") only makes sense for the instrument's volume once the style has stopped.
-- **The curve**: the gain is the square of a position that moves linearly in time, sent
-  every 10 ms while it moves.
+- **Only the Style fades** (RM p.142: the fade moves "the Style/Song volume"). Your
+  playing (Right 1-3, Left) and the Multi Pads never fade, and the Fade Out Hold Time
+  holds the Style at 0 after it stops.
+- **The fade is the Style parts' CC7, nothing else.** While a fade runs, each Style part's
+  CC7 goes out (to the yahaha port and the built-in synth alike) as its fader value scaled
+  by the fade position; when it ends, the fader value goes out unchanged again. The
+  faders themselves (the mixer, the app, soft takeover) never move, and there is no gain
+  in the synth or anywhere else that the wire does not show: the mixer rule's one
+  exception, written into docs/architecture.md. A fader moved or a pattern CC7 during a
+  fade goes out scaled too.
+- **The curve**: the CC7 scale moves linearly in time (CC7 is a squared gain on a GM
+  receiver, so it sounds like a fader), a new level every 10 ms while it moves.
 - **Defaults: 5.0 s in, 5.0 s out, 2.0 s hold.** The manuals list none.
 - A fade out already running carries on if pressed again. START/STOP (or Panic) during a
-  fade ends it at full volume. START during the hold ends the hold (a fade in if armed).
+  fade ends it at full volume, and Panic also ends the hold. START during the hold ends
+  the hold (a fade in if armed).
 - The fade times are session settings (Registration is not implemented yet).
 
 ## Synchro Stop Window (#23)
@@ -92,7 +96,7 @@ Decisions:
 
 TAP TEMPO while the style plays restarts the section from its top, at the tap (OM p.46).
 `styleSettings.sectionReset` (default on, as the OM describes) turns it back into tap
-tempo. `sectionReset` is also a command of its own (Launchkey Shift + Play, key `r`).
+tempo. `sectionReset` is also a command of its own (Launchkey Shift + Play, key `|`).
 
 Decisions:
 - The bar grid restarts at the tap. A section change queued for a bar line moves to the
@@ -123,8 +127,8 @@ Decisions:
 | | Terminal | Launchkey | App |
 |---|---|---|---|
 | Fade In/Out | `F` | page 3 top pad 6; Shift + Stop | Settings › Style; the mirror |
-| Section Reset | `r` (and `t` while playing) | Shift + Play (and Tap while playing) | Settings › Style (Tap setting); the mirror |
-| Retrigger on/off | `R` | page 2 bottom pad 8 | Settings › Style; the mirror |
+| Section Reset | `\|` (and `t` while playing) | Shift + Play (and Tap while playing) | Settings › Style (Tap setting); the mirror |
+| Retrigger on/off | `~` | page 2 bottom pad 8 | Settings › Style; the mirror |
 | Retrigger length | `{` `}` | Shift + > / Shift + Function | Settings › Style |
 | Ritardando | the Ending key again | the Ending pad again | the Ending pad again |
 | Timing, window, fade times | | | Settings › Style |

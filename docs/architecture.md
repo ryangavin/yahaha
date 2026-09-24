@@ -235,6 +235,12 @@ Rules:
   order; add to the end of a group unless there's a reason (and say it).
 - **Real-time rules** (engine, input, audio threads): no allocation, freeing, locks,
   blocking or I/O; no wall clock in the engine. The no-alloc tests must pass.
+- **The mixer rule.** A part's volume is only its CC7, sent unchanged to the synth and
+  the yahaha port; no hidden per-part gain anywhere. The master fader is the only gain
+  that is not a MIDI message. One exception, and it is still CC7: while a Fade In/Out
+  runs (`src/engine/fade.rs`), each Style part's CC7 goes out as its fader value scaled
+  by the fade; the fader value itself never moves and goes out unchanged when the fade
+  ends. The synth gets exactly what the port gets.
 - **Behaviour stays pinned.** The golden digests (`src/golden.rs`, `tests/golden`),
   `yahaha screen` and `yahaha state-json` output only change on purpose.
 

@@ -53,9 +53,9 @@ fn key_action(code: KeyCode) -> Option<Action> {
         KeyCode::Char('=') | KeyCode::Char('+') => b(Button::TempoUp),
         KeyCode::Char('-') => b(Button::TempoDown),
         KeyCode::Char('h') => b(Button::StopAcmp),
-        KeyCode::Char('r') => b(Button::SectionReset),
+        KeyCode::Char('|') => b(Button::SectionReset),
         KeyCode::Char('F') => b(Button::Fade),
-        KeyCode::Char('R') => b(Button::Retrigger),
+        KeyCode::Char('~') => b(Button::Retrigger),
         KeyCode::Char('{') => Some(Action::RetriggerRate(-1)),
         KeyCode::Char('}') => Some(Action::RetriggerRate(1)),
         KeyCode::Char(c) if "zxcvbnm,".contains(c) => b(Button::TogglePart("zxcvbnm,".find(c).unwrap() as u8)),
@@ -459,7 +459,7 @@ fn draw(f: &mut ratatui::Frame, st: &AppState, message: &str, beats: f64) {
                 if t.sync_stop_available { flag(t.sync_stop, "SYNC STOP [j]") } else { Span::styled(" SYNC STOP n/a ", dim) },
                 flag(t.stop_acmp, "STOP ACMP [h]"),
                 flag(t.fade != FadeState::Off, &format!("FADE {} [F]", fade_name(t.fade))),
-                flag(t.retrigger, &format!("RETRIG 1/{} [R {{ }}]", st.style_settings.retrigger_rate)),
+                flag(t.retrigger, &format!("RETRIG 1/{} [~ {{ }}]", st.style_settings.retrigger_rate)),
                 flag(t.ritardando, "RIT."),
                 flag(ots.link, "OTS LINK [F10]"),
                 Span::styled(
@@ -525,7 +525,7 @@ fn draw(f: &mut ratatui::Frame, st: &AppState, message: &str, beats: f64) {
 
     let mut help = vec![
         Line::from(Span::styled(
-            " space start/stop · 1-4 Main A-D (again = fill) · q w e intro · i o p ending (again = rit.) · g break · t tap · r reset · F fade · -/= tempo · F1-F4 part · 9/0 voice · 5-8 part on/off · F9 faders Panel/Style · ; ' kbd transpose · : \" master · / reset · tab pad page · enter browse styles · \\ panic · esc twice quit",
+            " space start/stop · 1-4 Main A-D (again = fill) · q w e intro · i o p ending (again = rit.) · g break · t tap · | reset · ~ retrig · F fade · -/= tempo · F1-F4 part · 9/0 voice · 5-8 part on/off · F9 faders Panel/Style · ; ' kbd transpose · : \" master · / reset · tab pad page · enter browse styles · \\ panic · esc twice quit",
             dim,
         )),
         Line::from(Span::styled(
@@ -759,9 +759,9 @@ mod tests {
         assert_eq!(key_cmd(KeyCode::BackTab), Some(AppCmd::Pads(PadsCmd::CyclePadPage { delta: -1 })));
         assert_eq!(key_cmd(KeyCode::Char('\\')), Some(AppCmd::System(SystemCmd::Panic)));
         assert_eq!(key_cmd(KeyCode::Char('k')), Some(AppCmd::Mixer(MixerCmd::ToggleSynthMute)));
-        assert_eq!(key_cmd(KeyCode::Char('r')), Some(AppCmd::Transport(TransportCmd::SectionReset)));
+        assert_eq!(key_cmd(KeyCode::Char('|')), Some(AppCmd::Transport(TransportCmd::SectionReset)));
         assert_eq!(key_cmd(KeyCode::Char('F')), Some(AppCmd::Transport(TransportCmd::ToggleFade)));
-        assert_eq!(key_cmd(KeyCode::Char('R')), Some(AppCmd::Transport(TransportCmd::ToggleRetrigger)));
+        assert_eq!(key_cmd(KeyCode::Char('~')), Some(AppCmd::Transport(TransportCmd::ToggleRetrigger)));
         assert_eq!(key_cmd(KeyCode::Char('}')), Some(AppCmd::StyleSettings(StyleSettingsCmd::StepRetriggerRate { delta: 1 })));
         assert_eq!(key_cmd(KeyCode::Char('Z')), None);
     }

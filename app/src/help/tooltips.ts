@@ -78,7 +78,7 @@ const catalog = {
   },
   'transport.fade': {
     title: 'Fade In/Out',
-    body: 'Stopped, it arms a fade in: the next start comes up from silence. Playing, the band fades out and stops, and everything stays silent for the hold time before the volume comes back. The fade times are in Settings › Style.',
+    body: 'Stopped, it arms a fade in: the next start comes up from silence. Playing, the band fades out and stops, and stays silent for the hold time before its volume comes back. Only the style fades: what you play does not. The fade times are in Settings › Style.',
     genos: 'Fade In/Out (Assignable)',
     keys: ['F'],
     launchkey: `${pad(P3, 'top', 6)}; Shift + Stop button`,
@@ -87,14 +87,14 @@ const catalog = {
     title: 'Section Reset',
     body: 'Starts the section playing again from its top, right now, for stutter effects. With Section Reset on in Settings › Style (the default), Tap does the same while the band plays.',
     genos: 'Style Section Reset (TAP TEMPO)',
-    keys: ['r'],
+    keys: ['|'],
     launchkey: 'Shift + Play button',
   },
   'transport.retrigger': {
     title: 'Retrigger',
     body: 'While on, each chord you play restarts the Main and loops its first few beats (the Retrigger length) until you change section or turn it off. Only Mains retrigger.',
     genos: 'Style Retrigger (RtgOnOff)',
-    keys: ['R'],
+    keys: ['~'],
     launchkey: pad(P2, 'bottom', 8),
   },
   'transport.retrigger_shorter': {
@@ -961,7 +961,7 @@ const catalog = {
   },
   'settings.intro_ending_timing': {
     title: 'Section change timing: inside Intro/Ending',
-    body: 'When you switch to another Intro or Ending while one plays. Next Bar: as for Mains. End of Section: the one playing finishes first; Intro to Intro and anything into Ending I always wait for the next bar.',
+    body: 'When you switch to another Intro or Ending while one plays. Next Bar: as for Mains. End of Section: the one playing finishes first. Intro to Intro always follows Next Bar, and anything into Ending I waits for the next bar line.',
     genos: 'Section Change Timing – Inside Intro/Ending',
     keys: [],
     launchkey: null,
@@ -996,7 +996,7 @@ const catalog = {
   },
   'settings.fade_hold': {
     title: 'Fade out hold time',
-    body: 'How long everything stays silent after a fade out before the volume comes back, from 0 to 5 seconds.',
+    body: 'How long the style stays silent after a fade out before its volume comes back, from 0 to 5 seconds.',
     genos: 'Fade Out Hold Time',
     keys: [],
     launchkey: null,

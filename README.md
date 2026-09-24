@@ -142,8 +142,8 @@ The last Launchkey note or CC that nothing is mapped to shows at the bottom of t
 - `i o p` Ending I–III (again while it plays: ritardando)
 - `g` break
 - `t` tap tempo (while the band plays: Section Reset, unless turned off in Settings)
-- `r` Section Reset · `F` Fade In/Out
-- `R` Retrigger on/off · `{ }` Retrigger length longer/shorter
+- `|` Section Reset · `F` Fade In/Out
+- `~` Retrigger on/off · `{ }` Retrigger length longer/shorter
 - `- =` tempo down/up
 - `y` Sync Start · `u` Auto Fill · `j` Sync Stop
 - `h` Stop ACMP
