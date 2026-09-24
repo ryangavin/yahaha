@@ -13,7 +13,12 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | **Sync Start** | Arms the band to start on your first left-hand chord. The lamp pulses while it waits. Pressing it while the band plays stops the band and re-arms. | SYNC START | `Y` | Pad page 1 (Sections), top row, pad 4 |
 | **Sync Stop** | The band plays only while you hold a chord: let go of every chord key and it stops, play again and it restarts. Not available with the Full Keyboard fingerings. | SYNC STOP | `J` | Pad page 1 (Sections), bottom row, pad 7 |
 | **Auto Fill** | When on, switching to another Main plays a fill into it first. | AUTO FILL IN | `U` | Pad page 1 (Sections), top row, pad 8 |
-| **Stop ACMP** | With Sync Start off and the band stopped, a chord you hold sounds on the style's bass and pad voices. | Stop Accompaniment | `H` | Pad page 2 (Chord/Setup), bottom row, pad 2 |
+| **Half Bar Fill** | When on, a Main you press on the first beat of a bar plays a fill from the middle of that bar, then the Main at the next bar line, even with Auto Fill off. | Half Bar Fill In | `Shift+H` | — |
+| **Fill Up** | Plays a fill, then moves to the next Main to the right (A to B, B to C…). On Main D it plays D's own fill. With the band stopped it picks that Main. | Fill Up | `>` | — |
+| **Fill Down** | Plays a fill, then moves to the next Main to the left (D to C, C to B…). On Main A it plays A's own fill. With the band stopped it picks that Main. | Fill Down | `<` | — |
+| **Fill Self** | Plays the fill of the Main that's playing, then carries on in that Main. The same as pressing the lit Main again. | Fill Self | `.` | — |
+| **Fill Break** | Plays the one-bar Break, then goes back to the Main. The same as Break. | Fill Break | — | — |
+| **Stop ACMP** | With Sync Start off and the band stopped, a chord you hold sounds on bass and pad voices. This switches it off, or back on in the mode you picked in Settings (Style at first). | Stop Accompaniment | `H` | Pad page 2 (Chord/Setup), bottom row, pad 2 |
 | **Panic** | Sends all notes off on every part, for a stuck note. | — | `\` | — |
 
 ## Sections
@@ -127,7 +132,7 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | **OTS 3** | The style's third suggested setup for your hands: the voice, on/off, volume and octave of Right 1–3 and Left. Pressing it swaps your keyboard sounds, and the band doesn't change. | ONE TOUCH SETTING 3 | `Shift+3` | Pad page 3 (OTS/Parts), top row, pad 3 |
 | **OTS 4** | The style's fourth suggested setup for your hands: the voice, on/off, volume and octave of Right 1–3 and Left. Pressing it swaps your keyboard sounds, and the band doesn't change. | ONE TOUCH SETTING 4 | `Shift+4` | Pad page 3 (OTS/Parts), top row, pad 4 |
 | **OTS Link** | When on, your hands' sounds follow the band: pressing Main A, B, C or D also recalls OTS 1, 2, 3 or 4. Changing style recalls the setting for the Main that's playing. | OTS LINK | `F10` | Pad page 3 (OTS/Parts), top row, pad 5; Shift + Pad Bank ▼ |
-| **OTS Link timing** | When OTS Link swaps the setting: as soon as you press a Main button, not when the band reaches the new Main at the bar line. The Genos calls this Real Time. | OTS Link Timing: Real Time | — | — |
+| **OTS Link timing** | When OTS Link swaps the setting while the band plays: as soon as you press a Main (Immediate), or when the band reaches that Main (At Main Section Change). Change it in Settings, Style. | OTS Link Timing | — | — |
 
 ## Keyboard parts
 
@@ -226,7 +231,13 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | **Settings: Library** | The folders yahaha looks for style files in, and a rescan. | Style selection (USB / User folders) | — | — |
 | **Split point** | Drag the marker, or click a key, to set the split (C3 = middle C). Keys at and below it are Left and the chord section, keys above it play Right 1–3. With focus, ←/→ move it a key and PgUp/PgDn an octave. | Split Point (Style + Left) | `[` `]` | Pad page 2 (Chord/Setup), bottom row, pads 3–4 |
 | **Section change timing (coming soon)** | When a Main you press takes over: Immediate (at the next beat) or Next Bar. Coming in M5; for now a new Main always waits for the next bar line (with Auto Fill, its fill starts at the next beat). | Section Change Timing | — | — |
-| **OTS Link timing (coming soon)** | With OTS Link on, whether the One Touch Setting changes the moment you press a Main (Immediate) or when the new Main actually starts (At Main Section Change). Coming in M5; for now it is always Immediate. | OTS Link Timing | — | — |
+| **OTS Link timing** | With OTS Link on and the band playing: Immediate swaps your sounds the moment you press a Main; At Main Section Change waits until that Main starts (the next bar, or after its fill). Stopped, both swap at once. | OTS Link Timing | — | — |
+| **Stop Accompaniment: Off** | A chord you play with the band stopped (Sync Start off) is recognised and shown, but doesn't sound. | Stop ACMP: Off | — | — |
+| **Stop Accompaniment: Style** | A chord you play with the band stopped (Sync Start off) sounds on the style's own Bass and Pad voices. | Stop ACMP: Style | — | — |
+| **Stop Accompaniment: Fixed** | A chord you play with the band stopped (Sync Start off) sounds on a fixed Finger Bass and Warm Pad, whatever the style. The style's own voices come back when the band starts. | Stop ACMP: Fixed | — | — |
+| **Tempo on style change** | What choosing another style does to the tempo. Lock always keeps it, Hold keeps it only while the band plays, and Reset always takes the new style's. | Change Behavior: Tempo | — | — |
+| **Part on/off on style change** | What choosing another style does to the style parts you muted. Lock keeps them muted, Hold keeps them muted only while the band plays, and Reset turns every part back on. | Change Behavior: Part On/Off | — | — |
+| **Section on style change** | The Main a style you choose while stopped starts on (the nearest one it has), or Off to keep the Main you had. | Change Behavior: Section Set | — | — |
 | **Synchro Stop window (coming soon)** | With Sync Stop on: hold a chord longer than this and Sync Stop cancels itself, so the style keeps playing when you let go. A quicker release still stops the style. Coming in M5. | Synchro Stop Window | — | — |
 | **Style folders** | The folders yahaha reads style files from (.sty, .prs, .sst and more), with subfolders as categories. Pass them on the command line or set YAHAHA_STYLES. | Style selection (User / USB) | — | — |
 | **Rescan styles** | Reads the style folders again, picking up files you added, changed or removed. The band keeps playing. | — | — | — |

@@ -35,6 +35,13 @@ export function tipFor(cmd: AppCmd | null): TipKey {
     case 'toggleSyncStop': return 'transport.sync_stop'
     case 'toggleAutoFill': return 'transport.auto_fill'
     case 'toggleStopAcmp': return 'transport.stop_acmp'
+    case 'setStopAcmp': return cmd.mode === 'off' ? 'settings.stop_acmp_off' : cmd.mode === 'style' ? 'settings.stop_acmp_style' : 'settings.stop_acmp_fixed'
+    case 'fillUp': return 'transport.fill_up'
+    case 'fillDown': return 'transport.fill_down'
+    case 'fillSelf': return 'transport.fill_self'
+    case 'fillBreak': return 'transport.fill_break'
+    case 'setHalfBarFill':
+    case 'toggleHalfBarFill': return 'transport.half_bar_fill'
     case 'tapTempo': return 'tempo.tap'
     case 'tempoUp': return 'tempo.up'
     case 'tempoDown': return 'tempo.down'
@@ -68,6 +75,12 @@ export function tipFor(cmd: AppCmd | null): TipKey {
     case 'recallOts': return OTS[cmd.index]
     case 'setOtsLink':
     case 'toggleOtsLink': return 'ots.link'
+    case 'setOtsLinkTiming': return 'settings.ots_link_timing'
+    case 'setTempoChange':
+    case 'toggleStyleTempoLock':
+    case 'toggleStyleTempoHold': return 'settings.tempo_change'
+    case 'setPartsChange': return 'settings.parts_change'
+    case 'setSectionSet': return 'settings.section_set'
     case 'loadStyle':
     case 'loadStylePath': return 'browser.row'
     case 'stepStyle': return cmd.delta < 0 ? 'style.prev' : 'style.next'

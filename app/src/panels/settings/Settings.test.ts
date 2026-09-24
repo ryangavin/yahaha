@@ -126,12 +126,34 @@ describe('Settings drawer', () => {
     const before = s.state.transport.autoFill
     await fireEvent.click(byTip('transport.auto_fill')[0])
     expect(s.state.transport.autoFill).toBe(!before)
-    for (const key of ['settings.section_timing', 'settings.ots_link_timing', 'settings.synchro_stop_window']) {
+    for (const key of ['settings.section_timing', 'settings.synchro_stop_window']) {
       const els = byTip(key)
       expect(els.length).toBeGreaterThan(0)
       for (const el of els) expect(el.getAttribute('aria-disabled')).toBe('true')
     }
     expect(page('style').textContent).toContain('Coming soon')
+  })
+
+  it('style: OTS Link timing, Stop Accompaniment mode, Half Bar Fill, fills and Change Behavior are live', async () => {
+    const s = setup()
+    const opt = (key: string, label: string) => byTip(key).find((b) => b.textContent?.trim() === label)!
+    for (const el of byTip('settings.ots_link_timing')) expect(el.getAttribute('aria-disabled')).toBeNull()
+    await fireEvent.click(opt('settings.ots_link_timing', 'At Main Section Change'))
+    expect(s.state.ots.linkTiming).toBe('mainChange')
+    await fireEvent.click(byTip('settings.stop_acmp_fixed')[0])
+    expect([s.state.transport.stopAcmpMode, s.state.transport.stopAcmp]).toEqual(['fixed', true])
+    await fireEvent.click(byTip('settings.stop_acmp_off')[0])
+    expect(s.state.transport.stopAcmp).toBe(false)
+    await fireEvent.click(byTip('transport.half_bar_fill')[0])
+    expect(s.state.transport.halfBarFill).toBe(true)
+    await fireEvent.click(byTip('transport.fill_up')[0])
+    expect(s.state.transport.main).toBe(1)
+    await fireEvent.click(opt('settings.tempo_change', 'Lock'))
+    await fireEvent.click(opt('settings.parts_change', 'Reset'))
+    await fireEvent.click(opt('settings.section_set', 'C'))
+    expect(s.state.styleChange).toEqual({ tempo: 'lock', parts: 'reset', sectionSet: 2 })
+    await fireEvent.click(opt('settings.section_set', 'Off'))
+    expect(s.state.styleChange.sectionSet).toBeNull()
   })
 
   it('audio: synth on/off, output pair, master volume', async () => {

@@ -1,15 +1,19 @@
 <!--
-  Style: Genos Menu › Style Setting. How the band starts, stops and fills, and the
-  settings M5 adds (shown, disabled, marked "coming soon").
+  Style: Genos Menu › Style Setting. How the band starts, stops and fills, Stop
+  Accompaniment, OTS Link timing, Change Behavior, and the settings M5 still adds (shown,
+  disabled, marked "coming soon").
 -->
 <script lang="ts">
   import { app } from '../../lib/store.svelte'
   import Toggle from '../../lib/ui/Toggle.svelte'
+  import ChangeBehavior from './ChangeBehavior.svelte'
   import Choice from './Choice.svelte'
   import Field from './Field.svelte'
+  import FillButtons from './FillButtons.svelte'
   import HSlider from './HSlider.svelte'
 
   const t = $derived(app.state.transport)
+  const ots = $derived(app.state.ots)
   const onOff = (on: boolean) => (on ? 'On' : 'Off')
 </script>
 
@@ -32,9 +36,40 @@
   <Toggle on={t.autoFill} tip="transport.auto_fill" onclick={() => app.send({ type: 'toggleAutoFill' })}>{onOff(t.autoFill)}</Toggle>
 </Field>
 
-<Field name="Stop Accompaniment" genos="STOP ACMP" inline note="With the band stopped and Sync Start off, the chord you hold sounds on the style's bass and pad voices.">
-  <Toggle on={t.stopAcmp} tip="transport.stop_acmp" onclick={() => app.send({ type: 'toggleStopAcmp' })}>{onOff(t.stopAcmp)}</Toggle>
+<Field name="Half Bar Fill" genos="Half Bar Fill In" inline note="A Main pressed on the first beat of a bar: a fill from the middle of that bar, then the Main.">
+  <Toggle on={t.halfBarFill} tip="transport.half_bar_fill" onclick={() => app.send({ type: 'toggleHalfBarFill' })}>{onOff(t.halfBarFill)}</Toggle>
 </Field>
+
+<Field name="Fills" genos="Fill Down / Self / Up / Break" note="A fill, then the Main to the left or right; the Main's own fill; the Break.">
+  <FillButtons />
+</Field>
+
+<Field name="Stop Accompaniment" genos="Stop ACMP" note="With the band stopped and Sync Start off, what the chord you hold sounds on.">
+  <Choice
+    label="Stop Accompaniment"
+    value={t.stopAcmpMode}
+    options={[
+      { id: 'off', label: 'Off', tip: 'settings.stop_acmp_off' },
+      { id: 'style', label: 'Style', tip: 'settings.stop_acmp_style' },
+      { id: 'fixed', label: 'Fixed', tip: 'settings.stop_acmp_fixed' },
+    ]}
+    onselect={(mode) => app.send({ type: 'setStopAcmp', mode })}
+  />
+</Field>
+
+<Field name="OTS Link timing" genos="OTS Link Timing" note="With OTS Link on and the band playing: swap your sounds as you press a Main, or when that Main starts.">
+  <Choice
+    label="OTS Link timing"
+    value={ots.linkTiming}
+    options={[
+      { id: 'immediate', label: 'Immediate', tip: 'settings.ots_link_timing' },
+      { id: 'mainChange', label: 'At Main Section Change', tip: 'settings.ots_link_timing' },
+    ]}
+    onselect={(timing) => app.send({ type: 'setOtsLinkTiming', timing })}
+  />
+</Field>
+
+<ChangeBehavior />
 
 <div class="soon-group">
   <Field name="Section change timing" genos="Section Change Timing" soon="M5">
@@ -45,19 +80,6 @@
       options={[
         { id: 'immediate', label: 'Immediate', tip: 'settings.section_timing' },
         { id: 'bar', label: 'Next Bar', tip: 'settings.section_timing' },
-      ]}
-      onselect={() => {}}
-    />
-  </Field>
-
-  <Field name="OTS Link timing" genos="OTS Link Timing" soon="M5">
-    <Choice
-      label="OTS Link timing"
-      disabled
-      value={null}
-      options={[
-        { id: 'immediate', label: 'Immediate', tip: 'settings.ots_link_timing' },
-        { id: 'section', label: 'At Main Section Change', tip: 'settings.ots_link_timing' },
       ]}
       onselect={() => {}}
     />
