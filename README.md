@@ -179,6 +179,7 @@ The screen shows `sus` beside each part the pedal is holding.
 - `←/→` previous/next style, in the style browser's order (folder, then name)
 - `enter` open the style browser (see below)
 - `tab` / `shift+tab` next/previous pad page
+- `Z X C V` Multi Pads 1–4 (shift+z…v) · `B` Multi Pad STOP (shift+b). The banks (the .pad files in the style folders) load from the app's Multi Pads drawer; yahaha pad --demo writes a synthetic bank to try. See docs/multipad.md, which also proposes a Launchkey Multi Pad page.
 - `a` next audio output pair · `k` mute the synth
 - `\` panic (all notes off)
 - `esc` twice (within 1.5 s) quit, or `ctrl+c`; one `esc` closes the style browser

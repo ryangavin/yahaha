@@ -14,6 +14,7 @@ mod fade;
 mod hooks;
 mod mirror;
 mod mixer;
+mod multipad;
 mod playback;
 mod prepared;
 mod retrigger;
@@ -29,6 +30,7 @@ use hooks::{Features, Lines};
 use mirror::{Mirror, NRPN_BIT, UNSENT};
 use sections::Change;
 pub use mixer::{Takeover, HW_UNKNOWN};
+pub use multipad::{PadCmd, PadsSnap, SynchroStop, PAD_PPQ};
 use prepared::PKind;
 pub use fade::FadeState;
 pub use prepared::{id_of, slot_of, Msgs, PSection, Prepared, NUM_SLOTS};
@@ -173,6 +175,8 @@ pub struct Snapshot {
     pub retrigger: bool,
     /// An Ending ritardando is slowing the band.
     pub ritardando: bool,
+    /// Multi Pads: the bank playing and each pad's state (engine/multipad.rs).
+    pub multipad: PadsSnap,
 }
 
 /// Where a style preview is: style `id` (the session's library id), bar `bar` of `bars`
@@ -475,6 +479,7 @@ impl Engine {
             fade: self.fade_state(),
             retrigger: self.retrigger_on(),
             ritardando: self.ritardando(),
+            multipad: self.pads_snapshot(),
         }
     }
 

@@ -103,7 +103,7 @@ state, and pressing the button is the action. For settings, a GUI checkbox can u
 | `toggleStopAcmp` | | STOP ACMP on/off. |
 | `tapTempo` | | TAP TEMPO. Taps set the tempo. While the style plays with `styleSettings.sectionReset` on (the default), a tap is a Style Section Reset instead. |
 | `tempoUp`, `tempoDown` | | One tempo step. |
-| `toggleFade` | | FADE IN/OUT. Stopped: arms (or disarms) a fade in for the next start. Playing: fades out over `styleSettings.fadeOutMs`, then the band stops and everything stays silent for `fadeHoldMs`. The fade is the MIDI Master Volume message (`F0 7F 7F 04 01 ll mm F7`) on the port and in the built-in synth: the whole instrument fades, your playing too. `transport.fade` shows it. A fade out already running carries on; START/STOP mid-fade ends it at full volume. |
+| `toggleFade` | | FADE IN/OUT. Stopped: arms (or disarms) a fade in for the next start. Playing: fades out over `styleSettings.fadeOutMs`, then the band stops and the Style stays silent for `fadeHoldMs`. Only the Style fades: each Style part's CC7 (channels 9–16) goes out, on the port and to the built-in synth, as its fader value scaled by the fade; the faders don't move, and your playing and the Multi Pads never fade (docs/section-timing.md). `transport.fade` shows it. A fade out already running carries on; START/STOP mid-fade ends it at full volume. |
 | `sectionReset` | | Style Section Reset: the section playing starts again from its top, now. A change queued for the next bar line waits for the new bar grid's. Stopped: nothing. |
 | `toggleRetrigger` | | Style Retrigger on/off (`transport.retrigger`). While on, each chord played in a Main restarts the Main at the chord and loops its first `4 / styleSettings.retriggerRate` beats (a whole note .. a 32nd) until a section change or Retrigger goes off; off, the Main plays on from there. Only Mains retrigger. |
 | `toggleStylePart` | `part` 0–7 | Mutes or unmutes a Style part. |
@@ -186,6 +186,23 @@ Style Section Reset, the Fade In/Out times and the Style Retrigger length. The s
 | `stepStyle` | `delta` | Previous or next style in library order, from the style waiting for the bar line if there is one. Files that don't load are skipped. |
 | `auditionStyle` | `id` | Previews a style while the band is stopped: its Main A, at its own tempo, with its own voices and levels, over C Am F G7 (a chord a bar) for 4 bars, then it stops by itself (`preview.audition`). The loaded style, OTS, keyboard parts, mixer and transport are untouched; the loaded style's setup is sent again when it ends. Refused (`failed`) while the band plays. A new one replaces the one playing; it ends early on `stopAudition`, a style change, START/STOP, `panic` or a chord that starts the band (Sync Start). |
 | `stopAudition` | | Ends the preview now. |
+
+### Multi Pads
+
+Pads are 0–3 (pads 1–4). See docs/multipad.md for the Genos behaviour and what is a guess.
+
+| Command | Fields | Does |
+|---|---|---|
+| `loadMultiPad` | `id` | Loads a bank from `multiPad.banks` (the `.pad` files in the style folders). The file is parsed on the control side; pads playing stop when the new bank takes over (`multiPad.loading` until then, a moment later live). A file that doesn't parse fails and keeps the bank loaded. |
+| `loadMultiPadPath` | `path` | Any `.pad` file; it is added to `multiPad.banks` if it isn't there already (once it has loaded). A `rescanLibrary` keeps such a bank listed, with its id, while its file is there. |
+| `clearMultiPad` | | No bank: the pads go dark. |
+| `triggerMultiPad` | `pad` | Presses a pad: it plays from the top (a playing pad restarts). Stopped, it starts at once; while the band plays, at the next bar line (`lamp` `queued` until then). Pads in Synchro Start standby start with it. |
+| `stopMultiPad` | `pad` | STOP + pad: that pad stops now. |
+| `stopAllMultiPads` | | STOP: every pad stops, and Synchro Start standby is cancelled. |
+| `armMultiPad` | `pad` | SELECT + pad: toggles the pad's Synchro Start standby (`lamp` `armed`). Armed pads start on the next chord played in the chord section, or when the band starts; while the band plays, at the next bar line. |
+| `setMultiPadRepeat` | `pad`, `on` | Overrides the pad's Repeat flag (from the bank file) until the next bank loads. |
+| `setMultiPadChordMatch` | `pad`, `on` | Overrides the pad's Chord Match flag until the next bank loads. |
+| `setMultiPadSynchroStop` | `styleStop`, `ending` | Multi Pad Synchro Stop: repeating pads stop when the band stops (`styleStop`, default on) and when an Ending starts (`ending`, default off). One-shot pads always play out. |
 
 ### Controllers
 
@@ -548,6 +565,17 @@ The settings the `Style settings` commands set.
 | `fadeHoldMs` | 0–5000 | Default 2000. |
 | `sectionReset` | bool | TAP TEMPO while playing resets the section. Default on. |
 | `retriggerRate` | 1, 2, 4, 8, 16, 32 | Style Retrigger length. Default 8 (an eighth note). |
+
+### `multiPad`
+Multi Pads (docs/multipad.md).
+
+| Field | Type | Meaning |
+|---|---|---|
+| `bank` | object? | The bank loaded: `id` (in `banks`), `name` (the file name without `.pad`), `path`. Null when none. |
+| `loading` | bool | A bank is on its way to the engine (`loadMultiPad`). |
+| `pads` | MultiPadPad[] | Always 4: `index` (0–3), `name` (from the file; empty for an empty pad), `lamp` (`empty` \| `ready` \| `armed` \| `queued` \| `playing`: off, blue, red flashing, waiting for the bar line, red), `repeat`, `chordMatch`, `channel` (the MIDI channel it plays on, 5–8). |
+| `synchroStop` | object | `styleStop`, `ending` (`setMultiPadSynchroStop`). |
+| `banks` | MultiPadBankEntry[] | The `.pad` files in the style folders, folder then name: `id`, `name`, `folder` (relative to its root, `/`-separated), `path`. A `rescanLibrary` refreshes it; a file still there keeps its id. Banks loaded by path from outside the style folders follow, while their file is there; the bank loaded is always listed. |
 
 ### `message`
 `{ seq, text, error }` or null. It holds the last notice or error, for example a style
@@ -959,6 +987,18 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
     "fadeHoldMs": 2000,
     "sectionReset": true,
     "retriggerRate": 8
+  },
+  "multiPad": {
+    "bank": { "id": 0, "name": "Demo", "path": "/Users/me/Styles/Pads/Demo.pad" },
+    "loading": false,
+    "pads": [
+      { "index": 0, "name": "Shaker Loop", "lamp": "playing", "repeat": true, "chordMatch": false, "channel": 5 },
+      { "index": 1, "name": "Rise Arp", "lamp": "ready", "repeat": false, "chordMatch": true, "channel": 6 },
+      { "index": 2, "name": "Bass Riff", "lamp": "queued", "repeat": true, "chordMatch": true, "channel": 7 },
+      { "index": 3, "name": "Brass Hit", "lamp": "armed", "repeat": false, "chordMatch": true, "channel": 8 }
+    ],
+    "synchroStop": { "styleStop": true, "ending": false },
+    "banks": [{ "id": 0, "name": "Demo", "folder": "Pads", "path": "/Users/me/Styles/Pads/Demo.pad" }]
   },
   "controllers": {
     "pedals": [

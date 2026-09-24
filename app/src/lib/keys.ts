@@ -60,6 +60,8 @@ export const BINDINGS: Record<string, Binding> = {
   '→': c({ type: 'stepStyle', delta: 1 }),
   PgDn: c({ type: 'cyclePadPage', delta: 1 }),
   PgUp: c({ type: 'cyclePadPage', delta: -1 }),
+  ...Object.fromEntries([...'ZXCV'].map((k, i) => [k, c({ type: 'triggerMultiPad', pad: i })])),
+  B: c({ type: 'stopAllMultiPads' }),
   a: c({ type: 'nextAudioOutput' }),
   k: c({ type: 'toggleSynthMute' }),
   '\\': c({ type: 'panic' }),

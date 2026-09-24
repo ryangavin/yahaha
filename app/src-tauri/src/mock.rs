@@ -7,6 +7,9 @@
 
 use std::time::Instant;
 
+#[path = "mock_multipad.rs"]
+mod multipad;
+
 use yahaha::api::*;
 use yahaha::engine::{FadeState, StyleSettings};
 use yahaha::controllers::{Controllers, PedalSetup, PEDALS};
@@ -146,6 +149,8 @@ pub struct MockSession {
     /// left (ms).
     settings: StyleSettings,
     fade_left: f64,
+    /// Multi Pads (mock_multipad.rs).
+    pads: multipad::MockPads,
     /// Pedals and wheels: the engine's own model (no keyboard, so nothing moves them but
     /// commands).
     controllers: Controllers,
@@ -291,6 +296,7 @@ impl MockSession {
                 sound_font_loading: false,
             },
             preview: PreviewState::default(),
+            multi_pad: multipad::initial(),
             // Mid-song: the left hand holds the Am7 it fingered.
             keyboard: KeyboardState {
                 held: [45, 48, 52, 55].map(|note| HeldNote { note, zone: Zone::Left, parts: vec![] }).to_vec(),
@@ -321,6 +327,7 @@ impl MockSession {
             wall: None,
             settings: StyleSettings::default(),
             fade_left: 0.0,
+            pads: multipad::MockPads::default(),
             controllers: Controllers::new(),
         };
         m.set_style(0);
@@ -430,6 +437,7 @@ impl MockSession {
     fn step(&mut self, ms: f64) {
         self.now += ms;
         self.step_fade(ms);
+        self.pads.beats(&mut self.state.multi_pad, ms / 60000.0 * self.state.transport.tempo);
         if !self.state.transport.running {
             return;
         }
@@ -458,6 +466,7 @@ impl MockSession {
     }
 
     fn on_bar(&mut self, bar: u32) {
+        self.pads.bar(&mut self.state.multi_pad);
         let t = &self.state.transport;
         let main = MAINS[t.main as usize];
         let section = t.section.clone();
@@ -498,6 +507,10 @@ impl MockSession {
     }
 
     fn enter(&mut self, s: &str, bar: u32) {
+        let from_ending = self.state.transport.section.as_deref().is_some_and(|c| ENDINGS.contains(&c));
+        if ENDINGS.contains(&s) && !from_ending {
+            self.pads.ending_started(&mut self.state.multi_pad);
+        }
         self.state.transport.section = Some(s.into());
         self.section_start = bar;
         if let Some(m) = MAINS.iter().position(|x| *x == s) {
@@ -515,6 +528,7 @@ impl MockSession {
         if !self.state.transport.running && self.state.transport.sync_start {
             self.start_band();
         }
+        self.pads.chord(&mut self.state.multi_pad, self.state.transport.running);
     }
 
     /// Fade In/Out: a fade in runs out, a fade out stops the band and holds, a hold ends.
@@ -565,9 +579,13 @@ impl MockSession {
         self.clock = 0.0;
         self.section_start = 0;
         self.position();
+        self.pads.band_started(&mut self.state.multi_pad);
     }
 
     fn stop_band(&mut self) {
+        if self.state.transport.running {
+            self.pads.band_stopped(&mut self.state.multi_pad);
+        }
         let t = &mut self.state.transport;
         if matches!(t.fade, FadeState::FadingIn | FadeState::FadingOut) {
             t.fade = FadeState::Off;
@@ -1149,6 +1167,7 @@ impl MockSession {
             }
             AppCmd::System(SystemCmd::Panic) => {
                 self.stop_band();
+                self.pads.panic(&mut self.state.multi_pad);
                 self.controllers.reset(&mut |_| {});
                 self.state.controllers = ControllersState::of(&self.controllers);
                 self.message("All notes off", false);
@@ -1184,6 +1203,12 @@ impl MockSession {
                 io.inputs = io.sources.iter().filter(|s| s.listening).map(|s| if s.pads { format!("{} (pads)", s.name) } else { s.name.clone() }).collect();
             }
             AppCmd::Settings(SettingsCmd::SetPaletteLeds { on }) => self.state.pads.palette_leds = on,
+            AppCmd::MultiPad(c) => {
+                let running = self.state.transport.running;
+                if let Some(e) = self.pads.cmd(&mut self.state.multi_pad, c, running) {
+                    self.message(e, true);
+                }
+            }
         }
     }
 

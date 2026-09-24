@@ -1,10 +1,11 @@
 //! Engine extension points: where a feature that lives in the engine plugs in.
 //!
 //! Each hook is a plain method, called at one fixed point of the engine's work and in a
-//! fixed order; none of them does anything yet. A feature adds one call to its own
-//! function (in its own module) to the hook it needs, and keeps its engine-side state in
-//! one field of [`Features`]. No trait objects, no registry: the calls are static and
-//! inline away while the bodies are empty.
+//! fixed order. A feature adds one call to its own function (in its own module) to the
+//! hook it needs, and keeps its engine-side state in one field of [`Features`] (Multi
+//! Pads, multipad.rs, are the first). No trait objects, no registry: the calls are static.
+//! Multi Pads keep their own clock and deadline (`Engine::pads_deadline`, driven by the
+//! engine loop whether the band runs or not), so they need no `hook_deadline`.
 //!
 //! The rules the engine's own code keeps apply here too: deterministic (time is the `now`
 //! passed in, never the wall clock), and no allocation or freeing (the engine runs on the
@@ -52,6 +53,8 @@ pub(super) struct Features {
     pub(super) retrigger: retrigger::Retrigger,
     /// Synchro Stop Window: sync_stop.rs.
     pub(super) sync_window: sync_stop::SyncWindow,
+    /// Multi Pads (multipad.rs).
+    pub(super) pads: super::multipad::PadDeck,
 }
 
 /// The next beat line the bar and beat hooks wait for: a tick on the section's timeline
@@ -93,6 +96,7 @@ impl Engine {
         #[cfg(test)]
         self.log(Hook::Start);
         self.fade_on_start(now, sink);
+        self.pads_on_start(now);
     }
 
     /// The band stopped: every note is off.
@@ -103,6 +107,7 @@ impl Engine {
         self.fade_on_stop(sink);
         self.end_rit(self.anchor_ns);
         self.retrigger_on_stop();
+        self.pads_on_stop(sink);
     }
 
     /// Bar `bar` (0-based in this pass of the section) begins; `on_beat` for its first beat
@@ -130,6 +135,7 @@ impl Engine {
             let from = self.cur;
             self.log(Hook::BeforeSection { from, to: _to });
         }
+        self.pads_before_section(_to, _sink);
     }
 
     /// The section changed from slot `_from` (to `self.cur`, which may be the same slot
@@ -151,6 +157,7 @@ impl Engine {
     pub(super) fn on_chord(&mut self, _prev: Option<Chord>, _now: u64, _sink: &mut impl Sink) {
         #[cfg(test)]
         self.log(Hook::Chord);
+        self.pads_on_chord(_now);
     }
 
     /// A new style (`self.style`) took over: its setup has gone out.

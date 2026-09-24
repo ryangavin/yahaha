@@ -8,6 +8,7 @@ import { defaultControllers, functionCmd, functionInfo, pedalCcRefused } from '.
 import fixture from './mock-fixture.json'
 import { syntheticStyles } from './mock-library'
 import { clockAt, mockSurface, type MockHardware } from './mock-surface'
+import { initialMultiPad, MockPads } from './mock-multipad'
 import { padsFor } from './mock-pads'
 import type { Session } from './session'
 import {
@@ -243,6 +244,7 @@ export function initialState(): AppState {
     surface: null as unknown as AppState['surface'], // filled in by derive()
     preview: { audition: null, queued: null },
     styleSettings: { ...DEFAULT_STYLE_SETTINGS },
+    multiPad: initialMultiPad(),
     controllers: defaultControllers(),
   }
   derive(state, LIBRARY)
@@ -374,6 +376,8 @@ export class MockSession implements Session {
   private auditionBeats = 0
   /** Milliseconds left of the fade phase playing (fading in or out, holding). */
   private fadeLeft = 0
+  /** Multi Pads (mock-multipad.ts). */
+  private multiPads = new MockPads(() => this.state.multiPad)
 
   constructor(opts: MockOptions = {}) {
     this.demo = opts.demo ?? false
@@ -416,6 +420,10 @@ export class MockSession implements Session {
     this.rightHand = [72, 76]
     st.mixer.styleParts[5].waiting = true
     st.mixer.styleParts[5].volume = 58
+    // The demo Multi Pad bank, its shaker loop playing and the brass hit in standby.
+    this.multiPads.cmd({ type: 'loadMultiPad', id: 0 }, false)
+    this.multiPads.cmd({ type: 'triggerMultiPad', pad: 0 }, false)
+    this.multiPads.cmd({ type: 'armMultiPad', pad: 3 }, false)
     st.io.lastControl = padPress(MAINS.indexOf('Main B'))
     this.position()
   }
@@ -490,6 +498,7 @@ export class MockSession implements Session {
       this.chordArrives('C')
     }
     if (!t.running) this.stepAudition(ms)
+    this.multiPads.beats((ms / 60000) * t.tempo)
     if (this.scanLeft > 0) {
       this.scanLeft -= ms
       if (this.scanLeft <= 0) this.state.library.scanning = false
@@ -601,6 +610,7 @@ export class MockSession implements Session {
 
   private onBar(bar: number) {
     const t = this.state.transport
+    this.multiPads.bar()
     const q = this.preview.queued
     if (q !== null) {
       this.preview.queued = null
@@ -645,6 +655,7 @@ export class MockSession implements Session {
 
   private enter(s: string, bar: number) {
     const t = this.state.transport
+    if (ENDINGS.includes(s) && !(t.section && ENDINGS.includes(t.section))) this.multiPads.endingStarted()
     t.section = s
     this.sectionStart = bar
     const m = MAINS.indexOf(s)
@@ -687,6 +698,7 @@ export class MockSession implements Session {
     this.state.chord.name = transposeChord(chord, k)
     this.state.chord.fingered = chord
     if (!t.running && t.syncStart) this.startBand()
+    this.multiPads.chord(t.running)
   }
 
   private startBand() {
@@ -704,6 +716,7 @@ export class MockSession implements Session {
     t.pendingIntro = null
     t.queued = null
     this.position()
+    this.multiPads.bandStarted()
   }
 
   private stopBand() {
@@ -715,11 +728,13 @@ export class MockSession implements Session {
     const q = this.preview.queued
     this.preview.queued = null
     if (q !== null) this.loadStyle(q)
+    const was = t.running
     t.running = false
     t.section = null
     t.queued = null
     t.bar = 1
     t.beat = 1
+    if (was) this.multiPads.bandStopped()
   }
 
   private recallOts(n: number) {
@@ -1031,6 +1046,7 @@ export class MockSession implements Session {
         break
       case 'panic':
         this.stopBand()
+        this.multiPads.panic()
         Object.assign(st.controllers, { sustain: false, sostenuto: false, soft: false })
         this.message('All notes off')
         break
@@ -1102,6 +1118,20 @@ export class MockSession implements Session {
       case 'clearMessage':
         st.message = null
         break
+      case 'loadMultiPad':
+      case 'loadMultiPadPath':
+      case 'clearMultiPad':
+      case 'triggerMultiPad':
+      case 'stopMultiPad':
+      case 'stopAllMultiPads':
+      case 'armMultiPad':
+      case 'setMultiPadRepeat':
+      case 'setMultiPadChordMatch':
+      case 'setMultiPadSynchroStop': {
+        const err = this.multiPads.cmd(cmd, t.running)
+        if (err) this.message(err, true)
+        break
+      }
     }
   }
 }

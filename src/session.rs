@@ -33,6 +33,7 @@ mod keyboard;
 mod leds;
 mod library;
 mod mixer;
+mod multipad;
 mod offline;
 mod ots;
 mod pads;
@@ -235,6 +236,11 @@ struct Control {
     sources_ns: u64,
     /// The Style settings the engine plays by (`StyleSettingsCmd`).
     style_settings: StyleSettings,
+    /// Multi Pad banks to the engine thread, and replaced players back to free here.
+    pad_tx: Producer<live::PadBank>,
+    old_pad_rx: Consumer<Box<crate::multipad::MultiPadPlayer>>,
+    /// Multi Pads: the bank list and the bank loaded.
+    multipad: multipad::Pads,
 }
 
 /// What several parts of the state read, read once per `build_state` so they all agree.
@@ -285,6 +291,7 @@ impl Control {
             AppCmd::Settings(c) => self.settings_cmd(c),
             AppCmd::System(c) => self.system_cmd(c),
             AppCmd::StyleSettings(c) => self.style_settings_cmd(c),
+            AppCmd::MultiPad(c) => self.multipad_cmd(c),
             AppCmd::Controllers(c) => self.controllers_cmd(c),
         }
     }
@@ -348,6 +355,7 @@ impl Control {
             leds.update(&s, &self.info.has, &pnl, self.shared.manual_bass(), self.shared.parts.fader_page(), styles, beats);
         }
         self.pump_index();
+        self.pump_multipad();
     }
 
     /// The state: each feature builds its part, in `AppState`'s order.
@@ -378,6 +386,7 @@ impl Control {
             preview: self.preview_state(),
             keyboard: self.keyboard_state(&v),
             style_settings: self.style_settings.into(),
+            multi_pad: self.multipad_state(),
             controllers: self.controllers_state(),
             message: self.message.clone(),
         }
@@ -528,6 +537,9 @@ fn assemble(opts: &Options, engine_out: live::Out, input_out: live::Out, offline
         release_tx,
         sources_ns: 0,
         style_settings: StyleSettings::default(),
+        pad_tx: ch.pad_tx,
+        old_pad_rx: ch.old_pad_rx,
+        multipad: multipad::Pads::scan(&opts.paths),
     };
     let mut control = control;
     control.list_sound_fonts();

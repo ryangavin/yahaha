@@ -21,6 +21,7 @@ mod controllers;
 mod keyboard;
 mod library;
 mod mixer;
+mod multipad;
 mod ots;
 mod pads;
 mod parts;
@@ -36,6 +37,7 @@ pub use controllers::*;
 pub use keyboard::*;
 pub use library::*;
 pub use mixer::*;
+pub use multipad::*;
 pub use ots::*;
 pub use pads::*;
 pub use parts::*;
@@ -121,6 +123,8 @@ app_cmd! {
     System(SystemCmd),
     /// Section Change Timing, Synchro Stop Window, fade times, Section Reset, Retrigger length.
     StyleSettings(StyleSettingsCmd),
+    /// Multi Pads: the bank, the pads, Synchro Stop.
+    MultiPad(MultiPadCmd),
     /// Pedals, wheels and assignable functions.
     Controllers(ControllersCmd),
 }
@@ -256,6 +260,8 @@ pub struct AppState {
     pub keyboard: KeyboardState,
     /// Section Change Timing, Synchro Stop Window, fade times, Section Reset, Retrigger length.
     pub style_settings: StyleSettingsState,
+    /// Multi Pads: the bank, the four pads, Synchro Stop, the bank files.
+    pub multi_pad: MultiPadState,
     /// Pedals, wheels, their parts and the pedals' assignable functions.
     pub controllers: ControllersState,
     /// The last notice or error, until the next one or `ClearMessage`.
