@@ -902,8 +902,22 @@ impl MockSession {
                 self.state.transport.auto_fill = auto;
             }
             AppCmd::Controllers(c) => {
+                let before = match c {
+                    ControllersCmd::SetPedal { pedal, .. } => Some((pedal as usize % PEDALS, self.controllers.pedal(pedal as usize % PEDALS))),
+                    _ => None,
+                };
                 match c.apply_setting(&self.controllers) {
                     Ok(true) => {
+                        // Kbd Harmony/Arpeggio and Arpeggio Hold on a Hold pedal (no pedal is
+                        // ever down here): as the session does.
+                        if let Some((i, old)) = before {
+                            let sets = yahaha::controllers::control_switch_sets(old, self.controllers.pedal(i), false, false);
+                            for (f, on) in sets.into_iter().flatten() {
+                                if let Some(cmd) = yahaha::api::function_set(f, on) {
+                                    self.cmd(cmd);
+                                }
+                            }
+                        }
                         // No keyboard: a pedal learning "hears" the Launchkey's sustain jack.
                         if let ControllersCmd::LearnPedal { pedal: Some(p) } = c {
                             let s = self.controllers.pedal(p as usize % PEDALS);
@@ -1452,6 +1466,14 @@ mod tests {
         // The HARMONY/ARPEGGIO switch is the button under fader 5 on the Panel fader page.
         let b5 = m.surface().controls.into_iter().find(|c| c.id == "faderButton5").unwrap();
         assert_eq!((b5.label.as_str(), b5.action, b5.level), ("HARM/ARP", Some(AppCmd::HarmonyArp(HarmonyArpCmd::ToggleHarmonyArp)), Level::Bright));
+        // Kbd Harmony/Arpeggio and Arpeggio Hold are pedal functions: Try switches them, and a
+        // Hold B pedal (up) holds the arpeggio at once.
+        use yahaha::controllers::{ControlType, Function};
+        m.send(ControllersCmd::TriggerFunction { function: Function::KbdHarmonyArp });
+        assert!(!m.state.harmony_arp.on);
+        assert!(!m.state.harmony_arp.arp.hold);
+        m.send(ControllersCmd::SetPedal { pedal: 1, cc: Some(66), function: Function::ArpHold, control_type: ControlType::HoldB, reverse: false, range: Default::default() });
+        assert!(m.state.harmony_arp.arp.hold);
     }
 
     #[test]

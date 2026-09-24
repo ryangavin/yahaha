@@ -166,6 +166,8 @@ pub enum Action {
     Style(i8),
     /// A pedal's assignable function that the control side runs (`controllers.rs`).
     Assign(crate::controllers::Function),
+    /// A Hold A / Hold B pedal sets a control-side switch on or off (`controllers::Fire::set`).
+    AssignSet(crate::controllers::Function, bool),
     /// The HARMONY/ARPEGGIO button: the selected Harmony type or arpeggio on/off (`J`,
     /// fader button 5 on the Panel fader page).
     ToggleHarmonyArp,

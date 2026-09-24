@@ -168,6 +168,10 @@ pub enum Function {
     Right3OnOff,
     LeftOnOff,
     FingeredOnBass,
+    /// Kbd Harmony/Arpeggio On/Off: the HARMONY/ARPEGGIO button (RM p.141).
+    KbdHarmonyArp,
+    /// Arpeggio Hold (RM p.141; OM p.57 points arpeggio players to it).
+    ArpHold,
 }
 
 /// One row of the assignable-function table.
@@ -200,7 +204,7 @@ use Kind::*;
 /// The assignable functions, in `Function` order: the Genos live-play list (RM p.139-144)
 /// as far as yahaha has the feature. app/src/lib/api/assignable-functions.json is this table
 /// as the app reads it (a test keeps the two equal).
-pub const FUNCTIONS: [FunctionInfo; 44] = [
+pub const FUNCTIONS: [FunctionInfo; 46] = [
     f(Function::None, "No Assign", Overall, Trigger),
     f(Function::Sustain, "Sustain", Voice, Switch),
     f(Function::Sostenuto, "Sostenuto", Voice, Switch),
@@ -245,6 +249,8 @@ pub const FUNCTIONS: [FunctionInfo; 44] = [
     f(Function::Right3OnOff, "Right 3 On/Off", Overall, Trigger),
     f(Function::LeftOnOff, "Left On/Off", Overall, Trigger),
     f(Function::FingeredOnBass, "Fingered/Fingered On Bass", Style, Trigger),
+    f(Function::KbdHarmonyArp, "Kbd Harmony/Arpeggio On/Off", Voice, Switch),
+    f(Function::ArpHold, "Arpeggio Hold", Voice, Switch),
 ];
 
 /// What running a function means, for the input thread.
@@ -260,6 +266,10 @@ pub enum Effect {
     Engine(Button),
     /// Anything else: the control side runs it (`ControllersCmd::Trigger`).
     Control,
+    /// A switch the control side keeps (Kbd Harmony/Arpeggio On/Off, Arpeggio Hold): a
+    /// Toggle pedal runs it on each press (`Fire::control`), a Hold A or Hold B pedal sets
+    /// it on or off as it goes down and up (`Fire::set`).
+    ControlSwitch,
 }
 
 impl Function {
@@ -299,6 +309,7 @@ impl Function {
             F::TempoUp => Effect::Engine(Button::TempoUp),
             F::TempoDown => Effect::Engine(Button::TempoDown),
             F::TapTempo => Effect::Engine(Button::TapTempo),
+            F::KbdHarmonyArp | F::ArpHold => Effect::ControlSwitch,
             _ => Effect::Control,
         }
     }
@@ -506,7 +517,7 @@ impl Controllers {
                 }
                 Effect::Modulation => self.modulation.store(0, Relaxed),
                 Effect::PitchBend => self.bend.store(BEND_CENTRE, Relaxed),
-                Effect::Nothing | Effect::Engine(_) | Effect::Control => {}
+                Effect::Nothing | Effect::Engine(_) | Effect::Control | Effect::ControlSwitch => {}
             }
         }
         let retyped = rebound || old.control_type != p.control_type;
@@ -694,6 +705,18 @@ impl Controllers {
                 }
                 Effect::Engine(b) if pressed && !was => fire.engine = Some(b),
                 Effect::Control if pressed && !was => fire.control = Some(p.function),
+                Effect::ControlSwitch => match p.control_type {
+                    ControlType::Toggle => {
+                        if pressed && !was {
+                            fire.control = Some(p.function);
+                        }
+                    }
+                    ct => {
+                        if was_down != is_down {
+                            fire.set = Some((p.function, (ct == ControlType::HoldB) != is_down));
+                        }
+                    }
+                },
                 Effect::Engine(_) | Effect::Control => {}
             }
         }
@@ -887,6 +910,24 @@ pub struct Fire {
     pub shown: bool,
     pub engine: Option<Button>,
     pub control: Option<Function>,
+    /// A control-side switch a Hold A or Hold B pedal sets on or off (`Effect::ControlSwitch`).
+    pub set: Option<(Function, bool)>,
+}
+
+/// What a pedal's new setup (`Controllers::set_pedal` from `old` to `new`) does to the
+/// control-side switches (`Effect::ControlSwitch`), which the control side keeps and so
+/// sets itself: the switch a Hold pedal was keeping on goes off when the pedal is given
+/// another function or CC (`old_down`: the pedal was down before), and a Hold A or Hold B
+/// switch follows where the pedal is now (`new_down`), as the pedal switches do: Hold B
+/// picked with the pedal up turns it on.
+pub fn control_switch_sets(old: PedalSetup, new: PedalSetup, old_down: bool, new_down: bool) -> [Option<(Function, bool)>; 2] {
+    let rebound = old.function != new.function || old.cc != new.cc;
+    let retyped = rebound || old.control_type != new.control_type;
+    let hold_on = |ct: ControlType, down: bool| (ct == ControlType::HoldB) != down;
+    let held = |p: PedalSetup| p.function.effect() == Effect::ControlSwitch && p.control_type != ControlType::Toggle;
+    let release = (rebound && held(old) && hold_on(old.control_type, old_down)).then_some((old.function, false));
+    let follow = (retyped && held(new)).then(|| (new.function, hold_on(new.control_type, new_down)));
+    [release, follow]
 }
 
 #[cfg(test)]
@@ -1011,6 +1052,44 @@ mod tests {
         }
         c.control_change(0, 64, 127, &mut e);
         assert_eq!(c.switches(), 0);
+    }
+
+    /// Kbd Harmony/Arpeggio On/Off and Arpeggio Hold take a Control Type (RM p.141): Toggle
+    /// runs the function on each press, Hold A sets it on while the pedal is down and Hold B
+    /// off while it is down; the control side keeps the switch, so the pedal asks it.
+    #[test]
+    fn harmony_and_arpeggio_hold_pedals_follow_their_control_type() {
+        let c = Controllers::new();
+        let mut e = [0u8; 4];
+        assert_eq!(Function::KbdHarmonyArp.kind(), Kind::Switch);
+        assert_eq!(Function::ArpHold.info().name, "Arpeggio Hold");
+        let hold = |ct| PedalSetup { cc: Some(66), function: Function::ArpHold, control_type: ct, ..PedalSetup::default() };
+        c.set_pedal(1, hold(ControlType::HoldA));
+        let Handled::Fire(f) = c.control_change(0, 66, 127, &mut e) else { panic!() };
+        assert_eq!((f.set, f.control), (Some((Function::ArpHold, true)), None));
+        let Handled::Fire(f) = c.control_change(0, 66, 127, &mut e) else { panic!() };
+        assert_eq!(f.set, None, "nothing while held");
+        let Handled::Fire(f) = c.control_change(0, 66, 0, &mut e) else { panic!() };
+        assert_eq!(f.set, Some((Function::ArpHold, false)));
+        c.set_pedal(1, hold(ControlType::HoldB));
+        let Handled::Fire(f) = c.control_change(0, 66, 127, &mut e) else { panic!() };
+        assert_eq!(f.set, Some((Function::ArpHold, false)), "hold B: off while down");
+        c.control_change(0, 66, 0, &mut e);
+        c.set_pedal(1, PedalSetup { function: Function::KbdHarmonyArp, ..hold(ControlType::Toggle) });
+        let Handled::Fire(f) = c.control_change(0, 66, 127, &mut e) else { panic!() };
+        assert_eq!((f.set, f.control), (None, Some(Function::KbdHarmonyArp)), "toggle: a press runs it");
+        let Handled::Fire(f) = c.control_change(0, 66, 0, &mut e) else { panic!() };
+        assert_eq!((f.set, f.control), (None, None), "nothing on release");
+        // What a new setup does: Hold B picked with the pedal up turns it on; a Hold A pedal
+        // held when it is given another function lets its switch go.
+        let (a, b) = (hold(ControlType::HoldA), hold(ControlType::HoldB));
+        assert_eq!(control_switch_sets(a, b, false, false), [None, Some((Function::ArpHold, true))]);
+        let other = PedalSetup { function: Function::StartStop, ..a };
+        assert_eq!(control_switch_sets(a, other, true, false), [Some((Function::ArpHold, false)), None]);
+        assert_eq!(control_switch_sets(a, other, false, false), [None, None], "it was off");
+        assert_eq!(control_switch_sets(a, a, true, true), [None, None], "no change");
+        let toggle = hold(ControlType::Toggle);
+        assert_eq!(control_switch_sets(other, toggle, false, false), [None, None], "a toggle leaves it as it is");
     }
 
     #[test]

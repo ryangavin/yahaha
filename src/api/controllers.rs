@@ -83,6 +83,13 @@ pub fn function_run(f: Function, fingering: crate::fingering::Fingering, ots_cou
         Effect::Engine(b) => b.into(),
         Effect::Switch(b) => return Ok(FunctionRun::Switch(b)),
         Effect::Modulation | Effect::PitchBend => return Err(format!("{} needs a foot controller (an expression pedal)", info.name)),
+        // A press (a Toggle pedal, `TriggerFunction`) switches it; Hold pedals set it
+        // (`function_set`).
+        Effect::ControlSwitch => match f {
+            Function::KbdHarmonyArp => super::HarmonyArpCmd::ToggleHarmonyArp.into(),
+            Function::ArpHold => super::HarmonyArpCmd::ToggleArpHold.into(),
+            _ => return Err(format!("{} can't be run here", info.name)),
+        },
         Effect::Control => match f {
             Function::OtsLink => super::OtsCmd::ToggleOtsLink.into(),
             Function::Ots1 | Function::Ots2 | Function::Ots3 | Function::Ots4 => super::OtsCmd::RecallOts { index: f as u8 - Function::Ots1 as u8 }.into(),
@@ -115,6 +122,17 @@ pub fn function_run(f: Function, fingering: crate::fingering::Fingering, ots_cou
         },
     };
     Ok(FunctionRun::Cmd(cmd))
+}
+
+/// The command that sets control-side switch `f` (`Effect::ControlSwitch`) on or off, as a
+/// Hold A or Hold B pedal does (`controllers::Fire::set`, `controllers::control_switch_sets`).
+/// None for a function that isn't one.
+pub fn function_set(f: Function, on: bool) -> Option<super::AppCmd> {
+    match f {
+        Function::KbdHarmonyArp => Some(super::HarmonyArpCmd::SetHarmonyArpOn { on }.into()),
+        Function::ArpHold => Some(super::HarmonyArpCmd::SetArpHold { on }.into()),
+        _ => None,
+    }
 }
 
 /// What running an assignable function comes to (`function_run`).

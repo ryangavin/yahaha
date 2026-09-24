@@ -676,6 +676,9 @@ impl Input {
                     if let Some(func) = f.control {
                         self.act(Action::Assign(func));
                     }
+                    if let Some((func, on)) = f.set {
+                        self.act(Action::AssignSet(func, on));
+                    }
                 }
             },
             (0xE0, 3) => {

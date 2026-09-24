@@ -182,6 +182,7 @@ impl From<Action> for AppCmd {
             Action::ToggleFaderPage => MixerCmd::ToggleFaderPage.into(),
             Action::Style(d) => LibraryCmd::StepStyle { delta: d }.into(),
             Action::Assign(f) => ControllersCmd::TriggerFunction { function: f }.into(),
+            Action::AssignSet(f, on) => function_set(f, on).unwrap_or(ControllersCmd::TriggerFunction { function: f }.into()),
             Action::ToggleHarmonyArp => HarmonyArpCmd::ToggleHarmonyArp.into(),
         }
     }
