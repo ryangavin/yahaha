@@ -1,10 +1,11 @@
 //! Engine extension points: where a feature that lives in the engine plugs in.
 //!
 //! Each hook is a plain method, called at one fixed point of the engine's work and in a
-//! fixed order; none of them does anything yet. A feature adds one call to its own
-//! function (in its own module) to the hook it needs, and keeps its engine-side state in
-//! one field of [`Features`] (Multi Pads, multipad.rs, are the first). No trait objects, no registry: the calls are static and
-//! inline away while the bodies are empty.
+//! fixed order. A feature adds one call to its own function (in its own module) to the
+//! hook it needs, and keeps its engine-side state in one field of [`Features`] (Multi
+//! Pads, multipad.rs, are the first). No trait objects, no registry: the calls are static.
+//! Multi Pads keep their own clock and deadline (`Engine::pads_deadline`, driven by the
+//! engine loop whether the band runs or not), so they need no `hook_deadline`.
 //!
 //! The rules the engine's own code keeps apply here too: deterministic (time is the `now`
 //! passed in, never the wall clock), and no allocation or freeing (the engine runs on the
