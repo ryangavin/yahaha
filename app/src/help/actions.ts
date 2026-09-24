@@ -84,5 +84,15 @@ export function tipFor(cmd: AppCmd | null): TipKey {
     case 'setMidiInputs': return cmd.all ? 'midi.merge_all' : 'midi.input'
     case 'setPaletteLeds': return 'midi.palette_leds'
     case 'rescanLibrary': return 'settings.rescan'
+    case 'loadMultiPad':
+    case 'loadMultiPadPath': return 'multipad.bank'
+    case 'clearMultiPad': return 'multipad.clear'
+    case 'triggerMultiPad': return 'multipad.pad'
+    case 'stopMultiPad': return 'multipad.stop'
+    case 'stopAllMultiPads': return 'multipad.stop_all'
+    case 'armMultiPad': return 'multipad.arm'
+    case 'setMultiPadRepeat': return 'multipad.repeat'
+    case 'setMultiPadChordMatch': return 'multipad.chord_match'
+    case 'setMultiPadSynchroStop': return 'multipad.synchro_style_stop'
   }
 }

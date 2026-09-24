@@ -9,8 +9,8 @@ const ROOT: &str = "/Users/me/Styles";
 type Bank = (&'static str, &'static str, [&'static str; 4], [bool; 4], [bool; 4]);
 const BANKS: [Bank; 3] = [
     ("Demo", "Pads", ["Shaker Loop", "Rise Arp", "Bass Riff", "Brass Hit"], [true, false, true, false], [false, true, true, true]),
-    ("Latin Perc", "Pads/Latin", ["Conga Loop", "Timbale Fill", "Cowbell", ""], [true, false, true, false], [false; 4]),
     ("Strings FX", "Pads", ["Swell", "Pizz Run", "Stab", "Tremolo"], [false, false, false, true], [true; 4]),
+    ("Latin Perc", "Pads/Latin", ["Conga Loop", "Timbale Fill", "Cowbell", ""], [true, false, true, false], [false; 4]),
 ];
 
 fn empty_pads() -> Vec<MultiPadPad> {

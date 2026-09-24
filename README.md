@@ -151,7 +151,7 @@ The last Launchkey note or CC that nothing is mapped to shows at the bottom of t
 - `←/→` previous/next style, in the style browser's order (folder, then name)
 - `enter` open the style browser (see below)
 - `tab` / `shift+tab` next/previous pad page
-- `Z X C V` (shift+z…v) Multi Pads 1–4 · `B` (shift+b) Multi Pad STOP: the `.pad` banks in the style folders load from the app's Multi Pad panel (`yahaha pad --demo` writes a synthetic bank to try); see docs/multipad.md, which also proposes a Launchkey Multi Pad page
+- `Z X C V` Multi Pads 1–4 (shift+z…v) · `B` Multi Pad STOP (shift+b). The banks (the .pad files in the style folders) load from the app's Multi Pads drawer; yahaha pad --demo writes a synthetic bank to try. See docs/multipad.md, which also proposes a Launchkey Multi Pad page.
 - `a` next audio output pair · `k` mute the synth
 - `\` panic (all notes off)
 - `esc` twice (within 1.5 s) quit, or `ctrl+c`; one `esc` closes the style browser

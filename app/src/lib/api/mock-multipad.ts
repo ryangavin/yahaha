@@ -9,8 +9,8 @@ const ROOT = '/Users/me/Styles'
 /** The mock's bank files: the synthetic demo bank (`yahaha pad --demo`) and two more. */
 const BANKS = [
   { name: 'Demo', folder: 'Pads', pads: ['Shaker Loop', 'Rise Arp', 'Bass Riff', 'Brass Hit'], repeat: [true, false, true, false], cm: [false, true, true, true] },
-  { name: 'Latin Perc', folder: 'Pads/Latin', pads: ['Conga Loop', 'Timbale Fill', 'Cowbell', ''], repeat: [true, false, true, false], cm: [false, false, false, false] },
   { name: 'Strings FX', folder: 'Pads', pads: ['Swell', 'Pizz Run', 'Stab', 'Tremolo'], repeat: [false, false, false, true], cm: [true, true, true, true] },
+  { name: 'Latin Perc', folder: 'Pads/Latin', pads: ['Conga Loop', 'Timbale Fill', 'Cowbell', ''], repeat: [true, false, true, false], cm: [false, false, false, false] },
 ]
 
 export function initialMultiPad(): MultiPadState {

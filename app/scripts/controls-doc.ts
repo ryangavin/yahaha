@@ -21,6 +21,7 @@ const GROUPS: [string, string][] = [
   ['ots', 'One Touch Settings'],
   ['part', 'Keyboard parts'],
   ['mixer', 'Mixer'],
+  ['multipad', 'Multi Pads'],
   ['padpage', 'Launchkey pad pages'],
   ['launchkey', 'Launchkey'],
   ['lead', 'Lead-sheet band'],

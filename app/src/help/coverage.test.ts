@@ -69,6 +69,13 @@ const STATES: [string, Setup][] = [
   ['parts drawer, fader page Style', (s) => ((ui.parts = true), s.send({ type: 'toggleFaderPage' }))],
   ['mixer drawer open', () => (ui.mixer = true)],
   ['mixer drawer open, Style tab', (s) => ((ui.mixer = true), s.send({ type: 'setFaderPage', page: 'style' }))],
+  ['multi pad drawer, no bank', () => (ui.multipad = true)],
+  ['multi pad drawer, bank loaded, pads playing and armed', (s) => (
+    (ui.multipad = true),
+    s.send({ type: 'loadMultiPad', id: 0 }),
+    s.send({ type: 'triggerMultiPad', pad: 0 }),
+    s.send({ type: 'armMultiPad', pad: 3 })
+  )],
   ['Shift layer on', () => (ui.shiftLatched = true)],
   ['Shift layer on, fader page Style', (s) => ((ui.shiftLatched = true), s.send({ type: 'toggleFaderPage' }))],
 ]
@@ -79,6 +86,7 @@ afterEach(() => {
   ui.settings = false
   ui.parts = false
   ui.mixer = false
+  ui.multipad = false
   ui.shiftLatched = false
   tips.help = false
 })

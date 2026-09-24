@@ -1004,6 +1004,85 @@ const catalog = {
     launchkey: null,
   },
 
+  // ── Multi Pads ──────────────────────────────────────────────────────────
+  'drawer.multipad': {
+    title: 'Multi Pads',
+    body: 'Opens the Multi Pads: four short phrases from a pad bank that you trigger over the band, and the bank list.',
+    genos: 'MULTI PAD CONTROL',
+    keys: [],
+    launchkey: null,
+  },
+  'multipad.pad': {
+    title: 'Multi Pad',
+    body: 'Plays the pad\'s phrase from the top: at once when the band is stopped, at the next bar line while it plays. Blue: has data; red: playing; flashing red: waiting for Synchro Start; amber: waiting for the bar line.',
+    genos: 'MULTI PAD CONTROL [1]–[4]',
+    keys: ['Z', 'X', 'C', 'V'],
+    launchkey: null,
+  },
+  'multipad.stop_all': {
+    title: 'Stop all pads',
+    body: 'Stops every Multi Pad at once and cancels Synchro Start standby. The band keeps playing.',
+    genos: 'MULTI PAD CONTROL [STOP]',
+    keys: ['B'],
+    launchkey: null,
+  },
+  'multipad.stop': {
+    title: 'Stop this pad',
+    body: 'Stops only this pad, now. The other pads keep playing.',
+    genos: '[STOP] + pad',
+    keys: [],
+    launchkey: null,
+  },
+  'multipad.arm': {
+    title: 'Synchro Start',
+    body: 'Puts the pad in standby (flashing red): it starts with your next chord in the chord section, or when the band starts; while the band plays, at the next bar line. Press again to cancel.',
+    genos: '[SELECT] + pad (Synchro Start)',
+    keys: [],
+    launchkey: null,
+  },
+  'multipad.repeat': {
+    title: 'Repeat',
+    body: 'On: the pad loops until you stop it. Off: it plays once. The bank file sets it; a change here lasts until another bank loads.',
+    genos: 'Repeat (Multi Pad Edit)',
+    keys: [],
+    launchkey: null,
+  },
+  'multipad.chord_match': {
+    title: 'Chord Match',
+    body: 'On: the pad follows the chord you play, like the band does. Off: it plays exactly as recorded, as drum pads usually do.',
+    genos: 'Chord Match (Multi Pad Edit)',
+    keys: [],
+    launchkey: null,
+  },
+  'multipad.bank': {
+    title: 'Multi Pad bank',
+    body: 'Loads this bank\'s four pads. Pads playing stop. The list is every .pad file in your style folders.',
+    genos: 'Multi Pad Bank Selection',
+    keys: [],
+    launchkey: null,
+  },
+  'multipad.clear': {
+    title: 'No bank',
+    body: 'Unloads the bank: the pads go dark.',
+    genos: null,
+    keys: [],
+    launchkey: null,
+  },
+  'multipad.synchro_style_stop': {
+    title: 'Synchro Stop: Style Stop',
+    body: 'On: looping pads stop when the band stops. Off: they play on until you stop them.',
+    genos: 'Multi Pad Synchro Stop (Style Stop)',
+    keys: [],
+    launchkey: null,
+  },
+  'multipad.synchro_ending': {
+    title: 'Synchro Stop: Style Ending',
+    body: 'On: looping pads stop when an Ending starts. Off: they play through the Ending.',
+    genos: 'Multi Pad Synchro Stop (Style Ending)',
+    keys: [],
+    launchkey: null,
+  },
+
   // ── Main screen: lead-sheet band and keyboard strip ─────────────────────
   'lead.section': {
     title: 'Section playing',
