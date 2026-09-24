@@ -32,7 +32,7 @@ URL switches for browser dev mode:
 | `?demo=0` | starts the mock stopped with Sync Start armed, instead of the scripted demo |
 | `?theme=light` | starts in the light theme |
 | `?help=1` | starts with help mode on |
-| `?tip=<catalog key>` | shows that one tooltip |
+| `?tip=<catalog key>` | shows that entry in the help footer, as if you hovered that control |
 | `?open=browser` \| `parts` \| `mixer` \| `settings` \| `harmony` | opens that panel |
 | `?shift=1` | latches the Shift layer |
 | `?styles=N` | adds N synthetic styles to the mock's library (try 60000 in the browser) |
@@ -85,7 +85,7 @@ app/
       leds.ts                LED maths: brightness on the beat clock, colours, lamp notes
       surface.ts             the Launchkey surface beyond the pads (see "The surface")
       keys.ts, shortcuts.ts  keyboard bindings (the terminal UI's keys) and the window handler
-      tooltip/               tip action, Tooltip, TipCard, HelpBar (help mode)
+      tooltip/               tip action, HelpFooter (+ last Launchkey control), TipCard, opt-in pop-up Tooltip
       ui/                    shared components: HwButton, Fader, Toggle, Overlay, PanelSlot
     panels/
       header/Header.svelte         BUILT: the app bar (panel buttons, help, theme)
@@ -279,11 +279,20 @@ To add a control, add an entry (or reuse one) and reference its key. The tests c
 
 Tooltip behaviour:
 
-- A tooltip appears after 280 ms of hover. It appears at once when you move between
-  controls or tab onto one.
-- Tooltips never take pointer events, and Esc closes them.
-- Help mode (the `?` key or the ? button) shows them at once and pins the last one in a
-  bar at the bottom.
+- Nothing floats over the instrument. Hovering or tabbing to a control shows its entry
+  in the **help footer**, a fixed two-line bar at the bottom of the window: title, what it
+  does, the Genos name, the key and where it is on the Launchkey. It follows at once, and
+  keeps the entry for 350 ms after the pointer leaves, so crossing a gap doesn't flicker.
+  Its height never changes on hover, so the stage never moves.
+- The footer's right end shows the Launchkey control pressed last (`io.lastControl`,
+  decoded against `pads` and `surface` in `lib/tooltip/lastControl.ts`).
+- Help mode (the `?` key or the ? button) grows the footer to the full entry (every
+  Launchkey place, the terminal keys) and pins the last one while you try the control.
+- Pop-up tips next to the control are opt-in (the footer's "Pop-up" switch, remembered);
+  they wait 280 ms, never take pointer events, and Esc closes them.
+- Screen readers: a focused control's `aria-describedby` points at a hidden plain-text
+  copy of its entry in the footer.
+- Drawers and the browser end `--help-footer-space` above the bottom of the window.
 
 ## Keyboard
 

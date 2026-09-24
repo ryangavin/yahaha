@@ -21,9 +21,18 @@ required-features = ["tui"]
 default = ["tui"]
 # The terminal UI (ratatui, crossterm). Only the binary needs it.
 tui = ["dep:ratatui", "dep:crossterm"]
-# Plugin hosting spike (#35): Audio Unit instruments, `yahaha plugin-test`. Off by default;
-# no extra dependencies (AudioToolbox is called through hand-written FFI).
-plugins = []
+# Plugin hosting (#35): Audio Unit instruments (src/plugin/, `yahaha plugin-test`). Off by
+# default. Pulls in the objc2 framework bindings below; none of them is built otherwise.
+plugins = [
+    "dep:objc2",
+    "dep:objc2-foundation",
+    "dep:objc2-core-foundation",
+    "dep:objc2-core-audio-types",
+    "dep:objc2-audio-toolbox",
+    "dep:objc2-app-kit",
+    "dep:objc2-core-audio-kit",
+    "dep:block2",
+]
 
 [dependencies]
 anyhow = "1.0.104"
@@ -41,3 +50,50 @@ rtrb = "0.4.0"
 rustysynth = { path = "vendor/rustysynth" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+
+# Plugin hosting only (the `plugins` feature). The objc2 project's generated bindings to
+# AudioToolbox, CoreAudioKit and AppKit; cpal already depends on objc2 / audio-toolbox.
+[dependencies.objc2]
+version = "0.6.4"
+optional = true
+features = ["exception"]
+
+[dependencies.block2]
+version = "0.6.2"
+optional = true
+
+[dependencies.objc2-foundation]
+version = "0.3.2"
+optional = true
+default-features = false
+features = ["std", "NSString", "NSBundle", "NSURL", "NSObject", "NSDate", "NSRunLoop", "NSGeometry", "NSThread"]
+
+[dependencies.objc2-core-foundation]
+version = "0.3.2"
+optional = true
+default-features = false
+features = ["std", "CFString", "CFData", "CFError", "CFPropertyList"]
+
+[dependencies.objc2-core-audio-types]
+version = "0.3.2"
+optional = true
+default-features = false
+features = ["std", "CoreAudioBaseTypes"]
+
+[dependencies.objc2-audio-toolbox]
+version = "0.3.2"
+optional = true
+default-features = false
+features = ["std", "AudioComponent", "AUComponent", "AudioUnitProperties", "MusicDevice", "block2", "objc2-core-audio-types", "objc2-core-foundation"]
+
+[dependencies.objc2-app-kit]
+version = "0.3.2"
+optional = true
+default-features = false
+features = ["std", "NSApplication", "NSResponder", "NSRunningApplication", "NSWindow", "NSView", "NSViewController", "NSGraphics", "NSEvent", "objc2-core-foundation"]
+
+[dependencies.objc2-core-audio-kit]
+version = "0.3.2"
+optional = true
+default-features = false
+features = ["std", "AUGenericView", "objc2-app-kit", "objc2-audio-toolbox"]

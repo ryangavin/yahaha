@@ -3,7 +3,7 @@
 //   ?demo=0        mock without the scripted demo (stopped, Sync Start armed)
 //   ?theme=light   start in the light theme (not remembered)
 //   ?help=1        start in help mode
-//   ?tip=<key>     show the tooltip of the first control with that catalog key
+//   ?tip=<key>     show the help-footer entry of the first control with that catalog key
 //   ?open=browser|settings|parts|mixer|harmony   open an overlay or drawer
 //   ?shift=1       latch the Launchkey mirror's Shift layer
 //   ?styles=N      mock: add N synthetic styles to the library (e.g. 60000; read in api/session.ts)
