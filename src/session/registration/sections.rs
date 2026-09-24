@@ -6,11 +6,13 @@
 //! whatever is not in the groups being recalled (Memorize groups less Freeze), and an old
 //! bank file that lacks the section leaves the feature alone. The Chord Looper and Live
 //! Control add theirs when they are wired in.
+//!
+//! Parameter Lock: a recall that sets an item of a Data List lock group (`LockItem`) asks
+//! `c.param_locked(item)` first and leaves the item alone when it is locked.
 
 use super::super::harmony_arp::{harmony_arp_capture, harmony_arp_recall};
 use super::super::Control;
-use super::LockItem;
-use crate::api::{gm_name, ChordCmd, LibraryCmd, MultiPadCmd, PartsCmd, StopAcmpMode};
+use crate::api::{gm_name, ChordCmd, LibraryCmd, LockItem, MultiPadCmd, PartsCmd, StopAcmpMode};
 use crate::engine::{Button, StyleControls, Transpose};
 use crate::fingering::Fingering;
 use crate::live::Cmd;
