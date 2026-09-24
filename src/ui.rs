@@ -35,11 +35,12 @@ fn key_action(code: KeyCode) -> Option<Action> {
         KeyCode::Char('o') => b(Button::Ending(1)),
         KeyCode::Char('p') => b(Button::Ending(2)),
         KeyCode::Char('g') => b(Button::Break),
-        // Fill Down / Fill Up / Fill Self, Half Bar Fill In (Genos assignable functions).
-        KeyCode::Char('<') => b(Button::FillDown),
-        KeyCode::Char('>') => b(Button::FillUp),
-        KeyCode::Char('.') => b(Button::FillSelf),
-        KeyCode::Char('H') => b(Button::HalfBarFill),
+        // Fill Down / Fill Up (Shift + the left-hand pair), Fill Self (Shift + the Break
+        // key), Half Bar Fill In (Genos assignable functions).
+        KeyCode::Char('A') => b(Button::FillDown),
+        KeyCode::Char('S') => b(Button::FillUp),
+        KeyCode::Char('G') => b(Button::FillSelf),
+        KeyCode::Char('N') => b(Button::HalfBarFill),
         KeyCode::Char('y') => b(Button::SyncStart),
         KeyCode::Char('u') => b(Button::AutoFill),
         KeyCode::Char('j') => b(Button::SyncStop),
@@ -474,7 +475,7 @@ fn draw(f: &mut ratatui::Frame, st: &AppState, message: &str, beats: f64) {
                     v.push(Span::styled(format!(" chord: keys up to {}", ch.split_name), dim));
                 }
                 v.push(Span::raw("   "));
-                v.push(flag(t.half_bar_fill, "HALF BAR FILL [H]"));
+                v.push(flag(t.half_bar_fill, "HALF BAR FILL [N]"));
                 v
             }),
             Line::from(match &st.io.synth {
@@ -513,7 +514,7 @@ fn draw(f: &mut ratatui::Frame, st: &AppState, message: &str, beats: f64) {
 
     let mut help = vec![
         Line::from(Span::styled(
-            " space start/stop · 1-4 Main A-D (again = fill) · q w e intro · i o p ending · g break · < > . fill down/up/self · H half bar fill · t tap · -/= tempo · F1-F4 part · 9/0 voice · 5-8 part on/off · F9 faders Panel/Style · ; ' kbd transpose · : \" master · / reset · tab pad page · enter browse styles · \\ panic · esc twice quit",
+            " space start/stop · 1-4 Main A-D (again = fill) · q w e intro · i o p ending · g break · A S G fill down/up/self · N half bar fill · t tap · -/= tempo · F1-F4 part · 9/0 voice · 5-8 part on/off · F9 faders Panel/Style · ; ' kbd transpose · : \" master · / reset · tab pad page · enter browse styles · \\ panic · esc twice quit",
             dim,
         )),
         Line::from(Span::styled(
@@ -746,10 +747,14 @@ mod tests {
         assert_eq!(key_cmd(KeyCode::BackTab), Some(AppCmd::Pads(PadsCmd::CyclePadPage { delta: -1 })));
         assert_eq!(key_cmd(KeyCode::Char('\\')), Some(AppCmd::System(SystemCmd::Panic)));
         assert_eq!(key_cmd(KeyCode::Char('k')), Some(AppCmd::Mixer(MixerCmd::ToggleSynthMute)));
-        assert_eq!(key_cmd(KeyCode::Char('>')), Some(AppCmd::Transport(TransportCmd::FillUp)));
-        assert_eq!(key_cmd(KeyCode::Char('<')), Some(AppCmd::Transport(TransportCmd::FillDown)));
-        assert_eq!(key_cmd(KeyCode::Char('.')), Some(AppCmd::Transport(TransportCmd::FillSelf)));
-        assert_eq!(key_cmd(KeyCode::Char('H')), Some(AppCmd::Transport(TransportCmd::ToggleHalfBarFill)));
+        assert_eq!(key_cmd(KeyCode::Char('S')), Some(AppCmd::Transport(TransportCmd::FillUp)));
+        assert_eq!(key_cmd(KeyCode::Char('A')), Some(AppCmd::Transport(TransportCmd::FillDown)));
+        assert_eq!(key_cmd(KeyCode::Char('G')), Some(AppCmd::Transport(TransportCmd::FillSelf)));
+        assert_eq!(key_cmd(KeyCode::Char('N')), Some(AppCmd::Transport(TransportCmd::ToggleHalfBarFill)));
+        // Keys sibling branches own (Playlist, metronome, Arp Hold): not the fills.
+        for k in ['<', '>', '.', 'H'] {
+            assert_eq!(key_cmd(KeyCode::Char(k)), None, "{k}");
+        }
         assert_eq!(key_cmd(KeyCode::Char('Z')), None);
     }
 

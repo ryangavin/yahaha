@@ -144,6 +144,39 @@ fn half_bar_fill_toggle_and_off() {
     assert_eq!(e.snapshot(t).queued, Some(Main(1)), "off: the Main at the next bar");
 }
 
+#[test]
+fn half_bar_is_the_middle_on_a_notated_beat() {
+    let ppq = 480;
+    assert_eq!(prepared::half_bar(4 * ppq, 4), 2 * ppq, "4/4: beat 3");
+    assert_eq!(prepared::half_bar(3 * ppq, 3), ppq, "3/4: beat 2");
+    assert_eq!(prepared::half_bar(3 * ppq, 6), 3 * ppq / 2, "6/8: the 4th eighth, the middle");
+    assert_eq!(prepared::half_bar(6 * ppq, 12), 3 * ppq, "12/8: the middle");
+    assert_eq!(prepared::half_bar(2 * ppq, 2), ppq, "2/4: beat 2");
+    assert_eq!(prepared::half_bar(ppq, 1), ppq, "1/4: at least one beat");
+}
+
+/// Review #92: a 6/8 bar's Half Bar Fill starts at the middle of the bar, not at the
+/// third eighth. SlowWalker's timing re-set as 6/8 (every corpus style is 4/4;
+/// change_point reads only the bar length and its middle).
+#[test]
+fn half_bar_fill_in_six_eight_starts_mid_bar() {
+    let Some(mut p) = prepared("SlowWalker.T552.sty") else { return };
+    p.tpb = 3 * p.ppq;
+    p.half_bar = prepared::half_bar(p.tpb, 6);
+    let tpb = p.tpb as f64;
+    let mut e = Engine::new(p);
+    let mut r = Rec::default();
+    e.button(Button::AutoFill, 0, &mut r);
+    e.button(Button::SetHalfBarFill(true), 0, &mut r);
+    e.set_chord(c(), 0, &mut r);
+    let bar = e.ns_at_bar(1);
+    let t = bar + 10 * MS;
+    play(&mut e, 0, t, &mut r);
+    assert!(e.half_bar_due(t), "on the first beat of bar 2");
+    let (at, from) = e.change_point(sections::Change::HalfBar, t);
+    assert_eq!(((at - from) / tpb, (from - e.sec_start) / tpb), (0.5, 1.0), "the middle of bar 2");
+}
+
 /// Program changes sent on `ch` (0-based).
 fn programs(r: &Rec, ch: u8) -> Vec<u8> {
     r.0.iter().filter(|m| m[0] == 0xC0 | ch).map(|m| m[1]).collect()

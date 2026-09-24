@@ -8,13 +8,16 @@ where the manuals leave a gap. The spec is [genos-features.md](genos-features.md
 
 The Genos has these as assignable functions (RM p.142), for pedals, Assignable buttons or
 external MIDI. yahaha has them as commands (`fillUp`, `fillDown`, `fillSelf`, `fillBreak`),
-keys (`<` `>` `.` in the terminal and the app) and buttons in Settings › Style.
+keys (`A` `S` `G` in the terminal and the app: Shift + the left-hand pair for Down / Up,
+Shift + the Break key for Self) and buttons in Settings › Style. Half Bar Fill In is `N`.
+(The first draft's `<` `>` `.` `H` belong to the Playlist, the metronome and Arp Hold on
+sibling branches.)
 
 | Function | Genos (RM p.142) | yahaha |
 |---|---|---|
 | Fill Down | a fill, then the Main on the immediate left | the fill of that Main, then that Main |
 | Fill Up | a fill, then the Main on the immediate right | the same, to the right |
-| Fill Self | a fill | the Main's own fill, as pressing the lit Main |
+| Fill Self | a fill | the selected Main's own fill, as pressing that Main again |
 | Fill Break | a break | `break` |
 
 - A fill function is a Main press with the fill forced, Auto Fill or not
@@ -27,6 +30,10 @@ keys (`<` `>` `.` in the terminal and the app) and buttons in Settings › Style
   performer asked for a fill and there is nowhere to go. No wrap.
 - **Decision:** stopped, Fill Up / Down select the Main the band starts on (a Main press
   while stopped does the same); Fill Self and Fill Break do nothing.
+- **Decision:** Fill Self plays the fill of the *selected* Main, which is the one playing
+  unless another Main is already queued; then it is the queued Main's fill, and the band
+  still goes on to that Main. RM p.142 says only "plays a fill-in"; this keeps Fill Self
+  a Main press with the fill forced, so it never cancels the Main the player chose.
 - During an Intro, fill or break, a fill function selects the Main that follows, as a Main
   press does. During an Ending it queues the Main at the next bar.
 
@@ -42,7 +49,9 @@ current section starts the next section from the middle with an automatic fill-i
   (a half-bar pickup into the next section) and matches how the fills already align to the
   bar (the fill plays its own second half). Pressed after beat 1, nothing changes.
 - The fill is automatic: it plays with Auto Fill off.
-- The middle is the beat at or before half the bar: beat 3 in 4/4, beat 2 in 3/4 and 6/8.
+- The middle is half the bar's notated beats, rounded down (`Prepared::half_bar`, from the
+  time signature): beat 3 in 4/4, beat 2 in 3/4, the 4th eighth (the true middle) in 6/8
+  and 12/8.
 - Break and Endings are not affected. Timing goes through `Engine::change_point`
   (`Change::HalfBar`), the one section-timing policy.
 - Control type Toggle / Hold A / Hold B is a controller setting (#34): the engine has
@@ -106,6 +115,14 @@ the nearest Main the style has when it lacks that one (RM p.12: D missing → C)
   because that is the section change the name refers to and the moment the band's sound
   changes. An Intro, fill or break in between changes nothing. Stopped, there is no section
   change to wait for: both timings recall at the press.
+- **Decision:** stopping the band is not a Main change. With At Main Section Change, a Main
+  pressed but not yet playing when the band stops keeps waiting: its OTS is recalled when
+  the band starts on it, or at once if another Main is pressed while stopped. Recalling it
+  at the stop would arm Sync Start (below), and the next chord would restart the band the
+  player just stopped.
+- **Decision:** for a Main the style lacks (it plays the nearest one), both timings recall
+  the pressed button's OTS, because OTS 1–4 belong to the Main A–D buttons. (Genos styles
+  have all four Mains, so the manual never meets this.)
 - **OTS recall turns Sync Start on** (OM p.47; the DL OTS column stores "ACMP on, Sync Start
   on"). yahaha has no ACMP off, so a recall arms Sync Start while the band is stopped; the
   next chord starts it. **Decision:** this applies to every recall (the OTS buttons, OTS

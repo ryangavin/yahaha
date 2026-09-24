@@ -108,7 +108,7 @@ impl Engine {
         if let SectionId::Main(m) = id_of(new_slot) {
             self.main = m;
         }
-        self.bpm = self.tempo_after_change().clamp(30.0, 300.0);
+        let bpm = self.tempo_after_change();
         self.parts_after_change();
         let (tpb, ppq) = (self.style.tpb.max(1) as f64, self.style.ppq.max(1) as f64);
         let len = self.style.sections[new_slot].as_ref().map_or(0, |s| s.len) as f64;
@@ -120,11 +120,12 @@ impl Engine {
             pos = pos.rem_euclid(len);
         }
         // Re-time: tick `pos` of the new section at the bar line's time, same tempo.
+        // The tempo through the one setter (its range), then the anchor at `pos`.
         self.cur = new_slot;
+        self.set_bpm_internal(bpm, ns_b);
         self.anchor_ns = ns_b;
         self.anchor_tick = pos;
         self.sec_start = 0.0;
-        self.ns_per_tick = 60e9 / (self.bpm * ppq);
         self.seek(pos);
         self.lines_from(pos);
         if let Some(q) = later {

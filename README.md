@@ -136,7 +136,7 @@ The last Launchkey note or CC that nothing is mapped to shows at the bottom of t
 - `q w e` Intro I–III
 - `i o p` Ending I–III
 - `g` break
-- `<` `>` Fill Down / Fill Up (a fill, then the Main to the left / right) · `.` Fill Self · `H` Half Bar Fill In
+- `A` `S` Fill Down / Fill Up (a fill, then the Main to the left / right) · `G` Fill Self · `N` Half Bar Fill In
 - `t` tap tempo
 - `- =` tempo down/up
 - `y` Sync Start · `u` Auto Fill · `j` Sync Stop

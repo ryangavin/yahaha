@@ -189,6 +189,10 @@ struct Control {
     last_link: bool,
     /// OTS Link Timing.
     ots_timing: OtsLinkTiming,
+    /// OTS Link at Main Section Change: whether the band played at the last pump, and the
+    /// Main selected when it stopped (held until another Main is pressed).
+    ots_was_running: bool,
+    ots_stop_main: Option<u8>,
     /// Style Setting > Change Behavior (the engine has a copy).
     style_change: StyleChangeState,
     leds: Option<Leds>,
@@ -500,6 +504,8 @@ fn assemble(opts: &Options, engine_out: live::Out, input_out: live::Out, offline
         last_ots_key: None,
         last_link: false,
         ots_timing: OtsLinkTiming::default(),
+        ots_was_running: false,
+        ots_stop_main: None,
         style_change: StyleChangeState::default(),
         leds: None,
         synth: None,

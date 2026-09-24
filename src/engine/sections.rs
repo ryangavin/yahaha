@@ -42,8 +42,8 @@ impl Engine {
     /// Sections, stops and style changes wait for the next bar line. Fills and breaks
     /// start at the next beat and play the rest of that bar, aligned so the fill's beat
     /// matches the bar position. A Half Bar Fill starts at the middle of the bar asked in
-    /// (the beat at or before half its length: beat 3 of 4, beat 2 of 3), aligned the
-    /// same way.
+    /// (half its notated beats, rounded down: beat 3 of 4/4, beat 2 of 3/4, the 4th eighth
+    /// of 6/8; `Prepared::half_bar`), aligned the same way.
     pub(super) fn change_point(&self, change: Change, now: u64) -> (f64, f64) {
         match change {
             Change::Section | Change::Stop | Change::Style => {
@@ -62,10 +62,9 @@ impl Engine {
             }
             Change::HalfBar => {
                 let t = self.tick_at(now);
-                let ppq = self.style.ppq.max(1) as f64;
                 let tpb = self.style.tpb.max(1) as f64;
                 let bar_start = self.sec_start + ((t - self.sec_start) / tpb).floor() * tpb;
-                let half = ((tpb / ppq / 2.0).floor() * ppq).max(ppq);
+                let half = self.style.half_bar as f64;
                 // Asked for after the middle (not on beat 1): the next beat, as a fill.
                 let at = if bar_start + half + 1e-6 >= t { bar_start + half } else { return self.change_point(Change::Fill, now) };
                 (at, bar_start)

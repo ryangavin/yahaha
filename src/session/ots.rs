@@ -37,12 +37,27 @@ impl Control {
     /// 1-4 when the Main changes, on a style change, and when Link is switched on. When the
     /// Main "changes" is OTS Link Timing: Immediate, as it is pressed (`main`, which moves at
     /// once); At Main Section Change, when that Main starts playing (the section playing;
-    /// an Intro, fill or break in between changes nothing). Stopped, both follow the press.
+    /// an Intro, fill or break in between changes nothing). Stopped, both follow the press,
+    /// except that stopping the band is not itself a change: a Main pressed but not yet
+    /// played when the band stops waits for the band to start it (or another press). The
+    /// OTS number is the button's: a Main the style lacks plays its neighbour, and recalls
+    /// the pressed button's OTS under both timings.
     pub(super) fn pump_ots_link(&mut self) {
         let s = self.snap;
-        let main = match (self.ots_timing, s.running, s.cur) {
-            (OtsLinkTiming::MainChange, true, Some(SectionId::Main(m))) => m,
-            (OtsLinkTiming::MainChange, true, _) => self.last_ots_key.filter(|k| k.0 == self.cur).map_or(s.main, |k| k.1),
+        let at_change = self.ots_timing == OtsLinkTiming::MainChange;
+        if at_change && self.ots_was_running && !s.running {
+            self.ots_stop_main = Some(s.main);
+        }
+        if s.running || self.ots_stop_main != Some(s.main) {
+            self.ots_stop_main = None;
+        }
+        self.ots_was_running = s.running;
+        let held = self.last_ots_key.filter(|k| k.0 == self.cur).map_or(s.main, |k| k.1);
+        let main = match (at_change, s.running, s.cur) {
+            (true, true, Some(SectionId::Main(m))) if resolve_main(&self.info.has, s.main) == Some(m) => s.main,
+            (true, true, Some(SectionId::Main(m))) => m,
+            (true, true, _) => held,
+            (true, false, _) if self.ots_stop_main.is_some() => held,
             _ => s.main,
         };
         let key = (self.cur, main);
@@ -86,5 +101,30 @@ impl Control {
             link: kp.ots_link.load(Relaxed),
             link_timing: self.ots_timing,
         }
+    }
+}
+
+/// The Main that plays for Main button `i` (the engine's rule: the nearest the style has,
+/// left first).
+fn resolve_main(has: &[bool], i: u8) -> Option<u8> {
+    let i = i as i32;
+    (0..4).flat_map(|d| [i - d, i + d]).filter(|j| (0..4).contains(j)).find(|&j| has.get(4 + j as usize) == Some(&true)).map(|j| j as u8)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::resolve_main;
+
+    #[test]
+    fn resolve_main_matches_the_engine_rule() {
+        let has = |mains: [bool; 4]| {
+            let mut h = [false; 8];
+            h[4..8].copy_from_slice(&mains);
+            h
+        };
+        assert_eq!(resolve_main(&has([true, true, true, false]), 3), Some(2));
+        assert_eq!(resolve_main(&has([true, false, true, true]), 1), Some(0), "left first");
+        assert_eq!(resolve_main(&has([false, false, false, true]), 0), Some(3));
+        assert_eq!(resolve_main(&has([false; 4]), 0), None);
     }
 }

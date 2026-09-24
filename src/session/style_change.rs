@@ -104,6 +104,82 @@ mod tests {
         assert_ne!(st.transport.section.as_deref(), Some("Main C"));
     }
 
+    /// Review #92: stopping the band before a pressed Main plays must not recall that
+    /// Main's OTS (the recall arms Sync Start, and the next chord would restart the band).
+    #[test]
+    fn ots_link_at_main_change_stop_is_not_a_change() {
+        let Some(s) = offline("SlowWalker.T552.sty") else { return };
+        s.send(OtsCmd::SetOtsLinkTiming { timing: OtsLinkTiming::MainChange }).unwrap();
+        s.send(OtsCmd::SetOtsLink { on: true }).unwrap();
+        assert_eq!(s.state().ots.applied, 1);
+        chord_c(&s);
+        s.advance(500 * MS);
+        assert!(s.state().transport.running);
+        s.send(TransportCmd::Main { index: 1 }).unwrap();
+        s.advance(10 * MS);
+        s.send(TransportCmd::StartStop).unwrap();
+        s.advance(10 * MS);
+        let st = s.state();
+        assert!(!st.transport.running);
+        assert_eq!((st.transport.main, st.ots.applied, st.transport.sync_start), (1, 1, false), "the stop recalls nothing");
+        chord_c(&s);
+        s.advance(50 * MS);
+        assert!(!s.state().transport.running, "the next chord does not restart the band");
+        // Starting it plays Main B: its OTS then.
+        s.send(TransportCmd::StartStop).unwrap();
+        assert!(until(&s, 4000, |st| st.transport.section.as_deref() == Some("Main B")), "Main B");
+        assert_eq!(s.state().ots.applied, 2, "Main B starts");
+        // Stopped, a press still recalls at once (and arms Sync Start, as any recall does).
+        s.send(TransportCmd::Main { index: 2 }).unwrap();
+        s.advance(10 * MS);
+        s.send(TransportCmd::StartStop).unwrap();
+        s.advance(10 * MS);
+        assert_eq!(s.state().ots.applied, 2);
+        s.send(TransportCmd::Main { index: 3 }).unwrap();
+        s.advance(10 * MS);
+        let st = s.state();
+        assert_eq!((st.ots.applied, st.transport.sync_start), (4, true), "stopped: follows the press");
+    }
+
+    /// Immediate and At Main Section Change recall the same OTS for a Main the style
+    /// lacks: the pressed button's.
+    #[test]
+    fn ots_link_timings_agree_on_a_missing_main() {
+        let Some((path, missing)) = corpus_lacking_a_main() else {
+            eprintln!("no corpus style lacks a Main; skipping");
+            return;
+        };
+        for timing in [OtsLinkTiming::Immediate, OtsLinkTiming::MainChange] {
+            let s = Session::offline(Options { paths: vec![path.clone()], ..Options::default() }).unwrap();
+            s.send(OtsCmd::SetOtsLinkTiming { timing }).unwrap();
+            s.send(OtsCmd::SetOtsLink { on: true }).unwrap();
+            chord_c(&s);
+            s.advance(500 * MS);
+            s.send(TransportCmd::Main { index: missing }).unwrap();
+            s.advance(8000 * MS);
+            let st = s.state();
+            assert!(st.transport.running, "{timing:?}");
+            assert_eq!(st.ots.applied, missing + 1, "{timing:?}: the pressed button's OTS");
+        }
+    }
+
+    /// A corpus style with four OTS that lacks a Main (and has Main A), and that Main.
+    fn corpus_lacking_a_main() -> Option<(PathBuf, u8)> {
+        use crate::sff::{SectionId, Style};
+        let mut paths = Vec::new();
+        for dir in ["corpus/MOX_v2", "corpus/SX900Style for Genos", "corpus/T5Style"] {
+            let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join(dir);
+            paths.extend(std::fs::read_dir(dir).ok()?.flatten().map(|e| e.path()));
+        }
+        paths.sort();
+        paths.into_iter().find_map(|p| {
+            let s = Style::load(&p).ok()?;
+            let has = |m| s.sections.contains_key(&SectionId::Main(m));
+            let missing = (1..4).find(|&m| !has(m))?;
+            (has(0) && s.ots.len() == 4).then_some((p, missing))
+        })
+    }
+
     #[test]
     fn change_behavior_commands_and_state() {
         let (Some(s), Some(other)) = (offline("SlowWalker.T552.sty"), corpus("AustinCityBlues.S930.STY")) else { return };

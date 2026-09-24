@@ -60,6 +60,13 @@ pub fn slot_of(id: SectionId) -> usize {
     }
 }
 
+/// The middle of a `tpb`-tick bar of `beats` notated beats, on a beat: `beats / 2` of
+/// them (at least one).
+pub fn half_bar(tpb: u32, beats: u8) -> u32 {
+    let beats = beats.max(1) as u32;
+    (tpb / beats * (beats / 2)).max(tpb / beats)
+}
+
 pub fn id_of(slot: usize) -> SectionId {
     match slot {
         0..=3 => SectionId::Intro(slot as u8),
@@ -75,6 +82,9 @@ pub struct Prepared {
     pub ppq: u32,
     pub bpm: f64,
     pub tpb: u32,
+    /// Ticks from a bar line to the middle of the bar (Half Bar Fill In): half the
+    /// notated beats, rounded down (beat 3 of 4/4, beat 2 of 3/4, the 4th eighth of 6/8).
+    pub half_bar: u32,
     pub sections: Vec<Option<PSection>>,
     /// The style's channel setup (SInt), remapped to destination channels, without the
     /// parts' CC7 (the mixer sends those).
@@ -325,6 +335,7 @@ impl Prepared {
             ppq: style.ppq as u32,
             bpm: style.bpm(),
             tpb: style.ticks_per_bar(),
+            half_bar: half_bar(style.ticks_per_bar(), style.timesig.0),
             sections,
             init,
             init_resend,
