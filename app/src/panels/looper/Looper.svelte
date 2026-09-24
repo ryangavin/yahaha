@@ -90,7 +90,7 @@
             class="mem mat-raised"
             class:selected={lp.memory === i}
             class:pending={lp.pendingMemory === i}
-            class:empty={!m.name}
+            class:vacant={!m.name}
             class:picking={pick !== null}
             disabled={pick === null && recording(lp.mode)}
             use:tip={'looper.memory'}
@@ -209,7 +209,7 @@
     text-align: left;
     color: var(--ink);
   }
-  .mem.empty {
+  .mem.vacant {
     color: var(--muted);
   }
   .mem.selected {
