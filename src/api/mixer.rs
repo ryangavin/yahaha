@@ -20,6 +20,43 @@ pub enum MixerCmd {
     /// Mute/unmute the built-in synth's audio.
     SetSynthMuted { on: bool },
     ToggleSynthMute,
+    /// Solo a Style part (`part` 0-7): only it plays, even if switched off. `null` ends the
+    /// solo. The parts' on/off switches are unchanged.
+    SetStyleSolo { part: Option<u8> },
+    /// Solo a keyboard part (`part` 0-3: Right 1, Right 2, Right 3, Left): only it sounds
+    /// from the keys, even if switched off. `null` ends the solo.
+    SetPartSolo { part: Option<u8> },
+    /// Style Track Mute (a Genos Live Control knob, RM p.148): `value` 0-127 is the knob.
+    /// Fully left leaves one Style part on; turning up adds parts in the `order`'s sequence
+    /// until, fully right, all eight are on. Sets the parts' on/off switches.
+    StyleTrackMute { order: TrackMuteOrder, value: u8 },
+}
+
+/// The order Style Track Mute brings the Style parts in (RM p.148).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum TrackMuteOrder {
+    /// Rhythm 2, then Rhythm 1, Bass, Chord 1, Chord 2, Pad, Phrase 1, Phrase 2.
+    A,
+    /// Chord 1, then Chord 2, Pad, Bass, Phrase 1, Phrase 2, Rhythm 1, Rhythm 2.
+    B,
+}
+
+impl TrackMuteOrder {
+    /// Style parts (0-7) in the order the knob turns them on.
+    pub fn order(self) -> [u8; 8] {
+        match self {
+            TrackMuteOrder::A => [1, 0, 2, 3, 4, 5, 6, 7],
+            TrackMuteOrder::B => [3, 4, 5, 2, 6, 7, 0, 1],
+        }
+    }
+
+    /// The Style parts on (bit = part) with the knob at `value` (0-127): 1 part at 0, all
+    /// 8 at 127, in even steps between.
+    pub fn mask(self, value: u8) -> u8 {
+        let n = 1 + (value.min(127) as usize * 7 + 63) / 127;
+        self.order()[..n].iter().fold(0, |m, &p| m | 1 << p)
+    }
 }
 
 impl MixerCmd {
@@ -44,6 +81,10 @@ pub struct MixerState {
     pub master: Option<u8>,
     /// The Launchkey master fader has moved but not yet reached `master`.
     pub master_waiting: bool,
+    /// The Style part soloed (0-7), if any: only it plays.
+    pub style_solo: Option<u8>,
+    /// The keyboard part soloed (0-3), if any: only it sounds from the keys.
+    pub part_solo: Option<u8>,
 }
 
 /// One of the 8 accompaniment parts.
@@ -106,4 +147,22 @@ pub struct ChannelMeter {
     /// MIDI channel, 1-based.
     pub channel: u8,
     pub peak: f32,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn track_mute_steps() {
+        assert_eq!(TrackMuteOrder::A.mask(0), 0b10);
+        assert_eq!(TrackMuteOrder::A.mask(127), 0xFF);
+        assert_eq!(TrackMuteOrder::B.mask(0), 0b1000);
+        // Each step adds the next part in the order.
+        let masks: Vec<_> = (0..=127).map(|v| TrackMuteOrder::B.mask(v)).collect();
+        let counts: Vec<_> = masks.iter().map(|m| m.count_ones()).collect();
+        assert!(counts.windows(2).all(|w| w[1] == w[0] || w[1] == w[0] + 1));
+        assert_eq!(TrackMuteOrder::B.mask(64) & 0b11, 0, "the rhythm parts come last in B");
+        assert!((1..=8).all(|n| counts.iter().filter(|&&c| c == n).count() >= 9));
+    }
 }

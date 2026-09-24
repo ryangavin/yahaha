@@ -14,6 +14,7 @@
 use crate::engine::{shift_key, AuditionPos, Button, Engine, Prepared, Snapshot, Transpose};
 use crate::fingering::{self, Fingering};
 use crate::launchkey::{self, Action, Control, Page};
+use crate::looper::ChordSeq;
 use crate::midi::{for_each_message, InputHandler};
 use crate::parts::{self, FaderPage, Parts};
 use crate::rt::{self, Histogram, PacketSink, Wakeup};
@@ -40,6 +41,14 @@ pub enum Cmd {
     /// All Notes Off on the keyboard parts' channels: a MIDI source with keys held was
     /// disconnected (its note-offs will never come).
     KeysOff,
+    /// Chord Looper REC/STOP (`true`) or ON/OFF (`false`).
+    Looper(bool),
+    /// Solo a Style part (0-7), or end the solo.
+    StyleSolo(Option<u8>),
+    /// Style part on/off switches, all at once (Style Track Mute).
+    StyleParts(u8),
+    /// Metronome on/off, and the bell on beat 1.
+    Metronome { on: bool, bell: bool },
 }
 
 /// How many bars a style preview plays.
@@ -216,6 +225,14 @@ impl crate::engine::Sink for Out {
     fn send(&mut self, msg: &[u8]) {
         self.push(msg);
     }
+
+    /// The metronome: to the built-in synth's click voice only, never the MIDI port.
+    #[inline]
+    fn click(&mut self, accent: bool) {
+        if let Some(s) = self.synth.as_mut() {
+            let _ = s.push([crate::click::CLICK, accent as u8, 0]);
+        }
+    }
 }
 
 /// Input port tags: a keyboard (slot 0; the offline session's keys), the Launchkey DAW
@@ -308,13 +325,13 @@ impl Sounded {
 /// types, OM p.56). Right of the split: the Right parts that are on, layered.
 pub fn sounds(parts: &Parts, left: bool, chord_only: bool, key: u8, shift: i8) -> Sounded {
     let mut s = Sounded::default();
-    let side: &[usize] = match (left, parts.left_sounds()) {
+    let side: &[usize] = match (left, parts.left_audible()) {
         (true, true) => &[parts::LEFT],
         (true, false) if chord_only => &[],
         _ => &[parts::RIGHT1, parts::RIGHT2, parts::RIGHT3],
     };
     for &p in side {
-        if p == parts::LEFT || parts.is_on(p) {
+        if p == parts::LEFT || parts.audible(p) {
             let oct = parts.octave_of(p);
             s.push(parts::CHANNEL[p], shift_key(key, shift + 12 * oct));
         }
@@ -786,6 +803,9 @@ pub struct EngineIo {
     pub auditions: Consumer<Box<Audition>>,
     pub old_auditions: Producer<Box<Audition>>,
     pub snaps: Producer<Snapshot>,
+    /// Chord Looper sequences in (a memory), and finished recordings out.
+    pub looper_in: Consumer<ChordSeq>,
+    pub recorded: Producer<ChordSeq>,
     pub out: Out,
 }
 
@@ -945,7 +965,13 @@ impl EngineLoop {
             }
             apply(&mut self.engine, &shared.parts, cmd, now, &mut self.io.out);
         }
+        while let Ok(seq) = self.io.looper_in.pop() {
+            self.engine.looper_load(&seq);
+        }
         self.engine.process(now, &mut self.io.out);
+        if let Some(seq) = self.engine.take_recorded() {
+            let _ = self.io.recorded.push(seq);
+        }
         self.retire_styles();
         self.play_audition(now);
         let (engine, io) = (&mut self.engine, &mut self.io);
@@ -1050,6 +1076,11 @@ fn apply(engine: &mut Engine, parts: &Parts, cmd: Cmd, now: u64, out: &mut Out) 
         Cmd::ManualBass(on) => engine.set_manual_bass(on, out),
         Cmd::Transpose(t) => engine.set_transpose(t, now, out),
         Cmd::StopAudition => {}
+        Cmd::Looper(true) => engine.looper_rec(now, out),
+        Cmd::Looper(false) => engine.looper_on_off(now, out),
+        Cmd::StyleSolo(p) => engine.set_style_solo(p, out),
+        Cmd::StyleParts(m) => engine.set_style_parts(m, out),
+        Cmd::Metronome { on, bell } => engine.set_metronome(on, bell, now),
         Cmd::KeysOff => {
             // The source's pedal, wheels and pressure went to every keyboard part too, and
             // its releases will never come: with the pedal left down, All Notes Off would
@@ -1084,6 +1115,8 @@ pub struct Channels {
     pub snap_rx: Consumer<Snapshot>,
     pub audition_tx: Producer<Box<Audition>>,
     pub old_audition_rx: Consumer<Box<Audition>>,
+    pub looper_tx: Producer<ChordSeq>,
+    pub recorded_rx: Consumer<ChordSeq>,
     pub io: EngineIo,
 }
 
@@ -1095,6 +1128,8 @@ pub fn channels(out: Out) -> Channels {
     let (snaps, snap_rx) = RingBuffer::new(256);
     let (audition_tx, auditions) = RingBuffer::new(4);
     let (old_auditions, old_audition_rx) = RingBuffer::new(8);
+    let (looper_tx, looper_in) = RingBuffer::new(4);
+    let (recorded, recorded_rx) = RingBuffer::new(4);
     Channels {
         input_tx,
         ui_tx,
@@ -1103,7 +1138,9 @@ pub fn channels(out: Out) -> Channels {
         snap_rx,
         audition_tx,
         old_audition_rx,
-        io: EngineIo { input, ui, styles, old, snaps, auditions, old_auditions, out },
+        looper_tx,
+        recorded_rx,
+        io: EngineIo { input, ui, styles, old, snaps, auditions, old_auditions, looper_in, recorded, out },
     }
 }
 

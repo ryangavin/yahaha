@@ -31,6 +31,8 @@ mod chord;
 mod keyboard;
 mod leds;
 mod library;
+mod looper;
+mod metronome;
 mod mixer;
 mod offline;
 mod ots;
@@ -231,6 +233,10 @@ struct Control {
     release_tx: Producer<u8>,
     /// When the sources were last listed (live: every 2 s, for hot-plugged keyboards).
     sources_ns: u64,
+    /// Chord Looper memories and the rings to the engine's looper.
+    looper: looper::LooperCtl,
+    /// Metronome settings.
+    metronome: metronome::MetronomeCtl,
 }
 
 /// What several parts of the state read, read once per `build_state` so they all agree.
@@ -280,6 +286,8 @@ impl Control {
             AppCmd::Preview(c) => self.preview_cmd(c),
             AppCmd::Settings(c) => self.settings_cmd(c),
             AppCmd::System(c) => self.system_cmd(c),
+            AppCmd::Looper(c) => self.looper_cmd(c),
+            AppCmd::Metronome(c) => self.metronome_cmd(c),
         }
     }
 
@@ -326,6 +334,8 @@ impl Control {
         self.pump_sound_font();
         self.pump_rescan();
         self.pump_inputs(now);
+        self.pump_looper();
+        self.pump_metronome();
 
         // Free-running beat clock for flashing/pulsing, following the current tempo.
         let s = self.snap;
@@ -372,6 +382,8 @@ impl Control {
             preview: self.preview_state(),
             keyboard: self.keyboard_state(&v),
             message: self.message.clone(),
+            looper: self.looper_state(),
+            metronome: self.metronome_state(),
         }
     }
 }
@@ -519,6 +531,8 @@ fn assemble(opts: &Options, engine_out: live::Out, input_out: live::Out, offline
         midi: None,
         release_tx,
         sources_ns: 0,
+        looper: looper::LooperCtl::new(ch.looper_tx, ch.recorded_rx),
+        metronome: Default::default(),
     };
     let mut control = control;
     control.list_sound_fonts();

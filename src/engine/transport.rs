@@ -7,7 +7,7 @@ impl Engine {
 
     pub(super) fn set_bpm_internal(&mut self, bpm: f64, now: u64) {
         let t = if self.ns_per_tick > 0.0 { self.tick_at(now) } else { 0.0 };
-        self.bpm = bpm.clamp(30.0, 300.0);
+        self.bpm = bpm.clamp(MIN_BPM, MAX_BPM);
         self.anchor_ns = now;
         self.anchor_tick = t;
         self.ns_per_tick = 60e9 / (self.bpm * self.style.ppq as f64);
@@ -34,7 +34,8 @@ impl Engine {
 
     /// Chord-zone keys all released (for Sync Stop).
     pub fn chord_released(&mut self, now: u64, sink: &mut impl Sink) {
-        if self.sync_stop && self.running {
+        // The Chord Looper plays the chords: the keyboard's releases don't count either.
+        if self.sync_stop && self.running && !self.looper_owns_chords() {
             self.stop(sink);
             self.sync_armed = true;
         }
@@ -68,9 +69,7 @@ impl Engine {
             Button::AutoFill => self.auto_fill = !self.auto_fill,
             Button::TogglePart(p) => {
                 self.parts ^= 1 << (p & 7);
-                if self.parts & (1 << (p & 7)) == 0 {
-                    self.off_where(sink, |n| n.dest == 8 + (p & 7));
-                }
+                self.silence_inaudible(sink);
             }
             Button::StopAcmp => {
                 self.stop_acmp = !self.stop_acmp;
@@ -80,6 +79,7 @@ impl Engine {
             }
             Button::TempoUp => self.set_bpm_internal(self.bpm + 2.0, now),
             Button::TempoDown => self.set_bpm_internal(self.bpm - 2.0, now),
+            Button::SetTempo(bpm) => self.set_bpm_internal(bpm as f64, now),
             Button::TapTempo => self.tap(now),
             Button::Intro(i) => {
                 if !self.running {

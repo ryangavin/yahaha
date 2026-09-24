@@ -19,6 +19,8 @@
 mod chord;
 mod keyboard;
 mod library;
+mod looper;
+mod metronome;
 mod mixer;
 mod ots;
 mod pads;
@@ -32,6 +34,8 @@ mod transport;
 pub use chord::*;
 pub use keyboard::*;
 pub use library::*;
+pub use looper::*;
+pub use metronome::*;
 pub use mixer::*;
 pub use ots::*;
 pub use pads::*;
@@ -115,6 +119,10 @@ app_cmd! {
     Settings(SettingsCmd),
     /// Panic, the message line.
     System(SystemCmd),
+    /// Chord Looper: record, loop, memories.
+    Looper(LooperCmd),
+    /// Metronome on/off, volume, bell.
+    Metronome(MetronomeCmd),
 }
 
 impl From<Button> for AppCmd {
@@ -132,6 +140,7 @@ impl From<Button> for AppCmd {
             Button::TapTempo => TransportCmd::TapTempo.into(),
             Button::TempoUp => TransportCmd::TempoUp.into(),
             Button::TempoDown => TransportCmd::TempoDown.into(),
+            Button::SetTempo(bpm) => TransportCmd::SetTempo { bpm }.into(),
             Button::TogglePart(p) => MixerCmd::ToggleStylePart { part: p }.into(),
             Button::StopAcmp => TransportCmd::ToggleStopAcmp.into(),
         }
@@ -242,6 +251,10 @@ pub struct AppState {
     pub keyboard: KeyboardState,
     /// The last notice or error, until the next one or `ClearMessage`.
     pub message: Option<Message>,
+    /// The Chord Looper.
+    pub looper: LooperState,
+    /// The metronome.
+    pub metronome: MetronomeState,
 }
 
 // ---------------------------------------------------------------------------

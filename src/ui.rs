@@ -644,6 +644,8 @@ pub fn screen_html(style: &Path, out: &Path) -> Result<()> {
         style_pending: false,
         section_bars: 4,
         audition: None,
+        looper: Default::default(),
+        style_solo: None,
     });
     // What a live session with the synth and a Launchkey would add.
     let mut st = (*session.state()).clone();

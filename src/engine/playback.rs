@@ -8,6 +8,7 @@ impl Engine {
     /// Emit everything due up to `now`.
     pub fn process(&mut self, now: u64, sink: &mut impl Sink) {
         if !self.running {
+            self.metronome_idle(now, sink);
             return;
         }
         let mut target = self.tick_at(now) + 1e-6;
@@ -26,6 +27,16 @@ impl Engine {
             {
                 self.beat_line(now, sink);
                 continue;
+            }
+            // A feature's action before the next event and the boundary (`hook_due`).
+            if let Some(t) = self.hook_due() {
+                if t <= target
+                    && t < boundary - 1e-6
+                    && sec.events.get(self.ev_idx).is_none_or(|e| t <= self.sec_start + e.tick as f64 + 1e-6)
+                {
+                    self.on_due(t, now, sink);
+                    continue;
+                }
             }
             if let Some(e) = sec.events.get(self.ev_idx) {
                 let t = self.sec_start + e.tick as f64;
@@ -114,7 +125,7 @@ impl Engine {
                     j += 1;
                 }
                 self.ev_idx = j;
-                let part_on = self.parts & (1 << (dest.saturating_sub(8) & 7)) != 0;
+                let part_on = self.audible() & (1 << (dest.saturating_sub(8) & 7)) != 0;
                 let Some(chord) = self.chord_for(rule) else { return };
                 if !part_on || !plays(rule, chord) {
                     return;
