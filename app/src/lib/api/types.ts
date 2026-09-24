@@ -81,6 +81,8 @@ export type AppCmd =
   | { type: 'nextAudioOutput' }
   | { type: 'panic' }
   | { type: 'clearMessage' }
+  // Provisional (#21, not in the engine yet): see PreviewState below.
+  | PreviewCmd
 
 export type CmdError = { kind: 'busy' } | { kind: 'failed'; message: string }
 
@@ -405,6 +407,37 @@ export interface KeyboardState {
   chordBass: number | null
 }
 
+// ── Provisional: style preview (#21, not in the engine yet) ──────────────
+// The browser auditions a style while the band is stopped, and queues one for the next
+// bar line while it plays. The mock implements both; the engine will send
+// `state.preview` once it does, and until then the browser hides these controls when
+// `preview` is absent. Proposed on the coordination board (NEED, #20/#21 ui-browser).
+
+export type PreviewCmd =
+  /** Stopped only: plays the style's Main A over the default progression (one chord a
+   * bar, `PreviewState.audition.bars` bars), on the style channels, then stops by itself.
+   * The loaded style, OTS, mixer and transport don't change. Refused while the band runs. */
+  | { type: 'auditionStyle'; id: number }
+  /** Ends an audition at once (all notes off on the style channels). */
+  | { type: 'stopAudition' }
+  /** Playing: load the style at the next bar line (like `loadStyle` then). Stopped: the
+   * same as `loadStyle`. A second `queueStyle` replaces the first. */
+  | { type: 'queueStyle'; id: number }
+
+export interface PreviewState {
+  /** The style auditioning while the band is stopped; null when none. */
+  audition: {
+    id: number
+    /** 1-based bar of the audition, and how many it plays. */
+    bar: number
+    bars: number
+    /** The progression's chord playing now. */
+    chord: string | null
+  } | null
+  /** The style `queueStyle` will load at the next bar line; null when none. */
+  queued: number | null
+}
+
 export interface AppState {
   version: number
   style: StyleState
@@ -422,6 +455,8 @@ export interface AppState {
   surface: SurfaceState
   /** Provisional (see KeyboardState): held keys and chord tones for the keyboard strip. */
   keyboard?: KeyboardState
+  /** Provisional (see PreviewState); absent from the engine until it can audition. */
+  preview?: PreviewState
 }
 
 export interface LibraryEntry {
@@ -436,6 +471,9 @@ export interface LibraryEntry {
   timeSignature: [number, number] | null
   /** e.g. "Main ABCD · Intro ABC · Ending ABC · Fill ABCD · Break". */
   sections: string
+  /** Provisional (#20): "SFF1" or "SFF2", null until indexed or unreadable. Absent from
+   * the engine until it lists it (the loaded style's is `style.format`). */
+  format?: string | null
 }
 
 export interface LibraryList {

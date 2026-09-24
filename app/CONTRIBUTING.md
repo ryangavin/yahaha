@@ -35,6 +35,7 @@ URL switches for browser dev mode:
 | `?tip=<catalog key>` | shows that one tooltip |
 | `?open=browser` \| `parts` \| `mixer` \| `settings` | opens that panel |
 | `?shift=1` | latches the Shift layer |
+| `?styles=N` | adds N synthetic styles to the mock's library (try 60000 in the browser) |
 | `?mock` | uses the mock even inside Tauri |
 
 ## Why Svelte 5 + Vite + TypeScript
