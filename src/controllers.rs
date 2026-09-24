@@ -509,11 +509,10 @@ impl Controllers {
                 Effect::Nothing | Effect::Engine(_) | Effect::Control => {}
             }
         }
-        if let Effect::Switch(b) = p.function.effect() {
-            if (rebound || old.control_type != p.control_type) && p.control_type != ControlType::Toggle {
-                let down = self.down.load(Relaxed) >> i & 1 != 0;
-                self.hold(i, b, p.control_type, down);
-            }
+        let retyped = rebound || old.control_type != p.control_type;
+        if let (Effect::Switch(b), true) = (p.function.effect(), retyped && p.control_type != ControlType::Toggle) {
+            let down = self.down.load(Relaxed) >> i & 1 != 0;
+            self.hold(i, b, p.control_type, down);
         }
     }
 
