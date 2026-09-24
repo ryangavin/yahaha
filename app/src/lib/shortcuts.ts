@@ -14,16 +14,27 @@ function isTextField(el: EventTarget | null): boolean {
   return el instanceof HTMLElement && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName))
 }
 
+/** Holding Shift shows the Launchkey mirror's Shift layer. */
+export function handleKeyUp(e: KeyboardEvent) {
+  if (e.key === 'Shift') ui.shiftHeld = false
+}
+
+export function handleBlur() {
+  ui.shiftHeld = false
+}
+
 export function handleKey(e: KeyboardEvent) {
   const target = e.target
+  if (e.key === 'Shift') ui.shiftHeld = true
   if (e.key === 'Escape') {
     if (tips.key) tips.hide()
     if (ui.escape()) e.preventDefault()
     else if (document.activeElement instanceof HTMLElement && document.activeElement !== document.body) document.activeElement.blur()
     return
   }
-  // An open overlay owns the keyboard (the browser's filter takes typed keys).
-  if (ui.browser || ui.settings) return
+  // The style browser owns the keyboard while open (its filter takes typed keys).
+  // Side drawers don't: performance keys keep working next to them.
+  if (ui.browser) return
   if (isTextField(target)) return
   if (target instanceof HTMLButtonElement && (e.key === ' ' || e.key === 'Enter')) return
   const b = binding(e)

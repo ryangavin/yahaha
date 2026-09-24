@@ -84,10 +84,10 @@
     font-family: var(--font-display);
     font-weight: 600;
     padding: 0 0.35em;
-    border: 1px solid var(--line-strong);
+    border: 1px solid rgb(0 0 0 / 0.45);
     border-bottom-width: 2px;
     border-radius: 4px;
-    background: var(--raised);
+    background: linear-gradient(180deg, var(--raised-hi), var(--raised-lo));
   }
   .or,
   .none {

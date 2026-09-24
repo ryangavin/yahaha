@@ -38,11 +38,15 @@
     z-index: 100;
     pointer-events: none;
     padding: 0.7rem 0.85rem 0.75rem;
-    background: var(--tip-bg);
+    /* Same brushed-metal material as the instrument, a touch lighter, so it reads as a
+       plate lifted off the panel. */
+    background: linear-gradient(180deg, color-mix(in srgb, var(--chassis-hi) 85%, white 6%), var(--chassis-lo));
     color: var(--ink);
-    border: 1px solid var(--line-strong);
+    border: 1px solid var(--seam);
     border-radius: 8px;
-    box-shadow: 0 12px 32px -8px rgb(0 0 0 / 0.55);
+    box-shadow:
+      inset 0 1px 0 var(--chassis-edge),
+      0 14px 34px -10px rgb(0 0 0 / 0.65);
     opacity: 0;
     visibility: hidden;
     transition: opacity 90ms ease-out;

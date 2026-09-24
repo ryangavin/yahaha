@@ -1,7 +1,7 @@
 <!--
-  An on/off setting that isn't a lamp key: a compact switch with a small indicator, lit in
-  the accent colour while on. Use LampKey for anything the Launchkey lights, so the
-  colours match the pads.
+  An on/off setting for the drawers (Settings, Parts): a physical rocker-style switch
+  with a small amber indicator LED. Use HwButton with an engine LED look for anything the
+  Launchkey lights, so colours match the pads.
 -->
 <script lang="ts">
   import type { Snippet } from 'svelte'
@@ -11,8 +11,8 @@
   let { on, tip, onclick, children }: { on: boolean; tip: TipKey; onclick: () => void; children: Snippet } = $props()
 </script>
 
-<button type="button" class="toggle" role="switch" aria-checked={on} use:tipAction={tip} {onclick}>
-  <span class="dot" class:on aria-hidden="true"></span>
+<button type="button" class="toggle mat-raised" class:pressed={on} role="switch" aria-checked={on} use:tipAction={tip} {onclick}>
+  <span class="led" class:on aria-hidden="true"></span>
   {@render children()}
 </button>
 
@@ -20,29 +20,24 @@
   .toggle {
     display: inline-flex;
     align-items: center;
-    gap: 0.5rem;
-    min-height: 2.25rem;
-    padding: 0.2rem 0.7rem;
-    background: var(--raised);
-    border: 1px solid var(--line);
-    border-radius: var(--r-key);
+    gap: 0.55em;
+    min-height: 2.2em;
+    padding: 0.2em 0.8em;
+    border-radius: 5px;
     font-family: var(--font-display);
     font-weight: 600;
-    font-size: var(--fs-label);
+    font-size: 0.95em;
+    color: var(--ink);
   }
-  .toggle:hover {
-    border-color: var(--line-strong);
-  }
-  .dot {
-    width: 0.6rem;
-    height: 0.6rem;
+  .led {
+    width: 0.55em;
+    height: 0.55em;
     border-radius: 50%;
     background: var(--lamp-off);
-    border: 1px solid var(--line-strong);
+    box-shadow: inset 0 1px 1px rgb(0 0 0 / 0.6);
   }
-  .dot.on {
+  .led.on {
     background: var(--accent);
-    border-color: var(--accent);
-    box-shadow: 0 0 8px var(--accent);
+    box-shadow: 0 0 8px var(--accent), inset 0 -1px 1px rgb(0 0 0 / 0.3);
   }
 </style>

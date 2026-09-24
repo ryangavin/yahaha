@@ -61,12 +61,19 @@ const STATES: [string, Setup][] = [
   ['help mode', () => (tips.help = true)],
   ['style browser open', () => (ui.browser = true)],
   ['settings open', () => (ui.settings = true)],
+  ['parts drawer open', () => (ui.parts = true)],
+  ['mixer drawer open', () => (ui.mixer = true)],
+  ['Shift layer on', () => (ui.shiftLatched = true)],
+  ['Shift layer on, fader page Style', (s) => ((ui.shiftLatched = true), s.send({ type: 'toggleFaderPage' }))],
 ]
 
 afterEach(() => {
   cleanup()
   ui.browser = false
   ui.settings = false
+  ui.parts = false
+  ui.mixer = false
+  ui.shiftLatched = false
   tips.help = false
 })
 

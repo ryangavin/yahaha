@@ -1,5 +1,5 @@
 <!--
-  PANEL SLOT: Style browser (overlay, open while `ui.browser`). Not built yet; see
+  OVERLAY SLOT: Style browser (modal overlay, open while `ui.browser`). Not built yet; see
   app/CONTRIBUTING.md.
   Data: `app.library.entries` (LibraryEntry[] in folder-then-name order, kept fresh by
   the store); `app.state.library.position` is the loaded style. Load with
@@ -14,7 +14,7 @@
   import PanelSlot from '../../lib/ui/PanelSlot.svelte'
 </script>
 
-<Overlay id="browser" title="Styles" closeTip="browser.close" onclose={() => (ui.browser = false)}>
+<Overlay id="browser" title="Styles" side="center" modal closeTip="browser.close" onclose={() => (ui.browser = false)}>
   <PanelSlot
     items={[
       'Folders (categories) and filter-as-you-type on name or folder',

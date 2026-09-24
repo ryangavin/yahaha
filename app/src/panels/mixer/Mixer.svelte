@@ -1,23 +1,24 @@
 <!--
-  PANEL SLOT: Mixer. Not built yet; see app/CONTRIBUTING.md.
-  State: app.state.mixer (faderPage, styleParts, master, masterWaiting) and
-  app.state.keyboardParts (the Panel page's volumes and `waiting`).
-  Use lib/ui/Fader (it has the soft-takeover mark) and lib/ui/Tabs for Panel/Style.
+  DRAWER SLOT: Mixer detail (right-side drawer, open while `ui.mixer`). Not built yet; see
+  app/CONTRIBUTING.md. The Launchkey mirror already shows the faders of the active page;
+  this drawer shows both pages at once, with each band part's voice.
+  State: app.state.mixer (faderPage, styleParts with voice/waiting/mutedByManualBass,
+  master, masterWaiting) and app.state.keyboardParts. Use lib/ui/Fader and HwButton.
   Tooltips ready in the catalog: mixer.page, mixer.panel.*, mixer.style.volume,
-  mixer.style.mute, mixer.master, mixer.pickup.
+  mixer.style.mute, mixer.master, mixer.pickup, drawer.close.
 -->
 <script lang="ts">
-  import Panel from '../../lib/ui/Panel.svelte'
+  import { ui } from '../../lib/store.svelte'
+  import Overlay from '../../lib/ui/Overlay.svelte'
   import PanelSlot from '../../lib/ui/PanelSlot.svelte'
 </script>
 
-<Panel id="mixer" title="Mixer">
+<Overlay id="mixer" title="Mixer" closeTip="drawer.close" onclose={() => (ui.mixer = false)}>
   <PanelSlot
     items={[
-      'Panel / Style tabs, mirroring the Launchkey fader pages (F9)',
-      'Panel: Right 1–3 and Left volumes, on/off under each',
-      'Style: the eight band parts, volume and mute (z … ,)',
-      'Master fader; ↕ on a fader waiting for soft takeover',
+      'Panel: Right 1–3 and Left, volume and on/off',
+      'Style: the eight band parts with the voice each was written for, volume and mute (z … ,)',
+      'Master; ↕ on any level waiting for its Launchkey fader',
     ]}
   />
-</Panel>
+</Overlay>

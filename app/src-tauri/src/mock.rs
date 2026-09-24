@@ -935,6 +935,50 @@ mod tests {
         assert_eq!(v["keyboardParts"].as_array().unwrap().len(), 4);
     }
 
+    /// Key paths and value kinds, as app/src/lib/api/shape.ts computes them.
+    fn shape(v: &serde_json::Value, path: &str, out: &mut std::collections::HashMap<String, &'static str>) {
+        use serde_json::Value;
+        match v {
+            Value::Array(a) => {
+                if let Some(x) = a.first() {
+                    shape(x, &format!("{path}[]"), out)
+                }
+            }
+            Value::Object(o) => {
+                for (k, x) in o {
+                    let p = if path.is_empty() { k.clone() } else { format!("{path}.{k}") };
+                    let kind = match x {
+                        Value::Null => "null",
+                        Value::Array(_) => "array",
+                        Value::Bool(_) => "boolean",
+                        Value::Number(_) => "number",
+                        Value::String(_) => "string",
+                        Value::Object(_) => "object",
+                    };
+                    out.insert(p.clone(), kind);
+                    shape(x, &p, out);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    #[test]
+    fn state_and_library_match_the_recorded_engine_shape() {
+        let recorded: serde_json::Value = serde_json::from_str(include_str!("../../src/lib/api/engine-shape.json")).unwrap();
+        let mut m = MockSession::new();
+        m.send(AppCmd::Intro { index: 0 });
+        for (key, value) in [("state", serde_json::to_value(&m.state).unwrap()), ("library", serde_json::to_value(m.library()).unwrap())] {
+            let mut have = std::collections::HashMap::new();
+            shape(&value, "", &mut have);
+            for line in recorded[key].as_array().unwrap() {
+                let (path, kind) = line.as_str().unwrap().split_once(": ").unwrap();
+                let got = have.get(path).unwrap_or_else(|| panic!("{key}: missing {path}"));
+                assert!(kind == "null" || *got == "null" || *got == kind, "{key}: {path} engine {kind}, mock {got}");
+            }
+        }
+    }
+
     #[test]
     fn chords_transpose() {
         assert_eq!(transpose_chord("Am7/G", 2), "Bm7/A");

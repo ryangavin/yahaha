@@ -23,6 +23,7 @@ const GROUPS: [string, string][] = [
   ['mixer', 'Mixer'],
   ['padpage', 'Launchkey pad pages'],
   ['launchkey', 'Launchkey'],
+  ['drawer', 'Panels around the hardware view'],
   ['settings', 'Settings'],
   ['audio', 'Audio'],
   ['midi', 'MIDI'],

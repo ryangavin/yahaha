@@ -663,7 +663,7 @@ const catalog = {
   },
   'launchkey.shift': {
     title: 'Shift',
-    body: 'Hold for the second function: Pad Bank ▲ = Left on/off, Pad Bank ▼ = OTS Link, the buttons under faders 1–4 on the Panel page = edit that part.',
+    body: 'Hold for the second functions: Pad Bank ▲ = Left on/off, Pad Bank ▼ = OTS Link, the buttons under faders 1–4 on the Panel page = edit that part. On screen, click it to latch the Shift layer, or hold Shift on your computer keyboard.',
     genos: null,
     keys: [],
     launchkey: 'Shift button',
@@ -674,6 +674,13 @@ const catalog = {
     genos: null,
     keys: [],
     launchkey: null,
+  },
+  'launchkey.fader_unused': {
+    title: 'Unused fader',
+    body: 'On the Panel fader page, faders 5–8 and their buttons do nothing. Switch to the Style page (the button under the master fader) to mix the band.',
+    genos: null,
+    keys: [],
+    launchkey: 'Panel fader page: faders 5–8 and the buttons under them',
   },
   'launchkey.unused': {
     title: 'Unused pad',
@@ -724,6 +731,29 @@ const catalog = {
     body: 'Whether this MIDI source plays yahaha. The Launchkey\'s DAW port carries its pads and buttons.',
     genos: null,
     keys: [],
+    launchkey: null,
+  },
+
+  // ── Drawers around the hardware view ────────────────────────────────────
+  'drawer.parts': {
+    title: 'Keyboard parts and OTS',
+    body: 'Opens the detail of Right 1–3 and Left (voice, volume, octave, on/off) and the style\'s One Touch Settings.',
+    genos: 'PART ON/OFF, Voice Setting, ONE TOUCH SETTING',
+    keys: [],
+    launchkey: 'Pad page 3 (OTS/Parts) has the same controls',
+  },
+  'drawer.mixer': {
+    title: 'Mixer',
+    body: 'Opens the full mixer: both fader pages side by side, with each band part\'s voice.',
+    genos: 'Mixer (Panel / Style tabs)',
+    keys: [],
+    launchkey: 'The faders and the buttons under them',
+  },
+  'drawer.close': {
+    title: 'Close',
+    body: 'Closes this panel. The band keeps playing.',
+    genos: null,
+    keys: ['esc'],
     launchkey: null,
   },
 

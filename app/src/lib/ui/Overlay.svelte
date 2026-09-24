@@ -1,12 +1,16 @@
 <!--
-  A modal panel over the main screen (style browser, settings). The shell closes it on
-  Esc (`ui.escape()`); the close button needs its own catalog tip. Playing keeps working
-  while it's open: MIDI and the Launchkey don't go through the UI.
+  A panel around the hardware view, in the same brushed-metal material.
+  - `side="right"`: a drawer (Keyboard parts + OTS, Mixer, Settings). Not modal: the
+    mirror stays usable and performance keys keep working.
+  - `side="center"` + `modal`: the style browser. A scrim, focus moves in, and it owns
+    the keyboard until closed.
+  The shell closes the topmost one on Esc (`ui.escape()`); the close button needs a
+  catalog tip.
 -->
 <script lang="ts">
   import type { Snippet } from 'svelte'
   import type { TipKey } from '../../help/tooltips'
-  import Key from './Key.svelte'
+  import HwButton from './HwButton.svelte'
 
   let {
     id,
@@ -14,11 +18,13 @@
     closeTip,
     onclose,
     children,
-    side = 'center',
-  }: { id: string; title: string; closeTip: TipKey; onclose: () => void; children: Snippet; side?: 'center' | 'right' } = $props()
+    side = 'right',
+    modal = false,
+  }: { id: string; title: string; closeTip: TipKey; onclose: () => void; children: Snippet; side?: 'center' | 'right'; modal?: boolean } = $props()
 
   let box: HTMLDivElement | undefined = $state()
   $effect(() => {
+    if (!modal) return
     // Take focus so keys go to the overlay, and give it back on close.
     const prev = document.activeElement as HTMLElement | null
     box?.focus()
@@ -26,11 +32,19 @@
   })
 </script>
 
-<div class="scrim" role="presentation" onclick={onclose}></div>
-<div class="overlay {side}" role="dialog" aria-modal="true" aria-labelledby="{id}-title" tabindex="-1" bind:this={box} data-overlay={id}>
+{#if modal}<div class="scrim" role="presentation" onclick={onclose}></div>{/if}
+<div
+  class="overlay mat-chassis {side}"
+  role={modal ? 'dialog' : 'complementary'}
+  aria-modal={modal || undefined}
+  aria-labelledby="{id}-title"
+  tabindex="-1"
+  bind:this={box}
+  data-overlay={id}
+>
   <header>
-    <h2 id="{id}-title">{title}</h2>
-    <Key tip={closeTip} size="s" onclick={onclose}>Close</Key>
+    <h2 id="{id}-title" class="engraved">{title}</h2>
+    <HwButton tip={closeTip} onclick={onclose}>Close</HwButton>
   </header>
   <div class="body">{@render children()}</div>
 </div>
@@ -40,24 +54,22 @@
     position: fixed;
     inset: 0;
     z-index: 40;
-    background: rgb(0 0 0 / 0.45);
+    background: rgb(0 0 0 / 0.5);
   }
   .overlay {
     position: fixed;
     z-index: 50;
     display: flex;
     flex-direction: column;
-    background: var(--panel);
-    border: 1px solid var(--line-strong);
     border-radius: var(--r-panel);
-    box-shadow: 0 24px 60px -12px rgb(0 0 0 / 0.6);
     outline: none;
+    font-size: 15px;
   }
   .center {
     inset: 5vh max(16px, calc(50vw - 36rem));
   }
   .right {
-    top: 16px;
+    top: 3.9rem;
     right: 16px;
     bottom: 16px;
     width: min(30rem, calc(100vw - 32px));
@@ -67,13 +79,12 @@
     align-items: center;
     justify-content: space-between;
     padding: 0.6rem 0.75rem 0.6rem 1rem;
-    border-bottom: 1px solid var(--line);
+    border-bottom: 1px solid var(--seam);
+    box-shadow: 0 1px 0 rgb(255 255 255 / 0.04);
   }
   h2 {
     margin: 0;
-    font-family: var(--font-display);
-    font-weight: 600;
-    font-size: 1.35rem;
+    font-size: 0.95rem;
   }
   .body {
     flex: 1;

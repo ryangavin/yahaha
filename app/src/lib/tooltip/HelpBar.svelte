@@ -26,7 +26,7 @@
     z-index: 30;
     min-height: 5.5rem;
     padding: 0.8rem 1.1rem;
-    background: var(--tip-bg);
+    background: linear-gradient(180deg, var(--chassis-hi), var(--chassis-lo));
     border: 1px solid var(--accent);
     border-radius: var(--r-panel);
     box-shadow: 0 -8px 24px -12px rgb(0 0 0 / 0.5);

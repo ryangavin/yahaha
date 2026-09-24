@@ -110,9 +110,26 @@ function storedTheme(): Theme {
 }
 
 class UiStore {
+  /** Overlays and drawers around the hardware view. */
   browser = $state(false)
   settings = $state(false)
+  parts = $state(false)
+  mixer = $state(false)
   theme = $state<Theme>(storedTheme())
+  /** The Launchkey mirror's Shift layer: latched on screen, or the Shift key held. */
+  shiftLatched = $state(false)
+  shiftHeld = $state(false)
+
+  get shift(): boolean {
+    return this.shiftLatched || this.shiftHeld
+  }
+
+  /** Open one side drawer (closing the others), or close it if it's open. */
+  toggleDrawer(d: 'parts' | 'mixer' | 'settings') {
+    const open = !this[d]
+    this.parts = this.mixer = this.settings = false
+    this[d] = open
+  }
 
   setTheme(t: Theme) {
     this.theme = t
@@ -127,6 +144,8 @@ class UiStore {
   escape(): boolean {
     if (this.browser) return !(this.browser = false)
     if (this.settings) return !(this.settings = false)
+    if (this.parts) return !(this.parts = false)
+    if (this.mixer) return !(this.mixer = false)
     return false
   }
 }

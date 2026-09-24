@@ -4,7 +4,8 @@
 //   ?theme=light   start in the light theme (not remembered)
 //   ?help=1        start in help mode
 //   ?tip=<key>     show the tooltip of the first control with that catalog key
-//   ?open=browser|settings   open an overlay
+//   ?open=browser|settings|parts|mixer   open an overlay or drawer
+//   ?shift=1       latch the Launchkey mirror's Shift layer
 
 import { isTipKey } from '../help/tooltips'
 import { ui } from './store.svelte'
@@ -17,7 +18,8 @@ export function applyUrlParams(search = location.search) {
   if (p.get('help') === '1') tips.help = true
   const open = p.get('open')
   if (open === 'browser') ui.browser = true
-  if (open === 'settings') ui.settings = true
+  if (open === 'settings' || open === 'parts' || open === 'mixer') ui.toggleDrawer(open)
+  if (p.get('shift') === '1') ui.shiftLatched = true
   const key = p.get('tip')
   if (key && isTipKey(key)) {
     setTimeout(() => {
