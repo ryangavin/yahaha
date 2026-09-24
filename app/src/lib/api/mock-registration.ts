@@ -6,7 +6,7 @@
 import fixture from './mock-fixture.json'
 import type { AppCmd, AppState, Fingering } from './types'
 import {
-  emptyPlaylist, emptyRegistration, REGIST_GROUPS,
+  emptyPlaylist, emptyRegistration, fileStem, REGIST_GROUPS,
   type PlaylistCmd, type PlaylistRecord, type PlaylistSort, type RegistGroup, type RegistrationCmd, type SequenceEnd,
 } from './registration'
 
@@ -51,8 +51,10 @@ export interface RegistHost {
   findStyle(path: string, name: string): string | null
 }
 
-const bankPath = (name: string) => `${BANK_DIR}/${name}.regist.json`
-const listPath = (name: string) => `${LIST_DIR}/${name}.playlist.json`
+const bankPath = (name: string) => `${BANK_DIR}/${fileStem(name)}.regist.json`
+const listPath = (name: string) => `${LIST_DIR}/${fileStem(name)}.playlist.json`
+/** The key of `files` that is `path` on a case-insensitive file system (the Mac's). */
+const existing = (files: Map<string, unknown>, path: string) => [...files.keys()].find((k) => k.toLowerCase() === path.toLowerCase())
 const has = (m: Memory, g: RegistGroup) => m.groups.includes(g)
 
 function demoMemory(name: string, style: [string, string], tempo: number, programs: number[], on: boolean[]): Memory {
@@ -185,9 +187,12 @@ export class MockRegistration {
         if (cmd.name !== null || !this.path) {
           const name = (cmd.name ?? this.bank.name).trim() || 'Untitled'
           const path = bankPath(name)
-          if (this.banks.has(path) && path !== this.path && !cmd.overwrite) {
+          const there = existing(this.banks, path)
+          if (there !== undefined && there !== this.path && !cmd.overwrite) {
             return this.fail(host, `a bank called ${name} already exists: save under another name, or overwrite it`)
           }
+          // The same file in another case: renamed to the case typed.
+          if (there !== undefined) this.banks.delete(there)
           this.bank.name = name
           this.path = path
         }
@@ -436,9 +441,11 @@ export class MockRegistration {
         if (cmd.name !== null || !this.listPath) {
           const name = (cmd.name ?? this.list.name).trim() || 'Untitled'
           const path = listPath(name)
-          if (this.lists.has(path) && path !== this.listPath && !cmd.overwrite) {
+          const there = existing(this.lists, path)
+          if (there !== undefined && there !== this.listPath && !cmd.overwrite) {
             return this.fail(host, `a playlist called ${name} already exists: save under another name, or overwrite it`)
           }
+          if (there !== undefined) this.lists.delete(there)
           this.list.name = name
           this.listPath = path
         }

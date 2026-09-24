@@ -12,7 +12,7 @@
   (lib/api/registration.ts).
 -->
 <script lang="ts">
-  import { REGIST_GROUPS, SEQUENCE_ENDS, type PlaylistRecord, type PlaylistSort, type RegistGroup } from '../../lib/api/registration'
+  import { REGIST_GROUPS, SEQUENCE_ENDS, sameFile, type PlaylistRecord, type PlaylistSort, type RegistGroup } from '../../lib/api/registration'
   import { app, clock, ui } from '../../lib/store.svelte'
   import { tip } from '../../lib/tooltip/tip.svelte'
   import HwButton from '../../lib/ui/HwButton.svelte'
@@ -46,9 +46,11 @@
     const name = (e.currentTarget as HTMLInputElement).value
     if (name !== r.buttons[i].name) app.send({ type: 'renameRegist', index: i, name })
   }
-  /** The typed name is another file's: Save is refused, Overwrite replaces that file. */
+  /** The typed name saves to another bank's (playlist's) file, as the backend names files
+   * (`fileStem`: "A:B" is "A_B") and the Mac compares them (ignoring case): Save is
+   * refused, Overwrite replaces that file. */
   const clash = (name: string, files: { name: string; path: string }[], own: string | null) =>
-    !!name.trim() && files.some((f) => f.name.toLowerCase() === name.trim().toLowerCase() && f.path !== own)
+    !!name.trim() && files.some((f) => sameFile(f.name, name) && f.path !== own)
   const bankClash = $derived(clash(bankName, r.banks, r.bank.path))
   const listClash = $derived(clash(listName, pl.playlists, pl.path))
 

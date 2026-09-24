@@ -1548,6 +1548,27 @@ mod tests {
         assert_eq!(m.state.transport.tempo, 72.0);
     }
 
+    /// Save As names files as the session does ("A:B" is "A_B") and, like the Mac's file
+    /// system, ignores case: your own bank in another case is renamed, not refused.
+    #[test]
+    fn save_as_uses_the_session_file_names() {
+        let mut m = MockSession::new();
+        let save = |m: &mut MockSession, name: &str, overwrite: bool| m.send(RegistrationCmd::SaveRegistBank { name: Some(name.into()), overwrite });
+        m.send(RegistrationCmd::NewRegistBank);
+        save(&mut m, "A_B", false);
+        m.send(RegistrationCmd::NewRegistBank);
+        save(&mut m, "A:B", false);
+        assert!(m.state.message.as_ref().is_some_and(|x| x.error && x.text.contains("already exists")));
+        assert_eq!(m.state.registration.bank.path, None);
+        m.send(RegistrationCmd::NewRegistBank);
+        save(&mut m, "Mine", false);
+        save(&mut m, "MINE", false);
+        let r = &m.state.registration;
+        assert!(r.bank.path.as_deref().is_some_and(|p| p.ends_with("/MINE.regist.json")));
+        assert_eq!(r.banks.iter().filter(|b| b.name.eq_ignore_ascii_case("mine")).count(), 1);
+        assert!(r.bank.position.is_some());
+    }
+
     #[test]
     fn chords_transpose() {
         assert_eq!(transpose_chord("Am7/G", 2), "Bm7/A");

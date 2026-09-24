@@ -111,6 +111,18 @@ export interface PlaylistState {
   folder: string | null
 }
 
+/** The file name (less its extension) a bank or playlist called `name` is saved under, as
+ * the backend makes it (`registration::file_name`): `/`, `\`, `:` and NUL become `_`,
+ * leading dots go, and an empty name is Untitled. */
+export function fileStem(name: string): string {
+  // eslint-disable-next-line no-control-regex
+  const clean = name.trim().replace(/[/\\:\u0000]/g, '_').replace(/^\.+/, '')
+  return clean || 'Untitled'
+}
+
+/** Names `a` and `b` save to the same file: the Mac's file system (APFS) ignores case. */
+export const sameFile = (a: string, b: string) => fileStem(a).toLowerCase() === fileStem(b).toLowerCase()
+
 /** The groups in the Genos's order, with the names the Memory and Freeze windows use. */
 export const REGIST_GROUPS: { id: RegistGroup; name: string }[] = [
   { id: 'style', name: 'Style' },

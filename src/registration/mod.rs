@@ -325,6 +325,50 @@ pub fn file_name(name: &str, ext: &str) -> String {
     format!("{}{ext}", if clean.is_empty() { "Untitled" } else { clean })
 }
 
+/// The file `file` (a name from `file_name`) names in `dir`, as it is on disk, or None if
+/// there is none. On a case-insensitive file system (APFS, the Mac's default; NTFS)
+/// "gig.regist.json" opens the existing "Gig.regist.json": this returns that entry, so a
+/// save compares with, and renames, the file that is really there.
+pub fn existing_file(dir: &Path, file: &str) -> Option<PathBuf> {
+    let want = dir.join(file);
+    if !want.exists() {
+        return None;
+    }
+    let names: Vec<String> = std::fs::read_dir(dir)
+        .map(|rd| rd.filter_map(|e| e.ok().map(|e| e.file_name().to_string_lossy().into_owned())).collect())
+        .unwrap_or_default();
+    if names.iter().any(|n| n == file) {
+        return Some(want);
+    }
+    let lower = file.to_lowercase();
+    Some(names.into_iter().find(|n| n.to_lowercase() == lower).map_or(want, |n| dir.join(n)))
+}
+
+/// Where a save as `file` in `dir` goes, given the file in use (`own`): Ok(path), after
+/// renaming an existing file whose name differs only in case (the same file on a
+/// case-insensitive file system) to the spelling asked for; `SaveClash::Exists` when it belongs
+/// to something else and `overwrite` is not set.
+pub fn save_target(dir: &Path, file: &str, own: Option<&Path>, overwrite: bool) -> Result<PathBuf, SaveClash> {
+    let path = dir.join(file);
+    let Some(existing) = existing_file(dir, file) else { return Ok(path) };
+    if own != Some(existing.as_path()) && !overwrite {
+        return Err(SaveClash::Exists);
+    }
+    if existing != path {
+        std::fs::rename(&existing, &path).map_err(|e| SaveClash::Rename(e.to_string()))?;
+    }
+    Ok(path)
+}
+
+/// Why `save_target` refused.
+#[derive(Debug)]
+pub enum SaveClash {
+    /// Another bank's or playlist's file has that name.
+    Exists,
+    /// Renaming the file to the new case failed.
+    Rename(String),
+}
+
 pub(crate) fn list_files(dir: &Path, ext: &str) -> Vec<PathBuf> {
     let mut v: Vec<PathBuf> = std::fs::read_dir(dir)
         .map(|rd| {

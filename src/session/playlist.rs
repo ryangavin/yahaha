@@ -214,10 +214,11 @@ impl Control {
                     return self.fail("no Playlist folder to save to");
                 };
                 let name = name.unwrap_or_else(|| self.playlist.list.name.clone()).trim().to_string();
-                let path = dir.join(reg::file_name(&name, PLAYLIST_EXT));
-                if path.exists() && self.playlist.path.as_ref() != Some(&path) && !overwrite {
-                    return self.fail(format!("a playlist called {name} already exists: save under another name, or overwrite it"));
-                }
+                let path = match reg::save_target(&dir, &reg::file_name(&name, PLAYLIST_EXT), self.playlist.path.as_deref(), overwrite) {
+                    Ok(p) => p,
+                    Err(reg::SaveClash::Exists) => return self.fail(format!("a playlist called {name} already exists: save under another name, or overwrite it")),
+                    Err(reg::SaveClash::Rename(e)) => return self.fail(format!("renaming the playlist to {name}: {e}")),
+                };
                 self.playlist.list.name = name;
                 path
             }

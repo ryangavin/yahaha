@@ -152,6 +152,36 @@ describe('Registration panel', () => {
     expect(s.state.registration.bank.dirty).toBe(false)
   })
 
+  it('a name that saves to another bank\'s file (file-name characters, case) shows Overwrite', async () => {
+    const s = setup()
+    render(Registration)
+    s.send({ type: 'newRegistBank' })
+    s.send({ type: 'memorizeRegist', index: 0 })
+    s.send({ type: 'saveRegistBank', name: 'A_B' })
+    s.send({ type: 'newRegistBank' })
+    s.send({ type: 'memorizeRegist', index: 1 })
+    flushSync()
+    const name = q<HTMLInputElement>('[data-tip="regist.bank_name"]')
+    for (const typed of ['A:B', 'a/b', 'friday gig']) {
+      await fireEvent.input(name, { target: { value: typed } })
+      flushSync()
+      expect(document.querySelector('[data-tip="regist.overwrite_bank"]'), typed).not.toBeNull()
+      await fireEvent.click(q('[data-tip="regist.save_bank"]'))
+      expect(s.state.registration.bank.path, typed).toBe(null)
+      expect(s.state.message?.error).toBe(true)
+    }
+    // Your own bank under another case is not a clash: it is renamed.
+    s.send({ type: 'saveRegistBank', name: 'Mine' })
+    await fireEvent.input(name, { target: { value: 'MINE' } })
+    flushSync()
+    expect(document.querySelector('[data-tip="regist.overwrite_bank"]')).toBeNull()
+    await fireEvent.click(q('[data-tip="regist.save_bank"]'))
+    const r = s.state.registration
+    expect(r.bank.path).toMatch(/\/MINE\.regist\.json$/)
+    expect(r.banks.filter((b) => b.name.toLowerCase() === 'mine')).toHaveLength(1)
+    expect(r.bank.position).not.toBeNull()
+  })
+
   it('sequence on/off stays when the bank changes', () => {
     const s = setup()
     s.send({ type: 'setRegistSequenceOn', on: true })

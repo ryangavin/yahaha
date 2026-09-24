@@ -67,7 +67,10 @@ yahaha's own JSON, never Yamaha's `.rgt`. By default in `~/Documents/yahaha`
   are not part of any bank (the Genos keeps them in its Setup/Backup).
 
 Saving under a name that another bank (or playlist) already has is refused, unless the
-command says `overwrite: true` (the app shows an Overwrite button then).
+command says `overwrite: true` (the app shows an Overwrite button then). Names are
+compared as the files they save to: `/`, `\`, `:` become `_` (so "A:B" is "A_B"), and on
+a case-insensitive file system (the Mac's APFS) "gig" is "Gig". Saving your own bank or
+playlist under its name in another case renames its file to that case.
 
 A newer file (higher `version`) is refused; a section or group this build doesn't know is
 skipped on recall but kept as it was when the bank is saved again (auto-save included), so

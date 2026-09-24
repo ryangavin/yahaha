@@ -273,10 +273,11 @@ impl Control {
                     return self.fail("no Registration folder to save to");
                 };
                 let name = name.unwrap_or_else(|| self.reg.bank.name.clone()).trim().to_string();
-                let path = dir.join(reg::file_name(&name, BANK_EXT));
-                if path.exists() && self.reg.path.as_ref() != Some(&path) && !overwrite {
-                    return self.fail(format!("a bank called {name} already exists: save under another name, or overwrite it"));
-                }
+                let path = match reg::save_target(&dir, &reg::file_name(&name, BANK_EXT), self.reg.path.as_deref(), overwrite) {
+                    Ok(p) => p,
+                    Err(reg::SaveClash::Exists) => return self.fail(format!("a bank called {name} already exists: save under another name, or overwrite it")),
+                    Err(reg::SaveClash::Rename(e)) => return self.fail(format!("renaming the bank to {name}: {e}")),
+                };
                 self.reg.bank.name = name;
                 path
             }

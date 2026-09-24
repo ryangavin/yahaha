@@ -8,7 +8,8 @@ use std::collections::BTreeMap;
 use yahaha::api::*;
 use yahaha::fingering::Fingering;
 use yahaha::launchkey::{Anim, Level};
-use yahaha::registration::{Group, Groups, Playlist, PlaylistSort, Record, RecordTarget, SeqMove, Sequence, SequenceEnd, BUTTONS};
+use yahaha::registration::playlist::PLAYLIST_EXT;
+use yahaha::registration::{file_name, Group, Groups, BANK_EXT, Playlist, PlaylistSort, Record, RecordTarget, SeqMove, Sequence, SequenceEnd, BUTTONS};
 
 const BANK_DIR: &str = "/Users/me/Documents/yahaha/Registration";
 const LIST_DIR: &str = "/Users/me/Documents/yahaha/Playlists";
@@ -74,12 +75,18 @@ pub struct MockRegist {
     pending: Option<(Memory, Groups)>,
 }
 
+/// File names as the session makes them (`registration::file_name`: "A:B" is "A_B").
 fn bank_path(name: &str) -> String {
-    format!("{BANK_DIR}/{name}.regist.json")
+    format!("{BANK_DIR}/{}", file_name(name, BANK_EXT))
 }
 
 fn list_path(name: &str) -> String {
-    format!("{LIST_DIR}/{name}.playlist.json")
+    format!("{LIST_DIR}/{}", file_name(name, PLAYLIST_EXT))
+}
+
+/// The key of `files` that is `path` on a case-insensitive file system (the Mac's).
+fn existing<T>(files: &BTreeMap<String, T>, path: &str) -> Option<String> {
+    files.keys().find(|k| k.eq_ignore_ascii_case(path)).cloned()
 }
 
 fn demo(name: &str, style: &(String, String), tempo: f64, programs: [u8; 4], on: [bool; 4]) -> Memory {
@@ -245,10 +252,15 @@ impl MockRegist {
                     let n = name.unwrap_or_else(|| self.bank.name.clone());
                     let n: String = if n.trim().is_empty() { "Untitled".into() } else { n.trim().into() };
                     let path = bank_path(&n);
-                    if self.banks.contains_key(&path) && self.path.as_ref() != Some(&path) && !overwrite {
+                    let there = existing(&self.banks, &path);
+                    if there.is_some() && self.path != there && !overwrite {
                         let text = format!("a bank called {n} already exists: save under another name, or overwrite it");
                         fx.push(Effect::Message(text, true));
                         return fx;
+                    }
+                    // The same file in another case: renamed to the case typed.
+                    if let Some(t) = there {
+                        self.banks.remove(&t);
                     }
                     self.bank.name = n;
                     self.path = Some(path);
@@ -419,10 +431,14 @@ impl MockRegist {
             PlaylistCmd::SavePlaylist { name, overwrite } => {
                 if let Some(n) = name.as_ref().map(|n| n.trim()).filter(|n| !n.is_empty()) {
                     let path = list_path(n);
-                    if self.lists.contains_key(&path) && self.list_path.as_ref() != Some(&path) && !overwrite {
+                    let there = existing(&self.lists, &path);
+                    if there.is_some() && self.list_path != there && !overwrite {
                         let text = format!("a playlist called {n} already exists: save under another name, or overwrite it");
                         fx.push(Effect::Message(text, true));
                         return fx;
+                    }
+                    if let Some(t) = there {
+                        self.lists.remove(&t);
                     }
                 }
                 if sorted {

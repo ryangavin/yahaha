@@ -562,6 +562,49 @@ fn unknown_voice_kind_blocks_only_that_part() {
     let _ = std::fs::remove_dir_all(dir);
 }
 
+/// Review r2 N1: on a case-insensitive file system (APFS, the Mac's default) "gig" is the
+/// file "Gig". Saving your own bank under the name in another case renames it, and it
+/// stays the bank in use; another bank's file in another case still needs Overwrite.
+#[test]
+fn save_own_bank_with_other_case() {
+    let Some((s, dir)) = session("case") else { return };
+    s.send(RegistrationCmd::MemorizeRegist { index: 0 }).unwrap();
+    save(&s, "Gig");
+    let folder = dir.join("Registration");
+    let insensitive = folder.join("GIG.regist.json").exists();
+    save(&s, "gig");
+    let st = s.state();
+    let path = PathBuf::from(st.registration.bank.path.clone().unwrap());
+    assert_eq!(path.file_name().unwrap(), "gig.regist.json");
+    assert_eq!(st.registration.bank.name, "gig");
+    assert!(st.registration.bank.position.is_some(), "the saved bank is in the list: {:?}", st.registration.banks);
+    let names: Vec<String> = crate::registration::list_banks(&folder).iter().map(|p| p.file_name().unwrap().to_string_lossy().into_owned()).collect();
+    if insensitive {
+        assert_eq!(names, ["gig.regist.json"]);
+    }
+    // A new bank can't take it in any case without Overwrite; with it, it keeps the name typed.
+    s.send(RegistrationCmd::NewRegistBank).unwrap();
+    assert!(s.send(RegistrationCmd::SaveRegistBank { name: Some("GIG".into()), overwrite: false }).is_err() || !insensitive);
+    if insensitive {
+        s.send(RegistrationCmd::SaveRegistBank { name: Some("GIG".into()), overwrite: true }).unwrap();
+        let st = s.state();
+        assert!(st.registration.bank.path.as_deref().unwrap().ends_with("GIG.regist.json"));
+        assert!(st.registration.bank.position.is_some());
+    }
+
+    // Playlists alike.
+    s.send(PlaylistCmd::SavePlaylist { name: Some("Friday".into()), overwrite: false }).unwrap();
+    s.send(PlaylistCmd::SavePlaylist { name: Some("friday".into()), overwrite: false }).unwrap();
+    let st = s.state();
+    assert!(st.playlist.path.as_deref().unwrap().ends_with("friday.playlist.json"));
+    assert_eq!(st.playlist.name, "friday");
+    if insensitive {
+        assert_eq!(st.playlist.playlists.len(), 1);
+        assert!(st.playlist.playlists[0].path.ends_with("friday.playlist.json"));
+    }
+    let _ = std::fs::remove_dir_all(dir);
+}
+
 /// Review r2 B1: a recall that finds the Style mixer already where it stored it leaves the
 /// parts to the style: its patterns' CC7 (Intro, Main, Ending levels) still move the
 /// untouched parts, as with no recall at all.
