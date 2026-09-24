@@ -63,6 +63,7 @@ impl Control {
                     plays_bass,
                     octave: kp.octave[p].load(Relaxed).clamp(-2, 2),
                     fader: v.fader_hw[p],
+                    plugin: self.channel_plugin_state(parts::CHANNEL[p]),
                     patch,
                 }
             })

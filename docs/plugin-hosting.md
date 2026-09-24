@@ -255,6 +255,76 @@ Bitwig, Reaper (optional) and Logic (for AUv3) all work this way.
 | Effort | **About 4-6 weeks** before plugin-specific work: the protocol, shared memory, watchdog and restart logic, plus everything in options 1-3 inside the helper. |
 | Verdict | Defer. AUv3 already gives out-of-process isolation for free. Revisit if in-process AUv2 crashes turn out to be a real problem in practice. The in-process `Instrument` API (`midi` / `render` / `save_state`) is the interface such a helper would implement, so nothing built now is wasted. |
 
+## Phase 2 as built
+
+(#91. The wiring plan below is the original design; this section is what the code does.)
+
+### The route table (`src/route.rs`)
+
+Each of the 16 MIDI channels renders from one **source**: the built-in SoundFont synth or
+the plugin rack's slot for that channel. The keyboard parts are channels 0-3
+(`parts::CHANNEL`), the Multi Pads 4-7 and the Style parts 8-15, so one table covers them
+all.
+
+```rust
+use yahaha::route::{ChannelRoutes, RouteTable, Source};
+
+pub enum Source { SoundFont(u8), Plugin }   // SoundFont(0) = the synth's font; 1-14 reserved (#103)
+routes.set(ch, Source::Plugin) -> Source    // non-RT writers: CAS loop, returns the old source
+routes.store(table)                         // replace all 16 at once
+routes.table() -> RouteTable                // RT: one Acquire load per buffer
+table.source(ch), table.with(ch, src), table.plugin_mask()
+```
+
+- The table is one `AtomicU64` (4 bits per channel), so a swap is one atomic store and the
+  audio thread reads a consistent table with one load at the start of each buffer. Only
+  non-real-time threads write it; the audio thread only reads it.
+- It lives in `SynthControl::routes` (`Arc`-shared like the master fader). The Session
+  owns writing it, through `src/session/plugins.rs`.
+- **Per-channel SoundFonts (#103)** use the `SoundFont(n)` codes. The callback renders
+  every SoundFont channel on font 0 today; a multi-font synth reads `table.source(ch)`
+  where the callback hands a message to the SoundFont `Rack` to choose the rack per
+  channel.
+
+### What the audio callback does per channel (`synth::AudioCore`)
+
+The cpal closure is now a plain struct, `synth::AudioCore`, with a `process(&mut self,
+out)` method. `synth::start` wraps it in the cpal callback, and the offline render
+(`Session::offline_audio` / `Session::render`) drives the same code in tests.
+
+Per buffer:
+
+1. `plugin_rack.begin_block()` applies pending assigns and clears.
+2. `routes.table()` is read once. A channel **plays the plugin** when its route is
+   `Plugin` *and* its rack slot owns an instance. A `Plugin` route with no instance yet
+   keeps the SoundFont, so a loading part is never silent.
+3. A channel that starts playing a plugin gets Sustain off + All Notes Off on the
+   SoundFont side. Held SoundFont notes release on their own envelopes, so there is no
+   click.
+4. Every message on a plugin channel goes to the rack (`PluginRack::midi`). Everything
+   except note-ons **also** goes to the SoundFont, so its controllers, program and bend
+   stay current. When the plugin is cleared, the SoundFont voice comes back at the
+   fader's level with no re-send.
+5. The rack renders into scratch buffers. The rack applies CC7/CC11 (the GM curve) and
+   CC10 as a balance. The master fader is then applied and the result is added to the
+   mix before the soft clipper. Each slot's peak goes into `SynthControl::peaks[ch]`, so
+   the Mixer meters plugin channels like any other.
+
+### Assigning a plugin to a channel (session level)
+
+```rust
+// src/session/plugins.rs (feature "plugins"), on the Session's control side:
+ctl.load_channel_plugin(ch, PluginVoice { id, name, state }) // async load; SoundFont until ready
+ctl.clear_channel_plugin(ch)                                 // back to the SoundFont (5 ms fade)
+```
+
+A load runs on its own thread (`PluginHost::load_async`) at the synth's sample rate. The
+pump polls it. When it is ready, the instance is `assign`ed to rack slot `ch` (it takes
+effect at the next buffer) and the route is set to `Plugin`. A failure or timeout leaves
+the channel on the SoundFont and reports the error. The keyboard-part commands
+(`setPartPlugin`, `clearPartPlugin`) are thin wrappers that map a part to its channel.
+Style channels (#103's program map) call the same two functions with channels 8-15.
+
 ## Phase 2: wiring plan
 
 Phase 1 touched nothing outside `src/plugin/`. Phase 2 needs the hotspot files (`synth.rs`,

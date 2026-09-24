@@ -302,31 +302,47 @@ unsafe fn set_prop_el<T>(raw: AudioUnit, id: u32, scope: u32, element: u32, v: &
 /// The input callback for instruments that also have audio inputs (FM8, vocoders, anything
 /// with a sidechain): silence. Without one, a unit hosted out of process fails every render
 /// with `NoConnection`. RT-safe: it only zeroes the buffers it is given.
+///
+/// The buffer list is a C struct with a flexible array (`mBuffers[1]` declared, `n`
+/// present), so the buffers are reached by raw pointer arithmetic from the list pointer
+/// itself: a Rust slice or reference made from the one-element field would not cover the
+/// others.
 unsafe extern "C-unwind" fn silent_input(
-    _ref: NonNull<c_void>,
-    flags: NonNull<AudioUnitRenderActionFlags>,
-    _ts: NonNull<AudioTimeStamp>,
+    _ref: *mut c_void,
+    flags: *mut AudioUnitRenderActionFlags,
+    _ts: *const AudioTimeStamp,
     _bus: u32,
     _frames: u32,
     data: *mut AudioBufferList,
 ) -> OSStatus {
     unsafe {
-        if let Some(list) = data.as_mut() {
-            let n = list.mNumberBuffers as usize;
-            let bufs = std::slice::from_raw_parts_mut(list.mBuffers.as_mut_ptr(), n);
-            for b in bufs {
-                if !b.mData.is_null() {
-                    ptr::write_bytes(b.mData as *mut u8, 0, b.mDataByteSize as usize);
+        if !data.is_null() {
+            let n = ptr::addr_of!((*data).mNumberBuffers).read() as usize;
+            let first = ptr::addr_of_mut!((*data).mBuffers) as *mut AudioBuffer;
+            for i in 0..n {
+                let b = first.add(i);
+                let d = ptr::addr_of!((*b).mData).read();
+                if !d.is_null() {
+                    ptr::write_bytes(d as *mut u8, 0, ptr::addr_of!((*b).mDataByteSize).read() as usize);
                 }
             }
         }
-        (*flags.as_ptr()).0 |= 1 << 4; // kAudioUnitRenderAction_OutputIsSilence
+        if !flags.is_null() {
+            (*flags).0 |= 1 << 4; // kAudioUnitRenderAction_OutputIsSilence
+        }
     }
     0
 }
 
-/// A non-null refcon for `silent_input` (it ignores it).
-static SILENT_REFCON: u8 = 0;
+/// `silent_input` as the binding's callback type, whose pointer arguments are `NonNull`.
+/// The callback takes raw pointers instead, so a host that passes null (for the refcon, or
+/// anything else) is not undefined behaviour; the ABI is the same.
+fn silent_input_proc() -> objc2_audio_toolbox::AURenderCallback {
+    type Raw = unsafe extern "C-unwind" fn(*mut c_void, *mut AudioUnitRenderActionFlags, *const AudioTimeStamp, u32, u32, *mut AudioBufferList) -> OSStatus;
+    let f: Raw = silent_input;
+    // SAFETY: same ABI; `NonNull<T>` is guaranteed to have the layout of `*mut T`.
+    Some(unsafe { std::mem::transmute::<Raw, _>(f) })
+}
 
 /// # Safety
 /// `T` must be the C type the property `id` is declared with.
@@ -360,7 +376,7 @@ impl Unit {
             // Audio inputs, if the instrument has any, get silence (see `silent_input`).
             let mut inputs = 0u32;
             if get_prop(self.raw, kAudioUnitProperty_ElementCount, kAudioUnitScope_Input, &mut inputs) == 0 {
-                let cb = AURenderCallbackStruct { inputProc: Some(silent_input), inputProcRefCon: &SILENT_REFCON as *const u8 as *mut c_void };
+                let cb = AURenderCallbackStruct { inputProc: silent_input_proc(), inputProcRefCon: ptr::null_mut() };
                 for bus in 0..inputs.min(16) {
                     let _ = set_prop_el(self.raw, kAudioUnitProperty_StreamFormat, kAudioUnitScope_Input, bus, &fmt);
                     let _ = set_prop_el(self.raw, kAudioUnitProperty_SetRenderCallback, kAudioUnitScope_Input, bus, &cb);

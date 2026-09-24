@@ -325,3 +325,55 @@ fn a_non_finite_trim_cannot_poison_the_mix() {
     assert!(l.iter().chain(&r).all(|x| x.is_finite()));
     assert!(energy(&l, &r) > 0.0, "treated as no trim");
 }
+
+/// CC10 is the host's, as CC7 is: a balance on the plugin's output, never sent to it.
+#[test]
+fn pan_is_a_host_side_balance() {
+    assert_eq!(balance(64), (1.0, 1.0));
+    assert_eq!(balance(0), (1.0, 0.0));
+    assert_eq!(balance(127), (0.0, 1.0));
+    let side = |pan: u8| {
+        let (mut rack, mut ctl) = rack(256, RATE);
+        ctl.assign(0, dls(256), Swap { fade_frames: 0, trim: 1.0 }).ok().unwrap();
+        let (mut el, mut er) = (0.0, 0.0);
+        let _ = block(&mut rack, &[[0xB0, 10, pan], [0x90, 60, 110]], 256);
+        for _ in 0..8 {
+            let (l, r) = block(&mut rack, &[], 256);
+            el += energy(&l, &[]);
+            er += energy(&[], &r);
+        }
+        (el, er, rack.take_peak(0))
+    };
+    let (cl, cr, peak) = side(64);
+    assert!(cl > 0.0 && cr > 0.0 && peak > 0.0, "centre: both sides, metered");
+    let (ll, lr, _) = side(0);
+    assert!(ll > 0.0 && lr == 0.0, "hard left: left only ({ll} / {lr})");
+    assert!((ll - cl).abs() < cl * 0.01, "the left side at hard left is the centre's left: a balance, not a boost");
+}
+
+/// A second swap sent while the first is still crossfading waits for that fade to end,
+/// instead of cutting the outgoing instance off mid-fade.
+#[test]
+fn a_swap_during_a_crossfade_waits_for_it() {
+    let (mut rack, mut ctl) = rack(64, RATE);
+    ctl.assign(0, dls(64), Swap::default()).ok().unwrap();
+    let _ = block(&mut rack, &[[0x90, 60, 110]], 64);
+    ctl.assign(0, dls(64), Swap::default()).ok().unwrap();
+    block(&mut rack, &[], 64);
+    assert!(rack.is_fading(0));
+    ctl.assign(0, dls(64), Swap::default()).ok().unwrap();
+    let swapped = |ctl: &mut RackControl| ctl.poll_events().iter().filter(|e| matches!(e, RackEvent::Swapped { .. })).count();
+    assert_eq!(swapped(&mut ctl), 2);
+    block(&mut rack, &[], 64);
+    assert_eq!(swapped(&mut ctl), 0, "the third assign waits: 240-frame fade, 128 frames in");
+    for _ in 0..4 {
+        block(&mut rack, &[], 64);
+    }
+    assert_eq!(swapped(&mut ctl), 1, "then it lands");
+}
+
+#[test]
+fn an_instance_at_another_sample_rate_is_refused() {
+    let (_rack, mut ctl) = rack(256, 44_100.0);
+    assert!(ctl.assign(0, dls(256), Swap::default()).is_err(), "a 48 kHz instance in a 44.1 kHz rack");
+}

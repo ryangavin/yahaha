@@ -40,6 +40,7 @@ mod offline;
 mod ots;
 mod pads;
 mod parts;
+mod plugins;
 mod preview;
 mod settings;
 mod sound_library;
@@ -48,6 +49,7 @@ mod system;
 mod transport;
 
 pub use library::library_entry;
+pub use plugins::PluginVoice;
 pub use preview::AUDITION_CHORDS;
 pub use settings::choose_keys;
 
@@ -254,6 +256,9 @@ struct Control {
     old_pad_rx: Consumer<Box<crate::multipad::MultiPadPlayer>>,
     /// Multi Pads: the bank list and the bank loaded.
     multipad: multipad::Pads,
+    /// Instrument plugins: the host, the loads, what each channel plays (#91).
+    #[cfg_attr(not(feature = "plugins"), allow(dead_code))]
+    plugins: plugins::PluginCtl,
     /// The sound library (#103).
     sound: sound_library::SoundLib,
 }
@@ -309,6 +314,7 @@ impl Control {
             AppCmd::Metronome(c) => self.metronome_cmd(c),
             AppCmd::MultiPad(c) => self.multipad_cmd(c),
             AppCmd::Controllers(c) => self.controllers_cmd(c),
+            AppCmd::Plugins(c) => self.plugins_cmd(c),
             AppCmd::SoundLibrary(c) => self.sound_library_cmd(c),
         }
     }
@@ -375,6 +381,7 @@ impl Control {
         }
         self.pump_index();
         self.pump_multipad();
+        self.pump_plugins(now);
         self.pump_sound_library(now);
     }
 
@@ -410,6 +417,7 @@ impl Control {
             message: self.message.clone(),
             looper: self.looper_state(),
             metronome: self.metronome_state(),
+            plugins: self.plugins_state(),
             sound_library: self.sound_library_state(),
         }
     }
@@ -569,6 +577,7 @@ fn assemble(opts: &Options, engine_out: live::Out, input_out: live::Out, offline
         pad_tx: ch.pad_tx,
         old_pad_rx: ch.old_pad_rx,
         multipad: multipad::Pads::scan(&opts.paths),
+        plugins: Default::default(),
         sound,
     };
     let mut control = control;
@@ -651,6 +660,7 @@ impl Session {
             std::thread::Builder::new().name("yahaha-engine".into()).spawn(move || live::run_engine(engine, io, sh))?;
         p.control.shared.parts.set_bass_program(synth::style_bass_program(p.control.info.voices[10]));
         p.control.sync_manual_bass();
+        p.control.restore_plugin_parts();
 
         let inner = Arc::new(Inner::new(shared, p.control));
         let i2 = inner.clone();
@@ -745,6 +755,13 @@ impl Session {
         }
     }
 
+    /// The editor handle of keyboard part `part`'s plugin (while it plays one), for the
+    /// app shell to open its window on the main thread (`plugin::editor::open_editor`).
+    #[cfg(feature = "plugins")]
+    pub fn plugin_editor(&self, part: u8) -> Option<crate::plugin::EditorTarget> {
+        self.inner.lock().channel_editor(crate::parts::CHANNEL[(part & 3) as usize])
+    }
+
     /// The latest state with its clock read now (`surface.clock`: `atMs`, `bar`, `beat`,
     /// `phase`): what a client that animates from the clock should fetch.
     pub fn state_now(&self) -> AppState {
@@ -772,6 +789,7 @@ impl Session {
             if let Some(leds) = self.inner.lock().leds.as_mut() {
                 leds.off();
             }
+            self.inner.lock().save_plugin_states_on_stop();
             if let Some(s) = live.synth {
                 let _ = s.stop.send(());
                 let _ = s.thread.join();

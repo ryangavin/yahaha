@@ -49,6 +49,10 @@ pub struct KeyboardPart {
     pub plays_bass: bool,
     /// The octave setting, -2..=2 (not applied while `plays_bass`).
     pub octave: i8,
+    /// The instrument plugin the part plays instead of its SoundFont voice (absent: the
+    /// SoundFont voice). Its fader is the same CC7.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plugin: Option<super::PartPlugin>,
     /// Its own sound library patch (`setPartPatch`), if it has one; else its GM voice
     /// plays, through the program map (`voiceName` names the patch it resolves to).
     #[serde(default)]
