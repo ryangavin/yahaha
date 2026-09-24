@@ -108,11 +108,11 @@ the whole chord. Notes that would fall outside 0–127 are skipped.
 |---|---|
 | `quantize` | Arpeggio Quantize (RM p.41): Off, Eighth or Sixteenth. The pattern starts on the grid line **nearest** the first key. A key pressed slightly late plays at once and the following steps land on the grid; a key pressed slightly early waits for the grid. The grid is counted from tick 0 of the caller's clock (the style's bar line). A pattern change with quantize on waits for the next grid line |
 | `hold` | Arpeggio Hold / latch (RM p.41, p.141): the pattern keeps playing after release. The first key after a full release starts a new chord that replaces the latched one; keys added while others are down join the chord. Turning hold off drops every note that is no longer physically down |
-| `velocity` | `Original` (the pattern's step velocities), `Thru` (the velocity the source key was played with) or `Fixed(v)` |
+| `velocity` | `Original` (the pattern's step velocities), `Thru` (the velocity the source key was played with) or `Fixed(v)`. A yahaha extension: the Genos manuals have no such setting (it is a Motif/MONTAGE idea) |
 | `vel_scale` | ArpVel, percent, 0–200. Results are clamped to 1–127 |
 | `gate_scale` | ArpGateT, percent, 1–400. The gate is never shorter than one tick |
 | `unit_multiply` | ArpUnitM, percent, 25–400: 200 is half speed and 50 is double speed. A change takes effect from the next step, which keeps its time |
-| `keep_key_on` | The pattern clock keeps running through a full release, so the next chord picks up mid-phrase, in phase, instead of restarting from step 1. Steps with nothing held are silent. Only `stop` (or turning this off with nothing held) stops the clock |
+| `keep_key_on` | The pattern clock keeps running through a full release, so the next chord picks up mid-phrase, in phase, instead of restarting from step 1. Steps with nothing held are silent. Only `stop` (or turning this off with nothing held) stops the clock. A yahaha extension, not a Genos setting |
 | `sustain_holds` | While the sustain pedal is down, released keys stay in the arpeggio, and new keys join them. Pedal up drops the released ones |
 
 Without Hold or Keep Key On, releasing every key stops the pattern, and the next key
