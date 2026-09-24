@@ -91,6 +91,12 @@ pub struct LibraryList {
     pub entries: Vec<LibraryEntry>,
     /// The voices `SetPartVoice` picks from (the same for every revision).
     pub voices: Vec<VoiceOption>,
+    /// The Keyboard Harmony types `SetHarmonyType` picks from, in Data List order (static).
+    #[serde(default)]
+    pub harmony_types: Vec<super::HarmonyTypeInfo>,
+    /// The arpeggio patterns `SetArpPattern` picks from (static).
+    #[serde(default)]
+    pub arp_patterns: Vec<super::HarmonyTypeInfo>,
 }
 
 /// A voice a keyboard part can play: a GM program on bank 0 (the built-in synth plays

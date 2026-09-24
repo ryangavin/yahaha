@@ -7,10 +7,17 @@
 
 use std::time::Instant;
 
+#[path = "mock_multipad.rs"]
+mod multipad;
+
 use yahaha::api::*;
+use yahaha::controllers::{Controllers, PedalSetup, PEDALS};
 use yahaha::fingering::Fingering;
 use yahaha::launchkey::{self as lk, Action, Anim, Control, Level, Page};
 use yahaha::parts::{self, FaderPage};
+
+use crate::mock_regist::{Effect, MockRegist};
+use crate::mock_looper::{self, MockLooper};
 
 const FIXTURE: &str = include_str!("../../src/lib/api/mock-fixture.json");
 const ROOT: &str = "/Users/me/Styles";
@@ -140,6 +147,15 @@ pub struct MockSession {
     led_anchor: (f64, f64, f64),
     /// The wall clock at the last `catch_up`.
     wall: Option<Instant>,
+    /// Registration Memory and the Playlist (in memory).
+    regist: MockRegist,
+    /// The Chord Looper, as the engine runs it (mock_looper.rs).
+    looper: MockLooper,
+    /// Multi Pads (mock_multipad.rs).
+    pads: multipad::MockPads,
+    /// Pedals and wheels: the engine's own model (no keyboard, so nothing moves them but
+    /// commands).
+    controllers: Controllers,
 }
 
 impl Default for MockSession {
@@ -171,6 +187,8 @@ impl MockSession {
                 })
                 .collect(),
             voices: voice_options(),
+            harmony_types: harmony_type_options(),
+            arp_patterns: arp_pattern_options(),
         };
         let gm = f.gm;
         let part = |i: usize, program: u8, on: bool| KeyboardPart {
@@ -223,6 +241,7 @@ impl MockSession {
                 split_name: String::new(),
                 transpose_keyboard: 0,
                 transpose_master: 0,
+                settle_ms: yahaha::engine::CHORD_SETTLE_DEFAULT_MS,
             },
             keyboard_parts: vec![part(0, 0, true), part(1, 48, true), part(2, 61, false), part(3, 48, false)],
             mixer: MixerState {
@@ -243,8 +262,10 @@ impl MockSession {
                     .collect(),
                 master: Some(100),
                 master_waiting: false,
+                style_solo: None,
+                part_solo: None,
             },
-            pads: PadsState { page: Page::Sections, page_name: String::new(), page_number: 1, page_count: 3, pads: vec![], connected: true, palette_leds: false },
+            pads: PadsState { page: Page::Sections, page_name: String::new(), page_number: 1, page_count: Page::ALL.len() as u8, pads: vec![], connected: true, palette_leds: false },
             ots: OtsState { settings: vec![], applied: 0, link: false, link_timing: OtsLinkTiming::Immediate },
             library: LibraryStatus {
                 revision: 1,
@@ -281,6 +302,8 @@ impl MockSession {
                 sound_font_loading: false,
             },
             preview: PreviewState::default(),
+            multi_pad: multipad::initial(),
+            harmony_arp: harmony_arp_default(),
             // Mid-song: the left hand holds the Am7 it fingered.
             keyboard: KeyboardState {
                 held: [45, 48, 52, 55].map(|note| HeldNote { note, zone: Zone::Left, parts: vec![] }).to_vec(),
@@ -289,9 +312,15 @@ impl MockSession {
                 chord_bass: Some(9),
                 detection: [0, 54],
             },
+            controllers: ControllersState::of(&Controllers::new()),
             message: None,
             style_change: StyleChangeState::default(),
+            registration: RegistrationState::default(),
+            playlist: PlaylistState::default(),
+            looper: mock_looper::empty(),
+            metronome: MetronomeState { on: false, volume: 90, bell: true, audible: true },
         };
+        let songs: Vec<(String, String)> = library.entries.iter().filter(|e| e.status == "ok").map(|e| (e.path.clone(), e.name.clone())).collect();
         let mut m = MockSession {
             state,
             gm,
@@ -308,6 +337,10 @@ impl MockSession {
             section_key: None,
             led_anchor: (0.0, 0.0, 0.0), // anchored by the first `derive`
             wall: None,
+            regist: MockRegist::new(&songs),
+            looper: MockLooper::default(),
+            pads: multipad::MockPads::default(),
+            controllers: Controllers::new(),
         };
         m.set_style(0);
         m.state.ots.applied = 2;
@@ -415,6 +448,7 @@ impl MockSession {
 
     fn step(&mut self, ms: f64) {
         self.now += ms;
+        self.pads.beats(&mut self.state.multi_pad, ms / 60000.0 * self.state.transport.tempo);
         if !self.state.transport.running {
             return;
         }
@@ -443,6 +477,7 @@ impl MockSession {
     }
 
     fn on_bar(&mut self, bar: u32) {
+        self.pads.bar(&mut self.state.multi_pad);
         let t = &self.state.transport;
         let main = MAINS[t.main as usize];
         let section = t.section.clone();
@@ -478,11 +513,36 @@ impl MockSession {
         if bar % 2 == 0 {
             let chord = PROGRESSION[self.progression % PROGRESSION.len()];
             self.progression += 1;
+            self.keyboard_chord(chord);
+        }
+        self.looper_bar(bar);
+    }
+
+    /// A chord from the (imaginary) left hand: the Chord Looper ignores it while it loops,
+    /// records it while it records.
+    fn keyboard_chord(&mut self, chord: &str) {
+        let bpb = self.bar_quarters();
+        let (bar, beat) = ((self.clock / bpb).floor() as u32, (self.clock % bpb).floor() + 1.0);
+        if self.looper.keyboard_chord(&self.state.looper, chord, bar, beat) {
             self.chord_arrives(chord);
         }
     }
 
+    /// A bar line for the Chord Looper: it may start recording, or play the loop's chord.
+    fn looper_bar(&mut self, bar: u32) {
+        let played = self.state.chord.fingered.clone();
+        if let Some(c) = self.looper.on_bar(&mut self.state.looper, bar, played.as_deref()) {
+            if played.as_deref() != Some(c.as_str()) {
+                self.chord_arrives(&c);
+            }
+        }
+    }
+
     fn enter(&mut self, s: &str, bar: u32) {
+        let from_ending = self.state.transport.section.as_deref().is_some_and(|c| ENDINGS.contains(&c));
+        if ENDINGS.contains(&s) && !from_ending {
+            self.pads.ending_started(&mut self.state.multi_pad);
+        }
         self.state.transport.section = Some(s.into());
         self.section_start = bar;
         if let Some(m) = MAINS.iter().position(|x| *x == s) {
@@ -502,6 +562,7 @@ impl MockSession {
         if !self.state.transport.running && self.state.transport.sync_start {
             self.start_band();
         }
+        self.pads.chord(&mut self.state.multi_pad, self.state.transport.running);
     }
 
     fn start_band(&mut self) {
@@ -515,15 +576,21 @@ impl MockSession {
         self.clock = 0.0;
         self.section_start = 0;
         self.position();
+        self.looper_bar(0);
+        self.pads.band_started(&mut self.state.multi_pad);
     }
 
     fn stop_band(&mut self) {
+        if self.state.transport.running {
+            self.pads.band_stopped(&mut self.state.multi_pad);
+        }
         let t = &mut self.state.transport;
         t.running = false;
         t.section = None;
         t.queued = None;
         t.bar = 1;
         t.beat = 1;
+        self.looper.on_stop(&mut self.state.looper);
     }
 
     fn recall_ots(&mut self, n: usize) {
@@ -653,6 +720,7 @@ impl MockSession {
 
     /// The fields the engine computes from the others: names, flags, pads and lamps.
     fn derive(&mut self) {
+        self.looper.publish(&mut self.state.looper);
         let st = &mut self.state;
         let c = &mut st.chord;
         c.fingering_name = if c.upper { "Fingered*".into() } else { c.fingering.name().into() };
@@ -674,7 +742,11 @@ impl MockSession {
         let mb = c.manual_bass_active;
         for (i, p) in st.keyboard_parts.iter_mut().enumerate() {
             p.plays_bass = i == 3 && mb;
-            p.sounding = p.on || p.plays_bass;
+            // A keyboard solo: only that part sounds, even if it is off.
+            p.sounding = match st.mixer.part_solo {
+                Some(s) => s as usize == i,
+                None => p.on || p.plays_bass,
+            };
             p.voice_name = if p.plays_bass { "Finger Bass".into() } else { self.gm[p.program as usize].clone() };
         }
         for (i, p) in st.mixer.style_parts.iter_mut().enumerate() {
@@ -690,7 +762,8 @@ impl MockSession {
         st.pads.page_name = st.pads.page.name().into();
         st.pads.page_number = st.pads.page as u8 + 1;
         st.transport.lamps = pads_for(st, Page::Sections);
-        st.pads.pads = pads_for(st, st.pads.page);
+        self.regist.fill(st);
+        st.pads.pads = if st.pads.page == Page::Registration { self.regist.pads() } else { pads_for(st, st.pads.page) };
         self.anchor_clocks();
         self.state.surface = self.surface();
     }
@@ -719,11 +792,12 @@ impl MockSession {
         let st = &self.state;
         let page = st.pads.page;
         let styles = self.library.entries.len() > 1;
+        let songs = self.regist.has_songs();
         let fader_page = st.mixer.fader_page;
         let mask = |bits: Vec<bool>| bits.iter().enumerate().fold(0u8, |m, (i, on)| m | (*on as u8) << i);
         let parts_on = mask(st.keyboard_parts.iter().map(|p| p.sounding).collect());
         let style_on = lk::style_lit(mask(st.mixer.style_parts.iter().map(|p| p.on).collect()), st.chord.manual_bass_active);
-        let colours = lk::button_colours(page, styles, fader_page, parts_on, style_on);
+        let colours = lk::button_colours(page, styles, fader_page, parts_on, style_on, st.harmony_arp.on);
         let act = |cc: u8, shift: bool| -> Option<AppCmd> {
             match lk::cc_control(cc, shift)? {
                 Control::Page(d) => {
@@ -731,6 +805,7 @@ impl MockSession {
                     (to != page).then_some(AppCmd::Pads(PadsCmd::SetPadPage { page: to }))
                 }
                 Control::Act(Action::Style(_)) if !styles => None,
+                Control::Act(Action::Playlist(_)) if !songs => None,
                 Control::Act(a) => Some(a.into()),
             }
         };
@@ -759,8 +834,8 @@ impl MockSession {
         for (id, cc, label, shift_label) in [
             ("padBankUp", lk::PAD_UP_CC, "PAGE ▲", "LEFT"),
             ("padBankDown", lk::PAD_DOWN_CC, "PAGE ▼", "OTS LINK"),
-            ("trackPrev", lk::TRACK_LEFT_CC, "◀ STYLE", ""),
-            ("trackNext", lk::TRACK_RIGHT_CC, "STYLE ▶", ""),
+            ("trackPrev", lk::TRACK_LEFT_CC, "◀ STYLE", "◀ SONG"),
+            ("trackNext", lk::TRACK_RIGHT_CC, "STYLE ▶", "SONG ▶"),
             ("play", lk::PLAY_CC, "PLAY", ""),
             ("stop", lk::STOP_CC, "STOP", ""),
             ("scene", lk::SCENE_CC, "TEMPO +", ""),
@@ -780,6 +855,9 @@ impl MockSession {
                     let p = i as usize;
                     let shift = (lk::SELECT_LABELS[p], Some(AppCmd::Parts(PartsCmd::SelectPart { part: i })));
                     push(id, cc, lk::PART_LABELS[p], Some(AppCmd::Parts(PartsCmd::TogglePart { part: i })), Some(shift));
+                }
+                FaderPage::Panel if i == lk::HARM_ARP_FADER_BTN => {
+                    push(id, cc, "HARM/ARP", Some(AppCmd::HarmonyArp(HarmonyArpCmd::ToggleHarmonyArp)), None)
                 }
                 FaderPage::Panel => push(id, cc, "", None, None),
                 FaderPage::Style => {
@@ -942,6 +1020,52 @@ impl MockSession {
                 self.state.transport.stop_acmp_mode = mode;
                 self.state.transport.stop_acmp = mode != StopAcmpMode::Off;
             }
+            AppCmd::Transport(TransportCmd::Fill { delta }) => {
+                // The Main to the left/right (or the same), always with a fill.
+                let to = (self.state.transport.main as i8 + delta.signum()).clamp(0, 3) as u8;
+                let auto = std::mem::replace(&mut self.state.transport.auto_fill, true);
+                self.cmd(AppCmd::Transport(TransportCmd::Main { index: to }));
+                self.state.transport.auto_fill = auto;
+            }
+            AppCmd::Controllers(c) => {
+                let before = match c {
+                    ControllersCmd::SetPedal { pedal, .. } => Some((pedal as usize % PEDALS, self.controllers.pedal(pedal as usize % PEDALS))),
+                    _ => None,
+                };
+                match c.apply_setting(&self.controllers) {
+                    Ok(true) => {
+                        // Kbd Harmony/Arpeggio and Arpeggio Hold on a Hold pedal (no pedal is
+                        // ever down here): as the session does.
+                        if let Some((i, old)) = before {
+                            let sets = yahaha::controllers::control_switch_sets(old, self.controllers.pedal(i), false, false);
+                            for (f, on) in sets.into_iter().flatten() {
+                                if let Some(cmd) = yahaha::api::function_set(f, on) {
+                                    self.cmd(cmd);
+                                }
+                            }
+                        }
+                        // No keyboard: a pedal learning "hears" the Launchkey's sustain jack.
+                        if let ControllersCmd::LearnPedal { pedal: Some(p) } = c {
+                            let s = self.controllers.pedal(p as usize % PEDALS);
+                            self.controllers.set_pedal(p as usize % PEDALS, PedalSetup { cc: Some(64), ..s });
+                            self.controllers.learn(None);
+                        }
+                    }
+                    Ok(false) => {
+                        if let ControllersCmd::TriggerFunction { function } = c {
+                            let ots = self.state.ots.settings.len() as u8;
+                            match function_run(function, self.state.chord.fingering, ots, self.state.ots.applied) {
+                                Ok(FunctionRun::Cmd(c)) => self.cmd(c),
+                                Ok(FunctionRun::Switch(b)) => self.controllers.toggle_switch(b),
+                                Ok(FunctionRun::Nothing) => {}
+                                Err(e) => self.message(e, true),
+                            }
+                        }
+                    }
+                    Err(e) => self.message(e, true),
+                }
+                self.state.controllers = ControllersState::of(&self.controllers);
+            }
             AppCmd::Transport(TransportCmd::Break) => {
                 if running && self.has(BREAK) {
                     self.state.transport.queued = Some(BREAK.into());
@@ -974,7 +1098,18 @@ impl MockSession {
             }
             AppCmd::Transport(TransportCmd::TapTempo) => {
                 let now = self.now;
-                self.taps.retain(|x| now - x < 2000.0);
+                // As the engine: taps up to 12.5 s apart count (down to 5 BPM); a jump in
+                // the interval by more than half starts a fresh average from the tap before.
+                if let Some(&last) = self.taps.last() {
+                    if now - last > 12_500.0 {
+                        self.taps.clear();
+                    } else if self.taps.len() >= 2 {
+                        let r = (now - last) / (last - self.taps[self.taps.len() - 2]).max(1.0);
+                        if !(1.0 / 1.5..=1.5).contains(&r) {
+                            self.taps = vec![last];
+                        }
+                    }
+                }
                 self.taps.push(now);
                 if self.taps.len() > 4 {
                     self.taps.remove(0);
@@ -982,12 +1117,43 @@ impl MockSession {
                 if self.taps.len() >= 2 {
                     let avg = (self.taps[self.taps.len() - 1] - self.taps[0]) / (self.taps.len() - 1) as f64;
                     if avg > 0.0 {
-                        self.state.transport.tempo = (60000.0 / avg).round().clamp(30.0, 300.0);
+                        self.state.transport.tempo = (60000.0 / avg).round().clamp(5.0, 500.0);
                     }
                 }
             }
-            AppCmd::Transport(TransportCmd::TempoUp) => self.state.transport.tempo = (self.state.transport.tempo + 1.0).min(300.0),
-            AppCmd::Transport(TransportCmd::TempoDown) => self.state.transport.tempo = (self.state.transport.tempo - 1.0).max(30.0),
+            AppCmd::Transport(TransportCmd::TempoUp) => self.state.transport.tempo = (self.state.transport.tempo + 1.0).min(500.0),
+            AppCmd::Transport(TransportCmd::TempoDown) => self.state.transport.tempo = (self.state.transport.tempo - 1.0).max(5.0),
+            AppCmd::Transport(TransportCmd::SetTempo { bpm }) => self.state.transport.tempo = (bpm as f64).clamp(5.0, 500.0),
+            AppCmd::Mixer(MixerCmd::SetStyleSolo { part }) => self.state.mixer.style_solo = part.map(|p| p & 7),
+            AppCmd::Mixer(MixerCmd::SetPartSolo { part }) => self.state.mixer.part_solo = part.map(|p| p & 3),
+            AppCmd::Mixer(MixerCmd::StyleTrackMute { order, value }) => {
+                let mask = order.mask(value);
+                for (i, p) in self.state.mixer.style_parts.iter_mut().enumerate() {
+                    p.on = mask & (1 << i) != 0;
+                }
+            }
+            AppCmd::Looper(LooperCmd::LooperRec) => {
+                if self.looper.rec(&mut self.state.looper, running) {
+                    self.state.transport.sync_start = true;
+                }
+            }
+            AppCmd::Looper(LooperCmd::LooperOnOff) => self.looper.on_off(&mut self.state.looper),
+            AppCmd::Looper(LooperCmd::SelectLooperMemory { index }) => {
+                if let Err(e) = self.looper.select(&mut self.state.looper, index as usize % 8) {
+                    self.message(e, true);
+                }
+            }
+            AppCmd::Looper(LooperCmd::StoreLooperMemory { index }) => {
+                if let Err(e) = self.looper.store(&mut self.state.looper, index as usize % 8) {
+                    self.message(e, true);
+                }
+            }
+            AppCmd::Looper(LooperCmd::ClearLooperMemory { index }) => self.looper.clear(&mut self.state.looper, index as usize % 8),
+            AppCmd::Looper(LooperCmd::NewLooperBank) => self.looper.new_bank(&mut self.state.looper),
+            AppCmd::Metronome(MetronomeCmd::ToggleMetronome) => self.state.metronome.on = !self.state.metronome.on,
+            AppCmd::Metronome(MetronomeCmd::SetMetronome { on }) => self.state.metronome.on = on,
+            AppCmd::Metronome(MetronomeCmd::SetMetronomeVolume { volume }) => self.state.metronome.volume = vol(volume),
+            AppCmd::Metronome(MetronomeCmd::SetMetronomeBell { on }) => self.state.metronome.bell = on,
             AppCmd::Mixer(MixerCmd::ToggleStylePart { part }) => {
                 if let Some(p) = self.state.mixer.style_parts.get_mut(part as usize) {
                     p.on = !p.on;
@@ -1025,6 +1191,7 @@ impl MockSession {
                 self.state.chord.transpose_keyboard = 0;
                 self.state.chord.transpose_master = 0;
             }
+            AppCmd::Chord(ChordCmd::SetChordSettle { ms }) => self.state.chord.settle_ms = ms.min(yahaha::engine::CHORD_SETTLE_MAX_MS),
             AppCmd::Parts(PartsCmd::SetPartOn { part, on }) => self.set_part_on(part, on),
             AppCmd::Parts(PartsCmd::TogglePart { part }) => {
                 let on = self.state.keyboard_parts.get(part as usize).is_some_and(|p| !p.on);
@@ -1064,7 +1231,7 @@ impl MockSession {
             AppCmd::Pads(PadsCmd::SetPadPage { page }) => self.state.pads.page = page,
             AppCmd::Pads(PadsCmd::CyclePadPage { delta }) => {
                 let i = self.state.pads.page as i8;
-                self.state.pads.page = Page::ALL[(i + delta).rem_euclid(3) as usize];
+                self.state.pads.page = Page::ALL[(i as i16 + delta as i16).rem_euclid(Page::ALL.len() as i16) as usize];
             }
             AppCmd::Mixer(MixerCmd::SetMasterVolume { volume }) => {
                 if self.state.io.synth.is_some() {
@@ -1133,6 +1300,19 @@ impl MockSession {
             }
             AppCmd::System(SystemCmd::Panic) => {
                 self.stop_band();
+                self.pads.panic(&mut self.state.multi_pad);
+                self.controllers.reset(&mut |_| {});
+                // As the session: the control-side switches a Hold pedal was keeping on go
+                // off (`Control::pump_pedal_releases`).
+                if let Some(down) = self.controllers.take_reset_releases() {
+                    for i in 0..PEDALS {
+                        let f = yahaha::controllers::reset_release(self.controllers.pedal(i), down >> i & 1 != 0);
+                        if let Some(cmd) = f.and_then(|f| yahaha::api::function_set(f, false)) {
+                            self.cmd(cmd);
+                        }
+                    }
+                }
+                self.state.controllers = ControllersState::of(&self.controllers);
                 self.message("All notes off", false);
             }
             AppCmd::System(SystemCmd::ClearMessage) => self.state.message = None,
@@ -1166,7 +1346,45 @@ impl MockSession {
                 io.inputs = io.sources.iter().filter(|s| s.listening).map(|s| if s.pads { format!("{} (pads)", s.name) } else { s.name.clone() }).collect();
             }
             AppCmd::Settings(SettingsCmd::SetPaletteLeds { on }) => self.state.pads.palette_leds = on,
+            AppCmd::Registration(c) => {
+                let fx = self.regist.registration_cmd(c, &self.state);
+                self.run_regist(fx);
+            }
+            AppCmd::Playlist(c) => {
+                let fx = self.regist.playlist_cmd(c, &self.state);
+                self.run_regist(fx);
+            }
+            AppCmd::MultiPad(c) => {
+                let running = self.state.transport.running;
+                if let Some(e) = self.pads.cmd(&mut self.state.multi_pad, c, running) {
+                    self.message(e, true);
+                }
+            }
+            AppCmd::HarmonyArp(c) => {
+                if let Err(e) = harmony_arp_cmd(&mut self.state.harmony_arp, c) {
+                    self.message(&e, true);
+                }
+            }
         }
+    }
+
+    /// A recall's style load and Main press (OTS Link held off: the registration's voices
+    /// win), then the rest of it.
+    fn run_regist(&mut self, fx: Vec<Effect>) {
+        let tempo = self.state.transport.tempo;
+        for e in fx {
+            match e {
+                Effect::LoadStyle(path) => self.cmd(AppCmd::Library(LibraryCmd::LoadStylePath { path })),
+                Effect::Main(index) => {
+                    let link = self.state.ots.link;
+                    self.state.ots.link = false;
+                    self.cmd(AppCmd::Transport(TransportCmd::Main { index }));
+                    self.state.ots.link = link;
+                }
+                Effect::Message(text, error) => self.message(text, error),
+            }
+        }
+        self.regist.apply_pending(&mut self.state, tempo);
     }
 
     fn set_upper(&mut self, on: bool) {
@@ -1329,7 +1547,87 @@ fn pads_for(s: &AppState, page: Page) -> Vec<Pad> {
             }
             v
         }
+        // Page 4 comes from the Registration mock (`MockRegist::pads`).
+        Page::Registration => vec![],
     }
+}
+
+/// Harmony/Arpeggio off, Standard Duet 1: the engine's defaults.
+fn harmony_arp_default() -> HarmonyArpState {
+    let mut h = HarmonyArpState {
+        volume: 100,
+        touch_limit: 1,
+        arp: ArpSettings { fixed_velocity: 100, ..ArpSettings::default() },
+        ..HarmonyArpState::default()
+    };
+    name_harmony_arp(&mut h);
+    h
+}
+
+fn name_harmony_arp(h: &mut HarmonyArpState) {
+    let t = match h.mode {
+        HarmonyArpMode::Harmony => harmony_type_options().swap_remove(h.harmony_type as usize),
+        HarmonyArpMode::Arpeggio => arp_pattern_options().swap_remove(h.arp_pattern as usize),
+    };
+    h.type_name = t.name;
+    h.category = t.category;
+}
+
+/// The Harmony/Arpeggio commands, as src/session/harmony_arp.rs runs them (the mock plays
+/// no notes).
+fn harmony_arp_cmd(h: &mut HarmonyArpState, c: HarmonyArpCmd) -> Result<(), String> {
+    let (types, patterns) = (harmony_type_options().len(), arp_pattern_options().len());
+    match c {
+        HarmonyArpCmd::ToggleHarmonyArp => h.on = !h.on,
+        HarmonyArpCmd::SetHarmonyArpOn { on } => h.on = on,
+        HarmonyArpCmd::SetHarmonyType { index } => {
+            if index as usize >= types {
+                return Err(format!("no Harmony type {index} (0-{})", types - 1));
+            }
+            h.mode = HarmonyArpMode::Harmony;
+            h.harmony_type = index;
+        }
+        HarmonyArpCmd::SetArpPattern { index } => {
+            if index as usize >= patterns {
+                return Err(format!("no arpeggio pattern {index} (0-{})", patterns - 1));
+            }
+            h.mode = HarmonyArpMode::Arpeggio;
+            h.arp_pattern = index;
+        }
+        HarmonyArpCmd::StepHarmonyArpType { delta } => {
+            let n = (types + patterns) as i32;
+            let cur = match h.mode {
+                HarmonyArpMode::Harmony => h.harmony_type as i32,
+                HarmonyArpMode::Arpeggio => (types + h.arp_pattern as usize) as i32,
+            };
+            let next = (cur + delta as i32).rem_euclid(n) as usize;
+            if next < types {
+                h.mode = HarmonyArpMode::Harmony;
+                h.harmony_type = next as u8;
+            } else {
+                h.mode = HarmonyArpMode::Arpeggio;
+                h.arp_pattern = (next - types) as u8;
+            }
+        }
+        HarmonyArpCmd::SetHarmonyVolume { volume } => h.volume = volume.min(127),
+        HarmonyArpCmd::SetHarmonySpeed { speed } => h.speed = speed,
+        HarmonyArpCmd::SetHarmonyAssign { assign } => h.assign = assign,
+        HarmonyArpCmd::SetChordNoteOnly { on } => h.chord_note_only = on,
+        HarmonyArpCmd::SetTouchLimit { velocity } => h.touch_limit = velocity.clamp(1, 127),
+        HarmonyArpCmd::SetArpQuantize { quantize } => h.arp.quantize = quantize,
+        HarmonyArpCmd::SetArpHold { on } => h.arp.hold = on,
+        HarmonyArpCmd::ToggleArpHold => h.arp.hold = !h.arp.hold,
+        HarmonyArpCmd::SetArpPedalHold { on } => h.arp.pedal_hold = on,
+        HarmonyArpCmd::ToggleArpPedalHold => h.arp.pedal_hold = !h.arp.pedal_hold,
+        HarmonyArpCmd::SetArpVelocity { mode, velocity } => {
+            h.arp.velocity = mode;
+            // As the engine: only Fixed keeps a velocity of its own.
+            h.arp.fixed_velocity = if mode == ArpVelocityMode::Fixed { velocity.clamp(1, 127) } else { 100 };
+        }
+        HarmonyArpCmd::SetArpKeepKeyOn { on } => h.arp.keep_key_on = on,
+    }
+    name_harmony_arp(h);
+    Ok(())
 }
 
 #[cfg(test)]
@@ -1357,6 +1655,63 @@ mod tests {
         assert_eq!(m.state.transport.queued.as_deref(), Some("Fill In BB"));
         let lamp = m.state.transport.lamps.iter().find(|p| p.note == 113).unwrap();
         assert_eq!((lamp.level, lamp.anim), (Level::Bright, Anim::Flash));
+    }
+
+    #[test]
+    fn pedals_and_their_functions() {
+        use yahaha::controllers::Function;
+        let mut m = MockSession::new();
+        m.send(ControllersCmd::SetPedal { pedal: 1, cc: Some(66), function: Function::FillUp, control_type: Default::default(), reverse: false, range: Default::default() });
+        assert_eq!(m.state.controllers.pedals[1].function, Function::FillUp);
+        // Playing Main B: Fill Up plays Main C's fill, then Main C.
+        m.send(ControllersCmd::TriggerFunction { function: Function::FillUp });
+        assert_eq!(m.state.transport.queued.as_deref(), Some("Fill In BB"));
+        assert_eq!(m.state.transport.main, 2);
+        m.send(ControllersCmd::TriggerFunction { function: Function::Sustain });
+        assert!(m.state.controllers.sustain);
+        m.send(SystemCmd::Panic);
+        assert!(!m.state.controllers.sustain);
+        // Registration Bank +: the REGIST BANK [+] button loads the next demo bank.
+        let before = m.state.registration.bank.path.clone();
+        m.send(ControllersCmd::TriggerFunction { function: Function::RegistBankNext });
+        assert!(m.state.registration.bank.path.is_some());
+        assert_ne!(m.state.registration.bank.path, before);
+    }
+
+    #[test]
+    fn harmony_arpeggio_settings_follow_the_commands() {
+        let mut m = MockSession::new();
+        assert_eq!(m.state.harmony_arp.type_name, "Standard Duet 1");
+        assert_eq!(m.library().harmony_types.len(), 23);
+        m.send(HarmonyArpCmd::ToggleHarmonyArp);
+        m.send(HarmonyArpCmd::StepHarmonyArpType { delta: -1 });
+        let h = &m.state.harmony_arp;
+        assert!(h.on);
+        assert_eq!((h.mode, h.type_name.as_str()), (HarmonyArpMode::Arpeggio, "Pluck Line"), "wraps into the arpeggios");
+        m.send(HarmonyArpCmd::SetArpVelocity { mode: ArpVelocityMode::Fixed, velocity: 200 });
+        assert_eq!(m.state.harmony_arp.arp.fixed_velocity, 127);
+        m.send(HarmonyArpCmd::SetHarmonyType { index: 99 });
+        assert!(m.state.message.as_ref().is_some_and(|x| x.error));
+        // The HARMONY/ARPEGGIO switch is the button under fader 5 on the Panel fader page.
+        let b5 = m.surface().controls.into_iter().find(|c| c.id == "faderButton5").unwrap();
+        assert_eq!((b5.label.as_str(), b5.action, b5.level), ("HARM/ARP", Some(AppCmd::HarmonyArp(HarmonyArpCmd::ToggleHarmonyArp)), Level::Bright));
+        // Kbd Harmony/Arpeggio and Arpeggio Hold are pedal functions: Try switches them, and a
+        // Hold B pedal (up) holds the arpeggio at once.
+        use yahaha::controllers::{ControlType, Function};
+        m.send(ControllersCmd::TriggerFunction { function: Function::KbdHarmonyArp });
+        assert!(!m.state.harmony_arp.on);
+        assert!(!m.state.harmony_arp.arp.hold);
+        m.send(ControllersCmd::SetPedal { pedal: 1, cc: Some(66), function: Function::ArpHold, control_type: ControlType::HoldB, reverse: false, range: Default::default() });
+        assert!(m.state.harmony_arp.arp.pedal_hold, "the pedal function, not the setting");
+        assert!(!m.state.harmony_arp.arp.hold);
+        m.send(ControllersCmd::TriggerFunction { function: Function::ArpHold });
+        assert!(!m.state.harmony_arp.arp.pedal_hold, "Try switches the pedal function");
+        m.send(ControllersCmd::TriggerFunction { function: Function::ArpHold });
+        // PANIC lets go of what a Hold pedal keeps on (Hold B, up); the setting stays.
+        m.send(HarmonyArpCmd::SetArpHold { on: true });
+        m.send(SystemCmd::Panic);
+        assert!(!m.state.harmony_arp.arp.pedal_hold);
+        assert!(m.state.harmony_arp.arp.hold);
     }
 
     #[test]
@@ -1442,7 +1797,7 @@ mod tests {
         let s = &m.state.surface;
         assert_eq!(
             labels(&m),
-            ["", "PAGE ▼", "◀ STYLE", "STYLE ▶", "PLAY", "STOP", "TEMPO +", "TEMPO -", "RIGHT 1", "RIGHT 2", "RIGHT 3", "LEFT", "", "", "", "", "PANEL"]
+            ["", "PAGE ▼", "◀ STYLE", "STYLE ▶", "PLAY", "STOP", "TEMPO +", "TEMPO -", "RIGHT 1", "RIGHT 2", "RIGHT 3", "LEFT", "HARM/ARP", "", "", "", "PANEL"]
         );
         assert_eq!((s.controls[0].shift_label.as_str(), s.controls[1].shift_label.as_str()), ("LEFT", "OTS LINK"));
         assert_eq!(s.controls[0].action, None);
@@ -1461,7 +1816,7 @@ mod tests {
 
         // Style page.
         m.send(MixerCmd::ToggleFaderPage);
-        m.send(PadsCmd::SetPadPage { page: Page::OtsParts });
+        m.send(PadsCmd::SetPadPage { page: Page::Registration });
         let s = &m.state.surface;
         assert_eq!(
             labels(&m),
@@ -1513,6 +1868,83 @@ mod tests {
         m.send(TransportCmd::Stop);
         let c3 = m.state_now().surface.clock;
         assert_eq!((c3.running, c3.bar, c3.beat, c3.phase), (false, 1, 1, 0.0));
+    }
+
+    #[test]
+    fn registration_recalls_lights_page_4_and_the_playlist_steps() {
+        let mut m = MockSession::new();
+        assert_eq!(m.state.registration.bank.name, "Friday Gig");
+        assert_eq!(m.state.registration.buttons.len(), 10);
+        m.send(RegistrationCmd::RecallRegist { index: 3 });
+        assert_eq!(m.state.registration.selected, Some(3));
+        assert_eq!(m.state.transport.tempo, 132.0);
+        assert_eq!(m.state.keyboard_parts[0].program, 26);
+        m.send(PadsCmd::SetPadPage { page: Page::Registration });
+        assert_eq!(m.state.pads.pads.len(), 16);
+        assert_eq!((m.state.pads.pads[3].rgb, m.state.pads.pads[0].rgb), ([127, 0, 0], [0, 40, 127]));
+        assert_eq!(m.state.pads.pads[9].level, Level::Off);
+        // Memory, then button 10.
+        m.send(RegistrationCmd::ToggleRegistMemory);
+        assert!(m.state.pads.pads.iter().take(10).all(|p| p.anim == Anim::Flash));
+        m.send(RegistrationCmd::PressRegist { index: 9 });
+        assert!(m.state.registration.buttons[9].stored);
+        // Shift + Track steps the playlist: its first record recalls Friday Gig [1].
+        let tl = m.state.surface.controls.iter().find(|c| c.id == "trackNext").unwrap().clone();
+        assert_eq!((tl.shift_label.as_str(), tl.shift_action.clone()), ("SONG ▶", Some(AppCmd::Playlist(PlaylistCmd::StepPlaylist { delta: 1 }))));
+        m.send(PlaylistCmd::StepPlaylist { delta: 1 });
+        assert_eq!((m.state.playlist.current, m.state.registration.selected), (Some(0), Some(0)));
+        assert_eq!(m.state.transport.tempo, 72.0);
+    }
+
+    /// As the session's `harmonyArp` registrable: Memorize stores Keyboard Harmony/Arpeggio,
+    /// a recall puts it back (not the pedal's Arpeggio Hold), Freeze leaves it.
+    #[test]
+    fn registration_stores_harmony_arpeggio() {
+        let mut m = MockSession::new();
+        m.send(HarmonyArpCmd::SetArpPattern { index: 4 });
+        m.send(HarmonyArpCmd::SetHarmonyArpOn { on: true });
+        m.send(HarmonyArpCmd::SetHarmonyVolume { volume: 60 });
+        let want = m.state.harmony_arp.clone();
+        m.send(RegistrationCmd::MemorizeRegist { index: 5 });
+        let scramble = |m: &mut MockSession| {
+            m.send(HarmonyArpCmd::SetHarmonyType { index: 1 });
+            m.send(HarmonyArpCmd::SetHarmonyArpOn { on: false });
+            m.send(HarmonyArpCmd::SetHarmonyVolume { volume: 100 });
+        };
+        scramble(&mut m);
+        m.send(HarmonyArpCmd::SetArpPedalHold { on: true });
+        m.send(RegistrationCmd::RecallRegist { index: 5 });
+        let mut got = m.state.harmony_arp.clone();
+        assert!(got.arp.pedal_hold, "the pedal's, not recalled");
+        got.arp.pedal_hold = false;
+        assert_eq!(got, want);
+        scramble(&mut m);
+        let scrambled = m.state.harmony_arp.clone();
+        m.send(RegistrationCmd::SetFreezeGroup { group: yahaha::registration::Group::HarmonyArp, on: true });
+        m.send(RegistrationCmd::SetFreeze { on: true });
+        m.send(RegistrationCmd::RecallRegist { index: 5 });
+        assert_eq!(m.state.harmony_arp, scrambled, "frozen");
+    }
+
+    /// Save As names files as the session does ("A:B" is "A_B") and, like the Mac's file
+    /// system, ignores case: your own bank in another case is renamed, not refused.
+    #[test]
+    fn save_as_uses_the_session_file_names() {
+        let mut m = MockSession::new();
+        let save = |m: &mut MockSession, name: &str, overwrite: bool| m.send(RegistrationCmd::SaveRegistBank { name: Some(name.into()), overwrite });
+        m.send(RegistrationCmd::NewRegistBank);
+        save(&mut m, "A_B", false);
+        m.send(RegistrationCmd::NewRegistBank);
+        save(&mut m, "A:B", false);
+        assert!(m.state.message.as_ref().is_some_and(|x| x.error && x.text.contains("already exists")));
+        assert_eq!(m.state.registration.bank.path, None);
+        m.send(RegistrationCmd::NewRegistBank);
+        save(&mut m, "Mine", false);
+        save(&mut m, "MINE", false);
+        let r = &m.state.registration;
+        assert!(r.bank.path.as_deref().is_some_and(|p| p.ends_with("/MINE.regist.json")));
+        assert_eq!(r.banks.iter().filter(|b| b.name.eq_ignore_ascii_case("mine")).count(), 1);
+        assert!(r.bank.position.is_some());
     }
 
     #[test]

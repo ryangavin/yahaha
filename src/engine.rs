@@ -13,13 +13,17 @@ mod change_rules;
 mod chords;
 mod fills;
 mod hooks;
+mod looper;
+mod metronome;
 mod mirror;
 mod mixer;
+mod multipad;
 mod playback;
 mod prepared;
 #[cfg(test)]
 mod rules_tests;
 mod sections;
+mod settle;
 mod setup;
 mod style_change;
 mod transport;
@@ -28,9 +32,14 @@ use hooks::{Features, Lines};
 use mirror::{Mirror, NRPN_BIT, UNSENT};
 use sections::Change;
 pub use change_rules::{ChangeRule, ChangeRules, StopAcmp, FIXED_BASS_PROGRAM, FIXED_PAD_PROGRAM};
+pub use looper::{LoopState, LooperSnap};
 pub use mixer::{Takeover, HW_UNKNOWN};
+pub use transport::StyleControls;
+pub use multipad::{PadCmd, PadsSnap, SynchroStop, PAD_PPQ};
 use prepared::PKind;
-pub use prepared::{id_of, slot_of, Msgs, PSection, Prepared, NUM_SLOTS};
+pub use prepared::{id_of, slot_of, Msgs, PSection, Prepared, Setup, NUM_SLOTS};
+pub use settle::{CHORD_SETTLE_DEFAULT_MS, CHORD_SETTLE_MAX_MS};
+use settle::{Hold, Unsettled};
 
 use crate::sff::{ChannelRule, Ntr, Ntt, Rtr, SectionId, Style};
 use crate::theory::{is_drum_part, plays, transpose_group, Chord, CANCEL, GUITAR_NOISE};
@@ -42,7 +51,15 @@ pub trait Sink {
     /// was sent with (the engine has already sent the pitch bend). MIDI sinks ignore it; the
     /// sim listing uses it to show the pitch that sounds.
     fn retune(&mut self, _ch: u8, _semis: i8) {}
+
+    /// A metronome click (`accent`: the bell on beat 1), for the built-in synth's click
+    /// voice only: it never goes out as MIDI. Sinks without a synth ignore it.
+    fn click(&mut self, _accent: bool) {}
 }
+
+/// The tempo range, BPM (Genos: 5-500, OM p.46, p.133).
+pub const MIN_BPM: f64 = 5.0;
+pub const MAX_BPM: f64 = 500.0;
 
 /// Pitch bend range (RPN 0) a part has before the style sets one: the GM/XG default.
 pub const GM_BEND_RANGE: u8 = 2;
@@ -103,6 +120,10 @@ pub enum Button {
     Intro(u8),
     Main(u8),
     Break,
+    /// Fill Down (-1), Fill Self (0), Fill Up (+1): a fill, then the Main to the left, the
+    /// same Main, or the Main to the right (an assignable function, RM p.142). The same as
+    /// `FillDown`, `FillSelf` and `FillUp`.
+    Fill(i8),
     Ending(u8),
     StartStop,
     Stop,
@@ -112,6 +133,8 @@ pub enum Button {
     TapTempo,
     TempoUp,
     TempoDown,
+    /// Set the tempo (BPM; clamped to `MIN_BPM`..=`MAX_BPM`).
+    SetTempo(u16),
     TogglePart(u8),
     /// Stop Accompaniment on/off: Off <-> the last mode that sounds (Style at first).
     StopAcmp,
@@ -145,6 +168,9 @@ pub struct Snapshot {
     pub parts: u8,
     /// Mixer fader per part (0..=127): the part's volume, sent as its CC7 unchanged.
     pub volumes: [u8; 8],
+    /// Parts whose level the player has set since the style loaded (bit 0 = Rhythm 1):
+    /// the patterns' CC7 no longer move them. The others' `volumes` are the style's.
+    pub user_set: u8,
     /// Parts whose hardware fader is waiting to pick up the software value (soft takeover).
     pub pickup: u8,
     /// Stop Accompaniment sounds the chord (`stop_acmp_mode` is not Off).
@@ -173,6 +199,12 @@ pub struct Snapshot {
     /// A style preview playing beside the (stopped) band (`live::EngineLoop`); the engine
     /// itself always reports None.
     pub audition: Option<AuditionPos>,
+    /// The Chord Looper.
+    pub looper: LooperSnap,
+    /// The Style part soloed (0-7), if any.
+    pub style_solo: Option<u8>,
+    /// Multi Pads: the bank playing and each pad's state (engine/multipad.rs).
+    pub multipad: PadsSnap,
 }
 
 /// Where a style preview is: style `id` (the session's library id), bar `bar` of `bars`
@@ -347,6 +379,12 @@ pub struct Engine {
     retired: [Option<Box<Prepared>>; 4],
     /// The next bar or beat line for the `on_bar`/`on_beat` hooks (hooks.rs).
     lines: Lines,
+    /// The chord-settle window (settle.rs), in ns.
+    settle_ns: u64,
+    /// A chord change the band has not followed yet (settle.rs).
+    unsettled: Option<Unsettled>,
+    /// Where the pattern's notes held back while the chord settles begin.
+    hold: Option<Hold>,
     /// The engine-side state of the features that plug into the hooks (hooks.rs).
     features: Features,
     /// Pitch bends that did not fit the output range and were clamped.
@@ -363,7 +401,7 @@ pub struct Engine {
 impl Engine {
     pub fn new(style: Box<Prepared>) -> Engine {
         let bpm = style.bpm;
-        let mixer = style.mix;
+        let mixer = style.setups[0].mix;
         let mut e = Engine {
             style,
             running: false,
@@ -403,6 +441,9 @@ impl Engine {
             pending: None,
             retired: [None, None, None, None],
             lines: Lines::default(),
+            settle_ns: 0,
+            unsettled: None,
+            hold: None,
             features: Features::default(),
             #[cfg(test)]
             bend_clamps: Default::default(),
@@ -459,6 +500,7 @@ impl Engine {
             bpm: self.bpm,
             parts: self.parts,
             volumes: self.mixer,
+            user_set: self.user_set,
             pickup: self.pickup_waiting(),
             stop_acmp: self.stop_acmp != StopAcmp::Off,
             stop_acmp_mode: self.stop_acmp,
@@ -475,13 +517,19 @@ impl Engine {
                 _ => 0,
             },
             audition: None,
+            looper: self.looper_snapshot(),
+            style_solo: self.features.solo,
+            multipad: self.pads_snapshot(),
         }
     }
 
-    /// Time of the next thing the engine needs to do, if running.
+    /// Time of the next thing the engine needs to do: if running, or a chord change is
+    /// waiting to settle (settle.rs), or the stopped metronome ticks.
     pub fn next_deadline(&self) -> Option<u64> {
         if !self.running {
-            return None;
+            // Stopped, only the metronome keeps time, and a chord change Stop
+            // Accompaniment (or a Chord Match pad) waits on settles.
+            return [self.settle_at(), self.metronome_idle_deadline()].into_iter().flatten().min();
         }
         let sec = self.style.sections[self.cur].as_ref()?;
         let mut t = self.sec_start + sec.len as f64;
@@ -497,7 +545,8 @@ impl Engine {
         if let Some(h) = self.hook_deadline() {
             t = t.min(h);
         }
-        Some(self.ns_at(t))
+        let t = self.ns_at(t);
+        Some(self.settle_at().map_or(t, |s| s.min(t)))
     }
 }
 

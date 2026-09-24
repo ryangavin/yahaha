@@ -19,8 +19,14 @@ const GROUPS: [string, string][] = [
   ['split', 'Split point'],
   ['transpose', 'Transpose'],
   ['ots', 'One Touch Settings'],
+  ['regist', 'Registration Memory'],
+  ['playlist', 'Playlist'],
   ['part', 'Keyboard parts'],
+  ['harmony', 'Keyboard Harmony / Arpeggio'],
   ['mixer', 'Mixer'],
+  ['metronome', 'Metronome'],
+  ['looper', 'Chord Looper'],
+  ['multipad', 'Multi Pads'],
   ['padpage', 'Launchkey pad pages'],
   ['launchkey', 'Launchkey'],
   ['lead', 'Lead-sheet band'],
@@ -29,6 +35,7 @@ const GROUPS: [string, string][] = [
   ['settings', 'Settings'],
   ['audio', 'Audio'],
   ['midi', 'MIDI'],
+  ['pedal', 'Pedals and wheels'],
   ['app', 'App'],
 ]
 

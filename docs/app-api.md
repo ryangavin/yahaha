@@ -93,6 +93,7 @@ state, and pressing the button is the action. For settings, a GUI checkbox can u
 | `intro` | `index` 0–2 | Intro 1–3. Stopped: plays at the start. Playing: queued for the next bar. |
 | `main` | `index` 0–3 | Main A–D. Pressing the Main that is playing plays its fill. With Auto Fill on, a change plays the fill first. |
 | `break` | | Break (Fill In BA). |
+| `fill` | `delta` −1, 0, 1 | Fill Down, Fill Self, Fill Up (the Genos assignable functions): the fill, then the Main to the left, the same Main, or the Main to the right, whatever Auto Fill says. Past Main A or D, the fill of the Main at the end. Stopped: selects that Main. |
 | `ending` | `index` 0–2 | Ending 1–3. |
 | `startStop` | | START/STOP. |
 | `stop` | | Stops if playing, otherwise does nothing. This is the Launchkey Stop button. |
@@ -107,8 +108,11 @@ state, and pressing the button is the action. For settings, a GUI checkbox can u
 | `setHalfBarFill` / `toggleHalfBarFill` | `on` | Half Bar Fill In: a Main change or fill asked for on the first beat of a bar plays a fill from the middle of that bar (beat 3 in 4/4), then the Main at the next bar line, even with Auto Fill off. |
 | `tapTempo` | | TAP TEMPO. |
 | `tempoUp`, `tempoDown` | | One tempo step. |
+| `setTempo` | `bpm` | Sets the tempo. The range is 5–500 BPM (Genos, OM p.46); values outside are clamped. |
 | `toggleStylePart` | `part` 0–7 | Mutes or unmutes a Style part. |
 | `setStylePartVolume` | `part` 0–7, `volume` 0–127 | The part's CC7. The Launchkey fader has to reach the new value before it takes over again. |
+| `setStyleSolo` | `part` 0–7 or null | Solos a Style part: only it plays, even if it is switched off; the other parts' notes stop. `null` ends the solo. The on/off switches are not changed (`mixer.styleSolo`). |
+| `styleTrackMute` | `order` `a` \| `b`, `value` 0–127 | Style Track Mute, a Genos Live Control knob (RM p.148). `value` is the knob: fully left (0) leaves one part on, and turning up adds parts until all eight are on at 127. Order A: Rhythm 2, Rhythm 1, Bass, Chord 1, Chord 2, Pad, Phrase 1, Phrase 2. Order B: Chord 1, Chord 2, Pad, Bass, Phrase 1, Phrase 2, Rhythm 1, Rhythm 2. It sets the parts' on/off switches. |
 
 ### Chord detection, split, transpose
 
@@ -123,6 +127,7 @@ state, and pressing the button is the action. For settings, a GUI checkbox can u
 | `setTranspose` | `keyboard`, `master` | Semitones, each clamped to −12..12. |
 | `stepTranspose` | `keyboard`, `master` | Adds to the current transpose. |
 | `resetTranspose` | | Both back to 0. |
+| `setChordSettle` | `ms` | The chord-settle window, clamped to 0–30 ms (default 10). While the style plays (and, with it stopped, for Stop Accompaniment and Chord Match Multi Pads), a chord change reaches the accompaniment once the chord has held still this long (at most three windows after the first change), so a rolled chord is followed once. 0: at once. Not a Genos setting; see docs/genos-features.md (Chord settle). |
 
 ### Keyboard parts
 
@@ -134,13 +139,14 @@ state, and pressing the button is the action. For settings, a GUI checkbox can u
 | `stepVoice` | `delta` | Previous or next voice for the selected part. |
 | `setPartVolume` | `part`, `volume` 0–127 | The part's CC7. The Launchkey fader has to reach it before it takes over. |
 | `setPartOctave` | `part`, `octave` −2..2 | Octave shift. |
+| `setPartSolo` | `part` 0–3 or null | Solos a keyboard part: only it sounds from the keys, even if it is switched off (Left soloed plays the left hand; another part soloed plays the whole keyboard when Left is not sounding). `null` ends it. The switches are not changed (`mixer.partSolo`). |
 
 ### Mixer, Launchkey pages, synth
 
 | Command | Fields | Does |
 |---|---|---|
 | `setFaderPage` / `toggleFaderPage` | `page`: `panel` \| `style` | What the Launchkey faders control. |
-| `setPadPage` | `page`: `sections` \| `chordSetup` \| `otsParts` | The Launchkey pad page. |
+| `setPadPage` | `page`: `sections` \| `chordSetup` \| `otsParts` \| `registration` | The Launchkey pad page. |
 | `cyclePadPage` | `delta` | Steps the pad page, wrapping. |
 | `setMasterVolume` | `volume` 0–127 | Synth master (100 = unity). Fails when the synth is off. |
 | `setSynthMuted` / `toggleSynthMute` | `on` | Mutes the synth audio. |
@@ -183,6 +189,128 @@ Style Setting > Change Behavior (RM p.12–13): what choosing another style does
 | `setSectionSet` | `section` 0–3 or null | Section Set: the Main (A–D) a style chosen while stopped starts on (the nearest Main it has), or null (Off, the default) to keep the Main selected. |
 | `toggleStyleTempoLock` | | The assignable "Style Tempo Lock/Reset": Tempo `reset` becomes `lock`, anything else becomes `reset`. |
 | `toggleStyleTempoHold` | | The assignable "Style Tempo Hold/Reset": Tempo `reset` becomes `hold`, anything else becomes `reset`. |
+### Registration Memory
+
+Buttons are 0-based (`index` 0–9 = the panel's [1]–[10]). Groups are `style`, `voice`,
+`harmonyArp`, `multiPad`, `tempo`, `transpose`, `chordLooper`, `liveControl` (the Genos
+Freeze groups; docs/registration.md lists what each covers).
+
+| Command | Fields | Does |
+|---|---|---|
+| `pressRegist` | `index` | A REGISTRATION MEMORY button (the Launchkey pads send this): recalls it, or memorizes into it while MEMORY is armed. |
+| `recallRegist` | `index` | Recalls a button: the groups it memorized, less the frozen ones while Freeze is on. The style comes first; when it changes, the rest follows once the new style plays (at once when stopped, at the next bar line when playing; `registration.pending` meanwhile). Refused if the button is empty. |
+| `memorizeRegist` | `index` | Stores the panel (the `memorizeGroups`) in a button, replacing what it held. A saved bank is written to its file at once. |
+| `toggleRegistMemory` | | The MEMORY button: the next `pressRegist` memorizes. |
+| `setMemorizeGroup` | `group`, `on` | Ticks a group in the Memory window. |
+| `clearRegist` | `index` | Empties a button. |
+| `renameRegist` | `index`, `name` | Renames a button. |
+| `stepRegistBank` | `delta` | REGIST BANK −/+: the previous/next bank file in the folder (stops at the ends). Loading a bank recalls nothing. |
+| `selectRegistBank` | `path` | Loads a bank file. |
+| `newRegistBank` | | A new, empty, unsaved bank. |
+| `saveRegistBank` | `name` (null: its own file), `overwrite`? | Saves the bank; with a name, as a file of that name in the folder. Refused when another bank already has that file, unless `overwrite: true`. Fails without a data folder. |
+| `setFreeze` / `toggleFreeze` | `on` | Registration Freeze. |
+| `setFreezeGroup` | `group`, `on` | Ticks a group on the Freeze display: it stays unchanged on recall while Freeze is on. |
+| `setRegistSequence` | `steps` (buttons 0–9), `end`: `stop` \| `top` \| `next` | Programs the bank's Registration Sequence. |
+| `setRegistSequenceOn` / `toggleRegistSequence` | `on` | Registration Sequence on/off. A panel setting, not part of the bank (as on the Genos): it stays when the bank changes, and is kept in the Registration folder's `setup.json`. |
+| `stepRegistSequence` | `delta` | Regist +/−: recalls the next/previous step. Past the end: `stop` stays, `top` wraps, `next` loads the next bank and recalls its first step. Refused while the sequence is off. |
+
+### Playlist
+
+Record `index` is a record's position in the playlist file (`PlaylistRow.index`), whatever
+the display order. A record is `{ "name", "kind": "bank", "path", "regist"? }` (a bank
+file, and the button to recall after loading it) or `{ "name", "kind": "style", "path" }`.
+
+| Command | Fields | Does |
+|---|---|---|
+| `newPlaylist` | | A new, empty, unsaved playlist. |
+| `loadPlaylist` | `path` | Opens a playlist file. |
+| `savePlaylist` | `name` (null: its own file), `overwrite`? | Saves in the displayed order and sets the sort back to `normal`; with a name, as a file of that name in the folder (refused when another playlist has it, unless `overwrite: true`). |
+| `addPlaylistRecord` | `record` | Adds a record at the end (at most 2,500). An empty name takes the file's. |
+| `addCurrentBank` | | Adds the bank in use (it must be saved), recalling the lit button. |
+| `addCurrentStyle` | | Adds the loaded style. |
+| `appendPlaylist` | `path` | Adds every record of another playlist file. |
+| `setPlaylistRecord` | `index`, `record` | Replaces a record (Record Edit). |
+| `movePlaylistRecord` | `index`, `delta` | Up (−1) / Down (+1). Refused while sorted. |
+| `deletePlaylistRecord` | `index` | Refused while sorted. |
+| `setPlaylistSort` | `sort`: `normal` \| `aToZ` \| `zToA` | Display order. |
+| `loadPlaylistRecord` | `index` | Loads its bank and recalls its button, or loads its style. |
+| `stepPlaylist` | `delta` | Loads the previous/next record in display order (Shift + Track ◀/▶). Does nothing on an empty playlist. |
+
+### Chord Looper
+
+Genos CHORD LOOPER (RM p.14–19): record a chord progression while the style plays, then
+loop it; the looper feeds its chords to the style as if they were played. Recording, loop
+playback and a memory change start at the next bar line; stopping the loop is immediate.
+Details and decisions: [chord-looper.md](chord-looper.md).
+
+| Command | Fields | Does |
+|---|---|---|
+| `looperRec` | | REC/STOP. Playing: recording starts at the next bar line, with the chord held then as its first. Stopped: Sync Start turns on and the first chord starts the style and the recording together. Recording: stops recording (the style plays on). Armed: cancels. While looping: the loop stops and recording arms. |
+| `looperOnOff` | | ON/OFF. Recording: recording stops (the bars recorded, counting the one playing) and the loop starts at the next bar line. With a sequence: the loop starts at the next bar line (stopped: when the style starts). Armed: cancels. Looping: the loop stops at once and the style keeps the loop's chord until a chord is played. |
+| `selectLooperMemory` | `index` 0–7 | Selects a memory. One that holds a sequence replaces the current one; while looping, at the next bar line (`looper.pendingMemory` until then). Refused while recording. |
+| `storeLooperMemory` | `index` 0–7 | Stores the current sequence in the memory (named `CLD_001` and on). Refused with nothing recorded. |
+| `clearLooperMemory` | `index` 0–7 | Empties the memory. |
+| `newLooperBank` | | Empties all eight memories. The current sequence stays. |
+
+### Metronome
+
+| Command | Fields | Does |
+|---|---|---|
+| `setMetronome` / `toggleMetronome` | `on` | Metronome on/off. It clicks on every beat, with the style while it plays and free-running at the tempo while stopped. The click sounds on the built-in synth only, never on the MIDI port. |
+| `setMetronomeVolume` | `volume` 0–127 | The click's own volume (the synth master applies on top). |
+| `setMetronomeBell` | `on` | A bell on the first beat of each bar. |
+
+### Multi Pads
+
+Pads are 0–3 (pads 1–4). See docs/multipad.md for the Genos behaviour and what is a guess.
+
+| Command | Fields | Does |
+|---|---|---|
+| `loadMultiPad` | `id` | Loads a bank from `multiPad.banks` (the `.pad` files in the style folders). The file is parsed on the control side; pads playing stop when the new bank takes over (`multiPad.loading` until then, a moment later live). A file that doesn't parse fails and keeps the bank loaded. |
+| `loadMultiPadPath` | `path` | Any `.pad` file; it is added to `multiPad.banks` if it isn't there already (once it has loaded). A `rescanLibrary` keeps such a bank listed, with its id, while its file is there. |
+| `clearMultiPad` | | No bank: the pads go dark. |
+| `triggerMultiPad` | `pad` | Presses a pad: it plays from the top (a playing pad restarts). Stopped, it starts at once; while the band plays, at the next bar line (`lamp` `queued` until then). Pads in Synchro Start standby start with it. |
+| `stopMultiPad` | `pad` | STOP + pad: that pad stops now. |
+| `stopAllMultiPads` | | STOP: every pad stops, and Synchro Start standby is cancelled. |
+| `armMultiPad` | `pad` | SELECT + pad: toggles the pad's Synchro Start standby (`lamp` `armed`). Armed pads start on the next chord played in the chord section, or when the band starts; while the band plays, at the next bar line. |
+| `setMultiPadRepeat` | `pad`, `on` | Overrides the pad's Repeat flag (from the bank file) until the next bank loads. |
+| `setMultiPadChordMatch` | `pad`, `on` | Overrides the pad's Chord Match flag until the next bank loads. |
+| `setMultiPadSynchroStop` | `styleStop`, `ending` | Multi Pad Synchro Stop: repeating pads stop when the band stops (`styleStop`, default on) and when an Ending starts (`ending`, default off). One-shot pads always play out. |
+
+### Controllers
+
+Pedals, the wheels and the assignable functions (docs/controllers.md).
+
+| Command | Fields | Does |
+|---|---|---|
+| `setPedal` | `pedal` 0–2, `cc`, `function`, `controlType`, `reverse`, `range` | Sets up a pedal: the control change it listens for on the keyboards (`cc` 0–127, or null for none), its assignable function (an `id` from `app/src/lib/api/assignable-functions.json`, for example `sustain`, `startStop`, `fillUp`, `ots1`), its Control Type for Sustain, Sostenuto and Soft (`holdA`: on while held, `holdB`: off while held, `toggle`), reversed polarity, and the Range of a Pitch Bend pedal (`upper`, `lower`, `full`). `controlType`, `reverse` and `range` may be left out (`holdA`, false, `upper`). |
+| `learnPedal` | `pedal` 0–2 or null | The pedal takes the CC of the next control change a keyboard presses (a value of 64 or more; not bank select, volume, the modulation wheel, data entry or channel mode messages). Null stops learning. |
+| `setPartControllers` | `part` 0–3, `sustain`, `pitchBend`, `modulation` | Which controllers reach a keyboard part: the pedal switches (sustain, sostenuto, soft), the pitch bend, the modulation. |
+| `setBendRange` | `part` 0–3, `semitones` 0–12 | The part's Pitch Bend Range (RPN 0 on its channel). |
+| `triggerFunction` | `function` | Runs an assignable function as a pedal press would (Sustain, Sostenuto and Soft toggle). Fails for a function yahaha doesn't have yet (`available` false) and for Modulation and Pitch Bend, which need a foot controller. |
+
+### Keyboard Harmony / Arpeggio
+
+One HARMONY/ARPEGGIO switch and one type, as on the Genos: a Keyboard Harmony type or an
+arpeggio pattern, never both. The type lists are in `LibraryList` (`harmonyTypes`,
+`arpPatterns`). What each does: docs/harmony.md, docs/arpeggio.md.
+
+| Command | Fields | Does |
+|---|---|---|
+| `toggleHarmonyArp` / `setHarmonyArpOn` | `on` | The HARMONY/ARPEGGIO switch. Turning it off (or changing the type) stops the arpeggio and the Echo repeats at once; keys held keep their harmony notes until they go up. |
+| `setHarmonyType` | `index` | A Keyboard Harmony type, by its index in `harmonyTypes` (Data List order). Selects the Harmony list. |
+| `setArpPattern` | `index` | An arpeggio pattern, by its index in `arpPatterns`. Selects the arpeggio list. |
+| `stepHarmonyArpType` | `delta` | Steps through the Harmony types and then the arpeggios, as one list, wrapping. |
+| `setHarmonyVolume` | `volume` 0–127 | Volume: the level of the added notes (127 = the key's velocity) and of the arpeggio. |
+| `setHarmonySpeed` | `speed` | Echo, Tremolo and Trill: `1/4`, `1/6`, `1/8`, `1/12`, `1/16` or `1/32`. |
+| `setHarmonyAssign` | `assign` | `auto`, `multi`, `right1`, `right2` or `right3`: the Right parts the effect (and the arpeggio) sounds on. `multi` is for the Harmony and Echo categories only (RM p.46); an arpeggio plays it as `auto`. |
+| `setChordNoteOnly` | `on` | Harmony category: harmonise only melody notes of the current chord. |
+| `setTouchLimit` | `velocity` 1–127 | The effect sounds only for keys played at least this hard (Minimum Velocity). |
+| `setArpQuantize` | `quantize` | `off`, `eighth` or `sixteenth`: the grid the arpeggio starts on. |
+| `setArpHold` / `toggleArpHold` | `on` | The Arpeggio Hold setting (RM p.41): the pattern plays on after the keys are released, until the switch goes off or Hold is turned off. |
+| `setArpPedalHold` / `toggleArpPedalHold` | `on` | The Arpeggio Hold pedal function (RM p.141), apart from the setting: the pattern plays on after the keys are released while it is on, and stops when it goes off. A pedal on Arpeggio Hold sends these (Hold A / Hold B set it, Toggle and the function's Try switch it); it never changes the setting. PANIC and an unplugged keyboard turn it off where a Hold pedal was keeping it on. |
+| `setArpVelocity` | `mode`, `velocity` | `original` (the pattern's accents), `thru` (each key's velocity) or `fixed` (every note at `velocity`, 1–127). |
+| `setArpKeepKeyOn` | `on` | Keep Key On: the pattern clock runs on through a full release, so the next chord picks up in phase. |
 
 ### Result: `CmdError`
 
@@ -264,6 +392,7 @@ Indices are 0-based unless a field says otherwise.
 | `split` | MIDI note | Keys at or below it are the left hand. |
 | `splitName` | string | Yamaha octave numbering (C3 = 60), for example `F#2` or `Ab2`. |
 | `transposeKeyboard`, `transposeMaster` | −12..12 | Semitones. |
+| `settleMs` | 0–30 | The chord-settle window in ms (`setChordSettle`). |
 
 ### `keyboardParts`: always four, Right 1, Right 2, Right 3, Left
 | Field | Type | Meaning |
@@ -271,7 +400,7 @@ Indices are 0-based unless a field says otherwise.
 | `name` | string | `Right 1` … `Left`. |
 | `channel` | 1–16 | Right 1 = 1, Left = 2, Right 2 = 3, Right 3 = 4. The same on the MIDI port and in the synth. |
 | `on` | bool | The part's switch. |
-| `sounding` | bool | The part sounds: it is on, or it is Left playing the bass under Manual Bass. Light the part's lamp from this. |
+| `sounding` | bool | The part sounds: it is on, or it is Left playing the bass under Manual Bass; while a keyboard part is soloed, only that part. Light the part's lamp from this. |
 | `selected` | bool | The part the voice commands edit. |
 | `volume` | 0–127 | CC7. |
 | `waiting` | bool | The Launchkey fader has moved but not yet reached `volume`. The terminal UI shows ↕. |
@@ -288,13 +417,15 @@ Indices are 0-based unless a field says otherwise.
 | `styleParts` | StylePart[8] | See the table below. |
 | `master` | 0–127? | The synth master level (100 = unity). Null without the synth. |
 | `masterWaiting` | bool | The master fader has not yet reached `master`. It turns on as soon as `setMasterVolume` moves the level away from the fader. |
+| `styleSolo` | 0–7? | The Style part soloed (`setStyleSolo`): only it plays. Null when none. |
+| `partSolo` | 0–3? | The keyboard part soloed (`setPartSolo`). Null when none. |
 
 StylePart:
 
 | Field | Type | Meaning |
 |---|---|---|
 | `name`, `channel` | | `Rhythm 1` on channel 9 through `Phrase 2` on channel 16. |
-| `on` | bool | Not muted, and not muted by Manual Bass. |
+| `on` | bool | Not muted, and not muted by Manual Bass. (A solo does not change it: see `mixer.styleSolo`.) |
 | `mutedByManualBass` | bool | The Bass part while Manual Bass is in effect. |
 | `volume` | 0–127 | CC7. |
 | `waiting` | bool | The fader is waiting to pick up the value. |
@@ -371,10 +502,13 @@ describes the start. Keyboards are different: the session lists the MIDI sources
 | `roots` | string[] | The style folders (and files) the library scans. |
 | `scanning` | bool | A rescan (`rescanLibrary`) is walking the folders. |
 
-`library()` returns `LibraryList { revision, entries, voices }`. `entries` are in display
-order (folder, then name). `voices` is the list `setPartVoice` picks from, the same for
-every revision: `{ program, bankMsb, bankLsb, name }`, the 128 GM voices on bank 0 (the
-names are `gm_name`'s). Each `LibraryEntry` has these fields:
+`library()` returns `LibraryList { revision, entries, voices, harmonyTypes, arpPatterns }`.
+`entries` are in display order (folder, then name). `voices` is the list `setPartVoice`
+picks from, the same for every revision: `{ program, bankMsb, bankLsb, name }`, the 128 GM
+voices on bank 0 (the names are `gm_name`'s). `harmonyTypes` (the 23 Keyboard Harmony
+types in Data List order, for `setHarmonyType`) and `arpPatterns` (yahaha's arpeggio
+patterns, for `setArpPattern`) are `{ name, category }` and never change. Each
+`LibraryEntry` has these fields:
 - `id`
 - `name`
 - `folder`
@@ -499,6 +633,20 @@ What the app's keyboard strip draws.
 | `chordBass` | number? | Its bass: the root, or the slash / on-bass note. |
 | `detection` | [lo, hi] | The keys chord detection reads, as MIDI notes (inclusive): `[0, split]` in Lower, `[split + 1, 127]` in Upper (Fingered*), `[0, 127]` in the Full Keyboard types. Clip it to the keys you draw. |
 
+### `controllers`
+Pedals, wheels and the assignable functions (docs/controllers.md).
+
+| Field | Type | Meaning |
+|---|---|---|
+| `pedals` | PedalState[] | Always 3: `cc` (the control change it listens for, or null), `function` (its assignable function's id), `controlType` (`holdA` \| `holdB` \| `toggle`), `reverse`, `range` (`upper` \| `lower` \| `full`), `down` (held now). |
+| `learning` | number? | The pedal waiting for its CC (`learnPedal`), or null. |
+| `parts` | PartControllers[] | Right 1, Right 2, Right 3, Left: `sustain` (the pedal switches reach it), `pitchBend`, `modulation`, `bendRange` (semitones, 0–12). |
+| `sustain`, `sostenuto`, `soft` | bool | The pedal switches in effect now. |
+
+The table of assignable functions is static: `app/src/lib/api/assignable-functions.json`
+(`id`, `name`, `category`, `kind`: `switch` \| `trigger` \| `continuous`, `available`).
+A Rust test keeps it equal to `controllers::FUNCTIONS`.
+
 ### `preview`
 The style browser's preview and queue.
 
@@ -506,6 +654,82 @@ The style browser's preview and queue.
 |---|---|---|
 | `audition` | object? | The preview playing (`auditionStyle`): `id` (the library id), `bar` (1-based) of `bars` (4), `chord` (the chord playing: `C`, `Am`, `F`, `G7`). Null when none. |
 | `queued` | number? | The library id of a style waiting for the next bar line (`loadStyle`, `queueStyle` or `stepStyle` while playing). Null when none. |
+
+### `registration`
+
+| Field | Type | Meaning |
+|---|---|---|
+| `bank` | object | The bank in use: `name`, `path` (null until saved), `dirty` (changed since loaded or saved), `position` (its place in `banks`). |
+| `banks` | {name, path}[] | The bank files in the folder, in order. |
+| `folder` | string? | Where banks are saved (`<data dir>/Registration`); null when saving is off. |
+| `buttons` | RegistButton[10] | `index`, `stored`, `name`, `groups` (what it memorized), `style` (name)?, `tempo`?, `voices` ({name, on} for Right 1, Right 2, Right 3, Left; empty when it stores no parts). |
+| `selected` | 0–9? | The button last recalled or memorized (the red lamp). |
+| `memory` | bool | MEMORY is armed. |
+| `memorizeGroups`, `freezeGroups` | Group[] | The ticked groups. |
+| `freeze` | bool | Registration Freeze is on. |
+| `sequence` | object | `on`, `steps` (buttons), `end` (`stop` \| `top` \| `next`), `position` (the step last recalled)? |
+| `pending` | bool | A recall waits for its style to take over (the bar line). |
+
+### `playlist`
+
+| Field | Type | Meaning |
+|---|---|---|
+| `name`, `path`?, `dirty` | | The playlist in use. |
+| `sort` | `normal` \| `aToZ` \| `zToA` | Display order. |
+| `records` | PlaylistRow[] | In display order: `index` (file position), `record`, `missing` (its file isn't there). |
+| `current` | number? | The record last loaded (file position). |
+| `playlists` | {name, path}[] | The playlist files in the folder. |
+| `folder` | string? | Where playlists are saved (`<data dir>/Playlists`). |
+
+### `looper`
+The Chord Looper.
+
+| Field | Type | Meaning |
+|---|---|---|
+| `mode` | `off` \| `recArmed` \| `recording` \| `loopArmed` \| `looping` | `recArmed`: REC/STOP flashing, recording starts at the next bar line (stopped: with the first chord). `recording`: REC/STOP lit. `loopArmed`: ON/OFF flashing, the loop starts at the next bar line (stopped: when the style starts). `looping`: ON/OFF lit, the keyboard's chords are ignored (the ACMP lamp flashes on a Genos). `off` with `hasData`: ON/OFF lit blue. |
+| `hasData` | bool | There is a sequence to loop. |
+| `bar` | number? | Recording: the bar being recorded; looping: the loop's bar playing (1-based). |
+| `bars` | number | Recording: bars so far; otherwise the sequence's length. |
+| `chords` | LoopChord[] | The current sequence (empty while recording): `bar` (1-based), `beat` (1-based quarter notes; 2.5 is the "and" of 2), `chord` (as fingered, e.g. `Cm7`). |
+| `memory` | 0–7? | The memory selected. A new recording is in no memory until stored. |
+| `pendingMemory` | 0–7? | A memory selected while looping, taking over at the next bar line. |
+| `memories` | LooperMemory[8] | `name` (`CLD_001`…, null when empty), `bars`, `chords` (LoopChord[]). |
+
+### `metronome`
+| Field | Type | Meaning |
+|---|---|---|
+| `on` | bool | The metronome is on. |
+| `volume` | 0–127 | The click's volume. |
+| `bell` | bool | A bell on the first beat of each bar. |
+| `audible` | bool | The built-in synth is running: the only place the click sounds. |
+
+### `multiPad`
+Multi Pads (docs/multipad.md).
+
+| Field | Type | Meaning |
+|---|---|---|
+| `bank` | object? | The bank loaded: `id` (in `banks`), `name` (the file name without `.pad`), `path`. Null when none. |
+| `loading` | bool | A bank is on its way to the engine (`loadMultiPad`). |
+| `pads` | MultiPadPad[] | Always 4: `index` (0–3), `name` (from the file; empty for an empty pad), `lamp` (`empty` \| `ready` \| `armed` \| `queued` \| `playing`: off, blue, red flashing, waiting for the bar line, red), `repeat`, `chordMatch`, `channel` (the MIDI channel it plays on, 5–8). |
+| `synchroStop` | object | `styleStop`, `ending` (`setMultiPadSynchroStop`). |
+| `banks` | MultiPadBankEntry[] | The `.pad` files in the style folders, folder then name: `id`, `name`, `folder` (relative to its root, `/`-separated), `path`. A `rescanLibrary` refreshes it; a file still there keeps its id. Banks loaded by path from outside the style folders follow, while their file is there; the bank loaded is always listed. |
+
+### `harmonyArp`
+Keyboard Harmony / Arpeggio (the commands above).
+
+| Field | Type | Meaning |
+|---|---|---|
+| `on` | bool | The HARMONY/ARPEGGIO switch. |
+| `mode` | `harmony` \| `arpeggio` | Which list the selected type is in. |
+| `harmonyType` | number | The Harmony type (index into `harmonyTypes`), kept while an arpeggio is selected. |
+| `arpPattern` | number | The arpeggio pattern (index into `arpPatterns`). |
+| `typeName`, `category` | string | The selected type's name and category (`Harmony`, `Echo`, or the pattern's, such as `Up & Down`). |
+| `volume` | 0–127 | Volume of the added notes and the arpeggio. |
+| `speed` | string | Echo-category speed, `1/4` … `1/32`. |
+| `assign` | string | `auto`, `multi`, `right1`, `right2`, `right3`. |
+| `chordNoteOnly` | bool | Harmony category: only chord tones are harmonised. |
+| `touchLimit` | 1–127 | Minimum Velocity. |
+| `arp` | object | `quantize` (`off` \| `eighth` \| `sixteenth`), `hold` (the setting), `pedalHold` (the Arpeggio Hold pedal function is on; the arpeggio holds while either is), `velocity` (`original` \| `thru` \| `fixed`), `fixedVelocity`, `keepKeyOn`. |
 
 ### `message`
 `{ seq, text, error }` or null. It holds the last notice or error, for example a style
@@ -551,6 +775,7 @@ Fill In BB queued, with OTS 1 recalled. Some lists are shortened here:
 - `styleParts` has 8.
 - `ots.settings` lists every OTS in the style.
 - `surface.controls` has 17 and `surface.faders` has 9.
+- `registration.buttons` has 10.
 
 The `library`, `surface.trackPrev`/`trackNext`, the master fader and `io` show what a
 live session reports with a library folder, a Launchkey and the synth.
@@ -622,7 +847,8 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
     "split": 54,
     "splitName": "F#2",
     "transposeKeyboard": 0,
-    "transposeMaster": 0
+    "transposeMaster": 0,
+    "settleMs": 10
   },
   "keyboardParts": [
     {
@@ -723,13 +949,15 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
       }
     ],
     "master": 100,
-    "masterWaiting": false
+    "masterWaiting": false,
+    "styleSolo": null,
+    "partSolo": null
   },
   "pads": {
     "page": "sections",
     "pageName": "Sections",
     "pageNumber": 1,
-    "pageCount": 3,
+    "pageCount": 4,
     "pads": [
       {
         "note": 112,
@@ -909,6 +1137,141 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
     "detection": [0, 54]
   },
   "styleChange": { "tempo": "hold", "parts": "hold", "sectionSet": null },
+  "registration": {
+    "bank": { "name": "Friday Gig", "path": "/Users/me/Documents/yahaha/Registration/Friday Gig.regist.json", "dirty": false, "position": 0 },
+    "banks": [
+      { "name": "Friday Gig", "path": "/Users/me/Documents/yahaha/Registration/Friday Gig.regist.json" },
+      { "name": "Jazz Set", "path": "/Users/me/Documents/yahaha/Registration/Jazz Set.regist.json" }
+    ],
+    "folder": "/Users/me/Documents/yahaha/Registration",
+    "buttons": [
+      {
+        "index": 0,
+        "stored": true,
+        "name": "SlowWalker",
+        "groups": ["style", "voice", "harmonyArp", "multiPad", "tempo", "transpose", "chordLooper", "liveControl"],
+        "style": "SlowWalker",
+        "tempo": 91.0,
+        "voices": [
+          { "name": "Grand Piano", "on": true },
+          { "name": "Strings", "on": false },
+          { "name": "Brass Section", "on": false },
+          { "name": "Strings", "on": false }
+        ]
+      },
+      { "index": 1, "stored": false, "name": "", "groups": [], "style": null, "tempo": null, "voices": [] }
+    ],
+    "selected": 0,
+    "memory": false,
+    "memorizeGroups": ["style", "voice", "harmonyArp", "multiPad", "tempo", "transpose", "chordLooper", "liveControl"],
+    "freeze": false,
+    "freezeGroups": ["tempo"],
+    "sequence": { "on": true, "steps": [0, 2, 1], "end": "next", "position": 0 },
+    "pending": false
+  },
+  "playlist": {
+    "name": "Friday",
+    "path": "/Users/me/Documents/yahaha/Playlists/Friday.playlist.json",
+    "dirty": false,
+    "sort": "normal",
+    "records": [
+      {
+        "index": 0,
+        "record": { "name": "Opener", "kind": "bank", "path": "/Users/me/Documents/yahaha/Registration/Friday Gig.regist.json", "regist": 0 },
+        "missing": false
+      },
+      {
+        "index": 1,
+        "record": { "name": "SlowWalker", "kind": "style", "path": "/Users/me/Styles/MOX_v2/SlowWalker.T552.sty" },
+        "missing": false
+      }
+    ],
+    "current": 0,
+    "playlists": [{ "name": "Friday", "path": "/Users/me/Documents/yahaha/Playlists/Friday.playlist.json" }],
+    "folder": "/Users/me/Documents/yahaha/Playlists"
+  },
+  "looper": {
+    "mode": "looping",
+    "hasData": true,
+    "bar": 2,
+    "bars": 4,
+    "chords": [
+      { "bar": 1, "beat": 1.0, "chord": "C" },
+      { "bar": 2, "beat": 1.0, "chord": "Am" },
+      { "bar": 3, "beat": 1.0, "chord": "F" },
+      { "bar": 4, "beat": 1.0, "chord": "G7" }
+    ],
+    "memory": 0,
+    "pendingMemory": null,
+    "memories": [
+      {
+        "name": "CLD_001",
+        "bars": 4,
+        "chords": [
+          { "bar": 1, "beat": 1.0, "chord": "C" },
+          { "bar": 2, "beat": 1.0, "chord": "Am" },
+          { "bar": 3, "beat": 1.0, "chord": "F" },
+          { "bar": 4, "beat": 1.0, "chord": "G7" }
+        ]
+      },
+      { "name": null, "bars": 0, "chords": [] },
+      { "name": null, "bars": 0, "chords": [] },
+      { "name": null, "bars": 0, "chords": [] },
+      { "name": null, "bars": 0, "chords": [] },
+      { "name": null, "bars": 0, "chords": [] },
+      { "name": null, "bars": 0, "chords": [] },
+      { "name": null, "bars": 0, "chords": [] }
+    ]
+  },
+  "metronome": {
+    "on": false,
+    "volume": 90,
+    "bell": true,
+    "audible": true
+  },
+  "multiPad": {
+    "bank": { "id": 0, "name": "Demo", "path": "/Users/me/Styles/Pads/Demo.pad" },
+    "loading": false,
+    "pads": [
+      { "index": 0, "name": "Shaker Loop", "lamp": "playing", "repeat": true, "chordMatch": false, "channel": 5 },
+      { "index": 1, "name": "Rise Arp", "lamp": "ready", "repeat": false, "chordMatch": true, "channel": 6 },
+      { "index": 2, "name": "Bass Riff", "lamp": "queued", "repeat": true, "chordMatch": true, "channel": 7 },
+      { "index": 3, "name": "Brass Hit", "lamp": "armed", "repeat": false, "chordMatch": true, "channel": 8 }
+    ],
+    "synchroStop": { "styleStop": true, "ending": false },
+    "banks": [{ "id": 0, "name": "Demo", "folder": "Pads", "path": "/Users/me/Styles/Pads/Demo.pad" }]
+  },
+  "controllers": {
+    "pedals": [
+      { "cc": 64, "function": "sustain", "controlType": "holdA", "reverse": false, "range": "upper", "down": true },
+      { "cc": 66, "function": "fillUp", "controlType": "holdA", "reverse": false, "range": "upper", "down": false },
+      { "cc": null, "function": "none", "controlType": "holdA", "reverse": false, "range": "upper", "down": false }
+    ],
+    "learning": null,
+    "parts": [
+      { "sustain": true, "pitchBend": true, "modulation": true, "bendRange": 2 },
+      { "sustain": true, "pitchBend": true, "modulation": true, "bendRange": 2 },
+      { "sustain": true, "pitchBend": true, "modulation": true, "bendRange": 2 },
+      { "sustain": false, "pitchBend": true, "modulation": false, "bendRange": 2 }
+    ],
+    "sustain": true,
+    "sostenuto": false,
+    "soft": false
+  },
+  "harmonyArp": {
+    "on": true,
+    "mode": "harmony",
+    "harmonyType": 2,
+    "arpPattern": 0,
+    "typeName": "Standard Trio",
+    "category": "Harmony",
+    "volume": 100,
+    "speed": "1/8",
+    "assign": "auto",
+    "chordNoteOnly": false,
+    "touchLimit": 1,
+    "arp": { "quantize": "off", "hold": false, "pedalHold": false, "velocity": "original", "fixedVelocity": 100, "keepKeyOn": false }
+  },
   "message": null
 }
 ```

@@ -16,6 +16,9 @@ pub enum TransportCmd {
     Main { index: u8 },
     /// Break (Fill In BA).
     Break,
+    /// Fill Down (`delta` -1), Fill Self (0), Fill Up (1): a fill, then the Main to the
+    /// left, the same one, or the one to the right (the Genos assignable functions).
+    Fill { delta: i8 },
     /// Ending 1-3 (`index` 0-2): ends the style after the ending.
     Ending { index: u8 },
     /// START/STOP.
@@ -48,6 +51,8 @@ pub enum TransportCmd {
     /// Tempo up/down one step.
     TempoUp,
     TempoDown,
+    /// Set the tempo, in BPM (5-500; clamped).
+    SetTempo { bpm: u16 },
 }
 
 impl TransportCmd {
@@ -57,6 +62,7 @@ impl TransportCmd {
             TransportCmd::Intro { index } => Button::Intro(index.min(3)),
             TransportCmd::Main { index } => Button::Main(index.min(3)),
             TransportCmd::Break => Button::Break,
+            TransportCmd::Fill { delta } => Button::Fill(delta.signum()),
             TransportCmd::Ending { index } => Button::Ending(index.min(3)),
             TransportCmd::StartStop => Button::StartStop,
             TransportCmd::Stop => Button::Stop,
@@ -66,6 +72,7 @@ impl TransportCmd {
             TransportCmd::TapTempo => Button::TapTempo,
             TransportCmd::TempoUp => Button::TempoUp,
             TransportCmd::TempoDown => Button::TempoDown,
+            TransportCmd::SetTempo { bpm } => Button::SetTempo(bpm),
             TransportCmd::ToggleStopAcmp => Button::StopAcmp,
             TransportCmd::SetStopAcmp { mode } => Button::SetStopAcmp(mode.into()),
             TransportCmd::FillUp => Button::FillUp,

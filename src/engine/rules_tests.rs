@@ -186,36 +186,42 @@ fn notes_on(r: &Rec, ch: u8) -> usize {
     r.0.iter().filter(|m| m[0] == 0x90 | ch && m[2] > 0).count()
 }
 
+/// A chord with the band stopped at `now`, then time for it to settle (settle.rs).
+fn stop_chord(e: &mut Engine, ch: Chord, now: u64, r: &mut Rec) {
+    e.set_chord(ch, now, r);
+    play(e, now, now + 50 * MS, r);
+}
+
 #[test]
 fn stop_acmp_modes() {
     let Some(mut e) = slow_walker() else { return };
     let mut r = Rec::default();
     e.button(Button::SyncStart, 0, &mut r); // off: Stop Accompaniment
     // Off: silent.
-    e.set_chord(c(), 0, &mut r);
+    stop_chord(&mut e, c(), 0, &mut r);
     assert!(!e.running);
     assert_eq!(notes_on(&r, BASS_CH) + notes_on(&r, PAD_CH_T), 0);
     // The toggle turns Style on first.
     e.button(Button::StopAcmp, 0, &mut r);
     assert_eq!(e.snapshot(0).stop_acmp_mode, StopAcmp::Style);
-    e.set_chord(Chord::new(7, 0), 0, &mut r);
+    stop_chord(&mut e, Chord::new(7, 0), 100 * MS, &mut r);
     assert!(notes_on(&r, BASS_CH) > 0 && notes_on(&r, PAD_CH_T) > 0);
     assert!(programs(&r, BASS_CH).is_empty(), "the style's own voices");
     // Fixed: the fixed voices go out before the notes.
     r.0.clear();
     e.button(Button::SetStopAcmp(StopAcmp::Fixed), 0, &mut r);
-    e.set_chord(Chord::new(5, 0), 0, &mut r);
+    stop_chord(&mut e, Chord::new(5, 0), 200 * MS, &mut r);
     assert_eq!((programs(&r, BASS_CH), programs(&r, PAD_CH_T)), (vec![FIXED_BASS_PROGRAM], vec![FIXED_PAD_PROGRAM]));
     let pc = r.0.iter().position(|m| m[0] == 0xC0 | BASS_CH).unwrap();
     let on = r.0.iter().position(|m| m[0] == 0x90 | BASS_CH && m[2] > 0).unwrap();
     assert!(pc < on);
     // A second chord sends no program change again.
     r.0.clear();
-    e.set_chord(Chord::new(0, 0), 0, &mut r);
+    stop_chord(&mut e, Chord::new(0, 0), 300 * MS, &mut r);
     assert!(programs(&r, BASS_CH).is_empty());
     // Back to Style: the style's voices return.
     r.0.clear();
-    e.button(Button::SetStopAcmp(StopAcmp::Style), 0, &mut r);
+    e.button(Button::SetStopAcmp(StopAcmp::Style), 400 * MS, &mut r);
     let back = programs(&r, BASS_CH);
     assert_eq!(back.len(), 1);
     assert_ne!(back[0], FIXED_BASS_PROGRAM);

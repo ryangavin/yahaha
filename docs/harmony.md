@@ -6,8 +6,9 @@ and uses no Yamaha data. The manuals name the types but never give their voicing
 voicing rule below is our own design. Rules marked **(guess)** should be checked by ear against
 a real Genos.
 
-The module is pure and real-time safe: it does no allocation, locking or panicking. It is not
-wired into the engine yet; a later ticket connects it to `live.rs` and `engine.rs`.
+The module is pure and real-time safe: it does no allocation, locking or panicking. The live
+wiring is in `src/live/pipeline.rs` (the input thread's processor slot) and
+`src/live/kbdfx.rs` (the engine thread's Echo and Strum); see "Wiring" below.
 
 ## API
 
@@ -119,11 +120,43 @@ Keys outside 0–127 are dropped, never wrapped.
   plainly with no repeats.
 - Multi Assign has none of these settings.
 
-## Behaviour left to the wiring ticket
+## Wiring (#32)
 
-- **(guess)** When several right-hand keys are held, only the highest (`melody_of`) is harmonised.
-- **(guess)** A chord change while a melody key is held does not re-voice that key's harmony.
-  `HarmonyTracker` returns the original notes at note-off.
+The HARMONY/ARPEGGIO switch and type are one setting shared with the arpeggio
+(docs/arpeggio.md): one switch, one type, never both (OM p.56-57). The session keeps it and
+publishes it to the real-time threads as one packed word (`live::FxConfig`).
+
+- **Which keys:** only keys right of the split go through Harmony. The chord section and
+  the Left part never do; with Left off, left-hand keys that play the Right parts play
+  them plainly.
+- **Chord source:** yahaha has no ACMP switch; the chord section is always read, so the
+  harmony follows the Style's chord (the ACMP-on rows of the table above), whether LEFT is
+  on or off. yahaha has one split point, so the "LEFT voice between the two splits" section
+  is empty. `harmony_chord` is called with ACMP on, so an ACMP switch plugs in there.
+  In Upper chord detection the chord comes from the right hand, and the harmony follows it.
+- **Melody:** **(guess)** When several right-hand keys are held, only the highest one is
+  harmonised: a key that goes down under a held key plays plainly.
+- **(guess)** A chord change while a melody key is held does not re-voice that key's harmony:
+  its note-off stops exactly the notes it started.
+- **Harmony category** (Duet .. Strum) runs on the input thread with the melody note: the
+  harmony notes go out first, on the Right parts Assign picks, at each part's octave and the
+  Keyboard transpose. They are counted per (channel, note) together with the keys' own notes
+  (`live::Keys`), so a harmony note and a key on the same pitch never cut each other short
+  (holding G adds E; playing E and letting go of G leaves E sounding). The count is per
+  thread: notes the engine thread sounds (Strum's later notes, Echo/Tremolo/Trill, the
+  arpeggio) are counted there, so a plain key's note-off on the same channel and pitch can
+  cut one short, and the other way round. Nothing sticks (known limit, #100 review N1).
+  A pitch struck again while sounding sends a second note-on and one note-off at the end
+  (the `live::Keys` convention): fine for synths whose note-off releases every voice on
+  the note.
+- **Strum**'s later notes (15 ms apart) are timed on the engine thread and end with the melody.
+- **Multi Assign** runs on the input thread: each key sounds on the part `MultiAssign` gives it.
+- **Echo, Tremolo, Trill:** the input thread hands the keys to the engine thread, where
+  `EchoGen` runs on engine nanoseconds, woken for `next_due`. The struck note is `EchoGen`'s
+  too, so it goes out from the engine thread (well under a millisecond after the key).
+- **Switching:** changing the type or turning the switch off stops the Echo repeats at once;
+  keys held on the input thread keep their harmony notes until they go up (each key takes
+  its note-off the way its note-on went).
 - `EchoGen` queues immediate events (struck notes, note-offs) until the next `next_events`. A
   note-off whose note-on is still queued cancels it, so the queue stays bounded however many
   presses arrive between polls. The `effect` flag of a note-off always matches its note-on.

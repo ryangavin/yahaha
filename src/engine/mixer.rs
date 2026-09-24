@@ -63,12 +63,14 @@ impl Takeover {
 }
 
 impl Engine {
-    /// Parts the player has not moved go back to the style's own level (the SInt CC7). A
-    /// level already there is left alone, so its hardware fader keeps control.
+    /// Parts the player has not moved go to the style's own level (the SInt CC7) as the
+    /// section playing (`self.cur`) routes it (#64: a section that routes another source
+    /// channel to a part brings that source's level with its voice). A level already there
+    /// is left alone, so its hardware fader keeps control.
     pub(super) fn restore_untouched_levels(&mut self) {
         for p in 0..8 {
-            if self.user_set & (1 << p) == 0 && self.mixer[p] != self.style.mix[p] {
-                let v = self.style.mix[p];
+            let v = self.style.setup(self.cur).mix[p];
+            if self.user_set & (1 << p) == 0 && self.mixer[p] != v {
                 self.set_mixer(p, v);
             }
         }
@@ -142,6 +144,35 @@ impl Engine {
             }
         }
         m
+    }
+
+    /// The Style parts that sound (bit = part 0-7): the soloed part alone, whatever its
+    /// on/off switch says, else the parts switched on.
+    #[inline]
+    pub(super) fn audible(&self) -> u8 {
+        match self.features.solo {
+            Some(p) => 1 << (p & 7),
+            None => self.parts,
+        }
+    }
+
+    /// End the notes of the Style parts that no longer sound.
+    pub(super) fn silence_inaudible(&mut self, sink: &mut impl Sink) {
+        let audible = self.audible();
+        self.off_where(sink, |n| (8..16).contains(&n.dest) && audible & (1 << (n.dest - 8)) == 0);
+    }
+
+    /// Solo a Style part (0-7): only it sounds, even if it is switched off; None ends the
+    /// solo. The parts' on/off switches are left as they are.
+    pub fn set_style_solo(&mut self, part: Option<u8>, sink: &mut impl Sink) {
+        self.features.solo = part.map(|p| p & 7);
+        self.silence_inaudible(sink);
+    }
+
+    /// Switch the Style parts on/off at once (bit = part 0-7): Style Track Mute.
+    pub fn set_style_parts(&mut self, mask: u8, sink: &mut impl Sink) {
+        self.parts = mask;
+        self.silence_inaudible(sink);
     }
 
     /// Manual Bass on/off: mutes the Style's Bass part (and its Stop Accompaniment note).

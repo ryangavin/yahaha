@@ -17,6 +17,7 @@ use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicU8, Ordering::{Acquire, Relaxed}};
 use std::sync::Arc;
 
+use crate::click::{Click, CLICK};
 use crate::parts::{self, Parts};
 
 pub type Msg = [u8; 3];
@@ -52,6 +53,8 @@ pub struct SynthControl {
     pub clips: AtomicU64,
     /// Racks swapped in (`SetSoundFont`).
     pub swaps: AtomicU64,
+    /// The metronome's click volume (0-127), read when a click starts.
+    pub click_volume: AtomicU8,
 }
 
 pub struct Synth {
@@ -202,7 +205,8 @@ impl Shadow {
 
     /// Bring `rack` to what the channels have: bank and voice, controllers, pitch bend.
     fn replay(&self, rack: &mut Rack, bank: &mut [u8; 16], parts: &Parts) {
-        for ch in RACK_CHANNELS {
+        // Every channel: the metered ones and the Multi Pads' (5-8).
+        for ch in 0..16u8 {
             let c = ch as usize;
             if self.cc[c][0] != NO_CC {
                 apply_rack(rack, &[0xB0 | ch, 0, self.cc[c][0]], bank);
@@ -271,6 +275,7 @@ impl SynthControl {
             master_peaks: std::array::from_fn(|_| AtomicU32::new(0)),
             clips: AtomicU64::new(0),
             swaps: AtomicU64::new(0),
+            click_volume: AtomicU8::new(crate::click::DEFAULT_VOLUME),
         }
     }
 }
@@ -370,6 +375,14 @@ fn translate(m: &Msg, bank: &mut [u8; 16], mut out: impl FnMut(i32, i32, i32, i3
             out(8, 0xB0, 0, 128);
             out(8, 0xC0, m[1] as i32, 0);
         }
+        // Multi Pads (ch 5-8): a Yamaha drum kit bank (MSB 126/127) is the SoundFont's drum
+        // bank; any other voice is on its GM bank.
+        0xC0 if (4..8).contains(&ch) => {
+            let drums = bank[ch as usize] >= 126;
+            out(ch, 0xB0, 0, if drums { 128 } else { 0 });
+            let p = if drums { m[1] } else { gm_fallback(ch as u8, bank[ch as usize], m[1]) };
+            out(ch, 0xC0, p as i32, 0);
+        }
         0xC0 => {
             let p = gm_fallback(ch as u8, bank[ch as usize], m[1]);
             out(ch, 0xC0, p as i32, 0);
@@ -440,6 +453,7 @@ pub fn start(sf2: &Path, consumers: Vec<Consumer<Msg>>, out_pair: Option<u8>, pa
     // A rack just replaced: it plays out one buffer, fading, then goes back to be freed.
     let mut fading: Option<Box<Rack>> = None;
     let unmetered: [AtomicU32; 16] = std::array::from_fn(|_| AtomicU32::new(0));
+    let mut click = Click::new(sample_rate as u32);
 
     let callback = move |out: &mut [f32], _: &cpal::OutputCallbackInfo| {
         // A new SoundFont: the new rack takes over with the channels' voices and controllers.
@@ -466,6 +480,11 @@ pub fn start(sf2: &Path, consumers: Vec<Consumer<Msg>>, out_pair: Option<u8>, pa
         }
         for c in consumers.iter_mut() {
             while let Ok(m) = c.pop() {
+                // The metronome's click voice: not a MIDI part.
+                if m[0] == CLICK {
+                    click.trigger(m[1] != 0, ctl.click_volume.load(Relaxed));
+                    continue;
+                }
                 shadow.note(&m);
                 apply_rack(&mut rack, &m, &mut bank);
             }
@@ -480,6 +499,7 @@ pub fn start(sf2: &Path, consumers: Vec<Consumer<Msg>>, out_pair: Option<u8>, pa
             }
             let _ = old_tx.push(f);
         }
+        click.render_add(&mut left[..frames], &mut right[..frames], master_gain(master));
         let mute = ctl.muted.load(Relaxed);
         let lc = (ctl.out_ch.load(Relaxed) as usize).min(channels.saturating_sub(1));
         let rc = (lc + 1).min(channels - 1);
@@ -531,6 +551,21 @@ mod tests {
     use crate::sim::{run, Step};
     use crate::sff::Style;
     use crate::theory::Chord;
+
+    /// Multi Pad channels (5-8): a Yamaha drum kit bank goes to the SoundFont's drum bank,
+    /// any other voice to its GM bank.
+    #[test]
+    fn multi_pad_channels_take_drum_kits_and_gm_voices() {
+        let mut bank = [0u8; 16];
+        let mut got = Vec::new();
+        for m in [[0xB4, 0, 127], [0xB4, 32, 0], [0xC4, 0, 0], [0xB5, 0, 0], [0xC5, 33, 0], [0xB4, 0, 0], [0xC4, 61, 0]] {
+            translate(&m, &mut bank, |ch, st, a, b| got.push((ch, st, a, b)));
+        }
+        assert_eq!(
+            got,
+            [(4, 0xB0, 0, 128), (4, 0xC0, 0, 0), (5, 0xB0, 0, 0), (5, 0xC0, 33, 0), (4, 0xB0, 0, 0), (4, 0xC0, 61, 0)]
+        );
+    }
 
     /// Render a style's engine output offline through the SoundFont and measure each part.
     #[test]

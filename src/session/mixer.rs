@@ -44,6 +44,11 @@ impl Control {
                     s.control.muted.fetch_xor(true, Relaxed);
                 }
             }
+            MixerCmd::SetStyleSolo { part } => return self.engine_cmd(Cmd::StyleSolo(part.map(|p| p & 7))),
+            MixerCmd::SetPartSolo { part } => {
+                parts.set_solo(part.map(|p| (p & 3) as usize));
+            }
+            MixerCmd::StyleTrackMute { order, value } => return self.engine_cmd(Cmd::StyleParts(order.mask(value))),
             // An engine button, handled above.
             MixerCmd::ToggleStylePart { .. } => {}
         }
@@ -79,6 +84,8 @@ impl Control {
                 .collect(),
             master: self.synth.as_ref().map(|s| s.control.master.load(Relaxed)),
             master_waiting: self.synth.as_ref().is_some_and(|s| s.control.master_waiting.load(Relaxed)),
+            style_solo: s.style_solo,
+            part_solo: self.shared.parts.solo().map(|p| p as u8),
         }
     }
 }

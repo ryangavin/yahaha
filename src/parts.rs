@@ -84,7 +84,12 @@ pub struct Parts {
     rebind: AtomicBool,
     /// The physical fader positions when the faders went to the Style page.
     rebind_hw: [AtomicU8; 8],
+    /// The part soloed (`NO_SOLO`: none): only it sounds, whatever the on/off switches say.
+    solo: AtomicU8,
 }
+
+/// `Parts::solo`: no part soloed.
+pub const NO_SOLO: u8 = 255;
 
 impl Default for Parts {
     fn default() -> Parts {
@@ -109,6 +114,36 @@ impl Parts {
             fader_hw: [const { AtomicU8::new(HW_UNKNOWN) }; 8],
             rebind: AtomicBool::new(false),
             rebind_hw: [const { AtomicU8::new(HW_UNKNOWN) }; 8],
+            solo: AtomicU8::new(NO_SOLO),
+        }
+    }
+
+    /// The part soloed, if any.
+    pub fn solo(&self) -> Option<usize> {
+        let s = self.solo.load(Relaxed);
+        (s != NO_SOLO).then_some(s as usize & 3)
+    }
+
+    /// Solo a part (only it sounds, even if switched off), or end the solo. Notes already
+    /// sounding keep their note-offs (`live::Keys`).
+    pub fn set_solo(&self, part: Option<usize>) {
+        self.solo.store(part.map_or(NO_SOLO, |p| (p & 3) as u8), Relaxed);
+    }
+
+    /// The part sounds for the keys: the soloed part alone, else when it is on.
+    pub fn audible(&self, part: usize) -> bool {
+        match self.solo() {
+            Some(s) => s == part,
+            None => self.is_on(part),
+        }
+    }
+
+    /// The left hand plays the Left part: `left_sounds`, or Left soloed; not while another
+    /// part is soloed.
+    pub fn left_audible(&self) -> bool {
+        match self.solo() {
+            Some(s) => s == LEFT,
+            None => self.left_sounds(),
         }
     }
 
@@ -130,6 +165,16 @@ impl Parts {
     /// What the LEDs and the screen show.
     pub fn sounding_mask(&self) -> u8 {
         self.on_mask() | (self.left_sounds() as u8) << LEFT
+    }
+
+    /// Bitmask of the parts the keys play now: `sounding_mask`, except that a solo leaves
+    /// the soloed part alone (switched off or not). Where the pedals and wheels go
+    /// (`Controllers::sync`).
+    pub fn audible_mask(&self) -> u8 {
+        match self.solo() {
+            Some(s) => 1 << s,
+            None => self.sounding_mask(),
+        }
     }
 
     /// Turn a part on or off. Refused for Left while Manual Bass is in effect (false): the

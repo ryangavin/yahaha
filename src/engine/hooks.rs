@@ -1,10 +1,11 @@
 //! Engine extension points: where a feature that lives in the engine plugs in.
 //!
 //! Each hook is a plain method, called at one fixed point of the engine's work and in a
-//! fixed order; none of them does anything yet. A feature adds one call to its own
-//! function (in its own module) to the hook it needs, and keeps its engine-side state in
-//! one field of [`Features`]. No trait objects, no registry: the calls are static and
-//! inline away while the bodies are empty.
+//! fixed order. A feature adds one call to its own function (in its own module) to the
+//! hook it needs, and keeps its engine-side state in one field of [`Features`] (Multi
+//! Pads, multipad.rs, are the first). No trait objects, no registry: the calls are static.
+//! Multi Pads keep their own clock and deadline (`Engine::pads_deadline`, driven by the
+//! engine loop whether the band runs or not), so they need no `hook_deadline`.
 //!
 //! The rules the engine's own code keeps apply here too: deterministic (time is the `now`
 //! passed in, never the wall clock), and no allocation or freeing (the engine runs on the
@@ -21,12 +22,16 @@
 //! | `on_chord` | the chord the style follows changed (a new chord, or a Keyboard transpose) |
 //! | `on_style_loaded` | a new style took over (at once when stopped, at the bar line when playing) |
 //! | `hook_deadline` | a tick by which a feature needs `process` to run (see below) |
+//! | `on_due` | `process` reached the tick `hook_due` named (a feature's own timed action) |
 //!
 //! Timing: bar and beat hooks run when `process` passes the line, before the pattern's
 //! events at that tick, and after a section change at that tick (they see the new
 //! section). `process` runs at every event and boundary; a line between two events is seen
 //! at the next one. A feature that must act exactly on the line (a metronome click)
-//! returns the next line from `hook_deadline` so the engine wakes for it.
+//! returns the next line from `hook_deadline` so the engine wakes for it. A feature that
+//! acts between lines (the Chord Looper's chord changes) names the tick in `hook_due`:
+//! `process` calls `on_due` there, after a line at the same tick and before the pattern's
+//! events at it.
 //!
 //! "When does a queued section change happen" is not a hook but a policy:
 //! `Engine::change_point` (sections.rs), and `Engine::follow_on` for what plays when a
@@ -45,6 +50,14 @@ pub(super) struct Features {
     pub(super) fills: super::fills::Fills,
     /// Stop Accompaniment's voices (change_rules.rs).
     pub(super) stop_acmp: super::change_rules::StopAcmpState,
+    /// Chord Looper (looper.rs). Boxed: its sequences are a few KB.
+    pub(super) looper: Box<super::looper::Looper>,
+    /// Metronome (metronome.rs).
+    pub(super) metronome: super::metronome::Metronome,
+    /// The Style part soloed, 0-7 (mixer.rs).
+    pub(super) solo: Option<u8>,
+    /// Multi Pads (multipad.rs).
+    pub(super) pads: super::multipad::PadDeck,
 }
 
 /// The next beat line the bar and beat hooks wait for: a tick on the section's timeline
@@ -86,6 +99,7 @@ impl Engine {
         #[cfg(test)]
         self.log(Hook::Start);
         self.stop_acmp_setup_sent();
+        self.pads_on_start(_now);
     }
 
     /// The band stopped: every note is off.
@@ -93,21 +107,26 @@ impl Engine {
     pub(super) fn on_stop(&mut self, _sink: &mut impl Sink) {
         #[cfg(test)]
         self.log(Hook::Stop);
+        self.looper_on_stop();
+        self.metronome_on_stop();
+        self.pads_on_stop(_sink);
     }
 
     /// Bar `bar` (0-based in this pass of the section) begins; `on_beat` for its first beat
     /// follows.
     #[inline]
-    pub(super) fn on_bar(&mut self, _bar: u32, _now: u64, _sink: &mut impl Sink) {
+    pub(super) fn on_bar(&mut self, _bar: u32, now: u64, sink: &mut impl Sink) {
         #[cfg(test)]
         self.log(Hook::Bar(_bar));
+        self.looper_on_bar(now, sink);
     }
 
     /// Beat `beat` (a quarter note, 0-based in the bar) of bar `bar` begins.
     #[inline]
-    pub(super) fn on_beat(&mut self, _bar: u32, _beat: u32, _now: u64, _sink: &mut impl Sink) {
+    pub(super) fn on_beat(&mut self, _bar: u32, beat: u32, _now: u64, sink: &mut impl Sink) {
         #[cfg(test)]
-        self.log(Hook::Beat(_bar, _beat));
+        self.log(Hook::Beat(_bar, beat));
+        self.metronome_beat(beat, sink);
     }
 
     /// A section boundary at tick `_at`: section slot `self.cur` hands over to slot `_to`
@@ -120,6 +139,7 @@ impl Engine {
             let from = self.cur;
             self.log(Hook::BeforeSection { from, to: _to });
         }
+        self.pads_before_section(_to, _sink);
     }
 
     /// The section changed from slot `_from` (to `self.cur`, which may be the same slot
@@ -139,6 +159,7 @@ impl Engine {
     pub(super) fn on_chord(&mut self, _prev: Option<Chord>, _now: u64, _sink: &mut impl Sink) {
         #[cfg(test)]
         self.log(Hook::Chord);
+        self.pads_on_chord(_now);
     }
 
     /// A new style (`self.style`) took over: its setup has gone out.
@@ -150,11 +171,27 @@ impl Engine {
     }
 
     /// A tick (on the section's timeline) by which a feature needs `process` to run, if
-    /// any: `next_deadline` wakes the engine for it. None today, so the engine wakes only
-    /// for pattern events and boundaries, as it always has.
+    /// any: `next_deadline` wakes the engine for it. The metronome's next beat line, the
+    /// Chord Looper's next chord change; with neither, the engine wakes only for pattern
+    /// events and boundaries.
     #[inline]
     pub(super) fn hook_deadline(&self) -> Option<f64> {
-        None
+        match (self.metronome_line(), self.hook_due()) {
+            (Some(a), Some(b)) => Some(a.min(b)),
+            (a, b) => a.or(b),
+        }
+    }
+
+    /// The tick of a feature's next timed action between lines, for `on_due`.
+    #[inline]
+    pub(super) fn hook_due(&self) -> Option<f64> {
+        self.looper_due()
+    }
+
+    /// `process` reached the tick `t` that `hook_due` named. Must move `hook_due` on.
+    #[inline]
+    pub(super) fn on_due(&mut self, t: f64, now: u64, sink: &mut impl Sink) {
+        self.looper_play_due(t, now, sink);
     }
 
     // ----- the bar and beat lines -----

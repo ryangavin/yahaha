@@ -59,6 +59,7 @@ fn all_cmds() -> Vec<AppCmd> {
         AppCmd::Chord(ChordCmd::SetTranspose { keyboard: 2, master: -1 }),
         AppCmd::Chord(ChordCmd::StepTranspose { keyboard: 1, master: 0 }),
         AppCmd::Chord(ChordCmd::ResetTranspose),
+        AppCmd::Chord(ChordCmd::SetChordSettle { ms: 10 }),
         AppCmd::Parts(PartsCmd::SetPartOn { part: 1, on: true }),
         AppCmd::Parts(PartsCmd::TogglePart { part: 3 }),
         AppCmd::Parts(PartsCmd::SelectPart { part: 2 }),
@@ -83,6 +84,20 @@ fn all_cmds() -> Vec<AppCmd> {
         AppCmd::Settings(SettingsCmd::NextAudioOutput),
         AppCmd::System(SystemCmd::Panic),
         AppCmd::System(SystemCmd::ClearMessage),
+        AppCmd::Transport(TransportCmd::SetTempo { bpm: 480 }),
+        AppCmd::Mixer(MixerCmd::SetStyleSolo { part: Some(3) }),
+        AppCmd::Mixer(MixerCmd::SetPartSolo { part: None }),
+        AppCmd::Mixer(MixerCmd::StyleTrackMute { order: TrackMuteOrder::B, value: 64 }),
+        AppCmd::Looper(LooperCmd::LooperRec),
+        AppCmd::Looper(LooperCmd::LooperOnOff),
+        AppCmd::Looper(LooperCmd::SelectLooperMemory { index: 1 }),
+        AppCmd::Looper(LooperCmd::StoreLooperMemory { index: 1 }),
+        AppCmd::Looper(LooperCmd::ClearLooperMemory { index: 1 }),
+        AppCmd::Looper(LooperCmd::NewLooperBank),
+        AppCmd::Metronome(MetronomeCmd::ToggleMetronome),
+        AppCmd::Metronome(MetronomeCmd::SetMetronome { on: true }),
+        AppCmd::Metronome(MetronomeCmd::SetMetronomeVolume { volume: 64 }),
+        AppCmd::Metronome(MetronomeCmd::SetMetronomeBell { on: false }),
     ]
 }
 
@@ -225,6 +240,13 @@ fn chord_settings_split_and_transpose() {
     assert_eq!(s.state().chord.transpose_keyboard, 12);
     s.send(ChordCmd::ResetTranspose).unwrap();
     assert_eq!(s.state().chord.transpose_keyboard, 0);
+
+    // The chord-settle window: the default, clamped to its range, and 0.
+    assert_eq!(s.state().chord.settle_ms, crate::engine::CHORD_SETTLE_DEFAULT_MS);
+    s.send(ChordCmd::SetChordSettle { ms: 500 }).unwrap();
+    assert_eq!(s.state().chord.settle_ms, crate::engine::CHORD_SETTLE_MAX_MS);
+    s.send(ChordCmd::SetChordSettle { ms: 0 }).unwrap();
+    assert_eq!(s.state().chord.settle_ms, 0);
 }
 
 /// Transpose reaches the notes you play: a key sounds shifted on its part's channel.
@@ -279,9 +301,9 @@ fn keyboard_parts_mixer_and_pages() {
     assert!(s.send(MixerCmd::SetMasterVolume { volume: 90 }).is_err());
 
     assert_eq!(st.pads.page, Page::Sections);
-    s.send(PadsCmd::CyclePadPage { delta: -1 }).unwrap();
+    s.send(PadsCmd::CyclePadPage { delta: -2 }).unwrap();
     let st = s.state();
-    assert_eq!((st.pads.page, st.pads.page_number, st.pads.page_count), (Page::OtsParts, 3, 3));
+    assert_eq!((st.pads.page, st.pads.page_number, st.pads.page_count), (Page::OtsParts, 3, 4));
     assert_eq!(st.pads.pads.len(), 16);
     assert_eq!(st.pads.pads[0].label, "OTS 1");
     assert_eq!(st.pads.pads[0].action, Some(AppCmd::Ots(OtsCmd::RecallOts { index: 0 })));
@@ -522,6 +544,7 @@ fn launchkey_hardware_matches_its_commands() {
                         (8, _, _) => Some(AppCmd::Mixer(MixerCmd::ToggleFaderPage)),
                         (0..=3, FaderPage::Panel, true) => Some(AppCmd::Parts(PartsCmd::SelectPart { part: i })),
                         (0..=3, FaderPage::Panel, false) => Some(AppCmd::Parts(PartsCmd::TogglePart { part: i })),
+                        (4, FaderPage::Panel, _) => Some(AppCmd::HarmonyArp(HarmonyArpCmd::ToggleHarmonyArp)),
                         (_, FaderPage::Panel, _) => None,
                         (_, FaderPage::Style, _) => Some(AppCmd::Mixer(MixerCmd::ToggleStylePart { part: i })),
                     };
@@ -541,10 +564,12 @@ fn launchkey_hardware_matches_its_commands() {
 fn cycle_pad_page_takes_any_delta() {
     let Some(s) = offline("SlowWalker.T552.sty") else { return };
     s.send(PadsCmd::SetPadPage { page: Page::OtsParts }).unwrap();
-    s.send(PadsCmd::CyclePadPage { delta: 127 }).unwrap(); // 2 + 127 = 129 = 0 mod 3
-    assert_eq!(s.state().pads.page, Page::Sections);
-    s.send(PadsCmd::CyclePadPage { delta: -128 }).unwrap(); // 0 - 128 = 1 mod 3
+    s.send(PadsCmd::CyclePadPage { delta: 127 }).unwrap(); // 2 + 127 = 129 = 1 mod 4
     assert_eq!(s.state().pads.page, Page::ChordSetup);
+    s.send(PadsCmd::CyclePadPage { delta: -128 }).unwrap(); // 1 - 128 = -127 = 1 mod 4
+    assert_eq!(s.state().pads.page, Page::ChordSetup);
+    s.send(PadsCmd::CyclePadPage { delta: -2 }).unwrap();
+    assert_eq!(s.state().pads.page, Page::Registration);
 }
 
 /// While the library indexes, `library_list()` is labelled with the revision its entries
@@ -668,13 +693,19 @@ fn launchkey_button_descriptions() {
     assert_eq!((play.action.clone(), play.colour, play.shift_action, play.shift_label.as_str()), (Some(AppCmd::Transport(TransportCmd::StartStop)), None, Some(AppCmd::Transport(TransportCmd::StartStop)), "PLAY"));
     assert_eq!(b(&s, "scene").action, Some(AppCmd::Transport(TransportCmd::TempoUp)));
     assert_eq!((b(&s, "scene").label.as_str(), b(&s, "function").label.as_str()), ("TEMPO +", "TEMPO -"));
-    // Panel faders: Right 1 on (blue), Right 2 off (dim blue), 5-8 do nothing.
+    // Panel faders: Right 1 on (blue), Right 2 off (dim blue).
     let f1 = b(&s, "faderButton1");
     assert_eq!((f1.label.as_str(), f1.action, f1.shift_action), ("RIGHT 1", Some(AppCmd::Parts(PartsCmd::TogglePart { part: 0 })), Some(AppCmd::Parts(PartsCmd::SelectPart { part: 0 }))));
     assert_eq!((f1.level, f1.rgb), (Level::Bright, [0, 0, 127]));
     assert_eq!(b(&s, "faderButton2").level, Level::Dim);
+    // Button 5: HARMONY/ARPEGGIO, dim purple while off, bright while on; 6-8 do nothing.
     let f5 = b(&s, "faderButton5");
-    assert_eq!((f5.action, f5.level), (None, Level::Off));
+    assert_eq!((f5.label.as_str(), f5.action, f5.level), ("HARM/ARP", Some(AppCmd::HarmonyArp(HarmonyArpCmd::ToggleHarmonyArp)), Level::Dim));
+    s.send(HarmonyArpCmd::ToggleHarmonyArp).unwrap();
+    assert_eq!((b(&s, "faderButton5").level, b(&s, "faderButton5").rgb), (Level::Bright, [90, 0, 127]));
+    s.send(HarmonyArpCmd::ToggleHarmonyArp).unwrap();
+    let f6 = b(&s, "faderButton6");
+    assert_eq!((f6.action, f6.level), (None, Level::Off));
     assert_eq!(b(&s, "masterButton").label, "PANEL");
     // Style page: the Style parts' mutes, green.
     s.send(MixerCmd::ToggleFaderPage).unwrap();
@@ -692,9 +723,9 @@ fn launchkey_button_descriptions() {
     assert_eq!((f3.level, f3.rgb), (Level::Dim, [0, 127, 0]), "Manual Bass");
     s.send(ChordCmd::SetManualBass { on: false }).unwrap();
     assert_eq!(b(&s, "faderButton3").level, Level::Bright);
-    // Page 3: ▼ goes nowhere, ▲ back to page 2, both pink.
+    // Page 3: ▼ to page 4 (Registration), ▲ back to page 2, both pink.
     s.send(PadsCmd::SetPadPage { page: Page::OtsParts }).unwrap();
-    assert_eq!(b(&s, "padBankDown").action, None);
+    assert_eq!(b(&s, "padBankDown").action, Some(AppCmd::Pads(PadsCmd::SetPadPage { page: Page::Registration })));
     let up = b(&s, "padBankUp");
     assert_eq!(up.action, Some(AppCmd::Pads(PadsCmd::SetPadPage { page: Page::ChordSetup })));
     assert_eq!(up.rgb, [127, 0, 70]);
@@ -1220,4 +1251,106 @@ fn new_state_and_commands_serialize_as_documented() {
         assert!(v["library"].get(k).is_some(), "library.{k}");
     }
     assert!(v["pads"].get("paletteLeds").is_some());
+}
+
+/// The length of a bar at the state's tempo and time signature.
+fn bar_ns(s: &Session) -> u64 {
+    let t = &s.state().transport;
+    (60e9 / t.tempo * t.beats_per_bar as f64) as u64
+}
+
+/// Chord Looper through the API: REC while stopped arms Sync Start, the first chord starts
+/// the band and the recording; ON/OFF loops it from the next bar; memories keep it.
+#[test]
+fn chord_looper_records_loops_and_keeps_memories() {
+    let Some(s) = offline("SlowWalker.T552.sty") else { return };
+    s.send(TransportCmd::ToggleSyncStart).unwrap(); // off: REC turns it back on
+    assert!(!s.state().transport.sync_start);
+    s.send(LooperCmd::LooperRec).unwrap();
+    let st = s.state();
+    assert_eq!(st.looper.mode, LooperMode::RecArmed);
+    assert!(st.transport.sync_start);
+    // A memory can't be chosen while recording.
+    assert!(s.send(LooperCmd::SelectLooperMemory { index: 0 }).is_err());
+    let bar = bar_ns(&s);
+    keys(&s, true, &[36, 40, 43]); // C
+    assert_eq!(s.state().looper.mode, LooperMode::Recording);
+    assert!(s.state().transport.running);
+    s.advance(bar);
+    keys(&s, false, &[36, 40, 43]);
+    keys(&s, true, &[33, 36, 40]); // Am, on bar 2
+    s.advance(bar - bar / 4);
+    assert_eq!(s.state().looper.bar, Some(2));
+    s.send(LooperCmd::LooperOnOff).unwrap();
+    assert_eq!(s.state().looper.mode, LooperMode::LoopArmed);
+    s.advance(bar / 2);
+    let st = s.state();
+    assert_eq!(st.looper.mode, LooperMode::Looping);
+    assert_eq!(st.looper.bars, 2);
+    let names: Vec<_> = st.looper.chords.iter().map(|c| (c.bar, c.beat, c.chord.as_str())).collect();
+    assert_eq!(names, [(1, 1.0, "C"), (2, 1.0, "Am")]);
+    assert_eq!(st.looper.memory, None);
+    s.send(LooperCmd::StoreLooperMemory { index: 2 }).unwrap();
+    let st = s.state();
+    assert_eq!(st.looper.memory, Some(2));
+    assert_eq!(st.looper.memories[2].name.as_deref(), Some("CLD_001"));
+    assert_eq!(st.looper.memories[2].bars, 2);
+    assert!(st.looper.memories[0].name.is_none());
+    // ON/OFF: the loop stops at once.
+    s.send(LooperCmd::LooperOnOff).unwrap();
+    let st = s.state();
+    assert_eq!(st.looper.mode, LooperMode::Off);
+    assert!(st.looper.has_data);
+    s.send(LooperCmd::NewLooperBank).unwrap();
+    assert!(s.state().looper.memories.iter().all(|m| m.name.is_none()));
+    assert!(s.send(LooperCmd::StoreLooperMemory { index: 9 }).is_ok(), "index wraps, the sequence is still there");
+}
+
+#[test]
+fn solo_track_mute_tempo_and_metronome() {
+    let Some(s) = offline("SlowWalker.T552.sty") else { return };
+    s.send(MixerCmd::SetStyleSolo { part: Some(2) }).unwrap();
+    assert_eq!(s.state().mixer.style_solo, Some(2));
+    s.send(MixerCmd::SetStyleSolo { part: None }).unwrap();
+    assert_eq!(s.state().mixer.style_solo, None);
+    s.send(MixerCmd::StyleTrackMute { order: TrackMuteOrder::A, value: 0 }).unwrap();
+    let on: Vec<_> = s.state().mixer.style_parts.iter().map(|p| p.on).collect();
+    assert_eq!(on, [false, true, false, false, false, false, false, false]);
+    s.send(MixerCmd::StyleTrackMute { order: TrackMuteOrder::A, value: 127 }).unwrap();
+    assert!(s.state().mixer.style_parts.iter().all(|p| p.on));
+
+    // Keyboard solo: Right 2 alone sounds, though it is off.
+    s.send(MixerCmd::SetPartSolo { part: Some(1) }).unwrap();
+    let st = s.state();
+    assert_eq!(st.mixer.part_solo, Some(1));
+    let sounding: Vec<_> = st.keyboard_parts.iter().map(|p| p.sounding).collect();
+    assert_eq!(sounding, [false, true, false, false]);
+    assert!(!st.keyboard_parts[1].on);
+    s.take_output();
+    keys(&s, true, &[72]);
+    let out = s.take_output();
+    let (r1, r2) = (crate::parts::CHANNEL[crate::parts::RIGHT1], crate::parts::CHANNEL[crate::parts::RIGHT2]);
+    assert!(out.iter().any(|m| m[0] == 0x90 | r2 && m[1] == 72), "{out:?}");
+    assert!(!out.iter().any(|m| m[0] == 0x90 | r1), "{out:?}");
+    keys(&s, false, &[72]);
+    s.send(MixerCmd::SetPartSolo { part: None }).unwrap();
+    s.take_output();
+    keys(&s, true, &[72]);
+    assert!(s.take_output().iter().any(|m| m[0] == 0x90 | r1));
+
+    s.send(TransportCmd::SetTempo { bpm: 500 }).unwrap();
+    assert_eq!(s.state().transport.tempo, 500.0);
+    s.send(TransportCmd::SetTempo { bpm: 1 }).unwrap();
+    assert_eq!(s.state().transport.tempo, 5.0);
+    s.send(TransportCmd::SetTempo { bpm: 120 }).unwrap();
+
+    s.send(MetronomeCmd::ToggleMetronome).unwrap();
+    s.send(MetronomeCmd::SetMetronomeVolume { volume: 200 }).unwrap();
+    let m = s.state().metronome.clone();
+    assert!(m.on && m.bell && !m.audible);
+    assert_eq!(m.volume, 127);
+    s.take_output();
+    s.advance(2_000 * MS);
+    let clicks = s.take_output().iter().filter(|m| m[0] == crate::click::CLICK).count();
+    assert_eq!(clicks, 4, "120 BPM, stopped: a click every 500 ms");
 }
