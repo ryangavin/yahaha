@@ -81,8 +81,6 @@ export function initialSoundLibrary(): SoundLibraryState {
       ...sf('keys-au', 'Keys (AU)', 0, 4),
       category: 'ePiano',
       source: { kind: 'plugin', componentId: 'aumu dls  appl', state: '' },
-      available: false,
-      note: 'needs plugin hosting (#91)',
     },
   ]
   const map = emptyMap()
@@ -126,8 +124,9 @@ function info(id: string, f: PatchFields): PatchInfo {
   return {
     id,
     ...f,
-    available: !plugin && !missing,
-    note: plugin ? 'needs plugin hosting (#91)' : missing ? `${(f.source as { file: string }).file} is not in the SoundFont folder` : null,
+    // The desktop app builds with plugin hosting (#91): a plugin patch plays itself.
+    available: !missing,
+    note: missing ? `${(f.source as { file: string }).file} is not in the SoundFont folder` : null,
   }
 }
 
@@ -171,6 +170,38 @@ export class MockSoundLibrary {
   /** A GM voice was picked for a part (the voice list, an OTS): its own patch goes. */
   partVoice(part: number) {
     this.parts[part] = null
+  }
+
+  /** The plugin patch whose plugin each part was given (`partPlugins`). */
+  private pluginParts: (string | null)[] = [null, null, null, null]
+
+  /** A plugin picked (or, while a plugin patch plays, cleared) on the Plugins tab: the
+   * part's own patch goes. */
+  partPlugin(part: number, picked: boolean) {
+    if (!picked && !this.pluginParts[part & 3]) return
+    this.pluginParts[part & 3] = null
+    this.parts[part & 3] = null
+  }
+
+  /** Whether part `part` plays a plugin the Plugins tab picked (not a plugin patch's). */
+  ownPlugin(part: number): boolean {
+    return !this.pluginParts[part & 3]
+  }
+
+  /** The parts' plugins to change for their own plugin patches, as the session's
+   * `sync_part_plugins` does: [part, the plugin to load] or [part, null] to clear it. */
+  partPlugins(): [number, { componentId: string; state: string } | null][] {
+    const out: [number, { componentId: string; state: string } | null][] = []
+    this.parts.forEach((id, i) => {
+      const p = id ? this.sl.patches.find((q) => q.id === id) : undefined
+      const want = p && p.source.kind === 'plugin' ? p : null
+      if ((want?.id ?? null) === this.pluginParts[i]) return
+      const had = this.pluginParts[i]
+      this.pluginParts[i] = want?.id ?? null
+      if (want && want.source.kind === 'plugin') out.push([i, { componentId: want.source.componentId, state: want.source.state }])
+      else if (had) out.push([i, null])
+    })
+    return out
   }
 
   /** Runs a command; returns an error message if it is refused. */

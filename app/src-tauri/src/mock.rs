@@ -408,28 +408,36 @@ impl MockSession {
     fn plugin_cmd(&mut self, c: PluginCmd) {
         match c {
             PluginCmd::SetPartPlugin { part, id, .. } => {
-                let Some(e) = self.state.plugins.list.iter().find(|p| p.id == id).cloned() else {
-                    return self.message(format!("no instrument Audio Unit {id} is installed"), true);
-                };
-                let failed = e.last_error.clone();
-                self.state.keyboard_parts[(part & 3) as usize].plugin = Some(PartPlugin {
-                    id: e.id,
-                    name: e.name.clone(),
-                    manufacturer: e.manufacturer.clone(),
-                    status: if failed.is_some() { PluginStatus::Failed } else { PluginStatus::Playing },
-                    stage: None,
-                    error: failed.clone(),
-                    out_of_process: e.manufacturer != "Apple",
-                    cpu: if failed.is_some() { 0.0 } else { 0.012 },
-                    overruns: 0,
-                    editor: failed.is_none(),
-                });
-                if let Some(err) = failed {
-                    self.message(format!("{} didn't load: {err}", e.name), true);
-                }
+                self.sound.part_plugin(part as usize, true);
+                self.set_part_plugin(part as usize, id);
             }
-            PluginCmd::ClearPartPlugin { part } => self.state.keyboard_parts[(part & 3) as usize].plugin = None,
+            PluginCmd::ClearPartPlugin { part } => {
+                self.sound.part_plugin(part as usize, false);
+                self.state.keyboard_parts[(part & 3) as usize].plugin = None;
+            }
             PluginCmd::SavePartPluginState { .. } | PluginCmd::RescanPlugins => {}
+        }
+    }
+
+    fn set_part_plugin(&mut self, part: usize, id: String) {
+        let Some(e) = self.state.plugins.list.iter().find(|p| p.id == id).cloned() else {
+            return self.message(format!("no instrument Audio Unit {id} is installed"), true);
+        };
+        let failed = e.last_error.clone();
+        self.state.keyboard_parts[part & 3].plugin = Some(PartPlugin {
+            id: e.id,
+            name: e.name.clone(),
+            manufacturer: e.manufacturer.clone(),
+            status: if failed.is_some() { PluginStatus::Failed } else { PluginStatus::Playing },
+            stage: None,
+            error: failed.clone(),
+            out_of_process: e.manufacturer != "Apple",
+            cpu: if failed.is_some() { 0.0 } else { 0.012 },
+            overruns: 0,
+            editor: failed.is_none(),
+        });
+        if let Some(err) = failed {
+            self.message(format!("{} didn't load: {err}", e.name), true);
         }
     }
 
@@ -486,7 +494,19 @@ impl MockSession {
     pub fn send(&mut self, cmd: impl Into<AppCmd>) -> bool {
         let before = self.state.clone();
         self.cmd(cmd.into());
+        self.sync_part_plugins();
         self.bump(&before)
+    }
+
+    /// A keyboard part's own plugin patch plays its plugin (the session's
+    /// `sync_part_plugins`).
+    fn sync_part_plugins(&mut self) {
+        for (p, voice) in self.sound.part_plugins() {
+            match voice {
+                Some((id, _state)) => self.set_part_plugin(p, id),
+                None => self.state.keyboard_parts[p].plugin = None,
+            }
+        }
     }
 
     fn bump(&mut self, before: &AppState) -> bool {
@@ -1537,6 +1557,13 @@ impl MockSession {
             }
             AppCmd::SoundLibrary(c) => {
                 let export = matches!(c, SoundLibraryCmd::ExportSoundLibrary { .. });
+                // A SoundFont patch picked over a Plugins-tab plugin ends that plugin.
+                if let SoundLibraryCmd::SetPartPatch { part, id: Some(id) } = &c
+                    && self.state.sound_library.patches.iter().any(|p| &p.patch.id == id && matches!(p.patch.source, PatchSource::SoundFont { .. }))
+                    && self.sound.own_plugin(*part as usize)
+                {
+                    self.state.keyboard_parts[(*part & 3) as usize].plugin = None;
+                }
                 match self.sound.cmd(&mut self.state, c) {
                     Some(e) => self.message(e, true),
                     None if export => self.message("Sound library exported to /Users/me/Documents/yahaha/sound-library-export.json", false),
