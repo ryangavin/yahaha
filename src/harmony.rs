@@ -494,7 +494,12 @@ fn four_part(chord: Chord, melody: u8, sixth: bool, ninth: bool) -> u16 {
         }
     }
     let dim = r(3) && r(6) && !r(7);
-    if ninth && !dim && set.count_ones() >= 4 {
+    // A b9 or #9 (a minor and a major 3rd together) already is the chord's 9th: the
+    // rootless voicing keeps it (3-5-b7-b9, 3-5-b7-#9) instead of adding a natural 9th.
+    let altered_ninth = r(1) || (r(3) && r(4));
+    if ninth && altered_ninth {
+        set = rel & !1;
+    } else if ninth && !dim && set.count_ones() >= 4 {
         set = (set & !1) | 1 << 2;
     }
     let mut abs = rel_mask_at_mask(set, chord.root);
@@ -527,15 +532,20 @@ fn close(melody: i16, set: u16, chord: u16, count: usize, out: &mut Voicing) {
 }
 
 /// Drop the `drops` voices (1-based from the top, melody = 1) of a close voicing an octave.
-fn drop_voices(v: &mut Voicing, drops: &[usize]) {
-    let n = v.len as usize;
+/// A drop that would put a minor 9th against another voice (the melody included) is
+/// skipped, so a close semitone such as B-C in Cmaj7 never opens into a b9.
+fn drop_voices(v: &mut Voicing, melody: i16, drops: &[usize]) {
+    let n = (v.len as usize).min(MAX_NOTES);
+    let close = v.keys;
     for &d in drops {
         // Harmony index d-2 is voice d (voice 1 is the melody).
-        if let Some(i) = d.checked_sub(2).filter(|&i| i < n)
-            && v.keys[i] >= 12
-        {
-            v.keys[i] -= 12;
+        let Some(i) = d.checked_sub(2).filter(|&i| i < n) else { continue };
+        let Some(k) = (close[i] as i16).checked_sub(12).filter(|&k| k >= 0) else { continue };
+        let b9 = |o: i16| (o - k).abs() == 13;
+        if b9(melody) || (0..n).any(|j| j != i && b9(v.keys[j] as i16)) {
+            continue;
         }
+        v.keys[i] = k as u8;
     }
     v.sort_desc();
 }
@@ -587,7 +597,7 @@ pub fn voice(ty: HarmonyType, melody: u8, chord: Option<Chord>) -> Voicing {
             let fifth = [7u8, 6, 8].into_iter().find(|f| rel.contains(f));
             let mut set = 1u16 << (chord.root % 12);
             if let Some(f) = fifth {
-                set |= 1 << ((chord.root + f) % 12);
+                set |= 1 << ((chord.root % 12 + f) % 12);
             }
             below(m, set, 1, DUET_GAP, &mut v);
         }
@@ -625,15 +635,15 @@ pub fn voice(ty: HarmonyType, melody: u8, chord: Option<Chord>) -> Voicing {
         }
         T::FourWayOpen1 => {
             close(m, four_part(chord, melody, true, false), mask, 3, &mut v);
-            drop_voices(&mut v, &[2]);
+            drop_voices(&mut v, m, &[2]);
         }
         T::FourWayOpen2 => {
             close(m, four_part(chord, melody, true, false), mask, 3, &mut v);
-            drop_voices(&mut v, &[3]);
+            drop_voices(&mut v, m, &[3]);
         }
         T::FourWayOpen3 => {
             close(m, four_part(chord, melody, true, false), mask, 3, &mut v);
-            drop_voices(&mut v, &[2, 4]);
+            drop_voices(&mut v, m, &[2, 4]);
         }
         T::Strum => {
             close(m, own_four(chord), mask, 3, &mut v);
@@ -1043,6 +1053,27 @@ impl EchoGen {
     }
 
     fn emit(&mut self, e: EchoEvent) {
+        // A note-off whose note-on has not been handed out yet cancels it, so a burst of
+        // presses and releases between two polls cannot fill the queue and lose note-offs.
+        // What remains is bounded by the voices (≤ 17 note-ons plus ≤ 17 note-offs).
+        if e.vel == 0 {
+            for back in (0..self.p_len).rev() {
+                let i = (self.p_head + back) % PENDING;
+                let q = self.pending[i];
+                if q.key != e.key {
+                    continue;
+                }
+                if q.vel > 0 {
+                    for j in back..self.p_len - 1 {
+                        let (a, b) = ((self.p_head + j) % PENDING, (self.p_head + j + 1) % PENDING);
+                        self.pending[a] = self.pending[b];
+                    }
+                    self.p_len -= 1;
+                    return;
+                }
+                break;
+            }
+        }
         if self.p_len < PENDING {
             let i = (self.p_head + self.p_len) % PENDING;
             self.pending[i] = e;
@@ -1080,7 +1111,8 @@ impl EchoGen {
         if let Some(t) = self.trill.take()
             && let Some(k) = t.sounding
         {
-            self.emit(EchoEvent { at: now, key: k, vel: 0, effect: true });
+            // Same flag as the note-on it ends (the trill's first note is the struck one).
+            self.emit(EchoEvent { at: now, key: k, vel: 0, effect: t.count > 1 });
         }
     }
 
@@ -1278,7 +1310,7 @@ impl EchoGen {
             t.sounding = Some(v.key);
             t.to_b = !t.to_b;
             t.count = t.count.saturating_add(1);
-            t.off_at = at.saturating_add(self.period * TRILL_GATE.0 / TRILL_GATE.1);
+            t.off_at = at.saturating_add(self.period / TRILL_GATE.1 * TRILL_GATE.0);
             t.next_on = at.saturating_add(self.period);
             return Some(EchoEvent { at, key: v.key, vel, effect });
         }
@@ -1295,7 +1327,7 @@ impl EchoGen {
         v.count = v.count.saturating_add(1);
         v.level = vel;
         v.sounding = true;
-        v.off_at = at.saturating_add(period * PULSE_GATE.0 / PULSE_GATE.1);
+        v.off_at = at.saturating_add(period / PULSE_GATE.1 * PULSE_GATE.0);
         // Schedule the next repeat only if it will be heard (Echo fades out; Volume 0
         // leaves just the struck note). The key stays held, silent, until released.
         v.next_on = if pulse_velocity(ty, v.vel, vel, v.count, volume) == 0 { NEVER } else { at.saturating_add(period) };

@@ -77,11 +77,14 @@ Right 1, bit 1 for Right 2 and bit 2 for Right 3.
 | Block | 4-Way Close 1 plus the melody an octave down (locked hands) **(guess)** | below |
 | 4-Way Close 1 | Three notes of the 6th-variant four-part set, close below | below |
 | 4-Way Close 2 | The same with the 7th variant (maj7, m7) **(guess: which variant is which)** | below |
-| 4-Way Close 3 | The 6th variant with the 9th replacing the root (not on dim chords) **(guess)** | below |
+| 4-Way Close 3 | The 6th variant with the 9th replacing the root (not on dim chords). On 7(b9) and 7(#9) the chord's own altered 9th replaces the root instead (3-5-b7-b9, 3-5-b7-#9), never a natural 9th **(guess)** | below |
 | 4-Way Close 4 | Close 2 plus the melody an octave down **(guess)** | below |
 | 4-Way Open 1 | Close 1 in drop-2 **(guess)** | below |
 | 4-Way Open 2 | Close 1 in drop-3 **(guess)** | below |
 | 4-Way Open 3 | Close 1 in drop-2-and-4 **(guess)** | below |
+
+In the Open types, a drop that would put a minor 9th against another voice (for example the B of
+Cmaj7 under a C) is skipped and that voice stays in close position.
 | 1+5 | A perfect 5th above; ignores the chord **(guess: above rather than below)** | above |
 | Octave | An octave below; ignores the chord **(guess: below rather than above)** | below |
 | Strum | Up to three chord tones in close position below. Each note is 15 ms after the previous one, stepping down from the melody **(guess: direction and timing)** | below |
@@ -121,6 +124,9 @@ Keys outside 0–127 are dropped, never wrapped.
 - **(guess)** When several right-hand keys are held, only the highest (`melody_of`) is harmonised.
 - **(guess)** A chord change while a melody key is held does not re-voice that key's harmony.
   `HarmonyTracker` returns the original notes at note-off.
+- `EchoGen` queues immediate events (struck notes, note-offs) until the next `next_events`. A
+  note-off whose note-on is still queued cancels it, so the queue stays bounded however many
+  presses arrive between polls. The `effect` flag of a note-off always matches its note-on.
 - `EchoGen` owns every note of the keys it is given, including the struck note. The engine should
   route those keys to `EchoGen` instead of playing them directly, and use `EchoEvent::effect` with
   `route` for Assign = Multi.

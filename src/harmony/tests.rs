@@ -549,7 +549,8 @@ fn all_off_silences_everything() {
     run(&mut g, 10 * MS);
     g.all_off(20 * MS);
     let evs = run(&mut g, 10_000 * MS);
-    assert_eq!(evs, [ev(20, 62, 0, true)]);
+    // 62 is the trill's first (struck) note, so its off carries the same flag as its on.
+    assert_eq!(evs, [ev(20, 62, 0, false)]);
     assert_eq!(g.next_due(), None);
 }
 
@@ -577,4 +578,101 @@ fn every_type_is_named_and_categorised() {
         assert!(!t.name().is_empty());
     }
     let _ = NUM_TYPES;
+}
+
+// ---------------------------------------------------------------------------
+// Review fixes (#76)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn rock_duet_takes_any_root_byte() {
+    // Root bytes are not range-checked upstream; the fifth must not overflow.
+    for root in [11u8, 250, 255] {
+        let _ = voice(T::RockDuet, 72, Some(Chord::new(root, 0)));
+    }
+}
+
+#[test]
+fn close3_keeps_an_altered_ninth() {
+    // C7(b9): the rootless 3-5-b7-b9, never a natural 9th against the b9.
+    // (A b9 can still stand in for the #9 a semitone under an E melody: both are in the
+    // altered scale.)
+    for ty in [25u8, 27] {
+        let c = Chord::new(0, ty);
+        for melody in 48..=96u8 {
+            let v = voice(T::FourWayClose3, melody, Some(c));
+            assert!(!v.keys().iter().any(|k| k % 12 == 2), "type {ty} melody {melody}: {:?}", v.keys());
+            if ty == 25 {
+                assert!(v.keys().iter().all(|k| is_chord_note(*k, c)), "melody {melody}: {:?}", v.keys());
+            }
+        }
+    }
+    // E on top of C7(b9): Db Bb G under it.
+    assert_eq!(voice(T::FourWayClose3, 76, Some(Chord::new(0, 25))).keys(), [73, 70, 67]);
+}
+
+#[test]
+fn drop_voicings_never_make_a_minor_ninth() {
+    for ty in [T::FourWayOpen1, T::FourWayOpen2, T::FourWayOpen3] {
+        for root in 0..12u8 {
+            for cty in 0..NUM_TYPES as u8 {
+                for melody in 24..=120u8 {
+                    let v = voice(ty, melody, Some(Chord::new(root, cty)));
+                    let mut all = v.keys().to_vec();
+                    all.push(melody);
+                    for (i, &a) in all.iter().enumerate() {
+                        for &b in &all[i + 1..] {
+                            let d = (a as i16 - b as i16).abs();
+                            // 7(b9) has its b9 against the root by definition.
+                            assert!(d != 13 || cty == 25, "{} root {root} type {cty} melody {melody}: {:?}", ty.name(), v.keys());
+                        }
+                    }
+                }
+            }
+        }
+    }
+    // Cmaj7 with E on top: the drop-3 B would sit a b9 under C, so it stays put.
+    assert_eq!(voice(T::FourWayOpen2, 64, Some(Chord::new(0, 2))).keys(), [60, 59, 55]);
+}
+
+#[test]
+fn a_burst_of_plain_notes_loses_no_note_off() {
+    // Presses and releases faster than the engine polls must still balance.
+    let mut g = EchoGen::new(&HarmonySettings { ty: T::Echo, min_velocity: 127, ..Default::default() }, 120.0);
+    for k in 0..40u8 {
+        g.note_on(40 + k, 64, 0);
+    }
+    for k in 0..40u8 {
+        g.note_off(40 + k, 0);
+    }
+    let mut sounding = [0i32; 128];
+    for e in run(&mut g, 10 * MS) {
+        sounding[e.key as usize] += if e.vel > 0 { 1 } else { -1 };
+    }
+    assert!(sounding.iter().all(|&s| s == 0), "{sounding:?}");
+}
+
+#[test]
+fn trill_release_before_the_second_pulse_balances_per_route() {
+    // With Assign = Multi the flag picks the part, so each off must match its on's flag.
+    let mut g = echo(T::Trill, EchoSpeed::Eighth, 127);
+    g.note_on(60, 100, 0);
+    g.note_on(62, 100, MS);
+    let mut evs = run(&mut g, MS);
+    g.note_off(62, 2 * MS);
+    g.all_off(3 * MS);
+    evs.extend(run(&mut g, 10_000 * MS));
+    let mut open = std::collections::HashMap::new();
+    for e in evs {
+        *open.entry((e.key, e.effect)).or_insert(0i32) += if e.vel > 0 { 1 } else { -1 };
+    }
+    assert!(open.values().all(|&n| n == 0), "{open:?}");
+}
+
+#[test]
+fn absurd_tempo_does_not_overflow() {
+    let mut g = EchoGen::new(&HarmonySettings { ty: T::Tremolo, ..Default::default() }, 1e-300);
+    g.note_on(60, 100, 0);
+    let mut buf = [EchoEvent::default(); 8];
+    g.next_events(0, &mut buf);
 }
