@@ -166,8 +166,10 @@ impl Input {
         let (now, vel) = match note {
             Some(n) => {
                 // With Left off, the left hand plays the Right parts unless the left
-                // section is the chord section alone (Lower, not Full Keyboard).
-                let chord_only = !self.shared.upper.load(Relaxed) && !full;
+                // section is the chord section alone (Lower, not Full Keyboard). While
+                // the Chord Looper loops there is no chord section: the whole keyboard
+                // is for performance (RM p.15, p.19).
+                let chord_only = !self.shared.upper.load(Relaxed) && !full && !self.shared.looping.load(Relaxed);
                 (sounds(&self.shared.parts, n.left, chord_only, n.key, n.shift), n.vel)
             }
             None => (Sounded::default(), 0),

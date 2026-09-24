@@ -57,8 +57,12 @@ The manuals leave these open (genos-features.md §G.4). What yahaha does, and wh
   the loop, if any**; otherwise it keeps the loop's chord until you play one.
 - **Choosing a memory while recording is refused**, with a message: the recording would
   otherwise be lost midway.
-- **The key routing is unchanged while looping.** Keys left of the split still play the
-  Left part when it is on, as on the Genos.
+- **While looping, the whole keyboard is for performance.** Chord input is disabled
+  (RM p.15, p.19; OM p.68), so there is no chord section: keys left of the split play the
+  Left part when it is on, and the Right parts when it is off, even in Lower detection.
+  The engine thread publishes the looping state (`Shared::looping`) each wake and the
+  input thread's part routing reads it. When the loop stops, the left hand is the chord
+  section again.
 - **No .clb/.cld files, no Registration or Freeze yet.** The file formats are
   undocumented; memories last for the session. Registration Memory is not built yet.
 - **No Launchkey pads yet.** Page 2 and page 3 each have one free pad; REC/STOP and

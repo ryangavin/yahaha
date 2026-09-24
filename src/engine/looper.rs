@@ -147,7 +147,7 @@ impl Engine {
     }
 
     /// The loop plays: the keyboard's chords (and releasing them, for Sync Stop) are ignored.
-    pub(super) fn looper_owns_chords(&self) -> bool {
+    pub fn looper_owns_chords(&self) -> bool {
         self.features.looper.state == LoopState::Looping
     }
 

@@ -89,6 +89,10 @@ pub struct Shared {
     pub upper: AtomicBool,
     /// The Manual Bass setting. It only takes effect in Upper mode; see `manual_bass()`.
     pub manual_bass: AtomicBool,
+    /// The Chord Looper is looping (set by the engine thread each wake): chord input is
+    /// disabled and the whole keyboard is for performance (RM p.15, p.19), so the left
+    /// hand sounds the Right parts even in Lower detection with Left off.
+    pub looping: AtomicBool,
     /// Keyboard + Master transpose: the shift applied to played notes. The engine gets
     /// the individual values through `Cmd::Transpose`.
     pub key_shift: AtomicI8,
@@ -136,6 +140,7 @@ impl Shared {
             fingering: AtomicU8::new(Fingering::FingeredOnBass.to_u8()),
             upper: AtomicBool::new(false),
             manual_bass: AtomicBool::new(true),
+            looping: AtomicBool::new(false),
             key_shift: AtomicI8::new(0),
             lateness: Histogram::new(),
             input_lat: Histogram::new(),
@@ -969,6 +974,7 @@ impl EngineLoop {
             self.engine.looper_load(&seq);
         }
         self.engine.process(now, &mut self.io.out);
+        shared.looping.store(self.engine.looper_owns_chords(), Relaxed);
         if let Some(seq) = self.engine.take_recorded() {
             let _ = self.io.recorded.push(seq);
         }
@@ -1363,6 +1369,61 @@ mod tests {
         assert!(sent().is_empty());
         input.key_msg(&[0x80, 40, 0]);
         assert!(sent().is_empty());
+    }
+
+    /// While the Chord Looper loops, chord input is disabled and the whole keyboard is only
+    /// used for performance (RM p.15 and p.19, OM p.68): in Lower detection with Left off,
+    /// keys left of the split play the Right parts; when the loop stops they give the chord
+    /// again and sound nothing. The engine thread publishes the looping state each wake.
+    #[test]
+    fn left_hand_plays_while_the_looper_loops() {
+        let p = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus/MOX_v2/SlowWalker.T552.sty");
+        if !p.exists() {
+            eprintln!("corpus missing; skipping");
+            return;
+        }
+        let prep = Box::new(Prepared::new(&crate::sff::Style::load(&p).unwrap()));
+        let bar = (60e9 / prep.bpm * (prep.tpb as f64 / prep.ppq as f64)) as u64;
+        let shared = Arc::new(Shared::new(54));
+        let mut ch = channels(Out::new(PacketSink::new(rt::Target::Null), None));
+        let mut l = EngineLoop::new(Engine::new(prep), ch.io, shared.clone());
+        let (cmd, _cmd_rx) = RingBuffer::new(16);
+        let (synth, mut heard) = RingBuffer::new(256);
+        let mut input = Input::new(shared.clone(), Recognizer::new(), cmd, Out::new(PacketSink::new(rt::Target::Virtual(0)), Some(synth)));
+        let mut drain = || std::iter::from_fn(|| heard.pop().ok()).collect::<Vec<_>>();
+        let run = |l: &mut EngineLoop, now: &mut u64, until: u64| {
+            while *now < until {
+                *now = l.next_deadline().unwrap_or(*now + 5_000_000).max(*now + 1);
+                l.step(*now);
+            }
+        };
+        assert!(!shared.parts.left_sounds(), "Left off");
+        let mut now = 1_000;
+        l.step(now);
+        // REC while stopped: the first chord starts the band and the recording.
+        ch.ui_tx.push(Cmd::Looper(true)).ok().unwrap();
+        l.step(now);
+        for k in [36, 40, 43] {
+            input.key_msg(&[0x90, k, 90]);
+        }
+        assert!(drain().is_empty(), "not looping: the left hand only gives the chord");
+        l.step(now);
+        let t0 = now;
+        run(&mut l, &mut now, t0 + bar + bar / 2);
+        // ON/OFF while recording: the loop starts at the next bar line.
+        ch.ui_tx.push(Cmd::Looper(false)).ok().unwrap();
+        run(&mut l, &mut now, t0 + 2 * bar + bar / 4);
+        assert!(shared.looping.load(Relaxed), "the loop plays");
+        input.key_msg(&[0x90, 48, 90]);
+        assert_eq!(drain(), vec![[0x90, 48, 90]], "looping: a left-hand key plays Right 1");
+        input.key_msg(&[0x80, 48, 0]);
+        assert_eq!(drain(), vec![[0x80, 48, 0]]);
+        // ON/OFF again: the loop stops at once, the left hand is the chord section again.
+        ch.ui_tx.push(Cmd::Looper(false)).ok().unwrap();
+        l.step(now + 1);
+        assert!(!shared.looping.load(Relaxed));
+        input.key_msg(&[0x90, 50, 90]);
+        assert!(drain().is_empty(), "loop off: the left hand only gives the chord");
     }
 
     /// Two held keys that land on the same note (an octave shift folding past the MIDI
