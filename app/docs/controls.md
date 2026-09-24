@@ -153,15 +153,16 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | **Registration and Playlist** | Opens the Registration panel: what each button holds, renaming and clearing, the Memory and Freeze groups, the Registration Sequence and the Playlist. | Regist Bank Info / Edit, Regist Sequence, Regist Freeze, PLAYLIST | — | — |
 | **Registration panel page** | Switches between the bank's buttons, the Memory and Freeze groups, the Registration Sequence and the Playlist. | — | — | — |
 | **New bank** | Starts a new, empty bank. Give it a name and save it to keep it; unsaved changes to the bank in use are dropped. | Regist Bank: New | — | — |
-| **Save bank** | Saves the bank to its file in the Registration folder, or under the name you typed as a new file. Once a bank has a file, memorizing, renaming and sequence changes save themselves. | Regist Bank: Save | — | — |
-| **Bank name** | The name to save the bank under. Saving with a new name makes a new file and leaves the old one as it was. | — | — | — |
+| **Save bank** | Saves the bank to its file in the Registration folder, or under the name you typed as a new file. If another bank already has that name, nothing is saved: pick another name, or use Overwrite. Once a bank has a file, memorizing, renaming and sequence edits save themselves. | Regist Bank: Save | — | — |
+| **Overwrite bank** | Another bank already has the name you typed. Overwrite replaces that bank's file with this bank; what it held is lost. | Regist Bank: Save (overwrite) | — | — |
+| **Bank name** | The name to save the bank under. Saving with a new name makes a new file and leaves the old one as it was. A name another bank already has is refused, unless you choose Overwrite. | — | — | — |
 | **Button contents** | What this button holds: its style, tempo and the voices of Right 1–3 and Left. Click it to recall it. | Regist Bank Info | — | — |
 | **Memorize here** | Stores the panel as it is now on this button (the ticked Memorize groups), replacing what it held. | MEMORY + [1]–[10] | — | — |
 | **Rename** | Renames this button. The name shows in the Registration bar and in playlists. | Regist Bank Edit: Rename | — | — |
 | **Clear** | Empties this button. Its lamp goes dark. | Regist Bank Edit: Delete | — | — |
 | **Memorize group** | Ticked groups are what Memory stores on a button; a recall only changes what the button stored. Untick Tempo, say, for buttons that should keep whatever tempo you are playing. | Registration Memory window (items to register) | — | — |
 | **Freeze group** | Ticked groups stay as they are when you recall a registration, while Freeze is on. Style also covers the section, the Style mixer, the split, the fingering and the Left part, as on the Genos. | Regist Freeze display | — | — |
-| **Registration Sequence** | Turns the bank's sequence on, so Regist + and Regist − step through it. It is saved with the bank. | Registration Sequence On/Off | — | — |
+| **Registration Sequence** | Turns the Registration Sequence on, so Regist + and Regist − step through the bank's sequence. As on the Genos this is a panel setting, not part of the bank: it stays as it is when you change banks, and yahaha remembers it between sessions. | Registration Sequence On/Off | — | — |
 | **Add step** | Adds this button to the end of the sequence. A button can come more than once. | Registration Sequence: Insert | — | — |
 | **Sequence step** | A step of the sequence: the button it recalls. Click to take it out of the sequence; the ringed step is the one last recalled. | Registration Sequence: Delete | — | — |
 | **Clear sequence** | Removes every step from the sequence. | Registration Sequence: Clear | — | — |
@@ -176,8 +177,9 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | **Playlist record** | A song in the set list. Click it to load its bank (and recall its button) or its style; the lit one is the song in use. A struck-out name means its file is gone. | Playlist Record (Load) | — | — |
 | **Playlist** | The set list in use. Pick another playlist file from the Playlists folder; a star means it has unsaved changes. | Playlist File Selection | — | — |
 | **New playlist** | Starts a new, empty set list. Unsaved changes to the one in use are dropped. | Playlist: New | — | — |
-| **Save playlist** | Saves the set list in the order shown (a sorted list is saved sorted, and goes back to Normal), to its file or under the name you typed. | Playlist: Save | — | — |
-| **Playlist name** | The name to save the set list under. A new name makes a new file. | — | — | — |
+| **Save playlist** | Saves the set list in the order shown (a sorted list is saved sorted, and goes back to Normal), to its file or under the name you typed. A name another playlist already has is refused: pick another, or use Overwrite. | Playlist: Save | — | — |
+| **Overwrite playlist** | Another playlist already has the name you typed. Overwrite replaces that playlist's file with this set list. | Playlist: Save (overwrite) | — | — |
+| **Playlist name** | The name to save the set list under. A new name makes a new file; another playlist's name needs Overwrite. | — | — | — |
 | **Add this bank** | Adds the bank in use to the end of the set list, recalling the button that is lit. The bank must be saved first. | Add Record: Select from Registration Bank | — | — |
 | **Add this style** | Adds the loaded style to the end of the set list, for a song that needs only the style. | — | — | — |
 | **Append playlist** | Adds every record of another playlist file to the end of this one. | Add Record: Append Playlist | — | — |

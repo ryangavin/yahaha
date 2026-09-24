@@ -18,7 +18,8 @@ Issues #36 and #38. The Genos behaviour is in [genos-features.md](genos-features
 - **Freeze** (the FREEZE button, and the ticked Freeze groups) leaves groups unchanged on
   recall.
 - **Registration Sequence**: a programmed order of the bank's buttons, stepped with
-  Regist +/−, with an end action (Stop, Top, Next bank). Saved in the bank.
+  Regist +/−, with an end action (Stop, Top, Next bank). The steps and the end action are
+  saved in the bank; Sequence On/Off is not (see Decisions).
 - **Playlist**: a set list of records; a record loads a bank file (and recalls one of its
   buttons) or a style file. Up to 2,500 records; Normal / A→Z / Z→A display order; Up,
   Down and Delete are off while sorted, and saving keeps the displayed order.
@@ -55,16 +56,22 @@ yahaha's own JSON, never Yamaha's `.rgt`. By default in `~/Documents/yahaha`
       },
       null, null, null, null, null, null, null, null, null
     ],
-    "sequence": { "on": true, "steps": [0, 1, 2, 1], "end": "next" }
+    "sequence": { "steps": [0, 1, 2, 1], "end": "next" }
   }
   ```
 
 - `Playlists/<name>.playlist.json`: `{ "format": "yahaha.playlist", "version": 1,
   "name", "records": [{ "name", "kind": "bank", "path", "regist"? } | { "name", "kind":
   "style", "path" }] }`. A relative path is read from the playlist's own folder.
+- `Registration/setup.json`: `{ "sequenceOn": bool }`, the Registration settings that
+  are not part of any bank (the Genos keeps them in its Setup/Backup).
+
+Saving under a name that another bank (or playlist) already has is refused, unless the
+command says `overwrite: true` (the app shows an Overwrite button then).
 
 A newer file (higher `version`) is refused; a section or group this build doesn't know is
-skipped, so older builds read newer banks for what they understand.
+skipped on recall but kept as it was when the bank is saved again (auto-save included), so
+older builds read newer banks for what they understand and don't erase the rest.
 
 ## Registrables: how a feature joins Registration
 
@@ -89,18 +96,27 @@ Live Control add theirs when they're wired in (their groups already exist).
 
 The voice is a `VoiceRef` tagged by `kind` (`{"kind":"gm","program":…}`), so plugin
 instruments (#35 phase 2) become a new kind without breaking old banks. A voice kind the
-build can't play is reported and the rest of the recall goes on.
+build can't read or play (a newer build's `kind`) is reported for that part only: its other
+settings and the other parts still recall, and the bank file keeps the voice as it was.
 
 ## Recall order and timing
 
 1. The **style** (if it differs). Stopped, it loads at once; playing, it takes over at the
    next bar line, as every style change does (`Engine::change_style`).
-2. Everything else waits for that style to play (`registration.pending`), because a style
-   load resets the tempo, the Style mixer and the section. Then, in `REGISTRABLES` order:
-   tempo, chord settings, section and Style buttons, Style mixer, keyboard parts,
-   transpose. Without a style change this all happens at once.
-3. A **section** (Main) change goes to the engine as a Main press: playing, it changes at
-   the next bar line.
+2. Everything else waits while any style is still to come (`registration.pending`): this
+   recall's, or one chosen just before it (a double tap, or two buttons with the same
+   style pressed before the bar line), because a style load resets the tempo, the Style
+   mixer and the section. Then, in `REGISTRABLES` order: tempo, chord settings, section
+   and Style buttons, Style mixer, keyboard parts, transpose. With no style to wait for
+   this all happens at once.
+3. The section and the Style buttons go to the engine as **states**
+   (`live::Cmd::StyleControls`), which it compares with its own: a Main change is a Main
+   press (playing, it changes at the next bar line), and a switch already in the recalled
+   state is left alone, however recently the control side last saw a snapshot. Style part
+   volumes are sent as CC7 values.
+
+Whatever a recall can't do (a style that's gone, a voice this build can't play) is in the
+message, as an error, after the button's name; the rest is still recalled.
 
 While a recall settles, **OTS Link holds still**: the registration's own voices win over
 the OTS of the section or style it selects. The hold ends when the engine shows the
@@ -134,7 +150,9 @@ nothing is locked until it lands.
   orange. **Shift + Track ◀/▶** = previous/next Playlist record.
 - **Terminal**: Shift + `Q`…`P` = buttons 1–10, `F5` Memory, `F6` Freeze, `F7`/`F8`
   Regist −/+, `F11`/`F12` bank −/+, `<`/`>` playlist. A status line shows the bank, the
-  ten lamps, Memory, Freeze, the sequence and the playlist.
+  ten lamps, Memory, Freeze, the sequence and the playlist. On macOS, F11 is Show Desktop
+  by default: turn that shortcut off (System Settings › Keyboard › Keyboard Shortcuts ›
+  Mission Control), or use the app's Registration bar / pad page 4 for Bank −.
 - **App**: the Registration bar under the app bar (bank, the ten buttons with their
   names, Memory, Freeze, the sequence, the playlist) and the Registration panel (Bank,
   Memory & Freeze, Sequence, Playlist pages).
@@ -155,6 +173,11 @@ nothing is locked until it lands.
 - **Recalling a button by hand** moves the sequence cursor to that button's next
   occurrence, so Regist + carries on from there.
 - **Sequence steps while it's off** are refused with a message (the Genos needs it On).
+- **Sequence On/Off** is a panel setting, not part of the bank: it stays when the bank
+  changes (so End = Next runs through every bank), and is kept in `setup.json`. Because:
+  the Genos Data List (Regist Sequence) marks Sequence Data and Sequence End as
+  Registration items and Sequence On/Off as not (Setup/Backup only). An `on` field in a
+  bank written by an earlier build is ignored.
 - **Frozen tempo across a style change**: the tempo is put back after the style load
   (a stopped load takes the style's own tempo). A button that didn't memorize Tempo lets
   the style load set it, as any style change does.
