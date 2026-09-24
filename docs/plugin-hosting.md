@@ -1,111 +1,206 @@
-# Plugin hosting (#35): options report, prototype, integration plan
+# Plugin hosting (#35)
 
 Goal: Genos-class sounds for the keyboard parts (Right 1-3, Left), and optionally for the
 Style parts, played through the user's own instrument plugins instead of the built-in
 SoundFont synth (rustysynth, `src/synth.rs`).
 
-This is a spike. It has three parts: the options (below), a working Audio Unit prototype behind the
-`plugins` cargo feature (`src/plugin/`), and a plan for wiring it into the Session and
-synth (at the end). Nothing in the default build changes.
+Status:
 
-## Recommendation
+- **Spike** (PR #79): options report (below) and an Audio Unit prototype. Recommendation:
+  Audio Units first, through the objc2 bindings.
+- **Phase 1** (this document's first half): the library layer in `src/plugin/`, behind
+  the `plugins` cargo feature, off by default. Scan (cached), async load with timeout
+  (AUv2 and AUv3, in or out of process), instances with sample-accurate MIDI and state as
+  bytes, a real-time rack that applies the part's CC7/CC11 and swaps instances glitch-free,
+  editor windows, and `yahaha plugin-test` to measure it all. Nothing in the engine,
+  session, API or built-in synth uses it yet, and the default build is unchanged.
+- **Phase 2** (plan at the end): wiring it into the Session, the synth callback, the app
+  and Registration Memory.
 
-**Use Audio Units first, hosted in-process from the audio callback we already have.** Call the
-AudioToolbox C API for scanning, loading, MIDI and rendering, and use `objc2` for AUv3
-instantiation and editor windows. Add **CLAP via `clack-host`** as the second format if
-users ask for plugins that ship without AU. Treat **VST3** as the last format: on macOS almost
-every commercial VST3 instrument also ships as an AU. Do not build an out-of-process host
-now. AUv3 extensions already run out of process, and the cost of a separate host is only
-worth paying later if crashing AUv2 plugins become a real problem.
+## Phase 1: the library
 
-Why AU:
-- yahaha is macOS-only. On macOS, AU is the format every instrument vendor ships. On this
-  machine it includes Kontakt 6/7/8, Serum 2, FM8, Reaktor, EZdrummer and the Virus editor,
-  plus Apple's DLSMusicDevice, AUSampler and AUMIDISynth, which are always present.
-- The OS provides it and it is stable. There is no SDK to vendor or license, and the scan
-  is one system call. The prototype adds **zero dependencies**.
-- It works today. The prototype loads, plays, saves and restores the state of, and opens
-  the editor of third-party instruments (below).
+```sh
+cargo test --features plugins plugin                        # unit tests (Apple's DLSMusicDevice)
+cargo test --features plugins --test plugin_rack_no_alloc   # the rack's audio path never allocates
+cargo build --release --features plugins
+./target/release/yahaha plugin-test --list                  # installed instruments (cached scan)
+./target/release/yahaha plugin-test "Serum 2" --bench       # load, state, CPU, swap latency; no audio device
+./target/release/yahaha plugin-test "Serum 2" --swap-to FM8 # play the phrase, swap to a preloaded FM8 at bar 3
+./target/release/yahaha plugin-test "Kontakt 8" --oop --gui # out of process, with its editor
+```
 
-## Prototype results (this machine, M-series Mac, MOTU Model 16, 48 kHz / 64 frames)
+Other options: `--rescan`, `--oop` (load out of process), `--timeout S`, `--channel N`,
+`--sf2 file | --no-sf2`, `--loops N`, `--seconds N`, `--audio-out N`.
 
-| Instrument | Load | Plays | State (ClassInfo) | Editor |
+### API
+
+All of it is `yahaha::plugin::*`.
+
+**`PluginHost`** (cheap to clone; share between the control thread and the app)
+
+| Call | What it does |
+|---|---|
+| `PluginHost::new(cache_path)`, `with_default_cache()` | Cache in `~/Library/Caches/yahaha/plugins.json` by default. |
+| `scan() -> Vec<PluginInfo>` | Every instrument AU (AUv2 and AUv3), sorted by vendor and name. Served from the cache while a fingerprint of every component's (type, subtype, manufacturer, flags, version) matches; any install, removal or update rescans. 22 ms live, 0.01 ms cached on this Mac (14 instruments). |
+| `rescan()` | Ignore the cache (keeps the per-plugin load records). |
+| `find(query)`, `info(&id)` | By id ("aumu Xf2X XFER") or name substring. |
+| `load_async(&id, LoadConfig) -> LoadHandle` | Loads on its own thread. `LoadConfig { sample_rate, max_frames, state, mode, timeout }`; `mode` is `Auto` (AUv2 in process, AUv3 out of process), `InProcess` or `OutOfProcess`. |
+| `load(&id, cfg)` | `load_async` + `wait`, for tools and tests. |
+
+`PluginInfo { id: PluginId, name, manufacturer, version, format: AUv2 / AUv3, requires_async,
+can_load_in_process, sandbox_safe, last_load: Option<LoadRecord> }`. `PluginId` is the
+(type, subtype, manufacturer) triple; it serialises as three numbers and prints and parses as
+"aumu Xf2X XFER". `last_load` is the plugin's last load time or its error ("timed out after
+20.0 s"), so the browser can flag a bad plugin before the user picks it.
+
+**`LoadHandle`**: `progress()` (`Queued`, `Instantiating`, `Initializing`,
+`RestoringState`, `Ready`, `Failed(msg)`, `TimedOut(d)`), `take() -> Option<Result<PluginInstance>>`
+(non-blocking), `wait()`, `elapsed()`. Dropping it cancels. A load that passes its deadline
+reports `TimedOut`; its thread (stuck inside the plugin, which cannot be killed) is
+abandoned and disposes of the instance itself if the plugin ever returns. The load also
+renders a little silence (`prime`) so a plugin's first-render set-up happens off the audio
+thread, and runs inside an Objective-C `@try` so an `NSException` fails the load instead of
+aborting yahaha.
+
+**`PluginInstance`** (`Send`; one per loaded plugin)
+
+| Call | Thread |
+|---|---|
+| `midi([u8; 3], offset)` | Audio. One `MusicDeviceMIDIEvent`; `offset` is the frame in the next render (sample-accurate, tested). |
+| `render(&mut left, &mut right) -> Result<(), RenderError>` | Audio. Any length; sliced to `max_frames`. The `AudioBufferList` is on the stack. An OSStatus or NaN / infinity zeroes the output and returns the error. |
+| `stats() -> Arc<PluginStats>` | Any. Relaxed atomics written by `render`: blocks, mean / max / last ns, overruns (render > `budget_permille` of the block, default 50%), deadline misses (> 100%), errors. `snapshot(rate)` gives µs and CPU share. |
+| `get_state() -> Vec<u8>`, `set_state(&[u8])` | Control thread, not the main thread (below), instance not playing. `kAudioUnitProperty_ClassInfo` as a binary plist: the plugin's full preset. |
+| `reconfigure(rate, max_frames)` | Control; for device changes. |
+| `latency_seconds()`, `load_times()`, `out_of_process()`, `info()` | Any. |
+| `editor_target() -> EditorTarget` | Any; `Send`. Hand it to the main thread for the editor. |
+
+**`PluginRack` / `RackControl`** (`rack(max_block, sample_rate)` makes the pair; all memory
+is allocated there)
+
+- One slot per MIDI channel, so it fits the synth callback as it is: keyboard parts are
+  channels 0-3 (`parts::CHANNEL`), Style parts 8-15.
+- Audio thread, per callback: `begin_block()` (apply assigns / clears), `midi(m, offset) ->
+  bool` for each message (true = a plugin slot took it; otherwise send it to rustysynth as
+  now), `render_add(&mut l, &mut r)` (mixes every slot in, before master gain and the soft
+  clipper). None of these allocate or lock (`tests/plugin_rack_no_alloc.rs` counts).
+- Control thread: `assign(channel, instance, Swap { fade_frames, trim })`, `clear(channel,
+  fade)`, `poll()` (events, and drops retired instances here), `poll_events()` /
+  `take_retired()` (to keep a warm pool). Events: `Swapped { channel, latency }`,
+  `Cleared`, `Fault { channel, error }`, `Overrun { channel, render_us, block_us }` (at most
+  one per slot per second).
+- **Mixer rule.** The rack keeps CC7 / CC11 (and their LSBs, CC39 / CC43) and applies
+  `((vol14/16383)·(expr14/16383))²` to the plugin's output, ramped over the block: the exact
+  curve and 14-bit arithmetic rustysynth uses (`voice.rs`: `ve * ve`), power-on 100 / 127,
+  CC121 resets expression. The plugin never sees CC7 or CC11, so a fader at 100 is the same
+  level on either engine, whatever the plugin would have done with CC7. Velocity still goes
+  to the plugin. `Swap::trim` is a per-voice linear trim for level normalisation.
+- **Swaps.** An assign takes effect at the next block boundary. The part's controllers
+  (everything but volume, bank select, RPN/NRPN and channel mode messages) and pitch bend
+  are replayed into the incoming instance, so modulation, pan, sustain and bend carry over.
+  The outgoing instance gets Sustain off + All Notes Off and keeps rendering while it fades
+  out over `fade_frames` (default 240 = 5 ms) as the new one fades in; then it goes back to
+  the control side, never disposed of on the audio thread. The CC7/CC11 gain belongs to the
+  slot, so it carries over. `fade_frames: 0` hands over at the boundary with no fade.
+- **Faults.** A render error or non-finite output mutes the slot: it keeps owning its
+  channel (the part goes quiet instead of jumping to the SoundFont), reports `Fault` once,
+  and renders nothing until the control side assigns or clears. A MIDI error (an
+  out-of-process plugin whose process died fails there first) does the same.
+
+**Editor** (`plugin::editor`, main thread only, `MainThreadMarker`)
+
+- `open_editor(mtm, &EditorTarget) -> Editor` picks the plugin's AUv2 Cocoa view (in
+  process), else its view controller (`kAudioUnitProperty_RequestViewController`: AUv3, and
+  every out-of-process unit, as a remote view), else CoreAudioKit's `AUGenericView`.
+  `Editor::{kind, size, is_open, focus, close}`; `close_editor(editor)`; dropping closes.
+  The editor holds its own reference to the Audio Unit, so swapping the part out while its
+  window is open is safe.
+- The desktop app owns `NSApplication`, so it only calls these from its main thread
+  (`app.run_on_main_thread`). Tools without an app call `prepare_app(mtm)` once and
+  `pump_events(mtm, dur)` in their loop, and `run_main_loop(dur)` while they wait for loads.
+
+**Code map**: `sys.rs` is the thin unsafe core over `objc2-audio-toolbox` /
+`objc2-core-foundation` (instance ownership, render over a stack `AudioBufferList`, MIDI,
+ClassInfo state, sync and async instantiation, silent input callbacks, the `@try` guard);
+`scan.rs` the ids, infos and cache; `host.rs` `PluginHost` and loads; `instance.rs`
+`PluginInstance` and stats; `rack.rs` the rack; `editor.rs` the windows (AppKit through
+`objc2-app-kit` / `objc2-core-audio-kit`); `cli.rs` `plugin-test`; `tests.rs` the DLS tests.
+The spike's hand-written FFI (`ffi.rs`, `au.rs`, `gui.rs`) is gone; the only hand-typed call
+left is `uiViewForAudioUnit:withSize:` (a typed `objc_msgSend`, because objc2's encoding check
+knows `AudioUnit` under a different SDK name).
+
+Why no `objc2-avf-audio` / `AUAudioUnit`: `AudioComponentInstantiate` already creates AUv3
+units (and out-of-process AUv2 units) asynchronously and hands back the same v2 handle, so
+one render path (`AudioUnitRender` / `MusicDeviceMIDIEvent`), one state path (ClassInfo)
+and one editor path (`RequestViewController`) serve every format. The `AUAudioUnit`
+render-block API would be a second implementation of each; it is worth adding only if an
+AUv3 instrument turns out to need something the bridge does not give (none is installed
+here to test; the out-of-process AUv2 runs exercise the same code).
+
+### Measured (M1 Max, macOS 26.5, 48 kHz)
+
+`yahaha plugin-test <name> --bench`. Render is a six-note chord held for 2 s per block size;
+figures are mean / p99 / max render time per block. Swap is 40 preload-then-swap hand-overs
+on a real-time (time-constraint) thread rendering 64-frame blocks with a chord held and a
+5 ms crossfade; "assign → playing" runs from the `assign()` call to the start of the block
+that swapped (half a block on average, at most one).
+
+| | DLSMusicDevice | Serum 2 | FM8 | Kontakt 8 (no library) |
 |---|---|---|---|---|
-| Apple DLSMusicDevice | 7 ms | yes, peak -22 dBFS | 916 B, save+restore OK | own Cocoa view, 518x243 |
-| Xfer Serum 2 | 94-205 ms | yes, peak -15 dBFS | 23 KB, save+restore OK | own Cocoa view, 1190x740 |
-| NI FM8 | 431 ms | yes, peak -27 dBFS | 2 KB, save+restore OK | not tried |
-| NI Kontakt 8 | 0.7-3.2 s | silent: no library loaded (expected) | 4 KB, save+restore OK | **crashes** inside `KontaktFormManager::init` (see findings) |
+| Load, in process | 9 ms | 119 ms (second instance 64 ms) | 174 ms (second 7 ms) | 0.6-1.3 s (second 36 ms) |
+| Load, out of process | 339 ms (second 4 ms) | 423 ms (second 67 ms) | 384 ms (second 12 ms) | 4.5 s (second 45 ms) |
+| State size; get / set | 916 B; 28 / 3 ms; byte-identical | 23 KB; 0.8 / 17 ms | 2 KB; 0.3 / 0.4 ms | 4 KB; 0.3 / 326 ms |
+| Render 64 frames (1333 µs) | 6.3 / 6.5 / 6.7 µs (0.5%) | 29.7 / 61.5 / 179 µs (2.2%) | 10.9 / 11.9 / 39 µs (0.8%) | 4.9 / 5.7 / 6.5 µs (silent) |
+| Render 128 frames | 12.7 / 15.8 / 78 µs | 56.1 / 108 / 284 µs | 23.0 / 68.5 / 145 µs | 5.0 / 6.2 / 7.5 µs |
+| Render 256 frames | 26.2 / 74.4 / 132 µs | 106 / 189 / 239 µs | 45.1 / 90.0 / 265 µs | 5.4 / 6.0 / 36 µs |
+| Render 64, out of process | 11.9 / 42.9 / 109 µs | 37.5 / 95.2 / 175 µs | 22.6 / 63.6 / 121 µs | 11.2 / 38.7 / 74 µs |
+| `assign()` call | 3.3 µs | 6.6 µs | 2.9 µs | 2.4 µs |
+| Assign → playing, mean / max | 0.89 / 1.34 ms | 0.75 / 1.33 ms | 0.86 / 1.33 ms | 0.80 / 1.33 ms |
+| Rack block, steady (mean / p99 / max) | 23 / 88 / 150 µs | 64 / 379 / **1607** µs | 20 / 66 / 93 µs | 12 / 26 / 33 µs |
+| Rack block, swap + crossfade | 42 / 150 / 153 µs | 99 / 375 / 452 µs | 23 / 68 / 98 µs | 22 / 48 / 208 µs |
 
-The plugin part is rendered in the same cpal callback as rustysynth and adds no extra
-buffering: the latency is the device buffer (64 frames, 1.3 ms), the same as the built-in
-synth.
+Live (`plugin-test "Serum 2" --swap-to FM8 --loops 2`, Model 16 at 64 frames, rustysynth
+backing in the same callback): two swaps at 0.77 ms mean / 0.93 ms max from assign to
+playing; Serum 1.4% and FM8 0.6% of real time; no overruns, deadline misses or errors.
 
 ### Findings
 
-- **Load times vary by three orders of magnitude.** Kontakt can take seconds. A
-  Registration recall can never load a plugin on demand: instances have to be created
-  ahead of time, off the audio thread, and swapped in.
-- **Kontakt 8's editor crashes** when this bare CLI process opens it (EXC_BAD_ACCESS in
-  Kontakt's own `KontaktFormManager::init`, called from `uiViewForAudioUnit:withSize:`).
-  Serum 2 and DLS open fine. The likely cause is that Kontakt's Qt UI expects a real
-  `NSApplication` (`[NSApp run]`, a main bundle with an Info.plist), not a hand-pumped event
-  loop in an unbundled binary. The desktop app would provide that. Re-test there before
-  concluding anything. Headless Kontakt (no editor) loads, renders and saves state fine.
-- **Opening a heavy editor causes audio underruns** at 64 frames: the plugin's UI
-  initialisation competes with its render. Production should open editors only on user
-  request, and should expect to raise the buffer to 128/256 frames when heavy plugins are
-  active.
-- **Plugins disagree about CC7.** DLS honours it; many synths ignore it or map it to a
-  macro. That is why the host applies part volume itself (see the mixer section).
-- A component flagged `RequiresAsyncInstantiation` (some AUv3s) cannot be created with the
-  synchronous `AudioComponentInstanceNew`. None of the instruments installed here needed
-  it. Production needs the async path (`AudioComponentInstantiate` or
-  `AUAudioUnit.instantiate`), which means objc2 blocks.
+- **Preload, then swap.** Loads take 9 ms to 4.5 s; a swap of a preloaded instance costs the
+  control thread 3-7 µs and reaches the speakers within one block. So recall must never
+  load: preload, then assign. A second instance of a plugin already loaded is much faster
+  (Serum 64 ms, FM8 7 ms, Kontakt 36 ms), which makes a small warm pool cheap.
+- **Out of process is cheap to render and it isolates crashes.** AUv2 units load fine in the
+  AUHostingService (`LoadMode::OutOfProcess`, macOS 11+). The IPC adds about 5-12 µs per
+  64-frame block and 0.2-0.3 s to the first load of a plugin (then the service is warm).
+  Kontakt 8 shows why it matters: in process, a Kontakt background thread (`ProductScan`)
+  crashed yahaha with SIGSEGV when the tool exited; out of process it loaded, rendered, saved
+  state and opened its editor (a remote view controller, 1010x647) without trouble. The
+  spike's Kontakt editor crash was in process; out of process, the editor opens from the
+  CLI. Recommendation for phase 2: out of process by default for third-party
+  AUv2 instruments, with in process as a per-plugin option for the lightest ones.
+- **Kontakt deadlocks restoring state on the main thread.** Its `ClassInfo` setter waits for
+  work it queues on the main thread. The Session's control thread (not main) must do all
+  `get_state` / `set_state` calls while the main thread runs its loop, which the app does
+  anyway; `plugin-test` does the same (`off_main`, `run_main_loop`).
+- **Instruments with audio inputs fail out of process** unless the host feeds the inputs:
+  FM8 (it has an FM input bus) rendered `NoConnection` (-10876) until `sys.rs` installed a
+  silent input callback on every input bus. In process FM8 did not care.
+- **Serum 2 misses a deadline now and then on note-on**: one 64-frame block of 1.6 ms among
+  1446 while five notes started together, and never in the live run with the phrase. The
+  rack's stats and `Overrun` events make this visible per plugin; at 64 frames a user with
+  Serum parts may want 128.
+- **State is bytes, but not canonical bytes.** Serum and Kontakt re-save a restored state a
+  few bytes longer (timestamps and the like), so compare states by restoring them, not by
+  bytes. DLS round-trips byte-identical.
+- **CC7.** Unchanged from the spike: plugins disagree about CC7, so the rack owns it.
 
-## How to run the prototype
-
-```sh
-cargo build --release --features plugins
-./target/release/yahaha plugin-test --list                  # installed instrument AUs
-./target/release/yahaha plugin-test                         # Apple DLSMusicDevice
-./target/release/yahaha plugin-test "Serum 2"               # any name substring, or "aumu Xf2X XFER"
-./target/release/yahaha plugin-test "Serum 2" --gui         # also open its editor; loops until you close it
-```
-
-Options: `--channel N` (the MIDI channel that goes to the plugin; default 1 = Right 1),
-`--sf2 file | --no-sf2` (the backing SoundFont; by default the first `.sf2` in `./soundfonts`),
-`--loops N`, `--seconds N`, `--audio-out N` (first channel of the output pair; Model 16
-defaults to 11/12, as the built-in synth does).
-
-The phrase is four bars at 100 bpm: C Am F G, then C. The melody plays on the plugin
-channel; strings (MIDI ch 2) and drums (ch 10) play on rustysynth in the same callback. On
-the last pass the plugin part's CC7 fades out over the final bar, to demonstrate host-side
-volume. At the end the command prints the plugin part's peak level, so a silent plugin
-shows up without anyone having to listen.
-
-Tests (they use DLSMusicDevice, which is always installed): `cargo test --features plugins plugin`.
-They cover the FFI struct layouts, the scan, an offline render that is silent before
-note-on and sounding after it, a state round trip, and the `PartGain` curve.
-
-### Code map
-
-- `src/plugin/ffi.rs`: hand-written AudioToolbox, CoreFoundation and objc-runtime
-  declarations, with a test that checks the struct sizes against the C headers.
-- `src/plugin/au.rs`: `scan()`, `find()`, and `Instrument` (`load`, `midi`, `render`,
-  `latency_seconds`, `save_state`, `restore_state`).
-- `src/plugin/gui.rs`: the editor window. It uses the plugin's Cocoa view
-  (`kAudioUnitProperty_CocoaUI`) if it has one, and CoreAudioKit's `AUGenericView` otherwise.
-- `src/plugin/mod.rs`: `PartGain`, the host side of the mixer rule.
-- `src/plugin/cli.rs`: `yahaha plugin-test`.
-
-## The options
+## The spike's options report
 
 ### 1. Audio Units (AUv2 and AUv3) through AudioToolbox / AVFoundation
 
 | | |
 |---|---|
 | Maturity | Apple's native format since 10.2. AUv3 (app extensions) since 10.11. Every major macOS DAW hosts it. |
-| Rust access | **Raw C API** (as in this prototype): `AudioComponentFindNext`, `AudioComponentInstanceNew`, `AudioUnitRender`, `MusicDeviceMIDIEvent`, `kAudioUnitProperty_ClassInfo`. **`objc2-audio-toolbox` / `objc2-avf-audio` / `objc2-core-audio-kit` 0.3.2**: generated from the SDK headers by the objc2 project, very healthy (about 2M recent downloads for audio-toolbox), and they cover `AUAudioUnit`, `AVAudioUnitComponentManager` and `AUGenericView` with typed blocks. `coreaudio-sys` / `coreaudio-rs` (RustAudio) are bindgen'd C APIs, widely used through cpal. **`rack` 0.4** (sinkingsugar) is a young AU+VST3 host built on a C++ shim, with little adoption (about 1k recent downloads). Worth reading, not worth depending on. |
+| Rust access | **Raw C API** (as in the spike's prototype): `AudioComponentFindNext`, `AudioComponentInstanceNew`, `AudioUnitRender`, `MusicDeviceMIDIEvent`, `kAudioUnitProperty_ClassInfo`. **`objc2-audio-toolbox` / `objc2-avf-audio` / `objc2-core-audio-kit` 0.3.2**: generated from the SDK headers by the objc2 project, very healthy (about 2M recent downloads for audio-toolbox), and they cover `AUAudioUnit`, `AVAudioUnitComponentManager` and `AUGenericView` with typed blocks. `coreaudio-sys` / `coreaudio-rs` (RustAudio) are bindgen'd C APIs, widely used through cpal. **`rack` 0.4** (sinkingsugar) is a young AU+VST3 host built on a C++ shim, with little adoption (about 1k recent downloads). Worth reading, not worth depending on. |
 | Licence | Apple system frameworks; nothing to vendor. objc2 crates are Zlib/Apache/MIT. |
 | Real time | `AudioUnitRender` and `MusicDeviceMIDIEvent` are designed to be called from the IO thread. The host side needs no allocation (the prototype builds the `AudioBufferList` on the stack over caller buffers). Whether the plugin itself allocates is up to the plugin. `MusicDeviceMIDIEvent` takes a sample offset, so MIDI can be sample-accurate. AUv3 in-process uses `AUAudioUnit.renderBlock` / `scheduleMIDIEventBlock`: fetch them once off-thread and call them from the callback with no Objective-C messaging. |
 | Editors | AUv2: `kAudioUnitProperty_CocoaUI` gives a view factory bundle, and `uiViewForAudioUnit:withSize:` returns an NSView. AUv3: `requestViewController`. Either one hosts in an NSWindow, or inside the desktop app's window. `AUGenericView` is the fallback. |
@@ -150,95 +245,111 @@ Bitwig, Reaper (optional) and Logic (for AUv3) all work this way.
 | Effort | **About 4-6 weeks** before plugin-specific work: the protocol, shared memory, watchdog and restart logic, plus everything in options 1-3 inside the helper. |
 | Verdict | Defer. AUv3 already gives out-of-process isolation for free. Revisit if in-process AUv2 crashes turn out to be a real problem in practice. The in-process `Instrument` API (`midi` / `render` / `save_state`) is the interface such a helper would implement, so nothing built now is wasted. |
 
-## Integration plan (not done in this spike)
+## Phase 2: wiring plan
 
-### Per-part routing
+Phase 1 touched nothing outside `src/plugin/`. Phase 2 needs the hotspot files (`synth.rs`,
+`session`, `api`, `live`, the app), so it starts after the hotspot refactor lands and CLAIMs
+each file on the board. In order:
 
-Each keyboard part (`parts::CHANNEL`: Right 1 = ch 0, Left = ch 1, Right 2 = ch 2, Right 3 = ch 3)
-gets a **voice source**: either the SoundFont program it has today, or a **plugin
-voice**. A plugin voice is the component's identity (type/subtype/manufacturer and version),
-a display name and a state blob.
+### 1. The synth callback (`src/synth.rs`)
 
-- **Audio thread (`synth.rs` callback).** Add a fixed array `[Option<Box<PluginSlot>>; 16]`
-  indexed by MIDI channel, where a slot holds an `Instrument`, a `PartGain` and scratch
-  buffers. When `apply` drains the rings, a message for a channel with a slot goes to that
-  slot (`PartGain::take`, otherwise `Instrument::midi`). Every other channel goes to the
-  player or band synth exactly as now. After `player_synth.render`, render each active slot
-  and add it into the same `left` / `right` before master gain and `soft_clip`. Channels
-  8-15 (the Style parts) can use the same array later, which is the "optionally the Style
-  parts" case. Style parts would also need a Yamaha-voice-to-plugin-preset map, because a
-  Style's bank/program changes mean nothing to a plugin.
-- **Loading.** The audio thread never loads, initialises, restores state or disposes an
-  instance. A control thread (the Session's) builds the `Instrument`, restores its state,
-  and sends `Box<PluginSlot>` to the callback over an `rtrb` ring. The callback swaps it
-  into the channel and sends the old box back on a second ring, so it is dropped off the
-  audio thread. Before the swap the callback sends All Notes Off (CC123) to the outgoing
-  instrument, so no note hangs. This replaces today's `parts.changed` / `sync_player`
-  program push for plugin parts.
-- **Session / API.** `AppCmd::SetPartVoice { part, voice: VoiceRef }`, where `VoiceRef` is
-  either `Gm(program)` or `Plugin { code, state }`. `AppCmd::OpenPluginEditor { part }` is
-  honoured by the desktop app on its main thread. `AppState` shows each part's voice name and
-  a plugin/SoundFont badge. The scan result is cached, with the component version used as
-  the cache key, and exposed so the UI can offer a voice list.
-- **Registration Memory.** Each part stores its `VoiceRef`, so a plugin voice stores the code,
-  version and the `save_state()` blob (base64 in the registration JSON). Because Kontakt can
-  take seconds to load, recall must be instant from a **preloaded pool**. When a
-  Registration bank is selected, instantiate and restore every plugin voice its 10 buttons
-  use, off-thread. A button press is then only a swap. Where two buttons share a plugin
-  with different states, a `restore_state` on a warm instance can replace a fresh load, but
-  that call is not RT-safe, so it happens off-thread on an instance that is not playing
-  (double-buffer: one playing, one being prepared).
+- `synth::start` builds a `plugin::rack(8192, rate)` next to the SoundFont `Rack` and moves
+  the `PluginRack` into the callback; the `RackControl` goes to the Session (a new field on
+  `Synth`, like `SynthControl`).
+- In the callback: `plugin_rack.begin_block()` first; in the consumer loop, `if
+  !plugin_rack.midi(m, 0) { shadow.note(&m); apply_rack(...) }`; after `rack.render`,
+  `plugin_rack.render_add(&mut left2, &mut right2)` into zeroed scratch, scaled by
+  `master_gain(master)` (rustysynth applies the master inside its render, the plugin rack
+  does not) and added to `left` / `right` before the soft clipper. Meters: the rack's
+  per-slot output peak goes into `ctl.peaks[channel]`, so the Mixer shows plugin parts like
+  any other (a small `render_add` variant that reports per-slot peaks).
+- A plugin channel's messages then never reach rustysynth, so `sync_player_rack` and
+  `Shadow` keep working for the SoundFont parts unchanged. The part's GM program is still
+  pushed to rustysynth by `sync_player_rack` (it does not go through the rings), but its
+  CC7 / CC11 were swallowed by the rack while the plugin played: on clear, the Session
+  re-sends the part's current volume and expression so the SoundFont voice comes back at
+  the fader's level.
+- Sample-accurate MIDI: the input thread already timestamps messages; converting the host
+  time to a frame offset in the coming buffer and passing it to `midi(m, offset)` is the one
+  change needed for plugin parts (rustysynth would need its own per-offset rendering).
+- Device changes (sample rate, buffer): `PluginInstance::reconfigure` off-thread on
+  instances removed from the rack, then reassign.
 
-### Mixer rule: CC7 is the only per-part volume
+### 2. Session commands (`src/session`, `src/api`)
 
-The built-in synth has one rule: a part's level is its channel's CC7 (the mixer fader),
-CC11 and velocity, on the GM curves, and the master fader is the only non-MIDI gain. Plugin
-parts keep that rule, but the host enforces it. `PartGain` swallows CC7 and CC11 on a
-plugin channel and applies `((CC7/127)·(CC11/127))²` to the plugin's output, ramped over
-one buffer. This is the same curve rustysynth uses, so a fader at 100 sounds the same on
-either engine, and plugins that ignore CC7 or remap it still obey the mixer. Velocity
-still goes to the plugin, where it belongs (it shapes timbre, not only level). Master gain
-and the soft clipper stay after the sum, unchanged. Pan (CC10) has the same problem;
-handling it host-side with constant-power pan is a small follow-up. Every plugin should
-also be **level-normalised once** when it is added (a trim stored with the plugin voice,
-set from a reference note so a fresh plugin voice sits near its SoundFont equivalent),
-because Serum 2 and FM8 differ by 12 dB at the same settings (measured above).
+- `VoiceRef`: `Gm { program }` (today's voices) or `Plugin { id: PluginId, name, state:
+  base64 bytes, trim_db }`. A part's voice becomes a `VoiceRef`.
+- New `AppCmd`s:
+  - `SetPartPlugin { part, id, state? }`: load (async) with the part's rate/buffer, show
+    `Loading` in state, assign when ready (`Swap::default()`), fall back to the GM voice and
+    report on error / timeout.
+  - `ClearPartPlugin { part }`: back to the part's GM voice.
+  - `SavePartPluginState { part }`: `get_state` into the part's `VoiceRef` (the Session asks
+    after the editor closes and before a Registration write).
+  - `OpenPluginEditor { part }` / `ClosePluginEditor { part }`: forwarded to the app's main
+    thread with the part's `EditorTarget` (a Tauri command, since the Session has no
+    main-thread access).
+  - `RescanPlugins`.
+- New `AppState` fields: `plugins: { scanning, list: [{ id, name, manufacturer, version,
+  format, lastLoad }] }` (from the cache, instant at start-up), and per part `voice.kind:
+  "gm" | "plugin"`, `voice.plugin: { id, name, loading: progress | null, error, cpu,
+  overruns }` (from `PluginStats` snapshots once a second, not per state push).
+- The Session owns the `PluginHost`, the `RackControl` and in-flight `LoadHandle`s; its
+  pump polls them (`take`, `poll`) and turns rack events into state (a `Fault` marks the
+  part "muted: plugin failed" with a Retry).
+- Load mode policy: `Auto` for AUv3; out of process for third-party AUv2 by default, with a
+  per-plugin "run in process" setting stored in the cache file (see the findings).
+- All state calls run on the Session's control thread, never the main thread (Kontakt).
 
-### Latency and CPU
+### 3. App UI (`app/`)
 
-- **In-process adds no buffering.** The plugin renders in the same callback, so the
-  input-to-sound latency stays at one device buffer (1.3 ms at 64 frames / 48 kHz) plus
-  the plugin's own lookahead. `Instrument::latency_seconds()` reports that lookahead; all
-  instruments tested here report 0. For live play, do not compensate a part's latency by
-  delaying the other parts: that adds latency to everything. Show it in the UI instead.
-- **MIDI timing.** Today (and in the prototype) messages are applied at the start of the
-  buffer, so they are quantised to the buffer (1.3 ms). `MusicDeviceMIDIEvent`'s offset
-  argument allows sample-accurate timing once the input thread timestamps messages (CoreMIDI
-  host time converted to a frame offset from the callback's timestamp). This is worth doing
-  for the Style parts, where many notes land together.
-- **CPU.** One heavy instrument (a Kontakt piano) can use most of a 1.3 ms cycle. Options,
-  simplest first: (1) raise the buffer to 128/256 when plugins are active, which the UI can
-  offer as a "latency" setting; (2) render plugin parts on worker threads in the same audio
-  workgroup (`os_workgroup` via `kAudioOutputUnitProperty_OSWorkgroup`; `src/rt.rs` only sets
-  time-constraint policy today) and join before mixing; (3) for Style parts only, render one buffer
-  ahead, since the engine schedules them and can send them early.
-- **Sample-rate and device changes.** The AU must be uninitialised, reconfigured and
-  reinitialised off-thread, then swapped back in. The same swap path as loading works.
+- **Plugin browser** in the part's voice picker: a second tab "Plugins" next to the GM list,
+  from `state.plugins.list`, grouped by manufacturer, with the AUv3 badge and a warning
+  icon for plugins whose `lastLoad.error` is set ("timed out after 20 s last time").
+  Picking one sends `SetPartPlugin`; the part shows a spinner with the progress stage until
+  `Ready`.
+- **Editor button** on each keyboard part (Parts drawer and Mixer channel strip) when the
+  part plays a plugin: a Tauri command that runs `open_editor` on the main thread
+  (`app.run_on_main_thread`) and keeps the `Editor` in a main-thread map keyed by part;
+  pressing again focuses it; closing the part's plugin closes the window. On close, send
+  `SavePartPluginState`.
+- Mixer: plugin parts get a "plugin" badge and the CPU / overrun readout in the channel
+  tooltip. The fader is the same CC7 as always.
+- Settings: an Audio "buffer size" choice (64 / 128 / 256) for heavy plugins, and "Rescan
+  plugins".
+
+### 4. Registration Memory
+
+- A Registration stores each part's `VoiceRef` (plugin id, version, name, base64 state,
+  trim). Sizes seen: 1-23 KB per part.
+- **Recall must never load.** When a Registration bank is selected, the Session preloads
+  every plugin voice its buttons use, with their states, off-thread (`load_async` with
+  `LoadConfig::state`), into a per-bank pool keyed by (button, part). A button press is then
+  `assign` only: under one block to the speakers, 3-7 µs on the control thread.
+- Two buttons using the same plugin with different presets get two instances (a second
+  instance loads in 7-64 ms once the first is warm). A pool budget (count and total load
+  time) keeps a bank with 10 Kontakt buttons from preloading forever; beyond it, the
+  button recalls with a visible "loading" state instead of silently lagging.
+- The retired instance goes back into the pool (`take_retired`), not dropped, so pressing
+  the previous button again is also only a swap. Its state is re-set off-thread to the
+  button's stored state before it is eligible again (the user may have tweaked it).
+- Unknown plugin on recall (uninstalled, or a Registration from another machine): fall back
+  to the part's GM voice and show the plugin's stored name with a warning.
 
 ### Remaining effort (AU route)
 
 | Work | Estimate |
 |---|---|
-| Switch the FFI to `objc2-audio-toolbox` / `objc2-avf-audio`; async AUv3 instantiation; cached scan | 3-4 days |
-| Plugin slots in the synth callback, swap rings, `PartGain` wired to the channels, CC123 on swap | 2-3 days |
-| Session/API: `SetPartVoice`, voice list, plugin badge in `AppState`, TUI voice picker entry | 2-3 days |
-| Registration: `VoiceRef` storage, preload pool, double-buffered recall | 3-4 days |
-| Editor windows in the desktop app (AUv2 Cocoa + AUv3 view controller + generic fallback); Kontakt re-test there | 2-3 days |
-| Sample-accurate MIDI offsets; buffer-size setting; level-normalise trim; hardening with Kontakt / Serum / Omnisphere-class plugins | 3-5 days |
-| **Total** | **about 3-4 weeks** for keyboard parts; Style parts add about 1 week (voice mapping UI, CPU) |
+| ~~objc2 migration, async AUv3 instantiation, cached scan, rack, state, editor windows~~ | done (phase 1) |
+| Synth callback wiring, meters, master gain, CC123 on swap (done in the rack) | 1-2 days |
+| Session / API: `VoiceRef`, commands, state, load polling, fault handling | 2-3 days |
+| App: plugin browser tab, editor button and main-thread editor map, Mixer badge, buffer setting | 3-4 days |
+| Registration: `VoiceRef` storage, per-bank preload pool, recall as swap | 3-4 days |
+| Sample-accurate offsets from the input thread; level-normalise trim; Omnisphere-class hardening | 2-3 days |
+| **Total** | **about 2-3 weeks** for keyboard parts; Style parts add about 1 week (Yamaha voice → plugin preset map, CPU) |
 
-CLAP would add about 1.5-2 weeks and VST3 about 3-4 weeks on top of this, reusing the slots,
-swap rings, `PartGain`, Registration storage and editor hosting.
+CLAP would add about 1.5-2 weeks and VST3 about 3-4 weeks on top of this, reusing the rack,
+`PartGain`, the preload pool, Registration storage and editor hosting.
 
 ## Sources
 
