@@ -401,6 +401,49 @@ mod tests {
         assert_eq!(sounds(&st), want, "the new style's OTS 1 once it takes over");
     }
 
+    /// #111: a style that takes over during a Fill (At Main Section Change): the fill plays
+    /// on in the new style, and the keyboard parts change only when Main B starts, to the
+    /// new style's OTS 2. Nothing reaches them at the swap, mid-fill.
+    #[test]
+    fn ots_at_change_style_swapping_in_during_a_fill() {
+        use crate::engine::MainTiming;
+        let Some((s, other)) = playing_main_a(true) else { return };
+        // To Main Immediate: the style comes in at the next beat, with the fill.
+        s.send(StyleSettingsCmd::SetMainTiming { timing: MainTiming::Immediate }).unwrap();
+        let want = ots_sounds("BubblyDub.T552.sty", 1).unwrap();
+        let before = sounds(&s.state());
+        assert_ne!(before, want, "the test can see the change");
+        s.send(LibraryCmd::QueueStyle { id: other }).unwrap();
+        s.send(TransportCmd::Main { index: 1 }).unwrap();
+        let st = nothing_until(&s, &before, 4000, |st| st.style.id == other);
+        let fill = st.transport.section.clone();
+        assert!(fill.as_deref().is_some_and(|n| n.starts_with("Fill")), "the new style came in with the fill: {fill:?}");
+        assert_ne!(st.ots.applied, 2, "no OTS 2 at the swap");
+        let st = nothing_until(&s, &before, 4000, |st| st.transport.section.as_deref() == Some("Main B"));
+        assert_eq!((st.ots.applied, sounds(&st)), (2, want), "Main B starts: the new style's OTS 2");
+    }
+
+    /// #111: a style that takes over during an Intro (At Main Section Change): its OTS
+    /// comes when the Main starts, not at the swap.
+    #[test]
+    fn ots_at_change_style_swapping_in_during_an_intro() {
+        let Some((s, other)) = two_styles() else { return };
+        let want = ots_sounds("BubblyDub.T552.sty", 0).unwrap();
+        s.send(TransportCmd::Intro { index: 2 }).unwrap();
+        chord_c(&s);
+        assert!(until(&s, 4000, |st| st.transport.running), "started");
+        let before = sounds(&s.state());
+        assert_ne!(before, want);
+        s.send(LibraryCmd::QueueStyle { id: other }).unwrap();
+        let st = nothing_until(&s, &before, 8000, |st| st.style.id == other);
+        if !st.transport.section.as_deref().is_some_and(|n| n.starts_with("Intro")) {
+            // The Intro ended at the swap: nothing to test here.
+            return;
+        }
+        let st = nothing_until(&s, &before, 20_000, |st| st.transport.section.as_deref().is_some_and(|n| n.starts_with("Main")));
+        assert_eq!(sounds(&st), want, "the Main starts: the new style's OTS 1");
+    }
+
     /// Real Time (Immediate) is still there: the pressed Main's OTS at once, while Main A
     /// plays on.
     #[test]
