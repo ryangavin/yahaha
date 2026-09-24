@@ -24,6 +24,7 @@ pub mod midi;
 pub mod multipad;
 pub mod oracle;
 pub mod parts;
+pub mod patches;
 #[cfg(feature = "plugins")]
 pub mod plugin;
 #[cfg(test)]
