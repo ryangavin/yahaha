@@ -112,8 +112,8 @@ mod tests {
         let f = s.state().chord.fingering;
         s.send(ControllersCmd::TriggerFunction { function: Function::FingeredOnBass }).unwrap();
         assert_ne!(s.state().chord.fingering, f, "it alternates");
-        let e = s.send(ControllersCmd::TriggerFunction { function: Function::RegistBankNext }).unwrap_err();
-        assert!(matches!(e, CmdError::Failed(t) if t.contains("not in yahaha yet")));
+        // Registration Bank +/- step the bank files (none here: it says so, nothing breaks).
+        let _ = s.send(ControllersCmd::TriggerFunction { function: Function::RegistBankNext });
         s.send(ControllersCmd::TriggerFunction { function: Function::Sustain }).unwrap();
         assert!(s.state().controllers.sustain);
     }

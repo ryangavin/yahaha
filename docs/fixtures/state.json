@@ -519,7 +519,7 @@
     "page": "sections",
     "pageName": "Sections",
     "pageNumber": 1,
-    "pageCount": 3,
+    "pageCount": 4,
     "pads": [
       {
         "note": 96,
@@ -1424,6 +1424,139 @@
       0,
       54
     ]
+  },
+  "registration": {
+    "bank": {
+      "name": "New Bank",
+      "path": null,
+      "dirty": false,
+      "position": null
+    },
+    "banks": [],
+    "folder": null,
+    "buttons": [
+      {
+        "index": 0,
+        "stored": false,
+        "name": "",
+        "groups": [],
+        "style": null,
+        "tempo": null,
+        "voices": []
+      },
+      {
+        "index": 1,
+        "stored": false,
+        "name": "",
+        "groups": [],
+        "style": null,
+        "tempo": null,
+        "voices": []
+      },
+      {
+        "index": 2,
+        "stored": false,
+        "name": "",
+        "groups": [],
+        "style": null,
+        "tempo": null,
+        "voices": []
+      },
+      {
+        "index": 3,
+        "stored": false,
+        "name": "",
+        "groups": [],
+        "style": null,
+        "tempo": null,
+        "voices": []
+      },
+      {
+        "index": 4,
+        "stored": false,
+        "name": "",
+        "groups": [],
+        "style": null,
+        "tempo": null,
+        "voices": []
+      },
+      {
+        "index": 5,
+        "stored": false,
+        "name": "",
+        "groups": [],
+        "style": null,
+        "tempo": null,
+        "voices": []
+      },
+      {
+        "index": 6,
+        "stored": false,
+        "name": "",
+        "groups": [],
+        "style": null,
+        "tempo": null,
+        "voices": []
+      },
+      {
+        "index": 7,
+        "stored": false,
+        "name": "",
+        "groups": [],
+        "style": null,
+        "tempo": null,
+        "voices": []
+      },
+      {
+        "index": 8,
+        "stored": false,
+        "name": "",
+        "groups": [],
+        "style": null,
+        "tempo": null,
+        "voices": []
+      },
+      {
+        "index": 9,
+        "stored": false,
+        "name": "",
+        "groups": [],
+        "style": null,
+        "tempo": null,
+        "voices": []
+      }
+    ],
+    "selected": null,
+    "memory": false,
+    "memorizeGroups": [
+      "style",
+      "voice",
+      "harmonyArp",
+      "multiPad",
+      "tempo",
+      "transpose",
+      "chordLooper",
+      "liveControl"
+    ],
+    "freeze": false,
+    "freezeGroups": [],
+    "sequence": {
+      "on": false,
+      "steps": [],
+      "end": "stop",
+      "position": null
+    },
+    "pending": false
+  },
+  "playlist": {
+    "name": "New Playlist",
+    "path": null,
+    "dirty": false,
+    "sort": "normal",
+    "records": [],
+    "current": null,
+    "playlists": [],
+    "folder": null
   },
   "multiPad": {
     "bank": null,
