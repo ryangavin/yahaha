@@ -2387,6 +2387,48 @@ mod mixer {
         assert!(setup.is_empty(), "section changes re-sent setup: {setup:?}");
     }
 
+    /// A Main A whose pattern changes a part's voice and then changes it back to the SInt's
+    /// within the section: the receiver has reset that part's XG parameters and drum setup
+    /// twice, and the part is on the SInt voice again. The section change to Main B sends
+    /// no program change (the voice is right), but it puts back the XG parameters and the
+    /// drum setup, as it did before the Mirror.
+    #[test]
+    fn section_change_restores_xg_setup_after_a_pattern_voice_round_trip() {
+        use crate::sff::{Ev, SectionId, TimedEv};
+        let mut s = sint_style();
+        let drum_setup = vec![0xF0, 0x43, 0x10, 0x4C, 0x30, 0x24, 0x0C, 0x40, 0xF7];
+        s.init.extend([Ev::Cc { ch: 8, cc: 0, val: 127 }, Ev::Pc { ch: 8, prog: 0 }, Ev::Sysex(drum_setup.clone())]);
+        let at = |tick, ev| TimedEv { tick, ev };
+        let a = s.sections.get_mut(&SectionId::Main(0)).unwrap();
+        a.events.retain(|e| !matches!(e.ev, Ev::Pc { .. } | Ev::Cc { .. }));
+        a.events.extend([
+            at(480, Ev::Pc { ch: 12, prog: 9 }),
+            at(960, Ev::Pc { ch: 12, prog: 5 }),
+            at(480, Ev::Pc { ch: 8, prog: 1 }),
+            at(960, Ev::Pc { ch: 8, prog: 0 }),
+        ]);
+        a.events.sort_by_key(|e| e.tick);
+        let b = s.sections.get_mut(&SectionId::Main(1)).unwrap();
+        b.events.extend([at(0, Ev::NoteOn { ch: 8, key: 36, vel: 100 }), at(240, Ev::NoteOff { ch: 8, key: 36 })]);
+        b.events.sort_by_key(|e| e.tick);
+        let p = Box::new(Prepared::new(&s));
+        let bar = bar_ns(&p);
+        let xg = p.init.iter().find(|m| m[0] == 0xF0 && m.len() > 5 && m[4] == 0x08 && m[5] == 12).unwrap().to_vec();
+        let mut e = Engine::new(p);
+        let mut rec = Recorder::default();
+        e.set_chord(Chord::new(0, 0), 0, &mut rec);
+        play(&mut e, &mut rec, 0, bar + bar / 2);
+        e.button(Button::Main(1), bar + bar / 2, &mut rec);
+        play(&mut e, &mut rec, bar + bar / 2, 2 * bar + bar / 4);
+        assert_eq!(e.snapshot(2 * bar + bar / 4).cur, Some(SectionId::Main(1)));
+        for (ch, setup) in [(12u8, &xg), (8, &drum_setup)] {
+            let note = rec.out.iter().position(|(t, m)| *t >= 2 * bar && m[0] == 0x90 | ch && m[2] > 0).expect("Main B's note");
+            let pc = rec.out[..note].iter().rposition(|(_, m)| m[0] == 0xC0 | ch).unwrap();
+            assert!(rec.out[pc..note].iter().any(|(_, m)| m == setup), "ch {}: setup not re-sent after the pattern's program change", ch + 1);
+            assert_eq!(voice_after(rec.out[..note].iter().map(|(_, m)| &m[..]), ch).2, if ch == 12 { 5 } else { 0 });
+        }
+    }
+
     /// Across the corpus, a section change never sends the program change of a voice the
     /// part already has, and sends SysEx only right after a program change it had to send
     /// (the part's XG parameters and the drum setup, which a program change resets).
