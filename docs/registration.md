@@ -91,11 +91,12 @@ Registrable { key: "tempo", early: false, capture: tempo_capture, recall: tempo_
   is in `Groups` (what the button memorized, less the frozen groups).
 - One line in `REGISTRABLES` (the recall order).
 
-Today's sections: `style` (early), `tempo`, `chord` (fingering, Upper, Manual Bass, split),
-`styleControl` (Main, Intro, Sync Start/Stop, Stop ACMP, OTS Link), `styleMixer` (the 8
-Style parts' CC7, on/off, and `set`: which levels the player had set), `parts` (Right 1–3 and Left: on, voice, CC7, octave),
-`transpose`. Keyboard Harmony/Arpeggio (#32/#33), Multi Pads (#37), the Chord Looper and
-Live Control add theirs when they're wired in (their groups already exist).
+Today's sections: `style` (early), `multiPad` (early: the bank file, or null for none),
+`tempo`, `chord` (fingering, Upper, Manual Bass, split), `styleControl` (Main, Intro, Sync
+Start/Stop, Stop ACMP, OTS Link), `styleMixer` (the 8 Style parts' CC7, on/off, and `set`:
+which levels the player had set), `parts` (Right 1–3 and Left: on, voice, CC7, octave),
+`transpose`. Keyboard Harmony/Arpeggio (#32/#33), the Chord Looper and Live Control add
+theirs when they're wired in (their groups already exist).
 
 The voice is a `VoiceRef` tagged by `kind` (`{"kind":"gm","program":…}`), so plugin
 instruments (#35 phase 2) become a new kind without breaking old banks. A voice kind the
@@ -143,7 +144,8 @@ first).
 | Voice | Right 1–3: voice, on/off, volume, octave |
 | Tempo | the tempo |
 | Transpose | Keyboard and Master transpose |
-| Keyboard Harmony/Arpeggio, Multi Pad, Chord Looper, Live Control | reserved for those features |
+| Multi Pad | the Multi Pad bank (Data List "Multi Pad File"; a bank already chosen is left playing). Not the pads' Synchro Start standby |
+| Keyboard Harmony/Arpeggio, Chord Looper, Live Control | reserved for those features |
 
 Not stored (as on the Genos): Auto Fill In, the Style Change Behavior settings, OTS Link
 Timing, the synth's master level, the fader page, the pad page, the selected part.

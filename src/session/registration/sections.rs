@@ -5,11 +5,11 @@
 //! `REGISTRABLES`. Its section is its own serde struct under its own key; a recall skips
 //! whatever is not in the groups being recalled (Memorize groups less Freeze), and an old
 //! bank file that lacks the section leaves the feature alone. Harmony/Arpeggio (#32/#33),
-//! Multi Pads (#37), the Chord Looper and Live Control add theirs when they are wired in.
+//! the Chord Looper and Live Control add theirs when they are wired in.
 
 use super::super::Control;
 use super::LockItem;
-use crate::api::{gm_name, ChordCmd, LibraryCmd, PartsCmd};
+use crate::api::{gm_name, ChordCmd, LibraryCmd, MultiPadCmd, PartsCmd};
 use crate::engine::{StyleControls, Transpose};
 use crate::fingering::Fingering;
 use crate::live::Cmd;
@@ -38,6 +38,8 @@ pub(in crate::session) struct Registrable {
 /// mixer once the style plays.
 pub(in crate::session) const REGISTRABLES: &[Registrable] = &[
     Registrable { key: "style", early: true, capture: style_capture, recall: style_recall },
+    // The Multi Pad bank doesn't depend on the style: it loads with it, not after it.
+    Registrable { key: "multiPad", early: true, capture: multipad_capture, recall: multipad_recall },
     Registrable { key: "tempo", early: false, capture: tempo_capture, recall: tempo_recall },
     Registrable { key: "chord", early: false, capture: chord_capture, recall: chord_recall },
     Registrable { key: "styleControl", early: false, capture: control_capture, recall: control_recall },
@@ -90,6 +92,41 @@ fn find_style(c: &Control, path: &Path) -> Option<PathBuf> {
     }
     let name = path.file_name()?;
     (0..c.lib.len()).map(|id| &c.lib.entry(id).path).find(|p| p.file_name() == Some(name)).cloned()
+}
+
+// ----- the Multi Pad bank (group Multi Pad) -----
+
+/// Data List Regist items: "Multi Pad File". The pads' Synchro Start standby is not
+/// stored (a standby waits for a chord, and the bank it was armed on may not be loaded
+/// yet); nor are the Multi Pad part offsets, which yahaha doesn't have.
+#[derive(Serialize, Deserialize)]
+struct MultiPadReg {
+    /// The bank file; None: no bank.
+    bank: Option<String>,
+}
+
+fn multipad_capture(c: &Control, g: Groups) -> Option<Value> {
+    if !g.has(Group::MultiPad) {
+        return None;
+    }
+    to_value(&MultiPadReg { bank: c.multipad_bank_path().map(|p| p.display().to_string()) })
+}
+
+fn multipad_recall(c: &mut Control, v: &Value, g: Groups) -> Result<(), String> {
+    if !g.has(Group::MultiPad) {
+        return Ok(());
+    }
+    let r: MultiPadReg = parse("multiPad", v)?;
+    let now = c.multipad_bank_path().map(Path::to_path_buf);
+    let cmd = match r.bank {
+        // Already chosen: pads playing from it carry on.
+        Some(p) if now.as_deref() == Some(Path::new(&p)) => return Ok(()),
+        Some(p) if !Path::new(&p).is_file() => return Err(format!("Multi Pad bank not found: {p}")),
+        Some(path) => MultiPadCmd::LoadMultiPadPath { path },
+        None if now.is_none() => return Ok(()),
+        None => MultiPadCmd::ClearMultiPad,
+    };
+    c.multipad_cmd(cmd).map_err(|e| e.to_string())
 }
 
 // ----- tempo (group Tempo) -----

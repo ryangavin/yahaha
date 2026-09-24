@@ -735,3 +735,53 @@ fn style_chosen_after_a_waiting_recall_keeps_its_own_panel() {
     assert_eq!(got.style_on, own.style_on);
     let _ = std::fs::remove_dir_all(dir);
 }
+
+/// Review r3 N2: the Multi Pad bank is a registration item (group Multi Pad; Data List
+/// "Multi Pad File"): recalled, cleared, and left alone when frozen.
+#[test]
+fn multi_pad_bank_is_registered() {
+    let Some(style) = corpus("SlowWalker.T552.sty") else { return };
+    let dir = data_dir("multipad");
+    std::fs::create_dir_all(dir.join("Pads")).unwrap();
+    std::fs::copy(&style, dir.join("SlowWalker.sty")).unwrap();
+    for name in ["A", "B"] {
+        std::fs::write(dir.join(format!("Pads/{name}.pad")), crate::multipad::synthetic::demo_bank()).unwrap();
+    }
+    let s = Session::offline(Options { paths: vec![dir.clone()], data_dir: Some(dir.join("data")), ..Options::default() })
+        .unwrap();
+    s.finish_indexing();
+    s.advance(MS);
+    let bank = |s: &Session| s.state().multi_pad.bank.as_ref().map(|b| b.name.clone());
+    let load = |s: &Session, name: &str| {
+        let path = dir.join(format!("Pads/{name}.pad")).display().to_string();
+        s.send(MultiPadCmd::LoadMultiPadPath { path }).unwrap();
+        s.advance(MS);
+    };
+    let recall = |s: &Session, index: u8| {
+        s.send(RegistrationCmd::RecallRegist { index }).unwrap();
+        for _ in 0..3 {
+            s.advance(MS);
+        }
+    };
+    load(&s, "A");
+    assert_eq!(bank(&s).as_deref(), Some("A"));
+    s.send(RegistrationCmd::MemorizeRegist { index: 0 }).unwrap();
+    s.send(MultiPadCmd::ClearMultiPad).unwrap();
+    s.advance(MS);
+    s.send(RegistrationCmd::MemorizeRegist { index: 1 }).unwrap();
+    assert!(s.state().registration.buttons[1].groups.has(Group::MultiPad));
+
+    load(&s, "B");
+    recall(&s, 0);
+    assert_eq!(bank(&s).as_deref(), Some("A"));
+    recall(&s, 1);
+    assert_eq!(bank(&s), None, "a button memorized with no bank clears it");
+
+    // Frozen, the bank stays.
+    s.send(RegistrationCmd::SetFreezeGroup { group: Group::MultiPad, on: true }).unwrap();
+    s.send(RegistrationCmd::SetFreeze { on: true }).unwrap();
+    load(&s, "B");
+    recall(&s, 0);
+    assert_eq!(bank(&s).as_deref(), Some("B"));
+    let _ = std::fs::remove_dir_all(dir);
+}
