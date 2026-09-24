@@ -19,6 +19,12 @@ pub struct StyleControls {
     /// is set (as a fader move from software); a part already at its level stays the
     /// style's, so its patterns' own CC7 (Intro, Main, Ending levels) still move it.
     pub volumes: Option<[u8; 8]>,
+    /// With `volumes`: the parts whose level the player had set (the Genos's Volume(Style)
+    /// offset). Those are set to their level and hold it against the patterns' CC7; every
+    /// other part goes back to the style (its level, then its patterns' CC7), whatever it
+    /// was. None: every part in `volumes` is set where its level differs (a bank written
+    /// before this was stored).
+    pub player_set: Option<u8>,
 }
 
 impl Engine {
@@ -78,10 +84,26 @@ impl Engine {
             }
         }
         if let Some(volumes) = c.volumes {
+            let set = c.player_set.unwrap_or(0xFF);
             for (p, &v) in volumes.iter().enumerate() {
-                let v = v.min(127);
-                if self.mixer[p] != v {
-                    self.set_volume_from_software(p as u8, v, sink);
+                let bit = 1u8 << p;
+                if set & bit != 0 {
+                    let v = v.min(127);
+                    if self.mixer[p] != v {
+                        self.set_volume_from_software(p as u8, v, sink);
+                    } else if c.player_set.is_some() {
+                        // Already there: it is still the player's level, not the pattern's.
+                        self.user_set |= bit;
+                    }
+                } else if self.user_set & bit != 0 {
+                    // The registration left this part to the style: forget the player's
+                    // level. The style's own level now, its patterns' CC7 from here on.
+                    self.user_set &= !bit;
+                    let v = self.style.mix[p];
+                    if self.mixer[p] != v {
+                        self.set_mixer(p, v);
+                        self.mirror.send(sink, &[0xB0 | (8 + p as u8), 7, v]);
+                    }
                 }
             }
         }
@@ -321,6 +343,7 @@ mod tests {
             stop_acmp: Some(true),
             parts: Some(0b1101_0111),
             volumes: None,
+            player_set: None,
         };
         for _ in 0..2 {
             e.set_style_controls(set, 1, &mut Nop);
@@ -351,5 +374,39 @@ mod tests {
         assert_eq!(e.user_set, 1 << 3, "only the part that moved counts as the player's");
         e.set_style_controls(StyleControls { volumes: Some(volumes), ..StyleControls::default() }, 1, &mut Nop);
         assert_eq!(e.user_set, 1 << 3);
+    }
+
+    /// Review r3 B1: with `player_set`, only the player's parts are set (and hold, even at
+    /// the level they already have); a part the registration left to the style goes back
+    /// to the style's level and follows its patterns again, whatever the player did since.
+    #[test]
+    fn style_volumes_follow_the_player_set_mask() {
+        let p = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus/MOX_v2/SlowWalker.T552.sty");
+        if !p.exists() {
+            eprintln!("corpus missing; skipping");
+            return;
+        }
+        let mut e = Engine::new(Box::new(Prepared::new(&Style::load(&p).unwrap())));
+        let own = e.style.mix;
+        // The player moved parts 0 and 5.
+        e.set_volume(0, 11, &mut Nop);
+        e.set_volume(5, 22, &mut Nop);
+        // A registration where the player had set parts 2 (at the level it has now) and 5;
+        // its other levels (pattern CC7 at the time) are not the player's.
+        let mut volumes = [1u8; 8];
+        volumes[2] = e.mixer[2];
+        volumes[5] = 33;
+        let set = StyleControls { volumes: Some(volumes), player_set: Some(0b0010_0100), ..StyleControls::default() };
+        e.set_style_controls(set, 1, &mut Nop);
+        assert_eq!(e.user_set, 0b0010_0100, "the stored player parts hold; part 0 is the style's again");
+        assert_eq!(e.mixer[0], own[0], "part 0 back at the style's level");
+        assert_eq!(e.mixer[5], 33);
+        for p in [1, 3, 4, 6, 7] {
+            assert_eq!(e.mixer[p], own[p], "part {p}: the stored pattern level is not applied");
+        }
+        // Pattern CC7 moves the style's parts only.
+        e.pattern_volume(8, 70, &mut Nop);
+        e.pattern_volume(8 + 5, 70, &mut Nop);
+        assert_eq!((e.mixer[0], e.mixer[5]), (70, 33));
     }
 }

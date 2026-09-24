@@ -707,6 +707,7 @@ pub fn screen_html(style: &Path, out: &Path) -> Result<()> {
         bpm: 110.0,
         parts: 0xFF & !(1 << 5),
         volumes: [127, 110, 96, 127, 80, 64, 127, 100],
+        user_set: 0,
         pickup: 1 << 4,
         stop_acmp: false,
         transpose: Transpose::new(2, 0),

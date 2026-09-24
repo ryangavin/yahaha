@@ -45,7 +45,7 @@ yahaha's own JSON, never Yamaha's `.rgt`. By default in `~/Documents/yahaha`
           "tempo": { "bpm": 96.0 },
           "chord": { "fingering": "fingeredOnBass", "upper": false, "manualBass": true, "split": 54 },
           "styleControl": { "main": 1, "intro": null, "syncStart": true, "syncStop": false, "stopAcmp": false, "otsLink": false },
-          "styleMixer": { "volumes": [100, 100, 96, 80, 76, 70, 88, 84], "on": [true, true, true, true, true, true, true, true] },
+          "styleMixer": { "volumes": [100, 100, 96, 64, 76, 70, 88, 84], "on": [true, true, true, true, true, true, true, true], "set": [false, false, false, true, false, false, false, false] },
           "parts": { "parts": [
             { "on": true, "voice": { "kind": "gm", "program": 4, "bankMsb": 0, "bankLsb": 0 }, "volume": 100, "octave": 0 },
             null, null,
@@ -93,7 +93,7 @@ Registrable { key: "tempo", early: false, capture: tempo_capture, recall: tempo_
 
 Today's sections: `style` (early), `tempo`, `chord` (fingering, Upper, Manual Bass, split),
 `styleControl` (Main, Intro, Sync Start/Stop, Stop ACMP, OTS Link), `styleMixer` (the 8
-Style parts' CC7 and on/off), `parts` (Right 1–3 and Left: on, voice, CC7, octave),
+Style parts' CC7, on/off, and `set`: which levels the player had set), `parts` (Right 1–3 and Left: on, voice, CC7, octave),
 `transpose`. Keyboard Harmony/Arpeggio (#32/#33), Multi Pads (#37), the Chord Looper and
 Live Control add theirs when they're wired in (their groups already exist).
 
@@ -116,10 +116,14 @@ settings and the other parts still recall, and the bank file keeps the voice as 
    (`live::Cmd::StyleControls`), which it compares with its own: a Main change is a Main
    press (playing, it changes at the next bar line), and a switch already in the recalled
    state is left alone, however recently the control side last saw a snapshot. Style part
-   volumes are states too (`StyleControls.volumes`): only a part whose level differs is
-   set, as a fader move (its CC7). A part already at its stored level stays the style's,
-   so the style's own pattern CC7 (Intro, Main, Ending levels) still moves it, as it
-   would without a recall.
+   volumes are states too (`StyleControls.volumes`, `player_set`): only the parts whose
+   level the player had set when the button was memorized (`styleMixer.set`) are set, as
+   a fader move (its CC7), and they hold that level against the patterns. Every other
+   part goes back to the style (its own level, then its patterns' CC7: Intro, Main,
+   Ending levels), even one the player moved since, as it would after a style load. The
+   level a pattern had left on the mixer when the button was memorized (say an Ending's)
+   is kept in the file but never recalled. A bank from an earlier build (no `set`) sets
+   each stored level that differs.
 
 Whatever a recall can't do (a style that's gone, a voice this build can't play) is in the
 message, as an error, after the button's name; the rest is still recalled.
@@ -188,7 +192,10 @@ nothing is locked until it lands.
   (a stopped load takes the style's own tempo). A button that didn't memorize Tempo lets
   the style load set it, as any style change does.
 - **Style part volumes**: stored per part (CC7), since yahaha has no Style volume offset;
-  the Genos stores the offset. Only the synth master is a non-CC gain, and it's not stored.
+  the Genos stores the offset ("Volume(Style) Offset" in the Data List's Registration
+  items). Decision: only the levels the player set are recalled, because that is what the
+  Genos's offset covers: an unset offset leaves the pattern levels alone. Only the synth
+  master is a non-CC gain, and it's not stored.
 - **Sync Start** is recalled only while stopped (pressing it while playing stops the band).
 - **Missing style**: if the saved path is gone, a library file of the same name is used;
   otherwise the rest of the registration is still recalled and the message says so.

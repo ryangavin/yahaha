@@ -820,7 +820,7 @@ mod tests {
     fn snap() -> Snapshot {
         Snapshot {
             running: false, sync_armed: false, sync_stop: false, auto_fill: false, cur: None, queued: None,
-            pending_intro: None, main: 0, bar: 0, beat: 0, chord: None, bpm: 120.0, parts: 0xFF, volumes: [100; 8], pickup: 0,
+            pending_intro: None, main: 0, bar: 0, beat: 0, chord: None, bpm: 120.0, parts: 0xFF, volumes: [100; 8], user_set: 0, pickup: 0,
             stop_acmp: false, transpose: Transpose::default(), played: None, anchor_ns: 0, anchor_beats: 0.0, style_tag: 0,
             style_pending: false, section_bars: 0, audition: None, multipad: Default::default(),
         }

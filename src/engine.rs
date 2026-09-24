@@ -135,6 +135,9 @@ pub struct Snapshot {
     pub parts: u8,
     /// Mixer fader per part (0..=127): the part's volume, sent as its CC7 unchanged.
     pub volumes: [u8; 8],
+    /// Parts whose level the player has set since the style loaded (bit 0 = Rhythm 1):
+    /// the patterns' CC7 no longer move them. The others' `volumes` are the style's.
+    pub user_set: u8,
     /// Parts whose hardware fader is waiting to pick up the software value (soft takeover).
     pub pickup: u8,
     pub stop_acmp: bool,
@@ -445,6 +448,7 @@ impl Engine {
             bpm: self.bpm,
             parts: self.parts,
             volumes: self.mixer,
+            user_set: self.user_set,
             pickup: self.pickup_waiting(),
             stop_acmp: self.stop_acmp,
             transpose: self.transpose,

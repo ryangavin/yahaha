@@ -205,6 +205,7 @@ fn control_recall(c: &mut Control, v: &Value, g: Groups) -> Result<(), String> {
         stop_acmp: Some(r.stop_acmp),
         parts: None,
         volumes: None,
+        player_set: None,
     };
     c.engine_cmd(Cmd::StyleControls(set)).map_err(|e| e.to_string())
 }
@@ -213,10 +214,16 @@ fn control_recall(c: &mut Control, v: &Value, g: Groups) -> Result<(), String> {
 
 #[derive(Serialize, Deserialize)]
 struct MixerReg {
-    /// Rhythm 1 .. Phrase 2: CC7.
+    /// Rhythm 1 .. Phrase 2: CC7 (as the mixer showed them).
     volumes: [u8; 8],
     /// Rhythm 1 .. Phrase 2: not muted.
     on: [bool; 8],
+    /// Rhythm 1 .. Phrase 2: the player had set the level (the Genos's Volume(Style)
+    /// offset). Only these levels are recalled; the others are the style's, which its
+    /// patterns' CC7 move (Intro, Main, Ending levels). Missing (a bank from an earlier
+    /// build): a level is set where it differs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    set: Option<[bool; 8]>,
 }
 
 fn mixer_capture(c: &Control, g: Groups) -> Option<Value> {
@@ -224,7 +231,11 @@ fn mixer_capture(c: &Control, g: Groups) -> Option<Value> {
         return None;
     }
     let s = &c.snap;
-    to_value(&MixerReg { volumes: s.volumes, on: std::array::from_fn(|p| s.parts & (1 << p) != 0) })
+    to_value(&MixerReg {
+        volumes: s.volumes,
+        on: std::array::from_fn(|p| s.parts & (1 << p) != 0),
+        set: Some(std::array::from_fn(|p| s.user_set & (1 << p) != 0)),
+    })
 }
 
 fn mixer_recall(c: &mut Control, v: &Value, g: Groups) -> Result<(), String> {
@@ -233,10 +244,15 @@ fn mixer_recall(c: &mut Control, v: &Value, g: Groups) -> Result<(), String> {
     }
     let r: MixerReg = parse("styleMixer", v)?;
     // Absolute levels and states only: the engine compares them with its own (the
-    // snapshot may be behind an earlier recall's changes) and sets only the parts that
-    // differ, so a part already at its level keeps following the style's pattern CC7.
-    let parts = (0..8).filter(|&p| r.on[p]).fold(0u8, |m, p| m | 1 << p);
-    let set = StyleControls { parts: Some(parts), volumes: Some(r.volumes), ..StyleControls::default() };
+    // snapshot may be behind an earlier recall's changes). It sets the player's levels and
+    // hands every other part back to the style, so the patterns' CC7 move it as usual.
+    let mask = |b: [bool; 8]| (0..8).filter(|&p| b[p]).fold(0u8, |m, p| m | 1 << p);
+    let set = StyleControls {
+        parts: Some(mask(r.on)),
+        volumes: Some(r.volumes),
+        player_set: r.set.map(mask),
+        ..StyleControls::default()
+    };
     c.engine_cmd(Cmd::StyleControls(set)).map_err(|e| e.to_string())
 }
 

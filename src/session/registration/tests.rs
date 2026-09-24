@@ -643,3 +643,67 @@ fn recall_leaves_pattern_levels_to_the_style() {
     assert!(plain.iter().any(|v| *v != plain[0]), "the style's patterns set their own levels: {plain:?}");
     assert_eq!(levels(true), plain, "a no-op recall must not freeze the pattern levels");
 }
+
+/// Review r3 B1: a registration memorized after the song has played stores only the levels
+/// the player set (the Genos's Volume(Style) offset), not the ones the patterns' CC7 left on
+/// the mixer (an Ending's). On recall the other parts follow the style's patterns again,
+/// even a part the player moved since; the player's part holds its level all song.
+#[test]
+fn memorize_after_playing_keeps_pattern_levels_the_styles() {
+    let Some(path) = corpus("NightCruiser.S930.STY") else { return };
+    let vol = |s: &Session| s.state().mixer.style_parts.iter().map(|p| p.volume).collect::<Vec<u8>>();
+    let song = |s: &Session| {
+        let mut out = Vec::new();
+        s.send(TransportCmd::Intro { index: 0 }).unwrap();
+        s.send(TransportCmd::StartStop).unwrap();
+        s.advance(500 * MS);
+        s.send(TransportCmd::Main { index: 1 }).unwrap();
+        s.advance(12_000 * MS);
+        out.push(vol(s));
+        s.send(TransportCmd::Ending { index: 0 }).unwrap();
+        s.advance(4_000 * MS);
+        out.push(vol(s));
+        s.advance(8_000 * MS);
+        out
+    };
+    let open = |name: &str| {
+        let dir = data_dir(name);
+        let s = Session::offline(Options { paths: vec![path.clone()], data_dir: Some(dir.clone()), ..Options::default() }).unwrap();
+        s.finish_indexing();
+        s.advance(MS);
+        (s, dir)
+    };
+    let (plain, dir) = open("cc7-plain-song");
+    let want = song(&plain);
+    let _ = std::fs::remove_dir_all(dir);
+
+    let (s, dir) = open("cc7-after-song");
+    s.send(MixerCmd::SetStylePartVolume { part: 3, volume: 64 }).unwrap();
+    s.advance(MS);
+    let first = song(&s);
+    assert!(!s.state().transport.running, "the Ending has stopped the band");
+    let after = vol(&s);
+    assert!((0..8).any(|p| p != 3 && after[p] != want[0][p]), "the Ending left its own levels: {after:?}");
+    s.send(RegistrationCmd::MemorizeRegist { index: 0 }).unwrap();
+    // The player moves another part afterwards; the registration didn't store it.
+    s.send(MixerCmd::SetStylePartVolume { part: 0, volume: 30 }).unwrap();
+    s.advance(MS);
+    s.send(RegistrationCmd::RecallRegist { index: 0 }).unwrap();
+    for _ in 0..5 {
+        s.advance(MS);
+    }
+    assert_eq!(vol(&s)[3], 64);
+    let again = song(&s);
+    for (run, got) in [("first", &first), ("after recall", &again)] {
+        for (i, (got, want)) in got.iter().zip(&want).enumerate() {
+            for p in 0..8 {
+                if p == 3 {
+                    assert_eq!(got[p], 64, "{run}, point {i}: the player's part holds its level");
+                } else {
+                    assert_eq!(got[p], want[p], "{run}, point {i}, part {p}: the style's pattern level");
+                }
+            }
+        }
+    }
+    let _ = std::fs::remove_dir_all(dir);
+}
