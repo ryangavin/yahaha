@@ -18,6 +18,8 @@ pub mod midi;
 pub mod multipad;
 pub mod oracle;
 pub mod parts;
+#[cfg(feature = "plugins")]
+pub mod plugin;
 #[cfg(test)]
 mod recognizer_golden;
 pub mod rt;
