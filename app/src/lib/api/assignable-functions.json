@@ -306,5 +306,12 @@
     "category": "style",
     "kind": "trigger",
     "available": true
+  },
+  {
+    "id": "fadeInOut",
+    "name": "Fade In/Out",
+    "category": "style",
+    "kind": "trigger",
+    "available": true
   }
 ]

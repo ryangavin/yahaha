@@ -53,7 +53,9 @@ Decisions:
 - **Linear to 65% of the tempo at the ending's last tick, in sixteenth-note steps**
   (`RIT_END`). The manual says only "gradually slows".
 - **The tempo comes back when the band stops**, or when a Main takes over from the
-  ending. The tempo buttons during a ritardando move the tempo it comes back to.
+  ending. The tempo buttons during a ritardando move the tempo it comes back to, and a
+  TAP TEMPO (with Style Section Reset off) sets it: the band slows on from the tapped
+  tempo and comes back to it.
 - Pressing the Ending again while it is only queued does nothing new (it stays queued).
 
 ## Fade In/Out (#23)
@@ -119,6 +121,10 @@ Decisions:
   player. The bar grid restarts with it (as Section Reset).
 - Turning Retrigger off lets the Main play on from where the head is.
 - Only Mains retrigger (RM p.147); a Fill, Break, Intro or Ending plays as usual.
+- **Changing the length while the head loops** takes effect at once. Shortened past
+  where the head is, the loops already missed are skipped, not played back to back: the
+  head starts again at the last whole loop (on the grid from the chord) before now, or
+  before a change queued inside them, which still comes at its time.
 - **Default length: 8** (an eighth note). The Launchkey steps it with Shift + > / Shift +
   Function; the terminal with `{` `}`.
 
@@ -126,7 +132,7 @@ Decisions:
 
 | | Terminal | Launchkey | App |
 |---|---|---|---|
-| Fade In/Out | `F` | page 3 top pad 6; Shift + Stop | Settings › Style; the mirror |
+| Fade In/Out | `F` | page 3 top pad 6; Shift + Stop | Settings › Style; the mirror; a pedal (assignable function Fade In/Out, RM p.142) |
 | Section Reset | `\|` (and `t` while playing) | Shift + Play (and Tap while playing) | Settings › Style (Tap setting); the mirror |
 | Retrigger on/off | `~` | page 2 bottom pad 8 | Settings › Style; the mirror |
 | Retrigger length | `{` `}` | Shift + > / Shift + Function | Settings › Style |

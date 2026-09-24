@@ -728,7 +728,7 @@ const catalog = {
   },
   'mixer.style.volume': {
     title: 'Style part volume',
-    body: 'This band part\'s volume. The fader is its channel\'s CC 7 itself (channels 9–16), with no hidden gain behind it. Loading a style sets the faders to the style\'s own levels, and a pattern that changes its volume moves the fader too, until you move it yourself.',
+    body: 'This band part\'s volume. The fader is its channel\'s CC 7 itself (channels 9–16), with no hidden gain behind it, except that a Fade In/Out scales the CC 7 it sends while the fade runs (the fader stays put). Loading a style sets the faders to the style\'s own levels, and a pattern that changes its volume moves the fader too, until you move it yourself.',
     genos: 'Mixer › Style › Volume',
     keys: [],
     launchkey: 'Style fader page: faders 1–8 (Rhythm 1 … Phrase 2)',
@@ -770,7 +770,7 @@ const catalog = {
   },
   'mixer.info': {
     title: 'A fader is the channel\'s CC 7',
-    body: 'Each fader shows and sends exactly its channel\'s CC 7 (0–127), with no hidden gain anywhere, so the MIDI output and the synth hear the same level. Loading a style sets the Style faders to the style\'s own levels.',
+    body: 'Each fader shows and sends exactly its channel\'s CC 7 (0–127), with no hidden gain anywhere, so the MIDI output and the synth hear the same level. Loading a style sets the Style faders to the style\'s own levels. While a Fade In/Out runs, the Style parts\' CC 7 goes out scaled by the fade, and the faders stay where they are.',
     genos: 'Mixer › Volume',
     keys: [],
     launchkey: 'The faders, on both fader pages',

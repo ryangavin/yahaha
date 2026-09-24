@@ -168,6 +168,7 @@ pub enum Function {
     Right3OnOff,
     LeftOnOff,
     FingeredOnBass,
+    FadeInOut,
 }
 
 /// One row of the assignable-function table.
@@ -200,7 +201,7 @@ use Kind::*;
 /// The assignable functions, in `Function` order: the Genos live-play list (RM p.139-144)
 /// as far as yahaha has the feature. app/src/lib/api/assignable-functions.json is this table
 /// as the app reads it (a test keeps the two equal).
-pub const FUNCTIONS: [FunctionInfo; 44] = [
+pub const FUNCTIONS: [FunctionInfo; 45] = [
     f(Function::None, "No Assign", Overall, Trigger),
     f(Function::Sustain, "Sustain", Voice, Switch),
     f(Function::Sostenuto, "Sostenuto", Voice, Switch),
@@ -245,6 +246,7 @@ pub const FUNCTIONS: [FunctionInfo; 44] = [
     f(Function::Right3OnOff, "Right 3 On/Off", Overall, Trigger),
     f(Function::LeftOnOff, "Left On/Off", Overall, Trigger),
     f(Function::FingeredOnBass, "Fingered/Fingered On Bass", Style, Trigger),
+    f(Function::FadeInOut, "Fade In/Out", Style, Trigger),
 ];
 
 /// What running a function means, for the input thread.
@@ -299,6 +301,9 @@ impl Function {
             F::TempoUp => Effect::Engine(Button::TempoUp),
             F::TempoDown => Effect::Engine(Button::TempoDown),
             F::TapTempo => Effect::Engine(Button::TapTempo),
+            // The FADE IN/OUT button (OM p.67): stopped, arms a fade in; playing, fades
+            // out to the stop.
+            F::FadeInOut => Effect::Engine(Button::Fade),
             _ => Effect::Control,
         }
     }
