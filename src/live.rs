@@ -11,7 +11,7 @@
 //! non-blocking semaphore signal; the engine only sleeps on the semaphore with a timeout
 //! equal to its next deadline.
 
-use crate::engine::{shift_key, AuditionPos, Button, Engine, Prepared, Snapshot, Transpose};
+use crate::engine::{shift_key, AuditionPos, Button, ChartPlan, ChartSettings, Engine, Prepared, Snapshot, Transpose};
 use crate::fingering::{self, Fingering};
 use crate::launchkey::{self, Action, Control, Page};
 use crate::midi::{for_each_message, InputHandler};
@@ -40,6 +40,9 @@ pub enum Cmd {
     /// All Notes Off on the keyboard parts' channels: a MIDI source with keys held was
     /// disconnected (its note-offs will never come).
     KeysOff,
+    /// Chart player settings (chart mode, Intro, Ending, loop; engine/chart.rs). The
+    /// chart itself comes in on its own ring (`EngineIo::charts`).
+    Chart(ChartSettings),
 }
 
 /// How many bars a style preview plays.
@@ -785,6 +788,9 @@ pub struct EngineIo {
     /// Style previews to play, and finished ones back to the control side to free.
     pub auditions: Consumer<Box<Audition>>,
     pub old_auditions: Producer<Box<Audition>>,
+    /// Chart plans to play (engine/chart.rs), and replaced ones back to free.
+    pub charts: Consumer<Box<ChartPlan>>,
+    pub old_charts: Producer<Box<ChartPlan>>,
     pub snaps: Producer<Snapshot>,
     pub out: Out,
 }
@@ -907,6 +913,11 @@ impl EngineLoop {
             self.end_audition();
             self.engine.change_style(style, now, &mut self.io.out);
             self.retire_styles();
+        }
+        while let Ok(plan) = self.io.charts.pop() {
+            if let Some(old) = self.engine.set_chart(plan, now) {
+                let _ = self.io.old_charts.push(old);
+            }
         }
         while let Ok(a) = self.io.auditions.pop() {
             self.end_audition();
@@ -1050,6 +1061,7 @@ fn apply(engine: &mut Engine, parts: &Parts, cmd: Cmd, now: u64, out: &mut Out) 
         Cmd::ManualBass(on) => engine.set_manual_bass(on, out),
         Cmd::Transpose(t) => engine.set_transpose(t, now, out),
         Cmd::StopAudition => {}
+        Cmd::Chart(s) => engine.set_chart_settings(s),
         Cmd::KeysOff => {
             // The source's pedal, wheels and pressure went to every keyboard part too, and
             // its releases will never come: with the pedal left down, All Notes Off would
@@ -1084,6 +1096,8 @@ pub struct Channels {
     pub snap_rx: Consumer<Snapshot>,
     pub audition_tx: Producer<Box<Audition>>,
     pub old_audition_rx: Consumer<Box<Audition>>,
+    pub chart_tx: Producer<Box<ChartPlan>>,
+    pub old_chart_rx: Consumer<Box<ChartPlan>>,
     pub io: EngineIo,
 }
 
@@ -1095,6 +1109,8 @@ pub fn channels(out: Out) -> Channels {
     let (snaps, snap_rx) = RingBuffer::new(256);
     let (audition_tx, auditions) = RingBuffer::new(4);
     let (old_auditions, old_audition_rx) = RingBuffer::new(8);
+    let (chart_tx, charts) = RingBuffer::new(4);
+    let (old_charts, old_chart_rx) = RingBuffer::new(8);
     Channels {
         input_tx,
         ui_tx,
@@ -1103,7 +1119,9 @@ pub fn channels(out: Out) -> Channels {
         snap_rx,
         audition_tx,
         old_audition_rx,
-        io: EngineIo { input, ui, styles, old, snaps, auditions, old_auditions, out },
+        chart_tx,
+        old_chart_rx,
+        io: EngineIo { input, ui, styles, old, snaps, auditions, old_auditions, charts, old_charts, out },
     }
 }
 

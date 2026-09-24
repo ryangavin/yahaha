@@ -38,7 +38,10 @@ use super::*;
 /// its own `Copy`/fixed-size struct (no heap: `Engine::new` builds it on the control
 /// side, but the engine thread must never grow it).
 #[derive(Default)]
-pub(super) struct Features {}
+pub(super) struct Features {
+    /// The iReal chart player (chart.rs).
+    pub(super) chart: super::chart::ChartPlayer,
+}
 
 /// The next beat line the bar and beat hooks wait for: a tick on the section's timeline
 /// (as `sec_start`), and its bar (0-based in this pass of the section) and beat (0-based
@@ -75,9 +78,10 @@ impl Engine {
     /// The band started (`start`): the first section is set up at position 0, nothing of
     /// it played yet.
     #[inline]
-    pub(super) fn on_start(&mut self, _now: u64, _sink: &mut impl Sink) {
+    pub(super) fn on_start(&mut self, now: u64, sink: &mut impl Sink) {
         #[cfg(test)]
         self.log(Hook::Start);
+        self.chart_start(now, sink);
     }
 
     /// The band stopped: every note is off.
@@ -85,21 +89,24 @@ impl Engine {
     pub(super) fn on_stop(&mut self, _sink: &mut impl Sink) {
         #[cfg(test)]
         self.log(Hook::Stop);
+        self.chart_stop();
     }
 
     /// Bar `bar` (0-based in this pass of the section) begins; `on_beat` for its first beat
     /// follows.
     #[inline]
-    pub(super) fn on_bar(&mut self, _bar: u32, _now: u64, _sink: &mut impl Sink) {
+    pub(super) fn on_bar(&mut self, bar: u32, now: u64, sink: &mut impl Sink) {
         #[cfg(test)]
-        self.log(Hook::Bar(_bar));
+        self.log(Hook::Bar(bar));
+        self.chart_bar(bar, now, sink);
     }
 
     /// Beat `beat` (a quarter note, 0-based in the bar) of bar `bar` begins.
     #[inline]
-    pub(super) fn on_beat(&mut self, _bar: u32, _beat: u32, _now: u64, _sink: &mut impl Sink) {
+    pub(super) fn on_beat(&mut self, _bar: u32, beat: u32, now: u64, sink: &mut impl Sink) {
         #[cfg(test)]
-        self.log(Hook::Beat(_bar, _beat));
+        self.log(Hook::Beat(_bar, beat));
+        self.chart_beat(beat, now, sink);
     }
 
     /// A section boundary at tick `_at`: section slot `self.cur` hands over to slot `_to`
@@ -128,9 +135,10 @@ impl Engine {
     /// The chord the style follows (`self.chord`) changed from `_prev`, and the band has
     /// followed it (started, re-voiced, Stop ACMP sounded).
     #[inline]
-    pub(super) fn on_chord(&mut self, _prev: Option<Chord>, _now: u64, _sink: &mut impl Sink) {
+    pub(super) fn on_chord(&mut self, _prev: Option<Chord>, now: u64, _sink: &mut impl Sink) {
         #[cfg(test)]
         self.log(Hook::Chord);
+        self.chart_chord_changed(now);
     }
 
     /// A new style (`self.style`) took over: its setup has gone out.
@@ -141,11 +149,12 @@ impl Engine {
     }
 
     /// A tick (on the section's timeline) by which a feature needs `process` to run, if
-    /// any: `next_deadline` wakes the engine for it. None today, so the engine wakes only
-    /// for pattern events and boundaries, as it always has.
+    /// any: `next_deadline` wakes the engine for it. The chart player wants every beat
+    /// line while it plays; otherwise the engine wakes only for pattern events and
+    /// boundaries.
     #[inline]
     pub(super) fn hook_deadline(&self) -> Option<f64> {
-        None
+        self.chart_deadline()
     }
 
     // ----- the bar and beat lines -----

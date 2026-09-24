@@ -644,6 +644,9 @@ pub fn screen_html(style: &Path, out: &Path) -> Result<()> {
         style_pending: false,
         section_bars: 4,
         audition: None,
+        chart_tag: 0,
+        chart_bar: None,
+        chart_override: false,
     });
     // What a live session with the synth and a Launchkey would add.
     let mut st = (*session.state()).clone();

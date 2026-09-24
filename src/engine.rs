@@ -9,6 +9,7 @@
 //! hooks in hooks.rs; when a queued section change happens is `Engine::change_point`
 //! (sections.rs). See docs/architecture.md.
 
+mod chart;
 mod chords;
 mod hooks;
 mod mirror;
@@ -20,6 +21,7 @@ mod setup;
 mod style_change;
 mod transport;
 
+pub use chart::{ChartPlan, ChartSettings, PlanBar, CHART_CHORDS};
 use hooks::{Features, Lines};
 use mirror::{Mirror, NRPN_BIT, UNSENT};
 use sections::Change;
@@ -150,6 +152,12 @@ pub struct Snapshot {
     /// A style preview playing beside the (stopped) band (`live::EngineLoop`); the engine
     /// itself always reports None.
     pub audition: Option<AuditionPos>,
+    /// Chart player (engine/chart.rs): the tag of the plan it holds (0: none), the plan
+    /// bar playing (None: stopped, in the Intro, or chart mode off), and whether the
+    /// player's chord has taken over until the next bar line.
+    pub chart_tag: u64,
+    pub chart_bar: Option<u32>,
+    pub chart_override: bool,
 }
 
 /// Where a style preview is: style `id` (the session's library id), bar `bar` of `bars`
@@ -325,7 +333,6 @@ pub struct Engine {
     /// The next bar or beat line for the `on_bar`/`on_beat` hooks (hooks.rs).
     lines: Lines,
     /// The engine-side state of the features that plug into the hooks (hooks.rs).
-    #[allow(dead_code)]
     features: Features,
     /// Pitch bends that did not fit the output range and were clamped.
     #[cfg(test)]
@@ -422,6 +429,7 @@ impl Engine {
         } else {
             (0, 0)
         };
+        let (chart_tag, chart_bar, chart_override) = self.chart_pos();
         Snapshot {
             running: self.running,
             sync_armed: self.sync_armed,
@@ -450,6 +458,9 @@ impl Engine {
                 _ => 0,
             },
             audition: None,
+            chart_tag,
+            chart_bar,
+            chart_override,
         }
     }
 
