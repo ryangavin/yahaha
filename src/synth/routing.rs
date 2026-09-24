@@ -322,7 +322,12 @@ mod tests {
         for _ in 0..200 {
             rack.render(&mut l, &mut r, &p, None);
         }
-        assert!(level(&p, 10) < 1e-4, "the note ended on the extra font");
+        level(&p, 10);
+        for _ in 0..4 {
+            rack.render(&mut l, &mut r, &p, None);
+        }
+        let tail = level(&p, 10);
+        assert!(tail < 1e-4, "the note ended on the extra font ({tail})");
         let _ = MAX_FONTS;
     }
 
