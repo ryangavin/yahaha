@@ -113,6 +113,8 @@ mod imp {
         /// A channel whose plugin was playing and is loading another: the one playing.
         pub(crate) playing: [Option<(PluginVoice, Option<PluginInfo>, Option<EditorTarget>, Option<Arc<PluginStats>>, bool)>; 16],
         pub(crate) stats_ns: u64,
+        /// The last autosave of the parts' plugin states.
+        pub(crate) autosave_ns: u64,
         /// Save the parts' plugins at the next pump (live sessions only).
         pub(crate) dirty: bool,
     }
@@ -310,6 +312,24 @@ mod imp {
                         let (dt, df) = (t.saturating_sub(c.last.0), f.saturating_sub(c.last.1));
                         c.last = (t, f);
                         c.cpu = if df > 0 { ((dt as f64 / 1e9) / (df as f64 / rate)) as f32 } else { 0.0 };
+                    }
+                }
+            }
+            // Every 30 s (live), the keyboard parts' plugin settings as the editor left
+            // them, so a crash or a window closed with the red button loses little.
+            if self.offline.is_none() && now.saturating_sub(self.plugins.autosave_ns) >= 30_000_000_000 {
+                self.plugins.autosave_ns = now;
+                for p in 0..parts::COUNT {
+                    let ch = parts::CHANNEL[p] as usize;
+                    let Some(c) = self.plugins.channels[ch].as_mut() else { continue };
+                    if c.status != PluginStatus::Playing {
+                        continue;
+                    }
+                    if let Some(Ok(s)) = c.editor.as_ref().map(|e| e.state())
+                        && c.voice.state.as_ref() != Some(&s)
+                    {
+                        c.voice.state = Some(s);
+                        self.plugins.dirty = true;
                     }
                 }
             }

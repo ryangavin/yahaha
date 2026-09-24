@@ -199,6 +199,7 @@ impl MockSession {
             plays_bass: false,
             octave: 0,
             fader: None,
+            plugin: None,
         };
         let s0 = &f.styles[0];
         let state = AppState {
@@ -307,6 +308,7 @@ impl MockSession {
             message: None,
             looper: mock_looper::empty(),
             metronome: MetronomeState { on: false, volume: 90, bell: true, audible: true },
+            plugins: mock_plugins(),
         };
         let mut m = MockSession {
             state,
@@ -360,6 +362,36 @@ impl MockSession {
 
     fn has(&self, s: &str) -> bool {
         self.state.style.sections.iter().any(|x| x == s)
+    }
+
+    /// Instrument plugins, as the TS mock (mock-plugins.ts) plays them, minus the load
+    /// time: a part's plugin plays at once.
+    fn plugin_cmd(&mut self, c: PluginCmd) {
+        match c {
+            PluginCmd::SetPartPlugin { part, id, .. } => {
+                let Some(e) = self.state.plugins.list.iter().find(|p| p.id == id).cloned() else {
+                    return self.message(format!("no instrument Audio Unit {id} is installed"), true);
+                };
+                let failed = e.last_error.clone();
+                self.state.keyboard_parts[(part & 3) as usize].plugin = Some(PartPlugin {
+                    id: e.id,
+                    name: e.name.clone(),
+                    manufacturer: e.manufacturer.clone(),
+                    status: if failed.is_some() { PluginStatus::Failed } else { PluginStatus::Playing },
+                    stage: None,
+                    error: failed.clone(),
+                    out_of_process: e.manufacturer != "Apple",
+                    cpu: if failed.is_some() { 0.0 } else { 0.012 },
+                    overruns: 0,
+                    editor: failed.is_none(),
+                });
+                if let Some(err) = failed {
+                    self.message(format!("{} didn't load: {err}", e.name), true);
+                }
+            }
+            PluginCmd::ClearPartPlugin { part } => self.state.keyboard_parts[(part & 3) as usize].plugin = None,
+            PluginCmd::SavePartPluginState { .. } | PluginCmd::RescanPlugins => {}
+        }
     }
 
     fn message(&mut self, text: impl Into<String>, error: bool) {
@@ -932,6 +964,7 @@ impl MockSession {
                 self.cmd(AppCmd::Transport(TransportCmd::Main { index: to }));
                 self.state.transport.auto_fill = auto;
             }
+            AppCmd::Plugins(c) => self.plugin_cmd(c),
             AppCmd::Controllers(c) => {
                 match c.apply_setting(&self.controllers) {
                     Ok(true) => {
@@ -1587,5 +1620,27 @@ mod tests {
     fn chords_transpose() {
         assert_eq!(transpose_chord("Am7/G", 2), "Bm7/A");
         assert_eq!(transpose_chord("C#m", -1), "Cm");
+    }
+}
+
+/// The mock's installed plugins: Apple's built-in instruments and one made-up synth that
+/// always fails to load (as app/src/lib/api/mock-plugins.ts).
+fn mock_plugins() -> PluginsState {
+    let e = |id: &str, name: &str, manufacturer: &str, format: &str, last_error: Option<&str>| PluginEntry {
+        id: id.into(),
+        name: name.into(),
+        manufacturer: manufacturer.into(),
+        version: if manufacturer == "Apple" { "1.0.0" } else { "0.9.0" }.into(),
+        format: format.into(),
+        last_error: last_error.map(Into::into),
+    };
+    PluginsState {
+        available: true,
+        scanning: false,
+        list: vec![
+            e("aumu dls  appl", "DLSMusicDevice", "Apple", "AUv2", None),
+            e("aumu samp appl", "AUSampler", "Apple", "AUv2", None),
+            e("aumu Mock Demo", "Broken Synth", "Example Audio", "AUv3", Some("timed out after 20.0 s")),
+        ],
     }
 }

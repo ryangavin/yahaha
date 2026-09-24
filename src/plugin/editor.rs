@@ -75,6 +75,11 @@ impl Editor {
     }
     /// Close the window (same as dropping the editor).
     pub fn close(self) {}
+    /// Whether this window edits `target`'s instance (not just the same plugin: a part
+    /// that loaded the plugin again has a new instance, and needs a new window).
+    pub fn is_for(&self, target: &EditorTarget) -> bool {
+        std::sync::Arc::ptr_eq(&self._target.unit, &target.unit)
+    }
 }
 
 impl Drop for Editor {

@@ -22,5 +22,6 @@ tauri-build = { version = "2.5.3", features = [] }
 serde_json = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 tauri = { version = "2.9.5", features = [] }
-# The engine library alone (no terminal UI): Session, AppCmd, AppState.
-yahaha = { path = "../..", default-features = false }
+# The engine library alone (no terminal UI): Session, AppCmd, AppState; with the plugin
+# host (Audio Unit instruments on the keyboard parts, docs/plugin-hosting.md).
+yahaha = { path = "../..", default-features = false, features = ["plugins"] }
