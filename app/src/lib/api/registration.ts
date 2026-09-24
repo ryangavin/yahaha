@@ -4,7 +4,7 @@
 
 /** A Genos Freeze / Memorize group. */
 export type RegistGroup =
-  | 'style' | 'voice' | 'harmonyArp' | 'multiPad' | 'tempo' | 'transpose' | 'chordLooper' | 'liveControl'
+  | 'style' | 'voice' | 'harmonyArp' | 'multiPad' | 'tempo' | 'transpose' | 'chordLooper' | 'liveControl' | 'assignable'
 
 /** What the Registration Sequence does past its last step. */
 export type SequenceEnd = 'stop' | 'top' | 'next'
@@ -133,6 +133,7 @@ export const REGIST_GROUPS: { id: RegistGroup; name: string }[] = [
   { id: 'transpose', name: 'Transpose' },
   { id: 'chordLooper', name: 'Chord Looper' },
   { id: 'liveControl', name: 'Live Control' },
+  { id: 'assignable', name: 'Assignable' },
 ]
 
 export const SEQUENCE_ENDS: { id: SequenceEnd; name: string }[] = [

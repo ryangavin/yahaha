@@ -99,7 +99,9 @@ which levels the player had set), `parts` (Right 1–3 and Left: on, voice, CC7,
 `transpose`, `harmonyArp` (Keyboard Harmony/Arpeggio: the switch, the type and pattern by
 name, Volume, Speed, Assign, Chord Note Only, Touch Limit, and the arpeggio's Quantize, Hold
 setting, velocity and Keep Key On; not the Arpeggio Hold pedal function, which is the
-pedal's). The Chord Looper and Live Control add theirs when they're wired in (their groups
+pedal's), `styleSettings` (#107: Section Change Timing To Main, Style Retrigger on/off and
+rate, Synchro Stop Window, Tap Tempo's Style Section Reset, all group Style; the Fade In,
+Fade Out and Fade Out Hold times, group Assignable). The Chord Looper and Live Control add theirs when they're wired in (their groups
 already exist).
 
 The voice is a `VoiceRef` tagged by `kind` (`{"kind":"gm","program":…}`), so plugin
@@ -144,11 +146,12 @@ first).
 
 | Group | Items here |
 |---|---|
-| Style | the style, section (Main, armed Intro), Sync Start/Stop, Stop ACMP, OTS Link, the Style part mixer, the **Left** part, split point, fingering, Chord Detection Area / Manual Bass |
+| Style | the style, section (Main, armed Intro), Sync Start/Stop, Stop ACMP, OTS Link, the Style part mixer, the **Left** part, split point, fingering, Chord Detection Area / Manual Bass, Section Change Timing To Main, Style Retrigger on/off and rate, Synchro Stop Window, Style Section Reset |
 | Voice | Right 1–3: voice, on/off, volume, octave |
 | Tempo | the tempo, in whole BPM as on the Genos panel (recalled as SET TEMPO) |
 | Transpose | Keyboard and Master transpose |
 | Multi Pad | the Multi Pad bank (Data List "Multi Pad File"; a bank already chosen is left playing). Not the pads' Synchro Start standby |
+| Assignable | the Fade In, Fade Out and Fade Out Hold times (Data List: Freeze group "Assignable Buttons") |
 | Keyboard Harmony/Arpeggio, Chord Looper, Live Control | reserved for those features |
 
 Not stored (as on the Genos): Auto Fill In, the Style Change Behavior settings, OTS Link
@@ -209,6 +212,16 @@ nothing is locked until it lands.
   otherwise the rest of the registration is still recalled and the message says so.
 - **Playlist style records**: yahaha records may point straight at a style file (the
   Genos goes through a bank); handy for a set list of styles.
+- **Style settings** (#107), from the Data List's Registration column: Style Retrigger
+  On/Off and Rate, Synchro Stop Window and Tap Tempo's Style Section Reset are group Style;
+  Fade In, Fade Out and Fade Out Hold Time are group "Assignable Buttons", which yahaha adds
+  as the `assignable` group (the Assignable buttons' own functions can join it later). The
+  Data List (Genos) has no Section Change Timing; the Genos2 Reference Manual (p.12) says
+  To Main "is also set when you load a Registration Memory", so To Main is stored (group
+  Style) and Inside Intro/Ending, which it doesn't mention, is not. The recalled To Main
+  applies to the registration's own style: the rest of a recall waits for it anyway.
+  Retrigger on/off is sent as a state (`StyleControls.retrigger`). A bank from an
+  earlier build (no `styleSettings`) leaves the settings as they are.
 - **Launchkey**: a fourth pad page rather than a Shift layer on page 1, so the lamps can
   show which buttons are stored and which is in use. Shift + Track was free and is where a
   set list's "next song" belongs.
