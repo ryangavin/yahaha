@@ -20,7 +20,7 @@ and `looper`.
 | START/STOP | recording | the style and the recording stop | RM p.16 |
 | ON/OFF | recording | recording stops, ON/OFF flashes, the loop starts at the next bar line | RM p.15 |
 | ON/OFF | a sequence, not looping | ON/OFF flashes; the loop starts at the next bar line, or when the style starts | RM p.18 |
-| ON/OFF | looping | the loop stops at once; the style follows the keyboard again | RM p.15, p.19 |
+| ON/OFF | looping | the loop stops at once; the style keeps the loop's chord until you play one | RM p.15, p.19 |
 | memory 1–8 | looping | the memory takes over at the next bar line, from its top | RM p.19 |
 | memory 1–8 | not looping | a memory that holds a sequence replaces the current one | RM p.16 notice |
 | Memory + 1–8 | | stores the current sequence (named `CLD_001`, …) | RM p.17 |
@@ -53,8 +53,12 @@ The manuals leave these open (genos-features.md §G.4). What yahaha does, and wh
 - **Stopping the style while looping leaves the loop armed.** Because pressing ON/OFF
   before starting is how the Genos starts a performance with the loop (RM p.18 step 3):
   the next start plays the loop from its top.
-- **When the loop stops, the style follows the last chord played on the keyboard during
-  the loop, if any**; otherwise it keeps the loop's chord until you play one.
+- **When the loop stops, the style keeps the loop's chord until you play one.** Because
+  chord input from the keyboard is disabled while looping (RM p.15, OM p.68): what the
+  keys played over the loop was performance, not chords, so none of it becomes the chord
+  when the loop stops. The input thread does not recognize chords while `Shared::looping`
+  is set, and a loop that started makes the next chord played new again (`Shared::loops`),
+  so playing the chord recognized before the loop is still followed afterwards.
 - **Choosing a memory while recording is refused**, with a message: the recording would
   otherwise be lost midway.
 - **While looping, the whole keyboard is for performance.** Chord input is disabled

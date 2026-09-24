@@ -180,7 +180,7 @@ Details and decisions: [chord-looper.md](chord-looper.md).
 | Command | Fields | Does |
 |---|---|---|
 | `looperRec` | | REC/STOP. Playing: recording starts at the next bar line, with the chord held then as its first. Stopped: Sync Start turns on and the first chord starts the style and the recording together. Recording: stops recording (the style plays on). Armed: cancels. While looping: the loop stops and recording arms. |
-| `looperOnOff` | | ON/OFF. Recording: recording stops (the bars recorded, counting the one playing) and the loop starts at the next bar line. With a sequence: the loop starts at the next bar line (stopped: when the style starts). Armed: cancels. Looping: the loop stops at once and the style follows the keyboard's last chord again. |
+| `looperOnOff` | | ON/OFF. Recording: recording stops (the bars recorded, counting the one playing) and the loop starts at the next bar line. With a sequence: the loop starts at the next bar line (stopped: when the style starts). Armed: cancels. Looping: the loop stops at once and the style keeps the loop's chord until a chord is played. |
 | `selectLooperMemory` | `index` 0–7 | Selects a memory. One that holds a sequence replaces the current one; while looping, at the next bar line (`looper.pendingMemory` until then). Refused while recording. |
 | `storeLooperMemory` | `index` 0–7 | Stores the current sequence in the memory (named `CLD_001` and on). Refused with nothing recorded. |
 | `clearLooperMemory` | `index` 0–7 | Empties the memory. |

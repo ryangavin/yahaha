@@ -60,9 +60,6 @@ pub(super) struct Looper {
     idx: usize,
     /// Tick (on the section timeline) of the bar line last passed.
     bar_tick: f64,
-    /// The last chord the keyboard played while the loop ignored it: the style follows
-    /// it when the loop stops.
-    kbd: Option<Chord>,
     /// A finished recording for `take_recorded`.
     recorded: bool,
     seq_gen: u32,
@@ -83,20 +80,16 @@ impl Engine {
     }
 
     /// Chord Looper REC/STOP.
-    pub fn looper_rec(&mut self, now: u64, sink: &mut impl Sink) {
+    pub fn looper_rec(&mut self) {
         let l = &mut self.features.looper;
         match l.state {
             LoopState::Off | LoopState::LoopArmed | LoopState::Looping => {
-                let was_looping = l.state == LoopState::Looping;
                 l.state = LoopState::RecArmed;
                 l.pending = None;
                 if !self.running && !self.sync_armed {
                     // Recording from stopped: Sync Start, so the first chord starts both.
                     self.sync_armed = true;
                     l.armed_sync = true;
-                }
-                if was_looping {
-                    self.follow_keyboard(now, sink);
                 }
             }
             LoopState::RecArmed => self.cancel_rec(),
@@ -115,7 +108,7 @@ impl Engine {
     }
 
     /// Chord Looper ON/OFF.
-    pub fn looper_on_off(&mut self, now: u64, sink: &mut impl Sink) {
+    pub fn looper_on_off(&mut self) {
         let l = &mut self.features.looper;
         match l.state {
             LoopState::Recording => self.finish_recording(LoopState::LoopArmed),
@@ -123,10 +116,11 @@ impl Engine {
             LoopState::LoopArmed => l.state = LoopState::Off,
             LoopState::Off if !l.seq.is_empty() => l.state = LoopState::LoopArmed,
             LoopState::Off => {}
+            // The loop stops at once; the style keeps the loop's chord until the keyboard
+            // plays one (chord input was disabled while looping: RM p.15, OM p.68).
             LoopState::Looping => {
                 l.state = LoopState::Off;
                 l.pending = None;
-                self.follow_keyboard(now, sink);
             }
         }
     }
@@ -180,10 +174,7 @@ impl Engine {
         let running = self.running;
         let l = &mut self.features.looper;
         match l.state {
-            LoopState::Looping => {
-                l.kbd = Some(played);
-                false
-            }
+            LoopState::Looping => false,
             LoopState::Recording if running => {
                 if !l.seq.record(l.rec_bars.saturating_sub(1), pos as u32, bar_len, played) {
                     // Full: recording stops as if REC/STOP had been pressed.
@@ -201,15 +192,6 @@ impl Engine {
         l.recorded = true;
         l.seq_gen = l.seq_gen.wrapping_add(1);
         l.state = if l.seq.is_empty() { LoopState::Off } else { next };
-    }
-
-    /// The loop stopped: the style follows the keyboard's chord again, if it played one.
-    fn follow_keyboard(&mut self, now: u64, sink: &mut impl Sink) {
-        if let Some(k) = self.features.looper.kbd.take()
-            && self.played != Some(k)
-        {
-            self.apply_chord(k, now, sink);
-        }
     }
 
     /// Play the loop's chord `c` as if it had been played.
@@ -253,7 +235,6 @@ impl Engine {
                 l.rec_bars = 1;
                 l.state = LoopState::Recording;
                 l.armed_sync = false;
-                l.kbd = None;
                 // The chord held as recording starts is its first.
                 if let Some(p) = played {
                     l.seq.record(0, 0, bar_len, p);
@@ -278,8 +259,7 @@ impl Engine {
                     false
                 } else {
                     l.state = LoopState::Looping;
-                    l.kbd = None;
-                    true
+                        true
                 }
             }
             LoopState::Looping => {
@@ -377,7 +357,8 @@ mod tests {
     }
 
     /// Record C | F G while playing, loop it: the loop plays the same chords from the next
-    /// bar, bar after bar, and the keyboard is ignored; ON/OFF gives the keyboard back.
+    /// bar, bar after bar, and the keyboard is ignored; ON/OFF stops it on the loop's chord
+    /// and gives the keyboard back.
     #[test]
     fn record_then_loop() {
         let Some(mut e) = engine() else { return };
@@ -385,12 +366,12 @@ mod tests {
         let half = bar / 2;
         e.set_chord(c("C"), 0, &mut Nop);
         run(&mut e, 0, bar / 3, &[]);
-        e.looper_rec(bar / 3, &mut Nop);
+        e.looper_rec();
         assert_eq!(e.looper_snapshot().state, LoopState::RecArmed);
         // Recording starts at bar 2 with C held; F at bar 3, G half-way through it.
         run(&mut e, bar / 3, 3 * bar - bar / 4, &[(2 * bar, "F"), (2 * bar + half, "G")]);
         assert_eq!(e.looper_snapshot().state, LoopState::Recording);
-        e.looper_on_off(3 * bar - bar / 4, &mut Nop);
+        e.looper_on_off();
         let s = e.looper_snapshot();
         assert_eq!((s.state, s.bars), (LoopState::LoopArmed, 2));
         let rec = e.take_recorded().unwrap();
@@ -405,8 +386,12 @@ mod tests {
         for ((t, ch), (wt, wn)) in heard.iter().zip(want) {
             assert!(near(*t, wt) && *ch == c(wn), "{t} {ch:?} vs {wt} {wn}");
         }
-        // Off: at once, and the style follows the keyboard's last chord.
-        e.looper_on_off(7 * bar + bar / 4, &mut Nop);
+        // Off: at once, and the style keeps the loop's chord: the Bb played while looping
+        // was not chord input (RM p.15, OM p.68).
+        e.looper_on_off();
+        assert_eq!(e.played, Some(c("C")));
+        // The next chord from the keyboard is followed.
+        e.set_chord(c("Bb"), 7 * bar + bar / 2, &mut Nop);
         assert_eq!(e.played, Some(c("Bb")));
         assert_eq!(e.looper_snapshot().state, LoopState::Off);
         assert!(e.looper_snapshot().has_data);
@@ -419,26 +404,26 @@ mod tests {
     fn cancelled_rec_disarms_its_sync_start() {
         let Some(mut e) = engine() else { return };
         e.button(Button::SyncStart, 0, &mut Nop); // off
-        e.looper_rec(0, &mut Nop);
+        e.looper_rec();
         assert!(e.starts_on_chord());
-        e.looper_rec(1, &mut Nop);
+        e.looper_rec();
         assert_eq!(e.looper_snapshot().state, LoopState::Off);
         assert!(!e.starts_on_chord(), "REC cancelled: Sync Start off again");
-        e.looper_rec(2, &mut Nop);
-        e.looper_on_off(3, &mut Nop);
+        e.looper_rec();
+        e.looper_on_off();
         assert_eq!(e.looper_snapshot().state, LoopState::Off);
         assert!(!e.starts_on_chord(), "cancelled with ON/OFF too");
         // Already on: REC did not turn it on, so cancelling leaves it on.
         e.button(Button::SyncStart, 4, &mut Nop); // on
-        e.looper_rec(5, &mut Nop);
-        e.looper_rec(6, &mut Nop);
+        e.looper_rec();
+        e.looper_rec();
         assert!(e.starts_on_chord());
         // The player pressed SYNC START off and on while REC was armed: theirs.
         e.button(Button::SyncStart, 7, &mut Nop); // off
-        e.looper_rec(8, &mut Nop);
+        e.looper_rec();
         e.button(Button::SyncStart, 9, &mut Nop); // off
         e.button(Button::SyncStart, 10, &mut Nop); // on
-        e.looper_rec(11, &mut Nop);
+        e.looper_rec();
         assert!(e.starts_on_chord());
     }
 
@@ -449,7 +434,7 @@ mod tests {
         let Some(mut e) = engine() else { return };
         e.button(Button::SyncStart, 0, &mut Nop); // off
         assert!(!e.starts_on_chord());
-        e.looper_rec(0, &mut Nop);
+        e.looper_rec();
         assert!(e.starts_on_chord());
         let bar = e.ns_at_bar(1);
         run(&mut e, 0, 10 * bar, &[(1_000_000, "D"), (1_000_000 + bar, "A")]);
@@ -468,7 +453,7 @@ mod tests {
         let Some(mut e) = engine() else { return };
         let ev = |ch: &str| crate::looper::LoopEvent { bar: 0, at: 0, chord: c(ch) };
         e.looper_load(&ChordSeq::from_events(1, &[ev("E")]));
-        e.looper_on_off(0, &mut Nop);
+        e.looper_on_off();
         assert_eq!(e.looper_snapshot().state, LoopState::LoopArmed);
         let bar = e.ns_at_bar(1);
         e.button(Button::StartStop, 0, &mut Nop);

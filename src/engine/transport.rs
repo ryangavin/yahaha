@@ -142,7 +142,8 @@ impl Engine {
     }
 
     /// Tap Tempo: the tempo from the last taps (up to four), down to `MIN_BPM`. Taps
-    /// further apart than a beat at `MIN_BPM` (12 s) start again; a tap whose interval is
+    /// further apart than a beat at `MIN_BPM` (12 s) plus half a second of slack (12.5 s)
+    /// start again; a tap whose interval is
     /// far from the one before (a change of mind) averages only with the tap before it.
     pub(super) fn tap(&mut self, now: u64) {
         const FORGET_NS: u64 = (60e9 / MIN_BPM) as u64 + 500_000_000;

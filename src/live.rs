@@ -93,6 +93,10 @@ pub struct Shared {
     /// disabled and the whole keyboard is for performance (RM p.15, p.19), so the left
     /// hand sounds the Right parts even in Lower detection with Left off.
     pub looping: AtomicBool,
+    /// Counts the times the loop started (engine thread): the input thread forgets its
+    /// chord on a new count, so the first chord played after the loop stops is sent even
+    /// when it is the one recognized before.
+    pub loops: AtomicU32,
     /// Keyboard + Master transpose: the shift applied to played notes. The engine gets
     /// the individual values through `Cmd::Transpose`.
     pub key_shift: AtomicI8,
@@ -141,6 +145,7 @@ impl Shared {
             upper: AtomicBool::new(false),
             manual_bass: AtomicBool::new(true),
             looping: AtomicBool::new(false),
+            loops: AtomicU32::new(0),
             key_shift: AtomicI8::new(0),
             lateness: Histogram::new(),
             input_lat: Histogram::new(),
@@ -410,6 +415,8 @@ pub struct Input {
     route: [u8; 128],
     keys: Keys,
     current: Option<Chord>,
+    /// `Shared::loops` when `current` was recognized.
+    loops: u32,
     generation: u16,
     cmd: Producer<Cmd>,
     out: Out,
@@ -442,6 +449,7 @@ impl Input {
             route: [0; 128],
             keys: Keys::new(),
             current: None,
+            loops: 0,
             generation: 0,
             cmd,
             out,
@@ -542,6 +550,18 @@ impl Input {
     }
 
     fn recompute(&mut self) {
+        // While the Chord Looper loops, chord input from the keyboard is disabled (RM p.15,
+        // OM p.68): the keys are for performance only, and nothing they hold is the chord
+        // when the loop stops. A loop that started since the last chord makes the next one
+        // new again.
+        let loops = self.shared.loops.load(Relaxed);
+        if loops != self.loops {
+            self.loops = loops;
+            self.current = None;
+        }
+        if self.shared.looping.load(Relaxed) {
+            return;
+        }
         // The keys the fingering type reads: the chord section of the current area, or
         // the whole keyboard for the Full Keyboard types (Lower only).
         let upper = self.shared.upper.load(Relaxed);
@@ -974,7 +994,10 @@ impl EngineLoop {
             self.engine.looper_load(&seq);
         }
         self.engine.process(now, &mut self.io.out);
-        shared.looping.store(self.engine.looper_owns_chords(), Relaxed);
+        let looping = self.engine.looper_owns_chords();
+        if shared.looping.swap(looping, Relaxed) != looping && looping {
+            shared.loops.fetch_add(1, Relaxed);
+        }
         if let Some(seq) = self.engine.take_recorded() {
             let _ = self.io.recorded.push(seq);
         }
@@ -1082,8 +1105,8 @@ fn apply(engine: &mut Engine, parts: &Parts, cmd: Cmd, now: u64, out: &mut Out) 
         Cmd::ManualBass(on) => engine.set_manual_bass(on, out),
         Cmd::Transpose(t) => engine.set_transpose(t, now, out),
         Cmd::StopAudition => {}
-        Cmd::Looper(true) => engine.looper_rec(now, out),
-        Cmd::Looper(false) => engine.looper_on_off(now, out),
+        Cmd::Looper(true) => engine.looper_rec(),
+        Cmd::Looper(false) => engine.looper_on_off(),
         Cmd::StyleSolo(p) => engine.set_style_solo(p, out),
         Cmd::StyleParts(m) => engine.set_style_parts(m, out),
         Cmd::Metronome { on, bell } => engine.set_metronome(on, bell, now),
@@ -1424,6 +1447,94 @@ mod tests {
         assert!(!shared.looping.load(Relaxed));
         input.key_msg(&[0x90, 50, 90]);
         assert!(drain().is_empty(), "loop off: the left hand only gives the chord");
+    }
+
+    /// Chord input is disabled while looping (RM p.15, OM p.68): a left-hand melody played
+    /// over the loop is not a chord, not while looping and not when the loop stops. ON/OFF
+    /// leaves the style on the loop's chord, and later wakes do not pick up what the left
+    /// hand held; the next chord played is followed, even one recognized before the loop.
+    #[test]
+    fn left_hand_melody_while_looping_is_not_the_chord_at_loop_off() {
+        let p = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus/MOX_v2/SlowWalker.T552.sty");
+        if !p.exists() {
+            eprintln!("corpus missing; skipping");
+            return;
+        }
+        let prep = Box::new(Prepared::new(&crate::sff::Style::load(&p).unwrap()));
+        let bar = (60e9 / prep.bpm * (prep.tpb as f64 / prep.ppq as f64)) as u64;
+        let shared = Arc::new(Shared::new(54));
+        let mut ch = channels(Out::new(PacketSink::new(rt::Target::Null), None));
+        let mut l = EngineLoop::new(Engine::new(prep), ch.io, shared.clone());
+        let (cmd, _cmd_rx) = RingBuffer::new(16);
+        let mut input = Input::new(shared.clone(), Recognizer::new(), cmd, Out::new(PacketSink::new(rt::Target::Null), None));
+        let run = |l: &mut EngineLoop, now: &mut u64, until: u64| {
+            while *now < until {
+                *now = l.next_deadline().unwrap_or(*now + 5_000_000).max(*now + 1);
+                l.step(*now);
+            }
+        };
+        let played = |l: &EngineLoop, now: u64| l.engine.snapshot(now).played.map(|c| c.name());
+        let mut now = 1_000;
+        l.step(now);
+        // Record one bar of C (REC while stopped: the chord starts band and recording).
+        ch.ui_tx.push(Cmd::Looper(true)).ok().unwrap();
+        l.step(now);
+        for k in [36, 40, 43] {
+            input.key_msg(&[0x90, k, 90]);
+        }
+        l.step(now);
+        let t0 = now;
+        run(&mut l, &mut now, t0 + bar / 2);
+        ch.ui_tx.push(Cmd::Looper(false)).ok().unwrap();
+        run(&mut l, &mut now, t0 + bar + bar / 4);
+        assert!(shared.looping.load(Relaxed), "the loop plays");
+        for k in [36, 40, 43] {
+            input.key_msg(&[0x80, k, 0]);
+        }
+        // Over the loop, the left hand plays F A C.
+        for k in [41, 45, 48] {
+            input.key_msg(&[0x90, k, 90]);
+            let until = now + bar / 16;
+            run(&mut l, &mut now, until);
+        }
+        assert_eq!(played(&l, now).as_deref(), Some("C"), "looping: the loop's chord");
+        // ON/OFF: the loop stops on its chord, also on the wakes that follow.
+        ch.ui_tx.push(Cmd::Looper(false)).ok().unwrap();
+        l.step(now + 1);
+        assert!(!shared.looping.load(Relaxed));
+        let until = now + bar / 2;
+        run(&mut l, &mut now, until);
+        assert_eq!(played(&l, now).as_deref(), Some("C"), "loop off: the melody is not the chord");
+        // The next chord played is followed.
+        for k in [41, 45, 48] {
+            input.key_msg(&[0x80, k, 0]);
+        }
+        for k in [38, 42, 45] {
+            input.key_msg(&[0x90, k, 90]);
+        }
+        let until = now + bar / 8;
+        run(&mut l, &mut now, until);
+        assert_eq!(played(&l, now).as_deref(), Some("D"));
+        for k in [38, 42, 45] {
+            input.key_msg(&[0x80, k, 0]);
+        }
+        // Loop (C) again and stop it, then play D, the chord the recognizer last sent
+        // before this loop: it is new again and followed.
+        ch.ui_tx.push(Cmd::Looper(false)).ok().unwrap();
+        let until = now + bar + bar / 8;
+        run(&mut l, &mut now, until);
+        assert!(shared.looping.load(Relaxed));
+        ch.ui_tx.push(Cmd::Looper(false)).ok().unwrap();
+        let until = now + bar / 8;
+        run(&mut l, &mut now, until);
+        assert!(!shared.looping.load(Relaxed));
+        assert_eq!(played(&l, now).as_deref(), Some("C"), "the loop's chord");
+        for k in [38, 42, 45] {
+            input.key_msg(&[0x90, k, 90]);
+        }
+        let until = now + bar / 8;
+        run(&mut l, &mut now, until);
+        assert_eq!(played(&l, now).as_deref(), Some("D"), "D, recognized before the loop, is followed after it");
     }
 
     /// Two held keys that land on the same note (an octave shift folding past the MIDI

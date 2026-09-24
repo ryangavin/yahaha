@@ -43,9 +43,9 @@ buttons show it. Not on a Launchkey knob yet: the knobs are unmapped in yahaha s
 
 OM p.46, p.133: the tempo range is 5–500 BPM (`engine::MIN_BPM`, `MAX_BPM`); it was
 30–300. `setTempo` sets it directly; tempo ±, tap tempo and style tempos clamp to it. Tap
-tempo covers the same range (OM p.46: Tap Tempo is part of it): taps up to 12 s apart
-count, so a tap after a pause of more than 2.4 s sets a slow tempo; a pause past 12 s
-forgets the taps. A tap whose interval jumps by more than half from the last one starts a
+tempo covers the same range (OM p.46: Tap Tempo is part of it): taps up to 12.5 s apart
+count (a beat at 5 BPM, 12 s, plus half a second of slack), so a tap after a pause of more
+than 2.4 s sets a slow tempo; a pause past 12.5 s forgets the taps. A tap whose interval jumps by more than half from the last one starts a
 fresh average instead of mixing the two tempos.
 
 ## Metronome
