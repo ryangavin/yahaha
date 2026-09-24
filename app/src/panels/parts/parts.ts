@@ -95,3 +95,10 @@ export function pluginStatusLine(p: PartPlugin | undefined, available: boolean):
       return `${p.manufacturer}${p.outOfProcess ? ' · own process' : ''} ▾`
   }
 }
+
+/** The plugin picker's value: the part's plugin, or the SoundFont entry when it failed to
+ * load (it plays its SoundFont voice then), so picking the same plugin again is a change
+ * and retries it. */
+export function pluginPickValue(p: PartPlugin | undefined): string {
+  return p && p.status !== 'failed' ? p.id : ''
+}
