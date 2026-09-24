@@ -889,3 +889,7 @@ impl Control {
 fn from_fields(id: String, f: PatchFields) -> Patch {
     Patch { id, name: f.name, category: f.category, tags: f.tags, favourite: f.favourite, source: f.source, defaults: f.defaults }
 }
+
+#[cfg(test)]
+#[path = "sound_library_tests.rs"]
+mod tests;

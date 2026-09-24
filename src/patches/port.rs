@@ -56,3 +56,42 @@ impl PortMap {
         midi(msg);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::patches::Route;
+
+    fn send(pm: &mut PortMap, m: &[u8]) -> Vec<Vec<u8>> {
+        let mut out = Vec::new();
+        pm.send(m, |x| out.push(x.to_vec()));
+        out
+    }
+
+    #[test]
+    fn the_port_mirrors_the_style_unless_mapped_programs_are_on() {
+        let routes = Arc::new(Routes::new());
+        let mut prog = [None; 128];
+        prog[33] = Some(Route::sound_font(1, 8, 34));
+        routes.write_bank(1, &prog, Some(Route::sound_font(1, 128, 25)));
+        let mut pm = PortMap::new(routes.clone());
+        pm.set_bank(1);
+        // Default: unchanged.
+        assert_eq!(send(&mut pm, &[0xBA, 0, 0]), [vec![0xBA, 0, 0]]);
+        assert_eq!(send(&mut pm, &[0xCA, 33]), [vec![0xCA, 33]]);
+        routes.port_mapped.store(true, Relaxed);
+        assert_eq!(send(&mut pm, &[0xCA, 33]), [vec![0xBA, 0, 8], vec![0xBA, 32, 0], vec![0xCA, 34]]);
+        // A drum kit goes out on the XG drum bank.
+        assert_eq!(send(&mut pm, &[0xC9, 0]), [vec![0xB9, 0, 127], vec![0xB9, 32, 0], vec![0xC9, 25]]);
+        // Unmapped programs, the keyboard parts' channels, CC7 and notes: as sent.
+        assert_eq!(send(&mut pm, &[0xCA, 40]), [vec![0xCA, 40]]);
+        assert_eq!(send(&mut pm, &[0xC0, 33]), [vec![0xC0, 33]]);
+        assert_eq!(send(&mut pm, &[0xBA, 7, 90]), [vec![0xBA, 7, 90]]);
+        assert_eq!(send(&mut pm, &[0x9A, 40, 100]), [vec![0x9A, 40, 100]]);
+        // The other bank (another style's map) has no route for 33.
+        pm.set_bank(0);
+        assert_eq!(send(&mut pm, &[0xCA, 33]), [vec![0xCA, 33]]);
+        // Without a table (tests, the input thread's Out): as sent.
+        assert_eq!(send(&mut PortMap::default(), &[0xCA, 33]), [vec![0xCA, 33]]);
+    }
+}

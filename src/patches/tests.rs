@@ -233,6 +233,59 @@ fn plugin_patches_say_why_they_play_the_fallback() {
     assert!(unavailable_reason(lib.patch("bass").unwrap(), &[]).unwrap().contains("not in the SoundFont folder"));
 }
 
+/// Corpus check: styles from every corpus folder with a small map (a few family rules and
+/// the drums). Every program each style sends a part resolves (to a patch or the
+/// fallback) without a panic, drum parts only ever to the drum rule, and the route table
+/// agrees with the resolution.
+#[test]
+fn corpus_styles_resolve_every_channel() {
+    let files = crate::library::corpus_styles();
+    if files.is_empty() {
+        eprintln!("corpus missing; skipping");
+        return;
+    }
+    let mut lib = library();
+    lib.map.set_family(5, Some("piano".into()));
+    lib.map.set_family(6, Some("rhodes".into()));
+    let t = Routes::new();
+    let route_of = |id: &str| match &lib.patch(id).unwrap().source {
+        PatchSource::SoundFont { bank, program, .. } => Some(Route::sound_font(0, *bank, *program)),
+        PatchSource::Plugin { .. } => None,
+    };
+    let mut prog = [None; 128];
+    for (p, r) in prog.iter_mut().enumerate() {
+        *r = resolve(&lib.map, None, false, p as u8).patch.and_then(route_of);
+    }
+    t.write_bank(0, &prog, resolve(&lib.map, None, true, 0).patch.and_then(route_of));
+    // Every tenth style, so each folder is represented and the test stays quick.
+    let (mut styles, mut resolved, mut mapped) = (0, 0, 0);
+    for f in files.iter().step_by(10) {
+        let Ok(style) = crate::sff::Style::load(f) else { continue };
+        let prep = crate::engine::Prepared::new(&style);
+        let used = prep.program_changes();
+        styles += 1;
+        for d in 8..16u8 {
+            if prep.voices[d as usize].is_some() {
+                assert!(used.iter().any(|u| u.0 == d), "{}: ch {} has a voice but no program listed", f.display(), d + 1);
+            }
+        }
+        for &(ch, msb, _, pc) in &used {
+            assert!((8..16).contains(&ch));
+            let drum = is_drum(ch, msb);
+            let p = if drum { pc } else { map_program(ch, msb, pc) };
+            let r = resolve(&lib.map, None, drum, p);
+            if drum {
+                assert!(matches!(r.rule, RuleKind::Drums), "{}: ch {} drums", f.display(), ch + 1);
+            }
+            assert_eq!(t.lookup(0, ch, msb, pc), r.patch.and_then(route_of), "{}: ch {} {msb}/{pc}", f.display(), ch + 1);
+            resolved += 1;
+            mapped += r.patch.is_some() as usize;
+        }
+    }
+    eprintln!("{styles} styles, {resolved} programs, {mapped} mapped");
+    assert!(styles > 0 && mapped > 0);
+}
+
 #[test]
 fn categories_follow_the_genos_tabs() {
     assert_eq!(Category::ALL.len(), 13);
