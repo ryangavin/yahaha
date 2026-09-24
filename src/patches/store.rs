@@ -154,30 +154,43 @@ impl SoundLibrary {
     /// many patches were added.
     pub fn merge(&mut self, other: SoundLibrary, maps: bool) -> usize {
         let mut other = other;
-        let mut added = 0;
-        for mut p in std::mem::take(&mut other.patches) {
-            if self.patches.len() >= MAX_PATCHES {
-                break;
+        let room = MAX_PATCHES.saturating_sub(self.patches.len());
+        let incoming: Vec<Patch> = std::mem::take(&mut other.patches).into_iter().take(room).collect();
+        // Every imported patch's new id first, unique against both libraries (and the
+        // ids handed out so far), then the imported maps rewritten once through the table:
+        // renaming one at a time would move an earlier patch's rules onto a later one
+        // whose original id a new id happens to equal.
+        let mut taken: Vec<String> = self.patches.iter().map(|p| p.id.clone()).chain(incoming.iter().map(|p| p.id.clone())).collect();
+        let mut table: Vec<(String, String)> = Vec::new();
+        let mut added = Vec::new();
+        for mut p in incoming {
+            let old = p.id.clone();
+            if self.patch(&old).is_some() || table.iter().any(|(_, n)| *n == old) {
+                p.id = new_id(&p.name, taken.iter().map(String::as_str));
+                taken.push(p.id.clone());
             }
-            if self.patch(&p.id).is_some() {
-                let id = new_id(&p.name, self.patches.iter().map(|q| q.id.as_str()));
-                other.map.rename(&p.id, &id);
-                for m in other.style_maps.values_mut() {
-                    m.rename(&p.id, &id);
-                }
-                p.id = id;
-            }
-            self.patches.push(p);
-            added += 1;
+            table.push((old, p.id.clone()));
+            added.push(p);
         }
+        let n = added.len();
+        self.patches.extend(added);
         if maps {
-            merge_map(&mut self.map, &other.map);
-            for (k, m) in other.style_maps {
-                merge_map(self.style_maps.entry(k).or_default(), &m);
+            let rewrite = |m: &ProgramMap| {
+                let to = |id: &str| table.iter().find(|(o, _)| o == id).map(|(_, n)| n.clone());
+                ProgramMap {
+                    families: m.families.clone().map(|f| f.and_then(|id| to(&id))),
+                    overrides: m.overrides.iter().filter_map(|o| Some(super::ProgramOverride { program: o.program, patch: to(&o.patch)? })).collect(),
+                    drums: m.drums.as_deref().and_then(to),
+                }
+            };
+            merge_map(&mut self.map, &rewrite(&other.map));
+            for (k, m) in &other.style_maps {
+                let m = rewrite(m);
+                merge_map(self.style_maps.entry(k.clone()).or_default(), &m);
             }
         }
         self.normalize();
-        added
+        n
     }
 }
 

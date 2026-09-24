@@ -261,7 +261,7 @@ fn corpus_styles_resolve_every_channel() {
         let used = prep.program_changes();
         styles += 1;
         for d in 8..16u8 {
-            if prep.voices[d as usize].is_some() {
+            if prep.setups.iter().any(|s| s.voices[d as usize].is_some()) {
                 assert!(used.iter().any(|u| u.0 == d), "{}: ch {} has a voice but no program listed", f.display(), d + 1);
             }
         }
@@ -291,4 +291,29 @@ fn categories_follow_the_genos_tabs() {
     assert_eq!(Category::guess(0, 53), Category::Choir);
     assert_eq!(serde_json::to_string(&Category::SaxWoodwind).unwrap(), "\"saxWoodwind\"");
     assert_eq!(serde_json::to_string(&Category::EPiano).unwrap(), "\"ePiano\"");
+}
+
+/// B4 (review of #106): an import whose patch ids collide in a chain keeps each imported
+/// rule on its own patch.
+#[test]
+fn a_merge_keeps_rules_on_their_patches_when_ids_chain() {
+    let p = |id: &str, name: &str, prog: u8| Patch { id: id.into(), name: name.into(), ..sf(id, prog) };
+    let mut mine = SoundLibrary { patches: vec![p("bass", "Bass", 1)], ..SoundLibrary::default() };
+    let mut theirs = SoundLibrary { patches: vec![p("bass", "Bass", 33), p("bass-2", "Bass 2", 34)], ..SoundLibrary::default() };
+    theirs.map.set_family(4, Some("bass".into()));
+    theirs.map.set_family(5, Some("bass-2".into()));
+    theirs.map.set_override(7, Some("bass-2".into()));
+    theirs.map.drums = Some("bass".into());
+    assert_eq!(mine.merge(theirs, true), 2);
+    let prog_of = |lib: &SoundLibrary, id: &str| match &lib.patch(id).unwrap().source {
+        PatchSource::SoundFont { program, .. } => *program,
+        _ => 255,
+    };
+    let ids: Vec<&str> = mine.patches.iter().map(|p| p.id.as_str()).collect();
+    assert_eq!(ids.iter().collect::<std::collections::HashSet<_>>().len(), 3, "{ids:?}");
+    assert_eq!(prog_of(&mine, mine.map.families[4].as_deref().unwrap()), 33);
+    assert_eq!(prog_of(&mine, mine.map.families[5].as_deref().unwrap()), 34);
+    assert_eq!(prog_of(&mine, mine.map.override_of(7).unwrap()), 34);
+    assert_eq!(prog_of(&mine, mine.map.drums.as_deref().unwrap()), 33);
+    assert_eq!(prog_of(&mine, "bass"), 1, "my own patch is untouched");
 }

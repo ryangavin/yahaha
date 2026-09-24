@@ -157,14 +157,17 @@ impl Control {
     pub(super) fn pump_sound_font(&mut self) {
         if let Some((file, rx)) = &self.sf_load {
             match rx.try_recv() {
-                Ok(Ok((rack, fonts))) => {
+                Ok(Ok((rack, fonts, failed))) => {
                     self.sf_ready = Some((file.clone(), rack));
                     self.sf_load = None;
-                    self.sound_library_loaded(fonts);
+                    self.sound_library_loaded(fonts, failed);
                 }
                 Ok(Err(e)) => {
                     let msg = format!("SoundFont {file}: {e}");
+                    // Not tried again (by the sound library's pump) until the file changes.
+                    let (f, dir) = (file.clone(), self.sf_dir.clone());
                     self.sf_load = None;
+                    self.sound_library_failed(&f, dir.as_deref());
                     self.say(msg, true);
                 }
                 Err(mpsc::TryRecvError::Empty) => {}

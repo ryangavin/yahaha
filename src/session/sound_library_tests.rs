@@ -9,29 +9,49 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::Ordering::Relaxed;
 
 const MS: u64 = 1_000_000;
-const SF2: &str = "GeneralUser-GS.sf2";
+/// The tiny SoundFonts the tests make (`patches::sf2::tiny_gm_sound_font`): the synth's,
+/// and a second one for library patches.
+const SF2: &str = "Test.sf2";
+const OTHER: &str = "Other.sf2";
 
 fn root() -> &'static Path {
     Path::new(env!("CARGO_MANIFEST_DIR"))
 }
 
-/// An offline session on `styles` (corpus/MOX_v2 file names) with a fresh data folder, and
-/// the checkout's SoundFont folder when `sf2` (so patches there are playable).
-fn session(tag: &str, styles: &[&str], sf2: bool) -> Option<(Session, PathBuf)> {
-    let paths: Vec<PathBuf> = styles.iter().map(|s| root().join("corpus/MOX_v2").join(s)).collect();
-    if paths.iter().any(|p| !p.exists()) || (sf2 && !root().join("soundfonts").join(SF2).exists()) {
-        eprintln!("corpus or SoundFont missing; skipping");
-        return None;
-    }
+/// A fresh data folder with a SoundFont folder in it (`<data>/sf`) holding the two tiny
+/// test SoundFonts, whatever SoundFonts the checkout has.
+fn folder(tag: &str) -> PathBuf {
     let data = std::env::temp_dir().join(format!("yahaha-sl-{tag}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&data);
-    let opts = Options {
-        paths,
-        data_dir: Some(data.clone()),
-        sf2: sf2.then(|| root().join("soundfonts").join(SF2)),
-        ..Options::default()
-    };
-    Some((Session::offline(opts).unwrap(), data))
+    std::fs::create_dir_all(data.join("sf")).unwrap();
+    for f in [SF2, OTHER] {
+        std::fs::write(data.join("sf").join(f), patches::sf2::tiny_gm_sound_font()).unwrap();
+    }
+    data
+}
+
+/// An offline session on `styles` (corpus/MOX_v2 file names) with a fresh data folder,
+/// and the test SoundFont folder when `sf2` (so patches there are playable). The first
+/// style is loaded explicitly (the library sorts its entries).
+fn session(tag: &str, styles: &[&str], sf2: bool) -> Option<(Session, PathBuf)> {
+    let paths: Vec<PathBuf> = styles.iter().map(|s| root().join("corpus/MOX_v2").join(s)).collect();
+    if paths.iter().any(|p| !p.exists()) {
+        eprintln!("corpus missing; skipping");
+        return None;
+    }
+    let data = folder(tag);
+    let opts = Options { paths, data_dir: Some(data.clone()), sf2: sf2.then(|| data.join("sf").join(SF2)), ..Options::default() };
+    let s = Session::offline(opts).unwrap();
+    load(&s, styles[0]);
+    Some((s, data))
+}
+
+/// Load the style whose path contains `name`, and let the engine take it over.
+fn load(s: &Session, name: &str) {
+    let id = s.library_list().entries.iter().find(|e| e.path.contains(name)).unwrap().id;
+    s.send(LibraryCmd::LoadStyle { id }).unwrap();
+    s.advance(10 * MS);
+    assert!(s.state().style.path.contains(name));
 }
 
 fn fields(name: &str, bank: u16, program: u8) -> PatchFields {
@@ -84,11 +104,12 @@ fn rules_resolve_the_styles_programs_and_persist() {
 
     // The table the synth reads: bank 0 (the first style's), program 33 and the drums.
     let routes = s.inner.shared.routes.clone();
-    let r = routes.bank_route(0, 33).expect("program 33 routes");
+    let cur = routes.current.load(Relaxed);
+    let r = routes.bank_route(cur, 33).expect("program 33 routes");
     assert_eq!((r.bank, r.program), (0, 34));
     assert!(matches!(r.source, patches::Source::SoundFont(_)));
-    assert_eq!(routes.bank_drum(0).map(|r| r.bank), Some(128));
-    assert_eq!(routes.bank_route(0, 40), None, "Strings: no rule");
+    assert_eq!(routes.bank_drum(cur).map(|r| r.bank), Some(128));
+    assert_eq!(routes.bank_route(cur, 40), None, "Strings: no rule");
 
     // Saved; a new session reads it back.
     let file = data.join(patches::FILE_NAME);
@@ -153,8 +174,8 @@ fn a_styles_own_map_wins_and_stays_with_the_style() {
     let bass = st.sound_library.usage.iter().find(|u| u.channel == 11).unwrap();
     assert_eq!((bass.patch.as_deref(), bass.from_style), (Some(own.as_str()), true));
     let routes = s.inner.shared.routes.clone();
-    assert_eq!(routes.current.load(Relaxed), 0);
-    assert_eq!(routes.bank_route(0, 33).map(|r| r.program), Some(35), "the style's rule in its bank");
+    let cur = routes.current.load(Relaxed);
+    assert_eq!(routes.bank_route(cur, 33).map(|r| r.program), Some(35), "the style's rule in its bank");
 
     // Another style: it gets the other bank, written with the global map, before the
     // engine takes it over.
@@ -164,18 +185,20 @@ fn a_styles_own_map_wins_and_stays_with_the_style() {
     let st = s.state();
     assert_ne!(st.sound_library.style_key, key);
     assert!(st.sound_library.style_map.is_empty());
-    assert_eq!(routes.current.load(Relaxed), 1);
-    assert_eq!(routes.bank_route(1, 33).map(|r| r.program), Some(33), "the global rule");
+    let cur2 = routes.current.load(Relaxed);
+    assert_ne!(cur2, cur, "the other bank");
+    assert_eq!(routes.bank_route(cur2, 33).map(|r| r.program), Some(33), "the global rule");
     assert!(st.sound_library.usage.iter().filter(|u| (32..40).contains(&u.gm_program) && !u.drums).all(|u| u.patch.as_deref() == Some(g.as_str())));
     // Back: its own map again, in bank 0.
     let first = s.library_list().entries.iter().find(|e| e.path.contains("SlowWalker")).unwrap().id;
     s.send(LibraryCmd::LoadStyle { id: first }).unwrap();
     s.advance(10 * MS);
-    assert_eq!(routes.current.load(Relaxed), 0);
+    let cur3 = routes.current.load(Relaxed);
+    assert_eq!(routes.bank_route(cur3, 33).map(|r| r.program), Some(35));
     assert_eq!(s.state().sound_library.style_map.families[4].as_deref(), Some(own.as_str()));
     s.send(SoundLibraryCmd::ClearStyleMap).unwrap();
     assert!(s.state().sound_library.style_map.is_empty());
-    assert_eq!(routes.bank_route(0, 33).map(|r| r.program), Some(33));
+    assert_eq!(routes.bank_route(cur3, 33).map(|r| r.program), Some(33));
     let _ = std::fs::remove_dir_all(&data);
 }
 
@@ -296,14 +319,101 @@ fn a_patch_volume_fills_in_where_the_style_sets_none() {
         sl.lib.map.set_family(f, Some("b".into()));
     }
     sl.lib.map.drums = Some("b".into());
-    let styled = prep.mix;
-    prep.mix_set = 0b1111_0000;
+    let styled = prep.setups[0].mix;
+    prep.setups[0].mix_set = 0b1111_0000;
     sl.prepare(&mut prep, "x");
     for (part, &style_level) in styled.iter().enumerate() {
-        if prep.voices[8 + part].is_none() {
+        if prep.setups[0].voices[8 + part].is_none() {
             continue;
         }
         let want = if part >= 4 { style_level } else { 77 };
-        assert_eq!(prep.mix[part], want, "part {part}");
+        assert_eq!(prep.setups[0].mix[part], want, "part {part}");
     }
+}
+
+/// B2 (review of #106): at a style change the per-channel routes follow the NEW style's
+/// setup voices: `info` is the new style's before the routes are synced.
+#[test]
+fn channel_routes_follow_the_new_styles_voices() {
+    let Some((s, data)) = session("b2", &["SlowWalker.T552.sty", "BubblyDub.T552.sty"], true) else { return };
+    let voices = |name: &str| {
+        let p = root().join("corpus/MOX_v2").join(name);
+        crate::engine::Prepared::new(&crate::sff::Style::load(&p).unwrap()).setups[0].voices
+    };
+    let (va, vb) = (voices("SlowWalker.T552.sty"), voices("BubblyDub.T552.sty"));
+    let fam = |v: Option<(u8, u8, u8)>, ch: u8| {
+        v.filter(|v| !patches::is_drum(ch, v.0)).map(|(m, _, p)| patches::family_of(patches::map_program(ch, m, p)))
+    };
+    let ch = (10..16u8).find(|&c| fam(va[c as usize], c).is_some() && fam(va[c as usize], c) != fam(vb[c as usize], c)).expect("a channel whose family differs");
+    let id = add(&s, "Extra", 0, 0);
+    s.send(SoundLibraryCmd::SetFamilyRule { family: fam(va[ch as usize], ch).unwrap() as u8, patch: Some(id.clone()), style: false }).unwrap();
+    assert_eq!(s.inner.lock().sound.synced[ch as usize].as_deref(), Some(id.as_str()), "SlowWalker's channel {} on the patch", ch + 1);
+    load(&s, "BubblyDub");
+    let want = s.inner.lock().channel_patch(ch);
+    assert_eq!(s.inner.lock().sound.synced[ch as usize], want, "synced from BubblyDub's voices");
+    assert_ne!(want.as_deref(), Some(id.as_str()));
+    let _ = std::fs::remove_dir_all(&data);
+}
+
+/// B3 (review of #106): a patch naming a SoundFont that can't be read neither blocks the
+/// other extra SoundFonts nor sets the loader going again and again.
+#[test]
+fn a_bad_soundfont_does_not_loop_or_block_the_others() {
+    let Some((s, data)) = session("b3", &["SlowWalker.T552.sty"], true) else { return };
+    std::fs::write(data.join("sf").join("bad.sf2"), b"RIFF\x04\x00\x00\x00sfbk").unwrap();
+    s.offline_audio(Some(&data.join("sf").join(SF2)), 48_000).unwrap();
+    for (name, file) in [("Good", OTHER), ("Bad", "bad.sf2")] {
+        let mut f = fields(name, 0, 0);
+        f.source = PatchSource::SoundFont { file: file.into(), bank: 0, program: 0 };
+        s.send(SoundLibraryCmd::CreatePatch { patch: f }).unwrap();
+    }
+    let mut loads = 0;
+    let mut was_loading = false;
+    for _ in 0..300 {
+        s.advance(10 * MS);
+        let loading = s.inner.lock().sound.loading.is_some();
+        if loading && !was_loading {
+            loads += 1;
+        }
+        was_loading = loading;
+        std::thread::sleep(std::time::Duration::from_millis(2));
+    }
+    let fonts = s.inner.lock().sound.rack_fonts.clone();
+    assert_eq!(fonts, [SF2, OTHER], "the good extra SoundFont plays");
+    assert!(loads <= 2, "the loader is not started again and again ({loads})");
+    let msg = s.state().message.clone().unwrap();
+    assert!(msg.error && msg.text.contains("bad.sf2"), "{msg:?}");
+    // The file changes (fixed): it is tried again, and loads.
+    std::thread::sleep(std::time::Duration::from_millis(20));
+    std::fs::write(data.join("sf").join("bad.sf2"), patches::sf2::tiny_gm_sound_font()).unwrap();
+    for _ in 0..300 {
+        s.advance(10 * MS);
+        if s.inner.lock().sound.rack_fonts.len() == 3 {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(2));
+    }
+    assert_eq!(s.inner.lock().sound.rack_fonts.len(), 3, "the fixed SoundFont loads");
+    let _ = std::fs::remove_dir_all(&data);
+}
+
+/// B5 (review of #106): a merge import never saves over a library file a newer yahaha
+/// wrote; a replace import keeps it as `.bak`.
+#[test]
+fn a_merge_import_keeps_a_newer_file() {
+    let Some((_, data)) = session("b5", &["SlowWalker.T552.sty"], false) else { return };
+    let file = data.join(patches::FILE_NAME);
+    let newer = r#"{"version": 2, "patches": [], "fancyNewThing": [1,2,3]}"#;
+    std::fs::write(&file, newer).unwrap();
+    let small = data.join("share.json");
+    std::fs::write(&small, r#"[{"id":"x","name":"X","source":{"kind":"soundFont","file":"a.sf2","bank":0,"program":1}}]"#).unwrap();
+    let opts = Options { paths: vec![root().join("corpus/MOX_v2/SlowWalker.T552.sty")], data_dir: Some(data.clone()), ..Options::default() };
+    let s = Session::offline(opts).unwrap();
+    s.send(SoundLibraryCmd::ImportSoundLibrary { path: small.display().to_string(), replace: false, maps: false }).unwrap();
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), newer, "a merge import leaves the newer file alone");
+    assert_eq!(s.state().sound_library.patches.len(), 1, "the import is in the session");
+    s.send(SoundLibraryCmd::ImportSoundLibrary { path: small.display().to_string(), replace: true, maps: false }).unwrap();
+    assert_eq!(std::fs::read_to_string(file.with_extension("json.bak")).unwrap(), newer, "kept beside");
+    assert!(std::fs::read_to_string(&file).unwrap().contains("\"version\": 1"));
+    let _ = std::fs::remove_dir_all(&data);
 }

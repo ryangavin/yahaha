@@ -85,9 +85,15 @@ keeps it in line with the map:
 
 - A Style part whose setup voice resolves to a plugin patch is assigned that plugin
   (`assign_channel_plugin`).
-- Every other channel gets `Source::SoundFont(n)`, where n is its font's slot in the
-  rack. The per-program table still picks the font for a program change inside a
-  section.
+- Every other channel stays `Source::SoundFont(0)` (the SoundFont renderer). Which
+  SoundFont of the rack plays it is the rack's own per-program routing, so a program
+  change inside a section still picks its font on the audio thread.
+
+A SoundFont that fails to load is left out (its patches play the fallback) and not tried
+again until the file changes; the others still load. A merge import never saves over a
+library file it couldn't read (a newer yahaha's); a replace import keeps that file as
+`sound-library.json.bak`. A patch's default left blank (pan, sends) leaves the part's
+value as it is.
 
 ## Decisions
 

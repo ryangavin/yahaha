@@ -40,13 +40,8 @@ fn counted(f: impl FnOnce()) -> (usize, usize) {
 
 #[test]
 fn the_audio_callback_with_a_map_does_not_allocate() {
-    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("soundfonts");
-    let Some(f) = yahaha::library::sound_font_files(&dir).into_iter().map(|f| dir.join(f)).min_by_key(|p| p.metadata().map(|m| m.len()).unwrap_or(u64::MAX))
-    else {
-        eprintln!("no SoundFont; skipping");
-        return;
-    };
-    let font = Arc::new(rustysynth::SoundFont::new(&mut std::fs::File::open(&f).unwrap()).unwrap());
+    // A tiny SoundFont built in code, so the test runs whatever SoundFonts the checkout has.
+    let font = Arc::new(rustysynth::SoundFont::new(&mut &yahaha::patches::sf2::tiny_gm_sound_font()[..]).unwrap());
     // The same font as two slots: font 0 the main one, font 5 an "extra" SoundFont.
     let rack = Box::new(Rack::with_fonts(&[(0, font.clone()), (5, font)], 48_000).unwrap());
     let routes = Arc::new(Routes::new());

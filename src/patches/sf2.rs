@@ -80,8 +80,119 @@ fn parse_pdta(data: &[u8]) -> Result<Vec<Preset>> {
     bail!("no preset headers")
 }
 
+/// A tiny, valid SoundFont built in code (no samples from anywhere: one looped square
+/// wave), with a preset for each `(bank, program, name)`. For tests, so they never
+/// depend on which `.sf2` files a checkout happens to have.
+#[doc(hidden)]
+pub fn tiny_sound_font(presets: &[(u16, u8, &str)]) -> Vec<u8> {
+    fn chunk(id: &[u8], body: &[u8]) -> Vec<u8> {
+        let mut c = id.to_vec();
+        c.extend((body.len() as u32).to_le_bytes());
+        c.extend(body);
+        if body.len() & 1 == 1 {
+            c.push(0);
+        }
+        c
+    }
+    fn list(ty: &[u8], chunks: &[Vec<u8>]) -> Vec<u8> {
+        let mut b = ty.to_vec();
+        for c in chunks {
+            b.extend(c);
+        }
+        chunk(b"LIST", &b)
+    }
+    fn name(n: &str) -> [u8; 20] {
+        let mut b = [0u8; 20];
+        let n = n.as_bytes();
+        b[..n.len().min(19)].copy_from_slice(&n[..n.len().min(19)]);
+        b
+    }
+    let u16s = |v: &[u16]| v.iter().flat_map(|x| x.to_le_bytes()).collect::<Vec<u8>>();
+    // One square wave cycle of 100 samples (480 Hz at 48 kHz), looped, then the 46 zeros
+    // the format asks for.
+    let wave: Vec<i16> = (0..100).map(|i| if i < 50 { 8000 } else { -8000 }).chain(std::iter::repeat_n(0, 46)).collect();
+    let smpl: Vec<u8> = wave.iter().flat_map(|s| s.to_le_bytes()).collect();
+    let n = presets.len() as u16;
+    let mut phdr = Vec::new();
+    for (i, &(bank, program, nm)) in presets.iter().enumerate() {
+        phdr.extend(name(nm));
+        phdr.extend(u16s(&[program as u16, bank, i as u16]));
+        phdr.extend([0u8; 12]);
+    }
+    phdr.extend(name("EOP"));
+    phdr.extend(u16s(&[0, 0, n]));
+    phdr.extend([0u8; 12]);
+    // A bag per preset with one generator: instrument 0.
+    let pbag = u16s(&(0..=n).flat_map(|i| [i, 0]).collect::<Vec<u16>>());
+    let pmod = vec![0u8; 10];
+    let mut pgen = Vec::new();
+    for _ in 0..n {
+        pgen.extend(u16s(&[41, 0]));
+    }
+    pgen.extend(u16s(&[0, 0]));
+    let mut inst = name("Square").to_vec();
+    inst.extend(u16s(&[0]));
+    inst.extend(name("EOI"));
+    inst.extend(u16s(&[1]));
+    let ibag = u16s(&[0, 0, 2, 0]);
+    let imod = vec![0u8; 10];
+    // Loop continuously (sampleModes 1), then the sample (sampleID must come last).
+    let igen = u16s(&[54, 1, 53, 0, 0, 0]);
+    let mut shdr = name("Square").to_vec();
+    for v in [0u32, 100, 0, 100, 48_000] {
+        shdr.extend(v.to_le_bytes());
+    }
+    shdr.extend([69u8, 0]); // original pitch A4 (close enough), no correction
+    shdr.extend(u16s(&[0, 1]));
+    shdr.extend(name("EOS"));
+    shdr.extend([0u8; 26]);
+    let info = list(b"INFO", &[chunk(b"ifil", &u16s(&[2, 1])), chunk(b"isng", b"EMU8000\0"), chunk(b"INAM", b"yahaha test\0")]);
+    let sdta = list(b"sdta", &[chunk(b"smpl", &smpl)]);
+    let pdta = list(
+        b"pdta",
+        &[
+            chunk(b"phdr", &phdr),
+            chunk(b"pbag", &pbag),
+            chunk(b"pmod", &pmod),
+            chunk(b"pgen", &pgen),
+            chunk(b"inst", &inst),
+            chunk(b"ibag", &ibag),
+            chunk(b"imod", &imod),
+            chunk(b"igen", &igen),
+            chunk(b"shdr", &shdr),
+        ],
+    );
+    let mut body = b"sfbk".to_vec();
+    body.extend(info);
+    body.extend(sdta);
+    body.extend(pdta);
+    chunk(b"RIFF", &body)
+}
+
+/// The tiny test SoundFont with a GM-like set: bank 0 programs 0-127 and a drum kit on
+/// bank 128.
+#[doc(hidden)]
+pub fn tiny_gm_sound_font() -> Vec<u8> {
+    let names: Vec<String> = (0..128).map(|p| format!("Tone {}", p + 1)).collect();
+    let mut presets: Vec<(u16, u8, &str)> = names.iter().enumerate().map(|(p, n)| (0, p as u8, n.as_str())).collect();
+    presets.push((128, 0, "Kit"));
+    tiny_sound_font(&presets)
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn the_tiny_sound_font_parses_and_sounds() {
+        let bytes = super::tiny_gm_sound_font();
+        let font = std::sync::Arc::new(rustysynth::SoundFont::new(&mut &bytes[..]).expect("parses"));
+        assert_eq!(font.get_presets().len(), 129);
+        let mut s = rustysynth::Synthesizer::new(&font, &rustysynth::SynthesizerSettings::new(48_000)).unwrap();
+        s.note_on(0, 60, 100);
+        let (mut l, mut r) = (vec![0f32; 4800], vec![0f32; 4800]);
+        s.render(&mut l, &mut r);
+        assert!(l.iter().any(|x| x.abs() > 1e-3), "it makes a sound");
+    }
+
     use super::*;
 
     /// A minimal SoundFont: an INFO list, an empty sdta, and a pdta with two presets and

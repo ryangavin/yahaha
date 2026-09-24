@@ -264,15 +264,10 @@ mod tests {
     use super::*;
     use crate::patches::route::MAX_FONTS;
 
+    /// Two tiny test SoundFonts (built in code: they run whatever the checkout has).
     fn fonts() -> Option<Vec<(String, Arc<SoundFont>)>> {
-        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("soundfonts");
-        let mut files: Vec<_> = crate::library::sound_font_files(&dir).into_iter().map(|f| (dir.join(&f), f)).collect();
-        files.sort_by_key(|(p, _)| p.metadata().map(|m| m.len()).unwrap_or(u64::MAX));
-        if files.is_empty() {
-            eprintln!("no SoundFont; skipping");
-            return None;
-        }
-        Some(files.into_iter().take(2).map(|(p, f)| (f, Arc::new(SoundFont::new(&mut std::fs::File::open(p).unwrap()).unwrap()))).collect())
+        let font = || Arc::new(SoundFont::new(&mut &crate::patches::sf2::tiny_gm_sound_font()[..]).unwrap());
+        Some(vec![("A.sf2".into(), font()), ("B.sf2".into(), font())])
     }
 
     fn peaks() -> [AtomicU32; 16] {

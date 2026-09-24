@@ -81,7 +81,7 @@ const DRUMS: [(u64, [u8; 3]); 14] = [
 type Usage = Vec<(u8, u8, u8, u8)>;
 
 /// A style handed to the engine: its table bank, style key, program list and tag.
-type Pending = (u8, String, Usage, u64);
+pub(super) type Pending = (u8, String, Usage, u64);
 
 /// The control side's sound library.
 pub(super) struct SoundLib {
@@ -101,6 +101,9 @@ pub(super) struct SoundLib {
     rack_fonts: Vec<String>,
     /// The SoundFonts of the rack being loaded.
     loading: Option<Vec<String>>,
+    /// SoundFonts that failed to load, with the file's (time, size) then: not tried again
+    /// until the file changes.
+    failed: HashMap<String, Option<(std::time::SystemTime, u64)>>,
     /// The table bank, style key and program list of the style playing.
     cur_bank: u8,
     cur_key: String,
@@ -111,6 +114,8 @@ pub(super) struct SoundLib {
     /// The channels the map put on a plugin (the patch id), through #91's
     /// `assign_channel_plugin`.
     plugin_channels: [Option<String>; 16],
+    /// The patch each channel resolved to at the last `sync_channel_routes` (tests).
+    synced: [Option<String>; 16],
     /// Auditions to the synth (the control side's ring), when it runs.
     pub(super) audition_tx: Option<Producer<synth::Msg>>,
     browse: Option<SoundFontBrowse>,
@@ -136,16 +141,23 @@ impl SoundLib {
             cache: HashMap::new(),
             rack_fonts: Vec::new(),
             loading: None,
+            failed: HashMap::new(),
             cur_bank: 0,
             cur_key: String::new(),
             cur_usage: Vec::new(),
             pending: None,
             audition: None,
             plugin_channels: Default::default(),
+            synced: Default::default(),
             audition_tx: None,
             browse: None,
             last_added: None,
         }
+    }
+
+    /// The style just handed to the engine (`sound_library_on_style`'s result).
+    pub(super) fn set_pending(&mut self, pending: Pending) {
+        self.pending = Some(pending);
     }
 
     /// Why the library file was not loaded, if it wasn't (for the message line).
@@ -242,7 +254,7 @@ impl SoundLib {
 
     /// The SoundFonts the synth should have: the main one, then every other one a library
     /// patch (or the audition) plays, if it is in the folder.
-    fn wanted_fonts(&self, main: &str, avail: &[String]) -> Vec<String> {
+    fn wanted_fonts(&self, main: &str, avail: &[String], dir: Option<&Path>) -> Vec<String> {
         let mut extra: Vec<String> = self
             .lib
             .patches
@@ -252,15 +264,33 @@ impl SoundLib {
                 PatchSource::Plugin { .. } => None,
             })
             .chain(self.audition.as_ref().and_then(|a| a.font.clone()))
-            .filter(|f| f != main && avail.contains(f))
+            .filter(|f| f != main && avail.contains(f) && !self.still_failed(f, dir))
             .collect();
         extra.sort();
         extra.dedup();
         std::iter::once(main.to_string()).chain(extra).collect()
     }
 
+    /// `file` failed to load, and it hasn't changed since (same size and time): it is not
+    /// tried again until it does, so a bad SoundFont never keeps the loader busy.
+    fn still_failed(&self, file: &str, dir: Option<&Path>) -> bool {
+        match (self.failed.get(file), dir) {
+            (Some(when), Some(dir)) => *when == stamp(&dir.join(file)),
+            (Some(_), None) => true,
+            (None, _) => false,
+        }
+    }
+
+    /// Remember that `file` in `dir` failed to load.
+    fn mark_failed(&mut self, file: &str, dir: Option<&Path>) {
+        let st = dir.and_then(|d| stamp(&d.join(file)));
+        self.failed.insert(file.to_string(), st);
+    }
+
     /// Start loading a rack with `fonts` (the main one first) from `dir`, on a thread of its
-    /// own: SoundFonts already parsed are reused.
+    /// own: SoundFonts already parsed are reused. Each extra SoundFont loads on its own: one
+    /// that fails is left out (and reported), the others still load; only the main one
+    /// failing fails the rack.
     fn spawn_rack(&mut self, dir: &Path, fonts: Vec<String>, sample_rate: u32) -> Option<mpsc::Receiver<RackLoad>> {
         let mut jobs = Vec::new();
         for f in &fonts {
@@ -272,19 +302,23 @@ impl SoundLib {
         let spawned = std::thread::Builder::new().name("yahaha-sf2".into()).spawn(move || {
             let load = || -> Result<RackLoaded, String> {
                 let mut fonts = Vec::new();
-                for (id, file, cached) in jobs {
+                let mut failed = Vec::new();
+                for (i, (id, file, cached)) in jobs.into_iter().enumerate() {
                     let font = match cached {
-                        Some(f) => f,
-                        None => {
-                            let mut r = std::fs::File::open(dir.join(&file)).map_err(|e| format!("{file}: {e}"))?;
-                            Arc::new(SoundFont::new(&mut r).map_err(|e| format!("{file}: {e:?}"))?)
-                        }
+                        Some(f) => Ok(f),
+                        None => std::fs::File::open(dir.join(&file))
+                            .map_err(|e| format!("{e}"))
+                            .and_then(|mut r| SoundFont::new(&mut r).map(Arc::new).map_err(|e| format!("{e:?}"))),
                     };
-                    fonts.push((id, file, font));
+                    match font {
+                        Ok(font) => fonts.push((id, file, font)),
+                        Err(e) if i == 0 => return Err(format!("{file}: {e}")),
+                        Err(e) => failed.push((file, e)),
+                    }
                 }
                 let with: Vec<(u8, Arc<SoundFont>)> = fonts.iter().map(|(id, _, f)| (*id, f.clone())).collect();
                 let rack = synth::Rack::with_fonts(&with, sample_rate as i32).map_err(|e| format!("{e:#}"))?;
-                Ok((Box::new(rack), fonts.into_iter().map(|(_, f, font)| (f, font)).collect()))
+                Ok((Box::new(rack), fonts.into_iter().map(|(_, f, font)| (f, font)).collect(), failed))
             };
             let _ = tx.send(load());
         });
@@ -294,8 +328,15 @@ impl SoundLib {
     }
 }
 
-/// A loaded rack and the SoundFonts in it (file, font), for the cache.
-pub(super) type RackLoaded = (Box<synth::Rack>, Vec<(String, Arc<SoundFont>)>);
+/// A loaded rack, the SoundFonts in it (file, font) for the cache, and the extra ones
+/// that failed to load (file, why).
+pub(super) type RackLoaded = (Box<synth::Rack>, Vec<(String, Arc<SoundFont>)>, Vec<(String, String)>);
+
+/// A file's size and modification time (None: it can't be read).
+fn stamp(path: &Path) -> Option<(std::time::SystemTime, u64)> {
+    let m = std::fs::metadata(path).ok()?;
+    Some((m.modified().ok()?, m.len()))
+}
 
 impl Control {
     fn avail_fonts(&self) -> Vec<String> {
@@ -566,14 +607,23 @@ impl Control {
         };
         let n = other.patches.len();
         if replace {
+            // A library file that could not be read (a newer yahaha's, or damaged) is kept
+            // beside the new one before the new one is saved over it.
+            if let (Some(_), Some(path)) = (&self.sound.locked, &self.sound.path) {
+                let bak = path.with_extension("json.bak");
+                if let Err(e) = std::fs::rename(path, &bak) {
+                    return self.sl_fail(format!("{} not replaced: {e}", path.display()));
+                }
+                self.say(format!("The old sound library is kept as {}", bak.display()), false);
+                self.sound.locked = None;
+            }
             self.sound.lib = other;
             self.sound.part_patch = Default::default();
         } else {
             let added = self.sound.lib.merge(other, maps);
-            self.say(format!("Imported {added} of {n} patches"), false);
+            let kept = if self.sound.locked.is_some() { " (not saved: the library file is a newer yahaha's; import with replace to take its place)" } else { "" };
+            self.say(format!("Imported {added} of {n} patches{kept}"), self.sound.locked.is_some());
         }
-        // A library file that could not be read before is replaced by a good one now.
-        self.sound.locked = None;
         self.sound_library_changed();
         Ok(())
     }
@@ -612,29 +662,30 @@ impl Control {
         patches::resolve(&lib.map, style, drum, prog).patch.map(str::to_string)
     }
 
-    /// Bring the synth's per-channel route table (`SynthControl::routes`, #91) to the map,
-    /// off the real-time threads: each Style part and keyboard part on the SoundFont slot
-    /// its patch plays from (`Source::SoundFont(n)`, n = its slot in the rack, 0 = the main
-    /// font), or, for a plugin patch, on a plugin (`assign_channel_plugin`). A channel the
-    /// map put on a plugin goes back to the SoundFont when it no longer resolves to one.
-    /// A keyboard part's own plugin (`SetPartPlugin`, #91) is left alone.
-    ///
-    /// Program changes inside a section still pick their SoundFont on the audio thread,
-    /// from the per-program table (`patches::Routes`): they can't be known here in time.
+    /// Bring the synth's per-channel route table (`SynthControl::routes`, #91, the one table
+    /// that says which renderer plays a channel) to the map, off the real-time threads: a
+    /// Style part whose setup voice resolves to a plugin patch gets that plugin
+    /// (`assign_channel_plugin`); a channel the map put on a plugin goes back to the
+    /// SoundFont (`Source::SoundFont(0)`) when it no longer resolves to one. Channels on
+    /// the SoundFont stay `SoundFont(0)`: which SoundFont of the rack plays them is the
+    /// rack's own per-program routing (`patches::Routes`), because a program change inside
+    /// a section can't be known here in time. A keyboard part's own plugin
+    /// (`SetPartPlugin`, #91) is left alone.
     pub(super) fn sync_channel_routes(&mut self) {
-        if self.synth.is_none() {
-            return;
-        }
         let channels: Vec<u8> = (0..parts::COUNT as u8).map(|p| parts::CHANNEL[p as usize]).chain(8..16).collect();
         for ch in channels {
             let patch = self.channel_patch(ch).and_then(|id| self.sound.lib.patch(&id).cloned());
+            self.sound.synced[ch as usize] = patch.as_ref().map(|p| p.id.clone());
+            if self.synth.is_none() {
+                continue;
+            }
             let mine = self.sound.plugin_channels[ch as usize].clone();
             match patch.as_ref().map(|p| (&p.id, &p.source)) {
                 Some((id, PatchSource::Plugin { component_id, state })) if parts::part_of_channel(ch).is_none() => {
                     if mine.as_deref() == Some(id.as_str()) {
                         continue;
                     }
-                    // TODO(#91): the plugin state format is #91's (ClassInfo bytes, base64).
+                    // The plugin state format is #91's (ClassInfo bytes, base64).
                     let voice = super::PluginVoice { id: component_id.clone(), state: crate::api::base64_decode(state) };
                     match self.assign_channel_plugin(ch, voice) {
                         Ok(()) => self.sound.plugin_channels[ch as usize] = Some(id.clone()),
@@ -642,20 +693,10 @@ impl Control {
                         Err(_) => self.sound.plugin_channels[ch as usize] = None,
                     }
                 }
-                other => {
-                    let n = match other {
-                        Some((_, PatchSource::SoundFont { file, .. })) => {
-                            self.sound.rack_fonts.iter().position(|f| f == file).unwrap_or(0).min(crate::route::MAX_FONT as usize) as u8
-                        }
-                        _ => 0,
-                    };
+                _ => {
                     if mine.is_some() {
                         self.sound.plugin_channels[ch as usize] = None;
-                        self.route_channel_sound_font(ch, n);
-                    } else if let Some(sy) = &self.synth
-                        && sy.control.routes.source(ch) != crate::route::Source::Plugin
-                    {
-                        sy.control.routes.set(ch, crate::route::Source::SoundFont(n));
+                        self.route_channel_sound_font(ch, 0);
                     }
                 }
             }
@@ -744,7 +785,7 @@ impl Control {
     /// A style is being handed to the engine: its bank of the table (the one the playing
     /// style doesn't use), its parts' levels from their patches where the style sets none,
     /// and its program list.
-    pub(super) fn sound_library_on_style(&mut self, p: &mut Prepared, path: &Path) {
+    pub(super) fn sound_library_on_style(&mut self, p: &mut Prepared, path: &Path) -> Pending {
         let key = patches::style_key(path);
         let bank = match &self.sound.pending {
             Some((b, ..)) => *b,
@@ -754,7 +795,7 @@ impl Control {
         p.route_bank = bank;
         let (avail, routes) = (self.avail_fonts(), self.shared.routes.clone());
         self.sound.write_bank(&routes, bank, &key, &avail);
-        self.sound.pending = Some((bank, key, usage, p.tag));
+        (bank, key, usage, p.tag)
     }
 
     /// The first style, before the engine has it (bank 0).
@@ -791,17 +832,31 @@ impl Control {
         let sample_rate = sy.info.sample_rate;
         let dir = self.sf_dir.clone()?;
         let avail = self.avail_fonts();
-        let fonts = self.sound.wanted_fonts(main, &avail);
+        let fonts = self.sound.wanted_fonts(main, &avail, Some(&dir));
         self.sound.spawn_rack(&dir, fonts, sample_rate)
     }
 
     /// A rack finished loading: its SoundFonts are what the synth plays (once it is
     /// swapped in), and they stay parsed for the next rack.
-    pub(super) fn sound_library_loaded(&mut self, fonts: Vec<(String, Arc<SoundFont>)>) {
+    pub(super) fn sound_library_loaded(&mut self, fonts: Vec<(String, Arc<SoundFont>)>, failed: Vec<(String, String)>) {
+        if !failed.is_empty() {
+            let dir = self.sf_dir.clone();
+            for (f, _) in &failed {
+                self.sound.mark_failed(f, dir.as_deref());
+            }
+            let text = failed.iter().map(|(f, e)| format!("{f}: {e}")).collect::<Vec<_>>().join("; ");
+            self.say(format!("SoundFont not loaded (its patches play the fallback): {text}"), true);
+        }
         self.sound.rack_fonts = fonts.iter().map(|(f, _)| f.clone()).collect();
         self.sound.cache = fonts.into_iter().collect();
         self.sound.loading = None;
         self.sync_channel_routes();
+    }
+
+    /// A rack with `main` failed to load.
+    pub(super) fn sound_library_failed(&mut self, main: &str, dir: Option<&Path>) {
+        self.sound.mark_failed(main, dir);
+        self.sound.loading = None;
     }
 
     /// Each pump: a rack with the SoundFonts the library needs, and the audition.
@@ -810,12 +865,16 @@ impl Control {
             self.sound.loading = None;
         }
         let can_swap = self.synth.as_ref().is_some_and(|s| s.swap.is_some());
+        let dir = self.sf_dir.clone();
         if can_swap
             && self.sound.loading.is_none()
             && let Some(main) = self.sf_file.clone()
+            && !self.sound.still_failed(&main, dir.as_deref())
+            && self.sound.wanted_fonts(&main, &self.avail_fonts(), dir.as_deref()) != self.sound.rack_fonts
         {
-            let avail = self.avail_fonts();
-            if self.sound.wanted_fonts(&main, &avail) != self.sound.rack_fonts
+            // The folder as it is now (a file may have come or gone), then decide again.
+            self.list_sound_fonts();
+            if self.sound.wanted_fonts(&main, &self.avail_fonts(), dir.as_deref()) != self.sound.rack_fonts
                 && let Some(rx) = self.sound_library_rack(&main)
             {
                 self.sf_load = Some((main, rx));
