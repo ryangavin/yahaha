@@ -26,7 +26,7 @@ Play a chord left of **F#2** (Yamaha numbering, C3 = middle C) and the band star
 
 The built-in synth uses the first `.sf2` file in `soundfonts/` (GeneralUser GS, downloaded separately; it's not in git). It plays on your default audio output with a 64-frame buffer (about 1.3 ms at 48 kHz).
 - **Keyboard parts:** like the Genos, you play four parts: **Right 1**, **Right 2** and **Right 3** right of the split, and **Left** left of it. Each part has its own voice, volume, octave shift and on/off. The Right parts that are on sound together, which is how you layer (Piano + Strings = Right 1 + Right 2 on). At start only Right 1 (Grand Piano) is on; Right 2 is Strings, Right 3 Brass, Left Strings. Turn parts on/off with the buttons under faders 1–4 (fader Panel page), the bottom-left pads on pad page 3, or `5` `6` `7` `8` (`l` also toggles Left). Pick the part whose voice you want to change with `F1`–`F4`, the EDIT pads on pad page 3, or Shift + the button under its fader, then step its voice with `9`/`0` or the VOICE −/+ pads.
-- **Where your parts go:** each part has its own channel, on the `yahaha` port and in the built-in synth alike: Right 1 = ch 1, Left = ch 2 (the channels your right and left hand always had), Right 2 = ch 3, Right 3 = ch 4. A part that is off sends nothing. With Left off, the Right parts play over the whole keyboard, as on the Genos, except that in Lower chord detection (outside the Full Keyboard fingerings) the keys left of the split only drive the chords. Each part's octave shift is applied to the notes it sends. Pedals, wheels and pressure go to all four parts (polyphonic aftertouch to the notes its key sounds); the keyboard's own volume (CC 7), bank select and program changes are ignored, because each part's voice and volume are its own.
+- **Where your parts go:** each part has its own channel, on the `yahaha` port and in the built-in synth alike: Right 1 = ch 1, Left = ch 2 (the channels your right and left hand always had), Right 2 = ch 3, Right 3 = ch 4. A part that is off sends nothing. With Left off, the Right parts play over the whole keyboard, as on the Genos, except that in Lower chord detection (outside the Full Keyboard fingerings) the keys left of the split only drive the chords. Each part's octave shift is applied to the notes it sends. The sustain pedal and the wheels go to the parts that are on (which parts each reaches is a setting: see Pedals and wheels below); other controllers and pressure go to all four parts (polyphonic aftertouch to the notes its key sounds); the keyboard's own volume (CC 7), bank select and program changes are ignored, because each part's voice and volume are its own.
 - **Mixer:** the faders have two pages, like the Genos Mixer's Panel and Style tabs. The button under the master fader (or `F9`) switches between them; it lights blue on Panel and green on Style, and the screen outlines the active page in yellow.
   - **Panel:** faders 1–4 are the volumes of Right 1, Right 2, Right 3 and Left; their buttons turn the parts on/off (lit while on). Faders 5–8 do nothing on this page.
   - **Style:** faders 1–8 are the band's eight part volumes; their buttons mute and unmute the parts (lit while they play).
@@ -133,6 +133,27 @@ Pressing the current Main again plays its fill. With Auto Fill on, switching Mai
 | button under the master fader | fader page Panel / Style |
 
 The last Launchkey note or CC that nothing is mapped to shows at the bottom of the screen, e.g. `unmapped CC 103 = 127`. If a button does nothing, that shows the number it really sends.
+
+### Pedals and wheels
+
+The keyboard's pedals and wheels work through the keyboard parts, as on a Genos
+(docs/controllers.md; set them up in the app: Settings → Controllers):
+
+- **Sustain** (the Launchkey's sustain jack, CC 64) holds the notes of the parts that are
+  on: Right 1–3 and Left by default. A part switched on while the pedal is down joins it;
+  one switched off is released.
+- **Pitch bend** reaches all four parts, **modulation** Right 1–3 by default, each with
+  its own Pitch Bend Range (0–12 semitones, default 2).
+- **Pedals 1–3** listen for a CC each (default 64 Sustain, 66 Sostenuto, 67 Soft) and can
+  run any assignable function instead: Start/Stop, Sync Start/Stop, Intro, Main A–D, Fill
+  Up/Down/Self, Break, Ending, Auto Fill, OTS 1–4 and OTS +/−, tempo, transpose, part
+  on/off, Fingered ⇄ On Bass, or Modulation / Pitch Bend from an expression pedal.
+  "Learn" in the app takes the CC from the next pedal press.
+- **Panic** (`\`) releases the pedal and centres the wheels on every keyboard part, and a
+  keyboard unplugged with its pedal down is released too. A held pedal carries across
+  style and section changes untouched.
+
+The screen shows `sus` beside each part the pedal is holding.
 
 ### Terminal keys
 

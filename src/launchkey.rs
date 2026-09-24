@@ -168,6 +168,8 @@ pub enum Action {
     Style(i8),
     /// Style Retrigger length shorter (+1) / longer (-1) (`}` `{`).
     RetriggerRate(i8),
+    /// A pedal's assignable function that the control side runs (`controllers.rs`).
+    Assign(crate::controllers::Function),
 }
 
 /// What a pad does on a page.

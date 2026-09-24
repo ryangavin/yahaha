@@ -96,5 +96,12 @@ export function tipFor(cmd: AppCmd | null): TipKey {
     case 'setFadeOutTime': return 'settings.fade_out'
     case 'setFadeHoldTime': return 'settings.fade_hold'
     case 'setSectionReset': return 'settings.section_reset'
+    // Fill Up/Down/Self are pedal functions (no pad has them).
+    case 'fill':
+    case 'setPedal': return 'pedal.function'
+    case 'learnPedal': return 'pedal.learn'
+    case 'triggerFunction': return 'pedal.try'
+    case 'setPartControllers': return 'pedal.part_sustain'
+    case 'setBendRange': return 'pedal.bend_up'
   }
 }

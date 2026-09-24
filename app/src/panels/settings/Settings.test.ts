@@ -32,7 +32,7 @@ describe('Settings drawer', () => {
   it('groups the pages like the Genos menus, one visible at a time', async () => {
     setup()
     const tabs = [...document.querySelectorAll('[role="tab"]')].map((t) => t.textContent?.trim())
-    expect(tabs).toEqual(['Chord', 'Split', 'Transpose', 'Style', 'Audio', 'MIDI', 'Library'])
+    expect(tabs).toEqual(['Chord', 'Split', 'Transpose', 'Style', 'Pedals', 'Audio', 'MIDI', 'Library'])
     expect(page('chord').hidden).toBe(false)
     expect(page('audio').hidden).toBe(true)
     await fireEvent.click(q('#settings-tab-audio'))
