@@ -33,7 +33,8 @@ impl Engine {
     /// The style follows chord `played` (as fingered): from the keyboard, or the Chord
     /// Looper playing it back. While the band plays (or Stop Accompaniment sounds the
     /// chord), the band follows it once it settles (settle.rs): in `process`, after the
-    /// other inputs of this wake, and after the chord-settle window.
+    /// other inputs of this wake, and after the chord-settle window. An exact chord change
+    /// that must not wait (loop playback, a chart's chords) uses `apply_chord_unsettled`.
     pub(super) fn apply_chord(&mut self, played: Chord, now: u64, sink: &mut impl Sink) {
         self.played = Some(played);
         let sync_start = self.starts_on_chord() && played.ty != CANCEL;

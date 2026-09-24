@@ -27,6 +27,10 @@
 //! when the chord arrived, not from the settle, so a chord that lands just after the beat
 //! takes the downbeat as before.
 //!
+//! What does not wait: an exact, machine-made chord change (the Chord Looper's playback,
+//! and a chart's chords, iReal #98) is never rolled, so it goes through
+//! `Engine::apply_chord_unsettled`, which settles at once.
+//!
 //! The cost is latency, and only there: a chord struck on (or just before) a note of a
 //! chord part delays that note by up to the window (and `catch_up` drops a held-back note
 //! with less of it left than it waited, one shorter than about twice the wait). A chord struck at least a window
@@ -106,6 +110,21 @@ impl Engine {
     /// The first held-back event of the section playing, if any.
     pub(super) fn held_from(&self) -> Option<usize> {
         self.hold.filter(|h| h.slot == self.cur && h.sec_start == self.sec_start).map(|h| h.idx)
+    }
+
+    /// The style follows chord `played` (as fingered) at once, with no chord-settle window:
+    /// the path for exact, machine-made chord changes that are never rolled, such as the
+    /// Chord Looper's playback (looper.rs) and, later, a chart's chords (iReal, #98). A
+    /// keyboard chord goes through `set_chord` and waits for the window instead.
+    ///
+    /// It settles every change waiting (a Keyboard transpose too) before the notes of its
+    /// own tick, so none of them are held back. Call it where no other input of the wake
+    /// follows (from `process`, or a hook it runs): an input handled after it in the same
+    /// wake would move the notes it just struck again (#47).
+    pub(super) fn apply_chord_unsettled(&mut self, played: Chord, now: u64, sink: &mut impl Sink) {
+        self.apply_chord(played, now, sink);
+        // Playing, or stopped under Stop Accompaniment (`apply_chord` left it unsettled).
+        self.settle(now, sink);
     }
 
     /// Settle the chord change waiting, if its time has come: the band follows the chord

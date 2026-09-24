@@ -197,13 +197,10 @@ impl Engine {
     /// Play the loop's chord `c` as if it had been played.
     fn loop_chord(&mut self, c: Chord, now: u64, sink: &mut impl Sink) {
         if self.played != Some(c) {
-            self.apply_chord(c, now, sink);
             // A recorded chord change is exact, never rolled, and comes in `process`,
             // after the wake's inputs: it settles at once, before the notes of its own
             // tick, instead of holding them back for the chord-settle window (settle.rs).
-            if self.running {
-                self.settle(now, sink);
-            }
+            self.apply_chord_unsettled(c, now, sink);
         }
     }
 
@@ -401,6 +398,29 @@ mod tests {
         assert_eq!(e.played, Some(c("Bb")));
         assert_eq!(e.looper_snapshot().state, LoopState::Off);
         assert!(e.looper_snapshot().has_data);
+    }
+
+    /// `apply_chord_unsettled`, the path for exact chord changes (loop playback, a chart's
+    /// chords): under a 10 ms window it takes effect at once, stopped under Stop
+    /// Accompaniment and playing, and settles a keyboard chord still waiting with it.
+    #[test]
+    fn an_unsettled_chord_takes_effect_at_once() {
+        let Some(mut e) = engine() else { return };
+        e.set_chord_settle(10_000_000);
+        e.button(Button::SyncStart, 0, &mut Nop); // off
+        e.button(Button::StopAcmp, 0, &mut Nop);
+        e.apply_chord_unsettled(c("F"), 1_000_000, &mut Nop);
+        assert!(!e.running && !e.holding(), "stopped: no wait");
+        assert_eq!(e.chord, Some(c("F")));
+        e.button(Button::StopAcmp, 2_000_000, &mut Nop);
+        e.button(Button::StartStop, 2_000_000, &mut Nop);
+        e.process(2_000_000, &mut Nop);
+        assert!(e.running);
+        e.set_chord(c("G"), 3_000_000, &mut Nop);
+        assert!(e.holding(), "a keyboard chord waits for the window");
+        e.apply_chord_unsettled(c("Bb"), 4_000_000, &mut Nop);
+        assert!(!e.holding(), "playing: no wait, nothing left waiting");
+        assert_eq!(e.chord, Some(c("Bb")));
     }
 
     /// A loop's chord changes are not held back by the chord-settle window (they are
