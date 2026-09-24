@@ -292,3 +292,36 @@ fn slow_renders_are_counted_as_overruns() {
     let overruns = ctl.poll().into_iter().filter(|e| matches!(e, RackEvent::Overrun { channel: 0, .. })).count();
     assert_eq!(overruns, 1, "events are rate-limited to one per second per slot");
 }
+
+/// A part's CC7 sent while the SoundFont still played it (before any plugin was assigned)
+/// sets the plugin's level too: the rack tracks it on unowned channels, while still leaving
+/// the message to the caller's synth.
+#[test]
+fn a_plugin_assigned_later_starts_at_the_parts_level() {
+    let run = |cc7_before_assign: bool| {
+        let (mut rack, mut ctl) = rack(256, RATE);
+        if cc7_before_assign {
+            assert!(!rack.midi([0xB0, 7, 20], 0), "unowned: still the caller's synth's message");
+        }
+        ctl.assign(0, dls(256), Swap { fade_frames: 0, trim: 1.0 }).ok().unwrap();
+        let first: &[[u8; 3]] = if cc7_before_assign { &[[0x90, 60, 110]] } else { &[[0xB0, 7, 20], [0x90, 60, 110]] };
+        let (l, r) = block(&mut rack, first, 256);
+        let mut e = energy(&l, &r);
+        for _ in 0..4 {
+            let (l, r) = block(&mut rack, &[], 256);
+            e += energy(&l, &r);
+        }
+        e
+    };
+    let db = 10.0 * (run(true) / run(false)).log10();
+    assert!(db.abs() < 0.5, "CC7 sent before the assign is honoured: {db:.2} dB off");
+}
+
+#[test]
+fn a_non_finite_trim_cannot_poison_the_mix() {
+    let (mut rack, mut ctl) = rack(256, RATE);
+    ctl.assign(0, dls(256), Swap { fade_frames: 0, trim: f32::NAN }).ok().unwrap();
+    let (l, r) = block(&mut rack, &[[0x90, 60, 110]], 256);
+    assert!(l.iter().chain(&r).all(|x| x.is_finite()));
+    assert!(energy(&l, &r) > 0.0, "treated as no trim");
+}

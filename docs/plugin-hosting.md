@@ -93,7 +93,11 @@ is allocated there)
   curve and 14-bit arithmetic rustysynth uses (`voice.rs`: `ve * ve`), power-on 100 / 127,
   CC121 resets expression. The plugin never sees CC7 or CC11, so a fader at 100 is the same
   level on either engine, whatever the plugin would have done with CC7. Velocity still goes
-  to the plugin. `Swap::trim` is a per-voice linear trim for level normalisation.
+  to the plugin. The rack tracks CC7 / CC11 and the replayed controllers on every channel
+  it is offered, owned or not (returning `false` for unowned ones as before), so a plugin
+  assigned mid-song starts at the part's current level rather than power-on 100.
+  `Swap::trim` is a per-voice linear trim for level normalisation (non-finite or negative
+  is treated as 1.0, so it can never put NaN into the mix).
 - **Swaps.** An assign takes effect at the next block boundary. The part's controllers
   (everything but volume, bank select, RPN/NRPN and channel mode messages) and pitch bend
   are replayed into the incoming instance, so modulation, pan, sustain and bend carry over.

@@ -19,6 +19,8 @@
 //! **Mixer rule.** A part's level is its CC7 and CC11 on the GM curve, exactly as the
 //! built-in synth answers them ([`PartGain`]): the rack keeps those two controllers (and
 //! their LSBs) and applies the gain to the plugin's output; the plugin never sees them.
+//! It tracks them (and the replayed controllers) on every channel, owned or not, so a plugin
+//! assigned mid-song starts at the part's current level.
 //! The master fader and soft clipper stay after the sum, in the caller.
 //!
 //! **Swaps.** An assign takes effect at the next block boundary. The outgoing instance gets
@@ -52,7 +54,8 @@ pub struct Swap {
     /// Crossfade length. 0 = hand over at the block boundary (the old voice is cut).
     pub fade_frames: u32,
     /// A fixed level trim for this instance, linear (1.0 = none): the per-voice
-    /// normalisation that makes a plugin sit near its SoundFont equivalent.
+    /// normalisation that makes a plugin sit near its SoundFont equivalent. A non-finite or
+    /// negative trim is treated as 1.0.
     pub trim: f32,
 }
 
@@ -175,7 +178,12 @@ pub struct RackControl {
 impl RackControl {
     /// Hand a loaded instance to `channel` (0-15). It starts at the next block boundary.
     /// Gives the instance back if the command ring is full (the audio thread is not running).
-    pub fn assign(&mut self, channel: u8, inst: PluginInstance, swap: Swap) -> Result<(), Box<PluginInstance>> {
+    pub fn assign(&mut self, channel: u8, inst: PluginInstance, mut swap: Swap) -> Result<(), Box<PluginInstance>> {
+        // The trim multiplies straight into the caller's mix: a NaN or infinity there would
+        // bypass the render's non-finite check and silence everything.
+        if !swap.trim.is_finite() || swap.trim < 0.0 {
+            swap.trim = 1.0;
+        }
         let cmd = RackCmd::Assign { channel: channel & 0x0F, inst: Box::new(inst), swap, sent: Instant::now() };
         self.tx.push(cmd).map_err(|rtrb::PushError::Full(c)| match c {
             RackCmd::Assign { inst, .. } => inst,
@@ -375,11 +383,15 @@ impl PluginRack {
         }
         let ch = m[0] & 0x0F;
         let slot = &mut self.slots[ch as usize];
+        // Track the part's controllers and CC7/CC11 on every channel, owned or not, so a
+        // plugin assigned later starts at the level (and with the controllers) the part
+        // already has, not at power-on defaults.
+        slot.ctl.observe(m);
+        let volume = slot.gain.take(m);
         if !slot.owns() {
             return false;
         }
-        slot.ctl.observe(m);
-        if slot.gain.take(m) || slot.faulted {
+        if volume || slot.faulted {
             return true;
         }
         let offset = offset.min(self.max_block.saturating_sub(1) as u32);
