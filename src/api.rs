@@ -18,6 +18,7 @@
 
 mod chord;
 mod controllers;
+mod harmony_arp;
 mod keyboard;
 mod library;
 mod looper;
@@ -28,7 +29,9 @@ mod ots;
 mod pads;
 mod plugins;
 mod parts;
+mod playlist;
 mod preview;
+mod registration;
 mod settings;
 mod surface;
 mod system;
@@ -36,6 +39,7 @@ mod transport;
 
 pub use chord::*;
 pub use controllers::*;
+pub use harmony_arp::*;
 pub use keyboard::*;
 pub use library::*;
 pub use looper::*;
@@ -46,7 +50,9 @@ pub use ots::*;
 pub use pads::*;
 pub use plugins::*;
 pub use parts::*;
+pub use playlist::*;
 pub use preview::*;
+pub use registration::*;
 pub use settings::*;
 pub use surface::*;
 pub use system::*;
@@ -125,6 +131,10 @@ app_cmd! {
     Settings(SettingsCmd),
     /// Panic, the message line.
     System(SystemCmd),
+    /// Registration Memory: buttons, banks, Memorize, Freeze, Registration Sequence.
+    Registration(RegistrationCmd),
+    /// The Playlist.
+    Playlist(PlaylistCmd),
     /// Chord Looper: record, loop, memories.
     Looper(LooperCmd),
     /// Metronome on/off, volume, bell.
@@ -135,6 +145,8 @@ app_cmd! {
     Controllers(ControllersCmd),
     /// Instrument plugins (Audio Units) for the keyboard parts.
     Plugins(PluginCmd),
+    /// Keyboard Harmony / Arpeggio.
+    HarmonyArp(HarmonyArpCmd),
 }
 
 impl From<Button> for AppCmd {
@@ -190,7 +202,15 @@ impl From<Action> for AppCmd {
             Action::PartVoice(d) => PartsCmd::StepVoice { delta: d }.into(),
             Action::ToggleFaderPage => MixerCmd::ToggleFaderPage.into(),
             Action::Style(d) => LibraryCmd::StepStyle { delta: d }.into(),
+            Action::Regist(i) => RegistrationCmd::PressRegist { index: i }.into(),
+            Action::RegistMemory => RegistrationCmd::ToggleRegistMemory.into(),
+            Action::RegistFreeze => RegistrationCmd::ToggleFreeze.into(),
+            Action::RegistBank(d) => RegistrationCmd::StepRegistBank { delta: d }.into(),
+            Action::RegistSeq(d) => RegistrationCmd::StepRegistSequence { delta: d }.into(),
+            Action::Playlist(d) => PlaylistCmd::StepPlaylist { delta: d }.into(),
             Action::Assign(f) => ControllersCmd::TriggerFunction { function: f }.into(),
+            Action::AssignSet(f, on) => function_set(f, on).unwrap_or(ControllersCmd::TriggerFunction { function: f }.into()),
+            Action::ToggleHarmonyArp => HarmonyArpCmd::ToggleHarmonyArp.into(),
         }
     }
 }
@@ -263,10 +283,17 @@ pub struct AppState {
     pub preview: PreviewState,
     /// The keys held and the chord, for the app's keyboard strip.
     pub keyboard: KeyboardState,
+    /// Registration Memory: the bank, its ten buttons, Freeze, the Registration Sequence.
+    pub registration: RegistrationState,
+    /// The Playlist.
+    pub playlist: PlaylistState,
     /// Multi Pads: the bank, the four pads, Synchro Stop, the bank files.
     pub multi_pad: MultiPadState,
     /// Pedals, wheels, their parts and the pedals' assignable functions.
     pub controllers: ControllersState,
+    /// Keyboard Harmony / Arpeggio: the switch, the type, the settings.
+    #[serde(default)]
+    pub harmony_arp: HarmonyArpState,
     /// The last notice or error, until the next one or `ClearMessage`.
     pub message: Option<Message>,
     /// The Chord Looper.

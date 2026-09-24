@@ -129,6 +129,66 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | **OTS Link** | When on, your hands' sounds follow the band: pressing Main A, B, C or D also recalls OTS 1, 2, 3 or 4. Changing style recalls the setting for the Main that's playing. | OTS LINK | `F10` | Pad page 3 (OTS/Parts), top row, pad 5; Shift + Pad Bank ▼ |
 | **OTS Link timing** | When OTS Link swaps the setting: as soon as you press a Main button, not when the band reaches the new Main at the bar line. The Genos calls this Real Time. | OTS Link Timing: Real Time | — | — |
 
+## Registration Memory
+
+| control | what it does | Genos | key | Launchkey |
+|---|---|---|---|---|
+| **Registration 1** | Recalls the panel stored on this button: style, section, tempo, your parts, the mixer, split and more (the groups it memorized, less any you froze). Blue when it holds a setup, red when it is the one in use, dark when empty. With Memory armed, stores the panel here instead. | REGISTRATION MEMORY [1] | `Shift+Q` | Pad page 4 (Registration), top row, pad 1 |
+| **Registration 2** | Recalls the panel stored on this button: style, section, tempo, your parts, the mixer, split and more (the groups it memorized, less any you froze). Blue when it holds a setup, red when it is the one in use, dark when empty. With Memory armed, stores the panel here instead. | REGISTRATION MEMORY [2] | `Shift+W` | Pad page 4 (Registration), top row, pad 2 |
+| **Registration 3** | Recalls the panel stored on this button: style, section, tempo, your parts, the mixer, split and more (the groups it memorized, less any you froze). Blue when it holds a setup, red when it is the one in use, dark when empty. With Memory armed, stores the panel here instead. | REGISTRATION MEMORY [3] | `Shift+E` | Pad page 4 (Registration), top row, pad 3 |
+| **Registration 4** | Recalls the panel stored on this button: style, section, tempo, your parts, the mixer, split and more (the groups it memorized, less any you froze). Blue when it holds a setup, red when it is the one in use, dark when empty. With Memory armed, stores the panel here instead. | REGISTRATION MEMORY [4] | `Shift+R` | Pad page 4 (Registration), top row, pad 4 |
+| **Registration 5** | Recalls the panel stored on this button: style, section, tempo, your parts, the mixer, split and more (the groups it memorized, less any you froze). Blue when it holds a setup, red when it is the one in use, dark when empty. With Memory armed, stores the panel here instead. | REGISTRATION MEMORY [5] | `Shift+T` | Pad page 4 (Registration), top row, pad 5 |
+| **Registration 6** | Recalls the panel stored on this button: style, section, tempo, your parts, the mixer, split and more (the groups it memorized, less any you froze). Blue when it holds a setup, red when it is the one in use, dark when empty. With Memory armed, stores the panel here instead. | REGISTRATION MEMORY [6] | `Shift+Y` | Pad page 4 (Registration), top row, pad 6 |
+| **Registration 7** | Recalls the panel stored on this button: style, section, tempo, your parts, the mixer, split and more (the groups it memorized, less any you froze). Blue when it holds a setup, red when it is the one in use, dark when empty. With Memory armed, stores the panel here instead. | REGISTRATION MEMORY [7] | `Shift+U` | Pad page 4 (Registration), top row, pad 7 |
+| **Registration 8** | Recalls the panel stored on this button: style, section, tempo, your parts, the mixer, split and more (the groups it memorized, less any you froze). Blue when it holds a setup, red when it is the one in use, dark when empty. With Memory armed, stores the panel here instead. | REGISTRATION MEMORY [8] | `Shift+I` | Pad page 4 (Registration), top row, pad 8 |
+| **Registration 9** | Recalls the panel stored on this button: style, section, tempo, your parts, the mixer, split and more (the groups it memorized, less any you froze). Blue when it holds a setup, red when it is the one in use, dark when empty. With Memory armed, stores the panel here instead. | REGISTRATION MEMORY [9] | `Shift+O` | Pad page 4 (Registration), bottom row, pad 1 |
+| **Registration 10** | Recalls the panel stored on this button: style, section, tempo, your parts, the mixer, split and more (the groups it memorized, less any you froze). Blue when it holds a setup, red when it is the one in use, dark when empty. With Memory armed, stores the panel here instead. | REGISTRATION MEMORY [10] | `Shift+P` | Pad page 4 (Registration), bottom row, pad 2 |
+| **Memory** | Arms Memorize: the next Registration button you press stores the whole panel (the ticked Memorize groups) on it, replacing what it held. The buttons flash while it waits. Press Memory again to cancel. | MEMORY | `F5` | Pad page 4 (Registration), bottom row, pad 5 |
+| **Freeze** | While on, recalling a registration leaves the ticked Freeze groups as they are: freeze Style to change voices without changing the band, or Tempo to keep your tempo. | FREEZE | `F6` | Pad page 4 (Registration), bottom row, pad 6 |
+| **Regist −** | Steps back through the bank's Registration Sequence and recalls that button. Works only while the sequence is on. | Registration Sequence − (Regist − pedal) | `F7` | Pad page 4 (Registration), bottom row, pad 7 |
+| **Regist +** | Steps forward through the bank's Registration Sequence and recalls that button, like a pedal on stage. At the end it stops, starts again, or moves to the next bank, as the sequence says. | Registration Sequence + (Regist + pedal) | `F8` | Pad page 4 (Registration), bottom row, pad 8 |
+| **Bank −** | Loads the previous bank file in the Registration folder. Its buttons light up but nothing is recalled until you press one. | REGIST BANK − | `F11` | Pad page 4 (Registration), bottom row, pad 3 |
+| **Bank +** | Loads the next bank file in the Registration folder. Its buttons light up but nothing is recalled until you press one. | REGIST BANK + | `F12` | Pad page 4 (Registration), bottom row, pad 4 |
+| **Bank** | The bank of ten buttons in use. Pick another bank file from the Registration folder; a star means it has changes that aren't saved yet. | Registration Bank Selection | — | — |
+| **Registration and Playlist** | Opens the Registration panel: what each button holds, renaming and clearing, the Memory and Freeze groups, the Registration Sequence and the Playlist. | Regist Bank Info / Edit, Regist Sequence, Regist Freeze, PLAYLIST | — | — |
+| **Registration panel page** | Switches between the bank's buttons, the Memory and Freeze groups, the Registration Sequence and the Playlist. | — | — | — |
+| **New bank** | Starts a new, empty bank. Give it a name and save it to keep it; unsaved changes to the bank in use are dropped. | Regist Bank: New | — | — |
+| **Save bank** | Saves the bank to its file in the Registration folder, or under the name you typed as a new file. If another bank already has that name, nothing is saved: pick another name, or use Overwrite. Once a bank has a file, memorizing, renaming and sequence edits save themselves. | Regist Bank: Save | — | — |
+| **Overwrite bank** | Another bank already has the name you typed. Overwrite replaces that bank's file with this bank; what it held is lost. | Regist Bank: Save (overwrite) | — | — |
+| **Bank name** | The name to save the bank under. Saving with a new name makes a new file and leaves the old one as it was. A name another bank already has is refused, unless you choose Overwrite. | — | — | — |
+| **Button contents** | What this button holds: its style, tempo and the voices of Right 1–3 and Left. Click it to recall it. | Regist Bank Info | — | — |
+| **Memorize here** | Stores the panel as it is now on this button (the ticked Memorize groups), replacing what it held. | MEMORY + [1]–[10] | — | — |
+| **Rename** | Renames this button. The name shows in the Registration bar and in playlists. | Regist Bank Edit: Rename | — | — |
+| **Clear** | Empties this button. Its lamp goes dark. | Regist Bank Edit: Delete | — | — |
+| **Memorize group** | Ticked groups are what Memory stores on a button; a recall only changes what the button stored. Untick Tempo, say, for buttons that should keep whatever tempo you are playing. | Registration Memory window (items to register) | — | — |
+| **Freeze group** | Ticked groups stay as they are when you recall a registration, while Freeze is on. Style also covers the section, the Style mixer, the split, the fingering and the Left part, as on the Genos. | Regist Freeze display | — | — |
+| **Registration Sequence** | Turns the Registration Sequence on, so Regist + and Regist − step through the bank's sequence. As on the Genos this is a panel setting, not part of the bank: it stays as it is when you change banks, and yahaha remembers it between sessions. | Registration Sequence On/Off | — | — |
+| **Add step** | Adds this button to the end of the sequence. A button can come more than once. | Registration Sequence: Insert | — | — |
+| **Sequence step** | A step of the sequence: the button it recalls. Click to take it out of the sequence; the ringed step is the one last recalled. | Registration Sequence: Delete | — | — |
+| **Clear sequence** | Removes every step from the sequence. | Registration Sequence: Clear | — | — |
+| **At the end** | What Regist + does after the last step: Stop does nothing more, Top starts again at the first step, Next bank moves on to the next bank file and its first step. | Registration Sequence end (Stop / Top / Next) | — | — |
+
+## Playlist
+
+| control | what it does | Genos | key | Launchkey |
+|---|---|---|---|---|
+| **Previous song** | Loads the playlist record before the one in use: its bank and button, or its style. | Playlist (previous record) | `<` | Shift + < Track button |
+| **Next song** | Loads the next playlist record: its bank and button, or its style. Step through a set list this way without looking at the screen. | Playlist (next record) | `>` | Shift + Track > button |
+| **Playlist record** | A song in the set list. Click it to load its bank (and recall its button) or its style; the lit one is the song in use. A struck-out name means its file is gone. | Playlist Record (Load) | — | — |
+| **Playlist** | The set list in use. Pick another playlist file from the Playlists folder; a star means it has unsaved changes. | Playlist File Selection | — | — |
+| **New playlist** | Starts a new, empty set list. Unsaved changes to the one in use are dropped. | Playlist: New | — | — |
+| **Save playlist** | Saves the set list in the order shown (a sorted list is saved sorted, and goes back to Normal), to its file or under the name you typed. A name another playlist already has is refused: pick another, or use Overwrite. | Playlist: Save | — | — |
+| **Overwrite playlist** | Another playlist already has the name you typed. Overwrite replaces that playlist's file with this set list. | Playlist: Save (overwrite) | — | — |
+| **Playlist name** | The name to save the set list under. A new name makes a new file; another playlist's name needs Overwrite. | — | — | — |
+| **Add this bank** | Adds the bank in use to the end of the set list, recalling the button that is lit. The bank must be saved first. | Add Record: Select from Registration Bank | — | — |
+| **Add this style** | Adds the loaded style to the end of the set list, for a song that needs only the style. | — | — | — |
+| **Append playlist** | Adds every record of another playlist file to the end of this one. | Add Record: Append Playlist | — | — |
+| **Button to recall** | Which button of the bank this record recalls after loading it, or none to only load the bank. | Record Edit: Load Regist Memory | — | — |
+| **Move up** | Moves the record one place up the set list. Off while the list is sorted. | Playlist: Up | — | — |
+| **Move down** | Moves the record one place down the set list. Off while the list is sorted. | Playlist: Down | — | — |
+| **Delete record** | Takes the record out of the set list; its bank or style file is not touched. Off while the list is sorted. | Playlist: Delete | — | — |
+| **Sort** | Shows the set list in its own order, A to Z or Z to A. Saving while sorted saves that order. | Playlist: Sort (A to Z) | — | — |
+
 ## Keyboard parts
 
 | control | what it does | Genos | key | Launchkey |
@@ -154,6 +214,29 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | **Layer** | The Right parts that are on all sound together on every key above the split: that's a layer. Turn on Right 1 and Right 2 to stack, for example, piano and strings. | PART ON/OFF (Right 1–3 layered) | `5` `6` `7` | Panel fader page: buttons under faders 1–3 |
 | **Left hand** | Left plays the keys at and below the split point, with its own voice. Under Manual Bass it plays the style's Bass voice there instead, and the band's own bass goes quiet. | Split Point (Left) | — | — |
 | **As written for** | The voice the style's author wrote this band part for, and its MIDI channel on the yahaha port. Load a matching instrument on that channel in Ableton to hear the style as intended; ≈ marks the nearest General MIDI voice to a Yamaha one. | Style parts (Mixer › Style) | — | — |
+
+## Keyboard Harmony / Arpeggio
+
+| control | what it does | Genos | key | Launchkey |
+|---|---|---|---|---|
+| **Harmony/Arpeggio** | Turns the selected Keyboard Harmony type or arpeggio on or off for the keys right of the split. Turning it off stops the arpeggio at once; keys you hold keep their harmony notes until you let go. | HARMONY/ARPEGGIO | `Shift+J` | Panel fader page: button under fader 5 |
+| **Harmony types** | Shows the Keyboard Harmony types and selects the one last used: duets, trios, block and 4-way voicings, 1+5, Octave, Strum, Multi Assign, Echo, Tremolo and Trill. | Keyboard Harmony | — | — |
+| **Arpeggio patterns** | Shows the arpeggio patterns and selects the one last used. They are yahaha's own patterns, not Yamaha's. | Arpeggio | — | — |
+| **Harmony type** | Selects this Keyboard Harmony type. The harmony follows the chord you play for the style, and only the top note of your right hand is harmonised. | Keyboard Harmony type | — | — |
+| **Arpeggio pattern** | Selects this arpeggio pattern. The keys you hold right of the split play it, in time with the style (or at the tempo while it is stopped). | Arpeggio type | — | — |
+| **Previous type** | Steps back through the Harmony types and the arpeggios, as one list. | — | — | — |
+| **Next type** | Steps on through the Harmony types and then the arpeggios, as one list. | — | `Shift+L` | — |
+| **Volume** | The level of the added notes, and of the arpeggio. At 127 they play as hard as you do; at 0 they are silent. | Volume (HrmArpVol) | — | — |
+| **Speed** | How fast Echo, Tremolo and Trill repeat, as a note value at the current tempo. | Speed | — | — |
+| **Assign** | Which Right parts sound the effect. Auto: the added notes and repeats on the first Right part that is on, the arpeggio on every Right part that is on; Multi (Harmony types and Echo only): the melody on the first, the added notes spread over the others; Right 1–3: that part. | Assign | — | — |
+| **Chord Note Only** | Harmonises only melody notes that belong to the chord you are playing. Passing notes play plainly. | Chord Note Only | — | — |
+| **Touch Limit** | The effect sounds only for keys played at least this hard, so you can accent single notes with a harmony. | Minimum Velocity | — | — |
+| **Arpeggio Quantize** | Starts the pattern on the nearest eighth or sixteenth of the style's grid, so a chord played a little early or late still lands in time. | Arpeggio Quantize | — | — |
+| **Arpeggio Hold** | The pattern keeps playing after you let go of the keys, until you turn Hold or Harmony/Arpeggio off. The next chord you play replaces it. A pedal set to Arpeggio Hold holds it too while the pedal is on, without changing this setting. | Arpeggio Hold | `*` | — |
+| **Arpeggio velocity** | Where the arpeggio's loudness comes from: the pattern's own accents, how hard you played each key, or one fixed velocity. | — | — | — |
+| **Fixed velocity** | The velocity every arpeggio note plays at when the velocity is Fixed. | — | — | — |
+| **Keep Key On** | The pattern's clock keeps running while no key is held, so the next chord picks up in the middle of the phrase instead of starting it again. | — | — | — |
+| **Close Harmony/Arpeggio** | Closes the Harmony/Arpeggio panel. The effect stays as it is. | — | `Esc` | — |
 
 ## Mixer
 
@@ -219,7 +302,8 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | **Pad page 2: Chord/Setup** | Fingering types, Upper/Lower, Manual Bass, Stop ACMP, split and transpose. All cyan. | — | `PgDn` `PgUp` (terminal: `Tab` `Shift+Tab`) | Pad Bank ▲ / ▼ (left of the pads) |
 | **Pad page 3: OTS/Parts** | OTS 1–4 and OTS Link, voice −/+, keyboard parts on/off and which part to edit. All magenta. | — | `PgDn` `PgUp` (terminal: `Tab` `Shift+Tab`) | Pad Bank ▲ / ▼ (left of the pads) |
 | **Pad Bank ▲** | Goes to the previous pad page, stopping at page 1, so a few presses always take you home. Lit in the page's colour when there's a page to go to. With Shift: Left on/off. | — | `PgUp` (terminal: `Shift+Tab`) | Pad Bank ▲ (left of the pads) |
-| **Pad Bank ▼** | Goes to the next pad page, stopping at page 3. Lit in the page's colour when there's a page to go to. With Shift: OTS Link on/off. | — | `PgDn` (terminal: `Tab`) | Pad Bank ▼ (left of the pads) |
+| **Pad Bank ▼** | Goes to the next pad page, stopping at page 4. Lit in the page's colour when there's a page to go to. With Shift: OTS Link on/off. | — | `PgDn` (terminal: `Tab`) | Pad Bank ▼ (left of the pads) |
+| **Pad page 4: Registration** | Registration buttons 1–10 in the Genos lamp colours (red in use, blue stored, dark empty), Bank −/+, Memory, Freeze and Regist −/+. The other pads are orange. | — | `PgDn` `PgUp` (terminal: `Tab` `Shift+Tab`) | Pad Bank ▲ / ▼ (left of the pads) |
 
 ## Launchkey
 
@@ -227,7 +311,7 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 |---|---|---|---|---|
 | **Shift** | Hold for the second functions: Pad Bank ▲ = Left on/off, Pad Bank ▼ = OTS Link, the buttons under faders 1–4 on the Panel page = edit that part. On screen, click it to latch the Shift layer, or hold Shift on your computer keyboard. | — | — | Shift button |
 | **Launchkey** | Whether the Launchkey is connected in DAW mode, so its pads and buttons are arranger controls. | — | — | — |
-| **Unused fader** | On the Panel fader page, faders 5–8 and their buttons do nothing. Switch to the Style page (the button under the master fader) to mix the band. | — | — | Panel fader page: faders 5–8 and the buttons under them |
+| **Unused fader** | On the Panel fader page, faders 5–8 and buttons 6–8 do nothing. Switch to the Style page (the button under the master fader) to mix the band. | — | — | Panel fader page: faders 5–8 and the buttons under faders 6–8 |
 | **Unused pad** | This pad does nothing on this page and stays dark. | — | — | — |
 
 ## Lead-sheet band
@@ -252,6 +336,7 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 |---|---|---|---|---|
 | **Keyboard parts and OTS** | Opens the detail of Right 1–3 and Left (voice, volume, octave, on/off) and the style's One Touch Settings. | PART ON/OFF, Voice Setting, ONE TOUCH SETTING | — | Pad page 3 (OTS/Parts) has the same controls |
 | **Mixer** | Opens the full mixer: both fader pages side by side, with each band part's voice. | Mixer (Panel / Style tabs) | — | The faders and the buttons under them |
+| **Harmony/Arpeggio** | Opens the Keyboard Harmony and Arpeggio panel: the switch, the type and its settings. | HARMONY/ARPEGGIO, Keyboard Harmony/Arpeggio settings | — | Panel fader page: the button under fader 5 is the on/off switch |
 | **Chord Looper** | Opens the Chord Looper: record a chord progression, loop it, and keep it in one of eight memories. | Menu › Chord Looper | — | — |
 | **Close** | Closes this panel. The band keeps playing. | — | `Esc` | — |
 | **Multi Pads** | Opens the Multi Pads: four short phrases from a pad bank that you trigger over the band, and the bank list. | MULTI PAD CONTROL | — | — |
@@ -272,6 +357,7 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | **Split point** | Drag the marker, or click a key, to set the split (C3 = middle C). Keys at and below it are Left and the chord section, keys above it play Right 1–3. With focus, ←/→ move it a key and PgUp/PgDn an octave. | Split Point (Style + Left) | `[` `]` | Pad page 2 (Chord/Setup), bottom row, pads 3–4 |
 | **Section change timing (coming soon)** | When a Main you press takes over: Immediate (at the next beat) or Next Bar. Coming in M5; for now a new Main always waits for the next bar line (with Auto Fill, its fill starts at the next beat). | Section Change Timing | — | — |
 | **OTS Link timing (coming soon)** | With OTS Link on, whether the One Touch Setting changes the moment you press a Main (Immediate) or when the new Main actually starts (At Main Section Change). Coming in M5; for now it is always Immediate. | OTS Link Timing | — | — |
+| **Chord settle** | How long a new chord must hold still before the style follows it (0–30 ms; 0 follows every change at once). A chord whose keys land a few ms apart is then one chord change, not two, so no note is struck on the passing chord and cut a moment later. Only the accompaniment's chord parts wait (also Stop Accompaniment, and Multi Pads with Chord Match, even with the style stopped), and only when you change the chord on or just before their notes; drums keep time, and a chord struck a little ahead of the beat costs nothing. | — | — | — |
 | **Synchro Stop window (coming soon)** | With Sync Stop on: hold a chord longer than this and Sync Stop cancels itself, so the style keeps playing when you let go. A quicker release still stops the style. Coming in M5. | Synchro Stop Window | — | — |
 | **Style folders** | The folders yahaha reads style files from (.sty, .prs, .sst and more), with subfolders as categories. Pass them on the command line or set YAHAHA_STYLES. | Style selection (User / USB) | — | — |
 | **Rescan styles** | Reads the style folders again, picking up files you added, changed or removed. The band keeps playing. | — | — | — |
@@ -299,7 +385,7 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 
 | control | what it does | Genos | key | Launchkey |
 |---|---|---|---|---|
-| **Pedal function** | What this pedal does: Sustain (or Sostenuto, Soft), a style control such as Start/Stop, Fill Up or Break, an OTS, tempo, transpose or a part on/off. Greyed-out ones are not in yahaha yet. | Assignable › Foot Pedal | — | The pedal plugged into the sustain jack |
+| **Pedal function** | What this pedal does: Sustain (or Sostenuto, Soft), a style control such as Start/Stop, Fill Up or Break, an OTS, the Registration bank, tempo, transpose or a part on/off. | Assignable › Foot Pedal | — | The pedal plugged into the sustain jack |
 | **Pedal CC** | The control change this pedal listens for on the keyboards: the Launchkey's sustain jack sends CC 64. Clear it and the pedal listens to nothing. Bank select (0, 32), the modulation wheel (1), data entry (6, 38), volume (7), (N)RPN (98-101) and the channel mode messages (120-127) can't be used. | — | — | The sustain jack (CC 64) |
 | **Learn** | Press this, then the pedal: it takes that pedal's CC. Press again to stop waiting. | — | — | The sustain jack (CC 64) |
 | **Try** | Runs the pedal's function now, as a press would. Sustain, Sostenuto and Soft switch on or off, and stay that way until you press Try again. Modulation and Pitch Bend follow the pedal, so there is nothing to try here. | — | — | — |

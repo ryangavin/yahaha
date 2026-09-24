@@ -63,12 +63,14 @@ impl Takeover {
 }
 
 impl Engine {
-    /// Parts the player has not moved go back to the style's own level (the SInt CC7). A
-    /// level already there is left alone, so its hardware fader keeps control.
+    /// Parts the player has not moved go to the style's own level (the SInt CC7) as the
+    /// section playing (`self.cur`) routes it (#64: a section that routes another source
+    /// channel to a part brings that source's level with its voice). A level already there
+    /// is left alone, so its hardware fader keeps control.
     pub(super) fn restore_untouched_levels(&mut self) {
         for p in 0..8 {
-            if self.user_set & (1 << p) == 0 && self.mixer[p] != self.style.mix[p] {
-                let v = self.style.mix[p];
+            let v = self.style.setup(self.cur).mix[p];
+            if self.user_set & (1 << p) == 0 && self.mixer[p] != v {
                 self.set_mixer(p, v);
             }
         }

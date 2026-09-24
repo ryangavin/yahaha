@@ -85,7 +85,8 @@ pub fn run(path: &std::path::Path, spin_us: Option<u64>) -> Result<()> {
         shared.spin_ns.store(us * 1000, Relaxed);
     }
     let mut ch = live::channels(live::Out::new(PacketSink::new(Target::Virtual(out_src)), None));
-    let input = Input::new(shared.clone(), Recognizer::new(), ch.input_tx, live::Out::new(PacketSink::new(Target::Virtual(out_src)), None));
+    let mut input = Input::new(shared.clone(), Recognizer::new(), ch.input_tx, live::Out::new(PacketSink::new(Target::Virtual(out_src)), None));
+    input.set_fx(ch.fx_tx);
     let port = client.input_port("in", input)?;
     port.connect(kbd_src, TAG_KEYS)?;
 
@@ -269,5 +270,53 @@ pub fn drive() -> Result<()> {
         pcs.dedup();
         println!("  chord {} {name:<3} bass notes: {}", k + 1, pcs.join(" "));
     }
+    Ok(())
+}
+
+/// Prints what reaches a virtual destination, one line per message ("rx 9F 0C 7F").
+struct Print;
+
+impl InputHandler for Print {
+    fn packet(&mut self, _tag: usize, _ts: u64, data: &[u8]) {
+        use std::io::Write;
+        let mut rs = 0;
+        let mut out = std::io::stdout().lock();
+        crate::midi::for_each_message(data, &mut rs, |m| {
+            let hex: Vec<String> = m.iter().map(|b| format!("{b:02X}")).collect();
+            let _ = writeln!(out, "rx {}", hex.join(" "));
+        });
+        let _ = out.flush();
+    }
+}
+
+/// `yahaha fake-device [name] [secs]`: a MIDI device from another process, for trying
+/// hot-plugging against a running session (#74). It makes the endpoints a Launchkey has,
+/// "<name> MIDI Out" (keys), "<name> DAW Out" (pads) and "<name> DAW In" (LEDs; what
+/// arrives there is printed), holds them for `secs` (default 30) or until stdin closes,
+/// then removes them, as an unplugged device goes. The name must contain "Launchkey" for
+/// a session to take it for one.
+pub fn fake_device(name: &str, secs: f64) -> Result<()> {
+    use std::io::Write;
+    let client = Client::new("yahaha-fake-device")?;
+    let keys = client.virtual_source(&format!("{name} MIDI Out"))?;
+    let pads = client.virtual_source(&format!("{name} DAW Out"))?;
+    let leds = client.virtual_destination(&format!("{name} DAW In"), Print)?;
+    println!("ready");
+    let _ = std::io::stdout().flush();
+    // Stdin closing (the parent gone) ends it early.
+    let (tx, rx) = std::sync::mpsc::channel::<()>();
+    std::thread::spawn(move || {
+        let mut buf = String::new();
+        while std::io::stdin().read_line(&mut buf).is_ok_and(|n| n > 0) {
+            buf.clear();
+        }
+        let _ = tx.send(());
+    });
+    let _ = rx.recv_timeout(Duration::from_secs_f64(secs));
+    for e in [keys, pads, leds] {
+        client.dispose_endpoint(e);
+    }
+    client.dispose();
+    println!("gone");
     Ok(())
 }

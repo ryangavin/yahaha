@@ -12,8 +12,8 @@ use std::cell::Cell;
 use std::path::Path;
 use std::time::Duration;
 use yahaha::api::{
-    AppCmd, AppState, LibraryCmd, LooperCmd, MetronomeCmd, MixerCmd, MultiPadCmd, MultiPadState, OtsCmd, Pad, PadLamp,
-    PadsCmd, PartsCmd, SettingsCmd, SystemCmd,
+    AppCmd, AppState, HarmonyArpCmd, HarmonyArpMode, LibraryCmd, LooperCmd, MetronomeCmd, MixerCmd, MultiPadCmd, MultiPadState, OtsCmd,
+    Pad, PadLamp, PadsCmd, PartsCmd, SettingsCmd, SystemCmd,
 };
 use yahaha::engine::Button;
 use yahaha::launchkey::{self, Action};
@@ -67,6 +67,19 @@ fn key_action(code: KeyCode) -> Option<Action> {
         KeyCode::Char('0') => Some(Action::PartVoice(1)),
         KeyCode::Left => Some(Action::Style(-1)),
         KeyCode::Right => Some(Action::Style(1)),
+        KeyCode::Char('J') => Some(Action::ToggleHarmonyArp),
+        // Registration Memory: Shift + the top letter row = buttons 1-10 (a row of ten, as
+        // on the panel), F5 Memory, F6 Freeze, F7/F8 Regist -/+, F11/F12 Bank -/+.
+        KeyCode::Char(c) if "QWERTYUIOP".contains(c) => Some(Action::Regist("QWERTYUIOP".find(c).unwrap() as u8)),
+        KeyCode::F(5) => Some(Action::RegistMemory),
+        KeyCode::F(6) => Some(Action::RegistFreeze),
+        KeyCode::F(7) => Some(Action::RegistSeq(-1)),
+        KeyCode::F(8) => Some(Action::RegistSeq(1)),
+        KeyCode::F(11) => Some(Action::RegistBank(-1)),
+        KeyCode::F(12) => Some(Action::RegistBank(1)),
+        // The Playlist's previous/next record (Shift + Track on the Launchkey).
+        KeyCode::Char('<') => Some(Action::Playlist(-1)),
+        KeyCode::Char('>') => Some(Action::Playlist(1)),
         _ => None,
     }
 }
@@ -80,6 +93,9 @@ fn key_cmd(code: KeyCode) -> Option<AppCmd> {
         KeyCode::Char('a') => Some(AppCmd::Settings(SettingsCmd::NextAudioOutput)),
         KeyCode::Char('k') => Some(AppCmd::Mixer(MixerCmd::ToggleSynthMute)),
         KeyCode::Char('\\') => Some(AppCmd::System(SystemCmd::Panic)),
+        // Harmony/Arpeggio: next type (the Harmony types, then the arpeggios), Arp Hold.
+        KeyCode::Char('L') => Some(AppCmd::HarmonyArp(HarmonyArpCmd::StepHarmonyArpType { delta: 1 })),
+        KeyCode::Char('*') => Some(AppCmd::HarmonyArp(HarmonyArpCmd::ToggleArpHold)),
         // Chord Looper REC/STOP and ON/OFF; the metronome.
         KeyCode::Char('r') => Some(AppCmd::Looper(LooperCmd::LooperRec)),
         KeyCode::Char('^') => Some(AppCmd::Looper(LooperCmd::LooperOnOff)),
@@ -501,7 +517,46 @@ fn draw(f: &mut ratatui::Frame, st: &AppState, message: &str, beats: f64) {
                 } else {
                     v.push(Span::styled(format!(" chord: keys up to {}", ch.split_name), dim));
                 }
+                let h = &st.harmony_arp;
+                v.push(Span::raw("  "));
+                v.push(flag(h.on, "HARM/ARP [J]"));
+                v.push(Span::raw(format!(" {} · {} [L]", h.type_name, h.category)));
+                if h.mode == HarmonyArpMode::Arpeggio {
+                    v.push(flag(h.arp.hold, "HOLD [*]"));
+                }
                 v.push(Span::raw(format!("   {}", multi_pad_line(&st.multi_pad))));
+                v
+            }),
+            Line::from({
+                // Registration: the bank, its ten lamps ([n] stored, >n< selected), Memory,
+                // Freeze, the sequence and the playlist.
+                let r = &st.registration;
+                let mut v = vec![Span::raw(format!(" regist {}{} ", r.bank.name, if r.bank.dirty { "*" } else { "" }))];
+                for b in &r.buttons {
+                    let n = b.index + 1;
+                    let (text, style) = if r.selected == Some(b.index) && b.stored {
+                        (format!(">{n}<"), St::default().fg(Color::Black).bg(Color::Red))
+                    } else if b.stored {
+                        (format!("[{n}]"), St::default().fg(Color::Blue))
+                    } else {
+                        (format!(" {n} "), dim)
+                    };
+                    v.push(Span::styled(text, if r.memory { style.add_modifier(Modifier::SLOW_BLINK) } else { style }));
+                }
+                v.push(Span::styled(" ⇧Q-P", dim));
+                v.push(flag(r.memory, "MEMORY [F5]"));
+                v.push(flag(r.freeze, "FREEZE [F6]"));
+                let seq = &r.sequence;
+                if seq.on && !seq.steps.is_empty() {
+                    let pos = seq.position.map_or("-".to_string(), |p| (p + 1).to_string());
+                    v.push(Span::raw(format!(" seq {pos}/{} [F7 F8]", seq.steps.len())));
+                }
+                v.push(Span::styled(" bank [F11 F12]", dim));
+                let pl = &st.playlist;
+                if !pl.records.is_empty() {
+                    let cur = pl.current.and_then(|c| pl.records.iter().position(|row| row.index == c)).map_or("-".into(), |p| (p + 1).to_string());
+                    v.push(Span::raw(format!("  playlist {} {cur}/{} [< >]", pl.name, pl.records.len())));
+                }
                 v
             }),
             Line::from(match &st.io.synth {
@@ -540,7 +595,7 @@ fn draw(f: &mut ratatui::Frame, st: &AppState, message: &str, beats: f64) {
 
     let mut help = vec![
         Line::from(Span::styled(
-            " space start/stop · 1-4 Main A-D (again = fill) · q w e intro · i o p ending · g break · t tap · -/= tempo · F1-F4 part · 9/0 voice · 5-8 part on/off · F9 faders Panel/Style · ; ' kbd transpose · : \" master · / reset · r/^ chord looper rec, on/off · . metronome · Z X C V multi pads · B pad stop · tab pad page · enter browse styles · \\ panic · esc twice quit",
+            " space start/stop · 1-4 Main A-D (again = fill) · q w e intro · i o p ending · g break · t tap · -/= tempo · F1-F4 part · 9/0 voice · 5-8 part on/off · J harmony/arp (L type, * hold) · F9 faders Panel/Style · ; ' kbd transpose · : \" master · / reset · r/^ chord looper rec, on/off · . metronome · Z X C V multi pads · B pad stop · tab pad page · enter browse styles · \\ panic · esc twice quit",
             dim,
         )),
         Line::from(Span::styled(
@@ -668,6 +723,7 @@ pub fn screen_html(style: &Path, out: &Path) -> Result<()> {
         bpm: 110.0,
         parts: 0xFF & !(1 << 5),
         volumes: [127, 110, 96, 127, 80, 64, 127, 100],
+        user_set: 0,
         pickup: 1 << 4,
         stop_acmp: false,
         transpose: Transpose::new(2, 0),
@@ -750,7 +806,7 @@ mod tests {
             .filter_map(key_action)
             .collect();
         let pads = [96u8, 97, 98, 99, 100, 101, 102, 103, 112, 113, 114, 115, 116, 117, 118, 119];
-        for page in [Page::ChordSetup, Page::OtsParts] {
+        for page in [Page::ChordSetup, Page::OtsParts, Page::Registration] {
             for a in pads.iter().filter_map(|&n| launchkey::pad_action(page, n)) {
                 if !matches!(a, Action::Fingering(_)) {
                     assert!(keys.contains(&a), "{page:?}: {a:?} has no key");
@@ -758,9 +814,12 @@ mod tests {
             }
         }
         for cc in [launchkey::TRACK_LEFT_CC, launchkey::TRACK_RIGHT_CC] {
-            let Some(launchkey::Control::Act(a)) = launchkey::cc_control(cc, false) else { panic!("track button") };
-            assert!(keys.contains(&a));
+            for shift in [false, true] {
+                let Some(launchkey::Control::Act(a)) = launchkey::cc_control(cc, shift) else { panic!("track button") };
+                assert!(keys.contains(&a), "{a:?}");
+            }
         }
+        assert_eq!(key_action(KeyCode::Char('P')), Some(Action::Regist(9)));
         assert_eq!(key_action(KeyCode::Right), Some(Action::Style(1)));
         assert_eq!(key_action(KeyCode::Char('f')), Some(Action::NextFingering));
     }
@@ -777,8 +836,20 @@ mod tests {
         assert_eq!(key_cmd(KeyCode::Char('r')), Some(AppCmd::Looper(LooperCmd::LooperRec)));
         assert_eq!(key_cmd(KeyCode::Char('^')), Some(AppCmd::Looper(LooperCmd::LooperOnOff)));
         // Shift+R belongs to Registration (#99): the looper leaves it alone.
-        assert_eq!(key_cmd(KeyCode::Char('R')), None);
+        assert_eq!(key_cmd(KeyCode::Char('R')), Some(AppCmd::Registration(yahaha::api::RegistrationCmd::PressRegist { index: 3 })));
         assert_eq!(key_cmd(KeyCode::Char('.')), Some(AppCmd::Metronome(MetronomeCmd::ToggleMetronome)));
+        assert_eq!(key_cmd(KeyCode::Char('J')), Some(AppCmd::HarmonyArp(HarmonyArpCmd::ToggleHarmonyArp)));
+        assert_eq!(key_cmd(KeyCode::Char('L')), Some(AppCmd::HarmonyArp(HarmonyArpCmd::StepHarmonyArpType { delta: 1 })));
+        assert_eq!(key_cmd(KeyCode::Char('*')), Some(AppCmd::HarmonyArp(HarmonyArpCmd::ToggleArpHold)));
+        // Keys sibling branches own (#92 fills, #94 section timing, #96 looper, #98 chart,
+        // #99 Registration: Shift+Q..P, #95 Multi Pads: Z X C V B), or assert unbound (#92 H,
+        // #95 K): not Harmony/Arp.
+        for k in [
+            'r', '^', 'R', 'H', 'K', 'm', 'M', 'Q', 'W', 'E', 'T', 'Y', 'U', 'I', 'O', 'P', 'F', 'A', 'S', 'G', 'N', '.', '<', '>', '(', ')', '{', '}',
+            'Z', 'X', 'C', 'V', 'B',
+        ] {
+            assert!(!matches!(key_cmd(KeyCode::Char(k)), Some(AppCmd::HarmonyArp(_))), "{k}");
+        }
         assert_eq!(key_cmd(KeyCode::Char('Z')), Some(AppCmd::MultiPad(MultiPadCmd::TriggerMultiPad { pad: 0 })));
         assert_eq!(key_cmd(KeyCode::Char('V')), Some(AppCmd::MultiPad(MultiPadCmd::TriggerMultiPad { pad: 3 })));
         assert_eq!(key_cmd(KeyCode::Char('B')), Some(AppCmd::MultiPad(MultiPadCmd::StopAllMultiPads)));
