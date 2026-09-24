@@ -1866,6 +1866,26 @@ mod tests {
         assert_eq!(m.state.style_settings.retrigger_rate, 16);
     }
 
+    /// A plugin patch on a keyboard part plays its plugin, as the session does (#109).
+    #[test]
+    fn a_plugin_patch_on_a_part_plays_its_plugin() {
+        let mut m = MockSession::new();
+        let r1 = |m: &MockSession| (m.state.keyboard_parts[0].patch.clone(), m.state.keyboard_parts[0].plugin.as_ref().map(|p| p.id.clone()));
+        let dls = Some("aumu dls  appl".to_string());
+        m.send(SoundLibraryCmd::SetPartPatch { part: 0, id: Some("keys-au".into()) });
+        assert_eq!(r1(&m), (Some("keys-au".into()), dls.clone()));
+        m.send(SoundLibraryCmd::SetPartPatch { part: 0, id: Some("stage-grand".into()) });
+        assert_eq!(r1(&m), (Some("stage-grand".into()), None));
+        m.send(SoundLibraryCmd::SetPartPatch { part: 0, id: Some("keys-au".into()) });
+        m.send(PluginCmd::SetPartPlugin { part: 0, id: "aumu dls  appl".into(), state: None });
+        assert_eq!(r1(&m), (None, dls.clone()), "a Plugins-tab plugin ends the patch");
+        m.send(SoundLibraryCmd::SetPartPatch { part: 0, id: Some("stage-grand".into()) });
+        assert_eq!(r1(&m), (Some("stage-grand".into()), None), "a SoundFont patch ends a Plugins-tab plugin");
+        m.send(SoundLibraryCmd::SetPartPatch { part: 0, id: Some("keys-au".into()) });
+        m.send(PartsCmd::SetPartVoice { part: 0, program: 0 });
+        assert_eq!(r1(&m), (None, None), "a GM voice ends the plugin patch");
+    }
+
     #[test]
     fn a_queued_main_takes_over_at_the_next_bar() {
         let mut m = MockSession::new();

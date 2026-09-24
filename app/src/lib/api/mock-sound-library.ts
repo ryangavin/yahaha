@@ -119,7 +119,6 @@ function slug(name: string, taken: string[]): string {
 }
 
 function info(id: string, f: PatchFields): PatchInfo {
-  const plugin = f.source.kind === 'plugin'
   const missing = f.source.kind === 'soundFont' && !FONTS.includes(f.source.file)
   return {
     id,
