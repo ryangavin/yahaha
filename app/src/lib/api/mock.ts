@@ -251,6 +251,8 @@ export function initialState(): AppState {
       soundFonts: [...MOCK_SOUND_FONTS],
       soundFontFile: MOCK_SOUND_FONTS[0],
       soundFontLoading: false,
+      defaultSoundSet: null,
+      autoSoundSet: MOCK_SOUND_FONTS[0],
     },
     message: null,
     styleChange: { tempo: 'hold', parts: 'hold', sectionSet: null },
@@ -1412,11 +1414,19 @@ export class MockSession implements Session {
         }
         break
       case 'setSoundFont':
-        if (st.io.soundFonts.includes(cmd.file)) {
-          st.io.soundFontFile = cmd.file
-          if (st.io.synth) st.io.synth.soundFont = cmd.file.replace(/\.sf2$/i, '')
-        } else this.message(`no SoundFont ${cmd.file} in the SoundFont folder`, true)
+      case 'setDefaultSoundSet': {
+        if (cmd.file !== null && !st.io.soundFonts.includes(cmd.file)) {
+          this.message(`no SoundFont ${cmd.file} in the SoundFont folder`, true)
+          break
+        }
+        st.io.defaultSoundSet = cmd.file
+        const play = cmd.file ?? st.io.autoSoundSet
+        if (play) {
+          st.io.soundFontFile = play
+          if (st.io.synth) st.io.synth.soundFont = play.replace(/\.sf2$/i, '')
+        }
         break
+      }
       case 'setMidiInputs': {
         st.io.allInputs = cmd.all
         for (const s of st.io.sources) s.listening = s.pads || cmd.all || cmd.names.some((n) => n && s.name.includes(n))
