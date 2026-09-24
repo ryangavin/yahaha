@@ -8,6 +8,7 @@
 use std::time::Instant;
 
 use yahaha::api::*;
+use yahaha::controllers::{Controllers, PedalSetup, PEDALS};
 use yahaha::fingering::Fingering;
 use yahaha::launchkey::{self as lk, Action, Anim, Control, Level, Page};
 use yahaha::parts::{self, FaderPage};
@@ -140,6 +141,9 @@ pub struct MockSession {
     led_anchor: (f64, f64, f64),
     /// The wall clock at the last `catch_up`.
     wall: Option<Instant>,
+    /// Pedals and wheels: the engine's own model (no keyboard, so nothing moves them but
+    /// commands).
+    controllers: Controllers,
 }
 
 impl Default for MockSession {
@@ -287,6 +291,7 @@ impl MockSession {
                 chord_bass: Some(9),
                 detection: [0, 54],
             },
+            controllers: ControllersState::of(&Controllers::new()),
             message: None,
         };
         let mut m = MockSession {
@@ -305,6 +310,7 @@ impl MockSession {
             section_key: None,
             led_anchor: (0.0, 0.0, 0.0), // anchored by the first `derive`
             wall: None,
+            controllers: Controllers::new(),
         };
         m.set_style(0);
         m.state.ots.applied = 2;
@@ -864,6 +870,38 @@ impl MockSession {
                     t.queued = Some(m.into());
                 }
             }
+            AppCmd::Transport(TransportCmd::Fill { delta }) => {
+                // The Main to the left/right (or the same), always with a fill.
+                let to = (self.state.transport.main as i8 + delta.signum()).clamp(0, 3) as u8;
+                let auto = std::mem::replace(&mut self.state.transport.auto_fill, true);
+                self.cmd(AppCmd::Transport(TransportCmd::Main { index: to }));
+                self.state.transport.auto_fill = auto;
+            }
+            AppCmd::Controllers(c) => {
+                match c.apply_setting(&self.controllers) {
+                    Ok(true) => {
+                        // No keyboard: a pedal learning "hears" the Launchkey's sustain jack.
+                        if let ControllersCmd::LearnPedal { pedal: Some(p) } = c {
+                            let s = self.controllers.pedal(p as usize % PEDALS);
+                            self.controllers.set_pedal(p as usize % PEDALS, PedalSetup { cc: Some(64), ..s });
+                            self.controllers.learn(None);
+                        }
+                    }
+                    Ok(false) => {
+                        if let ControllersCmd::TriggerFunction { function } = c {
+                            let ots = self.state.ots.settings.len() as u8;
+                            match function_run(function, self.state.chord.fingering, ots, self.state.ots.applied) {
+                                Ok(FunctionRun::Cmd(c)) => self.cmd(c),
+                                Ok(FunctionRun::Switch(b)) => self.controllers.toggle_switch(b),
+                                Ok(FunctionRun::Nothing) => {}
+                                Err(e) => self.message(e, true),
+                            }
+                        }
+                    }
+                    Err(e) => self.message(e, true),
+                }
+                self.state.controllers = ControllersState::of(&self.controllers);
+            }
             AppCmd::Transport(TransportCmd::Break) => {
                 if running && self.has(BREAK) {
                     self.state.transport.queued = Some(BREAK.into());
@@ -1039,6 +1077,8 @@ impl MockSession {
             }
             AppCmd::System(SystemCmd::Panic) => {
                 self.stop_band();
+                self.controllers.reset(&mut |_| {});
+                self.state.controllers = ControllersState::of(&self.controllers);
                 self.message("All notes off", false);
             }
             AppCmd::System(SystemCmd::ClearMessage) => self.state.message = None,
@@ -1263,6 +1303,24 @@ mod tests {
         assert_eq!(m.state.transport.queued.as_deref(), Some("Fill In BB"));
         let lamp = m.state.transport.lamps.iter().find(|p| p.note == 113).unwrap();
         assert_eq!((lamp.level, lamp.anim), (Level::Bright, Anim::Flash));
+    }
+
+    #[test]
+    fn pedals_and_their_functions() {
+        use yahaha::controllers::Function;
+        let mut m = MockSession::new();
+        m.send(ControllersCmd::SetPedal { pedal: 1, cc: Some(66), function: Function::FillUp, control_type: Default::default(), reverse: false, range: Default::default() });
+        assert_eq!(m.state.controllers.pedals[1].function, Function::FillUp);
+        // Playing Main B: Fill Up plays Main C's fill, then Main C.
+        m.send(ControllersCmd::TriggerFunction { function: Function::FillUp });
+        assert_eq!(m.state.transport.queued.as_deref(), Some("Fill In BB"));
+        assert_eq!(m.state.transport.main, 2);
+        m.send(ControllersCmd::TriggerFunction { function: Function::Sustain });
+        assert!(m.state.controllers.sustain);
+        m.send(SystemCmd::Panic);
+        assert!(!m.state.controllers.sustain);
+        m.send(ControllersCmd::TriggerFunction { function: Function::RegistNext });
+        assert!(m.state.message.as_ref().is_some_and(|x| x.error));
     }
 
     #[test]

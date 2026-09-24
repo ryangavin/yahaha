@@ -4,6 +4,7 @@
 // It speaks #16's API (types.ts); `app/src-tauri/src/mock.rs` is the Rust twin that the
 // app shell runs until the engine's `Session` is wired in.
 
+import { defaultControllers, functionCmd, functionInfo } from './assignable'
 import fixture from './mock-fixture.json'
 import { syntheticStyles } from './mock-library'
 import { clockAt, mockSurface, type MockHardware } from './mock-surface'
@@ -233,6 +234,7 @@ export function initialState(): AppState {
     message: null,
     surface: null as unknown as AppState['surface'], // filled in by derive()
     preview: { audition: null, queued: null },
+    controllers: defaultControllers(),
   }
   derive(state, LIBRARY)
   return state
@@ -714,6 +716,15 @@ export class MockSession implements Session {
       case 'break':
         if (t.running && this.has(BREAK)) t.queued = BREAK
         break
+      case 'fill': {
+        // The Main to the left/right (or the same), always with a fill.
+        const to = clamp(t.main + Math.sign(cmd.delta), 0, 3)
+        const auto = t.autoFill
+        t.autoFill = true
+        this.cmd({ type: 'main', index: to })
+        t.autoFill = auto
+        break
+      }
       case 'ending':
         if (t.running && this.has(ENDINGS[cmd.index])) t.queued = ENDINGS[cmd.index]
         break
@@ -905,8 +916,52 @@ export class MockSession implements Session {
         break
       case 'panic':
         this.stopBand()
+        Object.assign(st.controllers, { sustain: false, sostenuto: false, soft: false })
         this.message('All notes off')
         break
+      case 'setPedal': {
+        const p = st.controllers.pedals[cmd.pedal]
+        if (!p) {
+          this.message(`there is no pedal ${cmd.pedal + 1}`, true)
+          break
+        }
+        Object.assign(p, { cc: cmd.cc, function: cmd.function, controlType: cmd.controlType, reverse: cmd.reverse, range: cmd.range })
+        break
+      }
+      case 'learnPedal':
+        // No keyboard here: the mock "hears" the Launchkey's sustain jack (CC 64) at once.
+        if (cmd.pedal !== null && st.controllers.pedals[cmd.pedal]) st.controllers.pedals[cmd.pedal].cc = 64
+        st.controllers.learning = null
+        break
+      case 'setPartControllers':
+        Object.assign(st.controllers.parts[cmd.part & 3], { sustain: cmd.sustain, pitchBend: cmd.pitchBend, modulation: cmd.modulation })
+        break
+      case 'setBendRange':
+        st.controllers.parts[cmd.part & 3].bendRange = clamp(cmd.semitones, 0, 12)
+        break
+      case 'triggerFunction': {
+        const info = functionInfo(cmd.function)
+        if (!info || !info.available) {
+          this.message(`${info?.name ?? cmd.function} is not in yahaha yet`, true)
+          break
+        }
+        if (info.kind === 'switch') {
+          const k = cmd.function as 'sustain' | 'sostenuto' | 'soft'
+          st.controllers[k] = !st.controllers[k]
+        } else if (info.kind === 'continuous') {
+          this.message(`${info.name} needs a foot controller (an expression pedal)`, true)
+        } else if (cmd.function === 'otsNext' || cmd.function === 'otsPrev') {
+          const n = st.ots.settings.length
+          if (n) {
+            const a = st.ots.applied
+            this.cmd({ type: 'recallOts', index: cmd.function === 'otsNext' ? a % n : a ? (a + n - 2) % n : n - 1 })
+          }
+        } else {
+          const run = functionCmd(cmd.function, c)
+          if (run) this.cmd(run)
+        }
+        break
+      }
       case 'clearMessage':
         st.message = null
         break
