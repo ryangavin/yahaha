@@ -152,6 +152,8 @@ The last Launchkey note or CC that nothing is mapped to shows at the bottom of t
 - `enter` open the style browser (see below)
 - `tab` / `shift+tab` next/previous pad page
 - `a` next audio output pair · `k` mute the synth
+- `r` Chord Looper REC/STOP · `R` Chord Looper ON/OFF (recording, looping and memory changes start at the next bar)
+- `.` metronome on/off (built-in synth only, never on the MIDI port)
 - `\` panic (all notes off)
 - `esc` twice (within 1.5 s) quit, or `ctrl+c`; one `esc` closes the style browser
 

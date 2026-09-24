@@ -23,6 +23,7 @@ This document is about the inside.
 | `src/theory.rs`, `src/fingering.rs` | Chords, chord recognition, fingering types. |
 | `src/parts.rs`, `src/launchkey.rs` | Keyboard parts (Right 1-3, Left) and the Launchkey mapping. |
 | `src/harmony.rs`, `src/arp/`, `src/multipad/`, `src/ireal/`, `src/plugin/` | Feature libraries not yet wired in (pure, real-time safe). |
+| `src/looper.rs`, `src/click.rs` | The Chord Looper's sequence type; the metronome's click voice (mixed by the synth). |
 | `app/` | The desktop app: Svelte frontend (`app/src`), Tauri shell (`app/src-tauri`). |
 
 ## Threads
@@ -140,7 +141,9 @@ A feature that lives in the engine:
 - adds **one call** to its own function in the **hook** it needs (`src/engine/hooks.rs`):
   `on_start`, `on_stop`, `on_bar`, `on_beat`, `before_section_change`,
   `after_section_change`, `on_chord`, `on_style_loaded`; and returns its next deadline from
-  `hook_deadline` if it must act exactly on a tick (a metronome click, an arp step). The
+  `hook_deadline` if it must act exactly on a tick (a metronome click on a beat line). A
+  feature that acts between lines (the Chord Looper's chord changes, an arp step) names
+  the tick in `hook_due` and acts in `on_due`, which `process` calls there. The
   hooks run at fixed points in a fixed order (the table in hooks.rs; tests there pin it);
 - gets commands through a new `live::Cmd` variant (one arm in `live::apply`) or reads an
   atomic in `Shared` at the top of `EngineLoop::step`;

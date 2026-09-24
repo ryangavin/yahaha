@@ -11,7 +11,7 @@ use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 use std::cell::Cell;
 use std::path::Path;
 use std::time::Duration;
-use yahaha::api::{AppCmd, AppState, LibraryCmd, MixerCmd, OtsCmd, Pad, PadsCmd, PartsCmd, SettingsCmd, SystemCmd};
+use yahaha::api::{AppCmd, AppState, LibraryCmd, LooperCmd, MetronomeCmd, MixerCmd, OtsCmd, Pad, PadsCmd, PartsCmd, SettingsCmd, SystemCmd};
 use yahaha::engine::Button;
 use yahaha::launchkey::{self, Action};
 use yahaha::library::{self, Info, Library};
@@ -77,6 +77,10 @@ fn key_cmd(code: KeyCode) -> Option<AppCmd> {
         KeyCode::Char('a') => Some(AppCmd::Settings(SettingsCmd::NextAudioOutput)),
         KeyCode::Char('k') => Some(AppCmd::Mixer(MixerCmd::ToggleSynthMute)),
         KeyCode::Char('\\') => Some(AppCmd::System(SystemCmd::Panic)),
+        // Chord Looper REC/STOP and ON/OFF; the metronome.
+        KeyCode::Char('r') => Some(AppCmd::Looper(LooperCmd::LooperRec)),
+        KeyCode::Char('R') => Some(AppCmd::Looper(LooperCmd::LooperOnOff)),
+        KeyCode::Char('.') => Some(AppCmd::Metronome(MetronomeCmd::ToggleMetronome)),
         code => key_action(code).map(AppCmd::from),
     }
 }
@@ -506,7 +510,7 @@ fn draw(f: &mut ratatui::Frame, st: &AppState, message: &str, beats: f64) {
 
     let mut help = vec![
         Line::from(Span::styled(
-            " space start/stop · 1-4 Main A-D (again = fill) · q w e intro · i o p ending · g break · t tap · -/= tempo · F1-F4 part · 9/0 voice · 5-8 part on/off · F9 faders Panel/Style · ; ' kbd transpose · : \" master · / reset · tab pad page · enter browse styles · \\ panic · esc twice quit",
+            " space start/stop · 1-4 Main A-D (again = fill) · q w e intro · i o p ending · g break · t tap · -/= tempo · F1-F4 part · 9/0 voice · 5-8 part on/off · F9 faders Panel/Style · ; ' kbd transpose · : \" master · / reset · r/R chord looper rec, on/off · . metronome · tab pad page · enter browse styles · \\ panic · esc twice quit",
             dim,
         )),
         Line::from(Span::styled(
@@ -739,6 +743,9 @@ mod tests {
         assert_eq!(key_cmd(KeyCode::BackTab), Some(AppCmd::Pads(PadsCmd::CyclePadPage { delta: -1 })));
         assert_eq!(key_cmd(KeyCode::Char('\\')), Some(AppCmd::System(SystemCmd::Panic)));
         assert_eq!(key_cmd(KeyCode::Char('k')), Some(AppCmd::Mixer(MixerCmd::ToggleSynthMute)));
+        assert_eq!(key_cmd(KeyCode::Char('r')), Some(AppCmd::Looper(LooperCmd::LooperRec)));
+        assert_eq!(key_cmd(KeyCode::Char('R')), Some(AppCmd::Looper(LooperCmd::LooperOnOff)));
+        assert_eq!(key_cmd(KeyCode::Char('.')), Some(AppCmd::Metronome(MetronomeCmd::ToggleMetronome)));
         assert_eq!(key_cmd(KeyCode::Char('Z')), None);
     }
 
