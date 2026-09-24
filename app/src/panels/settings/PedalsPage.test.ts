@@ -74,6 +74,25 @@ describe('Pedals page', () => {
     expect(byTip<HTMLButtonElement>('pedal.try')[0].disabled).toBe(false)
   })
 
+  it('a CC a pedal can never hear is refused: the box goes back and a message says why', async () => {
+    setup()
+    const box = byTip<HTMLInputElement>('pedal.cc')[1]
+    box.value = '7'
+    await fireEvent.change(box)
+    expect(app.state.controllers.pedals[1].cc).toBe(66)
+    expect(box.value).toBe('66')
+    expect(app.state.message?.text).toContain('CC 7')
+  })
+
+  it('Hold B picked with the pedal up turns Sustain on (off while held)', async () => {
+    setup()
+    expect(app.state.controllers.sustain).toBe(false)
+    await fireEvent.click(byTip('pedal.hold_b')[0])
+    expect(app.state.controllers.sustain).toBe(true)
+    await fireEvent.click(byTip('pedal.hold_a')[0])
+    expect(app.state.controllers.sustain).toBe(false)
+  })
+
   it('Registration Bank +/− are listed but not selectable yet', () => {
     setup()
     const opt = byTip<HTMLSelectElement>('pedal.function')[0].querySelector<HTMLOptionElement>('option[value="registBankNext"]')!
@@ -87,5 +106,10 @@ describe('assignable functions', () => {
     for (const f of FUNCTIONS.filter((f) => f.kind === 'trigger' && !control.includes(f.id))) {
       expect(functionCmd(f.id, { fingering: 'fingered' }), f.id).not.toBeNull()
     }
+  })
+
+  it('Transpose +/− is the TRANSPOSE buttons: Master transpose (RM p.144)', () => {
+    expect(functionCmd('transposeUp', { fingering: 'fingered' })).toEqual({ type: 'stepTranspose', keyboard: 0, master: 1 })
+    expect(functionCmd('transposeDown', { fingering: 'fingered' })).toEqual({ type: 'stepTranspose', keyboard: 0, master: -1 })
   })
 })
