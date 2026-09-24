@@ -93,7 +93,7 @@
   name="Chord settle"
   note={chord.settleMs === 0
     ? 'Off: the style follows every chord change at once, even the passing chords of a roll.'
-    : `${chord.settleMs} ms: a rolled chord is followed once. Chord parts wait at most ${chord.settleMs} ms (${3 * chord.settleMs} ms through a long roll) when you change chord on their beat.`}
+    : `${chord.settleMs} ms: a rolled chord is followed once. Chord parts (and Stop Accompaniment and Chord Match pads, band stopped or not) wait at most ${chord.settleMs} ms (${3 * chord.settleMs} ms through a long roll) when you change chord on their beat.`}
 >
   <HSlider
     label="Chord settle"

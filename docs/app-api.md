@@ -119,7 +119,7 @@ state, and pressing the button is the action. For settings, a GUI checkbox can u
 | `setTranspose` | `keyboard`, `master` | Semitones, each clamped to −12..12. |
 | `stepTranspose` | `keyboard`, `master` | Adds to the current transpose. |
 | `resetTranspose` | | Both back to 0. |
-| `setChordSettle` | `ms` | The chord-settle window, clamped to 0–30 ms (default 10). While the style plays, a chord change reaches the accompaniment once the chord has held still this long (at most three windows after the first change), so a rolled chord is followed once. 0: at once. Not a Genos setting; see docs/genos-features.md (Chord settle). |
+| `setChordSettle` | `ms` | The chord-settle window, clamped to 0–30 ms (default 10). While the style plays (and, with it stopped, for Stop Accompaniment and Chord Match Multi Pads), a chord change reaches the accompaniment once the chord has held still this long (at most three windows after the first change), so a rolled chord is followed once. 0: at once. Not a Genos setting; see docs/genos-features.md (Chord settle). |
 
 ### Keyboard parts
 

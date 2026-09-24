@@ -21,12 +21,15 @@
 //! follow chords are held back (the rhythm parts play on time, and so does everything
 //! already sounding), and at the settle they start, with the settled chord, if the
 //! pattern still holds them (`catch_up`). Notes sounding through the change are re-voiced
-//! at the settle (`revoice`). The Retrigger Rules' "late chord" test still counts from
+//! at the settle (`revoice`). A Chord Match Multi Pad's new notes wait too, band playing
+//! or stopped (engine/multipad.rs, `MultiPadPlayer::set_hold`): a pad note is never
+//! re-voiced, so one struck on the chord being replaced would keep it. The Retrigger Rules' "late chord" test still counts from
 //! when the chord arrived, not from the settle, so a chord that lands just after the beat
 //! takes the downbeat as before.
 //!
 //! The cost is latency, and only there: a chord struck on (or just before) a note of a
-//! chord part delays that note by up to the window. A chord struck at least a window
+//! chord part delays that note by up to the window (and `catch_up` drops a held-back note
+//! with less of it left than it waited, one shorter than about twice the wait). A chord struck at least a window
 //! ahead of the beat costs nothing. See docs/genos-features.md (Chord settle) for the
 //! choice of the default.
 

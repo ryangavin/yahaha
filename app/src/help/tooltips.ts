@@ -933,7 +933,7 @@ const catalog = {
   },
   'settings.chord_settle': {
     title: 'Chord settle',
-    body: 'How long a new chord must hold still before the style follows it while it plays (0–30 ms; 0 follows every change at once). A chord whose keys land a few ms apart is then one chord change, not two, so no note is struck on the passing chord and cut a moment later. Only the accompaniment\'s chord parts wait, and only when you change the chord on or just before their notes; drums keep time, and a chord struck a little ahead of the beat costs nothing.',
+    body: 'How long a new chord must hold still before the style follows it (0–30 ms; 0 follows every change at once). A chord whose keys land a few ms apart is then one chord change, not two, so no note is struck on the passing chord and cut a moment later. Only the accompaniment\'s chord parts wait (also Stop Accompaniment, and Multi Pads with Chord Match, even with the style stopped), and only when you change the chord on or just before their notes; drums keep time, and a chord struck a little ahead of the beat costs nothing.',
     genos: null,
     keys: [],
     launchkey: null,

@@ -519,6 +519,8 @@ mod tests {
         // Sync Start is armed on a new engine: the chord starts the band, and the pads with it.
         e.set_chord(crate::parse_chord("C").unwrap(), 10_000_000, &mut rec);
         rec.1 = 10_000_000;
+        // One wake, as the engine loop runs it: the band (the chord settles), then the pads.
+        e.process(10_000_000, &mut rec);
         e.process_pads(10_000_000, &mut rec);
         assert_eq!(e.pads_snapshot().states[0], PadState::Playing);
         assert_eq!(e.pads_snapshot().states[3], PadState::Playing);
