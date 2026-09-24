@@ -84,5 +84,12 @@ export function tipFor(cmd: AppCmd | null): TipKey {
     case 'setMidiInputs': return cmd.all ? 'midi.merge_all' : 'midi.input'
     case 'setPaletteLeds': return 'midi.palette_leds'
     case 'rescanLibrary': return 'settings.rescan'
+    // Fill Up/Down/Self are pedal functions (no pad has them).
+    case 'fill':
+    case 'setPedal': return 'pedal.function'
+    case 'learnPedal': return 'pedal.learn'
+    case 'triggerFunction': return 'pedal.try'
+    case 'setPartControllers': return 'pedal.part_sustain'
+    case 'setBendRange': return 'pedal.bend_up'
   }
 }
