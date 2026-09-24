@@ -83,6 +83,20 @@ fn all_cmds() -> Vec<AppCmd> {
         AppCmd::Settings(SettingsCmd::NextAudioOutput),
         AppCmd::System(SystemCmd::Panic),
         AppCmd::System(SystemCmd::ClearMessage),
+        AppCmd::Transport(TransportCmd::SetTempo { bpm: 480 }),
+        AppCmd::Mixer(MixerCmd::SetStyleSolo { part: Some(3) }),
+        AppCmd::Mixer(MixerCmd::SetPartSolo { part: None }),
+        AppCmd::Mixer(MixerCmd::StyleTrackMute { order: TrackMuteOrder::B, value: 64 }),
+        AppCmd::Looper(LooperCmd::LooperRec),
+        AppCmd::Looper(LooperCmd::LooperOnOff),
+        AppCmd::Looper(LooperCmd::SelectLooperMemory { index: 1 }),
+        AppCmd::Looper(LooperCmd::StoreLooperMemory { index: 1 }),
+        AppCmd::Looper(LooperCmd::ClearLooperMemory { index: 1 }),
+        AppCmd::Looper(LooperCmd::NewLooperBank),
+        AppCmd::Metronome(MetronomeCmd::ToggleMetronome),
+        AppCmd::Metronome(MetronomeCmd::SetMetronome { on: true }),
+        AppCmd::Metronome(MetronomeCmd::SetMetronomeVolume { volume: 64 }),
+        AppCmd::Metronome(MetronomeCmd::SetMetronomeBell { on: false }),
     ]
 }
 
@@ -1220,4 +1234,106 @@ fn new_state_and_commands_serialize_as_documented() {
         assert!(v["library"].get(k).is_some(), "library.{k}");
     }
     assert!(v["pads"].get("paletteLeds").is_some());
+}
+
+/// The length of a bar at the state's tempo and time signature.
+fn bar_ns(s: &Session) -> u64 {
+    let t = &s.state().transport;
+    (60e9 / t.tempo * t.beats_per_bar as f64) as u64
+}
+
+/// Chord Looper through the API: REC while stopped arms Sync Start, the first chord starts
+/// the band and the recording; ON/OFF loops it from the next bar; memories keep it.
+#[test]
+fn chord_looper_records_loops_and_keeps_memories() {
+    let Some(s) = offline("SlowWalker.T552.sty") else { return };
+    s.send(TransportCmd::ToggleSyncStart).unwrap(); // off: REC turns it back on
+    assert!(!s.state().transport.sync_start);
+    s.send(LooperCmd::LooperRec).unwrap();
+    let st = s.state();
+    assert_eq!(st.looper.mode, LooperMode::RecArmed);
+    assert!(st.transport.sync_start);
+    // A memory can't be chosen while recording.
+    assert!(s.send(LooperCmd::SelectLooperMemory { index: 0 }).is_err());
+    let bar = bar_ns(&s);
+    keys(&s, true, &[36, 40, 43]); // C
+    assert_eq!(s.state().looper.mode, LooperMode::Recording);
+    assert!(s.state().transport.running);
+    s.advance(bar);
+    keys(&s, false, &[36, 40, 43]);
+    keys(&s, true, &[33, 36, 40]); // Am, on bar 2
+    s.advance(bar - bar / 4);
+    assert_eq!(s.state().looper.bar, Some(2));
+    s.send(LooperCmd::LooperOnOff).unwrap();
+    assert_eq!(s.state().looper.mode, LooperMode::LoopArmed);
+    s.advance(bar / 2);
+    let st = s.state();
+    assert_eq!(st.looper.mode, LooperMode::Looping);
+    assert_eq!(st.looper.bars, 2);
+    let names: Vec<_> = st.looper.chords.iter().map(|c| (c.bar, c.beat, c.chord.as_str())).collect();
+    assert_eq!(names, [(1, 1.0, "C"), (2, 1.0, "Am")]);
+    assert_eq!(st.looper.memory, None);
+    s.send(LooperCmd::StoreLooperMemory { index: 2 }).unwrap();
+    let st = s.state();
+    assert_eq!(st.looper.memory, Some(2));
+    assert_eq!(st.looper.memories[2].name.as_deref(), Some("CLD_001"));
+    assert_eq!(st.looper.memories[2].bars, 2);
+    assert!(st.looper.memories[0].name.is_none());
+    // ON/OFF: the loop stops at once.
+    s.send(LooperCmd::LooperOnOff).unwrap();
+    let st = s.state();
+    assert_eq!(st.looper.mode, LooperMode::Off);
+    assert!(st.looper.has_data);
+    s.send(LooperCmd::NewLooperBank).unwrap();
+    assert!(s.state().looper.memories.iter().all(|m| m.name.is_none()));
+    assert!(s.send(LooperCmd::StoreLooperMemory { index: 9 }).is_ok(), "index wraps, the sequence is still there");
+}
+
+#[test]
+fn solo_track_mute_tempo_and_metronome() {
+    let Some(s) = offline("SlowWalker.T552.sty") else { return };
+    s.send(MixerCmd::SetStyleSolo { part: Some(2) }).unwrap();
+    assert_eq!(s.state().mixer.style_solo, Some(2));
+    s.send(MixerCmd::SetStyleSolo { part: None }).unwrap();
+    assert_eq!(s.state().mixer.style_solo, None);
+    s.send(MixerCmd::StyleTrackMute { order: TrackMuteOrder::A, value: 0 }).unwrap();
+    let on: Vec<_> = s.state().mixer.style_parts.iter().map(|p| p.on).collect();
+    assert_eq!(on, [false, true, false, false, false, false, false, false]);
+    s.send(MixerCmd::StyleTrackMute { order: TrackMuteOrder::A, value: 127 }).unwrap();
+    assert!(s.state().mixer.style_parts.iter().all(|p| p.on));
+
+    // Keyboard solo: Right 2 alone sounds, though it is off.
+    s.send(MixerCmd::SetPartSolo { part: Some(1) }).unwrap();
+    let st = s.state();
+    assert_eq!(st.mixer.part_solo, Some(1));
+    let sounding: Vec<_> = st.keyboard_parts.iter().map(|p| p.sounding).collect();
+    assert_eq!(sounding, [false, true, false, false]);
+    assert!(!st.keyboard_parts[1].on);
+    s.take_output();
+    keys(&s, true, &[72]);
+    let out = s.take_output();
+    let (r1, r2) = (crate::parts::CHANNEL[crate::parts::RIGHT1], crate::parts::CHANNEL[crate::parts::RIGHT2]);
+    assert!(out.iter().any(|m| m[0] == 0x90 | r2 && m[1] == 72), "{out:?}");
+    assert!(!out.iter().any(|m| m[0] == 0x90 | r1), "{out:?}");
+    keys(&s, false, &[72]);
+    s.send(MixerCmd::SetPartSolo { part: None }).unwrap();
+    s.take_output();
+    keys(&s, true, &[72]);
+    assert!(s.take_output().iter().any(|m| m[0] == 0x90 | r1));
+
+    s.send(TransportCmd::SetTempo { bpm: 500 }).unwrap();
+    assert_eq!(s.state().transport.tempo, 500.0);
+    s.send(TransportCmd::SetTempo { bpm: 1 }).unwrap();
+    assert_eq!(s.state().transport.tempo, 5.0);
+    s.send(TransportCmd::SetTempo { bpm: 120 }).unwrap();
+
+    s.send(MetronomeCmd::ToggleMetronome).unwrap();
+    s.send(MetronomeCmd::SetMetronomeVolume { volume: 200 }).unwrap();
+    let m = s.state().metronome.clone();
+    assert!(m.on && m.bell && !m.audible);
+    assert_eq!(m.volume, 127);
+    s.take_output();
+    s.advance(2_000 * MS);
+    let clicks = s.take_output().iter().filter(|m| m[0] == crate::click::CLICK).count();
+    assert_eq!(clicks, 4, "120 BPM, stopped: a click every 500 ms");
 }

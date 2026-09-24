@@ -511,7 +511,9 @@
       }
     ],
     "master": null,
-    "masterWaiting": false
+    "masterWaiting": false,
+    "styleSolo": null,
+    "partSolo": null
   },
   "pads": {
     "page": "sections",
@@ -1423,5 +1425,62 @@
       54
     ]
   },
-  "message": null
+  "message": null,
+  "looper": {
+    "mode": "off",
+    "hasData": false,
+    "bar": null,
+    "bars": 0,
+    "chords": [],
+    "memory": null,
+    "pendingMemory": null,
+    "memories": [
+      {
+        "name": null,
+        "bars": 0,
+        "chords": []
+      },
+      {
+        "name": null,
+        "bars": 0,
+        "chords": []
+      },
+      {
+        "name": null,
+        "bars": 0,
+        "chords": []
+      },
+      {
+        "name": null,
+        "bars": 0,
+        "chords": []
+      },
+      {
+        "name": null,
+        "bars": 0,
+        "chords": []
+      },
+      {
+        "name": null,
+        "bars": 0,
+        "chords": []
+      },
+      {
+        "name": null,
+        "bars": 0,
+        "chords": []
+      },
+      {
+        "name": null,
+        "bars": 0,
+        "chords": []
+      }
+    ]
+  },
+  "metronome": {
+    "on": false,
+    "volume": 90,
+    "bell": true,
+    "audible": false
+  }
 }
