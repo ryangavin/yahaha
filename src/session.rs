@@ -27,6 +27,7 @@
 //! (`transport_state`, ...) and its pump step if it has one; `apply`, `pump` and
 //! `build_state` below call them in a fixed order (docs/architecture.md).
 
+mod chart;
 mod chord;
 mod keyboard;
 mod leds;
@@ -231,6 +232,8 @@ struct Control {
     release_tx: Producer<u8>,
     /// When the sources were last listed (live: every 2 s, for hot-plugged keyboards).
     sources_ns: u64,
+    /// The iReal Pro chart player (session/chart.rs).
+    charts: chart::Charts,
 }
 
 /// What several parts of the state read, read once per `build_state` so they all agree.
@@ -280,6 +283,7 @@ impl Control {
             AppCmd::Preview(c) => self.preview_cmd(c),
             AppCmd::Settings(c) => self.settings_cmd(c),
             AppCmd::System(c) => self.system_cmd(c),
+            AppCmd::Chart(c) => self.chart_cmd(c),
         }
     }
 
@@ -326,6 +330,7 @@ impl Control {
         self.pump_sound_font();
         self.pump_rescan();
         self.pump_inputs(now);
+        self.pump_chart();
 
         // Free-running beat clock for flashing/pulsing, following the current tempo.
         let s = self.snap;
@@ -371,6 +376,7 @@ impl Control {
             io: self.io_state(),
             preview: self.preview_state(),
             keyboard: self.keyboard_state(&v),
+            chart: self.chart_state(),
             message: self.message.clone(),
         }
     }
@@ -519,6 +525,7 @@ fn assemble(opts: &Options, engine_out: live::Out, input_out: live::Out, offline
         midi: None,
         release_tx,
         sources_ns: 0,
+        charts: chart::Charts::new(ch.chart_tx, ch.old_chart_rx),
     };
     let mut control = control;
     control.list_sound_fonts();

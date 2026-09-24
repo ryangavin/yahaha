@@ -15,6 +15,7 @@ mod chart;
 mod chords;
 mod form;
 mod scramble;
+mod styles;
 #[cfg(test)]
 mod tests;
 
@@ -24,6 +25,7 @@ pub use chart::{
 pub use chords::{Fit, QUALITIES, Quality, fallback_type, map_quality, to_chord};
 pub use form::{Bar, MAX_BARS, expand};
 pub use scramble::{MUSIC_PREFIX, scramble, unscramble};
+pub use styles::{Candidate, STYLE_WORDS, style_words, suggest_style};
 
 use anyhow::{Result, bail};
 

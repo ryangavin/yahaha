@@ -16,6 +16,7 @@
 //! feature adds a module, one line in `app_cmd!` below and/or one field in `AppState`
 //! (docs/architecture.md, "Adding a feature").
 
+mod chart;
 mod chord;
 mod keyboard;
 mod library;
@@ -29,6 +30,7 @@ mod surface;
 mod system;
 mod transport;
 
+pub use chart::*;
 pub use chord::*;
 pub use keyboard::*;
 pub use library::*;
@@ -115,6 +117,8 @@ app_cmd! {
     Settings(SettingsCmd),
     /// Panic, the message line.
     System(SystemCmd),
+    /// The iReal Pro chart player.
+    Chart(ChartCmd),
 }
 
 impl From<Button> for AppCmd {
@@ -240,6 +244,8 @@ pub struct AppState {
     pub preview: PreviewState,
     /// The keys held and the chord, for the app's keyboard strip.
     pub keyboard: KeyboardState,
+    /// The iReal Pro chart player: imported playlists, the chart, the bar playing.
+    pub chart: ChartState,
     /// The last notice or error, until the next one or `ClearMessage`.
     pub message: Option<Message>,
 }
