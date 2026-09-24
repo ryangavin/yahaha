@@ -445,10 +445,12 @@ impl MockSession {
     fn on_beat(&mut self) {
         let qpb = self.bar_quarters();
         if self.chart_playing() {
-            let beat = (self.clock.rem_euclid(qpb)).floor() as u8;
+            // The quarter this is, as a place in the bar (a chord goes in at beat/beats of
+            // its chart bar, as the engine places it).
+            let pos = self.clock.rem_euclid(qpb).floor() / qpb;
             let c = &self.state.chart;
             if let (Some(song), Some(i)) = (&c.song, c.bar) {
-                let name = chord_at(song, i as usize, beat);
+                let name = chord_at(song, i as usize, pos);
                 self.chart_chord(name);
             }
         }
@@ -533,7 +535,7 @@ impl MockSession {
         if let (true, Some(song)) = (self.state.chart.on, self.state.chart.song.as_ref()) {
             // The chart's Intro (unless one is armed), its first Main and first chord.
             let first = song.bars.first().map_or(0, |b| b.main);
-            let name = chord_at(song, 0, 0);
+            let name = chord_at(song, 0, 0.0);
             let t = &mut self.state.transport;
             if t.pending_intro.is_none() {
                 t.pending_intro = self.state.chart.intro;
@@ -1528,10 +1530,12 @@ mod tests {
     }
 }
 
-/// The chord in effect at `beat` of bar `i` (held from earlier bars when it has none).
-fn chord_at(song: &ChartSong, i: usize, beat: u8) -> Option<String> {
+/// The chord in effect at `pos` (a fraction) of bar `i` (held from earlier bars when it has
+/// none). A chord on beat `b` of an `n`-beat bar is at `b/n` of it.
+fn chord_at(song: &ChartSong, i: usize, pos: f64) -> Option<String> {
     (0..=i.min(song.bars.len().saturating_sub(1))).rev().find_map(|b| {
-        song.bars[b].chords.iter().rev().find(|c| b < i || c.beat <= beat).map(|c| c.name.clone())
+        let beats = song.bars[b].time[0].max(1) as f64;
+        song.bars[b].chords.iter().rev().find(|c| b < i || c.beat as f64 / beats <= pos + 1e-6).map(|c| c.name.clone())
     })
 }
 
@@ -1575,7 +1579,7 @@ impl MockSession {
             },
         };
         self.state.chart.bar = Some(i);
-        let name = self.state.chart.song.as_ref().and_then(|s| chord_at(s, i as usize, 0));
+        let name = self.state.chart.song.as_ref().and_then(|s| chord_at(s, i as usize, 0.0));
         self.chart_chord(name);
         let Some(n1) = self.chart_next(i) else {
             match self.state.chart.ending.map(|e| ENDINGS[e as usize % 3]).filter(|e| self.has(e)) {

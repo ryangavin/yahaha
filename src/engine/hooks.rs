@@ -21,6 +21,7 @@
 //! | `on_chord` | the chord the style follows changed (a new chord, or a Keyboard transpose) |
 //! | `on_style_loaded` | a new style took over (at once when stopped, at the bar line when playing) |
 //! | `hook_deadline` | a tick by which a feature needs `process` to run (see below) |
+//! | `hook_due`, `on_due` | a feature's own tick between the lines (the chart's chords); `process` runs `on_due` at it |
 //!
 //! Timing: bar and beat hooks run when `process` passes the line, before the pattern's
 //! events at that tick, and after a section change at that tick (they see the new
@@ -155,6 +156,21 @@ impl Engine {
     #[inline]
     pub(super) fn hook_deadline(&self) -> Option<f64> {
         self.chart_deadline()
+    }
+
+    /// A tick between the bar and beat lines at which a feature acts, if any, and what
+    /// `on_due` passes back to it: `process` runs `on_due` when it comes (before the
+    /// pattern's events at that tick). The chart player's chords that fall between the
+    /// style's quarter lines (a 6/8 chart's eighths).
+    #[inline]
+    pub(super) fn hook_due(&self) -> Option<(f64, f32)> {
+        self.chart_due()
+    }
+
+    /// The tick `hook_due` gave has come. It must move `hook_due` on.
+    #[inline]
+    pub(super) fn on_due(&mut self, pos: f32, now: u64, sink: &mut impl Sink) {
+        self.chart_at(pos, now, sink);
     }
 
     // ----- the bar and beat lines -----

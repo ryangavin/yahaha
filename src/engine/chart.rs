@@ -2,8 +2,12 @@
 //! expanded into bars ([`ChartPlan`], built on the control side by `session/chart.rs`),
 //! in time, instead of from the left hand. docs/ireal.md ("Chart player") has the rules.
 //!
-//! - One chart bar is one bar of the style. A chart bar's chords go in on their beats; a
-//!   beat the style's bar doesn't have (a 4/4 chart on a 3/4 style) lands on its last beat.
+//! - One chart bar is one bar of the style. A chart bar's chords go in at their place in
+//!   the bar: a chord on beat `b` of an `n`-beat chart bar at `b/n` of the style's bar,
+//!   whatever the chart's beat unit (a 2/2 chart's half-bar chord on quarter 3 of a 4/4
+//!   style, a 6/8 chart's second eighth at 1/6 of the bar). The engine wakes at each chord
+//!   (`hook_due`), so a chord between the style's quarter lines lands on time; the
+//!   lead-sheet band draws it at the same place.
 //! - Chart sections A-D play Main A-D; each section mark restarts its Main at its first bar,
 //!   so the style's phrases line up with the chart's. With Auto Fill on, the bar before a
 //!   section mark plays the new Main's fill.
@@ -34,24 +38,33 @@ pub struct PlanBar {
     /// The chord in effect as the bar begins (its beat-1 chord, or the one held from
     /// before); None before the chart's first chord.
     pub enter: Option<Chord>,
-    /// Chords on beats (0-based beat, chord), in beat order; N.C. is `theory::CANCEL`.
-    pub chords: [(u8, Chord); CHART_CHORDS],
+    /// Chords at their place in the bar (the fraction of the bar before them, 0 <= x < 1,
+    /// from the chart's beat and time signature), in order; N.C. is `theory::CANCEL`.
+    pub chords: [(f32, Chord); CHART_CHORDS],
     pub n: u8,
 }
 
 impl PlanBar {
-    pub const EMPTY: PlanBar = PlanBar { main: 0, section_start: false, enter: None, chords: [(0, Chord::new(0, 0)); CHART_CHORDS], n: 0 };
+    pub const EMPTY: PlanBar = PlanBar { main: 0, section_start: false, enter: None, chords: [(0.0, Chord::new(0, 0)); CHART_CHORDS], n: 0 };
 
-    /// The chord in effect at `beat`, where `last` means the style's bar ends at this beat
-    /// (chords on later beats of the chart bar land here).
-    pub fn chord_at(&self, beat: u32, last: bool) -> Option<Chord> {
-        self.chords[..self.n as usize]
-            .iter()
-            .rev()
-            .find(|(b, _)| last || *b as u32 <= beat)
-            .map(|&(_, c)| c)
-            .or(self.enter)
+    /// The chord in effect at `pos` (a fraction of the bar).
+    pub fn chord_at(&self, pos: f32) -> Option<Chord> {
+        self.chords[..self.n as usize].iter().rev().find(|(p, _)| *p <= pos + POS_EPS).map(|&(_, c)| c).or(self.enter)
     }
+
+    /// The place of the first chord after `pos` in this bar.
+    fn next_after(&self, pos: f32) -> Option<f32> {
+        self.chords[..self.n as usize].iter().map(|&(p, _)| p).find(|&p| p > pos + POS_EPS)
+    }
+}
+
+/// Two chord places closer than this are the same place.
+const POS_EPS: f32 = 1e-4;
+
+/// Where a chord on 0-based `beat` of a bar of `beats` beats sits: the fraction of the bar
+/// before it (in [0, 1)).
+pub fn bar_pos(beat: u8, beats: u8) -> f32 {
+    (beat as f32 / beats.max(1) as f32).clamp(0.0, 1.0 - 1e-3)
 }
 
 /// A chart expanded for playing: built (and freed) on the control side.
@@ -90,11 +103,11 @@ impl ChartPlan {
                 let new_chorus = i > 0 && bars[i - 1].chorus != b.chorus;
                 let mut p = PlanBar { main, section_start: (b.section_start || new_chorus) && i > 0, enter: held, ..PlanBar::EMPTY };
                 for c in b.chords.iter().take(CHART_CHORDS) {
-                    p.chords[p.n as usize] = (c.beat, c.chord);
+                    p.chords[p.n as usize] = (bar_pos(c.beat, b.time.0), c.chord);
                     p.n += 1;
                     held = Some(c.chord);
                 }
-                if let Some(&(0, c)) = p.chords[..p.n as usize].first() {
+                if let Some(&(_, c)) = p.chords[..p.n as usize].first().filter(|(x, _)| *x <= POS_EPS) {
                     p.enter = Some(c);
                 }
                 p
@@ -135,6 +148,8 @@ pub(super) struct ChartPlayer {
     /// Ending or the stop), and the Main selected before it: a new plan or new settings
     /// take it back.
     owned: Option<(Queued, u8)>,
+    /// How far into the bar playing (a fraction) the chart's chords have gone in.
+    done: f32,
 }
 
 impl Engine {
@@ -366,17 +381,50 @@ impl Engine {
         self.features.chart.owned = Some((q, main_before));
     }
 
-    /// `on_beat`: the chart's chord for this beat, unless the player has taken over.
+    /// The plan bar whose chords go in now: the chart plays a Main, fill or break, and the
+    /// player hasn't taken over.
+    fn chart_giving(&self) -> Option<&PlanBar> {
+        let c = &self.features.chart;
+        if !self.running || !self.chart_active() || c.overridden || matches!(id_of(self.cur), SectionId::Intro(_) | SectionId::Ending(_)) {
+            return None;
+        }
+        self.plan_bar(c.bar?)
+    }
+
+    /// `on_beat`: a bar's first beat gives the chord it begins with (its own, or the one
+    /// held); the rest go in at their places (`chart_due`).
     pub(super) fn chart_beat(&mut self, beat: u32, now: u64, sink: &mut impl Sink) {
-        if !self.chart_active() || self.features.chart.overridden {
+        if beat != 0 {
             return;
         }
-        let Some(i) = self.features.chart.bar else { return };
-        if matches!(id_of(self.cur), SectionId::Intro(_) | SectionId::Ending(_)) {
-            return;
+        self.features.chart.done = 0.0;
+        let c = self.chart_giving().and_then(|b| b.chord_at(0.0));
+        self.chart_chord(c, now, sink);
+    }
+
+    /// The tick of the bar line the bar and beat lines are in (`self.lines` aims at the
+    /// next line).
+    fn line_bar_start(&self) -> f64 {
+        let (tpb, ppq) = (self.style.tpb.max(1) as f64, self.style.ppq.max(1) as f64);
+        let l = self.lines;
+        if l.beat == 0 {
+            l.next - tpb
+        } else {
+            l.next - l.beat as f64 * ppq
         }
-        let beats = (self.style.tpb / self.style.ppq.max(1)).max(1);
-        let c = self.plan_bar(i).and_then(|b| b.chord_at(beat, beat + 1 >= beats));
+    }
+
+    /// `hook_due`: the tick of the chart's next chord in the bar playing, and its place.
+    #[inline]
+    pub(super) fn chart_due(&self) -> Option<(f64, f32)> {
+        let pos = self.chart_giving()?.next_after(self.features.chart.done)?;
+        Some((self.line_bar_start() + pos as f64 * self.style.tpb.max(1) as f64, pos))
+    }
+
+    /// `on_due`: the chord at `pos` in the bar playing goes in.
+    pub(super) fn chart_at(&mut self, pos: f32, now: u64, sink: &mut impl Sink) {
+        self.features.chart.done = pos;
+        let c = self.chart_giving().and_then(|b| b.chord_at(pos));
         self.chart_chord(c, now, sink);
     }
 
@@ -390,10 +438,12 @@ impl Engine {
         c.overridden = true;
     }
 
-    /// `hook_deadline`: every beat line while the chart plays, so its chords land on time.
+    /// `hook_deadline`: every beat line while the chart plays (its bar lines queue the
+    /// sections), and its next chord.
     #[inline]
     pub(super) fn chart_deadline(&self) -> Option<f64> {
-        (self.running && self.chart_active()).then_some(self.lines.next)
+        let line = (self.running && self.chart_active()).then_some(self.lines.next)?;
+        Some(self.chart_due().map_or(line, |(t, _)| t.min(line)))
     }
 }
 
@@ -716,16 +766,51 @@ mod tests {
         assert_eq!((lines[first].section.as_str(), lines[first].chord.as_str(), lines[first].sbar), ("Main A", "G", 0), "{lines:?}");
     }
 
+    /// The chord playing just before and just after `frac` of the style's bar `bar`.
+    fn around(e: &mut Engine, bar: u32, frac: f64) -> (String, String) {
+        let len = (e.ns_at_bar(1) - e.ns_at_bar(0)) as f64;
+        let at = e.ns_at_bar(bar) as f64 + frac * len;
+        let mut name = |t: f64| {
+            e.process(t as u64, &mut Nop);
+            e.snapshot(t as u64).played.map_or("-".into(), |c| c.name())
+        };
+        (name(at - len / 100.0), name(at + len / 200.0))
+    }
+
+    /// A chord goes in at its place in the bar, whatever the chart's beat unit: a 2/2 or
+    /// 12/8 chart's half-bar chord at half the style's bar (quarter 3 of 4/4), a 6/8 chart's
+    /// second eighth at a sixth of it (between the style's quarter lines).
+    #[test]
+    fn chords_land_at_their_place_in_the_bar() {
+        for (chart, frac, name) in [
+            ("T22*A[C D |C Z", 0.5, "D"),
+            ("T12*A[C D |C Z", 0.5, "D"),
+            ("T68*A[C  D  |C Z", 0.5, "D"),
+            ("T68*A[C,D,E,F,G,A|C Z", 1.0 / 6.0, "D"),
+            ("T68*A[C,D,E,F,G,A|C Z", 5.0 / 6.0, "A"),
+            ("T44*A[C D |C Z", 0.5, "D"),
+        ] {
+            let Some(mut e) = engine() else { return };
+            e.set_chart(plan(chart, 1), 0);
+            e.set_chart_settings(settings(None, None), 0);
+            start(&mut e);
+            let (before, after) = around(&mut e, 0, frac);
+            assert_ne!(before, name, "{chart}: {name} early");
+            assert_eq!(after, name, "{chart}: {name} not in at {frac} of the bar");
+            // The next bar's chord still comes on its bar line.
+            assert_eq!(around(&mut e, 1, 0.0).1, "C", "{chart}");
+        }
+    }
+
     #[test]
     fn plan_bars_carry_sections_and_held_chords() {
         let p = plan("*A[C |x |D-7 G7 ]*B[G7 |*C C Z", 1);
         let mains: Vec<_> = p.bars.iter().map(|b| (b.main, b.section_start)).collect();
         assert_eq!(mains, [(0, false), (0, false), (0, false), (1, true), (2, true)]);
         assert_eq!(p.bars[1].enter.unwrap().name(), "C");
-        assert_eq!(p.bars[2].chord_at(1, false).unwrap().name(), "Dm7");
-        assert_eq!(p.bars[2].chord_at(2, false).unwrap().name(), "G7");
-        // A 4/4 chart bar on a 2-beat style bar: beat 3's chord lands on the last beat.
-        assert_eq!(p.bars[2].chord_at(1, true).unwrap().name(), "G7");
+        assert_eq!(p.bars[2].chord_at(0.25).unwrap().name(), "Dm7");
+        assert_eq!(p.bars[2].chord_at(0.5).unwrap().name(), "G7");
+        assert_eq!(p.bars[1].chord_at(0.9).unwrap().name(), "C");
         assert_eq!(section_main(Some('V'), 2), 2);
     }
 }

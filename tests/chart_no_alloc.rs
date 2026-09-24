@@ -42,8 +42,9 @@ fn a_chart_plays_without_allocating() {
     let shared = Arc::new(Shared::new(54));
     let mut ch = live::channels(Out::new(PacketSink::new(Target::Null), None));
     let mut l = EngineLoop::new(Engine::new(style), ch.io, shared.clone());
-    // A synthetic chart: sections A and B (a fill between), chords on beats 1 and 3, N.C.
-    let chart = "*A[C^7 |D-7 G7 |E-7 A7 |D-7 G7 ]*B[F^7 |n |E-7 A7 |D-7 G7 Z";
+    // A synthetic chart: sections A and B (a fill between), chords on beats 1 and 3, N.C., and
+    // a 6/8 bar whose eighths fall between the quarter lines.
+    let chart = "*A[C^7 |D-7 G7 |E-7 A7 |D-7 G7 ]*B[F^7 |n |T68E-7,A7,D-7,G7,C,F|T44D-7 G7 Z";
     let plan = |tag| Box::new(ChartPlan::from_bars(&expand(&parse_chart(chart), 2), tag, None));
     let (first, second) = (plan(1), plan(2));
     // A new song mid-play (it starts from its first bar at the next bar line).

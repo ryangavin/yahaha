@@ -202,10 +202,16 @@ state are `chart` in [app-api.md](app-api.md).
 - **Bars.** One chart bar is one bar of the style. The chart moves on a bar at each bar line
   of the Main, Fill or Break playing (the engine's `on_bar` hook). It stays put during the
   Intro and the Ending.
-- **Chords.** At each beat line (`on_beat`), the band gets the chord in effect on that beat of
-  the chart bar. A chord on a beat the style's bar doesn't have (a 4/4 chart on a 3/4 style)
-  lands on the style bar's last beat. N.C. is Chord Cancel: rhythm only. While chart mode is
-  on, the engine wakes at every beat line (`hook_deadline`), so chords land on the beat.
+- **Chords.** A chord goes in at its place in the bar: a chord on beat `b` of an `n`-beat
+  chart bar goes in at `b/n` of the style's bar, counted in the chart's own beat unit. A 2/2
+  or 12/8 chart's half-bar chord goes in at half the style's bar (quarter 3 of a 4/4 style), and
+  a 6/8 chart's second eighth at a sixth of it. A chart in another metre than the style's (a 4/4
+  chart on a 3/4 style) is stretched onto the style's bar the same way. The lead-sheet band draws
+  the chords at the same places. Each bar line gives the chord the bar begins with. The engine
+  wakes at each later chord (`hook_due` / `on_due`), so a chord between the style's quarter
+  lines goes in on time. N.C. is Chord Cancel: rhythm only.
+  Decision: a chord goes at its fraction of the bar, because iReal counts beats in the chart's
+  beat unit and a chart bar is played as one style bar.
 - **Sections.** Sections A, B, C and D play Main A, B, C and D. A verse (`V`) or the chart's
   own intro (`i`) keeps the Main before it, and bars before any mark play Main A.
   - A bar with a section mark starts that Main from its first bar, so the style's phrases

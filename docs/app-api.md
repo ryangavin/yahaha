@@ -180,7 +180,7 @@ left hand ([ireal.md](ireal.md), "Chart player"). Playlists live in the session'
 | `selectChart` | `playlist`, `song` | Chooses the chart the band plays (`chart.selected`, `chart.song`). It suggests a library style from the chart's style label (`chart.suggestedStyle`) and, with `chart.autoStyle`, loads it as `loadStyle` would. With the band stopped, the tempo becomes the chart's when it has one; a playing band starts the new song from its first bar at the next bar line. The loop is cleared. |
 | `stepChart` | `delta` | The previous / next song of the playlist. |
 | `removeChartPlaylist` | `playlist` | Forgets a playlist. If the chosen song was in it, there is no chart any more and chart mode turns off. |
-| `setChartMode` / `toggleChartMode` | `on` | Chart mode (`chart.on`). While the band plays, the chart gives the chords on their beats and the Mains at its section marks. Turning it on with no chart fails. |
+| `setChartMode` / `toggleChartMode` | `on` | Chart mode (`chart.on`). While the band plays, the chart gives the chords at their places in the bar (beat / beats of the chart bar) and the Mains at its section marks. Turning it on with no chart fails. |
 | `setChartChoruses` | `choruses` 1–99 | Times through the form. The chart is expanded again; a playing band keeps its bar. A loop past the new last bar is cleared. |
 | `setChartLoop` | `range` | Loops bars `[start, end)` of `chart.song.bars` instead of ending (e.g. `{"type":"setChartLoop","range":[8,16]}`); `null` for no loop. Fails for bars the chart doesn't have. |
 | `setChartIntro` | `index` | The Intro 0–2 (A–C) before the chart, or `null` for none. An Intro pressed before the start plays instead. |
