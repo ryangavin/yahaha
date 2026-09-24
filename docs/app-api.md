@@ -99,7 +99,12 @@ state, and pressing the button is the action. For settings, a GUI checkbox can u
 | `toggleSyncStart` | | SYNC START on/off. |
 | `toggleSyncStop` | | SYNC STOP on/off. The engine ignores it while `transport.syncStopAvailable` is false. |
 | `toggleAutoFill` | | AUTO FILL IN on/off. |
-| `toggleStopAcmp` | | STOP ACMP on/off. |
+| `toggleStopAcmp` | | STOP ACMP on/off: Off, or back to the mode last on (`style` at first). |
+| `setStopAcmp` | `mode`: `off` \| `style` \| `fixed` | Stop Accompaniment (Style Setting > Stop ACMP): with the band stopped and Sync Start off, the chord you play sounds on nothing (`off`), on the style's Bass and Pad voices (`style`), or on fixed ones, Finger Bass and Warm Pad (`fixed`, GM 34 and 90 on the Bass and Pad channels; the style's voices go back when the band starts or the mode changes). The chord is recognised in every mode. |
+| `fillUp`, `fillDown` | | Fill Up / Fill Down (Genos assignable functions): a fill, then the next Main to the right / left that the style has. At Main D (A) it plays that Main's own fill. Stopped: selects that Main. |
+| `fillSelf` | | Fill Self: the Main's own fill, as pressing the Main playing. |
+| `fillBreak` | | Fill Break: the Break (the same as `break`). |
+| `setHalfBarFill` / `toggleHalfBarFill` | `on` | Half Bar Fill In: a Main change or fill asked for on the first beat of a bar plays a fill from the middle of that bar (beat 3 in 4/4), then the Main at the next bar line, even with Auto Fill off. |
 | `tapTempo` | | TAP TEMPO. |
 | `tempoUp`, `tempoDown` | | One tempo step. |
 | `toggleStylePart` | `part` 0–7 | Mutes or unmutes a Style part. |
@@ -159,12 +164,25 @@ state, and pressing the button is the action. For settings, a GUI checkbox can u
 |---|---|---|
 | `recallOts` | `index` 0–3 | Recalls OTS 1–4 into the keyboard parts. Ignored if the style has no such OTS. |
 | `setOtsLink` / `toggleOtsLink` | `on` | OTS Link: Main A–D recall OTS 1–4, and so does a style change. |
+| `setOtsLinkTiming` | `timing`: `immediate` \| `mainChange` | OTS Link Timing: during playback, recall the Main's OTS as it is pressed (`immediate`), or when that Main starts playing (`mainChange`: at the next bar, or after its fill). Stopped, both recall at once. |
 | `loadStyle` | `id` | A library entry (`LibraryEntry.id`). Stopped, it loads at once. Playing, it takes over at the next bar line, as on a Genos: the band carries on in the same section (the same Main, or the nearest the new style has) at the same bar position, at the same tempo. Until then `preview.queued` names it and `style` is still the old one. A later style change before the bar line replaces it; stopping first loads it then. |
 | `queueStyle` | `id` | The same as `loadStyle` (the browser's "next bar" button). |
 | `loadStylePath` | `path` | Any style file. It is added to the library if it isn't there already. |
 | `stepStyle` | `delta` | Previous or next style in library order, from the style waiting for the bar line if there is one. Files that don't load are skipped. |
 | `auditionStyle` | `id` | Previews a style while the band is stopped: its Main A, at its own tempo, with its own voices and levels, over C Am F G7 (a chord a bar) for 4 bars, then it stops by itself (`preview.audition`). The loaded style, OTS, keyboard parts, mixer and transport are untouched; the loaded style's setup is sent again when it ends. Refused (`failed`) while the band plays. A new one replaces the one playing; it ends early on `stopAudition`, a style change, START/STOP, `panic` or a chord that starts the band (Sync Start). |
 | `stopAudition` | | Ends the preview now. |
+
+### Style change behaviour
+
+Style Setting > Change Behavior (RM p.12–13): what choosing another style does.
+
+| Command | Fields | Does |
+|---|---|---|
+| `setTempoChange` | `rule`: `lock` \| `hold` \| `reset` | Tempo. `lock`: keep the tempo. `hold`: keep it while the band plays, take the new style's when stopped (the default). `reset`: always take the new style's. |
+| `setPartsChange` | `rule` | Style part on/off, the same three rules (`hold` and `reset` turn every part on). Default `hold`. |
+| `setSectionSet` | `section` 0–3 or null | Section Set: the Main (A–D) a style chosen while stopped starts on (the nearest Main it has), or null (Off, the default) to keep the Main selected. |
+| `toggleStyleTempoLock` | | The assignable "Style Tempo Lock/Reset": Tempo `reset` becomes `lock`, anything else becomes `reset`. |
+| `toggleStyleTempoHold` | | The assignable "Style Tempo Hold/Reset": Tempo `reset` becomes `hold`, anything else becomes `reset`. |
 
 ### Result: `CmdError`
 
@@ -220,7 +238,7 @@ Indices are 0-based unless a field says otherwise.
 | `syncStart` | bool | Sync Start is armed: the next chord starts the style. |
 | `syncStop` | bool | Sync Stop is on. |
 | `syncStopAvailable` | bool | False in the Full Keyboard fingering types in Lower. |
-| `autoFill`, `stopAcmp` | bool | Auto Fill In and Stop Accompaniment. |
+| `autoFill`, `stopAcmp` | bool | Auto Fill In, and Stop Accompaniment sounding (`stopAcmpMode` is not `off`). |
 | `section` | string? | The section playing, for example `Main A` or `Fill In AA`. Null when stopped. |
 | `queued` | string? | The section queued next: at the next bar, or for a fill, at the next beat. |
 | `pendingIntro` | 0–2? | The Intro armed to play at the start. |
@@ -230,6 +248,8 @@ Indices are 0-based unless a field says otherwise.
 | `sectionBars` | number? | How many bars the section playing lasts (a Main's pattern length; it loops). Null when stopped. |
 | `tempo` | number | Current tempo in BPM. |
 | `lamps` | Pad[16] | Page 1 of the pads, whatever page the hardware is on. These are the section, Sync, Auto Fill, Tap and Start/Stop lamps exactly as the pads light them. See [Pad](#pad). |
+| `halfBarFill` | bool | Half Bar Fill In. |
+| `stopAcmpMode` | `off` \| `style` \| `fixed` | Stop Accompaniment (`setStopAcmp`). |
 
 ### `chord`
 | Field | Type | Meaning |
@@ -339,6 +359,7 @@ describes the start. Keyboards are different: the session lists the MIDI sources
 | `settings` | OtsSetting[0–4] | `name` (`OTS 1` to `OTS 4`; styles don't name them) and `parts`: Right 1, Right 2, Right 3, Left as the setting sets them (`on`, `program` or null for a drum kit, `voiceName`, `volume`, `octave`). |
 | `applied` | 0–4 | The last OTS recalled, 1-based. 0 means none since the style loaded. |
 | `link` | bool | OTS Link. |
+| `linkTiming` | `immediate` \| `mainChange` | OTS Link Timing. |
 
 ### `library`
 | Field | Type | Meaning |
@@ -586,7 +607,9 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
         "action": { "type": "intro", "index": 1 },
         "palette": null
       }
-    ]
+    ],
+    "halfBarFill": false,
+    "stopAcmpMode": "off"
   },
   "chord": {
     "name": "Am",
@@ -745,7 +768,8 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
       }
     ],
     "applied": 1,
-    "link": false
+    "link": false,
+    "linkTiming": "immediate"
   },
   "library": { "revision": 3, "count": 35, "position": 23, "pending": 0, "roots": ["/Users/me/Styles/MOX_v2"], "scanning": false },
   "surface": {
@@ -884,6 +908,7 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
     "chordBass": 7,
     "detection": [0, 54]
   },
+  "styleChange": { "tempo": "hold", "parts": "hold", "sectionSet": null },
   "message": null
 }
 ```

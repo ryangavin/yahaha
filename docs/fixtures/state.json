@@ -311,7 +311,9 @@
         },
         "palette": null
       }
-    ]
+    ],
+    "halfBarFill": false,
+    "stopAcmpMode": "off"
   },
   "chord": {
     "name": "G7",
@@ -925,7 +927,8 @@
       }
     ],
     "applied": 0,
-    "link": false
+    "link": false,
+    "linkTiming": "immediate"
   },
   "library": {
     "revision": 3,
@@ -1422,6 +1425,11 @@
       0,
       54
     ]
+  },
+  "styleChange": {
+    "tempo": "hold",
+    "parts": "hold",
+    "sectionSet": null
   },
   "message": null
 }
