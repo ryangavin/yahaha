@@ -7,7 +7,11 @@
 
 use std::time::Instant;
 
+#[path = "mock_multipad.rs"]
+mod multipad;
+
 use yahaha::api::*;
+use yahaha::controllers::{Controllers, PedalSetup, PEDALS};
 use yahaha::fingering::Fingering;
 use yahaha::launchkey::{self as lk, Action, Anim, Control, Level, Page};
 use yahaha::parts::{self, FaderPage};
@@ -140,6 +144,11 @@ pub struct MockSession {
     led_anchor: (f64, f64, f64),
     /// The wall clock at the last `catch_up`.
     wall: Option<Instant>,
+    /// Multi Pads (mock_multipad.rs).
+    pads: multipad::MockPads,
+    /// Pedals and wheels: the engine's own model (no keyboard, so nothing moves them but
+    /// commands).
+    controllers: Controllers,
 }
 
 impl Default for MockSession {
@@ -281,6 +290,7 @@ impl MockSession {
                 sound_font_loading: false,
             },
             preview: PreviewState::default(),
+            multi_pad: multipad::initial(),
             harmony_arp: harmony_arp_default(),
             // Mid-song: the left hand holds the Am7 it fingered.
             keyboard: KeyboardState {
@@ -290,6 +300,7 @@ impl MockSession {
                 chord_bass: Some(9),
                 detection: [0, 54],
             },
+            controllers: ControllersState::of(&Controllers::new()),
             message: None,
         };
         let mut m = MockSession {
@@ -308,6 +319,8 @@ impl MockSession {
             section_key: None,
             led_anchor: (0.0, 0.0, 0.0), // anchored by the first `derive`
             wall: None,
+            pads: multipad::MockPads::default(),
+            controllers: Controllers::new(),
         };
         m.set_style(0);
         m.state.ots.applied = 2;
@@ -415,6 +428,7 @@ impl MockSession {
 
     fn step(&mut self, ms: f64) {
         self.now += ms;
+        self.pads.beats(&mut self.state.multi_pad, ms / 60000.0 * self.state.transport.tempo);
         if !self.state.transport.running {
             return;
         }
@@ -443,6 +457,7 @@ impl MockSession {
     }
 
     fn on_bar(&mut self, bar: u32) {
+        self.pads.bar(&mut self.state.multi_pad);
         let t = &self.state.transport;
         let main = MAINS[t.main as usize];
         let section = t.section.clone();
@@ -483,6 +498,10 @@ impl MockSession {
     }
 
     fn enter(&mut self, s: &str, bar: u32) {
+        let from_ending = self.state.transport.section.as_deref().is_some_and(|c| ENDINGS.contains(&c));
+        if ENDINGS.contains(&s) && !from_ending {
+            self.pads.ending_started(&mut self.state.multi_pad);
+        }
         self.state.transport.section = Some(s.into());
         self.section_start = bar;
         if let Some(m) = MAINS.iter().position(|x| *x == s) {
@@ -500,6 +519,7 @@ impl MockSession {
         if !self.state.transport.running && self.state.transport.sync_start {
             self.start_band();
         }
+        self.pads.chord(&mut self.state.multi_pad, self.state.transport.running);
     }
 
     fn start_band(&mut self) {
@@ -513,9 +533,13 @@ impl MockSession {
         self.clock = 0.0;
         self.section_start = 0;
         self.position();
+        self.pads.band_started(&mut self.state.multi_pad);
     }
 
     fn stop_band(&mut self) {
+        if self.state.transport.running {
+            self.pads.band_stopped(&mut self.state.multi_pad);
+        }
         let t = &mut self.state.transport;
         t.running = false;
         t.section = None;
@@ -870,6 +894,38 @@ impl MockSession {
                     t.queued = Some(m.into());
                 }
             }
+            AppCmd::Transport(TransportCmd::Fill { delta }) => {
+                // The Main to the left/right (or the same), always with a fill.
+                let to = (self.state.transport.main as i8 + delta.signum()).clamp(0, 3) as u8;
+                let auto = std::mem::replace(&mut self.state.transport.auto_fill, true);
+                self.cmd(AppCmd::Transport(TransportCmd::Main { index: to }));
+                self.state.transport.auto_fill = auto;
+            }
+            AppCmd::Controllers(c) => {
+                match c.apply_setting(&self.controllers) {
+                    Ok(true) => {
+                        // No keyboard: a pedal learning "hears" the Launchkey's sustain jack.
+                        if let ControllersCmd::LearnPedal { pedal: Some(p) } = c {
+                            let s = self.controllers.pedal(p as usize % PEDALS);
+                            self.controllers.set_pedal(p as usize % PEDALS, PedalSetup { cc: Some(64), ..s });
+                            self.controllers.learn(None);
+                        }
+                    }
+                    Ok(false) => {
+                        if let ControllersCmd::TriggerFunction { function } = c {
+                            let ots = self.state.ots.settings.len() as u8;
+                            match function_run(function, self.state.chord.fingering, ots, self.state.ots.applied) {
+                                Ok(FunctionRun::Cmd(c)) => self.cmd(c),
+                                Ok(FunctionRun::Switch(b)) => self.controllers.toggle_switch(b),
+                                Ok(FunctionRun::Nothing) => {}
+                                Err(e) => self.message(e, true),
+                            }
+                        }
+                    }
+                    Err(e) => self.message(e, true),
+                }
+                self.state.controllers = ControllersState::of(&self.controllers);
+            }
             AppCmd::Transport(TransportCmd::Break) => {
                 if running && self.has(BREAK) {
                     self.state.transport.queued = Some(BREAK.into());
@@ -1045,6 +1101,9 @@ impl MockSession {
             }
             AppCmd::System(SystemCmd::Panic) => {
                 self.stop_band();
+                self.pads.panic(&mut self.state.multi_pad);
+                self.controllers.reset(&mut |_| {});
+                self.state.controllers = ControllersState::of(&self.controllers);
                 self.message("All notes off", false);
             }
             AppCmd::System(SystemCmd::ClearMessage) => self.state.message = None,
@@ -1078,6 +1137,12 @@ impl MockSession {
                 io.inputs = io.sources.iter().filter(|s| s.listening).map(|s| if s.pads { format!("{} (pads)", s.name) } else { s.name.clone() }).collect();
             }
             AppCmd::Settings(SettingsCmd::SetPaletteLeds { on }) => self.state.pads.palette_leds = on,
+            AppCmd::MultiPad(c) => {
+                let running = self.state.transport.running;
+                if let Some(e) = self.pads.cmd(&mut self.state.multi_pad, c, running) {
+                    self.message(e, true);
+                }
+            }
             AppCmd::HarmonyArp(c) => {
                 if let Err(e) = harmony_arp_cmd(&mut self.state.harmony_arp, c) {
                     self.message(&e, true);
@@ -1350,6 +1415,24 @@ mod tests {
         assert_eq!(m.state.transport.queued.as_deref(), Some("Fill In BB"));
         let lamp = m.state.transport.lamps.iter().find(|p| p.note == 113).unwrap();
         assert_eq!((lamp.level, lamp.anim), (Level::Bright, Anim::Flash));
+    }
+
+    #[test]
+    fn pedals_and_their_functions() {
+        use yahaha::controllers::Function;
+        let mut m = MockSession::new();
+        m.send(ControllersCmd::SetPedal { pedal: 1, cc: Some(66), function: Function::FillUp, control_type: Default::default(), reverse: false, range: Default::default() });
+        assert_eq!(m.state.controllers.pedals[1].function, Function::FillUp);
+        // Playing Main B: Fill Up plays Main C's fill, then Main C.
+        m.send(ControllersCmd::TriggerFunction { function: Function::FillUp });
+        assert_eq!(m.state.transport.queued.as_deref(), Some("Fill In BB"));
+        assert_eq!(m.state.transport.main, 2);
+        m.send(ControllersCmd::TriggerFunction { function: Function::Sustain });
+        assert!(m.state.controllers.sustain);
+        m.send(SystemCmd::Panic);
+        assert!(!m.state.controllers.sustain);
+        m.send(ControllersCmd::TriggerFunction { function: Function::RegistBankNext });
+        assert!(m.state.message.as_ref().is_some_and(|x| x.error));
     }
 
     #[test]

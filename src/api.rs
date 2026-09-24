@@ -17,10 +17,12 @@
 //! (docs/architecture.md, "Adding a feature").
 
 mod chord;
+mod controllers;
 mod harmony_arp;
 mod keyboard;
 mod library;
 mod mixer;
+mod multipad;
 mod ots;
 mod pads;
 mod parts;
@@ -31,10 +33,12 @@ mod system;
 mod transport;
 
 pub use chord::*;
+pub use controllers::*;
 pub use harmony_arp::*;
 pub use keyboard::*;
 pub use library::*;
 pub use mixer::*;
+pub use multipad::*;
 pub use ots::*;
 pub use pads::*;
 pub use parts::*;
@@ -117,6 +121,10 @@ app_cmd! {
     Settings(SettingsCmd),
     /// Panic, the message line.
     System(SystemCmd),
+    /// Multi Pads: the bank, the pads, Synchro Stop.
+    MultiPad(MultiPadCmd),
+    /// Pedals, wheels and assignable functions.
+    Controllers(ControllersCmd),
     /// Keyboard Harmony / Arpeggio.
     HarmonyArp(HarmonyArpCmd),
 }
@@ -127,6 +135,7 @@ impl From<Button> for AppCmd {
             Button::Intro(i) => TransportCmd::Intro { index: i }.into(),
             Button::Main(i) => TransportCmd::Main { index: i }.into(),
             Button::Break => TransportCmd::Break.into(),
+            Button::Fill(d) => TransportCmd::Fill { delta: d }.into(),
             Button::Ending(i) => TransportCmd::Ending { index: i }.into(),
             Button::StartStop => TransportCmd::StartStop.into(),
             Button::Stop => TransportCmd::Stop.into(),
@@ -172,6 +181,7 @@ impl From<Action> for AppCmd {
             Action::PartVoice(d) => PartsCmd::StepVoice { delta: d }.into(),
             Action::ToggleFaderPage => MixerCmd::ToggleFaderPage.into(),
             Action::Style(d) => LibraryCmd::StepStyle { delta: d }.into(),
+            Action::Assign(f) => ControllersCmd::TriggerFunction { function: f }.into(),
             Action::ToggleHarmonyArp => HarmonyArpCmd::ToggleHarmonyArp.into(),
         }
     }
@@ -245,6 +255,10 @@ pub struct AppState {
     pub preview: PreviewState,
     /// The keys held and the chord, for the app's keyboard strip.
     pub keyboard: KeyboardState,
+    /// Multi Pads: the bank, the four pads, Synchro Stop, the bank files.
+    pub multi_pad: MultiPadState,
+    /// Pedals, wheels, their parts and the pedals' assignable functions.
+    pub controllers: ControllersState,
     /// Keyboard Harmony / Arpeggio: the switch, the type, the settings.
     #[serde(default)]
     pub harmony_arp: HarmonyArpState,

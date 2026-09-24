@@ -365,3 +365,77 @@ fn rerouting_a_sounding_pad_ends_its_notes_on_the_old_channel() {
     p.stop(0, &mut s);
     assert_eq!(s.take(), vec![vec![0x94, 60, 100], vec![0x94, 64, 100], vec![0x84, 60, 0], vec![0x84, 64, 0]]);
 }
+
+fn cc(tick: u32, cc: u8, val: u8) -> TimedEv {
+    ev(tick, Ev::Cc { ch: 0, cc, val })
+}
+
+/// A pad stopped with its pedal down and bent (STOP + pad, [STOP], a bank swap) leaves its
+/// channel re-centred and the pedal up; the same for a one-shot that ends that way.
+#[test]
+fn a_stopped_pad_releases_its_pedal_and_bend() {
+    let bar = BAR as u32;
+    let held = vec![cc(0, 64, 127), ev(0, Ev::Bend { ch: 0, val: 0x3000 }), on(0, 60), off(bar * 2, 60)];
+    let mut p = player(vec![pad(vec![on(0, 48), off(100, 48)], bar, true, false), pad(held, bar * 4, false, false)]);
+    let mut r = Rec::default();
+    p.trigger(1, 0);
+    p.process(0..1, None, &mut r);
+    r.take();
+    p.stop(1, &mut r);
+    let ch = DEFAULT_OUT_CH[1];
+    let reset = vec![vec![0xE0 | ch, 0x00, 0x40], vec![0xB0 | ch, 1, 0], vec![0xB0 | ch, 64, 0]];
+    let mut want = vec![vec![0x80 | ch, 60, 0]];
+    want.extend(reset.clone());
+    assert_eq!(r.take(), want);
+    // Pad 1 never moved them: its stop sends only its note-off.
+    p.trigger(0, 0);
+    p.process(0..1, None, &mut r);
+    r.take();
+    p.stop(0, &mut r);
+    assert_eq!(r.take(), vec![vec![0x80 | DEFAULT_OUT_CH[0], 48, 0]]);
+    // A one-shot that ends with the pedal down: released at its end.
+    p.trigger(1, 0);
+    p.process(0..BAR * 4 + 1, None, &mut r);
+    let m = r.take();
+    assert_eq!(&m[m.len() - 3..], &reset[..]);
+    // stop_all (a bank swap, [STOP]) too.
+    p.trigger(1, 0);
+    p.process(0..1, None, &mut r);
+    r.take();
+    p.stop_all(&mut r);
+    assert!(r.take().ends_with(&reset));
+}
+
+/// Master transpose moves a pad's notes (after Chord Match); the note-off goes to the key
+/// that sounded even if Master changes meanwhile. A drum-kit pad (bank MSB 127) stays put.
+#[test]
+fn master_transpose_moves_pads_but_not_kits() {
+    let bar = BAR as u32;
+    let kit = vec![cc(0, 0, 127), on(0, 42), off(100, 42)];
+    let mut p = player(vec![pad(vec![on(0, 60), off(bar, 60)], bar, false, true), pad(kit, bar, false, false)]);
+    assert!(!p.is_kit(0) && p.is_kit(1));
+    let mut r = Rec::default();
+    p.set_master(2);
+    p.trigger(0, 0);
+    p.trigger(1, 0);
+    // Chord Match to F first (C -> F), then Master +2: G.
+    p.process(0..1, Some(crate::parse_chord("F").unwrap()), &mut r);
+    assert_eq!(r.ons(), [67, 42]);
+    r.take();
+    p.set_master(-3);
+    p.process(1..BAR + 1, None, &mut r);
+    let offs: Vec<Vec<u8>> = r.take().into_iter().filter(|m| m[0] & 0xF0 == 0x80).collect();
+    assert!(offs.contains(&vec![0x80 | DEFAULT_OUT_CH[0], 67, 0]), "{offs:?}");
+    assert!(offs.contains(&vec![0x80 | DEFAULT_OUT_CH[1], 42, 0]), "{offs:?}");
+}
+
+#[test]
+fn retimed_presses_start_at_the_new_tick() {
+    let mut p = player(vec![pad(vec![on(0, 60), off(100, 60)], BAR as u32, false, false)]);
+    let mut r = Rec::default();
+    p.trigger(0, BAR);
+    p.retime_pending(10);
+    p.process(0..11, None, &mut r);
+    assert_eq!(r.ons(), [60]);
+    assert_eq!(p.state(0), PadState::Playing);
+}

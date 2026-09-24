@@ -93,6 +93,7 @@ state, and pressing the button is the action. For settings, a GUI checkbox can u
 | `intro` | `index` 0–2 | Intro 1–3. Stopped: plays at the start. Playing: queued for the next bar. |
 | `main` | `index` 0–3 | Main A–D. Pressing the Main that is playing plays its fill. With Auto Fill on, a change plays the fill first. |
 | `break` | | Break (Fill In BA). |
+| `fill` | `delta` −1, 0, 1 | Fill Down, Fill Self, Fill Up (the Genos assignable functions): the fill, then the Main to the left, the same Main, or the Main to the right, whatever Auto Fill says. Past Main A or D, the fill of the Main at the end. Stopped: selects that Main. |
 | `ending` | `index` 0–2 | Ending 1–3. |
 | `startStop` | | START/STOP. |
 | `stop` | | Stops if playing, otherwise does nothing. This is the Launchkey Stop button. |
@@ -165,6 +166,35 @@ state, and pressing the button is the action. For settings, a GUI checkbox can u
 | `stepStyle` | `delta` | Previous or next style in library order, from the style waiting for the bar line if there is one. Files that don't load are skipped. |
 | `auditionStyle` | `id` | Previews a style while the band is stopped: its Main A, at its own tempo, with its own voices and levels, over C Am F G7 (a chord a bar) for 4 bars, then it stops by itself (`preview.audition`). The loaded style, OTS, keyboard parts, mixer and transport are untouched; the loaded style's setup is sent again when it ends. Refused (`failed`) while the band plays. A new one replaces the one playing; it ends early on `stopAudition`, a style change, START/STOP, `panic` or a chord that starts the band (Sync Start). |
 | `stopAudition` | | Ends the preview now. |
+
+### Multi Pads
+
+Pads are 0–3 (pads 1–4). See docs/multipad.md for the Genos behaviour and what is a guess.
+
+| Command | Fields | Does |
+|---|---|---|
+| `loadMultiPad` | `id` | Loads a bank from `multiPad.banks` (the `.pad` files in the style folders). The file is parsed on the control side; pads playing stop when the new bank takes over (`multiPad.loading` until then, a moment later live). A file that doesn't parse fails and keeps the bank loaded. |
+| `loadMultiPadPath` | `path` | Any `.pad` file; it is added to `multiPad.banks` if it isn't there already (once it has loaded). A `rescanLibrary` keeps such a bank listed, with its id, while its file is there. |
+| `clearMultiPad` | | No bank: the pads go dark. |
+| `triggerMultiPad` | `pad` | Presses a pad: it plays from the top (a playing pad restarts). Stopped, it starts at once; while the band plays, at the next bar line (`lamp` `queued` until then). Pads in Synchro Start standby start with it. |
+| `stopMultiPad` | `pad` | STOP + pad: that pad stops now. |
+| `stopAllMultiPads` | | STOP: every pad stops, and Synchro Start standby is cancelled. |
+| `armMultiPad` | `pad` | SELECT + pad: toggles the pad's Synchro Start standby (`lamp` `armed`). Armed pads start on the next chord played in the chord section, or when the band starts; while the band plays, at the next bar line. |
+| `setMultiPadRepeat` | `pad`, `on` | Overrides the pad's Repeat flag (from the bank file) until the next bank loads. |
+| `setMultiPadChordMatch` | `pad`, `on` | Overrides the pad's Chord Match flag until the next bank loads. |
+| `setMultiPadSynchroStop` | `styleStop`, `ending` | Multi Pad Synchro Stop: repeating pads stop when the band stops (`styleStop`, default on) and when an Ending starts (`ending`, default off). One-shot pads always play out. |
+
+### Controllers
+
+Pedals, the wheels and the assignable functions (docs/controllers.md).
+
+| Command | Fields | Does |
+|---|---|---|
+| `setPedal` | `pedal` 0–2, `cc`, `function`, `controlType`, `reverse`, `range` | Sets up a pedal: the control change it listens for on the keyboards (`cc` 0–127, or null for none), its assignable function (an `id` from `app/src/lib/api/assignable-functions.json`, for example `sustain`, `startStop`, `fillUp`, `ots1`), its Control Type for Sustain, Sostenuto and Soft (`holdA`: on while held, `holdB`: off while held, `toggle`), reversed polarity, and the Range of a Pitch Bend pedal (`upper`, `lower`, `full`). `controlType`, `reverse` and `range` may be left out (`holdA`, false, `upper`). |
+| `learnPedal` | `pedal` 0–2 or null | The pedal takes the CC of the next control change a keyboard presses (a value of 64 or more; not bank select, volume, the modulation wheel, data entry or channel mode messages). Null stops learning. |
+| `setPartControllers` | `part` 0–3, `sustain`, `pitchBend`, `modulation` | Which controllers reach a keyboard part: the pedal switches (sustain, sostenuto, soft), the pitch bend, the modulation. |
+| `setBendRange` | `part` 0–3, `semitones` 0–12 | The part's Pitch Bend Range (RPN 0 on its channel). |
+| `triggerFunction` | `function` | Runs an assignable function as a pedal press would (Sustain, Sostenuto and Soft toggle). Fails for a function yahaha doesn't have yet (`available` false) and for Modulation and Pitch Bend, which need a foot controller. |
 
 ### Keyboard Harmony / Arpeggio
 
@@ -503,6 +533,20 @@ What the app's keyboard strip draws.
 | `chordBass` | number? | Its bass: the root, or the slash / on-bass note. |
 | `detection` | [lo, hi] | The keys chord detection reads, as MIDI notes (inclusive): `[0, split]` in Lower, `[split + 1, 127]` in Upper (Fingered*), `[0, 127]` in the Full Keyboard types. Clip it to the keys you draw. |
 
+### `controllers`
+Pedals, wheels and the assignable functions (docs/controllers.md).
+
+| Field | Type | Meaning |
+|---|---|---|
+| `pedals` | PedalState[] | Always 3: `cc` (the control change it listens for, or null), `function` (its assignable function's id), `controlType` (`holdA` \| `holdB` \| `toggle`), `reverse`, `range` (`upper` \| `lower` \| `full`), `down` (held now). |
+| `learning` | number? | The pedal waiting for its CC (`learnPedal`), or null. |
+| `parts` | PartControllers[] | Right 1, Right 2, Right 3, Left: `sustain` (the pedal switches reach it), `pitchBend`, `modulation`, `bendRange` (semitones, 0–12). |
+| `sustain`, `sostenuto`, `soft` | bool | The pedal switches in effect now. |
+
+The table of assignable functions is static: `app/src/lib/api/assignable-functions.json`
+(`id`, `name`, `category`, `kind`: `switch` \| `trigger` \| `continuous`, `available`).
+A Rust test keeps it equal to `controllers::FUNCTIONS`.
+
 ### `preview`
 The style browser's preview and queue.
 
@@ -510,6 +554,17 @@ The style browser's preview and queue.
 |---|---|---|
 | `audition` | object? | The preview playing (`auditionStyle`): `id` (the library id), `bar` (1-based) of `bars` (4), `chord` (the chord playing: `C`, `Am`, `F`, `G7`). Null when none. |
 | `queued` | number? | The library id of a style waiting for the next bar line (`loadStyle`, `queueStyle` or `stepStyle` while playing). Null when none. |
+
+### `multiPad`
+Multi Pads (docs/multipad.md).
+
+| Field | Type | Meaning |
+|---|---|---|
+| `bank` | object? | The bank loaded: `id` (in `banks`), `name` (the file name without `.pad`), `path`. Null when none. |
+| `loading` | bool | A bank is on its way to the engine (`loadMultiPad`). |
+| `pads` | MultiPadPad[] | Always 4: `index` (0–3), `name` (from the file; empty for an empty pad), `lamp` (`empty` \| `ready` \| `armed` \| `queued` \| `playing`: off, blue, red flashing, waiting for the bar line, red), `repeat`, `chordMatch`, `channel` (the MIDI channel it plays on, 5–8). |
+| `synchroStop` | object | `styleStop`, `ending` (`setMultiPadSynchroStop`). |
+| `banks` | MultiPadBankEntry[] | The `.pad` files in the style folders, folder then name: `id`, `name`, `folder` (relative to its root, `/`-separated), `path`. A `rescanLibrary` refreshes it; a file still there keeps its id. Banks loaded by path from outside the style folders follow, while their file is there; the bank loaded is always listed. |
 
 ### `harmonyArp`
 Keyboard Harmony / Arpeggio (the commands above).
@@ -925,6 +980,35 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
     "chordTones": [7, 11, 2, 5],
     "chordBass": 7,
     "detection": [0, 54]
+  },
+  "multiPad": {
+    "bank": { "id": 0, "name": "Demo", "path": "/Users/me/Styles/Pads/Demo.pad" },
+    "loading": false,
+    "pads": [
+      { "index": 0, "name": "Shaker Loop", "lamp": "playing", "repeat": true, "chordMatch": false, "channel": 5 },
+      { "index": 1, "name": "Rise Arp", "lamp": "ready", "repeat": false, "chordMatch": true, "channel": 6 },
+      { "index": 2, "name": "Bass Riff", "lamp": "queued", "repeat": true, "chordMatch": true, "channel": 7 },
+      { "index": 3, "name": "Brass Hit", "lamp": "armed", "repeat": false, "chordMatch": true, "channel": 8 }
+    ],
+    "synchroStop": { "styleStop": true, "ending": false },
+    "banks": [{ "id": 0, "name": "Demo", "folder": "Pads", "path": "/Users/me/Styles/Pads/Demo.pad" }]
+  },
+  "controllers": {
+    "pedals": [
+      { "cc": 64, "function": "sustain", "controlType": "holdA", "reverse": false, "range": "upper", "down": true },
+      { "cc": 66, "function": "fillUp", "controlType": "holdA", "reverse": false, "range": "upper", "down": false },
+      { "cc": null, "function": "none", "controlType": "holdA", "reverse": false, "range": "upper", "down": false }
+    ],
+    "learning": null,
+    "parts": [
+      { "sustain": true, "pitchBend": true, "modulation": true, "bendRange": 2 },
+      { "sustain": true, "pitchBend": true, "modulation": true, "bendRange": 2 },
+      { "sustain": true, "pitchBend": true, "modulation": true, "bendRange": 2 },
+      { "sustain": false, "pitchBend": true, "modulation": false, "bendRange": 2 }
+    ],
+    "sustain": true,
+    "sostenuto": false,
+    "soft": false
   },
   "harmonyArp": {
     "on": true,

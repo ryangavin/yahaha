@@ -11,7 +11,10 @@ use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 use std::cell::Cell;
 use std::path::Path;
 use std::time::Duration;
-use yahaha::api::{AppCmd, AppState, HarmonyArpCmd, HarmonyArpMode, LibraryCmd, MixerCmd, OtsCmd, Pad, PadsCmd, PartsCmd, SettingsCmd, SystemCmd};
+use yahaha::api::{
+    AppCmd, AppState, HarmonyArpCmd, HarmonyArpMode, LibraryCmd, MixerCmd, MultiPadCmd, MultiPadState, OtsCmd, Pad, PadLamp, PadsCmd,
+    PartsCmd, SettingsCmd, SystemCmd,
+};
 use yahaha::engine::Button;
 use yahaha::launchkey::{self, Action};
 use yahaha::library::{self, Info, Library};
@@ -81,8 +84,31 @@ fn key_cmd(code: KeyCode) -> Option<AppCmd> {
         // Harmony/Arpeggio: next type (the Harmony types, then the arpeggios), Arp Hold.
         KeyCode::Char('L') => Some(AppCmd::HarmonyArp(HarmonyArpCmd::StepHarmonyArpType { delta: 1 })),
         KeyCode::Char('*') => Some(AppCmd::HarmonyArp(HarmonyArpCmd::ToggleArpHold)),
+        // Multi Pads 1-4 (Shift+z x c v, above the Style part keys) and their STOP (Shift+b).
+        KeyCode::Char(c) if "ZXCV".contains(c) => {
+            Some(AppCmd::MultiPad(MultiPadCmd::TriggerMultiPad { pad: "ZXCV".find(c).unwrap() as u8 }))
+        }
+        KeyCode::Char('B') => Some(AppCmd::MultiPad(MultiPadCmd::StopAllMultiPads)),
         code => key_action(code).map(AppCmd::from),
     }
+}
+
+/// The Multi Pads on the status line: the bank and each pad's lamp (· ready, > playing,
+/// ~ waiting for the bar, * armed, blank empty).
+fn multi_pad_line(mp: &MultiPadState) -> String {
+    let Some(bank) = &mp.bank else { return "multi pad: none [Z X C V · B stop]".into() };
+    let lamps: String = mp
+        .pads
+        .iter()
+        .map(|p| match p.lamp {
+            PadLamp::Empty => ' ',
+            PadLamp::Ready => '·',
+            PadLamp::Armed => '*',
+            PadLamp::Queued => '~',
+            PadLamp::Playing => '>',
+        })
+        .collect();
+    format!("multi pad: {} [{lamps}] [Z X C V · B stop]", bank.name)
 }
 
 /// `Esc` quits only when pressed twice within `WINDOW`. `Esc` also closes the browser, and
@@ -387,6 +413,9 @@ fn draw(f: &mut ratatui::Frame, st: &AppState, message: &str, beats: f64) {
         v.push(Span::styled(format!("{:<8}", kp.name), if on { bold } else { dim }));
         v.push(Span::styled(format!(" {}{}", if kp.plays_bass { "bass: " } else { "" }, kp.voice_name), if on { St::default() } else { dim }));
         v.push(Span::styled(if oct != 0 { format!("  oct {oct:+}") } else { String::new() }, dim));
+        // The sustain pedal holds this part's notes.
+        let sus = st.controllers.sustain && on && st.controllers.parts.get(p).is_some_and(|c| c.sustain);
+        v.push(Span::styled(if sus { "  sus" } else { "" }, St::default().fg(Color::Yellow)));
         lines.push(Line::from(v));
     }
     lines.push(Line::raw(""));
@@ -474,11 +503,12 @@ fn draw(f: &mut ratatui::Frame, st: &AppState, message: &str, beats: f64) {
                 }
                 let h = &st.harmony_arp;
                 v.push(Span::raw("  "));
-                v.push(flag(h.on, "HARM/ARP [r]"));
-                v.push(Span::raw(format!(" {} · {} [R]", h.type_name, h.category)));
+                v.push(flag(h.on, "HARM/ARP [J]"));
+                v.push(Span::raw(format!(" {} · {} [L]", h.type_name, h.category)));
                 if h.mode == HarmonyArpMode::Arpeggio {
-                    v.push(flag(h.arp.hold, "HOLD [H]"));
+                    v.push(flag(h.arp.hold, "HOLD [*]"));
                 }
+                v.push(Span::raw(format!("   {}", multi_pad_line(&st.multi_pad))));
                 v
             }),
             Line::from(match &st.io.synth {
@@ -517,7 +547,7 @@ fn draw(f: &mut ratatui::Frame, st: &AppState, message: &str, beats: f64) {
 
     let mut help = vec![
         Line::from(Span::styled(
-            " space start/stop · 1-4 Main A-D (again = fill) · q w e intro · i o p ending · g break · t tap · -/= tempo · F1-F4 part · 9/0 voice · 5-8 part on/off · J harmony/arp (L type, * hold) · F9 faders Panel/Style · ; ' kbd transpose · : \" master · / reset · tab pad page · enter browse styles · \\ panic · esc twice quit",
+            " space start/stop · 1-4 Main A-D (again = fill) · q w e intro · i o p ending · g break · t tap · -/= tempo · F1-F4 part · 9/0 voice · 5-8 part on/off · J harmony/arp (L type, * hold) · F9 faders Panel/Style · ; ' kbd transpose · : \" master · / reset · Z X C V multi pads · B pad stop · tab pad page · enter browse styles · \\ panic · esc twice quit",
             dim,
         )),
         Line::from(Span::styled(
@@ -655,6 +685,7 @@ pub fn screen_html(style: &Path, out: &Path) -> Result<()> {
         style_pending: false,
         section_bars: 4,
         audition: None,
+        multipad: Default::default(),
     });
     // What a live session with the synth and a Launchkey would add.
     let mut st = (*session.state()).clone();
@@ -752,11 +783,18 @@ mod tests {
         assert_eq!(key_cmd(KeyCode::Char('L')), Some(AppCmd::HarmonyArp(HarmonyArpCmd::StepHarmonyArpType { delta: 1 })));
         assert_eq!(key_cmd(KeyCode::Char('*')), Some(AppCmd::HarmonyArp(HarmonyArpCmd::ToggleArpHold)));
         // Keys sibling branches own (#92 fills, #94 section timing, #96 looper, #98 chart,
-        // #99 Registration: Shift+Q..P), or assert unbound (#92 H, #95 K): not Harmony/Arp.
-        for k in ['r', 'R', 'H', 'K', 'm', 'M', 'Q', 'W', 'E', 'T', 'Y', 'U', 'I', 'O', 'P', 'F', 'A', 'S', 'G', 'N', '.', '<', '>', '(', ')', '{', '}'] {
+        // #99 Registration: Shift+Q..P, #95 Multi Pads: Z X C V B), or assert unbound (#92 H,
+        // #95 K): not Harmony/Arp.
+        for k in [
+            'r', 'R', 'H', 'K', 'm', 'M', 'Q', 'W', 'E', 'T', 'Y', 'U', 'I', 'O', 'P', 'F', 'A', 'S', 'G', 'N', '.', '<', '>', '(', ')', '{', '}',
+            'Z', 'X', 'C', 'V', 'B',
+        ] {
             assert!(!matches!(key_cmd(KeyCode::Char(k)), Some(AppCmd::HarmonyArp(_))), "{k}");
         }
-        assert_eq!(key_cmd(KeyCode::Char('Z')), None);
+        assert_eq!(key_cmd(KeyCode::Char('Z')), Some(AppCmd::MultiPad(MultiPadCmd::TriggerMultiPad { pad: 0 })));
+        assert_eq!(key_cmd(KeyCode::Char('V')), Some(AppCmd::MultiPad(MultiPadCmd::TriggerMultiPad { pad: 3 })));
+        assert_eq!(key_cmd(KeyCode::Char('B')), Some(AppCmd::MultiPad(MultiPadCmd::StopAllMultiPads)));
+        assert_eq!(key_cmd(KeyCode::Char('K')), None);
     }
 
     /// Letters typed into the browser filter; they never reach the performance shortcuts

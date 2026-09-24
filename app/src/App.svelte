@@ -37,6 +37,7 @@
   import LeadSheet from './panels/leadsheet/LeadSheet.svelte'
   import Harmony from './panels/harmony/Harmony.svelte'
   import Mixer from './panels/mixer/Mixer.svelte'
+  import MultiPad from './panels/multipad/MultiPad.svelte'
   import Parts from './panels/parts/Parts.svelte'
   import Settings from './panels/settings/Settings.svelte'
 
@@ -85,6 +86,7 @@
 
 {#if ui.parts}<Parts />{/if}
 {#if ui.mixer}<Mixer />{/if}
+{#if ui.multipad}<MultiPad />{/if}
 {#if ui.settings}<Settings />{/if}
 {#if ui.harmony}<Harmony />{/if}
 {#if ui.browser}<Browser />{/if}

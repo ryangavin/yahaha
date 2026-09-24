@@ -66,6 +66,10 @@ const STATES: [string, Setup][] = [
   ['style browser, previewing', (s) => (s.send({ type: 'stop' }), s.send({ type: 'auditionStyle', id: 1 }), (ui.browser = true))],
   ['style browser, style queued for the next bar', (s) => (s.send({ type: 'queueStyle', id: 1 }), (ui.browser = true))],
   ['settings open', () => (ui.settings = true)],
+  ['settings open, a pitch-bend pedal learning its CC', (s) => {
+    s.send({ type: 'setPedal', pedal: 2, cc: 4, function: 'pitchBend', controlType: 'holdA', reverse: false, range: 'full' })
+    ui.settings = true
+  }],
   ['parts drawer open', () => (ui.parts = true)],
   ['parts drawer, Upper + Manual Bass, OTS Link', (s) => ((ui.parts = true), s.send({ type: 'toggleUpper' }), s.send({ type: 'toggleOtsLink' }))],
   ['parts drawer, fader page Style', (s) => ((ui.parts = true), s.send({ type: 'toggleFaderPage' }))],
@@ -74,6 +78,13 @@ const STATES: [string, Setup][] = [
   ['harmony drawer, arpeggio on, Fixed velocity', (s) => ((ui.harmony = true), s.send({ type: 'setArpPattern', index: 2 }), s.send({ type: 'setArpVelocity', mode: 'fixed', velocity: 90 }), s.send({ type: 'toggleHarmonyArp' }))],
   ['harmony drawer, Echo type', (s) => ((ui.harmony = true), s.send({ type: 'setHarmonyType', index: 20 }))],
   ['mixer drawer open, Style tab', (s) => ((ui.mixer = true), s.send({ type: 'setFaderPage', page: 'style' }))],
+  ['multi pad drawer, no bank', () => (ui.multipad = true)],
+  ['multi pad drawer, bank loaded, pads playing and armed', (s) => (
+    (ui.multipad = true),
+    s.send({ type: 'loadMultiPad', id: 0 }),
+    s.send({ type: 'triggerMultiPad', pad: 0 }),
+    s.send({ type: 'armMultiPad', pad: 3 })
+  )],
   ['Shift layer on', () => (ui.shiftLatched = true)],
   ['Shift layer on, fader page Style', (s) => ((ui.shiftLatched = true), s.send({ type: 'toggleFaderPage' }))],
 ]
@@ -84,6 +95,7 @@ afterEach(() => {
   ui.settings = false
   ui.parts = false
   ui.mixer = false
+  ui.multipad = false
   ui.harmony = false
   ui.shiftLatched = false
   tips.help = false
