@@ -63,6 +63,7 @@ const STATES: [string, Setup][] = [
   ['settings open', () => (ui.settings = true)],
   ['parts drawer open', () => (ui.parts = true)],
   ['mixer drawer open', () => (ui.mixer = true)],
+  ['mixer drawer open, Style tab', (s) => ((ui.mixer = true), s.send({ type: 'setFaderPage', page: 'style' }))],
   ['Shift layer on', () => (ui.shiftLatched = true)],
   ['Shift layer on, fader page Style', (s) => ((ui.shiftLatched = true), s.send({ type: 'toggleFaderPage' }))],
 ]
