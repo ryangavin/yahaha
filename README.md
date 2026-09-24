@@ -100,20 +100,22 @@ Pressing the current Main again plays its fill. With Auto Fill on, switching Mai
 | pad | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 |
 |---|---|---|---|---|---|---|---|---|
 | top | Single Finger | Fingered | Fingered On Bass | Multi Finger | AI Fingered | Full Keyboard | AI Full Keyboard | Upper (on) / Lower (off) |
-| bottom | Manual Bass | Stop ACMP | Split − | Split + | Keyboard transpose − | Keyboard transpose + | Transpose reset | — |
+| bottom | Manual Bass | Stop ACMP | Split − | Split + | Keyboard transpose − | Keyboard transpose + | Transpose reset | Retrigger |
 
 - The lit fingering pad is the active type. Upper overrides it with Fingered* until you go back to Lower.
 - Manual Bass is dark in Lower, where it isn't available.
 - The transpose pads light while the transpose is down, up, or not zero.
+- Retrigger lights while it is on: each chord you play then restarts the Main and loops its first 1/8 (the length is in Settings › Style, or Shift + > / Function).
 
 **Page 3 · OTS/Parts** (all magenta):
 
 | pad | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 |
 |---|---|---|---|---|---|---|---|---|
-| top | OTS 1 | OTS 2 | OTS 3 | OTS 4 | OTS Link | — | Voice − | Voice + |
+| top | OTS 1 | OTS 2 | OTS 3 | OTS 4 | OTS Link | Fade In/Out | Voice − | Voice + |
 | bottom | Right 1 on/off | Right 2 on/off | Right 3 on/off | Left on/off | Edit Right 1 | Edit Right 2 | Edit Right 3 | Edit Left |
 
 - The lit OTS pad is the last one recalled. OTS pads the style doesn't have are dark.
+- Fade lights while a fade is armed, running or holding the silence after a fade out.
 - The on/off pads are lit while the part is on. The lit Edit pad is the part whose voice Voice −/+ (`9`/`0`) changes.
 - The accompaniment parts are muted with the buttons under the faders on the Style fader page, or `z`…`,`.
 
@@ -127,6 +129,9 @@ Pressing the current Main again plays its fill. With Auto Fill on, switching Mai
 | **Pad Bank ▲ / ▼** (left of the pads) | previous/next pad page |
 | **Shift + Pad Bank ▲ / ▼** | Left part on/off / OTS Link on/off |
 | **> (Scene Launch)** / **Function** (right of the pads) | tempo + / − |
+| **Shift + Play** | Section Reset: the section starts again from its top |
+| **Shift + Stop** | Fade In/Out: stopped, arm a fade in; playing, fade out and stop |
+| **Shift + > / Shift + Function** | Retrigger length shorter / longer |
 | buttons under faders 1–8 | Panel page: Right 1–3, Left on/off (Shift: edit that part's voice), button 5 Harmony/Arpeggio on/off · Style page: mute/unmute the style parts |
 | button under the master fader | fader page Panel / Style |
 
@@ -160,9 +165,11 @@ The screen shows `sus` beside each part the pedal is holding.
 - `space` start/stop
 - `1-4` Main A–D
 - `q w e` Intro I–III
-- `i o p` Ending I–III
+- `i o p` Ending I–III (again while it plays: ritardando)
 - `g` break
-- `t` tap tempo
+- `t` tap tempo (while the band plays: Section Reset, unless turned off in Settings)
+- `|` Section Reset · `F` Fade In/Out
+- `~` Retrigger on/off · `{ }` Retrigger length longer/shorter
 - `- =` tempo down/up
 - `y` Sync Start · `u` Auto Fill · `j` Sync Stop
 - `h` Stop ACMP

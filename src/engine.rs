@@ -10,6 +10,7 @@
 //! (sections.rs). See docs/architecture.md.
 
 mod chords;
+mod fade;
 mod hooks;
 mod looper;
 mod metronome;
@@ -18,10 +19,14 @@ mod mixer;
 mod multipad;
 mod playback;
 mod prepared;
+mod retrigger;
+mod ritardando;
 mod sections;
 mod settle;
 mod setup;
 mod style_change;
+mod sync_stop;
+mod timing;
 mod transport;
 
 use hooks::{Features, Lines};
@@ -32,9 +37,12 @@ pub use mixer::{Takeover, HW_UNKNOWN};
 pub use transport::StyleControls;
 pub use multipad::{PadCmd, PadsSnap, SynchroStop, PAD_PPQ};
 use prepared::PKind;
+pub use fade::FadeState;
 pub use prepared::{id_of, slot_of, Msgs, PSection, Prepared, Setup, NUM_SLOTS};
+pub use ritardando::RIT_END;
 pub use settle::{CHORD_SETTLE_DEFAULT_MS, CHORD_SETTLE_MAX_MS};
 use settle::{Hold, Unsettled};
+pub use timing::{IntroEndingTiming, MainTiming, StyleSettings, MAX_FADE_HOLD_MS, MAX_FADE_MS, MAX_SYNC_STOP_WINDOW_MS, RETRIGGER_RATES};
 
 use crate::sff::{ChannelRule, Ntr, Ntt, Rtr, SectionId, Style};
 use crate::theory::{is_drum_part, plays, transpose_group, Chord, CANCEL, GUITAR_NOISE};
@@ -131,6 +139,12 @@ pub enum Button {
     SetTempo(u16),
     TogglePart(u8),
     StopAcmp,
+    /// FADE IN/OUT: stopped, arm the fade in; playing, fade out and stop.
+    Fade,
+    /// Style Section Reset: the section playing starts again from its top.
+    SectionReset,
+    /// Style Retrigger on/off.
+    Retrigger,
 }
 
 
@@ -175,6 +189,12 @@ pub struct Snapshot {
     /// A style preview playing beside the (stopped) band (`live::EngineLoop`); the engine
     /// itself always reports None.
     pub audition: Option<AuditionPos>,
+    /// Fade In/Out.
+    pub fade: FadeState,
+    /// Style Retrigger is on.
+    pub retrigger: bool,
+    /// An Ending ritardando is slowing the band.
+    pub ritardando: bool,
     /// The Chord Looper.
     pub looper: LooperSnap,
     /// The Style part soloed (0-7), if any.
@@ -490,6 +510,9 @@ impl Engine {
                 _ => 0,
             },
             audition: None,
+            fade: self.fade_state(),
+            retrigger: self.retrigger_on(),
+            ritardando: self.ritardando(),
             looper: self.looper_snapshot(),
             style_solo: self.features.solo,
             multipad: self.pads_snapshot(),
@@ -499,13 +522,15 @@ impl Engine {
     /// Time of the next thing the engine needs to do: if running, or a chord change is
     /// waiting to settle (settle.rs), or the stopped metronome ticks.
     pub fn next_deadline(&self) -> Option<u64> {
+        // The features' own wakes (a fade, the Synchro Stop Window) and a chord change
+        // waiting to settle (Stop Accompaniment or a Chord Match pad waits on it too).
+        let wake = [self.hook_wake_ns(), self.settle_at()].into_iter().flatten().min();
         if !self.running {
-            // Stopped, only the metronome keeps time, and a chord change Stop
-            // Accompaniment (or a Chord Match pad) waits on settles.
-            return [self.settle_at(), self.metronome_idle_deadline()].into_iter().flatten().min();
+            // Stopped: those, and the free-running metronome.
+            return [wake, self.metronome_idle_deadline()].into_iter().flatten().min();
         }
-        let sec = self.style.sections[self.cur].as_ref()?;
-        let mut t = self.sec_start + sec.len as f64;
+        let Some(sec) = self.style.sections[self.cur].as_ref() else { return wake };
+        let mut t = self.section_end().0;
         if let Some(q) = self.queued {
             t = t.min(q.at);
         }
@@ -518,10 +543,13 @@ impl Engine {
         if let Some(h) = self.hook_deadline() {
             t = t.min(h);
         }
-        let t = self.ns_at(t);
-        Some(self.settle_at().map_or(t, |s| s.min(t)))
+        let band = self.ns_at(t);
+        Some(wake.map_or(band, |w| w.min(band)))
     }
 }
+
+#[cfg(test)]
+mod perform_tests;
 
 #[cfg(test)]
 mod tests {

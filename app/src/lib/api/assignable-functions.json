@@ -308,6 +308,13 @@
     "available": true
   },
   {
+    "id": "fadeInOut",
+    "name": "Fade In/Out",
+    "category": "style",
+    "kind": "trigger",
+    "available": true
+  },
+  {
     "id": "kbdHarmonyArp",
     "name": "Kbd Harmony/Arpeggio On/Off",
     "category": "voice",

@@ -17,8 +17,9 @@ import { MockRegistration } from './mock-registration'
 import { emptyPlaylist, emptyRegistration } from './registration'
 import type { Session } from './session'
 import {
-  BREAK, CHORD_SETTLE_MAX_MS, ENDINGS, FILLS, FINGERINGS, INTROS, KEYBOARD_PART_NAMES, MAINS, PAD_PAGES, STYLE_PART_NAMES,
-  type AppCmd, type AppState, type LibraryEntry, type LibraryList, type OtsPart, type PreviewState, type StyleState,
+  BREAK, CHORD_SETTLE_MAX_MS, ENDINGS, FILLS, FINGERINGS, INTROS, KEYBOARD_PART_NAMES, MAINS, PAD_PAGES, RETRIGGER_RATES,
+  STYLE_PART_NAMES, type AppCmd, type AppState, type LibraryEntry, type LibraryList, type OtsPart, type PreviewState,
+  type StyleSettingsState, type StyleState,
 } from './types'
 
 export const GM: string[] = fixture.gm
@@ -188,6 +189,12 @@ function patternBars(s: string): number {
   return MAINS.includes(s) ? 4 : sectionBars(s)
 }
 
+/** The engine's default Style settings (src/engine/timing.rs). */
+export const DEFAULT_STYLE_SETTINGS: StyleSettingsState = {
+  mainTiming: 'nextBar', introEndingTiming: 'nextBar', syncStopWindowMs: 0,
+  fadeInMs: 5000, fadeOutMs: 5000, fadeHoldMs: 2000, sectionReset: true, retriggerRate: 8,
+}
+
 /** A stopped session with the first style loaded and Sync Start armed. */
 export function initialState(): AppState {
   const s = STYLES[0]
@@ -202,6 +209,7 @@ export function initialState(): AppState {
       running: false, syncStart: true, syncStop: false, syncStopAvailable: true, autoFill: false, stopAcmp: false,
       section: null, queued: null, pendingIntro: null, main: 0, bar: 1, beat: 1,
       beatsPerBar: beatsPerBar([s.timeSignature[0], s.timeSignature[1]]), tempo: s.tempo, lamps: [], sectionBars: null,
+      fade: 'off', retrigger: false, ritardando: false,
     },
     chord: {
       name: null, fingered: null, fingering: 'fingeredOnBass', fingeringName: 'Fingered On Bass', upper: false,
@@ -244,6 +252,7 @@ export function initialState(): AppState {
     message: null,
     surface: null as unknown as AppState['surface'], // filled in by derive()
     preview: { audition: null, queued: null },
+    styleSettings: { ...DEFAULT_STYLE_SETTINGS },
     registration: emptyRegistration(),
     playlist: emptyPlaylist(),
     looper: emptyLooper(),
@@ -385,6 +394,8 @@ export class MockSession implements Session {
   private scanLeft = 0
   /** Beats into the audition playing (#21). */
   private auditionBeats = 0
+  /** Milliseconds left of the fade phase playing (fading in or out, holding). */
+  private fadeLeft = 0
   /** Registration Memory and the Playlist (in-memory banks and playlists). */
   private reg: MockRegistration
   /** Multi Pads (mock-multipad.ts). */
@@ -512,6 +523,7 @@ export class MockSession implements Session {
 
   private step(ms: number) {
     this.now += ms
+    this.stepFade(ms)
     const t = this.state.transport
     if (t.running) {
       const before = this.clock
@@ -529,6 +541,64 @@ export class MockSession implements Session {
     if (this.scanLeft > 0) {
       this.scanLeft -= ms
       if (this.scanLeft <= 0) this.state.library.scanning = false
+    }
+  }
+
+  /** Fade In/Out: a fade in runs out, a fade out stops the band and holds, a hold ends. */
+  private stepFade(ms: number) {
+    const t = this.state.transport
+    if (t.fade === 'off' || t.fade === 'armed') return
+    this.fadeLeft -= ms
+    if (this.fadeLeft > 0) return
+    if (t.fade === 'fadingOut') {
+      this.stopBand()
+      t.fade = 'holding'
+      this.fadeLeft += this.state.styleSettings.fadeHoldMs
+    } else t.fade = 'off'
+  }
+
+  /** Style Section Reset: the section starts again from its top, now. */
+  private resetSection() {
+    const t = this.state.transport
+    if (!t.running) return
+    this.sectionStart = Math.floor(this.clock / t.beatsPerBar)
+    this.clock = this.sectionStart * t.beatsPerBar
+    this.position()
+  }
+
+  private styleSettings(cmd: Extract<AppCmd, { type: `set${string}` | 'stepRetriggerRate' }>) {
+    const s = this.state.styleSettings
+    const ms = (v: number, max: number) => Math.max(0, Math.min(max, Math.round(v)))
+    switch (cmd.type) {
+      case 'setMainTiming':
+        s.mainTiming = cmd.timing
+        break
+      case 'setIntroEndingTiming':
+        s.introEndingTiming = cmd.timing
+        break
+      case 'setSyncStopWindow':
+        s.syncStopWindowMs = ms(cmd.ms, 5000)
+        break
+      case 'setFadeInTime':
+        s.fadeInMs = ms(cmd.ms, 20000)
+        break
+      case 'setFadeOutTime':
+        s.fadeOutMs = ms(cmd.ms, 20000)
+        break
+      case 'setFadeHoldTime':
+        s.fadeHoldMs = ms(cmd.ms, 5000)
+        break
+      case 'setSectionReset':
+        s.sectionReset = cmd.on
+        break
+      case 'setRetriggerRate':
+        s.retriggerRate = [...RETRIGGER_RATES].reverse().find((r) => r <= Math.max(1, cmd.rate)) ?? 1
+        break
+      case 'stepRetriggerRate': {
+        const i = RETRIGGER_RATES.indexOf(s.retriggerRate as (typeof RETRIGGER_RATES)[number])
+        s.retriggerRate = RETRIGGER_RATES[Math.max(0, Math.min(RETRIGGER_RATES.length - 1, (i < 0 ? 3 : i) + Math.sign(cmd.delta)))]
+        break
+      }
     }
   }
 
@@ -682,6 +752,10 @@ export class MockSession implements Session {
 
   private startBand() {
     const t = this.state.transport
+    if (t.fade === 'armed') {
+      t.fade = 'fadingIn'
+      this.fadeLeft = this.state.styleSettings.fadeInMs
+    } else if (t.fade === 'holding') t.fade = 'off'
     this.preview.audition = null
     t.running = true
     t.syncStart = false
@@ -699,6 +773,8 @@ export class MockSession implements Session {
 
   private stopBand() {
     const t = this.state.transport
+    if (t.fade === 'fadingIn' || t.fade === 'fadingOut') t.fade = 'off'
+    t.ritardando = false
     this.rightHand = []
     // A style queued for the next bar loads when the band stops first.
     const q = this.preview.queued
@@ -815,7 +891,33 @@ export class MockSession implements Session {
         break
       }
       case 'ending':
-        if (t.running && this.has(ENDINGS[cmd.index])) t.queued = ENDINGS[cmd.index]
+        // The Ending playing, pressed again: ritardando.
+        if (t.running && t.section === ENDINGS[cmd.index]) t.ritardando = true
+        else if (t.running && this.has(ENDINGS[cmd.index])) t.queued = ENDINGS[cmd.index]
+        break
+      case 'toggleFade':
+        if (!t.running) t.fade = t.fade === 'armed' ? 'off' : 'armed'
+        else if (t.fade !== 'fadingOut') {
+          t.fade = 'fadingOut'
+          this.fadeLeft = st.styleSettings.fadeOutMs
+        }
+        break
+      case 'sectionReset':
+        this.resetSection()
+        break
+      case 'toggleRetrigger':
+        t.retrigger = !t.retrigger
+        break
+      case 'setMainTiming':
+      case 'setIntroEndingTiming':
+      case 'setSyncStopWindow':
+      case 'setFadeInTime':
+      case 'setFadeOutTime':
+      case 'setFadeHoldTime':
+      case 'setSectionReset':
+      case 'setRetriggerRate':
+      case 'stepRetriggerRate':
+        this.styleSettings(cmd)
         break
       case 'toggleSyncStart':
         if (t.running) this.stopBand()
@@ -832,6 +934,10 @@ export class MockSession implements Session {
         t.stopAcmp = !t.stopAcmp
         break
       case 'tapTempo': {
+        if (t.running && st.styleSettings.sectionReset) {
+          this.resetSection()
+          break
+        }
         // As the engine: taps up to 12.5 s apart count (down to 5 BPM); a jump in the
         // interval by more than half starts a fresh average from the tap before.
         const last = this.taps[this.taps.length - 1]

@@ -311,7 +311,10 @@
         },
         "palette": null
       }
-    ]
+    ],
+    "fade": "off",
+    "retrigger": false,
+    "ritardando": false
   },
   "chord": {
     "name": "G7",
@@ -1022,9 +1025,9 @@
         "action": {
           "type": "startStop"
         },
-        "shiftLabel": "PLAY",
+        "shiftLabel": "RESET",
         "shiftAction": {
-          "type": "startStop"
+          "type": "sectionReset"
         },
         "rgb": [
           0,
@@ -1042,9 +1045,9 @@
         "action": {
           "type": "stop"
         },
-        "shiftLabel": "STOP",
+        "shiftLabel": "FADE",
         "shiftAction": {
-          "type": "stop"
+          "type": "toggleFade"
         },
         "rgb": [
           0,
@@ -1062,9 +1065,10 @@
         "action": {
           "type": "tempoUp"
         },
-        "shiftLabel": "TEMPO +",
+        "shiftLabel": "RTG SHORT",
         "shiftAction": {
-          "type": "tempoUp"
+          "type": "stepRetriggerRate",
+          "delta": 1
         },
         "rgb": [
           0,
@@ -1082,9 +1086,10 @@
         "action": {
           "type": "tempoDown"
         },
-        "shiftLabel": "TEMPO -",
+        "shiftLabel": "RTG LONG",
         "shiftAction": {
-          "type": "tempoDown"
+          "type": "stepRetriggerRate",
+          "delta": -1
         },
         "rgb": [
           0,
@@ -1425,6 +1430,16 @@
       0,
       54
     ]
+  },
+  "styleSettings": {
+    "mainTiming": "nextBar",
+    "introEndingTiming": "nextBar",
+    "syncStopWindowMs": 0,
+    "fadeInMs": 5000,
+    "fadeOutMs": 5000,
+    "fadeHoldMs": 2000,
+    "sectionReset": true,
+    "retriggerRate": 8
   },
   "registration": {
     "bank": {
