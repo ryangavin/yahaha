@@ -670,7 +670,7 @@ impl MockSession {
         let mask = |bits: Vec<bool>| bits.iter().enumerate().fold(0u8, |m, (i, on)| m | (*on as u8) << i);
         let parts_on = mask(st.keyboard_parts.iter().map(|p| p.sounding).collect());
         let style_on = lk::style_lit(mask(st.mixer.style_parts.iter().map(|p| p.on).collect()), st.chord.manual_bass_active);
-        let colours = lk::button_colours(page, styles, fader_page, parts_on, style_on);
+        let colours = lk::button_colours(page, styles, fader_page, parts_on, style_on, st.harmony_arp.on);
         let act = |cc: u8, shift: bool| -> Option<AppCmd> {
             match lk::cc_control(cc, shift)? {
                 Control::Page(d) => {
@@ -727,6 +727,9 @@ impl MockSession {
                     let p = i as usize;
                     let shift = (lk::SELECT_LABELS[p], Some(AppCmd::Parts(PartsCmd::SelectPart { part: i })));
                     push(id, cc, lk::PART_LABELS[p], Some(AppCmd::Parts(PartsCmd::TogglePart { part: i })), Some(shift));
+                }
+                FaderPage::Panel if i == lk::HARM_ARP_FADER_BTN => {
+                    push(id, cc, "HARM/ARP", Some(AppCmd::HarmonyArp(HarmonyArpCmd::ToggleHarmonyArp)), None)
                 }
                 FaderPage::Panel => push(id, cc, "", None, None),
                 FaderPage::Style => {
@@ -1231,7 +1234,7 @@ fn pads_for(s: &AppState, page: Page) -> Vec<Pad> {
                 .collect();
             v.extend([
                 page_pad(100, "OTS LINK", "F10", Some(AppCmd::Ots(OtsCmd::ToggleOtsLink)), true, s.ots.link),
-                page_pad(101, "HARM/ARP", "r", Some(AppCmd::HarmonyArp(HarmonyArpCmd::ToggleHarmonyArp)), true, s.harmony_arp.on),
+                page_pad(101, "", "", None, false, false),
                 page_pad(102, "VOICE -", "9", Some(AppCmd::Parts(PartsCmd::StepVoice { delta: -1 })), true, false),
                 page_pad(103, "VOICE +", "0", Some(AppCmd::Parts(PartsCmd::StepVoice { delta: 1 })), true, false),
             ]);
@@ -1363,9 +1366,9 @@ mod tests {
         assert_eq!(m.state.harmony_arp.arp.fixed_velocity, 127);
         m.send(HarmonyArpCmd::SetHarmonyType { index: 99 });
         assert!(m.state.message.as_ref().is_some_and(|x| x.error));
-        m.send(PadsCmd::SetPadPage { page: Page::OtsParts });
-        let pad = m.state.pads.pads.iter().find(|p| p.note == 101).unwrap();
-        assert_eq!((pad.label.as_str(), pad.level), ("HARM/ARP", Level::Bright));
+        // The HARMONY/ARPEGGIO switch is the button under fader 5 on the Panel fader page.
+        let b5 = m.surface().controls.into_iter().find(|c| c.id == "faderButton5").unwrap();
+        assert_eq!((b5.label.as_str(), b5.action, b5.level), ("HARM/ARP", Some(AppCmd::HarmonyArp(HarmonyArpCmd::ToggleHarmonyArp)), Level::Bright));
     }
 
     #[test]

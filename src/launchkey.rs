@@ -164,7 +164,8 @@ pub enum Action {
     ToggleFaderPage,
     /// Previous/next style (`←` `→`).
     Style(i8),
-    /// The HARMONY/ARPEGGIO button: the selected Harmony type or arpeggio on/off (`r`).
+    /// The HARMONY/ARPEGGIO button: the selected Harmony type or arpeggio on/off (`J`,
+    /// fader button 5 on the Panel fader page).
     ToggleHarmonyArp,
 }
 
@@ -183,7 +184,6 @@ pub fn pad_action(page: Page, note: u8) -> Option<Action> {
         (Page::ChordSetup, 118) => Action::TransposeReset,
         (Page::OtsParts, 96..=99) => Action::Ots(note - 96),
         (Page::OtsParts, 100) => Action::ToggleOtsLink,
-        (Page::OtsParts, 101) => Action::ToggleHarmonyArp,
         (Page::OtsParts, 102) => Action::PartVoice(-1),
         (Page::OtsParts, 103) => Action::PartVoice(1),
         (Page::OtsParts, 112..=115) => Action::PartOnOff(note - 112),
@@ -246,16 +246,29 @@ pub fn buttons_off_msgs(out: &mut Vec<[u8; 3]>) {
     }
 }
 
+/// The fader button (0-based, under fader 5) that is the HARMONY/ARPEGGIO switch on the
+/// Panel fader page. Every pad on every page is taken; Panel buttons 5-8 were dark.
+pub const HARM_ARP_FADER_BTN: u8 = 4;
+
 /// Palette colours for the fader buttons. Panel page (blue): Right 1-3 and Left lit while
-/// on (`parts_on`, bit = part), 5-8 dark. Style page (green): the Style parts lit while
-/// they play (`style_on`). The master button shows the page's colour.
-pub fn fader_button_msgs(page: FaderPage, parts_on: u8, style_on: u8, out: &mut Vec<[u8; 3]>) {
+/// on (`parts_on`, bit = part), button 5 (purple) lit while HARMONY/ARPEGGIO is on
+/// (`harmony_arp`), 6-8 dark. Style page (green): the Style parts lit while they play
+/// (`style_on`). The master button shows the page's colour.
+pub fn fader_button_msgs(page: FaderPage, parts_on: u8, style_on: u8, harmony_arp: bool, out: &mut Vec<[u8; 3]>) {
     let (on, n, (bright, dim)) = match page {
         FaderPage::Panel => (parts_on, parts::COUNT as u8, (BLUE, DIM_BLUE)),
         FaderPage::Style => (style_on, 8, (GREEN, DIM_GREEN)),
     };
     for i in 0..8u8 {
-        let c = if i >= n { OFF } else if on & (1 << i) != 0 { bright } else { dim };
+        let c = if page == FaderPage::Panel && i == HARM_ARP_FADER_BTN {
+            if harmony_arp { PURPLE } else { DIM_PURPLE }
+        } else if i >= n {
+            OFF
+        } else if on & (1 << i) != 0 {
+            bright
+        } else {
+            dim
+        };
         out.push([0xB0, 37 + i, c]);
     }
     out.push([0xB0, 45, bright]);
@@ -270,10 +283,10 @@ pub fn style_lit(parts: u8, manual_bass: bool) -> u8 {
 
 /// The button LEDs as `nav_button_msgs` and `fader_button_msgs` set them: (CC, palette
 /// colour) for Pad Bank ▲/▼, Track ◀/▶, the fader buttons and the master fader button.
-pub fn button_colours(page: Page, styles: bool, fader_page: FaderPage, parts_on: u8, style_on: u8) -> Vec<(u8, u8)> {
+pub fn button_colours(page: Page, styles: bool, fader_page: FaderPage, parts_on: u8, style_on: u8, harmony_arp: bool) -> Vec<(u8, u8)> {
     let mut msgs = Vec::new();
     nav_button_msgs(page, styles, &mut msgs);
-    fader_button_msgs(fader_page, parts_on, style_on, &mut msgs);
+    fader_button_msgs(fader_page, parts_on, style_on, harmony_arp, &mut msgs);
     // Channel 1 carries the colour (channel 4 the brightness, for single-colour LEDs).
     msgs.iter().filter(|m| m[0] == 0xB0).map(|m| (m[1], m[2])).collect()
 }
@@ -622,7 +635,7 @@ fn ots_looks(p: &Panel) -> [(u8, Look); 16] {
         (98, ots(2, "OTS 3", "⇧3")),
         (99, ots(3, "OTS 4", "⇧4")),
         (100, pl("OTS LINK", "F10", true, p.ots_link)),
-        (101, pl("HARM/ARP", "r", true, p.harmony_arp)),
+        (101, pl("", "", false, false)),
         (102, pl("VOICE -", "9", true, false)),
         (103, pl("VOICE +", "0", true, false)),
         (112, part(0)),
@@ -692,10 +705,10 @@ mod tests {
             assert_ne!(palette_colour(c).1, Level::Off, "{c}");
         }
         assert_eq!(palette_colour(OFF).1, Level::Off);
-        let b = button_colours(Page::Sections, true, FaderPage::Panel, 0b0001, 0xFF);
+        let b = button_colours(Page::Sections, true, FaderPage::Panel, 0b0001, 0xFF, false);
         assert!(b.contains(&(PAD_UP_CC, OFF)) && b.contains(&(PAD_DOWN_CC, WHITE)));
         assert!(b.contains(&(TRACK_LEFT_CC, WHITE)));
-        assert!(b.contains(&(37, BLUE)) && b.contains(&(38, DIM_BLUE)) && b.contains(&(41, OFF)) && b.contains(&(45, BLUE)));
+        assert!(b.contains(&(37, BLUE)) && b.contains(&(38, DIM_BLUE)) && b.contains(&(41, DIM_PURPLE)) && b.contains(&(42, OFF)) && b.contains(&(45, BLUE)));
         assert_eq!(b.len(), 4 + 9);
     }
 
@@ -737,7 +750,7 @@ mod tests {
             assert_eq!(pad_action(p, 96 + n), Some(Action::Ots(n)));
         }
         assert_eq!(pad_action(p, 100), Some(Action::ToggleOtsLink));
-        assert_eq!(pad_action(p, 101), Some(Action::ToggleHarmonyArp));
+        assert_eq!(pad_action(p, 101), None);
         assert_eq!(pad_action(p, 102), Some(Action::PartVoice(-1)));
         assert_eq!(pad_action(p, 103), Some(Action::PartVoice(1)));
         for n in 0..4u8 {
@@ -833,7 +846,7 @@ mod tests {
         let l = lk(&s, &panel);
         assert!(l.iter().all(|l| l.rgb == C_PAGE_OTS), "one colour for the page");
         assert!(l[..4].iter().all(|l| l.level == Level::Off));
-        assert_eq!(l[5].level, Level::Dim, "Harmony/Arpeggio off");
+        assert_eq!(l[5].level, Level::Off, "unassigned");
         assert_eq!(l[8..12].iter().map(|l| l.level).collect::<Vec<_>>(), [Level::Bright, Level::Dim, Level::Dim, Level::Dim]);
         assert_eq!(l[12..].iter().map(|l| l.level).collect::<Vec<_>>(), [Level::Bright, Level::Dim, Level::Dim, Level::Dim]);
 
@@ -845,8 +858,6 @@ mod tests {
         let l = lk(&s, &panel);
         assert_eq!(l[..4].iter().map(|l| l.level).collect::<Vec<_>>(), [Level::Dim, Level::Bright, Level::Dim, Level::Off]);
         assert_eq!(l[4].level, Level::Bright, "Link on");
-        panel.harmony_arp = true;
-        assert_eq!(lk(&s, &panel)[5].level, Level::Bright, "Harmony/Arpeggio on");
         assert_eq!(l[8..12].iter().map(|l| l.level).collect::<Vec<_>>(), [Level::Bright, Level::Bright, Level::Dim, Level::Bright]);
         assert_eq!(l[15].level, Level::Bright, "Left selected");
         let leds = pad_leds(&s, &has, &panel).map(|(_, l)| l);
@@ -856,12 +867,17 @@ mod tests {
     #[test]
     fn fader_buttons_follow_the_page() {
         let mut out = Vec::new();
-        fader_button_msgs(FaderPage::Panel, 0b1001, 0xFF, &mut out);
+        fader_button_msgs(FaderPage::Panel, 0b1001, 0xFF, false, &mut out);
         assert_eq!(out[..4], [[0xB0, 37, BLUE], [0xB0, 38, DIM_BLUE], [0xB0, 39, DIM_BLUE], [0xB0, 40, BLUE]]);
-        assert!(out[4..8].iter().all(|m| m[2] == OFF), "faders 5-8 unused on Panel");
+        assert_eq!(out[4], [0xB0, 41, DIM_PURPLE], "button 5: HARMONY/ARPEGGIO off");
+        assert!(out[5..8].iter().all(|m| m[2] == OFF), "buttons 6-8 unused on Panel");
         assert_eq!(out[8], [0xB0, 45, BLUE]);
         out.clear();
-        fader_button_msgs(FaderPage::Style, 0b1001, !(1 << 5), &mut out);
+        fader_button_msgs(FaderPage::Panel, 0b1001, 0xFF, true, &mut out);
+        assert_eq!(out[4], [0xB0, 41, PURPLE], "button 5: HARMONY/ARPEGGIO on");
+        out.clear();
+        // The Style page's button 5 is the Style's fifth part, whatever the switch.
+        fader_button_msgs(FaderPage::Style, 0b1001, !(1 << 5), true, &mut out);
         assert_eq!(out[5], [0xB0, 42, DIM_GREEN], "Pad muted");
         assert!(out.iter().enumerate().all(|(i, m)| i == 5 || m[2] == GREEN));
     }

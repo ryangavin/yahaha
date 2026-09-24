@@ -805,10 +805,10 @@ const catalog = {
   },
   'launchkey.fader_unused': {
     title: 'Unused fader',
-    body: 'On the Panel fader page, faders 5–8 and their buttons do nothing. Switch to the Style page (the button under the master fader) to mix the band.',
+    body: 'On the Panel fader page, faders 5–8 and buttons 6–8 do nothing. Switch to the Style page (the button under the master fader) to mix the band.',
     genos: null,
     keys: [],
-    launchkey: 'Panel fader page: faders 5–8 and the buttons under them',
+    launchkey: 'Panel fader page: faders 5–8 and the buttons under faders 6–8',
   },
   'launchkey.unused': {
     title: 'Unused pad',
@@ -986,8 +986,8 @@ const catalog = {
     title: 'Harmony/Arpeggio',
     body: 'Turns the selected Keyboard Harmony type or arpeggio on or off for the keys right of the split. Turning it off stops the arpeggio at once; keys you hold keep their harmony notes until you let go.',
     genos: 'HARMONY/ARPEGGIO',
-    keys: ['r'],
-    launchkey: pad(P3, 'top', 6),
+    keys: ['J'],
+    launchkey: 'Panel fader page: button under fader 5',
   },
   'harmony.mode_harmony': {
     title: 'Harmony types',
@@ -1028,7 +1028,7 @@ const catalog = {
     title: 'Next type',
     body: 'Steps on through the Harmony types and then the arpeggios, as one list.',
     genos: null,
-    keys: ['R'],
+    keys: ['L'],
     launchkey: null,
   },
   'harmony.volume': {
@@ -1077,7 +1077,7 @@ const catalog = {
     title: 'Arpeggio Hold',
     body: 'The pattern keeps playing after you let go of the keys. The next chord you play replaces it.',
     genos: 'Arpeggio Hold',
-    keys: ['H'],
+    keys: ['*'],
     launchkey: null,
   },
   'harmony.arp_velocity': {
@@ -1129,7 +1129,7 @@ const catalog = {
     body: 'Opens the Keyboard Harmony and Arpeggio panel: the switch, the type and its settings.',
     genos: 'HARMONY/ARPEGGIO, Keyboard Harmony/Arpeggio settings',
     keys: [],
-    launchkey: 'Pad page 3 (OTS/Parts) has the on/off switch',
+    launchkey: 'Panel fader page: the button under fader 5 is the on/off switch',
   },
   'drawer.close': {
     title: 'Close',

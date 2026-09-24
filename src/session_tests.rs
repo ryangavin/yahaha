@@ -522,6 +522,7 @@ fn launchkey_hardware_matches_its_commands() {
                         (8, _, _) => Some(AppCmd::Mixer(MixerCmd::ToggleFaderPage)),
                         (0..=3, FaderPage::Panel, true) => Some(AppCmd::Parts(PartsCmd::SelectPart { part: i })),
                         (0..=3, FaderPage::Panel, false) => Some(AppCmd::Parts(PartsCmd::TogglePart { part: i })),
+                        (4, FaderPage::Panel, _) => Some(AppCmd::HarmonyArp(HarmonyArpCmd::ToggleHarmonyArp)),
                         (_, FaderPage::Panel, _) => None,
                         (_, FaderPage::Style, _) => Some(AppCmd::Mixer(MixerCmd::ToggleStylePart { part: i })),
                     };
@@ -668,13 +669,19 @@ fn launchkey_button_descriptions() {
     assert_eq!((play.action.clone(), play.colour, play.shift_action, play.shift_label.as_str()), (Some(AppCmd::Transport(TransportCmd::StartStop)), None, Some(AppCmd::Transport(TransportCmd::StartStop)), "PLAY"));
     assert_eq!(b(&s, "scene").action, Some(AppCmd::Transport(TransportCmd::TempoUp)));
     assert_eq!((b(&s, "scene").label.as_str(), b(&s, "function").label.as_str()), ("TEMPO +", "TEMPO -"));
-    // Panel faders: Right 1 on (blue), Right 2 off (dim blue), 5-8 do nothing.
+    // Panel faders: Right 1 on (blue), Right 2 off (dim blue).
     let f1 = b(&s, "faderButton1");
     assert_eq!((f1.label.as_str(), f1.action, f1.shift_action), ("RIGHT 1", Some(AppCmd::Parts(PartsCmd::TogglePart { part: 0 })), Some(AppCmd::Parts(PartsCmd::SelectPart { part: 0 }))));
     assert_eq!((f1.level, f1.rgb), (Level::Bright, [0, 0, 127]));
     assert_eq!(b(&s, "faderButton2").level, Level::Dim);
+    // Button 5: HARMONY/ARPEGGIO, dim purple while off, bright while on; 6-8 do nothing.
     let f5 = b(&s, "faderButton5");
-    assert_eq!((f5.action, f5.level), (None, Level::Off));
+    assert_eq!((f5.label.as_str(), f5.action, f5.level), ("HARM/ARP", Some(AppCmd::HarmonyArp(HarmonyArpCmd::ToggleHarmonyArp)), Level::Dim));
+    s.send(HarmonyArpCmd::ToggleHarmonyArp).unwrap();
+    assert_eq!((b(&s, "faderButton5").level, b(&s, "faderButton5").rgb), (Level::Bright, [90, 0, 127]));
+    s.send(HarmonyArpCmd::ToggleHarmonyArp).unwrap();
+    let f6 = b(&s, "faderButton6");
+    assert_eq!((f6.action, f6.level), (None, Level::Off));
     assert_eq!(b(&s, "masterButton").label, "PANEL");
     // Style page: the Style parts' mutes, green.
     s.send(MixerCmd::ToggleFaderPage).unwrap();

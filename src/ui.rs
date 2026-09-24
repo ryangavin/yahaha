@@ -64,7 +64,7 @@ fn key_action(code: KeyCode) -> Option<Action> {
         KeyCode::Char('0') => Some(Action::PartVoice(1)),
         KeyCode::Left => Some(Action::Style(-1)),
         KeyCode::Right => Some(Action::Style(1)),
-        KeyCode::Char('r') => Some(Action::ToggleHarmonyArp),
+        KeyCode::Char('J') => Some(Action::ToggleHarmonyArp),
         _ => None,
     }
 }
@@ -79,8 +79,8 @@ fn key_cmd(code: KeyCode) -> Option<AppCmd> {
         KeyCode::Char('k') => Some(AppCmd::Mixer(MixerCmd::ToggleSynthMute)),
         KeyCode::Char('\\') => Some(AppCmd::System(SystemCmd::Panic)),
         // Harmony/Arpeggio: next type (the Harmony types, then the arpeggios), Arp Hold.
-        KeyCode::Char('R') => Some(AppCmd::HarmonyArp(HarmonyArpCmd::StepHarmonyArpType { delta: 1 })),
-        KeyCode::Char('H') => Some(AppCmd::HarmonyArp(HarmonyArpCmd::ToggleArpHold)),
+        KeyCode::Char('L') => Some(AppCmd::HarmonyArp(HarmonyArpCmd::StepHarmonyArpType { delta: 1 })),
+        KeyCode::Char('*') => Some(AppCmd::HarmonyArp(HarmonyArpCmd::ToggleArpHold)),
         code => key_action(code).map(AppCmd::from),
     }
 }
@@ -517,7 +517,7 @@ fn draw(f: &mut ratatui::Frame, st: &AppState, message: &str, beats: f64) {
 
     let mut help = vec![
         Line::from(Span::styled(
-            " space start/stop · 1-4 Main A-D (again = fill) · q w e intro · i o p ending · g break · t tap · -/= tempo · F1-F4 part · 9/0 voice · 5-8 part on/off · r harmony/arp (R type, H hold) · F9 faders Panel/Style · ; ' kbd transpose · : \" master · / reset · tab pad page · enter browse styles · \\ panic · esc twice quit",
+            " space start/stop · 1-4 Main A-D (again = fill) · q w e intro · i o p ending · g break · t tap · -/= tempo · F1-F4 part · 9/0 voice · 5-8 part on/off · J harmony/arp (L type, * hold) · F9 faders Panel/Style · ; ' kbd transpose · : \" master · / reset · tab pad page · enter browse styles · \\ panic · esc twice quit",
             dim,
         )),
         Line::from(Span::styled(
@@ -748,9 +748,14 @@ mod tests {
         assert_eq!(key_cmd(KeyCode::BackTab), Some(AppCmd::Pads(PadsCmd::CyclePadPage { delta: -1 })));
         assert_eq!(key_cmd(KeyCode::Char('\\')), Some(AppCmd::System(SystemCmd::Panic)));
         assert_eq!(key_cmd(KeyCode::Char('k')), Some(AppCmd::Mixer(MixerCmd::ToggleSynthMute)));
-        assert_eq!(key_cmd(KeyCode::Char('r')), Some(AppCmd::HarmonyArp(HarmonyArpCmd::ToggleHarmonyArp)));
-        assert_eq!(key_cmd(KeyCode::Char('R')), Some(AppCmd::HarmonyArp(HarmonyArpCmd::StepHarmonyArpType { delta: 1 })));
-        assert_eq!(key_cmd(KeyCode::Char('H')), Some(AppCmd::HarmonyArp(HarmonyArpCmd::ToggleArpHold)));
+        assert_eq!(key_cmd(KeyCode::Char('J')), Some(AppCmd::HarmonyArp(HarmonyArpCmd::ToggleHarmonyArp)));
+        assert_eq!(key_cmd(KeyCode::Char('L')), Some(AppCmd::HarmonyArp(HarmonyArpCmd::StepHarmonyArpType { delta: 1 })));
+        assert_eq!(key_cmd(KeyCode::Char('*')), Some(AppCmd::HarmonyArp(HarmonyArpCmd::ToggleArpHold)));
+        // Keys sibling branches own (#92 fills, #94 section timing, #96 looper, #98 chart,
+        // #99 Registration: Shift+Q..P), or assert unbound (#92 H, #95 K): not Harmony/Arp.
+        for k in ['r', 'R', 'H', 'K', 'm', 'M', 'Q', 'W', 'E', 'T', 'Y', 'U', 'I', 'O', 'P', 'F', 'A', 'S', 'G', 'N', '.', '<', '>', '(', ')', '{', '}'] {
+            assert!(!matches!(key_cmd(KeyCode::Char(k)), Some(AppCmd::HarmonyArp(_))), "{k}");
+        }
         assert_eq!(key_cmd(KeyCode::Char('Z')), None);
     }
 

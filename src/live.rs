@@ -740,7 +740,8 @@ impl Input {
 
     /// A button under fader `i` (0..8), or under the master fader (8): the fader page
     /// toggle. On the Panel page the buttons turn Right 1-3 and Left on/off (Shift: select
-    /// the part for the voice keys); on the Style page they mute the Style parts.
+    /// the part for the voice keys) and button 5 is HARMONY/ARPEGGIO; on the Style page
+    /// they mute the Style parts.
     fn fader_button(&mut self, i: u8) {
         let parts = &self.shared.parts;
         if i == 8 {
@@ -756,6 +757,7 @@ impl Input {
             FaderPage::Panel if (i as usize) < parts::COUNT && self.shift => self.act(Action::SelectPart(i)),
             // Left is refused under Manual Bass; its LED stays lit, as the bass sounds.
             FaderPage::Panel if (i as usize) < parts::COUNT => self.act(Action::PartOnOff(i)),
+            FaderPage::Panel if i == launchkey::HARM_ARP_FADER_BTN => self.act(Action::ToggleHarmonyArp),
             FaderPage::Panel => {}
             FaderPage::Style => self.act(Action::Button(Button::TogglePart(i))),
         }
@@ -1457,8 +1459,9 @@ mod tests {
     }
 
     /// Panel page: faders 1-4 set the keyboard parts' volumes (soft takeover), their
-    /// buttons turn the parts on/off and Shift + button selects (as commands, on the control
-    /// side, like the pads). The master button switches to
+    /// buttons turn the parts on/off and Shift + button selects, and button 5 is
+    /// HARMONY/ARPEGGIO (as commands, on the control side, like the pads). The master
+    /// button switches to
     /// the Style page, whose faders and buttons go to the engine; the engine hears where
     /// the faders physically are.
     #[test]
@@ -1478,7 +1481,11 @@ mod tests {
         input.pad_msg(&[0xB0, 39, 127]); // Shift + button 3: select Right 3
         input.pad_msg(&[0xB0, launchkey::SHIFT_CC, 0]);
         assert_eq!(acts.pop(), Ok(Action::SelectPart(2)));
+        input.pad_msg(&[0xB0, 41, 127]); // button 5: HARMONY/ARPEGGIO
+        assert_eq!(acts.pop(), Ok(Action::ToggleHarmonyArp));
+        input.pad_msg(&[0xB0, 42, 127]); // button 6: unused on Panel
         assert!(acts.pop().is_err());
+        assert!(cmds.pop().is_err());
 
         input.pad_msg(&[0xB0, 45, 127]); // master button: Style page
         assert_eq!(parts.fader_page(), FaderPage::Style);
@@ -1491,6 +1498,9 @@ mod tests {
         assert_eq!(parts.volume(parts::RIGHT2), 64, "Right 2 keeps its level");
         input.pad_msg(&[0xB0, 38, 127]);
         assert!(matches!(cmds.pop(), Ok(Cmd::Button(Button::TogglePart(1)))));
+        input.pad_msg(&[0xB0, 41, 127]); // button 5 on Style: the fifth Style part, not Harmony
+        assert!(matches!(cmds.pop(), Ok(Cmd::Button(Button::TogglePart(4)))));
+        assert!(acts.pop().is_err());
         // Back on Panel, fader 2 (now at 10) must pick Right 2 up at 64 first.
         input.pad_msg(&[0xB0, 45, 127]);
         assert_eq!(parts.fader_page(), FaderPage::Panel);
