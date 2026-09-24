@@ -5,6 +5,7 @@
 //! [`Session`]: [`AppCmd`] in, [`AppState`] out. See docs/app-api.md.
 
 pub mod api;
+pub mod arp;
 pub mod bench;
 pub mod capture;
 pub mod engine;
