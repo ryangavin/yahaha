@@ -64,6 +64,18 @@ fn key_action(code: KeyCode) -> Option<Action> {
         KeyCode::Char('0') => Some(Action::PartVoice(1)),
         KeyCode::Left => Some(Action::Style(-1)),
         KeyCode::Right => Some(Action::Style(1)),
+        // Registration Memory: Shift + the top letter row = buttons 1-10 (a row of ten, as
+        // on the panel), F5 Memory, F6 Freeze, F7/F8 Regist -/+, F11/F12 Bank -/+.
+        KeyCode::Char(c) if "QWERTYUIOP".contains(c) => Some(Action::Regist("QWERTYUIOP".find(c).unwrap() as u8)),
+        KeyCode::F(5) => Some(Action::RegistMemory),
+        KeyCode::F(6) => Some(Action::RegistFreeze),
+        KeyCode::F(7) => Some(Action::RegistSeq(-1)),
+        KeyCode::F(8) => Some(Action::RegistSeq(1)),
+        KeyCode::F(11) => Some(Action::RegistBank(-1)),
+        KeyCode::F(12) => Some(Action::RegistBank(1)),
+        // The Playlist's previous/next record (Shift + Track on the Launchkey).
+        KeyCode::Char('<') => Some(Action::Playlist(-1)),
+        KeyCode::Char('>') => Some(Action::Playlist(1)),
         _ => None,
     }
 }
@@ -470,6 +482,38 @@ fn draw(f: &mut ratatui::Frame, st: &AppState, message: &str, beats: f64) {
                 }
                 v
             }),
+            Line::from({
+                // Registration: the bank, its ten lamps ([n] stored, >n< selected), Memory,
+                // Freeze, the sequence and the playlist.
+                let r = &st.registration;
+                let mut v = vec![Span::raw(format!(" regist {}{} ", r.bank.name, if r.bank.dirty { "*" } else { "" }))];
+                for b in &r.buttons {
+                    let n = b.index + 1;
+                    let (text, style) = if r.selected == Some(b.index) && b.stored {
+                        (format!(">{n}<"), St::default().fg(Color::Black).bg(Color::Red))
+                    } else if b.stored {
+                        (format!("[{n}]"), St::default().fg(Color::Blue))
+                    } else {
+                        (format!(" {n} "), dim)
+                    };
+                    v.push(Span::styled(text, if r.memory { style.add_modifier(Modifier::SLOW_BLINK) } else { style }));
+                }
+                v.push(Span::styled(" ⇧Q-P", dim));
+                v.push(flag(r.memory, "MEMORY [F5]"));
+                v.push(flag(r.freeze, "FREEZE [F6]"));
+                let seq = &r.sequence;
+                if seq.on && !seq.steps.is_empty() {
+                    let pos = seq.position.map_or("-".to_string(), |p| (p + 1).to_string());
+                    v.push(Span::raw(format!(" seq {pos}/{} [F7 F8]", seq.steps.len())));
+                }
+                v.push(Span::styled(" bank [F11 F12]", dim));
+                let pl = &st.playlist;
+                if !pl.records.is_empty() {
+                    let cur = pl.current.and_then(|c| pl.records.iter().position(|row| row.index == c)).map_or("-".into(), |p| (p + 1).to_string());
+                    v.push(Span::raw(format!("  playlist {} {cur}/{} [< >]", pl.name, pl.records.len())));
+                }
+                v
+            }),
             Line::from(match &st.io.synth {
                 Some(sy) => Span::styled(
                     format!(
@@ -713,7 +757,7 @@ mod tests {
             .filter_map(key_action)
             .collect();
         let pads = [96u8, 97, 98, 99, 100, 101, 102, 103, 112, 113, 114, 115, 116, 117, 118, 119];
-        for page in [Page::ChordSetup, Page::OtsParts] {
+        for page in [Page::ChordSetup, Page::OtsParts, Page::Registration] {
             for a in pads.iter().filter_map(|&n| launchkey::pad_action(page, n)) {
                 if !matches!(a, Action::Fingering(_)) {
                     assert!(keys.contains(&a), "{page:?}: {a:?} has no key");
@@ -721,9 +765,12 @@ mod tests {
             }
         }
         for cc in [launchkey::TRACK_LEFT_CC, launchkey::TRACK_RIGHT_CC] {
-            let Some(launchkey::Control::Act(a)) = launchkey::cc_control(cc, false) else { panic!("track button") };
-            assert!(keys.contains(&a));
+            for shift in [false, true] {
+                let Some(launchkey::Control::Act(a)) = launchkey::cc_control(cc, shift) else { panic!("track button") };
+                assert!(keys.contains(&a), "{a:?}");
+            }
         }
+        assert_eq!(key_action(KeyCode::Char('P')), Some(Action::Regist(9)));
         assert_eq!(key_action(KeyCode::Right), Some(Action::Style(1)));
         assert_eq!(key_action(KeyCode::Char('f')), Some(Action::NextFingering));
     }

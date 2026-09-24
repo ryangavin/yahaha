@@ -67,6 +67,10 @@ fn preview_and_next_bar_style_change_do_not_allocate() {
         l.step(now);
     }
     ch.style_tx.push(b).ok().unwrap();
+    // What a Registration recall sends the engine: tempo, Style part levels and mutes.
+    ch.ui_tx.push(Cmd::SetTempo(96.0)).ok().unwrap();
+    ch.ui_tx.push(Cmd::StyleVolume(3, 64)).ok().unwrap();
+    ch.ui_tx.push(Cmd::Button(Button::TogglePart(5))).ok().unwrap();
     while now < t0 + 2 * bar {
         now = l.next_deadline().unwrap_or(now + 5_000_000).max(now + 1);
         l.step(now);
@@ -78,6 +82,7 @@ fn preview_and_next_bar_style_change_do_not_allocate() {
     let snaps: Vec<_> = std::iter::from_fn(|| ch.snap_rx.pop().ok()).collect();
     assert!(snaps.iter().any(|s| s.audition.is_some_and(|a| a.bar == 4)), "the preview played its 4 bars");
     assert!(snaps.iter().any(|s| s.running && s.style_pending), "the style change waited for the bar line");
+    assert!(snaps.iter().any(|s| s.running && (s.bpm - 96.0).abs() < 1e-9), "the recalled tempo took");
     // The preview and the old style came back to be freed off it.
     assert!(ch.old_audition_rx.pop().is_ok());
     assert!(ch.old_rx.pop().is_ok());

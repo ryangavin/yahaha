@@ -15,7 +15,7 @@ pub(super) use sections::REGISTRABLES;
 use super::Control;
 use crate::api::{BankFile, BankState, CmdError, RegistButton, RegistVoice, RegistrationCmd, RegistrationState, SequenceState};
 use crate::launchkey::RegistPanel;
-use crate::registration::{self as reg, Bank, Groups, Memory, SeqMove, BANK_EXT, BUTTONS};
+use crate::registration::{self as reg, Bank, Group, Groups, Memory, SeqMove, BANK_EXT, BUTTONS};
 use std::path::{Path, PathBuf};
 
 /// How long OTS Link waits for a recall to settle at most (a section that never comes,
@@ -30,6 +30,16 @@ pub(super) enum LockItem {
     SplitPoint,
     /// Fingering type and Chord Detection Area (lock group "Fingering Type").
     FingeringType,
+}
+
+/// A recall waiting for the style it loads to play.
+struct Deferred {
+    memory: Memory,
+    /// The groups it recalls.
+    groups: Groups,
+    /// Tempo is frozen: the tempo before the recall, put back after the style load (a
+    /// stopped load takes the style's own tempo).
+    keep_bpm: Option<f64>,
 }
 
 /// The control side's Registration Memory.
@@ -47,8 +57,8 @@ pub(super) struct RegState {
     freeze: bool,
     frozen: Groups,
     seq_pos: Option<usize>,
-    /// A recall waiting for its style to play: the memory and the groups it recalls.
-    deferred: Option<(Memory, Groups)>,
+    /// A recall waiting for its style to play.
+    deferred: Option<Deferred>,
     /// OTS Link waits for this recall to settle: the Main it selected (None: only a style
     /// change), and when the hold started (0 = not yet stamped).
     ots_hold: Option<(Option<u8>, u64)>,
@@ -362,7 +372,9 @@ impl Control {
         let waiting = self.pending_style.as_ref().map(|p| p.1) != before && self.pending_style.is_some();
         if waiting {
             self.reg.ots_hold = Some((None, 0));
-            self.reg.deferred = Some((m, groups));
+            // Memorized but frozen: the tempo stays what it is, whatever the style's.
+            let keep_bpm = (m.groups.has(Group::Tempo) && !groups.has(Group::Tempo)).then_some(self.snap.bpm);
+            self.reg.deferred = Some(Deferred { memory: m, groups, keep_bpm });
         } else {
             errors.extend(self.recall_late(&m, groups));
         }
@@ -400,8 +412,13 @@ impl Control {
     /// when the engine shows what the recall asked for (or after `OTS_HOLD_NS`).
     pub(super) fn pump_registration(&mut self, now: u64) {
         if self.reg.deferred.is_some() && self.pending_style.is_none() {
-            let (m, groups) = self.reg.deferred.take().unwrap();
-            let errors = self.recall_late(&m, groups);
+            let d = self.reg.deferred.take().unwrap();
+            let mut errors = self.recall_late(&d.memory, d.groups);
+            if let Some(bpm) = d.keep_bpm
+                && let Err(e) = self.engine_cmd(crate::live::Cmd::SetTempo(bpm))
+            {
+                errors.push(e.to_string());
+            }
             if !errors.is_empty() {
                 self.say(errors.join("; "), true);
             }
@@ -483,3 +500,6 @@ impl Control {
         }
     }
 }
+
+#[cfg(test)]
+mod tests;
