@@ -786,3 +786,39 @@ fn multi_pad_bank_is_registered() {
     assert_eq!(bank(&s).as_deref(), Some("B"));
     let _ = std::fs::remove_dir_all(dir);
 }
+
+/// Review r3 B1, old files: a bank saved before `styleMixer.set` existed still loads and
+/// recalls with the earlier behaviour (every stored level that differs is set), and a new
+/// memory stores which parts the player set.
+#[test]
+fn style_mixer_without_player_set_recalls_as_before() {
+    let Some((s, dir)) = session("mixer-old-file") else { return };
+    s.advance(MS);
+    let own = panel(&s).style_vol;
+    s.send(MixerCmd::SetStylePartVolume { part: 3, volume: 64 }).unwrap();
+    s.advance(MS);
+    s.send(RegistrationCmd::MemorizeRegist { index: 0 }).unwrap();
+    save(&s, "Old");
+    let file = dir.join("Registration/Old.regist.json");
+    let mut v: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&file).unwrap()).unwrap();
+    let mixer = &mut v["memories"][0]["sections"]["styleMixer"];
+    let set: Vec<bool> = serde_json::from_value(mixer["set"].clone()).expect("a new memory stores `set`");
+    assert_eq!(set, [false, false, false, true, false, false, false, false]);
+    // As an earlier build wrote it: levels and on/off only.
+    mixer.as_object_mut().unwrap().remove("set");
+    std::fs::write(&file, v.to_string()).unwrap();
+    s.send(RegistrationCmd::SelectRegistBank { path: file.display().to_string() }).unwrap();
+    s.send(MixerCmd::SetStylePartVolume { part: 3, volume: 120 }).unwrap();
+    s.send(MixerCmd::SetStylePartVolume { part: 0, volume: 30 }).unwrap();
+    s.advance(MS);
+    s.send(RegistrationCmd::RecallRegist { index: 0 }).unwrap();
+    for _ in 0..3 {
+        s.advance(MS);
+    }
+    let msg = s.state().message.clone();
+    assert!(msg.as_ref().is_none_or(|m| !m.error), "{msg:?}");
+    let got = panel(&s).style_vol;
+    assert_eq!(got[3], 64);
+    assert_eq!(got[0], own[0], "the stored level that differs is set, as before");
+    let _ = std::fs::remove_dir_all(dir);
+}
