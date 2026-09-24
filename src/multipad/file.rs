@@ -1,28 +1,47 @@
 //! Multi Pad bank (.pad) parser.
 //!
-//! # Status of the format
+//! # The format
 //!
-//! Yamaha does not document the .pad format (docs/genos-features.md §E, §G.6) and no .pad
-//! file was available when this was written, so the layout below is **provisional**. It
-//! follows the style-file analogy: an SMF followed by Yamaha chunks, with CASM carrying the
-//! chord-conversion rules. Every chunk the parser does not understand is kept raw in
-//! [`PadBank::other_chunks`], and `yahaha pad <file>` dumps them, so the first real bank
-//! shows where the parser is wrong.
+//! Yamaha does not publish the .pad format (docs/genos-features.md §E, §G.6). The one
+//! public description is Jørgen Sørensen's "Multi Pad Format" article
+//! (<http://www.jososoft.dk/yamaha/articles/multipad.htm>, The Unofficial YAMAHA Keyboard
+//! Resource Site). It describes the Tyros layout and says other models differ slightly:
+//!
+//! * A **type 1 SMF with 5 tracks**, 1920 ppq on Tyros (96 on older PSRs such as the
+//!   PSR-740).
+//! * **Track 0** holds 10 text events (meta 01H), all at tick 0:
+//!   1. `CMxxxx`: **Chord Match** of pads 1..4, one `0`/`1` character per pad.
+//!   2. `RPxxxx`: **Repeat** of pads 1..4, the same way. This is where Repeat lives.
+//!   3. to 6. `N<y><name>...`, 52 bytes padded with blanks: pad `y`'s name. The article's
+//!      example is `N2HipHop1 2 ....`: the pad number appears again after the name, so
+//!      the parser drops the name from the last blank-separated token starting with `y`.
+//!   7. to 10. `I<y>...` (e.g. `I1S375`): the pad's panel image reference.
+//! * **Tracks 1..4** are the pads, one measure each, voice setup plus notes. Track `n`
+//!   plays on MIDI channel `n` (pad 1 on channel 1, and so on).
+//!
+//! The article mentions no CASM chunk: Tyros pads have no per-pad chord rule, only the
+//! Chord Match switch. The parser still reads a CASM chunk if one is present (the
+//! style-file analogy; it gives names and rules), but the CM/RP text events win. Nothing
+//! here has been checked against a real bank yet (Genos may differ from Tyros): every
+//! unknown chunk is kept raw in [`PadBank::other_chunks`] and every track-0 text event in
+//! [`PadBank::texts`], and `yahaha pad <file>` prints both, so the first real bank shows
+//! where this is wrong.
 //!
 //! What the parser accepts:
 //!
-//! * **Type 0 SMF** (one MTrk): each pad is one MIDI channel (the Multi Pad Creator records
-//!   one channel per pad, RM p.64). With a CASM chunk, its Ctab/Ctb2 records assign pads in
-//!   record order (pad 1 = first record's source channel) and give each pad its name and
-//!   conversion rule. Without CASM, the channels in use, lowest first, are pads 1..4.
-//! * **Type 1 SMF**: each MTrk that has channel events is a pad, in track order; its track
-//!   name (meta 03H) is the pad name. CASM, if present, is matched by channel.
+//! * **Type 1 SMF** (the documented layout): with a conductor track 0 (no channel
+//!   events), track `n` is pad `n`; otherwise track `n` is pad `n + 1`. An empty track
+//!   leaves its pad empty and does not shift the pads after it. The pad name comes from the
+//!   `N` text event, else the CASM record, else the track name (meta 03H).
+//! * **Type 0 SMF** (a fallback, not described anywhere): each pad is one MIDI channel.
+//!   With a CASM chunk, its Ctab/Ctb2 records assign pads in record order; without one,
+//!   the channels in use, lowest first, are pads 1..4. CM/RP/N events apply by pad number.
 //!
 //! Per-pad flags:
 //!
-//! * **Chord Match** comes from the pad's CASM rule: on unless every zone is NTT Bypass with
-//!   NTR Root Fixed (the rule that leaves notes as written). With no rule it is unknown.
-//! * **Repeat** has no known location. It is `None` until a real bank shows where it lives.
+//! * **Chord Match**: the `CM` event; else inferred from a CASM rule (on unless every zone
+//!   is NTT Bypass with NTR Root Fixed); else unknown.
+//! * **Repeat**: the `RP` event; else unknown.
 //!
 //! Unknown values stay `None` here; [`Pad::repeat_or_default`] and
 //! [`Pad::chord_match_or_default`] give the player's defaults.
@@ -60,6 +79,8 @@ pub struct Pad {
     pub chord_match: Option<bool>,
     /// The CASM rule for this pad's channel, if the file has one.
     pub rule: Option<ChannelRule>,
+    /// The panel image reference from the `I<y>` text event (e.g. `S375`), if any.
+    pub image: Option<String>,
 }
 
 impl Pad {
@@ -91,6 +112,8 @@ pub struct PadBank {
     pub pads: [Option<Pad>; PADS],
     /// Chunks after the MIDI data other than CASM, raw (id, bytes).
     pub other_chunks: Vec<(String, Vec<u8>)>,
+    /// Every text event (meta 01H) of the first track, as written, for the dump.
+    pub texts: Vec<String>,
 }
 
 impl PadBank {
@@ -183,6 +206,16 @@ pub fn parse(bytes: &[u8]) -> Result<PadBank> {
         }
     }
 
+    // The Yamaha header text events (module docs): CM, RP, N<y>, I<y>.
+    let texts: Vec<String> = tracks[0]
+        .iter()
+        .filter_map(|e| match &e.ev {
+            Ev::Meta { ty: 0x01, data } => Some(String::from_utf8_lossy(data).into_owned()),
+            _ => None,
+        })
+        .collect();
+    let header = Header::from_texts(&texts);
+
     // All the rules in the CASM, first record per channel wins, in record order.
     let mut rules: Vec<ChannelRule> = Vec::new();
     for r in casm.iter().flat_map(|seg| seg.rules.iter()) {
@@ -197,12 +230,10 @@ pub fn parse(bytes: &[u8]) -> Result<PadBank> {
     let layout;
     if format == 1 && tracks.len() > 1 {
         layout = Layout::Tracks;
-        let mut slot = 0;
-        for t in &tracks {
+        // A conductor track 0 (no channel events) is not a pad: then track n is pad n.
+        let first = usize::from(tracks[0].iter().all(|e| e.ev.channel().is_none()));
+        for (slot, t) in tracks.iter().skip(first).take(PADS).enumerate() {
             let Some(ch) = t.iter().find_map(|e| e.ev.channel()) else { continue };
-            if slot == PADS {
-                break;
-            }
             let track_name = t.iter().find_map(|e| match &e.ev {
                 Ev::Meta { ty: 0x03, data } => Some(meta_text(data)),
                 _ => None,
@@ -213,7 +244,6 @@ pub fn parse(bytes: &[u8]) -> Result<PadBank> {
             let rule = rule_for(ch);
             let name = rule.as_ref().map(|r| r.name.clone()).filter(|n| !n.is_empty()).or(track_name);
             pads[slot] = Some(make_pad(name, slot, ch, events, end, beat, rule));
-            slot += 1;
         }
     } else {
         let track = &tracks[0];
@@ -248,7 +278,19 @@ pub fn parse(bytes: &[u8]) -> Result<PadBank> {
         }
     }
 
-    Ok(PadBank { name, ppq, tempo_us, timesig, layout, pads, other_chunks })
+    for (slot, pad) in pads.iter_mut().enumerate() {
+        let Some(pad) = pad else { continue };
+        if let Some(cm) = header.chord_match[slot] {
+            pad.chord_match = Some(cm);
+        }
+        pad.repeat = header.repeat[slot];
+        if let Some(n) = header.names[slot].clone() {
+            pad.name = n;
+        }
+        pad.image = header.images[slot].clone();
+    }
+
+    Ok(PadBank { name, ppq, tempo_us, timesig, layout, pads, other_chunks, texts })
 }
 
 fn make_pad(
@@ -275,7 +317,72 @@ fn make_pad(
         repeat: None,
         chord_match: rule.as_ref().map(rule_matches_chords),
         rule,
+        image: None,
     }
+}
+
+/// What the track-0 text events say (module docs).
+#[derive(Debug, Default)]
+struct Header {
+    chord_match: [Option<bool>; PADS],
+    repeat: [Option<bool>; PADS],
+    names: [Option<String>; PADS],
+    images: [Option<String>; PADS],
+}
+
+impl Header {
+    fn from_texts(texts: &[String]) -> Header {
+        let mut h = Header::default();
+        let flags = |rest: &str| {
+            let mut f = [None; PADS];
+            for (slot, c) in rest.chars().take(PADS).enumerate() {
+                f[slot] = match c {
+                    '0' => Some(false),
+                    '1' => Some(true),
+                    _ => None,
+                };
+            }
+            f
+        };
+        for t in texts {
+            let t = t.trim_end_matches(['\0', ' ']);
+            let mut chars = t.chars();
+            let (tag, num) = (chars.next(), chars.next());
+            // `N<y>` / `I<y>`: y is the pad number 1..4, then the payload.
+            let pad = num.and_then(|c| c.to_digit(10)).map(|d| d as usize).filter(|d| (1..=PADS).contains(d));
+            let payload = chars.as_str();
+            if let Some(rest) = t.strip_prefix("CM") {
+                h.chord_match = flags(rest);
+            } else if let Some(rest) = t.strip_prefix("RP") {
+                h.repeat = flags(rest);
+            } else if let (Some('N'), Some(d)) = (tag, pad) {
+                let name = pad_name(payload, d);
+                if !name.is_empty() {
+                    h.names[d - 1] = Some(name);
+                }
+            } else if let (Some('I'), Some(d)) = (tag, pad) {
+                h.images[d - 1] = Some(payload.trim().to_string());
+            }
+        }
+        h
+    }
+}
+
+/// The name in an `N<y>` event, from the text after `N<y>`. The article's example
+/// `HipHop1 2 ....` repeats the pad number after the name, so the name ends before the last
+/// blank-separated token (not the first) that starts with that number.
+fn pad_name(payload: &str, pad: usize) -> String {
+    let payload = payload.trim();
+    let num = char::from_digit(pad as u32, 10).unwrap_or('?');
+    let mut cut = payload.len();
+    let mut pos = 0;
+    for (i, tok) in payload.split(' ').enumerate() {
+        if i > 0 && tok.starts_with(num) {
+            cut = pos;
+        }
+        pos += tok.len() + 1;
+    }
+    payload[..cut].trim().to_string()
 }
 
 fn meta_text(data: &[u8]) -> String {
@@ -468,6 +575,106 @@ mod tests {
         assert_eq!((p2.name.as_str(), p2.channel, p2.len), ("Swell", 5, 96));
     }
 
+    /// The Tyros layout from the jososoft article (module docs): type 1, 5 tracks at 1920
+    /// ppq, a conductor with CM/RP/N/I text events, pads on tracks 1..4 and channels 1..4.
+    fn tyros(pad_tracks: [bool; 4]) -> Vec<u8> {
+        let text = |s: &str| meta(0x01, s.as_bytes());
+        let n = |pad: u8, name: &str| {
+            let mut t = format!("N{pad}{name} {pad}");
+            while t.len() < 52 {
+                t.push(' ');
+            }
+            text(&t)
+        };
+        let mut f = header(1, 5, 1920);
+        f.extend(track(&[
+            (0, text("CM1010")),
+            (0, text("RP0110")),
+            (0, n(1, "HipHop1")),
+            (0, n(2, "Hip Hop 2")),
+            (0, n(3, "Brass")),
+            (0, n(4, "Sweep")),
+            (0, text("I1S375")),
+            (0, text("I2S376")),
+            (0, text("I3S377")),
+            (0, text("I4S378")),
+        ]));
+        for (i, &has) in pad_tracks.iter().enumerate() {
+            let ch = i as u8;
+            if has {
+                f.extend(track(&[(0, vec![0xC0 | ch, 10]), (0, on(ch, 60)), (1920, off(ch, 60))]));
+            } else {
+                f.extend(track(&[]));
+            }
+        }
+        f
+    }
+
+    #[test]
+    fn tyros_layout_reads_chord_match_repeat_names_and_images_from_track_0() {
+        let b = parse(&tyros([true; 4])).unwrap();
+        assert_eq!(b.layout, Layout::Tracks);
+        assert_eq!(b.ppq, 1920);
+        assert_eq!(b.texts.len(), 10);
+        let got: Vec<_> = b
+            .pads
+            .iter()
+            .map(|p| {
+                let p = p.as_ref().unwrap();
+                (p.name.as_str(), p.channel, p.chord_match, p.repeat, p.image.as_deref())
+            })
+            .collect();
+        assert_eq!(
+            got,
+            [
+                ("HipHop1", 0, Some(true), Some(false), Some("S375")),
+                ("Hip Hop 2", 1, Some(false), Some(true), Some("S376")),
+                ("Brass", 2, Some(true), Some(true), Some("S377")),
+                ("Sweep", 3, Some(false), Some(false), Some("S378")),
+            ]
+        );
+        assert_eq!(b.pads[0].as_ref().unwrap().len, 1920);
+    }
+
+    #[test]
+    fn an_empty_pad_track_keeps_the_later_pads_in_place() {
+        let b = parse(&tyros([true, false, true, true])).unwrap();
+        assert!(b.pads[1].is_none());
+        let p3 = b.pads[2].as_ref().unwrap();
+        assert_eq!((p3.name.as_str(), p3.channel, p3.repeat), ("Brass", 2, Some(true)));
+    }
+
+    #[test]
+    fn header_flags_beat_the_casm_inference() {
+        // CASM says pad 1 (channel 3) converts; CM says it does not.
+        let f = {
+            let mut g = header(0, 1, 480);
+            g.extend(track(&[
+                (0, meta(0x01, b"CM0100")),
+                (0, meta(0x01, b"RP1000")),
+                (0, on(0, 60)),
+                (0, on(2, 64)),
+                (240, off(0, 60)),
+                (480, off(2, 64)),
+            ]));
+            g.extend(casm(&[ctb2(2, "Strum", 0, 1, 6), ctb2(0, "Hit", 1, 0, 6)]));
+            g
+        };
+        let b = parse(&f).unwrap();
+        let (p1, p2) = (b.pads[0].as_ref().unwrap(), b.pads[1].as_ref().unwrap());
+        assert_eq!((p1.name.as_str(), p1.chord_match, p1.repeat), ("Strum", Some(false), Some(true)));
+        assert_eq!((p2.name.as_str(), p2.chord_match, p2.repeat), ("Hit", Some(true), Some(false)));
+    }
+
+    #[test]
+    fn pad_names_drop_the_repeated_pad_number() {
+        assert_eq!(pad_name("HipHop1 2 ....", 2), "HipHop1");
+        assert_eq!(pad_name("Hip Hop 2", 2), "Hip Hop");
+        assert_eq!(pad_name("Hip Hop 1", 2), "Hip Hop 1");
+        assert_eq!(pad_name("  ", 1), "");
+        assert_eq!(pad_name("\u{fffd}\u{fffd} 3", 3), "\u{fffd}\u{fffd}");
+    }
+
     #[test]
     fn rejects_garbage_without_panicking() {
         assert!(parse(b"").is_err());
@@ -481,5 +688,14 @@ mod tests {
         for n in 0..full.len() {
             let _ = parse(&full[..n]);
         }
+        let full = tyros([true; 4]);
+        for n in 0..full.len() {
+            let _ = parse(&full[..n]);
+        }
+        // Text events that are not UTF-8, or too short, never panic.
+        let mut f = header(1, 2, 96);
+        f.extend(track(&[(0, meta(0x01, &[b'N', 0xC3])), (0, meta(0x01, b"N")), (0, meta(0x01, &[b'I', b'1', 0xFF])), (0, meta(0x01, b"CM"))]));
+        f.extend(track(&[(0, on(0, 60)), (96, off(0, 60))]));
+        assert!(parse(&f).is_ok());
     }
 }

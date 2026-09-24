@@ -167,6 +167,9 @@ struct Voice {
 struct Sounding {
     active: bool,
     pad: u8,
+    /// The channel the note-on went out on: its off goes there even if the pad has been
+    /// rerouted since.
+    ch: u8,
     src_key: u8,
     out_key: u8,
 }
@@ -282,7 +285,8 @@ impl MultiPadPlayer {
         }
     }
 
-    /// Route a pad to another output channel (0-based). Call while the pad is silent.
+    /// Route a pad to another output channel (0-based). Safe while the pad plays: notes
+    /// already sounding end on the channel they started on.
     pub fn set_out_channel(&mut self, pad: usize, ch: u8) {
         if let Some(p) = self.pads.get_mut(pad).and_then(|p| p.as_mut()) {
             p.out_ch = ch & 0x0F;
@@ -499,7 +503,7 @@ impl MultiPadPlayer {
                     }
                 }
             }
-            Kind::Off { key } => self.note_off(pad, ch, key, sink),
+            Kind::Off { key } => self.note_off(pad, key, sink),
             Kind::Short { msg, len } => {
                 let m = [(msg[0] & 0xF0) | ch, msg[1], msg[2]];
                 sink.send(&m[..len as usize]);
@@ -519,28 +523,27 @@ impl MultiPadPlayer {
         // The same pitch again on this pad: end the old one so ons and offs stay balanced.
         for s in self.sounding.iter_mut() {
             if s.active && s.pad as usize == pad && s.out_key == out_key {
-                sink.send(&[0x80 | ch, out_key, 0]);
+                sink.send(&[0x80 | s.ch, out_key, 0]);
                 s.active = false;
             }
         }
         if let Some(free) = self.sounding.iter_mut().find(|s| !s.active) {
-            *free = Sounding { active: true, pad: pad as u8, src_key, out_key };
+            *free = Sounding { active: true, pad: pad as u8, ch, src_key, out_key };
             sink.send(&[0x90 | ch, out_key, vel]);
         }
     }
 
-    fn note_off(&mut self, pad: usize, ch: u8, src_key: u8, sink: &mut impl Sink) {
+    fn note_off(&mut self, pad: usize, src_key: u8, sink: &mut impl Sink) {
         if let Some(s) = self.sounding.iter_mut().find(|s| s.active && s.pad as usize == pad && s.src_key == src_key) {
-            sink.send(&[0x80 | ch, s.out_key, 0]);
+            sink.send(&[0x80 | s.ch, s.out_key, 0]);
             s.active = false;
         }
     }
 
     fn notes_off(&mut self, pad: usize, sink: &mut impl Sink) {
-        let Some(ch) = self.out_channel(pad) else { return };
         for s in self.sounding.iter_mut() {
             if s.active && s.pad as usize == pad {
-                sink.send(&[0x80 | ch, s.out_key, 0]);
+                sink.send(&[0x80 | s.ch, s.out_key, 0]);
                 s.active = false;
             }
         }

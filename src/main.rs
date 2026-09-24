@@ -99,6 +99,9 @@ fn pad_dump(path: &std::path::Path) -> Result<()> {
                 yahaha::theory::NOTE_NAMES[r.src_root as usize % 12], r.src_type, z.ntr, z.ntt, z.high_key, z.lo, z.hi, z.rtr);
         }
     }
+    for t in &b.texts {
+        println!("  text {t:?}");
+    }
     for (id, d) in &b.other_chunks {
         let head: Vec<String> = d.iter().take(16).map(|x| format!("{x:02x}")).collect();
         println!("  chunk {id} ({} bytes) {}", d.len(), head.join(" "));

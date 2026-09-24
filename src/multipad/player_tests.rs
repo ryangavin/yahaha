@@ -34,7 +34,7 @@ fn off(tick: u32, key: u8) -> TimedEv {
 }
 
 fn pad(events: Vec<TimedEv>, len: u32, repeat: bool, chord_match: bool) -> Pad {
-    Pad { name: "t".into(), channel: 0, events, len, repeat: Some(repeat), chord_match: Some(chord_match), rule: None }
+    Pad { name: "t".into(), channel: 0, events, len, repeat: Some(repeat), chord_match: Some(chord_match), rule: None, image: None }
 }
 
 fn bank(pads: Vec<Pad>) -> PadBank {
@@ -46,6 +46,7 @@ fn bank(pads: Vec<Pad>) -> PadBank {
         layout: Layout::ChannelsAscending,
         pads: Default::default(),
         other_chunks: vec![],
+        texts: vec![],
     };
     for (i, p) in pads.into_iter().enumerate() {
         b.pads[i] = Some(p);
@@ -351,4 +352,16 @@ fn a_parsed_bank_plays() {
     p.trigger(0, 0);
     p.process(0..96, None, &mut s);
     assert_eq!(s.0, vec![vec![0x94, 60, 90], vec![0x84, 60, 0]]);
+}
+
+#[test]
+fn rerouting_a_sounding_pad_ends_its_notes_on_the_old_channel() {
+    let mut p = player(vec![pad(vec![on(0, 60), on(0, 64), off(1900, 60)], 1920, false, false)]);
+    let mut s = Rec::default();
+    p.trigger(0, 0);
+    p.process(0..10, None, &mut s);
+    p.set_out_channel(0, 9);
+    p.process(10..1901, None, &mut s);
+    p.stop(0, &mut s);
+    assert_eq!(s.take(), vec![vec![0x94, 60, 100], vec![0x94, 64, 100], vec![0x84, 60, 0], vec![0x84, 64, 0]]);
 }
