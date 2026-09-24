@@ -153,10 +153,30 @@ fn a_failed_load_never_loses_the_parts_plugin() {
     let p = s.state().keyboard_parts[1].plugin.clone().unwrap();
     assert!(p.error.is_some() && p.name == "DLSMusicDevice");
     assert_eq!(saved_id(&s, 1).as_deref(), Some(DLS), "a failed choice stays saved");
+    // Picking it again (the app's picker sends no state) retries it with the state it
+    // kept, so a restore that timed out or a reinstalled plugin comes back as saved.
     s.send(PluginCmd::SetPartPlugin { part: 1, id: DLS.into(), state: None }).unwrap();
-    assert_eq!(wait_playing(&s, 1), PluginStatus::Playing, "retried");
+    assert_eq!(wait_playing(&s, 1), PluginStatus::Failed, "retried with its kept state");
+    let kept = s.inner.lock().saved_parts().parts[1].as_ref().and_then(|v| v.state.clone());
+    assert_eq!(kept.as_deref(), Some(&b"junk"[..]), "the retry did not throw the saved state away");
     s.send(PluginCmd::ClearPartPlugin { part: 1 }).unwrap();
     assert_eq!(saved_id(&s, 1), None, "cleared: forgotten");
+    // After the SoundFont, a pick starts it fresh.
+    s.send(PluginCmd::SetPartPlugin { part: 1, id: DLS.into(), state: None }).unwrap();
+    assert_eq!(wait_playing(&s, 1), PluginStatus::Playing, "fresh");
+}
+
+/// A restore of a plugin that isn't installed shows its id as the name, not a blank.
+#[test]
+fn a_missing_plugin_is_named_by_its_id() {
+    let Some(s) = session() else { return };
+    s.offline_audio(None, 48_000).unwrap();
+    let mut saved = super::Saved::default();
+    saved.parts[2] = Some(super::PluginVoice { id: "aumu Nope Gone".into(), state: None });
+    s.inner.lock().restore_saved(saved);
+    s.advance(1_000_000);
+    let p = s.state().keyboard_parts[2].plugin.clone().unwrap();
+    assert_eq!((p.status, p.name.as_str()), (PluginStatus::Failed, "aumu Nope Gone"));
 }
 
 /// The start-up restore of a plugin that isn't installed (uninstalled, licence missing,

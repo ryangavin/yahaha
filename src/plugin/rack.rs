@@ -177,10 +177,12 @@ impl Controllers {
                 let _ = inst.midi([0xB0 | ch, 38, lsb], 0);
             }
         }
-        let (cc, idx) = if self.nrpn { ([99, 98], [2, 3]) } else { ([101, 100], [0, 1]) };
-        for k in 0..2 {
-            if self.select[idx[k]] != NONE {
-                let _ = inst.midi([0xB0 | ch, cc[k], self.select[idx[k]]], 0);
+        // The RPN select as it was (a later CC100 alone then pairs with the right CC101),
+        // then the NRPN select if that came last (data entry goes to it).
+        let n = if self.nrpn { 4 } else { 2 };
+        for (k, cc) in [101u8, 100, 99, 98].into_iter().enumerate().take(n) {
+            if self.select[k] != NONE {
+                let _ = inst.midi([0xB0 | ch, cc, self.select[k]], 0);
             }
         }
         if let Some([lsb, msb]) = self.bend {

@@ -47,6 +47,9 @@ fn rack_audio_path_does_not_allocate() {
     };
     ctl.assign(0, a, Swap::default()).ok().unwrap();
     assert_eq!(run(&mut rack, &[[0xB0, 7, 110], [0xB0, 1, 40], [0xE0, 0, 70], [0x90, 60, 100], [0x90, 64, 100]]), 0, "assign + notes");
+    // RPN 0-2 (bend range, tuning) and an NRPN select: tracked, then replayed on the swap.
+    let rpn = [[0xB0, 101, 0], [0xB0, 100, 0], [0xB0, 6, 12], [0xB0, 38, 0], [0xB0, 100, 1], [0xB0, 6, 64], [0xB0, 99, 1], [0xB0, 98, 8]];
+    assert_eq!(run(&mut rack, &rpn), 0, "RPN / NRPN tracking");
     for _ in 0..20 {
         assert_eq!(run(&mut rack, &[]), 0, "steady");
     }

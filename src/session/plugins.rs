@@ -187,9 +187,19 @@ mod imp {
             self.assign_channel_plugin_with(ch, voice, true)
         }
 
-        fn assign_channel_plugin_with(&mut self, ch: u8, voice: PluginVoice, allow_fallback: bool) -> Result<(), String> {
+        fn assign_channel_plugin_with(&mut self, ch: u8, mut voice: PluginVoice, allow_fallback: bool) -> Result<(), String> {
             let ch = ch & 15;
             self.plugin_ready()?;
+            // Picking a failed plugin again (the app sends no state) retries it with the
+            // state it kept: a restore that timed out, or a plugin reinstalled since, comes
+            // back as it was saved instead of fresh. Back to the SoundFont first starts it fresh.
+            if voice.state.is_none()
+                && let Some(prev) = self.plugins.channels[ch as usize].as_ref()
+                && prev.status == PluginStatus::Failed
+                && prev.voice.id == voice.id
+            {
+                voice.state = prev.voice.state.clone();
+            }
             if voice.state.as_ref().is_some_and(|s| s.len() > MAX_STATE_BYTES) {
                 return Err(format!("the plugin state is larger than {} MB", MAX_STATE_BYTES >> 20));
             }
@@ -262,7 +272,8 @@ mod imp {
 
         pub(crate) fn channel_plugin_state(&self, ch: u8) -> Option<PartPlugin> {
             let c = self.plugins.channels[(ch & 15) as usize].as_ref()?;
-            let (name, manufacturer) = c.info.as_ref().map(|i| (i.name.clone(), i.manufacturer.clone())).unwrap_or_default();
+            // A plugin that isn't installed (a failed restore) has no info: its id names it.
+            let (name, manufacturer) = (c.name(), c.info.as_ref().map(|i| i.manufacturer.clone()).unwrap_or_default());
             let overruns = c.stats.as_ref().map_or(0, |s| s.overruns.load(std::sync::atomic::Ordering::Relaxed));
             Some(PartPlugin {
                 id: c.voice.id.clone(),

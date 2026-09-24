@@ -340,7 +340,8 @@ ctl.channel_plugin(ch) -> Option<api::PartPlugin> // loading | playing | failed 
 - **Failed** (an error or the 20 s timeout): if a plugin was playing on the channel, it
   keeps playing (and stays the channel's plugin). Otherwise the channel plays its
   SoundFont and `channel_plugin(ch)` shows `Failed` with the error; the failed choice is
-  kept (and saved, for a keyboard part) until it is picked again or cleared.
+  kept (and saved, for a keyboard part) until it is picked again or cleared. Assigning
+  the same id with no state retries it with the state it kept.
 - **Muted:** a plugin that faults while rendering (a crash, NaN) silences the channel
   until the next assign or clear.
 - **Load mode:** Apple's units in process; third-party AUv2 out of process (Apple's
