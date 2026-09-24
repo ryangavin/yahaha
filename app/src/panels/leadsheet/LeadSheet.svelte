@@ -8,19 +8,22 @@
    │              │ ████████████████████▌─────────────────── progress │               │
    └──────────────┴──────────────────────────────────────────────────┴───────────────┘
 
-  Today the lane shows the section playing as bar cells, one per bar with a slash per
-  beat (lit as the beats pass), over a progress bar across the section. It is the
-  slot for the iReal chord-chart player (M8): the chart renders into the same lane, as rows
-  of these bar cells with a chord symbol in each (see CONTRIBUTING.md, "The lead-sheet
-  band"). The band gets its height from the shell, between 5.2em and 10em of `--u`.
+  The lane shows the section playing as bar cells, one per bar with a slash per beat (lit
+  as the beats pass), over a progress bar across the section. In chart mode (#89) the
+  iReal chart renders into the same lane instead (ChartLane.svelte): two lines of bar
+  cells with the chords, the bar playing ringed. The band gets its height from the shell,
+  between 5.2em and 10em of `--u`.
 -->
 <script lang="ts">
   import { INTROS, MAINS, sectionLabel } from '../../lib/api/types'
   import { app, clock } from '../../lib/store.svelte'
   import { tip } from '../../lib/tooltip/tip.svelte'
+  import ChartLane from './ChartLane.svelte'
 
   const s = $derived(app.state)
   const t = $derived(s.transport)
+  /** Chart mode with a chart chosen: the lane shows the chart. */
+  const chart = $derived(s.chart?.on && s.chart.song ? s.chart : null)
   /** Bars in the section's pattern; unknown (the engine doesn't send it yet): one cell. */
   const bars = $derived(Math.max(1, Math.min(32, t.sectionBars ?? 1)))
   const bpb = $derived(Math.max(1, t.beatsPerBar))
@@ -35,15 +38,20 @@
   /** The beat playing in the current bar (0-based). */
   const beatNow = $derived(Math.floor(inBar))
 
+  /** Stopped: the Intro the band starts with (armed, or the chart's), and the first Main. */
+  const intro = $derived(t.pendingIntro ?? chart?.intro ?? null)
+  const firstMain = $derived(chart?.song?.bars[0]?.main ?? t.main)
   const now = $derived(
     t.running && t.section
       ? sectionLabel(t.section)
-      : t.pendingIntro !== null
-        ? sectionLabel(INTROS[t.pendingIntro])
-        : sectionLabel(MAINS[t.main] ?? 'Main A'),
+      : intro !== null
+        ? sectionLabel(INTROS[intro])
+        : sectionLabel(MAINS[firstMain] ?? 'Main A'),
   )
   const state = $derived(
-    t.running
+    chart && t.running && chart.bar !== null
+      ? `bar ${chart.bar + 1} of ${chart.song!.bars.length}${chart.overridden ? ' · your chord' : ''}`
+      : t.running
       ? // Without the section's length the one cell loops every bar: count bars from the clock.
         t.sectionBars
         ? `bar ${cell + 1} of ${bars}`
@@ -53,7 +61,7 @@
         : 'stopped',
   )
   const next = $derived(
-    t.queued ? sectionLabel(t.queued) : t.running ? '' : t.pendingIntro !== null ? sectionLabel(MAINS[t.main] ?? 'Main A') : '',
+    t.queued ? sectionLabel(t.queued) : t.running ? '' : intro !== null ? sectionLabel(MAINS[firstMain] ?? 'Main A') : '',
   )
 </script>
 
@@ -65,7 +73,12 @@
     <span class="sub">{state}</span>
   </div>
 
-  <!-- The lane: the slot the chord chart (M8) renders into. -->
+  <!-- The lane: the section's bars, or the chord chart in chart mode. -->
+  {#if chart}
+    <div class="lane" data-slot="chart" tabindex="0" use:tip={'lead.chart'} role="img" aria-label="Chord chart: {chart.song?.title}, {state}">
+      <ChartLane {chart} running={t.running} beatsPerBar={t.beatsPerBar} />
+    </div>
+  {:else}
   <div class="lane" data-slot="chart" tabindex="0" use:tip={'lead.progress'} role="img" aria-label="Section progress: {state}">
     <div class="cells" style:--bars={bars}>
       {#each Array.from({ length: bars }, (_, i) => i) as i (i)}
@@ -80,6 +93,7 @@
     </div>
     <div class="track" aria-hidden="true"><span class="fill" style:transform="scaleX({progress})"></span></div>
   </div>
+  {/if}
 
   <div class="next" class:queued={!!t.queued} tabindex="0" use:tip={'lead.next'}>
     <span class="engraved">Next</span>

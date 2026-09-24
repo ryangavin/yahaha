@@ -16,6 +16,7 @@
 //! feature adds a module, one line in `app_cmd!` below and/or one field in `AppState`
 //! (docs/architecture.md, "Adding a feature").
 
+mod chart;
 mod chord;
 mod controllers;
 mod harmony_arp;
@@ -40,6 +41,7 @@ mod surface;
 mod system;
 mod transport;
 
+pub use chart::*;
 pub use chord::*;
 pub use controllers::*;
 pub use harmony_arp::*;
@@ -139,6 +141,8 @@ app_cmd! {
     System(SystemCmd),
     /// Style Setting > Change Behavior: tempo, part on/off, Section Set.
     StyleChange(StyleChangeCmd),
+    /// The iReal Pro chart player.
+    Chart(ChartCmd),
     /// Section Change Timing, Synchro Stop Window, fade times, Section Reset, Retrigger length.
     StyleSettings(StyleSettingsCmd),
     /// Registration Memory: buttons, banks, Memorize, Freeze, Registration Sequence.
@@ -307,6 +311,8 @@ pub struct AppState {
     pub keyboard: KeyboardState,
     /// Style Setting > Change Behavior.
     pub style_change: StyleChangeState,
+    /// The iReal Pro chart player: imported playlists, the chart, the bar playing.
+    pub chart: ChartState,
     /// Section Change Timing, Synchro Stop Window, fade times, Section Reset, Retrigger length.
     pub style_settings: StyleSettingsState,
     /// Registration Memory: the bank, its ten buttons, Freeze, the Registration Sequence.

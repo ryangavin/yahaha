@@ -109,12 +109,16 @@ impl Engine {
 
     /// Chord Looper ON/OFF.
     pub fn looper_on_off(&mut self) {
+        let chart = self.chart_mode_on();
         let l = &mut self.features.looper;
         match l.state {
+            // While chart mode is on (the chart gives the chords, engine/chart.rs) a loop
+            // doesn't arm: the session turns chart mode off first.
+            LoopState::Recording if chart => self.finish_recording(LoopState::Off),
             LoopState::Recording => self.finish_recording(LoopState::LoopArmed),
             LoopState::RecArmed => self.cancel_rec(),
             LoopState::LoopArmed => l.state = LoopState::Off,
-            LoopState::Off if !l.seq.is_empty() => l.state = LoopState::LoopArmed,
+            LoopState::Off if !l.seq.is_empty() && !chart => l.state = LoopState::LoopArmed,
             LoopState::Off => {}
             // The loop stops at once; the style keeps the loop's chord until the keyboard
             // plays one (chord input was disabled while looping: RM p.15, OM p.68).
@@ -122,6 +126,16 @@ impl Engine {
                 l.state = LoopState::Off;
                 l.pending = None;
             }
+        }
+    }
+
+    /// Chart mode came on (engine/chart.rs): a loop that plays or is armed stops, as with
+    /// ON/OFF. A recording goes on.
+    pub(super) fn looper_stop_loop(&mut self) {
+        let l = &mut self.features.looper;
+        if matches!(l.state, LoopState::Looping | LoopState::LoopArmed) {
+            l.state = LoopState::Off;
+            l.pending = None;
         }
     }
 

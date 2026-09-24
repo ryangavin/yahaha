@@ -28,6 +28,7 @@
 //! (`transport_state`, ...) and its pump step if it has one; `apply`, `pump` and
 //! `build_state` below call them in a fixed order (docs/architecture.md).
 
+mod chart;
 mod chord;
 mod controllers;
 mod devices;
@@ -55,6 +56,7 @@ mod surface;
 mod system;
 mod transport;
 
+pub use chart::chart_song;
 pub use library::library_entry;
 pub use plugins::PluginVoice;
 pub use preview::AUDITION_CHORDS;
@@ -270,6 +272,8 @@ struct Control {
     release_tx: Producer<u8>,
     /// When the sources were last listed (live: every 2 s, for hot-plugged keyboards).
     sources_ns: u64,
+    /// The iReal Pro chart player (session/chart.rs).
+    charts: chart::Charts,
     /// The Style settings the engine plays by (`StyleSettingsCmd`).
     style_settings: StyleSettings,
     /// Registration Memory (banks, Freeze, Sequence).
@@ -342,6 +346,7 @@ impl Control {
             AppCmd::Settings(c) => self.settings_cmd(c),
             AppCmd::System(c) => self.system_cmd(c),
             AppCmd::StyleChange(c) => self.style_change_cmd(c),
+            AppCmd::Chart(c) => self.chart_cmd(c),
             AppCmd::StyleSettings(c) => self.style_settings_cmd(c),
             AppCmd::Registration(c) => self.registration_cmd(c),
             AppCmd::Playlist(c) => self.playlist_cmd(c),
@@ -404,6 +409,7 @@ impl Control {
         self.pump_registration(now);
         self.pump_looper();
         self.pump_metronome();
+        self.pump_chart();
 
         // Free-running beat clock for flashing/pulsing, following the current tempo.
         let s = self.snap;
@@ -453,6 +459,7 @@ impl Control {
             preview: self.preview_state(),
             keyboard: self.keyboard_state(&v),
             style_change: self.style_change,
+            chart: self.chart_state(),
             style_settings: self.style_settings.into(),
             registration: self.registration_state(),
             playlist: self.playlist_state(),
@@ -626,6 +633,7 @@ fn assemble(opts: &Options, engine_out: live::Out, input_out: live::Out, offline
         midi: None,
         release_tx,
         sources_ns: 0,
+        charts: chart::Charts::new(ch.chart_tx, ch.old_chart_rx),
         style_settings: StyleSettings::default(),
         reg: registration::RegState::new(opts.data_dir.as_ref().map(|d| d.join("Registration"))),
         playlist: playlist::PlaylistCtl::new(opts.data_dir.as_ref().map(|d| d.join("Playlists"))),

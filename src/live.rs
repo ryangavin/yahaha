@@ -12,7 +12,7 @@
 //! equal to its next deadline.
 
 use crate::controllers::{Controllers, Handled};
-use crate::engine::{shift_key, AuditionPos, Button, ChangeRules, Engine, PadCmd, Prepared, Snapshot, StyleSettings, Transpose};
+use crate::engine::{shift_key, AuditionPos, Button, ChangeRules, ChartPlan, ChartSettings, Engine, PadCmd, Prepared, Snapshot, StyleSettings, Transpose};
 use crate::multipad::MultiPadPlayer;
 use crate::fingering::{self, Fingering};
 use crate::harmony::{self, HarmonySettings};
@@ -48,6 +48,9 @@ pub enum Cmd {
     ChangeRules(ChangeRules),
     /// An OTS recall turns Sync Start on (stopped only).
     SyncStartOn,
+    /// Chart player settings (chart mode, Intro, Ending, loop; engine/chart.rs). The
+    /// chart itself comes in on its own ring (`EngineIo::charts`).
+    Chart(ChartSettings),
     /// New Style settings (section-change timing, Synchro Stop Window, fade times,
     /// Section Reset, Retrigger length).
     StyleSettings(StyleSettings),
@@ -1020,6 +1023,9 @@ pub struct EngineIo {
     /// Style previews to play, and finished ones back to the control side to free.
     pub auditions: Consumer<Box<Audition>>,
     pub old_auditions: Producer<Box<Audition>>,
+    /// Chart plans to play (engine/chart.rs), and replaced ones back to free.
+    pub charts: Consumer<Box<ChartPlan>>,
+    pub old_charts: Producer<Box<ChartPlan>>,
     /// Multi Pad banks to play, and replaced players back to the control side to free.
     pub pad_banks: Consumer<PadBank>,
     pub old_pads: Producer<Box<MultiPadPlayer>>,
@@ -1154,6 +1160,11 @@ impl EngineLoop {
             self.end_audition();
             self.engine.change_style(style, now, &mut self.io.out);
             self.retire_styles();
+        }
+        while let Ok(plan) = self.io.charts.pop() {
+            if let Some(old) = self.engine.set_chart(plan, now) {
+                let _ = self.io.old_charts.push(old);
+            }
         }
         while let Ok(b) = self.io.pad_banks.pop() {
             if let Some(old) = self.engine.load_pads(b.player, b.tag, now, &mut self.io.out) {
@@ -1344,6 +1355,7 @@ fn apply(engine: &mut Engine, shared: &Shared, cmd: Cmd, now: u64, out: &mut Out
         Cmd::StopAudition => {}
         Cmd::ChangeRules(r) => engine.set_change_rules(r),
         Cmd::SyncStartOn => engine.sync_start_on(),
+        Cmd::Chart(s) => engine.set_chart_settings(s, now),
         Cmd::StyleSettings(s) => engine.set_style_settings(s),
         Cmd::ChordSettle(ms) => engine.set_chord_settle(ms as u64 * 1_000_000),
         Cmd::StyleControls(c) => engine.set_style_controls(c, now, out),
@@ -1392,6 +1404,8 @@ pub struct Channels {
     pub snap_rx: Consumer<Snapshot>,
     pub audition_tx: Producer<Box<Audition>>,
     pub old_audition_rx: Consumer<Box<Audition>>,
+    pub chart_tx: Producer<Box<ChartPlan>>,
+    pub old_chart_rx: Consumer<Box<ChartPlan>>,
     /// The input thread's key messages for the engine's Harmony/Arpeggio (`Input::set_fx`).
     pub fx_tx: Producer<FxKey>,
     pub looper_tx: Producer<ChordSeq>,
@@ -1409,6 +1423,8 @@ pub fn channels(out: Out) -> Channels {
     let (snaps, snap_rx) = RingBuffer::new(256);
     let (audition_tx, auditions) = RingBuffer::new(4);
     let (old_auditions, old_audition_rx) = RingBuffer::new(8);
+    let (chart_tx, charts) = RingBuffer::new(4);
+    let (old_charts, old_chart_rx) = RingBuffer::new(8);
     let (fx_tx, fx_rx) = RingBuffer::new(FX_RING);
     let (looper_tx, looper_in) = RingBuffer::new(4);
     let (recorded, recorded_rx) = RingBuffer::new(4);
@@ -1422,6 +1438,8 @@ pub fn channels(out: Out) -> Channels {
         snap_rx,
         audition_tx,
         old_audition_rx,
+        chart_tx,
+        old_chart_rx,
         fx_tx,
         looper_tx,
         recorded_rx,
@@ -1435,6 +1453,8 @@ pub fn channels(out: Out) -> Channels {
             snaps,
             auditions,
             old_auditions,
+            charts,
+            old_charts,
             looper_in,
             recorded,
             pad_banks,

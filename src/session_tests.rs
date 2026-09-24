@@ -1269,6 +1269,127 @@ fn new_state_and_commands_serialize_as_documented() {
     assert!(v["pads"].get("paletteLeds").is_some());
 }
 
+/// A synthetic chart (no real song): two sections.
+const TEST_CHART: &str = "irealbook://Test Tune=Doe John=Bossa Nova=C=n=*A[C^7 |D-7 G7 ]*B[F^7 |G7 Z";
+
+#[test]
+fn chart_player_imports_selects_and_plays() {
+    let Some(s) = offline("SlowWalker.T552.sty") else { return };
+    // Nothing imported: chart mode refuses to turn on.
+    assert!(s.send(ChartCmd::ToggleChartMode).is_err());
+    assert!(s.send(ChartCmd::SetChartMode { on: true }).is_err());
+    assert!(!s.state().chart.on);
+    assert!(s.send(ChartCmd::ImportCharts { text: "no links here".into() }).is_err());
+    s.send(ChartCmd::ImportCharts { text: format!("<html><a href=\"{}\">x</a></html>", TEST_CHART.replace(' ', "%20")) }).unwrap();
+    let st = s.state();
+    let c = &st.chart;
+    assert_eq!(c.playlists.len(), 1);
+    assert_eq!(c.playlists[0].name, "Test Tune");
+    assert_eq!(c.selected, Some([0, 0]));
+    let song = c.song.as_ref().unwrap();
+    assert_eq!(song.info.style, "Bossa Nova");
+    let names: Vec<Vec<&str>> = song.bars.iter().map(|b| b.chords.iter().map(|c| c.name.as_str()).collect()).collect();
+    assert_eq!(names, [vec!["Cmaj7"], vec!["Dm7", "G7"], vec!["Fmaj7"], vec!["G7"]]);
+    assert_eq!(song.sections.iter().map(|x| (x.label.as_str(), x.start, x.bars)).collect::<Vec<_>>(), [("A", 0, 2), ("B", 2, 2)]);
+    assert_eq!(song.bars[2].main, 1);
+    assert!(!c.on && c.bar.is_none());
+    assert!(st.message.as_ref().is_some_and(|m| m.text.contains("Imported 1 song")));
+
+    s.send(ChartCmd::SetChartMode { on: true }).unwrap();
+    s.send(ChartCmd::SetChartIntro { index: None }).unwrap();
+    s.send(ChartCmd::SetChartLoop { range: Some([0, 4]) }).unwrap();
+    assert!(s.send(ChartCmd::SetChartLoop { range: Some([2, 9]) }).is_err());
+    s.send(TransportCmd::StartStop).unwrap();
+    let st = s.state();
+    assert!(st.transport.running);
+    assert_eq!(st.chart.bar, Some(0));
+    assert_eq!(st.chord.name.as_deref(), Some("Cmaj7"));
+    let bar = (60e9 / st.transport.tempo * st.transport.beats_per_bar as f64) as u64;
+    s.advance(bar + bar / 8);
+    let st = s.state();
+    assert_eq!(st.chart.bar, Some(1));
+    assert_eq!(st.chord.name.as_deref(), Some("Dm7"));
+    // The left hand takes over until the next bar line.
+    keys(&s, true, &[36, 39, 43]);
+    s.advance(20 * MS); // the chord settles
+    let st = s.state();
+    assert!(st.chart.overridden);
+    assert_eq!(st.chord.name.as_deref(), Some("Cm"));
+    keys(&s, false, &[36, 39, 43]);
+    s.advance(bar);
+    let st = s.state();
+    assert_eq!(st.chart.bar, Some(2));
+    assert!(!st.chart.overridden);
+    assert_eq!(st.chord.name.as_deref(), Some("Fmaj7"));
+    assert_eq!(st.transport.section.as_deref(), Some("Main B"));
+    // Keyboard transpose moves the chart.
+    s.send(ChordCmd::SetTranspose { keyboard: 2, master: 0 }).unwrap();
+    s.advance(20 * MS); // the change settles
+    assert_eq!(s.state().chord.name.as_deref(), Some("Gmaj7"));
+    // The loop goes round.
+    s.advance(2 * bar - 20 * MS);
+    assert_eq!(s.state().chart.bar, Some(0));
+    s.send(TransportCmd::StartStop).unwrap();
+    assert_eq!(s.state().chart.bar, None);
+    // Choruses expand the form.
+    s.send(ChartCmd::SetChartChoruses { choruses: 3 }).unwrap();
+    let st = s.state();
+    assert_eq!(st.chart.song.as_ref().unwrap().bars.len(), 12);
+    assert_eq!(st.chart.choruses, 3);
+    // Fewer choruses: a loop past the new end goes.
+    s.send(ChartCmd::SetChartLoop { range: Some([8, 12]) }).unwrap();
+    s.send(ChartCmd::SetChartChoruses { choruses: 1 }).unwrap();
+    assert_eq!(s.state().chart.loop_range, None);
+    s.send(ChartCmd::SetChartLoop { range: Some([0, 2]) }).unwrap();
+    s.send(ChartCmd::SetChartChoruses { choruses: 2 }).unwrap();
+    assert_eq!(s.state().chart.loop_range, Some([0, 2]));
+    s.send(ChartCmd::RemoveChartPlaylist { playlist: 0 }).unwrap();
+    let st = s.state();
+    assert!(st.chart.song.is_none() && !st.chart.on && st.chart.playlists.is_empty());
+}
+
+/// Only one of the chart player and the Chord Looper gives the chords: ON/OFF arming a
+/// loop turns chart mode off; chart mode on stops the loop.
+#[test]
+fn chart_mode_and_the_chord_looper_take_turns() {
+    let Some(s) = offline("SlowWalker.T552.sty") else { return };
+    s.send(ChartCmd::ImportCharts { text: TEST_CHART.into() }).unwrap();
+    s.send(LooperCmd::LooperRec).unwrap();
+    keys(&s, true, &[36, 40, 43]); // C: starts the band and the recording
+    s.advance(20 * MS);
+    s.send(ChartCmd::SetChartMode { on: true }).unwrap();
+    assert_eq!(s.state().looper.mode, LooperMode::Recording, "chart mode leaves a recording alone");
+    s.advance(bar_ns(&s));
+    keys(&s, false, &[36, 40, 43]);
+    s.send(LooperCmd::LooperOnOff).unwrap();
+    let st = s.state();
+    assert!(!st.chart.on, "arming the loop turns chart mode off");
+    assert_eq!(st.looper.mode, LooperMode::LoopArmed);
+    s.send(ChartCmd::SetChartMode { on: true }).unwrap();
+    let st = s.state();
+    assert!(st.chart.on);
+    assert_eq!(st.looper.mode, LooperMode::Off, "chart mode on stops the loop");
+}
+
+#[test]
+fn chart_commands_serialize_as_documented() {
+    use serde_json::json;
+    for (cmd, want) in [
+        (AppCmd::Chart(ChartCmd::ImportCharts { text: "irealb://x".into() }), json!({"type": "importCharts", "text": "irealb://x"})),
+        (AppCmd::Chart(ChartCmd::SelectChart { playlist: 0, song: 2 }), json!({"type": "selectChart", "playlist": 0, "song": 2})),
+        (AppCmd::Chart(ChartCmd::SetChartLoop { range: Some([4, 12]) }), json!({"type": "setChartLoop", "range": [4, 12]})),
+        (AppCmd::Chart(ChartCmd::SetChartIntro { index: None }), json!({"type": "setChartIntro", "index": null})),
+    ] {
+        assert_eq!(serde_json::to_value(&cmd).unwrap(), want);
+        assert_eq!(serde_json::from_value::<AppCmd>(want).unwrap(), cmd);
+    }
+    let Some(s) = offline("SlowWalker.T552.sty") else { return };
+    let v = serde_json::to_value(&*s.state()).unwrap();
+    assert_eq!(v["chart"]["loop"], json!(null));
+    assert_eq!(v["chart"]["intro"], json!(0));
+    assert_eq!(v["chart"]["autoStyle"], json!(true));
+}
+
 /// Style settings reach the engine and the state; the fade, Retrigger and Section Reset
 /// buttons show in `transport`.
 #[test]
@@ -1412,4 +1533,43 @@ fn solo_track_mute_tempo_and_metronome() {
     s.advance(2_000 * MS);
     let clicks = s.take_output().iter().filter(|m| m[0] == crate::click::CLICK).count();
     assert_eq!(clicks, 4, "120 BPM, stopped: a click every 500 ms");
+}
+
+/// Chart mode with OTS Link on (At Main Section Change, the default) and Half Bar Fill
+/// In on (#92 vs #98): the chart's chords never recall an OTS or start a fill; only its
+/// section change does, and the OTS comes when Main B starts (not during its fill).
+#[test]
+fn chart_chords_trigger_no_ots_or_fill() {
+    let Some(s) = offline("SlowWalker.T552.sty") else { return };
+    s.send(ChartCmd::ImportCharts { text: TEST_CHART.into() }).unwrap();
+    s.send(ChartCmd::SetChartMode { on: true }).unwrap();
+    s.send(ChartCmd::SetChartIntro { index: None }).unwrap();
+    s.send(TransportCmd::SetHalfBarFill { on: true }).unwrap();
+    s.send(OtsCmd::SetOtsLink { on: true }).unwrap();
+    s.advance(10 * MS);
+    assert_eq!(s.state().ots.link_timing, OtsLinkTiming::MainChange);
+    s.send(TransportCmd::StartStop).unwrap();
+    s.advance(5 * MS);
+    let st = s.state();
+    assert!(st.transport.running);
+    assert_eq!((st.transport.section.as_deref(), st.ots.applied), (Some("Main A"), 1));
+    let sounds = |st: &AppState| st.keyboard_parts.iter().map(|p| (p.on, p.program, p.volume, p.octave)).collect::<Vec<_>>();
+    let before = sounds(&st);
+    let mut chords = std::collections::BTreeSet::new();
+    // Bars 0-1 (section A: Cmaj7, then Dm7 G7, with Main B's fill in bar 1): OTS 1 throughout.
+    for _ in 0..15_000 / 5 {
+        let st = s.state();
+        if st.transport.section.as_deref() == Some("Main B") {
+            break;
+        }
+        chords.extend(st.chord.name.clone());
+        if st.chart.bar == Some(0) {
+            assert_eq!(st.transport.section.as_deref(), Some("Main A"), "a chart chord started no fill");
+        }
+        assert_eq!((st.ots.applied, sounds(&st)), (1, before.clone()), "no OTS before Main B ({:?})", st.transport.section);
+        s.advance(5 * MS);
+    }
+    assert!(chords.len() >= 3, "the chart's chords played: {chords:?}");
+    let st = s.state();
+    assert_eq!((st.transport.section.as_deref(), st.ots.applied), (Some("Main B"), 2), "OTS 2 as Main B starts");
 }

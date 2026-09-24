@@ -150,6 +150,10 @@ pub struct MockSession {
     led_anchor: (f64, f64, f64),
     /// The wall clock at the last `catch_up`.
     wall: Option<Instant>,
+    /// The imported iReal Pro playlists (#89), parsed by the engine's own `ireal` module.
+    chart_lists: Vec<yahaha::ireal::Playlist>,
+    /// The chart's last bar has played and it has no Ending: stop at the next bar line.
+    chart_end: bool,
     /// The Style settings (`StyleSettingsCmd`), and how long the fade phase playing has
     /// left (ms).
     settings: StyleSettings,
@@ -316,6 +320,7 @@ impl MockSession {
                 sound_font_loading: false,
             },
             preview: PreviewState::default(),
+            chart: ChartState::default(),
             multi_pad: multipad::initial(),
             harmony_arp: harmony_arp_default(),
             // Mid-song: the left hand holds the Am7 it fingered.
@@ -354,6 +359,8 @@ impl MockSession {
             section_key: None,
             led_anchor: (0.0, 0.0, 0.0), // anchored by the first `derive`
             wall: None,
+            chart_lists: Vec::new(),
+            chart_end: false,
             settings: StyleSettings::default(),
             fade_left: 0.0,
             regist: MockRegist::new(&songs),
@@ -520,6 +527,16 @@ impl MockSession {
 
     fn on_beat(&mut self) {
         let qpb = self.bar_quarters();
+        if self.chart_playing() {
+            // The quarter this is, as a place in the bar (a chord goes in at beat/beats of
+            // its chart bar, as the engine places it).
+            let pos = self.clock.rem_euclid(qpb).floor() / qpb;
+            let c = &self.state.chart;
+            if let (Some(song), Some(i)) = (&c.song, c.bar) {
+                let name = chord_at(song, i as usize, pos);
+                self.chart_chord(name);
+            }
+        }
         let t = &mut self.state.transport;
         if let Some(q) = t.queued.clone().filter(|q| FILLS.contains(&q.as_str())) {
             t.section = Some(q);
@@ -529,6 +546,10 @@ impl MockSession {
     }
 
     fn on_bar(&mut self, bar: u32) {
+        if self.chart_end {
+            self.stop_band();
+            return;
+        }
         self.pads.bar(&mut self.state.multi_pad);
         let t = &self.state.transport;
         let main = MAINS[t.main as usize];
@@ -551,6 +572,11 @@ impl MockSession {
                 }
                 self.enter(main, bar);
             }
+        }
+        if self.chart_playing() {
+            self.chart_bar();
+            self.looper_bar(bar);
+            return;
         }
         // Demo: every 8 bars queue the next Main; a pattern volume change needs pickup.
         if bar % 8 == 6 && self.state.transport.queued.is_none() {
@@ -655,6 +681,19 @@ impl MockSession {
             FadeState::Holding => self.state.transport.fade = FadeState::Off,
             _ => {}
         }
+        self.chart_end = false;
+        if let (true, Some(song)) = (self.state.chart.on, self.state.chart.song.as_ref()) {
+            // The chart's Intro (unless one is armed), its first Main and first chord.
+            let first = song.bars.first().map_or(0, |b| b.main);
+            let name = chord_at(song, 0, 0.0);
+            let t = &mut self.state.transport;
+            if t.pending_intro.is_none() {
+                t.pending_intro = self.state.chart.intro;
+            }
+            t.main = first;
+            self.state.chart.bar = None;
+            self.chart_chord(name);
+        }
         let intro = self.state.transport.pending_intro.map(|i| INTROS[i as usize]).filter(|s| self.has(s));
         let t = &mut self.state.transport;
         t.running = true;
@@ -665,11 +704,16 @@ impl MockSession {
         self.clock = 0.0;
         self.section_start = 0;
         self.position();
+        if self.chart_playing() && self.state.transport.section.as_deref().is_some_and(|s| MAINS.contains(&s)) {
+            self.chart_bar();
+        }
         self.looper_bar(0);
         self.pads.band_started(&mut self.state.multi_pad);
     }
 
     fn stop_band(&mut self) {
+        self.state.chart.bar = None;
+        self.chart_end = false;
         if self.state.transport.running {
             self.pads.band_stopped(&mut self.state.multi_pad);
         }
@@ -1252,7 +1296,14 @@ impl MockSession {
                     self.state.transport.sync_start = true;
                 }
             }
-            AppCmd::Looper(LooperCmd::LooperOnOff) => self.looper.on_off(&mut self.state.looper),
+            AppCmd::Looper(LooperCmd::LooperOnOff) => {
+                // A loop about to arm turns chart mode off first (session/looper.rs).
+                let l = &self.state.looper;
+                if self.state.chart.on && (l.mode == LooperMode::Recording || l.mode == LooperMode::Off && l.has_data) {
+                    self.set_chart_mode(false);
+                }
+                self.looper.on_off(&mut self.state.looper)
+            }
             AppCmd::Looper(LooperCmd::SelectLooperMemory { index }) => {
                 if let Err(e) = self.looper.select(&mut self.state.looper, index as usize % 8) {
                     self.message(e, true);
@@ -1464,6 +1515,7 @@ impl MockSession {
                 io.inputs = io.sources.iter().filter(|s| s.listening).map(|s| if s.pads { format!("{} (pads)", s.name) } else { s.name.clone() }).collect();
             }
             AppCmd::Settings(SettingsCmd::SetPaletteLeds { on }) => self.state.pads.palette_leds = on,
+            AppCmd::Chart(c) => self.chart_cmd(c),
             AppCmd::Registration(c) => {
                 let fx = self.regist.registration_cmd(c, &self.state);
                 self.run_regist(fx);
@@ -2100,6 +2152,215 @@ mod tests {
     fn chords_transpose() {
         assert_eq!(transpose_chord("Am7/G", 2), "Bm7/A");
         assert_eq!(transpose_chord("C#m", -1), "Cm");
+    }
+}
+
+/// The chord in effect at `pos` (a fraction) of bar `i` (held from earlier bars when it has
+/// none). A chord on beat `b` of an `n`-beat bar is at `b/n` of it.
+fn chord_at(song: &ChartSong, i: usize, pos: f64) -> Option<String> {
+    (0..=i.min(song.bars.len().saturating_sub(1))).rev().find_map(|b| {
+        let beats = song.bars[b].time[0].max(1) as f64;
+        song.bars[b].chords.iter().rev().find(|c| b < i || c.beat as f64 / beats <= pos + 1e-6).map(|c| c.name.clone())
+    })
+}
+
+/// The iReal chart player (#89), as engine/chart.rs plays it, bar by bar. Imports use the
+/// engine's own parser; the chart state is the engine's (`yahaha::session::chart_song`).
+impl MockSession {
+    fn chart_playing(&self) -> bool {
+        self.state.chart.on && self.state.chart.song.is_some() && self.state.transport.running
+    }
+
+    fn chart_next(&self, i: u32) -> Option<u32> {
+        let c = &self.state.chart;
+        let n = c.song.as_ref().map_or(0, |s| s.bars.len()) as u32;
+        if let Some([a, b]) = c.loop_range.filter(|&[a, b]| a < b && b <= n) {
+            if i + 1 >= b {
+                return Some(a);
+            }
+        }
+        (i + 1 < n).then_some(i + 1)
+    }
+
+    fn chart_chord(&mut self, name: Option<String>) {
+        let Some(name) = name else { return };
+        self.state.chord.name = Some(transpose_chord(&name, self.state.chord.transpose_keyboard));
+        self.state.chord.fingered = Some(name);
+    }
+
+    /// A bar line: the chart moves on a bar (not in an Intro or Ending) and queues its
+    /// next section (the mock plays fills from the next beat, so they lead in from there).
+    fn chart_bar(&mut self) {
+        let t = &self.state.transport;
+        let Some(sec) = t.section.clone() else { return };
+        if INTROS.contains(&sec.as_str()) || ENDINGS.contains(&sec.as_str()) {
+            return;
+        }
+        let i = match self.state.chart.bar {
+            None => 0,
+            Some(b) => match self.chart_next(b) {
+                Some(n) => n,
+                None => return,
+            },
+        };
+        self.state.chart.bar = Some(i);
+        let name = self.state.chart.song.as_ref().and_then(|s| chord_at(s, i as usize, 0.0));
+        self.chart_chord(name);
+        let Some(n1) = self.chart_next(i) else {
+            match self.state.chart.ending.map(|e| ENDINGS[e as usize % 3]).filter(|e| self.has(e)) {
+                Some(e) => self.state.transport.queued = Some(e.into()),
+                None => self.chart_end = true,
+            }
+            return;
+        };
+        let next = self.state.chart.song.as_ref().map(|s| (s.bars[n1 as usize].section_start, s.bars[n1 as usize].main));
+        if let Some((true, main)) = next {
+            let fill = FILLS[main as usize % 4];
+            let t = &mut self.state.transport;
+            t.main = main;
+            let queued = if t.auto_fill && self.has(fill) { fill } else { MAINS[main as usize % 4] };
+            self.state.transport.queued = Some(queued.into());
+        }
+    }
+
+    /// Choose a song: its chart, suggested style (loaded with Auto style) and, stopped,
+    /// its tempo.
+    fn select_chart(&mut self, playlist: usize, song: usize, fresh: bool) {
+        let Some(s) = self.chart_lists.get(playlist).and_then(|l| l.songs.get(song)).cloned() else {
+            self.message(format!("no song {song} in playlist {playlist}"), true);
+            return;
+        };
+        let c = &mut self.state.chart;
+        c.selected = Some([playlist, song]);
+        let view = yahaha::session::chart_song(&s, c.choruses);
+        c.bar = c.bar.map(|b| b.min(view.bars.len().saturating_sub(1) as u32));
+        c.song = Some(view);
+        if !fresh {
+            return;
+        }
+        c.loop_range = None;
+        let words = yahaha::ireal::style_words(&s.style, &s.groove);
+        let hit = self
+            .library
+            .entries
+            .iter()
+            .find(|e| e.status == "ok" && words.iter().any(|w| format!("{} {}", e.name, e.folder).to_lowercase().contains(w)))
+            .map(|e| e.id);
+        self.state.chart.suggested_style = hit;
+        if let (true, Some(id)) = (self.state.chart.auto_style, hit) {
+            if id != self.state.style.id {
+                self.load_style(id);
+            }
+        }
+        if !self.state.transport.running && s.tempo > 0 {
+            self.state.transport.tempo = s.tempo as f64;
+        }
+    }
+
+    fn import_charts(&mut self, text: &str) {
+        let lists = match yahaha::ireal::parse(text) {
+            Ok(l) => l,
+            Err(e) => return self.message(format!("iReal import: {e:#}"), true),
+        };
+        let first = self.chart_lists.len();
+        let songs: usize = lists.iter().map(|l| l.songs.len()).sum();
+        for (i, l) in lists.into_iter().enumerate() {
+            let name = l.name.clone().filter(|n| !n.trim().is_empty()).unwrap_or_else(|| match l.songs.as_slice() {
+                [one] => one.title.clone(),
+                _ => format!("Playlist {}", first + i + 1),
+            });
+            self.state.chart.playlists.push(ChartPlaylist {
+                name,
+                songs: l
+                    .songs
+                    .iter()
+                    .map(|s| ChartSongInfo {
+                        title: s.title.clone(),
+                        composer: s.composer.clone(),
+                        style: s.style.clone(),
+                        key: s.key.clone(),
+                        tempo: (s.tempo > 0).then_some(s.tempo),
+                    })
+                    .collect(),
+            });
+            self.chart_lists.push(l);
+        }
+        if self.state.chart.selected.is_none() && self.chart_lists.get(first).is_some_and(|l| !l.songs.is_empty()) {
+            self.select_chart(first, 0, true);
+        }
+        self.message(format!("Imported {songs} song{}", if songs == 1 { "" } else { "s" }), false);
+    }
+
+    fn chart_cmd(&mut self, cmd: ChartCmd) {
+        match cmd {
+            ChartCmd::ImportCharts { text } => self.import_charts(&text),
+            ChartCmd::ImportChartFile { path } => match std::fs::read_to_string(&path) {
+                Ok(text) => self.import_charts(&text),
+                Err(e) => self.message(format!("{path}: {e}"), true),
+            },
+            ChartCmd::SelectChart { playlist, song } => self.select_chart(playlist, song, true),
+            ChartCmd::StepChart { delta } => {
+                if let Some([p, s]) = self.state.chart.selected {
+                    let n = self.state.chart.playlists[p].songs.len() as i64;
+                    let to = (s as i64 + delta as i64).clamp(0, n - 1) as usize;
+                    if to != s {
+                        self.select_chart(p, to, true);
+                    }
+                }
+            }
+            ChartCmd::RemoveChartPlaylist { playlist } => {
+                if playlist < self.chart_lists.len() {
+                    self.chart_lists.remove(playlist);
+                    let c = &mut self.state.chart;
+                    c.playlists.remove(playlist);
+                    match c.selected {
+                        Some([p, _]) if p == playlist => {
+                            *c = ChartState { playlists: std::mem::take(&mut c.playlists), choruses: c.choruses, ..ChartState::default() }
+                        }
+                        Some([p, s]) if p > playlist => c.selected = Some([p - 1, s]),
+                        _ => {}
+                    }
+                }
+            }
+            ChartCmd::SetChartMode { on } => self.set_chart_mode(on),
+            ChartCmd::ToggleChartMode => self.set_chart_mode(!self.state.chart.on),
+            ChartCmd::SetChartChoruses { choruses } => {
+                self.state.chart.choruses = choruses.clamp(1, 99);
+                if let Some([p, s]) = self.state.chart.selected {
+                    self.select_chart(p, s, false);
+                }
+                // Fewer choruses: a loop past the new end goes.
+                let n = self.state.chart.song.as_ref().map_or(0, |s| s.bars.len()) as u32;
+                if self.state.chart.loop_range.is_some_and(|[_, b]| b > n) {
+                    self.state.chart.loop_range = None;
+                }
+            }
+            ChartCmd::SetChartLoop { range } => {
+                let n = self.state.chart.song.as_ref().map_or(0, |s| s.bars.len()) as u32;
+                match range {
+                    Some([a, b]) if !(a < b && b <= n) => self.message(format!("no bars {}-{b} in the chart", a + 1), true),
+                    r => self.state.chart.loop_range = r,
+                }
+            }
+            ChartCmd::SetChartIntro { index } => self.state.chart.intro = index.map(|i| i.min(2)),
+            ChartCmd::SetChartEnding { index } => self.state.chart.ending = index.map(|i| i.min(2)),
+            ChartCmd::SetChartAutoStyle { on } => self.state.chart.auto_style = on,
+        }
+    }
+
+    fn set_chart_mode(&mut self, on: bool) {
+        if on && self.state.chart.song.is_none() {
+            return self.message("Import an iReal Pro chart first", true);
+        }
+        // Only one of the chart and the Chord Looper gives the chords: chart mode on stops
+        // a loop (engine/chart.rs).
+        if on && matches!(self.state.looper.mode, LooperMode::Looping | LooperMode::LoopArmed) {
+            self.looper.on_off(&mut self.state.looper);
+        }
+        self.state.chart.on = on;
+        if !on {
+            self.state.chart.bar = None;
+        }
     }
 }
 
