@@ -189,7 +189,9 @@ impl Control {
         match got {
             Ok(b) => {
                 sy.info.buffer = b;
-                save_buffer(frames);
+                if self.offline.is_none() {
+                    save_buffer(frames);
+                }
                 if b.is_some_and(|b| b != frames) {
                     let b = b.unwrap_or_default();
                     self.say(format!("the audio device plays {b}-frame buffers, the nearest it allows to {frames}"), false);

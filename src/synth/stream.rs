@@ -99,16 +99,7 @@ impl Output {
             return Ok(want);
         }
         // Take the core from the callback: it renders at most one more buffer with it.
-        let deadline = Instant::now() + Duration::from_secs(1);
-        let core = loop {
-            if let Some(c) = self.slot.take() {
-                break c;
-            }
-            if Instant::now() > deadline {
-                return Err(anyhow!("the audio callback did not hand the synth back"));
-            }
-            std::thread::sleep(Duration::from_millis(1));
-        };
+        let core = reclaim(&self.slot, Duration::from_secs(1)).ok_or_else(|| anyhow!("the audio callback did not hand the synth back"))?;
         // The old stream plays silence from here and is closed; a fresh slot for the new
         // one, so the old callback can never see the core again.
         let _ = self.stream.pause();
@@ -130,6 +121,20 @@ impl Output {
             Some(e) => Err(e),
             None => Ok(buffer),
         }
+    }
+}
+
+/// Take the core from `slot`, waiting (up to `wait`) while the callback renders with it.
+fn reclaim(slot: &CoreSlot, wait: Duration) -> Option<Box<AudioCore>> {
+    let deadline = Instant::now() + wait;
+    loop {
+        if let Some(c) = slot.take() {
+            return Some(c);
+        }
+        if Instant::now() > deadline {
+            return None;
+        }
+        std::thread::sleep(Duration::from_millis(1));
     }
 }
 
@@ -162,5 +167,78 @@ mod tests {
         assert_eq!(fit(Some((128, 4096)), 64), Some(128));
         assert_eq!(fit(Some((14, 96)), 256), Some(96));
         assert_eq!(fit(None, 64), None);
+    }
+
+    /// The control side takes the core from a running "callback" (a thread doing what the
+    /// cpal callback does); from then on the callback plays silence, and a note sent
+    /// meanwhile waits in the ring for whoever renders the core next.
+    #[test]
+    fn the_core_is_taken_from_a_running_callback() {
+        use std::sync::atomic::{AtomicBool, AtomicU64, Ordering::Relaxed};
+        let (mut tx, rx) = rtrb::RingBuffer::<super::super::Msg>::new(64);
+        let control = Arc::new(super::super::SynthControl::new(0));
+        let (core, _swap, _plugins) = AudioCore::new(None, vec![rx], Arc::new(crate::parts::Parts::new()), control, 48_000, 2);
+        let slot = CoreSlot::new(Box::new(core));
+        let stop = Arc::new(AtomicBool::new(false));
+        let (rendered, silent) = (Arc::new(AtomicU64::new(0)), Arc::new(AtomicU64::new(0)));
+        let cb = {
+            let (slot, stop, rendered, silent) = (slot.clone(), stop.clone(), rendered.clone(), silent.clone());
+            std::thread::spawn(move || {
+                let mut out = [0f32; 128];
+                while !stop.load(Relaxed) {
+                    match slot.take() {
+                        Some(mut c) => {
+                            c.process(&mut out);
+                            slot.put(c);
+                            rendered.fetch_add(1, Relaxed);
+                        }
+                        None => {
+                            silent.fetch_add(1, Relaxed);
+                        }
+                    }
+                    std::hint::spin_loop();
+                }
+            })
+        };
+        while rendered.load(Relaxed) < 100 {
+            std::thread::yield_now();
+        }
+        let mut core = reclaim(&slot, Duration::from_secs(1)).expect("the callback hands the core over");
+        let after = rendered.load(Relaxed);
+        tx.push([0x90, 60, 100]).unwrap();
+        while silent.load(Relaxed) < 100 {
+            std::thread::yield_now();
+        }
+        assert_eq!(rendered.load(Relaxed), after, "the callback never renders with a core it gave up");
+        assert_eq!(tx.slots(), 63, "the note waits in the ring");
+        let mut out = [0f32; 128];
+        core.process(&mut out);
+        assert_eq!(tx.slots(), 64, "the next render takes it");
+        stop.store(true, Relaxed);
+        cb.join().unwrap();
+    }
+
+    /// On the real default output device: the stream reopens at each size and the synth
+    /// keeps rendering. `cargo test --release -- --ignored buffer_changes_on_the_device`.
+    #[test]
+    #[ignore = "needs an audio output device"]
+    fn buffer_changes_on_the_device() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("soundfonts");
+        let sf2 = crate::library::sound_font_files(&dir).into_iter().map(|f| dir.join(f)).min_by_key(|p| p.metadata().map(|m| m.len()).unwrap_or(u64::MAX)).expect("a SoundFont");
+        let (mut tx, rx) = rtrb::RingBuffer::<super::super::Msg>::new(64);
+        let routing = super::super::Routing { routes: Arc::new(crate::patches::Routes::new()), font_id: 0 };
+        let mut s = super::super::start(&sf2, vec![rx], None, Arc::new(crate::parts::Parts::new()), routing, None).unwrap();
+        tx.push([0xC0, 0, 0]).unwrap();
+        s.control.master.store(1, std::sync::atomic::Ordering::Relaxed); // nearly silent
+        for n in [128, 256, 64, 256] {
+            let got = s.set_buffer(n).unwrap();
+            eprintln!("asked {n}, got {got:?}");
+            assert_eq!(s.info.buffer, got);
+            tx.push([0x90, 60, 100]).unwrap();
+            std::thread::sleep(Duration::from_millis(200));
+            tx.push([0x80, 60, 0]).unwrap();
+            std::thread::sleep(Duration::from_millis(50));
+            assert_eq!(tx.slots(), 64, "the callback runs and drains the ring");
+        }
     }
 }
