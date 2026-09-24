@@ -40,6 +40,8 @@ pub type PluginLink = ();
 pub const PLUGIN_MAX_BLOCK: usize = 1024;
 
 mod routing;
+#[cfg(test)]
+mod probe;
 pub use routing::Router;
 use routing::{apply_routed, NO_SLOT};
 
