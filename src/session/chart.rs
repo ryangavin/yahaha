@@ -60,6 +60,13 @@ fn song_info(s: &Song) -> ChartSongInfo {
     }
 }
 
+/// A song's chart as `state.chart.song` shows it, expanded `choruses` times (for clients
+/// that build a `ChartState` themselves, such as the app's mock session).
+pub fn chart_song(s: &Song, choruses: u32) -> ChartSong {
+    let bars = s.bars(choruses.clamp(1, MAX_CHORUSES));
+    song_state(s, &bars, &ChartPlan::from_bars(&bars, 0, None))
+}
+
 /// The chart as clients see it: its bars and its sections.
 fn song_state(s: &Song, bars: &[Bar], plan: &ChartPlan) -> ChartSong {
     let out: Vec<ChartBarState> = bars

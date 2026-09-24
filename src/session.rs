@@ -43,6 +43,7 @@ mod surface;
 mod system;
 mod transport;
 
+pub use chart::chart_song;
 pub use library::library_entry;
 pub use preview::AUDITION_CHORDS;
 pub use settings::choose_keys;

@@ -1,5 +1,18 @@
 {
  "state": [
+  "chart.autoStyle: boolean",
+  "chart.bar: null",
+  "chart.choruses: number",
+  "chart.ending: number",
+  "chart.intro: number",
+  "chart.loop: null",
+  "chart.on: boolean",
+  "chart.overridden: boolean",
+  "chart.playlists: array",
+  "chart.selected: null",
+  "chart.song: null",
+  "chart.suggestedStyle: null",
+  "chart: object",
   "chord.fingered: string",
   "chord.fingering: string",
   "chord.fingeringName: string",

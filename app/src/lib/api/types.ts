@@ -94,6 +94,8 @@ export type AppCmd =
   | { type: 'setPaletteLeds'; on: boolean }
   /** Re-walk the style folders (`library.roots`); `library.scanning` while it runs. */
   | { type: 'rescanLibrary' }
+  // iReal Pro chart player: see ChartState below.
+  | ChartCmd
 
 export type CmdError = { kind: 'busy' } | { kind: 'failed'; message: string }
 
@@ -489,6 +491,88 @@ export interface PreviewState {
   queued: number | null
 }
 
+// ── iReal Pro chart player (#89) ─────────────────────────────────────────
+// The band takes its chords and Mains from an iReal chart instead of the left hand
+// (docs/app-api.md "iReal Pro chart player", docs/ireal.md "Chart player").
+
+export type ChartCmd =
+  /** Import playlists from an `irealb://` link or an exported `.html` playlist's text. */
+  | { type: 'importCharts'; text: string }
+  /** The same, reading a file (Tauri / terminal). */
+  | { type: 'importChartFile'; path: string }
+  /** Choose the chart (loads its suggested style with `autoStyle`; stopped: its tempo). */
+  | { type: 'selectChart'; playlist: number; song: number }
+  | { type: 'stepChart'; delta: number }
+  | { type: 'removeChartPlaylist'; playlist: number }
+  | { type: 'setChartMode'; on: boolean }
+  | { type: 'toggleChartMode' }
+  /** 1–99 times through the form. */
+  | { type: 'setChartChoruses'; choruses: number }
+  /** Loop bars [start, end) of `chart.song.bars`; null: no loop. */
+  | { type: 'setChartLoop'; range: [number, number] | null }
+  /** Intro / Ending 0–2 (A–C) around the chart; null: none. */
+  | { type: 'setChartIntro'; index: number | null }
+  | { type: 'setChartEnding'; index: number | null }
+  | { type: 'setChartAutoStyle'; on: boolean }
+
+export interface ChartSongInfo {
+  title: string
+  /** As iReal stores it, usually "Last First". */
+  composer: string
+  /** iReal's style label ("Medium Swing", "Bossa Nova"). */
+  style: string
+  /** "C", "Eb", "A-" (minor). */
+  key: string
+  tempo: number | null
+}
+
+export interface ChartBar {
+  /** "A", "B", "V", "i", or null before any mark. */
+  section: string | null
+  sectionStart: boolean
+  /** The Main it plays, 0–3. */
+  main: number
+  time: [number, number]
+  /** 1-based. */
+  chorus: number
+  /** Chords on beats (0-based); a bar with none holds the chord before. */
+  chords: { beat: number; name: string }[]
+}
+
+export interface ChartSection {
+  label: string
+  chorus: number
+  start: number
+  bars: number
+}
+
+export interface ChartSong extends ChartSongInfo {
+  /** The form played `choruses` times through. */
+  bars: ChartBar[]
+  sections: ChartSection[]
+}
+
+export interface ChartState {
+  /** Chart mode: the chart gives the chords while the band plays. */
+  on: boolean
+  playlists: { name: string; songs: ChartSongInfo[] }[]
+  /** [playlist, song] */
+  selected: [number, number] | null
+  song: ChartSong | null
+  choruses: number
+  intro: number | null
+  ending: number | null
+  /** Bars [start, end) looped, or null. */
+  loop: [number, number] | null
+  autoStyle: boolean
+  /** The library style the chart's label suggests (`LibraryEntry.id`). */
+  suggestedStyle: number | null
+  /** The bar of `song.bars` playing; null stopped, in the Intro/Ending or chart mode off. */
+  bar: number | null
+  /** Your chord has taken over until the next bar line. */
+  overridden: boolean
+}
+
 export interface AppState {
   version: number
   style: StyleState
@@ -508,6 +592,8 @@ export interface AppState {
   keyboard: KeyboardState
   /** The style preview and the style waiting for the bar line. */
   preview: PreviewState
+  /** The iReal Pro chart player. */
+  chart: ChartState
 }
 
 export interface LibraryEntry {

@@ -25,6 +25,7 @@ const GROUPS: [string, string][] = [
   ['launchkey', 'Launchkey'],
   ['lead', 'Lead-sheet band'],
   ['keystrip', 'Keyboard strip'],
+  ['chart', 'iReal Pro chart player'],
   ['drawer', 'Panels around the hardware view'],
   ['settings', 'Settings'],
   ['audio', 'Audio'],
