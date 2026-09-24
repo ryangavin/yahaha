@@ -11,6 +11,7 @@ pub mod engine;
 pub mod fingering;
 #[cfg(test)]
 mod golden;
+pub mod harmony;
 pub mod launchkey;
 pub mod library;
 pub mod live;
