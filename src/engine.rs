@@ -15,6 +15,7 @@ mod looper;
 mod metronome;
 mod mirror;
 mod mixer;
+mod multipad;
 mod playback;
 mod prepared;
 mod sections;
@@ -27,6 +28,7 @@ use mirror::{Mirror, NRPN_BIT, UNSENT};
 use sections::Change;
 pub use looper::{LoopState, LooperSnap};
 pub use mixer::{Takeover, HW_UNKNOWN};
+pub use multipad::{PadCmd, PadsSnap, SynchroStop, PAD_PPQ};
 use prepared::PKind;
 pub use prepared::{id_of, slot_of, Msgs, PSection, Prepared, NUM_SLOTS};
 
@@ -109,6 +111,9 @@ pub enum Button {
     Intro(u8),
     Main(u8),
     Break,
+    /// Fill Down (-1), Fill Self (0), Fill Up (+1): a fill, then the Main to the left, the
+    /// same Main, or the Main to the right (an assignable function, RM p.142).
+    Fill(i8),
     Ending(u8),
     StartStop,
     Stop,
@@ -167,6 +172,8 @@ pub struct Snapshot {
     pub looper: LooperSnap,
     /// The Style part soloed (0-7), if any.
     pub style_solo: Option<u8>,
+    /// Multi Pads: the bank playing and each pad's state (engine/multipad.rs).
+    pub multipad: PadsSnap,
 }
 
 /// Where a style preview is: style `id` (the session's library id), bar `bar` of `bars`
@@ -468,6 +475,7 @@ impl Engine {
             audition: None,
             looper: self.looper_snapshot(),
             style_solo: self.features.solo,
+            multipad: self.pads_snapshot(),
         }
     }
 

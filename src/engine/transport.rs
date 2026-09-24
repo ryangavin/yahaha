@@ -122,6 +122,15 @@ impl Engine {
                     }
                 }
             }
+            Button::Fill(d) => {
+                // The Main to the left or right (none past A or D: the fill of the Main at
+                // the end), always with its fill, as if Auto Fill were on. Stopped, it
+                // selects that Main.
+                let target = (self.main as i8 + d.signum()).clamp(0, 3) as u8;
+                let auto = std::mem::replace(&mut self.auto_fill, true);
+                self.button(Button::Main(target), now, sink);
+                self.auto_fill = auto;
+            }
             Button::Break => {
                 if self.running {
                     if let Some(slot) = s.resolve(12) {

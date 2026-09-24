@@ -31,6 +31,9 @@ impl Control {
         if self.shared.parts.is_on(p) != on && !self.shared.parts.toggle(p) {
             return self.fail("Left plays the bass under Manual Bass: turn Manual Bass off [D] to switch Left");
         }
+        // The engine thread gives a part switched on the held pedal and wheels, and one
+        // switched off their release (`Controllers::sync`).
+        self.wake_engine();
         Ok(())
     }
 

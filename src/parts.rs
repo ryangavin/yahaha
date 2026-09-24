@@ -167,6 +167,16 @@ impl Parts {
         self.on_mask() | (self.left_sounds() as u8) << LEFT
     }
 
+    /// Bitmask of the parts the keys play now: `sounding_mask`, except that a solo leaves
+    /// the soloed part alone (switched off or not). Where the pedals and wheels go
+    /// (`Controllers::sync`).
+    pub fn audible_mask(&self) -> u8 {
+        match self.solo() {
+            Some(s) => 1 << s,
+            None => self.sounding_mask(),
+        }
+    }
+
     /// Turn a part on or off. Refused for Left while Manual Bass is in effect (false): the
     /// left hand sounds the bass then whatever Left's switch says, so a flip would change
     /// nothing audible or visible.

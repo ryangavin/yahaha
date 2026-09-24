@@ -164,6 +164,8 @@ pub enum Action {
     ToggleFaderPage,
     /// Previous/next style (`←` `→`).
     Style(i8),
+    /// A pedal's assignable function that the control side runs (`controllers.rs`).
+    Assign(crate::controllers::Function),
 }
 
 /// What a pad does on a page.
@@ -675,6 +677,7 @@ mod tests {
             pending_intro: None, main: 0, bar: 0, beat: 0, chord: None, bpm: 120.0, parts: 0xFF, volumes: [100; 8], pickup: 0,
             stop_acmp: false, transpose: Transpose::default(), played: None, anchor_ns: 0, anchor_beats: 0.0, style_tag: 0,
             style_pending: false, section_bars: 0, audition: None, looper: Default::default(), style_solo: None,
+            multipad: Default::default(),
         }
     }
 

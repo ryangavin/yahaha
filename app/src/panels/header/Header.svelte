@@ -23,6 +23,7 @@
     <HwButton tip="drawer.parts" led={ui.parts ? amber : null} onclick={() => ui.toggleDrawer('parts')}>Parts & OTS</HwButton>
     <HwButton tip="drawer.mixer" led={ui.mixer ? amber : null} onclick={() => ui.toggleDrawer('mixer')}>Mixer</HwButton>
     <HwButton tip="drawer.looper" led={ui.looper ? amber : null} onclick={() => ui.toggleDrawer('looper')}>Chord Looper</HwButton>
+    <HwButton tip="drawer.multipad" led={ui.multipad ? amber : null} onclick={() => ui.toggleDrawer('multipad')}>Multi Pads</HwButton>
     <HwButton tip="browser.open" led={ui.browser ? amber : null} onclick={() => (ui.browser = true)}>Browse styles</HwButton>
     <HwButton tip="settings.open" led={ui.settings ? amber : null} onclick={() => ui.toggleDrawer('settings')}>Settings</HwButton>
   </nav>

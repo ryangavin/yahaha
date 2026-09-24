@@ -28,12 +28,14 @@
 //! `build_state` below call them in a fixed order (docs/architecture.md).
 
 mod chord;
+mod controllers;
 mod keyboard;
 mod leds;
 mod library;
 mod looper;
 mod metronome;
 mod mixer;
+mod multipad;
 mod offline;
 mod ots;
 mod pads;
@@ -237,6 +239,11 @@ struct Control {
     looper: looper::LooperCtl,
     /// Metronome settings.
     metronome: metronome::MetronomeCtl,
+    /// Multi Pad banks to the engine thread, and replaced players back to free here.
+    pad_tx: Producer<live::PadBank>,
+    old_pad_rx: Consumer<Box<crate::multipad::MultiPadPlayer>>,
+    /// Multi Pads: the bank list and the bank loaded.
+    multipad: multipad::Pads,
 }
 
 /// What several parts of the state read, read once per `build_state` so they all agree.
@@ -288,6 +295,8 @@ impl Control {
             AppCmd::System(c) => self.system_cmd(c),
             AppCmd::Looper(c) => self.looper_cmd(c),
             AppCmd::Metronome(c) => self.metronome_cmd(c),
+            AppCmd::MultiPad(c) => self.multipad_cmd(c),
+            AppCmd::Controllers(c) => self.controllers_cmd(c),
         }
     }
 
@@ -352,6 +361,7 @@ impl Control {
             leds.update(&s, &self.info.has, &pnl, self.shared.manual_bass(), self.shared.parts.fader_page(), styles, beats);
         }
         self.pump_index();
+        self.pump_multipad();
     }
 
     /// The state: each feature builds its part, in `AppState`'s order.
@@ -381,6 +391,8 @@ impl Control {
             io: self.io_state(),
             preview: self.preview_state(),
             keyboard: self.keyboard_state(&v),
+            multi_pad: self.multipad_state(),
+            controllers: self.controllers_state(),
             message: self.message.clone(),
             looper: self.looper_state(),
             metronome: self.metronome_state(),
@@ -533,6 +545,9 @@ fn assemble(opts: &Options, engine_out: live::Out, input_out: live::Out, offline
         sources_ns: 0,
         looper: looper::LooperCtl::new(ch.looper_tx, ch.recorded_rx),
         metronome: Default::default(),
+        pad_tx: ch.pad_tx,
+        old_pad_rx: ch.old_pad_rx,
+        multipad: multipad::Pads::scan(&opts.paths),
     };
     let mut control = control;
     control.list_sound_fonts();

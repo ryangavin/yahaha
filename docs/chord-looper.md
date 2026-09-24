@@ -71,4 +71,4 @@ The manuals leave these open (genos-features.md §G.4). What yahaha does, and wh
   undocumented; memories last for the session. Registration Memory is not built yet.
 - **No Launchkey pads yet.** Page 2 and page 3 each have one free pad; REC/STOP and
   ON/OFF belong together, so they wait for a pad-page rework. The terminal UI has `r`
-  (REC/STOP) and `R` (ON/OFF); the app has a Chord Looper drawer.
+  (REC/STOP) and `^` (ON/OFF); the app has a Chord Looper drawer.

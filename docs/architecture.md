@@ -22,7 +22,9 @@ This document is about the inside.
 | `src/sff.rs`, `src/library.rs` | Style files (SFF1/SFF2) and the style library index. |
 | `src/theory.rs`, `src/fingering.rs` | Chords, chord recognition, fingering types. |
 | `src/parts.rs`, `src/launchkey.rs` | Keyboard parts (Right 1-3, Left) and the Launchkey mapping. |
-| `src/harmony.rs`, `src/arp/`, `src/multipad/`, `src/ireal/`, `src/plugin/` | Feature libraries not yet wired in (pure, real-time safe). |
+| `src/multipad/` | Multi Pads: bank parser, player core, bank scan; wired through `engine/multipad.rs` (docs/multipad.md). |
+| `src/controllers.rs` | Pedals, wheels and the assignable-function table (atomics in `Shared`; the input thread and the engine thread send them to the parts). docs/controllers.md. |
+| `src/harmony.rs`, `src/arp/`, `src/ireal/`, `src/plugin/` | Feature libraries not yet wired in (pure, real-time safe). |
 | `src/looper.rs`, `src/click.rs` | The Chord Looper's sequence type; the metronome's click voice (mixed by the synth). |
 | `app/` | The desktop app: Svelte frontend (`app/src`), Tauri shell (`app/src-tauri`). |
 

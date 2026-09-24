@@ -23,6 +23,7 @@ const GROUPS: [string, string][] = [
   ['mixer', 'Mixer'],
   ['metronome', 'Metronome'],
   ['looper', 'Chord Looper'],
+  ['multipad', 'Multi Pads'],
   ['padpage', 'Launchkey pad pages'],
   ['launchkey', 'Launchkey'],
   ['lead', 'Lead-sheet band'],
@@ -31,6 +32,7 @@ const GROUPS: [string, string][] = [
   ['settings', 'Settings'],
   ['audio', 'Audio'],
   ['midi', 'MIDI'],
+  ['pedal', 'Pedals and wheels'],
   ['app', 'App'],
 ]
 

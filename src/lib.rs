@@ -9,6 +9,7 @@ pub mod arp;
 pub mod bench;
 pub mod capture;
 pub mod click;
+pub mod controllers;
 pub mod engine;
 pub mod fingering;
 pub mod ireal;

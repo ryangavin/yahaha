@@ -11,7 +11,9 @@
 //! non-blocking semaphore signal; the engine only sleeps on the semaphore with a timeout
 //! equal to its next deadline.
 
-use crate::engine::{shift_key, AuditionPos, Button, Engine, Prepared, Snapshot, Transpose};
+use crate::controllers::{Controllers, Handled};
+use crate::engine::{shift_key, AuditionPos, Button, Engine, PadCmd, Prepared, Snapshot, Transpose};
+use crate::multipad::MultiPadPlayer;
 use crate::fingering::{self, Fingering};
 use crate::launchkey::{self, Action, Control, Page};
 use crate::looper::ChordSeq;
@@ -49,6 +51,15 @@ pub enum Cmd {
     StyleParts(u8),
     /// Metronome on/off, and the bell on beat 1.
     Metronome { on: bool, bell: bool },
+    /// Multi Pads: press, stop, arm a pad, their settings (`engine/multipad.rs`).
+    MultiPad(PadCmd),
+}
+
+/// A Multi Pad bank for the engine thread (`AppCmd::LoadMultiPad`): its player, built on
+/// the control side (None: no bank), and the tag the snapshot reports once it plays.
+pub struct PadBank {
+    pub player: Option<Box<MultiPadPlayer>>,
+    pub tag: u64,
 }
 
 /// How many bars a style preview plays.
@@ -127,6 +138,8 @@ pub struct Shared {
     pub keys: [AtomicU8; 128],
     /// How many keys each keyboard source slot holds (`key_tag`).
     pub src_held: [AtomicU8; MAX_KEY_SOURCES],
+    /// Pedals, wheels and their parts (`controllers.rs`).
+    pub controllers: Controllers,
 }
 
 impl Shared {
@@ -160,6 +173,7 @@ impl Shared {
             parts: Arc::new(Parts::new()),
             keys: std::array::from_fn(|_| AtomicU8::new(0)),
             src_held: std::array::from_fn(|_| AtomicU8::new(0)),
+            controllers: Controllers::new(),
         }
     }
 
@@ -439,6 +453,14 @@ pub struct Input {
     master_takeover: crate::engine::Takeover,
     /// The note pipeline's processor slot (Harmony or Arpeggio; none yet).
     processor: Processor,
+    /// The pedals held down, as this thread last read them, per keyboard source slot
+    /// (bit = pedal).
+    pedal_edges: [u8; MAX_KEY_SOURCES],
+    /// This thread holds the right to send the parts' controllers (`Controllers::claim`)
+    /// until its flush at the end of the packet list.
+    ctl_claimed: bool,
+    /// The pedal switches as last shown (a change wakes the control side).
+    shown_switches: u8,
 }
 
 impl Input {
@@ -463,6 +485,9 @@ impl Input {
             shift: false,
             master_takeover: crate::engine::Takeover::NEW,
             processor: Processor::Off,
+            pedal_edges: [0; MAX_KEY_SOURCES],
+            ctl_claimed: false,
+            shown_switches: 0,
         }
     }
 
@@ -618,10 +643,44 @@ impl Input {
                     self.out.push(&[0xA0 | ch, note, m[2]]);
                 }
             }
-            // Wheels, pedals, pressure: to every keyboard part, on or off, so a pedal
-            // release always reaches a note that is still ringing. Sustain affects all
-            // notes played on the keyboard (RM, Assignable functions).
-            (0xB0 | 0xE0 | 0xD0, _) => {
+            // Pedals and the modulation wheel: the pedals' functions, and the switches and
+            // wheel on the parts they reach (controllers.rs).
+            (0xB0, 3) => match self.shared.controllers.control_change(slot, m[1] & 0x7F, m[2] & 0x7F, &mut self.pedal_edges) {
+                Handled::Pass => self.send_to_all_parts(m),
+                Handled::Sync => self.sync_controllers(),
+                Handled::SyncAndPass => {
+                    self.sync_controllers();
+                    self.send_to_all_parts(m);
+                }
+                Handled::Learned => self.ctl_signal = true,
+                Handled::Fire(f) => {
+                    if f.sync {
+                        self.sync_controllers();
+                    }
+                    self.ctl_signal |= f.shown;
+                    if let Some(b) = f.engine {
+                        self.act(Action::Button(b));
+                    }
+                    if let Some(func) = f.control {
+                        self.act(Action::Assign(func));
+                    }
+                }
+            },
+            (0xE0, 3) => {
+                self.shared.controllers.pitch_bend(slot, (m[1] & 0x7F) as u16 | ((m[2] & 0x7F) as u16) << 7);
+                self.sync_controllers();
+            }
+            // Other controllers and pressure: to every keyboard part, on or off.
+            (0xB0 | 0xD0, _) => self.send_to_all_parts(m),
+            _ => {}
+        }
+    }
+
+    /// A keyboard message for every keyboard part's channel.
+    fn send_to_all_parts(&mut self, m: &[u8]) {
+        let st = m[0] & 0xF0;
+        match m.len() {
+            2 | 3 => {
                 let mut msg = [0u8; 3];
                 msg[..m.len()].copy_from_slice(m);
                 for ch in parts::CHANNEL {
@@ -630,6 +689,25 @@ impl Input {
                 }
             }
             _ => {}
+        }
+    }
+
+    /// Send the keyboard parts the pedal switches and wheels as they apply now. When the
+    /// engine thread is sending them (it has the claim), it sends this change too, before
+    /// it lets go.
+    fn sync_controllers(&mut self) {
+        let ctl = &self.shared.controllers;
+        if !self.ctl_claimed {
+            self.ctl_claimed = ctl.claim();
+        }
+        if self.ctl_claimed {
+            let out = &mut self.out;
+            ctl.sync(self.shared.parts.audible_mask(), &mut |m| out.push(m));
+        }
+        let sw = ctl.switches();
+        if sw != self.shown_switches {
+            self.shown_switches = sw;
+            self.ctl_signal = true;
         }
     }
 
@@ -804,6 +882,15 @@ impl InputHandler for Input {
 
     fn end_of_list(&mut self) {
         self.out.flush();
+        if std::mem::take(&mut self.ctl_claimed) {
+            // The engine wanted to sync meanwhile: sync for it, after what was just sent.
+            let ctl = &self.shared.controllers;
+            while ctl.release() && ctl.claim() {
+                let out = &mut self.out;
+                ctl.sync(self.shared.parts.audible_mask(), &mut |m| out.push(m));
+                self.out.flush();
+            }
+        }
         if self.signal {
             self.signal = false;
             self.shared.wake.signal();
@@ -827,6 +914,9 @@ pub struct EngineIo {
     /// Style previews to play, and finished ones back to the control side to free.
     pub auditions: Consumer<Box<Audition>>,
     pub old_auditions: Producer<Box<Audition>>,
+    /// Multi Pad banks to play, and replaced players back to the control side to free.
+    pub pad_banks: Consumer<PadBank>,
+    pub old_pads: Producer<Box<MultiPadPlayer>>,
     pub snaps: Producer<Snapshot>,
     /// Chord Looper sequences in (a memory), and finished recordings out.
     pub looper_in: Consumer<ChordSeq>,
@@ -884,9 +974,9 @@ impl EngineLoop {
         }
     }
 
-    /// When the next wake is due: the band's next event, or the preview's.
+    /// When the next wake is due: the band's next event, the Multi Pads', or the preview's.
     pub fn next_deadline(&self) -> Option<u64> {
-        let band = self.engine.next_deadline();
+        let band = [self.engine.next_deadline(), self.engine.pads_deadline()].into_iter().flatten().min();
         let Some((a, n)) = &self.audition else { return band };
         let chord = if *n < AUDITION_BARS { a.engine.ns_at_bar(*n as u32) } else { a.engine.ns_at_bar(AUDITION_BARS as u32) };
         [band, a.engine.next_deadline(), Some(chord)].into_iter().flatten().min()
@@ -953,6 +1043,11 @@ impl EngineLoop {
             self.engine.change_style(style, now, &mut self.io.out);
             self.retire_styles();
         }
+        while let Ok(b) = self.io.pad_banks.pop() {
+            if let Some(old) = self.engine.load_pads(b.player, b.tag, now, &mut self.io.out) {
+                let _ = self.io.old_pads.push(old);
+            }
+        }
         while let Ok(a) = self.io.auditions.pop() {
             self.end_audition();
             if self.engine.is_running() {
@@ -982,13 +1077,13 @@ impl EngineLoop {
             if self.audition.is_some() && ends_audition(cmd) {
                 self.end_audition();
             }
-            apply(&mut self.engine, &shared.parts, cmd, now, &mut self.io.out);
+            apply(&mut self.engine, &shared, cmd, now, &mut self.io.out);
         }
         while let Ok(cmd) = self.io.ui.pop() {
             if self.audition.is_some() && ends_audition(cmd) {
                 self.end_audition();
             }
-            apply(&mut self.engine, &shared.parts, cmd, now, &mut self.io.out);
+            apply(&mut self.engine, &shared, cmd, now, &mut self.io.out);
         }
         while let Ok(seq) = self.io.looper_in.pop() {
             self.engine.looper_load(&seq);
@@ -1001,12 +1096,27 @@ impl EngineLoop {
         if let Some(seq) = self.engine.take_recorded() {
             let _ = self.io.recorded.push(seq);
         }
+        self.engine.process_pads(now, &mut self.io.out);
         self.retire_styles();
         self.play_audition(now);
         let (engine, io) = (&mut self.engine, &mut self.io);
         sync_part_volumes(&mut io.out, &shared.parts, &mut self.last_part_vol);
+        let ctl = &shared.controllers;
+        ctl.sync_ranges(&mut |m| io.out.push(m));
+        // One thread sends the parts' controllers at a time (controllers.rs): when the
+        // input thread has the claim, it sends this wake's changes before it lets go.
+        let claimed = ctl.claim();
+        if claimed {
+            ctl.sync(shared.parts.audible_mask(), &mut |m| io.out.push(m));
+        }
         let t1 = rt::now_ns();
         io.out.flush();
+        if claimed {
+            while ctl.release() && ctl.claim() {
+                ctl.sync(shared.parts.audible_mask(), &mut |m| io.out.push(m));
+                io.out.flush();
+            }
+        }
         let t2 = rt::now_ns();
         shared.work_lat.record(t1.saturating_sub(now));
         shared.flush_lat.record(t2.saturating_sub(t1));
@@ -1036,6 +1146,7 @@ impl EngineLoop {
             let _ = self.io.old_auditions.push(a);
         }
         self.engine.stop(&mut self.io.out);
+        self.engine.pads_stop_all(&mut self.io.out);
         self.io.out.flush();
     }
 }
@@ -1091,7 +1202,8 @@ fn rebind_faders(engine: &mut Engine, parts: &Parts) {
     }
 }
 
-fn apply(engine: &mut Engine, parts: &Parts, cmd: Cmd, now: u64, out: &mut Out) {
+fn apply(engine: &mut Engine, shared: &Shared, cmd: Cmd, now: u64, out: &mut Out) {
+    let parts = &shared.parts;
     match cmd {
         Cmd::Button(b) => engine.button(b, now, out),
         Cmd::ChordReleased => engine.chord_released(now, out),
@@ -1110,21 +1222,25 @@ fn apply(engine: &mut Engine, parts: &Parts, cmd: Cmd, now: u64, out: &mut Out) 
         Cmd::StyleSolo(p) => engine.set_style_solo(p, out),
         Cmd::StyleParts(m) => engine.set_style_parts(m, out),
         Cmd::Metronome { on, bell } => engine.set_metronome(on, bell, now),
+        Cmd::MultiPad(c) => engine.pad_cmd(c, now, out),
         Cmd::KeysOff => {
             // The source's pedal, wheels and pressure went to every keyboard part too, and
             // its releases will never come: with the pedal left down, All Notes Off would
             // only move the notes to the pedal (they ring on, and so does everything
-            // played after).
+            // played after). The pedal switches and wheels go back to neutral first.
+            shared.controllers.reset(&mut |m| out.push(m));
             for ch in parts::CHANNEL {
-                out.push(&[0xB0 | ch, 64, 0]);
-                out.push(&[0xB0 | ch, 1, 0]);
-                out.push(&[0xE0 | ch, 0x00, 0x40]);
                 out.push(&[0xD0 | ch, 0]);
                 out.push(&[0xB0 | ch, 123, 0]);
             }
         }
         Cmd::Panic => {
             engine.stop(out);
+            // A held pedal would keep every note: release it (and centre the wheels) on
+            // the keyboard parts before All Notes Off. The pedal counts as up until it is
+            // pressed again.
+            shared.controllers.reset(&mut |m| out.push(m));
+            engine.pads_panic(out);
             for ch in 0..16u8 {
                 out.push(&[0xB0 | ch, 123, 0]);
             }
@@ -1146,6 +1262,8 @@ pub struct Channels {
     pub old_audition_rx: Consumer<Box<Audition>>,
     pub looper_tx: Producer<ChordSeq>,
     pub recorded_rx: Consumer<ChordSeq>,
+    pub pad_tx: Producer<PadBank>,
+    pub old_pad_rx: Consumer<Box<MultiPadPlayer>>,
     pub io: EngineIo,
 }
 
@@ -1159,6 +1277,8 @@ pub fn channels(out: Out) -> Channels {
     let (old_auditions, old_audition_rx) = RingBuffer::new(8);
     let (looper_tx, looper_in) = RingBuffer::new(4);
     let (recorded, recorded_rx) = RingBuffer::new(4);
+    let (pad_tx, pad_banks) = RingBuffer::new(4);
+    let (old_pads, old_pad_rx) = RingBuffer::new(8);
     Channels {
         input_tx,
         ui_tx,
@@ -1169,7 +1289,12 @@ pub fn channels(out: Out) -> Channels {
         old_audition_rx,
         looper_tx,
         recorded_rx,
-        io: EngineIo { input, ui, styles, old, snaps, auditions, old_auditions, looper_in, recorded, out },
+        pad_tx,
+        old_pad_rx,
+        io: EngineIo {
+            input, ui, styles, old, snaps, auditions, old_auditions, looper_in, recorded, pad_banks,
+            old_pads, out,
+        },
     }
 }
 
@@ -1350,7 +1475,8 @@ mod tests {
     }
 
     /// The keyboard's own CC7, bank select and program changes never reach a part: its
-    /// volume and voice are the part's own (the CC7 principle). Other controllers go on.
+    /// volume and voice are the part's own (the CC7 principle). The modulation wheel goes
+    /// to the parts it reaches (Right 1-3 that sound); other controllers to every part.
     #[test]
     fn keyboard_volume_and_voice_messages_are_dropped() {
         let shared = Arc::new(Shared::new(54));
@@ -1364,11 +1490,13 @@ mod tests {
         assert!(heard.pop().is_err());
         assert_eq!(shared.parts.volume(parts::RIGHT1), 100);
         input.key_msg(&[0xB0, 1, 64]);
-        assert_eq!(std::iter::from_fn(|| heard.pop().ok()).count(), parts::COUNT, "mod wheel to every part");
+        assert_eq!(std::iter::from_fn(|| heard.pop().ok()).collect::<Vec<_>>(), vec![[0xB0, 1, 64]], "mod wheel: Right 1, the one part on");
+        input.key_msg(&[0xB0, 11, 64]);
+        assert_eq!(std::iter::from_fn(|| heard.pop().ok()).count(), parts::COUNT, "expression to every part");
     }
 
     /// Through `Input`: a held layered note is released on every part it started on, even
-    /// after the parts changed; pedals reach every part.
+    /// after the parts changed; the sustain pedal reaches the parts that sound.
     #[test]
     fn layered_notes_release_where_they_started() {
         let shared = Arc::new(Shared::new(54));
@@ -1386,7 +1514,7 @@ mod tests {
         input.key_msg(&[0x80, 72, 0]);
         assert_eq!(sent(), vec![[0x80, 72, 0], [0x82, 72, 0]]);
         input.key_msg(&[0xB0, 64, 127]);
-        assert_eq!(sent(), vec![[0xB0, 64, 127], [0xB2, 64, 127], [0xB3, 64, 127], [0xB1, 64, 127]]);
+        assert_eq!(sent(), vec![[0xB2, 64, 127], [0xB3, 64, 127]], "Right 2 and 3 sound; Right 1 and Left are off");
         // Lower detection, Left off: the left hand only gives the chord.
         input.key_msg(&[0x90, 40, 90]);
         assert!(sent().is_empty());
@@ -1537,6 +1665,73 @@ mod tests {
         assert_eq!(played(&l, now).as_deref(), Some("D"), "D, recognized before the loop, is followed after it");
     }
 
+    /// The input thread does not recognize chords while looping (review #96 r3 N7): over a
+    /// C loop the left hand plays an F shape as a melody; after loop off the player plays
+    /// F on purpose, and the style follows it. Were F recognized while looping (the engine
+    /// ignoring it), the input would take the later F for the chord it already sent.
+    #[test]
+    fn same_chord_as_loop_melody_is_followed_after_loop_off() {
+        let p = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus/MOX_v2/SlowWalker.T552.sty");
+        if !p.exists() {
+            eprintln!("corpus missing; skipping");
+            return;
+        }
+        let prep = Box::new(Prepared::new(&crate::sff::Style::load(&p).unwrap()));
+        let bar = (60e9 / prep.bpm * (prep.tpb as f64 / prep.ppq as f64)) as u64;
+        let shared = Arc::new(Shared::new(54));
+        let mut ch = channels(Out::new(PacketSink::new(rt::Target::Null), None));
+        let mut l = EngineLoop::new(Engine::new(prep), ch.io, shared.clone());
+        let (cmd, _cmd_rx) = RingBuffer::new(16);
+        let mut input = Input::new(shared.clone(), Recognizer::new(), cmd, Out::new(PacketSink::new(rt::Target::Null), None));
+        let run = |l: &mut EngineLoop, now: &mut u64, until: u64| {
+            while *now < until {
+                *now = l.next_deadline().unwrap_or(*now + 5_000_000).max(*now + 1);
+                l.step(*now);
+            }
+        };
+        let played = |l: &EngineLoop, now: u64| l.engine.snapshot(now).played.map(|c| c.name());
+        let mut now = 1_000;
+        l.step(now);
+        // Record one bar of C and loop it.
+        ch.ui_tx.push(Cmd::Looper(true)).ok().unwrap();
+        l.step(now);
+        for k in [36, 40, 43] {
+            input.key_msg(&[0x90, k, 90]);
+        }
+        l.step(now);
+        let t0 = now;
+        run(&mut l, &mut now, t0 + bar / 2);
+        ch.ui_tx.push(Cmd::Looper(false)).ok().unwrap();
+        run(&mut l, &mut now, t0 + bar + bar / 4);
+        assert!(shared.looping.load(Relaxed), "the loop plays");
+        for k in [36, 40, 43] {
+            input.key_msg(&[0x80, k, 0]);
+        }
+        // Over the loop, the left hand plays an F shape, and lets go.
+        for k in [41, 45, 48] {
+            input.key_msg(&[0x90, k, 90]);
+        }
+        let until = now + bar / 8;
+        run(&mut l, &mut now, until);
+        for k in [41, 45, 48] {
+            input.key_msg(&[0x80, k, 0]);
+        }
+        assert_eq!(played(&l, now).as_deref(), Some("C"), "looping: the loop's chord");
+        // Loop off: the style stays on C.
+        ch.ui_tx.push(Cmd::Looper(false)).ok().unwrap();
+        let until = now + bar / 8;
+        run(&mut l, &mut now, until);
+        assert!(!shared.looping.load(Relaxed));
+        assert_eq!(played(&l, now).as_deref(), Some("C"));
+        // Now F, on purpose: followed.
+        for k in [41, 45, 48] {
+            input.key_msg(&[0x90, k, 90]);
+        }
+        let until = now + bar / 8;
+        run(&mut l, &mut now, until);
+        assert_eq!(played(&l, now).as_deref(), Some("F"), "F after loop off is the chord");
+    }
+
     /// Two held keys that land on the same note (an octave shift folding past the MIDI
     /// range, or a transpose change between presses): the note stops only when the last
     /// key holding it lets go.
@@ -1658,7 +1853,7 @@ mod tests {
         input.pad_msg(&[0xB0, 5, v0]);
         input.pad_msg(&[0xB0, 5, 90]);
         while let Ok(c) = cmds.pop() {
-            apply(&mut engine, parts, c, 0, &mut out);
+            apply(&mut engine, &shared, c, 0, &mut out);
         }
         rebind_faders(&mut engine, parts);
         assert_eq!(engine.snapshot(0).volumes[0], 90);
@@ -1669,12 +1864,12 @@ mod tests {
         input.pad_msg(&[0xB0, 45, 127]);
         assert_eq!(parts.fader_page(), FaderPage::Style);
         while let Ok(c) = cmds.pop() {
-            apply(&mut engine, parts, c, 0, &mut out);
+            apply(&mut engine, &shared, c, 0, &mut out);
         }
         // The next Style move arrives with the rebind still pending: no jump from 90 to 12.
         input.pad_msg(&[0xB0, 5, 12]);
         while let Ok(c) = cmds.pop() {
-            apply(&mut engine, parts, c, 0, &mut out);
+            apply(&mut engine, &shared, c, 0, &mut out);
         }
         assert_eq!(engine.snapshot(0).volumes[0], 90, "no jump");
         assert_eq!(engine.snapshot(0).pickup & 1, 1, "fader 1 waits to reach its part");
@@ -2117,14 +2312,99 @@ mod source_tests {
         let mut engine = Engine::new(Box::new(Prepared::new(&crate::sff::Style::load(&p).unwrap())));
         let (tx, mut heard) = RingBuffer::new(256);
         let mut out = Out::new(PacketSink::new(rt::Target::Virtual(0)), Some(tx));
-        let parts = Parts::new();
-        apply(&mut engine, &parts, Cmd::KeysOff, 0, &mut out);
+        let shared = Shared::new(54);
+        apply(&mut engine, &shared, Cmd::KeysOff, 0, &mut out);
         let sent = drain(&mut heard);
         for ch in parts::CHANNEL {
             let at = |m: [u8; 3]| sent.iter().position(|x| *x == m);
             let (pedal, off) = (at([0xB0 | ch, 64, 0]), at([0xB0 | ch, 123, 0]));
             assert!(pedal.is_some() && off.is_some() && pedal < off, "ch {}: pedal up, then all notes off", ch + 1);
             assert!(at([0xE0 | ch, 0, 0x40]).is_some(), "ch {}: bend centred", ch + 1);
+        }
+    }
+
+    /// A keyboard unplugged with its pedal down, then plugged back: after the reset the
+    /// pedal counts as up, so the first press sustains again (it is not read as "still
+    /// down"), and the Pedals lamp is out meanwhile.
+    #[test]
+    fn after_a_dropped_pedal_the_next_press_sustains() {
+        let (mut inp, shared, mut heard, _cmds, mut rel) = rig();
+        let a = key_tag(1);
+        inp.packet(a, 0, &[0xB0, 64, 127]);
+        inp.end_of_list();
+        assert_eq!(shared.controllers.down(), 1);
+        shared.controllers.reset(&mut |_| {});
+        rel.push(1).unwrap();
+        assert_eq!(shared.controllers.down(), 0);
+        drain(&mut heard);
+        inp.packet(a, 0, &[0xB0, 64, 127]);
+        inp.end_of_list();
+        assert_eq!(shared.controllers.switches(), crate::controllers::SUSTAIN);
+        assert!(drain(&mut heard).iter().any(|m| m[0] & 0xF0 == 0xB0 && m[1] == 64 && m[2] == 127));
+    }
+
+    /// Keyboard solo and the pedals/wheels (review #96 r3 B3): a soloed part sounds even
+    /// switched off, so it gets the sustain pedal, the modulation and the bend; the parts the
+    /// solo silences (Right 1, on) get none of them.
+    #[test]
+    fn a_soloed_part_gets_the_pedal_and_wheels() {
+        let (mut inp, shared, mut heard, _cmds, _rel) = rig();
+        let (r1, r2) = (parts::CHANNEL[parts::RIGHT1], parts::CHANNEL[parts::RIGHT2]);
+        assert!(shared.parts.is_on(parts::RIGHT1) && !shared.parts.is_on(parts::RIGHT2));
+        shared.parts.set_solo(Some(parts::RIGHT2));
+        let a = key_tag(1);
+        inp.packet(a, 0, &[0xB0, 64, 127, 0xB0, 1, 90, 0xE0, 0, 0x60]);
+        inp.end_of_list();
+        let sent = drain(&mut heard);
+        for m in [[0xB0 | r2, 64, 127], [0xB0 | r2, 1, 90], [0xE0 | r2, 0, 0x60]] {
+            assert!(sent.contains(&m), "the soloed Right 2 gets {m:02X?}: {sent:02X?}");
+        }
+        let to_r1: Vec<_> = sent.iter().filter(|m| m[0] & 0x0F == r1 && (m[2] != 0 && m[1] != 0x40 || m[0] & 0xF0 == 0xE0 && m[2] != 0x40)).collect();
+        assert!(to_r1.is_empty(), "the silenced Right 1 gets no pedal, mod or bend: {to_r1:02X?}");
+        // The solo ends: Right 1 takes them, Right 2 lets go.
+        shared.parts.set_solo(None);
+        inp.packet(a, 0, &[0xB0, 1, 91]);
+        inp.end_of_list();
+        let sent = drain(&mut heard);
+        for m in [[0xB0 | r1, 64, 127], [0xB0 | r1, 1, 91], [0xE0 | r1, 0, 0x60], [0xB0 | r2, 64, 0], [0xB0 | r2, 1, 0], [0xE0 | r2, 0, 0x40]] {
+            assert!(sent.contains(&m), "after the solo {m:02X?}: {sent:02X?}");
+        }
+    }
+
+    /// Two keyboards, each with a sustain pedal: releasing one leaves Sustain on while the
+    /// other is still held.
+    #[test]
+    fn a_pedal_held_on_another_keyboard_keeps_sustain() {
+        let (mut inp, shared, mut heard, _cmds, _rel) = rig();
+        let (a, b) = (key_tag(1), key_tag(2));
+        inp.packet(a, 0, &[0xB0, 64, 127]);
+        inp.packet(b, 0, &[0xB0, 64, 127]);
+        inp.end_of_list();
+        drain(&mut heard);
+        inp.packet(a, 0, &[0xB0, 64, 0]);
+        inp.end_of_list();
+        assert_eq!(shared.controllers.switches(), crate::controllers::SUSTAIN);
+        assert!(!drain(&mut heard).iter().any(|m| m[1] == 64 && m[2] == 0), "no release while B holds it");
+        inp.packet(b, 0, &[0xB0, 64, 0]);
+        inp.end_of_list();
+        assert_eq!(shared.controllers.switches(), 0);
+        assert!(drain(&mut heard).contains(&[0xB0, 64, 0]));
+    }
+
+    /// Reset All Controllers from a keyboard resets the pedals and wheels and still reaches
+    /// every keyboard part (it resets expression and the rest on the synth).
+    #[test]
+    fn reset_all_controllers_reaches_the_parts() {
+        let (mut inp, shared, mut heard, _cmds, _rel) = rig();
+        inp.packet(key_tag(1), 0, &[0xB0, 64, 127, 0xB0, 11, 40]);
+        inp.end_of_list();
+        drain(&mut heard);
+        inp.packet(key_tag(1), 0, &[0xB0, 121, 0]);
+        inp.end_of_list();
+        assert_eq!(shared.controllers.switches(), 0);
+        let sent = drain(&mut heard);
+        for ch in parts::CHANNEL {
+            assert!(sent.contains(&[0xB0 | ch, 121, 0]), "ch {}", ch + 1);
         }
     }
 

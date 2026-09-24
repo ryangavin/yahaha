@@ -28,6 +28,9 @@ export type AppCmd =
   | { type: 'intro'; index: number }
   | { type: 'main'; index: number }
   | { type: 'break' }
+  /** Fill Down (-1), Fill Self (0), Fill Up (1): the fill, then the Main to the left,
+   * the same one or the one to the right. */
+  | { type: 'fill'; delta: number }
   | { type: 'ending'; index: number }
   | { type: 'startStop' }
   | { type: 'stop' }
@@ -114,6 +117,9 @@ export type AppCmd =
   | { type: 'setMetronome'; on: boolean }
   | { type: 'setMetronomeVolume'; volume: number }
   | { type: 'setMetronomeBell'; on: boolean }
+  | MultiPadCmd
+  // Controllers: pedals, wheels, assignable functions (docs/controllers.md)
+  | ControllersCmd
 
 /** Style Track Mute order (RM p.148). A: Rhythm 2 first; B: Chord 1 first. */
 export type TrackMuteOrder = 'a' | 'b'
@@ -579,6 +585,132 @@ export interface AppState {
   /** The Chord Looper. */
   looper: LooperState
   metronome: MetronomeState
+  /** Multi Pads: the bank, the four pads, Synchro Stop, the bank files. */
+  multiPad: MultiPadState
+  /** Pedals, wheels, the parts they reach and the pedals' assignable functions. */
+  controllers: ControllersState
+}
+
+// ── Controllers (docs/controllers.md) ────────────────────────────────────
+
+/** An assignable function's id: a row of `assignable-functions.json` (`AssignableFunction`). */
+export type FunctionId = string
+
+/** Sustain, Sostenuto, Soft: how the pedal drives them. */
+export type ControlType = 'holdA' | 'holdB' | 'toggle'
+/** Which half of the bend a Pitch Bend pedal sweeps. */
+export type BendRange = 'upper' | 'lower' | 'full'
+
+/** A row of the assignable-function table (app/src/lib/api/assignable-functions.json). */
+export interface AssignableFunction {
+  id: FunctionId
+  name: string
+  category: 'voice' | 'style' | 'ots' | 'registration' | 'overall'
+  /** switch: Control Type applies; trigger: fires on the press; continuous: an expression pedal. */
+  kind: 'switch' | 'trigger' | 'continuous'
+  /** yahaha has it (Registration Bank +/− not yet). */
+  available: boolean
+}
+
+export type ControllersCmd =
+  /** Pedal 0-2: the CC it listens for (null: none), its function, Control Type, polarity, Range. */
+  | { type: 'setPedal'; pedal: number; cc: number | null; function: FunctionId; controlType: ControlType; reverse: boolean; range: BendRange }
+  /** The pedal takes the CC of the next pedal pressed on a keyboard; null stops. */
+  | { type: 'learnPedal'; pedal: number | null }
+  /** Which controllers reach a keyboard part (0-3). */
+  | { type: 'setPartControllers'; part: number; sustain: boolean; pitchBend: boolean; modulation: boolean }
+  /** A keyboard part's Pitch Bend Range, 0-12 semitones. */
+  | { type: 'setBendRange'; part: number; semitones: number }
+  /** Run an assignable function now, as a pedal press would. */
+  | { type: 'triggerFunction'; function: FunctionId }
+
+export interface PedalState {
+  cc: number | null
+  function: FunctionId
+  controlType: ControlType
+  reverse: boolean
+  range: BendRange
+  /** Held down now. */
+  down: boolean
+}
+
+export interface PartControllers {
+  /** The pedal switches (sustain, sostenuto, soft) reach it. */
+  sustain: boolean
+  pitchBend: boolean
+  modulation: boolean
+  /** Semitones, 0-12. */
+  bendRange: number
+}
+
+export interface ControllersState {
+  /** Always 3. */
+  pedals: PedalState[]
+  /** The pedal learning its CC, or null. */
+  learning: number | null
+  /** Right 1, Right 2, Right 3, Left. */
+  parts: PartControllers[]
+  sustain: boolean
+  sostenuto: boolean
+  soft: boolean
+}
+
+// ── Multi Pads (docs/app-api.md "Multi Pads", docs/multipad.md) ───────────────
+
+/** Pads are 0–3. */
+export type MultiPadCmd =
+  /** Load a bank from `multiPad.banks`. */
+  | { type: 'loadMultiPad'; id: number }
+  /** Load any `.pad` file (added to `multiPad.banks`). */
+  | { type: 'loadMultiPadPath'; path: string }
+  /** No bank: the pads go dark. */
+  | { type: 'clearMultiPad' }
+  /** Press a pad: at once when stopped, at the next bar line while the band plays. */
+  | { type: 'triggerMultiPad'; pad: number }
+  /** STOP + pad. */
+  | { type: 'stopMultiPad'; pad: number }
+  /** STOP: every pad, and Synchro Start standby. */
+  | { type: 'stopAllMultiPads' }
+  /** SELECT + pad: toggle Synchro Start standby. */
+  | { type: 'armMultiPad'; pad: number }
+  | { type: 'setMultiPadRepeat'; pad: number; on: boolean }
+  | { type: 'setMultiPadChordMatch'; pad: number; on: boolean }
+  /** Multi Pad Synchro Stop: repeating pads stop when the band stops / an Ending starts. */
+  | { type: 'setMultiPadSynchroStop'; styleStop: boolean; ending: boolean }
+
+/** A pad's lamp: off, blue, red flashing (Synchro Start), waiting for the bar line, red. */
+export type PadLamp = 'empty' | 'ready' | 'armed' | 'queued' | 'playing'
+
+export interface MultiPadPad {
+  /** 0–3. */
+  index: number
+  /** From the bank file; empty for an empty pad. */
+  name: string
+  lamp: PadLamp
+  repeat: boolean
+  chordMatch: boolean
+  /** The MIDI channel it plays on (5–8). */
+  channel: number
+}
+
+export interface MultiPadBankEntry {
+  id: number
+  name: string
+  /** Relative to the scanned root, `/`-separated. */
+  folder: string
+  path: string
+}
+
+export interface MultiPadState {
+  /** The bank loaded; null when none. */
+  bank: { id: number; name: string; path: string } | null
+  /** A bank is on its way to the engine. */
+  loading: boolean
+  /** Always 4. */
+  pads: MultiPadPad[]
+  synchroStop: { styleStop: boolean; ending: boolean }
+  /** The `.pad` files in the style folders, folder then name. */
+  banks: MultiPadBankEntry[]
 }
 
 export interface LibraryEntry {

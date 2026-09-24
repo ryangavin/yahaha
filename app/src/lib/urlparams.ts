@@ -4,7 +4,7 @@
 //   ?theme=light   start in the light theme (not remembered)
 //   ?help=1        start in help mode
 //   ?tip=<key>     show the help-footer entry of the first control with that catalog key
-//   ?open=browser|settings|parts|mixer|looper   open an overlay or drawer
+//   ?open=browser|settings|parts|mixer|looper|multipad   open an overlay or drawer
 //   ?shift=1       latch the Launchkey mirror's Shift layer
 //   ?styles=N      mock: add N synthetic styles to the library (e.g. 60000; read in api/session.ts)
 
@@ -19,7 +19,7 @@ export function applyUrlParams(search = location.search) {
   if (p.get('help') === '1') tips.help = true
   const open = p.get('open')
   if (open === 'browser') ui.browser = true
-  if (open === 'settings' || open === 'parts' || open === 'mixer' || open === 'looper') ui.toggleDrawer(open)
+  if (open === 'settings' || open === 'parts' || open === 'mixer' || open === 'looper' || open === 'multipad') ui.toggleDrawer(open)
   if (p.get('shift') === '1') ui.shiftLatched = true
   const key = p.get('tip')
   if (key && isTipKey(key)) {
