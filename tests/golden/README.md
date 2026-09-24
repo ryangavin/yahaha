@@ -90,6 +90,8 @@ bar 14  Main A > Fill In BB@4.0000  Caug@1.0000  [MainB]@3.1919
   - Ticks are the style's own (ppq), and notes use Yamaha octave numbers (C3 = MIDI 60).
   - `~…` marks a note that is still sounding when the script ends.
   - A zero length means the note was cut on the same tick it started.
+  - Notes show the pitch that sounds: the key sent plus any Retrigger Rule pitch shift the part is bent by.
+  - `beat.tick C2>F2` marks a Pitch Shift. A note sounding C2 bends to F2 there, with no new attack, and keeps its length from where it started. It is listed in the bar where the bend happens.
   - Parts that play as written whatever the chord only get a count, `N as written`. These are the drum parts (ch9, ch10) and any part whose every source channel is Root Fixed (or Guitar) + Bypass for every key in that section. Listing them would copy the style's own patterns and says nothing about chord following.
 
 ## Script grammar

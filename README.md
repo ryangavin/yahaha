@@ -66,6 +66,8 @@ Options:
    | 10 | Rhythm 2 (main drums) | 16 | Phrase 2 |
 
    The screen shows which Yamaha voice each part was written for (e.g. "≈ Finger Bass"), so you know what sound to load. Drum parts use the GM drum map.
+
+   Channels 11–16 get a pitch bend range of at least 12 semitones (RPN 0), because a chord change can bend a held note to its new pitch. A part whose patterns bend on their own gets more, up to 24, so the pattern's bend fits on top; so does a style that sets more itself. If an instrument ignores RPN, set its pitch bend range by hand: 12, or 24 to be safe.
 3. Arm the tracks, or set Monitor to *In*.
 
 ## Controls
@@ -189,7 +191,7 @@ engine thread ──snapshots, old styles (SPSC)──▶ UI thread
   - spins the last 150 µs to hit the deadline exactly
   - never locks, allocates, or does I/O
 - New styles are prepared on the UI thread, swapped in by pointer, and freed back on the UI thread.
-- Every note is transposed at the moment it plays, and there is no lookahead. A chord change therefore reaches the very next note, and notes already sounding are re-pitched according to the style's retrigger rule. A note that started less than 40 ms before the chord arrived is corrected outright.
+- Every note is transposed at the moment it plays, and there is no lookahead. A chord change therefore reaches the very next note, and notes already sounding are re-pitched according to the style's retrigger rule: Pitch Shift bends them with the part's pitch bend (one bend per part, so a note that needs a different shift is retriggered), Retrigger plays them again at the new pitch. A note that started less than 40 ms before the chord arrived is corrected outright, and one that ends (or is struck again) less than 40 ms after it is left to end rather than attacked again.
 
 `yahaha bench <style>` measures the real path through CoreMIDI (M-series Mac, 2026-09):
 

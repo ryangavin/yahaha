@@ -18,7 +18,9 @@
 //! tick. A recording's clock is its own, so the importer finds bar 1 by lining up the parts
 //! that play as written (drums), which are the same on both sides whatever the chord, and
 //! fits the tempo from all matched notes. Notes that agree within the tolerance take our
-//! timing, so MIDI jitter never shows up as a difference or changes a digest.
+//! timing, so MIDI jitter never shows up as a difference or changes a digest. Where a style
+//! leaves a chord no room for that jitter, the bars and parts it decides are timing-sensitive
+//! (`timing_sensitive`): either outcome is accepted there, and reported on its own.
 
 use crate::engine::Button;
 use crate::fingering::{self, Fingering};
@@ -26,7 +28,7 @@ use crate::sff::{self, Ev, SectionId, Style};
 use crate::sim::{self, PlayedNote, ScriptStep, Step, Take, PART_NAMES};
 use crate::theory::{self, Chord, Recognizer};
 use anyhow::{bail, Context, Result};
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
 
 /// The chord script every capture plays.
@@ -39,6 +41,14 @@ const INSTRUCTIONS: &str = include_str!("../docs/capture-kit/README.md");
 /// made, and a guess at the instrument's. Part of the kit's timing (see `plan`), so it stays
 /// fixed even if the engine's changes.
 const LATE_CHORD_MS: f64 = 40.0;
+/// A chord that comes this soon before a note of the pattern ends or starts leaves the
+/// sounding note that ends (or is struck again) there as it is rather than revoicing it (our
+/// engine's `engine::EARLY_CHORD_NS`, #49). Fixed for the kit like `LATE_CHORD_MS`.
+const EARLY_CHORD_MS: f64 = 40.0;
+/// The timing error every chord the kit sends must absorb (ms): USB jitter and the
+/// instrument's delay in reading a chord. A chord with no more room than this
+/// (`chord_rooms`) is timing-sensitive (`timing_sensitive`).
+pub const JITTER_MS: f64 = 3.0;
 /// Bars of silence before bar 1, so the owner can start the recorder and the player first.
 pub const LEAD_IN_BARS: u32 = 2;
 /// Chord keys go out on MIDI channel 1 (the owner sets it to receive as Keyboard).
@@ -90,10 +100,15 @@ pub const KIT: [KitStyle; 9] = [
 ///   as a press can be.
 /// - A chord (or release) goes out a little ahead of its slot. A chord a few ms either side
 ///   of a note start or end would decide whether that note starts on the old chord, is cut
-///   or is retriggered, and one that comes `LATE_CHORD_MS` after a note started decides how
-///   it is revoiced. So for each position in the beat the script puts chords on, the lead is
-///   the shortest, between a 24th and a quarter of a beat, that keeps furthest from all of
-///   those points in the sections the script calls up, taken round the beat. It depends
+///   or is retriggered, one that comes `LATE_CHORD_MS` after a note started decides how it
+///   is revoiced, and one `EARLY_CHORD_MS` before a note starts or ends (or its section
+///   ends) decides whether the sounding note is revoiced or left to end. So for each
+///   position in the beat the script puts chords on, the lead is the shortest, between a
+///   24th and a quarter of a beat, that leaves the fewest parts within `JITTER_MS` of one of
+///   those points (none, wherever the style allows it) and then keeps furthest from all of
+///   those points in the sections the script calls up, taken round the beat. A chord that
+///   still has a part within `JITTER_MS` of one is timing-sensitive on that part
+///   (`timing_sensitive`): the importer accepts either outcome there. It depends
 ///   only on the style's patterns (the rhythm channels 9 and 10 left out: they play as
 ///   written whatever the chord), never on what our engine does with them, so a kit file
 ///   stays valid while the engine changes. The first chord starts the style (Sync Start)
@@ -105,28 +120,38 @@ pub struct Plan {
     pub acts: Vec<u32>,
     /// The lead (ticks) of the chords on a beat.
     pub chord_lead: u32,
-    /// How far (ticks) any chord may land from its tick before it reaches one of those points
-    /// or its slot, in any of the sections. (`chord_rooms` narrows it to the sections that
-    /// play around each chord.)
-    #[cfg_attr(not(test), allow(dead_code))]
-    pub margin: u32,
 }
 
 /// The positions in the beat (ticks) where a chord landing would decide something in the
-/// sections `used`: every note start and end, and every point `LATE_CHORD_MS` after a start.
-/// The rhythm channels 9 and 10 are left out: they play as written whatever the chord.
-fn edges(style: &Style, used: &[SectionId]) -> Vec<bool> {
+/// sections `used`, for each part (destination channel 11-16, 0-based 10..16): every start
+/// and end of the part's notes, every point `LATE_CHORD_MS` after a start, and every point
+/// `EARLY_CHORD_MS` before a start, an end or the end of a section (where every part is cut).
+/// The rhythm parts are left out: they play as written whatever the chord.
+fn part_edges(style: &Style, used: &[SectionId]) -> [Vec<bool>; 6] {
     let ppq = style.ppq as u32;
-    let late = (LATE_CHORD_MS / 1000.0 * style.bpm() / 60.0 * ppq as f64).round() as u32;
-    let mut edges = vec![false; ppq as usize];
-    for e in style.sections.values().filter(|s| used.contains(&s.id)).flat_map(|s| &s.events) {
-        match e.ev {
-            Ev::NoteOn { ch, vel, .. } if ch != 8 && ch != 9 && vel > 0 => {
-                edges[(e.tick % ppq) as usize] = true;
-                edges[((e.tick + late) % ppq) as usize] = true;
+    let ticks = |ms: f64| (ms / 1000.0 * style.bpm() / 60.0 * ppq as f64).round() as u32 % ppq;
+    let (late, early) = (ticks(LATE_CHORD_MS), ticks(EARLY_CHORD_MS));
+    let mut edges: [Vec<bool>; 6] = std::array::from_fn(|_| vec![false; ppq as usize]);
+    for s in style.sections.values().filter(|s| used.contains(&s.id)) {
+        let rules = style.rules_for(s.id);
+        let dest = |src: u8| rules.get(&src).map_or(src, |r| r.dest_ch);
+        let before_end = ((s.len % ppq + ppq - early) % ppq) as usize;
+        for e in edges.iter_mut() {
+            e[before_end] = true;
+        }
+        for e in &s.events {
+            let (ch, start) = match e.ev {
+                Ev::NoteOn { ch, vel, .. } => (ch, vel > 0),
+                Ev::NoteOff { ch, .. } => (ch, false),
+                _ => continue,
+            };
+            let Some(part) = dest(ch).checked_sub(10).filter(|&p| p < 6) else { continue };
+            let (edges, at) = (&mut edges[part as usize], e.tick % ppq);
+            edges[at as usize] = true;
+            edges[((at + ppq - early) % ppq) as usize] = true;
+            if start {
+                edges[((at + late) % ppq) as usize] = true;
             }
-            Ev::NoteOn { ch, .. } | Ev::NoteOff { ch, .. } if ch != 8 && ch != 9 => edges[(e.tick % ppq) as usize] = true,
-            _ => {}
         }
     }
     edges
@@ -164,16 +189,30 @@ pub fn plan(style: &Style, script: &str) -> Result<Plan> {
             _ => {}
         }
     }
-    let edges = edges(style, &used);
-    // The best lead for chords on each position in the beat the script uses.
-    let mut leads: Vec<(u32, u32, u32)> = Vec::new();
+    let parts = part_edges(style, &used);
+    let d = ms_ticks(style, JITTER_MS);
+    // The best lead for chords on each position in the beat the script uses: the shortest
+    // that leaves the fewest parts within `JITTER_MS` of a decision point (none, where the
+    // style allows it), and then the most room.
+    let mut leads: Vec<(u32, u32)> = Vec::new();
     for s in steps.iter().filter(|s| s.tick > 0 && !matches!(s.step, Step::Button(_))) {
         let phase = s.tick % ppq;
         if leads.iter().any(|l| l.0 == phase) {
             continue;
         }
-        let best = (ppq / 24..=ppq / 4).map(|lead| (phase, lead, room(&edges, (phase + ppq - lead) % ppq).min(lead))).fold((phase, ppq / 24, 0), |b, c| if c.2 > b.2 { c } else { b });
-        leads.push(best);
+        let score = |lead: u32| {
+            let at = (phase + ppq - lead) % ppq;
+            let rooms = parts.iter().map(|e| room(e, at).min(lead));
+            (rooms.clone().filter(|&r| r <= d).count(), rooms.min().unwrap_or(lead))
+        };
+        let (mut best, mut best_score) = (ppq / 24, score(ppq / 24));
+        for lead in ppq / 24 + 1..=ppq / 4 {
+            let s = score(lead);
+            if s.0 < best_score.0 || (s.0 == best_score.0 && s.1 > best_score.1) {
+                (best, best_score) = (lead, s);
+            }
+        }
+        leads.push((phase, best));
     }
     let lead_at = |t: u32| leads.iter().find(|l| l.0 == t % ppq).map_or(0, |l| l.1);
     let acts = steps
@@ -184,25 +223,102 @@ pub fn plan(style: &Style, script: &str) -> Result<Plan> {
             _ => s.tick - lead_at(s.tick),
         })
         .collect();
-    let margin = leads.iter().map(|l| l.2).min().unwrap_or(0);
     let chord_lead = leads.iter().find(|l| l.0 == 0).map_or(0, |l| l.1);
-    Ok(Plan { steps, bars, acts, chord_lead, margin })
+    Ok(Plan { steps, bars, acts, chord_lead })
 }
 
 /// How far (ticks) each chord of a take (by step index; the first, which starts the style,
-/// left out) may land from where it acts before it meets a note start or end, or the point
-/// `LATE_CHORD_MS` after a start, in the sections playing around it, or reaches its slot.
+/// left out) may land from where it acts before it meets a note start or end, the point
+/// `LATE_CHORD_MS` after a start or `EARLY_CHORD_MS` before a start or end, in the sections
+/// playing around it, or reaches its slot.
 fn chord_rooms(style: &Style, take: &Take) -> Vec<(usize, u32)> {
-    let ppq = style.ppq as u32;
     (0..take.steps.len())
         .filter(|&i| take.steps[i].tick > 0 && matches!(take.steps[i].step, Step::Chord(_)))
-        .map(|i| {
-            let (slot, act) = (take.steps[i].tick, take.acts[i]);
-            let lead = slot - act;
-            let used: Vec<SectionId> = [act.saturating_sub(lead), act, slot].iter().filter_map(|&t| take.section_at(t)).collect();
-            (i, room(&edges(style, &used), act % ppq).min(lead))
-        })
+        .map(|i| (i, part_rooms(style, take, i).into_iter().min().unwrap()))
         .collect()
+}
+
+/// The kit table's "Timing-sensitive" column for a style: how many bars of each part the
+/// importer accepts either outcome in, or "none".
+fn sensitive_summary(style: &Style) -> Result<String> {
+    let take = perform(style, SCRIPT)?;
+    let cells = timing_sensitive(style, &take, &chord_rooms(style, &take));
+    let parts: Vec<String> = (10..16u8)
+        .filter_map(|ch| {
+            let n = cells.iter().filter(|c| c.1 == ch).count();
+            (n > 0).then(|| format!("{} {n} bars", PART_NAMES[ch as usize - 8]))
+        })
+        .collect();
+    Ok(if parts.is_empty() { "none".into() } else { parts.join(", ") })
+}
+
+/// `ms` in a style's ticks, rounded up.
+fn ms_ticks(style: &Style, ms: f64) -> u32 {
+    (ms / 1000.0 * style.bpm() / 60.0 * style.ppq as f64).ceil() as u32
+}
+
+/// The chords of a take (by step index) that `JITTER_MS` could carry across a point where
+/// they decide something (their room is no more than it): the style's patterns leave no
+/// better place for them. See `timing_sensitive`.
+pub fn sensitive_chords(style: &Style, rooms: &[(usize, u32)]) -> Vec<usize> {
+    let d = ms_ticks(style, JITTER_MS);
+    rooms.iter().filter(|r| r.1 <= d).map(|r| r.0).collect()
+}
+
+/// The (bar, channel) cells of a take, both 0-based, whose notes can depend on which side of
+/// a decision point a timing-sensitive chord (`sensitive_chords`) lands. For each such chord,
+/// the parts with a decision point of their own within `JITTER_MS` of it (`part_edges`), from
+/// `JITTER_MS` before the chord acts to `EARLY_CHORD_MS` past its slot (the notes it starts,
+/// cuts, retriggers or leaves) and on until the part next falls silent (a pitch shift the
+/// chord did or did not make bends the part until then), and the bars where the notes
+/// sounding over that span started (their lengths). The importer accepts either outcome in
+/// these cells and reports them apart from the differences; the reference test ignores them.
+pub fn timing_sensitive(style: &Style, take: &Take, rooms: &[(usize, u32)]) -> BTreeSet<(u32, u8)> {
+    let d = ms_ticks(style, JITTER_MS);
+    let early = ms_ticks(style, EARLY_CHORD_MS);
+    let end = take.bars * take.tpb;
+    let mut cells = BTreeSet::new();
+    for i in sensitive_chords(style, rooms) {
+        let (act, slot) = (take.acts[i], take.steps[i].tick);
+        let part_room = part_rooms(style, take, i);
+        let lo = act.saturating_sub(d);
+        for ch in 10..16u8 {
+            if part_room[ch as usize - 10] > d {
+                continue;
+            }
+            let notes: Vec<&PlayedNote> = take.notes.iter().filter(|n| n.ch == ch).collect();
+            let sounding = |t: u32| notes.iter().any(|n| n.tick <= t && n.len.is_none_or(|l| n.tick + l > t));
+            // From the end of the span, on to where the part falls silent.
+            let mut hi = slot.max(act) + d + early;
+            while hi < end && sounding(hi) {
+                hi = notes.iter().filter(|n| n.tick <= hi).filter_map(|n| n.len.map(|l| n.tick + l)).filter(|&e| e > hi).min().unwrap_or(end);
+            }
+            for bar in lo / take.tpb..=hi.min(end.saturating_sub(1)) / take.tpb {
+                cells.insert((bar, ch));
+            }
+            for n in notes.iter().filter(|n| n.tick <= hi && n.len.is_none_or(|l| n.tick + l >= lo)) {
+                cells.insert((n.tick / take.tpb, ch));
+            }
+        }
+    }
+    cells.retain(|c| c.0 < take.bars);
+    cells
+}
+
+/// The sections playing around chord step `i` of a take: where its lead began, where it
+/// acts, and at its slot.
+fn sections_around(take: &Take, i: usize) -> Vec<SectionId> {
+    let (slot, act) = (take.steps[i].tick, take.acts[i]);
+    let lead = slot - act;
+    [act.saturating_sub(lead), act, slot].iter().filter_map(|&t| take.section_at(t)).collect()
+}
+
+/// Chord step `i`'s room (see `chord_rooms`) for each part (ch 11-16), against its own
+/// decision points (`part_edges`) in the sections around the chord.
+fn part_rooms(style: &Style, take: &Take, i: usize) -> [u32; 6] {
+    let (slot, act) = (take.steps[i].tick, take.acts[i]);
+    let edges = part_edges(style, &sections_around(take, i));
+    std::array::from_fn(|p| room(&edges[p], act % style.ppq as u32).min(slot - act))
 }
 
 /// The clock difference (ppm) between the computer and the instrument that `rooms` take:
@@ -217,7 +333,19 @@ fn clock_budget(take: &Take, rooms: &[(usize, u32)]) -> f64 {
 /// each recording.
 pub fn clock_budget_ppm(style: &Style, script: &str) -> Result<f64> {
     let take = perform(style, script)?;
-    Ok(clock_budget(&take, &chord_rooms(style, &take)))
+    Ok(clock_budget(&take, &steady_rooms(style, &take)))
+}
+
+/// The room each chord has on the parts it is not timing-sensitive on (`part_rooms` over
+/// `JITTER_MS`): what the clock budget and the chord timing check hold it to. The parts it is
+/// timing-sensitive on have their own cells, where either outcome is accepted; a chord that
+/// is timing-sensitive on every part is left out.
+fn steady_rooms(style: &Style, take: &Take) -> Vec<(usize, u32)> {
+    let d = ms_ticks(style, JITTER_MS);
+    chord_rooms(style, take)
+        .into_iter()
+        .filter_map(|(i, _)| Some((i, part_rooms(style, take, i).into_iter().filter(|&r| r > d).min()?)))
+        .collect()
 }
 
 /// Our engine's take of `script` on `style`, with the steps timed as the kit sends them.
@@ -427,7 +555,7 @@ pub fn write_kit(out: &Path, styles: &[PathBuf], clock_ppm: f64) -> Result<()> {
     }
     std::fs::create_dir_all(out)?;
     let mut table = String::from(
-        "\n## Files in this kit\n\n| MIDI file | Style to load | Where to get it | Tempo | Length | Covers | Clock tolerance |\n|---|---|---|---|---|---|---|\n",
+        "\n## Files in this kit\n\n| MIDI file | Style to load | Where to get it | Tempo | Length | Covers | Clock tolerance | Timing-sensitive |\n|---|---|---|---|---|---|---|---|\n",
     );
     if clock_ppm != 0.0 {
         table = format!("\nThese files run {clock_ppm:+.0} ppm fast, to match the clock of the instrument they were made for.\n{table}");
@@ -440,7 +568,7 @@ pub fn write_kit(out: &Path, styles: &[PathBuf], clock_ppm: f64) -> Result<()> {
         std::fs::write(out.join(&file), kit_midi(&style, SCRIPT, clock_ppm)?)?;
         let secs = (bars + LEAD_IN_BARS) as f64 * style.ticks_per_bar() as f64 / style.ppq as f64 * 60.0 / style.bpm();
         table += &format!(
-            "| `{file}` | {} (`{}`) | {} | {:.0} bpm | {bars} bars + {LEAD_IN_BARS} lead-in, {}:{:02} | {} | {:.0} ppm |\n",
+            "| `{file}` | {} (`{}`) | {} | {:.0} bpm | {bars} bars + {LEAD_IN_BARS} lead-in, {}:{:02} | {} | {:.0} ppm | {} |\n",
             kit.map_or(stem.as_str(), |k| k.title),
             path.file_name().unwrap().to_string_lossy(),
             kit.map_or("-", |k| k.source),
@@ -449,6 +577,7 @@ pub fn write_kit(out: &Path, styles: &[PathBuf], clock_ppm: f64) -> Result<()> {
             secs as u32 % 60,
             kit.map_or("-", |k| k.covers),
             clock_budget_ppm(&style, SCRIPT)?,
+            sensitive_summary(&style)?,
         );
         println!("wrote {}", out.join(&file).display());
     }
@@ -567,9 +696,14 @@ pub struct Import {
     pub report: String,
     /// Whether the recording can serve as reference data (see `verify`).
     pub verified: bool,
-    /// Bars where any part differs.
+    /// Bars where any part differs, timing-sensitive cells left out.
     #[cfg_attr(not(test), allow(dead_code))]
     pub differing_bars: usize,
+    /// Bars where a timing-sensitive cell differs (either outcome accepted).
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub sensitive_differing: usize,
+    /// The timing-sensitive (bar, channel) cells of our take (`timing_sensitive`).
+    pub sensitive: BTreeSet<(u32, u8)>,
 }
 
 /// Matches recorded notes to our notes with the same channel and key within `tol` ticks,
@@ -640,7 +774,10 @@ fn minus(a: &[String], b: &[String]) -> Vec<String> {
 pub fn import(recording: &[u8], style: &Style, script: &str, opts: &ImportOptions) -> Result<Import> {
     let Plan { steps, bars, acts, chord_lead, .. } = plan(style, script)?;
     let ours = sim::perform_steps(style, steps, bars, acts);
-    let rooms = chord_rooms(style, &ours);
+    let all_rooms = chord_rooms(style, &ours);
+    let sensitive_steps = sensitive_chords(style, &all_rooms);
+    let sensitive = timing_sensitive(style, &ours, &all_rooms);
+    let rooms = steady_rooms(style, &ours);
     let events = read_smf(recording)?;
     let per_sec = ours.bpm / 60.0 * ours.ppq as f64;
     let tol = opts.tolerance_ms / 1000.0 * per_sec;
@@ -711,6 +848,8 @@ pub fn import(recording: &[u8], style: &Style, script: &str, opts: &ImportOption
     let end = (ours.bars * ours.tpb) as f64;
     let mut hardware = ours.clone();
     hardware.notes.clear();
+    hardware.pitch.clear();
+    hardware.shifts.clear();
     let mut before = 0;
     // Notes starting together keep our order (the order they were sent in says nothing),
     // so a take that matches ours renders the same listing.
@@ -893,8 +1032,11 @@ pub fn import(recording: &[u8], style: &Style, script: &str, opts: &ImportOption
     let mut per_part = [(0usize, 0usize); 8];
     let mut diffs = String::new();
     let mut differing_bars = 0;
+    // Timing-sensitive cells that differ: either outcome is accepted there.
+    let (mut sensitive_diffs, mut sensitive_differing) = (String::new(), 0);
     for bar in 0..ours.bars {
         let mut lines = Vec::new();
+        let mut either = Vec::new();
         for ch in 8..16u8 {
             let (hi, hw) = hardware.part_items(bar, ch);
             let (oi, ow) = ours.part_items(bar, ch);
@@ -912,14 +1054,24 @@ pub fn import(recording: &[u8], style: &Style, script: &str, opts: &ImportOption
             if hw != ow {
                 what.push(format!("as written: instrument {hw}, yahaha {ow}"));
             }
-            if !what.is_empty() {
+            if what.is_empty() {
+                continue;
+            }
+            let line = format!("  ch{:<2} {:<8} {}", ch + 1, PART_NAMES[ch as usize - 8], what.join("; "));
+            if sensitive.contains(&(bar, ch)) {
+                either.push(line);
+            } else {
                 p.0 += 1;
-                lines.push(format!("  ch{:<2} {:<8} {}", ch + 1, PART_NAMES[ch as usize - 8], what.join("; ")));
+                lines.push(line);
             }
         }
         if !lines.is_empty() {
             differing_bars += 1;
             diffs += &format!("{}\n{}\n", ours.bar_header(bar), lines.join("\n"));
+        }
+        if !either.is_empty() {
+            sensitive_differing += 1;
+            sensitive_diffs += &format!("{}\n{}\n", ours.bar_header(bar), either.join("\n"));
         }
     }
     out += &format!("\nbars that differ: {differing_bars} of {}\n", ours.bars);
@@ -949,11 +1101,23 @@ pub fn import(recording: &[u8], style: &Style, script: &str, opts: &ImportOption
             out += &format!("  bar {} {} from beat {}: drums {what}\n", bar + 1, id.name(), ours.pos(t));
         }
     }
+    if !sensitive_steps.is_empty() {
+        let bars: BTreeSet<u32> = sensitive.iter().map(|c| c.0).collect();
+        out += &format!(
+            "\ntiming-sensitive: {} chords land within {JITTER_MS} ms of a point where the moment decides what the style plays, so either outcome is accepted in {} bars; {sensitive_differing} of them differ, not counted above\n",
+            sensitive_steps.len(),
+            bars.len()
+        );
+    }
     if !diffs.is_empty() {
         out += "\ndifferences (instrument = the recording, yahaha = our engine):\n";
         out += &diffs;
     }
-    Ok(Import { hardware, ours, report: out, verified, differing_bars })
+    if !sensitive_diffs.is_empty() {
+        out += "\ntiming-sensitive differences (either outcome accepted; instrument = the recording, yahaha = our engine):\n";
+        out += &sensitive_diffs;
+    }
+    Ok(Import { hardware, ours, report: out, verified, differing_bars, sensitive_differing, sensitive })
 }
 
 /// The reference digest of a recording, as `tests/reference/<style file>.digest`.
@@ -972,7 +1136,7 @@ pub fn write_reference(imp: &Import, dir: &Path, style_file: &str, recording: &P
     std::fs::create_dir_all(dir)?;
     let reference = reference_digest(imp);
     std::fs::write(dir.join(format!("{style_file}.digest")), &reference)?;
-    let diffs = digest_differences(&reference, &sim::digest(&imp.ours.render_reference()));
+    let diffs = without_sensitive(digest_differences(&reference, &sim::digest(&imp.ours.render_reference())), &imp.sensitive);
     // The file name only: the full path would put the owner's home directory in the repo.
     let from = recording.file_name().map_or("the recording".into(), |f| f.to_string_lossy());
     let mut text = format!("# Where yahaha differed from {from} when it was imported. One `bar N chX` per line.\n");
@@ -1038,6 +1202,13 @@ fn digest_parts(d: &str) -> (Vec<&str>, HashMap<(usize, String), &str>) {
         }
     }
     (heads, parts)
+}
+
+/// `digest_differences` keys, less those of timing-sensitive cells (`timing_sensitive`):
+/// the hardware may have played either outcome there.
+pub fn without_sensitive(diffs: Vec<String>, sensitive: &BTreeSet<(u32, u8)>) -> Vec<String> {
+    let keys: Vec<String> = sensitive.iter().map(|(bar, ch)| format!("bar {} ch{}", bar + 1, ch + 1)).collect();
+    diffs.into_iter().filter(|d| !keys.contains(d)).collect()
 }
 
 /// Where two digests differ, as `bar N chX` keys (and `bar N header` for the bar line).
@@ -1519,58 +1690,133 @@ mod tests {
         assert_eq!(moved.render_reference(), ours.render_reference());
     }
 
-    /// B1: whether a step reaches the instrument a few ms early or late does not change what
-    /// it plays, because the kit sends nothing on a beat line. Steps sent on the line (as the
-    /// golden snapshots time them) do change it when they arrive late.
+    /// The kit's timing guarantee, exactly: `JITTER_MS` of error in when the steps arrive
+    /// (every step as late or as early as that, or each by its own amount up to it) changes
+    /// neither our section timeline nor any note, except in the timing-sensitive cells
+    /// (`timing_sensitive`), where the style left a chord no room for it. Chord placement
+    /// keeps clear of every decision point it can (note starts and ends, `LATE_CHORD_MS`
+    /// after a start, `EARLY_CHORD_MS` before a start or end), so most kit styles have no
+    /// such cells. Steps sent on the beat line (as the golden snapshots time them) are not
+    /// safe at all.
     #[test]
     fn kit_timing_survives_jitter() {
-        // The same sections, and the same notes give or take the shift: a note the chord
-        // cuts or retriggers moves with it.
-        let same = |a: &Take, b: &Take, d: u32| -> Result<(), String> {
+        // The same sections, and the same notes (give or take the jitter) outside `skip`: a
+        // note the chord cuts or retriggers moves with it.
+        let same = |a: &Take, b: &Take, d: u32, skip: &BTreeSet<(u32, u8)>| -> Result<(), String> {
             if a.sections != b.sections {
                 return Err("the sections change".into());
             }
-            let rec: Vec<RecNote> = b.notes.iter().map(|n| RecNote { x: n.tick as f64, ch: n.ch, key: n.key, end: n.len.map(|l| (n.tick + l) as f64) }).collect();
-            let m = match_notes(&rec, &a.notes, 1.0, 0.0, 2.0 * d as f64);
+            let kept = |t: &Take| -> Vec<PlayedNote> { t.notes.iter().filter(|n| !skip.contains(&(n.tick / t.tpb, n.ch))).copied().collect() };
+            let (an, bn) = (kept(a), kept(b));
+            let rec: Vec<RecNote> = bn.iter().map(|n| RecNote { x: n.tick as f64, ch: n.ch, key: n.key, end: n.len.map(|l| (n.tick + l) as f64) }).collect();
+            let m = match_notes(&rec, &an, 1.0, 0.0, 2.0 * d as f64);
             for (r, m) in rec.iter().zip(&m) {
                 let Some(i) = *m else {
                     return Err(format!("only the shifted take plays key {} on ch{} at tick {}", r.key, r.ch + 1, r.x));
                 };
-                let ends = (a.notes[i].len.map(|l| (a.notes[i].tick + l) as f64), r.end);
+                let ends = (an[i].len.map(|l| (an[i].tick + l) as f64), r.end);
                 if !matches!(ends, (None, None)) && !matches!(ends, (Some(p), Some(q)) if (p - q).abs() <= 2.0 * d as f64) {
                     return Err(format!("key {} on ch{} at tick {}: ends {ends:?}", r.key, r.ch + 1, r.x));
                 }
             }
-            if m.iter().flatten().count() != a.notes.len() {
-                return Err(format!("{} notes against {}", a.notes.len(), b.notes.len()));
+            if m.iter().flatten().count() != an.len() {
+                return Err(format!("{} notes against {}", an.len(), bn.len()));
             }
             Ok(())
         };
-        let shifted = |take: &Take, by: i64| -> Vec<u32> {
-            take.steps.iter().zip(&take.acts).map(|(s, &t)| if s.tick == 0 { t } else { (t as i64 + by) as u32 }).collect()
+        let shifted = |take: &Take, by: &dyn Fn(usize) -> i64| -> Vec<u32> {
+            take.steps.iter().zip(&take.acts).enumerate().map(|(i, (s, &t))| if s.tick == 0 { t } else { (t as i64 + by(i)).max(0) as u32 }).collect()
         };
-        let mut on_line_differs = false;
+        let (mut ran, mut on_line_differs, mut needed) = (false, false, false);
         for k in &KIT {
             let Some(style) = corpus_style(k.file) else {
                 continue;
             };
-            // 3 ms of USB jitter and clock drift, in ticks.
-            let d = (0.003 * style.bpm() / 60.0 * style.ppq as f64).ceil() as i64;
-            let p = plan(&style, SCRIPT).unwrap();
-            eprintln!("{}: chords {} ticks ahead, {} ticks of room ({:.1} ms)", k.file, p.chord_lead, p.margin, p.margin as f64 / style.ppq as f64 * 60_000.0 / style.bpm());
-            assert!(p.margin as i64 > d, "{}: only {} ticks of room", k.file, p.margin);
+            ran = true;
+            let d = ms_ticks(&style, JITTER_MS);
             let take = perform(&style, SCRIPT).unwrap();
-            for by in [-d, d] {
+            let rooms = chord_rooms(&style, &take);
+            let chords = sensitive_chords(&style, &rooms);
+            let cells = timing_sensitive(&style, &take, &rooms);
+            // Exactly the chords with no more room than the jitter are timing-sensitive, and
+            // every one of them marks cells.
+            assert!(rooms.iter().all(|r| chords.contains(&r.0) == (r.1 <= d)), "{}", k.file);
+            assert_eq!(chords.is_empty(), cells.is_empty(), "{}", k.file);
+            let bars: BTreeSet<u32> = cells.iter().map(|c| c.0).collect();
+            let per_part: Vec<usize> = (10..16u8).map(|ch| cells.iter().filter(|c| c.1 == ch).count()).collect();
+            eprintln!("{}: {} of {} chords timing-sensitive; cells in {} of {} bars, per part (ch11-16) {per_part:?}", k.file, chords.len(), rooms.len(), bars.len(), take.bars);
+            let d = d as i64;
+            let mut seed = 0x9E37_79B9u32 ^ k.file.len() as u32;
+            let jitter: Vec<i64> = (0..take.steps.len())
+                .map(|_| {
+                    seed = seed.wrapping_mul(1_103_515_245).wrapping_add(12345);
+                    (seed >> 16) as i64 % (2 * d + 1) - d
+                })
+                .collect();
+            let cases: [(&str, &dyn Fn(usize) -> i64); 3] = [("late", &|_| d), ("early", &|_| -d), ("jittered", &|i| jitter[i])];
+            for (what, by) in cases {
                 let other = sim::perform_steps(&style, take.steps.clone(), take.bars, shifted(&take, by));
-                if let Err(e) = same(&take, &other, d as u32) {
-                    panic!("{}: steps {by} ticks late: {e}", k.file);
+                if let Err(e) = same(&take, &other, d as u32, &cells) {
+                    panic!("{}: steps {what} by up to {d} ticks: {e}", k.file);
                 }
+                // Without the timing-sensitive cells the guarantee would not hold somewhere.
+                needed |= same(&take, &other, d as u32, &BTreeSet::new()).is_err();
             }
             let on_line = sim::perform(&style, SCRIPT).unwrap();
-            let late = sim::perform_steps(&style, on_line.steps.clone(), on_line.bars, shifted(&on_line, d));
-            on_line_differs |= same(&on_line, &late, d as u32).is_err();
+            let late = sim::perform_steps(&style, on_line.steps.clone(), on_line.bars, shifted(&on_line, &|_| d));
+            on_line_differs |= same(&on_line, &late, d as u32, &BTreeSet::new()).is_err();
         }
-        assert!(on_line_differs || corpus_style(KIT[0].file).is_none(), "steps on the line should be sensitive to jitter");
+        if ran {
+            assert!(on_line_differs, "steps on the line should be sensitive to jitter");
+            assert!(needed, "no kit style needs timing-sensitive cells: drop them");
+        }
+    }
+
+    /// Either outcome is accepted in the timing-sensitive cells: a recording of what our
+    /// engine plays when the chords take effect `JITTER_MS` early or late (on a style whose
+    /// patterns leave some chords less room than that) imports verified, with no differing
+    /// bars, and with the cells where it differs reported apart. The same take with a note
+    /// changed outside those cells is still a difference.
+    #[test]
+    fn timing_sensitive_bars_accept_either_outcome() {
+        let mut seen = false;
+        for k in &KIT {
+            let Some(style) = corpus_style(k.file) else {
+                continue;
+            };
+            let ours = perform(&style, SCRIPT).unwrap();
+            let sensitive = timing_sensitive(&style, &ours, &chord_rooms(&style, &ours));
+            if sensitive.is_empty() {
+                continue;
+            }
+            let d = ms_ticks(&style, JITTER_MS) as i64;
+            for by in [-d, d] {
+                let acts: Vec<u32> = ours.steps.iter().zip(&ours.acts).map(|(s, &t)| if s.tick == 0 { t } else { (t as i64 + by) as u32 }).collect();
+                // The notes of the other outcome; the chord messages where the kit sends them
+                // (the instrument's delay in reading a chord is what moved it).
+                let mut other = sim::perform_steps(&style, ours.steps.clone(), ours.bars, acts);
+                other.acts.clone_from(&ours.acts);
+                let imp = import(&fake_recording(&other, 1.0, 1.0, |_| {}), &style, SCRIPT, &ImportOptions::default()).unwrap();
+                let what = format!("{} steps {by} ticks off:\n{}", k.file, imp.report);
+                assert!(imp.verified, "{what}");
+                assert_eq!(imp.differing_bars, 0, "{what}");
+                if imp.sensitive_differing > 0 {
+                    seen = true;
+                    assert!(imp.report.contains("\ntiming-sensitive differences (either outcome accepted;"), "{what}");
+                    assert!(imp.report.contains("of them differ, not counted above"), "{what}");
+                }
+            }
+            // A wrong note in a cell that is not timing-sensitive still counts.
+            let target = *ours.notes.iter().find(|n| (10..16).contains(&n.ch) && !ours.as_written(n.tick, n.ch) && !sensitive.contains(&(n.tick / ours.tpb, n.ch))).unwrap();
+            let rec = fake_recording(&ours, 1.0, 1.0, |n| {
+                if *n == target {
+                    n.key += 1;
+                }
+            });
+            let imp = import(&rec, &style, SCRIPT, &ImportOptions::default()).unwrap();
+            assert_eq!(imp.differing_bars, 1, "{}:\n{}", k.file, imp.report);
+        }
+        assert!(seen || corpus_style(KIT[8].file).is_none(), "no kit style shows a timing-sensitive difference");
     }
 
     /// Each factory kit style is a Genos preset of exactly that name (the Data List's style
@@ -1607,13 +1853,15 @@ mod tests {
             };
             let want = std::fs::read_to_string(&path).unwrap();
             let got = our_reference_digest(&style).unwrap();
+            let ours = perform(&style, SCRIPT).unwrap();
+            let sensitive = timing_sensitive(&style, &ours, &chord_rooms(&style, &ours));
             let known: Vec<String> = std::fs::read_to_string(dir.join(format!("{name}.known")))
                 .unwrap_or_default()
                 .lines()
                 .map(|l| l.split('#').next().unwrap().trim().to_string())
                 .filter(|l| !l.is_empty())
                 .collect();
-            let diffs = digest_differences(&want, &got);
+            let diffs = without_sensitive(digest_differences(&want, &got), &sensitive);
             let new: Vec<&String> = diffs.iter().filter(|d| !known.contains(d)).collect();
             let fixed: Vec<&String> = known.iter().filter(|k| !diffs.contains(k)).collect();
             if !fixed.is_empty() {
