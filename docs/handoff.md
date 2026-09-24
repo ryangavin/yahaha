@@ -36,6 +36,7 @@ Suggested merge order: #101, #94, #92, #100, #99, #98. The engine/timing base go
   - Hardening items from the #88 review.
   - Third-party AUv2 plugins run out of process by default.
   - Start it after the wave. The design is in `docs/plugin-hosting.md`.
+- **Sound library (#103):** a user patch list built from SoundFont presets and AU plugins (and later VST3/CLAP). Parts, OTS and registration pick from it, and optionally it maps style parts' program changes to patches. SoundFont-only patches could ship first; plugin patches need #91.
 - **#31 remainder:** three split points (Style, Left, Right 3) and Left Hold.
 - **Clippy drift:** a newer toolchain flagged lints in files no one touched (`src/sff.rs`, `src/theory.rs`). If `clippy -D warnings` fails on untouched code, fix it in a separate small PR rather than inside a feature PR.
 - After the wave: the owner playtests `integration/m3-ui`, then it merges to `main`.
