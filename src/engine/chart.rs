@@ -13,9 +13,9 @@
 //! - A chord the player plays overrides the chart until the next bar line, where the chart
 //!   takes over again.
 //!
-//! Real-time: the plan arrives in a `Box` built on the control side (`live::EngineIo::charts`)
-//! and the one it replaces goes back out to be freed there (`Engine::set_chart` returns it). Nothing
-//! here allocates.
+//! Real-time: the plan arrives in a `Box` built on the control side (`live::EngineIo::charts`),
+//! and the one it replaces goes back out to be freed there (`Engine::set_chart` returns it).
+//! Nothing here allocates.
 
 use super::*;
 
@@ -147,10 +147,8 @@ impl Engine {
     fn chart_next(&self, i: u32) -> Option<u32> {
         let c = &self.features.chart;
         let n = c.plan.as_ref().map_or(0, |p| p.bars.len()) as u32;
-        if let Some((a, b)) = c.settings.loop_range.filter(|&(a, b)| a < b && b <= n) {
-            if i + 1 == b || i >= b {
-                return Some(a);
-            }
+        if let Some((a, _)) = c.settings.loop_range.filter(|&(a, b)| a < b && b <= n && i + 1 >= b) {
+            return Some(a);
         }
         (i + 1 < n).then_some(i + 1)
     }

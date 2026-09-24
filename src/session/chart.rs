@@ -84,7 +84,7 @@ fn song_state(s: &Song, bars: &[Bar], plan: &ChartPlan) -> ChartSong {
     let mut sections: Vec<ChartSection> = Vec::new();
     for (i, (b, p)) in bars.iter().zip(&plan.bars).enumerate() {
         match sections.last_mut() {
-            Some(last) if !p.section_start && !(b.section_start && i > 0) => last.bars += 1,
+            Some(last) if !(p.section_start || b.section_start && i > 0) => last.bars += 1,
             _ => sections.push(ChartSection {
                 label: b.section.map(|c| c.to_string()).unwrap_or_default(),
                 chorus: b.chorus,
