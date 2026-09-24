@@ -180,7 +180,7 @@ arpeggio pattern, never both. The type lists are in `LibraryList` (`harmonyTypes
 | `stepHarmonyArpType` | `delta` | Steps through the Harmony types and then the arpeggios, as one list, wrapping. |
 | `setHarmonyVolume` | `volume` 0–127 | Volume: the level of the added notes (127 = the key's velocity) and of the arpeggio. |
 | `setHarmonySpeed` | `speed` | Echo, Tremolo and Trill: `1/4`, `1/6`, `1/8`, `1/12`, `1/16` or `1/32`. |
-| `setHarmonyAssign` | `assign` | `auto`, `multi`, `right1`, `right2` or `right3`: the Right parts the effect (and the arpeggio) sounds on. |
+| `setHarmonyAssign` | `assign` | `auto`, `multi`, `right1`, `right2` or `right3`: the Right parts the effect (and the arpeggio) sounds on. `multi` is for the Harmony and Echo categories only (RM p.46); an arpeggio plays it as `auto`. |
 | `setChordNoteOnly` | `on` | Harmony category: harmonise only melody notes of the current chord. |
 | `setTouchLimit` | `velocity` 1–127 | The effect sounds only for keys played at least this hard (Minimum Velocity). |
 | `setArpQuantize` | `quantize` | `off`, `eighth` or `sixteenth`: the grid the arpeggio starts on. |

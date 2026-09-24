@@ -128,8 +128,8 @@
         <Field name="Assign" genos="Assign">
           <Choice
             label="Assign"
-            value={h.assign}
-            options={ASSIGNS.map((a) => ({ ...a, tip: 'harmony.assign' as const }))}
+            value={arp && h.assign === 'multi' ? 'auto' : h.assign}
+            options={ASSIGNS.filter((a) => !(arp && a.id === 'multi')).map((a) => ({ ...a, tip: 'harmony.assign' as const }))}
             onselect={(a) => app.send({ type: 'setHarmonyAssign', assign: a })}
           />
         </Field>

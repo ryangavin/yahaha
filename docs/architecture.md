@@ -173,11 +173,14 @@ Time-domain work does not happen on the input thread: Harmony's Echo/Tremolo/Tri
 (`harmony::EchoGen`, engine nanoseconds), the arpeggio (`arp::Arp`, style ticks) and
 Strum's later notes run on the engine thread in `live::KbdFx` (`src/live/kbdfx.rs`), fed
 through a ring of `FxKey`s and a held-key mask. `KbdFx` is driven by `EngineLoop::step`
-after `Engine::process`, and its deadline is part of `EngineLoop::next_deadline`: it
-sits beside the engine rather than in `hooks::Features` because the arpeggio must run
-with the band stopped (the engine's `process` and `next_deadline` do nothing then) and
-must not run in a style preview's engine. It reads the style clock through
-`Engine::style_tick` / `ns_at_tick`. The module docs have the details.
+after `Engine::process`, and its deadline is part of `EngineLoop::next_deadline`. It
+sits beside the engine rather than in `hooks::Features` because it is live-keyboard
+state, not the band's: every `Engine` has `Features`, including a style preview's
+engine, which must never play the player's arpeggio or echoes, and the keys come from
+`EngineLoop`'s input ring, which only the live loop has. (The arpeggio also runs with
+the band stopped; that alone no longer rules out a hook once a wake-while-stopped hook
+exists, so it is not the reason.) It reads the style clock through `Engine::style_tick`
+/ `ns_at_tick`. The module docs have the details.
 
 The chord section (recognition, Sync Stop) reads the keys as pressed, before the
 pipeline's transpose and processor.

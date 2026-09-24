@@ -1047,7 +1047,7 @@ const catalog = {
   },
   'harmony.assign': {
     title: 'Assign',
-    body: 'Which Right parts sound the effect. Auto: the first Right part that is on; Multi: the melody on the first, the added notes spread over the others; Right 1–3: that part.',
+    body: 'Which Right parts sound the effect. Auto: the added notes and repeats on the first Right part that is on, the arpeggio on every Right part that is on; Multi (Harmony types and Echo only): the melody on the first, the added notes spread over the others; Right 1–3: that part.',
     genos: 'Assign',
     keys: [],
     launchkey: null,

@@ -142,7 +142,13 @@ publishes it to the real-time threads as one packed word (`live::FxConfig`).
   harmony notes go out first, on the Right parts Assign picks, at each part's octave and the
   Keyboard transpose. They are counted per (channel, note) together with the keys' own notes
   (`live::Keys`), so a harmony note and a key on the same pitch never cut each other short
-  (holding G adds E; playing E and letting go of G leaves E sounding).
+  (holding G adds E; playing E and letting go of G leaves E sounding). The count is per
+  thread: notes the engine thread sounds (Strum's later notes, Echo/Tremolo/Trill, the
+  arpeggio) are counted there, so a plain key's note-off on the same channel and pitch can
+  cut one short, and the other way round. Nothing sticks (known limit, #100 review N1).
+  A pitch struck again while sounding sends a second note-on and one note-off at the end
+  (the `live::Keys` convention): fine for synths whose note-off releases every voice on
+  the note.
 - **Strum**'s later notes (15 ms apart) are timed on the engine thread and end with the melody.
 - **Multi Assign** runs on the input thread: each key sounds on the part `MultiAssign` gives it.
 - **Echo, Tremolo, Trill:** the input thread hands the keys to the engine thread, where

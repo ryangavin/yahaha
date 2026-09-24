@@ -43,6 +43,14 @@
 //!   with the keys' own notes (per channel and pitch), so a harmony note and a key on the
 //!   same pitch never cut each other short. The melody continues, narrowed to its parts
 //!   ([`Note::parts`]). Strum's later notes go to the engine thread (`FxKey::Strum`).
+//!
+//!   The counts are per thread: this thread's `Keys` and the engine thread's `KbdFx`
+//!   voices do not see each other. So a note one thread sounds can be cut short by a
+//!   note-off from the other on the same channel and pitch: Strum's later notes against a
+//!   plain key (hold C5 with Strum over a C chord, then play and release G4: G4's off ends
+//!   the strummed G4), and Echo/Arpeggio notes against left-hand keys sounding on the Right
+//!   parts (Upper, or Full Keyboard with Left off). Nothing sticks: each thread still
+//!   sends one off for each pitch it counted. Known limit (#100 review N1).
 //! - **Multi Assign**: the key continues on one Right part (`harmony::MultiAssign`).
 //! - **Echo** (Echo, Tremolo, Trill) and **Arpeggio**: the key is swallowed (`None`) and
 //!   sent to the engine thread (`FxKey::On`), which plays it (`kbdfx::KbdFx`). The key still

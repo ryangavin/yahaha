@@ -39,7 +39,17 @@
 //!
 //! Every note this driver starts is counted per (channel, note) (`Voices`), and a note-off
 //! goes out when the count falls back to 0, so two generator keys landing on one pitch
-//! never cut each other short. Where each generator key sounded (channels, transposed
+//! never cut each other short. The count is this thread's only: a note-off from the
+//! input thread (a plain key, a left-hand key on a Right part) can end a note sounding
+//! here on the same channel and pitch, and the other way round (see
+//! `live::pipeline`'s module docs). Nothing sticks either way.
+//!
+//! Counting means a pitch struck again while it sounds (a second holder, or the sustain
+//! pedal holding the first) sends a second note-on and, when the last holder lets go, one
+//! note-off: the convention `live::Keys` already has. A synth whose note-off releases every
+//! voice on that note (the built-in synth, GM/XG modules) is fine; one that stacks a voice
+//! per note-on and releases one per note-off would keep the earlier voice until its own
+//! release or the sustain pedal comes up. Where each generator key sounded (channels, transposed
 //! pitches) is remembered, so its note-off goes there whatever changed since. A key-up
 //! lost to a full ring cannot leave a key in a generator: every wake compares the keys
 //! the generators hold with [`Shared::fx_held`] and releases the ones no longer down.
@@ -130,6 +140,8 @@ const FIXED_VEL: u32 = 38; // 7 bits
 const KEEP_KEY_ON: u32 = 45;
 /// Set in every packed word, so 0 (never written) reads as "not set yet".
 const VALID: u32 = 63;
+// TYPE and PATTERN are 5-bit fields: a longer list would wrap round in the word.
+const _: () = assert!(ALL_TYPES.len() <= 32 && PATTERNS.len() <= 32, "widen TYPE/PATTERN in FxConfig's word");
 
 impl FxConfig {
     /// The word for [`Shared::kbd_fx`].
@@ -259,6 +271,16 @@ pub enum FxKey {
 pub const FX_RING: usize = 512;
 
 /// The Right parts as the harmony sees them. yahaha's parts are all Poly.
+/// The Right parts an arpeggio sounds on for `assign` (RM p.46). Auto: every Right part
+/// that is on, as the keys would play; Right 1-3: that part. Multi is only offered for the
+/// Harmony and Echo categories (RM p.46), so the app hides it for an arpeggio; a Multi left
+/// over from a Harmony type plays as Auto.
+pub fn arp_mask(assign: Assign, on: RightParts) -> PartMask {
+    let assign = if assign == Assign::Multi { Assign::Auto } else { assign };
+    let r = harmony::route(assign, Category::Echo, on, 1);
+    if assign == Assign::Auto { r.melody } else { r.effect[0] }
+}
+
 pub fn right_parts(parts: &Parts) -> RightParts {
     RightParts { on: [parts.is_on(parts::RIGHT1), parts.is_on(parts::RIGHT2), parts.is_on(parts::RIGHT3)], mono: [false; 3] }
 }
@@ -604,17 +626,9 @@ impl KbdFx {
     }
 
     /// The Right parts the arpeggio sounds on, and its level: Assign and Volume (RM p.46,
-    /// HrmArpVol). Auto: every Right part that is on, as the keys would play; Multi: the
-    /// first; Right 1-3: that part.
+    /// HrmArpVol).
     fn arp_route(&self, parts: &Parts) -> (PartMask, u8) {
-        let on = right_parts(parts);
-        let r = harmony::route(self.cfg.harmony.assign, Category::Echo, on, 1);
-        let mask = match self.cfg.harmony.assign {
-            Assign::Auto => r.melody,
-            Assign::Multi => r.melody & r.melody.wrapping_neg(),
-            _ => r.effect[0],
-        };
-        (mask, self.cfg.harmony.volume)
+        (arp_mask(self.cfg.harmony.assign, right_parts(parts)), self.cfg.harmony.volume)
     }
 
     fn drain_echo(&mut self, now: u64, parts: &Parts, shift: i8, out: &mut Out) {
@@ -758,6 +772,17 @@ mod tests {
             assert_eq!(ons, before, "{cfg:?}: stopped");
             assert_eq!(l.io.fx.sounding(), 0, "{cfg:?}");
         }
+    }
+
+    /// Assign for an arpeggio: Auto is every Right part that is on (not only the first);
+    /// Multi, not offered for an arpeggio (RM p.46), plays as Auto.
+    #[test]
+    fn arp_assign_picks_the_parts() {
+        let r1_r3 = RightParts { on: [true, false, true], mono: [false; 3] };
+        assert_eq!(arp_mask(Assign::Auto, r1_r3), 0b101);
+        assert_eq!(arp_mask(Assign::Multi, r1_r3), 0b101);
+        assert_eq!(arp_mask(Assign::Right3, r1_r3), 0b100);
+        assert_eq!(arp_mask(Assign::Auto, RightParts::only(parts::RIGHT2)), 0b010);
     }
 
     #[test]

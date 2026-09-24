@@ -157,7 +157,9 @@ PPQ) round per step and never drift.
     notes are cut (their off ticks meant the old clock) and the pattern starts again from
     step 1 there.
 - **Output:** on the Right parts Assign picks (Auto: every Right part that is on, as the
-  keys would play; Multi: the first; Right 1-3: that part), at each part's octave and the
+  keys would play; Right 1-3: that part). Multi is only offered for the Harmony and Echo
+  categories (RM p.46): the app hides it for an arpeggio, and a Multi left over from a
+  Harmony type plays as Auto (Decision, #100 review N2), at each part's octave and the
   Keyboard transpose, with velocities scaled by Volume (HrmArpVol, 127 = unchanged).
   Every note is counted per (channel, note) and released where it sounded.
 - **Stop:** the switch off or another type calls `Arp::all_off` (the offs go out at once);

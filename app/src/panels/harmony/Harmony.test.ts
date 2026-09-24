@@ -68,6 +68,20 @@ describe('Harmony/Arpeggio drawer', () => {
     expect(s.state.harmonyArp.typeName).toBe('Standard Duet 1')
   })
 
+  it('Assign Multi is offered for Harmony types, not for an arpeggio (RM p.46)', async () => {
+    const s = await setup()
+    const assigns = () => q('[data-tip="harmony.assign"]').map((b) => b.textContent?.trim())
+    expect(assigns()).toContain('Multi')
+    await fireEvent.click(radio('Multi'))
+    expect(s.state.harmonyArp.assign).toBe('multi')
+    await fireEvent.click(radio('Arpeggio'))
+    expect(assigns()).not.toContain('Multi')
+    // A Multi left over from the Harmony type shows (and plays) as Auto.
+    expect(radio('Auto').getAttribute('aria-checked')).toBe('true')
+    await fireEvent.click(radio('Harmony'))
+    expect(radio('Multi').getAttribute('aria-checked')).toBe('true')
+  })
+
   it('◀ ▶ step through both lists as one', async () => {
     const s = await setup()
     await fireEvent.click(q('[data-tip="harmony.prev_type"]')[0])

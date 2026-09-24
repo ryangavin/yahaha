@@ -163,7 +163,7 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | **Next type** | Steps on through the Harmony types and then the arpeggios, as one list. | — | `Shift+L` | — |
 | **Volume** | The level of the added notes, and of the arpeggio. At 127 they play as hard as you do; at 0 they are silent. | Volume (HrmArpVol) | — | — |
 | **Speed** | How fast Echo, Tremolo and Trill repeat, as a note value at the current tempo. | Speed | — | — |
-| **Assign** | Which Right parts sound the effect. Auto: the first Right part that is on; Multi: the melody on the first, the added notes spread over the others; Right 1–3: that part. | Assign | — | — |
+| **Assign** | Which Right parts sound the effect. Auto: the added notes and repeats on the first Right part that is on, the arpeggio on every Right part that is on; Multi (Harmony types and Echo only): the melody on the first, the added notes spread over the others; Right 1–3: that part. | Assign | — | — |
 | **Chord Note Only** | Harmonises only melody notes that belong to the chord you are playing. Passing notes play plainly. | Chord Note Only | — | — |
 | **Touch Limit** | The effect sounds only for keys played at least this hard, so you can accent single notes with a harmony. | Minimum Velocity | — | — |
 | **Arpeggio Quantize** | Starts the pattern on the nearest eighth or sixteenth of the style's grid, so a chord played a little early or late still lands in time. | Arpeggio Quantize | — | — |
