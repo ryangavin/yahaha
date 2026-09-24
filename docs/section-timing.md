@@ -117,6 +117,14 @@ Decisions:
   restarts it. The manual says "a specific length of the first part of the current Style
   is repeated when the chord is played"; the Live Control knob that shortens it while
   it plays reads as a continuous stutter, not a one-shot.
+- **A style change ends the loop**: the new style's Main plays on from where it comes in,
+  and loops again only from a chord played in it (Retrigger stays on). The loop was of
+  the old style's head; carrying it over would stutter a head the player never struck.
+- **A chord struck again counts**: letting go of the chord section and striking the same
+  chord restarts the head, as a different chord does ("when the chord is played"). The
+  input thread publishes a re-struck chord with a new generation once every key the
+  chord is read from was up; the Synchro Stop Window times it and Sync Stop restarts
+  the band on it too.
 - **The restart is at the chord's instant**, not quantised: the stutter follows the
   player. The bar grid restarts with it (as Section Reset).
 - Turning Retrigger off lets the Main play on from where the head is.

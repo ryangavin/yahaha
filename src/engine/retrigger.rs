@@ -6,8 +6,8 @@
 //!   one, a fill for its next beat.
 //! - **Retrigger**: while on, each chord played in a Main restarts the Main at the chord,
 //!   and from then on only its head plays, `4 / rate` beats long (a whole note .. a 32nd),
-//!   repeating, until a section change or Retrigger goes off (then the section plays on
-//!   from where the head is). Only Mains retrigger. A change already queued keeps its
+//!   repeating, until a section change, a style change or Retrigger goes off (then the
+//!   section plays on from where the head is). Only Mains retrigger. A change already queued keeps its
 //!   time (a chord does not move the bar grid it was queued on).
 
 use super::*;
@@ -147,6 +147,12 @@ impl Engine {
     /// The band stopped: no head loop.
     #[inline]
     pub(super) fn retrigger_on_stop(&mut self) {
+        self.features.retrigger.looping = false;
+    }
+
+    /// A new style took over (hook): its Main plays on from where it came in; the head
+    /// loops again only from a chord played in it.
+    pub(super) fn retrigger_on_style_loaded(&mut self) {
         self.features.retrigger.looping = false;
     }
 }

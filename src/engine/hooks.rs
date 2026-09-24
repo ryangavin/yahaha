@@ -179,6 +179,7 @@ impl Engine {
     pub(super) fn on_style_loaded(&mut self, _now: u64, _sink: &mut impl Sink) {
         #[cfg(test)]
         self.log(Hook::StyleLoaded);
+        self.retrigger_on_style_loaded();
     }
 
     /// Every `process` call, before anything else, whether the band runs or not: features

@@ -597,3 +597,31 @@ fn a_style_swap_mid_ritardando_carries_it_on() {
     assert!(last < base * 0.8 && last >= base * RIT_END - 1e-6, "{last} of {base}");
     assert_eq!(e.bpm, base, "the tempo comes back when it stops");
 }
+
+/// A new style while the Main's head loops (review #94 r3): the new style's Main plays on
+/// from where it comes in; nothing loops until a chord is played in it.
+#[test]
+fn a_style_change_ends_the_retrigger_loop() {
+    let settings = StyleSettings { retrigger_rate: 4, ..StyleSettings::default() };
+    let (Some((mut e, mut rec)), Some(other)) = (started(settings), other_style()) else { return };
+    let (ppq, tpb, beat_ns) = grid(&e);
+    e.button(Button::Retrigger, 0, &mut rec);
+    let t = e.ns_at(tpb + 0.5 * ppq);
+    play(&mut e, &mut rec, 0, t);
+    e.set_chord(chord("F"), t, &mut rec);
+    assert!(e.features.retrigger.looping);
+    e.change_style(other, t + 1_000_000, &mut rec);
+    let mut now = t + 1_000_000;
+    while e.pending.is_some() {
+        let next = now + 5_000_000;
+        play(&mut e, &mut rec, now, next);
+        now = next;
+        assert!(now < t + 20 * beat_ns, "the style never came in");
+    }
+    assert!(e.retrigger_on(), "Retrigger stays on");
+    assert!(!e.features.retrigger.looping, "the new style's Main does not loop its head");
+    let (ppq, _, beat_ns) = grid(&e);
+    let from = e.sec_start;
+    play(&mut e, &mut rec, now, now + 2 * beat_ns);
+    assert!(e.tick_at(now + 2 * beat_ns) - from > ppq + 1e-6 && (e.sec_start - from).abs() < 1e-6, "it plays past the head");
+}
