@@ -167,6 +167,23 @@ state, and pressing the button is the action. For settings, a GUI checkbox can u
 | `auditionStyle` | `id` | Previews a style while the band is stopped: its Main A, at its own tempo, with its own voices and levels, over C Am F G7 (a chord a bar) for 4 bars, then it stops by itself (`preview.audition`). The loaded style, OTS, keyboard parts, mixer and transport are untouched; the loaded style's setup is sent again when it ends. Refused (`failed`) while the band plays. A new one replaces the one playing; it ends early on `stopAudition`, a style change, START/STOP, `panic` or a chord that starts the band (Sync Start). |
 | `stopAudition` | | Ends the preview now. |
 
+### Multi Pads
+
+Pads are 0–3 (pads 1–4). See docs/multipad.md for the Genos behaviour and what is a guess.
+
+| Command | Fields | Does |
+|---|---|---|
+| `loadMultiPad` | `id` | Loads a bank from `multiPad.banks` (the `.pad` files in the style folders). The file is parsed on the control side; pads playing stop when the new bank takes over (`multiPad.loading` until then, a moment later live). A file that doesn't parse fails and keeps the bank loaded. |
+| `loadMultiPadPath` | `path` | Any `.pad` file; it is added to `multiPad.banks` if it isn't there already (once it has loaded). A `rescanLibrary` keeps such a bank listed, with its id, while its file is there. |
+| `clearMultiPad` | | No bank: the pads go dark. |
+| `triggerMultiPad` | `pad` | Presses a pad: it plays from the top (a playing pad restarts). Stopped, it starts at once; while the band plays, at the next bar line (`lamp` `queued` until then). Pads in Synchro Start standby start with it. |
+| `stopMultiPad` | `pad` | STOP + pad: that pad stops now. |
+| `stopAllMultiPads` | | STOP: every pad stops, and Synchro Start standby is cancelled. |
+| `armMultiPad` | `pad` | SELECT + pad: toggles the pad's Synchro Start standby (`lamp` `armed`). Armed pads start on the next chord played in the chord section, or when the band starts; while the band plays, at the next bar line. |
+| `setMultiPadRepeat` | `pad`, `on` | Overrides the pad's Repeat flag (from the bank file) until the next bank loads. |
+| `setMultiPadChordMatch` | `pad`, `on` | Overrides the pad's Chord Match flag until the next bank loads. |
+| `setMultiPadSynchroStop` | `styleStop`, `ending` | Multi Pad Synchro Stop: repeating pads stop when the band stops (`styleStop`, default on) and when an Ending starts (`ending`, default off). One-shot pads always play out. |
+
 ### Controllers
 
 Pedals, the wheels and the assignable functions (docs/controllers.md).
@@ -512,6 +529,17 @@ The style browser's preview and queue.
 |---|---|---|
 | `audition` | object? | The preview playing (`auditionStyle`): `id` (the library id), `bar` (1-based) of `bars` (4), `chord` (the chord playing: `C`, `Am`, `F`, `G7`). Null when none. |
 | `queued` | number? | The library id of a style waiting for the next bar line (`loadStyle`, `queueStyle` or `stepStyle` while playing). Null when none. |
+
+### `multiPad`
+Multi Pads (docs/multipad.md).
+
+| Field | Type | Meaning |
+|---|---|---|
+| `bank` | object? | The bank loaded: `id` (in `banks`), `name` (the file name without `.pad`), `path`. Null when none. |
+| `loading` | bool | A bank is on its way to the engine (`loadMultiPad`). |
+| `pads` | MultiPadPad[] | Always 4: `index` (0–3), `name` (from the file; empty for an empty pad), `lamp` (`empty` \| `ready` \| `armed` \| `queued` \| `playing`: off, blue, red flashing, waiting for the bar line, red), `repeat`, `chordMatch`, `channel` (the MIDI channel it plays on, 5–8). |
+| `synchroStop` | object | `styleStop`, `ending` (`setMultiPadSynchroStop`). |
+| `banks` | MultiPadBankEntry[] | The `.pad` files in the style folders, folder then name: `id`, `name`, `folder` (relative to its root, `/`-separated), `path`. A `rescanLibrary` refreshes it; a file still there keeps its id. Banks loaded by path from outside the style folders follow, while their file is there; the bank loaded is always listed. |
 
 ### `message`
 `{ seq, text, error }` or null. It holds the last notice or error, for example a style
@@ -910,6 +938,18 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
     "chordTones": [7, 11, 2, 5],
     "chordBass": 7,
     "detection": [0, 54]
+  },
+  "multiPad": {
+    "bank": { "id": 0, "name": "Demo", "path": "/Users/me/Styles/Pads/Demo.pad" },
+    "loading": false,
+    "pads": [
+      { "index": 0, "name": "Shaker Loop", "lamp": "playing", "repeat": true, "chordMatch": false, "channel": 5 },
+      { "index": 1, "name": "Rise Arp", "lamp": "ready", "repeat": false, "chordMatch": true, "channel": 6 },
+      { "index": 2, "name": "Bass Riff", "lamp": "queued", "repeat": true, "chordMatch": true, "channel": 7 },
+      { "index": 3, "name": "Brass Hit", "lamp": "armed", "repeat": false, "chordMatch": true, "channel": 8 }
+    ],
+    "synchroStop": { "styleStop": true, "ending": false },
+    "banks": [{ "id": 0, "name": "Demo", "folder": "Pads", "path": "/Users/me/Styles/Pads/Demo.pad" }]
   },
   "controllers": {
     "pedals": [

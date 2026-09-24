@@ -97,6 +97,7 @@ export type AppCmd =
   | { type: 'setPaletteLeds'; on: boolean }
   /** Re-walk the style folders (`library.roots`); `library.scanning` while it runs. */
   | { type: 'rescanLibrary' }
+  | MultiPadCmd
   // Controllers: pedals, wheels, assignable functions (docs/controllers.md)
   | ControllersCmd
 
@@ -513,6 +514,8 @@ export interface AppState {
   keyboard: KeyboardState
   /** The style preview and the style waiting for the bar line. */
   preview: PreviewState
+  /** Multi Pads: the bank, the four pads, Synchro Stop, the bank files. */
+  multiPad: MultiPadState
   /** Pedals, wheels, the parts they reach and the pedals' assignable functions. */
   controllers: ControllersState
 }
@@ -579,6 +582,64 @@ export interface ControllersState {
   sustain: boolean
   sostenuto: boolean
   soft: boolean
+}
+
+// ── Multi Pads (docs/app-api.md "Multi Pads", docs/multipad.md) ───────────────
+
+/** Pads are 0–3. */
+export type MultiPadCmd =
+  /** Load a bank from `multiPad.banks`. */
+  | { type: 'loadMultiPad'; id: number }
+  /** Load any `.pad` file (added to `multiPad.banks`). */
+  | { type: 'loadMultiPadPath'; path: string }
+  /** No bank: the pads go dark. */
+  | { type: 'clearMultiPad' }
+  /** Press a pad: at once when stopped, at the next bar line while the band plays. */
+  | { type: 'triggerMultiPad'; pad: number }
+  /** STOP + pad. */
+  | { type: 'stopMultiPad'; pad: number }
+  /** STOP: every pad, and Synchro Start standby. */
+  | { type: 'stopAllMultiPads' }
+  /** SELECT + pad: toggle Synchro Start standby. */
+  | { type: 'armMultiPad'; pad: number }
+  | { type: 'setMultiPadRepeat'; pad: number; on: boolean }
+  | { type: 'setMultiPadChordMatch'; pad: number; on: boolean }
+  /** Multi Pad Synchro Stop: repeating pads stop when the band stops / an Ending starts. */
+  | { type: 'setMultiPadSynchroStop'; styleStop: boolean; ending: boolean }
+
+/** A pad's lamp: off, blue, red flashing (Synchro Start), waiting for the bar line, red. */
+export type PadLamp = 'empty' | 'ready' | 'armed' | 'queued' | 'playing'
+
+export interface MultiPadPad {
+  /** 0–3. */
+  index: number
+  /** From the bank file; empty for an empty pad. */
+  name: string
+  lamp: PadLamp
+  repeat: boolean
+  chordMatch: boolean
+  /** The MIDI channel it plays on (5–8). */
+  channel: number
+}
+
+export interface MultiPadBankEntry {
+  id: number
+  name: string
+  /** Relative to the scanned root, `/`-separated. */
+  folder: string
+  path: string
+}
+
+export interface MultiPadState {
+  /** The bank loaded; null when none. */
+  bank: { id: number; name: string; path: string } | null
+  /** A bank is on its way to the engine. */
+  loading: boolean
+  /** Always 4. */
+  pads: MultiPadPad[]
+  synchroStop: { styleStop: boolean; ending: boolean }
+  /** The `.pad` files in the style folders, folder then name. */
+  banks: MultiPadBankEntry[]
 }
 
 export interface LibraryEntry {

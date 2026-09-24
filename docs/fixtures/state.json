@@ -1423,6 +1423,49 @@
       54
     ]
   },
+  "multiPad": {
+    "bank": null,
+    "loading": false,
+    "pads": [
+      {
+        "index": 0,
+        "name": "",
+        "lamp": "empty",
+        "repeat": false,
+        "chordMatch": false,
+        "channel": 5
+      },
+      {
+        "index": 1,
+        "name": "",
+        "lamp": "empty",
+        "repeat": false,
+        "chordMatch": false,
+        "channel": 6
+      },
+      {
+        "index": 2,
+        "name": "",
+        "lamp": "empty",
+        "repeat": false,
+        "chordMatch": false,
+        "channel": 7
+      },
+      {
+        "index": 3,
+        "name": "",
+        "lamp": "empty",
+        "repeat": false,
+        "chordMatch": false,
+        "channel": 8
+      }
+    ],
+    "synchroStop": {
+      "styleStop": true,
+      "ending": false
+    },
+    "banks": []
+  },
   "controllers": {
     "pedals": [
       {

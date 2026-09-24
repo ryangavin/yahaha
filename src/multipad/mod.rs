@@ -2,7 +2,9 @@
 //! core ([`player`]) that is independent of the engine thread.
 
 pub mod file;
+pub mod library;
 pub mod player;
+pub mod synthetic;
 
 pub use file::{Pad, PadBank, PADS};
 pub use player::{start_tick, sync_fires, Clock, MultiPadPlayer, PadState, SyncTrigger};
