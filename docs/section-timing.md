@@ -124,7 +124,8 @@ Decisions:
   chord restarts the head, as a different chord does ("when the chord is played"). The
   input thread publishes a re-struck chord with a new generation once every key the
   chord is read from was up; the Synchro Stop Window times it and Sync Stop restarts
-  the band on it too.
+  the band on it too. It is no chord change, though: the Retrigger Rules move no
+  sounding note (a Pitch Shift to Root bass stays where it walked).
 - **The restart is at the chord's instant**, not quantised: the stutter follows the
   player. The bar grid restarts with it (as Section Reset).
 - Turning Retrigger off lets the Main play on from where the head is.

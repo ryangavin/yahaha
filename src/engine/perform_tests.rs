@@ -625,3 +625,35 @@ fn a_style_change_ends_the_retrigger_loop() {
     play(&mut e, &mut rec, now, now + 2 * beat_ns);
     assert!(e.tick_at(now + 2 * beat_ns) - from > ppq + 1e-6 && (e.sec_start - from).abs() < 1e-6, "it plays past the head");
 }
+
+/// The same chord struck again (the input thread publishes it since review #94 r3) with
+/// Retrigger off is no chord change: the Retrigger Rules move nothing. On BluesOrganTrio
+/// the walking bass jumped to the root (and on Thrust a part bent) at every re-strike.
+#[test]
+fn a_restruck_chord_moves_no_note() {
+    for name in ["BluesOrganTrio.S930.STY", "Thrust.S930.STY"] {
+        let p = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus/MOX_v2").join(name);
+        if !p.exists() {
+            eprintln!("corpus missing; skipping");
+            return;
+        }
+        let mut e = Engine::new(Box::new(Prepared::new(&Style::load(&p).unwrap())));
+        let mut rec = Rec::default();
+        e.set_chord(chord("C"), 0, &mut rec);
+        let (_, _, beat) = grid(&e);
+        let mut now = 0;
+        for i in 1..40u64 {
+            let t = i * beat * 3 / 7;
+            play(&mut e, &mut rec, now, t);
+            now = t;
+            let c = if i < 20 { "C" } else { "Am7" };
+            if i == 20 {
+                e.set_chord(chord(c), now, &mut rec);
+                continue;
+            }
+            rec.msgs.clear();
+            e.set_chord(chord(c), now, &mut rec);
+            assert!(rec.msgs.is_empty(), "{name}: {c} again at beat {:.2}: {:?}", i as f64 * 3.0 / 7.0, rec.msgs);
+        }
+    }
+}

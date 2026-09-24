@@ -54,7 +54,10 @@ impl Engine {
             self.start(now, sink);
             return;
         }
-        if self.running {
+        // The same chord struck again (after letting go) is no chord change: the Retrigger
+        // Rules move nothing and nothing new comes in (a Pitch Shift to Root bass would
+        // otherwise jump to the root at every re-strike).
+        if self.running && prev != Some(chord) {
             if prev.is_some() {
                 self.revoice(chord, now, sink);
             }
