@@ -740,3 +740,75 @@ fn a_restruck_chord_moves_no_note() {
     }
 }
 
+#[test]
+fn zz_probe_corpus_endings() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus");
+    let mut files = vec![];
+    for d in std::fs::read_dir(&root).unwrap().flatten() {
+        if let Ok(rd) = std::fs::read_dir(d.path()) {
+            for f in rd.flatten() {
+                let p = f.path();
+                if p.extension().map(|x| matches!(x.to_string_lossy().to_lowercase().as_str(), "sty" | "prs" | "sst")).unwrap_or(false) { files.push(p); }
+            }
+        }
+    }
+    files.sort();
+    for p in files {
+        let Ok(st) = Style::load(&p) else { continue };
+        let pr = Prepared::new(&st);
+        let mut line = format!("{:40}", p.file_name().unwrap().to_string_lossy());
+        for i in 0..3u8 {
+            let id = SectionId::Ending(i);
+            let Some(raw) = st.sections.get(&id) else { continue };
+            let raw_on: Vec<u32> = raw.events.iter().filter(|v| matches!(v.ev, crate::sff::Ev::NoteOn { vel, .. } if vel > 0)).map(|v| v.tick).collect();
+            let ps = pr.sections[slot_of(id)].as_ref();
+            let p_on: Vec<u32> = ps.map(|s| s.events.iter().filter(|v| matches!(v.kind, PKind::On { .. })).map(|v| v.tick).collect()).unwrap_or_default();
+            let offs: Vec<u32> = raw.events.iter().filter(|v| matches!(v.ev, crate::sff::Ev::NoteOff { .. } | crate::sff::Ev::NoteOn { vel: 0, .. })).map(|v| v.tick).collect();
+            if i == 0 {
+                line += &format!(" offs(beats) {:?}", offs.iter().map(|t| (*t as f64 / st.ppq as f64 * 10.0).round() / 10.0).collect::<Vec<_>>());
+            }
+            line += &format!(" | E{} len {:.1}b raw {} (last {:?}) prep {} (last {:?})", i + 1, raw.len as f64 / st.ppq as f64, raw_on.len(), raw_on.iter().max().map(|t| *t as f64 / st.ppq as f64), p_on.len(), p_on.iter().max().map(|t| *t as f64 / st.ppq as f64));
+        }
+        eprintln!("{line}");
+    }
+}
+
+#[test]
+fn zz_probe_ending_timing() {
+    for (label, beat) in [("mid", 1.5), ("first", 0.25), ("late", 3.9)] {
+        let Some((mut e, mut rec)) = started(StyleSettings::default()) else { return };
+        let (ppq, tpb, beat_ns) = grid(&e);
+        let t = e.ns_at(tpb + beat * ppq);
+        play(&mut e, &mut rec, 0, t);
+        e.button(Button::Ending(0), t, &mut rec);
+        eprintln!("{label}: queued {:?} tpb {tpb} ppq {ppq} beat_ns {beat_ns}", e.queued.map(|q| (q.at, q.sec_start)));
+        let mut now = t;
+        let end1 = slot_of(SectionId::Ending(0));
+        while e.cur != end1 && e.running {
+            now += 1_000_000;
+            rec.now = now;
+            e.process(now, &mut rec);
+        }
+        eprintln!("{label}: ending at {:.3} beats after press (tick {:.1}), bar2 at {}", (now - t) as f64 / beat_ns as f64, e.tick_at(now), 2.0 * tpb);
+        let start = now;
+        let n0 = rec.msgs.len();
+        let len = e.style.sections[end1].as_ref().unwrap().len;
+        let ons: Vec<u32> = e.style.sections[end1].as_ref().unwrap().events.iter().filter(|v| matches!(v.kind, PKind::On { .. })).map(|v| v.tick).collect();
+        eprintln!("{label}: ending note-on ticks {:?}", ons);
+        while e.running && now < start + 60_000_000_000 {
+            now += 1_000_000;
+            rec.now = now;
+            e.process(now, &mut rec);
+        }
+        let mut hist = vec![0; 40];
+        for (tt, m) in &rec.msgs[n0..] {
+            if m.len() == 3 && m[0] & 0xF0 == 0x90 && m[2] > 0 {
+                let b = ((tt - start) / beat_ns) as usize;
+                if b < 40 { hist[b] += 1; }
+            }
+        }
+        let pre: Vec<_> = rec.msgs[..n0].iter().filter(|(tt, m)| *tt + 4 * beat_ns > start && m.len() == 3 && m[0] & 0xF0 == 0x90 && m[2] > 0).map(|(tt, _)| (*tt as i64 - start as i64) / 100_000_000).collect();
+        eprintln!("{label}: ending len {} beats, ran {:.2} beats; note-ons per beat {:?}; pre-ending note-ons (0.1s rel) {:?}", len as f64 / ppq, (now - start) as f64 / beat_ns as f64, hist, pre);
+    }
+}
+

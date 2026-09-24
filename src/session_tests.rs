@@ -1588,3 +1588,45 @@ fn chart_chords_trigger_no_ots_or_fill() {
     let st = s.state();
     assert_eq!((st.transport.section.as_deref(), st.ots.applied), (Some("Main B"), 2), "OTS 2 as Main B starts");
 }
+
+#[test]
+fn zz_probe_session_ending() {
+    for (pad, frac) in [(100u8, 0.4f64), (101, 0.4), (101, 0.05), (102, 0.4)] {
+        let p = Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus/T5Style/60s8Beat.T160.prs");
+        if !p.exists() { return; }
+        let s = Session::offline(Options { paths: vec![p], ..Options::default() }).unwrap();
+        s.send(TransportCmd::StartStop).unwrap();
+        s.take_output();
+        let bpm = s.state().transport.tempo;
+        let beat = (60e9 / bpm) as u64;
+        let bar = 4 * beat;
+        s.advance(bar + (frac * bar as f64) as u64);
+        let t0 = s.now();
+        s.take_output();
+        s.midi_in(Port::Pads, &[0x90, pad, 100]);
+        s.midi_in(Port::Pads, &[0x80, pad, 0]);
+        let st = s.state();
+        eprintln!("pad {pad} frac {frac}: after press section {:?} queued {:?} bar {} beat {}", st.transport.section, st.transport.queued, st.transport.bar, st.transport.beat);
+        let mut changed = None;
+        for i in 0..2000u64 {
+            s.advance(5 * MS);
+            if changed.is_none() {
+                let out = s.take_output();
+                let ons = out.iter().filter(|m| m[0] & 0xF0 == 0x90 && m[2] > 0).count();
+                let other: Vec<_> = out.iter().filter(|m| m[0] & 0xF0 != 0x90 && m[0] & 0xF0 != 0x80).collect();
+                if ons > 0 || !other.is_empty() {
+                    eprintln!("    {:.2}: {ons} note-ons, other {:?}", (s.now() - t0) as f64 / beat as f64, other);
+                }
+            }
+            let st = s.state();
+            if changed.is_none() && st.transport.section.as_deref().is_some_and(|x| x.starts_with("Ending")) {
+                changed = Some(i);
+                eprintln!("  -> {:?} at {:.2} beats after press (bar line at {:.2}), tempo {}", st.transport.section, (s.now() - t0) as f64 / beat as f64, (2 * bar - t0) as f64 / beat as f64, st.transport.tempo);
+            }
+            if !st.transport.running {
+                eprintln!("  stopped {:.2} beats after press", (s.now() - t0) as f64 / beat as f64);
+                break;
+            }
+        }
+    }
+}
