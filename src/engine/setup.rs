@@ -7,7 +7,15 @@ use super::*;
 impl Engine {
     /// The style's channel setup, with the mixer's volume on each part in place of the
     /// style's own CC7 so a restart never undoes a fader the player moved.
+    ///
+    /// Playing, it is the setup as the section playing (`self.cur`) routes it. Stopped (a
+    /// style loaded, a style change after an Ending, a resync after a preview), it is the
+    /// setup as the Main the band would start on routes it: `self.cur` still names the
+    /// section that played last (an Ending), whose routing is not the stopped style's.
     pub fn send_init(&mut self, sink: &mut impl Sink) {
+        if !self.running {
+            self.cur = self.style.resolve(4 + self.main as usize).unwrap_or(4);
+        }
         self.bend_range = self.style.setup(self.cur).bend_range;
         self.rpn = [RPN_NULL; 16];
         for i in 0..self.style.setup(self.cur).init.len() {
