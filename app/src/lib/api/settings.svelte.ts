@@ -86,7 +86,9 @@ class SettingsAdapter {
     const mocked = {
       soundFont: p.io?.soundFonts === undefined,
       inputs: p.io?.sources === undefined,
-      paletteLeds: p.pads?.paletteLeds === undefined,
+      // The engine reports pads.paletteLeds (#77) but can't switch it at run time yet
+      // (no setPaletteLeds), so the switch stays mocked.
+      paletteLeds: true,
       library: p.library?.roots === undefined,
     }
     const connected = s.io.inputs
@@ -130,7 +132,7 @@ class SettingsAdapter {
       soundFontFile,
       sources,
       allInputs,
-      paletteLeds: p.pads?.paletteLeds ?? (real ? null : this.paletteLeds),
+      paletteLeds: real ? (p.pads?.paletteLeds ?? null) : this.paletteLeds,
       roots: p.library?.roots ?? (real ? [] : MOCK_ROOTS),
       scanning: p.library?.scanning ?? ((!real && this.scanning) || s.library.pending > 0),
       mocked,

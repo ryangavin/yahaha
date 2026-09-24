@@ -105,6 +105,21 @@ export interface Pad {
   anim: Anim
   /** What pressing it sends (null: an unused pad). */
   action: AppCmd | null
+  /** Palette-LED mode only (`pads.paletteLeds`): what the pad was sent. Null in RGB mode. */
+  palette: PaletteLed | null
+}
+
+/** A pad as sent in Novation palette mode: a palette colour, solid, flashing between two
+ * colours, or pulsing. `rgb`/`level` are the palette colour's look. */
+export interface PaletteLed {
+  mode: Anim
+  colour: number
+  rgb: Rgb
+  level: Level
+  /** Flash only: the second colour. */
+  flashColour: number | null
+  flashRgb: Rgb | null
+  flashLevel: Level | null
 }
 
 export interface StyleState {
@@ -145,6 +160,9 @@ export interface TransportState {
   tempo: number
   /** Page 1 of the pads, whatever page the hardware is on: the section lamps. */
   lamps: Pad[]
+  /** Provisional (NEED on the board): how many bars the section playing lasts (a Main's
+   * pattern length; it loops), for the lead-sheet band's progress. Absent: unknown. */
+  sectionBars?: number | null
 }
 
 export interface ChordState {
@@ -182,6 +200,8 @@ export interface KeyboardPart {
   voiceName: string
   playsBass: boolean
   octave: number
+  /** Where its Launchkey fader (Panel page, faders 1–4) physically is; null until it moves. */
+  fader: number | null
 }
 
 export interface Voice {
@@ -203,6 +223,8 @@ export interface StylePart {
   volume: number
   waiting: boolean
   voice: Voice | null
+  /** Where its Launchkey fader (Style page, faders 1–8) physically is; null until it moves. */
+  fader: number | null
 }
 
 export interface MixerState {
@@ -222,6 +244,8 @@ export interface PadsState {
   /** This page's 16 pads: the top row, then the bottom row. */
   pads: Pad[]
   connected: boolean
+  /** The LEDs run in Novation palette mode (`--palette-leds`): the pads carry `palette`. */
+  paletteLeds: boolean
 }
 
 export interface OtsPart {
@@ -273,11 +297,9 @@ export interface IoState {
   offline: boolean
 }
 
-// ── Provisional: the Launchkey surface (the follow-up API PR after #71) ──────
+// ── The Launchkey surface (#77, docs/app-api.md "surface") ────────────────────
 // Everything the mirror needs beyond the pads, so no button's function is hard-coded in
-// the UI. Not in the engine yet: `surfaceOf()` (lib/surface.ts) derives it until the
-// engine sends `state.surface`, and the mock sends it already. Rename fields here and in
-// lib/surface.ts to whatever the API PR settles on.
+// the UI. The engine and both mocks send it.
 
 /** The Launchkey's non-pad controls, in hardware terms. */
 export type ControlId =
@@ -287,6 +309,8 @@ export type ControlId =
 
 export interface SurfaceControl {
   id: ControlId
+  /** Its CC on the DAW port, channel 1. */
+  cc: number
   /** What it does now, and with Shift held ('' and null: nothing). */
   label: string
   action: AppCmd | null
@@ -296,6 +320,8 @@ export interface SurfaceControl {
   rgb: Rgb
   level: Level
   anim: Anim
+  /** The palette index yahaha sends it; null for Play, Stop, Scene and Function (not driven). */
+  colour: number | null
 }
 
 export interface SurfaceFader {
@@ -327,8 +353,58 @@ export interface SurfaceState {
   /** The styles Track ◀/▶ would load (the engine sends `{ id, name, path }`). */
   trackPrev: Neighbour | null
   trackNext: Neighbour | null
-  /** The beat clock the LEDs run on: position at `atMs` (engine clock, ms), and tempo. */
-  clock: { bar: number; beat: number; phase: number; tempo: number; atMs: number }
+  /** The beat clocks (see ClockState). */
+  clock: ClockState
+}
+
+/**
+ * The clocks as anchors (docs/app-api.md, "surface.clock"). Times are the session's
+ * monotonic clock in ms. Each anchor moves on at `tempo` until the next state:
+ *   t   = atMs + (now − receivedMs)
+ *   pos = running ? sectionAnchorBeats + (t − sectionAnchorMs)·tempo/60000 : 0
+ *   led = ledAnchorBeats + (t − ledAnchorMs)·tempo/60000   (the pads' flash/pulse clock)
+ */
+export interface ClockState {
+  /** The session clock when this state was read. */
+  atMs: number
+  running: boolean
+  tempo: number
+  /** Quarter notes per bar. */
+  beatsPerBar: number
+  /** The position at `atMs` (1-based; 1, 1 when stopped) and how far into the beat. */
+  bar: number
+  beat: number
+  phase: number
+  sectionAnchorMs: number
+  sectionAnchorBeats: number
+  ledAnchorMs: number
+  ledAnchorBeats: number
+}
+
+// ── Provisional: the keyboard (NEED on the board) ────────────────────────
+// What the keyboard strip under the mirror shows. Not in the engine yet; the mock sends it.
+
+/** A key held on the controller now. */
+export interface HeldNote {
+  /** MIDI note as played (after the controller's octave, before Keyboard transpose). */
+  note: number
+  /** Which side of the split it's on: 'left' = the chord section / Left part. */
+  zone: 'left' | 'right'
+  /** The keyboard parts sounding it (0–3 = Right 1, Right 2, Right 3, Left); empty if none
+   * (a left-hand key that only feeds chord detection). */
+  parts: number[]
+}
+
+export interface KeyboardState {
+  /** Keys held now, low to high. */
+  held: HeldNote[]
+  /** Split Point (Left): keys at or below it play the Left part. `chord.split` is the
+   * style's (chord detection) split. The engine uses one split for both today. */
+  leftSplit: number
+  /** Pitch classes (0–11, C = 0) of the recognised chord, root first; empty for none. */
+  chordTones: number[]
+  /** The bass the style plays (pitch class): the root, or the slash / on-bass note. */
+  chordBass: number | null
 }
 
 // ── Provisional: style preview (#21, not in the engine yet) ──────────────
@@ -375,8 +451,10 @@ export interface AppState {
   library: LibraryStatus
   io: IoState
   message: { seq: number; text: string; error: boolean } | null
-  /** Provisional (see SurfaceState); absent from the engine until the follow-up API PR. */
-  surface?: SurfaceState
+  /** The Launchkey beyond the pads: controls, Shift, faders, Track neighbours, clocks. */
+  surface: SurfaceState
+  /** Provisional (see KeyboardState): held keys and chord tones for the keyboard strip. */
+  keyboard?: KeyboardState
   /** Provisional (see PreviewState); absent from the engine until it can audition. */
   preview?: PreviewState
 }

@@ -6,7 +6,7 @@
 
 import fixture from './mock-fixture.json'
 import { syntheticStyles } from './mock-library'
-import { deriveSurface } from '../surface'
+import { clockAt, mockSurface, type MockHardware } from './mock-surface'
 import { padsFor } from './mock-pads'
 import type { Session } from './session'
 import {
@@ -102,6 +102,22 @@ export function transposeChord(name: string, d: number): string {
   return name.replace(/^([A-G][b#]?)/, (m) => shift(m)).replace(/\/([A-G][b#]?)$/, (_, m) => '/' + shift(m))
 }
 
+/** Intervals of the chord qualities the mock's progression uses (the engine recognises many more). */
+const QUALITIES: Record<string, number[]> = {
+  '': [0, 4, 7], m: [0, 3, 7], '7': [0, 4, 7, 10], m7: [0, 3, 7, 10], maj7: [0, 4, 7, 11], '6': [0, 4, 7, 9],
+  m6: [0, 3, 7, 9], sus4: [0, 5, 7], '7sus4': [0, 5, 7, 10], dim: [0, 3, 6], aug: [0, 4, 8],
+}
+
+/** The mock's stand-in for the engine's chord tones: pitch classes, root first, and the bass. */
+export function chordTones(name: string | null): { tones: number[]; bass: number | null } {
+  const m = name ? /^([A-G][b#]?)([^/]*)(?:\/([A-G][b#]?))?$/.exec(name) : null
+  const root = m ? NOTE_NAMES.indexOf(m[1]) : -1
+  if (!m || root < 0) return { tones: [], bass: null }
+  const tones = (QUALITIES[m[2]] ?? QUALITIES['']).map((i) => (root + i) % 12)
+  const slash = m[3] ? NOTE_NAMES.indexOf(m[3]) : -1
+  return { tones, bass: slash >= 0 ? slash : root }
+}
+
 const PROGRESSION = ['C', 'Am7', 'Fmaj7', 'G7', 'Em7', 'A7', 'Dm7', 'G7sus4', 'C/E', 'F', 'Fm6', 'C']
 const STYLE_VOICES: [number, number, number, boolean, string][] = [
   [127, 0, 0, true, 'drum kit 127/0/1'],
@@ -144,12 +160,17 @@ function beatsPerBar([n, d]: [number, number]): number {
   return d === 8 && n % 3 === 0 ? n / 3 : n
 }
 
+/** How long a section's pattern is, in bars (the mock's; real styles vary). */
+function patternBars(s: string): number {
+  return MAINS.includes(s) ? 4 : sectionBars(s)
+}
+
 /** A stopped session with the first style loaded and Sync Start armed. */
 export function initialState(): AppState {
   const s = STYLES[0]
   const part = (i: number, program: number, on: boolean) => ({
     name: KEYBOARD_PART_NAMES[i], channel: [1, 3, 4, 2][i], on, sounding: on, selected: i === 0,
-    volume: 100, waiting: false, program, voiceName: GM[program], playsBass: false, octave: 0,
+    volume: 100, waiting: false, program, voiceName: GM[program], playsBass: false, octave: 0, fader: null,
   })
   const state: AppState = {
     version: 1,
@@ -164,17 +185,18 @@ export function initialState(): AppState {
       manualBass: true, manualBassActive: false, split: 54, splitName: noteName(54), transposeKeyboard: 0, transposeMaster: 0,
     },
     keyboardParts: [part(0, 0, true), part(1, 48, false), part(2, 61, false), part(3, 48, false)],
+    keyboard: { held: [], leftSplit: 54, chordTones: [], chordBass: null },
     mixer: {
       faderPage: 'panel',
       styleParts: STYLE_PART_NAMES.map((name, i) => ({
         name, channel: 9 + i, on: true, mutedByManualBass: false,
-        volume: [100, 100, 96, 80, 76, 70, 88, 84][i], waiting: false,
+        volume: [100, 100, 96, 80, 76, 70, 88, 84][i], waiting: false, fader: null,
         voice: { bankMsb: STYLE_VOICES[i][0], bankLsb: STYLE_VOICES[i][1], program: STYLE_VOICES[i][2], kit: STYLE_VOICES[i][3], label: STYLE_VOICES[i][4] },
       })),
       master: 100,
       masterWaiting: false,
     },
-    pads: { page: 'sections', pageName: 'Sections', pageNumber: 1, pageCount: 3, pads: [], connected: true },
+    pads: { page: 'sections', pageName: 'Sections', pageNumber: 1, pageCount: 3, pads: [], connected: true, paletteLeds: false },
     ots: { settings: otsSettings(s.ots), applied: 0, link: false },
     library: { revision: LIBRARY.revision, count: LIBRARY.entries.length, position: 0, pending: 0 },
     io: {
@@ -190,15 +212,25 @@ export function initialState(): AppState {
       offline: false,
     },
     message: null,
+    surface: null as unknown as AppState['surface'], // filled in by derive()
     preview: { audition: null, queued: null },
   }
   derive(state, LIBRARY)
   return state
 }
 
+/** A stopped clock at session time 0, and faders that haven't moved. */
+function idleHardware(st: AppState): MockHardware {
+  const clock = {
+    atMs: 0, running: false, tempo: st.transport.tempo, beatsPerBar: st.transport.beatsPerBar, bar: 1, beat: 1, phase: 0,
+    sectionAnchorMs: 0, sectionAnchorBeats: 0, ledAnchorMs: 0, ledAnchorBeats: 0,
+  }
+  return { faders: Array(9).fill(null), clock }
+}
+
 /** The fields the engine computes from the others: pads, lamps, names, flags, and the
- * provisional `surface` (with the mock's hardware fader positions and beat clock). */
-function derive(st: AppState, lib: LibraryList, hw: { faders: number[]; beats: number; atMs: number } | null = null) {
+ * `surface` (with the mock's hardware fader positions and clocks). */
+function derive(st: AppState, lib: LibraryList, hw: MockHardware | null = null, held: number[] = []) {
   const c = st.chord
   c.fingeringName = c.upper ? 'Fingered*' : FINGERINGS.find((f) => f.id === c.fingering)!.name
   c.manualBassActive = c.upper && c.manualBass
@@ -210,17 +242,29 @@ function derive(st: AppState, lib: LibraryList, hw: { faders: number[]; beats: n
     p.voiceName = p.playsBass ? 'Finger Bass' : GM[p.program]
   })
   st.mixer.styleParts.forEach((p, i) => (p.mutedByManualBass = i === 2 && c.manualBassActive))
+  st.transport.sectionBars = st.transport.section ? patternBars(st.transport.section) : null
+  // The keyboard strip: which part sounds each held key, and the chord's tones.
+  const right = st.keyboardParts.slice(0, 3).flatMap((p, i) => (p.on ? [i] : []))
+  const left = st.keyboardParts[3].sounding ? [3] : []
+  const ct = chordTones(c.name)
+  st.keyboard = {
+    held: [...held].sort((a, b) => a - b).map((note) => {
+      const lower = note <= c.split
+      return { note, zone: lower ? ('left' as const) : ('right' as const), parts: lower ? left : right }
+    }),
+    leftSplit: c.split,
+    chordTones: ct.tones,
+    chordBass: ct.bass,
+  }
   const page = PAD_PAGES.findIndex((p) => p.id === st.pads.page)
   st.pads.pageName = PAD_PAGES[page].name
   st.pads.pageNumber = page + 1
   st.transport.lamps = padsFor(st, 'sections')
   st.pads.pads = padsFor(st, st.pads.page)
-  const surface = deriveSurface(st, lib)
-  if (hw) {
-    surface.faders.forEach((f, i) => (f.position = f.set ? hw.faders[i] : null))
-    surface.clock = { ...surface.clock, phase: hw.beats - Math.floor(hw.beats), atMs: hw.atMs }
-  }
-  st.surface = surface
+  const h = hw ?? idleHardware(st)
+  st.keyboardParts.forEach((p, i) => (p.fader = h.faders[i] ?? null))
+  st.mixer.styleParts.forEach((p, i) => (p.fader = h.faders[i] ?? null))
+  st.surface = mockSurface(st, lib, h)
 }
 
 /** How many bars a section lasts before it moves on (Intro/Ending: 2, Break/Fill: 1). */
@@ -251,8 +295,37 @@ export class MockSession implements Session {
   private progression = 0
   private messageSeq = 0
   private demo: boolean
+  /** Keys the (imaginary) player holds: a left-hand chord and a right-hand melody. */
+  private leftHand: number[] = []
+  private rightHand: number[] = []
   /** Where the (imaginary) hardware faders physically are: 1–8, master. */
   private hwFaders = [100, 72, 100, 100, 0, 0, 0, 0, 100]
+  /** The clocks as the engine anchors them (docs/app-api.md "surface.clock"). */
+  private anchor = { key: '', sectionMs: 0, sectionBeats: 0, ledMs: 0, ledBeats: 0, tempo: 0 }
+
+  /** The hardware faders and the clocks, read now. */
+  private hardware(): MockHardware {
+    const t = this.state.transport
+    const a = this.anchor
+    // The LED clock runs free; on a tempo change it re-anchors, carrying on.
+    if (t.tempo !== a.tempo) {
+      a.ledBeats = a.tempo ? a.ledBeats + ((this.now - a.ledMs) * a.tempo) / 60000 : 0
+      a.ledMs = this.now
+      a.tempo = t.tempo
+    }
+    // The section clock re-anchors when the section, its start or the tempo changes.
+    const key = `${t.running}:${t.section}:${this.sectionStart}:${t.tempo}`
+    if (key !== a.key) {
+      a.key = key
+      a.sectionMs = this.now
+      a.sectionBeats = t.running ? this.clock - this.sectionStart * t.beatsPerBar : 0
+    }
+    const clock = clockAt({
+      atMs: this.now, running: t.running, tempo: t.tempo, beatsPerBar: t.beatsPerBar, bar: 1, beat: 1, phase: 0,
+      sectionAnchorMs: a.sectionMs, sectionAnchorBeats: a.sectionBeats, ledAnchorMs: a.ledMs, ledAnchorBeats: a.ledBeats,
+    }, this.now)
+    return { faders: this.hwFaders, clock }
+  }
   private lib: LibraryList = LIBRARY
   private styles: FixtureStyle[] = STYLES
   /** Beats into the audition playing (provisional, #21). */
@@ -269,7 +342,7 @@ export class MockSession implements Session {
       this.state.library.position = this.lib.entries.findIndex((e) => e.id === this.state.style.id)
     }
     if (this.demo) this.demoStart()
-    derive(this.state, this.lib, { faders: this.hwFaders, beats: this.clock, atMs: this.now })
+    derive(this.state, this.lib, this.hardware(), [...this.leftHand, ...this.rightHand])
     if (!opts.manual) {
       this.last = performance.now()
       this.timer = setInterval(() => {
@@ -295,6 +368,8 @@ export class MockSession implements Session {
     st.ots.applied = 2
     st.chord.name = 'Am7'
     st.chord.fingered = 'Am7'
+    this.leftHand = this.leftVoicing('Am7')
+    this.rightHand = [72, 76]
     st.mixer.styleParts[5].waiting = true
     st.mixer.styleParts[5].volume = 58
     this.position()
@@ -322,7 +397,7 @@ export class MockSession implements Session {
 
   private publish() {
     this.state.version++
-    derive(this.state, this.lib, { faders: this.hwFaders, beats: this.clock, atMs: this.now })
+    derive(this.state, this.lib, this.hardware(), [...this.leftHand, ...this.rightHand])
     const snap = this.snapshot()
     for (const f of this.subs) f(snap)
   }
@@ -403,6 +478,7 @@ export class MockSession implements Session {
 
   private onBeat() {
     const t = this.state.transport
+    if (this.demo) this.melody()
     if (t.queued && FILLS.includes(t.queued)) {
       t.section = t.queued
       t.queued = null
@@ -461,8 +537,35 @@ export class MockSession implements Session {
     }
   }
 
+  /** The demo's right hand: a chord tone per beat above the split, resting on the last beat. */
+  private melody() {
+    const beat = Math.floor(this.clock)
+    const bpb = this.state.transport.beatsPerBar
+    const { tones } = chordTones(this.state.chord.fingered)
+    if (!tones.length || beat % bpb === bpb - 1) {
+      this.rightHand = []
+      return
+    }
+    const tone = tones[(beat * 3) % tones.length]
+    const top = 72 + tone
+    this.rightHand = beat % bpb === 0 ? [60 + tones[0] + (tones[0] < 5 ? 12 : 0), top] : [top]
+  }
+
+  /** The demo's left hand: `chord` in close position, root at or just below the split. */
+  private leftVoicing(chord: string) {
+    const { tones } = chordTones(chord)
+    const split = this.state.chord.split
+    if (!tones.length) return []
+    const root = split - ((((split - tones[0]) % 12) + 12) % 12)
+    return tones.map((pc) => {
+      const n = root + ((pc - tones[0] + 12) % 12)
+      return n > split ? n - 12 : n
+    }).sort((a, b) => a - b)
+  }
+
   private chordArrives(chord: string) {
     const t = this.state.transport
+    if (this.demo) this.leftHand = this.leftVoicing(chord)
     const k = this.state.chord.transposeKeyboard
     this.state.chord.name = transposeChord(chord, k)
     this.state.chord.fingered = chord
@@ -484,6 +587,7 @@ export class MockSession implements Session {
 
   private stopBand() {
     const t = this.state.transport
+    this.rightHand = []
     // A style queued for the next bar loads when the band stops first.
     const q = this.preview.queued
     this.preview.queued = null

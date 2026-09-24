@@ -6,7 +6,7 @@
 <script lang="ts">
   import type { ControlId, SurfaceState } from '../../lib/api/types'
   import { app, clock, ui } from '../../lib/store.svelte'
-  import { controlTip, layer } from '../../lib/surface'
+  import { controlTip, hasShiftFunction, layer } from '../../lib/surface'
   import HwButton from '../../lib/ui/HwButton.svelte'
 
   let {
@@ -31,7 +31,7 @@
   const c = $derived(surface.controls.find((x) => x.id === id)!)
   const shift = $derived(ui.shift || surface.shift)
   const now = $derived(layer(c, shift))
-  const shifted = $derived(shift && (c.shiftLabel !== c.label || c.shiftAction !== c.action))
+  const shifted = $derived(shift && hasShiftFunction(c))
 </script>
 
 <HwButton
