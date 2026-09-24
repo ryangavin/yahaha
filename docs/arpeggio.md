@@ -172,6 +172,16 @@ Arpeggio Hold and the HARMONY/ARPEGGIO switch are also pedal functions (Settings
 Pedals: Arpeggio Hold, Kbd Harmony/Arpeggio On/Off; RM p.141), with a Control Type:
 Hold A holds the arpeggio while the pedal is down (docs/controllers.md).
 
+Decision: the Arpeggio Hold pedal function is kept apart from the Hold setting
+(`harmonyArp.arp.pedalHold`, `FxConfig::pedal_hold`), and the arpeggio holds while either
+is on. The manual describes two mechanisms: the menu's Hold (RM p.41) is a setting, and the
+pattern it holds stops when the [HARMONY/ARPEGGIO] button is pressed again; the pedal
+function (RM p.141) holds "while this function is on" and stops the pattern "when this
+function is turned off". A pedal that wrote the setting would turn off a Hold the player
+set in the menu on its first release. PANIC and an unplugged keyboard turn the pedal
+function off where a Hold pedal was keeping it on (the pedal counts as up after them); they
+leave the setting.
+
 ## Not done yet
 
 - The Live Control percentages and the sustain-pedal hold (`sustain_holds`) in the app.

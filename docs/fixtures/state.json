@@ -1541,6 +1541,7 @@
     "arp": {
       "quantize": "off",
       "hold": false,
+      "pedalHold": false,
       "velocity": "original",
       "fixedVelocity": 100,
       "keepKeyOn": false

@@ -92,9 +92,14 @@ pub struct FxConfig {
     /// Arpeggio pattern: an index into `arp::library::PATTERNS`.
     pub pattern: u8,
     pub quantize: Quantize,
+    /// The Arpeggio Hold setting (RM p.41: the menu's Hold, stopped with the switch).
     pub hold: bool,
     pub velocity: Velocity,
     pub keep_key_on: bool,
+    /// The Arpeggio Hold pedal function (RM p.141): holds while it is on, and the pattern
+    /// stops when it goes off. Kept apart from `hold`, so the pedal never changes the
+    /// setting; the arpeggio holds while either is on.
+    pub pedal_hold: bool,
 }
 
 impl Default for FxConfig {
@@ -108,6 +113,7 @@ impl Default for FxConfig {
             hold: false,
             velocity: Velocity::Original,
             keep_key_on: false,
+            pedal_hold: false,
         }
     }
 }
@@ -138,6 +144,7 @@ const HOLD: u32 = 35;
 const VEL_MODE: u32 = 36; // 2 bits
 const FIXED_VEL: u32 = 38; // 7 bits
 const KEEP_KEY_ON: u32 = 45;
+const PEDAL_HOLD: u32 = 46;
 /// Set in every packed word, so 0 (never written) reads as "not set yet".
 const VALID: u32 = 63;
 // TYPE and PATTERN are 5-bit fields: a longer list would wrap round in the word.
@@ -171,6 +178,7 @@ impl FxConfig {
             | vmode << VEL_MODE
             | fixed << FIXED_VEL
             | (self.keep_key_on as u64) << KEEP_KEY_ON
+            | (self.pedal_hold as u64) << PEDAL_HOLD
             | 1 << VALID
     }
 
@@ -206,6 +214,7 @@ impl FxConfig {
                 _ => Velocity::Original,
             },
             keep_key_on: f(KEEP_KEY_ON, 1) == 1,
+            pedal_hold: f(PEDAL_HOLD, 1) == 1,
         }
     }
 
@@ -237,7 +246,7 @@ impl FxConfig {
     pub fn arp_settings(&self) -> arp::Settings {
         arp::Settings {
             quantize: self.quantize,
-            hold: self.hold,
+            hold: self.hold || self.pedal_hold,
             velocity: self.velocity,
             keep_key_on: self.keep_key_on,
             ..arp::Settings::default()
@@ -719,6 +728,7 @@ mod tests {
                     hold: i % 3 == 0,
                     velocity: [Velocity::Original, Velocity::Thru, Velocity::Fixed(1 + i as u8)][(i + j) % 3],
                     keep_key_on: j % 3 == 1,
+                    pedal_hold: i % 4 == 1,
                 };
                 assert_eq!(FxConfig::unpack(c.pack()), c);
             }

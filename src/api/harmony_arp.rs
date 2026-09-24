@@ -28,9 +28,15 @@ pub enum HarmonyArpCmd {
     SetTouchLimit { velocity: u8 },
     /// Arpeggio Quantize.
     SetArpQuantize { quantize: ArpQuantize },
-    /// Arpeggio Hold (latch).
+    /// The Arpeggio Hold setting (RM p.41: the pattern plays on after the keys go up until
+    /// the switch goes off).
     SetArpHold { on: bool },
     ToggleArpHold,
+    /// The Arpeggio Hold pedal function (RM p.141), apart from the setting: the pattern
+    /// plays on while it is on and stops when it goes off. A Hold A / Hold B pedal sets it,
+    /// a Toggle pedal (and the function's Try) switches it.
+    SetArpPedalHold { on: bool },
+    ToggleArpPedalHold,
     /// Where the arpeggio's velocities come from; `velocity` (1-127) is used by `fixed`.
     SetArpVelocity { mode: ArpVelocityMode, velocity: u8 },
     /// Keep Key On: the pattern clock runs on through a full release.
@@ -74,7 +80,11 @@ pub struct HarmonyTypeInfo {
 #[serde(rename_all = "camelCase")]
 pub struct ArpSettings {
     pub quantize: ArpQuantize,
+    /// The Hold setting.
     pub hold: bool,
+    /// The Arpeggio Hold pedal function is on (a pedal holding it, or switched on).
+    #[serde(default)]
+    pub pedal_hold: bool,
     pub velocity: ArpVelocityMode,
     /// The velocity `fixed` plays at.
     pub fixed_velocity: u8,

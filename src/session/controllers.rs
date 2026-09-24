@@ -3,7 +3,7 @@
 
 use super::Control;
 use crate::api::{function_run, function_set, CmdError, ControllersCmd, ControllersState, FunctionRun};
-use crate::controllers::{control_switch_sets, Function, PEDALS};
+use crate::controllers::{control_switch_sets, reset_release, Function, PEDALS};
 use crate::fingering::Fingering;
 use std::sync::atomic::Ordering::Relaxed;
 
@@ -38,6 +38,20 @@ impl Control {
         // The engine thread sends the parts what changed.
         self.wake_engine();
         Ok(())
+    }
+
+    /// A reset on the engine thread (Panic, a keyboard unplugged) let go of the pedals:
+    /// the switches the control side keeps for a Hold pedal (Kbd Harmony/Arpeggio,
+    /// Arpeggio Hold) go off where the pedal was keeping them on, as the pedal switches did
+    /// in the reset. The pedal's own release sends no edge after a reset, so without this
+    /// they would stay on with the pedal up.
+    pub(super) fn pump_pedal_releases(&mut self) {
+        let Some(down) = self.shared.controllers.take_reset_releases() else { return };
+        for i in 0..PEDALS {
+            if let Some(cmd) = reset_release(self.shared.controllers.pedal(i), down >> i & 1 != 0).and_then(|f| function_set(f, false)) {
+                let _ = self.apply(cmd);
+            }
+        }
     }
 
     /// Run an assignable function (a pedal press, or `TriggerFunction`).
@@ -142,15 +156,15 @@ mod tests {
         let Some(s) = offline() else { return };
         let set = |function, control_type| ControllersCmd::SetPedal { pedal: 1, cc: Some(66), function, control_type, reverse: false, range: Default::default() };
         s.send(set(Function::ArpHold, ControlType::HoldA)).unwrap();
-        assert!(!s.state().harmony_arp.arp.hold);
+        assert!(!s.state().harmony_arp.arp.pedal_hold);
         s.midi_in(Port::Keys, &[0xB0, 66, 127]);
-        assert!(s.state().harmony_arp.arp.hold, "Hold A: on while the pedal is down");
+        assert!(s.state().harmony_arp.arp.pedal_hold, "Hold A: on while the pedal is down");
         s.midi_in(Port::Keys, &[0xB0, 66, 0]);
-        assert!(!s.state().harmony_arp.arp.hold);
+        assert!(!s.state().harmony_arp.arp.pedal_hold);
         s.send(set(Function::ArpHold, ControlType::HoldB)).unwrap();
-        assert!(s.state().harmony_arp.arp.hold, "Hold B picked with the pedal up: on at once");
+        assert!(s.state().harmony_arp.arp.pedal_hold, "Hold B picked with the pedal up: on at once");
         s.midi_in(Port::Keys, &[0xB0, 66, 127]);
-        assert!(!s.state().harmony_arp.arp.hold, "Hold B: off while down");
+        assert!(!s.state().harmony_arp.arp.pedal_hold, "Hold B: off while down");
         s.send(set(Function::KbdHarmonyArp, ControlType::Toggle)).unwrap();
         s.midi_in(Port::Keys, &[0xB0, 66, 0]);
         assert!(!s.state().harmony_arp.on);
@@ -161,7 +175,9 @@ mod tests {
         s.send(ControllersCmd::TriggerFunction { function: Function::KbdHarmonyArp }).unwrap();
         assert!(!s.state().harmony_arp.on);
         s.send(ControllersCmd::TriggerFunction { function: Function::ArpHold }).unwrap();
-        assert!(s.state().harmony_arp.arp.hold, "Try: Arpeggio Hold switches");
+        let st = s.state();
+        assert!(st.harmony_arp.arp.pedal_hold, "Try: Arpeggio Hold (the function) switches");
+        assert!(!st.harmony_arp.arp.hold, "and leaves the Hold setting");
         // A Hold A pedal held down when it is given another function lets its switch go.
         s.send(set(Function::KbdHarmonyArp, ControlType::HoldA)).unwrap();
         s.midi_in(Port::Keys, &[0xB0, 66, 127]);

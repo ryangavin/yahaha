@@ -242,7 +242,8 @@ arpeggio pattern, never both. The type lists are in `LibraryList` (`harmonyTypes
 | `setChordNoteOnly` | `on` | Harmony category: harmonise only melody notes of the current chord. |
 | `setTouchLimit` | `velocity` 1–127 | The effect sounds only for keys played at least this hard (Minimum Velocity). |
 | `setArpQuantize` | `quantize` | `off`, `eighth` or `sixteenth`: the grid the arpeggio starts on. |
-| `setArpHold` / `toggleArpHold` | `on` | Arpeggio Hold: the pattern plays on after the keys are released. |
+| `setArpHold` / `toggleArpHold` | `on` | The Arpeggio Hold setting (RM p.41): the pattern plays on after the keys are released, until the switch goes off or Hold is turned off. |
+| `setArpPedalHold` / `toggleArpPedalHold` | `on` | The Arpeggio Hold pedal function (RM p.141), apart from the setting: the pattern plays on after the keys are released while it is on, and stops when it goes off. A pedal on Arpeggio Hold sends these (Hold A / Hold B set it, Toggle and the function's Try switch it); it never changes the setting. PANIC and an unplugged keyboard turn it off where a Hold pedal was keeping it on. |
 | `setArpVelocity` | `mode`, `velocity` | `original` (the pattern's accents), `thru` (each key's velocity) or `fixed` (every note at `velocity`, 1–127). |
 | `setArpKeepKeyOn` | `on` | Keep Key On: the pattern clock runs on through a full release, so the next chord picks up in phase. |
 
@@ -633,7 +634,7 @@ Keyboard Harmony / Arpeggio (the commands above).
 | `assign` | string | `auto`, `multi`, `right1`, `right2`, `right3`. |
 | `chordNoteOnly` | bool | Harmony category: only chord tones are harmonised. |
 | `touchLimit` | 1–127 | Minimum Velocity. |
-| `arp` | object | `quantize` (`off` \| `eighth` \| `sixteenth`), `hold`, `velocity` (`original` \| `thru` \| `fixed`), `fixedVelocity`, `keepKeyOn`. |
+| `arp` | object | `quantize` (`off` \| `eighth` \| `sixteenth`), `hold` (the setting), `pedalHold` (the Arpeggio Hold pedal function is on; the arpeggio holds while either is), `velocity` (`original` \| `thru` \| `fixed`), `fixedVelocity`, `keepKeyOn`. |
 
 ### `message`
 `{ seq, text, error }` or null. It holds the last notice or error, for example a style
@@ -1115,7 +1116,7 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
     "assign": "auto",
     "chordNoteOnly": false,
     "touchLimit": 1,
-    "arp": { "quantize": "off", "hold": false, "velocity": "original", "fixedVelocity": 100, "keepKeyOn": false }
+    "arp": { "quantize": "off", "hold": false, "pedalHold": false, "velocity": "original", "fixedVelocity": 100, "keepKeyOn": false }
   },
   "message": null
 }

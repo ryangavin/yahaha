@@ -343,6 +343,7 @@ impl Control {
             let _ = self.apply(a.into());
         }
         self.pump_ots_link();
+        self.pump_pedal_releases();
         while self.old_rx.pop().is_ok() {} // drop old styles here, off the RT thread
         while self.old_audition_rx.pop().is_ok() {}
         self.pump_sound_font();

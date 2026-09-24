@@ -129,6 +129,8 @@ const EVERY_CMD: &[&str] = &[
     r#"{"type":"setArpQuantize","quantize":"sixteenth"}"#,
     r#"{"type":"setArpHold","on":true}"#,
     r#"{"type":"toggleArpHold"}"#,
+    r#"{"type":"setArpPedalHold","on":true}"#,
+    r#"{"type":"toggleArpPedalHold"}"#,
     r#"{"type":"setArpVelocity","mode":"fixed","velocity":90}"#,
     r#"{"type":"setArpKeepKeyOn","on":false}"#,
 ];

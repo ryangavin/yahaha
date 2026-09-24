@@ -87,7 +87,7 @@ pub fn function_run(f: Function, fingering: crate::fingering::Fingering, ots_cou
         // (`function_set`).
         Effect::ControlSwitch => match f {
             Function::KbdHarmonyArp => super::HarmonyArpCmd::ToggleHarmonyArp.into(),
-            Function::ArpHold => super::HarmonyArpCmd::ToggleArpHold.into(),
+            Function::ArpHold => super::HarmonyArpCmd::ToggleArpPedalHold.into(),
             _ => return Err(format!("{} can't be run here", info.name)),
         },
         Effect::Control => match f {
@@ -130,7 +130,7 @@ pub fn function_run(f: Function, fingering: crate::fingering::Fingering, ots_cou
 pub fn function_set(f: Function, on: bool) -> Option<super::AppCmd> {
     match f {
         Function::KbdHarmonyArp => Some(super::HarmonyArpCmd::SetHarmonyArpOn { on }.into()),
-        Function::ArpHold => Some(super::HarmonyArpCmd::SetArpHold { on }.into()),
+        Function::ArpHold => Some(super::HarmonyArpCmd::SetArpPedalHold { on }.into()),
         _ => None,
     }
 }

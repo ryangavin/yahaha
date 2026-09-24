@@ -62,6 +62,8 @@ impl Control {
             }
             HarmonyArpCmd::SetArpHold { on } => h.hold = on,
             HarmonyArpCmd::ToggleArpHold => h.hold = !h.hold,
+            HarmonyArpCmd::SetArpPedalHold { on } => h.pedal_hold = on,
+            HarmonyArpCmd::ToggleArpPedalHold => h.pedal_hold = !h.pedal_hold,
             HarmonyArpCmd::SetArpVelocity { mode, velocity } => {
                 h.velocity = match mode {
                     ArpVelocityMode::Original => Velocity::Original,
@@ -123,6 +125,7 @@ impl Control {
                     Quantize::Sixteenth => ArpQuantize::Sixteenth,
                 },
                 hold: h.hold,
+                pedal_hold: h.pedal_hold,
                 velocity,
                 fixed_velocity,
                 keep_key_on: h.keep_key_on,

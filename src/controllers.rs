@@ -449,6 +449,11 @@ pub struct Controllers {
     /// Pedals whose edge the input thread must forget (bit = pedal): set by a reset or a
     /// changed setup, so the next press is a press even if the last read was "down".
     forget: AtomicU8,
+    /// A reset happened (`RESET_SEEN`) and the pedals that were down then (bit = pedal),
+    /// for the control side: it lets go of the switches it keeps for a Hold pedal
+    /// (`Effect::ControlSwitch`), as `reset` does the pedal switches
+    /// (`take_reset_releases`, `reset_release`).
+    reset_seen: AtomicU16,
     /// A thread holds the right to send the parts' controllers (`claim`).
     busy: AtomicBool,
     /// A thread wanted to sync while the other held it: the holder syncs again.
@@ -480,6 +485,7 @@ impl Controllers {
             touched: AtomicU16::new(0),
             learn: AtomicU8::new(NOT_LEARNING),
             forget: AtomicU8::new(0),
+            reset_seen: AtomicU16::new(0),
             busy: AtomicBool::new(false),
             pending: AtomicBool::new(false),
         }
@@ -607,6 +613,14 @@ impl Controllers {
     /// The pedals held down (bit = pedal).
     pub fn down(&self) -> u8 {
         self.down.load(Relaxed)
+    }
+
+    /// The control side: whether a reset (Panic, a keyboard unplugged) happened since the
+    /// last call, with the pedals that were down then (bit = pedal). Each pedal's
+    /// control-side switch is then let go of ([`reset_release`]).
+    pub fn take_reset_releases(&self) -> Option<u8> {
+        let w = self.reset_seen.swap(0, Relaxed);
+        (w & RESET_SEEN != 0).then_some(w as u8)
     }
 
     /// Keyboard source slot `slot` moved a pedal or wheel since the last reset.
@@ -843,8 +857,10 @@ impl Controllers {
         self.modulation.store(0, Relaxed);
         self.bend.store(BEND_CENTRE, Relaxed);
         self.touched.store(0, Relaxed);
-        // The pedals count as up until pressed again: the next press is a press.
-        self.down.store(0, Relaxed);
+        // The pedals count as up until pressed again: the next press is a press. The
+        // control side lets go of what those that were down held (`take_reset_releases`).
+        let was_down = self.down.swap(0, Relaxed);
+        self.reset_seen.fetch_or(RESET_SEEN | was_down as u16, Relaxed);
         self.forget.store(u8::MAX, Relaxed);
         for p in 0..COUNT {
             let ch = parts::CHANNEL[p];
@@ -929,6 +945,25 @@ pub fn control_switch_sets(old: PedalSetup, new: PedalSetup, old_down: bool, new
     let follow = (retyped && held(new)).then(|| (new.function, hold_on(new.control_type, new_down)));
     [release, follow]
 }
+
+/// The control-side switch (`Effect::ControlSwitch`) a reset turns off for pedal setup `p`
+/// (`was_down`: the pedal was down at the reset): the one a Hold pedal was keeping on, a
+/// Hold A pedal's while down, a Hold B pedal's while up. As with the pedal switches
+/// (`reset` turns them all off), the pedal then counts as up and a Hold B switch stays off
+/// until the pedal is next pressed and released: a reset never turns anything on. None for
+/// a Toggle pedal (a press switched it, as the panel button would; the reset leaves it)
+/// and for other functions.
+pub fn reset_release(p: PedalSetup, was_down: bool) -> Option<Function> {
+    let held_on = match p.control_type {
+        ControlType::HoldA => was_down,
+        ControlType::HoldB => !was_down,
+        ControlType::Toggle => false,
+    };
+    (p.function.effect() == Effect::ControlSwitch && held_on).then_some(p.function)
+}
+
+/// `Controllers::reset_seen`: a reset happened (the low bits are the pedals down then).
+const RESET_SEEN: u16 = 1 << 8;
 
 #[cfg(test)]
 mod tests {
@@ -1090,6 +1125,38 @@ mod tests {
         assert_eq!(control_switch_sets(a, a, true, true), [None, None], "no change");
         let toggle = hold(ControlType::Toggle);
         assert_eq!(control_switch_sets(other, toggle, false, false), [None, None], "a toggle leaves it as it is");
+    }
+
+    /// A reset (Panic, a keyboard unplugged) lets go of the pedals: those that were down
+    /// are reported once to the control side, whose switches then follow the pedal up.
+    #[test]
+    fn a_reset_reports_the_pedals_it_let_go() {
+        let c = Controllers::new();
+        let mut e = [0u8; 4];
+        let hold = |cc, function, control_type| PedalSetup { cc: Some(cc), function, control_type, ..PedalSetup::default() };
+        c.set_pedal(0, hold(64, Function::ArpHold, ControlType::HoldA));
+        c.set_pedal(1, hold(66, Function::KbdHarmonyArp, ControlType::HoldB));
+        c.set_pedal(2, hold(67, Function::ArpHold, ControlType::HoldA));
+        c.control_change(0, 64, 127, &mut e);
+        c.control_change(0, 66, 127, &mut e);
+        assert_eq!(c.down(), 0b011);
+        assert_eq!(c.take_reset_releases(), None, "nothing before a reset");
+        c.reset(&mut |_| {});
+        assert_eq!(c.take_reset_releases(), Some(0b011), "the pedals that were down, not pedal 3");
+        assert_eq!(c.take_reset_releases(), None, "once");
+        c.reset(&mut |_| {});
+        assert_eq!(c.take_reset_releases(), Some(0), "a reset with every pedal up");
+        // What each lets go of: what a Hold pedal was keeping on.
+        let (a, b) = (c.pedal(0), c.pedal(1));
+        assert_eq!(reset_release(a, true), Some(Function::ArpHold), "Hold A, down: on, so off");
+        assert_eq!(reset_release(a, false), None, "Hold A, up: not the pedal's");
+        assert_eq!(reset_release(b, false), Some(Function::KbdHarmonyArp), "Hold B, up: on, so off");
+        assert_eq!(reset_release(b, true), None, "Hold B, down: off already");
+        assert_eq!(reset_release(hold(64, Function::ArpHold, ControlType::Toggle), true), None, "a toggle leaves it");
+        assert_eq!(reset_release(hold(64, Function::Sustain, ControlType::HoldA), true), None, "a pedal switch: reset does it");
+        // Released after the reset: no edge (it counts as up already).
+        let f = c.control_change(0, 64, 0, &mut e);
+        assert!(matches!(f, Handled::Fire(Fire { set: None, .. })), "{f:?}");
     }
 
     #[test]

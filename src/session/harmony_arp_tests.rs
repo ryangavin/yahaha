@@ -336,6 +336,153 @@ fn panic_stops_a_held_arpeggio_and_the_pedals() {
     assert!(s.state().harmony_arp.on, "PANIC leaves the settings as they are");
 }
 
+/// A pedal on Arpeggio Hold or Kbd Harmony/Arpeggio (Hold A or Hold B) held down at PANIC
+/// or when its keyboard is unplugged (`Cmd::KeysOff`): the reset lets the pedal go, so
+/// the switch it held goes where the pedal being up puts it, and the arpeggio stops (RM
+/// p.141: "stops when this function is turned off"). Releasing the pedal afterwards
+/// changes nothing.
+#[test]
+fn a_reset_lets_go_of_what_a_hold_pedal_held() {
+    use crate::api::ControllersCmd;
+    use crate::controllers::{ControlType, Function};
+    use crate::live::Cmd;
+    let pedal = |function, control_type| ControllersCmd::SetPedal { pedal: 1, cc: Some(66), function, control_type, reverse: false, range: Default::default() };
+    let panic = |s: &Session, h: &mut Heard| send(s, h, SystemCmd::Panic);
+    let keys_off = |s: &Session, h: &mut Heard| {
+        let _ = s.inner.lock().engine_cmd(Cmd::KeysOff);
+        s.settle();
+        h.take(s);
+    };
+    for (name, reset) in [("PANIC", &panic as &dyn Fn(&Session, &mut Heard)), ("KeysOff", &keys_off)] {
+        let Some(s) = session(&["SlowWalker.T552.sty"]) else { return };
+        let mut h = Heard::default();
+        // Arpeggio Hold on Hold A, down: the pattern plays on after the keys go up.
+        send(&s, &mut h, pattern("Climb 16"));
+        send(&s, &mut h, HarmonyArpCmd::SetHarmonyArpOn { on: true });
+        send(&s, &mut h, pedal(Function::ArpHold, ControlType::HoldA));
+        s.midi_in(Port::Keys, &[0xB0, 66, 127]);
+        assert!(s.state().harmony_arp.arp.pedal_hold);
+        for k in [60, 64, 67] {
+            key(&s, &mut h, k, 100);
+        }
+        for k in [60, 64, 67] {
+            key(&s, &mut h, k, 0);
+        }
+        h.clear();
+        advance(&s, &mut h, 400 * MS);
+        assert!(!h.ons.is_empty(), "{name}: held by the pedal");
+        reset(&s, &mut h);
+        let st = s.state();
+        assert!(!st.harmony_arp.arp.pedal_hold, "{name}: the pedal counts as up, so Arpeggio Hold is off");
+        assert!(!st.controllers.pedals[1].down);
+        s.midi_in(Port::Keys, &[0xB0, 66, 0]);
+        h.take(&s);
+        h.clear();
+        advance(&s, &mut h, 1_000 * MS);
+        assert!(h.ons.is_empty(), "{name}: pedal and keys up, nothing plays: {:?}", h.ons);
+        assert!(!s.state().harmony_arp.arp.pedal_hold);
+        // Hold B, the mirror: up holds it on, so the reset turns it off. As with a Hold B
+        // pedal switch, it stays off until the pedal is next pressed and released: a reset
+        // never turns anything on.
+        send(&s, &mut h, pedal(Function::ArpHold, ControlType::HoldB));
+        assert!(s.state().harmony_arp.arp.pedal_hold, "{name}: Hold B, up: on");
+        for k in [60, 64, 67] {
+            key(&s, &mut h, k, 100);
+        }
+        for k in [60, 64, 67] {
+            key(&s, &mut h, k, 0);
+        }
+        reset(&s, &mut h);
+        assert!(!s.state().harmony_arp.arp.pedal_hold, "{name}: Hold B, up at the reset: off");
+        h.clear();
+        advance(&s, &mut h, 1_000 * MS);
+        assert!(h.ons.is_empty(), "{name}: {:?}", h.ons);
+        s.midi_in(Port::Keys, &[0xB0, 66, 127]);
+        assert!(!s.state().harmony_arp.arp.pedal_hold);
+        s.midi_in(Port::Keys, &[0xB0, 66, 0]);
+        assert!(s.state().harmony_arp.arp.pedal_hold, "{name}: pressed and released: on again");
+        // Hold B down at the reset (off): released afterwards, no edge, still off.
+        s.midi_in(Port::Keys, &[0xB0, 66, 127]);
+        reset(&s, &mut h);
+        s.midi_in(Port::Keys, &[0xB0, 66, 0]);
+        assert!(!s.state().harmony_arp.arp.pedal_hold, "{name}: Hold B down at the reset stays off");
+        // The Hold setting is not the pedal's: a reset leaves it.
+        send(&s, &mut h, HarmonyArpCmd::SetArpHold { on: true });
+        reset(&s, &mut h);
+        assert!(s.state().harmony_arp.arp.hold, "{name}: the Hold setting stays");
+        send(&s, &mut h, HarmonyArpCmd::SetArpHold { on: false });
+        // Kbd Harmony/Arpeggio on Hold A, down: the switch goes off with the reset.
+        send(&s, &mut h, pedal(Function::KbdHarmonyArp, ControlType::HoldA));
+        assert!(!s.state().harmony_arp.on, "Hold A picked with the pedal up: off");
+        s.midi_in(Port::Keys, &[0xB0, 66, 127]);
+        assert!(s.state().harmony_arp.on);
+        reset(&s, &mut h);
+        assert!(!s.state().harmony_arp.on, "{name}: Kbd Harmony/Arpeggio off with the pedal");
+        s.midi_in(Port::Keys, &[0xB0, 66, 0]);
+        assert!(!s.state().harmony_arp.on);
+        // A Toggle pedal switched it: the reset leaves it.
+        send(&s, &mut h, pedal(Function::KbdHarmonyArp, ControlType::Toggle));
+        s.midi_in(Port::Keys, &[0xB0, 66, 127]);
+        assert!(s.state().harmony_arp.on);
+        reset(&s, &mut h);
+        assert!(s.state().harmony_arp.on, "{name}: a Toggle pedal's switch stays");
+        s.midi_in(Port::Keys, &[0xB0, 66, 0]);
+        send(&s, &mut h, HarmonyArpCmd::SetHarmonyArpOn { on: false });
+        assert!(h.sounding().is_empty(), "{name}: {:?}", h.sounding());
+    }
+}
+
+/// The Arpeggio Hold pedal (RM p.141) and the Hold setting (RM p.41) are two things: the
+/// pedal never changes the setting, and the arpeggio holds while either is on.
+#[test]
+fn the_hold_pedal_leaves_the_hold_setting() {
+    use crate::api::ControllersCmd;
+    use crate::controllers::{ControlType, Function};
+    let Some(s) = session(&["SlowWalker.T552.sty"]) else { return };
+    let mut h = Heard::default();
+    let pedal = ControllersCmd::SetPedal { pedal: 1, cc: Some(66), function: Function::ArpHold, control_type: ControlType::HoldA, reverse: false, range: Default::default() };
+    send(&s, &mut h, pedal);
+    send(&s, &mut h, pattern("Climb 16"));
+    send(&s, &mut h, HarmonyArpCmd::SetHarmonyArpOn { on: true });
+    send(&s, &mut h, HarmonyArpCmd::SetArpHold { on: true });
+    s.midi_in(Port::Keys, &[0xB0, 66, 127]);
+    s.midi_in(Port::Keys, &[0xB0, 66, 0]);
+    let st = s.state();
+    assert!(st.harmony_arp.arp.hold, "a press and release of the pedal leaves the setting on");
+    assert!(!st.harmony_arp.arp.pedal_hold);
+    // The setting holds the pattern with the pedal up.
+    for k in [60, 64, 67] {
+        key(&s, &mut h, k, 100);
+    }
+    for k in [60, 64, 67] {
+        key(&s, &mut h, k, 0);
+    }
+    h.clear();
+    advance(&s, &mut h, 500 * MS);
+    assert!(!h.ons.is_empty(), "held by the setting");
+    // The setting off, the pedal down: held by the pedal, and it stops when the pedal
+    // goes up.
+    send(&s, &mut h, HarmonyArpCmd::SetArpHold { on: false });
+    s.midi_in(Port::Keys, &[0xB0, 66, 127]);
+    for k in [62, 65, 69] {
+        key(&s, &mut h, k, 100);
+    }
+    for k in [62, 65, 69] {
+        key(&s, &mut h, k, 0);
+    }
+    h.clear();
+    advance(&s, &mut h, 500 * MS);
+    assert!(!h.ons.is_empty(), "held by the pedal");
+    assert!(!s.state().harmony_arp.arp.hold, "the pedal did not turn the setting on");
+    s.midi_in(Port::Keys, &[0xB0, 66, 0]);
+    h.take(&s);
+    advance(&s, &mut h, 500 * MS);
+    h.clear();
+    advance(&s, &mut h, 500 * MS);
+    assert!(h.ons.iter().all(|o| o.0 != 0), "the pedal up stops it: {:?}", h.ons);
+    assert!(h.sounding().is_empty(), "{:?}", h.sounding());
+}
+
 /// A style with another resolution takes over at the bar line: the arpeggio re-times
 /// (`Arp::set_ppq`) and plays on at the same tempo.
 #[test]
