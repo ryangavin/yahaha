@@ -805,6 +805,10 @@ pub struct Engine {
     rpn: [u16; 16],
     /// What has been sent on each channel (controllers, voices, (N)RPNs, bends).
     mirror: Box<Mirror>,
+    /// Channels where a pattern sent a program change since the part setup last went out
+    /// there: the receiver has reset that part's XG parameters and drum setup, even when
+    /// the pattern has since gone back to the setup's voice.
+    pattern_pc: u16,
     /// Pitch bends that did not fit the output range and were clamped.
     #[cfg(test)]
     pub(crate) bend_clamps: std::cell::Cell<u32>,
@@ -867,6 +871,7 @@ impl Engine {
             bend_range: [GM_BEND_RANGE; 16],
             rpn: [RPN_NULL; 16],
             mirror: Box::new(Mirror::NEW),
+            pattern_pc: 0,
             #[cfg(test)]
             bend_clamps: Default::default(),
             #[cfg(test)]
@@ -929,6 +934,7 @@ impl Engine {
         for p in 0..8u8 {
             self.mirror.send(sink, &[0xB0 | (8 + p), 7, self.mixer[p as usize]]);
         }
+        self.pattern_pc = 0;
         self.sync_rpn();
     }
 
@@ -961,7 +967,9 @@ impl Engine {
     /// A program change goes out only for a voice that differs, and not on the channels in
     /// `own_voice`, whose new section sets its own voice by its entry point. The part's XG
     /// parameters follow a program change sent (it resets them on an XG receiver), and the
-    /// drum setup SysEx goes again only after one (a program change resets it). The effect
+    /// drum setup SysEx goes again only after one (a program change resets it), or when a
+    /// pattern's own program change reset them since (`pattern_pc`), even if that pattern
+    /// has since gone back to the setup's voice and no program change is needed. The effect
     /// SysEx is never re-sent: no pattern changes it, and an XG receiver would cut the
     /// reverb and delay tails. The part levels (CC7) are the faders: like a pattern CC7,
     /// the SInt's moves only the faders the player has not moved.
@@ -969,6 +977,12 @@ impl Engine {
         self.restore_untouched_levels();
         self.bend_range = self.style.bend_range;
         let mut voice_sent = 0u16;
+        // A pattern's program change reset these parts' XG parameters and drum setup on the
+        // receiver, even if it went back to the setup's voice (no program change here). Not
+        // on the parts whose new section sets its own voice: the setup's parameters belong
+        // to the setup's voice. They are put back at the first section change that doesn't.
+        let reset = self.pattern_pc & !own_voice;
+        let kits = (0..16).filter(|&c| self.style.kit[c]).fold(0u16, |m, c| m | 1 << c);
         // The (N)RPN the setup selects on each channel as it goes, and the channels where it
         // selects one.
         let (mut rpn, mut nrpn, mut nrpn_on) = ([RPN_NULL; 16], [RPN_NULL; 16], 0u16);
@@ -978,8 +992,8 @@ impl Engine {
             if m[0] == 0xF0 {
                 // XG Multi Part parameter (08 pp): after that part's program change only.
                 let send = match *m {
-                    [0xF0, 0x43, d, 0x4C, 0x08, part, ..] if d & 0xF0 == 0x10 => voice_sent & (1 << (part & 15)) != 0,
-                    _ if crate::sff::is_drum_setup(m) => voice_sent != 0,
+                    [0xF0, 0x43, d, 0x4C, 0x08, part, ..] if d & 0xF0 == 0x10 => (voice_sent | reset) & (1 << (part & 15)) != 0,
+                    _ if crate::sff::is_drum_setup(m) => voice_sent != 0 || reset & kits != 0,
                     _ => false,
                 };
                 if send {
@@ -1064,6 +1078,7 @@ impl Engine {
                 self.mirror.select(sink, ch as u8, want);
             }
         }
+        self.pattern_pc &= own_voice;
         self.sync_rpn();
         for p in 0..8u8 {
             let v = self.mixer[p as usize];
@@ -1612,6 +1627,7 @@ impl Engine {
                     let want = (self.mirror.cc[d][0], self.mirror.cc[d][32], prog);
                     if self.mirror.voice[d] != Some(want) {
                         self.mirror.send(sink, &[0xC0 | dest, prog]);
+                        self.pattern_pc |= 1 << d;
                     }
                 }
                 PKind::Bend { lo, hi } => last_bend[d] = Some((lo, hi)),
@@ -1660,6 +1676,7 @@ impl Engine {
                 let d = dest as usize & 15;
                 if self.mirror.voice[d] != Some((self.mirror.cc[d][0], self.mirror.cc[d][32], prog)) {
                     self.mirror.send(sink, &[0xC0 | dest, prog]);
+                    self.pattern_pc |= 1 << d;
                 }
             }
             PKind::Bend { lo, hi } if follows_chords(dest) => {
