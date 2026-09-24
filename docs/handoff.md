@@ -12,20 +12,36 @@ This file is the starting point for a fresh coordinator. Everything described he
   - #96 Chord Looper, part solo, Style Track Mute, tempo 5–500, metronome (#29, #30)
 - Suggested later: rename `integration/m3-ui` to `develop` once this wave lands (git-flow lite: `develop` → `main` with merge commits, and tag releases).
 
-## Open PRs (all target `integration/m3-ui`)
+## Status (updated 2026-09-24, evening)
 
-Every PR has had adversarial review rounds; the review comments are on each PR. "Unreviewed fix" means the last fix commits were pushed after the last review and still need verifying.
+The M5–M8 wave is fully merged into `integration/m3-ui`, and all gates are green. No PRs are open.
 
-| PR | Branch | Milestone / issues | State | What's left |
-|---|---|---|---|---|
-| #92 | `m5/fills-rules` | M5: #24 #26 #27 #28 | **Approved (r2).** CONFLICTING. | Merge `origin/integration/m3-ui` in, resolve, and re-run the gates. Two cross-PR items are on the board: (1) whichever of #92/#94 lands second adds the `Change::HalfBar` arm to `Engine::change_point`; (2) whichever of #92/#99 lands second registers the Stop ACMP mode as a registration item (`Group::Style`, `setStopAcmp`, DL p.91). |
-| #94 | `m5/section-timing` | M5: #22 #23 #25 | Review r3 failed. Unreviewed fix pushed (d2d7622, 12bd40a). Mergeable. | Verify the r3 blocker is fixed: re-striking the same chord after release must reach `Engine::set_chord`, so Style Retrigger and the Synchro Stop Window see it. Then run the gates and review the fix. |
-| #98 | `m8/ireal-player` | M8: #89 | **Approved (r3).** Non-blocking fixes pushed (a6be392). CONFLICTING in about 23 files. | Merge integration in; a first attempt was aborted, so start clean. Decide how the chart player's chords and the Chord Looper (#96) share the chord source; one owns it at a time. After #101 lands, route chart chords past the chord-settle window (use `apply_chord`, not the settled `set_chord`). Fix the Decision wording: the lane shows the written chords, not the transposed ones. |
-| #99 | `m7/registration` | M7: #36 #38 | Review r3 failed. Unreviewed fix pushed (d78f71e…7826bb4). Mergeable. | Verify B1: a recall restores only the Style part levels the player set, using a `player_set` mask with serde default all-true for old files. B2, the merge conflict, is already resolved. Parameter Lock is stubbed and tracked in #102. Run the gates and review the fix. |
-| #100 | `m6/harmony-arp-wiring` | M6: #32 #33 | Review r3 failed. Unreviewed fix pushed (6f14134, b078969, 19d30b5). Mergeable. | Verify B1: PANIC and unplugging must release control-side switches that a Hold pedal kept on (Arpeggio Hold, Kbd Harmony/Arp). Verify B2: the TS mock handles the two new pedal functions, matching the session and the Rust mock. Run the gates and review the fix. |
-| #101 | `engine/followups` | #47 #64 #65 #74 | Review r1 failed. Fix r1 pushed and self-reported as passing the gates. Mergeable. | Needs review r2. The r1 blockers: Chord Match pads during the chord-settle window, and `send_init` using a stale section after an Ending. Watch the interaction with #98 (see above). |
+| Merged | What |
+|---|---|
+| #93 #95 #96 | Controllers; Multi Pads; Chord Looper, solo, track mute, metronome |
+| #99 #100 #101 | Registration and Playlist; Keyboard Harmony and Arpeggio; engine follow-ups (chord settle, per-section routing, MIDI hot-plug) |
+| #94 #92 | Section timing (a style change waits for the Ending); fills, Half Bar, Stop ACMP modes, style-change rules, OTS Link Timing defaulting to At Main Section Change (owner preference) |
+| #105 #106 | AU plugins on the keyboard parts (#91); sound library and program map (#103) |
+| #98 | iReal chart player (M8) |
+| #108 #112 | Fixes for flaky tests |
 
-Suggested merge order: #101, #94, #92, #100, #99, #98. The engine/timing base goes first. #98 goes last because it has the most conflicts and depends on #101. After each merge, the remaining PRs need `origin/integration/m3-ui` merged in; use a merge commit, not a rebase.
+**Next steps:**
+1. The owner playtests integration.
+2. Merge `integration/m3-ui` to `main` with a merge commit.
+3. Optionally rename the branch to `develop`.
+
+**Follow-ups with deferred edge cases:**
+- #104: plugins, including a registrable for a part's plugin.
+- #107: section-timing registrables and edge cases.
+- #109: sound library, including a registrable for a part's patch.
+- #110: iReal and looper edge cases.
+- #111: fills and rules edge cases, including a style chosen while an Ending is only queued.
+
+**Process now in place** (see `docs/agents/wave-brief.md`):
+- small PRs;
+- a PR is green and mergeable before review;
+- only real bugs block a merge;
+- a `READY <sha>` comment plus the `ready-to-merge` label hands the PR to a long-running merge-steward agent, which merges it and runs the gates on integration after every merge.
 
 ## Also outstanding
 
