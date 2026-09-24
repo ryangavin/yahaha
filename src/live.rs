@@ -277,6 +277,9 @@ pub fn fingered_star(mask: u16, c: Chord) -> Option<Chord> {
 // Input (CoreMIDI receive thread)
 // ---------------------------------------------------------------------------
 
+mod pipeline;
+pub use pipeline::{Note, Processor};
+
 /// The notes one key sounds: a (channel, note) for each keyboard part that played it (up
 /// to the three Right parts layered).
 #[derive(Clone, Copy, Default, PartialEq, Eq, Debug)]
@@ -405,6 +408,8 @@ pub struct Input {
     shift: bool,
     /// Soft takeover of the Launchkey master fader (the synth master level).
     master_takeover: crate::engine::Takeover,
+    /// The note pipeline's processor slot (Harmony or Arpeggio; none yet).
+    processor: Processor,
 }
 
 impl Input {
@@ -427,6 +432,7 @@ impl Input {
             actions: None,
             shift: false,
             master_takeover: crate::engine::Takeover::NEW,
+            processor: Processor::Off,
         }
     }
 
@@ -556,52 +562,9 @@ impl Input {
         let split = self.shared.split.load(Relaxed);
         let st = m[0] & 0xF0;
         match (st, m.len()) {
-            (0x90, 3) if m[2] > 0 => {
-                // Chords are recognized from the keys as fingered; the engine applies
-                // Keyboard transpose to the chord. The notes themselves sound transposed.
-                let k = m[1] & 0x7F;
-                // Lower: the chord section is the left hand. Upper: it is the right hand
-                // (above Split Point (Left)), and the left hand plays the Left part (or
-                // the Right parts, with Left off).
-                let left = k <= split;
-                let r = if left { R_LH } else { R_RH };
-                let chord = r == self.chord_side();
-                self.route[k as usize] = r;
-                let full = !self.shared.upper.load(Relaxed) && Fingering::from_u8(self.shared.fingering.load(Relaxed)).full_keyboard();
-                let chord_only = !self.shared.upper.load(Relaxed) && !full;
-                let now = sounds(&self.shared.parts, left, chord_only, k, self.shared.key_shift.load(Relaxed));
-                // A retrigger (possibly after the split, transpose or parts changed): release
-                // where it sounded.
-                for (pch, pnote) in self.keys.press(k, now).iter() {
-                    self.out.push(&[0x80 | pch, pnote, 0]);
-                }
-                for (ch, note) in now.iter() {
-                    self.out.push(&[0x90 | ch, note, m[2]]);
-                }
-                self.track_key(slot, k, r, now);
-                // The Full Keyboard types (Lower only) read both hands.
-                if chord || full {
-                    self.recompute();
-                }
-            }
-            (0x80, 3) | (0x90, 3) => {
-                let k = m[1] & 0x7F;
-                for (ch, note) in self.keys.release(k).iter() {
-                    self.out.push(&[0x80 | ch, note, 0]);
-                }
-                let r = std::mem::take(&mut self.route[k as usize]);
-                self.track_key(slot, k, 0, Sounded::default());
-                if r != 0 {
-                    // Sync Stop: the last key of the current chord section went up.
-                    let side = self.chord_side();
-                    if r & side != 0
-                        && !self.route.iter().any(|&x| x & side != 0)
-                        && self.cmd.push(Cmd::ChordReleased).is_ok()
-                    {
-                        self.signal = true;
-                    }
-                }
-            }
+            // The keyboard-part note path: pipeline.rs.
+            (0x90, 3) if m[2] > 0 => self.key_down(slot, m[1] & 0x7F, m[2], split),
+            (0x80, 3) | (0x90, 3) => self.key_up(slot, m[1] & 0x7F),
             // Volume and voice belong to the parts (their CC7 and program): the keyboard's
             // own are dropped, so the port, the synth and the screen never disagree.
             (0xB0, 3) if matches!(m[1], 0 | 7 | 32) => {}
