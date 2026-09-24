@@ -1,9 +1,11 @@
 //! Live runtime: the MIDI input handler (runs on CoreMIDI's thread), the engine thread,
-//! and the lock-free plumbing between them and the UI.
+//! and the lock-free plumbing between them and the session's control side
+//! (`session.rs`, which every client goes through).
 //!
 //!   CoreMIDI thread ──chord (AtomicU32) + commands (SPSC) + semaphore──▶ engine thread
-//!   UI thread ────────styles/commands (SPSC) + semaphore───────────────▶ engine thread
-//!   engine thread ────snapshots (SPSC), old styles (SPSC)──────────────▶ UI thread
+//!   CoreMIDI thread ──Launchkey actions (SPSC) + semaphore─────────────▶ control
+//!   control ──────────styles/commands (SPSC) + semaphore───────────────▶ engine thread
+//!   engine thread ────snapshots (SPSC), old styles (SPSC) + semaphore──▶ control
 //!
 //! Neither real-time side ever waits on the other: producers use try-push and a
 //! non-blocking semaphore signal; the engine only sleeps on the semaphore with a timeout
@@ -26,6 +28,8 @@ pub enum Cmd {
     ChordReleased,
     /// A Launchkey part fader (0..8) moved to a value (soft takeover in the engine).
     PartVolume(u8, u8),
+    /// A Style part's volume set from software (0..8, 0-127): the fader picks it up.
+    StyleVolume(u8, u8),
     /// Manual Bass in effect: mute the Style's Bass part.
     ManualBass(bool),
     Transpose(Transpose),
@@ -33,10 +37,17 @@ pub enum Cmd {
     Panic,
 }
 
+/// State the real-time threads read without waiting. Owned by the session: clients never
+/// touch it (they send `AppCmd`s), only the session's control side and the RT threads.
 pub struct Shared {
     pub chord: AtomicU32,
     pub chord_ns: AtomicU64,
+    /// Wakes the engine thread.
     pub wake: Wakeup,
+    /// Wakes the session's control thread (Launchkey actions, new snapshots).
+    pub ctl_wake: Wakeup,
+    /// Software moved the synth master level: the master fader has to pick it up again.
+    pub master_moved: AtomicBool,
     pub quit: AtomicBool,
     pub split: AtomicU8,
     /// Chord fingering type (`Fingering::to_u8`), read by the input thread on each chord
@@ -79,6 +90,8 @@ impl Shared {
             chord: AtomicU32::new(0),
             chord_ns: AtomicU64::new(0),
             wake: Wakeup::new(),
+            ctl_wake: Wakeup::new(),
+            master_moved: AtomicBool::new(false),
             quit: AtomicBool::new(false),
             split: AtomicU8::new(split),
             fingering: AtomicU8::new(Fingering::FingeredOnBass.to_u8()),
@@ -295,9 +308,11 @@ pub struct Input {
     out: Out,
     running_status: [u8; 3],
     signal: bool,
+    /// An action went to the control side: wake it at the end of the packet list.
+    ctl_signal: bool,
     synth: Option<Arc<crate::synth::SynthControl>>,
-    /// Launchkey pad and button actions for the UI thread (anything that isn't an engine
-    /// button: settings, OTS, style change).
+    /// Launchkey pad and button actions for the session's control side (anything that
+    /// isn't an engine button: settings, OTS, style change), run as `AppCmd`s.
     actions: Option<Producer<Action>>,
     /// The Launchkey's Shift button is held.
     shift: bool,
@@ -318,11 +333,17 @@ impl Input {
             out,
             running_status: [0; 3],
             signal: false,
+            ctl_signal: false,
             synth: None,
             actions: None,
             shift: false,
             master_takeover: crate::engine::Takeover::NEW,
         }
+    }
+
+    /// Where the keyboard parts' notes go besides the port: the built-in synth's ring.
+    pub fn set_out_synth(&mut self, feed: Option<Producer<[u8; 3]>>) {
+        self.out.synth = feed;
     }
 
     pub fn set_synth(&mut self, ctl: Option<Arc<crate::synth::SynthControl>>) {
@@ -472,6 +493,9 @@ impl Input {
                 if cc == launchkey::MASTER_FADER_CC {
                     // Soft takeover, as for the part faders (in the engine).
                     if let Some(s) = &self.synth {
+                        if self.shared.master_moved.swap(false, Relaxed) {
+                            self.master_takeover.software_moved(s.master.load(Relaxed));
+                        }
                         if self.master_takeover.hardware(s.master.load(Relaxed), v) {
                             s.master.store(v, Relaxed);
                         }
@@ -508,7 +532,10 @@ impl Input {
             }
             match launchkey::cc_control(cc, self.shift) {
                 Some(Control::Page(d)) if v > 0 => {
+                    // Here, not on the control side: the next pad press must already
+                    // read the new page.
                     self.shared.step_page(|p| p.step(d));
+                    self.ctl_signal = true;
                 }
                 Some(Control::Act(a)) if v > 0 => self.act(a),
                 Some(_) => {}
@@ -538,24 +565,25 @@ impl Input {
     fn fader_button(&mut self, i: u8) {
         let parts = &self.shared.parts;
         if i == 8 {
-            // The engine rebinds the Style faders on its next wake (`Parts::take_rebind`).
+            // Here rather than on the control side: the next fader move must already go
+            // to the new page. The engine rebinds the Style faders on its next wake
+            // (`Parts::take_rebind`).
             parts.toggle_fader_page();
             self.signal = true;
+            self.ctl_signal = true;
             return;
         }
         match parts.fader_page() {
-            FaderPage::Panel if (i as usize) < parts::COUNT && self.shift => parts.select(i as usize),
+            FaderPage::Panel if (i as usize) < parts::COUNT && self.shift => self.act(Action::SelectPart(i)),
             // Left is refused under Manual Bass; its LED stays lit, as the bass sounds.
-            FaderPage::Panel if (i as usize) < parts::COUNT => {
-                parts.toggle(i as usize);
-            }
+            FaderPage::Panel if (i as usize) < parts::COUNT => self.act(Action::PartOnOff(i)),
             FaderPage::Panel => {}
             FaderPage::Style => self.act(Action::Button(Button::TogglePart(i))),
         }
     }
 
-    /// Engine buttons go straight to the engine; the rest to the UI thread, which runs
-    /// them like the keyboard shortcuts.
+    /// Engine buttons go straight to the engine; the rest to the session's control side,
+    /// which runs them as the `AppCmd`s their keyboard shortcuts send.
     fn act(&mut self, a: Action) {
         match a {
             Action::Button(b) => {
@@ -565,7 +593,9 @@ impl Input {
             }
             _ => {
                 if let Some(tx) = self.actions.as_mut() {
-                    let _ = tx.push(a);
+                    if tx.push(a).is_ok() {
+                        self.ctl_signal = true;
+                    }
                 }
             }
         }
@@ -599,6 +629,10 @@ impl InputHandler for Input {
             self.signal = false;
             self.shared.wake.signal();
         }
+        if self.ctl_signal {
+            self.ctl_signal = false;
+            self.shared.ctl_wake.signal();
+        }
     }
 }
 
@@ -627,25 +661,99 @@ fn sync_part_volumes(out: &mut Out, parts: &Parts, last: &mut [u8; parts::COUNT]
     }
 }
 
-pub fn run_engine(mut engine: Engine, mut io: EngineIo, shared: Arc<Shared>) {
+/// The engine thread's work, one wake at a time. `run_engine` drives it with the wall
+/// clock; an offline session steps it on a virtual one.
+pub struct EngineLoop {
+    pub engine: Engine,
+    pub io: EngineIo,
+    shared: Arc<Shared>,
+    last_packed: u32,
+    last_part_vol: [u8; parts::COUNT],
+    last_snap: Option<Snapshot>,
+    last_snap_ns: u64,
+}
+
+impl EngineLoop {
+    /// Sends the style's setup to the output.
+    pub fn new(mut engine: Engine, mut io: EngineIo, shared: Arc<Shared>) -> EngineLoop {
+        engine.send_init(&mut io.out);
+        io.out.flush();
+        // Out of range, so the first wake sends them all.
+        EngineLoop { engine, io, shared, last_packed: 0, last_part_vol: [255u8; parts::COUNT], last_snap: None, last_snap_ns: 0 }
+    }
+
+    /// Input is waiting: a new chord or a command.
+    #[inline]
+    fn input_pending(&self) -> bool {
+        self.shared.chord.load(Relaxed) != self.last_packed || self.io.input.slots() > 0 || self.io.ui.slots() > 0
+    }
+
+    /// One wake at `now`: take new styles, the chord and commands, play what is due,
+    /// flush, publish a snapshot.
+    #[inline]
+    pub fn step(&mut self, now: u64) {
+        let (engine, io, shared) = (&mut self.engine, &mut self.io, &*self.shared);
+        while let Ok(style) = io.styles.pop() {
+            let old = engine.load(style, now, &mut io.out);
+            let _ = io.old.push(old);
+        }
+        let packed = shared.chord.load(Acquire);
+        if packed != self.last_packed {
+            self.last_packed = packed;
+            if let Some((c, _)) = Chord::unpack(packed) {
+                shared.chord_lat.record(now.saturating_sub(shared.chord_ns.load(Relaxed)));
+                engine.set_chord(c, now, &mut io.out);
+            }
+        }
+        // Read the fingering type and area here rather than taking a command for them, so
+        // a full ring can never leave Sync Stop on in a Full Keyboard type.
+        engine.allow_sync_stop(shared.sync_stop_allowed());
+        rebind_faders(engine, &shared.parts);
+        while let Ok(cmd) = io.input.pop() {
+            apply(engine, &shared.parts, cmd, now, &mut io.out);
+        }
+        while let Ok(cmd) = io.ui.pop() {
+            apply(engine, &shared.parts, cmd, now, &mut io.out);
+        }
+        engine.process(now, &mut io.out);
+        sync_part_volumes(&mut io.out, &shared.parts, &mut self.last_part_vol);
+        let t1 = rt::now_ns();
+        io.out.flush();
+        let t2 = rt::now_ns();
+        shared.work_lat.record(t1.saturating_sub(now));
+        shared.flush_lat.record(t2.saturating_sub(t1));
+
+        let snap = engine.snapshot(now);
+        let changed = self.last_snap != Some(snap);
+        if (changed || now.saturating_sub(self.last_snap_ns) > 50_000_000) && io.snaps.push(snap).is_ok() {
+            self.last_snap = Some(snap);
+            self.last_snap_ns = now;
+            if changed {
+                // A non-blocking semaphore signal, after the flush.
+                shared.ctl_wake.signal();
+            }
+        }
+    }
+
+    /// Everything off, flushed.
+    pub fn stop(&mut self) {
+        self.engine.stop(&mut self.io.out);
+        self.io.out.flush();
+    }
+}
+
+pub fn run_engine(engine: Engine, io: EngineIo, shared: Arc<Shared>) {
     let rt_ok = std::env::var("YAHAHA_NO_RT").is_err() && rt::make_realtime(1_000_000, 300_000, 1_000_000);
     shared.engine_rt.store(rt_ok, Relaxed);
-    let mut last_packed = 0u32;
-    // Out of range, so the first wake sends them all.
-    let mut last_part_vol = [255u8; parts::COUNT];
-    let mut last_snap: Option<Snapshot> = None;
-    let mut last_snap_ns = 0u64;
-    engine.send_init(&mut io.out);
-    io.out.flush();
+    let mut l = EngineLoop::new(engine, io, shared.clone());
     loop {
         if shared.quit.load(Relaxed) {
-            engine.stop(&mut io.out);
-            io.out.flush();
+            l.stop();
             return;
         }
         let spin = shared.spin_ns.load(Relaxed);
         let now = rt::now_ns();
-        let deadline = engine.next_deadline();
+        let deadline = l.engine.next_deadline();
         let mut timed_out = false;
         match deadline {
             Some(d) if d > now + spin => timed_out = !shared.wake.wait((d - now - spin).min(20_000_000)),
@@ -663,7 +771,7 @@ pub fn run_engine(mut engine: Engine, mut io: EngineIo, shared: Arc<Shared>) {
             // Finish the last stretch by spinning, for microsecond accuracy. Input can
             // still interrupt: check the chord word and command ring while spinning.
             while t < d {
-                if shared.chord.load(Relaxed) != last_packed || io.input.slots() > 0 || io.ui.slots() > 0 {
+                if l.input_pending() {
                     break;
                 }
                 std::hint::spin_loop();
@@ -673,45 +781,7 @@ pub fn run_engine(mut engine: Engine, mut io: EngineIo, shared: Arc<Shared>) {
                 shared.lateness.record(t - d);
             }
         }
-        let now = rt::now_ns();
-
-        while let Ok(style) = io.styles.pop() {
-            let old = engine.load(style, now, &mut io.out);
-            let _ = io.old.push(old);
-        }
-        let packed = shared.chord.load(Acquire);
-        if packed != last_packed {
-            last_packed = packed;
-            if let Some((c, _)) = Chord::unpack(packed) {
-                shared.chord_lat.record(now.saturating_sub(shared.chord_ns.load(Relaxed)));
-                engine.set_chord(c, now, &mut io.out);
-            }
-        }
-        // Read the fingering type and area here rather than taking a command for them, so
-        // a full ring can never leave Sync Stop on in a Full Keyboard type.
-        engine.allow_sync_stop(shared.sync_stop_allowed());
-        rebind_faders(&mut engine, &shared.parts);
-        while let Ok(cmd) = io.input.pop() {
-            apply(&mut engine, &shared.parts, cmd, now, &mut io.out);
-        }
-        while let Ok(cmd) = io.ui.pop() {
-            apply(&mut engine, &shared.parts, cmd, now, &mut io.out);
-        }
-        engine.process(now, &mut io.out);
-        sync_part_volumes(&mut io.out, &shared.parts, &mut last_part_vol);
-        let t1 = rt::now_ns();
-        io.out.flush();
-        let t2 = rt::now_ns();
-        shared.work_lat.record(t1 - now);
-        shared.flush_lat.record(t2 - t1);
-
-        let snap = engine.snapshot(now);
-        if last_snap != Some(snap) || now - last_snap_ns > 50_000_000 {
-            if io.snaps.push(snap).is_ok() {
-                last_snap = Some(snap);
-                last_snap_ns = now;
-            }
-        }
+        l.step(rt::now_ns());
     }
 }
 
@@ -733,6 +803,7 @@ fn apply(engine: &mut Engine, parts: &Parts, cmd: Cmd, now: u64, out: &mut Out) 
             rebind_faders(engine, parts);
             engine.hw_fader(p, v, out)
         }
+        Cmd::StyleVolume(p, v) => engine.set_volume_from_software(p, v, out),
         Cmd::ManualBass(on) => engine.set_manual_bass(on, out),
         Cmd::Transpose(t) => engine.set_transpose(t, now, out),
         Cmd::Panic => {

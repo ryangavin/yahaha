@@ -49,6 +49,14 @@ impl Client {
         Ok(Client { client })
     }
 
+    /// Close the client: its ports and virtual endpoints go away, and its input
+    /// handlers are not called again.
+    pub fn dispose(&self) {
+        unsafe {
+            MIDIClientDispose(self.client);
+        }
+    }
+
     pub fn virtual_source(&self, name: &str) -> Result<Endpoint> {
         let mut ep = 0;
         let n = CFString::new(name);

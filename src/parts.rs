@@ -41,7 +41,8 @@ fn pack(volume: u8, picked: bool) -> u8 {
 }
 
 /// What the Launchkey faders 1-8 control (the button under the master fader toggles it).
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub enum FaderPage {
     /// Faders 1-4: Right 1, Right 2, Right 3, Left. 5-8 unused.
     Panel,
@@ -163,6 +164,12 @@ impl Parts {
 
     pub fn selected(&self) -> usize {
         self.selected.load(Relaxed) as usize & 3
+    }
+
+    /// Set a part's voice (GM program).
+    pub fn set_program(&self, part: usize, program: u8) {
+        self.program[part & 3].store(program & 127, Relaxed);
+        self.changed.store(true, Release);
     }
 
     /// Previous/next voice for the selected part.

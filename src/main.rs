@@ -1,24 +1,9 @@
-mod bench;
-mod capture;
-mod engine;
-mod fingering;
-#[cfg(test)]
-mod golden;
-mod launchkey;
-mod library;
-mod live;
-mod midi;
-mod oracle;
-mod parts;
-#[cfg(test)]
-mod recognizer_golden;
-mod rt;
-mod sff;
-mod sim;
-mod synth;
-mod theory;
+//! The `yahaha` command line: the terminal front panel (`play`) and the developer tools.
+//! Everything but the terminal UI lives in the `yahaha` library.
+
 mod ui;
 
+use yahaha::{capture, engine, fingering, oracle, sff, sim};
 use anyhow::{Context, Result};
 use std::path::PathBuf;
 
@@ -155,26 +140,6 @@ fn oracle_cmd(args: &[String]) -> Result<()> {
     Ok(())
 }
 
-/// Parse a chord symbol: root, a `TYPE_NAMES` suffix, and an optional `/bass`.
-fn parse_chord(s: &str) -> Result<theory::Chord> {
-    let (body, bass) = match s.split_once('/') {
-        Some((b, bass)) => (b, Some(bass)),
-        None => (s, None),
-    };
-    let root_len = if body.len() > 1 && (body.as_bytes()[1] == b'#' || body.as_bytes()[1] == b'b') { 2 } else { 1 };
-    let pc = |n: &str| theory::NOTE_NAMES.iter().position(|x| *x == n).or_else(|| {
-        ["C", "Db", "D", "D#", "E", "F", "Gb", "G", "G#", "A", "A#", "B"].iter().position(|x| *x == n)
-    });
-    let root = body.get(..root_len).and_then(pc).ok_or_else(|| anyhow::anyhow!("bad chord {s}"))? as u8;
-    let suffix = &body[root_len..];
-    let ty = theory::TYPE_NAMES.iter().position(|t| *t == suffix)
-        // "6/9" would read as a bass note, so the 6(9) chord is also spelled "6(9)" or "69".
-        .or_else(|| matches!(suffix, "6(9)" | "69").then_some(6))
-        .ok_or_else(|| anyhow::anyhow!("bad chord type {suffix}"))? as u8;
-    let bass = bass.map(|b| pc(b).map(|p| p as u8).ok_or_else(|| anyhow::anyhow!("bad bass {b}"))).transpose()?;
-    Ok(theory::Chord { root, ty, bass: bass.filter(|&b| b != root) })
-}
-
 fn play_cmd(args: &[String]) -> Result<()> {
     let mut paths = Vec::new();
     let mut split = 54; // F#2 in Yamaha octave numbering (C3 = 60), the Genos default
@@ -194,7 +159,7 @@ fn play_cmd(args: &[String]) -> Result<()> {
         match args[i].as_str() {
             "--split" => {
                 i += 1;
-                split = parse_note(args.get(i).map(|s| s.as_str()).unwrap_or(""))
+                split = yahaha::parse_note(args.get(i).map(|s| s.as_str()).unwrap_or(""))
                     .ok_or_else(|| anyhow::anyhow!("--split wants a note like F#2 or a MIDI number"))?;
             }
             "--all-inputs" => all_inputs = true,
@@ -251,14 +216,3 @@ fn play_cmd(args: &[String]) -> Result<()> {
     ui::play(ui::Options { paths, split, all_inputs, inputs, no_pads, sf2, palette_leds, audio_out, fingering, upper, manual_bass, transpose })
 }
 
-/// "F#2" (Yamaha numbering, C3 = 60) or a raw MIDI number.
-fn parse_note(s: &str) -> Option<u8> {
-    if let Ok(n) = s.parse::<u8>() {
-        return Some(n);
-    }
-    let (name, oct) = s.split_at(s.find(|c: char| c.is_ascii_digit() || c == '-')?);
-    let pc = theory::NOTE_NAMES.iter().position(|n| n.eq_ignore_ascii_case(name))
-        .or_else(|| ["C", "Db", "D", "D#", "E", "F", "Gb", "G", "G#", "A", "A#", "B"].iter().position(|n| n.eq_ignore_ascii_case(name)))?;
-    let oct: i32 = oct.parse().ok()?;
-    u8::try_from((oct + 2) * 12 + pc as i32).ok()
-}

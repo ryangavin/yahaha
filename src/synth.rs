@@ -16,6 +16,7 @@ use crate::parts::{self, Parts};
 
 pub type Msg = [u8; 3];
 
+#[derive(Clone, Debug)]
 pub struct SynthInfo {
     pub name: String,
     pub sample_rate: u32,

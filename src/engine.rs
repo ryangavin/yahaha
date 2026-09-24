@@ -1119,6 +1119,14 @@ impl Engine {
         self.mirror.send(sink, &[0xB0 | (8 + p as u8), 7, v]);
     }
 
+    /// A part's volume set from software (the app's mixer): as a fader move, but the
+    /// hardware fader has to pick the new value up before it takes control again.
+    pub fn set_volume_from_software(&mut self, part: u8, value: u8, sink: &mut impl Sink) {
+        let p = (part & 7) as usize;
+        self.set_volume(part, value, sink);
+        self.takeover[p].software_moved(self.mixer[p]);
+    }
+
     /// A hardware fader (absolute, not motorised) reported `value` for part 0..8. Soft
     /// takeover: after the software value moved on its own, the fader is ignored until it
     /// comes within `PICKUP_RANGE` of that value or crosses it; then it follows again.

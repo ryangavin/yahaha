@@ -6,14 +6,32 @@ description = "A software arranger keyboard that plays Yamaha Genos/PSR style fi
 license = "MIT"
 repository = "https://github.com/ryangavin/yahaha"
 
+# The engine, the runtime and the app API are the `yahaha` library; the terminal front
+# panel and the developer tools are the `yahaha` binary. A client such as the desktop
+# app depends on the library alone: `yahaha = { path = "..", default-features = false }`.
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "yahaha"
+path = "src/main.rs"
+required-features = ["tui"]
+
+[features]
+default = ["tui"]
+# The terminal UI (ratatui, crossterm). Only the binary needs it.
+tui = ["dep:ratatui", "dep:crossterm"]
+
 [dependencies]
 anyhow = "1.0.104"
 core-foundation = "0.10.1"
 coremidi-sys = "3.2.1"
 cpal = "0.18.2"
-crossterm = "0.29.0"
+crossterm = { version = "0.29.0", optional = true }
 libc = "0.2.189"
 mach2 = "0.7.0"
-ratatui = "0.30.2"
+ratatui = { version = "0.30.2", optional = true }
 rtrb = "0.4.0"
 rustysynth = "1.3.6"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

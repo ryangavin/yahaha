@@ -32,7 +32,8 @@
 
 use crate::theory::{chord_tones, Chord, Recognizer, CANCEL};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub enum Fingering {
     SingleFinger,
     MultiFinger,

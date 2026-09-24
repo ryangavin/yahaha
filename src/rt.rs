@@ -131,6 +131,8 @@ pub enum Target {
     Virtual(MIDIEndpointRef),
     /// Send through an output port to a destination.
     Port(MIDIPortRef, MIDIEndpointRef),
+    /// Nowhere: flushing drops the messages (offline sessions, tests).
+    Null,
 }
 
 /// Collects MIDI messages into a stack-style CoreMIDI packet list and flushes them in
@@ -185,6 +187,7 @@ impl PacketSink {
             match self.target {
                 Target::Virtual(src) => MIDIReceived(src, list),
                 Target::Port(port, dest) => MIDISend(port, dest, list),
+                Target::Null => 0,
             };
             self.sent += (*list).numPackets as u64;
         }

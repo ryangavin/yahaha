@@ -81,7 +81,8 @@ pub const FEATURE_CH_STATUS: u8 = 0xB6;
 pub const PAD_MODE_CC: u8 = 29;
 
 /// Pad pages.
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub enum Page {
     #[default]
     Sections,
@@ -408,14 +409,16 @@ pub fn led_msgs(note: u8, led: Led, out: &mut Vec<[u8; 3]>) {
 // RGB look model: one description drives both the hardware pads and the on-screen map.
 // ---------------------------------------------------------------------------
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub enum Level {
     Off,
     Dim,
     Bright,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub enum Anim {
     Solid,
     /// Alternates dim/bright every half beat: queued, waiting for the bar/beat.
