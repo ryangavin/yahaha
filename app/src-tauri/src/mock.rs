@@ -968,13 +968,7 @@ impl MockSession {
                     self.state.transport.sync_start = true;
                 }
             }
-            AppCmd::Looper(LooperCmd::LooperOnOff) => {
-                if let Some(k) = self.looper.on_off(&mut self.state.looper) {
-                    if self.state.chord.fingered.as_deref() != Some(k.as_str()) {
-                        self.chord_arrives(&k);
-                    }
-                }
-            }
+            AppCmd::Looper(LooperCmd::LooperOnOff) => self.looper.on_off(&mut self.state.looper),
             AppCmd::Looper(LooperCmd::SelectLooperMemory { index }) => {
                 if let Err(e) = self.looper.select(&mut self.state.looper, index as usize % 8) {
                     self.message(e, true);

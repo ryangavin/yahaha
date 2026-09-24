@@ -24,7 +24,6 @@ pub struct MockLooper {
     rec_bars: u32,
     loop_bar: u32,
     loop_start: u32,
-    kbd: Option<String>,
     stored: u32,
 }
 
@@ -33,10 +32,7 @@ impl MockLooper {
     /// loop plays and ignores it.
     pub fn keyboard_chord(&mut self, s: &LooperState, chord: &str, bar: u32, beat: f64) -> bool {
         match s.mode {
-            LooperMode::Looping => {
-                self.kbd = Some(chord.into());
-                false
-            }
+            LooperMode::Looping => false,
             LooperMode::Recording => {
                 self.record(bar.saturating_sub(self.rec_start) + 1, beat, chord);
                 true
@@ -68,8 +64,9 @@ impl MockLooper {
         false
     }
 
-    /// ON/OFF. Returns the keyboard's chord to follow when the loop stops.
-    pub fn on_off(&mut self, s: &mut LooperState) -> Option<String> {
+    /// ON/OFF. A loop stops on its chord: what the keyboard played over it was not chord
+    /// input (RM p.15, OM p.68).
+    pub fn on_off(&mut self, s: &mut LooperState) {
         match s.mode {
             LooperMode::Recording => self.finish(s, LooperMode::LoopArmed),
             LooperMode::RecArmed | LooperMode::LoopArmed => s.mode = LooperMode::Off,
@@ -79,10 +76,8 @@ impl MockLooper {
                 s.mode = LooperMode::Off;
                 self.pending = None;
                 s.pending_memory = None;
-                return self.kbd.take();
             }
         }
-        None
     }
 
     fn finish(&mut self, s: &mut LooperState, next: LooperMode) {

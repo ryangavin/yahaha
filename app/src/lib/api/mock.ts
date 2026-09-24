@@ -803,11 +803,9 @@ export class MockSession implements Session {
       case 'looperRec':
         if (this.looper.rec(t.running)) t.syncStart = true
         break
-      case 'looperOnOff': {
-        const k = this.looper.onOff()
-        if (k && k !== c.fingered) this.chordArrives(k)
+      case 'looperOnOff':
+        this.looper.onOff()
         break
-      }
       case 'selectLooperMemory': {
         const err = this.looper.select(cmd.index & 7)
         if (err) this.message(err, true)

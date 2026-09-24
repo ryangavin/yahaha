@@ -31,7 +31,6 @@ export class MockLooper {
   private recBars = 0
   private loopBar = 0
   private loopStart = 0
-  private kbd: string | null = null
   private stored = 0
 
   constructor(private readonly get: () => LooperState) {}
@@ -43,10 +42,7 @@ export class MockLooper {
   /** A chord from the keyboard at `bar` (the band's bar count) and 1-based `beat`. False:
    *  the loop plays, the keyboard's chord is ignored. */
   keyboardChord(chord: string, bar: number, beat: number): boolean {
-    if (this.s.mode === 'looping') {
-      this.kbd = chord
-      return false
-    }
+    if (this.s.mode === 'looping') return false
     if (this.s.mode === 'recording') this.record(bar - this.recStart + 1, beat, chord)
     return true
   }
@@ -72,8 +68,9 @@ export class MockLooper {
     return false
   }
 
-  /** ON/OFF. Returns the keyboard's chord to follow when the loop stops. */
-  onOff(): string | null {
+  /** ON/OFF. A loop stops on its chord: what the keyboard played over it was not chord
+   *  input (RM p.15, OM p.68). */
+  onOff(): void {
     const s = this.s
     switch (s.mode) {
       case 'recording':
@@ -90,12 +87,9 @@ export class MockLooper {
         s.mode = 'off'
         this.pending = null
         s.pendingMemory = null
-        const k = this.kbd
-        this.kbd = null
-        return k
+        break
       }
     }
-    return null
   }
 
   private finish(next: 'off' | 'loopArmed') {
