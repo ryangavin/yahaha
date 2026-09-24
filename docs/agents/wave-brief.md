@@ -54,3 +54,5 @@ For app work, run `cd app && npm install` once.
 **Small PRs (owner, 2026-09-24):** each PR covers ONE concern, aiming to be approved on the first look. Split big tickets into a chain of small PRs: engine, then session/API, then UI. Final acceptance happens on the integration branch, not in the PR.
 
 **Handing a PR to the merge steward:** once it is green and mergeable against the latest integration, and verified or approved, post a PR comment `READY <full-40-char-head-sha>` and add the `ready-to-merge` label. The steward merges it at exactly that SHA. If you push again after that, post a new READY comment.
+
+**Shared scratch directories:** agents share the scratchpad. Always use unique file names, prefixed with your PR or issue number (e.g. `pr92-body.md`), never generic names like `body.md`. Re-read a PR body on GitHub after posting it.
