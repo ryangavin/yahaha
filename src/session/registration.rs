@@ -34,7 +34,7 @@ struct Setup {
 }
 
 /// Items Parameter Lock can protect from Registration (and Playlist) recall. The lock
-/// state belongs to Parameter Lock (#m5-rules); recall asks `param_locked`.
+/// state belongs to Parameter Lock (#102); recall asks `param_locked`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum LockItem {
     /// Split points (Data List lock group "Split Point").
@@ -501,7 +501,7 @@ impl Control {
 
     /// The parameter lock for `item` (Parameter Lock, RM p.163): a locked item only
     /// changes from the panel, never from Registration, OTS or Playlist recall.
-    /// Parameter Lock itself is not built yet: nothing is locked.
+    /// Parameter Lock itself is not built yet (#102): nothing is locked.
     pub(super) fn param_locked(&self, item: LockItem) -> bool {
         let _ = item;
         false
