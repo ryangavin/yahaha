@@ -1115,7 +1115,10 @@ fn rescan_adds_and_drops_files_keeping_ids() {
     let ids: Vec<(usize, String)> = s.library_list().entries.iter().map(|e| (e.id, e.path.clone())).collect();
     std::fs::copy(src.with_file_name("CoolRevibed.T552.sty"), dir.join("Sub/C.sty")).unwrap();
     s.send(LibraryCmd::RescanLibrary).unwrap();
-    assert!(s.state().library.scanning);
+    // A three-file scan can finish before we look, so either it's still walking or it has
+    // already merged the new file; it must not be neither (the rescan never started).
+    let st = s.state();
+    assert!(st.library.scanning || st.library.count == 3, "rescan did not start: {:?}", st.library);
     assert!(wait_for(&s, |st| !st.library.scanning && st.library.count == 3 && st.library.pending == 0));
     let lib = s.library_list();
     for (id, path) in &ids {
