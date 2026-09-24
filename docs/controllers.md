@@ -31,7 +31,7 @@ an expression pedal), `available`.
 | Style | Start/Stop, Sync Start, Sync Stop, Intro 1-3, Main A-D, Fill Down, Fill Self, Fill Break, Fill Up, Ending 1-3, Auto Fill, Stop Acmp, Fingered/Fingered On Bass |
 | OTS | OTS Link, OTS 1-4, OTS +, OTS − |
 | Registration | Registration Bank +, Registration Bank − (the REGIST BANK [+]/[−] buttons; not available yet: yahaha has no Registration Memory, and a pedal can hold them and says so when pressed). Registration Sequence +/− is not pedal-assignable on the Genos (a pedal drives it through Pedal Control on the Registration Sequence display), so it is not in the table. |
-| Overall | Tempo +, Tempo −, Tap Tempo, Transpose +, Transpose −, Right 1-3 and Left On/Off |
+| Overall | Tempo +, Tempo −, Tap Tempo, Transpose +, Transpose − (Master transpose, as the TRANSPOSE buttons), Right 1-3 and Left On/Off |
 
 Two rows are yahaha's, not the Genos's:
 - **Stop Acmp On/Off.** The Genos list has Acmp On/Off (the [ACMP] button), which yahaha
@@ -58,6 +58,27 @@ input thread syncs right after the pedal or wheel message (so a pedal and the no
 same packet keep their order); the engine thread syncs on every wake (a part switched on
 or off, a setting changed).
 
+The two threads flush their own output buffers at different times, so only one may send
+the parts' controllers at a time (`Controllers::claim` before the sync, `release` after
+the flush). Neither waits: a thread that finds the other holding it leaves a note, and the
+holder syncs and flushes once more before it lets go. Without this, a change one thread
+sent could reach the synth after a newer one the other flushed first, leaving a pedal or
+bend stuck until that controller moved again.
+
+## Pedals
+
+- **Hold A / Hold B follow the pedal's position.** Picking Hold B with the pedal up turns
+  the switch on at once (RM p.139: Hold B "turns the function off and keeps it inactive
+  while holding down"); turning Hold A into Hold B while the pedal is held turns it off,
+  and it comes on at the release. Toggle flips on each press.
+- **More than one keyboard.** Each keyboard source keeps its own pedal edges. A pedal is
+  down while any keyboard holds it (two sustain pedals on CC 64: Sustain stays on until
+  both are up); a press on any keyboard fires a trigger or flips a Toggle.
+- **CCs a pedal can't use**: 0 and 32 (bank select) and 7 (volume) belong to the parts and
+  never reach a pedal; 1 is the modulation wheel; 6 and 38 (data entry), 98-101 ((N)RPN)
+  and 120-127 (channel mode, including 121 Reset All Controllers) are not pedals. Learn
+  skips them and `setPedal` refuses them with a message.
+
 ## Safety
 
 - **Panic**: the engine sends pedal off (CC 64/66/67 = 0), modulation 0 and bend centre to
@@ -73,7 +94,8 @@ or off, a setting changed).
 - **A pedal given another function or CC** (Settings, or Learn) while its switch is on
   (held, or latched by Toggle) or mid-sweep: what the old setup drove is released first
   (the switch goes off unless another pedal on the same switch is held; modulation to 0,
-  bend to centre). The pedal then counts as up until it is pressed again.
+  bend to centre). The pedal then counts as up until it is pressed again. After a Panic or
+  reset a Hold B switch stays off until its pedal is next pressed and released.
 - **Style and section changes, Start and Stop** send nothing on channels 1-4 (tested):
   a held pedal and a bend carry across them.
 - A part switched **off** under a held pedal or a bend is released and centred; switched
@@ -102,5 +124,8 @@ or off, a setting changed).
 - **Fill Up at Main D / Fill Down at Main A** play the fill of the Main at the end and stay
   there (the Genos has no Main to go to); stopped, Fill Up/Down select the next Main.
 - **Registration Bank +/−** are in the table but unavailable until Registration Memory exists.
+- **Transpose +/− is Master transpose.** RM p.144 makes it "the same as the TRANSPOSE
+  [+]/[−] buttons", and those transpose the overall pitch (OM p.61), which is yahaha's Master
+  transpose (the Launchkey's KBD TR pads stay Keyboard transpose).
 - **Not done**: Left Hold, Glide, Portamento, Mono/Poly, Pedal Wah, Organ Rotary, the
   Assignable buttons A-F (the Launchkey has none free), Joystick Hold, a Volume pedal.

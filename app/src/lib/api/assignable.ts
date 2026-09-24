@@ -34,6 +34,19 @@ export function functionName(id: FunctionId): string {
   return functionInfo(id)?.name ?? id
 }
 
+/** Why a pedal can't listen for `cc` (null: it can), as `controllers::pedal_cc_refused`. */
+export function pedalCcRefused(cc: number): string | null {
+  if (cc === 0 || cc === 32) return 'bank select'
+  if (cc === 1) return 'the modulation wheel'
+  if (cc === 6 || cc === 38) return 'data entry'
+  if (cc === 7) return 'volume'
+  if (cc >= 98 && cc <= 101) return '(N)RPN selection'
+  if (cc === 121) return 'Reset All Controllers'
+  if (cc >= 120 && cc <= 127) return 'a channel mode message'
+  if (cc > 127 || cc < 0) return 'not a control change'
+  return null
+}
+
 /** The pedals as the engine starts: the GM sustain, sostenuto and soft pedals. */
 export function defaultControllers(): ControllersState {
   const pedal = (cc: number, fn: FunctionId) => ({ cc, function: fn, controlType: 'holdA' as const, reverse: false, range: 'upper' as const, down: false })
@@ -72,8 +85,8 @@ export function functionCmd(id: FunctionId, st: { fingering: Fingering }): AppCm
     tempoUp: { type: 'tempoUp' },
     tempoDown: { type: 'tempoDown' },
     tapTempo: { type: 'tapTempo' },
-    transposeUp: { type: 'stepTranspose', keyboard: 1, master: 0 },
-    transposeDown: { type: 'stepTranspose', keyboard: -1, master: 0 },
+    transposeUp: { type: 'stepTranspose', keyboard: 0, master: 1 },
+    transposeDown: { type: 'stepTranspose', keyboard: 0, master: -1 },
     fingeredOnBass: { type: 'setFingering', fingering: st.fingering === 'fingeredOnBass' ? 'fingered' : 'fingeredOnBass' },
   }
   return simple[id] ?? null

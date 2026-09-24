@@ -414,8 +414,12 @@ pub struct Input {
     master_takeover: crate::engine::Takeover,
     /// The note pipeline's processor slot (Harmony or Arpeggio; none yet).
     processor: Processor,
-    /// The pedals held down, as this thread last read them (bit = pedal).
-    pedal_edges: u8,
+    /// The pedals held down, as this thread last read them, per keyboard source slot
+    /// (bit = pedal).
+    pedal_edges: [u8; MAX_KEY_SOURCES],
+    /// This thread holds the right to send the parts' controllers (`Controllers::claim`)
+    /// until its flush at the end of the packet list.
+    ctl_claimed: bool,
     /// The pedal switches as last shown (a change wakes the control side).
     shown_switches: u8,
 }
@@ -441,7 +445,8 @@ impl Input {
             shift: false,
             master_takeover: crate::engine::Takeover::NEW,
             processor: Processor::Off,
-            pedal_edges: 0,
+            pedal_edges: [0; MAX_KEY_SOURCES],
+            ctl_claimed: false,
             shown_switches: 0,
         }
     }
@@ -635,11 +640,18 @@ impl Input {
         }
     }
 
-    /// Send the keyboard parts the pedal switches and wheels as they apply now.
+    /// Send the keyboard parts the pedal switches and wheels as they apply now. When the
+    /// engine thread is sending them (it has the claim), it sends this change too, before
+    /// it lets go.
     fn sync_controllers(&mut self) {
         let ctl = &self.shared.controllers;
-        let out = &mut self.out;
-        ctl.sync(self.shared.parts.sounding_mask(), &mut |m| out.push(m));
+        if !self.ctl_claimed {
+            self.ctl_claimed = ctl.claim();
+        }
+        if self.ctl_claimed {
+            let out = &mut self.out;
+            ctl.sync(self.shared.parts.sounding_mask(), &mut |m| out.push(m));
+        }
         let sw = ctl.switches();
         if sw != self.shown_switches {
             self.shown_switches = sw;
@@ -818,6 +830,15 @@ impl InputHandler for Input {
 
     fn end_of_list(&mut self) {
         self.out.flush();
+        if std::mem::take(&mut self.ctl_claimed) {
+            // The engine wanted to sync meanwhile: sync for it, after what was just sent.
+            let ctl = &self.shared.controllers;
+            while ctl.release() && ctl.claim() {
+                let out = &mut self.out;
+                ctl.sync(self.shared.parts.sounding_mask(), &mut |m| out.push(m));
+                self.out.flush();
+            }
+        }
         if self.signal {
             self.signal = false;
             self.shared.wake.signal();
@@ -1008,9 +1029,20 @@ impl EngineLoop {
         sync_part_volumes(&mut io.out, &shared.parts, &mut self.last_part_vol);
         let ctl = &shared.controllers;
         ctl.sync_ranges(&mut |m| io.out.push(m));
-        ctl.sync(shared.parts.sounding_mask(), &mut |m| io.out.push(m));
+        // One thread sends the parts' controllers at a time (controllers.rs): when the
+        // input thread has the claim, it sends this wake's changes before it lets go.
+        let claimed = ctl.claim();
+        if claimed {
+            ctl.sync(shared.parts.sounding_mask(), &mut |m| io.out.push(m));
+        }
         let t1 = rt::now_ns();
         io.out.flush();
+        if claimed {
+            while ctl.release() && ctl.claim() {
+                ctl.sync(shared.parts.sounding_mask(), &mut |m| io.out.push(m));
+                io.out.flush();
+            }
+        }
         let t2 = rt::now_ns();
         shared.work_lat.record(t1.saturating_sub(now));
         shared.flush_lat.record(t2.saturating_sub(t1));
@@ -2002,6 +2034,26 @@ mod source_tests {
         inp.end_of_list();
         assert_eq!(shared.controllers.switches(), crate::controllers::SUSTAIN);
         assert!(drain(&mut heard).iter().any(|m| m[0] & 0xF0 == 0xB0 && m[1] == 64 && m[2] == 127));
+    }
+
+    /// Two keyboards, each with a sustain pedal: releasing one leaves Sustain on while the
+    /// other is still held.
+    #[test]
+    fn a_pedal_held_on_another_keyboard_keeps_sustain() {
+        let (mut inp, shared, mut heard, _cmds, _rel) = rig();
+        let (a, b) = (key_tag(1), key_tag(2));
+        inp.packet(a, 0, &[0xB0, 64, 127]);
+        inp.packet(b, 0, &[0xB0, 64, 127]);
+        inp.end_of_list();
+        drain(&mut heard);
+        inp.packet(a, 0, &[0xB0, 64, 0]);
+        inp.end_of_list();
+        assert_eq!(shared.controllers.switches(), crate::controllers::SUSTAIN);
+        assert!(!drain(&mut heard).iter().any(|m| m[1] == 64 && m[2] == 0), "no release while B holds it");
+        inp.packet(b, 0, &[0xB0, 64, 0]);
+        inp.end_of_list();
+        assert_eq!(shared.controllers.switches(), 0);
+        assert!(drain(&mut heard).contains(&[0xB0, 64, 0]));
     }
 
     /// Reset All Controllers from a keyboard resets the pedals and wheels and still reaches

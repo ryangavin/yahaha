@@ -4,7 +4,7 @@
 // It speaks #16's API (types.ts); `app/src-tauri/src/mock.rs` is the Rust twin that the
 // app shell runs until the engine's `Session` is wired in.
 
-import { defaultControllers, functionCmd, functionInfo } from './assignable'
+import { defaultControllers, functionCmd, functionInfo, pedalCcRefused } from './assignable'
 import fixture from './mock-fixture.json'
 import { syntheticStyles } from './mock-library'
 import { clockAt, mockSurface, type MockHardware } from './mock-surface'
@@ -934,14 +934,29 @@ export class MockSession implements Session {
           this.message(`there is no pedal ${cmd.pedal + 1}`, true)
           break
         }
-        if (p.function !== cmd.function || p.cc !== cmd.cc) {
-          // As the engine: what the old function drove lets go, and the pedal counts as up.
-          const sw = { sustain: 'sustain', sostenuto: 'sostenuto', soft: 'soft' } as const
-          const held = st.controllers.pedals.some((q, j) => j !== cmd.pedal && q.down && q.function === p.function)
-          if (p.function in sw && !held) st.controllers[sw[p.function as keyof typeof sw]] = false
+        const why = cmd.cc === null ? null : pedalCcRefused(cmd.cc)
+        if (why) {
+          this.message(`a pedal can't use CC ${cmd.cc}: it is ${why}`, true)
+          break
+        }
+        const sw = { sustain: 'sustain', sostenuto: 'sostenuto', soft: 'soft' } as const
+        type Sw = keyof typeof sw
+        // As the engine: another pedal on the switch keeps it on (Hold A held, Hold B up).
+        const keptOn = (f: string) =>
+          st.controllers.pedals.some((q, j) => j !== cmd.pedal && q.function === f && (q.controlType === 'holdA' ? q.down : q.controlType === 'holdB' && !q.down))
+        const rebound = p.function !== cmd.function || p.cc !== cmd.cc
+        if (rebound) {
+          // What the old function drove lets go, and the pedal counts as up.
+          if (p.function in sw && !keptOn(p.function)) st.controllers[p.function as Sw] = false
           p.down = false
         }
+        const typeChanged = p.controlType !== cmd.controlType
         Object.assign(p, { cc: cmd.cc, function: cmd.function, controlType: cmd.controlType, reverse: cmd.reverse, range: cmd.range })
+        // Hold A / Hold B follow the pedal's position: Hold B picked with the pedal up is on.
+        if (p.function in sw && p.controlType !== 'toggle' && (rebound || typeChanged)) {
+          const on = (p.controlType === 'holdB') !== p.down
+          if (on || !keptOn(p.function)) st.controllers[p.function as Sw] = on
+        }
         break
       }
       case 'learnPedal':

@@ -6,7 +6,7 @@
   docs/controllers.md has the behaviour.
 -->
 <script lang="ts">
-  import { functionGroups, functionInfo } from '../../lib/api/assignable'
+  import { functionGroups, functionInfo, pedalCcRefused } from '../../lib/api/assignable'
   import { KEYBOARD_PART_NAMES, type BendRange, type ControlType, type PedalState } from '../../lib/api/types'
   import { app } from '../../lib/store.svelte'
   import { tip } from '../../lib/tooltip/tip.svelte'
@@ -22,9 +22,13 @@
   }
 
   function ccInput(i: number, e: Event) {
-    const v = (e.currentTarget as HTMLInputElement).value.trim()
+    const box = e.currentTarget as HTMLInputElement
+    const v = box.value.trim()
     const n = Number(v)
-    setPedal(i, { cc: v === '' || !Number.isInteger(n) ? null : Math.max(0, Math.min(127, n)) })
+    const cc = v === '' || !Number.isInteger(n) ? null : Math.max(0, Math.min(127, n))
+    // A CC a pedal can't use: the box goes back to the pedal's own, and the engine says why.
+    if (cc !== null && pedalCcRefused(cc)) box.value = String(ctl.pedals[i].cc ?? '')
+    setPedal(i, { cc })
   }
 
   const learn = (i: number) => app.send({ type: 'learnPedal', pedal: ctl.learning === i ? null : i })

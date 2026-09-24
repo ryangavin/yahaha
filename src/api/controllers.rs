@@ -44,7 +44,10 @@ impl ControllersCmd {
                 if pedal as usize >= PEDALS {
                     return Err(format!("there is no pedal {}", pedal as usize + 1));
                 }
-                c.set_pedal(pedal as usize, PedalSetup { cc: cc.filter(|&c| c < 128), function, control_type, reverse, range });
+                if let Some(why) = cc.and_then(|cc| crate::controllers::pedal_cc_refused(cc).map(|w| (cc, w))) {
+                    return Err(format!("a pedal can't use CC {}: it is {}", why.0, why.1));
+                }
+                c.set_pedal(pedal as usize, PedalSetup { cc, function, control_type, reverse, range });
             }
             ControllersCmd::LearnPedal { pedal } => c.learn(pedal.map(|p| p as usize).filter(|&p| p < PEDALS)),
             ControllersCmd::SetPartControllers { part, sustain, pitch_bend, modulation } => {
@@ -96,8 +99,10 @@ pub fn function_run(f: Function, fingering: crate::fingering::Fingering, ots_cou
                 };
                 super::OtsCmd::RecallOts { index }.into()
             }
-            Function::TransposeUp => super::ChordCmd::StepTranspose { keyboard: 1, master: 0 }.into(),
-            Function::TransposeDown => super::ChordCmd::StepTranspose { keyboard: -1, master: 0 }.into(),
+            // RM p.144: "Same as the TRANSPOSE [+]/[−] buttons", which transpose the overall
+            // pitch (OM p.61): Master transpose.
+            Function::TransposeUp => super::ChordCmd::StepTranspose { keyboard: 0, master: 1 }.into(),
+            Function::TransposeDown => super::ChordCmd::StepTranspose { keyboard: 0, master: -1 }.into(),
             Function::Right1OnOff => super::PartsCmd::TogglePart { part: parts::RIGHT1 as u8 }.into(),
             Function::Right2OnOff => super::PartsCmd::TogglePart { part: parts::RIGHT2 as u8 }.into(),
             Function::Right3OnOff => super::PartsCmd::TogglePart { part: parts::RIGHT3 as u8 }.into(),

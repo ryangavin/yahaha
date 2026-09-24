@@ -186,6 +186,46 @@ mod tests {
         assert!(!keyboard_msgs(&s).contains(&[0xB3, 64, 127]), "not sent again after panic");
     }
 
+    /// A CC a pedal can't use (the CC7 rule drops 0/7/32 before the pedals see them; 121 is
+    /// Reset All Controllers; 1 is the wheel) is refused, not silently dead.
+    #[test]
+    fn a_pedal_refuses_ccs_it_could_never_hear() {
+        let Some(s) = offline() else { return };
+        for cc in [0, 1, 7, 32, 121] {
+            let e = s.send(pedal(1, cc, Function::StartStop)).unwrap_err();
+            assert!(matches!(&e, CmdError::Failed(t) if t.contains(&format!("CC {cc}"))), "{e:?}");
+            assert_eq!(s.state().controllers.pedals[1].cc, Some(66), "unchanged");
+        }
+        s.send(pedal(1, 85, Function::StartStop)).unwrap();
+        s.midi_in(Port::Keys, &[0xB0, 85, 127]);
+        assert!(s.state().transport.running);
+    }
+
+    /// Transpose +/− from a pedal is the TRANSPOSE buttons (RM p.144): Master transpose.
+    #[test]
+    fn transpose_pedal_moves_master_transpose() {
+        let Some(s) = offline() else { return };
+        s.send(pedal(1, 66, Function::TransposeUp)).unwrap();
+        s.midi_in(Port::Keys, &[0xB0, 66, 127]);
+        let c = s.state().chord.clone();
+        assert_eq!((c.transpose_master, c.transpose_keyboard), (1, 0));
+    }
+
+    /// Hold B picked in Settings with the pedal up: Sustain comes on at once, as the tooltip
+    /// says, and pressing the pedal lets go.
+    #[test]
+    fn hold_b_sustain_is_on_while_the_pedal_is_up() {
+        let Some(s) = offline() else { return };
+        s.take_output();
+        let hold_b = ControllersCmd::SetPedal { pedal: 0, cc: Some(64), function: Function::Sustain, control_type: crate::controllers::ControlType::HoldB, reverse: false, range: Default::default() };
+        s.send(hold_b).unwrap();
+        assert!(s.state().controllers.sustain);
+        assert!(keyboard_msgs(&s).contains(&[0xB0, 64, 127]));
+        s.midi_in(Port::Keys, &[0xB0, 64, 127]);
+        assert!(!s.state().controllers.sustain);
+        assert!(keyboard_msgs(&s).contains(&[0xB0, 64, 0]));
+    }
+
     #[test]
     fn bend_range_and_learn() {
         let Some(s) = offline() else { return };

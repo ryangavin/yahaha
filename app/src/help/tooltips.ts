@@ -998,7 +998,7 @@ const catalog = {
   },
   'pedal.cc': {
     title: 'Pedal CC',
-    body: "The control change this pedal listens for on the keyboards: the Launchkey's sustain jack sends CC 64. Clear it and the pedal listens to nothing.",
+    body: "The control change this pedal listens for on the keyboards: the Launchkey's sustain jack sends CC 64. Clear it and the pedal listens to nothing. Bank select (0, 32), the modulation wheel (1), data entry (6, 38), volume (7), (N)RPN (98-101) and the channel mode messages (120-127) can't be used.",
     genos: null,
     keys: [],
     launchkey: 'The sustain jack (CC 64)',
@@ -1033,7 +1033,7 @@ const catalog = {
   },
   'pedal.hold_b': {
     title: 'Hold B',
-    body: 'Off while the pedal is held, on when it is up.',
+    body: 'Off while the pedal is held, on when it is up: picking it with the pedal up turns the function on at once.',
     genos: 'Control Type: Hold B',
     keys: [],
     launchkey: null,

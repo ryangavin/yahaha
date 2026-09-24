@@ -31,10 +31,15 @@
 //! Two threads call `sync`: the MIDI input thread (right after the message that changed
 //! something, so a pedal and the notes in the same packet keep their order) and the
 //! engine thread on every wake (for the part switches and settings, which change on the
-//! control side). Each per-part value is claimed with an atomic `swap`, so one change is
-//! sent once, by whichever thread sees it first. The Pitch Bend Range goes out from the
-//! engine thread only ([`Controllers::sync_ranges`]): an RPN is five messages that must not
-//! interleave with another thread's.
+//! control side). They send through different output buffers, flushed at different
+//! times, so only one of them may send at a time: each [`Controllers::claim`]s the right
+//! before `sync` and [`Controllers::release`]s it after its flush. A thread that can't
+//! claim it doesn't wait: it leaves a note, and the holder syncs again before it lets go.
+//! Otherwise a change one thread sent could reach the synth after a newer one the other
+//! thread flushed first, and the channel would keep the old value while `sent_*` says
+//! the new one. The Pitch Bend Range goes out from the engine thread only
+//! ([`Controllers::sync_ranges`]): an RPN is five messages that must not interleave with
+//! another thread's.
 //!
 //! # Safety: nothing stuck
 //!
@@ -43,7 +48,16 @@
 //! that moved a pedal or wheel is disconnected (its release will never come,
 //! [`Controllers::touched`]), and when the keyboard sends Reset All Controllers (CC 121).
 //! Style changes, section changes and Stop never touch the keyboard parts' channels
-//! (the band plays on 9-16), so a held pedal carries across them unchanged.
+//! (the band plays on 9-16), so a held pedal carries across them unchanged. After a reset
+//! every pedal counts as up, and a Hold B switch stays off until its pedal is next pressed
+//! and released (a Panic doesn't turn a sustain straight back on).
+//!
+//! # More than one keyboard
+//!
+//! Each keyboard source keeps its own pedal edges (the input thread's `edges`, one byte
+//! per source). A pedal is down while any source holds it: two keyboards with a sustain
+//! pedal each on CC 64 keep Sustain on until both are up. A press on any source fires a
+//! trigger function and flips a Toggle.
 //!
 //! All of this is atomics: the input thread, the engine thread and the control side read
 //! and write it without waiting, and nothing here allocates.
@@ -51,7 +65,7 @@
 use crate::engine::Button;
 use crate::parts::{self, COUNT};
 use serde::{Deserialize, Serialize};
-use std::sync::atomic::{AtomicU16, AtomicU32, AtomicU8, Ordering::Relaxed};
+use std::sync::atomic::{AtomicBool, AtomicU16, AtomicU32, AtomicU8, Ordering::Relaxed, Ordering::SeqCst};
 
 /// How many pedals (the Genos has three jacks).
 pub const PEDALS: usize = 3;
@@ -424,6 +438,10 @@ pub struct Controllers {
     /// Pedals whose edge the input thread must forget (bit = pedal): set by a reset or a
     /// changed setup, so the next press is a press even if the last read was "down".
     forget: AtomicU8,
+    /// A thread holds the right to send the parts' controllers (`claim`).
+    busy: AtomicBool,
+    /// A thread wanted to sync while the other held it: the holder syncs again.
+    pending: AtomicBool,
 }
 
 impl Default for Controllers {
@@ -451,6 +469,8 @@ impl Controllers {
             touched: AtomicU16::new(0),
             learn: AtomicU8::new(NOT_LEARNING),
             forget: AtomicU8::new(0),
+            busy: AtomicBool::new(false),
+            pending: AtomicBool::new(false),
         }
     }
 
@@ -464,28 +484,63 @@ impl Controllers {
     /// released first (a switch it held or latched, a wheel it moved), so a pedal re-picked
     /// while down, latched by Toggle or mid-sweep never leaves a stuck pedal or bend. The
     /// pedal then counts as up until it is next pressed.
+    ///
+    /// A Hold A or Hold B switch follows the pedal's position, so when the function, CC or
+    /// Control Type changes it is set to where the pedal is now: Hold B picked with the
+    /// pedal up turns the switch on (RM p.139: Hold B "turns the function off and keeps it
+    /// inactive while holding down"), and Hold A turned to Hold B while the pedal is held
+    /// turns it off.
     pub fn set_pedal(&self, i: usize, p: PedalSetup) {
         let i = i % PEDALS;
         let old = PedalSetup::unpack(self.pedal[i].swap(p.pack(), Relaxed));
-        if old.function == p.function && old.cc == p.cc {
-            return;
-        }
-        let bit = 1u8 << i;
-        self.down.fetch_and(!bit, Relaxed);
-        self.forget.fetch_or(bit, Relaxed);
-        match old.function.effect() {
-            Effect::Switch(b) => {
-                // Another pedal held down on the same switch keeps it on.
-                let down = self.down.load(Relaxed);
-                let held = (0..PEDALS).any(|j| j != i && down >> j & 1 != 0 && self.pedal(j).function.effect() == Effect::Switch(b));
-                if !held {
-                    self.set_switch(b, false);
+        let rebound = old.function != p.function || old.cc != p.cc;
+        if rebound {
+            let bit = 1u8 << i;
+            self.down.fetch_and(!bit, Relaxed);
+            self.forget.fetch_or(bit, Relaxed);
+            match old.function.effect() {
+                Effect::Switch(b) => {
+                    if !self.kept_on_by_another(i, b) {
+                        self.set_switch(b, false);
+                    }
                 }
+                Effect::Modulation => self.modulation.store(0, Relaxed),
+                Effect::PitchBend => self.bend.store(BEND_CENTRE, Relaxed),
+                Effect::Nothing | Effect::Engine(_) | Effect::Control => {}
             }
-            Effect::Modulation => self.modulation.store(0, Relaxed),
-            Effect::PitchBend => self.bend.store(BEND_CENTRE, Relaxed),
-            Effect::Nothing | Effect::Engine(_) | Effect::Control => {}
         }
+        if let Effect::Switch(b) = p.function.effect() {
+            if (rebound || old.control_type != p.control_type) && p.control_type != ControlType::Toggle {
+                let down = self.down.load(Relaxed) >> i & 1 != 0;
+                self.hold(i, b, p.control_type, down);
+            }
+        }
+    }
+
+    /// Set switch `b` where Hold pedal `i` (Hold A or Hold B, `down` or up) puts it: off
+    /// only if no other pedal keeps it on.
+    fn hold(&self, i: usize, b: u8, ct: ControlType, down: bool) {
+        let on = (ct == ControlType::HoldB) != down;
+        if on || !self.kept_on_by_another(i, b) {
+            self.set_switch(b, on);
+        }
+    }
+
+    /// A pedal other than `i` on switch `b` keeps it on: a Hold A pedal held down, or a
+    /// Hold B pedal up.
+    fn kept_on_by_another(&self, i: usize, b: u8) -> bool {
+        let down = self.down.load(Relaxed);
+        (0..PEDALS).any(|j| {
+            let q = self.pedal(j);
+            let d = down >> j & 1 != 0;
+            j != i
+                && q.function.effect() == Effect::Switch(b)
+                && match q.control_type {
+                    ControlType::HoldA => d,
+                    ControlType::HoldB => !d,
+                    ControlType::Toggle => false,
+                }
+        })
     }
 
     pub fn part_targets(&self, part: usize) -> PartTargets {
@@ -559,8 +614,8 @@ impl Controllers {
     /// The input thread: a control change `cc` = `v` from keyboard source `slot`. Returns
     /// what it did, for the input thread to carry out (`Handled::Fire`) or to send the
     /// message on unchanged (`Handled::Pass`). Pedal edges are kept in `edges` (the input
-    /// thread's own: bit = pedal).
-    pub fn control_change(&self, slot: usize, cc: u8, v: u8, edges: &mut u8) -> Handled {
+    /// thread's own: one byte per keyboard source slot, bit = pedal).
+    pub fn control_change(&self, slot: usize, cc: u8, v: u8, edges: &mut [u8]) -> Handled {
         let learning = self.learn.load(Relaxed);
         if learning != NOT_LEARNING && learnable(cc) && v >= 64 {
             let i = learning as usize % PEDALS;
@@ -569,7 +624,12 @@ impl Controllers {
             return Handled::Learned;
         }
         let forget = self.forget.swap(0, Relaxed);
-        *edges &= !forget;
+        if forget != 0 {
+            for e in edges.iter_mut() {
+                *e &= !forget;
+            }
+        }
+        let src = slot % edges.len().max(1);
         if cc == 121 {
             // Reset All Controllers: everything this module keeps back to neutral, and the
             // message still goes to the parts (it resets expression, pressure and the rest).
@@ -589,14 +649,19 @@ impl Controllers {
             self.touch(slot);
             let pressed = (v >= 64) != p.reverse;
             let bit = 1u8 << i;
-            let was = *edges & bit != 0;
-            if pressed {
-                *edges |= bit;
-            } else {
-                *edges &= !bit;
-            }
-            if pressed != was {
+            // `was`: this source had it down. The pedal is down while any source holds it.
+            let was = edges.get(src).is_some_and(|e| e & bit != 0);
+            if let Some(e) = edges.get_mut(src) {
                 if pressed {
+                    *e |= bit;
+                } else {
+                    *e &= !bit;
+                }
+            }
+            let others = edges.iter().enumerate().any(|(s, e)| s != src && e & bit != 0);
+            let (was_down, is_down) = (was || others, pressed || others);
+            if was_down != is_down {
+                if is_down {
                     self.down.fetch_or(bit, Relaxed);
                 } else {
                     self.down.fetch_and(!bit, Relaxed);
@@ -606,18 +671,20 @@ impl Controllers {
             let pos = if p.reverse { 127 - v.min(127) } else { v.min(127) };
             match p.function.effect() {
                 Effect::Nothing => {}
-                Effect::Switch(b) => {
-                    if pressed != was {
-                        let on = match p.control_type {
-                            ControlType::HoldA => pressed,
-                            ControlType::HoldB => !pressed,
-                            ControlType::Toggle if pressed => self.switches() & b == 0,
-                            ControlType::Toggle => self.switches() & b != 0,
-                        };
-                        self.set_switch(b, on);
-                        fire.sync = true;
+                Effect::Switch(b) => match p.control_type {
+                    ControlType::Toggle => {
+                        if pressed && !was {
+                            self.switches.fetch_xor(b, Relaxed);
+                            fire.sync = true;
+                        }
                     }
-                }
+                    ct => {
+                        if was_down != is_down {
+                            self.hold(i, b, ct, is_down);
+                            fire.sync = true;
+                        }
+                    }
+                },
                 Effect::Modulation => {
                     self.modulation.store(pos, Relaxed);
                     fire.sync = true;
@@ -681,6 +748,27 @@ impl Controllers {
 
     // ----- output (input and engine threads) -----
 
+    /// Take the right to send the parts' controllers, before `sync`; `release` it after
+    /// the flush. False: the other thread has it (nothing waits). That thread syncs again
+    /// before it lets go, so this change still goes out, after what it has in hand.
+    pub fn claim(&self) -> bool {
+        self.pending.store(true, SeqCst);
+        if self.busy.compare_exchange(false, true, SeqCst, SeqCst).is_ok() {
+            // This sync covers whoever asked (a swap, so it sees what they changed first).
+            self.pending.swap(false, SeqCst);
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Give back the right `claim` took, after the flush. True: the other thread wanted to
+    /// sync meanwhile: claim, sync and flush again.
+    pub fn release(&self) -> bool {
+        self.busy.store(false, SeqCst);
+        self.pending.load(SeqCst)
+    }
+
     /// Send each keyboard part what applies to it now, where it differs from what it was
     /// sent. `sounding`: the parts that sound (`Parts::sounding_mask`).
     pub fn sync(&self, sounding: u8, out: &mut impl FnMut(&[u8])) {
@@ -692,8 +780,9 @@ impl Controllers {
             let reaches = |mask: u8| on && mask >> p & 1 != 0;
             let want = if reaches(sus) { switches } else { 0 };
             let was = self.sent_switches[p].swap(want, Relaxed);
+            let diff = if was == UNKNOWN_SWITCHES { u8::MAX } else { was ^ want };
             for (b, cc) in SWITCH_CC {
-                if (was ^ want) & b != 0 {
+                if diff & b != 0 {
                     out(&[0xB0 | ch, cc, if want & b != 0 { 127 } else { 0 }]);
                 }
             }
@@ -723,6 +812,10 @@ impl Controllers {
 
     /// Everything back to neutral: pedal switches off, modulation 0, bend centred, sent to
     /// every keyboard part whatever it was sent before (Panic, a disconnected source).
+    ///
+    /// The other thread may hold a sync of its own not yet flushed, which would land after
+    /// this: so every part is marked as holding nothing known, and the next `sync` (by
+    /// whichever thread claims it) sends neutral once more after it.
     pub fn reset(&self, out: &mut impl FnMut(&[u8])) {
         self.switches.store(0, Relaxed);
         self.modulation.store(0, Relaxed);
@@ -733,9 +826,9 @@ impl Controllers {
         self.forget.store(u8::MAX, Relaxed);
         for p in 0..COUNT {
             let ch = parts::CHANNEL[p];
-            self.sent_switches[p].store(0, Relaxed);
-            self.sent_mod[p].store(0, Relaxed);
-            self.sent_bend[p].store(BEND_CENTRE, Relaxed);
+            self.sent_switches[p].store(UNKNOWN_SWITCHES, Relaxed);
+            self.sent_mod[p].store(UNKNOWN_MOD, Relaxed);
+            self.sent_bend[p].store(UNKNOWN_BEND, Relaxed);
             for (_, cc) in SWITCH_CC {
                 out(&[0xB0 | ch, cc, 0]);
             }
@@ -745,10 +838,31 @@ impl Controllers {
     }
 }
 
-/// A CC a pedal can learn: not bank select, volume, the modulation wheel, data entry,
-/// (N)RPN selection or a channel mode message.
+/// `sent_*` after a reset: no value a part can want, so the next `sync` sends it all.
+const UNKNOWN_SWITCHES: u8 = 0xFF;
+const UNKNOWN_MOD: u8 = 0xFF;
+const UNKNOWN_BEND: u16 = 0xFFFF;
+
+/// Why a pedal can't listen for `cc` (None: it can). Bank select and volume belong to the
+/// parts and never reach the pedals (the CC7 principle), CC 121 is Reset All Controllers,
+/// the modulation wheel is a wheel, and data entry, (N)RPN selection and the other channel
+/// mode messages are not pedals. Learn skips them and `SetPedal` refuses them.
+pub fn pedal_cc_refused(cc: u8) -> Option<&'static str> {
+    Some(match cc {
+        0 | 32 => "bank select",
+        1 => "the modulation wheel",
+        6 | 38 => "data entry",
+        7 => "volume",
+        98..=101 => "(N)RPN selection",
+        121 => "Reset All Controllers",
+        120..=127 => "a channel mode message",
+        128.. => "not a control change",
+        _ => return None,
+    })
+}
+
 fn learnable(cc: u8) -> bool {
-    !matches!(cc, 0 | 1 | 6 | 7 | 32 | 38 | 98..=101 | 120..=127)
+    pedal_cc_refused(cc).is_none()
 }
 
 /// What a control change did (`Controllers::control_change`).
@@ -823,7 +937,7 @@ mod tests {
     #[test]
     fn sustain_follows_the_pedal_on_the_parts_that_sound() {
         let c = Controllers::new();
-        let mut e = 0;
+        let mut e = [0u8; 4];
         assert_eq!(c.control_change(0, 64, 127, &mut e), Handled::Fire(Fire { sync: true, shown: true, ..Fire::default() }));
         // Right 1 and Left sound: ch 1 and ch 2.
         assert_eq!(sent(&c, 0b1001), vec![[0xB0, 64, 127], [0xB1, 64, 127]]);
@@ -838,7 +952,7 @@ mod tests {
     fn part_targets_choose_who_gets_what() {
         let c = Controllers::new();
         c.set_part(parts::LEFT, PartTargets { sustain: false, pitch_bend: true, modulation: true });
-        let mut e = 0;
+        let mut e = [0u8; 4];
         c.control_change(0, 64, 127, &mut e);
         c.control_change(0, 1, 90, &mut e);
         c.pitch_bend(0, 16383);
@@ -860,7 +974,7 @@ mod tests {
     #[test]
     fn modulation_defaults_to_the_right_parts() {
         let c = Controllers::new();
-        let mut e = 0;
+        let mut e = [0u8; 4];
         c.control_change(0, 1, 50, &mut e);
         let all = sent(&c, 0b1111);
         assert!(!all.iter().any(|m| m[0] == 0xB1), "Left gets no modulation by default: {all:?}");
@@ -869,7 +983,7 @@ mod tests {
     #[test]
     fn control_types() {
         let c = Controllers::new();
-        let mut e = 0;
+        let mut e = [0u8; 4];
         c.set_pedal(0, PedalSetup { control_type: ControlType::Toggle, ..c.pedal(0) });
         c.control_change(0, 64, 127, &mut e);
         c.control_change(0, 64, 0, &mut e);
@@ -887,7 +1001,7 @@ mod tests {
     #[test]
     fn reverse_polarity_and_repeated_values() {
         let c = Controllers::new();
-        let mut e = 0;
+        let mut e = [0u8; 4];
         c.set_pedal(0, PedalSetup { reverse: true, ..c.pedal(0) });
         c.control_change(0, 64, 0, &mut e);
         assert_eq!(c.switches(), SUSTAIN);
@@ -903,7 +1017,7 @@ mod tests {
     #[test]
     fn a_pedal_fires_its_function_once_per_press() {
         let c = Controllers::new();
-        let mut e = 0;
+        let mut e = [0u8; 4];
         c.set_pedal(1, PedalSetup { cc: Some(66), function: Function::StartStop, ..PedalSetup::default() });
         c.set_pedal(2, PedalSetup { cc: Some(67), function: Function::OtsNext, ..PedalSetup::default() });
         let Handled::Fire(f) = c.control_change(0, 66, 127, &mut e) else { panic!() };
@@ -921,7 +1035,7 @@ mod tests {
     #[test]
     fn unassigned_gm_pedals_still_work_and_other_ccs_pass() {
         let c = Controllers::new();
-        let mut e = 0;
+        let mut e = [0u8; 4];
         c.set_pedal(0, PedalSetup { cc: Some(65), function: Function::FillUp, ..PedalSetup::default() });
         assert_eq!(c.control_change(0, 64, 127, &mut e), Handled::Sync);
         assert_eq!(c.switches(), SUSTAIN);
@@ -939,7 +1053,7 @@ mod tests {
         let p = PedalSetup { range: Range::Full, ..p };
         assert_eq!((p.bend_at(0), p.bend_at(127)), (0, 16383));
         let c = Controllers::new();
-        let mut e = 0;
+        let mut e = [0u8; 4];
         c.set_pedal(2, PedalSetup { cc: Some(4), function: Function::Modulation, ..PedalSetup::default() });
         c.control_change(0, 4, 77, &mut e);
         assert_eq!(c.modulation(), 77);
@@ -948,7 +1062,7 @@ mod tests {
     #[test]
     fn learn_takes_the_next_pressed_cc() {
         let c = Controllers::new();
-        let mut e = 0;
+        let mut e = [0u8; 4];
         c.learn(Some(1));
         assert_eq!(c.control_change(0, 1, 127, &mut e), Handled::Sync, "the mod wheel is not learnt");
         assert_eq!(c.control_change(0, 85, 0, &mut e), Handled::Pass, "a release is not learnt");
@@ -960,7 +1074,7 @@ mod tests {
     #[test]
     fn reset_releases_everything_and_forgets_sources() {
         let c = Controllers::new();
-        let mut e = 0;
+        let mut e = [0u8; 4];
         c.control_change(3, 64, 127, &mut e);
         c.pitch_bend(3, 0);
         assert!(c.touched(3) && !c.touched(2) && c.active());
@@ -970,7 +1084,10 @@ mod tests {
         assert_eq!(v.len(), 4 * 5);
         assert!(v.contains(&vec![0xB0, 64, 0]) && v.contains(&vec![0xE3, 0, 0x40]));
         assert!(!c.active() && !c.touched(3));
-        assert!(sent(&c, 0b0001).is_empty(), "the channels are at neutral already");
+        // Neutral once more on the next sync (the other thread may have had a sync of its
+        // own in hand), then nothing.
+        assert_eq!(sent(&c, 0b0001).len(), 4 * 5);
+        assert!(sent(&c, 0b0001).is_empty());
     }
 
     #[test]
@@ -989,7 +1106,7 @@ mod tests {
 
     #[test]
     fn a_pedal_given_a_new_setup_releases_what_it_drove() {
-        let mut e = 0;
+        let mut e = [0u8; 4];
         // Held: re-picked while down.
         let c = Controllers::new();
         c.control_change(0, 64, 127, &mut e);
@@ -1000,7 +1117,7 @@ mod tests {
         assert_eq!(c.control_change(0, 64, 127, &mut e), Handled::Fire(Fire { shown: true, engine: Some(Button::StartStop), ..Fire::default() }));
         // Toggle: latched on, then re-picked with the pedal up.
         let c = Controllers::new();
-        let mut e = 0;
+        let mut e = [0u8; 4];
         c.set_pedal(0, PedalSetup { control_type: ControlType::Toggle, ..c.pedal(0) });
         c.control_change(0, 64, 127, &mut e);
         c.control_change(0, 64, 0, &mut e);
@@ -1009,7 +1126,7 @@ mod tests {
         assert_eq!(c.switches(), 0);
         // A new CC (Learn) releases too; a new Control Type alone does not.
         let c = Controllers::new();
-        let mut e = 0;
+        let mut e = [0u8; 4];
         c.control_change(0, 64, 127, &mut e);
         c.set_pedal(0, PedalSetup { reverse: true, ..c.pedal(0) });
         assert_eq!(c.switches(), SUSTAIN);
@@ -1018,7 +1135,7 @@ mod tests {
         assert_eq!(c.switches(), 0);
         // Another pedal held on the same switch keeps it on.
         let c = Controllers::new();
-        let mut e = 0;
+        let mut e = [0u8; 4];
         c.set_pedal(1, PedalSetup { cc: Some(80), function: Function::Sustain, ..PedalSetup::default() });
         c.control_change(0, 64, 127, &mut e);
         c.control_change(0, 80, 127, &mut e);
@@ -1026,7 +1143,7 @@ mod tests {
         assert_eq!(c.switches(), SUSTAIN);
         // A Pitch Bend pedal mid-sweep: the bend centres.
         let c = Controllers::new();
-        let mut e = 0;
+        let mut e = [0u8; 4];
         c.set_pedal(2, PedalSetup { cc: Some(4), function: Function::PitchBend, ..PedalSetup::default() });
         c.control_change(0, 4, 127, &mut e);
         assert_eq!(c.bend(), 16383);
@@ -1040,11 +1157,163 @@ mod tests {
     #[test]
     fn after_a_reset_the_next_press_is_a_press() {
         let c = Controllers::new();
-        let mut e = 0;
+        let mut e = [0u8; 4];
         c.control_change(0, 64, 127, &mut e);
         c.reset(&mut |_| {});
         assert_eq!(c.down(), 0, "the lamp goes out");
         c.control_change(0, 64, 127, &mut e);
         assert_eq!((c.switches(), c.down()), (SUSTAIN, 1), "not swallowed");
+    }
+
+    /// The synth's view: each keyboard channel's CC 64, from messages in the order they
+    /// were flushed.
+    struct Wire([u8; 4]);
+
+    impl Wire {
+        fn flush(&mut self, buf: &mut Vec<[u8; 3]>) {
+            for m in buf.drain(..) {
+                if m[0] & 0xF0 == 0xB0 && m[1] == 64 && (m[0] & 0x0F) < 4 {
+                    self.0[(m[0] & 0x0F) as usize] = m[2];
+                }
+            }
+        }
+    }
+
+    /// One thread's sync as live.rs does it: claim, sync into its own buffer.
+    fn sync_into(c: &Controllers, sounding: u8, buf: &mut Vec<[u8; 3]>) -> bool {
+        let owned = c.claim();
+        if owned {
+            c.sync(sounding, &mut |m| buf.push([m[0], m[1], m[2]]));
+        }
+        owned
+    }
+
+    /// After the flush: release, and sync and flush again while the other thread asked.
+    fn release_into(c: &Controllers, sounding: u8, buf: &mut Vec<[u8; 3]>, wire: &mut Wire) {
+        while c.release() {
+            if !sync_into(c, sounding, buf) {
+                break;
+            }
+            wire.flush(buf);
+        }
+    }
+
+    /// Input and engine threads send through their own buffers, flushed at different times.
+    /// Whatever the interleaving, the channel ends up with what `sent_*` says.
+    #[test]
+    fn two_threads_never_leave_the_channel_behind() {
+        // The input thread syncs a pedal press (Right 1 sounds); before it flushes, the
+        // engine switches Right 1 off and flushes first.
+        let c = Controllers::new();
+        let (mut input, mut engine, mut wire) = (Vec::new(), Vec::new(), Wire([0; 4]));
+        let mut e = [0u8; 4];
+        c.control_change(0, 64, 127, &mut e);
+        assert!(sync_into(&c, 0b0001, &mut input));
+        assert!(!sync_into(&c, 0b0000, &mut engine), "the input thread has it");
+        wire.flush(&mut engine);
+        wire.flush(&mut input);
+        release_into(&c, 0b0000, &mut input, &mut wire);
+        assert_eq!(wire.0[0], 0, "Right 1 is off: released on the wire, as sent_* says");
+        assert!(sent(&c, 0b0000).is_empty());
+
+        // The other way round: the engine syncs a part coming on; the pedal is released on
+        // the input thread before the engine flushes.
+        let c = Controllers::new();
+        let (mut input, mut engine, mut wire) = (Vec::new(), Vec::new(), Wire([0; 4]));
+        let mut e = [0u8; 4];
+        c.control_change(0, 64, 127, &mut e);
+        assert!(sync_into(&c, 0b0011, &mut engine));
+        c.control_change(0, 64, 0, &mut e);
+        assert!(!sync_into(&c, 0b0011, &mut input));
+        wire.flush(&mut input);
+        wire.flush(&mut engine);
+        release_into(&c, 0b0011, &mut engine, &mut wire);
+        assert_eq!(wire.0, [0; 4], "the release went out after the press");
+
+        // A Panic on the engine thread while the input thread holds a press not yet flushed.
+        let c = Controllers::new();
+        let (mut input, mut engine, mut wire) = (Vec::new(), Vec::new(), Wire([0; 4]));
+        let mut e = [0u8; 4];
+        c.control_change(0, 64, 127, &mut e);
+        assert!(sync_into(&c, 0b0001, &mut input));
+        c.reset(&mut |m| engine.push([m[0], m[1], m[2]]));
+        assert!(!sync_into(&c, 0b0001, &mut engine));
+        wire.flush(&mut engine);
+        wire.flush(&mut input);
+        assert_eq!(wire.0[0], 127, "the stale press landed after the reset");
+        release_into(&c, 0b0001, &mut input, &mut wire);
+        assert_eq!(wire.0[0], 0, "and neutral follows it");
+    }
+
+    /// RM p.139: Hold B "turns the function off and keeps it inactive while holding down",
+    /// so it is on whenever the pedal is up, from the moment it is picked.
+    #[test]
+    fn hold_b_follows_the_pedal_position() {
+        let hold_b = |c: &Controllers| PedalSetup { control_type: ControlType::HoldB, ..c.pedal(0) };
+        // Picked with the pedal up: on at once.
+        let c = Controllers::new();
+        c.set_pedal(0, hold_b(&c));
+        assert_eq!(c.switches(), SUSTAIN);
+        let mut e = [0u8; 4];
+        c.control_change(0, 64, 127, &mut e);
+        assert_eq!(c.switches(), 0);
+        c.control_change(0, 64, 0, &mut e);
+        assert_eq!(c.switches(), SUSTAIN);
+        // Hold A to Hold B while held: off now, on at the release.
+        let c = Controllers::new();
+        let mut e = [0u8; 4];
+        c.control_change(0, 64, 127, &mut e);
+        assert_eq!(c.switches(), SUSTAIN);
+        c.set_pedal(0, hold_b(&c));
+        assert_eq!(c.switches(), 0, "held down: off");
+        c.control_change(0, 64, 0, &mut e);
+        assert_eq!(c.switches(), SUSTAIN, "up: on");
+        // Back to Hold A with the pedal up: off.
+        c.set_pedal(0, PedalSetup { control_type: ControlType::HoldA, ..c.pedal(0) });
+        assert_eq!(c.switches(), 0);
+        // A Hold B pedal that is up keeps the switch on when a Hold A pedal on it is released.
+        let c = Controllers::new();
+        let mut e = [0u8; 4];
+        c.set_pedal(1, PedalSetup { cc: Some(80), function: Function::Sustain, control_type: ControlType::HoldB, ..PedalSetup::default() });
+        c.control_change(0, 64, 127, &mut e);
+        c.control_change(0, 64, 0, &mut e);
+        assert_eq!(c.switches(), SUSTAIN);
+    }
+
+    /// Two keyboards, each with a sustain pedal on CC 64: Sustain stays on until both are up.
+    #[test]
+    fn a_pedal_is_down_while_any_keyboard_holds_it() {
+        let c = Controllers::new();
+        let mut e = [0u8; 4];
+        c.control_change(0, 64, 127, &mut e);
+        c.control_change(1, 64, 127, &mut e);
+        assert_eq!(c.control_change(0, 64, 0, &mut e), Handled::Fire(Fire::default()), "B still holds it");
+        assert_eq!((c.switches(), c.down()), (SUSTAIN, 1));
+        c.control_change(1, 64, 0, &mut e);
+        assert_eq!((c.switches(), c.down()), (0, 0));
+        // A trigger fires for a press on either keyboard.
+        c.set_pedal(1, PedalSetup { cc: Some(66), function: Function::TempoUp, ..PedalSetup::default() });
+        let Handled::Fire(f) = c.control_change(0, 66, 127, &mut e) else { panic!() };
+        assert_eq!(f.engine, Some(Button::TempoUp));
+        let Handled::Fire(f) = c.control_change(1, 66, 127, &mut e) else { panic!() };
+        assert_eq!(f.engine, Some(Button::TempoUp));
+        // A reset forgets every keyboard's edges.
+        c.reset(&mut |_| {});
+        c.control_change(0, 64, 127, &mut e);
+        c.control_change(0, 64, 0, &mut e);
+        assert_eq!(c.switches(), 0);
+    }
+
+    #[test]
+    fn pedal_ccs_learn_can_take_are_the_ones_setup_can() {
+        for cc in 0..=255u8 {
+            assert_eq!(learnable(cc), pedal_cc_refused(cc).is_none());
+        }
+        for cc in [0, 1, 6, 7, 32, 38, 99, 121, 123, 128] {
+            assert!(pedal_cc_refused(cc).is_some(), "{cc}");
+        }
+        for cc in [4, 11, 64, 66, 67, 85, 119] {
+            assert!(pedal_cc_refused(cc).is_none(), "{cc}");
+        }
     }
 }
