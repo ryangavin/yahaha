@@ -257,7 +257,7 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | **Pedal function** | What this pedal does: Sustain (or Sostenuto, Soft), a style control such as Start/Stop, Fill Up or Break, an OTS, tempo, transpose or a part on/off. Greyed-out ones are not in yahaha yet. | Assignable › Foot Pedal | — | The pedal plugged into the sustain jack |
 | **Pedal CC** | The control change this pedal listens for on the keyboards: the Launchkey's sustain jack sends CC 64. Clear it and the pedal listens to nothing. | — | — | The sustain jack (CC 64) |
 | **Learn** | Press this, then the pedal: it takes that pedal's CC. Press again to stop waiting. | — | — | The sustain jack (CC 64) |
-| **Try** | Runs the pedal's function now, as a press would. Sustain, Sostenuto and Soft switch on or off. | — | — | — |
+| **Try** | Runs the pedal's function now, as a press would. Sustain, Sostenuto and Soft switch on or off, and stay that way until you press Try again. Modulation and Pitch Bend follow the pedal, so there is nothing to try here. | — | — | — |
 | **Reverse polarity** | For a pedal that works the wrong way round (nothing when pressed, something when let go). | Polarity | — | — |
 | **Hold A** | On while the pedal is held, off when it is let go: how a sustain pedal works. | Control Type: Hold A | — | — |
 | **Hold B** | Off while the pedal is held, on when it is up. | Control Type: Hold B | — | — |
