@@ -66,7 +66,7 @@ pub fn bank_bytes(name: &str, phrases: &[Phrase]) -> Vec<u8> {
     f.extend(track(&mut conductor));
     for i in 0..4 {
         let Some(p) = phrases.get(i) else {
-            f.extend(track(&mut Vec::new()));
+            f.extend(track(&mut []));
             continue;
         };
         let ch = i as u8;
@@ -108,7 +108,7 @@ fn vlq(mut v: u32, out: &mut Vec<u8>) {
 
 /// An MTrk from (absolute tick, event bytes), sorted by tick (offs before ons at a tick).
 /// Meta events are `[0xFF, ty, data...]` and get their length inserted.
-fn track(events: &mut Vec<(u32, Vec<u8>)>) -> Vec<u8> {
+fn track(events: &mut [(u32, Vec<u8>)]) -> Vec<u8> {
     events.sort_by_key(|(t, e)| (*t, e[0] & 0xF0 == 0x90));
     let mut body = Vec::new();
     let mut last = 0;

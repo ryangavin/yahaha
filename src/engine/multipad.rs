@@ -271,10 +271,10 @@ impl Engine {
     /// The band stopped: Multi Pad Synchro Stop (Style Stop).
     pub(super) fn pads_on_stop(&mut self, sink: &mut impl Sink) {
         let d = &mut self.features.pads;
-        if d.synchro.style_stop {
-            if let Some(p) = d.player.as_mut() {
-                p.stop_repeating(sink);
-            }
+        if d.synchro.style_stop
+            && let Some(p) = d.player.as_mut()
+        {
+            p.stop_repeating(sink);
         }
     }
 
@@ -286,10 +286,10 @@ impl Engine {
             return;
         }
         let d = &mut self.features.pads;
-        if d.synchro.ending {
-            if let Some(p) = d.player.as_mut() {
-                p.stop_repeating(sink);
-            }
+        if d.synchro.ending
+            && let Some(p) = d.player.as_mut()
+        {
+            p.stop_repeating(sink);
         }
     }
 }

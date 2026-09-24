@@ -56,7 +56,7 @@ fn multi_pads_do_not_allocate_on_the_engine_thread() {
 
     let (allocs, frees) = (ALLOCS.load(Ordering::Relaxed), FREES.load(Ordering::Relaxed));
     let mut now = 1_000;
-    let mut run = |l: &mut EngineLoop, now: &mut u64, until: u64| {
+    let run = |l: &mut EngineLoop, now: &mut u64, until: u64| {
         while *now < until {
             *now = l.next_deadline().unwrap_or(*now + 5_000_000).max(*now + 1).min(until);
             l.step(*now);
