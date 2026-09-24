@@ -1,5 +1,6 @@
 //! The plugin rack's audio-thread calls (`begin_block`, `midi`, `render_add`), including a
-//! swap, a crossfade, a clear and a fault, must not allocate on the host side. A counting
+//! swap, a crossfade and a clear, must not allocate on the host side (a fault only sets a
+//! flag and pushes an event; `plugin::tests` covers its behaviour). A counting
 //! global allocator (in this test binary only) checks it. What the plugin itself does in its
 //! render is its own business and does not go through Rust's allocator.
 #![cfg(feature = "plugins")]
