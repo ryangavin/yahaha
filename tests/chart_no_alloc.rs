@@ -46,6 +46,9 @@ fn a_chart_plays_without_allocating() {
     let chart = "*A[C^7 |D-7 G7 |E-7 A7 |D-7 G7 ]*B[F^7 |n |E-7 A7 |D-7 G7 Z";
     let plan = |tag| Box::new(ChartPlan::from_bars(&expand(&parse_chart(chart), 2), tag, None));
     let (first, second) = (plan(1), plan(2));
+    // A new song mid-play (it starts from its first bar at the next bar line).
+    let mut third = plan(3);
+    third.fresh = true;
     let settings = ChartSettings { on: true, intro: Some(0), ending: Some(0), loop_range: None };
     let override_chord = yahaha::parse_chord("Ab7").unwrap();
     l.step(1);
@@ -72,12 +75,21 @@ fn a_chart_plays_without_allocating() {
     shared.chord.store(override_chord.pack(1), Ordering::Release);
     l.step(now);
     ch.chart_tx.push(second).ok().unwrap();
-    run(&mut l, &mut now, 40 * bar);
+    // New settings mid-bar take back the chart's queued change and queue it again.
+    run(&mut l, &mut now, 7 * bar + bar / 2);
+    ch.ui_tx.push(Cmd::Chart(ChartSettings { loop_range: Some((0, 4)), ..settings })).ok().unwrap();
+    l.step(now);
+    ch.ui_tx.push(Cmd::Chart(settings)).ok().unwrap();
+    ch.chart_tx.push(third).ok().unwrap();
+    l.step(now);
+    run(&mut l, &mut now, 60 * bar);
     assert_eq!(ALLOCS.load(Ordering::Relaxed) - allocs, 0, "allocations on the engine thread");
     assert_eq!(FREES.load(Ordering::Relaxed) - frees, 0, "frees on the engine thread");
 
     assert!(snaps.iter().any(|s| s.chart_override), "the player took over");
-    assert!(snaps.iter().any(|s| s.chart_tag == 2 && s.chart_bar == Some(15)), "the second plan played to its last bar");
+    assert!(snaps.iter().any(|s| s.chart_tag == 2 && s.chart_bar.is_some()), "the second plan played");
+    assert!(snaps.iter().any(|s| s.chart_tag == 3 && s.chart_bar == Some(15)), "the new song played from its top to its last bar");
     assert!(!snaps.last().unwrap().running, "the Ending stopped the band");
     assert!(ch.old_chart_rx.pop().is_ok(), "the first plan came back to be freed");
+    assert!(ch.old_chart_rx.pop().is_ok(), "the second plan came back to be freed");
 }
