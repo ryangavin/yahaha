@@ -213,8 +213,10 @@ impl Engine {
         self.running = false;
         self.queued = None;
         self.all_off(sink);
-        // A style change waiting for the bar line takes over now.
+        // A style change waiting for the bar line takes over now, at its own tempo: a
+        // ritardando's tempo must not come back over it.
         if let Some(p) = self.pending.take() {
+            self.rit_drop();
             let old = self.load(p.style, self.anchor_ns, sink);
             self.retire(old);
         }

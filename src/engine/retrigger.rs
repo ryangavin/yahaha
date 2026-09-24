@@ -82,6 +82,8 @@ impl Engine {
         if !self.running {
             return;
         }
+        // The section starts over: an Ending's ritardando was for the end it had.
+        self.end_rit(now);
         let at = self.tick_at(now);
         self.restart_section(at, now, sink);
         let (tpb, ppq) = (self.style.tpb.max(1) as f64, self.style.ppq.max(1) as f64);

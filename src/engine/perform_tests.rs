@@ -418,3 +418,86 @@ fn synchro_stop_window_cancels_sync_stop_on_a_long_hold() {
     e.chord_released(t + 2_000_000_000, &mut rec);
     assert!(!e.running);
 }
+
+fn other_style() -> Option<Box<Prepared>> {
+    let p = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus/MOX_v2/TickingAway.T162.sty");
+    p.exists().then(|| Box::new(Prepared::new(&Style::load(&p).unwrap())))
+}
+
+/// Into Ending I at bar 2, then pressed again at its first beat: the ritardando runs.
+fn in_ending_rit() -> Option<(Engine, Rec, u64)> {
+    let (mut e, mut rec) = started(StyleSettings::default())?;
+    let (ppq, tpb, _) = grid(&e);
+    let end1 = slot_of(SectionId::Ending(0));
+    if !e.style.has(end1) {
+        return None;
+    }
+    let t = e.ns_at(tpb + 1.5 * ppq);
+    play(&mut e, &mut rec, 0, t);
+    e.button(Button::Ending(0), t, &mut rec);
+    let bar2 = e.ns_at(2.0 * tpb) + 1_000;
+    play(&mut e, &mut rec, t, bar2);
+    assert_eq!(e.cur, end1);
+    e.button(Button::Ending(0), bar2, &mut rec);
+    assert!(e.ritardando());
+    Some((e, rec, bar2))
+}
+
+/// Stopped during a ritardando with a style change waiting: the new style comes in at its
+/// own tempo, not the one the ritardando started from.
+#[test]
+fn a_style_waiting_through_a_ritardando_keeps_its_own_tempo() {
+    let (Some((mut e, mut rec, t)), Some(other)) = (in_ending_rit(), other_style()) else { return };
+    let want = other.bpm;
+    play(&mut e, &mut rec, t, t + 300_000_000);
+    e.change_style(other, t + 300_000_000, &mut rec);
+    e.button(Button::StartStop, t + 310_000_000, &mut rec);
+    assert!(!e.running && !e.ritardando());
+    assert_eq!(e.bpm, want);
+}
+
+/// Section Reset during an Ending's ritardando: the Ending starts over at the tempo the
+/// ritardando started from.
+#[test]
+fn section_reset_ends_the_ritardando() {
+    let Some((mut e, mut rec, t)) = in_ending_rit() else { return };
+    let base = e.features.rit.base;
+    play(&mut e, &mut rec, t, t + 800_000_000);
+    assert!(e.bpm < base);
+    e.button(Button::SectionReset, t + 800_000_000, &mut rec);
+    assert!(!e.ritardando());
+    assert_eq!(e.bpm, base);
+    play(&mut e, &mut rec, t + 800_000_000, t + 1_600_000_000);
+    assert_eq!(e.bpm, base, "no stale ritardando");
+}
+
+/// A style change while the Ending slows: the Ending of the new style slows on from the
+/// tempo reached, never snapping back, down to the same end tempo.
+#[test]
+fn a_style_swap_mid_ritardando_carries_it_on() {
+    let (Some((mut e, mut rec, t)), Some(other)) = (in_ending_rit(), other_style()) else { return };
+    let base = e.features.rit.base;
+    e.change_style(other, t + 10_000_000, &mut rec);
+    let Some(at) = e.pending.as_ref().map(|p| p.at) else { panic!("the style waits for the bar line") };
+    if at >= e.section_end().0 - 1e-6 {
+        panic!("the style must come in mid-Ending");
+    }
+    let mut now = t + 10_000_000;
+    let mut last = e.bpm;
+    let mut swapped = false;
+    while e.running {
+        now = e.next_deadline().unwrap().max(now + 1).min(now + 5_000_000);
+        rec.now = now;
+        e.process(now, &mut rec);
+        if !e.running {
+            break;
+        }
+        swapped |= e.pending.is_none();
+        assert!(e.ritardando(), "still slowing");
+        assert!(e.bpm <= last + 1e-9, "only slows: {} after {last}", e.bpm);
+        last = e.bpm;
+    }
+    assert!(swapped);
+    assert!(last < base * 0.8 && last >= base * RIT_END - 1e-6, "{last} of {base}");
+    assert_eq!(e.bpm, base, "the tempo comes back when it stops");
+}
