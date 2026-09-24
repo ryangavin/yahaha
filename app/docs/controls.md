@@ -190,8 +190,21 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 
 | control | what it does | Genos | key | Launchkey |
 |---|---|---|---|---|
-| **Settings** | Fingering, chord detection and split, audio output, SoundFont, synth mute and MIDI inputs. | — | — | — |
+| **Settings** | Chord detection, split, transpose, style behaviour, audio, MIDI and the style library. Changes apply at once. | — | — | — |
 | **Close settings** | Closes the settings panel. | — | `Esc` | — |
+| **Settings: Chord** | Fingering type, chord detection area (Lower or Upper) and Manual Bass. | Menu › Split & Fingering | — | Pad page 2 (Chord/Setup), top row (fingering, Upper) and bottom row, pad 1 (Manual Bass) |
+| **Settings: Split point** | Where the keyboard divides between the chord section and the right hand. | Menu › Split & Fingering › Split Point | — | Pad page 2 (Chord/Setup), bottom row, pads 3–4 |
+| **Settings: Transpose** | Keyboard and Master transpose, in semitones. | Menu › Transpose | — | Pad page 2 (Chord/Setup), bottom row, pads 5–7 |
+| **Settings: Style** | How the band starts, stops and fills: Sync Start/Stop, Auto Fill and Stop Accompaniment. | Menu › Style Setting | — | Pad page 1 (Sections) (Sync Start, Sync Stop, Auto Fill); Pad page 2 (Chord/Setup), bottom row, pad 2 (Stop ACMP) |
+| **Settings: Audio** | The built-in synth: on or off, which output pair it plays on, its SoundFont and its master volume. | — | — | — |
+| **Settings: MIDI** | Which MIDI inputs play yahaha, the yahaha output port, and the Launchkey connection. | Menu › MIDI | — | — |
+| **Settings: Library** | The folders yahaha looks for style files in, and a rescan. | Style selection (USB / User folders) | — | — |
+| **Split point** | Drag the marker, or click a key, to set the split (C3 = middle C). Keys at and below it are Left and the chord section, keys above it play Right 1–3. With focus, ←/→ move it a key and PgUp/PgDn an octave. | Split Point (Style + Left) | `[` `]` | Pad page 2 (Chord/Setup), bottom row, pads 3–4 |
+| **Section change timing (coming soon)** | When a Main you press takes over: Immediate (at the next beat) or Next Bar. Coming in M5; for now a new Main always waits for the next bar line (with Auto Fill, its fill starts at the next beat). | Section Change Timing | — | — |
+| **OTS Link timing (coming soon)** | With OTS Link on, whether the One Touch Setting changes the moment you press a Main (Immediate) or when the new Main actually starts (At Main Section Change). Coming in M5; for now it is always Immediate. | OTS Link Timing | — | — |
+| **Synchro Stop window (coming soon)** | With Sync Stop on: hold a chord longer than this and Sync Stop cancels itself, so the style keeps playing when you let go. A quicker release still stops the style. Coming in M5. | Synchro Stop Window | — | — |
+| **Style folders** | The folders yahaha reads style files from (.sty, .prs, .sst and more), with subfolders as categories. Pass them on the command line or set YAHAHA_STYLES. | Style selection (User / USB) | — | — |
+| **Rescan styles** | Reads the style folders again, picking up files you added, changed or removed. The band keeps playing. | — | — | — |
 
 ## Audio
 
@@ -200,12 +213,16 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | **Audio output** | The output pair the built-in synth plays on. `--audio-out N` sets it at launch. | — | `A` | — |
 | **SoundFont** | The General MIDI SoundFont (.sf2) the built-in synth plays, from the soundfonts folder. `--sf2 file` sets it at launch. | — | — | — |
 | **Mute synth** | Silences the built-in synth, for when you play Ableton's sounds from the yahaha MIDI port instead. | — | `K` | — |
+| **Built-in synth** | Turns the built-in SoundFont synth's sound on or off. The yahaha MIDI port keeps playing either way, for Ableton or other sounds. | — | `K` | — |
 
 ## MIDI
 
 | control | what it does | Genos | key | Launchkey |
 |---|---|---|---|---|
 | **MIDI input** | Whether this MIDI source plays yahaha. The Launchkey's DAW port carries its pads and buttons. | — | — | — |
+| **Inputs: all or selected** | All: every MIDI source plays yahaha, merged. Selected: only the sources you switch on below. `--all-inputs` and `--input name` set it at launch. | — | — | — |
+| **yahaha MIDI output** | The virtual MIDI port yahaha plays the band and your parts on. Pick it as a MIDI input in Ableton to use your own sounds. | MIDI Transmit | — | — |
+| **Palette LEDs** | Lights the Launchkey with its built-in palette colours and hardware flashing instead of exact RGB colours. Try it if the pads look wrong or lag. `--palette-leds` sets it at launch. | — | — | Every pad and button light |
 
 ## App
 
