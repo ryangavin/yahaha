@@ -29,5 +29,5 @@ export async function connect(): Promise<Session> {
     return TauriSession.connect()
   }
   const { MockSession } = await import('./mock')
-  return new MockSession({ demo: params.get('demo') !== '0' })
+  return new MockSession({ demo: params.get('demo') !== '0', styles: Number(params.get('styles')) || 0 })
 }
