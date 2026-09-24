@@ -26,11 +26,19 @@ pub(super) struct LooperCtl {
     pending: Option<(u8, u32)>,
     /// Memories stored so far, for the "CLD_001" names.
     stored: u32,
+    /// The engine's `chart_yields` last seen: ON/OFF turned chart mode off to arm a loop.
+    chart_yields: u16,
 }
 
 impl LooperCtl {
     pub(super) fn new(tx: Producer<ChordSeq>, rx: Consumer<ChordSeq>) -> LooperCtl {
-        LooperCtl { tx, rx, current: ChordSeq::EMPTY, memories: Default::default(), selected: None, pending: None, stored: 0 }
+        LooperCtl { tx, rx, current: ChordSeq::EMPTY, memories: Default::default(), selected: None, pending: None, stored: 0, chart_yields: 0 }
+    }
+
+    /// Tests: hand the engine an empty sequence (as a fresh engine has).
+    #[cfg(test)]
+    pub(super) fn empty_engine_seq(&mut self) {
+        self.tx.push(ChordSeq::EMPTY).unwrap();
     }
 }
 
@@ -47,16 +55,11 @@ impl Control {
         let recording = matches!(state, LoopState::Recording | LoopState::RecArmed);
         match c {
             LooperCmd::LooperRec => self.engine_cmd(Cmd::Looper(true)),
-            LooperCmd::LooperOnOff => {
-                // Only one of the chart player and the Chord Looper gives the chords: a loop
-                // that is about to arm turns chart mode off first (engine/chart.rs).
-                let arms = state == LoopState::Recording || state == LoopState::Off && self.snap.looper.has_data;
-                if arms && self.chart_mode_on() {
-                    self.chart_cmd(crate::api::ChartCmd::SetChartMode { on: false })?;
-                    self.say("Chart mode off: the Chord Looper plays", false);
-                }
-                self.engine_cmd(Cmd::Looper(false))
-            }
+            // Only one of the chart player and the Chord Looper gives the chords: the engine
+            // decides whether the loop arms, and turns chart mode off for it on its own state
+            // (#110: a snapshot taken before a memory was selected can't say); `pump_looper`
+            // follows.
+            LooperCmd::LooperOnOff => self.engine_cmd(Cmd::Looper(false)),
             LooperCmd::SelectLooperMemory { index } => {
                 let i = index as usize % MEMORIES;
                 if recording {
@@ -109,6 +112,13 @@ impl Control {
     /// A finished recording becomes the current sequence (no memory selected); a memory
     /// chosen while looping becomes the selected one once the engine has switched to it.
     pub(super) fn pump_looper(&mut self) {
+        let yields = self.snap.looper.chart_yields;
+        if yields != self.looper.chart_yields {
+            self.looper.chart_yields = yields;
+            if self.chart_mode_off_by_engine() {
+                self.say("Chart mode off: the Chord Looper plays", false);
+            }
+        }
         let l = &mut self.looper;
         while let Ok(seq) = l.rx.pop() {
             l.current = seq;
