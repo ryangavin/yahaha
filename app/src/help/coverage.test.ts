@@ -2,7 +2,8 @@
 //
 // Renders the whole app on the mock session in every state that shows different
 // controls (each overlay, each pad page, each fader page, help mode) and checks every
-// focusable or clickable element for a `data-tip` key that exists in the catalog.
+// focusable or clickable element (the help footer's own switch included) for a `data-tip`
+// key that exists in the catalog: that entry is what the help footer shows on hover.
 // A new panel is covered automatically once it's in App.svelte; if it shows controls only
 // in some state, add that state to STATES below.
 
@@ -58,7 +59,8 @@ const STATES: [string, Setup][] = [
   ['pad page 3', (s) => s.send({ type: 'setPadPage', page: 'otsParts' })],
   ['fader page Style', (s) => s.send({ type: 'toggleFaderPage' })],
   ['Upper + Manual Bass', (s) => s.send({ type: 'toggleUpper' })],
-  ['help mode', () => (tips.help = true)],
+  ['help mode (expanded help footer)', () => (tips.help = true)],
+  ['pop-up tips on', () => tips.setFloating(true)],
   ['style browser open', () => (ui.browser = true)],
   ['style browser open, stopped (preview buttons)', (s) => (s.send({ type: 'stop' }), (ui.browser = true))],
   ['style browser, previewing', (s) => (s.send({ type: 'stop' }), s.send({ type: 'auditionStyle', id: 1 }), (ui.browser = true))],
@@ -81,6 +83,7 @@ afterEach(() => {
   ui.mixer = false
   ui.shiftLatched = false
   tips.help = false
+  tips.setFloating(false)
 })
 
 describe('tooltip coverage', () => {
