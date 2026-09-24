@@ -305,7 +305,9 @@ good once Auto Style is off.
   chart mode on stops a loop that plays or is armed, and a Chord Looper ON/OFF that would
   arm a loop turns chart mode off. The Genos has no chart player to copy; "the last one you
   turned on wins" is the least surprising. Recording is not affected: it records the
-  chords you play over the chart.
+  chords you play over the chart. The engine makes the ON/OFF decision on its own state
+  and reports it (`LooperSnap::chart_yields`), so one press works even straight after a
+  memory is selected (#110).
 - **Chart mode and the chosen chart are not Registration items.** The Genos has no
   equivalent group, and playlists live in memory only, so a registration could not bring
   the chart back.
