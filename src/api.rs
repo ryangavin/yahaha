@@ -32,6 +32,7 @@ mod playlist;
 mod preview;
 mod registration;
 mod settings;
+mod style_settings;
 mod surface;
 mod system;
 mod transport;
@@ -52,6 +53,7 @@ pub use playlist::*;
 pub use preview::*;
 pub use registration::*;
 pub use settings::*;
+pub use style_settings::*;
 pub use surface::*;
 pub use system::*;
 pub use transport::*;
@@ -129,6 +131,8 @@ app_cmd! {
     Settings(SettingsCmd),
     /// Panic, the message line.
     System(SystemCmd),
+    /// Section Change Timing, Synchro Stop Window, fade times, Section Reset, Retrigger length.
+    StyleSettings(StyleSettingsCmd),
     /// Registration Memory: buttons, banks, Memorize, Freeze, Registration Sequence.
     Registration(RegistrationCmd),
     /// The Playlist.
@@ -164,6 +168,9 @@ impl From<Button> for AppCmd {
             Button::SetTempo(bpm) => TransportCmd::SetTempo { bpm }.into(),
             Button::TogglePart(p) => MixerCmd::ToggleStylePart { part: p }.into(),
             Button::StopAcmp => TransportCmd::ToggleStopAcmp.into(),
+            Button::Fade => TransportCmd::ToggleFade.into(),
+            Button::SectionReset => TransportCmd::SectionReset.into(),
+            Button::Retrigger => TransportCmd::ToggleRetrigger.into(),
         }
     }
 }
@@ -198,6 +205,7 @@ impl From<Action> for AppCmd {
             Action::PartVoice(d) => PartsCmd::StepVoice { delta: d }.into(),
             Action::ToggleFaderPage => MixerCmd::ToggleFaderPage.into(),
             Action::Style(d) => LibraryCmd::StepStyle { delta: d }.into(),
+            Action::RetriggerRate(d) => StyleSettingsCmd::StepRetriggerRate { delta: d }.into(),
             Action::Regist(i) => RegistrationCmd::PressRegist { index: i }.into(),
             Action::RegistMemory => RegistrationCmd::ToggleRegistMemory.into(),
             Action::RegistFreeze => RegistrationCmd::ToggleFreeze.into(),
@@ -279,6 +287,8 @@ pub struct AppState {
     pub preview: PreviewState,
     /// The keys held and the chord, for the app's keyboard strip.
     pub keyboard: KeyboardState,
+    /// Section Change Timing, Synchro Stop Window, fade times, Section Reset, Retrigger length.
+    pub style_settings: StyleSettingsState,
     /// Registration Memory: the bank, its ten buttons, Freeze, the Registration Sequence.
     pub registration: RegistrationState,
     /// The Playlist.
