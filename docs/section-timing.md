@@ -1,0 +1,130 @@
+# Section timing, Fade, Ritardando, Synchro Stop Window, Section Reset, Retrigger
+
+M5 issues #22, #23 and #25. How yahaha implements these Genos features, where the code is,
+and which parts are guesses because the manuals leave them open. Spec:
+[genos-features.md](genos-features.md) §1 and §3. Commands and state:
+[app-api.md](app-api.md) (`styleSettings`, `toggleFade`, `sectionReset`, `toggleRetrigger`).
+
+## Where the code is
+
+| What | Where |
+|---|---|
+| The settings (`StyleSettings`), Next Bar / next beat points | `src/engine/timing.rs` |
+| Section Change Timing policy | `Engine::change_point` in `src/engine/sections.rs` (`Change::Main`, `Change::IntroEnding`, `Change::Style`) |
+| Fade In/Out | `src/engine/fade.rs`; the synth side in `src/synth.rs` (`master_volume_msg`), routed by `live::Out::push` |
+| Ending ritardando | `src/engine/ritardando.rs` |
+| Section Reset, Retrigger | `src/engine/retrigger.rs` |
+| Synchro Stop Window | `src/engine/sync_stop.rs` |
+| Engine state | `hooks::Features` (`settings`, `fade`, `rit`, `retrigger`, `sync_window`); `on_start`, `on_stop`, `after_section_change`, the new `on_wake` hook and `hook_wake_ns` deadline |
+| Commands | `live::Cmd::StyleSettings`; `Button::{Fade, SectionReset, Retrigger}` |
+| API | `src/api/style_settings.rs`, `TransportCmd::{ToggleFade, SectionReset, ToggleRetrigger}`, `TransportState::{fade, retrigger, ritardando}` |
+| Session | `src/session/style_settings.rs` (keeps the settings, sends the whole set) |
+| Tests | `src/engine/perform_tests.rs`, `tests/perform_no_alloc.rs`, `session_tests.rs` |
+
+## Section Change Timing (#22)
+
+- **To Main** (`mainTiming`), also a style change while playing:
+  - **Next Bar** (default): at once when pressed within the first beat of a bar (the new
+    section starts at that point of its bar, like a fill entered mid-bar), otherwise at
+    the next bar line.
+  - **Immediate**: at the next beat; the new section plays from that beat of its bar.
+    With Auto Fill In on, a Main change falls back to Next Bar (RM p.12). A style change
+    stays Immediate (the fallback names section changes only).
+- **Inside Intro/Ending** (`introEndingTiming`), switching Intro/Ending while one plays:
+  - **Next Bar** (default): as above. **End of Section**: at the end of the one playing.
+  - Intro to Intro is always Next Bar (RM p.12).
+- The new "first beat" rule is the manual's Next Bar. yahaha used to wait for the bar
+  line even when pressed just after it; it now switches at once within the first beat.
+
+Decisions (the manuals leave these open):
+- **Into Ending I, and from a Main or Fill into an Intro or Ending: the next bar line.**
+  The manual says Ending I follows "the conventional rules" without saying what they are;
+  yahaha's rule before this setting existed was the next bar line, so that is kept. The
+  "Inside Intro/Ending" setting is only about changes while an Intro or Ending plays.
+- **The stop an Ending the style lacks makes waits for the bar line**, as before.
+- **Defaults: Next Bar for both.** The manual gives no factory defaults; Next Bar is the
+  closer to yahaha's old behaviour.
+
+## Ending ritardando (#23)
+
+Press the Ending that is playing again: the tempo slows down to the end of the ending.
+
+Decisions:
+- **Linear to 65% of the tempo at the ending's last tick, in sixteenth-note steps**
+  (`RIT_END`). The manual says only "gradually slows".
+- **The tempo comes back when the band stops**, or when a Main takes over from the
+  ending. The tempo buttons during a ritardando move the tempo it comes back to.
+- Pressing the Ending again while it is only queued does nothing new (it stays queued).
+
+## Fade In/Out (#23)
+
+Stopped: arm, then START (or a Sync Start chord) fades in. Playing: fade out, then the
+band stops and the volume is held at 0 for the hold time. Times: 0–20.0 s in, 0–20.0 s
+out, 0–5.0 s hold (RM p.142).
+
+Decisions:
+- **The fade is the MIDI Master Volume message** (Universal Real Time SysEx
+  `F0 7F 7F 04 01 ll mm F7`), sent on the yahaha port and handed to the built-in synth
+  (`live::Out`), which multiplies its output by it on top of the master fader. The part
+  faders (CC7) never move, so the mixer rule (a part's volume is only its CC7) holds: a
+  fade is a MIDI message, not a hidden gain.
+- **The whole instrument fades, your playing too.** The Fade Out Hold Time ("the volume is
+  held at 0") only makes sense for the instrument's volume once the style has stopped.
+- **The curve**: the gain is the square of a position that moves linearly in time, sent
+  every 10 ms while it moves.
+- **Defaults: 5.0 s in, 5.0 s out, 2.0 s hold.** The manuals list none.
+- A fade out already running carries on if pressed again. START/STOP (or Panic) during a
+  fade ends it at full volume. START during the hold ends the hold (a fade in if armed).
+- The fade times are session settings (Registration is not implemented yet).
+
+## Synchro Stop Window (#23)
+
+With Sync Stop on and a window set, a chord held longer than the window turns Sync Stop
+off: letting go no longer stops the band (RM p.12).
+
+Decisions:
+- **Values: Off, or 0.1–5.0 s in 0.1 s steps; default Off.** The manual lists none.
+- The hold is timed from the first chord after the chord section was last let go;
+  changing chords without letting go keeps timing. The engine wakes at the window's end
+  (`hook_wake_ns`), so Sync Stop goes off on time, not at the next event.
+
+## Style Section Reset (#25)
+
+TAP TEMPO while the style plays restarts the section from its top, at the tap (OM p.46).
+`styleSettings.sectionReset` (default on, as the OM describes) turns it back into tap
+tempo. `sectionReset` is also a command of its own (Launchkey Shift + Play, key `r`).
+
+Decisions:
+- The bar grid restarts at the tap. A section change queued for a bar line moves to the
+  new grid's next bar line; a queued fill to its next beat; a style waiting for the bar
+  line to the new grid's next one.
+- The section's setup is not sent again (it is the same section); its events from tick 0
+  play again, and the section hooks run as for a Main repeating.
+
+## Style Retrigger (#25)
+
+While on, each chord played in a Main restarts the Main at the chord, and its first
+`4 / rate` beats (rate 1, 2, 4, 8, 16, 32: a whole note .. a 32nd) loop (RM p.147).
+
+Decisions:
+- **The head loops until a section change or Retrigger goes off**, and a new chord
+  restarts it. The manual says "a specific length of the first part of the current Style
+  is repeated when the chord is played"; the Live Control knob that shortens it while
+  it plays reads as a continuous stutter, not a one-shot.
+- **The restart is at the chord's instant**, not quantised: the stutter follows the
+  player. The bar grid restarts with it (as Section Reset).
+- Turning Retrigger off lets the Main play on from where the head is.
+- Only Mains retrigger (RM p.147); a Fill, Break, Intro or Ending plays as usual.
+- **Default length: 8** (an eighth note). The Launchkey steps it with Shift + > / Shift +
+  Function; the terminal with `{` `}`.
+
+## Controls
+
+| | Terminal | Launchkey | App |
+|---|---|---|---|
+| Fade In/Out | `F` | page 3 top pad 6; Shift + Stop | Settings › Style; the mirror |
+| Section Reset | `r` (and `t` while playing) | Shift + Play (and Tap while playing) | Settings › Style (Tap setting); the mirror |
+| Retrigger on/off | `R` | page 2 bottom pad 8 | Settings › Style; the mirror |
+| Retrigger length | `{` `}` | Shift + > / Shift + Function | Settings › Style |
+| Ritardando | the Ending key again | the Ending pad again | the Ending pad again |
+| Timing, window, fade times | | | Settings › Style |

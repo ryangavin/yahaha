@@ -670,6 +670,14 @@ mod parts_tests {
 mod curve_tests {
     use super::*;
 
+    /// A fade's Master Volume reaches the synth as a gain on top of the master fader.
+    #[test]
+    fn master_volume_is_a_linear_gain() {
+        assert_eq!(master_volume_gain(&master_volume_msg(0x3FFF)), 1.0);
+        assert_eq!(master_volume_gain(&master_volume_msg(0)), 0.0);
+        assert!((master_volume_gain(&master_volume_msg(0x2000)) - 0.5).abs() < 1e-3);
+    }
+
     #[test]
     fn master_is_unity_at_default() {
         assert_eq!(SynthControl::new(0).master.load(Relaxed), MASTER_UNITY);

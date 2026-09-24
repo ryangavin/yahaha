@@ -139,8 +139,10 @@ A feature that lives in the engine:
   builds it on the control side);
 - adds **one call** to its own function in the **hook** it needs (`src/engine/hooks.rs`):
   `on_start`, `on_stop`, `on_bar`, `on_beat`, `before_section_change`,
-  `after_section_change`, `on_chord`, `on_style_loaded`; and returns its next deadline from
-  `hook_deadline` if it must act exactly on a tick (a metronome click, an arp step). The
+  `after_section_change`, `on_chord`, `on_style_loaded`, or `on_wake` (every `process`
+  call, band running or not); and returns its next deadline from `hook_deadline` if it
+  must act exactly on a tick (a metronome click, an arp step), or from `hook_wake_ns` for
+  a time in engine nanoseconds that also counts while stopped (a fade's hold). The
   hooks run at fixed points in a fixed order (the table in hooks.rs; tests there pin it);
 - gets commands through a new `live::Cmd` variant (one arm in `live::apply`) or reads an
   atomic in `Shared` at the top of `EngineLoop::step`;

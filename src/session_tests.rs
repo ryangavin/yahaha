@@ -83,6 +83,12 @@ fn all_cmds() -> Vec<AppCmd> {
         AppCmd::Settings(SettingsCmd::NextAudioOutput),
         AppCmd::System(SystemCmd::Panic),
         AppCmd::System(SystemCmd::ClearMessage),
+        AppCmd::Transport(TransportCmd::ToggleFade),
+        AppCmd::Transport(TransportCmd::SectionReset),
+        AppCmd::Transport(TransportCmd::ToggleRetrigger),
+        AppCmd::StyleSettings(StyleSettingsCmd::SetMainTiming { timing: crate::engine::MainTiming::Immediate }),
+        AppCmd::StyleSettings(StyleSettingsCmd::SetFadeOutTime { ms: 1200 }),
+        AppCmd::StyleSettings(StyleSettingsCmd::StepRetriggerRate { delta: 1 }),
     ]
 }
 
@@ -1225,4 +1231,37 @@ fn new_state_and_commands_serialize_as_documented() {
         assert!(v["library"].get(k).is_some(), "library.{k}");
     }
     assert!(v["pads"].get("paletteLeds").is_some());
+}
+
+/// Style settings reach the engine and the state; the fade, Retrigger and Section Reset
+/// buttons show in `transport`.
+#[test]
+fn style_settings_fade_and_retrigger_through_the_session() {
+    use crate::engine::FadeState;
+    let Some(s) = offline("SlowWalker.T552.sty") else { return };
+    assert_eq!(s.state().style_settings, StyleSettingsState::default());
+    s.send(StyleSettingsCmd::SetFadeInTime { ms: 300 }).unwrap();
+    s.send(StyleSettingsCmd::SetFadeOutTime { ms: 60_000 }).unwrap();
+    s.send(StyleSettingsCmd::SetRetriggerRate { rate: 12 }).unwrap();
+    s.send(StyleSettingsCmd::SetSyncStopWindow { ms: 700 }).unwrap();
+    let st = s.state().style_settings.clone();
+    assert_eq!((st.fade_in_ms, st.fade_out_ms, st.retrigger_rate, st.sync_stop_window_ms), (300, 20_000, 8, 700), "clamped");
+    // Armed while stopped, then the Sync Start chord fades in.
+    s.send(TransportCmd::ToggleFade).unwrap();
+    assert_eq!(s.state().transport.fade, FadeState::Armed);
+    keys(&s, true, &[36, 40, 43]);
+    assert_eq!(s.state().transport.fade, FadeState::FadingIn);
+    s.advance(400 * MS);
+    assert_eq!(s.state().transport.fade, FadeState::Off);
+    // Master Volume went to the synth: silence first, full at the end.
+    let out = s.take_output();
+    let vols: Vec<u16> = out.iter().filter(|m| m[0] == 0xF0).map(|m| (m[2] as u16) << 7 | m[1] as u16).collect();
+    assert_eq!((vols.first(), vols.last()), (Some(&0), Some(&crate::engine::MASTER_VOLUME_FULL)), "{vols:?}");
+    s.send(TransportCmd::ToggleRetrigger).unwrap();
+    assert!(s.state().transport.retrigger);
+    // Section Reset: back to bar 1, beat 1.
+    assert!(advance_until(&s, |st| st.transport.bar >= 2));
+    s.send(TransportCmd::SectionReset).unwrap();
+    let t = s.state().transport.clone();
+    assert_eq!((t.bar, t.beat), (1, 1));
 }
