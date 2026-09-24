@@ -27,6 +27,8 @@ pub struct MockSound {
     map: ProgramMap,
     style_maps: BTreeMap<String, ProgramMap>,
     pub parts: [Option<String>; 4],
+    /// The plugin patch whose plugin each part was given (`part_plugins`).
+    plugin_parts: [Option<String>; 4],
     port: bool,
     audition: Option<(String, f64)>,
     browse: Option<SoundFontBrowse>,
@@ -62,7 +64,7 @@ impl Default for MockSound {
         map.set_override(4, Some("warm-rhodes".into()));
         map.set_override(5, Some("warm-rhodes".into()));
         map.drums = Some("studio-kit".into());
-        MockSound { patches, map, style_maps: BTreeMap::new(), parts: Default::default(), port: false, audition: None, browse: None, last_added: None }
+        MockSound { patches, map, style_maps: BTreeMap::new(), parts: Default::default(), plugin_parts: Default::default(), port: false, audition: None, browse: None, last_added: None }
     }
 }
 
@@ -92,6 +94,46 @@ impl MockSound {
         if let Some(p) = self.parts.get_mut(part) {
             *p = None;
         }
+    }
+
+    /// A plugin picked (or, while a plugin patch plays, cleared) on the Plugins tab: the
+    /// part's own patch goes.
+    pub fn part_plugin(&mut self, part: usize, picked: bool) {
+        let p = part & 3;
+        if picked || self.plugin_parts[p].is_some() {
+            self.plugin_parts[p] = None;
+            self.parts[p] = None;
+        }
+    }
+
+    /// Whether part `part` plays a plugin the Plugins tab picked (not a plugin patch's).
+    pub fn own_plugin(&self, part: usize) -> bool {
+        self.plugin_parts[part & 3].is_none()
+    }
+
+    /// The parts' plugins to change for their own plugin patches, as the session's
+    /// `sync_part_plugins` does: (part, Some((component id, state)) to load, None to clear).
+    pub fn part_plugins(&mut self) -> Vec<(usize, Option<(String, String)>)> {
+        let mut out = Vec::new();
+        for p in 0..4 {
+            let want = self.parts[p].as_ref().and_then(|id| self.at(id)).and_then(|i| match &self.patches[i].source {
+                PatchSource::Plugin { component_id, state } => Some((self.patches[i].id.clone(), (component_id.clone(), state.clone()))),
+                PatchSource::SoundFont { .. } => None,
+            });
+            if want.as_ref().map(|w| &w.0) == self.plugin_parts[p].as_ref() {
+                continue;
+            }
+            let had = self.plugin_parts[p].take().is_some();
+            match want {
+                Some((id, voice)) => {
+                    self.plugin_parts[p] = Some(id);
+                    out.push((p, Some(voice)));
+                }
+                None if had => out.push((p, None)),
+                None => {}
+            }
+        }
+        out
     }
 
     fn map_mut(&mut self, style: bool, key: &str) -> &mut ProgramMap {

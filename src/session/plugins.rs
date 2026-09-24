@@ -660,11 +660,14 @@ impl Control {
                     },
                     None => None,
                 };
+                // A plugin picked here ends the part's own library patch (#103).
+                self.sound_library_part_plugin(part as usize, true);
                 if let Err(e) = self.assign_channel_plugin(ch(part), PluginVoice { id, state }) {
                     return self.fail(e);
                 }
             }
             PluginCmd::ClearPartPlugin { part } => {
+                self.sound_library_part_plugin(part as usize, false);
                 self.clear_channel_plugin(ch(part));
                 self.mark_plugins_dirty();
             }
@@ -678,7 +681,7 @@ impl Control {
         Ok(())
     }
 
-    fn mark_plugins_dirty(&mut self) {
+    pub(super) fn mark_plugins_dirty(&mut self) {
         #[cfg(feature = "plugins")]
         {
             self.plugins.dirty = true;

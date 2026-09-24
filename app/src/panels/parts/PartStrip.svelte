@@ -35,10 +35,11 @@
   const groups = $derived(voiceGroups(voices))
   const plugins = $derived(app.state.plugins)
   const plugin = $derived(part.plugin)
-  // The picker's tab: the plugin list while the part has a plugin, the sound library
-  // while it plays a library patch (#103), else the GM voices.
+  // The picker's tab: the sound library while the part plays a library patch (#103; a
+  // plugin patch too, whose plugin the part then has), the plugin list while it has a
+  // plugin of its own, else the GM voices.
   let tab = $state<'gm' | 'library' | 'plugins' | null>(null)
-  const shown = $derived(tab ?? (part.plugin ? 'plugins' : part.patch ? 'library' : 'gm'))
+  const shown = $derived(tab ?? (part.patch ? 'library' : part.plugin ? 'plugins' : 'gm'))
   const library = $derived(byCategory(app.state.soundLibrary.patches))
   function pickPatch(e: Event & { currentTarget: HTMLSelectElement }) {
     const id = e.currentTarget.value
@@ -47,6 +48,8 @@
   }
   const byMaker = $derived(pluginGroups(plugins.list))
   const pluginLine = $derived(pluginStatusLine(plugin, plugins.available))
+  // A plugin patch's plugin while it loads, or when it failed: the Library tab says so.
+  const patchPluginLine = $derived(part.patch && plugin && plugin.status !== 'playing' ? pluginLine.replace(/ ▾$/, '') : null)
 
   function pickPlugin(e: Event & { currentTarget: HTMLSelectElement }) {
     const id = e.currentTarget.value
@@ -138,9 +141,9 @@
       </select>
     </label>
   {:else if shown === 'library'}
-    <label class="voice mat-screen">
+    <label class="voice mat-screen" class:failed={!!patchPluginLine && (plugin?.status === 'failed' || plugin?.status === 'muted')}>
       <span class="glow-text vname">{part.patch ? part.voiceName : 'GM voice'}</span>
-      <span class="sub">{#if part.playsBass}<span class="badge">own: {own}</span>{:else if part.patch}<span class="badge">Library</span> ▾{:else}{part.voiceName} · Patch ▾{/if}</span>
+      <span class="sub">{#if part.playsBass}<span class="badge">own: {own}</span>{:else if patchPluginLine}<span class="badge">Library</span> {patchPluginLine}{:else if part.patch}<span class="badge">Library</span> ▾{:else}{part.voiceName} · Patch ▾{/if}</span>
       <select value={part.patch ?? ''} aria-label="{part.name} library patch" use:tip={'part.library'} onchange={pickPatch} onkeydown={pickerKey}>
         <option value="">GM voice ({part.voiceName})</option>
         {#each library as g (g.category)}

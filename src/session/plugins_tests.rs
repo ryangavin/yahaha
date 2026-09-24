@@ -309,6 +309,67 @@ fn section_setups_never_reach_a_keyboard_parts_plugin() {
     assert!((after.0 / before.0 - 1.0).abs() < 0.05 && (after.1 / before.1 - 1.0).abs() < 0.05, "the key plays as before: {before:?} then {after:?}");
 }
 
+/// A plugin patch is a keyboard part's own patch (#109): picking it from the library loads
+/// its plugin with the patch's state (#91's `setPartPlugin` path) and the part shows the
+/// patch; leaving the patch (a GM voice, the patch deleted) takes the plugin away, and a
+/// plugin picked on the Plugins tab ends the patch instead.
+#[test]
+fn a_plugin_patch_plays_on_a_keyboard_part() {
+    use crate::api::{PatchFields, SoundLibraryCmd};
+    use crate::patches::{PatchDefaults, PatchSource};
+    let Some(s) = session() else { return };
+    s.offline_audio(None, 48_000).unwrap();
+    // A state to store in the patch: DLS's own, read back from a part.
+    s.send(PluginCmd::SetPartPlugin { part: 1, id: DLS.into(), state: None }).unwrap();
+    assert_eq!(wait_playing(&s, 1), PluginStatus::Playing);
+    s.send(PluginCmd::SavePartPluginState { part: 1 }).unwrap();
+    let state = s.inner.lock().part_plugin_voice(1).unwrap().1.unwrap();
+    s.send(PluginCmd::ClearPartPlugin { part: 1 }).unwrap();
+    let fields = PatchFields {
+        name: "DLS Keys".into(),
+        category: Default::default(),
+        tags: vec![],
+        favourite: false,
+        source: PatchSource::Plugin { component_id: DLS.into(), state: state.clone() },
+        defaults: PatchDefaults { volume: Some(90), ..PatchDefaults::default() },
+    };
+    s.send(SoundLibraryCmd::CreatePatch { patch: fields }).unwrap();
+    let id = s.state().sound_library.last_added.clone().unwrap();
+    assert!(s.state().sound_library.patches.iter().any(|p| p.patch.id == id && p.available));
+
+    s.send(SoundLibraryCmd::SetPartPatch { part: 0, id: Some(id.clone()) }).unwrap();
+    let r1 = |s: &Session| s.state().keyboard_parts[0].clone();
+    assert_eq!((r1(&s).patch.as_deref(), r1(&s).voice_name.as_str(), r1(&s).volume), (Some(id.as_str()), "DLS Keys", 90));
+    assert_eq!(wait_playing(&s, 0), PluginStatus::Playing);
+    assert_eq!(s.inner.lock().part_plugin_voice(0), Some((DLS.to_string(), Some(state.clone()))), "the patch's state");
+    s.midi_in(Port::Keys, &[0x90, 72, 110]);
+    let (l, r) = s.render(9600);
+    assert!(energy(&l, &r) > 1e-3, "the plugin patch sounds");
+    s.midi_in(Port::Keys, &[0x80, 72, 0]);
+    // Another edit of the library does not reload it.
+    s.send(SoundLibraryCmd::SetPatchFavourite { id: id.clone(), favourite: true }).unwrap();
+    assert_eq!(r1(&s).plugin.map(|p| p.status), Some(PluginStatus::Playing));
+
+    // A GM voice ends the patch and its plugin.
+    s.send(PartsCmd::SetPartVoice { part: 0, program: 0 }).unwrap();
+    assert!(r1(&s).patch.is_none() && r1(&s).plugin.is_none());
+
+    // A plugin picked on the Plugins tab ends the patch, and is not taken away after.
+    s.send(SoundLibraryCmd::SetPartPatch { part: 0, id: Some(id.clone()) }).unwrap();
+    assert_eq!(wait_playing(&s, 0), PluginStatus::Playing);
+    s.send(PluginCmd::SetPartPlugin { part: 0, id: DLS.into(), state: None }).unwrap();
+    assert!(r1(&s).patch.is_none());
+    s.send(SoundLibraryCmd::SetPatchFavourite { id: id.clone(), favourite: false }).unwrap();
+    assert!(r1(&s).plugin.is_some(), "the Plugins tab's plugin stays");
+    s.send(PluginCmd::ClearPartPlugin { part: 0 }).unwrap();
+
+    // Deleting the patch a part plays takes its plugin away.
+    s.send(SoundLibraryCmd::SetPartPatch { part: 2, id: Some(id.clone()) }).unwrap();
+    assert!(s.state().keyboard_parts[2].plugin.is_some());
+    s.send(SoundLibraryCmd::DeletePatch { id }).unwrap();
+    assert!(s.state().keyboard_parts[2].patch.is_none() && s.state().keyboard_parts[2].plugin.is_none());
+}
+
 /// A plugin patch auditions like a SoundFont one (#109): with the band stopped, its plugin
 /// loads on channel 16 (the audition channel), plays the phrase through the rack, and goes
 /// when the audition ends; nothing is left on the channel.
