@@ -18,6 +18,7 @@
 
 mod chart;
 mod chord;
+mod controllers;
 mod keyboard;
 mod library;
 mod mixer;
@@ -32,6 +33,7 @@ mod transport;
 
 pub use chart::*;
 pub use chord::*;
+pub use controllers::*;
 pub use keyboard::*;
 pub use library::*;
 pub use mixer::*;
@@ -119,6 +121,8 @@ app_cmd! {
     System(SystemCmd),
     /// The iReal Pro chart player.
     Chart(ChartCmd),
+    /// Pedals, wheels and assignable functions.
+    Controllers(ControllersCmd),
 }
 
 impl From<Button> for AppCmd {
@@ -127,6 +131,7 @@ impl From<Button> for AppCmd {
             Button::Intro(i) => TransportCmd::Intro { index: i }.into(),
             Button::Main(i) => TransportCmd::Main { index: i }.into(),
             Button::Break => TransportCmd::Break.into(),
+            Button::Fill(d) => TransportCmd::Fill { delta: d }.into(),
             Button::Ending(i) => TransportCmd::Ending { index: i }.into(),
             Button::StartStop => TransportCmd::StartStop.into(),
             Button::Stop => TransportCmd::Stop.into(),
@@ -172,6 +177,7 @@ impl From<Action> for AppCmd {
             Action::PartVoice(d) => PartsCmd::StepVoice { delta: d }.into(),
             Action::ToggleFaderPage => MixerCmd::ToggleFaderPage.into(),
             Action::Style(d) => LibraryCmd::StepStyle { delta: d }.into(),
+            Action::Assign(f) => ControllersCmd::TriggerFunction { function: f }.into(),
         }
     }
 }
@@ -246,6 +252,8 @@ pub struct AppState {
     pub keyboard: KeyboardState,
     /// The iReal Pro chart player: imported playlists, the chart, the bar playing.
     pub chart: ChartState,
+    /// Pedals, wheels, their parts and the pedals' assignable functions.
+    pub controllers: ControllersState,
     /// The last notice or error, until the next one or `ClearMessage`.
     pub message: Option<Message>,
 }

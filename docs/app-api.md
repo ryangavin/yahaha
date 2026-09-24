@@ -93,6 +93,7 @@ state, and pressing the button is the action. For settings, a GUI checkbox can u
 | `intro` | `index` 0–2 | Intro 1–3. Stopped: plays at the start. Playing: queued for the next bar. |
 | `main` | `index` 0–3 | Main A–D. Pressing the Main that is playing plays its fill. With Auto Fill on, a change plays the fill first. |
 | `break` | | Break (Fill In BA). |
+| `fill` | `delta` −1, 0, 1 | Fill Down, Fill Self, Fill Up (the Genos assignable functions): the fill, then the Main to the left, the same Main, or the Main to the right, whatever Auto Fill says. Past Main A or D, the fill of the Main at the end. Stopped: selects that Main. |
 | `ending` | `index` 0–2 | Ending 1–3. |
 | `startStop` | | START/STOP. |
 | `stop` | | Stops if playing, otherwise does nothing. This is the Launchkey Stop button. |
@@ -185,6 +186,17 @@ left hand ([ireal.md](ireal.md), "Chart player"). Playlists live in the session'
 | `setChartIntro` | `index` | The Intro 0–2 (A–C) before the chart, or `null` for none. An Intro pressed before the start plays instead. |
 | `setChartEnding` | `index` | The Ending 0–2 after the last bar, or `null`: the band stops at the end of the last bar. |
 | `setChartAutoStyle` | `on` | Load the suggested style whenever a song is chosen. |
+### Controllers
+
+Pedals, the wheels and the assignable functions (docs/controllers.md).
+
+| Command | Fields | Does |
+|---|---|---|
+| `setPedal` | `pedal` 0–2, `cc`, `function`, `controlType`, `reverse`, `range` | Sets up a pedal: the control change it listens for on the keyboards (`cc` 0–127, or null for none), its assignable function (an `id` from `app/src/lib/api/assignable-functions.json`, for example `sustain`, `startStop`, `fillUp`, `ots1`), its Control Type for Sustain, Sostenuto and Soft (`holdA`: on while held, `holdB`: off while held, `toggle`), reversed polarity, and the Range of a Pitch Bend pedal (`upper`, `lower`, `full`). `controlType`, `reverse` and `range` may be left out (`holdA`, false, `upper`). |
+| `learnPedal` | `pedal` 0–2 or null | The pedal takes the CC of the next control change a keyboard presses (a value of 64 or more; not bank select, volume, the modulation wheel, data entry or channel mode messages). Null stops learning. |
+| `setPartControllers` | `part` 0–3, `sustain`, `pitchBend`, `modulation` | Which controllers reach a keyboard part: the pedal switches (sustain, sostenuto, soft), the pitch bend, the modulation. |
+| `setBendRange` | `part` 0–3, `semitones` 0–12 | The part's Pitch Bend Range (RPN 0 on its channel). |
+| `triggerFunction` | `function` | Runs an assignable function as a pedal press would (Sustain, Sostenuto and Soft toggle). Fails for a function yahaha doesn't have yet (`available` false) and for Modulation and Pitch Bend, which need a foot controller. |
 
 ### Result: `CmdError`
 
@@ -497,6 +509,20 @@ What the app's keyboard strip draws.
 | `chordTones` | number[] | Pitch classes (0–11, C = 0) of the chord as fingered (`chord.fingered`), root first. Empty for none. |
 | `chordBass` | number? | Its bass: the root, or the slash / on-bass note. |
 | `detection` | [lo, hi] | The keys chord detection reads, as MIDI notes (inclusive): `[0, split]` in Lower, `[split + 1, 127]` in Upper (Fingered*), `[0, 127]` in the Full Keyboard types. Clip it to the keys you draw. |
+
+### `controllers`
+Pedals, wheels and the assignable functions (docs/controllers.md).
+
+| Field | Type | Meaning |
+|---|---|---|
+| `pedals` | PedalState[] | Always 3: `cc` (the control change it listens for, or null), `function` (its assignable function's id), `controlType` (`holdA` \| `holdB` \| `toggle`), `reverse`, `range` (`upper` \| `lower` \| `full`), `down` (held now). |
+| `learning` | number? | The pedal waiting for its CC (`learnPedal`), or null. |
+| `parts` | PartControllers[] | Right 1, Right 2, Right 3, Left: `sustain` (the pedal switches reach it), `pitchBend`, `modulation`, `bendRange` (semitones, 0–12). |
+| `sustain`, `sostenuto`, `soft` | bool | The pedal switches in effect now. |
+
+The table of assignable functions is static: `app/src/lib/api/assignable-functions.json`
+(`id`, `name`, `category`, `kind`: `switch` \| `trigger` \| `continuous`, `available`).
+A Rust test keeps it equal to `controllers::FUNCTIONS`.
 
 ### `preview`
 The style browser's preview and queue.
@@ -934,6 +960,23 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
     "suggestedStyle": null,
     "bar": null,
     "overridden": false
+  },
+  "controllers": {
+    "pedals": [
+      { "cc": 64, "function": "sustain", "controlType": "holdA", "reverse": false, "range": "upper", "down": true },
+      { "cc": 66, "function": "fillUp", "controlType": "holdA", "reverse": false, "range": "upper", "down": false },
+      { "cc": null, "function": "none", "controlType": "holdA", "reverse": false, "range": "upper", "down": false }
+    ],
+    "learning": null,
+    "parts": [
+      { "sustain": true, "pitchBend": true, "modulation": true, "bendRange": 2 },
+      { "sustain": true, "pitchBend": true, "modulation": true, "bendRange": 2 },
+      { "sustain": true, "pitchBend": true, "modulation": true, "bendRange": 2 },
+      { "sustain": false, "pitchBend": true, "modulation": false, "bendRange": 2 }
+    ],
+    "sustain": true,
+    "sostenuto": false,
+    "soft": false
   },
   "message": null
 }

@@ -96,5 +96,12 @@ export function tipFor(cmd: AppCmd | null): TipKey {
     case 'setChartIntro': return 'chart.intro'
     case 'setChartEnding': return 'chart.ending'
     case 'setChartAutoStyle': return 'chart.auto_style'
+    // Fill Up/Down/Self are pedal functions (no pad has them).
+    case 'fill':
+    case 'setPedal': return 'pedal.function'
+    case 'learnPedal': return 'pedal.learn'
+    case 'triggerFunction': return 'pedal.try'
+    case 'setPartControllers': return 'pedal.part_sustain'
+    case 'setBendRange': return 'pedal.bend_up'
   }
 }
