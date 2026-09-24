@@ -323,6 +323,7 @@ LEDs and the chord, and keep everything else quiet.
 | `--ink`, `--engrave`, `--muted` | text on the panel: values, engraved labels, secondary |
 | `--screen-bg`, `--screen-ink`, `--screen-dim`, `--screen-glow` | the display |
 | `--accent`, `--accent-ink` | amber: selected, latched, waiting for you (fader pickup), focus |
+| `--solo` | a soloed mixer channel's S button (the Genos lights it purple) |
 | `--part-r1`, `--part-r2`, `--part-r3`, `--part-left`, `--part-chord` | a keyboard part's colour (held keys; any panel showing parts), and grey for chord-detection-only keys |
 | `--key-white`, `--key-black` (+ `-lo`/`-hi`, `--key-gap`, `--key-print`) | the keyboard strip's keys |
 | `--lamp-off` | an unlit LED |

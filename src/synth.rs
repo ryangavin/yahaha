@@ -17,6 +17,7 @@ use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicU8, Ordering::{Acquire, Relaxed}};
 use std::sync::Arc;
 
+use crate::click::{Click, CLICK};
 use crate::parts::{self, Parts};
 
 pub type Msg = [u8; 3];
@@ -52,6 +53,8 @@ pub struct SynthControl {
     pub clips: AtomicU64,
     /// Racks swapped in (`SetSoundFont`).
     pub swaps: AtomicU64,
+    /// The metronome's click volume (0-127), read when a click starts.
+    pub click_volume: AtomicU8,
 }
 
 pub struct Synth {
@@ -272,6 +275,7 @@ impl SynthControl {
             master_peaks: std::array::from_fn(|_| AtomicU32::new(0)),
             clips: AtomicU64::new(0),
             swaps: AtomicU64::new(0),
+            click_volume: AtomicU8::new(crate::click::DEFAULT_VOLUME),
         }
     }
 }
@@ -449,6 +453,7 @@ pub fn start(sf2: &Path, consumers: Vec<Consumer<Msg>>, out_pair: Option<u8>, pa
     // A rack just replaced: it plays out one buffer, fading, then goes back to be freed.
     let mut fading: Option<Box<Rack>> = None;
     let unmetered: [AtomicU32; 16] = std::array::from_fn(|_| AtomicU32::new(0));
+    let mut click = Click::new(sample_rate as u32);
 
     let callback = move |out: &mut [f32], _: &cpal::OutputCallbackInfo| {
         // A new SoundFont: the new rack takes over with the channels' voices and controllers.
@@ -475,6 +480,11 @@ pub fn start(sf2: &Path, consumers: Vec<Consumer<Msg>>, out_pair: Option<u8>, pa
         }
         for c in consumers.iter_mut() {
             while let Ok(m) = c.pop() {
+                // The metronome's click voice: not a MIDI part.
+                if m[0] == CLICK {
+                    click.trigger(m[1] != 0, ctl.click_volume.load(Relaxed));
+                    continue;
+                }
                 shadow.note(&m);
                 apply_rack(&mut rack, &m, &mut bank);
             }
@@ -489,6 +499,7 @@ pub fn start(sf2: &Path, consumers: Vec<Consumer<Msg>>, out_pair: Option<u8>, pa
             }
             let _ = old_tx.push(f);
         }
+        click.render_add(&mut left[..frames], &mut right[..frames], master_gain(master));
         let mute = ctl.muted.load(Relaxed);
         let lc = (ctl.out_ch.load(Relaxed) as usize).min(channels.saturating_sub(1));
         let rc = (lc + 1).min(channels - 1);

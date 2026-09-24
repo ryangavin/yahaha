@@ -70,6 +70,10 @@ fn keyboard_note_path_does_not_allocate() {
             assigned += 1;
         }
         shared.key_shift.store((round % 5) as i8 - 2, Ordering::Relaxed);
+        // Some rounds with a keyboard part soloed (Left, Right 2, none).
+        shared.parts.set_solo([None, Some(3), Some(1)][round as usize % 3]);
+        // Some rounds with the Chord Looper looping: the left hand plays too.
+        shared.looping.store(round % 2 == 1, Ordering::Relaxed);
         // A left-hand chord, a right-hand melody over layered parts, a retrigger, the
         // sustain pedal, poly aftertouch, then everything up (one note-off as a note-on
         // with velocity 0, one through running status).

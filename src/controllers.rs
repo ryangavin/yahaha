@@ -17,7 +17,7 @@
 //! # What each part's channel gets
 //!
 //! A part's channel always holds exactly what applies to it now: the pedal switch, the
-//! modulation and the bend when the part sounds (`Parts::sounding_mask`) and is chosen for
+//! modulation and the bend when the part sounds (`Parts::audible_mask`: a solo counts) and is chosen for
 //! them, else released / 0 / centre. [`Controllers::sync`] sends the difference between
 //! that and what the channel was last sent (`sent_*`), so:
 //!
@@ -792,7 +792,7 @@ impl Controllers {
     }
 
     /// Send each keyboard part what applies to it now, where it differs from what it was
-    /// sent. `sounding`: the parts that sound (`Parts::sounding_mask`).
+    /// sent. `sounding`: the parts that sound (`Parts::audible_mask`, which follows a solo).
     pub fn sync(&self, sounding: u8, out: &mut impl FnMut(&[u8])) {
         let (switches, modulation, bend) = (self.switches(), self.modulation(), self.bend());
         let (sus, pb, md) = (self.sustain_parts.load(Relaxed), self.bend_parts.load(Relaxed), self.mod_parts.load(Relaxed));

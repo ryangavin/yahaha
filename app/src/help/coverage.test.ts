@@ -78,6 +78,8 @@ const STATES: [string, Setup][] = [
   ['harmony drawer, arpeggio on, Fixed velocity', (s) => ((ui.harmony = true), s.send({ type: 'setArpPattern', index: 2 }), s.send({ type: 'setArpVelocity', mode: 'fixed', velocity: 90 }), s.send({ type: 'toggleHarmonyArp' }))],
   ['harmony drawer, Echo type', (s) => ((ui.harmony = true), s.send({ type: 'setHarmonyType', index: 20 }))],
   ['mixer drawer open, Style tab', (s) => ((ui.mixer = true), s.send({ type: 'setFaderPage', page: 'style' }))],
+  ['chord looper drawer open', () => (ui.looper = true)],
+  ['chord looper drawer, recording armed, Memory latched', (s) => ((ui.looper = true), s.send({ type: 'looperRec' }))],
   ['multi pad drawer, no bank', () => (ui.multipad = true)],
   ['multi pad drawer, bank loaded, pads playing and armed', (s) => (
     (ui.multipad = true),
@@ -95,6 +97,7 @@ afterEach(() => {
   ui.settings = false
   ui.parts = false
   ui.mixer = false
+  ui.looper = false
   ui.multipad = false
   ui.harmony = false
   ui.shiftLatched = false

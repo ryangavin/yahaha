@@ -1,6 +1,6 @@
 <!--
   The app bar above the hardware view: the drawers around it (Keyboard parts + OTS,
-  Mixer, Browse, Settings) and the app's own controls (help mode, theme). Everything the
+  Mixer, Chord Looper, Browse, Settings) and the app's own controls (help mode, theme). Everything the
   hardware does lives on the Launchkey mirror, not here.
 
   REFERENCE for a small component: read `app.state` with `$derived`, act with
@@ -22,6 +22,7 @@
   <nav class="drawers" aria-label="Panels">
     <HwButton tip="drawer.parts" led={ui.parts ? amber : null} onclick={() => ui.toggleDrawer('parts')}>Parts & OTS</HwButton>
     <HwButton tip="drawer.mixer" led={ui.mixer ? amber : null} onclick={() => ui.toggleDrawer('mixer')}>Mixer</HwButton>
+    <HwButton tip="drawer.looper" led={ui.looper ? amber : null} onclick={() => ui.toggleDrawer('looper')}>Chord Looper</HwButton>
     <HwButton tip="drawer.multipad" led={ui.multipad ? amber : null} onclick={() => ui.toggleDrawer('multipad')}>Multi Pads</HwButton>
     <HwButton tip="drawer.harmony" led={ui.harmony ? amber : null} onclick={() => ui.toggleDrawer('harmony')}>Harmony/Arp</HwButton>
     <HwButton tip="browser.open" led={ui.browser ? amber : null} onclick={() => (ui.browser = true)}>Browse styles</HwButton>

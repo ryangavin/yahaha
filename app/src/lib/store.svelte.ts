@@ -145,6 +145,7 @@ class UiStore {
   settings = $state(false)
   parts = $state(false)
   mixer = $state(false)
+  looper = $state(false)
   multipad = $state(false)
   harmony = $state(false)
   theme = $state<Theme>(storedTheme())
@@ -159,9 +160,9 @@ class UiStore {
   }
 
   /** Open one side drawer (closing the others), or close it if it's open. */
-  toggleDrawer(d: 'parts' | 'mixer' | 'settings' | 'multipad' | 'harmony') {
+  toggleDrawer(d: 'parts' | 'mixer' | 'settings' | 'looper' | 'multipad' | 'harmony') {
     const open = !this[d]
-    this.parts = this.mixer = this.settings = this.multipad = this.harmony = false
+    this.parts = this.mixer = this.settings = this.looper = this.multipad = this.harmony = false
     this[d] = open
   }
 
@@ -190,6 +191,7 @@ class UiStore {
     if (this.settings) return !(this.settings = false)
     if (this.parts) return !(this.parts = false)
     if (this.mixer) return !(this.mixer = false)
+    if (this.looper) return !(this.looper = false)
     if (this.multipad) return !(this.multipad = false)
     if (this.harmony) return !(this.harmony = false)
     return false
