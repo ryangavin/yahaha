@@ -11,7 +11,7 @@ use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 use std::cell::Cell;
 use std::path::Path;
 use std::time::Duration;
-use yahaha::api::{AppCmd, AppState, Pad};
+use yahaha::api::{AppCmd, AppState, LibraryCmd, MixerCmd, OtsCmd, Pad, PadsCmd, PartsCmd, SettingsCmd, SystemCmd};
 use yahaha::engine::Button;
 use yahaha::launchkey::{self, Action};
 use yahaha::library::{self, Info, Library};
@@ -71,12 +71,12 @@ fn key_action(code: KeyCode) -> Option<Action> {
 /// The keys that are commands but not Launchkey actions.
 fn key_cmd(code: KeyCode) -> Option<AppCmd> {
     match code {
-        KeyCode::Tab => Some(AppCmd::CyclePadPage { delta: 1 }),
-        KeyCode::BackTab => Some(AppCmd::CyclePadPage { delta: -1 }),
+        KeyCode::Tab => Some(AppCmd::Pads(PadsCmd::CyclePadPage { delta: 1 })),
+        KeyCode::BackTab => Some(AppCmd::Pads(PadsCmd::CyclePadPage { delta: -1 })),
         // Next stereo output pair: 1/2 -> 3/4 -> ... -> back to 1/2.
-        KeyCode::Char('a') => Some(AppCmd::NextAudioOutput),
-        KeyCode::Char('k') => Some(AppCmd::ToggleSynthMute),
-        KeyCode::Char('\\') => Some(AppCmd::Panic),
+        KeyCode::Char('a') => Some(AppCmd::Settings(SettingsCmd::NextAudioOutput)),
+        KeyCode::Char('k') => Some(AppCmd::Mixer(MixerCmd::ToggleSynthMute)),
+        KeyCode::Char('\\') => Some(AppCmd::System(SystemCmd::Panic)),
         code => key_action(code).map(AppCmd::from),
     }
 }
@@ -231,7 +231,7 @@ pub fn play(opts: Options) -> Result<()> {
                 BrowseKey::Close => browser = None,
                 BrowseKey::Load(id) if id == st.style.id => browser = None,
                 BrowseKey::Load(id) => {
-                    if session.send(AppCmd::LoadStyle { id }).is_ok() {
+                    if session.send(LibraryCmd::LoadStyle { id }).is_ok() {
                         browser = None;
                     }
                 }
@@ -614,11 +614,11 @@ pub fn screen_html(style: &Path, out: &Path) -> Result<()> {
     session.finish_indexing();
     let lib = session.library();
     let current = lib.order()[lib.len() / 3];
-    let _ = session.send(AppCmd::LoadStyle { id: current });
+    let _ = session.send(LibraryCmd::LoadStyle { id: current });
     let browser = style.is_dir().then(|| Browser::open(current));
-    let _ = session.send(AppCmd::RecallOts { index: 0 });
-    let _ = session.send(AppCmd::SetOtsLink { on: true });
-    let _ = session.send(AppCmd::SelectPart { part: parts::RIGHT2 as u8 });
+    let _ = session.send(OtsCmd::RecallOts { index: 0 });
+    let _ = session.send(OtsCmd::SetOtsLink { on: true });
+    let _ = session.send(PartsCmd::SelectPart { part: parts::RIGHT2 as u8 });
     session.show_snapshot(Snapshot {
         running: true,
         sync_armed: false,
@@ -699,6 +699,7 @@ pub fn screen_html(style: &Path, out: &Path) -> Result<()> {
 mod tests {
     use super::*;
     use std::path::PathBuf;
+    use yahaha::api::{ChordCmd, TransportCmd};
     use yahaha::launchkey::Page;
 
     /// Every Launchkey control on pages 2 and 3, and the Track buttons, is a keyboard
@@ -730,12 +731,12 @@ mod tests {
     /// Every key is a command: the Launchkey's, and the terminal's own.
     #[test]
     fn keys_send_commands() {
-        assert_eq!(key_cmd(KeyCode::Char('2')), Some(AppCmd::Main { index: 1 }));
-        assert_eq!(key_cmd(KeyCode::Char('[')), Some(AppCmd::MoveSplit { delta: -1 }));
-        assert_eq!(key_cmd(KeyCode::Char('!')), Some(AppCmd::RecallOts { index: 0 }));
-        assert_eq!(key_cmd(KeyCode::BackTab), Some(AppCmd::CyclePadPage { delta: -1 }));
-        assert_eq!(key_cmd(KeyCode::Char('\\')), Some(AppCmd::Panic));
-        assert_eq!(key_cmd(KeyCode::Char('k')), Some(AppCmd::ToggleSynthMute));
+        assert_eq!(key_cmd(KeyCode::Char('2')), Some(AppCmd::Transport(TransportCmd::Main { index: 1 })));
+        assert_eq!(key_cmd(KeyCode::Char('[')), Some(AppCmd::Chord(ChordCmd::MoveSplit { delta: -1 })));
+        assert_eq!(key_cmd(KeyCode::Char('!')), Some(AppCmd::Ots(OtsCmd::RecallOts { index: 0 })));
+        assert_eq!(key_cmd(KeyCode::BackTab), Some(AppCmd::Pads(PadsCmd::CyclePadPage { delta: -1 })));
+        assert_eq!(key_cmd(KeyCode::Char('\\')), Some(AppCmd::System(SystemCmd::Panic)));
+        assert_eq!(key_cmd(KeyCode::Char('k')), Some(AppCmd::Mixer(MixerCmd::ToggleSynthMute)));
         assert_eq!(key_cmd(KeyCode::Char('Z')), None);
     }
 

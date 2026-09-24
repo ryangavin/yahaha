@@ -8,178 +8,132 @@
 //! - [`Event`]: a cheap "something changed" notification (`Session::subscribe`).
 //!
 //! All three serialize with serde (JSON: camelCase fields, `type`-tagged commands).
+//!
+//! Each feature has a module here: its commands (one enum, e.g. [`TransportCmd`]) and
+//! its part of the state (e.g. [`TransportState`]). `AppCmd` has one variant per group
+//! and `AppState` one field per feature; both keep the flat JSON of docs/app-api.md
+//! (`{"type":"main","index":1}`, `state.transport`), which tests/api_wire.rs pins. A new
+//! feature adds a module, one line in `app_cmd!` below and/or one field in `AppState`
+//! (docs/architecture.md, "Adding a feature").
+
+mod chord;
+mod keyboard;
+mod library;
+mod mixer;
+mod ots;
+mod pads;
+mod parts;
+mod preview;
+mod settings;
+mod surface;
+mod system;
+mod transport;
+
+pub use chord::*;
+pub use keyboard::*;
+pub use library::*;
+pub use mixer::*;
+pub use ots::*;
+pub use pads::*;
+pub use parts::*;
+pub use preview::*;
+pub use settings::*;
+pub use surface::*;
+pub use system::*;
+pub use transport::*;
 
 use crate::engine::Button;
-use crate::fingering::Fingering;
-use crate::launchkey::{Action, Anim, Level, Page};
-use crate::parts::FaderPage;
+use crate::launchkey::Action;
 use crate::theory::NOTE_NAMES;
-use serde::{Deserialize, Serialize};
+use serde::de::Error as _;
+use serde::{Deserialize, Deserializer, Serialize};
 
 // ---------------------------------------------------------------------------
 // Commands
 // ---------------------------------------------------------------------------
 
-/// Every user action. Indices are 0-based. Keyboard parts: 0 = Right 1, 1 = Right 2,
-/// 2 = Right 3, 3 = Left. Style parts: 0-7 = Rhythm 1, Rhythm 2, Bass, Chord 1, Chord 2,
-/// Pad, Phrase 1, Phrase 2 (MIDI channels 9-16).
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "camelCase", rename_all_fields = "camelCase")]
-pub enum AppCmd {
-    // --- Sections and transport (the Genos panel buttons; engine state) ---
-    /// Intro 1-3 (`index` 0-2). Stopped: the intro plays when the style starts.
-    /// Playing: queued for the next bar.
-    Intro { index: u8 },
-    /// Main A-D (`index` 0-3). Pressing the Main that is playing plays its fill.
-    Main { index: u8 },
-    /// Break (Fill In BA).
-    Break,
-    /// Ending 1-3 (`index` 0-2): ends the style after the ending.
-    Ending { index: u8 },
-    /// START/STOP.
-    StartStop,
-    /// Stop (the Launchkey Stop button): stops if playing, else nothing.
-    Stop,
-    /// SYNC START on/off.
-    ToggleSyncStart,
-    /// SYNC STOP on/off. The engine ignores it while `transport.syncStopAvailable` is false.
-    ToggleSyncStop,
-    /// AUTO FILL IN on/off.
-    ToggleAutoFill,
-    /// STOP ACMP on/off.
-    ToggleStopAcmp,
-    /// TAP TEMPO: taps set the tempo; stopped, four taps start the style.
-    TapTempo,
-    /// Tempo up/down one step.
-    TempoUp,
-    TempoDown,
-    /// Mute/unmute a Style part (`part` 0-7).
-    ToggleStylePart { part: u8 },
-    /// Set a Style part's volume (its CC7, 0-127). The Launchkey fader picks it up.
-    SetStylePartVolume { part: u8, volume: u8 },
+/// Builds `AppCmd` from its groups: the enum, `From<GroupCmd> for AppCmd`, and the
+/// deserializer. On the wire a command is its group's JSON (`{"type":"main",...}`): the
+/// group level is Rust-only.
+macro_rules! app_cmd {
+    ($($(#[$doc:meta])* $group:ident($ty:ty),)*) => {
+        /// Every user action, by feature. Indices are 0-based. Keyboard parts: 0 = Right 1,
+        /// 1 = Right 2, 2 = Right 3, 3 = Left. Style parts: 0-7 = Rhythm 1, Rhythm 2, Bass,
+        /// Chord 1, Chord 2, Pad, Phrase 1, Phrase 2 (MIDI channels 9-16).
+        ///
+        /// `Session::send` takes a group's command directly
+        /// (`send(TransportCmd::Main { index: 1 })`).
+        #[derive(Clone, Debug, PartialEq, Serialize)]
+        #[serde(untagged)]
+        pub enum AppCmd {
+            $($(#[$doc])* $group($ty),)*
+        }
 
-    // --- Chord detection, split, transpose ---
-    /// Select a fingering type.
-    SetFingering { fingering: Fingering },
-    /// Step to the next fingering type (display order, wrapping).
-    NextFingering,
-    /// Chord Detection Area: Upper (true) or Lower. Selecting Upper turns Manual Bass on.
-    SetUpper { on: bool },
-    ToggleUpper,
-    /// The Manual Bass setting. Only changes in Upper (ignored in Lower).
-    SetManualBass { on: bool },
-    ToggleManualBass,
-    /// Split point, a MIDI note (clamped to 24-96). Keys at or below it are the left hand.
-    SetSplit { note: u8 },
-    /// Move the split point by `delta` keys.
-    MoveSplit { delta: i8 },
-    /// Keyboard and Master transpose in semitones (each clamped to -12..=12).
-    SetTranspose { keyboard: i8, master: i8 },
-    /// Add to the Keyboard and Master transpose.
-    StepTranspose { keyboard: i8, master: i8 },
-    /// Keyboard and Master transpose back to 0.
-    ResetTranspose,
+        $(impl From<$ty> for AppCmd {
+            fn from(c: $ty) -> AppCmd {
+                AppCmd::$group(c)
+            }
+        })*
 
-    // --- Keyboard parts (Right 1-3, Left) ---
-    /// Turn a part on/off. Left is refused under Manual Bass (it plays the bass then).
-    SetPartOn { part: u8, on: bool },
-    TogglePart { part: u8 },
-    /// The part the voice commands (`StepVoice`) and the Launchkey voice pads edit.
-    SelectPart { part: u8 },
-    /// Set a part's voice (GM program 0-127).
-    SetPartVoice { part: u8, program: u8 },
-    /// Previous/next voice for the selected part.
-    StepVoice { delta: i8 },
-    /// A part's volume (its CC7, 0-127). The Launchkey fader picks it up.
-    SetPartVolume { part: u8, volume: u8 },
-    /// A part's octave shift (-2..=2).
-    SetPartOctave { part: u8, octave: i8 },
+        /// The group whose `type` it is parses it. (A plain `untagged` would say only
+        /// "data did not match any variant" for a mistyped field.)
+        impl<'de> Deserialize<'de> for AppCmd {
+            fn deserialize<D: Deserializer<'de>>(d: D) -> Result<AppCmd, D::Error> {
+                let v = serde_json::Value::deserialize(d)?;
+                let Some(tag) = v.get("type").and_then(|t| t.as_str()) else {
+                    return Err(D::Error::missing_field("type"));
+                };
+                $(match <$ty>::deserialize(&v) {
+                    Ok(c) => return Ok(AppCmd::$group(c)),
+                    Err(e) if !e.to_string().starts_with("unknown variant") => return Err(D::Error::custom(e)),
+                    Err(_) => {}
+                })*
+                Err(D::Error::custom(format_args!("unknown variant `{tag}`, expected an AppCmd type")))
+            }
+        }
+    };
+}
 
-    // --- Mixer and Launchkey pages ---
-    /// What the Launchkey faders control: the keyboard parts (Panel) or the Style parts.
-    SetFaderPage { page: FaderPage },
-    ToggleFaderPage,
-    /// The Launchkey pad page.
-    SetPadPage { page: Page },
-    /// Step the pad page by `delta`, wrapping (the terminal's Tab / Shift+Tab).
-    CyclePadPage { delta: i8 },
-    /// The built-in synth's master volume (0-127; 100 = unity). The master fader picks it up.
-    SetMasterVolume { volume: u8 },
-
-    // --- One Touch Settings ---
-    /// Recall One Touch Setting 1-4 (`index` 0-3) into the keyboard parts.
-    RecallOts { index: u8 },
-    /// OTS Link: Main A-D recall OTS 1-4.
-    SetOtsLink { on: bool },
-    ToggleOtsLink,
-
-    // --- Styles ---
-    /// Load a style from the library by entry id (`LibraryEntry::id`). Playing or stopped.
-    LoadStyle { id: usize },
-    /// Load a style file by path (added to the library if it isn't in it).
-    LoadStylePath { path: String },
-    /// Previous/next style in library order, skipping files that don't load.
-    StepStyle { delta: i8 },
-    /// Load a style at the next bar line (playing), keeping the section and the bar
-    /// position; stopped, the same as `LoadStyle`. A later one before that bar line
-    /// replaces it; if the band stops first, it loads then. (`LoadStyle` and `StepStyle`
-    /// wait for the bar line too while playing: `preview.queued` shows the style waiting.)
-    QueueStyle { id: usize },
-    /// Preview a style while the band is stopped: its Main A, at its own tempo, with its own
-    /// voices and levels, over C Am F G7 (a chord a bar) for 4 bars, then it stops by itself.
-    /// The loaded style, OTS, keyboard parts, mixer and transport are untouched. Refused
-    /// (`failed`) while the band plays; a new one replaces the one playing. It ends early
-    /// on `StopAudition`, a style change, START/STOP or a Sync Start chord.
-    AuditionStyle { id: usize },
-    /// End the style preview now.
-    StopAudition,
-    /// Rescan the style folders (`library.roots`) for files added or removed, on a
-    /// background thread (`library.scanning`). Ids stay the same for files still there;
-    /// files gone leave the list.
-    RescanLibrary,
-
-    // --- Output ---
-    /// Mute/unmute the built-in synth's audio.
-    SetSynthMuted { on: bool },
-    ToggleSynthMute,
-    /// The synth's stereo output pair, by its left channel (0-based; 0 = outputs 1/2).
-    SetAudioOutput { first: u8 },
-    /// Next stereo output pair, wrapping: 1/2 -> 3/4 -> ... -> 1/2.
-    NextAudioOutput,
-    /// Reload the synth from another SoundFont in its folder (`io.soundFonts`, by file
-    /// name). It loads in the background (`io.soundFontLoading`) and swaps in between two
-    /// audio buffers; the voices and controllers in use carry over, notes sounding stop.
-    SetSoundFont { file: String },
-    /// Which MIDI sources play the keyboard: every one (`all`), or those named in `names`
-    /// (a name matches a source whose name contains it). `all` false with no names: the
-    /// default, a Launchkey's keys when there is one, else every source. The Launchkey's
-    /// DAW port is always the pads. Keys held on a source that is dropped are released.
-    SetMidiInputs { all: bool, names: Vec<String> },
-    /// Launchkey LEDs in Novation palette colours (and hardware flashing) instead of RGB.
-    SetPaletteLeds { on: bool },
-    /// All notes off, the style stops.
-    Panic,
-    /// Clear `AppState::message`.
-    ClearMessage,
+app_cmd! {
+    /// Sections and transport (the Genos panel buttons; engine state).
+    Transport(TransportCmd),
+    /// Style part mute and levels, fader page, synth master and mute.
+    Mixer(MixerCmd),
+    /// Chord detection, split, transpose.
+    Chord(ChordCmd),
+    /// Keyboard parts (Right 1-3, Left).
+    Parts(PartsCmd),
+    /// Launchkey pad pages.
+    Pads(PadsCmd),
+    /// One Touch Settings.
+    Ots(OtsCmd),
+    /// Loading styles, the library.
+    Library(LibraryCmd),
+    /// Style preview.
+    Preview(PreviewCmd),
+    /// Audio output, SoundFont, MIDI inputs, LEDs.
+    Settings(SettingsCmd),
+    /// Panic, the message line.
+    System(SystemCmd),
 }
 
 impl From<Button> for AppCmd {
     fn from(b: Button) -> AppCmd {
         match b {
-            Button::Intro(i) => AppCmd::Intro { index: i },
-            Button::Main(i) => AppCmd::Main { index: i },
-            Button::Break => AppCmd::Break,
-            Button::Ending(i) => AppCmd::Ending { index: i },
-            Button::StartStop => AppCmd::StartStop,
-            Button::Stop => AppCmd::Stop,
-            Button::SyncStart => AppCmd::ToggleSyncStart,
-            Button::SyncStop => AppCmd::ToggleSyncStop,
-            Button::AutoFill => AppCmd::ToggleAutoFill,
-            Button::TapTempo => AppCmd::TapTempo,
-            Button::TempoUp => AppCmd::TempoUp,
-            Button::TempoDown => AppCmd::TempoDown,
-            Button::TogglePart(p) => AppCmd::ToggleStylePart { part: p },
-            Button::StopAcmp => AppCmd::ToggleStopAcmp,
+            Button::Intro(i) => TransportCmd::Intro { index: i }.into(),
+            Button::Main(i) => TransportCmd::Main { index: i }.into(),
+            Button::Break => TransportCmd::Break.into(),
+            Button::Ending(i) => TransportCmd::Ending { index: i }.into(),
+            Button::StartStop => TransportCmd::StartStop.into(),
+            Button::Stop => TransportCmd::Stop.into(),
+            Button::SyncStart => TransportCmd::ToggleSyncStart.into(),
+            Button::SyncStop => TransportCmd::ToggleSyncStop.into(),
+            Button::AutoFill => TransportCmd::ToggleAutoFill.into(),
+            Button::TapTempo => TransportCmd::TapTempo.into(),
+            Button::TempoUp => TransportCmd::TempoUp.into(),
+            Button::TempoDown => TransportCmd::TempoDown.into(),
+            Button::TogglePart(p) => MixerCmd::ToggleStylePart { part: p }.into(),
+            Button::StopAcmp => TransportCmd::ToggleStopAcmp.into(),
         }
     }
 }
@@ -187,23 +141,11 @@ impl From<Button> for AppCmd {
 impl AppCmd {
     /// The engine button this command is, if it is one.
     pub fn button(&self) -> Option<Button> {
-        Some(match *self {
-            AppCmd::Intro { index } => Button::Intro(index.min(3)),
-            AppCmd::Main { index } => Button::Main(index.min(3)),
-            AppCmd::Break => Button::Break,
-            AppCmd::Ending { index } => Button::Ending(index.min(3)),
-            AppCmd::StartStop => Button::StartStop,
-            AppCmd::Stop => Button::Stop,
-            AppCmd::ToggleSyncStart => Button::SyncStart,
-            AppCmd::ToggleSyncStop => Button::SyncStop,
-            AppCmd::ToggleAutoFill => Button::AutoFill,
-            AppCmd::TapTempo => Button::TapTempo,
-            AppCmd::TempoUp => Button::TempoUp,
-            AppCmd::TempoDown => Button::TempoDown,
-            AppCmd::ToggleStylePart { part } => Button::TogglePart(part & 7),
-            AppCmd::ToggleStopAcmp => Button::StopAcmp,
-            _ => return None,
-        })
+        match self {
+            AppCmd::Transport(c) => Some(c.button()),
+            AppCmd::Mixer(c) => c.button(),
+            _ => None,
+        }
     }
 }
 
@@ -212,20 +154,20 @@ impl From<Action> for AppCmd {
     fn from(a: Action) -> AppCmd {
         match a {
             Action::Button(b) => b.into(),
-            Action::Fingering(f) => AppCmd::SetFingering { fingering: f },
-            Action::NextFingering => AppCmd::NextFingering,
-            Action::ToggleUpper => AppCmd::ToggleUpper,
-            Action::ToggleManualBass => AppCmd::ToggleManualBass,
-            Action::Split(d) => AppCmd::MoveSplit { delta: d },
-            Action::Transpose { keyboard, master } => AppCmd::StepTranspose { keyboard, master },
-            Action::TransposeReset => AppCmd::ResetTranspose,
-            Action::Ots(n) => AppCmd::RecallOts { index: n },
-            Action::ToggleOtsLink => AppCmd::ToggleOtsLink,
-            Action::PartOnOff(p) => AppCmd::TogglePart { part: p },
-            Action::SelectPart(p) => AppCmd::SelectPart { part: p },
-            Action::PartVoice(d) => AppCmd::StepVoice { delta: d },
-            Action::ToggleFaderPage => AppCmd::ToggleFaderPage,
-            Action::Style(d) => AppCmd::StepStyle { delta: d },
+            Action::Fingering(f) => ChordCmd::SetFingering { fingering: f }.into(),
+            Action::NextFingering => ChordCmd::NextFingering.into(),
+            Action::ToggleUpper => ChordCmd::ToggleUpper.into(),
+            Action::ToggleManualBass => ChordCmd::ToggleManualBass.into(),
+            Action::Split(d) => ChordCmd::MoveSplit { delta: d }.into(),
+            Action::Transpose { keyboard, master } => ChordCmd::StepTranspose { keyboard, master }.into(),
+            Action::TransposeReset => ChordCmd::ResetTranspose.into(),
+            Action::Ots(n) => OtsCmd::RecallOts { index: n }.into(),
+            Action::ToggleOtsLink => OtsCmd::ToggleOtsLink.into(),
+            Action::PartOnOff(p) => PartsCmd::TogglePart { part: p }.into(),
+            Action::SelectPart(p) => PartsCmd::SelectPart { part: p }.into(),
+            Action::PartVoice(d) => PartsCmd::StepVoice { delta: d }.into(),
+            Action::ToggleFaderPage => MixerCmd::ToggleFaderPage.into(),
+            Action::Style(d) => LibraryCmd::StepStyle { delta: d }.into(),
         }
     }
 }
@@ -273,7 +215,9 @@ pub enum Event {
 // State
 // ---------------------------------------------------------------------------
 
-/// Everything a front panel shows. Plain data: clone it, serialize it, compare it.
+/// Everything a front panel shows. Plain data: clone it, serialize it, compare it. Each
+/// field is one feature's state, defined in that feature's module; the field order is the
+/// JSON order.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AppState {
@@ -298,628 +242,6 @@ pub struct AppState {
     pub keyboard: KeyboardState,
     /// The last notice or error, until the next one or `ClearMessage`.
     pub message: Option<Message>,
-}
-
-/// Style preview and queue (`AuditionStyle`, `QueueStyle`).
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct PreviewState {
-    /// The preview playing (None: none).
-    pub audition: Option<AuditionState>,
-    /// The library id of a style waiting for the next bar line to take over.
-    pub queued: Option<usize>,
-}
-
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AuditionState {
-    /// The library id it previews.
-    pub id: usize,
-    /// The bar playing, 1-based, of `bars`.
-    pub bar: u8,
-    pub bars: u8,
-    /// The chord playing, e.g. "Am".
-    pub chord: Option<String>,
-}
-
-/// The keyboard as the key strip draws it.
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct KeyboardState {
-    /// The keys held, from any keyboard source, low to high.
-    pub held: Vec<HeldNote>,
-    /// Split Point (Left): keys at or below it play the Left part (the same split as
-    /// `chord.split`; yahaha has one).
-    pub left_split: u8,
-    /// Pitch classes (0-11, C = 0) of the chord as fingered (`chord.fingered`), root
-    /// first; empty for none.
-    pub chord_tones: Vec<u8>,
-    /// Its bass (pitch class): the root, or the slash / on-bass note. None: no chord.
-    pub chord_bass: Option<u8>,
-    /// The keys chord detection reads, as [lo, hi] MIDI notes (inclusive): up to the split
-    /// in Lower, above it in Upper (Fingered*), every key in the Full Keyboard types.
-    pub detection: [u8; 2],
-}
-
-/// A key held.
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct HeldNote {
-    /// The MIDI note as played (before Keyboard transpose and the parts' octaves).
-    pub note: u8,
-    /// The side of the split it went to when pressed.
-    pub zone: Zone,
-    /// The keyboard parts sounding it (0-3 = Right 1, Right 2, Right 3, Left); empty for
-    /// a key that only gives the chord.
-    pub parts: Vec<u8>,
-}
-
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum Zone {
-    /// At or below the split: the Left part, the chord section in Lower.
-    #[default]
-    Left,
-    Right,
-}
-
-/// The loaded style.
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct StyleState {
-    /// Its library entry id (`LibraryEntry::id`).
-    pub id: usize,
-    pub path: String,
-    /// The style's name (its SFF name, else the file name).
-    pub name: String,
-    /// "SFF1" or "SFF2".
-    pub format: String,
-    /// The style's own tempo, in BPM (the current tempo is `transport.tempo`).
-    pub tempo: f64,
-    /// Time signature, e.g. [4, 4].
-    pub time_signature: [u8; 2],
-    /// Names of the sections the style has, e.g. "Intro A", "Main B", "Fill In AA",
-    /// "Fill In BA" (Break), "Ending C".
-    pub sections: Vec<String>,
-}
-
-/// Playback state.
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct TransportState {
-    pub running: bool,
-    /// Sync Start is armed: the first chord starts the style.
-    pub sync_start: bool,
-    pub sync_stop: bool,
-    /// Sync Stop can be turned on (not in the Full Keyboard fingering types in Lower).
-    pub sync_stop_available: bool,
-    pub auto_fill: bool,
-    pub stop_acmp: bool,
-    /// The section playing (None when stopped), e.g. "Main A", "Fill In AA".
-    pub section: Option<String>,
-    /// The section queued to play next (at the next bar; a fill at the next beat).
-    pub queued: Option<String>,
-    /// The Intro (0-2) armed to play when the style starts.
-    pub pending_intro: Option<u8>,
-    /// The Main section (0-3 = A-D) the style is on, or returns to after a fill.
-    pub main: u8,
-    /// Position in the section playing: bar and beat, both 1-based (1, 1 when stopped).
-    pub bar: u32,
-    pub beat: u32,
-    /// Beats per bar (the time signature's numerator).
-    pub beats_per_bar: u8,
-    /// How many bars the section playing lasts (a Main's pattern length; it loops). None
-    /// when stopped.
-    pub section_bars: Option<u32>,
-    /// Current tempo in BPM.
-    pub tempo: f64,
-    /// Page 1 of the Launchkey pads (sections, Sync Start/Stop, Auto Fill, Tap, Start/Stop),
-    /// whatever page the hardware is on: the section lamps exactly as the pads show them.
-    pub lamps: Vec<Pad>,
-}
-
-/// Chord detection.
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ChordState {
-    /// The chord the style follows (after Keyboard transpose), e.g. "Am7/G".
-    pub name: Option<String>,
-    /// The chord as fingered, before Keyboard transpose.
-    pub fingered: Option<String>,
-    pub fingering: Fingering,
-    /// Display name, e.g. "Fingered On Bass".
-    pub fingering_name: String,
-    /// Chord Detection Area = Upper (the chord comes from the right hand, as Fingered*).
-    pub upper: bool,
-    /// The Manual Bass setting.
-    pub manual_bass: bool,
-    /// Manual Bass in effect (Upper and the setting on): the left hand plays the Style's
-    /// Bass voice and the Style's Bass part is muted.
-    pub manual_bass_active: bool,
-    /// Split point, a MIDI note: keys at or below it are the left hand.
-    pub split: u8,
-    /// The split point in Yamaha octave numbering (C3 = 60), e.g. "F#2".
-    pub split_name: String,
-    /// Keyboard transpose (the keys and the chord), semitones -12..=12.
-    pub transpose_keyboard: i8,
-    /// Master transpose (everything that sounds but drum kits), semitones -12..=12.
-    pub transpose_master: i8,
-}
-
-/// A keyboard part: Right 1, Right 2, Right 3 or Left.
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct KeyboardPart {
-    /// "Right 1", "Right 2", "Right 3", "Left".
-    pub name: String,
-    /// MIDI channel, 1-based (Right 1 = 1, Left = 2, Right 2 = 3, Right 3 = 4).
-    pub channel: u8,
-    /// The part's on/off switch.
-    pub on: bool,
-    /// It sounds: on, or Left playing the bass under Manual Bass.
-    pub sounding: bool,
-    /// The part the voice commands edit.
-    pub selected: bool,
-    /// Volume (its CC7), 0-127.
-    pub volume: u8,
-    /// The Launchkey fader has moved but not yet reached `volume` (soft takeover).
-    pub waiting: bool,
-    /// Where its Launchkey fader (Panel page, faders 1-4) physically is; None if it hasn't
-    /// moved.
-    pub fader: Option<u8>,
-    /// The part's own voice, a GM program 0-127.
-    pub program: u8,
-    /// What its channel plays: its voice, or the Style's Bass voice under Manual Bass.
-    pub voice_name: String,
-    /// Left playing the Style's Bass voice (Manual Bass).
-    pub plays_bass: bool,
-    /// The octave setting, -2..=2 (not applied while `plays_bass`).
-    pub octave: i8,
-}
-
-/// The mixer: the Style parts, the fader page, the master volume.
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct MixerState {
-    /// What the Launchkey faders 1-8 control.
-    pub fader_page: FaderPage,
-    /// The 8 Style parts.
-    pub style_parts: Vec<StylePart>,
-    /// The built-in synth's master volume (0-127, 100 = unity). None without the synth.
-    pub master: Option<u8>,
-    /// The Launchkey master fader has moved but not yet reached `master`.
-    pub master_waiting: bool,
-}
-
-/// One of the 8 accompaniment parts.
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct StylePart {
-    /// "Rhythm 1", "Rhythm 2", "Bass", "Chord 1", "Chord 2", "Pad", "Phrase 1", "Phrase 2".
-    pub name: String,
-    /// MIDI channel, 1-based (9-16).
-    pub channel: u8,
-    /// Not muted (and not muted by Manual Bass).
-    pub on: bool,
-    /// The Bass part, muted because Manual Bass is in effect.
-    pub muted_by_manual_bass: bool,
-    /// Volume (its CC7), 0-127.
-    pub volume: u8,
-    /// The Launchkey fader has moved but not yet reached `volume`.
-    pub waiting: bool,
-    /// Where its Launchkey fader (Style page) physically is; None if it hasn't moved.
-    pub fader: Option<u8>,
-    /// The voice the style was written for.
-    pub voice: Option<Voice>,
-}
-
-/// A Yamaha voice as the style names it.
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Voice {
-    pub bank_msb: u8,
-    pub bank_lsb: u8,
-    /// Program, 0-based.
-    pub program: u8,
-    /// A drum or SFX kit.
-    pub kit: bool,
-    /// What the built-in synth plays for it, e.g. "Finger Bass (GM 34)",
-    /// "≈ Strings  [Yamaha 104/0/49]", "drum kit 127/0/1".
-    pub label: String,
-}
-
-/// The Launchkey pads.
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct PadsState {
-    pub page: Page,
-    /// "Sections", "Chord/Setup", "OTS/Parts".
-    pub page_name: String,
-    /// 1-based page number, and how many pages there are.
-    pub page_number: u8,
-    pub page_count: u8,
-    /// The 16 pads on this page: the top row (notes 96-103) then the bottom row (112-119).
-    pub pads: Vec<Pad>,
-    /// A Launchkey is connected (DAW port).
-    pub connected: bool,
-    /// The LEDs use the Novation palette (`--palette-leds`): the pads show `Pad::palette`,
-    /// not `rgb`/`level`/`anim`.
-    pub palette_leds: bool,
-}
-
-/// The Launchkey beyond the pads.
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SurfaceState {
-    /// The Launchkey's Shift button is held: show the controls' Shift layer.
-    pub shift: bool,
-    /// Pad Bank ▲/▼, Track ◀/▶, Play, Stop, the two buttons right of the pads (Scene,
-    /// Function), the 8 fader buttons and the master fader button, in that order.
-    pub controls: Vec<SurfaceControl>,
-    /// Faders 1-8 and the master fader, for the active fader page.
-    pub faders: Vec<SurfaceFader>,
-    /// The styles Track ◀ / ▶ (and `StepStyle`) load: the previous and next in library
-    /// order, skipping files known not to load. None: nowhere to go.
-    pub track_prev: Option<Neighbour>,
-    pub track_next: Option<Neighbour>,
-    /// The beat clocks, to animate in step with the band and the pads.
-    pub clock: ClockState,
-}
-
-/// A Launchkey button (not a pad): what it does, with and without Shift, and its light.
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SurfaceControl {
-    /// "padBankUp", "padBankDown", "trackPrev", "trackNext", "play", "stop", "scene",
-    /// "function", "faderButton1".."faderButton8", "masterButton".
-    pub id: String,
-    /// Its CC on the DAW port (channel 1).
-    pub cc: u8,
-    /// What it does now, e.g. "PAGE ▼", "RIGHT 2", "PAD"; empty (and no action) when it
-    /// does nothing.
-    pub label: String,
-    pub action: Option<AppCmd>,
-    /// With Shift held. The same as `label`/`action` where Shift changes nothing.
-    pub shift_label: String,
-    pub shift_action: Option<AppCmd>,
-    /// Its light, as a pad's: full colour 0-127 per channel, level, animation (always
-    /// `solid`: buttons don't flash).
-    pub rgb: [u8; 3],
-    pub level: Level,
-    pub anim: Anim,
-    /// The palette index yahaha sends it (buttons have no RGB mode; `rgb` is its look).
-    /// None: yahaha doesn't drive this LED (Play, Stop, Scene, Function): it shows the
-    /// Launchkey's own default, reported as `off`.
-    pub colour: Option<u8>,
-}
-
-/// A Launchkey fader on the active fader page (and the master fader).
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SurfaceFader {
-    /// What it controls, e.g. "RIGHT 1", "BASS", "MASTER"; empty when unused.
-    pub label: String,
-    /// The level it controls (0-127); None when unused.
-    pub value: Option<u8>,
-    /// The level is waiting for the hardware fader (soft takeover).
-    pub waiting: bool,
-    /// Where the hardware fader physically is (0-127), as last reported; None until it
-    /// moves.
-    pub position: Option<u8>,
-    /// What moving it sends: this command with `volume` filled in (`setPartVolume`,
-    /// `setStylePartVolume`, `setMasterVolume`; `volume` is 0 here). None: unused.
-    pub set: Option<AppCmd>,
-}
-
-/// A pad in palette-LED mode: what was sent to it.
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct PaletteLed {
-    /// `solid`, `flash` (between `colour` and `flashColour`) or `pulse` (`colour`). The
-    /// Launchkey times flash and pulse itself, not on the beat clock.
-    pub mode: Anim,
-    pub colour: u8,
-    pub rgb: [u8; 3],
-    pub level: Level,
-    pub flash_colour: Option<u8>,
-    pub flash_rgb: Option<[u8; 3]>,
-    pub flash_level: Option<Level>,
-}
-
-/// One pad: what it does and how it is lit.
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Pad {
-    /// The pad's MIDI note on the Launchkey DAW port.
-    pub note: u8,
-    /// e.g. "MAIN A", "FINGERED", "OTS 1"; empty for an unused pad.
-    pub label: String,
-    /// The terminal UI's keyboard shortcut, e.g. "1", "spc", "F10".
-    pub key: String,
-    /// Full-brightness colour, 0-127 per channel.
-    pub rgb: [u8; 3],
-    pub level: Level,
-    pub anim: Anim,
-    /// What pressing it sends (None: an unused pad).
-    pub action: Option<AppCmd>,
-    /// Palette-LED mode only (`PadsState::paletteLeds`): what the hardware pad shows.
-    pub palette: Option<PaletteLed>,
-}
-
-/// One Touch Settings.
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct OtsState {
-    /// The style's One Touch Settings (0-4).
-    pub settings: Vec<OtsSetting>,
-    /// The last one recalled, 1-based (0 = none since the style loaded).
-    pub applied: u8,
-    pub link: bool,
-}
-
-/// One One Touch Setting (the style has no names for them: "OTS 1".."OTS 4").
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct OtsSetting {
-    /// "OTS 1".."OTS 4".
-    pub name: String,
-    /// Right 1, Right 2, Right 3, Left as it sets them.
-    pub parts: Vec<OtsPart>,
-}
-
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct OtsPart {
-    pub on: bool,
-    /// GM program, or None for a drum kit voice (the part keeps its own).
-    pub program: Option<u8>,
-    pub voice_name: String,
-    pub volume: u8,
-    pub octave: i8,
-}
-
-/// The style library. The entries themselves come from `Session::library()`.
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct LibraryStatus {
-    /// Changes whenever the library does (see `Event::LibraryChanged`).
-    pub revision: u64,
-    pub count: usize,
-    /// The loaded style's position in library order (0-based).
-    pub position: usize,
-    /// Entries still waiting to be indexed.
-    pub pending: usize,
-    /// The style folders (and files) the library scans.
-    pub roots: Vec<String>,
-    /// A rescan (`RescanLibrary`) is walking the folders.
-    pub scanning: bool,
-}
-
-/// A library entry next to the loaded style.
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Neighbour {
-    pub id: usize,
-    pub name: String,
-    pub path: String,
-}
-
-/// The beat clocks. Times are the session's monotonic clock, in ms (`atMs` is when this
-/// state was read: when it last changed for `Session::state`, now for
-/// `Session::state_now`). Beats are quarter notes. Both clocks are anchors: a value at a
-/// time, moving on at `tempo` until the next state.
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ClockState {
-    /// The session clock (ms) this state was read at.
-    pub at_ms: f64,
-    pub running: bool,
-    /// BPM (quarter notes per minute).
-    pub tempo: f64,
-    /// Quarter notes per bar (4 in 4/4, 3 in 6/8).
-    pub beats_per_bar: f64,
-    /// The playing position at `atMs`: bar and beat 1-based in the section, and how far
-    /// into the beat (0..1). 1, 1, 0 when stopped.
-    pub bar: u32,
-    pub beat: u32,
-    pub phase: f64,
-    /// Position anchor: at `sectionAnchorMs` the section had played `sectionAnchorBeats`.
-    pub section_anchor_ms: f64,
-    pub section_anchor_beats: f64,
-    /// The free-running clock the Launchkey pads flash and pulse on (`Pad::anim`): at
-    /// `ledAnchorMs` it read `ledAnchorBeats`.
-    pub led_anchor_ms: f64,
-    pub led_anchor_beats: f64,
-}
-
-impl ClockState {
-    /// Quarter notes into the section at `t` (ms on the session clock). Never below 0: a
-    /// time before the anchor (a client clock a hair behind the session's) reads as the
-    /// section's start.
-    pub fn position(&self, t: f64) -> f64 {
-        if !self.running {
-            return 0.0;
-        }
-        (self.section_anchor_beats + (t - self.section_anchor_ms) * self.tempo / 60e3).max(0.0)
-    }
-
-    /// The pad flash/pulse clock at `t` (ms).
-    pub fn led_beats(&self, t: f64) -> f64 {
-        self.led_anchor_beats + (t - self.led_anchor_ms) * self.tempo / 60e3
-    }
-
-    /// The same clock, read at `t` (ms): `atMs`, `bar`, `beat` and `phase` move on.
-    pub fn at(&self, t: f64) -> ClockState {
-        let b = self.position(t).max(0.0);
-        let bpb = if self.beats_per_bar > 0.0 { self.beats_per_bar } else { 4.0 };
-        ClockState {
-            at_ms: t,
-            bar: (b / bpb).floor() as u32 + 1,
-            beat: (b % bpb).floor() as u32 + 1,
-            phase: b.fract(),
-            ..self.clone()
-        }
-    }
-}
-
-/// Session clock ns as the clock's ms.
-pub fn ns_to_ms(ns: u64) -> f64 {
-    ns as f64 / 1e6
-}
-
-/// A library entry (`Session::library_list`).
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct LibraryEntry {
-    /// Stable for the session: `AppCmd::LoadStyle { id }`.
-    pub id: usize,
-    pub name: String,
-    /// Folder relative to the scanned root, `/`-separated (the category).
-    pub folder: String,
-    pub path: String,
-    /// "pending" (not indexed yet), "ok", or "error".
-    pub status: String,
-    /// Why it doesn't load (status "error").
-    pub error: Option<String>,
-    pub tempo: Option<f64>,
-    pub time_signature: Option<[u8; 2]>,
-    /// Short section list, e.g. "Main ABCD · Intro ABC · Ending ABC · Fill ABCD · Break".
-    pub sections: String,
-    /// "SFF1" or "SFF2" from the file's header; None while pending or unreadable.
-    pub format: Option<String>,
-}
-
-/// The library in display order (folder, then name).
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct LibraryList {
-    pub revision: u64,
-    pub entries: Vec<LibraryEntry>,
-    /// The voices `SetPartVoice` picks from (the same for every revision).
-    pub voices: Vec<VoiceOption>,
-}
-
-/// A voice a keyboard part can play: a GM program on bank 0 (the built-in synth plays
-/// the SoundFont's GM bank; `SetPartVoice` takes the program).
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct VoiceOption {
-    pub program: u8,
-    pub bank_msb: u8,
-    pub bank_lsb: u8,
-    /// e.g. "Grand Piano".
-    pub name: String,
-}
-
-/// Every voice `SetPartVoice` can use.
-pub fn voice_options() -> Vec<VoiceOption> {
-    (0..128u8).map(|p| VoiceOption { program: p, bank_msb: 0, bank_lsb: 0, name: gm_name(p).to_string() }).collect()
-}
-
-/// Output levels (`Session::meters`), read on the audio thread. Peaks are linear
-/// amplitude (1.0 = full scale), the highest since the previous read: the client applies
-/// its own decay and peak hold. Meant for one reader (the app's meter bridge).
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Meters {
-    /// The session clock (ms) at the read.
-    pub at_ms: f64,
-    /// Keyboard parts (ch 1-4) and Style parts (ch 9-16), after the master level, with
-    /// their reverb and chorus, before the soft clipper.
-    pub channels: Vec<ChannelMeter>,
-    /// Left and right after the soft clipper.
-    pub master: [f32; 2],
-    /// Audio buffers in which the soft clipper was working (above -1 dBFS), since start.
-    pub clips: u64,
-}
-
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ChannelMeter {
-    /// MIDI channel, 1-based.
-    pub channel: u8,
-    pub peak: f32,
-}
-
-/// MIDI and audio.
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct IoState {
-    /// The virtual MIDI output the band and your playing go out on ("yahaha").
-    pub output_port: String,
-    /// The MIDI sources connected as inputs (a Launchkey DAW port shows "(pads)").
-    pub inputs: Vec<String>,
-    /// The built-in synth, when it runs.
-    pub synth: Option<SynthState>,
-    pub engine: EngineStats,
-    /// The last message from the Launchkey DAW port, packed 0x00SSDDVV (0 = none).
-    pub last_control: u32,
-    /// The last Launchkey note or CC that nothing is mapped to, e.g. "unmapped CC 103 = 127".
-    pub unmapped: String,
-    /// An offline session (no MIDI, no audio; tests and the app's dev mode).
-    pub offline: bool,
-    /// Every MIDI source there is (the keyboard sources `SetMidiInputs` chooses from, and
-    /// the Launchkey DAW port), and whether yahaha listens to it.
-    pub sources: Vec<MidiSource>,
-    /// Every source is a keyboard (`SetMidiInputs { all: true }`, `--all-inputs`).
-    pub all_inputs: bool,
-    /// The SoundFonts (`.sf2` file names) in the synth's folder, for `SetSoundFont`.
-    pub sound_fonts: Vec<String>,
-    /// The file the synth plays (None without the synth).
-    pub sound_font_file: Option<String>,
-    /// A `SetSoundFont` is loading.
-    pub sound_font_loading: bool,
-}
-
-/// A MIDI source.
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct MidiSource {
-    /// Its name, as `SetMidiInputs` matches it.
-    pub name: String,
-    /// yahaha listens to it (as a keyboard, or as the pads).
-    pub listening: bool,
-    /// The Launchkey DAW port: the pads, buttons and faders.
-    pub pads: bool,
-}
-
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SynthState {
-    /// The SoundFont's name.
-    pub sound_font: String,
-    /// The audio device.
-    pub device: String,
-    pub sample_rate: u32,
-    /// Buffer size in frames (None: the device default).
-    pub buffer_frames: Option<u32>,
-    /// Output channels the device has.
-    pub channels: u32,
-    /// The stereo pair it plays on, 1-based, e.g. [1, 2].
-    pub output_pair: [u8; 2],
-    pub muted: bool,
-}
-
-/// Real-time health.
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct EngineStats {
-    /// The engine thread got the real-time scheduling policy.
-    pub realtime: bool,
-    /// 99th percentiles, in µs (upper bounds): engine wake vs. its deadline, chord
-    /// published -> applied by the engine, MIDI packet timestamp -> our input callback.
-    pub wake_p99_us: u32,
-    pub chord_p99_us: u32,
-    pub midi_in_p99_us: u32,
-}
-
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Message {
-    /// Increases with every new message (so the same text twice is two messages).
-    pub seq: u64,
-    pub text: String,
-    pub error: bool,
 }
 
 // ---------------------------------------------------------------------------

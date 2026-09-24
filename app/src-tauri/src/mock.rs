@@ -390,9 +390,9 @@ impl MockSession {
     }
 
     /// Run a command; true if anything changed.
-    pub fn send(&mut self, cmd: AppCmd) -> bool {
+    pub fn send(&mut self, cmd: impl Into<AppCmd>) -> bool {
         let before = self.state.clone();
-        self.cmd(cmd);
+        self.cmd(cmd.into());
         self.bump(&before)
     }
 
@@ -465,7 +465,7 @@ impl MockSession {
         // Demo: every 8 bars queue the next Main; a pattern volume change needs pickup.
         if bar % 8 == 6 && self.state.transport.queued.is_none() {
             let index = (self.state.transport.main + 1) % 4;
-            self.cmd(AppCmd::Main { index });
+            self.cmd(AppCmd::Transport(TransportCmd::Main { index }));
         }
         if bar % 8 == 0 {
             let p = &mut self.state.mixer.style_parts[(bar / 8 % 8) as usize];
@@ -672,7 +672,7 @@ impl MockSession {
             match lk::cc_control(cc, shift)? {
                 Control::Page(d) => {
                     let to = page.step(d);
-                    (to != page).then_some(AppCmd::SetPadPage { page: to })
+                    (to != page).then_some(AppCmd::Pads(PadsCmd::SetPadPage { page: to }))
                 }
                 Control::Act(Action::Style(_)) if !styles => None,
                 Control::Act(a) => Some(a.into()),
@@ -722,13 +722,13 @@ impl MockSession {
             match fader_page {
                 FaderPage::Panel if (i as usize) < parts::COUNT => {
                     let p = i as usize;
-                    let shift = (lk::SELECT_LABELS[p], Some(AppCmd::SelectPart { part: i }));
-                    push(id, cc, lk::PART_LABELS[p], Some(AppCmd::TogglePart { part: i }), Some(shift));
+                    let shift = (lk::SELECT_LABELS[p], Some(AppCmd::Parts(PartsCmd::SelectPart { part: i })));
+                    push(id, cc, lk::PART_LABELS[p], Some(AppCmd::Parts(PartsCmd::TogglePart { part: i })), Some(shift));
                 }
                 FaderPage::Panel => push(id, cc, "", None, None),
                 FaderPage::Style => {
                     let name = STYLE_PART_NAMES[i as usize].to_uppercase();
-                    push(id, cc, &name, Some(AppCmd::ToggleStylePart { part: i }), None);
+                    push(id, cc, &name, Some(AppCmd::Mixer(MixerCmd::ToggleStylePart { part: i })), None);
                 }
             }
         }
@@ -736,7 +736,7 @@ impl MockSession {
             FaderPage::Panel => "PANEL",
             FaderPage::Style => "STYLE",
         };
-        push("masterButton".into(), *lk::FADER_BTN_CC.end(), master, Some(AppCmd::ToggleFaderPage), None);
+        push("masterButton".into(), *lk::FADER_BTN_CC.end(), master, Some(AppCmd::Mixer(MixerCmd::ToggleFaderPage)), None);
 
         // The faders: the parts they control on this page, and where they physically are.
         let mut faders: Vec<SurfaceFader> = (0..8u8)
@@ -749,7 +749,7 @@ impl MockSession {
                         value: Some(st.keyboard_parts[p].volume),
                         waiting: st.keyboard_parts[p].waiting,
                         position,
-                        set: Some(AppCmd::SetPartVolume { part: i, volume: 0 }),
+                        set: Some(AppCmd::Parts(PartsCmd::SetPartVolume { part: i, volume: 0 })),
                     },
                     FaderPage::Panel => SurfaceFader { position, ..SurfaceFader::default() },
                     FaderPage::Style => SurfaceFader {
@@ -757,7 +757,7 @@ impl MockSession {
                         value: Some(st.mixer.style_parts[p].volume),
                         waiting: st.mixer.style_parts[p].waiting,
                         position,
-                        set: Some(AppCmd::SetStylePartVolume { part: i, volume: 0 }),
+                        set: Some(AppCmd::Mixer(MixerCmd::SetStylePartVolume { part: i, volume: 0 })),
                     },
                 }
             })
@@ -769,7 +769,7 @@ impl MockSession {
                 value: Some(v),
                 waiting: st.mixer.master_waiting,
                 position: master_pos,
-                set: Some(AppCmd::SetMasterVolume { volume: 0 }),
+                set: Some(AppCmd::Mixer(MixerCmd::SetMasterVolume { volume: 0 })),
             },
             None => SurfaceFader { position: master_pos, ..SurfaceFader::default() },
         });
@@ -823,19 +823,19 @@ impl MockSession {
         let running = self.state.transport.running;
         let vol = |v: u8| v.min(127);
         match cmd {
-            AppCmd::StartStop => {
+            AppCmd::Transport(TransportCmd::StartStop) => {
                 if running {
                     self.stop_band()
                 } else {
                     self.start_band()
                 }
             }
-            AppCmd::Stop => {
+            AppCmd::Transport(TransportCmd::Stop) => {
                 if running {
                     self.stop_band()
                 }
             }
-            AppCmd::Intro { index } => {
+            AppCmd::Transport(TransportCmd::Intro { index }) => {
                 let id = INTROS[index.min(2) as usize];
                 if self.has(id) {
                     let t = &mut self.state.transport;
@@ -846,7 +846,7 @@ impl MockSession {
                     }
                 }
             }
-            AppCmd::Main { index } => {
+            AppCmd::Transport(TransportCmd::Main { index }) => {
                 let i = index.min(3);
                 let m = MAINS[i as usize];
                 if !self.has(m) {
@@ -864,33 +864,33 @@ impl MockSession {
                     t.queued = Some(m.into());
                 }
             }
-            AppCmd::Break => {
+            AppCmd::Transport(TransportCmd::Break) => {
                 if running && self.has(BREAK) {
                     self.state.transport.queued = Some(BREAK.into());
                 }
             }
-            AppCmd::Ending { index } => {
+            AppCmd::Transport(TransportCmd::Ending { index }) => {
                 let id = ENDINGS[index.min(2) as usize];
                 if running && self.has(id) {
                     self.state.transport.queued = Some(id.into());
                 }
             }
-            AppCmd::ToggleSyncStart => {
+            AppCmd::Transport(TransportCmd::ToggleSyncStart) => {
                 if running {
                     self.stop_band();
                 }
                 self.state.transport.sync_start = !self.state.transport.sync_start;
             }
-            AppCmd::ToggleSyncStop => {
+            AppCmd::Transport(TransportCmd::ToggleSyncStop) => {
                 if self.state.transport.sync_stop_available {
                     self.state.transport.sync_stop = !self.state.transport.sync_stop;
                 } else {
                     self.message("Sync Stop is not available with the Full Keyboard fingering types", true);
                 }
             }
-            AppCmd::ToggleAutoFill => self.state.transport.auto_fill = !self.state.transport.auto_fill,
-            AppCmd::ToggleStopAcmp => self.state.transport.stop_acmp = !self.state.transport.stop_acmp,
-            AppCmd::TapTempo => {
+            AppCmd::Transport(TransportCmd::ToggleAutoFill) => self.state.transport.auto_fill = !self.state.transport.auto_fill,
+            AppCmd::Transport(TransportCmd::ToggleStopAcmp) => self.state.transport.stop_acmp = !self.state.transport.stop_acmp,
+            AppCmd::Transport(TransportCmd::TapTempo) => {
                 let now = self.now;
                 self.taps.retain(|x| now - x < 2000.0);
                 self.taps.push(now);
@@ -904,105 +904,105 @@ impl MockSession {
                     }
                 }
             }
-            AppCmd::TempoUp => self.state.transport.tempo = (self.state.transport.tempo + 1.0).min(300.0),
-            AppCmd::TempoDown => self.state.transport.tempo = (self.state.transport.tempo - 1.0).max(30.0),
-            AppCmd::ToggleStylePart { part } => {
+            AppCmd::Transport(TransportCmd::TempoUp) => self.state.transport.tempo = (self.state.transport.tempo + 1.0).min(300.0),
+            AppCmd::Transport(TransportCmd::TempoDown) => self.state.transport.tempo = (self.state.transport.tempo - 1.0).max(30.0),
+            AppCmd::Mixer(MixerCmd::ToggleStylePart { part }) => {
                 if let Some(p) = self.state.mixer.style_parts.get_mut(part as usize) {
                     p.on = !p.on;
                 }
             }
-            AppCmd::SetStylePartVolume { part, volume } => {
+            AppCmd::Mixer(MixerCmd::SetStylePartVolume { part, volume }) => {
                 if let Some(p) = self.state.mixer.style_parts.get_mut(part as usize) {
                     p.volume = vol(volume);
                     p.waiting = false;
                 }
             }
-            AppCmd::SetFingering { fingering } => self.state.chord.fingering = fingering,
-            AppCmd::NextFingering => {
+            AppCmd::Chord(ChordCmd::SetFingering { fingering }) => self.state.chord.fingering = fingering,
+            AppCmd::Chord(ChordCmd::NextFingering) => {
                 let i = Fingering::ALL.iter().position(|f| *f == self.state.chord.fingering).unwrap_or(0);
                 self.state.chord.fingering = Fingering::ALL[(i + 1) % Fingering::ALL.len()];
             }
-            AppCmd::SetUpper { on } => self.set_upper(on),
-            AppCmd::ToggleUpper => self.set_upper(!self.state.chord.upper),
-            AppCmd::SetManualBass { on } => self.set_manual_bass(on),
-            AppCmd::ToggleManualBass => self.set_manual_bass(!self.state.chord.manual_bass),
-            AppCmd::SetSplit { note } => self.state.chord.split = note.clamp(24, 96),
-            AppCmd::MoveSplit { delta } => {
+            AppCmd::Chord(ChordCmd::SetUpper { on }) => self.set_upper(on),
+            AppCmd::Chord(ChordCmd::ToggleUpper) => self.set_upper(!self.state.chord.upper),
+            AppCmd::Chord(ChordCmd::SetManualBass { on }) => self.set_manual_bass(on),
+            AppCmd::Chord(ChordCmd::ToggleManualBass) => self.set_manual_bass(!self.state.chord.manual_bass),
+            AppCmd::Chord(ChordCmd::SetSplit { note }) => self.state.chord.split = note.clamp(24, 96),
+            AppCmd::Chord(ChordCmd::MoveSplit { delta }) => {
                 self.state.chord.split = (self.state.chord.split as i16 + delta as i16).clamp(24, 96) as u8;
             }
-            AppCmd::SetTranspose { keyboard, master } => {
+            AppCmd::Chord(ChordCmd::SetTranspose { keyboard, master }) => {
                 self.state.chord.transpose_keyboard = keyboard.clamp(-12, 12);
                 self.state.chord.transpose_master = master.clamp(-12, 12);
             }
-            AppCmd::StepTranspose { keyboard, master } => {
+            AppCmd::Chord(ChordCmd::StepTranspose { keyboard, master }) => {
                 let c = &mut self.state.chord;
                 c.transpose_keyboard = (c.transpose_keyboard + keyboard).clamp(-12, 12);
                 c.transpose_master = (c.transpose_master + master).clamp(-12, 12);
             }
-            AppCmd::ResetTranspose => {
+            AppCmd::Chord(ChordCmd::ResetTranspose) => {
                 self.state.chord.transpose_keyboard = 0;
                 self.state.chord.transpose_master = 0;
             }
-            AppCmd::SetPartOn { part, on } => self.set_part_on(part, on),
-            AppCmd::TogglePart { part } => {
+            AppCmd::Parts(PartsCmd::SetPartOn { part, on }) => self.set_part_on(part, on),
+            AppCmd::Parts(PartsCmd::TogglePart { part }) => {
                 let on = self.state.keyboard_parts.get(part as usize).is_some_and(|p| !p.on);
                 self.set_part_on(part, on);
             }
-            AppCmd::SelectPart { part } => {
+            AppCmd::Parts(PartsCmd::SelectPart { part }) => {
                 for (i, p) in self.state.keyboard_parts.iter_mut().enumerate() {
                     p.selected = i == part as usize;
                 }
             }
-            AppCmd::SetPartVoice { part, program } => {
+            AppCmd::Parts(PartsCmd::SetPartVoice { part, program }) => {
                 if let Some(p) = self.state.keyboard_parts.get_mut(part as usize) {
                     p.program = program & 127;
                 }
             }
-            AppCmd::StepVoice { delta } => {
+            AppCmd::Parts(PartsCmd::StepVoice { delta }) => {
                 if let Some(p) = self.state.keyboard_parts.iter_mut().find(|p| p.selected) {
                     p.program = (p.program as i16 + delta as i16).rem_euclid(128) as u8;
                 }
             }
-            AppCmd::SetPartVolume { part, volume } => {
+            AppCmd::Parts(PartsCmd::SetPartVolume { part, volume }) => {
                 if let Some(p) = self.state.keyboard_parts.get_mut(part as usize) {
                     p.volume = vol(volume);
                     p.waiting = false;
                 }
             }
-            AppCmd::SetPartOctave { part, octave } => {
+            AppCmd::Parts(PartsCmd::SetPartOctave { part, octave }) => {
                 if let Some(p) = self.state.keyboard_parts.get_mut(part as usize) {
                     p.octave = octave.clamp(-2, 2);
                 }
             }
-            AppCmd::SetFaderPage { page } => self.set_fader_page(page),
-            AppCmd::ToggleFaderPage => {
+            AppCmd::Mixer(MixerCmd::SetFaderPage { page }) => self.set_fader_page(page),
+            AppCmd::Mixer(MixerCmd::ToggleFaderPage) => {
                 let page = if self.state.mixer.fader_page == FaderPage::Panel { FaderPage::Style } else { FaderPage::Panel };
                 self.set_fader_page(page);
             }
-            AppCmd::SetPadPage { page } => self.state.pads.page = page,
-            AppCmd::CyclePadPage { delta } => {
+            AppCmd::Pads(PadsCmd::SetPadPage { page }) => self.state.pads.page = page,
+            AppCmd::Pads(PadsCmd::CyclePadPage { delta }) => {
                 let i = self.state.pads.page as i8;
                 self.state.pads.page = Page::ALL[(i + delta).rem_euclid(3) as usize];
             }
-            AppCmd::SetMasterVolume { volume } => {
+            AppCmd::Mixer(MixerCmd::SetMasterVolume { volume }) => {
                 if self.state.io.synth.is_some() {
                     self.state.mixer.master = Some(vol(volume));
                     self.state.mixer.master_waiting = false;
                 }
             }
-            AppCmd::RecallOts { index } => {
+            AppCmd::Ots(OtsCmd::RecallOts { index }) => {
                 if (index as usize) < self.state.ots.settings.len() {
                     self.recall_ots(index as usize);
                 }
             }
-            AppCmd::SetOtsLink { on } => self.state.ots.link = on,
-            AppCmd::ToggleOtsLink => self.state.ots.link = !self.state.ots.link,
-            AppCmd::LoadStyle { id } => self.load_style(id),
-            AppCmd::LoadStylePath { path } => match self.library.entries.iter().find(|e| e.path == path).map(|e| e.id) {
+            AppCmd::Ots(OtsCmd::SetOtsLink { on }) => self.state.ots.link = on,
+            AppCmd::Ots(OtsCmd::ToggleOtsLink) => self.state.ots.link = !self.state.ots.link,
+            AppCmd::Library(LibraryCmd::LoadStyle { id }) => self.load_style(id),
+            AppCmd::Library(LibraryCmd::LoadStylePath { path }) => match self.library.entries.iter().find(|e| e.path == path).map(|e| e.id) {
                 Some(id) => self.load_style(id),
                 None => self.message(format!("{path}: not found"), true),
             },
-            AppCmd::StepStyle { delta } => {
+            AppCmd::Library(LibraryCmd::StepStyle { delta }) => {
                 let n = self.library.entries.len() as i64;
                 let mut i = self.state.library.position as i64;
                 for _ in 0..n {
@@ -1014,46 +1014,46 @@ impl MockSession {
                 let id = self.library.entries[i as usize].id;
                 self.load_style(id);
             }
-            AppCmd::SetSynthMuted { on } => {
+            AppCmd::Mixer(MixerCmd::SetSynthMuted { on }) => {
                 if let Some(s) = &mut self.state.io.synth {
                     s.muted = on;
                 }
             }
-            AppCmd::ToggleSynthMute => {
+            AppCmd::Mixer(MixerCmd::ToggleSynthMute) => {
                 if let Some(s) = &mut self.state.io.synth {
                     s.muted = !s.muted;
                 }
             }
-            AppCmd::SetAudioOutput { first } => {
+            AppCmd::Settings(SettingsCmd::SetAudioOutput { first }) => {
                 if let Some(s) = &mut self.state.io.synth {
                     if (first as u32) + 1 < s.channels {
                         s.output_pair = [first + 1, first + 2];
                     }
                 }
             }
-            AppCmd::NextAudioOutput => {
+            AppCmd::Settings(SettingsCmd::NextAudioOutput) => {
                 if let Some(s) = &mut self.state.io.synth {
                     let next = s.output_pair[1] + 1;
                     s.output_pair = if (next as u32) < s.channels { [next, next + 1] } else { [1, 2] };
                 }
             }
-            AppCmd::Panic => {
+            AppCmd::System(SystemCmd::Panic) => {
                 self.stop_band();
                 self.message("All notes off", false);
             }
-            AppCmd::ClearMessage => self.state.message = None,
+            AppCmd::System(SystemCmd::ClearMessage) => self.state.message = None,
             // Without a clock of its own for the bar line, the mock loads at once.
-            AppCmd::QueueStyle { id } => self.load_style(id),
-            AppCmd::AuditionStyle { id } => {
+            AppCmd::Library(LibraryCmd::QueueStyle { id }) => self.load_style(id),
+            AppCmd::Preview(PreviewCmd::AuditionStyle { id }) => {
                 if self.state.transport.running {
                     self.message("Stop the band to preview a style", true);
                 } else if id < self.styles.len() {
                     self.state.preview.audition = Some(AuditionState { id, bar: 1, bars: 4, chord: Some("C".into()) });
                 }
             }
-            AppCmd::StopAudition => self.state.preview.audition = None,
-            AppCmd::RescanLibrary => self.message("Style folders rescanned", false),
-            AppCmd::SetSoundFont { file } => {
+            AppCmd::Preview(PreviewCmd::StopAudition) => self.state.preview.audition = None,
+            AppCmd::Library(LibraryCmd::RescanLibrary) => self.message("Style folders rescanned", false),
+            AppCmd::Settings(SettingsCmd::SetSoundFont { file }) => {
                 if self.state.io.sound_fonts.contains(&file) {
                     if let Some(s) = self.state.io.synth.as_mut() {
                         s.sound_font = file.trim_end_matches(".sf2").to_string();
@@ -1063,7 +1063,7 @@ impl MockSession {
                     self.message(format!("no SoundFont {file} in the SoundFont folder"), true);
                 }
             }
-            AppCmd::SetMidiInputs { all, names } => {
+            AppCmd::Settings(SettingsCmd::SetMidiInputs { all, names }) => {
                 let io = &mut self.state.io;
                 io.all_inputs = all;
                 for src in &mut io.sources {
@@ -1071,7 +1071,7 @@ impl MockSession {
                 }
                 io.inputs = io.sources.iter().filter(|s| s.listening).map(|s| if s.pads { format!("{} (pads)", s.name) } else { s.name.clone() }).collect();
             }
-            AppCmd::SetPaletteLeds { on } => self.state.pads.palette_leds = on,
+            AppCmd::Settings(SettingsCmd::SetPaletteLeds { on }) => self.state.pads.palette_leds = on,
         }
     }
 
@@ -1177,22 +1177,22 @@ fn pads_for(s: &AppState, page: Page) -> Vec<Pad> {
                 }
             };
             vec![
-                pad(96, "INTRO 1", "q", Some(AppCmd::Intro { index: 0 }), intro(0)),
-                pad(97, "INTRO 2", "w", Some(AppCmd::Intro { index: 1 }), intro(1)),
-                pad(98, "INTRO 3", "e", Some(AppCmd::Intro { index: 2 }), intro(2)),
-                pad(99, "SYNC ST", "y", Some(AppCmd::ToggleSyncStart), if t.sync_start { (C_SYNC, Level::Bright, Anim::Pulse) } else { toggle(false, C_SYNC) }),
-                pad(100, "ENDING 1", "i", Some(AppCmd::Ending { index: 0 }), sec(ENDINGS[0], C_ENDING)),
-                pad(101, "ENDING 2", "o", Some(AppCmd::Ending { index: 1 }), sec(ENDINGS[1], C_ENDING)),
-                pad(102, "ENDING 3", "p", Some(AppCmd::Ending { index: 2 }), sec(ENDINGS[2], C_ENDING)),
-                pad(103, "AUTOFILL", "u", Some(AppCmd::ToggleAutoFill), toggle(t.auto_fill, C_FILL)),
-                pad(112, "MAIN A", "1", Some(AppCmd::Main { index: 0 }), main(0)),
-                pad(113, "MAIN B", "2", Some(AppCmd::Main { index: 1 }), main(1)),
-                pad(114, "MAIN C", "3", Some(AppCmd::Main { index: 2 }), main(2)),
-                pad(115, "MAIN D", "4", Some(AppCmd::Main { index: 3 }), main(3)),
-                pad(116, "BREAK", "g", Some(AppCmd::Break), sec(BREAK, C_BREAK)),
-                pad(117, "TAP", "t", Some(AppCmd::TapTempo), toggle(t.running && t.beat == 1, C_TAP)),
-                pad(118, "SYNC STP", "j", Some(AppCmd::ToggleSyncStop), toggle(t.sync_stop, C_STOPSYNC)),
-                pad(119, if t.running { "START" } else { "STOP" }, "spc", Some(AppCmd::StartStop), (if t.running { C_RUN } else { C_IDLE }, Level::Bright, Anim::Solid)),
+                pad(96, "INTRO 1", "q", Some(AppCmd::Transport(TransportCmd::Intro { index: 0 })), intro(0)),
+                pad(97, "INTRO 2", "w", Some(AppCmd::Transport(TransportCmd::Intro { index: 1 })), intro(1)),
+                pad(98, "INTRO 3", "e", Some(AppCmd::Transport(TransportCmd::Intro { index: 2 })), intro(2)),
+                pad(99, "SYNC ST", "y", Some(AppCmd::Transport(TransportCmd::ToggleSyncStart)), if t.sync_start { (C_SYNC, Level::Bright, Anim::Pulse) } else { toggle(false, C_SYNC) }),
+                pad(100, "ENDING 1", "i", Some(AppCmd::Transport(TransportCmd::Ending { index: 0 })), sec(ENDINGS[0], C_ENDING)),
+                pad(101, "ENDING 2", "o", Some(AppCmd::Transport(TransportCmd::Ending { index: 1 })), sec(ENDINGS[1], C_ENDING)),
+                pad(102, "ENDING 3", "p", Some(AppCmd::Transport(TransportCmd::Ending { index: 2 })), sec(ENDINGS[2], C_ENDING)),
+                pad(103, "AUTOFILL", "u", Some(AppCmd::Transport(TransportCmd::ToggleAutoFill)), toggle(t.auto_fill, C_FILL)),
+                pad(112, "MAIN A", "1", Some(AppCmd::Transport(TransportCmd::Main { index: 0 })), main(0)),
+                pad(113, "MAIN B", "2", Some(AppCmd::Transport(TransportCmd::Main { index: 1 })), main(1)),
+                pad(114, "MAIN C", "3", Some(AppCmd::Transport(TransportCmd::Main { index: 2 })), main(2)),
+                pad(115, "MAIN D", "4", Some(AppCmd::Transport(TransportCmd::Main { index: 3 })), main(3)),
+                pad(116, "BREAK", "g", Some(AppCmd::Transport(TransportCmd::Break)), sec(BREAK, C_BREAK)),
+                pad(117, "TAP", "t", Some(AppCmd::Transport(TransportCmd::TapTempo)), toggle(t.running && t.beat == 1, C_TAP)),
+                pad(118, "SYNC STP", "j", Some(AppCmd::Transport(TransportCmd::ToggleSyncStop)), toggle(t.sync_stop, C_STOPSYNC)),
+                pad(119, if t.running { "START" } else { "STOP" }, "spc", Some(AppCmd::Transport(TransportCmd::StartStop)), (if t.running { C_RUN } else { C_IDLE }, Level::Bright, Anim::Solid)),
             ]
         }
         Page::ChordSetup => {
@@ -1201,17 +1201,17 @@ fn pads_for(s: &AppState, page: Page) -> Vec<Pad> {
             let mut v: Vec<Pad> = Fingering::ALL
                 .iter()
                 .enumerate()
-                .map(|(i, f)| page_pad(96 + i as u8, LABELS[i], "pad", Some(AppCmd::SetFingering { fingering: *f }), true, c.fingering == *f))
+                .map(|(i, f)| page_pad(96 + i as u8, LABELS[i], "pad", Some(AppCmd::Chord(ChordCmd::SetFingering { fingering: *f })), true, c.fingering == *f))
                 .collect();
             v.extend([
-                page_pad(103, "UPPER", "d", Some(AppCmd::ToggleUpper), true, c.upper),
-                page_pad(112, "MAN BASS", "D", Some(AppCmd::ToggleManualBass), c.upper, c.manual_bass),
-                page_pad(113, "STOP ACMP", "h", Some(AppCmd::ToggleStopAcmp), true, t.stop_acmp),
-                page_pad(114, "SPLIT -", "[", Some(AppCmd::MoveSplit { delta: -1 }), true, false),
-                page_pad(115, "SPLIT +", "]", Some(AppCmd::MoveSplit { delta: 1 }), true, false),
-                page_pad(116, "KBD TR -", ";", Some(AppCmd::StepTranspose { keyboard: -1, master: 0 }), true, c.transpose_keyboard < 0),
-                page_pad(117, "KBD TR +", "'", Some(AppCmd::StepTranspose { keyboard: 1, master: 0 }), true, c.transpose_keyboard > 0),
-                page_pad(118, "TR RESET", "/", Some(AppCmd::ResetTranspose), true, c.transpose_keyboard != 0 || c.transpose_master != 0),
+                page_pad(103, "UPPER", "d", Some(AppCmd::Chord(ChordCmd::ToggleUpper)), true, c.upper),
+                page_pad(112, "MAN BASS", "D", Some(AppCmd::Chord(ChordCmd::ToggleManualBass)), c.upper, c.manual_bass),
+                page_pad(113, "STOP ACMP", "h", Some(AppCmd::Transport(TransportCmd::ToggleStopAcmp)), true, t.stop_acmp),
+                page_pad(114, "SPLIT -", "[", Some(AppCmd::Chord(ChordCmd::MoveSplit { delta: -1 })), true, false),
+                page_pad(115, "SPLIT +", "]", Some(AppCmd::Chord(ChordCmd::MoveSplit { delta: 1 })), true, false),
+                page_pad(116, "KBD TR -", ";", Some(AppCmd::Chord(ChordCmd::StepTranspose { keyboard: -1, master: 0 })), true, c.transpose_keyboard < 0),
+                page_pad(117, "KBD TR +", "'", Some(AppCmd::Chord(ChordCmd::StepTranspose { keyboard: 1, master: 0 })), true, c.transpose_keyboard > 0),
+                page_pad(118, "TR RESET", "/", Some(AppCmd::Chord(ChordCmd::ResetTranspose)), true, c.transpose_keyboard != 0 || c.transpose_master != 0),
                 page_pad(119, "", "", None, false, false),
             ]);
             v
@@ -1219,19 +1219,19 @@ fn pads_for(s: &AppState, page: Page) -> Vec<Pad> {
         Page::OtsParts => {
             let n = s.ots.settings.len();
             let mut v: Vec<Pad> = (0..4)
-                .map(|i| page_pad(96 + i as u8, &format!("OTS {}", i + 1), &format!("⇧{}", i + 1), Some(AppCmd::RecallOts { index: i as u8 }), i < n, s.ots.applied as usize == i + 1))
+                .map(|i| page_pad(96 + i as u8, &format!("OTS {}", i + 1), &format!("⇧{}", i + 1), Some(AppCmd::Ots(OtsCmd::RecallOts { index: i as u8 })), i < n, s.ots.applied as usize == i + 1))
                 .collect();
             v.extend([
-                page_pad(100, "OTS LINK", "F10", Some(AppCmd::ToggleOtsLink), true, s.ots.link),
+                page_pad(100, "OTS LINK", "F10", Some(AppCmd::Ots(OtsCmd::ToggleOtsLink)), true, s.ots.link),
                 page_pad(101, "", "", None, false, false),
-                page_pad(102, "VOICE -", "9", Some(AppCmd::StepVoice { delta: -1 }), true, false),
-                page_pad(103, "VOICE +", "0", Some(AppCmd::StepVoice { delta: 1 }), true, false),
+                page_pad(102, "VOICE -", "9", Some(AppCmd::Parts(PartsCmd::StepVoice { delta: -1 })), true, false),
+                page_pad(103, "VOICE +", "0", Some(AppCmd::Parts(PartsCmd::StepVoice { delta: 1 })), true, false),
             ]);
             for (i, (label, key)) in [("RIGHT 1", "5"), ("RIGHT 2", "6"), ("RIGHT 3", "7"), ("LEFT", "8/l")].iter().enumerate() {
-                v.push(page_pad(112 + i as u8, label, key, Some(AppCmd::TogglePart { part: i as u8 }), true, s.keyboard_parts[i].on));
+                v.push(page_pad(112 + i as u8, label, key, Some(AppCmd::Parts(PartsCmd::TogglePart { part: i as u8 })), true, s.keyboard_parts[i].on));
             }
             for (i, label) in ["EDIT R1", "EDIT R2", "EDIT R3", "EDIT L"].iter().enumerate() {
-                v.push(page_pad(116 + i as u8, label, &format!("F{}", i + 1), Some(AppCmd::SelectPart { part: i as u8 }), true, s.keyboard_parts[i].selected));
+                v.push(page_pad(116 + i as u8, label, &format!("F{}", i + 1), Some(AppCmd::Parts(PartsCmd::SelectPart { part: i as u8 })), true, s.keyboard_parts[i].selected));
             }
             v
         }
@@ -1250,7 +1250,7 @@ mod tests {
     fn a_queued_main_takes_over_at_the_next_bar() {
         let mut m = MockSession::new();
         m.advance(bar_ms(&m) * 0.1);
-        m.send(AppCmd::Main { index: 2 });
+        m.send(TransportCmd::Main { index: 2 });
         assert_eq!(m.state.transport.queued.as_deref(), Some("Main C"));
         m.advance(bar_ms(&m));
         assert_eq!(m.state.transport.section.as_deref(), Some("Main C"));
@@ -1259,7 +1259,7 @@ mod tests {
     #[test]
     fn pressing_the_playing_main_queues_its_fill_and_the_lamp_flashes() {
         let mut m = MockSession::new();
-        m.send(AppCmd::Main { index: 1 });
+        m.send(TransportCmd::Main { index: 1 });
         assert_eq!(m.state.transport.queued.as_deref(), Some("Fill In BB"));
         let lamp = m.state.transport.lamps.iter().find(|p| p.note == 113).unwrap();
         assert_eq!((lamp.level, lamp.anim), (Level::Bright, Anim::Flash));
@@ -1269,9 +1269,9 @@ mod tests {
     fn versions_change_only_with_the_state() {
         let mut m = MockSession::new();
         let v = m.state.version;
-        assert!(!m.send(AppCmd::SetOtsLink { on: false }));
+        assert!(!m.send(OtsCmd::SetOtsLink { on: false }));
         assert_eq!(m.state.version, v);
-        assert!(m.send(AppCmd::ToggleOtsLink));
+        assert!(m.send(OtsCmd::ToggleOtsLink));
         assert_eq!(m.state.version, v + 1);
     }
 
@@ -1319,7 +1319,7 @@ mod tests {
     fn state_and_library_match_the_recorded_engine_shape() {
         let recorded: serde_json::Value = serde_json::from_str(include_str!("../../src/lib/api/engine-shape.json")).unwrap();
         let mut m = MockSession::new();
-        m.send(AppCmd::Intro { index: 0 });
+        m.send(TransportCmd::Intro { index: 0 });
         for (key, value) in [("state", serde_json::to_value(&m.state).unwrap()), ("library", serde_json::to_value(m.library()).unwrap())] {
             let mut have = std::collections::HashMap::new();
             shape(&value, "", &mut have);
@@ -1352,10 +1352,10 @@ mod tests {
         );
         assert_eq!((s.controls[0].shift_label.as_str(), s.controls[1].shift_label.as_str()), ("LEFT", "OTS LINK"));
         assert_eq!(s.controls[0].action, None);
-        assert_eq!(s.controls[0].shift_action, Some(AppCmd::TogglePart { part: 3 }));
+        assert_eq!(s.controls[0].shift_action, Some(AppCmd::Parts(PartsCmd::TogglePart { part: 3 })));
         assert_eq!(s.controls[8].shift_label, "EDIT R1");
-        assert_eq!(s.controls[8].shift_action, Some(AppCmd::SelectPart { part: 0 }));
-        assert_eq!(s.controls[3].action, Some(AppCmd::StepStyle { delta: 1 }));
+        assert_eq!(s.controls[8].shift_action, Some(AppCmd::Parts(PartsCmd::SelectPart { part: 0 })));
+        assert_eq!(s.controls[3].action, Some(AppCmd::Library(LibraryCmd::StepStyle { delta: 1 })));
         assert!(s.controls[4..8].iter().all(|c| c.colour.is_none() && c.level == Level::Off));
         assert!(s.controls.iter().all(|c| c.anim == Anim::Solid));
         assert_eq!(s.controls[16].level, Level::Bright);
@@ -1366,17 +1366,17 @@ mod tests {
         assert_eq!(m.state.mixer.style_parts[7].fader, Some(0));
 
         // Style page.
-        m.send(AppCmd::ToggleFaderPage);
-        m.send(AppCmd::SetPadPage { page: Page::OtsParts });
+        m.send(MixerCmd::ToggleFaderPage);
+        m.send(PadsCmd::SetPadPage { page: Page::OtsParts });
         let s = &m.state.surface;
         assert_eq!(
             labels(&m),
             ["PAGE ▲", "", "◀ STYLE", "STYLE ▶", "PLAY", "STOP", "TEMPO +", "TEMPO -", "RHYTHM 1", "RHYTHM 2", "BASS", "CHORD 1", "CHORD 2", "PAD", "PHRASE 1", "PHRASE 2", "STYLE"]
         );
         assert_eq!(s.controls[8].shift_label, "RHYTHM 1");
-        assert_eq!(s.controls[13].action, Some(AppCmd::ToggleStylePart { part: 5 }));
+        assert_eq!(s.controls[13].action, Some(AppCmd::Mixer(MixerCmd::ToggleStylePart { part: 5 })));
         assert_eq!(faders(&m), ["RHYTHM 1", "RHYTHM 2", "BASS", "CHORD 1", "CHORD 2", "PAD", "PHRASE 1", "PHRASE 2", "MASTER"]);
-        assert_eq!(s.faders[5].set, Some(AppCmd::SetStylePartVolume { part: 5, volume: 0 }));
+        assert_eq!(s.faders[5].set, Some(AppCmd::Mixer(MixerCmd::SetStylePartVolume { part: 5, volume: 0 })));
     }
 
     #[test]
@@ -1406,7 +1406,7 @@ mod tests {
         assert!((now.phase - 10.0 * c.tempo / 60e3).abs() < 1e-9);
         // A tempo change re-anchors both clocks where they were.
         let led = c.led_beats(10.0);
-        m.send(AppCmd::TempoUp);
+        m.send(TransportCmd::TempoUp);
         let c2 = m.state.surface.clock.clone();
         assert_eq!((c2.at_ms, c2.section_anchor_ms, c2.led_anchor_ms), (10.0, 10.0, 10.0));
         assert!((c2.led_anchor_beats - led).abs() < 1e-9);
@@ -1416,7 +1416,7 @@ mod tests {
         let st = m.state_now();
         assert_eq!(st.surface.clock.bar, st.transport.bar);
         // Stopped: 1, 1, 0.
-        m.send(AppCmd::Stop);
+        m.send(TransportCmd::Stop);
         let c3 = m.state_now().surface.clock;
         assert_eq!((c3.running, c3.bar, c3.beat, c3.phase), (false, 1, 1, 0.0));
     }
