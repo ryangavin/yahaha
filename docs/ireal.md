@@ -209,18 +209,27 @@ state are `chart` in [app-api.md](app-api.md).
 - **Sections.** Sections A, B, C and D play Main A, B, C and D. A verse (`V`) or the chart's
   own intro (`i`) keeps the Main before it, and bars before any mark play Main A.
   - A bar with a section mark starts that Main from its first bar, so the style's phrases
-    line up with the chart's. The top of each chorus after the first counts as a section
-    mark.
+    line up with the chart's. The top of each chorus after the first, and the top of the
+    loop each time it comes round, count as section marks.
   - With Auto Fill on, the bar before a section mark plays the new Main's fill (Fill In AA
     to DD, or the nearest the style has). A repeated section, such as A to A, gets its own
-    fill, just as pressing the Main that is already playing does on a Genos. With Auto
-    Fill off, the Main changes on the bar line with no fill.
+    fill, just as pressing the Main that is already playing does on a Genos (OM p.67). With
+    Auto Fill off, the Main changes on the bar line with no fill, and a repeated section
+    restarts its Main silently. The Genos has no such restart (pressing the lit Main
+    always plays a fill; only Style Section Reset on TAP TEMPO restarts without one): this
+    is a deliberate deviation, so the style's phrases stay in step with the chart's.
 - **Intro and Ending.** `chart.intro` (default Intro A) plays before the first bar. The
   song's first chord already sounds during it. If you press an Intro yourself before
   starting, that one plays instead. After the last bar, `chart.ending` (default Ending A)
   plays. With no Ending set, the band stops at the end of the last bar.
 - **Loop.** `setChartLoop` plays bars `[start, end)` over and over, with no Ending, until
-  you stop or press an Ending. The app offers the whole song and each section.
+  you stop or press an Ending. The app offers the whole song and each section. Fewer
+  choruses drop a loop that ends past the new last bar.
+- **Changing things while it plays.** The change the chart queued for the next bar line (a
+  Main, a fill, the Ending or the stop) is the chart's own: turning chart mode off takes it
+  back (the band plays on), and more choruses or a new loop or Ending queue the bar line
+  again from the new plan. A new song starts from its first bar (its Main) at the next bar
+  line. Turning chart mode on mid-song starts the chart from its first bar there too.
 - **Your left hand.** A chord you play takes over at once and holds until the next bar
   line, where the chart takes over again (`chart.overridden` shows it). A Sync Start chord
   only starts the band: the chart's own chord plays from the first beat.

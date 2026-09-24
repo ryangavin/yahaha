@@ -310,9 +310,14 @@ impl Engine {
         };
         self.features.chart.bar = Some(idx);
         let tpb = self.style.tpb.max(1) as f64;
-        let end = self.sec_start + (bar as f64 + 1.0) * tpb;
-        self.features.chart.owned = None;
-        self.chart_queue(end);
+        let line = self.sec_start + bar as f64 * tpb;
+        // A change the chart queued for a later line (settings changed just before this
+        // one) is replaced by this bar's; one for this line has happened.
+        match self.features.chart.owned {
+            Some((q, _)) if q.at > line + 1e-6 => self.chart_unqueue(),
+            _ => self.features.chart.owned = None,
+        }
+        self.chart_queue(line + tpb);
     }
 
     /// Queue the change for the bar line at tick `end`, after the plan bar playing (None:
