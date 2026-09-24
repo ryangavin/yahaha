@@ -12,6 +12,8 @@ use yahaha::fingering::Fingering;
 use yahaha::launchkey::{self as lk, Action, Anim, Control, Level, Page};
 use yahaha::parts::{self, FaderPage};
 
+use crate::mock_regist::{Effect, MockRegist};
+
 const FIXTURE: &str = include_str!("../../src/lib/api/mock-fixture.json");
 const ROOT: &str = "/Users/me/Styles";
 /// The MIDI sources the mock rig has: (name, the Launchkey DAW port).
@@ -140,6 +142,8 @@ pub struct MockSession {
     led_anchor: (f64, f64, f64),
     /// The wall clock at the last `catch_up`.
     wall: Option<Instant>,
+    /// Registration Memory and the Playlist (in memory).
+    regist: MockRegist,
 }
 
 impl Default for MockSession {
@@ -242,7 +246,7 @@ impl MockSession {
                 master: Some(100),
                 master_waiting: false,
             },
-            pads: PadsState { page: Page::Sections, page_name: String::new(), page_number: 1, page_count: 3, pads: vec![], connected: true, palette_leds: false },
+            pads: PadsState { page: Page::Sections, page_name: String::new(), page_number: 1, page_count: Page::ALL.len() as u8, pads: vec![], connected: true, palette_leds: false },
             ots: OtsState { settings: vec![], applied: 0, link: false },
             library: LibraryStatus {
                 revision: 1,
@@ -288,7 +292,10 @@ impl MockSession {
                 detection: [0, 54],
             },
             message: None,
+            registration: RegistrationState::default(),
+            playlist: PlaylistState::default(),
         };
+        let songs: Vec<(String, String)> = library.entries.iter().filter(|e| e.status == "ok").map(|e| (e.path.clone(), e.name.clone())).collect();
         let mut m = MockSession {
             state,
             gm,
@@ -305,6 +312,7 @@ impl MockSession {
             section_key: None,
             led_anchor: (0.0, 0.0, 0.0), // anchored by the first `derive`
             wall: None,
+            regist: MockRegist::new(&songs),
         };
         m.set_style(0);
         m.state.ots.applied = 2;
@@ -634,7 +642,8 @@ impl MockSession {
         st.pads.page_name = st.pads.page.name().into();
         st.pads.page_number = st.pads.page as u8 + 1;
         st.transport.lamps = pads_for(st, Page::Sections);
-        st.pads.pads = pads_for(st, st.pads.page);
+        self.regist.fill(st);
+        st.pads.pads = if st.pads.page == Page::Registration { self.regist.pads() } else { pads_for(st, st.pads.page) };
         self.anchor_clocks();
         self.state.surface = self.surface();
     }
@@ -663,6 +672,7 @@ impl MockSession {
         let st = &self.state;
         let page = st.pads.page;
         let styles = self.library.entries.len() > 1;
+        let songs = self.regist.has_songs();
         let fader_page = st.mixer.fader_page;
         let mask = |bits: Vec<bool>| bits.iter().enumerate().fold(0u8, |m, (i, on)| m | (*on as u8) << i);
         let parts_on = mask(st.keyboard_parts.iter().map(|p| p.sounding).collect());
@@ -675,6 +685,7 @@ impl MockSession {
                     (to != page).then_some(AppCmd::Pads(PadsCmd::SetPadPage { page: to }))
                 }
                 Control::Act(Action::Style(_)) if !styles => None,
+                Control::Act(Action::Playlist(_)) if !songs => None,
                 Control::Act(a) => Some(a.into()),
             }
         };
@@ -703,8 +714,8 @@ impl MockSession {
         for (id, cc, label, shift_label) in [
             ("padBankUp", lk::PAD_UP_CC, "PAGE ▲", "LEFT"),
             ("padBankDown", lk::PAD_DOWN_CC, "PAGE ▼", "OTS LINK"),
-            ("trackPrev", lk::TRACK_LEFT_CC, "◀ STYLE", ""),
-            ("trackNext", lk::TRACK_RIGHT_CC, "STYLE ▶", ""),
+            ("trackPrev", lk::TRACK_LEFT_CC, "◀ STYLE", "◀ SONG"),
+            ("trackNext", lk::TRACK_RIGHT_CC, "STYLE ▶", "SONG ▶"),
             ("play", lk::PLAY_CC, "PLAY", ""),
             ("stop", lk::STOP_CC, "STOP", ""),
             ("scene", lk::SCENE_CC, "TEMPO +", ""),
@@ -982,7 +993,7 @@ impl MockSession {
             AppCmd::Pads(PadsCmd::SetPadPage { page }) => self.state.pads.page = page,
             AppCmd::Pads(PadsCmd::CyclePadPage { delta }) => {
                 let i = self.state.pads.page as i8;
-                self.state.pads.page = Page::ALL[(i + delta).rem_euclid(3) as usize];
+                self.state.pads.page = Page::ALL[(i as i16 + delta as i16).rem_euclid(Page::ALL.len() as i16) as usize];
             }
             AppCmd::Mixer(MixerCmd::SetMasterVolume { volume }) => {
                 if self.state.io.synth.is_some() {
@@ -1072,7 +1083,34 @@ impl MockSession {
                 io.inputs = io.sources.iter().filter(|s| s.listening).map(|s| if s.pads { format!("{} (pads)", s.name) } else { s.name.clone() }).collect();
             }
             AppCmd::Settings(SettingsCmd::SetPaletteLeds { on }) => self.state.pads.palette_leds = on,
+            AppCmd::Registration(c) => {
+                let fx = self.regist.registration_cmd(c, &self.state);
+                self.run_regist(fx);
+            }
+            AppCmd::Playlist(c) => {
+                let fx = self.regist.playlist_cmd(c, &self.state);
+                self.run_regist(fx);
+            }
         }
+    }
+
+    /// A recall's style load and Main press (OTS Link held off: the registration's voices
+    /// win), then the rest of it.
+    fn run_regist(&mut self, fx: Vec<Effect>) {
+        let tempo = self.state.transport.tempo;
+        for e in fx {
+            match e {
+                Effect::LoadStyle(path) => self.cmd(AppCmd::Library(LibraryCmd::LoadStylePath { path })),
+                Effect::Main(index) => {
+                    let link = self.state.ots.link;
+                    self.state.ots.link = false;
+                    self.cmd(AppCmd::Transport(TransportCmd::Main { index }));
+                    self.state.ots.link = link;
+                }
+                Effect::Message(text, error) => self.message(text, error),
+            }
+        }
+        self.regist.apply_pending(&mut self.state, tempo);
     }
 
     fn set_upper(&mut self, on: bool) {
@@ -1235,6 +1273,8 @@ fn pads_for(s: &AppState, page: Page) -> Vec<Pad> {
             }
             v
         }
+        // Page 4 comes from the Registration mock (`MockRegist::pads`).
+        Page::Registration => vec![],
     }
 }
 
@@ -1367,7 +1407,7 @@ mod tests {
 
         // Style page.
         m.send(MixerCmd::ToggleFaderPage);
-        m.send(PadsCmd::SetPadPage { page: Page::OtsParts });
+        m.send(PadsCmd::SetPadPage { page: Page::Registration });
         let s = &m.state.surface;
         assert_eq!(
             labels(&m),
@@ -1419,6 +1459,32 @@ mod tests {
         m.send(TransportCmd::Stop);
         let c3 = m.state_now().surface.clock;
         assert_eq!((c3.running, c3.bar, c3.beat, c3.phase), (false, 1, 1, 0.0));
+    }
+
+    #[test]
+    fn registration_recalls_lights_page_4_and_the_playlist_steps() {
+        let mut m = MockSession::new();
+        assert_eq!(m.state.registration.bank.name, "Friday Gig");
+        assert_eq!(m.state.registration.buttons.len(), 10);
+        m.send(RegistrationCmd::RecallRegist { index: 3 });
+        assert_eq!(m.state.registration.selected, Some(3));
+        assert_eq!(m.state.transport.tempo, 132.0);
+        assert_eq!(m.state.keyboard_parts[0].program, 26);
+        m.send(PadsCmd::SetPadPage { page: Page::Registration });
+        assert_eq!(m.state.pads.pads.len(), 16);
+        assert_eq!((m.state.pads.pads[3].rgb, m.state.pads.pads[0].rgb), ([127, 0, 0], [0, 40, 127]));
+        assert_eq!(m.state.pads.pads[9].level, Level::Off);
+        // Memory, then button 10.
+        m.send(RegistrationCmd::ToggleRegistMemory);
+        assert!(m.state.pads.pads.iter().take(10).all(|p| p.anim == Anim::Flash));
+        m.send(RegistrationCmd::PressRegist { index: 9 });
+        assert!(m.state.registration.buttons[9].stored);
+        // Shift + Track steps the playlist: its first record recalls Friday Gig [1].
+        let tl = m.state.surface.controls.iter().find(|c| c.id == "trackNext").unwrap().clone();
+        assert_eq!((tl.shift_label.as_str(), tl.shift_action.clone()), ("SONG ▶", Some(AppCmd::Playlist(PlaylistCmd::StepPlaylist { delta: 1 }))));
+        m.send(PlaylistCmd::StepPlaylist { delta: 1 });
+        assert_eq!((m.state.playlist.current, m.state.registration.selected), (Some(0), Some(0)));
+        assert_eq!(m.state.transport.tempo, 72.0);
     }
 
     #[test]

@@ -71,6 +71,14 @@ const STATES: [string, Setup][] = [
   ['parts drawer, fader page Style', (s) => ((ui.parts = true), s.send({ type: 'toggleFaderPage' }))],
   ['mixer drawer open', () => (ui.mixer = true)],
   ['mixer drawer open, Style tab', (s) => ((ui.mixer = true), s.send({ type: 'setFaderPage', page: 'style' }))],
+  ['pad page 4 (Registration)', (s) => s.send({ type: 'setPadPage', page: 'registration' })],
+  ['Registration Memory armed', (s) => s.send({ type: 'toggleRegistMemory' })],
+  ['registration panel: bank', () => ((ui.registTab = 'bank'), (ui.regist = true))],
+  ['registration panel: new unsaved bank', (s) => (s.send({ type: 'newRegistBank' }), (ui.registTab = 'bank'), (ui.regist = true))],
+  ['registration panel: memory and freeze groups', () => ((ui.registTab = 'groups'), (ui.regist = true))],
+  ['registration panel: sequence', () => ((ui.registTab = 'sequence'), (ui.regist = true))],
+  ['registration panel: playlist', () => ((ui.registTab = 'playlist'), (ui.regist = true))],
+  ['registration panel: playlist sorted', (s) => (s.send({ type: 'setPlaylistSort', sort: 'aToZ' }), (ui.registTab = 'playlist'), (ui.regist = true))],
   ['Shift layer on', () => (ui.shiftLatched = true)],
   ['Shift layer on, fader page Style', (s) => ((ui.shiftLatched = true), s.send({ type: 'toggleFaderPage' }))],
 ]
@@ -81,6 +89,8 @@ afterEach(() => {
   ui.settings = false
   ui.parts = false
   ui.mixer = false
+  ui.regist = false
+  ui.registTab = 'bank'
   ui.shiftLatched = false
   tips.help = false
   tips.setFloating(false)

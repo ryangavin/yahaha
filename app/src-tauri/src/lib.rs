@@ -21,6 +21,7 @@
 //! On exit the engine is stopped, which puts the Launchkey back in standalone mode.
 
 pub mod mock;
+mod mock_regist;
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};

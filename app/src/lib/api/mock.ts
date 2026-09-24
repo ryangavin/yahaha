@@ -8,6 +8,8 @@ import fixture from './mock-fixture.json'
 import { syntheticStyles } from './mock-library'
 import { clockAt, mockSurface, type MockHardware } from './mock-surface'
 import { padsFor } from './mock-pads'
+import { MockRegistration } from './mock-registration'
+import { emptyPlaylist, emptyRegistration } from './registration'
 import type { Session } from './session'
 import {
   BREAK, ENDINGS, FILLS, FINGERINGS, INTROS, KEYBOARD_PART_NAMES, MAINS, PAD_PAGES, STYLE_PART_NAMES,
@@ -210,7 +212,7 @@ export function initialState(): AppState {
       master: 100,
       masterWaiting: false,
     },
-    pads: { page: 'sections', pageName: 'Sections', pageNumber: 1, pageCount: 3, pads: [], connected: true, paletteLeds: false },
+    pads: { page: 'sections', pageName: 'Sections', pageNumber: 1, pageCount: PAD_PAGES.length, pads: [], connected: true, paletteLeds: false },
     ots: { settings: otsSettings(s.ots), applied: 0, link: false },
     library: { revision: LIBRARY.revision, count: LIBRARY.entries.length, position: 0, pending: 0, roots: [ROOT], scanning: false },
     io: {
@@ -233,6 +235,8 @@ export function initialState(): AppState {
     message: null,
     surface: null as unknown as AppState['surface'], // filled in by derive()
     preview: { audition: null, queued: null },
+    registration: emptyRegistration(),
+    playlist: emptyPlaylist(),
   }
   derive(state, LIBRARY)
   return state
@@ -308,6 +312,8 @@ export interface MockOptions {
   manual?: boolean
   /** Add this many synthetic styles to the library (`?styles=60000`), to test a big one. */
   styles?: number
+  /** Start with the demo Registration banks and Playlist (default true). */
+  registration?: boolean
 }
 
 export class MockSession implements Session {
@@ -361,10 +367,14 @@ export class MockSession implements Session {
   private scanLeft = 0
   /** Beats into the audition playing (#21). */
   private auditionBeats = 0
+  /** Registration Memory and the Playlist (in-memory banks and playlists). */
+  private reg: MockRegistration
 
   constructor(opts: MockOptions = {}) {
     this.demo = opts.demo ?? false
     this.state = initialState()
+    this.reg = new MockRegistration(STYLES.filter((s) => !s.error).map((s) => ({ path: stylePath(s), name: s.name })), opts.registration ?? true)
+    this.reg.fill(this.state)
     if (opts.styles) {
       const big = bigLibrary(opts.styles)
       this.lib = big.lib
@@ -434,6 +444,7 @@ export class MockSession implements Session {
 
   private publish() {
     this.state.version++
+    this.reg.fill(this.state)
     derive(this.state, this.lib, this.hardware(), [...this.leftHand, ...this.rightHand])
     const snap = this.snapshot()
     for (const f of this.subs) f(snap)
@@ -688,6 +699,18 @@ export class MockSession implements Session {
   }
 
   private cmd(cmd: AppCmd) {
+    if (this.reg.handles(cmd)) {
+      this.reg.cmd(cmd, {
+        state: this.state,
+        command: (c) => this.cmd(c),
+        message: (text, error) => this.message(text, error),
+        findStyle: (path, name) =>
+          this.lib.entries.find((e) => e.path === path)?.path ??
+          this.lib.entries.find((e) => e.path.split('/').pop() === path.split('/').pop() || e.name === name)?.path ??
+          null,
+      })
+      return
+    }
     const st = this.state
     const t = st.transport
     const c = st.chord
@@ -837,7 +860,7 @@ export class MockSession implements Session {
         break
       case 'cyclePadPage': {
         const i = PAD_PAGES.findIndex((p) => p.id === st.pads.page)
-        st.pads.page = PAD_PAGES[(((i + cmd.delta) % 3) + 3) % 3].id
+        st.pads.page = PAD_PAGES[(((i + cmd.delta) % PAD_PAGES.length) + PAD_PAGES.length) % PAD_PAGES.length].id
         break
       }
       case 'setMasterVolume':

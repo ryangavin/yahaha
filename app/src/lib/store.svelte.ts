@@ -145,6 +145,9 @@ class UiStore {
   settings = $state(false)
   parts = $state(false)
   mixer = $state(false)
+  /** The Registration panel (bank, groups, sequence, playlist) and its page. */
+  regist = $state(false)
+  registTab = $state<'bank' | 'groups' | 'sequence' | 'playlist'>('bank')
   theme = $state<Theme>(storedTheme())
   /** The keyboard strip's size; null: match the connected Launchkey (49 or 61). */
   keyRange = $state<KeyRange | null>(storedKeyRange())
@@ -157,9 +160,9 @@ class UiStore {
   }
 
   /** Open one side drawer (closing the others), or close it if it's open. */
-  toggleDrawer(d: 'parts' | 'mixer' | 'settings') {
+  toggleDrawer(d: 'parts' | 'mixer' | 'settings' | 'regist') {
     const open = !this[d]
-    this.parts = this.mixer = this.settings = false
+    this.parts = this.mixer = this.settings = this.regist = false
     this[d] = open
   }
 
@@ -188,6 +191,7 @@ class UiStore {
     if (this.settings) return !(this.settings = false)
     if (this.parts) return !(this.parts = false)
     if (this.mixer) return !(this.mixer = false)
+    if (this.regist) return !(this.regist = false)
     return false
   }
 }

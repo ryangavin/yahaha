@@ -55,7 +55,7 @@ describe('Shift layer, as the engine JSON arrives', () => {
     // Over IPC, `action` and `shiftAction` are separate objects even when equal.
     const wire = JSON.parse(JSON.stringify(m.state.surface)) as typeof m.state.surface
     expect(wire.controls.filter(hasShiftFunction).map((c) => c.id)).toEqual([
-      'padBankUp', 'padBankDown', 'faderButton1', 'faderButton2', 'faderButton3', 'faderButton4',
+      'padBankUp', 'padBankDown', 'trackPrev', 'trackNext', 'faderButton1', 'faderButton2', 'faderButton3', 'faderButton4',
     ])
   })
 })

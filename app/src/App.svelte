@@ -3,6 +3,7 @@
   strip) and the panels that open around it. Each lives in its own folder under src/panels/.
 
   ┌ app bar: Parts & OTS · Mixer · Browse · Settings ·············· ? · theme ┐
+  │ Registration bar: bank · buttons 1–10 · Memory · Freeze · sequence · playlist │
   │ ┌ stage ──────────────────────────────────────────────────────────────┐   │
   │ │ lead-sheet band (panels/leadsheet): now · bar cells / chart · next  │   │
   │ │ Launchkey mirror (panels/launchkey)                                 │ ┌ drawer ┐
@@ -37,6 +38,8 @@
   import LeadSheet from './panels/leadsheet/LeadSheet.svelte'
   import Mixer from './panels/mixer/Mixer.svelte'
   import Parts from './panels/parts/Parts.svelte'
+  import RegistBar from './panels/registration/RegistBar.svelte'
+  import Registration from './panels/registration/Registration.svelte'
   import Settings from './panels/settings/Settings.svelte'
 
   let { session }: { session: Session } = $props()
@@ -64,6 +67,7 @@
 
 <div class="app">
   <Header />
+  <RegistBar />
 
   <main class="stage">
     <div class="stack">
@@ -85,6 +89,7 @@
 {#if ui.parts}<Parts />{/if}
 {#if ui.mixer}<Mixer />{/if}
 {#if ui.settings}<Settings />{/if}
+{#if ui.regist}<Registration />{/if}
 {#if ui.browser}<Browser />{/if}
 {#if tips.floating}<Tooltip />{/if}
 
