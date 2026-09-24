@@ -1,6 +1,11 @@
+<!--
+  The opt-in pop-up tip (the help footer's "Pop-up" switch): the same entry as the footer,
+  next to the control. Off by default, since it covers the instrument while you play. The
+  footer carries the accessible description, so this copy is hidden from screen readers.
+-->
 <script lang="ts">
   import TipCard from './TipCard.svelte'
-  import { tips, TOOLTIP_ID } from './tip.svelte'
+  import { tips } from './tip.svelte'
 
   let el: HTMLDivElement | undefined = $state()
   let pos = $state({ x: 0, y: 0, above: false })
@@ -21,13 +26,12 @@
 
 <div
   bind:this={el}
-  id={TOOLTIP_ID}
-  role="tooltip"
+  aria-hidden="true"
   class="tooltip"
-  class:shown={tips.key !== null}
+  class:shown={tips.key !== null && tips.rect !== null}
   style:transform={`translate(${pos.x}px, ${pos.y}px)`}
 >
-  {#if tips.key}<TipCard key={tips.key} />{/if}
+  {#if tips.key && tips.rect}<TipCard key={tips.key} />{/if}
 </div>
 
 <style>
