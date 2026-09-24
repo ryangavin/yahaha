@@ -570,7 +570,7 @@ impl Control {
 
     /// A keyboard part plays a library patch (or its GM voice again): its defaults (volume,
     /// octave, pan and sends) go to the part as CCs, as a voice selection does.
-    fn set_part_patch(&mut self, part: usize, id: Option<String>) -> Result<(), CmdError> {
+    pub(super) fn set_part_patch(&mut self, part: usize, id: Option<String>) -> Result<(), CmdError> {
         self.need_patch_or_none(&id)?;
         let defaults = id.as_deref().and_then(|i| self.sound.lib.patch(i)).map(|p| p.defaults);
         self.sound.part_patch[part] = id;
@@ -585,6 +585,18 @@ impl Control {
         }
         self.sound_library_changed();
         Ok(())
+    }
+
+    /// Keyboard part `part`'s own patch: its id and name (Registration, #109).
+    pub(super) fn part_patch(&self, part: usize) -> Option<(String, String)> {
+        let id = self.sound.part_patch[part & 3].clone()?;
+        let name = self.sound.lib.patch(&id).map_or_else(|| id.clone(), |p| p.name.clone());
+        Some((id, name))
+    }
+
+    /// Whether the sound library has patch `id`.
+    pub(super) fn has_patch(&self, id: &str) -> bool {
+        self.sound.lib.patch(id).is_some()
     }
 
     /// A GM voice was picked for keyboard part `part` (the voice list, an OTS): it no
