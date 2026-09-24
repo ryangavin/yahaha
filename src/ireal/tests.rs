@@ -361,7 +361,7 @@ fn maps_every_quality() {
         ("h7", "Cm7b5"), ("o7", "Cdim7"), ("^9", "Cmaj9"), ("^13", "Cmaj9"), ("6", "C6"), ("69", "C6/9"),
         ("^7#11", "Cmaj7#11"), ("^9#11", "Cmaj7#11"), ("^7#5", "Cmaj7#5"), ("-6", "Cm6"), ("-69", "Cm6"),
         ("-^7", "CmMaj7"), ("-^9", "CmMaj9"), ("-9", "Cm9"), ("-11", "Cm11"), ("-7b5", "Cm7b5"), ("h9", "Cm7b5"),
-        ("-b6", "Abmaj7/C"), ("-#5", "Ab/C"), ("9", "C9"), ("7b9", "C7b9"), ("7#9", "C7#9"), ("7#11", "C7#11"),
+        ("-b6", "Cm"), ("-#5", "Cm"), ("9", "C9"), ("7b9", "C7b9"), ("7#9", "C7#9"), ("7#11", "C7#11"),
         ("7b5", "C7b5"), ("7#5", "C7#5"), ("9#11", "C7#11"), ("9b5", "C7b5"), ("9#5", "C7#5"), ("7b13", "C7b13"),
         ("7#9#5", "C7#9"), ("7#9b5", "C7#9"), ("7#9#11", "C7#9"), ("7b9#11", "C7b9"), ("7b9b5", "C7b9"),
         ("7b9#5", "C7b9"), ("7b9#9", "C7b9"), ("7b9b13", "C7b9"), ("7alt", "C7#9"), ("13", "C13"), ("13#11", "C13"),
@@ -385,8 +385,10 @@ fn chord_mapping_details() {
     // Slash bass; a bass equal to the root is dropped.
     assert_eq!(to_chord(0, "7", Some(4)), Chord { root: 0, ty: 19, bass: Some(4) });
     assert_eq!(to_chord(0, "7", Some(0)), Chord::new(0, 19));
-    // Re-rooted qualities keep an explicit bass.
-    assert_eq!(to_chord(9, "-#5", Some(7)), Chord { root: 5, ty: 0, bass: Some(7) });
+    // Minor #5 / b6 keep the written root (and any written bass).
+    assert_eq!(to_chord(9, "-#5", Some(7)), Chord { root: 9, ty: 8, bass: Some(7) });
+    assert_eq!(to_chord(0, "-b6", None), Chord::new(0, 8));
+    assert_eq!(beats("C- C-#5 |C-6 C-b6 |"), ["Cm@0 Cm@2", "Cm6@0 Cm@2"]);
     // Unknown qualities fall back by spelling.
     for (q, ty) in [("7b9#13", 25), ("-7b9", 10), ("^7#9", 2), ("m7", 10), ("maj7", 2), ("dim", 17), ("+7", 29),
         ("9sus4", 20), ("7#9b13", 27), ("aug", 7), ("xyz", 0), ("-^11", 15), ("69#11", 6)] {

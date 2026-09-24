@@ -100,7 +100,7 @@ Some rules decide the approximate choices:
 - **Dominant chords with several alterations** keep the first altered tension written. This follows `7alt → 7(#9)`, so `7#9#5 → 7#9` and `7b9#11 → 7b9`.
 - **13th chords with alterations** keep the 13.
 - **Suspended dominants** (`9sus`, `13sus`, `7b9sus`, `7b13sus`, `11`) become `7sus4`.
-- **Two minor chords with a raised 5th** are exactly a major chord over the written root, so they are re-rooted instead of approximated: `C-#5 = Ab/C` and `C-b6 = Abmaj7/C`.
+- **Minor chords with a raised 5th** (`-#5`, `-b6`) keep the written root and become minor. yahaha has no minor-#5 type. `C-#5` has the same notes as `Ab/C`, but re-rooting it would show the player the wrong root and make the band follow an Ab chord.
 
 | iReal | yahaha | Fit | Notes |
 |---|---|---|---|
@@ -135,8 +135,8 @@ Some rules decide the approximate choices:
 | `-11` | m11 (m7(11)) | approx | Drops the 9. |
 | `-7b5` | m7b5 | exact | |
 | `h9` | m7b5 | approx | Drops the 9. |
-| `-b6` | maj7, root +8, bass = root | exact (re-rooted) | C-b6 = Abmaj7/C |
-| `-#5` | M, root +8, bass = root | exact (re-rooted) | C-#5 = Ab/C |
+| `-b6` | m | approx | Drops the b6. |
+| `-#5` | m | approx | Drops the #5 and plays the 5th. |
 | `9` | 9 (7(9)) | exact | |
 | `7b9` | 7b9 | exact | |
 | `7#9` | 7#9 | exact | |

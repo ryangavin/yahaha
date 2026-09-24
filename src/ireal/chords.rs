@@ -21,14 +21,10 @@ pub struct Quality {
     /// yahaha chord type id (index into `theory::TYPE_NAMES`).
     pub ty: u8,
     pub fit: Fit,
-    /// Semitones to move the root by. Non-zero only for the two minor-sharp-5 shapes
-    /// that are exactly a major chord a minor sixth up over the written root
-    /// (C-#5 = Ab/C, C-b6 = Abmaj7/C); the written root becomes the bass.
-    pub shift: u8,
 }
 
 const fn q(ireal: &'static str, ty: u8, fit: Fit) -> Quality {
-    Quality { ireal, ty, fit, shift: 0 }
+    Quality { ireal, ty, fit }
 }
 
 use Fit::{Approx as A, Exact as E};
@@ -66,8 +62,10 @@ pub const QUALITIES: [Quality; 62] = [
     q("-11", 14, A),
     q("-7b5", 11, E),
     q("h9", 11, A),
-    Quality { ireal: "-b6", ty: 2, fit: E, shift: 8 },
-    Quality { ireal: "-#5", ty: 0, fit: E, shift: 8 },
+    // No minor-#5 type: keep the written root and the minor third, drop the #5 / b6
+    // (re-rooting to Ab/C would be the same notes but shows the player the wrong root).
+    q("-b6", 8, A),
+    q("-#5", 8, A),
     q("9", 22, E),
     q("7b9", 25, E),
     q("7#9", 27, E),
@@ -110,7 +108,6 @@ pub fn map_quality(quality: &str) -> Quality {
         ireal: "",
         ty: fallback_type(quality),
         fit: Fit::Fallback,
-        shift: 0,
     })
 }
 
@@ -181,7 +178,6 @@ pub fn fallback_type(q: &str) -> u8 {
 /// A chart chord (root and bass as pitch classes, the quality as written) as a yahaha chord.
 pub fn to_chord(root: u8, quality: &str, bass: Option<u8>) -> Chord {
     let m = map_quality(quality);
-    let r = (root % 12 + m.shift) % 12;
-    let bass = bass.or((m.shift != 0).then_some(root % 12));
+    let r = root % 12;
     Chord { root: r, ty: m.ty, bass: bass.map(|b| b % 12).filter(|&b| b != r) }
 }
