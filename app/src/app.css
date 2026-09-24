@@ -208,6 +208,19 @@ button {
   box-shadow: 0 1px 0 rgb(255 255 255 / 0.08), inset 0 -1px 1px rgb(0 0 0 / 0.4);
 }
 
+/* The help footer (lib/tooltip/HelpFooter): a fixed height, so the stage above it never
+   shifts on hover; taller in help mode. --help-footer-space is the room it takes at the
+   bottom of the window (height + the shell's bottom padding + a gap): drawers and the
+   browser end above it. */
+:root {
+  --help-footer-h: 3rem;
+  --help-footer-h-help: 7.25rem;
+  --help-footer-space: calc(var(--help-footer-h) + 0.6rem + 0.6rem);
+}
+[data-help='on'] {
+  --help-footer-space: calc(var(--help-footer-h-help) + 0.6rem + 0.6rem);
+}
+
 /* Help mode: every control with a tooltip gets a faint marker. */
 [data-help='on'] [data-tip] {
   outline: 1px dashed color-mix(in srgb, var(--accent) 50%, transparent);
