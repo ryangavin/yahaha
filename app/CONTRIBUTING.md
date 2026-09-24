@@ -33,7 +33,7 @@ URL switches for browser dev mode:
 | `?theme=light` | starts in the light theme |
 | `?help=1` | starts with help mode on |
 | `?tip=<catalog key>` | shows that one tooltip |
-| `?open=browser` \| `parts` \| `mixer` \| `settings` | opens that panel |
+| `?open=browser` \| `parts` \| `mixer` \| `settings` \| `harmony` | opens that panel |
 | `?shift=1` | latches the Shift layer |
 | `?styles=N` | adds N synthetic styles to the mock's library (try 60000 in the browser) |
 | `?mock` | uses the mock even inside Tauri |
@@ -96,6 +96,7 @@ app/
       mixer/Mixer.svelte           SLOT: Mixer detail drawer
       browser/Browser.svelte       SLOT: style browser (modal)
       settings/Settings.svelte     SLOT: settings drawer
+      harmony/Harmony.svelte       BUILT: Harmony/Arpeggio drawer (switch, type lists, settings)
 ```
 
 ### The Launchkey mirror (`panels/launchkey/`)

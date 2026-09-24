@@ -20,6 +20,7 @@ const GROUPS: [string, string][] = [
   ['transpose', 'Transpose'],
   ['ots', 'One Touch Settings'],
   ['part', 'Keyboard parts'],
+  ['harmony', 'Keyboard Harmony / Arpeggio'],
   ['mixer', 'Mixer'],
   ['padpage', 'Launchkey pad pages'],
   ['launchkey', 'Launchkey'],

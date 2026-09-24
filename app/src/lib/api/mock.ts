@@ -8,6 +8,7 @@ import fixture from './mock-fixture.json'
 import { syntheticStyles } from './mock-library'
 import { clockAt, mockSurface, type MockHardware } from './mock-surface'
 import { padsFor } from './mock-pads'
+import { ARP_PATTERNS, HARMONY_TYPES, harmonyArpCmd, initialHarmonyArp } from './mock-harmony'
 import type { Session } from './session'
 import {
   BREAK, ENDINGS, FILLS, FINGERINGS, INTROS, KEYBOARD_PART_NAMES, MAINS, PAD_PAGES, STYLE_PART_NAMES,
@@ -71,7 +72,9 @@ function entryOf(s: FixtureStyle): LibraryEntry {
 /** The voices `setPartVoice` picks from, as the engine lists them (GM, bank 0). */
 export const VOICES: LibraryList['voices'] = GM.map((name, program) => ({ program, bankMsb: 0, bankLsb: 0, name }))
 
-export const LIBRARY: LibraryList = { revision: 1, entries: STYLES.map(entryOf), voices: VOICES }
+export const LIBRARY: LibraryList = {
+  revision: 1, entries: STYLES.map(entryOf), voices: VOICES, harmonyTypes: HARMONY_TYPES, arpPatterns: ARP_PATTERNS,
+}
 
 /** The fixture plus `extra` synthetic styles, in the engine's order (folder, then name). */
 function bigLibrary(extra: number): { lib: LibraryList; styles: FixtureStyle[] } {
@@ -83,7 +86,7 @@ function bigLibrary(extra: number): { lib: LibraryList; styles: FixtureStyle[] }
     for (let i = 0; i < 3; i++) if (x[i] !== y[i]) return x[i] < y[i] ? -1 : 1
     return 0
   })
-  return { lib: { revision: 1, entries, voices: VOICES }, styles }
+  return { lib: { revision: 1, entries, voices: VOICES, harmonyTypes: HARMONY_TYPES, arpPatterns: ARP_PATTERNS }, styles }
 }
 
 /** The MIDI sources the mock rig has (every one a keyboard: `allInputs`). */
@@ -233,6 +236,7 @@ export function initialState(): AppState {
     message: null,
     surface: null as unknown as AppState['surface'], // filled in by derive()
     preview: { audition: null, queued: null },
+    harmonyArp: initialHarmonyArp(),
   }
   derive(state, LIBRARY)
   return state
@@ -903,6 +907,27 @@ export class MockSession implements Session {
         st.library.scanning = true
         this.scanLeft = RESCAN_MS
         break
+      case 'toggleHarmonyArp':
+      case 'setHarmonyArpOn':
+      case 'setHarmonyType':
+      case 'setArpPattern':
+      case 'stepHarmonyArpType':
+      case 'setHarmonyVolume':
+      case 'setHarmonySpeed':
+      case 'setHarmonyAssign':
+      case 'setChordNoteOnly':
+      case 'setTouchLimit':
+      case 'setArpQuantize':
+      case 'setArpHold':
+      case 'toggleArpHold':
+      case 'setArpVelocity':
+      case 'setArpKeepKeyOn': {
+        // A fresh object, so the published snapshots never share it.
+        st.harmonyArp = { ...st.harmonyArp, arp: { ...st.harmonyArp.arp } }
+        const err = harmonyArpCmd(st.harmonyArp, cmd)
+        if (err) this.message(err, true)
+        break
+      }
       case 'panic':
         this.stopBand()
         this.message('All notes off')

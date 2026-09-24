@@ -84,5 +84,20 @@ export function tipFor(cmd: AppCmd | null): TipKey {
     case 'setMidiInputs': return cmd.all ? 'midi.merge_all' : 'midi.input'
     case 'setPaletteLeds': return 'midi.palette_leds'
     case 'rescanLibrary': return 'settings.rescan'
+    case 'toggleHarmonyArp':
+    case 'setHarmonyArpOn': return 'harmony.switch'
+    case 'setHarmonyType': return 'harmony.type'
+    case 'setArpPattern': return 'harmony.pattern'
+    case 'stepHarmonyArpType': return 'harmony.next_type'
+    case 'setHarmonyVolume': return 'harmony.volume'
+    case 'setHarmonySpeed': return 'harmony.speed'
+    case 'setHarmonyAssign': return 'harmony.assign'
+    case 'setChordNoteOnly': return 'harmony.chord_note_only'
+    case 'setTouchLimit': return 'harmony.touch_limit'
+    case 'setArpQuantize': return 'harmony.arp_quantize'
+    case 'setArpHold':
+    case 'toggleArpHold': return 'harmony.arp_hold'
+    case 'setArpVelocity': return 'harmony.arp_velocity'
+    case 'setArpKeepKeyOn': return 'harmony.arp_keep_key_on'
   }
 }

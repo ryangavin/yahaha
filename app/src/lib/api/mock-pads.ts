@@ -88,7 +88,7 @@ function otsPads(s: AppState): Pad[] {
   return [
     ...[0, 1, 2, 3].map((i) => p(96 + i, `OTS ${i + 1}`, `⇧${i + 1}`, { type: 'recallOts', index: i }, i < n, s.ots.applied === i + 1)),
     p(100, 'OTS LINK', 'F10', { type: 'toggleOtsLink' }, true, s.ots.link),
-    p(101, '', '', null, false, false),
+    p(101, 'HARM/ARP', 'r', { type: 'toggleHarmonyArp' }, true, s.harmonyArp.on),
     p(102, 'VOICE -', '9', { type: 'stepVoice', delta: -1 }, true, false),
     p(103, 'VOICE +', '0', { type: 'stepVoice', delta: 1 }, true, false),
     ...['RIGHT 1', 'RIGHT 2', 'RIGHT 3', 'LEFT'].map((l, i) => p(112 + i, l, ['5', '6', '7', '8/l'][i], { type: 'togglePart', part: i }, true, s.keyboardParts[i].on)),

@@ -171,6 +171,8 @@ impl MockSession {
                 })
                 .collect(),
             voices: voice_options(),
+            harmony_types: harmony_type_options(),
+            arp_patterns: arp_pattern_options(),
         };
         let gm = f.gm;
         let part = |i: usize, program: u8, on: bool| KeyboardPart {
@@ -279,6 +281,7 @@ impl MockSession {
                 sound_font_loading: false,
             },
             preview: PreviewState::default(),
+            harmony_arp: harmony_arp_default(),
             // Mid-song: the left hand holds the Am7 it fingered.
             keyboard: KeyboardState {
                 held: [45, 48, 52, 55].map(|note| HeldNote { note, zone: Zone::Left, parts: vec![] }).to_vec(),
@@ -1072,6 +1075,11 @@ impl MockSession {
                 io.inputs = io.sources.iter().filter(|s| s.listening).map(|s| if s.pads { format!("{} (pads)", s.name) } else { s.name.clone() }).collect();
             }
             AppCmd::Settings(SettingsCmd::SetPaletteLeds { on }) => self.state.pads.palette_leds = on,
+            AppCmd::HarmonyArp(c) => {
+                if let Err(e) = harmony_arp_cmd(&mut self.state.harmony_arp, c) {
+                    self.message(&e, true);
+                }
+            }
         }
     }
 
@@ -1223,7 +1231,7 @@ fn pads_for(s: &AppState, page: Page) -> Vec<Pad> {
                 .collect();
             v.extend([
                 page_pad(100, "OTS LINK", "F10", Some(AppCmd::Ots(OtsCmd::ToggleOtsLink)), true, s.ots.link),
-                page_pad(101, "", "", None, false, false),
+                page_pad(101, "HARM/ARP", "r", Some(AppCmd::HarmonyArp(HarmonyArpCmd::ToggleHarmonyArp)), true, s.harmony_arp.on),
                 page_pad(102, "VOICE -", "9", Some(AppCmd::Parts(PartsCmd::StepVoice { delta: -1 })), true, false),
                 page_pad(103, "VOICE +", "0", Some(AppCmd::Parts(PartsCmd::StepVoice { delta: 1 })), true, false),
             ]);
@@ -1236,6 +1244,82 @@ fn pads_for(s: &AppState, page: Page) -> Vec<Pad> {
             v
         }
     }
+}
+
+/// Harmony/Arpeggio off, Standard Duet 1: the engine's defaults.
+fn harmony_arp_default() -> HarmonyArpState {
+    let mut h = HarmonyArpState {
+        volume: 100,
+        touch_limit: 1,
+        arp: ArpSettings { fixed_velocity: 100, ..ArpSettings::default() },
+        ..HarmonyArpState::default()
+    };
+    name_harmony_arp(&mut h);
+    h
+}
+
+fn name_harmony_arp(h: &mut HarmonyArpState) {
+    let t = match h.mode {
+        HarmonyArpMode::Harmony => harmony_type_options().swap_remove(h.harmony_type as usize),
+        HarmonyArpMode::Arpeggio => arp_pattern_options().swap_remove(h.arp_pattern as usize),
+    };
+    h.type_name = t.name;
+    h.category = t.category;
+}
+
+/// The Harmony/Arpeggio commands, as src/session/harmony_arp.rs runs them (the mock plays
+/// no notes).
+fn harmony_arp_cmd(h: &mut HarmonyArpState, c: HarmonyArpCmd) -> Result<(), String> {
+    let (types, patterns) = (harmony_type_options().len(), arp_pattern_options().len());
+    match c {
+        HarmonyArpCmd::ToggleHarmonyArp => h.on = !h.on,
+        HarmonyArpCmd::SetHarmonyArpOn { on } => h.on = on,
+        HarmonyArpCmd::SetHarmonyType { index } => {
+            if index as usize >= types {
+                return Err(format!("no Harmony type {index} (0-{})", types - 1));
+            }
+            h.mode = HarmonyArpMode::Harmony;
+            h.harmony_type = index;
+        }
+        HarmonyArpCmd::SetArpPattern { index } => {
+            if index as usize >= patterns {
+                return Err(format!("no arpeggio pattern {index} (0-{})", patterns - 1));
+            }
+            h.mode = HarmonyArpMode::Arpeggio;
+            h.arp_pattern = index;
+        }
+        HarmonyArpCmd::StepHarmonyArpType { delta } => {
+            let n = (types + patterns) as i32;
+            let cur = match h.mode {
+                HarmonyArpMode::Harmony => h.harmony_type as i32,
+                HarmonyArpMode::Arpeggio => (types + h.arp_pattern as usize) as i32,
+            };
+            let next = (cur + delta as i32).rem_euclid(n) as usize;
+            if next < types {
+                h.mode = HarmonyArpMode::Harmony;
+                h.harmony_type = next as u8;
+            } else {
+                h.mode = HarmonyArpMode::Arpeggio;
+                h.arp_pattern = (next - types) as u8;
+            }
+        }
+        HarmonyArpCmd::SetHarmonyVolume { volume } => h.volume = volume.min(127),
+        HarmonyArpCmd::SetHarmonySpeed { speed } => h.speed = speed,
+        HarmonyArpCmd::SetHarmonyAssign { assign } => h.assign = assign,
+        HarmonyArpCmd::SetChordNoteOnly { on } => h.chord_note_only = on,
+        HarmonyArpCmd::SetTouchLimit { velocity } => h.touch_limit = velocity.clamp(1, 127),
+        HarmonyArpCmd::SetArpQuantize { quantize } => h.arp.quantize = quantize,
+        HarmonyArpCmd::SetArpHold { on } => h.arp.hold = on,
+        HarmonyArpCmd::ToggleArpHold => h.arp.hold = !h.arp.hold,
+        HarmonyArpCmd::SetArpVelocity { mode, velocity } => {
+            h.arp.velocity = mode;
+            // As the engine: only Fixed keeps a velocity of its own.
+            h.arp.fixed_velocity = if mode == ArpVelocityMode::Fixed { velocity.clamp(1, 127) } else { 100 };
+        }
+        HarmonyArpCmd::SetArpKeepKeyOn { on } => h.arp.keep_key_on = on,
+    }
+    name_harmony_arp(h);
+    Ok(())
 }
 
 #[cfg(test)]
@@ -1263,6 +1347,25 @@ mod tests {
         assert_eq!(m.state.transport.queued.as_deref(), Some("Fill In BB"));
         let lamp = m.state.transport.lamps.iter().find(|p| p.note == 113).unwrap();
         assert_eq!((lamp.level, lamp.anim), (Level::Bright, Anim::Flash));
+    }
+
+    #[test]
+    fn harmony_arpeggio_settings_follow_the_commands() {
+        let mut m = MockSession::new();
+        assert_eq!(m.state.harmony_arp.type_name, "Standard Duet 1");
+        assert_eq!(m.library().harmony_types.len(), 23);
+        m.send(HarmonyArpCmd::ToggleHarmonyArp);
+        m.send(HarmonyArpCmd::StepHarmonyArpType { delta: -1 });
+        let h = &m.state.harmony_arp;
+        assert!(h.on);
+        assert_eq!((h.mode, h.type_name.as_str()), (HarmonyArpMode::Arpeggio, "Pluck Line"), "wraps into the arpeggios");
+        m.send(HarmonyArpCmd::SetArpVelocity { mode: ArpVelocityMode::Fixed, velocity: 200 });
+        assert_eq!(m.state.harmony_arp.arp.fixed_velocity, 127);
+        m.send(HarmonyArpCmd::SetHarmonyType { index: 99 });
+        assert!(m.state.message.as_ref().is_some_and(|x| x.error));
+        m.send(PadsCmd::SetPadPage { page: Page::OtsParts });
+        let pad = m.state.pads.pads.iter().find(|p| p.note == 101).unwrap();
+        assert_eq!((pad.label.as_str(), pad.level), ("HARM/ARP", Level::Bright));
     }
 
     #[test]

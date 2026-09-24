@@ -94,6 +94,31 @@ export type AppCmd =
   | { type: 'setPaletteLeds'; on: boolean }
   /** Re-walk the style folders (`library.roots`); `library.scanning` while it runs. */
   | { type: 'rescanLibrary' }
+  // Keyboard Harmony / Arpeggio (docs/app-api.md): see HarmonyArpState below.
+  | HarmonyArpCmd
+
+/** Keyboard Harmony / Arpeggio: one HARMONY/ARPEGGIO switch and one type. */
+export type HarmonyArpCmd =
+  | { type: 'toggleHarmonyArp' }
+  | { type: 'setHarmonyArpOn'; on: boolean }
+  /** A Harmony type, by index into `LibraryList.harmonyTypes` (Data List order). */
+  | { type: 'setHarmonyType'; index: number }
+  /** An arpeggio pattern, by index into `LibraryList.arpPatterns`. */
+  | { type: 'setArpPattern'; index: number }
+  /** Step through the Harmony types, then the arpeggios, as one list (wrapping). */
+  | { type: 'stepHarmonyArpType'; delta: number }
+  | { type: 'setHarmonyVolume'; volume: number }
+  | { type: 'setHarmonySpeed'; speed: HarmonySpeed }
+  | { type: 'setHarmonyAssign'; assign: HarmonyAssign }
+  | { type: 'setChordNoteOnly'; on: boolean }
+  /** Minimum Velocity, 1-127. */
+  | { type: 'setTouchLimit'; velocity: number }
+  | { type: 'setArpQuantize'; quantize: ArpQuantize }
+  | { type: 'setArpHold'; on: boolean }
+  | { type: 'toggleArpHold' }
+  /** `velocity` (1-127) is used by `fixed`. */
+  | { type: 'setArpVelocity'; mode: ArpVelocityMode; velocity: number }
+  | { type: 'setArpKeepKeyOn'; on: boolean }
 
 export type CmdError = { kind: 'busy' } | { kind: 'failed'; message: string }
 
@@ -508,6 +533,48 @@ export interface AppState {
   keyboard: KeyboardState
   /** The style preview and the style waiting for the bar line. */
   preview: PreviewState
+  /** Keyboard Harmony / Arpeggio. */
+  harmonyArp: HarmonyArpState
+}
+
+export type HarmonySpeed = '1/4' | '1/6' | '1/8' | '1/12' | '1/16' | '1/32'
+export type HarmonyAssign = 'auto' | 'multi' | 'right1' | 'right2' | 'right3'
+export type ArpQuantize = 'off' | 'eighth' | 'sixteenth'
+export type ArpVelocityMode = 'original' | 'thru' | 'fixed'
+
+export interface HarmonyArpState {
+  /** The HARMONY/ARPEGGIO switch. */
+  on: boolean
+  /** Which list the selected type is in. */
+  mode: 'harmony' | 'arpeggio'
+  /** Index into `LibraryList.harmonyTypes`; kept while an arpeggio is selected. */
+  harmonyType: number
+  /** Index into `LibraryList.arpPatterns`. */
+  arpPattern: number
+  /** The selected type's name and category ("Harmony", "Echo", "Up & Down", ...). */
+  typeName: string
+  category: string
+  /** Volume of the added notes and of the arpeggio, 0-127. */
+  volume: number
+  /** Echo, Tremolo and Trill. */
+  speed: HarmonySpeed
+  assign: HarmonyAssign
+  chordNoteOnly: boolean
+  /** Minimum Velocity, 1-127. */
+  touchLimit: number
+  arp: {
+    quantize: ArpQuantize
+    hold: boolean
+    velocity: ArpVelocityMode
+    fixedVelocity: number
+    keepKeyOn: boolean
+  }
+}
+
+/** A Harmony type or an arpeggio pattern in `LibraryList`. */
+export interface HarmonyTypeInfo {
+  name: string
+  category: string
 }
 
 export interface LibraryEntry {
@@ -539,6 +606,10 @@ export interface LibraryList {
   entries: LibraryEntry[]
   /** The voices `setPartVoice` picks from (the same every revision). */
   voices: VoiceOption[]
+  /** The Keyboard Harmony types `setHarmonyType` picks from, Data List order (static). */
+  harmonyTypes: HarmonyTypeInfo[]
+  /** The arpeggio patterns `setArpPattern` picks from (static). */
+  arpPatterns: HarmonyTypeInfo[]
 }
 
 // ── Names the UI uses ─────────────────────────────────────────────────────
