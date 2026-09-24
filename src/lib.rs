@@ -10,6 +10,7 @@ pub mod bench;
 pub mod capture;
 pub mod engine;
 pub mod fingering;
+pub mod ireal;
 #[cfg(test)]
 mod golden;
 pub mod harmony;
