@@ -165,7 +165,7 @@ describe('voice lines', () => {
     expect(styleVoice(null)).toEqual({ plays: '—', writtenFor: '' })
   })
   it('a keyboard part under Manual Bass plays the Style Bass', () => {
-    const p = { name: 'Left', channel: 2, on: false, sounding: true, selected: false, volume: 100, waiting: false, program: 48, voiceName: 'Finger Bass', playsBass: true, octave: 0, fader: null }
+    const p = { name: 'Left', channel: 2, on: false, sounding: true, selected: false, volume: 100, waiting: false, program: 48, voiceName: 'Finger Bass', playsBass: true, octave: 0, fader: null, patch: null }
     expect(partVoice(p).writtenFor).toContain('Manual Bass')
     expect(partVoice({ ...p, playsBass: false, voiceName: 'Strings' })).toEqual({ plays: 'Strings', writtenFor: 'GM 49' })
   })

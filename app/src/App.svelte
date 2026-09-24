@@ -44,6 +44,7 @@
   import RegistBar from './panels/registration/RegistBar.svelte'
   import Registration from './panels/registration/Registration.svelte'
   import Settings from './panels/settings/Settings.svelte'
+  import SoundLibrary from './panels/sound/SoundLibrary.svelte'
 
   let { session }: { session: Session } = $props()
 
@@ -93,6 +94,7 @@
 {#if ui.mixer}<Mixer />{/if}
 {#if ui.looper}<Looper />{/if}
 {#if ui.multipad}<MultiPad />{/if}
+{#if ui.sound}<SoundLibrary />{/if}
 {#if ui.settings}<Settings />{/if}
 {#if ui.harmony}<Harmony />{/if}
 {#if ui.regist}<Registration />{/if}

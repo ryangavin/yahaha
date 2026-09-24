@@ -187,6 +187,7 @@ impl Engine {
         #[cfg(test)]
         self.log(Hook::StyleLoaded);
         self.stop_acmp_setup_sent();
+        _sink.route_bank(self.style.route_bank);
         self.retrigger_on_style_loaded();
     }
 

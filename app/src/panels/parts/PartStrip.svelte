@@ -13,6 +13,7 @@
   import { tip } from '../../lib/tooltip/tip.svelte'
   import Fader from '../../lib/ui/Fader.svelte'
   import Toggle from '../../lib/ui/Toggle.svelte'
+  import { byCategory } from '../sound/nav.svelte'
   import { launchkeyPlace, octaveLabel, onTip, pluginGroups, pluginPickValue, pluginStatusLine, selectTip, volumeTip } from './parts'
 
   let {
@@ -34,9 +35,16 @@
   const groups = $derived(voiceGroups(voices))
   const plugins = $derived(app.state.plugins)
   const plugin = $derived(part.plugin)
-  // The picker's tab: the plugin list while the part has a plugin, else the GM voices.
-  let tab = $state<'gm' | 'plugins' | null>(null)
-  const shown = $derived(tab ?? (part.plugin ? 'plugins' : 'gm'))
+  // The picker's tab: the plugin list while the part has a plugin, the sound library
+  // while it plays a library patch (#103), else the GM voices.
+  let tab = $state<'gm' | 'library' | 'plugins' | null>(null)
+  const shown = $derived(tab ?? (part.plugin ? 'plugins' : part.patch ? 'library' : 'gm'))
+  const library = $derived(byCategory(app.state.soundLibrary.patches))
+  function pickPatch(e: Event & { currentTarget: HTMLSelectElement }) {
+    const id = e.currentTarget.value
+    app.send({ type: 'setPartPatch', part: index, id: id || null })
+    e.currentTarget.blur()
+  }
   const byMaker = $derived(pluginGroups(plugins.list))
   const pluginLine = $derived(pluginStatusLine(plugin, plugins.available))
 
@@ -111,6 +119,7 @@
 
   <div class="tabs" role="tablist" aria-label="{part.name} sound">
     <button type="button" role="tab" aria-selected={shown === 'gm'} class:sel={shown === 'gm'} use:tip={'part.source_gm'} onclick={() => (tab = 'gm')}>GM</button>
+    <button type="button" role="tab" aria-selected={shown === 'library'} class:sel={shown === 'library'} class:has={!!part.patch} use:tip={'part.source_library'} onclick={() => (tab = 'library')}>Library</button>
     <button type="button" role="tab" aria-selected={shown === 'plugins'} class:sel={shown === 'plugins'} class:has={!!plugin} use:tip={'part.source_plugins'} onclick={() => (tab = 'plugins')}>Plugins</button>
   </div>
 
@@ -124,6 +133,19 @@
         {#each groups as g (g.family)}
           <optgroup label={g.family}>
             {#each g.voices as v (v.program)}<option value={String(v.program)}>{v.name}</option>{/each}
+          </optgroup>
+        {/each}
+      </select>
+    </label>
+  {:else if shown === 'library'}
+    <label class="voice mat-screen">
+      <span class="glow-text vname">{part.patch ? part.voiceName : 'GM voice'}</span>
+      <span class="sub">{#if part.playsBass}<span class="badge">own: {own}</span>{:else if part.patch}<span class="badge">Library</span> ▾{:else}{part.voiceName} · Patch ▾{/if}</span>
+      <select value={part.patch ?? ''} aria-label="{part.name} library patch" use:tip={'part.library'} onchange={pickPatch} onkeydown={pickerKey}>
+        <option value="">GM voice ({part.voiceName})</option>
+        {#each library as g (g.category)}
+          <optgroup label={g.label}>
+            {#each g.patches as p (p.id)}<option value={p.id}>{p.name}{p.available ? '' : ' (fallback)'}</option>{/each}
           </optgroup>
         {/each}
       </select>
@@ -172,7 +194,7 @@
 <style>
   .tabs {
     display: grid;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 2px;
     padding: 2px;
     border-radius: 5px;

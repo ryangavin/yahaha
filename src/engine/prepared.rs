@@ -122,6 +122,9 @@ pub struct Prepared {
     /// Set by whoever hands the style to the engine (the session numbers each load), so
     /// it can tell from a snapshot (`Snapshot::style_tag`) when the engine switched to it.
     pub tag: u64,
+    /// The bank of the program map's route table this style plays with (#103,
+    /// `patches::route`): the engine names it to the synth when it takes the style over.
+    pub route_bank: u8,
 }
 
 /// The style's channel setup (SInt) routed through one set of channel rules.
@@ -142,6 +145,10 @@ pub struct Setup {
     /// part 1-8 (MIDI ch 9-16), or the GM default 100. Loading the style sets the mixer
     /// faders to the first setup's.
     pub mix: [u8; 8],
+    /// The Style parts (bit = part 0-7) whose level the style's channel setup sets (a CC7
+    /// in SInt); the others have the GM default in `mix`. A sound library patch's default
+    /// volume may set those (#103).
+    pub mix_set: u8,
     /// Each part's pitch bend range as the style's channel setup leaves it (RPN 0, in
     /// semitones). `init` sends `out_bend_range` of it instead.
     pub bend_range: [u8; 16],
@@ -310,7 +317,47 @@ impl Prepared {
             pat_bend_max,
             shift_room,
             tag: 0,
+            route_bank: 0,
         }
+    }
+
+    /// Every voice the style sends each Style part (channels 9-16): its channel setups'
+    /// and every program change in its sections, as (channel 0-based, bank MSB, bank LSB,
+    /// program), in channel order, each once. What the sound library's "this style" view
+    /// resolves (#103).
+    pub fn program_changes(&self) -> Vec<(u8, u8, u8, u8)> {
+        let mut out = Vec::new();
+        let mut banks = Vec::new();
+        for setup in &self.setups {
+            let mut bank = [(0u8, 0u8); 16];
+            for m in setup.init.iter() {
+                let d = (m[0] & 0x0F) as usize;
+                match (m[0] & 0xF0, m.get(1), m.get(2)) {
+                    (0xB0, Some(0), Some(&v)) => bank[d].0 = v,
+                    (0xB0, Some(32), Some(&v)) => bank[d].1 = v,
+                    (0xC0, Some(&p), _) => out.push((d as u8, bank[d].0, bank[d].1, p)),
+                    _ => {}
+                }
+            }
+            banks.push(bank);
+        }
+        for (slot, sec) in self.sections.iter().enumerate() {
+            let Some(sec) = sec else { continue };
+            let mut bank = banks.get(self.setup_of[slot] as usize).copied().unwrap_or([(0, 0); 16]);
+            for e in &sec.events {
+                let Some(d) = sec.rules[e.src as usize & 15].as_ref().map(|r| r.dest_ch as usize & 15) else { continue };
+                match e.kind {
+                    PKind::Cc { cc: 0, val } => bank[d].0 = val,
+                    PKind::Cc { cc: 32, val } => bank[d].1 = val,
+                    PKind::Pc { prog } => out.push((d as u8, bank[d].0, bank[d].1, prog)),
+                    _ => {}
+                }
+            }
+        }
+        out.retain(|c| (8..16).contains(&c.0));
+        out.sort();
+        out.dedup();
+        out
     }
 
     /// The channel setup section slot `slot` plays with.
@@ -353,6 +400,7 @@ impl Setup {
         let mut init = Msgs::default();
         let mut voices: [Option<(u8, u8, u8)>; 16] = [None; 16];
         let mut mix = [GM_VOLUME; 8];
+        let mut mix_set = 0u8;
         for (src, c) in sint.channels.iter().enumerate() {
             let Some(rule) = &route[src] else { continue };
             let d = rule.dest_ch;
@@ -372,7 +420,10 @@ impl Setup {
                 }
             }
             match c.volume {
-                Some(v) if part => mix[d as usize - 8] = v,
+                Some(v) if part => {
+                    mix[d as usize - 8] = v;
+                    mix_set |= 1 << (d - 8);
+                }
                 Some(v) => init.push(&[0xB0 | d, 7, v]),
                 None => {}
             }
@@ -425,6 +476,6 @@ impl Setup {
         for (d, k) in kit.iter_mut().enumerate() {
             *k = is_drum_part(d as u8) || voices[d].is_some_and(|(msb, _, _)| msb >= 126);
         }
-        Setup { init, init_resend, voices, kit, mix, bend_range }
+        Setup { init, init_resend, voices, kit, mix, mix_set, bend_range }
     }
 }
