@@ -29,14 +29,13 @@ impl Engine {
                 continue;
             }
             // A feature's action before the next event and the boundary (`hook_due`).
-            if let Some(t) = self.hook_due() {
-                if t <= target
-                    && t < boundary - 1e-6
-                    && sec.events.get(self.ev_idx).is_none_or(|e| t <= self.sec_start + e.tick as f64 + 1e-6)
-                {
-                    self.on_due(t, now, sink);
-                    continue;
-                }
+            if let Some(t) = self.hook_due()
+                && t <= target
+                && t < boundary - 1e-6
+                && sec.events.get(self.ev_idx).is_none_or(|e| t <= self.sec_start + e.tick as f64 + 1e-6)
+            {
+                self.on_due(t, now, sink);
+                continue;
             }
             if let Some(e) = sec.events.get(self.ev_idx) {
                 let t = self.sec_start + e.tick as f64;

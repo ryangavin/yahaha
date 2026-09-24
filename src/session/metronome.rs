@@ -34,22 +34,22 @@ impl Control {
             }
         }
         let (new_on, new_bell) = (m.on, m.bell);
-        if (on, bell) != (new_on, new_bell) {
-            if let Err(e) = self.engine_cmd(Cmd::Metronome { on: new_on, bell: new_bell }) {
-                self.metronome.on = on;
-                self.metronome.bell = bell;
-                return Err(e);
-            }
+        if (on, bell) != (new_on, new_bell)
+            && let Err(e) = self.engine_cmd(Cmd::Metronome { on: new_on, bell: new_bell })
+        {
+            self.metronome.on = on;
+            self.metronome.bell = bell;
+            return Err(e);
         }
         Ok(())
     }
 
     /// The click voice's volume follows the setting (also after the synth restarts).
     pub(super) fn pump_metronome(&mut self) {
-        if let Some(s) = &self.synth {
-            if s.control.click_volume.load(Relaxed) != self.metronome.volume {
-                s.control.click_volume.store(self.metronome.volume, Relaxed);
-            }
+        if let Some(s) = &self.synth
+            && s.control.click_volume.load(Relaxed) != self.metronome.volume
+        {
+            s.control.click_volume.store(self.metronome.volume, Relaxed);
         }
     }
 

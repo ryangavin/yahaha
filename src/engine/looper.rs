@@ -184,10 +184,10 @@ impl Engine {
 
     /// The loop stopped: the style follows the keyboard's chord again, if it played one.
     fn follow_keyboard(&mut self, now: u64, sink: &mut impl Sink) {
-        if let Some(k) = self.features.looper.kbd.take() {
-            if self.played != Some(k) {
-                self.apply_chord(k, now, sink);
-            }
+        if let Some(k) = self.features.looper.kbd.take()
+            && self.played != Some(k)
+        {
+            self.apply_chord(k, now, sink);
         }
     }
 
