@@ -66,6 +66,15 @@ pub(super) struct Looper {
     /// A finished recording for `take_recorded`.
     recorded: bool,
     seq_gen: u32,
+    /// REC/STOP turned Sync Start on (stopped): cancelling the recording turns it off again.
+    armed_sync: bool,
+}
+
+impl Looper {
+    /// The player pressed SYNC START: it is theirs, not REC/STOP's, from now on.
+    pub(super) fn forget_sync(&mut self) {
+        self.armed_sync = false;
+    }
 }
 
 impl Engine {
@@ -81,16 +90,27 @@ impl Engine {
                 let was_looping = l.state == LoopState::Looping;
                 l.state = LoopState::RecArmed;
                 l.pending = None;
-                if !self.running {
+                if !self.running && !self.sync_armed {
                     // Recording from stopped: Sync Start, so the first chord starts both.
                     self.sync_armed = true;
+                    l.armed_sync = true;
                 }
                 if was_looping {
                     self.follow_keyboard(now, sink);
                 }
             }
-            LoopState::RecArmed => l.state = LoopState::Off,
+            LoopState::RecArmed => self.cancel_rec(),
             LoopState::Recording => self.finish_recording(LoopState::Off),
+        }
+    }
+
+    /// Recording armed, cancelled before it began: Sync Start goes off again if REC/STOP
+    /// turned it on (and the band has not started).
+    fn cancel_rec(&mut self) {
+        let l = &mut self.features.looper;
+        l.state = LoopState::Off;
+        if std::mem::take(&mut l.armed_sync) && !self.running {
+            self.sync_armed = false;
         }
     }
 
@@ -99,7 +119,8 @@ impl Engine {
         let l = &mut self.features.looper;
         match l.state {
             LoopState::Recording => self.finish_recording(LoopState::LoopArmed),
-            LoopState::RecArmed | LoopState::LoopArmed => l.state = LoopState::Off,
+            LoopState::RecArmed => self.cancel_rec(),
+            LoopState::LoopArmed => l.state = LoopState::Off,
             LoopState::Off if !l.seq.is_empty() => l.state = LoopState::LoopArmed,
             LoopState::Off => {}
             LoopState::Looping => {
@@ -203,7 +224,10 @@ impl Engine {
         let l = &mut self.features.looper;
         match l.state {
             LoopState::Recording => self.finish_recording(LoopState::Off),
-            LoopState::RecArmed => l.state = LoopState::Off,
+            LoopState::RecArmed => {
+                l.state = LoopState::Off;
+                l.armed_sync = false;
+            }
             LoopState::Looping => {
                 l.state = LoopState::LoopArmed;
                 if let Some(p) = l.pending.take() {
@@ -228,6 +252,7 @@ impl Engine {
                 l.seq.clear();
                 l.rec_bars = 1;
                 l.state = LoopState::Recording;
+                l.armed_sync = false;
                 l.kbd = None;
                 // The chord held as recording starts is its first.
                 if let Some(p) = played {
@@ -385,6 +410,36 @@ mod tests {
         assert_eq!(e.played, Some(c("Bb")));
         assert_eq!(e.looper_snapshot().state, LoopState::Off);
         assert!(e.looper_snapshot().has_data);
+    }
+
+    /// REC/STOP while stopped turns Sync Start on; cancelling the recording before it
+    /// begins (REC/STOP or ON/OFF again) turns it off again. Sync Start that was already
+    /// on, or that the player pressed since, stays on.
+    #[test]
+    fn cancelled_rec_disarms_its_sync_start() {
+        let Some(mut e) = engine() else { return };
+        e.button(Button::SyncStart, 0, &mut Nop); // off
+        e.looper_rec(0, &mut Nop);
+        assert!(e.starts_on_chord());
+        e.looper_rec(1, &mut Nop);
+        assert_eq!(e.looper_snapshot().state, LoopState::Off);
+        assert!(!e.starts_on_chord(), "REC cancelled: Sync Start off again");
+        e.looper_rec(2, &mut Nop);
+        e.looper_on_off(3, &mut Nop);
+        assert_eq!(e.looper_snapshot().state, LoopState::Off);
+        assert!(!e.starts_on_chord(), "cancelled with ON/OFF too");
+        // Already on: REC did not turn it on, so cancelling leaves it on.
+        e.button(Button::SyncStart, 4, &mut Nop); // on
+        e.looper_rec(5, &mut Nop);
+        e.looper_rec(6, &mut Nop);
+        assert!(e.starts_on_chord());
+        // The player pressed SYNC START off and on while REC was armed: theirs.
+        e.button(Button::SyncStart, 7, &mut Nop); // off
+        e.looper_rec(8, &mut Nop);
+        e.button(Button::SyncStart, 9, &mut Nop); // off
+        e.button(Button::SyncStart, 10, &mut Nop); // on
+        e.looper_rec(11, &mut Nop);
+        assert!(e.starts_on_chord());
     }
 
     /// Recording from stopped: Sync Start, and the first chord starts the style and the

@@ -58,6 +58,8 @@ impl Engine {
                 }
             }
             Button::SyncStart => {
+                // The player's own choice now: cancelling REC leaves it alone.
+                self.features.looper.forget_sync();
                 if self.running {
                     self.stop(sink);
                     self.sync_armed = true;
