@@ -116,6 +116,9 @@ pub(super) struct SoundLib {
     plugin_channels: [Option<String>; 16],
     /// The patch each channel resolved to at the last `sync_channel_routes` (tests).
     synced: [Option<String>; 16],
+    /// The plugin each keyboard part was given for its own plugin patch (the patch id and
+    /// the voice), through #91's `assign_channel_plugin` (`sync_part_plugins`).
+    part_plugin: [Option<(String, super::PluginVoice)>; parts::COUNT],
     /// Auditions to the synth (the control side's ring), when it runs.
     pub(super) audition_tx: Option<Producer<synth::Msg>>,
     browse: Option<SoundFontBrowse>,
@@ -149,6 +152,7 @@ impl SoundLib {
             audition: None,
             plugin_channels: Default::default(),
             synced: Default::default(),
+            part_plugin: Default::default(),
             audition_tx: None,
             browse: None,
             last_added: None,
@@ -349,6 +353,7 @@ impl Control {
         let routes = self.shared.routes.clone();
         self.sound.write_all(&routes, &avail);
         self.sync_channel_routes();
+        self.sync_part_plugins();
         if let (Some(path), None) = (&self.sound.path, &self.sound.locked)
             && let Err(e) = self.sound.lib.save(path)
         {
@@ -572,7 +577,16 @@ impl Control {
     /// octave, pan and sends) go to the part as CCs, as a voice selection does.
     pub(super) fn set_part_patch(&mut self, part: usize, id: Option<String>) -> Result<(), CmdError> {
         self.need_patch_or_none(&id)?;
-        let defaults = id.as_deref().and_then(|i| self.sound.lib.patch(i)).map(|p| p.defaults);
+        let patch = id.as_deref().and_then(|i| self.sound.lib.patch(i));
+        let defaults = patch.map(|p| p.defaults);
+        // A SoundFont patch picked over a plugin from the Plugins tab ends that plugin: the
+        // part plays what was picked last. (A plugin patch replaces it on the channel.)
+        let sound_font = patch.is_some_and(|p| matches!(p.source, PatchSource::SoundFont { .. }));
+        let ch = parts::CHANNEL[part];
+        if sound_font && self.sound.part_plugin[part].is_none() && self.channel_plugin_state(ch).is_some() {
+            self.clear_channel_plugin(ch);
+            self.mark_plugins_dirty();
+        }
         self.sound.part_patch[part] = id;
         let kp = self.shared.parts.clone();
         if let Some(d) = defaults {
@@ -600,11 +614,64 @@ impl Control {
     }
 
     /// A GM voice was picked for keyboard part `part` (the voice list, an OTS): it no
-    /// longer plays its own patch.
+    /// longer plays its own patch (nor that patch's plugin).
     pub(super) fn sound_library_part_voice(&mut self, part: usize) {
         if self.sound.part_patch[part & 3].take().is_some() {
             let (avail, routes) = (self.avail_fonts(), self.shared.routes.clone());
             self.sound.write_parts(&routes, &avail);
+            self.sync_part_plugins();
+        }
+    }
+
+    /// A plugin was picked for keyboard part `part` on the Plugins tab (`setPartPlugin`),
+    /// or its plugin cleared there while it played a plugin patch: the part no longer plays
+    /// its own patch. The plugin command itself then decides what the channel plays.
+    pub(super) fn sound_library_part_plugin(&mut self, part: usize, picked: bool) {
+        let part = part & 3;
+        if !picked && self.sound.part_plugin[part].is_none() {
+            return;
+        }
+        self.sound.part_plugin[part] = None;
+        if self.sound.part_patch[part].take().is_some() {
+            let (avail, routes) = (self.avail_fonts(), self.shared.routes.clone());
+            self.sound.write_parts(&routes, &avail);
+        }
+    }
+
+    /// Bring the keyboard parts' plugins to their own patches: a part whose own patch is a
+    /// plugin patch plays that plugin with the patch's state (#91's `assign_channel_plugin`,
+    /// the path `setPartPlugin` takes); a part that leaves one (another patch, a GM voice,
+    /// the patch deleted) goes back to its SoundFont voice. Only what this function gave a
+    /// part is taken away: a plugin picked on the Plugins tab ends the part's patch first
+    /// (`sound_library_part_plugin`). A plugin patch that can't load plays the fallback, as
+    /// a Style part's does.
+    fn sync_part_plugins(&mut self) {
+        for p in 0..parts::COUNT {
+            let want = self.sound.part_patch[p].as_deref().and_then(|id| self.sound.lib.patch(id)).and_then(|q| match &q.source {
+                PatchSource::Plugin { component_id, state } => Some((q.id.clone(), plugin_voice(component_id, state))),
+                PatchSource::SoundFont { .. } => None,
+            });
+            if want == self.sound.part_plugin[p] {
+                continue;
+            }
+            let ch = parts::CHANNEL[p];
+            let had = self.sound.part_plugin[p].take().is_some();
+            match want {
+                Some((id, voice)) => {
+                    // Remembered even when it can't start, so an edit elsewhere doesn't retry
+                    // (and report) it again; leaving the patch clears the channel as usual.
+                    self.sound.part_plugin[p] = Some((id.clone(), voice.clone()));
+                    if let Err(e) = self.assign_channel_plugin(ch, voice) {
+                        if had {
+                            self.clear_channel_plugin(ch);
+                        }
+                        let name = self.sound.lib.patch(&id).map_or(id.clone(), |q| q.name.clone());
+                        self.say(format!("{name} plays the fallback: {e}"), true);
+                    }
+                }
+                None => self.clear_channel_plugin(ch),
+            }
+            self.mark_plugins_dirty();
         }
     }
 
@@ -697,8 +764,7 @@ impl Control {
                     if mine.as_deref() == Some(id.as_str()) {
                         continue;
                     }
-                    // The plugin state format is #91's (ClassInfo bytes, base64).
-                    let voice = super::PluginVoice { id: component_id.clone(), state: crate::api::base64_decode(state) };
+                    let voice = plugin_voice(component_id, state);
                     match self.assign_channel_plugin(ch, voice) {
                         Ok(()) => self.sound.plugin_channels[ch as usize] = Some(id.clone()),
                         // No plugin host (this build, or no synth): the SoundFont fallback.
@@ -964,6 +1030,13 @@ impl Control {
             last_added: self.sound.last_added.clone(),
         }
     }
+}
+
+/// A plugin patch's voice as #91 loads it. The state is #91's format (ClassInfo bytes,
+/// base64); none (or none readable) is the plugin's default preset.
+fn plugin_voice(component_id: &str, state: &str) -> super::PluginVoice {
+    let state = crate::api::base64_decode(state).filter(|b| !b.is_empty());
+    super::PluginVoice { id: component_id.to_string(), state }
 }
 
 fn from_fields(id: String, f: PatchFields) -> Patch {
