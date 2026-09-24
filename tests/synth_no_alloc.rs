@@ -2,9 +2,10 @@
 //! notes and controllers, the master fader, a SoundFont swap, and (feature `plugins`) a
 //! keyboard part going over to an Audio Unit instrument (Apple's DLSMusicDevice), playing
 //! it, crossfading to a second instance, and back to the SoundFont. SoundFont swaps while
-//! the control side is not taking old racks back must not free one either. A counting global
-//! allocator (in this test binary only) checks every `process` call. What the plugin does
-//! inside its own render is its own business and does not go through Rust's allocator.
+//! the control side is not taking old racks back must not free one either. A counting
+//! global allocator (in this test binary only) checks every `process` call, on the calling
+//! thread. What the plugin does inside its own render is its own business and does not go
+//! through Rust's allocator.
 
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::sync::Arc;
@@ -16,13 +17,27 @@ struct Counting;
 static ALLOCS: AtomicUsize = AtomicUsize::new(0);
 static FREES: AtomicUsize = AtomicUsize::new(0);
 
+thread_local! {
+    /// Count on this thread only, only inside `process`: plugin load threads and the
+    /// dispose thread allocate and free on their own time.
+    static COUNT: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+fn counting() -> bool {
+    COUNT.try_with(|c| c.get()).unwrap_or(false)
+}
+
 unsafe impl GlobalAlloc for Counting {
     unsafe fn alloc(&self, l: Layout) -> *mut u8 {
-        ALLOCS.fetch_add(1, Ordering::Relaxed);
+        if counting() {
+            ALLOCS.fetch_add(1, Ordering::Relaxed);
+        }
         unsafe { System.alloc(l) }
     }
     unsafe fn dealloc(&self, p: *mut u8, l: Layout) {
-        FREES.fetch_add(1, Ordering::Relaxed);
+        if counting() {
+            FREES.fetch_add(1, Ordering::Relaxed);
+        }
         unsafe { System.dealloc(p, l) }
     }
 }
@@ -53,7 +68,9 @@ fn the_audio_callback_does_not_allocate() {
             feed.push(*m).unwrap();
         }
         let (a, f) = (ALLOCS.load(Ordering::Relaxed), FREES.load(Ordering::Relaxed));
+        COUNT.with(|c| c.set(true));
         core.process(&mut out);
+        COUNT.with(|c| c.set(false));
         (ALLOCS.load(Ordering::Relaxed) - a, FREES.load(Ordering::Relaxed) - f)
     };
     let none = (0, 0);
