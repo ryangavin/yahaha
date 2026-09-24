@@ -113,7 +113,10 @@ settings and the other parts still recall, and the bank file keeps the voice as 
    (`live::Cmd::StyleControls`), which it compares with its own: a Main change is a Main
    press (playing, it changes at the next bar line), and a switch already in the recalled
    state is left alone, however recently the control side last saw a snapshot. Style part
-   volumes are sent as CC7 values.
+   volumes are states too (`StyleControls.volumes`): only a part whose level differs is
+   set, as a fader move (its CC7). A part already at its stored level stays the style's,
+   so the style's own pattern CC7 (Intro, Main, Ending levels) still moves it, as it
+   would without a recall.
 
 Whatever a recall can't do (a style that's gone, a voice this build can't play) is in the
 message, as an error, after the button's name; the rest is still recalled.

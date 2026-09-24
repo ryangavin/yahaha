@@ -561,3 +561,42 @@ fn unknown_voice_kind_blocks_only_that_part() {
     assert!(std::fs::read_to_string(&file).unwrap().contains("au.x"));
     let _ = std::fs::remove_dir_all(dir);
 }
+
+/// Review r2 B1: a recall that finds the Style mixer already where it stored it leaves the
+/// parts to the style: its patterns' CC7 (Intro, Main, Ending levels) still move the
+/// untouched parts, as with no recall at all.
+#[test]
+fn recall_leaves_pattern_levels_to_the_style() {
+    let Some(path) = corpus("NightCruiser.S930.STY") else { return };
+    let levels = |recall: bool| {
+        let dir = data_dir(if recall { "cc7-recall" } else { "cc7-plain" });
+        let s = Session::offline(Options { paths: vec![path.clone()], data_dir: Some(dir.clone()), ..Options::default() }).unwrap();
+        s.finish_indexing();
+        s.advance(MS);
+        if recall {
+            s.send(RegistrationCmd::MemorizeRegist { index: 0 }).unwrap();
+            s.send(RegistrationCmd::RecallRegist { index: 0 }).unwrap();
+            for _ in 0..5 {
+                s.advance(MS);
+            }
+            assert!(!s.state().registration.pending);
+        }
+        let vol = |s: &Session| s.state().mixer.style_parts.iter().map(|p| p.volume).collect::<Vec<u8>>();
+        let mut out = vec![vol(&s)];
+        s.send(TransportCmd::Intro { index: 0 }).unwrap();
+        s.send(TransportCmd::StartStop).unwrap();
+        s.advance(500 * MS);
+        out.push(vol(&s));
+        s.send(TransportCmd::Main { index: 1 }).unwrap();
+        s.advance(12_000 * MS);
+        out.push(vol(&s));
+        s.send(TransportCmd::Ending { index: 0 }).unwrap();
+        s.advance(4_000 * MS);
+        out.push(vol(&s));
+        let _ = std::fs::remove_dir_all(dir);
+        out
+    };
+    let plain = levels(false);
+    assert!(plain.iter().any(|v| *v != plain[0]), "the style's patterns set their own levels: {plain:?}");
+    assert_eq!(levels(true), plain, "a no-op recall must not freeze the pattern levels");
+}

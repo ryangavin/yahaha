@@ -15,6 +15,10 @@ pub struct StyleControls {
     pub stop_acmp: Option<bool>,
     /// The Style parts that play (bit 0 = Rhythm 1).
     pub parts: Option<u8>,
+    /// The Style part levels (CC7, Rhythm 1 .. Phrase 2). Only a part whose level differs
+    /// is set (as a fader move from software); a part already at its level stays the
+    /// style's, so its patterns' own CC7 (Intro, Main, Ending levels) still move it.
+    pub volumes: Option<[u8; 8]>,
 }
 
 impl Engine {
@@ -70,6 +74,14 @@ impl Engine {
             for p in 0..8u8 {
                 if (self.parts ^ parts) & (1 << p) != 0 {
                     self.button(Button::TogglePart(p), now, sink);
+                }
+            }
+        }
+        if let Some(volumes) = c.volumes {
+            for (p, &v) in volumes.iter().enumerate() {
+                let v = v.min(127);
+                if self.mixer[p] != v {
+                    self.set_volume_from_software(p as u8, v, sink);
                 }
             }
         }
@@ -308,6 +320,7 @@ mod tests {
             sync_stop: Some(true),
             stop_acmp: Some(true),
             parts: Some(0b1101_0111),
+            volumes: None,
         };
         for _ in 0..2 {
             e.set_style_controls(set, 1, &mut Nop);
@@ -318,5 +331,25 @@ mod tests {
         e.set_style_controls(StyleControls { parts: Some(0xff), ..StyleControls::default() }, 1, &mut Nop);
         let s = e.snapshot(1);
         assert_eq!((s.main, s.sync_stop, s.parts), (2, true, 0xff));
+    }
+
+    /// Review r2 B1: recalled levels are states too. A part already at its level is left
+    /// to the style (no fader move, so its patterns' CC7 still apply); a part at another
+    /// level is set, as a fader move.
+    #[test]
+    fn style_volumes_set_only_the_parts_that_differ() {
+        let p = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus/MOX_v2/SlowWalker.T552.sty");
+        if !p.exists() {
+            eprintln!("corpus missing; skipping");
+            return;
+        }
+        let mut e = Engine::new(Box::new(Prepared::new(&Style::load(&p).unwrap())));
+        let mut volumes = e.mixer;
+        volumes[3] = if volumes[3] == 64 { 65 } else { 64 };
+        e.set_style_controls(StyleControls { volumes: Some(volumes), ..StyleControls::default() }, 1, &mut Nop);
+        assert_eq!(e.mixer, volumes);
+        assert_eq!(e.user_set, 1 << 3, "only the part that moved counts as the player's");
+        e.set_style_controls(StyleControls { volumes: Some(volumes), ..StyleControls::default() }, 1, &mut Nop);
+        assert_eq!(e.user_set, 1 << 3);
     }
 }

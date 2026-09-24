@@ -204,6 +204,7 @@ fn control_recall(c: &mut Control, v: &Value, g: Groups) -> Result<(), String> {
         sync_stop: Some(r.sync_stop),
         stop_acmp: Some(r.stop_acmp),
         parts: None,
+        volumes: None,
     };
     c.engine_cmd(Cmd::StyleControls(set)).map_err(|e| e.to_string())
 }
@@ -231,13 +232,12 @@ fn mixer_recall(c: &mut Control, v: &Value, g: Groups) -> Result<(), String> {
         return Ok(());
     }
     let r: MixerReg = parse("styleMixer", v)?;
-    // Absolute levels and states only: nothing here depends on the snapshot, which may be
-    // behind an earlier recall's changes.
-    for p in 0..8u8 {
-        c.engine_cmd(Cmd::StyleVolume(p, r.volumes[p as usize].min(127))).map_err(|e| e.to_string())?;
-    }
+    // Absolute levels and states only: the engine compares them with its own (the
+    // snapshot may be behind an earlier recall's changes) and sets only the parts that
+    // differ, so a part already at its level keeps following the style's pattern CC7.
     let parts = (0..8).filter(|&p| r.on[p]).fold(0u8, |m, p| m | 1 << p);
-    c.engine_cmd(Cmd::StyleControls(StyleControls { parts: Some(parts), ..StyleControls::default() })).map_err(|e| e.to_string())
+    let set = StyleControls { parts: Some(parts), volumes: Some(r.volumes), ..StyleControls::default() };
+    c.engine_cmd(Cmd::StyleControls(set)).map_err(|e| e.to_string())
 }
 
 // ----- the keyboard parts (Right 1-3: group Voice; Left: group Style) -----
