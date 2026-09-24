@@ -18,6 +18,7 @@ const EVERY_CMD: &[&str] = &[
     r#"{"type":"intro","index":1}"#,
     r#"{"type":"main","index":2}"#,
     r#"{"type":"break"}"#,
+    r#"{"type":"fill","delta":1}"#,
     r#"{"type":"ending","index":0}"#,
     r#"{"type":"startStop"}"#,
     r#"{"type":"stop"}"#,
@@ -115,6 +116,14 @@ const EVERY_CMD: &[&str] = &[
     r#"{"type":"setPlaylistSort","sort":"aToZ"}"#,
     r#"{"type":"loadPlaylistRecord","index":4}"#,
     r#"{"type":"stepPlaylist","delta":1}"#,
+    // Controllers
+    r#"{"type":"setPedal","pedal":1,"cc":66,"function":"fillUp","controlType":"toggle","reverse":true,"range":"full"}"#,
+    r#"{"type":"setPedal","pedal":2,"cc":null,"function":"none","controlType":"holdA","reverse":false,"range":"upper"}"#,
+    r#"{"type":"learnPedal","pedal":0}"#,
+    r#"{"type":"learnPedal","pedal":null}"#,
+    r#"{"type":"setPartControllers","part":3,"sustain":false,"pitchBend":true,"modulation":false}"#,
+    r#"{"type":"setBendRange","part":0,"semitones":12}"#,
+    r#"{"type":"triggerFunction","function":"ots2"}"#,
 ];
 
 fn type_of(json: &str) -> String {
@@ -222,6 +231,8 @@ fn bad_commands_are_refused() {
         r#"{"type":"main","index":"one"}"#,
         r#"{"type":"setFingering","fingering":"nope"}"#,
         r#"{"type":"setMidiInputs","all":false}"#,
+        r#"{"type":"setPedal","pedal":0,"cc":64,"function":"noSuchFunction"}"#,
+        r#"{"type":"triggerFunction"}"#,
         r#"[1,2]"#,
         r#""startStop""#,
     ] {

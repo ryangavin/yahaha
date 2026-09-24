@@ -119,5 +119,12 @@ export function tipFor(cmd: AppCmd | null): TipKey {
     case 'setPlaylistSort': return 'playlist.sort'
     case 'loadPlaylistRecord': return 'playlist.record'
     case 'stepPlaylist': return cmd.delta < 0 ? 'playlist.prev' : 'playlist.next'
+    // Fill Up/Down/Self are pedal functions (no pad has them).
+    case 'fill':
+    case 'setPedal': return 'pedal.function'
+    case 'learnPedal': return 'pedal.learn'
+    case 'triggerFunction': return 'pedal.try'
+    case 'setPartControllers': return 'pedal.part_sustain'
+    case 'setBendRange': return 'pedal.bend_up'
   }
 }

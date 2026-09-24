@@ -184,6 +184,8 @@ pub enum Action {
     RegistSeq(i8),
     /// Previous/next Playlist record (`<` `>`; Shift + Track < / >).
     Playlist(i8),
+    /// A pedal's assignable function that the control side runs (`controllers.rs`).
+    Assign(crate::controllers::Function),
 }
 
 /// What a pad does on a page.

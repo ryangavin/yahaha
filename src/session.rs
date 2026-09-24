@@ -28,6 +28,7 @@
 //! `build_state` below call them in a fixed order (docs/architecture.md).
 
 mod chord;
+mod controllers;
 mod keyboard;
 mod leds;
 mod library;
@@ -299,6 +300,7 @@ impl Control {
             AppCmd::System(c) => self.system_cmd(c),
             AppCmd::Registration(c) => self.registration_cmd(c),
             AppCmd::Playlist(c) => self.playlist_cmd(c),
+            AppCmd::Controllers(c) => self.controllers_cmd(c),
         }
     }
 
@@ -394,6 +396,7 @@ impl Control {
             keyboard: self.keyboard_state(&v),
             registration: self.registration_state(),
             playlist: self.playlist_state(),
+            controllers: self.controllers_state(),
             message: self.message.clone(),
         }
     }
