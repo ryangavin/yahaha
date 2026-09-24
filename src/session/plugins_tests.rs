@@ -203,3 +203,108 @@ fn a_restore_keeps_a_missing_plugin_and_never_falls_back_in_process() {
     assert_eq!(kept.parts[0].as_ref().map(|v| (v.id.as_str(), v.state.clone())), Some(("aumu Nope Gone", Some(vec![1, 2, 3]))), "the id and state survive");
     assert_eq!(kept.parts[3].as_ref().map(|v| v.id.as_str()), Some(DLS));
 }
+
+/// Goertzel power at `hz` (48 kHz).
+fn power_at(x: &[f32], hz: f64) -> f64 {
+    let w = 2.0 * std::f64::consts::PI * hz / 48_000.0;
+    let (mut s1, mut s2) = (0.0f64, 0.0f64);
+    for &v in x {
+        let s0 = v as f64 + 2.0 * w.cos() * s1 - s2;
+        (s2, s1) = (s1, s0);
+    }
+    s1 * s1 + s2 * s2 - 2.0 * w.cos() * s1 * s2
+}
+
+/// Play with time running: engine deadlines (Echo, the arpeggio) and audio together.
+fn play(s: &Session, ms: usize) -> Vec<f32> {
+    let mut out = Vec::new();
+    for _ in 0..ms / 10 {
+        s.advance(10_000_000);
+        out.extend(s.render(480).0);
+    }
+    out
+}
+
+/// Keyboard Harmony's added notes (input thread) and the arpeggio's (engine thread) on a
+/// keyboard part reach that part's plugin, as its keys do (#100 with #91).
+#[test]
+fn harmony_and_arpeggio_notes_reach_the_parts_plugin() {
+    use crate::api::HarmonyArpCmd;
+    let Some(s) = session() else { return };
+    s.finish_indexing();
+    s.offline_audio(None, 48_000).unwrap();
+    s.send(PluginCmd::SetPartPlugin { part: 0, id: DLS.into(), state: None }).unwrap();
+    assert_eq!(wait_playing(&s, 0), PluginStatus::Playing);
+    // Harmony: C5 over a C chord adds G4 below it, on Right 1 (the plugin).
+    let duet = crate::live::type_index(crate::harmony::HarmonyType::StandardDuet1);
+    s.send(HarmonyArpCmd::SetHarmonyType { index: duet }).unwrap();
+    let g4 = |on: bool| {
+        s.send(HarmonyArpCmd::SetHarmonyArpOn { on }).unwrap();
+        for k in [48, 52, 43] {
+            s.midi_in(Port::Keys, &[0x90, k, 90]);
+        }
+        s.midi_in(Port::Keys, &[0x90, 72, 100]);
+        let x = play(&s, 300);
+        for k in [72, 48, 52, 43] {
+            s.midi_in(Port::Keys, &[0x80, k, 0]);
+        }
+        play(&s, 1500);
+        power_at(&x[2400..], 392.0) / power_at(&x[2400..], 523.25)
+    };
+    let (off, on) = (g4(false), g4(true));
+    assert!(on > 20.0 * off, "the harmony note sounds on the plugin: G4/C5 {on} with Harmony, {off} without");
+    // Arpeggio with Hold: the pattern plays on the plugin after the keys are released.
+    let climb = crate::arp::library::PATTERNS.iter().position(|p| p.name == "Climb 16").unwrap() as u8;
+    s.send(HarmonyArpCmd::SetArpPattern { index: climb }).unwrap();
+    s.send(HarmonyArpCmd::SetArpHold { on: true }).unwrap();
+    let tail = |on: bool| {
+        s.send(HarmonyArpCmd::SetHarmonyArpOn { on }).unwrap();
+        s.midi_in(Port::Keys, &[0x90, 72, 100]);
+        play(&s, 300);
+        s.midi_in(Port::Keys, &[0x80, 72, 0]);
+        let x = play(&s, 3000);
+        energy(&x[96_000..], &[])
+    };
+    let (off, on) = (tail(false), tail(true));
+    assert!(on > 1e-3 && on > 100.0 * off, "the held arpeggio sounds on the plugin: {on}, a released key {off}");
+    s.send(HarmonyArpCmd::SetHarmonyArpOn { on: false }).unwrap();
+}
+
+/// The band's channel setups, now one per section routing (#64), go to the style parts'
+/// channels (9-16) only: section changes never reach a keyboard part's plugin, which
+/// plays its key as before afterwards.
+#[test]
+fn section_setups_never_reach_a_keyboard_parts_plugin() {
+    use crate::api::TransportCmd;
+    let Some(s) = session() else { return };
+    s.finish_indexing();
+    s.offline_audio(None, 48_000).unwrap();
+    s.send(PluginCmd::SetPartPlugin { part: 0, id: DLS.into(), state: None }).unwrap();
+    assert_eq!(wait_playing(&s, 0), PluginStatus::Playing);
+    // A C5 on Right 1: its level and how much of it is C5.
+    let key = |s: &Session| {
+        s.midi_in(Port::Keys, &[0x90, 72, 100]);
+        let x = play(s, 300);
+        s.midi_in(Port::Keys, &[0x80, 72, 0]);
+        play(s, 2000);
+        let e = energy(&x[4800..], &[]);
+        (e, power_at(&x[4800..], 523.25) / e)
+    };
+    let before = key(&s);
+    // The band (no SoundFont: silent) through every Main, with a left-hand chord.
+    s.send(TransportCmd::StartStop).unwrap();
+    for k in [48, 52, 43] {
+        s.midi_in(Port::Keys, &[0x90, k, 90]);
+    }
+    // Only the C5's reverb tail, dying away, may sound.
+    let mut last = f64::MAX;
+    for index in [1, 2, 3, 0] {
+        s.send(TransportCmd::Main { index }).unwrap();
+        let e = energy(&play(&s, 2000), &[]);
+        assert!(e <= last && e < before.0 * 1e-4, "Main {index}: nothing reaches Right 1's plugin ({e} after {last})");
+        last = e;
+    }
+    assert!(s.state().transport.running);
+    let after = key(&s);
+    assert!((after.0 / before.0 - 1.0).abs() < 0.05 && (after.1 / before.1 - 1.0).abs() < 0.05, "the key plays as before: {before:?} then {after:?}");
+}
