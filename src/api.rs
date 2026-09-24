@@ -28,6 +28,7 @@ mod mixer;
 mod multipad;
 mod ots;
 mod pads;
+mod param_lock;
 mod plugins;
 mod parts;
 mod playlist;
@@ -53,6 +54,7 @@ pub use mixer::*;
 pub use multipad::*;
 pub use ots::*;
 pub use pads::*;
+pub use param_lock::*;
 pub use plugins::*;
 pub use parts::*;
 pub use playlist::*;
@@ -163,6 +165,8 @@ app_cmd! {
     HarmonyArp(HarmonyArpCmd),
     /// The sound library: patches, the program map, auditions, import/export.
     SoundLibrary(SoundLibraryCmd),
+    /// Parameter Lock: groups that Registration, OTS and Playlist recalls leave alone.
+    ParamLock(ParamLockCmd),
 }
 
 impl From<Button> for AppCmd {
@@ -338,6 +342,9 @@ pub struct AppState {
     pub plugins: PluginsState,
     /// The sound library: patches, the program map, what the current style uses.
     pub sound_library: SoundLibraryState,
+    /// Parameter Lock: the locked groups.
+    #[serde(default)]
+    pub param_locks: ParamLockState,
 }
 
 // ---------------------------------------------------------------------------

@@ -43,6 +43,7 @@ mod multipad;
 mod offline;
 mod ots;
 mod pads;
+mod param_lock;
 mod parts;
 mod plugins;
 mod playlist;
@@ -357,6 +358,7 @@ impl Control {
             AppCmd::Plugins(c) => self.plugins_cmd(c),
             AppCmd::HarmonyArp(c) => self.harmony_arp_cmd(c),
             AppCmd::SoundLibrary(c) => self.sound_library_cmd(c),
+            AppCmd::ParamLock(c) => self.param_lock_cmd(c),
         }
     }
 
@@ -471,6 +473,7 @@ impl Control {
             metronome: self.metronome_state(),
             plugins: self.plugins_state(),
             sound_library: self.sound_library_state(),
+            param_locks: self.param_lock_state(),
         }
     }
 }
