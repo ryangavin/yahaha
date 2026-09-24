@@ -149,9 +149,9 @@
     min-height: 2.2rem;
     padding: 0 0.4rem;
     border-radius: 4px;
-    border: 1px solid var(--seam);
-    background: var(--well);
-    color: var(--ink);
+    border: 1px solid var(--well-edge);
+    background: var(--screen-bg);
+    color: var(--screen-ink);
     font: inherit;
     font-size: 0.85rem;
   }
