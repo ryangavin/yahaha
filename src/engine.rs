@@ -17,6 +17,8 @@ mod mirror;
 mod mixer;
 mod playback;
 mod prepared;
+#[cfg(test)]
+mod rules_tests;
 mod sections;
 mod setup;
 mod style_change;
