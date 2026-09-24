@@ -3,7 +3,7 @@
 //! Each hook is a plain method, called at one fixed point of the engine's work and in a
 //! fixed order; none of them does anything yet. A feature adds one call to its own
 //! function (in its own module) to the hook it needs, and keeps its engine-side state in
-//! one field of [`Features`]. No trait objects, no registry: the calls are static and
+//! one field of [`Features`] (Multi Pads, multipad.rs, are the first). No trait objects, no registry: the calls are static and
 //! inline away while the bodies are empty.
 //!
 //! The rules the engine's own code keeps apply here too: deterministic (time is the `now`
@@ -38,7 +38,10 @@ use super::*;
 /// its own `Copy`/fixed-size struct (no heap: `Engine::new` builds it on the control
 /// side, but the engine thread must never grow it).
 #[derive(Default)]
-pub(super) struct Features {}
+pub(super) struct Features {
+    /// Multi Pads (multipad.rs).
+    pub(super) pads: super::multipad::PadDeck,
+}
 
 /// The next beat line the bar and beat hooks wait for: a tick on the section's timeline
 /// (as `sec_start`), and its bar (0-based in this pass of the section) and beat (0-based
@@ -78,6 +81,7 @@ impl Engine {
     pub(super) fn on_start(&mut self, _now: u64, _sink: &mut impl Sink) {
         #[cfg(test)]
         self.log(Hook::Start);
+        self.pads_on_start(_now);
     }
 
     /// The band stopped: every note is off.
@@ -85,6 +89,7 @@ impl Engine {
     pub(super) fn on_stop(&mut self, _sink: &mut impl Sink) {
         #[cfg(test)]
         self.log(Hook::Stop);
+        self.pads_on_stop(_sink);
     }
 
     /// Bar `bar` (0-based in this pass of the section) begins; `on_beat` for its first beat
@@ -112,6 +117,7 @@ impl Engine {
             let from = self.cur;
             self.log(Hook::BeforeSection { from, to: _to });
         }
+        self.pads_before_section(_to, _sink);
     }
 
     /// The section changed from slot `_from` (to `self.cur`, which may be the same slot
@@ -131,6 +137,7 @@ impl Engine {
     pub(super) fn on_chord(&mut self, _prev: Option<Chord>, _now: u64, _sink: &mut impl Sink) {
         #[cfg(test)]
         self.log(Hook::Chord);
+        self.pads_on_chord(_now);
     }
 
     /// A new style (`self.style`) took over: its setup has gone out.

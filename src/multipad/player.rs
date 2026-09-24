@@ -437,6 +437,12 @@ impl MultiPadPlayer {
         }
     }
 
+    /// The tick of the next thing any pad does (an event, a pass end, a queued start), for
+    /// the caller's wake-up deadline. None when nothing plays or waits.
+    pub fn next_due(&self) -> Option<u64> {
+        self.next_step().map(|(_, at, _)| at)
+    }
+
     /// The earliest action of any pad: (pad, tick, step).
     fn next_step(&self) -> Option<(usize, u64, Step)> {
         let mut best: Option<(u64, Step, usize)> = None;
