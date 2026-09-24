@@ -471,6 +471,8 @@ fn launchkey_hardware_matches_its_commands() {
     let Some(p) = style("SlowWalker.T552.sty") else { return };
     let mk = |setup: u8| {
         let s = Session::offline(Options { paths: vec![p.clone()], ..Options::default() }).unwrap();
+        // The index thread would otherwise land in one twin and not the other under load.
+        s.finish_indexing();
         match setup {
             0 => {}
             1 => {
@@ -510,8 +512,21 @@ fn launchkey_hardware_matches_its_commands() {
         if let Some(c) = cmd {
             let _ = b.send(c);
         }
-        if norm(&a) != norm(&b) {
-            bad.push(format!("setup {setup}: {what}"));
+        let (na, nb) = (norm(&a), norm(&b));
+        if na != nb {
+            let (ja, jb) = (serde_json::to_value(&na.0).unwrap(), serde_json::to_value(&nb.0).unwrap());
+            let mut d = Vec::new();
+            if let (Some(oa), Some(ob)) = (ja.as_object(), jb.as_object()) {
+                for (k, v) in oa {
+                    if ob.get(k) != Some(v) {
+                        d.push(format!("{k}: {v} VS {:?}", ob.get(k)));
+                    }
+                }
+            }
+            if na.1 != nb.1 {
+                d.push(format!("output {:?} VS {:?}", na.1, nb.1));
+            }
+            bad.push(format!("setup {setup}: {what}: {}", d.join(" | ")));
         }
     };
     for setup in 0..3 {
