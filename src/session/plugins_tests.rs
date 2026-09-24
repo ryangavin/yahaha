@@ -308,3 +308,53 @@ fn section_setups_never_reach_a_keyboard_parts_plugin() {
     let after = key(&s);
     assert!((after.0 / before.0 - 1.0).abs() < 0.05 && (after.1 / before.1 - 1.0).abs() < 0.05, "the key plays as before: {before:?} then {after:?}");
 }
+
+/// A plugin patch auditions like a SoundFont one (#109): with the band stopped, its plugin
+/// loads on channel 16 (the audition channel), plays the phrase through the rack, and goes
+/// when the audition ends; nothing is left on the channel.
+#[test]
+fn a_plugin_patch_auditions_on_channel_16() {
+    use crate::api::{PatchFields, SoundLibraryCmd, TransportCmd};
+    use crate::patches::{PatchDefaults, PatchSource};
+    let Some(s) = session() else { return };
+    s.offline_audio(None, 48_000).unwrap();
+    let fields = PatchFields {
+        name: "DLS Keys".into(),
+        category: Default::default(),
+        tags: vec![],
+        favourite: false,
+        source: PatchSource::Plugin { component_id: DLS.into(), state: String::new() },
+        defaults: PatchDefaults::default(),
+    };
+    s.send(SoundLibraryCmd::CreatePatch { patch: fields }).unwrap();
+    let id = s.state().sound_library.last_added.clone().unwrap();
+    let ch16 = |s: &Session| s.inner.lock().channel_plugin(15).map(|p| p.status);
+    s.send(SoundLibraryCmd::AuditionPatch { id: id.clone() }).unwrap();
+    assert_eq!(s.state().sound_library.auditioning.as_deref(), Some(id.as_str()));
+    assert_eq!(ch16(&s), Some(PluginStatus::Loading));
+    let t0 = Instant::now();
+    while ch16(&s) == Some(PluginStatus::Loading) && t0.elapsed() < Duration::from_secs(20) {
+        s.advance(1_000_000);
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert_eq!(ch16(&s), Some(PluginStatus::Playing));
+    s.advance(1_000_000);
+    let (l, r) = s.render(9600);
+    assert!(energy(&l, &r) > 1e-3, "the audition sounds through the plugin");
+    let m = s.meters();
+    assert!(m.channels.iter().find(|c| c.channel == 16).unwrap().peak > 1e-3, "on channel 16");
+    // No keyboard part got the plugin.
+    assert!(s.state().keyboard_parts.iter().all(|p| p.plugin.is_none()));
+    s.advance(4000 * 1_000_000);
+    assert_eq!(s.state().sound_library.auditioning, None, "it ends by itself");
+    assert_eq!(ch16(&s), None, "and its plugin goes");
+    s.render(4800);
+    // Stopping it early, and never while the band plays.
+    s.send(SoundLibraryCmd::AuditionPatch { id: id.clone() }).unwrap();
+    s.send(SoundLibraryCmd::StopPatchAudition).unwrap();
+    assert_eq!((s.state().sound_library.auditioning.clone(), ch16(&s)), (None, None));
+    s.send(TransportCmd::StartStop).unwrap();
+    s.advance(10_000_000);
+    assert!(s.send(SoundLibraryCmd::AuditionPatch { id }).is_err(), "not while the band plays");
+    assert_eq!(ch16(&s), None);
+}

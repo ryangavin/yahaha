@@ -26,6 +26,8 @@ use std::sync::{mpsc, Arc};
 
 /// How long a library audition waits for its SoundFont to load before giving up.
 const AUDITION_WAIT_NS: u64 = 15_000_000_000;
+/// How long a plugin patch's audition waits for its plugin (#91's loads time out at 20 s).
+const PLUGIN_AUDITION_WAIT_NS: u64 = 25_000_000_000;
 
 /// An audition: what it plays, and how far it got.
 struct Audition {
@@ -34,6 +36,8 @@ struct Audition {
     route: Option<Route>,
     /// The SoundFont it needs loaded first (None: plays the fallback / nothing to wait for).
     font: Option<String>,
+    /// A plugin patch's plugin: it loads on the audition channel first (#91's rack).
+    plugin: Option<super::PluginVoice>,
     drums: bool,
     volume: u8,
     requested: u64,
@@ -472,10 +476,13 @@ impl Control {
                 if let Some(why) = patches::unavailable_reason(&p, &self.avail_fonts()) {
                     return self.sl_fail(format!("{}: {why}", p.name));
                 }
-                let PatchSource::SoundFont { file, bank, program } = p.source else {
-                    return self.sl_fail(format!("{}: a plugin patch auditions on a part (pick it for Right 1)", p.name));
+                return match p.source {
+                    PatchSource::SoundFont { file, bank, program } => self.start_audition(id, file, bank, program, p.defaults.volume),
+                    PatchSource::Plugin { component_id, state } => {
+                        let drums = p.category == Category::DrumsPerc;
+                        self.start_plugin_audition(id, &p.name, plugin_voice(&component_id, &state), drums, p.defaults.volume)
+                    }
                 };
-                return self.start_audition(id, file, bank, program, p.defaults.volume);
             }
             SoundLibraryCmd::AuditionPreset { file, bank, program } => {
                 self.need_sound_font(&file)?;
@@ -679,6 +686,10 @@ impl Control {
             if self.synth.is_none() {
                 continue;
             }
+            // A plugin patch's audition has its channel until it ends.
+            if ch == AUDITION_CHANNEL && self.plugin_auditioning() {
+                continue;
+            }
             let mine = self.sound.plugin_channels[ch as usize].clone();
             match patch.as_ref().map(|p| (&p.id, &p.source)) {
                 Some((id, PatchSource::Plugin { component_id, state })) if parts::part_of_channel(ch).is_none() => {
@@ -716,6 +727,7 @@ impl Control {
             label,
             route: Some(Route::sound_font(id, bank, program & 127)),
             font: (!main).then_some(file),
+            plugin: None,
             drums: bank >= 128,
             volume: volume.unwrap_or(100).min(127),
             requested: self.clock_ns,
@@ -727,6 +739,41 @@ impl Control {
         Ok(())
     }
 
+    /// Audition a plugin patch: its plugin loads on the audition channel (channel 16, the
+    /// SoundFont auditions' channel) through #91's `assign_channel_plugin`, and plays the
+    /// audition's phrase through the rack once it plays. The channel's own plugin from the
+    /// map, if it has one, comes back afterwards (`stop_patch_audition`).
+    fn start_plugin_audition(&mut self, label: String, name: &str, voice: super::PluginVoice, drums: bool, volume: Option<u8>) -> Result<(), CmdError> {
+        if self.snap.running {
+            return self.sl_fail("Stop the band to audition a sound");
+        }
+        self.stop_patch_audition();
+        if let Err(e) = self.assign_channel_plugin(AUDITION_CHANNEL, voice.clone()) {
+            return self.sl_fail(format!("{name}: {e}"));
+        }
+        // The map's plugin there (if any) is replaced: it is assigned again afterwards.
+        self.sound.plugin_channels[AUDITION_CHANNEL as usize] = None;
+        self.sound.audition = Some(Audition {
+            label,
+            route: None,
+            font: None,
+            plugin: Some(voice),
+            drums,
+            volume: volume.unwrap_or(100).min(127),
+            requested: self.clock_ns,
+            started: None,
+            step: 0,
+        });
+        let now = self.clock_ns;
+        self.pump_audition(now);
+        Ok(())
+    }
+
+    /// Whether a plugin patch's audition has the audition channel.
+    fn plugin_auditioning(&self) -> bool {
+        self.sound.audition.as_ref().is_some_and(|a| a.plugin.is_some())
+    }
+
     fn audition_push(&mut self, m: [u8; 3]) {
         if let Some(tx) = self.sound.audition_tx.as_mut() {
             let _ = tx.push(m);
@@ -734,12 +781,17 @@ impl Control {
     }
 
     fn stop_patch_audition(&mut self) {
-        if let Some(a) = self.sound.audition.take()
-            && a.started.is_some()
-        {
+        let Some(a) = self.sound.audition.take() else { return };
+        if a.started.is_some() {
             self.audition_push([0xB0 | AUDITION_CHANNEL, 123, 0]);
             self.audition_push([AUDITION, 0, 0]);
             self.shared.routes.set_audition(None);
+        }
+        if a.plugin.is_some() {
+            // The audition's plugin goes (a short fade); the map's plugin, if the channel's
+            // voice resolves to one, is assigned again.
+            self.clear_channel_plugin(AUDITION_CHANNEL);
+            self.sync_channel_routes();
         }
     }
 
@@ -751,18 +803,36 @@ impl Control {
         }
         let (started, drums, step, route, volume, requested) = (a.started, a.drums, a.step, a.route, a.volume, a.requested);
         let Some(start) = started else {
-            // Waiting for its SoundFont to join the synth's rack.
-            let ready = a.font.as_ref().is_none_or(|f| self.sound.rack_fonts.contains(f)) || self.synth.is_none();
+            // Waiting for its SoundFont to join the synth's rack, or its plugin to load.
+            let (ready, wait) = if a.plugin.is_some() {
+                use crate::api::PluginStatus;
+                match self.channel_plugin_state(AUDITION_CHANNEL) {
+                    Some(p) if p.status == PluginStatus::Playing => (true, PLUGIN_AUDITION_WAIT_NS),
+                    Some(p) if p.status == PluginStatus::Loading => (false, PLUGIN_AUDITION_WAIT_NS),
+                    p => {
+                        let why = p.and_then(|p| p.error).unwrap_or_else(|| "it stopped".into());
+                        self.stop_patch_audition();
+                        self.say(format!("The plugin to audition did not load: {why}"), true);
+                        return;
+                    }
+                }
+            } else {
+                (a.font.as_ref().is_none_or(|f| self.sound.rack_fonts.contains(f)) || self.synth.is_none(), AUDITION_WAIT_NS)
+            };
             if ready {
                 self.shared.routes.set_audition(route);
                 self.audition_push([AUDITION, 1, 0]);
-                self.audition_push([0xB0 | AUDITION_CHANNEL, 7, volume]);
+                // The rack keeps a plugin channel's level, expression and pan itself: the
+                // audition sets all three (the SoundFont side resets on `AUDITION`).
+                for (cc, v) in [(7, volume), (11, 127), (10, 64)] {
+                    self.audition_push([0xB0 | AUDITION_CHANNEL, cc, v]);
+                }
                 if let Some(a) = self.sound.audition.as_mut() {
                     a.started = Some(now);
                 }
-            } else if now.saturating_sub(requested) > AUDITION_WAIT_NS {
-                self.sound.audition = None;
-                self.say("The SoundFont to audition did not load", true);
+            } else if now.saturating_sub(requested) > wait {
+                self.stop_patch_audition();
+                self.say("The sound to audition did not load", true);
             }
             return;
         };
@@ -952,6 +1022,13 @@ impl Control {
             last_added: self.sound.last_added.clone(),
         }
     }
+}
+
+/// A plugin patch's voice as #91 loads it. The state is #91's format (ClassInfo bytes,
+/// base64); none (or none readable) is the plugin's default preset.
+fn plugin_voice(component_id: &str, state: &str) -> super::PluginVoice {
+    let state = crate::api::base64_decode(state).filter(|b| !b.is_empty());
+    super::PluginVoice { id: component_id.to_string(), state }
 }
 
 fn from_fields(id: String, f: PatchFields) -> Patch {
