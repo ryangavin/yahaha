@@ -93,6 +93,8 @@ pub struct Options {
     pub manual_bass: bool,
     /// Initial Keyboard / Master transpose.
     pub transpose: Transpose,
+    /// The chord-settle window, in ms (`ChordCmd::SetChordSettle`).
+    pub chord_settle_ms: u32,
 }
 
 impl Default for Options {
@@ -110,6 +112,7 @@ impl Default for Options {
             upper: false,
             manual_bass: true,
             transpose: Transpose::default(),
+            chord_settle_ms: crate::engine::CHORD_SETTLE_DEFAULT_MS,
         }
     }
 }
@@ -182,6 +185,8 @@ struct Control {
     snap_rx: Consumer<Snapshot>,
     act_rx: Consumer<Action>,
     transpose: Transpose,
+    /// The chord-settle window, in ms (session/chord.rs).
+    chord_settle_ms: u32,
     message: Option<Message>,
     msg_seq: u64,
     last_ots_key: Option<(usize, u8)>,
@@ -467,7 +472,9 @@ fn assemble(opts: &Options, engine_out: live::Out, input_out: live::Out, offline
     input.set_actions(act_tx);
     let (release_tx, release_rx) = RingBuffer::<u8>::new(MAX_KEY_SOURCES);
     input.set_release(release_rx);
-    let engine = Engine::new(prep);
+    let mut engine = Engine::new(prep);
+    let chord_settle_ms = opts.chord_settle_ms.min(crate::engine::CHORD_SETTLE_MAX_MS);
+    engine.set_chord_settle(chord_settle_ms as u64 * 1_000_000);
     let snap = engine.snapshot(0);
     let published = Arc::new(lib.clone());
     let control = Control {
@@ -488,6 +495,7 @@ fn assemble(opts: &Options, engine_out: live::Out, input_out: live::Out, offline
         snap_rx: ch.snap_rx,
         act_rx,
         transpose: Transpose::default(),
+        chord_settle_ms,
         message: None,
         msg_seq: 0,
         last_ots_key: None,

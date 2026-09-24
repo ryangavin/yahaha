@@ -53,6 +53,7 @@ export function tipFor(cmd: AppCmd | null): TipKey {
       if (cmd.keyboard) return cmd.keyboard < 0 ? 'transpose.keyboard_down' : 'transpose.keyboard_up'
       return cmd.master < 0 ? 'transpose.master_down' : 'transpose.master_up'
     case 'resetTranspose': return 'transpose.reset'
+    case 'setChordSettle': return 'settings.chord_settle'
     case 'setPartOn':
     case 'togglePart': return PART_ON[cmd.part]
     case 'selectPart': return PART_SELECT[cmd.part]

@@ -40,6 +40,8 @@ pub enum Cmd {
     /// All Notes Off on the keyboard parts' channels: a MIDI source with keys held was
     /// disconnected (its note-offs will never come).
     KeysOff,
+    /// The chord-settle window, in ms (`Engine::set_chord_settle`).
+    ChordSettle(u32),
 }
 
 /// How many bars a style preview plays.
@@ -1050,6 +1052,7 @@ fn apply(engine: &mut Engine, parts: &Parts, cmd: Cmd, now: u64, out: &mut Out) 
         Cmd::ManualBass(on) => engine.set_manual_bass(on, out),
         Cmd::Transpose(t) => engine.set_transpose(t, now, out),
         Cmd::StopAudition => {}
+        Cmd::ChordSettle(ms) => engine.set_chord_settle(ms as u64 * 1_000_000),
         Cmd::KeysOff => {
             // The source's pedal, wheels and pressure went to every keyboard part too, and
             // its releases will never come: with the pedal left down, All Notes Off would

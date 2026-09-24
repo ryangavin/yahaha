@@ -52,6 +52,8 @@ export type AppCmd =
   | { type: 'setTranspose'; keyboard: number; master: number }
   | { type: 'stepTranspose'; keyboard: number; master: number }
   | { type: 'resetTranspose' }
+  /** The chord-settle window, ms (0–`CHORD_SETTLE_MAX_MS`). */
+  | { type: 'setChordSettle'; ms: number }
   // Keyboard parts
   | { type: 'setPartOn'; part: number; on: boolean }
   | { type: 'togglePart'; part: number }
@@ -193,7 +195,13 @@ export interface ChordState {
   splitName: string
   transposeKeyboard: number
   transposeMaster: number
+  /** The chord-settle window in ms: while the style plays, a chord change reaches the
+   * accompaniment once the chord has held still this long (a rolled chord is followed once). */
+  settleMs: number
 }
+
+/** The widest chord-settle window, ms (`setChordSettle`). */
+export const CHORD_SETTLE_MAX_MS = 30
 
 export interface KeyboardPart {
   /** "Right 1", "Right 2", "Right 3", "Left". */

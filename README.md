@@ -47,6 +47,7 @@ Options:
 - `--input "Name"` picks MIDI sources by name.
 - `--all-inputs` merges every connected keyboard.
 - `--no-pads` leaves the Launchkey pads alone.
+- `--chord-settle MS` sets the chord-settle window (0–30 ms, default 10): while the style plays, it follows a chord once the chord has held still this long, so a rolled chord is one change, not two. Also in the app's Settings › Chord.
 
 ## Ableton setup (once)
 
