@@ -159,10 +159,18 @@ impl Control {
         }
     }
 
-    /// Chart mode on needs a chart.
+    pub(super) fn chart_mode_on(&self) -> bool {
+        self.charts.settings.on
+    }
+
+    /// Chart mode on needs a chart. It stops a Chord Looper loop that plays or is armed
+    /// (the engine does that: engine/chart.rs).
     fn set_chart_mode(&mut self, on: bool) -> Result<(), CmdError> {
         if on && self.charts.song.is_none() {
             return self.fail("Import an iReal Pro chart first");
+        }
+        if on && !self.charts.settings.on && matches!(self.snap.looper.state, crate::engine::LoopState::Looping | crate::engine::LoopState::LoopArmed) {
+            self.say("Chord Looper off: the chart plays", false);
         }
         self.chart_settings(ChartSettings { on, ..self.charts.settings })
     }

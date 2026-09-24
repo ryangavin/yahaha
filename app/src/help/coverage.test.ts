@@ -74,10 +74,23 @@ const STATES: [string, Setup][] = [
   ['parts drawer, Upper + Manual Bass, OTS Link', (s) => ((ui.parts = true), s.send({ type: 'toggleUpper' }), s.send({ type: 'toggleOtsLink' }))],
   ['parts drawer, fader page Style', (s) => ((ui.parts = true), s.send({ type: 'toggleFaderPage' }))],
   ['mixer drawer open', () => (ui.mixer = true)],
+  ['harmony drawer open', () => (ui.harmony = true)],
+  ['harmony drawer, arpeggio on, Fixed velocity', (s) => ((ui.harmony = true), s.send({ type: 'setArpPattern', index: 2 }), s.send({ type: 'setArpVelocity', mode: 'fixed', velocity: 90 }), s.send({ type: 'toggleHarmonyArp' }))],
+  ['harmony drawer, Echo type', (s) => ((ui.harmony = true), s.send({ type: 'setHarmonyType', index: 20 }))],
   ['mixer drawer open, Style tab', (s) => ((ui.mixer = true), s.send({ type: 'setFaderPage', page: 'style' }))],
   ['charts drawer, nothing imported', () => (ui.charts = true)],
   ['charts drawer, a playlist, chart mode playing', (s) => ((ui.charts = true), s.send({ type: 'importCharts', text: 'irealb://demo' }), s.send({ type: 'setChartMode', on: true }))],
   ['chart in the lead-sheet band', (s) => (s.send({ type: 'importCharts', text: 'irealb://demo' }), s.send({ type: 'setChartMode', on: true }))],
+  ['pad page 4 (Registration)', (s) => s.send({ type: 'setPadPage', page: 'registration' })],
+  ['Registration Memory armed', (s) => s.send({ type: 'toggleRegistMemory' })],
+  ['registration panel: bank', () => ((ui.registTab = 'bank'), (ui.regist = true))],
+  ['registration panel: new unsaved bank', (s) => (s.send({ type: 'newRegistBank' }), (ui.registTab = 'bank'), (ui.regist = true))],
+  ['registration panel: memory and freeze groups', () => ((ui.registTab = 'groups'), (ui.regist = true))],
+  ['registration panel: sequence', () => ((ui.registTab = 'sequence'), (ui.regist = true))],
+  ['registration panel: playlist', () => ((ui.registTab = 'playlist'), (ui.regist = true))],
+  ['registration panel: playlist sorted', (s) => (s.send({ type: 'setPlaylistSort', sort: 'aToZ' }), (ui.registTab = 'playlist'), (ui.regist = true))],
+  ['chord looper drawer open', () => (ui.looper = true)],
+  ['chord looper drawer, recording armed, Memory latched', (s) => ((ui.looper = true), s.send({ type: 'looperRec' }))],
   ['multi pad drawer, no bank', () => (ui.multipad = true)],
   ['multi pad drawer, bank loaded, pads playing and armed', (s) => (
     (ui.multipad = true),
@@ -96,7 +109,11 @@ afterEach(() => {
   ui.parts = false
   ui.mixer = false
   ui.charts = false
+  ui.regist = false
+  ui.registTab = 'bank'
+  ui.looper = false
   ui.multipad = false
+  ui.harmony = false
   ui.shiftLatched = false
   tips.help = false
   tips.setFloating(false)

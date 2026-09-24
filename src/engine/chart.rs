@@ -18,6 +18,16 @@
 //!   takes over again. A chord played in the last eighth of a bar (half a beat before the
 //!   line) is an anticipation of the next bar: it holds through that bar as well.
 //!
+//! - Chart chords are exact, machine-made chord changes: they go in through
+//!   `Engine::apply_chord_unsettled`, always from `process` (a bar, beat or `on_due` hook),
+//!   so they are never `settleMs` late and never move the notes twice in a wake (settle.rs,
+//!   #47). The song's first chord at START waits for the first beat line for the same
+//!   reason (`first`).
+//! - The Chord Looper: only one of them gives the band its chords. Chart mode on stops a
+//!   loop that plays or is armed; while chart mode is on, the looper's ON/OFF doesn't arm a
+//!   loop (the session turns chart mode off first: session/looper.rs). Recording still
+//!   records the chords the player plays.
+//!
 //! Real-time: the plan arrives in a `Box` built on the control side (`live::EngineIo::charts`),
 //! and the one it replaces goes back out to be freed there (`Engine::set_chart` returns it).
 //! Nothing here allocates.
@@ -158,6 +168,8 @@ pub(super) struct ChartPlayer {
     owned: Option<(Queued, u8)>,
     /// How far into the bar playing (a fraction) the chart's chords have gone in.
     done: f32,
+    /// The song's first chord, from START: it goes in at the first beat line (in `process`).
+    first: Option<Chord>,
 }
 
 impl Engine {
@@ -218,6 +230,10 @@ impl Engine {
     /// takes back what the chart queued); new settings (a loop, an Ending) queue the next
     /// bar line again.
     pub fn set_chart_settings(&mut self, s: ChartSettings, now: u64) {
+        if s.on && !self.features.chart.settings.on {
+            // Chart mode takes the chords from the Chord Looper.
+            self.looper_stop_loop();
+        }
         let due = self.chart_unqueue(now);
         let c = &mut self.features.chart;
         c.settings = s;
@@ -225,6 +241,7 @@ impl Engine {
             c.bar = None;
             c.overridden = false;
             c.carry = None;
+            c.first = None;
         }
         self.chart_requeue(now, due);
     }
@@ -257,6 +274,12 @@ impl Engine {
         self.chart_queue(end);
     }
 
+    /// Chart mode is on (with or without a chart).
+    #[inline]
+    pub(super) fn chart_mode_on(&self) -> bool {
+        self.features.chart.settings.on
+    }
+
     /// (tag of the plan, bar playing, player override) for the snapshot.
     pub(super) fn chart_pos(&self) -> (u64, Option<u32>, bool) {
         let c = &self.features.chart;
@@ -265,27 +288,27 @@ impl Engine {
     }
 
     /// Give the band a chart chord (as written; Keyboard transpose moves it as it moves a
-    /// played chord).
+    /// played chord). Only from `process` (a hook it runs): the chord settles at once
+    /// (`apply_chord_unsettled`), before the notes of its tick.
     fn chart_chord(&mut self, c: Option<Chord>, now: u64, sink: &mut impl Sink) {
         let Some(c) = c else { return };
-        if self.played == Some(c) {
-            self.features.chart.applied = Some(c);
-            return;
-        }
         self.features.chart.applied = Some(c);
-        self.set_chord(c, now, sink);
+        if self.played != Some(c) {
+            self.apply_chord_unsettled(c, now, sink);
+        }
     }
 
     // ----- hooks -----
 
     /// `on_start`: the Intro (unless the player chose one), the first bar's Main, and the
-    /// first chord, so a START with no chord held plays the song's.
-    pub(super) fn chart_start(&mut self, now: u64, sink: &mut impl Sink) {
+    /// first chord (at the first beat line), so a START with no chord held plays the song's.
+    pub(super) fn chart_start(&mut self, now: u64) {
         let c = &mut self.features.chart;
         c.bar = None;
         c.overridden = false;
         c.carry = None;
         c.owned = None;
+        c.first = None;
         c.start_ns = Some(now);
         if !self.chart_active() {
             return;
@@ -302,8 +325,7 @@ impl Engine {
                 }
             }
         }
-        let first_chord = self.features.chart.plan.as_ref().and_then(|p| p.bars.iter().find_map(|b| b.enter));
-        self.chart_chord(first_chord, now, sink);
+        self.features.chart.first = self.features.chart.plan.as_ref().and_then(|p| p.bars.iter().find_map(|b| b.enter));
     }
 
     /// `on_stop`.
@@ -313,6 +335,7 @@ impl Engine {
         c.overridden = false;
         c.carry = None;
         c.owned = None;
+        c.first = None;
     }
 
     /// `on_bar`: the chart moves on a bar (outside an Intro or Ending), the player's
@@ -422,6 +445,14 @@ impl Engine {
     pub(super) fn chart_beat(&mut self, beat: u32, now: u64, sink: &mut impl Sink) {
         if beat != 0 {
             return;
+        }
+        // The song's first chord (START), unless the player has taken over since.
+        if let Some(f) = self.features.chart.first.take()
+            && !self.features.chart.overridden
+            && self.running
+            && self.chart_active()
+        {
+            self.chart_chord(Some(f), now, sink);
         }
         self.features.chart.done = 0.0;
         let c = self.chart_giving().and_then(|b| b.chord_at(0.0));
@@ -617,6 +648,8 @@ mod tests {
         let _ = play(&mut e, 0, 1);
         e.process(t, &mut Nop);
         e.set_chord(crate::parse_chord("Ab").unwrap(), t, &mut Nop);
+        // (A played chord takes over once it settles, in `process`: settle.rs.)
+        e.process(t, &mut Nop);
         let s = e.snapshot(t);
         assert!(s.chart_override);
         assert_eq!(s.chart_bar, Some(1));
@@ -685,6 +718,7 @@ mod tests {
         e.process(bar + bar / 4, &mut Nop);
         assert_eq!(e.chord.unwrap().name(), "G");
         e.set_transpose(Transpose::new(-1, 0), bar + bar / 2, &mut Nop);
+        e.process(bar + bar / 2, &mut Nop);
         assert_eq!(e.chord.unwrap().name(), "E");
         assert!(!e.snapshot(bar + bar / 2).chart_override);
     }
@@ -919,5 +953,67 @@ mod tests {
         assert_eq!(p.bars[2].chord_at(0.5).unwrap().name(), "G7");
         assert_eq!(p.bars[1].chord_at(0.9).unwrap().name(), "C");
         assert_eq!(section_main(Some('V'), 2), 2);
+    }
+
+    /// Chart chords are exact: with the widest chord-settle window, each one (the song's
+    /// first at START, a bar line's, a mid-bar one) is the band's chord in the same
+    /// `process` that reaches its tick, with nothing left waiting to settle (#101). Via
+    /// `set_chord` they would wait `settleMs`.
+    #[test]
+    fn chart_chords_settle_at_once() {
+        let Some(mut e) = engine() else { return };
+        e.set_chord_settle(super::super::CHORD_SETTLE_MAX_MS as u64 * 1_000_000);
+        e.set_chart(plan("*A[C |F |D-7 G7 |C Z", 1), 0);
+        e.set_chart_settings(settings(None, None), 0);
+        start(&mut e);
+        let name = |e: &Engine| e.chord.map_or("-".into(), |c| c.name());
+        e.process(0, &mut Nop);
+        assert_eq!(name(&e), "C");
+        assert!(e.unsettled.is_none());
+        let bar = e.ns_at_bar(1) - e.ns_at_bar(0);
+        let _ = play(&mut e, 0, 1);
+        for (t, want) in [(e.ns_at_bar(1), "F"), (e.ns_at_bar(2), "Dm7"), (e.ns_at_bar(2) + bar / 2, "G7"), (e.ns_at_bar(3), "C")] {
+            e.process(t - 2_000_000, &mut Nop);
+            e.process(t + 1_000, &mut Nop);
+            assert_eq!(name(&e), want, "at {t}");
+            assert!(e.unsettled.is_none(), "at {t}");
+        }
+    }
+
+    /// Only one of the chart and the Chord Looper gives the chords: chart mode on stops a
+    /// loop (playing or armed); with chart mode on, ON/OFF doesn't arm one.
+    #[test]
+    fn chart_mode_and_the_chord_looper_take_turns() {
+        use crate::looper::{ChordSeq, LoopEvent};
+        use crate::parse_chord;
+        let Some(mut e) = engine() else { return };
+        let seq = ChordSeq::from_events(1, &[LoopEvent { bar: 0, at: 0, chord: parse_chord("Bb").unwrap() }]);
+        e.looper_load(&seq);
+        e.set_chart(plan("*A[C |F |G |C Z", 1), 0);
+        e.looper_on_off();
+        assert_eq!(e.looper_snapshot().state, LoopState::LoopArmed);
+        // Chart mode on: the armed loop goes off.
+        e.set_chart_settings(settings(None, None), 0);
+        assert_eq!(e.looper_snapshot().state, LoopState::Off);
+        // ON/OFF with chart mode on arms nothing.
+        e.looper_on_off();
+        assert_eq!(e.looper_snapshot().state, LoopState::Off);
+        start(&mut e);
+        let (lines, _) = play(&mut e, 0, 2);
+        assert!(lines.iter().all(|l| l.chord != "Bb"), "{lines:?}");
+        // Chart mode off: the loop arms, and plays from the next bar line.
+        let now = e.ns_at_bar(2);
+        e.set_chart_settings(ChartSettings { on: false, ..settings(None, None) }, now);
+        e.looper_on_off();
+        assert_eq!(e.looper_snapshot().state, LoopState::LoopArmed);
+        let (lines, _) = play(&mut e, now, 2);
+        assert_eq!(e.looper_snapshot().state, LoopState::Looping);
+        assert!(lines.iter().any(|l| l.chord == "Bb"), "{lines:?}");
+        // Chart mode on again: the loop stops at once, and the chart gives the chords.
+        let now = e.ns_at_bar(4) + 1;
+        e.set_chart_settings(settings(None, None), now);
+        assert_eq!(e.looper_snapshot().state, LoopState::Off);
+        let (lines, _) = play(&mut e, now, 2);
+        assert!(lines.iter().any(|l| l.bar.is_some() && l.chord != "Bb"), "{lines:?}");
     }
 }

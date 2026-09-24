@@ -46,7 +46,7 @@ impl Control {
                     name: parts::NAMES[p].to_string(),
                     channel: parts::CHANNEL[p] + 1,
                     on: kp.is_on(p),
-                    sounding: if p == parts::LEFT { kp.left_sounds() } else { kp.is_on(p) },
+                    sounding: if p == parts::LEFT { kp.left_audible() } else { kp.audible(p) },
                     selected: kp.selected() == p,
                     volume: kp.volume(p),
                     waiting: kp.waiting(p),

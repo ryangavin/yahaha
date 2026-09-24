@@ -297,8 +297,20 @@ good once Auto Style is off.
   from the file or the link.
 - **Choruses are a setting (default 1)**, not the song's own repeat count (iReal's default
   is 3, meant for solos). The value carries over from song to song.
+- **Chart chords don't wait for the chord-settle window.** They are exact and never
+  rolled, so they go in through `apply_chord_unsettled`, from `process` (as the Chord
+  Looper's do): on their tick, before that tick's notes. A chord you play still settles as
+  usual, and takes over once it has.
+- **The chart and the Chord Looper take turns.** Only one gives the band its chords: turning
+  chart mode on stops a loop that plays or is armed, and a Chord Looper ON/OFF that would
+  arm a loop turns chart mode off. The Genos has no chart player to copy; "the last one you
+  turned on wins" is the least surprising. Recording is not affected: it records the
+  chords you play over the chart.
+- **Chart mode and the chosen chart are not Registration items.** The Genos has no
+  equivalent group, and playlists live in memory only, so a registration could not bring
+  the chart back.
 - **Launchkey:** no pad for chart mode. Every pad page is already full, and chart mode is
-  something you set up before playing, not during. The terminal UI has `m` and `( )`.
+  something you set up before playing, not during. The terminal UI has `M` (shift+m) and `( )`.
 
 Tests are synthetic charts only: `src/engine/chart.rs` (the engine, on a corpus style),
 `src/session_tests.rs` (`chart_player_*`), `src/ireal/styles.rs`, and

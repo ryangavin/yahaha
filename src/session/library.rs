@@ -45,7 +45,7 @@ pub(super) fn load(path: &Path) -> Result<(Box<Prepared>, Loaded)> {
         timesig: style.timesig,
         quarters_per_bar: prep.tpb as f64 / prep.ppq.max(1) as f64,
         has,
-        voices: prep.voices,
+        voices: prep.setups[0].voices,
         ots: style.ots.clone(),
     };
     Ok((prep, info))

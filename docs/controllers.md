@@ -27,10 +27,10 @@ an expression pedal), `available`.
 
 | Category | Functions |
 |---|---|
-| Voice | Sustain, Sostenuto, Soft (switch); Modulation, Pitch Bend (continuous) |
+| Voice | Sustain, Sostenuto, Soft (switch); Modulation, Pitch Bend (continuous); Kbd Harmony/Arpeggio On/Off, Arpeggio Hold (switch, RM p.141) |
 | Style | Start/Stop, Sync Start, Sync Stop, Intro 1-3, Main A-D, Fill Down, Fill Self, Fill Break, Fill Up, Ending 1-3, Auto Fill, Stop Acmp, Fingered/Fingered On Bass |
 | OTS | OTS Link, OTS 1-4, OTS +, OTS − |
-| Registration | Registration Bank +, Registration Bank − (the REGIST BANK [+]/[−] buttons; not available yet: yahaha has no Registration Memory, and a pedal can hold them and says so when pressed). Registration Sequence +/− is not pedal-assignable on the Genos (a pedal drives it through Pedal Control on the Registration Sequence display), so it is not in the table. |
+| Registration | Registration Bank +, Registration Bank − (the REGIST BANK [+]/[−] buttons: they load the next or previous bank file, see docs/registration.md). Registration Sequence +/− is not pedal-assignable on the Genos (a pedal drives it through Pedal Control on the Registration Sequence display), so it is not in the table. |
 | Overall | Tempo +, Tempo −, Tap Tempo, Transpose +, Transpose − (Master transpose, as the TRANSPOSE buttons), Right 1-3 and Left On/Off |
 
 Two rows are yahaha's, not the Genos's:
@@ -123,7 +123,22 @@ bend stuck until that controller moved again.
 - **Pitch Bend Range defaults to 2** semitones (GM and the Genos default).
 - **Fill Up at Main D / Fill Down at Main A** play the fill of the Main at the end and stay
   there (the Genos has no Main to go to); stopped, Fill Up/Down select the next Main.
-- **Registration Bank +/−** are in the table but unavailable until Registration Memory exists.
+- **Kbd Harmony/Arpeggio On/Off and Arpeggio Hold** (RM p.141) are switches the control
+  side keeps (`harmonyArp.on`, `harmonyArp.arp.pedalHold`: the pedal function, apart from
+  the Hold setting `harmonyArp.arp.hold`; docs/arpeggio.md), so the pedal asks for them: a Toggle
+  pedal switches them on each press (`Fire::control`); a Hold A or Hold B pedal sets them on
+  or off as it goes down and up (`Fire::set`, `Action::AssignSet`, `api::function_set`).
+  Like the pedal switches, a new setup puts a Hold pedal's switch where the pedal is (Hold
+  B picked with the pedal up turns it on), and a Hold pedal given another function lets go
+  of the switch it was keeping on (`controllers::control_switch_sets`). Decision: unlike
+  Sustain, two Hold pedals on the same one of these don't hold it for each other; the last
+  edge wins, because the panel button and the TUI key also switch it and the pedals don't
+  own it. A reset (Panic, a keyboard unplugged) lets the pedals go without an edge, so it
+  tells the control side (`Controllers::take_reset_releases`, `Control::pump_pedal_releases`),
+  which turns off what a Hold pedal was keeping on (Hold A down, Hold B up:
+  `controllers::reset_release`). As with the pedal switches, a Hold B switch then stays off
+  until its pedal is next pressed and released: a reset never turns anything on. A Toggle
+  pedal's switch is left as it is, as the panel button's would be.
 - **Transpose +/− is Master transpose.** RM p.144 makes it "the same as the TRANSPOSE
   [+]/[−] buttons", and those transpose the overall pitch (OM p.61), which is yahaha's Master
   transpose (the Launchkey's KBD TR pads stay Keyboard transpose).

@@ -6,12 +6,14 @@
 // change this file and `app/src-tauri/src/api.rs` to match; components only see these
 // types and the `Session` interface.
 
+import type { PlaylistCmd, PlaylistState, RegistrationCmd, RegistrationState } from './registration'
+
 export type Fingering =
   | 'singleFinger' | 'multiFinger' | 'fingered' | 'fingeredOnBass'
   | 'aiFingered' | 'fullKeyboard' | 'aiFullKeyboard'
 
 /** The Launchkey pad pages, switched with Pad Bank ▲/▼. */
-export type PadPage = 'sections' | 'chordSetup' | 'otsParts'
+export type PadPage = 'sections' | 'chordSetup' | 'otsParts' | 'registration'
 
 /** What the Launchkey faders control, like the Genos Mixer's Panel and Style tabs. */
 export type FaderPage = 'panel' | 'style'
@@ -41,8 +43,14 @@ export type AppCmd =
   | { type: 'tapTempo' }
   | { type: 'tempoUp' }
   | { type: 'tempoDown' }
+  /** Tempo in BPM, 5–500 (clamped). */
+  | { type: 'setTempo'; bpm: number }
   | { type: 'toggleStylePart'; part: number }
   | { type: 'setStylePartVolume'; part: number; volume: number }
+  /** Solo a Style part 0–7 (only it plays, even if off); null ends the solo. */
+  | { type: 'setStyleSolo'; part: number | null }
+  /** Style Track Mute (a Genos Live Control knob): `value` 0–127 turns parts on in `order`. */
+  | { type: 'styleTrackMute'; order: TrackMuteOrder; value: number }
   // Chord detection, split, transpose
   | { type: 'setFingering'; fingering: Fingering }
   | { type: 'nextFingering' }
@@ -55,6 +63,8 @@ export type AppCmd =
   | { type: 'setTranspose'; keyboard: number; master: number }
   | { type: 'stepTranspose'; keyboard: number; master: number }
   | { type: 'resetTranspose' }
+  /** The chord-settle window, ms (0–`CHORD_SETTLE_MAX_MS`). */
+  | { type: 'setChordSettle'; ms: number }
   // Keyboard parts
   | { type: 'setPartOn'; part: number; on: boolean }
   | { type: 'togglePart'; part: number }
@@ -63,6 +73,8 @@ export type AppCmd =
   | { type: 'stepVoice'; delta: number }
   | { type: 'setPartVolume'; part: number; volume: number }
   | { type: 'setPartOctave'; part: number; octave: number }
+  /** Solo a keyboard part 0–3 (only it sounds from the keys); null ends the solo. */
+  | { type: 'setPartSolo'; part: number | null }
   // Mixer and Launchkey pages
   | { type: 'setFaderPage'; page: FaderPage }
   | { type: 'toggleFaderPage' }
@@ -99,9 +111,56 @@ export type AppCmd =
   | { type: 'rescanLibrary' }
   // iReal Pro chart player: see ChartState below.
   | ChartCmd
+  // Registration Memory and the Playlist (lib/api/registration.ts)
+  | RegistrationCmd
+  | PlaylistCmd
+  // Chord Looper (docs/chord-looper.md)
+  | { type: 'looperRec' }
+  | { type: 'looperOnOff' }
+  | { type: 'selectLooperMemory'; index: number }
+  | { type: 'storeLooperMemory'; index: number }
+  | { type: 'clearLooperMemory'; index: number }
+  | { type: 'newLooperBank' }
+  // Metronome: the built-in synth's click voice, never on the MIDI port.
+  | { type: 'toggleMetronome' }
+  | { type: 'setMetronome'; on: boolean }
+  | { type: 'setMetronomeVolume'; volume: number }
+  | { type: 'setMetronomeBell'; on: boolean }
   | MultiPadCmd
   // Controllers: pedals, wheels, assignable functions (docs/controllers.md)
   | ControllersCmd
+  // Keyboard Harmony / Arpeggio (docs/app-api.md): see HarmonyArpState below.
+  | HarmonyArpCmd
+
+/** Keyboard Harmony / Arpeggio: one HARMONY/ARPEGGIO switch and one type. */
+export type HarmonyArpCmd =
+  | { type: 'toggleHarmonyArp' }
+  | { type: 'setHarmonyArpOn'; on: boolean }
+  /** A Harmony type, by index into `LibraryList.harmonyTypes` (Data List order). */
+  | { type: 'setHarmonyType'; index: number }
+  /** An arpeggio pattern, by index into `LibraryList.arpPatterns`. */
+  | { type: 'setArpPattern'; index: number }
+  /** Step through the Harmony types, then the arpeggios, as one list (wrapping). */
+  | { type: 'stepHarmonyArpType'; delta: number }
+  | { type: 'setHarmonyVolume'; volume: number }
+  | { type: 'setHarmonySpeed'; speed: HarmonySpeed }
+  | { type: 'setHarmonyAssign'; assign: HarmonyAssign }
+  | { type: 'setChordNoteOnly'; on: boolean }
+  /** Minimum Velocity, 1-127. */
+  | { type: 'setTouchLimit'; velocity: number }
+  | { type: 'setArpQuantize'; quantize: ArpQuantize }
+  /** The Arpeggio Hold setting (RM p.41). */
+  | { type: 'setArpHold'; on: boolean }
+  | { type: 'toggleArpHold' }
+  /** The Arpeggio Hold pedal function (RM p.141), apart from the setting. */
+  | { type: 'setArpPedalHold'; on: boolean }
+  | { type: 'toggleArpPedalHold' }
+  /** `velocity` (1-127) is used by `fixed`. */
+  | { type: 'setArpVelocity'; mode: ArpVelocityMode; velocity: number }
+  | { type: 'setArpKeepKeyOn'; on: boolean }
+
+/** Style Track Mute order (RM p.148). A: Rhythm 2 first; B: Chord 1 first. */
+export type TrackMuteOrder = 'a' | 'b'
 
 export type CmdError = { kind: 'busy' } | { kind: 'failed'; message: string }
 
@@ -201,7 +260,13 @@ export interface ChordState {
   splitName: string
   transposeKeyboard: number
   transposeMaster: number
+  /** The chord-settle window in ms: while the style plays, a chord change reaches the
+   * accompaniment once the chord has held still this long (a rolled chord is followed once). */
+  settleMs: number
 }
+
+/** The widest chord-settle window, ms (`setChordSettle`). */
+export const CHORD_SETTLE_MAX_MS = 30
 
 export interface KeyboardPart {
   /** "Right 1", "Right 2", "Right 3", "Left". */
@@ -252,6 +317,51 @@ export interface MixerState {
   /** Synth master volume (100 = unity); null without the synth. */
   master: number | null
   masterWaiting: boolean
+  /** The Style part soloed (0–7), or null. */
+  styleSolo: number | null
+  /** The keyboard part soloed (0–3), or null. */
+  partSolo: number | null
+}
+
+/** Where the Chord Looper is. */
+export type LooperMode = 'off' | 'recArmed' | 'recording' | 'loopArmed' | 'looping'
+
+export interface LoopChord {
+  /** 1-based bar of the sequence. */
+  bar: number
+  /** 1-based beat in quarter notes (2.5 = the "and" of 2). */
+  beat: number
+  chord: string
+}
+
+export interface LooperMemory {
+  /** "CLD_001"…; null when empty. */
+  name: string | null
+  bars: number
+  chords: LoopChord[]
+}
+
+export interface LooperState {
+  mode: LooperMode
+  hasData: boolean
+  /** Recording: the bar recorded; looping: the loop's bar (1-based). */
+  bar: number | null
+  bars: number
+  /** The current sequence (empty while recording). */
+  chords: LoopChord[]
+  memory: number | null
+  pendingMemory: number | null
+  /** Always 8. */
+  memories: LooperMemory[]
+}
+
+export interface MetronomeState {
+  on: boolean
+  /** 0–127. */
+  volume: number
+  bell: boolean
+  /** The built-in synth runs (the only place the click sounds). */
+  audible: boolean
 }
 
 export interface PadsState {
@@ -600,10 +710,19 @@ export interface AppState {
   preview: PreviewState
   /** The iReal Pro chart player. */
   chart: ChartState
+  /** Registration Memory: the bank, its ten buttons, Freeze, the Registration Sequence. */
+  registration: RegistrationState
+  /** The Playlist. */
+  playlist: PlaylistState
+  /** The Chord Looper. */
+  looper: LooperState
+  metronome: MetronomeState
   /** Multi Pads: the bank, the four pads, Synchro Stop, the bank files. */
   multiPad: MultiPadState
   /** Pedals, wheels, the parts they reach and the pedals' assignable functions. */
   controllers: ControllersState
+  /** Keyboard Harmony / Arpeggio. */
+  harmonyArp: HarmonyArpState
 }
 
 // ── Controllers (docs/controllers.md) ────────────────────────────────────
@@ -728,6 +847,49 @@ export interface MultiPadState {
   banks: MultiPadBankEntry[]
 }
 
+export type HarmonySpeed = '1/4' | '1/6' | '1/8' | '1/12' | '1/16' | '1/32'
+export type HarmonyAssign = 'auto' | 'multi' | 'right1' | 'right2' | 'right3'
+export type ArpQuantize = 'off' | 'eighth' | 'sixteenth'
+export type ArpVelocityMode = 'original' | 'thru' | 'fixed'
+
+export interface HarmonyArpState {
+  /** The HARMONY/ARPEGGIO switch. */
+  on: boolean
+  /** Which list the selected type is in. */
+  mode: 'harmony' | 'arpeggio'
+  /** Index into `LibraryList.harmonyTypes`; kept while an arpeggio is selected. */
+  harmonyType: number
+  /** Index into `LibraryList.arpPatterns`. */
+  arpPattern: number
+  /** The selected type's name and category ("Harmony", "Echo", "Up & Down", ...). */
+  typeName: string
+  category: string
+  /** Volume of the added notes and of the arpeggio, 0-127. */
+  volume: number
+  /** Echo, Tremolo and Trill. */
+  speed: HarmonySpeed
+  assign: HarmonyAssign
+  chordNoteOnly: boolean
+  /** Minimum Velocity, 1-127. */
+  touchLimit: number
+  arp: {
+    quantize: ArpQuantize
+    /** The Hold setting. */
+    hold: boolean
+    /** The Arpeggio Hold pedal function is on; the arpeggio holds while either is. */
+    pedalHold: boolean
+    velocity: ArpVelocityMode
+    fixedVelocity: number
+    keepKeyOn: boolean
+  }
+}
+
+/** A Harmony type or an arpeggio pattern in `LibraryList`. */
+export interface HarmonyTypeInfo {
+  name: string
+  category: string
+}
+
 export interface LibraryEntry {
   id: number
   name: string
@@ -757,6 +919,10 @@ export interface LibraryList {
   entries: LibraryEntry[]
   /** The voices `setPartVoice` picks from (the same every revision). */
   voices: VoiceOption[]
+  /** The Keyboard Harmony types `setHarmonyType` picks from, Data List order (static). */
+  harmonyTypes: HarmonyTypeInfo[]
+  /** The arpeggio patterns `setArpPattern` picks from (static). */
+  arpPatterns: HarmonyTypeInfo[]
 }
 
 // ── Names the UI uses ─────────────────────────────────────────────────────
@@ -775,6 +941,7 @@ export const PAD_PAGES: { id: PadPage; name: string }[] = [
   { id: 'sections', name: 'Sections' },
   { id: 'chordSetup', name: 'Chord/Setup' },
   { id: 'otsParts', name: 'OTS/Parts' },
+  { id: 'registration', name: 'Registration' },
 ]
 
 /** Section names as the engine reports them. */

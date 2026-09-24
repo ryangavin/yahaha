@@ -19,14 +19,19 @@
 mod chart;
 mod chord;
 mod controllers;
+mod harmony_arp;
 mod keyboard;
 mod library;
+mod looper;
+mod metronome;
 mod mixer;
 mod multipad;
 mod ots;
 mod pads;
 mod parts;
+mod playlist;
 mod preview;
+mod registration;
 mod settings;
 mod surface;
 mod system;
@@ -35,14 +40,19 @@ mod transport;
 pub use chart::*;
 pub use chord::*;
 pub use controllers::*;
+pub use harmony_arp::*;
 pub use keyboard::*;
 pub use library::*;
+pub use looper::*;
+pub use metronome::*;
 pub use mixer::*;
 pub use multipad::*;
 pub use ots::*;
 pub use pads::*;
 pub use parts::*;
+pub use playlist::*;
 pub use preview::*;
+pub use registration::*;
 pub use settings::*;
 pub use surface::*;
 pub use system::*;
@@ -123,10 +133,20 @@ app_cmd! {
     System(SystemCmd),
     /// The iReal Pro chart player.
     Chart(ChartCmd),
+    /// Registration Memory: buttons, banks, Memorize, Freeze, Registration Sequence.
+    Registration(RegistrationCmd),
+    /// The Playlist.
+    Playlist(PlaylistCmd),
+    /// Chord Looper: record, loop, memories.
+    Looper(LooperCmd),
+    /// Metronome on/off, volume, bell.
+    Metronome(MetronomeCmd),
     /// Multi Pads: the bank, the pads, Synchro Stop.
     MultiPad(MultiPadCmd),
     /// Pedals, wheels and assignable functions.
     Controllers(ControllersCmd),
+    /// Keyboard Harmony / Arpeggio.
+    HarmonyArp(HarmonyArpCmd),
 }
 
 impl From<Button> for AppCmd {
@@ -145,6 +165,7 @@ impl From<Button> for AppCmd {
             Button::TapTempo => TransportCmd::TapTempo.into(),
             Button::TempoUp => TransportCmd::TempoUp.into(),
             Button::TempoDown => TransportCmd::TempoDown.into(),
+            Button::SetTempo(bpm) => TransportCmd::SetTempo { bpm }.into(),
             Button::TogglePart(p) => MixerCmd::ToggleStylePart { part: p }.into(),
             Button::StopAcmp => TransportCmd::ToggleStopAcmp.into(),
         }
@@ -181,7 +202,15 @@ impl From<Action> for AppCmd {
             Action::PartVoice(d) => PartsCmd::StepVoice { delta: d }.into(),
             Action::ToggleFaderPage => MixerCmd::ToggleFaderPage.into(),
             Action::Style(d) => LibraryCmd::StepStyle { delta: d }.into(),
+            Action::Regist(i) => RegistrationCmd::PressRegist { index: i }.into(),
+            Action::RegistMemory => RegistrationCmd::ToggleRegistMemory.into(),
+            Action::RegistFreeze => RegistrationCmd::ToggleFreeze.into(),
+            Action::RegistBank(d) => RegistrationCmd::StepRegistBank { delta: d }.into(),
+            Action::RegistSeq(d) => RegistrationCmd::StepRegistSequence { delta: d }.into(),
+            Action::Playlist(d) => PlaylistCmd::StepPlaylist { delta: d }.into(),
             Action::Assign(f) => ControllersCmd::TriggerFunction { function: f }.into(),
+            Action::AssignSet(f, on) => function_set(f, on).unwrap_or(ControllersCmd::TriggerFunction { function: f }.into()),
+            Action::ToggleHarmonyArp => HarmonyArpCmd::ToggleHarmonyArp.into(),
         }
     }
 }
@@ -256,12 +285,23 @@ pub struct AppState {
     pub keyboard: KeyboardState,
     /// The iReal Pro chart player: imported playlists, the chart, the bar playing.
     pub chart: ChartState,
+    /// Registration Memory: the bank, its ten buttons, Freeze, the Registration Sequence.
+    pub registration: RegistrationState,
+    /// The Playlist.
+    pub playlist: PlaylistState,
     /// Multi Pads: the bank, the four pads, Synchro Stop, the bank files.
     pub multi_pad: MultiPadState,
     /// Pedals, wheels, their parts and the pedals' assignable functions.
     pub controllers: ControllersState,
+    /// Keyboard Harmony / Arpeggio: the switch, the type, the settings.
+    #[serde(default)]
+    pub harmony_arp: HarmonyArpState,
     /// The last notice or error, until the next one or `ClearMessage`.
     pub message: Option<Message>,
+    /// The Chord Looper.
+    pub looper: LooperState,
+    /// The metronome.
+    pub metronome: MetronomeState,
 }
 
 // ---------------------------------------------------------------------------
