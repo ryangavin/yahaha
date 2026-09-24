@@ -1006,9 +1006,11 @@ impl Engine {
         }
         self.retire(old);
         if slot == usize::MAX {
+            // The Ending ended here: stopped, with the new style at its own tempo, as a
+            // load while stopped leaves it.
             self.running = false;
             self.sync_armed = true;
-            self.set_bpm_internal(self.bpm, ns_b);
+            self.set_bpm_internal(self.style.bpm, ns_b);
             self.send_init(sink);
             return;
         }
