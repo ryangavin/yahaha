@@ -42,6 +42,17 @@ export type AppCmd =
   | { type: 'toggleSyncStop' }
   | { type: 'toggleAutoFill' }
   | { type: 'toggleStopAcmp' }
+  /** Stop Accompaniment mode (Style Setting > Stop ACMP). */
+  | { type: 'setStopAcmp'; mode: StopAcmpMode }
+  /** Genos assignable fill functions: a fill, then the Main to the right / left; the
+   * Main's own fill; the Break. */
+  | { type: 'fillUp' }
+  | { type: 'fillDown' }
+  | { type: 'fillSelf' }
+  | { type: 'fillBreak' }
+  /** Half Bar Fill In. */
+  | { type: 'toggleHalfBarFill' }
+  | { type: 'setHalfBarFill'; on: boolean }
   | { type: 'tapTempo' }
   | { type: 'tempoUp' }
   | { type: 'tempoDown' }
@@ -93,6 +104,16 @@ export type AppCmd =
   | { type: 'recallOts'; index: number }
   | { type: 'setOtsLink'; on: boolean }
   | { type: 'toggleOtsLink' }
+  /** OTS Link Timing: recall as the Main is pressed, or when it starts playing. */
+  | { type: 'setOtsLinkTiming'; timing: OtsLinkTiming }
+  // Style Setting > Change Behavior
+  | { type: 'setTempoChange'; rule: ChangeRule }
+  | { type: 'setPartsChange'; rule: ChangeRule }
+  /** The Main (0–3) a style chosen while stopped starts on; null = Off. */
+  | { type: 'setSectionSet'; section: number | null }
+  /** Assignable "Style Tempo Lock/Reset" and "Style Tempo Hold/Reset". */
+  | { type: 'toggleStyleTempoLock' }
+  | { type: 'toggleStyleTempoHold' }
   // Styles
   | { type: 'loadStyle'; id: number }
   | { type: 'loadStylePath'; path: string }
@@ -176,6 +197,21 @@ export type HarmonyArpCmd =
 export type TrackMuteOrder = 'a' | 'b'
 
 export type CmdError = { kind: 'busy' } | { kind: 'failed'; message: string }
+
+/** Stop Accompaniment: what a chord sounds on with the band stopped and Sync Start off. */
+export type StopAcmpMode = 'off' | 'style' | 'fixed'
+/** OTS Link Timing: as the Main is pressed, or when that Main starts playing. */
+export type OtsLinkTiming = 'immediate' | 'mainChange'
+/** Change Behavior: keep the old style's value, keep it only while playing, or take the new one's. */
+export type ChangeRule = 'lock' | 'hold' | 'reset'
+
+/** Style Setting > Change Behavior. */
+export interface StyleChangeState {
+  tempo: ChangeRule
+  parts: ChangeRule
+  /** The Main (0–3) a style chosen while stopped starts on; null = Off (keep it). */
+  sectionSet: number | null
+}
 
 /** Section Change Timing, To Main (and a style change while playing). */
 export type MainTiming = 'immediate' | 'nextBar'
@@ -275,6 +311,7 @@ export interface TransportState {
   /** Not in the Full Keyboard fingering types in Lower. */
   syncStopAvailable: boolean
   autoFill: boolean
+  /** Stop Accompaniment sounds the chord (`stopAcmpMode` is not 'off'). */
   stopAcmp: boolean
   /** The section playing, e.g. "Main A", "Fill In AA"; null when stopped. */
   section: string | null
@@ -295,6 +332,9 @@ export interface TransportState {
   /** How many bars the section playing lasts (a Main's pattern length; it loops), for
    * the lead-sheet band's progress. Null when stopped. */
   sectionBars: number | null
+  /** Half Bar Fill In. */
+  halfBarFill: boolean
+  stopAcmpMode: StopAcmpMode
   /** Fade In/Out. */
   fade: FadeState
   /** Style Retrigger is on. */
@@ -457,6 +497,8 @@ export interface OtsState {
   /** The last one recalled, 1-based; 0 = none since the style loaded. */
   applied: number
   link: boolean
+  /** When OTS Link recalls during playback. */
+  linkTiming: OtsLinkTiming
 }
 
 export interface LibraryStatus {
@@ -766,6 +808,8 @@ export interface AppState {
   library: LibraryStatus
   io: IoState
   message: { seq: number; text: string; error: boolean } | null
+  /** Style Setting > Change Behavior. */
+  styleChange: StyleChangeState
   /** The Launchkey beyond the pads: controls, Shift, faders, Track neighbours, clocks. */
   surface: SurfaceState
   /** The keys held and the chord, for the keyboard strip. */

@@ -49,6 +49,7 @@ mod playlist;
 mod preview;
 mod registration;
 mod settings;
+mod style_change;
 mod sound_library;
 mod style_settings;
 mod surface;
@@ -217,6 +218,15 @@ struct Control {
     msg_seq: u64,
     last_ots_key: Option<(usize, u8)>,
     last_link: bool,
+    /// OTS Link Timing.
+    ots_timing: OtsLinkTiming,
+    /// OTS Link at Main Section Change: whether the band played at the last pump, and the
+    /// Main selected when it stopped with the engine's Main press count then (held until
+    /// a Main is pressed, the selected one included).
+    ots_was_running: bool,
+    ots_stop_main: Option<(u8, u16)>,
+    /// Style Setting > Change Behavior (the engine has a copy).
+    style_change: StyleChangeState,
     leds: Option<Leds>,
     synth: Option<SynthRef>,
     inputs: Vec<String>,
@@ -335,6 +345,7 @@ impl Control {
             AppCmd::Preview(c) => self.preview_cmd(c),
             AppCmd::Settings(c) => self.settings_cmd(c),
             AppCmd::System(c) => self.system_cmd(c),
+            AppCmd::StyleChange(c) => self.style_change_cmd(c),
             AppCmd::Chart(c) => self.chart_cmd(c),
             AppCmd::StyleSettings(c) => self.style_settings_cmd(c),
             AppCmd::Registration(c) => self.registration_cmd(c),
@@ -447,6 +458,7 @@ impl Control {
             io: self.io_state(),
             preview: self.preview_state(),
             keyboard: self.keyboard_state(&v),
+            style_change: self.style_change,
             chart: self.chart_state(),
             style_settings: self.style_settings.into(),
             registration: self.registration_state(),
@@ -590,6 +602,10 @@ fn assemble(opts: &Options, engine_out: live::Out, input_out: live::Out, offline
         msg_seq: 0,
         last_ots_key: None,
         last_link: false,
+        ots_timing: OtsLinkTiming::default(),
+        ots_was_running: false,
+        ots_stop_main: None,
+        style_change: StyleChangeState::default(),
         leds: None,
         synth: None,
         inputs: Vec::new(),

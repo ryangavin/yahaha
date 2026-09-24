@@ -93,7 +93,11 @@ describe('Keyboard parts drawer', () => {
     flushSync()
     expect(session.state.ots.link).toBe(true)
     expect(tipped('ots.1').textContent).toContain('Main A')
-    expect(tipped('ots.link_timing').textContent).toContain('Real Time')
+    // The default (owner preference): at the Main section change.
+    expect(tipped('ots.link_timing').textContent).toContain('At Main Section Change')
+    session.send({ type: 'setOtsLinkTiming', timing: 'immediate' })
+    flushSync()
+    expect(tipped('ots.link_timing').textContent).toContain('Immediate')
   })
 
   it('under Manual Bass, Left plays the Bass voice and the style Bass is marked', () => {

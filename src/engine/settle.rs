@@ -162,7 +162,7 @@ impl Engine {
                 self.revoice(chord, u.first, now, sink);
             }
             self.catch_up(prev, chord, u.first, now, sink);
-        } else if self.stop_acmp && (u.chord || self.sounding.iter().any(|n| n.active && n.src == STOP_ACMP_SRC)) {
+        } else if self.stop_acmp != StopAcmp::Off && (u.chord || self.sounding.iter().any(|n| n.active && n.src == STOP_ACMP_SRC)) {
             self.sound_stop_acmp(chord, now, sink);
         }
         self.hold = None;

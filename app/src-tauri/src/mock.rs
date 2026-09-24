@@ -241,6 +241,8 @@ impl MockSession {
                 section_bars: Some(4),
                 tempo: s0.tempo,
                 lamps: vec![],
+                half_bar_fill: false,
+                stop_acmp_mode: StopAcmpMode::Off,
                 fade: FadeState::Off,
                 retrigger: false,
                 ritardando: false,
@@ -282,7 +284,7 @@ impl MockSession {
                 part_solo: None,
             },
             pads: PadsState { page: Page::Sections, page_name: String::new(), page_number: 1, page_count: Page::ALL.len() as u8, pads: vec![], connected: true, palette_leds: false },
-            ots: OtsState { settings: vec![], applied: 0, link: false },
+            ots: OtsState { settings: vec![], applied: 0, link: false, link_timing: OtsLinkTiming::MainChange },
             library: LibraryStatus {
                 revision: 1,
                 count: library.entries.len(),
@@ -332,6 +334,7 @@ impl MockSession {
             style_settings: StyleSettingsState::default(),
             controllers: ControllersState::of(&Controllers::new()),
             message: None,
+            style_change: StyleChangeState::default(),
             registration: RegistrationState::default(),
             playlist: PlaylistState::default(),
             looper: mock_looper::empty(),
@@ -622,7 +625,9 @@ impl MockSession {
         self.section_start = bar;
         if let Some(m) = MAINS.iter().position(|x| *x == s) {
             self.state.transport.main = m as u8;
-            if self.state.ots.link && m < self.state.ots.settings.len() {
+            // OTS Link Timing "At Main Section Change": as the Main starts playing.
+            let ots = &self.state.ots;
+            if ots.link && ots.link_timing == OtsLinkTiming::MainChange && m < ots.settings.len() && ots.applied as usize != m + 1 {
                 self.recall_ots(m);
             }
         }
@@ -741,6 +746,40 @@ impl MockSession {
             p.volume = o.volume;
         }
         self.state.ots.applied = n as u8 + 1;
+        // OTS turns Sync Start on (ACMP is always on): the next chord starts a stopped band.
+        if !self.state.transport.running {
+            self.state.transport.sync_start = true;
+        }
+    }
+
+    /// Fill Up / Down / Self: a fill, then Main `target`. Stopped: selects it.
+    fn fill_to(&mut self, target: u8) {
+        let running = self.state.transport.running;
+        let fill = FILLS[target as usize];
+        let has_fill = self.has(fill);
+        let t = &mut self.state.transport;
+        t.main = target;
+        if running {
+            t.queued = Some(if has_fill { fill } else { MAINS[target as usize] }.into());
+            let ots = &self.state.ots;
+            if ots.link && ots.link_timing == OtsLinkTiming::Immediate && (target as usize) < ots.settings.len() {
+                self.recall_ots(target as usize);
+            }
+        }
+    }
+
+    /// The Main next to `from` the style has, `up` or down; `from` at the end of the row.
+    fn neighbour_main(&self, from: u8, up: bool) -> u8 {
+        let mut j = from as i32;
+        loop {
+            j += if up { 1 } else { -1 };
+            if !(0..4).contains(&j) {
+                return from;
+            }
+            if self.has(MAINS[j as usize]) {
+                return j as u8;
+            }
+        }
     }
 
     fn set_style(&mut self, id: usize) {
@@ -784,7 +823,24 @@ impl MockSession {
             self.message(text, true);
             return;
         }
+        let tempo = self.state.transport.tempo;
         self.set_style(id);
+        // Change Behavior: Lock keeps, Hold keeps while playing, Reset takes the new style's.
+        let running = self.state.transport.running;
+        let rules = self.state.style_change;
+        let resets = |r: ChangeRuleMode| r == ChangeRuleMode::Reset || (r == ChangeRuleMode::Hold && !running);
+        if !resets(rules.tempo) {
+            self.state.transport.tempo = tempo;
+        }
+        if resets(rules.parts) {
+            for p in &mut self.state.mixer.style_parts {
+                p.on = true;
+            }
+        }
+        if let (false, Some(m)) = (running, rules.section_set) {
+            let near = (0..4i32).flat_map(|d| [m as i32 - d, m as i32 + d]).find(|&j| (0..4).contains(&j) && self.has(MAINS[j as usize]));
+            self.state.transport.main = near.map_or(m, |j| j as u8);
+        }
         let style_page = self.state.mixer.fader_page == FaderPage::Style;
         for p in &mut self.state.mixer.style_parts {
             p.volume = 100;
@@ -1080,6 +1136,28 @@ impl MockSession {
                 } else {
                     t.queued = Some(m.into());
                 }
+                let ots = &self.state.ots;
+                if running && ots.link && ots.link_timing == OtsLinkTiming::Immediate && (i as usize) < ots.settings.len() {
+                    self.recall_ots(i as usize);
+                }
+            }
+            AppCmd::Transport(TransportCmd::FillUp) => self.fill_to(self.neighbour_main(self.state.transport.main, true)),
+            AppCmd::Transport(TransportCmd::FillDown) => self.fill_to(self.neighbour_main(self.state.transport.main, false)),
+            AppCmd::Transport(TransportCmd::FillSelf) => {
+                if running {
+                    self.fill_to(self.state.transport.main)
+                }
+            }
+            AppCmd::Transport(TransportCmd::FillBreak) => {
+                if running && self.has(BREAK) {
+                    self.state.transport.queued = Some(BREAK.into());
+                }
+            }
+            AppCmd::Transport(TransportCmd::ToggleHalfBarFill) => self.state.transport.half_bar_fill = !self.state.transport.half_bar_fill,
+            AppCmd::Transport(TransportCmd::SetHalfBarFill { on }) => self.state.transport.half_bar_fill = on,
+            AppCmd::Transport(TransportCmd::SetStopAcmp { mode }) => {
+                self.state.transport.stop_acmp_mode = mode;
+                self.state.transport.stop_acmp = mode != StopAcmpMode::Off;
             }
             AppCmd::Transport(TransportCmd::Fill { delta }) => {
                 // The Main to the left/right (or the same), always with a fill.
@@ -1172,7 +1250,11 @@ impl MockSession {
                 }
             }
             AppCmd::Transport(TransportCmd::ToggleAutoFill) => self.state.transport.auto_fill = !self.state.transport.auto_fill,
-            AppCmd::Transport(TransportCmd::ToggleStopAcmp) => self.state.transport.stop_acmp = !self.state.transport.stop_acmp,
+            AppCmd::Transport(TransportCmd::ToggleStopAcmp) => {
+                let t = &mut self.state.transport;
+                t.stop_acmp_mode = if t.stop_acmp_mode == StopAcmpMode::Off { StopAcmpMode::Style } else { StopAcmpMode::Off };
+                t.stop_acmp = t.stop_acmp_mode != StopAcmpMode::Off;
+            }
             AppCmd::Transport(TransportCmd::TapTempo) => {
                 let now = self.now;
                 // As the engine: taps up to 12.5 s apart count (down to 5 BPM); a jump in
@@ -1333,6 +1415,18 @@ impl MockSession {
             }
             AppCmd::Ots(OtsCmd::SetOtsLink { on }) => self.state.ots.link = on,
             AppCmd::Ots(OtsCmd::ToggleOtsLink) => self.state.ots.link = !self.state.ots.link,
+            AppCmd::Ots(OtsCmd::SetOtsLinkTiming { timing }) => self.state.ots.link_timing = timing,
+            AppCmd::StyleChange(c) => {
+                let sc = &mut self.state.style_change;
+                let flip = |cur: ChangeRuleMode, to: ChangeRuleMode| if cur == ChangeRuleMode::Reset { to } else { ChangeRuleMode::Reset };
+                match c {
+                    StyleChangeCmd::SetTempoChange { rule } => sc.tempo = rule,
+                    StyleChangeCmd::SetPartsChange { rule } => sc.parts = rule,
+                    StyleChangeCmd::SetSectionSet { section } => sc.section_set = section.map(|m| m.min(3)),
+                    StyleChangeCmd::ToggleStyleTempoLock => sc.tempo = flip(sc.tempo, ChangeRuleMode::Lock),
+                    StyleChangeCmd::ToggleStyleTempoHold => sc.tempo = flip(sc.tempo, ChangeRuleMode::Hold),
+                }
+            }
             AppCmd::Library(LibraryCmd::LoadStyle { id }) => self.load_style(id),
             AppCmd::Library(LibraryCmd::LoadStylePath { path }) => match self.library.entries.iter().find(|e| e.path == path).map(|e| e.id) {
                 Some(id) => self.load_style(id),

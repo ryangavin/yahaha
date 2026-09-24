@@ -49,6 +49,12 @@ fn key_action(code: KeyCode) -> Option<Action> {
         KeyCode::Char('o') => b(Button::Ending(1)),
         KeyCode::Char('p') => b(Button::Ending(2)),
         KeyCode::Char('g') => b(Button::Break),
+        // Fill Down / Fill Up (Shift + the left-hand pair), Fill Self (Shift + the Break
+        // key), Half Bar Fill In (Genos assignable functions).
+        KeyCode::Char('A') => b(Button::FillDown),
+        KeyCode::Char('S') => b(Button::FillUp),
+        KeyCode::Char('G') => b(Button::FillSelf),
+        KeyCode::Char('N') => b(Button::HalfBarFill),
         KeyCode::Char('y') => b(Button::SyncStart),
         KeyCode::Char('u') => b(Button::AutoFill),
         KeyCode::Char('j') => b(Button::SyncStop),
@@ -516,7 +522,7 @@ fn draw(f: &mut ratatui::Frame, st: &AppState, message: &str, beats: f64) {
                 flag(t.sync_start, "SYNC START [y]"),
                 flag(t.auto_fill, "AUTO FILL [u]"),
                 if t.sync_stop_available { flag(t.sync_stop, "SYNC STOP [j]") } else { Span::styled(" SYNC STOP n/a ", dim) },
-                flag(t.stop_acmp, "STOP ACMP [h]"),
+                flag(t.stop_acmp, if t.stop_acmp_mode == yahaha::api::StopAcmpMode::Fixed { "STOP ACMP FIXED [h]" } else { "STOP ACMP [h]" }),
                 flag(t.fade != FadeState::Off, &format!("FADE {} [F]", fade_name(t.fade))),
                 flag(t.retrigger, &format!("RETRIG 1/{} [~ {{ }}]", st.style_settings.retrigger_rate)),
                 flag(t.ritardando, "RIT."),
@@ -546,6 +552,8 @@ fn draw(f: &mut ratatui::Frame, st: &AppState, message: &str, beats: f64) {
                 } else {
                     v.push(Span::styled(format!(" chord: keys up to {}", ch.split_name), dim));
                 }
+                v.push(Span::raw("   "));
+                v.push(flag(t.half_bar_fill, "HALF BAR FILL [N]"));
                 let h = &st.harmony_arp;
                 v.push(Span::raw("  "));
                 v.push(flag(h.on, "HARM/ARP [J]"));
@@ -624,7 +632,7 @@ fn draw(f: &mut ratatui::Frame, st: &AppState, message: &str, beats: f64) {
 
     let mut help = vec![
         Line::from(Span::styled(
-            " space start/stop · 1-4 Main A-D (again = fill) · q w e intro · i o p ending (again = rit.) · g break · t tap · | reset · ~ retrig · F fade · -/= tempo · F1-F4 part · 9/0 voice · 5-8 part on/off · J harmony/arp (L type, * hold) · F9 faders Panel/Style · ; ' kbd transpose · : \" master · / reset · r/^ chord looper rec, on/off · . metronome · Z X C V multi pads · B pad stop · M chart mode · ( ) chart song · tab pad page · enter browse styles · \\ panic · esc twice quit",
+            " space start/stop · 1-4 Main A-D (again = fill) · q w e intro · i o p ending (again = rit.) · g break · A S G fill down/up/self · N half bar fill · t tap · | reset · ~ retrig · F fade · -/= tempo · F1-F4 part · 9/0 voice · 5-8 part on/off · J harmony/arp (L type, * hold) · F9 faders Panel/Style · ; ' kbd transpose · : \" master · / reset · r/^ chord looper rec, on/off · . metronome · Z X C V multi pads · B pad stop · M chart mode · ( ) chart song · tab pad page · enter browse styles · \\ panic · esc twice quit",
             dim,
         )),
         Line::from(Span::styled(
@@ -772,6 +780,9 @@ pub fn screen_html(style: &Path, out: &Path) -> Result<()> {
         user_set: 0,
         pickup: 1 << 4,
         stop_acmp: false,
+        stop_acmp_mode: yahaha::engine::StopAcmp::Off,
+        half_bar_fill: false,
+        main_presses: 0,
         transpose: Transpose::new(2, 0),
         played: Some(yahaha::theory::Chord { root: 7, ty: 10, bass: Some(5) }),
         anchor_ns: 0,
@@ -885,6 +896,10 @@ mod tests {
         assert_eq!(key_cmd(KeyCode::BackTab), Some(AppCmd::Pads(PadsCmd::CyclePadPage { delta: -1 })));
         assert_eq!(key_cmd(KeyCode::Char('\\')), Some(AppCmd::System(SystemCmd::Panic)));
         assert_eq!(key_cmd(KeyCode::Char('k')), Some(AppCmd::Mixer(MixerCmd::ToggleSynthMute)));
+        assert_eq!(key_cmd(KeyCode::Char('S')), Some(AppCmd::Transport(TransportCmd::FillUp)));
+        assert_eq!(key_cmd(KeyCode::Char('A')), Some(AppCmd::Transport(TransportCmd::FillDown)));
+        assert_eq!(key_cmd(KeyCode::Char('G')), Some(AppCmd::Transport(TransportCmd::FillSelf)));
+        assert_eq!(key_cmd(KeyCode::Char('N')), Some(AppCmd::Transport(TransportCmd::ToggleHalfBarFill)));
         assert_eq!(key_cmd(KeyCode::Char('M')), Some(AppCmd::Chart(ChartCmd::ToggleChartMode)));
         // Plain m stays the Style part 7 toggle (the z..comma row).
         assert_eq!(key_cmd(KeyCode::Char('m')), key_action(KeyCode::Char('m')).map(AppCmd::from));

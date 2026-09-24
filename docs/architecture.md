@@ -163,7 +163,7 @@ Everything in the engine is deterministic (time is the `now` passed in) and allo
 
 "When does a queued change take effect" has one answer: `Engine::change_point(Change,
 now)` in `src/engine/sections.rs`. Sections, stops and style changes wait for the next bar
-line; fills and breaks start at the next beat. "What plays when a section ends with
+line; fills and breaks start at the next beat (a Half Bar Fill, `Change::HalfBar`, at the middle of the bar). "What plays when a section ends with
 nothing queued" is `Engine::follow_on`. A feature that changes timing (Genos Section Change
 Timing, OTS Link Timing, a chart player driving sections) changes these policies (a new
 `Change` kind or a setting they read), not the call sites.

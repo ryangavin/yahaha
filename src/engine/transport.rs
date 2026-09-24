@@ -12,7 +12,11 @@ pub struct StyleControls {
     /// Sync Start armed (only while stopped).
     pub sync_start: Option<bool>,
     pub sync_stop: Option<bool>,
+    /// Stop Accompaniment on/off (off: Off; on: the mode last on). `stop_acmp_mode`, when
+    /// given, sets the mode instead.
     pub stop_acmp: Option<bool>,
+    /// The Stop Accompaniment mode (Off, Style, Fixed).
+    pub stop_acmp_mode: Option<StopAcmp>,
     /// The Style parts that play (bit 0 = Rhythm 1).
     pub parts: Option<u8>,
     /// The Style part levels (CC7, Rhythm 1 .. Phrase 2). Only a part whose level differs
@@ -63,10 +67,12 @@ impl Engine {
         {
             self.button(Button::SyncStop, now, sink);
         }
-        if let Some(on) = c.stop_acmp
-            && on != self.stop_acmp
+        if let Some(m) = c.stop_acmp_mode {
+            self.set_stop_acmp(m, sink);
+        } else if let Some(on) = c.stop_acmp
+            && on != (self.stop_acmp != StopAcmp::Off)
         {
-            self.button(Button::StopAcmp, now, sink);
+            self.toggle_stop_acmp(sink);
         }
         if let Some(parts) = c.parts {
             for p in 0..8u8 {
@@ -187,12 +193,13 @@ impl Engine {
                 self.parts ^= 1 << (p & 7);
                 self.silence_inaudible(sink);
             }
-            Button::StopAcmp => {
-                self.stop_acmp = !self.stop_acmp;
-                if !self.stop_acmp {
-                    self.off_where(sink, |n| n.src == STOP_ACMP_SRC);
-                }
-            }
+            Button::StopAcmp => self.toggle_stop_acmp(sink),
+            Button::SetStopAcmp(m) => self.set_stop_acmp(m, sink),
+            Button::FillUp => self.fill_to(self.neighbour_main(true), now),
+            Button::FillDown => self.fill_to(self.neighbour_main(false), now),
+            Button::FillSelf => self.fill_to(self.main, now),
+            Button::HalfBarFill => self.features.fills.half_bar = !self.features.fills.half_bar,
+            Button::SetHalfBarFill(on) => self.features.fills.half_bar = on,
             Button::TempoUp => {
                 self.rit_tempo(2.0);
                 self.set_bpm_internal(self.bpm + 2.0, now)
@@ -219,47 +226,13 @@ impl Engine {
                     self.queue_at_bar(slot, now);
                 }
             }
-            Button::Main(i) => {
-                let prev = self.main;
-                self.main = i;
-                if !self.running {
-                    return;
-                }
-                let cur_id = id_of(self.cur);
-                match cur_id {
-                    SectionId::Main(m) => {
-                        let fill = if i == m || self.auto_fill { s.resolve(8 + i as usize) } else { None };
-                        let fill = if i == m { s.resolve(8 + m as usize) } else { fill };
-                        match fill {
-                            Some(f) => self.queue_fill(f, now),
-                            None if i != m => {
-                                if let Some(slot) = s.resolve(4 + i as usize) {
-                                    self.queue_at_bar(slot, now)
-                                }
-                            }
-                            None => {}
-                        }
-                    }
-                    SectionId::Ending(_) => {
-                        if let Some(slot) = s.resolve(4 + i as usize) {
-                            self.queue_at_bar(slot, now)
-                        }
-                    }
-                    // Intro / fill / break: they flow into self.main when done.
-                    _ => {
-                        let _ = prev;
-                    }
-                }
-            }
-            Button::Fill(d) => {
-                // The Main to the left or right (none past A or D: the fill of the Main at
-                // the end), always with its fill, as if Auto Fill were on. Stopped, it
-                // selects that Main.
-                let target = (self.main as i8 + d.signum()).clamp(0, 3) as u8;
-                let auto = std::mem::replace(&mut self.auto_fill, true);
-                self.button(Button::Main(target), now, sink);
-                self.auto_fill = auto;
-            }
+            Button::Main(i) => self.press_main(i, false, now),
+            // The assignable Fill Down / Self / Up (controllers.rs): the fill functions.
+            Button::Fill(d) => match d.signum() {
+                -1 => self.fill_to(self.neighbour_main(false), now),
+                1 => self.fill_to(self.neighbour_main(true), now),
+                _ => self.fill_to(self.main, now),
+            },
             Button::Break => {
                 if self.running {
                     if let Some(slot) = s.resolve(12) {
@@ -401,6 +374,7 @@ mod tests {
             sync_start: Some(true),
             sync_stop: Some(true),
             stop_acmp: Some(true),
+            stop_acmp_mode: None,
             parts: Some(0b1101_0111),
             volumes: None,
             player_set: None,
@@ -414,6 +388,17 @@ mod tests {
         e.set_style_controls(StyleControls { parts: Some(0xff), ..StyleControls::default() }, 1, &mut Nop);
         let s = e.snapshot(1);
         assert_eq!((s.main, s.sync_stop, s.parts), (2, true, 0xff));
+        // The Stop ACMP mode is a state too: Fixed twice stays Fixed; the mode wins over on/off.
+        let fixed = StyleControls { stop_acmp: Some(false), stop_acmp_mode: Some(StopAcmp::Fixed), ..StyleControls::default() };
+        for _ in 0..2 {
+            e.set_style_controls(fixed, 1, &mut Nop);
+            assert_eq!(e.snapshot(1).stop_acmp_mode, StopAcmp::Fixed);
+        }
+        // Without a mode (an older bank), off turns it off and on brings back the last mode.
+        e.set_style_controls(StyleControls { stop_acmp: Some(false), ..StyleControls::default() }, 1, &mut Nop);
+        assert_eq!(e.snapshot(1).stop_acmp_mode, StopAcmp::Off);
+        e.set_style_controls(StyleControls { stop_acmp: Some(true), ..StyleControls::default() }, 1, &mut Nop);
+        assert_eq!(e.snapshot(1).stop_acmp_mode, StopAcmp::Fixed);
     }
 
     /// Review r2 B1: recalled levels are states too. A part already at its level is left

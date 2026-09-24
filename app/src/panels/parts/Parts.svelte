@@ -157,7 +157,7 @@
         <!-- svelte-ignore a11y_no_noninteractive_tabindex (focusable so its tooltip is reachable from the keyboard) -->
         <span class="timing" tabindex="0" use:tip={'ots.link_timing'}>
           <small class="engraved">Timing</small>
-          Real Time · on press
+          {ots.linkTiming === 'immediate' ? 'Immediate · on press' : 'At Main Section Change'}
         </span>
         <span class="linknote">{ots.link ? 'Main A–D recall OTS 1–4' : 'Mains leave your sounds alone'}</span>
       </div>

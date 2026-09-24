@@ -46,6 +46,12 @@ use super::*;
 /// side, but the engine thread must never grow it).
 #[derive(Default)]
 pub(super) struct Features {
+    /// Style Setting Change Behavior: tempo, part on/off and section on a style change.
+    pub(super) rules: super::change_rules::ChangeRules,
+    /// Half Bar Fill In (fills.rs).
+    pub(super) fills: super::fills::Fills,
+    /// Stop Accompaniment's voices (change_rules.rs).
+    pub(super) stop_acmp: super::change_rules::StopAcmpState,
     /// The iReal chart player (chart.rs).
     pub(super) chart: super::chart::ChartPlayer,
     /// The Style settings (section-change timing, Synchro Stop Window, fade times, Section
@@ -107,6 +113,7 @@ impl Engine {
     pub(super) fn on_start(&mut self, now: u64, sink: &mut impl Sink) {
         #[cfg(test)]
         self.log(Hook::Start);
+        self.stop_acmp_setup_sent();
         self.chart_start(now);
         self.fade_on_start(now, sink);
         self.pads_on_start(now);
@@ -186,6 +193,7 @@ impl Engine {
     pub(super) fn on_style_loaded(&mut self, _now: u64, _sink: &mut impl Sink) {
         #[cfg(test)]
         self.log(Hook::StyleLoaded);
+        self.stop_acmp_setup_sent();
         _sink.route_bank(self.style.route_bank);
         self.retrigger_on_style_loaded();
     }

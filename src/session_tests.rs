@@ -1549,3 +1549,42 @@ fn solo_track_mute_tempo_and_metronome() {
     let clicks = s.take_output().iter().filter(|m| m[0] == crate::click::CLICK).count();
     assert_eq!(clicks, 4, "120 BPM, stopped: a click every 500 ms");
 }
+
+/// Chart mode with OTS Link on (At Main Section Change, the default) and Half Bar Fill
+/// In on (#92 vs #98): the chart's chords never recall an OTS or start a fill; only its
+/// section change does, and the OTS comes when Main B starts (not during its fill).
+#[test]
+fn chart_chords_trigger_no_ots_or_fill() {
+    let Some(s) = offline("SlowWalker.T552.sty") else { return };
+    s.send(ChartCmd::ImportCharts { text: TEST_CHART.into() }).unwrap();
+    s.send(ChartCmd::SetChartMode { on: true }).unwrap();
+    s.send(ChartCmd::SetChartIntro { index: None }).unwrap();
+    s.send(TransportCmd::SetHalfBarFill { on: true }).unwrap();
+    s.send(OtsCmd::SetOtsLink { on: true }).unwrap();
+    s.advance(10 * MS);
+    assert_eq!(s.state().ots.link_timing, OtsLinkTiming::MainChange);
+    s.send(TransportCmd::StartStop).unwrap();
+    s.advance(5 * MS);
+    let st = s.state();
+    assert!(st.transport.running);
+    assert_eq!((st.transport.section.as_deref(), st.ots.applied), (Some("Main A"), 1));
+    let sounds = |st: &AppState| st.keyboard_parts.iter().map(|p| (p.on, p.program, p.volume, p.octave)).collect::<Vec<_>>();
+    let before = sounds(&st);
+    let mut chords = std::collections::BTreeSet::new();
+    // Bars 0-1 (section A: Cmaj7, then Dm7 G7, with Main B's fill in bar 1): OTS 1 throughout.
+    for _ in 0..15_000 / 5 {
+        let st = s.state();
+        if st.transport.section.as_deref() == Some("Main B") {
+            break;
+        }
+        chords.extend(st.chord.name.clone());
+        if st.chart.bar == Some(0) {
+            assert_eq!(st.transport.section.as_deref(), Some("Main A"), "a chart chord started no fill");
+        }
+        assert_eq!((st.ots.applied, sounds(&st)), (1, before.clone()), "no OTS before Main B ({:?})", st.transport.section);
+        s.advance(5 * MS);
+    }
+    assert!(chords.len() >= 3, "the chart's chords played: {chords:?}");
+    let st = s.state();
+    assert_eq!((st.transport.section.as_deref(), st.ots.applied), (Some("Main B"), 2), "OTS 2 as Main B starts");
+}
