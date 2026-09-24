@@ -111,7 +111,9 @@ settings and the other parts still recall, and the bank file keeps the voice as 
    style pressed before the bar line), because a style load resets the tempo, the Style
    mixer and the section. Then, in `REGISTRABLES` order: tempo, chord settings, section
    and Style buttons, Style mixer, keyboard parts, transpose. With no style to wait for
-   this all happens at once.
+   this all happens at once. A style the player chooses while the recall waits (another
+   style, or a new load of the one playing) wins: the rest of the recall is dropped, so the
+   registration's tempo, mixer and section never land on a style it wasn't meant for.
 3. The section and the Style buttons go to the engine as **states**
    (`live::Cmd::StyleControls`), which it compares with its own: a Main change is a Main
    press (playing, it changes at the next bar line), and a switch already in the recalled

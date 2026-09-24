@@ -707,3 +707,31 @@ fn memorize_after_playing_keeps_pattern_levels_the_styles() {
     }
     let _ = std::fs::remove_dir_all(dir);
 }
+
+/// Review r3 N1: a recall waiting for its style's bar line is dropped when the player
+/// chooses another style before then: that style keeps its own mixer and tempo.
+#[test]
+fn style_chosen_after_a_waiting_recall_keeps_its_own_panel() {
+    let Some((s, dir)) = session("chosen-after") else { return };
+    dress(&s);
+    s.send(RegistrationCmd::MemorizeRegist { index: 0 }).unwrap();
+    s.send(LibraryCmd::LoadStyle { id: style_id(&s, "SlowWalker") }).unwrap();
+    s.advance(MS);
+    let own = panel(&s);
+    assert!(own.style.contains("SlowWalker"));
+    s.send(TransportCmd::StartStop).unwrap();
+    s.advance(10 * MS);
+    s.send(RegistrationCmd::RecallRegist { index: 0 }).unwrap();
+    assert!(s.state().registration.pending);
+    // Before the bar line the player goes back to SlowWalker (a new load of it).
+    s.send(LibraryCmd::LoadStyle { id: style_id(&s, "SlowWalker") }).unwrap();
+    s.advance(4_000 * MS);
+    let st = s.state();
+    assert!(st.transport.running && !st.registration.pending);
+    let got = panel(&s);
+    assert!(got.style.contains("SlowWalker"), "{}", got.style);
+    assert_eq!(got.tempo, own.tempo, "SlowWalker's tempo, not the registration's");
+    assert_eq!(got.style_vol[3], own.style_vol[3], "SlowWalker's part 4 level, not the registration's 64");
+    assert_eq!(got.style_on, own.style_on);
+    let _ = std::fs::remove_dir_all(dir);
+}

@@ -45,6 +45,10 @@ pub(super) enum LockItem {
 
 /// A recall waiting for the style it loads to play.
 struct Deferred {
+    /// The tag of the style it waits for (`Prepared::tag`). Another style chosen before
+    /// that one plays drops the recall: the player's style wins, and the registration's
+    /// mixer, tempo and section never land on a style it wasn't memorized with.
+    tag: u64,
     memory: Memory,
     /// The groups it recalls.
     groups: Groups,
@@ -421,11 +425,11 @@ impl Control {
         // Any style still to come (this recall's, or one chosen before it, e.g. by the first
         // of two quick presses) resets the tempo, the Style mixer and the section when it
         // plays: the rest waits for it, or the style load would undo it.
-        if self.pending_style.is_some() {
+        if let Some(tag) = self.pending_style.as_ref().map(|p| p.1) {
             self.reg.ots_hold = Some((None, 0));
             // Memorized but frozen: the tempo stays what it is, whatever the style's.
             let keep_bpm = (m.groups.has(Group::Tempo) && !groups.has(Group::Tempo)).then_some(self.snap.bpm);
-            self.reg.deferred = Some(Deferred { memory: m, groups, keep_bpm });
+            self.reg.deferred = Some(Deferred { tag, memory: m, groups, keep_bpm });
         } else {
             errors.extend(self.recall_late(&m, groups));
         }
@@ -460,6 +464,13 @@ impl Control {
     /// Every pump: a deferred recall runs once its style plays; the OTS Link hold ends
     /// when the engine shows what the recall asked for (or after `OTS_HOLD_NS`).
     pub(super) fn pump_registration(&mut self, now: u64) {
+        // The style chosen last: the one waiting, else the one playing.
+        let chosen = self.pending_style.as_ref().map_or(self.snap.style_tag, |p| p.1);
+        if self.reg.deferred.as_ref().is_some_and(|d| d.tag != chosen) {
+            // The player chose another style after the recall: it doesn't get the rest.
+            self.reg.deferred = None;
+            self.say("Registration: another style was chosen; the rest wasn't recalled", false);
+        }
         if self.reg.deferred.is_some() && self.pending_style.is_none() {
             let d = self.reg.deferred.take().unwrap();
             let mut errors = self.recall_late(&d.memory, d.groups);
