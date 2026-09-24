@@ -210,13 +210,13 @@ fn corpus_stopped_load_after_an_ending_sends_the_mains_setup() {
                     break;
                 }
             }
-            assert!(queued && !e.is_running(), "{name} Ending {i}: the change never took over (queued {queued}, {:?})", e.snapshot(now));
+            assert!(queued && !e.is_running(), "{name} Ending {i}: the change never took over");
             let got = voices_after(&rec.out);
             for c in 8..16 {
-                if let Some(w) = home[c] {
-                    if got[c] != Some(w) {
-                        fails.push(format!("{name} Ending {i} ch{}: after the swap {:?}, Main A routes {w:?}", c + 1, got[c]));
-                    }
+                if let Some(w) = home[c]
+                    && got[c] != Some(w)
+                {
+                    fails.push(format!("{name} Ending {i} ch{}: after the swap {:?}, Main A routes {w:?}", c + 1, got[c]));
                 }
             }
         }
