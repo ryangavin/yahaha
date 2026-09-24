@@ -179,6 +179,7 @@ impl Control {
         if std::thread::Builder::new().name("yahaha-scan".into()).spawn(move || drop(tx.send(Library::scan(&roots)))).is_ok() {
             self.scan_rx = Some(rx);
         }
+        self.rescan_pads();
     }
 
     /// A finished rescan: merge it, and index what's new.

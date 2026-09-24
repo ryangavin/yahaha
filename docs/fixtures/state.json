@@ -1424,5 +1424,106 @@
       54
     ]
   },
+  "multiPad": {
+    "bank": null,
+    "loading": false,
+    "pads": [
+      {
+        "index": 0,
+        "name": "",
+        "lamp": "empty",
+        "repeat": false,
+        "chordMatch": false,
+        "channel": 5
+      },
+      {
+        "index": 1,
+        "name": "",
+        "lamp": "empty",
+        "repeat": false,
+        "chordMatch": false,
+        "channel": 6
+      },
+      {
+        "index": 2,
+        "name": "",
+        "lamp": "empty",
+        "repeat": false,
+        "chordMatch": false,
+        "channel": 7
+      },
+      {
+        "index": 3,
+        "name": "",
+        "lamp": "empty",
+        "repeat": false,
+        "chordMatch": false,
+        "channel": 8
+      }
+    ],
+    "synchroStop": {
+      "styleStop": true,
+      "ending": false
+    },
+    "banks": []
+  },
+  "controllers": {
+    "pedals": [
+      {
+        "cc": 64,
+        "function": "sustain",
+        "controlType": "holdA",
+        "reverse": false,
+        "range": "upper",
+        "down": false
+      },
+      {
+        "cc": 66,
+        "function": "sostenuto",
+        "controlType": "holdA",
+        "reverse": false,
+        "range": "upper",
+        "down": false
+      },
+      {
+        "cc": 67,
+        "function": "soft",
+        "controlType": "holdA",
+        "reverse": false,
+        "range": "upper",
+        "down": false
+      }
+    ],
+    "learning": null,
+    "parts": [
+      {
+        "sustain": true,
+        "pitchBend": true,
+        "modulation": true,
+        "bendRange": 2
+      },
+      {
+        "sustain": true,
+        "pitchBend": true,
+        "modulation": true,
+        "bendRange": 2
+      },
+      {
+        "sustain": true,
+        "pitchBend": true,
+        "modulation": true,
+        "bendRange": 2
+      },
+      {
+        "sustain": true,
+        "pitchBend": true,
+        "modulation": false,
+        "bendRange": 2
+      }
+    ],
+    "sustain": false,
+    "sostenuto": false,
+    "soft": false
+  },
   "message": null
 }

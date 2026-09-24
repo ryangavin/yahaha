@@ -18,6 +18,7 @@ const EVERY_CMD: &[&str] = &[
     r#"{"type":"intro","index":1}"#,
     r#"{"type":"main","index":2}"#,
     r#"{"type":"break"}"#,
+    r#"{"type":"fill","delta":1}"#,
     r#"{"type":"ending","index":0}"#,
     r#"{"type":"startStop"}"#,
     r#"{"type":"stop"}"#,
@@ -79,6 +80,25 @@ const EVERY_CMD: &[&str] = &[
     r#"{"type":"stepStyle","delta":-1}"#,
     r#"{"type":"auditionStyle","id":3}"#,
     r#"{"type":"stopAudition"}"#,
+    // Multi Pads
+    r#"{"type":"loadMultiPad","id":2}"#,
+    r#"{"type":"loadMultiPadPath","path":"/tmp/Demo.pad"}"#,
+    r#"{"type":"clearMultiPad"}"#,
+    r#"{"type":"triggerMultiPad","pad":0}"#,
+    r#"{"type":"stopMultiPad","pad":3}"#,
+    r#"{"type":"stopAllMultiPads"}"#,
+    r#"{"type":"armMultiPad","pad":1}"#,
+    r#"{"type":"setMultiPadRepeat","pad":2,"on":false}"#,
+    r#"{"type":"setMultiPadChordMatch","pad":1,"on":true}"#,
+    r#"{"type":"setMultiPadSynchroStop","styleStop":true,"ending":false}"#,
+    // Controllers
+    r#"{"type":"setPedal","pedal":1,"cc":66,"function":"fillUp","controlType":"toggle","reverse":true,"range":"full"}"#,
+    r#"{"type":"setPedal","pedal":2,"cc":null,"function":"none","controlType":"holdA","reverse":false,"range":"upper"}"#,
+    r#"{"type":"learnPedal","pedal":0}"#,
+    r#"{"type":"learnPedal","pedal":null}"#,
+    r#"{"type":"setPartControllers","part":3,"sustain":false,"pitchBend":true,"modulation":false}"#,
+    r#"{"type":"setBendRange","part":0,"semitones":12}"#,
+    r#"{"type":"triggerFunction","function":"ots2"}"#,
 ];
 
 fn type_of(json: &str) -> String {
@@ -186,6 +206,8 @@ fn bad_commands_are_refused() {
         r#"{"type":"main","index":"one"}"#,
         r#"{"type":"setFingering","fingering":"nope"}"#,
         r#"{"type":"setMidiInputs","all":false}"#,
+        r#"{"type":"setPedal","pedal":0,"cc":64,"function":"noSuchFunction"}"#,
+        r#"{"type":"triggerFunction"}"#,
         r#"[1,2]"#,
         r#""startStop""#,
     ] {

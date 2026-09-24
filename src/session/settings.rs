@@ -195,7 +195,8 @@ impl Control {
         // Queue the releases before a new source can take a freed slot: the input thread
         // applies them before that source's first packet, so they never release its keys.
         for slot in dropped {
-            if self.shared.src_held[slot].load(Relaxed) > 0 {
+            // A source that moved a pedal or wheel is reset too: its release never comes.
+            if self.shared.src_held[slot].load(Relaxed) > 0 || self.shared.controllers.touched(slot) {
                 // The input thread releases the keys (and the chord) on its next message;
                 // the notes stop now.
                 let _ = self.release_tx.push(slot as u8);

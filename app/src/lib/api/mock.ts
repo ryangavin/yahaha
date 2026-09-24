@@ -4,9 +4,11 @@
 // It speaks #16's API (types.ts); `app/src-tauri/src/mock.rs` is the Rust twin that the
 // app shell runs until the engine's `Session` is wired in.
 
+import { defaultControllers, functionCmd, functionInfo, pedalCcRefused } from './assignable'
 import fixture from './mock-fixture.json'
 import { syntheticStyles } from './mock-library'
 import { clockAt, mockSurface, type MockHardware } from './mock-surface'
+import { initialMultiPad, MockPads } from './mock-multipad'
 import { padsFor } from './mock-pads'
 import type { Session } from './session'
 import {
@@ -233,6 +235,8 @@ export function initialState(): AppState {
     message: null,
     surface: null as unknown as AppState['surface'], // filled in by derive()
     preview: { audition: null, queued: null },
+    multiPad: initialMultiPad(),
+    controllers: defaultControllers(),
   }
   derive(state, LIBRARY)
   return state
@@ -361,6 +365,8 @@ export class MockSession implements Session {
   private scanLeft = 0
   /** Beats into the audition playing (#21). */
   private auditionBeats = 0
+  /** Multi Pads (mock-multipad.ts). */
+  private multiPads = new MockPads(() => this.state.multiPad)
 
   constructor(opts: MockOptions = {}) {
     this.demo = opts.demo ?? false
@@ -403,6 +409,10 @@ export class MockSession implements Session {
     this.rightHand = [72, 76]
     st.mixer.styleParts[5].waiting = true
     st.mixer.styleParts[5].volume = 58
+    // The demo Multi Pad bank, its shaker loop playing and the brass hit in standby.
+    this.multiPads.cmd({ type: 'loadMultiPad', id: 0 }, false)
+    this.multiPads.cmd({ type: 'triggerMultiPad', pad: 0 }, false)
+    this.multiPads.cmd({ type: 'armMultiPad', pad: 3 }, false)
     st.io.lastControl = padPress(MAINS.indexOf('Main B'))
     this.position()
   }
@@ -476,6 +486,7 @@ export class MockSession implements Session {
       this.chordArrives('C')
     }
     if (!t.running) this.stepAudition(ms)
+    this.multiPads.beats((ms / 60000) * t.tempo)
     if (this.scanLeft > 0) {
       this.scanLeft -= ms
       if (this.scanLeft <= 0) this.state.library.scanning = false
@@ -529,6 +540,7 @@ export class MockSession implements Session {
 
   private onBar(bar: number) {
     const t = this.state.transport
+    this.multiPads.bar()
     const q = this.preview.queued
     if (q !== null) {
       this.preview.queued = null
@@ -573,6 +585,7 @@ export class MockSession implements Session {
 
   private enter(s: string, bar: number) {
     const t = this.state.transport
+    if (ENDINGS.includes(s) && !(t.section && ENDINGS.includes(t.section))) this.multiPads.endingStarted()
     t.section = s
     this.sectionStart = bar
     const m = MAINS.indexOf(s)
@@ -615,6 +628,7 @@ export class MockSession implements Session {
     this.state.chord.name = transposeChord(chord, k)
     this.state.chord.fingered = chord
     if (!t.running && t.syncStart) this.startBand()
+    this.multiPads.chord(t.running)
   }
 
   private startBand() {
@@ -628,6 +642,7 @@ export class MockSession implements Session {
     t.pendingIntro = null
     t.queued = null
     this.position()
+    this.multiPads.bandStarted()
   }
 
   private stopBand() {
@@ -637,11 +652,13 @@ export class MockSession implements Session {
     const q = this.preview.queued
     this.preview.queued = null
     if (q !== null) this.loadStyle(q)
+    const was = t.running
     t.running = false
     t.section = null
     t.queued = null
     t.bar = 1
     t.beat = 1
+    if (was) this.multiPads.bandStopped()
   }
 
   private recallOts(n: number) {
@@ -723,6 +740,15 @@ export class MockSession implements Session {
       case 'break':
         if (t.running && this.has(BREAK)) t.queued = BREAK
         break
+      case 'fill': {
+        // The Main to the left/right (or the same), always with a fill.
+        const to = clamp(t.main + Math.sign(cmd.delta), 0, 3)
+        const auto = t.autoFill
+        t.autoFill = true
+        this.cmd({ type: 'main', index: to })
+        t.autoFill = auto
+        break
+      }
       case 'ending':
         if (t.running && this.has(ENDINGS[cmd.index])) t.queued = ENDINGS[cmd.index]
         break
@@ -917,11 +943,92 @@ export class MockSession implements Session {
         break
       case 'panic':
         this.stopBand()
+        this.multiPads.panic()
+        Object.assign(st.controllers, { sustain: false, sostenuto: false, soft: false })
         this.message('All notes off')
         break
+      case 'setPedal': {
+        const p = st.controllers.pedals[cmd.pedal]
+        if (!p) {
+          this.message(`there is no pedal ${cmd.pedal + 1}`, true)
+          break
+        }
+        const why = cmd.cc === null ? null : pedalCcRefused(cmd.cc)
+        if (why) {
+          this.message(`a pedal can't use CC ${cmd.cc}: it is ${why}`, true)
+          break
+        }
+        const sw = { sustain: 'sustain', sostenuto: 'sostenuto', soft: 'soft' } as const
+        type Sw = keyof typeof sw
+        // As the engine: another pedal on the switch keeps it on (Hold A held, Hold B up).
+        const keptOn = (f: string) =>
+          st.controllers.pedals.some((q, j) => j !== cmd.pedal && q.function === f && (q.controlType === 'holdA' ? q.down : q.controlType === 'holdB' && !q.down))
+        const rebound = p.function !== cmd.function || p.cc !== cmd.cc
+        if (rebound) {
+          // What the old function drove lets go, and the pedal counts as up.
+          if (p.function in sw && !keptOn(p.function)) st.controllers[p.function as Sw] = false
+          p.down = false
+        }
+        const typeChanged = p.controlType !== cmd.controlType
+        Object.assign(p, { cc: cmd.cc, function: cmd.function, controlType: cmd.controlType, reverse: cmd.reverse, range: cmd.range })
+        // Hold A / Hold B follow the pedal's position: Hold B picked with the pedal up is on.
+        if (p.function in sw && p.controlType !== 'toggle' && (rebound || typeChanged)) {
+          const on = (p.controlType === 'holdB') !== p.down
+          if (on || !keptOn(p.function)) st.controllers[p.function as Sw] = on
+        }
+        break
+      }
+      case 'learnPedal':
+        // No keyboard here: the mock "hears" the Launchkey's sustain jack (CC 64) at once.
+        if (cmd.pedal !== null && st.controllers.pedals[cmd.pedal]) st.controllers.pedals[cmd.pedal].cc = 64
+        st.controllers.learning = null
+        break
+      case 'setPartControllers':
+        Object.assign(st.controllers.parts[cmd.part & 3], { sustain: cmd.sustain, pitchBend: cmd.pitchBend, modulation: cmd.modulation })
+        break
+      case 'setBendRange':
+        st.controllers.parts[cmd.part & 3].bendRange = clamp(cmd.semitones, 0, 12)
+        break
+      case 'triggerFunction': {
+        const info = functionInfo(cmd.function)
+        if (!info || !info.available) {
+          this.message(`${info?.name ?? cmd.function} is not in yahaha yet`, true)
+          break
+        }
+        if (info.kind === 'switch') {
+          const k = cmd.function as 'sustain' | 'sostenuto' | 'soft'
+          st.controllers[k] = !st.controllers[k]
+        } else if (info.kind === 'continuous') {
+          this.message(`${info.name} needs a foot controller (an expression pedal)`, true)
+        } else if (cmd.function === 'otsNext' || cmd.function === 'otsPrev') {
+          const n = st.ots.settings.length
+          if (n) {
+            const a = st.ots.applied
+            this.cmd({ type: 'recallOts', index: cmd.function === 'otsNext' ? a % n : a ? (a + n - 2) % n : n - 1 })
+          }
+        } else {
+          const run = functionCmd(cmd.function, c)
+          if (run) this.cmd(run)
+        }
+        break
+      }
       case 'clearMessage':
         st.message = null
         break
+      case 'loadMultiPad':
+      case 'loadMultiPadPath':
+      case 'clearMultiPad':
+      case 'triggerMultiPad':
+      case 'stopMultiPad':
+      case 'stopAllMultiPads':
+      case 'armMultiPad':
+      case 'setMultiPadRepeat':
+      case 'setMultiPadChordMatch':
+      case 'setMultiPadSynchroStop': {
+        const err = this.multiPads.cmd(cmd, t.running)
+        if (err) this.message(err, true)
+        break
+      }
     }
   }
 }
