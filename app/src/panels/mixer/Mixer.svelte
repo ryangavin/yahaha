@@ -1,0 +1,316 @@
+<!--
+  The Mixer drawer, laid out like the Genos Mixer's Panel and Style tabs.
+
+  - The tab IS the Launchkey fader page (`state.mixer.faderPage`): switching tabs sends
+    `setFaderPage`, so the hardware follows, and the Launchkey's page button switches the
+    tab. There is no local copy of the page.
+  - Panel: Right 1–3 and Left on faders 1–4 (5–8 are unused on the hardware, drawn dim).
+    Style: the eight band parts, Rhythm 1 … Phrase 2, on faders 1–8. Master on the right.
+  - A fader is the channel's CC 7 (0–127) and nothing else: no hidden gain. Loading a
+    style sets the Style faders to the style's own levels.
+  - Soft takeover: ↕ while a level waits for its Launchkey fader, and a dashed ghost cap
+    where that fader physically sits (from the provisional `state.surface`).
+  - No level meters and Solo disabled: the engine has neither yet (#30).
+-->
+<script lang="ts">
+  import type { FaderPage, KeyboardPart, StylePart } from '../../lib/api/types'
+  import { app, ui } from '../../lib/store.svelte'
+  import { tipFor } from '../../help/actions'
+  import { css } from '../../lib/leds'
+  import { surfaceOf } from '../../lib/surface'
+  import { tip } from '../../lib/tooltip/tip.svelte'
+  import Fader from '../../lib/ui/Fader.svelte'
+  import Overlay from '../../lib/ui/Overlay.svelte'
+  import Strip from './Strip.svelte'
+  import { partVoice, styleVoice } from './voice'
+
+  const mixer = $derived(app.state.mixer)
+  const page = $derived(mixer.faderPage)
+  const parts = $derived(app.state.keyboardParts)
+  const surface = $derived(surfaceOf(app.state, app.library))
+  const outPort = $derived(app.state.io.outputPort)
+
+  /** Where Launchkey fader `i` (0–7, 8 = master) physically is, when the engine says. */
+  const hwAt = (i: number): number | null => surface.faders[i]?.position ?? null
+  /** The light of the button under Launchkey fader `i` (0-based), as the engine reports it. */
+  const ledAt = (i: number) => surface.controls.find((c) => c.id === `faderButton${i + 1}`) ?? null
+  const pageLed = $derived(surface.controls.find((c) => c.id === 'masterButton') ?? null)
+
+  /** Panel page faders after the keyboard parts (5–8): unused on the Launchkey too. */
+  const unusedSlots = $derived(Array.from({ length: Math.max(0, 8 - parts.length) }, (_, k) => parts.length + k))
+
+  const TABS: { id: FaderPage; name: string }[] = [
+    { id: 'panel', name: 'Panel' },
+    { id: 'style', name: 'Style' },
+  ]
+
+  function setPage(p: FaderPage) {
+    if (p !== page) app.send({ type: 'setFaderPage', page: p })
+  }
+  function tabKey(e: KeyboardEvent) {
+    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return
+    e.preventDefault()
+    e.stopPropagation()
+    const next = page === 'panel' ? 'style' : 'panel'
+    setPage(next)
+    document.getElementById(`mixer-tab-${next}`)?.focus()
+  }
+
+  // Launchkey fader order on the Panel page: Right 1, Right 2, Right 3, Left.
+  const panelStrip = (p: KeyboardPart, i: number) => ({
+    name: p.name,
+    channel: p.channel,
+    value: p.volume,
+    waiting: p.waiting,
+    hw: hwAt(i),
+    faderTip: tipFor({ type: 'setPartVolume', part: i, volume: 0 }),
+    onchange: (v: number) => app.send({ type: 'setPartVolume', part: i, volume: v }),
+    lit: p.sounding,
+    on: {
+      led: ledAt(i),
+      isOn: p.on,
+      tip: tipFor({ type: 'togglePart', part: i }),
+      onclick: () => app.send({ type: 'togglePart', part: i }),
+    },
+    voice: partVoice(p),
+    badge: p.playsBass ? { text: 'Plays bass', tip: 'detection.manual_bass' as const } : null,
+  })
+
+  const styleStrip = (p: StylePart, i: number) => ({
+    name: p.name,
+    channel: p.channel,
+    value: p.volume,
+    waiting: p.waiting,
+    hw: hwAt(i),
+    faderTip: 'mixer.style.volume' as const,
+    onchange: (v: number) => app.send({ type: 'setStylePartVolume', part: i, volume: v }),
+    lit: p.on,
+    on: {
+      led: ledAt(i),
+      isOn: p.on,
+      tip: 'mixer.style.mute' as const,
+      onclick: () => app.send({ type: 'toggleStylePart', part: i }),
+    },
+    voice: styleVoice(p.voice),
+    badge: p.mutedByManualBass ? { text: 'Manual Bass', tip: 'detection.manual_bass' as const } : null,
+  })
+</script>
+
+<Overlay id="mixer" title="Mixer" closeTip="drawer.close" onclose={() => (ui.mixer = false)}>
+  <div class="mixer">
+    <div class="top">
+      <div class="tabs" role="tablist" aria-label="Mixer page (the Launchkey fader page)">
+        {#each TABS as t (t.id)}
+          <button
+            type="button"
+            role="tab"
+            id="mixer-tab-{t.id}"
+            class="tab mat-raised"
+            class:pressed={page === t.id}
+            aria-selected={page === t.id}
+            aria-controls="mixer-strips"
+            tabindex={page === t.id ? 0 : -1}
+            use:tip={'mixer.page'}
+            onclick={() => setPage(t.id)}
+            onkeydown={tabKey}
+          >
+            <span class="dot" class:on={page === t.id} aria-hidden="true"></span>{t.name}
+          </button>
+        {/each}
+      </div>
+      <div class="follows engraved" use:tip={'mixer.page'}>
+        <span
+          class="lamp"
+          aria-hidden="true"
+          style:--led={pageLed ? css(pageLed.rgb) : 'transparent'}
+        ></span>
+        Launchkey faders: {page === 'panel' ? 'Panel' : 'Style'}
+      </div>
+      <div class="out" use:tip={'mixer.channel'}>
+        <span class="engraved">MIDI out</span> <b>{outPort || '—'}</b>
+      </div>
+    </div>
+
+    <p class="info" use:tip={'mixer.info'}>
+      <b>A fader is its channel’s CC 7</b>, 0–127, with no hidden gain. Loading a style sets the Style faders to the
+      style’s own levels. <span class="wait">↕</span> waits for the Launchkey fader; the dashed cap is where it sits.
+    </p>
+
+    <div class="strips" id="mixer-strips" role="tabpanel" aria-labelledby="mixer-tab-{page}">
+      {#if page === 'panel'}
+        {#each parts as p, i (i)}
+          <Strip {...panelStrip(p, i)} />
+        {/each}
+        {#each unusedSlots as n (n)}
+          <Strip name="—" value={0} faderTip="launchkey.fader_unused" onchange={() => {}} unused />
+        {/each}
+      {:else}
+        {#each mixer.styleParts as p, i (i)}
+          <Strip {...styleStrip(p, i)} />
+        {/each}
+      {/if}
+
+      <div class="master">
+        <div class="ch engraved">Synth</div>
+        <div class="fader">
+          <Fader
+            value={mixer.master ?? 0}
+            tip="mixer.master"
+            label="Master"
+            pickup={mixer.masterWaiting}
+            hw={hwAt(8)}
+            disabled={mixer.master === null}
+            onchange={(v) => app.send({ type: 'setMasterVolume', volume: v })}
+          />
+        </div>
+        <div class="headroom" use:tip={'mixer.master'}>
+          {#if mixer.master === null}
+            <span>Synth off</span><span>&nbsp;</span>
+          {:else}
+            <span>100 = unity</span><span>soft clip above −1 dBFS</span>
+          {/if}
+        </div>
+      </div>
+    </div>
+  </div>
+</Overlay>
+
+<style>
+  /* Wider than the other drawers: a Genos-style bank of eight strips and the master. */
+  :global(.overlay.right[data-overlay='mixer']) {
+    width: min(48rem, calc(100vw - 32px));
+  }
+  .mixer {
+    display: grid;
+    grid-template-rows: auto auto 1fr;
+    gap: 0.7rem;
+    height: 100%;
+    min-height: 27rem;
+  }
+  .top {
+    display: flex;
+    align-items: center;
+    gap: 0.9rem;
+    flex-wrap: wrap;
+  }
+  .tabs {
+    display: flex;
+    gap: 0.3rem;
+  }
+  .tab {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5em;
+    min-height: 2.2rem;
+    min-width: 5.5rem;
+    padding: 0 0.9em;
+    border-radius: 5px;
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: 1rem;
+    letter-spacing: 0.03em;
+    color: var(--ink);
+  }
+  .tab.pressed {
+    outline: 1px solid var(--accent);
+  }
+  /* Only the selected tab takes focus (roving tabindex), so the focus ring must beat the
+     selected outline above or keyboard focus is invisible. */
+  .tab:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+  .dot {
+    width: 0.5em;
+    height: 0.5em;
+    border-radius: 50%;
+    background: var(--lamp-off);
+    box-shadow: inset 0 1px 1px rgb(0 0 0 / 0.6);
+  }
+  .dot.on {
+    background: var(--accent);
+    box-shadow: 0 0 8px var(--accent);
+  }
+  .follows {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45em;
+    white-space: nowrap;
+  }
+  .lamp {
+    width: 0.9em;
+    height: 0.45em;
+    border-radius: 2px;
+    background: var(--led);
+    box-shadow: 0 0 6px var(--led);
+  }
+  .out {
+    margin-left: auto;
+    font-family: var(--font-display);
+    font-size: 0.9rem;
+    white-space: nowrap;
+  }
+  .info {
+    margin: 0;
+    font-size: var(--fs-small);
+    color: var(--muted);
+    line-height: 1.35;
+  }
+  .info b {
+    color: var(--ink);
+    font-weight: 600;
+  }
+  .wait {
+    font-weight: 700;
+    color: var(--accent-ink);
+    background: var(--accent);
+    border-radius: 3px;
+    padding: 0 0.2em;
+  }
+  .strips {
+    display: grid;
+    grid-template-columns: repeat(8, minmax(0, 1fr)) minmax(0, 1.2fr);
+    gap: 0.3rem;
+    min-height: 0;
+    padding: 0.5rem;
+    border-radius: var(--r-key);
+    background: rgb(0 0 0 / 0.12);
+    box-shadow: inset 0 1px 3px rgb(0 0 0 / 0.35);
+  }
+  /* A Fader's cap rides a full-height carrier moved by transform, so at a low value the
+     (invisible) carrier hangs up to a whole track below it and makes the drawer scroll
+     into empty space. The cap and ghost always sit inside the track: clip there. */
+  .strips :global(.track) {
+    overflow: clip;
+  }
+  .master {
+    display: grid;
+    grid-template-rows: auto minmax(13rem, 1fr) auto;
+    justify-items: center;
+    gap: 0.45rem;
+    padding: 0.5rem 0.25rem 0.4rem 0.5rem;
+    margin-left: 0.2rem;
+    border-left: 1px solid var(--seam);
+  }
+  .master .ch {
+    font-size: 0.8rem;
+  }
+  .master .fader {
+    height: 100%;
+    width: 100%;
+    display: flex;
+    justify-content: center;
+    font-size: 0.95rem;
+  }
+  .headroom {
+    display: grid;
+    text-align: center;
+    font-size: 0.7rem;
+    line-height: 1.2;
+    color: var(--muted);
+    align-content: start;
+    /* The height of a strip's buttons, voice and badge, so the master fader lines up. */
+    min-height: 6.4rem;
+    padding-top: 0.2rem;
+  }
+</style>

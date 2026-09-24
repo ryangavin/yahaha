@@ -1,15 +1,17 @@
 //! Live runtime: the MIDI input handler (runs on CoreMIDI's thread), the engine thread,
-//! and the lock-free plumbing between them and the UI.
+//! and the lock-free plumbing between them and the session's control side
+//! (`session.rs`, which every client goes through).
 //!
 //!   CoreMIDI thread ──chord (AtomicU32) + commands (SPSC) + semaphore──▶ engine thread
-//!   UI thread ────────styles/commands (SPSC) + semaphore───────────────▶ engine thread
-//!   engine thread ────snapshots (SPSC), old styles (SPSC)──────────────▶ UI thread
+//!   CoreMIDI thread ──Launchkey actions (SPSC) + semaphore─────────────▶ control
+//!   control ──────────styles/commands (SPSC) + semaphore───────────────▶ engine thread
+//!   engine thread ────snapshots (SPSC), old styles (SPSC) + semaphore──▶ control
 //!
 //! Neither real-time side ever waits on the other: producers use try-push and a
 //! non-blocking semaphore signal; the engine only sleeps on the semaphore with a timeout
 //! equal to its next deadline.
 
-use crate::engine::{shift_key, Button, Engine, Prepared, Snapshot, Transpose};
+use crate::engine::{shift_key, AuditionPos, Button, Engine, Prepared, Snapshot, Transpose};
 use crate::fingering::{self, Fingering};
 use crate::launchkey::{self, Action, Control, Page};
 use crate::midi::{for_each_message, InputHandler};
@@ -26,17 +28,48 @@ pub enum Cmd {
     ChordReleased,
     /// A Launchkey part fader (0..8) moved to a value (soft takeover in the engine).
     PartVolume(u8, u8),
+    /// A Style part's volume set from software (0..8, 0-127): the fader picks it up.
+    StyleVolume(u8, u8),
     /// Manual Bass in effect: mute the Style's Bass part.
     ManualBass(bool),
     Transpose(Transpose),
     Arm,
     Panic,
+    /// End the style preview now (`AppCmd::StopAudition`).
+    StopAudition,
+    /// All Notes Off on the keyboard parts' channels: a MIDI source with keys held was
+    /// disconnected (its note-offs will never come).
+    KeysOff,
 }
 
+/// How many bars a style preview plays.
+pub const AUDITION_BARS: u8 = 4;
+
+/// A style preview for the engine thread (`AppCmd::AuditionStyle`): its own engine, built
+/// on the control side, playing the style's Main A over `chords`, one a bar, for
+/// `AUDITION_BARS` bars, on the band's channels while the band is stopped.
+pub struct Audition {
+    pub engine: Engine,
+    /// The library id it previews (for the state).
+    pub id: u32,
+    pub chords: [Chord; 4],
+}
+
+/// State the real-time threads read without waiting. Owned by the session: clients never
+/// touch it (they send `AppCmd`s), only the session's control side and the RT threads.
 pub struct Shared {
     pub chord: AtomicU32,
     pub chord_ns: AtomicU64,
+    /// Wakes the engine thread.
     pub wake: Wakeup,
+    /// Wakes the session's control thread (Launchkey actions, new snapshots).
+    pub ctl_wake: Wakeup,
+    /// Software moved the synth master level: the master fader has to pick it up again.
+    pub master_moved: AtomicBool,
+    /// The Launchkey's Shift button is held (for the screen: the Shift layer).
+    pub shift: AtomicBool,
+    /// Where the Launchkey master fader physically is (`HW_UNKNOWN` until it moves).
+    pub master_hw: AtomicU8,
     pub quit: AtomicBool,
     pub split: AtomicU8,
     /// Chord fingering type (`Fingering::to_u8`), read by the input thread on each chord
@@ -71,6 +104,12 @@ pub struct Shared {
     pub spin_ns: AtomicU64,
     /// The keyboard parts (Right 1-3, Left) and the fader page.
     pub parts: Arc<Parts>,
+    /// Each key as the input thread last saw it, for the app's key strip: `KEY_HELD`, the
+    /// side of the split it went to (`KEY_RIGHT`), and the keyboard parts sounding it
+    /// (bits 0-3 = Right 1, Right 2, Right 3, Left).
+    pub keys: [AtomicU8; 128],
+    /// How many keys each keyboard source slot holds (`key_tag`).
+    pub src_held: [AtomicU8; MAX_KEY_SOURCES],
 }
 
 impl Shared {
@@ -79,6 +118,10 @@ impl Shared {
             chord: AtomicU32::new(0),
             chord_ns: AtomicU64::new(0),
             wake: Wakeup::new(),
+            ctl_wake: Wakeup::new(),
+            master_moved: AtomicBool::new(false),
+            shift: AtomicBool::new(false),
+            master_hw: AtomicU8::new(crate::engine::HW_UNKNOWN),
             quit: AtomicBool::new(false),
             split: AtomicU8::new(split),
             fingering: AtomicU8::new(Fingering::FingeredOnBass.to_u8()),
@@ -96,7 +139,25 @@ impl Shared {
             work_lat: Histogram::new(),
             spin_ns: AtomicU64::new(150_000),
             parts: Arc::new(Parts::new()),
+            keys: std::array::from_fn(|_| AtomicU8::new(0)),
+            src_held: std::array::from_fn(|_| AtomicU8::new(0)),
         }
+    }
+
+    /// The keys held: (all of them, the ones on the right of the split), as bit masks
+    /// (bit k of word k / 64).
+    pub fn held_keys(&self) -> ([u64; 2], [u64; 2]) {
+        let (mut held, mut right) = ([0u64; 2], [0u64; 2]);
+        for (k, a) in self.keys.iter().enumerate() {
+            let v = a.load(Relaxed);
+            if v & KEY_HELD != 0 {
+                held[k / 64] |= 1 << (k % 64);
+                if v & KEY_RIGHT != 0 {
+                    right[k / 64] |= 1 << (k % 64);
+                }
+            }
+        }
+        (held, right)
     }
 
     /// Sync Stop is available: always in Upper (Fingered*), else unless the fingering type
@@ -157,8 +218,36 @@ impl crate::engine::Sink for Out {
     }
 }
 
+/// Input port tags: a keyboard (slot 0; the offline session's keys), the Launchkey DAW
+/// port, and keyboard sources by slot from `KEY_TAG_BASE` on (`key_tag`), so the keys a
+/// source holds are known when it is disconnected.
 pub const TAG_KEYS: usize = 1;
 pub const TAG_PADS: usize = 2;
+
+/// `Shared::keys`: the key is held, and on the right of the split; the low 4 bits are the
+/// keyboard parts sounding it.
+pub const KEY_HELD: u8 = 0x80;
+pub const KEY_RIGHT: u8 = 0x40;
+pub const KEY_PARTS: u8 = 0x0F;
+
+pub const KEY_TAG_BASE: usize = 16;
+/// Keyboard source slots (slot 0 is `TAG_KEYS`).
+pub const MAX_KEY_SOURCES: usize = 16;
+
+/// The input port tag for keyboard source slot `slot` (1..MAX_KEY_SOURCES).
+pub fn key_tag(slot: usize) -> usize {
+    KEY_TAG_BASE + slot.min(MAX_KEY_SOURCES - 1)
+}
+
+/// The keyboard source slot a tag stands for (None: the pads).
+#[inline]
+fn key_slot(tag: usize) -> Option<usize> {
+    match tag {
+        TAG_PADS => None,
+        t if t >= KEY_TAG_BASE => Some((t - KEY_TAG_BASE).min(MAX_KEY_SOURCES - 1)),
+        _ => Some(0),
+    }
+}
 
 #[cfg(test)]
 pub const RH_CH: u8 = parts::CHANNEL[parts::RIGHT1];
@@ -187,6 +276,9 @@ pub fn fingered_star(mask: u16, c: Chord) -> Option<Chord> {
 // ---------------------------------------------------------------------------
 // Input (CoreMIDI receive thread)
 // ---------------------------------------------------------------------------
+
+mod pipeline;
+pub use pipeline::{Note, Processor};
 
 /// The notes one key sounds: a (channel, note) for each keyboard part that played it (up
 /// to the three Right parts layered).
@@ -242,6 +334,12 @@ pub struct Keys {
     held: [[u8; 128]; 16],
 }
 
+impl Default for Keys {
+    fn default() -> Keys {
+        Keys::new()
+    }
+}
+
 impl Keys {
     pub fn new() -> Keys {
         Keys { sounding: [Sounded::default(); 128], held: [[0; 128]; 16] }
@@ -293,16 +391,25 @@ pub struct Input {
     generation: u16,
     cmd: Producer<Cmd>,
     out: Out,
-    running_status: [u8; 3],
+    /// Running status per port: [unused, unused, pads, key slot 0, key slot 1, ...].
+    running_status: [u8; 3 + MAX_KEY_SOURCES],
+    /// The keys each keyboard source slot holds (bit k of word k / 64).
+    src_keys: [[u64; 2]; MAX_KEY_SOURCES],
+    /// Source slots the control side disconnected: release what they hold.
+    release: Option<Consumer<u8>>,
     signal: bool,
+    /// An action went to the control side: wake it at the end of the packet list.
+    ctl_signal: bool,
     synth: Option<Arc<crate::synth::SynthControl>>,
-    /// Launchkey pad and button actions for the UI thread (anything that isn't an engine
-    /// button: settings, OTS, style change).
+    /// Launchkey pad and button actions for the session's control side (anything that
+    /// isn't an engine button: settings, OTS, style change), run as `AppCmd`s.
     actions: Option<Producer<Action>>,
     /// The Launchkey's Shift button is held.
     shift: bool,
     /// Soft takeover of the Launchkey master fader (the synth master level).
     master_takeover: crate::engine::Takeover,
+    /// The note pipeline's processor slot (Harmony or Arpeggio; none yet).
+    processor: Processor,
 }
 
 impl Input {
@@ -316,13 +423,22 @@ impl Input {
             generation: 0,
             cmd,
             out,
-            running_status: [0; 3],
+            running_status: [0; 3 + MAX_KEY_SOURCES],
+            src_keys: [[0; 2]; MAX_KEY_SOURCES],
+            release: None,
             signal: false,
+            ctl_signal: false,
             synth: None,
             actions: None,
             shift: false,
             master_takeover: crate::engine::Takeover::NEW,
+            processor: Processor::Off,
         }
+    }
+
+    /// Where the keyboard parts' notes go besides the port: the built-in synth's ring.
+    pub fn set_out_synth(&mut self, feed: Option<Producer<[u8; 3]>>) {
+        self.out.synth = feed;
     }
 
     pub fn set_synth(&mut self, ctl: Option<Arc<crate::synth::SynthControl>>) {
@@ -331,6 +447,69 @@ impl Input {
 
     pub fn set_actions(&mut self, tx: Producer<Action>) {
         self.actions = Some(tx);
+    }
+
+    /// Where the control side says which source slots it disconnected.
+    pub fn set_release(&mut self, rx: Consumer<u8>) {
+        self.release = Some(rx);
+    }
+
+    /// Release every key source slot `slot` holds that no other source holds too, as if
+    /// its note-offs had come: the notes stop and the chord section lets go.
+    pub fn release_source(&mut self, slot: usize) {
+        let slot = slot.min(MAX_KEY_SOURCES - 1);
+        for k in 0..128u8 {
+            let (w, b) = ((k >> 6) as usize, 1u64 << (k & 63));
+            if self.src_keys[slot][w] & b == 0 {
+                continue;
+            }
+            let elsewhere = (0..MAX_KEY_SOURCES).any(|o| o != slot && self.src_keys[o][w] & b != 0);
+            if elsewhere {
+                self.src_keys[slot][w] &= !b;
+                self.shared.src_held[slot].fetch_sub(1, Relaxed);
+            } else {
+                self.key_msg_from(slot, &[0x80, k, 0]);
+            }
+        }
+    }
+
+    /// Apply the releases the control side queued.
+    fn drain_releases(&mut self) {
+        let Some(mut rx) = self.release.take() else { return };
+        while let Ok(slot) = rx.pop() {
+            self.release_source(slot as usize);
+        }
+        self.release = Some(rx);
+    }
+
+    /// Note key `k` held (`r` = its side, `sounded` where it sounds) or let go (`r` = 0)
+    /// for the key strip, and by source slot.
+    fn track_key(&mut self, slot: usize, k: u8, r: u8, sounded: Sounded) {
+        let (w, b) = ((k >> 6) as usize, 1u64 << (k & 63));
+        let sh = &self.shared;
+        let v = if r == 0 {
+            0
+        } else {
+            let parts = sounded.iter().filter_map(|(ch, _)| parts::part_of_channel(ch)).fold(0u8, |m, p| m | 1 << p);
+            KEY_HELD | if r == R_RH { KEY_RIGHT } else { 0 } | (parts & KEY_PARTS)
+        };
+        sh.keys[k as usize & 127].store(v, Relaxed);
+        let slot = slot.min(MAX_KEY_SOURCES - 1);
+        if r != 0 {
+            if self.src_keys[slot][w] & b == 0 {
+                self.src_keys[slot][w] |= b;
+                sh.src_held[slot].fetch_add(1, Relaxed);
+            }
+        } else {
+            // A key-up releases the key whichever source pressed it (one key, one note).
+            for (o, keys) in self.src_keys.iter_mut().enumerate() {
+                if keys[w] & b != 0 {
+                    keys[w] &= !b;
+                    sh.src_held[o].fetch_sub(1, Relaxed);
+                }
+            }
+        }
+        self.ctl_signal = true;
     }
 
     /// The route bit of the chord section in the current area: the left hand in Lower,
@@ -373,54 +552,19 @@ impl Input {
         }
     }
 
+    #[cfg(test)]
     fn key_msg(&mut self, m: &[u8]) {
+        self.key_msg_from(0, m)
+    }
+
+    /// A message from the keyboard source in slot `slot`.
+    fn key_msg_from(&mut self, slot: usize, m: &[u8]) {
         let split = self.shared.split.load(Relaxed);
         let st = m[0] & 0xF0;
         match (st, m.len()) {
-            (0x90, 3) if m[2] > 0 => {
-                // Chords are recognized from the keys as fingered; the engine applies
-                // Keyboard transpose to the chord. The notes themselves sound transposed.
-                let k = m[1] & 0x7F;
-                // Lower: the chord section is the left hand. Upper: it is the right hand
-                // (above Split Point (Left)), and the left hand plays the Left part (or
-                // the Right parts, with Left off).
-                let left = k <= split;
-                let r = if left { R_LH } else { R_RH };
-                let chord = r == self.chord_side();
-                self.route[k as usize] = r;
-                let full = !self.shared.upper.load(Relaxed) && Fingering::from_u8(self.shared.fingering.load(Relaxed)).full_keyboard();
-                let chord_only = !self.shared.upper.load(Relaxed) && !full;
-                let now = sounds(&self.shared.parts, left, chord_only, k, self.shared.key_shift.load(Relaxed));
-                // A retrigger (possibly after the split, transpose or parts changed): release
-                // where it sounded.
-                for (pch, pnote) in self.keys.press(k, now).iter() {
-                    self.out.push(&[0x80 | pch, pnote, 0]);
-                }
-                for (ch, note) in now.iter() {
-                    self.out.push(&[0x90 | ch, note, m[2]]);
-                }
-                // The Full Keyboard types (Lower only) read both hands.
-                if chord || full {
-                    self.recompute();
-                }
-            }
-            (0x80, 3) | (0x90, 3) => {
-                let k = m[1] & 0x7F;
-                for (ch, note) in self.keys.release(k).iter() {
-                    self.out.push(&[0x80 | ch, note, 0]);
-                }
-                let r = std::mem::take(&mut self.route[k as usize]);
-                if r != 0 {
-                    // Sync Stop: the last key of the current chord section went up.
-                    let side = self.chord_side();
-                    if r & side != 0
-                        && !self.route.iter().any(|&x| x & side != 0)
-                        && self.cmd.push(Cmd::ChordReleased).is_ok()
-                    {
-                        self.signal = true;
-                    }
-                }
-            }
+            // The keyboard-part note path: pipeline.rs.
+            (0x90, 3) if m[2] > 0 => self.key_down(slot, m[1] & 0x7F, m[2], split),
+            (0x80, 3) | (0x90, 3) => self.key_up(slot, m[1] & 0x7F),
             // Volume and voice belong to the parts (their CC7 and program): the keyboard's
             // own are dropped, so the port, the synth and the screen never disagree.
             (0xB0, 3) if matches!(m[1], 0 | 7 | 32) => {}
@@ -455,7 +599,7 @@ impl Input {
         if st == 0xB0 && m.len() == 3 {
             let (cc, v) = (m[1], m[2]);
             if cc == launchkey::SHIFT_CC {
-                self.shift = v > 0;
+                self.set_shift(v > 0);
                 return;
             }
             if m[0] == launchkey::FEATURE_CH_STATUS {
@@ -464,14 +608,19 @@ impl Input {
                 // report means the firmware's Shift menu was used (or DAW mode came
                 // back), which can swallow the Shift release.
                 if cc == launchkey::PAD_MODE_CC {
-                    self.shift = false;
+                    self.set_shift(false);
                 }
                 return;
             }
             if launchkey::FADER_CC.contains(&cc) {
                 if cc == launchkey::MASTER_FADER_CC {
+                    self.shared.master_hw.store(v, Relaxed);
+                    self.ctl_signal = true;
                     // Soft takeover, as for the part faders (in the engine).
                     if let Some(s) = &self.synth {
+                        if self.shared.master_moved.swap(false, Relaxed) {
+                            self.master_takeover.software_moved(s.master.load(Relaxed));
+                        }
                         if self.master_takeover.hardware(s.master.load(Relaxed), v) {
                             s.master.store(v, Relaxed);
                         }
@@ -508,7 +657,10 @@ impl Input {
             }
             match launchkey::cc_control(cc, self.shift) {
                 Some(Control::Page(d)) if v > 0 => {
+                    // Here, not on the control side: the next pad press must already
+                    // read the new page.
                     self.shared.step_page(|p| p.step(d));
+                    self.ctl_signal = true;
                 }
                 Some(Control::Act(a)) if v > 0 => self.act(a),
                 Some(_) => {}
@@ -521,7 +673,7 @@ impl Input {
             if m[0] & 0x0F == 0 && launchkey::is_pad(m[1]) {
                 // The firmware keeps Shift + pad for itself, so a pad note means Shift
                 // is up, whatever release we missed.
-                self.shift = false;
+                self.set_shift(false);
                 let page = Page::from_u8(self.shared.page.load(Relaxed));
                 if let Some(a) = launchkey::pad_action(page, m[1]) {
                     self.act(a);
@@ -538,24 +690,25 @@ impl Input {
     fn fader_button(&mut self, i: u8) {
         let parts = &self.shared.parts;
         if i == 8 {
-            // The engine rebinds the Style faders on its next wake (`Parts::take_rebind`).
+            // Here rather than on the control side: the next fader move must already go
+            // to the new page. The engine rebinds the Style faders on its next wake
+            // (`Parts::take_rebind`).
             parts.toggle_fader_page();
             self.signal = true;
+            self.ctl_signal = true;
             return;
         }
         match parts.fader_page() {
-            FaderPage::Panel if (i as usize) < parts::COUNT && self.shift => parts.select(i as usize),
+            FaderPage::Panel if (i as usize) < parts::COUNT && self.shift => self.act(Action::SelectPart(i)),
             // Left is refused under Manual Bass; its LED stays lit, as the bass sounds.
-            FaderPage::Panel if (i as usize) < parts::COUNT => {
-                parts.toggle(i as usize);
-            }
+            FaderPage::Panel if (i as usize) < parts::COUNT => self.act(Action::PartOnOff(i)),
             FaderPage::Panel => {}
             FaderPage::Style => self.act(Action::Button(Button::TogglePart(i))),
         }
     }
 
-    /// Engine buttons go straight to the engine; the rest to the UI thread, which runs
-    /// them like the keyboard shortcuts.
+    /// Engine buttons go straight to the engine; the rest to the session's control side,
+    /// which runs them as the `AppCmd`s their keyboard shortcuts send.
     fn act(&mut self, a: Action) {
         match a {
             Action::Button(b) => {
@@ -564,10 +717,21 @@ impl Input {
                 }
             }
             _ => {
-                if let Some(tx) = self.actions.as_mut() {
-                    let _ = tx.push(a);
+                if let Some(tx) = self.actions.as_mut()
+                    && tx.push(a).is_ok()
+                {
+                    self.ctl_signal = true;
                 }
             }
+        }
+    }
+
+    /// Shift pressed or released: mirrored for the screen when it changes.
+    fn set_shift(&mut self, on: bool) {
+        if self.shift != on {
+            self.shift = on;
+            self.shared.shift.store(on, Relaxed);
+            self.ctl_signal = true;
         }
     }
 
@@ -585,12 +749,15 @@ impl InputHandler for Input {
                 self.shared.input_lat.record(now - t);
             }
         }
-        let mut rs = self.running_status[tag.min(2)];
-        for_each_message(data, &mut rs, |m| match tag {
-            TAG_PADS => self.pad_msg(m),
-            _ => self.key_msg(m),
+        self.drain_releases();
+        let slot = key_slot(tag);
+        let i = slot.map_or(2, |s| 3 + s);
+        let mut rs = self.running_status[i];
+        for_each_message(data, &mut rs, |m| match slot {
+            None => self.pad_msg(m),
+            Some(s) => self.key_msg_from(s, m),
         });
-        self.running_status[tag.min(2)] = rs;
+        self.running_status[i] = rs;
     }
 
     fn end_of_list(&mut self) {
@@ -598,6 +765,10 @@ impl InputHandler for Input {
         if self.signal {
             self.signal = false;
             self.shared.wake.signal();
+        }
+        if self.ctl_signal {
+            self.ctl_signal = false;
+            self.shared.ctl_wake.signal();
         }
     }
 }
@@ -611,6 +782,9 @@ pub struct EngineIo {
     pub ui: Consumer<Cmd>,
     pub styles: Consumer<Box<Prepared>>,
     pub old: Producer<Box<Prepared>>,
+    /// Style previews to play, and finished ones back to the control side to free.
+    pub auditions: Consumer<Box<Audition>>,
+    pub old_auditions: Producer<Box<Audition>>,
     pub snaps: Producer<Snapshot>,
     pub out: Out,
 }
@@ -627,25 +801,202 @@ fn sync_part_volumes(out: &mut Out, parts: &Parts, last: &mut [u8; parts::COUNT]
     }
 }
 
-pub fn run_engine(mut engine: Engine, mut io: EngineIo, shared: Arc<Shared>) {
+/// The engine thread's work, one wake at a time. `run_engine` drives it with the wall
+/// clock; an offline session steps it on a virtual one.
+pub struct EngineLoop {
+    pub engine: Engine,
+    pub io: EngineIo,
+    shared: Arc<Shared>,
+    last_packed: u32,
+    last_part_vol: [u8; parts::COUNT],
+    last_snap: Option<Snapshot>,
+    last_snap_ns: u64,
+    /// The style preview playing, and how many of its chords have been played.
+    audition: Option<(Box<Audition>, u8)>,
+}
+
+/// A command that starts or stops the band, or panics: a style preview ends first, so the
+/// two never play over each other.
+fn ends_audition(cmd: Cmd) -> bool {
+    matches!(cmd, Cmd::Button(Button::StartStop) | Cmd::Arm | Cmd::Panic | Cmd::StopAudition)
+}
+
+impl EngineLoop {
+    /// Sends the style's setup to the output.
+    pub fn new(mut engine: Engine, mut io: EngineIo, shared: Arc<Shared>) -> EngineLoop {
+        engine.send_init(&mut io.out);
+        io.out.flush();
+        // Out of range, so the first wake sends them all.
+        EngineLoop {
+            engine,
+            io,
+            shared,
+            last_packed: 0,
+            last_part_vol: [255u8; parts::COUNT],
+            last_snap: None,
+            last_snap_ns: 0,
+            audition: None,
+        }
+    }
+
+    /// When the next wake is due: the band's next event, or the preview's.
+    pub fn next_deadline(&self) -> Option<u64> {
+        let band = self.engine.next_deadline();
+        let Some((a, n)) = &self.audition else { return band };
+        let chord = if *n < AUDITION_BARS { a.engine.ns_at_bar(*n as u32) } else { a.engine.ns_at_bar(AUDITION_BARS as u32) };
+        [band, a.engine.next_deadline(), Some(chord)].into_iter().flatten().min()
+    }
+
+    /// Start a preview: its first chord starts its engine (Sync Start is armed on a new
+    /// engine), at `now`.
+    fn start_audition(&mut self, mut a: Box<Audition>, now: u64) {
+        a.engine.set_chord(a.chords[0], now, &mut self.io.out);
+        if a.engine.is_running() {
+            self.audition = Some((a, 1));
+        } else {
+            let _ = self.io.old_auditions.push(a);
+        }
+    }
+
+    /// End the preview (if any): its notes off, the band's setup back on the channels.
+    fn end_audition(&mut self) {
+        if let Some((mut a, _)) = self.audition.take() {
+            a.engine.stop(&mut self.io.out);
+            if !self.engine.is_running() {
+                self.engine.resync(&mut self.io.out);
+            }
+            let _ = self.io.old_auditions.push(a);
+        }
+    }
+
+    /// The preview's chords at their bar lines, its notes, and its end after
+    /// `AUDITION_BARS` bars.
+    fn play_audition(&mut self, now: u64) {
+        let Some((a, n)) = self.audition.as_mut() else { return };
+        while *n < AUDITION_BARS && now >= a.engine.ns_at_bar(*n as u32) {
+            let c = a.chords[*n as usize % a.chords.len()];
+            a.engine.set_chord(c, now, &mut self.io.out);
+            *n += 1;
+        }
+        a.engine.process(now, &mut self.io.out);
+        if now >= a.engine.ns_at_bar(AUDITION_BARS as u32) || !a.engine.is_running() {
+            self.end_audition();
+        }
+    }
+
+    /// Styles the engine is done with go back to the control side to be freed there.
+    fn retire_styles(&mut self) {
+        while let Some(s) = self.engine.take_retired() {
+            let _ = self.io.old.push(s);
+        }
+    }
+
+    /// Input is waiting: a new chord or a command.
+    #[inline]
+    fn input_pending(&self) -> bool {
+        self.shared.chord.load(Relaxed) != self.last_packed || self.io.input.slots() > 0 || self.io.ui.slots() > 0
+    }
+
+    /// One wake at `now`: take new styles, the chord and commands, play what is due,
+    /// flush, publish a snapshot.
+    #[inline]
+    pub fn step(&mut self, now: u64) {
+        let shared = self.shared.clone();
+        // A style change or a new preview ends the preview playing.
+        while let Ok(style) = self.io.styles.pop() {
+            self.end_audition();
+            self.engine.change_style(style, now, &mut self.io.out);
+            self.retire_styles();
+        }
+        while let Ok(a) = self.io.auditions.pop() {
+            self.end_audition();
+            if self.engine.is_running() {
+                // Refused: the band plays (the control side checks too).
+                let _ = self.io.old_auditions.push(a);
+            } else {
+                self.start_audition(a, now);
+            }
+        }
+        let packed = shared.chord.load(Acquire);
+        if packed != self.last_packed {
+            self.last_packed = packed;
+            if let Some((c, _)) = Chord::unpack(packed) {
+                shared.chord_lat.record(now.saturating_sub(shared.chord_ns.load(Relaxed)));
+                // A Sync Start chord starts the band: the preview makes way first.
+                if self.audition.is_some() && self.engine.starts_on_chord() && c.ty != CANCEL {
+                    self.end_audition();
+                }
+                self.engine.set_chord(c, now, &mut self.io.out);
+            }
+        }
+        // Read the fingering type and area here rather than taking a command for them, so
+        // a full ring can never leave Sync Stop on in a Full Keyboard type.
+        self.engine.allow_sync_stop(shared.sync_stop_allowed());
+        rebind_faders(&mut self.engine, &shared.parts);
+        while let Ok(cmd) = self.io.input.pop() {
+            if self.audition.is_some() && ends_audition(cmd) {
+                self.end_audition();
+            }
+            apply(&mut self.engine, &shared.parts, cmd, now, &mut self.io.out);
+        }
+        while let Ok(cmd) = self.io.ui.pop() {
+            if self.audition.is_some() && ends_audition(cmd) {
+                self.end_audition();
+            }
+            apply(&mut self.engine, &shared.parts, cmd, now, &mut self.io.out);
+        }
+        self.engine.process(now, &mut self.io.out);
+        self.retire_styles();
+        self.play_audition(now);
+        let (engine, io) = (&mut self.engine, &mut self.io);
+        sync_part_volumes(&mut io.out, &shared.parts, &mut self.last_part_vol);
+        let t1 = rt::now_ns();
+        io.out.flush();
+        let t2 = rt::now_ns();
+        shared.work_lat.record(t1.saturating_sub(now));
+        shared.flush_lat.record(t2.saturating_sub(t1));
+
+        let mut snap = engine.snapshot(now);
+        snap.audition = self.audition.as_ref().map(|(a, n)| AuditionPos {
+            id: a.id,
+            bar: *n,
+            bars: AUDITION_BARS,
+            chord: n.saturating_sub(1),
+        });
+        let changed = self.last_snap != Some(snap);
+        if (changed || now.saturating_sub(self.last_snap_ns) > 50_000_000) && io.snaps.push(snap).is_ok() {
+            self.last_snap = Some(snap);
+            self.last_snap_ns = now;
+            if changed {
+                // A non-blocking semaphore signal, after the flush.
+                shared.ctl_wake.signal();
+            }
+        }
+    }
+
+    /// Everything off, flushed.
+    pub fn stop(&mut self) {
+        if let Some((mut a, _)) = self.audition.take() {
+            a.engine.stop(&mut self.io.out);
+            let _ = self.io.old_auditions.push(a);
+        }
+        self.engine.stop(&mut self.io.out);
+        self.io.out.flush();
+    }
+}
+
+pub fn run_engine(engine: Engine, io: EngineIo, shared: Arc<Shared>) {
     let rt_ok = std::env::var("YAHAHA_NO_RT").is_err() && rt::make_realtime(1_000_000, 300_000, 1_000_000);
     shared.engine_rt.store(rt_ok, Relaxed);
-    let mut last_packed = 0u32;
-    // Out of range, so the first wake sends them all.
-    let mut last_part_vol = [255u8; parts::COUNT];
-    let mut last_snap: Option<Snapshot> = None;
-    let mut last_snap_ns = 0u64;
-    engine.send_init(&mut io.out);
-    io.out.flush();
+    let mut l = EngineLoop::new(engine, io, shared.clone());
     loop {
         if shared.quit.load(Relaxed) {
-            engine.stop(&mut io.out);
-            io.out.flush();
+            l.stop();
             return;
         }
         let spin = shared.spin_ns.load(Relaxed);
         let now = rt::now_ns();
-        let deadline = engine.next_deadline();
+        let deadline = l.next_deadline();
         let mut timed_out = false;
         match deadline {
             Some(d) if d > now + spin => timed_out = !shared.wake.wait((d - now - spin).min(20_000_000)),
@@ -663,7 +1014,7 @@ pub fn run_engine(mut engine: Engine, mut io: EngineIo, shared: Arc<Shared>) {
             // Finish the last stretch by spinning, for microsecond accuracy. Input can
             // still interrupt: check the chord word and command ring while spinning.
             while t < d {
-                if shared.chord.load(Relaxed) != last_packed || io.input.slots() > 0 || io.ui.slots() > 0 {
+                if l.input_pending() {
                     break;
                 }
                 std::hint::spin_loop();
@@ -673,45 +1024,7 @@ pub fn run_engine(mut engine: Engine, mut io: EngineIo, shared: Arc<Shared>) {
                 shared.lateness.record(t - d);
             }
         }
-        let now = rt::now_ns();
-
-        while let Ok(style) = io.styles.pop() {
-            let old = engine.load(style, now, &mut io.out);
-            let _ = io.old.push(old);
-        }
-        let packed = shared.chord.load(Acquire);
-        if packed != last_packed {
-            last_packed = packed;
-            if let Some((c, _)) = Chord::unpack(packed) {
-                shared.chord_lat.record(now.saturating_sub(shared.chord_ns.load(Relaxed)));
-                engine.set_chord(c, now, &mut io.out);
-            }
-        }
-        // Read the fingering type and area here rather than taking a command for them, so
-        // a full ring can never leave Sync Stop on in a Full Keyboard type.
-        engine.allow_sync_stop(shared.sync_stop_allowed());
-        rebind_faders(&mut engine, &shared.parts);
-        while let Ok(cmd) = io.input.pop() {
-            apply(&mut engine, &shared.parts, cmd, now, &mut io.out);
-        }
-        while let Ok(cmd) = io.ui.pop() {
-            apply(&mut engine, &shared.parts, cmd, now, &mut io.out);
-        }
-        engine.process(now, &mut io.out);
-        sync_part_volumes(&mut io.out, &shared.parts, &mut last_part_vol);
-        let t1 = rt::now_ns();
-        io.out.flush();
-        let t2 = rt::now_ns();
-        shared.work_lat.record(t1 - now);
-        shared.flush_lat.record(t2 - t1);
-
-        let snap = engine.snapshot(now);
-        if last_snap != Some(snap) || now - last_snap_ns > 50_000_000 {
-            if io.snaps.push(snap).is_ok() {
-                last_snap = Some(snap);
-                last_snap_ns = now;
-            }
-        }
+        l.step(rt::now_ns());
     }
 }
 
@@ -733,8 +1046,23 @@ fn apply(engine: &mut Engine, parts: &Parts, cmd: Cmd, now: u64, out: &mut Out) 
             rebind_faders(engine, parts);
             engine.hw_fader(p, v, out)
         }
+        Cmd::StyleVolume(p, v) => engine.set_volume_from_software(p, v, out),
         Cmd::ManualBass(on) => engine.set_manual_bass(on, out),
         Cmd::Transpose(t) => engine.set_transpose(t, now, out),
+        Cmd::StopAudition => {}
+        Cmd::KeysOff => {
+            // The source's pedal, wheels and pressure went to every keyboard part too, and
+            // its releases will never come: with the pedal left down, All Notes Off would
+            // only move the notes to the pedal (they ring on, and so does everything
+            // played after).
+            for ch in parts::CHANNEL {
+                out.push(&[0xB0 | ch, 64, 0]);
+                out.push(&[0xB0 | ch, 1, 0]);
+                out.push(&[0xE0 | ch, 0x00, 0x40]);
+                out.push(&[0xD0 | ch, 0]);
+                out.push(&[0xB0 | ch, 123, 0]);
+            }
+        }
         Cmd::Panic => {
             engine.stop(out);
             for ch in 0..16u8 {
@@ -754,6 +1082,8 @@ pub struct Channels {
     pub style_tx: Producer<Box<Prepared>>,
     pub old_rx: Consumer<Box<Prepared>>,
     pub snap_rx: Consumer<Snapshot>,
+    pub audition_tx: Producer<Box<Audition>>,
+    pub old_audition_rx: Consumer<Box<Audition>>,
     pub io: EngineIo,
 }
 
@@ -763,7 +1093,18 @@ pub fn channels(out: Out) -> Channels {
     let (style_tx, styles) = RingBuffer::new(4);
     let (old, old_rx) = RingBuffer::new(8);
     let (snaps, snap_rx) = RingBuffer::new(256);
-    Channels { input_tx, ui_tx, style_tx, old_rx, snap_rx, io: EngineIo { input, ui, styles, old, snaps, out } }
+    let (audition_tx, auditions) = RingBuffer::new(4);
+    let (old_auditions, old_audition_rx) = RingBuffer::new(8);
+    Channels {
+        input_tx,
+        ui_tx,
+        style_tx,
+        old_rx,
+        snap_rx,
+        audition_tx,
+        old_audition_rx,
+        io: EngineIo { input, ui, styles, old, snaps, auditions, old_auditions, out },
+    }
 }
 
 #[cfg(test)]
@@ -1044,13 +1385,14 @@ mod tests {
     }
 
     /// Panel page: faders 1-4 set the keyboard parts' volumes (soft takeover), their
-    /// buttons turn the parts on/off, Shift + button selects. The master button switches to
+    /// buttons turn the parts on/off and Shift + button selects (as commands, on the control
+    /// side, like the pads). The master button switches to
     /// the Style page, whose faders and buttons go to the engine; the engine hears where
     /// the faders physically are.
     #[test]
     fn fader_pages_route_faders_and_buttons() {
         use crate::engine::Button;
-        let (mut input, shared, mut cmds, _acts) = pads_rig();
+        let (mut input, shared, mut cmds, mut acts) = pads_rig();
         let parts = &shared.parts;
         assert_eq!(parts.fader_page(), FaderPage::Panel);
         input.pad_msg(&[0xB0, 6, 100]); // fader 2 = Right 2, at its level already
@@ -1058,13 +1400,13 @@ mod tests {
         assert_eq!(parts.volume(parts::RIGHT2), 64);
         input.pad_msg(&[0xB0, 12, 30]); // fader 8: unused on Panel
         assert!(cmds.pop().is_err(), "nothing reaches the Style parts");
-        input.pad_msg(&[0xB0, 40, 127]); // button 4: Left on
-        assert!(parts.is_on(parts::LEFT));
+        input.pad_msg(&[0xB0, 40, 127]); // button 4: Left on/off
+        assert_eq!(acts.pop(), Ok(Action::PartOnOff(3)));
         input.pad_msg(&[0xB0, launchkey::SHIFT_CC, 127]);
         input.pad_msg(&[0xB0, 39, 127]); // Shift + button 3: select Right 3
         input.pad_msg(&[0xB0, launchkey::SHIFT_CC, 0]);
-        assert_eq!(parts.selected(), parts::RIGHT3);
-        assert!(!parts.is_on(parts::RIGHT3));
+        assert_eq!(acts.pop(), Ok(Action::SelectPart(2)));
+        assert!(acts.pop().is_err());
 
         input.pad_msg(&[0xB0, 45, 127]); // master button: Style page
         assert_eq!(parts.fader_page(), FaderPage::Style);
@@ -1494,5 +1836,101 @@ mod detection_area {
         r.off(&[38, 41]);
         assert_eq!(r.played(), vec![[0x80 | LH_CH, 38, 0], [0x80 | LH_CH, 41, 0]]);
         assert!(r.released());
+    }
+}
+
+#[cfg(test)]
+mod source_tests {
+    use super::*;
+    use crate::midi::InputHandler;
+
+    type Rig = (Input, Arc<Shared>, Consumer<[u8; 3]>, Consumer<Cmd>, Producer<u8>);
+
+    /// An input with its synth feed, command ring and release ring.
+    fn rig() -> Rig {
+        let shared = Arc::new(Shared::new(54));
+        let (cmd, cmd_rx) = RingBuffer::new(64);
+        let (synth, heard) = RingBuffer::new(256);
+        let mut input = Input::new(shared.clone(), Recognizer::new(), cmd, Out::new(PacketSink::new(rt::Target::Virtual(0)), Some(synth)));
+        let (rel_tx, rel_rx) = RingBuffer::new(MAX_KEY_SOURCES);
+        input.set_release(rel_rx);
+        (input, shared, heard, cmd_rx, rel_tx)
+    }
+
+    fn drain<T>(c: &mut Consumer<T>) -> Vec<T> {
+        std::iter::from_fn(|| c.pop().ok()).collect()
+    }
+
+    /// A source disconnected with keys down: the keys it alone held are released (their
+    /// notes stop, the chord section lets go, Sync Stop hears it); a key another source
+    /// also holds keeps sounding. Nothing happens to keys of other sources.
+    #[test]
+    fn a_dropped_source_releases_its_keys() {
+        let (mut inp, shared, mut heard, mut cmds, mut rel) = rig();
+        let (a, b) = (key_tag(1), key_tag(2));
+        inp.packet(a, 0, &[0x90, 36, 90, 0x90, 40, 90, 0x90, 43, 90, 0x90, 60, 90, 0x90, 72, 90]);
+        inp.packet(b, 0, &[0x90, 76, 90, 0x90, 72, 80]);
+        inp.end_of_list();
+        assert_eq!(shared.src_held[1].load(Relaxed), 5);
+        assert_eq!(shared.src_held[2].load(Relaxed), 2);
+        let (held, rh) = shared.held_keys();
+        assert_eq!((held[0].count_ones() + held[1].count_ones(), rh[1] & (1 << (72 - 64)) != 0), (6, true));
+        drain(&mut heard);
+        drain(&mut cmds);
+        // Source 1 goes; the input thread hears of it with the next packet from anywhere.
+        rel.push(1).unwrap();
+        inp.packet(b, 0, &[0xFE]);
+        inp.end_of_list();
+        let offs: Vec<u8> = drain(&mut heard).iter().filter(|m| m[0] == 0x80).map(|m| m[1]).collect();
+        // (The left hand only gives the chord here: Lower, Left off.)
+        assert_eq!(offs, vec![60], "72 is still held on source 2");
+        assert!(drain(&mut cmds).iter().any(|c| matches!(c, Cmd::ChordReleased)), "the chord section let go");
+        assert_eq!(shared.src_held[1].load(Relaxed), 0);
+        let (held, _) = shared.held_keys();
+        assert_eq!(held, [0, (1 << (72 - 64)) | (1 << (76 - 64))]);
+        // Source 2's own note-offs still work.
+        inp.packet(b, 0, &[0x80, 72, 0, 0x80, 76, 0]);
+        inp.end_of_list();
+        assert_eq!(drain(&mut heard).iter().filter(|m| m[0] == 0x80).count(), 2);
+        assert_eq!(shared.held_keys().0, [0, 0]);
+    }
+
+    /// A source dropped with the sustain pedal down: its pedal-up never comes, so the
+    /// keyboard parts' pedal is released before All Notes Off (which a held pedal would
+    /// only turn into sustained notes), and its wheels are centred.
+    #[test]
+    fn keys_off_lifts_the_dropped_sources_pedal() {
+        let p = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus/MOX_v2/TickingAway.T162.sty");
+        if !p.exists() {
+            eprintln!("corpus missing; skipping");
+            return;
+        }
+        let mut engine = Engine::new(Box::new(Prepared::new(&crate::sff::Style::load(&p).unwrap())));
+        let (tx, mut heard) = RingBuffer::new(256);
+        let mut out = Out::new(PacketSink::new(rt::Target::Virtual(0)), Some(tx));
+        let parts = Parts::new();
+        apply(&mut engine, &parts, Cmd::KeysOff, 0, &mut out);
+        let sent = drain(&mut heard);
+        for ch in parts::CHANNEL {
+            let at = |m: [u8; 3]| sent.iter().position(|x| *x == m);
+            let (pedal, off) = (at([0xB0 | ch, 64, 0]), at([0xB0 | ch, 123, 0]));
+            assert!(pedal.is_some() && off.is_some() && pedal < off, "ch {}: pedal up, then all notes off", ch + 1);
+            assert!(at([0xE0 | ch, 0, 0x40]).is_some(), "ch {}: bend centred", ch + 1);
+        }
+    }
+
+    /// Running status is kept per source: two keyboards interleaving can't mix theirs.
+    #[test]
+    fn running_status_is_per_source() {
+        let (mut inp, shared, _heard, _cmds, _rel) = rig();
+        inp.packet(key_tag(1), 0, &[0x90, 60, 90]);
+        inp.packet(key_tag(2), 0, &[0x80, 64, 0]);
+        inp.packet(key_tag(1), 0, &[62, 90]); // running status note-on from source 1
+        inp.end_of_list();
+        let (held, _) = shared.held_keys();
+        assert_eq!(held[0], (1 << 60) | (1 << 62));
+        assert_eq!(key_slot(TAG_PADS), None);
+        assert_eq!(key_slot(TAG_KEYS), Some(0));
+        assert_eq!(key_slot(key_tag(3)), Some(3));
     }
 }

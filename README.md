@@ -178,9 +178,13 @@ Chords are recognized in "Fingered On Bass" style, plus some shortcuts:
 
 ```
 CoreMIDI receive thread ──chord (AtomicU32) + commands (SPSC ring) + semaphore──▶ engine thread (Mach real-time)
-UI thread (terminal, LEDs, style loading) ──styles/commands (SPSC)──────────────▶ engine thread
-engine thread ──snapshots, old styles (SPSC)──▶ UI thread
+CoreMIDI receive thread ──Launchkey actions (SPSC) + semaphore──▶ session control
+session control (commands, LEDs, OTS Link, style loading) ──styles/commands (SPSC)──▶ engine thread
+engine thread ──snapshots, old styles (SPSC) + semaphore──▶ session control
+clients (terminal UI, desktop app) ──AppCmd──▶ Session ──AppState──▶ clients
 ```
+
+The engine, the runtime and the app API are the `yahaha` library. A `Session` owns MIDI, the engine thread, the synth and the Launchkey. Clients send `AppCmd`s and read `AppState` snapshots, and never touch the engine. The terminal UI is the `yahaha` binary's client, and the desktop app will be another. The contract is in [docs/app-api.md](docs/app-api.md).
 
 - **Input thread** (CoreMIDI's own receive thread, running our callback):
   - forwards your notes straight to the output, on each keyboard part that is on (Right 1 ch 1, Left ch 2, Right 2 ch 3, Right 3 ch 4)
@@ -190,7 +194,7 @@ engine thread ──snapshots, old styles (SPSC)──▶ UI thread
   - sleeps on a Mach semaphore until the next pattern event or an input signal, whichever comes first
   - spins the last 150 µs to hit the deadline exactly
   - never locks, allocates, or does I/O
-- New styles are prepared on the UI thread, swapped in by pointer, and freed back on the UI thread.
+- New styles are prepared on the session's control side, swapped in by pointer, and freed back there.
 - Every note is transposed at the moment it plays, and there is no lookahead. A chord change therefore reaches the very next note, and notes already sounding are re-pitched according to the style's retrigger rule: Pitch Shift bends them with the part's pitch bend (one bend per part, so a note that needs a different shift is retriggered), Retrigger plays them again at the new pitch. A note that started less than 40 ms before the chord arrived is corrected outright, and one that ends (or is struck again) less than 40 ms after it is left to end rather than attacked again.
 
 `yahaha bench <style>` measures the real path through CoreMIDI (M-series Mac, 2026-09):
@@ -211,6 +215,7 @@ engine thread ──snapshots, old styles (SPSC)──▶ UI thread
 - `yahaha oracle corpus/ [--pairs | --scores | --diff tests/oracle/scores.txt]`: scores our chord conversion against the authors' own major/minor source channels (docs/oracle.md). Counts only.
 - `yahaha bench <style> [spin_us]`: latency benchmark using virtual ports.
 - `yahaha drive`: fake keyboard for testing against a running `yahaha play --input TestKbd`.
+- `yahaha state-json <style or folder> ["C Am F"] [--library]`: an offline session's `AppState` (or its library) as JSON, after playing the chords one bar each. This is mock data for the app (docs/app-api.md).
 
 Tests: run `cargo test --release`. It covers the spec's transposition examples, chord recognition, and a full performance of every style in `corpus/`, checking for stuck notes. The oracle scores in `tests/oracle/scores.txt` are pinned too: a change to note conversion fails `oracle::tests::corpus_scores` with the score delta until you regenerate them with `UPDATE_GOLDEN=1`.
 

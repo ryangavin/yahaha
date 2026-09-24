@@ -179,7 +179,7 @@ pub fn run(path: &std::path::Path, spin_us: Option<u64>) -> Result<()> {
     shared.quit.store(true, Relaxed);
     shared.wake.signal();
     let _ = th.join();
-    drop((port, rx_port));
+    let _ = (port, rx_port);
     Ok(())
 }
 

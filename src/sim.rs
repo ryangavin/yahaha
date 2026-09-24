@@ -2387,6 +2387,48 @@ mod mixer {
         assert!(setup.is_empty(), "section changes re-sent setup: {setup:?}");
     }
 
+    /// A Main A whose pattern changes a part's voice and then changes it back to the SInt's
+    /// within the section: the receiver has reset that part's XG parameters and drum setup
+    /// twice, and the part is on the SInt voice again. The section change to Main B sends
+    /// no program change (the voice is right), but it puts back the XG parameters and the
+    /// drum setup, as it did before the Mirror.
+    #[test]
+    fn section_change_restores_xg_setup_after_a_pattern_voice_round_trip() {
+        use crate::sff::{Ev, SectionId, TimedEv};
+        let mut s = sint_style();
+        let drum_setup = vec![0xF0, 0x43, 0x10, 0x4C, 0x30, 0x24, 0x0C, 0x40, 0xF7];
+        s.init.extend([Ev::Cc { ch: 8, cc: 0, val: 127 }, Ev::Pc { ch: 8, prog: 0 }, Ev::Sysex(drum_setup.clone())]);
+        let at = |tick, ev| TimedEv { tick, ev };
+        let a = s.sections.get_mut(&SectionId::Main(0)).unwrap();
+        a.events.retain(|e| !matches!(e.ev, Ev::Pc { .. } | Ev::Cc { .. }));
+        a.events.extend([
+            at(480, Ev::Pc { ch: 12, prog: 9 }),
+            at(960, Ev::Pc { ch: 12, prog: 5 }),
+            at(480, Ev::Pc { ch: 8, prog: 1 }),
+            at(960, Ev::Pc { ch: 8, prog: 0 }),
+        ]);
+        a.events.sort_by_key(|e| e.tick);
+        let b = s.sections.get_mut(&SectionId::Main(1)).unwrap();
+        b.events.extend([at(0, Ev::NoteOn { ch: 8, key: 36, vel: 100 }), at(240, Ev::NoteOff { ch: 8, key: 36 })]);
+        b.events.sort_by_key(|e| e.tick);
+        let p = Box::new(Prepared::new(&s));
+        let bar = bar_ns(&p);
+        let xg = p.init.iter().find(|m| m[0] == 0xF0 && m.len() > 5 && m[4] == 0x08 && m[5] == 12).unwrap().to_vec();
+        let mut e = Engine::new(p);
+        let mut rec = Recorder::default();
+        e.set_chord(Chord::new(0, 0), 0, &mut rec);
+        play(&mut e, &mut rec, 0, bar + bar / 2);
+        e.button(Button::Main(1), bar + bar / 2, &mut rec);
+        play(&mut e, &mut rec, bar + bar / 2, 2 * bar + bar / 4);
+        assert_eq!(e.snapshot(2 * bar + bar / 4).cur, Some(SectionId::Main(1)));
+        for (ch, setup) in [(12u8, &xg), (8, &drum_setup)] {
+            let note = rec.out.iter().position(|(t, m)| *t >= 2 * bar && m[0] == 0x90 | ch && m[2] > 0).expect("Main B's note");
+            let pc = rec.out[..note].iter().rposition(|(_, m)| m[0] == 0xC0 | ch).unwrap();
+            assert!(rec.out[pc..note].iter().any(|(_, m)| m == setup), "ch {}: setup not re-sent after the pattern's program change", ch + 1);
+            assert_eq!(voice_after(rec.out[..note].iter().map(|(_, m)| &m[..]), ch).2, if ch == 12 { 5 } else { 0 });
+        }
+    }
+
     /// Across the corpus, a section change never sends the program change of a voice the
     /// part already has, and sends SysEx only right after a program change it had to send
     /// (the part's XG parameters and the drum setup, which a program change resets).
@@ -2792,5 +2834,158 @@ mod rtr_chaos {
         }
         assert!(runs > 300 && bends > 1000, "{runs} runs, {bends} bends");
         assert!(fails.is_empty(), "{} failures", fails.len());
+    }
+}
+
+#[cfg(test)]
+/// A style change while playing waits for the next bar line and carries the section and
+/// the bar position over (`Engine::change_style`), as on a Genos.
+mod style_queue {
+    use super::*;
+    use crate::engine::slot_of;
+    use crate::sff::{SectionId, Style};
+
+    fn prep(name: &str, tag: u64) -> Option<Box<Prepared>> {
+        let p = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus/MOX_v2").join(name);
+        if !p.exists() {
+            eprintln!("corpus missing; skipping");
+            return None;
+        }
+        let mut s = Box::new(Prepared::new(&Style::load(&p).unwrap()));
+        s.tag = tag;
+        Some(s)
+    }
+
+    fn bar_ns(p: &Prepared) -> u64 {
+        (60e9 / p.bpm * (p.tpb as f64 / p.ppq as f64)) as u64
+    }
+
+    /// Run the engine at every deadline from `from` to `to`.
+    fn drive(e: &mut Engine, rec: &mut Recorder, from: u64, to: u64) {
+        let mut now = from;
+        for _ in 0..1_000_000 {
+            let t = e.next_deadline().map_or(to, |d| d.min(to)).max(now);
+            now = t;
+            rec.now = now;
+            e.process(now, rec);
+            if now >= to {
+                return;
+            }
+        }
+        panic!("deadline stuck at {now}");
+    }
+
+    /// (style tag, section, bar) at `now`.
+    fn at(e: &Engine, now: u64) -> (u64, Option<SectionId>, u32) {
+        let s = e.snapshot(now);
+        (s.style_tag, s.cur, s.bar)
+    }
+
+    fn bars_in(p: &Prepared, id: SectionId) -> u32 {
+        p.sections[slot_of(id)].as_ref().map_or(1, |s| s.len / p.tpb).max(1)
+    }
+
+    #[test]
+    fn waits_for_the_bar_line_and_keeps_the_bar_position() {
+        let (Some(a), Some(b)) = (prep("SlowWalker.T552.sty", 1), prep("TickingAway.T162.sty", 2)) else { return };
+        let bar = bar_ns(&a);
+        let (bpm_a, a_bars, b_bars) = (a.bpm, bars_in(&a, SectionId::Main(0)), bars_in(&b, SectionId::Main(0)));
+        // Bar 3 from the start, as far into Main A as the old style had got.
+        let pos = 2 % a_bars % b_bars;
+        let mut e = Engine::new(a);
+        let mut rec = Recorder::default();
+        e.set_chord(Chord::new(0, 0), 0, &mut rec);
+        drive(&mut e, &mut rec, 0, bar + bar / 2);
+        e.change_style(b, bar + bar / 2, &mut rec);
+        assert!(e.snapshot(bar + bar / 2).style_pending);
+        assert!(e.take_retired().is_none(), "nothing retired before the swap");
+        drive(&mut e, &mut rec, bar + bar / 2, 2 * bar - 1_000_000);
+        assert_eq!(at(&e, 2 * bar - 1_000_000), (1, Some(SectionId::Main(0)), 1), "still the old style in bar 2");
+        let n = rec.out.len();
+        drive(&mut e, &mut rec, 2 * bar - 1_000_000, 2 * bar + 1_000_000);
+        let s = e.snapshot(2 * bar + 1_000_000);
+        assert_eq!((s.style_tag, s.cur, s.bar), (2, Some(SectionId::Main(0)), pos), "the bar goes on in the new style");
+        assert!(!s.style_pending);
+        assert_eq!(s.bpm, bpm_a, "the tempo stays");
+        assert!(e.take_retired().is_some_and(|p| p.tag == 1), "the old style goes back to be freed");
+        assert!(rec.out[n..].iter().all(|(t, _)| *t >= 2 * bar - 1), "the swap is on the bar line");
+        // The clock anchor: the position the section had at the bar line.
+        let want = pos as f64 * (e.style.tpb as f64 / e.style.ppq as f64);
+        assert!((s.anchor_beats - want).abs() < 1e-6, "{} vs {want}", s.anchor_beats);
+    }
+
+    #[test]
+    fn the_main_section_carries_over() {
+        let (Some(a), Some(b)) = (prep("FunkyFinger.S930.STY", 1), prep("SlowWalker.T552.sty", 2)) else { return };
+        let bar = bar_ns(&a);
+        if b.sections[slot_of(SectionId::Main(1))].is_none() {
+            return;
+        }
+        let mut e = Engine::new(a);
+        let mut rec = Recorder::default();
+        e.button(Button::Main(1), 0, &mut rec);
+        e.set_chord(Chord::new(0, 0), 0, &mut rec);
+        assert_eq!(e.snapshot(0).cur, Some(SectionId::Main(1)));
+        drive(&mut e, &mut rec, 0, bar / 3);
+        e.change_style(b, bar / 3, &mut rec);
+        drive(&mut e, &mut rec, bar / 3, bar + 1_000_000);
+        let bars = bars_in(&e.style, SectionId::Main(1));
+        assert_eq!(at(&e, bar + 1_000_000), (2, Some(SectionId::Main(1)), 1 % bars));
+    }
+
+    #[test]
+    fn a_later_change_replaces_the_one_waiting() {
+        let (Some(a), Some(b), Some(c)) = (prep("SlowWalker.T552.sty", 1), prep("TickingAway.T162.sty", 2), prep("CoolRevibed.T552.sty", 3))
+        else {
+            return;
+        };
+        let bar = bar_ns(&a);
+        let mut e = Engine::new(a);
+        let mut rec = Recorder::default();
+        e.set_chord(Chord::new(0, 0), 0, &mut rec);
+        drive(&mut e, &mut rec, 0, bar / 2);
+        e.change_style(b, bar / 2, &mut rec);
+        e.change_style(c, bar / 2 + 1, &mut rec);
+        assert!(e.take_retired().is_some_and(|p| p.tag == 2), "the replaced one is handed back");
+        drive(&mut e, &mut rec, bar / 2 + 1, bar + 1_000_000);
+        assert_eq!(e.snapshot(bar + 1_000_000).style_tag, 3);
+    }
+
+    #[test]
+    fn stopping_first_loads_the_waiting_style_then() {
+        let (Some(a), Some(b)) = (prep("SlowWalker.T552.sty", 1), prep("TickingAway.T162.sty", 2)) else { return };
+        let (bar, bpm_b) = (bar_ns(&a), b.bpm);
+        let mut e = Engine::new(a);
+        let mut rec = Recorder::default();
+        e.set_chord(Chord::new(0, 0), 0, &mut rec);
+        drive(&mut e, &mut rec, 0, bar / 2);
+        e.change_style(b, bar / 2, &mut rec);
+        e.button(Button::StartStop, bar / 2 + 1, &mut rec);
+        let s = e.snapshot(bar / 2 + 1);
+        assert_eq!((s.running, s.style_tag, s.style_pending, s.bpm), (false, 2, false, bpm_b), "stopped: the new style and its tempo");
+        // Stopped, a change is at once.
+        let Some(c) = prep("CoolRevibed.T552.sty", 3) else { return };
+        e.change_style(c, bar, &mut rec);
+        assert_eq!(e.snapshot(bar).style_tag, 3);
+    }
+
+    #[test]
+    fn a_section_queued_for_the_bar_line_starts_in_the_new_style() {
+        let (Some(a), Some(b)) = (prep("SlowWalker.T552.sty", 1), prep("TickingAway.T162.sty", 2)) else { return };
+        let bar = bar_ns(&a);
+        let has_ending = b.sections[slot_of(SectionId::Ending(0))].is_some();
+        let mut e = Engine::new(a);
+        let mut rec = Recorder::default();
+        e.set_chord(Chord::new(0, 0), 0, &mut rec);
+        drive(&mut e, &mut rec, 0, bar / 2);
+        e.button(Button::Ending(0), bar / 2, &mut rec);
+        e.change_style(b, bar / 2, &mut rec);
+        drive(&mut e, &mut rec, bar / 2, bar + 1_000_000);
+        let s = e.snapshot(bar + 1_000_000);
+        assert_eq!(s.style_tag, 2);
+        assert!(matches!(s.cur, Some(SectionId::Ending(_))), "{:?}", s.cur);
+        if has_ending {
+            assert_eq!((s.cur, s.bar), (Some(SectionId::Ending(0)), 0), "the Ending starts from its first bar");
+        }
     }
 }

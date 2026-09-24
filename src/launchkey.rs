@@ -81,7 +81,8 @@ pub const FEATURE_CH_STATUS: u8 = 0xB6;
 pub const PAD_MODE_CC: u8 = 29;
 
 /// Pad pages.
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub enum Page {
     #[default]
     Sections,
@@ -115,8 +116,8 @@ impl Page {
 
     /// The page `d` steps away, wrapping around (the terminal's Tab / Shift+Tab).
     pub fn cycle(self, d: i8) -> Page {
-        let n = Page::ALL.len() as i8;
-        Page::from_u8((self as i8 + d).rem_euclid(n) as u8)
+        let n = Page::ALL.len() as i16;
+        Page::from_u8((self as i16 + d as i16).rem_euclid(n) as u8)
     }
 
     /// The page's LED identity: RGB for the pads, plus bright and dim palette colours.
@@ -131,8 +132,8 @@ impl Page {
 }
 
 /// What a pad or button does. Engine buttons go straight to the engine from the MIDI
-/// thread; everything else runs on the UI thread through the same code as its keyboard
-/// shortcut.
+/// thread; everything else runs on the session's control side as the `AppCmd` its
+/// keyboard shortcut sends (`impl From<Action> for AppCmd`).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Action {
     Button(Button),
@@ -255,6 +256,49 @@ pub fn fader_button_msgs(page: FaderPage, parts_on: u8, style_on: u8, out: &mut 
         out.push([0xB0, 37 + i, c]);
     }
     out.push([0xB0, 45, bright]);
+}
+
+/// The Style parts the Style-page fader buttons show as playing (`style_on` of
+/// `fader_button_msgs`): Manual Bass mutes the Style's Bass part in the engine, so it
+/// shows off, as on screen.
+pub fn style_lit(parts: u8, manual_bass: bool) -> u8 {
+    if manual_bass { parts & !(1 << 2) } else { parts }
+}
+
+/// The button LEDs as `nav_button_msgs` and `fader_button_msgs` set them: (CC, palette
+/// colour) for Pad Bank ▲/▼, Track ◀/▶, the fader buttons and the master fader button.
+pub fn button_colours(page: Page, styles: bool, fader_page: FaderPage, parts_on: u8, style_on: u8) -> Vec<(u8, u8)> {
+    let mut msgs = Vec::new();
+    nav_button_msgs(page, styles, &mut msgs);
+    fader_button_msgs(fader_page, parts_on, style_on, &mut msgs);
+    // Channel 1 carries the colour (channel 4 the brightness, for single-colour LEDs).
+    msgs.iter().filter(|m| m[0] == 0xB0).map(|m| (m[1], m[2])).collect()
+}
+
+/// What a Novation palette colour yahaha uses looks like: its full colour (0-127 per
+/// channel, as `Look::rgb`) and its level. Colours yahaha never sends read as off.
+pub fn palette_colour(c: u8) -> ((u8, u8, u8), Level) {
+    let (rgb, bright) = match c {
+        WHITE => ((127, 127, 127), true),
+        DIM_WHITE => ((127, 127, 127), false),
+        RED => ((127, 0, 0), true),
+        DIM_RED => ((127, 0, 0), false),
+        ORANGE => ((127, 60, 0), true),
+        YELLOW => ((127, 127, 0), true),
+        DIM_YELLOW => ((127, 127, 0), false),
+        GREEN => ((0, 127, 0), true),
+        DIM_GREEN => ((0, 127, 0), false),
+        CYAN => ((0, 100, 127), true),
+        DIM_CYAN => ((0, 100, 127), false),
+        BLUE => ((0, 0, 127), true),
+        DIM_BLUE => ((0, 0, 127), false),
+        PURPLE => ((90, 0, 127), true),
+        DIM_PURPLE => ((90, 0, 127), false),
+        PINK => ((127, 0, 70), true),
+        DIM_PINK => ((127, 0, 70), false),
+        _ => return ((0, 0, 0), Level::Off),
+    };
+    (rgb, if bright { Level::Bright } else { Level::Dim })
 }
 
 /// Panel state outside the engine snapshot that pages 2 and 3 show.
@@ -408,15 +452,19 @@ pub fn led_msgs(note: u8, led: Led, out: &mut Vec<[u8; 3]>) {
 // RGB look model: one description drives both the hardware pads and the on-screen map.
 // ---------------------------------------------------------------------------
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub enum Level {
+    #[default]
     Off,
     Dim,
     Bright,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub enum Anim {
+    #[default]
     Solid,
     /// Alternates dim/bright every half beat: queued, waiting for the bar/beat.
     Flash,
@@ -552,9 +600,9 @@ fn chord_looks(s: &Snapshot, p: &Panel) -> [(u8, Look); 16] {
     ]
 }
 
-const PART_LABELS: [&str; 4] = ["RIGHT 1", "RIGHT 2", "RIGHT 3", "LEFT"];
+pub const PART_LABELS: [&str; 4] = ["RIGHT 1", "RIGHT 2", "RIGHT 3", "LEFT"];
 const PART_KEYS: [&str; 4] = ["5", "6", "7", "8/l"];
-const SELECT_LABELS: [&str; 4] = ["EDIT R1", "EDIT R2", "EDIT R3", "EDIT L"];
+pub const SELECT_LABELS: [&str; 4] = ["EDIT R1", "EDIT R2", "EDIT R3", "EDIT L"];
 const SELECT_KEYS: [&str; 4] = ["F1", "F2", "F3", "F4"];
 
 fn ots_looks(p: &Panel) -> [(u8, Look); 16] {
@@ -584,7 +632,13 @@ fn ots_looks(p: &Panel) -> [(u8, Look); 16] {
 
 /// Colour at a point in time. `beats` is a free-running beat clock (fractional).
 pub fn rgb_at(look: &Look, beats: f64) -> (u8, u8, u8) {
-    let k = match (look.level, look.anim) {
+    lit(look.rgb, look.level, look.anim, beats)
+}
+
+/// Colour at a point in time for a pad's full colour, level and animation (a `Look`, or
+/// an `api::Pad`).
+pub fn lit(rgb: (u8, u8, u8), level: Level, anim: Anim, beats: f64) -> (u8, u8, u8) {
+    let k = match (level, anim) {
         (Level::Off, _) => 0.0,
         (Level::Dim, _) => DIM,
         (Level::Bright, Anim::Solid) => 1.0,
@@ -603,7 +657,7 @@ pub fn rgb_at(look: &Look, beats: f64) -> (u8, u8, u8) {
         }
     };
     let f = |c: u8| ((c as f32 * k).round() as u8).min(127);
-    (f(look.rgb.0), f(look.rgb.1), f(look.rgb.2))
+    (f(rgb.0), f(rgb.1), f(rgb.2))
 }
 
 /// SysEx that sets a pad to an RGB colour (0..=127 per channel). Regular (non-Mini) SKU.
@@ -619,8 +673,24 @@ mod tests {
         Snapshot {
             running: false, sync_armed: false, sync_stop: false, auto_fill: false, cur: None, queued: None,
             pending_intro: None, main: 0, bar: 0, beat: 0, chord: None, bpm: 120.0, parts: 0xFF, volumes: [100; 8], pickup: 0,
-            stop_acmp: false, transpose: Transpose::default(), played: None,
+            stop_acmp: false, transpose: Transpose::default(), played: None, anchor_ns: 0, anchor_beats: 0.0, style_tag: 0,
+            style_pending: false, section_bars: 0, audition: None,
         }
+    }
+
+    /// Every colour the LED functions send has a look, and the button colours are the
+    /// channel-1 half of the messages.
+    #[test]
+    fn palette_colours_and_button_leds() {
+        for c in [WHITE, DIM_WHITE, RED, DIM_RED, ORANGE, YELLOW, DIM_YELLOW, GREEN, DIM_GREEN, CYAN, DIM_CYAN, BLUE, DIM_BLUE, PURPLE, DIM_PURPLE, PINK, DIM_PINK] {
+            assert_ne!(palette_colour(c).1, Level::Off, "{c}");
+        }
+        assert_eq!(palette_colour(OFF).1, Level::Off);
+        let b = button_colours(Page::Sections, true, FaderPage::Panel, 0b0001, 0xFF);
+        assert!(b.contains(&(PAD_UP_CC, OFF)) && b.contains(&(PAD_DOWN_CC, WHITE)));
+        assert!(b.contains(&(TRACK_LEFT_CC, WHITE)));
+        assert!(b.contains(&(37, BLUE)) && b.contains(&(38, DIM_BLUE)) && b.contains(&(41, OFF)) && b.contains(&(45, BLUE)));
+        assert_eq!(b.len(), 4 + 9);
     }
 
     const PADS: [u8; 16] = [96, 97, 98, 99, 100, 101, 102, 103, 112, 113, 114, 115, 116, 117, 118, 119];

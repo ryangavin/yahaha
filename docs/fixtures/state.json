@@ -1,0 +1,1427 @@
+{
+  "version": 29,
+  "style": {
+    "id": 0,
+    "path": "corpus/MOX_v2/SlowWalker.T552.sty",
+    "name": "Regular style: SlowWalker",
+    "format": "SFF1",
+    "tempo": 75.0,
+    "timeSignature": [
+      4,
+      4
+    ],
+    "sections": [
+      "Intro A",
+      "Intro B",
+      "Intro C",
+      "Main A",
+      "Main B",
+      "Main C",
+      "Main D",
+      "Fill In AA",
+      "Fill In BB",
+      "Fill In CC",
+      "Fill In DD",
+      "Fill In BA",
+      "Ending A",
+      "Ending B",
+      "Ending C"
+    ]
+  },
+  "transport": {
+    "running": true,
+    "syncStart": false,
+    "syncStop": false,
+    "syncStopAvailable": true,
+    "autoFill": true,
+    "stopAcmp": false,
+    "section": "Main A",
+    "queued": null,
+    "pendingIntro": null,
+    "main": 0,
+    "bar": 1,
+    "beat": 1,
+    "beatsPerBar": 4,
+    "sectionBars": 4,
+    "tempo": 75.0,
+    "lamps": [
+      {
+        "note": 96,
+        "label": "INTRO 1",
+        "key": "q",
+        "rgb": [
+          127,
+          95,
+          0
+        ],
+        "level": "dim",
+        "anim": "solid",
+        "action": {
+          "type": "intro",
+          "index": 0
+        },
+        "palette": null
+      },
+      {
+        "note": 97,
+        "label": "INTRO 2",
+        "key": "w",
+        "rgb": [
+          127,
+          95,
+          0
+        ],
+        "level": "dim",
+        "anim": "solid",
+        "action": {
+          "type": "intro",
+          "index": 1
+        },
+        "palette": null
+      },
+      {
+        "note": 98,
+        "label": "INTRO 3",
+        "key": "e",
+        "rgb": [
+          127,
+          95,
+          0
+        ],
+        "level": "dim",
+        "anim": "solid",
+        "action": {
+          "type": "intro",
+          "index": 2
+        },
+        "palette": null
+      },
+      {
+        "note": 99,
+        "label": "SYNC ST",
+        "key": "y",
+        "rgb": [
+          127,
+          45,
+          0
+        ],
+        "level": "dim",
+        "anim": "solid",
+        "action": {
+          "type": "toggleSyncStart"
+        },
+        "palette": null
+      },
+      {
+        "note": 100,
+        "label": "ENDING 1",
+        "key": "i",
+        "rgb": [
+          127,
+          0,
+          0
+        ],
+        "level": "dim",
+        "anim": "solid",
+        "action": {
+          "type": "ending",
+          "index": 0
+        },
+        "palette": null
+      },
+      {
+        "note": 101,
+        "label": "ENDING 2",
+        "key": "o",
+        "rgb": [
+          127,
+          0,
+          0
+        ],
+        "level": "dim",
+        "anim": "solid",
+        "action": {
+          "type": "ending",
+          "index": 1
+        },
+        "palette": null
+      },
+      {
+        "note": 102,
+        "label": "ENDING 3",
+        "key": "p",
+        "rgb": [
+          127,
+          0,
+          0
+        ],
+        "level": "dim",
+        "anim": "solid",
+        "action": {
+          "type": "ending",
+          "index": 2
+        },
+        "palette": null
+      },
+      {
+        "note": 103,
+        "label": "AUTOFILL",
+        "key": "u",
+        "rgb": [
+          0,
+          45,
+          127
+        ],
+        "level": "bright",
+        "anim": "solid",
+        "action": {
+          "type": "toggleAutoFill"
+        },
+        "palette": null
+      },
+      {
+        "note": 112,
+        "label": "MAIN A",
+        "key": "1",
+        "rgb": [
+          0,
+          127,
+          16
+        ],
+        "level": "bright",
+        "anim": "solid",
+        "action": {
+          "type": "main",
+          "index": 0
+        },
+        "palette": null
+      },
+      {
+        "note": 113,
+        "label": "MAIN B",
+        "key": "2",
+        "rgb": [
+          0,
+          127,
+          16
+        ],
+        "level": "dim",
+        "anim": "solid",
+        "action": {
+          "type": "main",
+          "index": 1
+        },
+        "palette": null
+      },
+      {
+        "note": 114,
+        "label": "MAIN C",
+        "key": "3",
+        "rgb": [
+          0,
+          127,
+          16
+        ],
+        "level": "dim",
+        "anim": "solid",
+        "action": {
+          "type": "main",
+          "index": 2
+        },
+        "palette": null
+      },
+      {
+        "note": 115,
+        "label": "MAIN D",
+        "key": "4",
+        "rgb": [
+          0,
+          127,
+          16
+        ],
+        "level": "dim",
+        "anim": "solid",
+        "action": {
+          "type": "main",
+          "index": 3
+        },
+        "palette": null
+      },
+      {
+        "note": 116,
+        "label": "BREAK",
+        "key": "g",
+        "rgb": [
+          90,
+          0,
+          127
+        ],
+        "level": "dim",
+        "anim": "solid",
+        "action": {
+          "type": "break"
+        },
+        "palette": null
+      },
+      {
+        "note": 117,
+        "label": "TAP",
+        "key": "t",
+        "rgb": [
+          100,
+          100,
+          100
+        ],
+        "level": "bright",
+        "anim": "solid",
+        "action": {
+          "type": "tapTempo"
+        },
+        "palette": null
+      },
+      {
+        "note": 118,
+        "label": "SYNC STP",
+        "key": "j",
+        "rgb": [
+          0,
+          110,
+          110
+        ],
+        "level": "dim",
+        "anim": "solid",
+        "action": {
+          "type": "toggleSyncStop"
+        },
+        "palette": null
+      },
+      {
+        "note": 119,
+        "label": "START",
+        "key": "spc",
+        "rgb": [
+          0,
+          127,
+          0
+        ],
+        "level": "bright",
+        "anim": "solid",
+        "action": {
+          "type": "startStop"
+        },
+        "palette": null
+      }
+    ]
+  },
+  "chord": {
+    "name": "G7",
+    "fingered": "G7",
+    "fingering": "fingeredOnBass",
+    "fingeringName": "Fingered On Bass",
+    "upper": false,
+    "manualBass": true,
+    "manualBassActive": false,
+    "split": 54,
+    "splitName": "F#2",
+    "transposeKeyboard": 0,
+    "transposeMaster": 0
+  },
+  "keyboardParts": [
+    {
+      "name": "Right 1",
+      "channel": 1,
+      "on": true,
+      "sounding": true,
+      "selected": true,
+      "volume": 100,
+      "waiting": false,
+      "fader": null,
+      "program": 0,
+      "voiceName": "Grand Piano",
+      "playsBass": false,
+      "octave": 0
+    },
+    {
+      "name": "Right 2",
+      "channel": 3,
+      "on": false,
+      "sounding": false,
+      "selected": false,
+      "volume": 100,
+      "waiting": false,
+      "fader": null,
+      "program": 48,
+      "voiceName": "Strings",
+      "playsBass": false,
+      "octave": 0
+    },
+    {
+      "name": "Right 3",
+      "channel": 4,
+      "on": false,
+      "sounding": false,
+      "selected": false,
+      "volume": 100,
+      "waiting": false,
+      "fader": null,
+      "program": 61,
+      "voiceName": "Brass Section",
+      "playsBass": false,
+      "octave": 0
+    },
+    {
+      "name": "Left",
+      "channel": 2,
+      "on": false,
+      "sounding": false,
+      "selected": false,
+      "volume": 100,
+      "waiting": false,
+      "fader": null,
+      "program": 48,
+      "voiceName": "Strings",
+      "playsBass": false,
+      "octave": 0
+    }
+  ],
+  "mixer": {
+    "faderPage": "panel",
+    "styleParts": [
+      {
+        "name": "Rhythm 1",
+        "channel": 9,
+        "on": true,
+        "mutedByManualBass": false,
+        "volume": 65,
+        "waiting": false,
+        "fader": null,
+        "voice": {
+          "bankMsb": 127,
+          "bankLsb": 0,
+          "program": 57,
+          "kit": true,
+          "label": "drum kit 127/0/58"
+        }
+      },
+      {
+        "name": "Rhythm 2",
+        "channel": 10,
+        "on": true,
+        "mutedByManualBass": false,
+        "volume": 70,
+        "waiting": false,
+        "fader": null,
+        "voice": {
+          "bankMsb": 127,
+          "bankLsb": 0,
+          "program": 56,
+          "kit": true,
+          "label": "drum kit 127/0/57"
+        }
+      },
+      {
+        "name": "Bass",
+        "channel": 11,
+        "on": true,
+        "mutedByManualBass": false,
+        "volume": 74,
+        "waiting": false,
+        "fader": null,
+        "voice": {
+          "bankMsb": 104,
+          "bankLsb": 18,
+          "program": 87,
+          "kit": false,
+          "label": "≈ Finger Bass  [Yamaha 104/18/88]"
+        }
+      },
+      {
+        "name": "Chord 1",
+        "channel": 12,
+        "on": true,
+        "mutedByManualBass": false,
+        "volume": 60,
+        "waiting": false,
+        "fader": null,
+        "voice": {
+          "bankMsb": 0,
+          "bankLsb": 117,
+          "program": 18,
+          "kit": false,
+          "label": "≈ Rock Organ  [Yamaha 0/117/19]"
+        }
+      },
+      {
+        "name": "Chord 2",
+        "channel": 13,
+        "on": true,
+        "mutedByManualBass": false,
+        "volume": 100,
+        "waiting": false,
+        "fader": null,
+        "voice": null
+      },
+      {
+        "name": "Pad",
+        "channel": 14,
+        "on": true,
+        "mutedByManualBass": false,
+        "volume": 60,
+        "waiting": false,
+        "fader": null,
+        "voice": {
+          "bankMsb": 0,
+          "bankLsb": 115,
+          "program": 89,
+          "kit": false,
+          "label": "≈ Warm Pad  [Yamaha 0/115/90]"
+        }
+      },
+      {
+        "name": "Phrase 1",
+        "channel": 15,
+        "on": true,
+        "mutedByManualBass": false,
+        "volume": 61,
+        "waiting": false,
+        "fader": null,
+        "voice": {
+          "bankMsb": 0,
+          "bankLsb": 113,
+          "program": 7,
+          "kit": false,
+          "label": "≈ Clavinet  [Yamaha 0/113/8]"
+        }
+      },
+      {
+        "name": "Phrase 2",
+        "channel": 16,
+        "on": true,
+        "mutedByManualBass": false,
+        "volume": 65,
+        "waiting": false,
+        "fader": null,
+        "voice": {
+          "bankMsb": 104,
+          "bankLsb": 24,
+          "program": 80,
+          "kit": false,
+          "label": "≈ Square Lead  [Yamaha 104/24/81]"
+        }
+      }
+    ],
+    "master": null,
+    "masterWaiting": false
+  },
+  "pads": {
+    "page": "sections",
+    "pageName": "Sections",
+    "pageNumber": 1,
+    "pageCount": 3,
+    "pads": [
+      {
+        "note": 96,
+        "label": "INTRO 1",
+        "key": "q",
+        "rgb": [
+          127,
+          95,
+          0
+        ],
+        "level": "dim",
+        "anim": "solid",
+        "action": {
+          "type": "intro",
+          "index": 0
+        },
+        "palette": null
+      },
+      {
+        "note": 97,
+        "label": "INTRO 2",
+        "key": "w",
+        "rgb": [
+          127,
+          95,
+          0
+        ],
+        "level": "dim",
+        "anim": "solid",
+        "action": {
+          "type": "intro",
+          "index": 1
+        },
+        "palette": null
+      },
+      {
+        "note": 98,
+        "label": "INTRO 3",
+        "key": "e",
+        "rgb": [
+          127,
+          95,
+          0
+        ],
+        "level": "dim",
+        "anim": "solid",
+        "action": {
+          "type": "intro",
+          "index": 2
+        },
+        "palette": null
+      },
+      {
+        "note": 99,
+        "label": "SYNC ST",
+        "key": "y",
+        "rgb": [
+          127,
+          45,
+          0
+        ],
+        "level": "dim",
+        "anim": "solid",
+        "action": {
+          "type": "toggleSyncStart"
+        },
+        "palette": null
+      },
+      {
+        "note": 100,
+        "label": "ENDING 1",
+        "key": "i",
+        "rgb": [
+          127,
+          0,
+          0
+        ],
+        "level": "dim",
+        "anim": "solid",
+        "action": {
+          "type": "ending",
+          "index": 0
+        },
+        "palette": null
+      },
+      {
+        "note": 101,
+        "label": "ENDING 2",
+        "key": "o",
+        "rgb": [
+          127,
+          0,
+          0
+        ],
+        "level": "dim",
+        "anim": "solid",
+        "action": {
+          "type": "ending",
+          "index": 1
+        },
+        "palette": null
+      },
+      {
+        "note": 102,
+        "label": "ENDING 3",
+        "key": "p",
+        "rgb": [
+          127,
+          0,
+          0
+        ],
+        "level": "dim",
+        "anim": "solid",
+        "action": {
+          "type": "ending",
+          "index": 2
+        },
+        "palette": null
+      },
+      {
+        "note": 103,
+        "label": "AUTOFILL",
+        "key": "u",
+        "rgb": [
+          0,
+          45,
+          127
+        ],
+        "level": "bright",
+        "anim": "solid",
+        "action": {
+          "type": "toggleAutoFill"
+        },
+        "palette": null
+      },
+      {
+        "note": 112,
+        "label": "MAIN A",
+        "key": "1",
+        "rgb": [
+          0,
+          127,
+          16
+        ],
+        "level": "bright",
+        "anim": "solid",
+        "action": {
+          "type": "main",
+          "index": 0
+        },
+        "palette": null
+      },
+      {
+        "note": 113,
+        "label": "MAIN B",
+        "key": "2",
+        "rgb": [
+          0,
+          127,
+          16
+        ],
+        "level": "dim",
+        "anim": "solid",
+        "action": {
+          "type": "main",
+          "index": 1
+        },
+        "palette": null
+      },
+      {
+        "note": 114,
+        "label": "MAIN C",
+        "key": "3",
+        "rgb": [
+          0,
+          127,
+          16
+        ],
+        "level": "dim",
+        "anim": "solid",
+        "action": {
+          "type": "main",
+          "index": 2
+        },
+        "palette": null
+      },
+      {
+        "note": 115,
+        "label": "MAIN D",
+        "key": "4",
+        "rgb": [
+          0,
+          127,
+          16
+        ],
+        "level": "dim",
+        "anim": "solid",
+        "action": {
+          "type": "main",
+          "index": 3
+        },
+        "palette": null
+      },
+      {
+        "note": 116,
+        "label": "BREAK",
+        "key": "g",
+        "rgb": [
+          90,
+          0,
+          127
+        ],
+        "level": "dim",
+        "anim": "solid",
+        "action": {
+          "type": "break"
+        },
+        "palette": null
+      },
+      {
+        "note": 117,
+        "label": "TAP",
+        "key": "t",
+        "rgb": [
+          100,
+          100,
+          100
+        ],
+        "level": "bright",
+        "anim": "solid",
+        "action": {
+          "type": "tapTempo"
+        },
+        "palette": null
+      },
+      {
+        "note": 118,
+        "label": "SYNC STP",
+        "key": "j",
+        "rgb": [
+          0,
+          110,
+          110
+        ],
+        "level": "dim",
+        "anim": "solid",
+        "action": {
+          "type": "toggleSyncStop"
+        },
+        "palette": null
+      },
+      {
+        "note": 119,
+        "label": "START",
+        "key": "spc",
+        "rgb": [
+          0,
+          127,
+          0
+        ],
+        "level": "bright",
+        "anim": "solid",
+        "action": {
+          "type": "startStop"
+        },
+        "palette": null
+      }
+    ],
+    "connected": true,
+    "paletteLeds": false
+  },
+  "ots": {
+    "settings": [
+      {
+        "name": "OTS 1",
+        "parts": [
+          {
+            "on": true,
+            "program": 80,
+            "voiceName": "Square Lead",
+            "volume": 100,
+            "octave": -1
+          },
+          {
+            "on": true,
+            "program": 94,
+            "voiceName": "Halo Pad",
+            "volume": 80,
+            "octave": 0
+          },
+          {
+            "on": false,
+            "program": 94,
+            "voiceName": "Halo Pad",
+            "volume": 100,
+            "octave": 0
+          },
+          {
+            "on": true,
+            "program": 52,
+            "voiceName": "Choir Aahs",
+            "volume": 40,
+            "octave": 1
+          }
+        ]
+      },
+      {
+        "name": "OTS 2",
+        "parts": [
+          {
+            "on": true,
+            "program": 6,
+            "voiceName": "Harpsichord",
+            "volume": 100,
+            "octave": -1
+          },
+          {
+            "on": false,
+            "program": 73,
+            "voiceName": "Flute",
+            "volume": 100,
+            "octave": 0
+          },
+          {
+            "on": false,
+            "program": 6,
+            "voiceName": "Harpsichord",
+            "volume": 100,
+            "octave": -1
+          },
+          {
+            "on": true,
+            "program": 52,
+            "voiceName": "Choir Aahs",
+            "volume": 60,
+            "octave": 1
+          }
+        ]
+      },
+      {
+        "name": "OTS 3",
+        "parts": [
+          {
+            "on": true,
+            "program": 81,
+            "voiceName": "Saw Lead",
+            "volume": 100,
+            "octave": 0
+          },
+          {
+            "on": false,
+            "program": 81,
+            "voiceName": "Saw Lead",
+            "volume": 100,
+            "octave": -1
+          },
+          {
+            "on": false,
+            "program": 0,
+            "voiceName": "Grand Piano",
+            "volume": 127,
+            "octave": 0
+          },
+          {
+            "on": true,
+            "program": 52,
+            "voiceName": "Choir Aahs",
+            "volume": 50,
+            "octave": 1
+          }
+        ]
+      },
+      {
+        "name": "OTS 4",
+        "parts": [
+          {
+            "on": true,
+            "program": 56,
+            "voiceName": "Trumpet",
+            "volume": 100,
+            "octave": 0
+          },
+          {
+            "on": true,
+            "program": 80,
+            "voiceName": "Square Lead",
+            "volume": 100,
+            "octave": 0
+          },
+          {
+            "on": false,
+            "program": 0,
+            "voiceName": "Grand Piano",
+            "volume": 127,
+            "octave": 0
+          },
+          {
+            "on": true,
+            "program": 52,
+            "voiceName": "Choir Aahs",
+            "volume": 60,
+            "octave": 1
+          }
+        ]
+      }
+    ],
+    "applied": 0,
+    "link": false
+  },
+  "library": {
+    "revision": 3,
+    "count": 1,
+    "position": 0,
+    "pending": 0,
+    "roots": [
+      "corpus/MOX_v2/SlowWalker.T552.sty"
+    ],
+    "scanning": false
+  },
+  "surface": {
+    "shift": false,
+    "controls": [
+      {
+        "id": "padBankUp",
+        "cc": 106,
+        "label": "",
+        "action": null,
+        "shiftLabel": "LEFT",
+        "shiftAction": {
+          "type": "togglePart",
+          "part": 3
+        },
+        "rgb": [
+          0,
+          0,
+          0
+        ],
+        "level": "off",
+        "anim": "solid",
+        "colour": 0
+      },
+      {
+        "id": "padBankDown",
+        "cc": 107,
+        "label": "PAGE ▼",
+        "action": {
+          "type": "setPadPage",
+          "page": "chordSetup"
+        },
+        "shiftLabel": "OTS LINK",
+        "shiftAction": {
+          "type": "toggleOtsLink"
+        },
+        "rgb": [
+          127,
+          127,
+          127
+        ],
+        "level": "bright",
+        "anim": "solid",
+        "colour": 3
+      },
+      {
+        "id": "trackPrev",
+        "cc": 103,
+        "label": "",
+        "action": null,
+        "shiftLabel": "",
+        "shiftAction": null,
+        "rgb": [
+          0,
+          0,
+          0
+        ],
+        "level": "off",
+        "anim": "solid",
+        "colour": 0
+      },
+      {
+        "id": "trackNext",
+        "cc": 102,
+        "label": "",
+        "action": null,
+        "shiftLabel": "",
+        "shiftAction": null,
+        "rgb": [
+          0,
+          0,
+          0
+        ],
+        "level": "off",
+        "anim": "solid",
+        "colour": 0
+      },
+      {
+        "id": "play",
+        "cc": 115,
+        "label": "PLAY",
+        "action": {
+          "type": "startStop"
+        },
+        "shiftLabel": "PLAY",
+        "shiftAction": {
+          "type": "startStop"
+        },
+        "rgb": [
+          0,
+          0,
+          0
+        ],
+        "level": "off",
+        "anim": "solid",
+        "colour": null
+      },
+      {
+        "id": "stop",
+        "cc": 116,
+        "label": "STOP",
+        "action": {
+          "type": "stop"
+        },
+        "shiftLabel": "STOP",
+        "shiftAction": {
+          "type": "stop"
+        },
+        "rgb": [
+          0,
+          0,
+          0
+        ],
+        "level": "off",
+        "anim": "solid",
+        "colour": null
+      },
+      {
+        "id": "scene",
+        "cc": 104,
+        "label": "TEMPO +",
+        "action": {
+          "type": "tempoUp"
+        },
+        "shiftLabel": "TEMPO +",
+        "shiftAction": {
+          "type": "tempoUp"
+        },
+        "rgb": [
+          0,
+          0,
+          0
+        ],
+        "level": "off",
+        "anim": "solid",
+        "colour": null
+      },
+      {
+        "id": "function",
+        "cc": 105,
+        "label": "TEMPO -",
+        "action": {
+          "type": "tempoDown"
+        },
+        "shiftLabel": "TEMPO -",
+        "shiftAction": {
+          "type": "tempoDown"
+        },
+        "rgb": [
+          0,
+          0,
+          0
+        ],
+        "level": "off",
+        "anim": "solid",
+        "colour": null
+      },
+      {
+        "id": "faderButton1",
+        "cc": 37,
+        "label": "RIGHT 1",
+        "action": {
+          "type": "togglePart",
+          "part": 0
+        },
+        "shiftLabel": "EDIT R1",
+        "shiftAction": {
+          "type": "selectPart",
+          "part": 0
+        },
+        "rgb": [
+          0,
+          0,
+          127
+        ],
+        "level": "bright",
+        "anim": "solid",
+        "colour": 45
+      },
+      {
+        "id": "faderButton2",
+        "cc": 38,
+        "label": "RIGHT 2",
+        "action": {
+          "type": "togglePart",
+          "part": 1
+        },
+        "shiftLabel": "EDIT R2",
+        "shiftAction": {
+          "type": "selectPart",
+          "part": 1
+        },
+        "rgb": [
+          0,
+          0,
+          127
+        ],
+        "level": "dim",
+        "anim": "solid",
+        "colour": 47
+      },
+      {
+        "id": "faderButton3",
+        "cc": 39,
+        "label": "RIGHT 3",
+        "action": {
+          "type": "togglePart",
+          "part": 2
+        },
+        "shiftLabel": "EDIT R3",
+        "shiftAction": {
+          "type": "selectPart",
+          "part": 2
+        },
+        "rgb": [
+          0,
+          0,
+          127
+        ],
+        "level": "dim",
+        "anim": "solid",
+        "colour": 47
+      },
+      {
+        "id": "faderButton4",
+        "cc": 40,
+        "label": "LEFT",
+        "action": {
+          "type": "togglePart",
+          "part": 3
+        },
+        "shiftLabel": "EDIT L",
+        "shiftAction": {
+          "type": "selectPart",
+          "part": 3
+        },
+        "rgb": [
+          0,
+          0,
+          127
+        ],
+        "level": "dim",
+        "anim": "solid",
+        "colour": 47
+      },
+      {
+        "id": "faderButton5",
+        "cc": 41,
+        "label": "",
+        "action": null,
+        "shiftLabel": "",
+        "shiftAction": null,
+        "rgb": [
+          0,
+          0,
+          0
+        ],
+        "level": "off",
+        "anim": "solid",
+        "colour": 0
+      },
+      {
+        "id": "faderButton6",
+        "cc": 42,
+        "label": "",
+        "action": null,
+        "shiftLabel": "",
+        "shiftAction": null,
+        "rgb": [
+          0,
+          0,
+          0
+        ],
+        "level": "off",
+        "anim": "solid",
+        "colour": 0
+      },
+      {
+        "id": "faderButton7",
+        "cc": 43,
+        "label": "",
+        "action": null,
+        "shiftLabel": "",
+        "shiftAction": null,
+        "rgb": [
+          0,
+          0,
+          0
+        ],
+        "level": "off",
+        "anim": "solid",
+        "colour": 0
+      },
+      {
+        "id": "faderButton8",
+        "cc": 44,
+        "label": "",
+        "action": null,
+        "shiftLabel": "",
+        "shiftAction": null,
+        "rgb": [
+          0,
+          0,
+          0
+        ],
+        "level": "off",
+        "anim": "solid",
+        "colour": 0
+      },
+      {
+        "id": "masterButton",
+        "cc": 45,
+        "label": "PANEL",
+        "action": {
+          "type": "toggleFaderPage"
+        },
+        "shiftLabel": "PANEL",
+        "shiftAction": {
+          "type": "toggleFaderPage"
+        },
+        "rgb": [
+          0,
+          0,
+          127
+        ],
+        "level": "bright",
+        "anim": "solid",
+        "colour": 45
+      }
+    ],
+    "faders": [
+      {
+        "label": "RIGHT 1",
+        "value": 100,
+        "waiting": false,
+        "position": null,
+        "set": {
+          "type": "setPartVolume",
+          "part": 0,
+          "volume": 0
+        }
+      },
+      {
+        "label": "RIGHT 2",
+        "value": 100,
+        "waiting": false,
+        "position": null,
+        "set": {
+          "type": "setPartVolume",
+          "part": 1,
+          "volume": 0
+        }
+      },
+      {
+        "label": "RIGHT 3",
+        "value": 100,
+        "waiting": false,
+        "position": null,
+        "set": {
+          "type": "setPartVolume",
+          "part": 2,
+          "volume": 0
+        }
+      },
+      {
+        "label": "LEFT",
+        "value": 100,
+        "waiting": false,
+        "position": null,
+        "set": {
+          "type": "setPartVolume",
+          "part": 3,
+          "volume": 0
+        }
+      },
+      {
+        "label": "",
+        "value": null,
+        "waiting": false,
+        "position": null,
+        "set": null
+      },
+      {
+        "label": "",
+        "value": null,
+        "waiting": false,
+        "position": null,
+        "set": null
+      },
+      {
+        "label": "",
+        "value": null,
+        "waiting": false,
+        "position": null,
+        "set": null
+      },
+      {
+        "label": "",
+        "value": null,
+        "waiting": false,
+        "position": null,
+        "set": null
+      },
+      {
+        "label": "",
+        "value": null,
+        "waiting": false,
+        "position": null,
+        "set": null
+      }
+    ],
+    "trackPrev": null,
+    "trackNext": null,
+    "clock": {
+      "atMs": 12800.0,
+      "running": true,
+      "tempo": 75.0,
+      "beatsPerBar": 4.0,
+      "bar": 1,
+      "beat": 1,
+      "phase": 0.0,
+      "sectionAnchorMs": 0.0,
+      "sectionAnchorBeats": -16.0,
+      "ledAnchorMs": 0.0,
+      "ledAnchorBeats": 0.0
+    }
+  },
+  "io": {
+    "outputPort": "",
+    "inputs": [
+      "(offline)"
+    ],
+    "synth": null,
+    "engine": {
+      "realtime": false,
+      "wakeP99Us": 0,
+      "chordP99Us": 1,
+      "midiInP99Us": 0
+    },
+    "lastControl": 0,
+    "unmapped": "",
+    "offline": true,
+    "sources": [],
+    "allInputs": false,
+    "soundFonts": [],
+    "soundFontFile": null,
+    "soundFontLoading": false
+  },
+  "preview": {
+    "audition": null,
+    "queued": null
+  },
+  "keyboard": {
+    "held": [
+      {
+        "note": 31,
+        "zone": "left",
+        "parts": []
+      },
+      {
+        "note": 35,
+        "zone": "left",
+        "parts": []
+      },
+      {
+        "note": 38,
+        "zone": "left",
+        "parts": []
+      },
+      {
+        "note": 41,
+        "zone": "left",
+        "parts": []
+      }
+    ],
+    "leftSplit": 54,
+    "chordTones": [
+      7,
+      11,
+      2,
+      5
+    ],
+    "chordBass": 7,
+    "detection": [
+      0,
+      54
+    ]
+  },
+  "message": null
+}

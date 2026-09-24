@@ -1,24 +1,9 @@
-mod bench;
-mod capture;
-mod engine;
-mod fingering;
-#[cfg(test)]
-mod golden;
-mod launchkey;
-mod library;
-mod live;
-mod midi;
-mod oracle;
-mod parts;
-#[cfg(test)]
-mod recognizer_golden;
-mod rt;
-mod sff;
-mod sim;
-mod synth;
-mod theory;
+//! The `yahaha` command line: the terminal front panel (`play`) and the developer tools.
+//! Everything but the terminal UI lives in the `yahaha` library.
+
 mod ui;
 
+use yahaha::{bench, capture, engine, fingering, oracle, sff, sim};
 use anyhow::{Context, Result};
 use std::path::PathBuf;
 
@@ -38,8 +23,17 @@ fn main() -> Result<()> {
         Some("drive") => bench::drive()?,
         Some("screen") => ui::screen_html(std::path::Path::new(&args[2]), std::path::Path::new(&args[3]))?,
         Some("bench") => bench::run(std::path::Path::new(&args[2]), args.get(3).and_then(|s| s.parse().ok()))?,
+        Some("state-json") => state_json(&args[2..])?,
+        Some("pad") => {
+            for p in &args[2..] {
+                pad_dump(&PathBuf::from(p))?;
+            }
+        }
+        Some("ireal") => ireal_cmd(&args[2..])?,
+        #[cfg(feature = "plugins")]
+        Some("plugin-test") => yahaha::plugin::cli::run(&args[2..])?,
         _ => eprintln!(
-            "usage:\n  yahaha play <style or folder>... [--split F#2] [--input <name>] [--all-inputs] [--no-pads] [--sf2 file | --no-synth] [--palette-leds] [--audio-out 11]\n      [--fingering single|multi|fingered|on-bass|ai|full|ai-full] [--upper [--no-manual-bass]] [--transpose N] [--master-transpose N]\n  yahaha bench <style> [spin_us]\n  yahaha sim <style> <\"C Am F G7\" | script file>\n  yahaha capture-kit <out-dir> [--clock-ppm N] [style]...\n  yahaha capture-import <recording.mid> <style> [--tolerance-ms N] [--offset-ms N] [--clock-ppm N] [--listing FILE] [--golden DIR [--force]]\n  yahaha oracle <style or folder>... [--pairs | --scores | --diff scores.txt]\n  yahaha dump <style>..."
+            "usage:\n  yahaha play <style or folder>... [--split F#2] [--input <name>] [--all-inputs] [--no-pads] [--sf2 file | --no-synth] [--palette-leds] [--audio-out 11]\n      [--fingering single|multi|fingered|on-bass|ai|full|ai-full] [--upper [--no-manual-bass]] [--transpose N] [--master-transpose N]\n  yahaha bench <style> [spin_us]\n  yahaha sim <style> <\"C Am F G7\" | script file>\n  yahaha capture-kit <out-dir> [--clock-ppm N] [style]...\n  yahaha capture-import <recording.mid> <style> [--tolerance-ms N] [--offset-ms N] [--clock-ppm N] [--listing FILE] [--golden DIR [--force]]\n  yahaha oracle <style or folder>... [--pairs | --scores | --diff scores.txt]\n  yahaha dump <style>...\n  yahaha pad <multi pad bank.pad>...\n  yahaha state-json <style or folder> [\"C Am\"] [--library]\n  yahaha plugin-test [name] [--list | --rescan] [--bench] [--swap-to name] [--oop] [--gui] [--channel N] [--sf2 file | --no-sf2]   (needs --features plugins)\n  yahaha ireal <file or irealb:// link> [--choruses N]"
         ),
     }
     Ok(())
@@ -81,6 +75,102 @@ fn dump(path: &std::path::Path) -> Result<()> {
     }
     for (id, d) in &s.other_chunks {
         println!("  chunk {id} ({} bytes)", d.len());
+    }
+    Ok(())
+}
+
+/// `yahaha pad <bank.pad>`: what the Multi Pad parser makes of a bank (src/multipad/file.rs;
+/// the .pad layout is provisional, so unknown chunks are shown raw).
+fn pad_dump(path: &std::path::Path) -> Result<()> {
+    use yahaha::multipad::PadBank;
+    let b = PadBank::load(path)?;
+    println!("{}  {:?}  {:.0} bpm  {}/{}  ppq {}", if b.name.is_empty() { "(no name)" } else { &b.name },
+        b.layout, b.bpm(), b.timesig.0, b.timesig.1, b.ppq);
+    let flag = |f: Option<bool>| match f { Some(true) => "on", Some(false) => "off", None => "?" };
+    for (i, pad) in b.pads.iter().enumerate() {
+        let Some(p) = pad else {
+            println!("  pad {}  (empty)", i + 1);
+            continue;
+        };
+        println!("  pad {}  {:<10} ch {:>2}  {:>4} notes  {:>6} ticks ({:.2} beats)  repeat {}  chord match {}",
+            i + 1, p.name, p.channel + 1, p.notes(), p.len, p.len as f64 / b.ppq as f64, flag(p.repeat), flag(p.chord_match));
+        if let Some(r) = &p.rule {
+            let z = &r.zones[1];
+            println!("         rule: src {} type {} {:?}/{:?} hk {} lim {}..{} {:?}",
+                yahaha::theory::NOTE_NAMES[r.src_root as usize % 12], r.src_type, z.ntr, z.ntt, z.high_key, z.lo, z.hi, z.rtr);
+        }
+    }
+    for t in &b.texts {
+        println!("  text {t:?}");
+    }
+    for (id, d) in &b.other_chunks {
+        let head: Vec<String> = d.iter().take(16).map(|x| format!("{x:02x}")).collect();
+        println!("  chunk {id} ({} bytes) {}", d.len(), head.join(" "));
+    }
+    Ok(())
+}
+
+/// `yahaha state-json <style or folder> ["C Am F"] [--library]`: an offline session's
+/// `AppState` as JSON (mock data for the app; docs/app-api.md), after playing the chords
+/// one bar each (in the left hand, Sync Start). `--library` prints the library instead.
+fn state_json(args: &[String]) -> Result<()> {
+    use yahaha::session::{Options, Port, Session};
+    let usage = "usage: yahaha state-json <style or folder> [\"C Am F\"] [--library]";
+    let library = args.iter().any(|a| a == "--library");
+    let mut rest = args.iter().filter(|a| *a != "--library");
+    let path = rest.next().ok_or_else(|| anyhow::anyhow!(usage))?;
+    let s = Session::offline(Options { paths: vec![PathBuf::from(path)], ..Options::default() })?;
+    s.finish_indexing();
+    if library {
+        println!("{}", serde_json::to_string_pretty(&s.library_list())?);
+        return Ok(());
+    }
+    let chords = rest.next().map(|c| c.split_whitespace().map(yahaha::parse_chord).collect::<Result<Vec<_>>>()).transpose()?;
+    let st = s.state();
+    let bar = (60e9 / st.style.tempo * st.transport.beats_per_bar as f64) as u64;
+    let mut held: Vec<u8> = Vec::new();
+    for c in chords.unwrap_or_default() {
+        for k in held.drain(..) {
+            s.midi_in(Port::Keys, &[0x80, k, 0]);
+        }
+        // Root position in the left hand, below the default split (F#2).
+        held = yahaha::theory::chord_tones(c.ty).iter().map(|t| 24 + c.root + t).collect();
+        for &k in &held {
+            s.midi_in(Port::Keys, &[0x90, k, 100]);
+        }
+        s.advance(bar);
+    }
+    println!("{}", serde_json::to_string_pretty(&s.state_now())?);
+    Ok(())
+}
+
+/// `yahaha ireal <file or link> [--choruses N]`: every song in an iReal Pro link (or an
+/// HTML / text file holding links) with its form expanded into bars (src/ireal).
+fn ireal_cmd(args: &[String]) -> Result<()> {
+    use yahaha::ireal;
+    let usage = "usage: yahaha ireal <file or irealb:// link> [--choruses N]";
+    let (mut src, mut choruses) = (None, None);
+    let mut it = args.iter();
+    while let Some(a) = it.next() {
+        if a == "--choruses" {
+            choruses = Some(it.next().and_then(|n| n.parse::<u32>().ok()).with_context(|| format!("--choruses wants a number\n{usage}"))?);
+        } else {
+            src = Some(a);
+        }
+    }
+    let src = src.ok_or_else(|| anyhow::anyhow!(usage))?;
+    let text = if src.starts_with("irealb") { src.clone() } else { std::fs::read_to_string(src).with_context(|| format!("reading {src}"))? };
+    for list in ireal::parse(&text)? {
+        if let Some(name) = &list.name {
+            println!("playlist: {name}");
+        }
+        for song in &list.songs {
+            let n = choruses.unwrap_or(song.repeats);
+            println!("\n{} ({}): {}, key {}, {} bpm, {} chorus(es)", song.title, song.composer, song.style, song.key, song.tempo, n);
+            for (i, bar) in song.bars(n).iter().enumerate() {
+                println!("{:>4}  {bar}", i + 1);
+            }
+        }
     }
     Ok(())
 }
@@ -155,26 +245,6 @@ fn oracle_cmd(args: &[String]) -> Result<()> {
     Ok(())
 }
 
-/// Parse a chord symbol: root, a `TYPE_NAMES` suffix, and an optional `/bass`.
-fn parse_chord(s: &str) -> Result<theory::Chord> {
-    let (body, bass) = match s.split_once('/') {
-        Some((b, bass)) => (b, Some(bass)),
-        None => (s, None),
-    };
-    let root_len = if body.len() > 1 && (body.as_bytes()[1] == b'#' || body.as_bytes()[1] == b'b') { 2 } else { 1 };
-    let pc = |n: &str| theory::NOTE_NAMES.iter().position(|x| *x == n).or_else(|| {
-        ["C", "Db", "D", "D#", "E", "F", "Gb", "G", "G#", "A", "A#", "B"].iter().position(|x| *x == n)
-    });
-    let root = body.get(..root_len).and_then(pc).ok_or_else(|| anyhow::anyhow!("bad chord {s}"))? as u8;
-    let suffix = &body[root_len..];
-    let ty = theory::TYPE_NAMES.iter().position(|t| *t == suffix)
-        // "6/9" would read as a bass note, so the 6(9) chord is also spelled "6(9)" or "69".
-        .or_else(|| matches!(suffix, "6(9)" | "69").then_some(6))
-        .ok_or_else(|| anyhow::anyhow!("bad chord type {suffix}"))? as u8;
-    let bass = bass.map(|b| pc(b).map(|p| p as u8).ok_or_else(|| anyhow::anyhow!("bad bass {b}"))).transpose()?;
-    Ok(theory::Chord { root, ty, bass: bass.filter(|&b| b != root) })
-}
-
 fn play_cmd(args: &[String]) -> Result<()> {
     let mut paths = Vec::new();
     let mut split = 54; // F#2 in Yamaha octave numbering (C3 = 60), the Genos default
@@ -194,7 +264,7 @@ fn play_cmd(args: &[String]) -> Result<()> {
         match args[i].as_str() {
             "--split" => {
                 i += 1;
-                split = parse_note(args.get(i).map(|s| s.as_str()).unwrap_or(""))
+                split = yahaha::parse_note(args.get(i).map(|s| s.as_str()).unwrap_or(""))
                     .ok_or_else(|| anyhow::anyhow!("--split wants a note like F#2 or a MIDI number"))?;
             }
             "--all-inputs" => all_inputs = true,
@@ -248,17 +318,6 @@ fn play_cmd(args: &[String]) -> Result<()> {
     if no_synth {
         sf2 = None;
     }
-    ui::play(ui::Options { paths, split, all_inputs, inputs, no_pads, sf2, palette_leds, audio_out, fingering, upper, manual_bass, transpose })
+    ui::play(yahaha::Options { paths, split, all_inputs, inputs, no_pads, sf2, palette_leds, audio_out, fingering, upper, manual_bass, transpose })
 }
 
-/// "F#2" (Yamaha numbering, C3 = 60) or a raw MIDI number.
-fn parse_note(s: &str) -> Option<u8> {
-    if let Ok(n) = s.parse::<u8>() {
-        return Some(n);
-    }
-    let (name, oct) = s.split_at(s.find(|c: char| c.is_ascii_digit() || c == '-')?);
-    let pc = theory::NOTE_NAMES.iter().position(|n| n.eq_ignore_ascii_case(name))
-        .or_else(|| ["C", "Db", "D", "D#", "E", "F", "Gb", "G", "G#", "A", "A#", "B"].iter().position(|n| n.eq_ignore_ascii_case(name)))?;
-    let oct: i32 = oct.parse().ok()?;
-    u8::try_from((oct + 2) * 12 + pc as i32).ok()
-}

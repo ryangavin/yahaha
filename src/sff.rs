@@ -767,7 +767,7 @@ fn records(buf: &[u8]) -> Result<Vec<(&[u8], &[u8])>> {
     Ok(out)
 }
 
-fn parse_casm(data: &[u8]) -> Result<Vec<Cseg>> {
+pub(crate) fn parse_casm(data: &[u8]) -> Result<Vec<Cseg>> {
     let mut segs = Vec::new();
     for (id, cseg) in records(data)? {
         if id != b"CSEG" {
@@ -921,6 +921,8 @@ pub struct Summary {
     pub timesig: (u8, u8),
     /// Sections present, sorted.
     pub sections: Vec<SectionId>,
+    /// "SFF1" or "SFF2", from the file's header (empty if it names neither).
+    pub format: String,
 }
 
 impl Summary {
@@ -955,7 +957,7 @@ pub fn summarize(bytes: &[u8]) -> Result<Summary> {
     let mut sections: Vec<SectionId> = m.marks.iter().map(|&(_, id)| id).collect();
     sections.sort();
     sections.dedup();
-    Ok(Summary { name: m.name, bpm: 60_000_000.0 / m.tempo_us as f64, timesig: m.timesig, sections })
+    Ok(Summary { name: m.name, bpm: 60_000_000.0 / m.tempo_us as f64, timesig: m.timesig, sections, format: m.format })
 }
 
 fn build_style(
