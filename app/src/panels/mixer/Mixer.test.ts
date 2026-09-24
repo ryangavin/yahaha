@@ -45,6 +45,21 @@ describe('Mixer drawer', () => {
     expect(chans).toEqual(['Ch 1', 'Ch 3', 'Ch 4', 'Ch 2'])
   })
 
+  it('Panel strip 5 has the HARMONY/ARPEGGIO button, as the Launchkey button under fader 5', async () => {
+    const s = setup()
+    const strips = [...document.querySelectorAll<HTMLElement>('.strips .strip')]
+    const buttons = (i: number) => [...strips[i].querySelectorAll<HTMLButtonElement>('.buttons button')]
+    expect(buttons(4)).toHaveLength(1)
+    expect(buttons(4)[0].dataset.tip).toBe('harmony.switch')
+    expect(buttons(4)[0].textContent?.trim()).toBe('Harm/Arp')
+    for (const i of [5, 6, 7]) expect(buttons(i)).toHaveLength(0)
+    const was = s.state.harmonyArp.on
+    await fireEvent.click(buttons(4)[0])
+    expect(s.state.harmonyArp.on).toBe(!was)
+    // The Launchkey surface agrees: faderButton5 on the Panel page is HARM/ARP.
+    expect(s.state.surface.controls.find((c) => c.id === 'faderButton5')?.label).toBe('HARM/ARP')
+  })
+
   it('switching tabs sends the fader page, so the Launchkey follows, and shows the 8 style parts', async () => {
     const s = setup()
     await fireEvent.click(tab('Style'))
