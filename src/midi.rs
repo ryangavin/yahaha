@@ -6,8 +6,8 @@ use core_foundation::base::TCFType;
 use core_foundation::string::{CFString, CFStringRef};
 use coremidi_sys::*;
 use std::ffi::c_void;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::OnceLock;
 
 pub type Endpoint = MIDIEndpointRef;
 /// An output port.
@@ -35,6 +35,7 @@ pub fn name_of(obj: MIDIObjectRef) -> String {
 }
 
 pub fn sources() -> Vec<(Endpoint, String)> {
+    init();
     unsafe { (0..MIDIGetNumberOfSources()).map(|i| MIDIGetSource(i)).map(|e| (e, name_of(e))).collect() }
 }
 
@@ -55,31 +56,19 @@ pub fn online_destinations() -> Vec<(Endpoint, String)> {
 }
 
 pub fn destinations() -> Vec<(Endpoint, String)> {
+    init();
     unsafe { (0..MIDIGetNumberOfDestinations()).map(|i| MIDIGetDestination(i)).map(|e| (e, name_of(e))).collect() }
 }
 
 impl Client {
     pub fn new(name: &str) -> Result<Client> {
+        init();
         let mut client = 0;
         let n = CFString::new(name);
         check(
             unsafe { MIDIClientCreate(n.as_concrete_TypeRef(), None, std::ptr::null_mut(), &mut client) },
             "MIDIClientCreate",
         )?;
-        Ok(Client { client })
-    }
-
-    /// A client that sets `changed` whenever the MIDI setup changes (a device or a virtual
-    /// endpoint comes or goes, or goes offline). CoreMIDI delivers the notifications, and
-    /// updates the endpoints other processes create, through the run loop of the thread
-    /// that creates the client, and only while that run loop runs: `spawn_client` makes
-    /// one on a thread of its own.
-    pub fn with_notify(name: &str, changed: Arc<AtomicBool>) -> Result<Client> {
-        let mut client = 0;
-        let n = CFString::new(name);
-        // One reference, kept for the life of the process (as the input handlers are).
-        let ctx = Arc::into_raw(changed) as *mut c_void;
-        check(unsafe { MIDIClientCreate(n.as_concrete_TypeRef(), Some(notify_proc), ctx, &mut client) }, "MIDIClientCreate")?;
         Ok(Client { client })
     }
 
@@ -140,56 +129,54 @@ impl Client {
     }
 }
 
-unsafe extern "C" fn notify_proc(msg: *const MIDINotification, ctx: *mut c_void) {
-    // SAFETY: `ctx` is the `Arc<AtomicBool>` reference `with_notify` leaked; `msg` is valid
-    // for the call.
-    unsafe {
-        let id = (*msg).messageID as u32;
-        if [kMIDIMsgSetupChanged, kMIDIMsgObjectAdded, kMIDIMsgObjectRemoved, kMIDIMsgPropertyChanged].contains(&id) {
-            (*(ctx as *const AtomicBool)).store(true, Ordering::Release);
-        }
+/// Bumped whenever CoreMIDI reports a change to the MIDI setup (`setup_generation`).
+static SETUP_GEN: AtomicU64 = AtomicU64::new(0);
+
+unsafe extern "C" fn notify_proc(msg: *const MIDINotification, _ctx: *mut c_void) {
+    // SAFETY: `msg` is valid for the call.
+    let id = unsafe { (*msg).messageID } as u32;
+    if [kMIDIMsgSetupChanged, kMIDIMsgObjectAdded, kMIDIMsgObjectRemoved, kMIDIMsgPropertyChanged].contains(&id) {
+        SETUP_GEN.fetch_add(1, Ordering::Release);
     }
 }
 
-/// The thread a `spawn_client` client lives on: it runs its run loop, so CoreMIDI can
-/// deliver the client's notifications and keep other processes' endpoints current.
-pub struct ClientThread {
-    quit: Arc<AtomicBool>,
-    thread: Option<std::thread::JoinHandle<()>>,
-}
-
-impl ClientThread {
-    /// Stop the run loop and join the thread (within about 100 ms).
-    pub fn stop(mut self) {
-        self.quit.store(true, Ordering::Release);
-        if let Some(t) = self.thread.take() {
-            let _ = t.join();
-        }
-    }
-}
-
-/// A `Client::with_notify` client created on a thread of its own that runs a run loop
-/// until `ClientThread::stop`. The client itself works from any thread.
-pub fn spawn_client(name: &str, changed: Arc<AtomicBool>) -> Result<(Client, ClientThread)> {
-    let (tx, rx) = std::sync::mpsc::channel();
-    let quit = Arc::new(AtomicBool::new(false));
-    let q = quit.clone();
-    let name = name.to_string();
-    let thread = std::thread::Builder::new().name("yahaha-midi".into()).spawn(move || {
-        let client = Client::with_notify(&name, changed);
-        let ok = client.is_ok();
-        let _ = tx.send(client.map(|c| c.client));
-        if !ok {
-            return;
-        }
-        while !q.load(Ordering::Acquire) {
-            unsafe {
-                core_foundation::runloop::CFRunLoopRunInMode(core_foundation::runloop::kCFRunLoopDefaultMode, 0.1, 0);
+/// Start the process's CoreMIDI run-loop thread, once, before any other CoreMIDI call.
+///
+/// CoreMIDI delivers its notifications, and updates the endpoints other processes create
+/// (a keyboard plugged in, a virtual port another app opens), through the run loop of
+/// the thread that first used it in the process, and only while that run loop runs. So
+/// the first CoreMIDI call is made on a thread of our own, which creates a client to be
+/// told about setup changes and then runs its run loop for the life of the process. Every
+/// function here that talks to CoreMIDI calls this first.
+pub fn init() {
+    static STARTED: OnceLock<()> = OnceLock::new();
+    STARTED.get_or_init(|| {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let spawned = std::thread::Builder::new().name("yahaha-midi".into()).spawn(move || {
+            let mut client = 0;
+            let n = CFString::new("yahaha-notify");
+            let st = unsafe { MIDIClientCreate(n.as_concrete_TypeRef(), Some(notify_proc), std::ptr::null_mut(), &mut client) };
+            let _ = tx.send(st);
+            if st != 0 {
+                return;
             }
+            loop {
+                unsafe {
+                    core_foundation::runloop::CFRunLoopRunInMode(core_foundation::runloop::kCFRunLoopDefaultMode, 1.0, 0);
+                }
+            }
+        });
+        if spawned.is_ok() {
+            let _ = rx.recv();
         }
-    })?;
-    let client = rx.recv().map_err(|_| anyhow::anyhow!("the MIDI thread ended"))??;
-    Ok((Client { client }, ClientThread { quit, thread: Some(thread) }))
+    });
+}
+
+/// Changes whenever CoreMIDI reports that the MIDI setup changed: a device or a virtual
+/// endpoint came or went, or went offline or online. Compare with the last value seen.
+pub fn setup_generation() -> u64 {
+    init();
+    SETUP_GEN.load(Ordering::Acquire)
 }
 
 /// An input port: a plain reference, valid until the client is disposed.

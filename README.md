@@ -47,6 +47,7 @@ Options:
 - `--input "Name"` picks MIDI sources by name.
 - `--all-inputs` merges every connected keyboard.
 - `--no-pads` leaves the Launchkey pads alone.
+- Keyboards and the Launchkey can be plugged in and out while yahaha runs: a new keyboard is heard (by the `--input`/`--all-inputs` rules), and a Launchkey plugged back in goes back to DAW mode with its pads and LEDs. `yahaha fake-device` makes a Launchkey-like device from another process for trying it.
 - `--chord-settle MS` sets the chord-settle window (0–30 ms, default 10): while the style plays, it follows a chord once the chord has held still this long, so a rolled chord is one change, not two. Also in the app's Settings › Chord.
 
 ## Ableton setup (once)

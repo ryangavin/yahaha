@@ -12,7 +12,6 @@ use anyhow::{Context, Result};
 use rtrb::Consumer;
 use std::path::Path;
 use std::sync::atomic::Ordering::Relaxed;
-use std::sync::atomic::AtomicBool;
 use std::sync::{mpsc, Arc};
 
 /// The synth as the control side sees it.
@@ -37,8 +36,9 @@ pub(super) struct MidiIo {
     pub(super) leds_port: Option<midi::OutPort>,
     /// `--no-pads`: leave the Launchkey DAW port alone.
     pub(super) no_pads: bool,
-    /// Set by CoreMIDI when the MIDI setup changes (session/devices.rs).
-    pub(super) changed: Arc<AtomicBool>,
+    /// The MIDI setup generation last followed (`midi::setup_generation`,
+    /// session/devices.rs).
+    pub(super) setup_gen: u64,
 }
 
 /// The Launchkey's DAW port (pads, buttons, faders), by its source name.

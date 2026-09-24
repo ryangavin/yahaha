@@ -8,6 +8,7 @@
 //! Threads (live):
 //!
 //!   CoreMIDI thread  keys, Launchkey pads/buttons/faders (`live::Input`)
+//!   MIDI run loop    CoreMIDI's setup-change notifications (`midi::init`; devices.rs)
 //!   engine thread    real-time playback (`live::run_engine`)
 //!   control thread   runs Launchkey actions as `AppCmd`s, OTS Link, Launchkey LEDs,
 //!                    library indexing, and republishes `AppState` when it changes
@@ -149,9 +150,6 @@ struct Inner {
 /// What only a live session has.
 struct Live {
     client: Client,
-    /// The thread the client was made on: it runs the run loop CoreMIDI delivers the
-    /// client's notifications through (session/devices.rs).
-    midi_thread: midi::ClientThread,
     /// Its handler runs on CoreMIDI's thread until the client is disposed.
     _port: midi::InputPort,
     engine: std::thread::JoinHandle<()>,
@@ -541,10 +539,9 @@ impl Session {
     /// Start a live session: open MIDI, start the synth (if `opts.sf2`), connect the
     /// keyboards and the Launchkey, start the engine and control threads.
     pub fn start(opts: Options) -> Result<Session> {
-        // The client lives on a thread of its own that runs its run loop, so CoreMIDI can
-        // tell it when devices come and go (session/devices.rs).
-        let changed = Arc::new(AtomicBool::new(false));
-        let (client, midi_thread) = midi::spawn_client("yahaha", changed.clone())?;
+        // (`midi::init` makes the process's first CoreMIDI call on a run-loop thread of
+        // its own, so the session hears of devices coming and going: session/devices.rs.)
+        let client = Client::new("yahaha")?;
         let out_src = client.virtual_source("yahaha")?;
 
         // The synth reads the keyboard parts, so they exist before it starts.
@@ -580,7 +577,7 @@ impl Session {
 
         let port = client.input_port("yahaha in", p.input)?;
         let leds_port = if opts.no_pads { None } else { Some(client.output_port("yahaha leds")?) };
-        p.control.midi = Some(MidiIo { port, slots: Default::default(), daw: None, leds_port, no_pads: opts.no_pads, changed });
+        p.control.midi = Some(MidiIo { port, slots: Default::default(), daw: None, leds_port, no_pads: opts.no_pads, setup_gen: midi::setup_generation() });
         p.control.connect_pads();
         p.control.connect_inputs();
         p.control.sources_ns = rt::now_ns();
@@ -601,7 +598,7 @@ impl Session {
         let control = std::thread::Builder::new().name("yahaha-control".into()).spawn(move || i2.control_loop())?;
         Ok(Session {
             inner,
-            live: Mutex::new(Some(Live { client, midi_thread, _port: port, engine: engine_thread, control, synth: synth_thread })),
+            live: Mutex::new(Some(Live { client, _port: port, engine: engine_thread, control, synth: synth_thread })),
         })
     }
 
@@ -724,7 +721,6 @@ impl Session {
                 let _ = s.thread.join();
             }
             live.client.dispose();
-            live.midi_thread.stop();
         } else {
             let mut ctl = self.inner.lock();
             if let Some(o) = ctl.offline.as_mut() {

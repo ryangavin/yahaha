@@ -1,11 +1,11 @@
 //! MIDI devices coming and going (#74): keyboards plugged in (or out) while the session
 //! runs, and the Launchkey unplugged and plugged back in.
 //!
-//! The session's CoreMIDI client lives on a thread of its own that runs a run loop
-//! (`midi::spawn_client`): CoreMIDI delivers the client's notifications there, and keeps
-//! the endpoints other processes create up to date only while it runs. A notification
-//! sets a flag; the control thread sees it at its next pump (it wakes every 10 ms), lists
-//! the sources again and:
+//! CoreMIDI tells the process of setup changes, and keeps the endpoints other processes
+//! create up to date, through the run loop of the thread that first used it, and only
+//! while that run loop runs: `midi::init` makes that a thread of our own, and counts the
+//! changes (`midi::setup_generation`). The control thread sees a new count at its next
+//! pump (it wakes every 10 ms), lists the sources again and:
 //! - connects the keyboards `Options::inputs`/`all_inputs` choose (`connect_inputs`), and
 //!   releases the held keys of one that went;
 //! - connects the Launchkey's DAW port as the pads when it appears, puts the Launchkey
@@ -22,7 +22,7 @@ use crate::launchkey;
 use crate::live::TAG_PADS;
 use crate::midi::{self, Endpoint};
 use crate::rt::{PacketSink, Target};
-use std::sync::atomic::Ordering::{AcqRel, Relaxed};
+use std::sync::atomic::Ordering::Relaxed;
 
 /// How often the sources are listed again without a notification.
 const POLL_NS: u64 = 2_000_000_000;
@@ -51,8 +51,10 @@ pub(super) fn daw_change(have: Option<Endpoint>, now: Option<Endpoint>) -> DawCh
 impl Control {
     /// Live: follow the MIDI setup when CoreMIDI says it changed, and every 2 s.
     pub(super) fn pump_devices(&mut self, now: u64) {
-        let Some(m) = self.midi.as_ref() else { return };
-        let changed = m.changed.swap(false, AcqRel);
+        let Some(m) = self.midi.as_mut() else { return };
+        let generation = midi::setup_generation();
+        let changed = generation != m.setup_gen;
+        m.setup_gen = generation;
         if changed || now.saturating_sub(self.sources_ns) >= POLL_NS {
             self.sources_ns = now;
             self.connect_pads();
