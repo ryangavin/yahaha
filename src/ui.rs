@@ -636,6 +636,8 @@ pub fn screen_html(style: &Path, out: &Path) -> Result<()> {
         volumes: [127, 110, 96, 127, 80, 64, 127, 100],
         pickup: 1 << 4,
         stop_acmp: false,
+        stop_acmp_mode: yahaha::engine::StopAcmp::Off,
+        half_bar_fill: false,
         transpose: Transpose::new(2, 0),
         played: Some(yahaha::theory::Chord { root: 7, ty: 10, bass: Some(5) }),
         anchor_ns: 0,

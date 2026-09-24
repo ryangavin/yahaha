@@ -11,7 +11,7 @@
 //! non-blocking semaphore signal; the engine only sleeps on the semaphore with a timeout
 //! equal to its next deadline.
 
-use crate::engine::{shift_key, AuditionPos, Button, Engine, Prepared, Snapshot, Transpose};
+use crate::engine::{shift_key, AuditionPos, Button, ChangeRules, Engine, Prepared, Snapshot, Transpose};
 use crate::fingering::{self, Fingering};
 use crate::launchkey::{self, Action, Control, Page};
 use crate::midi::{for_each_message, InputHandler};
@@ -40,6 +40,10 @@ pub enum Cmd {
     /// All Notes Off on the keyboard parts' channels: a MIDI source with keys held was
     /// disconnected (its note-offs will never come).
     KeysOff,
+    /// Style Setting Change Behavior (tempo, part on/off, Section Set) for style changes.
+    ChangeRules(ChangeRules),
+    /// An OTS recall turns Sync Start on (stopped only).
+    SyncStartOn,
 }
 
 /// How many bars a style preview plays.
@@ -1050,6 +1054,8 @@ fn apply(engine: &mut Engine, parts: &Parts, cmd: Cmd, now: u64, out: &mut Out) 
         Cmd::ManualBass(on) => engine.set_manual_bass(on, out),
         Cmd::Transpose(t) => engine.set_transpose(t, now, out),
         Cmd::StopAudition => {}
+        Cmd::ChangeRules(r) => engine.set_change_rules(r),
+        Cmd::SyncStartOn => engine.sync_start_on(),
         Cmd::KeysOff => {
             // The source's pedal, wheels and pressure went to every keyboard part too, and
             // its releases will never come: with the pedal left down, All Notes Off would

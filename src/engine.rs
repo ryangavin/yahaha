@@ -9,7 +9,9 @@
 //! hooks in hooks.rs; when a queued section change happens is `Engine::change_point`
 //! (sections.rs). See docs/architecture.md.
 
+mod change_rules;
 mod chords;
+mod fills;
 mod hooks;
 mod mirror;
 mod mixer;
@@ -23,6 +25,7 @@ mod transport;
 use hooks::{Features, Lines};
 use mirror::{Mirror, NRPN_BIT, UNSENT};
 use sections::Change;
+pub use change_rules::{ChangeRule, ChangeRules, StopAcmp, FIXED_BASS_PROGRAM, FIXED_PAD_PROGRAM};
 pub use mixer::{Takeover, HW_UNKNOWN};
 use prepared::PKind;
 pub use prepared::{id_of, slot_of, Msgs, PSection, Prepared, NUM_SLOTS};
@@ -108,7 +111,18 @@ pub enum Button {
     TempoUp,
     TempoDown,
     TogglePart(u8),
+    /// Stop Accompaniment on/off: Off <-> the last mode that sounds (Style at first).
     StopAcmp,
+    /// Stop Accompaniment mode: Off, Style or Fixed voices.
+    SetStopAcmp(StopAcmp),
+    /// Fill Up / Fill Down: a fill, then the next Main to the right / left.
+    FillUp,
+    FillDown,
+    /// Fill Self: the Main's own fill (the same as pressing the Main playing).
+    FillSelf,
+    /// Half Bar Fill In on/off, and set.
+    HalfBarFill,
+    SetHalfBarFill(bool),
 }
 
 
@@ -131,7 +145,11 @@ pub struct Snapshot {
     pub volumes: [u8; 8],
     /// Parts whose hardware fader is waiting to pick up the software value (soft takeover).
     pub pickup: u8,
+    /// Stop Accompaniment sounds the chord (`stop_acmp_mode` is not Off).
     pub stop_acmp: bool,
+    pub stop_acmp_mode: StopAcmp,
+    /// Half Bar Fill In.
+    pub half_bar_fill: bool,
     /// Keyboard and Master transpose in semitones (-12..=12 each).
     pub transpose: Transpose,
     /// The chord as fingered, before Keyboard transpose (`chord` is what the style follows).
@@ -294,7 +312,7 @@ pub struct Engine {
     user_set: u8,
     /// Soft takeover state of each part's hardware fader.
     takeover: [Takeover; 8],
-    stop_acmp: bool,
+    stop_acmp: StopAcmp,
     /// Manual Bass (Upper detection mode): the Style's Bass part is muted; the player's
     /// left hand plays the bass instead.
     manual_bass: bool,
@@ -325,7 +343,6 @@ pub struct Engine {
     /// The next bar or beat line for the `on_bar`/`on_beat` hooks (hooks.rs).
     lines: Lines,
     /// The engine-side state of the features that plug into the hooks (hooks.rs).
-    #[allow(dead_code)]
     features: Features,
     /// Pitch bends that did not fit the output range and were clamped.
     #[cfg(test)]
@@ -367,7 +384,7 @@ impl Engine {
             mixer,
             user_set: 0,
             takeover: [Takeover::NEW; 8],
-            stop_acmp: false,
+            stop_acmp: StopAcmp::Off,
             manual_bass: false,
             taps: [0; 4],
             tap_n: 0,
@@ -438,7 +455,9 @@ impl Engine {
             parts: self.parts,
             volumes: self.mixer,
             pickup: self.pickup_waiting(),
-            stop_acmp: self.stop_acmp,
+            stop_acmp: self.stop_acmp != StopAcmp::Off,
+            stop_acmp_mode: self.stop_acmp,
+            half_bar_fill: self.features.fills.half_bar,
             transpose: self.transpose,
             played: self.played,
             anchor_ns,

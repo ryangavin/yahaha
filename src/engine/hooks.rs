@@ -38,7 +38,14 @@ use super::*;
 /// its own `Copy`/fixed-size struct (no heap: `Engine::new` builds it on the control
 /// side, but the engine thread must never grow it).
 #[derive(Default)]
-pub(super) struct Features {}
+pub(super) struct Features {
+    /// Style Setting Change Behavior: tempo, part on/off and section on a style change.
+    pub(super) rules: super::change_rules::ChangeRules,
+    /// Half Bar Fill In (fills.rs).
+    pub(super) fills: super::fills::Fills,
+    /// Stop Accompaniment's voices (change_rules.rs).
+    pub(super) stop_acmp: super::change_rules::StopAcmpState,
+}
 
 /// The next beat line the bar and beat hooks wait for: a tick on the section's timeline
 /// (as `sec_start`), and its bar (0-based in this pass of the section) and beat (0-based
@@ -78,6 +85,7 @@ impl Engine {
     pub(super) fn on_start(&mut self, _now: u64, _sink: &mut impl Sink) {
         #[cfg(test)]
         self.log(Hook::Start);
+        self.stop_acmp_setup_sent();
     }
 
     /// The band stopped: every note is off.
@@ -138,6 +146,7 @@ impl Engine {
     pub(super) fn on_style_loaded(&mut self, _now: u64, _sink: &mut impl Sink) {
         #[cfg(test)]
         self.log(Hook::StyleLoaded);
+        self.stop_acmp_setup_sent();
     }
 
     /// A tick (on the section's timeline) by which a feature needs `process` to run, if

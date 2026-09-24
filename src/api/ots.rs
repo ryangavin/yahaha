@@ -10,6 +10,20 @@ pub enum OtsCmd {
     /// OTS Link: Main A-D recall OTS 1-4.
     SetOtsLink { on: bool },
     ToggleOtsLink,
+    /// OTS Link Timing: when Link recalls the OTS of a Main pressed during playback.
+    SetOtsLinkTiming { timing: OtsLinkTiming },
+}
+
+/// OTS Link Timing (Style Setting, RM p.11). Stopped, a Main recalls its OTS at once
+/// either way.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum OtsLinkTiming {
+    /// The moment the Main is pressed.
+    #[default]
+    Immediate,
+    /// When that Main starts playing (the next bar, or after its fill).
+    MainChange,
 }
 
 /// One Touch Settings.
@@ -21,6 +35,8 @@ pub struct OtsState {
     /// The last one recalled, 1-based (0 = none since the style loaded).
     pub applied: u8,
     pub link: bool,
+    /// When OTS Link recalls during playback.
+    pub link_timing: OtsLinkTiming,
 }
 
 /// One One Touch Setting (the style has no names for them: "OTS 1".."OTS 4").

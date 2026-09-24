@@ -38,6 +38,7 @@ mod pads;
 mod parts;
 mod preview;
 mod settings;
+mod style_change;
 mod surface;
 mod system;
 mod transport;
@@ -186,6 +187,10 @@ struct Control {
     msg_seq: u64,
     last_ots_key: Option<(usize, u8)>,
     last_link: bool,
+    /// OTS Link Timing.
+    ots_timing: OtsLinkTiming,
+    /// Style Setting > Change Behavior (the engine has a copy).
+    style_change: StyleChangeState,
     leds: Option<Leds>,
     synth: Option<SynthRef>,
     inputs: Vec<String>,
@@ -280,6 +285,7 @@ impl Control {
             AppCmd::Preview(c) => self.preview_cmd(c),
             AppCmd::Settings(c) => self.settings_cmd(c),
             AppCmd::System(c) => self.system_cmd(c),
+            AppCmd::StyleChange(c) => self.style_change_cmd(c),
         }
     }
 
@@ -371,6 +377,7 @@ impl Control {
             io: self.io_state(),
             preview: self.preview_state(),
             keyboard: self.keyboard_state(&v),
+            style_change: self.style_change,
             message: self.message.clone(),
         }
     }
@@ -492,6 +499,8 @@ fn assemble(opts: &Options, engine_out: live::Out, input_out: live::Out, offline
         msg_seq: 0,
         last_ots_key: None,
         last_link: false,
+        ots_timing: OtsLinkTiming::default(),
+        style_change: StyleChangeState::default(),
         leds: None,
         synth: None,
         inputs: Vec::new(),

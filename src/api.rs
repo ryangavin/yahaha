@@ -25,6 +25,7 @@ mod pads;
 mod parts;
 mod preview;
 mod settings;
+mod style_change;
 mod surface;
 mod system;
 mod transport;
@@ -38,6 +39,7 @@ pub use pads::*;
 pub use parts::*;
 pub use preview::*;
 pub use settings::*;
+pub use style_change::*;
 pub use surface::*;
 pub use system::*;
 pub use transport::*;
@@ -115,6 +117,8 @@ app_cmd! {
     Settings(SettingsCmd),
     /// Panic, the message line.
     System(SystemCmd),
+    /// Style Setting > Change Behavior: tempo, part on/off, Section Set.
+    StyleChange(StyleChangeCmd),
 }
 
 impl From<Button> for AppCmd {
@@ -134,6 +138,12 @@ impl From<Button> for AppCmd {
             Button::TempoDown => TransportCmd::TempoDown.into(),
             Button::TogglePart(p) => MixerCmd::ToggleStylePart { part: p }.into(),
             Button::StopAcmp => TransportCmd::ToggleStopAcmp.into(),
+            Button::SetStopAcmp(m) => TransportCmd::SetStopAcmp { mode: m.into() }.into(),
+            Button::FillUp => TransportCmd::FillUp.into(),
+            Button::FillDown => TransportCmd::FillDown.into(),
+            Button::FillSelf => TransportCmd::FillSelf.into(),
+            Button::HalfBarFill => TransportCmd::ToggleHalfBarFill.into(),
+            Button::SetHalfBarFill(on) => TransportCmd::SetHalfBarFill { on }.into(),
         }
     }
 }
@@ -240,6 +250,8 @@ pub struct AppState {
     pub preview: PreviewState,
     /// The keys held and the chord, for the app's keyboard strip.
     pub keyboard: KeyboardState,
+    /// Style Setting > Change Behavior.
+    pub style_change: StyleChangeState,
     /// The last notice or error, until the next one or `ClearMessage`.
     pub message: Option<Message>,
 }

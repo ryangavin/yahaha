@@ -9,6 +9,9 @@ pub enum Change {
     Section,
     /// A Fill In or Break.
     Fill,
+    /// A fill under Half Bar Fill In (asked for on the first beat of a bar): from the
+    /// middle of that bar.
+    HalfBar,
     /// The band stops (an Ending the style doesn't have).
     Stop,
     /// Another style takes over while the band plays.
@@ -38,7 +41,9 @@ impl Engine {
     ///
     /// Sections, stops and style changes wait for the next bar line. Fills and breaks
     /// start at the next beat and play the rest of that bar, aligned so the fill's beat
-    /// matches the bar position.
+    /// matches the bar position. A Half Bar Fill starts at the middle of the bar asked in
+    /// (the beat at or before half its length: beat 3 of 4, beat 2 of 3), aligned the
+    /// same way.
     pub(super) fn change_point(&self, change: Change, now: u64) -> (f64, f64) {
         match change {
             Change::Section | Change::Stop | Change::Style => {
@@ -53,6 +58,16 @@ impl Engine {
                 let beat = (pos / ppq).ceil() * ppq;
                 let at = self.sec_start + beat;
                 let bar_start = self.sec_start + (beat / tpb).floor() * tpb;
+                (at, bar_start)
+            }
+            Change::HalfBar => {
+                let t = self.tick_at(now);
+                let ppq = self.style.ppq.max(1) as f64;
+                let tpb = self.style.tpb.max(1) as f64;
+                let bar_start = self.sec_start + ((t - self.sec_start) / tpb).floor() * tpb;
+                let half = ((tpb / ppq / 2.0).floor() * ppq).max(ppq);
+                // Asked for after the middle (not on beat 1): the next beat, as a fill.
+                let at = if bar_start + half + 1e-6 >= t { bar_start + half } else { return self.change_point(Change::Fill, now) };
                 (at, bar_start)
             }
         }
@@ -92,7 +107,12 @@ impl Engine {
 
     /// Queue a fill or break.
     pub(super) fn queue_fill(&mut self, slot: usize, now: u64) {
-        let (at, sec_start) = self.change_point(Change::Fill, now);
+        self.queue_change(slot, Change::Fill, now);
+    }
+
+    /// Queue section `slot` for the change point of a `change`.
+    pub(super) fn queue_change(&mut self, slot: usize, change: Change, now: u64) {
+        let (at, sec_start) = self.change_point(change, now);
         self.queued = Some(Queued { slot, at, sec_start });
     }
 

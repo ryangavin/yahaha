@@ -44,7 +44,7 @@ impl Engine {
             }
             self.catch_up(prev, chord, now, sink);
         }
-        if !self.running && self.stop_acmp {
+        if !self.running && self.stop_acmp != StopAcmp::Off {
             self.sound_stop_acmp(chord, now, sink);
         }
     }
@@ -66,7 +66,7 @@ impl Engine {
         if self.running {
             self.revoice(chord, now, sink);
             self.catch_up(prev, chord, now, sink);
-        } else if self.stop_acmp && self.sounding.iter().any(|n| n.active && n.src == STOP_ACMP_SRC) {
+        } else if self.stop_acmp != StopAcmp::Off && self.sounding.iter().any(|n| n.active && n.src == STOP_ACMP_SRC) {
             self.sound_stop_acmp(chord, now, sink);
         }
         self.on_chord(prev, now, sink);
@@ -82,13 +82,15 @@ impl Engine {
         }
     }
 
-    /// Stop Accompaniment: with the band stopped, the held chord sounds on the style's
-    /// Bass (root / on-bass note) and Pad (chord tones) voices.
+    /// Stop Accompaniment: with the band stopped, the held chord sounds on the Bass (root /
+    /// on-bass note) and Pad (chord tones) channels, with the style's voices (Style) or
+    /// fixed ones (Fixed, `stop_acmp_voices`).
     pub(super) fn sound_stop_acmp(&mut self, chord: Chord, now: u64, sink: &mut impl Sink) {
         self.off_where(sink, |n| n.src == STOP_ACMP_SRC);
         if chord.ty == CANCEL {
             return;
         }
+        self.stop_acmp_voices(sink);
         let bass = 36 + chord.bass.unwrap_or(chord.root);
         self.note_on(STOP_ACMP_SRC, 0, 10, bass, 90, 4, now, sink);
         for (i, &t) in crate::theory::chord_tones(chord.ty).iter().enumerate() {

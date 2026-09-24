@@ -72,12 +72,13 @@ impl Engine {
                     self.off_where(sink, |n| n.dest == 8 + (p & 7));
                 }
             }
-            Button::StopAcmp => {
-                self.stop_acmp = !self.stop_acmp;
-                if !self.stop_acmp {
-                    self.off_where(sink, |n| n.src == STOP_ACMP_SRC);
-                }
-            }
+            Button::StopAcmp => self.toggle_stop_acmp(sink),
+            Button::SetStopAcmp(m) => self.set_stop_acmp(m, sink),
+            Button::FillUp => self.fill_to(self.neighbour_main(true), now),
+            Button::FillDown => self.fill_to(self.neighbour_main(false), now),
+            Button::FillSelf => self.fill_to(self.main, now),
+            Button::HalfBarFill => self.features.fills.half_bar = !self.features.fills.half_bar,
+            Button::SetHalfBarFill(on) => self.features.fills.half_bar = on,
             Button::TempoUp => self.set_bpm_internal(self.bpm + 2.0, now),
             Button::TempoDown => self.set_bpm_internal(self.bpm - 2.0, now),
             Button::TapTempo => self.tap(now),
@@ -88,38 +89,7 @@ impl Engine {
                     self.queue_at_bar(slot, now);
                 }
             }
-            Button::Main(i) => {
-                let prev = self.main;
-                self.main = i;
-                if !self.running {
-                    return;
-                }
-                let cur_id = id_of(self.cur);
-                match cur_id {
-                    SectionId::Main(m) => {
-                        let fill = if i == m || self.auto_fill { s.resolve(8 + i as usize) } else { None };
-                        let fill = if i == m { s.resolve(8 + m as usize) } else { fill };
-                        match fill {
-                            Some(f) => self.queue_fill(f, now),
-                            None if i != m => {
-                                if let Some(slot) = s.resolve(4 + i as usize) {
-                                    self.queue_at_bar(slot, now)
-                                }
-                            }
-                            None => {}
-                        }
-                    }
-                    SectionId::Ending(_) => {
-                        if let Some(slot) = s.resolve(4 + i as usize) {
-                            self.queue_at_bar(slot, now)
-                        }
-                    }
-                    // Intro / fill / break: they flow into self.main when done.
-                    _ => {
-                        let _ = prev;
-                    }
-                }
-            }
+            Button::Main(i) => self.press_main(i, false, now),
             Button::Break => {
                 if self.running {
                     if let Some(slot) = s.resolve(12) {
