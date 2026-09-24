@@ -140,8 +140,12 @@ export type HarmonyArpCmd =
   /** Minimum Velocity, 1-127. */
   | { type: 'setTouchLimit'; velocity: number }
   | { type: 'setArpQuantize'; quantize: ArpQuantize }
+  /** The Arpeggio Hold setting (RM p.41). */
   | { type: 'setArpHold'; on: boolean }
   | { type: 'toggleArpHold' }
+  /** The Arpeggio Hold pedal function (RM p.141), apart from the setting. */
+  | { type: 'setArpPedalHold'; on: boolean }
+  | { type: 'toggleArpPedalHold' }
   /** `velocity` (1-127) is used by `fixed`. */
   | { type: 'setArpVelocity'; mode: ArpVelocityMode; velocity: number }
   | { type: 'setArpKeepKeyOn'; on: boolean }
@@ -767,7 +771,10 @@ export interface HarmonyArpState {
   touchLimit: number
   arp: {
     quantize: ArpQuantize
+    /** The Hold setting. */
     hold: boolean
+    /** The Arpeggio Hold pedal function is on; the arpeggio holds while either is. */
+    pedalHold: boolean
     velocity: ArpVelocityMode
     fixedVelocity: number
     keepKeyOn: boolean

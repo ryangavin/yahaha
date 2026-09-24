@@ -1196,6 +1196,16 @@ impl MockSession {
                 self.stop_band();
                 self.pads.panic(&mut self.state.multi_pad);
                 self.controllers.reset(&mut |_| {});
+                // As the session: the control-side switches a Hold pedal was keeping on go
+                // off (`Control::pump_pedal_releases`).
+                if let Some(down) = self.controllers.take_reset_releases() {
+                    for i in 0..PEDALS {
+                        let f = yahaha::controllers::reset_release(self.controllers.pedal(i), down >> i & 1 != 0);
+                        if let Some(cmd) = f.and_then(|f| yahaha::api::function_set(f, false)) {
+                            self.cmd(cmd);
+                        }
+                    }
+                }
                 self.state.controllers = ControllersState::of(&self.controllers);
                 self.message("All notes off", false);
             }
@@ -1472,6 +1482,8 @@ fn harmony_arp_cmd(h: &mut HarmonyArpState, c: HarmonyArpCmd) -> Result<(), Stri
         HarmonyArpCmd::SetArpQuantize { quantize } => h.arp.quantize = quantize,
         HarmonyArpCmd::SetArpHold { on } => h.arp.hold = on,
         HarmonyArpCmd::ToggleArpHold => h.arp.hold = !h.arp.hold,
+        HarmonyArpCmd::SetArpPedalHold { on } => h.arp.pedal_hold = on,
+        HarmonyArpCmd::ToggleArpPedalHold => h.arp.pedal_hold = !h.arp.pedal_hold,
         HarmonyArpCmd::SetArpVelocity { mode, velocity } => {
             h.arp.velocity = mode;
             // As the engine: only Fixed keeps a velocity of its own.
@@ -1552,6 +1564,15 @@ mod tests {
         assert!(!m.state.harmony_arp.on);
         assert!(!m.state.harmony_arp.arp.hold);
         m.send(ControllersCmd::SetPedal { pedal: 1, cc: Some(66), function: Function::ArpHold, control_type: ControlType::HoldB, reverse: false, range: Default::default() });
+        assert!(m.state.harmony_arp.arp.pedal_hold, "the pedal function, not the setting");
+        assert!(!m.state.harmony_arp.arp.hold);
+        m.send(ControllersCmd::TriggerFunction { function: Function::ArpHold });
+        assert!(!m.state.harmony_arp.arp.pedal_hold, "Try switches the pedal function");
+        m.send(ControllersCmd::TriggerFunction { function: Function::ArpHold });
+        // PANIC lets go of what a Hold pedal keeps on (Hold B, up); the setting stays.
+        m.send(HarmonyArpCmd::SetArpHold { on: true });
+        m.send(SystemCmd::Panic);
+        assert!(!m.state.harmony_arp.arp.pedal_hold);
         assert!(m.state.harmony_arp.arp.hold);
     }
 

@@ -167,7 +167,7 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | **Chord Note Only** | Harmonises only melody notes that belong to the chord you are playing. Passing notes play plainly. | Chord Note Only | — | — |
 | **Touch Limit** | The effect sounds only for keys played at least this hard, so you can accent single notes with a harmony. | Minimum Velocity | — | — |
 | **Arpeggio Quantize** | Starts the pattern on the nearest eighth or sixteenth of the style's grid, so a chord played a little early or late still lands in time. | Arpeggio Quantize | — | — |
-| **Arpeggio Hold** | The pattern keeps playing after you let go of the keys. The next chord you play replaces it. | Arpeggio Hold | `*` | — |
+| **Arpeggio Hold** | The pattern keeps playing after you let go of the keys, until you turn Hold or Harmony/Arpeggio off. The next chord you play replaces it. A pedal set to Arpeggio Hold holds it too while the pedal is on, without changing this setting. | Arpeggio Hold | `*` | — |
 | **Arpeggio velocity** | Where the arpeggio's loudness comes from: the pattern's own accents, how hard you played each key, or one fixed velocity. | — | — | — |
 | **Fixed velocity** | The velocity every arpeggio note plays at when the velocity is Fixed. | — | — | — |
 | **Keep Key On** | The pattern's clock keeps running while no key is held, so the next chord picks up in the middle of the phrase instead of starting it again. | — | — | — |

@@ -31,7 +31,7 @@ export function initialHarmonyArp(): HarmonyArpState {
   const h: HarmonyArpState = {
     on: false, mode: 'harmony', harmonyType: 0, arpPattern: 0, typeName: '', category: '',
     volume: 100, speed: '1/8', assign: 'auto', chordNoteOnly: false, touchLimit: 1,
-    arp: { quantize: 'off', hold: false, velocity: 'original', fixedVelocity: 100, keepKeyOn: false },
+    arp: { quantize: 'off', hold: false, pedalHold: false, velocity: 'original', fixedVelocity: 100, keepKeyOn: false },
   }
   name(h)
   return h
@@ -80,6 +80,8 @@ export function harmonyArpCmd(h: HarmonyArpState, cmd: HarmonyArpCmd): string | 
     case 'setArpQuantize': h.arp.quantize = cmd.quantize; break
     case 'setArpHold': h.arp.hold = cmd.on; break
     case 'toggleArpHold': h.arp.hold = !h.arp.hold; break
+    case 'setArpPedalHold': h.arp.pedalHold = cmd.on; break
+    case 'toggleArpPedalHold': h.arp.pedalHold = !h.arp.pedalHold; break
     case 'setArpVelocity':
       h.arp.velocity = cmd.mode
       // As the engine: only Fixed keeps a velocity of its own.

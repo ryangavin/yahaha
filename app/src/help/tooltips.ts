@@ -1282,7 +1282,7 @@ const catalog = {
   },
   'harmony.arp_hold': {
     title: 'Arpeggio Hold',
-    body: 'The pattern keeps playing after you let go of the keys. The next chord you play replaces it.',
+    body: 'The pattern keeps playing after you let go of the keys, until you turn Hold or Harmony/Arpeggio off. The next chord you play replaces it. A pedal set to Arpeggio Hold holds it too while the pedal is on, without changing this setting.',
     genos: 'Arpeggio Hold',
     keys: ['*'],
     launchkey: null,

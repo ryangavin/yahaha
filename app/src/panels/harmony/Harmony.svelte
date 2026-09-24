@@ -153,7 +153,12 @@
               onselect={(q) => app.send({ type: 'setArpQuantize', quantize: q })}
             />
           </Field>
-          <Field name="Hold" genos="Arpeggio Hold" inline note="The pattern plays on after you let go.">
+          <Field
+            name="Hold"
+            genos="Arpeggio Hold"
+            inline
+            note={h.arp.pedalHold ? 'The Arpeggio Hold pedal is holding the pattern too.' : 'The pattern plays on after you let go.'}
+          >
             <Toggle on={h.arp.hold} tip="harmony.arp_hold" onclick={() => app.send({ type: 'toggleArpHold' })}>{onOff(h.arp.hold)}</Toggle>
           </Field>
           <Field name="Velocity">
