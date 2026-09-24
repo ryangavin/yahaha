@@ -1039,5 +1039,105 @@ fn a_bank_without_style_settings_leaves_them() {
     s.advance(MS);
     assert_eq!(settings(&s), before);
     assert!(!s.state().registration.buttons[0].groups.has(Group::Assignable));
+// ----- a keyboard part's library patch (#109) -----
+
+/// A session with a data folder holding a SoundFont folder (`<data>/sf/Test.sf2`, the
+/// synth's) so the sound library can hold playable patches.
+fn patch_session(test: &str) -> Option<(Session, PathBuf)> {
+    let a = corpus("SlowWalker.T552.sty")?;
+    let dir = data_dir(test);
+    std::fs::create_dir_all(dir.join("sf")).unwrap();
+    std::fs::write(dir.join("sf/Test.sf2"), crate::patches::sf2::tiny_gm_sound_font()).unwrap();
+    let opts = Options { paths: vec![a], data_dir: Some(dir.clone()), sf2: Some(dir.join("sf/Test.sf2")), ..Options::default() };
+    let s = Session::offline(opts).unwrap();
+    s.finish_indexing();
+    Some((s, dir))
+}
+
+fn add_patch(s: &Session, name: &str, program: u8, volume: u8) -> String {
+    let patch = PatchFields {
+        name: name.into(),
+        category: crate::patches::Category::guess(0, program),
+        tags: vec![],
+        favourite: false,
+        source: PatchSource::SoundFont { file: "Test.sf2".into(), bank: 0, program },
+        defaults: PatchDefaults { volume: Some(volume), octave: 1, ..PatchDefaults::default() },
+    };
+    s.send(SoundLibraryCmd::CreatePatch { patch }).unwrap();
+    s.state().sound_library.last_added.clone().unwrap()
+}
+
+/// (own patch, GM program, volume, octave) of a keyboard part.
+fn part_sound(s: &Session, p: usize) -> (Option<String>, u8, u8, i8) {
+    let k = s.state().keyboard_parts[p].clone();
+    (k.patch, k.program, k.volume, k.octave)
+}
+
+#[test]
+fn a_parts_library_patch_is_registered() {
+    let Some((s, dir)) = patch_session("patch") else { return };
+    let piano = add_patch(&s, "Stage Piano", 1, 80);
+    let strings = add_patch(&s, "Warm Strings", 48, 70);
+    // Button 1: Right 1 on its own patch (the registration's level and octave, not the
+    // patch's defaults); button 2: Right 1 on a GM voice.
+    s.send(SoundLibraryCmd::SetPartPatch { part: 0, id: Some(piano.clone()) }).unwrap();
+    s.send(PartsCmd::SetPartVolume { part: 0, volume: 99 }).unwrap();
+    s.send(PartsCmd::SetPartOctave { part: 0, octave: 0 }).unwrap();
+    let with_patch = part_sound(&s, 0);
+    assert_eq!(with_patch.0.as_deref(), Some(piano.as_str()));
+    s.send(RegistrationCmd::MemorizeRegist { index: 0 }).unwrap();
+    assert_eq!(s.state().registration.buttons[0].voices[0].name, "Stage Piano", "Regist Bank Info names the patch");
+    s.send(PartsCmd::SetPartVoice { part: 0, program: 24 }).unwrap();
+    let gm = part_sound(&s, 0);
+    assert_eq!(gm.0, None);
+    s.send(RegistrationCmd::MemorizeRegist { index: 1 }).unwrap();
+    assert_eq!(s.state().registration.buttons[1].voices[0].name, gm_name(24));
+
+    // Recall: the patch comes back, then the GM voice clears it.
+    s.send(SoundLibraryCmd::SetPartPatch { part: 0, id: Some(strings.clone()) }).unwrap();
+    s.send(RegistrationCmd::RecallRegist { index: 0 }).unwrap();
+    s.advance(MS);
+    assert_eq!(part_sound(&s, 0), with_patch);
+    assert_eq!(s.state().keyboard_parts[0].voice_name, "Stage Piano");
+    s.send(RegistrationCmd::RecallRegist { index: 1 }).unwrap();
+    s.advance(MS);
+    assert_eq!(part_sound(&s, 0), gm);
+
+    // Freeze Voice: the part keeps what it plays.
+    s.send(SoundLibraryCmd::SetPartPatch { part: 0, id: Some(strings.clone()) }).unwrap();
+    s.send(RegistrationCmd::SetFreezeGroup { group: Group::Voice, on: true }).unwrap();
+    s.send(RegistrationCmd::ToggleFreeze).unwrap();
+    s.send(RegistrationCmd::RecallRegist { index: 0 }).unwrap();
+    s.advance(MS);
+    assert_eq!(part_sound(&s, 0).0.as_deref(), Some(strings.as_str()));
+    s.send(RegistrationCmd::ToggleFreeze).unwrap();
+
+    // The patch deleted from the library: the part plays the GM voice it had under it.
+    s.send(SoundLibraryCmd::DeletePatch { id: piano.clone() }).unwrap();
+    s.send(RegistrationCmd::RecallRegist { index: 0 }).unwrap();
+    s.advance(MS);
+    assert_eq!(part_sound(&s, 0), (None, with_patch.1, with_patch.2, with_patch.3));
+    let (text, error) = message(&s);
+    assert!(error && text.contains("Stage Piano") && text.contains("GM voice"), "{text}");
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+/// A bank from before #109 has no `patch`: its GM voice is recalled as before, and the
+/// part stops playing a patch it has now.
+#[test]
+fn a_bank_without_patches_recalls_the_gm_voice() {
+    let Some((s, dir)) = patch_session("oldpatch") else { return };
+    let piano = add_patch(&s, "Stage Piano", 1, 80);
+    s.send(PartsCmd::SetPartVoice { part: 0, program: 24 }).unwrap();
+    s.send(RegistrationCmd::MemorizeRegist { index: 0 }).unwrap();
+    save(&s, "Old");
+    let file = dir.join("Registration/Old.regist.json");
+    let text = std::fs::read_to_string(&file).unwrap();
+    assert!(!text.contains("\"patch\""), "a GM voice writes no patch");
+    s.send(SoundLibraryCmd::SetPartPatch { part: 0, id: Some(piano) }).unwrap();
+    s.send(RegistrationCmd::RecallRegist { index: 0 }).unwrap();
+    s.advance(MS);
+    assert_eq!(part_sound(&s, 0).0, None);
+    assert_eq!(part_sound(&s, 0).1, 24);
     let _ = std::fs::remove_dir_all(dir);
 }
