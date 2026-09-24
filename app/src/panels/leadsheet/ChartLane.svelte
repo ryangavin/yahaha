@@ -1,6 +1,7 @@
 <!--
   The chord chart in the lead-sheet band's lane (#89): the iReal chart the band plays in
-  chart mode, eight bars to a line, two lines (the one playing and the next).
+  chart mode, eight bars to a line, two lines (the one playing and the next). In a narrow
+  lane (the stacked layout) the line playing folds into two rows of four instead.
 
    ┌A──────┬───────┬───────┬───────┬B──────┬───────┬───────┬───────┐
    │ Cmaj7 │ Dm7 G7│ ▣Em7  │ A7    │ Fmaj7 │ / / / │ ...          line playing, bar ringed
@@ -19,6 +20,8 @@
 
   let { chart, running, beatsPerBar }: { chart: ChartState; running: boolean; beatsPerBar: number } = $props()
 
+  /** Eight bars a line. Where the lane is narrow (the stacked layout) the CSS folds the
+   * line playing into two rows of four and hides the next line. */
   const PER_LINE = 8
   const bars = $derived(chart.song?.bars ?? [])
   const cur = $derived(chart.bar)
@@ -72,6 +75,7 @@
 
 <style>
   .lines {
+    container: chartlane / inline-size;
     display: flex;
     flex-direction: column;
     gap: 0.35em;
@@ -175,5 +179,17 @@
     transform-origin: left center;
     background: var(--accent);
     will-change: transform;
+  }
+  /* Last, so it overrides the rules above. */
+  @container chartlane (max-width: 50em) {
+    .line {
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      grid-auto-rows: minmax(0, 1fr);
+      row-gap: 0.35em;
+      max-height: none;
+    }
+    .line + .line {
+      display: none;
+    }
   }
 </style>

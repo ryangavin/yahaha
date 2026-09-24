@@ -381,6 +381,12 @@ export class MockSession implements Session {
       this.cmd({ type: 'importCharts', text: 'irealb://demo' })
       this.cmd({ type: 'setChartMode', on: true })
       this.state.message = null
+      // The demo plays the chart from its start (straight into bar 1: no Intro).
+      if (this.demo) {
+        this.stopBand()
+        this.cmd({ type: 'setChartIntro', index: null })
+        this.startBand()
+      }
     }
     derive(this.state, this.lib, this.hardware(), [...this.leftHand, ...this.rightHand])
     if (!opts.manual) {
