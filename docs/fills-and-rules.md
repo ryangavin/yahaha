@@ -117,9 +117,12 @@ the nearest Main the style has when it lacks that one (RM p.12: D missing → C)
   change to wait for: both timings recall at the press.
 - **Decision:** stopping the band is not a Main change. With At Main Section Change, a Main
   pressed but not yet playing when the band stops keeps waiting: its OTS is recalled when
-  the band starts on it, or at once if another Main is pressed while stopped. Recalling it
-  at the stop would arm Sync Start (below), and the next chord would restart the band the
-  player just stopped.
+  the band starts on it, or at once if a Main is pressed while stopped (the same Main
+  again, or Fill Self, included: a press is a press). Recalling it at the stop would arm
+  Sync Start (below), and the next chord would restart the band the player just stopped.
+- **Decision:** switching OTS Link Timing is a settings change, not a Main change. A Main
+  waiting after a stop keeps waiting under either timing (Immediate recalls it as the band
+  starts), so the switch recalls nothing and does not arm Sync Start.
 - **Decision:** for a Main the style lacks (it plays the nearest one), both timings recall
   the pressed button's OTS, because OTS 1–4 belong to the Main A–D buttons. (Genos styles
   have all four Mains, so the manual never meets this.)
