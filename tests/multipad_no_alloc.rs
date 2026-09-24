@@ -6,7 +6,7 @@
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
-use yahaha::engine::{Button, Engine, PadCmd, Prepared, SynchroStop, PAD_PPQ};
+use yahaha::engine::{Button, Engine, PadCmd, Prepared, SynchroStop, Transpose, PAD_PPQ};
 use yahaha::live::{self, Cmd, EngineLoop, Out, PadBank, Shared};
 use yahaha::multipad::{file::parse, synthetic, MultiPadPlayer, PadState};
 use yahaha::rt::{PacketSink, Target};
@@ -73,12 +73,14 @@ fn multi_pads_do_not_allocate_on_the_engine_thread() {
     shared.chord.store(chord.pack(1), Ordering::Release);
     l.step(now + 1);
     run(&mut l, &mut now, 2 * bar + bar / 3);
-    // Playing: a press waits for the bar; a tempo change; a style change to another ppq.
+    // Playing: a press waits for the bar; a tempo change; Master transpose; a style
+    // change to another ppq.
     ch.ui_tx.push(Cmd::MultiPad(PadCmd::Trigger(1))).ok().unwrap();
     ch.ui_tx.push(Cmd::Button(Button::TempoUp)).ok().unwrap();
+    ch.ui_tx.push(Cmd::Transpose(Transpose::new(0, 2))).ok().unwrap();
     ch.style_tx.push(b).ok().unwrap();
     run(&mut l, &mut now, 4 * bar);
-    // Synchro Stop on an Ending, the band stops, STOP + pad, a bank swap, STOP.
+    // Synchro Stop on an Ending, the band stops, STOP + pad, a bank swap, STOP, Panic.
     ch.ui_tx.push(Cmd::MultiPad(PadCmd::SynchroStop(SynchroStop { style_stop: true, ending: true }))).ok().unwrap();
     ch.ui_tx.push(Cmd::Button(Button::Ending(0))).ok().unwrap();
     run(&mut l, &mut now, 8 * bar);
@@ -88,6 +90,7 @@ fn multi_pads_do_not_allocate_on_the_engine_thread() {
     ch.ui_tx.push(Cmd::MultiPad(PadCmd::Trigger(2))).ok().unwrap();
     run(&mut l, &mut now, 9 * bar);
     ch.ui_tx.push(Cmd::MultiPad(PadCmd::StopAll)).ok().unwrap();
+    ch.ui_tx.push(Cmd::Panic).ok().unwrap();
     ch.pad_tx.push(PadBank { player: None, tag: 3 }).ok().unwrap();
     l.step(now + 1);
     assert_eq!(ALLOCS.load(Ordering::Relaxed) - allocs, 0, "allocations on the engine thread");

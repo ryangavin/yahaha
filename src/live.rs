@@ -1000,7 +1000,7 @@ impl EngineLoop {
             let _ = self.io.old_auditions.push(a);
         }
         self.engine.stop(&mut self.io.out);
-        self.engine.pad_cmd(PadCmd::StopAll, 0, &mut self.io.out);
+        self.engine.pads_stop_all(&mut self.io.out);
         self.io.out.flush();
     }
 }
@@ -1086,7 +1086,7 @@ fn apply(engine: &mut Engine, parts: &Parts, cmd: Cmd, now: u64, out: &mut Out) 
         }
         Cmd::Panic => {
             engine.stop(out);
-            engine.pad_cmd(PadCmd::StopAll, now, out);
+            engine.pads_panic(out);
             for ch in 0..16u8 {
                 out.push(&[0xB0 | ch, 123, 0]);
             }

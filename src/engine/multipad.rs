@@ -22,6 +22,7 @@
 //! `process`, and banks come in and go out as `Box`es through `live`'s rings).
 
 use super::*;
+use crate::multipad::player::DEFAULT_OUT_CH;
 use crate::multipad::{sync_fires, MultiPadPlayer, PadState, SyncTrigger, PADS};
 
 /// Ticks per quarter note of the pad clock (the Tyros pad resolution).
@@ -99,6 +100,9 @@ pub(super) struct PadDeck {
     anchor_tick: f64,
     /// Pad ticks played up to (exclusive).
     done: u64,
+    /// The band stopped: presses waiting for its bar line start now (or on the new band's
+    /// bar line, if it started again), at the next `process_pads`.
+    retime: bool,
 }
 
 impl PadDeck {
@@ -189,11 +193,13 @@ impl Engine {
         let Some(p) = d.player.as_mut() else { return };
         match c {
             PadCmd::Trigger(i) => {
-                // Pressing any pad starts every pad in standby with it (OM p.75).
-                if p.any_armed() {
+                // With pads in standby, pressing any one of them starts them all (OM p.75).
+                // A pad not in standby just starts; the others stay in standby.
+                if p.armed(i as usize) {
                     p.fire_sync(start);
+                } else {
+                    p.trigger(i as usize, start);
                 }
-                p.trigger(i as usize, start);
             }
             PadCmd::Stop(i) => p.stop(i as usize, sink),
             PadCmd::StopAll => p.stop_all(sink),
@@ -211,10 +217,16 @@ impl Engine {
     /// or not.
     pub fn process_pads(&mut self, now: u64, sink: &mut impl Sink) {
         self.pad_clock(now);
-        let chord = self.chord;
+        let (chord, master) = (self.chord, self.transpose.master);
+        let start = if self.features.pads.retime { Some(self.pad_start(now)) } else { None };
         let d = &mut self.features.pads;
+        d.retime = false;
         let end = d.tick(now) + 1;
         let Some(p) = d.player.as_mut() else { return };
+        if let Some(start) = start {
+            p.retime_pending(start);
+        }
+        p.set_master(master);
         // Always run it, even with no new tick: a press on the tick already played starts
         // now (the player plays whatever is due before the range's end).
         p.process(d.done.min(end)..end, chord, sink);
@@ -222,6 +234,24 @@ impl Engine {
     }
 
     /// When the pads next need `process_pads`, if anything plays or waits.
+    /// Every pad stops now, the pad clock left alone (the engine loop shutting down).
+    pub fn pads_stop_all(&mut self, sink: &mut impl Sink) {
+        if let Some(p) = self.features.pads.player.as_mut() {
+            p.stop_all(sink);
+        }
+    }
+
+    /// Panic: every pad stops, and the pad channels' bend, modulation and sustain pedal are
+    /// reset whether or not a pad moved them (All Notes Off leaves pedal-held notes on).
+    pub fn pads_panic(&mut self, sink: &mut impl Sink) {
+        self.pads_stop_all(sink);
+        for ch in DEFAULT_OUT_CH {
+            sink.send(&[0xE0 | ch, 0x00, 0x40]);
+            sink.send(&[0xB0 | ch, 1, 0]);
+            sink.send(&[0xB0 | ch, 64, 0]);
+        }
+    }
+
     pub fn pads_deadline(&self) -> Option<u64> {
         let d = &self.features.pads;
         let t = d.player.as_ref()?.next_due()?;
@@ -268,9 +298,11 @@ impl Engine {
         }
     }
 
-    /// The band stopped: Multi Pad Synchro Stop (Style Stop).
+    /// The band stopped: Multi Pad Synchro Stop (Style Stop). A press still waiting for
+    /// the band's next bar line starts at once instead (stopped, pads start at once).
     pub(super) fn pads_on_stop(&mut self, sink: &mut impl Sink) {
         let d = &mut self.features.pads;
+        d.retime = true;
         if d.synchro.style_stop
             && let Some(p) = d.player.as_mut()
         {
@@ -491,6 +523,80 @@ mod tests {
         assert_eq!(rec.offs(7), 4);
         assert_eq!(e.pads_snapshot().tag, 2);
         assert_eq!(e.pads_snapshot().states, [PadState::Empty; PADS]);
+    }
+
+    /// Master transpose moves the pads with everything else that sounds (RM p.41), but not
+    /// a drum-kit pad.
+    #[test]
+    fn master_transpose_moves_the_pads() {
+        let Some(mut e) = engine() else { return };
+        let mut rec = Rec::default();
+        e.load_pads(Some(demo()), 1, 0, &mut rec);
+        e.set_transpose(Transpose::new(0, 2), 0, &mut rec);
+        e.pad_cmd(PadCmd::Trigger(0), 0, &mut rec);
+        e.pad_cmd(PadCmd::Trigger(1), 0, &mut rec);
+        assert_eq!(rec.ons(5).first().map(|x| x.1), Some(62), "Rise Arp from D");
+        assert_eq!(rec.ons(4).first().map(|x| x.1), Some(42), "the Shaker kit stays put");
+        e.pad_cmd(PadCmd::StopAll, 1, &mut rec);
+        assert_eq!(rec.offs(5), 1);
+        assert!(rec.0.iter().any(|(_, m)| *m == [0x85, 62, 0]));
+    }
+
+    /// Panic and every stop leave the pad channels with the pedal up and the bend centred.
+    #[test]
+    fn panic_resets_the_pad_channels() {
+        let Some(mut e) = engine() else { return };
+        let mut rec = Rec::default();
+        e.load_pads(Some(demo()), 1, 0, &mut rec);
+        e.pad_cmd(PadCmd::Trigger(1), 0, &mut rec);
+        rec.0.clear();
+        e.pads_panic(&mut rec);
+        for ch in 4..8u8 {
+            for m in [[0xE0 | ch, 0x00, 0x40], [0xB0 | ch, 1, 0], [0xB0 | ch, 64, 0]] {
+                assert!(rec.0.iter().any(|(_, x)| *x == m), "{m:?} on ch {ch}");
+            }
+        }
+        assert_eq!(rec.offs(5), 1);
+    }
+
+    /// With pads in standby, pressing one of them starts them all (OM p.75); pressing a pad
+    /// that is not in standby leaves the others waiting.
+    #[test]
+    fn pressing_an_armed_pad_starts_the_armed_pads() {
+        let Some(mut e) = engine() else { return };
+        let mut rec = Rec::default();
+        e.load_pads(Some(demo()), 1, 0, &mut rec);
+        e.pad_cmd(PadCmd::Arm(0), 0, &mut rec);
+        e.pad_cmd(PadCmd::Arm(3), 0, &mut rec);
+        e.pad_cmd(PadCmd::Trigger(2), 0, &mut rec);
+        let s = e.pads_snapshot().states;
+        assert_eq!((s[0], s[2], s[3]), (PadState::Armed, PadState::Playing, PadState::Armed));
+        e.pad_cmd(PadCmd::Trigger(3), 1, &mut rec);
+        let s = e.pads_snapshot().states;
+        assert_eq!((s[0], s[3]), (PadState::Playing, PadState::Playing));
+    }
+
+    /// A press waiting for the band's bar line starts at once when the band stops before
+    /// it (stopped, pads start at once), rather than later at the old bar line.
+    #[test]
+    fn a_queued_press_starts_when_the_band_stops() {
+        let Some(mut e) = engine() else { return };
+        let mut rec = Rec::default();
+        e.load_pads(Some(demo()), 1, 0, &mut rec);
+        e.set_chord(crate::parse_chord("C").unwrap(), 0, &mut rec);
+        let bar = bar_ns(&e);
+        let press = bar / 3;
+        run(&mut e, &mut rec, 0, press);
+        e.pad_cmd(PadCmd::Trigger(3), press, &mut rec);
+        assert_eq!(e.pads_snapshot().states[3], PadState::Queued);
+        let stop = press + 10_000_000;
+        run(&mut e, &mut rec, press, stop - 1_000_000);
+        rec.1 = stop;
+        e.button(Button::StartStop, stop, &mut rec);
+        assert!(!e.is_running());
+        e.process_pads(stop, &mut rec);
+        assert_eq!(e.pads_snapshot().states[3], PadState::Playing);
+        assert_eq!(rec.ons(7).first().map(|x| x.0), Some(stop));
     }
 
     #[test]
