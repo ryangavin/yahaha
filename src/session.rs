@@ -32,6 +32,8 @@ mod controllers;
 mod keyboard;
 mod leds;
 mod library;
+mod looper;
+mod metronome;
 mod mixer;
 mod multipad;
 mod offline;
@@ -236,6 +238,10 @@ struct Control {
     sources_ns: u64,
     /// The Style settings the engine plays by (`StyleSettingsCmd`).
     style_settings: StyleSettings,
+    /// Chord Looper memories and the rings to the engine's looper.
+    looper: looper::LooperCtl,
+    /// Metronome settings.
+    metronome: metronome::MetronomeCtl,
     /// Multi Pad banks to the engine thread, and replaced players back to free here.
     pad_tx: Producer<live::PadBank>,
     old_pad_rx: Consumer<Box<crate::multipad::MultiPadPlayer>>,
@@ -291,6 +297,8 @@ impl Control {
             AppCmd::Settings(c) => self.settings_cmd(c),
             AppCmd::System(c) => self.system_cmd(c),
             AppCmd::StyleSettings(c) => self.style_settings_cmd(c),
+            AppCmd::Looper(c) => self.looper_cmd(c),
+            AppCmd::Metronome(c) => self.metronome_cmd(c),
             AppCmd::MultiPad(c) => self.multipad_cmd(c),
             AppCmd::Controllers(c) => self.controllers_cmd(c),
         }
@@ -339,6 +347,8 @@ impl Control {
         self.pump_sound_font();
         self.pump_rescan();
         self.pump_inputs(now);
+        self.pump_looper();
+        self.pump_metronome();
 
         // Free-running beat clock for flashing/pulsing, following the current tempo.
         let s = self.snap;
@@ -389,6 +399,8 @@ impl Control {
             multi_pad: self.multipad_state(),
             controllers: self.controllers_state(),
             message: self.message.clone(),
+            looper: self.looper_state(),
+            metronome: self.metronome_state(),
         }
     }
 }
@@ -537,6 +549,8 @@ fn assemble(opts: &Options, engine_out: live::Out, input_out: live::Out, offline
         release_tx,
         sources_ns: 0,
         style_settings: StyleSettings::default(),
+        looper: looper::LooperCtl::new(ch.looper_tx, ch.recorded_rx),
+        metronome: Default::default(),
         pad_tx: ch.pad_tx,
         old_pad_rx: ch.old_pad_rx,
         multipad: multipad::Pads::scan(&opts.paths),

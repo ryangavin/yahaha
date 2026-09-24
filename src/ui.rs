@@ -12,7 +12,8 @@ use std::cell::Cell;
 use std::path::Path;
 use std::time::Duration;
 use yahaha::api::{
-    AppCmd, AppState, LibraryCmd, MixerCmd, MultiPadCmd, MultiPadState, OtsCmd, Pad, PadLamp, PadsCmd, PartsCmd, SettingsCmd, SystemCmd,
+    AppCmd, AppState, LibraryCmd, LooperCmd, MetronomeCmd, MixerCmd, MultiPadCmd, MultiPadState, OtsCmd, Pad, PadLamp,
+    PadsCmd, PartsCmd, SettingsCmd, SystemCmd,
 };
 use yahaha::engine::{Button, FadeState};
 use yahaha::launchkey::{self, Action};
@@ -95,6 +96,10 @@ fn key_cmd(code: KeyCode) -> Option<AppCmd> {
         KeyCode::Char('a') => Some(AppCmd::Settings(SettingsCmd::NextAudioOutput)),
         KeyCode::Char('k') => Some(AppCmd::Mixer(MixerCmd::ToggleSynthMute)),
         KeyCode::Char('\\') => Some(AppCmd::System(SystemCmd::Panic)),
+        // Chord Looper REC/STOP and ON/OFF; the metronome.
+        KeyCode::Char('r') => Some(AppCmd::Looper(LooperCmd::LooperRec)),
+        KeyCode::Char('^') => Some(AppCmd::Looper(LooperCmd::LooperOnOff)),
+        KeyCode::Char('.') => Some(AppCmd::Metronome(MetronomeCmd::ToggleMetronome)),
         // Multi Pads 1-4 (Shift+z x c v, above the Style part keys) and their STOP (Shift+b).
         KeyCode::Char(c) if "ZXCV".contains(c) => {
             Some(AppCmd::MultiPad(MultiPadCmd::TriggerMultiPad { pad: "ZXCV".find(c).unwrap() as u8 }))
@@ -554,7 +559,7 @@ fn draw(f: &mut ratatui::Frame, st: &AppState, message: &str, beats: f64) {
 
     let mut help = vec![
         Line::from(Span::styled(
-            " space start/stop · 1-4 Main A-D (again = fill) · q w e intro · i o p ending (again = rit.) · g break · t tap · | reset · ~ retrig · F fade · -/= tempo · F1-F4 part · 9/0 voice · 5-8 part on/off · F9 faders Panel/Style · ; ' kbd transpose · : \" master · / reset · Z X C V multi pads · B pad stop · tab pad page · enter browse styles · \\ panic · esc twice quit",
+            " space start/stop · 1-4 Main A-D (again = fill) · q w e intro · i o p ending (again = rit.) · g break · t tap · | reset · ~ retrig · F fade · -/= tempo · F1-F4 part · 9/0 voice · 5-8 part on/off · F9 faders Panel/Style · ; ' kbd transpose · : \" master · / reset · r/^ chord looper rec, on/off · . metronome · Z X C V multi pads · B pad stop · tab pad page · enter browse styles · \\ panic · esc twice quit",
             dim,
         )),
         Line::from(Span::styled(
@@ -695,6 +700,8 @@ pub fn screen_html(style: &Path, out: &Path) -> Result<()> {
         fade: FadeState::Off,
         retrigger: false,
         ritardando: false,
+        looper: Default::default(),
+        style_solo: None,
         multipad: Default::default(),
     });
     // What a live session with the synth and a Launchkey would add.
@@ -793,6 +800,11 @@ mod tests {
         assert_eq!(key_cmd(KeyCode::Char('F')), Some(AppCmd::Transport(TransportCmd::ToggleFade)));
         assert_eq!(key_cmd(KeyCode::Char('~')), Some(AppCmd::Transport(TransportCmd::ToggleRetrigger)));
         assert_eq!(key_cmd(KeyCode::Char('}')), Some(AppCmd::StyleSettings(StyleSettingsCmd::StepRetriggerRate { delta: 1 })));
+        assert_eq!(key_cmd(KeyCode::Char('r')), Some(AppCmd::Looper(LooperCmd::LooperRec)));
+        assert_eq!(key_cmd(KeyCode::Char('^')), Some(AppCmd::Looper(LooperCmd::LooperOnOff)));
+        // Shift+R belongs to Registration (#99): the looper leaves it alone.
+        assert_eq!(key_cmd(KeyCode::Char('R')), None);
+        assert_eq!(key_cmd(KeyCode::Char('.')), Some(AppCmd::Metronome(MetronomeCmd::ToggleMetronome)));
         assert_eq!(key_cmd(KeyCode::Char('Z')), Some(AppCmd::MultiPad(MultiPadCmd::TriggerMultiPad { pad: 0 })));
         assert_eq!(key_cmd(KeyCode::Char('V')), Some(AppCmd::MultiPad(MultiPadCmd::TriggerMultiPad { pad: 3 })));
         assert_eq!(key_cmd(KeyCode::Char('B')), Some(AppCmd::MultiPad(MultiPadCmd::StopAllMultiPads)));

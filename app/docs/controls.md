@@ -167,11 +167,33 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | **Style part volume** | This band part's volume. The fader is its channel's CC 7 itself (channels 9–16), with no hidden gain behind it, except that a Fade In/Out scales the CC 7 it sends while the fade runs (the fader stays put). Loading a style sets the faders to the style's own levels, and a pattern that changes its volume moves the fader too, until you move it yourself. | Mixer › Style › Volume | — | Style fader page: faders 1–8 (Rhythm 1 … Phrase 2) |
 | **Style part on/off** | Mutes or unmutes this band part. The Launchkey button is lit while the part plays. | Channel On/Off | `Z` `X` `C` `V` `B` `N` `M` `,` | Style fader page: buttons under faders 1–8 |
 | **Master volume** | The built-in synth's output level (100 = unity), the only gain after the channel faders. A safety soft clipper above −1 dBFS keeps loud passages from hard clipping; below that the output is untouched. It does not change the MIDI output. | MASTER VOLUME | — | Master fader (both fader pages) |
-| **Solo** | Would play only this part. Not available yet: the engine has no solo (backlog #30), so the button is disabled. | Mixer › touch and hold a channel (Solo) | — | — |
+| **Solo** | Plays only this part, even if it is switched off; press again to end the solo. The Style tab solos a band part, the Panel tab a keyboard part, and the On switches stay as they were. | Mixer › touch and hold a channel (Solo) | — | — |
+| **Style Track Mute** | A knob for the band: fully left leaves one part on, and turning it up brings the others in one by one until all eight play. It switches the Style parts on and off, so the On buttons follow it. | Live Control › Style Track Mute A/B (StyMuteA, StyMuteB) | — | — |
+| **Track Mute order** | A starts from Rhythm 2, then Rhythm 1, Bass, Chord 1, Chord 2, Pad, Phrase 1 and Phrase 2. B starts from Chord 1, then Chord 2, Pad, Bass, Phrase 1, Phrase 2 and the rhythm parts last. | Style Track Mute A / B | — | — |
 | **MIDI out channel** | The channel this part plays on at yahaha's MIDI output: Right 1 = 1, Left = 2, Right 2 = 3, Right 3 = 4, the band 9–16. Map a DAW track (Ableton: MIDI From yahaha, this channel) to record or re-voice it. | Part / Style channel | — | — |
 | **Voice** | Keyboard parts: the GM voice the part plays. Style parts: the Yamaha voice (bank MSB/LSB/program) the style was written for, and after ≈ the nearest voice the built-in synth plays for it. | Mixer › Voice | — | — |
 | **A fader is the channel's CC 7** | Each fader shows and sends exactly its channel's CC 7 (0–127), with no hidden gain anywhere, so the MIDI output and the synth hear the same level. Loading a style sets the Style faders to the style's own levels. While a Fade In/Out runs, the Style parts' CC 7 goes out scaled by the fade, and the faders stay where they are. | Mixer › Volume | — | The faders, on both fader pages |
 | **Waiting for the fader** | This level moved without the Launchkey fader (a style load, an OTS recall, a pattern, a page switch). The hardware fader does nothing until you move it to within 2 of the level, or across it. | — | — | Soft takeover on every fader |
+
+## Metronome
+
+| control | what it does | Genos | key | Launchkey |
+|---|---|---|---|---|
+| **Metronome** | A click on every beat, with the band while it plays and on its own at the tempo while stopped. It sounds on the built-in synth only and never goes out on the MIDI port. | Menu › Metronome › On/Off | `.` | — |
+| **Metronome volume** | The click's own level (0–127). The synth's master volume applies on top of it. | Menu › Metronome › Volume | — | — |
+| **Bell on beat 1** | A higher bell instead of the click on the first beat of each bar. | Menu › Metronome › Bell Sound | — | — |
+
+## Chord Looper
+
+| control | what it does | Genos | key | Launchkey |
+|---|---|---|---|---|
+| **Chord Looper REC/STOP** | Records the chords you play, from the next bar line; stopped, it arms Sync Start and your first chord starts the band and the recording together. Press again to stop recording while the band plays on. | CHORD LOOPER [REC/STOP] | `R` | — |
+| **Chord Looper ON/OFF** | Loops the recorded chords from the next bar line, feeding them to the band as if you played them, so both hands are free. While it loops your chords are ignored; press again to stop it at once. | CHORD LOOPER [ON/OFF] | `^` | — |
+| **Chord Looper memory** | One of eight memories. Selecting one that holds a sequence makes it the loop; while looping it takes over at the next bar line. | Chord Looper › Memory 1–8 | — | — |
+| **Memory** | Stores the current sequence: press it, then a memory number. The memory is named CLD_001 and on. | Chord Looper › [Memory] | — | — |
+| **Clear** | Empties a memory: press it, then a memory number. | Chord Looper › [Clear] | — | — |
+| **New bank** | Empties all eight memories. The current sequence stays. | Chord Looper › New Bank | — | — |
+| **The sequence** | The chords the loop plays, bar by bar; the bar playing is lit. Chord times snap to 16th notes and the loop is whole bars. | Chord Looper (current data) | — | — |
 
 ## Multi Pads
 
@@ -229,6 +251,7 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 |---|---|---|---|---|
 | **Keyboard parts and OTS** | Opens the detail of Right 1–3 and Left (voice, volume, octave, on/off) and the style's One Touch Settings. | PART ON/OFF, Voice Setting, ONE TOUCH SETTING | — | Pad page 3 (OTS/Parts) has the same controls |
 | **Mixer** | Opens the full mixer: both fader pages side by side, with each band part's voice. | Mixer (Panel / Style tabs) | — | The faders and the buttons under them |
+| **Chord Looper** | Opens the Chord Looper: record a chord progression, loop it, and keep it in one of eight memories. | Menu › Chord Looper | — | — |
 | **Close** | Closes this panel. The band keeps playing. | — | `Esc` | — |
 | **Multi Pads** | Opens the Multi Pads: four short phrases from a pad bank that you trigger over the band, and the bank list. | MULTI PAD CONTROL | — | — |
 

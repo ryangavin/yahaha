@@ -12,6 +12,8 @@
 mod chords;
 mod fade;
 mod hooks;
+mod looper;
+mod metronome;
 mod mirror;
 mod mixer;
 mod multipad;
@@ -29,6 +31,7 @@ mod transport;
 use hooks::{Features, Lines};
 use mirror::{Mirror, NRPN_BIT, UNSENT};
 use sections::Change;
+pub use looper::{LoopState, LooperSnap};
 pub use mixer::{Takeover, HW_UNKNOWN};
 pub use multipad::{PadCmd, PadsSnap, SynchroStop, PAD_PPQ};
 use prepared::PKind;
@@ -47,7 +50,15 @@ pub trait Sink {
     /// was sent with (the engine has already sent the pitch bend). MIDI sinks ignore it; the
     /// sim listing uses it to show the pitch that sounds.
     fn retune(&mut self, _ch: u8, _semis: i8) {}
+
+    /// A metronome click (`accent`: the bell on beat 1), for the built-in synth's click
+    /// voice only: it never goes out as MIDI. Sinks without a synth ignore it.
+    fn click(&mut self, _accent: bool) {}
 }
+
+/// The tempo range, BPM (Genos: 5-500, OM p.46, p.133).
+pub const MIN_BPM: f64 = 5.0;
+pub const MAX_BPM: f64 = 500.0;
 
 /// Pitch bend range (RPN 0) a part has before the style sets one: the GM/XG default.
 pub const GM_BEND_RANGE: u8 = 2;
@@ -120,6 +131,8 @@ pub enum Button {
     TapTempo,
     TempoUp,
     TempoDown,
+    /// Set the tempo (BPM; clamped to `MIN_BPM`..=`MAX_BPM`).
+    SetTempo(u16),
     TogglePart(u8),
     StopAcmp,
     /// FADE IN/OUT: stopped, arm the fade in; playing, fade out and stop.
@@ -175,6 +188,10 @@ pub struct Snapshot {
     pub retrigger: bool,
     /// An Ending ritardando is slowing the band.
     pub ritardando: bool,
+    /// The Chord Looper.
+    pub looper: LooperSnap,
+    /// The Style part soloed (0-7), if any.
+    pub style_solo: Option<u8>,
     /// Multi Pads: the bank playing and each pad's state (engine/multipad.rs).
     pub multipad: PadsSnap,
 }
@@ -479,6 +496,8 @@ impl Engine {
             fade: self.fade_state(),
             retrigger: self.retrigger_on(),
             ritardando: self.ritardando(),
+            looper: self.looper_snapshot(),
+            style_solo: self.features.solo,
             multipad: self.pads_snapshot(),
         }
     }
@@ -487,7 +506,8 @@ impl Engine {
     pub fn next_deadline(&self) -> Option<u64> {
         let wake = self.hook_wake_ns();
         if !self.running {
-            return wake;
+            // Stopped: the features' own wakes and the free-running metronome.
+            return [wake, self.metronome_idle_deadline()].into_iter().flatten().min();
         }
         let Some(sec) = self.style.sections[self.cur].as_ref() else { return wake };
         let mut t = self.section_end().0;

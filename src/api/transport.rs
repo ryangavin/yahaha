@@ -47,6 +47,8 @@ pub enum TransportCmd {
     /// Style Retrigger on/off: while on, each chord played in a Main restarts it and its
     /// first `styleSettings.retriggerRate`-th note loops (`transport.retrigger`).
     ToggleRetrigger,
+    /// Set the tempo, in BPM (5-500; clamped).
+    SetTempo { bpm: u16 },
 }
 
 impl TransportCmd {
@@ -66,6 +68,7 @@ impl TransportCmd {
             TransportCmd::TapTempo => Button::TapTempo,
             TransportCmd::TempoUp => Button::TempoUp,
             TransportCmd::TempoDown => Button::TempoDown,
+            TransportCmd::SetTempo { bpm } => Button::SetTempo(bpm),
             TransportCmd::ToggleStopAcmp => Button::StopAcmp,
             TransportCmd::ToggleFade => Button::Fade,
             TransportCmd::SectionReset => Button::SectionReset,

@@ -36,6 +36,7 @@
   import Launchkey from './panels/launchkey/Launchkey.svelte'
   import LeadSheet from './panels/leadsheet/LeadSheet.svelte'
   import Mixer from './panels/mixer/Mixer.svelte'
+  import Looper from './panels/looper/Looper.svelte'
   import MultiPad from './panels/multipad/MultiPad.svelte'
   import Parts from './panels/parts/Parts.svelte'
   import Settings from './panels/settings/Settings.svelte'
@@ -85,6 +86,7 @@
 
 {#if ui.parts}<Parts />{/if}
 {#if ui.mixer}<Mixer />{/if}
+{#if ui.looper}<Looper />{/if}
 {#if ui.multipad}<MultiPad />{/if}
 {#if ui.settings}<Settings />{/if}
 {#if ui.browser}<Browser />{/if}

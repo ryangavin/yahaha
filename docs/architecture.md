@@ -25,6 +25,7 @@ This document is about the inside.
 | `src/multipad/` | Multi Pads: bank parser, player core, bank scan; wired through `engine/multipad.rs` (docs/multipad.md). |
 | `src/controllers.rs` | Pedals, wheels and the assignable-function table (atomics in `Shared`; the input thread and the engine thread send them to the parts). docs/controllers.md. |
 | `src/harmony.rs`, `src/arp/`, `src/ireal/`, `src/plugin/` | Feature libraries not yet wired in (pure, real-time safe). |
+| `src/looper.rs`, `src/click.rs` | The Chord Looper's sequence type; the metronome's click voice (mixed by the synth). |
 | `app/` | The desktop app: Svelte frontend (`app/src`), Tauri shell (`app/src-tauri`). |
 
 ## Threads
@@ -143,8 +144,10 @@ A feature that lives in the engine:
   `on_start`, `on_stop`, `on_bar`, `on_beat`, `before_section_change`,
   `after_section_change`, `on_chord`, `on_style_loaded`, or `on_wake` (every `process`
   call, band running or not); and returns its next deadline from `hook_deadline` if it
-  must act exactly on a tick (a metronome click, an arp step), or from `hook_wake_ns` for
-  a time in engine nanoseconds that also counts while stopped (a fade's hold). The
+  must act exactly on a tick (a metronome click on a beat line), or from `hook_wake_ns`
+  for a time in engine nanoseconds that also counts while stopped (a fade's hold). A
+  feature that acts between lines (the Chord Looper's chord changes, an arp step) names
+  the tick in `hook_due` and acts in `on_due`, which `process` calls there. The
   hooks run at fixed points in a fixed order (the table in hooks.rs; tests there pin it);
 - gets commands through a new `live::Cmd` variant (one arm in `live::apply`) or reads an
   atomic in `Shared` at the top of `EngineLoop::step`;

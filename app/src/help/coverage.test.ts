@@ -75,6 +75,8 @@ const STATES: [string, Setup][] = [
   ['parts drawer, fader page Style', (s) => ((ui.parts = true), s.send({ type: 'toggleFaderPage' }))],
   ['mixer drawer open', () => (ui.mixer = true)],
   ['mixer drawer open, Style tab', (s) => ((ui.mixer = true), s.send({ type: 'setFaderPage', page: 'style' }))],
+  ['chord looper drawer open', () => (ui.looper = true)],
+  ['chord looper drawer, recording armed, Memory latched', (s) => ((ui.looper = true), s.send({ type: 'looperRec' }))],
   ['multi pad drawer, no bank', () => (ui.multipad = true)],
   ['multi pad drawer, bank loaded, pads playing and armed', (s) => (
     (ui.multipad = true),
@@ -92,6 +94,7 @@ afterEach(() => {
   ui.settings = false
   ui.parts = false
   ui.mixer = false
+  ui.looper = false
   ui.multipad = false
   ui.shiftLatched = false
   tips.help = false
