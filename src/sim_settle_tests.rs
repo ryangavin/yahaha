@@ -62,9 +62,12 @@ fn drive(style: &Style, settle: u64, script: &[(u64, Step)], end: u64) -> (Engin
     (e, rec)
 }
 
-/// The notes on the parts that follow chords, as (channel, key, start, end), and the
-/// problems: a key started twice, a note-off with no note, a note still sounding at the end.
-fn notes(rec: &Recorder) -> (Vec<(u8, u8, u64, u64)>, Vec<String>) {
+/// Notes as (channel, key, start, end).
+type Notes = Vec<(u8, u8, u64, u64)>;
+
+/// The notes on the parts that follow chords, and the problems: a key started twice, a
+/// note-off with no note, a note still sounding at the end.
+fn notes(rec: &Recorder) -> (Notes, Vec<String>) {
     let mut on = std::collections::HashMap::<(u8, u8), u64>::new();
     let mut v = Vec::new();
     let mut bad = Vec::new();
@@ -126,7 +129,7 @@ fn corpus_chord_and_command_in_one_wake_leave_no_blips() {
             };
             let chord = Step::Chord(Chord { root: rand(12) as u8, ty: rand(34) as u8, bass: (rand(4) == 0).then(|| rand(12) as u8) });
             let cmd = match rand(9) {
-                0 | 1 | 2 => {
+                0..=2 => {
                     kbd = (kbd + 1 + rand(5) as i8).rem_euclid(7) - 3;
                     Step::Transpose(Transpose::new(kbd, 0))
                 }

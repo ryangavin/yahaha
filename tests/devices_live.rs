@@ -81,7 +81,7 @@ fn a_device_from_another_process_comes_goes_and_comes_back() {
     Session::start(opts.clone()).unwrap().stop();
     let s = Session::start(opts).unwrap();
     let keys = format!("{NAME} MIDI Out");
-    let has_keys = |s: &Session| s.state().io.inputs.iter().any(|i| *i == keys);
+    let has_keys = |s: &Session| s.state().io.inputs.contains(&keys);
     assert!(!s.state().pads.connected && !has_keys(&s));
 
     for round in 0..2 {
