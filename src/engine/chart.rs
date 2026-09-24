@@ -246,6 +246,12 @@ impl Engine {
         self.chart_requeue(now, due);
     }
 
+    /// Chart mode off, the other settings kept (the Chord Looper arming a loop).
+    pub(super) fn chart_mode_off(&mut self, now: u64) {
+        let s = ChartSettings { on: false, ..self.features.chart.settings };
+        self.set_chart_settings(s, now);
+    }
+
     /// Take back the change the chart queued, if it is still the one queued (the player may
     /// have queued another since), and the Main it selected. Returns its bar line if that
     /// line has come already (`now` is a hair past it, and `process` hasn't got to it): the
@@ -1009,13 +1015,20 @@ mod tests {
         let seq = ChordSeq::from_events(1, &[LoopEvent { bar: 0, at: 0, chord: parse_chord("Bb").unwrap() }]);
         e.looper_load(&seq);
         e.set_chart(plan("*A[C |F |G |C Z", 1), 0);
-        e.looper_on_off();
+        e.looper_on_off(0);
         assert_eq!(e.looper_snapshot().state, LoopState::LoopArmed);
+        assert_eq!(e.looper_snapshot().chart_yields, 0, "chart mode was off already");
         // Chart mode on: the armed loop goes off.
         e.set_chart_settings(settings(None, None), 0);
         assert_eq!(e.looper_snapshot().state, LoopState::Off);
-        // ON/OFF with chart mode on arms nothing.
-        e.looper_on_off();
+        // ON/OFF with chart mode on (#110): the engine turns chart mode off itself and
+        // arms, and counts it for the session.
+        e.looper_on_off(0);
+        assert_eq!(e.looper_snapshot().state, LoopState::LoopArmed);
+        assert!(!e.chart_mode_on());
+        assert_eq!(e.looper_snapshot().chart_yields, 1);
+        // Chart mode on again: the chart gives the chords.
+        e.set_chart_settings(settings(None, None), 0);
         assert_eq!(e.looper_snapshot().state, LoopState::Off);
         start(&mut e);
         let (lines, _) = play(&mut e, 0, 2);
@@ -1023,7 +1036,7 @@ mod tests {
         // Chart mode off: the loop arms, and plays from the next bar line.
         let now = e.ns_at_bar(2);
         e.set_chart_settings(ChartSettings { on: false, ..settings(None, None) }, now);
-        e.looper_on_off();
+        e.looper_on_off(now);
         assert_eq!(e.looper_snapshot().state, LoopState::LoopArmed);
         let (lines, _) = play(&mut e, now, 2);
         assert_eq!(e.looper_snapshot().state, LoopState::Looping);

@@ -387,10 +387,15 @@ impl MockRegist {
         }
         if allowed.has(Group::Style) {
             if let Some((f, upper, mb, split)) = m.chord {
-                st.chord.fingering = f;
-                st.chord.upper = upper;
-                st.chord.manual_bass = mb;
-                st.chord.split = split;
+                // Parameter Lock: a locked group keeps what the player set.
+                if !st.param_locks.get(LockItem::FingeringType) {
+                    st.chord.fingering = f;
+                    st.chord.upper = upper;
+                    st.chord.manual_bass = mb;
+                }
+                if !st.param_locks.get(LockItem::SplitPoint) {
+                    st.chord.split = split;
+                }
             }
             if let Some(link) = m.ots_link {
                 st.ots.link = link;
