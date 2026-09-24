@@ -148,6 +148,7 @@ pub fn run_observed(
 // ---------------------------------------------------------------------------
 
 /// One script step, at a tick counted from the start of bar 1, with the text shown for it.
+#[derive(Clone)]
 pub struct ScriptStep {
     pub tick: u32,
     pub step: Step,
@@ -240,39 +241,88 @@ fn parse_button(name: &str) -> Option<Button> {
     })
 }
 
-const PART_NAMES: [&str; 8] = ["Rhythm1", "Rhythm2", "Bass", "Chord1", "Chord2", "Pad", "Phrase1", "Phrase2"];
+pub const PART_NAMES: [&str; 8] = ["Rhythm1", "Rhythm2", "Bass", "Chord1", "Chord2", "Pad", "Phrase1", "Phrase2"];
 
-/// Play a script on a style and list, bar by bar, the section playing, the script steps and
-/// every note each part starts, as `beat.tick Note~length` (Yamaha octaves, C3 = 60; `~…` =
-/// still sounding when the script ends). Positions and lengths are in the style's ticks.
-/// Parts that play as written whatever the chord (drums, Root Fixed + Bypass) only get a
-/// per-bar note count: listing them would copy the style's own pattern and says nothing
-/// about chord following. The listing depends only on the style and the script, so it can
-/// be diffed.
-pub fn snapshot(style: &Style, script: &str) -> Result<String> {
+/// A note a style part started: tick from the start of bar 1 (the style's ticks), channel
+/// (0-based), key, and length in ticks (None: still sounding when the script ends). The key
+/// is the one sent; where a Retrigger Rule pitch shift bends the channel it sounds elsewhere
+/// (`Take::pitch`).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct PlayedNote {
+    pub tick: u32,
+    pub ch: u8,
+    pub key: u8,
+    pub len: Option<u32>,
+}
+
+/// A Retrigger Rule pitch shift of a sounding note (a bend, no new attack): at `tick`,
+/// `Take::notes[note]` goes from pitch `from` to `to`.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct PitchShift {
+    pub tick: u32,
+    pub note: usize,
+    pub from: u8,
+    pub to: u8,
+}
+
+/// One script played on one style: the script steps, the section timeline and every note
+/// the style parts started. `render` turns it into the listing `yahaha sim` prints.
+#[derive(Clone)]
+pub struct Take {
+    pub name: String,
+    pub bpm: f64,
+    pub timesig: (u8, u8),
+    pub ppq: u32,
+    pub tpb: u32,
+    pub bars: u32,
+    pub steps: Vec<ScriptStep>,
+    /// The tick each step acted at (by index). The listing shows a step there, which may be
+    /// in the bar before its slot.
+    pub acts: Vec<u32>,
+    /// (tick, section) at every section change; None = stopped.
+    pub sections: Vec<(u32, Option<SectionId>)>,
+    /// as_written[slot][part]: see PSection::plays_as_written.
+    as_written: Vec<[bool; 8]>,
+    pub notes: Vec<PlayedNote>,
+    /// The pitch each of `notes` sounds at its start (by index): its key plus the pitch
+    /// shift its channel was bent by then. Empty for a take read from a recording, whose
+    /// keys sound as sent.
+    pub pitch: Vec<u8>,
+    /// Every pitch shift of a note still sounding, in order.
+    pub shifts: Vec<PitchShift>,
+}
+
+/// The tick a script step acts at in `yahaha sim` and the golden snapshots. Buttons press
+/// one tick ahead of their slot, as a player would: a press exactly on a beat or bar line
+/// would otherwise depend on float rounding (this beat or the next?). Chords act on it.
+pub fn golden_act(s: &ScriptStep) -> u32 {
+    match s.step {
+        Step::Button(_) => s.tick.saturating_sub(1),
+        _ => s.tick,
+    }
+}
+
+/// Play a script on a style and record what every part plays (see [`Take`]).
+pub fn perform(style: &Style, script: &str) -> Result<Take> {
+    let (steps, bars) = parse_script(script, style.ticks_per_bar())?;
+    let acts = steps.iter().map(golden_act).collect();
+    Ok(perform_steps(style, steps, bars, acts))
+}
+
+/// Play parsed script steps, each at its tick in `acts` (by index), for `bars` bars.
+pub fn perform_steps(style: &Style, steps: Vec<ScriptStep>, bars: u32, acts: Vec<u32>) -> Take {
     let prep = Box::new(Prepared::new(style));
-    // as_written[slot][part]: see PSection::plays_as_written.
     let as_written: Vec<[bool; 8]> = prep
         .sections
         .iter()
         .map(|s| s.as_ref().map_or([false; 8], |s| std::array::from_fn(|p| s.plays_as_written(8 + p as u8))))
         .collect();
-    let (ppq, tpb) = (prep.ppq, prep.tpb);
-    let ns_per_tick = 60e9 / (prep.bpm * ppq as f64);
+    let (ppq, tpb, bpm) = (prep.ppq, prep.tpb, prep.bpm);
+    let ns_per_tick = 60e9 / (bpm * ppq as f64);
     let ns = |tick: u32| (tick as f64 * ns_per_tick).ceil() as u64;
     let tick = |ns: u64| (ns as f64 / ns_per_tick).round() as u32;
-    let (steps, bars) = parse_script(script, tpb)?;
-    // Buttons press one tick ahead of their slot, as a player would: a press exactly on a
-    // beat or bar line would otherwise depend on float rounding (this beat or the next?).
-    // The listing shows them at that tick, which may be in the previous bar.
-    let at = |s: &ScriptStep| match s.step {
-        Step::Button(_) => s.tick.saturating_sub(1),
-        _ => s.tick,
-    };
-    let mut timed: Vec<(u64, Step)> = steps.iter().map(|s| (ns(at(s)), s.step)).collect();
+    let mut timed: Vec<(u64, Step)> = steps.iter().zip(&acts).map(|(s, &t)| (ns(t), s.step)).collect();
     timed.sort_by_key(|s| s.0);
-    let (num, den) = style.timesig;
-    let header = format!("style  {}  {:.0} bpm  {num}/{den}  ppq {ppq}\nbars   {bars}\n", style.name.trim_end_matches(|c: char| c.is_whitespace() || c == '\0'), prep.bpm);
 
     let mut sections: Vec<(u32, Option<SectionId>)> = Vec::new();
     let mut last = None;
@@ -283,15 +333,13 @@ pub fn snapshot(style: &Style, script: &str) -> Result<String> {
             last = cur;
         }
     });
-    let section_at = |t: u32| sections.iter().rev().find(|(s, _)| *s <= t).and_then(|(_, id)| *id);
-    let name = |id: Option<SectionId>| id.map_or("stopped".into(), |c| c.name());
 
-    // (start, channel, key sent, pitch at the start, length): each note-off closes the
-    // oldest open note of its key. A note sounds `bend[ch]` above its key while a Retrigger
-    // Rule pitch shift bends its channel; each shift of an open note is kept as (tick, note
-    // index, from, to).
-    let mut notes: Vec<(u32, u8, u8, u8, Option<u32>)> = Vec::new();
-    let mut shifts: Vec<(u32, usize, u8, u8)> = Vec::new();
+    // Each note-off closes the oldest open note of its key. A note sounds `bend[ch]` above
+    // its key while a Retrigger Rule pitch shift bends its channel; each shift of an open
+    // note is kept.
+    let mut notes: Vec<PlayedNote> = Vec::new();
+    let mut pitch: Vec<u8> = Vec::new();
+    let mut shifts: Vec<PitchShift> = Vec::new();
     let mut bend = [0i8; 16];
     let mut retunes = rec.retunes.iter().peekable();
     for (i, (t, m)) in rec.out.iter().enumerate() {
@@ -299,63 +347,208 @@ pub fn snapshot(style: &Style, script: &str) -> Result<String> {
             && at <= i
         {
             retunes.next();
-            let d = semis as i32 - bend[ch as usize] as i32;
-            bend[ch as usize] = semis;
-            for (k, n) in notes.iter().enumerate().filter(|(_, n)| n.1 == ch && n.4.is_none()) {
-                let from = (n.2 as i32 + bend[ch as usize] as i32 - d) as u8;
-                shifts.push((tick(when), k, from, (from as i32 + d) as u8));
+            let old = std::mem::replace(&mut bend[ch as usize], semis);
+            for k in (0..notes.len()).filter(|&k| notes[k].ch == ch && notes[k].len.is_none()) {
+                let key = notes[k].key as i32;
+                shifts.push(PitchShift { tick: tick(when), note: k, from: (key + old as i32) as u8, to: (key + semis as i32) as u8 });
             }
         }
         let (kind, ch) = (m[0] & 0xF0, m[0] & 0x0F);
         if kind == 0x90 && m[2] > 0 {
-            notes.push((tick(*t), ch, m[1], (m[1] as i32 + bend[ch as usize] as i32) as u8, None));
+            notes.push(PlayedNote { tick: tick(*t), ch, key: m[1], len: None });
+            pitch.push((m[1] as i32 + bend[ch as usize] as i32) as u8);
         } else if (kind == 0x80 || kind == 0x90)
-            && let Some(n) = notes.iter_mut().find(|n| n.1 == ch && n.2 == m[1] && n.4.is_none())
+            && let Some(n) = notes.iter_mut().find(|n| n.ch == ch && n.key == m[1] && n.len.is_none())
         {
-            n.4 = Some(tick(*t) - n.0);
+            n.len = Some(tick(*t) - n.tick);
         }
     }
-    let name_of = |key: u8| format!("{}{}", NOTE_NAMES[key as usize % 12], key as i32 / 12 - 2);
+    let name = style.name.trim_end_matches(|c: char| c.is_whitespace() || c == '\0').to_string();
+    Take { name, bpm, timesig: style.timesig, ppq, tpb, bars, steps, acts, sections, as_written, notes, pitch, shifts }
+}
 
-    let width = (ppq - 1).to_string().len();
-    let pos = |t: u32| format!("{}.{:0width$}", (t % tpb) / ppq + 1, t % ppq);
-    let mut out = header;
-    for bar in 0..bars {
-        let (lo, hi) = (bar * tpb, (bar + 1) * tpb);
-        out += &format!("\nbar {}  {}", bar + 1, name(section_at(lo)));
-        for (t, s) in sections.iter().filter(|(t, _)| *t > lo && *t < hi) {
-            out += &format!(" > {}@{}", name(*s), pos(*t));
+/// A pitch as the listing writes it (Yamaha octaves, C3 = 60).
+fn pitch_name(key: u8) -> String {
+    format!("{}{}", NOTE_NAMES[key as usize % 12], key as i32 / 12 - 2)
+}
+
+impl Take {
+    pub fn section_at(&self, t: u32) -> Option<SectionId> {
+        self.sections.iter().rev().find(|(s, _)| *s <= t).and_then(|(_, id)| *id)
+    }
+
+    /// Whether the part on `ch` plays as written (whatever the chord) at tick `t`.
+    pub fn as_written(&self, t: u32, ch: u8) -> bool {
+        (8..16).contains(&ch) && self.section_at(t).is_some_and(|id| self.as_written[slot_of(id)][ch as usize - 8])
+    }
+
+    /// `beat.tick` within its bar.
+    pub fn pos(&self, t: u32) -> String {
+        let width = (self.ppq - 1).to_string().len();
+        format!("{}.{:0width$}", (t % self.tpb) / self.ppq + 1, t % self.ppq)
+    }
+
+    /// A note as the listing writes it: `beat.tick Note~length`.
+    pub fn note_item(&self, n: &PlayedNote) -> String {
+        self.item(n, n.key)
+    }
+
+    /// `note_item` with the note sounding `pitch`.
+    fn item(&self, n: &PlayedNote, pitch: u8) -> String {
+        let len = n.len.map_or("…".to_string(), |l| l.to_string());
+        format!("{} {}~{len}", self.pos(n.tick), pitch_name(pitch))
+    }
+
+    /// The listing's `bar` line: the section at the bar start, the section changes inside
+    /// the bar, and the script steps in it.
+    pub fn bar_header(&self, bar: u32) -> String {
+        let name = |id: Option<SectionId>| id.map_or("stopped".into(), |c| c.name());
+        let (lo, hi) = (bar * self.tpb, (bar + 1) * self.tpb);
+        let mut out = format!("bar {}  {}", bar + 1, name(self.section_at(lo)));
+        for (t, s) in self.sections.iter().filter(|(t, _)| *t > lo && *t < hi) {
+            out += &format!(" > {}@{}", name(*s), self.pos(*t));
         }
-        for s in steps.iter().filter(|s| at(s) >= lo && at(s) < hi) {
-            out += &format!("  {}@{}", s.label, pos(at(s)));
+        out + &self.steps_in(bar)
+    }
+
+    /// The script steps acting in a bar, as the listing's bar line shows them.
+    fn steps_in(&self, bar: u32) -> String {
+        let (lo, hi) = (bar * self.tpb, (bar + 1) * self.tpb);
+        let mut out = String::new();
+        for (s, &t) in self.steps.iter().zip(&self.acts).filter(|(_, t)| (lo..hi).contains(*t)) {
+            out += &format!("  {}@{}", s.label, self.pos(t));
         }
-        out.push('\n');
-        for ch in 8..16u8 {
-            let (mut items, mut written) = (Vec::new(), 0);
-            for &(t, _, _, pitch, len) in notes.iter().filter(|n| n.1 == ch && n.0 >= lo && n.0 < hi) {
-                if section_at(t).is_some_and(|id| as_written[slot_of(id)][ch as usize - 8]) {
-                    written += 1;
-                    continue;
+        out
+    }
+
+    /// The listing's first lines: style, tempo, time signature, ppq and bar count.
+    fn head(&self) -> String {
+        let (num, den) = self.timesig;
+        format!("style  {}  {:.0} bpm  {num}/{den}  ppq {}\nbars   {}\n", self.name, self.bpm, self.ppq, self.bars)
+    }
+
+    /// What the part on `ch` starts in a bar: the listed notes, and the number of notes it
+    /// played as written (those are only counted).
+    pub fn part_items(&self, bar: u32, ch: u8) -> (Vec<String>, usize) {
+        let (items, written) = self.listed_notes(bar, ch, false);
+        (items.into_iter().map(|i| i.1).collect(), written)
+    }
+
+    /// `part_items`, each with its tick; with `sounding`, at the pitch each note sounds at
+    /// its start rather than the key sent.
+    fn listed_notes(&self, bar: u32, ch: u8, sounding: bool) -> (Vec<(u32, String)>, usize) {
+        let (lo, hi) = (bar * self.tpb, (bar + 1) * self.tpb);
+        let (mut items, mut written) = (Vec::new(), 0);
+        for (i, n) in self.notes.iter().enumerate().filter(|(_, n)| n.ch == ch && n.tick >= lo && n.tick < hi) {
+            if self.as_written(n.tick, ch) {
+                written += 1;
+            } else {
+                let pitch = if sounding { self.pitch.get(i).copied().unwrap_or(n.key) } else { n.key };
+                items.push((n.tick, self.item(n, pitch)));
+            }
+        }
+        (items, written)
+    }
+
+    /// The pitch shifts of the part on `ch` in a bar, as `beat.tick From>To`. A note that
+    /// ends on the tick it is bent never sounds at the new pitch, so it is left out.
+    fn shift_items(&self, bar: u32, ch: u8) -> impl Iterator<Item = (u32, String)> + '_ {
+        let (lo, hi) = (bar * self.tpb, (bar + 1) * self.tpb);
+        self.shifts
+            .iter()
+            .filter(move |s| self.notes[s.note].ch == ch && (lo..hi).contains(&s.tick))
+            .filter(|s| self.notes[s.note].len.is_none_or(|l| self.notes[s.note].tick + l > s.tick))
+            .map(|s| (s.tick, format!("{} {}>{}", self.pos(s.tick), pitch_name(s.from), pitch_name(s.to))))
+    }
+
+    /// The listing's line for one part in one bar (None when the part is silent there): the
+    /// notes it starts, at the pitch they sound, and the pitch shifts of its notes, in time
+    /// order.
+    pub fn part_line(&self, bar: u32, ch: u8) -> Option<String> {
+        let (mut items, written) = self.listed_notes(bar, ch, true);
+        items.extend(self.shift_items(bar, ch));
+        items.sort_by_key(|i| i.0);
+        let mut items: Vec<String> = items.into_iter().map(|i| i.1).collect();
+        if written > 0 {
+            items.push(format!("{written} as written"));
+        }
+        (!items.is_empty()).then(|| format!("  ch{} {:<8}{}", ch + 1, PART_NAMES[ch as usize - 8], items.join("  ")))
+    }
+
+    /// The listing (format in tests/golden/README.md).
+    pub fn render(&self) -> String {
+        let mut out = self.head();
+        for bar in 0..self.bars {
+            out.push('\n');
+            out += &self.bar_header(bar);
+            out.push('\n');
+            for ch in 8..16u8 {
+                if let Some(line) = self.part_line(bar, ch) {
+                    out += &line;
+                    out.push('\n');
                 }
-                let len = len.map_or("…".to_string(), |l| l.to_string());
-                items.push((t, format!("{} {}~{len}", pos(t), name_of(pitch))));
             }
-            // A note that ends on the tick it is bent never sounds at the new pitch.
-            let sounds_on = |s: &&(u32, usize, u8, u8)| notes[s.1].4.is_none_or(|l| notes[s.1].0 + l > s.0);
-            for &(t, _, from, to) in shifts.iter().filter(|s| notes[s.1].1 == ch && s.0 >= lo && s.0 < hi).filter(sounds_on) {
-                items.push((t, format!("{} {}>{}", pos(t), name_of(from), name_of(to))));
+        }
+        out
+    }
+
+    /// The listing reference captures are compared in (tests/reference). Unlike `render` it
+    /// holds nothing yahaha decides: the bar line has only the script steps, because the
+    /// instrument does not send its section changes and ours would be a guess, and every part
+    /// lists all its notes, drums included, because which notes play as written depends on
+    /// the section. Only its digest is ever kept.
+    pub fn render_reference(&self) -> String {
+        let mut out = self.head();
+        for bar in 0..self.bars {
+            let (lo, hi) = (bar * self.tpb, (bar + 1) * self.tpb);
+            out += &format!("\nbar {}{}\n", bar + 1, self.steps_in(bar));
+            for ch in 8..16u8 {
+                let items: Vec<String> = self.notes.iter().filter(|n| n.ch == ch && n.tick >= lo && n.tick < hi).map(|n| self.note_item(n)).collect();
+                if !items.is_empty() {
+                    out += &format!("  ch{} {:<8}{}\n", ch + 1, PART_NAMES[ch as usize - 8], items.join("  "));
+                }
             }
-            items.sort_by_key(|i| i.0);
-            let mut items: Vec<String> = items.into_iter().map(|i| i.1).collect();
-            if written > 0 {
-                items.push(format!("{written} as written"));
-            }
-            if !items.is_empty() {
-                out += &format!("  ch{} {:<8}{}\n", ch + 1, PART_NAMES[ch as usize - 8], items.join("  "));
-            }
+        }
+        out
+    }
+}
+
+/// Play a script on a style and list, bar by bar, the section playing, the script steps and
+/// every note each part starts, as `beat.tick Note~length` (Yamaha octaves, C3 = 60; `~…` =
+/// still sounding when the script ends). Positions and lengths are in the style's ticks.
+/// Parts that play as written whatever the chord (drums, Root Fixed + Bypass) only get a
+/// per-bar note count: listing them would copy the style's own pattern and says nothing
+/// about chord following. The listing depends only on the style and the script, so it can
+/// be diffed.
+pub fn snapshot(style: &Style, script: &str) -> Result<String> {
+    Ok(perform(style, script)?.render())
+}
+
+/// 64-bit FNV-1a. Fixed and dependency-free, so a digest means the same on every machine and
+/// toolchain (std's `DefaultHasher` makes no such promise).
+pub fn fnv1a(s: &str) -> u64 {
+    s.bytes().fold(0xcbf2_9ce4_8422_2325, |h, b| (h ^ b as u64).wrapping_mul(0x0000_0100_0000_01b3))
+}
+
+/// A part line's key: channel and part name (`ch11 Bass`).
+pub fn part_key(line: &str) -> String {
+    line.split_whitespace().take(2).collect::<Vec<_>>().join(" ")
+}
+
+/// The committed form of a listing. Lines before the first bar (style name, tempo, bar count)
+/// and every `bar` header stay as they are: they come from our script. Each part line becomes
+/// its key and the hash of the whole line, so the notes cannot be read back from it.
+pub fn digest(listing: &str) -> String {
+    let mut out = String::new();
+    for line in listing.lines() {
+        if line.starts_with("  ch") {
+            out += &format!("  {:<12} {:016x}\n", part_key(line), fnv1a(line.trim()));
+        } else {
+            out += line;
+            out.push('\n');
         }
     }
-    Ok(out)
+    out
 }
 
 #[cfg(test)]
@@ -364,23 +557,7 @@ mod tests {
     use crate::sff::Style;
 
     pub(super) fn corpus() -> Vec<std::path::PathBuf> {
-        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus");
-        let mut v = Vec::new();
-        let mut stack = vec![dir];
-        while let Some(d) = stack.pop() {
-            for e in std::fs::read_dir(&d).into_iter().flatten().flatten() {
-                let p = e.path();
-                if p.is_dir() {
-                    stack.push(p);
-                } else if p.extension().map_or(false, |x| {
-                    matches!(x.to_ascii_lowercase().to_str(), Some("sty" | "prs" | "sst" | "bcs" | "pcs" | "fps"))
-                }) {
-                    v.push(p);
-                }
-            }
-        }
-        v.sort();
-        v
+        crate::library::corpus_styles()
     }
 
 
