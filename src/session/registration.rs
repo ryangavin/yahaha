@@ -178,7 +178,7 @@ impl Control {
                 return self.bank_changed();
             }
             RegistrationCmd::StepRegistBank { delta } => return self.step_bank(delta, false),
-            RegistrationCmd::SelectRegistBank { path } => return self.load_bank(Path::new(&path)),
+            RegistrationCmd::SelectRegistBank { path } => return self.load_regist_bank(Path::new(&path)),
             RegistrationCmd::NewRegistBank => {
                 self.reg.bank = Bank::default();
                 self.reg.path = None;
@@ -290,7 +290,7 @@ impl Control {
     }
 
     /// Load a bank file; its buttons are not recalled (the Genos lights them blue).
-    pub(super) fn load_bank(&mut self, path: &Path) -> Result<(), CmdError> {
+    pub(super) fn load_regist_bank(&mut self, path: &Path) -> Result<(), CmdError> {
         match Bank::load(path) {
             Ok(mut b) => {
                 b.name = reg::bank_name(path);
@@ -329,7 +329,7 @@ impl Control {
             None => n - 1,
         };
         let path = self.reg.banks[next].clone();
-        self.load_bank(&path)?;
+        self.load_regist_bank(&path)?;
         self.say(format!("Bank: {}", self.reg.bank.name), false);
         Ok(())
     }

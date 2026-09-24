@@ -21,6 +21,7 @@ mod controllers;
 mod keyboard;
 mod library;
 mod mixer;
+mod multipad;
 mod ots;
 mod pads;
 mod parts;
@@ -37,6 +38,7 @@ pub use controllers::*;
 pub use keyboard::*;
 pub use library::*;
 pub use mixer::*;
+pub use multipad::*;
 pub use ots::*;
 pub use pads::*;
 pub use parts::*;
@@ -125,6 +127,8 @@ app_cmd! {
     Registration(RegistrationCmd),
     /// The Playlist.
     Playlist(PlaylistCmd),
+    /// Multi Pads: the bank, the pads, Synchro Stop.
+    MultiPad(MultiPadCmd),
     /// Pedals, wheels and assignable functions.
     Controllers(ControllersCmd),
 }
@@ -264,6 +268,8 @@ pub struct AppState {
     pub registration: RegistrationState,
     /// The Playlist.
     pub playlist: PlaylistState,
+    /// Multi Pads: the bank, the four pads, Synchro Stop, the bank files.
+    pub multi_pad: MultiPadState,
     /// Pedals, wheels, their parts and the pedals' assignable functions.
     pub controllers: ControllersState,
     /// The last notice or error, until the next one or `ClearMessage`.

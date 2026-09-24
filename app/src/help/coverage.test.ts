@@ -83,6 +83,13 @@ const STATES: [string, Setup][] = [
   ['registration panel: sequence', () => ((ui.registTab = 'sequence'), (ui.regist = true))],
   ['registration panel: playlist', () => ((ui.registTab = 'playlist'), (ui.regist = true))],
   ['registration panel: playlist sorted', (s) => (s.send({ type: 'setPlaylistSort', sort: 'aToZ' }), (ui.registTab = 'playlist'), (ui.regist = true))],
+  ['multi pad drawer, no bank', () => (ui.multipad = true)],
+  ['multi pad drawer, bank loaded, pads playing and armed', (s) => (
+    (ui.multipad = true),
+    s.send({ type: 'loadMultiPad', id: 0 }),
+    s.send({ type: 'triggerMultiPad', pad: 0 }),
+    s.send({ type: 'armMultiPad', pad: 3 })
+  )],
   ['Shift layer on', () => (ui.shiftLatched = true)],
   ['Shift layer on, fader page Style', (s) => ((ui.shiftLatched = true), s.send({ type: 'toggleFaderPage' }))],
 ]
@@ -95,6 +102,7 @@ afterEach(() => {
   ui.mixer = false
   ui.regist = false
   ui.registTab = 'bank'
+  ui.multipad = false
   ui.shiftLatched = false
   tips.help = false
   tips.setFloating(false)

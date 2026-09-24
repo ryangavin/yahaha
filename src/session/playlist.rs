@@ -250,7 +250,7 @@ impl Control {
         self.playlist.current = Some(index);
         match r.target {
             RecordTarget::Bank { regist, .. } => {
-                self.load_bank(&path)?;
+                self.load_regist_bank(&path)?;
                 if let Some(i) = regist {
                     // What the button could not recall stays in the message.
                     let (_, errors) = self.recall_quiet(i, true)?;

@@ -33,6 +33,7 @@ mod keyboard;
 mod leds;
 mod library;
 mod mixer;
+mod multipad;
 mod offline;
 mod ots;
 mod pads;
@@ -249,6 +250,11 @@ struct Control {
     reg: registration::RegState,
     /// The Playlist.
     playlist: playlist::PlaylistCtl,
+    /// Multi Pad banks to the engine thread, and replaced players back to free here.
+    pad_tx: Producer<live::PadBank>,
+    old_pad_rx: Consumer<Box<crate::multipad::MultiPadPlayer>>,
+    /// Multi Pads: the bank list and the bank loaded.
+    multipad: multipad::Pads,
 }
 
 /// What several parts of the state read, read once per `build_state` so they all agree.
@@ -300,6 +306,7 @@ impl Control {
             AppCmd::System(c) => self.system_cmd(c),
             AppCmd::Registration(c) => self.registration_cmd(c),
             AppCmd::Playlist(c) => self.playlist_cmd(c),
+            AppCmd::MultiPad(c) => self.multipad_cmd(c),
             AppCmd::Controllers(c) => self.controllers_cmd(c),
         }
     }
@@ -365,6 +372,7 @@ impl Control {
             leds.update(&s, &self.info.has, &pnl, self.shared.manual_bass(), self.shared.parts.fader_page(), styles, beats);
         }
         self.pump_index();
+        self.pump_multipad();
     }
 
     /// The state: each feature builds its part, in `AppState`'s order.
@@ -396,6 +404,7 @@ impl Control {
             keyboard: self.keyboard_state(&v),
             registration: self.registration_state(),
             playlist: self.playlist_state(),
+            multi_pad: self.multipad_state(),
             controllers: self.controllers_state(),
             message: self.message.clone(),
         }
@@ -547,6 +556,9 @@ fn assemble(opts: &Options, engine_out: live::Out, input_out: live::Out, offline
         sources_ns: 0,
         reg: registration::RegState::new(opts.data_dir.as_ref().map(|d| d.join("Registration"))),
         playlist: playlist::PlaylistCtl::new(opts.data_dir.as_ref().map(|d| d.join("Playlists"))),
+        pad_tx: ch.pad_tx,
+        old_pad_rx: ch.old_pad_rx,
+        multipad: multipad::Pads::scan(&opts.paths),
     };
     let mut control = control;
     control.list_sound_fonts();

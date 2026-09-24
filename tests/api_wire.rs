@@ -116,6 +116,17 @@ const EVERY_CMD: &[&str] = &[
     r#"{"type":"setPlaylistSort","sort":"aToZ"}"#,
     r#"{"type":"loadPlaylistRecord","index":4}"#,
     r#"{"type":"stepPlaylist","delta":1}"#,
+    // Multi Pads
+    r#"{"type":"loadMultiPad","id":2}"#,
+    r#"{"type":"loadMultiPadPath","path":"/tmp/Demo.pad"}"#,
+    r#"{"type":"clearMultiPad"}"#,
+    r#"{"type":"triggerMultiPad","pad":0}"#,
+    r#"{"type":"stopMultiPad","pad":3}"#,
+    r#"{"type":"stopAllMultiPads"}"#,
+    r#"{"type":"armMultiPad","pad":1}"#,
+    r#"{"type":"setMultiPadRepeat","pad":2,"on":false}"#,
+    r#"{"type":"setMultiPadChordMatch","pad":1,"on":true}"#,
+    r#"{"type":"setMultiPadSynchroStop","styleStop":true,"ending":false}"#,
     // Controllers
     r#"{"type":"setPedal","pedal":1,"cc":66,"function":"fillUp","controlType":"toggle","reverse":true,"range":"full"}"#,
     r#"{"type":"setPedal","pedal":2,"cc":null,"function":"none","controlType":"holdA","reverse":false,"range":"upper"}"#,
