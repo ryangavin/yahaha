@@ -5,8 +5,9 @@
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
-use yahaha::engine::{Button, Engine, Prepared, Transpose};
-use yahaha::live::{self, Audition, Cmd, EngineLoop, Out, Shared};
+use yahaha::engine::{Button, Engine, PadCmd, Prepared, Transpose, PAD_PPQ};
+use yahaha::live::{self, Audition, Cmd, EngineLoop, Out, PadBank, Shared};
+use yahaha::multipad::{file::parse, synthetic, MultiPadPlayer};
 use yahaha::rt::{PacketSink, Target};
 use yahaha::sff::Style;
 
@@ -119,7 +120,8 @@ fn preview_and_next_bar_style_change_do_not_allocate() {
 
 /// Chord settling (engine/settle.rs) under the chord-settle window: a Sync Start chord,
 /// rolled chords, a chord and a transpose in one wake, Stop Accompaniment chords while
-/// stopped. Notes held back and started at the settle, all on the engine thread.
+/// stopped. Notes held back and started at the settle, all on the engine thread, with
+/// Chord Match pads playing (their notes wait for the settle too).
 #[test]
 fn chord_settling_does_not_allocate() {
     let Some(a) = prep("SlowWalker.T552.sty") else {
@@ -131,11 +133,16 @@ fn chord_settling_does_not_allocate() {
     let shared = Arc::new(Shared::new(54));
     let mut ch = live::channels(Out::new(PacketSink::new(Target::Null), None));
     let mut l = EngineLoop::new(Engine::new(a), ch.io, shared.clone());
+    let pads = Box::new(MultiPadPlayer::new(&parse(&synthetic::demo_bank()).unwrap(), PAD_PPQ));
     l.step(1);
 
     let (allocs, frees) = (ALLOCS.load(Ordering::Relaxed), FREES.load(Ordering::Relaxed));
     let mut now = 1_000;
     ch.ui_tx.push(Cmd::ChordSettle(10)).ok().unwrap();
+    ch.pad_tx.push(PadBank { player: Some(pads), tag: 1 }).ok().unwrap();
+    // Bass Riff (Repeat, Chord Match) and the Shaker Loop play throughout.
+    ch.ui_tx.push(Cmd::MultiPad(PadCmd::Trigger(2))).ok().unwrap();
+    ch.ui_tx.push(Cmd::MultiPad(PadCmd::Trigger(0))).ok().unwrap();
     l.step(now);
     let chord = |s: &str| yahaha::parse_chord(s).unwrap();
     let mut generation = 1;
