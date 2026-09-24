@@ -168,8 +168,11 @@ PPQ) round per step and never drift.
   On, plus Volume and Assign. The Live Control percentages (ArpVel, ArpGateT, ArpUnitM) stay
   at 100%: the Launchkey has no spare controls for them yet.
 
+Arpeggio Hold and the HARMONY/ARPEGGIO switch are also pedal functions (Settings ›
+Pedals: Arpeggio Hold, Kbd Harmony/Arpeggio On/Off; RM p.141), with a Control Type:
+Hold A holds the arpeggio while the pedal is down (docs/controllers.md).
+
 ## Not done yet
 
 - The Live Control percentages and the sustain-pedal hold (`sustain_holds`) in the app.
-- Arpeggio Hold on a pedal.
 - Loading user patterns from TOML files. The format already (de)serialises.

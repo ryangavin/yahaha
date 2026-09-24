@@ -143,7 +143,8 @@ The keyboard's pedals and wheels work through the keyboard parts, as on a Genos
 - **Pedals 1–3** listen for a CC each (default 64 Sustain, 66 Sostenuto, 67 Soft) and can
   run any assignable function instead: Start/Stop, Sync Start/Stop, Intro, Main A–D, Fill
   Up/Down/Self, Break, Ending, Auto Fill, OTS 1–4 and OTS +/−, tempo, transpose, part
-  on/off, Fingered ⇄ On Bass, or Modulation / Pitch Bend from an expression pedal.
+  on/off, Fingered ⇄ On Bass, Kbd Harmony/Arpeggio On/Off, Arpeggio Hold, or Modulation /
+  Pitch Bend from an expression pedal.
   "Learn" in the app takes the CC from the next pedal press.
 - **Panic** (`\`) releases the pedal and centres the wheels on every keyboard part, and a
   keyboard unplugged with its pedal down is released too. A held pedal carries across
