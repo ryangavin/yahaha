@@ -68,6 +68,21 @@ fn walk(root: &Path, seen: &mut std::collections::HashSet<PathBuf>) -> Vec<PathB
     out
 }
 
+/// The SoundFonts (`.sf2`, any case) directly in `dir`, by file name, sorted: what
+/// `SetSoundFont` can switch to.
+pub fn sound_font_files(dir: &Path) -> Vec<String> {
+    let mut v: Vec<String> = std::fs::read_dir(dir)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| !is_hidden(p) && p.is_file() && p.extension().is_some_and(|x| x.eq_ignore_ascii_case("sf2")))
+        .filter_map(|p| p.file_name().map(|n| n.to_string_lossy().to_string()))
+        .collect();
+    v.sort();
+    v
+}
+
 /// What the index knows about a file.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Info {
@@ -155,12 +170,55 @@ impl Library {
         lib
     }
 
+    /// How many entries there are, ids included that a rescan took out of the list (see
+    /// `merge`): valid ids are below it. The list itself is `order`.
     pub fn len(&self) -> usize {
         self.entries.len()
     }
 
     pub fn is_empty(&self) -> bool {
-        self.entries.is_empty()
+        self.order.is_empty()
+    }
+
+    /// How many entries the list shows (`order`).
+    pub fn count(&self) -> usize {
+        self.order.len()
+    }
+
+    /// Take in a fresh scan of the same roots (`RescanLibrary`). Ids stay: a file the
+    /// library has keeps its id and what the index knows about it (a file that failed to
+    /// load is indexed again); new files are added, pending. A file the scan no longer
+    /// finds leaves the list (its id stays valid, out of the list), unless it was added by
+    /// path from outside the roots and still exists. Returns the ids added.
+    pub fn merge(&mut self, scanned: Library, roots: &[PathBuf]) -> Vec<usize> {
+        let mut by_path: std::collections::HashMap<PathBuf, usize> = std::collections::HashMap::new();
+        for (i, e) in self.entries.iter().enumerate() {
+            by_path.insert(e.path.clone(), i);
+        }
+        let mut keep = vec![false; self.entries.len()];
+        let mut added = Vec::new();
+        for e in scanned.entries {
+            match by_path.get(&e.path) {
+                Some(&id) => {
+                    keep[id] = true;
+                    let old = &mut self.entries[id];
+                    old.folder_lc = e.folder_lc;
+                    old.folder = e.folder;
+                    if matches!(old.info, Info::Err(_)) {
+                        old.info = Info::Pending;
+                    }
+                }
+                None => {
+                    added.push(self.entries.len());
+                    self.entries.push(e);
+                    keep.push(true);
+                }
+            }
+        }
+        let under_roots = |p: &Path| roots.iter().any(|r| if r.is_dir() { p.starts_with(r) } else { p == r });
+        self.order = (0..self.entries.len()).filter(|&i| keep[i] || (!under_roots(&self.entries[i].path) && self.entries[i].path.is_file())).collect();
+        self.sort();
+        added
     }
 
     pub fn entry(&self, id: usize) -> &Entry {
@@ -235,7 +293,17 @@ impl Library {
     /// Index every entry on a background thread, in display order so the top of the list
     /// fills first. Results arrive as (entry id, info); drain them with `apply`.
     pub fn spawn_indexer(&self) -> mpsc::Receiver<(usize, Info)> {
-        let jobs: Vec<(usize, PathBuf)> = self.order.iter().map(|&i| (i, self.entries[i].path.clone())).collect();
+        self.spawn_indexer_where(|_| true)
+    }
+
+    /// `spawn_indexer` for the entries still pending (after a rescan).
+    pub fn spawn_pending_indexer(&self) -> mpsc::Receiver<(usize, Info)> {
+        self.spawn_indexer_where(|e| e.info == Info::Pending)
+    }
+
+    fn spawn_indexer_where(&self, f: impl Fn(&Entry) -> bool) -> mpsc::Receiver<(usize, Info)> {
+        let jobs: Vec<(usize, PathBuf)> =
+            self.order.iter().filter(|&&i| f(&self.entries[i])).map(|&i| (i, self.entries[i].path.clone())).collect();
         let (tx, rx) = mpsc::channel();
         // Normal priority, like the UI. If the thread can't start, the list keeps file
         // names and loading still works.
@@ -267,7 +335,7 @@ impl Library {
 
     /// How many entries are still waiting for the indexer.
     pub fn pending(&self) -> usize {
-        self.entries.iter().filter(|e| e.info == Info::Pending).count()
+        self.order.iter().filter(|&&i| self.entries[i].info == Info::Pending).count()
     }
 }
 
@@ -567,7 +635,7 @@ mod tests {
         assert_eq!(f(&lib, "b").len(), 3); // 8Beat, Bossa, Samba
         // The name from the index is what's matched once it arrives.
         let id = lib.filter("8beat")[0];
-        lib.set_info(id, Info::Ok(Summary { name: "Modern Pop Groove".into(), bpm: 100.0, timesig: (4, 4), sections: vec![] }));
+        lib.set_info(id, Info::Ok(Summary { name: "Modern Pop Groove".into(), bpm: 100.0, timesig: (4, 4), sections: vec![], format: "SFF2".into() }));
         lib.sort();
         assert_eq!(f(&lib, "groove"), ["Pop|Modern Pop Groove"]);
         // The file name still matches, so the row doesn't drop out while indexing runs.

@@ -1,5 +1,5 @@
 {
-  "version": 12,
+  "version": 29,
   "style": {
     "id": 0,
     "path": "corpus/MOX_v2/SlowWalker.T552.sty",
@@ -930,7 +930,11 @@
     "revision": 3,
     "count": 1,
     "position": 0,
-    "pending": 0
+    "pending": 0,
+    "roots": [
+      "corpus/MOX_v2/SlowWalker.T552.sty"
+    ],
+    "scanning": false
   },
   "surface": {
     "shift": false,
@@ -1371,7 +1375,30 @@
     },
     "lastControl": 0,
     "unmapped": "",
-    "offline": true
+    "offline": true,
+    "sources": [],
+    "allInputs": false,
+    "soundFonts": [],
+    "soundFontFile": null,
+    "soundFontLoading": false
+  },
+  "preview": {
+    "audition": null,
+    "queued": null
+  },
+  "keys": {
+    "held": [
+      31,
+      35,
+      38,
+      41
+    ],
+    "chord": [
+      31,
+      35,
+      38,
+      41
+    ]
   },
   "message": null
 }

@@ -143,6 +143,9 @@ pub struct Prepared {
     /// what the narrowest output range it can have (its patterns may set a narrower bend
     /// range than the channel setup) leaves over `pat_bend_max`.
     pub shift_room: [u8; 16],
+    /// Set by whoever hands the style to the engine (the session numbers each load), so
+    /// it can tell from a snapshot (`Snapshot::style_tag`) when the engine switched to it.
+    pub tag: u64,
 }
 
 /// MIDI messages of any length (SysEx too), stored back to back so sending them from the
@@ -534,6 +537,7 @@ impl Prepared {
             bend_range,
             pat_bend_max,
             shift_room,
+            tag: 0,
         }
     }
 
@@ -607,6 +611,29 @@ pub struct Snapshot {
     /// tempo, the section or its loop does (0, 0 when stopped).
     pub anchor_ns: u64,
     pub anchor_beats: f64,
+    /// `Prepared::tag` of the style playing.
+    pub style_tag: u64,
+    /// A style waits for the next bar line to take over (`Engine::change_style`).
+    pub style_pending: bool,
+    /// A style preview playing beside the (stopped) band (`live::EngineLoop`); the engine
+    /// itself always reports None.
+    pub audition: Option<AuditionPos>,
+}
+
+/// Where a style preview is: style `id` (the session's library id), bar `bar` of `bars`
+/// (1-based), playing chord `chord` of its progression (0-based).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct AuditionPos {
+    pub id: u32,
+    pub bar: u8,
+    pub bars: u8,
+    pub chord: u8,
+}
+
+/// A style waiting for the bar line at tick `at` (of the style playing) to take over.
+struct PendingStyle {
+    style: Box<Prepared>,
+    at: f64,
 }
 
 /// Genos TRANSPOSE targets that matter for live play (RM p.42). Keyboard shifts the keys
@@ -818,6 +845,11 @@ pub struct Engine {
     /// there: the receiver has reset that part's XG parameters and drum setup, even when
     /// the pattern has since gone back to the setup's voice.
     pattern_pc: u16,
+    /// A style change queued for the next bar line (`change_style`).
+    pending: Option<PendingStyle>,
+    /// Styles the engine is done with, for the caller to free off the real-time thread
+    /// (`take_retired`).
+    retired: [Option<Box<Prepared>>; 4],
     /// Pitch bends that did not fit the output range and were clamped.
     #[cfg(test)]
     pub(crate) bend_clamps: std::cell::Cell<u32>,
@@ -881,6 +913,8 @@ impl Engine {
             rpn: [RPN_NULL; 16],
             mirror: Box::new(Mirror::NEW),
             pattern_pc: 0,
+            pending: None,
+            retired: [None, None, None, None],
             #[cfg(test)]
             bend_clamps: Default::default(),
             #[cfg(test)]
@@ -890,7 +924,129 @@ impl Engine {
         e
     }
 
-    /// Swap in a new style; returns the old one so the caller can free it off the RT thread.
+    /// A style change from the player (the session's `LoadStyle`): stopped, the new style
+    /// takes over at once; playing, at the next bar line, keeping the section and the bar
+    /// position, as on a Genos (`swap_style`). A later change before that bar line replaces
+    /// this one. Styles the engine no longer needs go to `take_retired`.
+    pub fn change_style(&mut self, style: Box<Prepared>, now: u64, sink: &mut impl Sink) {
+        if !self.running {
+            if let Some(p) = self.pending.take() {
+                self.retire(p.style);
+            }
+            let old = self.load(style, now, sink);
+            self.retire(old);
+            return;
+        }
+        let at = self.next_bar(now);
+        if let Some(p) = self.pending.replace(PendingStyle { style, at }) {
+            self.retire(p.style);
+        }
+    }
+
+    /// Keep a style the engine is done with until the caller takes it (never freed here).
+    fn retire(&mut self, style: Box<Prepared>) {
+        match self.retired.iter_mut().find(|r| r.is_none()) {
+            Some(slot) => *slot = Some(style),
+            // Cannot happen while the caller drains after every call; dropping here would
+            // free on the real-time thread, so the oldest is handed back first.
+            None => {
+                self.retired.rotate_left(1);
+                self.retired[3] = Some(style);
+            }
+        }
+    }
+
+    /// A style the engine no longer uses (replaced or never played), to free elsewhere.
+    pub fn take_retired(&mut self) -> Option<Box<Prepared>> {
+        self.retired.iter_mut().find_map(|r| r.take())
+    }
+
+    /// A style change is waiting for the next bar line.
+    pub fn style_pending(&self) -> bool {
+        self.pending.is_some()
+    }
+
+    /// Bar line `at` (a tick of the style playing) has come: the pending style takes over.
+    /// The section carries on in the new style: the same section if it has it, else the
+    /// nearest of the same kind (Main D -> Main C), else the Main in use; a section queued
+    /// for this bar line (a Main, an Ending) starts here instead, and one that ends here
+    /// hands over as it would have (a Fill to its Main, an Ending stops the band). A
+    /// section that carries on keeps its bar position (bar 3 of Main A goes on in bar 3 of
+    /// the new Main A, wrapping at its length). The tempo stays, re-timed to the new
+    /// style's resolution; the new style's setup and part levels go out, as on any load.
+    fn swap_style(&mut self, at: f64, now: u64, sink: &mut impl Sink) {
+        let Some(p) = self.pending.take() else { return };
+        let old_len = self.style.sections[self.cur].as_ref().map_or(0, |s| s.len) as f64;
+        let sec_end = self.sec_start + old_len;
+        let old_tpb = self.style.tpb.max(1) as f64;
+        let old_ppq = self.style.ppq.max(1) as f64;
+        // The section that plays from `at` on, in the old style's terms, and how far into it.
+        let (slot, pos_old) = match self.queued {
+            Some(q) if q.at <= at + 1e-6 => {
+                self.queued = None;
+                (q.slot, at - q.sec_start)
+            }
+            _ if at >= sec_end - 1e-6 => match id_of(self.cur) {
+                SectionId::Ending(_) => (usize::MAX, 0.0),
+                _ => (4 + self.main as usize, 0.0),
+            },
+            _ => (self.cur, at - self.sec_start),
+        };
+        // A later queued change (none is, in practice: sections queue for this bar line).
+        let later = self.queued.take();
+        let ns_b = self.ns_at(at);
+        self.notes_off(false, sink);
+        let old = std::mem::replace(&mut self.style, p.style);
+        self.user_set = 0;
+        for i in 0..8 {
+            let v = self.style.mix[i];
+            self.set_mixer(i, v);
+        }
+        self.retire(old);
+        if slot == usize::MAX {
+            self.running = false;
+            self.sync_armed = true;
+            self.set_bpm_internal(self.bpm, ns_b);
+            self.send_init(sink);
+            return;
+        }
+        let new_slot = if self.style.has(slot) { Some(slot) } else { self.style.resolve(slot) };
+        let Some(new_slot) = new_slot.or_else(|| self.style.resolve(4 + self.main as usize)) else {
+            self.running = false;
+            self.send_init(sink);
+            return;
+        };
+        if let SectionId::Main(m) = id_of(new_slot) {
+            self.main = m;
+        }
+        let (tpb, ppq) = (self.style.tpb.max(1) as f64, self.style.ppq.max(1) as f64);
+        let len = self.style.sections[new_slot].as_ref().map_or(0, |s| s.len) as f64;
+        // Whole bars, then the rest in beats.
+        let bars = (pos_old / old_tpb).floor();
+        let rest = (pos_old - bars * old_tpb) / old_ppq * ppq;
+        let mut pos = bars * tpb + rest;
+        if len > 0.0 {
+            pos = pos.rem_euclid(len);
+        }
+        // Re-time: tick `pos` of the new section at the bar line's time, same tempo.
+        self.cur = new_slot;
+        self.anchor_ns = ns_b;
+        self.anchor_tick = pos;
+        self.sec_start = 0.0;
+        self.ns_per_tick = 60e9 / (self.bpm * ppq);
+        self.seek(pos);
+        if let Some(q) = later {
+            let t = |x: f64| pos + (x - at) / old_ppq * ppq;
+            self.queued = Some(Queued { slot: if q.slot == usize::MAX { q.slot } else { self.style.resolve(q.slot).unwrap_or(new_slot) }, at: t(q.at), sec_start: t(q.sec_start) });
+        }
+        self.send_init(sink);
+        self.chase(sink);
+        let _ = now;
+    }
+
+    /// Swap in a new style at once; returns the old one so the caller can free it off the
+    /// RT thread. Playing, the band restarts the new style's Main at once (tests use it;
+    /// the session goes through `change_style`, which waits for the bar line).
     pub fn load(&mut self, style: Box<Prepared>, now: u64, sink: &mut impl Sink) -> Box<Prepared> {
         self.all_off(sink);
         let old = std::mem::replace(&mut self.style, style);
@@ -1200,6 +1356,24 @@ impl Engine {
 
     // ----- queries -----
 
+    /// When bar `bar` (0-based, counted from the start) begins: for a style preview, which
+    /// plays one section from tick 0 at a steady tempo.
+    pub fn ns_at_bar(&self, bar: u32) -> u64 {
+        self.ns_at(bar as f64 * self.style.tpb as f64)
+    }
+
+    /// A chord would start the band now (Sync Start armed, stopped).
+    pub fn starts_on_chord(&self) -> bool {
+        self.sync_armed && !self.running
+    }
+
+    /// Something else played on these channels (a style preview): forget what was sent
+    /// and send the style's setup again, all of it.
+    pub fn resync(&mut self, sink: &mut impl Sink) {
+        *self.mirror = Mirror::NEW;
+        self.send_init(sink);
+    }
+
     #[allow(dead_code)]
     pub fn is_running(&self) -> bool {
         self.running
@@ -1236,6 +1410,9 @@ impl Engine {
             played: self.played,
             anchor_ns,
             anchor_beats,
+            style_tag: self.style.tag,
+            style_pending: self.pending.is_some(),
+            audition: None,
         }
     }
 
@@ -1248,6 +1425,9 @@ impl Engine {
         let mut t = self.sec_start + sec.len as f64;
         if let Some(q) = self.queued {
             t = t.min(q.at);
+        }
+        if let Some(p) = &self.pending {
+            t = t.min(p.at);
         }
         if let Some(e) = sec.events.get(self.ev_idx) {
             t = t.min(self.sec_start + e.tick as f64);
@@ -1497,6 +1677,25 @@ impl Engine {
         self.running = false;
         self.queued = None;
         self.all_off(sink);
+        // A style change waiting for the bar line takes over now.
+        if let Some(p) = self.pending.take() {
+            let old = self.load(p.style, self.anchor_ns, sink);
+            self.retire(old);
+        }
+    }
+
+    /// The section's next boundary before `sec_end`: a queued section, or a style change
+    /// (`swap` true), else the section's end; and whether events at it still belong to
+    /// this section.
+    fn boundary(&self, sec_end: f64) -> (f64, bool, bool) {
+        let (b, inclusive) = match self.queued {
+            Some(q) if q.at < sec_end => (q.at, false),
+            _ => (sec_end, true),
+        };
+        match &self.pending {
+            Some(p) if p.at <= b + 1e-6 => (p.at, false, true),
+            _ => (b, inclusive, false),
+        }
     }
 
     fn next_bar(&self, now: u64) -> f64 {
@@ -1542,17 +1741,14 @@ impl Engine {
         if !self.running {
             return;
         }
-        let target = self.tick_at(now) + 1e-6;
+        let mut target = self.tick_at(now) + 1e-6;
         loop {
             let Some(sec) = self.style.sections[self.cur].as_ref() else {
                 self.stop(sink);
                 return;
             };
             let sec_end = self.sec_start + sec.len as f64;
-            let (boundary, inclusive) = match self.queued {
-                Some(q) if q.at < sec_end => (q.at, false),
-                _ => (sec_end, true),
-            };
+            let (boundary, inclusive, swap) = self.boundary(sec_end);
             if let Some(e) = sec.events.get(self.ev_idx) {
                 let t = self.sec_start + e.tick as f64;
                 let before = if inclusive { t <= boundary + 1e-6 } else { t < boundary - 1e-6 };
@@ -1562,7 +1758,13 @@ impl Engine {
                 }
             }
             if boundary <= target {
-                self.transition(boundary, now, sink);
+                if swap {
+                    self.swap_style(boundary, now, sink);
+                    // The new style counts its own ticks.
+                    target = self.tick_at(now) + 1e-6;
+                } else {
+                    self.transition(boundary, now, sink);
+                }
                 if !self.running {
                     return;
                 }
@@ -1874,10 +2076,7 @@ impl Engine {
         let sec = self.style.sections[self.cur].as_ref()?;
         let target = self.tick_at(now + window) + 1e-6;
         let sec_end = self.sec_start + sec.len as f64;
-        let (boundary, inclusive) = match self.queued {
-            Some(q) if q.at < sec_end => (q.at, false),
-            _ => (sec_end, true),
-        };
+        let (boundary, inclusive, _) = self.boundary(sec_end);
         if boundary <= target {
             return None;
         }

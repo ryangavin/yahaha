@@ -533,9 +533,9 @@ fn draw_browser(f: &mut ratatui::Frame, b: &Browser, lib: &Library, current: usi
     let (v, pos) = b.visible(lib);
     let pending = lib.pending();
     let title = if pending > 0 {
-        format!(" Styles · {} of {} · indexing, {pending} to go ", v.len(), lib.len())
+        format!(" Styles · {} of {} · indexing, {pending} to go ", v.len(), lib.count())
     } else {
-        format!(" Styles · {} of {} ", v.len(), lib.len())
+        format!(" Styles · {} of {} ", v.len(), lib.count())
     };
     let block = Block::default().borders(Borders::ALL).title(title).border_style(St::default().fg(Color::Yellow));
     let inner = block.inner(area);
@@ -640,6 +640,9 @@ pub fn screen_html(style: &Path, out: &Path) -> Result<()> {
         played: Some(yahaha::theory::Chord { root: 7, ty: 10, bass: Some(5) }),
         anchor_ns: 0,
         anchor_beats: 6.0,
+        style_tag: 0,
+        style_pending: false,
+        audition: None,
     });
     // What a live session with the synth and a Launchkey would add.
     let mut st = (*session.state()).clone();
