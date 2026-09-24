@@ -43,8 +43,8 @@
       disabled
       value={null}
       options={[
-        { id: 'bar', label: 'Next bar', tip: 'settings.section_timing' },
-        { id: 'beat', label: 'Next beat', tip: 'settings.section_timing' },
+        { id: 'immediate', label: 'Immediate', tip: 'settings.section_timing' },
+        { id: 'bar', label: 'Next Bar', tip: 'settings.section_timing' },
       ]}
       onselect={() => {}}
     />
@@ -56,8 +56,8 @@
       disabled
       value={null}
       options={[
-        { id: 'realtime', label: 'Real Time', tip: 'settings.ots_link_timing' },
-        { id: 'nextbar', label: 'Next Bar', tip: 'settings.ots_link_timing' },
+        { id: 'immediate', label: 'Immediate', tip: 'settings.ots_link_timing' },
+        { id: 'section', label: 'At Main Section Change', tip: 'settings.ots_link_timing' },
       ]}
       onselect={() => {}}
     />

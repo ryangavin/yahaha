@@ -766,7 +766,7 @@ const catalog = {
     body: 'Fingering type, chord detection area (Lower or Upper) and Manual Bass.',
     genos: 'Menu › Split & Fingering',
     keys: [],
-    launchkey: `${P2}, top row`,
+    launchkey: `${P2}, top row (fingering, Upper) and bottom row, pad 1 (Manual Bass)`,
   },
   'settings.tab.split': {
     title: 'Settings: Split point',
@@ -787,7 +787,7 @@ const catalog = {
     body: 'How the band starts, stops and fills: Sync Start/Stop, Auto Fill and Stop Accompaniment.',
     genos: 'Menu › Style Setting',
     keys: [],
-    launchkey: P1,
+    launchkey: `${P1} (Sync Start, Sync Stop, Auto Fill); ${P2}, bottom row, pad 2 (Stop ACMP)`,
   },
   'settings.tab.audio': {
     title: 'Settings: Audio',
@@ -819,21 +819,21 @@ const catalog = {
   },
   'settings.section_timing': {
     title: 'Section change timing (coming soon)',
-    body: 'When a section you press takes over: at the next bar, or sooner. Coming in M5; for now a change always waits for the bar line.',
+    body: 'When a Main you press takes over: Immediate (at the next beat) or Next Bar. Coming in M5; for now a new Main always waits for the next bar line (with Auto Fill, its fill starts at the next beat).',
     genos: 'Section Change Timing',
     keys: [],
     launchkey: null,
   },
   'settings.ots_link_timing': {
     title: 'OTS Link timing (coming soon)',
-    body: 'With OTS Link on, whether the One Touch Setting changes the moment you press a Main or when the new section starts. Coming in M5.',
+    body: 'With OTS Link on, whether the One Touch Setting changes the moment you press a Main (Immediate) or when the new Main actually starts (At Main Section Change). Coming in M5; for now it is always Immediate.',
     genos: 'OTS Link Timing',
     keys: [],
     launchkey: null,
   },
   'settings.synchro_stop_window': {
     title: 'Synchro Stop window (coming soon)',
-    body: 'How long you can hold a chord before Sync Stop stops counting it as a release. Coming in M5.',
+    body: 'With Sync Stop on: hold a chord longer than this and Sync Stop cancels itself, so the style keeps playing when you let go. A quicker release still stops the style. Coming in M5.',
     genos: 'Synchro Stop Window',
     keys: [],
     launchkey: null,

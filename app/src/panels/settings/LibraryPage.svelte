@@ -11,16 +11,20 @@
   import Field from './Field.svelte'
 
   const lib = $derived(app.state.library)
-  const view = $derived(settings.view(app.state))
-  const mockBadge = $derived(app.kind === 'tauri' && view.mocked)
+  const real = $derived(app.kind === 'tauri')
+  const view = $derived(settings.view(app.state, real))
+  // On the real engine a setting it lacks is badged and inert: it never pretends to work.
+  const inert = $derived(real && view.mocked.library)
   const errors = $derived(app.library.entries.filter((e) => e.status === 'error').length)
   const categories = $derived(new Set(app.library.entries.map((e) => e.folder)).size)
 </script>
 
-<Field name="Style folders" mock={mockBadge} note="Subfolders become the categories in the style browser. Set them with YAHAHA_STYLES or on the command line.">
+<Field name="Style folders" mock={inert} note="Subfolders become the categories in the style browser. Set them with YAHAHA_STYLES or on the command line.">
   <ul class="roots mat-well" use:tip={'settings.style_folders'}>
     {#each view.roots as r (r)}
       <li><span class="icon" aria-hidden="true">▸</span>{r}</li>
+    {:else}
+      <li class="unknown">The engine doesn't report its style folders yet.</li>
     {/each}
   </ul>
 </Field>
@@ -32,18 +36,24 @@
   <div><b class="glow-text">{lib.pending}</b><span>indexing</span></div>
 </div>
 
-<div class="rescan">
+<div class="rescan" class:off={inert}>
   <HwButton
     tip="settings.rescan"
     led={view.scanning ? { rgb: [127, 90, 20], level: 'bright', anim: 'pulse' } : null}
-    onclick={() => settings.send({ type: 'rescanLibrary' })}
+    onclick={() => !inert && settings.send({ type: 'rescanLibrary' })}
   >
     {view.scanning ? 'Scanning…' : 'Rescan styles'}
   </HwButton>
-  <span class="hint">The band keeps playing while it scans.</span>
+  <span class="hint">{inert ? 'Needs an engine update; for now restart yahaha to pick up new files.' : 'The band keeps playing while it scans.'}</span>
 </div>
 
 <style>
+  .rescan.off :global(.hw) {
+    opacity: 0.5;
+  }
+  .unknown {
+    color: #7d8792;
+  }
   .roots {
     list-style: none;
     margin: 0;

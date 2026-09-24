@@ -13,8 +13,10 @@
 
   const synth = $derived(app.state.io.synth)
   const master = $derived(app.state.mixer.master)
-  const view = $derived(settings.view(app.state))
-  const mockBadge = $derived(app.kind === 'tauri' && view.mocked)
+  const real = $derived(app.kind === 'tauri')
+  const view = $derived(settings.view(app.state, real))
+  // On the real engine a setting it lacks is badged and inert: it never pretends to work.
+  const inert = $derived(real && view.mocked.soundFont)
 
   const pairs = $derived.by(() => {
     const n = synth ? Math.max(1, Math.floor(synth.channels / 2)) : 1
@@ -58,10 +60,16 @@
   />
 </Field>
 
-<Field name="SoundFont" mock={mockBadge} note="The .sf2 files in soundfonts/. General MIDI SoundFonts sound closest to the styles.">
+<Field
+  name="SoundFont"
+  mock={inert}
+  note={inert
+    ? 'The SoundFont the synth is playing. Switching needs an engine update; for now pass --sf2 file at launch.'
+    : 'The .sf2 files in soundfonts/. General MIDI SoundFonts sound closest to the styles.'}
+>
   <Choice
     label="SoundFont"
-    disabled={!synth}
+    disabled={!synth || inert}
     value={view.soundFontFile}
     columns={1}
     options={fonts}

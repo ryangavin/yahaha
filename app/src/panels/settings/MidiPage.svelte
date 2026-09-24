@@ -13,16 +13,28 @@
 
   const io = $derived(app.state.io)
   const connected = $derived(app.state.pads.connected)
-  const view = $derived(settings.view(app.state))
-  const mockBadge = $derived(app.kind === 'tauri' && view.mocked)
+  const real = $derived(app.kind === 'tauri')
+  const view = $derived(settings.view(app.state, real))
+  // On the real engine a setting it lacks is badged and inert: it never pretends to work.
+  const inputsInert = $derived(real && view.mocked.inputs)
+  const ledsInert = $derived(real && view.mocked.paletteLeds)
+  const inputsNote = $derived(
+    inputsInert
+      ? 'The inputs yahaha has open. Choosing them here needs an engine update; for now use --all-inputs or --input name at launch.'
+      : view.allInputs
+        ? 'Every source below plays yahaha, merged. Switch one off to pick sources instead.'
+        : 'Only the sources switched on below play yahaha.',
+  )
 
   /** Switching one source in "All" mode moves to "Selected" with every other source on. */
   function toggleSource(name: string) {
+    if (inputsInert) return
     const on = view.sources.filter((s) => s.listening).map((s) => s.name)
     const names = on.includes(name) ? on.filter((n) => n !== name) : [...on, name]
     settings.send({ type: 'setMidiInputs', all: false, names })
   }
   function setMode(mode: 'all' | 'selected') {
+    if (inputsInert) return
     const names = view.sources.filter((s) => s.listening).map((s) => s.name)
     settings.send({ type: 'setMidiInputs', all: mode === 'all', names })
   }
@@ -30,12 +42,13 @@
 
 <Field
   name="Inputs"
-  mock={mockBadge}
-  note={view.allInputs ? 'Every source below plays yahaha, merged. Switch one off to pick sources instead.' : 'Only the sources switched on below play yahaha.'}
+  mock={inputsInert}
+  note={inputsNote}
 >
   <Choice
     label="MIDI inputs"
-    value={view.allInputs ? 'all' : 'selected'}
+    disabled={inputsInert}
+    value={view.allInputs === null ? null : view.allInputs ? 'all' : 'selected'}
     options={[
       { id: 'all', label: 'All, merged', tip: 'midi.merge_all' },
       { id: 'selected', label: 'Selected', tip: 'midi.merge_all' },
@@ -49,9 +62,11 @@
           <span class="sname">{s.name.replace(/ \(pads\)$/, '')}</span>
           {#if s.pads}<span class="tag engraved">pads + buttons</span>{/if}
         </span>
-        <Toggle on={s.listening} tip="midi.input" onclick={() => toggleSource(s.name)}>
-          {s.listening ? 'On' : 'Off'}
-        </Toggle>
+        <span class="gate" class:off={inputsInert}>
+          <Toggle on={s.listening} tip="midi.input" onclick={() => toggleSource(s.name)}>
+            {s.listening ? 'On' : 'Off'}
+          </Toggle>
+        </span>
       </li>
     {:else}
       <li class="none">No MIDI sources found.</li>
@@ -73,13 +88,29 @@
   </span>
 </Field>
 
-<Field name="Palette LEDs" inline mock={mockBadge} note="Built-in palette colours and hardware flashing, instead of exact RGB.">
-  <Toggle on={view.paletteLeds} tip="midi.palette_leds" onclick={() => settings.send({ type: 'setPaletteLeds', on: !view.paletteLeds })}>
-    {view.paletteLeds ? 'On' : 'Off'}
-  </Toggle>
+<Field
+  name="Palette LEDs"
+  inline
+  mock={ledsInert}
+  note={ledsInert
+    ? 'Built-in palette colours and hardware flashing, instead of exact RGB. Switching it here needs an engine update; for now pass --palette-leds at launch.'
+    : 'Built-in palette colours and hardware flashing, instead of exact RGB.'}
+>
+  <span class="gate" class:off={ledsInert}>
+    <Toggle
+      on={view.paletteLeds === true}
+      tip="midi.palette_leds"
+      onclick={() => !ledsInert && settings.send({ type: 'setPaletteLeds', on: !view.paletteLeds })}
+    >
+      {view.paletteLeds === null ? 'Set at launch' : view.paletteLeds ? 'On' : 'Off'}
+    </Toggle>
+  </span>
 </Field>
 
 <style>
+  .gate.off {
+    opacity: 0.5;
+  }
   .sources {
     list-style: none;
     margin: 0.5rem 0 0;

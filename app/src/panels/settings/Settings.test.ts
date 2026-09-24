@@ -171,6 +171,38 @@ describe('Settings drawer', () => {
     expect(settings.paletteLeds).toBe(true)
   })
 
+  it('on the real engine, settings it lacks are badged, inert and show no sample data', async () => {
+    const s = new MockSession({ manual: true, demo: false })
+    app.attach(s)
+    app.kind = 'tauri' // what a Tauri session reports; the mock state stands in for the engine's
+    ui.settings = true
+    flushSync()
+    render(Settings)
+    expect(document.querySelectorAll('.badge.mock').length).toBe(4) // SoundFont, Inputs, Palette LEDs, Style folders
+
+    const fonts = byTip('audio.soundfont')
+    expect(fonts).toHaveLength(1) // only the one the synth plays, no made-up files
+    await fireEvent.click(fonts[0])
+    expect(settings.soundFontFile).toBe(null)
+
+    const sources = byTip('midi.input')
+    expect(sources).toHaveLength(s.state.io.inputs.length) // no mock-only sources
+    await fireEvent.click(sources[0])
+    expect(settings.chosen).toBe(null)
+    expect(sources[0].getAttribute('aria-checked')).toBe('true')
+    expect(byTip('midi.merge_all').every((b) => b.getAttribute('aria-checked') === 'false')).toBe(true)
+    await fireEvent.click(byTip('midi.merge_all')[1])
+    expect(settings.allInputs).toBe(true)
+
+    await fireEvent.click(byTip('midi.palette_leds')[0])
+    expect(settings.paletteLeds).toBe(false)
+    expect(byTip('midi.palette_leds')[0].textContent).toContain('Set at launch')
+
+    expect(byTip('settings.style_folders')[0].textContent).toContain("doesn't report")
+    await fireEvent.click(byTip('settings.rescan')[0])
+    expect(page('library').textContent).not.toContain('Scanning')
+  })
+
   it('library: lists the folders and rescans', async () => {
     vi.useFakeTimers()
     try {
