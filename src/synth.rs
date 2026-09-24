@@ -20,6 +20,10 @@ use std::sync::Arc;
 use crate::click::{Click, CLICK};
 use crate::parts::{self, Parts};
 
+mod routing;
+pub use routing::Router;
+use routing::{apply_routed, NO_SLOT};
+
 pub type Msg = [u8; 3];
 
 #[derive(Clone, Debug)]
@@ -82,11 +86,22 @@ pub const RACK_CHANNELS: [u8; 12] = [0, 1, 2, 3, 8, 9, 10, 11, 12, 13, 14, 15];
 /// so the meters cost no extra synthesizers. (A synthesizer per part would run each
 /// part's reverb and chorus again and give every part 128 voices of its own: up to 12 x
 /// 128 voices on the audio thread, about 1 ms of a 64-frame buffer's 1.33 ms.)
+///
+/// With the sound library (#103) a rack can hold more SoundFonts, one synthesizer each,
+/// and route each channel to one of them (routing.rs).
 pub struct Rack {
     band: Synthesizer,
     player: Synthesizer,
     tmp_l: Vec<f32>,
     tmp_r: Vec<f32>,
+    /// The extra SoundFonts' synthesizers (slots 1..).
+    extra: Vec<Synthesizer>,
+    /// Font id (`patches::Route`) -> slot (0 = the main font), `NO_SLOT` if not here.
+    slot_of: [u8; crate::patches::route::MAX_FONTS],
+    /// The slot each channel plays now.
+    ch_slot: [u8; 16],
+    /// Channels routed to a library patch (bit = channel).
+    mapped: u16,
 }
 
 impl Rack {
@@ -95,7 +110,16 @@ impl Rack {
         settings.maximum_polyphony = 128;
         let band = Synthesizer::new(font, &settings).map_err(|e| anyhow!("{e:?}"))?;
         let player = Synthesizer::new(font, &settings).map_err(|e| anyhow!("{e:?}"))?;
-        let mut r = Rack { band, player, tmp_l: vec![0.0; 8192], tmp_r: vec![0.0; 8192] };
+        let mut r = Rack {
+            band,
+            player,
+            tmp_l: vec![0.0; 8192],
+            tmp_r: vec![0.0; 8192],
+            extra: Vec::new(),
+            slot_of: [NO_SLOT; crate::patches::route::MAX_FONTS],
+            ch_slot: [0; 16],
+            mapped: 0,
+        };
         // Rhythm 1 (ch 9) is a drum part too: on the drum bank.
         r.process(8, 0xB0, 0, 128);
         Ok(r)
@@ -108,20 +132,12 @@ impl Rack {
         Ok(Box::new(Rack::new(&font, sample_rate as i32)?))
     }
 
-    /// A channel message to the synthesizer that plays the channel: the keyboard parts'
-    /// to the player's, everything else to the band's.
-    #[inline]
-    fn process(&mut self, ch: i32, st: i32, d1: i32, d2: i32) {
-        if parts::part_of_channel(ch as u8).is_some() {
-            self.player.process_midi_message(ch, st, d1, d2);
-        } else {
-            self.band.process_midi_message(ch, st, d1, d2);
-        }
-    }
-
     fn set_master_volume(&mut self, v: f32) {
         self.band.set_master_volume(v);
         self.player.set_master_volume(v);
+        for s in &mut self.extra {
+            s.set_master_volume(v);
+        }
     }
 
     /// Render `left.len()` frames of the mix into `left`/`right` (overwritten), noting each
@@ -132,10 +148,12 @@ impl Rack {
         let (left, right) = (&mut left[..n], &mut right[..n]);
         self.band.render(left, right);
         let (l, r) = (&mut self.tmp_l[..n], &mut self.tmp_r[..n]);
-        self.player.render(l, r);
-        for k in 0..n {
-            left[k] += l[k];
-            right[k] += r[k];
+        for s in std::iter::once(&mut self.player).chain(self.extra.iter_mut()) {
+            s.render(l, r);
+            for k in 0..n {
+                left[k] += l[k];
+                right[k] += r[k];
+            }
         }
         let mut most = 1f32;
         if let Some((a, b)) = fade {
@@ -146,7 +164,7 @@ impl Rack {
                 right[k] *= g;
             }
         }
-        for s in [&mut self.band, &mut self.player] {
+        for s in [&mut self.band, &mut self.player].into_iter().chain(self.extra.iter_mut()) {
             for (ch, &p) in s.channel_peaks().iter().enumerate() {
                 if p > 0.0 {
                     peaks[ch].fetch_max((p * most).to_bits(), Relaxed);
@@ -204,9 +222,18 @@ impl Shadow {
     }
 
     /// Bring `rack` to what the channels have: bank and voice, controllers, pitch bend.
-    fn replay(&self, rack: &mut Rack, bank: &mut [u8; 16], parts: &Parts) {
+    fn replay(&self, rack: &mut Rack, bank: &mut [u8; 16], parts: &Parts, router: Option<&Router>) {
         // Every channel: the metered ones and the Multi Pads' (5-8).
         for ch in 0..16u8 {
+            self.replay_channel(rack, bank, ch, router);
+        }
+        routing::sync_parts(rack, parts, router);
+    }
+
+    /// Bring channel `ch` of `rack` to what it has.
+    fn replay_channel(&self, rack: &mut Rack, bank: &mut [u8; 16], ch: u8, router: Option<&Router>) {
+        let apply_rack = |rack: &mut Rack, m: &Msg, bank: &mut [u8; 16]| apply_routed(rack, m, bank, router);
+        {
             let c = ch as usize;
             if self.cc[c][0] != NO_CC {
                 apply_rack(rack, &[0xB0 | ch, 0, self.cc[c][0]], bank);
@@ -245,7 +272,6 @@ impl Shadow {
                 apply_rack(rack, &[0xE0 | ch, lo, hi], bank);
             }
         }
-        sync_player_rack(rack, parts);
     }
 }
 
@@ -261,6 +287,8 @@ pub fn take_meters(c: &SynthControl) -> ([f32; 16], [f32; 2], u64) {
 pub struct Feeds {
     pub engine: Option<Producer<Msg>>,
     pub input: Option<Producer<Msg>>,
+    /// The control side's: sound library auditions (#103).
+    pub control: Option<Producer<Msg>>,
     pub consumers: Vec<Consumer<Msg>>,
 }
 
@@ -289,16 +317,19 @@ fn sync_player(player: &mut Synthesizer, parts: &Parts) {
     }
 }
 
+#[cfg(test)]
 fn sync_player_rack(rack: &mut Rack, parts: &Parts) {
-    for p in 0..parts::COUNT {
-        rack.process(parts::CHANNEL[p] as i32, 0xC0, parts.channel_program(p) as i32, 0);
-    }
+    routing::sync_parts(rack, parts, None);
 }
+
+/// `Feeds::consumers`: the control side's ring (auditions) is the third.
+const CONTROL_RING: usize = 2;
 
 pub fn feeds() -> Feeds {
     let (engine, c1) = RingBuffer::new(4096);
     let (input, c2) = RingBuffer::new(1024);
-    Feeds { engine: Some(engine), input: Some(input), consumers: vec![c1, c2] }
+    let (control, c3) = RingBuffer::new(256);
+    Feeds { engine: Some(engine), input: Some(input), control: Some(control), consumers: vec![c1, c2, c3] }
 }
 
 /// GM program to use for a Yamaha voice. Yamaha's GM/XG banks (MSB 0) follow GM
@@ -405,13 +436,21 @@ fn apply(synth: &mut Synthesizer, player: &mut Synthesizer, m: &Msg, bank: &mut 
     });
 }
 
-/// A message to a rack: each channel to its own synthesizer.
+/// A message to a rack: each channel to its own synthesizer (no program map).
+#[cfg(test)]
 #[inline]
 fn apply_rack(rack: &mut Rack, m: &Msg, bank: &mut [u8; 16]) {
-    translate(m, bank, |ch, st, a, b| rack.process(ch, st, a, b));
+    apply_routed(rack, m, bank, None);
 }
 
-pub fn start(sf2: &Path, consumers: Vec<Consumer<Msg>>, out_pair: Option<u8>, parts: Arc<Parts>) -> Result<Synth> {
+/// The sound library's side of the synth (#103): the program map's table and the main
+/// SoundFont's font id.
+pub struct Routing {
+    pub routes: Arc<crate::patches::Routes>,
+    pub font_id: u8,
+}
+
+pub fn start(sf2: &Path, consumers: Vec<Consumer<Msg>>, out_pair: Option<u8>, parts: Arc<Parts>, routing: Routing) -> Result<Synth> {
     let mut file = std::fs::File::open(sf2).with_context(|| format!("opening {}", sf2.display()))?;
     let font = Arc::new(SoundFont::new(&mut file).map_err(|e| anyhow!("{e:?}"))?);
 
@@ -435,8 +474,9 @@ pub fn start(sf2: &Path, consumers: Vec<Consumer<Msg>>, out_pair: Option<u8>, pa
     let first = out_pair.map(|c| c.saturating_sub(1)).unwrap_or(if device_name.contains("Model 16") { 10 } else { 0 });
     let first = (first as usize).min(channels.saturating_sub(2)) as u8;
 
-    let mut rack = Box::new(Rack::new(&font, sample_rate as i32)?);
+    let mut rack = Box::new(Rack::with_fonts(&[(routing.font_id, font.clone())], sample_rate as i32)?);
     drop(font);
+    let mut router = Router::new(routing.routes);
     let (swap_tx, mut swap_rx) = RingBuffer::<Box<Rack>>::new(2);
     let (mut old_tx, old_rx) = RingBuffer::<Box<Rack>>::new(4);
 
@@ -458,7 +498,7 @@ pub fn start(sf2: &Path, consumers: Vec<Consumer<Msg>>, out_pair: Option<u8>, pa
     let callback = move |out: &mut [f32], _: &cpal::OutputCallbackInfo| {
         // A new SoundFont: the new rack takes over with the channels' voices and controllers.
         if let Ok(mut new) = swap_rx.pop() {
-            shadow.replay(&mut new, &mut bank, &parts);
+            shadow.replay(&mut new, &mut bank, &parts, Some(&router));
             let old = std::mem::replace(&mut rack, new);
             if let Some(f) = fading.replace(old) {
                 let _ = old_tx.push(f);
@@ -468,8 +508,10 @@ pub fn start(sf2: &Path, consumers: Vec<Consumer<Msg>>, out_pair: Option<u8>, pa
         }
         // Acquire pairs with the Release stores in `Parts`: the new programs are visible.
         if parts.changed.swap(false, Acquire) {
-            sync_player_rack(&mut rack, &parts);
+            routing::sync_parts(&mut rack, &parts, Some(&router));
         }
+        // The program map changed under the channels (#103): route them again.
+        routing::follow_table(&mut rack, &shadow, &mut bank, &parts, &mut router);
         let master = ctl.master.load(Relaxed);
         if master != last_master {
             last_master = master;
@@ -478,15 +520,23 @@ pub fn start(sf2: &Path, consumers: Vec<Consumer<Msg>>, out_pair: Option<u8>, pa
                 f.set_master_volume(master_gain(master));
             }
         }
-        for c in consumers.iter_mut() {
+        for (i, c) in consumers.iter_mut().enumerate() {
             while let Ok(m) = c.pop() {
                 // The metronome's click voice: not a MIDI part.
                 if m[0] == CLICK {
                     click.trigger(m[1] != 0, ctl.click_volume.load(Relaxed));
                     continue;
                 }
-                shadow.note(&m);
-                apply_rack(&mut rack, &m, &mut bank);
+                // The program map's own messages (a table bank switch, an audition).
+                if routing::control_msg(&m, &mut rack, &shadow, &mut bank, &parts, &mut router) {
+                    continue;
+                }
+                // The control side's ring carries auditions, not the band: the shadow keeps
+                // the band's setup of the channel for when the audition ends.
+                if i != CONTROL_RING {
+                    shadow.note(&m);
+                }
+                apply_routed(&mut rack, &m, &mut bank, Some(&router));
             }
         }
         let frames = (out.len() / channels).min(left.len());
@@ -899,7 +949,7 @@ mod rack_tests {
         }
         sync_player_rack(&mut sent, &parts);
         let mut replayed = Rack::new(&font, 48_000).unwrap();
-        shadow.replay(&mut replayed, &mut bank, &parts);
+        shadow.replay(&mut replayed, &mut bank, &parts, None);
         let mut energy = |rack: &mut Rack| {
             apply_rack(rack, &[0x9A, 45, 100], &mut [0u8; 16]);
             rack.render(&mut l, &mut r, &p, None);
@@ -936,7 +986,7 @@ mod rack_tests {
         }
         sync_player_rack(&mut sent, &parts);
         let mut replayed = Rack::new(&font, 48_000).unwrap();
-        shadow.replay(&mut replayed, &mut [0u8; 16], &parts);
+        shadow.replay(&mut replayed, &mut [0u8; 16], &parts, None);
         let render = |rack: &mut Rack| {
             let (mut l, mut r) = (vec![0f32; 4800], vec![0f32; 4800]);
             apply_rack(rack, &[0x9A, 40, 100], &mut [0u8; 16]);

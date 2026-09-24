@@ -15,8 +15,14 @@ impl Control {
                 return self.set_part_on(part, on);
             }
             PartsCmd::SelectPart { part } => parts.select(part as usize),
-            PartsCmd::SetPartVoice { part, program } => parts.set_program((part & 3) as usize, program),
-            PartsCmd::StepVoice { delta } => parts.step_program(delta as i32),
+            PartsCmd::SetPartVoice { part, program } => {
+                parts.set_program((part & 3) as usize, program);
+                self.sound_library_part_voice((part & 3) as usize);
+            }
+            PartsCmd::StepVoice { delta } => {
+                parts.step_program(delta as i32);
+                self.sound_library_part_voice(parts.selected());
+            }
             PartsCmd::SetPartVolume { part, volume } => {
                 parts.set_volume((part & 3) as usize, volume);
                 self.wake_engine();
@@ -42,6 +48,8 @@ impl Control {
         (0..parts::COUNT)
             .map(|p| {
                 let plays_bass = p == parts::LEFT && kp.manual_bass.load(Relaxed);
+                // Its own sound library patch, and the patch its channel plays (#103).
+                let (patch, plays) = self.part_sound(p);
                 KeyboardPart {
                     name: parts::NAMES[p].to_string(),
                     channel: parts::CHANNEL[p] + 1,
@@ -51,10 +59,11 @@ impl Control {
                     volume: kp.volume(p),
                     waiting: kp.waiting(p),
                     program: kp.program[p].load(Relaxed),
-                    voice_name: gm_name(kp.channel_program(p)).to_string(),
+                    voice_name: plays.unwrap_or_else(|| gm_name(kp.channel_program(p)).to_string()),
                     plays_bass,
                     octave: kp.octave[p].load(Relaxed).clamp(-2, 2),
                     fader: v.fader_hw[p],
+                    patch,
                 }
             })
             .collect()

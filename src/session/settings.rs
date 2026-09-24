@@ -22,8 +22,9 @@ pub(super) struct SynthRef {
     pub(super) swap: Option<synth::RackSwap>,
 }
 
-/// What the SoundFont loader thread sends back.
-pub(super) type RackLoad = Result<Box<synth::Rack>, String>;
+/// What the SoundFont loader thread sends back: the rack, and the SoundFonts in it (the
+/// sound library keeps them parsed for the next rack).
+pub(super) type RackLoad = Result<super::sound_library::RackLoaded, String>;
 
 /// A live session's MIDI input: the port, and which sources it listens to.
 pub(super) struct MidiIo {
@@ -53,11 +54,17 @@ pub fn choose_keys(sources: &[String], all: bool, names: &[String]) -> Vec<usize
 
 /// Start the synth on a thread of its own, which keeps the audio stream (not `Send`)
 /// until told to stop.
-pub(super) fn start_synth(sf2: &Path, consumers: Vec<Consumer<synth::Msg>>, audio_out: Option<u8>, parts: Arc<parts::Parts>) -> Result<(SynthRef, SynthThread)> {
+pub(super) fn start_synth(
+    sf2: &Path,
+    consumers: Vec<Consumer<synth::Msg>>,
+    audio_out: Option<u8>,
+    parts: Arc<parts::Parts>,
+    routing: synth::Routing,
+) -> Result<(SynthRef, SynthThread)> {
     let (tx, rx) = mpsc::channel();
     let (stop, stop_rx) = mpsc::channel::<()>();
     let sf2 = sf2.to_path_buf();
-    let thread = std::thread::Builder::new().name("yahaha-synth".into()).spawn(move || match synth::start(&sf2, consumers, audio_out, parts) {
+    let thread = std::thread::Builder::new().name("yahaha-synth".into()).spawn(move || match synth::start(&sf2, consumers, audio_out, parts, routing) {
         Ok(mut s) => {
             let swap = s.swap.take();
             let _ = tx.send(Ok(SynthRef { info: s.info.clone(), control: s.control.clone(), swap }));
@@ -118,20 +125,16 @@ impl Control {
         if sy.swap.is_none() {
             return self.fail("this synth can't change SoundFonts");
         }
-        let sample_rate = sy.info.sample_rate;
         self.list_sound_fonts();
         let bad = file.contains('/') || file.contains('\\') || file.starts_with('.') || !file.to_lowercase().ends_with(".sf2");
         let path = self.sf_dir.as_ref().map(|d| d.join(&file));
-        let Some(path) = path.filter(|p| !bad && p.is_file()) else {
+        if path.filter(|p| !bad && p.is_file()).is_none() {
             return self.fail(format!("no SoundFont {file} in the SoundFont folder"));
-        };
-        let (tx, rx) = mpsc::channel();
-        let spawned = std::thread::Builder::new().name("yahaha-sf2".into()).spawn(move || {
-            let _ = tx.send(synth::Rack::load(&path, sample_rate).map_err(|e| format!("{e:#}")));
-        });
-        if spawned.is_err() {
-            return self.fail("couldn't start loading the SoundFont");
         }
+        // The new SoundFont, with the ones the sound library plays (#103).
+        let Some(rx) = self.sound_library_rack(&file) else {
+            return self.fail("couldn't start loading the SoundFont");
+        };
         self.sf_load = Some((file, rx));
         Ok(())
     }
@@ -140,9 +143,10 @@ impl Control {
     pub(super) fn pump_sound_font(&mut self) {
         if let Some((file, rx)) = &self.sf_load {
             match rx.try_recv() {
-                Ok(Ok(rack)) => {
+                Ok(Ok((rack, fonts))) => {
                     self.sf_ready = Some((file.clone(), rack));
                     self.sf_load = None;
+                    self.sound_library_loaded(fonts);
                 }
                 Ok(Err(e)) => {
                     let msg = format!("SoundFont {file}: {e}");

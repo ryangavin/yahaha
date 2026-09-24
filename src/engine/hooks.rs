@@ -160,6 +160,7 @@ impl Engine {
     pub(super) fn on_style_loaded(&mut self, _now: u64, _sink: &mut impl Sink) {
         #[cfg(test)]
         self.log(Hook::StyleLoaded);
+        _sink.route_bank(self.style.route_bank);
     }
 
     /// A tick (on the section's timeline) by which a feature needs `process` to run, if

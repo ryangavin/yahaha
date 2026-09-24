@@ -29,6 +29,7 @@ mod pads;
 mod parts;
 mod preview;
 mod settings;
+mod sound_library;
 mod surface;
 mod system;
 mod transport;
@@ -46,6 +47,7 @@ pub use pads::*;
 pub use parts::*;
 pub use preview::*;
 pub use settings::*;
+pub use sound_library::*;
 pub use surface::*;
 pub use system::*;
 pub use transport::*;
@@ -131,6 +133,8 @@ app_cmd! {
     MultiPad(MultiPadCmd),
     /// Pedals, wheels and assignable functions.
     Controllers(ControllersCmd),
+    /// The sound library: patches, the program map, auditions, import/export.
+    SoundLibrary(SoundLibraryCmd),
 }
 
 impl From<Button> for AppCmd {
@@ -269,6 +273,8 @@ pub struct AppState {
     pub looper: LooperState,
     /// The metronome.
     pub metronome: MetronomeState,
+    /// The sound library: patches, the program map, what the current style uses.
+    pub sound_library: SoundLibraryState,
 }
 
 // ---------------------------------------------------------------------------

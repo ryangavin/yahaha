@@ -112,6 +112,7 @@ impl Control {
             Ok((mut p, info)) => {
                 self.style_seq += 1;
                 p.tag = self.style_seq;
+                self.sound_library_on_style(&mut p, &info.path);
                 if self.style_tx.push(p).is_err() {
                     return Err(CmdError::Busy);
                 }
@@ -160,7 +161,8 @@ impl Control {
         if self.snap.style_tag != *tag {
             return;
         }
-        let (id, _, info) = self.pending_style.take().unwrap();
+        let (id, tag, info) = self.pending_style.take().unwrap();
+        self.sound_library_promoted(tag);
         self.shared.parts.set_bass_program(synth::style_bass_program(info.voices[10]));
         // No OTS of the new style is recalled yet (OTS Link recalls one on the next pass
         // if it's on).

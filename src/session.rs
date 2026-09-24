@@ -42,6 +42,7 @@ mod pads;
 mod parts;
 mod preview;
 mod settings;
+mod sound_library;
 mod surface;
 mod system;
 mod transport;
@@ -97,6 +98,14 @@ pub struct Options {
     pub manual_bass: bool,
     /// Initial Keyboard / Master transpose.
     pub transpose: Transpose,
+    /// Where the sound library (`sound-library.json`) is saved. None: it can't be saved
+    /// (tests, `state-json`). `default_data_dir()` is the usual one.
+    pub data_dir: Option<PathBuf>,
+}
+
+/// The usual data folder: `~/Documents/yahaha` (the user's own files, like styles).
+pub fn default_data_dir() -> Option<PathBuf> {
+    std::env::var_os("HOME").map(|h| PathBuf::from(h).join("Documents").join("yahaha"))
 }
 
 impl Default for Options {
@@ -114,6 +123,7 @@ impl Default for Options {
             upper: false,
             manual_bass: true,
             transpose: Transpose::default(),
+            data_dir: None,
         }
     }
 }
@@ -244,6 +254,8 @@ struct Control {
     old_pad_rx: Consumer<Box<crate::multipad::MultiPadPlayer>>,
     /// Multi Pads: the bank list and the bank loaded.
     multipad: multipad::Pads,
+    /// The sound library (#103).
+    sound: sound_library::SoundLib,
 }
 
 /// What several parts of the state read, read once per `build_state` so they all agree.
@@ -297,6 +309,7 @@ impl Control {
             AppCmd::Metronome(c) => self.metronome_cmd(c),
             AppCmd::MultiPad(c) => self.multipad_cmd(c),
             AppCmd::Controllers(c) => self.controllers_cmd(c),
+            AppCmd::SoundLibrary(c) => self.sound_library_cmd(c),
         }
     }
 
@@ -362,6 +375,7 @@ impl Control {
         }
         self.pump_index();
         self.pump_multipad();
+        self.pump_sound_library(now);
     }
 
     /// The state: each feature builds its part, in `AppState`'s order.
@@ -396,6 +410,7 @@ impl Control {
             message: self.message.clone(),
             looper: self.looper_state(),
             metronome: self.metronome_state(),
+            sound_library: self.sound_library_state(),
         }
     }
 }
@@ -478,8 +493,14 @@ struct EngineLoopParts {
 
 /// Build the shared state, the rings, the input handler and the control side.
 fn assemble(opts: &Options, engine_out: live::Out, input_out: live::Out, offline: bool) -> Result<(Arc<Shared>, Assembled)> {
-    let (lib, index_rx, cur, prep, info) = open_library(&opts.paths)?;
+    let (lib, index_rx, cur, mut prep, info) = open_library(&opts.paths)?;
     let shared = Arc::new(Shared::new(opts.split));
+    let mut engine_out = engine_out;
+    engine_out.port_map = crate::patches::port::PortMap::new(shared.routes.clone());
+    let sf_dir = opts.sf2.as_ref().and_then(|p| p.parent()).map(|d| if d.as_os_str().is_empty() { Path::new(".") } else { d }.to_path_buf());
+    let mut sound = sound_library::SoundLib::open(opts.data_dir.as_deref());
+    let avail = sf_dir.as_deref().map(crate::library::sound_font_files).unwrap_or_default();
+    Control::sound_library_first_style(&mut sound, &shared.routes, &mut prep, &info.path, &avail);
     shared.fingering.store(opts.fingering.to_u8(), Relaxed);
     shared.upper.store(opts.upper, Relaxed);
     shared.manual_bass.store(opts.manual_bass, Relaxed);
@@ -532,7 +553,7 @@ fn assemble(opts: &Options, engine_out: live::Out, input_out: live::Out, offline
         pending_style: None,
         roots: opts.paths.clone(),
         scan_rx: None,
-        sf_dir: opts.sf2.as_ref().and_then(|p| p.parent()).map(|d| if d.as_os_str().is_empty() { Path::new(".") } else { d }.to_path_buf()),
+        sf_dir,
         sf_file: opts.sf2.as_ref().and_then(|p| p.file_name()).map(|n| n.to_string_lossy().to_string()),
         sound_fonts: Vec::new(),
         sf_load: None,
@@ -548,9 +569,13 @@ fn assemble(opts: &Options, engine_out: live::Out, input_out: live::Out, offline
         pad_tx: ch.pad_tx,
         old_pad_rx: ch.old_pad_rx,
         multipad: multipad::Pads::scan(&opts.paths),
+        sound,
     };
     let mut control = control;
     control.list_sound_fonts();
+    if let Some(e) = control.sound.load_error().map(str::to_string) {
+        control.say(format!("Sound library not loaded (it will not be saved over): {e}"), true);
+    }
     Ok((shared, Assembled { control, engine: EngineLoopParts { engine, io: ch.io }, input }))
 }
 
@@ -578,8 +603,12 @@ impl Session {
         };
         let mut synth_thread = None;
         if let Some(sf2) = &opts.sf2 {
-            match start_synth(sf2, std::mem::take(&mut feeds.consumers), opts.audio_out, shared.parts.clone()) {
+            let main = sf2.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+            let routing = synth::Routing { routes: shared.routes.clone(), font_id: p.control.sound.font_id(&main).unwrap_or(0) };
+            match start_synth(sf2, std::mem::take(&mut feeds.consumers), opts.audio_out, shared.parts.clone(), routing) {
                 Ok((r, t)) => {
+                    p.control.sound.synth_started(&main);
+                    p.control.sound.audition_tx = feeds.control.take();
                     p.input.set_synth(Some(r.control.clone()));
                     p.control.synth = Some(r);
                     synth_thread = Some(t);

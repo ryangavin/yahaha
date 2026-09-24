@@ -46,6 +46,11 @@ pub trait Sink {
     /// A metronome click (`accent`: the bell on beat 1), for the built-in synth's click
     /// voice only: it never goes out as MIDI. Sinks without a synth ignore it.
     fn click(&mut self, _accent: bool) {}
+
+    /// The style just taken over plays with bank `bank` of the sound library's route table
+    /// (#103, `patches::route`): for the built-in synth and the port's program mapping
+    /// only, never MIDI. Sinks without them ignore it.
+    fn route_bank(&mut self, _bank: u8) {}
 }
 
 /// The tempo range, BPM (Genos: 5-500, OM p.46, p.133).
