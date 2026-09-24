@@ -22,10 +22,10 @@ yahaha = { path = "../..", default-features = false }   # the library alone, no 
 ```
 
 ```rust
-use yahaha::{AppCmd, Options, Session};
+use yahaha::{api::TransportCmd, Options, Session};
 
 let session = Session::start(Options { paths: vec!["corpus".into()], sf2: Some(sf2), ..Options::default() })?;
-session.send(AppCmd::Main { index: 1 })?;       // Result<(), CmdError>
+session.send(TransportCmd::Main { index: 1 })?; // any AppCmd or group; Result<(), CmdError>
 let state = session.state();                    // Arc<AppState>, cheap to call
 let events = session.subscribe();               // std::sync::mpsc::Receiver<Event>
 let styles = session.library_list();            // LibraryList, when the library changes
