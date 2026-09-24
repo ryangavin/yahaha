@@ -11,6 +11,7 @@ import { clockAt, mockSurface, type MockHardware } from './mock-surface'
 import { emptyLooper, MockLooper } from './mock-looper'
 import { initialMultiPad, MockPads } from './mock-multipad'
 import { padsFor } from './mock-pads'
+import { initialPlugins, MockPlugins } from './mock-plugins'
 import type { Session } from './session'
 import {
   BREAK, ENDINGS, FILLS, FINGERINGS, INTROS, KEYBOARD_PART_NAMES, MAINS, PAD_PAGES, STYLE_PART_NAMES,
@@ -242,6 +243,7 @@ export function initialState(): AppState {
     metronome: { on: false, volume: 90, bell: true, audible: true },
     multiPad: initialMultiPad(),
     controllers: defaultControllers(),
+    plugins: initialPlugins(),
   }
   derive(state, LIBRARY)
   return state
@@ -375,6 +377,11 @@ export class MockSession implements Session {
   private auditionBeats = 0
   /** Multi Pads (mock-multipad.ts). */
   private multiPads = new MockPads(() => this.state.multiPad)
+  /** Instrument plugins (mock-plugins.ts). */
+  private plugins = new MockPlugins(
+    () => this.state,
+    (t, e) => this.message(t, e),
+  )
 
   constructor(opts: MockOptions = {}) {
     this.demo = opts.demo ?? false
@@ -440,6 +447,13 @@ export class MockSession implements Session {
     return Promise.resolve({ atMs: this.now, channels: [], master: [0, 0] as [number, number], clips: 0 })
   }
 
+  pluginEditor(part: number, open: boolean) {
+    if (!open) return
+    const p = this.state.keyboardParts[part & 3]?.plugin
+    this.message(p ? `${p.name}'s window opens in the desktop app` : 'the part plays its SoundFont voice', !p)
+    this.publish()
+  }
+
   dispose() {
     if (this.timer) clearInterval(this.timer)
     this.subs.clear()
@@ -496,6 +510,7 @@ export class MockSession implements Session {
     }
     if (!t.running) this.stepAudition(ms)
     this.multiPads.beats((ms / 60000) * t.tempo)
+    this.plugins.step(ms)
     if (this.scanLeft > 0) {
       this.scanLeft -= ms
       if (this.scanLeft <= 0) this.state.library.scanning = false
@@ -1089,6 +1104,12 @@ export class MockSession implements Session {
       }
       case 'clearMessage':
         st.message = null
+        break
+      case 'setPartPlugin':
+      case 'clearPartPlugin':
+      case 'savePartPluginState':
+      case 'rescanPlugins':
+        this.plugins.cmd(cmd)
         break
       case 'loadMultiPad':
       case 'loadMultiPadPath':

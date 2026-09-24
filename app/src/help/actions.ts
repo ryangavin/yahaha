@@ -115,5 +115,9 @@ export function tipFor(cmd: AppCmd | null): TipKey {
     case 'triggerFunction': return 'pedal.try'
     case 'setPartControllers': return 'pedal.part_sustain'
     case 'setBendRange': return 'pedal.bend_up'
+    case 'setPartPlugin':
+    case 'clearPartPlugin':
+    case 'savePartPluginState': return 'part.plugin'
+    case 'rescanPlugins': return 'part.plugin_rescan'
   }
 }

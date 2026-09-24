@@ -619,6 +619,41 @@ const catalog = {
   },
 
   // ── Keyboard parts drawer ──────────────────────────────────────────────
+  'part.source_gm': {
+    title: 'GM voices',
+    body: 'Shows the built-in SoundFont voices for this part. A part playing a plugin keeps its SoundFont voice here for when you go back to it.',
+    genos: 'Voice select (VOICE buttons)',
+    keys: [],
+    launchkey: null,
+  },
+  'part.source_plugins': {
+    title: 'Plugins',
+    body: 'Shows your instrument plugins (Audio Units) for this part. A dot means the part plays one.',
+    genos: null,
+    keys: [],
+    launchkey: null,
+  },
+  'part.plugin': {
+    title: 'Plugin',
+    body: 'Plays this part on an instrument plugin instead of its SoundFont voice. It loads in the background, and the part keeps its SoundFont voice until the plugin is ready. The fader stays the part\'s volume (CC 7).',
+    genos: null,
+    keys: [],
+    launchkey: null,
+  },
+  'part.plugin_edit': {
+    title: 'Edit plugin',
+    body: 'Opens the plugin\'s own window to change its sound. yahaha keeps the plugin\'s settings with the part.',
+    genos: null,
+    keys: [],
+    launchkey: null,
+  },
+  'part.plugin_rescan': {
+    title: 'Rescan plugins',
+    body: 'Looks for newly installed or removed instrument plugins. A ⚠ in the list marks a plugin that failed to load last time.',
+    genos: null,
+    keys: [],
+    launchkey: null,
+  },
   'part.voice': {
     title: 'Voice',
     body: 'Picks this part\'s voice. Under Manual Bass, Left plays the style\'s Bass voice instead, and this is the voice it goes back to.',
@@ -704,6 +739,13 @@ const catalog = {
     genos: 'Channel On/Off',
     keys: ['z', 'x', 'c', 'v', 'b', 'n', 'm', ','],
     launchkey: 'Style fader page: buttons under faders 1–8',
+  },
+  'mixer.plugin': {
+    title: 'Plugin part',
+    body: 'This part plays an instrument plugin, shown with its share of the CPU. Its fader is still the part\'s CC 7, applied to the plugin\'s output.',
+    genos: null,
+    keys: [],
+    launchkey: null,
   },
   'mixer.master': {
     title: 'Master volume',

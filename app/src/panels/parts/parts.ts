@@ -2,7 +2,7 @@
 // state and only words it for the screen; no engine behaviour is decided here.
 
 import type { TipKey } from '../../help/tooltips'
-import type { AppState, KeyboardPart, OtsPart } from '../../lib/api/types'
+import type { AppState, KeyboardPart, OtsPart, PartPlugin, PluginEntry } from '../../lib/api/types'
 import { MAINS } from '../../lib/api/types'
 
 export const PART_KEYS = ['right1', 'right2', 'right3', 'left'] as const
@@ -65,3 +65,33 @@ export const linkedMain = (i: number) => MAINS[i]
 
 /** Where a keyboard part's volume lives on the Launchkey. */
 export const launchkeyPlace = (i: number) => `Fader ${i + 1}`
+
+/** The installed plugins by manufacturer, in the engine's order (it sorts them). */
+export function pluginGroups(list: PluginEntry[]): { manufacturer: string; plugins: PluginEntry[] }[] {
+  const out: { manufacturer: string; plugins: PluginEntry[] }[] = []
+  for (const p of list) {
+    const m = p.manufacturer || 'Other'
+    const g = out.find((x) => x.manufacturer === m)
+    if (g) g.plugins.push(p)
+    else out.push({ manufacturer: m, plugins: [p] })
+  }
+  return out
+}
+
+const STAGE: Record<string, string> = { queued: 'queued', instantiating: 'starting', initializing: 'initialising', restoringState: 'loading preset' }
+
+/** The line under a plugin part's name: where its load is, or why it isn't playing. */
+export function pluginStatusLine(p: PartPlugin | undefined, available: boolean): string {
+  if (!available) return 'Plugins need the built-in synth'
+  if (!p) return 'Plugin ▾'
+  switch (p.status) {
+    case 'loading':
+      return `Loading… ${STAGE[p.stage ?? ''] ?? ''}`.trim()
+    case 'failed':
+      return `Failed: ${p.error ?? 'did not load'}`
+    case 'muted':
+      return 'Muted: the plugin stopped'
+    default:
+      return `${p.manufacturer}${p.outOfProcess ? ' · own process' : ''} ▾`
+  }
+}
