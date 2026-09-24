@@ -73,6 +73,22 @@ export function transposeChord(name: string, d: number): string {
   return name.replace(/^([A-G][b#]?)/, (m) => shift(m)).replace(/\/([A-G][b#]?)$/, (_, m) => '/' + shift(m))
 }
 
+/** Intervals of the chord qualities the mock's progression uses (the engine recognises many more). */
+const QUALITIES: Record<string, number[]> = {
+  '': [0, 4, 7], m: [0, 3, 7], '7': [0, 4, 7, 10], m7: [0, 3, 7, 10], maj7: [0, 4, 7, 11], '6': [0, 4, 7, 9],
+  m6: [0, 3, 7, 9], sus4: [0, 5, 7], '7sus4': [0, 5, 7, 10], dim: [0, 3, 6], aug: [0, 4, 8],
+}
+
+/** The mock's stand-in for the engine's chord tones: pitch classes, root first, and the bass. */
+export function chordTones(name: string | null): { tones: number[]; bass: number | null } {
+  const m = name ? /^([A-G][b#]?)([^/]*)(?:\/([A-G][b#]?))?$/.exec(name) : null
+  const root = m ? NOTE_NAMES.indexOf(m[1]) : -1
+  if (!m || root < 0) return { tones: [], bass: null }
+  const tones = (QUALITIES[m[2]] ?? QUALITIES['']).map((i) => (root + i) % 12)
+  const slash = m[3] ? NOTE_NAMES.indexOf(m[3]) : -1
+  return { tones, bass: slash >= 0 ? slash : root }
+}
+
 const PROGRESSION = ['C', 'Am7', 'Fmaj7', 'G7', 'Em7', 'A7', 'Dm7', 'G7sus4', 'C/E', 'F', 'Fm6', 'C']
 const STYLE_VOICES: [number, number, number, boolean, string][] = [
   [127, 0, 0, true, 'drum kit 127/0/1'],
@@ -115,6 +131,11 @@ function beatsPerBar([n, d]: [number, number]): number {
   return d === 8 && n % 3 === 0 ? n / 3 : n
 }
 
+/** How long a section's pattern is, in bars (the mock's; real styles vary). */
+function patternBars(s: string): number {
+  return MAINS.includes(s) ? 4 : sectionBars(s)
+}
+
 /** A stopped session with the first style loaded and Sync Start armed. */
 export function initialState(): AppState {
   const s = STYLES[0]
@@ -135,6 +156,7 @@ export function initialState(): AppState {
       manualBass: true, manualBassActive: false, split: 54, splitName: noteName(54), transposeKeyboard: 0, transposeMaster: 0,
     },
     keyboardParts: [part(0, 0, true), part(1, 48, false), part(2, 61, false), part(3, 48, false)],
+    keyboard: { held: [], leftSplit: 54, chordTones: [], chordBass: null },
     mixer: {
       faderPage: 'panel',
       styleParts: STYLE_PART_NAMES.map((name, i) => ({
@@ -168,7 +190,7 @@ export function initialState(): AppState {
 
 /** The fields the engine computes from the others: pads, lamps, names, flags, and the
  * provisional `surface` (with the mock's hardware fader positions and beat clock). */
-function derive(st: AppState, hw: { faders: number[]; beats: number; atMs: number } | null = null) {
+function derive(st: AppState, hw: { faders: number[]; beats: number; atMs: number } | null = null, held: number[] = []) {
   const c = st.chord
   c.fingeringName = c.upper ? 'Fingered*' : FINGERINGS.find((f) => f.id === c.fingering)!.name
   c.manualBassActive = c.upper && c.manualBass
@@ -180,6 +202,20 @@ function derive(st: AppState, hw: { faders: number[]; beats: number; atMs: numbe
     p.voiceName = p.playsBass ? 'Finger Bass' : GM[p.program]
   })
   st.mixer.styleParts.forEach((p, i) => (p.mutedByManualBass = i === 2 && c.manualBassActive))
+  st.transport.sectionBars = st.transport.section ? patternBars(st.transport.section) : null
+  // The keyboard strip: which part sounds each held key, and the chord's tones.
+  const right = st.keyboardParts.slice(0, 3).flatMap((p, i) => (p.on ? [i] : []))
+  const left = st.keyboardParts[3].sounding ? [3] : []
+  const ct = chordTones(c.name)
+  st.keyboard = {
+    held: [...held].sort((a, b) => a - b).map((note) => {
+      const lower = note <= c.split
+      return { note, zone: lower ? ('left' as const) : ('right' as const), parts: lower ? left : right }
+    }),
+    leftSplit: c.split,
+    chordTones: ct.tones,
+    chordBass: ct.bass,
+  }
   const page = PAD_PAGES.findIndex((p) => p.id === st.pads.page)
   st.pads.pageName = PAD_PAGES[page].name
   st.pads.pageNumber = page + 1
@@ -219,6 +255,9 @@ export class MockSession implements Session {
   private progression = 0
   private messageSeq = 0
   private demo: boolean
+  /** Keys the (imaginary) player holds: a left-hand chord and a right-hand melody. */
+  private leftHand: number[] = []
+  private rightHand: number[] = []
   /** Where the (imaginary) hardware faders physically are: 1–8, master. */
   private hwFaders = [100, 72, 100, 100, 0, 0, 0, 0, 100]
 
@@ -226,7 +265,7 @@ export class MockSession implements Session {
     this.demo = opts.demo ?? false
     this.state = initialState()
     if (this.demo) this.demoStart()
-    derive(this.state, { faders: this.hwFaders, beats: this.clock, atMs: this.now })
+    derive(this.state, { faders: this.hwFaders, beats: this.clock, atMs: this.now }, [...this.leftHand, ...this.rightHand])
     if (!opts.manual) {
       this.last = performance.now()
       this.timer = setInterval(() => {
@@ -252,6 +291,8 @@ export class MockSession implements Session {
     st.ots.applied = 2
     st.chord.name = 'Am7'
     st.chord.fingered = 'Am7'
+    this.leftHand = this.leftVoicing('Am7')
+    this.rightHand = [72, 76]
     st.mixer.styleParts[5].waiting = true
     st.mixer.styleParts[5].volume = 58
     this.position()
@@ -279,7 +320,7 @@ export class MockSession implements Session {
 
   private publish() {
     this.state.version++
-    derive(this.state, { faders: this.hwFaders, beats: this.clock, atMs: this.now })
+    derive(this.state, { faders: this.hwFaders, beats: this.clock, atMs: this.now }, [...this.leftHand, ...this.rightHand])
     const snap = this.snapshot()
     for (const f of this.subs) f(snap)
   }
@@ -324,6 +365,7 @@ export class MockSession implements Session {
 
   private onBeat() {
     const t = this.state.transport
+    if (this.demo) this.melody()
     if (t.queued && FILLS.includes(t.queued)) {
       t.section = t.queued
       t.queued = null
@@ -377,8 +419,35 @@ export class MockSession implements Session {
     }
   }
 
+  /** The demo's right hand: a chord tone per beat above the split, resting on the last beat. */
+  private melody() {
+    const beat = Math.floor(this.clock)
+    const bpb = this.state.transport.beatsPerBar
+    const { tones } = chordTones(this.state.chord.fingered)
+    if (!tones.length || beat % bpb === bpb - 1) {
+      this.rightHand = []
+      return
+    }
+    const tone = tones[(beat * 3) % tones.length]
+    const top = 72 + tone
+    this.rightHand = beat % bpb === 0 ? [60 + tones[0] + (tones[0] < 5 ? 12 : 0), top] : [top]
+  }
+
+  /** The demo's left hand: `chord` in close position, root at or just below the split. */
+  private leftVoicing(chord: string) {
+    const { tones } = chordTones(chord)
+    const split = this.state.chord.split
+    if (!tones.length) return []
+    const root = split - ((((split - tones[0]) % 12) + 12) % 12)
+    return tones.map((pc) => {
+      const n = root + ((pc - tones[0] + 12) % 12)
+      return n > split ? n - 12 : n
+    }).sort((a, b) => a - b)
+  }
+
   private chordArrives(chord: string) {
     const t = this.state.transport
+    if (this.demo) this.leftHand = this.leftVoicing(chord)
     const k = this.state.chord.transposeKeyboard
     this.state.chord.name = transposeChord(chord, k)
     this.state.chord.fingered = chord
@@ -399,6 +468,7 @@ export class MockSession implements Session {
 
   private stopBand() {
     const t = this.state.transport
+    this.rightHand = []
     t.running = false
     t.section = null
     t.queued = null

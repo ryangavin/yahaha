@@ -143,6 +143,9 @@ export interface TransportState {
   tempo: number
   /** Page 1 of the pads, whatever page the hardware is on: the section lamps. */
   lamps: Pad[]
+  /** Provisional (NEED on the board): how many bars the section playing lasts (a Main's
+   * pattern length; it loops), for the lead-sheet band's progress. Absent: unknown. */
+  sectionBars?: number | null
 }
 
 export interface ChordState {
@@ -322,6 +325,32 @@ export interface SurfaceState {
   clock: { bar: number; beat: number; phase: number; tempo: number; atMs: number }
 }
 
+// ── Provisional: the keyboard (NEED on the board) ────────────────────────
+// What the keyboard strip under the mirror shows. Not in the engine yet; the mock sends it.
+
+/** A key held on the controller now. */
+export interface HeldNote {
+  /** MIDI note as played (after the controller's octave, before Keyboard transpose). */
+  note: number
+  /** Which side of the split it's on: 'left' = the chord section / Left part. */
+  zone: 'left' | 'right'
+  /** The keyboard parts sounding it (0–3 = Right 1, Right 2, Right 3, Left); empty if none
+   * (a left-hand key that only feeds chord detection). */
+  parts: number[]
+}
+
+export interface KeyboardState {
+  /** Keys held now, low to high. */
+  held: HeldNote[]
+  /** Split Point (Left): keys at or below it play the Left part. `chord.split` is the
+   * style's (chord detection) split. The engine uses one split for both today. */
+  leftSplit: number
+  /** Pitch classes (0–11, C = 0) of the recognised chord, root first; empty for none. */
+  chordTones: number[]
+  /** The bass the style plays (pitch class): the root, or the slash / on-bass note. */
+  chordBass: number | null
+}
+
 export interface AppState {
   version: number
   style: StyleState
@@ -337,6 +366,8 @@ export interface AppState {
   message: { seq: number; text: string; error: boolean } | null
   /** Provisional (see SurfaceState); absent from the engine until the follow-up API PR. */
   surface?: SurfaceState
+  /** Provisional (see KeyboardState): held keys and chord tones for the keyboard strip. */
+  keyboard?: KeyboardState
 }
 
 export interface LibraryEntry {

@@ -31,7 +31,8 @@ export class TauriSession implements Session {
     requestAnimationFrame(async () => {
       this.pending = false
       const st = await invoke<AppState>('state')
-      if (!this.last || st.version !== this.last.version) this.emit(st)
+      // Fetches can resolve out of order: only a newer snapshot goes out.
+      if (!this.last || st.version > this.last.version) this.emit(st)
     })
   }
 

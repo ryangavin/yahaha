@@ -1,7 +1,8 @@
 // The stores every panel reads:
 //
 // - `app.state`: the latest `AppState` from the session, replaced whole on every change
-//   (up to ~60 times a second while playing). Read slices of it with `$derived`; Svelte
+//   (up to ~60 times a second while playing). Only a snapshot with a higher `version`
+//   than the last one applied replaces it. Read slices of it with `$derived`; Svelte
 //   only touches the DOM where a value really changed.
 // - `app.send(cmd)`: every action goes through here.
 // - `app.library`: the style list, re-fetched when `state.library.revision` changes.
@@ -21,18 +22,32 @@ class AppStore {
   private unsub: (() => void) | null = null
   private libraryRevision = -1
 
+  /** The version of the state last applied; older or repeated snapshots are dropped. */
+  private version = -Infinity
+
   attach(session: Session) {
     this.detach()
     this.session = session
     this.kind = session.kind
-    this.unsub = session.subscribe((s) => {
-      this.state = s
-      clock.sync(s)
-      if (s.library.revision !== this.libraryRevision) {
-        this.libraryRevision = s.library.revision
-        session.library().then((l) => (this.library = l))
-      }
-    })
+    this.version = -Infinity
+    this.unsub = session.subscribe((s) => this.apply(s))
+  }
+
+  /**
+   * Applies a snapshot only if it's newer than the last one applied. State fetches can
+   * resolve out of order (two `invoke('state')` in flight), and an older snapshot must
+   * never overwrite a newer one. Returns whether it was applied.
+   */
+  apply(s: AppState): boolean {
+    if (!(s.version > this.version)) return false
+    this.version = s.version
+    this.state = s
+    clock.sync(s)
+    if (s.library.revision !== this.libraryRevision && this.session) {
+      this.libraryRevision = s.library.revision
+      this.session.library().then((l) => (this.library = l))
+    }
+    return true
   }
 
   detach() {
@@ -113,6 +128,18 @@ function storedTheme(): Theme {
   }
 }
 
+/** Keys on the keyboard strip: the Launchkey 49 or 61, or a full 88. */
+export type KeyRange = 49 | 61 | 88
+
+function storedKeyRange(): KeyRange | null {
+  try {
+    const n = Number(localStorage.getItem('yahaha.keys'))
+    return n === 49 || n === 61 || n === 88 ? n : null
+  } catch {
+    return null
+  }
+}
+
 class UiStore {
   /** Overlays and drawers around the hardware view. */
   browser = $state(false)
@@ -120,6 +147,8 @@ class UiStore {
   parts = $state(false)
   mixer = $state(false)
   theme = $state<Theme>(storedTheme())
+  /** The keyboard strip's size; null: match the connected Launchkey (49 or 61). */
+  keyRange = $state<KeyRange | null>(storedKeyRange())
   /** The Launchkey mirror's Shift layer: latched on screen, or the Shift key held. */
   shiftLatched = $state(false)
   shiftHeld = $state(false)
@@ -141,6 +170,16 @@ class UiStore {
       localStorage.setItem('yahaha.theme', t)
     } catch {
       /* private window: the theme just isn't remembered */
+    }
+  }
+
+  setKeyRange(k: KeyRange | null) {
+    this.keyRange = k
+    try {
+      if (k) localStorage.setItem('yahaha.keys', String(k))
+      else localStorage.removeItem('yahaha.keys')
+    } catch {
+      /* not remembered */
     }
   }
 

@@ -1,0 +1,104 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  yahaha app icon (original artwork; no third-party marks). The source for every icon
+  in this folder: `cargo tauri icon icons/icon.svg` (run in app/src-tauri) regenerates them.
+  The app's design language: an anodised graphite panel, a recessed pad well with rubber
+  pads (one lit amber, the app's accent; one lit with the display's cyan-white), and a
+  strip of keys, the keyboard the band follows.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="chassis" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#4a5059"/>
+      <stop offset="0.55" stop-color="#2b3037"/>
+      <stop offset="1" stop-color="#1c1f24"/>
+    </linearGradient>
+    <linearGradient id="edge" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#8a929d" stop-opacity="0.9"/>
+      <stop offset="0.12" stop-color="#8a929d" stop-opacity="0"/>
+      <stop offset="0.9" stop-color="#000" stop-opacity="0"/>
+      <stop offset="1" stop-color="#000" stop-opacity="0.5"/>
+    </linearGradient>
+    <pattern id="brush" width="1024" height="6" patternUnits="userSpaceOnUse">
+      <rect width="1024" height="2" fill="#fff" fill-opacity="0.025"/>
+    </pattern>
+    <linearGradient id="well" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#050607"/>
+      <stop offset="0.3" stop-color="#0d0f12"/>
+      <stop offset="1" stop-color="#111418"/>
+    </linearGradient>
+    <linearGradient id="rubber" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#3a3f47"/>
+      <stop offset="1" stop-color="#262a30"/>
+    </linearGradient>
+    <radialGradient id="amber" cx="0.5" cy="0.45" r="0.62">
+      <stop offset="0" stop-color="#fff1c9"/>
+      <stop offset="0.45" stop-color="#f3b843"/>
+      <stop offset="1" stop-color="#b87a12"/>
+    </radialGradient>
+    <radialGradient id="cyan" cx="0.5" cy="0.45" r="0.62">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="0.5" stop-color="#bfe9ff"/>
+      <stop offset="1" stop-color="#5aa9d6"/>
+    </radialGradient>
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="26"/>
+    </filter>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="14"/>
+      <feOffset dy="12"/>
+      <feComponentTransfer><feFuncA type="linear" slope="0.45"/></feComponentTransfer>
+      <feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <linearGradient id="white" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#b9b5ac"/>
+      <stop offset="0.15" stop-color="#e4e1da"/>
+      <stop offset="1" stop-color="#d0ccc3"/>
+    </linearGradient>
+    <clipPath id="tile"><rect x="100" y="100" width="824" height="824" rx="185"/></clipPath>
+  </defs>
+
+  <!-- The panel: a macOS-grid squircle of anodised graphite. -->
+  <g filter="url(#shadow)">
+    <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#chassis)"/>
+  </g>
+  <g clip-path="url(#tile)">
+    <rect x="100" y="100" width="824" height="824" fill="url(#brush)"/>
+    <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#edge)"/>
+  </g>
+  <rect x="101.5" y="101.5" width="821" height="821" rx="183.5" fill="none" stroke="#000" stroke-opacity="0.55" stroke-width="3"/>
+
+  <!-- The pad well, with four rubber pads. -->
+  <rect x="222" y="200" width="580" height="400" rx="58" fill="url(#well)"/>
+  <rect x="222" y="200" width="580" height="400" rx="58" fill="none" stroke="#fff" stroke-opacity="0.06" stroke-width="3"/>
+  <!-- glows bleeding onto the well -->
+  <rect x="262" y="240" width="240" height="150" rx="36" fill="#f3b843" opacity="0.55" filter="url(#glow)"/>
+  <rect x="522" y="410" width="240" height="150" rx="36" fill="#bfe9ff" opacity="0.4" filter="url(#glow)"/>
+  <!-- pads -->
+  <rect x="262" y="240" width="240" height="150" rx="36" fill="url(#amber)"/>
+  <rect x="522" y="240" width="240" height="150" rx="36" fill="url(#rubber)"/>
+  <rect x="262" y="410" width="240" height="150" rx="36" fill="url(#rubber)"/>
+  <rect x="522" y="410" width="240" height="150" rx="36" fill="url(#cyan)"/>
+  <g fill="none" stroke="#fff" stroke-opacity="0.16" stroke-width="3">
+    <path d="M298 242 H466"/><path d="M558 242 H726"/><path d="M298 412 H466"/><path d="M558 412 H726"/>
+  </g>
+
+  <!-- The keys. -->
+  <rect x="222" y="652" width="580" height="190" rx="22" fill="#0b0c0e"/>
+  <g fill="url(#white)">
+    <rect x="228" y="658" width="76" height="178" rx="12"/>
+    <rect x="310" y="658" width="76" height="178" rx="12"/>
+    <rect x="392" y="658" width="76" height="178" rx="12"/>
+    <rect x="474" y="658" width="76" height="178" rx="12"/>
+    <rect x="556" y="658" width="76" height="178" rx="12"/>
+    <rect x="638" y="658" width="76" height="178" rx="12"/>
+    <rect x="720" y="658" width="76" height="178" rx="12"/>
+  </g>
+  <g fill="#15171b">
+    <rect x="279" y="658" width="52" height="104" rx="8"/>
+    <rect x="361" y="658" width="52" height="104" rx="8"/>
+    <rect x="525" y="658" width="52" height="104" rx="8"/>
+    <rect x="607" y="658" width="52" height="104" rx="8"/>
+    <rect x="689" y="658" width="52" height="104" rx="8"/>
+  </g>
+</svg>

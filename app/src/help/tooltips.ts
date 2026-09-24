@@ -785,6 +785,50 @@ const catalog = {
     launchkey: null,
   },
 
+  // ── Main screen: lead-sheet band and keyboard strip ─────────────────────
+  'lead.section': {
+    title: 'Section playing',
+    body: 'The section the band is playing now, and before the start the Main (and any Intro) it will start with.',
+    genos: 'Section (MAIN VARIATION, INTRO, ENDING)',
+    keys: [],
+    launchkey: 'Pad page 1 (Sections) shows it lit',
+  },
+  'lead.progress': {
+    title: 'Section progress',
+    body: 'One cell per bar of the section, filling beat by beat, so you can see how far into the pattern the band is. This band will also show the chord chart when one is loaded.',
+    genos: null,
+    keys: [],
+    launchkey: null,
+  },
+  'lead.next': {
+    title: 'Next section',
+    body: 'The section queued to play next. A Main or Ending takes over at the next bar line, a fill at the next beat.',
+    genos: null,
+    keys: [],
+    launchkey: 'Pad page 1 (Sections): the queued pad flashes',
+  },
+  'keystrip.keys': {
+    title: 'Keyboard',
+    body: 'The keys you are holding, coloured by the part that sounds them: Right 1–3 above the split, Left below it, grey where a key only feeds chord detection. The shaded band is where chord detection listens, and dots mark the tones of the recognised chord, the ringed one its bass.',
+    genos: 'Keyboard (Split Point, chord detection area)',
+    keys: [],
+    launchkey: "The Launchkey's keys",
+  },
+  'keystrip.split': {
+    title: 'Split point',
+    body: 'Where the left-hand section ends (C3 = middle C). Drag the marker, or focus it and use the arrow keys, to move it one key at a time.',
+    genos: 'Split Point (Style + Left)',
+    keys: ['[', ']'],
+    launchkey: `${pad(P2, 'bottom', 3)} and 4`,
+  },
+  'keystrip.range': {
+    title: 'Keyboard size',
+    body: 'How many keys the strip shows: 49 or 61 like your Launchkey, or a full 88. It matches the connected Launchkey until you pick one; pick the lit one again to go back to matching.',
+    genos: null,
+    keys: [],
+    launchkey: null,
+  },
+
   // ── App ─────────────────────────────────────────────────────────────────
   'app.help': {
     title: 'Help mode',
