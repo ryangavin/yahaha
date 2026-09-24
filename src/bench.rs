@@ -85,7 +85,8 @@ pub fn run(path: &std::path::Path, spin_us: Option<u64>) -> Result<()> {
         shared.spin_ns.store(us * 1000, Relaxed);
     }
     let mut ch = live::channels(live::Out::new(PacketSink::new(Target::Virtual(out_src)), None));
-    let input = Input::new(shared.clone(), Recognizer::new(), ch.input_tx, live::Out::new(PacketSink::new(Target::Virtual(out_src)), None));
+    let mut input = Input::new(shared.clone(), Recognizer::new(), ch.input_tx, live::Out::new(PacketSink::new(Target::Virtual(out_src)), None));
+    input.set_fx(ch.fx_tx);
     let port = client.input_port("in", input)?;
     port.connect(kbd_src, TAG_KEYS)?;
 

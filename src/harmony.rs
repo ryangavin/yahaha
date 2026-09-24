@@ -1031,6 +1031,12 @@ impl EchoGen {
         self.ty
     }
 
+    /// The keys the generator holds (pressed and not yet released). The live wiring checks
+    /// them against the keys really down, so a lost key-up can never leave one repeating.
+    pub fn keys_down(&self) -> impl Iterator<Item = u8> + '_ {
+        self.voices.iter().filter(|v| v.active).map(|v| v.key)
+    }
+
     /// The current repeat period in nanoseconds.
     pub fn period(&self) -> u64 {
         self.period

@@ -343,6 +343,56 @@ impl Arp {
         self.nsounding = 0;
     }
 
+    /// The notes whose key is physically down (not the latched or pedalled ones), in the
+    /// order pressed. The live wiring checks them against the keys really held, so a
+    /// lost key-up can never leave a note in the pattern.
+    pub fn keys_down(&self) -> impl Iterator<Item = u8> + '_ {
+        self.pool[..self.npool].iter().filter(|k| k.held).map(|k| k.note)
+    }
+
+    /// The pattern's tick resolution.
+    pub fn ppq(&self) -> u32 {
+        self.ppq
+    }
+
+    /// The earliest tick something is due (a note-off, a queued note-on or the next
+    /// step), if anything is. The engine wakes for it.
+    pub fn next_due(&self) -> Option<u64> {
+        let step = if self.running { self.step_tick(self.next_step) } else { NONE };
+        let t = self.next_off().0.min(self.next_pending().0).min(step);
+        (t != NONE).then_some(t)
+    }
+
+    /// A new clock resolution at `tick` (a style with another PPQ took over): every
+    /// sounding note is cut now through `sink` (its off tick would mean something else
+    /// on the new clock), queued note-ons are dropped, and a running pattern starts
+    /// again from its first step at `tick` (the next grid line with Quantize on). The
+    /// held and latched notes stay. A ppq of 0 is ignored.
+    pub fn set_ppq(&mut self, ppq: u32, tick: u64, sink: &mut impl ArpSink) {
+        if ppq == 0 || ppq == self.ppq {
+            return;
+        }
+        for n in 0..128u8 {
+            if self.off_at[n as usize] != NONE {
+                self.off_at[n as usize] = NONE;
+                sink.note_off(tick, n);
+            }
+        }
+        self.nsounding = 0;
+        self.npend = 0;
+        self.ppq = ppq;
+        self.last_end = NONE;
+        if self.running {
+            self.anchor = match self.settings.quantize.grid(self.ppq) {
+                Some(g) => tick.div_ceil(g) * g,
+                None => tick,
+            };
+            self.anchor_step = 0;
+            self.next_step = 0;
+            self.reset_walk();
+        }
+    }
+
     /// Sends every event in `range` to `sink`, in time order. Events due before
     /// `range.start` (a late start, or a cut at an earlier tick) go out at
     /// `range.start`. Call it with contiguous ranges.

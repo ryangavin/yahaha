@@ -9,10 +9,10 @@
 //!    in one fold (`engine::shift_key`), so a note pushed past the MIDI range folds exactly
 //!    as it always has. Chords are recognized from the keys as fingered (the engine
 //!    transposes the chord), so recognition never sees this stage.
-//! 3. **processor** ([`Processor`]): one slot. Nothing today ([`Processor::Off`] passes the
-//!    note on unchanged); later Keyboard Harmony (`src/harmony.rs`) or the Arpeggiator
-//!    (`src/arp/`). The two are mutually exclusive, as on the Genos (one Harmony/Arpeggio
-//!    button, one type), so they are variants of one enum rather than two stages.
+//! 3. **processor** ([`Input::process`], mode [`Processor`]): one slot, Keyboard Harmony
+//!    (`src/harmony.rs`) or the Arpeggiator (`src/arp/`). The two are mutually exclusive,
+//!    as on the Genos (one HARMONY/ARPEGGIO button, one type), so they are variants of one
+//!    enum rather than two stages. Only right-hand keys are processed.
 //! 4. **part routing, held-note bookkeeping, output** ([`Input::sound`]): the Right 1-3 /
 //!    Left parts that sound the note (`sounds`), `Keys` (where each held key sounded, so
 //!    its note-off, poly aftertouch and retrigger go to the same place), the key strip and
@@ -29,46 +29,40 @@
 //! atomics; the engine hears about things through its rings (`Cmd`) and `Wakeup`.
 //! `tests/input_no_alloc.rs` checks the whole key path with a counting allocator.
 //!
-//! # Plugging in a processor
+//! # The processor
 //!
-//! Add a variant to [`Processor`] holding the feature's state (fixed-size; box it if it is
-//! big, but build and drop the box on the control side), and a match arm in
-//! [`Processor::note`]. The arm gets every note-on (after transpose) and note-off, and
-//! returns what continues to part routing:
+//! The mode ([`Processor`]) comes from the Harmony/Arpeggio settings word
+//! (`Shared::kbd_fx`, read on each key; `kbdfx::FxConfig`). What each mode does with a
+//! right-hand key going down:
 //!
-//! - `Some(note)`: the note sounds on the keyboard parts as usual (Harmony keeps the
-//!   melody note).
-//! - `None`: it doesn't (the Arpeggiator swallows the keys it holds; its pattern plays
-//!   them). The key still counts as held for the chord section, the key strip and Sync
-//!   Stop, and its note-off still reaches `Keys`.
+//! - **Off**: nothing; the note goes on.
+//! - **Harmony** (Duet .. Strum): the melody key, if it is the highest right-hand key
+//!   held, gets its harmony (`harmony::harmonize`, the chord from `harmony::harmony_chord`
+//!   and the chord section's current chord). The harmony notes go out here, before the
+//!   melody's own, on the Right parts Assign picks, and are counted in `Keys` together
+//!   with the keys' own notes (per channel and pitch), so a harmony note and a key on the
+//!   same pitch never cut each other short. The melody continues, narrowed to its parts
+//!   ([`Note::parts`]). Strum's later notes go to the engine thread (`FxKey::Strum`).
+//! - **Multi Assign**: the key continues on one Right part (`harmony::MultiAssign`).
+//! - **Echo** (Echo, Tremolo, Trill) and **Arpeggio**: the key is swallowed (`None`) and
+//!   sent to the engine thread (`FxKey::On`), which plays it (`kbdfx::KbdFx`). The key still
+//!   counts as held for the chord section, the key strip and Sync Stop, and it is marked
+//!   in `Shared::fx_held` until it goes up.
 //!
-//! Anything extra the processor sounds it sends itself through the `Out` it is given (the
-//! same port and synth, flushed at the end of the packet list), with its own bookkeeping
-//! of what to stop on the key's note-off (`harmony::HarmonyTracker` for Harmony). Messages
-//! it sends go out before the note's own, as they are sent first.
-//!
-//! Swapping the processor (the Harmony/Arpeggio type changing) is a message to this thread
-//! like the others (a ring from the control side, as `Input::set_release`): the new value
-//! comes in built, the old one is sent back to be dropped there, and whatever the old one
-//! was sounding is stopped first (`HarmonyTracker::release_all`, `Arp::all_off`).
+//! How each key went through is remembered (`Input::fx_path`), so its note-off takes the
+//! same way whatever the settings are by then ([`Input::process_off`]): its harmony notes
+//! stop, its Multi Assign part frees, or its key-up goes to the engine thread. Switching
+//! the type or the switch never cuts a key that is down on this thread; the engine side
+//! stops its own generator (`Arp::all_off`, `EchoGen::all_off`).
 //!
 //! ## Time domains
 //!
-//! This thread only has "now" (`rt::now_ns`): it sees a note when it arrives. What a
-//! processor plays later is timed elsewhere:
-//!
-//! - **Harmony** chords (Duet, Trio, Block, ...) sound with the melody note, here.
-//!   The Echo category (Echo, Tremolo, Trill) repeats notes in time: `harmony::EchoGen`
-//!   runs on engine nanoseconds (`now` on the engine's clock, `next_due`, `next_events`).
-//!   Its note-on/note-off calls come from this stage; the repeats are pulled by the
-//!   engine thread (an engine hook plus `hook_deadline`-style wake), so the processor
-//!   hands the EchoGen its key events through a ring, and never plays repeats itself.
-//! - **Arpeggio** runs in style ticks (`arp::Arp`, `ppq` ticks per quarter, tempo-synced
-//!   and quantized to the style's grid), which only the engine thread has. The processor
-//!   swallows the keys and forwards key-down/key-up to the engine (a `Cmd`, or a held-key
-//!   mask in `Shared`); the arp itself is an engine feature (`engine::hooks::Features`,
-//!   driven from `process` with its events on the style clock), and it sends on the
-//!   Right parts' channels through the engine's `Sink`.
+//! This thread only has "now": it sees a note when it arrives. What a processor plays
+//! later is timed on the engine thread (`kbdfx.rs`): Echo/Tremolo/Trill on engine
+//! nanoseconds (`harmony::EchoGen`), the arpeggio on style ticks (`arp::Arp`; its own clock
+//! while the band is stopped), and Strum's later notes at their delay. They reach it
+//! through an SPSC ring (`FxKey`); the engine wakes for them through
+//! `EngineLoop::next_deadline`.
 
 use super::*;
 
@@ -86,24 +80,55 @@ pub struct Note {
     /// Keyboard transpose in semitones (the transpose stage). Applied at routing with each
     /// part's octave in one fold.
     pub shift: i8,
+    /// The Right parts it may sound on (bit 0-2 = Right 1-3; `harmony::PartMask`): all of
+    /// them unless a processor narrows it (Multi Assign, Harmony Assign = Multi).
+    pub parts: u8,
 }
 
-/// The processor slot: at most one of Harmony and Arpeggio, as on the Genos. See the module
-/// docs for how a processor plugs in.
-#[derive(Debug, Default)]
+/// Every Right part (`Note::parts`).
+pub const ALL_RIGHT: u8 = 0b111;
+
+/// The processor slot: at most one of Harmony and Arpeggio, as on the Genos. The mode comes
+/// from the Harmony/Arpeggio settings word (`kbdfx::FxConfig::processor`); the state it
+/// needs lives in [`Input`] (see the module docs).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Processor {
     /// No processor: every note goes on to the keyboard parts unchanged.
     #[default]
     Off,
+    /// A Harmony-category type (Duet, Trio, Block, 4-Way, 1+5, Octave, Strum): the melody
+    /// key's harmony notes sound here, with it.
+    Harmony(HarmonySettings),
+    /// Multi Assign: each right-hand key sounds on one Right part, in the order pressed.
+    MultiAssign,
+    /// Echo, Tremolo, Trill: the right-hand keys go to the engine thread's `EchoGen`.
+    Echo,
+    /// Arpeggio: the right-hand keys go to the engine thread's `Arp`.
+    Arp,
 }
 
-impl Processor {
-    /// Stage 3: `note` (a note-on after transpose, or a note-off) in, what continues to
-    /// part routing out. Extra notes go straight to `_out`.
-    #[inline(always)]
-    pub fn note(&mut self, note: Note, _out: &mut Out) -> Option<Note> {
-        match self {
-            Processor::Off => Some(note),
+/// How a held key went through the processor, so its note-off takes the same way whatever
+/// the settings are by then (`Input::fx_path`).
+pub(super) const PATH_PLAIN: u8 = 0;
+pub(super) const PATH_HARMONY: u8 = 1;
+pub(super) const PATH_MULTI: u8 = 2;
+pub(super) const PATH_FORWARD: u8 = 3;
+
+/// The harmony notes one melody key sounds (on this thread): (channel, pitch), up to
+/// `harmony::MAX_NOTES` notes on each of the three Right parts. `strum`: it also has
+/// notes on the engine thread (Strum's later notes).
+#[derive(Clone, Copy, Default)]
+pub(super) struct Harmonized {
+    n: u8,
+    notes: [(u8, u8); 3 * harmony::MAX_NOTES],
+    strum: bool,
+}
+
+impl Harmonized {
+    fn push(&mut self, ch: u8, note: u8) {
+        if (self.n as usize) < self.notes.len() {
+            self.notes[self.n as usize] = (ch, note);
+            self.n += 1;
         }
     }
 }
@@ -121,8 +146,8 @@ impl Input {
         let chord = r == self.chord_side();
         self.route[k as usize] = r;
         let full = !self.shared.upper.load(Relaxed) && Fingering::from_u8(self.shared.fingering.load(Relaxed)).full_keyboard();
-        let note = self.transpose(Note { key: k, vel, left, shift: 0 });
-        let note = self.processor.note(note, &mut self.out);
+        let note = self.transpose(Note { key: k, vel, left, shift: 0, parts: ALL_RIGHT });
+        let note = self.process(k, note);
         let now = self.sound(k, note, full);
         self.track_key(slot, k, r, now);
         // The Full Keyboard types (Lower only) read both hands.
@@ -135,8 +160,7 @@ impl Input {
     /// keyboard source `slot`.
     #[inline]
     pub(super) fn key_up(&mut self, slot: usize, k: u8) {
-        let note = Note { key: k, vel: 0, left: self.route[k as usize] == R_LH, shift: 0 };
-        let _ = self.processor.note(note, &mut self.out);
+        self.process_off(k);
         // Stage 4: stop what the key sounded, where it sounded.
         for (ch, note) in self.keys.release(k).iter() {
             self.out.push(&[0x80 | ch, note, 0]);
@@ -149,6 +173,130 @@ impl Input {
             if r & side != 0 && !self.route.iter().any(|&x| x & side != 0) && self.cmd.push(Cmd::ChordReleased).is_ok() {
                 self.signal = true;
             }
+        }
+    }
+
+    /// Stage 3, processor: `note` (a key going down, after transpose) in, what continues
+    /// to part routing out (None: the processor took it). Only right-hand keys are
+    /// processed (spec §6: the Right parts' section; the chord section and the Left part
+    /// never are).
+    #[inline]
+    fn process(&mut self, k: u8, note: Note) -> Option<Note> {
+        let w = self.shared.kbd_fx.load(Relaxed);
+        if w != self.fx_word {
+            self.fx_word = w;
+            self.processor = FxConfig::unpack(w).processor();
+        }
+        // A retrigger: the key's last way through ends first.
+        if self.fx_path[k as usize] != PATH_PLAIN {
+            self.process_off(k);
+        }
+        if note.left {
+            return Some(note);
+        }
+        match self.processor {
+            Processor::Off => Some(note),
+            Processor::Harmony(s) => {
+                self.fx_path[k as usize] = PATH_HARMONY;
+                Some(self.harmonize(k, note, s))
+            }
+            Processor::MultiAssign => {
+                self.fx_path[k as usize] = PATH_MULTI;
+                let mask = self.multi.press(k, kbdfx::right_parts(&self.shared.parts));
+                Some(Note { parts: mask, ..note })
+            }
+            Processor::Echo | Processor::Arp => {
+                if self.fx_tx.is_none() {
+                    return Some(note);
+                }
+                self.fx_path[k as usize] = PATH_FORWARD;
+                // Held first, then the message: the engine never sees the message for a
+                // key its mask says is up.
+                self.set_fx_held(k, true);
+                self.fx_send(FxKey::On { key: k, vel: note.vel });
+                None
+            }
+        }
+    }
+
+    /// Stage 3 for a key going up: whatever the processor did with it at note-on ends.
+    #[inline]
+    fn process_off(&mut self, k: u8) {
+        match std::mem::replace(&mut self.fx_path[k as usize], PATH_PLAIN) {
+            PATH_HARMONY => {
+                let h = std::mem::take(&mut self.harmonized[k as usize]);
+                for &(ch, n) in &h.notes[..h.n as usize] {
+                    if self.keys.unhold(ch, n) {
+                        self.out.push(&[0x80 | ch, n, 0]);
+                    }
+                }
+                if h.strum {
+                    self.set_fx_held(k, false);
+                    self.fx_send(FxKey::StrumOff { melody: k });
+                }
+            }
+            PATH_MULTI => {
+                self.multi.release(k);
+            }
+            PATH_FORWARD => {
+                self.set_fx_held(k, false);
+                self.fx_send(FxKey::Off { key: k });
+            }
+            _ => {}
+        }
+    }
+
+    /// Keyboard Harmony, Harmony category: melody key `k` (the highest right-hand key
+    /// held) gets its harmony notes, which sound now on the Right parts Assign picks,
+    /// counted with the keys' own notes in `Keys` so neither cuts the other short. Strum's
+    /// later notes go to the engine thread. Returns the melody note, narrowed to its parts.
+    fn harmonize(&mut self, k: u8, note: Note, s: HarmonySettings) -> Note {
+        // Only the top note of the right hand is harmonised (docs/harmony.md).
+        if self.route[k as usize + 1..].contains(&R_RH) {
+            return note;
+        }
+        let parts = self.shared.parts.clone();
+        let chord = harmony::harmony_chord(s.ty, kbdfx::ACMP, parts.is_on(parts::LEFT), self.current, self.current);
+        let h = harmony::harmonize(k, note.vel, chord, &s, kbdfx::right_parts(&parts));
+        let mut done = Harmonized::default();
+        for hn in h.notes() {
+            for p in [parts::RIGHT1, parts::RIGHT2, parts::RIGHT3] {
+                if hn.parts & (1 << p) == 0 || !parts.is_on(p) {
+                    continue;
+                }
+                let ch = parts::CHANNEL[p];
+                let pitch = shift_key(hn.key, note.shift + 12 * parts.octave_of(p));
+                if hn.delay_ms == 0 {
+                    self.keys.hold(ch, pitch);
+                    self.out.push(&[0x90 | ch, pitch, hn.vel]);
+                    done.push(ch, pitch);
+                } else if self.fx_tx.is_some() {
+                    if !done.strum {
+                        done.strum = true;
+                        self.set_fx_held(k, true);
+                    }
+                    self.fx_send(FxKey::Strum { melody: k, ch, note: pitch, vel: hn.vel, delay_ms: hn.delay_ms });
+                }
+            }
+        }
+        self.harmonized[k as usize] = done;
+        Note { parts: h.melody_parts, ..note }
+    }
+
+    fn set_fx_held(&self, k: u8, on: bool) {
+        let (w, b) = ((k >> 6) as usize, 1u64 << (k & 63));
+        if on {
+            self.shared.fx_held[w].fetch_or(b, Release);
+        } else {
+            self.shared.fx_held[w].fetch_and(!b, Release);
+        }
+    }
+
+    fn fx_send(&mut self, m: FxKey) {
+        if let Some(tx) = self.fx_tx.as_mut()
+            && tx.push(m).is_ok()
+        {
+            self.signal = true;
         }
     }
 
@@ -168,7 +316,7 @@ impl Input {
                 // With Left off, the left hand plays the Right parts unless the left
                 // section is the chord section alone (Lower, not Full Keyboard).
                 let chord_only = !self.shared.upper.load(Relaxed) && !full;
-                (sounds(&self.shared.parts, n.left, chord_only, n.key, n.shift), n.vel)
+                (sounds_on(&self.shared.parts, n.left, chord_only, n.key, n.shift, n.parts), n.vel)
             }
             None => (Sounded::default(), 0),
         };

@@ -467,6 +467,8 @@ fn assemble(opts: &Options, engine_out: live::Out, input_out: live::Out, offline
     input.set_actions(act_tx);
     let (release_tx, release_rx) = RingBuffer::<u8>::new(MAX_KEY_SOURCES);
     input.set_release(release_rx);
+    // Keys for the engine thread's Harmony Echo category, arpeggio and Strum.
+    input.set_fx(ch.fx_tx);
     let engine = Engine::new(prep);
     let snap = engine.snapshot(0);
     let published = Arc::new(lib.clone());

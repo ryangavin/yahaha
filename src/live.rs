@@ -13,6 +13,7 @@
 
 use crate::engine::{shift_key, AuditionPos, Button, Engine, Prepared, Snapshot, Transpose};
 use crate::fingering::{self, Fingering};
+use crate::harmony::{self, HarmonySettings};
 use crate::launchkey::{self, Action, Control, Page};
 use crate::midi::{for_each_message, InputHandler};
 use crate::parts::{self, FaderPage, Parts};
@@ -110,6 +111,13 @@ pub struct Shared {
     pub keys: [AtomicU8; 128],
     /// How many keys each keyboard source slot holds (`key_tag`).
     pub src_held: [AtomicU8; MAX_KEY_SOURCES],
+    /// The Keyboard Harmony / Arpeggio settings, packed (`kbdfx::FxConfig::pack`): the
+    /// control side writes it, the input and engine threads read it.
+    pub kbd_fx: AtomicU64,
+    /// Right-hand keys down that the processor handed to the engine thread (Echo, Arpeggio,
+    /// Strum), bit k of word k / 64: the engine releases whatever its generators hold that
+    /// is not in here (`kbdfx::KbdFx`).
+    pub fx_held: [AtomicU64; 2],
 }
 
 impl Shared {
@@ -141,6 +149,8 @@ impl Shared {
             parts: Arc::new(Parts::new()),
             keys: std::array::from_fn(|_| AtomicU8::new(0)),
             src_held: std::array::from_fn(|_| AtomicU8::new(0)),
+            kbd_fx: AtomicU64::new(FxConfig::default().pack()),
+            fx_held: [AtomicU64::new(0), AtomicU64::new(0)],
         }
     }
 
@@ -277,8 +287,11 @@ pub fn fingered_star(mask: u16, c: Chord) -> Option<Chord> {
 // Input (CoreMIDI receive thread)
 // ---------------------------------------------------------------------------
 
+mod kbdfx;
 mod pipeline;
-pub use pipeline::{Note, Processor};
+pub use kbdfx::{right_parts, type_index, FxConfig, FxKey, FxMode, KbdFx, ACMP, ASSIGNS, FX_RING};
+pub use pipeline::{Note, Processor, ALL_RIGHT};
+use pipeline::{Harmonized, PATH_PLAIN};
 
 /// The notes one key sounds: a (channel, note) for each keyboard part that played it (up
 /// to the three Right parts layered).
@@ -307,6 +320,12 @@ impl Sounded {
 /// is the chord section alone (`chord_only`: Lower detection outside the Full Keyboard
 /// types, OM p.56). Right of the split: the Right parts that are on, layered.
 pub fn sounds(parts: &Parts, left: bool, chord_only: bool, key: u8, shift: i8) -> Sounded {
+    sounds_on(parts, left, chord_only, key, shift, ALL_RIGHT)
+}
+
+/// [`sounds`] on the Right parts in `right` only (bit 0-2 = Right 1-3): a processor
+/// narrowed the note (Multi Assign, Harmony Assign = Multi).
+pub fn sounds_on(parts: &Parts, left: bool, chord_only: bool, key: u8, shift: i8, right: u8) -> Sounded {
     let mut s = Sounded::default();
     let side: &[usize] = match (left, parts.left_sounds()) {
         (true, true) => &[parts::LEFT],
@@ -314,7 +333,7 @@ pub fn sounds(parts: &Parts, left: bool, chord_only: bool, key: u8, shift: i8) -
         _ => &[parts::RIGHT1, parts::RIGHT2, parts::RIGHT3],
     };
     for &p in side {
-        if p == parts::LEFT || parts.is_on(p) {
+        if p == parts::LEFT || parts.is_on(p) && right & (1 << p) != 0 {
             let oct = parts.octave_of(p);
             s.push(parts::CHANNEL[p], shift_key(key, shift + 12 * oct));
         }
@@ -363,6 +382,20 @@ impl Keys {
         self.let_go(old)
     }
 
+    /// A note that is not a key's own (a harmony note) starts on (`ch`, `note`): counted
+    /// with the keys', so neither stops the other.
+    pub fn hold(&mut self, ch: u8, note: u8) {
+        let n = &mut self.held[ch as usize & 15][note as usize & 127];
+        *n = n.saturating_add(1);
+    }
+
+    /// That note ends: true when nothing else holds (`ch`, `note`), so its note-off goes out.
+    pub fn unhold(&mut self, ch: u8, note: u8) -> bool {
+        let n = &mut self.held[ch as usize & 15][note as usize & 127];
+        *n = n.saturating_sub(1);
+        *n == 0
+    }
+
     /// What a held key sounds as (channels and notes).
     pub fn sounding(&self, key: u8) -> Sounded {
         self.sounding[key as usize & 127]
@@ -408,8 +441,18 @@ pub struct Input {
     shift: bool,
     /// Soft takeover of the Launchkey master fader (the synth master level).
     master_takeover: crate::engine::Takeover,
-    /// The note pipeline's processor slot (Harmony or Arpeggio; none yet).
+    /// The note pipeline's processor slot (Harmony or Arpeggio), from `Shared::kbd_fx`
+    /// (`fx_word`: the word it was read from).
     processor: Processor,
+    fx_word: u64,
+    /// Key messages for the engine thread's Echo/Arpeggio/Strum (`kbdfx::KbdFx`).
+    fx_tx: Option<Producer<FxKey>>,
+    /// How each held key went through the processor (`pipeline::PATH_*`).
+    fx_path: [u8; 128],
+    /// The harmony notes each melody key sounds.
+    harmonized: Box<[Harmonized; 128]>,
+    /// Multi Assign: the part each key went to.
+    multi: harmony::MultiAssign,
 }
 
 impl Input {
@@ -433,7 +476,18 @@ impl Input {
             shift: false,
             master_takeover: crate::engine::Takeover::NEW,
             processor: Processor::Off,
+            fx_word: FxConfig::default().pack(),
+            fx_tx: None,
+            fx_path: [PATH_PLAIN; 128],
+            harmonized: Box::new([Harmonized::default(); 128]),
+            multi: harmony::MultiAssign::new(),
         }
+    }
+
+    /// Where the processor sends the keys the engine thread plays (Echo, Arpeggio, Strum).
+    /// Without it those types pass the keys through.
+    pub fn set_fx(&mut self, tx: Producer<FxKey>) {
+        self.fx_tx = Some(tx);
     }
 
     /// Where the keyboard parts' notes go besides the port: the built-in synth's ring.
@@ -787,6 +841,9 @@ pub struct EngineIo {
     pub old_auditions: Producer<Box<Audition>>,
     pub snaps: Producer<Snapshot>,
     pub out: Out,
+    /// Keyboard Harmony's Echo category, the arpeggio and Strum (`kbdfx.rs`), with the
+    /// ring the input thread sends it keys on.
+    pub fx: Box<KbdFx>,
 }
 
 /// Send each keyboard part's volume as CC7 on its channel when it changed, to the port and
@@ -841,7 +898,7 @@ impl EngineLoop {
 
     /// When the next wake is due: the band's next event, or the preview's.
     pub fn next_deadline(&self) -> Option<u64> {
-        let band = self.engine.next_deadline();
+        let band = [self.engine.next_deadline(), self.io.fx.next_deadline(&self.engine)].into_iter().flatten().min();
         let Some((a, n)) = &self.audition else { return band };
         let chord = if *n < AUDITION_BARS { a.engine.ns_at_bar(*n as u32) } else { a.engine.ns_at_bar(AUDITION_BARS as u32) };
         [band, a.engine.next_deadline(), Some(chord)].into_iter().flatten().min()
@@ -894,7 +951,7 @@ impl EngineLoop {
     /// Input is waiting: a new chord or a command.
     #[inline]
     fn input_pending(&self) -> bool {
-        self.shared.chord.load(Relaxed) != self.last_packed || self.io.input.slots() > 0 || self.io.ui.slots() > 0
+        self.shared.chord.load(Relaxed) != self.last_packed || self.io.input.slots() > 0 || self.io.ui.slots() > 0 || self.io.fx.pending()
     }
 
     /// One wake at `now`: take new styles, the chord and commands, play what is due,
@@ -937,15 +994,24 @@ impl EngineLoop {
             if self.audition.is_some() && ends_audition(cmd) {
                 self.end_audition();
             }
+            if matches!(cmd, Cmd::Panic) {
+                self.io.fx.all_off(now, &self.engine, &shared, &mut self.io.out);
+            }
             apply(&mut self.engine, &shared.parts, cmd, now, &mut self.io.out);
         }
         while let Ok(cmd) = self.io.ui.pop() {
             if self.audition.is_some() && ends_audition(cmd) {
                 self.end_audition();
             }
+            if matches!(cmd, Cmd::Panic) {
+                self.io.fx.all_off(now, &self.engine, &shared, &mut self.io.out);
+            }
             apply(&mut self.engine, &shared.parts, cmd, now, &mut self.io.out);
         }
         self.engine.process(now, &mut self.io.out);
+        // Harmony's Echo category, the arpeggio and Strum, after the band: a START above
+        // has reset the style clock the arp follows.
+        self.io.fx.step(now, &self.engine, &shared, &mut self.io.out);
         self.retire_styles();
         self.play_audition(now);
         let (engine, io) = (&mut self.engine, &mut self.io);
@@ -981,6 +1047,8 @@ impl EngineLoop {
             let _ = self.io.old_auditions.push(a);
         }
         self.engine.stop(&mut self.io.out);
+        let now = rt::now_ns();
+        self.io.fx.all_off(now, &self.engine, &self.shared, &mut self.io.out);
         self.io.out.flush();
     }
 }
@@ -1084,6 +1152,8 @@ pub struct Channels {
     pub snap_rx: Consumer<Snapshot>,
     pub audition_tx: Producer<Box<Audition>>,
     pub old_audition_rx: Consumer<Box<Audition>>,
+    /// The input thread's key messages for the engine's Harmony/Arpeggio (`Input::set_fx`).
+    pub fx_tx: Producer<FxKey>,
     pub io: EngineIo,
 }
 
@@ -1095,6 +1165,7 @@ pub fn channels(out: Out) -> Channels {
     let (snaps, snap_rx) = RingBuffer::new(256);
     let (audition_tx, auditions) = RingBuffer::new(4);
     let (old_auditions, old_audition_rx) = RingBuffer::new(8);
+    let (fx_tx, fx_rx) = RingBuffer::new(FX_RING);
     Channels {
         input_tx,
         ui_tx,
@@ -1103,7 +1174,8 @@ pub fn channels(out: Out) -> Channels {
         snap_rx,
         audition_tx,
         old_audition_rx,
-        io: EngineIo { input, ui, styles, old, snaps, auditions, old_auditions, out },
+        fx_tx,
+        io: EngineIo { input, ui, styles, old, snaps, auditions, old_auditions, out, fx: Box::new(KbdFx::new(fx_rx)) },
     }
 }
 
