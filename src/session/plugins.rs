@@ -9,8 +9,10 @@
 //!   playing what it plays (its SoundFont, or a previous plugin) until the load is done;
 //!   the pump then hands the instance to the audio thread's rack and routes the channel to
 //!   it (`route::Source::Plugin`), with a 5 ms crossfade from a previous plugin, or
-//!   All Notes Off on the SoundFont side. A load that fails or times out (20 s) leaves the
-//!   channel on the SoundFont and shows the error ([`Control::channel_plugin`]).
+//!   All Notes Off on the SoundFont side. A load that fails or times out (20 s) leaves a
+//!   plugin that was playing there playing; otherwise the channel plays its SoundFont and
+//!   [`Control::channel_plugin`] shows `Failed` with the error, keeping the choice (saved,
+//!   retryable) until it is picked again or cleared.
 //! - [`Control::clear_channel_plugin`]`(ch)`: back to the SoundFont (a 5 ms fade out).
 //! - [`Control::route_channel_sound_font`]`(ch, font)`: route a channel to SoundFont `font`
 //!   (clearing any plugin there).
@@ -24,7 +26,9 @@
 //! AUHostingService): a crash there silences the part instead of taking the arranger down,
 //! for 5-12 µs of IPC per 64-frame block (docs/plugin-hosting.md, "Measured"). Apple's
 //! own units load in process; AUv3 extensions run out of process as macOS decides. A
-//! third-party plugin that fails out of process is retried in process once.
+//! plugin the system refuses to host out of process (a typed status, see
+//! `plugin::may_retry_in_process`) is retried in process once; never one that timed out or
+//! crashed its host, and never during the start-up restore.
 //!
 //! **Persistence.** A live session keeps the keyboard parts' plugins (id and state) in
 //! `~/Library/Application Support/yahaha/plugin-parts.json` and loads them again at start.
