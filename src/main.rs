@@ -95,7 +95,7 @@ fn state_json(args: &[String]) -> Result<()> {
             s.midi_in(Port::Keys, &[0x80, k, 0]);
         }
         // Root position in the left hand, below the default split (F#2).
-        held = yahaha::theory::chord_tones(c.ty).iter().map(|t| 28 + c.root + t).collect();
+        held = yahaha::theory::chord_tones(c.ty).iter().map(|t| 24 + c.root + t).collect();
         for &k in &held {
             s.midi_in(Port::Keys, &[0x90, k, 100]);
         }

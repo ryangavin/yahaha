@@ -67,8 +67,9 @@ dev mode, call `advance` from a timer (for example 16 ms per frame) to watch it 
 `take_output()` returns the MIDI it played. `finish_indexing()` blocks until the library
 index is complete.
 
-To dump a real state as JSON, run
-`cargo test --release print_state_json -- --ignored --nocapture`.
+To get real states as mock data, use `yahaha state-json <style or folder> ["C Am F G7"]`. It
+plays the chords one bar each and prints the `AppState`. `yahaha state-json <folder> --library`
+prints the `LibraryList`.
 
 ## AppCmd
 

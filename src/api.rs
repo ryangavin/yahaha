@@ -42,7 +42,7 @@ pub enum AppCmd {
     Stop,
     /// SYNC START on/off.
     ToggleSyncStart,
-    /// SYNC STOP on/off. Refused while `transport.syncStopAvailable` is false.
+    /// SYNC STOP on/off. The engine ignores it while `transport.syncStopAvailable` is false.
     ToggleSyncStop,
     /// AUTO FILL IN on/off.
     ToggleAutoFill,
@@ -66,7 +66,7 @@ pub enum AppCmd {
     /// Chord Detection Area: Upper (true) or Lower. Selecting Upper turns Manual Bass on.
     SetUpper { on: bool },
     ToggleUpper,
-    /// The Manual Bass setting. Only changes in Upper (refused in Lower).
+    /// The Manual Bass setting. Only changes in Upper (ignored in Lower).
     SetManualBass { on: bool },
     ToggleManualBass,
     /// Split point, a MIDI note (clamped to 24-96). Keys at or below it are the left hand.
