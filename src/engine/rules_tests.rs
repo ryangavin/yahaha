@@ -229,7 +229,7 @@ fn change_behavior_while_stopped() {
     with_rules(&mut e, Lock, Lock, None);
     let old = e.load(austin, 0, &mut r);
     let s = e.snapshot(0);
-    assert_eq!((s.bpm, s.parts), (bpm, 0xFF & !(1 << 3)));
+    assert_eq!((s.bpm, s.parts), (bpm, !(1u8 << 3)));
     // Hold (stopped): the new style's tempo, every part on; Section Set C.
     with_rules(&mut e, Hold, Hold, Some(2));
     let back = e.load(old, 0, &mut r);
@@ -257,7 +257,7 @@ fn change_behavior_while_playing() {
     play(&mut e, t, bar + 10 * MS, &mut r);
     assert!(!e.style_pending());
     let s = e.snapshot(bar + 10 * MS);
-    assert_eq!((s.bpm, s.parts), (75.0, 0xFF & !(1 << 3)));
+    assert_eq!((s.bpm, s.parts), (75.0, !(1u8 << 3)));
     // Reset while playing: the new style's tempo and every part on at the bar line.
     with_rules(&mut e, Reset, Reset, Some(3));
     let t = bar + bar / 3;
