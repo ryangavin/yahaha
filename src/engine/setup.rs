@@ -14,7 +14,7 @@ impl Engine {
     /// section that played last (an Ending), whose routing is not the stopped style's.
     pub fn send_init(&mut self, sink: &mut impl Sink) {
         if !self.running {
-            self.cur = self.style.resolve(4 + self.main as usize).unwrap_or(4);
+            self.cur = self.home_slot();
         }
         self.bend_range = self.style.setup(self.cur).bend_range;
         self.rpn = [RPN_NULL; 16];
@@ -40,6 +40,12 @@ impl Engine {
         }
         self.pattern_pc = 0;
         self.sync_rpn();
+    }
+
+    /// The section the band would start on (the Main in use), whose routing of the setup a
+    /// stopped style has.
+    pub(super) fn home_slot(&self) -> usize {
+        self.style.resolve(4 + self.main as usize).unwrap_or(4)
     }
 
     /// The RPN each channel has selected, as far as a pattern's data entry is concerned.

@@ -229,3 +229,61 @@ fn corpus_stopped_load_after_an_ending_sends_the_mains_setup() {
     assert!(rerouting >= 4, "{rerouting}: the test should see Endings routed unlike Main A");
     assert!(fails.is_empty(), "{} failures", fails.len());
 }
+
+/// Part levels follow each section's routing too (review of #101, N1): at the first note
+/// each part plays in a section, its CC7 is the level the section's own routing of the
+/// setup gives it (a source channel rerouted to the part brings its level with its
+/// voice), unless the section's pattern sets its own CC7 on the part.
+#[test]
+fn corpus_sections_play_the_levels_they_route() {
+    let files = tests::corpus();
+    if files.is_empty() {
+        eprintln!("no corpus; skipping");
+        return;
+    }
+    let (mut checked, mut rerouted, mut fails) = (0, 0, Vec::new());
+    for f in &files {
+        let style = Style::load(f).unwrap();
+        let name = f.file_name().unwrap().to_string_lossy().to_string();
+        let p = Prepared::new(&style);
+        if p.setups.len() < 2 {
+            continue;
+        }
+        let bar = bar_ns(&p);
+        for slot in (0..NUM_SLOTS).filter(|&s| p.sections[s].is_some() && p.setup_of[s] != 0) {
+            let own_cc7 = p.sections[slot].as_ref().unwrap().own_levels();
+            let want = p.setups[p.setup_of[slot] as usize].mix;
+            let main_a = p.setups[0].mix;
+            let script = reach(slot, bar);
+            let (_, rec) = run(Box::new(Prepared::new(&style)), &script, 3 * bar);
+            let span = section_span(&style, &script, slot, 3 * bar);
+            let mut level = [None; 16];
+            let mut seen = 0u16;
+            for (t, m) in &rec.out {
+                let c = (m[0] & 0x0F) as usize;
+                match m[0] & 0xF0 {
+                    0xB0 if m[1] == 7 => level[c] = Some(m[2]),
+                    0x90 if m[2] > 0 && (8..16).contains(&c) && span.is_some_and(|(s, e)| *t >= s && *t < e) && seen & (1 << c) == 0 => {
+                        seen |= 1 << c;
+                        if own_cc7 & (1 << c) != 0 {
+                            continue;
+                        }
+                        let w = want[c - 8];
+                        checked += 1;
+                        rerouted += (main_a[c - 8] != w) as usize;
+                        if level[c] != Some(w) {
+                            fails.push(format!("{name} {:?} ch{}: level {:?}, the section routes {w} (Main A {})", id_of(slot), c + 1, level[c], main_a[c - 8]));
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+    eprintln!("{checked} part entries checked in rerouting sections, {rerouted} with a level Main A does not route there");
+    for f in fails.iter().take(30) {
+        eprintln!("{f}");
+    }
+    assert!(rerouted >= 20, "{rerouted}: the test should see parts whose level the routing changes");
+    assert!(fails.is_empty(), "{} failures", fails.len());
+}

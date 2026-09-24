@@ -43,6 +43,15 @@ impl PSection {
             .fold(0, |m, r| m | 1 << (r.dest_ch & 15))
     }
 
+    /// The destination channels whose level (CC7) this section's patterns set.
+    pub fn own_levels(&self) -> u16 {
+        self.events
+            .iter()
+            .filter(|e| matches!(e.kind, PKind::Cc { cc: 7, .. }))
+            .filter_map(|e| self.rules[e.src as usize & 15].as_ref())
+            .fold(0, |m, r| m | 1 << (r.dest_ch & 15))
+    }
+
     /// Does part `dest_ch` play its notes exactly as written in this section, whatever the
     /// chord? True for the drum parts, and for parts whose every source channel is Root Fixed
     /// (or Guitar) + Bypass for every key: the same test `theory::transpose` passes through on.
