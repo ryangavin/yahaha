@@ -3,7 +3,7 @@
 
 mod ui;
 
-use yahaha::{capture, engine, fingering, oracle, sff, sim};
+use yahaha::{bench, capture, engine, fingering, oracle, sff, sim};
 use anyhow::{Context, Result};
 use std::path::PathBuf;
 
@@ -23,8 +23,9 @@ fn main() -> Result<()> {
         Some("drive") => bench::drive()?,
         Some("screen") => ui::screen_html(std::path::Path::new(&args[2]), std::path::Path::new(&args[3]))?,
         Some("bench") => bench::run(std::path::Path::new(&args[2]), args.get(3).and_then(|s| s.parse().ok()))?,
+        Some("state-json") => state_json(&args[2..])?,
         _ => eprintln!(
-            "usage:\n  yahaha play <style or folder>... [--split F#2] [--input <name>] [--all-inputs] [--no-pads] [--sf2 file | --no-synth] [--palette-leds] [--audio-out 11]\n      [--fingering single|multi|fingered|on-bass|ai|full|ai-full] [--upper [--no-manual-bass]] [--transpose N] [--master-transpose N]\n  yahaha bench <style> [spin_us]\n  yahaha sim <style> <\"C Am F G7\" | script file>\n  yahaha capture-kit <out-dir> [--clock-ppm N] [style]...\n  yahaha capture-import <recording.mid> <style> [--tolerance-ms N] [--offset-ms N] [--clock-ppm N] [--listing FILE] [--golden DIR [--force]]\n  yahaha oracle <style or folder>... [--pairs | --scores | --diff scores.txt]\n  yahaha dump <style>..."
+            "usage:\n  yahaha play <style or folder>... [--split F#2] [--input <name>] [--all-inputs] [--no-pads] [--sf2 file | --no-synth] [--palette-leds] [--audio-out 11]\n      [--fingering single|multi|fingered|on-bass|ai|full|ai-full] [--upper [--no-manual-bass]] [--transpose N] [--master-transpose N]\n  yahaha bench <style> [spin_us]\n  yahaha sim <style> <\"C Am F G7\" | script file>\n  yahaha capture-kit <out-dir> [--clock-ppm N] [style]...\n  yahaha capture-import <recording.mid> <style> [--tolerance-ms N] [--offset-ms N] [--clock-ppm N] [--listing FILE] [--golden DIR [--force]]\n  yahaha oracle <style or folder>... [--pairs | --scores | --diff scores.txt]\n  yahaha dump <style>...\n  yahaha state-json <style or folder> [\"C Am\"] [--library]"
         ),
     }
     Ok(())
@@ -67,6 +68,40 @@ fn dump(path: &std::path::Path) -> Result<()> {
     for (id, d) in &s.other_chunks {
         println!("  chunk {id} ({} bytes)", d.len());
     }
+    Ok(())
+}
+
+/// `yahaha state-json <style or folder> ["C Am F"] [--library]`: an offline session's
+/// `AppState` as JSON (mock data for the app; docs/app-api.md), after playing the chords
+/// one bar each (in the left hand, Sync Start). `--library` prints the library instead.
+fn state_json(args: &[String]) -> Result<()> {
+    use yahaha::session::{Options, Port, Session};
+    let usage = "usage: yahaha state-json <style or folder> [\"C Am F\"] [--library]";
+    let library = args.iter().any(|a| a == "--library");
+    let mut rest = args.iter().filter(|a| *a != "--library");
+    let path = rest.next().ok_or_else(|| anyhow::anyhow!(usage))?;
+    let s = Session::offline(Options { paths: vec![PathBuf::from(path)], ..Options::default() })?;
+    s.finish_indexing();
+    if library {
+        println!("{}", serde_json::to_string_pretty(&s.library_list())?);
+        return Ok(());
+    }
+    let chords = rest.next().map(|c| c.split_whitespace().map(yahaha::parse_chord).collect::<Result<Vec<_>>>()).transpose()?;
+    let st = s.state();
+    let bar = (60e9 / st.style.tempo * st.transport.beats_per_bar as f64) as u64;
+    let mut held: Vec<u8> = Vec::new();
+    for c in chords.unwrap_or_default() {
+        for k in held.drain(..) {
+            s.midi_in(Port::Keys, &[0x80, k, 0]);
+        }
+        // Root position in the left hand, below the default split (F#2).
+        held = yahaha::theory::chord_tones(c.ty).iter().map(|t| 28 + c.root + t).collect();
+        for &k in &held {
+            s.midi_in(Port::Keys, &[0x90, k, 100]);
+        }
+        s.advance(bar);
+    }
+    println!("{}", serde_json::to_string_pretty(&*s.state())?);
     Ok(())
 }
 
@@ -213,6 +248,6 @@ fn play_cmd(args: &[String]) -> Result<()> {
     if no_synth {
         sf2 = None;
     }
-    ui::play(ui::Options { paths, split, all_inputs, inputs, no_pads, sf2, palette_leds, audio_out, fingering, upper, manual_bass, transpose })
+    ui::play(yahaha::Options { paths, split, all_inputs, inputs, no_pads, sf2, palette_leds, audio_out, fingering, upper, manual_bass, transpose })
 }
 

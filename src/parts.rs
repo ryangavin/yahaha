@@ -41,10 +41,11 @@ fn pack(volume: u8, picked: bool) -> u8 {
 }
 
 /// What the Launchkey faders 1-8 control (the button under the master fader toggles it).
-#[derive(Clone, Copy, PartialEq, Eq, Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum FaderPage {
     /// Faders 1-4: Right 1, Right 2, Right 3, Left. 5-8 unused.
+    #[default]
     Panel,
     /// Faders 1-8: the Style parts.
     Style,

@@ -345,12 +345,6 @@ pub struct ChordState {
     pub transpose_master: i8,
 }
 
-impl Default for Fingering {
-    fn default() -> Fingering {
-        Fingering::FingeredOnBass
-    }
-}
-
 /// A keyboard part: Right 1, Right 2, Right 3 or Left.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -391,12 +385,6 @@ pub struct MixerState {
     pub master: Option<u8>,
     /// The Launchkey master fader has moved but not yet reached `master`.
     pub master_waiting: bool,
-}
-
-impl Default for FaderPage {
-    fn default() -> FaderPage {
-        FaderPage::Panel
-    }
 }
 
 /// One of the 8 accompaniment parts.
@@ -466,18 +454,6 @@ pub struct Pad {
     pub anim: Anim,
     /// What pressing it sends (None: an unused pad).
     pub action: Option<AppCmd>,
-}
-
-impl Default for Level {
-    fn default() -> Level {
-        Level::Off
-    }
-}
-
-impl Default for Anim {
-    fn default() -> Anim {
-        Anim::Solid
-    }
 }
 
 /// One Touch Settings.

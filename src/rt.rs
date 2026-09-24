@@ -83,6 +83,12 @@ pub fn make_realtime(period_ns: u64, computation_ns: u64, constraint_ns: u64) ->
 #[derive(Clone, Copy)]
 pub struct Wakeup(mach2::mach_types::semaphore_t);
 
+impl Default for Wakeup {
+    fn default() -> Wakeup {
+        Wakeup::new()
+    }
+}
+
 unsafe impl Send for Wakeup {}
 unsafe impl Sync for Wakeup {}
 
@@ -214,6 +220,12 @@ pub const BUCKETS: usize = 1001;
 pub struct Histogram {
     pub buckets: [AtomicU64; BUCKETS],
     pub max_ns: AtomicU64,
+}
+
+impl Default for Histogram {
+    fn default() -> Histogram {
+        Histogram::new()
+    }
 }
 
 impl Histogram {

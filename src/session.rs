@@ -116,6 +116,8 @@ struct Inner {
 /// What only a live session has.
 struct Live {
     client: Client,
+    /// Its handler runs on CoreMIDI's thread until the client is disposed.
+    _port: midi::InputPort,
     engine: std::thread::JoinHandle<()>,
     control: std::thread::JoinHandle<()>,
     /// Dropping it stops the synth thread (and its audio stream).
@@ -181,6 +183,7 @@ impl Leds {
         Leds { out, palette, last_leds: [(0, None); 16], last_rgb: [None; 16], last_fader_btns: None, last_nav: None, buf: Vec::new() }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn update(&mut self, s: &Snapshot, has: &[bool], pnl: &Panel, manual_bass: bool, fader_page: FaderPage, styles: bool, beats: f64) {
         if self.palette {
             for (i, (note, led)) in launchkey::pad_leds(s, has, pnl).into_iter().enumerate() {
@@ -585,10 +588,10 @@ impl Control {
             let styles = self.lib.len() > 1;
             leds.update(&s, &self.info.has, &pnl, self.shared.manual_bass(), self.shared.parts.fader_page(), styles, self.beats);
         }
-        if let Some(rx) = &self.index_rx {
-            if self.lib.apply(rx) > 0 {
-                self.lib_rev += 1;
-            }
+        if let Some(rx) = &self.index_rx
+            && self.lib.apply(rx) > 0
+        {
+            self.lib_rev += 1;
         }
     }
 
@@ -826,8 +829,11 @@ impl Inner {
     }
 }
 
+/// A scanned library, its index results to come, and the first style that loads (its id).
+type Opened = (Library, mpsc::Receiver<(usize, Info)>, usize, Box<Prepared>, Loaded);
+
 /// Scan the library, start indexing it, and load the first style that loads.
-fn open_library(paths: &[PathBuf]) -> Result<(Library, mpsc::Receiver<(usize, Info)>, usize, Box<Prepared>, Loaded)> {
+fn open_library(paths: &[PathBuf]) -> Result<Opened> {
     // The folder walk is quick; the index (names, tempos) fills in on a background thread.
     let lib = Library::scan(paths);
     anyhow::ensure!(!lib.is_empty(), "no style files found");
@@ -1002,8 +1008,6 @@ impl Session {
             }
         }
         p.control.inputs = connected;
-        // The input handler lives as long as the port (the process, or until `stop`).
-        std::mem::forget(port);
 
         if p.control.set_transpose(opts.transpose).is_err() {
             p.control.transpose = Transpose::default();
@@ -1019,7 +1023,7 @@ impl Session {
         let inner = Arc::new(Inner::new(shared, p.control));
         let i2 = inner.clone();
         let control = std::thread::Builder::new().name("yahaha-control".into()).spawn(move || i2.control_loop())?;
-        Ok(Session { inner, live: Mutex::new(Some(Live { client, engine: engine_thread, control, synth: synth_thread })) })
+        Ok(Session { inner, live: Mutex::new(Some(Live { client, _port: port, engine: engine_thread, control, synth: synth_thread })) })
     }
 
     /// An offline session: no MIDI, no audio, no threads. The engine runs on a virtual

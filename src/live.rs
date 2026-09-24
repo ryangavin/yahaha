@@ -255,6 +255,12 @@ pub struct Keys {
     held: [[u8; 128]; 16],
 }
 
+impl Default for Keys {
+    fn default() -> Keys {
+        Keys::new()
+    }
+}
+
 impl Keys {
     pub fn new() -> Keys {
         Keys { sounding: [Sounded::default(); 128], held: [[0; 128]; 16] }
@@ -592,10 +598,10 @@ impl Input {
                 }
             }
             _ => {
-                if let Some(tx) = self.actions.as_mut() {
-                    if tx.push(a).is_ok() {
-                        self.ctl_signal = true;
-                    }
+                if let Some(tx) = self.actions.as_mut()
+                    && tx.push(a).is_ok()
+                {
+                    self.ctl_signal = true;
                 }
             }
         }
@@ -1115,13 +1121,14 @@ mod tests {
     }
 
     /// Panel page: faders 1-4 set the keyboard parts' volumes (soft takeover), their
-    /// buttons turn the parts on/off, Shift + button selects. The master button switches to
+    /// buttons turn the parts on/off and Shift + button selects (as commands, on the control
+    /// side, like the pads). The master button switches to
     /// the Style page, whose faders and buttons go to the engine; the engine hears where
     /// the faders physically are.
     #[test]
     fn fader_pages_route_faders_and_buttons() {
         use crate::engine::Button;
-        let (mut input, shared, mut cmds, _acts) = pads_rig();
+        let (mut input, shared, mut cmds, mut acts) = pads_rig();
         let parts = &shared.parts;
         assert_eq!(parts.fader_page(), FaderPage::Panel);
         input.pad_msg(&[0xB0, 6, 100]); // fader 2 = Right 2, at its level already
@@ -1129,13 +1136,13 @@ mod tests {
         assert_eq!(parts.volume(parts::RIGHT2), 64);
         input.pad_msg(&[0xB0, 12, 30]); // fader 8: unused on Panel
         assert!(cmds.pop().is_err(), "nothing reaches the Style parts");
-        input.pad_msg(&[0xB0, 40, 127]); // button 4: Left on
-        assert!(parts.is_on(parts::LEFT));
+        input.pad_msg(&[0xB0, 40, 127]); // button 4: Left on/off
+        assert_eq!(acts.pop(), Ok(Action::PartOnOff(3)));
         input.pad_msg(&[0xB0, launchkey::SHIFT_CC, 127]);
         input.pad_msg(&[0xB0, 39, 127]); // Shift + button 3: select Right 3
         input.pad_msg(&[0xB0, launchkey::SHIFT_CC, 0]);
-        assert_eq!(parts.selected(), parts::RIGHT3);
-        assert!(!parts.is_on(parts::RIGHT3));
+        assert_eq!(acts.pop(), Ok(Action::SelectPart(2)));
+        assert!(acts.pop().is_err());
 
         input.pad_msg(&[0xB0, 45, 127]); // master button: Style page
         assert_eq!(parts.fader_page(), FaderPage::Style);

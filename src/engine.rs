@@ -163,6 +163,10 @@ impl Msgs {
         self.ends.len()
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.ends.is_empty()
+    }
+
     #[cfg_attr(not(test), allow(dead_code))]
     pub fn iter(&self) -> impl Iterator<Item = &[u8]> + '_ {
         let mut start = 0;

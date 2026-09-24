@@ -140,7 +140,7 @@ fn sync_start_sections_and_position() {
     assert_eq!(st.transport.section, None);
     assert_eq!((st.transport.bar, st.transport.beat), (1, 1));
     assert!(st.style.sections.iter().any(|n| n == "Main A"));
-    assert_eq!(st.io.offline, true);
+    assert!(st.io.offline);
 
     // A chord in the left hand starts the style (Sync Start).
     keys(&s, true, &[36, 40, 43]);
