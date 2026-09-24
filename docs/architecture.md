@@ -22,7 +22,8 @@ This document is about the inside.
 | `src/sff.rs`, `src/library.rs` | Style files (SFF1/SFF2) and the style library index. |
 | `src/theory.rs`, `src/fingering.rs` | Chords, chord recognition, fingering types. |
 | `src/parts.rs`, `src/launchkey.rs` | Keyboard parts (Right 1-3, Left) and the Launchkey mapping. |
-| `src/harmony.rs`, `src/arp/`, `src/multipad/`, `src/ireal/`, `src/plugin/` | Feature libraries not yet wired in (pure, real-time safe). |
+| `src/harmony.rs`, `src/arp/`, `src/multipad/`, `src/plugin/` | Feature libraries not yet wired in (pure, real-time safe). |
+| `src/ireal/` | iReal Pro charts (pure); the chart player plays them: `engine/chart.rs`, `session/chart.rs`, `api/chart.rs` (docs/ireal.md). |
 | `app/` | The desktop app: Svelte frontend (`app/src`), Tauri shell (`app/src-tauri`). |
 
 ## Threads

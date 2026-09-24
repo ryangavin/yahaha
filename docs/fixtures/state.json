@@ -1423,5 +1423,19 @@
       54
     ]
   },
+  "chart": {
+    "on": false,
+    "playlists": [],
+    "selected": null,
+    "song": null,
+    "choruses": 1,
+    "intro": 0,
+    "ending": 0,
+    "loop": null,
+    "autoStyle": true,
+    "suggestedStyle": null,
+    "bar": null,
+    "overridden": false
+  },
   "message": null
 }

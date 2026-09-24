@@ -1,8 +1,9 @@
 # iReal Pro charts (`src/ireal`)
 
 `yahaha::ireal` reads iReal Pro playlist links and turns a chart into a linear list of bars,
-with yahaha chords on beats. It is a pure library module: it plays nothing and has no engine,
-session or UI wiring.
+with yahaha chords on beats. It is a pure library module. The **chart player** (below) is
+built on it: `src/engine/chart.rs` plays the bars, `src/session/chart.rs` imports and chooses
+charts, and the app shows them.
 
 ```rust
 use yahaha::ireal;
@@ -183,3 +184,99 @@ A quality that isn't in the table gets `Fit::Fallback`. This covers custom `*...
 For example, `7#9b13` becomes 7#9.
 
 Tests are in `src/ireal/tests.rs`. They use synthetic charts only; no real songs or playlists are committed.
+
+## Chart player
+
+In chart mode the band takes its chords and Main sections from the chosen chart instead of
+from your left hand. The engine side is `src/engine/chart.rs`; the control side (import,
+choosing a song, settings, style suggestion) is `src/session/chart.rs`; the commands and
+state are `chart` in [app-api.md](app-api.md).
+
+### How a chart plays
+
+- **The plan.** Choosing a song expands its form `choruses` times (`expand`) and turns each
+  bar into a `PlanBar`: the Main it plays, whether a section starts on it, the chord in
+  effect as it begins, and up to 8 chords on beats. The plan is built on the control side
+  and handed to the engine thread in a `Box` through its own ring. The plan it replaces
+  comes back through another ring to be freed there (`tests/chart_no_alloc.rs`).
+- **Bars.** One chart bar is one bar of the style. The chart moves on a bar at each bar line
+  of the Main, Fill or Break playing (the engine's `on_bar` hook). It stays put during the
+  Intro and the Ending.
+- **Chords.** At each beat line (`on_beat`), the band gets the chord in effect on that beat of
+  the chart bar. A chord on a beat the style's bar doesn't have (a 4/4 chart on a 3/4 style)
+  lands on the style bar's last beat. N.C. is Chord Cancel: rhythm only. While chart mode is
+  on, the engine wakes at every beat line (`hook_deadline`), so chords land on the beat.
+- **Sections.** Sections A, B, C and D play Main A, B, C and D. A verse (`V`) or the chart's
+  own intro (`i`) keeps the Main before it, and bars before any mark play Main A.
+  - A bar with a section mark starts that Main from its first bar, so the style's phrases
+    line up with the chart's. The top of each chorus after the first counts as a section
+    mark.
+  - With Auto Fill on, the bar before a section mark plays the new Main's fill (Fill In AA
+    to DD, or the nearest the style has). A repeated section, such as A to A, gets its own
+    fill, just as pressing the Main that is already playing does on a Genos. With Auto
+    Fill off, the Main changes on the bar line with no fill.
+- **Intro and Ending.** `chart.intro` (default Intro A) plays before the first bar. The
+  song's first chord already sounds during it. If you press an Intro yourself before
+  starting, that one plays instead. After the last bar, `chart.ending` (default Ending A)
+  plays. With no Ending set, the band stops at the end of the last bar.
+- **Loop.** `setChartLoop` plays bars `[start, end)` over and over, with no Ending, until
+  you stop or press an Ending. The app offers the whole song and each section.
+- **Your left hand.** A chord you play takes over at once and holds until the next bar
+  line, where the chart takes over again (`chart.overridden` shows it). A Sync Start chord
+  only starts the band: the chart's own chord plays from the first beat.
+- **Transpose.** Keyboard transpose moves the chart's chords just as it moves the chords you
+  play (the chart is "played" in its written key). Master transpose moves everything, as
+  always.
+- **Tempo.** Choosing a song with the band stopped sets the tempo to the chart's, when the
+  chart has one (iReal's default is 0, meaning none).
+- **Buttons still work.** Main, Fill, Break and Ending buttons do what they always do. The
+  chart queues its next section change on the bar line before it, so it may replace a Main
+  you pressed.
+
+### Style suggestion
+
+The chart's style label (`Song::style`, e.g. "Medium Swing") and iReal's playback groove
+(`Song::groove`, e.g. "Latin-Brazil: Bossa Acoustic") pick words (`STYLE_WORDS` in
+`src/ireal/styles.rs`). A library style scores by those words: in its name they count three
+times as much as in its folder (the category), and earlier words count more. A style in
+the chart's metre gets a point; ties go to the style nearest the chart's tempo.
+
+| iReal says | Looks for |
+|---|---|
+| bossa, samba, baiao | bossa / samba / baiao, brazil, latin |
+| salsa, mambo, cha, bolero, rumba, tango, songo, afro | that dance, then latin (afro: 6-8, 12-8) |
+| calypso, reggae | calypso, soca, reggae, ska, dub |
+| waltz | waltz, 3-4 (and the metre point for 3/4 styles) |
+| ballad | ballad, slow |
+| gospel, soul, r&b, blues, shuffle, second line, funk | that word and its neighbours |
+| rock, pop, country, disco, march, folk | that word |
+| even 8ths | 8beat, pop, jazz |
+| swing, up tempo, bebop, jazz | swing, jazz, bigband |
+
+With `chart.autoStyle` on (the default), choosing a song loads the suggested style.
+Choosing another style in the browser overrides it until the next song is chosen, or for
+good once Auto Style is off.
+
+### Decisions
+
+- **One chart bar = one style bar.** The Genos has no chart player, so nothing pins this
+  down. Stretching a 3/4 chart over 4/4 bars would lose the chords' timing.
+- **Section marks restart the Main.** This keeps a 4- or 8-bar Main pattern in phase with
+  8-bar sections, the way a player presses Main on the section's first bar.
+- **Fills lead into every section mark, and into each new chorus.** On a Genos, pressing
+  the Main that is already playing plays its fill. An A-A-B-A chart gets a fill before each
+  A, as a band would play one.
+- **The left hand overrides until the next bar line**, as the task specifies. A shorter
+  override (to the next chart chord) would cut a reharmonization off mid-bar.
+- **The chord names shown are yahaha's** (`Dm7`, `G7(9)`), from the mapped chords, not the
+  chart's own spelling. They are the chords the band plays.
+- **Playlists are kept in memory only** (nothing is written to disk). The app imports again
+  from the file or the link.
+- **Choruses are a setting (default 1)**, not the song's own repeat count (iReal's default
+  is 3, meant for solos). The value carries over from song to song.
+- **Launchkey:** no pad for chart mode. Every pad page is already full, and chart mode is
+  something you set up before playing, not during. The terminal UI has `r` and `( )`.
+
+Tests are synthetic charts only: `src/engine/chart.rs` (the engine, on a corpus style),
+`src/session_tests.rs` (`chart_player_*`), `src/ireal/styles.rs`, and
+`tests/chart_no_alloc.rs`.
