@@ -6,7 +6,7 @@ import { mirror } from '../../lib/mirror.svelte'
 import { app } from '../../lib/store.svelte'
 import Launchkey from '../launchkey/Launchkey.svelte'
 import Parts from './Parts.svelte'
-import { layerText, leftZone } from './parts'
+import { layerText, leftZone, pluginPickValue } from './parts'
 
 function setup(demo = true) {
   const session = new MockSession({ manual: true, demo })
@@ -146,5 +146,19 @@ describe('Keyboard parts drawer', () => {
     expect([...bank.children].indexOf(bank.querySelector('.linked')!)).toBe(8)
     await fireEvent.pointerLeave(strip('Right 2'))
     expect(bank.querySelector('.linked')).toBeNull()
+  })
+})
+
+describe('plugin picker', () => {
+  it('a failed plugin can be picked again (the picker shows the SoundFont voice)', () => {
+    const s = new MockSession({ manual: true, demo: false })
+    s.send({ type: 'setPartPlugin', part: 0, id: 'aumu Mock Demo', state: null })
+    s.advance(1000)
+    const p = s.state.keyboardParts[0].plugin
+    expect(p?.status).toBe('failed')
+    expect(pluginPickValue(p)).toBe('')
+    s.send({ type: 'setPartPlugin', part: 0, id: 'aumu dls  appl', state: null })
+    s.advance(1000)
+    expect(pluginPickValue(s.state.keyboardParts[0].plugin)).toBe('aumu dls  appl')
   })
 })

@@ -156,6 +156,7 @@ export type AppCmd =
   | MultiPadCmd
   // Controllers: pedals, wheels, assignable functions (docs/controllers.md)
   | ControllersCmd
+  | PluginCmd
   // Keyboard Harmony / Arpeggio (docs/app-api.md): see HarmonyArpState below.
   | HarmonyArpCmd
 
@@ -379,6 +380,8 @@ export interface KeyboardPart {
   octave: number
   /** Where its Launchkey fader (Panel page, faders 1–4) physically is; null until it moves. */
   fader: number | null
+  /** The instrument plugin it plays instead of its SoundFont voice (absent: the SoundFont). */
+  plugin?: PartPlugin
 }
 
 export interface Voice {
@@ -736,8 +739,58 @@ export interface AppState {
   multiPad: MultiPadState
   /** Pedals, wheels, the parts they reach and the pedals' assignable functions. */
   controllers: ControllersState
+  /** The instrument plugin host (docs/plugin-hosting.md). */
+  plugins: PluginsState
   /** Keyboard Harmony / Arpeggio. */
   harmonyArp: HarmonyArpState
+}
+
+// ── Instrument plugins (docs/plugin-hosting.md) ──────────────────────────
+
+export type PluginCmd =
+  /** Play a keyboard part (0-3) on a plugin from `plugins.list`; `state` a saved preset (base64). */
+  | { type: 'setPartPlugin'; part: number; id: string; state: string | null }
+  /** Back to the part's SoundFont voice. */
+  | { type: 'clearPartPlugin'; part: number }
+  /** Keep the plugin's current preset with the part (send when its editor closes). */
+  | { type: 'savePartPluginState'; part: number }
+  /** Scan the installed instruments again. */
+  | { type: 'rescanPlugins' }
+
+/** loading: still on the SoundFont; failed: back on it; muted: the plugin crashed. */
+export type PluginStatus = 'loading' | 'playing' | 'failed' | 'muted'
+
+export interface PartPlugin {
+  id: string
+  name: string
+  manufacturer: string
+  status: PluginStatus
+  /** While loading: queued, instantiating, initializing, restoringState. */
+  stage: string | null
+  error: string | null
+  outOfProcess: boolean
+  /** Share of real time (0.05 = 5% of a core), once a second. */
+  cpu: number
+  overruns: number
+  /** Its editor window can be opened. */
+  editor: boolean
+}
+
+export interface PluginEntry {
+  /** "aumu dls  appl": what setPartPlugin takes. */
+  id: string
+  name: string
+  manufacturer: string
+  version: string
+  format: 'AUv2' | 'AUv3'
+  lastError: string | null
+}
+
+export interface PluginsState {
+  /** The build hosts plugins and the built-in synth runs. */
+  available: boolean
+  scanning: boolean
+  list: PluginEntry[]
 }
 
 // ── Controllers (docs/controllers.md) ────────────────────────────────────

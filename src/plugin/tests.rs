@@ -325,3 +325,109 @@ fn a_non_finite_trim_cannot_poison_the_mix() {
     assert!(l.iter().chain(&r).all(|x| x.is_finite()));
     assert!(energy(&l, &r) > 0.0, "treated as no trim");
 }
+
+/// CC10 is the host's, as CC7 is: a balance on the plugin's output, never sent to it.
+#[test]
+fn pan_is_a_host_side_balance() {
+    assert_eq!(balance(64), (1.0, 1.0));
+    assert_eq!(balance(0), (1.0, 0.0));
+    assert_eq!(balance(127), (0.0, 1.0));
+    let side = |pan: u8| {
+        let (mut rack, mut ctl) = rack(256, RATE);
+        ctl.assign(0, dls(256), Swap { fade_frames: 0, trim: 1.0 }).ok().unwrap();
+        let (mut el, mut er) = (0.0, 0.0);
+        let _ = block(&mut rack, &[[0xB0, 10, pan], [0x90, 60, 110]], 256);
+        for _ in 0..8 {
+            let (l, r) = block(&mut rack, &[], 256);
+            el += energy(&l, &[]);
+            er += energy(&[], &r);
+        }
+        (el, er, rack.take_peak(0))
+    };
+    let (cl, cr, peak) = side(64);
+    assert!(cl > 0.0 && cr > 0.0 && peak > 0.0, "centre: both sides, metered");
+    let (ll, lr, _) = side(0);
+    assert!(ll > 0.0 && lr == 0.0, "hard left: left only ({ll} / {lr})");
+    assert!((ll - cl).abs() < cl * 0.01, "the left side at hard left is the centre's left: a balance, not a boost");
+}
+
+/// A second swap sent while the first is still crossfading waits for that fade to end,
+/// instead of cutting the outgoing instance off mid-fade.
+#[test]
+fn a_swap_during_a_crossfade_waits_for_it() {
+    let (mut rack, mut ctl) = rack(64, RATE);
+    ctl.assign(0, dls(64), Swap::default()).ok().unwrap();
+    let _ = block(&mut rack, &[[0x90, 60, 110]], 64);
+    ctl.assign(0, dls(64), Swap::default()).ok().unwrap();
+    block(&mut rack, &[], 64);
+    assert!(rack.is_fading(0));
+    ctl.assign(0, dls(64), Swap::default()).ok().unwrap();
+    let swapped = |ctl: &mut RackControl| ctl.poll_events().iter().filter(|e| matches!(e, RackEvent::Swapped { .. })).count();
+    assert_eq!(swapped(&mut ctl), 2);
+    block(&mut rack, &[], 64);
+    assert_eq!(swapped(&mut ctl), 0, "the third assign waits: 240-frame fade, 128 frames in");
+    for _ in 0..4 {
+        block(&mut rack, &[], 64);
+    }
+    assert_eq!(swapped(&mut ctl), 1, "then it lands");
+}
+
+/// The strongest autocorrelation lag (the pitch period, in samples) between `lo` and `hi`.
+fn period(x: &[f32], lo: usize, hi: usize) -> usize {
+    (lo..hi)
+        .max_by(|&a, &b| {
+            let c = |lag: usize| x.iter().zip(&x[lag..]).map(|(p, q)| (p * q) as f64).sum::<f64>();
+            c(a).partial_cmp(&c(b)).unwrap()
+        })
+        .unwrap()
+}
+
+/// A plugin assigned after the part's Pitch Bend Range (RPN 0) was set plays with that
+/// range: the rack replays RPN 0-2 into the incoming instance, as the SoundFont side's
+/// `Shadow` does for a new SoundFont (#105 review B1).
+#[test]
+fn a_plugin_assigned_later_gets_the_parts_bend_range() {
+    let run = |range_before_assign: bool| {
+        let (mut rack, mut ctl) = rack(512, RATE);
+        let range: [[u8; 3]; 5] = [[0xB0, 101, 0], [0xB0, 100, 0], [0xB0, 6, 12], [0xB0, 38, 0], [0xB0, 101, 127]];
+        if range_before_assign {
+            for m in range {
+                assert!(!rack.midi(m, 0));
+            }
+        }
+        ctl.assign(0, dls(512), Swap { fade_frames: 0, trim: 1.0 }).ok().unwrap();
+        let mut first: Vec<[u8; 3]> = if range_before_assign { vec![] } else { range.to_vec() };
+        first.extend([[0xE0, 127, 127], [0x90, 57, 110]]);
+        let _ = block(&mut rack, &first, 512);
+        let mut l = Vec::new();
+        for _ in 0..8 {
+            l.extend(block(&mut rack, &[], 512).0);
+        }
+        period(&l[2048..], 60, 400)
+    };
+    let (sent_after, replayed) = (run(false), run(true));
+    // A3 (220 Hz) bent up 12 semitones: 440 Hz, a 109-sample period at 48 kHz (+2 would be 196).
+    assert!((100..120).contains(&sent_after), "the range sent to the plugin itself: {sent_after}");
+    assert!(replayed.abs_diff(sent_after) <= 2, "replayed on assign: {replayed} vs {sent_after}");
+}
+
+/// Only a typed "the system won't host this out of process" status allows an in-process
+/// retry: never a timeout, a crash of the hosting process, a later stage, or an error that
+/// merely mentions the code (#105 review B3).
+#[test]
+fn only_a_refusal_to_host_out_of_process_retries_in_process() {
+    let st = |status, what| anyhow::Error::new(StatusError { status, what });
+    assert!(may_retry_in_process(&st(-66748, "AudioComponentInstantiate")));
+    assert!(may_retry_in_process(&st(-66751, "AudioComponentInstantiate").context("loading")));
+    assert!(!may_retry_in_process(&st(-66749, "AudioComponentInstantiate")), "the hosting process died");
+    assert!(!may_retry_in_process(&st(-66748, "AudioUnitInitialize")), "a later stage");
+    assert!(!may_retry_in_process(&st(-10875, "AudioUnitInitialize")));
+    assert!(!may_retry_in_process(&anyhow::Error::new(LoadTimedOut(Duration::from_secs(20)))));
+    assert!(!may_retry_in_process(&anyhow::anyhow!("AudioComponentInstantiate failed: OSStatus -66748")), "text is not a status");
+}
+
+#[test]
+fn an_instance_at_another_sample_rate_is_refused() {
+    let (_rack, mut ctl) = rack(256, 44_100.0);
+    assert!(ctl.assign(0, dls(256), Swap::default()).is_err(), "a 48 kHz instance in a 44.1 kHz rack");
+}
