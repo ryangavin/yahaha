@@ -6,6 +6,7 @@
 <script lang="ts">
   import type { ControlId, SurfaceState } from '../../lib/api/types'
   import { app } from '../../lib/store.svelte'
+  import { mirror } from '../../lib/mirror.svelte'
   import { faderCmd, faderTip } from '../../lib/surface'
   import Fader from '../../lib/ui/Fader.svelte'
   import Control from './Control.svelte'
@@ -16,11 +17,19 @@
     'faderButton1', 'faderButton2', 'faderButton3', 'faderButton4',
     'faderButton5', 'faderButton6', 'faderButton7', 'faderButton8', 'masterButton',
   ]
+
+  // A drawer is pointing at a keyboard part (lib/mirror): light its fader strip on the
+  // Panel page, or the fader page button that gets you there from the Style page.
+  const linked = $derived.by(() => {
+    const f = mirror.panelFader
+    if (f === null) return -1
+    return app.state.mixer.faderPage === 'panel' ? f : 8
+  })
 </script>
 
 <div class="bank" role="group" aria-label="Faders">
   {#each surface.faders as f, i (i)}
-    <div class="strip" class:master={i === 8}>
+    <div class="strip" class:master={i === 8} class:linked={linked === i}>
       <Fader
         value={f.value ?? 0}
         tip={faderTip(f)}
@@ -51,6 +60,16 @@
     grid-template-rows: 1fr auto;
     gap: 0.55em;
     min-width: 0;
+  }
+  /* Highlighted from a drawer (lib/mirror). Static: nothing here animates. */
+  .strip {
+    border-radius: 6px;
+    outline: 2px solid transparent;
+    outline-offset: 3px;
+  }
+  .linked {
+    outline-color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
   }
   .master {
     padding-left: 0.4em;
