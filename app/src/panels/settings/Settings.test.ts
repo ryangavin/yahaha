@@ -121,17 +121,46 @@ describe('Settings drawer', () => {
     expect([s.state.chord.transposeKeyboard, s.state.chord.transposeMaster]).toEqual([0, 0])
   })
 
-  it('style toggles send the transport commands; M5 placeholders are disabled', async () => {
+  it('style toggles send the transport commands; the OTS Link timing placeholder is disabled', async () => {
     const s = setup()
     const before = s.state.transport.autoFill
     await fireEvent.click(byTip('transport.auto_fill')[0])
     expect(s.state.transport.autoFill).toBe(!before)
-    for (const key of ['settings.section_timing', 'settings.ots_link_timing', 'settings.synchro_stop_window']) {
-      const els = byTip(key)
-      expect(els.length).toBeGreaterThan(0)
-      for (const el of els) expect(el.getAttribute('aria-disabled')).toBe('true')
-    }
+    const els = byTip('settings.ots_link_timing')
+    expect(els.length).toBeGreaterThan(0)
+    for (const el of els) expect(el.getAttribute('aria-disabled')).toBe('true')
     expect(page('style').textContent).toContain('Coming soon')
+  })
+
+  it('section change timing, Synchro Stop window, fade, Section Reset and Retrigger are live', async () => {
+    const s = setup()
+    const [nextBar, immediate] = byTip('settings.section_timing')
+    expect(nextBar.getAttribute('aria-checked')).toBe('true')
+    await fireEvent.click(immediate)
+    expect(s.state.styleSettings.mainTiming).toBe('immediate')
+    await fireEvent.click(byTip('settings.intro_ending_timing')[1])
+    expect(s.state.styleSettings.introEndingTiming).toBe('endOfSection')
+    const win = byTip('settings.synchro_stop_window')[0]
+    expect(win.getAttribute('aria-disabled')).toBeNull()
+    expect(win.getAttribute('aria-valuetext')).toBe('Off')
+    await fireEvent.keyDown(win, { key: 'PageUp' })
+    expect(s.state.styleSettings.syncStopWindowMs).toBe(1000)
+    await fireEvent.keyDown(byTip('settings.fade_out')[0], { key: 'ArrowRight' })
+    expect(s.state.styleSettings.fadeOutMs).toBe(5100)
+    await fireEvent.click(byTip('settings.section_reset')[0])
+    expect(s.state.styleSettings.sectionReset).toBe(false)
+    const rates = byTip('settings.retrigger_rate')
+    expect(rates.map((r) => r.textContent?.trim())).toEqual(['1', '1/2', '1/4', '1/8', '1/16', '1/32'])
+    await fireEvent.click(rates[4])
+    expect(s.state.styleSettings.retriggerRate).toBe(16)
+    await fireEvent.click(byTip('transport.retrigger')[0])
+    expect(s.state.transport.retrigger).toBe(true)
+    // Stopped: Fade arms a fade in.
+    s.send({ type: 'stop' })
+    flushSync()
+    await fireEvent.click(byTip('transport.fade')[0])
+    expect(s.state.transport.fade).toBe('armed')
+    expect(page('style').textContent).toContain('Armed')
   })
 
   it('audio: synth on/off, output pair, master volume', async () => {

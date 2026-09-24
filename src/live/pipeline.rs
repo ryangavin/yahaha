@@ -176,6 +176,11 @@ impl Input {
         let r = std::mem::take(&mut self.route[k as usize]);
         self.track_key(slot, k, 0, Sounded::default());
         if r != 0 {
+            // Every key the chord is read from is up: the next chord is struck anew.
+            let read = self.chord_read_side();
+            if r & read != 0 && !self.route.iter().any(|&x| x & read != 0) {
+                self.let_go = true;
+            }
             // Sync Stop: the last key of the current chord section went up.
             let side = self.chord_side();
             if r & side != 0 && !self.route.iter().any(|&x| x & side != 0) && self.cmd.push(Cmd::ChordReleased).is_ok() {

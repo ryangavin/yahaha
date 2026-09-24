@@ -15,6 +15,7 @@
     max = 127,
     unity = null,
     disabled = false,
+    format = String,
   }: {
     value: number
     tip: TipKey
@@ -24,6 +25,8 @@
     /** A tick at this value (100 = unity for the synth master). */
     unity?: number | null
     disabled?: boolean
+    /** The readout for a value (default: the number). */
+    format?: (v: number) => string
   } = $props()
 
   let slot: HTMLDivElement | undefined = $state()
@@ -74,6 +77,7 @@
     aria-valuemin={0}
     aria-valuemax={max}
     aria-valuenow={value}
+    aria-valuetext={format(value)}
     use:tip={tipKey}
     onpointerdown={down}
     onpointermove={move}
@@ -88,7 +92,7 @@
       <div class="carrier" style:transform="translateX({frac * 100}%)"><div class="cap mat-raised"></div></div>
     </div>
   </div>
-  <span class="readout mat-screen" aria-hidden="true"><span class="glow-text">{disabled ? '—' : value}</span></span>
+  <span class="readout mat-screen" aria-hidden="true"><span class="glow-text">{disabled ? '—' : format(value)}</span></span>
 </div>
 
 <style>

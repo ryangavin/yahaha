@@ -14,6 +14,11 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | **Sync Stop** | The band plays only while you hold a chord: let go of every chord key and it stops, play again and it restarts. Not available with the Full Keyboard fingerings. | SYNC STOP | `J` | Pad page 1 (Sections), bottom row, pad 7 |
 | **Auto Fill** | When on, switching to another Main plays a fill into it first. | AUTO FILL IN | `U` | Pad page 1 (Sections), top row, pad 8 |
 | **Stop ACMP** | With Sync Start off and the band stopped, a chord you hold sounds on the style's bass and pad voices. | Stop Accompaniment | `H` | Pad page 2 (Chord/Setup), bottom row, pad 2 |
+| **Fade In/Out** | Stopped, it arms a fade in: the next start comes up from silence. Playing, the band fades out and stops, and stays silent for the hold time before its volume comes back (only the style fades, not what you play). The fade times are in Settings › Style. | Fade In/Out (Assignable) | `Shift+F` | Pad page 3 (OTS/Parts), top row, pad 6; Shift + Stop button |
+| **Section Reset** | Starts the section playing again from its top, right now, for stutter effects. With Section Reset on in Settings › Style (the default), Tap does the same while the band plays. | Style Section Reset (TAP TEMPO) | `\|` | Shift + Play button |
+| **Retrigger** | While on, each chord you play restarts the Main and loops its first few beats (the Retrigger length) until you change section or turn it off. Only Mains retrigger. | Style Retrigger (RtgOnOff) | `~` | Pad page 2 (Chord/Setup), bottom row, pad 8 |
+| **Retrigger length shorter** | Makes the Retrigger loop one step shorter: 1, 1/2, 1/4, 1/8, 1/16, 1/32 of a whole note. | Style Retrigger Rate (RtgRate) | `}` | Shift + > (Scene Launch) button |
+| **Retrigger length longer** | Makes the Retrigger loop one step longer, up to a whole note. | Style Retrigger Rate (RtgRate) | `{` | Shift + Function button |
 | **Panic** | Sends all notes off on every part, for a stuck note. | — | `\` | — |
 
 ## Sections
@@ -28,16 +33,16 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | **Main C** | Switches to Main C at the next bar; the lamp flashes while queued. Press the Main that is playing to play its fill, which also flashes. | MAIN VARIATION C | `3` | Pad page 1 (Sections), bottom row, pad 3 |
 | **Main D** | Switches to Main D at the next bar; the lamp flashes while queued. Press the Main that is playing to play its fill, which also flashes. | MAIN VARIATION D | `4` | Pad page 1 (Sections), bottom row, pad 4 |
 | **Break** | Plays the break from the next beat to the end of the bar, then goes back to the Main. The lamp flashes while it waits for the beat. | BREAK | `G` | Pad page 1 (Sections), bottom row, pad 5 |
-| **Ending I** | Plays Ending I from the next bar, then stops the band. | ENDING/rit. I | `I` | Pad page 1 (Sections), top row, pad 5 |
-| **Ending II** | Plays Ending II from the next bar, then stops the band. | ENDING/rit. II | `O` | Pad page 1 (Sections), top row, pad 6 |
-| **Ending III** | Plays Ending III from the next bar, then stops the band. Dark if the style has none. | ENDING/rit. III | `P` | Pad page 1 (Sections), top row, pad 7 |
+| **Ending I** | Plays Ending I from the next bar, then stops the band. Press it again while it plays to slow down to the end (ritardando). | ENDING/rit. I | `I` | Pad page 1 (Sections), top row, pad 5 |
+| **Ending II** | Plays Ending II from the next bar, then stops the band. Press it again while it plays to slow down to the end (ritardando). | ENDING/rit. II | `O` | Pad page 1 (Sections), top row, pad 6 |
+| **Ending III** | Plays Ending III from the next bar, then stops the band. Press it again while it plays to slow down (ritardando); dark if the style has none. | ENDING/rit. III | `P` | Pad page 1 (Sections), top row, pad 7 |
 | **Section lamps** | Dim: available. Bright: playing, or on. Flashing: queued for the next bar (fills: the next beat). Pulsing: armed and waiting for you. Dark: this style doesn't have it. | Section lamp states | — | The pads light the same way, in the same colours |
 
 ## Tempo
 
 | control | what it does | Genos | key | Launchkey |
 |---|---|---|---|---|
-| **Tap tempo** | Tap two or more times in time to set the tempo from your taps. The pad lights on the downbeat while the band plays. | TAP TEMPO | `T` | Pad page 1 (Sections), bottom row, pad 6 |
+| **Tap tempo** | Tap two or more times in time to set the tempo from your taps. While the band plays, a tap restarts the section instead (Section Reset), unless you turn that off in Settings › Style. The pad lights on the downbeat while the band plays. | TAP TEMPO | `T` | Pad page 1 (Sections), bottom row, pad 6 |
 | **Tempo −** | Slows the tempo by 1 BPM. | TEMPO − | `-` | Function button (right of the pads) |
 | **Tempo +** | Speeds the tempo up by 1 BPM. | TEMPO + | `=` | > (Scene Launch) button (right of the pads) |
 
@@ -249,7 +254,7 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | **Right 2 volume** | Right 2's volume. The fader is channel 3's CC 7 itself, with no hidden gain behind it. | Mixer › Panel › Right 2 Volume | — | Panel fader page: fader 2 |
 | **Right 3 volume** | Right 3's volume. The fader is channel 4's CC 7 itself, with no hidden gain behind it. | Mixer › Panel › Right 3 Volume | — | Panel fader page: fader 3 |
 | **Left volume** | Left's volume. The fader is channel 2's CC 7 itself, with no hidden gain behind it; under Manual Bass it is the bass's level too. | Mixer › Panel › Left Volume | — | Panel fader page: fader 4 |
-| **Style part volume** | This band part's volume. The fader is its channel's CC 7 itself (channels 9–16), with no hidden gain behind it. Loading a style sets the faders to the style's own levels, and a pattern that changes its volume moves the fader too, until you move it yourself. | Mixer › Style › Volume | — | Style fader page: faders 1–8 (Rhythm 1 … Phrase 2) |
+| **Style part volume** | This band part's volume. The fader is its channel's CC 7 itself (channels 9–16), with no hidden gain behind it, except that a Fade In/Out scales the CC 7 it sends while the fade runs (the fader stays put). Loading a style sets the faders to the style's own levels, and a pattern that changes its volume moves the fader too, until you move it yourself. | Mixer › Style › Volume | — | Style fader page: faders 1–8 (Rhythm 1 … Phrase 2) |
 | **Style part on/off** | Mutes or unmutes this band part. The Launchkey button is lit while the part plays. | Channel On/Off | `Z` `X` `C` `V` `B` `N` `M` `,` | Style fader page: buttons under faders 1–8 |
 | **Plugin part** | This part plays an instrument plugin, shown with its share of the CPU. Its fader is still the part's CC 7, applied to the plugin's output. | — | — | — |
 | **Master volume** | The built-in synth's output level (100 = unity), the only gain after the channel faders. A safety soft clipper above −1 dBFS keeps loud passages from hard clipping; below that the output is untouched. It does not change the MIDI output. | MASTER VOLUME | — | Master fader (both fader pages) |
@@ -258,7 +263,7 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | **Track Mute order** | A starts from Rhythm 2, then Rhythm 1, Bass, Chord 1, Chord 2, Pad, Phrase 1 and Phrase 2. B starts from Chord 1, then Chord 2, Pad, Bass, Phrase 1, Phrase 2 and the rhythm parts last. | Style Track Mute A / B | — | — |
 | **MIDI out channel** | The channel this part plays on at yahaha's MIDI output: Right 1 = 1, Left = 2, Right 2 = 3, Right 3 = 4, the band 9–16. Map a DAW track (Ableton: MIDI From yahaha, this channel) to record or re-voice it. | Part / Style channel | — | — |
 | **Voice** | Keyboard parts: the GM voice the part plays. Style parts: the Yamaha voice (bank MSB/LSB/program) the style was written for, and after ≈ the nearest voice the built-in synth plays for it. | Mixer › Voice | — | — |
-| **A fader is the channel's CC 7** | Each fader shows and sends exactly its channel's CC 7 (0–127), with no hidden gain anywhere, so the MIDI output and the synth hear the same level. Loading a style sets the Style faders to the style's own levels. | Mixer › Volume | — | The faders, on both fader pages |
+| **A fader is the channel's CC 7** | Each fader shows and sends exactly its channel's CC 7 (0–127), with no hidden gain anywhere, so the MIDI output and the synth hear the same level. Loading a style sets the Style faders to the style's own levels. While a Fade In/Out runs, the Style parts' CC 7 goes out scaled by the fade, and the faders stay where they are. | Mixer › Volume | — | The faders, on both fader pages |
 | **Waiting for the fader** | This level moved without the Launchkey fader (a style load, an OTS recall, a pattern, a page switch). The hardware fader does nothing until you move it to within 2 of the level, or across it. | — | — | Soft takeover on every fader |
 
 ## Metronome
@@ -405,10 +410,16 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | **Settings: MIDI** | Which MIDI inputs play yahaha, the yahaha output port, and the Launchkey connection. | Menu › MIDI | — | — |
 | **Settings: Library** | The folders yahaha looks for style files in, and a rescan. | Style selection (USB / User folders) | — | — |
 | **Split point** | Drag the marker, or click a key, to set the split (C3 = middle C). Keys at and below it are Left and the chord section, keys above it play Right 1–3. With focus, ←/→ move it a key and PgUp/PgDn an octave. | Split Point (Style + Left) | `[` `]` | Pad page 2 (Chord/Setup), bottom row, pads 3–4 |
-| **Section change timing (coming soon)** | When a Main you press takes over: Immediate (at the next beat) or Next Bar. Coming in M5; for now a new Main always waits for the next bar line (with Auto Fill, its fill starts at the next beat). | Section Change Timing | — | — |
+| **Section change timing: to Main** | When a Main you press (or a style you load while a Main plays) takes over; a style loaded during an Ending waits for it to end. Next Bar: at once if you press within the bar's first beat, otherwise at the next bar line. Immediate: at the next beat, carrying on from that beat, except with Auto Fill on, where a Main change is always Next Bar. | Section Change Timing – To Main [A]–[D] | — | — |
+| **Section change timing: inside Intro/Ending** | When you switch to another Intro or Ending while one plays. Next Bar: as for Mains. End of Section: the one playing finishes first, except Intro to Intro (Next Bar) and anything into Ending I (the next bar line). | Section Change Timing – Inside Intro/Ending | — | — |
 | **OTS Link timing (coming soon)** | With OTS Link on, whether the One Touch Setting changes the moment you press a Main (Immediate) or when the new Main actually starts (At Main Section Change). Coming in M5; for now it is always Immediate. | OTS Link Timing | — | — |
 | **Chord settle** | How long a new chord must hold still before the style follows it (0–30 ms; 0 follows every change at once). A chord whose keys land a few ms apart is then one chord change, not two, so no note is struck on the passing chord and cut a moment later. Only the accompaniment's chord parts wait (also Stop Accompaniment, and Multi Pads with Chord Match, even with the style stopped), and only when you change the chord on or just before their notes; drums keep time, and a chord struck a little ahead of the beat costs nothing. | — | — | — |
-| **Synchro Stop window (coming soon)** | With Sync Stop on: hold a chord longer than this and Sync Stop cancels itself, so the style keeps playing when you let go. A quicker release still stops the style. Coming in M5. | Synchro Stop Window | — | — |
+| **Synchro Stop window** | With Sync Stop on: hold a chord longer than this and Sync Stop turns itself off, so the style keeps playing when you let go. A quicker release still stops the style. Off (all the way left): Sync Stop never turns itself off. | Synchro Stop Window | — | — |
+| **Fade in time** | How long a fade in takes to reach full volume, from 0 to 20 seconds. | Fade In Time | — | — |
+| **Fade out time** | How long a fade out takes to reach silence before the band stops, from 0 to 20 seconds. | Fade Out Time | — | — |
+| **Fade out hold time** | How long the style stays silent after a fade out before its volume comes back, from 0 to 5 seconds. | Fade Out Hold Time | — | — |
+| **Tap: Section Reset** | On: Tap while the band plays restarts the section from its top. Off: Tap always sets the tempo. | Tap Tempo › Style Section Reset | — | — |
+| **Retrigger length** | How much of the Main's start Retrigger loops: a whole note (1) down to a 32nd (1/32). | Style Retrigger Rate (RtgRate) | — | Shift + > (Scene Launch) / Shift + Function buttons |
 | **Style folders** | The folders yahaha reads style files from (.sty, .prs, .sst and more), with subfolders as categories. Pass them on the command line or set YAHAHA_STYLES. | Style selection (User / USB) | — | — |
 | **Rescan styles** | Reads the style folders again, picking up files you added, changed or removed. The band keeps playing. | — | — | — |
 | **Pedals and wheels** | The sustain pedal and footswitches, what each pedal does, and which parts the pedal and the wheels reach. | Assignable, Controller | — | — |

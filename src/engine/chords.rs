@@ -38,6 +38,13 @@ impl Engine {
     pub(super) fn apply_chord(&mut self, played: Chord, now: u64, sink: &mut impl Sink) {
         self.played = Some(played);
         let sync_start = self.starts_on_chord() && played.ty != CANCEL;
+        // A chord played: the Synchro Stop Window times the hold; Retrigger restarts the
+        // Main at it, at once (the restart follows the player; the new pass's chord-part
+        // notes wait for the settle, as any chord change's do).
+        self.sync_window_chord(now);
+        if played.ty != CANCEL {
+            self.retrigger_chord(self.running, now, sink);
+        }
         if self.running || self.stop_acmp && !sync_start {
             self.unsettle(now, true);
             return;
@@ -115,8 +122,7 @@ impl Engine {
     pub(super) fn due_within(&self, now: u64, window: u64) -> Option<usize> {
         let sec = self.style.sections[self.cur].as_ref()?;
         let target = self.tick_at(now + window) + 1e-6;
-        let sec_end = self.sec_start + sec.len as f64;
-        let (boundary, inclusive, _) = self.boundary(sec_end);
+        let (boundary, inclusive, _) = self.boundary();
         if boundary <= target {
             return None;
         }
