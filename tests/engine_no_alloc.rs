@@ -71,7 +71,17 @@ fn preview_and_next_bar_style_change_do_not_allocate() {
         now = l.next_deadline().unwrap_or(now + 5_000_000).max(now + 1);
         l.step(now);
     }
+    // Controllers: a bend range, a part switched on under a held pedal, Fill Up, KeysOff
+    // and Panic (the pedal reset).
+    shared.controllers.set_bend_range(0, 9);
+    shared.controllers.toggle_switch(yahaha::controllers::SUSTAIN);
+    shared.parts.toggle(1);
+    l.step(now + 1);
+    ch.ui_tx.push(Cmd::Button(Button::Fill(1))).ok().unwrap();
+    ch.ui_tx.push(Cmd::KeysOff).ok().unwrap();
+    l.step(now + 1);
     ch.ui_tx.push(Cmd::Button(Button::StartStop)).ok().unwrap();
+    ch.ui_tx.push(Cmd::Panic).ok().unwrap();
     l.step(now + 1);
     assert_eq!(ALLOCS.load(Ordering::Relaxed) - allocs, 0, "allocations on the engine thread");
     assert_eq!(FREES.load(Ordering::Relaxed) - frees, 0, "frees on the engine thread");

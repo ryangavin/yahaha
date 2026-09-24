@@ -408,6 +408,9 @@ fn draw(f: &mut ratatui::Frame, st: &AppState, message: &str, beats: f64) {
         v.push(Span::styled(format!("{:<8}", kp.name), if on { bold } else { dim }));
         v.push(Span::styled(format!(" {}{}", if kp.plays_bass { "bass: " } else { "" }, kp.voice_name), if on { St::default() } else { dim }));
         v.push(Span::styled(if oct != 0 { format!("  oct {oct:+}") } else { String::new() }, dim));
+        // The sustain pedal holds this part's notes.
+        let sus = st.controllers.sustain && on && st.controllers.parts.get(p).is_some_and(|c| c.sustain);
+        v.push(Span::styled(if sus { "  sus" } else { "" }, St::default().fg(Color::Yellow)));
         lines.push(Line::from(v));
     }
     lines.push(Line::raw(""));

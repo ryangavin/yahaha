@@ -28,6 +28,9 @@ export type AppCmd =
   | { type: 'intro'; index: number }
   | { type: 'main'; index: number }
   | { type: 'break' }
+  /** Fill Down (-1), Fill Self (0), Fill Up (1): the fill, then the Main to the left,
+   * the same one or the one to the right. */
+  | { type: 'fill'; delta: number }
   | { type: 'ending'; index: number }
   | { type: 'startStop' }
   | { type: 'stop' }
@@ -95,6 +98,8 @@ export type AppCmd =
   /** Re-walk the style folders (`library.roots`); `library.scanning` while it runs. */
   | { type: 'rescanLibrary' }
   | MultiPadCmd
+  // Controllers: pedals, wheels, assignable functions (docs/controllers.md)
+  | ControllersCmd
 
 export type CmdError = { kind: 'busy' } | { kind: 'failed'; message: string }
 
@@ -511,6 +516,72 @@ export interface AppState {
   preview: PreviewState
   /** Multi Pads: the bank, the four pads, Synchro Stop, the bank files. */
   multiPad: MultiPadState
+  /** Pedals, wheels, the parts they reach and the pedals' assignable functions. */
+  controllers: ControllersState
+}
+
+// ── Controllers (docs/controllers.md) ────────────────────────────────────
+
+/** An assignable function's id: a row of `assignable-functions.json` (`AssignableFunction`). */
+export type FunctionId = string
+
+/** Sustain, Sostenuto, Soft: how the pedal drives them. */
+export type ControlType = 'holdA' | 'holdB' | 'toggle'
+/** Which half of the bend a Pitch Bend pedal sweeps. */
+export type BendRange = 'upper' | 'lower' | 'full'
+
+/** A row of the assignable-function table (app/src/lib/api/assignable-functions.json). */
+export interface AssignableFunction {
+  id: FunctionId
+  name: string
+  category: 'voice' | 'style' | 'ots' | 'registration' | 'overall'
+  /** switch: Control Type applies; trigger: fires on the press; continuous: an expression pedal. */
+  kind: 'switch' | 'trigger' | 'continuous'
+  /** yahaha has it (Registration Bank +/− not yet). */
+  available: boolean
+}
+
+export type ControllersCmd =
+  /** Pedal 0-2: the CC it listens for (null: none), its function, Control Type, polarity, Range. */
+  | { type: 'setPedal'; pedal: number; cc: number | null; function: FunctionId; controlType: ControlType; reverse: boolean; range: BendRange }
+  /** The pedal takes the CC of the next pedal pressed on a keyboard; null stops. */
+  | { type: 'learnPedal'; pedal: number | null }
+  /** Which controllers reach a keyboard part (0-3). */
+  | { type: 'setPartControllers'; part: number; sustain: boolean; pitchBend: boolean; modulation: boolean }
+  /** A keyboard part's Pitch Bend Range, 0-12 semitones. */
+  | { type: 'setBendRange'; part: number; semitones: number }
+  /** Run an assignable function now, as a pedal press would. */
+  | { type: 'triggerFunction'; function: FunctionId }
+
+export interface PedalState {
+  cc: number | null
+  function: FunctionId
+  controlType: ControlType
+  reverse: boolean
+  range: BendRange
+  /** Held down now. */
+  down: boolean
+}
+
+export interface PartControllers {
+  /** The pedal switches (sustain, sostenuto, soft) reach it. */
+  sustain: boolean
+  pitchBend: boolean
+  modulation: boolean
+  /** Semitones, 0-12. */
+  bendRange: number
+}
+
+export interface ControllersState {
+  /** Always 3. */
+  pedals: PedalState[]
+  /** The pedal learning its CC, or null. */
+  learning: number | null
+  /** Right 1, Right 2, Right 3, Left. */
+  parts: PartControllers[]
+  sustain: boolean
+  sostenuto: boolean
+  soft: boolean
 }
 
 // ── Multi Pads (docs/app-api.md "Multi Pads", docs/multipad.md) ───────────────

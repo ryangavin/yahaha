@@ -94,5 +94,12 @@ export function tipFor(cmd: AppCmd | null): TipKey {
     case 'setMultiPadRepeat': return 'multipad.repeat'
     case 'setMultiPadChordMatch': return 'multipad.chord_match'
     case 'setMultiPadSynchroStop': return 'multipad.synchro_style_stop'
+    // Fill Up/Down/Self are pedal functions (no pad has them).
+    case 'fill':
+    case 'setPedal': return 'pedal.function'
+    case 'learnPedal': return 'pedal.learn'
+    case 'triggerFunction': return 'pedal.try'
+    case 'setPartControllers': return 'pedal.part_sustain'
+    case 'setBendRange': return 'pedal.bend_up'
   }
 }

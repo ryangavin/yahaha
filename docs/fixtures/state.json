@@ -1466,5 +1466,63 @@
     },
     "banks": []
   },
+  "controllers": {
+    "pedals": [
+      {
+        "cc": 64,
+        "function": "sustain",
+        "controlType": "holdA",
+        "reverse": false,
+        "range": "upper",
+        "down": false
+      },
+      {
+        "cc": 66,
+        "function": "sostenuto",
+        "controlType": "holdA",
+        "reverse": false,
+        "range": "upper",
+        "down": false
+      },
+      {
+        "cc": 67,
+        "function": "soft",
+        "controlType": "holdA",
+        "reverse": false,
+        "range": "upper",
+        "down": false
+      }
+    ],
+    "learning": null,
+    "parts": [
+      {
+        "sustain": true,
+        "pitchBend": true,
+        "modulation": true,
+        "bendRange": 2
+      },
+      {
+        "sustain": true,
+        "pitchBend": true,
+        "modulation": true,
+        "bendRange": 2
+      },
+      {
+        "sustain": true,
+        "pitchBend": true,
+        "modulation": true,
+        "bendRange": 2
+      },
+      {
+        "sustain": true,
+        "pitchBend": true,
+        "modulation": false,
+        "bendRange": 2
+      }
+    ],
+    "sustain": false,
+    "sostenuto": false,
+    "soft": false
+  },
   "message": null
 }
