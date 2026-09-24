@@ -200,6 +200,75 @@ fn retrigger_loops_the_main_head_from_each_chord() {
     assert!(e.retrigger_on() && !e.features.retrigger.looping);
 }
 
+/// Note-ons sent (velocity > 0) at or after `from` in the recording.
+fn note_ons_since(rec: &Rec, from: usize) -> usize {
+    rec.msgs[from..].iter().filter(|(_, m)| m.len() == 3 && m[0] & 0xF0 == 0x90 && m[2] > 0).count()
+}
+
+/// Shortening the Retrigger length while the head loops (a whole note -> a 32nd, 3 beats
+/// into the loop): the loop's new end is already past. The head starts again at the last
+/// whole loop before now; the loops in between are skipped, not played back to back in
+/// one wake. Before the fix: 24 restarts and 119 note-ons at once.
+#[test]
+fn shortening_the_retrigger_length_mid_loop_does_not_replay_missed_loops() {
+    let Some((mut e, mut rec)) = started(StyleSettings { retrigger_rate: 1, ..StyleSettings::default() }) else { return };
+    let (ppq, tpb, beat_ns) = grid(&e);
+    e.button(Button::Retrigger, 0, &mut rec);
+    let t = e.ns_at(tpb);
+    play(&mut e, &mut rec, 0, t);
+    e.set_chord(chord("F"), t, &mut rec);
+    assert!(e.features.retrigger.looping);
+    let start = e.sec_start;
+    let now = t + 3 * beat_ns;
+    play(&mut e, &mut rec, t, now);
+    assert!((e.sec_start - start).abs() < 1e-6, "still in the first whole-note loop");
+    // The length goes to a 32nd: one wake.
+    e.set_style_settings(StyleSettings { retrigger_rate: 32, ..e.style_settings() });
+    let l = 4.0 * ppq / 32.0;
+    let from = rec.msgs.len();
+    let wake = now + 1_000_000;
+    rec.now = wake;
+    e.process(wake, &mut rec);
+    let pos = e.tick_at(wake) - e.sec_start;
+    assert!((-1e-6..l + 1e-6).contains(&pos), "the head is within one loop of now: {pos} ticks in, loop {l}");
+    let loops = (e.sec_start - start) / l;
+    assert!((loops - loops.round()).abs() < 1e-6, "on the loop grid from the chord");
+    // At most the head's note-ons once (plus one restart at the wake's own loop).
+    let head = e.style.sections[e.cur].as_ref().unwrap().events.iter().filter(|ev| (ev.tick as f64) < l && matches!(ev.kind, PKind::On { vel, .. } if vel > 0)).count();
+    let got = note_ons_since(&rec, from);
+    assert!(got <= 2 * head.max(1), "{got} note-ons in one wake (head has {head})");
+    // It carries on looping the short head.
+    let mut n = wake;
+    for _ in 0..40 {
+        n += 3_000_000;
+        rec.now = n;
+        e.process(n, &mut rec);
+        assert!(e.tick_at(n) - e.sec_start <= l + 1e-6);
+    }
+}
+
+/// The same shortening with a Main queued inside the skipped loops: the change still
+/// comes at its bar line, not skipped with them.
+#[test]
+fn shortening_the_retrigger_length_keeps_a_queued_change() {
+    let Some((mut e, mut rec)) = started(StyleSettings { retrigger_rate: 1, ..StyleSettings::default() }) else { return };
+    let (ppq, tpb, beat_ns) = grid(&e);
+    e.button(Button::AutoFill, 0, &mut rec); // off: Main B itself, no fill
+    e.button(Button::Retrigger, 0, &mut rec);
+    let t = e.ns_at(tpb + 1.5 * ppq);
+    play(&mut e, &mut rec, 0, t);
+    e.set_chord(chord("F"), t, &mut rec);
+    e.button(Button::Main(1), t, &mut rec);
+    let due = e.queued.expect("Main B queued").at;
+    // Past the bar line Main B waits for, with the length shortened in the same wake.
+    let now = e.ns_at(due) + beat_ns / 2;
+    e.set_style_settings(StyleSettings { retrigger_rate: 32, ..e.style_settings() });
+    rec.now = now;
+    e.process(now, &mut rec);
+    assert_eq!(e.cur, slot_of(SectionId::Main(1)), "Main B came");
+    assert!((e.sec_start - due).abs() < 1e-6, "at its bar line");
+}
+
 /// Retrigger chords coming faster than the queued change's wait never hold it off: a Main
 /// (and a style change, and the Ending) queued for the next bar comes at that bar.
 #[test]

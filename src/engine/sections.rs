@@ -132,6 +132,7 @@ impl Engine {
     /// over.
     pub(super) fn transition(&mut self, at: f64, now: u64, sink: &mut impl Sink) {
         if self.retrigger_wraps(at) {
+            let at = self.retrigger_catch_up(at, now);
             self.restart_section(at, now, sink);
             return;
         }

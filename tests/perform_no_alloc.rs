@@ -78,6 +78,15 @@ fn fades_retrigger_reset_and_ritardando_do_not_allocate() {
         l.step(now);
         run(&mut l, snaps, &mut now, bar / 3);
     }
+    // The length goes to a whole note, then, 3 beats on, to a 32nd: the head catches up
+    // to the loop playing now.
+    ch.ui_tx.push(Cmd::StyleSettings(StyleSettings { retrigger_rate: 1, ..settings })).ok().unwrap();
+    l.step(now);
+    run(&mut l, snaps, &mut now, bar * 3 / 4);
+    ch.ui_tx.push(Cmd::StyleSettings(StyleSettings { retrigger_rate: 32, ..settings })).ok().unwrap();
+    l.step(now);
+    run(&mut l, snaps, &mut now, bar / 4);
+    ch.ui_tx.push(Cmd::StyleSettings(settings)).ok().unwrap();
     ch.ui_tx.push(Cmd::Button(Button::SectionReset)).ok().unwrap();
     ch.ui_tx.push(Cmd::Button(Button::Retrigger)).ok().unwrap();
     ch.ui_tx.push(Cmd::Button(Button::Main(1))).ok().unwrap();

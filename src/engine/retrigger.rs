@@ -61,6 +61,27 @@ impl Engine {
         self.retrigger_len().is_some() && !self.queued.is_some_and(|q| q.at <= at + 1e-6)
     }
 
+    /// Where the head loop coming round at `at` starts again: `at`, or, when `at` is
+    /// more than a loop behind `now` (the length was shortened while the head looped, so
+    /// its end is already past, or the wake came late), the last whole loop from `at`
+    /// before `now`. The loops in between are skipped, not played back to back in one
+    /// wake. A change queued (a section or a style) inside them still comes: the head
+    /// starts at the last loop before it.
+    pub(super) fn retrigger_catch_up(&self, at: f64, now: u64) -> f64 {
+        let Some(l) = self.retrigger_len().filter(|&l| l > 1e-6) else { return at };
+        let mut until = self.tick_at(now);
+        if let Some(q) = self.queued {
+            until = until.min(q.at);
+        }
+        if let Some(p) = &self.pending {
+            until = until.min(p.at);
+        }
+        if until < at + l {
+            return at;
+        }
+        at + ((until - at) / l).floor() * l
+    }
+
     /// A chord was played (`set_chord`; `was_running`: the band played before it). With
     /// Retrigger on, a Main starts again at the chord and its head loops.
     pub(super) fn retrigger_chord(&mut self, was_running: bool, now: u64, sink: &mut impl Sink) {
