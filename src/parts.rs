@@ -86,7 +86,17 @@ pub struct Parts {
     rebind_hw: [AtomicU8; 8],
     /// The part soloed (`NO_SOLO`: none): only it sounds, whatever the on/off switches say.
     solo: AtomicU8,
+    /// Each part's pan and reverb/chorus sends (CC10, 91, 93; `NO_FX` = not set) as a sound
+    /// library patch set them (#103), and the parts whose values the engine thread still
+    /// has to send (bit = part).
+    fx: [[AtomicU8; 3]; COUNT],
+    fx_dirty: AtomicU8,
 }
+
+/// `Parts::fx`: not set.
+const NO_FX: u8 = 0xFF;
+/// The controllers `Parts::fx` holds: pan, reverb send, chorus send.
+const FX_CC: [u8; 3] = [10, 91, 93];
 
 /// `Parts::solo`: no part soloed.
 pub const NO_SOLO: u8 = 255;
@@ -115,6 +125,36 @@ impl Parts {
             rebind: AtomicBool::new(false),
             rebind_hw: [const { AtomicU8::new(HW_UNKNOWN) }; 8],
             solo: AtomicU8::new(NO_SOLO),
+            fx: [const { [const { AtomicU8::new(NO_FX) }; 3] }; COUNT],
+            fx_dirty: AtomicU8::new(0),
+        }
+    }
+
+    /// A part's pan, reverb and chorus sends from a sound library patch (None: leave it).
+    /// The engine thread sends them as CCs on the part's channel, to the port and the synth.
+    pub fn set_fx(&self, part: usize, fx: [Option<u8>; 3]) {
+        let part = part % COUNT;
+        for (a, v) in self.fx[part].iter().zip(fx) {
+            if let Some(v) = v {
+                a.store(v.min(127), Relaxed);
+            }
+        }
+        self.fx_dirty.fetch_or(1 << part, Release);
+    }
+
+    /// Engine thread: send the pan and sends set since the last call.
+    pub fn send_fx(&self, out: &mut impl FnMut(&[u8])) {
+        let dirty = self.fx_dirty.swap(0, Acquire);
+        if dirty == 0 {
+            return;
+        }
+        for p in (0..COUNT).filter(|p| dirty & 1 << p != 0) {
+            for (a, cc) in self.fx[p].iter().zip(FX_CC) {
+                let v = a.load(Relaxed);
+                if v != NO_FX {
+                    out(&[0xB0 | CHANNEL[p], cc, v]);
+                }
+            }
         }
     }
 

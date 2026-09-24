@@ -14,6 +14,7 @@ import App from '../App.svelte'
 import { MockSession } from '../lib/api/mock'
 import { ui } from '../lib/store.svelte'
 import { tips } from '../lib/tooltip/tip.svelte'
+import { nav as soundNav } from '../panels/sound/nav.svelte'
 import { TIPS, isTipKey } from './tooltips'
 
 export const INTERACTIVE = [
@@ -101,6 +102,24 @@ const STATES: [string, Setup][] = [
     s.send({ type: 'triggerMultiPad', pad: 0 }),
     s.send({ type: 'armMultiPad', pad: 3 })
   )],
+  ['sound library drawer: patches, a patch selected', (s) => {
+    ui.sound = true
+    s.send({ type: 'duplicatePatch', id: 'stage-grand' })
+  }],
+  ['sound library drawer: program map, this style', () => {
+    ui.sound = true
+    soundNav.tab = 'map'
+    soundNav.styleScope = true
+  }],
+  ['sound library drawer: this style', () => ((ui.sound = true), (soundNav.tab = 'style'))],
+  ['sound library drawer: SoundFont presets, auditioning', (s) => {
+    ui.sound = true
+    soundNav.tab = 'add'
+    s.send({ type: 'stop' })
+    s.send({ type: 'browseSoundFont', file: 'GeneralUser-GS.sf2' })
+    s.send({ type: 'auditionPreset', file: 'GeneralUser-GS.sf2', bank: 0, program: 4 })
+  }],
+  ['parts drawer, a part on a library patch', (s) => ((ui.parts = true), s.send({ type: 'setPartPatch', part: 0, id: 'warm-rhodes' }))],
   ['Shift layer on', () => (ui.shiftLatched = true)],
   ['Shift layer on, fader page Style', (s) => ((ui.shiftLatched = true), s.send({ type: 'toggleFaderPage' }))],
 ]
@@ -117,6 +136,10 @@ afterEach(() => {
   ui.looper = false
   ui.multipad = false
   ui.harmony = false
+  ui.sound = false
+  soundNav.tab = 'patches'
+  soundNav.styleScope = false
+  soundNav.selected = null
   ui.shiftLatched = false
   tips.help = false
   tips.setFloating(false)

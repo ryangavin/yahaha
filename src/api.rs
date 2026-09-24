@@ -34,6 +34,7 @@ mod playlist;
 mod preview;
 mod registration;
 mod settings;
+mod sound_library;
 mod style_settings;
 mod surface;
 mod system;
@@ -57,6 +58,7 @@ pub use playlist::*;
 pub use preview::*;
 pub use registration::*;
 pub use settings::*;
+pub use sound_library::*;
 pub use style_settings::*;
 pub use surface::*;
 pub use system::*;
@@ -155,6 +157,8 @@ app_cmd! {
     Plugins(PluginCmd),
     /// Keyboard Harmony / Arpeggio.
     HarmonyArp(HarmonyArpCmd),
+    /// The sound library: patches, the program map, auditions, import/export.
+    SoundLibrary(SoundLibraryCmd),
 }
 
 impl From<Button> for AppCmd {
@@ -320,6 +324,8 @@ pub struct AppState {
     /// `keyboard_parts[i].plugin`).
     #[serde(default)]
     pub plugins: PluginsState,
+    /// The sound library: patches, the program map, what the current style uses.
+    pub sound_library: SoundLibraryState,
 }
 
 // ---------------------------------------------------------------------------

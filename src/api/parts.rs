@@ -53,4 +53,8 @@ pub struct KeyboardPart {
     /// SoundFont voice). Its fader is the same CC7.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub plugin: Option<super::PartPlugin>,
+    /// Its own sound library patch (`setPartPatch`), if it has one; else its GM voice
+    /// plays, through the program map (`voiceName` names the patch it resolves to).
+    #[serde(default)]
+    pub patch: Option<String>,
 }

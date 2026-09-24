@@ -157,11 +157,24 @@ impl Session {
             let mut ctl = self.inner.lock();
             let ctl = &mut *ctl;
             let Some(o) = ctl.offline.as_mut() else { anyhow::bail!("not an offline session") };
-            let rack = sf2.map(|p| synth::Rack::load(p, sample_rate)).transpose()?;
+            // The rack plays the sound library's program map (#103), as a live synth's.
+            let main = sf2.and_then(|p| p.file_name()).map(|n| n.to_string_lossy().to_string());
+            let font_id = main.as_deref().and_then(|m| ctl.sound.font_id(m)).unwrap_or(0);
+            let rack = match sf2 {
+                Some(p) => {
+                    let font = Arc::new(rustysynth::SoundFont::new(&mut std::fs::File::open(p)?).map_err(|e| anyhow::anyhow!("{e:?}"))?);
+                    Some(Box::new(synth::Rack::with_fonts(&[(font_id, font)], sample_rate as i32)?))
+                }
+                None => None,
+            };
             let band = std::mem::replace(&mut o.band, RingBuffer::new(1).1);
             let keys = std::mem::replace(&mut o.keys, RingBuffer::new(1).1);
             let control = Arc::new(synth::SynthControl::new(0));
-            let (core, swap, plugins) = synth::AudioCore::new(rack, vec![band, keys], ctl.shared.parts.clone(), control.clone(), sample_rate, 2);
+            let (mut core, swap, plugins) = synth::AudioCore::new(rack, vec![band, keys], ctl.shared.parts.clone(), control.clone(), sample_rate, 2);
+            core.set_routes(ctl.shared.routes.clone());
+            if let Some(m) = &main {
+                ctl.sound.synth_started(m);
+            }
             o.audio = Some(Box::new(core));
             o.input.set_synth(Some(control.clone()));
             let name = sf2.and_then(|p| p.file_stem()).map_or_else(String::new, |n| n.to_string_lossy().to_string());

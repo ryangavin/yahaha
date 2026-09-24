@@ -7,6 +7,8 @@
 // types and the `Session` interface.
 
 import type { PlaylistCmd, PlaylistState, RegistrationCmd, RegistrationState } from './registration'
+import type { SoundLibraryCmd, SoundLibraryState } from './sound-library'
+export type * from './sound-library'
 
 export type Fingering =
   | 'singleFinger' | 'multiFinger' | 'fingered' | 'fingeredOnBass'
@@ -138,6 +140,8 @@ export type AppCmd =
   // Controllers: pedals, wheels, assignable functions (docs/controllers.md)
   | ControllersCmd
   | PluginCmd
+  // Sound library: patches, the program map (docs/sound-library.md)
+  | SoundLibraryCmd
   // Keyboard Harmony / Arpeggio (docs/app-api.md): see HarmonyArpState below.
   | HarmonyArpCmd
 
@@ -344,6 +348,8 @@ export interface KeyboardPart {
   fader: number | null
   /** The instrument plugin it plays instead of its SoundFont voice (absent: the SoundFont). */
   plugin?: PartPlugin
+  /** Its own sound library patch (`setPartPatch`); null: its GM voice, through the map. */
+  patch: string | null
 }
 
 export interface Voice {
@@ -785,6 +791,8 @@ export interface AppState {
   plugins: PluginsState
   /** Keyboard Harmony / Arpeggio. */
   harmonyArp: HarmonyArpState
+  /** The sound library: patches, the program map, what the current style uses. */
+  soundLibrary: SoundLibraryState
 }
 
 // ── Instrument plugins (docs/plugin-hosting.md) ──────────────────────────

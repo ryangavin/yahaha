@@ -11,6 +11,7 @@ import { syntheticStyles } from './mock-library'
 import { clockAt, mockSurface, type MockHardware } from './mock-surface'
 import { emptyLooper, MockLooper } from './mock-looper'
 import { initialMultiPad, MockPads } from './mock-multipad'
+import { initialSoundLibrary, MockSoundLibrary } from './mock-sound-library'
 import { padsFor } from './mock-pads'
 import { initialPlugins, MockPlugins } from './mock-plugins'
 import { ARP_PATTERNS, HARMONY_TYPES, harmonyArpCmd, initialHarmonyArp } from './mock-harmony'
@@ -201,7 +202,7 @@ export function initialState(): AppState {
   const s = STYLES[0]
   const part = (i: number, program: number, on: boolean) => ({
     name: KEYBOARD_PART_NAMES[i], channel: [1, 3, 4, 2][i], on, sounding: on, selected: i === 0,
-    volume: 100, waiting: false, program, voiceName: GM[program], playsBass: false, octave: 0, fader: null,
+    volume: 100, waiting: false, program, voiceName: GM[program], playsBass: false, octave: 0, fader: null, patch: null as string | null,
   })
   const state: AppState = {
     version: 1,
@@ -263,6 +264,7 @@ export function initialState(): AppState {
     controllers: defaultControllers(),
     plugins: initialPlugins(),
     harmonyArp: initialHarmonyArp(),
+    soundLibrary: initialSoundLibrary(),
   }
   derive(state, LIBRARY)
   return state
@@ -413,6 +415,8 @@ export class MockSession implements Session {
     () => this.state,
     (t, e) => this.message(t, e),
   )
+  /** The sound library (mock-sound-library.ts). */
+  private sound = new MockSoundLibrary(() => this.state)
 
   constructor(opts: MockOptions = {}) {
     this.demo = opts.demo ?? false
@@ -439,6 +443,7 @@ export class MockSession implements Session {
       }
     }
     derive(this.state, this.lib, this.hardware(), [...this.leftHand, ...this.rightHand])
+    this.sound.derive(this.state)
     if (!opts.manual) {
       this.last = performance.now()
       this.timer = setInterval(() => {
@@ -513,6 +518,7 @@ export class MockSession implements Session {
     this.reg.fill(this.state)
     this.looper.publish()
     derive(this.state, this.lib, this.hardware(), [...this.leftHand, ...this.rightHand])
+    this.sound.derive(this.state)
     const snap = this.snapshot()
     for (const f of this.subs) f(snap)
   }
@@ -555,6 +561,8 @@ export class MockSession implements Session {
       this.chordArrives('C')
     }
     if (!t.running) this.stepAudition(ms)
+    else this.state.soundLibrary.auditioning = null
+    this.sound.advance(ms)
     this.multiPads.beats((ms / 60000) * t.tempo)
     this.plugins.step(ms)
     if (this.scanLeft > 0) {
@@ -961,7 +969,10 @@ export class MockSession implements Session {
     const panel = this.state.mixer.faderPage === 'panel'
     this.state.ots.settings[n].parts.forEach((o, i) => {
       const p = this.state.keyboardParts[i]
-      if (o.program !== null) p.program = o.program
+      if (o.program !== null) {
+        p.program = o.program
+        this.sound.partVoice(i)
+      }
       p.on = o.on
       p.octave = o.octave
       if (p.volume !== o.volume) p.waiting = panel
@@ -1239,10 +1250,12 @@ export class MockSession implements Session {
         break
       case 'setPartVoice':
         st.keyboardParts[cmd.part].program = cmd.program & 127
+        this.sound.partVoice(cmd.part)
         break
       case 'stepVoice': {
         const p = st.keyboardParts.find((x) => x.selected) ?? st.keyboardParts[0]
         p.program = (p.program + cmd.delta + 128) % 128
+        this.sound.partVoice(st.keyboardParts.indexOf(p))
         break
       }
       case 'setPartVolume':
@@ -1485,6 +1498,31 @@ export class MockSession implements Session {
       case 'setMultiPadSynchroStop': {
         const err = this.multiPads.cmd(cmd, t.running)
         if (err) this.message(err, true)
+        break
+      }
+      case 'createPatch':
+      case 'updatePatch':
+      case 'deletePatch':
+      case 'duplicatePatch':
+      case 'movePatch':
+      case 'setPatchFavourite':
+      case 'savePartAsPatch':
+      case 'addPresetAsPatch':
+      case 'auditionPatch':
+      case 'auditionPreset':
+      case 'stopPatchAudition':
+      case 'setFamilyRule':
+      case 'setProgramOverride':
+      case 'setDrumRule':
+      case 'clearStyleMap':
+      case 'setPartPatch':
+      case 'setPortSendsMapped':
+      case 'browseSoundFont':
+      case 'importSoundLibrary':
+      case 'exportSoundLibrary': {
+        const err = this.sound.cmd(cmd, t.running)
+        if (err) this.message(err, true)
+        else if (cmd.type === 'exportSoundLibrary') this.message(`Sound library exported to ${cmd.path ?? '/Users/me/Documents/yahaha/sound-library-export.json'}`)
         break
       }
     }
