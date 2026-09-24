@@ -6,6 +6,9 @@
 // change this file and `app/src-tauri/src/api.rs` to match; components only see these
 // types and the `Session` interface.
 
+import type { SoundLibraryCmd, SoundLibraryState } from './sound-library'
+export type * from './sound-library'
+
 export type Fingering =
   | 'singleFinger' | 'multiFinger' | 'fingered' | 'fingeredOnBass'
   | 'aiFingered' | 'fullKeyboard' | 'aiFullKeyboard'
@@ -120,6 +123,8 @@ export type AppCmd =
   | MultiPadCmd
   // Controllers: pedals, wheels, assignable functions (docs/controllers.md)
   | ControllersCmd
+  // Sound library: patches, the program map (docs/sound-library.md)
+  | SoundLibraryCmd
 
 /** Style Track Mute order (RM p.148). A: Rhythm 2 first; B: Chord 1 first. */
 export type TrackMuteOrder = 'a' | 'b'
@@ -242,6 +247,8 @@ export interface KeyboardPart {
   octave: number
   /** Where its Launchkey fader (Panel page, faders 1–4) physically is; null until it moves. */
   fader: number | null
+  /** Its own sound library patch (`setPartPatch`); null: its GM voice, through the map. */
+  patch: string | null
 }
 
 export interface Voice {
@@ -589,6 +596,10 @@ export interface AppState {
   multiPad: MultiPadState
   /** Pedals, wheels, the parts they reach and the pedals' assignable functions. */
   controllers: ControllersState
+  /** The sound library: patches, the program map, what the current style uses. */
+  soundLibrary: SoundLibraryState
+  /** The instrument plugin host (#91; its app UI comes with it): the installed plugins. */
+  plugins: { available: boolean; scanning: boolean; list: unknown[] }
 }
 
 // ── Controllers (docs/controllers.md) ────────────────────────────────────

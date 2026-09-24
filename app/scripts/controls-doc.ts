@@ -24,6 +24,7 @@ const GROUPS: [string, string][] = [
   ['metronome', 'Metronome'],
   ['looper', 'Chord Looper'],
   ['multipad', 'Multi Pads'],
+  ['sound', 'Sound library'],
   ['padpage', 'Launchkey pad pages'],
   ['launchkey', 'Launchkey'],
   ['lead', 'Lead-sheet band'],

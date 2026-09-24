@@ -115,5 +115,25 @@ export function tipFor(cmd: AppCmd | null): TipKey {
     case 'triggerFunction': return 'pedal.try'
     case 'setPartControllers': return 'pedal.part_sustain'
     case 'setBendRange': return 'pedal.bend_up'
+    case 'createPatch':
+    case 'addPresetAsPatch': return 'sound.preset_add'
+    case 'savePartAsPatch': return 'sound.save_part'
+    case 'updatePatch': return 'sound.name'
+    case 'deletePatch': return 'sound.delete'
+    case 'duplicatePatch': return 'sound.duplicate'
+    case 'movePatch': return 'sound.move_up'
+    case 'setPatchFavourite': return 'sound.favourite'
+    case 'auditionPatch':
+    case 'auditionPreset': return 'sound.audition'
+    case 'stopPatchAudition': return 'sound.audition_stop'
+    case 'setFamilyRule': return 'sound.family'
+    case 'setProgramOverride': return 'sound.override_patch'
+    case 'setDrumRule': return 'sound.drums'
+    case 'clearStyleMap': return 'sound.clear_style_map'
+    case 'setPartPatch': return 'part.library'
+    case 'setPortSendsMapped': return 'sound.port_mapped'
+    case 'browseSoundFont': return 'sound.soundfont'
+    case 'importSoundLibrary': return 'sound.import'
+    case 'exportSoundLibrary': return 'sound.export'
   }
 }

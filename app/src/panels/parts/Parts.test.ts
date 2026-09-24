@@ -52,10 +52,22 @@ describe('Keyboard parts drawer', () => {
     await fireEvent.click(strip('Right 1').querySelector('[data-tip="part.octave_up"]')!)
     expect(session.state.keyboardParts[0].octave).toBe(1)
     const pick = strip('Right 2').querySelector('select')!
-    pick.value = '40'
+    pick.value = 'gm:40'
     await fireEvent.change(pick)
     expect(session.state.keyboardParts[1].program).toBe(40)
-    expect(session.state.keyboardParts[1].voiceName).toBe('Violin')
+    // Violin is in the Strings family, which the mock's program map sends to a patch.
+    expect(session.state.keyboardParts[1].voiceName).toBe('Silk Strings')
+    expect(session.state.keyboardParts[1].patch).toBe(null)
+    // The Library group: a patch of the part's own.
+    pick.value = 'patch:warm-rhodes'
+    await fireEvent.change(pick)
+    expect(session.state.keyboardParts[1].patch).toBe('warm-rhodes')
+    expect(session.state.keyboardParts[1].voiceName).toBe('Warm Rhodes')
+    // A GM voice again: the part's own patch goes.
+    pick.value = 'gm:73'
+    await fireEvent.change(pick)
+    expect(session.state.keyboardParts[1].patch).toBe(null)
+    expect(session.state.keyboardParts[1].voiceName).toBe('Flute')
   })
 
   it('recalling an OTS updates the parts and marks the faders it moved as waiting', async () => {
@@ -113,7 +125,7 @@ describe('Keyboard parts drawer', () => {
       await fireEvent.keyDown(pick, { key: '7', code: 'Digit7' })
       expect(session.state.keyboardParts[2].on).toBe(true) // Right 3 toggled
       expect(document.activeElement).not.toBe(pick)
-      expect(session.state.keyboardParts[0].voiceName).toBe('Grand Piano')
+      expect(session.state.keyboardParts[0].voiceName).toBe('Stage Grand') // Piano family → the map's patch
       pick.focus()
       await fireEvent.keyDown(pick, { key: 'ArrowDown', code: 'ArrowDown' })
       expect(document.activeElement).toBe(pick) // list navigation stays with the picker

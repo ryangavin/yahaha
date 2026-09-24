@@ -12,6 +12,7 @@
   import { tip } from '../../lib/tooltip/tip.svelte'
   import Fader from '../../lib/ui/Fader.svelte'
   import Toggle from '../../lib/ui/Toggle.svelte'
+  import { byCategory } from '../sound/nav.svelte'
   import { launchkeyPlace, octaveLabel, onTip, selectTip, volumeTip } from './parts'
 
   let {
@@ -31,10 +32,15 @@
   } = $props()
 
   const groups = $derived(voiceGroups(voices))
+  // The sound library's patches come first (the Library tab of the voice list, #103).
+  const library = $derived(byCategory(app.state.soundLibrary.patches))
+  const pickValue = $derived(part.patch ? `patch:${part.patch}` : `gm:${part.program}`)
   const own = $derived(voices.find((v) => v.program === part.program)?.name ?? `Program ${part.program + 1}`)
 
   function pick(e: Event & { currentTarget: HTMLSelectElement }) {
-    app.send({ type: 'setPartVoice', part: index, program: Number(e.currentTarget.value) })
+    const [kind, v] = e.currentTarget.value.split(/:(.*)/s)
+    if (kind === 'patch') app.send({ type: 'setPartPatch', part: index, id: v })
+    else app.send({ type: 'setPartVoice', part: index, program: Number(v) })
     // Give the performance keys back (a focused select keeps them).
     e.currentTarget.blur()
   }
@@ -94,12 +100,17 @@
   <label class="voice mat-screen">
     <span class="glow-text vname">{part.voiceName}</span>
     <span class="sub">
-      {#if part.playsBass}<span class="badge">own: {own}</span>{:else}Voice ▾{/if}
+      {#if part.playsBass}<span class="badge">own: {own}</span>{:else if part.patch}<span class="badge">Library</span> ▾{:else}Voice ▾{/if}
     </span>
-    <select value={String(part.program)} aria-label="{part.name} voice" use:tip={'part.voice'} onchange={pick} onkeydown={pickerKey}>
+    <select value={pickValue} aria-label="{part.name} voice" use:tip={part.patch ? 'part.library' : 'part.voice'} onchange={pick} onkeydown={pickerKey}>
+      {#each library as g (g.category)}
+        <optgroup label="Library · {g.label}">
+          {#each g.patches as p (p.id)}<option value="patch:{p.id}">{p.name}</option>{/each}
+        </optgroup>
+      {/each}
       {#each groups as g (g.family)}
         <optgroup label={g.family}>
-          {#each g.voices as v (v.program)}<option value={String(v.program)}>{v.name}</option>{/each}
+          {#each g.voices as v (v.program)}<option value="gm:{v.program}">{v.name}</option>{/each}
         </optgroup>
       {/each}
     </select>

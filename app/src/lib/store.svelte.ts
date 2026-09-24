@@ -147,6 +147,7 @@ class UiStore {
   mixer = $state(false)
   looper = $state(false)
   multipad = $state(false)
+  sound = $state(false)
   theme = $state<Theme>(storedTheme())
   /** The keyboard strip's size; null: match the connected Launchkey (49 or 61). */
   keyRange = $state<KeyRange | null>(storedKeyRange())
@@ -159,9 +160,9 @@ class UiStore {
   }
 
   /** Open one side drawer (closing the others), or close it if it's open. */
-  toggleDrawer(d: 'parts' | 'mixer' | 'settings' | 'looper' | 'multipad') {
+  toggleDrawer(d: 'parts' | 'mixer' | 'settings' | 'looper' | 'multipad' | 'sound') {
     const open = !this[d]
-    this.parts = this.mixer = this.settings = this.looper = this.multipad = false
+    this.parts = this.mixer = this.settings = this.looper = this.multipad = this.sound = false
     this[d] = open
   }
 
@@ -192,6 +193,7 @@ class UiStore {
     if (this.mixer) return !(this.mixer = false)
     if (this.looper) return !(this.looper = false)
     if (this.multipad) return !(this.multipad = false)
+    if (this.sound) return !(this.sound = false)
     return false
   }
 }

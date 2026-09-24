@@ -40,6 +40,7 @@
   import MultiPad from './panels/multipad/MultiPad.svelte'
   import Parts from './panels/parts/Parts.svelte'
   import Settings from './panels/settings/Settings.svelte'
+  import SoundLibrary from './panels/sound/SoundLibrary.svelte'
 
   let { session }: { session: Session } = $props()
 
@@ -88,6 +89,7 @@
 {#if ui.mixer}<Mixer />{/if}
 {#if ui.looper}<Looper />{/if}
 {#if ui.multipad}<MultiPad />{/if}
+{#if ui.sound}<SoundLibrary />{/if}
 {#if ui.settings}<Settings />{/if}
 {#if ui.browser}<Browser />{/if}
 {#if tips.floating}<Tooltip />{/if}
