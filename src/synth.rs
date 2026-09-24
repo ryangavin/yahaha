@@ -202,7 +202,8 @@ impl Shadow {
 
     /// Bring `rack` to what the channels have: bank and voice, controllers, pitch bend.
     fn replay(&self, rack: &mut Rack, bank: &mut [u8; 16], parts: &Parts) {
-        for ch in RACK_CHANNELS {
+        // Every channel: the metered ones and the Multi Pads' (5-8).
+        for ch in 0..16u8 {
             let c = ch as usize;
             if self.cc[c][0] != NO_CC {
                 apply_rack(rack, &[0xB0 | ch, 0, self.cc[c][0]], bank);
@@ -370,6 +371,14 @@ fn translate(m: &Msg, bank: &mut [u8; 16], mut out: impl FnMut(i32, i32, i32, i3
             out(8, 0xB0, 0, 128);
             out(8, 0xC0, m[1] as i32, 0);
         }
+        // Multi Pads (ch 5-8): a Yamaha drum kit bank (MSB 126/127) is the SoundFont's drum
+        // bank; any other voice is on its GM bank.
+        0xC0 if (4..8).contains(&ch) => {
+            let drums = bank[ch as usize] >= 126;
+            out(ch, 0xB0, 0, if drums { 128 } else { 0 });
+            let p = if drums { m[1] } else { gm_fallback(ch as u8, bank[ch as usize], m[1]) };
+            out(ch, 0xC0, p as i32, 0);
+        }
         0xC0 => {
             let p = gm_fallback(ch as u8, bank[ch as usize], m[1]);
             out(ch, 0xC0, p as i32, 0);
@@ -531,6 +540,21 @@ mod tests {
     use crate::sim::{run, Step};
     use crate::sff::Style;
     use crate::theory::Chord;
+
+    /// Multi Pad channels (5-8): a Yamaha drum kit bank goes to the SoundFont's drum bank,
+    /// any other voice to its GM bank.
+    #[test]
+    fn multi_pad_channels_take_drum_kits_and_gm_voices() {
+        let mut bank = [0u8; 16];
+        let mut got = Vec::new();
+        for m in [[0xB4, 0, 127], [0xB4, 32, 0], [0xC4, 0, 0], [0xB5, 0, 0], [0xC5, 33, 0], [0xB4, 0, 0], [0xC4, 61, 0]] {
+            translate(&m, &mut bank, |ch, st, a, b| got.push((ch, st, a, b)));
+        }
+        assert_eq!(
+            got,
+            [(4, 0xB0, 0, 128), (4, 0xC0, 0, 0), (5, 0xB0, 0, 0), (5, 0xC0, 33, 0), (4, 0xB0, 0, 0), (4, 0xC0, 61, 0)]
+        );
+    }
 
     /// Render a style's engine output offline through the SoundFont and measure each part.
     #[test]

@@ -147,6 +147,9 @@ struct Prepared {
     chord_match: bool,
     rule: ChannelRule,
     out_ch: u8,
+    /// The pad's voice is a drum or SFX kit (its bank MSB, the last before its first note,
+    /// is 126/127): Master transpose leaves it alone, as it does the style's kit parts.
+    kit: bool,
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -194,6 +197,11 @@ pub struct MultiPadPlayer {
     voices: [Voice; PADS],
     sounding: [Sounding; MAX_SOUNDING],
     sysex: Vec<Vec<u8>>,
+    /// Per pad, the output channels (bit n: channel n) it has bent, modulated or held the
+    /// sustain pedal on since its controllers were last reset.
+    touched: [u16; PADS],
+    /// Master transpose in semitones, applied to every note-on but a kit pad's.
+    master: i8,
 }
 
 impl MultiPadPlayer {
@@ -234,6 +242,24 @@ impl MultiPadPlayer {
             // Stable: same-tick events keep file order.
             events.sort_by_key(|e| e.tick);
             let len = scale(pad.len).max(last).max(1);
+            // The bank MSB the first note sounds with (else the first one set at all).
+            let bank = |before_note: bool| {
+                let mut msb = None;
+                for e in &events {
+                    match e.kind {
+                        Kind::On { .. } if before_note => break,
+                        Kind::Short { msg: [0xB0, 0, v], .. } => {
+                            msb = Some(v);
+                            if !before_note {
+                                break;
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                msb
+            };
+            let kit = bank(true).or_else(|| bank(false)).is_some_and(|m| m >= 126);
             let mut rule = pad.rule.clone().unwrap_or_else(|| default_rule(out_ch));
             // The rule's destination decides drum handling in `transpose`: a pad is never
             // a rhythm part, so it takes the pad's own output channel.
@@ -245,9 +271,28 @@ impl MultiPadPlayer {
                 chord_match: pad.chord_match_or_default(),
                 rule,
                 out_ch,
+                kit,
             });
         }
-        MultiPadPlayer { pads, voices: [Voice::default(); PADS], sounding: [Sounding::default(); MAX_SOUNDING], sysex }
+        MultiPadPlayer {
+            pads,
+            voices: [Voice::default(); PADS],
+            sounding: [Sounding::default(); MAX_SOUNDING],
+            sysex,
+            touched: [0; PADS],
+            master: 0,
+        }
+    }
+
+    /// Master transpose (semitones), from the next note-on. Notes already sounding end on
+    /// the key they started on.
+    pub fn set_master(&mut self, semitones: i8) {
+        self.master = semitones;
+    }
+
+    /// The pad's voice is a drum or SFX kit (Master transpose leaves it alone).
+    pub fn is_kit(&self, pad: usize) -> bool {
+        self.prepared(pad).is_some_and(|p| p.kit)
     }
 
     fn prepared(&self, pad: usize) -> Option<&Prepared> {
@@ -338,6 +383,7 @@ impl MultiPadPlayer {
         }
         self.voices[pad] = Voice::default();
         self.notes_off(pad, sink);
+        self.reset_controllers(pad, sink);
     }
 
     /// [STOP]: every pad stops, and Synchro Start standby is cancelled.
@@ -424,17 +470,28 @@ impl MultiPadPlayer {
                     } else {
                         v.pass = None;
                     }
-                    // Notes the phrase leaves hanging end with the pass.
+                    // Notes the phrase leaves hanging end with the pass; a one-shot that
+                    // ends bent or with the pedal down leaves its channel as it found it.
                     self.notes_off(pad, sink);
+                    if !repeat {
+                        self.reset_controllers(pad, sink);
+                    }
                 }
                 Step::Start => {
                     let v = &mut self.voices[pad];
                     v.pending = None;
                     v.pass = Some(Pass { start: at, idx: 0 });
                     self.notes_off(pad, sink);
+                    self.reset_controllers(pad, sink);
                 }
             }
         }
+    }
+
+    /// The tick of the next thing any pad does (an event, a pass end, a queued start), for
+    /// the caller's wake-up deadline. None when nothing plays or waits.
+    pub fn next_due(&self) -> Option<u64> {
+        self.next_step().map(|(_, at, _)| at)
     }
 
     /// The earliest action of any pad: (pad, tick, step).
@@ -496,9 +553,13 @@ impl MultiPadPlayer {
                         }
                     }
                 }
+                let master = if p.kit { 0 } else { self.master };
                 for i in 0..n {
                     // A note the rule silences (none should, but a CASM rule may) stays off.
                     if let Some(k) = out[i] {
+                        // Master transpose moves the whole instrument (RM p.41), after Chord
+                        // Match; the note's off goes to the key it sounds on.
+                        let k = crate::engine::shift_key(k, master);
                         self.note_on(pad, ch, keys[i], k, vels[i], sink);
                     }
                 }
@@ -506,6 +567,14 @@ impl MultiPadPlayer {
             Kind::Off { key } => self.note_off(pad, key, sink),
             Kind::Short { msg, len } => {
                 let m = [(msg[0] & 0xF0) | ch, msg[1], msg[2]];
+                let moved = match msg {
+                    [0xE0, lsb, msb] => (lsb, msb) != (0x00, 0x40),
+                    [0xB0, 1 | 64, v] => v != 0,
+                    _ => false,
+                };
+                if moved {
+                    self.touched[pad] |= 1 << ch;
+                }
                 sink.send(&m[..len as usize]);
             }
             Kind::Sysex(i) => {
@@ -537,6 +606,31 @@ impl MultiPadPlayer {
         if let Some(s) = self.sounding.iter_mut().find(|s| s.active && s.pad as usize == pad && s.src_key == src_key) {
             sink.send(&[0x80 | s.ch, s.out_key, 0]);
             s.active = false;
+        }
+    }
+
+    /// Re-centre the bend and release the modulation wheel and sustain pedal on every
+    /// channel `pad` moved them on, as the style parts do when they stop
+    /// (`engine::playback::notes_off`): a pad stopped mid-bend or with its pedal down must
+    /// not leave its channel bent or sustained for the next pad or bank.
+    fn reset_controllers(&mut self, pad: usize, sink: &mut impl Sink) {
+        let mask = std::mem::take(&mut self.touched[pad]);
+        for ch in 0..16u8 {
+            if mask & (1 << ch) != 0 {
+                sink.send(&[0xE0 | ch, 0x00, 0x40]);
+                sink.send(&[0xB0 | ch, 1, 0]);
+                sink.send(&[0xB0 | ch, 64, 0]);
+            }
+        }
+    }
+
+    /// Pads pressed while the band played wait for a bar line of that band. When it stops
+    /// (or restarts), those presses start at `start` instead.
+    pub fn retime_pending(&mut self, start: u64) {
+        for v in &mut self.voices {
+            if v.pending.is_some() {
+                v.pending = Some(start);
+            }
         }
     }
 

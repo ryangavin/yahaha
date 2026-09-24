@@ -12,7 +12,8 @@
 //! equal to its next deadline.
 
 use crate::controllers::{Controllers, Handled};
-use crate::engine::{shift_key, AuditionPos, Button, ChartPlan, ChartSettings, Engine, Prepared, Snapshot, Transpose};
+use crate::engine::{shift_key, AuditionPos, Button, ChartPlan, ChartSettings, Engine, PadCmd, Prepared, Snapshot, Transpose};
+use crate::multipad::MultiPadPlayer;
 use crate::fingering::{self, Fingering};
 use crate::launchkey::{self, Action, Control, Page};
 use crate::midi::{for_each_message, InputHandler};
@@ -44,6 +45,15 @@ pub enum Cmd {
     /// Chart player settings (chart mode, Intro, Ending, loop; engine/chart.rs). The
     /// chart itself comes in on its own ring (`EngineIo::charts`).
     Chart(ChartSettings),
+    /// Multi Pads: press, stop, arm a pad, their settings (`engine/multipad.rs`).
+    MultiPad(PadCmd),
+}
+
+/// A Multi Pad bank for the engine thread (`AppCmd::LoadMultiPad`): its player, built on
+/// the control side (None: no bank), and the tag the snapshot reports once it plays.
+pub struct PadBank {
+    pub player: Option<Box<MultiPadPlayer>>,
+    pub tag: u64,
 }
 
 /// How many bars a style preview plays.
@@ -868,6 +878,9 @@ pub struct EngineIo {
     /// Chart plans to play (engine/chart.rs), and replaced ones back to free.
     pub charts: Consumer<Box<ChartPlan>>,
     pub old_charts: Producer<Box<ChartPlan>>,
+    /// Multi Pad banks to play, and replaced players back to the control side to free.
+    pub pad_banks: Consumer<PadBank>,
+    pub old_pads: Producer<Box<MultiPadPlayer>>,
     pub snaps: Producer<Snapshot>,
     pub out: Out,
 }
@@ -922,9 +935,9 @@ impl EngineLoop {
         }
     }
 
-    /// When the next wake is due: the band's next event, or the preview's.
+    /// When the next wake is due: the band's next event, the Multi Pads', or the preview's.
     pub fn next_deadline(&self) -> Option<u64> {
-        let band = self.engine.next_deadline();
+        let band = [self.engine.next_deadline(), self.engine.pads_deadline()].into_iter().flatten().min();
         let Some((a, n)) = &self.audition else { return band };
         let chord = if *n < AUDITION_BARS { a.engine.ns_at_bar(*n as u32) } else { a.engine.ns_at_bar(AUDITION_BARS as u32) };
         [band, a.engine.next_deadline(), Some(chord)].into_iter().flatten().min()
@@ -996,6 +1009,11 @@ impl EngineLoop {
                 let _ = self.io.old_charts.push(old);
             }
         }
+        while let Ok(b) = self.io.pad_banks.pop() {
+            if let Some(old) = self.engine.load_pads(b.player, b.tag, now, &mut self.io.out) {
+                let _ = self.io.old_pads.push(old);
+            }
+        }
         while let Ok(a) = self.io.auditions.pop() {
             self.end_audition();
             if self.engine.is_running() {
@@ -1034,6 +1052,7 @@ impl EngineLoop {
             apply(&mut self.engine, &shared, cmd, now, &mut self.io.out);
         }
         self.engine.process(now, &mut self.io.out);
+        self.engine.process_pads(now, &mut self.io.out);
         self.retire_styles();
         self.play_audition(now);
         let (engine, io) = (&mut self.engine, &mut self.io);
@@ -1083,6 +1102,7 @@ impl EngineLoop {
             let _ = self.io.old_auditions.push(a);
         }
         self.engine.stop(&mut self.io.out);
+        self.engine.pads_stop_all(&mut self.io.out);
         self.io.out.flush();
     }
 }
@@ -1154,6 +1174,7 @@ fn apply(engine: &mut Engine, shared: &Shared, cmd: Cmd, now: u64, out: &mut Out
         Cmd::Transpose(t) => engine.set_transpose(t, now, out),
         Cmd::StopAudition => {}
         Cmd::Chart(s) => engine.set_chart_settings(s, now),
+        Cmd::MultiPad(c) => engine.pad_cmd(c, now, out),
         Cmd::KeysOff => {
             // The source's pedal, wheels and pressure went to every keyboard part too, and
             // its releases will never come: with the pedal left down, All Notes Off would
@@ -1171,6 +1192,7 @@ fn apply(engine: &mut Engine, shared: &Shared, cmd: Cmd, now: u64, out: &mut Out
             // the keyboard parts before All Notes Off. The pedal counts as up until it is
             // pressed again.
             shared.controllers.reset(&mut |m| out.push(m));
+            engine.pads_panic(out);
             for ch in 0..16u8 {
                 out.push(&[0xB0 | ch, 123, 0]);
             }
@@ -1192,6 +1214,8 @@ pub struct Channels {
     pub old_audition_rx: Consumer<Box<Audition>>,
     pub chart_tx: Producer<Box<ChartPlan>>,
     pub old_chart_rx: Consumer<Box<ChartPlan>>,
+    pub pad_tx: Producer<PadBank>,
+    pub old_pad_rx: Consumer<Box<MultiPadPlayer>>,
     pub io: EngineIo,
 }
 
@@ -1205,6 +1229,8 @@ pub fn channels(out: Out) -> Channels {
     let (old_auditions, old_audition_rx) = RingBuffer::new(8);
     let (chart_tx, charts) = RingBuffer::new(4);
     let (old_charts, old_chart_rx) = RingBuffer::new(8);
+    let (pad_tx, pad_banks) = RingBuffer::new(4);
+    let (old_pads, old_pad_rx) = RingBuffer::new(8);
     Channels {
         input_tx,
         ui_tx,
@@ -1215,7 +1241,9 @@ pub fn channels(out: Out) -> Channels {
         old_audition_rx,
         chart_tx,
         old_chart_rx,
-        io: EngineIo { input, ui, styles, old, snaps, auditions, old_auditions, charts, old_charts, out },
+        pad_tx,
+        old_pad_rx,
+        io: EngineIo { input, ui, styles, old, snaps, auditions, old_auditions, charts, old_charts, pad_banks, old_pads, out },
     }
 }
 

@@ -78,6 +78,13 @@ const STATES: [string, Setup][] = [
   ['charts drawer, nothing imported', () => (ui.charts = true)],
   ['charts drawer, a playlist, chart mode playing', (s) => ((ui.charts = true), s.send({ type: 'importCharts', text: 'irealb://demo' }), s.send({ type: 'setChartMode', on: true }))],
   ['chart in the lead-sheet band', (s) => (s.send({ type: 'importCharts', text: 'irealb://demo' }), s.send({ type: 'setChartMode', on: true }))],
+  ['multi pad drawer, no bank', () => (ui.multipad = true)],
+  ['multi pad drawer, bank loaded, pads playing and armed', (s) => (
+    (ui.multipad = true),
+    s.send({ type: 'loadMultiPad', id: 0 }),
+    s.send({ type: 'triggerMultiPad', pad: 0 }),
+    s.send({ type: 'armMultiPad', pad: 3 })
+  )],
   ['Shift layer on', () => (ui.shiftLatched = true)],
   ['Shift layer on, fader page Style', (s) => ((ui.shiftLatched = true), s.send({ type: 'toggleFaderPage' }))],
 ]
@@ -89,6 +96,7 @@ afterEach(() => {
   ui.parts = false
   ui.mixer = false
   ui.charts = false
+  ui.multipad = false
   ui.shiftLatched = false
   tips.help = false
   tips.setFloating(false)

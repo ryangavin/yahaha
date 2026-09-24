@@ -96,6 +96,16 @@ export function tipFor(cmd: AppCmd | null): TipKey {
     case 'setChartIntro': return 'chart.intro'
     case 'setChartEnding': return 'chart.ending'
     case 'setChartAutoStyle': return 'chart.auto_style'
+    case 'loadMultiPad':
+    case 'loadMultiPadPath': return 'multipad.bank'
+    case 'clearMultiPad': return 'multipad.clear'
+    case 'triggerMultiPad': return 'multipad.pad'
+    case 'stopMultiPad': return 'multipad.stop'
+    case 'stopAllMultiPads': return 'multipad.stop_all'
+    case 'armMultiPad': return 'multipad.arm'
+    case 'setMultiPadRepeat': return 'multipad.repeat'
+    case 'setMultiPadChordMatch': return 'multipad.chord_match'
+    case 'setMultiPadSynchroStop': return 'multipad.synchro_style_stop'
     // Fill Up/Down/Self are pedal functions (no pad has them).
     case 'fill':
     case 'setPedal': return 'pedal.function'

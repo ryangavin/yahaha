@@ -14,6 +14,7 @@ mod chords;
 mod hooks;
 mod mirror;
 mod mixer;
+mod multipad;
 mod playback;
 mod prepared;
 mod sections;
@@ -26,6 +27,7 @@ use hooks::{Features, Lines};
 use mirror::{Mirror, NRPN_BIT, UNSENT};
 use sections::Change;
 pub use mixer::{Takeover, HW_UNKNOWN};
+pub use multipad::{PadCmd, PadsSnap, SynchroStop, PAD_PPQ};
 use prepared::PKind;
 pub use prepared::{id_of, slot_of, Msgs, PSection, Prepared, NUM_SLOTS};
 
@@ -161,6 +163,8 @@ pub struct Snapshot {
     pub chart_tag: u64,
     pub chart_bar: Option<u32>,
     pub chart_override: bool,
+    /// Multi Pads: the bank playing and each pad's state (engine/multipad.rs).
+    pub multipad: PadsSnap,
 }
 
 /// Where a style preview is: style `id` (the session's library id), bar `bar` of `bars`
@@ -464,6 +468,7 @@ impl Engine {
             chart_tag,
             chart_bar,
             chart_override,
+            multipad: self.pads_snapshot(),
         }
     }
 
