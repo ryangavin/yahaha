@@ -91,6 +91,37 @@ describe('Keyboard parts drawer', () => {
     expect(document.querySelector('.written .muted')!.textContent).toContain('your left hand')
   })
 
+  it('Manual Bass is dark in Lower, where the engine ignores it, and lit only when in effect', () => {
+    const { session } = setup()
+    const mb = tipped('detection.manual_bass')
+    expect(session.state.chord.manualBass).toBe(true) // the setting, kept for Upper
+    expect(mb.getAttribute('aria-checked')).toBe('false')
+    expect(mb.parentElement!.textContent).toContain('Upper only')
+    session.send({ type: 'toggleUpper' })
+    flushSync()
+    expect(mb.getAttribute('aria-checked')).toBe('true')
+  })
+
+  it('a focused voice picker hands performance keys back instead of type-ahead', async () => {
+    const { session } = setup()
+    // Stand in for App.svelte's window listener.
+    const { handleKey } = await import('../../lib/shortcuts')
+    window.addEventListener('keydown', handleKey)
+    try {
+      const pick = strip('Right 1').querySelector('select')!
+      pick.focus()
+      await fireEvent.keyDown(pick, { key: '7', code: 'Digit7' })
+      expect(session.state.keyboardParts[2].on).toBe(true) // Right 3 toggled
+      expect(document.activeElement).not.toBe(pick)
+      expect(session.state.keyboardParts[0].voiceName).toBe('Grand Piano')
+      pick.focus()
+      await fireEvent.keyDown(pick, { key: 'ArrowDown', code: 'ArrowDown' })
+      expect(document.activeElement).toBe(pick) // list navigation stays with the picker
+    } finally {
+      window.removeEventListener('keydown', handleKey)
+    }
+  })
+
   it('lists the voice each style part was written for', () => {
     setup()
     const rows = document.querySelectorAll('.written li')

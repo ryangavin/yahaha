@@ -91,11 +91,12 @@
           <HwButton tip="split.up" label="Split point up" onclick={() => app.send({ type: 'moveSplit', delta: 1 })}>+</HwButton>
         </div>
         <div class="mb">
-          <Toggle on={chord.manualBass} tip="detection.manual_bass" onclick={() => app.send({ type: 'toggleManualBass' })}>Manual Bass</Toggle>
+          <!-- Lit only when in effect: the engine ignores it in Lower, where the Launchkey pad is dark too. -->
+          <Toggle on={chord.manualBassActive} tip="detection.manual_bass" onclick={() => app.send({ type: 'toggleManualBass' })}>Manual Bass</Toggle>
           <span class="note engraved">
             {#if chord.manualBassActive}Left plays the style's Bass
-            {:else if chord.manualBass}set · needs Upper
-            {:else}off{/if}
+            {:else if chord.upper}off
+            {:else}Upper only{/if}
           </span>
         </div>
       </div>

@@ -38,6 +38,20 @@
     // Give the performance keys back (a focused select keeps them).
     e.currentTarget.blur()
   }
+  // A focused select swallows keys (the app's shortcuts skip form fields) and type-ahead
+  // would turn a performance key into a voice change: `b` picks Bagpipe, `t` Taiko. The
+  // picker is still focused after a mouse pick of the same voice or a dismissed list, so
+  // it only keeps the keys that move through the list; any other key lets go of it and
+  // goes to the performance shortcuts as if nothing had been focused.
+  const LIST_KEYS = new Set(['ArrowUp', 'ArrowDown', 'Home', 'End', 'Tab', 'Shift', 'Control', 'Alt', 'Meta'])
+  function pickerKey(e: KeyboardEvent & { currentTarget: HTMLSelectElement }) {
+    if (LIST_KEYS.has(e.key) || e.ctrlKey || e.altKey || e.metaKey) return
+    e.preventDefault()
+    e.stopPropagation()
+    e.currentTarget.blur()
+    const { key, code, shiftKey, repeat } = e
+    window.dispatchEvent(new KeyboardEvent('keydown', { key, code, shiftKey, repeat, cancelable: true }))
+  }
   const octave = (d: number) => app.send({ type: 'setPartOctave', part: index, octave: Math.max(-2, Math.min(2, part.octave + d)) })
   const link = (on: boolean) => (mirror.panelFader = on ? index : mirror.panelFader === index ? null : mirror.panelFader)
   // Closing the drawer under the pointer never fires pointerleave: let go of the mirror.
@@ -82,7 +96,7 @@
     <span class="sub">
       {#if part.playsBass}<span class="badge">own: {own}</span>{:else}Voice ▾{/if}
     </span>
-    <select value={String(part.program)} aria-label="{part.name} voice" use:tip={'part.voice'} onchange={pick}>
+    <select value={String(part.program)} aria-label="{part.name} voice" use:tip={'part.voice'} onchange={pick} onkeydown={pickerKey}>
       {#each groups as g (g.family)}
         <optgroup label={g.family}>
           {#each g.voices as v (v.program)}<option value={String(v.program)}>{v.name}</option>{/each}
