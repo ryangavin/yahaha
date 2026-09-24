@@ -1193,6 +1193,20 @@ const catalog = {
     keys: [],
     launchkey: null,
   },
+  'settings.param_lock_split_point': {
+    title: 'Lock Split Point',
+    body: 'On: the split point stays where you set it. Registration, One Touch Setting and Playlist recalls leave it alone; you can still move it yourself.',
+    genos: 'Parameter Lock: Split Point',
+    keys: [],
+    launchkey: null,
+  },
+  'settings.param_lock_fingering_type': {
+    title: 'Lock Fingering Type',
+    body: 'On: the fingering type and the Chord Detection Area (Upper, Manual Bass) stay as you set them. Registration, One Touch Setting and Playlist recalls leave them alone; you can still change them yourself.',
+    genos: 'Parameter Lock: Fingering Type',
+    keys: [],
+    launchkey: null,
+  },
   'settings.synchro_stop_window': {
     title: 'Synchro Stop window',
     body: 'With Sync Stop on: hold a chord longer than this and Sync Stop turns itself off, so the style keeps playing when you let go. A quicker release still stops the style. Off (all the way left): Sync Stop never turns itself off.',

@@ -2028,5 +2028,9 @@
     "file": null,
     "extraSoundFonts": [],
     "lastAdded": null
+  },
+  "paramLocks": {
+    "splitPoint": false,
+    "fingeringType": false
   }
 }
