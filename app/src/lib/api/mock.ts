@@ -407,14 +407,11 @@ export class MockSession implements Session {
     this.rightHand = [72, 76]
     st.mixer.styleParts[5].waiting = true
     st.mixer.styleParts[5].volume = 58
-<<<<<<< HEAD
     // The demo Multi Pad bank, its shaker loop playing and the brass hit in standby.
     this.multiPads.cmd({ type: 'loadMultiPad', id: 0 }, false)
     this.multiPads.cmd({ type: 'triggerMultiPad', pad: 0 }, false)
     this.multiPads.cmd({ type: 'armMultiPad', pad: 3 }, false)
-=======
     st.io.lastControl = padPress(MAINS.indexOf('Main B'))
->>>>>>> origin/integration/m3-ui
     this.position()
   }
 
