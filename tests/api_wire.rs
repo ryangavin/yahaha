@@ -78,6 +78,17 @@ const EVERY_CMD: &[&str] = &[
     r#"{"type":"stepStyle","delta":-1}"#,
     r#"{"type":"auditionStyle","id":3}"#,
     r#"{"type":"stopAudition"}"#,
+    // Multi Pads
+    r#"{"type":"loadMultiPad","id":2}"#,
+    r#"{"type":"loadMultiPadPath","path":"/tmp/Demo.pad"}"#,
+    r#"{"type":"clearMultiPad"}"#,
+    r#"{"type":"triggerMultiPad","pad":0}"#,
+    r#"{"type":"stopMultiPad","pad":3}"#,
+    r#"{"type":"stopAllMultiPads"}"#,
+    r#"{"type":"armMultiPad","pad":1}"#,
+    r#"{"type":"setMultiPadRepeat","pad":2,"on":false}"#,
+    r#"{"type":"setMultiPadChordMatch","pad":1,"on":true}"#,
+    r#"{"type":"setMultiPadSynchroStop","styleStop":true,"ending":false}"#,
 ];
 
 fn type_of(json: &str) -> String {
