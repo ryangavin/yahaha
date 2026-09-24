@@ -12,6 +12,8 @@ use yahaha::fingering::Fingering;
 use yahaha::launchkey::{self as lk, Action, Anim, Control, Level, Page};
 use yahaha::parts::{self, FaderPage};
 
+use crate::mock_looper::{self, MockLooper};
+
 const FIXTURE: &str = include_str!("../../src/lib/api/mock-fixture.json");
 const ROOT: &str = "/Users/me/Styles";
 /// The MIDI sources the mock rig has: (name, the Launchkey DAW port).
@@ -140,6 +142,8 @@ pub struct MockSession {
     led_anchor: (f64, f64, f64),
     /// The wall clock at the last `catch_up`.
     wall: Option<Instant>,
+    /// The Chord Looper, as the engine runs it (mock_looper.rs).
+    looper: MockLooper,
 }
 
 impl Default for MockSession {
@@ -241,6 +245,8 @@ impl MockSession {
                     .collect(),
                 master: Some(100),
                 master_waiting: false,
+                style_solo: None,
+                part_solo: None,
             },
             pads: PadsState { page: Page::Sections, page_name: String::new(), page_number: 1, page_count: 3, pads: vec![], connected: true, palette_leds: false },
             ots: OtsState { settings: vec![], applied: 0, link: false },
@@ -288,6 +294,8 @@ impl MockSession {
                 detection: [0, 54],
             },
             message: None,
+            looper: mock_looper::empty(),
+            metronome: MetronomeState { on: false, volume: 90, bell: true, audible: true },
         };
         let mut m = MockSession {
             state,
@@ -305,6 +313,7 @@ impl MockSession {
             section_key: None,
             led_anchor: (0.0, 0.0, 0.0), // anchored by the first `derive`
             wall: None,
+            looper: MockLooper::default(),
         };
         m.set_style(0);
         m.state.ots.applied = 2;
@@ -475,7 +484,28 @@ impl MockSession {
         if bar % 2 == 0 {
             let chord = PROGRESSION[self.progression % PROGRESSION.len()];
             self.progression += 1;
+            self.keyboard_chord(chord);
+        }
+        self.looper_bar(bar);
+    }
+
+    /// A chord from the (imaginary) left hand: the Chord Looper ignores it while it loops,
+    /// records it while it records.
+    fn keyboard_chord(&mut self, chord: &str) {
+        let bpb = self.bar_quarters();
+        let (bar, beat) = ((self.clock / bpb).floor() as u32, (self.clock % bpb).floor() + 1.0);
+        if self.looper.keyboard_chord(&self.state.looper, chord, bar, beat) {
             self.chord_arrives(chord);
+        }
+    }
+
+    /// A bar line for the Chord Looper: it may start recording, or play the loop's chord.
+    fn looper_bar(&mut self, bar: u32) {
+        let played = self.state.chord.fingered.clone();
+        if let Some(c) = self.looper.on_bar(&mut self.state.looper, bar, played.as_deref()) {
+            if played.as_deref() != Some(c.as_str()) {
+                self.chord_arrives(&c);
+            }
         }
     }
 
@@ -510,6 +540,7 @@ impl MockSession {
         self.clock = 0.0;
         self.section_start = 0;
         self.position();
+        self.looper_bar(0);
     }
 
     fn stop_band(&mut self) {
@@ -519,6 +550,7 @@ impl MockSession {
         t.queued = None;
         t.bar = 1;
         t.beat = 1;
+        self.looper.on_stop(&mut self.state.looper);
     }
 
     fn recall_ots(&mut self, n: usize) {
@@ -597,6 +629,7 @@ impl MockSession {
 
     /// The fields the engine computes from the others: names, flags, pads and lamps.
     fn derive(&mut self) {
+        self.looper.publish(&mut self.state.looper);
         let st = &mut self.state;
         let c = &mut st.chord;
         c.fingering_name = if c.upper { "Fingered*".into() } else { c.fingering.name().into() };
@@ -618,7 +651,11 @@ impl MockSession {
         let mb = c.manual_bass_active;
         for (i, p) in st.keyboard_parts.iter_mut().enumerate() {
             p.plays_bass = i == 3 && mb;
-            p.sounding = p.on || p.plays_bass;
+            // A keyboard solo: only that part sounds, even if it is off.
+            p.sounding = match st.mixer.part_solo {
+                Some(s) => s as usize == i,
+                None => p.on || p.plays_bass,
+            };
             p.voice_name = if p.plays_bass { "Finger Bass".into() } else { self.gm[p.program as usize].clone() };
         }
         for (i, p) in st.mixer.style_parts.iter_mut().enumerate() {
@@ -900,12 +937,49 @@ impl MockSession {
                 if self.taps.len() >= 2 {
                     let avg = (self.taps[self.taps.len() - 1] - self.taps[0]) / (self.taps.len() - 1) as f64;
                     if avg > 0.0 {
-                        self.state.transport.tempo = (60000.0 / avg).round().clamp(30.0, 300.0);
+                        self.state.transport.tempo = (60000.0 / avg).round().clamp(5.0, 500.0);
                     }
                 }
             }
-            AppCmd::Transport(TransportCmd::TempoUp) => self.state.transport.tempo = (self.state.transport.tempo + 1.0).min(300.0),
-            AppCmd::Transport(TransportCmd::TempoDown) => self.state.transport.tempo = (self.state.transport.tempo - 1.0).max(30.0),
+            AppCmd::Transport(TransportCmd::TempoUp) => self.state.transport.tempo = (self.state.transport.tempo + 1.0).min(500.0),
+            AppCmd::Transport(TransportCmd::TempoDown) => self.state.transport.tempo = (self.state.transport.tempo - 1.0).max(5.0),
+            AppCmd::Transport(TransportCmd::SetTempo { bpm }) => self.state.transport.tempo = (bpm as f64).clamp(5.0, 500.0),
+            AppCmd::Mixer(MixerCmd::SetStyleSolo { part }) => self.state.mixer.style_solo = part.map(|p| p & 7),
+            AppCmd::Mixer(MixerCmd::SetPartSolo { part }) => self.state.mixer.part_solo = part.map(|p| p & 3),
+            AppCmd::Mixer(MixerCmd::StyleTrackMute { order, value }) => {
+                let mask = order.mask(value);
+                for (i, p) in self.state.mixer.style_parts.iter_mut().enumerate() {
+                    p.on = mask & (1 << i) != 0;
+                }
+            }
+            AppCmd::Looper(LooperCmd::LooperRec) => {
+                if self.looper.rec(&mut self.state.looper, running) {
+                    self.state.transport.sync_start = true;
+                }
+            }
+            AppCmd::Looper(LooperCmd::LooperOnOff) => {
+                if let Some(k) = self.looper.on_off(&mut self.state.looper) {
+                    if self.state.chord.fingered.as_deref() != Some(k.as_str()) {
+                        self.chord_arrives(&k);
+                    }
+                }
+            }
+            AppCmd::Looper(LooperCmd::SelectLooperMemory { index }) => {
+                if let Err(e) = self.looper.select(&mut self.state.looper, index as usize % 8) {
+                    self.message(e, true);
+                }
+            }
+            AppCmd::Looper(LooperCmd::StoreLooperMemory { index }) => {
+                if let Err(e) = self.looper.store(&mut self.state.looper, index as usize % 8) {
+                    self.message(e, true);
+                }
+            }
+            AppCmd::Looper(LooperCmd::ClearLooperMemory { index }) => self.looper.clear(&mut self.state.looper, index as usize % 8),
+            AppCmd::Looper(LooperCmd::NewLooperBank) => self.looper.new_bank(&mut self.state.looper),
+            AppCmd::Metronome(MetronomeCmd::ToggleMetronome) => self.state.metronome.on = !self.state.metronome.on,
+            AppCmd::Metronome(MetronomeCmd::SetMetronome { on }) => self.state.metronome.on = on,
+            AppCmd::Metronome(MetronomeCmd::SetMetronomeVolume { volume }) => self.state.metronome.volume = vol(volume),
+            AppCmd::Metronome(MetronomeCmd::SetMetronomeBell { on }) => self.state.metronome.bell = on,
             AppCmd::Mixer(MixerCmd::ToggleStylePart { part }) => {
                 if let Some(p) = self.state.mixer.style_parts.get_mut(part as usize) {
                     p.on = !p.on;

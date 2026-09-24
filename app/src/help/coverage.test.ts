@@ -69,6 +69,8 @@ const STATES: [string, Setup][] = [
   ['parts drawer, fader page Style', (s) => ((ui.parts = true), s.send({ type: 'toggleFaderPage' }))],
   ['mixer drawer open', () => (ui.mixer = true)],
   ['mixer drawer open, Style tab', (s) => ((ui.mixer = true), s.send({ type: 'setFaderPage', page: 'style' }))],
+  ['chord looper drawer open', () => (ui.looper = true)],
+  ['chord looper drawer, recording armed, Memory latched', (s) => ((ui.looper = true), s.send({ type: 'looperRec' }))],
   ['Shift layer on', () => (ui.shiftLatched = true)],
   ['Shift layer on, fader page Style', (s) => ((ui.shiftLatched = true), s.send({ type: 'toggleFaderPage' }))],
 ]
@@ -79,6 +81,7 @@ afterEach(() => {
   ui.settings = false
   ui.parts = false
   ui.mixer = false
+  ui.looper = false
   ui.shiftLatched = false
   tips.help = false
 })
