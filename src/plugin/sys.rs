@@ -45,7 +45,8 @@ use objc2_core_foundation::{
 };
 use std::ffi::c_void;
 use std::ptr::{self, NonNull};
-use std::sync::Mutex;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex, OnceLock};
 use std::sync::mpsc;
 
 pub use objc2_audio_toolbox::AudioUnit;
@@ -195,6 +196,28 @@ pub fn instruments() -> Vec<Component> {
 pub struct Unit {
     raw: AudioUnit,
     initialized: bool,
+    lifecycle: Arc<Mutex<()>>,
+}
+
+/// One lock per component (type, subtype, manufacturer), held around
+/// `AudioUnitInitialize`, `AudioUnitUninitialize` and `AudioComponentInstanceDispose`.
+///
+/// Instances of the same component can share process-wide state behind those calls:
+/// DLSMusicDevice asserts inside CoreAudio (`CAAssertRtn` under `AudioUnitInitialize`) or
+/// crashes in `AudioUnitUninitialize` when two of its instances go through them on two
+/// threads at once, which `load_async` (a thread per load) and a retired instance dropping
+/// on the control side make possible. Per component rather than global, so one plugin that
+/// hangs in `AudioUnitInitialize` (the load deadline's case) holds up only its own kind.
+fn lifecycle_lock(desc: [u32; 3]) -> Arc<Mutex<()>> {
+    static LOCKS: OnceLock<Mutex<HashMap<[u32; 3], Arc<Mutex<()>>>>> = OnceLock::new();
+    let mut m = LOCKS.get_or_init(Default::default).lock().unwrap_or_else(|e| e.into_inner());
+    m.entry(desc).or_default().clone()
+}
+
+impl Unit {
+    fn lifecycle(&self) -> std::sync::MutexGuard<'_, ()> {
+        self.lifecycle.lock().unwrap_or_else(|e| e.into_inner())
+    }
 }
 
 // AudioToolbox allows one thread at a time per call family; the host serialises: render and
@@ -205,6 +228,8 @@ unsafe impl Sync for Unit {}
 
 impl Drop for Unit {
     fn drop(&mut self) {
+        let lifecycle = self.lifecycle.clone();
+        let _g = lifecycle.lock().unwrap_or_else(|e| e.into_inner());
         unsafe {
             if self.initialized {
                 AudioUnitUninitialize(self.raw);
@@ -221,7 +246,7 @@ pub fn instantiate_sync(c: &Component) -> Result<Unit> {
     if raw.is_null() {
         bail!("AudioComponentInstanceNew returned no instance");
     }
-    Ok(Unit { raw, initialized: false })
+    Ok(Unit { raw, initialized: false, lifecycle: lifecycle_lock(c.desc) })
 }
 
 /// Create an instance asynchronously (`AudioComponentInstantiate`). `out_of_process` asks for
@@ -233,11 +258,13 @@ pub fn instantiate_async(c: &Component, out_of_process: bool) -> mpsc::Receiver<
     let (tx, rx) = mpsc::sync_channel::<Result<Unit>>(1);
     // The block is `Fn`; AudioToolbox calls it once. The Mutex<Option<_>> makes that a take.
     let tx = Mutex::new(Some(tx));
+    let lifecycle = lifecycle_lock(c.desc);
     let block = RcBlock::new(move |inst: AudioComponentInstance, st: OSStatus| {
         let r = if st == 0 && !inst.is_null() {
-            Ok(Unit { raw: inst, initialized: false })
+            Ok(Unit { raw: inst, initialized: false, lifecycle: lifecycle.clone() })
         } else {
             if !inst.is_null() {
+                let _g = lifecycle.lock().unwrap_or_else(|e| e.into_inner());
                 unsafe { AudioComponentInstanceDispose(inst) };
             }
             Err(anyhow!("AudioComponentInstantiate failed: OSStatus {st} ({})", status_name(st)))
@@ -340,7 +367,11 @@ impl Unit {
             // Not every instrument exposes a writable sample rate; the stream format is what counts.
             let _ = set_prop(self.raw, kAudioUnitProperty_SampleRate, kAudioUnitScope_Output, &sample_rate);
             check(set_prop(self.raw, kAudioUnitProperty_MaximumFramesPerSlice, kAudioUnitScope_Global, &max_frames), "set MaximumFramesPerSlice")?;
-            check(AudioUnitInitialize(self.raw), "AudioUnitInitialize")?;
+            let st = {
+                let _g = self.lifecycle();
+                AudioUnitInitialize(self.raw)
+            };
+            check(st, "AudioUnitInitialize")?;
         }
         self.initialized = true;
         Ok(())
@@ -348,7 +379,10 @@ impl Unit {
 
     pub fn uninitialize(&mut self) {
         if self.initialized {
-            unsafe { AudioUnitUninitialize(self.raw) };
+            {
+                let _g = self.lifecycle();
+                unsafe { AudioUnitUninitialize(self.raw) };
+            }
             self.initialized = false;
         }
     }
