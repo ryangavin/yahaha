@@ -107,7 +107,9 @@ struct Inner {
     shared: Arc<Shared>,
     ctl: Mutex<Control>,
     state: Mutex<Arc<AppState>>,
-    library: Mutex<Arc<Library>>,
+    /// The published library and its revision, swapped together so a `LibraryList` never
+    /// carries a revision its entries are not.
+    library: Mutex<(Arc<Library>, u64)>,
     version: AtomicU64,
     subscribers: Mutex<Vec<mpsc::Sender<Event>>>,
     stop: AtomicBool,
@@ -267,6 +269,12 @@ struct Control {
     lib_rev: u64,
     lib_published: u64,
     lib_published_ns: u64,
+    /// The library as last published (`Session::library`): the state's library status
+    /// describes this one, so it always matches what a client fetches.
+    published: Arc<Library>,
+    /// A change a client made (a file added, a style that failed to load): publish it at
+    /// once rather than on the indexing cadence.
+    lib_urgent: bool,
     cur: usize,
     info: Loaded,
     snap: Snapshot,
@@ -388,6 +396,7 @@ impl Control {
                 self.lib.set_info(id, Info::Err(format!("{e:#}")));
                 self.lib.sort();
                 self.lib_rev += 1;
+                self.lib_urgent = true;
                 self.fail(format!("{}: {e:#}", path.display()))
             }
         }
@@ -493,6 +502,7 @@ impl Control {
                     None => {
                         let id = self.lib.add_file(path);
                         self.lib_rev += 1;
+                        self.lib_urgent = true;
                         id
                     }
                 };
@@ -742,10 +752,11 @@ impl Control {
                 link: kp.ots_link.load(Relaxed),
             },
             library: LibraryStatus {
-                revision: self.lib_rev,
-                count: self.lib.len(),
-                position: self.lib.position(self.cur),
-                pending: self.lib.pending(),
+                // The revision `library()` has (published at most every 250 ms while indexing).
+                revision: self.lib_published,
+                count: self.published.len(),
+                position: self.published.position(self.cur),
+                pending: self.published.pending(),
             },
             io: IoState {
                 output_port: if self.offline.is_some() { String::new() } else { "yahaha".into() },
@@ -786,8 +797,20 @@ impl Inner {
     /// and tell the subscribers. Also republishes the library when it changed (at most
     /// every 250 ms while indexing).
     fn publish(&self, ctl: &mut Control, now: u64) {
-        let mut st = ctl.build_state();
         let mut events = Vec::new();
+        // The library first, so the state's `library.revision` is always the revision
+        // `library()` returns.
+        if ctl.lib_rev != ctl.lib_published
+            && (ctl.lib_urgent || ctl.lib.pending() == 0 || now.saturating_sub(ctl.lib_published_ns) >= 250_000_000)
+        {
+            ctl.published = Arc::new(ctl.lib.clone());
+            *self.library.lock().unwrap_or_else(|e| e.into_inner()) = (ctl.published.clone(), ctl.lib_rev);
+            ctl.lib_urgent = false;
+            ctl.lib_published = ctl.lib_rev;
+            ctl.lib_published_ns = now;
+            events.push(Event::LibraryChanged { revision: ctl.lib_rev });
+        }
+        let mut st = ctl.build_state();
         {
             let mut cur = self.state.lock().unwrap_or_else(|e| e.into_inner());
             st.version = cur.version;
@@ -796,12 +819,6 @@ impl Inner {
                 events.push(Event::StateChanged { version: st.version });
                 *cur = Arc::new(st);
             }
-        }
-        if ctl.lib_rev != ctl.lib_published && (ctl.lib.pending() == 0 || now.saturating_sub(ctl.lib_published_ns) >= 250_000_000) {
-            *self.library.lock().unwrap_or_else(|e| e.into_inner()) = Arc::new(ctl.lib.clone());
-            ctl.lib_published = ctl.lib_rev;
-            ctl.lib_published_ns = now;
-            events.push(Event::LibraryChanged { revision: ctl.lib_rev });
         }
         if !events.is_empty() {
             self.notify(&events);
@@ -897,6 +914,7 @@ fn assemble(opts: &Options, engine_out: live::Out, input_out: live::Out, offline
     input.set_actions(act_tx);
     let engine = Engine::new(prep);
     let snap = engine.snapshot(0);
+    let published = Arc::new(lib.clone());
     let control = Control {
         shared: shared.clone(),
         lib,
@@ -904,6 +922,8 @@ fn assemble(opts: &Options, engine_out: live::Out, input_out: live::Out, offline
         lib_rev: 1,
         lib_published: 0,
         lib_published_ns: 0,
+        published,
+        lib_urgent: false,
         cur,
         info,
         snap,
@@ -1064,7 +1084,10 @@ impl Session {
             drop(ctl);
             self.settle();
         } else {
-            // The control thread republishes the state.
+            // Publish now, so `state()` straight after `send` shows what the control side
+            // applied. The control thread republishes once the engine has run its part.
+            self.inner.publish(&mut ctl, rt::now_ns());
+            drop(ctl);
             self.inner.shared.ctl_wake.signal();
         }
         r
@@ -1083,13 +1106,12 @@ impl Session {
     /// The style library (indexed in the background; `AppState::library.revision` and
     /// `Event::LibraryChanged` say when it changed). Cheap: an `Arc` clone.
     pub fn library(&self) -> Arc<Library> {
-        self.inner.library.lock().unwrap_or_else(|e| e.into_inner()).clone()
+        self.inner.library.lock().unwrap_or_else(|e| e.into_inner()).0.clone()
     }
 
     /// The library as plain data, in display order (folder, then name).
     pub fn library_list(&self) -> LibraryList {
-        let lib = self.library();
-        let revision = self.state().library.revision;
+        let (lib, revision) = self.inner.library.lock().unwrap_or_else(|e| e.into_inner()).clone();
         LibraryList { revision, entries: lib.order().iter().map(|&id| library_entry(&lib, id)).collect() }
     }
 
@@ -1116,10 +1138,12 @@ impl Session {
     /// Stop: the band stops, the Launchkey leaves DAW mode, audio and MIDI close.
     /// Idempotent; `Drop` calls it.
     pub fn stop(&self) {
-        let live = self.live.lock().unwrap_or_else(|e| e.into_inner()).take();
+        // Claim the stop before taking the threads: a second, concurrent `stop` must not
+        // take them and then return without joining them.
         if self.inner.stop.swap(true, Relaxed) {
             return;
         }
+        let live = self.live.lock().unwrap_or_else(|e| e.into_inner()).take();
         let shared = &self.inner.shared;
         shared.quit.store(true, Relaxed);
         shared.wake.signal();
@@ -1251,14 +1275,16 @@ impl Session {
 
 impl Inner {
     fn new(shared: Arc<Shared>, control: Control) -> Inner {
-        let lib = Arc::new(control.lib.clone());
         let mut control = control;
+        control.published = Arc::new(control.lib.clone());
+        let lib = control.published.clone();
         control.lib_published = control.lib_rev;
+        let rev = control.lib_rev;
         let inner = Inner {
             shared,
             ctl: Mutex::new(control),
             state: Mutex::new(Arc::new(AppState::default())),
-            library: Mutex::new(lib),
+            library: Mutex::new((lib, rev)),
             version: AtomicU64::new(0),
             subscribers: Mutex::new(Vec::new()),
             stop: AtomicBool::new(false),

@@ -432,3 +432,160 @@ fn an_empty_library_is_an_error() {
     let _ = std::fs::remove_dir(&dir);
     assert!(r.is_err());
 }
+
+/// Every Launchkey pad (each page), button and fader button does exactly what the command
+/// it stands for does: the same state and the same output, from several starting states.
+#[test]
+fn launchkey_hardware_matches_its_commands() {
+    use crate::launchkey::{FUNCTION_CC, PAD_UP_CC, PLAY_CC, SCENE_CC, STOP_CC, TRACK_LEFT_CC, TRACK_RIGHT_CC};
+    let Some(p) = style("SlowWalker.T552.sty") else { return };
+    let mk = |setup: u8| {
+        let s = Session::offline(Options { paths: vec![p.clone()], ..Options::default() }).unwrap();
+        match setup {
+            0 => {}
+            1 => {
+                s.send(AppCmd::SetOtsLink { on: true }).unwrap();
+                s.send(AppCmd::SetUpper { on: true }).unwrap();
+                keys(&s, true, &[60, 64, 67]);
+                s.advance(700 * MS);
+            }
+            _ => {
+                s.send(AppCmd::RecallOts { index: 1 }).unwrap();
+                keys(&s, true, &[36, 40, 43]);
+                s.advance(1300 * MS);
+                s.send(AppCmd::Main { index: 2 }).unwrap();
+            }
+        }
+        s
+    };
+    let norm = |s: &Session| {
+        let mut st = (*s.state()).clone();
+        (st.version, st.io.last_control) = (0, 0);
+        st.io.unmapped.clear();
+        (st, s.take_output())
+    };
+    let mut bad = Vec::new();
+    // `hw` on one session, `cmd` on a twin: they must end up the same.
+    let mut pair = |setup: u8, what: String, prep: &dyn Fn(&Session), hw: &[&[u8]], cmd: Option<AppCmd>| {
+        let (a, b) = (mk(setup), mk(setup));
+        prep(&a);
+        prep(&b);
+        a.take_output();
+        b.take_output();
+        for m in hw {
+            a.midi_in(Port::Pads, m);
+        }
+        if let Some(c) = cmd {
+            let _ = b.send(c);
+        }
+        if norm(&a) != norm(&b) {
+            bad.push(format!("setup {setup}: {what}"));
+        }
+    };
+    for setup in 0..3 {
+        for page in Page::ALL {
+            let prep = move |s: &Session| s.send(AppCmd::SetPadPage { page }).unwrap();
+            let pads = {
+                let s = mk(setup);
+                prep(&s);
+                s.state().pads.pads.clone()
+            };
+            for pad in pads {
+                pair(setup, format!("{page:?} pad {} {:?}", pad.note, pad.action), &prep, &[&[0x90, pad.note, 100]], pad.action);
+            }
+        }
+        let page2 = |s: &Session| s.send(AppCmd::SetPadPage { page: Page::ChordSetup }).unwrap();
+        for (cc, shift, cmd) in [
+            (PLAY_CC, false, AppCmd::StartStop),
+            (STOP_CC, false, AppCmd::Stop),
+            (SCENE_CC, false, AppCmd::TempoUp),
+            (FUNCTION_CC, false, AppCmd::TempoDown),
+            (TRACK_LEFT_CC, false, AppCmd::StepStyle { delta: -1 }),
+            (TRACK_RIGHT_CC, false, AppCmd::StepStyle { delta: 1 }),
+            (PAD_UP_CC, true, AppCmd::TogglePart { part: 3 }),
+            (PAD_DOWN_CC, true, AppCmd::ToggleOtsLink),
+            (PAD_UP_CC, false, AppCmd::CyclePadPage { delta: -1 }),
+            (PAD_DOWN_CC, false, AppCmd::CyclePadPage { delta: 1 }),
+        ] {
+            let btn = [0xB0, cc, 127];
+            let hw: Vec<&[u8]> = if shift { vec![&[0xB0, SHIFT_CC, 127], &btn, &[0xB0, SHIFT_CC, 0]] } else { vec![&btn] };
+            pair(setup, format!("CC {cc} shift {shift}"), &page2, &hw, Some(cmd));
+        }
+        for i in 0..9u8 {
+            for shift in [false, true] {
+                for fp in [FaderPage::Panel, FaderPage::Style] {
+                    let cmd = match (i, fp, shift) {
+                        (8, _, _) => Some(AppCmd::ToggleFaderPage),
+                        (0..=3, FaderPage::Panel, true) => Some(AppCmd::SelectPart { part: i }),
+                        (0..=3, FaderPage::Panel, false) => Some(AppCmd::TogglePart { part: i }),
+                        (_, FaderPage::Panel, _) => None,
+                        (_, FaderPage::Style, _) => Some(AppCmd::ToggleStylePart { part: i }),
+                    };
+                    let btn = [0xB0, 37 + i, 127];
+                    let hw: Vec<&[u8]> = if shift { vec![&[0xB0, SHIFT_CC, 127], &btn, &[0xB0, SHIFT_CC, 0]] } else { vec![&btn] };
+                    let prep = move |s: &Session| s.send(AppCmd::SetFaderPage { page: fp }).unwrap();
+                    pair(setup, format!("fader button {i} shift {shift} {fp:?}"), &prep, &hw, cmd);
+                }
+            }
+        }
+    }
+    assert!(bad.is_empty(), "hardware and command differ:\n{}", bad.join("\n"));
+}
+
+/// A client can send any delta: no overflow, and the page wraps as it should.
+#[test]
+fn cycle_pad_page_takes_any_delta() {
+    let Some(s) = offline("SlowWalker.T552.sty") else { return };
+    s.send(AppCmd::SetPadPage { page: Page::OtsParts }).unwrap();
+    s.send(AppCmd::CyclePadPage { delta: 127 }).unwrap(); // 2 + 127 = 129 = 0 mod 3
+    assert_eq!(s.state().pads.page, Page::Sections);
+    s.send(AppCmd::CyclePadPage { delta: -128 }).unwrap(); // 0 - 128 = 1 mod 3
+    assert_eq!(s.state().pads.page, Page::ChordSetup);
+}
+
+/// While the library indexes, `library_list()` is labelled with the revision its entries
+/// are, and the state's library status describes that same list.
+#[test]
+fn library_list_revision_matches_its_entries() {
+    let Some(p) = style("SlowWalker.T552.sty") else { return };
+    let root = p.parent().unwrap().parent().unwrap().to_path_buf();
+    let s = Session::offline(Options { paths: vec![root], ..Options::default() }).unwrap();
+    for _ in 0..5000 {
+        s.send(AppCmd::ClearMessage).unwrap(); // the control side applies index results
+        let st = s.state();
+        let l = s.library_list();
+        if l.revision == st.library.revision {
+            let pending = l.entries.iter().filter(|e| e.status == "pending").count();
+            assert_eq!((pending, l.entries.len()), (st.library.pending, st.library.count), "revision {}", l.revision);
+        }
+        if st.library.pending == 0 {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_micros(100));
+    }
+    s.finish_indexing();
+    assert_eq!(s.state().library.pending, 0);
+}
+
+/// Live (real CoreMIDI, no Launchkey, no synth): what `send` applied on the control side
+/// is in `state()` as soon as it returns, and a second, concurrent `stop` is harmless.
+#[test]
+fn live_send_is_visible_at_once() {
+    let Some(p) = style("SlowWalker.T552.sty") else { return };
+    let opts = Options { paths: vec![p], no_pads: true, inputs: vec!["(no such input)".into()], ..Options::default() };
+    let s = match Session::start(opts) {
+        Ok(s) => Arc::new(s),
+        Err(e) => {
+            eprintln!("no CoreMIDI ({e}); skipping");
+            return;
+        }
+    };
+    s.send(AppCmd::SetSplit { note: 70 }).unwrap();
+    assert_eq!(s.state().chord.split, 70);
+    let rx = s.subscribe();
+    let s2 = s.clone();
+    let t = std::thread::spawn(move || s2.stop());
+    s.stop();
+    t.join().unwrap();
+    assert!(rx.try_iter().any(|e| e == Event::Stopped));
+}

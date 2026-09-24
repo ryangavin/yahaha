@@ -116,8 +116,8 @@ impl Page {
 
     /// The page `d` steps away, wrapping around (the terminal's Tab / Shift+Tab).
     pub fn cycle(self, d: i8) -> Page {
-        let n = Page::ALL.len() as i8;
-        Page::from_u8((self as i8 + d).rem_euclid(n) as u8)
+        let n = Page::ALL.len() as i16;
+        Page::from_u8((self as i16 + d as i16).rem_euclid(n) as u8)
     }
 
     /// The page's LED identity: RGB for the pads, plus bright and dim palette colours.

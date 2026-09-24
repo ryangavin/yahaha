@@ -161,8 +161,9 @@ state, and pressing the button is the action. For settings, a GUI checkbox can u
 - `{"kind":"failed","message":"…"}`: refused or failed. The same text is in
   `state.message`.
 
-`Ok` means the control side has applied the command. For engine commands (sections,
-tempo, mute, Style volume), a live session shows the result in the state a few
+`Ok` means the control side has applied the command, and `state()` straight after
+`send` already shows it. For engine commands (sections, tempo, mute, Style volume), a
+live session shows the result in the state a few
 milliseconds later, once the engine thread has run the command and published a
 snapshot. An offline session shows it at once.
 
@@ -306,7 +307,7 @@ client can flash in step with the hardware.
 ### `library`
 | Field | Type | Meaning |
 |---|---|---|
-| `revision` | number | Changes when the library changes. Fetch `library()` when it does. |
+| `revision` | number | The revision `library()` returns. It changes when the library changes: fetch `library()` when it does. All four fields describe that same list. |
 | `count` | number | Entries. |
 | `position` | number | The loaded style's position in library order, 0-based. |
 | `pending` | number | Entries still being indexed. |
