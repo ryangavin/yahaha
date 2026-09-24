@@ -4,8 +4,8 @@
 //! the current time in nanoseconds. It never allocates after construction, so the
 //! real-time output thread can drive it directly.
 
-use crate::sff::{ChannelRule, Ev, Ntt, Rtr, SectionId, Style};
-use crate::theory::{is_drum_part, plays, transpose_group, Chord, CANCEL};
+use crate::sff::{ChannelRule, Ev, Ntr, Ntt, Rtr, SectionId, Style};
+use crate::theory::{is_drum_part, plays, transpose_group, Chord, CANCEL, GUITAR_NOISE};
 
 pub trait Sink {
     fn send(&mut self, msg: &[u8]);
@@ -1405,14 +1405,24 @@ impl Engine {
         if self.rtr_bend[dest as usize & 15] != 0 && !self.sounding.iter().any(|s| s.active && s.dest == dest) {
             self.set_rtr_bend(dest, 0, sink);
         }
+        let guitar = self.is_guitar(slot, src, src_key);
         // On a part still bent, the key goes out that much lower so it sounds at `pitch`.
-        let out = shift_key(pitch, -self.rtr_bend[dest as usize & 15]);
+        // A guitar noise key (MegaVoice) is not a pitch: moving it would pick another
+        // noise, so it goes out as it is (and sounds with the part's bend).
+        let out = if guitar && src_key >= GUITAR_NOISE { pitch } else { shift_key(pitch, -self.rtr_bend[dest as usize & 15]) };
         // Two voices landing on one key at the same instant (a chord that folds voices
         // together, such as 1+8, or a pattern note on the key a chord change just
         // retriggered) sound once: stealing would leave a zero-length note. The later
         // voice is kept muted beside the sounding one, and the key sounds until both
         // have ended. (Rhythm parts play as written: a doubled hit stays doubled.)
-        let same_instant = |s: &Sounding| s.active && s.dest == dest && s.out == out && s.attack_ns == now;
+        // A guitar strum spreads its strings over a few ticks, so for a Guitar note the
+        // "instant" is the strum: a string on a key another string struck within a 32nd
+        // note joins it, muted, instead of cutting it short and striking the pitch again.
+        // A later strum strikes it again, as a guitarist would.
+        let strum = (self.ns_per_tick * self.style.ppq as f64 / 8.0) as u64;
+        let same_instant = |s: &Sounding| {
+            s.active && s.dest == dest && s.out == out && (s.attack_ns == now || guitar && now.saturating_sub(s.attack_ns) < strum)
+        };
         let muted = follows_chords(dest) && self.sounding.iter().any(same_instant);
         if !muted {
             // Steal an identical sounding note on the same channel so offs stay balanced.
@@ -1559,6 +1569,38 @@ impl Engine {
 
     /// End the voices `f` picks. A muted voice ends silently; a sounding one hands its key
     /// to a muted voice that shares it and sounds on, if there is one.
+    /// Does this source note follow the chord as a guitar string (NTR Guitar)?
+    fn is_guitar(&self, slot: u8, src: u8, src_key: u8) -> bool {
+        let rule = self.style.sections.get(slot as usize).and_then(|s| s.as_ref()).and_then(|s| s.rules.get(src as usize));
+        rule.and_then(|r| r.as_ref()).is_some_and(|r| r.zone_for(src_key).ntr == Ntr::Guitar)
+    }
+
+    /// Tests: pairs of sounding (not muted) guitar strings of one part on the same key.
+    #[cfg(test)]
+    pub fn guitar_unisons(&self) -> usize {
+        let s = &self.sounding;
+        let live = |i: usize| s[i].active && !s[i].muted && self.is_guitar(s[i].slot, s[i].src, s[i].src_key);
+        (0..MAX_SOUNDING)
+            .filter(|&i| live(i))
+            .map(|i| (i + 1..MAX_SOUNDING).filter(|&j| live(j) && (s[j].dest, s[j].out) == (s[i].dest, s[i].out)).count())
+            .sum()
+    }
+
+    /// Tests: the guitar strings of one part struck at or after `since`, muted twins
+    /// included, as (source key, sounding pitch).
+    #[cfg(test)]
+    pub fn guitar_strings(&self, dest: u8, since: u64) -> Vec<(u8, u8)> {
+        let bend = self.rtr_bend[dest as usize & 15];
+        let mut v: Vec<_> = self
+            .sounding
+            .iter()
+            .filter(|s| s.active && s.dest == dest && s.started_ns >= since && self.is_guitar(s.slot, s.src, s.src_key))
+            .map(|s| (s.src_key, if s.src_key >= GUITAR_NOISE { s.out } else { shift_key(s.out, bend) }))
+            .collect();
+        v.sort();
+        v
+    }
+
     fn off_where(&mut self, sink: &mut impl Sink, f: impl Fn(&Sounding) -> bool) {
         for i in 0..MAX_SOUNDING {
             let s = self.sounding[i];
@@ -1635,11 +1677,25 @@ impl Engine {
             let part_on = self.parts & (1 << (rule.dest_ch.saturating_sub(8) & 7)) != 0;
             let was = effective_chord(prev, rule).filter(|&c| plays(rule, c));
             let Some(now_chord) = effective_chord(Some(chord), rule).filter(|&c| plays(rule, c)) else { continue };
-            if n == 0 || !part_on || was.is_some() {
+            // A part that was playing has its notes re-voiced by `revoice`, except guitar
+            // strings the previous chord left out (muted by Stroke, or voiced nowhere):
+            // those have no voice to re-pitch, so they come in here.
+            let guitar = (0..n).any(|k| rule.zone_for(keys[k]).ntr == Ntr::Guitar);
+            if n == 0 || !part_on || was.is_some() && !guitar {
                 continue;
             }
             let mut outs = [None; 8];
             transpose_group(&keys[..n], rule, now_chord, &mut outs[..n]);
+            if was.is_some() {
+                let slot = self.cur as u8;
+                for k in 0..n {
+                    let voiced = rule.zone_for(keys[k]).ntr == Ntr::Guitar
+                        && self.sounding.iter().any(|s| s.active && s.src == e.src && s.slot == slot && s.src_key == keys[k]);
+                    if voiced || rule.zone_for(keys[k]).ntr != Ntr::Guitar {
+                        outs[k] = None;
+                    }
+                }
+            }
             // A note is started only if no more of it is lost than is still to come: not if
             // the section boundary, its own note-off or a new attack on its key ends it
             // sooner than it should have started ago.
@@ -1738,6 +1794,12 @@ impl Engine {
                 let cur = o.out as i16 + bend;
                 let to = |t: Option<u8>| t.map(|t| self.master(dest, t));
                 let zone = rule.zone_for(o.src_key);
+                // A guitar noise key is not a pitch: no chord moves it, and it has no say
+                // in the part's bend.
+                if zone.ntr == Ntr::Guitar && o.src_key >= GUITAR_NOISE {
+                    plan[b] = Revoice::Leave;
+                    continue;
+                }
                 // Nearest note, up or down, with the pitch class of the new root (the slash
                 // bass on a Bass On channel, as `theory::transpose` has it), in the same
                 // octave or the next.

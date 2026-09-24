@@ -753,9 +753,100 @@ mod tests {
         assert!(ons(&rec, 0, bar).is_empty());
     }
 
+    /// Channels whose every rule is a Guitar (other parts may retrigger a unison).
+    fn guitar_channels(style: &Style) -> Vec<u8> {
+        use crate::sff::Ntr;
+        let rules: Vec<_> = style.casm.iter().flat_map(|s| &s.rules).collect();
+        let is_guitar = |r: &&crate::sff::ChannelRule| (0..128).all(|k| r.zone_for(k).ntr == Ntr::Guitar);
+        (8..16u8)
+            .filter(|&ch| rules.iter().any(|r| r.dest_ch == ch && is_guitar(r)))
+            .filter(|&ch| rules.iter().all(|r| r.dest_ch != ch || is_guitar(r)))
+            .collect()
+    }
+
+    /// A chord just after the beat corrects the strum outright: the strings the previous
+    /// chord left out (strings Stroke muted below its bass) come in too, and unisons are
+    /// re-parted, so every corpus Guitar part rings the strings of that strum it rings
+    /// when the chord lands on the beat. (Strings of earlier strums follow their
+    /// retrigger rule in both cases.)
+    #[test]
+    fn corpus_late_chord_restores_guitar_strings() {
+        let mut styles = 0;
+        for f in corpus() {
+            let style = Style::load(&f).unwrap();
+            let guitar = guitar_channels(&style);
+            if guitar.is_empty() {
+                continue;
+            }
+            styles += 1;
+            let name = f.file_name().unwrap().to_string_lossy().to_string();
+            let bar = bar_ns(&Prepared::new(&style));
+            for (before, after) in [(Chord::new(0, 30), Chord::new(0, 0)), (Chord::new(7, 31), Chord::new(7, 1)),
+                                    (Chord::new(2, 0), Chord::new(0, 0)), (Chord::new(9, 10), Chord::new(4, 2))] {
+                let t_f = 2 * bar + 20_000_000;
+                let mut held = Vec::new();
+                for at in [2 * bar, t_f] {
+                    let script = [(0, Step::Chord(before)), (at, Step::Chord(after))];
+                    let (e, _) = run(Box::new(Prepared::new(&style)), &script, t_f + 1);
+                    held.push(guitar.iter().map(|&ch| e.guitar_strings(ch, 2 * bar)).collect::<Vec<_>>());
+                }
+                assert_eq!(held[1], held[0], "{name}: {after:?} 20 ms late after {before:?}");
+            }
+        }
+        if !corpus().is_empty() {
+            assert!(styles > 0, "corpus has no Guitar parts");
+        }
+    }
+
+    /// A guitar strikes each pitch once. Over chords that fold strings together (1+8, 1+5,
+    /// 7#9) and through chord changes that re-pitch ringing strings, no Guitar part of any
+    /// corpus style re-strikes a key another of its strings is ringing, and no two of its
+    /// strings sound on one key.
+    #[test]
+    fn corpus_guitar_strikes_each_pitch_once() {
+        let mut styles = 0;
+        for f in corpus() {
+            let style = Style::load(&f).unwrap();
+            let guitar = guitar_channels(&style);
+            if guitar.is_empty() {
+                continue;
+            }
+            styles += 1;
+            let prep = Box::new(Prepared::new(&style));
+            let bar = bar_ns(&prep);
+            let chords = [Chord::new(0, 0), Chord::new(7, 30), Chord::new(0, 27), Chord::new(7, 31), Chord::new(2, 0),
+                          Chord { root: 0, ty: 0, bass: Some(7) }, Chord::new(9, 10), Chord::new(6, 0), Chord::new(4, 30),
+                          Chord::new(0, 2), Chord::new(5, 27), Chord::new(9, 31)];
+            // Half-bar changes (ringing strings are re-pitched) and changes just after the
+            // downbeat (the notes that just started are re-voiced).
+            let script: Vec<(u64, Step)> = chords
+                .iter()
+                .enumerate()
+                .map(|(i, &c)| (i as u64 * bar / 2 + if i % 3 == 2 { 10_000_000 } else { 0 }, Step::Chord(c)))
+                .collect();
+            let mut unisons = 0;
+            let (_, rec) = run_observed(prep, &script, chords.len() as u64 * bar / 2 + bar, |e, _| unisons += e.guitar_unisons());
+            let name = f.file_name().unwrap().to_string_lossy().to_string();
+            assert_eq!(unisons, 0, "{name}: two guitar strings on one key");
+            // What the synth hears: a note-on for a key the channel already sounds either
+            // re-strikes a ringing string or is cut by the other string's later note-off.
+            let mut on = [[false; 128]; 16];
+            for (t, m) in rec.out.iter().filter(|(_, m)| m[0] & 0xE0 == 0x80) {
+                let (ch, key) = (m[0] & 0xF, m[1] as usize);
+                let strike = m[0] & 0xF0 == 0x90 && m[2] > 0;
+                assert!(!(strike && on[ch as usize][key] && guitar.contains(&ch)), "{name} ch{}: key {key} struck while sounding at {t} ns", ch + 1);
+                on[ch as usize][key] = strike;
+            }
+        }
+        if !corpus().is_empty() {
+            assert!(styles > 0, "corpus has no Guitar parts");
+        }
+    }
+
     /// 1+8 and 1+5 over every corpus style: parts that follow the chord (NTT other than
-    /// Bypass) play only the root for 1+8, and only root, 5th, 2nd and 4th for 1+5. The
-    /// CASM chord-mute routing in the corpus always gives the bass something to play.
+    /// Bypass) play only the root for 1+8, and only root, 5th, 2nd and 4th for 1+5 (Guitar
+    /// noise keys, which are not pitches, aside). The CASM chord-mute routing in the corpus
+    /// always gives the bass something to play.
     #[test]
     fn corpus_one_plus_eight_and_one_plus_five() {
         use crate::sff::Ntt;
@@ -778,6 +869,18 @@ mod tests {
                 .map(|r| r.dest_ch)
                 .collect();
             let follows = |ch: u8| !is_drum_part(ch) && !as_written.contains(&ch);
+            // Guitar noise keys (MegaVoice strum and fret noises) are not pitches: they play
+            // untouched on every chord. A held one sounds with the part's bend (at most an
+            // octave), so on a Guitar channel anything within an octave below them is let be.
+            let guitar: Vec<u8> = style
+                .casm
+                .iter()
+                .filter(|s| s.sections.iter().any(|n| n == "Main A"))
+                .flat_map(|s| &s.rules)
+                .filter(|r| r.zones.iter().any(|z| z.ntr == crate::sff::Ntr::Guitar))
+                .map(|r| r.dest_ch)
+                .collect();
+            let pitched = |ch: u8, key: u8| !(guitar.contains(&ch) && key + 12 >= crate::theory::GUITAR_NOISE);
             let prep = Box::new(Prepared::new(&style));
             let bar = bar_ns(&prep);
             let script = [(0, Step::Chord(Chord::new(7, 30))), (2 * bar, Step::Chord(Chord::new(2, 31))),
@@ -792,10 +895,10 @@ mod tests {
             let g8 = heard(0, 2 * bar);
             let d5 = heard(2 * bar, 4 * bar);
             let c = heard(4 * bar, 6 * bar);
-            for &(ch, key) in g8.iter().filter(|(ch, _)| follows(*ch)) {
+            for &(ch, key) in g8.iter().filter(|&&(ch, key)| follows(ch) && pitched(ch, key)) {
                 assert_eq!(key % 12, 7, "{name}: ch{} key {key} under G1+8", ch + 1);
             }
-            for &(ch, key) in d5.iter().filter(|(ch, _)| follows(*ch)) {
+            for &(ch, key) in d5.iter().filter(|&&(ch, key)| follows(ch) && pitched(ch, key)) {
                 assert!(matches!(key % 12, 2 | 4 | 7 | 9), "{name}: ch{} key {key} under D1+5", ch + 1);
             }
             if c.iter().any(|&(ch, _)| ch == 10) {
@@ -1045,6 +1148,17 @@ mod rtr {
                     r => r,
                 };
             }
+            // Guitar noise keys (from theory::GUITAR_NOISE up in a Guitar zone) are not
+            // pitches: they go out as written, so on a bent part they sound bent (at most an
+            // octave). Leave them out on those parts.
+            let noise_parts: Vec<u8> = style
+                .casm
+                .iter()
+                .flat_map(|s| &s.rules)
+                .filter(|r| (crate::theory::GUITAR_NOISE..=127).any(|k| r.zone_for(k).ntr == crate::sff::Ntr::Guitar))
+                .map(|r| r.dest_ch)
+                .collect();
+            let noise = |ch: u8, pitch: u8| noise_parts.contains(&ch) && pitch + 12 >= crate::theory::GUITAR_NOISE;
             let both = |script: &[(u64, Step)], end: u64| {
                 let (_, a) = run(Box::new(Prepared::new(&style)), script, end);
                 let (_, b) = run(Box::new(Prepared::new(&retrig)), script, end);
@@ -1066,12 +1180,16 @@ mod rtr {
                     moving.extend(r.sounding_at(t + 1).into_iter().filter(|n| !later.contains(n)));
                     moving.extend(r.pitch_ons().into_iter().filter(|n| n.0 > t).map(|n| (n.1, n.2)));
                 }
-                let settled = |r: &Recorder| r.sounding_at(t + 1).into_iter().filter(|n| !moving.contains(n)).collect::<Vec<_>>();
+                let settled =
+                    |r: &Recorder| r.sounding_at(t + 1).into_iter().filter(|n| !moving.contains(n) && !noise(n.0, n.1)).collect::<Vec<_>>();
                 assert_eq!(settled(&a), settled(&b), "{name}: {:?} to {:?} at {t}", pair[0], pair[1]);
             }
             let (a, b) = both(&script, end);
             bends += a.retunes.len();
-            let (pa, pb) = (a.pitch_ons(), b.pitch_ons());
+            let pitched = |p: Vec<(u64, u8, u8)>| {
+                p.into_iter().filter(|n| !noise(n.1, n.2)).collect::<Vec<_>>()
+            };
+            let (pa, pb) = (pitched(a.pitch_ons()), pitched(b.pitch_ons()));
             for w in changes.windows(2) {
                 let started = |p: &[(u64, u8, u8)]| p.iter().filter(|n| n.0 > w[0] && n.0 < w[1]).copied().collect::<Vec<_>>();
                 assert_eq!(started(&pa), started(&pb), "{name}: notes between {} and {}", w[0], w[1]);
