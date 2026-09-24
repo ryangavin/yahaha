@@ -16,6 +16,7 @@ impl Control {
         let kp = &shared.parts;
         let page = pnl.page;
         let styles = self.published.count() > 1;
+        let playlist = !self.playlist_is_empty();
         let fader_page = kp.fader_page();
         let style_on = launchkey::style_lit(self.snap.parts, manual_bass_active);
         let colours = launchkey::button_colours(page, styles, fader_page, pnl.parts_on, style_on);
@@ -26,6 +27,7 @@ impl Control {
                     (to != page).then_some(AppCmd::Pads(PadsCmd::SetPadPage { page: to }))
                 }
                 C::Act(Action::Style(_)) if !styles => None,
+                C::Act(Action::Playlist(_)) if !playlist => None,
                 C::Act(a) => Some(a.into()),
             }
         };
@@ -54,8 +56,8 @@ impl Control {
         for (id, cc, label, shift_label) in [
             ("padBankUp", launchkey::PAD_UP_CC, "PAGE ▲", "LEFT"),
             ("padBankDown", launchkey::PAD_DOWN_CC, "PAGE ▼", "OTS LINK"),
-            ("trackPrev", launchkey::TRACK_LEFT_CC, "◀ STYLE", ""),
-            ("trackNext", launchkey::TRACK_RIGHT_CC, "STYLE ▶", ""),
+            ("trackPrev", launchkey::TRACK_LEFT_CC, "◀ STYLE", "◀ SONG"),
+            ("trackNext", launchkey::TRACK_RIGHT_CC, "STYLE ▶", "SONG ▶"),
             ("play", launchkey::PLAY_CC, "PLAY", "RESET"),
             ("stop", launchkey::STOP_CC, "STOP", "FADE"),
             ("scene", launchkey::SCENE_CC, "TEMPO +", "RTG SHORT"),

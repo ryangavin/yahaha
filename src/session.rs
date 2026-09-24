@@ -40,7 +40,9 @@ mod offline;
 mod ots;
 mod pads;
 mod parts;
+mod playlist;
 mod preview;
+mod registration;
 mod settings;
 mod style_settings;
 mod surface;
@@ -98,6 +100,16 @@ pub struct Options {
     pub manual_bass: bool,
     /// Initial Keyboard / Master transpose.
     pub transpose: Transpose,
+    /// Where Registration banks (`<dir>/Registration`) and Playlists (`<dir>/Playlists`) are
+    /// saved. None: they can't be saved (tests, `state-json`). `default_data_dir()` is
+    /// the usual one.
+    pub data_dir: Option<PathBuf>,
+}
+
+/// The usual data folder: `~/Documents/yahaha` (banks and playlists are the user's files,
+/// like styles).
+pub fn default_data_dir() -> Option<PathBuf> {
+    std::env::var_os("HOME").map(|h| PathBuf::from(h).join("Documents").join("yahaha"))
 }
 
 impl Default for Options {
@@ -115,6 +127,7 @@ impl Default for Options {
             upper: false,
             manual_bass: true,
             transpose: Transpose::default(),
+            data_dir: None,
         }
     }
 }
@@ -238,6 +251,10 @@ struct Control {
     sources_ns: u64,
     /// The Style settings the engine plays by (`StyleSettingsCmd`).
     style_settings: StyleSettings,
+    /// Registration Memory (banks, Freeze, Sequence).
+    reg: registration::RegState,
+    /// The Playlist.
+    playlist: playlist::PlaylistCtl,
     /// Chord Looper memories and the rings to the engine's looper.
     looper: looper::LooperCtl,
     /// Metronome settings.
@@ -297,6 +314,8 @@ impl Control {
             AppCmd::Settings(c) => self.settings_cmd(c),
             AppCmd::System(c) => self.system_cmd(c),
             AppCmd::StyleSettings(c) => self.style_settings_cmd(c),
+            AppCmd::Registration(c) => self.registration_cmd(c),
+            AppCmd::Playlist(c) => self.playlist_cmd(c),
             AppCmd::Looper(c) => self.looper_cmd(c),
             AppCmd::Metronome(c) => self.metronome_cmd(c),
             AppCmd::MultiPad(c) => self.multipad_cmd(c),
@@ -316,6 +335,7 @@ impl Control {
             ots_link: parts.ots_link.load(Relaxed),
             parts_on: parts.sounding_mask(),
             selected: parts.selected() as u8,
+            regist: self.regist_panel(),
         }
     }
 
@@ -347,6 +367,7 @@ impl Control {
         self.pump_sound_font();
         self.pump_rescan();
         self.pump_inputs(now);
+        self.pump_registration(now);
         self.pump_looper();
         self.pump_metronome();
 
@@ -396,6 +417,8 @@ impl Control {
             preview: self.preview_state(),
             keyboard: self.keyboard_state(&v),
             style_settings: self.style_settings.into(),
+            registration: self.registration_state(),
+            playlist: self.playlist_state(),
             multi_pad: self.multipad_state(),
             controllers: self.controllers_state(),
             message: self.message.clone(),
@@ -549,6 +572,8 @@ fn assemble(opts: &Options, engine_out: live::Out, input_out: live::Out, offline
         release_tx,
         sources_ns: 0,
         style_settings: StyleSettings::default(),
+        reg: registration::RegState::new(opts.data_dir.as_ref().map(|d| d.join("Registration"))),
+        playlist: playlist::PlaylistCtl::new(opts.data_dir.as_ref().map(|d| d.join("Playlists"))),
         looper: looper::LooperCtl::new(ch.looper_tx, ch.recorded_rx),
         metronome: Default::default(),
         pad_tx: ch.pad_tx,

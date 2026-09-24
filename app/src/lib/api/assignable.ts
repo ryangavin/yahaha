@@ -88,6 +88,8 @@ export function functionCmd(id: FunctionId, st: { fingering: Fingering }): AppCm
     fadeInOut: { type: 'toggleFade' },
     transposeUp: { type: 'stepTranspose', keyboard: 0, master: 1 },
     transposeDown: { type: 'stepTranspose', keyboard: 0, master: -1 },
+    registBankNext: { type: 'stepRegistBank', delta: 1 },
+    registBankPrev: { type: 'stepRegistBank', delta: -1 },
     fingeredOnBass: { type: 'setFingering', fingering: st.fingering === 'fingeredOnBass' ? 'fingered' : 'fingeredOnBass' },
   }
   return simple[id] ?? null
