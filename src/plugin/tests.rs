@@ -411,6 +411,21 @@ fn a_plugin_assigned_later_gets_the_parts_bend_range() {
     assert!(replayed.abs_diff(sent_after) <= 2, "replayed on assign: {replayed} vs {sent_after}");
 }
 
+/// Only a typed "the system won't host this out of process" status allows an in-process
+/// retry: never a timeout, a crash of the hosting process, a later stage, or an error that
+/// merely mentions the code (#105 review B3).
+#[test]
+fn only_a_refusal_to_host_out_of_process_retries_in_process() {
+    let st = |status, what| anyhow::Error::new(StatusError { status, what });
+    assert!(may_retry_in_process(&st(-66748, "AudioComponentInstantiate")));
+    assert!(may_retry_in_process(&st(-66751, "AudioComponentInstantiate").context("loading")));
+    assert!(!may_retry_in_process(&st(-66749, "AudioComponentInstantiate")), "the hosting process died");
+    assert!(!may_retry_in_process(&st(-66748, "AudioUnitInitialize")), "a later stage");
+    assert!(!may_retry_in_process(&st(-10875, "AudioUnitInitialize")));
+    assert!(!may_retry_in_process(&anyhow::Error::new(LoadTimedOut(Duration::from_secs(20)))));
+    assert!(!may_retry_in_process(&anyhow::anyhow!("AudioComponentInstantiate failed: OSStatus -66748")), "text is not a status");
+}
+
 #[test]
 fn an_instance_at_another_sample_rate_is_refused() {
     let (_rack, mut ctl) = rack(256, 44_100.0);
