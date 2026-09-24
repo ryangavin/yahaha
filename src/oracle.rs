@@ -102,6 +102,48 @@ impl Identity {
     }
 }
 
+/// The Guitar check, per Guitar table (`GUITAR_TABLES` order) of each note's own zone.
+///
+/// A Guitar source is string-coded: a key names a string of a voicing, not a pitch, and
+/// Source Root/Chord are ignored (RM p.29), so no chord plays it back as written and the
+/// identity check does not apply. Instead every Guitar note is played on every chord its
+/// channel plays (CASM chord and root mute, all 12 roots), and the output must be what a
+/// guitar can sound for that chord: a chord tone, on the neck (not below the open low E)
+/// and inside the Note Limit. Noise keys (MegaVoice, from `theory::GUITAR_NOISE` up) must
+/// come back untouched on every chord.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct GuitarCheck {
+    /// Guitar notes (note-ons), noise keys included.
+    pub notes: u32,
+    /// Of those, noise keys, and noise keys that came back untouched on every chord.
+    pub noise: u32,
+    pub noise_kept: u32,
+    /// Note x chord plays of the other notes, and how many of them sounded (Stroke mutes
+    /// strings), were a chord tone, and were in range.
+    pub played: u32,
+    pub sounded: u32,
+    pub chord_tone: u32,
+    pub in_range: u32,
+}
+
+impl GuitarCheck {
+    fn add(&mut self, o: GuitarCheck) {
+        self.notes += o.notes;
+        self.noise += o.noise;
+        self.noise_kept += o.noise_kept;
+        self.played += o.played;
+        self.sounded += o.sounded;
+        self.chord_tone += o.chord_tone;
+        self.in_range += o.in_range;
+    }
+
+    fn total(c: &[GuitarCheck; 3]) -> GuitarCheck {
+        let mut t = GuitarCheck::default();
+        c.iter().for_each(|x| t.add(*x));
+        t
+    }
+}
+
 /// One source played on the chord another source of the same part was written for.
 #[derive(Debug, Clone)]
 pub struct Pair {
@@ -147,6 +189,9 @@ pub struct StyleResult {
     /// of each note's own zone. The spec says that reproduces the pattern unchanged (RM
     /// p.28); only Note Limit folding a note written outside the limit may still move it.
     pub identity: [Identity; 3],
+    /// Guitar notes are not in `identity` (string codes have no as-written pitch); they
+    /// get the Guitar check instead, per table.
+    pub guitar: [GuitarCheck; 3],
 }
 
 impl StyleResult {
@@ -274,6 +319,9 @@ fn identity_with(
         transpose(g, rule, chord, &mut out[..g.len()]);
         for (&k, &o) in g.iter().zip(&out[..g.len()]) {
             let z = rule.zone_for(k);
+            if z.ntr == Ntr::Guitar {
+                continue; // string-coded: see `GuitarCheck`
+            }
             let id = &mut into[ntr_index(z.ntr)];
             id.score.notes += 1;
             id.score.exact += (o == Some(k)) as u32;
@@ -282,6 +330,53 @@ fn identity_with(
         }
     }
 }
+
+/// The Guitar check (`GuitarCheck`) for one source channel's notes in one section.
+fn guitar_check(notes: &BTreeMap<u32, Onset>, rule: &ChannelRule, into: &mut [GuitarCheck; 3]) {
+    let mut count = [0u32; 128];
+    for o in notes.values() {
+        for &k in &o.keys {
+            if rule.zone_for(k).ntr == Ntr::Guitar {
+                count[k as usize] += 1;
+            }
+        }
+    }
+    let chords: Vec<Chord> = (0..12u8)
+        .flat_map(|root| (0..NUM_TYPES as u8).map(move |ty| Chord::new(root, ty)))
+        .filter(|&c| theory::plays(rule, c))
+        .collect();
+    let mut out = [None];
+    for k in (0..128u8).filter(|&k| count[k as usize] > 0) {
+        let n = count[k as usize];
+        let z = rule.zone_for(k);
+        let t = &mut into[GUITAR_TABLES.iter().position(|&g| g == z.ntt).unwrap_or(0)];
+        t.notes += n;
+        if k >= theory::GUITAR_NOISE {
+            t.noise += n;
+            let kept = chords.iter().all(|&c| {
+                theory::transpose_group(&[k], rule, c, &mut out);
+                out[0] == Some(k)
+            });
+            t.noise_kept += n * kept as u32;
+            continue;
+        }
+        for &c in &chords {
+            theory::transpose_group(&[k], rule, c, &mut out);
+            t.played += n;
+            let Some(o) = out[0] else { continue };
+            t.sounded += n;
+            let iv = (o as i32 - c.root as i32).rem_euclid(12) as u8;
+            t.chord_tone += n * theory::chord_tones(c.ty).contains(&iv) as u32;
+            // A Note Limit narrower than an octave may have to leave the neck.
+            let (lo, hi) = (z.lo.min(z.hi), z.lo.max(z.hi));
+            let neck = o >= LOW_E || hi < LOW_E + 11;
+            t.in_range += n * (neck && (lo..=hi).contains(&o)) as u32;
+        }
+    }
+}
+
+/// The open low E string (E1): nothing a guitar plays is lower.
+const LOW_E: u8 = 40;
 
 /// Where Note Limit puts a note played unconverted: moved by octaves into `lo..=hi` when it
 /// lies outside (RM p.30), to the octave nearest where it was written. A limit narrower than
@@ -339,6 +434,9 @@ pub fn analyse(style: &Style, file: &str) -> StyleResult {
                 let chord = source_chord(to);
                 if sounds_as_written(to) {
                     identity(&notes[j], to, &mut res.identity);
+                }
+                if to.zones.iter().any(|z| z.ntr == Ntr::Guitar) {
+                    guitar_check(&notes[j], to, &mut res.guitar);
                 }
                 for (i, from) in group.iter().enumerate() {
                     if i == j || (chord.ty as usize) < NUM_TYPES && theory::plays(from, chord) {
@@ -445,6 +543,7 @@ struct Totals {
     muted_own: u32,
     authored: Score,
     identity: [Identity; 3],
+    guitar: [GuitarCheck; 3],
     /// Per table, over all pairs of that table's family.
     tables: Vec<(Ntt, Score)>,
     /// Per NTR (as authored): pairs and score.
@@ -466,6 +565,7 @@ impl Report {
             muted_own: 0,
             authored: Score::default(),
             identity: [Identity::default(); 3],
+            guitar: [GuitarCheck::default(); 3],
             tables: TABLES.iter().chain(GUITAR_TABLES.iter()).map(|&n| (n, Score::default())).collect(),
             ntr: [(0, Score::default()); 3],
             changes: BTreeMap::new(),
@@ -486,6 +586,9 @@ impl Report {
             t.muted_own += s.muted_own;
             for (i, x) in s.identity.iter().enumerate() {
                 t.identity[i].add(*x);
+            }
+            for (i, x) in s.guitar.iter().enumerate() {
+                t.guitar[i].add(*x);
             }
             for p in &s.pairs {
                 t.authored.add(p.authored);
@@ -527,9 +630,26 @@ impl Report {
         }
         // Notes that moved other than by a Note Limit fold break RM p.28: they are ours to fix.
         let _ = writeln!(o, "\nNTR of the note's zone, own chord (identity)       moved, not a Note Limit fold");
-        for (i, ntr) in NTRS.iter().enumerate() {
+        for (i, ntr) in NTRS.iter().enumerate().filter(|(_, n)| **n != Ntr::Guitar) {
             let id = t.identity[i];
             let _ = writeln!(o, "  {:<24} {}  {:>7}", format!("{ntr:?}"), id.score.cells(), id.moved_in_limit);
+        }
+        // Guitar sources are string codes: no identity; the Guitar check instead.
+        let _ = writeln!(o, "\nGuitar check, every chord the channel plays   notes  noise  kept      plays  sounded  chord tone  in range");
+        for (i, n) in GUITAR_TABLES.iter().enumerate() {
+            let g = t.guitar[i];
+            let _ = writeln!(
+                o,
+                "  {:<42} {:>7} {:>6} {:>5} {:>10} {:>7.1}% {:>10.1}% {:>8.1}%",
+                format!("{n:?}"),
+                g.notes,
+                g.noise,
+                g.noise_kept,
+                g.played,
+                Score::pct(g.sounded, g.played),
+                Score::pct(g.chord_tone, g.sounded),
+                Score::pct(g.in_range, g.sounded)
+            );
         }
         // Which table the authors' own edits agree with, per chord change. Ties go to the
         // table listed first.
@@ -594,9 +714,21 @@ impl Report {
         let _ = writeln!(o, "pairs same-chord {}", t.same_chord);
         let _ = writeln!(o, "pairs muted-own {}", t.muted_own);
         let _ = writeln!(o, "authored {}", t.authored.pinned());
-        for (i, ntr) in NTRS.iter().enumerate() {
+        for (i, ntr) in NTRS.iter().enumerate().filter(|(_, n)| **n != Ntr::Guitar) {
             let _ = writeln!(o, "identity {ntr:?} {}", t.identity[i].score.pinned());
             let _ = writeln!(o, "identity {ntr:?} moved-in-limit {}", t.identity[i].moved_in_limit);
+        }
+        for (i, n) in GUITAR_TABLES.iter().enumerate() {
+            let g = t.guitar[i];
+            // Counts that should stay 0 are named for the failure: noise-moved, not-chord-tone,
+            // out-of-range. muted is Stroke leaving strings out.
+            let _ = writeln!(o, "guitar {n:?} notes {}", g.notes);
+            let _ = writeln!(o, "guitar {n:?} noise {}", g.noise);
+            let _ = writeln!(o, "guitar {n:?} noise-moved {}", g.noise - g.noise_kept);
+            let _ = writeln!(o, "guitar {n:?} plays {}", g.played);
+            let _ = writeln!(o, "guitar {n:?} muted {}", g.played - g.sounded);
+            let _ = writeln!(o, "guitar {n:?} not-chord-tone {}", g.sounded - g.chord_tone);
+            let _ = writeln!(o, "guitar {n:?} out-of-range {}", g.sounded - g.in_range);
         }
         for (n, s) in &t.tables {
             let _ = writeln!(o, "table {n:?} {}", s.pinned());
@@ -617,6 +749,10 @@ impl Report {
             let id = identity_total(&s.identity);
             let _ = writeln!(o, "style {} identity {}", s.file, id.score.pinned());
             let _ = writeln!(o, "style {} moved-in-limit {}", s.file, id.moved_in_limit);
+            let g = GuitarCheck::total(&s.guitar);
+            if g.notes > 0 {
+                let _ = writeln!(o, "style {} guitar {} {} {}", s.file, g.sounded, g.chord_tone, g.in_range);
+            }
             if !s.pairs.is_empty() {
                 let _ = writeln!(o, "style {} pairs {}", s.file, s.pairs.len());
                 let _ = writeln!(o, "style {} authored {}", s.file, s.authored().pinned());
@@ -833,16 +969,25 @@ mod tests {
     #[test]
     fn identity_buckets_each_note_by_its_own_zone() {
         // Middle zone Root Trans, top zone (above key 88) Guitar: the high note is a Guitar
-        // note, whatever the middle zone says.
+        // note, whatever the middle zone says. Guitar notes are string codes: they are left
+        // out of the identity check and get the Guitar check instead.
         let mut r = root_trans(0, 0, 11, 0, 127);
         r.mid_hi = 88;
         r.zones[2].ntr = Ntr::Guitar;
-        r.zones[2].ntt = Ntt::GuitarAllPurpose;
+        r.zones[2].ntt = Ntt::GuitarStroke;
         let mut id = [Identity::default(); 3];
-        identity(&one_onset(&[&[60, 64, 91]]), &r, &mut id);
+        identity(&one_onset(&[&[60, 64, 91, 100]]), &r, &mut id);
         assert_eq!(id[ntr_index(Ntr::RootTrans)].score.notes, 2);
-        assert_eq!(id[ntr_index(Ntr::Guitar)].score.notes, 1);
+        assert_eq!(id[ntr_index(Ntr::Guitar)].score.notes, 0);
         assert_eq!(id[ntr_index(Ntr::RootFixed)].score.notes, 0);
+        let mut g = [GuitarCheck::default(); 3];
+        guitar_check(&one_onset(&[&[60, 64, 91, 100]]), &r, &mut g);
+        let st = g[1];
+        // Two Guitar notes: 91 plays on all 408 chords (every one a chord tone on the neck),
+        // 100 is a noise key and comes back untouched.
+        assert_eq!((st.notes, st.noise, st.noise_kept, st.played), (2, 1, 1, 408));
+        assert_eq!((st.chord_tone, st.in_range), (st.sounded, st.sounded));
+        assert_eq!(g[0], GuitarCheck::default());
     }
 
     #[test]
@@ -1016,7 +1161,7 @@ mod tests {
             let max_key = match w.first() {
                 Some(&"styles") | Some(&"unreadable") | Some(&"authored") => 1,
                 Some(&"pairs") | Some(&"table") => 2,
-                Some(&"identity") | Some(&"ntr") | Some(&"change") | Some(&"style") => 3,
+                Some(&"identity") | Some(&"ntr") | Some(&"change") | Some(&"style") | Some(&"guitar") => 3,
                 _ => 0,
             };
             assert!((1..=max_key).contains(&key) && matches!(w.len() - key, 1 | 3), "not a count line: {line}");

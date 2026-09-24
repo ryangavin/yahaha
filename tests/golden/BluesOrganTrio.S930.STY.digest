@@ -10,192 +10,192 @@ bar 2  Intro A  G7@1.0000
 bar 3  Main A  C@1.0000
   ch10 Rhythm2 041a543d8e7fa1c9
   ch11 Bass    3736ab5622252ebe
-  ch12 Chord1  9e861c08e4c0afc8
+  ch12 Chord1  762700e0bd158de4
 
 bar 4  Main A  Am@1.0000
   ch10 Rhythm2 041a543d8e7fa1c9
   ch11 Bass    3fd58ab3236fad0d
-  ch12 Chord1  82ca448df954b3f8
+  ch12 Chord1  4ddce8d40cdee08c
 
 bar 5  Main A  Dm7@1.0000
   ch10 Rhythm2 041a543d8e7fa1c9
   ch11 Bass    bedbb615d2205e33
-  ch12 Chord1  e8086778eb5fe3f4
+  ch12 Chord1  0ece3f0a1e929923
 
 bar 6  Main A  G7@1.0000
   ch10 Rhythm2 736b86b5ea3fae48
   ch11 Bass    5bd3a5d607ca43e6
-  ch12 Chord1  6d2f015899256dad
+  ch12 Chord1  921f6d53918cbac5
 
 bar 7  Main A  Cmaj7@1.0000
   ch10 Rhythm2 041a543d8e7fa1c9
   ch11 Bass    3736ab5622252ebe
-  ch12 Chord1  769f93bc3e9eabb8
+  ch12 Chord1  762700e0bd158de4
 
 bar 8  Main A  Am7@1.0000
   ch10 Rhythm2 041a543d8e7fa1c9
   ch11 Bass    3fd58ab3236fad0d
-  ch12 Chord1  56aeac2a983cc6a4
+  ch12 Chord1  84d44d6b644419e8
 
 bar 9  Main A  Fmaj7@1.0000
   ch10 Rhythm2 041a543d8e7fa1c9
   ch11 Bass    6579f3335f0e1af7
-  ch12 Chord1  8142983c387e2050
+  ch12 Chord1  47892f953f3f7691
 
 bar 10  Main A  Fm6@1.0000
   ch10 Rhythm2 736b86b5ea3fae48
   ch11 Bass    7d953b28e00da3dd
-  ch12 Chord1  933c20bbbd419baa
+  ch12 Chord1  1f53b1c2c5491bf0
 
 bar 11  Main A  C/E@1.0000
   ch10 Rhythm2 041a543d8e7fa1c9
   ch11 Bass    6c20347394056c94
-  ch12 Chord1  47db094f238ce668
+  ch12 Chord1  762700e0bd158de4
 
 bar 12  Main A  Ebdim7@1.0000
   ch10 Rhythm2 041a543d8e7fa1c9
   ch11 Bass    a3b345ca65072851
-  ch12 Chord1  31a754e38a26b2aa
+  ch12 Chord1  606d880278e783b3
 
 bar 13  Main A  Dm7@1.0000  G7@3.0000
   ch10 Rhythm2 041a543d8e7fa1c9
   ch11 Bass    ecd6512e12ddd6e6
-  ch12 Chord1  b02a036601da0f33
+  ch12 Chord1  48dada36be0e6f46
 
 bar 14  Main A > Fill In BB@4.0000  Caug@1.0000  [MainB]@3.1919
   ch10 Rhythm2 736b86b5ea3fae48
   ch11 Bass    a0e883c960bfde84
-  ch12 Chord1  c9a434b24e20f72b
+  ch12 Chord1  503ea1c6d5e82296
 
 bar 15  Main B  Csus4@1.0000  C@3.0000
   ch10 Rhythm2 45110e11ee428f87
   ch11 Bass    261cca474f46eb37
-  ch12 Chord1  01b513e2835fc6b1
+  ch12 Chord1  835a13c25c76fc0d
 
 bar 16  Main B  Asus2@1.0000  A@3.0000
   ch10 Rhythm2 45110e11ee428f87
   ch11 Bass    8019bfcb68f80a01
-  ch12 Chord1  aad64f6d204acf9d
+  ch12 Chord1  7216ba4b5bdf3b91
 
 bar 17  Main B  C1+5@1.0000
   ch10 Rhythm2 45110e11ee428f87
   ch11 Bass    f4dbbe25ddedc6ee
-  ch12 Chord1  879664183bddf0bb
+  ch12 Chord1  30408a4edad158c1
 
 bar 18  Main B  Bm7b5@1.0000  E7@3.0000
   ch10 Rhythm2 45110e11ee428f87
   ch11 Bass    5a03563e5a9a6433
-  ch12 Chord1  991c810f39b474b5
+  ch12 Chord1  03ac5cee35c9dd61
 
 bar 19  Main B  Am@1.0000
   ch10 Rhythm2 45110e11ee428f87
   ch11 Bass    0bf7174812d7302d
-  ch12 Chord1  0f30d66cc3894a83
+  ch12 Chord1  4915739bdd8faa5d
 
 bar 20  Main B  Am/G@1.0000
   ch10 Rhythm2 45110e11ee428f87
   ch11 Bass    d918360f493cb79b
-  ch12 Chord1  b736af49a7581e93
+  ch12 Chord1  907bc0975d9cd509
 
 bar 21  Main B  F#m7b5@1.0000
   ch10 Rhythm2 45110e11ee428f87
   ch11 Bass    097c9d27a444f76e
-  ch12 Chord1  92fc69ffe7f6db79
+  ch12 Chord1  deaac7d2df16506f
 
 bar 22  Main B > Fill In BA@4.0000  Fmaj7@1.0000  [Break]@3.1919
   ch10 Rhythm2 736b86b5ea3fae48
   ch11 Bass    ed4a655533231ba3
-  ch12 Chord1  0381fe184ef0da41
+  ch12 Chord1  6086184ffc75ad83
 
 bar 23  Main B  E7sus4@1.0000  E7@3.0000
   ch10 Rhythm2 45110e11ee428f87
   ch11 Bass    d1636154a0a871a2
-  ch12 Chord1  6562fc4460e63f61
+  ch12 Chord1  6e5f744bd56eca7d
 
 bar 24  Main B > Fill In CC@4.0000  Am@1.0000  [MainC]@3.1919
   ch10 Rhythm2 26341dd1402e2716
   ch11 Bass    3fd58ab3236fad0d
-  ch12 Chord1  0ee9b32d9e9b2e3e
+  ch12 Chord1  c108c0f376accbde
 
 bar 25  Main C  A7@1.0000
   ch10 Rhythm2 365fcd57cb7934e1
   ch11 Bass    b9fdea797c865b45
-  ch12 Chord1  636f4d99eb3f052c
+  ch12 Chord1  a2e2370c9fa49049
 
 bar 26  Main C  D9@1.0000
   ch10 Rhythm2 832d47230ea5af24
   ch11 Bass    31b6fc9fc72ab53e
-  ch12 Chord1  b5a382210cdf6b7c
+  ch12 Chord1  6827f705f8443b84
 
 bar 27  Main C  Gm@1.0000
   ch10 Rhythm2 8cdc0d670c220e15
   ch11 Bass    8718e35223baf321
-  ch12 Chord1  a5ef0f39c2903412
+  ch12 Chord1  3744eb2161b42810
 
 bar 28  Main C  C7b9@1.0000
   ch10 Rhythm2 b767c43357af6d93
   ch11 Bass    5f47faafdf839b10
-  ch12 Chord1  19194b6ad9dcc43a
+  ch12 Chord1  3c1d2c19ff45cf99
 
 bar 29  Main C  Fm@1.0000
   ch10 Rhythm2 365fcd57cb7934e1
   ch11 Bass    507b2314ee766c25
-  ch12 Chord1  eb099874eb5fbaa4
+  ch12 Chord1  91c4291a6144ac4e
 
 bar 30  Main C  Bb13@1.0000
   ch10 Rhythm2 832d47230ea5af24
   ch11 Bass    dc4816c1b50b113d
-  ch12 Chord1  e1b51d78ec76ecda
+  ch12 Chord1  6733573d96732b2d
 
 bar 31  Main C  Ebmaj7@1.0000
   ch10 Rhythm2 8cdc0d670c220e15
   ch11 Bass    7c4a164b396160a8
-  ch12 Chord1  82ed9695c20ad0ca
+  ch12 Chord1  82b3d3f79c249001
 
 bar 32  Main C > Fill In DD@4.0000  Ab7#11@1.0000  [MainD]@3.1919
   ch10 Rhythm2 da37e09d05002e82
   ch11 Bass    a958f0fcba460c1f
-  ch12 Chord1  5bc616bcf6637ba5
+  ch12 Chord1  d587f5bedd6a2d4f
 
 bar 33  Main D  Dbmaj7@1.0000
   ch10 Rhythm2 365fcd57cb7934e1
   ch11 Bass    837157621cf559c1
-  ch12 Chord1  e8f5ebcda126aecb
+  ch12 Chord1  c893bbd2829bb677
 
 bar 34  Main D  CmMaj7@1.0000
   ch10 Rhythm2 832d47230ea5af24
   ch11 Bass    4aa7baa27242361d
-  ch12 Chord1  5c1d6306cdcd8132
+  ch12 Chord1  1d2b06caa7a6e463
 
 bar 35  Main D  Cdim@1.0000
   ch10 Rhythm2 8cdc0d670c220e15
   ch11 Bass    c2c35cb5ed3aeaa7
-  ch12 Chord1  9332998b4abb205e
+  ch12 Chord1  7da99876542744f2
 
 bar 36  Main D  G7#5@1.0000
   ch10 Rhythm2 b767c43357af6d93
   ch11 Bass    4f477151ed91a833
-  ch12 Chord1  94b579129dbef4db
+  ch12 Chord1  bad3d9be8e4aecbd
 
 bar 37  Main D  Cm(add9)@1.0000
   ch10 Rhythm2 365fcd57cb7934e1
   ch11 Bass    4aa7baa27242361d
-  ch12 Chord1  a7e1ade501f3e707
+  ch12 Chord1  b50e173780b247b7
 
 bar 38  Main D  Ab7@1.0000
   ch10 Rhythm2 832d47230ea5af24
   ch11 Bass    2378b403daa92e00
-  ch12 Chord1  a4b6037d2ea2ea47
+  ch12 Chord1  b9e1401673787f92
 
 bar 39  Main D  G7#9@1.0000
   ch10 Rhythm2 8cdc0d670c220e15
   ch11 Bass    5bd3a5d607ca43e6
-  ch12 Chord1  8357b13667c4611b
+  ch12 Chord1  3eb232ad7f36cc17
 
 bar 40  Main D  C/G@1.0000  [EndingA]@3.1919
   ch10 Rhythm2 b767c43357af6d93
   ch11 Bass    228ea068e1b2c487
-  ch12 Chord1  e3524646be85ae75
+  ch12 Chord1  060a56f6318e6c9f
 
 bar 41  Ending A  C@1.0000
   ch11 Bass    e285c067d1aa6700
