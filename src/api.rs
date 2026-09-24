@@ -20,6 +20,7 @@ mod chord;
 mod keyboard;
 mod library;
 mod mixer;
+mod multipad;
 mod ots;
 mod pads;
 mod parts;
@@ -33,6 +34,7 @@ pub use chord::*;
 pub use keyboard::*;
 pub use library::*;
 pub use mixer::*;
+pub use multipad::*;
 pub use ots::*;
 pub use pads::*;
 pub use parts::*;
@@ -115,6 +117,8 @@ app_cmd! {
     Settings(SettingsCmd),
     /// Panic, the message line.
     System(SystemCmd),
+    /// Multi Pads: the bank, the pads, Synchro Stop.
+    MultiPad(MultiPadCmd),
 }
 
 impl From<Button> for AppCmd {
@@ -240,6 +244,8 @@ pub struct AppState {
     pub preview: PreviewState,
     /// The keys held and the chord, for the app's keyboard strip.
     pub keyboard: KeyboardState,
+    /// Multi Pads: the bank, the four pads, Synchro Stop, the bank files.
+    pub multi_pad: MultiPadState,
     /// The last notice or error, until the next one or `ClearMessage`.
     pub message: Option<Message>,
 }

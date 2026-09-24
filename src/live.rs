@@ -11,7 +11,8 @@
 //! non-blocking semaphore signal; the engine only sleeps on the semaphore with a timeout
 //! equal to its next deadline.
 
-use crate::engine::{shift_key, AuditionPos, Button, Engine, Prepared, Snapshot, Transpose};
+use crate::engine::{shift_key, AuditionPos, Button, Engine, PadCmd, Prepared, Snapshot, Transpose};
+use crate::multipad::MultiPadPlayer;
 use crate::fingering::{self, Fingering};
 use crate::launchkey::{self, Action, Control, Page};
 use crate::midi::{for_each_message, InputHandler};
@@ -40,6 +41,15 @@ pub enum Cmd {
     /// All Notes Off on the keyboard parts' channels: a MIDI source with keys held was
     /// disconnected (its note-offs will never come).
     KeysOff,
+    /// Multi Pads: press, stop, arm a pad, their settings (`engine/multipad.rs`).
+    MultiPad(PadCmd),
+}
+
+/// A Multi Pad bank for the engine thread (`AppCmd::LoadMultiPad`): its player, built on
+/// the control side (None: no bank), and the tag the snapshot reports once it plays.
+pub struct PadBank {
+    pub player: Option<Box<MultiPadPlayer>>,
+    pub tag: u64,
 }
 
 /// How many bars a style preview plays.
@@ -785,6 +795,9 @@ pub struct EngineIo {
     /// Style previews to play, and finished ones back to the control side to free.
     pub auditions: Consumer<Box<Audition>>,
     pub old_auditions: Producer<Box<Audition>>,
+    /// Multi Pad banks to play, and replaced players back to the control side to free.
+    pub pad_banks: Consumer<PadBank>,
+    pub old_pads: Producer<Box<MultiPadPlayer>>,
     pub snaps: Producer<Snapshot>,
     pub out: Out,
 }
@@ -839,9 +852,9 @@ impl EngineLoop {
         }
     }
 
-    /// When the next wake is due: the band's next event, or the preview's.
+    /// When the next wake is due: the band's next event, the Multi Pads', or the preview's.
     pub fn next_deadline(&self) -> Option<u64> {
-        let band = self.engine.next_deadline();
+        let band = [self.engine.next_deadline(), self.engine.pads_deadline()].into_iter().flatten().min();
         let Some((a, n)) = &self.audition else { return band };
         let chord = if *n < AUDITION_BARS { a.engine.ns_at_bar(*n as u32) } else { a.engine.ns_at_bar(AUDITION_BARS as u32) };
         [band, a.engine.next_deadline(), Some(chord)].into_iter().flatten().min()
@@ -908,6 +921,11 @@ impl EngineLoop {
             self.engine.change_style(style, now, &mut self.io.out);
             self.retire_styles();
         }
+        while let Ok(b) = self.io.pad_banks.pop() {
+            if let Some(old) = self.engine.load_pads(b.player, b.tag, now, &mut self.io.out) {
+                let _ = self.io.old_pads.push(old);
+            }
+        }
         while let Ok(a) = self.io.auditions.pop() {
             self.end_audition();
             if self.engine.is_running() {
@@ -946,6 +964,7 @@ impl EngineLoop {
             apply(&mut self.engine, &shared.parts, cmd, now, &mut self.io.out);
         }
         self.engine.process(now, &mut self.io.out);
+        self.engine.process_pads(now, &mut self.io.out);
         self.retire_styles();
         self.play_audition(now);
         let (engine, io) = (&mut self.engine, &mut self.io);
@@ -981,6 +1000,7 @@ impl EngineLoop {
             let _ = self.io.old_auditions.push(a);
         }
         self.engine.stop(&mut self.io.out);
+        self.engine.pad_cmd(PadCmd::StopAll, 0, &mut self.io.out);
         self.io.out.flush();
     }
 }
@@ -1050,6 +1070,7 @@ fn apply(engine: &mut Engine, parts: &Parts, cmd: Cmd, now: u64, out: &mut Out) 
         Cmd::ManualBass(on) => engine.set_manual_bass(on, out),
         Cmd::Transpose(t) => engine.set_transpose(t, now, out),
         Cmd::StopAudition => {}
+        Cmd::MultiPad(c) => engine.pad_cmd(c, now, out),
         Cmd::KeysOff => {
             // The source's pedal, wheels and pressure went to every keyboard part too, and
             // its releases will never come: with the pedal left down, All Notes Off would
@@ -1065,6 +1086,7 @@ fn apply(engine: &mut Engine, parts: &Parts, cmd: Cmd, now: u64, out: &mut Out) 
         }
         Cmd::Panic => {
             engine.stop(out);
+            engine.pad_cmd(PadCmd::StopAll, now, out);
             for ch in 0..16u8 {
                 out.push(&[0xB0 | ch, 123, 0]);
             }
@@ -1084,6 +1106,8 @@ pub struct Channels {
     pub snap_rx: Consumer<Snapshot>,
     pub audition_tx: Producer<Box<Audition>>,
     pub old_audition_rx: Consumer<Box<Audition>>,
+    pub pad_tx: Producer<PadBank>,
+    pub old_pad_rx: Consumer<Box<MultiPadPlayer>>,
     pub io: EngineIo,
 }
 
@@ -1095,6 +1119,8 @@ pub fn channels(out: Out) -> Channels {
     let (snaps, snap_rx) = RingBuffer::new(256);
     let (audition_tx, auditions) = RingBuffer::new(4);
     let (old_auditions, old_audition_rx) = RingBuffer::new(8);
+    let (pad_tx, pad_banks) = RingBuffer::new(4);
+    let (old_pads, old_pad_rx) = RingBuffer::new(8);
     Channels {
         input_tx,
         ui_tx,
@@ -1103,7 +1129,9 @@ pub fn channels(out: Out) -> Channels {
         snap_rx,
         audition_tx,
         old_audition_rx,
-        io: EngineIo { input, ui, styles, old, snaps, auditions, old_auditions, out },
+        pad_tx,
+        old_pad_rx,
+        io: EngineIo { input, ui, styles, old, snaps, auditions, old_auditions, pad_banks, old_pads, out },
     }
 }
 

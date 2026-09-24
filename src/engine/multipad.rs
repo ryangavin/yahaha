@@ -215,10 +215,10 @@ impl Engine {
         let d = &mut self.features.pads;
         let end = d.tick(now) + 1;
         let Some(p) = d.player.as_mut() else { return };
-        if end > d.done {
-            p.process(d.done..end, chord, sink);
-            d.done = end;
-        }
+        // Always run it, even with no new tick: a press on the tick already played starts
+        // now (the player plays whatever is due before the range's end).
+        p.process(d.done.min(end)..end, chord, sink);
+        d.done = d.done.max(end);
     }
 
     /// When the pads next need `process_pads`, if anything plays or waits.
