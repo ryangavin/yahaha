@@ -512,6 +512,44 @@ fn in_ending_rit() -> Option<(Engine, Rec, u64)> {
     Some((e, rec, bar2))
 }
 
+/// A style chosen while an Ending plays waits for the Ending to end, even in the Ending's
+/// first beat (owner-confirmed Genos behaviour); a Main's first beat still changes at once.
+#[test]
+fn a_style_change_in_an_endings_first_beat_waits_for_its_end() {
+    for timing in [MainTiming::NextBar, MainTiming::Immediate] {
+        let Some((mut e, mut rec)) = started(StyleSettings { main_timing: timing, ..StyleSettings::default() }) else { return };
+        let Some(other) = other_style() else { return };
+        let (ppq, tpb, _) = grid(&e);
+        let end1 = slot_of(SectionId::Ending(0));
+        if !e.style.has(end1) {
+            return;
+        }
+        let t = e.ns_at(tpb + 1.5 * ppq);
+        play(&mut e, &mut rec, 0, t);
+        e.button(Button::Ending(0), t, &mut rec);
+        let bar2 = e.ns_at(2.0 * tpb) + 1_000;
+        play(&mut e, &mut rec, t, bar2);
+        assert_eq!(e.cur, end1);
+        let (old_bpm, new_bpm) = (e.style.bpm, other.bpm);
+        assert_ne!(old_bpm, new_bpm);
+        e.change_style(other, bar2, &mut rec);
+        assert!(e.style_pending(), "{timing:?}: waits");
+        let mut now = bar2;
+        while e.running {
+            let next = e.next_deadline().unwrap_or(now + 5_000_000).clamp(now + 1, now + 5_000_000);
+            play(&mut e, &mut rec, now, next);
+            now = next;
+            if e.running {
+                assert_eq!(e.cur, end1, "{timing:?}: the Ending plays to its end in the old style");
+                assert_eq!(e.style.bpm, old_bpm);
+            }
+            assert!(now < bar2 + 60_000_000_000, "the Ending never ended");
+        }
+        assert!(!e.style_pending(), "{timing:?}: the new style took over at the Ending's end");
+        assert_eq!(e.style.bpm, new_bpm);
+    }
+}
+
 /// TAP TEMPO during a ritardando (Style Section Reset off): the tapped tempo is the one the
 /// band slows from and comes back to at the stop.
 #[test]
@@ -567,20 +605,19 @@ fn section_reset_ends_the_ritardando() {
     assert_eq!(e.bpm, base, "no stale ritardando");
 }
 
-/// A style change while the Ending slows: the Ending of the new style slows on from the
-/// tempo reached, never snapping back, down to the same end tempo.
+/// A style change while the Ending slows waits for the Ending's end (owner-confirmed):
+/// the Ending slows on to its end in the old style, and the new style comes in at the
+/// stop at its own tempo, not the slowed one.
 #[test]
-fn a_style_swap_mid_ritardando_carries_it_on() {
+fn a_style_change_mid_ritardando_waits_for_the_endings_end() {
     let (Some((mut e, mut rec, t)), Some(other)) = (in_ending_rit(), other_style()) else { return };
     let base = e.features.rit.base;
+    let (old_bpm, new_bpm) = (e.style.bpm, other.bpm);
     e.change_style(other, t + 10_000_000, &mut rec);
-    let Some(at) = e.pending.as_ref().map(|p| p.at) else { panic!("the style waits for the bar line") };
-    if at >= e.section_end().0 - 1e-6 {
-        panic!("the style must come in mid-Ending");
-    }
+    let at = e.pending.as_ref().map(|p| p.at).expect("the style waits");
+    assert!((at - e.section_end().0).abs() < 1e-6, "for the Ending's end");
     let mut now = t + 10_000_000;
     let mut last = e.bpm;
-    let mut swapped = false;
     while e.running {
         now = e.next_deadline().unwrap().max(now + 1).min(now + 5_000_000);
         rec.now = now;
@@ -588,14 +625,14 @@ fn a_style_swap_mid_ritardando_carries_it_on() {
         if !e.running {
             break;
         }
-        swapped |= e.pending.is_none();
+        assert!(e.pending.is_some() && e.style.bpm == old_bpm, "the old style plays to the end");
         assert!(e.ritardando(), "still slowing");
         assert!(e.bpm <= last + 1e-9, "only slows: {} after {last}", e.bpm);
         last = e.bpm;
     }
-    assert!(swapped);
     assert!(last < base * 0.8 && last >= base * RIT_END - 1e-6, "{last} of {base}");
-    assert_eq!(e.bpm, base, "the tempo comes back when it stops");
+    assert!(e.pending.is_none() && e.style.bpm == new_bpm, "the new style is in");
+    assert!((e.bpm - new_bpm).abs() < 0.5, "at its own tempo: {} vs {new_bpm}", e.bpm);
 }
 
 /// A new style while the Main's head loops (review #94 r3): the new style's Main plays on

@@ -56,9 +56,24 @@ impl Engine {
                 MainTiming::Immediate if !self.auto_fill => self.next_beat(now),
                 _ => self.bar_or_now(now),
             },
-            Change::Style => match timing.main_timing {
-                MainTiming::Immediate => self.next_beat(now),
-                MainTiming::NextBar => self.bar_or_now(now),
+            // Decision (owner-confirmed, as the Genos does): a style change while an Ending
+            // plays waits for the Ending to end, even in its first beat; the band stops
+            // there with the new style loaded. Section Change Timing applies only while a
+            // Main plays; from an Intro, a Fill or the Break the change waits for the
+            // next bar line.
+            Change::Style => match id_of(self.cur) {
+                SectionId::Ending(_) => {
+                    let at = self.sec_start + self.style.sections[self.cur].as_ref().map_or(0, |s| s.len) as f64;
+                    (at, at)
+                }
+                SectionId::Main(_) => match timing.main_timing {
+                    MainTiming::Immediate => self.next_beat(now),
+                    MainTiming::NextBar => self.bar_or_now(now),
+                },
+                _ => {
+                    let at = self.next_bar(now);
+                    (at, at)
+                }
             },
             Change::IntroEnding(to) => {
                 let from = id_of(self.cur);

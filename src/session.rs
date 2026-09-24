@@ -31,6 +31,7 @@
 mod chord;
 mod controllers;
 mod devices;
+mod harmony_arp;
 mod keyboard;
 mod leds;
 mod library;
@@ -271,6 +272,8 @@ struct Control {
     old_pad_rx: Consumer<Box<crate::multipad::MultiPadPlayer>>,
     /// Multi Pads: the bank list and the bank loaded.
     multipad: multipad::Pads,
+    /// Keyboard Harmony / Arpeggio settings (`Shared::kbd_fx` is their packed copy).
+    harmony_arp: live::FxConfig,
 }
 
 /// What several parts of the state read, read once per `build_state` so they all agree.
@@ -327,6 +330,7 @@ impl Control {
             AppCmd::Metronome(c) => self.metronome_cmd(c),
             AppCmd::MultiPad(c) => self.multipad_cmd(c),
             AppCmd::Controllers(c) => self.controllers_cmd(c),
+            AppCmd::HarmonyArp(c) => self.harmony_arp_cmd(c),
         }
     }
 
@@ -340,6 +344,7 @@ impl Control {
             ots_count: self.info.ots.len().min(4) as u8,
             ots_applied: parts.ots_applied.load(Relaxed),
             ots_link: parts.ots_link.load(Relaxed),
+            harmony_arp: self.harmony_arp.on,
             parts_on: parts.sounding_mask(),
             selected: parts.selected() as u8,
             regist: self.regist_panel(),
@@ -369,6 +374,7 @@ impl Control {
             let _ = self.apply(a.into());
         }
         self.pump_ots_link();
+        self.pump_pedal_releases();
         while self.old_rx.pop().is_ok() {} // drop old styles here, off the RT thread
         while self.old_audition_rx.pop().is_ok() {}
         self.pump_sound_font();
@@ -428,6 +434,7 @@ impl Control {
             playlist: self.playlist_state(),
             multi_pad: self.multipad_state(),
             controllers: self.controllers_state(),
+            harmony_arp: self.harmony_arp_state(),
             message: self.message.clone(),
             looper: self.looper_state(),
             metronome: self.metronome_state(),
@@ -526,6 +533,8 @@ fn assemble(opts: &Options, engine_out: live::Out, input_out: live::Out, offline
     input.set_actions(act_tx);
     let (release_tx, release_rx) = RingBuffer::<u8>::new(MAX_KEY_SOURCES);
     input.set_release(release_rx);
+    // Keys for the engine thread's Harmony Echo category, arpeggio and Strum.
+    input.set_fx(ch.fx_tx);
     let mut engine = Engine::new(prep);
     let chord_settle_ms = opts.chord_settle_ms.min(crate::engine::CHORD_SETTLE_MAX_MS);
     engine.set_chord_settle(chord_settle_ms as u64 * 1_000_000);
@@ -589,6 +598,7 @@ fn assemble(opts: &Options, engine_out: live::Out, input_out: live::Out, offline
         pad_tx: ch.pad_tx,
         old_pad_rx: ch.old_pad_rx,
         multipad: multipad::Pads::scan(&opts.paths),
+        harmony_arp: live::FxConfig::default(),
     };
     let mut control = control;
     control.list_sound_fonts();
@@ -700,7 +710,13 @@ impl Session {
     /// The library as plain data, in display order (folder, then name).
     pub fn library_list(&self) -> LibraryList {
         let (lib, revision) = self.inner.library.lock().unwrap_or_else(|e| e.into_inner()).clone();
-        LibraryList { revision, entries: lib.order().iter().map(|&id| library_entry(&lib, id)).collect(), voices: voice_options() }
+        LibraryList {
+            revision,
+            entries: lib.order().iter().map(|&id| library_entry(&lib, id)).collect(),
+            voices: voice_options(),
+            harmony_types: harmony_type_options(),
+            arp_patterns: arp_pattern_options(),
+        }
     }
 
     /// Notifications: a `StateChanged` whenever the state's version moves, a

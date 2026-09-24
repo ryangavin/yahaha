@@ -23,7 +23,7 @@ and which parts are guesses because the manuals leave them open. Spec:
 
 ## Section Change Timing (#22)
 
-- **To Main** (`mainTiming`), also a style change while playing:
+- **To Main** (`mainTiming`), also a style change while a Main plays:
   - **Next Bar** (default): at once when pressed within the first beat of a bar (the new
     section starts at that point of its bar, like a fill entered mid-bar), otherwise at
     the next bar line.
@@ -37,6 +37,12 @@ and which parts are guesses because the manuals leave them open. Spec:
   line even when pressed just after it; it now switches at once within the first beat.
 
 Decisions (the manuals leave these open):
+- **Decision (confirmed by the owner, as on the Genos): a style change while an Ending
+  plays waits for the Ending to end**, even when chosen in the Ending's first beat; the
+  band stops there with the new style loaded. The first-beat rule and Immediate apply to
+  a style change only while a Main plays; from an Intro, a Fill or the Break it waits for
+  the next bar line, as before this setting existed (`Engine::change_point`,
+  `Change::Style`).
 - **Into Ending I, and from a Main or Fill into an Intro or Ending: the next bar line.**
   The manual says Ending I follows "the conventional rules" without saying what they are;
   yahaha's rule before this setting existed was the next bar line, so that is kept. The

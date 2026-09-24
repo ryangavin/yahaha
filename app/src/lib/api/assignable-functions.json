@@ -313,5 +313,19 @@
     "category": "style",
     "kind": "trigger",
     "available": true
+  },
+  {
+    "id": "kbdHarmonyArp",
+    "name": "Kbd Harmony/Arpeggio On/Off",
+    "category": "voice",
+    "kind": "switch",
+    "available": true
+  },
+  {
+    "id": "arpHold",
+    "name": "Arpeggio Hold",
+    "category": "voice",
+    "kind": "switch",
+    "available": true
   }
 ]

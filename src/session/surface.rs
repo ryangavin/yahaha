@@ -2,7 +2,7 @@
 //! clock), as `live::Input` runs it and `Leds` lights it.
 
 use super::Control;
-use crate::api::{ns_to_ms, AppCmd, ClockState, MixerCmd, Neighbour, PadsCmd, PartsCmd, SurfaceControl, SurfaceFader, SurfaceState, STYLE_PART_NAMES};
+use crate::api::{ns_to_ms, AppCmd, ClockState, HarmonyArpCmd, MixerCmd, Neighbour, PadsCmd, PartsCmd, SurfaceControl, SurfaceFader, SurfaceState, STYLE_PART_NAMES};
 use crate::launchkey::{self, Action, Panel};
 use crate::library::Library;
 use crate::parts::{self, FaderPage};
@@ -19,7 +19,7 @@ impl Control {
         let playlist = !self.playlist_is_empty();
         let fader_page = kp.fader_page();
         let style_on = launchkey::style_lit(self.snap.parts, manual_bass_active);
-        let colours = launchkey::button_colours(page, styles, fader_page, pnl.parts_on, style_on);
+        let colours = launchkey::button_colours(page, styles, fader_page, pnl.parts_on, style_on, pnl.harmony_arp);
         let act = |cc: u8, shift: bool| -> Option<AppCmd> {
             match cc_control(cc, shift)? {
                 C::Page(d) => {
@@ -68,7 +68,7 @@ impl Control {
             push(id.to_string(), cc, label, a, shift);
         }
         // The buttons under faders 1-8: Panel = Right 1-3 and Left on/off (Shift: select),
-        // Style = the Style parts' mute.
+        // then HARMONY/ARPEGGIO; Style = the Style parts' mute.
         for i in 0..8u8 {
             let cc = launchkey::FADER_BTN_CC.start() + i;
             let id = format!("faderButton{}", i + 1);
@@ -77,6 +77,9 @@ impl Control {
                     let p = i as usize;
                     let shift = (launchkey::SELECT_LABELS[p], Some(AppCmd::Parts(PartsCmd::SelectPart { part: i })));
                     push(id, cc, launchkey::PART_LABELS[p], Some(AppCmd::Parts(PartsCmd::TogglePart { part: i })), Some(shift));
+                }
+                FaderPage::Panel if i == launchkey::HARM_ARP_FADER_BTN => {
+                    push(id, cc, "HARM/ARP", Some(AppCmd::HarmonyArp(HarmonyArpCmd::ToggleHarmonyArp)), None)
                 }
                 FaderPage::Panel => push(id, cc, "", None, None),
                 FaderPage::Style => {

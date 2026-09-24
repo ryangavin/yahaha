@@ -184,9 +184,7 @@ fn corpus_stopped_load_after_an_ending_sends_the_mains_setup() {
             let mut rec = Recorder::default();
             let (mut k, mut now, mut queued) = (0, 0u64, false);
             while now < end {
-                // Waking every 16th of a bar too, so a sparse Ending is looked at past its
-                // bars' first beats.
-                let t = [script.get(k).map(|s| s.0), e.next_deadline(), Some(end), Some(now + bar / 16)].into_iter().flatten().min().unwrap();
+                let t = [script.get(k).map(|s| s.0), e.next_deadline(), Some(end)].into_iter().flatten().min().unwrap();
                 now = now.max(t);
                 rec.now = now;
                 while let Some((ts, step)) = script.get(k) {
@@ -203,10 +201,8 @@ fn corpus_stopped_load_after_an_ending_sends_the_mains_setup() {
                 e.process(now, &mut rec);
                 while e.take_retired().is_some() {}
                 // Queued again at each bar line the Ending plays on through, so the last
-                // one waits for the bar line where it ends. Only past a bar's first beat:
-                // within it a style change comes in at once (Section Change Timing, #94).
-                let sn = e.snapshot(now);
-                if sn.cur == Some(SectionId::Ending(i)) && sn.beat >= 1 && !e.style_pending() {
+                // one waits for the bar line where it ends.
+                if e.snapshot(now).cur == Some(SectionId::Ending(i)) && !e.style_pending() {
                     e.change_style(Box::new(Prepared::new(&style)), now, &mut rec);
                     queued = true;
                 }

@@ -4,9 +4,10 @@
 //! A feature adds its own `Registrable` (in its own module, or here) and one line in
 //! `REGISTRABLES`. Its section is its own serde struct under its own key; a recall skips
 //! whatever is not in the groups being recalled (Memorize groups less Freeze), and an old
-//! bank file that lacks the section leaves the feature alone. Harmony/Arpeggio (#32/#33),
-//! the Chord Looper and Live Control add theirs when they are wired in.
+//! bank file that lacks the section leaves the feature alone. The Chord Looper and Live
+//! Control add theirs when they are wired in.
 
+use super::super::harmony_arp::{harmony_arp_capture, harmony_arp_recall};
 use super::super::Control;
 use super::LockItem;
 use crate::api::{gm_name, ChordCmd, LibraryCmd, MultiPadCmd, PartsCmd};
@@ -46,6 +47,8 @@ pub(in crate::session) const REGISTRABLES: &[Registrable] = &[
     Registrable { key: "styleMixer", early: false, capture: mixer_capture, recall: mixer_recall },
     Registrable { key: "parts", early: false, capture: parts_capture, recall: parts_recall },
     Registrable { key: "transpose", early: false, capture: transpose_capture, recall: transpose_recall },
+    // Keyboard Harmony/Arpeggio (#32/#33): session/harmony_arp.rs.
+    Registrable { key: "harmonyArp", early: false, capture: harmony_arp_capture, recall: harmony_arp_recall },
 ];
 
 fn to_value<T: Serialize>(t: &T) -> Option<Value> {

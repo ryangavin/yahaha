@@ -4,13 +4,14 @@
 // It speaks #16's API (types.ts); `app/src-tauri/src/mock.rs` is the Rust twin that the
 // app shell runs until the engine's `Session` is wired in.
 
-import { defaultControllers, functionCmd, functionInfo, pedalCcRefused } from './assignable'
+import { controlSwitchSets, defaultControllers, functionCmd, functionInfo, functionSet, isPedalSwitch, pedalCcRefused, resetRelease } from './assignable'
 import fixture from './mock-fixture.json'
 import { syntheticStyles } from './mock-library'
 import { clockAt, mockSurface, type MockHardware } from './mock-surface'
 import { emptyLooper, MockLooper } from './mock-looper'
 import { initialMultiPad, MockPads } from './mock-multipad'
 import { padsFor } from './mock-pads'
+import { ARP_PATTERNS, HARMONY_TYPES, harmonyArpCmd, initialHarmonyArp } from './mock-harmony'
 import { MockRegistration } from './mock-registration'
 import { emptyPlaylist, emptyRegistration } from './registration'
 import type { Session } from './session'
@@ -77,7 +78,9 @@ function entryOf(s: FixtureStyle): LibraryEntry {
 /** The voices `setPartVoice` picks from, as the engine lists them (GM, bank 0). */
 export const VOICES: LibraryList['voices'] = GM.map((name, program) => ({ program, bankMsb: 0, bankLsb: 0, name }))
 
-export const LIBRARY: LibraryList = { revision: 1, entries: STYLES.map(entryOf), voices: VOICES }
+export const LIBRARY: LibraryList = {
+  revision: 1, entries: STYLES.map(entryOf), voices: VOICES, harmonyTypes: HARMONY_TYPES, arpPatterns: ARP_PATTERNS,
+}
 
 /** The fixture plus `extra` synthetic styles, in the engine's order (folder, then name). */
 function bigLibrary(extra: number): { lib: LibraryList; styles: FixtureStyle[] } {
@@ -89,7 +92,7 @@ function bigLibrary(extra: number): { lib: LibraryList; styles: FixtureStyle[] }
     for (let i = 0; i < 3; i++) if (x[i] !== y[i]) return x[i] < y[i] ? -1 : 1
     return 0
   })
-  return { lib: { revision: 1, entries, voices: VOICES }, styles }
+  return { lib: { revision: 1, entries, voices: VOICES, harmonyTypes: HARMONY_TYPES, arpPatterns: ARP_PATTERNS }, styles }
 }
 
 /** The MIDI sources the mock rig has (every one a keyboard: `allInputs`). */
@@ -255,6 +258,7 @@ export function initialState(): AppState {
     metronome: { on: false, volume: 90, bell: true, audible: true },
     multiPad: initialMultiPad(),
     controllers: defaultControllers(),
+    harmonyArp: initialHarmonyArp(),
   }
   derive(state, LIBRARY)
   return state
@@ -1148,10 +1152,41 @@ export class MockSession implements Session {
         st.library.scanning = true
         this.scanLeft = RESCAN_MS
         break
+      case 'toggleHarmonyArp':
+      case 'setHarmonyArpOn':
+      case 'setHarmonyType':
+      case 'setArpPattern':
+      case 'stepHarmonyArpType':
+      case 'setHarmonyVolume':
+      case 'setHarmonySpeed':
+      case 'setHarmonyAssign':
+      case 'setChordNoteOnly':
+      case 'setTouchLimit':
+      case 'setArpQuantize':
+      case 'setArpHold':
+      case 'toggleArpHold':
+      case 'setArpPedalHold':
+      case 'toggleArpPedalHold':
+      case 'setArpVelocity':
+      case 'setArpKeepKeyOn': {
+        // A fresh object, so the published snapshots never share it.
+        st.harmonyArp = { ...st.harmonyArp, arp: { ...st.harmonyArp.arp } }
+        const err = harmonyArpCmd(st.harmonyArp, cmd)
+        if (err) this.message(err, true)
+        break
+      }
       case 'panic':
         this.stopBand()
         this.multiPads.panic()
         Object.assign(st.controllers, { sustain: false, sostenuto: false, soft: false })
+        // As the engine's reset: the pedals count as up, and the control-side switches a
+        // Hold pedal was keeping on go off (`pump_pedal_releases`).
+        for (const p of st.controllers.pedals) {
+          const f = resetRelease(p, p.down)
+          p.down = false
+          const set = f && functionSet(f, false)
+          if (set) this.cmd(set)
+        }
         this.message('All notes off')
         break
       case 'setPedal': {
@@ -1171,6 +1206,8 @@ export class MockSession implements Session {
         const keptOn = (f: string) =>
           st.controllers.pedals.some((q, j) => j !== cmd.pedal && q.function === f && (q.controlType === 'holdA' ? q.down : q.controlType === 'holdB' && !q.down))
         const rebound = p.function !== cmd.function || p.cc !== cmd.cc
+        const old = { cc: p.cc, function: p.function, controlType: p.controlType }
+        const oldDown = p.down
         if (rebound) {
           // What the old function drove lets go, and the pedal counts as up.
           if (p.function in sw && !keptOn(p.function)) st.controllers[p.function as Sw] = false
@@ -1182,6 +1219,12 @@ export class MockSession implements Session {
         if (p.function in sw && p.controlType !== 'toggle' && (rebound || typeChanged)) {
           const on = (p.controlType === 'holdB') !== p.down
           if (on || !keptOn(p.function)) st.controllers[p.function as Sw] = on
+        }
+        // Kbd Harmony/Arpeggio and Arpeggio Hold: the control side keeps them, so it sets
+        // them where the new setup puts them (`controllers::control_switch_sets`).
+        for (const [f, on] of controlSwitchSets(old, p, oldDown, p.down)) {
+          const set = functionSet(f, on)
+          if (set) this.cmd(set)
         }
         break
       }
@@ -1202,9 +1245,8 @@ export class MockSession implements Session {
           this.message(`${info?.name ?? cmd.function} is not in yahaha yet`, true)
           break
         }
-        if (info.kind === 'switch') {
-          const k = cmd.function as 'sustain' | 'sostenuto' | 'soft'
-          st.controllers[k] = !st.controllers[k]
+        if (isPedalSwitch(cmd.function)) {
+          st.controllers[cmd.function] = !st.controllers[cmd.function]
         } else if (info.kind === 'continuous') {
           this.message(`${info.name} needs a foot controller (an expression pedal)`, true)
         } else if (cmd.function === 'otsNext' || cmd.function === 'otsPrev') {

@@ -56,6 +56,9 @@ export const BINDINGS: Record<string, Binding> = {
   '9': c({ type: 'stepVoice', delta: -1 }),
   '0': c({ type: 'stepVoice', delta: 1 }),
   F9: c({ type: 'toggleFaderPage' }),
+  J: c({ type: 'toggleHarmonyArp' }),
+  L: c({ type: 'stepHarmonyArpType', delta: 1 }),
+  '*': c({ type: 'toggleArpHold' }),
   // Registration Memory: Shift + the top letter row = buttons 1–10.
   ...Object.fromEntries([...'QWERTYUIOP'].map((k, i) => [k, c({ type: 'pressRegist', index: i })])),
   F5: c({ type: 'toggleRegistMemory' }),

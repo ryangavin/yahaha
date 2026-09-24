@@ -677,3 +677,60 @@ fn releasing_everything_never_leaves_a_note_hanging() {
         assert_eq!(check(&ev), 0, "{}", p.name);
     }
 }
+
+// --- wiring helpers (set_ppq, next_due, keys_down) ----------------------------------
+
+/// A style with another resolution takes over: the notes sounding are cut at once (their
+/// off ticks were on the old clock) and the pattern starts again on the new one, keeping
+/// the held notes.
+#[test]
+fn set_ppq_cuts_and_restarts_on_the_new_clock() {
+    let mut a = arp("Climb 16");
+    chord(&mut a, &[C, E, G], 0);
+    let mut ev = run(&mut a, 0, 130);
+    assert!(a.sounding() > 0);
+    a.set_ppq(960, 1000, &mut ev);
+    assert_eq!(a.sounding(), 0);
+    assert_eq!(a.ppq(), 960);
+    assert_eq!(check(&ev), 0, "every note cut");
+    let more = run(&mut a, 1000, 1000 + 960);
+    assert_eq!(notes(&more)[..3], [C, E, G], "the pattern starts again from step 1");
+    // A 16th at 960 PPQ is 240 ticks.
+    assert_eq!(ticks(&more)[..3], [1000, 1240, 1480]);
+    assert_eq!(a.keys_down().collect::<Vec<_>>(), [C, E, G]);
+    a.set_ppq(0, 5000, &mut Vec::new());
+    assert_eq!(a.ppq(), 960, "a zero ppq changes nothing");
+}
+
+/// `next_due` is the earliest off, queued note or step, so the engine can sleep until it;
+/// whatever is due goes out when its tick is processed.
+#[test]
+fn next_due_is_the_next_event() {
+    let mut a = arp("Climb 16");
+    assert_eq!(a.next_due(), None);
+    chord(&mut a, &[C, E], 10);
+    assert_eq!(a.next_due(), Some(10));
+    let mut t = 10;
+    while t < 2000 {
+        let d = a.next_due().unwrap();
+        assert!(d >= t);
+        let mut ev = Vec::new();
+        a.process(t..d + 1, &mut ev);
+        assert!(!ev.is_empty() && ev.iter().all(|e| e.tick() == d), "{ev:?} at {d}");
+        t = d + 1;
+    }
+    release(&mut a, &[C, E], t);
+    let mut ev = Vec::new();
+    a.process(t..t + 1000, &mut ev);
+    assert_eq!(a.next_due(), None);
+}
+
+/// Hold keeps the notes after release; `keys_down` lists only the keys still down.
+#[test]
+fn keys_down_leaves_out_latched_notes() {
+    let mut a = with("Climb 16", Settings { hold: true, ..Settings::default() });
+    chord(&mut a, &[C, E, G], 0);
+    release(&mut a, &[E], 10);
+    assert_eq!(a.keys_down().collect::<Vec<_>>(), [C, G]);
+    assert_eq!(a.notes().count(), 3);
+}

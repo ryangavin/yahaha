@@ -192,6 +192,8 @@ impl MockSession {
                 })
                 .collect(),
             voices: voice_options(),
+            harmony_types: harmony_type_options(),
+            arp_patterns: arp_pattern_options(),
         };
         let gm = f.gm;
         let part = |i: usize, program: u8, on: bool| KeyboardPart {
@@ -307,6 +309,7 @@ impl MockSession {
             },
             preview: PreviewState::default(),
             multi_pad: multipad::initial(),
+            harmony_arp: harmony_arp_default(),
             // Mid-song: the left hand holds the Am7 it fingered.
             keyboard: KeyboardState {
                 held: [45, 48, 52, 55].map(|note| HeldNote { note, zone: Zone::Left, parts: vec![] }).to_vec(),
@@ -791,7 +794,7 @@ impl MockSession {
         let mask = |bits: Vec<bool>| bits.iter().enumerate().fold(0u8, |m, (i, on)| m | (*on as u8) << i);
         let parts_on = mask(st.keyboard_parts.iter().map(|p| p.sounding).collect());
         let style_on = lk::style_lit(mask(st.mixer.style_parts.iter().map(|p| p.on).collect()), st.chord.manual_bass_active);
-        let colours = lk::button_colours(page, styles, fader_page, parts_on, style_on);
+        let colours = lk::button_colours(page, styles, fader_page, parts_on, style_on, st.harmony_arp.on);
         let act = |cc: u8, shift: bool| -> Option<AppCmd> {
             match lk::cc_control(cc, shift)? {
                 Control::Page(d) => {
@@ -849,6 +852,9 @@ impl MockSession {
                     let p = i as usize;
                     let shift = (lk::SELECT_LABELS[p], Some(AppCmd::Parts(PartsCmd::SelectPart { part: i })));
                     push(id, cc, lk::PART_LABELS[p], Some(AppCmd::Parts(PartsCmd::TogglePart { part: i })), Some(shift));
+                }
+                FaderPage::Panel if i == lk::HARM_ARP_FADER_BTN => {
+                    push(id, cc, "HARM/ARP", Some(AppCmd::HarmonyArp(HarmonyArpCmd::ToggleHarmonyArp)), None)
                 }
                 FaderPage::Panel => push(id, cc, "", None, None),
                 FaderPage::Style => {
@@ -997,8 +1003,22 @@ impl MockSession {
                 self.state.transport.auto_fill = auto;
             }
             AppCmd::Controllers(c) => {
+                let before = match c {
+                    ControllersCmd::SetPedal { pedal, .. } => Some((pedal as usize % PEDALS, self.controllers.pedal(pedal as usize % PEDALS))),
+                    _ => None,
+                };
                 match c.apply_setting(&self.controllers) {
                     Ok(true) => {
+                        // Kbd Harmony/Arpeggio and Arpeggio Hold on a Hold pedal (no pedal is
+                        // ever down here): as the session does.
+                        if let Some((i, old)) = before {
+                            let sets = yahaha::controllers::control_switch_sets(old, self.controllers.pedal(i), false, false);
+                            for (f, on) in sets.into_iter().flatten() {
+                                if let Some(cmd) = yahaha::api::function_set(f, on) {
+                                    self.cmd(cmd);
+                                }
+                            }
+                        }
                         // No keyboard: a pedal learning "hears" the Launchkey's sustain jack.
                         if let ControllersCmd::LearnPedal { pedal: Some(p) } = c {
                             let s = self.controllers.pedal(p as usize % PEDALS);
@@ -1260,6 +1280,16 @@ impl MockSession {
                 self.stop_band();
                 self.pads.panic(&mut self.state.multi_pad);
                 self.controllers.reset(&mut |_| {});
+                // As the session: the control-side switches a Hold pedal was keeping on go
+                // off (`Control::pump_pedal_releases`).
+                if let Some(down) = self.controllers.take_reset_releases() {
+                    for i in 0..PEDALS {
+                        let f = yahaha::controllers::reset_release(self.controllers.pedal(i), down >> i & 1 != 0);
+                        if let Some(cmd) = f.and_then(|f| yahaha::api::function_set(f, false)) {
+                            self.cmd(cmd);
+                        }
+                    }
+                }
                 self.state.controllers = ControllersState::of(&self.controllers);
                 self.message("All notes off", false);
             }
@@ -1306,6 +1336,11 @@ impl MockSession {
                 let running = self.state.transport.running;
                 if let Some(e) = self.pads.cmd(&mut self.state.multi_pad, c, running) {
                     self.message(e, true);
+                }
+            }
+            AppCmd::HarmonyArp(c) => {
+                if let Err(e) = harmony_arp_cmd(&mut self.state.harmony_arp, c) {
+                    self.message(&e, true);
                 }
             }
         }
@@ -1495,6 +1530,84 @@ fn pads_for(s: &AppState, page: Page) -> Vec<Pad> {
     }
 }
 
+/// Harmony/Arpeggio off, Standard Duet 1: the engine's defaults.
+fn harmony_arp_default() -> HarmonyArpState {
+    let mut h = HarmonyArpState {
+        volume: 100,
+        touch_limit: 1,
+        arp: ArpSettings { fixed_velocity: 100, ..ArpSettings::default() },
+        ..HarmonyArpState::default()
+    };
+    name_harmony_arp(&mut h);
+    h
+}
+
+fn name_harmony_arp(h: &mut HarmonyArpState) {
+    let t = match h.mode {
+        HarmonyArpMode::Harmony => harmony_type_options().swap_remove(h.harmony_type as usize),
+        HarmonyArpMode::Arpeggio => arp_pattern_options().swap_remove(h.arp_pattern as usize),
+    };
+    h.type_name = t.name;
+    h.category = t.category;
+}
+
+/// The Harmony/Arpeggio commands, as src/session/harmony_arp.rs runs them (the mock plays
+/// no notes).
+fn harmony_arp_cmd(h: &mut HarmonyArpState, c: HarmonyArpCmd) -> Result<(), String> {
+    let (types, patterns) = (harmony_type_options().len(), arp_pattern_options().len());
+    match c {
+        HarmonyArpCmd::ToggleHarmonyArp => h.on = !h.on,
+        HarmonyArpCmd::SetHarmonyArpOn { on } => h.on = on,
+        HarmonyArpCmd::SetHarmonyType { index } => {
+            if index as usize >= types {
+                return Err(format!("no Harmony type {index} (0-{})", types - 1));
+            }
+            h.mode = HarmonyArpMode::Harmony;
+            h.harmony_type = index;
+        }
+        HarmonyArpCmd::SetArpPattern { index } => {
+            if index as usize >= patterns {
+                return Err(format!("no arpeggio pattern {index} (0-{})", patterns - 1));
+            }
+            h.mode = HarmonyArpMode::Arpeggio;
+            h.arp_pattern = index;
+        }
+        HarmonyArpCmd::StepHarmonyArpType { delta } => {
+            let n = (types + patterns) as i32;
+            let cur = match h.mode {
+                HarmonyArpMode::Harmony => h.harmony_type as i32,
+                HarmonyArpMode::Arpeggio => (types + h.arp_pattern as usize) as i32,
+            };
+            let next = (cur + delta as i32).rem_euclid(n) as usize;
+            if next < types {
+                h.mode = HarmonyArpMode::Harmony;
+                h.harmony_type = next as u8;
+            } else {
+                h.mode = HarmonyArpMode::Arpeggio;
+                h.arp_pattern = (next - types) as u8;
+            }
+        }
+        HarmonyArpCmd::SetHarmonyVolume { volume } => h.volume = volume.min(127),
+        HarmonyArpCmd::SetHarmonySpeed { speed } => h.speed = speed,
+        HarmonyArpCmd::SetHarmonyAssign { assign } => h.assign = assign,
+        HarmonyArpCmd::SetChordNoteOnly { on } => h.chord_note_only = on,
+        HarmonyArpCmd::SetTouchLimit { velocity } => h.touch_limit = velocity.clamp(1, 127),
+        HarmonyArpCmd::SetArpQuantize { quantize } => h.arp.quantize = quantize,
+        HarmonyArpCmd::SetArpHold { on } => h.arp.hold = on,
+        HarmonyArpCmd::ToggleArpHold => h.arp.hold = !h.arp.hold,
+        HarmonyArpCmd::SetArpPedalHold { on } => h.arp.pedal_hold = on,
+        HarmonyArpCmd::ToggleArpPedalHold => h.arp.pedal_hold = !h.arp.pedal_hold,
+        HarmonyArpCmd::SetArpVelocity { mode, velocity } => {
+            h.arp.velocity = mode;
+            // As the engine: only Fixed keeps a velocity of its own.
+            h.arp.fixed_velocity = if mode == ArpVelocityMode::Fixed { velocity.clamp(1, 127) } else { 100 };
+        }
+        HarmonyArpCmd::SetArpKeepKeyOn { on } => h.arp.keep_key_on = on,
+    }
+    name_harmony_arp(h);
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1564,6 +1677,42 @@ mod tests {
         m.send(ControllersCmd::TriggerFunction { function: Function::RegistBankNext });
         assert!(m.state.registration.bank.path.is_some());
         assert_ne!(m.state.registration.bank.path, before);
+    }
+
+    #[test]
+    fn harmony_arpeggio_settings_follow_the_commands() {
+        let mut m = MockSession::new();
+        assert_eq!(m.state.harmony_arp.type_name, "Standard Duet 1");
+        assert_eq!(m.library().harmony_types.len(), 23);
+        m.send(HarmonyArpCmd::ToggleHarmonyArp);
+        m.send(HarmonyArpCmd::StepHarmonyArpType { delta: -1 });
+        let h = &m.state.harmony_arp;
+        assert!(h.on);
+        assert_eq!((h.mode, h.type_name.as_str()), (HarmonyArpMode::Arpeggio, "Pluck Line"), "wraps into the arpeggios");
+        m.send(HarmonyArpCmd::SetArpVelocity { mode: ArpVelocityMode::Fixed, velocity: 200 });
+        assert_eq!(m.state.harmony_arp.arp.fixed_velocity, 127);
+        m.send(HarmonyArpCmd::SetHarmonyType { index: 99 });
+        assert!(m.state.message.as_ref().is_some_and(|x| x.error));
+        // The HARMONY/ARPEGGIO switch is the button under fader 5 on the Panel fader page.
+        let b5 = m.surface().controls.into_iter().find(|c| c.id == "faderButton5").unwrap();
+        assert_eq!((b5.label.as_str(), b5.action, b5.level), ("HARM/ARP", Some(AppCmd::HarmonyArp(HarmonyArpCmd::ToggleHarmonyArp)), Level::Bright));
+        // Kbd Harmony/Arpeggio and Arpeggio Hold are pedal functions: Try switches them, and a
+        // Hold B pedal (up) holds the arpeggio at once.
+        use yahaha::controllers::{ControlType, Function};
+        m.send(ControllersCmd::TriggerFunction { function: Function::KbdHarmonyArp });
+        assert!(!m.state.harmony_arp.on);
+        assert!(!m.state.harmony_arp.arp.hold);
+        m.send(ControllersCmd::SetPedal { pedal: 1, cc: Some(66), function: Function::ArpHold, control_type: ControlType::HoldB, reverse: false, range: Default::default() });
+        assert!(m.state.harmony_arp.arp.pedal_hold, "the pedal function, not the setting");
+        assert!(!m.state.harmony_arp.arp.hold);
+        m.send(ControllersCmd::TriggerFunction { function: Function::ArpHold });
+        assert!(!m.state.harmony_arp.arp.pedal_hold, "Try switches the pedal function");
+        m.send(ControllersCmd::TriggerFunction { function: Function::ArpHold });
+        // PANIC lets go of what a Hold pedal keeps on (Hold B, up); the setting stays.
+        m.send(HarmonyArpCmd::SetArpHold { on: true });
+        m.send(SystemCmd::Panic);
+        assert!(!m.state.harmony_arp.arp.pedal_hold);
+        assert!(m.state.harmony_arp.arp.hold);
     }
 
     #[test]
@@ -1649,7 +1798,7 @@ mod tests {
         let s = &m.state.surface;
         assert_eq!(
             labels(&m),
-            ["", "PAGE ▼", "◀ STYLE", "STYLE ▶", "PLAY", "STOP", "TEMPO +", "TEMPO -", "RIGHT 1", "RIGHT 2", "RIGHT 3", "LEFT", "", "", "", "", "PANEL"]
+            ["", "PAGE ▼", "◀ STYLE", "STYLE ▶", "PLAY", "STOP", "TEMPO +", "TEMPO -", "RIGHT 1", "RIGHT 2", "RIGHT 3", "LEFT", "HARM/ARP", "", "", "", "PANEL"]
         );
         assert_eq!((s.controls[0].shift_label.as_str(), s.controls[1].shift_label.as_str()), ("LEFT", "OTS LINK"));
         assert_eq!(s.controls[0].action, None);
@@ -1746,6 +1895,36 @@ mod tests {
         m.send(PlaylistCmd::StepPlaylist { delta: 1 });
         assert_eq!((m.state.playlist.current, m.state.registration.selected), (Some(0), Some(0)));
         assert_eq!(m.state.transport.tempo, 72.0);
+    }
+
+    /// As the session's `harmonyArp` registrable: Memorize stores Keyboard Harmony/Arpeggio,
+    /// a recall puts it back (not the pedal's Arpeggio Hold), Freeze leaves it.
+    #[test]
+    fn registration_stores_harmony_arpeggio() {
+        let mut m = MockSession::new();
+        m.send(HarmonyArpCmd::SetArpPattern { index: 4 });
+        m.send(HarmonyArpCmd::SetHarmonyArpOn { on: true });
+        m.send(HarmonyArpCmd::SetHarmonyVolume { volume: 60 });
+        let want = m.state.harmony_arp.clone();
+        m.send(RegistrationCmd::MemorizeRegist { index: 5 });
+        let scramble = |m: &mut MockSession| {
+            m.send(HarmonyArpCmd::SetHarmonyType { index: 1 });
+            m.send(HarmonyArpCmd::SetHarmonyArpOn { on: false });
+            m.send(HarmonyArpCmd::SetHarmonyVolume { volume: 100 });
+        };
+        scramble(&mut m);
+        m.send(HarmonyArpCmd::SetArpPedalHold { on: true });
+        m.send(RegistrationCmd::RecallRegist { index: 5 });
+        let mut got = m.state.harmony_arp.clone();
+        assert!(got.arp.pedal_hold, "the pedal's, not recalled");
+        got.arp.pedal_hold = false;
+        assert_eq!(got, want);
+        scramble(&mut m);
+        let scrambled = m.state.harmony_arp.clone();
+        m.send(RegistrationCmd::SetFreezeGroup { group: yahaha::registration::Group::HarmonyArp, on: true });
+        m.send(RegistrationCmd::SetFreeze { on: true });
+        m.send(RegistrationCmd::RecallRegist { index: 5 });
+        assert_eq!(m.state.harmony_arp, scrambled, "frozen");
     }
 
     /// Save As names files as the session does ("A:B" is "A_B") and, like the Mac's file

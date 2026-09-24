@@ -166,6 +166,13 @@ impl Engine {
         self.features.looper.state == LoopState::Looping
     }
 
+    /// The chord the loop has the style playing, while the loop plays (None otherwise, or
+    /// before its first chord): the Style's chord, which Keyboard Harmony follows while the
+    /// keyboard's chord input is off.
+    pub fn looper_chord(&self) -> Option<Chord> {
+        if self.looper_owns_chords() { self.played } else { None }
+    }
+
     /// A chord from the keyboard. False: the loop is playing and ignores it. Recording, it
     /// is recorded where it falls in the bar.
     pub(super) fn looper_keyboard_chord(&mut self, played: Chord, now: u64) -> bool {

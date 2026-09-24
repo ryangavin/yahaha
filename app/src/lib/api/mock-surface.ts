@@ -14,6 +14,8 @@ const DIM_GREEN = 23
 const BLUE = 45
 const DIM_BLUE = 47
 const PINK = 57
+const PURPLE = 53
+const DIM_PURPLE = 55
 const ORANGE = 9
 const PALETTE: Record<number, [Rgb, Level]> = {
   [WHITE]: [[127, 127, 127], 'bright'],
@@ -24,9 +26,13 @@ const PALETTE: Record<number, [Rgb, Level]> = {
   [DIM_GREEN]: [[0, 127, 0], 'dim'],
   [BLUE]: [[0, 0, 127], 'bright'],
   [DIM_BLUE]: [[0, 0, 127], 'dim'],
+  [PURPLE]: [[90, 0, 127], 'bright'],
+  [DIM_PURPLE]: [[90, 0, 127], 'dim'],
 }
 const PAGE_COLOUR = [WHITE, CYAN, PINK, ORANGE]
 
+/** The Panel-page fader button (0-based) that is the HARMONY/ARPEGGIO switch (src/launchkey.rs). */
+const HARM_ARP_FADER_BTN = 4
 const PART_LABELS = ['RIGHT 1', 'RIGHT 2', 'RIGHT 3', 'LEFT']
 const SELECT_LABELS = ['EDIT R1', 'EDIT R2', 'EDIT R3', 'EDIT L']
 
@@ -103,6 +109,8 @@ export function mockSurface(s: AppState, lib: LibraryList, hw: MockHardware): Su
       controls.push(control(id, cc, PART_LABELS[i], { type: 'togglePart', part: i }, on ? BLUE : DIM_BLUE, {
         label: SELECT_LABELS[i], action: { type: 'selectPart', part: i },
       }))
+    } else if (i === HARM_ARP_FADER_BTN) {
+      controls.push(control(id, cc, 'HARM/ARP', { type: 'toggleHarmonyArp' }, s.harmonyArp.on ? PURPLE : DIM_PURPLE))
     } else controls.push(control(id, cc, '', null, OFF))
   }
   controls.push(control('masterButton', 45, style ? 'STYLE' : 'PANEL', { type: 'toggleFaderPage' }, style ? GREEN : BLUE))
