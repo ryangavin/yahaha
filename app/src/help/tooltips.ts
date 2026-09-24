@@ -78,7 +78,7 @@ const catalog = {
   },
   'transport.fade': {
     title: 'Fade In/Out',
-    body: 'Stopped, it arms a fade in: the next start comes up from silence. Playing, the band fades out and stops, and stays silent for the hold time before its volume comes back. Only the style fades: what you play does not. The fade times are in Settings › Style.',
+    body: 'Stopped, it arms a fade in: the next start comes up from silence. Playing, the band fades out and stops, and stays silent for the hold time before its volume comes back (only the style fades, not what you play). The fade times are in Settings › Style.',
     genos: 'Fade In/Out (Assignable)',
     keys: ['F'],
     launchkey: `${pad(P3, 'top', 6)}; Shift + Stop button`,
@@ -961,7 +961,7 @@ const catalog = {
   },
   'settings.intro_ending_timing': {
     title: 'Section change timing: inside Intro/Ending',
-    body: 'When you switch to another Intro or Ending while one plays. Next Bar: as for Mains. End of Section: the one playing finishes first. Intro to Intro always follows Next Bar, and anything into Ending I waits for the next bar line.',
+    body: 'When you switch to another Intro or Ending while one plays. Next Bar: as for Mains. End of Section: the one playing finishes first, except Intro to Intro (Next Bar) and anything into Ending I (the next bar line).',
     genos: 'Section Change Timing – Inside Intro/Ending',
     keys: [],
     launchkey: null,

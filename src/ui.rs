@@ -13,6 +13,10 @@ use std::path::Path;
 use std::time::Duration;
 use yahaha::api::{AppCmd, AppState, LibraryCmd, MixerCmd, OtsCmd, Pad, PadsCmd, PartsCmd, SettingsCmd, SystemCmd};
 use yahaha::engine::{Button, FadeState};
+use yahaha::launchkey::{self, Action};
+use yahaha::library::{self, Info, Library};
+use yahaha::parts::{self, FaderPage};
+use yahaha::session::{Options, Session};
 
 /// The fade state in a word, for the status line.
 fn fade_name(f: FadeState) -> &'static str {
@@ -24,10 +28,6 @@ fn fade_name(f: FadeState) -> &'static str {
         FadeState::Holding => "HOLD",
     }
 }
-use yahaha::launchkey::{self, Action};
-use yahaha::library::{self, Info, Library};
-use yahaha::parts::{self, FaderPage};
-use yahaha::session::{Options, Session};
 
 /// Keyboard shortcuts for the controls the Launchkey also reaches, so a key and its pad
 /// or button send the same command.

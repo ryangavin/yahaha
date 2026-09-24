@@ -1262,7 +1262,11 @@ fn style_settings_fade_and_retrigger_through_the_session() {
     let vols: Vec<u8> = out.iter().filter(|m| m[0] == 0xB0 | (8 + part as u8) && m[1] == 7).map(|m| m[2]).collect();
     let rise = &vols[vols.iter().position(|&v| v == 0).expect("silence first")..];
     assert_eq!(rise.last(), Some(&full), "{vols:?}");
-    assert!(out.iter().all(|m| m[0] != 0xF0 && !(m[0] & 0xF0 == 0xB0 && m[1] == 7 && m[0] & 0x0F < 8)));
+    assert!(out.iter().all(|m| m[0] != 0xF0));
+    for ch in 0..8u8 {
+        let kbd: Vec<u8> = out.iter().filter(|m| m[0] == 0xB0 | ch && m[1] == 7).map(|m| m[2]).collect();
+        assert!(kbd.windows(2).all(|w| w[0] == w[1]), "channel {ch} faded: {kbd:?}");
+    }
     s.send(TransportCmd::ToggleRetrigger).unwrap();
     assert!(s.state().transport.retrigger);
     // Section Reset: back to bar 1, beat 1.
