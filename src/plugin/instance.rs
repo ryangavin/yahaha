@@ -315,3 +315,12 @@ pub struct EditorTarget {
     pub title: String,
     pub out_of_process: bool,
 }
+
+impl EditorTarget {
+    /// The plugin's current state, as [`PluginInstance::get_state`], read through this
+    /// handle while the instance plays (as a DAW saves a project during playback). Control
+    /// thread, not the main thread (see `get_state`).
+    pub fn state(&self) -> Result<Vec<u8>> {
+        sys::guard("reading the state", || self.unit.class_info())
+    }
+}

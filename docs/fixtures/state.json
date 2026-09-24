@@ -1753,5 +1753,10 @@
     "volume": 90,
     "bell": true,
     "audible": false
+  },
+  "plugins": {
+    "available": false,
+    "scanning": false,
+    "list": []
   }
 }

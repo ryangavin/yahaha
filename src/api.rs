@@ -27,6 +27,7 @@ mod mixer;
 mod multipad;
 mod ots;
 mod pads;
+mod plugins;
 mod parts;
 mod playlist;
 mod preview;
@@ -48,6 +49,7 @@ pub use mixer::*;
 pub use multipad::*;
 pub use ots::*;
 pub use pads::*;
+pub use plugins::*;
 pub use parts::*;
 pub use playlist::*;
 pub use preview::*;
@@ -145,6 +147,8 @@ app_cmd! {
     MultiPad(MultiPadCmd),
     /// Pedals, wheels and assignable functions.
     Controllers(ControllersCmd),
+    /// Instrument plugins (Audio Units) for the keyboard parts.
+    Plugins(PluginCmd),
     /// Keyboard Harmony / Arpeggio.
     HarmonyArp(HarmonyArpCmd),
 }
@@ -306,6 +310,10 @@ pub struct AppState {
     pub looper: LooperState,
     /// The metronome.
     pub metronome: MetronomeState,
+    /// The instrument plugin host: the installed plugins (keyboard parts' plugins are in
+    /// `keyboard_parts[i].plugin`).
+    #[serde(default)]
+    pub plugins: PluginsState,
 }
 
 // ---------------------------------------------------------------------------
