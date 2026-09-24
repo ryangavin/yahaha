@@ -62,7 +62,7 @@
     opts.push({ id: 'song', label: 'Song', tip: 'chart.loop', range: [0, song.bars.length] })
     song.sections
       .filter((s) => s.chorus === 1)
-      .forEach((s, i) => opts.push({ id: `s${i}`, label: s.label || `Bar ${s.start + 1}`, tip: 'chart.loop', range: [s.start, s.start + s.bars] }))
+      .forEach((s, i) => opts.push({ id: `s${i}`, label: `${s.label || 'Bars'} ${s.start + 1}–${s.start + s.bars}`, tip: 'chart.loop', range: [s.start, s.start + s.bars] }))
     return opts
   })
   const loopId = $derived(loops.find((o) => (o.range === null ? c.loop === null : !!c.loop && o.range[0] === c.loop[0] && o.range[1] === c.loop[1]))?.id ?? null)
@@ -116,7 +116,7 @@
           <Choice label="Chart Ending" options={sectionOpts('chart.ending')} value={c.ending ?? -1} onselect={(i) => app.send({ type: 'setChartEnding', index: i < 0 ? null : i })} />
         </Field>
         <Field name="Loop" note="Plays the song or one section over and over, until you stop or press an Ending.">
-          <Choice label="Loop" columns={Math.min(5, loops.length)} options={loops} value={loopId} onselect={(id) => app.send({ type: 'setChartLoop', range: loops.find((o) => o.id === id)?.range ?? null })} />
+          <Choice label="Loop" columns={Math.min(3, loops.length)} options={loops} value={loopId} onselect={(id) => app.send({ type: 'setChartLoop', range: loops.find((o) => o.id === id)?.range ?? null })} />
         </Field>
         <Field name="Style" note={suggested ? `The chart's label suggests ${suggested.name}. Any style you pick in the browser overrides it.` : 'No library style matches the chart’s style label.'}>
           <div class="style-row">
@@ -171,7 +171,7 @@
   .charts {
     display: grid;
     gap: 1rem;
-    min-width: min(34rem, 90vw);
+    min-width: 0;
   }
   .import {
     display: flex;
@@ -238,9 +238,7 @@
   }
   .lists {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
     gap: 0.6rem;
-    min-height: 12rem;
   }
   .playlists,
   .songs {
@@ -249,7 +247,7 @@
     gap: 2px;
     padding: 0.4rem;
     border-radius: 6px;
-    max-height: 22rem;
+    max-height: 18rem;
     overflow: auto;
   }
   h3 {

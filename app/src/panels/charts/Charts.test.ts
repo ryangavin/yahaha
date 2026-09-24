@@ -56,7 +56,7 @@ describe('charts drawer', () => {
     await click(tipped('chart.ending').find((b) => b.textContent === 'B')!)
     expect(session.state.chart.ending).toBe(1)
     // Loop the B section: its bars of the first chorus.
-    await click(tipped('chart.loop').find((b) => b.textContent === 'B')!)
+    await click(tipped('chart.loop').find((b) => b.textContent?.trim() === 'B 9–16')!)
     expect(session.state.chart.loop).toEqual([8, 16])
     await click(tipped('chart.loop').find((b) => b.textContent === 'Off')!)
     expect(session.state.chart.loop).toBeNull()

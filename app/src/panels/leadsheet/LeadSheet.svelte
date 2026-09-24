@@ -38,12 +38,15 @@
   /** The beat playing in the current bar (0-based). */
   const beatNow = $derived(Math.floor(inBar))
 
+  /** Stopped: the Intro the band starts with (armed, or the chart's), and the first Main. */
+  const intro = $derived(t.pendingIntro ?? chart?.intro ?? null)
+  const firstMain = $derived(chart?.song?.bars[0]?.main ?? t.main)
   const now = $derived(
     t.running && t.section
       ? sectionLabel(t.section)
-      : t.pendingIntro !== null
-        ? sectionLabel(INTROS[t.pendingIntro])
-        : sectionLabel(MAINS[t.main] ?? 'Main A'),
+      : intro !== null
+        ? sectionLabel(INTROS[intro])
+        : sectionLabel(MAINS[firstMain] ?? 'Main A'),
   )
   const state = $derived(
     chart && t.running && chart.bar !== null
@@ -58,7 +61,7 @@
         : 'stopped',
   )
   const next = $derived(
-    t.queued ? sectionLabel(t.queued) : t.running ? '' : t.pendingIntro !== null ? sectionLabel(MAINS[t.main] ?? 'Main A') : '',
+    t.queued ? sectionLabel(t.queued) : t.running ? '' : intro !== null ? sectionLabel(MAINS[firstMain] ?? 'Main A') : '',
   )
 </script>
 
