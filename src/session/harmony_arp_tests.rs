@@ -304,6 +304,38 @@ fn the_switch_off_stops_the_arpeggio_now() {
     }
 }
 
+/// PANIC with a held arpeggio under the sustain pedal (#93's controllers and this
+/// processor meet in the engine's Panic): the arpeggio's notes stop and it plays no more,
+/// and the pedal switches are released too.
+#[test]
+fn panic_stops_a_held_arpeggio_and_the_pedals() {
+    let Some(s) = session(&["SlowWalker.T552.sty"]) else { return };
+    let mut h = Heard::default();
+    send(&s, &mut h, pattern("Gated Pad 16"));
+    send(&s, &mut h, HarmonyArpCmd::SetArpHold { on: true });
+    send(&s, &mut h, HarmonyArpCmd::SetHarmonyArpOn { on: true });
+    s.midi_in(Port::Keys, &[0xB0, 64, 127]);
+    h.take(&s);
+    assert!(s.state().controllers.sustain);
+    for k in [60, 64, 67] {
+        key(&s, &mut h, k, 100);
+    }
+    for k in [60, 64, 67] {
+        key(&s, &mut h, k, 0);
+    }
+    h.clear();
+    advance(&s, &mut h, 400 * MS);
+    assert!(!h.ons.is_empty(), "Arp Hold: the pattern plays on after the keys go up");
+    send(&s, &mut h, SystemCmd::Panic);
+    advance(&s, &mut h, MS);
+    assert!(h.sounding().is_empty(), "{:?}", h.sounding());
+    assert!(!s.state().controllers.sustain, "PANIC releases the pedal switches");
+    h.clear();
+    advance(&s, &mut h, 600 * MS);
+    assert!(h.ons.is_empty(), "the held arpeggio is gone: {:?}", h.ons);
+    assert!(s.state().harmony_arp.on, "PANIC leaves the settings as they are");
+}
+
 /// A style with another resolution takes over at the bar line: the arpeggio re-times
 /// (`Arp::set_ppq`) and plays on at the same tempo.
 #[test]
