@@ -196,6 +196,8 @@ impl Engine {
     }
 
     pub fn stop(&mut self, sink: &mut impl Sink) {
+        // A chord change still settling takes effect with nothing left to re-voice.
+        self.settle_silently(sink);
         let was_running = self.running;
         self.running = false;
         self.queued = None;

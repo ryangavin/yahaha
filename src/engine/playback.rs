@@ -5,11 +5,13 @@ use super::*;
 impl Engine {
     // ----- playback -----
 
-    /// Emit everything due up to `now`.
+    /// Emit everything due up to `now`. A chord change waiting to settle goes first
+    /// (settle.rs).
     pub fn process(&mut self, now: u64, sink: &mut impl Sink) {
         if !self.running {
             return;
         }
+        self.settle_due(now, sink);
         let mut target = self.tick_at(now) + 1e-6;
         loop {
             let Some(sec) = self.style.sections[self.cur].as_ref() else {
@@ -113,7 +115,14 @@ impl Engine {
                     }
                     j += 1;
                 }
+                let first = self.ev_idx;
                 self.ev_idx = j;
+                // The chord is settling: the chord parts' new notes wait for it (`catch_up`
+                // starts them at the settle).
+                if self.holding() && follows_chords(dest) {
+                    self.hold_from(first);
+                    return;
+                }
                 let part_on = self.parts & (1 << (dest.saturating_sub(8) & 7)) != 0;
                 let Some(chord) = self.chord_for(rule) else { return };
                 if !part_on || !plays(rule, chord) {
@@ -293,6 +302,8 @@ impl Engine {
     /// 24 messages that change nothing.
     pub(super) fn notes_off(&mut self, changed_only: bool, sink: &mut impl Sink) {
         self.off_where(sink, |_| true);
+        // Notes held back for a settling chord belong to what just ended.
+        self.hold = None;
         for ch in 8..16u8 {
             let c = ch as usize;
             if !changed_only || self.mirror.bend[c] != Some(BEND_CENTRE) {
