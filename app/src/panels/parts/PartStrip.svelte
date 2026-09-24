@@ -14,7 +14,7 @@
   import Fader from '../../lib/ui/Fader.svelte'
   import Toggle from '../../lib/ui/Toggle.svelte'
   import { byCategory } from '../sound/nav.svelte'
-  import { launchkeyPlace, octaveLabel, onTip, pluginGroups, pluginStatusLine, selectTip, volumeTip } from './parts'
+  import { launchkeyPlace, octaveLabel, onTip, pluginGroups, pluginPickValue, pluginStatusLine, selectTip, volumeTip } from './parts'
 
   let {
     part,
@@ -154,7 +154,7 @@
     <label class="voice mat-screen" class:failed={plugin?.status === 'failed' || plugin?.status === 'muted'}>
       <span class="glow-text vname">{plugin?.name ?? 'SoundFont voice'}</span>
       <span class="sub">{pluginLine}</span>
-      <select value={plugin?.id ?? ''} aria-label="{part.name} plugin" disabled={!plugins.available} use:tip={'part.plugin'} onchange={pickPlugin} onkeydown={pickerKey}>
+      <select value={pluginPickValue(plugin)} aria-label="{part.name} plugin" disabled={!plugins.available} use:tip={'part.plugin'} onchange={pickPlugin} onkeydown={pickerKey}>
         <option value="">SoundFont voice ({part.voiceName})</option>
         {#each byMaker as g (g.manufacturer)}
           <optgroup label={g.manufacturer}>

@@ -50,6 +50,19 @@ impl Default for LoadConfig {
     }
 }
 
+/// A load that passed its deadline, as a typed error inside `anyhow`
+/// (`e.chain().any(|c| c.is::<LoadTimedOut>())`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct LoadTimedOut(pub Duration);
+
+impl std::fmt::Display for LoadTimedOut {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "timed out after {:.1} s", self.0.as_secs_f64())
+    }
+}
+
+impl std::error::Error for LoadTimedOut {}
+
 /// Where a load is.
 #[derive(Clone, Debug, PartialEq)]
 pub enum LoadProgress {
@@ -126,7 +139,7 @@ impl LoadHandle {
         match &st.progress {
             LoadProgress::TimedOut(d) => {
                 self.taken = true;
-                Some(Err(anyhow!("{} did not load within {:.1} s", self.info.full_name(), d.as_secs_f64())))
+                Some(Err(anyhow::Error::new(LoadTimedOut(*d)).context(format!("{} did not load", self.info.full_name()))))
             }
             p if p.is_finished() => {
                 self.taken = true;
@@ -338,7 +351,7 @@ fn load_blocking(comp: &Component, info: &PluginInfo, cfg: &LoadConfig, shared: 
     let mut unit = if out_of_process || info.requires_async || info.format == PluginFormat::Au3 {
         let rx = sys::instantiate_async(comp, out_of_process);
         let left = cfg.timeout.saturating_sub(t0.elapsed());
-        rx.recv_timeout(left).map_err(|_| anyhow!("instantiation did not complete"))??
+        rx.recv_timeout(left).map_err(|_| anyhow::Error::new(LoadTimedOut(cfg.timeout)).context("instantiation did not complete"))??
     } else {
         sys::instantiate_sync(comp)?
     };

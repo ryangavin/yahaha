@@ -310,24 +310,49 @@ Per buffer:
    stay current. When the plugin is cleared, the SoundFont voice comes back at the
    fader's level with no re-send.
 5. The rack renders into scratch buffers. The rack applies CC7/CC11 (the GM curve) and
-   CC10 as a balance. The master fader is then applied and the result is added to the
+   CC10 as a balance (unity at centre, so a plugin's own stereo image is untouched; note
+   that rustysynth's constant-power pan is -3 dB per side at centre, so a hard-panned
+   SoundFont part is 3 dB louder than centred while a hard-panned plugin part is not). The master fader is then applied and the result is added to the
    mix before the soft clipper. Each slot's peak goes into `SynthControl::peaks[ch]`, so
    the Mixer meters plugin channels like any other.
 
 ### Assigning a plugin to a channel (session level)
 
 ```rust
-// src/session/plugins.rs (feature "plugins"), on the Session's control side:
-ctl.load_channel_plugin(ch, PluginVoice { id, name, state }) // async load; SoundFont until ready
-ctl.clear_channel_plugin(ch)                                 // back to the SoundFont (5 ms fade)
+// src/session/plugins.rs, `impl Control` (the Session's control side), pub(crate):
+pub struct PluginVoice { pub id: String, pub state: Option<Vec<u8>> } // yahaha::session::PluginVoice
+ctl.assign_channel_plugin(ch, PluginVoice { id, state }) -> Result<(), String> // async load
+ctl.clear_channel_plugin(ch)                   // back to the SoundFont (5 ms fade); forgets it
+ctl.route_channel_sound_font(ch, font)         // Source::SoundFont(font), clearing a plugin
+ctl.channel_plugin(ch) -> Option<api::PartPlugin> // loading | playing | failed | muted, error, cpu
 ```
 
-A load runs on its own thread (`PluginHost::load_async`) at the synth's sample rate. The
-pump polls it. When it is ready, the instance is `assign`ed to rack slot `ch` (it takes
-effect at the next buffer) and the route is set to `Plugin`. A failure or timeout leaves
-the channel on the SoundFont and reports the error. The keyboard-part commands
-(`setPartPlugin`, `clearPartPlugin`) are thin wrappers that map a part to its channel.
-Style channels (#103's program map) call the same two functions with channels 8-15.
+- `id` is the `PluginId` string ("aumu dls  appl"); `state` the plugin's ClassInfo bytes
+  (base64 in JSON), at most 64 MB; None is the plugin's default preset.
+- `assign_channel_plugin` returns at once. It fails synchronously only when the build has
+  no `plugins` feature, the synth is off, the id is not installed, or the state is too
+  big. The load runs on its own thread (`PluginHost::load_async`) at the synth's sample
+  rate, and `Control::pump` polls it. The build without `plugins` has the same functions
+  (the assign returns `Err`).
+- **Ready:** the instance is `assign`ed to rack slot `ch` (it takes effect at the next
+  buffer) and the route becomes `Plugin`: a previous plugin crossfades out over 5 ms, or
+  the SoundFont side gets All Notes Off.
+- **Failed** (an error or the 20 s timeout): if a plugin was playing on the channel, it
+  keeps playing (and stays the channel's plugin). Otherwise the channel plays its
+  SoundFont and `channel_plugin(ch)` shows `Failed` with the error; the failed choice is
+  kept (and saved, for a keyboard part) until it is picked again or cleared. Assigning
+  the same id with no state retries it with the state it kept.
+- **Muted:** a plugin that faults while rendering (a crash, NaN) silences the channel
+  until the next assign or clear.
+- **Load mode:** Apple's units in process; third-party AUv2 out of process (Apple's
+  AUHostingService); AUv3 as the system decides. An out-of-process load is retried in
+  process once, and only when the system refused to host it out of process
+  (`plugin::may_retry_in_process`: a typed `StatusError` -66748 / -66751 from
+  `AudioComponentInstantiate`); never after a timeout or a crash of the hosting process,
+  and never for the start-up restore.
+- The keyboard-part commands (`setPartPlugin`, `clearPartPlugin`) are thin wrappers that
+  map a part to its channel. Style channels (#103's program map) call the same functions
+  with channels 8-15.
 
 ## Phase 2: wiring plan
 

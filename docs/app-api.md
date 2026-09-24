@@ -232,14 +232,15 @@ with the `plugins` feature (the desktop app has it) and the built-in synth
 
 | Command | Fields | Does |
 |---|---|---|
-| `setPartPlugin` | `part` 0–3, `id`, `state`? | Plays the part on an instrument plugin: `id` from `plugins.list` (for example `"aumu dls  appl"`), `state` a saved preset (base64) or null for the plugin's default. It loads in the background (`keyboardParts[i].plugin.status` `loading`, with the `stage`). The part keeps its SoundFont voice until the plugin is ready, then switches without a click. If the load fails, the part stays on its SoundFont voice (`failed`, with the `error`). Fails at once for an unknown id or with no synth. |
+| `setPartPlugin` | `part` 0–3, `id`, `state`? | Plays the part on an instrument plugin: `id` from `plugins.list` (for example `"aumu dls  appl"`), `state` a saved preset (base64) or null for the plugin's default. It loads in the background (`keyboardParts[i].plugin.status` `loading`, with the `stage`). The part keeps its SoundFont voice until the plugin is ready, then switches without a click. If the load fails, a plugin that was playing keeps the part; otherwise the part plays its SoundFont voice (`failed`, with the `error`), and picking the plugin again with a null `state` retries it with the state it kept (a restore that timed out, or a plugin reinstalled since, comes back as saved; go back to the SoundFont voice first to start it fresh). A state over 64 MB is refused. Fails at once for an unknown id or with no synth. |
 | `clearPartPlugin` | `part` 0–3 | Back to the part's SoundFont voice (a 5 ms fade). |
 | `savePartPluginState` | `part` 0–3 | Stores the plugin's current preset (what its editor changed) with the part, so it is kept across restarts. Send it when the editor window closes. |
 | `rescanPlugins` | | Scans the installed instruments again, ignoring the cache (`plugins.scanning` meanwhile). |
 
 The plugin's editor window is not a command: it opens on the app's main thread. The
-Tauri shell has `openPluginEditor(part)` and `closePluginEditor(part)` for it
+Tauri shell has the commands `open_plugin_editor(part)` and `close_plugin_editor(part)` for it
 (`Session::plugin_editor` gives the shell the handle).
+
 ### Sound library
 The sound library (#103, docs/sound-library.md): a short user list of patches, and the
 program map that sends every Style part (and every keyboard part's GM voice) to one of
@@ -363,7 +364,7 @@ Indices are 0-based unless a field says otherwise.
 | `playsBass` | bool | Left is playing the bass (Manual Bass). |
 | `octave` | −2..2 | The octave setting. It is not applied while `playsBass` is true. |
 | `fader` | 0–127? | Where its Launchkey fader (Panel page, faders 1–4) physically is, as last reported. Null until that fader moves. |
-| `plugin` | PartPlugin? | The instrument plugin the part plays instead of its SoundFont voice. The key is absent when there is none. `id`, `name`, `manufacturer`, `status` (`loading` \| `playing` \| `failed` \| `muted`: still on the SoundFont while loading; back on it after a failed load; silent after the plugin crashed or produced bad audio), `stage` (while loading: `queued`, `instantiating`, `initializing`, `restoringState`), `error`, `outOfProcess` (runs in its own process), `cpu` (share of real time, updated once a second), `overruns` (renders slower than half the buffer), `editor` (its window can be opened). Its volume is still `volume` (CC7), and its pan is CC10; the host applies both to the plugin's output. |
+| `plugin` | PartPlugin? | The instrument plugin the part plays instead of its SoundFont voice. The key is absent when there is none. `id`, `name`, `manufacturer`, `status` (`loading` \| `playing` \| `failed` \| `muted`: still on the SoundFont, or the previous plugin, while loading; on the SoundFont after a failed load, keeping the choice so it is saved and can be retried; silent after the plugin crashed or produced bad audio), `stage` (while loading: `queued`, `instantiating`, `initializing`, `restoringState`), `error`, `outOfProcess` (runs in its own process), `cpu` (share of real time, updated once a second), `overruns` (renders slower than half the buffer), `editor` (its window can be opened). Its volume is still `volume` (CC7), and its pan is CC10; the host applies both to the plugin's output. |
 | `patch` | string? | Its own sound library patch (`setPartPatch`). Null: its GM voice plays, through the program map; `voiceName` then names the patch the map sends it to, if any. |
 
 ### `mixer`

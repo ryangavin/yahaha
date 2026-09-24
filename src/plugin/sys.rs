@@ -77,8 +77,30 @@ pub fn fourcc_parse(s: &str) -> Option<u32> {
     Some(u32::from_be_bytes(v))
 }
 
-fn check(status: OSStatus, what: &str) -> Result<()> {
-    if status == 0 { Ok(()) } else { Err(anyhow!("{what} failed: OSStatus {status} ({})", status_name(status))) }
+/// An Apple API call that failed with an OSStatus, as a typed error inside `anyhow`, so
+/// callers can decide on the status (`e.downcast_ref::<StatusError>()`), not the message.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct StatusError {
+    pub status: OSStatus,
+    /// The call: "AudioComponentInstantiate", "AudioUnitInitialize", "set ClassInfo", ...
+    pub what: &'static str,
+}
+
+impl std::fmt::Display for StatusError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} failed: OSStatus {} ({})", self.what, self.status, status_name(self.status))
+    }
+}
+
+impl std::error::Error for StatusError {}
+
+/// The OSStatus of an [`StatusError`] anywhere in `e`'s chain.
+pub fn status_of(e: &anyhow::Error) -> Option<StatusError> {
+    e.chain().find_map(|c| c.downcast_ref::<StatusError>()).copied()
+}
+
+fn check(status: OSStatus, what: &'static str) -> Result<()> {
+    if status == 0 { Ok(()) } else { Err(StatusError { status, what }.into()) }
 }
 
 /// A readable name for the OSStatus values plugins actually return.
@@ -269,7 +291,7 @@ pub fn instantiate_async(c: &Component, out_of_process: bool) -> mpsc::Receiver<
                 let _g = lifecycle.lock().unwrap_or_else(|e| e.into_inner());
                 unsafe { AudioComponentInstanceDispose(inst) };
             }
-            Err(anyhow!("AudioComponentInstantiate failed: OSStatus {st} ({})", status_name(st)))
+            Err(StatusError { status: st, what: "AudioComponentInstantiate" }.into())
         };
         if let Some(tx) = tx.lock().ok().and_then(|mut t| t.take()) {
             // A send error hands the Unit back inside the error, where it drops: disposed.

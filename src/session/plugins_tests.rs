@@ -124,3 +124,82 @@ fn the_soundfont_voice_hands_over_to_the_plugin() {
     let after = energy(&l, &r);
     assert!(after <= before, "only the plugin plays the part's notes (the tail only decays): {after} after, {before} before");
 }
+
+fn saved_id(s: &Session, part: usize) -> Option<String> {
+    s.inner.lock().saved_parts().parts[part].as_ref().map(|v| v.id.clone())
+}
+
+/// A re-pick that fails (here a state blob the plugin rejects) leaves the working plugin
+/// playing and saved; a failed pick with nothing playing keeps its choice as `failed`
+/// (saved, retryable); only `clearPartPlugin` forgets it (#105 review B2, nonblocking 1).
+#[test]
+fn a_failed_load_never_loses_the_parts_plugin() {
+    let Some(s) = session() else { return };
+    s.offline_audio(None, 48_000).unwrap();
+    s.send(PluginCmd::SetPartPlugin { part: 0, id: DLS.into(), state: None }).unwrap();
+    assert_eq!(wait_playing(&s, 0), PluginStatus::Playing);
+    // "junk" in base64: not a property list, so restoring it fails.
+    s.send(PluginCmd::SetPartPlugin { part: 0, id: DLS.into(), state: Some("anVuaw==".into()) }).unwrap();
+    assert_eq!(wait_playing(&s, 0), PluginStatus::Playing, "the working plugin keeps the part");
+    assert!(s.state().message.as_ref().is_some_and(|m| m.error && m.text.contains("keeps playing")));
+    s.midi_in(Port::Keys, &[0x90, 72, 110]);
+    let (l, r) = s.render(4800);
+    assert!(energy(&l, &r) > 1e-3, "and it still sounds");
+    s.midi_in(Port::Keys, &[0x80, 72, 0]);
+    assert_eq!(saved_id(&s, 0).as_deref(), Some(DLS));
+    // Right 2: a failing first pick is kept as failed, saved, and can be picked again.
+    s.send(PluginCmd::SetPartPlugin { part: 1, id: DLS.into(), state: Some("anVuaw==".into()) }).unwrap();
+    assert_eq!(wait_playing(&s, 1), PluginStatus::Failed);
+    let p = s.state().keyboard_parts[1].plugin.clone().unwrap();
+    assert!(p.error.is_some() && p.name == "DLSMusicDevice");
+    assert_eq!(saved_id(&s, 1).as_deref(), Some(DLS), "a failed choice stays saved");
+    // Picking it again (the app's picker sends no state) retries it with the state it
+    // kept, so a restore that timed out or a reinstalled plugin comes back as saved.
+    s.send(PluginCmd::SetPartPlugin { part: 1, id: DLS.into(), state: None }).unwrap();
+    assert_eq!(wait_playing(&s, 1), PluginStatus::Failed, "retried with its kept state");
+    let kept = s.inner.lock().saved_parts().parts[1].as_ref().and_then(|v| v.state.clone());
+    assert_eq!(kept.as_deref(), Some(&b"junk"[..]), "the retry did not throw the saved state away");
+    s.send(PluginCmd::ClearPartPlugin { part: 1 }).unwrap();
+    assert_eq!(saved_id(&s, 1), None, "cleared: forgotten");
+    // After the SoundFont, a pick starts it fresh.
+    s.send(PluginCmd::SetPartPlugin { part: 1, id: DLS.into(), state: None }).unwrap();
+    assert_eq!(wait_playing(&s, 1), PluginStatus::Playing, "fresh");
+}
+
+/// A restore of a plugin that isn't installed shows its id as the name, not a blank.
+#[test]
+fn a_missing_plugin_is_named_by_its_id() {
+    let Some(s) = session() else { return };
+    s.offline_audio(None, 48_000).unwrap();
+    let mut saved = super::Saved::default();
+    saved.parts[2] = Some(super::PluginVoice { id: "aumu Nope Gone".into(), state: None });
+    s.inner.lock().restore_saved(saved);
+    s.advance(1_000_000);
+    let p = s.state().keyboard_parts[2].plugin.clone().unwrap();
+    assert_eq!((p.status, p.name.as_str()), (PluginStatus::Failed, "aumu Nope Gone"));
+}
+
+/// The start-up restore of a plugin that isn't installed (uninstalled, licence missing,
+/// an AUv3 whose app moved) keeps the part's saved choice and state as `failed`, so it
+/// survives the next save; and a restore never falls back to loading in process
+/// (#105 review B2, B3).
+#[test]
+fn a_restore_keeps_a_missing_plugin_and_never_falls_back_in_process() {
+    let Some(s) = session() else { return };
+    s.offline_audio(None, 48_000).unwrap();
+    let mut saved = super::Saved::default();
+    saved.parts[0] = Some(super::PluginVoice { id: "aumu Nope Gone".into(), state: Some(vec![1, 2, 3]) });
+    saved.parts[3] = Some(super::PluginVoice { id: DLS.into(), state: None });
+    {
+        let mut ctl = s.inner.lock();
+        ctl.restore_saved(saved);
+        let ch = crate::parts::CHANNEL[3] as usize;
+        assert!(!ctl.plugins.channels[ch].as_ref().unwrap().allow_fallback, "no in-process fallback at start-up");
+    }
+    assert_eq!(wait_playing(&s, 3), PluginStatus::Playing);
+    let p = s.state().keyboard_parts[0].plugin.clone().unwrap();
+    assert_eq!((p.status, p.id.as_str()), (PluginStatus::Failed, "aumu Nope Gone"));
+    let kept = s.inner.lock().saved_parts();
+    assert_eq!(kept.parts[0].as_ref().map(|v| (v.id.as_str(), v.state.clone())), Some(("aumu Nope Gone", Some(vec![1, 2, 3]))), "the id and state survive");
+    assert_eq!(kept.parts[3].as_ref().map(|v| v.id.as_str()), Some(DLS));
+}

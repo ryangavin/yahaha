@@ -25,10 +25,26 @@ mod rack;
 mod scan;
 mod sys;
 
-pub use host::{LoadConfig, LoadHandle, LoadMode, LoadProgress, PluginHost};
+pub use host::{LoadConfig, LoadHandle, LoadMode, LoadProgress, LoadTimedOut, PluginHost};
+pub use sys::{StatusError, status_of};
 pub use instance::{EditorTarget, LoadTimes, PluginInstance, PluginStats, RenderError, StatsSnapshot};
 pub use rack::{DEFAULT_FADE_FRAMES, PluginRack, RackControl, RackEvent, SLOTS, Swap, balance, dispose_later, rack};
 pub use scan::{LoadRecord, PluginFormat, PluginId, PluginInfo, default_cache_path};
+
+/// Whether a failed **out-of-process** load may be retried in process: only when the
+/// system refused to host the unit out of process at all, i.e. `AudioComponentInstantiate`
+/// failed with `kAudioComponentErr_NotPermitted` (-66748) or `kAudioComponentErr_UnsupportedType`
+/// (-66751). Never after a timeout, a crash or invalidation of the hosting process
+/// (-66749 and the rest), or a failure later in the load (initialising, restoring the
+/// state): the plugin itself failed there, and loading it in process would only bring that
+/// failure (or crash) into yahaha. Typed: it reads [`StatusError`] / [`LoadTimedOut`], never
+/// the message text.
+pub fn may_retry_in_process(e: &anyhow::Error) -> bool {
+    if e.chain().any(|c| c.is::<LoadTimedOut>()) {
+        return false;
+    }
+    matches!(status_of(e), Some(StatusError { status: -66748 | -66751, what: "AudioComponentInstantiate" }))
+}
 
 /// The mixer rule for a part played by a plugin: its CC7 (and CC11) stays the only
 /// per-part volume, applied by the host on the plugin's output with exactly the curve the

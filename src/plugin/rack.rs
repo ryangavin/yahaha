@@ -102,11 +102,22 @@ struct Controllers {
     value: [u8; 128],
     seen: u128,
     bend: Option<[u8; 2]>,
+    /// The parameter selects as last sent (CC101/100 RPN, CC99/98 NRPN; `NONE` unsent).
+    select: [u8; 4],
+    /// An NRPN was selected after the last RPN: data entry goes nowhere we track.
+    nrpn: bool,
+    /// Data entry (CC6, CC38) per RPN 0-2 (pitch bend range, fine and coarse tune), as
+    /// the SoundFont side's `Shadow` keeps it: data entry reaches the RPN selected when it
+    /// comes, so it is kept by RPN and replayed under its own select.
+    rpn: [[u8; 2]; 3],
 }
+
+/// "Not sent" for a select or data byte (MIDI data is 0-127).
+const NONE: u8 = 0xFF;
 
 impl Controllers {
     const fn new() -> Self {
-        Controllers { value: [0; 128], seen: 0, bend: None }
+        Controllers { value: [0; 128], seen: 0, bend: None, select: [NONE; 4], nrpn: false, rpn: [[NONE; 2]; 3] }
     }
 
     /// Controllers that describe the part's playing state (not volume, which the rack owns,
@@ -126,6 +137,19 @@ impl Controllers {
                 self.value[m[1] as usize & 0x7F] = m[2];
                 self.seen |= 1u128 << (m[1] & 0x7F);
             }
+            0xB0 => match m[1] {
+                101 => (self.select[0], self.nrpn) = (m[2], false),
+                100 => (self.select[1], self.nrpn) = (m[2], false),
+                99 => (self.select[2], self.nrpn) = (m[2], true),
+                98 => (self.select[3], self.nrpn) = (m[2], true),
+                6 | 38 => {
+                    let (msb, lsb) = (self.select[0], self.select[1]);
+                    if !self.nrpn && msb == 0 && lsb < 3 {
+                        self.rpn[lsb as usize][(m[1] == 38) as usize] = m[2];
+                    }
+                }
+                _ => {}
+            },
             0xE0 => self.bend = Some([m[1], m[2]]),
             _ => {}
         }
@@ -137,6 +161,29 @@ impl Controllers {
             let cc = seen.trailing_zeros() as u8;
             seen &= seen - 1;
             let _ = inst.midi([0xB0 | ch, cc, self.value[cc as usize]], 0);
+        }
+        // RPN 0-2 under their own select, then the select the channel had (as
+        // `synth::Shadow::replay` does for a new SoundFont).
+        for (n, &[msb, lsb]) in self.rpn.iter().enumerate() {
+            if msb == NONE && lsb == NONE {
+                continue;
+            }
+            let _ = inst.midi([0xB0 | ch, 101, 0], 0);
+            let _ = inst.midi([0xB0 | ch, 100, n as u8], 0);
+            if msb != NONE {
+                let _ = inst.midi([0xB0 | ch, 6, msb], 0);
+            }
+            if lsb != NONE {
+                let _ = inst.midi([0xB0 | ch, 38, lsb], 0);
+            }
+        }
+        // The RPN select as it was (a later CC100 alone then pairs with the right CC101),
+        // then the NRPN select if that came last (data entry goes to it).
+        let n = if self.nrpn { 4 } else { 2 };
+        for (k, cc) in [101u8, 100, 99, 98].into_iter().enumerate().take(n) {
+            if self.select[k] != NONE {
+                let _ = inst.midi([0xB0 | ch, cc, self.select[k]], 0);
+            }
         }
         if let Some([lsb, msb]) = self.bend {
             let _ = inst.midi([0xE0 | ch, lsb, msb], 0);

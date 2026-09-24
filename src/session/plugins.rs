@@ -9,8 +9,10 @@
 //!   playing what it plays (its SoundFont, or a previous plugin) until the load is done;
 //!   the pump then hands the instance to the audio thread's rack and routes the channel to
 //!   it (`route::Source::Plugin`), with a 5 ms crossfade from a previous plugin, or
-//!   All Notes Off on the SoundFont side. A load that fails or times out (20 s) leaves the
-//!   channel on the SoundFont and shows the error ([`Control::channel_plugin`]).
+//!   All Notes Off on the SoundFont side. A load that fails or times out (20 s) leaves a
+//!   plugin that was playing there playing; otherwise the channel plays its SoundFont and
+//!   [`Control::channel_plugin`] shows `Failed` with the error, keeping the choice (saved,
+//!   retryable) until it is picked again or cleared.
 //! - [`Control::clear_channel_plugin`]`(ch)`: back to the SoundFont (a 5 ms fade out).
 //! - [`Control::route_channel_sound_font`]`(ch, font)`: route a channel to SoundFont `font`
 //!   (clearing any plugin there).
@@ -24,7 +26,9 @@
 //! AUHostingService): a crash there silences the part instead of taking the arranger down,
 //! for 5-12 µs of IPC per 64-frame block (docs/plugin-hosting.md, "Measured"). Apple's
 //! own units load in process; AUv3 extensions run out of process as macOS decides. A
-//! third-party plugin that fails out of process is retried in process once.
+//! plugin the system refuses to host out of process (a typed status, see
+//! `plugin::may_retry_in_process`) is retried in process once; never one that timed out or
+//! crashed its host, and never during the start-up restore.
 //!
 //! **Persistence.** A live session keeps the keyboard parts' plugins (id and state) in
 //! `~/Library/Application Support/yahaha/plugin-parts.json` and loads them again at start.
@@ -62,9 +66,9 @@ mod b64opt {
 /// The saved keyboard parts' plugins.
 #[cfg(feature = "plugins")]
 #[derive(Debug, Default, Serialize, Deserialize)]
-struct Saved {
+pub(crate) struct Saved {
     /// By part index (0 = Right 1, 1 = Right 2, 2 = Right 3, 3 = Left).
-    parts: [Option<PluginVoice>; parts::COUNT],
+    pub(crate) parts: [Option<PluginVoice>; parts::COUNT],
 }
 
 #[cfg(feature = "plugins")]
@@ -102,11 +106,39 @@ mod imp {
         pub(crate) cpu: f32,
         /// (total ns, frames) at the last CPU reading.
         pub(crate) last: (u64, u64),
+        /// A load the system refuses to host out of process may be retried in process
+        /// (`plugin::may_retry_in_process`). Never for the start-up restore.
+        pub(crate) allow_fallback: bool,
     }
 
-    /// A plugin still playing while its replacement loads: voice, info, editor, stats,
-    /// out of process.
-    pub(crate) type Playing = (PluginVoice, Option<PluginInfo>, Option<EditorTarget>, Option<Arc<PluginStats>>, bool);
+    impl ChannelPlugin {
+        /// A plugin that is not loaded: a failed pick or restore. It keeps the voice (and
+        /// its saved state) so the part's choice survives until `clearPartPlugin`.
+        fn failed(voice: PluginVoice, info: Option<PluginInfo>, error: String) -> ChannelPlugin {
+            ChannelPlugin {
+                voice,
+                info,
+                load: None,
+                mode: LoadMode::Auto,
+                status: PluginStatus::Failed,
+                stage: None,
+                error: Some(error),
+                editor: None,
+                stats: None,
+                out_of_process: false,
+                cpu: 0.0,
+                last: (0, 0),
+                allow_fallback: false,
+            }
+        }
+
+        fn name(&self) -> String {
+            self.info.as_ref().map_or_else(|| self.voice.id.clone(), |i| i.name.clone())
+        }
+    }
+
+    /// The largest plugin state accepted (a sampler's full state can be several MB).
+    pub(crate) const MAX_STATE_BYTES: usize = 64 << 20;
 
     #[derive(Default)]
     pub(crate) struct PluginCtl {
@@ -115,7 +147,7 @@ mod imp {
         pub(crate) scan_rx: Option<mpsc::Receiver<Result<Vec<PluginInfo>, String>>>,
         pub(crate) channels: [Option<ChannelPlugin>; 16],
         /// A channel whose plugin was playing and is loading another: the one playing.
-        pub(crate) playing: [Option<Playing>; 16],
+        pub(crate) playing: [Option<ChannelPlugin>; 16],
         pub(crate) stats_ns: u64,
         /// The last autosave of the parts' plugin states.
         pub(crate) autosave_ns: u64,
@@ -152,8 +184,25 @@ mod imp {
         /// once: the pump finishes the job. Err if it can't even start (no synth, an
         /// unknown plugin id).
         pub(crate) fn assign_channel_plugin(&mut self, ch: u8, voice: PluginVoice) -> Result<(), String> {
+            self.assign_channel_plugin_with(ch, voice, true)
+        }
+
+        fn assign_channel_plugin_with(&mut self, ch: u8, mut voice: PluginVoice, allow_fallback: bool) -> Result<(), String> {
             let ch = ch & 15;
             self.plugin_ready()?;
+            // Picking a failed plugin again (the app sends no state) retries it with the
+            // state it kept: a restore that timed out, or a plugin reinstalled since, comes
+            // back as it was saved instead of fresh. Back to the SoundFont first starts it fresh.
+            if voice.state.is_none()
+                && let Some(prev) = self.plugins.channels[ch as usize].as_ref()
+                && prev.status == PluginStatus::Failed
+                && prev.voice.id == voice.id
+            {
+                voice.state = prev.voice.state.clone();
+            }
+            if voice.state.as_ref().is_some_and(|s| s.len() > MAX_STATE_BYTES) {
+                return Err(format!("the plugin state is larger than {} MB", MAX_STATE_BYTES >> 20));
+            }
             let id = PluginId::parse(&voice.id).ok_or_else(|| format!("{:?} is not a plugin id", voice.id))?;
             let host = self.plugins.host();
             let info = host.info(&id).map_err(|e| format!("{e:#}"))?;
@@ -161,11 +210,14 @@ mod imp {
             let rate = self.synth.as_ref().map_or(48_000, |s| s.info.sample_rate) as f64;
             let cfg = LoadConfig { sample_rate: rate, max_frames: crate::synth::PLUGIN_MAX_BLOCK as u32, state: voice.state.clone(), mode, timeout: Duration::from_secs(20) };
             let load = host.load_async(&id, cfg).map_err(|e| format!("{e:#}"))?;
-            // What plays now keeps playing until the new one is ready.
+            // What is in the rack now (playing, or muted by a fault) stays there until the
+            // new one is ready: it keeps playing, and comes back if the new one fails. A
+            // quick re-pick while loading keeps the one from before the first pick.
             if let Some(prev) = self.plugins.channels[ch as usize].take()
-                && prev.status == PluginStatus::Playing
+                && matches!(prev.status, PluginStatus::Playing | PluginStatus::Muted)
+                && self.plugins.playing[ch as usize].is_none()
             {
-                self.plugins.playing[ch as usize] = Some((prev.voice, prev.info, prev.editor, prev.stats, prev.out_of_process));
+                self.plugins.playing[ch as usize] = Some(prev);
             }
             self.plugins.channels[ch as usize] = Some(ChannelPlugin {
                 voice,
@@ -180,6 +232,7 @@ mod imp {
                 out_of_process: false,
                 cpu: 0.0,
                 last: (0, 0),
+                allow_fallback,
             });
             Ok(())
         }
@@ -201,7 +254,11 @@ mod imp {
         /// The editor handle of channel `ch`'s playing plugin (for the app's main thread).
         pub(crate) fn channel_editor(&self, ch: u8) -> Option<EditorTarget> {
             let c = self.plugins.channels[(ch & 15) as usize].as_ref()?;
-            if c.status == PluginStatus::Playing { c.editor.clone() } else { self.plugins.playing[(ch & 15) as usize].as_ref()?.2.clone() }
+            if c.status == PluginStatus::Playing {
+                c.editor.clone()
+            } else {
+                self.plugins.playing[(ch & 15) as usize].as_ref().filter(|p| p.status == PluginStatus::Playing)?.editor.clone()
+            }
         }
 
         /// Read channel `ch`'s playing plugin's state into its voice (and save it).
@@ -215,7 +272,8 @@ mod imp {
 
         pub(crate) fn channel_plugin_state(&self, ch: u8) -> Option<PartPlugin> {
             let c = self.plugins.channels[(ch & 15) as usize].as_ref()?;
-            let (name, manufacturer) = c.info.as_ref().map(|i| (i.name.clone(), i.manufacturer.clone())).unwrap_or_default();
+            // A plugin that isn't installed (a failed restore) has no info: its id names it.
+            let (name, manufacturer) = (c.name(), c.info.as_ref().map(|i| i.manufacturer.clone()).unwrap_or_default());
             let overruns = c.stats.as_ref().map_or(0, |s| s.overruns.load(std::sync::atomic::Ordering::Relaxed));
             Some(PartPlugin {
                 id: c.voice.id.clone(),
@@ -295,13 +353,18 @@ mod imp {
                 None => Vec::new(),
             };
             for e in events {
-                if let RackEvent::Fault { channel, error } = e
-                    && let Some(c) = self.plugins.channels[channel as usize].as_mut()
-                    && c.status == PluginStatus::Playing
-                {
+                let RackEvent::Fault { channel, error } = e else { continue };
+                let ch = channel as usize;
+                // The instance in the rack: the channel's, or the one playing while a
+                // replacement loads.
+                let c = match self.plugins.channels[ch].as_mut() {
+                    Some(c) if c.status == PluginStatus::Playing => Some(c),
+                    _ => self.plugins.playing[ch].as_mut().filter(|p| p.status == PluginStatus::Playing),
+                };
+                if let Some(c) = c {
                     c.status = PluginStatus::Muted;
                     c.error = Some(format!("{error}"));
-                    let name = c.info.as_ref().map_or_else(|| c.voice.id.clone(), |i| i.name.clone());
+                    let name = c.name();
                     self.say(format!("{name} stopped working; the part is muted. Choose it again or go back to the SoundFont voice."), true);
                 }
             }
@@ -384,8 +447,10 @@ mod imp {
                 }
                 Err(e) => {
                     let msg = format!("{e:#}");
-                    // A third-party plugin that won't run in Apple's host: once in process.
-                    if c.mode == LoadMode::OutOfProcess && !msg.contains("within") {
+                    // Only a plugin the system refuses to host out of process at all is
+                    // tried once in process; never one that crashed or hung there, and
+                    // never during the start-up restore (#105 review B3).
+                    if c.mode == LoadMode::OutOfProcess && c.allow_fallback && crate::plugin::may_retry_in_process(&e) {
                         let voice = c.voice.clone();
                         if let Some(id) = PluginId::parse(&voice.id) {
                             let rate = self.synth.as_ref().map_or(48_000, |s| s.info.sample_rate) as f64;
@@ -405,50 +470,48 @@ mod imp {
         }
 
         fn channel_load_failed(&mut self, ch: u8, msg: String) {
-            // Whatever played before (a previous plugin) is cleared: the part goes back to
-            // its SoundFont voice, and shows why.
-            let prev = self.plugins.playing[ch as usize].take();
-            if prev.is_some()
-                && let Some(link) = self.synth.as_mut().and_then(|s| s.plugins.as_mut())
-            {
-                link.clear(ch, DEFAULT_FADE_FRAMES);
+            let Some(failed) = self.plugins.channels[ch as usize].take() else { return };
+            let name = failed.name();
+            match self.plugins.playing[ch as usize].take() {
+                // A working plugin was playing: it keeps the part (and stays saved).
+                Some(prev) if prev.status == PluginStatus::Playing => {
+                    self.say(format!("{name} didn't load ({msg}); {} keeps playing", prev.name()), true);
+                    self.plugins.channels[ch as usize] = Some(prev);
+                }
+                // Nothing that plays: back to the SoundFont (clearing a faulted instance),
+                // keeping the failed choice so it can be retried and is not forgotten.
+                prev => {
+                    if prev.is_some()
+                        && let Some(link) = self.synth.as_mut().and_then(|s| s.plugins.as_mut())
+                    {
+                        link.clear(ch, DEFAULT_FADE_FRAMES);
+                    }
+                    if let Some(sy) = &self.synth
+                        && sy.control.routes.source(ch) == Source::Plugin
+                    {
+                        sy.control.routes.set(ch, Source::SoundFont(0));
+                    }
+                    self.say(format!("{name} didn't load: {msg}"), true);
+                    self.plugins.channels[ch as usize] = Some(ChannelPlugin::failed(failed.voice, failed.info, msg));
+                }
             }
-            if let Some(sy) = &self.synth
-                && sy.control.routes.source(ch) == Source::Plugin
-            {
-                sy.control.routes.set(ch, Source::SoundFont(0));
-            }
-            let Some(c) = self.plugins.channels[ch as usize].as_mut() else { return };
-            c.status = PluginStatus::Failed;
-            c.error = Some(msg.clone());
-            let name = c.info.as_ref().map_or_else(|| c.voice.id.clone(), |i| i.name.clone());
-            self.say(format!("{name} didn't load: {msg}"), true);
+            self.plugins.dirty |= parts::part_of_channel(ch).is_some();
         }
 
         /// The parts' plugins as saved (their last saved state).
-        fn saved_parts(&self) -> Saved {
+        pub(crate) fn saved_parts(&self) -> Saved {
             let mut s = Saved::default();
             for p in 0..parts::COUNT {
-                s.parts[p] = self.plugins.channels[parts::CHANNEL[p] as usize]
-                    .as_ref()
-                    .filter(|c| c.status != PluginStatus::Failed)
-                    .map(|c| c.voice.clone());
+                // Whatever its status: only `clearPartPlugin` forgets a part's plugin. A
+                // loading replacement is saved as the choice; the one it replaces is kept
+                // in `playing` and comes back to the channel if the load fails.
+                s.parts[p] = self.plugins.channels[parts::CHANNEL[p] as usize].as_ref().map(|c| c.voice.clone());
             }
             s
         }
 
         fn save_plugin_parts(&self) {
-            let Some(path) = saved_path() else { return };
-            let s = self.saved_parts();
-            if let Some(dir) = path.parent() {
-                let _ = std::fs::create_dir_all(dir);
-            }
-            if let Ok(json) = serde_json::to_string_pretty(&s) {
-                let tmp = path.with_extension("json.tmp");
-                if std::fs::write(&tmp, json).is_ok() {
-                    let _ = std::fs::rename(&tmp, &path);
-                }
-            }
+            write_saved(&self.saved_parts());
         }
 
         /// A live session's start: the plugin list, and the parts' saved plugins.
@@ -457,12 +520,34 @@ mod imp {
                 return;
             }
             self.start_plugin_scan(false);
-            let Some(saved) = saved_path().and_then(|p| std::fs::read(p).ok()).and_then(|b| serde_json::from_slice::<Saved>(&b).ok()) else { return };
+            let Some(path) = saved_path() else { return };
+            let Ok(bytes) = std::fs::read(&path) else { return };
+            let saved = match serde_json::from_slice::<Saved>(&bytes) {
+                Ok(s) => s,
+                Err(e) => {
+                    // Keep the file for the user (it may be recoverable) rather than
+                    // overwriting it with nothing on the next save.
+                    let bak = path.with_extension("json.bak");
+                    let _ = std::fs::rename(&path, &bak);
+                    self.say(format!("the saved plugin parts could not be read ({e}); moved to {}", bak.display()), true);
+                    return;
+                }
+            };
+            self.restore_saved(saved);
+        }
+
+        /// Load the saved parts' plugins (the start-up restore).
+        pub(crate) fn restore_saved(&mut self, saved: Saved) {
             for (p, v) in saved.parts.into_iter().enumerate() {
-                if let Some(v) = v
-                    && let Err(e) = self.assign_channel_plugin(parts::CHANNEL[p], v)
-                {
+                let Some(v) = v else { continue };
+                let ch = parts::CHANNEL[p];
+                // No in-process fallback here: a plugin that crashed its host process last
+                // time must not take yahaha down at every start.
+                if let Err(e) = self.assign_channel_plugin_with(ch, v.clone(), false) {
                     self.say(format!("{}: {e}", parts::NAMES[p]), true);
+                    // Kept (not forgotten) so a reinstalled plugin can be picked again with
+                    // its saved state.
+                    self.plugins.channels[ch as usize] = Some(ChannelPlugin::failed(v, None, e));
                 }
             }
         }
@@ -496,12 +581,21 @@ mod imp {
                     }
                 }
             }
-            let Some(path) = saved_path() else { return };
-            if let Some(dir) = path.parent() {
-                let _ = std::fs::create_dir_all(dir);
-            }
-            if let Ok(json) = serde_json::to_string_pretty(&saved) {
-                let _ = std::fs::write(path, json);
+            write_saved(&saved);
+        }
+    }
+
+    /// Write the saved parts atomically (a temporary file, then a rename), so a crash mid
+    /// write never leaves a truncated file.
+    fn write_saved(s: &Saved) {
+        let Some(path) = saved_path() else { return };
+        if let Some(dir) = path.parent() {
+            let _ = std::fs::create_dir_all(dir);
+        }
+        if let Ok(json) = serde_json::to_string_pretty(s) {
+            let tmp = path.with_extension("json.tmp");
+            if std::fs::write(&tmp, json).is_ok() {
+                let _ = std::fs::rename(&tmp, &path);
             }
         }
     }
@@ -558,6 +652,8 @@ impl Control {
         match c {
             PluginCmd::SetPartPlugin { part, id, state } => {
                 let state = match state.as_deref().filter(|s| !s.is_empty()) {
+                    // 64 MB of state (base64 is 4/3 of it): refuse before decoding.
+                    Some(s) if s.len() > (64usize << 20) / 3 * 4 + 4 => return self.fail("the plugin state is larger than 64 MB"),
                     Some(s) => match base64_decode(s) {
                         Some(b) => Some(b),
                         None => return self.fail("the plugin state is not base64"),
