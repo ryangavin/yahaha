@@ -25,7 +25,16 @@ pub(super) struct Pads {
     seq: u64,
     /// A rescan of the bank files running on a thread of its own (started with the style
     /// library's `RescanLibrary`).
-    scan_rx: Option<mpsc::Receiver<Vec<BankFile>>>,
+    scan_rx: Option<mpsc::Receiver<Scan>>,
+    /// Banks loaded by path (`LoadMultiPadPath`): a rescan keeps them listed while their
+    /// file is there, although they are outside the style folders it walks.
+    added: Vec<PathBuf>,
+}
+
+/// A finished bank rescan: the files under the roots, and the by-path banks still there.
+struct Scan {
+    found: Vec<BankFile>,
+    added: Vec<PathBuf>,
 }
 
 #[derive(Clone)]
@@ -39,12 +48,16 @@ impl Pads {
     /// The bank files under `roots`, as the start of a session finds them.
     pub(super) fn scan(roots: &[PathBuf]) -> Pads {
         let mut p = Pads::default();
-        p.merge(library::scan(roots));
+        p.merge(Scan { found: library::scan(roots), added: Vec::new() });
         p
     }
 
-    /// A new scan: files still there keep their ids, new ones get new ids.
-    fn merge(&mut self, found: Vec<BankFile>) {
+    /// A new scan: files still there keep their ids, new ones get new ids. Banks loaded by
+    /// path outside the roots stay (after the scanned ones) while their file is there, and
+    /// the bank loaded or on its way to the engine always stays: `multiPad.bank.id` must
+    /// name a listed bank.
+    fn merge(&mut self, scan: Scan) {
+        let Scan { found, added } = scan;
         let mut out = Vec::with_capacity(found.len());
         for f in found {
             let id = match self.banks.iter().find(|(_, b)| b.path == f.path) {
@@ -56,6 +69,15 @@ impl Pads {
             };
             out.push((id, f));
         }
+        let live: Vec<usize> =
+            [&self.loaded, &self.pending].into_iter().flatten().filter_map(|l| l.bank.as_ref().map(|b| b.0)).collect();
+        for (id, b) in std::mem::take(&mut self.banks) {
+            let listed = out.iter().any(|(_, f)| f.path == b.path);
+            if !listed && (added.contains(&b.path) || live.contains(&id)) {
+                out.push((id, b));
+            }
+        }
+        self.added = added;
         self.banks = out;
     }
 
@@ -95,6 +117,7 @@ impl Control {
                 let id = self.multipad.next_id;
                 self.multipad.next_id += 1;
                 self.multipad.banks.push((id, f.clone()));
+                self.multipad.added.push(f.path.clone());
                 return self.send_parsed(id, f, &bank);
             }
             MultiPadCmd::ClearMultiPad => return self.send_bank(None, None),
@@ -156,8 +179,12 @@ impl Control {
             return;
         }
         let roots = self.roots.clone();
+        let mut added = self.multipad.added.clone();
         let (tx, rx) = mpsc::channel();
-        let scan = move || drop(tx.send(library::scan(&roots)));
+        let scan = move || {
+            added.retain(|p| p.is_file());
+            drop(tx.send(Scan { found: library::scan(&roots), added }))
+        };
         if std::thread::Builder::new().name("yahaha-pad-scan".into()).spawn(scan).is_ok() {
             self.multipad.scan_rx = Some(rx);
         }

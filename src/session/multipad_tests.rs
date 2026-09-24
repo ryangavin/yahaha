@@ -167,3 +167,57 @@ fn a_rescan_finds_new_banks_and_keeps_ids() {
     assert_eq!(st.multi_pad.banks.iter().find(|b| b.name == "Demo").map(|b| b.id), Some(id));
     let _ = std::fs::remove_dir_all(dir);
 }
+
+/// Rescan, and wait until the bank list names `marker` (a file just added under the root).
+fn rescan_until(s: &Session, marker: &str) -> Vec<(usize, String)> {
+    s.send(LibraryCmd::RescanLibrary).unwrap();
+    for _ in 0..400 {
+        s.advance(10 * MS);
+        if s.state().multi_pad.banks.iter().any(|b| b.name == marker) {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    s.state().multi_pad.banks.iter().map(|b| (b.id, b.name.clone())).collect()
+}
+
+#[test]
+fn a_rescan_keeps_banks_loaded_by_path_outside_the_roots() {
+    let Some((s, dir)) = setup("outside") else { return };
+    let out = std::env::temp_dir().join(format!("yahaha-mp-outside-x-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&out);
+    std::fs::create_dir_all(&out).unwrap();
+    std::fs::write(out.join("Elsewhere.pad"), synthetic::demo_bank()).unwrap();
+    std::fs::write(out.join("Spare.pad"), synthetic::demo_bank()).unwrap();
+    // Spare is loaded by path, then Elsewhere: Elsewhere is the bank loaded.
+    for n in ["Spare", "Elsewhere"] {
+        s.send(MultiPadCmd::LoadMultiPadPath { path: out.join(format!("{n}.pad")).display().to_string() }).unwrap();
+    }
+    let before: Vec<(usize, String)> = s.state().multi_pad.banks.iter().map(|b| (b.id, b.name.clone())).collect();
+    let names = |v: &[(usize, String)]| v.iter().map(|b| b.1.clone()).collect::<Vec<_>>();
+    assert_eq!(names(&before), ["Demo", "Spare", "Elsewhere"]);
+    let elsewhere = before[2].0;
+
+    std::fs::write(dir.join("Pads/Added.pad"), synthetic::demo_bank()).unwrap();
+    let after = rescan_until(&s, "Added");
+    assert_eq!(names(&after), ["Added", "Demo", "Spare", "Elsewhere"], "by-path banks stay listed");
+    for b in &before {
+        assert!(after.contains(b), "{b:?} keeps its id: {after:?}");
+    }
+    assert_eq!(s.state().multi_pad.bank.as_ref().map(|b| b.id), Some(elsewhere));
+    // Loading it again by path finds it: same id, no second entry.
+    s.send(MultiPadCmd::LoadMultiPadPath { path: out.join("Elsewhere.pad").display().to_string() }).unwrap();
+    assert_eq!(s.state().multi_pad.banks.len(), 4);
+    assert_eq!(s.state().multi_pad.bank.as_ref().map(|b| b.id), Some(elsewhere));
+
+    // A by-path bank whose file is gone drops out; the loaded one stays even without its file.
+    std::fs::remove_file(out.join("Spare.pad")).unwrap();
+    std::fs::remove_file(out.join("Elsewhere.pad")).unwrap();
+    std::fs::write(dir.join("Pads/Later.pad"), synthetic::demo_bank()).unwrap();
+    let last = rescan_until(&s, "Later");
+    assert_eq!(names(&last), ["Added", "Demo", "Later", "Elsewhere"], "{last:?}");
+    assert!(last.contains(&(elsewhere, "Elsewhere".into())));
+    assert_eq!(s.state().multi_pad.bank.as_ref().map(|b| b.id), Some(elsewhere));
+    let _ = std::fs::remove_dir_all(dir);
+    let _ = std::fs::remove_dir_all(out);
+}

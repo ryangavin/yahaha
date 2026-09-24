@@ -71,7 +71,9 @@ engine thread never allocates or frees for pads (`tests/multipad_no_alloc.rs`).
 - **Bank list.** Every `.pad` file under the style folders (`library.roots`), found by the
   same walk as the styles and refreshed by `rescanLibrary` (on a thread of its own).
   `loadMultiPadPath` loads any file (Registration can use it); a file outside the library
-  joins the list only once it has loaded.
+  joins the list only once it has loaded, and a rescan keeps it (after the scanned files,
+  with its id) while its file is there. The bank loaded always stays listed, so
+  `multiPad.bank.id` names a listed bank.
 
 ## Decisions (where the manuals are silent)
 
