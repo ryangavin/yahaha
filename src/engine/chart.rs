@@ -183,7 +183,7 @@ impl Engine {
             self.set_bpm_internal(bpm, now);
         }
         // What the old plan queued for the next bar line is not the new plan's.
-        self.chart_unqueue();
+        let due = self.chart_unqueue(now);
         let len = plan.bars.len() as u32;
         let fresh = plan.fresh;
         let c = &mut self.features.chart;
@@ -201,7 +201,7 @@ impl Engine {
                 self.main = b.main;
             }
         }
-        self.chart_requeue(now);
+        self.chart_requeue(now, due);
         old
     }
 
@@ -209,36 +209,41 @@ impl Engine {
     /// takes back what the chart queued); new settings (a loop, an Ending) queue the next
     /// bar line again.
     pub fn set_chart_settings(&mut self, s: ChartSettings, now: u64) {
-        self.chart_unqueue();
+        let due = self.chart_unqueue(now);
         let c = &mut self.features.chart;
         c.settings = s;
         if !s.on {
             c.bar = None;
             c.overridden = false;
         }
-        self.chart_requeue(now);
+        self.chart_requeue(now, due);
     }
 
     /// Take back the change the chart queued, if it is still the one queued (the player may
-    /// have queued another since), and the Main it selected.
-    fn chart_unqueue(&mut self) {
-        let Some((q, main)) = self.features.chart.owned.take() else { return };
+    /// have queued another since), and the Main it selected. Returns its bar line if that
+    /// line has come already (`now` is a hair past it, and `process` hasn't got to it): the
+    /// change for that line is planned again, not moved to the line after.
+    fn chart_unqueue(&mut self, now: u64) -> Option<f64> {
+        let (q, main) = self.features.chart.owned.take()?;
         if self.queued.is_some_and(|cur| id_of(cur.slot) == id_of(q.slot) || cur.slot == usize::MAX && q.slot == usize::MAX) {
             self.queued = None;
             self.main = main;
+            return (self.running && q.at <= self.tick_at(now) + 1e-6).then_some(q.at);
         }
+        None
     }
 
-    /// Queue the next bar line's change again (a new plan or new settings mid-bar), while
-    /// the chart plays a Main, fill or break.
-    fn chart_requeue(&mut self, now: u64) {
+    /// Queue the change again (a new plan or new settings), while the chart plays a Main,
+    /// fill or break: for the bar line `due` when it has come and `process` hasn't got to it
+    /// yet, else for the next bar line.
+    fn chart_requeue(&mut self, now: u64, due: Option<f64>) {
         if !self.running || !self.chart_active() || self.queued.is_some() {
             return;
         }
         if matches!(id_of(self.cur), SectionId::Intro(_) | SectionId::Ending(_)) {
             return;
         }
-        let end = self.next_bar(now);
+        let end = due.unwrap_or_else(|| self.next_bar(now));
         self.chart_queue(end);
     }
 
@@ -329,10 +334,15 @@ impl Engine {
         // A change the chart queued for a later line (settings changed just before this
         // one) is replaced by this bar's; one for this line has happened.
         match self.features.chart.owned {
-            Some((q, _)) if q.at > line + 1e-6 => self.chart_unqueue(),
+            Some((q, _)) if q.at > line + 1e-6 => {
+                let _ = self.chart_unqueue(now);
+            }
             _ => self.features.chart.owned = None,
         }
-        self.chart_queue(line + tpb);
+        // A change the player queued for a later line (not the chart's) stays.
+        if self.queued.is_none() {
+            self.chart_queue(line + tpb);
+        }
     }
 
     /// Queue the change for the bar line at tick `end`, after the plan bar playing (None:
@@ -800,6 +810,53 @@ mod tests {
             // The next bar's chord still comes on its bar line.
             assert_eq!(around(&mut e, 1, 0.0).1, "C", "{chart}");
         }
+    }
+
+    /// New settings or a new plan a hair after a bar line, before `process` has got to it:
+    /// the change the chart queued for that line still happens there.
+    #[test]
+    fn a_command_just_after_the_line_keeps_its_section_change() {
+        for new_plan in [false, true] {
+            let Some(mut e) = engine() else { return };
+            e.button(Button::AutoFill, 0, &mut Nop);
+            e.set_chart(plan("*A[C |C ]*B[F |F Z", 1), 0);
+            e.set_chart_settings(settings(None, None), 0);
+            start(&mut e);
+            let line = e.ns_at_bar(2);
+            let (_, _) = play(&mut e, 0, 1);
+            e.process(line - 1_000_000, &mut Nop);
+            assert_eq!(e.snapshot(line - 1_000_000).queued, Some(SectionId::Main(1)));
+            // The line has come; the engine hasn't woken for it yet.
+            let t = line + 1_000;
+            if new_plan {
+                let _ = e.set_chart(plan("*A[C |C ]*B[F |F Z", 2), t);
+            } else {
+                e.set_chart_settings(ChartSettings { loop_range: Some((0, 4)), ..settings(None, None) }, t);
+            }
+            let (lines, _) = play(&mut e, t, 1);
+            assert!(at(&lines, 2).iter().all(|l| l.section == "Main B" && l.chord == "F"), "new plan {new_plan}: {lines:?}");
+            assert_eq!(at(&lines, 2)[0].sbar, 0, "{lines:?}");
+        }
+    }
+
+    /// An Ending the player presses a hair after a bar line, before `process` has got to
+    /// it, is not replaced by the chart's next change.
+    #[test]
+    fn an_ending_pressed_just_after_the_line_plays() {
+        let Some(mut e) = engine() else { return };
+        e.button(Button::AutoFill, 0, &mut Nop);
+        e.set_chart(plan("*A[C |C ]*B[F |F |F |F Z", 1), 0);
+        e.set_chart_settings(settings(None, None), 0);
+        start(&mut e);
+        let line = e.ns_at_bar(2);
+        let _ = play(&mut e, 0, 1);
+        e.process(line - 1_000_000, &mut Nop);
+        let t = line + 1_000;
+        e.button(Button::Ending(0), t, &mut Nop);
+        // And new settings in the same window.
+        e.set_chart_settings(ChartSettings { loop_range: Some((0, 6)), ..settings(None, None) }, t + 1_000);
+        let (lines, _) = play(&mut e, t, 3);
+        assert!(lines.iter().any(|l| l.section == "Ending A"), "{lines:?}");
     }
 
     #[test]
