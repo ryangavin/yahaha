@@ -24,8 +24,13 @@ fn main() -> Result<()> {
         Some("screen") => ui::screen_html(std::path::Path::new(&args[2]), std::path::Path::new(&args[3]))?,
         Some("bench") => bench::run(std::path::Path::new(&args[2]), args.get(3).and_then(|s| s.parse().ok()))?,
         Some("state-json") => state_json(&args[2..])?,
+        Some("pad") => {
+            for p in &args[2..] {
+                pad_dump(&PathBuf::from(p))?;
+            }
+        }
         _ => eprintln!(
-            "usage:\n  yahaha play <style or folder>... [--split F#2] [--input <name>] [--all-inputs] [--no-pads] [--sf2 file | --no-synth] [--palette-leds] [--audio-out 11]\n      [--fingering single|multi|fingered|on-bass|ai|full|ai-full] [--upper [--no-manual-bass]] [--transpose N] [--master-transpose N]\n  yahaha bench <style> [spin_us]\n  yahaha sim <style> <\"C Am F G7\" | script file>\n  yahaha capture-kit <out-dir> [--clock-ppm N] [style]...\n  yahaha capture-import <recording.mid> <style> [--tolerance-ms N] [--offset-ms N] [--clock-ppm N] [--listing FILE] [--golden DIR [--force]]\n  yahaha oracle <style or folder>... [--pairs | --scores | --diff scores.txt]\n  yahaha dump <style>...\n  yahaha state-json <style or folder> [\"C Am\"] [--library]"
+            "usage:\n  yahaha play <style or folder>... [--split F#2] [--input <name>] [--all-inputs] [--no-pads] [--sf2 file | --no-synth] [--palette-leds] [--audio-out 11]\n      [--fingering single|multi|fingered|on-bass|ai|full|ai-full] [--upper [--no-manual-bass]] [--transpose N] [--master-transpose N]\n  yahaha bench <style> [spin_us]\n  yahaha sim <style> <\"C Am F G7\" | script file>\n  yahaha capture-kit <out-dir> [--clock-ppm N] [style]...\n  yahaha capture-import <recording.mid> <style> [--tolerance-ms N] [--offset-ms N] [--clock-ppm N] [--listing FILE] [--golden DIR [--force]]\n  yahaha oracle <style or folder>... [--pairs | --scores | --diff scores.txt]\n  yahaha dump <style>...\n  yahaha pad <multi pad bank.pad>...\n  yahaha state-json <style or folder> [\"C Am\"] [--library]"
         ),
     }
     Ok(())
@@ -67,6 +72,34 @@ fn dump(path: &std::path::Path) -> Result<()> {
     }
     for (id, d) in &s.other_chunks {
         println!("  chunk {id} ({} bytes)", d.len());
+    }
+    Ok(())
+}
+
+/// `yahaha pad <bank.pad>`: what the Multi Pad parser makes of a bank (src/multipad/file.rs;
+/// the .pad layout is provisional, so unknown chunks are shown raw).
+fn pad_dump(path: &std::path::Path) -> Result<()> {
+    use yahaha::multipad::PadBank;
+    let b = PadBank::load(path)?;
+    println!("{}  {:?}  {:.0} bpm  {}/{}  ppq {}", if b.name.is_empty() { "(no name)" } else { &b.name },
+        b.layout, b.bpm(), b.timesig.0, b.timesig.1, b.ppq);
+    let flag = |f: Option<bool>| match f { Some(true) => "on", Some(false) => "off", None => "?" };
+    for (i, pad) in b.pads.iter().enumerate() {
+        let Some(p) = pad else {
+            println!("  pad {}  (empty)", i + 1);
+            continue;
+        };
+        println!("  pad {}  {:<10} ch {:>2}  {:>4} notes  {:>6} ticks ({:.2} beats)  repeat {}  chord match {}",
+            i + 1, p.name, p.channel + 1, p.notes(), p.len, p.len as f64 / b.ppq as f64, flag(p.repeat), flag(p.chord_match));
+        if let Some(r) = &p.rule {
+            let z = &r.zones[1];
+            println!("         rule: src {} type {} {:?}/{:?} hk {} lim {}..{} {:?}",
+                yahaha::theory::NOTE_NAMES[r.src_root as usize % 12], r.src_type, z.ntr, z.ntt, z.high_key, z.lo, z.hi, z.rtr);
+        }
+    }
+    for (id, d) in &b.other_chunks {
+        let head: Vec<String> = d.iter().take(16).map(|x| format!("{x:02x}")).collect();
+        println!("  chunk {id} ({} bytes) {}", d.len(), head.join(" "));
     }
     Ok(())
 }

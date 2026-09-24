@@ -15,6 +15,7 @@ pub mod launchkey;
 pub mod library;
 pub mod live;
 pub mod midi;
+pub mod multipad;
 pub mod oracle;
 pub mod parts;
 #[cfg(test)]
