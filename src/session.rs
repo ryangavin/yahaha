@@ -645,6 +645,17 @@ impl Control {
                 dropped.push(slot);
             }
         }
+        // Queue the releases before a new source can take a freed slot: the input thread
+        // applies them before that source's first packet, so they never release its keys.
+        for slot in dropped {
+            if self.shared.src_held[slot].load(Relaxed) > 0 {
+                // The input thread releases the keys (and the chord) on its next message;
+                // the notes stop now.
+                let _ = self.release_tx.push(slot as u8);
+                let _ = self.engine_cmd(Cmd::KeysOff);
+            }
+        }
+        let Some(m) = self.midi.as_mut() else { return };
         for e in want {
             if m.slots.iter().flatten().any(|(x, _)| *x == e) {
                 continue;
@@ -665,14 +676,6 @@ impl Control {
                 pads: is_daw(n),
             })
             .collect();
-        for slot in dropped {
-            if self.shared.src_held[slot].load(Relaxed) > 0 {
-                // The input thread releases the keys (and the chord) on its next message;
-                // the notes stop now.
-                let _ = self.release_tx.push(slot as u8);
-                let _ = self.engine_cmd(Cmd::KeysOff);
-            }
-        }
     }
 
     fn apply(&mut self, cmd: AppCmd) -> Result<(), CmdError> {

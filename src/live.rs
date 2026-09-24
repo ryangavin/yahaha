@@ -1088,7 +1088,15 @@ fn apply(engine: &mut Engine, parts: &Parts, cmd: Cmd, now: u64, out: &mut Out) 
         Cmd::Transpose(t) => engine.set_transpose(t, now, out),
         Cmd::StopAudition => {}
         Cmd::KeysOff => {
+            // The source's pedal, wheels and pressure went to every keyboard part too, and
+            // its releases will never come: with the pedal left down, All Notes Off would
+            // only move the notes to the pedal (they ring on, and so does everything
+            // played after).
             for ch in parts::CHANNEL {
+                out.push(&[0xB0 | ch, 64, 0]);
+                out.push(&[0xB0 | ch, 1, 0]);
+                out.push(&[0xE0 | ch, 0x00, 0x40]);
+                out.push(&[0xD0 | ch, 0]);
                 out.push(&[0xB0 | ch, 123, 0]);
             }
         }
@@ -1922,6 +1930,30 @@ mod source_tests {
         inp.end_of_list();
         assert_eq!(drain(&mut heard).iter().filter(|m| m[0] == 0x80).count(), 2);
         assert_eq!(shared.held_keys().0, [0, 0]);
+    }
+
+    /// A source dropped with the sustain pedal down: its pedal-up never comes, so the
+    /// keyboard parts' pedal is released before All Notes Off (which a held pedal would
+    /// only turn into sustained notes), and its wheels are centred.
+    #[test]
+    fn keys_off_lifts_the_dropped_sources_pedal() {
+        let p = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus/MOX_v2/TickingAway.T162.sty");
+        if !p.exists() {
+            eprintln!("corpus missing; skipping");
+            return;
+        }
+        let mut engine = Engine::new(Box::new(Prepared::new(&crate::sff::Style::load(&p).unwrap())));
+        let (tx, mut heard) = RingBuffer::new(256);
+        let mut out = Out::new(PacketSink::new(rt::Target::Virtual(0)), Some(tx));
+        let parts = Parts::new();
+        apply(&mut engine, &parts, Cmd::KeysOff, 0, &mut out);
+        let sent = drain(&mut heard);
+        for ch in parts::CHANNEL {
+            let at = |m: [u8; 3]| sent.iter().position(|x| *x == m);
+            let (pedal, off) = (at([0xB0 | ch, 64, 0]), at([0xB0 | ch, 123, 0]));
+            assert!(pedal.is_some() && off.is_some() && pedal < off, "ch {}: pedal up, then all notes off", ch + 1);
+            assert!(at([0xE0 | ch, 0, 0x40]).is_some(), "ch {}: bend centred", ch + 1);
+        }
     }
 
     /// Running status is kept per source: two keyboards interleaving can't mix theirs.

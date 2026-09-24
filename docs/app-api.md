@@ -495,8 +495,9 @@ twice counts as two messages. A successful style change clears it, and so does
 ## Meters
 
 `session.meters()` (the Tauri `meters` command) returns the output levels, measured on
-the audio thread (every part plays on a synthesizer of its own, so each is measured as it
-sounds, with its reverb and chorus). It is not part of `AppState`: levels change with
+the audio thread as the synthesizer mixes each part (its voices after the part's volume,
+expression and pan; the reverb and chorus are shared by the parts, so a part's level does
+not include them). It is not part of `AppState`: levels change with
 every audio buffer, and republishing the state for them would flood the clients. Poll it
 at display rate.
 
@@ -908,8 +909,9 @@ These are for maintainers.
   - The input thread keeps each key's state (held, side, parts) and each source's held
     keys in atomics for the key strip; the control side reads them.
 - The audio thread measures each part's and the master's peak into atomics (`meters`).
-  A new SoundFont (`setSoundFont`) loads on a thread of its own into a new rack of
-  synthesizers, which the control side hands to the audio thread through a ring; the old
-  rack comes back through another ring and is freed on the control side.
+  A new SoundFont (`setSoundFont`) loads on a thread of its own into a new pair of
+  synthesizers (the band's and the keyboard parts'), which the control side hands to the
+  audio thread through a ring; the old pair comes back through another ring and is freed
+  on the control side.
 - A rescan (`rescanLibrary`) walks the folders on a thread of its own.
 - The synth's audio stream lives on a thread of its own, which keeps `Session` `Send`.
