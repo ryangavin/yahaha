@@ -164,6 +164,8 @@ pub enum Action {
     ToggleFaderPage,
     /// Previous/next style (`←` `→`).
     Style(i8),
+    /// A pedal's assignable function that the control side runs (`controllers.rs`).
+    Assign(crate::controllers::Function),
 }
 
 /// What a pad does on a page.

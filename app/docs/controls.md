@@ -230,6 +230,7 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | **Synchro Stop window (coming soon)** | With Sync Stop on: hold a chord longer than this and Sync Stop cancels itself, so the style keeps playing when you let go. A quicker release still stops the style. Coming in M5. | Synchro Stop Window | — | — |
 | **Style folders** | The folders yahaha reads style files from (.sty, .prs, .sst and more), with subfolders as categories. Pass them on the command line or set YAHAHA_STYLES. | Style selection (User / USB) | — | — |
 | **Rescan styles** | Reads the style folders again, picking up files you added, changed or removed. The band keeps playing. | — | — | — |
+| **Pedals and wheels** | The sustain pedal and footswitches, what each pedal does, and which parts the pedal and the wheels reach. | Assignable, Controller | — | — |
 
 ## Audio
 
@@ -248,6 +249,27 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | **Inputs: all or selected** | All: every MIDI source plays yahaha, merged. Selected: only the sources you switch on below. `--all-inputs` and `--input name` set it at launch. | — | — | — |
 | **yahaha MIDI output** | The virtual MIDI port yahaha plays the band and your parts on. Pick it as a MIDI input in Ableton to use your own sounds. | MIDI Transmit | — | — |
 | **Palette LEDs** | Lights the Launchkey with its built-in palette colours and hardware flashing instead of exact RGB colours. Try it if the pads look wrong or lag. `--palette-leds` sets it at launch. | — | — | Every pad and button light |
+
+## Pedals and wheels
+
+| control | what it does | Genos | key | Launchkey |
+|---|---|---|---|---|
+| **Pedal function** | What this pedal does: Sustain (or Sostenuto, Soft), a style control such as Start/Stop, Fill Up or Break, an OTS, tempo, transpose or a part on/off. Greyed-out ones are not in yahaha yet. | Assignable › Foot Pedal | — | The pedal plugged into the sustain jack |
+| **Pedal CC** | The control change this pedal listens for on the keyboards: the Launchkey's sustain jack sends CC 64. Clear it and the pedal listens to nothing. Bank select (0, 32), the modulation wheel (1), data entry (6, 38), volume (7), (N)RPN (98-101) and the channel mode messages (120-127) can't be used. | — | — | The sustain jack (CC 64) |
+| **Learn** | Press this, then the pedal: it takes that pedal's CC. Press again to stop waiting. | — | — | The sustain jack (CC 64) |
+| **Try** | Runs the pedal's function now, as a press would. Sustain, Sostenuto and Soft switch on or off, and stay that way until you press Try again. Modulation and Pitch Bend follow the pedal, so there is nothing to try here. | — | — | — |
+| **Reverse polarity** | For a pedal that works the wrong way round (nothing when pressed, something when let go). | Polarity | — | — |
+| **Hold A** | On while the pedal is held, off when it is let go: how a sustain pedal works. | Control Type: Hold A | — | — |
+| **Hold B** | Off while the pedal is held, on when it is up: picking it with the pedal up turns the function on at once. | Control Type: Hold B | — | — |
+| **Toggle** | Each press switches it on or off. | Control Type: Toggle | — | — |
+| **Bend up** | An expression pedal bends the pitch up: heel down is no bend, toe down the full Pitch Bend Range. | Range: Upper | — | — |
+| **Bend down** | An expression pedal bends the pitch down: heel down is no bend, toe down the full range down. | Range: Lower | — | — |
+| **Bend both ways** | The pedal sweeps the whole bend: heel down is fully down, the middle no bend, toe down fully up. | Range: Full | — | — |
+| **Sustain on this part** | Whether the sustain pedal (and Sostenuto and Soft) reach this part. A part only takes it while it is on. | Sustain (part settings) | — | — |
+| **Pitch bend on this part** | Whether the pitch-bend wheel (or a Pitch Bend pedal) bends this part. | Joystick (X): Pitch Bend | — | The pitch wheel |
+| **Modulation on this part** | Whether the modulation wheel adds vibrato to this part. By default Right 1–3 take it and Left doesn't. | Joystick (Y): Modulation | — | The modulation wheel |
+| **Pitch Bend Range down** | One semitone less bend for this part (0–12; 2 is the default). | Pitch Bend Range | — | — |
+| **Pitch Bend Range up** | One semitone more bend for this part (0–12). | Pitch Bend Range | — | — |
 
 ## App
 

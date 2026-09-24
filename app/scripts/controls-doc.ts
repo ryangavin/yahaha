@@ -29,6 +29,7 @@ const GROUPS: [string, string][] = [
   ['settings', 'Settings'],
   ['audio', 'Audio'],
   ['midi', 'MIDI'],
+  ['pedal', 'Pedals and wheels'],
   ['app', 'App'],
 ]
 
