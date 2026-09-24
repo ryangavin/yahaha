@@ -230,7 +230,7 @@ export function initialState(): AppState {
       partSolo: null,
     },
     pads: { page: 'sections', pageName: 'Sections', pageNumber: 1, pageCount: PAD_PAGES.length, pads: [], connected: true, paletteLeds: false },
-    ots: { settings: otsSettings(s.ots), applied: 0, link: false, linkTiming: 'immediate' },
+    ots: { settings: otsSettings(s.ots), applied: 0, link: false, linkTiming: 'mainChange' },
     library: { revision: LIBRARY.revision, count: LIBRARY.entries.length, position: 0, pending: 0, roots: [ROOT], scanning: false },
     io: {
       outputPort: 'yahaha',

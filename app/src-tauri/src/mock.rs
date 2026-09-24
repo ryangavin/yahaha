@@ -274,7 +274,7 @@ impl MockSession {
                 part_solo: None,
             },
             pads: PadsState { page: Page::Sections, page_name: String::new(), page_number: 1, page_count: Page::ALL.len() as u8, pads: vec![], connected: true, palette_leds: false },
-            ots: OtsState { settings: vec![], applied: 0, link: false, link_timing: OtsLinkTiming::Immediate },
+            ots: OtsState { settings: vec![], applied: 0, link: false, link_timing: OtsLinkTiming::MainChange },
             library: LibraryStatus {
                 revision: 1,
                 count: library.entries.len(),

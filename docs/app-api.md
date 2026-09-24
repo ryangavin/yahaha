@@ -190,7 +190,7 @@ Style Section Reset, the Fade In/Out times and the Style Retrigger length. The s
 |---|---|---|
 | `recallOts` | `index` 0–3 | Recalls OTS 1–4 into the keyboard parts. Ignored if the style has no such OTS. |
 | `setOtsLink` / `toggleOtsLink` | `on` | OTS Link: Main A–D recall OTS 1–4, and so does a style change. |
-| `setOtsLinkTiming` | `timing`: `immediate` \| `mainChange` | OTS Link Timing: during playback, recall the Main's OTS as it is pressed (`immediate`), or when that Main starts playing (`mainChange`: at the next bar, or after its fill). Stopped, both recall at once. |
+| `setOtsLinkTiming` | `timing`: `immediate` \| `mainChange` | OTS Link Timing: during playback, recall the Main's OTS as it is pressed (`immediate`), or when that Main starts playing (`mainChange`, the default: at its change point, or after its fill; never while the old section still plays). Stopped, both recall at once. A style change recalls the new style's OTS when that style takes over (the bar line or beat Section Change Timing gives, or the end of an Ending), under both. |
 | `loadStyle` | `id` | A library entry (`LibraryEntry.id`). Stopped, it loads at once. Playing, it takes over at the next bar line, as on a Genos: the band carries on in the same section (the same Main, or the nearest the new style has) at the same bar position, at the same tempo. Until then `preview.queued` names it and `style` is still the old one. A later style change before the bar line replaces it; stopping first loads it then. |
 | `queueStyle` | `id` | The same as `loadStyle` (the browser's "next bar" button). |
 | `loadStylePath` | `path` | Any style file. It is added to the library if it isn't there already. |
@@ -513,7 +513,7 @@ describes the start. Keyboards are different: the session lists the MIDI sources
 | `settings` | OtsSetting[0–4] | `name` (`OTS 1` to `OTS 4`; styles don't name them) and `parts`: Right 1, Right 2, Right 3, Left as the setting sets them (`on`, `program` or null for a drum kit, `voiceName`, `volume`, `octave`). |
 | `applied` | 0–4 | The last OTS recalled, 1-based. 0 means none since the style loaded. |
 | `link` | bool | OTS Link. |
-| `linkTiming` | `immediate` \| `mainChange` | OTS Link Timing. |
+| `linkTiming` | `immediate` \| `mainChange` | OTS Link Timing (default `mainChange`). |
 
 ### `library`
 | Field | Type | Meaning |
@@ -1036,7 +1036,7 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
     ],
     "applied": 1,
     "link": false,
-    "linkTiming": "immediate"
+    "linkTiming": "mainChange"
   },
   "library": { "revision": 3, "count": 35, "position": 23, "pending": 0, "roots": ["/Users/me/Styles/MOX_v2"], "scanning": false },
   "surface": {

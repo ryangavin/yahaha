@@ -109,7 +109,20 @@ the nearest Main the style has when it lacks that one (RM p.12: D missing → C)
   pressed. **At Main Section Change**: it is recalled "at the next measure", when the Main
   actually changes.
 - `setOtsLinkTiming { timing: "immediate" | "mainChange" }`; state `ots.linkTiming`. Default
-  Immediate (what yahaha did).
+  **At Main Section Change**.
+- **Decision (owner preference):** the default is At Main Section Change, not Immediate
+  ("Real Time"). The manual gives no default; if the Genos's factory setting is Immediate,
+  this deviates from it on purpose. The owner found that Immediate changes the right-hand
+  sound under them the moment they press the next Main while soloing, before the band
+  gets there. At Main Section Change recalls the pressed Main's OTS exactly when that Main
+  starts (its change point from `Engine::change_point`, which follows Section Change
+  Timing; after its fill with Auto Fill), never while the old section still plays.
+  Immediate stays available in Settings › Style.
+- **Style changes:** a style chosen while the band plays takes over at its change point
+  (the next bar line, or the next beat with Section Change Timing Immediate; a style chosen
+  during an Ending waits for the Ending to finish, #94). With OTS Link on, the new style's
+  OTS reaches the keyboard parts when it takes over, never on selection, under both
+  timings (the new style's OTS belongs to the new style, which isn't playing yet).
 - **Decision:** At Main Section Change recalls when the Main starts playing, so with Auto
   Fill (or a fill function) it is after the fill, at the bar line where the Main begins,
   because that is the section change the name refers to and the moment the band's sound

@@ -920,3 +920,34 @@ fn harmony_arp_is_registered() {
     assert_eq!(arp(&s), scrambled, "a button without the group leaves it");
     let _ = std::fs::remove_dir_all(dir);
 }
+
+/// Stop ACMP's mode is registrable (Data List p.91: group Style): Fixed comes back as
+/// Fixed, not just "on"; with the Style group frozen, it stays.
+#[test]
+fn stop_acmp_mode_is_recalled() {
+    let Some((s, dir)) = session("stop-acmp") else { return };
+    s.send(TransportCmd::SetStopAcmp { mode: StopAcmpMode::Fixed }).unwrap();
+    s.send(RegistrationCmd::MemorizeRegist { index: 0 }).unwrap();
+    s.send(TransportCmd::SetStopAcmp { mode: StopAcmpMode::Style }).unwrap();
+    s.send(RegistrationCmd::MemorizeRegist { index: 1 }).unwrap();
+    s.send(TransportCmd::SetStopAcmp { mode: StopAcmpMode::Off }).unwrap();
+    s.advance(10 * MS);
+    let mode = |s: &Session| {
+        let st = s.state();
+        (st.transport.stop_acmp_mode, st.transport.stop_acmp)
+    };
+    assert_eq!(mode(&s), (StopAcmpMode::Off, false));
+    s.send(RegistrationCmd::RecallRegist { index: 0 }).unwrap();
+    s.advance(10 * MS);
+    assert_eq!(mode(&s), (StopAcmpMode::Fixed, true));
+    s.send(RegistrationCmd::RecallRegist { index: 1 }).unwrap();
+    s.advance(10 * MS);
+    assert_eq!(mode(&s), (StopAcmpMode::Style, true));
+    // Frozen Style group: the mode stays.
+    s.send(RegistrationCmd::SetFreezeGroup { group: Group::Style, on: true }).unwrap();
+    s.send(RegistrationCmd::SetFreeze { on: true }).unwrap();
+    s.send(RegistrationCmd::RecallRegist { index: 0 }).unwrap();
+    s.advance(10 * MS);
+    assert_eq!(mode(&s), (StopAcmpMode::Style, true));
+    let _ = std::fs::remove_dir_all(dir);
+}

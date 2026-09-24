@@ -720,7 +720,7 @@ const catalog = {
   },
   'ots.link_timing': {
     title: 'OTS Link timing',
-    body: 'When OTS Link swaps the setting while the band plays: as soon as you press a Main (Immediate), or when the band reaches that Main (At Main Section Change). Change it in Settings, Style.',
+    body: 'When OTS Link swaps the setting while the band plays: when the band reaches the Main you pressed (At Main Section Change, the default), or as soon as you press it (Immediate). Change it in Settings, Style.',
     genos: 'OTS Link Timing',
     keys: [],
     launchkey: null,
@@ -1090,7 +1090,7 @@ const catalog = {
   },
   'settings.ots_link_timing': {
     title: 'OTS Link timing',
-    body: 'With OTS Link on and the band playing: Immediate swaps your sounds the moment you press a Main; At Main Section Change waits until that Main starts (the next bar, or after its fill). Stopped, both swap at once.',
+    body: 'With OTS Link on and the band playing: At Main Section Change (the default) swaps your sounds when the Main you pressed starts (after its fill, if any), never while the old section still plays; Immediate swaps them the moment you press it. A new style\'s sounds come when that style takes over. Stopped, both swap at once.',
     genos: 'OTS Link Timing',
     keys: [],
     launchkey: null,

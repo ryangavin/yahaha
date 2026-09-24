@@ -934,7 +934,7 @@
     ],
     "applied": 0,
     "link": false,
-    "linkTiming": "immediate"
+    "linkTiming": "mainChange"
   },
   "library": {
     "revision": 3,

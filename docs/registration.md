@@ -44,7 +44,7 @@ yahaha's own JSON, never Yamaha's `.rgt`. By default in `~/Documents/yahaha`
           "style": { "path": "/Users/me/Styles/SlowWalker.T552.sty", "name": "SlowWalker" },
           "tempo": { "bpm": 96.0 },
           "chord": { "fingering": "fingeredOnBass", "upper": false, "manualBass": true, "split": 54 },
-          "styleControl": { "main": 1, "intro": null, "syncStart": true, "syncStop": false, "stopAcmp": false, "otsLink": false },
+          "styleControl": { "main": 1, "intro": null, "syncStart": true, "syncStop": false, "stopAcmp": false, "stopAcmpMode": "off", "otsLink": false },
           "styleMixer": { "volumes": [100, 100, 96, 64, 76, 70, 88, 84], "on": [true, true, true, true, true, true, true, true], "set": [false, false, false, true, false, false, false, false] },
           "parts": { "parts": [
             { "on": true, "voice": { "kind": "gm", "program": 4, "bankMsb": 0, "bankLsb": 0 }, "volume": 100, "octave": 0 },
@@ -93,7 +93,8 @@ Registrable { key: "tempo", early: false, capture: tempo_capture, recall: tempo_
 
 Today's sections: `style` (early), `multiPad` (early: the bank file, or null for none),
 `tempo`, `chord` (fingering, Upper, Manual Bass, split), `styleControl` (Main, Intro, Sync
-Start/Stop, Stop ACMP, OTS Link), `styleMixer` (the 8 Style parts' CC7, on/off, and `set`:
+Start/Stop, Stop ACMP and its mode `stopAcmpMode` (Data List p.91: group Style; a bank without it
+recalls only on/off), OTS Link), `styleMixer` (the 8 Style parts' CC7, on/off, and `set`:
 which levels the player had set), `parts` (Right 1–3 and Left: on, voice, CC7, octave),
 `transpose`, `harmonyArp` (Keyboard Harmony/Arpeggio: the switch, the type and pattern by
 name, Volume, Speed, Assign, Chord Note Only, Touch Limit, and the arpeggio's Quantize, Hold

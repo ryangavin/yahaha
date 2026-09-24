@@ -15,14 +15,18 @@ pub enum OtsCmd {
 }
 
 /// OTS Link Timing (Style Setting, RM p.11). Stopped, a Main recalls its OTS at once
-/// either way.
+/// either way. A style change recalls the new style's OTS when that style takes over
+/// (the bar line, the next beat, or the end of an Ending: `Engine::change_point`), under
+/// both.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum OtsLinkTiming {
-    /// The moment the Main is pressed.
-    #[default]
+    /// The moment the Main is pressed ("Real Time").
     Immediate,
-    /// When that Main starts playing (the next bar, or after its fill).
+    /// When that Main starts playing (its change point, or after its fill). The default:
+    /// the owner's preference, so the sounds never change under the player while the old
+    /// section still plays (the manual gives no default).
+    #[default]
     MainChange,
 }
 
