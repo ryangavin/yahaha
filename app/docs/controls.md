@@ -13,10 +13,10 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | **Sync Start** | Arms the band to start on your first left-hand chord. The lamp pulses while it waits. Pressing it while the band plays stops the band and re-arms. | SYNC START | `Y` | Pad page 1 (Sections), top row, pad 4 |
 | **Sync Stop** | The band plays only while you hold a chord: let go of every chord key and it stops, play again and it restarts. Not available with the Full Keyboard fingerings. | SYNC STOP | `J` | Pad page 1 (Sections), bottom row, pad 7 |
 | **Auto Fill** | When on, switching to another Main plays a fill into it first. | AUTO FILL IN | `U` | Pad page 1 (Sections), top row, pad 8 |
-| **Half Bar Fill** | When on, a Main you press on the first beat of a bar plays a fill from the middle of that bar, then the Main at the next bar line, even with Auto Fill off. | Half Bar Fill In | `Shift+H` | — |
-| **Fill Up** | Plays a fill, then moves to the next Main to the right (A to B, B to C…). On Main D it plays D's own fill. With the band stopped it picks that Main. | Fill Up | `>` | — |
-| **Fill Down** | Plays a fill, then moves to the next Main to the left (D to C, C to B…). On Main A it plays A's own fill. With the band stopped it picks that Main. | Fill Down | `<` | — |
-| **Fill Self** | Plays the fill of the Main that's playing, then carries on in that Main. The same as pressing the lit Main again. | Fill Self | `.` | — |
+| **Half Bar Fill** | When on, a Main you press on the first beat of a bar plays a fill from the middle of that bar, then the Main at the next bar line, even with Auto Fill off. | Half Bar Fill In | `Shift+N` | — |
+| **Fill Up** | Plays a fill, then moves to the next Main to the right (A to B, B to C…). On Main D it plays D's own fill. With the band stopped it picks that Main. | Fill Up | `Shift+S` | — |
+| **Fill Down** | Plays a fill, then moves to the next Main to the left (D to C, C to B…). On Main A it plays A's own fill. With the band stopped it picks that Main. | Fill Down | `Shift+A` | — |
+| **Fill Self** | Plays the fill of the selected Main (the lit one, or the one waiting to come in), then carries on in it. The same as pressing that Main again. | Fill Self | `Shift+G` | — |
 | **Fill Break** | Plays the one-bar Break, then goes back to the Main. The same as Break. | Fill Break | — | — |
 | **Stop ACMP** | With Sync Start off and the band stopped, a chord you hold sounds on bass and pad voices. This switches it off, or back on in the mode you picked in Settings (Style at first). | Stop Accompaniment | `H` | Pad page 2 (Chord/Setup), bottom row, pad 2 |
 | **Panic** | Sends all notes off on every part, for a stuck note. | — | `\` | — |
