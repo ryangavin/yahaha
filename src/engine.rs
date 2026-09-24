@@ -163,6 +163,7 @@ impl Msgs {
         self.ends.len()
     }
 
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn iter(&self) -> impl Iterator<Item = &[u8]> + '_ {
         let mut start = 0;
         self.ends.iter().map(move |&end| {
@@ -170,6 +171,150 @@ impl Msgs {
             start = end as usize;
             m
         })
+    }
+
+    /// Message `i`.
+    pub fn get(&self, i: usize) -> &[u8] {
+        let start = if i == 0 { 0 } else { self.ends[i - 1] as usize };
+        &self.bytes[start..self.ends[i] as usize]
+    }
+}
+
+/// A controller value `Mirror` has not seen sent.
+const UNSENT: u8 = 0xFF;
+/// (N)RPN values `Mirror` remembers per channel.
+const MIRROR_PARAMS: usize = 8;
+/// A free `Mirror::params` slot.
+const NO_PARAM: u16 = 0xFFFF;
+/// `Mirror` parameter numbers: an NRPN has this bit set, an RPN has not.
+const NRPN_BIT: u16 = 0x4000;
+
+/// What the engine has sent on each channel: controllers, voice, (N)RPN data entries and
+/// pitch bend. A section change compares the style's channel setup with it and sends only
+/// what differs, so a section change that changes nothing sends nothing: a receiver never
+/// reloads a voice it already plays or has its drum setup rewritten (see
+/// `Engine::reapply_init`).
+struct Mirror {
+    cc: [[u8; 128]; 16],
+    /// (bank MSB, LSB, program) of the last program change, with the bank selects in
+    /// effect when it was sent.
+    voice: [Option<(u8, u8, u8)>; 16],
+    rpn: [u16; 16],
+    nrpn: [u16; 16],
+    /// Channels where an NRPN was selected last (else an RPN).
+    nrpn_on: u16,
+    /// (parameter, data entry MSB, LSB) per channel; parameter as `selected` returns it.
+    params: [[(u16, u8, u8); MIRROR_PARAMS]; 16],
+    bend: [Option<u16>; 16],
+}
+
+impl Mirror {
+    const NEW: Mirror = Mirror {
+        cc: [[UNSENT; 128]; 16],
+        voice: [None; 16],
+        rpn: [RPN_NULL; 16],
+        nrpn: [RPN_NULL; 16],
+        nrpn_on: 0,
+        params: [[(NO_PARAM, UNSENT, UNSENT); MIRROR_PARAMS]; 16],
+        bend: [None; 16],
+    };
+
+    /// The (N)RPN a data entry on `ch` sets, if any (the null RPN/NRPN sets nothing).
+    fn selected(&self, ch: usize) -> Option<u16> {
+        if self.nrpn_on & (1 << ch) != 0 {
+            (self.nrpn[ch] != RPN_NULL).then_some(NRPN_BIT | self.nrpn[ch])
+        } else {
+            (self.rpn[ch] != RPN_NULL).then_some(self.rpn[ch])
+        }
+    }
+
+    /// The data entry sent for parameter `p` on `ch` as (MSB, LSB), if known.
+    fn param(&self, ch: usize, p: u16) -> Option<(u8, u8)> {
+        self.params[ch].iter().find(|e| e.0 == p).map(|e| (e.1, e.2))
+    }
+
+    fn set_param(&mut self, ch: usize, p: u16, msb: Option<u8>, lsb: Option<u8>) {
+        let slots = &mut self.params[ch];
+        let i = slots.iter().position(|e| e.0 == p).or_else(|| slots.iter().position(|e| e.0 == NO_PARAM));
+        // Full: forget the oldest; an unknown value is simply sent again.
+        let i = i.unwrap_or_else(|| {
+            slots.rotate_left(1);
+            slots[MIRROR_PARAMS - 1] = (NO_PARAM, UNSENT, UNSENT);
+            MIRROR_PARAMS - 1
+        });
+        let e = &mut slots[i];
+        if e.0 != p {
+            *e = (p, UNSENT, UNSENT);
+        }
+        if let Some(v) = msb {
+            e.1 = v;
+        }
+        if let Some(v) = lsb {
+            e.2 = v;
+        }
+    }
+
+    /// Note a message sent.
+    fn track(&mut self, m: &[u8]) {
+        if m.len() < 2 || m[0] >= 0xF0 {
+            return;
+        }
+        let ch = (m[0] & 0x0F) as usize;
+        match (m[0] & 0xF0, m.len()) {
+            (0xB0, 3) => {
+                let (cc, v) = (m[1] & 0x7F, m[2]);
+                self.cc[ch][cc as usize] = v;
+                let bit = 1 << ch;
+                match cc {
+                    101 | 100 => {
+                        self.rpn[ch] = select_rpn(self.rpn[ch], cc, v);
+                        self.nrpn_on &= !bit;
+                    }
+                    99 => {
+                        self.nrpn[ch] = (self.nrpn[ch] & 0x7F) | (v as u16) << 7;
+                        self.nrpn_on |= bit;
+                    }
+                    98 => {
+                        self.nrpn[ch] = (self.nrpn[ch] & !0x7F) | v as u16;
+                        self.nrpn_on |= bit;
+                    }
+                    6 | 38 => {
+                        if let Some(p) = self.selected(ch) {
+                            let (msb, lsb) = if cc == 6 { (Some(v), None) } else { (None, Some(v)) };
+                            self.set_param(ch, p, msb, lsb);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            (0xC0, _) => self.voice[ch] = Some((self.cc[ch][0], self.cc[ch][32], m[1])),
+            (0xE0, 3) => self.bend[ch] = Some((m[2] as u16) << 7 | m[1] as u16),
+            _ => {}
+        }
+    }
+
+    /// Send `m` and note it.
+    #[inline]
+    fn send(&mut self, sink: &mut impl Sink, m: &[u8]) {
+        self.track(m);
+        sink.send(m);
+    }
+
+    /// Select parameter `p` (as `selected` returns it; `None` = the null RPN) on `ch`.
+    fn select(&mut self, sink: &mut impl Sink, ch: u8, p: Option<u16>) {
+        let st = 0xB0 | ch;
+        match p {
+            Some(p) if p & NRPN_BIT != 0 => {
+                let n = p & !NRPN_BIT;
+                self.send(sink, &[st, 99, (n >> 7) as u8]);
+                self.send(sink, &[st, 98, (n & 0x7F) as u8]);
+            }
+            p => {
+                let r = p.unwrap_or(RPN_NULL);
+                self.send(sink, &[st, 101, (r >> 7) as u8]);
+                self.send(sink, &[st, 100, (r & 0x7F) as u8]);
+            }
+        }
     }
 }
 
@@ -658,6 +803,8 @@ pub struct Engine {
     bend_range: [u8; 16],
     /// The RPN a pattern has selected per channel (MSB << 7 | LSB).
     rpn: [u16; 16],
+    /// What has been sent on each channel (controllers, voices, (N)RPNs, bends).
+    mirror: Box<Mirror>,
     /// Pitch bends that did not fit the output range and were clamped.
     #[cfg(test)]
     pub(crate) bend_clamps: std::cell::Cell<u32>,
@@ -719,6 +866,7 @@ impl Engine {
             pat_bend: [BEND_CENTRE; 16],
             bend_range: [GM_BEND_RANGE; 16],
             rpn: [RPN_NULL; 16],
+            mirror: Box::new(Mirror::NEW),
             #[cfg(test)]
             bend_clamps: Default::default(),
             #[cfg(test)]
@@ -759,26 +907,35 @@ impl Engine {
     /// The style's channel setup, with the mixer's volume on each part in place of the
     /// style's own CC7 so a restart never undoes a fader the player moved.
     pub fn send_init(&mut self, sink: &mut impl Sink) {
-        self.send_setup(self.style.init.len(), sink);
-        for p in 0..8u8 {
-            sink.send(&[0xB0 | (8 + p), 7, self.mixer[p as usize]]);
-        }
-    }
-
-    /// The first `n` messages of the style's channel setup. It sets each part's bend
-    /// range again, so a pattern's RPN 0 is forgotten, and its pitch bends on parts that
-    /// follow chords go out in the part's output range, with any pitch shift on top.
-    fn send_setup(&mut self, n: usize, sink: &mut impl Sink) {
         self.bend_range = self.style.bend_range;
         self.rpn = [RPN_NULL; 16];
-        for m in self.style.init.iter().take(n) {
+        for i in 0..self.style.init.len() {
+            let m = self.style.init.get(i);
+            if m[0] == 0xF0 || m.len() > 3 {
+                sink.send(m);
+                continue;
+            }
+            let mut b = [0u8; 3];
+            b[..m.len()].copy_from_slice(m);
+            let m = &b[..m.len()];
             let ch = m[0] & 0x0F;
             if m[0] & 0xF0 == 0xE0 && m.len() == 3 && follows_chords(ch) {
                 self.pat_bend[ch as usize] = (m[2] as u16) << 7 | m[1] as u16;
                 self.send_bend(ch, sink);
             } else {
-                sink.send(m);
+                self.mirror.send(sink, m);
             }
+        }
+        for p in 0..8u8 {
+            self.mirror.send(sink, &[0xB0 | (8 + p), 7, self.mixer[p as usize]]);
+        }
+        self.sync_rpn();
+    }
+
+    /// The RPN each channel has selected, as far as a pattern's data entry is concerned.
+    fn sync_rpn(&mut self) {
+        for ch in 0..16 {
+            self.rpn[ch] = if self.mirror.nrpn_on & (1 << ch) != 0 { RPN_NULL } else { self.mirror.rpn[ch] };
         }
     }
 
@@ -793,19 +950,125 @@ impl Engine {
         }
     }
 
-    /// A section change plays the style's part setup (SInt) again, as newer instruments
-    /// do, so a voice or controller a pattern changed does not carry into the next section.
-    /// Its CC7 is a part's fader value, so like a pattern CC7 it moves only the faders the
-    /// player has not moved; the others keep their level and are not re-sent. The drum
-    /// setup SysEx goes again after the parts: their program changes reset it. The effect
-    /// SysEx is not re-sent: no pattern changes it, and an XG receiver would cut the
-    /// reverb and delay tails.
-    fn reapply_init(&mut self, sink: &mut impl Sink) {
+    /// A section change puts the style's part setup (SInt) back, so a voice or controller
+    /// a pattern changed does not carry into the next section. It sends only what differs
+    /// from what the channel has (`Mirror`): a section change after sections that changed
+    /// nothing sends nothing, as on a Genos, where changing section never reloads a voice
+    /// or resets a part. Resending it all cost every boundary 150-200 messages (up to
+    /// 700 bytes, with a program change per part and the drum setup SysEx) queued ahead of
+    /// the new section's first notes.
+    ///
+    /// A program change goes out only for a voice that differs, and not on the channels in
+    /// `own_voice`, whose new section sets its own voice by its entry point. The part's XG
+    /// parameters follow a program change sent (it resets them on an XG receiver), and the
+    /// drum setup SysEx goes again only after one (a program change resets it). The effect
+    /// SysEx is never re-sent: no pattern changes it, and an XG receiver would cut the
+    /// reverb and delay tails. The part levels (CC7) are the faders: like a pattern CC7,
+    /// the SInt's moves only the faders the player has not moved.
+    fn reapply_init(&mut self, own_voice: u16, sink: &mut impl Sink) {
         self.restore_untouched_levels();
-        self.send_setup(self.style.init_resend, sink);
+        self.bend_range = self.style.bend_range;
+        let mut voice_sent = 0u16;
+        // The (N)RPN the setup selects on each channel as it goes, and the channels where it
+        // selects one.
+        let (mut rpn, mut nrpn, mut nrpn_on) = ([RPN_NULL; 16], [RPN_NULL; 16], 0u16);
+        let mut selects = 0u16;
+        for i in 0..self.style.init_resend {
+            let m = self.style.init.get(i);
+            if m[0] == 0xF0 {
+                // XG Multi Part parameter (08 pp): after that part's program change only.
+                let send = match *m {
+                    [0xF0, 0x43, d, 0x4C, 0x08, part, ..] if d & 0xF0 == 0x10 => voice_sent & (1 << (part & 15)) != 0,
+                    _ if crate::sff::is_drum_setup(m) => voice_sent != 0,
+                    _ => false,
+                };
+                if send {
+                    sink.send(m);
+                }
+                continue;
+            }
+            if m.len() > 3 {
+                continue;
+            }
+            let mut b = [0u8; 3];
+            b[..m.len()].copy_from_slice(m);
+            let m = &b[..m.len()];
+            let ch = (m[0] & 0x0F) as usize;
+            let bit = 1u16 << ch;
+            match (m[0] & 0xF0, m.len()) {
+                (0xB0, 3) => match m[1] {
+                    101 | 100 => {
+                        rpn[ch] = select_rpn(rpn[ch], m[1], m[2]);
+                        nrpn_on &= !bit;
+                        selects |= bit;
+                    }
+                    99 | 98 => {
+                        nrpn[ch] = if m[1] == 99 { (nrpn[ch] & 0x7F) | (m[2] as u16) << 7 } else { (nrpn[ch] & !0x7F) | m[2] as u16 };
+                        nrpn_on |= bit;
+                        selects |= bit;
+                    }
+                    6 | 38 => {
+                        let sel = if nrpn_on & bit != 0 {
+                            (nrpn[ch] != RPN_NULL).then_some(NRPN_BIT | nrpn[ch])
+                        } else {
+                            (rpn[ch] != RPN_NULL).then_some(rpn[ch])
+                        };
+                        let Some(p) = sel else { continue };
+                        let have = self.mirror.param(ch, p);
+                        let same = have.is_some_and(|(msb, lsb)| if m[1] == 6 { msb == m[2] } else { lsb == m[2] });
+                        if !same {
+                            if self.mirror.selected(ch) != Some(p) {
+                                self.mirror.select(sink, ch as u8, Some(p));
+                            }
+                            self.mirror.send(sink, m);
+                        }
+                    }
+                    cc => {
+                        if self.mirror.cc[ch][cc as usize] != m[2] {
+                            self.mirror.send(sink, m);
+                        }
+                    }
+                },
+                (0xC0, _) => {
+                    let want = (self.mirror.cc[ch][0], self.mirror.cc[ch][32], m[1]);
+                    if own_voice & bit == 0 && self.mirror.voice[ch] != Some(want) {
+                        self.mirror.send(sink, m);
+                        voice_sent |= bit;
+                    }
+                }
+                (0xE0, 3) => {
+                    let v = (m[2] as u16) << 7 | m[1] as u16;
+                    if follows_chords(ch as u8) {
+                        if self.pat_bend[ch] != v {
+                            self.pat_bend[ch] = v;
+                            self.send_bend(ch as u8, sink);
+                        }
+                    } else if self.mirror.bend[ch] != Some(v) {
+                        self.mirror.send(sink, m);
+                    }
+                }
+                _ => {}
+            }
+        }
+        // Leave each channel with the parameter the setup leaves selected (the null RPN).
+        for ch in 0..16 {
+            if selects & (1 << ch) == 0 {
+                continue;
+            }
+            let want = if nrpn_on & (1 << ch) != 0 {
+                (nrpn[ch] != RPN_NULL).then_some(NRPN_BIT | nrpn[ch])
+            } else {
+                (rpn[ch] != RPN_NULL).then_some(rpn[ch])
+            };
+            if self.mirror.selected(ch) != want {
+                self.mirror.select(sink, ch as u8, want);
+            }
+        }
+        self.sync_rpn();
         for p in 0..8u8 {
-            if self.user_set & (1 << p) == 0 {
-                sink.send(&[0xB0 | (8 + p), 7, self.mixer[p as usize]]);
+            let v = self.mixer[p as usize];
+            if self.user_set & (1 << p) == 0 && self.mirror.cc[8 + p as usize][7] != v {
+                self.mirror.send(sink, &[0xB0 | (8 + p), 7, v]);
             }
         }
     }
@@ -821,7 +1084,7 @@ impl Engine {
     /// fader, unless the player has moved that fader since the style loaded.
     fn pattern_volume(&mut self, ch: u8, val: u8, sink: &mut impl Sink) {
         if !(8..16).contains(&ch) {
-            sink.send(&[0xB0 | ch, 7, val]);
+            self.mirror.send(sink, &[0xB0 | ch, 7, val]);
             return;
         }
         let p = (ch - 8) as usize;
@@ -829,7 +1092,7 @@ impl Engine {
             return;
         }
         self.set_mixer(p, val);
-        sink.send(&[0xB0 | ch, 7, val]);
+        self.mirror.send(sink, &[0xB0 | ch, 7, val]);
     }
 
     /// A part fader (0..8) moved to `value`: sent as that part's CC7, unchanged.
@@ -838,7 +1101,7 @@ impl Engine {
         let v = value.min(127);
         self.mixer[p] = v;
         self.user_set |= 1 << p;
-        sink.send(&[0xB0 | (8 + p as u8), 7, v]);
+        self.mirror.send(sink, &[0xB0 | (8 + p as u8), 7, v]);
     }
 
     /// A hardware fader (absolute, not motorised) reported `value` for part 0..8. Soft
@@ -1274,7 +1537,7 @@ impl Engine {
     }
 
     fn transition(&mut self, at: f64, now: u64, sink: &mut impl Sink) {
-        self.all_off(sink);
+        self.notes_off(true, sink);
         let sec_end = self.sec_start + self.style.sections[self.cur].as_ref().map_or(0, |s| s.len) as f64;
         let (next, start) = match self.queued.take() {
             Some(q) if q.at <= sec_end + 1e-6 => (q.slot, q.sec_start),
@@ -1293,42 +1556,117 @@ impl Engine {
             self.sync_armed = true;
             return;
         }
-        // A section repeating itself is not a change: its own pattern carries on.
-        if next != self.cur {
-            self.reapply_init(sink);
-        }
+        let change = next != self.cur;
         self.cur = next;
         self.sec_start = start;
         self.seek(at - start);
+        // A section repeating itself is not a change: its own pattern carries on.
+        if change {
+            let own_voice = self.own_voice(at - start);
+            self.reapply_init(own_voice, sink);
+        }
         self.chase(sink);
         let _ = now;
     }
 
+    /// Channels whose current section sends a program change up to section tick `entry`
+    /// (inclusive): at the section change they take that voice, not the SInt's.
+    fn own_voice(&self, entry: f64) -> u16 {
+        let sec = self.style.sections[self.cur].as_ref().unwrap();
+        let mut m = 0u16;
+        for e in sec.events.iter().take_while(|e| e.tick as f64 <= entry + 1e-6) {
+            if let (PKind::Pc { .. }, Some(r)) = (e.kind, sec.rules[e.src as usize & 15].as_ref()) {
+                m |= 1 << (r.dest_ch & 15);
+            }
+        }
+        m
+    }
+
     /// A section entered mid-bar (a Fill or Break at the next beat) skips its events before
-    /// the entry point. Its notes stay skipped, but its voice and controller changes are
-    /// sent, in order, so the part plays the section's voice from the entry on.
+    /// the entry point. Its notes stay skipped, but its voice and controllers are brought to
+    /// where the pattern has them at the entry, so the part plays the section's voice from
+    /// there on. Bank selects, program changes and (N)RPN messages go in order; for the
+    /// other controllers and the pitch bend only the value in effect at the entry matters,
+    /// so each goes once, and only if it differs from what the channel has: an expression
+    /// swell or a bend before the entry is not replayed as a burst.
     fn chase(&mut self, sink: &mut impl Sink) {
+        if self.ev_idx == 0 {
+            return;
+        }
+        let mut last_cc = [[UNSENT; 128]; 16];
+        let mut last_bend: [Option<(u8, u8)>; 16] = [None; 16];
         for i in 0..self.ev_idx {
             let sec = self.style.sections[self.cur].as_ref().unwrap();
             let e = sec.events[i];
             let Some(dest) = sec.rules[e.src as usize].as_ref().map(|r| r.dest_ch) else { continue };
-            self.emit_control(dest, e.kind, sink);
+            let d = dest as usize & 15;
+            match e.kind {
+                PKind::Cc { cc: cc @ (0 | 32), val } => {
+                    if self.mirror.cc[d][cc as usize] != val {
+                        self.mirror.send(sink, &[0xB0 | dest, cc, val]);
+                    }
+                }
+                PKind::Cc { cc: 6 | 38 | 96..=101, .. } => self.emit_control(dest, e.kind, sink),
+                PKind::Cc { cc, val } => last_cc[d][cc as usize & 127] = val,
+                PKind::Pc { prog } => {
+                    let want = (self.mirror.cc[d][0], self.mirror.cc[d][32], prog);
+                    if self.mirror.voice[d] != Some(want) {
+                        self.mirror.send(sink, &[0xC0 | dest, prog]);
+                    }
+                }
+                PKind::Bend { lo, hi } => last_bend[d] = Some((lo, hi)),
+                PKind::On { .. } | PKind::Off { .. } => {}
+            }
+        }
+        for d in 0..16u8 {
+            for cc in 0..128u8 {
+                let val = last_cc[d as usize][cc as usize];
+                if val == UNSENT {
+                    continue;
+                }
+                if cc == 7 && (8..16).contains(&d) {
+                    let p = d as usize - 8;
+                    if self.user_set & (1 << p) == 0 && (self.mixer[p] != val || self.mirror.cc[d as usize][7] != val) {
+                        self.pattern_volume(d, val, sink);
+                    }
+                } else if self.mirror.cc[d as usize][cc as usize] != val {
+                    self.mirror.send(sink, &[0xB0 | d, cc, val]);
+                }
+            }
+            if let Some((lo, hi)) = last_bend[d as usize] {
+                let v = (hi as u16) << 7 | lo as u16;
+                if follows_chords(d) {
+                    if self.pat_bend[d as usize] != v {
+                        self.pat_bend[d as usize] = v;
+                        self.send_bend(d, sink);
+                    }
+                } else if self.mirror.bend[d as usize] != Some(v) {
+                    self.mirror.send(sink, &[0xE0 | d, lo, hi]);
+                }
+            }
         }
     }
 
     /// A pattern's controller, program change or pitch bend on `dest`; notes are not
-    /// controls and send nothing here.
+    /// controls and send nothing here. A program change for the voice the part already
+    /// has (a pattern restating its voice on its first beat) is not sent: a receiver would
+    /// reload the voice for nothing.
     fn emit_control(&mut self, dest: u8, kind: PKind, sink: &mut impl Sink) {
         match kind {
             PKind::Cc { cc: 7, val } => self.pattern_volume(dest, val, sink),
             PKind::Cc { cc: cc @ (6 | 98..=101), val } if follows_chords(dest) => self.pattern_rpn(dest, cc, val, sink),
-            PKind::Cc { cc, val } => sink.send(&[0xB0 | dest, cc, val]),
-            PKind::Pc { prog } => sink.send(&[0xC0 | dest, prog]),
+            PKind::Cc { cc, val } => self.mirror.send(sink, &[0xB0 | dest, cc, val]),
+            PKind::Pc { prog } => {
+                let d = dest as usize & 15;
+                if self.mirror.voice[d] != Some((self.mirror.cc[d][0], self.mirror.cc[d][32], prog)) {
+                    self.mirror.send(sink, &[0xC0 | dest, prog]);
+                }
+            }
             PKind::Bend { lo, hi } if follows_chords(dest) => {
                 self.pat_bend[dest as usize] = (hi as u16) << 7 | lo as u16;
                 self.send_bend(dest, sink);
             }
-            PKind::Bend { lo, hi } => sink.send(&[0xE0 | dest, lo, hi]),
+            PKind::Bend { lo, hi } => self.mirror.send(sink, &[0xE0 | dest, lo, hi]),
             PKind::On { .. } | PKind::Off { .. } => {}
         }
     }
@@ -1438,7 +1776,7 @@ impl Engine {
 
     /// Send a part's pitch bend: the pattern's own bend, rescaled from the style's bend
     /// range to the part's output range, plus the Retrigger Rule pitch shift.
-    fn send_bend(&self, ch: u8, sink: &mut impl Sink) {
+    fn send_bend(&mut self, ch: u8, sink: &mut impl Sink) {
         let c = ch as usize & 15;
         let (style, out) = (self.bend_range[c] as f32, self.out_range(ch) as f32);
         let centre = BEND_CENTRE as f32;
@@ -1451,7 +1789,7 @@ impl Engine {
             self.bend_clamps.set(self.bend_clamps.get() + 1);
         }
         let v = v.clamp(0.0, 16383.0) as u16;
-        sink.send(&[0xE0 | ch, (v & 0x7F) as u8, (v >> 7) as u8]);
+        self.mirror.send(sink, &[0xE0 | ch, (v & 0x7F) as u8, (v >> 7) as u8]);
     }
 
     /// The pitch bend range part `ch` has on the output.
@@ -1477,12 +1815,13 @@ impl Engine {
         let c = ch as usize & 15;
         if cc == 6 && self.rpn[c] == 0 {
             self.bend_range[c] = val;
-            sink.send(&[0xB0 | ch, 6, self.out_range(ch)]);
+            let range = self.out_range(ch);
+            self.mirror.send(sink, &[0xB0 | ch, 6, range]);
             self.send_bend(ch, sink);
             return;
         }
         self.rpn[c] = select_rpn(self.rpn[c], cc, val);
-        sink.send(&[0xB0 | ch, cc, val]);
+        self.mirror.send(sink, &[0xB0 | ch, cc, val]);
     }
 
     /// Pattern events due at `now`, or within `EARLY_CHORD_NS` of it, that `process` has
@@ -1620,13 +1959,26 @@ impl Engine {
     }
 
     fn all_off(&mut self, sink: &mut impl Sink) {
+        self.notes_off(false, sink);
+    }
+
+    /// End every note. Patterns bend (bass slides etc.); leaving a section or style
+    /// mid-bend would leave the part detuned, so bends are re-centred and wheels and pedal
+    /// cleared on every part. At a section change (`changed_only`) only on the parts where
+    /// they are not already there, so the new section's first notes are not queued behind
+    /// 24 messages that change nothing.
+    fn notes_off(&mut self, changed_only: bool, sink: &mut impl Sink) {
         self.off_where(sink, |_| true);
-        // Patterns bend (bass slides etc.); leaving a section or style mid-bend would
-        // leave the part detuned. Re-centre bends and clear wheels/pedal on every part.
         for ch in 8..16u8 {
-            sink.send(&[0xE0 | ch, 0x00, 0x40]);
-            sink.send(&[0xB0 | ch, 1, 0]);
-            sink.send(&[0xB0 | ch, 64, 0]);
+            let c = ch as usize;
+            if !changed_only || self.mirror.bend[c] != Some(BEND_CENTRE) {
+                self.mirror.send(sink, &[0xE0 | ch, 0x00, 0x40]);
+            }
+            for cc in [1u8, 64] {
+                if !changed_only || self.mirror.cc[c][cc as usize] != 0 {
+                    self.mirror.send(sink, &[0xB0 | ch, cc, 0]);
+                }
+            }
         }
         self.pat_bend = [BEND_CENTRE; 16];
         for ch in 0..16u8 {

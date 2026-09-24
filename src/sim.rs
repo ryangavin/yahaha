@@ -2112,18 +2112,24 @@ mod mixer {
         assert_eq!(change.iter().filter(|m| **m == level).count(), 1);
     }
 
-    /// AustinCityBlues sets up a drum kit's notes: Start and every section change send
-    /// that drum setup after the program changes that would reset it.
+    /// AustinCityBlues sets up a drum kit's notes. Start sends that drum setup after the
+    /// program changes that would reset it; its patterns never change a voice, so no
+    /// section change sends a program change, and the drum setup is never rewritten.
     #[test]
     fn corpus_drum_setup_survives_section_change() {
         let Some(p) = prep("AustinCityBlues.S930.STY") else { return };
         let drum: Vec<Vec<u8>> = p.init.iter().filter(|m| crate::sff::is_drum_setup(m)).map(|m| m.to_vec()).collect();
         assert!(!drum.is_empty());
-        let pcs = p.init.iter().filter(|m| m.len() == 2 && m[0] & 0xF0 == 0xC0).count();
+        let voices = p.voices;
         let bar = bar_ns(&p);
         let mut e = Engine::new(p);
         let mut rec = Recorder::default();
         e.set_chord(Chord::new(0, 0), 0, &mut rec);
+        let is_pc = |m: &[u8]| m.len() == 2 && m[0] & 0xF0 == 0xC0;
+        let first = rec.out.iter().position(|(_, m)| crate::sff::is_drum_setup(m)).expect("drum setup at Start");
+        let block: Vec<Vec<u8>> = rec.out[first..].iter().take(drum.len()).map(|(_, m)| m.clone()).collect();
+        assert_eq!(block, drum);
+        assert!(!rec.out[first..].iter().any(|(_, m)| is_pc(m)), "no program change after the drum setup");
         let mut t = 0;
         for m in [1u8, 2, 0] {
             play(&mut e, &mut rec, t, t + bar / 2);
@@ -2131,13 +2137,13 @@ mod mixer {
             e.button(Button::Main(m), t + bar / 2, &mut rec);
             play(&mut e, &mut rec, t + bar / 2, t + 3 * bar);
             t += 3 * bar;
-            // The drum setup goes out whole, after every SInt program change.
             let out = &rec.out[from..];
-            let first = out.iter().position(|(_, m)| crate::sff::is_drum_setup(m)).expect("drum setup re-sent");
-            let block: Vec<Vec<u8>> = out[first..].iter().take(drum.len()).map(|(_, m)| m.clone()).collect();
-            assert_eq!(block, drum);
-            let is_pc = |m: &[u8]| m.len() == 2 && m[0] & 0xF0 == 0xC0;
-            assert_eq!(out[..first].iter().filter(|(_, m)| is_pc(m)).count(), pcs);
+            assert!(!out.iter().any(|(_, m)| is_pc(m) || m[0] == 0xF0), "a section change re-sent a voice or SysEx");
+        }
+        for ch in 8..16u8 {
+            if let Some(v) = voices[ch as usize] {
+                assert_eq!(voice_after(rec.out.iter().map(|(_, m)| &m[..]), ch), v, "ch {}", ch + 1);
+            }
         }
     }
 
@@ -2250,9 +2256,11 @@ mod mixer {
         s
     }
 
-    /// A Fill entering mid-bar skips its first beat's notes but not its voice: the SInt
-    /// goes out at the entry, then the Fill's own bank and program change from before the
-    /// entry, so its note plays on the Fill's voice, not the SInt's.
+    /// A Fill entering mid-bar skips its first beat's notes but not its voice: its own bank
+    /// and program change from before the entry go out at the entry, so its note plays on
+    /// the Fill's voice. The SInt's program change for that part is not sent first (Main A
+    /// had changed the part to 9): the Fill sets its own voice, so the part changes voice
+    /// once, not twice.
     #[test]
     fn mid_bar_fill_plays_its_own_voice() {
         let p = Box::new(Prepared::new(&sint_style_with_fill()));
@@ -2265,11 +2273,12 @@ mod mixer {
         e.button(Button::Main(0), bar / 2 + 1_000_000, &mut rec);
         play(&mut e, &mut rec, bar / 2 + 1_000_000, bar);
         let entry = 3 * bar / 4;
-        let at = |want: &dyn Fn(&[u8]) -> bool| rec.out.iter().position(|(t, m)| *t >= entry && want(m));
-        let init = at(&|m| m == [0xCC, 5]).expect("the SInt");
+        let at = |want: &dyn Fn(&[u8]) -> bool| rec.out.iter().position(|(t, m)| *t >= entry && *t < bar && want(m));
+        assert_eq!(at(&|m| m == [0xCC, 5]), None, "the SInt's voice, replaced at once");
         let pc = at(&|m| m == [0xCC, 20]).expect("the Fill's program change");
         let note = at(&|m| m[0] == 0x9C && m[2] > 0).expect("the Fill's note");
-        assert!(init < pc && pc < note, "{init} {pc} {note}");
+        assert!(pc < note, "{pc} {note}");
+        assert_eq!(rec.out.iter().filter(|(t, m)| *t >= entry && *t < bar && m[0] == 0xCC).count(), 1, "one voice change");
         assert_eq!(rec.out[note].1, vec![0x9C, 64, 100]);
         assert_eq!(voice_after(rec.out[..note].iter().map(|(_, m)| &m[..]), 12), (8, 112, 20));
     }
@@ -2289,6 +2298,144 @@ mod mixer {
         play(&mut e, &mut rec, bar / 2 + 1_000_000, bar - 1_000_000);
         assert_eq!(e.snapshot(bar - 1_000_000).cur, Some(crate::sff::SectionId::Fill(0)));
         assert_eq!(voice_after(rec.out.iter().map(|(_, m)| &m[..]), 14), (104, 8, 4));
+    }
+
+    /// sint_style_with_fill with patterns that only play notes: no voice or controller a
+    /// section change would have to put back.
+    fn plain_style_with_fill() -> Style {
+        use crate::sff::Ev;
+        let mut s = sint_style_with_fill();
+        for sec in s.sections.values_mut() {
+            sec.events.retain(|e| matches!(e.ev, Ev::NoteOn { .. } | Ev::NoteOff { .. }));
+        }
+        s
+    }
+
+    /// A bank select, program change, (N)RPN message or SysEx: what reloads a voice or
+    /// rewrites a part on a receiver.
+    fn is_setup(m: &[u8]) -> bool {
+        m[0] == 0xF0 || m[0] & 0xF0 == 0xC0 || m[0] & 0xF0 == 0xB0 && matches!(m[1], 0 | 32 | 6 | 38 | 98..=101)
+    }
+
+    /// Section changes land on the grid: a Fill starts exactly on the next beat, a Main
+    /// exactly on the next bar, and the press shows as queued (the pad flashes) at every
+    /// wake-up from the press until then, and no longer. The new section's first note is
+    /// on its downbeat.
+    #[test]
+    fn section_changes_land_on_the_grid() {
+        use crate::sff::SectionId;
+        let p = Box::new(Prepared::new(&plain_style_with_fill()));
+        let (ppq, tpb) = (p.ppq as f64, p.tpb as f64);
+        let ns_per_tick = 60e9 / (p.bpm * ppq);
+        let ns = |bar: f64, beat: f64| ((bar * tpb + beat * ppq) * ns_per_tick).ceil() as u64;
+        let fill_press = ns(1.0, 1.5);
+        let main_press = ns(3.0, 1.2);
+        let script = [
+            (0, Step::Chord(Chord::new(0, 0))),
+            // Main A again mid-bar: Fill A on the next beat, then Main A at the bar.
+            (fill_press, Step::Button(Button::Main(0))),
+            (ns(3.0, 0.5), Step::Button(Button::AutoFill)),
+            // Main B without Auto Fill: at the next bar.
+            (main_press, Step::Button(Button::Main(1))),
+        ];
+        let mut log: Vec<(u64, Option<SectionId>, Option<SectionId>)> = Vec::new();
+        let (_, rec) = run_observed(p, &script, ns(5.0, 0.0), |e, now| {
+            let s = e.snapshot(now);
+            log.push((now, s.cur, s.queued));
+        });
+        let changes: Vec<(u64, Option<SectionId>)> = log.windows(2).filter(|w| w[0].1 != w[1].1).map(|w| (w[1].0, w[1].1)).collect();
+        let (fill_at, back_at, main_b_at) = (ns(1.0, 2.0), ns(2.0, 0.0), ns(4.0, 0.0));
+        assert_eq!(
+            changes,
+            vec![(fill_at, Some(SectionId::Fill(0))), (back_at, Some(SectionId::Main(0))), (main_b_at, Some(SectionId::Main(1)))]
+        );
+        for (press, at, want) in [(fill_press, fill_at, SectionId::Fill(0)), (main_press, main_b_at, SectionId::Main(1))] {
+            let waiting: Vec<_> = log.iter().filter(|l| l.0 >= press && l.0 < at).collect();
+            assert!(!waiting.is_empty() && waiting[0].0 == press, "seen at the press");
+            assert!(waiting.iter().all(|l| l.2 == Some(want)), "queued until {at}: {waiting:?}");
+            assert!(log.iter().filter(|l| l.0 >= at).all(|l| l.2 != Some(want)), "cleared once it plays");
+        }
+        let first = rec.out.iter().find(|(t, m)| *t >= main_press && m[0] & 0xF0 == 0x90 && m[2] > 0).unwrap();
+        assert_eq!(first.0, main_b_at, "Main B's first note on its downbeat");
+    }
+
+    /// A Main -> Fill -> Main -> Main cycle whose patterns change nothing sends no bank
+    /// select, program change, (N)RPN or SysEx after Start: the parts already have the
+    /// style's setup, so a section change reloads no voice and resets no part.
+    #[test]
+    fn main_fill_main_resends_no_setup() {
+        use crate::sff::SectionId;
+        let p = Box::new(Prepared::new(&plain_style_with_fill()));
+        let bar = bar_ns(&p);
+        let mut e = Engine::new(p);
+        let mut rec = Recorder::default();
+        e.set_chord(Chord::new(0, 0), 0, &mut rec);
+        assert!(rec.out.iter().any(|(_, m)| m[..] == [0xCC, 5]), "Start sends the SInt");
+        let start = rec.out.len();
+        let ms = 1_000_000;
+        play(&mut e, &mut rec, 0, bar / 2 + ms);
+        e.button(Button::Main(0), bar / 2 + ms, &mut rec); // Fill A on beat 3
+        play(&mut e, &mut rec, bar / 2 + ms, bar - ms);
+        assert_eq!(e.snapshot(bar - ms).cur, Some(SectionId::Fill(0)));
+        play(&mut e, &mut rec, bar - ms, bar + bar / 2);
+        assert_eq!(e.snapshot(bar + bar / 2).cur, Some(SectionId::Main(0)));
+        e.button(Button::AutoFill, bar + bar / 2, &mut rec);
+        e.button(Button::Main(1), bar + bar / 2, &mut rec); // Main B at the bar
+        play(&mut e, &mut rec, bar + bar / 2, 3 * bar);
+        assert_eq!(e.snapshot(3 * bar).cur, Some(SectionId::Main(1)));
+        let setup: Vec<_> = rec.out[start..].iter().filter(|(_, m)| is_setup(m)).collect();
+        assert!(setup.is_empty(), "section changes re-sent setup: {setup:?}");
+    }
+
+    /// Across the corpus, a section change never sends the program change of a voice the
+    /// part already has, and sends SysEx only right after a program change it had to send
+    /// (the part's XG parameters and the drum setup, which a program change resets).
+    #[test]
+    fn corpus_section_changes_send_no_redundant_setup() {
+        let files = super::tests::corpus();
+        if files.is_empty() {
+            eprintln!("no corpus; skipping");
+            return;
+        }
+        let mut changes = 0;
+        for f in files {
+            let style = Style::load(&f).unwrap();
+            let p = Box::new(Prepared::new(&style));
+            let bar = bar_ns(&p);
+            let mut script = vec![(0, Step::Chord(Chord::new(0, 0)))];
+            for (i, b) in [Button::Main(0), Button::Main(1), Button::Break, Button::Main(1), Button::Main(0)].into_iter().enumerate() {
+                script.push(((i as u64 + 1) * 2 * bar + bar / 3, Step::Button(b)));
+            }
+            let mut boundaries = Vec::new();
+            let mut last = None;
+            let (_, rec) = run_observed(p, &script, 12 * bar, |e, now| {
+                let cur = e.snapshot(now).cur;
+                if cur != last && last.is_some() {
+                    boundaries.push(now);
+                }
+                last = cur;
+            });
+            changes += boundaries.len();
+            let start = rec.out.iter().position(|(t, _)| *t > 0).unwrap_or(rec.out.len());
+            let (mut bank, mut voice) = ([[0xFFu8; 2]; 16], [None::<(u8, u8, u8)>; 16]);
+            let mut pc_at = None;
+            for (i, (t, m)) in rec.out.iter().enumerate() {
+                let ch = (m[0] & 0x0F) as usize;
+                match m[0] & 0xF0 {
+                    0xB0 if matches!(m[1], 0 | 32) => bank[ch][(m[1] == 32) as usize] = m[2],
+                    0xC0 => {
+                        let v = Some((bank[ch][0], bank[ch][1], m[1]));
+                        let setup = i >= start && boundaries.contains(t);
+                        assert!(!setup || voice[ch] != v, "{}: ch {} program {} re-sent at {t}", f.display(), ch + 1, m[1]);
+                        voice[ch] = v;
+                        pc_at = Some(*t);
+                    }
+                    0xF0 if i >= start => assert_eq!(pc_at, Some(*t), "{}: SysEx at {t} without a program change", f.display()),
+                    _ => {}
+                }
+            }
+        }
+        assert!(changes > 0);
     }
 
     /// The takeover rule on its own (the master fader uses it directly).

@@ -19,7 +19,7 @@ Every extension uses the same container. It is a **type-0 Standard MIDI File** w
 **Markers in the MIDI track:**
 - Measure 1 holds `SFF1` or `SFF2` (the format flag), the style name, then `SInt`. After `SInt` come bank select, program change, volume, reverb and chorus sends, and XG effect SysEx for each channel.
 - The sections follow from measure 2: `Intro A–C`, `Main A–D`, `Fill In AA/BB/CC/DD`, `Fill In BA` (= Break), `Ending A–C`.
-- Newer instruments re-apply `SInt` every time the section changes. yahaha should do the same.
+- Newer instruments re-apply `SInt` every time the section changes. yahaha does, sending only what a pattern changed since: resending all of it (a program change per part, the drum setup SysEx) queued hundreds of bytes ahead of every section's first notes.
 
 **Parts.** Output lands on the 8 accompaniment channels:
 
