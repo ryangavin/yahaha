@@ -104,6 +104,10 @@ mod imp {
         pub(crate) last: (u64, u64),
     }
 
+    /// A plugin still playing while its replacement loads: voice, info, editor, stats,
+    /// out of process.
+    pub(crate) type Playing = (PluginVoice, Option<PluginInfo>, Option<EditorTarget>, Option<Arc<PluginStats>>, bool);
+
     #[derive(Default)]
     pub(crate) struct PluginCtl {
         pub(crate) host: Option<PluginHost>,
@@ -111,7 +115,7 @@ mod imp {
         pub(crate) scan_rx: Option<mpsc::Receiver<Result<Vec<PluginInfo>, String>>>,
         pub(crate) channels: [Option<ChannelPlugin>; 16],
         /// A channel whose plugin was playing and is loading another: the one playing.
-        pub(crate) playing: [Option<(PluginVoice, Option<PluginInfo>, Option<EditorTarget>, Option<Arc<PluginStats>>, bool)>; 16],
+        pub(crate) playing: [Option<Playing>; 16],
         pub(crate) stats_ns: u64,
         /// The last autosave of the parts' plugin states.
         pub(crate) autosave_ns: u64,

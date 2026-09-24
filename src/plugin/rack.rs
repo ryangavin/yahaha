@@ -425,14 +425,10 @@ impl PluginRack {
                 self.backlog[i] = Some(inst);
             }
         }
-        loop {
-            // A swap or clear for a channel still crossfading waits for the fade to end:
-            // applying it now would cut the outgoing instance off mid-fade (a click).
-            let wait = match self.rx.peek() {
-                Ok(RackCmd::Assign { channel, .. } | RackCmd::Clear { channel, .. }) => self.slots[*channel as usize].old.is_some(),
-                Err(_) => break,
-            };
-            if wait {
+        // A swap or clear for a channel still crossfading waits for the fade to end:
+        // applying it now would cut the outgoing instance off mid-fade (a click).
+        while let Ok(RackCmd::Assign { channel, .. } | RackCmd::Clear { channel, .. }) = self.rx.peek() {
+            if self.slots[*channel as usize].old.is_some() {
                 break;
             }
             let Ok(cmd) = self.rx.pop() else { break };
