@@ -7,6 +7,7 @@ impl Engine {
 
     /// Emit everything due up to `now`.
     pub fn process(&mut self, now: u64, sink: &mut impl Sink) {
+        self.on_wake(now, sink);
         if !self.running {
             return;
         }
@@ -16,8 +17,7 @@ impl Engine {
                 self.stop(sink);
                 return;
             };
-            let sec_end = self.sec_start + sec.len as f64;
-            let (boundary, inclusive, swap) = self.boundary(sec_end);
+            let (boundary, inclusive, swap) = self.boundary();
             // A bar or beat line before the next event and the boundary: its hooks first.
             let line = self.lines.next;
             if line <= target

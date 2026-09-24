@@ -25,6 +25,7 @@ mod pads;
 mod parts;
 mod preview;
 mod settings;
+mod style_settings;
 mod surface;
 mod system;
 mod transport;
@@ -38,6 +39,7 @@ pub use pads::*;
 pub use parts::*;
 pub use preview::*;
 pub use settings::*;
+pub use style_settings::*;
 pub use surface::*;
 pub use system::*;
 pub use transport::*;
@@ -115,6 +117,8 @@ app_cmd! {
     Settings(SettingsCmd),
     /// Panic, the message line.
     System(SystemCmd),
+    /// Section Change Timing, Synchro Stop Window, fade times, Section Reset, Retrigger length.
+    StyleSettings(StyleSettingsCmd),
 }
 
 impl From<Button> for AppCmd {
@@ -134,6 +138,9 @@ impl From<Button> for AppCmd {
             Button::TempoDown => TransportCmd::TempoDown.into(),
             Button::TogglePart(p) => MixerCmd::ToggleStylePart { part: p }.into(),
             Button::StopAcmp => TransportCmd::ToggleStopAcmp.into(),
+            Button::Fade => TransportCmd::ToggleFade.into(),
+            Button::SectionReset => TransportCmd::SectionReset.into(),
+            Button::Retrigger => TransportCmd::ToggleRetrigger.into(),
         }
     }
 }
@@ -168,6 +175,7 @@ impl From<Action> for AppCmd {
             Action::PartVoice(d) => PartsCmd::StepVoice { delta: d }.into(),
             Action::ToggleFaderPage => MixerCmd::ToggleFaderPage.into(),
             Action::Style(d) => LibraryCmd::StepStyle { delta: d }.into(),
+            Action::RetriggerRate(d) => StyleSettingsCmd::StepRetriggerRate { delta: d }.into(),
         }
     }
 }
@@ -240,6 +248,8 @@ pub struct AppState {
     pub preview: PreviewState,
     /// The keys held and the chord, for the app's keyboard strip.
     pub keyboard: KeyboardState,
+    /// Section Change Timing, Synchro Stop Window, fade times, Section Reset, Retrigger length.
+    pub style_settings: StyleSettingsState,
     /// The last notice or error, until the next one or `ClearMessage`.
     pub message: Option<Message>,
 }

@@ -56,10 +56,10 @@ impl Control {
             ("padBankDown", launchkey::PAD_DOWN_CC, "PAGE ▼", "OTS LINK"),
             ("trackPrev", launchkey::TRACK_LEFT_CC, "◀ STYLE", ""),
             ("trackNext", launchkey::TRACK_RIGHT_CC, "STYLE ▶", ""),
-            ("play", launchkey::PLAY_CC, "PLAY", ""),
-            ("stop", launchkey::STOP_CC, "STOP", ""),
-            ("scene", launchkey::SCENE_CC, "TEMPO +", ""),
-            ("function", launchkey::FUNCTION_CC, "TEMPO -", ""),
+            ("play", launchkey::PLAY_CC, "PLAY", "RESET"),
+            ("stop", launchkey::STOP_CC, "STOP", "FADE"),
+            ("scene", launchkey::SCENE_CC, "TEMPO +", "RTG SHORT"),
+            ("function", launchkey::FUNCTION_CC, "TEMPO -", "RTG LONG"),
         ] {
             let (a, sa) = (act(cc, false), act(cc, true));
             let shift = (sa != a).then_some((shift_label, sa));

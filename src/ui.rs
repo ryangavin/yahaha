@@ -12,7 +12,18 @@ use std::cell::Cell;
 use std::path::Path;
 use std::time::Duration;
 use yahaha::api::{AppCmd, AppState, LibraryCmd, MixerCmd, OtsCmd, Pad, PadsCmd, PartsCmd, SettingsCmd, SystemCmd};
-use yahaha::engine::Button;
+use yahaha::engine::{Button, FadeState};
+
+/// The fade state in a word, for the status line.
+fn fade_name(f: FadeState) -> &'static str {
+    match f {
+        FadeState::Off => "",
+        FadeState::Armed => "IN ARMED",
+        FadeState::FadingIn => "IN",
+        FadeState::FadingOut => "OUT",
+        FadeState::Holding => "HOLD",
+    }
+}
 use yahaha::launchkey::{self, Action};
 use yahaha::library::{self, Info, Library};
 use yahaha::parts::{self, FaderPage};
@@ -42,6 +53,11 @@ fn key_action(code: KeyCode) -> Option<Action> {
         KeyCode::Char('=') | KeyCode::Char('+') => b(Button::TempoUp),
         KeyCode::Char('-') => b(Button::TempoDown),
         KeyCode::Char('h') => b(Button::StopAcmp),
+        KeyCode::Char('r') => b(Button::SectionReset),
+        KeyCode::Char('F') => b(Button::Fade),
+        KeyCode::Char('R') => b(Button::Retrigger),
+        KeyCode::Char('{') => Some(Action::RetriggerRate(-1)),
+        KeyCode::Char('}') => Some(Action::RetriggerRate(1)),
         KeyCode::Char(c) if "zxcvbnm,".contains(c) => b(Button::TogglePart("zxcvbnm,".find(c).unwrap() as u8)),
         KeyCode::Char('[') => Some(Action::Split(-1)),
         KeyCode::Char(']') => Some(Action::Split(1)),
@@ -442,6 +458,9 @@ fn draw(f: &mut ratatui::Frame, st: &AppState, message: &str, beats: f64) {
                 flag(t.auto_fill, "AUTO FILL [u]"),
                 if t.sync_stop_available { flag(t.sync_stop, "SYNC STOP [j]") } else { Span::styled(" SYNC STOP n/a ", dim) },
                 flag(t.stop_acmp, "STOP ACMP [h]"),
+                flag(t.fade != FadeState::Off, &format!("FADE {} [F]", fade_name(t.fade))),
+                flag(t.retrigger, &format!("RETRIG 1/{} [R {{ }}]", st.style_settings.retrigger_rate)),
+                flag(t.ritardando, "RIT."),
                 flag(ots.link, "OTS LINK [F10]"),
                 Span::styled(
                     match (ots.settings.len(), ots.applied) {
@@ -506,7 +525,7 @@ fn draw(f: &mut ratatui::Frame, st: &AppState, message: &str, beats: f64) {
 
     let mut help = vec![
         Line::from(Span::styled(
-            " space start/stop · 1-4 Main A-D (again = fill) · q w e intro · i o p ending · g break · t tap · -/= tempo · F1-F4 part · 9/0 voice · 5-8 part on/off · F9 faders Panel/Style · ; ' kbd transpose · : \" master · / reset · tab pad page · enter browse styles · \\ panic · esc twice quit",
+            " space start/stop · 1-4 Main A-D (again = fill) · q w e intro · i o p ending (again = rit.) · g break · t tap · r reset · F fade · -/= tempo · F1-F4 part · 9/0 voice · 5-8 part on/off · F9 faders Panel/Style · ; ' kbd transpose · : \" master · / reset · tab pad page · enter browse styles · \\ panic · esc twice quit",
             dim,
         )),
         Line::from(Span::styled(
@@ -644,6 +663,9 @@ pub fn screen_html(style: &Path, out: &Path) -> Result<()> {
         style_pending: false,
         section_bars: 4,
         audition: None,
+        fade: FadeState::Off,
+        retrigger: false,
+        ritardando: false,
     });
     // What a live session with the synth and a Launchkey would add.
     let mut st = (*session.state()).clone();
@@ -699,7 +721,7 @@ pub fn screen_html(style: &Path, out: &Path) -> Result<()> {
 mod tests {
     use super::*;
     use std::path::PathBuf;
-    use yahaha::api::{ChordCmd, TransportCmd};
+    use yahaha::api::{ChordCmd, StyleSettingsCmd, TransportCmd};
     use yahaha::launchkey::Page;
 
     /// Every Launchkey control on pages 2 and 3, and the Track buttons, is a keyboard
@@ -737,6 +759,10 @@ mod tests {
         assert_eq!(key_cmd(KeyCode::BackTab), Some(AppCmd::Pads(PadsCmd::CyclePadPage { delta: -1 })));
         assert_eq!(key_cmd(KeyCode::Char('\\')), Some(AppCmd::System(SystemCmd::Panic)));
         assert_eq!(key_cmd(KeyCode::Char('k')), Some(AppCmd::Mixer(MixerCmd::ToggleSynthMute)));
+        assert_eq!(key_cmd(KeyCode::Char('r')), Some(AppCmd::Transport(TransportCmd::SectionReset)));
+        assert_eq!(key_cmd(KeyCode::Char('F')), Some(AppCmd::Transport(TransportCmd::ToggleFade)));
+        assert_eq!(key_cmd(KeyCode::Char('R')), Some(AppCmd::Transport(TransportCmd::ToggleRetrigger)));
+        assert_eq!(key_cmd(KeyCode::Char('}')), Some(AppCmd::StyleSettings(StyleSettingsCmd::StepRetriggerRate { delta: 1 })));
         assert_eq!(key_cmd(KeyCode::Char('Z')), None);
     }
 

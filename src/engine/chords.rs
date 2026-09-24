@@ -27,6 +27,12 @@ impl Engine {
         let chord = shift_chord(played, self.transpose.keyboard);
         let prev = self.chord;
         self.chord = Some(chord);
+        // A chord played: the Synchro Stop Window times the hold; Retrigger restarts the
+        // Main at it (before the band follows the chord, so the new pass plays it).
+        self.sync_window_chord(now);
+        if chord.ty != CANCEL {
+            self.retrigger_chord(self.running, now, sink);
+        }
         self.follow_chord(prev, chord, now, sink);
         self.on_chord(prev, now, sink);
     }
@@ -109,8 +115,7 @@ impl Engine {
     pub(super) fn due_within(&self, now: u64, window: u64) -> Option<usize> {
         let sec = self.style.sections[self.cur].as_ref()?;
         let target = self.tick_at(now + window) + 1e-6;
-        let sec_end = self.sec_start + sec.len as f64;
-        let (boundary, inclusive, _) = self.boundary(sec_end);
+        let (boundary, inclusive, _) = self.boundary();
         if boundary <= target {
             return None;
         }

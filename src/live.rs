@@ -11,7 +11,7 @@
 //! non-blocking semaphore signal; the engine only sleeps on the semaphore with a timeout
 //! equal to its next deadline.
 
-use crate::engine::{shift_key, AuditionPos, Button, Engine, Prepared, Snapshot, Transpose};
+use crate::engine::{master_volume_of, shift_key, AuditionPos, Button, Engine, Prepared, Snapshot, StyleSettings, Transpose};
 use crate::fingering::{self, Fingering};
 use crate::launchkey::{self, Action, Control, Page};
 use crate::midi::{for_each_message, InputHandler};
@@ -40,6 +40,9 @@ pub enum Cmd {
     /// All Notes Off on the keyboard parts' channels: a MIDI source with keys held was
     /// disconnected (its note-offs will never come).
     KeysOff,
+    /// New Style settings (section-change timing, Synchro Stop Window, fade times,
+    /// Section Reset, Retrigger length).
+    StyleSettings(StyleSettings),
 }
 
 /// How many bars a style preview plays.
@@ -193,8 +196,12 @@ impl Out {
     pub fn push(&mut self, msg: &[u8]) {
         self.midi.push(msg);
         // The built-in synth takes channel messages only; SysEx (the style's XG effect
-        // setup) is for the port.
+        // setup) is for the port. Master Volume (a fade) is the exception: the synth gets
+        // it as `synth::master_volume_msg`, its own 3-byte form.
         if msg.first() == Some(&0xF0) {
+            if let (Some(v), Some(s)) = (master_volume_of(msg), self.synth.as_mut()) {
+                let _ = s.push(crate::synth::master_volume_msg(v));
+            }
             return;
         }
         if let Some(s) = self.synth.as_mut() {
@@ -1050,6 +1057,7 @@ fn apply(engine: &mut Engine, parts: &Parts, cmd: Cmd, now: u64, out: &mut Out) 
         Cmd::ManualBass(on) => engine.set_manual_bass(on, out),
         Cmd::Transpose(t) => engine.set_transpose(t, now, out),
         Cmd::StopAudition => {}
+        Cmd::StyleSettings(s) => engine.set_style_settings(s),
         Cmd::KeysOff => {
             // The source's pedal, wheels and pressure went to every keyboard part too, and
             // its releases will never come: with the pedal left down, All Notes Off would

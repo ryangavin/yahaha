@@ -10,14 +10,19 @@
 //! (sections.rs). See docs/architecture.md.
 
 mod chords;
+mod fade;
 mod hooks;
 mod mirror;
 mod mixer;
 mod playback;
 mod prepared;
+mod retrigger;
+mod ritardando;
 mod sections;
 mod setup;
 mod style_change;
+mod sync_stop;
+mod timing;
 mod transport;
 
 use hooks::{Features, Lines};
@@ -25,7 +30,10 @@ use mirror::{Mirror, NRPN_BIT, UNSENT};
 use sections::Change;
 pub use mixer::{Takeover, HW_UNKNOWN};
 use prepared::PKind;
+pub use fade::{master_volume_msg, master_volume_of, FadeState, FULL as MASTER_VOLUME_FULL};
 pub use prepared::{id_of, slot_of, Msgs, PSection, Prepared, NUM_SLOTS};
+pub use ritardando::RIT_END;
+pub use timing::{IntroEndingTiming, MainTiming, StyleSettings, MAX_FADE_HOLD_MS, MAX_FADE_MS, MAX_SYNC_STOP_WINDOW_MS, RETRIGGER_RATES};
 
 use crate::sff::{ChannelRule, Ntr, Ntt, Rtr, SectionId, Style};
 use crate::theory::{is_drum_part, plays, transpose_group, Chord, CANCEL, GUITAR_NOISE};
@@ -109,6 +117,12 @@ pub enum Button {
     TempoDown,
     TogglePart(u8),
     StopAcmp,
+    /// FADE IN/OUT: stopped, arm the fade in; playing, fade out and stop.
+    Fade,
+    /// Style Section Reset: the section playing starts again from its top.
+    SectionReset,
+    /// Style Retrigger on/off.
+    Retrigger,
 }
 
 
@@ -150,6 +164,12 @@ pub struct Snapshot {
     /// A style preview playing beside the (stopped) band (`live::EngineLoop`); the engine
     /// itself always reports None.
     pub audition: Option<AuditionPos>,
+    /// Fade In/Out.
+    pub fade: FadeState,
+    /// Style Retrigger is on.
+    pub retrigger: bool,
+    /// An Ending ritardando is slowing the band.
+    pub ritardando: bool,
 }
 
 /// Where a style preview is: style `id` (the session's library id), bar `bar` of `bars`
@@ -325,7 +345,6 @@ pub struct Engine {
     /// The next bar or beat line for the `on_bar`/`on_beat` hooks (hooks.rs).
     lines: Lines,
     /// The engine-side state of the features that plug into the hooks (hooks.rs).
-    #[allow(dead_code)]
     features: Features,
     /// Pitch bends that did not fit the output range and were clamped.
     #[cfg(test)]
@@ -450,16 +469,20 @@ impl Engine {
                 _ => 0,
             },
             audition: None,
+            fade: self.fade_state(),
+            retrigger: self.retrigger_on(),
+            ritardando: self.ritardando(),
         }
     }
 
     /// Time of the next thing the engine needs to do, if running.
     pub fn next_deadline(&self) -> Option<u64> {
+        let wake = self.hook_wake_ns();
         if !self.running {
-            return None;
+            return wake;
         }
-        let sec = self.style.sections[self.cur].as_ref()?;
-        let mut t = self.sec_start + sec.len as f64;
+        let Some(sec) = self.style.sections[self.cur].as_ref() else { return wake };
+        let mut t = self.section_end().0;
         if let Some(q) = self.queued {
             t = t.min(q.at);
         }
@@ -472,7 +495,8 @@ impl Engine {
         if let Some(h) = self.hook_deadline() {
             t = t.min(h);
         }
-        Some(self.ns_at(t))
+        let band = self.ns_at(t);
+        Some(wake.map_or(band, |w| w.min(band)))
     }
 }
 

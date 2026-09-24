@@ -34,6 +34,7 @@ impl Engine {
 
     /// Chord-zone keys all released (for Sync Stop).
     pub fn chord_released(&mut self, now: u64, sink: &mut impl Sink) {
+        self.sync_window_released();
         if self.sync_stop && self.running {
             self.stop(sink);
             self.sync_armed = true;
@@ -78,9 +79,20 @@ impl Engine {
                     self.off_where(sink, |n| n.src == STOP_ACMP_SRC);
                 }
             }
-            Button::TempoUp => self.set_bpm_internal(self.bpm + 2.0, now),
-            Button::TempoDown => self.set_bpm_internal(self.bpm - 2.0, now),
+            Button::TempoUp => {
+                self.rit_tempo(2.0);
+                self.set_bpm_internal(self.bpm + 2.0, now)
+            }
+            Button::TempoDown => {
+                self.rit_tempo(-2.0);
+                self.set_bpm_internal(self.bpm - 2.0, now)
+            }
+            // Playing, with Style Section Reset on: rewind the section (OM p.46).
+            Button::TapTempo if self.running && self.features.settings.section_reset => self.reset_section(now, sink),
             Button::TapTempo => self.tap(now),
+            Button::SectionReset => self.reset_section(now, sink),
+            Button::Fade => self.fade_button(now, sink),
+            Button::Retrigger => self.toggle_retrigger(),
             Button::Intro(i) => {
                 if !self.running {
                     self.pending_intro = if self.pending_intro == Some(i) { None } else { Some(i) };
@@ -131,7 +143,8 @@ impl Engine {
                 if self.running {
                     match s.resolve(13 + i as usize) {
                         Some(slot) if slot != self.cur => self.queue_at_bar(slot, now),
-                        Some(_) => {}
+                        // The Ending playing, pressed again: ritardando.
+                        Some(_) => self.start_rit(now),
                         None => self.queue_stop_at_bar(now),
                     }
                 }

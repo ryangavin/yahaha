@@ -5,24 +5,29 @@ use super::*;
 /// What kind of change is being queued (`Engine::change_point`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Change {
-    /// An Intro, Main or Ending.
-    Section,
+    /// Into a Main (A-D): Section Change Timing "To Main".
+    Main,
+    /// Into Intro or Ending slot `.0`: Section Change Timing "Inside Intro/Ending" while an
+    /// Intro or Ending plays, else the next bar line.
+    IntroEnding(usize),
     /// A Fill In or Break.
     Fill,
     /// The band stops (an Ending the style doesn't have).
     Stop,
-    /// Another style takes over while the band plays.
+    /// Another style takes over while the band plays (follows "To Main").
     Style,
 }
 
 impl Engine {
-    /// The section's next boundary before `sec_end`: a queued section, or a style change
-    /// (`swap` true), else the section's end; and whether events at it still belong to
-    /// this section.
-    pub(super) fn boundary(&self, sec_end: f64) -> (f64, bool, bool) {
+    /// The section's next boundary before its end (`section_end`): a queued section, or a
+    /// style change (`swap` true), else the section's end; and whether events at it still
+    /// belong to this section (at its real end they do; at a Retrigger loop's end they
+    /// are the rest of the section, which does not play).
+    pub(super) fn boundary(&self) -> (f64, bool, bool) {
+        let (sec_end, real_end) = self.section_end();
         let (b, inclusive) = match self.queued {
             Some(q) if q.at < sec_end => (q.at, false),
-            _ => (sec_end, true),
+            _ => (sec_end, real_end),
         };
         match &self.pending {
             Some(p) if p.at <= b + 1e-6 => (p.at, false, true),
@@ -36,24 +41,44 @@ impl Engine {
     /// and Ending buttons, fills and breaks, the stop an Ending the style lacks makes, and
     /// a style change while playing).
     ///
-    /// Sections, stops and style changes wait for the next bar line. Fills and breaks
-    /// start at the next beat and play the rest of that bar, aligned so the fill's beat
-    /// matches the bar position.
+    /// Fills and breaks start at the next beat and play the rest of that bar, aligned so
+    /// the fill's beat matches the bar position. Mains and style changes follow Section
+    /// Change Timing "To Main" (`MainTiming`; Auto Fill In on makes a Main change Next
+    /// Bar). Changing from an Intro or Ending to another follows "Inside Intro/Ending"
+    /// (`IntroEndingTiming`), except Intro to Intro (always Next Bar) and into Ending I;
+    /// those, a change from a Main or a Fill into an Intro or Ending, and the stop wait for
+    /// the next bar line, as they always have (the manual's "conventional rules").
     pub(super) fn change_point(&self, change: Change, now: u64) -> (f64, f64) {
+        let timing = self.features.settings;
         match change {
-            Change::Section | Change::Stop | Change::Style => {
+            Change::Fill => self.next_beat(now),
+            Change::Main => match timing.main_timing {
+                MainTiming::Immediate if !self.auto_fill => self.next_beat(now),
+                _ => self.bar_or_now(now),
+            },
+            Change::Style => match timing.main_timing {
+                MainTiming::Immediate => self.next_beat(now),
+                MainTiming::NextBar => self.bar_or_now(now),
+            },
+            Change::IntroEnding(to) => {
+                let from = id_of(self.cur);
+                let inside = matches!(from, SectionId::Intro(_) | SectionId::Ending(_));
+                if !inside || to == slot_of(SectionId::Ending(0)) {
+                    let at = self.next_bar(now);
+                    return (at, at);
+                }
+                let intro_to_intro = matches!((from, id_of(to)), (SectionId::Intro(_), SectionId::Intro(_)));
+                match timing.intro_ending_timing {
+                    IntroEndingTiming::EndOfSection if !intro_to_intro => {
+                        let at = self.sec_start + self.style.sections[self.cur].as_ref().map_or(0, |s| s.len) as f64;
+                        (at, at)
+                    }
+                    _ => self.bar_or_now(now),
+                }
+            }
+            Change::Stop => {
                 let at = self.next_bar(now);
                 (at, at)
-            }
-            Change::Fill => {
-                let t = self.tick_at(now);
-                let ppq = self.style.ppq as f64;
-                let tpb = self.style.tpb as f64;
-                let pos = t - self.sec_start;
-                let beat = (pos / ppq).ceil() * ppq;
-                let at = self.sec_start + beat;
-                let bar_start = self.sec_start + (beat / tpb).floor() * tpb;
-                (at, bar_start)
             }
         }
     }
@@ -80,7 +105,8 @@ impl Engine {
 
     /// Queue section `slot` (an Intro, a Main, an Ending) for its change point.
     pub(super) fn queue_at_bar(&mut self, slot: usize, now: u64) {
-        let (at, sec_start) = self.change_point(Change::Section, now);
+        let change = if matches!(id_of(slot), SectionId::Main(_)) { Change::Main } else { Change::IntroEnding(slot) };
+        let (at, sec_start) = self.change_point(change, now);
         self.queued = Some(Queued { slot, at, sec_start });
     }
 
@@ -105,7 +131,11 @@ impl Engine {
     /// A section boundary at tick `at`: the section queued for it, else `follow_on`, takes
     /// over.
     pub(super) fn transition(&mut self, at: f64, now: u64, sink: &mut impl Sink) {
-        let sec_end = self.sec_start + self.style.sections[self.cur].as_ref().map_or(0, |s| s.len) as f64;
+        if self.retrigger_wraps(at) {
+            self.restart_section(at, now, sink);
+            return;
+        }
+        let sec_end = self.section_end().0;
         let (next, start) = match self.queued.take() {
             Some(q) if q.at <= sec_end + 1e-6 => (q.slot, q.sec_start),
             q => {
