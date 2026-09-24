@@ -363,6 +363,17 @@ impl Arp {
         (t != NONE).then_some(t)
     }
 
+    /// The clock jumped to `tick` (the style restarted at 0, another style took over): as
+    /// a `process` range starting before the last one ended, but at once, for a caller
+    /// that knows. Every sounding note is cut at `tick` (the offs go out on the next
+    /// `process`), queued note-ons are dropped, and a running pattern starts again from
+    /// step 1 there (on the next grid line with Quantize on). The next range starts at
+    /// `tick`.
+    pub fn jump(&mut self, tick: u64) {
+        self.clock_reset(tick);
+        self.last_end = tick;
+    }
+
     /// A new clock resolution at `tick` (a style with another PPQ took over): every
     /// sounding note is cut now through `sink` (its off tick would mean something else
     /// on the new clock), queued note-ons are dropped, and a running pattern starts

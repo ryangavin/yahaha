@@ -30,6 +30,8 @@
 //!   `Arp::set_ppq` at that point). With the band stopped the engine's clock runs on from
 //!   its last anchor at the current tempo: that is the arp's own free clock, and it goes
 //!   on from where the band stopped, so an arpeggio that was playing keeps its phase.
+//!   The arp counts in eighths of a style tick ([`SUB`]) and plays what is due before the
+//!   current one: at most 1/8 tick late, never early.
 //! - **Strum** notes are 15 ms apart: the input thread sounds the melody and the first
 //!   note; the later ones start here at `now + delay` and end with the melody key.
 //!
@@ -367,6 +369,11 @@ struct Strum {
 
 const MAX_STRUM: usize = 64;
 const NO_TICK: u64 = u64::MAX;
+/// The arp counts in eighths of a style tick (its ppq is the style's × `SUB`): it plays
+/// what is due before the current sub-tick, so a note is at most 1/8 tick late (0.13 ms at
+/// 480 PPQ and 120 BPM), never early, and a key pressed now starts on the next sub-tick.
+/// The grid lines (Quantize, the bar) stay where the style's are.
+pub const SUB: u32 = 8;
 
 /// The engine thread's Harmony/Arpeggio driver. See the module docs.
 pub struct KbdFx {
@@ -380,7 +387,8 @@ pub struct KbdFx {
     strum: [Strum; MAX_STRUM],
     /// The tempo EchoGen was last given.
     bpm: f64,
-    /// End (exclusive) of the last tick range the arp processed; `NO_TICK` before the first.
+    /// End (exclusive) of the last sub-tick range the arp processed; `NO_TICK` before the
+    /// first, and after a new resolution.
     arp_to: u64,
 }
 
@@ -394,7 +402,7 @@ impl KbdFx {
             cfg,
             running: Gen::Off,
             echo: EchoGen::new(&cfg.harmony, 120.0),
-            arp: Arp::new(480, PATTERNS[0].clone()),
+            arp: Arp::new(480 * SUB, PATTERNS[0].clone()),
             v: Voices { count: [[0; 128]; 16], sent: [Sounded::default(); 128] },
             strum: [Strum::default(); MAX_STRUM],
             bpm: 120.0,
@@ -413,10 +421,16 @@ impl KbdFx {
         self.v.sounding()
     }
 
-    /// The arp's clock, ticks: the style clock (see the module docs).
+    /// The arp's clock at `now`, in sub-ticks: the style clock × `SUB` (see the module docs).
     fn tick(engine: &Engine, now: u64) -> u64 {
-        let t = engine.style_tick(now);
-        if t.is_finite() && t > 0.0 { (t + 1e-6).floor() as u64 } else { 0 }
+        let t = engine.style_tick(now) * SUB as f64;
+        // The epsilon covers `ns_at_tick` rounding (it rounds up to the ns).
+        if t.is_finite() && t > 0.0 { (t + 1e-3).floor() as u64 } else { 0 }
+    }
+
+    /// The arp's resolution for the style playing.
+    fn arp_ppq(engine: &Engine) -> u32 {
+        engine.ppq().saturating_mul(SUB)
     }
 
     /// When the engine must wake next for this driver, if anything is due.
@@ -430,8 +444,9 @@ impl KbdFx {
                 }
             }
             Gen::Arp => {
+                // Played once the clock is past its sub-tick.
                 if let Some(d) = self.arp.next_due() {
-                    at(engine.ns_at_tick(d as f64));
+                    at(engine.ns_at_tick(d.saturating_add(1) as f64 / SUB as f64));
                 }
             }
             Gen::Off => {}
@@ -445,10 +460,10 @@ impl KbdFx {
         let shift = shared.key_shift.load(Relaxed);
         let tick = Self::tick(engine, now);
         // A style with another resolution: the arp re-times first.
-        if self.running == Gen::Arp && engine.ppq() != self.arp.ppq() {
+        if self.running == Gen::Arp && Self::arp_ppq(engine) != self.arp.ppq() {
             let (mask, volume) = self.arp_route(parts);
             let mut sink = ArpOut { v: &mut self.v, out, parts, shift, mask, volume };
-            self.arp.set_ppq(engine.ppq(), tick, &mut sink);
+            self.arp.set_ppq(Self::arp_ppq(engine), tick, &mut sink);
             self.arp_to = NO_TICK;
         }
         let w = shared.kbd_fx.load(Acquire);
@@ -476,11 +491,11 @@ impl KbdFx {
             match next {
                 Gen::Echo(_) => self.echo = EchoGen::new(&cfg.harmony, engine.bpm()),
                 Gen::Arp => {
-                    if self.arp.ppq() != engine.ppq() {
-                        self.arp = Arp::new(engine.ppq(), PATTERNS[cfg.pattern as usize].clone());
-                    } else {
-                        self.arp.set_pattern(PATTERNS[cfg.pattern as usize].clone(), tick);
-                    }
+                    // Stopped (`stop_generator`): nothing sounds, so a new resolution cuts nothing.
+                    let (mask, volume) = self.arp_route(parts);
+                    let mut sink = ArpOut { v: &mut self.v, out, parts, shift, mask, volume };
+                    self.arp.set_ppq(Self::arp_ppq(engine), tick, &mut sink);
+                    self.arp.set_pattern(PATTERNS[cfg.pattern as usize].clone(), tick);
                     self.arp.set_settings(cfg.arp_settings(), tick);
                     self.arp_to = NO_TICK;
                 }
@@ -626,20 +641,19 @@ impl KbdFx {
         match self.running {
             Gen::Echo(_) => self.drain_echo(now, parts, shift, out),
             Gen::Arp => {
-                let to = tick + 1;
-                let from = match self.arp_to {
-                    NO_TICK => Some(tick),
-                    // The clock went back (a START, a style change): the arp restarts there.
-                    t if t > to => Some(tick),
-                    t if t == to => None,
-                    t => Some(t),
-                };
-                if let Some(from) = from {
-                    let (mask, volume) = self.arp_route(parts);
-                    let mut sink = ArpOut { v: &mut self.v, out, parts, shift, mask, volume };
-                    self.arp.process(from..to, &mut sink);
-                    self.arp_to = to;
+                // Everything due before the current sub-tick.
+                match self.arp_to {
+                    // The first range, or the clock went back (a START, a style change):
+                    // the arp restarts its pattern there.
+                    t if t == NO_TICK || t > tick => self.arp.jump(tick),
+                    t if t < tick => {
+                        let (mask, volume) = self.arp_route(parts);
+                        let mut sink = ArpOut { v: &mut self.v, out, parts, shift, mask, volume };
+                        self.arp.process(t..tick, &mut sink);
+                    }
+                    _ => {}
                 }
+                self.arp_to = tick;
             }
             Gen::Off => {}
         }
@@ -694,6 +708,55 @@ mod tests {
                 };
                 assert_eq!(FxConfig::unpack(c.pack()), c);
             }
+        }
+    }
+
+    /// A key-up the ring lost (it was full): the engine sees the key is no longer down
+    /// (`Shared::fx_held`) and releases it from the arpeggio and from Echo, so nothing
+    /// plays on.
+    #[test]
+    fn a_lost_key_up_is_released_from_the_held_mask() {
+        let p = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus/MOX_v2/SlowWalker.T552.sty");
+        if !p.exists() {
+            eprintln!("corpus missing; skipping");
+            return;
+        }
+        let style = crate::sff::Style::load(&p).unwrap();
+        for cfg in [FxConfig { on: true, mode: FxMode::Arpeggio, ..FxConfig::default() }, {
+            let mut c = FxConfig { on: true, ..FxConfig::default() };
+            c.harmony.ty = HarmonyType::Tremolo;
+            c
+        }] {
+            let shared = Arc::new(Shared::new(54));
+            let (synth, mut heard) = RingBuffer::new(1 << 14);
+            let mut ch = channels(Out::new(crate::rt::PacketSink::new(crate::rt::Target::Null), Some(synth)));
+            let mut l = EngineLoop::new(Engine::new(Box::new(Prepared::new(&style))), ch.io, shared.clone());
+            shared.kbd_fx.store(cfg.pack(), Release);
+            shared.fx_held[0].store(1 << 60, Release);
+            ch.fx_tx.push(FxKey::On { key: 60, vel: 100 }).unwrap();
+            let mut now = 1_000;
+            let mut ons = 0;
+            let mut run = |l: &mut EngineLoop, now: &mut u64, ns: u64, ons: &mut usize| {
+                let end = *now + ns;
+                while *now < end {
+                    l.step(*now);
+                    *now = l.next_deadline().unwrap_or(*now + 5_000_000).clamp(*now + 1, end);
+                    while let Ok(m) = heard.pop() {
+                        if m[0] & 0xF0 == 0x90 && m[2] > 0 && m[0] & 0x0F == 0 {
+                            *ons += 1;
+                        }
+                    }
+                }
+            };
+            run(&mut l, &mut now, 1_000_000_000, &mut ons);
+            assert!(ons > 2, "{cfg:?}: playing");
+            // The key goes up; its message is lost.
+            shared.fx_held[0].store(0, Release);
+            run(&mut l, &mut now, 500_000_000, &mut ons);
+            let before = ons;
+            run(&mut l, &mut now, 1_000_000_000, &mut ons);
+            assert_eq!(ons, before, "{cfg:?}: stopped");
+            assert_eq!(l.io.fx.sounding(), 0, "{cfg:?}");
         }
     }
 

@@ -151,3 +151,7 @@ fn assign_of(a: HarmonyAssign) -> Assign {
         HarmonyAssign::Right3 => Assign::Right3,
     }
 }
+
+#[cfg(test)]
+#[path = "harmony_arp_tests.rs"]
+mod tests;

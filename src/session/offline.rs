@@ -112,6 +112,15 @@ impl Session {
         v
     }
 
+    /// Offline only: [`Session::take_output`] kept apart: (what the engine thread sent, what
+    /// the input thread sent). Within one `midi_in`, the input thread's messages came
+    /// first; an `advance` or a `send` has only the engine's.
+    pub fn take_output_split(&self) -> (Vec<[u8; 3]>, Vec<[u8; 3]>) {
+        let mut ctl = self.inner.lock();
+        let Some(o) = ctl.offline.as_mut() else { return Default::default() };
+        (std::iter::from_fn(|| o.band.pop().ok()).collect(), std::iter::from_fn(|| o.keys.pop().ok()).collect())
+    }
+
     /// Offline only: wait for the library index to finish (it runs on a thread).
     pub fn finish_indexing(&self) {
         let mut ctl = self.inner.lock();

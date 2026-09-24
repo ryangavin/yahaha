@@ -7,7 +7,7 @@
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
-use yahaha::live::{Input, Out, Shared};
+use yahaha::live::{FxConfig, FxMode, Input, Out, Shared};
 use yahaha::midi::InputHandler;
 use yahaha::rt::{PacketSink, Target};
 use yahaha::theory::Recognizer;
@@ -30,8 +30,12 @@ unsafe impl GlobalAlloc for Counting {
 #[global_allocator]
 static A: Counting = Counting;
 
+/// The tests take turns: the allocator counts every thread's allocations.
+static ONE_AT_A_TIME: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 #[test]
 fn keyboard_note_path_does_not_allocate() {
+    let _turn = ONE_AT_A_TIME.lock().unwrap_or_else(|e| e.into_inner());
     let shared = Arc::new(Shared::new(54));
     for p in 0..3 {
         shared.parts.on[p].store(true, Ordering::Relaxed);
@@ -54,6 +58,53 @@ fn keyboard_note_path_does_not_allocate() {
         input.packet(1, 0, &[0x80, 36, 0, 40, 0, 0x90, 43, 0]);
         input.packet(1, 0, &[0x80, 72, 0, 76, 0, 0xB0, 64, 0]);
         input.end_of_list();
+    }
+    assert_eq!(ALLOCS.load(Ordering::Relaxed) - allocs, 0, "the input thread allocated");
+    assert_eq!(FREES.load(Ordering::Relaxed) - frees, 0, "the input thread freed");
+}
+
+/// The processor slot: every Harmony type (Strum's late notes and the Echo category go to
+/// the engine thread's ring), Multi Assign and the arpeggio, switched while keys are down.
+#[test]
+fn harmony_and_arpeggio_processor_does_not_allocate() {
+    let _turn = ONE_AT_A_TIME.lock().unwrap_or_else(|e| e.into_inner());
+    let shared = Arc::new(Shared::new(54));
+    for p in 0..3 {
+        shared.parts.on[p].store(true, Ordering::Relaxed);
+    }
+    let (tx, _rx) = rtrb::RingBuffer::new(256);
+    let (fx_tx, mut fx_rx) = rtrb::RingBuffer::new(yahaha::live::FX_RING);
+    let mut input = Input::new(shared.clone(), Recognizer::new(), tx, Out::new(PacketSink::new(Target::Null), None));
+    input.set_fx(fx_tx);
+    let configs: Vec<u64> = yahaha::harmony::ALL_TYPES
+        .iter()
+        .map(|&ty| {
+            let mut c = FxConfig { on: true, ..FxConfig::default() };
+            c.harmony.ty = ty;
+            c.pack()
+        })
+        .chain([FxConfig { on: true, mode: FxMode::Arpeggio, ..FxConfig::default() }.pack(), FxConfig::default().pack()])
+        .collect();
+    input.packet(1, 0, &[0x90, 60, 100, 0x80, 60, 0]);
+    input.end_of_list();
+
+    let (allocs, frees) = (ALLOCS.load(Ordering::Relaxed), FREES.load(Ordering::Relaxed));
+    for round in 0..4u8 {
+        for &w in &configs {
+            shared.kbd_fx.store(w, Ordering::Relaxed);
+            shared.key_shift.store((round % 3) as i8 - 1, Ordering::Relaxed);
+            // A left-hand chord, a right-hand melody with a lower key and a retrigger; the
+            // type switches while they are down, then everything goes up.
+            input.packet(1, 0, &[0x90, 36, 90, 40, 90, 43, 90]);
+            input.packet(1, 0, &[0x90, 72, 100, 0x90, 64, 80, 0x90, 76, 110, 0x90, 72, 100]);
+            input.end_of_list();
+            while fx_rx.pop().is_ok() {}
+        }
+        for k in [36u8, 40, 43, 64, 72, 76] {
+            input.packet(1, 0, &[0x80, k, 0]);
+        }
+        input.end_of_list();
+        while fx_rx.pop().is_ok() {}
     }
     assert_eq!(ALLOCS.load(Ordering::Relaxed) - allocs, 0, "the input thread allocated");
     assert_eq!(FREES.load(Ordering::Relaxed) - frees, 0, "the input thread freed");
