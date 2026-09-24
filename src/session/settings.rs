@@ -23,6 +23,44 @@ pub(super) struct SynthRef {
     /// The plugin rack's control half (feature `plugins`; None: no plugin rack).
     #[cfg_attr(not(feature = "plugins"), allow(dead_code))]
     pub(super) plugins: Option<synth::PluginLink>,
+    /// To the synth thread, which owns the audio stream (`SetAudioBuffer`). None: an
+    /// offline synth (`Session::render` renders in buffers of `info.buffer`).
+    pub(super) thread: Option<mpsc::Sender<SynthMsg>>,
+}
+
+/// What the synth thread is asked to do.
+pub(super) enum SynthMsg {
+    /// Reopen the output with this many frames per buffer; the reply is the size now used.
+    Buffer(u32, mpsc::Sender<Result<Option<u32>, String>>),
+    /// Close the stream and end.
+    Stop,
+}
+
+/// Where a live session keeps its audio settings (the buffer size).
+fn audio_settings_path() -> Option<std::path::PathBuf> {
+    std::env::var_os("HOME").map(|h| std::path::PathBuf::from(h).join("Library/Application Support/yahaha/audio.json"))
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct AudioSettings {
+    buffer_frames: Option<u32>,
+}
+
+/// The buffer size a live session saved last time (`SetAudioBuffer`).
+pub(super) fn saved_buffer() -> Option<u32> {
+    let bytes = std::fs::read(audio_settings_path()?).ok()?;
+    serde_json::from_slice::<AudioSettings>(&bytes).ok()?.buffer_frames.filter(|f| synth::BUFFER_CHOICES.contains(f))
+}
+
+fn save_buffer(frames: u32) {
+    let Some(path) = audio_settings_path() else { return };
+    if let Some(dir) = path.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    if let Ok(json) = serde_json::to_string_pretty(&AudioSettings { buffer_frames: Some(frames) }) {
+        let _ = std::fs::write(path, json);
+    }
 }
 
 /// What the SoundFont loader thread sends back: the rack, and the SoundFonts in it (the
@@ -73,16 +111,20 @@ pub(super) fn start_synth(
     audio_out: Option<u8>,
     parts: Arc<parts::Parts>,
     routing: synth::Routing,
+    buffer: Option<u32>,
 ) -> Result<(SynthRef, SynthThread)> {
     let (tx, rx) = mpsc::channel();
-    let (stop, stop_rx) = mpsc::channel::<()>();
+    let (stop, msgs) = mpsc::channel::<SynthMsg>();
+    let to_thread = stop.clone();
     let sf2 = sf2.to_path_buf();
-    let thread = std::thread::Builder::new().name("yahaha-synth".into()).spawn(move || match synth::start(&sf2, consumers, audio_out, parts, routing) {
+    let thread = std::thread::Builder::new().name("yahaha-synth".into()).spawn(move || match synth::start(&sf2, consumers, audio_out, parts, routing, buffer) {
         Ok(mut s) => {
             let swap = s.swap.take();
             let plugins = s.plugins.take();
-            let _ = tx.send(Ok(SynthRef { info: s.info.clone(), control: s.control.clone(), swap, plugins }));
-            let _ = stop_rx.recv();
+            let _ = tx.send(Ok(SynthRef { info: s.info.clone(), control: s.control.clone(), swap, plugins, thread: Some(to_thread) }));
+            while let Ok(SynthMsg::Buffer(frames, reply)) = msgs.recv() {
+                let _ = reply.send(s.set_buffer(frames).map_err(|e| format!("{e:#}")));
+            }
             drop(s);
         }
         Err(e) => {
@@ -108,6 +150,7 @@ impl Control {
                     l.set_palette(on);
                 }
             }
+            SettingsCmd::SetAudioBuffer { frames } => return self.set_audio_buffer(frames),
             SettingsCmd::SetAudioOutput { first } => {
                 if let Some(s) = &self.synth {
                     let n = s.info.channels.max(2) as u8;
@@ -124,6 +167,37 @@ impl Control {
             }
         }
         Ok(())
+    }
+
+    /// Reopen the synth's output with `frames` per buffer (on the synth thread, which owns
+    /// the stream) and remember it.
+    fn set_audio_buffer(&mut self, frames: u32) -> Result<(), CmdError> {
+        if !synth::BUFFER_CHOICES.contains(&frames) {
+            return self.fail(format!("the audio buffer is 64, 128 or 256 frames, not {frames}"));
+        }
+        let Some(sy) = self.synth.as_mut() else { return self.fail("the synth is off") };
+        let Some(thread) = &sy.thread else {
+            // Offline: no device; `Session::render` uses the size.
+            sy.info.buffer = Some(frames);
+            return Ok(());
+        };
+        let (tx, rx) = mpsc::channel();
+        if thread.send(SynthMsg::Buffer(frames, tx)).is_err() {
+            return self.fail("the synth has stopped");
+        }
+        let got = rx.recv_timeout(std::time::Duration::from_secs(5)).unwrap_or_else(|_| Err("the audio device did not answer".into()));
+        match got {
+            Ok(b) => {
+                sy.info.buffer = b;
+                save_buffer(frames);
+                if b.is_some_and(|b| b != frames) {
+                    let b = b.unwrap_or_default();
+                    self.say(format!("the audio device plays {b}-frame buffers, the nearest it allows to {frames}"), false);
+                }
+                Ok(())
+            }
+            Err(e) => self.fail(format!("audio buffer {frames}: {e}")),
+        }
     }
 
     /// The SoundFonts in the synth's folder.

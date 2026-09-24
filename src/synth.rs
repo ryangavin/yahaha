@@ -16,7 +16,7 @@
 //! the code the audio device does.
 
 use anyhow::{anyhow, Context, Result};
-use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+use cpal::traits::{DeviceTrait, HostTrait};
 use rtrb::{Consumer, Producer, RingBuffer};
 use rustysynth::{SoundFont, Synthesizer, SynthesizerSettings};
 use std::path::Path;
@@ -40,7 +40,9 @@ pub type PluginLink = ();
 pub const PLUGIN_MAX_BLOCK: usize = 1024;
 
 mod routing;
+mod stream;
 pub use routing::Router;
+pub use stream::{BUFFER_CHOICES, DEFAULT_BUFFER};
 use routing::{apply_routed, NO_SLOT};
 
 pub type Msg = [u8; 3];
@@ -85,7 +87,7 @@ pub struct SynthControl {
 }
 
 pub struct Synth {
-    _stream: cpal::Stream,
+    output: stream::Output,
     pub info: SynthInfo,
     pub control: Arc<SynthControl>,
     /// The ends of the rings that swap racks: new ones to the audio thread, old ones back
@@ -93,6 +95,16 @@ pub struct Synth {
     pub swap: Option<RackSwap>,
     /// The plugin rack's control half (`plugins` feature). Taken by the Session.
     pub plugins: Option<PluginLink>,
+}
+
+impl Synth {
+    /// Reopen the output with `frames` per buffer (#104); every voice, plugin and queued
+    /// message carries over. Returns the buffer size now in use (None: the device default).
+    pub fn set_buffer(&mut self, frames: u32) -> Result<Option<u32>> {
+        let r = self.output.set_buffer(frames);
+        self.info.buffer = self.output.buffer;
+        r
+    }
 }
 
 /// Swapping SoundFonts: `tx` hands a new rack to the audio thread, `old` brings back the
@@ -731,7 +743,9 @@ impl AudioCore {
     }
 }
 
-pub fn start(sf2: &Path, consumers: Vec<Consumer<Msg>>, out_pair: Option<u8>, parts: Arc<Parts>, routing: Routing) -> Result<Synth> {
+/// Start the synth on the default output device. `buffer`: frames per buffer to ask for
+/// (None: [`DEFAULT_BUFFER`]), within what the device allows.
+pub fn start(sf2: &Path, consumers: Vec<Consumer<Msg>>, out_pair: Option<u8>, parts: Arc<Parts>, routing: Routing, buffer: Option<u32>) -> Result<Synth> {
     let mut file = std::fs::File::open(sf2).with_context(|| format!("opening {}", sf2.display()))?;
     let font = Arc::new(SoundFont::new(&mut file).map_err(|e| anyhow!("{e:?}"))?);
 
@@ -760,24 +774,15 @@ pub fn start(sf2: &Path, consumers: Vec<Consumer<Msg>>, out_pair: Option<u8>, pa
     let control = Arc::new(SynthControl::new(first));
     let (mut core, swap, plugins) = AudioCore::new(Some(rack), consumers, parts, control.clone(), sample_rate, channels);
     core.set_routes(routing.routes);
-    let callback = move |out: &mut [f32], _: &cpal::OutputCallbackInfo| core.process(out);
-
-    // Ask for a 64-frame buffer when the device allows it.
-    let buffer = match default.buffer_size() {
-        cpal::SupportedBufferSize::Range { min, max } if *min <= 64 && 64 <= *max => Some(64u32),
-        cpal::SupportedBufferSize::Range { min, .. } if *min > 64 => Some(*min),
+    let range = match default.buffer_size() {
+        cpal::SupportedBufferSize::Range { min, max } => Some((*min, *max)),
         _ => None,
     };
-    let cfg = cpal::StreamConfig {
-        channels: channels as u16,
-        sample_rate,
-        buffer_size: buffer.map(cpal::BufferSize::Fixed).unwrap_or(cpal::BufferSize::Default),
-    };
-    let stream = device.build_output_stream(cfg, callback, |e| eprintln!("audio error: {e}"), None)?;
-    stream.play()?;
+    let output = stream::Output::open(device, channels as u16, sample_rate, range, core, buffer.unwrap_or(DEFAULT_BUFFER))?;
+    let buffer = output.buffer;
     let name = sf2.file_stem().unwrap_or_default().to_string_lossy().to_string();
     Ok(Synth {
-        _stream: stream,
+        output,
         info: SynthInfo { name, sample_rate, buffer, device: device_name, channels },
         control,
         swap: Some(swap),

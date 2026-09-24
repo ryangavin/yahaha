@@ -77,7 +77,7 @@ use leds::Leds;
 use library::{open_library, Loaded};
 use offline::Offline;
 use rtrb::{Consumer, Producer, RingBuffer};
-use settings::{is_daw, start_synth, MidiIo, RackLoad, SynthRef};
+use settings::{is_daw, saved_buffer, start_synth, MidiIo, RackLoad, SynthMsg, SynthRef};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering::Relaxed};
 use std::sync::{mpsc, Arc, Mutex, MutexGuard};
@@ -101,6 +101,9 @@ pub struct Options {
     pub palette_leds: bool,
     /// 1-based left output channel for the synth (None = auto).
     pub audio_out: Option<u8>,
+    /// The synth's buffer size in frames, 64, 128 or 256 (None: the one saved by
+    /// `SetAudioBuffer`, else 64).
+    pub audio_buffer: Option<u32>,
     /// Chord fingering type at startup.
     pub fingering: Fingering,
     /// Chord Detection Area = Upper.
@@ -134,6 +137,7 @@ impl Default for Options {
             sf2: None,
             palette_leds: false,
             audio_out: None,
+            audio_buffer: None,
             fingering: Fingering::FingeredOnBass,
             upper: false,
             manual_bass: true,
@@ -184,7 +188,7 @@ struct Live {
 }
 
 struct SynthThread {
-    stop: mpsc::Sender<()>,
+    stop: mpsc::Sender<SynthMsg>,
     thread: std::thread::JoinHandle<()>,
 }
 
@@ -682,7 +686,8 @@ impl Session {
         if let Some(sf2) = &opts.sf2 {
             let main = sf2.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
             let routing = synth::Routing { routes: shared.routes.clone(), font_id: p.control.sound.font_id(&main).unwrap_or(0) };
-            match start_synth(sf2, std::mem::take(&mut feeds.consumers), opts.audio_out, shared.parts.clone(), routing) {
+            let buffer = opts.audio_buffer.or_else(saved_buffer);
+            match start_synth(sf2, std::mem::take(&mut feeds.consumers), opts.audio_out, shared.parts.clone(), routing, buffer) {
                 Ok((r, t)) => {
                     p.control.sound.synth_started(&main);
                     p.control.sound.audition_tx = feeds.control.take();
@@ -855,7 +860,7 @@ impl Session {
             }
             self.inner.lock().save_plugin_states_on_stop();
             if let Some(s) = live.synth {
-                let _ = s.stop.send(());
+                let _ = s.stop.send(SynthMsg::Stop);
                 let _ = s.thread.join();
             }
             live.client.dispose();
