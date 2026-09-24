@@ -264,5 +264,6 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 
 | control | what it does | Genos | key | Launchkey |
 |---|---|---|---|---|
-| **Help mode** | Pins help on: hover or tab to any control and its full description stays in the help bar at the bottom. Controls keep working. | — | `?` | — |
+| **Help mode** | Grows the help footer to show the whole entry, and keeps the last control you hovered or tabbed to there while you try it. Controls keep working. | — | `?` | — |
+| **Pop-up tips** | Also shows each entry in a pop-up next to the control, as well as in the help footer. Off by default, because a pop-up covers the controls while you play. | — | — | — |
 | **Light / dark** | Switches between the dark stage theme and a light one. | — | — | — |
