@@ -665,7 +665,10 @@ fn launchkey_button_descriptions() {
     let tl = b(&s, "trackPrev");
     assert_eq!((tl.action, tl.level, tl.shift_action), (None, Level::Off, None));
     let play = b(&s, "play");
-    assert_eq!((play.action.clone(), play.colour, play.shift_action, play.shift_label.as_str()), (Some(AppCmd::Transport(TransportCmd::StartStop)), None, Some(AppCmd::Transport(TransportCmd::StartStop)), "PLAY"));
+    assert_eq!((play.action.clone(), play.colour, play.shift_action, play.shift_label.as_str()), (Some(AppCmd::Transport(TransportCmd::StartStop)), None, Some(AppCmd::Transport(TransportCmd::SectionReset)), "RESET"));
+    let stop = b(&s, "stop");
+    assert_eq!((stop.shift_action, stop.shift_label.as_str()), (Some(AppCmd::Transport(TransportCmd::ToggleFade)), "FADE"));
+    assert_eq!(b(&s, "scene").shift_action, Some(AppCmd::StyleSettings(StyleSettingsCmd::StepRetriggerRate { delta: 1 })));
     assert_eq!(b(&s, "scene").action, Some(AppCmd::Transport(TransportCmd::TempoUp)));
     assert_eq!((b(&s, "scene").label.as_str(), b(&s, "function").label.as_str()), ("TEMPO +", "TEMPO -"));
     // Panel faders: Right 1 on (blue), Right 2 off (dim blue), 5-8 do nothing.
@@ -1024,9 +1027,10 @@ fn queue_style_waits_for_the_bar_line_and_loads_at_once_when_stopped() {
     let st = s.state();
     assert_eq!((st.style.id, st.preview.queued), (id, None));
     s.send(LibraryCmd::LoadStyle { id: first }).unwrap();
-    // Playing: the next bar line.
+    // Playing, past the bar's first beat (Next Bar: within it, the style changes at
+    // once): the next bar line.
     keys(&s, true, &[36, 40, 43]);
-    s.advance(300 * MS);
+    assert!(advance_until(&s, |st| st.transport.beat >= 2));
     s.send(LibraryCmd::QueueStyle { id }).unwrap();
     let st = s.state();
     assert_eq!((st.style.id, st.preview.queued), (first, Some(id)));
@@ -1036,6 +1040,7 @@ fn queue_style_waits_for_the_bar_line_and_loads_at_once_when_stopped() {
     assert_eq!(st.preview.queued, None);
     assert_eq!(st.transport.section, section, "the section carries on");
     // StepStyle while playing waits too, from the style waiting.
+    assert!(advance_until(&s, |st| st.transport.beat >= 2));
     s.send(LibraryCmd::StepStyle { delta: 1 }).unwrap();
     let waiting = s.state().preview.queued.expect("a style waits");
     assert_ne!(waiting, id);

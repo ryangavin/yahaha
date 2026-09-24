@@ -80,12 +80,13 @@ impl Engine {
         self.restart_section(at, now, sink);
         let (tpb, ppq) = (self.style.tpb.max(1) as f64, self.style.ppq.max(1) as f64);
         if let Some(q) = self.queued.as_mut() {
-            *q = if (q.at - q.sec_start).abs() < 1e-6 {
-                // A section (or the stop) at a bar line: the new grid's next one.
-                Queued { at: at + tpb, sec_start: at + tpb, ..*q }
-            } else {
+            let fill = q.slot != usize::MAX && matches!(id_of(q.slot), SectionId::Fill(_) | SectionId::Break);
+            *q = if fill {
                 // A fill at the next beat.
                 Queued { at: at + ppq.min(tpb), sec_start: at, ..*q }
+            } else {
+                // A section (or the stop): the new grid's next bar line.
+                Queued { at: at + tpb, sec_start: at + tpb, ..*q }
             };
         }
         if let Some(p) = self.pending.as_mut() {

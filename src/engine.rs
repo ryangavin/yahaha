@@ -501,6 +501,9 @@ impl Engine {
 }
 
 #[cfg(test)]
+mod perform_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
 

@@ -730,7 +730,7 @@ mod tests {
         assert_eq!(pad_action(p, 116), Some(Action::Transpose { keyboard: -1, master: 0 }));
         assert_eq!(pad_action(p, 117), Some(Action::Transpose { keyboard: 1, master: 0 }));
         assert_eq!(pad_action(p, 118), Some(Action::TransposeReset));
-        assert_eq!(pad_action(p, 119), None);
+        assert_eq!(pad_action(p, 119), Some(Action::Button(Button::Retrigger)));
         assert_eq!(pad_action(p, 60), None);
     }
 
@@ -741,7 +741,7 @@ mod tests {
             assert_eq!(pad_action(p, 96 + n), Some(Action::Ots(n)));
         }
         assert_eq!(pad_action(p, 100), Some(Action::ToggleOtsLink));
-        assert_eq!(pad_action(p, 101), None);
+        assert_eq!(pad_action(p, 101), Some(Action::Button(Button::Fade)));
         assert_eq!(pad_action(p, 102), Some(Action::PartVoice(-1)));
         assert_eq!(pad_action(p, 103), Some(Action::PartVoice(1)));
         for n in 0..4u8 {
@@ -809,15 +809,17 @@ mod tests {
         assert_eq!(bright, vec![3], "only the selected fingering type is lit");
         assert_eq!(l[7].level, Level::Dim, "Lower");
         assert_eq!(l[8].level, Level::Off, "Manual Bass is unavailable in Lower");
-        assert_eq!(l[15].level, Level::Off, "unassigned");
+        assert_eq!(l[15].level, Level::Dim, "Retrigger off");
         assert_eq!(leds(&s, &panel)[3], Led::Solid(CYAN));
         assert_eq!(leds(&s, &panel)[0], Led::Solid(DIM_CYAN));
-        assert_eq!(leds(&s, &panel)[15], Led::Solid(OFF));
+        assert_eq!(leds(&s, &panel)[15], Led::Solid(DIM_CYAN));
 
         panel.upper = true;
         s.stop_acmp = true;
         s.transpose = Transpose::new(-2, 0);
+        s.retrigger = true;
         let l = lk(&s, &panel);
+        assert_eq!(l[15].level, Level::Bright, "Retrigger on");
         assert_eq!(l[7].level, Level::Bright, "Upper");
         assert_eq!(l[8].level, Level::Bright, "Manual Bass on");
         assert_eq!(l[9].level, Level::Bright, "Stop ACMP");
@@ -829,7 +831,7 @@ mod tests {
     #[test]
     fn page_3_leds() {
         let has = [true; crate::engine::NUM_SLOTS];
-        let s = snap();
+        let mut s = snap();
         let mut panel = Panel { page: Page::OtsParts, ..Panel::default() };
         let lk = |s: &Snapshot, p: &Panel| looks(s, &has, p).map(|(_, l)| l);
 
@@ -837,7 +839,10 @@ mod tests {
         let l = lk(&s, &panel);
         assert!(l.iter().all(|l| l.rgb == C_PAGE_OTS), "one colour for the page");
         assert!(l[..4].iter().all(|l| l.level == Level::Off));
-        assert_eq!(l[5].level, Level::Off, "unassigned");
+        assert_eq!(l[5].level, Level::Dim, "Fade off");
+        s.fade = FadeState::Armed;
+        assert_eq!(lk(&s, &panel)[5].level, Level::Bright, "Fade armed");
+        s.fade = FadeState::Off;
         assert_eq!(l[8..12].iter().map(|l| l.level).collect::<Vec<_>>(), [Level::Bright, Level::Dim, Level::Dim, Level::Dim]);
         assert_eq!(l[12..].iter().map(|l| l.level).collect::<Vec<_>>(), [Level::Bright, Level::Dim, Level::Dim, Level::Dim]);
 

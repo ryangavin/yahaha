@@ -1584,8 +1584,18 @@ mod tests {
         assert_eq!(shared.last_unmapped.load(Relaxed), 0x01_B0_33_7F);
         input.pad_msg(&[0x99, 36, 90]); // a Drum-mode pad
         assert_eq!(shared.last_unmapped.load(Relaxed), 0x01_99_24_5A);
-        input.pad_msg(&[0x90, 119, 100]); // blank pad on page 2: a known pad, not unmapped
+        input.pad_msg(&[0x90, 119, 100]); // Retrigger on page 2
         assert_eq!(shared.last_unmapped.load(Relaxed), 0x01_99_24_5A);
+        assert!(matches!(cmds.pop(), Ok(Cmd::Button(Button::Retrigger))));
+        // Shift + Play / Stop: Section Reset / Fade; Shift + Scene: Retrigger shorter.
+        input.pad_msg(&[0xB0, launchkey::SHIFT_CC, 127]);
+        input.pad_msg(&[0xB0, launchkey::PLAY_CC, 127]);
+        input.pad_msg(&[0xB0, launchkey::STOP_CC, 127]);
+        input.pad_msg(&[0xB0, launchkey::SCENE_CC, 127]);
+        input.pad_msg(&[0xB0, launchkey::SHIFT_CC, 0]);
+        assert!(matches!(cmds.pop(), Ok(Cmd::Button(Button::SectionReset))));
+        assert!(matches!(cmds.pop(), Ok(Cmd::Button(Button::Fade))));
+        assert_eq!(acts.pop(), Ok(Action::RetriggerRate(1)));
         assert!(cmds.pop().is_err() && acts.pop().is_err());
     }
 

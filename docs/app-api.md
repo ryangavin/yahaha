@@ -90,20 +90,40 @@ state, and pressing the button is the action. For settings, a GUI checkbox can u
 
 | Command | Fields | Does |
 |---|---|---|
-| `intro` | `index` 0–2 | Intro 1–3. Stopped: plays at the start. Playing: queued for the next bar. |
+| `intro` | `index` 0–2 | Intro 1–3. Stopped: plays at the start. Playing: queued for its change point (see Section Change Timing below). |
 | `main` | `index` 0–3 | Main A–D. Pressing the Main that is playing plays its fill. With Auto Fill on, a change plays the fill first. |
 | `break` | | Break (Fill In BA). |
-| `ending` | `index` 0–2 | Ending 1–3. |
+| `ending` | `index` 0–2 | Ending 1–3. Pressing the Ending that is playing again adds a ritardando (`transport.ritardando`): the tempo slows to 65% by the ending's end, and comes back when the band stops. |
 | `startStop` | | START/STOP. |
 | `stop` | | Stops if playing, otherwise does nothing. This is the Launchkey Stop button. |
 | `toggleSyncStart` | | SYNC START on/off. |
 | `toggleSyncStop` | | SYNC STOP on/off. The engine ignores it while `transport.syncStopAvailable` is false. |
 | `toggleAutoFill` | | AUTO FILL IN on/off. |
 | `toggleStopAcmp` | | STOP ACMP on/off. |
-| `tapTempo` | | TAP TEMPO. |
+| `tapTempo` | | TAP TEMPO. Taps set the tempo. While the style plays with `styleSettings.sectionReset` on (the default), a tap is a Style Section Reset instead. |
 | `tempoUp`, `tempoDown` | | One tempo step. |
+| `toggleFade` | | FADE IN/OUT. Stopped: arms (or disarms) a fade in for the next start. Playing: fades out over `styleSettings.fadeOutMs`, then the band stops and everything stays silent for `fadeHoldMs`. The fade is the MIDI Master Volume message (`F0 7F 7F 04 01 ll mm F7`) on the port and in the built-in synth: the whole instrument fades, your playing too. `transport.fade` shows it. A fade out already running carries on; START/STOP mid-fade ends it at full volume. |
+| `sectionReset` | | Style Section Reset: the section playing starts again from its top, now. A change queued for the next bar line waits for the new bar grid's. Stopped: nothing. |
+| `toggleRetrigger` | | Style Retrigger on/off (`transport.retrigger`). While on, each chord played in a Main restarts the Main at the chord and loops its first `4 / styleSettings.retriggerRate` beats (a whole note .. a 32nd) until a section change or Retrigger goes off; off, the Main plays on from there. Only Mains retrigger. |
 | `toggleStylePart` | `part` 0–7 | Mutes or unmutes a Style part. |
 | `setStylePartVolume` | `part` 0–7, `volume` 0–127 | The part's CC7. The Launchkey fader has to reach the new value before it takes over again. |
+
+### Style settings
+
+Genos Menu › Style Setting (Section Change Timing, Synchro Stop Window), Tap Tempo ›
+Style Section Reset, the Fade In/Out times and the Style Retrigger length. The state is
+`styleSettings`.
+
+| Command | Fields | Does |
+|---|---|---|
+| `setMainTiming` | `timing`: `immediate` \| `nextBar` | Section Change Timing, To Main A–D; also a style change while playing. **nextBar** (default): at once when pressed within the first beat of a bar (the new section starts from that point of its bar), otherwise at the next bar line. **immediate**: at the next beat; the new section carries on from that beat of its bar. A Main change with Auto Fill In on is always nextBar. |
+| `setIntroEndingTiming` | `timing`: `nextBar` \| `endOfSection` | Section Change Timing, Inside Intro/Ending: changing to another Intro or Ending while one plays. **nextBar** (default): as above. **endOfSection**: when the Intro or Ending playing has finished. Intro to Intro is always nextBar. Into Ending I, and from a Main into an Intro or Ending, the change waits for the next bar line. |
+| `setSyncStopWindow` | `ms` 0–5000 | Synchro Stop Window. 0 = Off. With Sync Stop on, a chord held longer than this turns Sync Stop off, so letting go no longer stops the band; a quicker release stops it. |
+| `setFadeInTime`, `setFadeOutTime` | `ms` 0–20000 | Fade In and Fade Out times. |
+| `setFadeHoldTime` | `ms` 0–5000 | How long the volume stays at 0 after a fade out. |
+| `setSectionReset` | `on` | TAP TEMPO while the style plays: Section Reset (on, the default) or set the tempo (off). |
+| `setRetriggerRate` | `rate` | Style Retrigger length: 1, 2, 4, 8, 16 or 32 (a whole note .. a 32nd). Other values snap down to one of these. |
+| `stepRetriggerRate` | `delta` | Steps along 1, 2, 4, 8, 16, 32; positive is shorter. Stops at the ends. |
 
 ### Chord detection, split, transpose
 
@@ -230,6 +250,9 @@ Indices are 0-based unless a field says otherwise.
 | `sectionBars` | number? | How many bars the section playing lasts (a Main's pattern length; it loops). Null when stopped. |
 | `tempo` | number | Current tempo in BPM. |
 | `lamps` | Pad[16] | Page 1 of the pads, whatever page the hardware is on. These are the section, Sync, Auto Fill, Tap and Start/Stop lamps exactly as the pads light them. See [Pad](#pad). |
+| `fade` | `off` \| `armed` \| `fadingIn` \| `fadingOut` \| `holding` | Fade In/Out (`toggleFade`). `armed`: stopped, START fades in. `holding`: faded out and stopped, silent for the hold time. |
+| `retrigger` | bool | Style Retrigger is on (`toggleRetrigger`). |
+| `ritardando` | bool | The Ending is slowing down (pressed again while it plays). |
 
 ### `chord`
 | Field | Type | Meaning |
@@ -486,6 +509,19 @@ The style browser's preview and queue.
 | `audition` | object? | The preview playing (`auditionStyle`): `id` (the library id), `bar` (1-based) of `bars` (4), `chord` (the chord playing: `C`, `Am`, `F`, `G7`). Null when none. |
 | `queued` | number? | The library id of a style waiting for the next bar line (`loadStyle`, `queueStyle` or `stepStyle` while playing). Null when none. |
 
+### `styleSettings`
+The settings the `Style settings` commands set.
+
+| Field | Type | Meaning |
+|---|---|---|
+| `mainTiming` | `immediate` \| `nextBar` | Section Change Timing, To Main. Default `nextBar`. |
+| `introEndingTiming` | `nextBar` \| `endOfSection` | Section Change Timing, Inside Intro/Ending. Default `nextBar`. |
+| `syncStopWindowMs` | 0–5000 | Synchro Stop Window; 0 = Off (the default). |
+| `fadeInMs`, `fadeOutMs` | 0–20000 | Default 5000 each. |
+| `fadeHoldMs` | 0–5000 | Default 2000. |
+| `sectionReset` | bool | TAP TEMPO while playing resets the section. Default on. |
+| `retriggerRate` | 1, 2, 4, 8, 16, 32 | Style Retrigger length. Default 8 (an eighth note). |
+
 ### `message`
 `{ seq, text, error }` or null. It holds the last notice or error, for example a style
 that fails to load. `seq` increases with every new message, so the same text arriving
@@ -586,7 +622,10 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
         "action": { "type": "intro", "index": 1 },
         "palette": null
       }
-    ]
+    ],
+    "fade": "off",
+    "retrigger": false,
+    "ritardando": false
   },
   "chord": {
     "name": "Am",
@@ -883,6 +922,16 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
     "chordTones": [7, 11, 2, 5],
     "chordBass": 7,
     "detection": [0, 54]
+  },
+  "styleSettings": {
+    "mainTiming": "nextBar",
+    "introEndingTiming": "nextBar",
+    "syncStopWindowMs": 0,
+    "fadeInMs": 5000,
+    "fadeOutMs": 5000,
+    "fadeHoldMs": 2000,
+    "sectionReset": true,
+    "retriggerRate": 8
   },
   "message": null
 }
