@@ -3,6 +3,9 @@
 
 use super::*;
 use crate::launchkey::{Level, PAD_DOWN_CC, SHIFT_CC};
+use crate::library;
+use crate::parts::FaderPage;
+use crate::synth::{SynthControl, SynthInfo};
 
 fn style(name: &str) -> Option<PathBuf> {
     let p = Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus/MOX_v2").join(name);
