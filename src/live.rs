@@ -160,6 +160,8 @@ pub struct Shared {
     pub fx_held: [AtomicU64; 2],
     /// Pedals, wheels and their parts (`controllers.rs`).
     pub controllers: Controllers,
+    /// The sound library's program map, as the synth and the port read it (#103).
+    pub routes: Arc<crate::patches::Routes>,
 }
 
 impl Shared {
@@ -197,6 +199,7 @@ impl Shared {
             kbd_fx: AtomicU64::new(FxConfig::default().pack()),
             fx_held: [AtomicU64::new(0), AtomicU64::new(0)],
             controllers: Controllers::new(),
+            routes: Arc::new(crate::patches::Routes::new()),
         }
     }
 
@@ -238,16 +241,19 @@ impl Shared {
 pub struct Out {
     pub midi: PacketSink,
     pub synth: Option<Producer<[u8; 3]>>,
+    /// The band's program changes as the port gets them (#103: unchanged unless the sound
+    /// library's "port sends mapped programs" is on).
+    pub port_map: crate::patches::port::PortMap,
 }
 
 impl Out {
     pub fn new(midi: PacketSink, synth: Option<Producer<[u8; 3]>>) -> Out {
-        Out { midi, synth }
+        Out { midi, synth, port_map: Default::default() }
     }
 
     #[inline]
     pub fn push(&mut self, msg: &[u8]) {
-        self.midi.push(msg);
+        self.port_map.send(msg, |m| self.midi.push(m));
         // The built-in synth takes channel messages only; SysEx (the style's XG effect
         // setup) is for the port.
         if msg.first() == Some(&0xF0) {
@@ -278,6 +284,16 @@ impl crate::engine::Sink for Out {
     fn click(&mut self, accent: bool) {
         if let Some(s) = self.synth.as_mut() {
             let _ = s.push([crate::click::CLICK, accent as u8, 0]);
+        }
+    }
+
+    /// The program map's table bank for the style just taken over (#103): to the synth, in
+    /// order with the style's setup, and to the port's mapping.
+    #[inline]
+    fn route_bank(&mut self, bank: u8) {
+        self.port_map.set_bank(bank);
+        if let Some(s) = self.synth.as_mut() {
+            let _ = s.push([crate::patches::route::ROUTE_BANK, bank, 0]);
         }
     }
 }
@@ -1203,6 +1219,7 @@ impl EngineLoop {
         self.play_audition(now);
         let (engine, io) = (&mut self.engine, &mut self.io);
         sync_part_volumes(&mut io.out, &shared.parts, &mut self.last_part_vol);
+        shared.parts.send_fx(&mut |m| io.out.push(m));
         let ctl = &shared.controllers;
         ctl.sync_ranges(&mut |m| io.out.push(m));
         // One thread sends the parts' controllers at a time (controllers.rs): when the

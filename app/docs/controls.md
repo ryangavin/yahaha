@@ -211,6 +211,7 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | **Octave −** | Shifts this part down an octave (down to −2). OTS recalls set it too. | Voice Setting → Tune → Octave | — | — |
 | **Octave +** | Shifts this part up an octave (up to +2). OTS recalls set it too. | Voice Setting → Tune → Octave | — | — |
 | **GM voices** | Shows the built-in SoundFont voices for this part. A part playing a plugin keeps its SoundFont voice here for when you go back to it. | Voice select (VOICE buttons) | — | — |
+| **Library** | Shows your sound library's patches for this part. A dot means the part plays one of its own. | Voice Selection | — | — |
 | **Plugins** | Shows your instrument plugins (Audio Units) for this part. A dot means the part plays one. | — | — | — |
 | **Plugin** | Plays this part on an instrument plugin instead of its SoundFont voice. It loads in the background, and the part keeps its SoundFont voice until the plugin is ready. The fader stays the part's volume (CC 7). | — | — | — |
 | **Edit plugin** | Opens the plugin's own window to change its sound. yahaha keeps the plugin's settings with the part. | — | — | — |
@@ -219,6 +220,7 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | **Layer** | The Right parts that are on all sound together on every key above the split: that's a layer. Turn on Right 1 and Right 2 to stack, for example, piano and strings. | PART ON/OFF (Right 1–3 layered) | `5` `6` `7` | Panel fader page: buttons under faders 1–3 |
 | **Left hand** | Left plays the keys at and below the split point, with its own voice. Under Manual Bass it plays the style's Bass voice there instead, and the band's own bass goes quiet. | Split Point (Left) | — | — |
 | **As written for** | The voice the style's author wrote this band part for, and its MIDI channel on the yahaha port. Load a matching instrument on that channel in Ableton to hear the style as intended; ≈ marks the nearest General MIDI voice to a Yamaha one. | Style parts (Mixer › Style) | — | — |
+| **Library patch** | The part plays a patch from your sound library. Pick a GM voice instead to go back to it. | Voice Selection | — | — |
 
 ## Keyboard Harmony / Arpeggio
 
@@ -299,6 +301,53 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | **Synchro Stop: Style Stop** | On: looping pads stop when the band stops. Off: they play on until you stop them. | Multi Pad Synchro Stop (Style Stop) | — | — |
 | **Synchro Stop: Style Ending** | On: looping pads stop when an Ending starts. Off: they play through the Ending. | Multi Pad Synchro Stop (Style Ending) | — | — |
 
+## Sound library
+
+| control | what it does | Genos | key | Launchkey |
+|---|---|---|---|---|
+| **Patches** | Your patches, by category: search, favourites, audition, edit and reorder them. | Voice Selection | — | — |
+| **Program Map** | Which patch each GM family, program and drum kit plays, for every style or for this style only. | — | — | — |
+| **This style** | Every program the current style sends its parts, and the patch each one plays now. Remap one with a click. | — | — | — |
+| **Add from SoundFont** | Browse the presets of the SoundFonts in the SoundFont folder, audition one, and add it as a patch. | — | — | — |
+| **Search** | Shows only the patches whose name, category or tags contain the text. | — | — | — |
+| **Category** | Shows one category of patches, like the tabs of the Genos Voice Selection display. All shows every patch. | Voice category tabs | — | — |
+| **Favourites only** | Shows only the patches marked with a star. | Favorite tab | — | — |
+| **Patch** | Selects the patch to edit it below. A dimmed patch plays the SoundFont fallback; its note says why. | — | — | — |
+| **Favourite** | Marks or unmarks the patch as a favourite. | Favorite | — | — |
+| **Audition** | Plays the sound on its own for a moment: a short arpeggio and a chord, or a beat for a drum kit. Works while the band is stopped. | — | — | — |
+| **Stop audition** | Stops the sound playing on its own. | — | — | — |
+| **Move up** | Moves the patch one place up in your list. | — | — | — |
+| **Move down** | Moves the patch one place down in your list. | — | — | — |
+| **Duplicate** | Adds a copy of the patch right after it, for example the same sound with other defaults. | — | — | — |
+| **Delete** | Deletes the patch. Map rules that name it are removed, and a part playing it goes back to its GM voice. | — | — | — |
+| **Name** | The patch's name, as the voice picker and the map show it. Press Enter to rename. | — | — | — |
+| **Category** | The Genos voice category the patch is listed under. | Voice category | — | — |
+| **Tags** | Words to find the patch by, separated by commas. Press Enter to keep them. | — | — | — |
+| **Volume** | The part's CC7 when you pick the patch for a keyboard part; a Style part takes it only when the style sets no level of its own. Blank leaves the level alone. | Voice Set: Volume | — | — |
+| **Pan** | The pan (CC10, 64 = centre) a keyboard part takes when it picks the patch. Blank leaves it alone. | Voice Set: Pan | — | — |
+| **Reverb** | The reverb send (CC91) a keyboard part takes when it picks the patch. Blank leaves it alone. | Voice Set: Reverb | — | — |
+| **Chorus** | The chorus send (CC93) a keyboard part takes when it picks the patch. Blank leaves it alone. | Voice Set: Chorus | — | — |
+| **Octave** | The octave shift a keyboard part takes when it picks the patch. | Voice Set: Octave | — | — |
+| **Play on a part** | Picks the patch for that keyboard part, with its defaults. The part's voice picker has the same list. | Voice Selection | — | — |
+| **Save part's sound** | Saves a keyboard part's sound as a new patch: its own patch, or its GM voice on the synth's SoundFont, with its volume and octave. | — | — | — |
+| **Every style / this style** | Which map you edit: the one every style uses, or this style's own rules, which win over it. This style's map is kept in your library, not in the style file. | — | — | — |
+| **Family rule** | The patch these eight GM programs play, with every bank variation of them. Blank: the voice the style asks for. | — | — | — |
+| **Drum rule** | The drum kit patch for Rhythm 1 and 2 and any part on a Yamaha drum kit bank. Blank: the kit the style asks for. | — | — | — |
+| **Program** | The GM program for a new override, when its family rule is too coarse (for example E.Piano 1 inside Piano). | — | — | — |
+| **Override patch** | The patch this one program plays, whatever its family rule says. | — | — | — |
+| **Add override** | Adds the override: the program plays the patch chosen next to it. | — | — | — |
+| **Remove override** | Removes the override: the program follows its family rule again. | — | — | — |
+| **Clear this style's rules** | Forgets this style's own rules: it plays by the map every style uses. | — | — | — |
+| **Port sends mapped programs** | Off, the yahaha MIDI port carries the style's own program changes, so a DAW records the style as written. On, it carries the mapped patch's bank and program instead. | — | — | — |
+| **Remap** | Picks the patch this program plays: an override for this program, for every style or for this style only (the switch above). Clear it to fall back to the family rule. | — | — | — |
+| **SoundFont** | The SoundFont in the SoundFont folder whose presets are listed. | — | — | — |
+| **Search presets** | Shows only the presets whose name contains the text. | — | — | — |
+| **Preset** | Plays the preset on its own for a moment, while the band is stopped. | — | — | — |
+| **Add as patch** | Adds the preset to your library as a patch, named after it and filed under its likely category. | — | — | — |
+| **Export** | Writes your library to sound-library-export.json in the data folder, to back it up or share it. | — | — | — |
+| **Library file** | The path of a sound library file to import: a full library, or a list of patches. | — | — | — |
+| **Import** | Adds the file's patches to your library (clashing ids get new ones) and its map rules too. | — | — | — |
+
 ## Launchkey pad pages
 
 | control | what it does | Genos | key | Launchkey |
@@ -345,6 +394,7 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | **Chord Looper** | Opens the Chord Looper: record a chord progression, loop it, and keep it in one of eight memories. | Menu › Chord Looper | — | — |
 | **Close** | Closes this panel. The band keeps playing. | — | `Esc` | — |
 | **Multi Pads** | Opens the Multi Pads: four short phrases from a pad bank that you trigger over the band, and the bank list. | MULTI PAD CONTROL | — | — |
+| **Sound Library** | Opens your sound library: a short list of patches, and the program map that makes every style play them instead of the GM voices it asks for. | Voice Selection (your own list) | — | — |
 
 ## Settings
 

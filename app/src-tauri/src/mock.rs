@@ -9,6 +9,8 @@ use std::time::Instant;
 
 #[path = "mock_multipad.rs"]
 mod multipad;
+#[path = "mock_sound.rs"]
+mod sound;
 
 use yahaha::api::*;
 use yahaha::engine::{FadeState, StyleSettings};
@@ -161,6 +163,8 @@ pub struct MockSession {
     /// Pedals and wheels: the engine's own model (no keyboard, so nothing moves them but
     /// commands).
     controllers: Controllers,
+    /// The sound library (mock_sound.rs).
+    sound: sound::MockSound,
 }
 
 impl Default for MockSession {
@@ -210,6 +214,7 @@ impl MockSession {
             octave: 0,
             fader: None,
             plugin: None,
+            patch: None,
         };
         let s0 = &f.styles[0];
         let state = AppState {
@@ -327,6 +332,7 @@ impl MockSession {
             looper: mock_looper::empty(),
             metronome: MetronomeState { on: false, volume: 90, bell: true, audible: true },
             plugins: mock_plugins(),
+            sound_library: SoundLibraryState::default(),
         };
         let songs: Vec<(String, String)> = library.entries.iter().filter(|e| e.status == "ok").map(|e| (e.path.clone(), e.name.clone())).collect();
         let mut m = MockSession {
@@ -351,6 +357,7 @@ impl MockSession {
             looper: MockLooper::default(),
             pads: multipad::MockPads::default(),
             controllers: Controllers::new(),
+            sound: sound::MockSound::default(),
         };
         m.set_style(0);
         m.state.ots.applied = 2;
@@ -490,6 +497,7 @@ impl MockSession {
         self.now += ms;
         self.step_fade(ms);
         self.pads.beats(&mut self.state.multi_pad, ms / 60000.0 * self.state.transport.tempo);
+        self.sound.advance(ms, self.state.transport.running);
         if !self.state.transport.running {
             return;
         }
@@ -676,9 +684,10 @@ impl MockSession {
     fn recall_ots(&mut self, n: usize) {
         let panel = self.state.mixer.fader_page == FaderPage::Panel;
         let setting = self.state.ots.settings[n].clone();
-        for (p, o) in self.state.keyboard_parts.iter_mut().zip(&setting.parts) {
+        for (i, (p, o)) in self.state.keyboard_parts.iter_mut().zip(&setting.parts).enumerate() {
             if let Some(prog) = o.program {
                 p.program = prog;
+                self.sound.part_voice(i);
             }
             p.on = o.on;
             p.octave = o.octave;
@@ -778,6 +787,7 @@ impl MockSession {
             };
             p.voice_name = if p.plays_bass { "Finger Bass".into() } else { self.gm[p.program as usize].clone() };
         }
+        self.sound.derive(st, &self.gm);
         for (i, p) in st.mixer.style_parts.iter_mut().enumerate() {
             p.muted_by_manual_bass = i == 2 && mb;
         }
@@ -1229,10 +1239,13 @@ impl MockSession {
                 if let Some(p) = self.state.keyboard_parts.get_mut(part as usize) {
                     p.program = program & 127;
                 }
+                self.sound.part_voice(part as usize);
             }
             AppCmd::Parts(PartsCmd::StepVoice { delta }) => {
-                if let Some(p) = self.state.keyboard_parts.iter_mut().find(|p| p.selected) {
+                if let Some(i) = self.state.keyboard_parts.iter().position(|p| p.selected) {
+                    let p = &mut self.state.keyboard_parts[i];
                     p.program = (p.program as i16 + delta as i16).rem_euclid(128) as u8;
+                    self.sound.part_voice(i);
                 }
             }
             AppCmd::Parts(PartsCmd::SetPartVolume { part, volume }) => {
@@ -1374,6 +1387,14 @@ impl MockSession {
             AppCmd::HarmonyArp(c) => {
                 if let Err(e) = harmony_arp_cmd(&mut self.state.harmony_arp, c) {
                     self.message(&e, true);
+                }
+            }
+            AppCmd::SoundLibrary(c) => {
+                let export = matches!(c, SoundLibraryCmd::ExportSoundLibrary { .. });
+                match self.sound.cmd(&mut self.state, c) {
+                    Some(e) => self.message(e, true),
+                    None if export => self.message("Sound library exported to /Users/me/Documents/yahaha/sound-library-export.json", false),
+                    None => {}
                 }
             }
         }

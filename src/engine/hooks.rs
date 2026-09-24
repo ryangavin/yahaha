@@ -179,6 +179,7 @@ impl Engine {
     pub(super) fn on_style_loaded(&mut self, _now: u64, _sink: &mut impl Sink) {
         #[cfg(test)]
         self.log(Hook::StyleLoaded);
+        _sink.route_bank(self.style.route_bank);
         self.retrigger_on_style_loaded();
     }
 
