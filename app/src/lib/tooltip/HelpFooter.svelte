@@ -6,9 +6,9 @@
   does now.
 
   - Compact (default): two lines, always the same height, so the stage never shifts.
-  - Help mode (`?`): the footer grows to the full entry (every Launchkey place, the
-    terminal keys, the whole description) and keeps the last one pinned while you try
-    the control. The stage gives up the height once, when help mode toggles.
+  - Help mode (`?`): the footer grows to the full entry (the whole description, every
+    Launchkey place, the terminal keys) and keeps the last one pinned while you try the
+    control. The stage gives up the height once, when help mode toggles.
   - "Pop-up": opt in to the old floating tips as well (remembered).
 
   Screen readers: the focused control points `aria-describedby` at a hidden plain-text
@@ -19,7 +19,6 @@
   import { TIPS, keyLabel, type Tip } from '../../help/tooltips'
   import { app } from '../store.svelte'
   import { lastControl, type LastControl } from './lastControl'
-  import TipCard from './TipCard.svelte'
   import { tip, tips, TOOLTIP_ID } from './tip.svelte'
 
   const key = $derived(tips.shown)
@@ -52,9 +51,7 @@
 
 <footer class="help-footer mat-chassis" class:expanded={tips.help} aria-label="Help">
   <div class="entry">
-    {#if key && tips.help}
-      <TipCard {key} wide />
-    {:else if t}
+    {#if t}
       <div class="head">
         <strong>{t.title}</strong>
         {#if t.genos && t.genos !== t.title}<span class="genos">Genos: {t.genos}</span>{/if}
@@ -65,13 +62,20 @@
         <dd>
           {#if keys.length}
             {#each keys as k, i (k)}{#if i > 0}<span class="dim"> / </span>{/if}<kbd>{keyLabel(k)}</kbd>{/each}
+            {#if tips.help && t.app_keys}<span class="dim"> (terminal: {t.keys.map(keyLabel).join(' / ')})</span>{/if}
           {:else}<span class="dim">none</span>{/if}
         </dd>
         <dt>Launchkey</dt>
-        <dd class="clip">
-          {#if places.length}{places[0]}{#if places.length > 1}<span class="dim"> +{places.length - 1} more</span>{/if}
-          {:else}<span class="dim">not on it</span>{/if}
-        </dd>
+        {#if tips.help}
+          <dd>
+            {#each places as place, i (place)}{#if i > 0}<br />{/if}{place}{:else}<span class="dim">not on the Launchkey</span>{/each}
+          </dd>
+        {:else}
+          <dd class="clip">
+            {#if places.length}{places[0]}{#if places.length > 1}<span class="dim"> +{places.length - 1} more</span>{/if}
+            {:else}<span class="dim">not on it</span>{/if}
+          </dd>
+        {/if}
       </dl>
     {:else if tips.help}
       <p class="idle">
@@ -139,8 +143,20 @@
     align-items: center;
   }
   .expanded .entry {
-    display: block;
+    grid-template-columns: minmax(8rem, 13rem) minmax(0, 1fr) minmax(11rem, 24rem);
+    align-items: start;
     overflow: auto;
+  }
+  .expanded .head strong {
+    font-size: 1.2rem;
+    white-space: normal;
+  }
+  .expanded .genos {
+    white-space: normal;
+  }
+  .expanded .body {
+    display: block;
+    max-width: 70ch;
   }
   .head {
     display: flex;
