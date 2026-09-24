@@ -115,6 +115,30 @@ impl Engine {
         }
     }
 
+    // ----- the clock, for real-time code beside the engine (live/kbdfx.rs) -----
+
+    /// The style clock at `now`, in ticks of the style playing (`ppq` per quarter). It
+    /// restarts at 0 on every start and re-times on a style change; stopped, it runs on
+    /// from its last anchor at the current tempo.
+    pub fn style_tick(&self, now: u64) -> f64 {
+        self.tick_at(now)
+    }
+
+    /// When tick `tick` of the style clock comes.
+    pub fn ns_at_tick(&self, tick: f64) -> u64 {
+        self.ns_at(tick)
+    }
+
+    /// The tempo, in quarter notes per minute.
+    pub fn bpm(&self) -> f64 {
+        self.bpm
+    }
+
+    /// Ticks per quarter note of the style playing.
+    pub fn ppq(&self) -> u32 {
+        self.style.ppq.max(1)
+    }
+
     /// The fingering type allows Sync Stop or not; disallowing turns it off.
     pub fn allow_sync_stop(&mut self, on: bool) {
         self.sync_stop_allowed = on;

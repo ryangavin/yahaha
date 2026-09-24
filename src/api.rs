@@ -18,6 +18,7 @@
 
 mod chord;
 mod controllers;
+mod harmony_arp;
 mod keyboard;
 mod library;
 mod looper;
@@ -37,6 +38,7 @@ mod transport;
 
 pub use chord::*;
 pub use controllers::*;
+pub use harmony_arp::*;
 pub use keyboard::*;
 pub use library::*;
 pub use looper::*;
@@ -139,6 +141,8 @@ app_cmd! {
     MultiPad(MultiPadCmd),
     /// Pedals, wheels and assignable functions.
     Controllers(ControllersCmd),
+    /// Keyboard Harmony / Arpeggio.
+    HarmonyArp(HarmonyArpCmd),
 }
 
 impl From<Button> for AppCmd {
@@ -201,6 +205,8 @@ impl From<Action> for AppCmd {
             Action::RegistSeq(d) => RegistrationCmd::StepRegistSequence { delta: d }.into(),
             Action::Playlist(d) => PlaylistCmd::StepPlaylist { delta: d }.into(),
             Action::Assign(f) => ControllersCmd::TriggerFunction { function: f }.into(),
+            Action::AssignSet(f, on) => function_set(f, on).unwrap_or(ControllersCmd::TriggerFunction { function: f }.into()),
+            Action::ToggleHarmonyArp => HarmonyArpCmd::ToggleHarmonyArp.into(),
         }
     }
 }
@@ -281,6 +287,9 @@ pub struct AppState {
     pub multi_pad: MultiPadState,
     /// Pedals, wheels, their parts and the pedals' assignable functions.
     pub controllers: ControllersState,
+    /// Keyboard Harmony / Arpeggio: the switch, the type, the settings.
+    #[serde(default)]
+    pub harmony_arp: HarmonyArpState,
     /// The last notice or error, until the next one or `ClearMessage`.
     pub message: Option<Message>,
     /// The Chord Looper.

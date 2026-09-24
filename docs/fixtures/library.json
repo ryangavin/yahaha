@@ -1296,5 +1296,193 @@
       "bankLsb": 0,
       "name": "Gunshot"
     }
+  ],
+  "harmonyTypes": [
+    {
+      "name": "Standard Duet 1",
+      "category": "Harmony"
+    },
+    {
+      "name": "Standard Duet 2",
+      "category": "Harmony"
+    },
+    {
+      "name": "Standard Trio",
+      "category": "Harmony"
+    },
+    {
+      "name": "Full Chord",
+      "category": "Harmony"
+    },
+    {
+      "name": "Rock Duet",
+      "category": "Harmony"
+    },
+    {
+      "name": "Country Duet 1",
+      "category": "Harmony"
+    },
+    {
+      "name": "Country Duet 2",
+      "category": "Harmony"
+    },
+    {
+      "name": "Country Trio",
+      "category": "Harmony"
+    },
+    {
+      "name": "Block",
+      "category": "Harmony"
+    },
+    {
+      "name": "4-Way Close 1",
+      "category": "Harmony"
+    },
+    {
+      "name": "4-Way Close 2",
+      "category": "Harmony"
+    },
+    {
+      "name": "4-Way Close 3",
+      "category": "Harmony"
+    },
+    {
+      "name": "4-Way Close 4",
+      "category": "Harmony"
+    },
+    {
+      "name": "4-Way Open 1",
+      "category": "Harmony"
+    },
+    {
+      "name": "4-Way Open 2",
+      "category": "Harmony"
+    },
+    {
+      "name": "4-Way Open 3",
+      "category": "Harmony"
+    },
+    {
+      "name": "1+5",
+      "category": "Harmony"
+    },
+    {
+      "name": "Octave",
+      "category": "Harmony"
+    },
+    {
+      "name": "Strum",
+      "category": "Harmony"
+    },
+    {
+      "name": "Multi Assign",
+      "category": "Harmony"
+    },
+    {
+      "name": "Echo",
+      "category": "Echo"
+    },
+    {
+      "name": "Tremolo",
+      "category": "Echo"
+    },
+    {
+      "name": "Trill",
+      "category": "Echo"
+    }
+  ],
+  "arpPatterns": [
+    {
+      "name": "Climb 16",
+      "category": "Up & Down"
+    },
+    {
+      "name": "Fall 16",
+      "category": "Up & Down"
+    },
+    {
+      "name": "Peak 8",
+      "category": "Up & Down"
+    },
+    {
+      "name": "Valley Triplet",
+      "category": "Up & Down"
+    },
+    {
+      "name": "Sky Ladder 32",
+      "category": "Up & Down"
+    },
+    {
+      "name": "Dice 16",
+      "category": "Random"
+    },
+    {
+      "name": "Scatter Octaves",
+      "category": "Random"
+    },
+    {
+      "name": "Echo Order 8",
+      "category": "As Played"
+    },
+    {
+      "name": "Shuffle Order 16",
+      "category": "As Played"
+    },
+    {
+      "name": "Four Stabs",
+      "category": "Chord Stab"
+    },
+    {
+      "name": "Offbeat Pump",
+      "category": "Chord Stab"
+    },
+    {
+      "name": "Syncopated Hits",
+      "category": "Chord Stab"
+    },
+    {
+      "name": "Gated Pad 16",
+      "category": "Chord Stab"
+    },
+    {
+      "name": "Alberti 16",
+      "category": "Broken Chord"
+    },
+    {
+      "name": "Waltz Broken",
+      "category": "Broken Chord"
+    },
+    {
+      "name": "Rolling Eights",
+      "category": "Broken Chord"
+    },
+    {
+      "name": "Thumb Pick",
+      "category": "Broken Chord"
+    },
+    {
+      "name": "Strum Quarters",
+      "category": "Guitar"
+    },
+    {
+      "name": "Campfire Strum",
+      "category": "Guitar"
+    },
+    {
+      "name": "Muted Sixteens",
+      "category": "Guitar"
+    },
+    {
+      "name": "Octave Pulse",
+      "category": "Sequence"
+    },
+    {
+      "name": "Root Fifth Seq",
+      "category": "Sequence"
+    },
+    {
+      "name": "Pluck Line",
+      "category": "Sequence"
+    }
   ]
 }

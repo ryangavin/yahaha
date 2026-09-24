@@ -210,6 +210,29 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | **Left hand** | Left plays the keys at and below the split point, with its own voice. Under Manual Bass it plays the style's Bass voice there instead, and the band's own bass goes quiet. | Split Point (Left) | — | — |
 | **As written for** | The voice the style's author wrote this band part for, and its MIDI channel on the yahaha port. Load a matching instrument on that channel in Ableton to hear the style as intended; ≈ marks the nearest General MIDI voice to a Yamaha one. | Style parts (Mixer › Style) | — | — |
 
+## Keyboard Harmony / Arpeggio
+
+| control | what it does | Genos | key | Launchkey |
+|---|---|---|---|---|
+| **Harmony/Arpeggio** | Turns the selected Keyboard Harmony type or arpeggio on or off for the keys right of the split. Turning it off stops the arpeggio at once; keys you hold keep their harmony notes until you let go. | HARMONY/ARPEGGIO | `Shift+J` | Panel fader page: button under fader 5 |
+| **Harmony types** | Shows the Keyboard Harmony types and selects the one last used: duets, trios, block and 4-way voicings, 1+5, Octave, Strum, Multi Assign, Echo, Tremolo and Trill. | Keyboard Harmony | — | — |
+| **Arpeggio patterns** | Shows the arpeggio patterns and selects the one last used. They are yahaha's own patterns, not Yamaha's. | Arpeggio | — | — |
+| **Harmony type** | Selects this Keyboard Harmony type. The harmony follows the chord you play for the style, and only the top note of your right hand is harmonised. | Keyboard Harmony type | — | — |
+| **Arpeggio pattern** | Selects this arpeggio pattern. The keys you hold right of the split play it, in time with the style (or at the tempo while it is stopped). | Arpeggio type | — | — |
+| **Previous type** | Steps back through the Harmony types and the arpeggios, as one list. | — | — | — |
+| **Next type** | Steps on through the Harmony types and then the arpeggios, as one list. | — | `Shift+L` | — |
+| **Volume** | The level of the added notes, and of the arpeggio. At 127 they play as hard as you do; at 0 they are silent. | Volume (HrmArpVol) | — | — |
+| **Speed** | How fast Echo, Tremolo and Trill repeat, as a note value at the current tempo. | Speed | — | — |
+| **Assign** | Which Right parts sound the effect. Auto: the added notes and repeats on the first Right part that is on, the arpeggio on every Right part that is on; Multi (Harmony types and Echo only): the melody on the first, the added notes spread over the others; Right 1–3: that part. | Assign | — | — |
+| **Chord Note Only** | Harmonises only melody notes that belong to the chord you are playing. Passing notes play plainly. | Chord Note Only | — | — |
+| **Touch Limit** | The effect sounds only for keys played at least this hard, so you can accent single notes with a harmony. | Minimum Velocity | — | — |
+| **Arpeggio Quantize** | Starts the pattern on the nearest eighth or sixteenth of the style's grid, so a chord played a little early or late still lands in time. | Arpeggio Quantize | — | — |
+| **Arpeggio Hold** | The pattern keeps playing after you let go of the keys, until you turn Hold or Harmony/Arpeggio off. The next chord you play replaces it. A pedal set to Arpeggio Hold holds it too while the pedal is on, without changing this setting. | Arpeggio Hold | `*` | — |
+| **Arpeggio velocity** | Where the arpeggio's loudness comes from: the pattern's own accents, how hard you played each key, or one fixed velocity. | — | — | — |
+| **Fixed velocity** | The velocity every arpeggio note plays at when the velocity is Fixed. | — | — | — |
+| **Keep Key On** | The pattern's clock keeps running while no key is held, so the next chord picks up in the middle of the phrase instead of starting it again. | — | — | — |
+| **Close Harmony/Arpeggio** | Closes the Harmony/Arpeggio panel. The effect stays as it is. | — | `Esc` | — |
+
 ## Mixer
 
 | control | what it does | Genos | key | Launchkey |
@@ -282,7 +305,7 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 |---|---|---|---|---|
 | **Shift** | Hold for the second functions: Pad Bank ▲ = Left on/off, Pad Bank ▼ = OTS Link, the buttons under faders 1–4 on the Panel page = edit that part. On screen, click it to latch the Shift layer, or hold Shift on your computer keyboard. | — | — | Shift button |
 | **Launchkey** | Whether the Launchkey is connected in DAW mode, so its pads and buttons are arranger controls. | — | — | — |
-| **Unused fader** | On the Panel fader page, faders 5–8 and their buttons do nothing. Switch to the Style page (the button under the master fader) to mix the band. | — | — | Panel fader page: faders 5–8 and the buttons under them |
+| **Unused fader** | On the Panel fader page, faders 5–8 and buttons 6–8 do nothing. Switch to the Style page (the button under the master fader) to mix the band. | — | — | Panel fader page: faders 5–8 and the buttons under faders 6–8 |
 | **Unused pad** | This pad does nothing on this page and stays dark. | — | — | — |
 
 ## Lead-sheet band
@@ -307,6 +330,7 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 |---|---|---|---|---|
 | **Keyboard parts and OTS** | Opens the detail of Right 1–3 and Left (voice, volume, octave, on/off) and the style's One Touch Settings. | PART ON/OFF, Voice Setting, ONE TOUCH SETTING | — | Pad page 3 (OTS/Parts) has the same controls |
 | **Mixer** | Opens the full mixer: both fader pages side by side, with each band part's voice. | Mixer (Panel / Style tabs) | — | The faders and the buttons under them |
+| **Harmony/Arpeggio** | Opens the Keyboard Harmony and Arpeggio panel: the switch, the type and its settings. | HARMONY/ARPEGGIO, Keyboard Harmony/Arpeggio settings | — | Panel fader page: the button under fader 5 is the on/off switch |
 | **Chord Looper** | Opens the Chord Looper: record a chord progression, loop it, and keep it in one of eight memories. | Menu › Chord Looper | — | — |
 | **Close** | Closes this panel. The band keeps playing. | — | `Esc` | — |
 | **Multi Pads** | Opens the Multi Pads: four short phrases from a pad bank that you trigger over the band, and the bank list. | MULTI PAD CONTROL | — | — |

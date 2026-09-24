@@ -24,7 +24,8 @@ This document is about the inside.
 | `src/parts.rs`, `src/launchkey.rs` | Keyboard parts (Right 1-3, Left) and the Launchkey mapping. |
 | `src/multipad/` | Multi Pads: bank parser, player core, bank scan; wired through `engine/multipad.rs` (docs/multipad.md). |
 | `src/controllers.rs` | Pedals, wheels and the assignable-function table (atomics in `Shared`; the input thread and the engine thread send them to the parts). docs/controllers.md. |
-| `src/harmony.rs`, `src/arp/`, `src/ireal/`, `src/plugin/` | Feature libraries not yet wired in (pure, real-time safe). |
+| `src/harmony.rs`, `src/arp/` | Keyboard Harmony and the arpeggio (pure, real-time safe), wired in by `src/live/pipeline.rs` and `src/live/kbdfx.rs`. |
+| `src/ireal/`, `src/plugin/` | Feature libraries not yet wired in (pure, real-time safe). |
 | `src/looper.rs`, `src/click.rs` | The Chord Looper's sequence type; the metronome's click voice (mixed by the synth). |
 | `app/` | The desktop app: Svelte frontend (`app/src`), Tauri shell (`app/src-tauri`). |
 
@@ -170,10 +171,22 @@ transpose → processor → part routing, held-note bookkeeping, output**. The p
 (`live::Processor`, an enum) is where Keyboard Harmony (`src/harmony.rs`) and the
 Arpeggiator (`src/arp/`) go, as variants: they are mutually exclusive, as on the Genos.
 A processor sees every note-on (after transpose) and note-off; it passes the note on, or
-swallows it, and sends any extra notes itself. Time-domain work does not happen on the
-input thread: Harmony's Echo/Tremolo/Trill (`harmony::EchoGen`) run on engine
-nanoseconds and the arp on style ticks, both pulled by the engine thread through an
-engine hook and `hook_deadline`. The module docs have the details.
+swallows it, and sends any extra notes itself. The mode comes from one packed settings
+word (`Shared::kbd_fx`, `live::FxConfig`), and each held key remembers the way it went,
+so its note-off takes the same way whatever the settings are by then.
+
+Time-domain work does not happen on the input thread: Harmony's Echo/Tremolo/Trill
+(`harmony::EchoGen`, engine nanoseconds), the arpeggio (`arp::Arp`, style ticks) and
+Strum's later notes run on the engine thread in `live::KbdFx` (`src/live/kbdfx.rs`), fed
+through a ring of `FxKey`s and a held-key mask. `KbdFx` is driven by `EngineLoop::step`
+after `Engine::process`, and its deadline is part of `EngineLoop::next_deadline`. It
+sits beside the engine rather than in `hooks::Features` because it is live-keyboard
+state, not the band's: every `Engine` has `Features`, including a style preview's
+engine, which must never play the player's arpeggio or echoes, and the keys come from
+`EngineLoop`'s input ring, which only the live loop has. (The arpeggio also runs with
+the band stopped; that alone no longer rules out a hook once a wake-while-stopped hook
+exists, so it is not the reason.) It reads the style clock through `Engine::style_tick`
+/ `ns_at_tick`. The module docs have the details.
 
 The chord section (recognition, Sync Stop) reads the keys as pressed, before the
 pipeline's transpose and processor.

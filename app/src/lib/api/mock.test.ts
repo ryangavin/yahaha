@@ -81,6 +81,63 @@ describe('mock session', () => {
     expect(seen[1].version).toBeGreaterThan(seen[0].version)
   })
 
+  it('Registration stores Keyboard Harmony/Arpeggio, as the harmonyArp registrable', () => {
+    const m = new MockSession({ manual: true })
+    m.send({ type: 'setArpPattern', index: 4 })
+    m.send({ type: 'setHarmonyArpOn', on: true })
+    m.send({ type: 'setHarmonyVolume', volume: 60 })
+    const want = structuredClone(m.state.harmonyArp)
+    m.send({ type: 'memorizeRegist', index: 5 })
+    const scramble = () => {
+      m.send({ type: 'setHarmonyType', index: 1 })
+      m.send({ type: 'setHarmonyArpOn', on: false })
+      m.send({ type: 'setHarmonyVolume', volume: 100 })
+    }
+    scramble()
+    m.send({ type: 'setArpPedalHold', on: true })
+    m.send({ type: 'recallRegist', index: 5 })
+    // The pedal's Arpeggio Hold is not recalled.
+    expect(m.state.harmonyArp).toEqual({ ...want, arp: { ...want.arp, pedalHold: true } })
+    scramble()
+    const scrambled = structuredClone(m.state.harmonyArp)
+    m.send({ type: 'setFreezeGroup', group: 'harmonyArp', on: true })
+    m.send({ type: 'setFreeze', on: true })
+    m.send({ type: 'recallRegist', index: 5 })
+    expect(m.state.harmonyArp).toEqual(scrambled)
+  })
+
+  it('Kbd Harmony/Arpeggio and Arpeggio Hold are control-side switches, as the engine keeps them', () => {
+    const m = new MockSession({ manual: true })
+    // Try: a press switches them; no pedal switch field is written.
+    m.send({ type: 'triggerFunction', function: 'kbdHarmonyArp' })
+    expect(m.state.harmonyArp.on).toBe(true)
+    expect('kbdHarmonyArp' in m.state.controllers).toBe(false)
+    m.send({ type: 'triggerFunction', function: 'arpHold' })
+    expect(m.state.harmonyArp.arp.pedalHold).toBe(true)
+    expect(m.state.harmonyArp.arp.hold).toBe(false)
+    m.send({ type: 'triggerFunction', function: 'arpHold' })
+    m.send({ type: 'triggerFunction', function: 'kbdHarmonyArp' })
+    // A Hold B pedal picked with the pedal up turns the switch on; given another function
+    // it lets go.
+    const set = (fn: string, controlType: 'holdA' | 'holdB' | 'toggle') =>
+      m.send({ type: 'setPedal', pedal: 1, cc: 66, function: fn, controlType, reverse: false, range: 'upper' })
+    set('arpHold', 'holdB')
+    expect(m.state.harmonyArp.arp.pedalHold).toBe(true)
+    expect(m.state.harmonyArp.arp.hold).toBe(false)
+    set('sostenuto', 'holdA')
+    expect(m.state.harmonyArp.arp.pedalHold).toBe(false)
+    set('kbdHarmonyArp', 'holdA')
+    expect(m.state.harmonyArp.on).toBe(false)
+    set('kbdHarmonyArp', 'holdB')
+    expect(m.state.harmonyArp.on).toBe(true)
+    // PANIC lets go of what a Hold pedal was keeping on (Hold B, up); the setting stays.
+    set('arpHold', 'holdB')
+    m.send({ type: 'setArpHold', on: true })
+    m.send({ type: 'panic' })
+    expect(m.state.harmonyArp.arp.pedalHold).toBe(false)
+    expect(m.state.harmonyArp.arp.hold).toBe(true)
+  })
+
   it('names notes Yamaha-style and transposes chords', () => {
     expect(noteName(60)).toBe('C3')
     expect(noteName(54)).toBe('F#2')

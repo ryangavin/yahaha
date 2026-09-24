@@ -6,7 +6,7 @@ use std::alloc::{GlobalAlloc, Layout, System};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use yahaha::engine::{Button, Engine, PadCmd, Prepared, StyleControls, Transpose, PAD_PPQ};
-use yahaha::live::{self, Audition, Cmd, EngineLoop, Out, PadBank, Shared};
+use yahaha::live::{self, Audition, Cmd, EngineLoop, FxConfig, FxKey, FxMode, Out, PadBank, Shared};
 use yahaha::multipad::{file::parse, synthetic, MultiPadPlayer};
 use yahaha::rt::{PacketSink, Target};
 use yahaha::sff::Style;
@@ -124,6 +124,88 @@ fn preview_and_next_bar_style_change_do_not_allocate() {
     // The preview and the old style came back to be freed off it.
     assert!(ch.old_audition_rx.pop().is_ok());
     assert!(ch.old_rx.pop().is_ok());
+}
+
+/// Keyboard Harmony's Echo category, the arpeggio and Strum run on the engine thread
+/// (`live::KbdFx`): keys, type switches, the band starting, a style change to another
+/// resolution and PANIC, all without allocating.
+#[test]
+fn harmony_and_arpeggio_do_not_allocate() {
+    let (Some(a), Some(b)) = (prep("SlowWalker.T552.sty"), prep("TickingAway.T162.sty")) else {
+        eprintln!("corpus missing; skipping");
+        return;
+    };
+    let _one = count_here();
+    let shared = Arc::new(Shared::new(54));
+    for p in 0..3 {
+        shared.parts.on[p].store(true, Ordering::Relaxed);
+    }
+    let (synth, mut heard) = rtrb::RingBuffer::new(1 << 16);
+    let mut ch = live::channels(Out::new(PacketSink::new(Target::Null), Some(synth)));
+    let mut l = EngineLoop::new(Engine::new(a), ch.io, shared.clone());
+    let arp = FxConfig { on: true, mode: FxMode::Arpeggio, hold: true, pattern: 3, ..FxConfig::default() }.pack();
+    let mut trill = FxConfig { on: true, ..FxConfig::default() };
+    trill.harmony.ty = yahaha::harmony::HarmonyType::Trill;
+    let trill = trill.pack();
+    let chord = yahaha::parse_chord("C").unwrap();
+    l.step(1);
+
+    let (allocs, frees) = (ALLOCS.load(Ordering::Relaxed), FREES.load(Ordering::Relaxed));
+    let mut now = 1_000;
+    let mut ons = [0usize; 4];
+    let mut play = |l: &mut EngineLoop, now: &mut u64, ns: u64| {
+        let end = *now + ns;
+        while *now < end {
+            l.step(*now);
+            *now = l.next_deadline().unwrap_or(*now + 5_000_000).clamp(*now + 1, end);
+            while let Ok(m) = heard.pop() {
+                if m[0] & 0xF0 == 0x90 && m[2] > 0 && m[0] & 0x0F < 4 {
+                    ons[(m[0] & 3) as usize] += 1;
+                }
+            }
+        }
+    };
+    let press = |tx: &mut rtrb::Producer<FxKey>, k: u8, on: bool| {
+        let (w, b) = ((k / 64) as usize, 1u64 << (k % 64));
+        if on {
+            shared.fx_held[w].fetch_or(b, Ordering::Release);
+            tx.push(FxKey::On { key: k, vel: 100 }).ok().unwrap();
+        } else {
+            shared.fx_held[w].fetch_and(!b, Ordering::Release);
+            tx.push(FxKey::Off { key: k }).ok().unwrap();
+        }
+    };
+    // The arpeggio with the band stopped, then started, then a style with another PPQ.
+    shared.kbd_fx.store(arp, Ordering::Release);
+    for k in [60, 64, 67] {
+        press(&mut ch.fx_tx, k, true);
+    }
+    play(&mut l, &mut now, 1_000_000_000);
+    shared.chord.store(chord.pack(1), Ordering::Release);
+    play(&mut l, &mut now, 1_000_000_000);
+    ch.style_tx.push(b).ok().unwrap();
+    play(&mut l, &mut now, 4_000_000_000);
+    for k in [60, 64, 67] {
+        press(&mut ch.fx_tx, k, false);
+    }
+    play(&mut l, &mut now, 500_000_000);
+    // Trill, then Strum notes, then PANIC.
+    shared.kbd_fx.store(trill, Ordering::Release);
+    press(&mut ch.fx_tx, 72, true);
+    press(&mut ch.fx_tx, 76, true);
+    play(&mut l, &mut now, 1_000_000_000);
+    press(&mut ch.fx_tx, 72, false);
+    press(&mut ch.fx_tx, 76, false);
+    shared.fx_held[1].fetch_or(1 << (72 - 64), Ordering::Release);
+    ch.fx_tx.push(FxKey::Strum { melody: 72, ch: 0, note: 67, vel: 90, delay_ms: 15 }).ok().unwrap();
+    play(&mut l, &mut now, 100_000_000);
+    ch.fx_tx.push(FxKey::StrumOff { melody: 72 }).ok().unwrap();
+    ch.ui_tx.push(Cmd::Panic).ok().unwrap();
+    play(&mut l, &mut now, 100_000_000);
+    assert_eq!(ALLOCS.load(Ordering::Relaxed) - allocs, 0, "allocations on the engine thread");
+    assert_eq!(FREES.load(Ordering::Relaxed) - frees, 0, "frees on the engine thread");
+    assert!(ch.old_rx.pop().is_ok(), "the style change happened");
+    assert!(ons.iter().sum::<usize>() > 50, "the arpeggio and the trill played: {ons:?}");
 }
 
 /// Chord settling (engine/settle.rs) under the chord-settle window: a Sync Start chord,

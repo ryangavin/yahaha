@@ -272,6 +272,29 @@ Pedals, the wheels and the assignable functions (docs/controllers.md).
 | `setBendRange` | `part` 0–3, `semitones` 0–12 | The part's Pitch Bend Range (RPN 0 on its channel). |
 | `triggerFunction` | `function` | Runs an assignable function as a pedal press would (Sustain, Sostenuto and Soft toggle). Fails for a function yahaha doesn't have yet (`available` false) and for Modulation and Pitch Bend, which need a foot controller. |
 
+### Keyboard Harmony / Arpeggio
+
+One HARMONY/ARPEGGIO switch and one type, as on the Genos: a Keyboard Harmony type or an
+arpeggio pattern, never both. The type lists are in `LibraryList` (`harmonyTypes`,
+`arpPatterns`). What each does: docs/harmony.md, docs/arpeggio.md.
+
+| Command | Fields | Does |
+|---|---|---|
+| `toggleHarmonyArp` / `setHarmonyArpOn` | `on` | The HARMONY/ARPEGGIO switch. Turning it off (or changing the type) stops the arpeggio and the Echo repeats at once; keys held keep their harmony notes until they go up. |
+| `setHarmonyType` | `index` | A Keyboard Harmony type, by its index in `harmonyTypes` (Data List order). Selects the Harmony list. |
+| `setArpPattern` | `index` | An arpeggio pattern, by its index in `arpPatterns`. Selects the arpeggio list. |
+| `stepHarmonyArpType` | `delta` | Steps through the Harmony types and then the arpeggios, as one list, wrapping. |
+| `setHarmonyVolume` | `volume` 0–127 | Volume: the level of the added notes (127 = the key's velocity) and of the arpeggio. |
+| `setHarmonySpeed` | `speed` | Echo, Tremolo and Trill: `1/4`, `1/6`, `1/8`, `1/12`, `1/16` or `1/32`. |
+| `setHarmonyAssign` | `assign` | `auto`, `multi`, `right1`, `right2` or `right3`: the Right parts the effect (and the arpeggio) sounds on. `multi` is for the Harmony and Echo categories only (RM p.46); an arpeggio plays it as `auto`. |
+| `setChordNoteOnly` | `on` | Harmony category: harmonise only melody notes of the current chord. |
+| `setTouchLimit` | `velocity` 1–127 | The effect sounds only for keys played at least this hard (Minimum Velocity). |
+| `setArpQuantize` | `quantize` | `off`, `eighth` or `sixteenth`: the grid the arpeggio starts on. |
+| `setArpHold` / `toggleArpHold` | `on` | The Arpeggio Hold setting (RM p.41): the pattern plays on after the keys are released, until the switch goes off or Hold is turned off. |
+| `setArpPedalHold` / `toggleArpPedalHold` | `on` | The Arpeggio Hold pedal function (RM p.141), apart from the setting: the pattern plays on after the keys are released while it is on, and stops when it goes off. A pedal on Arpeggio Hold sends these (Hold A / Hold B set it, Toggle and the function's Try switch it); it never changes the setting. PANIC and an unplugged keyboard turn it off where a Hold pedal was keeping it on. |
+| `setArpVelocity` | `mode`, `velocity` | `original` (the pattern's accents), `thru` (each key's velocity) or `fixed` (every note at `velocity`, 1–127). |
+| `setArpKeepKeyOn` | `on` | Keep Key On: the pattern clock runs on through a full release, so the next chord picks up in phase. |
+
 ### Result: `CmdError`
 
 `send` returns `Ok(())` or one of these errors:
@@ -459,10 +482,13 @@ describes the start. Keyboards are different: the session lists the MIDI sources
 | `roots` | string[] | The style folders (and files) the library scans. |
 | `scanning` | bool | A rescan (`rescanLibrary`) is walking the folders. |
 
-`library()` returns `LibraryList { revision, entries, voices }`. `entries` are in display
-order (folder, then name). `voices` is the list `setPartVoice` picks from, the same for
-every revision: `{ program, bankMsb, bankLsb, name }`, the 128 GM voices on bank 0 (the
-names are `gm_name`'s). Each `LibraryEntry` has these fields:
+`library()` returns `LibraryList { revision, entries, voices, harmonyTypes, arpPatterns }`.
+`entries` are in display order (folder, then name). `voices` is the list `setPartVoice`
+picks from, the same for every revision: `{ program, bankMsb, bankLsb, name }`, the 128 GM
+voices on bank 0 (the names are `gm_name`'s). `harmonyTypes` (the 23 Keyboard Harmony
+types in Data List order, for `setHarmonyType`) and `arpPatterns` (yahaha's arpeggio
+patterns, for `setArpPattern`) are `{ name, category }` and never change. Each
+`LibraryEntry` has these fields:
 - `id`
 - `name`
 - `folder`
@@ -667,6 +693,23 @@ Multi Pads (docs/multipad.md).
 | `pads` | MultiPadPad[] | Always 4: `index` (0–3), `name` (from the file; empty for an empty pad), `lamp` (`empty` \| `ready` \| `armed` \| `queued` \| `playing`: off, blue, red flashing, waiting for the bar line, red), `repeat`, `chordMatch`, `channel` (the MIDI channel it plays on, 5–8). |
 | `synchroStop` | object | `styleStop`, `ending` (`setMultiPadSynchroStop`). |
 | `banks` | MultiPadBankEntry[] | The `.pad` files in the style folders, folder then name: `id`, `name`, `folder` (relative to its root, `/`-separated), `path`. A `rescanLibrary` refreshes it; a file still there keeps its id. Banks loaded by path from outside the style folders follow, while their file is there; the bank loaded is always listed. |
+
+### `harmonyArp`
+Keyboard Harmony / Arpeggio (the commands above).
+
+| Field | Type | Meaning |
+|---|---|---|
+| `on` | bool | The HARMONY/ARPEGGIO switch. |
+| `mode` | `harmony` \| `arpeggio` | Which list the selected type is in. |
+| `harmonyType` | number | The Harmony type (index into `harmonyTypes`), kept while an arpeggio is selected. |
+| `arpPattern` | number | The arpeggio pattern (index into `arpPatterns`). |
+| `typeName`, `category` | string | The selected type's name and category (`Harmony`, `Echo`, or the pattern's, such as `Up & Down`). |
+| `volume` | 0–127 | Volume of the added notes and the arpeggio. |
+| `speed` | string | Echo-category speed, `1/4` … `1/32`. |
+| `assign` | string | `auto`, `multi`, `right1`, `right2`, `right3`. |
+| `chordNoteOnly` | bool | Harmony category: only chord tones are harmonised. |
+| `touchLimit` | 1–127 | Minimum Velocity. |
+| `arp` | object | `quantize` (`off` \| `eighth` \| `sixteenth`), `hold` (the setting), `pedalHold` (the Arpeggio Hold pedal function is on; the arpeggio holds while either is), `velocity` (`original` \| `thru` \| `fixed`), `fixedVelocity`, `keepKeyOn`. |
 
 ### `message`
 `{ seq, text, error }` or null. It holds the last notice or error, for example a style
@@ -1190,6 +1233,20 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
     "sustain": true,
     "sostenuto": false,
     "soft": false
+  },
+  "harmonyArp": {
+    "on": true,
+    "mode": "harmony",
+    "harmonyType": 2,
+    "arpPattern": 0,
+    "typeName": "Standard Trio",
+    "category": "Harmony",
+    "volume": 100,
+    "speed": "1/8",
+    "assign": "auto",
+    "chordNoteOnly": false,
+    "touchLimit": 1,
+    "arp": { "quantize": "off", "hold": false, "pedalHold": false, "velocity": "original", "fixedVelocity": 100, "keepKeyOn": false }
   },
   "message": null
 }

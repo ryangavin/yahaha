@@ -153,6 +153,24 @@ const EVERY_CMD: &[&str] = &[
     r#"{"type":"setPartControllers","part":3,"sustain":false,"pitchBend":true,"modulation":false}"#,
     r#"{"type":"setBendRange","part":0,"semitones":12}"#,
     r#"{"type":"triggerFunction","function":"ots2"}"#,
+    // Keyboard Harmony / Arpeggio
+    r#"{"type":"toggleHarmonyArp"}"#,
+    r#"{"type":"setHarmonyArpOn","on":true}"#,
+    r#"{"type":"setHarmonyType","index":20}"#,
+    r#"{"type":"setArpPattern","index":3}"#,
+    r#"{"type":"stepHarmonyArpType","delta":-1}"#,
+    r#"{"type":"setHarmonyVolume","volume":90}"#,
+    r#"{"type":"setHarmonySpeed","speed":"1/12"}"#,
+    r#"{"type":"setHarmonyAssign","assign":"right2"}"#,
+    r#"{"type":"setChordNoteOnly","on":true}"#,
+    r#"{"type":"setTouchLimit","velocity":64}"#,
+    r#"{"type":"setArpQuantize","quantize":"sixteenth"}"#,
+    r#"{"type":"setArpHold","on":true}"#,
+    r#"{"type":"toggleArpHold"}"#,
+    r#"{"type":"setArpPedalHold","on":true}"#,
+    r#"{"type":"toggleArpPedalHold"}"#,
+    r#"{"type":"setArpVelocity","mode":"fixed","velocity":90}"#,
+    r#"{"type":"setArpKeepKeyOn","on":false}"#,
 ];
 
 fn type_of(json: &str) -> String {

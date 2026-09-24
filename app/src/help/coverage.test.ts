@@ -74,6 +74,9 @@ const STATES: [string, Setup][] = [
   ['parts drawer, Upper + Manual Bass, OTS Link', (s) => ((ui.parts = true), s.send({ type: 'toggleUpper' }), s.send({ type: 'toggleOtsLink' }))],
   ['parts drawer, fader page Style', (s) => ((ui.parts = true), s.send({ type: 'toggleFaderPage' }))],
   ['mixer drawer open', () => (ui.mixer = true)],
+  ['harmony drawer open', () => (ui.harmony = true)],
+  ['harmony drawer, arpeggio on, Fixed velocity', (s) => ((ui.harmony = true), s.send({ type: 'setArpPattern', index: 2 }), s.send({ type: 'setArpVelocity', mode: 'fixed', velocity: 90 }), s.send({ type: 'toggleHarmonyArp' }))],
+  ['harmony drawer, Echo type', (s) => ((ui.harmony = true), s.send({ type: 'setHarmonyType', index: 20 }))],
   ['mixer drawer open, Style tab', (s) => ((ui.mixer = true), s.send({ type: 'setFaderPage', page: 'style' }))],
   ['pad page 4 (Registration)', (s) => s.send({ type: 'setPadPage', page: 'registration' })],
   ['Registration Memory armed', (s) => s.send({ type: 'toggleRegistMemory' })],
@@ -106,6 +109,7 @@ afterEach(() => {
   ui.registTab = 'bank'
   ui.looper = false
   ui.multipad = false
+  ui.harmony = false
   ui.shiftLatched = false
   tips.help = false
   tips.setFloating(false)

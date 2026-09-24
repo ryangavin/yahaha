@@ -16,7 +16,7 @@ import type { AppCmd, AppState, ClockState, LibraryList } from './api/types'
 
 class AppStore {
   state = $state.raw<AppState>(initialState())
-  library = $state.raw<LibraryList>({ revision: 0, entries: [], voices: [] })
+  library = $state.raw<LibraryList>({ revision: 0, entries: [], voices: [], harmonyTypes: [], arpPatterns: [] })
   kind = $state<'mock' | 'tauri' | null>(null)
   private session: Session | null = null
   private unsub: (() => void) | null = null
@@ -150,6 +150,7 @@ class UiStore {
   registTab = $state<'bank' | 'groups' | 'sequence' | 'playlist'>('bank')
   looper = $state(false)
   multipad = $state(false)
+  harmony = $state(false)
   theme = $state<Theme>(storedTheme())
   /** The keyboard strip's size; null: match the connected Launchkey (49 or 61). */
   keyRange = $state<KeyRange | null>(storedKeyRange())
@@ -162,9 +163,9 @@ class UiStore {
   }
 
   /** Open one side drawer (closing the others), or close it if it's open. */
-  toggleDrawer(d: 'parts' | 'mixer' | 'settings' | 'regist' | 'looper' | 'multipad') {
+  toggleDrawer(d: 'parts' | 'mixer' | 'settings' | 'regist' | 'looper' | 'multipad' | 'harmony') {
     const open = !this[d]
-    this.parts = this.mixer = this.settings = this.regist = this.looper = this.multipad = false
+    this.parts = this.mixer = this.settings = this.regist = this.looper = this.multipad = this.harmony = false
     this[d] = open
   }
 
@@ -196,6 +197,7 @@ class UiStore {
     if (this.regist) return !(this.regist = false)
     if (this.looper) return !(this.looper = false)
     if (this.multipad) return !(this.multipad = false)
+    if (this.harmony) return !(this.harmony = false)
     return false
   }
 }
