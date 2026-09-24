@@ -289,9 +289,11 @@ pub fn arp_mask(assign: Assign, on: RightParts) -> PartMask {
     if assign == Assign::Auto { r.melody } else { r.effect[0] }
 }
 
-/// The Right parts as the harmony sees them. yahaha's parts are all Poly.
+/// The Right parts as the harmony sees them: those the keys sound on now (`Parts::audible`:
+/// the soloed part alone during a part solo, else those that are on), so the harmony, Multi
+/// Assign, Echo and the arpeggio follow a solo as the keys do. yahaha's parts are all Poly.
 pub fn right_parts(parts: &Parts) -> RightParts {
-    RightParts { on: [parts.is_on(parts::RIGHT1), parts.is_on(parts::RIGHT2), parts.is_on(parts::RIGHT3)], mono: [false; 3] }
+    RightParts { on: [parts.audible(parts::RIGHT1), parts.audible(parts::RIGHT2), parts.audible(parts::RIGHT3)], mono: [false; 3] }
 }
 
 /// What this driver sounds, counted per (channel, note), and where each generator key's
@@ -320,14 +322,14 @@ impl Voices {
         }
     }
 
-    /// Generator key `key` sounds as `note` at `vel` on the Right parts in `mask` that are
-    /// on, each at its octave, with the transpose `shift`.
+    /// Generator key `key` sounds as `note` at `vel` on the Right parts in `mask` that
+    /// sound (`Parts::audible`: a part solo), each at its octave, with the transpose `shift`.
     #[allow(clippy::too_many_arguments)]
     fn start(&mut self, key: u8, note: u8, vel: u8, mask: PartMask, parts: &Parts, shift: i8, out: &mut Out) {
         self.stop(key, out);
         let mut s = Sounded::default();
         for p in [parts::RIGHT1, parts::RIGHT2, parts::RIGHT3] {
-            if mask & (1 << p) != 0 && parts.is_on(p) {
+            if mask & (1 << p) != 0 && parts.audible(p) {
                 let ch = parts::CHANNEL[p];
                 let n = shift_key(note, shift + 12 * parts.octave_of(p));
                 s.push(ch, n);

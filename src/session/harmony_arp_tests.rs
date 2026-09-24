@@ -483,6 +483,108 @@ fn the_hold_pedal_leaves_the_hold_setting() {
     assert!(h.sounding().is_empty(), "{:?}", h.sounding());
 }
 
+/// Part solo (#96): the harmony and the arpeggio sound where the keys do. With Right 2
+/// soloed (Right 1 on, Right 2 off), the melody plays on Right 2 alone, and so do its
+/// harmony notes and the arpeggio: nothing leaks onto Right 1. When the solo ends they go
+/// back to Right 1.
+#[test]
+fn harmony_and_arpeggio_follow_part_solo() {
+    use crate::api::MixerCmd;
+    use crate::parts::{CHANNEL, RIGHT1, RIGHT2};
+    let (r1, r2) = (CHANNEL[RIGHT1], CHANNEL[RIGHT2]);
+    let Some(s) = session(&["SlowWalker.T552.sty"]) else { return };
+    let mut h = Heard::default();
+    send(&s, &mut h, harmony_type(HarmonyType::StandardDuet1));
+    send(&s, &mut h, HarmonyArpCmd::SetHarmonyArpOn { on: true });
+    c_chord(&s, &mut h);
+    send(&s, &mut h, MixerCmd::SetPartSolo { part: Some(RIGHT2 as u8) });
+    h.clear();
+    key(&s, &mut h, 72, 100);
+    assert!(h.ons.iter().all(|o| o.0 == r2), "the melody and its harmony on Right 2 alone: {:?}", h.ons);
+    assert!(h.ons.contains(&(r2, 67, 79)), "the harmony note on the soloed part: {:?}", h.ons);
+    key(&s, &mut h, 72, 0);
+    // The solo ends: back on Right 1.
+    send(&s, &mut h, MixerCmd::SetPartSolo { part: None });
+    h.clear();
+    key(&s, &mut h, 72, 100);
+    assert_eq!(h.ons, [(r1, 67, 79), (r1, 72, 100)]);
+    key(&s, &mut h, 72, 0);
+    // The arpeggio, with Right 2 soloed.
+    send(&s, &mut h, pattern("Climb 16"));
+    send(&s, &mut h, MixerCmd::SetPartSolo { part: Some(RIGHT2 as u8) });
+    h.clear();
+    for k in [72, 76, 79] {
+        key(&s, &mut h, k, 100);
+    }
+    advance(&s, &mut h, 500 * MS);
+    assert!(!h.ons.is_empty(), "the arpeggio plays");
+    assert!(h.ons.iter().all(|o| o.0 == r2), "the arpeggio on Right 2 alone: {:?}", h.ons);
+    for k in [72, 76, 79] {
+        key(&s, &mut h, k, 0);
+    }
+    for k in [48, 52, 43] {
+        key(&s, &mut h, k, 0);
+    }
+    advance(&s, &mut h, 500 * MS);
+    send(&s, &mut h, MixerCmd::SetPartSolo { part: None });
+    send(&s, &mut h, HarmonyArpCmd::SetHarmonyArpOn { on: false });
+    advance(&s, &mut h, 100 * MS);
+    assert!(h.sounding().is_empty(), "{:?}", h.sounding());
+}
+
+/// While the Chord Looper plays, chord input from the keyboard is off (#96) and the style
+/// follows the loop's chords, so the harmony does too (ACMP on: the Style's chord, spec §6),
+/// not the last chord the keyboard gave. When the loop stops, the keyboard's chord is back.
+#[test]
+fn harmony_follows_the_chord_looper() {
+    use crate::api::{LooperCmd, LooperMode};
+    let Some(s) = session(&["SlowWalker.T552.sty"]) else { return };
+    let mut h = Heard::default();
+    let run_until = |s: &Session, h: &mut Heard, done: &dyn Fn(&Session) -> bool| {
+        for _ in 0..400 {
+            if done(s) {
+                return;
+            }
+            advance(s, h, 20 * MS);
+        }
+        panic!("timed out");
+    };
+    let chord = |s: &Session, h: &mut Heard, keys: [u8; 3], vel: u8| {
+        for k in keys {
+            key(s, h, k, vel);
+        }
+    };
+    let (f, c) = ([41, 45, 48], [48, 52, 43]);
+    // Record one bar of F: REC while stopped, the first chord starts the band.
+    send(&s, &mut h, LooperCmd::LooperRec);
+    chord(&s, &mut h, f, 90);
+    run_until(&s, &mut h, &|s| s.state().looper.mode == LooperMode::Recording);
+    advance(&s, &mut h, 300 * MS);
+    // ON/OFF: recording stops, the loop starts at the next bar line. The keyboard plays C
+    // meanwhile, so the keyboard's last chord is C.
+    send(&s, &mut h, LooperCmd::LooperOnOff);
+    chord(&s, &mut h, f, 0);
+    chord(&s, &mut h, c, 90);
+    chord(&s, &mut h, c, 0);
+    run_until(&s, &mut h, &|s| s.state().looper.mode == LooperMode::Looping);
+    advance(&s, &mut h, 50 * MS);
+    send(&s, &mut h, harmony_type(HarmonyType::StandardDuet1));
+    send(&s, &mut h, HarmonyArpCmd::SetHarmonyArpOn { on: true });
+    h.clear();
+    key(&s, &mut h, 72, 100);
+    // C5 over F: the nearest chord tone below is A4 (over C it would be G4).
+    assert!(h.ons.contains(&(0, 69, 79)), "harmonised over the loop's F: {:?}", h.ons);
+    key(&s, &mut h, 72, 0);
+    // The loop stops: the keyboard's chords take over again.
+    send(&s, &mut h, LooperCmd::LooperOnOff);
+    chord(&s, &mut h, c, 90);
+    h.clear();
+    key(&s, &mut h, 72, 100);
+    assert!(h.ons.contains(&(0, 67, 79)), "harmonised over the keyboard's C: {:?}", h.ons);
+    key(&s, &mut h, 72, 0);
+    chord(&s, &mut h, c, 0);
+}
+
 /// A style with another resolution takes over at the bar line: the arpeggio re-times
 /// (`Arp::set_ppq`) and plays on at the same tempo.
 #[test]

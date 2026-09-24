@@ -264,12 +264,19 @@ impl Input {
             return note;
         }
         let parts = self.shared.parts.clone();
-        let chord = harmony::harmony_chord(s.ty, kbdfx::ACMP, parts.is_on(parts::LEFT), self.current, self.current);
+        // While the Chord Looper plays, the keyboard gives no chord and the style follows
+        // the loop's: the harmony follows that (`Shared::loop_chord`).
+        let current = if self.shared.looping.load(Relaxed) {
+            Chord::unpack(self.shared.loop_chord.load(Relaxed)).map(|(c, _)| c)
+        } else {
+            self.current
+        };
+        let chord = harmony::harmony_chord(s.ty, kbdfx::ACMP, parts.is_on(parts::LEFT), current, current);
         let h = harmony::harmonize(k, note.vel, chord, &s, kbdfx::right_parts(&parts));
         let mut done = Harmonized::default();
         for hn in h.notes() {
             for p in [parts::RIGHT1, parts::RIGHT2, parts::RIGHT3] {
-                if hn.parts & (1 << p) == 0 || !parts.is_on(p) {
+                if hn.parts & (1 << p) == 0 || !parts.audible(p) {
                     continue;
                 }
                 let ch = parts::CHANNEL[p];

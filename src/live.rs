@@ -109,6 +109,10 @@ pub struct Shared {
     /// chord on a new count, so the first chord played after the loop stops is sent even
     /// when it is the one recognized before.
     pub loops: AtomicU32,
+    /// The chord the Chord Looper has the style playing (`Chord::pack`; 0: not looping),
+    /// set by the engine thread each wake. Keyboard Harmony follows it on the input thread
+    /// while the loop plays, as it follows the Style's chord (ACMP on, spec §6).
+    pub loop_chord: AtomicU32,
     /// Keyboard + Master transpose: the shift applied to played notes. The engine gets
     /// the individual values through `Cmd::Transpose`.
     pub key_shift: AtomicI8,
@@ -167,6 +171,7 @@ impl Shared {
             manual_bass: AtomicBool::new(true),
             looping: AtomicBool::new(false),
             loops: AtomicU32::new(0),
+            loop_chord: AtomicU32::new(0),
             key_shift: AtomicI8::new(0),
             lateness: Histogram::new(),
             input_lat: Histogram::new(),
@@ -1164,6 +1169,7 @@ impl EngineLoop {
         if shared.looping.swap(looping, Relaxed) != looping && looping {
             shared.loops.fetch_add(1, Relaxed);
         }
+        shared.loop_chord.store(self.engine.looper_chord().map_or(0, |c| c.pack(0)), Relaxed);
         if let Some(seq) = self.engine.take_recorded() {
             let _ = self.io.recorded.push(seq);
         }
