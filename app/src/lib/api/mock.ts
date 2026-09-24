@@ -299,6 +299,10 @@ function sectionBars(s: string): number {
   return INTROS.includes(s) || ENDINGS.includes(s) ? 2 : 1
 }
 
+/** The demo player pressing Main `index` on pad page 1, as the engine packs it in
+ * `io.lastControl` (0x00SSDDVV: note on, pad note 112 + index, velocity 127). */
+const padPress = (index: number) => (0x90 << 16) | ((112 + index) << 8) | 127
+
 export interface MockOptions {
   /** Script some activity: start mid-song, change Main every few bars, move faders. */
   demo?: boolean
@@ -418,6 +422,7 @@ export class MockSession implements Session {
     this.rightHand = [72, 76]
     st.mixer.styleParts[5].waiting = true
     st.mixer.styleParts[5].volume = 58
+    st.io.lastControl = padPress(MAINS.indexOf('Main B'))
     this.position()
   }
 
@@ -702,7 +707,11 @@ export class MockSession implements Session {
   private demoBar(bar: number) {
     const t = this.state.transport
     // Every 8 bars, queue the next Main (half a bar early, so the flashing shows).
-    if (bar % 8 === 6 && !t.queued) this.cmd({ type: 'main', index: (t.main + 1) % 4 })
+    if (bar % 8 === 6 && !t.queued) {
+      const index = (t.main + 1) % 4
+      this.cmd({ type: 'main', index })
+      this.state.io.lastControl = padPress(index)
+    }
     // A pattern's volume change moves a Style fader away from the hardware (soft takeover).
     if (bar % 8 === 0) {
       const p = this.state.mixer.styleParts[(bar / 8) % 8 | 0]
