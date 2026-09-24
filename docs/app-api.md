@@ -39,7 +39,7 @@ A Tauri shell needs about four pieces:
 | Tauri side | Session call |
 |---|---|
 | `#[tauri::command] fn send(cmd: AppCmd) -> Result<(), CmdError>` | `session.send(cmd)` |
-| `#[tauri::command] fn state() -> AppState` | `(*session.state()).clone()` |
+| `#[tauri::command] fn state() -> AppState` | `session.state_now()` (the state, with its clock read now: see [`surface.clock`](#surfaceclock)) |
 | `#[tauri::command] fn library() -> LibraryList` | `session.library_list()` |
 | a thread that emits events to the webview | `for e in session.subscribe() { app.emit("yahaha", e) }` |
 
@@ -245,6 +245,7 @@ Indices are 0-based unless a field says otherwise.
 | `voiceName` | string | What its channel plays. For Left under Manual Bass, that is the Style's Bass voice. |
 | `playsBass` | bool | Left is playing the bass (Manual Bass). |
 | `octave` | −2..2 | The octave setting. It is not applied while `playsBass` is true. |
+| `fader` | 0–127? | Where its Launchkey fader (Panel page, faders 1–4) physically is, as last reported. Null until that fader moves. |
 
 ### `mixer`
 | Field | Type | Meaning |
@@ -252,7 +253,7 @@ Indices are 0-based unless a field says otherwise.
 | `faderPage` | `panel` \| `style` | What the Launchkey faders control. Panel: faders 1–4 are the keyboard parts. Style: faders 1–8 are the Style parts. |
 | `styleParts` | StylePart[8] | See the table below. |
 | `master` | 0–127? | The synth master level (100 = unity). Null without the synth. |
-| `masterWaiting` | bool | The master fader has not yet reached `master`. |
+| `masterWaiting` | bool | The master fader has not yet reached `master`. It turns on as soon as `setMasterVolume` moves the level away from the fader. |
 
 StylePart:
 
@@ -263,15 +264,21 @@ StylePart:
 | `mutedByManualBass` | bool | The Bass part while Manual Bass is in effect. |
 | `volume` | 0–127 | CC7. |
 | `waiting` | bool | The fader is waiting to pick up the value. |
+| `fader` | 0–127? | Where its Launchkey fader (Style page, faders 1–8) physically is. Null until it moves. |
 | `voice` | Voice? | The voice the style was written for: `bankMsb`, `bankLsb`, `program` (0-based), `kit` (a drum or SFX kit), and `label` (what the synth plays, for example `≈ Finger Bass  [Yamaha 104/18/88]`). |
 
 ### `pads`
+The Launchkey's 16 pads. Together with [`surface`](#surface) (every other control,
+Shift, the faders and the beat clock), they are a 1:1 mirror of the Launchkey MK4: every
+control's meaning, and every LED as the hardware shows it.
+
 | Field | Type | Meaning |
 |---|---|---|
 | `page` | `sections` \| `chordSetup` \| `otsParts` | The current Launchkey pad page. |
 | `pageName`, `pageNumber` (1-based), `pageCount` | | For example `Chord/Setup`, 2, 3. |
 | `pads` | Pad[16] | This page: the top row (notes 96–103), then the bottom row (112–119). |
-| `connected` | bool | A Launchkey DAW port is connected. |
+| `connected` | bool | A Launchkey DAW port is connected. It is set once, at start: see the limitation below. |
+| `paletteLeds` | bool | The session runs the LEDs in Novation palette mode (`--palette-leds`). The pads then carry `palette`. |
 
 #### Pad
 | Field | Type | Meaning |
@@ -283,9 +290,11 @@ StylePart:
 | `level` | `off` \| `dim` \| `bright` | `off`: not available (dark). `dim`: available, or a setting that is off. `bright`: playing or on. |
 | `anim` | `solid` \| `flash` \| `pulse` | Flash: queued, waiting for the bar or beat. Pulse: armed, waiting for you. |
 | `action` | AppCmd? | What pressing the pad sends. `send(pad.action)` does exactly what the hardware pad does. |
+| `palette` | PaletteLed? | Palette-LED mode only: what the pad was sent. The fields are `mode` (`solid`, `flash` or `pulse`), `colour` (palette index) with its `rgb` and `level`, and for `flash` also `flashColour`, `flashRgb` and `flashLevel` (the second colour). Null in RGB mode. |
 
-Draw a pad as the hardware lights it, where `beats` is a clock running at the current
-tempo:
+In RGB mode (the default), the pads show `rgb`, `level` and `anim`, animated on the LED
+clock. Draw a pad as the hardware lights it, where `beats` is the LED clock
+(`led` in [`surface.clock`](#surfaceclock)):
 
 ```
 k = off: 0 · dim: 0.18 · bright+solid: 1
@@ -294,8 +303,19 @@ k = off: 0 · dim: 0.18 · bright+solid: 1
 colour = rgb · k   (0–127 per channel; scale by 2 for CSS)
 ```
 
-In Rust, `session.beats()` returns the beat clock the hardware LEDs use, so a Rust
-client can flash in step with the hardware.
+In Rust, `session.beats()` returns the same clock.
+
+**Palette mode has a limitation.** The Launchkey flashes and pulses palette colours by
+itself, on its own timing. yahaha sends it no MIDI clock, so in palette mode:
+- The hardware's flash and pulse are not in step with the tempo or with the LED clock.
+- The colours are the palette's, so they are close to `rgb` but not the same.
+
+`palette` describes what was sent. Animate it on the LED clock: it won't match the
+hardware's phase, and nothing can.
+
+**Devices are connected once, at start** (#74). A Launchkey or keyboard plugged in later
+is not seen. A replugged Launchkey stays out of DAW mode until the session restarts.
+`connected` and `io.inputs` describe the start.
 
 ### `ots`
 | Field | Type | Meaning |
@@ -327,11 +347,90 @@ name). Each `LibraryEntry` has these fields:
 Filter on the client. The terminal UI matches a case-insensitive substring of the name,
 the file name or the folder.
 
+### `surface`
+The Launchkey beyond the pads.
+
+| Field | Type | Meaning |
+|---|---|---|
+| `shift` | bool | The Shift button is held. Show the controls' Shift layer (`shiftLabel`, `shiftAction`) while it is. The pads have no Shift layer: the firmware keeps Shift + pad for itself. |
+| `controls` | SurfaceControl[17] | Every button, in this order: `padBankUp`, `padBankDown`, `trackPrev`, `trackNext`, `play`, `stop`, `scene` (right of the top pad row), `function` (right of the bottom row), `faderButton1`…`faderButton8` (under the faders), `masterButton` (under the master fader). |
+| `faders` | SurfaceFader[9] | Faders 1–8 on the active fader page, then the master fader. |
+| `trackPrev`, `trackNext` | Neighbour? | Where Track ◀ / ▶ (and `stepStyle`) go: `{ id, name, path }` of the previous and next style in library order, skipping files known not to load. Null when there is nowhere to go. |
+| `clock` | ClockState | The beat clocks. See [below](#surfaceclock). |
+
+#### SurfaceControl
+| Field | Type | Meaning |
+|---|---|---|
+| `id` | string | See above. |
+| `cc` | number | Its CC on the DAW port, channel 1. |
+| `label` | string | What it does now, for example `PAGE ▼`, `RIGHT 2`, `PAD` (mutes the Style's Pad part), or `PANEL` (the master fader button: the faders are on the Panel page, and pressing switches). Empty when it does nothing. |
+| `action` | AppCmd? | What pressing it sends. `send(action)` does exactly what the hardware button does. Null when it does nothing, for example Pad Bank ▲ on the first page, Track with one style, or fader buttons 5–8 on the Panel page. |
+| `shiftLabel`, `shiftAction` | string, AppCmd? | What it does with Shift held. Most buttons do the same as without Shift, and there these equal `label`/`action`. The ones that differ: Pad Bank ▲ = `LEFT` (Left on/off), Pad Bank ▼ = `OTS LINK`, Panel fader buttons 1–4 = `EDIT R1`… (select the part). |
+| `rgb`, `level`, `anim` | | Its light, as a pad's. `anim` is always `solid`: buttons don't flash. |
+| `colour` | number? | The palette index yahaha sends it. Buttons have no RGB mode, so `rgb` is a close match to that colour. Null for Play, Stop, Scene and Function: yahaha doesn't drive those LEDs, they show the Launchkey's own default, and they are reported `off`. |
+
+Which button LEDs are lit, and in what colour:
+- **Pad Bank ▲/▼:** lit in the page's colour (white, cyan, pink) where there is a page to
+  go to.
+- **Track ◀/▶:** white when the library has another style.
+- **Fader buttons on the Panel page:** blue, bright when the part sounds and dim when it
+  is off. Fader buttons 5–8 are dark.
+- **Fader buttons on the Style page:** green, bright when the part plays and dim when it
+  is muted or muted by Manual Bass.
+- **Master button:** the page's colour, bright.
+
+#### SurfaceFader
+| Field | Type | Meaning |
+|---|---|---|
+| `label` | string | What it controls on this page, for example `RIGHT 1`, `BASS` or `MASTER`. Empty when unused: faders 5–8 on the Panel page, or the master fader without the synth. |
+| `value` | 0–127? | The level it controls. Null when unused. |
+| `waiting` | bool | The level is waiting for the hardware fader (soft takeover). |
+| `position` | 0–127? | Where the hardware fader physically is, as last reported. It is the same physical fader on both pages. Null until it moves. |
+| `set` | AppCmd? | What moving it sends: this command with `volume` filled in (`setPartVolume`, `setStylePartVolume` or `setMasterVolume`; `volume` is 0 here). Null when unused. |
+
+#### `surface.clock`
+Everything here is about time: the playing position, and the clock the pads flash on.
+Times are the session's monotonic clock in **ms**, as fractional numbers (ns would exceed
+JavaScript's exact integers). Beats are quarter notes. The state is republished when
+something changes, not as time passes, so the clock is anchors. Each anchor is a value
+at a time, and it moves on at `tempo` until the next state:
+
+| Field | Type | Meaning |
+|---|---|---|
+| `atMs` | ms | The session clock when this state was read. With `state()`, that is when it last changed. With `state_now()`, it is now. |
+| `running` | bool | The style is playing. |
+| `tempo` | BPM | Quarter notes per minute. |
+| `beatsPerBar` | number | Quarter notes per bar: 4 in 4/4, 3 in 3/4 and in 6/8. |
+| `bar`, `beat` | 1-based | The position at `atMs`, in the section. 1, 1 when stopped. |
+| `phase` | 0..1 | How far into the beat at `atMs`. 0 when stopped. |
+| `sectionAnchorMs`, `sectionAnchorBeats` | ms, beats | At `sectionAnchorMs`, the section had played `sectionAnchorBeats`. The anchor moves when the tempo, the section or its loop changes. |
+| `ledAnchorMs`, `ledAnchorBeats` | ms, beats | The free-running clock the pads flash and pulse on: it read `ledAnchorBeats` at `ledAnchorMs`. It re-anchors when the tempo changes, carrying on from where it was. |
+
+To animate without calling Rust, record `receivedMs = performance.now()` when a state
+arrives, then on every frame:
+
+```
+t     = atMs + (performance.now() − receivedMs)                  // session ms, now
+pos   = running ? sectionAnchorBeats + (t − sectionAnchorMs) · tempo / 60000 : 0
+bar   = floor(pos / beatsPerBar) + 1
+beat  = floor(pos mod beatsPerBar) + 1
+phase = pos − floor(pos)
+led   = ledAnchorBeats + (t − ledAnchorMs) · tempo / 60000        // `beats` in the pad formula
+```
+
+- **Read the time on fetch.** Use `session.state_now()` for the `state` command, not
+  `state()`. It stamps `atMs` at fetch time, so `t` is right however old the state is.
+  The error is then only the IPC latency.
+- **When the section loops or changes,** the engine re-anchors and a new state follows.
+  Between the two, `pos` can briefly run past the section's end.
+- **In Rust,** `ClockState::at(t)`, `position(t)` and `led_beats(t)` compute the same
+  thing in ms. `ns_to_ms(session.now_ns())` is "now": the virtual clock offline.
+
 ### `io`
 | Field | Type | Meaning |
 |---|---|---|
 | `outputPort` | string | The virtual MIDI output, `yahaha`. Empty offline. |
-| `inputs` | string[] | The connected MIDI sources. The Launchkey DAW port is listed with ` (pads)`. |
+| `inputs` | string[] | The MIDI sources connected at start. The Launchkey DAW port is listed with ` (pads)`. |
 | `synth` | SynthState? | `soundFont`, `device`, `sampleRate` (Hz), `bufferFrames`, `channels`, `outputPair` (1-based, for example [1, 2]), `muted`. Null when the synth is off. |
 | `engine` | EngineStats | `realtime` (the engine thread got real-time scheduling), and 99th percentiles in µs: `wakeP99Us` (wake versus deadline), `chordP99Us` (chord to engine), `midiInP99Us` (MIDI in to callback). |
 | `lastControl` | number | The last Launchkey DAW-port message, packed 0x00SSDDVV. |
@@ -356,19 +455,24 @@ Events carry no state. Always read the latest.
 
 ## Example `AppState`
 
-This is a real offline session on SlowWalker, playing Main A with Fill In BB queued, with
-OTS 1 recalled. Some lists are shortened here:
+This is a real offline session on SlowWalker, from `state_now()`: playing Main A with
+Fill In BB queued, with OTS 1 recalled. Some lists are shortened here:
 - `lamps` and `pads` have 16 entries.
 - `styleParts` has 8.
 - `ots.settings` lists every OTS in the style.
+- `surface.controls` has 17 and `surface.faders` has 9.
 
-The `io` section shows what a live session with a Launchkey and the synth reports.
+The `library`, `surface.trackPrev`/`trackNext`, the master fader and `io` show what a
+live session reports with a library folder, a Launchkey and the synth.
+
+Unabridged fixtures from `yahaha state-json` are in `docs/fixtures/`: `state.json` (SlowWalker,
+after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
 
 ```json
 {
   "version": 6,
   "style": {
-    "id": 0,
+    "id": 12,
     "path": "/Users/me/Styles/MOX_v2/SlowWalker.T552.sty",
     "name": "Regular style: SlowWalker",
     "format": "SFF1",
@@ -399,7 +503,8 @@ The `io` section shows what a live session with a Launchkey and the synth report
         "rgb": [127, 95, 0],
         "level": "dim",
         "anim": "solid",
-        "action": { "type": "intro", "index": 0 }
+        "action": { "type": "intro", "index": 0 },
+        "palette": null
       },
       {
         "note": 97,
@@ -408,7 +513,8 @@ The `io` section shows what a live session with a Launchkey and the synth report
         "rgb": [127, 95, 0],
         "level": "dim",
         "anim": "solid",
-        "action": { "type": "intro", "index": 1 }
+        "action": { "type": "intro", "index": 1 },
+        "palette": null
       }
     ]
   },
@@ -434,6 +540,7 @@ The `io` section shows what a live session with a Launchkey and the synth report
       "selected": true,
       "volume": 100,
       "waiting": false,
+      "fader": null,
       "program": 80,
       "voiceName": "Square Lead",
       "playsBass": false,
@@ -447,6 +554,7 @@ The `io` section shows what a live session with a Launchkey and the synth report
       "selected": false,
       "volume": 80,
       "waiting": false,
+      "fader": null,
       "program": 94,
       "voiceName": "Halo Pad",
       "playsBass": false,
@@ -460,6 +568,7 @@ The `io` section shows what a live session with a Launchkey and the synth report
       "selected": false,
       "volume": 100,
       "waiting": false,
+      "fader": null,
       "program": 94,
       "voiceName": "Halo Pad",
       "playsBass": false,
@@ -473,6 +582,7 @@ The `io` section shows what a live session with a Launchkey and the synth report
       "selected": false,
       "volume": 40,
       "waiting": false,
+      "fader": null,
       "program": 52,
       "voiceName": "Choir Aahs",
       "playsBass": false,
@@ -489,6 +599,7 @@ The `io` section shows what a live session with a Launchkey and the synth report
         "mutedByManualBass": false,
         "volume": 65,
         "waiting": false,
+        "fader": null,
         "voice": { "bankMsb": 127, "bankLsb": 0, "program": 57, "kit": true, "label": "drum kit 127/0/58" }
       },
       {
@@ -498,6 +609,7 @@ The `io` section shows what a live session with a Launchkey and the synth report
         "mutedByManualBass": false,
         "volume": 70,
         "waiting": false,
+        "fader": null,
         "voice": { "bankMsb": 127, "bankLsb": 0, "program": 56, "kit": true, "label": "drum kit 127/0/57" }
       },
       {
@@ -507,7 +619,14 @@ The `io` section shows what a live session with a Launchkey and the synth report
         "mutedByManualBass": false,
         "volume": 74,
         "waiting": false,
-        "voice": { "bankMsb": 104, "bankLsb": 18, "program": 87, "kit": false, "label": "≈ Finger Bass  [Yamaha 104/18/88]" }
+        "fader": null,
+        "voice": {
+          "bankMsb": 104,
+          "bankLsb": 18,
+          "program": 87,
+          "kit": false,
+          "label": "≈ Finger Bass  [Yamaha 104/18/88]"
+        }
       }
     ],
     "master": 100,
@@ -526,7 +645,8 @@ The `io` section shows what a live session with a Launchkey and the synth report
         "rgb": [0, 127, 16],
         "level": "bright",
         "anim": "solid",
-        "action": { "type": "main", "index": 0 }
+        "action": { "type": "main", "index": 0 },
+        "palette": null
       },
       {
         "note": 113,
@@ -535,10 +655,12 @@ The `io` section shows what a live session with a Launchkey and the synth report
         "rgb": [0, 127, 16],
         "level": "bright",
         "anim": "flash",
-        "action": { "type": "main", "index": 1 }
+        "action": { "type": "main", "index": 1 },
+        "palette": null
       }
     ],
-    "connected": true
+    "connected": true,
+    "paletteLeds": false
   },
   "ots": {
     "settings": [
@@ -555,7 +677,104 @@ The `io` section shows what a live session with a Launchkey and the synth report
     "applied": 1,
     "link": false
   },
-  "library": { "revision": 2, "count": 1, "position": 0, "pending": 0 },
+  "library": { "revision": 3, "count": 35, "position": 23, "pending": 0 },
+  "surface": {
+    "shift": false,
+    "controls": [
+      {
+        "id": "padBankUp",
+        "cc": 106,
+        "label": "",
+        "action": null,
+        "shiftLabel": "LEFT",
+        "shiftAction": { "type": "togglePart", "part": 3 },
+        "rgb": [0, 0, 0],
+        "level": "off",
+        "anim": "solid",
+        "colour": 0
+      },
+      {
+        "id": "padBankDown",
+        "cc": 107,
+        "label": "PAGE ▼",
+        "action": { "type": "setPadPage", "page": "chordSetup" },
+        "shiftLabel": "OTS LINK",
+        "shiftAction": { "type": "toggleOtsLink" },
+        "rgb": [127, 127, 127],
+        "level": "bright",
+        "anim": "solid",
+        "colour": 3
+      },
+      {
+        "id": "play",
+        "cc": 115,
+        "label": "PLAY",
+        "action": { "type": "startStop" },
+        "shiftLabel": "PLAY",
+        "shiftAction": { "type": "startStop" },
+        "rgb": [0, 0, 0],
+        "level": "off",
+        "anim": "solid",
+        "colour": null
+      },
+      {
+        "id": "faderButton1",
+        "cc": 37,
+        "label": "RIGHT 1",
+        "action": { "type": "togglePart", "part": 0 },
+        "shiftLabel": "EDIT R1",
+        "shiftAction": { "type": "selectPart", "part": 0 },
+        "rgb": [0, 0, 127],
+        "level": "bright",
+        "anim": "solid",
+        "colour": 45
+      },
+      {
+        "id": "masterButton",
+        "cc": 45,
+        "label": "PANEL",
+        "action": { "type": "toggleFaderPage" },
+        "shiftLabel": "PANEL",
+        "shiftAction": { "type": "toggleFaderPage" },
+        "rgb": [0, 0, 127],
+        "level": "bright",
+        "anim": "solid",
+        "colour": 45
+      }
+    ],
+    "faders": [
+      {
+        "label": "RIGHT 1",
+        "value": 100,
+        "waiting": false,
+        "position": null,
+        "set": { "type": "setPartVolume", "part": 0, "volume": 0 }
+      },
+      { "label": "", "value": null, "waiting": false, "position": null, "set": null },
+      {
+        "label": "MASTER",
+        "value": 100,
+        "waiting": false,
+        "position": 100,
+        "set": { "type": "setMasterVolume", "volume": 0 }
+      }
+    ],
+    "trackPrev": { "id": 2, "name": "Poppyhanger style", "path": "/Users/me/Styles/MOX_v2/Poppyhanger.T552.sty" },
+    "trackNext": { "id": 21, "name": "SmoothItOver.S837.STY", "path": "/Users/me/Styles/MOX_v2/SmoothItOver.S930.STY" },
+    "clock": {
+      "atMs": 2300.0,
+      "running": true,
+      "tempo": 75.0,
+      "beatsPerBar": 4.0,
+      "bar": 1,
+      "beat": 3,
+      "phase": 0.875,
+      "sectionAnchorMs": 0.0,
+      "sectionAnchorBeats": 0.0,
+      "ledAnchorMs": 0.0,
+      "ledAnchorBeats": 0.0
+    }
+  },
   "io": {
     "outputPort": "yahaha",
     "inputs": ["Launchkey MK4 61 MIDI Out", "Launchkey MK4 61 DAW Out (pads)"],

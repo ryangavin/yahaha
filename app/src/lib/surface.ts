@@ -98,8 +98,8 @@ export function deriveSurface(s: AppState, lib: LibraryList): SurfaceState {
     shift: false,
     controls,
     faders,
-    trackPrev: near.prev?.name ?? null,
-    trackNext: near.next?.name ?? null,
+    trackPrev: near.prev ? { id: near.prev.id, name: near.prev.name, path: near.prev.path } : null,
+    trackNext: near.next ? { id: near.next.id, name: near.next.name, path: near.next.path } : null,
     clock: { bar: s.transport.bar, beat: s.transport.beat, phase: 0, tempo: s.transport.tempo, atMs: 0 },
   }
 }

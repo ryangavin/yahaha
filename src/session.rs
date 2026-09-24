@@ -138,6 +138,8 @@ struct Loaded {
     format: String,
     bpm: f64,
     timesig: (u8, u8),
+    /// Quarter notes per bar.
+    quarters_per_bar: f64,
     has: [bool; NUM_SLOTS],
     voices: [Option<(u8, u8, u8)>; 16],
     ots: Vec<Ots>,
@@ -161,6 +163,7 @@ fn load(path: &Path) -> Result<(Box<Prepared>, Loaded)> {
         format: style.format.clone(),
         bpm: prep.bpm,
         timesig: style.timesig,
+        quarters_per_bar: prep.tpb as f64 / prep.ppq.max(1) as f64,
         has,
         voices: prep.voices,
         ots: style.ots.clone(),
@@ -176,7 +179,7 @@ struct Leds {
     last_leds: [(u8, Option<Led>); 16],
     last_rgb: [Option<(u8, u8, u8)>; 16],
     last_fader_btns: Option<(FaderPage, u8, u8)>,
-    last_nav: Option<Page>,
+    last_nav: Option<(Page, bool)>,
     buf: Vec<[u8; 3]>,
 }
 
@@ -207,8 +210,7 @@ impl Leds {
                 }
             }
         }
-        // Manual Bass mutes the Style's Bass part in the engine: shown off, as on screen.
-        let style_on = if manual_bass { s.parts & !(1 << 2) } else { s.parts };
+        let style_on = launchkey::style_lit(s.parts, manual_bass);
         let fb = (fader_page, pnl.parts_on, style_on);
         if self.last_fader_btns != Some(fb) {
             self.buf.clear();
@@ -218,13 +220,13 @@ impl Leds {
             }
             self.last_fader_btns = Some(fb);
         }
-        if self.last_nav != Some(pnl.page) {
+        if self.last_nav != Some((pnl.page, styles)) {
             self.buf.clear();
             launchkey::nav_button_msgs(pnl.page, styles, &mut self.buf);
             for m in &self.buf {
                 self.out.push(m);
             }
-            self.last_nav = Some(pnl.page);
+            self.last_nav = Some((pnl.page, styles));
         }
         self.out.flush();
     }
@@ -292,9 +294,15 @@ struct Control {
     synth: Option<SynthRef>,
     inputs: Vec<String>,
     pads_connected: bool,
-    /// The free-running beat clock the pad flashing follows: beats at `clock_ns`.
-    beats: f64,
+    /// The free-running beat clock the pad flashing follows: `led_beats` at `led_ns`,
+    /// moving on at `led_bpm` (re-anchored when the tempo changes).
+    led_beats: f64,
+    led_ns: u64,
+    led_bpm: f64,
+    /// The time of the last pump.
     clock_ns: u64,
+    /// The pads use palette colours (`Options::palette_leds`).
+    palette_leds: bool,
     offline: Option<Offline>,
 }
 
@@ -479,7 +487,11 @@ impl Control {
             AppCmd::CyclePadPage { delta } => self.shared.step_page(|p| p.cycle(delta)),
             AppCmd::SetMasterVolume { volume } => match &self.synth {
                 Some(s) => {
-                    s.control.master.store(volume.min(127), Relaxed);
+                    let v = volume.min(127);
+                    s.control.master.store(v, Relaxed);
+                    // The fader has to reach the new level before it takes over again.
+                    let hw = self.shared.master_hw.load(Relaxed);
+                    s.control.master_waiting.store(crate::engine::Takeover::at(hw, v).waiting(), Relaxed);
                     self.shared.master_moved.store(true, Relaxed);
                 }
                 None => return self.fail("the synth is off"),
@@ -564,6 +576,11 @@ impl Control {
         }
     }
 
+    /// The pad flash clock at `t`.
+    fn led_beats_at(&self, t: u64) -> f64 {
+        self.led_beats + (t as f64 - self.led_ns as f64) / 1e9 * self.led_bpm / 60.0
+    }
+
     fn drain_snapshots(&mut self) {
         while let Ok(s) = self.snap_rx.pop() {
             self.snap = s;
@@ -591,12 +608,17 @@ impl Control {
         while self.old_rx.pop().is_ok() {} // drop old styles here, off the RT thread
 
         // Free-running beat clock for flashing/pulsing, following the current tempo.
-        self.beats += now.saturating_sub(self.clock_ns) as f64 / 1e9 * s.bpm / 60.0;
+        if s.bpm != self.led_bpm {
+            self.led_beats = self.led_beats_at(now);
+            self.led_ns = now;
+            self.led_bpm = s.bpm;
+        }
         self.clock_ns = now;
         let pnl = self.panel();
+        let beats = self.led_beats_at(now);
         if let Some(leds) = self.leds.as_mut() {
             let styles = self.lib.len() > 1;
-            leds.update(&s, &self.info.has, &pnl, self.shared.manual_bass(), self.shared.parts.fader_page(), styles, self.beats);
+            leds.update(&s, &self.info.has, &pnl, self.shared.manual_bass(), self.shared.parts.fader_page(), styles, beats);
         }
         if let Some(rx) = &self.index_rx
             && self.lib.apply(rx) > 0
@@ -605,7 +627,147 @@ impl Control {
         }
     }
 
-    fn build_state(&self) -> AppState {
+    /// The Launchkey beyond the pads, as `live::Input` runs it and `Leds` lights it.
+    fn surface(&self, pnl: &Panel, manual_bass_active: bool, now: u64) -> SurfaceState {
+        use launchkey::{cc_control, Control as C};
+        let shared = &self.shared;
+        let kp = &shared.parts;
+        let page = pnl.page;
+        let styles = self.published.len() > 1;
+        let fader_page = kp.fader_page();
+        let style_on = launchkey::style_lit(self.snap.parts, manual_bass_active);
+        let colours = launchkey::button_colours(page, styles, fader_page, pnl.parts_on, style_on);
+        let act = |cc: u8, shift: bool| -> Option<AppCmd> {
+            match cc_control(cc, shift)? {
+                C::Page(d) => {
+                    let to = page.step(d);
+                    (to != page).then_some(AppCmd::SetPadPage { page: to })
+                }
+                C::Act(Action::Style(_)) if !styles => None,
+                C::Act(a) => Some(a.into()),
+            }
+        };
+        let mut controls = Vec::new();
+        let mut push = |id: String, cc: u8, label: &str, action: Option<AppCmd>, shift: Option<(&str, Option<AppCmd>)>| {
+            let label = if action.is_some() { label.to_string() } else { String::new() };
+            let (shift_label, shift_action) = match shift {
+                Some((l, a)) => (if a.is_some() { l.to_string() } else { String::new() }, a),
+                None => (label.clone(), action.clone()),
+            };
+            let colour = colours.iter().find(|c| c.0 == cc).map(|c| c.1);
+            let (rgb, level) = colour.map_or(((0, 0, 0), launchkey::Level::Off), launchkey::palette_colour);
+            controls.push(SurfaceControl {
+                id,
+                cc,
+                label,
+                action,
+                shift_label,
+                shift_action,
+                rgb: [rgb.0, rgb.1, rgb.2],
+                level,
+                anim: launchkey::Anim::Solid,
+                colour,
+            });
+        };
+        for (id, cc, label, shift_label) in [
+            ("padBankUp", launchkey::PAD_UP_CC, "PAGE ▲", "LEFT"),
+            ("padBankDown", launchkey::PAD_DOWN_CC, "PAGE ▼", "OTS LINK"),
+            ("trackPrev", launchkey::TRACK_LEFT_CC, "◀ STYLE", ""),
+            ("trackNext", launchkey::TRACK_RIGHT_CC, "STYLE ▶", ""),
+            ("play", launchkey::PLAY_CC, "PLAY", ""),
+            ("stop", launchkey::STOP_CC, "STOP", ""),
+            ("scene", launchkey::SCENE_CC, "TEMPO +", ""),
+            ("function", launchkey::FUNCTION_CC, "TEMPO -", ""),
+        ] {
+            let (a, sa) = (act(cc, false), act(cc, true));
+            let shift = (sa != a).then_some((shift_label, sa));
+            push(id.to_string(), cc, label, a, shift);
+        }
+        // The buttons under faders 1-8: Panel = Right 1-3 and Left on/off (Shift: select),
+        // Style = the Style parts' mute.
+        for i in 0..8u8 {
+            let cc = launchkey::FADER_BTN_CC.start() + i;
+            let id = format!("faderButton{}", i + 1);
+            match fader_page {
+                FaderPage::Panel if (i as usize) < parts::COUNT => {
+                    let p = i as usize;
+                    let shift = (launchkey::SELECT_LABELS[p], Some(AppCmd::SelectPart { part: i }));
+                    push(id, cc, launchkey::PART_LABELS[p], Some(AppCmd::TogglePart { part: i }), Some(shift));
+                }
+                FaderPage::Panel => push(id, cc, "", None, None),
+                FaderPage::Style => {
+                    let name = STYLE_PART_NAMES[i as usize].to_uppercase();
+                    push(id, cc, &name, Some(AppCmd::ToggleStylePart { part: i }), None);
+                }
+            }
+        }
+        let master = match fader_page {
+            FaderPage::Panel => "PANEL",
+            FaderPage::Style => "STYLE",
+        };
+        push("masterButton".into(), *launchkey::FADER_BTN_CC.end(), master, Some(AppCmd::ToggleFaderPage), None);
+
+        // The faders: the parts they control on this page, and where they physically are.
+        let s = &self.snap;
+        let mut faders: Vec<SurfaceFader> = (0..8u8)
+            .map(|i| {
+                let p = i as usize;
+                let position = known(kp.fader_hw[p].load(Relaxed));
+                match fader_page {
+                    FaderPage::Panel if p < parts::COUNT => SurfaceFader {
+                        label: launchkey::PART_LABELS[p].to_string(),
+                        value: Some(kp.volume(p)),
+                        waiting: kp.waiting(p),
+                        position,
+                        set: Some(AppCmd::SetPartVolume { part: i, volume: 0 }),
+                    },
+                    FaderPage::Panel => SurfaceFader { position, ..SurfaceFader::default() },
+                    FaderPage::Style => SurfaceFader {
+                        label: STYLE_PART_NAMES[p].to_uppercase(),
+                        value: Some(s.volumes[p]),
+                        waiting: s.pickup & (1 << p) != 0,
+                        position,
+                        set: Some(AppCmd::SetStylePartVolume { part: i, volume: 0 }),
+                    },
+                }
+            })
+            .collect();
+        let master_pos = known(shared.master_hw.load(Relaxed));
+        faders.push(match &self.synth {
+            Some(sy) => SurfaceFader {
+                label: "MASTER".into(),
+                value: Some(sy.control.master.load(Relaxed)),
+                waiting: sy.control.master_waiting.load(Relaxed),
+                position: master_pos,
+                set: Some(AppCmd::SetMasterVolume { volume: 0 }),
+            },
+            None => SurfaceFader { position: master_pos, ..SurfaceFader::default() },
+        });
+
+        SurfaceState {
+            shift: shared.shift.load(Relaxed),
+            controls,
+            faders,
+            track_prev: neighbour(&self.published, self.cur, -1),
+            track_next: neighbour(&self.published, self.cur, 1),
+            clock: ClockState {
+                at_ms: 0.0,
+                running: s.running,
+                tempo: s.bpm,
+                beats_per_bar: self.info.quarters_per_bar,
+                bar: 1,
+                beat: 1,
+                phase: 0.0,
+                section_anchor_ms: ns_to_ms(s.anchor_ns),
+                section_anchor_beats: s.anchor_beats,
+                led_anchor_ms: ns_to_ms(self.led_ns),
+                led_anchor_beats: self.led_beats,
+            }
+            .at(ns_to_ms(now)),
+        }
+    }
+
+    fn build_state(&self, now: u64) -> AppState {
         let s = &self.snap;
         let shared = &self.shared;
         let kp = &shared.parts;
@@ -614,9 +776,11 @@ impl Control {
         let manual_bass_active = shared.manual_bass();
         let pads_of = |page: Page| -> Vec<Pad> {
             let p = Panel { page, ..pnl };
+            let palette = if self.palette_leds { Some(launchkey::pad_leds(s, &info.has, &p)) } else { None };
             launchkey::looks(s, &info.has, &p)
                 .iter()
-                .map(|(note, look)| Pad {
+                .enumerate()
+                .map(|(i, (note, look))| Pad {
                     note: *note,
                     label: look.label.to_string(),
                     key: look.key.to_string(),
@@ -624,9 +788,11 @@ impl Control {
                     level: look.level,
                     anim: look.anim,
                     action: launchkey::pad_action(page, *note).map(AppCmd::from),
+                    palette: palette.map(|leds| palette_led(leds[i].1)),
                 })
                 .collect()
         };
+        let fader_hw = kp.fader_hw.each_ref().map(|a| known(a.load(Relaxed)));
         let upper = shared.upper.load(Relaxed);
         let fingering = Fingering::from_u8(shared.fingering.load(Relaxed));
         let split = shared.split.load(Relaxed);
@@ -686,6 +852,7 @@ impl Control {
                         voice_name: gm_name(kp.channel_program(p)).to_string(),
                         plays_bass,
                         octave: kp.octave[p].load(Relaxed).clamp(-2, 2),
+                        fader: fader_hw[p],
                     }
                 })
                 .collect(),
@@ -703,6 +870,7 @@ impl Control {
                             muted_by_manual_bass: mb,
                             volume: s.volumes[p as usize],
                             waiting: s.pickup & (1 << p) != 0,
+                            fader: fader_hw[p as usize],
                             voice: v.map(|(msb, lsb, program)| Voice {
                                 bank_msb: msb,
                                 bank_lsb: lsb,
@@ -723,6 +891,7 @@ impl Control {
                 page_count: Page::ALL.len() as u8,
                 pads: pads_of(pnl.page),
                 connected: self.pads_connected,
+                palette_leds: self.palette_leds,
             },
             ots: OtsState {
                 settings: info
@@ -758,6 +927,7 @@ impl Control {
                 position: self.published.position(self.cur),
                 pending: self.published.pending(),
             },
+            surface: self.surface(&pnl, manual_bass_active, now),
             io: IoState {
                 output_port: if self.offline.is_some() { String::new() } else { "yahaha".into() },
                 inputs: self.inputs.clone(),
@@ -810,11 +980,17 @@ impl Inner {
             ctl.lib_published_ns = now;
             events.push(Event::LibraryChanged { revision: ctl.lib_rev });
         }
-        let mut st = ctl.build_state();
+        let mut st = ctl.build_state(now);
         {
             let mut cur = self.state.lock().unwrap_or_else(|e| e.into_inner());
             st.version = cur.version;
+            // Time passing alone is not a change: the clock is read at `nowNs`, and moves
+            // on from its anchors.
+            let fresh = st.surface.clock.clone();
+            let old = &cur.surface.clock;
+            st.surface.clock = ClockState { at_ms: old.at_ms, bar: old.bar, beat: old.beat, phase: old.phase, ..fresh.clone() };
             if **cur != st {
+                st.surface.clock = fresh;
                 st.version = self.version.fetch_add(1, Relaxed) + 1;
                 events.push(Event::StateChanged { version: st.version });
                 *cur = Arc::new(st);
@@ -941,8 +1117,11 @@ fn assemble(opts: &Options, engine_out: live::Out, input_out: live::Out, offline
         synth: None,
         inputs: Vec::new(),
         pads_connected: false,
-        beats: 0.0,
+        led_beats: 0.0,
+        led_ns: if offline { 0 } else { rt::now_ns() },
+        led_bpm: snap.bpm,
         clock_ns: if offline { 0 } else { rt::now_ns() },
+        palette_leds: opts.palette_leds,
         offline: None,
     };
     Ok((shared, Assembled { control, engine: EngineLoopParts { engine, io: ch.io }, input }))
@@ -1132,7 +1311,24 @@ impl Session {
             Some(o) => o.now,
             None => rt::now_ns(),
         };
-        ctl.beats + now.saturating_sub(ctl.clock_ns) as f64 / 1e9 * ctl.snap.bpm / 60.0
+        ctl.led_beats_at(now)
+    }
+
+    /// The session clock, in ns (monotonic; the virtual clock offline): the time base of
+    /// `AppState::clock`.
+    pub fn now_ns(&self) -> u64 {
+        match &self.inner.lock().offline {
+            Some(o) => o.now,
+            None => rt::now_ns(),
+        }
+    }
+
+    /// The latest state with its clock read now (`surface.clock`: `atMs`, `bar`, `beat`,
+    /// `phase`): what a client that animates from the clock should fetch.
+    pub fn state_now(&self) -> AppState {
+        let mut st = (*self.state()).clone();
+        st.surface.clock = st.surface.clock.at(ns_to_ms(self.now_ns()));
+        st
     }
 
     /// Stop: the band stops, the Launchkey leaves DAW mode, audio and MIDI close.
@@ -1303,6 +1499,46 @@ impl Drop for Session {
     fn drop(&mut self) {
         self.stop();
     }
+}
+
+/// A fader position as last reported (`HW_UNKNOWN` = never).
+fn known(hw: u8) -> Option<u8> {
+    (hw != crate::engine::HW_UNKNOWN).then_some(hw)
+}
+
+/// What a pad shows in palette mode.
+fn palette_led(led: Led) -> PaletteLed {
+    let look = |c: u8| {
+        let (rgb, level) = launchkey::palette_colour(c);
+        ([rgb.0, rgb.1, rgb.2], level)
+    };
+    let (mode, c, flash) = match led {
+        Led::Solid(c) => (launchkey::Anim::Solid, c, None),
+        Led::Flash(a, b) => (launchkey::Anim::Flash, a, Some(b)),
+        Led::Pulse(c) => (launchkey::Anim::Pulse, c, None),
+    };
+    let (rgb, level) = look(c);
+    PaletteLed {
+        mode,
+        colour: c,
+        rgb,
+        level,
+        flash_colour: flash,
+        flash_rgb: flash.map(|f| look(f).0),
+        flash_level: flash.map(|f| look(f).1),
+    }
+}
+
+/// The style `StepStyle { delta }` would load, if it goes anywhere.
+fn neighbour(lib: &Library, cur: usize, delta: i8) -> Option<Neighbour> {
+    if cur >= lib.len() {
+        return None;
+    }
+    let id = lib.step(cur, delta);
+    (id != cur).then(|| {
+        let e = lib.entry(id);
+        Neighbour { id, name: e.name().to_string(), path: e.path.display().to_string() }
+    })
 }
 
 /// A library entry as plain data.

@@ -129,7 +129,7 @@ fn print_state_json() {
     keys(&s, true, &[45, 48, 52, 55]);
     s.advance(2300 * MS);
     s.send(AppCmd::Main { index: 1 }).unwrap();
-    println!("{}", serde_json::to_string_pretty(&*s.state()).unwrap());
+    println!("{}", serde_json::to_string_pretty(&s.state_now()).unwrap());
 }
 
 #[test]
@@ -462,6 +462,8 @@ fn launchkey_hardware_matches_its_commands() {
         let mut st = (*s.state()).clone();
         (st.version, st.io.last_control) = (0, 0);
         st.io.unmapped.clear();
+        // When the state last changed is not what it is: read the clock now.
+        st.surface.clock = st.surface.clock.at(ns_to_ms(s.now()));
         (st, s.take_output())
     };
     let mut bad = Vec::new();
@@ -588,4 +590,312 @@ fn live_send_is_visible_at_once() {
     s.stop();
     t.join().unwrap();
     assert!(rx.try_iter().any(|e| e == Event::Stopped));
+}
+
+/// Every button the state describes does, pressed on the hardware (with Shift where it has
+/// a Shift layer), exactly what its `action` / `shiftAction` does; one without an action
+/// does nothing. On every pad page, on both fader pages.
+#[test]
+fn launchkey_buttons_are_what_the_state_says() {
+    let Some(p) = style("SlowWalker.T552.sty") else { return };
+    let mk = |page: Page, fp: FaderPage| {
+        let s = Session::offline(Options { paths: vec![p.clone()], ..Options::default() }).unwrap();
+        s.send(AppCmd::SetPadPage { page }).unwrap();
+        s.send(AppCmd::SetFaderPage { page: fp }).unwrap();
+        s.take_output();
+        s
+    };
+    let norm = |s: &Session| {
+        let mut st = (*s.state()).clone();
+        (st.version, st.io.last_control) = (0, 0);
+        st.io.unmapped.clear();
+        // When the state last changed is not what it is: read the clock now.
+        st.surface.clock = st.surface.clock.at(ns_to_ms(s.now()));
+        (st, s.take_output())
+    };
+    let mut bad = Vec::new();
+    let mut n = 0;
+    for page in Page::ALL {
+        for fp in [FaderPage::Panel, FaderPage::Style] {
+            let buttons = mk(page, fp).state().surface.controls.clone();
+            assert_eq!(buttons.len(), 17);
+            for b in buttons.iter() {
+                for shift in [false, true] {
+                    let cmd = if shift { b.shift_action.clone() } else { b.action.clone() };
+                    let (a, c) = (mk(page, fp), mk(page, fp));
+                    let press = [0xB0, b.cc, 127];
+                    if shift {
+                        a.midi_in(Port::Pads, &[0xB0, SHIFT_CC, 127]);
+                        assert!(a.state().surface.shift);
+                        a.midi_in(Port::Pads, &press);
+                        a.midi_in(Port::Pads, &[0xB0, SHIFT_CC, 0]);
+                    } else {
+                        a.midi_in(Port::Pads, &press);
+                    }
+                    if let Some(cmd) = cmd {
+                        let _ = c.send(cmd);
+                        n += 1;
+                    }
+                    if norm(&a) != norm(&c) {
+                        bad.push(format!("{page:?} {fp:?} {} shift {shift}", b.id));
+                    }
+                }
+            }
+        }
+    }
+    assert!(bad.is_empty(), "described and pressed differ:\n{}", bad.join("\n"));
+    assert!(n > 60, "{n}");
+}
+
+/// What the buttons say and how they are lit.
+#[test]
+fn launchkey_button_descriptions() {
+    let Some(s) = offline("SlowWalker.T552.sty") else { return };
+    let b = |s: &Session, id: &str| s.state().surface.controls.iter().find(|b| b.id == id).cloned().unwrap();
+    let up = b(&s, "padBankUp");
+    assert_eq!((up.action, up.label.as_str(), up.level, up.colour), (None, "", Level::Off, Some(0)), "first page: nowhere up");
+    assert_eq!((up.shift_label.as_str(), up.shift_action), ("LEFT", Some(AppCmd::TogglePart { part: 3 })));
+    let down = b(&s, "padBankDown");
+    assert_eq!(down.action, Some(AppCmd::SetPadPage { page: Page::ChordSetup }));
+    assert_eq!((down.colour, down.level), (Some(3), Level::Bright), "white on page 1");
+    assert_eq!(down.shift_action, Some(AppCmd::ToggleOtsLink));
+    // One style: the Track buttons go nowhere and are dark.
+    let tl = b(&s, "trackPrev");
+    assert_eq!((tl.action, tl.level, tl.shift_action), (None, Level::Off, None));
+    let play = b(&s, "play");
+    assert_eq!((play.action.clone(), play.colour, play.shift_action, play.shift_label.as_str()), (Some(AppCmd::StartStop), None, Some(AppCmd::StartStop), "PLAY"));
+    assert_eq!(b(&s, "scene").action, Some(AppCmd::TempoUp));
+    assert_eq!((b(&s, "scene").label.as_str(), b(&s, "function").label.as_str()), ("TEMPO +", "TEMPO -"));
+    // Panel faders: Right 1 on (blue), Right 2 off (dim blue), 5-8 do nothing.
+    let f1 = b(&s, "faderButton1");
+    assert_eq!((f1.label.as_str(), f1.action, f1.shift_action), ("RIGHT 1", Some(AppCmd::TogglePart { part: 0 }), Some(AppCmd::SelectPart { part: 0 })));
+    assert_eq!((f1.level, f1.rgb), (Level::Bright, [0, 0, 127]));
+    assert_eq!(b(&s, "faderButton2").level, Level::Dim);
+    let f5 = b(&s, "faderButton5");
+    assert_eq!((f5.action, f5.level), (None, Level::Off));
+    assert_eq!(b(&s, "masterButton").label, "PANEL");
+    // Style page: the Style parts' mutes, green.
+    s.send(AppCmd::ToggleFaderPage).unwrap();
+    s.send(AppCmd::ToggleStylePart { part: 5 }).unwrap();
+    let f6 = b(&s, "faderButton6");
+    assert_eq!((f6.label.as_str(), f6.action), ("PAD", Some(AppCmd::ToggleStylePart { part: 5 })));
+    assert_eq!(f6.level, Level::Dim, "muted");
+    assert_eq!((b(&s, "faderButton1").level, b(&s, "faderButton1").rgb), (Level::Bright, [0, 127, 0]));
+    assert_eq!(b(&s, "masterButton").label, "STYLE");
+    // Manual Bass (with Upper) mutes the Style's Bass part: its button dims, as on the
+    // hardware.
+    s.send(AppCmd::SetUpper { on: true }).unwrap();
+    s.send(AppCmd::SetManualBass { on: true }).unwrap();
+    let f3 = b(&s, "faderButton3");
+    assert_eq!((f3.level, f3.rgb), (Level::Dim, [0, 127, 0]), "Manual Bass");
+    s.send(AppCmd::SetManualBass { on: false }).unwrap();
+    assert_eq!(b(&s, "faderButton3").level, Level::Bright);
+    // Page 3: ▼ goes nowhere, ▲ back to page 2, both pink.
+    s.send(AppCmd::SetPadPage { page: Page::OtsParts }).unwrap();
+    assert_eq!(b(&s, "padBankDown").action, None);
+    let up = b(&s, "padBankUp");
+    assert_eq!(up.action, Some(AppCmd::SetPadPage { page: Page::ChordSetup }));
+    assert_eq!(up.rgb, [127, 0, 70]);
+    // Shift is mirrored while held.
+    assert!(!s.state().surface.shift);
+    s.midi_in(Port::Pads, &[0xB0, SHIFT_CC, 127]);
+    assert!(s.state().surface.shift);
+    s.midi_in(Port::Pads, &[0xB0, SHIFT_CC, 0]);
+    assert!(!s.state().surface.shift);
+}
+
+/// Track ◀ / ▶ neighbours are where `StepStyle` goes, skipping files that don't load.
+#[test]
+fn track_neighbours() {
+    let Some(p) = style("SlowWalker.T552.sty") else { return };
+    let s = Session::offline(Options { paths: vec![p.parent().unwrap().to_path_buf()], ..Options::default() }).unwrap();
+    s.finish_indexing();
+    let st = s.state();
+    let (prev, next) = (st.surface.track_prev.clone().unwrap(), st.surface.track_next.clone().unwrap());
+    let lib = s.library();
+    assert_eq!(next.id, lib.step(st.style.id, 1));
+    assert_eq!(prev.id, lib.step(st.style.id, -1));
+    assert_eq!(next.name, lib.entry(next.id).name());
+    assert!(s.state().surface.controls.iter().any(|b| b.id == "trackNext" && b.action == Some(AppCmd::StepStyle { delta: 1 })));
+    s.send(AppCmd::StepStyle { delta: 1 }).unwrap();
+    assert_eq!(s.state().style.id, next.id);
+    assert_eq!(s.state().surface.track_prev.as_ref().map(|n| n.id), Some(st.style.id));
+    s.send(AppCmd::StepStyle { delta: -1 }).unwrap();
+    s.send(AppCmd::StepStyle { delta: -1 }).unwrap();
+    assert_eq!(s.state().style.id, prev.id);
+    // A file that doesn't load is skipped once it is known not to.
+    let bad = std::env::temp_dir().join(format!("yahaha-neighbour-{}.sty", std::process::id()));
+    std::fs::write(&bad, b"not a style").unwrap();
+    let _ = s.send(AppCmd::LoadStylePath { path: bad.display().to_string() });
+    let _ = std::fs::remove_file(&bad);
+    let st = s.state();
+    for n in [&st.surface.track_prev, &st.surface.track_next] {
+        assert!(n.as_ref().is_some_and(|n| n.path != bad.display().to_string()));
+    }
+    // One style: nowhere to go.
+    let one = offline("SlowWalker.T552.sty").unwrap();
+    assert_eq!((one.state().surface.track_prev.clone(), one.state().surface.track_next.clone()), (None, None));
+}
+
+/// The clock in the state extrapolates to what the engine reports later, and the LED clock
+/// is the one the pads flash on.
+#[test]
+fn beat_clock_extrapolates() {
+    let Some(s) = offline("SlowWalker.T552.sty") else { return };
+    let ms = |s: &Session| ns_to_ms(s.now());
+    let c = s.state().surface.clock.clone();
+    assert!(!c.running);
+    assert_eq!((c.bar, c.beat, c.phase), (1, 1, 0.0));
+    assert_eq!(c.beats_per_bar, 4.0);
+    keys(&s, true, &[36, 40, 43]);
+    s.advance(300 * MS);
+    let st = s.state();
+    let c = st.surface.clock.clone();
+    assert!(c.running);
+    // `atMs` is when the state last changed (the chord, at 0): time alone changes nothing.
+    assert!(c.at_ms <= ms(&s));
+    assert_eq!((c.bar, c.beat), (st.transport.bar, st.transport.beat));
+    // Predict ahead from a state alone, then check against the engine.
+    for ahead in [2_300 * MS, 5_100 * MS] {
+        let later = ns_to_ms(s.now() + ahead);
+        let want = s.state().surface.clock.at(later);
+        s.advance(ahead);
+        let st = s.state();
+        assert_eq!((want.bar, want.beat), (st.transport.bar, st.transport.beat), "{ahead}");
+        let now = s.state_now().surface.clock;
+        assert_eq!((now.at_ms, now.bar, now.beat), (later, st.transport.bar, st.transport.beat));
+        assert!((now.phase - want.phase).abs() < 1e-6);
+    }
+    // Time passing alone publishes nothing new (within a beat, the transport is the same).
+    let (v, before) = (s.version(), s.state().clone());
+    s.advance(MS);
+    if s.state().transport == before.transport {
+        assert_eq!(s.version(), v);
+    }
+    // The pads' flash clock.
+    let st = s.state();
+    assert!((st.surface.clock.led_beats(ms(&s)) - s.beats()).abs() < 1e-6);
+    // A tempo change re-anchors both clocks; they carry on from where they were.
+    let led = st.surface.clock.led_beats(ms(&s));
+    s.send(AppCmd::TempoUp).unwrap();
+    let c2 = s.state().surface.clock.clone();
+    assert!(c2.tempo > before.surface.clock.tempo);
+    assert!((c2.led_beats(ms(&s)) - led).abs() < 1e-6);
+    let later = ns_to_ms(s.now() + 1_000 * MS);
+    let w = c2.at(later);
+    s.advance(1_000 * MS);
+    let st = s.state();
+    assert_eq!((w.bar, w.beat), (st.transport.bar, st.transport.beat));
+}
+
+/// Physical fader positions sit next to the values; a software master move makes the
+/// master fader wait again (masterWaiting was left stale).
+#[test]
+fn fader_positions_and_master_takeover() {
+    let Some(s) = offline("SlowWalker.T552.sty") else { return };
+    let st = s.state();
+    assert!(st.surface.faders.iter().all(|f| f.position.is_none()));
+    assert_eq!(st.surface.faders.len(), 9);
+    assert_eq!((st.surface.faders[8].set.clone(), st.keyboard_parts[1].fader), (None, None), "no synth: no master");
+    s.midi_in(Port::Pads, &[0xB0, 6, 30]); // fader 2 on Panel: Right 2, far from 100
+    let st = s.state();
+    let f = &st.surface.faders[1];
+    assert_eq!((f.label.as_str(), f.value, f.waiting, f.position), ("RIGHT 2", Some(100), true, Some(30)));
+    assert_eq!(f.set, Some(AppCmd::SetPartVolume { part: 1, volume: 0 }));
+    assert_eq!((st.surface.faders[5].label.as_str(), st.surface.faders[5].set.clone()), ("", None), "fader 6 unused on Panel");
+    assert_eq!(st.keyboard_parts[1].fader, Some(30));
+    assert_eq!(st.mixer.style_parts[1].fader, Some(30), "the same physical fader");
+    assert!(st.keyboard_parts[1].waiting && st.keyboard_parts[1].volume == 100);
+    // The Style page shows the same physical fader with the Style part's level.
+    s.send(AppCmd::SetFaderPage { page: FaderPage::Style }).unwrap();
+    let f = s.state().surface.faders[1].clone();
+    assert_eq!((f.label.as_str(), f.position, f.set), ("RHYTHM 2", Some(30), Some(AppCmd::SetStylePartVolume { part: 1, volume: 0 })));
+    s.send(AppCmd::SetFaderPage { page: FaderPage::Panel }).unwrap();
+
+    // A synth control, as a live session with the synth has.
+    let ctl = Arc::new(SynthControl::new(0));
+    {
+        let mut c = s.inner.lock();
+        c.offline.as_mut().unwrap().input.set_synth(Some(ctl.clone()));
+        c.synth = Some(SynthRef {
+            info: SynthInfo { name: "test".into(), sample_rate: 48000, buffer: None, device: "none".into(), channels: 2 },
+            control: ctl.clone(),
+        });
+    }
+    s.midi_in(Port::Pads, &[0xB0, 13, 100]); // at unity: picks up
+    s.midi_in(Port::Pads, &[0xB0, 13, 90]);
+    let st = s.state();
+    assert_eq!((st.mixer.master, st.surface.faders[8].position, st.mixer.master_waiting), (Some(90), Some(90), false));
+    assert_eq!((st.surface.faders[8].label.as_str(), st.surface.faders[8].value), ("MASTER", Some(90)));
+    s.send(AppCmd::SetMasterVolume { volume: 40 }).unwrap();
+    let st = s.state();
+    assert_eq!((st.mixer.master, st.mixer.master_waiting, st.surface.faders[8].waiting), (Some(40), true, true), "the fader at 90 must come to 40");
+    s.midi_in(Port::Pads, &[0xB0, 13, 80]);
+    assert_eq!(s.state().mixer.master, Some(40), "no jump");
+    s.midi_in(Port::Pads, &[0xB0, 13, 41]);
+    let st = s.state();
+    assert_eq!((st.mixer.master, st.mixer.master_waiting), (Some(41), false));
+    // Set to where the fader already is: it keeps control.
+    s.send(AppCmd::SetMasterVolume { volume: 42 }).unwrap();
+    assert!(!s.state().mixer.master_waiting);
+}
+
+/// Palette-LED mode: each pad carries what the hardware was sent.
+#[test]
+fn palette_leds_are_described() {
+    use crate::launchkey::Anim;
+    let Some(p) = style("SlowWalker.T552.sty") else { return };
+    let s = Session::offline(Options { paths: vec![p], palette_leds: true, ..Options::default() }).unwrap();
+    let st = s.state();
+    assert!(st.pads.palette_leds);
+    let pad = |st: &AppState, n: u8| st.pads.pads.iter().find(|p| p.note == n).unwrap().palette.clone().unwrap();
+    let stop = pad(&st, 119);
+    assert_eq!((stop.mode, stop.colour, stop.level), (Anim::Solid, 7, Level::Dim), "dim red while stopped");
+    let sync = pad(&st, 99);
+    assert_eq!((sync.mode, sync.level), (Anim::Pulse, Level::Bright));
+    keys(&s, true, &[36, 40, 43]);
+    s.send(AppCmd::Main { index: 1 }).unwrap();
+    let b = pad(&s.state(), 113);
+    assert_eq!((b.mode, b.flash_level), (Anim::Flash, Some(Level::Bright)));
+    assert!(st.transport.lamps.iter().all(|p| p.palette.is_some()));
+    let rgb = offline("SlowWalker.T552.sty").unwrap();
+    assert!(rgb.state().pads.pads.iter().all(|p| p.palette.is_none()));
+}
+
+/// A style change while playing, to a style of another resolution (SlowWalker is 960 ticks
+/// per quarter, TickingAway 480): the band keeps the tempo, and the clock stays on it.
+#[test]
+fn style_change_keeps_tempo_across_resolutions() {
+    let Some(p) = style("SlowWalker.T552.sty") else { return };
+    let Some(other) = style("TickingAway.T162.sty") else { return };
+    let s = Session::offline(Options { paths: vec![p], ..Options::default() }).unwrap();
+    keys(&s, true, &[36, 40, 43]);
+    s.advance(1_000 * MS);
+    s.send(AppCmd::LoadStylePath { path: other.display().to_string() }).unwrap();
+    let c = s.state_now().surface.clock;
+    let (t0, tempo) = (ns_to_ms(s.now()), c.tempo);
+    // 5 beats later, less a hair so no beat boundary is at stake.
+    let ahead = (5.0 * 60e3 / tempo - 20.0) as u64 * MS;
+    s.advance(ahead);
+    let st = s.state_now();
+    assert_eq!(st.transport.tempo, tempo);
+    let want = c.at(t0 + ns_to_ms(ahead));
+    assert_eq!((st.transport.bar, st.transport.beat), (want.bar, want.beat), "clock from the switch");
+    assert_eq!((st.transport.bar, st.transport.beat), (2, 1), "5 beats in 4/4 at {tempo}");
+}
+
+/// The hardware Track ◀/▶ LEDs are re-sent when the library gains its second style, as the
+/// mirror shows them.
+#[test]
+fn track_leds_follow_the_library() {
+    let Some(s) = offline("SlowWalker.T552.sty") else { return };
+    let snap = s.inner.lock().snap;
+    let mut leds = Leds::new(PacketSink::new(crate::rt::Target::Null), false);
+    let pnl = Panel::default();
+    leds.update(&snap, &[true; 16], &pnl, false, FaderPage::Panel, false, 0.0);
+    let n = leds.out.sent;
+    leds.update(&snap, &[true; 16], &pnl, false, FaderPage::Panel, false, 0.0);
+    assert_eq!(leds.out.sent, n, "nothing changed, nothing sent");
+    leds.update(&snap, &[true; 16], &pnl, false, FaderPage::Panel, true, 0.0);
+    assert!(leds.out.sent > n, "Track LEDs re-sent");
 }

@@ -113,11 +113,12 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 
 | control | what it does | Genos | key | Launchkey |
 |---|---|---|---|---|
-| **OTS 1** | Recalls the style's first suggested panel setup: voice, on/off, volume and octave for Right 1–3 and Left. Dark if the style has none. | ONE TOUCH SETTING 1 | `Shift+1` | Pad page 3 (OTS/Parts), top row, pad 1 |
-| **OTS 2** | Recalls the style's second suggested panel setup: voice, on/off, volume and octave for Right 1–3 and Left. | ONE TOUCH SETTING 2 | `Shift+2` | Pad page 3 (OTS/Parts), top row, pad 2 |
-| **OTS 3** | Recalls the style's third suggested panel setup: voice, on/off, volume and octave for Right 1–3 and Left. | ONE TOUCH SETTING 3 | `Shift+3` | Pad page 3 (OTS/Parts), top row, pad 3 |
-| **OTS 4** | Recalls the style's fourth suggested panel setup: voice, on/off, volume and octave for Right 1–3 and Left. | ONE TOUCH SETTING 4 | `Shift+4` | Pad page 3 (OTS/Parts), top row, pad 4 |
-| **OTS Link** | When on, Main A–D recall OTS 1–4 automatically, and changing style picks the setting for the Main that's playing. | OTS LINK | `F10` | Pad page 3 (OTS/Parts), top row, pad 5; Shift + Pad Bank ▼ |
+| **OTS 1** | A sound setup for your own hands that the style's author picked to suit it: the voice, on/off, volume and octave of Right 1–3 and Left. Pressing it swaps your keyboard sounds, and the band doesn't change. Dark if the style has none. | ONE TOUCH SETTING 1 | `Shift+1` | Pad page 3 (OTS/Parts), top row, pad 1 |
+| **OTS 2** | The style's second suggested setup for your hands: the voice, on/off, volume and octave of Right 1–3 and Left. Pressing it swaps your keyboard sounds, and the band doesn't change. | ONE TOUCH SETTING 2 | `Shift+2` | Pad page 3 (OTS/Parts), top row, pad 2 |
+| **OTS 3** | The style's third suggested setup for your hands: the voice, on/off, volume and octave of Right 1–3 and Left. Pressing it swaps your keyboard sounds, and the band doesn't change. | ONE TOUCH SETTING 3 | `Shift+3` | Pad page 3 (OTS/Parts), top row, pad 3 |
+| **OTS 4** | The style's fourth suggested setup for your hands: the voice, on/off, volume and octave of Right 1–3 and Left. Pressing it swaps your keyboard sounds, and the band doesn't change. | ONE TOUCH SETTING 4 | `Shift+4` | Pad page 3 (OTS/Parts), top row, pad 4 |
+| **OTS Link** | When on, your hands' sounds follow the band: pressing Main A, B, C or D also recalls OTS 1, 2, 3 or 4. Changing style recalls the setting for the Main that's playing. | OTS LINK | `F10` | Pad page 3 (OTS/Parts), top row, pad 5; Shift + Pad Bank ▼ |
+| **OTS Link timing** | When OTS Link swaps the setting: as soon as you press a Main button, not when the band reaches the new Main at the bar line. The Genos calls this Real Time. | OTS Link Timing: Real Time | — | — |
 
 ## Keyboard parts
 
@@ -135,6 +136,10 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | **Voice +** | Steps the selected part (the lit Edit pad) to the next voice. | Voice select | `0` | Pad page 3 (OTS/Parts), top row, pad 8 |
 | **Octave −** | Shifts this part down an octave (down to −2). OTS recalls set it too. | Voice Setting → Tune → Octave | — | — |
 | **Octave +** | Shifts this part up an octave (up to +2). OTS recalls set it too. | Voice Setting → Tune → Octave | — | — |
+| **Voice** | Picks this part's voice. Under Manual Bass, Left plays the style's Bass voice instead, and this is the voice it goes back to. | Voice select (VOICE buttons) | — | Pad page 3 (OTS/Parts): the Edit pads (bottom row, pads 5–8) pick the part, Voice −/+ (top row, pads 7–8) step its voice |
+| **Layer** | The Right parts that are on all sound together on every key above the split: that's a layer. Turn on Right 1 and Right 2 to stack, for example, piano and strings. | PART ON/OFF (Right 1–3 layered) | `5` `6` `7` | Panel fader page: buttons under faders 1–3 |
+| **Left hand** | Left plays the keys at and below the split point, with its own voice. Under Manual Bass it plays the style's Bass voice there instead, and the band's own bass goes quiet. | Split Point (Left) | — | — |
+| **As written for** | The voice the style's author wrote this band part for, and its MIDI channel on the yahaha port. Load a matching instrument on that channel in Ableton to hear the style as intended; ≈ marks the nearest General MIDI voice to a Yamaha one. | Style parts (Mixer › Style) | — | — |
 
 ## Mixer
 

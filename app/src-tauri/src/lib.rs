@@ -63,8 +63,16 @@ fn send(cmd: Value, backend: State<'_, Shared>, app: tauri::AppHandle) -> Result
 #[tauri::command]
 fn state(backend: State<'_, Shared>) -> Value {
     match &**backend {
-        Backend::Live(s) => serde_json::to_value(&*s.state()).unwrap_or(Value::Null),
-        Backend::Mock(m) => serde_json::to_value(&m.lock().unwrap().state).unwrap_or(Value::Null),
+        // With its clock read now (docs/app-api.md, `surface.clock`).
+        Backend::Live(s) => serde_json::to_value(s.state_now()).unwrap_or(Value::Null),
+        Backend::Mock(m) => {
+            let mut v = serde_json::to_value(&m.lock().unwrap().state).unwrap_or(Value::Null);
+            // The mock has no surface of its own: the UI derives it (lib/surface.ts).
+            if let Some(o) = v.as_object_mut() {
+                o.remove("surface");
+            }
+            v
+        }
     }
 }
 

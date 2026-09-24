@@ -638,6 +638,8 @@ pub fn screen_html(style: &Path, out: &Path) -> Result<()> {
         stop_acmp: false,
         transpose: Transpose::new(2, 0),
         played: Some(yahaha::theory::Chord { root: 7, ty: 10, bass: Some(5) }),
+        anchor_ns: 0,
+        anchor_beats: 6.0,
     });
     // What a live session with the synth and a Launchkey would add.
     let mut st = (*session.state()).clone();

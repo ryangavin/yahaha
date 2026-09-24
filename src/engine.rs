@@ -602,6 +602,11 @@ pub struct Snapshot {
     pub transpose: Transpose,
     /// The chord as fingered, before Keyboard transpose (`chord` is what the style follows).
     pub played: Option<Chord>,
+    /// The playing position, as an anchor to extrapolate from: at `anchor_ns` the section
+    /// had played `anchor_beats` quarter notes; it moves on at `bpm`. Changes only when the
+    /// tempo, the section or its loop does (0, 0 when stopped).
+    pub anchor_ns: u64,
+    pub anchor_beats: f64,
 }
 
 /// Genos TRANSPOSE targets that matter for live play (RM p.42). Keyboard shifts the keys
@@ -897,10 +902,10 @@ impl Engine {
             let v = self.style.mix[p];
             self.set_mixer(p, v);
         }
-        if !self.running {
-            let bpm = self.style.bpm;
-            self.set_bpm_internal(bpm, now);
-        }
+        // Stopped, the new style's tempo; running, the same tempo re-timed to the new
+        // style's resolution (ticks per quarter differ between styles: 480, 960, 1920).
+        let bpm = if self.running { self.bpm } else { self.style.bpm };
+        self.set_bpm_internal(bpm, now);
         self.send_init(sink);
         if self.running {
             // Continue from the next bar of the equivalent section.
@@ -1201,6 +1206,8 @@ impl Engine {
     }
 
     pub fn snapshot(&self, now: u64) -> Snapshot {
+        let (anchor_ns, anchor_beats) =
+            if self.running { (self.anchor_ns, (self.anchor_tick - self.sec_start) / self.style.ppq as f64) } else { (0, 0.0) };
         let (bar, beat) = if self.running {
             let pos = (self.tick_at(now) - self.sec_start).max(0.0);
             let tpb = self.style.tpb as f64;
@@ -1227,6 +1234,8 @@ impl Engine {
             stop_acmp: self.stop_acmp,
             transpose: self.transpose,
             played: self.played,
+            anchor_ns,
+            anchor_beats,
         }
     }
 
