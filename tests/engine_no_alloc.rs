@@ -5,7 +5,7 @@
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
-use yahaha::engine::{Button, Engine, Prepared};
+use yahaha::engine::{Button, Engine, Prepared, StyleControls};
 use yahaha::live::{self, Audition, Cmd, EngineLoop, FxConfig, FxKey, FxMode, Out, Shared};
 use yahaha::rt::{PacketSink, Target};
 use yahaha::sff::Style;
@@ -71,6 +71,13 @@ fn preview_and_next_bar_style_change_do_not_allocate() {
         l.step(now);
     }
     ch.style_tx.push(b).ok().unwrap();
+    // What a Registration recall sends the engine: tempo, Style part levels and mutes.
+    ch.ui_tx.push(Cmd::Button(Button::SetTempo(96))).ok().unwrap();
+    ch.ui_tx.push(Cmd::StyleVolume(3, 64)).ok().unwrap();
+    ch.ui_tx.push(Cmd::Button(Button::TogglePart(5))).ok().unwrap();
+    let controls = StyleControls { main: Some(1), intro: None, sync_start: None, sync_stop: Some(true), stop_acmp: Some(true), parts: Some(0b1011_1111), volumes: Some([90, 80, 100, 64, 100, 100, 100, 70]), player_set: Some(0b1000_0001) };
+    // Part 4 (moved above) goes back to the style: the player_set mask leaves it out.
+    ch.ui_tx.push(Cmd::StyleControls(controls)).ok().unwrap();
     while now < t0 + 2 * bar {
         now = l.next_deadline().unwrap_or(now + 5_000_000).max(now + 1);
         l.step(now);
@@ -92,6 +99,7 @@ fn preview_and_next_bar_style_change_do_not_allocate() {
     let snaps: Vec<_> = std::iter::from_fn(|| ch.snap_rx.pop().ok()).collect();
     assert!(snaps.iter().any(|s| s.audition.is_some_and(|a| a.bar == 4)), "the preview played its 4 bars");
     assert!(snaps.iter().any(|s| s.running && s.style_pending), "the style change waited for the bar line");
+    assert!(snaps.iter().any(|s| s.running && (s.bpm - 96.0).abs() < 1e-9), "the recalled tempo took");
     // The preview and the old style came back to be freed off it.
     assert!(ch.old_audition_rx.pop().is_ok());
     assert!(ch.old_rx.pop().is_ok());

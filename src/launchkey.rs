@@ -9,11 +9,14 @@
 //!                  ManBass  StopAcmp  Split -    Split +   | Kbd tr -  Kbd tr +  Tr reset    —
 //!   3 OTS/Parts    OTS 1    OTS 2     OTS 3      OTS 4     | OTS Link  —         Voice -/+
 //!                  Right 1  Right 2   Right 3    Left      | Select R1 Select R2 Select R3   Select Left
+//!   4 Registration Regist 1 Regist 2  Regist 3   Regist 4  | Regist 5  Regist 6  Regist 7    Regist 8
+//!                  Regist 9 Regist 10 Bank -     Bank +    | Memory    Freeze    Regist -    Regist +
 //!
 //! Buttons (CC in DAW mode; numbers from the MK4 Programmer's Reference Guide v3.0, p.9,
 //! Figure 3): 115 Play = Start/Stop, 116 Stop, 104 (Scene Launch >) / 105 (Function) =
 //! tempo +/-, 106/107 (Pad Bank ▲/▼) = page up/down, Shift + ▲/▼ = Left on/off / OTS Link,
-//! 103/102 (< Track / Track >) = previous/next style, 63 = Shift.
+//! 103/102 (< Track / Track >) = previous/next style (Shift: previous/next Playlist record),
+//! 63 = Shift.
 //!
 //! Faders have two pages, like the Genos Mixer's Panel and Style tabs; the button under
 //! the master fader switches them (see `parts`). Panel: faders 1-4 = Right 1, Right 2,
@@ -88,16 +91,19 @@ pub enum Page {
     Sections,
     ChordSetup,
     OtsParts,
+    /// Registration Memory buttons 1-10, banks, Memory, Freeze, the Registration Sequence.
+    Registration,
 }
 
 impl Page {
-    pub const ALL: [Page; 3] = [Page::Sections, Page::ChordSetup, Page::OtsParts];
+    pub const ALL: [Page; 4] = [Page::Sections, Page::ChordSetup, Page::OtsParts, Page::Registration];
 
     pub fn name(self) -> &'static str {
         match self {
             Page::Sections => "Sections",
             Page::ChordSetup => "Chord/Setup",
             Page::OtsParts => "OTS/Parts",
+            Page::Registration => "Registration",
         }
     }
 
@@ -127,6 +133,7 @@ impl Page {
             Page::Sections => (C_TAP, WHITE, DIM_WHITE),
             Page::ChordSetup => (C_PAGE_CHORD, CYAN, DIM_CYAN),
             Page::OtsParts => (C_PAGE_OTS, PINK, DIM_PINK),
+            Page::Registration => (C_PAGE_REGIST, ORANGE, DIM_ORANGE),
         }
     }
 }
@@ -164,6 +171,19 @@ pub enum Action {
     ToggleFaderPage,
     /// Previous/next style (`←` `→`).
     Style(i8),
+    /// A Registration Memory button 1-10 (0-based; `Q`-`P` with Shift): recall, or
+    /// memorize while Memory is armed.
+    Regist(u8),
+    /// The MEMORY button (`F5`): the next Regist button memorizes.
+    RegistMemory,
+    /// FREEZE on/off (`F6`).
+    RegistFreeze,
+    /// REGIST BANK -/+ (`F11` `F12`).
+    RegistBank(i8),
+    /// Regist -/+: the Registration Sequence (`F7` `F8`).
+    RegistSeq(i8),
+    /// Previous/next Playlist record (`<` `>`; Shift + Track < / >).
+    Playlist(i8),
     /// A pedal's assignable function that the control side runs (`controllers.rs`).
     Assign(crate::controllers::Function),
     /// A Hold A / Hold B pedal sets a control-side switch on or off (`controllers::Fire::set`).
@@ -192,6 +212,14 @@ pub fn pad_action(page: Page, note: u8) -> Option<Action> {
         (Page::OtsParts, 103) => Action::PartVoice(1),
         (Page::OtsParts, 112..=115) => Action::PartOnOff(note - 112),
         (Page::OtsParts, 116..=119) => Action::SelectPart(note - 116),
+        (Page::Registration, 96..=103) => Action::Regist(note - 96),
+        (Page::Registration, 112..=113) => Action::Regist(note - 112 + 8),
+        (Page::Registration, 114) => Action::RegistBank(-1),
+        (Page::Registration, 115) => Action::RegistBank(1),
+        (Page::Registration, 116) => Action::RegistMemory,
+        (Page::Registration, 117) => Action::RegistFreeze,
+        (Page::Registration, 118) => Action::RegistSeq(-1),
+        (Page::Registration, 119) => Action::RegistSeq(1),
         _ => return None,
     })
 }
@@ -213,6 +241,9 @@ pub fn cc_control(cc: u8, shift: bool) -> Option<Control> {
         STOP_CC => act(Action::Button(Button::Stop)),
         SCENE_CC => act(Action::Button(Button::TempoUp)),
         FUNCTION_CC => act(Action::Button(Button::TempoDown)),
+        // Shift + Track < / >: the Playlist, a set list's previous/next song.
+        TRACK_LEFT_CC if shift => act(Action::Playlist(-1)),
+        TRACK_RIGHT_CC if shift => act(Action::Playlist(1)),
         TRACK_LEFT_CC => act(Action::Style(-1)),
         TRACK_RIGHT_CC => act(Action::Style(1)),
         // Shift + Pad Bank ▲/▼: the toggles these buttons had before pages (also on page 3).
@@ -304,6 +335,7 @@ pub fn palette_colour(c: u8) -> ((u8, u8, u8), Level) {
         RED => ((127, 0, 0), true),
         DIM_RED => ((127, 0, 0), false),
         ORANGE => ((127, 60, 0), true),
+        DIM_ORANGE => ((127, 60, 0), false),
         YELLOW => ((127, 127, 0), true),
         DIM_YELLOW => ((127, 127, 0), false),
         GREEN => ((0, 127, 0), true),
@@ -338,6 +370,24 @@ pub struct Panel {
     /// Keyboard parts that are on (bit = `parts::RIGHT1`..`LEFT`), and the selected one.
     pub parts_on: u8,
     pub selected: u8,
+    /// Registration Memory, for page 4.
+    pub regist: RegistPanel,
+}
+
+/// Registration Memory as page 4 shows it.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub struct RegistPanel {
+    /// Buttons holding a registration (bit 0 = button 1).
+    pub stored: u16,
+    /// The button last recalled or memorized, 1-based (0 = none).
+    pub selected: u8,
+    /// MEMORY armed.
+    pub memory: bool,
+    pub freeze: bool,
+    /// The Registration Sequence is on and has steps.
+    pub sequence: bool,
+    /// There are bank files to step to.
+    pub banks: bool,
 }
 
 impl Default for Panel {
@@ -353,6 +403,7 @@ impl Default for Panel {
             harmony_arp: false,
             parts_on: 1 << parts::RIGHT1,
             selected: parts::RIGHT1 as u8,
+            regist: RegistPanel::default(),
         }
     }
 }
@@ -364,6 +415,7 @@ const DIM_WHITE: u8 = 1;
 const RED: u8 = 5;
 const DIM_RED: u8 = 7;
 const ORANGE: u8 = 9;
+const DIM_ORANGE: u8 = 11;
 const YELLOW: u8 = 13;
 const DIM_YELLOW: u8 = 15;
 const GREEN: u8 = 21;
@@ -388,6 +440,9 @@ pub enum Led {
 pub fn pad_leds(s: &Snapshot, has: &[bool], panel: &Panel) -> [(u8, Led); 16] {
     if panel.page == Page::Sections {
         return section_leds(s, has);
+    }
+    if panel.page == Page::Registration {
+        return regist_leds(&panel.regist);
     }
     let (_, bright, dim) = panel.page.colour();
     looks(s, has, panel).map(|(note, look)| {
@@ -459,6 +514,46 @@ fn section_leds(s: &Snapshot, has: &[bool]) -> [(u8, Led); 16] {
     ]
 }
 
+/// Page 4 in palette mode: the Genos lamp colours on the buttons (red = selected, blue =
+/// stored, off = empty; flashing red while Memory is armed), orange on the rest.
+fn regist_leds(r: &RegistPanel) -> [(u8, Led); 16] {
+    let button = |i: u8| -> Led {
+        let stored = r.stored & (1 << i) != 0;
+        if r.memory {
+            Led::Flash(DIM_RED, RED)
+        } else if r.selected == i + 1 && stored {
+            Led::Solid(RED)
+        } else if stored {
+            Led::Solid(BLUE)
+        } else {
+            Led::Solid(OFF)
+        }
+    };
+    let tog = |avail: bool, on: bool| Led::Solid(match (avail, on) {
+        (false, _) => OFF,
+        (true, true) => ORANGE,
+        (true, false) => DIM_ORANGE,
+    });
+    [
+        (96, button(0)),
+        (97, button(1)),
+        (98, button(2)),
+        (99, button(3)),
+        (100, button(4)),
+        (101, button(5)),
+        (102, button(6)),
+        (103, button(7)),
+        (112, button(8)),
+        (113, button(9)),
+        (114, tog(r.banks, false)),
+        (115, tog(r.banks, false)),
+        (116, if r.memory { Led::Flash(DIM_RED, RED) } else { tog(true, false) }),
+        (117, tog(true, r.freeze)),
+        (118, tog(r.sequence, false)),
+        (119, tog(r.sequence, false)),
+    ]
+}
+
 /// MIDI messages that set one pad's LED.
 pub fn led_msgs(note: u8, led: Led, out: &mut Vec<[u8; 3]>) {
     match led {
@@ -518,6 +613,11 @@ pub const C_IDLE: (u8, u8, u8) = (127, 0, 0);
 /// Page identities: every pad on page 2 is cyan, every pad on page 3 magenta.
 pub const C_PAGE_CHORD: (u8, u8, u8) = (0, 100, 127);
 pub const C_PAGE_OTS: (u8, u8, u8) = (127, 0, 70);
+/// Page 4: orange, with the Registration buttons in the Genos lamp colours.
+pub const C_PAGE_REGIST: (u8, u8, u8) = (127, 60, 0);
+/// Registration lamps: red = selected, blue = stored (OM p.97).
+pub const C_REGIST_SELECTED: (u8, u8, u8) = (127, 0, 0);
+pub const C_REGIST_STORED: (u8, u8, u8) = (0, 40, 127);
 
 /// Brightness of "dim" relative to full.
 const DIM: f32 = 0.18;
@@ -528,6 +628,7 @@ pub fn looks(s: &Snapshot, has: &[bool], panel: &Panel) -> [(u8, Look); 16] {
         Page::Sections => section_looks(s, has),
         Page::ChordSetup => chord_looks(s, panel),
         Page::OtsParts => ots_looks(panel),
+        Page::Registration => regist_looks(&panel.regist),
     }
 }
 
@@ -653,6 +754,51 @@ fn ots_looks(p: &Panel) -> [(u8, Look); 16] {
     ]
 }
 
+const REGIST_LABELS: [&str; 10] = ["REGIST 1", "REGIST 2", "REGIST 3", "REGIST 4", "REGIST 5", "REGIST 6", "REGIST 7", "REGIST 8", "REGIST 9", "REGIST 10"];
+const REGIST_KEYS: [&str; 10] = ["Q", "W", "E", "R", "T", "Y", "U", "I", "O", "P"];
+
+fn regist_looks(r: &RegistPanel) -> [(u8, Look); 16] {
+    let pl = |label, key, available, on| page_look(Page::Registration, label, key, available, on);
+    let button = |i: u8| -> Look {
+        let (label, key) = (REGIST_LABELS[i as usize], REGIST_KEYS[i as usize]);
+        let stored = r.stored & (1 << i) != 0;
+        let look = |rgb, level, anim| Look { label, key, rgb, level, anim };
+        if r.memory {
+            // Armed: every button waits to be memorized into.
+            look(C_REGIST_SELECTED, Level::Bright, Anim::Flash)
+        } else if stored && r.selected == i + 1 {
+            look(C_REGIST_SELECTED, Level::Bright, Anim::Solid)
+        } else if stored {
+            look(C_REGIST_STORED, Level::Bright, Anim::Solid)
+        } else {
+            look(C_REGIST_STORED, Level::Off, Anim::Solid)
+        }
+    };
+    let memory = if r.memory {
+        Look { label: "MEMORY", key: "F5", rgb: C_REGIST_SELECTED, level: Level::Bright, anim: Anim::Flash }
+    } else {
+        pl("MEMORY", "F5", true, false)
+    };
+    [
+        (96, button(0)),
+        (97, button(1)),
+        (98, button(2)),
+        (99, button(3)),
+        (100, button(4)),
+        (101, button(5)),
+        (102, button(6)),
+        (103, button(7)),
+        (112, button(8)),
+        (113, button(9)),
+        (114, pl("BANK -", "F11", r.banks, false)),
+        (115, pl("BANK +", "F12", r.banks, false)),
+        (116, memory),
+        (117, pl("FREEZE", "F6", true, r.freeze)),
+        (118, pl("REGIST -", "F7", r.sequence, false)),
+        (119, pl("REGIST +", "F8", r.sequence, false)),
+    ]
+}
+
 /// Colour at a point in time. `beats` is a free-running beat clock (fractional).
 pub fn rgb_at(look: &Look, beats: f64) -> (u8, u8, u8) {
     lit(look.rgb, look.level, look.anim, beats)
@@ -695,7 +841,7 @@ mod tests {
     fn snap() -> Snapshot {
         Snapshot {
             running: false, sync_armed: false, sync_stop: false, auto_fill: false, cur: None, queued: None,
-            pending_intro: None, main: 0, bar: 0, beat: 0, chord: None, bpm: 120.0, parts: 0xFF, volumes: [100; 8], pickup: 0,
+            pending_intro: None, main: 0, bar: 0, beat: 0, chord: None, bpm: 120.0, parts: 0xFF, volumes: [100; 8], user_set: 0, pickup: 0,
             stop_acmp: false, transpose: Transpose::default(), played: None, anchor_ns: 0, anchor_beats: 0.0, style_tag: 0,
             style_pending: false, section_bars: 0, audition: None, looper: Default::default(), style_solo: None,
             multipad: Default::default(),
@@ -706,7 +852,7 @@ mod tests {
     /// channel-1 half of the messages.
     #[test]
     fn palette_colours_and_button_leds() {
-        for c in [WHITE, DIM_WHITE, RED, DIM_RED, ORANGE, YELLOW, DIM_YELLOW, GREEN, DIM_GREEN, CYAN, DIM_CYAN, BLUE, DIM_BLUE, PURPLE, DIM_PURPLE, PINK, DIM_PINK] {
+        for c in [WHITE, DIM_WHITE, RED, DIM_RED, ORANGE, DIM_ORANGE, YELLOW, DIM_YELLOW, GREEN, DIM_GREEN, CYAN, DIM_CYAN, BLUE, DIM_BLUE, PURPLE, DIM_PURPLE, PINK, DIM_PINK] {
             assert_ne!(palette_colour(c).1, Level::Off, "{c}");
         }
         assert_eq!(palette_colour(OFF).1, Level::Off);
@@ -766,6 +912,46 @@ mod tests {
     }
 
     #[test]
+    fn page_4_registration() {
+        let p = Page::Registration;
+        for n in 0..8u8 {
+            assert_eq!(pad_action(p, 96 + n), Some(Action::Regist(n)));
+        }
+        assert_eq!(pad_action(p, 112), Some(Action::Regist(8)));
+        assert_eq!(pad_action(p, 113), Some(Action::Regist(9)));
+        assert_eq!(pad_action(p, 114), Some(Action::RegistBank(-1)));
+        assert_eq!(pad_action(p, 115), Some(Action::RegistBank(1)));
+        assert_eq!(pad_action(p, 116), Some(Action::RegistMemory));
+        assert_eq!(pad_action(p, 117), Some(Action::RegistFreeze));
+        assert_eq!(pad_action(p, 118), Some(Action::RegistSeq(-1)));
+        assert_eq!(pad_action(p, 119), Some(Action::RegistSeq(1)));
+        // Shift + Track < / > step the Playlist.
+        assert_eq!(cc_control(TRACK_LEFT_CC, true), Some(Control::Act(Action::Playlist(-1))));
+        assert_eq!(cc_control(TRACK_RIGHT_CC, true), Some(Control::Act(Action::Playlist(1))));
+    }
+
+    /// Page 4 lamps as on the Genos: red = selected, blue = stored, off = empty; all
+    /// flashing while Memory is armed.
+    #[test]
+    fn page_4_lamps() {
+        let regist = RegistPanel { stored: 0b101, selected: 3, memory: false, freeze: true, sequence: false, banks: true };
+        let panel = Panel { page: Page::Registration, regist, ..Panel::default() };
+        let l = looks(&snap(), &[true; 32], &panel);
+        assert_eq!((l[0].1.rgb, l[0].1.level), (C_REGIST_STORED, Level::Bright));
+        assert_eq!(l[1].1.level, Level::Off);
+        assert_eq!((l[2].1.rgb, l[2].1.level), (C_REGIST_SELECTED, Level::Bright));
+        assert_eq!(l[13].1.level, Level::Bright); // Freeze on
+        assert_eq!(l[14].1.level, Level::Off); // no sequence
+        let leds = pad_leds(&snap(), &[true; 32], &panel);
+        assert_eq!(leds[0].1, Led::Solid(BLUE));
+        assert_eq!(leds[1].1, Led::Solid(OFF));
+        assert_eq!(leds[2].1, Led::Solid(RED));
+        let armed = Panel { regist: RegistPanel { memory: true, ..regist }, ..panel };
+        assert!(looks(&snap(), &[true; 32], &armed)[..10].iter().all(|(_, l)| l.anim == Anim::Flash));
+        assert_eq!(pad_leds(&snap(), &[true; 32], &armed)[12].1, Led::Flash(DIM_RED, RED));
+    }
+
+    #[test]
     fn buttons_and_page_switching() {
         assert_eq!(cc_control(103, false), Some(Control::Act(Action::Style(-1))));
         assert_eq!(cc_control(102, false), Some(Control::Act(Action::Style(1))));
@@ -785,14 +971,15 @@ mod tests {
         assert_eq!(Page::Sections.step(-1), Page::Sections);
         assert_eq!(Page::Sections.step(1), Page::ChordSetup);
         assert_eq!(Page::ChordSetup.step(1), Page::OtsParts);
-        assert_eq!(Page::OtsParts.step(1), Page::OtsParts);
+        assert_eq!(Page::OtsParts.step(1), Page::Registration);
+        assert_eq!(Page::Registration.step(1), Page::Registration);
         assert_eq!(Page::OtsParts.step(-1), Page::ChordSetup);
-        assert_eq!(Page::OtsParts.cycle(1), Page::Sections);
-        assert_eq!(Page::Sections.cycle(-1), Page::OtsParts);
+        assert_eq!(Page::Registration.cycle(1), Page::Sections);
+        assert_eq!(Page::Sections.cycle(-1), Page::Registration);
         for p in Page::ALL {
             assert_eq!(Page::from_u8(p.to_u8()), p);
         }
-        assert_eq!(Page::from_u8(200), Page::OtsParts);
+        assert_eq!(Page::from_u8(200), Page::Registration);
     }
 
     /// Every page lights all 16 pads in the same order, so the LED cache keyed by index
@@ -910,7 +1097,10 @@ mod tests {
         assert!(out.contains(&[0xB0, TRACK_LEFT_CC, OFF]));
         out.clear();
         nav_button_msgs(Page::OtsParts, true, &mut out);
-        assert!(out.contains(&[0xB0, PAD_UP_CC, PINK]) && out.contains(&[0xB0, PAD_DOWN_CC, OFF]));
+        assert!(out.contains(&[0xB0, PAD_UP_CC, PINK]) && out.contains(&[0xB0, PAD_DOWN_CC, PINK]));
+        out.clear();
+        nav_button_msgs(Page::Registration, true, &mut out);
+        assert!(out.contains(&[0xB0, PAD_UP_CC, ORANGE]) && out.contains(&[0xB0, PAD_DOWN_CC, OFF]));
         out.clear();
         buttons_off_msgs(&mut out);
         for cc in [PAD_UP_CC, PAD_DOWN_CC, TRACK_LEFT_CC, TRACK_RIGHT_CC, 37, 45] {

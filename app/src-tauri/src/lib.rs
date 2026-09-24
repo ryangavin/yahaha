@@ -21,6 +21,7 @@
 //! On exit the engine is stopped, which puts the Launchkey back in standalone mode.
 
 pub mod mock;
+mod mock_regist;
 mod mock_looper;
 
 use std::path::{Path, PathBuf};
@@ -160,7 +161,7 @@ fn backend() -> Backend {
         ))));
     }
     let sf2 = std::env::var_os("YAHAHA_SF2").map(PathBuf::from).or_else(|| first_sf2(&repo_root().join("soundfonts")));
-    match yahaha::Session::start(yahaha::Options { paths, sf2, ..yahaha::Options::default() }) {
+    match yahaha::Session::start(yahaha::Options { paths, sf2, data_dir: yahaha::session::default_data_dir(), ..yahaha::Options::default() }) {
         Ok(s) => Backend::Live(s),
         Err(e) => {
             eprintln!("yahaha: the engine didn't start ({e:#}); running the mock session");

@@ -28,7 +28,9 @@ mod multipad;
 mod ots;
 mod pads;
 mod parts;
+mod playlist;
 mod preview;
+mod registration;
 mod settings;
 mod surface;
 mod system;
@@ -46,7 +48,9 @@ pub use multipad::*;
 pub use ots::*;
 pub use pads::*;
 pub use parts::*;
+pub use playlist::*;
 pub use preview::*;
+pub use registration::*;
 pub use settings::*;
 pub use surface::*;
 pub use system::*;
@@ -125,6 +129,10 @@ app_cmd! {
     Settings(SettingsCmd),
     /// Panic, the message line.
     System(SystemCmd),
+    /// Registration Memory: buttons, banks, Memorize, Freeze, Registration Sequence.
+    Registration(RegistrationCmd),
+    /// The Playlist.
+    Playlist(PlaylistCmd),
     /// Chord Looper: record, loop, memories.
     Looper(LooperCmd),
     /// Metronome on/off, volume, bell.
@@ -190,6 +198,12 @@ impl From<Action> for AppCmd {
             Action::PartVoice(d) => PartsCmd::StepVoice { delta: d }.into(),
             Action::ToggleFaderPage => MixerCmd::ToggleFaderPage.into(),
             Action::Style(d) => LibraryCmd::StepStyle { delta: d }.into(),
+            Action::Regist(i) => RegistrationCmd::PressRegist { index: i }.into(),
+            Action::RegistMemory => RegistrationCmd::ToggleRegistMemory.into(),
+            Action::RegistFreeze => RegistrationCmd::ToggleFreeze.into(),
+            Action::RegistBank(d) => RegistrationCmd::StepRegistBank { delta: d }.into(),
+            Action::RegistSeq(d) => RegistrationCmd::StepRegistSequence { delta: d }.into(),
+            Action::Playlist(d) => PlaylistCmd::StepPlaylist { delta: d }.into(),
             Action::Assign(f) => ControllersCmd::TriggerFunction { function: f }.into(),
             Action::AssignSet(f, on) => function_set(f, on).unwrap_or(ControllersCmd::TriggerFunction { function: f }.into()),
             Action::ToggleHarmonyArp => HarmonyArpCmd::ToggleHarmonyArp.into(),
@@ -265,6 +279,10 @@ pub struct AppState {
     pub preview: PreviewState,
     /// The keys held and the chord, for the app's keyboard strip.
     pub keyboard: KeyboardState,
+    /// Registration Memory: the bank, its ten buttons, Freeze, the Registration Sequence.
+    pub registration: RegistrationState,
+    /// The Playlist.
+    pub playlist: PlaylistState,
     /// Multi Pads: the bank, the four pads, Synchro Stop, the bank files.
     pub multi_pad: MultiPadState,
     /// Pedals, wheels, their parts and the pedals' assignable functions.

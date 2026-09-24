@@ -108,6 +108,9 @@ pub fn function_run(f: Function, fingering: crate::fingering::Fingering, ots_cou
             }
             // RM p.144: "Same as the TRANSPOSE [+]/[−] buttons", which transpose the overall
             // pitch (OM p.61): Master transpose.
+            // The REGIST BANK [+]/[−] buttons (RM p.144).
+            Function::RegistBankNext => super::RegistrationCmd::StepRegistBank { delta: 1 }.into(),
+            Function::RegistBankPrev => super::RegistrationCmd::StepRegistBank { delta: -1 }.into(),
             Function::TransposeUp => super::ChordCmd::StepTranspose { keyboard: 0, master: 1 }.into(),
             Function::TransposeDown => super::ChordCmd::StepTranspose { keyboard: 0, master: -1 }.into(),
             Function::Right1OnOff => super::PartsCmd::TogglePart { part: parts::RIGHT1 as u8 }.into(),

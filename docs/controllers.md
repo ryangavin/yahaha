@@ -30,7 +30,7 @@ an expression pedal), `available`.
 | Voice | Sustain, Sostenuto, Soft (switch); Modulation, Pitch Bend (continuous); Kbd Harmony/Arpeggio On/Off, Arpeggio Hold (switch, RM p.141) |
 | Style | Start/Stop, Sync Start, Sync Stop, Intro 1-3, Main A-D, Fill Down, Fill Self, Fill Break, Fill Up, Ending 1-3, Auto Fill, Stop Acmp, Fingered/Fingered On Bass |
 | OTS | OTS Link, OTS 1-4, OTS +, OTS − |
-| Registration | Registration Bank +, Registration Bank − (the REGIST BANK [+]/[−] buttons; not available yet: yahaha has no Registration Memory, and a pedal can hold them and says so when pressed). Registration Sequence +/− is not pedal-assignable on the Genos (a pedal drives it through Pedal Control on the Registration Sequence display), so it is not in the table. |
+| Registration | Registration Bank +, Registration Bank − (the REGIST BANK [+]/[−] buttons: they load the next or previous bank file, see docs/registration.md). Registration Sequence +/− is not pedal-assignable on the Genos (a pedal drives it through Pedal Control on the Registration Sequence display), so it is not in the table. |
 | Overall | Tempo +, Tempo −, Tap Tempo, Transpose +, Transpose − (Master transpose, as the TRANSPOSE buttons), Right 1-3 and Left On/Off |
 
 Two rows are yahaha's, not the Genos's:
@@ -123,7 +123,6 @@ bend stuck until that controller moved again.
 - **Pitch Bend Range defaults to 2** semitones (GM and the Genos default).
 - **Fill Up at Main D / Fill Down at Main A** play the fill of the Main at the end and stay
   there (the Genos has no Main to go to); stopped, Fill Up/Down select the next Main.
-- **Registration Bank +/−** are in the table but unavailable until Registration Memory exists.
 - **Kbd Harmony/Arpeggio On/Off and Arpeggio Hold** (RM p.141) are switches the control
   side keeps (`harmonyArp.on`, `harmonyArp.arp.pedalHold`: the pedal function, apart from
   the Hold setting `harmonyArp.arp.hold`; docs/arpeggio.md), so the pedal asks for them: a Toggle

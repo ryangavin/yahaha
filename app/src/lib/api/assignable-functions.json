@@ -228,14 +228,14 @@
     "name": "Registration Bank +",
     "category": "registration",
     "kind": "trigger",
-    "available": false
+    "available": true
   },
   {
     "id": "registBankPrev",
     "name": "Registration Bank −",
     "category": "registration",
     "kind": "trigger",
-    "available": false
+    "available": true
   },
   {
     "id": "tempoUp",

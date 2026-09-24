@@ -16,10 +16,12 @@ const DIM_BLUE = 47
 const PINK = 57
 const PURPLE = 53
 const DIM_PURPLE = 55
+const ORANGE = 9
 const PALETTE: Record<number, [Rgb, Level]> = {
   [WHITE]: [[127, 127, 127], 'bright'],
   [CYAN]: [[0, 100, 127], 'bright'],
   [PINK]: [[127, 0, 70], 'bright'],
+  [ORANGE]: [[127, 60, 0], 'bright'],
   [GREEN]: [[0, 127, 0], 'bright'],
   [DIM_GREEN]: [[0, 127, 0], 'dim'],
   [BLUE]: [[0, 0, 127], 'bright'],
@@ -27,7 +29,7 @@ const PALETTE: Record<number, [Rgb, Level]> = {
   [PURPLE]: [[90, 0, 127], 'bright'],
   [DIM_PURPLE]: [[90, 0, 127], 'dim'],
 }
-const PAGE_COLOUR = [WHITE, CYAN, PINK]
+const PAGE_COLOUR = [WHITE, CYAN, PINK, ORANGE]
 
 /** The Panel-page fader button (0-based) that is the HARMONY/ARPEGGIO switch (src/launchkey.rs). */
 const HARM_ARP_FADER_BTN = 4
@@ -60,6 +62,8 @@ export interface MockHardware {
 export function mockSurface(s: AppState, lib: LibraryList, hw: MockHardware): SurfaceState {
   const page = PAD_PAGES.findIndex((p) => p.id === s.pads.page)
   const styles = lib.entries.filter((e) => e.status !== 'error').length > 1
+  // Shift + Track: the Playlist's previous/next record, when it has any.
+  const songs = s.playlist.records.length > 0
   const style = s.mixer.faderPage === 'style'
   const pageColour = PAGE_COLOUR[page]
 
@@ -84,8 +88,10 @@ export function mockSurface(s: AppState, lib: LibraryList, hw: MockHardware): Su
   const controls: SurfaceControl[] = [
     control('padBankUp', 106, 'PAGE ▲', toPage(-1), page > 0 ? pageColour : OFF, { label: 'LEFT', action: { type: 'togglePart', part: 3 } }),
     control('padBankDown', 107, 'PAGE ▼', toPage(1), page < PAD_PAGES.length - 1 ? pageColour : OFF, { label: 'OTS LINK', action: { type: 'toggleOtsLink' } }),
-    control('trackPrev', 103, '◀ STYLE', styles ? { type: 'stepStyle', delta: -1 } : null, styles ? WHITE : OFF),
-    control('trackNext', 102, 'STYLE ▶', styles ? { type: 'stepStyle', delta: 1 } : null, styles ? WHITE : OFF),
+    control('trackPrev', 103, '◀ STYLE', styles ? { type: 'stepStyle', delta: -1 } : null, styles ? WHITE : OFF,
+      { label: '◀ SONG', action: songs ? { type: 'stepPlaylist', delta: -1 } : null }),
+    control('trackNext', 102, 'STYLE ▶', styles ? { type: 'stepStyle', delta: 1 } : null, styles ? WHITE : OFF,
+      { label: 'SONG ▶', action: songs ? { type: 'stepPlaylist', delta: 1 } : null }),
     control('play', 115, 'PLAY', { type: 'startStop' }, null),
     control('stop', 116, 'STOP', { type: 'stop' }, null),
     control('scene', 104, 'TEMPO +', { type: 'tempoUp' }, null),

@@ -6,12 +6,14 @@
 // change this file and `app/src-tauri/src/api.rs` to match; components only see these
 // types and the `Session` interface.
 
+import type { PlaylistCmd, PlaylistState, RegistrationCmd, RegistrationState } from './registration'
+
 export type Fingering =
   | 'singleFinger' | 'multiFinger' | 'fingered' | 'fingeredOnBass'
   | 'aiFingered' | 'fullKeyboard' | 'aiFullKeyboard'
 
 /** The Launchkey pad pages, switched with Pad Bank ▲/▼. */
-export type PadPage = 'sections' | 'chordSetup' | 'otsParts'
+export type PadPage = 'sections' | 'chordSetup' | 'otsParts' | 'registration'
 
 /** What the Launchkey faders control, like the Genos Mixer's Panel and Style tabs. */
 export type FaderPage = 'panel' | 'style'
@@ -105,6 +107,9 @@ export type AppCmd =
   | { type: 'setPaletteLeds'; on: boolean }
   /** Re-walk the style folders (`library.roots`); `library.scanning` while it runs. */
   | { type: 'rescanLibrary' }
+  // Registration Memory and the Playlist (lib/api/registration.ts)
+  | RegistrationCmd
+  | PlaylistCmd
   // Chord Looper (docs/chord-looper.md)
   | { type: 'looperRec' }
   | { type: 'looperOnOff' }
@@ -611,6 +616,10 @@ export interface AppState {
   keyboard: KeyboardState
   /** The style preview and the style waiting for the bar line. */
   preview: PreviewState
+  /** Registration Memory: the bank, its ten buttons, Freeze, the Registration Sequence. */
+  registration: RegistrationState
+  /** The Playlist. */
+  playlist: PlaylistState
   /** The Chord Looper. */
   looper: LooperState
   metronome: MetronomeState
@@ -838,6 +847,7 @@ export const PAD_PAGES: { id: PadPage; name: string }[] = [
   { id: 'sections', name: 'Sections' },
   { id: 'chordSetup', name: 'Chord/Setup' },
   { id: 'otsParts', name: 'OTS/Parts' },
+  { id: 'registration', name: 'Registration' },
 ]
 
 /** Section names as the engine reports them. */

@@ -19,6 +19,8 @@ const GROUPS: [string, string][] = [
   ['split', 'Split point'],
   ['transpose', 'Transpose'],
   ['ots', 'One Touch Settings'],
+  ['regist', 'Registration Memory'],
+  ['playlist', 'Playlist'],
   ['part', 'Keyboard parts'],
   ['harmony', 'Keyboard Harmony / Arpeggio'],
   ['mixer', 'Mixer'],

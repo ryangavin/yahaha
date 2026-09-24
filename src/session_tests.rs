@@ -293,9 +293,9 @@ fn keyboard_parts_mixer_and_pages() {
     assert!(s.send(MixerCmd::SetMasterVolume { volume: 90 }).is_err());
 
     assert_eq!(st.pads.page, Page::Sections);
-    s.send(PadsCmd::CyclePadPage { delta: -1 }).unwrap();
+    s.send(PadsCmd::CyclePadPage { delta: -2 }).unwrap();
     let st = s.state();
-    assert_eq!((st.pads.page, st.pads.page_number, st.pads.page_count), (Page::OtsParts, 3, 3));
+    assert_eq!((st.pads.page, st.pads.page_number, st.pads.page_count), (Page::OtsParts, 3, 4));
     assert_eq!(st.pads.pads.len(), 16);
     assert_eq!(st.pads.pads[0].label, "OTS 1");
     assert_eq!(st.pads.pads[0].action, Some(AppCmd::Ots(OtsCmd::RecallOts { index: 0 })));
@@ -556,10 +556,12 @@ fn launchkey_hardware_matches_its_commands() {
 fn cycle_pad_page_takes_any_delta() {
     let Some(s) = offline("SlowWalker.T552.sty") else { return };
     s.send(PadsCmd::SetPadPage { page: Page::OtsParts }).unwrap();
-    s.send(PadsCmd::CyclePadPage { delta: 127 }).unwrap(); // 2 + 127 = 129 = 0 mod 3
-    assert_eq!(s.state().pads.page, Page::Sections);
-    s.send(PadsCmd::CyclePadPage { delta: -128 }).unwrap(); // 0 - 128 = 1 mod 3
+    s.send(PadsCmd::CyclePadPage { delta: 127 }).unwrap(); // 2 + 127 = 129 = 1 mod 4
     assert_eq!(s.state().pads.page, Page::ChordSetup);
+    s.send(PadsCmd::CyclePadPage { delta: -128 }).unwrap(); // 1 - 128 = -127 = 1 mod 4
+    assert_eq!(s.state().pads.page, Page::ChordSetup);
+    s.send(PadsCmd::CyclePadPage { delta: -2 }).unwrap();
+    assert_eq!(s.state().pads.page, Page::Registration);
 }
 
 /// While the library indexes, `library_list()` is labelled with the revision its entries
@@ -713,9 +715,9 @@ fn launchkey_button_descriptions() {
     assert_eq!((f3.level, f3.rgb), (Level::Dim, [0, 127, 0]), "Manual Bass");
     s.send(ChordCmd::SetManualBass { on: false }).unwrap();
     assert_eq!(b(&s, "faderButton3").level, Level::Bright);
-    // Page 3: ▼ goes nowhere, ▲ back to page 2, both pink.
+    // Page 3: ▼ to page 4 (Registration), ▲ back to page 2, both pink.
     s.send(PadsCmd::SetPadPage { page: Page::OtsParts }).unwrap();
-    assert_eq!(b(&s, "padBankDown").action, None);
+    assert_eq!(b(&s, "padBankDown").action, Some(AppCmd::Pads(PadsCmd::SetPadPage { page: Page::Registration })));
     let up = b(&s, "padBankUp");
     assert_eq!(up.action, Some(AppCmd::Pads(PadsCmd::SetPadPage { page: Page::ChordSetup })));
     assert_eq!(up.rgb, [127, 0, 70]);
