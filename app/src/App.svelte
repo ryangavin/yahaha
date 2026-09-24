@@ -9,22 +9,25 @@
   │ │ keyboard strip (panels/keystrip)                                    │ │ parts  │
   │ └─────────────────────────────────────────────────────────────────────┘ │ mixer  │
   │ status line                                                             │settings│
-  └──────────────────────────────────────────────────────────────────────── └────────┘
-  Browser: centred modal. Help bar: docks at the bottom in help mode.
+  │ help footer (lib/tooltip): the hovered control's entry · last Launchkey  └────────┘
+  └──────────────────────────────────────────────────────────────────────────┘
+  Browser: centred modal. Drawers and the browser end above the help footer
+  (--help-footer-space), so it always explains what the pointer is on.
 
   Scaling: the app fills the window exactly (no page scroll). The stage is a size
   container; the stack inside sets its font size `--u` to the largest that fits both its
   width and height, and everything in it is sized in em. The mirror keeps its proportions;
   the lead-sheet band and the keyboard strip take the height left over (up to a limit).
   When the stage is taller than 1.45:1, the mirror switches to its stacked layout (faders
-  under the pads), which is narrower and so can grow larger.
+  under the pads), which is narrower and so can grow larger. The help footer has a fixed
+  height (taller in help mode), so hovering never moves the stage.
 -->
 <script lang="ts">
   import { onDestroy } from 'svelte'
   import type { Session } from './lib/api/session'
   import { handleBlur, handleKey, handleKeyUp } from './lib/shortcuts'
   import { app, clock, ui } from './lib/store.svelte'
-  import HelpBar from './lib/tooltip/HelpBar.svelte'
+  import HelpFooter from './lib/tooltip/HelpFooter.svelte'
   import Tooltip from './lib/tooltip/Tooltip.svelte'
   import { tip, tips } from './lib/tooltip/tip.svelte'
   import Browser from './panels/browser/Browser.svelte'
@@ -77,7 +80,7 @@
     <span>{unmapped}</span>
   </footer>
 
-  <HelpBar />
+  <HelpFooter />
 </div>
 
 {#if ui.parts}<Parts />{/if}
@@ -85,7 +88,7 @@
 {#if ui.multipad}<MultiPad />{/if}
 {#if ui.settings}<Settings />{/if}
 {#if ui.browser}<Browser />{/if}
-<Tooltip />
+{#if tips.floating}<Tooltip />{/if}
 
 <style>
   .app {
