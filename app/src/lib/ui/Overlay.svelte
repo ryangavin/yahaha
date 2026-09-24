@@ -65,13 +65,14 @@
     outline: none;
     font-size: 15px;
   }
+  /* Both end above the help footer, which explains their controls. */
   .center {
-    inset: 5vh max(16px, calc(50vw - 36rem));
+    inset: 5vh max(16px, calc(50vw - 36rem)) max(5vh, var(--help-footer-space, 16px));
   }
   .right {
     top: 3.9rem;
     right: 16px;
-    bottom: 16px;
+    bottom: var(--help-footer-space, 16px);
     width: min(30rem, calc(100vw - 32px));
   }
   header {
