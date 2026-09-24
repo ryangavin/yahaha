@@ -25,6 +25,7 @@ pub mod parts;
 pub mod plugin;
 #[cfg(test)]
 mod recognizer_golden;
+pub mod registration;
 pub mod rt;
 pub mod session;
 pub mod sff;

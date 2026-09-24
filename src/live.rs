@@ -40,6 +40,8 @@ pub enum Cmd {
     /// All Notes Off on the keyboard parts' channels: a MIDI source with keys held was
     /// disconnected (its note-offs will never come).
     KeysOff,
+    /// Set the tempo (BPM): a Registration recall.
+    SetTempo(f64),
 }
 
 /// How many bars a style preview plays.
@@ -1050,6 +1052,7 @@ fn apply(engine: &mut Engine, parts: &Parts, cmd: Cmd, now: u64, out: &mut Out) 
         Cmd::ManualBass(on) => engine.set_manual_bass(on, out),
         Cmd::Transpose(t) => engine.set_transpose(t, now, out),
         Cmd::StopAudition => {}
+        Cmd::SetTempo(bpm) => engine.set_tempo(bpm, now),
         Cmd::KeysOff => {
             // The source's pedal, wheels and pressure went to every keyboard part too, and
             // its releases will never come: with the pedal left down, All Notes Off would
@@ -1550,7 +1553,12 @@ mod tests {
         assert!(cmds.pop().is_err() && acts.pop().is_err());
 
         input.pad_msg(&[0xB0, launchkey::PAD_DOWN_CC, 127]);
+        input.pad_msg(&[0xB0, launchkey::PAD_DOWN_CC, 127]);
         input.pad_msg(&[0xB0, launchkey::PAD_DOWN_CC, 127]); // stops at the last page
+        assert_eq!(page(), Page::Registration);
+        input.pad_msg(&[0x90, 113, 100]);
+        assert_eq!(acts.pop(), Ok(Action::Regist(9)));
+        input.pad_msg(&[0xB0, launchkey::PAD_UP_CC, 127]);
         assert_eq!(page(), Page::OtsParts);
         input.pad_msg(&[0x90, 114, 100]);
         assert_eq!(acts.pop(), Ok(Action::PartOnOff(2)));
@@ -1637,7 +1645,8 @@ mod tests {
         shared.step_page(|p| p.cycle(1));
         assert_eq!(Page::from_u8(shared.page.load(Relaxed)), Page::OtsParts);
         shared.step_page(|p| p.step(1));
-        assert_eq!(Page::from_u8(shared.page.load(Relaxed)), Page::OtsParts);
+        shared.step_page(|p| p.step(1));
+        assert_eq!(Page::from_u8(shared.page.load(Relaxed)), Page::Registration);
         shared.step_page(|p| p.cycle(1));
         assert_eq!(Page::from_u8(shared.page.load(Relaxed)), Page::Sections);
     }

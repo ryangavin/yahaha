@@ -13,6 +13,14 @@ impl Engine {
         self.ns_per_tick = 60e9 / (self.bpm * self.style.ppq as f64);
     }
 
+    /// Set the tempo (BPM, clamped to the engine's range), e.g. from a Registration recall.
+    /// Playing, the position carries on from `now` at the new tempo.
+    pub fn set_tempo(&mut self, bpm: f64, now: u64) {
+        if bpm.is_finite() {
+            self.set_bpm_internal(bpm, now);
+        }
+    }
+
     pub(super) fn tick_at(&self, now: u64) -> f64 {
         self.anchor_tick + (now as f64 - self.anchor_ns as f64) / self.ns_per_tick
     }
