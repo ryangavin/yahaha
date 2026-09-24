@@ -2,7 +2,7 @@
 
 use super::{Control, View};
 use crate::api::{note_name, ChordCmd, ChordState, CmdError};
-use crate::engine::Transpose;
+use crate::engine::{Transpose, CHORD_SETTLE_MAX_MS};
 use crate::fingering::Fingering;
 use crate::live::Cmd;
 use std::sync::atomic::Ordering::Relaxed;
@@ -53,6 +53,11 @@ impl Control {
                 return self.set_transpose(Transpose::new(t.keyboard.saturating_add(keyboard), t.master.saturating_add(master)));
             }
             ChordCmd::ResetTranspose => return self.set_transpose(Transpose::default()),
+            ChordCmd::SetChordSettle { ms } => {
+                let ms = ms.min(CHORD_SETTLE_MAX_MS);
+                self.engine_cmd(Cmd::ChordSettle(ms))?;
+                self.chord_settle_ms = ms;
+            }
         }
         Ok(())
     }
@@ -102,6 +107,7 @@ impl Control {
             split_name: note_name(v.split),
             transpose_keyboard: s.transpose.keyboard,
             transpose_master: s.transpose.master,
+            settle_ms: self.chord_settle_ms,
         }
     }
 }

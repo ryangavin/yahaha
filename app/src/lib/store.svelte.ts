@@ -16,7 +16,7 @@ import type { AppCmd, AppState, ClockState, LibraryList } from './api/types'
 
 class AppStore {
   state = $state.raw<AppState>(initialState())
-  library = $state.raw<LibraryList>({ revision: 0, entries: [], voices: [] })
+  library = $state.raw<LibraryList>({ revision: 0, entries: [], voices: [], harmonyTypes: [], arpPatterns: [] })
   kind = $state<'mock' | 'tauri' | null>(null)
   private session: Session | null = null
   private unsub: (() => void) | null = null
@@ -151,8 +151,12 @@ class UiStore {
   settings = $state(false)
   parts = $state(false)
   mixer = $state(false)
+  /** The Registration panel (bank, groups, sequence, playlist) and its page. */
+  regist = $state(false)
+  registTab = $state<'bank' | 'groups' | 'sequence' | 'playlist'>('bank')
   looper = $state(false)
   multipad = $state(false)
+  harmony = $state(false)
   sound = $state(false)
   theme = $state<Theme>(storedTheme())
   /** The keyboard strip's size; null: match the connected Launchkey (49 or 61). */
@@ -166,9 +170,9 @@ class UiStore {
   }
 
   /** Open one side drawer (closing the others), or close it if it's open. */
-  toggleDrawer(d: 'parts' | 'mixer' | 'settings' | 'looper' | 'multipad' | 'sound') {
+  toggleDrawer(d: 'parts' | 'mixer' | 'settings' | 'regist' | 'looper' | 'multipad' | 'harmony' | 'sound') {
     const open = !this[d]
-    this.parts = this.mixer = this.settings = this.looper = this.multipad = this.sound = false
+    this.parts = this.mixer = this.settings = this.regist = this.looper = this.multipad = this.harmony = this.sound = false
     this[d] = open
   }
 
@@ -197,8 +201,10 @@ class UiStore {
     if (this.settings) return !(this.settings = false)
     if (this.parts) return !(this.parts = false)
     if (this.mixer) return !(this.mixer = false)
+    if (this.regist) return !(this.regist = false)
     if (this.looper) return !(this.looper = false)
     if (this.multipad) return !(this.multipad = false)
+    if (this.harmony) return !(this.harmony = false)
     if (this.sound) return !(this.sound = false)
     return false
   }

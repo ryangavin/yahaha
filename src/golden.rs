@@ -290,6 +290,19 @@ fn golden_snapshots() {
     );
 }
 
+/// #47: no snapshot holds a zero-length note (`~0`): a chord change never retriggers a note
+/// the pattern ends at that tick. (#45 found about 72 of them across these six styles.)
+#[test]
+fn snapshots_hold_no_zero_length_notes() {
+    let script = std::fs::read_to_string(root().join("tests/golden/chords.script")).unwrap();
+    for name in STYLES {
+        let Some(path) = find_style(name) else { continue };
+        let got = sim::snapshot(&Style::load(&path).unwrap(), &script).unwrap();
+        let zero: Vec<&str> = got.split_whitespace().filter(|w| w.ends_with("~0")).collect();
+        assert!(zero.is_empty(), "{name}: {} zero-length notes", zero.len());
+    }
+}
+
 /// Same script, same style, same listing: nothing in the snapshot depends on the run (two
 /// separate loads, two engines). The listing must also carry what the golden test relies on:
 /// the intro, a fill inside a bar, the ending running out, and the chord parts.

@@ -15,7 +15,10 @@ const C_TAP: Rgb = [100, 100, 100]
 const C_STOPSYNC: Rgb = [0, 110, 110]
 const C_RUN: Rgb = [0, 127, 0]
 const C_IDLE: Rgb = [127, 0, 0]
-export const PAGE_RGB: Record<PadPage, Rgb> = { sections: C_TAP, chordSetup: [0, 100, 127], otsParts: [127, 0, 70] }
+export const PAGE_RGB: Record<PadPage, Rgb> = { sections: C_TAP, chordSetup: [0, 100, 127], otsParts: [127, 0, 70], registration: [127, 60, 0] }
+/** Registration lamps: red = selected, blue = stored (OM p.97). */
+const C_REGIST_SELECTED: Rgb = [127, 0, 0]
+const C_REGIST_STORED: Rgb = [0, 40, 127]
 
 type Look = { rgb: Rgb; level: Level; anim: Anim }
 const look = (rgb: Rgb, level: Level, anim: Anim = 'solid'): Look => ({ rgb, level, anim })
@@ -96,8 +99,39 @@ function otsPads(s: AppState): Pad[] {
   ]
 }
 
+const REGIST_KEYS = ['Q', 'W', 'E', 'R', 'T', 'Y', 'U', 'I', 'O', 'P']
+
+function registPads(s: AppState): Pad[] {
+  const r = s.registration
+  const p = (note: number, label: string, key: string, action: AppCmd | null, available: boolean, on: boolean) =>
+    pagePad('registration', note, label, key, action, available, on)
+  const button = (i: number): Pad => {
+    const stored = r.buttons[i]?.stored ?? false
+    const l = r.memory
+      ? look(C_REGIST_SELECTED, 'bright', 'flash')
+      : stored && r.selected === i
+        ? look(C_REGIST_SELECTED, 'bright')
+        : look(C_REGIST_STORED, stored ? 'bright' : 'off')
+    return pad(i < 8 ? 96 + i : 104 + i, `REGIST ${i + 1}`, REGIST_KEYS[i], { type: 'pressRegist', index: i }, l)
+  }
+  const seq = r.sequence.on && r.sequence.steps.length > 0
+  const banks = r.banks.length > 0
+  return [
+    ...Array.from({ length: 10 }, (_, i) => button(i)),
+    p(114, 'BANK -', 'F11', { type: 'stepRegistBank', delta: -1 }, banks, false),
+    p(115, 'BANK +', 'F12', { type: 'stepRegistBank', delta: 1 }, banks, false),
+    r.memory
+      ? pad(116, 'MEMORY', 'F5', { type: 'toggleRegistMemory' }, look(C_REGIST_SELECTED, 'bright', 'flash'))
+      : p(116, 'MEMORY', 'F5', { type: 'toggleRegistMemory' }, true, false),
+    p(117, 'FREEZE', 'F6', { type: 'toggleFreeze' }, true, r.freeze),
+    p(118, 'REGIST -', 'F7', { type: 'stepRegistSequence', delta: -1 }, seq, false),
+    p(119, 'REGIST +', 'F8', { type: 'stepRegistSequence', delta: 1 }, seq, false),
+  ]
+}
+
 /** The 16 pads of a page, top row then bottom row. */
 export function padsFor(s: AppState, page: PadPage): Pad[] {
+  if (page === 'registration') return registPads(s)
   if (page === 'chordSetup') return chordPads(s)
   if (page === 'otsParts') return otsPads(s)
   return sectionPads(s)

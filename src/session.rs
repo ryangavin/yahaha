@@ -8,6 +8,7 @@
 //! Threads (live):
 //!
 //!   CoreMIDI thread  keys, Launchkey pads/buttons/faders (`live::Input`)
+//!   MIDI run loop    CoreMIDI's setup-change notifications (`midi::init`; devices.rs)
 //!   engine thread    real-time playback (`live::run_engine`)
 //!   control thread   runs Launchkey actions as `AppCmd`s, OTS Link, Launchkey LEDs,
 //!                    library indexing, and republishes `AppState` when it changes
@@ -29,6 +30,8 @@
 
 mod chord;
 mod controllers;
+mod devices;
+mod harmony_arp;
 mod keyboard;
 mod leds;
 mod library;
@@ -41,7 +44,9 @@ mod ots;
 mod pads;
 mod parts;
 mod plugins;
+mod playlist;
 mod preview;
+mod registration;
 mod settings;
 mod sound_library;
 mod surface;
@@ -56,9 +61,9 @@ pub use settings::choose_keys;
 use crate::api::*;
 use crate::engine::{Engine, Prepared, Snapshot, Transpose};
 use crate::fingering::Fingering;
-use crate::launchkey::{self, Action, Page, Panel};
+use crate::launchkey::{Action, Page, Panel};
 use crate::library::{Info, Library};
-use crate::live::{self, Audition, Cmd, Input, Shared, MAX_KEY_SOURCES, TAG_PADS};
+use crate::live::{self, Audition, Cmd, Input, Shared, MAX_KEY_SOURCES};
 use crate::midi::{self, Client};
 use crate::rt::{self, PacketSink, Target};
 use crate::synth;
@@ -100,12 +105,16 @@ pub struct Options {
     pub manual_bass: bool,
     /// Initial Keyboard / Master transpose.
     pub transpose: Transpose,
-    /// Where the sound library (`sound-library.json`) is saved. None: it can't be saved
-    /// (tests, `state-json`). `default_data_dir()` is the usual one.
+    /// The chord-settle window, in ms (`ChordCmd::SetChordSettle`).
+    pub chord_settle_ms: u32,
+    /// Where Registration banks (`<dir>/Registration`), Playlists (`<dir>/Playlists`) and
+    /// the sound library (`sound-library.json`) are saved. None: they can't be saved (tests, `state-json`). `default_data_dir()` is
+    /// the usual one.
     pub data_dir: Option<PathBuf>,
 }
 
-/// The usual data folder: `~/Documents/yahaha` (the user's own files, like styles).
+/// The usual data folder: `~/Documents/yahaha` (banks and playlists are the user's files,
+/// like styles).
 pub fn default_data_dir() -> Option<PathBuf> {
     std::env::var_os("HOME").map(|h| PathBuf::from(h).join("Documents").join("yahaha"))
 }
@@ -125,6 +134,7 @@ impl Default for Options {
             upper: false,
             manual_bass: true,
             transpose: Transpose::default(),
+            chord_settle_ms: crate::engine::CHORD_SETTLE_DEFAULT_MS,
             data_dir: None,
         }
     }
@@ -198,6 +208,8 @@ struct Control {
     snap_rx: Consumer<Snapshot>,
     act_rx: Consumer<Action>,
     transpose: Transpose,
+    /// The chord-settle window, in ms (session/chord.rs).
+    chord_settle_ms: u32,
     message: Option<Message>,
     msg_seq: u64,
     last_ots_key: Option<(usize, u8)>,
@@ -247,6 +259,10 @@ struct Control {
     release_tx: Producer<u8>,
     /// When the sources were last listed (live: every 2 s, for hot-plugged keyboards).
     sources_ns: u64,
+    /// Registration Memory (banks, Freeze, Sequence).
+    reg: registration::RegState,
+    /// The Playlist.
+    playlist: playlist::PlaylistCtl,
     /// Chord Looper memories and the rings to the engine's looper.
     looper: looper::LooperCtl,
     /// Metronome settings.
@@ -259,6 +275,8 @@ struct Control {
     /// Instrument plugins: the host, the loads, what each channel plays (#91).
     #[cfg_attr(not(feature = "plugins"), allow(dead_code))]
     plugins: plugins::PluginCtl,
+    /// Keyboard Harmony / Arpeggio settings (`Shared::kbd_fx` is their packed copy).
+    harmony_arp: live::FxConfig,
     /// The sound library (#103).
     sound: sound_library::SoundLib,
 }
@@ -310,11 +328,14 @@ impl Control {
             AppCmd::Preview(c) => self.preview_cmd(c),
             AppCmd::Settings(c) => self.settings_cmd(c),
             AppCmd::System(c) => self.system_cmd(c),
+            AppCmd::Registration(c) => self.registration_cmd(c),
+            AppCmd::Playlist(c) => self.playlist_cmd(c),
             AppCmd::Looper(c) => self.looper_cmd(c),
             AppCmd::Metronome(c) => self.metronome_cmd(c),
             AppCmd::MultiPad(c) => self.multipad_cmd(c),
             AppCmd::Controllers(c) => self.controllers_cmd(c),
             AppCmd::Plugins(c) => self.plugins_cmd(c),
+            AppCmd::HarmonyArp(c) => self.harmony_arp_cmd(c),
             AppCmd::SoundLibrary(c) => self.sound_library_cmd(c),
         }
     }
@@ -329,8 +350,10 @@ impl Control {
             ots_count: self.info.ots.len().min(4) as u8,
             ots_applied: parts.ots_applied.load(Relaxed),
             ots_link: parts.ots_link.load(Relaxed),
+            harmony_arp: self.harmony_arp.on,
             parts_on: parts.sounding_mask(),
             selected: parts.selected() as u8,
+            regist: self.regist_panel(),
         }
     }
 
@@ -357,11 +380,13 @@ impl Control {
             let _ = self.apply(a.into());
         }
         self.pump_ots_link();
+        self.pump_pedal_releases();
         while self.old_rx.pop().is_ok() {} // drop old styles here, off the RT thread
         while self.old_audition_rx.pop().is_ok() {}
         self.pump_sound_font();
         self.pump_rescan();
-        self.pump_inputs(now);
+        self.pump_devices(now);
+        self.pump_registration(now);
         self.pump_looper();
         self.pump_metronome();
 
@@ -412,8 +437,11 @@ impl Control {
             io: self.io_state(),
             preview: self.preview_state(),
             keyboard: self.keyboard_state(&v),
+            registration: self.registration_state(),
+            playlist: self.playlist_state(),
             multi_pad: self.multipad_state(),
             controllers: self.controllers_state(),
+            harmony_arp: self.harmony_arp_state(),
             message: self.message.clone(),
             looper: self.looper_state(),
             metronome: self.metronome_state(),
@@ -520,7 +548,11 @@ fn assemble(opts: &Options, engine_out: live::Out, input_out: live::Out, offline
     input.set_actions(act_tx);
     let (release_tx, release_rx) = RingBuffer::<u8>::new(MAX_KEY_SOURCES);
     input.set_release(release_rx);
-    let engine = Engine::new(prep);
+    // Keys for the engine thread's Harmony Echo category, arpeggio and Strum.
+    input.set_fx(ch.fx_tx);
+    let mut engine = Engine::new(prep);
+    let chord_settle_ms = opts.chord_settle_ms.min(crate::engine::CHORD_SETTLE_MAX_MS);
+    engine.set_chord_settle(chord_settle_ms as u64 * 1_000_000);
     let snap = engine.snapshot(0);
     let published = Arc::new(lib.clone());
     let control = Control {
@@ -541,6 +573,7 @@ fn assemble(opts: &Options, engine_out: live::Out, input_out: live::Out, offline
         snap_rx: ch.snap_rx,
         act_rx,
         transpose: Transpose::default(),
+        chord_settle_ms,
         message: None,
         msg_seq: 0,
         last_ots_key: None,
@@ -572,12 +605,15 @@ fn assemble(opts: &Options, engine_out: live::Out, input_out: live::Out, offline
         midi: None,
         release_tx,
         sources_ns: 0,
+        reg: registration::RegState::new(opts.data_dir.as_ref().map(|d| d.join("Registration"))),
+        playlist: playlist::PlaylistCtl::new(opts.data_dir.as_ref().map(|d| d.join("Playlists"))),
         looper: looper::LooperCtl::new(ch.looper_tx, ch.recorded_rx),
         metronome: Default::default(),
         pad_tx: ch.pad_tx,
         old_pad_rx: ch.old_pad_rx,
         multipad: multipad::Pads::scan(&opts.paths),
         plugins: Default::default(),
+        harmony_arp: live::FxConfig::default(),
         sound,
     };
     let mut control = control;
@@ -592,6 +628,8 @@ impl Session {
     /// Start a live session: open MIDI, start the synth (if `opts.sf2`), connect the
     /// keyboards and the Launchkey, start the engine and control threads.
     pub fn start(opts: Options) -> Result<Session> {
+        // (`midi::init` makes the process's first CoreMIDI call on a run-loop thread of
+        // its own, so the session hears of devices coming and going: session/devices.rs.)
         let client = Client::new("yahaha")?;
         let out_src = client.virtual_source("yahaha")?;
 
@@ -631,22 +669,9 @@ impl Session {
         }
 
         let port = client.input_port("yahaha in", p.input)?;
-        let sources = midi::sources();
-        let lk_daw = sources.iter().find(|(_, n)| is_daw(n));
-        let mut io = MidiIo { port, slots: Default::default(), daw: None };
-        if let Some((e, n)) = lk_daw.filter(|_| !opts.no_pads) {
-            port.connect(*e, TAG_PADS)?;
-            io.daw = Some((*e, n.clone()));
-            p.control.pads_connected = true;
-            if let Some((d, _)) = midi::destinations().into_iter().find(|(_, n)| n.contains("Launchkey") && n.contains("DAW")) {
-                let out_port = client.output_port("yahaha leds")?;
-                let mut s = PacketSink::new(Target::Port(out_port, d));
-                s.push(&launchkey::ENTER_DAW);
-                s.flush();
-                p.control.leds = Some(Leds::new(s, opts.palette_leds));
-            }
-        }
-        p.control.midi = Some(io);
+        let leds_port = if opts.no_pads { None } else { Some(client.output_port("yahaha leds")?) };
+        p.control.midi = Some(MidiIo { port, slots: Default::default(), daw: None, leds_port, leds_dest: None, no_pads: opts.no_pads, setup_gen: midi::setup_generation() });
+        p.control.connect_pads();
         p.control.connect_inputs();
         p.control.sources_ns = rt::now_ns();
 
@@ -665,7 +690,10 @@ impl Session {
         let inner = Arc::new(Inner::new(shared, p.control));
         let i2 = inner.clone();
         let control = std::thread::Builder::new().name("yahaha-control".into()).spawn(move || i2.control_loop())?;
-        Ok(Session { inner, live: Mutex::new(Some(Live { client, _port: port, engine: engine_thread, control, synth: synth_thread })) })
+        Ok(Session {
+            inner,
+            live: Mutex::new(Some(Live { client, _port: port, engine: engine_thread, control, synth: synth_thread })),
+        })
     }
 
     /// Run a command. Returns once it has been applied on the control side; what it does
@@ -706,7 +734,13 @@ impl Session {
     /// The library as plain data, in display order (folder, then name).
     pub fn library_list(&self) -> LibraryList {
         let (lib, revision) = self.inner.library.lock().unwrap_or_else(|e| e.into_inner()).clone();
-        LibraryList { revision, entries: lib.order().iter().map(|&id| library_entry(&lib, id)).collect(), voices: voice_options() }
+        LibraryList {
+            revision,
+            entries: lib.order().iter().map(|&id| library_entry(&lib, id)).collect(),
+            voices: voice_options(),
+            harmony_types: harmony_type_options(),
+            arp_patterns: arp_pattern_options(),
+        }
     }
 
     /// Notifications: a `StateChanged` whenever the state's version moves, a

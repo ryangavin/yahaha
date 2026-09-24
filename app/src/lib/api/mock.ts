@@ -4,7 +4,7 @@
 // It speaks #16's API (types.ts); `app/src-tauri/src/mock.rs` is the Rust twin that the
 // app shell runs until the engine's `Session` is wired in.
 
-import { defaultControllers, functionCmd, functionInfo, pedalCcRefused } from './assignable'
+import { controlSwitchSets, defaultControllers, functionCmd, functionInfo, functionSet, isPedalSwitch, pedalCcRefused, resetRelease } from './assignable'
 import fixture from './mock-fixture.json'
 import { syntheticStyles } from './mock-library'
 import { clockAt, mockSurface, type MockHardware } from './mock-surface'
@@ -13,9 +13,12 @@ import { initialMultiPad, MockPads } from './mock-multipad'
 import { initialSoundLibrary, MockSoundLibrary } from './mock-sound-library'
 import { padsFor } from './mock-pads'
 import { initialPlugins, MockPlugins } from './mock-plugins'
+import { ARP_PATTERNS, HARMONY_TYPES, harmonyArpCmd, initialHarmonyArp } from './mock-harmony'
+import { MockRegistration } from './mock-registration'
+import { emptyPlaylist, emptyRegistration } from './registration'
 import type { Session } from './session'
 import {
-  BREAK, ENDINGS, FILLS, FINGERINGS, INTROS, KEYBOARD_PART_NAMES, MAINS, PAD_PAGES, STYLE_PART_NAMES,
+  BREAK, CHORD_SETTLE_MAX_MS, ENDINGS, FILLS, FINGERINGS, INTROS, KEYBOARD_PART_NAMES, MAINS, PAD_PAGES, STYLE_PART_NAMES,
   type AppCmd, type AppState, type LibraryEntry, type LibraryList, type OtsPart, type PreviewState, type StyleState,
 } from './types'
 
@@ -76,7 +79,9 @@ function entryOf(s: FixtureStyle): LibraryEntry {
 /** The voices `setPartVoice` picks from, as the engine lists them (GM, bank 0). */
 export const VOICES: LibraryList['voices'] = GM.map((name, program) => ({ program, bankMsb: 0, bankLsb: 0, name }))
 
-export const LIBRARY: LibraryList = { revision: 1, entries: STYLES.map(entryOf), voices: VOICES }
+export const LIBRARY: LibraryList = {
+  revision: 1, entries: STYLES.map(entryOf), voices: VOICES, harmonyTypes: HARMONY_TYPES, arpPatterns: ARP_PATTERNS,
+}
 
 /** The fixture plus `extra` synthetic styles, in the engine's order (folder, then name). */
 function bigLibrary(extra: number): { lib: LibraryList; styles: FixtureStyle[] } {
@@ -88,7 +93,7 @@ function bigLibrary(extra: number): { lib: LibraryList; styles: FixtureStyle[] }
     for (let i = 0; i < 3; i++) if (x[i] !== y[i]) return x[i] < y[i] ? -1 : 1
     return 0
   })
-  return { lib: { revision: 1, entries, voices: VOICES }, styles }
+  return { lib: { revision: 1, entries, voices: VOICES, harmonyTypes: HARMONY_TYPES, arpPatterns: ARP_PATTERNS }, styles }
 }
 
 /** The MIDI sources the mock rig has (every one a keyboard: `allInputs`). */
@@ -201,7 +206,7 @@ export function initialState(): AppState {
     },
     chord: {
       name: null, fingered: null, fingering: 'fingeredOnBass', fingeringName: 'Fingered On Bass', upper: false,
-      manualBass: true, manualBassActive: false, split: 54, splitName: noteName(54), transposeKeyboard: 0, transposeMaster: 0,
+      manualBass: true, manualBassActive: false, split: 54, splitName: noteName(54), transposeKeyboard: 0, transposeMaster: 0, settleMs: 10,
     },
     keyboardParts: [part(0, 0, true), part(1, 48, false), part(2, 61, false), part(3, 48, false)],
     keyboard: { held: [], leftSplit: 54, chordTones: [], chordBass: null, detection: [0, 54] },
@@ -217,7 +222,7 @@ export function initialState(): AppState {
       styleSolo: null,
       partSolo: null,
     },
-    pads: { page: 'sections', pageName: 'Sections', pageNumber: 1, pageCount: 3, pads: [], connected: true, paletteLeds: false },
+    pads: { page: 'sections', pageName: 'Sections', pageNumber: 1, pageCount: PAD_PAGES.length, pads: [], connected: true, paletteLeds: false },
     ots: { settings: otsSettings(s.ots), applied: 0, link: false },
     library: { revision: LIBRARY.revision, count: LIBRARY.entries.length, position: 0, pending: 0, roots: [ROOT], scanning: false },
     io: {
@@ -240,11 +245,14 @@ export function initialState(): AppState {
     message: null,
     surface: null as unknown as AppState['surface'], // filled in by derive()
     preview: { audition: null, queued: null },
+    registration: emptyRegistration(),
+    playlist: emptyPlaylist(),
     looper: emptyLooper(),
     metronome: { on: false, volume: 90, bell: true, audible: true },
     multiPad: initialMultiPad(),
     controllers: defaultControllers(),
     plugins: initialPlugins(),
+    harmonyArp: initialHarmonyArp(),
     soundLibrary: initialSoundLibrary(),
   }
   derive(state, LIBRARY)
@@ -322,6 +330,8 @@ export interface MockOptions {
   manual?: boolean
   /** Add this many synthetic styles to the library (`?styles=60000`), to test a big one. */
   styles?: number
+  /** Start with the demo Registration banks and Playlist (default true). */
+  registration?: boolean
 }
 
 export class MockSession implements Session {
@@ -377,6 +387,8 @@ export class MockSession implements Session {
   private scanLeft = 0
   /** Beats into the audition playing (#21). */
   private auditionBeats = 0
+  /** Registration Memory and the Playlist (in-memory banks and playlists). */
+  private reg: MockRegistration
   /** Multi Pads (mock-multipad.ts). */
   private multiPads = new MockPads(() => this.state.multiPad)
   /** Instrument plugins (mock-plugins.ts). */
@@ -390,6 +402,8 @@ export class MockSession implements Session {
   constructor(opts: MockOptions = {}) {
     this.demo = opts.demo ?? false
     this.state = initialState()
+    this.reg = new MockRegistration(STYLES.filter((s) => !s.error).map((s) => ({ path: stylePath(s), name: s.name })), opts.registration ?? true)
+    this.reg.fill(this.state)
     if (opts.styles) {
       const big = bigLibrary(opts.styles)
       this.lib = big.lib
@@ -471,6 +485,7 @@ export class MockSession implements Session {
 
   private publish() {
     this.state.version++
+    this.reg.fill(this.state)
     this.looper.publish()
     derive(this.state, this.lib, this.hardware(), [...this.leftHand, ...this.rightHand])
     this.sound.derive(this.state)
@@ -754,6 +769,18 @@ export class MockSession implements Session {
   }
 
   private cmd(cmd: AppCmd) {
+    if (this.reg.handles(cmd)) {
+      this.reg.cmd(cmd, {
+        state: this.state,
+        command: (c) => this.cmd(c),
+        message: (text, error) => this.message(text, error),
+        findStyle: (path, name) =>
+          this.lib.entries.find((e) => e.path === path)?.path ??
+          this.lib.entries.find((e) => e.path.split('/').pop() === path.split('/').pop() || e.name === name)?.path ??
+          null,
+      })
+      return
+    }
     const st = this.state
     const t = st.transport
     const c = st.chord
@@ -927,6 +954,9 @@ export class MockSession implements Session {
         c.transposeKeyboard = 0
         c.transposeMaster = 0
         break
+      case 'setChordSettle':
+        c.settleMs = clamp(cmd.ms, 0, CHORD_SETTLE_MAX_MS)
+        break
       case 'setPartOn':
       case 'togglePart': {
         const p = st.keyboardParts[cmd.part]
@@ -969,7 +999,7 @@ export class MockSession implements Session {
         break
       case 'cyclePadPage': {
         const i = PAD_PAGES.findIndex((p) => p.id === st.pads.page)
-        st.pads.page = PAD_PAGES[(((i + cmd.delta) % 3) + 3) % 3].id
+        st.pads.page = PAD_PAGES[(((i + cmd.delta) % PAD_PAGES.length) + PAD_PAGES.length) % PAD_PAGES.length].id
         break
       }
       case 'setMasterVolume':
@@ -1044,10 +1074,41 @@ export class MockSession implements Session {
         st.library.scanning = true
         this.scanLeft = RESCAN_MS
         break
+      case 'toggleHarmonyArp':
+      case 'setHarmonyArpOn':
+      case 'setHarmonyType':
+      case 'setArpPattern':
+      case 'stepHarmonyArpType':
+      case 'setHarmonyVolume':
+      case 'setHarmonySpeed':
+      case 'setHarmonyAssign':
+      case 'setChordNoteOnly':
+      case 'setTouchLimit':
+      case 'setArpQuantize':
+      case 'setArpHold':
+      case 'toggleArpHold':
+      case 'setArpPedalHold':
+      case 'toggleArpPedalHold':
+      case 'setArpVelocity':
+      case 'setArpKeepKeyOn': {
+        // A fresh object, so the published snapshots never share it.
+        st.harmonyArp = { ...st.harmonyArp, arp: { ...st.harmonyArp.arp } }
+        const err = harmonyArpCmd(st.harmonyArp, cmd)
+        if (err) this.message(err, true)
+        break
+      }
       case 'panic':
         this.stopBand()
         this.multiPads.panic()
         Object.assign(st.controllers, { sustain: false, sostenuto: false, soft: false })
+        // As the engine's reset: the pedals count as up, and the control-side switches a
+        // Hold pedal was keeping on go off (`pump_pedal_releases`).
+        for (const p of st.controllers.pedals) {
+          const f = resetRelease(p, p.down)
+          p.down = false
+          const set = f && functionSet(f, false)
+          if (set) this.cmd(set)
+        }
         this.message('All notes off')
         break
       case 'setPedal': {
@@ -1067,6 +1128,8 @@ export class MockSession implements Session {
         const keptOn = (f: string) =>
           st.controllers.pedals.some((q, j) => j !== cmd.pedal && q.function === f && (q.controlType === 'holdA' ? q.down : q.controlType === 'holdB' && !q.down))
         const rebound = p.function !== cmd.function || p.cc !== cmd.cc
+        const old = { cc: p.cc, function: p.function, controlType: p.controlType }
+        const oldDown = p.down
         if (rebound) {
           // What the old function drove lets go, and the pedal counts as up.
           if (p.function in sw && !keptOn(p.function)) st.controllers[p.function as Sw] = false
@@ -1078,6 +1141,12 @@ export class MockSession implements Session {
         if (p.function in sw && p.controlType !== 'toggle' && (rebound || typeChanged)) {
           const on = (p.controlType === 'holdB') !== p.down
           if (on || !keptOn(p.function)) st.controllers[p.function as Sw] = on
+        }
+        // Kbd Harmony/Arpeggio and Arpeggio Hold: the control side keeps them, so it sets
+        // them where the new setup puts them (`controllers::control_switch_sets`).
+        for (const [f, on] of controlSwitchSets(old, p, oldDown, p.down)) {
+          const set = functionSet(f, on)
+          if (set) this.cmd(set)
         }
         break
       }
@@ -1098,9 +1167,8 @@ export class MockSession implements Session {
           this.message(`${info?.name ?? cmd.function} is not in yahaha yet`, true)
           break
         }
-        if (info.kind === 'switch') {
-          const k = cmd.function as 'sustain' | 'sostenuto' | 'soft'
-          st.controllers[k] = !st.controllers[k]
+        if (isPedalSwitch(cmd.function)) {
+          st.controllers[cmd.function] = !st.controllers[cmd.function]
         } else if (info.kind === 'continuous') {
           this.message(`${info.name} needs a foot controller (an expression pedal)`, true)
         } else if (cmd.function === 'otsNext' || cmd.function === 'otsPrev') {

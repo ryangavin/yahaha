@@ -222,16 +222,19 @@ impl SoundLib {
     /// they resolve to where the style sets none (the patch's CC7, which the mixer shows).
     fn prepare(&mut self, p: &mut Prepared, key: &str) -> Vec<(u8, u8, u8, u8)> {
         let style = self.lib.style_maps.get(key);
-        for part in 0..8 {
-            if p.mix_set & 1 << part != 0 {
-                continue;
-            }
-            let ch = 8 + part as u8;
-            let Some((msb, _, pc)) = p.voices[ch as usize] else { continue };
-            let drum = patches::is_drum(ch, msb);
-            let r = patches::resolve(&self.lib.map, style, drum, patches::map_program(ch, msb, pc));
-            if let Some(v) = r.patch.and_then(|id| self.lib.patch(id)).and_then(|q| q.defaults.volume) {
-                p.mix[part] = v;
+        // Every channel setup (a section may route the setup differently, #64).
+        for setup in &mut p.setups {
+            for part in 0..8 {
+                if setup.mix_set & 1 << part != 0 {
+                    continue;
+                }
+                let ch = 8 + part as u8;
+                let Some((msb, _, pc)) = setup.voices[ch as usize] else { continue };
+                let drum = patches::is_drum(ch, msb);
+                let r = patches::resolve(&self.lib.map, style, drum, patches::map_program(ch, msb, pc));
+                if let Some(v) = r.patch.and_then(|id| self.lib.patch(id)).and_then(|q| q.defaults.volume) {
+                    setup.mix[part] = v;
+                }
             }
         }
         p.program_changes()

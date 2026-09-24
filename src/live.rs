@@ -15,6 +15,7 @@ use crate::controllers::{Controllers, Handled};
 use crate::engine::{shift_key, AuditionPos, Button, Engine, PadCmd, Prepared, Snapshot, Transpose};
 use crate::multipad::MultiPadPlayer;
 use crate::fingering::{self, Fingering};
+use crate::harmony::{self, HarmonySettings};
 use crate::launchkey::{self, Action, Control, Page};
 use crate::looper::ChordSeq;
 use crate::midi::{for_each_message, InputHandler};
@@ -43,6 +44,11 @@ pub enum Cmd {
     /// All Notes Off on the keyboard parts' channels: a MIDI source with keys held was
     /// disconnected (its note-offs will never come).
     KeysOff,
+    /// The chord-settle window, in ms (`Engine::set_chord_settle`).
+    ChordSettle(u32),
+    /// Set the Style controls (section, Sync Start/Stop, Stop ACMP, Style part on/off) to
+    /// given states: a Registration recall.
+    StyleControls(crate::engine::StyleControls),
     /// Chord Looper REC/STOP (`true`) or ON/OFF (`false`).
     Looper(bool),
     /// Solo a Style part (0-7), or end the solo.
@@ -108,6 +114,10 @@ pub struct Shared {
     /// chord on a new count, so the first chord played after the loop stops is sent even
     /// when it is the one recognized before.
     pub loops: AtomicU32,
+    /// The chord the Chord Looper has the style playing (`Chord::pack`; 0: not looping),
+    /// set by the engine thread each wake. Keyboard Harmony follows it on the input thread
+    /// while the loop plays, as it follows the Style's chord (ACMP on, spec §6).
+    pub loop_chord: AtomicU32,
     /// Keyboard + Master transpose: the shift applied to played notes. The engine gets
     /// the individual values through `Cmd::Transpose`.
     pub key_shift: AtomicI8,
@@ -138,6 +148,13 @@ pub struct Shared {
     pub keys: [AtomicU8; 128],
     /// How many keys each keyboard source slot holds (`key_tag`).
     pub src_held: [AtomicU8; MAX_KEY_SOURCES],
+    /// The Keyboard Harmony / Arpeggio settings, packed (`kbdfx::FxConfig::pack`): the
+    /// control side writes it, the input and engine threads read it.
+    pub kbd_fx: AtomicU64,
+    /// Right-hand keys down that the processor handed to the engine thread (Echo, Arpeggio,
+    /// Strum), bit k of word k / 64: the engine releases whatever its generators hold that
+    /// is not in here (`kbdfx::KbdFx`).
+    pub fx_held: [AtomicU64; 2],
     /// Pedals, wheels and their parts (`controllers.rs`).
     pub controllers: Controllers,
     /// The sound library's program map, as the synth and the port read it (#103).
@@ -161,6 +178,7 @@ impl Shared {
             manual_bass: AtomicBool::new(true),
             looping: AtomicBool::new(false),
             loops: AtomicU32::new(0),
+            loop_chord: AtomicU32::new(0),
             key_shift: AtomicI8::new(0),
             lateness: Histogram::new(),
             input_lat: Histogram::new(),
@@ -175,6 +193,8 @@ impl Shared {
             parts: Arc::new(Parts::new()),
             keys: std::array::from_fn(|_| AtomicU8::new(0)),
             src_held: std::array::from_fn(|_| AtomicU8::new(0)),
+            kbd_fx: AtomicU64::new(FxConfig::default().pack()),
+            fx_held: [AtomicU64::new(0), AtomicU64::new(0)],
             controllers: Controllers::new(),
             routes: Arc::new(crate::patches::Routes::new()),
         }
@@ -334,8 +354,11 @@ pub fn fingered_star(mask: u16, c: Chord) -> Option<Chord> {
 // Input (CoreMIDI receive thread)
 // ---------------------------------------------------------------------------
 
+mod kbdfx;
 mod pipeline;
-pub use pipeline::{Note, Processor};
+pub use kbdfx::{right_parts, type_index, FxConfig, FxKey, FxMode, KbdFx, ACMP, ASSIGNS, FX_RING};
+pub use pipeline::{Note, Processor, ALL_RIGHT};
+use pipeline::{Harmonized, PATH_PLAIN};
 
 /// The notes one key sounds: a (channel, note) for each keyboard part that played it (up
 /// to the three Right parts layered).
@@ -364,6 +387,12 @@ impl Sounded {
 /// is the chord section alone (`chord_only`: Lower detection outside the Full Keyboard
 /// types, OM p.56). Right of the split: the Right parts that are on, layered.
 pub fn sounds(parts: &Parts, left: bool, chord_only: bool, key: u8, shift: i8) -> Sounded {
+    sounds_on(parts, left, chord_only, key, shift, ALL_RIGHT)
+}
+
+/// [`sounds`] on the Right parts in `right` only (bit 0-2 = Right 1-3): a processor
+/// narrowed the note (Multi Assign, Harmony Assign = Multi).
+pub fn sounds_on(parts: &Parts, left: bool, chord_only: bool, key: u8, shift: i8, right: u8) -> Sounded {
     let mut s = Sounded::default();
     let side: &[usize] = match (left, parts.left_audible()) {
         (true, true) => &[parts::LEFT],
@@ -371,7 +400,7 @@ pub fn sounds(parts: &Parts, left: bool, chord_only: bool, key: u8, shift: i8) -
         _ => &[parts::RIGHT1, parts::RIGHT2, parts::RIGHT3],
     };
     for &p in side {
-        if p == parts::LEFT || parts.audible(p) {
+        if p == parts::LEFT || parts.audible(p) && right & (1 << p) != 0 {
             let oct = parts.octave_of(p);
             s.push(parts::CHANNEL[p], shift_key(key, shift + 12 * oct));
         }
@@ -418,6 +447,20 @@ impl Keys {
     pub fn release(&mut self, key: u8) -> Sounded {
         let old = std::mem::take(&mut self.sounding[key as usize & 127]);
         self.let_go(old)
+    }
+
+    /// A note that is not a key's own (a harmony note) starts on (`ch`, `note`): counted
+    /// with the keys', so neither stops the other.
+    pub fn hold(&mut self, ch: u8, note: u8) {
+        let n = &mut self.held[ch as usize & 15][note as usize & 127];
+        *n = n.saturating_add(1);
+    }
+
+    /// That note ends: true when nothing else holds (`ch`, `note`), so its note-off goes out.
+    pub fn unhold(&mut self, ch: u8, note: u8) -> bool {
+        let n = &mut self.held[ch as usize & 15][note as usize & 127];
+        *n = n.saturating_sub(1);
+        *n == 0
     }
 
     /// What a held key sounds as (channels and notes).
@@ -467,8 +510,18 @@ pub struct Input {
     shift: bool,
     /// Soft takeover of the Launchkey master fader (the synth master level).
     master_takeover: crate::engine::Takeover,
-    /// The note pipeline's processor slot (Harmony or Arpeggio; none yet).
+    /// The note pipeline's processor slot (Harmony or Arpeggio), from `Shared::kbd_fx`
+    /// (`fx_word`: the word it was read from).
     processor: Processor,
+    fx_word: u64,
+    /// Key messages for the engine thread's Echo/Arpeggio/Strum (`kbdfx::KbdFx`).
+    fx_tx: Option<Producer<FxKey>>,
+    /// How each held key went through the processor (`pipeline::PATH_*`).
+    fx_path: [u8; 128],
+    /// The harmony notes each melody key sounds.
+    harmonized: Box<[Harmonized; 128]>,
+    /// Multi Assign: the part each key went to.
+    multi: harmony::MultiAssign,
     /// The pedals held down, as this thread last read them, per keyboard source slot
     /// (bit = pedal).
     pedal_edges: [u8; MAX_KEY_SOURCES],
@@ -501,10 +554,21 @@ impl Input {
             shift: false,
             master_takeover: crate::engine::Takeover::NEW,
             processor: Processor::Off,
+            fx_word: FxConfig::default().pack(),
+            fx_tx: None,
+            fx_path: [PATH_PLAIN; 128],
+            harmonized: Box::new([Harmonized::default(); 128]),
+            multi: harmony::MultiAssign::new(),
             pedal_edges: [0; MAX_KEY_SOURCES],
             ctl_claimed: false,
             shown_switches: 0,
         }
+    }
+
+    /// Where the processor sends the keys the engine thread plays (Echo, Arpeggio, Strum).
+    /// Without it those types pass the keys through.
+    pub fn set_fx(&mut self, tx: Producer<FxKey>) {
+        self.fx_tx = Some(tx);
     }
 
     /// Where the keyboard parts' notes go besides the port: the built-in synth's ring.
@@ -680,6 +744,9 @@ impl Input {
                     if let Some(func) = f.control {
                         self.act(Action::Assign(func));
                     }
+                    if let Some((func, on)) = f.set {
+                        self.act(Action::AssignSet(func, on));
+                    }
                 }
             },
             (0xE0, 3) => {
@@ -822,7 +889,8 @@ impl Input {
 
     /// A button under fader `i` (0..8), or under the master fader (8): the fader page
     /// toggle. On the Panel page the buttons turn Right 1-3 and Left on/off (Shift: select
-    /// the part for the voice keys); on the Style page they mute the Style parts.
+    /// the part for the voice keys) and button 5 is HARMONY/ARPEGGIO; on the Style page
+    /// they mute the Style parts.
     fn fader_button(&mut self, i: u8) {
         let parts = &self.shared.parts;
         if i == 8 {
@@ -838,6 +906,7 @@ impl Input {
             FaderPage::Panel if (i as usize) < parts::COUNT && self.shift => self.act(Action::SelectPart(i)),
             // Left is refused under Manual Bass; its LED stays lit, as the bass sounds.
             FaderPage::Panel if (i as usize) < parts::COUNT => self.act(Action::PartOnOff(i)),
+            FaderPage::Panel if i == launchkey::HARM_ARP_FADER_BTN => self.act(Action::ToggleHarmonyArp),
             FaderPage::Panel => {}
             FaderPage::Style => self.act(Action::Button(Button::TogglePart(i))),
         }
@@ -938,6 +1007,9 @@ pub struct EngineIo {
     pub looper_in: Consumer<ChordSeq>,
     pub recorded: Producer<ChordSeq>,
     pub out: Out,
+    /// Keyboard Harmony's Echo category, the arpeggio and Strum (`kbdfx.rs`), with the
+    /// ring the input thread sends it keys on.
+    pub fx: Box<KbdFx>,
 }
 
 /// Send each keyboard part's volume as CC7 on its channel when it changed, to the port and
@@ -992,7 +1064,10 @@ impl EngineLoop {
 
     /// When the next wake is due: the band's next event, the Multi Pads', or the preview's.
     pub fn next_deadline(&self) -> Option<u64> {
-        let band = [self.engine.next_deadline(), self.engine.pads_deadline()].into_iter().flatten().min();
+        let band = [self.engine.next_deadline(), self.engine.pads_deadline(), self.io.fx.next_deadline(&self.engine)]
+            .into_iter()
+            .flatten()
+            .min();
         let Some((a, n)) = &self.audition else { return band };
         let chord = if *n < AUDITION_BARS { a.engine.ns_at_bar(*n as u32) } else { a.engine.ns_at_bar(AUDITION_BARS as u32) };
         [band, a.engine.next_deadline(), Some(chord)].into_iter().flatten().min()
@@ -1045,7 +1120,7 @@ impl EngineLoop {
     /// Input is waiting: a new chord or a command.
     #[inline]
     fn input_pending(&self) -> bool {
-        self.shared.chord.load(Relaxed) != self.last_packed || self.io.input.slots() > 0 || self.io.ui.slots() > 0
+        self.shared.chord.load(Relaxed) != self.last_packed || self.io.input.slots() > 0 || self.io.ui.slots() > 0 || self.io.fx.pending()
     }
 
     /// One wake at `now`: take new styles, the chord and commands, play what is due,
@@ -1093,11 +1168,17 @@ impl EngineLoop {
             if self.audition.is_some() && ends_audition(cmd) {
                 self.end_audition();
             }
+            if matches!(cmd, Cmd::Panic) {
+                self.io.fx.all_off(now, &self.engine, &shared, &mut self.io.out);
+            }
             apply(&mut self.engine, &shared, cmd, now, &mut self.io.out);
         }
         while let Ok(cmd) = self.io.ui.pop() {
             if self.audition.is_some() && ends_audition(cmd) {
                 self.end_audition();
+            }
+            if matches!(cmd, Cmd::Panic) {
+                self.io.fx.all_off(now, &self.engine, &shared, &mut self.io.out);
             }
             apply(&mut self.engine, &shared, cmd, now, &mut self.io.out);
         }
@@ -1109,10 +1190,14 @@ impl EngineLoop {
         if shared.looping.swap(looping, Relaxed) != looping && looping {
             shared.loops.fetch_add(1, Relaxed);
         }
+        shared.loop_chord.store(self.engine.looper_chord().map_or(0, |c| c.pack(0)), Relaxed);
         if let Some(seq) = self.engine.take_recorded() {
             let _ = self.io.recorded.push(seq);
         }
         self.engine.process_pads(now, &mut self.io.out);
+        // Harmony's Echo category, the arpeggio and Strum, after the band: a START above
+        // has reset the style clock the arp follows.
+        self.io.fx.step(now, &self.engine, &shared, &mut self.io.out);
         self.retire_styles();
         self.play_audition(now);
         let (engine, io) = (&mut self.engine, &mut self.io);
@@ -1164,6 +1249,8 @@ impl EngineLoop {
         }
         self.engine.stop(&mut self.io.out);
         self.engine.pads_stop_all(&mut self.io.out);
+        let now = rt::now_ns();
+        self.io.fx.all_off(now, &self.engine, &self.shared, &mut self.io.out);
         self.io.out.flush();
     }
 }
@@ -1234,6 +1321,8 @@ fn apply(engine: &mut Engine, shared: &Shared, cmd: Cmd, now: u64, out: &mut Out
         Cmd::ManualBass(on) => engine.set_manual_bass(on, out),
         Cmd::Transpose(t) => engine.set_transpose(t, now, out),
         Cmd::StopAudition => {}
+        Cmd::ChordSettle(ms) => engine.set_chord_settle(ms as u64 * 1_000_000),
+        Cmd::StyleControls(c) => engine.set_style_controls(c, now, out),
         Cmd::Looper(true) => engine.looper_rec(),
         Cmd::Looper(false) => engine.looper_on_off(),
         Cmd::StyleSolo(p) => engine.set_style_solo(p, out),
@@ -1277,6 +1366,8 @@ pub struct Channels {
     pub snap_rx: Consumer<Snapshot>,
     pub audition_tx: Producer<Box<Audition>>,
     pub old_audition_rx: Consumer<Box<Audition>>,
+    /// The input thread's key messages for the engine's Harmony/Arpeggio (`Input::set_fx`).
+    pub fx_tx: Producer<FxKey>,
     pub looper_tx: Producer<ChordSeq>,
     pub recorded_rx: Consumer<ChordSeq>,
     pub pad_tx: Producer<PadBank>,
@@ -1292,6 +1383,7 @@ pub fn channels(out: Out) -> Channels {
     let (snaps, snap_rx) = RingBuffer::new(256);
     let (audition_tx, auditions) = RingBuffer::new(4);
     let (old_auditions, old_audition_rx) = RingBuffer::new(8);
+    let (fx_tx, fx_rx) = RingBuffer::new(FX_RING);
     let (looper_tx, looper_in) = RingBuffer::new(4);
     let (recorded, recorded_rx) = RingBuffer::new(4);
     let (pad_tx, pad_banks) = RingBuffer::new(4);
@@ -1304,13 +1396,25 @@ pub fn channels(out: Out) -> Channels {
         snap_rx,
         audition_tx,
         old_audition_rx,
+        fx_tx,
         looper_tx,
         recorded_rx,
         pad_tx,
         old_pad_rx,
         io: EngineIo {
-            input, ui, styles, old, snaps, auditions, old_auditions, looper_in, recorded, pad_banks,
-            old_pads, out,
+            input,
+            ui,
+            styles,
+            old,
+            snaps,
+            auditions,
+            old_auditions,
+            looper_in,
+            recorded,
+            pad_banks,
+            old_pads,
+            out,
+            fx: Box::new(KbdFx::new(fx_rx)),
         },
     }
 }
@@ -1806,8 +1910,9 @@ mod tests {
     }
 
     /// Panel page: faders 1-4 set the keyboard parts' volumes (soft takeover), their
-    /// buttons turn the parts on/off and Shift + button selects (as commands, on the control
-    /// side, like the pads). The master button switches to
+    /// buttons turn the parts on/off and Shift + button selects, and button 5 is
+    /// HARMONY/ARPEGGIO (as commands, on the control side, like the pads). The master
+    /// button switches to
     /// the Style page, whose faders and buttons go to the engine; the engine hears where
     /// the faders physically are.
     #[test]
@@ -1827,7 +1932,11 @@ mod tests {
         input.pad_msg(&[0xB0, 39, 127]); // Shift + button 3: select Right 3
         input.pad_msg(&[0xB0, launchkey::SHIFT_CC, 0]);
         assert_eq!(acts.pop(), Ok(Action::SelectPart(2)));
+        input.pad_msg(&[0xB0, 41, 127]); // button 5: HARMONY/ARPEGGIO
+        assert_eq!(acts.pop(), Ok(Action::ToggleHarmonyArp));
+        input.pad_msg(&[0xB0, 42, 127]); // button 6: unused on Panel
         assert!(acts.pop().is_err());
+        assert!(cmds.pop().is_err());
 
         input.pad_msg(&[0xB0, 45, 127]); // master button: Style page
         assert_eq!(parts.fader_page(), FaderPage::Style);
@@ -1840,6 +1949,9 @@ mod tests {
         assert_eq!(parts.volume(parts::RIGHT2), 64, "Right 2 keeps its level");
         input.pad_msg(&[0xB0, 38, 127]);
         assert!(matches!(cmds.pop(), Ok(Cmd::Button(Button::TogglePart(1)))));
+        input.pad_msg(&[0xB0, 41, 127]); // button 5 on Style: the fifth Style part, not Harmony
+        assert!(matches!(cmds.pop(), Ok(Cmd::Button(Button::TogglePart(4)))));
+        assert!(acts.pop().is_err());
         // Back on Panel, fader 2 (now at 10) must pick Right 2 up at 64 first.
         input.pad_msg(&[0xB0, 45, 127]);
         assert_eq!(parts.fader_page(), FaderPage::Panel);
@@ -1971,7 +2083,12 @@ mod tests {
         assert!(cmds.pop().is_err() && acts.pop().is_err());
 
         input.pad_msg(&[0xB0, launchkey::PAD_DOWN_CC, 127]);
+        input.pad_msg(&[0xB0, launchkey::PAD_DOWN_CC, 127]);
         input.pad_msg(&[0xB0, launchkey::PAD_DOWN_CC, 127]); // stops at the last page
+        assert_eq!(page(), Page::Registration);
+        input.pad_msg(&[0x90, 113, 100]);
+        assert_eq!(acts.pop(), Ok(Action::Regist(9)));
+        input.pad_msg(&[0xB0, launchkey::PAD_UP_CC, 127]);
         assert_eq!(page(), Page::OtsParts);
         input.pad_msg(&[0x90, 114, 100]);
         assert_eq!(acts.pop(), Ok(Action::PartOnOff(2)));
@@ -2058,7 +2175,8 @@ mod tests {
         shared.step_page(|p| p.cycle(1));
         assert_eq!(Page::from_u8(shared.page.load(Relaxed)), Page::OtsParts);
         shared.step_page(|p| p.step(1));
-        assert_eq!(Page::from_u8(shared.page.load(Relaxed)), Page::OtsParts);
+        shared.step_page(|p| p.step(1));
+        assert_eq!(Page::from_u8(shared.page.load(Relaxed)), Page::Registration);
         shared.step_page(|p| p.cycle(1));
         assert_eq!(Page::from_u8(shared.page.load(Relaxed)), Page::Sections);
     }

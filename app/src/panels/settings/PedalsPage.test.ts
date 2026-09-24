@@ -93,16 +93,17 @@ describe('Pedals page', () => {
     expect(app.state.controllers.sustain).toBe(false)
   })
 
-  it('Registration Bank +/− are listed but not selectable yet', () => {
+  it('Registration Bank +/− are selectable (REGIST BANK +/−)', () => {
     setup()
     const opt = byTip<HTMLSelectElement>('pedal.function')[0].querySelector<HTMLOptionElement>('option[value="registBankNext"]')!
-    expect(opt.disabled).toBe(true)
+    expect(opt.disabled).toBe(false)
+    expect(functionCmd('registBankPrev', { fingering: 'fingered' })).toEqual({ type: 'stepRegistBank', delta: -1 })
   })
 })
 
 describe('assignable functions', () => {
   it('every trigger the engine runs as a command maps to one here (the mock)', () => {
-    const control = ['otsNext', 'otsPrev', 'registBankNext', 'registBankPrev', 'none']
+    const control = ['otsNext', 'otsPrev', 'none']
     for (const f of FUNCTIONS.filter((f) => f.kind === 'trigger' && !control.includes(f.id))) {
       expect(functionCmd(f.id, { fingering: 'fingered' }), f.id).not.toBeNull()
     }

@@ -59,6 +59,7 @@ fn all_cmds() -> Vec<AppCmd> {
         AppCmd::Chord(ChordCmd::SetTranspose { keyboard: 2, master: -1 }),
         AppCmd::Chord(ChordCmd::StepTranspose { keyboard: 1, master: 0 }),
         AppCmd::Chord(ChordCmd::ResetTranspose),
+        AppCmd::Chord(ChordCmd::SetChordSettle { ms: 10 }),
         AppCmd::Parts(PartsCmd::SetPartOn { part: 1, on: true }),
         AppCmd::Parts(PartsCmd::TogglePart { part: 3 }),
         AppCmd::Parts(PartsCmd::SelectPart { part: 2 }),
@@ -239,6 +240,13 @@ fn chord_settings_split_and_transpose() {
     assert_eq!(s.state().chord.transpose_keyboard, 12);
     s.send(ChordCmd::ResetTranspose).unwrap();
     assert_eq!(s.state().chord.transpose_keyboard, 0);
+
+    // The chord-settle window: the default, clamped to its range, and 0.
+    assert_eq!(s.state().chord.settle_ms, crate::engine::CHORD_SETTLE_DEFAULT_MS);
+    s.send(ChordCmd::SetChordSettle { ms: 500 }).unwrap();
+    assert_eq!(s.state().chord.settle_ms, crate::engine::CHORD_SETTLE_MAX_MS);
+    s.send(ChordCmd::SetChordSettle { ms: 0 }).unwrap();
+    assert_eq!(s.state().chord.settle_ms, 0);
 }
 
 /// Transpose reaches the notes you play: a key sounds shifted on its part's channel.
@@ -293,9 +301,9 @@ fn keyboard_parts_mixer_and_pages() {
     assert!(s.send(MixerCmd::SetMasterVolume { volume: 90 }).is_err());
 
     assert_eq!(st.pads.page, Page::Sections);
-    s.send(PadsCmd::CyclePadPage { delta: -1 }).unwrap();
+    s.send(PadsCmd::CyclePadPage { delta: -2 }).unwrap();
     let st = s.state();
-    assert_eq!((st.pads.page, st.pads.page_number, st.pads.page_count), (Page::OtsParts, 3, 3));
+    assert_eq!((st.pads.page, st.pads.page_number, st.pads.page_count), (Page::OtsParts, 3, 4));
     assert_eq!(st.pads.pads.len(), 16);
     assert_eq!(st.pads.pads[0].label, "OTS 1");
     assert_eq!(st.pads.pads[0].action, Some(AppCmd::Ots(OtsCmd::RecallOts { index: 0 })));
@@ -536,6 +544,7 @@ fn launchkey_hardware_matches_its_commands() {
                         (8, _, _) => Some(AppCmd::Mixer(MixerCmd::ToggleFaderPage)),
                         (0..=3, FaderPage::Panel, true) => Some(AppCmd::Parts(PartsCmd::SelectPart { part: i })),
                         (0..=3, FaderPage::Panel, false) => Some(AppCmd::Parts(PartsCmd::TogglePart { part: i })),
+                        (4, FaderPage::Panel, _) => Some(AppCmd::HarmonyArp(HarmonyArpCmd::ToggleHarmonyArp)),
                         (_, FaderPage::Panel, _) => None,
                         (_, FaderPage::Style, _) => Some(AppCmd::Mixer(MixerCmd::ToggleStylePart { part: i })),
                     };
@@ -555,10 +564,12 @@ fn launchkey_hardware_matches_its_commands() {
 fn cycle_pad_page_takes_any_delta() {
     let Some(s) = offline("SlowWalker.T552.sty") else { return };
     s.send(PadsCmd::SetPadPage { page: Page::OtsParts }).unwrap();
-    s.send(PadsCmd::CyclePadPage { delta: 127 }).unwrap(); // 2 + 127 = 129 = 0 mod 3
-    assert_eq!(s.state().pads.page, Page::Sections);
-    s.send(PadsCmd::CyclePadPage { delta: -128 }).unwrap(); // 0 - 128 = 1 mod 3
+    s.send(PadsCmd::CyclePadPage { delta: 127 }).unwrap(); // 2 + 127 = 129 = 1 mod 4
     assert_eq!(s.state().pads.page, Page::ChordSetup);
+    s.send(PadsCmd::CyclePadPage { delta: -128 }).unwrap(); // 1 - 128 = -127 = 1 mod 4
+    assert_eq!(s.state().pads.page, Page::ChordSetup);
+    s.send(PadsCmd::CyclePadPage { delta: -2 }).unwrap();
+    assert_eq!(s.state().pads.page, Page::Registration);
 }
 
 /// While the library indexes, `library_list()` is labelled with the revision its entries
@@ -682,13 +693,19 @@ fn launchkey_button_descriptions() {
     assert_eq!((play.action.clone(), play.colour, play.shift_action, play.shift_label.as_str()), (Some(AppCmd::Transport(TransportCmd::StartStop)), None, Some(AppCmd::Transport(TransportCmd::StartStop)), "PLAY"));
     assert_eq!(b(&s, "scene").action, Some(AppCmd::Transport(TransportCmd::TempoUp)));
     assert_eq!((b(&s, "scene").label.as_str(), b(&s, "function").label.as_str()), ("TEMPO +", "TEMPO -"));
-    // Panel faders: Right 1 on (blue), Right 2 off (dim blue), 5-8 do nothing.
+    // Panel faders: Right 1 on (blue), Right 2 off (dim blue).
     let f1 = b(&s, "faderButton1");
     assert_eq!((f1.label.as_str(), f1.action, f1.shift_action), ("RIGHT 1", Some(AppCmd::Parts(PartsCmd::TogglePart { part: 0 })), Some(AppCmd::Parts(PartsCmd::SelectPart { part: 0 }))));
     assert_eq!((f1.level, f1.rgb), (Level::Bright, [0, 0, 127]));
     assert_eq!(b(&s, "faderButton2").level, Level::Dim);
+    // Button 5: HARMONY/ARPEGGIO, dim purple while off, bright while on; 6-8 do nothing.
     let f5 = b(&s, "faderButton5");
-    assert_eq!((f5.action, f5.level), (None, Level::Off));
+    assert_eq!((f5.label.as_str(), f5.action, f5.level), ("HARM/ARP", Some(AppCmd::HarmonyArp(HarmonyArpCmd::ToggleHarmonyArp)), Level::Dim));
+    s.send(HarmonyArpCmd::ToggleHarmonyArp).unwrap();
+    assert_eq!((b(&s, "faderButton5").level, b(&s, "faderButton5").rgb), (Level::Bright, [90, 0, 127]));
+    s.send(HarmonyArpCmd::ToggleHarmonyArp).unwrap();
+    let f6 = b(&s, "faderButton6");
+    assert_eq!((f6.action, f6.level), (None, Level::Off));
     assert_eq!(b(&s, "masterButton").label, "PANEL");
     // Style page: the Style parts' mutes, green.
     s.send(MixerCmd::ToggleFaderPage).unwrap();
@@ -706,9 +723,9 @@ fn launchkey_button_descriptions() {
     assert_eq!((f3.level, f3.rgb), (Level::Dim, [0, 127, 0]), "Manual Bass");
     s.send(ChordCmd::SetManualBass { on: false }).unwrap();
     assert_eq!(b(&s, "faderButton3").level, Level::Bright);
-    // Page 3: ▼ goes nowhere, ▲ back to page 2, both pink.
+    // Page 3: ▼ to page 4 (Registration), ▲ back to page 2, both pink.
     s.send(PadsCmd::SetPadPage { page: Page::OtsParts }).unwrap();
-    assert_eq!(b(&s, "padBankDown").action, None);
+    assert_eq!(b(&s, "padBankDown").action, Some(AppCmd::Pads(PadsCmd::SetPadPage { page: Page::Registration })));
     let up = b(&s, "padBankUp");
     assert_eq!(up.action, Some(AppCmd::Pads(PadsCmd::SetPadPage { page: Page::ChordSetup })));
     assert_eq!(up.rgb, [127, 0, 70]);

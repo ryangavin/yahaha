@@ -4,7 +4,8 @@
   - The tab IS the Launchkey fader page (`state.mixer.faderPage`): switching tabs sends
     `setFaderPage`, so the hardware follows, and the Launchkey's page button switches the
     tab. There is no local copy of the page.
-  - Panel: Right 1–3 and Left on faders 1–4 (5–8 are unused on the hardware, drawn dim).
+  - Panel: Right 1–3 and Left on faders 1–4 (5–8 are unused on the hardware, drawn dim;
+    the button under fader 5 is HARMONY/ARPEGGIO, as on the Launchkey).
     Style: the eight band parts, Rhythm 1 … Phrase 2, on faders 1–8. Master on the right.
   - A fader is the channel's CC 7 (0–127) and nothing else: no hidden gain. Loading a
     style sets the Style faders to the style's own levels.
@@ -59,6 +60,20 @@
 
   /** Panel page faders after the keyboard parts (5–8): unused on the Launchkey too. */
   const unusedSlots = $derived(Array.from({ length: Math.max(0, 8 - parts.length) }, (_, k) => parts.length + k))
+
+  /** The Panel page's button under fader 5 is HARMONY/ARPEGGIO, on the Launchkey and here. */
+  const HARM_ARP_SLOT = 4
+  const harmonyOn = $derived(app.state.harmonyArp.on)
+  const slotButton = (n: number) =>
+    n === HARM_ARP_SLOT
+      ? {
+          led: ledAt(n),
+          text: 'Harm/Arp',
+          label: `Harmony/Arpeggio ${harmonyOn ? 'on' : 'off'}`,
+          tip: tipFor({ type: 'toggleHarmonyArp' }),
+          onclick: () => app.send({ type: 'toggleHarmonyArp' }),
+        }
+      : null
 
   const TABS: { id: FaderPage; name: string }[] = [
     { id: 'panel', name: 'Panel' },
@@ -210,7 +225,7 @@
           <Strip {...panelStrip(p, i)} />
         {/each}
         {#each unusedSlots as n (n)}
-          <Strip name="—" value={0} faderTip="launchkey.fader_unused" onchange={() => {}} unused />
+          <Strip name="—" value={0} faderTip="launchkey.fader_unused" onchange={() => {}} unused button={slotButton(n)} />
         {/each}
       {:else}
         {#each mixer.styleParts as p, i (i)}

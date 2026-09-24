@@ -228,14 +228,14 @@
     "name": "Registration Bank +",
     "category": "registration",
     "kind": "trigger",
-    "available": false
+    "available": true
   },
   {
     "id": "registBankPrev",
     "name": "Registration Bank −",
     "category": "registration",
     "kind": "trigger",
-    "available": false
+    "available": true
   },
   {
     "id": "tempoUp",
@@ -305,6 +305,20 @@
     "name": "Fingered/Fingered On Bass",
     "category": "style",
     "kind": "trigger",
+    "available": true
+  },
+  {
+    "id": "kbdHarmonyArp",
+    "name": "Kbd Harmony/Arpeggio On/Off",
+    "category": "voice",
+    "kind": "switch",
+    "available": true
+  },
+  {
+    "id": "arpHold",
+    "name": "Arpeggio Hold",
+    "category": "voice",
+    "kind": "switch",
     "available": true
   }
 ]

@@ -28,12 +28,13 @@ The built-in synth uses the first `.sf2` file in `soundfonts/` (GeneralUser GS, 
 - **Keyboard parts:** like the Genos, you play four parts: **Right 1**, **Right 2** and **Right 3** right of the split, and **Left** left of it. Each part has its own voice, volume, octave shift and on/off. The Right parts that are on sound together, which is how you layer (Piano + Strings = Right 1 + Right 2 on). At start only Right 1 (Grand Piano) is on; Right 2 is Strings, Right 3 Brass, Left Strings. Turn parts on/off with the buttons under faders 1–4 (fader Panel page), the bottom-left pads on pad page 3, or `5` `6` `7` `8` (`l` also toggles Left). Pick the part whose voice you want to change with `F1`–`F4`, the EDIT pads on pad page 3, or Shift + the button under its fader, then step its voice with `9`/`0` or the VOICE −/+ pads.
 - **Where your parts go:** each part has its own channel, on the `yahaha` port and in the built-in synth alike: Right 1 = ch 1, Left = ch 2 (the channels your right and left hand always had), Right 2 = ch 3, Right 3 = ch 4. A part that is off sends nothing. With Left off, the Right parts play over the whole keyboard, as on the Genos, except that in Lower chord detection (outside the Full Keyboard fingerings) the keys left of the split only drive the chords. Each part's octave shift is applied to the notes it sends. The sustain pedal and the wheels go to the parts that are on (which parts each reaches is a setting: see Pedals and wheels below); other controllers and pressure go to all four parts (polyphonic aftertouch to the notes its key sounds); the keyboard's own volume (CC 7), bank select and program changes are ignored, because each part's voice and volume are its own.
 - **Mixer:** the faders have two pages, like the Genos Mixer's Panel and Style tabs. The button under the master fader (or `F9`) switches between them; it lights blue on Panel and green on Style, and the screen outlines the active page in yellow.
-  - **Panel:** faders 1–4 are the volumes of Right 1, Right 2, Right 3 and Left; their buttons turn the parts on/off (lit while on). Faders 5–8 do nothing on this page.
+  - **Panel:** faders 1–4 are the volumes of Right 1, Right 2, Right 3 and Left; their buttons turn the parts on/off (lit while on). The button under fader 5 is the HARMONY/ARPEGGIO switch (purple, bright while on). Faders 5–8 and buttons 6–8 do nothing on this page.
   - **Style:** faders 1–8 are the band's eight part volumes; their buttons mute and unmute the parts (lit while they play).
   - Every level is its part's CC 7, sent unchanged to the `yahaha` port and the built-in synth; there is no other per-part gain. Under Manual Bass, Left plays the Style's Bass voice at Left's own level (Panel fader 4), at the pitch you play (Left's octave shift is for its own voice), and Left can't be switched off until Manual Bass is. The master fader is always the synth's output level (100 = unity); a safety soft clipper above -1 dBFS keeps the output from hard clipping.
-  - Loading a style sets the Style faders to the style's own levels (100 where it sets none). A volume change inside a style's pattern moves its part's fader too, until you move that fader yourself. Every section change puts back what the last section's patterns changed in the style's part setup (SInt: voices, pan, effect sends, bend ranges), so parts you have not touched go back to the style's levels before the new section's own changes; the levels you set are kept. Only what differs is sent: a section change that changes nothing sends nothing, never a program change for the voice a part already has, and the XG part parameters and drum setup only after a program change that resets them. A Fill or Break that comes in mid-bar also takes the voice and controller values its skipped first beats leave. Start/Stop does the same, and also sends the style's XG effects, with insertion and variation effects moved to the parts' destination channels. The SInt's GM/XG System On resets are never sent, and its SysEx goes to the `yahaha` port only. Changing style resets all of them.
+  - Loading a style sets the Style faders to the style's own levels (100 where it sets none). A volume change inside a style's pattern moves its part's fader too, until you move that fader yourself. Every section change puts back what the last section's patterns changed in the style's part setup (SInt: voices, pan, effect sends, bend ranges), routed as the new section routes its source channels (a section that sends another source to a part brings that source's voice), so parts you have not touched go back to the style's levels before the new section's own changes; the levels you set are kept. Only what differs is sent: a section change that changes nothing sends nothing, never a program change for the voice a part already has, and the XG part parameters and drum setup only after a program change that resets them. A Fill or Break that comes in mid-bar also takes the voice and controller values its skipped first beats leave. Start/Stop does the same, and also sends the style's XG effects, with insertion and variation effects moved to the parts' destination channels. The SInt's GM/XG System On resets are never sent, and its SysEx goes to the `yahaha` port only. Changing style resets all of them.
   - The Launchkey faders, master included, use soft takeover: whenever a level moves without the fader (a style load, a pattern's volume change, a restart resetting an untouched part, an OTS recall, or switching the fader page), the hardware fader does nothing until it comes within 2 of that level or crosses it (`↕` on screen until then).
 - **One Touch Settings:** each style carries four suggested panel setups. Each one sets Right 1–3 and Left: voice, on/off, volume and octave shift; the Panel faders then pick the new volumes up. Recall one with `shift+1`–`4` or the OTS pads on pad page 3. **OTS Link** (pad page 3, Shift + Pad Bank ▼, or `F10`) makes Main A–D recall settings 1–4 automatically, and picks the right one when you change style.
+- **Keyboard Harmony / Arpeggio:** one HARMONY/ARPEGGIO switch (`J`, the button under fader 5 on the Panel fader page, or the app's Harmony panel) and one type, as on the Genos. The type is a Keyboard Harmony type (Duet, Trio, Block, 4-Way, 1+5, Octave, Strum, Multi Assign, Echo, Tremolo, Trill; our own voicings, see [docs/harmony.md](docs/harmony.md)) or one of yahaha's own arpeggio patterns ([docs/arpeggio.md](docs/arpeggio.md)); `L` steps through them. Only the keys right of the split are processed. The harmony follows the chord you play for the style; only the top note of the right hand is harmonised. The arpeggio follows the style clock while the band plays (Quantize lines it up with the bar) and its own clock while it is stopped; `*` is the Arpeggio Hold setting (a pedal can hold it too, apart from the setting). Volume, Assign, Chord Note Only, Touch Limit, Speed, Quantize, Velocity and Keep Key On are in the app.
 - **Stop Accompaniment** (`h`): with Sync Start off and the band stopped, a held chord sounds on the style's bass and pad voices.
 - `k` mutes the synth, for example when you're using Ableton sounds instead.
 - The synth plays on outputs 11/12 when the audio device is a TASCAM Model 16, and on 1/2 otherwise. `a` steps through the output pairs while playing, and `--audio-out 11` sets the pair at launch.
@@ -47,6 +48,8 @@ Options:
 - `--input "Name"` picks MIDI sources by name.
 - `--all-inputs` merges every connected keyboard.
 - `--no-pads` leaves the Launchkey pads alone.
+- Keyboards and the Launchkey can be plugged in and out while yahaha runs: a new keyboard is heard (by the `--input`/`--all-inputs` rules), and a Launchkey plugged back in goes back to DAW mode with its pads and LEDs. `yahaha fake-device` makes a Launchkey-like device from another process for trying it.
+- `--chord-settle MS` sets the chord-settle window (0–30 ms, default 10): while the style plays, it follows a chord once the chord has held still this long, so a rolled chord is one change, not two. Also in the app's Settings › Chord.
 
 ## Ableton setup (once)
 
@@ -124,7 +127,7 @@ Pressing the current Main again plays its fill. With Auto Fill on, switching Mai
 | **Pad Bank ▲ / ▼** (left of the pads) | previous/next pad page |
 | **Shift + Pad Bank ▲ / ▼** | Left part on/off / OTS Link on/off |
 | **> (Scene Launch)** / **Function** (right of the pads) | tempo + / − |
-| buttons under faders 1–8 | Panel page: Right 1–3, Left on/off (Shift: edit that part's voice) · Style page: mute/unmute the style parts |
+| buttons under faders 1–8 | Panel page: Right 1–3, Left on/off (Shift: edit that part's voice), button 5 Harmony/Arpeggio on/off · Style page: mute/unmute the style parts |
 | button under the master fader | fader page Panel / Style |
 
 The last Launchkey note or CC that nothing is mapped to shows at the bottom of the screen, e.g. `unmapped CC 103 = 127`. If a button does nothing, that shows the number it really sends.
@@ -142,10 +145,12 @@ The keyboard's pedals and wheels work through the keyboard parts, as on a Genos
 - **Pedals 1–3** listen for a CC each (default 64 Sustain, 66 Sostenuto, 67 Soft) and can
   run any assignable function instead: Start/Stop, Sync Start/Stop, Intro, Main A–D, Fill
   Up/Down/Self, Break, Ending, Auto Fill, OTS 1–4 and OTS +/−, tempo, transpose, part
-  on/off, Fingered ⇄ On Bass, or Modulation / Pitch Bend from an expression pedal.
+  on/off, Fingered ⇄ On Bass, Kbd Harmony/Arpeggio On/Off, Arpeggio Hold, or Modulation /
+  Pitch Bend from an expression pedal.
   "Learn" in the app takes the CC from the next pedal press.
 - **Panic** (`\`) releases the pedal and centres the wheels on every keyboard part, and a
-  keyboard unplugged with its pedal down is released too. A held pedal carries across
+  keyboard unplugged with its pedal down is released too. A Hold pedal on Kbd
+  Harmony/Arpeggio or Arpeggio Hold lets go of the switch it was keeping on. A held pedal carries across
   style and section changes untouched.
 
 The screen shows `sus` beside each part the pedal is holding.
@@ -169,6 +174,9 @@ The screen shows `sus` beside each part the pedal is holding.
 - `5 6 7 8` Right 1, Right 2, Right 3, Left on/off · `l` Left on/off
 - `F1`–`F4` pick the part to edit (Right 1–3, Left) · `9 0` previous/next voice for it
 - `F9` fader page Panel / Style
+- `J` Harmony/Arpeggio on/off · `L` next Harmony type or arpeggio · `*` Arpeggio Hold
+- `Q W E R T Y U I O P` (with Shift) Registration Memory 1–10 · `F5` Memory (the next button memorizes) · `F6` Freeze
+- `F7 F8` Regist −/+ (the Registration Sequence) · `F11 F12` Registration bank −/+ (on macOS, F11 is Show Desktop until you turn that shortcut off in System Settings › Keyboard) · `< >` previous/next Playlist record
 - `←/→` previous/next style, in the style browser's order (folder, then name)
 - `enter` open the style browser (see below)
 - `tab` / `shift+tab` next/previous pad page
