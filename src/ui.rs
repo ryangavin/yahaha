@@ -78,7 +78,7 @@ fn key_cmd(code: KeyCode) -> Option<AppCmd> {
         KeyCode::Char('k') => Some(AppCmd::Mixer(MixerCmd::ToggleSynthMute)),
         KeyCode::Char('\\') => Some(AppCmd::System(SystemCmd::Panic)),
         // iReal chart player: chart mode on/off, previous/next song of the playlist.
-        KeyCode::Char('r') => Some(AppCmd::Chart(ChartCmd::ToggleChartMode)),
+        KeyCode::Char('m') => Some(AppCmd::Chart(ChartCmd::ToggleChartMode)),
         KeyCode::Char('(') => Some(AppCmd::Chart(ChartCmd::StepChart { delta: -1 })),
         KeyCode::Char(')') => Some(AppCmd::Chart(ChartCmd::StepChart { delta: 1 })),
         code => key_action(code).map(AppCmd::from),
@@ -515,7 +515,7 @@ fn draw(f: &mut ratatui::Frame, st: &AppState, message: &str, beats: f64) {
 
     let mut help = vec![
         Line::from(Span::styled(
-            " space start/stop · 1-4 Main A-D (again = fill) · q w e intro · i o p ending · g break · t tap · -/= tempo · F1-F4 part · 9/0 voice · 5-8 part on/off · F9 faders Panel/Style · ; ' kbd transpose · : \" master · / reset · tab pad page · r chart mode · ( ) chart song · enter browse styles · \\ panic · esc twice quit",
+            " space start/stop · 1-4 Main A-D (again = fill) · q w e intro · i o p ending · g break · t tap · -/= tempo · F1-F4 part · 9/0 voice · 5-8 part on/off · F9 faders Panel/Style · ; ' kbd transpose · : \" master · / reset · tab pad page · m chart mode · ( ) chart song · enter browse styles · \\ panic · esc twice quit",
             dim,
         )),
         Line::from(Span::styled(
@@ -766,7 +766,7 @@ mod tests {
         assert_eq!(key_cmd(KeyCode::BackTab), Some(AppCmd::Pads(PadsCmd::CyclePadPage { delta: -1 })));
         assert_eq!(key_cmd(KeyCode::Char('\\')), Some(AppCmd::System(SystemCmd::Panic)));
         assert_eq!(key_cmd(KeyCode::Char('k')), Some(AppCmd::Mixer(MixerCmd::ToggleSynthMute)));
-        assert_eq!(key_cmd(KeyCode::Char('r')), Some(AppCmd::Chart(ChartCmd::ToggleChartMode)));
+        assert_eq!(key_cmd(KeyCode::Char('m')), Some(AppCmd::Chart(ChartCmd::ToggleChartMode)));
         assert_eq!(key_cmd(KeyCode::Char(')')), Some(AppCmd::Chart(ChartCmd::StepChart { delta: 1 })));
         assert_eq!(key_cmd(KeyCode::Char('Z')), None);
     }

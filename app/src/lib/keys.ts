@@ -57,7 +57,7 @@ export const BINDINGS: Record<string, Binding> = {
   PgUp: c({ type: 'cyclePadPage', delta: -1 }),
   a: c({ type: 'nextAudioOutput' }),
   k: c({ type: 'toggleSynthMute' }),
-  r: c({ type: 'toggleChartMode' }),
+  m: c({ type: 'toggleChartMode' }),
   '(': c({ type: 'stepChart', delta: -1 }),
   ')': c({ type: 'stepChart', delta: 1 }),
   '\\': c({ type: 'panic' }),

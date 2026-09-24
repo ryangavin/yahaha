@@ -1090,7 +1090,7 @@ const catalog = {
     title: 'Chart mode',
     body: 'While the band plays, it takes its chords and Main sections from the chosen chart instead of your left hand. A chord you play still takes over, until the next bar line.',
     genos: null,
-    keys: ['r'],
+    keys: ['m'],
     launchkey: null,
   },
   'chart.prev': {

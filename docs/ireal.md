@@ -275,7 +275,7 @@ good once Auto Style is off.
 - **Choruses are a setting (default 1)**, not the song's own repeat count (iReal's default
   is 3, meant for solos). The value carries over from song to song.
 - **Launchkey:** no pad for chart mode. Every pad page is already full, and chart mode is
-  something you set up before playing, not during. The terminal UI has `r` and `( )`.
+  something you set up before playing, not during. The terminal UI has `m` and `( )`.
 
 Tests are synthetic charts only: `src/engine/chart.rs` (the engine, on a corpus style),
 `src/session_tests.rs` (`chart_player_*`), `src/ireal/styles.rs`, and

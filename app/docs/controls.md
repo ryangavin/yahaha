@@ -208,7 +208,7 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 
 | control | what it does | Genos | key | Launchkey |
 |---|---|---|---|---|
-| **Chart mode** | While the band plays, it takes its chords and Main sections from the chosen chart instead of your left hand. A chord you play still takes over, until the next bar line. | — | `R` | — |
+| **Chart mode** | While the band plays, it takes its chords and Main sections from the chosen chart instead of your left hand. A chord you play still takes over, until the next bar line. | — | `M` | — |
 | **Previous song** | Chooses the song before this one in the playlist. | — | `(` | — |
 | **Next song** | Chooses the song after this one in the playlist. | — | `)` | — |
 | **Open playlist** | Imports an iReal Pro playlist exported as an .html file (in iReal Pro: Share, then HTML). Its songs are kept until you quit. | — | — | — |

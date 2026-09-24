@@ -1,6 +1,6 @@
 <!--
   The iReal Pro chart player drawer (#89): import playlists, pick a song, and set how the
-  band plays it. Chart mode itself is also on `r`, the songs on `( )`.
+  band plays it. Chart mode itself is also on `m`, the songs on `( )`.
 
   ┌ iReal Pro charts ───────────────────────────── Close ┐
   │ [Open playlist…]  [irealb://… paste      ] [Import]  │

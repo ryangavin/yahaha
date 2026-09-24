@@ -152,7 +152,7 @@ The last Launchkey note or CC that nothing is mapped to shows at the bottom of t
 - `enter` open the style browser (see below)
 - `tab` / `shift+tab` next/previous pad page
 - `a` next audio output pair · `k` mute the synth
-- `r` chart mode on/off · `( )` previous/next chart song (see "iReal Pro charts" below)
+- `m` chart mode on/off · `( )` previous/next chart song (see "iReal Pro charts" below)
 - `\` panic (all notes off)
 - `esc` twice (within 1.5 s) quit, or `ctrl+c`; one `esc` closes the style browser
 
@@ -177,7 +177,7 @@ The last Launchkey note or CC that nothing is mapped to shows at the bottom of t
 - Chart sections A–D play Main A–D. With Auto Fill on, a fill leads into each new section.
 - Play a chord to reharmonize: it holds until the next bar line, then the chart takes over again.
 - Keyboard transpose (`; '`) moves the chart too.
-- `r` turns chart mode on/off; `( )` pick the previous/next song of the playlist.
+- `m` turns chart mode on/off; `( )` pick the previous/next song of the playlist.
 
 The desktop app has the same player, with a song browser, the chart in the lead-sheet band and the choruses, loop, Intro/Ending and style settings. [docs/ireal.md](docs/ireal.md) has the details.
 
