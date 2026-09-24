@@ -64,11 +64,15 @@ class BeatClock {
   sync(s: AppState) {
     const t = s.transport
     this.tempo = t.tempo
+    // The engine's clock, when it sends one (provisional `surface.clock`), includes the
+    // phase within the beat, so the lamps run in step with the hardware.
+    const c = s.surface?.clock
     const key = t.running ? `${t.section}:${t.bar}:${t.beat}` : 'stopped'
-    if (key === this.key) return
+    if (key === this.key && !c?.atMs) return
     this.key = key
     this.at = now()
-    this.base = t.running ? (t.bar - 1) * t.beatsPerBar + (t.beat - 1) : this.beats
+    const phase = c && t.running ? c.phase : 0
+    this.base = t.running ? (t.bar - 1) * t.beatsPerBar + (t.beat - 1) + phase : this.beats
     this.running = t.running
   }
 

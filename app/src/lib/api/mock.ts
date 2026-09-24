@@ -5,6 +5,7 @@
 // app shell runs until the engine's `Session` is wired in.
 
 import fixture from './mock-fixture.json'
+import { deriveSurface } from '../surface'
 import { padsFor } from './mock-pads'
 import type { Session } from './session'
 import {
@@ -165,8 +166,9 @@ export function initialState(): AppState {
   return state
 }
 
-/** The fields the engine computes from the others: pads, lamps, names, flags. */
-function derive(st: AppState) {
+/** The fields the engine computes from the others: pads, lamps, names, flags, and the
+ * provisional `surface` (with the mock's hardware fader positions and beat clock). */
+function derive(st: AppState, hw: { faders: number[]; beats: number; atMs: number } | null = null) {
   const c = st.chord
   c.fingeringName = c.upper ? 'Fingered*' : FINGERINGS.find((f) => f.id === c.fingering)!.name
   c.manualBassActive = c.upper && c.manualBass
@@ -183,6 +185,12 @@ function derive(st: AppState) {
   st.pads.pageNumber = page + 1
   st.transport.lamps = padsFor(st, 'sections')
   st.pads.pads = padsFor(st, st.pads.page)
+  const surface = deriveSurface(st, LIBRARY)
+  if (hw) {
+    surface.faders.forEach((f, i) => (f.position = f.set ? hw.faders[i] : null))
+    surface.clock = { ...surface.clock, phase: hw.beats - Math.floor(hw.beats), atMs: hw.atMs }
+  }
+  st.surface = surface
 }
 
 /** How many bars a section lasts before it moves on (Intro/Ending: 2, Break/Fill: 1). */
@@ -211,12 +219,14 @@ export class MockSession implements Session {
   private progression = 0
   private messageSeq = 0
   private demo: boolean
+  /** Where the (imaginary) hardware faders physically are: 1–8, master. */
+  private hwFaders = [100, 72, 100, 100, 0, 0, 0, 0, 100]
 
   constructor(opts: MockOptions = {}) {
     this.demo = opts.demo ?? false
     this.state = initialState()
     if (this.demo) this.demoStart()
-    derive(this.state)
+    derive(this.state, { faders: this.hwFaders, beats: this.clock, atMs: this.now })
     if (!opts.manual) {
       this.last = performance.now()
       this.timer = setInterval(() => {
@@ -269,7 +279,7 @@ export class MockSession implements Session {
 
   private publish() {
     this.state.version++
-    derive(this.state)
+    derive(this.state, { faders: this.hwFaders, beats: this.clock, atMs: this.now })
     const snap = this.snapshot()
     for (const f of this.subs) f(snap)
   }

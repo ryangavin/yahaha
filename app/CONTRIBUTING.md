@@ -15,7 +15,8 @@ modal).
 cd app
 npm install
 npm run dev                # the frontend alone, in a browser, on the mock session: http://localhost:5173
-cargo tauri dev            # the desktop app (it runs `npm run dev` itself)
+cargo tauri dev            # the desktop app on the real engine (it runs `npm run dev` itself)
+YAHAHA_MOCK=1 cargo tauri dev   # the desktop app on the mock (no MIDI, no styles needed)
 cargo tauri build --debug  # a .app in src-tauri/target/debug/bundle/macos/
 npm run verify             # svelte-check (fails on warnings) + eslint + vitest
 npm run docs:controls      # regenerate docs/controls.md from the tooltip catalog
@@ -53,9 +54,10 @@ app/
   docs/screenshots/          npm run screenshots
   scripts/                   controls-doc.ts (catalog → docs/controls.md), engine-shape.ts, screenshots.sh
   src-tauri/                 the Rust shell
-    src/lib.rs               commands send/state/library, the `yahaha` event, the 60 Hz tick
-    src/api.rs               stand-in copy of #16's API types (delete when #16 lands)
-    src/mock.rs              mock session (Rust twin of src/lib/api/mock.ts)
+    src/lib.rs               commands send/state/library and the `yahaha` event, backed by
+                             yahaha::Session (the engine) or the mock; env: YAHAHA_STYLES,
+                             YAHAHA_SF2, YAHAHA_MOCK (see the file's header)
+    src/mock.rs              mock session on the engine's own AppState types
   src/
     App.svelte               the layout shell: app bar, Launchkey mirror, drawers, browser
     main.ts                  entry point
@@ -75,6 +77,7 @@ app/
                              engine-shape.test.ts checks the mock against it
       store.svelte.ts        app (state, send, library), clock (beat clock), ui (panels, theme, Shift)
       leds.ts                LED maths: brightness on the beat clock, colours, lamp notes
+      surface.ts             the Launchkey surface beyond the pads (see "The surface")
       keys.ts, shortcuts.ts  keyboard bindings (the terminal UI's keys) and the window handler
       tooltip/               tip action, Tooltip, TipCard, HelpBar (help mode)
       ui/                    shared components: HwButton, Fader, Toggle, Overlay, PanelSlot
@@ -94,8 +97,8 @@ app/
 | `Launchkey.svelte` | the surface, laid out like the MK4: status display, pad-page tabs, Shift, Track ◀/▶ (with the neighbouring styles), Pad Bank ▲/▼, 2×8 pads, the tempo buttons (Scene Launch / Function), Stop/Play, faders |
 | `StatusDisplay.svelte` | the "screen": style, tempo, bar/beat, section → next, a big chord, fingering, split, transpose |
 | `HwPad.svelte` | one rubber pad lit from the engine's `Pad` |
-| `FaderBank.svelte` | 8 faders + master and their buttons, per fader page and Shift layer |
-| `neighbours.ts` | the styles < Track and Track > would load |
+| `Control.svelte` | one Launchkey button rendered from the surface state |
+| `FaderBank.svelte` | 8 faders + master and their buttons, from the surface state |
 | `Launchkey.test.ts` | behaviour tests: pages, pad presses, Shift layer, fader pages, pickup |
 
 The whole surface scales with the window. It sets its font size from its own width
@@ -103,8 +106,25 @@ The whole surface scales with the window. It sets its font size from its own wid
 bank moves under the pads.
 
 Shift: the on-screen Shift button latches the layer (`ui.shiftLatched`), and holding
-Shift on the computer keyboard shows it too (`ui.shiftHeld`). Read `ui.shift` for the
-combined state.
+Shift on the computer keyboard shows it too (`ui.shiftHeld`). The layer shows when
+`ui.shift || surface.shift` (the hardware's Shift).
+
+### The surface (`lib/surface.ts`)
+
+No button's function is hard-coded in the mirror. Pads come from `state.pads.pads`, and
+everything else comes from a `SurfaceState` (`lib/api/types.ts`), which holds:
+
+- every non-pad control (Pad Bank, Track, Play/Stop, Scene/Function, the fader buttons,
+  the master button) with its label, action, Shift label/action and LED;
+- the faders with their label, level, waiting flag, physical position and the command
+  moving them sends;
+- the Track neighbour names and the beat clock.
+
+The engine will send it as `state.surface` (the API follow-up to #71). Until then,
+`surfaceOf(state, library)` derives it with the rules in `src/launchkey.rs`, and the mock
+sends it already, with hardware fader positions and a clock. When the engine sends it,
+the derivation simply stops being used. If the API PR names fields differently, rename
+them in `types.ts` and `surface.ts`; the components read nothing else.
 
 ## Building a drawer or the browser
 
@@ -235,14 +255,13 @@ always matches the hardware.
 - **Targets.** Every hit target is at least 2.1em tall on the surface (about 30 px at
   laptop size) and 2.2rem in drawers.
 
-## When #16 lands
+## Keeping up with the engine API
 
-- `src-tauri/Cargo.toml`: add `yahaha = { path = "../..", default-features = false }`. Keep
-  the `[workspace]` table in `src-tauri/Cargo.toml` so the root build stays unchanged.
-- `src-tauri/src/lib.rs`: manage a `yahaha::Session` instead of `MockSession`, and forward
-  `session.subscribe()` events as `yahaha` events instead of running the tick loop
-  (coalesce to the frame rate). Then delete `api.rs` and `mock.rs`.
-- `src/lib/api/types.ts`: re-check it against the merged docs/app-api.md.
+- The shell depends on the engine library (`yahaha = { path = "../..",
+  default-features = false }`). `src-tauri/Cargo.toml` has its own `[workspace]`
+  table, so the root build is unchanged.
+- The Rust mock builds the engine's own types, so it can't drift. The TypeScript types
+  (`src/lib/api/types.ts`) are the copy to keep in step with docs/app-api.md.
   `yahaha state-json <style> ["C Am F G7"]` and `--library` print real JSON: re-record
   `src/lib/api/engine-shape.json` with `scripts/engine-shape.ts` and the shape test tells
   you what moved.

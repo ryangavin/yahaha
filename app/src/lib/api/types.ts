@@ -271,6 +271,57 @@ export interface IoState {
   offline: boolean
 }
 
+// ── Provisional: the Launchkey surface (the follow-up API PR after #71) ──────
+// Everything the mirror needs beyond the pads, so no button's function is hard-coded in
+// the UI. Not in the engine yet: `surfaceOf()` (lib/surface.ts) derives it until the
+// engine sends `state.surface`, and the mock sends it already. Rename fields here and in
+// lib/surface.ts to whatever the API PR settles on.
+
+/** The Launchkey's non-pad controls, in hardware terms. */
+export type ControlId =
+  | 'padBankUp' | 'padBankDown' | 'trackPrev' | 'trackNext' | 'play' | 'stop' | 'scene' | 'function'
+  | 'faderButton1' | 'faderButton2' | 'faderButton3' | 'faderButton4'
+  | 'faderButton5' | 'faderButton6' | 'faderButton7' | 'faderButton8' | 'masterButton'
+
+export interface SurfaceControl {
+  id: ControlId
+  /** What it does now, and with Shift held ('' and null: nothing). */
+  label: string
+  action: AppCmd | null
+  shiftLabel: string
+  shiftAction: AppCmd | null
+  /** Its light, as a Pad's (0–127 colour, level, animation). */
+  rgb: Rgb
+  level: Level
+  anim: Anim
+}
+
+export interface SurfaceFader {
+  /** What the fader controls on the active page ('' = unused), and the level. */
+  label: string
+  value: number | null
+  /** The level is waiting for the hardware fader (soft takeover). */
+  waiting: boolean
+  /** Where the hardware fader physically is (0–127), if known. */
+  position: number | null
+  /** What moving it sends: `set` with `volume` filled in (setPartVolume, setStylePartVolume, setMasterVolume). */
+  set: Extract<AppCmd, { volume: number }> | null
+}
+
+export interface SurfaceState {
+  /** Shift is held on the Launchkey. */
+  shift: boolean
+  /** Pad Bank ▲/▼, Track ◀/▶, Play, Stop, Scene/Function, the 8 fader buttons, master button. */
+  controls: SurfaceControl[]
+  /** Faders 1–8 and master, for the active fader page. */
+  faders: SurfaceFader[]
+  /** The styles Track ◀/▶ would load. */
+  trackPrev: string | null
+  trackNext: string | null
+  /** The beat clock the LEDs run on: position at `atMs` (engine clock, ms), and tempo. */
+  clock: { bar: number; beat: number; phase: number; tempo: number; atMs: number }
+}
+
 export interface AppState {
   version: number
   style: StyleState
@@ -284,6 +335,8 @@ export interface AppState {
   library: LibraryStatus
   io: IoState
   message: { seq: number; text: string; error: boolean } | null
+  /** Provisional (see SurfaceState); absent from the engine until the follow-up API PR. */
+  surface?: SurfaceState
 }
 
 export interface LibraryEntry {

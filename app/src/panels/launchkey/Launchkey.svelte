@@ -15,32 +15,28 @@
   whole surface scales with the window (sizes are in em of a width-derived font size).
 -->
 <script lang="ts">
-  import { tipFor } from '../../help/actions'
   import { PAD_PAGES, type Pad, type PadPage, type Rgb } from '../../lib/api/types'
   import { app, clock, ui } from '../../lib/store.svelte'
+  import { surfaceOf } from '../../lib/surface'
+  import { tip } from '../../lib/tooltip/tip.svelte'
   import HwButton from '../../lib/ui/HwButton.svelte'
+  import Control from './Control.svelte'
   import FaderBank from './FaderBank.svelte'
   import HwPad from './HwPad.svelte'
-  import { neighbours } from './neighbours'
   import StatusDisplay from './StatusDisplay.svelte'
-  import { tip } from '../../lib/tooltip/tip.svelte'
 
   const s = $derived(app.state)
+  const surface = $derived(surfaceOf(s, app.library))
+  const shift = $derived(ui.shift || surface.shift)
   const beats = $derived(clock.beats)
-  const pads = $derived(s.pads.pads)
-  const top = $derived(pads.filter((p) => p.note < 112))
-  const bottom = $derived(pads.filter((p) => p.note >= 112))
+  const top = $derived(s.pads.pads.filter((p) => p.note < 112))
+  const bottom = $derived(s.pads.pads.filter((p) => p.note >= 112))
   const pageIndex = $derived(PAD_PAGES.findIndex((p) => p.id === s.pads.page))
-  const near = $derived(neighbours(app.library, s.library.position))
 
-  /** Page identity colours (src/launchkey.rs: white, cyan, magenta). */
+  /** Page identity colours for the tabs (src/launchkey.rs: white, cyan, magenta). */
   const PAGE_RGB: Record<PadPage, Rgb> = { sections: [100, 100, 100], chordSetup: [0, 100, 127], otsParts: [127, 0, 70] }
-  const WHITE: Rgb = [100, 100, 100]
-  const lit = (rgb: Rgb, on: boolean) => ({ rgb, level: on ? ('bright' as const) : ('off' as const), anim: 'solid' as const })
-
+  const cssRgb = (c: Rgb) => `rgb(${c.map((x) => Math.round((x / 127) * 255)).join(' ')})`
   const press = (p: Pad) => p.action && app.send(p.action)
-  const pageRgb = $derived(PAGE_RGB[s.pads.page])
-  const left = $derived(s.keyboardParts[3])
 </script>
 
 <section class="wrap" aria-label="Launchkey">
@@ -59,7 +55,7 @@
             role="tab"
             class="pagetab"
             aria-selected={p.id === s.pads.page}
-            style:--page={`rgb(${PAGE_RGB[p.id].map((c) => Math.round((c / 127) * 255)).join(' ')})`}
+            style:--page={cssRgb(PAGE_RGB[p.id])}
             use:tip={p.id === 'sections' ? 'padpage.sections' : p.id === 'chordSetup' ? 'padpage.chord_setup' : 'padpage.ots_parts'}
             onclick={() => app.send({ type: 'setPadPage', page: p.id })}
           >
@@ -71,37 +67,20 @@
     </div>
 
     <div class="left-controls">
-      <HwButton tip="launchkey.shift" pressed={ui.shift} caption="Shift" onclick={() => (ui.shiftLatched = !ui.shiftLatched)}>
+      <HwButton tip="launchkey.shift" pressed={shift} caption="Shift" label="Shift" onclick={() => (ui.shiftLatched = !ui.shiftLatched)}>
         <span class="icon">⇧</span>
       </HwButton>
       <div class="track">
-        <HwButton tip="style.prev" led={lit(WHITE, !!near.prev)} {beats} label="Previous style" caption={near.prev?.name ?? ''} onclick={() => app.send({ type: 'stepStyle', delta: -1 })}>
-          <span class="icon">◀</span>
-        </HwButton>
-        <HwButton tip="style.next" led={lit(WHITE, !!near.next)} {beats} label="Next style" caption={near.next?.name ?? ''} onclick={() => app.send({ type: 'stepStyle', delta: 1 })}>
-          <span class="icon">▶</span>
-        </HwButton>
+        <Control {surface} id="trackPrev" legend="◀" caption={surface.trackPrev ?? ''} />
+        <Control {surface} id="trackNext" legend="▶" caption={surface.trackNext ?? ''} />
       </div>
       <span class="engraved track-label">Track</span>
     </div>
 
     <div class="padbank" role="group" aria-label="Pad Bank">
-      {#if ui.shift}
-        <HwButton tip="part.left.on" led={lit(pageRgb, left?.on ?? false)} {beats} label="Shift + Pad Bank up: Left on/off" shape="square" onclick={() => app.send({ type: 'togglePart', part: 3 })}>
-          <span class="shift-fn">Left</span>
-        </HwButton>
-        <HwButton tip="ots.link" led={lit(pageRgb, s.ots.link)} {beats} label="Shift + Pad Bank down: OTS Link" shape="square" onclick={() => app.send({ type: 'toggleOtsLink' })}>
-          <span class="shift-fn">Link</span>
-        </HwButton>
-      {:else}
-        <HwButton tip="padpage.prev" led={lit(pageRgb, pageIndex > 0)} {beats} label="Pad Bank up" shape="square" onclick={() => pageIndex > 0 && app.send({ type: 'setPadPage', page: PAD_PAGES[pageIndex - 1].id })}>
-          <span class="icon">▲</span>
-        </HwButton>
-        <HwButton tip="padpage.next" led={lit(pageRgb, pageIndex < 2)} {beats} label="Pad Bank down" shape="square" onclick={() => pageIndex < 2 && app.send({ type: 'setPadPage', page: PAD_PAGES[pageIndex + 1].id })}>
-          <span class="icon">▼</span>
-        </HwButton>
-      {/if}
-      <span class="engraved page-num" style:color={`rgb(${pageRgb.map((c) => Math.round((c / 127) * 255)).join(' ')})`}>{pageIndex + 1}</span>
+      <Control {surface} id="padBankUp" legend="▲" shape="square" />
+      <Control {surface} id="padBankDown" legend="▼" shape="square" />
+      <span class="engraved page-num" style:color={cssRgb(PAGE_RGB[s.pads.page])}>{pageIndex + 1}</span>
     </div>
 
     <div class="pads mat-well" role="group" aria-label="Pads: page {pageIndex + 1}, {s.pads.pageName}">
@@ -109,31 +88,21 @@
       {#each bottom as p (p.note)}<HwPad pad={p} {beats} onpress={press} />{/each}
     </div>
 
-    <div class="side" role="group" aria-label="Tempo">
-      <HwButton tip={tipFor({ type: 'tempoUp' })} label="Scene Launch: tempo up" shape="square" onclick={() => app.send({ type: 'tempoUp' })}>
-        <span class="icon">+</span>
-      </HwButton>
-      <HwButton tip={tipFor({ type: 'tempoDown' })} label="Function: tempo down" shape="square" onclick={() => app.send({ type: 'tempoDown' })}>
-        <span class="icon">−</span>
-      </HwButton>
-      <span class="engraved">Tempo</span>
+    <div class="side" role="group" aria-label="Scene Launch and Function">
+      <Control {surface} id="scene" legend="›" shape="square" caption={surface.controls.find((c) => c.id === 'scene')?.label} />
+      <Control {surface} id="function" legend="•" shape="square" caption={surface.controls.find((c) => c.id === 'function')?.label} />
     </div>
 
     <div class="transport" role="group" aria-label="Transport">
-      <HwButton tip="transport.stop" label="Stop" shape="square" onclick={() => app.send({ type: 'stop' })}>
-        <span class="icon">■</span>
-      </HwButton>
-      <HwButton tip="transport.start_stop" label="Play" shape="square" led={lit([0, 127, 0], s.transport.running)} {beats} onclick={() => app.send({ type: 'startStop' })}>
-        <span class="icon">▶</span>
-      </HwButton>
-      <span class="engraved">Transport</span>
+      <Control {surface} id="stop" legend="■" shape="square" caption="Stop" />
+      <Control {surface} id="play" legend="▶" shape="square" caption="Play" />
     </div>
 
     <div class="faders">
       <div class="fader-head">
         <span class="engraved">Faders · {s.mixer.faderPage === 'panel' ? 'Panel: your parts' : 'Style: the band'}</span>
       </div>
-      <div class="fader-body"><FaderBank /></div>
+      <div class="fader-body"><FaderBank {surface} /></div>
     </div>
   </div>
 </section>
@@ -255,9 +224,7 @@
   .transport {
     grid-area: transport;
   }
-  .padbank .engraved,
-  .side .engraved,
-  .transport .engraved {
+  .padbank .engraved {
     text-align: center;
   }
   .page-num {
@@ -289,10 +256,6 @@
   .icon {
     font-size: 1.05em;
     line-height: 1;
-  }
-  .shift-fn {
-    font-size: 0.72em;
-    color: var(--accent);
   }
 
   /* Narrow windows: the fader bank moves under the pads. */

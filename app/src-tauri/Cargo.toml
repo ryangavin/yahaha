@@ -8,7 +8,7 @@ edition = "2024"
 rust-version = "1.85"
 
 # A separate package, not part of the engine's build: `cargo build` at the repo root
-# doesn't build it. Build it with `cargo tauri build` from app/.
+# doesn't build it, and it has its own lock file. Build it with `cargo tauri build` from app/.
 [workspace]
 
 [lib]
@@ -22,3 +22,5 @@ tauri-build = { version = "2.5.3", features = [] }
 serde_json = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 tauri = { version = "2.9.5", features = [] }
+# The engine library alone (no terminal UI): Session, AppCmd, AppState.
+yahaha = { path = "../..", default-features = false }

@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { MockSession, LIBRARY } from '../../lib/api/mock'
 import { app, ui } from '../../lib/store.svelte'
 import Launchkey from './Launchkey.svelte'
-import { neighbours } from './neighbours'
+import { neighbours } from '../../lib/surface'
 
 function setup(page?: 'chordSetup' | 'otsParts') {
   const session = new MockSession({ manual: true, demo: true })
@@ -92,5 +92,28 @@ describe('Launchkey mirror', () => {
     expect(n.next?.name).toBe(LIBRARY.entries[1].name)
     expect(n.prev?.status).toBe('ok')
     expect(document.body.textContent).toContain(n.next!.name)
+  })
+
+  it('renders buttons from state.surface when the engine sends it (nothing hard-coded)', () => {
+    const session = new MockSession({ manual: true, demo: true })
+    const st = structuredClone(session.state)
+    const scene = st.surface!.controls.find((c) => c.id === 'scene')!
+    scene.label = 'Fill Up'
+    scene.action = { type: 'main', index: 2 }
+    app.attach({ kind: 'mock', subscribe: (fn) => (fn(st), () => {}), send: (c) => session.send(c), library: () => session.library(), dispose: () => {} })
+    flushSync()
+    render(Launchkey)
+    expect(document.body.textContent).toContain('Fill Up')
+    const btn = document.querySelector<HTMLButtonElement>('button[aria-label="Fill Up"]')!
+    expect(btn.dataset.tip).toBe('section.main_c')
+    btn.click()
+    expect(session.state.transport.queued).toBe('Main C')
+  })
+
+  it('marks where the hardware fader is while a level waits for it', () => {
+    const { session } = setup()
+    session.send({ type: 'toggleFaderPage' })
+    flushSync()
+    expect(document.querySelectorAll('.hw').length).toBeGreaterThan(0)
   })
 })

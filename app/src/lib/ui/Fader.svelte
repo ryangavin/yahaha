@@ -16,6 +16,7 @@
     label,
     onchange,
     pickup = false,
+    hw = null,
     lit = true,
     disabled = false,
     max = 127,
@@ -26,6 +27,8 @@
     label: string
     onchange: (v: number) => void
     pickup?: boolean
+    /** Where the hardware fader physically is (0–127), when known: marked while waiting. */
+    hw?: number | null
     /** Dim the readout when the part is off or muted. */
     lit?: boolean
     disabled?: boolean
@@ -101,6 +104,9 @@
   >
     <div class="ticks" aria-hidden="true"></div>
     <div class="slot mat-well" bind:this={slot}></div>
+    {#if pickup && hw !== null && !disabled}
+      <div class="hw-rail" aria-hidden="true"><div class="hw" style:transform="translateY({(1 - Math.max(0, Math.min(max, hw)) / max) * 100}%)"></div></div>
+    {/if}
     <div class="cap-rail">
       <div class="carrier" style:transform="translateY({(1 - frac) * 100}%)"><div class="cap mat-raised"></div></div>
     </div>
@@ -204,6 +210,31 @@
       linear-gradient(180deg, transparent calc(50% - 1px), var(--ink) calc(50% - 1px) calc(50% + 1px), transparent calc(50% + 1px)),
       repeating-linear-gradient(180deg, rgb(255 255 255 / 0.1) 0 1px, transparent 1px 3px),
       linear-gradient(180deg, var(--raised-hi), var(--raised-lo));
+  }
+  /* The hardware fader's position while this level waits for it: a ghost cap outline. */
+  .hw-rail {
+    position: absolute;
+    left: 0.2em;
+    right: 0.2em;
+    top: 0;
+    bottom: 1.1em;
+    pointer-events: none;
+  }
+  .hw {
+    position: absolute;
+    inset: 0;
+    will-change: transform;
+  }
+  .hw::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 0;
+    height: 1.1em;
+    border: 1px dashed var(--accent);
+    border-radius: 3px;
+    opacity: 0.8;
   }
   .disabled .cap {
     opacity: 0.35;

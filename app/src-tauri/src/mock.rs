@@ -1,10 +1,14 @@
-//! A mock session for the app shell until #16's engine `Session` is wired in. It speaks
-//! the same API (`api.rs`) and behaves like `app/src/lib/api/mock.ts` (the browser-only
+//! A mock session for the app shell, for running without MIDI or styles (`YAHAHA_MOCK=1`,
+//! or when the engine can't start). It builds the engine's own `AppState` types
+//! (yahaha::api) and behaves like `app/src/lib/api/mock.ts` (the browser-only
 //! dev mock), from the same fixture: the band advances bar by bar, queued sections take
 //! over at the bar (fills at the beat), chords change, faders wait for pickup. No audio,
 //! no MIDI.
 
-use crate::api::*;
+use yahaha::api::*;
+use yahaha::fingering::Fingering;
+use yahaha::launchkey::{Anim, Level, Page};
+use yahaha::parts::FaderPage;
 
 const FIXTURE: &str = include_str!("../../src/lib/api/mock-fixture.json");
 const ROOT: &str = "/Users/me/Styles";
