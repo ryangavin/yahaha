@@ -15,7 +15,9 @@
 //! - `YAHAHA_SF2=file.sf2`: the synth's SoundFont; else the first `.sf2` in the repo's
 //!   `soundfonts/`, else no synth.
 //!
-//! If the engine can't start (no CoreMIDI, say), the shell falls back to the mock.
+//! If the engine can't start (no CoreMIDI, say), the shell falls back to the mock, which then
+//! reports an offline session with no Launchkey and the reason in the status line.
+//! On exit the engine is stopped, which puts the Launchkey back in standalone mode.
 
 pub mod mock;
 
@@ -135,22 +137,36 @@ fn backend() -> Backend {
     };
     if paths.is_empty() {
         eprintln!("yahaha: no styles (set YAHAHA_STYLES); running the mock session");
-        return Backend::Mock(Box::new(Mutex::new(MockSession::new())));
+        return Backend::Mock(Box::new(Mutex::new(MockSession::fallback(
+            "No styles found (set YAHAHA_STYLES): a demo band with no sound or MIDI",
+        ))));
     }
     let sf2 = std::env::var_os("YAHAHA_SF2").map(PathBuf::from).or_else(|| first_sf2(&repo_root().join("soundfonts")));
     match yahaha::Session::start(yahaha::Options { paths, sf2, ..yahaha::Options::default() }) {
         Ok(s) => Backend::Live(s),
         Err(e) => {
             eprintln!("yahaha: the engine didn't start ({e:#}); running the mock session");
-            Backend::Mock(Box::new(Mutex::new(MockSession::new())))
+            Backend::Mock(Box::new(Mutex::new(MockSession::fallback(format!(
+                "The engine didn't start ({e:#}): a demo band with no sound or MIDI"
+            )))))
         }
+    }
+}
+
+/// Stop the engine: the band stops, the Launchkey's lights go off and it leaves DAW mode
+/// (back to standalone), audio and MIDI close. Idempotent. Run on app exit: Tauri ends
+/// the process with `exit()`, and the event thread holds a clone of the `Arc`, so
+/// `Session`'s `Drop` never runs on its own.
+fn shutdown(backend: &Backend) {
+    if let Backend::Live(s) = backend {
+        s.stop();
     }
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let shared: Shared = Arc::new(backend());
-    tauri::Builder::default()
+    let app = tauri::Builder::default()
         .manage(shared)
         .setup(|app| {
             let handle = app.handle().clone();
@@ -162,6 +178,48 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![send, state, library])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application");
+    app.run(|app, event| {
+        if let tauri::RunEvent::Exit = event {
+            shutdown(&app.state::<Shared>());
+        }
+    });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The Launchkey goes back to standalone on exit: `shutdown` stops a live session (its
+    /// subscribers get `Stopped`, which also ends the event-forwarding thread).
+    #[test]
+    fn shutdown_stops_a_live_session() {
+        let style = repo_root().join("corpus/MOX_v2");
+        let Some(path) = std::fs::read_dir(&style).ok().and_then(|d| d.filter_map(|e| e.ok()).map(|e| e.path()).find(|p| p.is_file()))
+        else {
+            eprintln!("corpus missing; skipping");
+            return;
+        };
+        let s = yahaha::Session::offline(yahaha::Options { paths: vec![path], ..yahaha::Options::default() }).unwrap();
+        let events = s.subscribe();
+        let backend: Shared = Arc::new(Backend::Live(s));
+        let held = backend.clone(); // as the event thread holds it
+        shutdown(&backend);
+        assert!(events.try_iter().any(|e| e == yahaha::Event::Stopped));
+        shutdown(&held); // idempotent
+    }
+
+    /// When the engine can't start, the stand-in mock doesn't pass for a working rig.
+    #[test]
+    fn the_fallback_mock_says_it_is_not_the_engine() {
+        let m = MockSession::fallback("The engine didn't start (no CoreMIDI)");
+        let v = serde_json::to_value(&m.state).unwrap();
+        assert_eq!(v["io"]["offline"], true);
+        assert_eq!(v["pads"]["connected"], false);
+        assert!(v["io"]["synth"].is_null());
+        assert!(v["message"]["text"].as_str().unwrap().contains("didn't start"));
+        let normal = serde_json::to_value(&MockSession::new().state).unwrap();
+        assert_eq!(normal["pads"]["connected"], true, "YAHAHA_MOCK=1 keeps the demo rig");
+    }
 }

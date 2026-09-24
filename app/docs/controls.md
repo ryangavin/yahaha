@@ -27,7 +27,7 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | **Main B** | Switches to Main B at the next bar; the lamp flashes while queued. Press the Main that is playing to play its fill, which also flashes. | MAIN VARIATION B | `2` | Pad page 1 (Sections), bottom row, pad 2 |
 | **Main C** | Switches to Main C at the next bar; the lamp flashes while queued. Press the Main that is playing to play its fill, which also flashes. | MAIN VARIATION C | `3` | Pad page 1 (Sections), bottom row, pad 3 |
 | **Main D** | Switches to Main D at the next bar; the lamp flashes while queued. Press the Main that is playing to play its fill, which also flashes. | MAIN VARIATION D | `4` | Pad page 1 (Sections), bottom row, pad 4 |
-| **Break** | Plays a one-bar break at the next bar, then goes back to the Main. | BREAK | `G` | Pad page 1 (Sections), bottom row, pad 5 |
+| **Break** | Plays the break from the next beat to the end of the bar, then goes back to the Main. The lamp flashes while it waits for the beat. | BREAK | `G` | Pad page 1 (Sections), bottom row, pad 5 |
 | **Ending I** | Plays Ending I from the next bar, then stops the band. | ENDING/rit. I | `I` | Pad page 1 (Sections), top row, pad 5 |
 | **Ending II** | Plays Ending II from the next bar, then stops the band. | ENDING/rit. II | `O` | Pad page 1 (Sections), top row, pad 6 |
 | **Ending III** | Plays Ending III from the next bar, then stops the band. Dark if the style has none. | ENDING/rit. III | `P` | Pad page 1 (Sections), top row, pad 7 |

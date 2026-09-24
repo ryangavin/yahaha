@@ -248,6 +248,19 @@ impl MockSession {
         m
     }
 
+    /// The mock standing in for an engine that didn't start: it says so (an offline
+    /// session, no Launchkey, no synth, and the reason in the status line) instead of
+    /// passing for a connected rig.
+    pub fn fallback(reason: impl Into<String>) -> MockSession {
+        let mut m = MockSession::new();
+        m.state.io.offline = true;
+        m.state.io.inputs.clear();
+        m.state.io.synth = None;
+        m.state.pads.connected = false;
+        m.message(reason, true);
+        m
+    }
+
     pub fn library(&self) -> &LibraryList {
         &self.library
     }

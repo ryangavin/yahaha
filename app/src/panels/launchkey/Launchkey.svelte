@@ -1,14 +1,15 @@
 <!--
   The hardware mirror: the Launchkey 49/61 MK4 control surface, laid out like the real one
-  so a glance maps 1:1 onto the controls under your hands (MK4 User Guide, "The surface in
-  DAW mode"; CCs in src/launchkey.rs).
+  so a glance maps 1:1 onto the controls under your hands (MK4 User Guide pp. 9–11,
+  "Launchkey 49 hardware overview": faders left of the screen, transport right of the
+  pads; CCs in src/launchkey.rs).
 
-   ┌────────────────────────────────────────────────────────────────────────┬──────────────┐
-   │ [ status display: style · tempo · bar/beat │ CHORD │ fingering · split ] │ 8 faders   M │
-   │ (pad page tabs)                                                         │              │
-   │ [Shift] [◀ Track ▶]  ▲ [ 8 pads, top row    ] Scene›  Stop              │              │
-   │                      ▼ [ 8 pads, bottom row ] Func    Play              │ 8 buttons  M │
-   └────────────────────────────────────────────────────────────────────────┴──────────────┘
+   ┌──────────────┬────────────────────────────────────────────────────────────────────────┐
+   │ 8 faders   M │ [ status display: style · tempo · bar/beat │ CHORD │ fingering · split ] │
+   │              │ (pad page tabs)                                                         │
+   │              │ [Shift] [◀ Track ▶]  ▲ [ 8 pads, top row    ] Scene›  Stop              │
+   │ 8 buttons  M │                      ▼ [ 8 pads, bottom row ] Func    Play              │
+   └──────────────┴────────────────────────────────────────────────────────────────────────┘
 
   Every element shows its function on the current pad/fader page and Shift layer, has a
   tooltip from the catalog, and clicking it sends exactly what the hardware sends. The
@@ -43,6 +44,14 @@
   <div class="device mat-chassis">
     <span class="screw tl" aria-hidden="true"></span>
     <span class="screw tr" aria-hidden="true"></span>
+
+    <!-- Left of the screen, as on the hardware (and first in tab order). -->
+    <div class="faders">
+      <div class="fader-head">
+        <span class="engraved">Faders · {s.mixer.faderPage === 'panel' ? 'Panel: your parts' : 'Style: the band'}</span>
+      </div>
+      <div class="fader-body"><FaderBank {surface} /></div>
+    </div>
 
     <div class="screen-area"><StatusDisplay /></div>
 
@@ -97,13 +106,6 @@
       <Control {surface} id="stop" legend="■" shape="square" caption="Stop" />
       <Control {surface} id="play" legend="▶" shape="square" caption="Play" />
     </div>
-
-    <div class="faders">
-      <div class="fader-head">
-        <span class="engraved">Faders · {s.mixer.faderPage === 'panel' ? 'Panel: your parts' : 'Style: the band'}</span>
-      </div>
-      <div class="fader-body"><FaderBank {surface} /></div>
-    </div>
   </div>
 </section>
 
@@ -117,12 +119,12 @@
     font-size: var(--u);
     position: relative;
     display: grid;
-    grid-template-columns: 11.5em 3.3em minmax(0, 1fr) 3.6em 3.6em 30em;
+    grid-template-columns: 30em 11.5em 3.3em minmax(0, 1fr) 3.6em 3.6em;
     grid-template-rows: 9.5em auto auto;
     grid-template-areas:
-      'screen screen screen screen screen faders'
-      'pagebar pagebar pagebar pagebar pagebar faders'
-      'left padbank pads side transport faders';
+      'faders screen screen screen screen screen'
+      'faders pagebar pagebar pagebar pagebar pagebar'
+      'faders left padbank pads side transport';
     column-gap: 1em;
     row-gap: 0.9em;
     padding: 1.3em 1.5em 1.2em;
@@ -245,9 +247,9 @@
     display: grid;
     grid-template-rows: auto 1fr;
     gap: 0.4em;
-    padding-left: 1em;
-    border-left: 1px solid var(--seam);
-    box-shadow: inset 1px 0 0 rgb(255 255 255 / 0.04);
+    padding-right: 1em;
+    border-right: 1px solid var(--seam);
+    box-shadow: 1px 0 0 rgb(255 255 255 / 0.04);
     min-width: 0;
   }
   .fader-body {
@@ -287,8 +289,9 @@
       width: 4em;
     }
     .faders {
-      padding-left: 0;
-      border-left: none;
+      padding-right: 0;
+      border-right: none;
+      box-shadow: none;
       height: 20em;
     }
   }

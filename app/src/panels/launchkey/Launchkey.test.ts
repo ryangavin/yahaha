@@ -32,6 +32,14 @@ describe('Launchkey mirror', () => {
     expect(pad(115).dataset.level).toBe('off') // this style has no Main D
   })
 
+  it('reads left to right like the hardware: faders, then the pads, then the transport', () => {
+    setup()
+    const before = (a: string, b: string) =>
+      !!(document.querySelector(a)!.compareDocumentPosition(document.querySelector(b)!) & Node.DOCUMENT_POSITION_FOLLOWING)
+    expect(before('[aria-label="Faders"]', '.pads')).toBe(true)
+    expect(before('.pads', '[aria-label="Transport"]')).toBe(true)
+  })
+
   it('follows the pad page', () => {
     const { session } = setup()
     session.send({ type: 'setPadPage', page: 'otsParts' })

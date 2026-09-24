@@ -76,6 +76,9 @@
     border-radius: inherit;
     box-shadow: 0 0 1.1em 0.15em var(--led);
     opacity: calc(var(--b) * 0.75);
+    /* Its own layer: a pulsing pad then fades a cached blur instead of re-rastering it
+       every frame (software raster ran at ~38 fps without this, 60 with it). */
+    will-change: opacity;
     pointer-events: none;
   }
   /* The backlit rubber: brightest in the middle, like a diffused LED. */

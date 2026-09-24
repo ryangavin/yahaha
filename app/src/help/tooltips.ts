@@ -136,7 +136,7 @@ const catalog = {
   },
   'section.break': {
     title: 'Break',
-    body: 'Plays a one-bar break at the next bar, then goes back to the Main.',
+    body: 'Plays the break from the next beat to the end of the bar, then goes back to the Main. The lamp flashes while it waits for the beat.',
     genos: 'BREAK',
     keys: ['g'],
     launchkey: pad(P1, 'bottom', 5),
