@@ -198,6 +198,12 @@ impl Engine {
     fn loop_chord(&mut self, c: Chord, now: u64, sink: &mut impl Sink) {
         if self.played != Some(c) {
             self.apply_chord(c, now, sink);
+            // A recorded chord change is exact, never rolled, and comes in `process`,
+            // after the wake's inputs: it settles at once, before the notes of its own
+            // tick, instead of holding them back for the chord-settle window (settle.rs).
+            if self.running {
+                self.settle(now, sink);
+            }
         }
     }
 
@@ -395,6 +401,55 @@ mod tests {
         assert_eq!(e.played, Some(c("Bb")));
         assert_eq!(e.looper_snapshot().state, LoopState::Off);
         assert!(e.looper_snapshot().has_data);
+    }
+
+    /// A loop's chord changes are not held back by the chord-settle window (they are
+    /// exact, never rolled): with a 10 ms window the loop plays exactly the notes it plays
+    /// with none, when they are due.
+    #[test]
+    fn a_loop_is_not_delayed_by_the_chord_settle_window() {
+        #[derive(Default)]
+        struct Ons(Vec<(u64, u8, u8)>, u64);
+        impl Sink for Ons {
+            fn send(&mut self, m: &[u8]) {
+                if m[0] & 0xF0 == 0x90 && m[2] > 0 {
+                    self.0.push((self.1, m[0] & 15, m[1]));
+                }
+            }
+        }
+        let play = |settle: u64| {
+            let mut e = engine()?;
+            e.set_chord_settle(settle);
+            let bar = e.ns_at_bar(1);
+            let mut s = Ons::default();
+            let chords = [(0, "C"), (2 * bar, "F"), (2 * bar + bar / 2, "G")];
+            let mut now = 0;
+            while now < 7 * bar {
+                if now == bar / 3 {
+                    e.looper_rec();
+                }
+                if now == 3 * bar - bar / 4 {
+                    e.looper_on_off();
+                }
+                s.1 = now;
+                for &(t, n) in &chords {
+                    if t == now {
+                        e.set_chord(c(n), now, &mut s);
+                    }
+                }
+                e.process(now, &mut s);
+                // Wake at every deadline, and at the script's times.
+                let marks = [bar / 3, 3 * bar - bar / 4, 2 * bar, 2 * bar + bar / 2, 7 * bar];
+                let next = marks.iter().copied().filter(|&t| t > now).chain(e.next_deadline()).min().unwrap();
+                now = next.max(now + 1);
+            }
+            assert_eq!(e.looper_snapshot().state, LoopState::Looping);
+            Some(s.0.into_iter().filter(|o| o.0 >= 3 * bar).collect::<Vec<_>>())
+        };
+        let Some(none) = play(0) else { return };
+        let window = play(10_000_000).unwrap();
+        assert!(none.len() > 50, "{} notes", none.len());
+        assert_eq!(window, none, "the loop's notes, window or not");
     }
 
     /// REC/STOP while stopped turns Sync Start on; cancelling the recording before it
