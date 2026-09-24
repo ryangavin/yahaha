@@ -34,6 +34,9 @@ pub(super) struct MidiIo {
     pub(super) daw: Option<(midi::Endpoint, String)>,
     /// The output port the Launchkey LEDs go out through (None with `--no-pads`).
     pub(super) leds_port: Option<midi::OutPort>,
+    /// The Launchkey DAW destination the LEDs (and the DAW-mode message) last went to:
+    /// None until it is online after the DAW port connected (session/devices.rs).
+    pub(super) leds_dest: Option<midi::Endpoint>,
     /// `--no-pads`: leave the Launchkey DAW port alone.
     pub(super) no_pads: bool,
     /// The MIDI setup generation last followed (`midi::setup_generation`,

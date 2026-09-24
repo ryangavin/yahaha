@@ -592,7 +592,7 @@ impl Session {
 
         let port = client.input_port("yahaha in", p.input)?;
         let leds_port = if opts.no_pads { None } else { Some(client.output_port("yahaha leds")?) };
-        p.control.midi = Some(MidiIo { port, slots: Default::default(), daw: None, leds_port, no_pads: opts.no_pads, setup_gen: midi::setup_generation() });
+        p.control.midi = Some(MidiIo { port, slots: Default::default(), daw: None, leds_port, leds_dest: None, no_pads: opts.no_pads, setup_gen: midi::setup_generation() });
         p.control.connect_pads();
         p.control.connect_inputs();
         p.control.sources_ns = rt::now_ns();

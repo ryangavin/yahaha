@@ -48,6 +48,20 @@ pub(super) fn daw_change(have: Option<Endpoint>, now: Option<Endpoint>) -> DawCh
     }
 }
 
+/// The LEDs' DAW destination: from the one they last went to (`have`) and the one
+/// online now, while yahaha drives the DAW port (`driving`): the destination they go to
+/// from now, and the one to open (DAW mode, every LED) now, if any.
+pub(super) fn leds_change(driving: bool, have: Option<Endpoint>, now: Option<Endpoint>) -> (Option<Endpoint>, Option<Endpoint>) {
+    if !driving {
+        return (None, None);
+    }
+    match daw_change(have, now) {
+        DawChange::Same => (have, None),
+        DawChange::Gone => (None, None),
+        DawChange::Came(d) => (Some(d), Some(d)),
+    }
+}
+
 impl Control {
     /// Live: follow the MIDI setup when CoreMIDI says it changed, and every 2 s.
     pub(super) fn pump_devices(&mut self, now: u64) {
@@ -87,17 +101,33 @@ impl Control {
                 if m.port.connect(e, TAG_PADS).is_ok() {
                     m.daw = online;
                     self.pads_connected = true;
-                    self.open_leds();
+                    // A Launchkey (back) in: DAW mode and every LED again, below.
+                    m.leds_dest = None;
                 }
             }
         }
+        self.follow_leds();
     }
 
-    /// Put the Launchkey into DAW mode through its DAW destination, and have every LED
-    /// sent again (a Launchkey plugged back in has them dark).
-    fn open_leds(&mut self) {
+    /// While yahaha drives the DAW port: put the Launchkey into DAW mode through its DAW
+    /// destination, and have every LED sent again, when that destination comes online (a
+    /// Launchkey plugged back in starts standalone, with its LEDs dark). The destination
+    /// can come online after the source: then it happens at the pump that sees it (a
+    /// setup change, or the 2 s poll), not never.
+    fn follow_leds(&mut self) {
+        let Some(m) = self.midi.as_mut() else { return };
+        let driving = m.daw.is_some() && m.leds_port.is_some();
+        let dest = if driving { midi::online_destinations().into_iter().find(|(_, n)| super::is_daw(n)).map(|d| d.0) } else { None };
+        let (have, open) = leds_change(driving, m.leds_dest, dest);
+        m.leds_dest = have;
+        if let Some(d) = open {
+            self.open_leds(d);
+        }
+    }
+
+    /// DAW mode and every LED again, through DAW destination `d`.
+    fn open_leds(&mut self, d: Endpoint) {
         let Some(port) = self.midi.as_ref().and_then(|m| m.leds_port) else { return };
-        let Some((d, _)) = midi::online_destinations().into_iter().find(|(_, n)| super::is_daw(n)) else { return };
         let mut out = PacketSink::new(Target::Port(port, d));
         out.push(&launchkey::ENTER_DAW);
         out.flush();
@@ -124,5 +154,23 @@ mod tests {
         assert_eq!(daw_change(None, Some(7)), DawChange::Came(7));
         // Another Launchkey port in its place.
         assert_eq!(daw_change(Some(7), Some(9)), DawChange::Came(9));
+    }
+
+    /// Review of #101, N2: the DAW destination comes online after the DAW source. The pump
+    /// that connects the source finds no destination; a later pump that sees it opens it
+    /// (DAW mode, every LED), once.
+    #[test]
+    fn a_late_daw_destination_is_opened_when_it_comes() {
+        // Source connected (connect_pads clears `have`), destination not online yet.
+        assert_eq!(leds_change(true, None, None), (None, None));
+        // It comes online: opened.
+        assert_eq!(leds_change(true, None, Some(5)), (Some(5), Some(5)));
+        // And not again while it stays.
+        assert_eq!(leds_change(true, Some(5), Some(5)), (Some(5), None));
+        // It goes, and comes back: opened again.
+        assert_eq!(leds_change(true, Some(5), None), (None, None));
+        assert_eq!(leds_change(true, None, Some(5)), (Some(5), Some(5)));
+        // Not driving the DAW port (unplugged, --no-pads): nothing.
+        assert_eq!(leds_change(false, Some(5), Some(5)), (None, None));
     }
 }
