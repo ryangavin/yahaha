@@ -465,3 +465,23 @@ fn a_plugin_patch_auditions_on_channel_16() {
     assert!(s.send(SoundLibraryCmd::AuditionPatch { id }).is_err(), "not while the band plays");
     assert_eq!(ch16(&s), None);
 }
+
+/// The live overrun readout counts the last 10 one-second readings of the running total.
+#[test]
+fn recent_overruns_cover_the_last_ten_seconds() {
+    use super::imp::{OverrunWindow, OVERRUN_WINDOW_SECS};
+    let mut w = OverrunWindow::starting_at(5);
+    assert_eq!(w.count(), 0, "overruns before this instance's window don't count");
+    w.tick(8);
+    assert_eq!(w.count(), 3);
+    w.tick(8);
+    w.tick(9);
+    assert_eq!(w.count(), 4);
+    // Ten quiet seconds later the readout is back to 0.
+    for _ in 0..OVERRUN_WINDOW_SECS {
+        w.tick(9);
+    }
+    assert_eq!(w.count(), 0);
+    w.tick(9 + u64::from(u32::MAX) + 10);
+    assert_eq!(w.count(), u32::MAX, "saturates");
+}

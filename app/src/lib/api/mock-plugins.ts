@@ -16,6 +16,9 @@ export const MOCK_PLUGINS: PluginEntry[] = [
 /** The mock plugin the system won't host out of process: it loads in process instead. */
 export const MOCK_FALLBACK_ID = 'aumu Tiny Demo'
 
+/** The mock plugin that plays heavy: a high CPU share and a few slow renders. */
+export const MOCK_HEAVY_ID = 'aumu samp appl'
+
 export function initialPlugins(): PluginsState {
   return { available: true, scanning: false, list: MOCK_PLUGINS.map((p) => ({ ...p })) }
 }
@@ -54,6 +57,7 @@ export class MockPlugins {
           inProcessFallback: false,
           cpu: 0,
           overruns: 0,
+          recentOverruns: 0,
           editor: false,
         }
         this.loading[cmd.part & 3] = 0
@@ -106,7 +110,8 @@ export class MockPlugins {
           }
           p.status = 'playing'
           p.editor = true
-          p.cpu = 0.012
+          p.cpu = p.id === MOCK_HEAVY_ID ? 0.31 : 0.012
+          if (p.id === MOCK_HEAVY_ID) p.overruns = p.recentOverruns = 4
         }
       }
     })

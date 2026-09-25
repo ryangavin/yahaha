@@ -7,7 +7,7 @@ import { app } from '../../lib/store.svelte'
 import Launchkey from '../launchkey/Launchkey.svelte'
 import Parts from './Parts.svelte'
 import { layerText, leftZone, pluginPickValue, pluginStatusLine } from './parts'
-import { pluginBadge } from '../mixer/voice'
+import { pluginBadge, pluginTip } from '../mixer/voice'
 
 function setup(demo = true) {
   const session = new MockSession({ manual: true, demo })
@@ -177,6 +177,21 @@ describe('plugin picker', () => {
     s.send({ type: 'setPartPlugin', part: 0, id: 'aumu dls  appl', state: null })
     s.advance(1000)
     expect(pluginPickValue(s.state.keyboardParts[0].plugin)).toBe('aumu dls  appl')
+  })
+
+  it('the mixer badge reads out the plugin\'s CPU and its slow renders of the last 10 s', () => {
+    const s = new MockSession({ manual: true, demo: false })
+    s.send({ type: 'setPartPlugin', part: 0, id: 'aumu dls  appl', state: null })
+    s.send({ type: 'setPartPlugin', part: 1, id: 'aumu samp appl', state: null })
+    s.advance(1000)
+    const light = s.state.keyboardParts[0].plugin!
+    expect(pluginBadge(light)).toBe('Plugin · 1% CPU')
+    expect(pluginTip(light)).toBe('mixer.plugin')
+    const heavy = s.state.keyboardParts[1].plugin!
+    expect(pluginBadge(heavy)).toBe('4 slow · 31% CPU')
+    expect(pluginTip(heavy)).toBe('mixer.plugin_overruns')
+    heavy.recentOverruns = 0
+    expect(pluginBadge(heavy)).toBe('Plugin · 31% CPU')
   })
 
   it('a plugin that fell back to loading in process says so, in the part and on the mixer badge', () => {

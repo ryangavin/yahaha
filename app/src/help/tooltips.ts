@@ -820,7 +820,14 @@ const catalog = {
   },
   'mixer.plugin': {
     title: 'Plugin part',
-    body: 'This part plays an instrument plugin, shown with its share of the CPU. Its fader is still the part\'s CC 7, applied to the plugin\'s output.',
+    body: 'This part plays an instrument plugin, shown with its share of one CPU core, updated every second. Its fader is still the part\'s CC 7, applied to the plugin\'s output.',
+    genos: null,
+    keys: [],
+    launchkey: null,
+  },
+  'mixer.plugin_overruns': {
+    title: 'Plugin running slow',
+    body: '"N slow" counts the plugin\'s renders in the last 10 seconds that took more than half the audio buffer, the first sign of crackles. Raise Settings › Audio › Buffer size to give it more time, or use a lighter plugin or preset.',
     genos: null,
     keys: [],
     launchkey: null,
