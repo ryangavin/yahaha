@@ -173,6 +173,8 @@ impl Engine {
         if self.manual_bass && dest == BASS_CH {
             return;
         }
+        // Style Dynamics Control (dynamics.rs).
+        let vel = self.dynamics_vel(vel);
         let pitch = self.master(dest, out);
         // A part a pitch shift left bent is straightened once it has fallen silent.
         if self.rtr_bend[dest as usize & 15] != 0 && !self.sounding.iter().any(|s| s.active && s.dest == dest) {

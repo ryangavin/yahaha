@@ -158,6 +158,15 @@ impl Input {
         let note = self.process(k, note);
         let now = self.sound(k, note, full);
         self.track_key(slot, k, r, now);
+        // Dynamics Touch / Accent: the engine hears each strike in the chord section (not
+        // while the Chord Looper loops: then there is no chord section).
+        if chord
+            && self.shared.strikes.load(Relaxed)
+            && !self.shared.looping.load(Relaxed)
+            && self.cmd.push(Cmd::Strike(vel)).is_ok()
+        {
+            self.signal = true;
+        }
         // The Full Keyboard types (Lower only) read both hands.
         if chord || full {
             self.recompute();

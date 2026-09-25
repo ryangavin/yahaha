@@ -5,7 +5,7 @@
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
-use yahaha::engine::{Button, Engine, PadCmd, Prepared, StyleControls, StyleSettings, Transpose, PAD_PPQ};
+use yahaha::engine::{Button, DynamicsSettings, Engine, PadCmd, Prepared, StyleControls, StyleSettings, Transpose, PAD_PPQ};
 use yahaha::live::{self, Audition, Cmd, EngineLoop, FxConfig, FxKey, FxMode, Out, PadBank, Shared};
 use yahaha::multipad::{file::parse, synthetic, MultiPadPlayer};
 use yahaha::rt::{PacketSink, Target};
@@ -59,7 +59,7 @@ fn prep(name: &str) -> Option<Box<Prepared>> {
 
 #[test]
 fn preview_and_next_bar_style_change_do_not_allocate() {
-    let (Some(a), Some(b), Some(c)) = (prep("SlowWalker.T552.sty"), prep("TickingAway.T162.sty"), prep("CoolRevibed.T552.sty")) else {
+    let (Some(a), Some(b), Some(c), Some(d)) = (prep("SlowWalker.T552.sty"), prep("TickingAway.T162.sty"), prep("CoolRevibed.T552.sty"), prep("SlowWalker.T552.sty")) else {
         eprintln!("corpus missing; skipping");
         return;
     };
@@ -116,7 +116,13 @@ fn preview_and_next_bar_style_change_do_not_allocate() {
     l.step(now + 1);
     ch.ui_tx.push(Cmd::Button(Button::SectionReset)).ok().unwrap();
     l.step(now + 2);
-    now += 2;
+    // An Ending queued with a style change waiting for it, then a Section Reset (#174).
+    ch.ui_tx.push(Cmd::Button(Button::Ending(0))).ok().unwrap();
+    ch.style_tx.push(d).ok().unwrap();
+    l.step(now + 3);
+    ch.ui_tx.push(Cmd::Button(Button::SectionReset)).ok().unwrap();
+    l.step(now + 4);
+    now += 4;
     // Controllers: a bend range, a part switched on under a held pedal, Fill Up, KeysOff
     // and Panic (the pedal reset).
     shared.controllers.set_bend_range(0, 9);
@@ -302,7 +308,8 @@ fn run(l: &mut EngineLoop, now: &mut u64, until: u64) {
 }
 
 /// The Chord Looper (record, loop, a memory at the bar line), the metronome's clicks,
-/// solos and Style Track Mute run on the engine thread too.
+/// solos, Style Track Mute and Style Dynamics (Touch, an Accent fill) run on the engine
+/// thread too.
 #[test]
 fn looper_metronome_and_solo_do_not_allocate() {
     let _one = count_here();
@@ -327,6 +334,7 @@ fn looper_metronome_and_solo_do_not_allocate() {
     let (allocs, frees) = (ALLOCS.load(Ordering::Relaxed), FREES.load(Ordering::Relaxed));
     let mut now = 1_000;
     ch.ui_tx.push(Cmd::Metronome { on: true, bell: true }).ok().unwrap();
+    ch.ui_tx.push(Cmd::Dynamics(DynamicsSettings { touch: true, accent: true, ..DynamicsSettings::default() })).ok().unwrap();
     ch.ui_tx.push(Cmd::Looper(true)).ok().unwrap();
     l.step(now);
     // Stopped, REC arms Sync Start: this chord starts the band and the recording.
@@ -336,12 +344,16 @@ fn looper_metronome_and_solo_do_not_allocate() {
     run(&mut l, &mut now, t0 + bar + bar / 2);
     shared.chord.store(chord("F").pack(2), Ordering::Release);
     run(&mut l, &mut now, t0 + 2 * bar - bar / 4);
+    ch.input_tx.push(Cmd::Strike(40)).ok().unwrap();
+    run(&mut l, &mut now, t0 + 2 * bar - bar / 8);
     ch.ui_tx.push(Cmd::Looper(false)).ok().unwrap();
     ch.ui_tx.push(Cmd::StyleSolo(Some(2))).ok().unwrap();
     run(&mut l, &mut now, t0 + 4 * bar + bar / 2);
     ch.looper_tx.push(memory).ok().unwrap();
     ch.ui_tx.push(Cmd::StyleSolo(None)).ok().unwrap();
     ch.ui_tx.push(Cmd::StyleParts(0b0000_1010)).ok().unwrap();
+    run(&mut l, &mut now, t0 + 5 * bar + bar / 3);
+    ch.input_tx.push(Cmd::Strike(127)).ok().unwrap();
     run(&mut l, &mut now, t0 + 7 * bar);
     ch.ui_tx.push(Cmd::Button(Button::StartStop)).ok().unwrap();
     l.step(now + 1);
@@ -351,6 +363,8 @@ fn looper_metronome_and_solo_do_not_allocate() {
 
     let snaps: Vec<_> = std::iter::from_fn(|| ch.snap_rx.pop().ok()).collect();
     assert!(snaps.iter().any(|s| s.looper.state == LoopState::Recording));
+    assert!(snaps.iter().any(|s| s.dynamics == 4), "Touch set the level");
+    assert!(snaps.iter().any(|s| matches!(s.cur, Some(yahaha::sff::SectionId::Fill(_)))), "the Accent fill played");
     assert!(snaps.iter().any(|s| s.looper.state == LoopState::Looping && s.style_solo == Some(2)));
     assert!(snaps.iter().any(|s| s.looper.state == LoopState::Looping && s.played == Some(chord("A"))), "the memory took over");
     let rec = ch.recorded_rx.pop().expect("the recording came back");

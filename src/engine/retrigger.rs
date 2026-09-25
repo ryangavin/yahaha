@@ -3,7 +3,8 @@
 //!
 //! - **Section Reset**: the section starts again from its first beat at the tap; the bar
 //!   grid moves with it: a change queued for a bar line waits for the new grid's next
-//!   one, a fill for its next beat.
+//!   one, a fill for its next beat. A style change waiting for an Ending (playing or
+//!   queued) waits for that Ending's new end.
 //! - **Retrigger**: while on, each chord played in a Main restarts the Main at the chord,
 //!   and from then on only its head plays, `4 / rate` beats long (a whole note .. a 32nd),
 //!   repeating, until a section change, a style change or Retrigger goes off (then the
@@ -118,8 +119,15 @@ impl Engine {
                 Queued { at: at + tpb, sec_start: at + tpb, ..*q }
             };
         }
+        // A style change waits for an Ending, playing or queued (#118, #174): for its new
+        // end, so the Ending plays out in the old style; else the new grid's next bar line.
+        let style_at = match self.queued_ending_end() {
+            Some(end) => end,
+            None if matches!(id_of(self.cur), SectionId::Ending(_)) => self.section_end().0,
+            None => at + tpb,
+        };
         if let Some(p) = self.pending.as_mut() {
-            p.at = at + tpb;
+            p.at = style_at;
         }
     }
 
