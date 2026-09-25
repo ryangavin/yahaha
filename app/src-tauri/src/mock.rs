@@ -417,7 +417,18 @@ impl MockSession {
         match self.sounds.cmd(&self.state, c) {
             Err(e) => self.message(e, true),
             Ok(sounds::Then::Nothing) => {}
-            Ok(sounds::Then::Run(cmds)) => cmds.into_iter().for_each(|c| self.cmd(c)),
+            Ok(sounds::Then::Run(cmds)) => {
+                for c in cmds {
+                    // A preset from the synth's own font (the part's GM voice) ends a
+                    // plugin picked for the part, as a SoundFont patch does.
+                    if let AppCmd::Parts(PartsCmd::SetPartVoice { part, .. }) = &c
+                        && self.sound.own_plugin(*part as usize)
+                    {
+                        self.state.keyboard_parts[(*part & 3) as usize].plugin = None;
+                    }
+                    self.cmd(c);
+                }
+            }
             Ok(sounds::Then::AddThenAssign(add, part)) => {
                 self.cmd(add);
                 self.derive();
@@ -2050,6 +2061,21 @@ mod tests {
         m.send(SoundLibraryCmd::SetPartPatch { part: 0, id: Some("keys-au".into()) });
         m.send(PartsCmd::SetPartVoice { part: 0, program: 0 });
         assert_eq!(r1(&m), (None, None), "a GM voice ends the plugin patch");
+    }
+
+    /// A SoundFont sound from the Sound Browser ends a plugin picked for the part: a
+    /// preset from the synth's own font, another font's and a saved one (#171 review).
+    #[test]
+    fn a_soundfont_sound_from_the_browser_ends_a_picked_plugin() {
+        let mut m = MockSession::new();
+        let plugin = |m: &MockSession, p: usize| m.state.keyboard_parts[p].plugin.as_ref().map(|x| x.id.clone());
+        for (part, id) in [(0u8, "sf:GeneralUser-GS.sf2:0:0"), (1, "sf:FluidR3_GM.sf2:0:48"), (2, "saved:stage-grand")] {
+            m.send(SoundsCmd::AssignSound { part, id: "au:aumu dls  appl".into() });
+            assert_eq!(plugin(&m, part as usize).as_deref(), Some("aumu dls  appl"));
+            m.send(SoundsCmd::AssignSound { part, id: id.into() });
+            assert_eq!(plugin(&m, part as usize), None, "{id} ends the plugin");
+        }
+        assert_eq!(m.state.keyboard_parts[0].patch, None, "the synth's own preset is the GM voice");
     }
 
     /// The sound catalog (#117): every preset, plugin and saved sound; assigning routes
