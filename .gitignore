@@ -4,3 +4,4 @@ target/
 docs/manuals/
 tests/golden/local/
 /.claude/worktrees/
+.DS_Store
