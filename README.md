@@ -42,6 +42,7 @@ Every `.sf2` file in `soundfonts/` is a source of sounds. The built-in synth's d
 Options:
 - `--soundfonts DIR` uses another SoundFont folder.
 - `--audio-out N` sends the synth to outputs N/N+1.
+- `--buffer 64|128|256` sets the synth's audio buffer in frames (default 64, or the size last chosen in Settings › Audio). Heavy plugins may need 128 or 256.
 - `--no-synth` turns the synth off, leaving MIDI out only.
 - `--palette-leds` uses the Launchkey's built-in palette colours instead of RGB SysEx.
 - `--split C3` moves the split point. You can also use `[` and `]` while playing.

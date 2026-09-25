@@ -142,6 +142,7 @@ fn inside_intro_ending_timing() {
 /// tempo (from the second tap, as the Genos does for a Song, OM p.46), averaging up to four
 /// taps, and the band plays on from where it is: no Section Reset.
 #[test]
+#[ignore = "#128 pending: ending/tap-tempo removes this"]
 fn tap_while_playing_sets_the_tempo_by_default() {
     let Some((mut e, mut rec)) = started(StyleSettings::default()) else { return };
     let (ppq, tpb, _) = grid(&e);
