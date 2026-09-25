@@ -156,8 +156,8 @@ Style Section Reset, the Fade In/Out times and the Style Retrigger length. The s
 |---|---|---|
 | `setPartOn` / `togglePart` | `part` 0–3, `on` | Turns a part on or off. Left is refused while Manual Bass is in effect, with a `Failed` error and a message. |
 | `selectPart` | `part` | The part that `stepVoice` and the Launchkey voice pads edit. |
-| `setPartVoice` | `part`, `program` 0–127 | GM program. |
-| `stepVoice` | `delta` | Previous or next voice for the selected part. |
+| `setPartVoice` | `part`, `program` 0–127 | GM program. Selecting a voice replaces the part's voice: a plugin picked for the part (`setPartPlugin`) ends and is no longer saved, and its library patch goes (with a plugin that patch plays). |
+| `stepVoice` | `delta` | Previous or next voice for the selected part. Like `setPartVoice`, it ends a plugin picked for the part. |
 | `setPartVolume` | `part`, `volume` 0–127 | The part's CC7. The Launchkey fader has to reach it before it takes over. |
 | `setPartOctave` | `part`, `octave` −2..2 | Octave shift. |
 | `setPartSolo` | `part` 0–3 or null | Solos a keyboard part: only it sounds from the keys, even if it is switched off (Left soloed plays the left hand; another part soloed plays the whole keyboard when Left is not sounding). `null` ends it. The switches are not changed (`mixer.partSolo`). |
@@ -191,7 +191,7 @@ Style Section Reset, the Fade In/Out times and the Style Retrigger length. The s
 
 | Command | Fields | Does |
 |---|---|---|
-| `recallOts` | `index` 0–3 | Recalls OTS 1–4 into the keyboard parts. Ignored if the style has no such OTS. |
+| `recallOts` | `index` 0–3 | Recalls OTS 1–4 into the keyboard parts. A part the OTS gives a voice ends a plugin picked for it, as `setPartVoice` does. Ignored if the style has no such OTS. |
 | `setOtsLink` / `toggleOtsLink` | `on` | OTS Link: Main A–D recall OTS 1–4, and so does a style change. |
 | `setOtsLinkTiming` | `timing`: `immediate` \| `mainChange` | OTS Link Timing: during playback, recall the Main's OTS as it is pressed (`immediate`), or when that Main starts playing (`mainChange`, the default: at its change point, or after its fill; never while the old section still plays). Stopped, both recall at once. A style change recalls the new style's OTS when that style takes over (the bar line or beat Section Change Timing gives, or the end of an Ending), under both. |
 | `loadStyle` | `id` | A library entry (`LibraryEntry.id`). Stopped, it loads at once. Playing, it takes over at the next bar line, as on a Genos: the band carries on in the same section (the same Main, or the nearest the new style has) at the same bar position, at the same tempo. Until then `preview.queued` names it and `style` is still the old one. A later style change before the bar line replaces it; stopping first loads it then. |
