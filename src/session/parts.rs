@@ -35,6 +35,17 @@ impl Control {
                 self.wake_engine();
             }
             PartsCmd::SetPartOctave { part, octave } => parts.octave[(part & 3) as usize].store(octave.clamp(-2, 2), Relaxed),
+            // The engine thread sends it as the part's CC, to the port and the synth.
+            PartsCmd::SetPartPan { part, pan } => {
+                parts.set_fx((part & 3) as usize, [Some(pan), None, None]);
+                self.wake_engine();
+            }
+            PartsCmd::SetPartSend { part, send, value } => {
+                let mut fx = [None; 3];
+                fx[send.index()] = Some(value);
+                parts.set_fx((part & 3) as usize, fx);
+                self.wake_engine();
+            }
         }
         Ok(())
     }
@@ -69,6 +80,9 @@ impl Control {
                     voice_name: plays.unwrap_or_else(|| gm_name(kp.channel_program(p)).to_string()),
                     plays_bass,
                     octave: kp.octave[p].load(Relaxed).clamp(-2, 2),
+                    pan: kp.fx(p)[parts::PAN],
+                    reverb: kp.fx(p)[parts::REVERB],
+                    chorus: kp.fx(p)[parts::CHORUS],
                     fader: v.fader_hw[p],
                     plugin: self.channel_plugin_state(parts::CHANNEL[p]),
                     patch,

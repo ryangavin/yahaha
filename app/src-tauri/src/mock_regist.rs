@@ -308,6 +308,21 @@ impl MockRegist {
                     self.recall(b, st, false, &mut fx);
                 }
             }
+            // Regist +/- from a pedal: the sequence while it is on and programmed, else the
+            // next/previous stored button (as the session).
+            RegistrationCmd::StepRegist { delta } => {
+                if self.seq_on && !self.bank.sequence.steps.is_empty() {
+                    return self.registration_cmd(RegistrationCmd::StepRegistSequence { delta }, st);
+                }
+                let stored = self.bank.memories.iter().enumerate().filter(|(_, m)| m.is_some()).fold(0u16, |a, (i, _)| a | 1 << i);
+                if stored == 0 {
+                    fx.push(Effect::Message("no Registration stored in this bank".into(), true));
+                    return fx;
+                }
+                if let Some(b) = yahaha::registration::step_stored(stored, self.selected, delta) {
+                    self.recall(b, st, true, &mut fx);
+                }
+            }
         }
         fx
     }

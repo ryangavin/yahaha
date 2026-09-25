@@ -161,6 +161,8 @@ Style Section Reset, the Fade In/Out times and the Style Retrigger length. The s
 | `stepVoice` | `delta` | Previous or next voice for the selected part. Like `setPartVoice`, it ends a plugin picked for the part. |
 | `setPartVolume` | `part`, `volume` 0–127 | The part's CC7. The Launchkey fader has to reach it before it takes over. |
 | `setPartOctave` | `part`, `octave` −2..2 | Octave shift. |
+| `setPartPan` | `part`, `pan` 0–127 | The part's pan (CC10; 64 = centre), sent on its channel to the MIDI port and the synth. |
+| `setPartSend` | `part`, `send`: `reverb` \| `chorus`, `value` 0–127 | The part's reverb (CC91) or chorus (CC93) send depth. |
 | `setPartSolo` | `part` 0–3 or null | Solos a keyboard part: only it sounds from the keys, even if it is switched off (Left soloed plays the left hand; another part soloed plays the whole keyboard when Left is not sounding). `null` ends it. The switches are not changed (`mixer.partSolo`). |
 
 ### Mixer, Launchkey pages, synth
@@ -258,6 +260,7 @@ Buttons are 0-based (`index` 0–9 = the panel's [1]–[10]). Groups are `style`
 | `setRegistSequence` | `steps` (buttons 0–9), `end`: `stop` \| `top` \| `next` | Programs the bank's Registration Sequence. |
 | `setRegistSequenceOn` / `toggleRegistSequence` | `on` | Registration Sequence on/off. A panel setting, not part of the bank (as on the Genos): it stays when the bank changes, and is kept in the Registration folder's `setup.json`. |
 | `stepRegistSequence` | `delta` | Regist +/−: recalls the next/previous step. Past the end: `stop` stays, `top` wraps, `next` loads the next bank and recalls its first step. Refused while the sequence is off. |
+| `stepRegist` | `delta` | Regist +/− from a pedal (the `registNext`/`registPrev` assignable functions): the sequence's next/previous step while it is on and has steps, else the bank's next/previous stored button (empty ones skipped; from none, + the first and − the last; it stops at either end). Refused when the bank has nothing stored. |
 
 ### Playlist
 
@@ -551,6 +554,8 @@ Indices are 0-based unless a field says otherwise.
 | `voiceName` | string | What its channel plays: its own patch's name, the patch its GM voice maps to, or the GM voice. For Left under Manual Bass, that is the Style's Bass voice. |
 | `playsBass` | bool | Left is playing the bass (Manual Bass). |
 | `octave` | −2..2 | The octave setting. It is not applied while `playsBass` is true. |
+| `pan` | 0–127 | Pan (CC10): 0 left, 64 centre, 127 right. 64 until something sets it (`setPartPan`, a library patch, an OTS). |
+| `reverb`, `chorus` | 0–127 | Reverb and chorus send depth (CC91, CC93). 40 and 0 (the GM power-on values) until something sets them (`setPartSend`, a library patch, an OTS). |
 | `fader` | 0–127? | Where its Launchkey fader (Panel page, faders 1–4) physically is, as last reported. Null until that fader moves. |
 | `plugin` | PartPlugin? | The instrument plugin the part plays instead of its SoundFont voice. The key is absent when there is none. `id`, `name`, `manufacturer`, `status` (`loading` \| `playing` \| `failed` \| `muted`: still on the SoundFont, or the previous plugin, while loading; on the SoundFont after a failed load, keeping the choice so it is saved and can be retried; silent after the plugin crashed or produced bad audio), `stage` (while loading: `queued`, `instantiating`, `initializing`, `restoringState`), `error`, `outOfProcess` (runs in its own process), `inProcessFallback` (the system refused to host it in its own process, so it loaded in yahaha's process instead: a crash in it takes yahaha down; the app shows a warning badge), `cpu` (share of real time, updated once a second), `overruns` (renders slower than half the buffer, since it loaded), `recentOverruns` (those in the last 10 seconds, updated once a second: the live readout the mixer badge shows; a larger `setAudioBuffer` gives the plugin more time), `editor` (its window can be opened). Its volume is still `volume` (CC7), and its pan is CC10; the host applies both to the plugin's output. |
 | `patch` | string? | Its own sound library patch (`setPartPatch`). Null: its GM voice plays, through the program map; `voiceName` then names the patch the map sends it to, if any. |
@@ -1112,6 +1117,9 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
       "voiceName": "Square Lead",
       "playsBass": false,
       "octave": -1,
+      "pan": 64,
+      "reverb": 40,
+      "chorus": 0,
       "plugin": {
         "id": "aumu dls  appl",
         "name": "DLSMusicDevice",
@@ -1141,6 +1149,9 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
       "voiceName": "Halo Pad",
       "playsBass": false,
       "octave": 0,
+      "pan": 64,
+      "reverb": 40,
+      "chorus": 0,
       "patch": null
     },
     {
@@ -1156,6 +1167,9 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
       "voiceName": "Halo Pad",
       "playsBass": false,
       "octave": 0,
+      "pan": 64,
+      "reverb": 40,
+      "chorus": 0,
       "patch": null
     },
     {
@@ -1171,6 +1185,9 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
       "voiceName": "Choir Aahs",
       "playsBass": false,
       "octave": 1,
+      "pan": 64,
+      "reverb": 40,
+      "chorus": 0,
       "patch": null
     }
   ],

@@ -325,6 +325,22 @@ impl Bank {
     }
 }
 
+/// Regist +/- without a sequence (`RegistrationCmd::StepRegist`): the next (`delta` > 0) or
+/// previous button in `stored` (a `Bank::stored_mask`) after `from` (None: none recalled
+/// yet, so + is the first stored button and - the last). None at either end, or with
+/// nothing stored.
+pub fn step_stored(stored: u16, from: Option<u8>, delta: i8) -> Option<u8> {
+    let has = |b: usize| stored >> b & 1 != 0;
+    match (delta.signum(), from.map(usize::from)) {
+        (1, None) => (0..BUTTONS).find(|&b| has(b)),
+        (1, Some(f)) => (f + 1..BUTTONS).find(|&b| has(b)),
+        (-1, None) => (0..BUTTONS).rev().find(|&b| has(b)),
+        (-1, Some(f)) => (0..f.min(BUTTONS)).rev().find(|&b| has(b)),
+        _ => None,
+    }
+    .map(|b| b as u8)
+}
+
 /// The bank files in `dir`, sorted by name (the Registration Bank Selection display's
 /// order; REGIST BANK -/+ and the sequence's "Next" follow it).
 pub fn list_banks(dir: &Path) -> Vec<PathBuf> {
@@ -419,6 +435,20 @@ pub(crate) fn write_atomic(path: &Path, text: &str) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn regist_plus_minus_without_a_sequence_steps_the_stored_buttons() {
+        let stored = 1 << 1 | 1 << 4 | 1 << 7;
+        assert_eq!(step_stored(stored, None, 1), Some(1), "+ from none: the first stored");
+        assert_eq!(step_stored(stored, None, -1), Some(7), "- from none: the last stored");
+        assert_eq!(step_stored(stored, Some(1), 1), Some(4), "empty buttons are skipped");
+        assert_eq!(step_stored(stored, Some(4), -1), Some(1));
+        assert_eq!(step_stored(stored, Some(2), 1), Some(4), "from an empty button too");
+        assert_eq!(step_stored(stored, Some(7), 1), None, "it stops at the end");
+        assert_eq!(step_stored(stored, Some(1), -1), None, "and at the start");
+        assert_eq!(step_stored(stored, Some(4), 0), None);
+        assert_eq!(step_stored(0, None, 1), None);
+    }
 
     #[test]
     fn groups_round_trip_as_a_list_and_skip_unknown() {

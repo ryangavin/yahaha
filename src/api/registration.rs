@@ -48,6 +48,10 @@ pub enum RegistrationCmd {
     ToggleRegistSequence,
     /// Regist +/- (`delta` 1 / -1): the next/previous step of the sequence.
     StepRegistSequence { delta: i8 },
+    /// Regist +/- from a pedal (`delta` 1 / -1; RM p.114 Pedal Control): the sequence's
+    /// next/previous step while it is on and has steps, else the bank's next/previous
+    /// stored button (from none: + the first, − the last; it stops at either end).
+    StepRegist { delta: i8 },
 }
 
 /// Registration Memory.

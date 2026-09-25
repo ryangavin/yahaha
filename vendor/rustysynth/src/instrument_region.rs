@@ -3,6 +3,7 @@
 use crate::error::SoundFontError;
 use crate::generator::Generator;
 use crate::generator_type::GeneratorType;
+use crate::modulator::Modulator;
 use crate::loop_mode::LoopMode;
 use crate::sample_header::SampleHeader;
 use crate::soundfont_math::SoundFontMath;
@@ -30,6 +31,9 @@ pub struct InstrumentRegion {
     pub(crate) sample_sample_rate: i32,
     pub(crate) sample_original_pitch: i32,
     pub(crate) sample_pitch_correction: i32,
+    // yahaha: the velocity -> filter cutoff modulators: the SF2 default, unless the
+    // zones replace it, plus the zones' own.
+    pub(crate) velocity_to_filter: Vec<Modulator>,
 }
 
 impl InstrumentRegion {
@@ -68,6 +72,10 @@ impl InstrumentRegion {
             set_parameter(&mut gs, generator);
         }
 
+        let mut velocity_to_filter = vec![Modulator::DEFAULT_VELOCITY_TO_FILTER];
+        Modulator::merge_velocity_to_filter(&mut velocity_to_filter, &global.modulators);
+        Modulator::merge_velocity_to_filter(&mut velocity_to_filter, &local.modulators);
+
         let sample_id = gs[GeneratorType::SAMPLE_ID as usize] as usize;
         if sample_id >= samples.len() {
             return Err(SoundFontError::InvalidSampleId {
@@ -86,6 +94,7 @@ impl InstrumentRegion {
             sample_sample_rate: sample.sample_rate,
             sample_original_pitch: sample.original_pitch as i32,
             sample_pitch_correction: sample.pitch_correction as i32,
+            velocity_to_filter,
         })
     }
 

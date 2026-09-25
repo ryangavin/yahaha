@@ -153,6 +153,7 @@ impl Rack {
     pub fn new(font: &Arc<SoundFont>, sample_rate: i32) -> Result<Rack> {
         let mut settings = SynthesizerSettings::new(sample_rate);
         settings.maximum_polyphony = 128;
+        settings.velocity_to_filter = velocity_to_filter();
         let band = Synthesizer::new(font, &settings).map_err(|e| anyhow!("{e:?}"))?;
         let player = Synthesizer::new(font, &settings).map_err(|e| anyhow!("{e:?}"))?;
         let mut r = Rack {
@@ -427,6 +428,49 @@ pub fn style_bass_program(voice: Option<(u8, u8, u8)>) -> u8 {
 /// come from each channel's CC7 (the mixer faders), CC11 and velocity alone, on the
 /// standard GM curves (rustysynth: gain = (vel/127)² · ((CC7/127)·(CC11/127))²).
 pub const MASTER_UNITY: u8 = 100;
+
+/// Whether a note's velocity lowers its filter cutoff, the SF2 default modulator the
+/// vendored rustysynth applies (#203): on, unless the environment has
+/// `YAHAHA_VEL_FILTER=off` (or `0`), which renders the old flat tone for A/B listening.
+/// Read when a rack is built, never on the audio thread.
+pub fn velocity_to_filter() -> bool {
+    std::env::var("YAHAHA_VEL_FILTER").map_or(true, |v| v != "off" && v != "0")
+}
+
+/// Render what the band sent (`(time ns, message)`, as `sim::record` gives it) through a
+/// rack on `sf2` into stereo at `sample_rate`, for `end_ns` plus two seconds of tails.
+/// Messages take effect at the start of the 64-frame block they fall in, as live. The
+/// output goes through the safety clipper at master unity. For listening tests
+/// (`yahaha render`); not the audio thread.
+pub fn render_offline(sf2: &Path, msgs: &[(u64, Vec<u8>)], end_ns: u64, sample_rate: u32) -> Result<(Vec<f32>, Vec<f32>)> {
+    const BLOCK: usize = 64;
+    let mut rack = Rack::load(sf2, sample_rate)?;
+    let peaks: [AtomicU32; 16] = Default::default();
+    let mut bank = [0u8; 16];
+    let frames = ((end_ns as f64 / 1e9 + 2.0) * sample_rate as f64) as usize;
+    let (mut left, mut right) = (vec![0f32; frames], vec![0f32; frames]);
+    let mut next = 0;
+    for start in (0..frames).step_by(BLOCK) {
+        let t = (start as f64 * 1e9 / sample_rate as f64) as u64;
+        while let Some((at, m)) = msgs.get(next)
+            && *at <= t
+        {
+            next += 1;
+            // Channel messages only (SysEx and the like don't reach the SoundFont live).
+            if m.is_empty() || m[0] < 0x80 || m[0] >= 0xF0 {
+                continue;
+            }
+            let msg: Msg = [m[0], m.get(1).copied().unwrap_or(0), m.get(2).copied().unwrap_or(0)];
+            apply_routed(&mut rack, &msg, &mut bank, None);
+        }
+        let end = (start + BLOCK).min(frames);
+        rack.render(&mut left[start..end], &mut right[start..end], &peaks, None);
+    }
+    for x in left.iter_mut().chain(right.iter_mut()) {
+        *x = soft_clip(*x);
+    }
+    Ok((left, right))
+}
 
 /// Output gain for a master fader value: linear, 1.0 at `MASTER_UNITY`.
 #[inline]

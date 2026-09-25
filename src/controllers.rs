@@ -180,6 +180,28 @@ pub enum Function {
     /// Style Dynamics Control (RM p.142, a foot controller "*" function): the pedal's
     /// position is the Dynamics level (engine/dynamics.rs, #180).
     DynamicsControl,
+    /// Regist + / Regist − (RM p.114, Pedal Control): the Registration Sequence's next /
+    /// previous step while the sequence is on and programmed, else the bank's next /
+    /// previous stored button (`RegistrationCmd::StepRegist`, #200).
+    RegistNext,
+    RegistPrev,
+    /// Regist 1-10 (RM p.141): the REGISTRATION MEMORY buttons.
+    Regist1,
+    Regist2,
+    Regist3,
+    Regist4,
+    Regist5,
+    Regist6,
+    Regist7,
+    Regist8,
+    Regist9,
+    Regist10,
+    /// The MEMORY button (RM p.141).
+    RegistMemory,
+    /// Freeze On/Off (RM p.141).
+    RegistFreeze,
+    /// Registration Sequence On/Off (RM p.141).
+    RegistSequence,
 }
 
 /// One row of the assignable-function table.
@@ -208,7 +230,7 @@ use Kind::*;
 /// The assignable functions, in `Function` order: the Genos live-play list (RM p.139-144)
 /// as far as yahaha has the feature. app/src/lib/api/assignable-functions.json is this table
 /// as the app reads it (a test keeps the two equal).
-pub const FUNCTIONS: [FunctionInfo; 49] = [
+pub const FUNCTIONS: [FunctionInfo; 64] = [
     f(Function::None, "No Assign", Overall, Trigger),
     f(Function::Sustain, "Sustain", Voice, Switch),
     f(Function::Sostenuto, "Sostenuto", Voice, Switch),
@@ -258,6 +280,21 @@ pub const FUNCTIONS: [FunctionInfo; 49] = [
     f(Function::ArpHold, "Arpeggio Hold", Voice, Switch),
     f(Function::SectionReset, "Style Section Reset", Style, Trigger),
     f(Function::DynamicsControl, "Dynamics Control", Style, Continuous),
+    f(Function::RegistNext, "Regist +", Registration, Trigger),
+    f(Function::RegistPrev, "Regist −", Registration, Trigger),
+    f(Function::Regist1, "Registration Memory 1", Registration, Trigger),
+    f(Function::Regist2, "Registration Memory 2", Registration, Trigger),
+    f(Function::Regist3, "Registration Memory 3", Registration, Trigger),
+    f(Function::Regist4, "Registration Memory 4", Registration, Trigger),
+    f(Function::Regist5, "Registration Memory 5", Registration, Trigger),
+    f(Function::Regist6, "Registration Memory 6", Registration, Trigger),
+    f(Function::Regist7, "Registration Memory 7", Registration, Trigger),
+    f(Function::Regist8, "Registration Memory 8", Registration, Trigger),
+    f(Function::Regist9, "Registration Memory 9", Registration, Trigger),
+    f(Function::Regist10, "Registration Memory 10", Registration, Trigger),
+    f(Function::RegistMemory, "Registration Memory", Registration, Trigger),
+    f(Function::RegistFreeze, "Registration Freeze On/Off", Registration, Trigger),
+    f(Function::RegistSequence, "Registration Sequence On/Off", Registration, Trigger),
 ];
 
 /// What running a function means, for the input thread.

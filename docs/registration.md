@@ -211,6 +211,10 @@ Sequence On/Off, never in a bank.
   ten lamps, Memory, Freeze, the sequence and the playlist. On macOS, F11 is Show Desktop
   by default: turn that shortcut off (System Settings › Keyboard › Keyboard Shortcuts ›
   Mission Control), or use the app's Registration bar / pad page 4 for Bank −.
+- **Pedals** (Settings › Pedals, docs/controllers.md): Regist +/−, Registration Memory
+  1–10, Registration Memory (MEMORY), Registration Bank +/−, Registration Freeze On/Off
+  and Registration Sequence On/Off. A Regist +/− pedal steps the sequence while it is on
+  and programmed, and otherwise the bank's stored buttons in order (`stepRegist`).
 - **App**: the Registration bar under the keyboard strip (bank, the ten buttons with their
   names, Memory, Freeze, the sequence, the playlist) and the Registration panel (Bank,
   Memory & Freeze, Sequence, Playlist pages).
@@ -231,6 +235,12 @@ Sequence On/Off, never in a bank.
 - **Recalling a button by hand** moves the sequence cursor to that button's next
   occurrence, so Regist + carries on from there.
 - **Sequence steps while it's off** are refused with a message (the Genos needs it On).
+- **A Regist +/− pedal with no sequence** (off, or no steps) steps through the bank's
+  stored buttons in order, skipping empty ones, and stops at the first and last (from no
+  button: + recalls the first, − the last). Because: the Genos drives a pedal through the
+  sequence (RM p.114, Pedal Control), and Genos firmware 1.40 starts a new sequence as
+  1–10 in order (a video, not the manual), so a pedal steps a song with no programming;
+  skipping empty buttons keeps a press from doing nothing on stage (#200).
 - **Sequence On/Off** is a panel setting, not part of the bank: it stays when the bank
   changes (so End = Next runs through every bank), and is kept in `setup.json`. Because:
   the Genos Data List (Regist Sequence) marks Sequence Data and Sequence End as
