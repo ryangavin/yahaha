@@ -168,6 +168,9 @@ impl Control {
         } else if let Some((file, bank, program)) = parse_preset_id(&id) {
             self.need_sound(&id)?;
             if self.sf_file.as_deref() == Some(file) && bank == 0 {
+                // The part's GM voice: it ends a plugin picked for the part, as a
+                // SoundFont patch does (`set_part_patch`).
+                self.end_picked_plugin(part as usize);
                 self.parts_cmd(PartsCmd::SetPartVoice { part, program })?;
             } else {
                 let patch = self.patch_for_sound(&id)?;

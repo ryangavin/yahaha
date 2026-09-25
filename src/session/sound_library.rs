@@ -692,13 +692,9 @@ impl Control {
         self.need_patch_or_none(&id)?;
         let patch = id.as_deref().and_then(|i| self.sound.lib.patch(i));
         let defaults = patch.map(|p| p.defaults);
-        // A SoundFont patch picked over a plugin from the Plugins tab ends that plugin: the
-        // part plays what was picked last. (A plugin patch replaces it on the channel.)
-        let sound_font = patch.is_some_and(|p| matches!(p.source, PatchSource::SoundFont { .. }));
-        let ch = parts::CHANNEL[part];
-        if sound_font && self.sound.part_plugin[part].is_none() && self.channel_plugin_state(ch).is_some() {
-            self.clear_channel_plugin(ch);
-            self.mark_plugins_dirty();
+        // A SoundFont patch ends a picked plugin. (A plugin patch replaces it on the channel.)
+        if patch.is_some_and(|p| matches!(p.source, PatchSource::SoundFont { .. })) {
+            self.end_picked_plugin(part);
         }
         self.sound.part_patch[part] = id;
         let kp = self.shared.parts.clone();
@@ -712,6 +708,20 @@ impl Control {
         }
         self.sound_library_changed();
         Ok(())
+    }
+
+    /// A SoundFont sound was picked for keyboard part `part` (a SoundFont patch, or a
+    /// preset in the Sound Browser): a plugin picked for it directly (the Sound Browser's
+    /// or the Plugins tab's) ends, and is no longer saved, so the part plays what was
+    /// picked last. The plugin is disposed off the audio thread, as `clearPartPlugin`'s
+    /// is. A plugin the part's own patch brought is the patch's to end
+    /// (`sync_part_plugins`).
+    pub(super) fn end_picked_plugin(&mut self, part: usize) {
+        let ch = parts::CHANNEL[part & 3];
+        if self.sound.part_plugin[part & 3].is_none() && self.channel_plugin_state(ch).is_some() {
+            self.clear_channel_plugin(ch);
+            self.mark_plugins_dirty();
+        }
     }
 
     /// Keyboard part `part`'s own patch: its id and name (Registration, #109).
