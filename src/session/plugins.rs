@@ -161,6 +161,8 @@ mod imp {
         /// `savePartPluginState`): an out-of-process plugin's state is an XPC round trip and
         /// a sampler's can be MBs, so the control thread never waits for one.
         pub(crate) state_reads: Vec<mpsc::Receiver<StateRead>>,
+        /// Plugins preloaded for the Registration bank's buttons (plugins/pool.rs).
+        pub(crate) warm: super::pool::WarmPool,
     }
 
     /// A plugin state read on a `plugin-state` thread.
@@ -203,7 +205,7 @@ mod imp {
     }
 
     impl Control {
-        fn plugin_ready(&self) -> Result<(), String> {
+        pub(crate) fn plugin_ready(&self) -> Result<(), String> {
             match &self.synth {
                 Some(s) if s.plugins.is_some() => Ok(()),
                 Some(_) => Err("the synth has no plugin rack".into()),
@@ -234,13 +236,11 @@ mod imp {
             if voice.state.as_ref().is_some_and(|s| s.len() > MAX_STATE_BYTES) {
                 return Err(format!("the plugin state is larger than {} MB", MAX_STATE_BYTES >> 20));
             }
-            let id = PluginId::parse(&voice.id).ok_or_else(|| format!("{:?} is not a plugin id", voice.id))?;
-            let host = self.plugins.host();
-            let info = host.info(&id).map_err(|e| format!("{e:#}"))?;
-            let mode = load_mode(&info);
-            let rate = self.synth.as_ref().map_or(48_000, |s| s.info.sample_rate) as f64;
-            let cfg = LoadConfig { sample_rate: rate, max_frames: crate::synth::PLUGIN_MAX_BLOCK as u32, state: voice.state.clone(), mode, timeout: Duration::from_secs(20) };
-            let load = host.load_async(&id, cfg).map_err(|e| format!("{e:#}"))?;
+            // A plugin preloaded for a Registration button plays at once; else it loads now.
+            let (info, mode, load) = match self.take_warm(&voice) {
+                Some(w) => (w.info, w.mode, w.load),
+                None => self.start_load(&voice)?,
+            };
             // What is in the rack now (playing, or muted by a fault) stays there until the
             // new one is ready: it keeps playing, and comes back if the new one fails. A
             // quick re-pick while loading keeps the one from before the first pick.
@@ -267,6 +267,23 @@ mod imp {
                 fell_back: false,
             });
             Ok(())
+        }
+
+        /// Start loading `voice` on a thread of its own, as a part plays it: Apple's units
+        /// and AUv3s as the system decides, third-party AUv2s out of process.
+        pub(crate) fn start_load(&mut self, voice: &PluginVoice) -> Result<(PluginInfo, LoadMode, LoadHandle), String> {
+            let id = PluginId::parse(&voice.id).ok_or_else(|| format!("{:?} is not a plugin id", voice.id))?;
+            let host = self.plugins.host();
+            let info = host.info(&id).map_err(|e| format!("{e:#}"))?;
+            let mode = load_mode(&info);
+            let cfg = LoadConfig { sample_rate: self.plugin_rate(), max_frames: crate::synth::PLUGIN_MAX_BLOCK as u32, state: voice.state.clone(), mode, timeout: Duration::from_secs(20) };
+            let load = host.load_async(&id, cfg).map_err(|e| format!("{e:#}"))?;
+            Ok((info, mode, load))
+        }
+
+        /// The rate plugins load at: the synth's.
+        pub(crate) fn plugin_rate(&self) -> f64 {
+            self.synth.as_ref().map_or(48_000, |s| s.info.sample_rate) as f64
         }
 
         /// Channel `ch` back to its SoundFont (a short fade out), cancelling a load.
@@ -459,6 +476,7 @@ mod imp {
             for ch in 0..16u8 {
                 self.pump_channel_load(ch);
             }
+            self.pump_warm();
             let events = match self.synth.as_mut().and_then(|s| s.plugins.as_mut()) {
                 Some(link) => link.poll(),
                 None => Vec::new(),
@@ -734,6 +752,7 @@ impl Control {
     pub(crate) fn plugin_state_reads_pending(&self) -> bool {
         false
     }
+    pub(crate) fn warm_plugins(&mut self, _want: Vec<PluginVoice>) {}
     pub(crate) fn plugins_list(&self) -> PluginsState {
         PluginsState::default()
     }
@@ -832,6 +851,10 @@ impl Control {
         }
     }
 }
+
+#[cfg(feature = "plugins")]
+#[path = "plugin_pool.rs"]
+pub(crate) mod pool;
 
 #[cfg(all(test, feature = "plugins"))]
 #[path = "plugins_tests.rs"]
