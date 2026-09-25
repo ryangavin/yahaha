@@ -163,7 +163,7 @@ The 8 encoders are the Genos LIVE CONTROL knobs, on Knob Assign pages. The **enc
 | **Shift + Play** | Section Reset: the section starts again from its top |
 | **Shift + Stop** | Fade In/Out: stopped, arm a fade in; playing, fade out and stop |
 | **Shift + > / Shift + Function** | Retrigger length shorter / longer |
-| buttons under faders 1–8 | Panel page: Right 1–3, Left on/off (Shift: edit that part's voice), button 5 Harmony/Arpeggio on/off, button 6 reload the edited part's plugin (red while it stopped or failed to load) · Style page: mute/unmute the style parts |
+| buttons under faders 1–8 | Panel page: Right 1–3, Left on/off (Shift: edit that part's voice), button 5 Harmony/Arpeggio on/off, button 6 reload the edited part's plugin (red while it stopped or failed to load), button 8 Chord Looper ON/OFF (Shift: REC/STOP; dim green = a loop to play, dim yellow = armed, green = looping, dim red / red = recording armed / recording) · Style page: mute/unmute the style parts |
 | button under the master fader | fader page Panel / Style |
 
 The last Launchkey note or CC that nothing is mapped to shows at the bottom of the screen, e.g. `unmapped CC 103 = 127`. If a button does nothing, that shows the number it really sends.

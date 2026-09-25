@@ -128,6 +128,9 @@ pub fn function_run(f: Function, fingering: crate::fingering::Fingering, ots_cou
             Function::RegistMemory => super::RegistrationCmd::ToggleRegistMemory.into(),
             Function::RegistFreeze => super::RegistrationCmd::ToggleFreeze.into(),
             Function::RegistSequence => super::RegistrationCmd::ToggleRegistSequence.into(),
+            // The CHORD LOOPER buttons (RM p.141).
+            Function::ChordLooperOnOff => super::LooperCmd::LooperOnOff.into(),
+            Function::ChordLooperRec => super::LooperCmd::LooperRec.into(),
             Function::TransposeUp => super::ChordCmd::StepTranspose { keyboard: 0, master: 1 }.into(),
             Function::TransposeDown => super::ChordCmd::StepTranspose { keyboard: 0, master: -1 }.into(),
             Function::Right1OnOff => super::PartsCmd::TogglePart { part: parts::RIGHT1 as u8 }.into(),

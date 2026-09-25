@@ -13,6 +13,7 @@ export const CATEGORY_NAMES: Record<AssignableFunction['category'], string> = {
   ots: 'One Touch Setting',
   registration: 'Registration',
   overall: 'Overall',
+  chordLooper: 'Chord Looper',
 }
 
 /** The table grouped for a picker, in the table's order. */
@@ -97,6 +98,8 @@ export function functionCmd(id: FunctionId, st: { fingering: Fingering }): AppCm
     registMemory: { type: 'toggleRegistMemory' },
     registFreeze: { type: 'toggleFreeze' },
     registSequence: { type: 'toggleRegistSequence' },
+    chordLooperOnOff: { type: 'looperOnOff' },
+    chordLooperRec: { type: 'looperRec' },
     fingeredOnBass: { type: 'setFingering', fingering: st.fingering === 'fingeredOnBass' ? 'fingered' : 'fingeredOnBass' },
     // The control-side switches: a press (a Toggle pedal, Try) switches them.
     kbdHarmonyArp: { type: 'toggleHarmonyArp' },
