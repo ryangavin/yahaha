@@ -6,9 +6,9 @@ bar 1  Intro A  [IntroA]@1.0000  C@1.0000
 
 bar 2  Main A  G7@1.0000
   ch10 Rhythm2 af772ce224003765
-  ch11 Bass    0148dd75a2b469d9
-  ch12 Chord1  58786160beb65e89
-  ch13 Chord2  bf00d40f61b2d622
+  ch11 Bass    ea24c622dcfef802
+  ch12 Chord1  0cc27bc8ddcb6b03
+  ch13 Chord2  5a437fb984d0a0c9
   ch15 Phrase1 94fe2056abc7cc6e
 
 bar 3  Main A  C@1.0000
@@ -21,22 +21,22 @@ bar 3  Main A  C@1.0000
 bar 4  Main A  Am@1.0000
   ch10 Rhythm2 af772ce224003765
   ch11 Bass    395575db3cd955c6
-  ch12 Chord1  812d7fa032604e2e
+  ch12 Chord1  26c33335c19d4632
   ch13 Chord2  d4d990f5e2f9bf2b
   ch15 Phrase1 94fe2056abc7cc6e
 
 bar 5  Main A  Dm7@1.0000
   ch10 Rhythm2 66b0d101551281f1
   ch11 Bass    5ae6c784da05e954
-  ch12 Chord1  47f1009f0c116deb
+  ch12 Chord1  bfef5d4f51256495
   ch13 Chord2  6d5e371fba2346be
   ch15 Phrase1 a01e636eac8456fc
 
 bar 6  Main A  G7@1.0000
   ch10 Rhythm2 af772ce224003765
-  ch11 Bass    0148dd75a2b469d9
-  ch12 Chord1  58786160beb65e89
-  ch13 Chord2  bf00d40f61b2d622
+  ch11 Bass    ea24c622dcfef802
+  ch12 Chord1  0cc27bc8ddcb6b03
+  ch13 Chord2  5a437fb984d0a0c9
   ch15 Phrase1 94fe2056abc7cc6e
 
 bar 7  Main A  Cmaj7@1.0000
@@ -49,7 +49,7 @@ bar 7  Main A  Cmaj7@1.0000
 bar 8  Main A  Am7@1.0000
   ch10 Rhythm2 af772ce224003765
   ch11 Bass    395575db3cd955c6
-  ch12 Chord1  18e7e0310463881b
+  ch12 Chord1  b3c2438da14a3041
   ch13 Chord2  93d6b302ad32f41b
   ch15 Phrase1 94fe2056abc7cc6e
 
@@ -62,9 +62,9 @@ bar 9  Main A  Fmaj7@1.0000
 
 bar 10  Main A  Fm6@1.0000
   ch10 Rhythm2 af772ce224003765
-  ch11 Bass    fee0a7d58be67427
-  ch12 Chord1  f16621b621d18983
-  ch13 Chord2  1c230ce2105b4dea
+  ch11 Bass    47c7e7563080f774
+  ch12 Chord1  51a16e3bf9234529
+  ch13 Chord2  b616c7a50cb6ef41
   ch15 Phrase1 94fe2056abc7cc6e
 
 bar 11  Main A  C/E@1.0000
@@ -77,22 +77,22 @@ bar 11  Main A  C/E@1.0000
 bar 12  Main A  Ebdim7@1.0000
   ch10 Rhythm2 af772ce224003765
   ch11 Bass    c4d6425c806110bb
-  ch12 Chord1  32c5cbc989d9fe22
+  ch12 Chord1  64f6b175644eb58e
   ch13 Chord2  c2acbd9099eb81b8
   ch15 Phrase1 94fe2056abc7cc6e
 
 bar 13  Main A  Dm7@1.0000  G7@3.0000
   ch10 Rhythm2 66b0d101551281f1
   ch11 Bass    ec5034ce15146002
-  ch12 Chord1  ff27ea12398b5ecd
+  ch12 Chord1  4dea6f6e2883c2ab
   ch13 Chord2  809dce1589743539
   ch15 Phrase1 a01e636eac8456fc
 
 bar 14  Main A > Fill In BB@4.0000  Caug@1.0000  [MainB]@3.1919
   ch10 Rhythm2 7d8a47d1254f3f34
-  ch11 Bass    717fb2574c4f9d2a
-  ch12 Chord1  f721bd87feffa88a
-  ch13 Chord2  de924b4bb2b6efc1
+  ch11 Bass    4e1f69c8a241ba7f
+  ch12 Chord1  4e5b73edd59b240f
+  ch13 Chord2  ee943fa1d674ca8a
   ch15 Phrase1 5d64ba7d42e709bf
 
 bar 15  Main B  Csus4@1.0000  C@3.0000
@@ -167,42 +167,42 @@ bar 24  Main B > Fill In CC@4.0000  Am@1.0000  [MainC]@3.1919
 bar 25  Main C  A7@1.0000
   ch10 Rhythm2 2491846e24201b68
   ch11 Bass    2993350a9dde4671
-  ch12 Chord1  1ba18b8209c34c78
+  ch12 Chord1  35b9246c4a0e0242
   ch13 Chord2  12cd215fac49b603
   ch15 Phrase1 6aed51355a1f0c73
 
 bar 26  Main C  D9@1.0000
   ch10 Rhythm2 9a4efa87979d9522
   ch11 Bass    c3587b284c4d88ad
-  ch12 Chord1  19fe55db74c2df7c
+  ch12 Chord1  64ab9883092b5111
   ch13 Chord2  2e9698cb91632482
   ch15 Phrase1 6aed51355a1f0c73
 
 bar 27  Main C  Gm@1.0000
   ch10 Rhythm2 2491846e24201b68
   ch11 Bass    3113b93aec2f7971
-  ch12 Chord1  8f86909cdd7c58c8
+  ch12 Chord1  d61565cb75c598ac
   ch13 Chord2  da71c6d5f3c80285
   ch15 Phrase1 a2d4fbe336dfe381
 
 bar 28  Main C  C7b9@1.0000
   ch10 Rhythm2 9a4efa87979d9522
   ch11 Bass    f8fff68abeca6bf1
-  ch12 Chord1  8d7dde4734cd9bbd
+  ch12 Chord1  a628a0862901630a
   ch13 Chord2  7d089669ceb7a7d1
   ch15 Phrase1 6aed51355a1f0c73
 
 bar 29  Main C  Fm@1.0000
   ch10 Rhythm2 2491846e24201b68
   ch11 Bass    da3e7fbb3069313d
-  ch12 Chord1  cf759787e307f256
+  ch12 Chord1  96743f5129078f2c
   ch13 Chord2  7268a89fc35d2ce5
   ch15 Phrase1 6aed51355a1f0c73
 
 bar 30  Main C  Bb13@1.0000
   ch10 Rhythm2 9a4efa87979d9522
   ch11 Bass    bfbf3b12e14fe4b9
-  ch12 Chord1  6fcc3d6e44b152d2
+  ch12 Chord1  d2ca453756b401e8
   ch13 Chord2  0d7110353bab87bb
   ch15 Phrase1 6aed51355a1f0c73
 
@@ -223,21 +223,21 @@ bar 32  Main C > Fill In DD@4.0000  Ab7#11@1.0000  [MainD]@3.1919
 bar 33  Main C  Dbmaj7@1.0000
   ch10 Rhythm2 2491846e24201b68
   ch11 Bass    a3be58cd4e3214d5
-  ch12 Chord1  ef869b8387f841b2
+  ch12 Chord1  660bebe975006f08
   ch13 Chord2  5cd30a5a854621bc
   ch15 Phrase1 6aed51355a1f0c73
 
 bar 34  Main C  CmMaj7@1.0000
   ch10 Rhythm2 9a4efa87979d9522
   ch11 Bass    f8fff68abeca6bf1
-  ch12 Chord1  b4fba76016614a98
+  ch12 Chord1  d90c9aa55e0717a2
   ch13 Chord2  c7c07f21ecda81f7
   ch15 Phrase1 6aed51355a1f0c73
 
 bar 35  Main C  Cdim@1.0000
   ch10 Rhythm2 2491846e24201b68
   ch11 Bass    f8fff68abeca6bf1
-  ch12 Chord1  b5b094ab0c12d635
+  ch12 Chord1  93185feb68896f04
   ch13 Chord2  ca1190d3e5259fce
   ch15 Phrase1 a2d4fbe336dfe381
 
@@ -251,28 +251,28 @@ bar 36  Main C  G7#5@1.0000
 bar 37  Main C  Cm(add9)@1.0000
   ch10 Rhythm2 2491846e24201b68
   ch11 Bass    f8fff68abeca6bf1
-  ch12 Chord1  1efdc61bcfe3d402
+  ch12 Chord1  94887d83be20918a
   ch13 Chord2  3d60ffe41cca6066
   ch15 Phrase1 6aed51355a1f0c73
 
 bar 38  Main C  Ab7@1.0000
   ch10 Rhythm2 9a4efa87979d9522
   ch11 Bass    70b52a9405ae0955
-  ch12 Chord1  1f647e42f3c815c9
+  ch12 Chord1  36bea771a2b769e3
   ch13 Chord2  401fdad33446df0c
   ch15 Phrase1 6aed51355a1f0c73
 
 bar 39  Main C  G7#9@1.0000
   ch10 Rhythm2 2491846e24201b68
   ch11 Bass    3113b93aec2f7971
-  ch12 Chord1  c154618ccecce140
+  ch12 Chord1  f3bf255ecc995e2c
   ch13 Chord2  595d9cba5b569347
   ch15 Phrase1 a2d4fbe336dfe381
 
 bar 40  Main C  C/G@1.0000  [EndingA]@3.1919
   ch10 Rhythm2 9a4efa87979d9522
   ch11 Bass    3113b93aec2f7971
-  ch12 Chord1  6fb41ca6aaadd8c6
+  ch12 Chord1  ad1359a5a212b99b
   ch13 Chord2  0c03739fd1a0436b
   ch15 Phrase1 6aed51355a1f0c73
 
