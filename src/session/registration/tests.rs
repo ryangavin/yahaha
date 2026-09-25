@@ -1144,3 +1144,59 @@ fn a_bank_without_patches_recalls_the_gm_voice() {
     assert_eq!(part_sound(&s, 0).1, 24);
     let _ = std::fs::remove_dir_all(dir);
 }
+
+/// #200: Regist +/− from a pedal step the bank's stored buttons with no sequence
+/// programmed, and the sequence while it is on; Regist 1–10, Memory, Freeze and Sequence
+/// On/Off are assignable too (RM p.114, p.141).
+#[test]
+fn a_pedal_steps_the_registrations() {
+    use crate::controllers::{ControlType, Function};
+    let Some((s, dir)) = session("pedal") else { return };
+    let trigger = |function| s.send(ControllersCmd::TriggerFunction { function });
+    assert!(trigger(Function::RegistNext).is_err(), "an empty bank: it says so");
+    for (i, program) in [(0, 10), (2, 30), (5, 60)] {
+        s.send(PartsCmd::SetPartVoice { part: 0, program }).unwrap();
+        s.send(RegistrationCmd::MemorizeRegist { index: i }).unwrap();
+    }
+    // Pedal 2 (CC 66) is Regist +.
+    let pedal = ControllersCmd::SetPedal { pedal: 1, cc: Some(66), function: Function::RegistNext, control_type: ControlType::HoldA, reverse: false, range: Default::default() };
+    s.send(pedal).unwrap();
+    let press = || {
+        s.midi_in(Port::Keys, &[0xB0, 66, 127]);
+        s.midi_in(Port::Keys, &[0xB0, 66, 0]);
+        s.advance(MS);
+    };
+    // The last memorize selected button 6, the last stored: Regist + stays there.
+    press();
+    assert_eq!(s.state().registration.selected, Some(5));
+    s.send(RegistrationCmd::RecallRegist { index: 0 }).unwrap();
+    s.advance(MS);
+    press();
+    let st = s.state();
+    assert_eq!((st.registration.selected, st.keyboard_parts[0].program), (Some(2), 30), "empty button 2 skipped");
+    press();
+    assert_eq!(s.state().keyboard_parts[0].program, 60);
+    trigger(Function::RegistPrev).unwrap();
+    s.advance(MS);
+    assert_eq!(s.state().keyboard_parts[0].program, 30);
+    // With the sequence on and programmed, Regist + follows the sequence instead.
+    s.send(RegistrationCmd::SetRegistSequence { steps: vec![5, 0], end: SequenceEnd::Stop }).unwrap();
+    trigger(Function::RegistSequence).unwrap();
+    assert!(s.state().registration.sequence.on);
+    press();
+    assert_eq!(s.state().keyboard_parts[0].program, 60);
+    press();
+    assert_eq!(s.state().keyboard_parts[0].program, 10);
+    // Regist 1–10 press the button; Memory arms Memorize; Freeze toggles.
+    trigger(Function::Regist3).unwrap();
+    s.advance(MS);
+    assert_eq!(s.state().keyboard_parts[0].program, 30);
+    trigger(Function::RegistMemory).unwrap();
+    assert!(s.state().registration.memory);
+    trigger(Function::Regist10).unwrap();
+    let st = s.state();
+    assert!(!st.registration.memory && st.registration.buttons[9].stored, "Memory, then Regist 10, memorizes");
+    trigger(Function::RegistFreeze).unwrap();
+    assert!(s.state().registration.freeze);
+    let _ = std::fs::remove_dir_all(dir);
+}

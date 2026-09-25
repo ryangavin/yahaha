@@ -41,6 +41,9 @@ export type RegistrationCmd =
   | { type: 'toggleRegistSequence' }
   /** Regist +/−: the sequence's next/previous step. */
   | { type: 'stepRegistSequence'; delta: number }
+  /** Regist +/− from a pedal: the sequence while it is on and programmed, else the bank's
+   * next/previous stored button (it stops at either end). */
+  | { type: 'stepRegist'; delta: number }
 
 /** Playlist commands. Record `index` is the position in the file (`PlaylistRow.index`). */
 export type PlaylistCmd =

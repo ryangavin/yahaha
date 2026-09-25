@@ -341,5 +341,110 @@
     "category": "style",
     "kind": "continuous",
     "available": true
+  },
+  {
+    "id": "registNext",
+    "name": "Regist +",
+    "category": "registration",
+    "kind": "trigger",
+    "available": true
+  },
+  {
+    "id": "registPrev",
+    "name": "Regist −",
+    "category": "registration",
+    "kind": "trigger",
+    "available": true
+  },
+  {
+    "id": "regist1",
+    "name": "Registration Memory 1",
+    "category": "registration",
+    "kind": "trigger",
+    "available": true
+  },
+  {
+    "id": "regist2",
+    "name": "Registration Memory 2",
+    "category": "registration",
+    "kind": "trigger",
+    "available": true
+  },
+  {
+    "id": "regist3",
+    "name": "Registration Memory 3",
+    "category": "registration",
+    "kind": "trigger",
+    "available": true
+  },
+  {
+    "id": "regist4",
+    "name": "Registration Memory 4",
+    "category": "registration",
+    "kind": "trigger",
+    "available": true
+  },
+  {
+    "id": "regist5",
+    "name": "Registration Memory 5",
+    "category": "registration",
+    "kind": "trigger",
+    "available": true
+  },
+  {
+    "id": "regist6",
+    "name": "Registration Memory 6",
+    "category": "registration",
+    "kind": "trigger",
+    "available": true
+  },
+  {
+    "id": "regist7",
+    "name": "Registration Memory 7",
+    "category": "registration",
+    "kind": "trigger",
+    "available": true
+  },
+  {
+    "id": "regist8",
+    "name": "Registration Memory 8",
+    "category": "registration",
+    "kind": "trigger",
+    "available": true
+  },
+  {
+    "id": "regist9",
+    "name": "Registration Memory 9",
+    "category": "registration",
+    "kind": "trigger",
+    "available": true
+  },
+  {
+    "id": "regist10",
+    "name": "Registration Memory 10",
+    "category": "registration",
+    "kind": "trigger",
+    "available": true
+  },
+  {
+    "id": "registMemory",
+    "name": "Registration Memory",
+    "category": "registration",
+    "kind": "trigger",
+    "available": true
+  },
+  {
+    "id": "registFreeze",
+    "name": "Registration Freeze On/Off",
+    "category": "registration",
+    "kind": "trigger",
+    "available": true
+  },
+  {
+    "id": "registSequence",
+    "name": "Registration Sequence On/Off",
+    "category": "registration",
+    "kind": "trigger",
+    "available": true
   }
 ]

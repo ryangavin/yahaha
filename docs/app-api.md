@@ -257,6 +257,7 @@ Buttons are 0-based (`index` 0–9 = the panel's [1]–[10]). Groups are `style`
 | `setRegistSequence` | `steps` (buttons 0–9), `end`: `stop` \| `top` \| `next` | Programs the bank's Registration Sequence. |
 | `setRegistSequenceOn` / `toggleRegistSequence` | `on` | Registration Sequence on/off. A panel setting, not part of the bank (as on the Genos): it stays when the bank changes, and is kept in the Registration folder's `setup.json`. |
 | `stepRegistSequence` | `delta` | Regist +/−: recalls the next/previous step. Past the end: `stop` stays, `top` wraps, `next` loads the next bank and recalls its first step. Refused while the sequence is off. |
+| `stepRegist` | `delta` | Regist +/− from a pedal (the `registNext`/`registPrev` assignable functions): the sequence's next/previous step while it is on and has steps, else the bank's next/previous stored button (empty ones skipped; from none, + the first and − the last; it stops at either end). Refused when the bank has nothing stored. |
 
 ### Playlist
 
