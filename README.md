@@ -195,6 +195,7 @@ The screen shows `sus` beside each part the pedal is holding.
 - `M` (shift+m) chart mode on/off · `( )` previous/next chart song (see "iReal Pro charts" below)
 - `r` Chord Looper REC/STOP · `^` Chord Looper ON/OFF (recording, looping and memory changes start at the next bar)
 - `.` metronome on/off (built-in synth only, never on the MIDI port)
+- `H` (shift+h) Accent on/off: a hard strike in the chord section plays the Main's fill · `&` (shift+7) Touch on/off: the band's Dynamics follow how hard the chord section is struck (see docs/genos-features.md, Style Dynamics Control)
 - `\` panic (all notes off)
 - `esc` twice (within 1.5 s) quit, or `ctrl+c`; one `esc` closes the style browser
 
