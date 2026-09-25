@@ -48,9 +48,10 @@ rtrb = "0.4.0"
 # each marked "yahaha:" in vendor/rustysynth/src:
 # - `Synthesizer::channel_peaks`, each MIDI channel's level for the mixer meters
 #   (synthesizer.rs);
-# - the SF2 2.01 default modulator velocity -> filter cutoff (voice.rs, #203), so a soft
-#   note is darker as well as quieter. `SynthesizerSettings::velocity_to_filter = false`
-#   renders as upstream does. At velocity 127 the audio is upstream's.
+# - velocity -> filter cutoff (#203), so a soft note is darker as well as quieter: the SF2
+#   2.01 default modulator, and the SoundFont's own velocity -> filter modulators from
+#   pmod/imod (modulator.rs, new; upstream read no modulators; every other modulator is
+#   still ignored). `SynthesizerSettings::velocity_to_filter = false` renders as upstream.
 rustysynth = { path = "vendor/rustysynth" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
