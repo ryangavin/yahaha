@@ -97,7 +97,7 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | **Fingered** | Play the whole chord. The bass is always the chord's root. | Fingered | — | Pad page 2 (Chord/Setup), top row, pad 2 |
 | **Fingered On Bass** | Like Fingered, but the lowest note you play becomes the bass, so you can play slash chords. | Fingered On Bass | — | Pad page 2 (Chord/Setup), top row, pad 3 |
 | **Multi Finger** | Reads Single Finger and Fingered shapes both, without switching. | Multi Finger | — | Pad page 2 (Chord/Setup), top row, pad 4 |
-| **AI Fingered** | Like Fingered, but fewer than three keys can still give a chord, guessed from the chord before. | AI Fingered | — | Pad page 2 (Chord/Setup), top row, pad 5 |
+| **AI Fingered** | Like Fingered, but fewer than three keys can still give a chord, guessed from the chord before. The lowest key is the bass: hold a chord note and add a key below it for a slash chord (C, then B+C is C/B). | AI Fingered | — | Pad page 2 (Chord/Setup), top row, pad 5 |
 | **Full Keyboard** | Chords are read across the whole keyboard, even split between your hands. | Full Keyboard | — | Pad page 2 (Chord/Setup), top row, pad 6 |
 | **AI Full Keyboard** | Full Keyboard with AI Fingered's guessing from fewer keys. 9th, 11th and 13th chords can't be played. | AI Full Keyboard | — | Pad page 2 (Chord/Setup), top row, pad 7 |
 
