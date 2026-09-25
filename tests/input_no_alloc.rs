@@ -82,6 +82,9 @@ fn keyboard_note_path_does_not_allocate() {
         shared.key_shift.store((round % 5) as i8 - 2, Ordering::Relaxed);
         // Some rounds with a keyboard part soloed (Left, Right 2, none).
         shared.parts.set_solo([None, Some(3), Some(1)][round as usize % 3]);
+        // Left on in some rounds, with Left Hold (#202) on in some: its keys re-pedal Left.
+        shared.parts.on[3].store(round % 2 == 0, Ordering::Relaxed);
+        ctl.set_left_hold(round % 3 != 1);
         // Some rounds with the Chord Looper looping: the left hand plays too.
         shared.looping.store(round % 2 == 1, Ordering::Relaxed);
         // Some rounds in AI Full Keyboard, where a re-struck chord is checked for three
