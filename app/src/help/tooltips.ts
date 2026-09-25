@@ -938,6 +938,13 @@ const catalog = {
     keys: [],
     launchkey: null,
   },
+  'mixer.style_level': {
+    title: 'Style volume',
+    body: 'The whole band against your hands, in one fader: 100 plays the Style parts at their own levels, lower scales every Style part\'s CC 7 down together (above 100 raises them, up to 127), the way a Fade In/Out does. The part faders stay where they are. A Registration stores it with the Style mixer.',
+    genos: 'Balance › Style (Mixer › Panel › Style)',
+    keys: [],
+    launchkey: 'Panel fader page: fader 5',
+  },
   'mixer.style.volume': {
     title: 'Style part volume',
     body: 'This band part\'s volume. The fader is its channel\'s CC 7 itself (channels 9–16), with no hidden gain behind it, except that a Fade In/Out scales the CC 7 it sends while the fade runs (the fader stays put). Loading a style sets the faders to the style\'s own levels, and a pattern that changes its volume moves the fader too, until you move it yourself.',

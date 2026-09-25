@@ -78,7 +78,8 @@ describe('Launchkey mirror', () => {
 
   it('the master fader button switches the fader page, and the faders follow', async () => {
     const { session } = setup()
-    expect(document.querySelectorAll('[data-tip="launchkey.fader_unused"][role="slider"]')).toHaveLength(4)
+    expect(document.querySelectorAll('[data-tip="launchkey.fader_unused"][role="slider"]')).toHaveLength(3)
+    expect(document.querySelectorAll('[data-tip="mixer.style_level"][role="slider"]')).toHaveLength(1)
     await fireEvent.click(document.querySelector<HTMLButtonElement>('button[data-tip="mixer.page"]')!)
     expect(session.state.mixer.faderPage).toBe('style')
     flushSync()

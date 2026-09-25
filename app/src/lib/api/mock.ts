@@ -231,6 +231,8 @@ export function initialState(): AppState {
       })),
       master: 100,
       masterWaiting: false,
+      styleVolume: 100,
+      styleVolumeWaiting: false,
       styleSolo: null,
       partSolo: null,
     },
@@ -1384,6 +1386,7 @@ export class MockSession implements Session {
         st.mixer.faderPage = page
         // The hardware faders are wherever they were: every level on the new page waits.
         for (const p of page === 'panel' ? st.keyboardParts : st.mixer.styleParts) p.waiting = true
+        if (page === 'panel') st.mixer.styleVolumeWaiting = true
         break
       }
       case 'setPadPage':
@@ -1394,6 +1397,10 @@ export class MockSession implements Session {
         st.pads.page = PAD_PAGES[(((i + cmd.delta) % PAD_PAGES.length) + PAD_PAGES.length) % PAD_PAGES.length].id
         break
       }
+      case 'setStyleVolume':
+        st.mixer.styleVolume = vol(cmd.volume)
+        st.mixer.styleVolumeWaiting = false
+        break
       case 'setMasterVolume':
         st.mixer.master = vol(cmd.volume)
         st.mixer.masterWaiting = false

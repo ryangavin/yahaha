@@ -293,6 +293,8 @@ impl MockSession {
                     .collect(),
                 master: Some(100),
                 master_waiting: false,
+                style_volume: 100,
+                style_volume_waiting: false,
                 style_solo: None,
                 part_solo: None,
             },
@@ -1190,6 +1192,13 @@ impl MockSession {
                         position,
                         set: Some(AppCmd::Parts(PartsCmd::SetPartVolume { part: i, volume: 0 })),
                     },
+                    FaderPage::Panel if p == parts::STYLE_LEVEL => SurfaceFader {
+                        label: "STYLE".into(),
+                        value: Some(st.mixer.style_volume),
+                        waiting: st.mixer.style_volume_waiting,
+                        position,
+                        set: Some(AppCmd::Mixer(MixerCmd::SetStyleVolume { volume: 0 })),
+                    },
                     FaderPage::Panel => SurfaceFader { position, ..SurfaceFader::default() },
                     FaderPage::Style => SurfaceFader {
                         label: STYLE_PART_NAMES[p].to_uppercase(),
@@ -1497,6 +1506,10 @@ impl MockSession {
                 if let Some(p) = self.state.mixer.style_parts.get_mut(part as usize) {
                     p.on = !p.on;
                 }
+            }
+            AppCmd::Mixer(MixerCmd::SetStyleVolume { volume }) => {
+                self.state.mixer.style_volume = vol(volume);
+                self.state.mixer.style_volume_waiting = false;
             }
             AppCmd::Mixer(MixerCmd::SetStylePartVolume { part, volume }) => {
                 if let Some(p) = self.state.mixer.style_parts.get_mut(part as usize) {
@@ -1841,7 +1854,10 @@ impl MockSession {
         self.state.mixer.fader_page = page;
         // The hardware faders are wherever they were: every level on the new page waits.
         match page {
-            FaderPage::Panel => self.state.keyboard_parts.iter_mut().for_each(|p| p.waiting = true),
+            FaderPage::Panel => {
+                self.state.keyboard_parts.iter_mut().for_each(|p| p.waiting = true);
+                self.state.mixer.style_volume_waiting = true;
+            }
             FaderPage::Style => self.state.mixer.style_parts.iter_mut().for_each(|p| p.waiting = true),
         }
     }

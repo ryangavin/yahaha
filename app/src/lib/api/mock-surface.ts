@@ -123,11 +123,16 @@ export function mockSurface(s: AppState, lib: LibraryList, hw: MockHardware): Su
   }
   controls.push(control('masterButton', 45, style ? 'STYLE' : 'PANEL', { type: 'toggleFaderPage' }, style ? GREEN : BLUE))
 
+  /** Panel fader 5 (0-based 4): the Style volume. */
+  const STYLE_FADER = 4
   const faders: SurfaceFader[] = Array.from({ length: 8 }, (_, i): SurfaceFader => {
     const position = hw.faders[i] ?? null
     if (style) {
       const p = s.mixer.styleParts[i]
       return { label: STYLE_PART_NAMES[i].toUpperCase(), value: p.volume, waiting: p.waiting, position, set: { type: 'setStylePartVolume', part: i, volume: 0 } }
+    }
+    if (i === STYLE_FADER) {
+      return { label: 'STYLE', value: s.mixer.styleVolume, waiting: s.mixer.styleVolumeWaiting, position, set: { type: 'setStyleVolume', volume: 0 } }
     }
     const p = s.keyboardParts[i]
     if (!p) return { label: '', value: null, waiting: false, position, set: null }

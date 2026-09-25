@@ -68,6 +68,7 @@ export type AppCmd =
   | { type: 'setTempo'; bpm: number }
   | { type: 'toggleStylePart'; part: number }
   | { type: 'setStylePartVolume'; part: number; volume: number }
+  | { type: 'setStyleVolume'; volume: number }
   /** Solo a Style part 0–7 (only it plays, even if off); null ends the solo. */
   | { type: 'setStyleSolo'; part: number | null }
   /** Style Track Mute (a Genos Live Control knob): `value` 0–127 turns parts on in `order`. */
@@ -530,6 +531,10 @@ export interface MixerState {
   /** Synth master volume (100 = unity); null without the synth. */
   master: number | null
   masterWaiting: boolean
+  /** The Style volume (Panel fader 5): 100 = the Style parts' CC 7 as written. */
+  styleVolume: number
+  /** Panel fader 5 hasn't reached `styleVolume` yet. */
+  styleVolumeWaiting: boolean
   /** The Style part soloed (0–7), or null. */
   styleSolo: number | null
   /** The keyboard part soloed (0–3), or null. */
