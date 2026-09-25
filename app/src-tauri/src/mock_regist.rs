@@ -24,6 +24,8 @@ struct Memory {
     main: Option<u8>,
     ots_link: Option<bool>,
     chord: Option<(Fingering, bool, bool, u8)>,
+    /// Left Hold (the session's `chord.leftHold`).
+    left_hold: Option<bool>,
     mixer: Option<(Vec<u8>, Vec<bool>)>,
     /// Right 1, Right 2, Right 3, Left: (on, program, volume, octave).
     parts: Option<Vec<Option<(bool, u8, u8, i8)>>>,
@@ -101,6 +103,7 @@ fn demo(name: &str, style: &(String, String), tempo: f64, programs: [u8; 4], on:
         main: Some(0),
         ots_link: Some(false),
         chord: Some((Fingering::FingeredOnBass, false, true, 54)),
+        left_hold: Some(false),
         mixer: Some((vec![100, 100, 96, 80, 76, 70, 88, 84], vec![true; 8])),
         parts: Some((0..4).map(|i| Some((on[i], programs[i], 100, 0))).collect()),
         transpose: Some((0, 0)),
@@ -344,6 +347,7 @@ impl MockRegist {
             main: style.then_some(st.transport.main),
             ots_link: style.then_some(st.ots.link),
             chord: style.then_some((c.fingering, c.upper, c.manual_bass, c.split)),
+            left_hold: style.then_some(c.left_hold),
             mixer: style.then(|| (st.mixer.style_parts.iter().map(|p| p.volume).collect(), st.mixer.style_parts.iter().map(|p| p.on).collect())),
             parts: (style || g.has(Group::Voice)).then(|| {
                 st.keyboard_parts
@@ -411,6 +415,9 @@ impl MockRegist {
                 if !st.param_locks.get(LockItem::SplitPoint) {
                     st.chord.split = split;
                 }
+            }
+            if let Some(on) = m.left_hold {
+                st.chord.left_hold = on;
             }
             if let Some(link) = m.ots_link {
                 st.ots.link = link;

@@ -1154,6 +1154,29 @@ fn a_bank_without_patches_recalls_the_gm_voice() {
     let _ = std::fs::remove_dir_all(dir);
 }
 
+/// #202: Left Hold is a Registration item of the Style group (Data List); Freeze Style
+/// keeps it.
+#[test]
+fn registration_stores_left_hold() {
+    let Some((s, dir)) = session("left-hold") else { return };
+    let hold = |s: &Session| s.state().chord.left_hold;
+    s.send(ChordCmd::SetLeftHold { on: true }).unwrap();
+    assert!(hold(&s));
+    s.send(RegistrationCmd::MemorizeRegist { index: 0 }).unwrap();
+    s.send(ChordCmd::ToggleLeftHold).unwrap();
+    assert!(!hold(&s));
+    s.send(RegistrationCmd::RecallRegist { index: 0 }).unwrap();
+    s.advance(MS);
+    assert!(hold(&s), "recalled");
+    s.send(ChordCmd::SetLeftHold { on: false }).unwrap();
+    s.send(RegistrationCmd::SetFreezeGroup { group: Group::Style, on: true }).unwrap();
+    s.send(RegistrationCmd::SetFreeze { on: true }).unwrap();
+    s.send(RegistrationCmd::RecallRegist { index: 0 }).unwrap();
+    s.advance(MS);
+    assert!(!hold(&s), "Freeze Style keeps it");
+    let _ = std::fs::remove_dir_all(dir);
+}
+
 /// #200: Regist +/− from a pedal step the bank's stored buttons with no sequence
 /// programmed, and the sequence while it is on; Regist 1–10, Memory, Freeze and Sequence
 /// On/Off are assignable too (RM p.114, p.141).

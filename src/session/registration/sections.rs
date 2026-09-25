@@ -175,6 +175,10 @@ struct ChordReg {
     manual_bass: bool,
     /// Split point (Style), a MIDI note.
     split: u8,
+    /// Left Hold (DL: a Registration item, group Style). Absent in banks from before it:
+    /// left as it is.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    left_hold: Option<bool>,
 }
 
 fn chord_capture(c: &Control, g: Groups) -> Option<Value> {
@@ -187,6 +191,7 @@ fn chord_capture(c: &Control, g: Groups) -> Option<Value> {
         upper: sh.upper.load(Relaxed),
         manual_bass: sh.manual_bass.load(Relaxed),
         split: sh.split.load(Relaxed),
+        left_hold: Some(sh.controllers.left_hold()),
     })
 }
 
@@ -204,6 +209,9 @@ fn chord_recall(c: &mut Control, v: &Value, g: Groups) -> Result<(), String> {
     }
     if !c.param_locked(LockItem::SplitPoint) {
         c.chord_cmd(ChordCmd::SetSplit { note: r.split }).map_err(e)?;
+    }
+    if let Some(on) = r.left_hold {
+        c.chord_cmd(ChordCmd::SetLeftHold { on }).map_err(e)?;
     }
     Ok(())
 }

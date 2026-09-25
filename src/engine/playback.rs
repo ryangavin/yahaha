@@ -9,6 +9,7 @@ impl Engine {
     /// (settle.rs). The caller runs this once per wake, after every other input of the wake.
     pub fn process(&mut self, now: u64, sink: &mut impl Sink) {
         self.on_wake(now, sink);
+        self.tap_start_due(now, sink);
         self.settle_due(now, sink);
         self.play_due(now, sink);
     }
