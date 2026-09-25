@@ -855,6 +855,11 @@ impl Input {
                 }
                 return;
             }
+            // An encoder: a knob on the Knob Assign page (the control side runs it).
+            if let Some((knob, delta)) = launchkey::encoder(m[0], cc, v) {
+                self.act(Action::Knob(knob, delta));
+                return;
+            }
             if launchkey::FADER_CC.contains(&cc) {
                 if cc == launchkey::MASTER_FADER_CC {
                     self.shared.master_hw.store(v, Relaxed);
@@ -2367,8 +2372,8 @@ mod tests {
         assert_eq!((acts.pop(), acts.pop()), (Ok(Action::Style(1)), Ok(Action::Style(-1))));
 
         assert_eq!(shared.last_unmapped.load(Relaxed), 0);
-        input.pad_msg(&[0xB0, 51, 127]);
-        assert_eq!(shared.last_unmapped.load(Relaxed), 0x01_B0_33_7F);
+        input.pad_msg(&[0xB0, 53, 127]);
+        assert_eq!(shared.last_unmapped.load(Relaxed), 0x01_B0_35_7F);
         input.pad_msg(&[0x99, 36, 90]); // a Drum-mode pad
         assert_eq!(shared.last_unmapped.load(Relaxed), 0x01_99_24_5A);
         input.pad_msg(&[0x90, 119, 100]); // Retrigger on page 2
@@ -2384,6 +2389,23 @@ mod tests {
         assert!(matches!(cmds.pop(), Ok(Cmd::Button(Button::Fade))));
         assert_eq!(acts.pop(), Ok(Action::RetriggerRate(1)));
         assert!(cmds.pop().is_err() && acts.pop().is_err());
+    }
+
+    /// The encoders are knobs and their page buttons step the Knob Assign page, on the
+    /// control side; a touch event (channel 15) is neither.
+    #[test]
+    fn encoders_turn_knobs() {
+        let (mut input, shared, mut cmds, mut acts) = pads_rig();
+        input.pad_msg(&[0xBF, 23, 66]);
+        input.pad_msg(&[0xBF, 92, 63]);
+        input.pad_msg(&[0xBE, 85, 127]);
+        input.pad_msg(&[0xB0, launchkey::KNOB_DOWN_CC, 127]);
+        input.pad_msg(&[0xB0, launchkey::KNOB_DOWN_CC, 0]); // release does nothing
+        assert_eq!(acts.pop(), Ok(Action::Knob(2, 2)));
+        assert_eq!(acts.pop(), Ok(Action::Knob(7, -1)));
+        assert_eq!(acts.pop(), Ok(Action::KnobPage(1)));
+        assert!(cmds.pop().is_err() && acts.pop().is_err());
+        assert_eq!(shared.last_unmapped.load(Relaxed), 0x01_BE_55_7F);
     }
 
     fn pads_rig() -> (Input, Arc<Shared>, Consumer<Cmd>, Consumer<Action>) {

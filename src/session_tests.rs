@@ -106,6 +106,8 @@ fn all_cmds() -> Vec<AppCmd> {
         AppCmd::Metronome(MetronomeCmd::SetMetronomeBell { on: false }),
         AppCmd::Dynamics(DynamicsCmd::SetDynamics { level: 90 }),
         AppCmd::Dynamics(DynamicsCmd::ToggleAccent),
+        AppCmd::Knobs(KnobsCmd::StepKnobPage { delta: 1 }),
+        AppCmd::Knobs(KnobsCmd::TurnKnob { knob: 0, delta: -3 }),
     ]
 }
 
