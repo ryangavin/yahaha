@@ -11,9 +11,10 @@ Paraphrased notes only. No transcript text, manual text or frames are committed.
 | V1 | What is Auto Fill in / Fade / Mixer (BB Walker TV, PSR-S670) | https://www.youtube.com/watch?v=Ww5j2YN0-iE | 00:53, 01:51-03:46, 07:21, 09:04-09:46 |
 | V2 | Fill-in buttons, music arranger etc. (Robert Gregson, entry-level Yamaha) | https://www.youtube.com/watch?v=apR_iPYGhiE | 01:53, 02:44, 17:09-18:57 |
 | V3 | Auto Fill in and OTS Link buttons (jorgebopart) | https://www.youtube.com/watch?v=g8tzT_Qvccc | transcript pending (HTTP 429) |
+| V4 | Genos 2: questions you may be embarrassed to ask (Scan Keyboards & Pianos) | https://www.youtube.com/watch?v=nrS_ZQObREk | 23:15-24:21 |
 
-Both videos read are PSR (arranger-family) demos. **No Genos-specific video evidence this pass**.
-The Genos claims below rest on the manuals.
+V1 and V2 are PSR (arranger-family) demos. V4 is on a Genos 2 and covers Auto Fill briefly. The
+fill functions (Up/Down/Self) still have no Genos video.
 
 ## Genos behaviour (subtleties a player notices)
 
@@ -21,7 +22,10 @@ The Genos claims below rest on the manuals.
   (OM p.67). On the PSR the Main lamp blinks while the fill plays, and the Main takes over
   after it [V1 03:46]. *manual-confirmed* (OM p.68 lamp note).
 - **Auto Fill off**: a Main change just switches pattern, with no transition [V1 01:51].
-  *manual-consistent*.
+  *manual-consistent*. On a Genos 2, Scan shows that with Auto Fill off, A to D waits for the
+  end of the bar and then jumps, which can feel abrupt. With it on, the four Main buttons act
+  as four fill buttons, and the selected Main again is also a fill [V4 23:15-24:21].
+  *manual-consistent* (OM p.67, RM p.12 Next Bar).
 - **Auto Fill forces Next Bar timing** even when To Main is Immediate (RM p.12).
   *manual-confirmed*.
 - **Storage**: Auto Fill In is a System setting, not a Registration one (DL p.82 chart).

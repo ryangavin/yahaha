@@ -14,6 +14,7 @@ Paraphrased notes only. No transcript text, manual text or frames are committed.
 | V4 | Two-bar fill / long break (Casper tutorSynth) | https://www.youtube.com/watch?v=4opmPtm8oF0 | 00:47-01:13, 06:12-07:48, 09:28, 10:35 (transcript arrived late in the pass) |
 | V5 | What is Auto Fill in / Fade / Mixer (BB Walker TV, PSR-S670) | https://www.youtube.com/watch?v=Ww5j2YN0-iE | 03:46, 04:27, 07:21 |
 | V6 | Fill-in buttons etc., beginner (Robert Gregson, entry-level Yamaha) | https://www.youtube.com/watch?v=apR_iPYGhiE | 09:06-10:48 |
+| V7 | Genos 2: questions you may be embarrassed to ask (Scan Keyboards & Pianos) | https://www.youtube.com/watch?v=nrS_ZQObREk | 18:40-21:10, 25:15-25:42, 26:27-27:30, 28:38-29:03 |
 
 Video evidence is thin for this topic. V4 is the one Genos-specific fills/breaks tutorial read,
 and it is about style editing. V5 and V6 are PSR models, so they count as Yamaha arranger
@@ -27,6 +28,14 @@ behaviour, not Genos proof.
   "plays the progression" itself. Factory styles also keep separate major and minor tracks for
   Intros and Endings and pick one from the chord played [V1 00:28, 03:34-04:34]. Beginners
   are told that I is short and II/III are longer [V6 09:06-10:48].
+- **Intro I is roughly a count-in and Ending I is very short** on Genos 2 styles; II and III
+  are longer [V7 26:27-27:04]. This fits #129's finding that Ending I is a short hit by design.
+- **Pressing an Intro in the middle of a song** is a pro habit. The Intro plays again as an
+  interlude, giving time to go back to the top of the music (for example before a verse up a
+  key), and it is why Intro and Ending are separate buttons on the Genos [V7 18:40-21:10].
+  *video-only*; the manual doesn't forbid it.
+- **Fill vs Break**: in a fill only the drummer changes and the band keeps playing; a Break
+  stops the band for a syncopated gap [V7 25:15-25:42].
 - **Main again = its own fill** (OM p.67). While a fill plays, the Main lamp flashes red
   (OM p.68; seen in [V5 03:46] on a PSR).
 - **Break** is a one-measure pattern that then goes back to the Main (OM p.68).
@@ -46,6 +55,9 @@ behaviour, not Genos proof.
   never mention holding a section button.
 - **Ending with ritardando.** Ending I-III stop the style after the ending. Pressing the
   same Ending again while it plays slows it down gradually (OM p.66). *manual-confirmed*.
+  Scan shows that the second press should not come too soon: pressed at once, the slow-down
+  runs too quickly and sounds wrong, and a later press works better [V7 28:38-29:03]. This
+  suggests the ritardando runs from the second press to the Ending's end, as in yahaha.
 - **An Ending used as a fill or break.** Alois Müller presses an Ending, then a Main before
   the Ending finishes, so the band carries on in the Main. He says this works with some
   Endings but not all [V3 description, still 00:12]. The still at 00:30 shows an Ending
@@ -78,6 +90,10 @@ behaviour, not Genos proof.
 - Ending I "feels immediate" (#129): the investigation found the Ending starts on the bar
   line; most Genos/T5 Ending I patterns are a single held chord hit, and CC11 fades are in the
   style's own data. yahaha plays the data as written. Nothing to change.
+- An Intro pressed while playing is queued for the next bar line (`Button::Intro`,
+  `Change::IntroEnding`), then flows into the selected Main. **Matches** V7's interlude use.
+- The ritardando runs from the second press to 65% at the Ending's end, so a press close to
+  the end slows faster. **Matches** V7 [28:38].
 - Main pressed during an Ending: queued for the next bar line (`press_main`, `SectionId::Ending`
   arm), with the Ending's CC11 reset for the Main (#122). This matches V3's use. Open bug #187
   (a waiting style change is not re-timed when the Ending is cut short) is related.

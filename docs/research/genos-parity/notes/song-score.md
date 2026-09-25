@@ -4,8 +4,9 @@ Topic id: `song-score` · Pass: 2026-09-25 · Manual: OM p.76-89, RM p.69-78 · 
 
 Paraphrased notes only. No transcript text, manual text or frames are committed.
 
-**Video coverage: none yet.** Both chosen videos were still rate-limited (HTTP 429) when
-this note was written; everything here is from the manuals and the yahaha docs.
+**Video coverage: both chosen videos read** (V1, V2). No stills: V1 is a computer
+application and V2's screens are the Multi Pad recording page already captured for the
+`multipads` note.
 
 The Song player itself is out of scope for yahaha (`docs/genos-features.md` §F). This note
 only asks what a Genos player gets from Songs *while playing with a Style*, and whether
@@ -15,18 +16,23 @@ yahaha's iReal chart player covers that need.
 
 | # | Video (channel) | URL | Timestamps used |
 |---|---|---|---|
-| V1 | How To Use MIDI Song To Style (Yamaha Global) | https://www.youtube.com/watch?v=yYfPbMFM5wo | transcript pending |
-| V2 | Playback of the solo part and synchronization with the Style that we play with the left hand (Casper tutorSynth) | https://www.youtube.com/watch?v=OiWiZm7zYmQ | transcript pending |
+| V1 | How To Use MIDI Song To Style (Yamaha Global) | https://www.youtube.com/watch?v=yYfPbMFM5wo | 00:00-00:40, 02:14-02:41, 03:37-05:13, 05:44-06:35, 07:21 |
+| V2 | Playback of the solo part and synchronization with the Style that we play with the left hand (Casper tutorSynth) | https://www.youtube.com/watch?v=OiWiZm7zYmQ | 00:34-02:58 |
 
-Stills wanted (still pending): V2's Song Player / channel on-off setup for a melody-only
-song; V1's converter settings.
+Stills: none needed (see above).
 
 ## Genos behaviour (subtleties a player notices)
 
 - **Song plus Style.** When a MIDI Song and a Style play together, the Style replaces the
   Song's channels 9-16 and the player supplies the chords with the left hand. Recipe:
   Song Synchro Start on, ACMP and SYNC START on, then START/STOP or a chord starts both
-  (RM p.75). This is the "play along with a melody or solo track" use (the subject of V2).
+  (RM p.75).
+- **Solo backing is done with a Multi Pad, not a Song (V2).** To get help with a solo the
+  player can't play, V2 records the solo into a Multi Pad: start from a factory bank, turn
+  Chord Match off and Repeat on, record on Right 1 with the drums running (recording starts
+  at the first key), trim, save to User; then trigger it with the Style while the left
+  hand plays the chords [V2 00:34-02:58]. The video title says "synchronised with the
+  Style", and that is the pad's next-bar start and tempo lock.
 - **The Song leads.** In that mode the Song's tempo is used; Style Retrigger is not
   available; stopping the Song also stops the Style unless the Song Setting "Style Synchro
   Stop" is off (RM p.75, p.78). A Song Setting switch also stops repeating Multi Pads with
@@ -47,15 +53,21 @@ song; V1's converter settings.
   the current bar, or loop between markers, "arranging on the fly" (OM p.85-86).
 - **MIDI Song to Style** is a separate Yamaha computer program that converts a MIDI Song
   into a Style file (OM p.15, list of documents). It is a content tool, not an instrument
-  feature; its output is an ordinary style file.
+  feature; its output is an ordinary style file. V1: it analyses any SMF and proposes
+  sections automatically (Easy mode); in Edit mode you pick which bars become which
+  section, assign MIDI tracks to Style parts, mark melody tracks to leave out, and set the
+  source key per section so the chord conversion works; it can audition sections on a
+  connected instrument, with the chord coming from a palette or, with ACMP off on the
+  instrument, from the chords you play; Genos2 voice list by default
+  [V1 00:00-00:40, 02:14-02:41, 03:37-05:13, 05:44-06:35, 07:21].
 
 ## Manual check
 
-- All bullets *manual-confirmed* (OM p.74, p.76-89; RM p.70-78, p.95-96). None
-  video-confirmed yet.
-- Open for V2: whether the presenter mutes the Song's own accompaniment channels by hand
-  or relies on the automatic 9-16 replacement, and how the solo stays in time when the
-  left hand changes the Style's section.
+- Song, Score, Lyrics, Text and Song + Style bullets: *manual-confirmed* (OM p.74, p.76-89;
+  RM p.70-78, p.95-96); no video in this pass shows them.
+- V2's pad recipe is consistent with RM p.64-65 (Right 1 recorded, Repeat and Chord Match
+  per pad, recording with the Style's rhythm); *manual-confirmed* apart from the workflow.
+- MIDI Song to Style details: *video-only* (V1); the OM only names the application.
 
 ## yahaha today
 
@@ -67,7 +79,11 @@ song; V1's converter settings.
   shows the chords, much as the Score's chord line or a Text chart does on the Genos.
 - The chart player's loop (`setChartLoop`, whole song or a section) is the nearest thing to
   Song Position markers + Loop.
-- Nothing plays a melody or solo track in sync with the band (the V2 use).
+- The V2 use (a solo phrase in time with the band, fixed pitch) is already playable in
+  yahaha **if the phrase is a `.pad` file**: a pad with Chord Match off and Repeat on starts
+  on the next bar at the band tempo (`docs/multipad.md`). What yahaha lacks is a way to
+  make one: no pad recorder (Multi Pad Creator is out of scope, §F) and no import of a
+  MIDI file as a pad; only `yahaha pad --demo` writes synthetic banks.
 - A MIDI file's chord events cannot be imported as a chart; Chord SysEx is only read by
   the capture kit (`docs/capture-kit/README.md`).
 
@@ -75,7 +91,8 @@ song; V1's converter settings.
 
 | Gap | Priority | Suggested next step |
 |---|---|---|
-| No MIDI Song (melody/solo track) playing with the Style | – | Out of scope (§F). If the owner wants the V2 use, a minimal "guide track" (one SMF channel synced to the band clock) would be its own design issue |
+| No MIDI Song (melody/solo track) playing with the Style | – | Out of scope (§F); V2 shows Genos players solve this with a Multi Pad instead (next row) |
+| No way to make a user pad (the V2 solo-backing recipe) | P2 | Import one channel of a MIDI file as a pad into a user bank (reuse the `synthetic.rs` bank writer), with Repeat and Chord Match switches; cheaper than a pad recorder |
 | A MIDI file's chord events (Yamaha chord meta / XF chords) can't become a chart | P2 | Add an SMF chord-track importer that builds the same `PlanBar` list the iReal importer does, so Song files with chords play in chart mode |
 | No lyrics / text notes beside the chart | P2 | Optional: a free-text notes field per chart song in the app (the Genos Text viewer use) |
-| MIDI Song to Style output | – | Nothing to do: it writes ordinary style files, which yahaha loads like any other (spot-check one if the owner has some) |
+| MIDI Song to Style output | – | Nothing to do: it writes ordinary style files, which yahaha loads like any other; if the owner has converted styles, one is a good spot-check of odd source keys per section (V1 05:44) |

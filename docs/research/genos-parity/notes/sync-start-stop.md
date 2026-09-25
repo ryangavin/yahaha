@@ -4,9 +4,8 @@ Topic id: `sync-start-stop` · Pass: 2026-09-25 · Manual: OM p.44, OM p.47, OM 
 
 Paraphrased notes only. No transcript text, manual text or frames are committed.
 
-**Video coverage this pass: none.** The four chosen videos were rate-limited (HTTP 429) on the
-caption endpoint and had not arrived when this note was written. The note rests on the manuals and
-yahaha's code; video-dependent points are marked "pending video".
+**Video coverage this pass: 2 of 4** (V3 and V4 read; V1 and V2 still rate-limited, transcripts
+pending).
 
 ## Sources
 
@@ -14,11 +13,11 @@ yahaha's code; video-dependent points are marked "pending video".
 |---|---|---|---|
 | V1 | What is Stop ACMP (Keyboardseminare) | https://www.youtube.com/watch?v=8te-bzxM5eQ | transcript pending |
 | V2 | Outsmart Sync Stop (Alois Müller) | https://www.youtube.com/watch?v=qFdDcr6Tyy0 | transcript pending |
-| V3 | Playing arrangers without an active style (Casper tutorSynth) | https://www.youtube.com/watch?v=WUV5RlGRDdk | transcript pending |
-| V4 | Genos 2 questions you may be embarrassed to ask (Scan) | https://www.youtube.com/watch?v=nrS_ZQObREk | transcript pending |
+| V3 | Playing Yamaha Arrangers without active Style (Casper tutorSynth) | https://www.youtube.com/watch?v=WUV5RlGRDdk | 00:17–03:52 |
+| V4 | Genos 2: Questions You May Be Embarrassed to Ask (Scan Keyboards & Pianos) | https://www.youtube.com/watch?v=nrS_ZQObREk | 11:00–11:24, 29:28–32:54 |
 
-No stills taken for this topic (wanted, still pending: the Style Setting page with Stop ACMP and
-Synchro Stop Window in V1, and the ACMP/SYNC lamps in V2).
+No stills taken for this topic (still pending: the Style Setting page with Stop ACMP and Synchro
+Stop Window in V1, and the ACMP/SYNC lamps in V2; both transcripts missing).
 
 ## Genos behaviour (subtleties a player notices)
 
@@ -46,11 +45,28 @@ Synchro Stop Window in V1, and the ACMP/SYNC lamps in V2).
 - Multi Pad Synchro Stop (Style Stop / Style Ending) are separate Style Setting switches. RM p.12.
 - Whether turning SYNC STOP on also arms SYNC START (as on several PSR models) is not in the Genos2
   manuals: *pending video* (V2).
+- **Playing without the style running (ACMP on, Sync Start off, Stop ACMP Off):** the left-hand chord
+  is still detected and shown, and Multi Pads (Chord Match, pad Synchro Start fired by the chord),
+  Keyboard Harmony and Vocal Harmony all follow it, so a player can do a soft intro with a held Left
+  pad (Left Hold), a pad phrase and harmonised melody, then turn SYNC START on to bring the style in
+  on the beat. The presenter calls Off the most common Stop ACMP setting and stores the whole set-up
+  in registrations. [V3 00:33–03:10]
+- Forgetting SYNC START is the classic new-owner trap (the rhythm won't start). [V3 00:17, 03:39]
+- **SYNC START as a stop-time break:** pressing it while the style plays stops the band and re-arms,
+  so the next chord restarts it on the beat; V4 uses it repeatedly as a musical break in free-play
+  styles. [V4 29:57–32:54]
+- To imitate an organ with pedal bass, V4 turns the automatic functions and Sync Start off and
+  plays the bass line in AI Fingered (see fingering). [V4 11:00–11:24] No video in this pass turns
+  ACMP off.
 
 ## Manual check
 
-- All bullets are *manual-confirmed* except mid-song ACMP toggling and SYNC STOP arming SYNC START
-  (*pending video*).
+- All manual bullets are *manual-confirmed*. Mid-song ACMP toggling and SYNC STOP arming SYNC START
+  remain *pending video* (V1/V2 missing).
+- The stopped-style workflow (V3) and SYNC START as a break (V4) are *video-confirmed* and agree with
+  OM p.66, OM p.75, RM p.11.
+- **ACMP-off use:** none of the videos read (V3 is literally about playing without a style) turns
+  ACMP off; the no-style workflow shown keeps ACMP on and uses Stop ACMP Off.
 - The Stop ACMP factory default is not printed anywhere (RM p.11, DL p.91 give none).
 
 ## yahaha today
@@ -71,7 +87,11 @@ Synchro Stop Window in V1, and the ACMP/SYNC lamps in V2).
   - Keyboard Harmony and Chord Match always use the chord section's chord, which is the Genos
     "ACMP off, LEFT on" case too (multipad.rs doc), so that part matches.
 - SYNC START: toggles while stopped; pressed while playing it stops and re-arms (`transport.rs`
-  `Button::SyncStart`). OTS recall turns it on (`src/session/ots.rs`). Matches.
+  `Button::SyncStart`), so V4's stop-time break works. OTS recall turns it on (`src/session/ots.rs`).
+  Matches.
+- V3's stopped-style workflow: chord detection with the band stopped, Stop ACMP Off, pad Synchro
+  Start fired by the chord-section chord (`docs/multipad.md`), Keyboard Harmony following the chord:
+  all built. Only Left Hold is missing (split-detection note).
 - SYNC STOP: toggle refused in Full/AI Full (`allow_sync_stop`); releasing every chord-section key
   stops the band and re-arms Sync Start; ignored while the Chord Looper plays (`chord_released`).
   Turning Sync Stop on does not itself arm Sync Start.
@@ -85,7 +105,7 @@ Synchro Stop Window in V1, and the ACMP/SYNC lamps in V2).
 
 | Gap | Priority | Suggested next step |
 |---|---|---|
-| No ACMP on/off. A Genos player loses: (a) drums-only playing with the whole keyboard on the Right voices (practice, ballad intros, piano over a groove), (b) the mid-song "band out, drums on" drop by pressing ACMP, (c) Sync Start on any key. Workarounds exist (Chord Cancel, Full Keyboard) but are not the same gesture. | P1 | PR: `Button::Acmp` + `transport.acmp` (default on; Registration Freeze Style; OTS and Looper REC force on). Off: accompaniment channels released as under Cancel, chord detection only feeds Harmony/Chord Match from the Left section when LEFT is on, key routing treats the left of the split as Right (or Left if on), Sync Start fires on any key, Sync Stop and Stop ACMP inactive. Launchkey pad + `Acmp On/Off` assignable row |
+| No ACMP on/off. A Genos player loses: (a) drums-only playing with the whole keyboard on the Right voices (practice, ballad intros, piano over a groove), (b) the mid-song "band out, drums on" drop by pressing ACMP, (c) Sync Start on any key. Workarounds exist (Chord Cancel, Full Keyboard) but are not the same gesture. No video this pass shows ACMP off in use; the "without a style" workflow (V3) keeps ACMP on and already works in yahaha, so this drops from P1. | P2 (upper end) | PR: `Button::Acmp` + `transport.acmp` (default on; Registration Freeze Style; OTS and Looper REC force on). Off: accompaniment channels released as under Cancel, chord detection only feeds Harmony/Chord Match from the Left section when LEFT is on, key routing treats the left of the split as Right (or Left if on), Sync Start fires on any key, Sync Stop and Stop ACMP inactive. Launchkey pad + `Acmp On/Off` assignable row |
 | Sync Start "any key" start (only meaningful with ACMP off). | P2 | Part of the ACMP PR |
 | Sync Stop does not arm Sync Start when turned on while stopped (Genos behaviour unconfirmed). | P2 | Confirm in V2; if the Genos does, one-line change in `Button::SyncStop` |
 | Stop ACMP default Off vs the Genos factory default (unknown). | – | Owner question only if a video shows a different default |
