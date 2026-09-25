@@ -6,7 +6,8 @@ import { mirror } from '../../lib/mirror.svelte'
 import { app, ui } from '../../lib/store.svelte'
 import Launchkey from '../launchkey/Launchkey.svelte'
 import Parts from './Parts.svelte'
-import { layerText, leftZone } from './parts'
+import { layerText, leftZone, pluginStatusLine } from './parts'
+import { pluginBadge } from '../mixer/voice'
 
 function setup(demo = true) {
   const session = new MockSession({ manual: true, demo })
@@ -130,5 +131,25 @@ describe('Keyboard parts drawer', () => {
     expect([...bank.children].indexOf(bank.querySelector('.linked')!)).toBe(8)
     await fireEvent.pointerLeave(strip('Right 2'))
     expect(bank.querySelector('.linked')).toBeNull()
+  })
+})
+
+describe('plugin status', () => {
+  it('a plugin that fell back to loading in process says so, in the part and on the mixer badge', () => {
+    const s = new MockSession({ manual: true, demo: false })
+    s.send({ type: 'setPartPlugin', part: 1, id: 'aumu Tiny Demo', state: null })
+    s.advance(1000)
+    const p = s.state.keyboardParts[1].plugin!
+    expect(p.status).toBe('playing')
+    expect(p.inProcessFallback).toBe(true)
+    expect(p.outOfProcess).toBe(false)
+    expect(s.state.message?.text).toContain("can't run in its own process")
+    expect(pluginStatusLine(p, true)).toContain('⚠ in process')
+    expect(pluginBadge(p)).toMatch(/^Plugin ⚠ · \d+% CPU$/)
+    s.send({ type: 'setPartPlugin', part: 1, id: 'aumu dls  appl', state: null })
+    s.advance(1000)
+    const q = s.state.keyboardParts[1].plugin!
+    expect(q.inProcessFallback).toBe(false)
+    expect(pluginStatusLine(q, true)).not.toContain('⚠')
   })
 })
