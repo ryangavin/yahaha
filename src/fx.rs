@@ -9,20 +9,26 @@
 //!
 //! The SoundFont synthesizers' own reverb and chorus are off: the bus replaces them
 //! (`Synthesizer::set_internal_effects`), so a send is not heard twice. `FxControl::legacy`
-//! turns them back on and the bus off, for a before/after comparison (`yahaha render
-//! --legacy-fx`).
+//! turns them back on and the bus off, for a before/after comparison (`YAHAHA_FX=legacy
+//! yahaha render ...`).
+//!
+//! The blocks: Reverb ([`Reverb`], Hall/Room/Stage/Plate), Chorus ([`Chorus`]), and
+//! Variation, a stereo delay synced to the style tempo ([`Delay`]: 1/8, dotted 1/8, 1/4,
+//! ping-pong). The control side keeps `FxControl::tempo` at the style's tempo.
 //!
 //! [`FxBus`] allocates everything in [`FxBus::new`]; [`FxBus::process_add`] never
 //! allocates, locks or blocks (`tests/synth_no_alloc.rs`). A block with no input whose
 //! output has died away is skipped, so an idle bus costs next to nothing.
 
-use std::sync::atomic::{AtomicBool, AtomicU8, Ordering::Relaxed};
+use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU32, Ordering::Relaxed};
 
 mod chorus;
+mod delay;
 mod line;
 mod reverb;
 
 pub use chorus::{Chorus, ChorusType};
+pub use delay::{Delay, DelayType};
 pub use reverb::{Reverb, ReverbType};
 
 /// The send buses: Reverb (CC91), Chorus (CC93), Variation (CC94).
@@ -60,6 +66,10 @@ pub struct FxControl {
     pub reverb_return: AtomicU8,
     pub chorus_type: AtomicU8,
     pub chorus_return: AtomicU8,
+    pub variation_type: AtomicU8,
+    pub variation_return: AtomicU8,
+    /// The style tempo the delay follows: BPM x 100.
+    pub tempo: AtomicU32,
     /// The SoundFont's own reverb and chorus instead of the bus (the sound before #204).
     pub legacy: AtomicBool,
 }
@@ -71,8 +81,18 @@ impl FxControl {
             reverb_return: AtomicU8::new(RETURN_UNITY),
             chorus_type: AtomicU8::new(ChorusType::Chorus as u8),
             chorus_return: AtomicU8::new(RETURN_UNITY),
+            variation_type: AtomicU8::new(DelayType::DottedEighth as u8),
+            variation_return: AtomicU8::new(RETURN_UNITY),
+            tempo: AtomicU32::new(12_000),
             legacy: AtomicBool::new(false),
         }
+    }
+}
+
+impl FxControl {
+    /// Follow the style tempo (BPM).
+    pub fn set_tempo(&self, bpm: f64) {
+        self.tempo.store((bpm.clamp(1.0, 1000.0) * 100.0).round() as u32, Relaxed);
     }
 }
 
@@ -87,15 +107,19 @@ const IDLE_LEVEL: f32 = 1e-5;
 
 /// One block's idle tracking and return gain ramp.
 struct Block {
-    /// The block rendered nothing audible and got no input last buffer: skip it until
-    /// input comes.
+    /// The block has had no input and rendered nothing audible for `hold` frames: skip
+    /// it until input comes.
     idle: bool,
+    quiet: u32,
+    /// The longest gap in its output while it still rings (the delay's silence between
+    /// two repeats).
+    hold: u32,
     gain: f32,
 }
 
 impl Block {
-    fn new() -> Block {
-        Block { idle: true, gain: 0.0 }
+    fn new(hold: f32, rate: f32) -> Block {
+        Block { idle: true, quiet: 0, hold: (hold * rate) as u32, gain: 0.0 }
     }
 }
 
@@ -103,14 +127,20 @@ impl Block {
 pub struct FxBus {
     reverb: Reverb,
     chorus: Chorus,
-    blocks: [Block; 2],
+    delay: Delay,
+    blocks: [Block; BUSES],
 }
 
 impl FxBus {
     /// The bus for `sample_rate` (allocates its delay lines: call it off the audio thread).
     pub fn new(sample_rate: u32) -> FxBus {
         let rate = sample_rate.max(8000) as f32;
-        FxBus { reverb: Reverb::new(rate), chorus: Chorus::new(rate), blocks: [Block::new(), Block::new()] }
+        FxBus {
+            reverb: Reverb::new(rate),
+            chorus: Chorus::new(rate),
+            delay: Delay::new(rate),
+            blocks: [Block::new(0.1, rate), Block::new(0.05, rate), Block::new(delay::MAX_SECONDS + 0.1, rate)],
+        }
     }
 
     /// Run the blocks on `n` frames of send buses (`sends`: bus b's left side at
@@ -124,7 +154,9 @@ impl FxBus {
         let bus = |b: usize| (&sends[2 * b * n..(2 * b + 1) * n], &sends[(2 * b + 1) * n..(2 * b + 2) * n]);
         self.reverb.set_type(ReverbType::from_u8(ctl.reverb_type.load(Relaxed)));
         self.chorus.set_type(ChorusType::from_u8(ctl.chorus_type.load(Relaxed)));
-        let returns = [ctl.reverb_return.load(Relaxed), ctl.chorus_return.load(Relaxed)];
+        let bpm = ctl.tempo.load(Relaxed) as f32 / 100.0;
+        self.delay.set(DelayType::from_u8(ctl.variation_type.load(Relaxed)), bpm);
+        let returns = [ctl.reverb_return.load(Relaxed), ctl.chorus_return.load(Relaxed), ctl.variation_return.load(Relaxed)];
         for (b, block) in self.blocks.iter_mut().enumerate() {
             let (il, ir) = bus(b);
             let input = il.iter().chain(ir).any(|x| *x != 0.0);
@@ -142,14 +174,16 @@ impl FxBus {
             for k in 0..n {
                 let (wl, wr) = match b {
                     REVERB => self.reverb.tick(il[k], ir[k]),
-                    _ => self.chorus.tick(il[k], ir[k]),
+                    CHORUS => self.chorus.tick(il[k], ir[k]),
+                    _ => self.delay.tick(il[k], ir[k]),
                 };
                 peak = peak.max(wl.abs()).max(wr.abs());
                 let g = g0 + dg * (k + 1) as f32;
                 left[k] += wl * g;
                 right[k] += wr * g;
             }
-            block.idle = !input && peak < IDLE_LEVEL;
+            block.quiet = if input || peak >= IDLE_LEVEL { 0 } else { block.quiet.saturating_add(n as u32) };
+            block.idle = block.quiet > block.hold;
         }
     }
 }
@@ -253,15 +287,32 @@ mod tests {
             let ctl = FxControl::new();
             ctl.reverb_return.store(ret, Relaxed);
             ctl.chorus_return.store(ret, Relaxed);
+            ctl.variation_return.store(ret, Relaxed);
             let mut bus = FxBus::new(48_000);
             let (l, _) = run(&mut bus, &ctl, &src, b, 24_000);
             rms(&l[12_000..])
         };
-        for b in [REVERB, CHORUS] {
+        for b in [REVERB, CHORUS, VARIATION] {
             let unity = level(64, b);
             assert!(unity > 0.01, "bus {b} sounds");
             assert_eq!(level(0, b), 0.0, "bus {b} return 0 = off");
             assert!((level(127, b) / unity - 127.0 / 64.0).abs() < 0.02, "bus {b} +6 dB");
+        }
+    }
+
+    /// The Variation block's delay follows the tempo the control side sets: a click
+    /// comes back a dotted 1/8 later (the default type), at 120 and at 100 BPM, and keeps
+    /// repeating across buffers with silence between the repeats.
+    #[test]
+    fn the_delay_follows_the_tempo() {
+        for (bpm, want) in [(120.0, 18_000), (100.0, 21_600)] {
+            let ctl = FxControl::new();
+            ctl.set_tempo(bpm);
+            let mut bus = FxBus::new(48_000);
+            let (l, _) = run(&mut bus, &ctl, |i| if i == 0 { [1.0, 1.0] } else { [0.0; 2] }, VARIATION, 48_000 * 3);
+            let loud: Vec<usize> = (0..l.len()).filter(|&i| l[i].abs() > 0.05).collect();
+            assert!(loud.first().is_some_and(|&i| i.abs_diff(want) <= 2), "{bpm}: {:?}", &loud[..loud.len().min(4)]);
+            assert!(loud.iter().any(|&i| i.abs_diff(2 * want) <= 4), "{bpm}: a second repeat");
         }
     }
 
@@ -284,7 +335,7 @@ mod tests {
         }
     }
 
-    /// The bus's CPU cost: reverb and chorus both running on 10 s at 48 kHz, in 64-frame
+    /// The bus's CPU cost: reverb, chorus and delay all running on 10 s at 48 kHz, in 64-frame
     /// buffers (`cargo test --release --lib fx::tests::cost -- --ignored --nocapture`).
     #[test]
     #[ignore]
@@ -296,7 +347,7 @@ mod tests {
         let mut sends = vec![0f32; 2 * BUSES * n];
         for k in 0..n {
             let [a, c] = src(k);
-            for b in 0..2 {
+            for b in 0..BUSES {
                 sends[2 * b * n + k] = a;
                 sends[(2 * b + 1) * n + k] = c;
             }

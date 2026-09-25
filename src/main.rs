@@ -210,7 +210,7 @@ fn render_cmd(args: &[String]) -> Result<()> {
     let script = if path.is_file() { std::fs::read_to_string(path)? } else { script.clone() };
     let (rec, end) = sim::record(&style, &script)?;
     const RATE: u32 = 48_000;
-    let (l, r) = yahaha::synth::render_offline(std::path::Path::new(sf2), &rec.out, end, RATE)?;
+    let (l, r) = yahaha::synth::render_offline(std::path::Path::new(sf2), &rec.out, end, RATE, style.bpm())?;
     let mut data = Vec::with_capacity(l.len() * 4);
     for (a, b) in l.iter().zip(&r) {
         for x in [a, b] {
