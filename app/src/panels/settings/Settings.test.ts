@@ -166,7 +166,7 @@ describe('Settings drawer', () => {
     await fireEvent.keyDown(byTip('settings.fade_out')[0], { key: 'ArrowRight' })
     expect(s.state.styleSettings.fadeOutMs).toBe(5100)
     await fireEvent.click(byTip('settings.section_reset')[0])
-    expect(s.state.styleSettings.sectionReset).toBe(false)
+    expect(s.state.styleSettings.sectionReset).toBe(true)
     const rates = byTip('settings.retrigger_rate')
     expect(rates.map((r) => r.textContent?.trim())).toEqual(['1', '1/2', '1/4', '1/8', '1/16', '1/32'])
     await fireEvent.click(rates[4])

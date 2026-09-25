@@ -96,9 +96,19 @@ pub struct PluginInfo {
     pub sandbox_safe: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_load: Option<LoadRecord>,
+    /// The player's override: load it in yahaha's process, not its own (for the lightest
+    /// plugins: no IPC per render, but a crash takes yahaha down). Kept across rescans and
+    /// updates of the plugin (`PluginHost::set_in_process`).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub in_process: bool,
 }
 
 impl PluginInfo {
+    /// Whether it can run in yahaha's process at all: every AUv2, and an AUv3 that allows it.
+    pub fn can_run_in_process(&self) -> bool {
+        self.format == PluginFormat::Au2 || self.can_load_in_process
+    }
+
     /// "2.1.4" from 0x00020104.
     pub fn version_string(&self) -> String {
         format!("{}.{}.{}", self.version >> 16, (self.version >> 8) & 0xFF, self.version & 0xFF)
@@ -125,6 +135,7 @@ impl PluginInfo {
             can_load_in_process: c.flags & sys::FLAG_CAN_LOAD_IN_PROCESS != 0,
             sandbox_safe: c.flags & sys::FLAG_SANDBOX_SAFE != 0,
             last_load: None,
+            in_process: false,
         }
     }
 }

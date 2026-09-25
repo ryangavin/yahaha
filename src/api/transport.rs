@@ -17,7 +17,8 @@ pub enum TransportCmd {
     /// Break (Fill In BA).
     Break,
     /// Fill Down (`delta` -1), Fill Self (0), Fill Up (1): a fill, then the Main to the
-    /// left, the same one, or the one to the right (the Genos assignable functions).
+    /// left, the same one, or the one to the right (the Genos assignable functions). The
+    /// same as `FillDown`, `FillSelf` and `FillUp`.
     Fill { delta: i8 },
     /// Ending 1-3 (`index` 0-2): ends the style after the ending.
     Ending { index: u8 },
@@ -71,7 +72,11 @@ impl TransportCmd {
             TransportCmd::Intro { index } => Button::Intro(index.min(3)),
             TransportCmd::Main { index } => Button::Main(index.min(3)),
             TransportCmd::Break => Button::Break,
-            TransportCmd::Fill { delta } => Button::Fill(delta.signum()),
+            TransportCmd::Fill { delta } => match delta.signum() {
+                -1 => Button::FillDown,
+                1 => Button::FillUp,
+                _ => Button::FillSelf,
+            },
             TransportCmd::Ending { index } => Button::Ending(index.min(3)),
             TransportCmd::StartStop => Button::StartStop,
             TransportCmd::Stop => Button::Stop,

@@ -191,6 +191,15 @@ pub fn detect(rec: &Recognizer, mode: Fingering, held: &[bool; 128], split: u8, 
     c.filter(|c| c.ty != CANCEL || mode.allows_cancel())
 }
 
+/// Whether the keys held, with the chord they give the same as the chord before, play
+/// that chord again (after every chord key was up). In AI Full Keyboard only three notes
+/// or more do: a single note or a dyad that fits the chord is melody (#107), so a
+/// two-note figure in the right hand does not restart a Retrigger loop or time a Synchro
+/// Stop. Every other type: always.
+pub fn restrikes(rec: &Recognizer, mode: Fingering, held: &[bool; 128], split: u8) -> bool {
+    mode != Fingering::AiFullKeyboard || full(rec, held, split).is_some()
+}
+
 /// Single Finger: root = highest key; black key below = m, white = 7, both = m7.
 fn single(held: &[bool; 128], s: Scan) -> Chord {
     let root = s.high % 12;

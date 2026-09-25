@@ -37,6 +37,23 @@ describe('mock session', () => {
     expect(m.state.transport.section).toBe('Fill In AA')
   })
 
+  it('Tap while the band plays sets the tempo; Style Section Reset is a function of its own (#128)', () => {
+    const m = new MockSession({ manual: true })
+    m.send({ type: 'startStop' })
+    m.advance(bar(m) * 1.3)
+    expect(m.state.transport.bar).toBe(2)
+    m.send({ type: 'tapTempo' })
+    m.advance(400)
+    m.send({ type: 'tapTempo' })
+    expect(m.state.transport.tempo).toBeCloseTo(150, 1)
+    expect(m.state.transport.bar).toBe(2)
+    m.advance(bar(m) * 0.1)
+    expect(m.state.transport.beat).not.toBe(1)
+    m.send({ type: 'triggerFunction', function: 'sectionReset' })
+    expect(m.state.transport.beat).toBe(1)
+    expect(m.state.transport.running).toBe(true)
+  })
+
   it('an armed Intro plays first, then the Main', () => {
     const m = new MockSession({ manual: true })
     m.send({ type: 'intro', index: 0 })

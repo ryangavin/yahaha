@@ -48,6 +48,11 @@
   }
   const byMaker = $derived(pluginGroups(plugins.list))
   const pluginLine = $derived(pluginStatusLine(plugin, plugins.available))
+  // The part's plugin in the scan list: its "run in process" override.
+  const entry = $derived(plugin ? plugins.list.find((p) => p.id === plugin.id) : undefined)
+  function toggleInProcess() {
+    if (entry?.canRunInProcess) app.send({ type: 'setPluginInProcess', id: entry.id, inProcess: !entry.inProcess })
+  }
   // A plugin patch's plugin while it loads, or when it failed: the Library tab says so.
   const patchPluginLine = $derived(part.patch && plugin && plugin.status !== 'playing' ? pluginLine.replace(/ ▾$/, '') : null)
 
@@ -171,6 +176,7 @@
       <button type="button" class="mini mat-raised wide" aria-disabled={!plugins.available || plugins.scanning} use:tip={'part.plugin_rescan'} onclick={() => app.send({ type: 'rescanPlugins' })}>
         {plugins.scanning ? 'Scanning' : 'Rescan'}
       </button>
+      <button type="button" class="mini mat-raised wide" class:on={!!entry?.inProcess} aria-pressed={!!entry?.inProcess} aria-disabled={!entry?.canRunInProcess} use:tip={'part.plugin_in_process'} onclick={toggleInProcess}>In proc</button>
     </div>
   {/if}
 
@@ -230,12 +236,16 @@
   }
   .prow {
     display: grid;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: 1fr 1fr 1fr;
     gap: 0.25rem;
   }
   .mini.wide {
     width: auto;
     font-size: 0.7rem;
+  }
+  /* In proc on: lit, since a crash there takes yahaha down. */
+  .mini.wide.on {
+    color: var(--accent);
   }
   .strip {
     position: relative;

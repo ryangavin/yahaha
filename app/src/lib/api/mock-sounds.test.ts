@@ -47,4 +47,20 @@ describe('sound catalog (#117)', () => {
     m.advance(3100)
     expect(m.state.sounds.auditioning).toBe(null)
   })
+
+  it('program map rules take catalog ids: a preset or plugin becomes a patch once', () => {
+    const m = new MockSession({ manual: true })
+    const n = m.state.soundLibrary.patches.length
+    m.send({ type: 'setFamilyRule', family: 2, patch: 'au:aumu samp appl', style: false })
+    m.send({ type: 'setDrumRule', patch: 'au:aumu samp appl', style: true })
+    expect(m.state.soundLibrary.patches.length).toBe(n + 1)
+    const id = m.state.soundLibrary.patches[n].id
+    expect(m.state.soundLibrary.patches[n].source).toMatchObject({ kind: 'plugin', componentId: 'aumu samp appl' })
+    expect(m.state.soundLibrary.map.families[2]).toBe(id)
+    expect(m.state.soundLibrary.styleMap.drums).toBe(id)
+    m.send({ type: 'setProgramOverride', program: 5, patch: 'sf:FluidR3_GM.sf2:0:5', style: false })
+    expect(m.state.soundLibrary.patches.length).toBe(n + 2)
+    m.send({ type: 'setDrumRule', patch: 'sf:Nope.sf2:0:0', style: false })
+    expect(m.state.message?.error).toBe(true)
+  })
 })

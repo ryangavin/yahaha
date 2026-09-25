@@ -165,6 +165,55 @@ mod tests {
         assert_eq!(s.state().transport.fade, FadeState::Off, "and software takes it off");
     }
 
+    /// TAP TEMPO while the band plays sets the tempo, from the app and from the Launchkey's
+    /// Tap pad (117), and Style Section Reset is a function of its own (#128).
+    #[test]
+    fn tap_sets_the_tempo_while_playing_and_section_reset_is_assignable() {
+        const MS: u64 = 1_000_000;
+        let Some(s) = offline() else { return };
+        // The position as the app shows it: bar and beat from 1.
+        let at = |s: &Session| (s.state().transport.bar, s.state().transport.beat);
+        s.send(TransportCmd::StartStop).unwrap();
+        while at(&s).0 < 2 {
+            s.advance(50 * MS);
+        }
+        // The app's Tap: twice, 400 ms apart = 150 BPM; the band plays on in bar 2.
+        s.send(TransportCmd::TapTempo).unwrap();
+        s.advance(400 * MS);
+        s.send(TransportCmd::TapTempo).unwrap();
+        s.advance(20 * MS);
+        assert!((s.state().transport.tempo - 150.0).abs() < 0.01, "{}", s.state().transport.tempo);
+        assert!(s.state().transport.running);
+        assert_eq!(at(&s).0, 2, "no Section Reset");
+        // The Launchkey's Tap pad: 500 ms apart = 120 BPM.
+        s.advance(3_000 * MS);
+        for i in 0..2 {
+            if i > 0 {
+                s.advance(500 * MS);
+            }
+            s.midi_in(Port::Pads, &[0x90, 117, 100]);
+            s.midi_in(Port::Pads, &[0x80, 117, 0]);
+        }
+        s.advance(20 * MS);
+        assert!((s.state().transport.tempo - 120.0).abs() < 0.01, "{}", s.state().transport.tempo);
+        // Style Section Reset on a pedal: back to the top of the section.
+        assert_eq!(Function::SectionReset.info().name, "Style Section Reset");
+        s.send(pedal(1, 66, Function::SectionReset)).unwrap();
+        while at(&s) == (1, 1) {
+            s.advance(50 * MS);
+        }
+        s.midi_in(Port::Keys, &[0xB0, 66, 127]);
+        s.midi_in(Port::Keys, &[0xB0, 66, 0]);
+        s.advance(20 * MS);
+        assert_eq!(at(&s), (1, 1), "the pedal reset the section");
+        s.advance(700 * MS);
+        assert_ne!(at(&s), (1, 1));
+        s.send(ControllersCmd::TriggerFunction { function: Function::SectionReset }).unwrap();
+        s.advance(20 * MS);
+        assert_eq!(at(&s), (1, 1), "and so does software");
+        assert!(s.state().transport.running);
+    }
+
     /// Kbd Harmony/Arpeggio On/Off and Arpeggio Hold as pedal functions (RM p.141): a Hold
     /// A pedal holds the arpeggio while it is down, a Toggle pedal switches Harmony/Arpeggio.
     #[test]
