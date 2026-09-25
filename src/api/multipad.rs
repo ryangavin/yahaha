@@ -33,6 +33,23 @@ pub enum MultiPadCmd {
     SetMultiPadSynchroStop { style_stop: bool, ending: bool },
 }
 
+/// A Launchkey Multi Pad button (`launchkey::Action::MultiPad`) is the command the app's
+/// pad sends.
+impl From<crate::engine::PadCmd> for MultiPadCmd {
+    fn from(c: crate::engine::PadCmd) -> MultiPadCmd {
+        use crate::engine::PadCmd;
+        match c {
+            PadCmd::Trigger(pad) => MultiPadCmd::TriggerMultiPad { pad },
+            PadCmd::Stop(pad) => MultiPadCmd::StopMultiPad { pad },
+            PadCmd::StopAll => MultiPadCmd::StopAllMultiPads,
+            PadCmd::Arm(pad) => MultiPadCmd::ArmMultiPad { pad },
+            PadCmd::Repeat(pad, on) => MultiPadCmd::SetMultiPadRepeat { pad, on },
+            PadCmd::ChordMatch(pad, on) => MultiPadCmd::SetMultiPadChordMatch { pad, on },
+            PadCmd::SynchroStop(s) => MultiPadCmd::SetMultiPadSynchroStop { style_stop: s.style_stop, ending: s.ending },
+        }
+    }
+}
+
 /// A pad's lamp, as on the Genos panel.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
