@@ -15,7 +15,7 @@ use super::super::Control;
 use super::sections::part_group;
 use crate::api::{base64_decode, PluginStatus};
 use crate::parts;
-use crate::registration::{Groups, VoiceRef};
+use crate::registration::{Bank, Groups, VoiceRef};
 use crate::session::PluginVoice;
 use serde_json::Value;
 use std::sync::atomic::Ordering::Relaxed;
@@ -41,7 +41,39 @@ pub(super) struct PluginFill {
     since: u64,
 }
 
+/// The plugin voices bank `b`'s buttons play, to preload (`Control::warm_plugins`): in
+/// button order, each voice (id and state) as many times as one button plays it at once.
+pub(super) fn bank_plugin_voices(b: &Bank) -> Vec<PluginVoice> {
+    let mut out: Vec<(PluginVoice, usize)> = Vec::new();
+    for m in b.memories.iter().flatten() {
+        let Some(parts) = m.sections.get("parts").and_then(|s| s.get("parts")).and_then(Value::as_array) else { continue };
+        let mut here: Vec<(PluginVoice, usize)> = Vec::new();
+        for part in parts {
+            let Some(Ok(VoiceRef::Plugin { id, state, .. })) = part.get("voice").map(|v| serde_json::from_value::<VoiceRef>(v.clone())) else { continue };
+            let Some(state) = state.map(|s| base64_decode(&s)).map_or(Some(None), |d| d.map(Some)) else { continue };
+            let v = PluginVoice { id, state };
+            match here.iter_mut().find(|(w, _)| *w == v) {
+                Some((_, n)) => *n += 1,
+                None => here.push((v, 1)),
+            }
+        }
+        for (v, n) in here {
+            match out.iter_mut().find(|(w, _)| *w == v) {
+                Some((_, m)) => *m = (*m).max(n),
+                None => out.push((v, n)),
+            }
+        }
+    }
+    out.into_iter().flat_map(|(v, n)| std::iter::repeat_n(v, n)).collect()
+}
+
 impl Control {
+    /// Preload the plugins the bank's buttons play (off the real-time threads).
+    pub(super) fn warm_bank_plugins(&mut self) {
+        let want = bank_plugin_voices(&self.reg.bank);
+        self.warm_plugins(want);
+    }
+
     /// Part `p`'s plugin from the Plugins tab, as a registration stores it: None when it
     /// plays none (or its library patch's).
     pub(super) fn part_plugin_reg(&self, p: usize) -> Option<VoiceRef> {
@@ -72,6 +104,8 @@ impl Control {
             None => None,
         };
         self.sound_library_part_plugin(p, true);
+        // A preloaded instance is used up: the pool refills at the next pump.
+        self.reg.warm_dirty = true;
         let r = self.assign_channel_plugin(ch, PluginVoice { id: id.to_string(), state: bytes });
         if r.is_err() {
             self.clear_channel_plugin(ch);
