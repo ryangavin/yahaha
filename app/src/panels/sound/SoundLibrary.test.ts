@@ -22,10 +22,23 @@ afterEach(() => {
   nav.tab = 'patches'
   nav.styleScope = false
   nav.selected = null
+  ui.soundPick = null
 })
 
 const tipped = (key: string) => [...document.querySelectorAll<HTMLElement>(`[data-tip="${key}"]`)]
 const tab = (id: string) => document.querySelector<HTMLButtonElement>(`#sound-tab-${id}`)!
+/** A map picker (#117): open it, and pick in the Sound Browser (catalog id; null clears). */
+const pickIn = async (el: HTMLElement, id: string | null) => {
+  if (id === null) {
+    await fireEvent.click(el.parentElement!.querySelector<HTMLElement>('[data-tip="sound.rule_clear"]')!)
+  } else {
+    await fireEvent.click(el)
+    expect(ui.soundPick).not.toBe(null)
+    ui.soundPick!.onpick(id)
+    ui.soundPick = null
+  }
+  flushSync()
+}
 const change = async (el: HTMLSelectElement | HTMLInputElement, value: string) => {
   el.value = value
   await fireEvent.change(el)
@@ -115,16 +128,16 @@ describe('Sound Library drawer', () => {
     const s = setup()
     await fireEvent.click(tab('map'))
     flushSync()
-    const families = tipped('sound.family') as HTMLSelectElement[]
+    const families = tipped('sound.family')
     expect(families).toHaveLength(16)
-    await change(families[10], 'warm-rhodes')
+    await pickIn(families[10], 'saved:warm-rhodes')
     expect(s.state.soundLibrary.map.families[10]).toBe('warm-rhodes')
-    await change(tipped('sound.drums')[0] as HTMLSelectElement, '')
+    await pickIn(tipped('sound.drums')[0], null)
     expect(s.state.soundLibrary.map.drums).toBe(null)
     // An override.
     await change(tipped('sound.override_program')[0] as HTMLSelectElement, '0')
-    const pickers = tipped('sound.override_patch') as HTMLSelectElement[]
-    await change(pickers[pickers.length - 1], 'warm-rhodes')
+    const pickers = tipped('sound.override_patch')
+    await pickIn(pickers[pickers.length - 1], 'saved:warm-rhodes')
     await fireEvent.click(tipped('sound.override_add')[0])
     expect(s.state.soundLibrary.map.overrides.find((o) => o.program === 0)?.patch).toBe('warm-rhodes')
     await fireEvent.click(tipped('sound.override_remove')[0])
@@ -132,7 +145,7 @@ describe('Sound Library drawer', () => {
     // This style's own rule; the global map is untouched.
     await fireEvent.click(tipped('sound.scope')[1])
     flushSync()
-    await change((tipped('sound.family') as HTMLSelectElement[])[4], 'soft-pad')
+    await pickIn(tipped('sound.family')[4], 'saved:soft-pad')
     expect(s.state.soundLibrary.styleMap.families[4]).toBe('soft-pad')
     expect(s.state.soundLibrary.map.families[4]).toBe('finger-bass')
     flushSync()
@@ -148,13 +161,18 @@ describe('Sound Library drawer', () => {
     expect(rows).toHaveLength(8)
     const bass = s.state.soundLibrary.usage.find((u) => u.part === 'Bass')!
     expect(bass.plays).toBe('Finger Bass')
-    const remaps = tipped('sound.remap') as HTMLSelectElement[]
-    await change(remaps[2], 'soft-pad')
+    const remaps = tipped('sound.remap')
+    await pickIn(remaps[2], 'saved:soft-pad')
     expect(s.state.soundLibrary.map.overrides.find((o) => o.program === bass.gmProgram)?.patch).toBe('soft-pad')
     expect(s.state.soundLibrary.usage.find((u) => u.part === 'Bass')!.plays).toBe('Soft Pad')
     // A drum part's remap is the drum rule.
-    await change(remaps[0], 'finger-bass')
+    await pickIn(remaps[0], 'saved:finger-bass')
     expect(s.state.soundLibrary.map.drums).toBe('finger-bass')
+    // Any sound: a SoundFont preset becomes a library patch the rule names.
+    const n = s.state.soundLibrary.patches.length
+    await pickIn(tipped('sound.remap')[2], 'sf:FluidR3_GM.sf2:0:48')
+    expect(s.state.soundLibrary.patches.length).toBe(n + 1)
+    expect(s.state.soundLibrary.usage.find((u) => u.part === 'Bass')!.patch).toBe(s.state.soundLibrary.lastAdded)
   })
 
   it('browses a SoundFont and adds a preset as a patch', async () => {

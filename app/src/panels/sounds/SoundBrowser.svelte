@@ -1,7 +1,8 @@
 <!--
   The Sound Browser (#117): one list of every sound for a keyboard part, whatever it
   comes from: SoundFont presets, instrument plugins, saved sounds (a modal over the
-  mirror, open while `ui.soundBrowser` is a part).
+  mirror, open while `ui.soundBrowser` is a part). With `pick` it picks for something else
+  instead, a program map rule: Enter or a click hands the sound over and closes.
 
   ┌ All sounds   ┐┌ Filter ─────────────────────────── 1,219 of 1,219 ┐
   │ ★ Favourites ││ ☆ Grand Piano      SF  GeneralUser-GS.sf2      ▶ │  virtualised
@@ -15,7 +16,7 @@
 -->
 <script lang="ts">
   import { onDestroy, onMount, tick } from 'svelte'
-  import { app, ui } from '../../lib/store.svelte'
+  import { app, ui, type SoundPick } from '../../lib/store.svelte'
   import { tip, tips } from '../../lib/tooltip/tip.svelte'
   import HwButton from '../../lib/ui/HwButton.svelte'
   import Overlay from '../../lib/ui/Overlay.svelte'
@@ -23,7 +24,7 @@
   import { pluginStatusLine } from '../parts/parts'
   import { SOURCE_BADGE, categoryCounts, playingId, visibleSounds, type SoundView } from './model'
 
-  let { part }: { part: number } = $props()
+  let { part = 0, pick = null }: { part?: number; pick?: SoundPick | null } = $props()
 
   const ROW = 36
   const OVERSCAN = 8
@@ -36,8 +37,8 @@
   const cats = $derived(categoryCounts(entries))
   const favourites = $derived(entries.reduce((n, e) => n + (e.favourite ? 1 : 0), 0))
 
-  const kp = $derived(app.state.keyboardParts[part])
-  const playing = $derived(kp ? playingId(kp, app.state.io.soundFontFile) : null)
+  const kp = $derived(pick ? undefined : app.state.keyboardParts[part])
+  const playing = $derived(pick ? (pick.value ? `saved:${pick.value}` : null) : kp ? playingId(kp, app.state.io.soundFontFile) : null)
   const auditioning = $derived(app.state.sounds?.auditioning ?? null)
   const running = $derived(app.state.transport.running)
   const plugins = $derived(app.state.plugins)
@@ -63,7 +64,14 @@
     scrollTop = list.scrollTop
   }
 
-  const assign = (i: number) => entries[i] && app.send({ type: 'assignSound', part, id: entries[i].id })
+  function assign(i: number) {
+    const e = entries[i]
+    if (!e) return
+    if (!pick) return app.send({ type: 'assignSound', part, id: e.id })
+    pick.onpick(e.id)
+    ui.soundPick = null
+  }
+  const close = () => (pick ? (ui.soundPick = null) : (ui.soundBrowser = null))
   function audition(i: number) {
     const e = entries[i]
     if (!e || running) return
@@ -71,7 +79,7 @@
   }
   const star = (i: number) => entries[i] && app.send({ type: 'setSoundFavourite', id: entries[i].id, on: !entries[i].favourite })
 
-  function pick(v: SoundView) {
+  function show(v: SoundView) {
     view = v
     void tick().then(() => ensureVisible(cursor, true))
   }
@@ -119,22 +127,22 @@
   const is = (v: SoundView) => v.kind === view.kind && (v.kind !== 'category' || (view.kind === 'category' && view.id === v.id))
 </script>
 
-<Overlay id="sounds" title="Sounds · {kp?.name ?? ''}" side="center" modal closeTip="sounds.close" onclose={() => (ui.soundBrowser = null)}>
+<Overlay id="sounds" title="Sounds · {pick ? pick.title : (kp?.name ?? '')}" side="center" modal closeTip="sounds.close" onclose={close}>
   <div class="sb">
     <nav class="side" aria-label="Sound categories">
-      <button type="button" class="cat" class:on={is({ kind: 'all' })} aria-pressed={is({ kind: 'all' })} use:tip={'sounds.all'} onclick={() => pick({ kind: 'all' })}>
+      <button type="button" class="cat" class:on={is({ kind: 'all' })} aria-pressed={is({ kind: 'all' })} use:tip={'sounds.all'} onclick={() => show({ kind: 'all' })}>
         <span>All sounds</span><span class="n">{entries.length.toLocaleString()}</span>
       </button>
-      <button type="button" class="cat" class:on={is({ kind: 'favourites' })} aria-pressed={is({ kind: 'favourites' })} use:tip={'sounds.favourites'} onclick={() => pick({ kind: 'favourites' })}>
+      <button type="button" class="cat" class:on={is({ kind: 'favourites' })} aria-pressed={is({ kind: 'favourites' })} use:tip={'sounds.favourites'} onclick={() => show({ kind: 'favourites' })}>
         <span><span class="ico" aria-hidden="true">★</span> Favourites</span><span class="n">{favourites}</span>
       </button>
-      <button type="button" class="cat" class:on={is({ kind: 'recents' })} aria-pressed={is({ kind: 'recents' })} use:tip={'sounds.recents'} onclick={() => pick({ kind: 'recents' })}>
+      <button type="button" class="cat" class:on={is({ kind: 'recents' })} aria-pressed={is({ kind: 'recents' })} use:tip={'sounds.recents'} onclick={() => show({ kind: 'recents' })}>
         <span><span class="ico" aria-hidden="true">↺</span> Recent</span><span class="n">{catalog.recents.length}</span>
       </button>
       <h3 class="engraved">Categories</h3>
       {#each cats as c (c.id)}
         {@const v: SoundView = { kind: 'category', id: c.id }}
-        <button type="button" class="cat sub" class:on={is(v)} aria-pressed={is(v)} use:tip={'sounds.category'} onclick={() => pick(v)}>
+        <button type="button" class="cat sub" class:on={is(v)} aria-pressed={is(v)} use:tip={'sounds.category'} onclick={() => show(v)}>
           <span>{c.label}</span><span class="n">{c.count.toLocaleString()}</span>
         </button>
       {/each}
@@ -207,7 +215,7 @@
       </div>
 
       <footer class="foot">
-        <span class="now">{kp?.name} plays <b>{kp?.voiceName}</b>{#if kp?.plugin}&nbsp;· {pluginStatusLine(kp.plugin, plugins.available).replace(/ ▾$/, '')}{#if kp.plugin.status === 'playing'}&nbsp;· CPU {Math.round(kp.plugin.cpu * 100)}%{/if}{/if}</span>
+        {#if pick}<span class="now">Pick the sound for <b>{pick.title}</b></span>{:else}<span class="now">{kp?.name} plays <b>{kp?.voiceName}</b>{#if kp?.plugin}&nbsp;· {pluginStatusLine(kp.plugin, plugins.available).replace(/ ▾$/, '')}{#if kp.plugin.status === 'playing'}&nbsp;· CPU {Math.round(kp.plugin.cpu * 100)}%{/if}{/if}</span>{/if}
         {#if auditioning}<HwButton tip="sounds.audition_stop" onclick={() => app.send({ type: 'stopSoundAudition' })}>■ Stop</HwButton>{/if}
         {#if kp?.plugin?.editor}<HwButton tip="part.plugin_edit" onclick={() => app.pluginEditor(part, true)}>Edit…</HwButton>{/if}
         {#if plugins.available}
