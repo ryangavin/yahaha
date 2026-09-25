@@ -2505,6 +2505,31 @@ mod detection_area {
         assert_eq!((c.root, c.ty, c.bass), (0, 0, None));
     }
 
+    /// Dynamics Touch / Accent (engine/dynamics.rs): with `Shared::strikes` on, each key
+    /// struck in the chord section goes to the engine with its velocity; the other hand's
+    /// keys, and every key while the Chord Looper loops, do not.
+    #[test]
+    fn chord_section_strikes_go_to_the_engine() {
+        let strikes = |r: &mut Rig| -> Vec<u8> {
+            std::iter::from_fn(|| r.cmds.pop().ok()).filter_map(|c| if let Cmd::Strike(v) = c { Some(v) } else { None }).collect()
+        };
+        for upper in [false, true] {
+            let mut r = rig(upper);
+            let (chord_key, other) = if upper { (72, 36) } else { (36, 72) };
+            r.input.key_msg(&[0x90, chord_key, 90]);
+            assert!(strikes(&mut r).is_empty(), "off by default");
+            r.off(&[chord_key]);
+            r.shared.strikes.store(true, Relaxed);
+            r.input.key_msg(&[0x90, chord_key, 90]);
+            r.input.key_msg(&[0x90, other, 120]);
+            assert_eq!(strikes(&mut r), [90], "upper: {upper}");
+            r.off(&[chord_key, other]);
+            r.shared.looping.store(true, Relaxed);
+            r.input.key_msg(&[0x90, chord_key, 90]);
+            assert!(strikes(&mut r).is_empty(), "no chord section while the loop plays");
+        }
+    }
+
     /// Lower (default): the left hand is the chord section and sounds on the LH channel.
     #[test]
     fn lower_detects_the_left_hand() {
