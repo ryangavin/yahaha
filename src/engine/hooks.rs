@@ -73,6 +73,8 @@ pub(super) struct Features {
     pub(super) solo: Option<u8>,
     /// Multi Pads (multipad.rs).
     pub(super) pads: super::multipad::PadDeck,
+    /// Style Dynamics Control, Touch and Accent (dynamics.rs).
+    pub(super) dynamics: super::dynamics::Dynamics,
 }
 
 /// The next beat line the bar and beat hooks wait for: a tick on the section's timeline

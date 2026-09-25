@@ -12,7 +12,7 @@
 //! equal to its next deadline.
 
 use crate::controllers::{Controllers, Handled};
-use crate::engine::{shift_key, AuditionPos, Button, ChangeRules, ChartPlan, ChartSettings, Engine, PadCmd, Prepared, Snapshot, StyleSettings, Transpose};
+use crate::engine::{shift_key, AuditionPos, Button, ChangeRules, ChartPlan, ChartSettings, DynamicsSettings, Engine, PadCmd, Prepared, Snapshot, StyleSettings, Transpose};
 use crate::multipad::MultiPadPlayer;
 use crate::fingering::{self, Fingering};
 use crate::harmony::{self, HarmonySettings};
@@ -69,6 +69,11 @@ pub enum Cmd {
     Metronome { on: bool, bell: bool },
     /// Multi Pads: press, stop, arm a pad, their settings (`engine/multipad.rs`).
     MultiPad(PadCmd),
+    /// Style Dynamics Control, Touch and Accent settings (engine/dynamics.rs).
+    Dynamics(DynamicsSettings),
+    /// A chord-section key went down with this velocity (sent only while
+    /// `Shared::strikes`): Touch and Accent.
+    Strike(u8),
 }
 
 /// A Multi Pad bank for the engine thread (`AppCmd::LoadMultiPad`): its player, built on
@@ -167,6 +172,9 @@ pub struct Shared {
     pub fx_held: [AtomicU64; 2],
     /// Pedals, wheels and their parts (`controllers.rs`).
     pub controllers: Controllers,
+    /// Dynamics Touch or Accent is on: the input thread sends the engine each chord-section
+    /// strike (`Cmd::Strike`; engine/dynamics.rs).
+    pub strikes: AtomicBool,
     /// The sound library's program map, as the synth and the port read it (#103).
     pub routes: Arc<crate::patches::Routes>,
 }
@@ -206,6 +214,7 @@ impl Shared {
             kbd_fx: AtomicU64::new(FxConfig::default().pack()),
             fx_held: [AtomicU64::new(0), AtomicU64::new(0)],
             controllers: Controllers::new(),
+            strikes: AtomicBool::new(false),
             routes: Arc::new(crate::patches::Routes::new()),
         }
     }
@@ -1368,6 +1377,8 @@ fn apply(engine: &mut Engine, shared: &Shared, cmd: Cmd, now: u64, out: &mut Out
         Cmd::StyleParts(m) => engine.set_style_parts(m, out),
         Cmd::Metronome { on, bell } => engine.set_metronome(on, bell, now),
         Cmd::MultiPad(c) => engine.pad_cmd(c, now, out),
+        Cmd::Dynamics(d) => engine.set_dynamics(d),
+        Cmd::Strike(vel) => engine.strike(vel, now),
         Cmd::KeysOff => {
             // The source's pedal, wheels and pressure went to every keyboard part too, and
             // its releases will never come: with the pedal left down, All Notes Off would

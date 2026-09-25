@@ -12,6 +12,7 @@
 mod change_rules;
 mod chart;
 mod chords;
+mod dynamics;
 mod fills;
 mod fade;
 mod hooks;
@@ -44,6 +45,7 @@ pub use mixer::{Takeover, HW_UNKNOWN};
 pub use transport::StyleControls;
 pub use multipad::{PadCmd, PadsSnap, SynchroStop, PAD_PPQ};
 use prepared::PKind;
+pub use dynamics::{touch_level, DynamicsSettings, ACCENT_DEFAULT, DYNAMICS_NEUTRAL};
 pub use fade::FadeState;
 pub use prepared::{id_of, slot_of, Msgs, PSection, Prepared, Setup, NUM_SLOTS};
 pub use ritardando::RIT_END;
@@ -235,6 +237,8 @@ pub struct Snapshot {
     pub style_solo: Option<u8>,
     /// Multi Pads: the bank playing and each pad's state (engine/multipad.rs).
     pub multipad: PadsSnap,
+    /// The Dynamics level in effect, 0-127 (Touch moves it; engine/dynamics.rs).
+    pub dynamics: u8,
 }
 
 /// Where a style preview is: style `id` (the session's library id), bar `bar` of `bars`
@@ -561,6 +565,7 @@ impl Engine {
             looper: self.looper_snapshot(),
             style_solo: self.features.solo,
             multipad: self.pads_snapshot(),
+            dynamics: self.features.dynamics.settings.level,
         }
     }
 
