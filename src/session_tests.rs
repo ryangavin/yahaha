@@ -610,6 +610,8 @@ fn launchkey_hardware_matches_its_commands() {
                         (0..=3, FaderPage::Panel, false) => Some(AppCmd::Parts(PartsCmd::TogglePart { part: i })),
                         (4, FaderPage::Panel, _) => Some(AppCmd::HarmonyArp(HarmonyArpCmd::ToggleHarmonyArp)),
                         (5, FaderPage::Panel, _) => Some(AppCmd::Plugins(crate::api::PluginCmd::ReloadPartPlugin { part: None })),
+                        (7, FaderPage::Panel, false) => Some(AppCmd::Looper(crate::api::LooperCmd::LooperOnOff)),
+                        (7, FaderPage::Panel, true) => Some(AppCmd::Looper(crate::api::LooperCmd::LooperRec)),
                         (_, FaderPage::Panel, _) => None,
                         (_, FaderPage::Style, _) => Some(AppCmd::Mixer(MixerCmd::ToggleStylePart { part: i })),
                     };
