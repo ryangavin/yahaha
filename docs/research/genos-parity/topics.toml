@@ -1,0 +1,282 @@
+# Genos parity research: the concept list.
+#
+# One [[topic]] per concept. The scripts in scripts/ read this file (Python's
+# built-in tomllib, no dependencies). Fields:
+#   id        short slug; notes go to notes/<id>.md
+#   title     human name
+#   feel      true for playing-feel topics (research these deeper)
+#   queries   YouTube search queries (yt-dlp "ytsearchN:<query>")
+#   keywords  words to look for in transcripts when picking timestamps
+#   manual    manual refs: OM = Genos2 Owner's Manual, RM = Genos2 Reference
+#             Manual, DL = Genos Data List (printed page numbers)
+#   yahaha    where yahaha implements (or would implement) it
+#
+# Add topics freely; keep ids stable because notes and the matrix refer to them.
+
+[[topic]]
+id = "sections"
+title = "Style sections: Intro / Main / Fill / Break / Ending subtleties"
+feel = true
+queries = [
+  "Genos style sections intro main fill break ending tutorial",
+  "Yamaha Genos how to play styles like a pro fills breaks",
+  "Genos 2 ending ritardando intro count in",
+]
+keywords = ["intro", "ending", "break", "fill", "variation", "main a", "rit", "count"]
+manual = ["OM p.66-68", "RM p.12", "DL p.111"]
+yahaha = ["docs/section-timing.md", "docs/fills-and-rules.md", "src/engine/sections.rs", "src/engine/fills.rs"]
+
+[[topic]]
+id = "section-timing"
+title = "Section Change Timing, Fill-in timing, To Main, Half Bar Fill"
+feel = true
+queries = [
+  "Genos section change timing immediate next bar",
+  "Genos half bar fill in",
+  "Genos fill in timing when to press fill",
+]
+keywords = ["timing", "immediate", "next bar", "half bar", "beat", "measure", "end of section"]
+manual = ["RM p.12", "RM p.142"]
+yahaha = ["docs/section-timing.md", "src/engine/timing.rs", "src/engine/sections.rs"]
+
+[[topic]]
+id = "auto-fill"
+title = "Auto Fill In, Fill Up/Down/Self, Break behaviour"
+feel = true
+queries = [
+  "Genos auto fill in explained",
+  "Yamaha arranger auto fill button tips",
+  "Genos fill up fill down assignable pedal",
+]
+keywords = ["auto fill", "fill in", "fill up", "fill down", "break", "pedal"]
+manual = ["OM p.67", "RM p.142", "DL p.82"]
+yahaha = ["docs/fills-and-rules.md", "src/engine/fills.rs"]
+
+[[topic]]
+id = "fingering"
+title = "Chord detection and fingering types (AI Fingered, AI Full Keyboard, On Bass, Multi Finger)"
+feel = true
+queries = [
+  "Genos fingering type AI full keyboard explained",
+  "Yamaha arranger fingered on bass vs fingered",
+  "Genos AI fingered chord detection tips",
+  "Yamaha arranger full keyboard chord detection play with both hands",
+]
+keywords = ["fingering", "fingered", "on bass", "ai", "full keyboard", "single finger", "slash", "chord"]
+manual = ["OM p.46", "RM p.9", "DL p.45"]
+yahaha = ["docs/genos-features.md#c2-fingering-types-rm-p9-om-p46", "src/fingering.rs", "src/theory.rs"]
+
+[[topic]]
+id = "split-detection"
+title = "Split points, chord detection area (Upper/Lower), Left Hold, Manual Bass"
+feel = true
+queries = [
+  "Genos split point style left right 3",
+  "Genos chord detection area upper manual bass",
+  "Genos left hold function",
+]
+keywords = ["split", "left hold", "upper", "lower", "manual bass", "detection area"]
+manual = ["OM p.48-50", "RM p.9", "DL p.87"]
+yahaha = ["docs/genos-features.md#split-points", "src/parts.rs", "src/session/keyboard.rs"]
+
+[[topic]]
+id = "sync-start-stop"
+title = "Synchro Start / Synchro Stop / Stop ACMP / ACMP on-off"
+feel = true
+queries = [
+  "Genos synchro start synchro stop explained",
+  "Yamaha arranger sync stop window",
+  "Genos stop accompaniment setting",
+]
+keywords = ["sync start", "synchro start", "sync stop", "synchro stop", "acmp", "stop accompaniment"]
+manual = ["OM p.66", "RM p.11-12", "OM p.131"]
+yahaha = ["docs/section-timing.md#synchro-stop-window-23", "docs/fills-and-rules.md#stop-accompaniment-27", "src/engine/sync_stop.rs"]
+
+[[topic]]
+id = "retrigger-reset"
+title = "Style Retrigger, Tap Tempo, Style Section Reset"
+feel = true
+queries = [
+  "Genos style retrigger",
+  "Genos 2 style section reset tap tempo",
+  "Genos tap tempo count in",
+]
+keywords = ["retrigger", "tap", "reset", "tempo", "count"]
+manual = ["OM p.46", "OM p.67", "RM p.39", "RM p.147"]
+yahaha = ["docs/section-timing.md", "src/engine/retrigger.rs"]
+
+[[topic]]
+id = "ots"
+title = "One Touch Setting and OTS Link (timing, what is recalled)"
+feel = true
+queries = [
+  "Genos one touch setting OTS link",
+  "Yamaha OTS link timing real time next bar",
+  "Genos memorize one touch setting",
+]
+keywords = ["one touch", "ots", "link", "memorize", "voice"]
+manual = ["OM p.47", "OM p.60", "RM p.11", "DL p.82-92"]
+yahaha = ["docs/fills-and-rules.md#ots-link-timing-and-ots--sync-start-28", "src/session/ots.rs"]
+
+[[topic]]
+id = "registration"
+title = "Registration Memory, Freeze, Registration Sequence, Playlist"
+feel = true
+queries = [
+  "Genos registration memory tutorial",
+  "Genos registration freeze explained",
+  "Genos playlist registration sequence",
+]
+keywords = ["registration", "freeze", "bank", "memory", "playlist", "sequence"]
+manual = ["OM p.96-103", "RM p.113-119", "DL p.82-93"]
+yahaha = ["docs/registration.md", "src/registration"]
+
+[[topic]]
+id = "dynamics"
+title = "Style Dynamics Control, Ambience, style volume by touch"
+feel = true
+queries = [
+  "Genos 2 dynamics control style",
+  "Genos 2 live control dynamics knob",
+  "Genos ambient drums depth",
+]
+keywords = ["dynamics", "velocity", "touch", "ambience", "ambient", "knob"]
+manual = ["OM p.11", "OM p.69", "RM p.11", "RM p.147"]
+yahaha = ["docs/genos-features.md#style-dynamics-control-transport-settings"]
+
+[[topic]]
+id = "unison-accent"
+title = "Unison & Accent (PSR-SX) and what the Genos offers instead"
+feel = true
+queries = [
+  "Yamaha unison and accent PSR SX900",
+  "Genos 2 unison accent",
+]
+keywords = ["unison", "accent", "sforzando", "staccato"]
+manual = ["(not in Genos2 manuals; see genos-features.md §C.9)"]
+yahaha = ["docs/genos-features.md#c9-unison--accent"]
+
+[[topic]]
+id = "chord-looper"
+title = "Chord Looper"
+feel = true
+queries = [
+  "Genos 2 chord looper tutorial",
+  "Yamaha chord looper explained",
+]
+keywords = ["chord looper", "loop", "record", "memory", "bar"]
+manual = ["OM p.68-69", "RM p.14-19"]
+yahaha = ["docs/chord-looper.md", "src/looper.rs", "src/engine/looper.rs"]
+
+[[topic]]
+id = "multipads"
+title = "Multi Pads, Chord Match, Audio Link pads, pad sync start"
+feel = true
+queries = [
+  "Genos multi pads chord match",
+  "Genos audio link multi pad",
+  "Yamaha multi pad synchro start repeat",
+]
+keywords = ["multi pad", "pad", "chord match", "audio link", "sync", "repeat"]
+manual = ["OM p.59", "OM p.74-75", "RM p.64-68"]
+yahaha = ["docs/multipad.md", "src/multipad", "src/engine/multipad.rs"]
+
+[[topic]]
+id = "harmony-arp"
+title = "Keyboard Harmony, Arpeggio, Vocal Harmony basics"
+feel = false
+queries = [
+  "Genos keyboard harmony types explained",
+  "Genos arpeggio quantize hold",
+  "Genos 2 vocal harmony basics",
+]
+keywords = ["harmony", "arpeggio", "echo", "trill", "quantize", "hold", "vocal"]
+manual = ["OM p.56-58", "RM p.46-47", "DL p.74"]
+yahaha = ["docs/harmony.md", "docs/arpeggio.md", "src/harmony", "src/arp"]
+
+[[topic]]
+id = "voices-sart"
+title = "Voice features: Super Articulation, ART buttons, organ flutes, Ensemble"
+feel = false
+queries = [
+  "Genos super articulation voices how to play",
+  "Genos organ flutes tutorial",
+  "Genos art buttons joystick",
+]
+keywords = ["articulation", "art", "organ", "flute", "rotary", "ensemble", "joystick"]
+manual = ["OM p.53-55", "OM p.71-73", "RM p.35-38", "RM p.56-63"]
+yahaha = ["docs/sound-library.md", "docs/plugin-hosting.md", "docs/controllers.md"]
+
+[[topic]]
+id = "live-control"
+title = "Live Control knobs/sliders, Assignable buttons, joystick, pedals"
+feel = true
+queries = [
+  "Genos live control knobs sliders assign",
+  "Genos assignable buttons pedal functions",
+]
+keywords = ["knob", "slider", "assign", "live control", "pedal", "button"]
+manual = ["OM p.62-64", "OM p.69", "RM p.138-148"]
+yahaha = ["docs/controllers.md", "src/controllers.rs"]
+
+[[topic]]
+id = "mixer"
+title = "Mixer, part volume behaviour, style part mute, balance"
+feel = true
+queries = [
+  "Genos mixer tutorial style parts",
+  "Genos balance style volume panel",
+]
+keywords = ["mixer", "volume", "balance", "mute", "channel", "eq"]
+manual = ["OM p.92", "RM p.129-137"]
+yahaha = ["README.md#controls", "src/engine/mixer.rs", "docs/architecture.md"]
+
+[[topic]]
+id = "tempo-transpose"
+title = "Tempo, Transpose, Upper Octave, tempo per style"
+feel = true
+queries = [
+  "Genos transpose tempo tips",
+  "Genos style tempo lock hold",
+]
+keywords = ["tempo", "transpose", "octave", "lock", "hold"]
+manual = ["OM p.46", "OM p.61", "RM p.12-13", "RM p.42"]
+yahaha = ["docs/fills-and-rules.md#change-behavior-26", "src/api/transport.rs"]
+
+[[topic]]
+id = "style-assembly"
+title = "Style Creator, Assembly, Groove and Dynamics (read for what performers value)"
+feel = false
+queries = [
+  "Genos style creator assembly",
+  "Genos style creator groove dynamics",
+]
+keywords = ["assembly", "groove", "swing", "creator", "channel"]
+manual = ["RM p.20-33"]
+yahaha = ["docs/genos-features.md#f-explicitly-out-of-scope-found-in-the-manuals"]
+
+[[topic]]
+id = "song-score"
+title = "Song, lead sheet, Score/Lyrics and playing along"
+feel = false
+queries = [
+  "Genos 2 score lyrics song playback",
+  "Genos song with style playback chords",
+]
+keywords = ["score", "lyrics", "song", "chord", "guide"]
+manual = ["OM p.76-89", "RM p.69-78"]
+yahaha = ["docs/ireal.md", "src/ireal"]
+
+[[topic]]
+id = "style-feel"
+title = "What makes Genos styles sound alive (power-user tips, first impressions, SX vs Genos)"
+feel = true
+queries = [
+  "Genos 2 styles review demo",
+  "Genos 2 vs PSR SX920 styles comparison",
+  "Genos tips and tricks power user",
+  "Genos things I wish I knew",
+]
+keywords = ["tip", "trick", "feel", "real", "dynamics", "fill", "ending", "variation"]
+manual = []
+yahaha = ["README.md"]
