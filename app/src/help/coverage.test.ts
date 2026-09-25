@@ -73,6 +73,7 @@ const STATES: [string, Setup][] = [
     s.advance(1000),
     (ui.soundBrowser = 0)
   )],
+  ['sound browser picking for a map rule', () => (ui.soundPick = { title: 'Piano family', value: 'stage-grand', onpick: () => {} })],
   ['settings open', () => (ui.settings = true)],
   ['settings open, a pitch-bend pedal learning its CC', (s) => {
     s.send({ type: 'setPedal', pedal: 2, cc: 4, function: 'pitchBend', controlType: 'holdA', reverse: false, range: 'full' })
@@ -135,6 +136,7 @@ afterEach(() => {
   cleanup()
   ui.browser = false
   ui.soundBrowser = null
+  ui.soundPick = null
   ui.settings = false
   ui.parts = false
   ui.mixer = false

@@ -275,7 +275,8 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | **Left volume** | Left's volume. The fader is channel 2's CC 7 itself, with no hidden gain behind it; under Manual Bass it is the bass's level too. | Mixer › Panel › Left Volume | — | Panel fader page: fader 4 |
 | **Style part volume** | This band part's volume. The fader is its channel's CC 7 itself (channels 9–16), with no hidden gain behind it, except that a Fade In/Out scales the CC 7 it sends while the fade runs (the fader stays put). Loading a style sets the faders to the style's own levels, and a pattern that changes its volume moves the fader too, until you move it yourself. | Mixer › Style › Volume | — | Style fader page: faders 1–8 (Rhythm 1 … Phrase 2) |
 | **Style part on/off** | Mutes or unmutes this band part. The Launchkey button is lit while the part plays. | Channel On/Off | `Z` `X` `C` `V` `B` `N` `M` `,` | Style fader page: buttons under faders 1–8 |
-| **Plugin part** | This part plays an instrument plugin, shown with its share of the CPU. Its fader is still the part's CC 7, applied to the plugin's output. | — | — | — |
+| **Plugin part** | This part plays an instrument plugin, shown with its share of one CPU core, updated every second. Its fader is still the part's CC 7, applied to the plugin's output. | — | — | — |
+| **Plugin running slow** | "N slow" counts the plugin's renders in the last 10 seconds that took more than half the audio buffer, the first sign of crackles. Raise Settings › Audio › Buffer size to give it more time, or use a lighter plugin or preset. | — | — | — |
 | **Plugin in process ⚠** | This part's plugin was meant to run in its own process, where a crash only silences the part. macOS refused to host it there, so it runs inside yahaha instead: if it crashes, yahaha goes with it. Save your setup, or pick another plugin for live use. | — | — | — |
 | **Master volume** | The built-in synth's output level (100 = unity), the only gain after the channel faders. A safety soft clipper above −1 dBFS keeps loud passages from hard clipping; below that the output is untouched. It does not change the MIDI output. | MASTER VOLUME | — | Master fader (both fader pages) |
 | **Solo** | Plays only this part, even if it is switched off; press again to end the solo. The Style tab solos a band part, the Panel tab a keyboard part, and the On switches stay as they were. | Mixer › touch and hold a channel (Solo) | — | — |
@@ -351,15 +352,16 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | **Play on a part** | Picks the patch for that keyboard part, with its defaults. The part's voice picker has the same list. | Voice Selection | — | — |
 | **Save part's sound** | Saves a keyboard part's sound as a new patch: its own patch, or its GM voice on the synth's SoundFont, with its volume and octave. | — | — | — |
 | **Every style / this style** | Which map you edit: the one every style uses, or this style's own rules, which win over it. This style's map is kept in your library, not in the style file. | — | — | — |
-| **Family rule** | The patch these eight GM programs play, with every bank variation of them. Blank: the voice the style asks for. | — | — | — |
-| **Drum rule** | The drum kit patch for Rhythm 1 and 2 and any part on a Yamaha drum kit bank. Blank: the kit the style asks for. | — | — | — |
+| **Family rule** | The sound these eight GM programs play, with every bank variation of them. Click to pick one in the Sound Browser: a saved sound, a SoundFont preset or a plugin. Blank: the voice the style asks for. | — | — | — |
+| **Clear rule** | Clears this rule: the programs it covered play what the rule below it gives them, or the style's own voice. | — | — | — |
+| **Drum rule** | The drum kit sound for Rhythm 1 and 2 and any part on a Yamaha drum kit bank. Click to pick one in the Sound Browser. Blank: the kit the style asks for. | — | — | — |
 | **Program** | The GM program for a new override, when its family rule is too coarse (for example E.Piano 1 inside Piano). | — | — | — |
-| **Override patch** | The patch this one program plays, whatever its family rule says. | — | — | — |
+| **Override patch** | The sound this one program plays, whatever its family rule says. Click to pick one in the Sound Browser. | — | — | — |
 | **Add override** | Adds the override: the program plays the patch chosen next to it. | — | — | — |
 | **Remove override** | Removes the override: the program follows its family rule again. | — | — | — |
 | **Clear this style's rules** | Forgets this style's own rules: it plays by the map every style uses. | — | — | — |
 | **Port sends mapped programs** | Off, the yahaha MIDI port carries the style's own program changes, so a DAW records the style as written. On, it carries the mapped patch's bank and program instead. | — | — | — |
-| **Remap** | Picks the patch this program plays: an override for this program, for every style or for this style only (the switch above). Clear it to fall back to the family rule. | — | — | — |
+| **Remap** | Picks the sound this program plays in the Sound Browser: an override for this program, for every style or for this style only (the switch above). Clear it (✕) to fall back to the family rule. | — | — | — |
 | **SoundFont** | The SoundFont in the SoundFont folder whose presets are listed. | — | — | — |
 | **Search presets** | Shows only the presets whose name contains the text. | — | — | — |
 | **Preset** | Plays the preset on its own for a moment, while the band is stopped. | — | — | — |

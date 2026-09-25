@@ -34,6 +34,7 @@ afterEach(() => {
   cleanup()
   app.detach()
   ui.soundBrowser = null
+  ui.soundPick = null
 })
 
 describe('sound browser (#117)', () => {
@@ -87,6 +88,29 @@ describe('sound browser (#117)', () => {
     const broken = rows().find((r) => r.textContent!.includes('Broken Synth'))!
     expect(broken.getAttribute('data-tip')).toBe('sounds.row_failed')
     expect(broken.textContent).toContain('⚠')
+  })
+})
+
+describe('sound browser picking for a map rule', () => {
+  it('Enter hands the sound over and closes', async () => {
+    const session = new MockSession({ manual: true, demo: false })
+    app.attach(session)
+    app.sounds = await session.sounds()
+    let got: string | null = null
+    const pick = { title: 'Piano family', value: 'stage-grand', onpick: (id: string) => (got = id) }
+    ui.soundPick = pick
+    flushSync()
+    render(SoundBrowser, { props: { pick } })
+    await tick()
+    flushSync()
+    expect(active().textContent).toContain('Stage Grand')
+    expect(document.body.textContent).toContain('Pick the sound for Piano family')
+    await key('ArrowDown')
+    const id = active().id
+    await key('Enter')
+    expect(got).toMatch(/^saved:/)
+    expect(id).toBeTruthy()
+    expect(ui.soundPick).toBe(null)
   })
 })
 

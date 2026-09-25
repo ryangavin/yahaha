@@ -155,6 +155,16 @@ function storedKeyRange(): KeyRange | null {
   }
 }
 
+/** A Sound Browser pick for something other than a keyboard part. */
+export interface SoundPick {
+  /** "Piano family", "Drum rule". */
+  title: string
+  /** The library patch it names now (null: none). */
+  value: string | null
+  /** Gets the catalog id picked. */
+  onpick: (id: string) => void
+}
+
 class UiStore {
   /** Overlays and drawers around the hardware view. */
   browser = $state(false)
@@ -171,6 +181,9 @@ class UiStore {
   sound = $state(false)
   /** The Sound Browser (#117), for this keyboard part (0-3); null: closed. */
   soundBrowser = $state<number | null>(null)
+  /** The Sound Browser picking for something else (a program map rule, #117): what for,
+   * the patch it names now, and where the pick goes. Null: not picking. */
+  soundPick = $state.raw<SoundPick | null>(null)
   theme = $state<Theme>(storedTheme())
   /** The keyboard strip's size; null: match the connected Launchkey (49 or 61). */
   keyRange = $state<KeyRange | null>(storedKeyRange())
@@ -210,6 +223,10 @@ class UiStore {
 
   /** Esc: close the topmost overlay. Returns whether anything closed. */
   escape(): boolean {
+    if (this.soundPick !== null) {
+      this.soundPick = null
+      return true
+    }
     if (this.soundBrowser !== null) {
       this.soundBrowser = null
       return true
