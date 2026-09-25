@@ -630,6 +630,12 @@ impl Control {
         }
     }
 
+    /// Whether keyboard part `part` plays its own library patch's plugin (not one picked
+    /// on the Plugins tab).
+    pub(super) fn part_has_patch_plugin(&self, part: usize) -> bool {
+        self.sound.part_plugin[part & 3].is_some()
+    }
+
     /// A plugin was picked for keyboard part `part` on the Plugins tab (`setPartPlugin`),
     /// or its plugin cleared there while it played a plugin patch: the part no longer plays
     /// its own patch. The plugin command itself then decides what the channel plays.

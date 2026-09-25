@@ -338,6 +338,11 @@ mod imp {
             }
         }
 
+        /// Plugin state reads still running (their states land at a later pump).
+        pub(crate) fn plugin_state_reads_pending(&self) -> bool {
+            !self.plugins.state_reads.is_empty()
+        }
+
         pub(crate) fn channel_plugin_state(&self, ch: u8) -> Option<PartPlugin> {
             let c = self.plugins.channels[(ch & 15) as usize].as_ref()?;
             // A plugin that isn't installed (a failed restore) has no info: its id names it.
@@ -684,6 +689,9 @@ impl Control {
     pub(crate) fn clear_channel_plugin(&mut self, _ch: u8) {}
     pub(crate) fn channel_plugin_state(&self, _ch: u8) -> Option<PartPlugin> {
         None
+    }
+    pub(crate) fn plugin_state_reads_pending(&self) -> bool {
+        false
     }
     pub(crate) fn plugins_list(&self) -> PluginsState {
         PluginsState::default()

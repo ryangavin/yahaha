@@ -555,7 +555,7 @@ fn unknown_voice_kind_blocks_only_that_part() {
     save(&s, "V");
     let file = dir.join("Registration/V.regist.json");
     let mut v: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&file).unwrap()).unwrap();
-    v["memories"][0]["sections"]["parts"]["parts"][0]["voice"] = serde_json::json!({ "kind": "plugin", "id": "au.x", "state": "..." });
+    v["memories"][0]["sections"]["parts"]["parts"][0]["voice"] = serde_json::json!({ "kind": "clap", "id": "au.x", "state": "..." });
     std::fs::write(&file, v.to_string()).unwrap();
     s.send(RegistrationCmd::SelectRegistBank { path: file.display().to_string() }).unwrap();
     s.send(PartsCmd::SetPartVoice { part: 1, program: 3 }).unwrap();
