@@ -480,12 +480,18 @@ mod imp {
 
         /// The player's "run in process" override for plugin `id`, saved in the scan cache.
         /// It applies from the plugin's next load; a part playing it now keeps running where
-        /// it is.
+        /// it is. What the Registration bank preloaded of it loads again in the new mode
+        /// (`rewarm_plugin`, #176).
         pub(crate) fn set_plugin_in_process(&mut self, id: &str, on: bool) -> Result<(), String> {
             let pid = PluginId::parse(id).ok_or_else(|| format!("{id:?} is not a plugin id"))?;
             let info = self.plugins.host().set_in_process(&pid, on).map_err(|e| format!("{e:#}"))?;
+            let mut changed = true;
             if let Some(p) = self.plugins.list.iter_mut().find(|p| p.id == pid) {
+                changed = p.in_process != info.in_process;
                 p.in_process = info.in_process;
+            }
+            if changed {
+                self.rewarm_plugin(&pid.to_string());
             }
             let playing = self.plugins.channels.iter().flatten().any(|c| c.voice.id == id && c.status == PluginStatus::Playing);
             if playing {
