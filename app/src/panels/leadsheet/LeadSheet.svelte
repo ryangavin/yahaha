@@ -1,12 +1,12 @@
 <!--
   The lead-sheet band above the Launchkey mirror: "where am I, what's next".
 
-   ┌ now ─────────┬ lane ──────────────────────────────────────────┬ next ─────────┐
-   │ Playing      │ ┌1────────┬2────────┬3────────┬4────────┐        │ Next          │
-   │ Main B       │ │ / / / / │ / / / / │ / /   / │ /  /  / │ cells  │ → Main C      │
-   │ bar 3 of 4   │ └─────────┴─────────┴─────────┴─────────┘        │ at the bar    │
-   │              │ ████████████████████▌─────────────────── progress │               │
-   └──────────────┴──────────────────────────────────────────────────┴───────────────┘
+   ┌ now ─────────┬ lane ──────────────────────────────────────────┬────────┬ next ─────────┐
+   │ Playing      │ ┌1────────┬2────────┬3────────┬4────────┐        │        │ Next          │
+   │ Main B       │ │ / / / / │ / / / / │ / /   / │ /  /  / │ cells  │[Charts]│ → Main C      │
+   │ bar 3 of 4   │ └─────────┴─────────┴─────────┴─────────┘        │        │ at the bar    │
+   │              │ ████████████████████▌─────────────────── progress │        │               │
+   └──────────────┴──────────────────────────────────────────────────┴────────┴───────────────┘
 
   The lane shows the section playing as bar cells, one per bar with a slash per beat (lit
   as the beats pass), over a progress bar across the section. In chart mode (#89) the
@@ -16,8 +16,9 @@
 -->
 <script lang="ts">
   import { INTROS, MAINS, sectionLabel } from '../../lib/api/types'
-  import { app, clock } from '../../lib/store.svelte'
+  import { app, clock, ui } from '../../lib/store.svelte'
   import { tip } from '../../lib/tooltip/tip.svelte'
+  import DrawerButton from '../../lib/ui/DrawerButton.svelte'
   import ChartLane from './ChartLane.svelte'
 
   const s = $derived(app.state)
@@ -95,6 +96,9 @@
   </div>
   {/if}
 
+  <!-- The chord chart's own drawer, by the lane the chart plays in. -->
+  <div class="charts"><DrawerButton tip="drawer.charts" open={ui.charts} onclick={() => ui.toggleDrawer('charts')}>Charts</DrawerButton></div>
+
   <div class="next" class:queued={!!t.queued} tabindex="0" use:tip={'lead.next'}>
     <span class="engraved">Next</span>
     <span class="name">{next ? `→ ${next}` : '–'}</span>
@@ -105,7 +109,7 @@
 <style>
   .lead {
     display: grid;
-    grid-template-columns: 13em minmax(0, 1fr) 13em;
+    grid-template-columns: 13em minmax(0, 1fr) auto 12em;
     grid-template-rows: minmax(0, 1fr);
     gap: 1.2em;
     height: 100%;
@@ -115,6 +119,10 @@
   }
   .lead :global(.engraved) {
     font-size: 0.78em;
+  }
+  .charts {
+    display: flex;
+    align-items: center;
   }
   .now,
   .next {

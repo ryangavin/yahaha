@@ -2,7 +2,7 @@
   The layout shell: the app bar, the stage (lead-sheet band, Launchkey mirror, keyboard
   strip) and the panels that open around it. Each lives in its own folder under src/panels/.
 
-  ┌ app bar: Parts & OTS · Mixer · Browse · Charts · Settings ······· ? · theme ┐
+  ┌ app bar: yahaha ····································· Settings · ? · theme ┐
   │ transport: Start/Stop · Sync · Intro · Ending · Tempo −/+ · Tap · bar.beat  │
   │ ┌ stage ──────────────────────────────────────────────────────────────┐   │
   │ │ lead-sheet band (panels/leadsheet): now · bar cells / chart · next  │   │
@@ -13,6 +13,10 @@
   │ status line                                                             │        │
   │ help footer (lib/tooltip): the hovered control's entry · last Launchkey  └────────┘
   └──────────────────────────────────────────────────────────────────────────┘
+  Each drawer opens from a small button on the stage by what it details (lib/ui/DrawerButton):
+  Parts & OTS, Sounds, Mixer on the fader head; Multi Pads by the pad-page tabs; Charts by
+  the lead-sheet lane; Harmony/Arp and Chord Looper on the keyboard strip's cheek; the style
+  name on the display opens the browser (as touching it does on the Genos).
   Browser: centred modal. Drawers and the browser end above the help footer
   (--help-footer-space), so it always explains what the pointer is on.
 

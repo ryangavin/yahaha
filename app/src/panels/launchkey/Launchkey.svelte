@@ -6,10 +6,13 @@
 
    ┌──────────────┬────────────────────────────────────────────────────────────────────────┐
    │ 8 faders   M │ [ status display: style · tempo · bar/beat │ CHORD │ fingering · split ] │
-   │              │ (pad page tabs)                                                         │
+   │              │ (pad page tabs)                                          [Multi Pads]  │
    │              │ [Shift] [▲ ▼]    [ 8 pads, top row    ] Scene›  Stop                   │
    │ 8 buttons  M │  Track  [◀ ▶]    [ 8 pads, bottom row ] Func    Play                   │
    └──────────────┴────────────────────────────────────────────────────────────────────────┘
+
+  The fader head carries the Parts & OTS, Sounds and Mixer drawer buttons, and the pad-page
+  row the Multi Pads one (lib/ui/DrawerButton: small and quieter, not hardware).
 
   Every element shows its function on the current pad/fader page and Shift layer, has a
   tooltip from the catalog, and clicking it sends exactly what the hardware sends. Every
@@ -22,6 +25,7 @@
   import { app, clock, ui } from '../../lib/store.svelte'
   import { surfaceOf } from '../../lib/surface'
   import { tip } from '../../lib/tooltip/tip.svelte'
+  import DrawerButton from '../../lib/ui/DrawerButton.svelte'
   import HwButton from '../../lib/ui/HwButton.svelte'
   import Control from './Control.svelte'
   import FaderBank from './FaderBank.svelte'
@@ -52,6 +56,12 @@
     <div class="faders">
       <div class="fader-head">
         <span class="engraved">Faders · {s.mixer.faderPage === 'panel' ? 'Panel: your parts' : 'Style: the band'}</span>
+        <!-- The drawers that detail what the faders play: your parts, their sounds, the mix. -->
+        <nav class="drawers" aria-label="Part panels">
+          <DrawerButton tip="drawer.parts" open={ui.parts} onclick={() => ui.toggleDrawer('parts')}>Parts & OTS</DrawerButton>
+          <DrawerButton tip="drawer.sound" open={ui.sound} onclick={() => ui.toggleDrawer('sound')}>Sounds</DrawerButton>
+          <DrawerButton tip="drawer.mixer" open={ui.mixer} onclick={() => ui.toggleDrawer('mixer')}>Mixer</DrawerButton>
+        </nav>
       </div>
       <div class="fader-body"><FaderBank {surface} /></div>
     </div>
@@ -76,6 +86,7 @@
         {/each}
       </div>
       <span class="engraved lk" class:on={s.pads.connected}>{s.pads.connected ? 'Launchkey connected' : 'No Launchkey'}</span>
+      <DrawerButton tip="drawer.multipad" open={ui.multipad} onclick={() => ui.toggleDrawer('multipad')}>Multi Pads</DrawerButton>
     </div>
 
     <!-- Shift, Pad Bank ▲ ▼ and Track ◀ ▶, stacked in two rows beside the pads. -->
@@ -186,6 +197,11 @@
   .lk {
     margin-left: auto;
   }
+  /* A touch taller than the tabs: let it rise into the row gap, so the mirror's height
+     (and so --h in App.svelte) stays as measured. */
+  .pagebar :global(.drawer-btn) {
+    margin-top: -0.5em;
+  }
   .lk.on {
     color: #5fd68a;
   }
@@ -263,6 +279,17 @@
     border-right: 1px solid var(--seam);
     box-shadow: 1px 0 0 rgb(255 255 255 / 0.04);
     min-width: 0;
+  }
+  .fader-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.8em;
+    min-width: 0;
+  }
+  .drawers {
+    display: flex;
+    gap: 0.35em;
   }
   .fader-body {
     min-height: 0;

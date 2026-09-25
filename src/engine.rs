@@ -597,6 +597,8 @@ impl Engine {
 mod perform_tests;
 #[cfg(test)]
 mod overlap_tests;
+#[cfg(test)]
+mod ending_level_tests;
 
 #[cfg(test)]
 mod tests {
