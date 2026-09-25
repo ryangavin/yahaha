@@ -427,8 +427,13 @@ fn fills_stop_acmp_and_change_rules_do_not_allocate() {
     run_to(t0 + 2 * bar + bar / 3, &mut now, &mut l);
     cmd(Cmd::Button(Button::FillDown), &mut now, &mut l);
     run_to(t0 + 3 * bar + bar / 3, &mut now, &mut l);
-    cmd(Cmd::Button(Button::FillSelf), &mut now, &mut l);
+    // An Ending queued with a style change waiting for it, then Fill Self in the Ending's
+    // place: the style no longer waits for the Ending (#175).
+    cmd(Cmd::Button(Button::Ending(0)), &mut now, &mut l);
     ch.style_tx.push(b).ok().unwrap();
+    now += 1;
+    l.step(now);
+    cmd(Cmd::Button(Button::FillSelf), &mut now, &mut l);
     run_to(t0 + 5 * bar, &mut now, &mut l);
     cmd(Cmd::Button(Button::StartStop), &mut now, &mut l);
     assert_eq!(ALLOCS.load(Ordering::Relaxed) - allocs, 0, "allocations on the engine thread");
