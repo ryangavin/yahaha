@@ -283,4 +283,31 @@ mod tests {
             assert!(l.iter().chain(&r).all(|x| x.is_finite()));
         }
     }
+
+    /// The bus's CPU cost: reverb and chorus both running on 10 s at 48 kHz, in 64-frame
+    /// buffers (`cargo test --release --lib fx::tests::cost -- --ignored --nocapture`).
+    #[test]
+    #[ignore]
+    fn cost() {
+        let ctl = FxControl::new();
+        let mut bus = FxBus::new(48_000);
+        let n = 64;
+        let src = noise(3);
+        let mut sends = vec![0f32; 2 * BUSES * n];
+        for k in 0..n {
+            let [a, c] = src(k);
+            for b in 0..2 {
+                sends[2 * b * n + k] = a;
+                sends[(2 * b + 1) * n + k] = c;
+            }
+        }
+        let (mut l, mut r) = (vec![0f32; n], vec![0f32; n]);
+        let buffers = 48_000 * 10 / n;
+        let t = std::time::Instant::now();
+        for _ in 0..buffers {
+            bus.process_add(&sends, n, &mut l, &mut r, &ctl);
+        }
+        let s = t.elapsed().as_secs_f64();
+        eprintln!("fx bus: {:.1} ms per 10 s of audio ({:.2}% of real time, {:.1} us per 64-frame buffer)", s * 1e3, s * 10.0, s * 1e6 / buffers as f64);
+    }
 }
