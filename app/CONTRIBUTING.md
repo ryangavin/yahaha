@@ -90,6 +90,9 @@ app/
       ui/                    shared components: HwButton, Fader, Toggle, Overlay, PanelSlot
     panels/
       header/Header.svelte         BUILT: the app bar (panel buttons, help, theme)
+      header/TransportBar.svelte   BUILT: the transport row under it (Start/Stop, Sync Start/Stop,
+                                   Intro/Ending I–III, Tempo −/+ and Tap, bar.beat, section);
+                                   buttons light from `transport.lamps` like their pads
       leadsheet/                   BUILT: the lead-sheet band above the mirror (see below), and
                                    ChartLane.svelte: the iReal chord chart in it (chart mode)
       charts/Charts.svelte         BUILT: the iReal Pro chart player drawer (import, songs, settings)
