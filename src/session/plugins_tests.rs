@@ -494,6 +494,8 @@ fn set_plugin_in_process_shows_in_the_list() {
     let Some(s) = session() else { return };
     s.offline_audio(None, 48_000).unwrap();
     assert!(s.send(PluginCmd::SetPluginInProcess { id: "aumu nope nope".into(), in_process: true }).is_err());
+    // An offline session has no plugin list until a scan runs.
+    s.send(PluginCmd::RescanPlugins).unwrap();
     let t0 = Instant::now();
     while !s.state().plugins.list.iter().any(|p| p.id == DLS) && t0.elapsed() < Duration::from_secs(20) {
         s.advance(1_000_000);
