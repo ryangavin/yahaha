@@ -21,7 +21,13 @@
     const n = synth ? Math.max(1, Math.floor(synth.channels / 2)) : 1
     return Array.from({ length: n }, (_, i) => ({ id: i * 2, label: `${i * 2 + 1}/${i * 2 + 2}`, tip: 'audio.output' as const }))
   })
-  const fonts = $derived(view.soundFonts.map((f) => ({ id: f, label: f.replace(/\.sf2$/i, ''), tip: 'audio.soundfont' as const })))
+  // The default sound set (#117): Auto (the most GM-complete font), or any font in the folder.
+  const AUTO = ''
+  const bare = (f: string) => f.replace(/\.sf2$/i, '')
+  const setOptions = $derived([
+    { id: AUTO, label: view.autoSoundSet ? `Auto (${bare(view.autoSoundSet)})` : 'Auto', tip: 'audio.soundfont_auto' as const },
+    ...view.soundFonts.map((f) => ({ id: f, label: bare(f), tip: 'audio.soundfont' as const })),
+  ])
   const deviceLine = $derived(
     synth
       ? `${synth.device} · ${synth.channels} outputs · ${(synth.sampleRate / 1000).toFixed(1).replace(/\.0$/, '')} kHz${synth.bufferFrames ? ` · ${synth.bufferFrames}-frame buffer` : ''}`
@@ -60,19 +66,19 @@
 </Field>
 
 <Field
-  name="SoundFont"
+  name="Default sound set"
   mock={inert}
   note={inert
-    ? 'The SoundFont the synth is playing. Switching needs an engine update; for now pass --sf2 file at launch.'
-    : 'The .sf2 files in soundfonts/. General MIDI SoundFonts sound closest to the styles.'}
+    ? 'The SoundFont the synth is playing. Switching needs an engine update.'
+    : `Plays whatever the program map leaves unmapped. Every .sf2 in soundfonts/ is a source of sounds.${view.soundFontLoading ? ' Loading…' : ''}`}
 >
   <Choice
-    label="SoundFont"
-    disabled={!synth || inert}
-    value={view.soundFontFile}
+    label="Default sound set"
+    disabled={inert || view.soundFonts.length === 0}
+    value={view.defaultSoundSet ?? AUTO}
     columns={1}
-    options={fonts}
-    onselect={(file) => settings.send({ type: 'setSoundFont', file })}
+    options={setOptions}
+    onselect={(id) => settings.send({ type: 'setDefaultSoundSet', file: id === AUTO ? null : id })}
   />
 </Field>
 

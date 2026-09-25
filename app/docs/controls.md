@@ -465,7 +465,8 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | control | what it does | Genos | key | Launchkey |
 |---|---|---|---|---|
 | **Audio output** | The output pair the built-in synth plays on. `--audio-out N` sets it at launch. | — | `A` | — |
-| **SoundFont** | The General MIDI SoundFont (.sf2) the built-in synth plays, from the soundfonts folder. `--sf2 file` sets it at launch. | — | — | — |
+| **Default sound set** | The SoundFont that plays every sound nothing else is chosen for: style parts the program map leaves unmapped, and GM voices. Every .sf2 in the soundfonts folder is a source of sounds; this picks the fallback. | — | — | — |
+| **Auto sound set** | Picks the most complete General MIDI SoundFont in the soundfonts folder: the most GM programs, then a drum kit. Follows the folder as fonts come and go. | — | — | — |
 | **Mute synth** | Silences the built-in synth, for when you play Ableton's sounds from the yahaha MIDI port instead. | — | `K` | — |
 | **Built-in synth** | Turns the built-in SoundFont synth's sound on or off. The yahaha MIDI port keeps playing either way, for Ableton or other sounds. | — | `K` | — |
 

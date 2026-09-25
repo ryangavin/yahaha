@@ -2,7 +2,8 @@
 // LED and style-folder settings, and the commands that change them. The engine has all of
 // them (docs/app-api.md):
 //
-//   {"type":"setSoundFont","file":"FluidR3_GM.sf2"}   io.soundFonts, io.soundFontFile, io.soundFontLoading
+//   {"type":"setDefaultSoundSet","file":null}        io.soundFonts, io.soundFontFile, io.soundFontLoading,
+//                                                    io.defaultSoundSet, io.autoSoundSet
 //   {"type":"setMidiInputs","all":true,"names":[]}    io.sources, io.allInputs
 //   {"type":"setPaletteLeds","on":true}               pads.paletteLeds
 //   {"type":"rescanLibrary"}                          library.roots, library.scanning
@@ -15,7 +16,7 @@
 import { app } from '../store.svelte'
 import type { AppCmd, AppState } from './types'
 
-export type SettingsCmd = Extract<AppCmd, { type: 'setSoundFont' | 'setMidiInputs' | 'setPaletteLeds' | 'rescanLibrary' }>
+export type SettingsCmd = Extract<AppCmd, { type: 'setSoundFont' | 'setDefaultSoundSet' | 'setMidiInputs' | 'setPaletteLeds' | 'rescanLibrary' }>
 
 export interface MidiSource {
   name: string
@@ -30,6 +31,9 @@ export interface SettingsView {
   soundFontFile: string | null
   /** A SoundFont is loading. */
   soundFontLoading: boolean
+  /** The default sound set chosen (null: Auto), and what Auto picks. */
+  defaultSoundSet: string | null
+  autoSoundSet: string | null
   sources: MidiSource[]
   /** null: the engine doesn't say. */
   allInputs: boolean | null
@@ -42,7 +46,7 @@ export interface SettingsView {
 
 /** The fields as an older engine may lack them. */
 type Maybe = {
-  io: Partial<Pick<AppState['io'], 'soundFonts' | 'soundFontFile' | 'soundFontLoading' | 'sources' | 'allInputs'>>
+  io: Partial<Pick<AppState['io'], 'soundFonts' | 'soundFontFile' | 'soundFontLoading' | 'defaultSoundSet' | 'autoSoundSet' | 'sources' | 'allInputs'>>
   pads: Partial<Pick<AppState['pads'], 'paletteLeds'>>
   library: Partial<Pick<AppState['library'], 'roots' | 'scanning'>>
 }
@@ -67,6 +71,7 @@ function mockedIn(s: AppState): SettingsView['mocked'] {
 
 const KIND: Record<SettingsCmd['type'], keyof SettingsView['mocked']> = {
   setSoundFont: 'soundFont',
+  setDefaultSoundSet: 'soundFont',
   setMidiInputs: 'inputs',
   setPaletteLeds: 'paletteLeds',
   rescanLibrary: 'library',
@@ -87,6 +92,9 @@ class SettingsAdapter {
       soundFonts: mocked.soundFont ? (synthFile ? [synthFile] : []) : p.io.soundFonts!,
       soundFontFile: mocked.soundFont ? synthFile : (p.io.soundFontFile ?? null),
       soundFontLoading: p.io.soundFontLoading ?? false,
+      // An engine before #117: the font it plays is the choice.
+      defaultSoundSet: p.io.autoSoundSet === undefined ? (mocked.soundFont ? synthFile : (p.io.soundFontFile ?? null)) : (p.io.defaultSoundSet ?? null),
+      autoSoundSet: p.io.autoSoundSet ?? null,
       sources,
       allInputs: p.io.allInputs ?? null,
       paletteLeds: p.pads.paletteLeds ?? null,

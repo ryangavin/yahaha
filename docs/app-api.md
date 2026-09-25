@@ -179,7 +179,8 @@ Style Section Reset, the Fade In/Out times and the Style Retrigger length. The s
 
 | Command | Fields | Does |
 |---|---|---|
-| `setSoundFont` | `file` | Reloads the synth from another `.sf2` in its folder (`io.soundFonts`, by file name; the folder is the one the `--sf2` file is in). The SoundFont loads on a thread of its own (`io.soundFontLoading`) and swaps in between two audio buffers: the voices and controllers every channel has carry over, notes sounding fade out over one buffer. Fails when the synth is off or the file isn't there. |
+| `setDefaultSoundSet` | `file` (string or null) | The default sound set (#117): the SoundFont that plays whatever the program map leaves unmapped (Style parts' and keyboard parts' GM voices). A `.sf2` in the SoundFont folder (`io.soundFonts`, by file name), or null for Auto: the most GM-complete font there (`io.autoSoundSet`: the most GM programs on bank 0, then a drum kit on bank 128, then the first file name). The choice is saved in `sound-settings.json` in the data folder. When the synth plays another font, the new one loads on a thread of its own (`io.soundFontLoading`) and swaps in between two audio buffers: the voices and controllers every channel has carry over, notes sounding fade out over one buffer. Fails when the file isn't in the folder. Without the synth it is only saved. |
+| `setSoundFont` | `file` | `setDefaultSoundSet` with that file, kept for older clients. Fails when the synth is off. |
 | `setMidiInputs` | `all`, `names` | Which MIDI sources play the keyboard: every one (`all`), or the ones whose name contains one of `names`. `all` false with no names is the default: a Launchkey's keys when there is one, else every source. yahaha's own port and DAW ports are never keyboards; the Launchkey DAW port is always the pads. Sources connect and disconnect at once. Keys held on a source that is dropped are released: their notes stop at once (All Notes Off on the keyboard parts' channels, which also stops notes other sources hold) and the chord section lets go. |
 | `setPaletteLeds` | `on` | Launchkey LEDs in Novation palette colours (and hardware flashing) instead of RGB. Every pad is sent again. |
 | `rescanLibrary` | | Walks the style folders (`library.roots`) again on a thread of its own (`library.scanning`). A file still there keeps its id and index; new files are added and indexed; a file gone leaves the list (its id stays valid). |
@@ -715,9 +716,11 @@ led   = ledAnchorBeats + (t − ledAnchorMs) · tempo / 60000        // `beats` 
 | `inputs` | string[] | The MIDI sources connected now. The Launchkey DAW port is listed with ` (pads)`. |
 | `sources` | MidiSource[] | Every MIDI source but yahaha's own: `name` (as `setMidiInputs` matches it), `listening` (yahaha listens to it, as a keyboard or as the pads), `pads` (the Launchkey DAW port). Empty offline. |
 | `allInputs` | bool | Every source is a keyboard (`setMidiInputs { all: true }`, `--all-inputs`). |
-| `soundFonts` | string[] | The `.sf2` files in the synth's folder, for `setSoundFont`. |
-| `soundFontFile` | string? | The file the synth plays. Null without the synth. |
-| `soundFontLoading` | bool | A `setSoundFont` is loading. |
+| `soundFonts` | string[] | The `.sf2` files in the SoundFont folder (`--soundfonts DIR`, the app's `YAHAHA_SOUNDFONTS`; `soundfonts/` by default). |
+| `soundFontFile` | string? | The file the synth plays as its default sound set. Null without the synth. |
+| `soundFontLoading` | bool | A `setDefaultSoundSet` is loading. |
+| `defaultSoundSet` | string? | The default sound set chosen (`setDefaultSoundSet`). Null: Auto. |
+| `autoSoundSet` | string? | The font Auto picks from the folder. Null when there are no fonts. |
 | `synth` | SynthState? | `soundFont`, `device`, `sampleRate` (Hz), `bufferFrames`, `channels`, `outputPair` (1-based, for example [1, 2]), `muted`. Null when the synth is off. |
 | `engine` | EngineStats | `realtime` (the engine thread got real-time scheduling), and 99th percentiles in µs: `wakeP99Us` (wake versus deadline), `chordP99Us` (chord to engine), `midiInP99Us` (MIDI in to callback). |
 | `lastControl` | number | The last Launchkey DAW-port message, packed 0x00SSDDVV. |
@@ -1304,7 +1307,9 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
     "allInputs": false,
     "soundFonts": ["GeneralUser-GS.sf2", "MuseScore_General.sf2"],
     "soundFontFile": "GeneralUser-GS.sf2",
-    "soundFontLoading": false
+    "soundFontLoading": false,
+    "defaultSoundSet": null,
+    "autoSoundSet": null
   },
   "preview": { "audition": null, "queued": null },
   "keyboard": {
