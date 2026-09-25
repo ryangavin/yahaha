@@ -92,7 +92,9 @@
   }
   .tabs {
     display: grid;
-    grid-template-columns: repeat(9, minmax(0, 1fr));
+    /* Nine tabs in a 30rem drawer: each at least its label, the rest shared. */
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(max-content, 1fr);
     gap: 2px;
     padding: 3px;
     border-radius: 6px;
