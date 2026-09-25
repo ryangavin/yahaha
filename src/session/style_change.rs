@@ -413,6 +413,11 @@ mod tests {
         let want = ots_sounds("BubblyDub.T552.sty", 1).unwrap();
         let before = sounds(&s.state());
         assert_ne!(before, want, "the test can see the change");
+        // Mid-beat, so both wait for the same next beat. (From a playing Fill a style waits
+        // for the bar line, where the Main starts: the fill's first beat is the only way
+        // in. At the beat line itself the style would take over during Main A, and recall
+        // its OTS 1 there.)
+        s.advance(50 * MS);
         s.send(LibraryCmd::QueueStyle { id: other }).unwrap();
         s.send(TransportCmd::Main { index: 1 }).unwrap();
         let st = nothing_until(&s, &before, 4000, |st| st.style.id == other);
