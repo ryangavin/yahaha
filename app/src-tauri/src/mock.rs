@@ -1605,6 +1605,22 @@ impl MockSession {
                 }
             }
             AppCmd::SoundLibrary(c) => {
+                // A rule may name a catalog entry (#117): it gets that sound's library patch.
+                let c = match c {
+                    SoundLibraryCmd::SetFamilyRule { family, patch, style } => match self.rule_patch(patch) {
+                        Ok(patch) => SoundLibraryCmd::SetFamilyRule { family, patch, style },
+                        Err(e) => return self.message(e, true),
+                    },
+                    SoundLibraryCmd::SetProgramOverride { program, patch, style } => match self.rule_patch(patch) {
+                        Ok(patch) => SoundLibraryCmd::SetProgramOverride { program, patch, style },
+                        Err(e) => return self.message(e, true),
+                    },
+                    SoundLibraryCmd::SetDrumRule { patch, style } => match self.rule_patch(patch) {
+                        Ok(patch) => SoundLibraryCmd::SetDrumRule { patch, style },
+                        Err(e) => return self.message(e, true),
+                    },
+                    c => c,
+                };
                 let export = matches!(c, SoundLibraryCmd::ExportSoundLibrary { .. });
                 // A SoundFont patch picked over a Plugins-tab plugin ends that plugin.
                 if let SoundLibraryCmd::SetPartPatch { part, id: Some(id) } = &c
@@ -1618,6 +1634,19 @@ impl MockSession {
                     None if export => self.message("Sound library exported to /Users/me/Documents/yahaha/sound-library-export.json", false),
                     None => {}
                 }
+            }
+        }
+    }
+
+    /// A rule's patch: a catalog id becomes its library patch, added once (#117).
+    fn rule_patch(&mut self, patch: Option<String>) -> Result<Option<String>, String> {
+        let Some(id) = patch else { return Ok(None) };
+        match self.sounds.patch_for(&self.state, &id)? {
+            Ok(patch) => Ok(Some(patch)),
+            Err(add) => {
+                self.cmd(add);
+                self.derive();
+                Ok(self.state.sound_library.last_added.clone())
             }
         }
     }
@@ -1979,6 +2008,23 @@ mod tests {
         assert_eq!(m.state.sounds.auditioning.as_deref(), Some("sf:GeneralUser-GS.sf2:128:0"));
         m.advance(3100.0);
         assert_eq!(m.state.sounds.auditioning, None);
+    }
+
+    /// Program map rules take catalog ids (#117): a preset or plugin becomes a patch once.
+    #[test]
+    fn map_rules_take_catalog_ids() {
+        let mut m = MockSession::new();
+        let n = m.state.sound_library.patches.len();
+        m.send(SoundLibraryCmd::SetFamilyRule { family: 2, patch: Some("au:aumu samp appl".into()), style: false });
+        m.send(SoundLibraryCmd::SetDrumRule { patch: Some("au:aumu samp appl".into()), style: true });
+        assert_eq!(m.state.sound_library.patches.len(), n + 1);
+        let id = m.state.sound_library.patches[n].patch.id.clone();
+        assert_eq!(m.state.sound_library.map.families[2].as_deref(), Some(id.as_str()));
+        assert_eq!(m.state.sound_library.style_map.drums.as_deref(), Some(id.as_str()));
+        m.send(SoundLibraryCmd::SetProgramOverride { program: 5, patch: Some("saved:stage-grand".into()), style: false });
+        assert!(m.state.sound_library.map.overrides.iter().any(|o| o.program == 5 && o.patch == "stage-grand"));
+        m.send(SoundLibraryCmd::SetDrumRule { patch: Some("sf:Nope.sf2:0:0".into()), style: false });
+        assert!(m.state.message.as_ref().is_some_and(|x| x.error));
     }
 
     #[test]

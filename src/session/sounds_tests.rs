@@ -143,3 +143,27 @@ fn a_preset_auditions_and_an_unknown_plugin_is_refused() {
     assert!(s.send(SoundsCmd::AuditionSound { id: "au:aumu dls  appl".into() }).is_err());
     let _ = std::fs::remove_dir_all(&data);
 }
+
+#[test]
+fn program_map_rules_take_catalog_ids() {
+    let data = folder("rules");
+    let Some(s) = offline(&data) else { return };
+    // A preset of another font: added to the library once, and the rules name it.
+    s.send(SoundLibraryCmd::SetFamilyRule { family: 11, patch: Some("sf:B.sf2:0:88".into()), style: false }).unwrap();
+    s.send(SoundLibraryCmd::SetProgramOverride { program: 89, patch: Some("sf:B.sf2:0:88".into()), style: true }).unwrap();
+    let st = s.state();
+    assert_eq!(st.sound_library.patches.len(), 1);
+    let id = st.sound_library.patches[0].patch.id.clone();
+    assert_eq!(st.sound_library.map.families[11].as_deref(), Some(id.as_str()));
+    assert!(st.sound_library.style_map.overrides.iter().any(|o| o.program == 89 && o.patch == id));
+    // A saved sound by its catalog id, then none.
+    s.send(SoundLibraryCmd::SetDrumRule { patch: Some(format!("saved:{id}")), style: false }).unwrap();
+    assert_eq!(s.state().sound_library.map.drums.as_deref(), Some(id.as_str()));
+    s.send(SoundLibraryCmd::SetDrumRule { patch: None, style: false }).unwrap();
+    assert_eq!(s.state().sound_library.map.drums, None);
+    // Refused: sounds the catalog doesn't have; nothing is added.
+    assert!(s.send(SoundLibraryCmd::SetDrumRule { patch: Some("sf:B.sf2:0:1".into()), style: false }).is_err());
+    assert!(s.send(SoundLibraryCmd::SetDrumRule { patch: Some("au:nope".into()), style: false }).is_err());
+    assert_eq!(s.state().sound_library.patches.len(), 1);
+    let _ = std::fs::remove_dir_all(&data);
+}
