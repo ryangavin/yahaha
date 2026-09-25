@@ -57,12 +57,13 @@ fn keyboard_note_path_does_not_allocate() {
     input.end_of_list();
 
     let (allocs, frees) = (ALLOCS.load(Ordering::Relaxed), FREES.load(Ordering::Relaxed));
-    let (mut assigned, mut strikes) = (0, 0);
+    let (mut assigned, mut strikes, mut levels) = (0, 0, 0);
     for round in 0..50u8 {
         // Dynamics Touch / Accent on in some rounds: chord-section strikes go to the engine.
         shared.strikes.store(round % 4 < 2, Ordering::Relaxed);
         while let Ok(c) = rx.pop() {
             strikes += matches!(c, yahaha::live::Cmd::Strike(_)) as u32;
+            levels += matches!(c, yahaha::live::Cmd::DynamicsLevel(_)) as u32;
         }
         let (function, control_type) = match round % 4 {
             0 => (Function::StartStop, ControlType::HoldA),
@@ -71,6 +72,10 @@ fn keyboard_note_path_does_not_allocate() {
             _ => (Function::KbdHarmonyArp, ControlType::Toggle),
         };
         ctl.set_pedal(1, PedalSetup { cc: Some(66), function, control_type, ..PedalSetup::default() });
+        // Pedal 3 alternates between a pitch-bend and a Dynamics Control foot controller
+        // (the level goes to the engine ring).
+        let foot = if round % 2 == 0 { Function::PitchBend } else { Function::DynamicsControl };
+        ctl.set_pedal(2, PedalSetup { cc: Some(4), function: foot, range: Range::Full, ..PedalSetup::default() });
         while actions_rx.pop().is_ok() {
             assigned += 1;
         }
@@ -104,6 +109,7 @@ fn keyboard_note_path_does_not_allocate() {
     assert_eq!(FREES.load(Ordering::Relaxed) - frees, 0, "the input thread freed");
     assert!(assigned > 0, "OTS + went through the actions ring");
     assert!(strikes > 0, "chord-section strikes went to the engine");
+    assert!(levels > 0, "the Dynamics Control pedal went to the engine");
 }
 
 /// The processor slot: every Harmony type (Strum's late notes and the Echo category go to

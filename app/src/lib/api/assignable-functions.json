@@ -334,5 +334,12 @@
     "category": "style",
     "kind": "trigger",
     "available": true
+  },
+  {
+    "id": "dynamicsControl",
+    "name": "Dynamics Control",
+    "category": "style",
+    "kind": "continuous",
+    "available": true
   }
 ]

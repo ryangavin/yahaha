@@ -74,6 +74,8 @@ pub enum Cmd {
     /// A chord-section key went down with this velocity (sent only while
     /// `Shared::strikes`): Touch and Accent.
     Strike(u8),
+    /// A Dynamics Control pedal set the Dynamics level (controllers.rs).
+    DynamicsLevel(u8),
 }
 
 /// A Multi Pad bank for the engine thread (`AppCmd::LoadMultiPad`): its player, built on
@@ -780,6 +782,11 @@ impl Input {
                     if let Some((func, on)) = f.set {
                         self.act(Action::AssignSet(func, on));
                     }
+                    if let Some(v) = f.dynamics
+                        && self.cmd.push(Cmd::DynamicsLevel(v)).is_ok()
+                    {
+                        self.signal = true;
+                    }
                 }
             },
             (0xE0, 3) => {
@@ -1379,6 +1386,7 @@ fn apply(engine: &mut Engine, shared: &Shared, cmd: Cmd, now: u64, out: &mut Out
         Cmd::MultiPad(c) => engine.pad_cmd(c, now, out),
         Cmd::Dynamics(d) => engine.set_dynamics(d),
         Cmd::Strike(vel) => engine.strike(vel, now),
+        Cmd::DynamicsLevel(v) => engine.set_dynamics_level(v),
         Cmd::KeysOff => {
             // The source's pedal, wheels and pressure went to every keyboard part too, and
             // its releases will never come: with the pedal left down, All Notes Off would

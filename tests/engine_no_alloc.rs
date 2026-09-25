@@ -345,6 +345,8 @@ fn looper_metronome_and_solo_do_not_allocate() {
     shared.chord.store(chord("F").pack(2), Ordering::Release);
     run(&mut l, &mut now, t0 + 2 * bar - bar / 4);
     ch.input_tx.push(Cmd::Strike(40)).ok().unwrap();
+    ch.input_tx.push(Cmd::DynamicsLevel(90)).ok().unwrap();
+    ch.input_tx.push(Cmd::Strike(40)).ok().unwrap();
     run(&mut l, &mut now, t0 + 2 * bar - bar / 8);
     ch.ui_tx.push(Cmd::Looper(false)).ok().unwrap();
     ch.ui_tx.push(Cmd::StyleSolo(Some(2))).ok().unwrap();
