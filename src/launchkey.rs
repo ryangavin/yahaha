@@ -1,6 +1,6 @@
 //! Novation Launchkey MK4 in DAW mode: pads and buttons as arranger controls, with LEDs.
 //!
-//! The 16 pads have three pages, switched with the Pad Bank ▲/▼ buttons left of the pads
+//! The 16 pads have five pages, switched with the Pad Bank ▲/▼ buttons left of the pads
 //! (DAW port, channel 1 notes; top row 96..103, bottom row 112..119):
 //!
 //!   1 Sections     Intro I  Intro II  Intro III  SyncStart | Ending I  Ending II  Ending III  AutoFill
@@ -11,6 +11,8 @@
 //!                  Right 1  Right 2   Right 3    Left      | Select R1 Select R2 Select R3   Select Left
 //!   4 Registration Regist 1 Regist 2  Regist 3   Regist 4  | Regist 5  Regist 6  Regist 7    Regist 8
 //!                  Regist 9 Regist 10 Bank -     Bank +    | Memory    Freeze    Regist -    Regist +
+//!   5 Multi Pads   Pad 1    Pad 2     Pad 3      Pad 4     | STOP      -         -           -
+//!                  Select 1 Select 2  Select 3   Select 4  | Stop 1    Stop 2    Stop 3      Stop 4
 //!
 //! Buttons (CC in DAW mode; numbers from the MK4 Programmer's Reference Guide v3.0, p.9,
 //! Figure 3): 115 Play = Start/Stop, 116 Stop, 104 (Scene Launch >) / 105 (Function) =
@@ -29,8 +31,9 @@
 //! HARMONY/ARPEGGIO, 6 plugin reload, 8 CHORD LOOPER ON/OFF (Shift: REC/STOP). Style:
 //! faders 1-8 = the Style parts, their buttons = part mute. Master is always master.
 
-use crate::engine::{slot_of, Button, FadeState, Snapshot, Transpose};
+use crate::engine::{slot_of, Button, FadeState, PadCmd, Snapshot, Transpose};
 use crate::fingering::Fingering;
+use crate::multipad::PadState;
 use crate::parts::{self, FaderPage};
 use crate::sff::SectionId;
 
@@ -130,10 +133,12 @@ pub enum Page {
     OtsParts,
     /// Registration Memory buttons 1-10, banks, Memory, Freeze, the Registration Sequence.
     Registration,
+    /// Multi Pads 1-4, STOP, SELECT + pad (Synchro Start) and STOP + pad (#196).
+    MultiPads,
 }
 
 impl Page {
-    pub const ALL: [Page; 4] = [Page::Sections, Page::ChordSetup, Page::OtsParts, Page::Registration];
+    pub const ALL: [Page; 5] = [Page::Sections, Page::ChordSetup, Page::OtsParts, Page::Registration, Page::MultiPads];
 
     pub fn name(self) -> &'static str {
         match self {
@@ -141,6 +146,7 @@ impl Page {
             Page::ChordSetup => "Chord/Setup",
             Page::OtsParts => "OTS/Parts",
             Page::Registration => "Registration",
+            Page::MultiPads => "Multi Pads",
         }
     }
 
@@ -171,6 +177,7 @@ impl Page {
             Page::ChordSetup => (C_PAGE_CHORD, CYAN, DIM_CYAN),
             Page::OtsParts => (C_PAGE_OTS, PINK, DIM_PINK),
             Page::Registration => (C_PAGE_REGIST, ORANGE, DIM_ORANGE),
+            Page::MultiPads => (C_PAGE_PADS, YELLOW, DIM_YELLOW),
         }
     }
 }
@@ -233,6 +240,9 @@ pub enum Action {
     /// Load the selected part's plugin again after it stopped or failed to load (`s`,
     /// fader button 6 on the Panel fader page).
     ReloadPlugin,
+    /// A Multi Pad button (page 5; `Z X C V`, `B`): straight to the engine, as a section
+    /// pad, so a press is not held up by the control side.
+    MultiPad(PadCmd),
     /// An encoder turned: knob 0-7, steps (positive: clockwise).
     Knob(u8, i8),
     /// The Knob Assign page up (-1) / down (+1): the encoder page buttons.
@@ -268,6 +278,10 @@ pub fn pad_action(page: Page, note: u8) -> Option<Action> {
         (Page::Registration, 117) => Action::RegistFreeze,
         (Page::Registration, 118) => Action::RegistSeq(-1),
         (Page::Registration, 119) => Action::RegistSeq(1),
+        (Page::MultiPads, 96..=99) => Action::MultiPad(PadCmd::Trigger(note - 96)),
+        (Page::MultiPads, 100) => Action::MultiPad(PadCmd::StopAll),
+        (Page::MultiPads, 112..=115) => Action::MultiPad(PadCmd::Arm(note - 112)),
+        (Page::MultiPads, 116..=119) => Action::MultiPad(PadCmd::Stop(note - 116)),
         _ => return None,
     })
 }
@@ -558,6 +572,9 @@ pub fn pad_leds(s: &Snapshot, has: &[bool], panel: &Panel) -> [(u8, Led); 16] {
     if panel.page == Page::Registration {
         return regist_leds(&panel.regist);
     }
+    if panel.page == Page::MultiPads {
+        return multipad_leds(s);
+    }
     let (_, bright, dim) = panel.page.colour();
     looks(s, has, panel).map(|(note, look)| {
         let led = match (look.level, look.anim) {
@@ -668,6 +685,28 @@ fn regist_leds(r: &RegistPanel) -> [(u8, Led); 16] {
     ]
 }
 
+/// Page 5 in palette mode: the Genos Multi Pad lamps on pads 1-4 (blue = data, red =
+/// playing, flashing red = Synchro Start standby, flashing orange = waiting for the bar
+/// line, off = empty), yellow on the rest.
+fn multipad_leds(s: &Snapshot) -> [(u8, Led); 16] {
+    multipad_looks(s).map(|(note, look)| {
+        let (bright, dim) = match look.rgb {
+            C_PAD_READY => (BLUE, DIM_BLUE),
+            C_PAD_PLAYING => (RED, DIM_RED),
+            C_PAD_QUEUED => (ORANGE, DIM_ORANGE),
+            _ => (YELLOW, DIM_YELLOW),
+        };
+        let led = match (look.level, look.anim) {
+            (Level::Off, _) => Led::Solid(OFF),
+            (Level::Dim, _) => Led::Solid(dim),
+            (Level::Bright, Anim::Solid) => Led::Solid(bright),
+            (Level::Bright, Anim::Flash) => Led::Flash(dim, bright),
+            (Level::Bright, Anim::Pulse) => Led::Pulse(bright),
+        };
+        (note, led)
+    })
+}
+
 /// MIDI messages that set one pad's LED.
 pub fn led_msgs(note: u8, led: Led, out: &mut Vec<[u8; 3]>) {
     match led {
@@ -732,6 +771,12 @@ pub const C_PAGE_REGIST: (u8, u8, u8) = (127, 60, 0);
 /// Registration lamps: red = selected, blue = stored (OM p.97).
 pub const C_REGIST_SELECTED: (u8, u8, u8) = (127, 0, 0);
 pub const C_REGIST_STORED: (u8, u8, u8) = (0, 40, 127);
+/// Page 5: yellow, with the Multi Pads in the Genos lamp colours (blue = data, red =
+/// playing; OM p.75) and amber while a press waits for the bar line.
+pub const C_PAGE_PADS: (u8, u8, u8) = (127, 127, 0);
+pub const C_PAD_READY: (u8, u8, u8) = (0, 40, 127);
+pub const C_PAD_PLAYING: (u8, u8, u8) = (127, 0, 0);
+pub const C_PAD_QUEUED: (u8, u8, u8) = (127, 60, 0);
 
 /// Brightness of "dim" relative to full.
 const DIM: f32 = 0.18;
@@ -743,6 +788,7 @@ pub fn looks(s: &Snapshot, has: &[bool], panel: &Panel) -> [(u8, Look); 16] {
         Page::ChordSetup => chord_looks(s, panel),
         Page::OtsParts => ots_looks(s, panel),
         Page::Registration => regist_looks(&panel.regist),
+        Page::MultiPads => multipad_looks(s),
     }
 }
 
@@ -913,6 +959,54 @@ fn regist_looks(r: &RegistPanel) -> [(u8, Look); 16] {
     ]
 }
 
+const MULTIPAD_LABELS: [&str; 4] = ["PAD 1", "PAD 2", "PAD 3", "PAD 4"];
+const MULTIPAD_KEYS: [&str; 4] = ["Z", "X", "C", "V"];
+const SELECT_PAD_LABELS: [&str; 4] = ["SELECT 1", "SELECT 2", "SELECT 3", "SELECT 4"];
+const STOP_PAD_LABELS: [&str; 4] = ["STOP 1", "STOP 2", "STOP 3", "STOP 4"];
+
+fn multipad_looks(s: &Snapshot) -> [(u8, Look); 16] {
+    let pl = |label, key, available, on| page_look(Page::MultiPads, label, key, available, on);
+    let st = s.multipad.states;
+    let has = |i: usize| st[i] != PadState::Empty;
+    let sounding = |i: usize| matches!(st[i], PadState::Playing | PadState::Queued);
+    let lamp = |i: usize| -> Look {
+        let look = |rgb, level, anim| Look { label: MULTIPAD_LABELS[i], key: MULTIPAD_KEYS[i], rgb, level, anim };
+        match st[i] {
+            PadState::Empty => look(C_PAD_READY, Level::Off, Anim::Solid),
+            PadState::Ready => look(C_PAD_READY, Level::Bright, Anim::Solid),
+            PadState::Armed => look(C_PAD_PLAYING, Level::Bright, Anim::Flash),
+            PadState::Queued => look(C_PAD_QUEUED, Level::Bright, Anim::Flash),
+            PadState::Playing => look(C_PAD_PLAYING, Level::Bright, Anim::Solid),
+        }
+    };
+    // SELECT + pad arms it: lit while it waits in standby.
+    let select = |i: usize| -> Look {
+        let armed = st[i] == PadState::Armed;
+        Look { anim: if armed { Anim::Flash } else { Anim::Solid }, ..pl(SELECT_PAD_LABELS[i], "pad", has(i), armed) }
+    };
+    let stop = |i: usize| pl(STOP_PAD_LABELS[i], "pad", has(i), sounding(i));
+    let busy = (0..4).any(|i| sounding(i) || st[i] == PadState::Armed);
+    let none = |_| pl("", "", false, false);
+    [
+        (96, lamp(0)),
+        (97, lamp(1)),
+        (98, lamp(2)),
+        (99, lamp(3)),
+        (100, pl("STOP", "B", (0..4).any(has), busy)),
+        (101, none(())),
+        (102, none(())),
+        (103, none(())),
+        (112, select(0)),
+        (113, select(1)),
+        (114, select(2)),
+        (115, select(3)),
+        (116, stop(0)),
+        (117, stop(1)),
+        (118, stop(2)),
+        (119, stop(3)),
+    ]
+}
+
 /// Colour at a point in time. `beats` is a free-running beat clock (fractional).
 pub fn rgb_at(look: &Look, beats: f64) -> (u8, u8, u8) {
     lit(look.rgb, look.level, look.anim, beats)
@@ -1060,6 +1154,48 @@ mod tests {
         assert_eq!(cc_control(TRACK_RIGHT_CC, true), Some(Control::Act(Action::Playlist(1))));
     }
 
+    /// Page 5: pads 1-4 and STOP; SELECT + pad and STOP + pad on the bottom row.
+    #[test]
+    fn page_5_multi_pads() {
+        let p = Page::MultiPads;
+        for n in 0..4u8 {
+            assert_eq!(pad_action(p, 96 + n), Some(Action::MultiPad(PadCmd::Trigger(n))));
+            assert_eq!(pad_action(p, 112 + n), Some(Action::MultiPad(PadCmd::Arm(n))));
+            assert_eq!(pad_action(p, 116 + n), Some(Action::MultiPad(PadCmd::Stop(n))));
+        }
+        assert_eq!(pad_action(p, 100), Some(Action::MultiPad(PadCmd::StopAll)));
+        for n in 101..=103 {
+            assert_eq!(pad_action(p, n), None);
+        }
+    }
+
+    /// Page 5 lamps as on the Genos: blue = data, red = playing, flashing red = standby,
+    /// off = empty; amber flashing while a press waits for the bar line.
+    #[test]
+    fn page_5_lamps() {
+        let mut s = snap();
+        s.multipad.states = [PadState::Ready, PadState::Playing, PadState::Armed, PadState::Empty];
+        let panel = Panel { page: Page::MultiPads, ..Panel::default() };
+        let l = looks(&s, &[true; 32], &panel);
+        assert_eq!((l[0].1.rgb, l[0].1.level, l[0].1.anim), (C_PAD_READY, Level::Bright, Anim::Solid));
+        assert_eq!((l[1].1.rgb, l[1].1.anim), (C_PAD_PLAYING, Anim::Solid));
+        assert_eq!((l[2].1.rgb, l[2].1.anim), (C_PAD_PLAYING, Anim::Flash));
+        assert_eq!(l[3].1.level, Level::Off);
+        assert_eq!(l[4].1.level, Level::Bright, "STOP lit while a pad plays");
+        assert_eq!(l[5].1.level, Level::Off);
+        assert_eq!((l[10].1.level, l[10].1.anim), (Level::Bright, Anim::Flash), "SELECT 3: pad 3 in standby");
+        assert_eq!(l[8].1.level, Level::Dim);
+        assert_eq!(l[11].1.level, Level::Off, "no data on pad 4");
+        assert_eq!((l[12].1.level, l[13].1.level), (Level::Dim, Level::Bright), "STOP 2 lit: pad 2 plays");
+        let leds = pad_leds(&s, &[true; 32], &panel);
+        assert_eq!((leds[0].1, leds[1].1, leds[2].1, leds[3].1), (Led::Solid(BLUE), Led::Solid(RED), Led::Flash(DIM_RED, RED), Led::Solid(OFF)));
+        assert_eq!((leds[4].1, leds[8].1), (Led::Solid(YELLOW), Led::Solid(DIM_YELLOW)));
+        s.multipad.states = [PadState::Queued, PadState::Ready, PadState::Ready, PadState::Ready];
+        assert_eq!(pad_leds(&s, &[true; 32], &panel)[0].1, Led::Flash(DIM_ORANGE, ORANGE));
+        s.multipad.states = [PadState::Ready; 4];
+        assert_eq!(looks(&s, &[true; 32], &panel)[4].1.level, Level::Dim, "nothing plays");
+    }
+
     /// Page 4 lamps as on the Genos: red = selected, blue = stored, off = empty; all
     /// flashing while Memory is armed.
     #[test]
@@ -1104,14 +1240,15 @@ mod tests {
         assert_eq!(Page::Sections.step(1), Page::ChordSetup);
         assert_eq!(Page::ChordSetup.step(1), Page::OtsParts);
         assert_eq!(Page::OtsParts.step(1), Page::Registration);
-        assert_eq!(Page::Registration.step(1), Page::Registration);
+        assert_eq!(Page::Registration.step(1), Page::MultiPads);
+        assert_eq!(Page::MultiPads.step(1), Page::MultiPads);
         assert_eq!(Page::OtsParts.step(-1), Page::ChordSetup);
-        assert_eq!(Page::Registration.cycle(1), Page::Sections);
-        assert_eq!(Page::Sections.cycle(-1), Page::Registration);
+        assert_eq!(Page::MultiPads.cycle(1), Page::Sections);
+        assert_eq!(Page::Sections.cycle(-1), Page::MultiPads);
         for p in Page::ALL {
             assert_eq!(Page::from_u8(p.to_u8()), p);
         }
-        assert_eq!(Page::from_u8(200), Page::Registration);
+        assert_eq!(Page::from_u8(200), Page::MultiPads);
     }
 
     /// Every page lights all 16 pads in the same order, so the LED cache keyed by index
@@ -1243,7 +1380,10 @@ mod tests {
         assert!(out.contains(&[0xB0, PAD_UP_CC, PINK]) && out.contains(&[0xB0, PAD_DOWN_CC, PINK]));
         out.clear();
         nav_button_msgs(Page::Registration, true, &mut out);
-        assert!(out.contains(&[0xB0, PAD_UP_CC, ORANGE]) && out.contains(&[0xB0, PAD_DOWN_CC, OFF]));
+        assert!(out.contains(&[0xB0, PAD_UP_CC, ORANGE]) && out.contains(&[0xB0, PAD_DOWN_CC, ORANGE]));
+        out.clear();
+        nav_button_msgs(Page::MultiPads, true, &mut out);
+        assert!(out.contains(&[0xB0, PAD_UP_CC, YELLOW]) && out.contains(&[0xB0, PAD_DOWN_CC, OFF]));
         out.clear();
         buttons_off_msgs(&mut out);
         for cc in [PAD_UP_CC, PAD_DOWN_CC, TRACK_LEFT_CC, TRACK_RIGHT_CC, 37, 45] {

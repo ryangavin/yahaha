@@ -91,6 +91,8 @@ fn plugins_need_the_synth() {
 fn a_keyboard_part_plays_an_audio_unit() {
     let Some(s) = session() else { return };
     s.offline_audio(None, 48_000).unwrap();
+    // Checks for silence below: no reverb tail.
+    s.fx_returns_off();
     assert!(s.state().plugins.available);
     wait_scanned(&s);
     assert!(s.send(PluginCmd::SetPartPlugin { part: 0, id: "aumu nope nope".into(), state: None }).is_err(), "not installed");
@@ -774,4 +776,30 @@ fn a_gm_voice_selection_ends_a_picked_plugin() {
     pick(p);
     s.send(OtsCmd::RecallOts { index: i as u8 }).unwrap();
     ended(p, "One Touch Setting");
+}
+
+/// A plugin part feeds the shared effect bus through its sends, as a SoundFont part does
+/// (#204): fully sent to the reverb, its note rings on after the release; at return 0 the
+/// release is the plugin's own.
+#[test]
+fn a_plugin_part_feeds_the_effect_bus() {
+    let tail = |returns: bool| {
+        let s = session()?;
+        s.offline_audio(None, 48_000).unwrap();
+        if !returns {
+            s.fx_returns_off();
+        }
+        s.send(PluginCmd::SetPartPlugin { part: 0, id: DLS.into(), state: None }).unwrap();
+        assert_eq!(wait_playing(&s, 0), PluginStatus::Playing);
+        s.midi_in(Port::Keys, &[0xB0, 91, 127]);
+        s.midi_in(Port::Keys, &[0x90, 72, 110]);
+        let (l, r) = s.render(9600);
+        assert!(energy(&l, &r) > 1e-3, "the plugin sounds");
+        s.midi_in(Port::Keys, &[0x80, 72, 0]);
+        s.render(24_000);
+        let (l, r) = s.render(24_000);
+        Some(energy(&l, &r))
+    };
+    let (Some(wet), Some(dry)) = (tail(true), tail(false)) else { return };
+    assert!(wet > dry * 4.0 + 1e-6, "the reverb rings on: {wet} vs {dry}");
 }

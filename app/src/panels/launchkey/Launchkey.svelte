@@ -41,8 +41,8 @@
   const pageIndex = $derived(PAD_PAGES.findIndex((p) => p.id === s.pads.page))
 
   /** Page identity colours for the tabs (src/launchkey.rs: white, cyan, magenta, orange). */
-  const PAGE_RGB: Record<PadPage, Rgb> = { sections: [100, 100, 100], chordSetup: [0, 100, 127], otsParts: [127, 0, 70], registration: [127, 60, 0] }
-  const PAGE_TIP = { sections: 'padpage.sections', chordSetup: 'padpage.chord_setup', otsParts: 'padpage.ots_parts', registration: 'padpage.registration' } as const
+  const PAGE_RGB: Record<PadPage, Rgb> = { sections: [100, 100, 100], chordSetup: [0, 100, 127], otsParts: [127, 0, 70], registration: [127, 60, 0], multiPads: [127, 127, 0] }
+  const PAGE_TIP = { sections: 'padpage.sections', chordSetup: 'padpage.chord_setup', otsParts: 'padpage.ots_parts', registration: 'padpage.registration', multiPads: 'padpage.multi_pads' } as const
   const cssRgb = (c: Rgb) => `rgb(${c.map((x) => Math.round((x / 127) * 255)).join(' ')})`
   const press = (p: Pad) => p.action && app.send(p.action)
 </script>

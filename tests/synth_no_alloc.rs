@@ -1,5 +1,6 @@
 //! The audio callback (`synth::AudioCore::process`) must not allocate or free: SoundFont
-//! notes and controllers, the master fader, a SoundFont swap, and (feature `plugins`) a
+//! notes and controllers, the effect bus (sends, types, returns, legacy effects), the
+//! master fader, a SoundFont swap, and (feature `plugins`) a
 //! keyboard part going over to an Audio Unit instrument (Apple's DLSMusicDevice), playing
 //! it, crossfading to a second instance, and back to the SoundFont. SoundFont swaps while
 //! the control side is not taking old racks back must not free one either. A counting
@@ -77,6 +78,22 @@ fn the_audio_callback_does_not_allocate() {
     assert_eq!(run(&mut core, &mut feed, &[[0xC0, 0, 0], [0xB0, 7, 100], [0x90, 60, 100], [0x9A, 40, 100]]), none, "notes");
     for _ in 0..10 {
         assert_eq!(run(&mut core, &mut feed, &[]), none, "steady");
+    }
+    // The effect bus (#204): sends on, every reverb and chorus type, the returns, the
+    // SoundFont's own effects instead (legacy) and back, and tails ringing out.
+    assert_eq!(run(&mut core, &mut feed, &[[0xB0, 91, 100], [0xB0, 93, 80], [0xBA, 91, 127], [0xBA, 94, 60], [0x90, 64, 100]]), none, "sends");
+    for t in 0..4u8 {
+        ctl.fx.reverb_type.store(t, Ordering::Relaxed);
+        ctl.fx.chorus_type.store(t % 3, Ordering::Relaxed);
+        ctl.fx.reverb_return.store(40 + t * 20, Ordering::Relaxed);
+        assert_eq!(run(&mut core, &mut feed, &[]), none, "effect types and returns");
+    }
+    ctl.fx.legacy.store(true, Ordering::Relaxed);
+    assert_eq!(run(&mut core, &mut feed, &[[0x90, 67, 100]]), none, "the SoundFont's own effects");
+    ctl.fx.legacy.store(false, Ordering::Relaxed);
+    assert_eq!(run(&mut core, &mut feed, &[[0x80, 60, 0], [0x80, 64, 0], [0x80, 67, 0], [0x8A, 40, 0]]), none, "the bus again");
+    for _ in 0..20 {
+        assert_eq!(run(&mut core, &mut feed, &[]), none, "tails");
     }
     ctl.master.store(90, Ordering::Relaxed);
     parts.set_program(0, 5);

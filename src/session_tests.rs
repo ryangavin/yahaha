@@ -311,9 +311,9 @@ fn keyboard_parts_mixer_and_pages() {
     assert!(s.send(MixerCmd::SetMasterVolume { volume: 90 }).is_err());
 
     assert_eq!(st.pads.page, Page::Sections);
-    s.send(PadsCmd::CyclePadPage { delta: -2 }).unwrap();
+    s.send(PadsCmd::CyclePadPage { delta: -3 }).unwrap();
     let st = s.state();
-    assert_eq!((st.pads.page, st.pads.page_number, st.pads.page_count), (Page::OtsParts, 3, 4));
+    assert_eq!((st.pads.page, st.pads.page_number, st.pads.page_count), (Page::OtsParts, 3, 5));
     assert_eq!(st.pads.pads.len(), 16);
     assert_eq!(st.pads.pads[0].label, "OTS 1");
     assert_eq!(st.pads.pads[0].action, Some(AppCmd::Ots(OtsCmd::RecallOts { index: 0 })));
@@ -631,12 +631,12 @@ fn launchkey_hardware_matches_its_commands() {
 fn cycle_pad_page_takes_any_delta() {
     let Some(s) = offline("SlowWalker.T552.sty") else { return };
     s.send(PadsCmd::SetPadPage { page: Page::OtsParts }).unwrap();
-    s.send(PadsCmd::CyclePadPage { delta: 127 }).unwrap(); // 2 + 127 = 129 = 1 mod 4
-    assert_eq!(s.state().pads.page, Page::ChordSetup);
-    s.send(PadsCmd::CyclePadPage { delta: -128 }).unwrap(); // 1 - 128 = -127 = 1 mod 4
+    s.send(PadsCmd::CyclePadPage { delta: 127 }).unwrap(); // 2 + 127 = 129 = 4 mod 5
+    assert_eq!(s.state().pads.page, Page::MultiPads);
+    s.send(PadsCmd::CyclePadPage { delta: -128 }).unwrap(); // 4 - 128 = -124 = 1 mod 5
     assert_eq!(s.state().pads.page, Page::ChordSetup);
     s.send(PadsCmd::CyclePadPage { delta: -2 }).unwrap();
-    assert_eq!(s.state().pads.page, Page::Registration);
+    assert_eq!(s.state().pads.page, Page::MultiPads);
 }
 
 /// While the library indexes, `library_list()` is labelled with the revision its entries
@@ -1331,7 +1331,8 @@ fn audio_buffer_changes_keep_notes_and_report_the_size() {
     assert_eq!(s.state().io.synth.as_ref().unwrap().buffer_frames, Some(256));
     assert!(energy(s.render(4800)) > 1e-4, "the held note plays on");
     s.midi_in(Port::Keys, &[0x80, 72, 0]);
-    s.render(96_000);
+    // Two seconds for the note, four more for the reverb tail (Hall, RT60 2.4 s; #204).
+    s.render(6 * 48_000);
     assert!(energy(s.render(4800)) < 1e-6, "and releases");
 
     // Live: the synth thread answers with the size the device took.
