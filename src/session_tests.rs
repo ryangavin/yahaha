@@ -1326,7 +1326,8 @@ fn audio_buffer_changes_keep_notes_and_report_the_size() {
     assert_eq!(s.state().io.synth.as_ref().unwrap().buffer_frames, Some(256));
     assert!(energy(s.render(4800)) > 1e-4, "the held note plays on");
     s.midi_in(Port::Keys, &[0x80, 72, 0]);
-    s.render(96_000);
+    // Two seconds for the note, four more for the reverb tail (Hall, RT60 2.4 s; #204).
+    s.render(6 * 48_000);
     assert!(energy(s.render(4800)) < 1e-6, "and releases");
 
     // Live: the synth thread answers with the size the device took.

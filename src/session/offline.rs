@@ -193,6 +193,17 @@ impl Session {
         Ok(())
     }
 
+    /// Tests: the effect bus's returns at 0, so a note's reverb tail doesn't ring into a
+    /// check for silence (#204).
+    #[cfg(test)]
+    pub(crate) fn fx_returns_off(&self) {
+        let ctl = self.inner.lock();
+        if let Some(synth) = ctl.synth.as_ref() {
+            synth.control.fx.reverb_return.store(0, std::sync::atomic::Ordering::Relaxed);
+            synth.control.fx.chorus_return.store(0, std::sync::atomic::Ordering::Relaxed);
+        }
+    }
+
     /// Offline only, after [`Session::offline_audio`]: render `frames` of stereo (in
     /// buffers of 64, or the size `SetAudioBuffer` chose, as a device would), then pump
     /// and publish. Empty without a synth.

@@ -24,6 +24,8 @@ fn session(test: &str, sf2: Option<&Path>) -> Option<(Session, PathBuf)> {
     let s = Session::offline(Options { paths: vec![a, b], data_dir: Some(dir.clone()), ..Options::default() }).unwrap();
     s.finish_indexing();
     s.offline_audio(sf2, 48_000).unwrap();
+    // The checks for silence: no reverb tail from the last note.
+    s.fx_returns_off();
     Some((s, dir))
 }
 
