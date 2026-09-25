@@ -884,6 +884,9 @@ export interface PartPlugin {
   stage: string | null
   error: string | null
   outOfProcess: boolean
+  /** The system refused to host it in its own process, so it loaded in yahaha's process
+   * instead: a crash in it takes yahaha down. */
+  inProcessFallback: boolean
   /** Share of real time (0.05 = 5% of a core), once a second. */
   cpu: number
   overruns: number
