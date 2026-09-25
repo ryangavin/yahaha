@@ -5,16 +5,16 @@ This file is the starting point for a fresh coordinator. Everything described he
 ## Where things are
 
 - `main` has M1–M4 plus the M3 app/engine work (merged in #97).
-- `integration/m3-ui` is the rolling integration branch. All wave PRs target it. The owner playtests it before it goes to `main` (merge commit, not squash).
+- `develop` is the rolling integration branch. All wave PRs target it. The owner playtests it before it goes to `main` (merge commit, not squash).
 - Merged into integration during this wave:
   - #93 Controllers (#34)
   - #95 Multi Pads (#37)
   - #96 Chord Looper, part solo, Style Track Mute, tempo 5–500, metronome (#29, #30)
-- Suggested later: rename `integration/m3-ui` to `develop` once this wave lands (git-flow lite: `develop` → `main` with merge commits, and tag releases).
+- Suggested later: rename `develop` to `develop` once this wave lands (git-flow lite: `develop` → `main` with merge commits, and tag releases).
 
 ## Status (updated 2026-09-24, evening)
 
-The M5–M8 wave is fully merged into `integration/m3-ui`, and all gates are green. No PRs are open.
+The M5–M8 wave is fully merged into `develop`, and all gates are green. No PRs are open.
 
 | Merged | What |
 |---|---|
@@ -27,7 +27,7 @@ The M5–M8 wave is fully merged into `integration/m3-ui`, and all gates are gre
 
 **Next steps:**
 1. The owner playtests integration.
-2. Merge `integration/m3-ui` to `main` with a merge commit.
+2. Merge `develop` to `main` with a merge commit.
 3. Optionally rename the branch to `develop`.
 
 **Follow-ups with deferred edge cases:**
@@ -55,7 +55,7 @@ The M5–M8 wave is fully merged into `integration/m3-ui`, and all gates are gre
 - **Sound library (#103):** a user patch list built from SoundFont presets and AU plugins (and later VST3/CLAP). Parts, OTS and registration pick from it, and a program map (GM family rules plus overrides) sends every style part to one of about 20 reusable patches. SoundFont-only patches could ship first; plugin patches need #91.
 - **#31 remainder:** three split points (Style, Left, Right 3) and Left Hold.
 - **Clippy drift:** a newer toolchain flagged lints in files no one touched (`src/sff.rs`, `src/theory.rs`). If `clippy -D warnings` fails on untouched code, fix it in a separate small PR rather than inside a feature PR.
-- After the wave: the owner playtests `integration/m3-ui`, then it merges to `main`.
+- After the wave: the owner playtests `develop`, then it merges to `main`.
 
 ## How the swarm ran (reuse this)
 

@@ -30,7 +30,7 @@ Chord following must match a real Genos 1:1. The repo `ryangavin/yahaha` is **PU
 
 ## 2. Branches and flow
 - `main` has the M1–M8 work plus AU plugins and the sound library (merged via #113, a merge commit).
-- **`integration/m3-ui` is the rolling integration branch.** Every PR targets it. When the owner says so, merge it to `main` with a PR and a merge commit (`gh pr merge --merge`).
+- **`develop` is the rolling integration branch.** Every PR targets it. When the owner says so, merge it to `main` with a PR and a merge commit (`gh pr merge --merge`).
 - **Landing a PR:**
   1. The agent opens it and gets it green and mergeable.
   2. The agent posts `READY <full sha>` and adds the `ready-to-merge` label.

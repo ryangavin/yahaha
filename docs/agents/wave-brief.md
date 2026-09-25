@@ -1,7 +1,7 @@
 # yahaha wave brief (read fully)
 
 **Project.** yahaha is a Rust real-time software arranger. It plays Yamaha Genos style files live and must behave like real Genos hardware.
-- Repo: ryangavin/yahaha (PUBLIC). Rolling integration branch: `integration/m3-ui`.
+- Repo: ryangavin/yahaha (PUBLIC). Rolling integration branch: `develop`.
 - Desktop app: `app/` (Svelte 5 + TS + Tauri 2). Its main screen mirrors the owner's Novation Launchkey MK4.
 - Terminal UI: src/ui.rs.
 
@@ -17,7 +17,7 @@
 
 **Setup:**
 ```
-git fetch origin && git checkout -b <your-branch> origin/integration/m3-ui
+git fetch origin && git checkout -b <your-branch> origin/develop
 ln -sfn "/Users/ryan/The Source/yahaha/corpus" corpus; ln -sfn "/Users/ryan/The Source/yahaha/soundfonts" soundfonts
 ```
 For app work, run `cd app && npm install` once.
@@ -42,7 +42,7 @@ For app work, run `cd app && npm install` once.
     - `cargo test` in app/src-tauri
     - `npm run verify` in app/
 11. Commit messages end with: `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`
-12. Open the PR against integration/m3-ui. The body includes Decisions and "Closes #N", and ends with `🤖 Generated with [Claude Code](https://claude.com/claude-code)`. DO NOT MERGE.
+12. Open the PR against develop. The body includes Decisions and "Closes #N", and ends with `🤖 Generated with [Claude Code](https://claude.com/claude-code)`. DO NOT MERGE.
 13. If git signing fails, stop and report.
 14. Quote paths containing spaces. Never backslash-escape spaces.
 
