@@ -32,6 +32,14 @@ pub enum PluginCmd {
     /// but a crash in it takes yahaha down. Kept in the scan cache; applies from the
     /// plugin's next load.
     SetPluginInProcess { id: String, in_process: bool },
+    /// Load a part's plugin again, with its saved preset, after it stopped working
+    /// (`muted`) or failed to load (`failed`): the recovery button on stage. `part` 0-3,
+    /// or none for the part selected for editing (`selectPart`). A plugin that is playing
+    /// or loading is left alone.
+    ReloadPartPlugin {
+        #[serde(default)]
+        part: Option<u8>,
+    },
 }
 
 /// Where a part's plugin is.

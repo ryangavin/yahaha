@@ -12,7 +12,7 @@ pub(super) struct Leds {
     palette: bool,
     last_leds: [(u8, Option<Led>); 16],
     last_rgb: [Option<(u8, u8, u8)>; 16],
-    last_fader_btns: Option<(FaderPage, u8, u8, bool)>,
+    last_fader_btns: Option<(FaderPage, u8, u8, bool, bool)>,
     last_nav: Option<(Page, bool)>,
     buf: Vec<[u8; 3]>,
 }
@@ -45,10 +45,10 @@ impl Leds {
             }
         }
         let style_on = launchkey::style_lit(s.parts, manual_bass);
-        let fb = (fader_page, pnl.parts_on, style_on, pnl.harmony_arp);
+        let fb = (fader_page, pnl.parts_on, style_on, pnl.harmony_arp, pnl.plugin_fault);
         if self.last_fader_btns != Some(fb) {
             self.buf.clear();
-            launchkey::fader_button_msgs(fb.0, fb.1, fb.2, fb.3, &mut self.buf);
+            launchkey::fader_button_msgs(fb.0, fb.1, fb.2, fb.3, fb.4, &mut self.buf);
             for m in &self.buf {
                 self.out.push(m);
             }

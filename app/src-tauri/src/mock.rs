@@ -444,6 +444,19 @@ impl MockSession {
                 self.state.keyboard_parts[(part & 3) as usize].plugin = None;
             }
             PluginCmd::SavePartPluginState { .. } | PluginCmd::RescanPlugins => {}
+            PluginCmd::ReloadPartPlugin { part } => {
+                let part = match part {
+                    Some(p) => (p & 3) as usize,
+                    None => self.state.keyboard_parts.iter().position(|p| p.selected).unwrap_or(0),
+                };
+                let name = self.state.keyboard_parts[part].name.clone();
+                match self.state.keyboard_parts[part].plugin.as_ref().map(|p| (p.status, p.id.clone(), p.name.clone())) {
+                    None => self.message(format!("{name} plays its SoundFont voice; there is no plugin to reload"), true),
+                    Some((PluginStatus::Muted | PluginStatus::Failed, id, _)) => self.set_part_plugin(part, id),
+                    Some((PluginStatus::Playing, _, plugin)) => self.message(format!("{name}'s {plugin} is playing; nothing to reload"), true),
+                    Some((PluginStatus::Loading, _, plugin)) => self.message(format!("{name}'s {plugin} is still loading"), true),
+                }
+            }
             PluginCmd::SetPluginInProcess { id, in_process } => {
                 let Some(e) = self.state.plugins.list.iter_mut().find(|p| p.id == id) else {
                     return self.message(format!("no instrument Audio Unit {id} is installed"), true);
@@ -1025,7 +1038,8 @@ impl MockSession {
         let mask = |bits: Vec<bool>| bits.iter().enumerate().fold(0u8, |m, (i, on)| m | (*on as u8) << i);
         let parts_on = mask(st.keyboard_parts.iter().map(|p| p.sounding).collect());
         let style_on = lk::style_lit(mask(st.mixer.style_parts.iter().map(|p| p.on).collect()), st.chord.manual_bass_active);
-        let colours = lk::button_colours(page, styles, fader_page, parts_on, style_on, st.harmony_arp.on);
+        let fault = st.keyboard_parts.iter().find(|p| p.selected).and_then(|p| p.plugin.as_ref()).is_some_and(|p| matches!(p.status, PluginStatus::Muted | PluginStatus::Failed));
+        let colours = lk::button_colours(page, styles, fader_page, parts_on, style_on, st.harmony_arp.on, fault);
         let act = |cc: u8, shift: bool| -> Option<AppCmd> {
             match lk::cc_control(cc, shift)? {
                 Control::Page(d) => {
@@ -1086,6 +1100,9 @@ impl MockSession {
                 }
                 FaderPage::Panel if i == lk::HARM_ARP_FADER_BTN => {
                     push(id, cc, "HARM/ARP", Some(AppCmd::HarmonyArp(HarmonyArpCmd::ToggleHarmonyArp)), None)
+                }
+                FaderPage::Panel if i == lk::PLUGIN_FADER_BTN => {
+                    push(id, cc, "PLUGIN", Some(AppCmd::Plugins(PluginCmd::ReloadPartPlugin { part: None })), None)
                 }
                 FaderPage::Panel => push(id, cc, "", None, None),
                 FaderPage::Style => {
@@ -2000,6 +2017,21 @@ mod tests {
         assert_eq!(m.state.keyboard_parts[0].plugin.as_ref().unwrap().recent_overruns, 0);
     }
 
+    /// `reloadPartPlugin` retries the selected part's failed plugin; Panel fader button 6
+    /// is red while it needs that.
+    #[test]
+    fn reload_part_plugin_and_its_launchkey_button() {
+        let mut m = MockSession::new();
+        let b6 = |m: &MockSession| m.surface().controls.into_iter().find(|c| c.id == "faderButton6").unwrap();
+        assert_eq!((b6(&m).label.as_str(), b6(&m).level), ("PLUGIN", Level::Off));
+        m.send(PluginCmd::SetPartPlugin { part: 0, id: "aumu Mock Demo".into(), state: None });
+        assert_eq!((b6(&m).level, b6(&m).action), (Level::Bright, Some(AppCmd::Plugins(PluginCmd::ReloadPartPlugin { part: None }))));
+        m.send(PluginCmd::ReloadPartPlugin { part: None });
+        assert_eq!(m.state.keyboard_parts[0].plugin.as_ref().unwrap().status, PluginStatus::Failed, "Broken Synth fails again");
+        m.send(PluginCmd::ReloadPartPlugin { part: Some(1) });
+        assert!(m.state.message.as_ref().is_some_and(|x| x.error && x.text.contains("SoundFont")));
+    }
+
     /// A plugin patch on a keyboard part plays its plugin, as the session does (#109).
     #[test]
     fn a_plugin_patch_on_a_part_plays_its_plugin() {
@@ -2230,7 +2262,7 @@ mod tests {
         let s = &m.state.surface;
         assert_eq!(
             labels(&m),
-            ["", "PAGE ▼", "◀ STYLE", "STYLE ▶", "PLAY", "STOP", "TEMPO +", "TEMPO -", "RIGHT 1", "RIGHT 2", "RIGHT 3", "LEFT", "HARM/ARP", "", "", "", "PANEL"]
+            ["", "PAGE ▼", "◀ STYLE", "STYLE ▶", "PLAY", "STOP", "TEMPO +", "TEMPO -", "RIGHT 1", "RIGHT 2", "RIGHT 3", "LEFT", "HARM/ARP", "PLUGIN", "", "", "PANEL"]
         );
         assert_eq!((s.controls[0].shift_label.as_str(), s.controls[1].shift_label.as_str()), ("LEFT", "OTS LINK"));
         assert_eq!(s.controls[0].action, None);

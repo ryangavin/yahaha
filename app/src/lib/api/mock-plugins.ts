@@ -76,6 +76,18 @@ export class MockPlugins {
         st.plugins.scanning = true
         this.scanLeft = RESCAN_MS
         break
+      case 'reloadPartPlugin': {
+        const i = cmd.part ?? st.keyboardParts.findIndex((k) => k.selected)
+        const part = st.keyboardParts[i & 3]
+        const p = part.plugin
+        if (!p) return this.say(`${part.name} plays its SoundFont voice; there is no plugin to reload`, true)
+        if (p.status === 'playing') return this.say(`${part.name}'s ${p.name} is playing; nothing to reload`, true)
+        if (p.status === 'loading') return this.say(`${part.name}'s ${p.name} is still loading`, true)
+        Object.assign(p, { status: 'loading', stage: 'queued', error: null, editor: false })
+        this.loading[i & 3] = 0
+        this.say(`${part.name}: loading ${p.name} again`, false)
+        break
+      }
       case 'setPluginInProcess': {
         const e = st.plugins.list.find((p) => p.id === cmd.id)
         if (!e) return this.say(`no instrument Audio Unit ${cmd.id} is installed`, true)

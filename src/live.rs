@@ -931,6 +931,7 @@ impl Input {
             // Left is refused under Manual Bass; its LED stays lit, as the bass sounds.
             FaderPage::Panel if (i as usize) < parts::COUNT => self.act(Action::PartOnOff(i)),
             FaderPage::Panel if i == launchkey::HARM_ARP_FADER_BTN => self.act(Action::ToggleHarmonyArp),
+            FaderPage::Panel if i == launchkey::PLUGIN_FADER_BTN => self.act(Action::ReloadPlugin),
             FaderPage::Panel => {}
             FaderPage::Style => self.act(Action::Button(Button::TogglePart(i))),
         }
@@ -2169,7 +2170,9 @@ mod tests {
         assert_eq!(acts.pop(), Ok(Action::SelectPart(2)));
         input.pad_msg(&[0xB0, 41, 127]); // button 5: HARMONY/ARPEGGIO
         assert_eq!(acts.pop(), Ok(Action::ToggleHarmonyArp));
-        input.pad_msg(&[0xB0, 42, 127]); // button 6: unused on Panel
+        input.pad_msg(&[0xB0, 42, 127]); // button 6: reload the selected part's plugin
+        assert_eq!(acts.pop(), Ok(Action::ReloadPlugin));
+        input.pad_msg(&[0xB0, 43, 127]); // button 7: unused on Panel
         assert!(acts.pop().is_err());
         assert!(cmds.pop().is_err());
 

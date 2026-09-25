@@ -205,6 +205,8 @@ const EVERY_CMD: &[&str] = &[
     r#"{"type":"savePartPluginState","part":3}"#,
     r#"{"type":"rescanPlugins"}"#,
     r#"{"type":"setPluginInProcess","id":"aumu dls  appl","inProcess":true}"#,
+    r#"{"type":"reloadPartPlugin","part":null}"#,
+    r#"{"type":"reloadPartPlugin","part":2}"#,
     // Keyboard Harmony / Arpeggio
     r#"{"type":"toggleHarmonyArp"}"#,
     r#"{"type":"setHarmonyArpOn","on":true}"#,

@@ -34,7 +34,7 @@
 //! `~/Library/Application Support/yahaha/plugin-parts.json` and loads them again at start.
 
 use super::Control;
-use crate::api::{base64_decode, base64_encode, CmdError, PartPlugin, PluginCmd, PluginsState};
+use crate::api::{base64_decode, base64_encode, CmdError, PartPlugin, PluginCmd, PluginStatus, PluginsState};
 use crate::parts;
 use serde::{Deserialize, Serialize};
 #[cfg(feature = "plugins")]
@@ -79,7 +79,7 @@ fn saved_path() -> Option<PathBuf> {
 #[cfg(feature = "plugins")]
 mod imp {
     use super::*;
-    use crate::api::{PluginEntry, PluginStatus};
+    use crate::api::PluginEntry;
     use crate::plugin::{
         dispose_later, EditorTarget, InstanceRef, LoadConfig, LoadHandle, LoadMode, LoadProgress, PluginFormat, PluginHost, PluginId, PluginInfo,
         PluginStats, RackEvent, Swap, DEFAULT_FADE_FRAMES,
@@ -884,6 +884,40 @@ impl Control {
                     return self.fail(e);
                 }
             }
+            PluginCmd::ReloadPartPlugin { part } => {
+                let part = part.map_or_else(|| self.shared.parts.selected(), |p| (p & 3) as usize);
+                if let Err(e) = self.reload_part_plugin(part) {
+                    return self.fail(e);
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// The selected part's plugin stopped working or failed to load: the Launchkey's reload
+    /// button (Panel fader button 6) lights.
+    pub(super) fn selected_plugin_fault(&self) -> bool {
+        let ch = parts::CHANNEL[self.shared.parts.selected() & 3];
+        self.channel_plugin_state(ch).is_some_and(|p| matches!(p.status, PluginStatus::Muted | PluginStatus::Failed))
+    }
+
+    /// Load part `part`'s plugin again with its saved voice (id and preset), if it stopped
+    /// working or failed to load. `reloadPartPlugin`.
+    fn reload_part_plugin(&mut self, part: usize) -> Result<(), String> {
+        let name = parts::NAMES[part];
+        let Some(p) = self.channel_plugin_state(parts::CHANNEL[part]) else {
+            return Err(format!("{name} plays its SoundFont voice; there is no plugin to reload"));
+        };
+        match p.status {
+            PluginStatus::Muted | PluginStatus::Failed => {}
+            PluginStatus::Playing => return Err(format!("{name}'s {} is playing; nothing to reload", p.name)),
+            PluginStatus::Loading => return Err(format!("{name}'s {} is still loading", p.name)),
+        }
+        #[cfg(feature = "plugins")]
+        {
+            let voice = self.plugins.channels[parts::CHANNEL[part] as usize].as_ref().map(|c| c.voice.clone()).unwrap_or_default();
+            self.assign_channel_plugin(parts::CHANNEL[part], voice)?;
+            self.say(format!("{name}: loading {} again", p.name), false);
         }
         Ok(())
     }

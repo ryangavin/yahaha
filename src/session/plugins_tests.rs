@@ -619,3 +619,32 @@ fn set_plugin_in_process_shows_in_the_list() {
     s.send(PluginCmd::SetPluginInProcess { id: DLS.into(), in_process: was }).unwrap();
     assert_eq!(dls(&s).in_process, was);
 }
+
+/// `reloadPartPlugin` loads a failed (or stopped) plugin again with its kept state, for the
+/// selected part when no part is given; the Launchkey's reload button lights while the
+/// selected part's plugin needs it. A part without a plugin, or one playing, is refused.
+#[test]
+fn reload_part_plugin_retries_a_failed_plugin() {
+    use crate::api::PartsCmd;
+    let Some(s) = session() else { return };
+    s.offline_audio(None, 48_000).unwrap();
+    let fault = |s: &Session| s.inner.lock().selected_plugin_fault();
+    assert!(s.send(PluginCmd::ReloadPartPlugin { part: None }).is_err(), "Right 1 plays its SoundFont");
+    // Right 2: a state the plugin rejects, so the load fails.
+    s.send(PluginCmd::SetPartPlugin { part: 1, id: DLS.into(), state: Some("anVuaw==".into()) }).unwrap();
+    assert_eq!(wait_playing(&s, 1), PluginStatus::Failed);
+    assert!(!fault(&s), "Right 1 is selected");
+    s.send(PartsCmd::SelectPart { part: 1 }).unwrap();
+    assert!(fault(&s), "the button lights for the selected part");
+    s.send(PluginCmd::ReloadPartPlugin { part: None }).unwrap();
+    assert_eq!(s.state().keyboard_parts[1].plugin.as_ref().unwrap().status, PluginStatus::Loading);
+    assert_eq!(wait_playing(&s, 1), PluginStatus::Failed, "reloaded with its kept state");
+    let kept = s.inner.lock().saved_parts().parts[1].as_ref().and_then(|v| v.state.clone());
+    assert_eq!(kept.as_deref(), Some(&b"junk"[..]));
+    // Right 1 plays DLS: nothing to reload.
+    s.send(PluginCmd::SetPartPlugin { part: 0, id: DLS.into(), state: None }).unwrap();
+    assert_eq!(wait_playing(&s, 0), PluginStatus::Playing);
+    assert!(s.send(PluginCmd::ReloadPartPlugin { part: Some(0) }).is_err());
+    s.send(PartsCmd::SelectPart { part: 0 }).unwrap();
+    assert!(!fault(&s));
+}

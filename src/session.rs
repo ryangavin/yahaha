@@ -391,6 +391,7 @@ impl Control {
             ots_applied: parts.ots_applied.load(Relaxed),
             ots_link: parts.ots_link.load(Relaxed),
             harmony_arp: self.harmony_arp.on,
+            plugin_fault: self.selected_plugin_fault(),
             parts_on: parts.sounding_mask(),
             selected: parts.selected() as u8,
             regist: self.regist_panel(),
