@@ -169,7 +169,7 @@ Style Section Reset, the Fade In/Out times and the Style Retrigger length. The s
 | Command | Fields | Does |
 |---|---|---|
 | `setFaderPage` / `toggleFaderPage` | `page`: `panel` \| `style` | What the Launchkey faders control. |
-| `setPadPage` | `page`: `sections` \| `chordSetup` \| `otsParts` \| `registration` | The Launchkey pad page. |
+| `setPadPage` | `page`: `sections` \| `chordSetup` \| `otsParts` \| `registration` \| `multiPads` | The Launchkey pad page. |
 | `cyclePadPage` | `delta` | Steps the pad page, wrapping. |
 | `setMasterVolume` | `volume` 0–127 | Synth master (100 = unity). Fails when the synth is off. |
 | `setSynthMuted` / `toggleSynthMute` | `on` | Mutes the synth audio. |
@@ -587,7 +587,7 @@ control's meaning, and every LED as the hardware shows it.
 
 | Field | Type | Meaning |
 |---|---|---|
-| `page` | `sections` \| `chordSetup` \| `otsParts` | The current Launchkey pad page. |
+| `page` | `sections` \| `chordSetup` \| `otsParts` \| `registration` \| `multiPads` | The current Launchkey pad page. |
 | `pageName`, `pageNumber` (1-based), `pageCount` | | For example `Chord/Setup`, 2, 3. |
 | `pads` | Pad[16] | This page: the top row (notes 96–103), then the bottom row (112–119). |
 | `connected` | bool | A Launchkey DAW port is connected. It is set once, at start: see the limitation below. |

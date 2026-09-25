@@ -61,7 +61,8 @@ describe('Launchkey mirror', () => {
     await fireEvent.click(down())
     await fireEvent.click(down())
     await fireEvent.click(down())
-    expect(session.state.pads.page).toBe('registration')
+    await fireEvent.click(down())
+    expect(session.state.pads.page).toBe('multiPads')
   })
 
   it('the Shift layer turns Pad Bank into Left on/off and OTS Link, and fader buttons into Edit', async () => {

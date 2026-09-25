@@ -21,7 +21,10 @@ const PART_SELECT: TipKey[] = ['part.right1.select', 'part.right2.select', 'part
 const PART_VOLUME: TipKey[] = ['mixer.panel.right1', 'mixer.panel.right2', 'mixer.panel.right3', 'mixer.panel.left']
 const OTS: TipKey[] = ['ots.1', 'ots.2', 'ots.3', 'ots.4']
 const REGIST: TipKey[] = ['regist.1', 'regist.2', 'regist.3', 'regist.4', 'regist.5', 'regist.6', 'regist.7', 'regist.8', 'regist.9', 'regist.10']
-const PAGE: Record<string, TipKey> = { sections: 'padpage.sections', chordSetup: 'padpage.chord_setup', otsParts: 'padpage.ots_parts', registration: 'padpage.registration' }
+const MP_PAD: TipKey[] = ['multipad.pad1', 'multipad.pad2', 'multipad.pad3', 'multipad.pad4']
+const MP_ARM: TipKey[] = ['multipad.arm1', 'multipad.arm2', 'multipad.arm3', 'multipad.arm4']
+const MP_STOP: TipKey[] = ['multipad.stop1', 'multipad.stop2', 'multipad.stop3', 'multipad.stop4']
+const PAGE: Record<string, TipKey> = { sections: 'padpage.sections', chordSetup: 'padpage.chord_setup', otsParts: 'padpage.ots_parts', registration: 'padpage.registration', multiPads: 'padpage.multi_pads' }
 
 /** The catalog entry for a command; an unused pad (null) has its own. */
 export function tipFor(cmd: AppCmd | null): TipKey {
@@ -179,10 +182,10 @@ export function tipFor(cmd: AppCmd | null): TipKey {
     case 'loadMultiPad':
     case 'loadMultiPadPath': return 'multipad.bank'
     case 'clearMultiPad': return 'multipad.clear'
-    case 'triggerMultiPad': return 'multipad.pad'
-    case 'stopMultiPad': return 'multipad.stop'
+    case 'triggerMultiPad': return MP_PAD[cmd.pad] ?? 'multipad.pad'
+    case 'stopMultiPad': return MP_STOP[cmd.pad] ?? 'multipad.stop'
     case 'stopAllMultiPads': return 'multipad.stop_all'
-    case 'armMultiPad': return 'multipad.arm'
+    case 'armMultiPad': return MP_ARM[cmd.pad] ?? 'multipad.arm'
     case 'setMultiPadRepeat': return 'multipad.repeat'
     case 'setMultiPadChordMatch': return 'multipad.chord_match'
     case 'setMultiPadSynchroStop': return 'multipad.synchro_style_stop'

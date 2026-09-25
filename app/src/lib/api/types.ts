@@ -17,7 +17,7 @@ export type Fingering =
   | 'aiFingered' | 'fullKeyboard' | 'aiFullKeyboard'
 
 /** The Launchkey pad pages, switched with Pad Bank ▲/▼. */
-export type PadPage = 'sections' | 'chordSetup' | 'otsParts' | 'registration'
+export type PadPage = 'sections' | 'chordSetup' | 'otsParts' | 'registration' | 'multiPads'
 
 /** What the Launchkey faders control, like the Genos Mixer's Panel and Style tabs. */
 export type FaderPage = 'panel' | 'style'
@@ -1188,6 +1188,7 @@ export const PAD_PAGES: { id: PadPage; name: string }[] = [
   { id: 'chordSetup', name: 'Chord/Setup' },
   { id: 'otsParts', name: 'OTS/Parts' },
   { id: 'registration', name: 'Registration' },
+  { id: 'multiPads', name: 'Multi Pads' },
 ]
 
 /** Section names as the engine reports them. */

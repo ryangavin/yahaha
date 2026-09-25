@@ -1916,7 +1916,7 @@ fn pads_for(s: &AppState, page: Page) -> Vec<Pad> {
             v
         }
         // Page 4 comes from the Registration mock (`MockRegist::pads`).
-        Page::Registration => vec![],
+        Page::Registration | Page::MultiPads => vec![],
     }
 }
 
@@ -2375,7 +2375,7 @@ mod tests {
 
         // Style page.
         m.send(MixerCmd::ToggleFaderPage);
-        m.send(PadsCmd::SetPadPage { page: Page::Registration });
+        m.send(PadsCmd::SetPadPage { page: Page::MultiPads });
         let s = &m.state.surface;
         assert_eq!(
             labels(&m),
