@@ -2049,8 +2049,10 @@ mod tests {
                 m.send(TransportCmd::TapTempo);
             }
         };
+        m.send(TransportCmd::Stop);
+        assert!(!m.state.transport.running, "stopped");
         tap_bar(&mut m);
-        assert_eq!(m.state.transport.tempo, 120.0);
+        assert_eq!(m.state.transport.tempo, 120.0, "{beats} taps");
         m.advance(480.0);
         assert!(!m.state.transport.running);
         m.advance(40.0);
