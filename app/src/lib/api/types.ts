@@ -94,6 +94,8 @@ export type AppCmd =
   | { type: 'stepVoice'; delta: number }
   | { type: 'setPartVolume'; part: number; volume: number }
   | { type: 'setPartOctave'; part: number; octave: number }
+  | { type: 'setPartPan'; part: number; pan: number }
+  | { type: 'setPartSend'; part: number; send: PartSend; value: number }
   /** Solo a keyboard part 0–3 (only it sounds from the keys); null ends the solo. */
   | { type: 'setPartSolo'; part: number | null }
   // Mixer and Launchkey pages
@@ -418,6 +420,9 @@ export interface ChordState {
 /** The widest chord-settle window, ms (`setChordSettle`). */
 export const CHORD_SETTLE_MAX_MS = 30
 
+/** A keyboard part's effect send (`setPartSend`): reverb (CC 91) or chorus (CC 93). */
+export type PartSend = 'reverb' | 'chorus'
+
 export interface KeyboardPart {
   /** "Right 1", "Right 2", "Right 3", "Left". */
   name: string
@@ -434,6 +439,12 @@ export interface KeyboardPart {
   voiceName: string
   playsBass: boolean
   octave: number
+  /** Pan (CC 10): 0 left, 64 centre, 127 right. 64 until something sets it. */
+  pan: number
+  /** Reverb send depth (CC 91); 40, the GM power-on value, until something sets it. */
+  reverb: number
+  /** Chorus send depth (CC 93); 0 until something sets it. */
+  chorus: number
   /** Where its Launchkey fader (Panel page, faders 1–4) physically is; null until it moves. */
   fader: number | null
   /** The instrument plugin it plays instead of its SoundFont voice (absent: the SoundFont). */
