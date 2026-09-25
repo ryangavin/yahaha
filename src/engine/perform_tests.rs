@@ -386,6 +386,65 @@ fn pressing_the_ending_again_slows_down_and_the_tempo_comes_back() {
     assert!(!e.ritardando());
 }
 
+/// An Ending played once keeps the tempo to its end; pressed again (#129), the
+/// ritardando's curve: no jump at the press, then the tempo on a straight line (in ticks)
+/// from the base at the press to `RIT_END` of it at the Ending's last tick. The engine
+/// sets it at every wake and wakes at least every sixteenth note for it, so no stretch of
+/// the Ending plays at a stale tempo.
+#[test]
+fn the_ending_ritardando_curve() {
+    // Played once: no slowing.
+    let Some((mut e, mut rec)) = started(StyleSettings::default()) else { return };
+    let (ppq, tpb, _) = grid(&e);
+    let end1 = slot_of(SectionId::Ending(0));
+    if !e.style.has(end1) {
+        return;
+    }
+    let base = e.bpm;
+    let t = e.ns_at(tpb + 1.5 * ppq);
+    play(&mut e, &mut rec, 0, t);
+    e.button(Button::Ending(0), t, &mut rec);
+    let mut now = t;
+    while e.running {
+        now = e.next_deadline().unwrap().max(now + 1).min(now + 5_000_000);
+        rec.now = now;
+        e.process(now, &mut rec);
+        assert!(!e.ritardando());
+        assert_eq!(e.bpm, base, "an Ending played once keeps the tempo");
+    }
+
+    // Pressed again in its first beat: the curve, at the engine's own wakes.
+    let Some((mut e, mut rec, press)) = in_ending_rit() else { return };
+    assert_eq!(e.bpm, base, "no jump at the press");
+    let from = e.tick_at(press);
+    let to = e.section_end().0;
+    assert!(to - from > 4.0 * ppq, "a long enough Ending: {from}..{to}");
+    let step = ppq / 4.0;
+    let line = |tick: f64| base * (1.0 - (1.0 - RIT_END) * ((tick - from) / (to - from)).clamp(0.0, 1.0));
+    let mut changes: Vec<(f64, f64)> = vec![(from, base)];
+    let mut now = press;
+    while e.running {
+        now = e.next_deadline().unwrap().max(now + 1);
+        rec.now = now;
+        let tick = e.tick_at(now);
+        e.process(now, &mut rec);
+        let last = changes.last().unwrap().1;
+        if e.running && e.bpm != last {
+            assert!(e.bpm < last, "it only slows");
+            assert!((e.bpm - line(tick)).abs() < 1e-6, "at tick {tick}: {} BPM, the line says {}", e.bpm, line(tick));
+            changes.push((tick, e.bpm));
+        }
+    }
+    assert_eq!(e.bpm, base, "the tempo comes back at the stop");
+    // At least one change every sixteenth, to the last sixteenth before the end.
+    for w in changes.windows(2) {
+        assert!(w[1].0 - w[0].0 <= step + 0.05, "{:.1} ticks at {:.2} BPM", w[1].0 - w[0].0, w[0].1);
+    }
+    let (last_tick, slowest) = *changes.last().unwrap();
+    assert!(to - last_tick <= step + 0.05, "the last change at {last_tick}, the end at {to}");
+    assert!(slowest >= base * RIT_END - 1e-9 && slowest <= line(to - step) + 1e-6, "{slowest} of {base}");
+}
+
 #[test]
 fn fade_in_from_start_and_fade_out_to_a_stop_then_hold() {
     let s = StyleSettings { fade_in_ms: 1000, fade_out_ms: 500, fade_hold_ms: 300, ..StyleSettings::default() };

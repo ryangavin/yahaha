@@ -61,7 +61,8 @@ Decisions (the manuals leave these open):
 Press the Ending that is playing again: the tempo slows down to the end of the ending.
 
 Decisions:
-- **Linear to 65% of the tempo at the ending's last tick, in sixteenth-note steps**
+- **Linear to 65% of the tempo at the ending's last tick**, updated at every engine wake
+  and at least every sixteenth note
   (`RIT_END`). The manual says only "gradually slows".
 - **The tempo comes back when the band stops**, or when a Main takes over from the
   ending. The tempo buttons during a ritardando move the tempo it comes back to, and a
