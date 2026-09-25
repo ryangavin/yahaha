@@ -556,9 +556,25 @@ impl Control {
 
     fn save_part_as_patch(&mut self, part: usize, name: Option<String>) -> Result<(), CmdError> {
         let kp = self.shared.parts.clone();
-        let mut p = match self.sound.part_patch[part].clone().and_then(|id| self.sound.lib.patch(&id).cloned()) {
-            Some(own) => own,
-            None => {
+        let own = self.sound.part_patch[part].clone().and_then(|id| self.sound.lib.patch(&id).cloned());
+        // A plugin picked for the part (not through a patch): that plugin, with the preset
+        // it has now (#117).
+        let plugin = own.is_none().then(|| self.part_plugin_voice(part)).flatten();
+        let mut p = match (own, plugin) {
+            (Some(own), _) => own,
+            (None, Some((component_id, state))) => {
+                let id = format!("au:{component_id}");
+                Patch {
+                    id: String::new(),
+                    name: self.sound_name(&id),
+                    category: self.plugin_category_of(&id),
+                    tags: Vec::new(),
+                    favourite: false,
+                    source: PatchSource::Plugin { component_id, state: state.unwrap_or_default() },
+                    defaults: PatchDefaults::default(),
+                }
+            }
+            (None, None) => {
                 let Some(file) = self.sf_file.clone() else { return self.sl_fail("the synth plays no SoundFont") };
                 let program = kp.channel_program(part);
                 Patch {

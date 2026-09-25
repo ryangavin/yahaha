@@ -465,3 +465,24 @@ fn a_plugin_patch_auditions_on_channel_16() {
     assert!(s.send(SoundLibraryCmd::AuditionPatch { id }).is_err(), "not while the band plays");
     assert_eq!(ch16(&s), None);
 }
+
+/// Save as sound (#117) from a part playing a plugin picked for it: a plugin patch with
+/// the preset the part has saved, not the part's SoundFont voice.
+#[test]
+fn a_plugin_part_saves_as_a_plugin_sound() {
+    use crate::api::SoundLibraryCmd;
+    use crate::patches::PatchSource;
+    let Some(s) = session() else { return };
+    s.offline_audio(None, 48_000).unwrap();
+    s.send(PluginCmd::SetPartPlugin { part: 0, id: DLS.into(), state: None }).unwrap();
+    assert_eq!(wait_playing(&s, 0), PluginStatus::Playing);
+    s.send(PluginCmd::SavePartPluginState { part: 0 }).unwrap();
+    let (_, state) = wait_saved(&s, 0);
+    s.send(SoundLibraryCmd::SavePartAsPatch { part: 0, name: Some("My DLS".into()) }).unwrap();
+    let st = s.state();
+    let p = &st.sound_library.patches.last().unwrap().patch;
+    assert_eq!(p.name, "My DLS");
+    assert_eq!(p.source, PatchSource::Plugin { component_id: DLS.into(), state: state.unwrap() });
+    // A part on its SoundFont voice saves that voice (this session has no SoundFont).
+    assert!(s.send(SoundLibraryCmd::SavePartAsPatch { part: 1, name: None }).is_err());
+}

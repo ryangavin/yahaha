@@ -206,14 +206,14 @@ impl Control {
     }
 
     /// A plugin's category: the user's, else the guess.
-    fn plugin_category_of(&self, id: &str) -> Category {
+    pub(super) fn plugin_category_of(&self, id: &str) -> Category {
         let plugin = id.strip_prefix("au:").unwrap_or(id);
         let list = self.plugins_state().list;
         let p = list.iter().find(|p| p.id == plugin);
         self.sounds.prefs.plugin_category(id, p.map_or("", |p| &p.name), p.map_or("", |p| &p.manufacturer))
     }
 
-    fn sound_name(&self, id: &str) -> String {
+    pub(super) fn sound_name(&self, id: &str) -> String {
         let plugin = id.strip_prefix("au:").unwrap_or(id);
         self.plugins_state().list.into_iter().find(|p| p.id == plugin).map_or_else(|| id.to_string(), |p| p.name)
     }
