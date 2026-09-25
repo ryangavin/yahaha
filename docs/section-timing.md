@@ -107,11 +107,17 @@ Decisions:
 
 ## Style Section Reset (#25)
 
-TAP TEMPO while the style plays restarts the section from its top, at the tap (OM p.46).
-`styleSettings.sectionReset` (default on, as the OM describes) turns it back into tap
-tempo. `sectionReset` is also a command of its own (Launchkey Shift + Play, key `|`).
+On the Genos, TAP TEMPO while the style plays restarts the section from its top, at the
+tap (OM p.46), unless Tap Tempo › Style Section Reset is turned off. In yahaha
+`styleSettings.sectionReset` defaults to **off** (#128): TAP TEMPO always sets the tempo,
+from the second tap, averaging the last four. Turning it on gives the Genos behaviour.
+Section Reset is also a command of its own (Launchkey Shift + Play, key `|`) and an
+assignable function, Style Section Reset (yahaha's own row: the Genos reaches it only
+through TAP TEMPO).
 
 Decisions:
+- Decision (#128): Section Reset defaults to off, because the owner plays tap tempo during
+  the song and the Genos default made that impossible; the Genos setting is kept.
 - The bar grid restarts at the tap. A section change queued for a bar line moves to the
   new grid's next bar line; a queued fill to its next beat; a style waiting for the bar
   line to the new grid's next one.
@@ -153,7 +159,7 @@ Decisions:
 | | Terminal | Launchkey | App |
 |---|---|---|---|
 | Fade In/Out | `F` | page 3 top pad 6; Shift + Stop | Settings › Style; the mirror; a pedal (assignable function Fade In/Out, RM p.142) |
-| Section Reset | `\|` (and `t` while playing) | Shift + Play (and Tap while playing) | Settings › Style (Tap setting); the mirror |
+| Section Reset | `\|` (and `t` while playing, with the Tap setting on) | Shift + Play (and Tap while playing, with the Tap setting on) | Settings › Style (Tap setting); the mirror; a pedal (assignable function Style Section Reset) |
 | Retrigger on/off | `~` | page 2 bottom pad 8 | Settings › Style; the mirror |
 | Retrigger length | `{` `}` | Shift + > / Shift + Function | Settings › Style |
 | Ritardando | the Ending key again | the Ending pad again | the Ending pad again |

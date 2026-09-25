@@ -173,6 +173,10 @@ pub enum Function {
     KbdHarmonyArp,
     /// Arpeggio Hold (RM p.141; OM p.57 points arpeggio players to it).
     ArpHold,
+    /// Style Section Reset (OM p.67): yahaha's own row. The Genos reaches it only through
+    /// TAP TEMPO while a style plays; here Tap sets the tempo by default (#128), so Section
+    /// Reset gets a pedal or button of its own.
+    SectionReset,
 }
 
 /// One row of the assignable-function table.
@@ -201,7 +205,7 @@ use Kind::*;
 /// The assignable functions, in `Function` order: the Genos live-play list (RM p.139-144)
 /// as far as yahaha has the feature. app/src/lib/api/assignable-functions.json is this table
 /// as the app reads it (a test keeps the two equal).
-pub const FUNCTIONS: [FunctionInfo; 47] = [
+pub const FUNCTIONS: [FunctionInfo; 48] = [
     f(Function::None, "No Assign", Overall, Trigger),
     f(Function::Sustain, "Sustain", Voice, Switch),
     f(Function::Sostenuto, "Sostenuto", Voice, Switch),
@@ -249,6 +253,7 @@ pub const FUNCTIONS: [FunctionInfo; 47] = [
     f(Function::FadeInOut, "Fade In/Out", Style, Trigger),
     f(Function::KbdHarmonyArp, "Kbd Harmony/Arpeggio On/Off", Voice, Switch),
     f(Function::ArpHold, "Arpeggio Hold", Voice, Switch),
+    f(Function::SectionReset, "Style Section Reset", Style, Trigger),
 ];
 
 /// What running a function means, for the input thread.
@@ -307,6 +312,7 @@ impl Function {
             F::TempoUp => Effect::Engine(Button::TempoUp),
             F::TempoDown => Effect::Engine(Button::TempoDown),
             F::TapTempo => Effect::Engine(Button::TapTempo),
+            F::SectionReset => Effect::Engine(Button::SectionReset),
             // The FADE IN/OUT button (OM p.67): stopped, arms a fade in; playing, fades
             // out to the stop.
             F::FadeInOut => Effect::Engine(Button::Fade),

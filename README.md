@@ -169,7 +169,7 @@ The screen shows `sus` beside each part the pedal is holding.
 - `i o p` Ending I–III (again while it plays: ritardando)
 - `g` break
 - `A` `S` Fill Down / Fill Up (a fill, then the Main to the left / right) · `G` Fill Self · `N` Half Bar Fill In
-- `t` tap tempo (while the band plays: Section Reset, unless turned off in Settings)
+- `t` tap tempo, also while the band plays (Settings › Style › Tap: Section Reset makes it a Section Reset there, as on the Genos)
 - `|` Section Reset · `F` Fade In/Out
 - `~` Retrigger on/off · `{ }` Retrigger length longer/shorter
 - `- =` tempo down/up
