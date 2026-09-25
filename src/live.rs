@@ -967,6 +967,11 @@ impl Input {
                     self.signal = true;
                 }
             }
+            Action::MultiPad(c) => {
+                if self.cmd.push(Cmd::MultiPad(c)).is_ok() {
+                    self.signal = true;
+                }
+            }
             _ => {
                 if let Some(tx) = self.actions.as_mut()
                     && tx.push(a).is_ok()
@@ -2409,10 +2414,23 @@ mod tests {
 
         input.pad_msg(&[0xB0, launchkey::PAD_DOWN_CC, 127]);
         input.pad_msg(&[0xB0, launchkey::PAD_DOWN_CC, 127]);
-        input.pad_msg(&[0xB0, launchkey::PAD_DOWN_CC, 127]); // stops at the last page
         assert_eq!(page(), Page::Registration);
         input.pad_msg(&[0x90, 113, 100]);
         assert_eq!(acts.pop(), Ok(Action::Regist(9)));
+        input.pad_msg(&[0xB0, launchkey::PAD_DOWN_CC, 127]);
+        input.pad_msg(&[0xB0, launchkey::PAD_DOWN_CC, 127]); // stops at the last page
+        assert_eq!(page(), Page::MultiPads);
+        // Multi Pads go straight to the engine, as the section pads do.
+        input.pad_msg(&[0x90, 97, 100]);
+        input.pad_msg(&[0x90, 100, 100]);
+        input.pad_msg(&[0x90, 114, 100]);
+        input.pad_msg(&[0x90, 119, 100]);
+        assert!(matches!(cmds.pop(), Ok(Cmd::MultiPad(PadCmd::Trigger(1)))));
+        assert!(matches!(cmds.pop(), Ok(Cmd::MultiPad(PadCmd::StopAll))));
+        assert!(matches!(cmds.pop(), Ok(Cmd::MultiPad(PadCmd::Arm(2)))));
+        assert!(matches!(cmds.pop(), Ok(Cmd::MultiPad(PadCmd::Stop(3)))));
+        assert!(acts.pop().is_err());
+        input.pad_msg(&[0xB0, launchkey::PAD_UP_CC, 127]);
         input.pad_msg(&[0xB0, launchkey::PAD_UP_CC, 127]);
         assert_eq!(page(), Page::OtsParts);
         input.pad_msg(&[0x90, 114, 100]);
@@ -2528,7 +2546,8 @@ mod tests {
         assert_eq!(Page::from_u8(shared.page.load(Relaxed)), Page::OtsParts);
         shared.step_page(|p| p.step(1));
         shared.step_page(|p| p.step(1));
-        assert_eq!(Page::from_u8(shared.page.load(Relaxed)), Page::Registration);
+        shared.step_page(|p| p.step(1));
+        assert_eq!(Page::from_u8(shared.page.load(Relaxed)), Page::MultiPads);
         shared.step_page(|p| p.cycle(1));
         assert_eq!(Page::from_u8(shared.page.load(Relaxed)), Page::Sections);
     }

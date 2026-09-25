@@ -253,6 +253,7 @@ impl From<Action> for AppCmd {
             Action::AssignSet(f, on) => function_set(f, on).unwrap_or(ControllersCmd::TriggerFunction { function: f }.into()),
             Action::ToggleHarmonyArp => HarmonyArpCmd::ToggleHarmonyArp.into(),
             Action::ReloadPlugin => PluginCmd::ReloadPartPlugin { part: None }.into(),
+            Action::MultiPad(c) => MultiPadCmd::from(c).into(),
             Action::Knob(knob, delta) => KnobsCmd::TurnKnob { knob, delta }.into(),
             Action::KnobPage(delta) => KnobsCmd::StepKnobPage { delta }.into(),
         }

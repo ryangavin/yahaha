@@ -151,7 +151,7 @@ fn memory_button_arms_memorize_for_the_next_press() {
     s.send(RegistrationCmd::PressRegist { index: 3 }).unwrap();
     let st = s.state();
     assert!(!st.registration.memory && st.registration.buttons[3].stored);
-    assert_eq!(st.pads.page_count, 4);
+    assert_eq!(st.pads.page_count, 5);
     let _ = std::fs::remove_dir_all(dir);
 }
 

@@ -31,7 +31,27 @@ const P1 = 'Pad page 1 (Sections)'
 const P2 = 'Pad page 2 (Chord/Setup)'
 const P3 = 'Pad page 3 (OTS/Parts)'
 const P4 = 'Pad page 4 (Registration)'
+const P5 = 'Pad page 5 (Multi Pads)'
 const pad = (page: string, row: 'top' | 'bottom', n: number) => `${page}, ${row} row, pad ${n}`
+
+// The Multi Pad buttons (the drawer's, and pad page 5's, one entry per pad).
+const MP_PAD = {
+  title: 'Multi Pad',
+  body: 'Plays the pad\'s phrase from the top (keys Shift+Z, X, C, V): at once when the band is stopped, at the next bar line while it plays. With pads in Synchro Start standby, pressing one of them starts them all. Blue: has data; red: playing; flashing red: waiting for Synchro Start; amber: waiting for the bar line.',
+  genos: 'MULTI PAD CONTROL [1]–[4]',
+}
+const MP_ARM = {
+  title: 'Synchro Start',
+  body: 'Puts the pad in standby (flashing red): it starts with your next chord in the chord section, when the band starts, or when you press any pad in standby; while the band plays, at the next bar line. Press again to cancel.',
+  genos: '[SELECT] + pad (Synchro Start)',
+  keys: [],
+}
+const MP_STOP = {
+  title: 'Stop this pad',
+  body: 'Stops only this pad, now. The other pads keep playing.',
+  genos: '[STOP] + pad',
+  keys: [],
+}
 
 const catalog = {
   // ── Transport ───────────────────────────────────────────────────────────
@@ -1733,6 +1753,14 @@ const catalog = {
     keys: [],
     launchkey: null,
   },
+  'padpage.multi_pads': {
+    title: 'Pad page 5: Multi Pads',
+    body: 'Multi Pads 1–4 in the Genos lamp colours (blue has data, red playing, flashing red Synchro Start standby, amber waiting for the bar line) and STOP on the top row; SELECT + pad (Synchro Start) and STOP + pad on the bottom row. The other pads are yellow.',
+    genos: 'MULTI PAD CONTROL',
+    keys: ['tab', 'shift+tab'],
+    app_keys: ['PgDn', 'PgUp'],
+    launchkey: 'Pad Bank ▲ / ▼ (left of the pads)',
+  },
   'padpage.registration': {
     title: 'Pad page 4: Registration',
     body: 'Registration buttons 1–10 in the Genos lamp colours (red in use, blue stored, dark empty), Bank −/+, Memory, Freeze and Regist −/+. The other pads are orange.',
@@ -2157,34 +2185,28 @@ const catalog = {
     keys: [],
     launchkey: null,
   },
-  'multipad.pad': {
-    title: 'Multi Pad',
-    body: 'Plays the pad\'s phrase from the top (keys Shift+Z, X, C, V): at once when the band is stopped, at the next bar line while it plays. With pads in Synchro Start standby, pressing one of them starts them all. Blue: has data; red: playing; flashing red: waiting for Synchro Start; amber: waiting for the bar line.',
-    genos: 'MULTI PAD CONTROL [1]–[4]',
-    keys: ['Z', 'X', 'C', 'V'],
-    launchkey: null,
-  },
+  'multipad.pad': { ...MP_PAD, keys: ['Z', 'X', 'C', 'V'], launchkey: `${P5}, top row, pads 1–4` },
+  'multipad.pad1': { ...MP_PAD, keys: ['Z'], launchkey: pad(P5, 'top', 1) },
+  'multipad.pad2': { ...MP_PAD, keys: ['X'], launchkey: pad(P5, 'top', 2) },
+  'multipad.pad3': { ...MP_PAD, keys: ['C'], launchkey: pad(P5, 'top', 3) },
+  'multipad.pad4': { ...MP_PAD, keys: ['V'], launchkey: pad(P5, 'top', 4) },
   'multipad.stop_all': {
     title: 'Stop all pads',
-    body: 'Stops every Multi Pad at once and cancels Synchro Start standby. The band keeps playing. Key: Shift+B.',
+    body: 'Stops every Multi Pad at once and cancels Synchro Start standby. The band keeps playing, and on the Launchkey it lights while a pad plays or waits. Key: Shift+B.',
     genos: 'MULTI PAD CONTROL [STOP]',
     keys: ['B'],
-    launchkey: null,
+    launchkey: pad(P5, 'top', 5),
   },
-  'multipad.stop': {
-    title: 'Stop this pad',
-    body: 'Stops only this pad, now. The other pads keep playing.',
-    genos: '[STOP] + pad',
-    keys: [],
-    launchkey: null,
-  },
-  'multipad.arm': {
-    title: 'Synchro Start',
-    body: 'Puts the pad in standby (flashing red): it starts with your next chord in the chord section, when the band starts, or when you press any pad in standby; while the band plays, at the next bar line. Press again to cancel.',
-    genos: '[SELECT] + pad (Synchro Start)',
-    keys: [],
-    launchkey: null,
-  },
+  'multipad.stop': { ...MP_STOP, launchkey: `${P5}, bottom row, pads 5–8` },
+  'multipad.stop1': { ...MP_STOP, launchkey: pad(P5, 'bottom', 5) },
+  'multipad.stop2': { ...MP_STOP, launchkey: pad(P5, 'bottom', 6) },
+  'multipad.stop3': { ...MP_STOP, launchkey: pad(P5, 'bottom', 7) },
+  'multipad.stop4': { ...MP_STOP, launchkey: pad(P5, 'bottom', 8) },
+  'multipad.arm': { ...MP_ARM, launchkey: `${P5}, bottom row, pads 1–4` },
+  'multipad.arm1': { ...MP_ARM, launchkey: pad(P5, 'bottom', 1) },
+  'multipad.arm2': { ...MP_ARM, launchkey: pad(P5, 'bottom', 2) },
+  'multipad.arm3': { ...MP_ARM, launchkey: pad(P5, 'bottom', 3) },
+  'multipad.arm4': { ...MP_ARM, launchkey: pad(P5, 'bottom', 4) },
   'multipad.repeat': {
     title: 'Repeat',
     body: 'On: the pad loops until you stop it. Off: it plays once. The bank file sets it; a change here lasts until another bank loads.',
