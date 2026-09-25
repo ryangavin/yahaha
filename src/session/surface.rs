@@ -2,7 +2,7 @@
 //! clock), as `live::Input` runs it and `Leds` lights it.
 
 use super::Control;
-use crate::api::{ns_to_ms, AppCmd, ClockState, HarmonyArpCmd, MixerCmd, Neighbour, PadsCmd, PartsCmd, SurfaceControl, SurfaceFader, SurfaceState, STYLE_PART_NAMES};
+use crate::api::{ns_to_ms, AppCmd, ClockState, HarmonyArpCmd, MixerCmd, Neighbour, PadsCmd, PartsCmd, PluginCmd, SurfaceControl, SurfaceFader, SurfaceState, STYLE_PART_NAMES};
 use crate::launchkey::{self, Action, Panel};
 use crate::library::Library;
 use crate::parts::{self, FaderPage};
@@ -19,7 +19,7 @@ impl Control {
         let playlist = !self.playlist_is_empty();
         let fader_page = kp.fader_page();
         let style_on = launchkey::style_lit(self.snap.parts, manual_bass_active);
-        let colours = launchkey::button_colours(page, styles, fader_page, pnl.parts_on, style_on, pnl.harmony_arp);
+        let colours = launchkey::button_colours(page, styles, fader_page, pnl.parts_on, style_on, pnl.harmony_arp, pnl.plugin_fault);
         let act = |cc: u8, shift: bool| -> Option<AppCmd> {
             match cc_control(cc, shift)? {
                 C::Page(d) => {
@@ -80,6 +80,9 @@ impl Control {
                 }
                 FaderPage::Panel if i == launchkey::HARM_ARP_FADER_BTN => {
                     push(id, cc, "HARM/ARP", Some(AppCmd::HarmonyArp(HarmonyArpCmd::ToggleHarmonyArp)), None)
+                }
+                FaderPage::Panel if i == launchkey::PLUGIN_FADER_BTN => {
+                    push(id, cc, "PLUGIN", Some(AppCmd::Plugins(PluginCmd::ReloadPartPlugin { part: None })), None)
                 }
                 FaderPage::Panel => push(id, cc, "", None, None),
                 FaderPage::Style => {

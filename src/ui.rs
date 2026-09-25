@@ -32,6 +32,20 @@ fn fade_name(f: FadeState) -> &'static str {
     }
 }
 
+/// A keyboard part's plugin in the Panel mixer: its name and state (`s` reloads a stopped
+/// or failed one), and the colour to show it in.
+fn plugin_line(p: &yahaha::api::PartPlugin) -> (String, Color) {
+    use yahaha::api::PluginStatus as P;
+    let warn = if p.in_process_fallback { " ⚠in-proc" } else { "" };
+    match p.status {
+        P::Loading => (format!("{} loading…", p.name), Color::Yellow),
+        P::Failed => (format!("{} failed [s]", p.name), Color::Red),
+        P::Muted => (format!("{} stopped [s]", p.name), Color::Red),
+        P::Playing if p.recent_overruns > 0 => (format!("{} {:.0}% {} slow{warn}", p.name, p.cpu * 100.0, p.recent_overruns), Color::Yellow),
+        P::Playing => (format!("{} {:.0}%{warn}", p.name, p.cpu * 100.0), Color::Cyan),
+    }
+}
+
 /// Keyboard shortcuts for the controls the Launchkey also reaches, so a key and its pad
 /// or button send the same command.
 fn key_action(code: KeyCode) -> Option<Action> {
@@ -90,6 +104,8 @@ fn key_action(code: KeyCode) -> Option<Action> {
         KeyCode::Left => Some(Action::Style(-1)),
         KeyCode::Right => Some(Action::Style(1)),
         KeyCode::Char('J') => Some(Action::ToggleHarmonyArp),
+        // Load the selected part's plugin again after it stopped or failed to load.
+        KeyCode::Char('s') => Some(Action::ReloadPlugin),
         // Registration Memory: Shift + the top letter row = buttons 1-10 (a row of ten, as
         // on the panel), F5 Memory, F6 Freeze, F7/F8 Regist -/+, F11/F12 Bank -/+.
         KeyCode::Char(c) if "QWERTYUIOP".contains(c) => Some(Action::Regist("QWERTYUIOP".find(c).unwrap() as u8)),
@@ -459,7 +475,14 @@ fn draw(f: &mut ratatui::Frame, st: &AppState, message: &str, beats: f64) {
         let mut v = vec![Span::styled(format!(" {}[F{}] ch {} ", if sel { "▶" } else { " " }, p + 1, kp.channel), if sel { bold } else { dim })];
         v.extend(level(kp.volume, on, kp.waiting));
         v.push(Span::styled(format!("{:<8}", kp.name), if on { bold } else { dim }));
-        v.push(Span::styled(format!(" {}{}", if kp.plays_bass { "bass: " } else { "" }, kp.voice_name), if on { St::default() } else { dim }));
+        match (&kp.plugin, kp.plays_bass) {
+            // A plugin part: the plugin, where its load is, its CPU and slow renders.
+            (Some(pl), false) => {
+                let (text, colour) = plugin_line(pl);
+                v.push(Span::styled(format!(" {text}"), if on { St::default().fg(colour) } else { dim }));
+            }
+            _ => v.push(Span::styled(format!(" {}{}", if kp.plays_bass { "bass: " } else { "" }, kp.voice_name), if on { St::default() } else { dim })),
+        }
         v.push(Span::styled(if oct != 0 { format!("  oct {oct:+}") } else { String::new() }, dim));
         // The sustain pedal holds this part's notes.
         let sus = st.controllers.sustain && on && st.controllers.parts.get(p).is_some_and(|c| c.sustain);
@@ -467,7 +490,7 @@ fn draw(f: &mut ratatui::Frame, st: &AppState, message: &str, beats: f64) {
         lines.push(Line::from(v));
     }
     lines.push(Line::raw(""));
-    lines.push(Line::from(Span::styled(" F1-F4 edit · 9/0 voice · 5 6 7 8 (l) on/off", dim)));
+    lines.push(Line::from(Span::styled(" F1-F4 edit · 9/0 voice · 5 6 7 8 (l) on/off · s reload plugin", dim)));
     lines.push(Line::from(Span::styled(
         match st.io.synth {
             Some(_) => " → port + synth, one channel per part",

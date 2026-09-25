@@ -931,6 +931,7 @@ impl Input {
             // Left is refused under Manual Bass; its LED stays lit, as the bass sounds.
             FaderPage::Panel if (i as usize) < parts::COUNT => self.act(Action::PartOnOff(i)),
             FaderPage::Panel if i == launchkey::HARM_ARP_FADER_BTN => self.act(Action::ToggleHarmonyArp),
+            FaderPage::Panel if i == launchkey::PLUGIN_FADER_BTN => self.act(Action::ReloadPlugin),
             FaderPage::Panel => {}
             FaderPage::Style => self.act(Action::Button(Button::TogglePart(i))),
         }

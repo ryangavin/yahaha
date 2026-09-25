@@ -244,6 +244,7 @@ impl From<Action> for AppCmd {
             Action::Assign(f) => ControllersCmd::TriggerFunction { function: f }.into(),
             Action::AssignSet(f, on) => function_set(f, on).unwrap_or(ControllersCmd::TriggerFunction { function: f }.into()),
             Action::ToggleHarmonyArp => HarmonyArpCmd::ToggleHarmonyArp.into(),
+            Action::ReloadPlugin => PluginCmd::ReloadPartPlugin { part: None }.into(),
         }
     }
 }

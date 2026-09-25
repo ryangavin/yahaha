@@ -566,6 +566,7 @@ fn launchkey_hardware_matches_its_commands() {
                         (0..=3, FaderPage::Panel, true) => Some(AppCmd::Parts(PartsCmd::SelectPart { part: i })),
                         (0..=3, FaderPage::Panel, false) => Some(AppCmd::Parts(PartsCmd::TogglePart { part: i })),
                         (4, FaderPage::Panel, _) => Some(AppCmd::HarmonyArp(HarmonyArpCmd::ToggleHarmonyArp)),
+                        (5, FaderPage::Panel, _) => Some(AppCmd::Plugins(crate::api::PluginCmd::ReloadPartPlugin { part: None })),
                         (_, FaderPage::Panel, _) => None,
                         (_, FaderPage::Style, _) => Some(AppCmd::Mixer(MixerCmd::ToggleStylePart { part: i })),
                     };
@@ -722,14 +723,17 @@ fn launchkey_button_descriptions() {
     assert_eq!((f1.label.as_str(), f1.action, f1.shift_action), ("RIGHT 1", Some(AppCmd::Parts(PartsCmd::TogglePart { part: 0 })), Some(AppCmd::Parts(PartsCmd::SelectPart { part: 0 }))));
     assert_eq!((f1.level, f1.rgb), (Level::Bright, [0, 0, 127]));
     assert_eq!(b(&s, "faderButton2").level, Level::Dim);
-    // Button 5: HARMONY/ARPEGGIO, dim purple while off, bright while on; 6-8 do nothing.
+    // Button 5: HARMONY/ARPEGGIO, dim purple while off, bright while on. Button 6 reloads
+    // the selected part's plugin (dark while there is nothing to reload); 7-8 do nothing.
     let f5 = b(&s, "faderButton5");
     assert_eq!((f5.label.as_str(), f5.action, f5.level), ("HARM/ARP", Some(AppCmd::HarmonyArp(HarmonyArpCmd::ToggleHarmonyArp)), Level::Dim));
     s.send(HarmonyArpCmd::ToggleHarmonyArp).unwrap();
     assert_eq!((b(&s, "faderButton5").level, b(&s, "faderButton5").rgb), (Level::Bright, [90, 0, 127]));
     s.send(HarmonyArpCmd::ToggleHarmonyArp).unwrap();
     let f6 = b(&s, "faderButton6");
-    assert_eq!((f6.action, f6.level), (None, Level::Off));
+    assert_eq!((f6.label.as_str(), f6.action, f6.level), ("PLUGIN", Some(AppCmd::Plugins(crate::api::PluginCmd::ReloadPartPlugin { part: None })), Level::Off));
+    let f7 = b(&s, "faderButton7");
+    assert_eq!((f7.action, f7.level), (None, Level::Off));
     assert_eq!(b(&s, "masterButton").label, "PANEL");
     // Style page: the Style parts' mutes, green.
     s.send(MixerCmd::ToggleFaderPage).unwrap();
