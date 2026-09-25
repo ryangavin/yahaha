@@ -2,8 +2,8 @@
 //! (`knobs::Knobs`), and runs a turn as the command of the knob's function.
 
 use super::Control;
-use crate::api::{CmdError, KnobState, KnobsCmd, KnobsState};
-use crate::knobs::{KnobPage, Now};
+use crate::api::{CmdError, KnobsCmd, KnobsState};
+use crate::knobs::Now;
 
 impl Control {
     pub(super) fn knobs_cmd(&mut self, c: KnobsCmd) -> Result<(), CmdError> {
@@ -35,16 +35,7 @@ impl Control {
     }
 
     pub(super) fn knobs_state(&self) -> KnobsState {
-        let now = self.knobs_now();
-        let page = self.knobs.page;
-        let knobs = (0..8u8)
-            .map(|k| {
-                let f = self.knobs.function(k);
-                let r = self.knobs.reading(k, &now);
-                KnobState { function: f.id().into(), name: f.name().into(), short: f.short().into(), value: r.value, level: r.level }
-            })
-            .collect();
-        KnobsState { page, page_name: page.name().into(), page_number: page.index() as u8 + 1, page_count: KnobPage::ALL.len() as u8, knobs }
+        self.knobs.state(&self.knobs_now())
     }
 }
 

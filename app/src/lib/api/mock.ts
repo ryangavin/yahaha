@@ -14,6 +14,7 @@ import { initialMultiPad, MockPads } from './mock-multipad'
 import { initialSoundLibrary, MockSoundLibrary } from './mock-sound-library'
 import { initialSounds, MockSounds } from './mock-sounds'
 import { padsFor } from './mock-pads'
+import { MockKnobs } from './mock-knobs'
 import { initialPlugins, MockPlugins } from './mock-plugins'
 import { ARP_PATTERNS, HARMONY_TYPES, harmonyArpCmd, initialHarmonyArp } from './mock-harmony'
 import { MockRegistration } from './mock-registration'
@@ -273,8 +274,10 @@ export function initialState(): AppState {
     paramLocks: { splitPoint: false, fingeringType: false },
     sounds: initialSounds(),
     dynamics: { control: true, level: 64, touch: false, accent: false, accentThreshold: 110 },
+    knobs: { page: 'style', pageName: 'Style', pageNumber: 1, pageCount: 2, knobs: [] },
   }
   derive(state, LIBRARY)
+  state.knobs = new MockKnobs().state(state)
   return state
 }
 
@@ -380,6 +383,7 @@ export class MockSession implements Session {
   private anchor = { key: '', sectionMs: 0, sectionBeats: 0, ledMs: 0, ledBeats: 0, tempo: 0 }
   /** The Chord Looper, as the engine runs it (mock-looper.ts). */
   private looper = new MockLooper(() => this.state.looper)
+  private knobs = new MockKnobs()
 
   /** The hardware faders and the clocks, read now. */
   private hardware(): MockHardware {
@@ -542,6 +546,7 @@ export class MockSession implements Session {
     derive(this.state, this.lib, this.hardware(), [...this.leftHand, ...this.rightHand])
     this.sound.derive(this.state)
     this.catalogMock.derive(this.state)
+    this.state.knobs = this.knobs.state(this.state)
     const snap = this.snapshot()
     for (const f of this.subs) f(snap)
   }
@@ -1693,6 +1698,18 @@ export class MockSession implements Session {
       case 'setAccentThreshold':
         this.state.dynamics.accentThreshold = Math.max(1, clampLevel(cmd.velocity))
         break
+      // Knob Assign pages (#197): a turn runs its function's command, as the session does.
+      case 'setKnobPage':
+        this.knobs.setPage(cmd.page)
+        break
+      case 'stepKnobPage':
+        this.knobs.step(cmd.delta)
+        break
+      case 'turnKnob': {
+        const c = this.knobs.turn(cmd.knob, cmd.delta, this.state)
+        if (c) this.cmd(c)
+        break
+      }
     }
   }
 }

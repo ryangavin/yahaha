@@ -944,7 +944,7 @@ const catalog = {
     body: 'A knob for the band: fully left leaves one part on, and turning it up brings the others in one by one until all eight play. It switches the Style parts on and off, so the On buttons follow it.',
     genos: 'Live Control › Style Track Mute A/B (StyMuteA, StyMuteB)',
     keys: [],
-    launchkey: null,
+    launchkey: 'Knobs 4 and 5 on the Style knob page',
   },
   'mixer.track_mute_order': {
     title: 'Track Mute order',
@@ -988,7 +988,7 @@ const catalog = {
     body: 'How hard the whole band plays, 0–127; at 64 the Style plays as written. It changes every Style note\'s velocity, so the drums and instruments get softer and darker or harder and brighter, not just quieter or louder. The mixer volumes stay as they are.',
     genos: 'Live Control › Style Dynamics (DynCtrl)',
     keys: [],
-    launchkey: null,
+    launchkey: 'Knob 1 on the Style knob page',
   },
   'dynamics.touch': {
     title: 'Touch',
@@ -1010,6 +1010,22 @@ const catalog = {
     genos: null,
     keys: [],
     launchkey: null,
+  },
+
+  // ── Knob Assign pages (#197) ───────────────────────────────────────────
+  'knobs.page': {
+    title: 'Knob Assign page',
+    body: 'What the eight Launchkey knobs do. Style: Dynamics, Retrigger length and on/off, Style Track Mute A and B, tempo. Parts: the keyboard parts\' volumes, Harmony and metronome volume, tempo.',
+    genos: 'KNOB ASSIGN',
+    keys: [],
+    launchkey: '▲ / ▼ right of the knobs',
+  },
+  'knobs.knob': {
+    title: 'Knob',
+    body: 'Turns what the knob has on the Knob Assign page, from where it is now: levels 2 a step, tempo 1 BPM, Retrigger every 3 steps.',
+    genos: 'LIVE CONTROL knobs',
+    keys: [],
+    launchkey: 'The eight knobs',
   },
 
   // ── Chord Looper ────────────────────────────────────────────────────────

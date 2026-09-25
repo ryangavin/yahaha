@@ -6,7 +6,7 @@
 //! This is the pure model: the session hands it the values in effect (`Now`) and runs the
 //! command a turn gives back, the same command the app's control for it sends.
 
-use crate::api::{AppCmd, DynamicsCmd, HarmonyArpCmd, MetronomeCmd, MixerCmd, PartsCmd, StyleSettingsCmd, TrackMuteOrder, TransportCmd};
+use crate::api::{AppCmd, DynamicsCmd, KnobState, KnobsState, HarmonyArpCmd, MetronomeCmd, MixerCmd, PartsCmd, StyleSettingsCmd, TrackMuteOrder, TransportCmd};
 use crate::engine::RETRIGGER_RATES;
 use serde::{Deserialize, Serialize};
 
@@ -236,6 +236,18 @@ impl Knobs {
         let n = *a / RTG_STEPS;
         *a -= n * RTG_STEPS;
         (n != 0).then_some(n.clamp(-6, 6) as i8)
+    }
+
+    /// The page and its knobs as the state shows them.
+    pub fn state(&self, now: &Now) -> KnobsState {
+        let knobs = (0..8u8)
+            .map(|k| {
+                let (f, r) = (self.function(k), self.reading(k, now));
+                KnobState { function: f.id().into(), name: f.name().into(), short: f.short().into(), value: r.value, level: r.level }
+            })
+            .collect();
+        let page = self.page;
+        KnobsState { page, page_name: page.name().into(), page_number: page.index() as u8 + 1, page_count: KnobPage::ALL.len() as u8, knobs }
     }
 
     /// Knob `knob` as it reads now.
