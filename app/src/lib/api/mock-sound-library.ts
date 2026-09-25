@@ -248,12 +248,23 @@ export class MockSoundLibrary {
         break
       }
       case 'savePartAsPatch': {
+        // What the part plays: its plugin, else its own patch, else the patch the map
+        // sends its GM voice to, else its GM voice (as the session's).
         const kp = this.get().keyboardParts[c.part & 3]
-        const own = this.parts[c.part & 3]
-        const base = own ? sl.patches.find((p) => p.id === own) : null
-        const f: PatchFields = base
+        const own = kp.playsBass ? null : this.parts[c.part & 3]
+        const style = this.styleMaps.get(sl.styleKey) ?? null
+        const id = own ?? resolveProgram(sl.map, style, false, kp.program).patch
+        const base = id ? sl.patches.find((p) => p.id === id) : null
+        const plugin = kp.plugin && kp.plugin.status !== 'failed' ? kp.plugin : null
+        const blank = { volume: null, pan: null, reverb: null, chorus: null, octave: 0 }
+        let f: PatchFields = base
           ? { name: base.name, category: base.category, tags: [...base.tags], favourite: false, source: structuredClone(base.source), defaults: { ...base.defaults } }
-          : { name: GM[kp.program], category: guessCategory(0, kp.program), tags: [], favourite: false, source: { kind: 'soundFont', file: SF2, bank: 0, program: kp.program }, defaults: { volume: null, pan: null, reverb: null, chorus: null, octave: 0 } }
+          : { name: GM[kp.program], category: guessCategory(0, kp.program), tags: [], favourite: false, source: { kind: 'soundFont', file: SF2, bank: 0, program: kp.program }, defaults: blank }
+        if (plugin) {
+          const source = { kind: 'plugin' as const, componentId: plugin.id, state: '' }
+          const same = base?.source.kind === 'plugin' && base.source.componentId === plugin.id
+          f = same ? { ...f, source } : { name: plugin.name, category: base?.category ?? guessCategory(0, kp.program), tags: [], favourite: false, source, defaults: blank }
+        }
         f.defaults.volume = kp.volume
         f.defaults.octave = kp.octave
         if (c.name?.trim()) f.name = c.name

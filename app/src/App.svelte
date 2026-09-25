@@ -46,6 +46,7 @@
   import Registration from './panels/registration/Registration.svelte'
   import Settings from './panels/settings/Settings.svelte'
   import SoundLibrary from './panels/sound/SoundLibrary.svelte'
+  import SoundBrowser from './panels/sounds/SoundBrowser.svelte'
 
   let { session }: { session: Session } = $props()
 
@@ -101,6 +102,7 @@
 {#if ui.harmony}<Harmony />{/if}
 {#if ui.regist}<Registration />{/if}
 {#if ui.browser}<Browser />{/if}
+{#if ui.soundPick !== null}<SoundBrowser pick={ui.soundPick} />{:else if ui.soundBrowser !== null}<SoundBrowser part={ui.soundBrowser} />{/if}
 {#if tips.floating}<Tooltip />{/if}
 
 <style>

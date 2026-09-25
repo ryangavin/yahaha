@@ -1,20 +1,19 @@
 <!--
   One keyboard part as a channel strip: Edit (the part Voice −/+ changes), on/off, the
-  voice (a small screen with the voice picker over it; its GM / Plugins tabs pick a
-  SoundFont voice or an instrument plugin, with the plugin's editor window and a rescan),
+  voice (a small screen that opens the Sound Browser, #117: SoundFont presets, plugins
+  and saved sounds in one list; a plugin part also gets its editor window here),
   octave shift, and the volume fader, which is fader 1–4 on the Launchkey's Panel page. Hovering or focusing the strip
   lights that fader on the mirror (lib/mirror).
 -->
 <script lang="ts">
   import type { KeyboardPart } from '../../lib/api/types'
-  import { voiceGroups, type VoiceEntry } from '../../lib/api/voices'
+  import type { VoiceEntry } from '../../lib/api/voices'
   import { mirror } from '../../lib/mirror.svelte'
-  import { app } from '../../lib/store.svelte'
+  import { app, ui } from '../../lib/store.svelte'
   import { tip } from '../../lib/tooltip/tip.svelte'
   import Fader from '../../lib/ui/Fader.svelte'
   import Toggle from '../../lib/ui/Toggle.svelte'
-  import { byCategory } from '../sound/nav.svelte'
-  import { launchkeyPlace, octaveLabel, onTip, pluginGroups, pluginPickValue, pluginStatusLine, selectTip, volumeTip } from './parts'
+  import { launchkeyPlace, octaveLabel, onTip, pluginStatusLine, selectTip, volumeTip } from './parts'
 
   let {
     part,
@@ -32,55 +31,15 @@
     recalled?: number
   } = $props()
 
-  const groups = $derived(voiceGroups(voices))
   const plugins = $derived(app.state.plugins)
   const plugin = $derived(part.plugin)
-  // The picker's tab: the sound library while the part plays a library patch (#103; a
-  // plugin patch too, whose plugin the part then has), the plugin list while it has a
-  // plugin of its own, else the GM voices.
-  let tab = $state<'gm' | 'library' | 'plugins' | null>(null)
-  const shown = $derived(tab ?? (part.patch ? 'library' : part.plugin ? 'plugins' : 'gm'))
-  const library = $derived(byCategory(app.state.soundLibrary.patches))
-  function pickPatch(e: Event & { currentTarget: HTMLSelectElement }) {
-    const id = e.currentTarget.value
-    app.send({ type: 'setPartPatch', part: index, id: id || null })
-    e.currentTarget.blur()
-  }
-  const byMaker = $derived(pluginGroups(plugins.list))
-  const pluginLine = $derived(pluginStatusLine(plugin, plugins.available))
-  // A plugin patch's plugin while it loads, or when it failed: the Library tab says so.
-  const patchPluginLine = $derived(part.patch && plugin && plugin.status !== 'playing' ? pluginLine.replace(/ ▾$/, '') : null)
-
-  function pickPlugin(e: Event & { currentTarget: HTMLSelectElement }) {
-    const id = e.currentTarget.value
-    if (id) app.send({ type: 'setPartPlugin', part: index, id, state: null })
-    else app.send({ type: 'clearPartPlugin', part: index })
-    e.currentTarget.blur()
-  }
-  function edit() {
-    if (plugin?.editor) app.pluginEditor(index, true)
+  const pluginLine = $derived(pluginStatusLine(plugin, plugins.available).replace(/ ▾$/, ''))
+  // The part's plugin in the scan list: its "run in process" override (#141).
+  const entry = $derived(plugin ? plugins.list.find((p) => p.id === plugin.id) : undefined)
+  function toggleInProcess() {
+    if (entry?.canRunInProcess) app.send({ type: 'setPluginInProcess', id: entry.id, inProcess: !entry.inProcess })
   }
   const own = $derived(voices.find((v) => v.program === part.program)?.name ?? `Program ${part.program + 1}`)
-
-  function pick(e: Event & { currentTarget: HTMLSelectElement }) {
-    app.send({ type: 'setPartVoice', part: index, program: Number(e.currentTarget.value) })
-    // Give the performance keys back (a focused select keeps them).
-    e.currentTarget.blur()
-  }
-  // A focused select swallows keys (the app's shortcuts skip form fields) and type-ahead
-  // would turn a performance key into a voice change: `b` picks Bagpipe, `t` Taiko. The
-  // picker is still focused after a mouse pick of the same voice or a dismissed list, so
-  // it only keeps the keys that move through the list; any other key lets go of it and
-  // goes to the performance shortcuts as if nothing had been focused.
-  const LIST_KEYS = new Set(['ArrowUp', 'ArrowDown', 'Home', 'End', 'Tab', 'Shift', 'Control', 'Alt', 'Meta'])
-  function pickerKey(e: KeyboardEvent & { currentTarget: HTMLSelectElement }) {
-    if (LIST_KEYS.has(e.key) || e.ctrlKey || e.altKey || e.metaKey) return
-    e.preventDefault()
-    e.stopPropagation()
-    e.currentTarget.blur()
-    const { key, code, shiftKey, repeat } = e
-    window.dispatchEvent(new KeyboardEvent('keydown', { key, code, shiftKey, repeat, cancelable: true }))
-  }
   const octave = (d: number) => app.send({ type: 'setPartOctave', part: index, octave: Math.max(-2, Math.min(2, part.octave + d)) })
   const link = (on: boolean) => (mirror.panelFader = on ? index : mirror.panelFader === index ? null : mirror.panelFader)
   // Closing the drawer under the pointer never fires pointerleave: let go of the mirror.
@@ -120,57 +79,26 @@
     {part.playsBass ? 'Bass' : part.on ? 'On' : 'Off'}
   </Toggle>
 
-  <div class="tabs" role="tablist" aria-label="{part.name} sound">
-    <button type="button" role="tab" aria-selected={shown === 'gm'} class:sel={shown === 'gm'} use:tip={'part.source_gm'} onclick={() => (tab = 'gm')}>GM</button>
-    <button type="button" role="tab" aria-selected={shown === 'library'} class:sel={shown === 'library'} class:has={!!part.patch} use:tip={'part.source_library'} onclick={() => (tab = 'library')}>Library</button>
-    <button type="button" role="tab" aria-selected={shown === 'plugins'} class:sel={shown === 'plugins'} class:has={!!plugin} use:tip={'part.source_plugins'} onclick={() => (tab = 'plugins')}>Plugins</button>
-  </div>
-
-  {#if shown === 'gm'}
-    <label class="voice mat-screen">
-      <span class="glow-text vname">{part.voiceName}</span>
-      <span class="sub">
-        {#if part.playsBass}<span class="badge">own: {own}</span>{:else if plugin}<span class="badge">plugin plays</span>{:else}Voice ▾{/if}
-      </span>
-      <select value={String(part.program)} aria-label="{part.name} voice" use:tip={'part.voice'} onchange={pick} onkeydown={pickerKey}>
-        {#each groups as g (g.family)}
-          <optgroup label={g.family}>
-            {#each g.voices as v (v.program)}<option value={String(v.program)}>{v.name}</option>{/each}
-          </optgroup>
-        {/each}
-      </select>
-    </label>
-  {:else if shown === 'library'}
-    <label class="voice mat-screen" class:failed={!!patchPluginLine && (plugin?.status === 'failed' || plugin?.status === 'muted')}>
-      <span class="glow-text vname">{part.patch ? part.voiceName : 'GM voice'}</span>
-      <span class="sub">{#if part.playsBass}<span class="badge">own: {own}</span>{:else if patchPluginLine}<span class="badge">Library</span> {patchPluginLine}{:else if part.patch}<span class="badge">Library</span> ▾{:else}{part.voiceName} · Patch ▾{/if}</span>
-      <select value={part.patch ?? ''} aria-label="{part.name} library patch" use:tip={'part.library'} onchange={pickPatch} onkeydown={pickerKey}>
-        <option value="">GM voice ({part.voiceName})</option>
-        {#each library as g (g.category)}
-          <optgroup label={g.label}>
-            {#each g.patches as p (p.id)}<option value={p.id}>{p.name}{p.available ? '' : ' (fallback)'}</option>{/each}
-          </optgroup>
-        {/each}
-      </select>
-    </label>
-  {:else}
-    <label class="voice mat-screen" class:failed={plugin?.status === 'failed' || plugin?.status === 'muted'}>
-      <span class="glow-text vname">{plugin?.name ?? 'SoundFont voice'}</span>
-      <span class="sub">{pluginLine}</span>
-      <select value={pluginPickValue(plugin)} aria-label="{part.name} plugin" disabled={!plugins.available} use:tip={'part.plugin'} onchange={pickPlugin} onkeydown={pickerKey}>
-        <option value="">SoundFont voice ({part.voiceName})</option>
-        {#each byMaker as g (g.manufacturer)}
-          <optgroup label={g.manufacturer}>
-            {#each g.plugins as p (p.id)}<option value={p.id}>{p.name}{p.format === 'AUv3' ? ' (AUv3)' : ''}{p.lastError ? ' ⚠' : ''}</option>{/each}
-          </optgroup>
-        {/each}
-      </select>
-    </label>
+  <button
+    type="button"
+    class="voice mat-screen"
+    class:failed={plugin?.status === 'failed' || plugin?.status === 'muted'}
+    aria-label="{part.name} sound: {part.voiceName}"
+    use:tip={'part.voice'}
+    onclick={() => (ui.soundBrowser = index)}
+  >
+    <span class="glow-text vname">{part.voiceName}</span>
+    <span class="sub">
+      {#if part.playsBass}<span class="badge">own: {own}</span>
+      {:else if plugin}<span class="badge">{part.patch ? 'Saved' : 'Plugin'}</span> {pluginLine}
+      {:else if part.patch}<span class="badge">Saved</span> ▾
+      {:else}Sounds ▾{/if}
+    </span>
+  </button>
+  {#if plugin}
     <div class="prow">
-      <button type="button" class="mini mat-raised wide" aria-disabled={!plugin?.editor} use:tip={'part.plugin_edit'} onclick={edit}>Edit…</button>
-      <button type="button" class="mini mat-raised wide" aria-disabled={!plugins.available || plugins.scanning} use:tip={'part.plugin_rescan'} onclick={() => app.send({ type: 'rescanPlugins' })}>
-        {plugins.scanning ? 'Scanning' : 'Rescan'}
-      </button>
+      <button type="button" class="mini mat-raised wide" aria-disabled={!plugin.editor} use:tip={'part.plugin_edit'} onclick={() => plugin.editor && app.pluginEditor(index, true)}>Edit…</button>
+      <button type="button" class="mini mat-raised wide" class:on={!!entry?.inProcess} aria-pressed={!!entry?.inProcess} aria-disabled={!entry?.canRunInProcess} use:tip={'part.plugin_in_process'} onclick={toggleInProcess}>In proc</button>
     </div>
   {/if}
 
@@ -195,36 +123,6 @@
 </div>
 
 <style>
-  .tabs {
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 2px;
-    padding: 2px;
-    border-radius: 5px;
-    background: var(--well);
-  }
-  .tabs button {
-    padding: 0.12rem 0;
-    border: 0;
-    border-radius: 3px;
-    background: transparent;
-    color: var(--muted);
-    font-family: var(--font-display);
-    font-size: 0.7rem;
-    font-weight: 600;
-    letter-spacing: 0.05em;
-    text-transform: uppercase;
-    white-space: nowrap;
-    cursor: pointer;
-  }
-  .tabs button.sel {
-    background: var(--lamp-off);
-    color: var(--ink);
-  }
-  .tabs button.has::after {
-    content: ' •';
-    color: var(--accent);
-  }
   .voice.failed .vname {
     color: var(--danger, #e66);
   }
@@ -236,6 +134,10 @@
   .mini.wide {
     width: auto;
     font-size: 0.7rem;
+  }
+  /* In proc on: lit, since a crash there takes yahaha down. */
+  .mini.wide.on {
+    color: var(--accent);
   }
   .strip {
     position: relative;
@@ -319,7 +221,7 @@
     justify-content: center;
     min-height: 2.2rem;
   }
-  /* The voice screen, with a transparent native picker laid over it. */
+  /* The voice screen: it opens the Sound Browser. */
   .voice {
     position: relative;
     display: flex;
@@ -327,10 +229,12 @@
     justify-content: center;
     min-height: 2.9rem;
     padding: 0.25rem 0.4rem;
+    border: 0;
     border-radius: 5px;
+    text-align: left;
     cursor: pointer;
   }
-  .voice:has(select:focus-visible) {
+  .voice:focus-visible {
     outline: 2px solid var(--accent);
     outline-offset: 1px;
   }
@@ -358,15 +262,6 @@
   }
   .badge {
     color: var(--accent);
-  }
-  select {
-    position: absolute;
-    inset: 0;
-    width: 100%;
-    height: 100%;
-    opacity: 0;
-    cursor: pointer;
-    font-size: 0.9rem;
   }
   .octave {
     display: grid;

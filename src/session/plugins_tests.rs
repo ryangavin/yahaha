@@ -416,6 +416,49 @@ fn a_plugin_patch_plays_on_a_keyboard_part() {
     assert!(s.state().keyboard_parts[2].patch.is_none() && s.state().keyboard_parts[2].plugin.is_none());
 }
 
+/// `savePartAsPatch` on a part playing a plugin (#109) saves the plugin, with its state
+/// read afresh off the control thread (it lands in the patch at a later pump), not the
+/// part's GM program; a part playing its own plugin patch saves a copy of that patch.
+#[test]
+fn saving_a_part_saves_its_plugin_and_its_state_now() {
+    use crate::api::SoundLibraryCmd;
+    use crate::patches::PatchSource;
+    let Some(s) = session() else { return };
+    s.offline_audio(None, 48_000).unwrap();
+    s.send(PluginCmd::SetPartPlugin { part: 0, id: DLS.into(), state: None }).unwrap();
+    assert_eq!(wait_playing(&s, 0), PluginStatus::Playing);
+    assert_eq!(s.inner.lock().part_plugin_voice(0).unwrap().1, None, "no state saved yet");
+    s.send(SoundLibraryCmd::SavePartAsPatch { part: 0, name: None }).unwrap();
+    let id = s.state().sound_library.last_added.clone().unwrap();
+    let source = |s: &Session| s.state().sound_library.patches.iter().find(|p| p.patch.id == id).unwrap().patch.source.clone();
+    let state = |src: PatchSource| match src {
+        PatchSource::Plugin { component_id, state } => (component_id, state),
+        other => panic!("not a plugin patch: {other:?}"),
+    };
+    let (component, _) = state(source(&s));
+    assert_eq!(component, DLS);
+    assert_eq!(s.state().sound_library.patches.last().unwrap().patch.name, "DLSMusicDevice");
+    // The fresh read lands in the patch.
+    let t0 = Instant::now();
+    while state(source(&s)).1.is_empty() && t0.elapsed() < Duration::from_secs(10) {
+        s.advance(1_000_000);
+        std::thread::sleep(Duration::from_millis(2));
+    }
+    let saved = state(source(&s)).1;
+    assert!(saved.len() > 100, "the plugin's state as it is now");
+    assert_eq!(s.inner.lock().part_plugin_voice(0).unwrap().1.as_deref(), Some(saved.as_str()));
+
+    // A part playing its own plugin patch: a copy of it, under the name given.
+    s.send(SoundLibraryCmd::SetPartPatch { part: 1, id: Some(id.clone()) }).unwrap();
+    assert_eq!(wait_playing(&s, 1), PluginStatus::Playing);
+    s.send(SoundLibraryCmd::SavePartAsPatch { part: 1, name: Some("DLS Copy".into()) }).unwrap();
+    let st = s.state();
+    let copy = &st.sound_library.patches.last().unwrap().patch;
+    assert_ne!(copy.id, id);
+    assert_eq!(copy.name, "DLS Copy");
+    assert!(matches!(&copy.source, PatchSource::Plugin { component_id, .. } if component_id == DLS));
+}
+
 /// A plugin patch auditions like a SoundFont one (#109): with the band stopped, its plugin
 /// loads on channel 16 (the audition channel), plays the phrase through the rack, and goes
 /// when the audition ends; nothing is left on the channel.
@@ -466,23 +509,72 @@ fn a_plugin_patch_auditions_on_channel_16() {
     assert_eq!(ch16(&s), None);
 }
 
-/// Save as sound (#117) from a part playing a plugin picked for it: a plugin patch with
-/// the preset the part has saved, not the part's SoundFont voice.
+/// The live overrun readout counts the last 10 one-second readings of the running total.
 #[test]
-fn a_plugin_part_saves_as_a_plugin_sound() {
-    use crate::api::SoundLibraryCmd;
-    use crate::patches::PatchSource;
+fn recent_overruns_cover_the_last_ten_seconds() {
+    use super::imp::{OverrunWindow, OVERRUN_WINDOW_SECS};
+    let mut w = OverrunWindow::starting_at(5);
+    assert_eq!(w.count(), 0, "overruns before this instance's window don't count");
+    w.tick(8);
+    assert_eq!(w.count(), 3);
+    w.tick(8);
+    w.tick(9);
+    assert_eq!(w.count(), 4);
+    // Ten quiet seconds later the readout is back to 0.
+    for _ in 0..OVERRUN_WINDOW_SECS {
+        w.tick(9);
+    }
+    assert_eq!(w.count(), 0);
+    w.tick(9 + u64::from(u32::MAX) + 10);
+    assert_eq!(w.count(), u32::MAX, "saturates");
+}
+
+/// Where a plugin loads: the player's override first, then Apple's units and AUv3s as
+/// macOS decides, and third-party AUv2s in their own process.
+#[test]
+fn the_in_process_override_picks_the_load_mode() {
+    use crate::plugin::{LoadMode, PluginFormat, PluginId, PluginInfo};
+    let info = |id: &str, format: PluginFormat, can_load_in_process: bool, in_process: bool| PluginInfo {
+        id: PluginId::parse(id).unwrap(),
+        name: "x".into(),
+        manufacturer: String::new(),
+        version: 1,
+        format,
+        requires_async: false,
+        can_load_in_process,
+        sandbox_safe: true,
+        last_load: None,
+        in_process,
+    };
+    let mode = super::imp::load_mode;
+    assert_eq!(mode(&info("aumu Xf2X XFER", PluginFormat::Au2, false, false)), LoadMode::OutOfProcess);
+    assert_eq!(mode(&info("aumu Xf2X XFER", PluginFormat::Au2, false, true)), LoadMode::InProcess);
+    assert_eq!(mode(&info(DLS, PluginFormat::Au2, false, false)), LoadMode::Auto);
+    assert_eq!(mode(&info(DLS, PluginFormat::Au2, false, true)), LoadMode::InProcess);
+    assert_eq!(mode(&info("aumu Ab3X ACME", PluginFormat::Au3, false, false)), LoadMode::Auto);
+    assert_eq!(mode(&info("aumu Ab3X ACME", PluginFormat::Au3, false, true)), LoadMode::Auto, "an AUv3 that can't run in process");
+    assert_eq!(mode(&info("aumu Ab3X ACME", PluginFormat::Au3, true, true)), LoadMode::InProcess);
+}
+
+/// `setPluginInProcess` shows in the plugin list; an unknown id is an error.
+#[test]
+fn set_plugin_in_process_shows_in_the_list() {
     let Some(s) = session() else { return };
     s.offline_audio(None, 48_000).unwrap();
-    s.send(PluginCmd::SetPartPlugin { part: 0, id: DLS.into(), state: None }).unwrap();
-    assert_eq!(wait_playing(&s, 0), PluginStatus::Playing);
-    s.send(PluginCmd::SavePartPluginState { part: 0 }).unwrap();
-    let (_, state) = wait_saved(&s, 0);
-    s.send(SoundLibraryCmd::SavePartAsPatch { part: 0, name: Some("My DLS".into()) }).unwrap();
-    let st = s.state();
-    let p = &st.sound_library.patches.last().unwrap().patch;
-    assert_eq!(p.name, "My DLS");
-    assert_eq!(p.source, PatchSource::Plugin { component_id: DLS.into(), state: state.unwrap() });
-    // A part on its SoundFont voice saves that voice (this session has no SoundFont).
-    assert!(s.send(SoundLibraryCmd::SavePartAsPatch { part: 1, name: None }).is_err());
+    assert!(s.send(PluginCmd::SetPluginInProcess { id: "aumu nope nope".into(), in_process: true }).is_err());
+    // An offline session has no plugin list until a scan runs.
+    s.send(PluginCmd::RescanPlugins).unwrap();
+    let t0 = Instant::now();
+    while !s.state().plugins.list.iter().any(|p| p.id == DLS) && t0.elapsed() < Duration::from_secs(20) {
+        s.advance(1_000_000);
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    let dls = |s: &Session| s.state().plugins.list.iter().find(|p| p.id == DLS).cloned().unwrap();
+    assert!(dls(&s).can_run_in_process);
+    let was = dls(&s).in_process;
+    s.send(PluginCmd::SetPluginInProcess { id: DLS.into(), in_process: !was }).unwrap();
+    assert_eq!(dls(&s).in_process, !was);
+    // Put the player's cache back as it was.
+    s.send(PluginCmd::SetPluginInProcess { id: DLS.into(), in_process: was }).unwrap();
+    assert_eq!(dls(&s).in_process, was);
 }

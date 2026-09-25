@@ -121,6 +121,38 @@ impl MockSounds {
         Ok(Then::Nothing)
     }
 
+    /// The library patch a program map rule gets for catalog entry `id` (#117): a saved
+    /// sound's own or the library's patch for the preset or plugin (`Ok(Ok(id))`), else
+    /// the command that adds it (`Ok(Err(cmd))`; the patch is then `lastAdded`). An id
+    /// without a catalog prefix is a patch id already.
+    pub fn patch_for(&self, st: &AppState, id: &str) -> Result<Result<String, AppCmd>, String> {
+        if let Some(patch) = id.strip_prefix("saved:") {
+            return Ok(Ok(patch.into()));
+        }
+        let source = if let Some((file, bank, program)) = parse_preset_id(id) {
+            PatchSource::SoundFont { file: file.into(), bank, program }
+        } else if let Some(plugin) = id.strip_prefix("au:") {
+            PatchSource::Plugin { component_id: plugin.into(), state: String::new() }
+        } else {
+            return Ok(Ok(id.into()));
+        };
+        if !self.known(st, id) {
+            return Err(format!("no sound {id}"));
+        }
+        if let Some(p) = st.sound_library.patches.iter().find(|p| p.patch.source == source) {
+            return Ok(Ok(p.patch.id.clone()));
+        }
+        Ok(Err(match source {
+            PatchSource::SoundFont { file, bank, program } => SoundLibraryCmd::AddPresetAsPatch { file, bank, program, name: None }.into(),
+            source @ PatchSource::Plugin { .. } => {
+                let e = st.plugins.list.iter().find(|p| format!("au:{}", p.id) == id).ok_or_else(|| format!("no sound {id}"))?;
+                let category = self.prefs.plugin_category(id, &e.name, &e.manufacturer);
+                let patch = PatchFields { name: e.name.clone(), category, tags: vec![], favourite: false, source, defaults: Default::default() };
+                SoundLibraryCmd::CreatePatch { patch }.into()
+            }
+        }))
+    }
+
     pub fn advance(&mut self, ms: f64, running: bool) {
         if let Some((_, left)) = self.audition.as_mut() {
             *left -= ms;

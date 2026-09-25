@@ -47,4 +47,39 @@ describe('sound catalog (#117)', () => {
     m.advance(3100)
     expect(m.state.sounds.auditioning).toBe(null)
   })
+
+  it('program map rules take catalog ids: a preset or plugin becomes a patch once', () => {
+    const m = new MockSession({ manual: true })
+    const n = m.state.soundLibrary.patches.length
+    m.send({ type: 'setFamilyRule', family: 2, patch: 'au:aumu samp appl', style: false })
+    m.send({ type: 'setDrumRule', patch: 'au:aumu samp appl', style: true })
+    expect(m.state.soundLibrary.patches.length).toBe(n + 1)
+    const id = m.state.soundLibrary.patches[n].id
+    expect(m.state.soundLibrary.patches[n].source).toMatchObject({ kind: 'plugin', componentId: 'aumu samp appl' })
+    expect(m.state.soundLibrary.map.families[2]).toBe(id)
+    expect(m.state.soundLibrary.styleMap.drums).toBe(id)
+    m.send({ type: 'setProgramOverride', program: 5, patch: 'sf:FluidR3_GM.sf2:0:5', style: false })
+    expect(m.state.soundLibrary.patches.length).toBe(n + 2)
+    m.send({ type: 'setDrumRule', patch: 'sf:Nope.sf2:0:0', style: false })
+    expect(m.state.message?.error).toBe(true)
+  })
+})
+
+describe('savePartAsPatch (#109)', () => {
+  it('saves what the part plays: the mapped patch, else its plugin', () => {
+    const m = new MockSession({ manual: true })
+    const family = Math.floor(m.state.keyboardParts[1].program / 8)
+    m.send({ type: 'setFamilyRule', family, patch: 'sf:FluidR3_GM.sf2:0:50', style: false })
+    const mapped = m.state.soundLibrary.map.families[family]
+    m.send({ type: 'savePartAsPatch', part: 1, name: null })
+    const saved = m.state.soundLibrary.patches.at(-1)!
+    expect(saved.id).not.toBe(mapped)
+    expect(saved.source).toMatchObject({ kind: 'soundFont', file: 'FluidR3_GM.sf2', program: 50 })
+
+    m.send({ type: 'assignSound', part: 3, id: 'au:aumu dls  appl' })
+    m.send({ type: 'savePartAsPatch', part: 3, name: 'Mine' })
+    const p = m.state.soundLibrary.patches.at(-1)!
+    expect(p.name).toBe('Mine')
+    expect(p.source).toMatchObject({ kind: 'plugin', componentId: 'aumu dls  appl' })
+  })
 })

@@ -385,6 +385,65 @@ fn pressing_the_ending_again_slows_down_and_the_tempo_comes_back() {
     assert!(!e.ritardando());
 }
 
+/// An Ending played once keeps the tempo to its end; pressed again (#129), the
+/// ritardando's curve: no jump at the press, then the tempo on a straight line (in ticks)
+/// from the base at the press to `RIT_END` of it at the Ending's last tick. The engine
+/// sets it at every wake and wakes at least every sixteenth note for it, so no stretch of
+/// the Ending plays at a stale tempo.
+#[test]
+fn the_ending_ritardando_curve() {
+    // Played once: no slowing.
+    let Some((mut e, mut rec)) = started(StyleSettings::default()) else { return };
+    let (ppq, tpb, _) = grid(&e);
+    let end1 = slot_of(SectionId::Ending(0));
+    if !e.style.has(end1) {
+        return;
+    }
+    let base = e.bpm;
+    let t = e.ns_at(tpb + 1.5 * ppq);
+    play(&mut e, &mut rec, 0, t);
+    e.button(Button::Ending(0), t, &mut rec);
+    let mut now = t;
+    while e.running {
+        now = e.next_deadline().unwrap().max(now + 1).min(now + 5_000_000);
+        rec.now = now;
+        e.process(now, &mut rec);
+        assert!(!e.ritardando());
+        assert_eq!(e.bpm, base, "an Ending played once keeps the tempo");
+    }
+
+    // Pressed again in its first beat: the curve, at the engine's own wakes.
+    let Some((mut e, mut rec, press)) = in_ending_rit() else { return };
+    assert_eq!(e.bpm, base, "no jump at the press");
+    let from = e.tick_at(press);
+    let to = e.section_end().0;
+    assert!(to - from > 4.0 * ppq, "a long enough Ending: {from}..{to}");
+    let step = ppq / 4.0;
+    let line = |tick: f64| base * (1.0 - (1.0 - RIT_END) * ((tick - from) / (to - from)).clamp(0.0, 1.0));
+    let mut changes: Vec<(f64, f64)> = vec![(from, base)];
+    let mut now = press;
+    while e.running {
+        now = e.next_deadline().unwrap().max(now + 1);
+        rec.now = now;
+        let tick = e.tick_at(now);
+        e.process(now, &mut rec);
+        let last = changes.last().unwrap().1;
+        if e.running && e.bpm != last {
+            assert!(e.bpm < last, "it only slows");
+            assert!((e.bpm - line(tick)).abs() < 1e-6, "at tick {tick}: {} BPM, the line says {}", e.bpm, line(tick));
+            changes.push((tick, e.bpm));
+        }
+    }
+    assert_eq!(e.bpm, base, "the tempo comes back at the stop");
+    // At least one change every sixteenth, to the last sixteenth before the end.
+    for w in changes.windows(2) {
+        assert!(w[1].0 - w[0].0 <= step + 0.05, "{:.1} ticks at {:.2} BPM", w[1].0 - w[0].0, w[0].1);
+    }
+    let (last_tick, slowest) = *changes.last().unwrap();
+    assert!(to - last_tick <= step + 0.05, "the last change at {last_tick}, the end at {to}");
+    assert!(slowest >= base * RIT_END - 1e-9 && slowest <= line(to - step) + 1e-6, "{slowest} of {base}");
+}
+
 #[test]
 fn fade_in_from_start_and_fade_out_to_a_stop_then_hold() {
     let s = StyleSettings { fade_in_ms: 1000, fade_out_ms: 500, fade_hold_ms: 300, ..StyleSettings::default() };
@@ -814,3 +873,32 @@ fn a_restruck_chord_moves_no_note() {
     }
 }
 
+
+/// #107 Decision: from an Intro, a Fill or the Break, a style change waits for the next
+/// bar line under both To Main settings, even asked in the first beat (RM p.12's To Main
+/// is about changes into a Main; the section playing here is none).
+#[test]
+fn a_style_change_from_an_intro_or_a_fill_waits_for_the_bar_line() {
+    for main_timing in [MainTiming::NextBar, MainTiming::Immediate] {
+        let settings = StyleSettings { main_timing, ..StyleSettings::default() };
+        // The Intro, in its first beat.
+        let Some(mut e) = engine() else { return };
+        e.set_style_settings(settings);
+        let mut rec = Rec::default();
+        e.button(Button::Intro(0), 0, &mut rec);
+        e.set_chord(chord("C"), 0, &mut rec);
+        assert!(matches!(id_of(e.cur), SectionId::Intro(_)), "{main_timing:?}: the Intro plays");
+        let (ppq, tpb, _) = grid(&e);
+        let bar = e.sec_start + tpb;
+        assert_eq!(e.change_point(Change::Style, e.ns_at(e.sec_start + 0.5 * ppq)), (bar, bar), "{main_timing:?}: from the Intro");
+        // A fill (Fill Self in bar 2's first beat starts at its second), in its first beat.
+        let Some((mut e, mut rec)) = started(settings) else { return };
+        let t = e.ns_at(tpb + 0.5 * ppq);
+        play(&mut e, &mut rec, 0, t);
+        e.button(Button::FillSelf, t, &mut rec);
+        let in_fill = e.ns_at(tpb + 1.5 * ppq);
+        play(&mut e, &mut rec, t, in_fill);
+        assert!(matches!(id_of(e.cur), SectionId::Fill(_)), "{main_timing:?}: the fill plays");
+        assert_eq!(e.change_point(Change::Style, in_fill), (2.0 * tpb, 2.0 * tpb), "{main_timing:?}: from the fill");
+    }
+}

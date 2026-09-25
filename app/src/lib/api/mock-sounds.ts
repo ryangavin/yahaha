@@ -100,6 +100,28 @@ export class MockSounds {
     }
   }
 
+  /** The library patch a program map rule gets for catalog entry `id` (#117): a saved
+   * sound's own, else the library's patch for the preset or plugin, added once through
+   * `run`. An id without a catalog prefix is a patch id already. */
+  patchFor(st: AppState, id: string, run: (c: AppCmd) => void): { patch: string } | { error: string } {
+    if (id.startsWith('saved:')) return { patch: id.slice(6) }
+    const pre = parsePresetId(id)
+    if (!pre && !id.startsWith('au:')) return { patch: id }
+    if (!this.known(st, id)) return { error: `no sound ${id}` }
+    const plugin = pre ? null : id.slice(3)
+    const have = st.soundLibrary.patches.find((p) =>
+      pre ? p.source.kind === 'soundFont' && p.source.file === pre.file && p.source.bank === pre.bank && p.source.program === pre.program : p.source.kind === 'plugin' && p.source.componentId === plugin && !p.source.state,
+    )
+    if (have) return { patch: have.id }
+    if (pre) run({ type: 'addPresetAsPatch', file: pre.file, bank: pre.bank, program: pre.program, name: null })
+    else {
+      const e = st.plugins.list.find((p) => p.id === plugin)!
+      const category = this.categories.get(id) ?? pluginCategory(e.name, e.manufacturer)
+      run({ type: 'createPatch', patch: { name: e.name, category, tags: [], favourite: false, source: { kind: 'plugin', componentId: e.id, state: '' }, defaults: { volume: null, pan: null, reverb: null, chorus: null, octave: 0 } } })
+    }
+    return { patch: st.soundLibrary.lastAdded ?? '' }
+  }
+
   advance(ms: number, running: boolean) {
     if (!this.audition) return
     this.audition.left -= ms

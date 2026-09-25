@@ -166,23 +166,11 @@ impl Control {
             self.need_sound(&id)?;
             self.plugins_cmd(PluginCmd::SetPartPlugin { part, id: plugin.into(), state: None })?;
         } else if let Some((file, bank, program)) = parse_preset_id(&id) {
-            let file = file.to_string();
             self.need_sound(&id)?;
-            if self.sf_file.as_deref() == Some(file.as_str()) && bank == 0 {
+            if self.sf_file.as_deref() == Some(file) && bank == 0 {
                 self.parts_cmd(PartsCmd::SetPartVoice { part, program })?;
             } else {
-                // Another font's preset plays as a saved sound: the one already in the
-                // library, else a new one.
-                let existing = self.sound_patches().iter().find(|p| {
-                    matches!(&p.source, PatchSource::SoundFont { file: f, bank: b, program: q } if *f == file && *b == bank && *q == program)
-                });
-                let patch = match existing {
-                    Some(p) => p.id.clone(),
-                    None => {
-                        self.sound_library_cmd(SoundLibraryCmd::AddPresetAsPatch { file, bank, program, name: None })?;
-                        self.sound_last_added().unwrap_or_default().to_string()
-                    }
-                };
+                let patch = self.patch_for_sound(&id)?;
                 self.sound_library_cmd(SoundLibraryCmd::SetPartPatch { part, id: Some(patch) })?;
             }
         } else {
@@ -191,6 +179,42 @@ impl Control {
         self.sounds.prefs.push_recent(id);
         self.save_sounds("recents", serde_json::to_value(&self.sounds.prefs.recents));
         Ok(())
+    }
+
+    /// The library patch that plays catalog entry `id`: a saved sound's own, else the
+    /// library's patch for that preset or plugin (a plugin's with its default preset),
+    /// added once. An id without a catalog prefix is a patch id already.
+    pub(super) fn patch_for_sound(&mut self, id: &str) -> Result<String, CmdError> {
+        if let Some(patch) = id.strip_prefix("saved:") {
+            return Ok(patch.to_string());
+        }
+        let source = if let Some((file, bank, program)) = parse_preset_id(id) {
+            PatchSource::SoundFont { file: file.to_string(), bank, program }
+        } else if let Some(plugin) = id.strip_prefix("au:") {
+            PatchSource::Plugin { component_id: plugin.to_string(), state: String::new() }
+        } else {
+            return Ok(id.to_string());
+        };
+        self.need_sound(id)?;
+        if let Some(p) = self.sound_patches().iter().find(|p| p.source == source) {
+            return Ok(p.id.clone());
+        }
+        match source {
+            PatchSource::SoundFont { file, bank, program } => {
+                self.sound_library_cmd(SoundLibraryCmd::AddPresetAsPatch { file, bank, program, name: None })?
+            }
+            source @ PatchSource::Plugin { .. } => {
+                let (name, category) = (self.sound_name(id), self.plugin_category_of(id));
+                let patch = PatchFields { name, category, tags: Vec::new(), favourite: false, source, defaults: Default::default() };
+                self.sound_library_cmd(SoundLibraryCmd::CreatePatch { patch })?
+            }
+        }
+        Ok(self.sound_last_added().unwrap_or_default().to_string())
+    }
+
+    /// A program map rule naming a catalog entry (#117) names its library patch.
+    pub(super) fn rule_patch(&mut self, patch: Option<String>) -> Result<Option<String>, CmdError> {
+        patch.map(|id| self.patch_for_sound(&id)).transpose()
     }
 
     /// A preset or plugin id that is in the catalog.
@@ -206,14 +230,14 @@ impl Control {
     }
 
     /// A plugin's category: the user's, else the guess.
-    pub(super) fn plugin_category_of(&self, id: &str) -> Category {
+    fn plugin_category_of(&self, id: &str) -> Category {
         let plugin = id.strip_prefix("au:").unwrap_or(id);
         let list = self.plugins_state().list;
         let p = list.iter().find(|p| p.id == plugin);
         self.sounds.prefs.plugin_category(id, p.map_or("", |p| &p.name), p.map_or("", |p| &p.manufacturer))
     }
 
-    pub(super) fn sound_name(&self, id: &str) -> String {
+    fn sound_name(&self, id: &str) -> String {
         let plugin = id.strip_prefix("au:").unwrap_or(id);
         self.plugins_state().list.into_iter().find(|p| p.id == plugin).map_or_else(|| id.to_string(), |p| p.name)
     }

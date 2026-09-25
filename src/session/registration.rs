@@ -81,6 +81,9 @@ pub(super) struct RegState {
     buttons: Vec<RegistButton>,
     /// A Memorize waiting for its parts' plugin states (registration/plugin.rs).
     plugin_fill: Option<plugin::PluginFill>,
+    /// The bank (or what its buttons' plugins play) changed: preload its plugins again at
+    /// the next pump (registration/plugin.rs, `warm_bank_plugins`).
+    warm_dirty: bool,
 }
 
 impl RegState {
@@ -103,6 +106,7 @@ impl RegState {
             ots_hold: None,
             buttons: Vec::new(),
             plugin_fill: None,
+            warm_dirty: false,
         };
         let setup = r.dir.as_deref().and_then(|d| std::fs::read_to_string(d.join(SETUP_FILE)).ok());
         let setup = setup.and_then(|t| serde_json::from_str::<Setup>(&t).ok()).unwrap_or_default();
@@ -193,6 +197,7 @@ impl Control {
                 self.reg.selected = None;
                 self.reg.seq_pos = None;
                 self.reg.summarize();
+                self.reg.warm_dirty = true;
             }
             RegistrationCmd::SaveRegistBank { name, overwrite } => return self.save_bank(name, overwrite),
             RegistrationCmd::SetFreeze { on } => self.reg.freeze = on,
@@ -255,6 +260,7 @@ impl Control {
     /// `SaveRegistBank` with a name).
     fn bank_changed(&mut self) -> Result<(), CmdError> {
         self.reg.summarize();
+        self.reg.warm_dirty = true;
         self.reg.dirty = true;
         match self.reg.path.clone() {
             Some(p) => self.write_bank(&p),
@@ -312,6 +318,7 @@ impl Control {
                 self.reg.seq_pos = None;
                 self.reg.summarize();
                 self.reg.list_banks();
+                self.reg.warm_dirty = true;
                 Ok(())
             }
             Err(e) => self.fail(format!("{e:#}")),
@@ -470,6 +477,9 @@ impl Control {
     /// when the engine shows what the recall asked for (or after `OTS_HOLD_NS`).
     pub(super) fn pump_registration(&mut self, now: u64) {
         self.pump_plugin_fill(now);
+        if std::mem::take(&mut self.reg.warm_dirty) {
+            self.warm_bank_plugins();
+        }
         // The style chosen last: the one waiting, else the one playing.
         let chosen = self.pending_style.as_ref().map_or(self.snap.style_tag, |p| p.1);
         if self.reg.deferred.as_ref().is_some_and(|d| d.tag != chosen) {

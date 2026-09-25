@@ -194,6 +194,7 @@ export function tipFor(cmd: AppCmd | null): TipKey {
     case 'clearPartPlugin':
     case 'savePartPluginState': return 'part.plugin'
     case 'rescanPlugins': return 'part.plugin_rescan'
+    case 'setPluginInProcess': return 'part.plugin_in_process'
     case 'toggleHarmonyArp':
     case 'setHarmonyArpOn': return 'harmony.switch'
     case 'setHarmonyType': return 'harmony.type'
@@ -231,11 +232,11 @@ export function tipFor(cmd: AppCmd | null): TipKey {
     case 'browseSoundFont': return 'sound.soundfont'
     case 'importSoundLibrary': return 'sound.import'
     case 'exportSoundLibrary': return 'sound.export'
-    // The sound catalog (#117); the Sound Browser gives these their own tips.
-    case 'setSoundFavourite': return 'sound.favourite'
-    case 'auditionSound': return 'sound.audition'
-    case 'stopSoundAudition': return 'sound.audition_stop'
-    case 'assignSound': return 'part.voice'
+    // The Sound Browser (#117).
+    case 'setSoundFavourite': return 'sounds.favourite'
+    case 'auditionSound': return 'sounds.audition'
+    case 'stopSoundAudition': return 'sounds.audition_stop'
+    case 'assignSound': return 'sounds.row'
     case 'setSoundCategory': return 'sound.category'
     case 'setParamLock': return cmd.item === 'splitPoint' ? 'settings.param_lock_split_point' : 'settings.param_lock_fingering_type'
   }

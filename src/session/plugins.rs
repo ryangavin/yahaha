@@ -106,6 +106,8 @@ mod imp {
         pub(crate) cpu: f32,
         /// (total ns, frames) at the last CPU reading.
         pub(crate) last: (u64, u64),
+        /// Its overruns over the last few seconds (the live readout).
+        pub(crate) recent: OverrunWindow,
         /// A load the system refuses to host out of process may be retried in process
         /// (`plugin::may_retry_in_process`). Never for the start-up restore.
         pub(crate) allow_fallback: bool,
@@ -131,6 +133,7 @@ mod imp {
                 out_of_process: false,
                 cpu: 0.0,
                 last: (0, 0),
+                recent: OverrunWindow::default(),
                 allow_fallback: false,
                 fell_back: false,
             }
@@ -138,6 +141,37 @@ mod imp {
 
         fn name(&self) -> String {
             self.info.as_ref().map_or_else(|| self.voice.id.clone(), |i| i.name.clone())
+        }
+    }
+
+    /// How many seconds the live overrun readout (`PartPlugin::recent_overruns`) covers.
+    pub(crate) const OVERRUN_WINDOW_SECS: usize = 10;
+
+    /// A plugin's overruns per second over the last `OVERRUN_WINDOW_SECS` seconds, from its
+    /// running total (read once a second on the control thread).
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub(crate) struct OverrunWindow {
+        /// The total at the last reading.
+        total: u64,
+        secs: [u32; OVERRUN_WINDOW_SECS],
+        at: usize,
+    }
+
+    impl OverrunWindow {
+        pub(crate) fn starting_at(total: u64) -> OverrunWindow {
+            OverrunWindow { total, ..OverrunWindow::default() }
+        }
+
+        /// A new reading of the running total: one second more.
+        pub(crate) fn tick(&mut self, total: u64) {
+            self.secs[self.at] = total.saturating_sub(self.total).min(u32::MAX as u64) as u32;
+            self.at = (self.at + 1) % OVERRUN_WINDOW_SECS;
+            self.total = total;
+        }
+
+        /// The overruns in the window.
+        pub(crate) fn count(&self) -> u32 {
+            self.secs.iter().fold(0u32, |a, &n| a.saturating_add(n))
         }
     }
 
@@ -161,6 +195,8 @@ mod imp {
         /// `savePartPluginState`): an out-of-process plugin's state is an XPC round trip and
         /// a sampler's can be MBs, so the control thread never waits for one.
         pub(crate) state_reads: Vec<mpsc::Receiver<StateRead>>,
+        /// Plugins preloaded for the Registration bank's buttons (plugins/pool.rs).
+        pub(crate) warm: super::pool::WarmPool,
     }
 
     /// A plugin state read on a `plugin-state` thread.
@@ -183,6 +219,19 @@ mod imp {
         }.into())
     }
 
+    /// Where a plugin loads: in process if the player chose that (`setPluginInProcess`),
+    /// else Apple's units and AUv3s as macOS decides (`Auto`), and everything else in its
+    /// own process.
+    pub(crate) fn load_mode(info: &PluginInfo) -> LoadMode {
+        if info.in_process && info.can_run_in_process() {
+            LoadMode::InProcess
+        } else if info.id.manufacturer == APPLE || info.format == PluginFormat::Au3 {
+            LoadMode::Auto
+        } else {
+            LoadMode::OutOfProcess
+        }
+    }
+
     impl PluginCtl {
         pub(crate) fn host(&mut self) -> PluginHost {
             self.host.get_or_insert_with(PluginHost::with_default_cache).clone()
@@ -190,7 +239,7 @@ mod imp {
     }
 
     impl Control {
-        fn plugin_ready(&self) -> Result<(), String> {
+        pub(crate) fn plugin_ready(&self) -> Result<(), String> {
             match &self.synth {
                 Some(s) if s.plugins.is_some() => Ok(()),
                 Some(_) => Err("the synth has no plugin rack".into()),
@@ -221,13 +270,11 @@ mod imp {
             if voice.state.as_ref().is_some_and(|s| s.len() > MAX_STATE_BYTES) {
                 return Err(format!("the plugin state is larger than {} MB", MAX_STATE_BYTES >> 20));
             }
-            let id = PluginId::parse(&voice.id).ok_or_else(|| format!("{:?} is not a plugin id", voice.id))?;
-            let host = self.plugins.host();
-            let info = host.info(&id).map_err(|e| format!("{e:#}"))?;
-            let mode = if id.manufacturer == APPLE || info.format == PluginFormat::Au3 { LoadMode::Auto } else { LoadMode::OutOfProcess };
-            let rate = self.synth.as_ref().map_or(48_000, |s| s.info.sample_rate) as f64;
-            let cfg = LoadConfig { sample_rate: rate, max_frames: crate::synth::PLUGIN_MAX_BLOCK as u32, state: voice.state.clone(), mode, timeout: Duration::from_secs(20) };
-            let load = host.load_async(&id, cfg).map_err(|e| format!("{e:#}"))?;
+            // A plugin preloaded for a Registration button plays at once; else it loads now.
+            let (info, mode, load) = match self.take_warm(&voice) {
+                Some(w) => (w.info, w.mode, w.load),
+                None => self.start_load(&voice)?,
+            };
             // What is in the rack now (playing, or muted by a fault) stays there until the
             // new one is ready: it keeps playing, and comes back if the new one fails. A
             // quick re-pick while loading keeps the one from before the first pick.
@@ -250,10 +297,28 @@ mod imp {
                 out_of_process: false,
                 cpu: 0.0,
                 last: (0, 0),
+                recent: OverrunWindow::default(),
                 allow_fallback,
                 fell_back: false,
             });
             Ok(())
+        }
+
+        /// Start loading `voice` on a thread of its own, as a part plays it: Apple's units
+        /// and AUv3s as the system decides, third-party AUv2s out of process.
+        pub(crate) fn start_load(&mut self, voice: &PluginVoice) -> Result<(PluginInfo, LoadMode, LoadHandle), String> {
+            let id = PluginId::parse(&voice.id).ok_or_else(|| format!("{:?} is not a plugin id", voice.id))?;
+            let host = self.plugins.host();
+            let info = host.info(&id).map_err(|e| format!("{e:#}"))?;
+            let mode = load_mode(&info);
+            let cfg = LoadConfig { sample_rate: self.plugin_rate(), max_frames: crate::synth::PLUGIN_MAX_BLOCK as u32, state: voice.state.clone(), mode, timeout: Duration::from_secs(20) };
+            let load = host.load_async(&id, cfg).map_err(|e| format!("{e:#}"))?;
+            Ok((info, mode, load))
+        }
+
+        /// The rate plugins load at: the synth's.
+        pub(crate) fn plugin_rate(&self) -> f64 {
+            self.synth.as_ref().map_or(48_000, |s| s.info.sample_rate) as f64
         }
 
         /// Channel `ch` back to its SoundFont (a short fade out), cancelling a load.
@@ -364,6 +429,7 @@ mod imp {
                 in_process_fallback: c.fell_back,
                 cpu: c.cpu,
                 overruns,
+                recent_overruns: c.recent.count(),
                 editor: c.status == PluginStatus::Playing,
             })
         }
@@ -387,9 +453,28 @@ mod imp {
                         }
                         .into(),
                         last_error: p.last_load.as_ref().and_then(|l| l.error.clone()),
+                        in_process: p.in_process,
+                        can_run_in_process: p.can_run_in_process(),
                     })
                     .collect(),
             }
+        }
+
+        /// The player's "run in process" override for plugin `id`, saved in the scan cache.
+        /// It applies from the plugin's next load; a part playing it now keeps running where
+        /// it is.
+        pub(crate) fn set_plugin_in_process(&mut self, id: &str, on: bool) -> Result<(), String> {
+            let pid = PluginId::parse(id).ok_or_else(|| format!("{id:?} is not a plugin id"))?;
+            let info = self.plugins.host().set_in_process(&pid, on).map_err(|e| format!("{e:#}"))?;
+            if let Some(p) = self.plugins.list.iter_mut().find(|p| p.id == pid) {
+                p.in_process = info.in_process;
+            }
+            let playing = self.plugins.channels.iter().flatten().any(|c| c.voice.id == id && c.status == PluginStatus::Playing);
+            if playing {
+                let r#where = if on { "inside yahaha" } else { "in its own process" };
+                self.say(format!("{} runs {where} from its next load (the next start, or pick it again)", info.name), false);
+            }
+            Ok(())
         }
 
         /// Scan (from the cache: instant when nothing changed) on a thread.
@@ -427,6 +512,7 @@ mod imp {
             for ch in 0..16u8 {
                 self.pump_channel_load(ch);
             }
+            self.pump_warm();
             let events = match self.synth.as_mut().and_then(|s| s.plugins.as_mut()) {
                 Some(link) => link.poll(),
                 None => Vec::new(),
@@ -458,6 +544,7 @@ mod imp {
                         let (dt, df) = (t.saturating_sub(c.last.0), f.saturating_sub(c.last.1));
                         c.last = (t, f);
                         c.cpu = if df > 0 { ((dt as f64 / 1e9) / (df as f64 / rate)) as f32 } else { 0.0 };
+                        c.recent.tick(s.overruns.load(Relaxed));
                     }
                 }
             }
@@ -512,6 +599,7 @@ mod imp {
                             c.error = None;
                             c.editor = Some(editor);
                             c.last = (stats.total_ns.load(std::sync::atomic::Ordering::Relaxed), stats.frames.load(std::sync::atomic::Ordering::Relaxed));
+                            c.recent = OverrunWindow::starting_at(stats.overruns.load(std::sync::atomic::Ordering::Relaxed));
                             c.stats = Some(stats);
                             c.out_of_process = oop;
                             self.plugins.playing[ch as usize] = None;
@@ -702,10 +790,14 @@ impl Control {
     pub(crate) fn plugin_state_reads_pending(&self) -> bool {
         false
     }
+    pub(crate) fn warm_plugins(&mut self, _want: Vec<PluginVoice>) {}
     pub(crate) fn plugins_list(&self) -> PluginsState {
         PluginsState::default()
     }
     pub(crate) fn start_plugin_scan(&mut self, _rescan: bool) {}
+    pub(crate) fn set_plugin_in_process(&mut self, _id: &str, _on: bool) -> Result<(), String> {
+        Err("this build has no plugin host".into())
+    }
     pub(crate) fn pump_plugins(&mut self, _now: u64) {}
     pub(crate) fn restore_plugin_parts(&mut self) {}
     pub(crate) fn save_plugin_states_on_stop(&mut self) {}
@@ -761,6 +853,11 @@ impl Control {
                 }
             }
             PluginCmd::RescanPlugins => self.start_plugin_scan(true),
+            PluginCmd::SetPluginInProcess { id, in_process } => {
+                if let Err(e) = self.set_plugin_in_process(&id, in_process) {
+                    return self.fail(e);
+                }
+            }
         }
         Ok(())
     }
@@ -792,6 +889,10 @@ impl Control {
         }
     }
 }
+
+#[cfg(feature = "plugins")]
+#[path = "plugin_pool.rs"]
+pub(crate) mod pool;
 
 #[cfg(all(test, feature = "plugins"))]
 #[path = "plugins_tests.rs"]

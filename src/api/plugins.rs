@@ -27,6 +27,11 @@ pub enum PluginCmd {
     SavePartPluginState { part: u8 },
     /// Scan the installed instruments again (ignoring the cache).
     RescanPlugins,
+    /// Run plugin `id` in yahaha's process (`true`) or in its own (`false`, the default for
+    /// third-party plugins). In process saves the IPC per render for the lightest plugins,
+    /// but a crash in it takes yahaha down. Kept in the scan cache; applies from the
+    /// plugin's next load.
+    SetPluginInProcess { id: String, in_process: bool },
 }
 
 /// Where a part's plugin is.
@@ -70,6 +75,10 @@ pub struct PartPlugin {
     pub cpu: f32,
     /// Renders slower than half the audio buffer, since it loaded.
     pub overruns: u64,
+    /// Those in the last 10 seconds (updated once a second): the live readout. Raising
+    /// the audio buffer (`setAudioBuffer`) gives the plugin more time per block.
+    #[serde(default)]
+    pub recent_overruns: u32,
     /// Its editor window can be opened (the app shell has the plugin host).
     pub editor: bool,
 }
@@ -88,6 +97,12 @@ pub struct PluginEntry {
     pub format: String,
     /// The last load's error ("timed out after 20.0 s"), so the browser can warn.
     pub last_error: Option<String>,
+    /// The player chose to run it in yahaha's process (`SetPluginInProcess`).
+    #[serde(default)]
+    pub in_process: bool,
+    /// It can run in yahaha's process: every AUv2, and an AUv3 that allows it.
+    #[serde(default)]
+    pub can_run_in_process: bool,
 }
 
 /// The plugin host.

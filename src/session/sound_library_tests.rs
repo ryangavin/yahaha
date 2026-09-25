@@ -232,6 +232,29 @@ fn a_keyboard_part_takes_its_patch_and_defaults() {
     let _ = std::fs::remove_dir_all(&data);
 }
 
+/// `savePartAsPatch` saves what the part plays (#109): a GM voice the map sends to a patch
+/// is saved as that patch, not as the raw GM program.
+#[test]
+fn saving_a_part_saves_the_patch_the_map_plays() {
+    let Some((s, data)) = session("save-mapped", &["SlowWalker.T552.sty"], true) else { return };
+    let strings = s.state().keyboard_parts[1].program;
+    let mut f = fields("Lush Strings", 0, 50);
+    f.source = PatchSource::SoundFont { file: OTHER.into(), bank: 0, program: 50 };
+    f.tags = vec!["warm".into()];
+    s.send(SoundLibraryCmd::CreatePatch { patch: f }).unwrap();
+    let id = s.state().sound_library.last_added.clone().unwrap();
+    s.send(SoundLibraryCmd::SetFamilyRule { family: strings / 8, patch: Some(id.clone()), style: false }).unwrap();
+    assert_eq!(s.state().keyboard_parts[1].voice_name, "Lush Strings");
+    s.send(SoundLibraryCmd::SavePartAsPatch { part: 1, name: None }).unwrap();
+    let st = s.state();
+    let p = &st.sound_library.patches.last().unwrap().patch;
+    assert_ne!(p.id, id);
+    assert_eq!((p.name.as_str(), &p.tags), ("Lush Strings", &vec!["warm".to_string()]));
+    assert_eq!(p.source, PatchSource::SoundFont { file: OTHER.into(), bank: 0, program: 50 }, "the mapped patch's sound");
+    assert_eq!(p.defaults.volume, Some(st.keyboard_parts[1].volume));
+    let _ = std::fs::remove_dir_all(&data);
+}
+
 #[test]
 fn import_export_and_browse() {
     let Some((s, data)) = session("io", &["SlowWalker.T552.sty"], true) else { return };
