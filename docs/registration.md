@@ -95,7 +95,7 @@ Today's sections: `style` (early), `multiPad` (early: the bank file, or null for
 `tempo`, `chord` (fingering, Upper, Manual Bass, split), `styleControl` (Main, Intro, Sync
 Start/Stop, Stop ACMP and its mode `stopAcmpMode` (Data List p.91: group Style; a bank without it
 recalls only on/off), OTS Link), `styleMixer` (the 8 Style parts' CC7, on/off, and `set`:
-which levels the player had set), `parts` (Right 1–3 and Left: on, voice, CC7, octave, and the part's own sound library
+which levels the player had set, and `level`: the Style volume, #199, the Genos's Style volume offset; a bank without it leaves it), `parts` (Right 1–3 and Left: on, voice, CC7, octave, and the part's own sound library
 patch `patch: { id, name }` (#109), recalled through `setPartPatch`),
 `transpose`, `harmonyArp` (Keyboard Harmony/Arpeggio: the switch, the type and pattern by
 name, Volume, Speed, Assign, Chord Note Only, Touch Limit, and the arpeggio's Quantize, Hold
@@ -171,7 +171,7 @@ first).
 
 | Group | Items here |
 |---|---|
-| Style | the style, section (Main, armed Intro), Sync Start/Stop, Stop ACMP, OTS Link, the Style part mixer, the **Left** part, split point, fingering, Chord Detection Area / Manual Bass, Left Hold, Section Change Timing To Main, Style Retrigger on/off and rate, Synchro Stop Window, Style Section Reset |
+| Style | the style, section (Main, armed Intro), Sync Start/Stop, Stop ACMP, OTS Link, the Style part mixer and the Style volume, the **Left** part, split point, fingering, Chord Detection Area / Manual Bass, Left Hold, Section Change Timing To Main, Style Retrigger on/off and rate, Synchro Stop Window, Style Section Reset |
 | Voice | Right 1–3: voice, on/off, volume, octave |
 | Tempo | the tempo, in whole BPM as on the Genos panel (recalled as SET TEMPO) |
 | Transpose | Keyboard and Master transpose |
