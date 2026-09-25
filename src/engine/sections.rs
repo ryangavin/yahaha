@@ -126,7 +126,7 @@ impl Engine {
 
     /// The tick a queued Ending (pressed, not playing yet) ends at, on the section
     /// timeline: its start plus its length in the style playing.
-    fn queued_ending_end(&self) -> Option<f64> {
+    pub(super) fn queued_ending_end(&self) -> Option<f64> {
         let q = self.queued?;
         if !(13..=15).contains(&q.slot) {
             return None;

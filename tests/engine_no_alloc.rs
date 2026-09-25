@@ -59,7 +59,7 @@ fn prep(name: &str) -> Option<Box<Prepared>> {
 
 #[test]
 fn preview_and_next_bar_style_change_do_not_allocate() {
-    let (Some(a), Some(b), Some(c)) = (prep("SlowWalker.T552.sty"), prep("TickingAway.T162.sty"), prep("CoolRevibed.T552.sty")) else {
+    let (Some(a), Some(b), Some(c), Some(d)) = (prep("SlowWalker.T552.sty"), prep("TickingAway.T162.sty"), prep("CoolRevibed.T552.sty"), prep("SlowWalker.T552.sty")) else {
         eprintln!("corpus missing; skipping");
         return;
     };
@@ -116,7 +116,13 @@ fn preview_and_next_bar_style_change_do_not_allocate() {
     l.step(now + 1);
     ch.ui_tx.push(Cmd::Button(Button::SectionReset)).ok().unwrap();
     l.step(now + 2);
-    now += 2;
+    // An Ending queued with a style change waiting for it, then a Section Reset (#174).
+    ch.ui_tx.push(Cmd::Button(Button::Ending(0))).ok().unwrap();
+    ch.style_tx.push(d).ok().unwrap();
+    l.step(now + 3);
+    ch.ui_tx.push(Cmd::Button(Button::SectionReset)).ok().unwrap();
+    l.step(now + 4);
+    now += 4;
     // Controllers: a bend range, a part switched on under a held pedal, Fill Up, KeysOff
     // and Panic (the pedal reset).
     shared.controllers.set_bend_range(0, 9);
