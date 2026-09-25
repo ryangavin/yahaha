@@ -345,6 +345,7 @@ with the `plugins` feature (the desktop app has it) and the built-in synth
 | `clearPartPlugin` | `part` 0–3 | Back to the part's SoundFont voice (a 5 ms fade). |
 | `savePartPluginState` | `part` 0–3 | Stores the plugin's current preset (what its editor changed) with the part, so it is kept across restarts. Send it when the editor window closes. The state is read on a thread of its own and lands a moment later; a failed read shows in `message`. |
 | `rescanPlugins` | | Scans the installed instruments again, ignoring the cache (`plugins.scanning` meanwhile). |
+| `setPluginInProcess` | `id`, `inProcess` | Runs plugin `id` in yahaha's process (`true`) or in its own (`false`, the default for third-party plugins). In process saves the IPC cost per render for the lightest plugins, but a crash in the plugin takes yahaha down. Kept in the scan cache (across rescans and plugin updates) and shown as `plugins.list[i].inProcess`. It applies from the plugin's next load; a part playing it now keeps running where it is (the message line says so). Fails for an unknown id, or for an AUv3 that only runs out of process (`canRunInProcess` false). |
 
 The plugin's editor window is not a command: it opens on the app's main thread. The
 Tauri shell has the commands `open_plugin_editor(part)` and `close_plugin_editor(part)` for it
@@ -864,7 +865,7 @@ The instrument plugin host.
 |---|---|---|
 | `available` | bool | Plugins can be used: the build hosts them and the built-in synth runs. |
 | `scanning` | bool | A scan is running. |
-| `list` | PluginEntry[] | The installed instrument Audio Units, by manufacturer then name, from the cached scan: `id` (what `setPartPlugin` takes), `name`, `manufacturer`, `version`, `format` (`AUv2` \| `AUv3`), `lastError` (why the last load failed, or null). |
+| `list` | PluginEntry[] | The installed instrument Audio Units, by manufacturer then name, from the cached scan: `id` (what `setPartPlugin` takes), `name`, `manufacturer`, `version`, `format` (`AUv2` \| `AUv3`), `lastError` (why the last load failed, or null), `inProcess` (the player chose to run it in yahaha's process: `setPluginInProcess`), `canRunInProcess` (every AUv2, and an AUv3 that allows it). |
 
 ### `multiPad`
 Multi Pads (docs/multipad.md).
@@ -1493,7 +1494,7 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
     "available": true,
     "scanning": false,
     "list": [
-      { "id": "aumu dls  appl", "name": "DLSMusicDevice", "manufacturer": "Apple", "version": "1.0.0", "format": "AUv2", "lastError": null }
+      { "id": "aumu dls  appl", "name": "DLSMusicDevice", "manufacturer": "Apple", "version": "1.0.0", "format": "AUv2", "lastError": null, "inProcess": false, "canRunInProcess": true }
     ]
   },
   "multiPad": {

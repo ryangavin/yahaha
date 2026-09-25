@@ -732,6 +732,13 @@ const catalog = {
     keys: [],
     launchkey: null,
   },
+  'part.plugin_in_process': {
+    title: 'Run in process',
+    body: 'Runs this plugin inside yahaha instead of in its own process: a little less CPU for the lightest plugins, but if the plugin crashes, yahaha goes with it. It is remembered for the plugin and applies from its next load.',
+    genos: null,
+    keys: [],
+    launchkey: null,
+  },
   'part.voice': {
     title: 'Voice',
     body: 'Picks this part\'s voice. Under Manual Bass, Left plays the style\'s Bass voice instead, and this is the voice it goes back to.',

@@ -444,6 +444,22 @@ impl MockSession {
                 self.state.keyboard_parts[(part & 3) as usize].plugin = None;
             }
             PluginCmd::SavePartPluginState { .. } | PluginCmd::RescanPlugins => {}
+            PluginCmd::SetPluginInProcess { id, in_process } => {
+                let Some(e) = self.state.plugins.list.iter_mut().find(|p| p.id == id) else {
+                    return self.message(format!("no instrument Audio Unit {id} is installed"), true);
+                };
+                if in_process && !e.can_run_in_process {
+                    let text = format!("{}: {} is an AUv3 that only runs out of process", e.manufacturer, e.name);
+                    return self.message(text, true);
+                }
+                e.in_process = in_process;
+                let name = e.name.clone();
+                let playing = self.state.keyboard_parts.iter().any(|k| k.plugin.as_ref().is_some_and(|p| p.id == id && p.status == PluginStatus::Playing));
+                if playing {
+                    let r#where = if in_process { "inside yahaha" } else { "in its own process" };
+                    self.message(format!("{name} runs {where} from its next load (the next start, or pick it again)"), false);
+                }
+            }
         }
     }
 
@@ -452,7 +468,7 @@ impl MockSession {
             return self.message(format!("no instrument Audio Unit {id} is installed"), true);
         };
         let failed = e.last_error.clone();
-        let fallback = failed.is_none() && e.id == MOCK_FALLBACK_ID;
+        let fallback = failed.is_none() && e.id == MOCK_FALLBACK_ID && !e.in_process;
         self.state.keyboard_parts[part & 3].plugin = Some(PartPlugin {
             id: e.id,
             name: e.name.clone(),
@@ -460,7 +476,7 @@ impl MockSession {
             status: if failed.is_some() { PluginStatus::Failed } else { PluginStatus::Playing },
             stage: None,
             error: failed.clone(),
-            out_of_process: e.manufacturer != "Apple" && !fallback,
+            out_of_process: e.manufacturer != "Apple" && !e.in_process && !fallback,
             in_process_fallback: fallback,
             cpu: if failed.is_some() { 0.0 } else { 0.012 },
             overruns: 0,
@@ -1915,6 +1931,20 @@ mod tests {
         assert_eq!(m.state.style_settings.retrigger_rate, 16);
     }
 
+    /// `setPluginInProcess` sets the list's override; the next load runs in process (#104).
+    #[test]
+    fn the_in_process_override_applies_from_the_next_load() {
+        let mut m = MockSession::new();
+        let entry = |m: &MockSession, id: &str| m.state.plugins.list.iter().find(|p| p.id == id).cloned().unwrap();
+        m.send(PluginCmd::SetPluginInProcess { id: "aumu Mock Demo".into(), in_process: true });
+        assert!(!entry(&m, "aumu Mock Demo").in_process, "an AUv3 that only runs out of process");
+        assert!(m.state.message.as_ref().is_some_and(|x| x.error));
+        m.send(PluginCmd::SetPluginInProcess { id: "aumu dls  appl".into(), in_process: true });
+        assert!(entry(&m, "aumu dls  appl").in_process);
+        m.send(PluginCmd::SetPluginInProcess { id: "aumu dls  appl".into(), in_process: false });
+        assert!(!entry(&m, "aumu dls  appl").in_process);
+    }
+
     /// A plugin the system won't host out of process loads in process and says so (#104).
     #[test]
     fn a_plugin_that_falls_back_in_process_says_so() {
@@ -2538,6 +2568,8 @@ fn mock_plugins() -> PluginsState {
         version: if manufacturer == "Apple" { "1.0.0" } else { "0.9.0" }.into(),
         format: format.into(),
         last_error: last_error.map(Into::into),
+        in_process: false,
+        can_run_in_process: format == "AUv2",
     };
     PluginsState {
         available: true,
