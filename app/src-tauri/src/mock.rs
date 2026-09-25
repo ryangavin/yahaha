@@ -469,6 +469,8 @@ impl MockSession {
         };
         let failed = e.last_error.clone();
         let fallback = failed.is_none() && e.id == MOCK_FALLBACK_ID && !e.in_process;
+        // AUSampler plays the heavy plugin: a high CPU share and a few slow renders.
+        let heavy = failed.is_none() && e.id == MOCK_HEAVY_ID;
         self.state.keyboard_parts[part & 3].plugin = Some(PartPlugin {
             id: e.id,
             name: e.name.clone(),
@@ -478,8 +480,9 @@ impl MockSession {
             error: failed.clone(),
             out_of_process: e.manufacturer != "Apple" && !e.in_process && !fallback,
             in_process_fallback: fallback,
-            cpu: if failed.is_some() { 0.0 } else { 0.012 },
-            overruns: 0,
+            cpu: if failed.is_some() { 0.0 } else if heavy { 0.31 } else { 0.012 },
+            overruns: if heavy { 4 } else { 0 },
+            recent_overruns: if heavy { 4 } else { 0 },
             editor: failed.is_none(),
         });
         if let Some(err) = failed {
@@ -1985,6 +1988,18 @@ mod tests {
         assert!(!m.state.keyboard_parts[1].plugin.as_ref().unwrap().in_process_fallback);
     }
 
+    /// AUSampler plays the heavy plugin: the CPU and overrun readout has something to show.
+    #[test]
+    fn the_heavy_mock_plugin_reports_slow_renders() {
+        let mut m = MockSession::new();
+        m.send(PluginCmd::SetPartPlugin { part: 0, id: MOCK_HEAVY_ID.into(), state: None });
+        let p = m.state.keyboard_parts[0].plugin.clone().unwrap();
+        assert_eq!((p.recent_overruns, p.overruns), (4, 4));
+        assert!(p.cpu > 0.3);
+        m.send(PluginCmd::SetPartPlugin { part: 0, id: "aumu dls  appl".into(), state: None });
+        assert_eq!(m.state.keyboard_parts[0].plugin.as_ref().unwrap().recent_overruns, 0);
+    }
+
     /// A plugin patch on a keyboard part plays its plugin, as the session does (#109).
     #[test]
     fn a_plugin_patch_on_a_part_plays_its_plugin() {
@@ -2601,6 +2616,10 @@ impl MockSession {
 /// The mock plugin the system won't host out of process: it loads in process instead (as
 /// app/src/lib/api/mock-plugins.ts).
 const MOCK_FALLBACK_ID: &str = "aumu Tiny Demo";
+
+/// The mock plugin that plays heavy: a high CPU share and a few slow renders (as
+/// app/src/lib/api/mock-plugins.ts).
+const MOCK_HEAVY_ID: &str = "aumu samp appl";
 
 /// The mock's installed plugins: Apple's built-in instruments, one made-up synth that
 /// always fails to load, and one that falls back to loading in process (as

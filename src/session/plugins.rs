@@ -106,6 +106,8 @@ mod imp {
         pub(crate) cpu: f32,
         /// (total ns, frames) at the last CPU reading.
         pub(crate) last: (u64, u64),
+        /// Its overruns over the last few seconds (the live readout).
+        pub(crate) recent: OverrunWindow,
         /// A load the system refuses to host out of process may be retried in process
         /// (`plugin::may_retry_in_process`). Never for the start-up restore.
         pub(crate) allow_fallback: bool,
@@ -131,6 +133,7 @@ mod imp {
                 out_of_process: false,
                 cpu: 0.0,
                 last: (0, 0),
+                recent: OverrunWindow::default(),
                 allow_fallback: false,
                 fell_back: false,
             }
@@ -138,6 +141,37 @@ mod imp {
 
         fn name(&self) -> String {
             self.info.as_ref().map_or_else(|| self.voice.id.clone(), |i| i.name.clone())
+        }
+    }
+
+    /// How many seconds the live overrun readout (`PartPlugin::recent_overruns`) covers.
+    pub(crate) const OVERRUN_WINDOW_SECS: usize = 10;
+
+    /// A plugin's overruns per second over the last `OVERRUN_WINDOW_SECS` seconds, from its
+    /// running total (read once a second on the control thread).
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub(crate) struct OverrunWindow {
+        /// The total at the last reading.
+        total: u64,
+        secs: [u32; OVERRUN_WINDOW_SECS],
+        at: usize,
+    }
+
+    impl OverrunWindow {
+        pub(crate) fn starting_at(total: u64) -> OverrunWindow {
+            OverrunWindow { total, ..OverrunWindow::default() }
+        }
+
+        /// A new reading of the running total: one second more.
+        pub(crate) fn tick(&mut self, total: u64) {
+            self.secs[self.at] = total.saturating_sub(self.total).min(u32::MAX as u64) as u32;
+            self.at = (self.at + 1) % OVERRUN_WINDOW_SECS;
+            self.total = total;
+        }
+
+        /// The overruns in the window.
+        pub(crate) fn count(&self) -> u32 {
+            self.secs.iter().fold(0u32, |a, &n| a.saturating_add(n))
         }
     }
 
@@ -263,6 +297,7 @@ mod imp {
                 out_of_process: false,
                 cpu: 0.0,
                 last: (0, 0),
+                recent: OverrunWindow::default(),
                 allow_fallback,
                 fell_back: false,
             });
@@ -394,6 +429,7 @@ mod imp {
                 in_process_fallback: c.fell_back,
                 cpu: c.cpu,
                 overruns,
+                recent_overruns: c.recent.count(),
                 editor: c.status == PluginStatus::Playing,
             })
         }
@@ -508,6 +544,7 @@ mod imp {
                         let (dt, df) = (t.saturating_sub(c.last.0), f.saturating_sub(c.last.1));
                         c.last = (t, f);
                         c.cpu = if df > 0 { ((dt as f64 / 1e9) / (df as f64 / rate)) as f32 } else { 0.0 };
+                        c.recent.tick(s.overruns.load(Relaxed));
                     }
                 }
             }
@@ -562,6 +599,7 @@ mod imp {
                             c.error = None;
                             c.editor = Some(editor);
                             c.last = (stats.total_ns.load(std::sync::atomic::Ordering::Relaxed), stats.frames.load(std::sync::atomic::Ordering::Relaxed));
+                            c.recent = OverrunWindow::starting_at(stats.overruns.load(std::sync::atomic::Ordering::Relaxed));
                             c.stats = Some(stats);
                             c.out_of_process = oop;
                             self.plugins.playing[ch as usize] = None;
