@@ -28,7 +28,8 @@ pub(crate) struct Warm {
     pub(crate) voice: PluginVoice,
     /// The sample rate it loads at (a device change makes it useless).
     rate: f64,
-    pub(crate) info: PluginInfo,
+    /// None until the load thread has looked the plugin up (the list was not in yet).
+    pub(crate) info: Option<PluginInfo>,
     pub(crate) mode: LoadMode,
     pub(crate) load: LoadHandle,
 }

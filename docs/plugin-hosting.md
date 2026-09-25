@@ -48,7 +48,7 @@ All of it is `yahaha::plugin::*`.
 | `scan() -> Vec<PluginInfo>` | Every instrument AU (AUv2 and AUv3), sorted by vendor and name. Served from the cache while a fingerprint of every component's (type, subtype, manufacturer, flags, version) matches; any install, removal or update rescans. 22 ms live, 0.01 ms cached on this Mac (14 instruments). |
 | `rescan()` | Ignore the cache (keeps the per-plugin load records). |
 | `find(query)`, `info(&id)` | By id ("aumu Xf2X XFER") or name substring. |
-| `load_async(&id, LoadConfig) -> LoadHandle` | Loads on its own thread. `LoadConfig { sample_rate, max_frames, state, mode, timeout }`; `mode` is `Auto` (AUv2 in process, AUv3 out of process), `InProcess` or `OutOfProcess`. |
+| `load_async(&id, LoadConfig) -> LoadHandle` | Loads on its own thread, and looks the plugin up there too (a stale scan cache means a full scan; the caller never waits for one): an id that is not installed fails through the handle. `LoadConfig { sample_rate, max_frames, state, mode, timeout, choose_mode }`; `mode` is `Auto` (AUv2 in process, AUv3 out of process), `InProcess` or `OutOfProcess`; `choose_mode` picks it from the plugin once looked up. `LoadHandle::info()` / `mode()` once looked up. |
 | `load(&id, cfg)` | `load_async` + `wait`, for tools and tests. |
 
 `PluginInfo { id: PluginId, name, manufacturer, version, format: AUv2 / AUv3, requires_async,

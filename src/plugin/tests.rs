@@ -178,7 +178,10 @@ fn a_load_past_its_deadline_times_out_and_is_abandoned() {
 #[test]
 fn unknown_plugins_fail_cleanly() {
     let bogus = PluginId::parse("aumu zzzz zzzz").unwrap();
-    assert!(host().load_async(&bogus, LoadConfig::default()).is_err());
+    // Looked up on the load thread (the caller never waits for a scan): the handle fails.
+    let h = host().load_async(&bogus, LoadConfig::default()).unwrap();
+    let err = h.wait().err().expect("not installed");
+    assert!(format!("{err:#}").contains("no instrument Audio Unit"), "{err:#}");
 }
 
 #[test]
