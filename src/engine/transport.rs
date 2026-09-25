@@ -234,12 +234,6 @@ impl Engine {
                 }
             }
             Button::Main(i) => self.press_main(i, false, now),
-            // The assignable Fill Down / Self / Up (controllers.rs): the fill functions.
-            Button::Fill(d) => match d.signum() {
-                -1 => self.fill_to(self.neighbour_main(false), now),
-                1 => self.fill_to(self.neighbour_main(true), now),
-                _ => self.fill_to(self.main, now),
-            },
             Button::Break => {
                 if self.running {
                     if let Some(slot) = s.resolve(12) {

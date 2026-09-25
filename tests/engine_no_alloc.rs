@@ -109,7 +109,7 @@ fn preview_and_next_bar_style_change_do_not_allocate() {
     shared.controllers.toggle_switch(yahaha::controllers::SUSTAIN);
     shared.parts.toggle(1);
     l.step(now + 1);
-    ch.ui_tx.push(Cmd::Button(Button::Fill(1))).ok().unwrap();
+    ch.ui_tx.push(Cmd::Button(Button::FillUp)).ok().unwrap();
     ch.ui_tx.push(Cmd::KeysOff).ok().unwrap();
     l.step(now + 1);
     ch.ui_tx.push(Cmd::Button(Button::StartStop)).ok().unwrap();

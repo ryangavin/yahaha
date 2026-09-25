@@ -179,7 +179,6 @@ impl From<Button> for AppCmd {
             Button::Intro(i) => TransportCmd::Intro { index: i }.into(),
             Button::Main(i) => TransportCmd::Main { index: i }.into(),
             Button::Break => TransportCmd::Break.into(),
-            Button::Fill(d) => TransportCmd::Fill { delta: d }.into(),
             Button::Ending(i) => TransportCmd::Ending { index: i }.into(),
             Button::StartStop => TransportCmd::StartStop.into(),
             Button::Stop => TransportCmd::Stop.into(),

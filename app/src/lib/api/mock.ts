@@ -1127,12 +1127,9 @@ export class MockSession implements Session {
         if (t.running && this.has(BREAK)) t.queued = BREAK
         break
       case 'fill': {
-        // The Main to the left/right (or the same), always with a fill.
-        const to = clamp(t.main + Math.sign(cmd.delta), 0, 3)
-        const auto = t.autoFill
-        t.autoFill = true
-        this.cmd({ type: 'main', index: to })
-        t.autoFill = auto
+        // The same as Fill Down / Self / Up.
+        const d = Math.sign(cmd.delta)
+        this.cmd({ type: d < 0 ? 'fillDown' : d > 0 ? 'fillUp' : 'fillSelf' })
         break
       }
       case 'ending':

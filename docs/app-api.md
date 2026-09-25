@@ -94,7 +94,7 @@ state, and pressing the button is the action. For settings, a GUI checkbox can u
 | `intro` | `index` 0–2 | Intro 1–3. Stopped: plays at the start. Playing: queued for its change point (see Section Change Timing below). |
 | `main` | `index` 0–3 | Main A–D. Pressing the Main that is playing plays its fill. With Auto Fill on, a change plays the fill first. |
 | `break` | | Break (Fill In BA). |
-| `fill` | `delta` −1, 0, 1 | Fill Down, Fill Self, Fill Up (the Genos assignable functions): the fill, then the Main to the left, the same Main, or the Main to the right, whatever Auto Fill says. Past Main A or D, the fill of the Main at the end. Stopped: selects that Main. |
+| `fill` | `delta` −1, 0, 1 | Fill Down, Fill Self, Fill Up (the Genos assignable functions): the same as `fillDown`, `fillSelf` and `fillUp`. |
 | `ending` | `index` 0–2 | Ending 1–3. Pressing the Ending that is playing again adds a ritardando (`transport.ritardando`): the tempo slows to 65% by the ending's end, and comes back when the band stops. |
 | `startStop` | | START/STOP. |
 | `stop` | | Stops if playing, otherwise does nothing. This is the Launchkey Stop button. |

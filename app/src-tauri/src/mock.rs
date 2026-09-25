@@ -1225,13 +1225,12 @@ impl MockSession {
                 self.state.transport.stop_acmp_mode = mode;
                 self.state.transport.stop_acmp = mode != StopAcmpMode::Off;
             }
-            AppCmd::Transport(TransportCmd::Fill { delta }) => {
-                // The Main to the left/right (or the same), always with a fill.
-                let to = (self.state.transport.main as i8 + delta.signum()).clamp(0, 3) as u8;
-                let auto = std::mem::replace(&mut self.state.transport.auto_fill, true);
-                self.cmd(AppCmd::Transport(TransportCmd::Main { index: to }));
-                self.state.transport.auto_fill = auto;
-            }
+            // The same as Fill Down / Self / Up.
+            AppCmd::Transport(TransportCmd::Fill { delta }) => self.cmd(AppCmd::Transport(match delta.signum() {
+                -1 => TransportCmd::FillDown,
+                1 => TransportCmd::FillUp,
+                _ => TransportCmd::FillSelf,
+            })),
             AppCmd::Plugins(c) => self.plugin_cmd(c),
             AppCmd::Sounds(c) => self.sounds_cmd(c),
             AppCmd::Controllers(c) => {
@@ -1992,7 +1991,7 @@ mod tests {
         assert_eq!(m.state.controllers.pedals[1].function, Function::FillUp);
         // Playing Main B: Fill Up plays Main C's fill, then Main C.
         m.send(ControllersCmd::TriggerFunction { function: Function::FillUp });
-        assert_eq!(m.state.transport.queued.as_deref(), Some("Fill In BB"));
+        assert_eq!(m.state.transport.queued.as_deref(), Some("Fill In CC"));
         assert_eq!(m.state.transport.main, 2);
         m.send(ControllersCmd::TriggerFunction { function: Function::Sustain });
         assert!(m.state.controllers.sustain);
