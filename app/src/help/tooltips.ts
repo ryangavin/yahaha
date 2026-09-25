@@ -725,6 +725,20 @@ const catalog = {
     keys: [],
     launchkey: null,
   },
+  'sounds.saved': {
+    title: 'Saved',
+    body: 'Your saved sounds: the sound library\'s patches, each a preset or plugin with its volume, octave, pan and sends (and a plugin\'s own settings). Edit them in the Sound Library drawer.',
+    genos: 'Voice Selection › User tab',
+    keys: [],
+    launchkey: null,
+  },
+  'sounds.save': {
+    title: 'Save as sound',
+    body: 'Saves what this part plays now as a new saved sound: its preset or plugin (with the plugin\'s current settings), volume and octave. It appears under Saved, ready to rename in the Sound Library drawer.',
+    genos: 'Voice Setting › Save',
+    keys: [],
+    launchkey: null,
+  },
   'sounds.category': {
     title: 'Category',
     body: 'The sounds of one Genos voice category. A preset\'s category is its General MIDI family, and a plugin\'s is guessed from its name.',
