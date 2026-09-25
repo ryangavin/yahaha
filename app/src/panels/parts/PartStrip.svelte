@@ -13,7 +13,7 @@
   import { tip } from '../../lib/tooltip/tip.svelte'
   import Fader from '../../lib/ui/Fader.svelte'
   import Toggle from '../../lib/ui/Toggle.svelte'
-  import { launchkeyPlace, octaveLabel, onTip, pluginStatusLine, selectTip, volumeTip } from './parts'
+  import { inProcessPending, launchkeyPlace, octaveLabel, onTip, pluginStatusLine, selectTip, volumeTip } from './parts'
 
   let {
     part,
@@ -36,6 +36,8 @@
   const pluginLine = $derived(pluginStatusLine(plugin, plugins.available).replace(/ ▾$/, ''))
   // The part's plugin in the scan list: its "run in process" override (#141).
   const entry = $derived(plugin ? plugins.list.find((p) => p.id === plugin.id) : undefined)
+  // Changed since the plugin loaded: it applies from the next load (#176).
+  const pending = $derived(inProcessPending(plugin, entry))
   function toggleInProcess() {
     if (entry?.canRunInProcess) app.send({ type: 'setPluginInProcess', id: entry.id, inProcess: !entry.inProcess })
   }
@@ -98,7 +100,7 @@
   {#if plugin}
     <div class="prow">
       <button type="button" class="mini mat-raised wide" aria-disabled={!plugin.editor} use:tip={'part.plugin_edit'} onclick={() => plugin.editor && app.pluginEditor(index, true)}>Edit…</button>
-      <button type="button" class="mini mat-raised wide" class:on={!!entry?.inProcess} aria-pressed={!!entry?.inProcess} aria-disabled={!entry?.canRunInProcess} use:tip={'part.plugin_in_process'} onclick={toggleInProcess}>In proc</button>
+      <button type="button" class="mini mat-raised wide" class:on={!!entry?.inProcess} class:pending aria-pressed={!!entry?.inProcess} aria-disabled={!entry?.canRunInProcess} aria-label={pending ? 'In proc (applies on next load)' : undefined} use:tip={'part.plugin_in_process'} onclick={toggleInProcess}>In proc{pending ? ' ↻' : ''}</button>
     </div>
   {/if}
 
@@ -138,6 +140,11 @@
   /* In proc on: lit, since a crash there takes yahaha down. */
   .mini.wide.on {
     color: var(--accent);
+  }
+  /* Changed since the plugin loaded: dimmed until its next load. */
+  .mini.wide.pending {
+    opacity: 0.7;
+    font-style: italic;
   }
   .strip {
     position: relative;

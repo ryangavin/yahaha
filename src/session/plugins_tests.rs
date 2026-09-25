@@ -623,6 +623,39 @@ fn set_plugin_in_process_shows_in_the_list() {
     assert_eq!(dls(&s).in_process, was);
 }
 
+/// #176: a plugin preloaded for a Registration bank (the warm pool) loaded in the old mode
+/// before its "run in process" override changed. The override drops it and preloads it
+/// again in the new mode, so a button press never hands a part the old one.
+#[test]
+fn the_in_process_override_refills_the_warm_pool() {
+    use crate::session::PluginVoice;
+    let Some(s) = session() else { return };
+    s.offline_audio(None, 48_000).unwrap();
+    wait_scanned(&s);
+    let info = || s.inner.lock().plugins.list.iter().find(|p| p.id.to_string() == DLS).cloned().unwrap();
+    let warm = |s: &Session, n: usize| {
+        let t0 = Instant::now();
+        while s.inner.lock().warm_ready() != n && t0.elapsed() < Duration::from_secs(20) {
+            s.advance(1_000_000);
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        s.inner.lock().plugins.warm.entries.iter().map(|w| w.mode).collect::<Vec<_>>()
+    };
+    s.inner.lock().warm_plugins(vec![PluginVoice { id: DLS.into(), state: None }]);
+    let was = info().in_process;
+    let before = warm(&s, 1);
+    s.send(PluginCmd::SetPluginInProcess { id: DLS.into(), in_process: !was }).unwrap();
+    let now = super::imp::load_mode(&info());
+    let after = warm(&s, 1);
+    let ready = s.inner.lock().warm_ready();
+    // Put the player's cache back as it was.
+    s.send(PluginCmd::SetPluginInProcess { id: DLS.into(), in_process: was }).unwrap();
+    assert_ne!(before, [now], "the override changes DLS's load mode");
+    assert_eq!(after, [now], "the pool holds DLS loaded in the new mode");
+    assert_eq!(ready, 1, "and it is ready again");
+    assert_eq!(warm(&s, 1), [super::imp::load_mode(&info())], "switched back: the old mode again");
+}
+
 /// `reloadPartPlugin` loads a failed (or stopped) plugin again with its kept state, for the
 /// selected part when no part is given; the Launchkey's reload button lights while the
 /// selected part's plugin needs it. A part without a plugin, or one playing, is refused.
