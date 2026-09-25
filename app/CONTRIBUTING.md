@@ -144,7 +144,11 @@ When the stage is taller than 1.45:1 (a 1024-wide window, say), the mirror switc
 its **stacked layout**, `@container stage (aspect-ratio < 1.45)`: the fader bank moves
 under the pads, the design width drops to 66em, and so everything grows. If you change the
 mirror's rows or the band's or strip's minimum heights, re-measure the mirror's height in
-em (`.device` height ÷ `--u`) in both layouts and update `--h` in `App.svelte`.
+em (`.device` height ÷ `--u`) in both layouts and update `--h` in `App.svelte`. The
+Registration bar is a row at the top of the keyboard strip's panel, above the keys
+(`<KeyStrip><RegistBar /></KeyStrip>`), sized in em like the rest of the stage: one row
+wide, two stacked. `--top` in `App.svelte` is its height plus the gap (measure `.strip .top`
+÷ `--u`), and it is already in `--h`.
 
 Panel print on the stage is `0.78em` (the global `.engraved` is in `rem`, for drawers).
 Anything that can grow (a style name under Track ◀/▶) wraps rather than being cut off.
