@@ -11,6 +11,7 @@ Subcommands (run from anywhere):
   hits    <topic> [id ...]        keyword hits with timestamps -> hits/<topic>.txt
   frames  <id> <MM:SS> ...        grab one still per timestamp -> frames/ (clips deleted)
   skeleton <topic>                write notes/<topic>.md in the repo if missing
+  retext                          rebuild text/*.txt from the saved .srt files (offline)
   disk                            show free space (the scripts stop under --min-free-gb)
   topics                          list topic ids
 
@@ -110,27 +111,34 @@ TS = re.compile(r"(\d+):(\d+):(\d+)[,.](\d+)\s*-->")
 
 def srt_to_text(srt: Path) -> list[tuple[int, str]]:
     """SRT -> [(seconds, line)] with the rolling duplicates of auto-subs removed."""
-    out, last = [], ""
-    t = 0
+    # Auto-subs roll: each cue repeats the previous cue's line above the new
+    # one, so a line is emitted only the first time it appears.
+    out, recent = [], []
     for block in re.split(r"\n\s*\n", srt.read_text(errors="replace")):
         lines = [l.strip() for l in block.strip().splitlines()]
         for i, l in enumerate(lines):
             m = TS.match(l)
-            if m:
-                h, mi, s, _ = map(int, m.groups())
-                t = h * 3600 + mi * 60 + s
-                text = " ".join(x for x in lines[i + 1:] if x)
-                text = re.sub(r"<[^>]+>", "", text).strip()
-                for piece in text.split("  "):
-                    piece = piece.strip()
-                    if piece and piece != last and not last.endswith(piece):
-                        # auto-subs repeat the previous line as the first line of the next cue
-                        if piece.startswith(last) and last:
-                            piece = piece[len(last):].strip()
-                        if piece:
-                            out.append((t, piece))
-                            last = text
-                break
+            if not m:
+                continue
+            h, mi, s, _ = map(int, m.groups())
+            t = h * 3600 + mi * 60 + s
+            for x in lines[i + 1:]:
+                x = re.sub(r"<[^>]+>", "", x).strip()
+                if x and x not in recent:
+                    out.append((t, x))
+                    recent = (recent + [x])[-3:]
+            break
+    return paragraphs(out)
+
+
+def paragraphs(lines, span=12):
+    """Join short caption lines into one line per ~span seconds (easier to read)."""
+    out = []
+    for t, x in lines:
+        if out and t - out[-1][0] < span:
+            out[-1] = (out[-1][0], out[-1][1] + " " + x)
+        else:
+            out.append((t, x))
     return out
 
 
@@ -138,10 +146,50 @@ def mmss(s: int) -> str:
     return f"{s // 60:02d}:{s % 60:02d}"
 
 
+def pick_track(info: dict):
+    """One English caption track: manual en*, else auto en-orig/en, else auto
+    English translated from the video's language. Returns (lang, is_auto)."""
+    subs = info.get("subtitles") or {}
+    auto = info.get("automatic_captions") or {}
+    for lang in ("en", "en-GB", "en-US", *sorted(k for k in subs if k.startswith("en"))):
+        if lang in subs:
+            return lang, False
+    for lang in ("en-orig", "en"):
+        if lang in auto:
+            return lang, True
+    src = (info.get("language") or "").split("-")[0]
+    for lang in (f"en-{src}", *sorted(k for k in auto if k.startswith("en-"))):
+        if lang in auto:
+            return lang, True
+    return None
+
+
+def yt(cmd, tries=6):
+    """yt-dlp with a polite pause between requests and backoff on HTTP 429.
+    YouTube's caption endpoint rate-limits bursts (a pass of ~70 videos hit it);
+    the limit clears after some minutes, so back off 1, 2, 3... minutes."""
+    import time
+    r = None
+    for i in range(tries):
+        r = run(["yt-dlp", "--sleep-requests", "1", *cmd])
+        if "429" not in r.stderr:
+            return r
+        print(f"  429 rate limit, waiting {60 * (i + 1)} s", flush=True)
+        time.sleep(60 * (i + 1))
+    return r
+
+
 def cmd_subs(args):
+    """One English track per video (asking for every en.* track trips YouTube's rate limit)."""
+    import json
+    import time
     p = private_dir(args)
     check_disk(args)
     sources = p / "sources.tsv"
+    known = set()
+    if sources.exists():
+        with open(sources) as f:
+            known = {(r["topic"], r["id"]) for r in csv.DictReader(f, delimiter="\t")}
     new = not sources.exists()
     with open(sources, "a", newline="") as f:
         w = csv.writer(f, delimiter="\t")
@@ -150,25 +198,57 @@ def cmd_subs(args):
         for v in args.videos:
             vid = vid_of(v)
             url = f"https://www.youtube.com/watch?v={vid}"
-            meta = run(["yt-dlp", "--skip-download", "--print",
-                        "%(channel)s\t%(title)s\t%(duration)s", url]).stdout.strip().split("\t")
-            r = run(["yt-dlp", "--skip-download", "--write-auto-subs", "--write-subs",
-                     "--sub-langs", "en.*", "--convert-subs", "srt",
-                     "-o", str(p / "subs" / "%(id)s.%(ext)s"), url])
-            srts = sorted(glob.glob(str(p / "subs" / f"{vid}*.srt")),
-                          key=lambda s: ("orig" in s, "-" in Path(s).stem.split(".")[-1]))
-            if not srts:
-                print(f"{vid}: no English subtitles ({r.stderr.strip()[-200:]})")
-                continue
-            # prefer a manual 'en' track, else the auto one
-            lines = srt_to_text(Path(srts[0]))
             txt = p / "text" / f"{vid}.txt"
+            if txt.exists() and not args.force:
+                if (args.topic, vid) not in known:
+                    head = txt.read_text().splitlines()[0].lstrip("# ").split(" | ")
+                    w.writerow([args.topic, vid, head[1] if len(head) > 1 else "", head[0], url, ""])
+                print(f"{vid}: already fetched -> {txt}")
+                continue
+            r = yt(["-J", "--skip-download", url])
+            try:
+                info = json.loads(r.stdout)
+            except json.JSONDecodeError:
+                print(f"{vid}: metadata failed: {r.stderr.strip()[-200:]}")
+                continue
+            track = pick_track(info)
+            if not track:
+                print(f"{vid}: no English captions (language {info.get('language')})")
+                continue
+            lang, is_auto = track
+            for old in glob.glob(str(p / "subs" / f"{vid}.*")):
+                os.remove(old)
+            r = yt(["--skip-download", "--write-auto-subs" if is_auto else "--write-subs",
+                    "--sub-langs", lang, "--convert-subs", "srt",
+                    "-o", str(p / "subs" / "%(id)s.%(ext)s"), url])
+            srts = glob.glob(str(p / "subs" / f"{vid}*.srt"))
+            if not srts:
+                print(f"{vid}: subtitle download failed ({r.stderr.strip()[-200:]})")
+                continue
+            lines = srt_to_text(Path(srts[0]))
+            title, channel = info.get("title", vid), info.get("channel", "")
             with open(txt, "w") as tf:
-                tf.write(f"# {meta[1] if len(meta) > 1 else vid} | {meta[0]} | {url}\n")
+                tf.write(f"# {title} | {channel} | {url} | track {lang}{' (auto)' if is_auto else ''}\n")
                 for t, line in lines:
                     tf.write(f"[{mmss(t)}] {line}\n")
-            w.writerow([args.topic, vid, *(meta + ["", "", ""])[:2], url, (meta + ["", "", ""])[2]])
-            print(f"{vid}: {len(lines)} lines -> {txt}")
+            if (args.topic, vid) not in known:
+                w.writerow([args.topic, vid, channel, title, url, info.get("duration", "")])
+            f.flush()
+            print(f"{vid}: {len(lines)} lines ({lang}{', auto' if is_auto else ''}) -> {txt}")
+            time.sleep(args.pause)
+
+
+def cmd_retext(args):
+    """Rebuild text/<id>.txt from the saved .srt (no network), e.g. after a parser fix."""
+    p = private_dir(args)
+    for txt in sorted((p / "text").glob("*.txt")):
+        srts = glob.glob(str(p / "subs" / f"{txt.stem}*.srt"))
+        if not srts:
+            continue
+        head = txt.read_text().splitlines()[0]
+        lines = srt_to_text(Path(srts[0]))
+        txt.write_text(head + "\n" + "".join(f"[{mmss(t)}] {l}\n" for t, l in lines))
+        print(f"{txt.stem}: {len(lines)} lines")
 
 
 # ---------------------------------------------------------------- hits
@@ -292,12 +372,15 @@ def main():
     sp = ap.add_subparsers(dest="cmd", required=True)
     s = sp.add_parser("search"); s.add_argument("topics", nargs="*"); s.add_argument("--n", type=int, default=8)
     s = sp.add_parser("subs"); s.add_argument("topic"); s.add_argument("videos", nargs="+")
+    s.add_argument("--force", action="store_true", help="fetch again even if text/<id>.txt exists")
+    s.add_argument("--pause", type=float, default=4.0, help="seconds between videos (YouTube rate-limits)")
     s = sp.add_parser("hits"); s.add_argument("topic"); s.add_argument("videos", nargs="*"); s.add_argument("--top", type=int, default=8)
     s = sp.add_parser("frames"); s.add_argument("video"); s.add_argument("times", nargs="+")
     s.add_argument("--span", type=int, default=3, help="seconds after the timestamp to download")
     s.add_argument("--height", type=int, default=480)
     s.add_argument("--offsets", type=float, nargs="+", default=[0.0], help="stills at these seconds after the timestamp")
     s = sp.add_parser("skeleton"); s.add_argument("topic"); s.add_argument("--force", action="store_true")
+    sp.add_parser("retext")
     sp.add_parser("disk")
     sp.add_parser("topics")
     args = ap.parse_args()
@@ -308,7 +391,7 @@ def main():
             print(f"{tid:18s} {'*' if t.get('feel') else ' '} {t['title']}")
         return
     {"search": cmd_search, "subs": cmd_subs, "hits": cmd_hits, "frames": cmd_frames,
-     "skeleton": cmd_skeleton}[args.cmd](args)
+     "skeleton": cmd_skeleton, "retext": cmd_retext}[args.cmd](args)
 
 
 if __name__ == "__main__":
