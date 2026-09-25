@@ -105,10 +105,27 @@ rate, Synchro Stop Window, Tap Tempo's Style Section Reset, all group Style; the
 Fade Out and Fade Out Hold times, group Assignable). The Chord Looper and Live Control add theirs when they're wired in (their groups
 already exist).
 
-The voice is a `VoiceRef` tagged by `kind` (`{"kind":"gm","program":…}`), so plugin
-instruments (#35 phase 2) become a new kind without breaking old banks. A voice kind the
+The voice is a `VoiceRef` tagged by `kind` (`{"kind":"gm","program":…}`). A voice kind the
 build can't read or play (a newer build's `kind`) is reported for that part only: its other
 settings and the other parts still recall, and the bank file keeps the voice as it was.
+
+**A part's plugin (#104).** A plugin picked on the Plugins tab (`setPartPlugin`) is stored as
+`{"kind":"plugin","id":"aumu dls  appl","name":"DLSMusicDevice","state":"<base64>","program":4}`:
+the plugin's id, its name (Regist Bank Info shows it), its full state (absent: its default
+preset; a state over 64 MB is not stored, and Memorize says so), and the GM voice the part
+has underneath. (session/registration/plugin.rs)
+- **Memorize** stores the state the part saved last at once, then reads each part's playing
+  plugin's state on a `plugin-state` thread (a plugin's state is never read on the control
+  thread, #125) and puts it into the button when it lands, so the button keeps the plugin as
+  it sounded at Memorize, not as the last 30 s autosave had it.
+- **Recall** loads the plugin as `setPartPlugin` does: on a load thread, the part keeping
+  what it plays until the plugin is ready; the part's library patch ends. A part that already
+  plays that plugin with that state is left alone (nothing reloads). A plugin that isn't
+  installed, or a build without the plugin host, leaves the part on the stored GM voice, and
+  the recall says so.
+- A **GM voice** recalled on a part ends its Plugins-tab plugin. A plugin that the part's own
+  library patch plays is not stored as a plugin voice: the `patch` is, and its recall brings
+  the plugin back.
 
 ## Recall order and timing
 
