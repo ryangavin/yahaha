@@ -180,6 +180,7 @@ Tags: `[chord-following]` `[transport]` `[sections]` `[voices]` `[registration]`
   - **Pedal.** The assignable function "Dynamics Control" (RM p.142 marks it pedal-assignable) turns a foot controller's position into the level, 0–127. With Dynamics Control off the pedal does nothing. A pedal that is given another function leaves the level where it was.
   - **Storage.** System settings, not Registration (DL p.91: Dynamics Control is System only).
   - **Defaults.** Dynamics Control on, level 64, Touch off, Accent off.
+  - **Controls.** The app's Settings › Style page (Dynamics Control, level, Touch, Accent, threshold). TUI and app keys: `H` toggles Accent, `&` toggles Touch. There is no Launchkey mapping: every pad page is full and yahaha does not read the encoders yet.
 - **Ref:** OM p.11, p.69; RM p.11, p.142, p.147
 
 ### Ambience Depth `[mixer]`

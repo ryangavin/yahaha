@@ -89,6 +89,8 @@ export const BINDINGS: Record<string, Binding> = {
   r: c({ type: 'looperRec' }),
   '^': c({ type: 'looperOnOff' }),
   '.': c({ type: 'toggleMetronome' }),
+  H: c({ type: 'toggleAccent' }),
+  '&': c({ type: 'toggleDynamicsTouch' }),
   enter: { app: 'browser' },
   esc: { app: 'escape' },
   '?': { app: 'help' },

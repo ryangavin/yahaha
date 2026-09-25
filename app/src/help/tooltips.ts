@@ -994,14 +994,14 @@ const catalog = {
     title: 'Touch',
     body: 'The band follows your left hand. Each key you strike in the chord section sets the Dynamics level from how hard you hit it, and a strike at velocity 100 plays the Style as written.',
     genos: null,
-    keys: [],
+    keys: ['&'],
     launchkey: null,
   },
   'dynamics.accent': {
     title: 'Accent',
     body: 'Strike a chord-section key at least as hard as the threshold while a Main plays, and the Main plays its own fill from the next beat, so you can play the fills with your left hand. It is not a Main press, so OTS Link does not follow it, and nothing happens during an Intro, fill, break or Ending.',
     genos: null,
-    keys: [],
+    keys: ['H'],
     launchkey: null,
   },
   'dynamics.accent_threshold': {

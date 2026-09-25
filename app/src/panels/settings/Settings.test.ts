@@ -49,6 +49,20 @@ describe('Settings drawer', () => {
     expect(nav.tab).toBe('chord')
   })
 
+  it('Style page: Style Dynamics controls send the dynamics commands (#180)', async () => {
+    const s = setup()
+    await fireEvent.click(q('#settings-tab-style'))
+    const style = page('style')
+    const at = (key: string) => style.querySelector<HTMLElement>(`[data-tip="${key}"]`)!
+    for (const k of ['dynamics.control', 'dynamics.level', 'dynamics.touch', 'dynamics.accent', 'dynamics.accent_threshold']) {
+      expect(at(k), k).not.toBeNull()
+    }
+    await fireEvent.click(at('dynamics.accent'))
+    await fireEvent.click(at('dynamics.touch'))
+    await fireEvent.click(at('dynamics.control'))
+    expect(s.state.dynamics).toMatchObject({ control: false, touch: true, accent: true })
+  })
+
   it('Lock page: a toggle per Parameter Lock group, wired to setParamLock', async () => {
     const s = setup()
     await fireEvent.click(q('#settings-tab-lock'))
