@@ -355,7 +355,7 @@ fn lenient_voice<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<VoiceR
     Ok(serde_json::from_value(Value::deserialize(d)?).ok())
 }
 
-fn part_group(p: usize) -> Group {
+pub(super) fn part_group(p: usize) -> Group {
     if p == parts::LEFT { Group::Style } else { Group::Voice }
 }
 
@@ -367,7 +367,7 @@ fn parts_capture(c: &Control, g: Groups) -> Option<Value> {
     let parts = std::array::from_fn(|p| {
         g.has(part_group(p)).then(|| PartReg {
             on: kp.is_on(p),
-            voice: Some(VoiceRef::gm(kp.program[p].load(Relaxed))),
+            voice: Some(c.part_plugin_reg(p).unwrap_or_else(|| VoiceRef::gm(kp.program[p].load(Relaxed)))),
             volume: kp.volume(p),
             octave: kp.octave[p].load(Relaxed).clamp(-2, 2),
             patch: c.part_patch(p).map(|(id, name)| PatchReg { id, name }),
@@ -382,10 +382,19 @@ fn parts_recall(c: &mut Control, v: &Value, g: Groups) -> Result<(), String> {
     for (p, part) in r.parts.iter().enumerate() {
         let Some(part) = part.as_ref().filter(|_| g.has(part_group(p))) else { continue };
         let kp = c.shared.parts.clone();
-        match part.voice.as_ref().and_then(VoiceRef::program) {
-            Some(prog) => {
-                kp.set_program(p, prog);
-                if let Err(e) = recall_patch(c, p, part.patch.as_ref()) {
+        match part.voice.as_ref() {
+            Some(v) => {
+                kp.set_program(p, v.program().unwrap_or(0));
+                let r = match v {
+                    VoiceRef::Plugin { id, name, state, .. } => c.recall_part_plugin(p, id, name, state.as_deref()),
+                    VoiceRef::Gm { .. } => {
+                        // A GM voice: no plugin from the Plugins tab (a library patch's own
+                        // plugin is the patch's business, below).
+                        c.clear_part_tab_plugin(p);
+                        recall_patch(c, p, part.patch.as_ref())
+                    }
+                };
+                if let Err(e) = r {
                     err = Some(e);
                 }
             }
@@ -464,9 +473,10 @@ pub(in crate::session) fn info(m: &Memory) -> Info {
             r.parts
                 .iter()
                 .map(|p| match p {
-                    Some(p) => match &p.patch {
-                        Some(patch) => (patch.name.clone(), p.on),
-                        None => (p.voice.as_ref().and_then(VoiceRef::program).map_or("?", gm_name).to_string(), p.on),
+                    Some(p) => match (&p.patch, &p.voice) {
+                        (Some(patch), _) => (patch.name.clone(), p.on),
+                        (None, Some(VoiceRef::Plugin { id, name, .. })) => (if name.is_empty() { id.clone() } else { name.clone() }, p.on),
+                        (None, v) => (v.as_ref().and_then(VoiceRef::program).map_or("?", gm_name).to_string(), p.on),
                     },
                     None => (String::new(), false),
                 })

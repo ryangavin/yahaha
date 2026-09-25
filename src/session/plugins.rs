@@ -109,6 +109,9 @@ mod imp {
         /// A load the system refuses to host out of process may be retried in process
         /// (`plugin::may_retry_in_process`). Never for the start-up restore.
         pub(crate) allow_fallback: bool,
+        /// The system refused to host it out of process, so it was loaded in process
+        /// instead (a crash in it would take yahaha down): the app shows it.
+        pub(crate) fell_back: bool,
     }
 
     impl ChannelPlugin {
@@ -129,6 +132,7 @@ mod imp {
                 cpu: 0.0,
                 last: (0, 0),
                 allow_fallback: false,
+                fell_back: false,
             }
         }
 
@@ -247,6 +251,7 @@ mod imp {
                 cpu: 0.0,
                 last: (0, 0),
                 allow_fallback,
+                fell_back: false,
             });
             Ok(())
         }
@@ -338,6 +343,11 @@ mod imp {
             }
         }
 
+        /// Plugin state reads still running (their states land at a later pump).
+        pub(crate) fn plugin_state_reads_pending(&self) -> bool {
+            !self.plugins.state_reads.is_empty()
+        }
+
         pub(crate) fn channel_plugin_state(&self, ch: u8) -> Option<PartPlugin> {
             let c = self.plugins.channels[(ch & 15) as usize].as_ref()?;
             // A plugin that isn't installed (a failed restore) has no info: its id names it.
@@ -351,6 +361,7 @@ mod imp {
                 stage: c.stage.clone(),
                 error: c.error.clone(),
                 out_of_process: c.out_of_process,
+                in_process_fallback: c.fell_back,
                 cpu: c.cpu,
                 overruns,
                 editor: c.status == PluginStatus::Playing,
@@ -526,7 +537,10 @@ mod imp {
                                 let c = self.plugins.channels[ch as usize].as_mut().unwrap();
                                 c.load = Some(h);
                                 c.mode = LoadMode::InProcess;
+                                c.fell_back = true;
                                 c.stage = Some("queued".into());
+                                let name = c.name();
+                                self.say(format!("{name} can't run in its own process; loading it inside yahaha instead (if it crashes, yahaha goes with it)"), false);
                                 return;
                             }
                         }
@@ -684,6 +698,9 @@ impl Control {
     pub(crate) fn clear_channel_plugin(&mut self, _ch: u8) {}
     pub(crate) fn channel_plugin_state(&self, _ch: u8) -> Option<PartPlugin> {
         None
+    }
+    pub(crate) fn plugin_state_reads_pending(&self) -> bool {
+        false
     }
     pub(crate) fn plugins_list(&self) -> PluginsState {
         PluginsState::default()

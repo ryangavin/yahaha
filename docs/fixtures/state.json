@@ -2034,5 +2034,11 @@
   "paramLocks": {
     "splitPoint": false,
     "fingeringType": false
+  },
+  "sounds": {
+    "revision": 1,
+    "count": 0,
+    "scanning": false,
+    "auditioning": null
   }
 }

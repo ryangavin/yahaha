@@ -8,7 +8,9 @@
 
 import type { PlaylistCmd, PlaylistState, RegistrationCmd, RegistrationState } from './registration'
 import type { SoundLibraryCmd, SoundLibraryState } from './sound-library'
+import type { SoundsCmd, SoundsState } from './sounds'
 export type * from './sound-library'
+export type * from './sounds'
 
 export type Fingering =
   | 'singleFinger' | 'multiFinger' | 'fingered' | 'fingeredOnBass'
@@ -170,6 +172,8 @@ export type AppCmd =
   | PluginCmd
   // Sound library: patches, the program map (docs/sound-library.md)
   | SoundLibraryCmd
+  // The sound catalog (#117): favourites, audition, assigning a sound to a part
+  | SoundsCmd
   // Keyboard Harmony / Arpeggio (docs/app-api.md): see HarmonyArpState below.
   | HarmonyArpCmd
   // Parameter Lock: groups that Registration, OTS and Playlist recalls leave alone.
@@ -276,6 +280,7 @@ export type FadeState = 'off' | 'armed' | 'fadingIn' | 'fadingOut' | 'holding'
 export type SessionEvent =
   | { type: 'stateChanged'; version: number }
   | { type: 'libraryChanged'; revision: number }
+  | { type: 'soundsChanged'; revision: number }
   | { type: 'stopped' }
 
 export interface Pad {
@@ -861,6 +866,8 @@ export interface AppState {
   soundLibrary: SoundLibraryState
   /** Parameter Lock: the locked groups. */
   paramLocks: ParamLockState
+  /** The sound catalog's summary (#117); the list is `session.sounds()`. */
+  sounds: SoundsState
 }
 
 // ── Instrument plugins (docs/plugin-hosting.md) ──────────────────────────
@@ -887,6 +894,9 @@ export interface PartPlugin {
   stage: string | null
   error: string | null
   outOfProcess: boolean
+  /** The system refused to host it in its own process, so it loaded in yahaha's process
+   * instead: a crash in it takes yahaha down. */
+  inProcessFallback: boolean
   /** Share of real time (0.05 = 5% of a core), once a second. */
   cpu: number
   overruns: number

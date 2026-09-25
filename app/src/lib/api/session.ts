@@ -1,4 +1,4 @@
-import type { AppCmd, AppState, LibraryList, Meters } from './types'
+import type { AppCmd, AppState, LibraryList, Meters, SoundCatalog } from './types'
 
 /**
  * The one seam between the UI and the engine. Components only see this interface (via
@@ -14,6 +14,9 @@ export interface Session {
   /** The style library in display order (folder, then name). Re-fetch when
    * `state.library.revision` changes. */
   library(): Promise<LibraryList>
+  /** The sound catalog (#117): every preset, plugin and saved sound. Re-fetch when
+   * `state.sounds.revision` changes. Absent: an engine before #117. */
+  sounds?(): Promise<SoundCatalog>
   /** Output levels since the last call (one reader: poll at display rate, apply your own
    * decay and peak hold). No channels without the synth. */
   meters(): Promise<Meters>

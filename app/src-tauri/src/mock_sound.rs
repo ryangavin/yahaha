@@ -68,7 +68,7 @@ impl Default for MockSound {
     }
 }
 
-fn presets(file: &str) -> Vec<Preset> {
+pub fn presets(file: &str) -> Vec<Preset> {
     let gm: Vec<Preset> = (0..128u8).map(|p| Preset { bank: 0, program: p, name: format!("{}{}", gm_name(p), if file == SF2 { "" } else { " (Fluid)" }) }).collect();
     let kits = ["Standard", "Room", "Power", "Electronic", "Jazz", "Brush"].iter().enumerate().map(|(i, n)| Preset { bank: 128, program: i as u8 * 8, name: n.to_string() });
     gm.into_iter().chain(kits).collect()

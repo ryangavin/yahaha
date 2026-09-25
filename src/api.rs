@@ -37,6 +37,7 @@ mod registration;
 mod settings;
 mod style_change;
 mod sound_library;
+mod sounds;
 mod style_settings;
 mod surface;
 mod system;
@@ -63,6 +64,7 @@ pub use registration::*;
 pub use settings::*;
 pub use style_change::*;
 pub use sound_library::*;
+pub use sounds::*;
 pub use style_settings::*;
 pub use surface::*;
 pub use system::*;
@@ -167,6 +169,8 @@ app_cmd! {
     SoundLibrary(SoundLibraryCmd),
     /// Parameter Lock: groups that Registration, OTS and Playlist recalls leave alone.
     ParamLock(ParamLockCmd),
+    /// The sound catalog (#117): favourites, audition, assigning a sound to a part.
+    Sounds(SoundsCmd),
 }
 
 impl From<Button> for AppCmd {
@@ -280,6 +284,9 @@ pub enum Event {
     /// The style library changed (indexing progress, a file that failed to load, a style
     /// added by path); `revision` is the new `LibraryStatus::revision`.
     LibraryChanged { revision: u64 },
+    /// The sound catalog changed (#117); `revision` is the new `SoundsState::revision`.
+    /// Fetch it with `Session::sound_catalog`.
+    SoundsChanged { revision: u64 },
     /// The session stopped.
     Stopped,
 }
@@ -345,6 +352,9 @@ pub struct AppState {
     /// Parameter Lock: the locked groups.
     #[serde(default)]
     pub param_locks: ParamLockState,
+    /// The sound catalog's summary (#117); the list is `Session::sound_catalog`.
+    #[serde(default)]
+    pub sounds: SoundsState,
 }
 
 // ---------------------------------------------------------------------------

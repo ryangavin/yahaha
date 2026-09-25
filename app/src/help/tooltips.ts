@@ -713,7 +713,7 @@ const catalog = {
   },
   'part.plugin': {
     title: 'Plugin',
-    body: 'Plays this part on an instrument plugin instead of its SoundFont voice. It loads in the background, and the part keeps its SoundFont voice until the plugin is ready. The fader stays the part\'s volume (CC 7).',
+    body: 'Plays this part on an instrument plugin instead of its SoundFont voice. It loads in the background (the part keeps its SoundFont voice until then), and the fader stays the part\'s volume (CC 7). "⚠ in process" means macOS would not run the plugin in its own process, so it runs inside yahaha: if it crashes, yahaha goes with it.',
     genos: null,
     keys: [],
     launchkey: null,
@@ -821,6 +821,13 @@ const catalog = {
   'mixer.plugin': {
     title: 'Plugin part',
     body: 'This part plays an instrument plugin, shown with its share of the CPU. Its fader is still the part\'s CC 7, applied to the plugin\'s output.',
+    genos: null,
+    keys: [],
+    launchkey: null,
+  },
+  'mixer.plugin_fallback': {
+    title: 'Plugin in process ⚠',
+    body: 'This part\'s plugin was meant to run in its own process, where a crash only silences the part. macOS refused to host it there, so it runs inside yahaha instead: if it crashes, yahaha goes with it. Save your setup, or pick another plugin for live use.',
     genos: null,
     keys: [],
     launchkey: null,
