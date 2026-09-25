@@ -9,7 +9,11 @@ maps 1:1 onto the hardware under your hands. Above it sits the **lead-sheet band
 the song is, what's next; later the chord chart), and below it the **keyboard strip** (the
 keys you hold, the splits, the chord). Everything else opens in panels around it:
 Keyboard parts + OTS, Mixer, Settings (right-side drawers), and the style browser (a
-modal).
+modal). Each drawer opens from a small `DrawerButton` on the stage next to the controls it
+details (Parts & OTS, Sounds and Mixer on the fader head, Multi Pads by the pad-page tabs,
+Charts by the lead-sheet lane, Harmony/Arp and Chord Looper on the keyboard strip's cheek;
+the style name on the display opens the browser). The app bar keeps only the app's own
+controls (Settings, help, theme).
 
 ## Run it
 
@@ -87,9 +91,9 @@ app/
       surface.ts             the Launchkey surface beyond the pads (see "The surface")
       keys.ts, shortcuts.ts  keyboard bindings (the terminal UI's keys) and the window handler
       tooltip/               tip action, HelpFooter (+ last Launchkey control), TipCard, opt-in pop-up Tooltip
-      ui/                    shared components: HwButton, Fader, Toggle, Overlay, PanelSlot
+      ui/                    shared components: HwButton, DrawerButton, Fader, Toggle, Overlay, PanelSlot
     panels/
-      header/Header.svelte         BUILT: the app bar (panel buttons, help, theme)
+      header/Header.svelte         BUILT: the app bar (Settings, help, theme)
       header/TransportBar.svelte   BUILT: the transport row under it (Start/Stop, Sync Start/Stop,
                                    Intro/Ending I–III, Tempo −/+ and Tap, bar.beat, section);
                                    buttons light from `transport.lamps` like their pads
@@ -247,6 +251,8 @@ when a second panel needs it.
    `lib/api/types.ts` has them all, with comments. The library is `app.library.entries`.
 3. **Use the shared components:**
    - `HwButton`: a backlit button. Pass an LED look for anything lit.
+   - `DrawerButton`: the small, quieter button on the stage that opens a drawer. Put it
+     next to the controls the drawer details, never in place of a mirrored control.
    - `Fader`: 0–127, with a slot, cap, scale, readout and the soft-takeover mark.
    - `Toggle`: an on/off setting.
    - `Overlay`: the drawer or modal frame.

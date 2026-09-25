@@ -65,7 +65,6 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 
 | control | what it does | Genos | key | Launchkey |
 |---|---|---|---|---|
-| **Style** | The style that's loaded, and its folder. Click to browse the library. | Style name | `Enter` | — |
 | **Previous style** | Loads the previous style in the browser's order (folder, then name). While the band plays it keeps playing and follows your next chord in the new style. | — | `←` | < Track button |
 | **Next style** | Loads the next style in the browser's order (folder, then name). While the band plays it keeps playing and follows your next chord in the new style. | — | `→` | Track > button |
 
@@ -73,7 +72,7 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 
 | control | what it does | Genos | key | Launchkey |
 |---|---|---|---|---|
-| **Browse styles** | Opens the style browser: every style under the library folder, by folder. Your keyboard and the Launchkey keep playing while it's open. | Style selection display | `Enter` | — |
+| **Browse styles** | The style that's loaded, on the display. Click it to open the style browser: every style under the library folder, by folder, while your keyboard and the Launchkey keep playing. | Style name (touch it for the Style Selection display) | `Enter` | — |
 | **Filter** | Type to filter by style name, file name or folder (not case-sensitive). ↑/↓, PgUp/PgDn and Home/End move; Enter loads; Shift+Enter previews, or queues for the next bar while the band plays. | — | — | — |
 | **All styles** | Every style in the library, in the order < Track and Track > step through: folder, then name. | — | — | < Track and Track > step through this order |
 | **Folder** | Shows only the styles in this folder and its subfolders. The folder a style is in is its category. | Style category | — | — |

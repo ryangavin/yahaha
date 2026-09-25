@@ -300,13 +300,6 @@ const catalog = {
   },
 
   // ── Style ───────────────────────────────────────────────────────────────
-  'style.name': {
-    title: 'Style',
-    body: 'The style that\'s loaded, and its folder. Click to browse the library.',
-    genos: 'Style name',
-    keys: ['enter'],
-    launchkey: null,
-  },
   'style.prev': {
     title: 'Previous style',
     body: 'Loads the previous style in the browser\'s order (folder, then name). While the band plays it keeps playing and follows your next chord in the new style.',
@@ -325,8 +318,8 @@ const catalog = {
   // ── Style browser ───────────────────────────────────────────────────────
   'browser.open': {
     title: 'Browse styles',
-    body: 'Opens the style browser: every style under the library folder, by folder. Your keyboard and the Launchkey keep playing while it\'s open.',
-    genos: 'Style selection display',
+    body: 'The style that\'s loaded, on the display. Click it to open the style browser: every style under the library folder, by folder, while your keyboard and the Launchkey keep playing.',
+    genos: 'Style name (touch it for the Style Selection display)',
     keys: ['enter'],
     launchkey: null,
   },

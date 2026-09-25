@@ -3,11 +3,11 @@
   that sounds them; the split point (style) and the Left split; the chord-detection area;
   and the recognised chord's tones. 49 or 61 keys like the Launchkey, or 88.
 
-   ┌ cheek ─────┬ rail: [chord detection · Lower ░░░░░░░]  Split F#2 ▾ ─────────────────┐
-   │ Am7        │ ┌──┬┬─┬┬──┬──┬┬─┬┬─┬┬──┬ keys ─────────────────────────────────────┐ │
-   │ A C E G    │ │  ││ ││  │  ││ ││ ││  │   held keys lit in their part's colour     │ │
-   │ [49 61 88] │ │ ●│  │ ● │  ●  │  ◉ │   ● chord tone  ◉ bass                     │ │
-   └────────────┴─┴──┴──┴───┴─────┴────┴──────────────────────────────────────────┴─┘
+   ┌ cheek ─────────────────────────┬ rail: [chord detection · Lower ░░░░░░░]  Split F#2 ▾ ───────┐
+   │ Chord tones                    │ ┌──┬┬─┬┬──┬──┬┬─┬┬─┬┬──┬ keys ───────────────────────────┐ │
+   │ A C E G       [Harmony/Arp ]   │ │  ││ ││  │  ││ ││ ││  │ held keys lit in their part's    │ │
+   │ [49 61 88]    [Chord Looper]   │ │ ●│  │ ● │  ●  │  ◉ │ ● chord tone  ◉ bass             │ │
+   └────────────────────────────────┴─┴──┴──┴───┴─────┴────┴────────────────────────────────┴─┘
 
   Held keys, chord tones and the detection area come from the engine's `state.keyboard`.
   Everything is percentage-positioned boxes: a key only changes a
@@ -20,6 +20,7 @@
   import type { Snippet } from 'svelte'
   import { app, ui, type KeyRange } from '../../lib/store.svelte'
   import { tip } from '../../lib/tooltip/tip.svelte'
+  import DrawerButton from '../../lib/ui/DrawerButton.svelte'
   import type { HeldNote } from '../../lib/api/types'
   import { RANGES, boundary, detectionArea, heldFill, layout, noteAt, noteName, pcName, rangeFor } from './keyboard'
 
@@ -89,7 +90,7 @@
   {#if children}<div class="top">{@render children()}</div>{/if}
 
   <div class="cheek">
-    <span class="engraved">Chord tones</span>
+    <span class="engraved label">Chord tones</span>
     <span class="tones" aria-live="off">
       {#if !kb}
         <!-- The engine doesn't report held keys or chord tones yet: say so, not "none". -->
@@ -100,6 +101,11 @@
         <span class="none">–</span>
       {/if}
     </span>
+    <!-- The drawers for what the keys play over the chord: Harmony/Arpeggio and the Chord Looper. -->
+    <nav class="drawers" aria-label="Keyboard panels">
+      <DrawerButton tip="drawer.harmony" open={ui.harmony} onclick={() => ui.toggleDrawer('harmony')}>Harmony/Arp</DrawerButton>
+      <DrawerButton tip="drawer.looper" open={ui.looper} onclick={() => ui.toggleDrawer('looper')}>Chord Looper</DrawerButton>
+    </nav>
     <div class="sizes" role="group" aria-label="Keyboard size">
       {#each SIZES as n (n)}
         <button
@@ -171,7 +177,7 @@
 <style>
   .strip {
     display: grid;
-    grid-template-columns: 8.5em minmax(0, 1fr);
+    grid-template-columns: auto minmax(0, 1fr);
     gap: 1em;
     height: 100%;
     padding: 0.7em 1.5em 0.9em;
@@ -194,15 +200,25 @@
 
   /* The left cheek, where the wheels are on the hardware: chord tones and the size switch. */
   .cheek {
-    display: flex;
-    flex-direction: column;
-    gap: 0.35em;
+    display: grid;
+    grid-template-columns: 7.5em auto;
+    grid-template-rows: auto auto minmax(0, 1fr);
+    grid-template-areas:
+      'label drawers'
+      'tones drawers'
+      'sizes drawers';
+    gap: 0.35em 0.8em;
     min-width: 0;
+    min-height: 0;
     padding-right: 1em;
     border-right: 1px solid var(--seam);
     box-shadow: 1px 0 0 rgb(255 255 255 / 0.04);
   }
+  .label {
+    grid-area: label;
+  }
   .tones {
+    grid-area: tones;
     display: flex;
     flex-wrap: wrap;
     gap: 0.1em 0.45em;
@@ -228,10 +244,19 @@
     font-size: 0.62em;
     line-height: 1.2;
   }
+  /* Beside the tones: the chord's drawers, stacked, level with the size switch. */
+  .drawers {
+    grid-area: drawers;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    gap: 0.25em;
+  }
   .sizes {
+    grid-area: sizes;
+    align-self: end;
     display: flex;
     gap: 0.25em;
-    margin-top: auto;
   }
   .size {
     flex: 1;
