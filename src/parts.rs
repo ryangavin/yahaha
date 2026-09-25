@@ -91,6 +91,9 @@ pub struct Parts {
     /// has to send (bit = part).
     fx: [[AtomicU8; 3]; COUNT],
     fx_dirty: AtomicU8,
+    /// The parts whose power-on pan and sends (`FX_DEFAULT`) the engine thread has not
+    /// sent yet (bit = part): all of them at first, so a fresh start isn't dry (#204).
+    fx_boot: AtomicU8,
 }
 
 /// `Parts::fx`: not set.
@@ -101,9 +104,11 @@ pub const FX_CC: [u8; 3] = [10, 91, 93];
 pub const PAN: usize = 0;
 pub const REVERB: usize = 1;
 pub const CHORUS: usize = 2;
-/// What a part's pan and sends are before anything sets them: the GM (and the built-in
-/// synth's) power-on values, pan centre, reverb 40, chorus 0.
-pub const FX_DEFAULT: [u8; 3] = [64, 40, 0];
+/// What each part's pan and sends are before anything sets them (#204): pan centre and,
+/// like a Genos keyboard voice, some reverb and a touch of chorus (Right 1-3: reverb 50,
+/// chorus 10; Left: reverb 40, chorus 10), where GM's power-on values (reverb 40, chorus
+/// 0) sound dry. The engine thread sends them once at start (`send_fx`).
+pub const FX_DEFAULT: [[u8; 3]; COUNT] = [[64, 50, 10], [64, 50, 10], [64, 50, 10], [64, 40, 10]];
 
 /// `Parts::solo`: no part soloed.
 pub const NO_SOLO: u8 = 255;
@@ -134,6 +139,7 @@ impl Parts {
             solo: AtomicU8::new(NO_SOLO),
             fx: [const { [const { AtomicU8::new(NO_FX) }; 3] }; COUNT],
             fx_dirty: AtomicU8::new(0),
+            fx_boot: AtomicU8::new((1 << COUNT) - 1),
         }
     }
 
@@ -154,14 +160,21 @@ impl Parts {
     pub fn fx(&self, part: usize) -> [u8; 3] {
         let part = part % COUNT;
         std::array::from_fn(|i| match self.fx[part][i].load(Relaxed) {
-            NO_FX => FX_DEFAULT[i],
+            NO_FX => FX_DEFAULT[part][i],
             v => v,
         })
     }
 
-    /// Engine thread: send the pan and sends set since the last call.
+    /// Engine thread: send the pan and sends set since the last call; on the first call,
+    /// every part's (the power-on values where nothing has set them).
     pub fn send_fx(&self, out: &mut impl FnMut(&[u8])) {
-        let dirty = self.fx_dirty.swap(0, Acquire);
+        let boot = self.fx_boot.swap(0, Acquire);
+        let dirty = self.fx_dirty.swap(0, Acquire) & !boot;
+        for p in (0..COUNT).filter(|p| boot & 1 << p != 0) {
+            for (v, cc) in self.fx(p).into_iter().zip(FX_CC) {
+                out(&[0xB0 | CHANNEL[p], cc, v]);
+            }
+        }
         if dirty == 0 {
             return;
         }
@@ -485,6 +498,27 @@ mod tests {
         }
         eprintln!("{settings} OTS, {with_pan} with pan");
         assert!(settings == 0 || with_pan * 2 > settings, "most OTS set pan ({with_pan} of {settings})");
+    }
+
+    /// A fresh start isn't dry (#204): the first `send_fx` gives every keyboard part its
+    /// power-on pan and sends, once; what a patch or OTS set before it wins.
+    #[test]
+    fn the_first_send_gives_every_part_its_default_sends() {
+        let parts = Parts::new();
+        parts.set_fx(LEFT, [None, Some(90), None]);
+        let mut sent = Vec::new();
+        parts.send_fx(&mut |m| sent.push([m[0], m[1], m[2]]));
+        for p in 0..COUNT {
+            let want = if p == LEFT { [64, 90, 10] } else { FX_DEFAULT[p] };
+            for (cc, v) in FX_CC.into_iter().zip(want) {
+                assert!(sent.contains(&[0xB0 | CHANNEL[p], cc, v]), "part {p} CC{cc} {v}: {sent:?}");
+            }
+        }
+        assert_eq!(sent.len(), COUNT * 3, "once each: {sent:?}");
+        assert_eq!(parts.fx(RIGHT1), [64, 50, 10]);
+        let mut again = 0;
+        parts.send_fx(&mut |_| again += 1);
+        assert_eq!(again, 0, "only once");
     }
 
     #[test]

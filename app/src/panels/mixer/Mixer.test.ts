@@ -103,7 +103,7 @@ describe('Mixer drawer', () => {
     flushSync()
     expect(knobs()[9].getAttribute('aria-valuetext')).toBe('L64')
     await fireEvent.keyDown(k[4], { key: 'PageUp' })
-    expect(s.state.keyboardParts[1].reverb).toBe(50)
+    expect(s.state.keyboardParts[1].reverb).toBe(60)
     await fireEvent.keyDown(k[2], { key: 'End' })
     expect(s.state.keyboardParts[0].chorus).toBe(127)
     await fireEvent.dblClick(k[2])
