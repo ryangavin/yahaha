@@ -139,7 +139,6 @@ describe('mock session', () => {
     expect(m.state.harmonyArp).toEqual(scrambled)
   })
 
-<<<<<<< HEAD
   it('Left Hold is a switch Registration stores (#202)', () => {
     const m = new MockSession({ manual: true })
     m.send({ type: 'setLeftHold', on: true })
@@ -148,7 +147,8 @@ describe('mock session', () => {
     expect(m.state.chord.leftHold).toBe(false)
     m.send({ type: 'recallRegist', index: 2 })
     expect(m.state.chord.leftHold).toBe(true)
-=======
+  })
+
   it('a Regist + pedal steps the stored buttons, or the sequence while it is on (#200)', () => {
     const m = new MockSession({ manual: true })
     m.send({ type: 'newRegistBank' })
@@ -175,7 +175,6 @@ describe('mock session', () => {
     expect(m.state.registration.freeze).toBe(true)
     m.send({ type: 'triggerFunction', function: 'registSequence' })
     expect(m.state.registration.sequence.on).toBe(false)
->>>>>>> origin/develop
   })
 
   it('Parameter Lock keeps a locked group through a registration recall', () => {

@@ -498,6 +498,7 @@ const catalog = {
     body: 'Left keeps sounding after you let go of its keys, until you play the next note on Left, stop the style, or turn Left Hold off. A string or organ Left holds your chord across the band. Stored in Registration (Style group).',
     genos: 'LEFT HOLD',
     keys: [],
+    launchkey: null,
   },
   'split.display': {
     title: 'Split point',
