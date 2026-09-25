@@ -42,6 +42,8 @@ impl Control {
                     self.sync_manual_bass();
                 }
             }
+            ChordCmd::SetLeftHold { on } => self.set_left_hold(on),
+            ChordCmd::ToggleLeftHold => self.set_left_hold(!self.shared.controllers.left_hold()),
             ChordCmd::SetSplit { note } => self.shared.split.store(note.clamp(24, 96), Relaxed),
             ChordCmd::MoveSplit { delta } => {
                 let s = self.shared.split.load(Relaxed) as i16 + delta as i16;
@@ -93,6 +95,13 @@ impl Control {
         self.wake_engine();
     }
 
+    /// Left Hold on or off; the engine thread sends Left's hold (or lets it go) on its next
+    /// wake.
+    fn set_left_hold(&mut self, on: bool) {
+        self.shared.controllers.set_left_hold(on);
+        self.wake_engine();
+    }
+
     pub(super) fn chord_state(&self, v: &View) -> ChordState {
         let s = &self.snap;
         ChordState {
@@ -108,6 +117,7 @@ impl Control {
             transpose_keyboard: s.transpose.keyboard,
             transpose_master: s.transpose.master,
             settle_ms: self.chord_settle_ms,
+            left_hold: self.shared.controllers.left_hold(),
         }
     }
 }

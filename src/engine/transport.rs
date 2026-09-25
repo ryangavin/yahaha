@@ -180,6 +180,8 @@ impl Engine {
                 }
             }
             Button::Stop => {
+                // Stopped: STOP also calls off a count-in from TAP TEMPO.
+                self.tap_start = None;
                 if self.running {
                     self.stop(sink);
                 }
@@ -258,6 +260,10 @@ impl Engine {
     /// further apart than a beat at `MIN_BPM` (12 s) plus half a second of slack (12.5 s)
     /// start again; a tap whose interval is
     /// far from the one before (a change of mind) averages only with the tap before it.
+    ///
+    /// Stopped, a bar's worth of steady taps (four in 4/4) starts the style one beat after
+    /// the last tap (OM p.46): a count-in. Each further tap moves the start to a beat after
+    /// it; a tap that breaks the count calls it off.
     pub(super) fn tap(&mut self, now: u64) {
         const FORGET_NS: u64 = (60e9 / MIN_BPM) as u64 + 500_000_000;
         if self.tap_n > 0 {
@@ -286,6 +292,19 @@ impl Engine {
                 self.rit_retempo(now);
             }
         }
+        let beats = (self.style.tpb / self.style.ppq.max(1)).max(1) as usize;
+        self.tap_start = (!self.running && self.tap_n >= beats).then(|| now + self.beat_ns());
+    }
+
+    /// A count-in from TAP TEMPO whose time has come: start, from its time. Like START
+    /// with no chord, the rhythm parts play until the first chord.
+    pub(super) fn tap_start_due(&mut self, now: u64, sink: &mut impl Sink) {
+        if let Some(t) = self.tap_start.filter(|&t| t <= now) {
+            self.tap_start = None;
+            if !self.running {
+                self.start(t, sink);
+            }
+        }
     }
 
     // ----- transport -----
@@ -293,6 +312,7 @@ impl Engine {
     pub(super) fn start(&mut self, now: u64, sink: &mut impl Sink) {
         self.all_off(sink);
         self.running = true;
+        self.tap_start = None;
         self.sync_armed = false;
         self.set_bpm_internal(self.bpm, now);
         self.anchor_tick = 0.0;

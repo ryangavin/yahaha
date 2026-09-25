@@ -244,7 +244,7 @@ const catalog = {
   // ── Tempo and display ───────────────────────────────────────────────────
   'tempo.tap': {
     title: 'Tap tempo',
-    body: 'Tap two or more times in time to set the tempo from your taps (the last four count). While the band plays, a tap restarts the section instead (Section Reset) and the tempo stays, unless you turn Tap: Section Reset off in Settings › Style. The pad lights on the downbeat while the band plays.',
+    body: 'Tap two or more times in time to set the tempo (the last four count); stopped, a whole bar of taps (four in 4/4) starts the style one beat after your last tap, rhythm only until you play a chord. While the band plays, a tap restarts the section instead (Section Reset) and the tempo stays, unless you turn Tap: Section Reset off in Settings › Style. The pad lights on the downbeat while the band plays.',
     genos: 'TAP TEMPO',
     keys: ['t'],
     launchkey: pad(P1, 'bottom', 6),
@@ -460,7 +460,7 @@ const catalog = {
   },
   'fingering.ai_fingered': {
     title: 'AI Fingered',
-    body: 'Like Fingered, but fewer than three keys can still give a chord, guessed from the chord before.',
+    body: 'Like Fingered, but fewer than three keys can still give a chord, guessed from the chord before. The lowest key is the bass: hold a chord note and add a key below it for a slash chord (C, then B+C is C/B).',
     genos: 'AI Fingered',
     keys: [],
     launchkey: pad(P2, 'top', 5),
@@ -492,6 +492,13 @@ const catalog = {
     genos: 'Manual Bass',
     keys: ['D'],
     launchkey: pad(P2, 'bottom', 1),
+  },
+  'detection.left_hold': {
+    title: 'Left Hold',
+    body: 'Left keeps sounding after you let go of its keys, until you play the next note on Left, stop the style, or turn Left Hold off. A string or organ Left holds your chord across the band. Stored in Registration (Style group).',
+    genos: 'LEFT HOLD',
+    keys: [],
+    launchkey: null,
   },
   'split.display': {
     title: 'Split point',

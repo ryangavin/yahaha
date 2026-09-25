@@ -16,6 +16,7 @@
   "chord.fingered: string",
   "chord.fingering: string",
   "chord.fingeringName: string",
+  "chord.leftHold: boolean",
   "chord.manualBass: boolean",
   "chord.manualBassActive: boolean",
   "chord.name: string",

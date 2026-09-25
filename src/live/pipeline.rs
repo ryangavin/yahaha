@@ -351,6 +351,12 @@ impl Input {
             }
             None => (Sounded::default(), 0),
         };
+        // Left Hold: a key on the Left part is the next chord, so what was held lets go
+        // first (a re-pedal before this key's note-on, OM p.49).
+        if self.shared.controllers.left_hold() && now.iter().any(|(ch, _)| ch == parts::CHANNEL[parts::LEFT]) {
+            self.shared.controllers.release_left_hold();
+            self.sync_controllers();
+        }
         // A retrigger (possibly after the split, transpose or parts changed): release
         // where it sounded.
         for (pch, pnote) in self.keys.press(k, now).iter() {
