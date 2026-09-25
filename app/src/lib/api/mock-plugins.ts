@@ -1,7 +1,8 @@
 // Instrument plugins as the engine runs them (src/session/plugins.rs): a part's plugin
 // loads in the background (`loading`, with its stage), then plays; the list comes from the
-// cached scan. The mock lists Apple's built-in instruments (every Mac has them) and one
-// made-up third-party synth that always fails to load, to show the error path.
+// cached scan. The mock lists Apple's built-in instruments (every Mac has them), one
+// made-up third-party synth that always fails to load, to show the error path, and one
+// the system refuses to host out of process, so it falls back to loading in process.
 
 import type { AppState, KeyboardPart, PluginCmd, PluginEntry, PluginsState } from './types'
 
@@ -9,7 +10,11 @@ export const MOCK_PLUGINS: PluginEntry[] = [
   { id: 'aumu dls  appl', name: 'DLSMusicDevice', manufacturer: 'Apple', version: '1.0.0', format: 'AUv2', lastError: null },
   { id: 'aumu samp appl', name: 'AUSampler', manufacturer: 'Apple', version: '1.0.0', format: 'AUv2', lastError: null },
   { id: 'aumu Mock Demo', name: 'Broken Synth', manufacturer: 'Example Audio', version: '0.9.0', format: 'AUv3', lastError: 'timed out after 20.0 s' },
+  { id: 'aumu Tiny Demo', name: 'Tiny Synth', manufacturer: 'Example Audio', version: '0.9.0', format: 'AUv2', lastError: null },
 ]
+
+/** The mock plugin the system won't host out of process: it loads in process instead. */
+export const MOCK_FALLBACK_ID = 'aumu Tiny Demo'
 
 export function initialPlugins(): PluginsState {
   return { available: true, scanning: false, list: MOCK_PLUGINS.map((p) => ({ ...p })) }
@@ -46,6 +51,7 @@ export class MockPlugins {
           stage: 'queued',
           error: null,
           outOfProcess: e.manufacturer !== 'Apple',
+          inProcessFallback: false,
           cpu: 0,
           overruns: 0,
           editor: false,
@@ -93,6 +99,11 @@ export class MockPlugins {
           p.error = e.lastError
           this.say(`${p.name} didn't load: ${e.lastError}`, true)
         } else {
+          if (p.id === MOCK_FALLBACK_ID) {
+            p.outOfProcess = false
+            p.inProcessFallback = true
+            this.say(`${p.name} can't run in its own process; loading it inside yahaha instead (if it crashes, yahaha goes with it)`, false)
+          }
           p.status = 'playing'
           p.editor = true
           p.cpu = 0.012
