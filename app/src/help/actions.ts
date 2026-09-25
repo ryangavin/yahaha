@@ -146,7 +146,8 @@ export function tipFor(cmd: AppCmd | null): TipKey {
     case 'setRegistSequence': return 'regist.sequence_steps'
     case 'setRegistSequenceOn':
     case 'toggleRegistSequence': return 'regist.sequence_on'
-    case 'stepRegistSequence': return cmd.delta < 0 ? 'regist.seq_prev' : 'regist.seq_next'
+    case 'stepRegistSequence':
+    case 'stepRegist': return cmd.delta < 0 ? 'regist.seq_prev' : 'regist.seq_next'
     // Playlist
     case 'newPlaylist': return 'playlist.new'
     case 'loadPlaylist': return 'playlist.file'

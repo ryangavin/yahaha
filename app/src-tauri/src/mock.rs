@@ -2228,6 +2228,13 @@ mod tests {
         m.send(ControllersCmd::TriggerFunction { function: Function::RegistBankNext });
         assert!(m.state.registration.bank.path.is_some());
         assert_ne!(m.state.registration.bank.path, before);
+        // Regist + (#200): the demo bank's first stored button, then the next one.
+        m.send(RegistrationCmd::SetRegistSequenceOn { on: false });
+        m.send(ControllersCmd::TriggerFunction { function: Function::RegistNext });
+        let first = m.state.registration.selected;
+        assert!(first.is_some());
+        m.send(ControllersCmd::TriggerFunction { function: Function::Regist1 });
+        assert_eq!(m.state.registration.selected, Some(0));
     }
 
     #[test]

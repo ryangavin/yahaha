@@ -227,6 +227,19 @@ export class MockRegistration {
       case 'stepRegistSequence':
         this.stepSequence(cmd.delta, host)
         break
+      case 'stepRegist': {
+        // A pedal's Regist +/−: the sequence while on and programmed, else the stored buttons.
+        if (this.seqOn && this.bank.sequence.steps.length) {
+          this.stepSequence(cmd.delta, host)
+          break
+        }
+        const stored = this.bank.memories.flatMap((m, i) => (m ? [i] : []))
+        if (!stored.length) return this.fail(host, 'no Registration stored in this bank')
+        const from = this.selected
+        const next = cmd.delta > 0 ? stored.find((b) => from === null || b > from) : [...stored].reverse().find((b) => from === null || b < from)
+        if (next !== undefined) this.recall(next, host, true)
+        break
+      }
     }
   }
 
@@ -569,7 +582,7 @@ export class MockRegistration {
 const REGIST_TYPES = new Set<string>([
   'pressRegist', 'recallRegist', 'memorizeRegist', 'toggleRegistMemory', 'setMemorizeGroup', 'clearRegist', 'renameRegist',
   'stepRegistBank', 'selectRegistBank', 'newRegistBank', 'saveRegistBank', 'setFreeze', 'toggleFreeze', 'setFreezeGroup',
-  'setRegistSequence', 'setRegistSequenceOn', 'toggleRegistSequence', 'stepRegistSequence',
+  'setRegistSequence', 'setRegistSequenceOn', 'toggleRegistSequence', 'stepRegistSequence', 'stepRegist',
 ])
 const PLAYLIST_TYPES = new Set<string>([
   'newPlaylist', 'loadPlaylist', 'savePlaylist', 'addPlaylistRecord', 'addCurrentBank', 'addCurrentStyle', 'appendPlaylist',

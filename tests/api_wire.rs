@@ -154,6 +154,7 @@ const EVERY_CMD: &[&str] = &[
     r#"{"type":"setRegistSequenceOn","on":true}"#,
     r#"{"type":"toggleRegistSequence"}"#,
     r#"{"type":"stepRegistSequence","delta":-1}"#,
+    r#"{"type":"stepRegist","delta":1}"#,
     // Playlist
     r#"{"type":"newPlaylist"}"#,
     r#"{"type":"loadPlaylist","path":"lists/Friday.playlist.json"}"#,
