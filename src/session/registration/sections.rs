@@ -4,13 +4,14 @@
 //! A feature adds its own `Registrable` (in its own module, or here) and one line in
 //! `REGISTRABLES`. Its section is its own serde struct under its own key; a recall skips
 //! whatever is not in the groups being recalled (Memorize groups less Freeze), and an old
-//! bank file that lacks the section leaves the feature alone. The Chord Looper and Live
-//! Control add theirs when they are wired in.
+//! bank file that lacks the section leaves the feature alone. Live Control adds its own
+//! when it is wired in.
 //!
 //! Parameter Lock: a recall that sets an item of a Data List lock group (`LockItem`) asks
 //! `c.param_locked(item)` first and leaves the item alone when it is locked.
 
 use super::super::harmony_arp::{harmony_arp_capture, harmony_arp_recall};
+use super::super::looper::{looper_capture, looper_recall};
 use super::super::style_settings::{style_settings_capture, style_settings_recall};
 use super::super::Control;
 use crate::api::{gm_name, ChordCmd, LibraryCmd, LockItem, MultiPadCmd, PartsCmd, StopAcmpMode};
@@ -55,6 +56,9 @@ pub(in crate::session) const REGISTRABLES: &[Registrable] = &[
     // Section Change Timing, Retrigger, Synchro Stop Window, Section Reset, fade times
     // (#107): session/style_settings.rs.
     Registrable { key: "styleSettings", early: false, capture: style_settings_capture, recall: style_settings_recall },
+    // The Chord Looper (#201): session/looper.rs. After the style, so a loop armed by the
+    // recall follows the recalled style.
+    Registrable { key: "chordLooper", early: false, capture: looper_capture, recall: looper_recall },
 ];
 
 fn to_value<T: Serialize>(t: &T) -> Option<Value> {
