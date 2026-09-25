@@ -6,7 +6,8 @@ import { mirror } from '../../lib/mirror.svelte'
 import { app, ui } from '../../lib/store.svelte'
 import Launchkey from '../launchkey/Launchkey.svelte'
 import Parts from './Parts.svelte'
-import { layerText, leftZone, pluginStatusLine } from './parts'
+import { inProcessPending, layerText, leftZone, pluginStatusLine } from './parts'
+import type { PartPlugin, PluginEntry } from '../../lib/api/types'
 import { pluginBadge, pluginTip } from '../mixer/voice'
 
 function setup(demo = true) {
@@ -155,6 +156,24 @@ describe('plugin status', () => {
     expect(session.state.message?.text).toContain('from its next load')
     await fireEvent.click(btn)
     expect(session.state.plugins.list.find((p) => p.id === 'aumu dls  appl')!.inProcess).toBe(false)
+  })
+
+  it('In proc shows ↻ while the playing plugin still runs where it loaded (#176)', () => {
+    const p = { status: 'playing', outOfProcess: true, inProcessFallback: false } as PartPlugin
+    const e = (id: string, inProcess: boolean, format: 'AUv2' | 'AUv3' = 'AUv2') => ({ id, inProcess, format }) as PluginEntry
+    // Turned on while it runs in its own process: pending until the next load.
+    expect(inProcessPending(p, e('aumu Xf2X XFER', true))).toBe(true)
+    expect(inProcessPending({ ...p, outOfProcess: false }, e('aumu Xf2X XFER', true))).toBe(false)
+    // Turned off while it runs in process: its next load goes to its own process.
+    expect(inProcessPending({ ...p, outOfProcess: false }, e('aumu Xf2X XFER', false))).toBe(true)
+    expect(inProcessPending(p, e('aumu Xf2X XFER', false))).toBe(false)
+    // An Apple AUv2 runs in process either way; a fallback is not the override's.
+    expect(inProcessPending({ ...p, outOfProcess: false }, e('aumu dls  appl', false))).toBe(false)
+    expect(inProcessPending({ ...p, outOfProcess: false }, e('aumu Ab3X appl', false, 'AUv3'))).toBe(true)
+    expect(inProcessPending({ ...p, outOfProcess: false, inProcessFallback: true }, e('aumu Xf2X XFER', false))).toBe(false)
+    // Only a playing plugin.
+    expect(inProcessPending({ ...p, status: 'loading' }, e('aumu Xf2X XFER', true))).toBe(false)
+    expect(inProcessPending(p, undefined)).toBe(false)
   })
 
   it('the mixer badge reads out the plugin\'s CPU and its slow renders of the last 10 s', () => {

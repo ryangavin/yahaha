@@ -813,7 +813,7 @@ const catalog = {
   },
   'part.plugin_in_process': {
     title: 'Run in process',
-    body: 'Runs this plugin inside yahaha instead of in its own process: a little less CPU for the lightest plugins, but if the plugin crashes, yahaha goes with it. It is remembered for the plugin and applies from its next load.',
+    body: 'Runs this plugin inside yahaha instead of in its own process: a little less CPU for the lightest plugins, but if the plugin crashes, yahaha goes with it. It is remembered for the plugin and applies from its next load: a part already playing it keeps running where it is, and the button shows ↻ until the plugin loads again (pick it again, or the next start). A plugin preloaded for the Registration bank loads again in the new mode at once.',
     genos: null,
     keys: [],
     launchkey: null,
