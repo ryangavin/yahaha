@@ -867,7 +867,7 @@ mod tests {
             stop_acmp: false, stop_acmp_mode: crate::engine::StopAcmp::Off, half_bar_fill: false, main_presses: 0, transpose: Transpose::default(), played: None, anchor_ns: 0, anchor_beats: 0.0, style_tag: 0,
             style_pending: false, section_bars: 0, audition: None, fade: FadeState::Off, retrigger: false, ritardando: false,
             looper: Default::default(), style_solo: None,
-            multipad: Default::default(), chart_tag: 0, chart_bar: None, chart_override: false,
+            multipad: Default::default(), chart_tag: 0, chart_bar: None, chart_override: false, dynamics: 64,
         }
     }
 

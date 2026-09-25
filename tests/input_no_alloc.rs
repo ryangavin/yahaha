@@ -40,7 +40,7 @@ fn keyboard_note_path_does_not_allocate() {
     for p in 0..3 {
         shared.parts.on[p].store(true, Ordering::Relaxed);
     }
-    let (tx, _rx) = rtrb::RingBuffer::new(256);
+    let (tx, mut rx) = rtrb::RingBuffer::new(256);
     let mut input = Input::new(shared.clone(), Recognizer::new(), tx, Out::new(PacketSink::new(Target::Null), None));
     let (actions, mut actions_rx) = rtrb::RingBuffer::new(64);
     input.set_actions(actions);
@@ -57,8 +57,13 @@ fn keyboard_note_path_does_not_allocate() {
     input.end_of_list();
 
     let (allocs, frees) = (ALLOCS.load(Ordering::Relaxed), FREES.load(Ordering::Relaxed));
-    let mut assigned = 0;
+    let (mut assigned, mut strikes) = (0, 0);
     for round in 0..50u8 {
+        // Dynamics Touch / Accent on in some rounds: chord-section strikes go to the engine.
+        shared.strikes.store(round % 4 < 2, Ordering::Relaxed);
+        while let Ok(c) = rx.pop() {
+            strikes += matches!(c, yahaha::live::Cmd::Strike(_)) as u32;
+        }
         let (function, control_type) = match round % 4 {
             0 => (Function::StartStop, ControlType::HoldA),
             1 => (Function::OtsNext, ControlType::HoldA),
@@ -98,6 +103,7 @@ fn keyboard_note_path_does_not_allocate() {
     assert_eq!(ALLOCS.load(Ordering::Relaxed) - allocs, 0, "the input thread allocated");
     assert_eq!(FREES.load(Ordering::Relaxed) - frees, 0, "the input thread freed");
     assert!(assigned > 0, "OTS + went through the actions ring");
+    assert!(strikes > 0, "chord-section strikes went to the engine");
 }
 
 /// The processor slot: every Harmony type (Strum's late notes and the Echo category go to

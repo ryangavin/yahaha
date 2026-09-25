@@ -823,6 +823,7 @@ pub fn screen_html(style: &Path, out: &Path) -> Result<()> {
         looper: Default::default(),
         style_solo: None,
         multipad: Default::default(),
+        dynamics: crate::engine::DYNAMICS_NEUTRAL,
     });
     // What a live session with the synth and a Launchkey would add.
     let mut st = (*session.state()).clone();

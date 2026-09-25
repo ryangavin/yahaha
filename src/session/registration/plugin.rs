@@ -146,7 +146,8 @@ impl Control {
 
     /// Every pump: once a Memorize's plugin state reads are done, their states go into
     /// the button (and the bank file). A part whose plugin changed since, or a button
-    /// memorized again, is left as it is.
+    /// memorized again, is left as it is; one for a bank that has since been replaced was
+    /// dropped with it (`RegState::replace_bank`).
     pub(super) fn pump_plugin_fill(&mut self, now: u64) {
         let Some(f) = self.reg.plugin_fill.as_mut() else { return };
         if f.since == 0 {

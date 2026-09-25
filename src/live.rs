@@ -12,7 +12,7 @@
 //! equal to its next deadline.
 
 use crate::controllers::{Controllers, Handled};
-use crate::engine::{shift_key, AuditionPos, Button, ChangeRules, ChartPlan, ChartSettings, Engine, PadCmd, Prepared, Snapshot, StyleSettings, Transpose};
+use crate::engine::{shift_key, AuditionPos, Button, ChangeRules, ChartPlan, ChartSettings, DynamicsSettings, Engine, PadCmd, Prepared, Snapshot, StyleSettings, Transpose};
 use crate::multipad::MultiPadPlayer;
 use crate::fingering::{self, Fingering};
 use crate::harmony::{self, HarmonySettings};
@@ -69,6 +69,11 @@ pub enum Cmd {
     Metronome { on: bool, bell: bool },
     /// Multi Pads: press, stop, arm a pad, their settings (`engine/multipad.rs`).
     MultiPad(PadCmd),
+    /// Style Dynamics Control, Touch and Accent settings (engine/dynamics.rs).
+    Dynamics(DynamicsSettings),
+    /// A chord-section key went down with this velocity (sent only while
+    /// `Shared::strikes`): Touch and Accent.
+    Strike(u8),
 }
 
 /// A Multi Pad bank for the engine thread (`AppCmd::LoadMultiPad`): its player, built on
@@ -167,6 +172,9 @@ pub struct Shared {
     pub fx_held: [AtomicU64; 2],
     /// Pedals, wheels and their parts (`controllers.rs`).
     pub controllers: Controllers,
+    /// Dynamics Touch or Accent is on: the input thread sends the engine each chord-section
+    /// strike (`Cmd::Strike`; engine/dynamics.rs).
+    pub strikes: AtomicBool,
     /// The sound library's program map, as the synth and the port read it (#103).
     pub routes: Arc<crate::patches::Routes>,
 }
@@ -206,6 +214,7 @@ impl Shared {
             kbd_fx: AtomicU64::new(FxConfig::default().pack()),
             fx_held: [AtomicU64::new(0), AtomicU64::new(0)],
             controllers: Controllers::new(),
+            strikes: AtomicBool::new(false),
             routes: Arc::new(crate::patches::Routes::new()),
         }
     }
@@ -1368,6 +1377,8 @@ fn apply(engine: &mut Engine, shared: &Shared, cmd: Cmd, now: u64, out: &mut Out
         Cmd::StyleParts(m) => engine.set_style_parts(m, out),
         Cmd::Metronome { on, bell } => engine.set_metronome(on, bell, now),
         Cmd::MultiPad(c) => engine.pad_cmd(c, now, out),
+        Cmd::Dynamics(d) => engine.set_dynamics(d),
+        Cmd::Strike(vel) => engine.strike(vel, now),
         Cmd::KeysOff => {
             // The source's pedal, wheels and pressure went to every keyboard part too, and
             // its releases will never come: with the pedal left down, All Notes Off would
@@ -2492,6 +2503,31 @@ mod detection_area {
         // An inversion is still the chord, with the root as the bass.
         let c = fs(&[4, 7, 12]).unwrap();
         assert_eq!((c.root, c.ty, c.bass), (0, 0, None));
+    }
+
+    /// Dynamics Touch / Accent (engine/dynamics.rs): with `Shared::strikes` on, each key
+    /// struck in the chord section goes to the engine with its velocity; the other hand's
+    /// keys, and every key while the Chord Looper loops, do not.
+    #[test]
+    fn chord_section_strikes_go_to_the_engine() {
+        let strikes = |r: &mut Rig| -> Vec<u8> {
+            std::iter::from_fn(|| r.cmds.pop().ok()).filter_map(|c| if let Cmd::Strike(v) = c { Some(v) } else { None }).collect()
+        };
+        for upper in [false, true] {
+            let mut r = rig(upper);
+            let (chord_key, other) = if upper { (72, 36) } else { (36, 72) };
+            r.input.key_msg(&[0x90, chord_key, 90]);
+            assert!(strikes(&mut r).is_empty(), "off by default");
+            r.off(&[chord_key]);
+            r.shared.strikes.store(true, Relaxed);
+            r.input.key_msg(&[0x90, chord_key, 90]);
+            r.input.key_msg(&[0x90, other, 120]);
+            assert_eq!(strikes(&mut r), [90], "upper: {upper}");
+            r.off(&[chord_key, other]);
+            r.shared.looping.store(true, Relaxed);
+            r.input.key_msg(&[0x90, chord_key, 90]);
+            assert!(strikes(&mut r).is_empty(), "no chord section while the loop plays");
+        }
     }
 
     /// Lower (default): the left hand is the chord section and sounds on the LH channel.

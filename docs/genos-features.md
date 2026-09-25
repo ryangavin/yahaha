@@ -169,6 +169,16 @@ Tags: `[chord-following]` `[transport]` `[sections]` `[voices]` `[registration]`
 - **Settings:** Style Setting → "Dynamics Control" decides whether the Style can be controlled by the "Dynamics Control" Live Control or Assignable function at all.
 - **Default controller:** Knob Assign Type 2, knob 3. OM p.69 says it sets Style volume "depending on playing strength", so a velocity-responsive reading is possible.
 - **(Not specified):** the exact mapping from control value to Style intensity. Genos1 offered Off/Narrow/Medium/Wide.
+- **yahaha (#180, `src/engine/dynamics.rs`):**
+  - **Level.** A level from 0 to 127 scales the velocity of every Style note-on, on all eight parts. The factor is ×0.35 at 0, ×1 at 64 (as written) and ×1.6 at 127, with the result clamped to 1–127.
+    - Scaling velocity rather than volume changes intensity, as the manual describes. CC7 is never touched.
+    - With Dynamics Control off, the Style plays as written.
+  - **Touch** (reading OM p.69 literally). Each strike in the chord section sets the level to its velocity minus 36, so a strike at velocity 100 plays the Style as written.
+  - **Accent** (a stand-in for the PSR-SX Unison & Accent, §C.9). A chord-section strike at or above the threshold (default 110) makes the Main that is playing play its own fill from the next beat, as Fill Self does.
+    - It is not a Main press, so OTS Link does not follow it.
+    - It does nothing during an Intro, a fill, a break or an Ending, or while a change is queued.
+  - **Storage.** System settings, not Registration (DL p.91: Dynamics Control is System only).
+  - **Defaults.** Dynamics Control on, level 64, Touch off, Accent off.
 - **Ref:** OM p.11, p.69; RM p.11, p.142, p.147
 
 ### Ambience Depth `[mixer]`
@@ -944,6 +954,7 @@ With NTR = Guitar:
   - FM voice 2/4 Unison mode (RM p.55).
   - Style Creator "Dynamics / Accent Type" (an editor feature, RM p.27).
 - If yahaha wants Unison & Accent, the spec must come from another source.
+- **Corpus (#180).** 0 of 208 styles carry any Unison & Accent data. The only chunks present are MThd, MTrk, CASM, OTSc and FNRc, and the only markers are the standard section markers. yahaha therefore cannot play Yamaha's accent figures. Its Accent plays the Main's own fill instead (see Style Dynamics Control).
 
 ### C.10 Chord identity numbering (MIDI Chord SysEx and Song chord meta)
 - **Chord SysEx:** `F0 43 7E 02 cr ct bn bt F7`. The same data appears in the Song meta event `FF 7F 07 43 7B 01 cr ct bn bt`.
