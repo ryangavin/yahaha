@@ -433,6 +433,11 @@ each file on the board. In order:
 
 ### 4. Registration Memory
 
+As built (#104): `VoiceRef::Plugin` in the `parts` registrable, and a warm pool of at most 8
+instances keyed by (plugin id, state) rather than (button, part), refilled after each recall
+(docs/registration.md). Retired instances are not recycled into the pool yet. The design as
+first planned:
+
 - A Registration stores each part's `VoiceRef` (plugin id, version, name, base64 state,
   trim). Sizes seen: 1-23 KB per part.
 - **Recall must never load.** When a Registration bank is selected, the Session preloads

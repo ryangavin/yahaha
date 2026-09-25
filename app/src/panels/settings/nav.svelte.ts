@@ -4,7 +4,7 @@
 
 import type { TipKey } from '../../help/tooltips'
 
-export type SettingsTab = 'chord' | 'split' | 'transpose' | 'style' | 'pedals' | 'audio' | 'midi' | 'library'
+export type SettingsTab = 'chord' | 'split' | 'transpose' | 'style' | 'pedals' | 'lock' | 'audio' | 'midi' | 'library'
 
 export const TABS: { id: SettingsTab; label: string; tip: TipKey; genos: string | null }[] = [
   { id: 'chord', label: 'Chord', tip: 'settings.tab.chord', genos: 'Split & Fingering' },
@@ -12,6 +12,7 @@ export const TABS: { id: SettingsTab; label: string; tip: TipKey; genos: string 
   { id: 'transpose', label: 'Transpose', tip: 'settings.tab.transpose', genos: 'Transpose' },
   { id: 'style', label: 'Style', tip: 'settings.tab.style', genos: 'Style Setting' },
   { id: 'pedals', label: 'Pedals', tip: 'settings.tab.controllers', genos: 'Assignable, Controller' },
+  { id: 'lock', label: 'Lock', tip: 'settings.tab.lock', genos: 'Utility › Parameter Lock' },
   { id: 'audio', label: 'Audio', tip: 'settings.tab.audio', genos: null },
   { id: 'midi', label: 'MIDI', tip: 'settings.tab.midi', genos: 'MIDI' },
   { id: 'library', label: 'Library', tip: 'settings.tab.library', genos: null },

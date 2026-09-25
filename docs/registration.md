@@ -123,6 +123,13 @@ has underneath. (session/registration/plugin.rs)
   plays that plugin with that state is left alone (nothing reloads). A plugin that isn't
   installed, or a build without the plugin host, leaves the part on the stored GM voice, and
   the recall says so.
+- **Warm preload.** Selecting a bank (or changing one) preloads the plugin voices its
+  buttons play, with their stored states, on `plugin-load` threads (session/plugin_pool.rs):
+  each voice as many times as one button plays it, in button order, at most 8 instances. A
+  recall then hands a preloaded instance to the rack at the next pump instead of loading;
+  the pool refills after a recall, and lets go of what the bank no longer plays (instances
+  are disposed of on `plugin-dispose`). Past 8, a button's plugin loads when pressed and the
+  part shows Loading. A preload that fails isn't retried until the bank changes.
 - A **GM voice** recalled on a part ends its Plugins-tab plugin. A plugin that the part's own
   library patch plays is not stored as a plugin voice: the `patch` is, and its recall brings
   the plugin back.

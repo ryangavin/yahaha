@@ -32,7 +32,7 @@ describe('Settings drawer', () => {
   it('groups the pages like the Genos menus, one visible at a time', async () => {
     setup()
     const tabs = [...document.querySelectorAll('[role="tab"]')].map((t) => t.textContent?.trim())
-    expect(tabs).toEqual(['Chord', 'Split', 'Transpose', 'Style', 'Pedals', 'Audio', 'MIDI', 'Library'])
+    expect(tabs).toEqual(['Chord', 'Split', 'Transpose', 'Style', 'Pedals', 'Lock', 'Audio', 'MIDI', 'Library'])
     expect(page('chord').hidden).toBe(false)
     expect(page('audio').hidden).toBe(true)
     await fireEvent.click(q('#settings-tab-audio'))
@@ -47,6 +47,22 @@ describe('Settings drawer', () => {
     expect(nav.tab).toBe('library')
     await fireEvent.keyDown(q('#settings-tab-library'), { key: 'ArrowRight' })
     expect(nav.tab).toBe('chord')
+  })
+
+  it('Lock page: a toggle per Parameter Lock group, wired to setParamLock', async () => {
+    const s = setup()
+    await fireEvent.click(q('#settings-tab-lock'))
+    expect(page('lock').hidden).toBe(false)
+    const split = page('lock').querySelector<HTMLElement>('[data-tip="settings.param_lock_split_point"]')!
+    const fing = page('lock').querySelector<HTMLElement>('[data-tip="settings.param_lock_fingering_type"]')!
+    expect(split.getAttribute('aria-checked')).toBe('false')
+    await fireEvent.click(split)
+    expect(s.state.paramLocks).toEqual({ splitPoint: true, fingeringType: false })
+    expect(split.getAttribute('aria-checked')).toBe('true')
+    await fireEvent.click(fing)
+    await fireEvent.click(split)
+    expect(s.state.paramLocks).toEqual({ splitPoint: false, fingeringType: true })
+    expect(fing.textContent?.trim()).toBe('Locked')
   })
 
   it('has no Save button: every control applies at once', () => {
