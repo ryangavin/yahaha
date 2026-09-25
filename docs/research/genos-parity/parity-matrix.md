@@ -22,8 +22,8 @@ Ranked across topics; P1 first. Each is sized for one small PR (see the row).
 |---|---|---|---|
 | 1 | [chord/ai-fingered-bass](#chord-following) | AI Fingered (the type presenters recommend) loses slash and walking-bass chords: C then B+C stays C, not C/B | P1 |
 | 2 | [tempo/tap-start](#transport-and-tempo) | Counting the band in with TAP TEMPO does nothing: the style never starts | P1 |
-| 3 | [feel/dynamics-control](#style-feel-and-dynamics) | The Genos2 headline feature: engine and API are on develop, but no knob, pedal or UI reaches it | P1 |
-| 4 | [control/knob-pages](#live-control-mixer-and-balance) | The Launchkey's 8 encoders do nothing; the Genos knobs carry Dynamics, Track Mute, Retrigger, filters | P1 |
+| 3 | [pads/launchkey + pads/level](#multi-pads-harmony-songs) | Multi Pads can't be played from the Launchkey, and there is no one level to sit them against the style | P1 |
+| 4 | [control/knob-pages](#live-control-mixer-and-balance) | The Launchkey's 8 encoders do nothing; on the Genos the knobs carry Dynamics Control (now on develop, but only in Settings and on a pedal), Track Mute, Retrigger, filters | P1 |
 | 5 | [mixer/pan-sends + ots/recall-contents](#live-control-mixer-and-balance) | OTS and Registration drop each part's pan, reverb and chorus; no per-part pan/send control | P1 |
 | 6 | [mixer/style-balance](#live-control-mixer-and-balance) | No single fader for band-vs-hands balance (Genos Balance page: Style, M.Pad, parts) | P1 |
 | 7 | [registration/pedal-sequence](#ots-and-registration) | Foot-switch registration changes (Regist ±) are how players move through a song hands-free | P1 |
@@ -31,8 +31,7 @@ Ranked across topics; P1 first. Each is sized for one small PR (see the row).
 | 9 | [split/left-hold](#chord-following) | Left voice can't sustain after the left hand lets go | P1 |
 | 10 | [feel/stiff-grooves](#style-feel-and-dynamics) | Owner's #127 "stiff": timing is exact, so it is timbre (no velocity→filter on SoundFonts, one sample per hit) | P1 |
 
-Close behind: tempo reset/auto-repeat (P1, tiny), Multi Pads on the Launchkey and a
-Multi Pad master level (P1), Keyboard transpose with a chord held (P1 if a Genos
+Close behind: tempo reset/auto-repeat (P1, tiny), Keyboard transpose with a chord held (P1 if a Genos
 confirms the video), fill late-press allowance (P1 if a Genos has one), and the ACMP
 on/off switch (P2 on this pass's evidence: the manuals describe it, but no video used it).
 
@@ -131,7 +130,7 @@ the caption downloads during this pass (see the Run log).
 
 | Concept | Genos behaviour | yahaha today | Gap | Pri | Next step |
 |---|---|---|---|---|---|
-| feel/dynamics-control | A live control (knob 3 of Type 2, or an expression pedal; not a button) that changes how hard every Style part plays, all sections; shades energy inside a Main while A–D stay the coarse steps; a System on/off gate. OM p.11, p.69; RM p.11, p.139, p.142, p.147; DL p.91; [dynamics V1 00:47–01:17, V3] | Engine (#184, velocity ×0.35–×1.6 on all Style note-ons, CC7 untouched) and API (#189) on develop; no UI, knob or pedal yet | Not reachable by a player | P1 | Finish #180 part 3 (UI) + a continuous "Dynamics Control" pedal function + knob page. [note](notes/dynamics.md) |
+| feel/dynamics-control | A live control (knob 3 of Type 2, or an expression pedal; not a button) that changes how hard every Style part plays, all sections; shades energy inside a Main while A–D stay the coarse steps; a System on/off gate. OM p.11, p.69; RM p.11, p.139, p.142, p.147; DL p.91; [dynamics V1 00:47–01:17, V3] | Engine (#184: velocity ×0.35–×1.6 on all Style note-ons, CC7 untouched), API (#189), pedal function (#190), Settings › Style controls (#192) on develop; no Launchkey knob | Not on a knob, so not a hands-on live control yet | P1 | Covered by control/knob-pages (knob 3 = Dynamics). [note](notes/dynamics.md) |
 | feel/dynamics-touch | OM p.69 says style volume follows playing strength; RM and all videos show a hand-set control (*conflict*, manual vs manual) | Touch mode (#180), off by default | none; document Touch as a yahaha extension | – | Note it in genos-features.md §1 |
 | feel/dynamics-curve | Curve unspecified; reviewers disagree on range [style-feel V2 05:54 vs V1 17:41] | ×0.35–×1.6, the same for every part | Unverified; flat timbre on SoundFonts | P2 | Owner A/B against a Genos2 recording |
 | feel/stiff-grooves | Genos realism is timbral: per-hit drum sample variation, sampled room (Ambient Drums), velocity → tone, live Dynamics. OM p.52; [style-feel V2 05:54–06:45] | Timing tick-exact, velocities unchanged (#127); SF2 kits one sample per zone; rustysynth ignores velocity→filter modulators | "Stiff" is most likely timbre | P1 | Give rustysynth the SF2 default velocity→filter modulator; Dynamics on a knob; suggest a round-robin plugin kit. [note](notes/style-feel.md) |
@@ -175,7 +174,7 @@ the caption downloads during this pass (see the Run log).
 - **Sources:** 84 videos chosen (listed in the notes' Sources tables), 53
   transcripts fetched and read, 45 stills viewed. All of these stay in the
   private folder. Every row was checked against the Genos2 OM/RM and the Genos
-  Data List, and against yahaha's docs and code on `develop` at `3eab26b`.
+  Data List, and against yahaha's docs and code on `develop` (`3eab26b`, then rebased on `3321f15`).
 - **Rate limit:** YouTube returned HTTP 429 on captions after about ten
   downloads, and the limit came and went for the rest of the pass. The flow now
   fetches in a background loop while the workers start on the manuals and code,
@@ -190,7 +189,7 @@ the caption downloads during this pass (see the Run log).
     changes from a pedal, no knob pages, OTS dropping pan and effects, band
     balance and Multi Pad levels.
   - The ACMP switch went down to P2: no video used it.
-  - Dynamics Control is half built (#180 engine and API).
+  - Dynamics Control landed on develop during the pass (#184, #189, #190, #192); only a knob is missing.
   - #127's "stiff" is most likely timbre.
   - #129 (Ending I short) is supported as by design.
   - README "Known gaps" is stale: it still lists ritardando and OTS voices,

@@ -54,7 +54,7 @@ The title says outright that he drives Dynamics Control from an FC-7 expression 
 
 ## yahaha today
 
-- **This branch (`main`):** nothing. There is no dynamics code.
+- **Update at the end of the pass:** everything below "Not reachable yet" landed on `develop` while this pass ran: the API (#189), a "Dynamics Control" foot-controller function (#190), and the Settings › Style controls with TUI/app keys (#192). What is still missing is a Launchkey knob (yahaha doesn't read the encoders yet), which the matrix folds into `control/knob-pages`.
 - **`develop` (PR #184, merged 2026-09-25):** `src/engine/dynamics.rs`.
   - A level 0–127 (64 plays the Style as written) scales the velocity of **every Style note-on on all eight parts**, from ×0.35 at 0 to ×1.6 at 127, clamped to 1–127 so no note drops out.
   - It is applied in `note_on` (`src/engine/playback.rs`), so it covers Intros, Fills and Endings. That matches V1.
