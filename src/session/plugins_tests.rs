@@ -79,7 +79,7 @@ fn a_keyboard_part_plays_an_audio_unit() {
     s.midi_in(Port::Keys, &[0x80, 72, 0]);
     // Its state saves and loads back into a fresh instance.
     s.send(PluginCmd::SavePartPluginState { part: 0 }).unwrap();
-    let saved = s.inner.lock().part_plugin_voice(0).unwrap();
+    let saved = wait_saved(&s, 0);
     assert!(saved.1.as_ref().is_some_and(|b| b.len() > 100), "a state blob");
     s.send(PluginCmd::SetPartPlugin { part: 0, id: saved.0, state: saved.1 }).unwrap();
     assert_eq!(wait_playing(&s, 0), PluginStatus::Playing, "restored with its state");
@@ -123,6 +123,47 @@ fn the_soundfont_voice_hands_over_to_the_plugin() {
     let (l, r) = s.render(4800);
     let after = energy(&l, &r);
     assert!(after <= before, "only the plugin plays the part's notes (the tail only decays): {after} after, {before} before");
+}
+
+/// Pump until the part's plugin voice has a state (it is read on a thread of its own).
+fn wait_saved(s: &Session, part: usize) -> (String, Option<String>) {
+    let t0 = Instant::now();
+    loop {
+        s.advance(1_000_000);
+        let v = s.inner.lock().part_plugin_voice(part).unwrap();
+        if v.1.is_some() || t0.elapsed() > Duration::from_secs(10) {
+            return v;
+        }
+        std::thread::sleep(Duration::from_millis(2));
+    }
+}
+
+/// `savePartPluginState` reads the state off the control thread (#104 review item 5):
+/// the command returns before the state is read, and a state read from an instance the part
+/// no longer plays is not saved as the new one's.
+#[test]
+fn a_plugin_state_is_read_off_the_control_thread() {
+    let Some(s) = session() else { return };
+    s.offline_audio(None, 48_000).unwrap();
+    s.send(PluginCmd::SetPartPlugin { part: 0, id: DLS.into(), state: None }).unwrap();
+    assert_eq!(wait_playing(&s, 0), PluginStatus::Playing);
+    s.send(PluginCmd::SavePartPluginState { part: 0 }).unwrap();
+    assert!(!s.inner.lock().plugins.state_reads.is_empty(), "the read runs on a thread");
+    assert!(wait_saved(&s, 0).1.is_some_and(|b| b.len() > 100), "and lands at a pump");
+    // A read of the old instance, then the part loads a new one: the read is dropped.
+    s.send(PluginCmd::SetPartPlugin { part: 1, id: DLS.into(), state: None }).unwrap();
+    assert_eq!(wait_playing(&s, 1), PluginStatus::Playing);
+    s.send(PluginCmd::SavePartPluginState { part: 1 }).unwrap();
+    s.send(PluginCmd::SetPartPlugin { part: 1, id: DLS.into(), state: None }).unwrap();
+    assert_eq!(wait_playing(&s, 1), PluginStatus::Playing);
+    let t0 = Instant::now();
+    while !s.inner.lock().plugins.state_reads.is_empty() && t0.elapsed() < Duration::from_secs(10) {
+        s.advance(1_000_000);
+        std::thread::sleep(Duration::from_millis(2));
+    }
+    assert_eq!(s.inner.lock().part_plugin_voice(1).unwrap().1, None, "the old instance's state is not the new one's");
+    // No plugin: an error at once, nothing read.
+    assert!(s.send(PluginCmd::SavePartPluginState { part: 2 }).is_err());
 }
 
 fn saved_id(s: &Session, part: usize) -> Option<String> {
@@ -323,7 +364,7 @@ fn a_plugin_patch_plays_on_a_keyboard_part() {
     s.send(PluginCmd::SetPartPlugin { part: 1, id: DLS.into(), state: None }).unwrap();
     assert_eq!(wait_playing(&s, 1), PluginStatus::Playing);
     s.send(PluginCmd::SavePartPluginState { part: 1 }).unwrap();
-    let state = s.inner.lock().part_plugin_voice(1).unwrap().1.unwrap();
+    let state = wait_saved(&s, 1).1.unwrap();
     s.send(PluginCmd::ClearPartPlugin { part: 1 }).unwrap();
     let fields = PatchFields {
         name: "DLS Keys".into(),
