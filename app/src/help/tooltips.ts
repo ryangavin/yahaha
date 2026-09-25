@@ -460,7 +460,7 @@ const catalog = {
   },
   'fingering.ai_fingered': {
     title: 'AI Fingered',
-    body: 'Like Fingered, but fewer than three keys can still give a chord, guessed from the chord before.',
+    body: 'Like Fingered, but fewer than three keys can still give a chord, guessed from the chord before. The lowest key is the bass: hold a chord note and add a key below it for a slash chord (C, then B+C is C/B).',
     genos: 'AI Fingered',
     keys: [],
     launchkey: pad(P2, 'top', 5),
