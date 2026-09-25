@@ -703,3 +703,42 @@ fn a_soundfont_sound_from_the_browser_ends_a_picked_plugin() {
     ended(2, "saved sound");
     let _ = std::fs::remove_dir_all(&data);
 }
+
+/// #179: selecting a GM voice replaces the part's voice, as on the Genos: Voice −/+ (the
+/// Launchkey's and the terminal UI's `stepVoice`), a voice picked by number
+/// (`setPartVoice`) and a One Touch Setting that gives the part a voice each end a plugin
+/// picked for the part, and it is no longer saved to come back.
+#[test]
+fn a_gm_voice_selection_ends_a_picked_plugin() {
+    use crate::api::OtsCmd;
+    let Some(s) = session() else { return };
+    s.offline_audio(None, 48_000).unwrap();
+    wait_scanned(&s);
+    let pick = |part: usize| {
+        s.send(PluginCmd::SetPartPlugin { part: part as u8, id: DLS.into(), state: None }).unwrap();
+        assert_eq!(wait_playing(&s, part), PluginStatus::Playing);
+        assert_eq!(saved_id(&s, part).as_deref(), Some(DLS));
+    };
+    let ended = |part: usize, what: &str| {
+        s.advance(1_000_000);
+        assert!(s.state().keyboard_parts[part].plugin.is_none(), "{what}: the plugin ended");
+        assert_eq!(saved_id(&s, part), None, "{what}: and is not saved to come back");
+    };
+    // Voice −/+ on the selected part.
+    pick(1);
+    s.send(PartsCmd::SelectPart { part: 1 }).unwrap();
+    let was = s.state().keyboard_parts[1].program;
+    s.send(PartsCmd::StepVoice { delta: 1 }).unwrap();
+    assert_ne!(s.state().keyboard_parts[1].program, was, "Voice + steps the voice");
+    ended(1, "Voice +");
+    // A voice picked by number.
+    pick(2);
+    s.send(PartsCmd::SetPartVoice { part: 2, program: 40 }).unwrap();
+    ended(2, "setPartVoice");
+    // A One Touch Setting that gives the part a voice.
+    let ots = s.inner.lock().info.ots.iter().enumerate().find_map(|(i, o)| o.parts.iter().position(|q| q.voice.is_some_and(|v| v.0 < 126)).map(|p| (i, p)));
+    let Some((i, p)) = ots else { panic!("SlowWalker has a One Touch Setting with a voice") };
+    pick(p);
+    s.send(OtsCmd::RecallOts { index: i as u8 }).unwrap();
+    ended(p, "One Touch Setting");
+}
