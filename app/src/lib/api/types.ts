@@ -178,6 +178,33 @@ export type AppCmd =
   | HarmonyArpCmd
   // Parameter Lock: groups that Registration, OTS and Playlist recalls leave alone.
   | { type: 'setParamLock'; item: LockItem; on: boolean }
+  // Style Dynamics Control, Touch and Accent (#180): see DynamicsState below.
+  | DynamicsCmd
+
+/** Style Dynamics Control, Touch and Accent (#180; docs/app-api.md › Style Dynamics). */
+export type DynamicsCmd =
+  | { type: 'setDynamicsControl'; on: boolean }
+  | { type: 'setDynamics'; level: number }
+  | { type: 'stepDynamics'; delta: number }
+  | { type: 'setDynamicsTouch'; on: boolean }
+  | { type: 'toggleDynamicsTouch' }
+  | { type: 'setAccent'; on: boolean }
+  | { type: 'toggleAccent' }
+  | { type: 'setAccentThreshold'; velocity: number }
+
+/** Style Dynamics: System settings, not in Registration. */
+export interface DynamicsState {
+  /** Style Setting › Dynamics Control: the level acts on the Style. */
+  control: boolean
+  /** The level in effect, 0-127 (64: as written); Touch moves it. */
+  level: number
+  /** Chord-section strikes set the level. */
+  touch: boolean
+  /** A hard chord-section strike plays the Main's fill. */
+  accent: boolean
+  /** The Accent threshold (velocity 1-127). */
+  accentThreshold: number
+}
 
 /** A Parameter Lock group (the Genos Data List's lock groups that yahaha has). */
 export type LockItem = 'splitPoint' | 'fingeringType'
@@ -868,6 +895,8 @@ export interface AppState {
   paramLocks: ParamLockState
   /** The sound catalog's summary (#117); the list is `session.sounds()`. */
   sounds: SoundsState
+  /** Style Dynamics Control, Touch and Accent (#180). */
+  dynamics: DynamicsState
 }
 
 // ── Instrument plugins (docs/plugin-hosting.md) ──────────────────────────

@@ -32,6 +32,7 @@ mod chart;
 mod chord;
 mod controllers;
 mod devices;
+mod dynamics;
 mod harmony_arp;
 mod keyboard;
 mod leds;
@@ -298,6 +299,9 @@ struct Control {
     looper: looper::LooperCtl,
     /// Metronome settings.
     metronome: metronome::MetronomeCtl,
+    /// Style Dynamics Control, Touch and Accent (session/dynamics.rs); the level in effect
+    /// is the snapshot's.
+    dynamics: crate::engine::DynamicsSettings,
     /// Multi Pad banks to the engine thread, and replaced players back to free here.
     pad_tx: Producer<live::PadBank>,
     old_pad_rx: Consumer<Box<crate::multipad::MultiPadPlayer>>,
@@ -377,6 +381,7 @@ impl Control {
             AppCmd::SoundLibrary(c) => self.sound_library_cmd(c),
             AppCmd::ParamLock(c) => self.param_lock_cmd(c),
             AppCmd::Sounds(c) => self.sounds_cmd(c),
+            AppCmd::Dynamics(c) => self.dynamics_cmd(c),
         }
     }
 
@@ -494,6 +499,7 @@ impl Control {
             sound_library: self.sound_library_state(),
             param_locks: self.param_lock_state(),
             sounds: self.sounds_state(),
+            dynamics: self.dynamics_state(),
         }
     }
 }
@@ -680,6 +686,7 @@ fn assemble(opts: &Options, engine_out: live::Out, input_out: live::Out, offline
         harmony_arp: live::FxConfig::default(),
         sound,
         sounds: sounds::Sounds::open(sound_set.file()),
+        dynamics: Default::default(),
         sound_set,
     };
     let mut control = control;

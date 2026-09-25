@@ -2040,5 +2040,12 @@
     "count": 0,
     "scanning": false,
     "auditioning": null
+  },
+  "dynamics": {
+    "control": true,
+    "level": 64,
+    "touch": false,
+    "accent": false,
+    "accentThreshold": 110
   }
 }
