@@ -17,6 +17,18 @@ impl<'a> RegionPair<'a> {
         Self { preset, instrument }
     }
 
+    /// yahaha: how far the note-on velocity moves the filter cutoff, in cents: the
+    /// instrument's velocity -> filter modulators (the SF2 default unless it replaces it)
+    /// plus the preset's. No allocation.
+    pub(crate) fn velocity_to_filter_cents(&self, velocity: i32) -> f32 {
+        self.instrument
+            .velocity_to_filter
+            .iter()
+            .chain(self.preset.velocity_to_filter.iter())
+            .map(|m| m.velocity_value(velocity))
+            .sum()
+    }
+
     fn gs(&self, i: usize) -> i32 {
         self.preset.gs[i] as i32 + self.instrument.gs[i] as i32
     }

@@ -2,12 +2,16 @@
 //! SF2 2.01 default modulator "note-on velocity to initial filter cutoff" (-2400 cents,
 //! negative concave), so a soft hit is darker than a hard hit on the same note.
 //!
+//! A SoundFont's own velocity -> filter modulators count too: one that switches the default
+//! off (amount 0, as Polyphone and FluidSynth write it) leaves the tone alone, and one of
+//! its own adds to it.
+//!
 //! The SoundFont is built here in memory: one preset whose only sample is white noise, so
 //! the filter's effect shows directly in the high-frequency share of the output. No
 //! SoundFont file is needed.
 
 use std::sync::Arc;
-use yahaha_test_font::noise_font;
+use yahaha_test_font::{noise_font, noise_font_with};
 
 use rustysynth::{SoundFont, Synthesizer, SynthesizerSettings};
 
@@ -88,6 +92,44 @@ fn a_soft_hit_keeps_its_length_and_most_of_its_level() {
     assert!(db > -3.0 && db <= 0.1, "level changed by {db:.2} dB");
 }
 
+/// A modulator record: source, destination (8 = initial filter cutoff), amount, amount
+/// source, transform.
+fn modulator(src: u16, dest: u16, amount: i16, amount_src: u16) -> [u8; 10] {
+    let mut m = [0u8; 10];
+    m[0..2].copy_from_slice(&src.to_le_bytes());
+    m[2..4].copy_from_slice(&dest.to_le_bytes());
+    m[4..6].copy_from_slice(&amount.to_le_bytes());
+    m[6..8].copy_from_slice(&amount_src.to_le_bytes());
+    m
+}
+
+#[test]
+fn a_soundfont_can_switch_the_default_off() {
+    // What 1,234 Arachno zones and 549 MuseScore_General zones carry: velocity (linear,
+    // negative) -> cutoff, amount source a velocity switch, amount 0.
+    let font = noise_font_with(&[modulator(0x0102, 8, 0, 0x0D02)], &[]);
+    let hard = brightness(&hit(&font, 127, true)[..HELD]);
+    let soft = brightness(&hit(&font, 32, true)[..HELD]);
+    assert!((soft / hard - 1.0).abs() < 0.01, "switched off: soft {soft:.4} vs hard {hard:.4}");
+}
+
+#[test]
+fn a_presets_own_modulator_adds_to_the_default() {
+    // A preset-level velocity (linear, negative) -> cutoff of -3600 cents, as on many
+    // MuseScore_General presets: much darker again than the default alone.
+    let own = noise_font_with(&[], &[modulator(0x0102, 8, -3600, 0)]);
+    let plain = noise_font();
+    let with_own = brightness(&hit(&own, 32, true)[..HELD]);
+    let default_only = brightness(&hit(&plain, 32, true)[..HELD]);
+    assert!(with_own < default_only * 0.7, "own {with_own:.4} vs default {default_only:.4}");
+    // Not at full velocity: linear negative is 0 there.
+    assert_eq!(hit(&own, 127, true), hit(&plain, 127, true));
+    // Other destinations and sources stay ignored, as upstream: velocity -> attenuation
+    // (48) and key -> cutoff (source 3) change nothing.
+    let foreign = noise_font_with(&[modulator(0x0502, 48, 800, 0), modulator(0x0003, 8, 2400, 0)], &[]);
+    assert_eq!(hit(&foreign, 32, true), hit(&plain, 32, true));
+}
+
 /// A tiny SoundFont in memory: preset 0:0 plays one second of white noise, root key 60.
 mod yahaha_test_font {
     use super::*;
@@ -121,6 +163,11 @@ mod yahaha_test_font {
     }
 
     pub fn noise_font() -> Arc<SoundFont> {
+        noise_font_with(&[], &[])
+    }
+
+    /// With these modulators on its instrument zone and its preset zone.
+    pub fn noise_font_with(imods: &[[u8; 10]], pmods: &[[u8; 10]]) -> Arc<SoundFont> {
         const LEN: u32 = 48_000;
         // A fixed LCG, so every run renders the same noise.
         let mut seed = 0x1234_5678u32;
@@ -144,15 +191,17 @@ mod yahaha_test_font {
         };
         let mut phdrs = phdr("noise", 0, 0);
         phdrs.extend(phdr("EOP", 0, 1));
-        let pbag = u16s(&[0, 0, 1, 0]);
-        let pmod = vec![0u8; 10];
+        let pbag = u16s(&[0, 0, 1, pmods.len() as u16]);
+        let mut pmod: Vec<u8> = pmods.concat();
+        pmod.extend([0u8; 10]);
         let pgen = u16s(&[41, 0, 0, 0]); // instrument 0, then the terminator
         let mut inst = name("noise");
         inst.extend(u16s(&[0]));
         inst.extend(name("EOI"));
         inst.extend(u16s(&[1]));
-        let ibag = u16s(&[0, 0, 1, 0]);
-        let imod = vec![0u8; 10];
+        let ibag = u16s(&[0, 0, 1, imods.len() as u16]);
+        let mut imod: Vec<u8> = imods.concat();
+        imod.extend([0u8; 10]);
         let igen = u16s(&[53, 0, 0, 0]); // sample 0, then the terminator
         let shdr_rec = |n: &str, start: u32, end: u32, rate: u32, pitch: u8| {
             let mut v = name(n);

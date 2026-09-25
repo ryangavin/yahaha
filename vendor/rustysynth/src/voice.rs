@@ -78,26 +78,13 @@ pub(crate) struct Voice {
     // This is used to smooth out the cutoff frequency.
     smoothed_cutoff: f32,
 
-    // yahaha: apply the SF2 default velocity -> filter cutoff modulator (settings).
+    // yahaha: apply velocity -> filter cutoff modulators (`SynthesizerSettings`).
     velocity_to_filter: bool,
 
     voice_state: VoiceState,
     /// Time elapsed in samples
     voice_length: usize,
     min_voice_length: usize,
-}
-
-/// yahaha: the SF2 2.01 default modulator "MIDI note-on velocity to initial filter cutoff"
-/// (section 8.4.2): source 0x0502 (note-on velocity, unipolar, negative, concave), amount
-/// -2400 cents. The negative concave curve of velocity v is -(40/96)*log10(v/127), clamped
-/// to 0..1 (the same curve as the default velocity -> attenuation modulator, which
-/// `note_gain` already follows), so the cutoff drops by 1000*log10(v/127) cents: 0 at 127,
-/// about -300 at 64, -600 at 32, down to -2400. Upstream rustysynth reads no modulators.
-/// Pure arithmetic: it runs in `start`, on the audio thread.
-pub(crate) fn velocity_to_filter_cents(velocity: i32) -> f32 {
-    let v = velocity.clamp(1, 127) as f32 / 127_f32;
-    let curve = (-(40_f32 / 96_f32) * v.log10()).clamp(0_f32, 1_f32);
-    -2400_f32 * curve
 }
 
 impl Voice {
@@ -164,9 +151,15 @@ impl Voice {
         }
 
         self.cutoff = region.get_initial_filter_cutoff_frequency();
+        // yahaha: velocity -> filter cutoff (the SF2 default modulator and the SoundFont's
+        // own, modulator.rs). Not below the spec's lowest cutoff (1500 cents, 19.45 Hz).
         if self.velocity_to_filter && velocity > 0 {
-            self.cutoff *=
-                SoundFontMath::cents_to_multiplying_factor(velocity_to_filter_cents(velocity));
+            let cents = region.velocity_to_filter_cents(velocity);
+            if cents != 0_f32 {
+                let floor = self.cutoff.min(19.45_f32);
+                self.cutoff =
+                    (self.cutoff * SoundFontMath::cents_to_multiplying_factor(cents)).max(floor);
+            }
         }
         self.resonance = SoundFontMath::decibels_to_linear(region.get_initial_filter_q());
 
