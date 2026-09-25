@@ -24,7 +24,7 @@ On launch:
 
 Play a chord left of **F#2** (Yamaha numbering, C3 = middle C) and the band starts.
 
-The built-in synth uses the first `.sf2` file in `soundfonts/` (GeneralUser GS, downloaded separately; it's not in git). It plays on your default audio output with a 64-frame buffer (about 1.3 ms at 48 kHz).
+Every `.sf2` file in `soundfonts/` is a source of sounds. The built-in synth's default sound set (Settings › Audio) is the most complete General MIDI one there, unless you pick another. Put at least one General MIDI font there, for example GeneralUser GS (downloaded separately; SoundFonts are not in git). It plays on your default audio output with a 64-frame buffer (about 1.3 ms at 48 kHz).
 - **Keyboard parts:** like the Genos, you play four parts: **Right 1**, **Right 2** and **Right 3** right of the split, and **Left** left of it. Each part has its own voice, volume, octave shift and on/off. The Right parts that are on sound together, which is how you layer (Piano + Strings = Right 1 + Right 2 on). At start only Right 1 (Grand Piano) is on; Right 2 is Strings, Right 3 Brass, Left Strings. Turn parts on/off with the buttons under faders 1–4 (fader Panel page), the bottom-left pads on pad page 3, or `5` `6` `7` `8` (`l` also toggles Left). Pick the part whose voice you want to change with `F1`–`F4`, the EDIT pads on pad page 3, or Shift + the button under its fader, then step its voice with `9`/`0` or the VOICE −/+ pads.
 - **Where your parts go:** each part has its own channel, on the `yahaha` port and in the built-in synth alike: Right 1 = ch 1, Left = ch 2 (the channels your right and left hand always had), Right 2 = ch 3, Right 3 = ch 4. A part that is off sends nothing. With Left off, the Right parts play over the whole keyboard, as on the Genos, except that in Lower chord detection (outside the Full Keyboard fingerings) the keys left of the split only drive the chords. Each part's octave shift is applied to the notes it sends. The sustain pedal and the wheels go to the parts that are on (which parts each reaches is a setting: see Pedals and wheels below); other controllers and pressure go to all four parts (polyphonic aftertouch to the notes its key sounds); the keyboard's own volume (CC 7), bank select and program changes are ignored, because each part's voice and volume are its own.
 - **Mixer:** the faders have two pages, like the Genos Mixer's Panel and Style tabs. The button under the master fader (or `F9`) switches between them; it lights blue on Panel and green on Style, and the screen outlines the active page in yellow.
@@ -40,7 +40,7 @@ The built-in synth uses the first `.sf2` file in `soundfonts/` (GeneralUser GS, 
 - The synth plays on outputs 11/12 when the audio device is a TASCAM Model 16, and on 1/2 otherwise. `a` steps through the output pairs while playing, and `--audio-out 11` sets the pair at launch.
 
 Options:
-- `--sf2 file` uses a different SoundFont.
+- `--soundfonts DIR` uses another SoundFont folder.
 - `--audio-out N` sends the synth to outputs N/N+1.
 - `--no-synth` turns the synth off, leaving MIDI out only.
 - `--palette-leds` uses the Launchkey's built-in palette colours instead of RGB SysEx.

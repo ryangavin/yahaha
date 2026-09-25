@@ -57,10 +57,13 @@ pub enum Group {
     Transpose,
     ChordLooper,
     LiveControl,
+    /// The Assignable settings: today the Fade In/Out and Fade Out Hold times (Data List:
+    /// Freeze group "Assignable Buttons"; #107).
+    Assignable,
 }
 
 impl Group {
-    pub const ALL: [Group; 8] = [
+    pub const ALL: [Group; 9] = [
         Group::Style,
         Group::Voice,
         Group::HarmonyArp,
@@ -69,6 +72,7 @@ impl Group {
         Group::Transpose,
         Group::ChordLooper,
         Group::LiveControl,
+        Group::Assignable,
     ];
 
     /// Display name, as the Genos lists it.
@@ -82,6 +86,7 @@ impl Group {
             Group::Transpose => "Transpose",
             Group::ChordLooper => "Chord Looper",
             Group::LiveControl => "Live Control",
+            Group::Assignable => "Assignable",
         }
     }
 

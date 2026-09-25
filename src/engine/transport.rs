@@ -29,6 +29,8 @@ pub struct StyleControls {
     /// was. None: every part in `volumes` is set where its level differs (a bank written
     /// before this was stored).
     pub player_set: Option<u8>,
+    /// Style Retrigger on/off.
+    pub retrigger: Option<bool>,
 }
 
 impl Engine {
@@ -73,6 +75,11 @@ impl Engine {
             && on != (self.stop_acmp != StopAcmp::Off)
         {
             self.toggle_stop_acmp(sink);
+        }
+        if let Some(on) = c.retrigger
+            && on != self.retrigger_on()
+        {
+            self.toggle_retrigger();
         }
         if let Some(parts) = c.parts {
             for p in 0..8u8 {
@@ -378,11 +385,13 @@ mod tests {
             parts: Some(0b1101_0111),
             volumes: None,
             player_set: None,
+            retrigger: Some(true),
         };
         for _ in 0..2 {
             e.set_style_controls(set, 1, &mut Nop);
             let s = e.snapshot(1);
             assert_eq!((s.main, s.pending_intro, s.sync_armed, s.sync_stop, s.stop_acmp, s.parts), (2, Some(1), true, true, true, 0b1101_0111));
+            assert!(s.retrigger);
         }
         // None leaves a control as it is.
         e.set_style_controls(StyleControls { parts: Some(0xff), ..StyleControls::default() }, 1, &mut Nop);

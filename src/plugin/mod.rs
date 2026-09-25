@@ -27,7 +27,7 @@ mod sys;
 
 pub use host::{LoadConfig, LoadHandle, LoadMode, LoadProgress, LoadTimedOut, PluginHost};
 pub use sys::{StatusError, status_of};
-pub use instance::{EditorTarget, LoadTimes, PluginInstance, PluginStats, RenderError, StatsSnapshot};
+pub use instance::{EditorTarget, InstanceRef, LoadTimes, PluginInstance, PluginStats, RenderError, StatsSnapshot};
 pub use rack::{DEFAULT_FADE_FRAMES, PluginRack, RackControl, RackEvent, SLOTS, Swap, balance, dispose_later, rack};
 pub use scan::{LoadRecord, PluginFormat, PluginId, PluginInfo, default_cache_path};
 

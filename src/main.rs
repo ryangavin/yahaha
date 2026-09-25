@@ -40,7 +40,7 @@ fn main() -> Result<()> {
         #[cfg(feature = "plugins")]
         Some("plugin-test") => yahaha::plugin::cli::run(&args[2..])?,
         _ => eprintln!(
-            "usage:\n  yahaha play <style or folder>... [--split F#2] [--input <name>] [--all-inputs] [--no-pads] [--sf2 file | --no-synth] [--palette-leds] [--audio-out 11] [--data-dir DIR]\n      [--fingering single|multi|fingered|on-bass|ai|full|ai-full] [--upper [--no-manual-bass]] [--transpose N] [--master-transpose N] [--chord-settle MS] [--ireal <playlist.html or irealb:// link>]\n  yahaha bench <style> [spin_us]\n  yahaha sim <style> <\"C Am F G7\" | script file>\n  yahaha capture-kit <out-dir> [--clock-ppm N] [style]...\n  yahaha capture-import <recording.mid> <style> [--tolerance-ms N] [--offset-ms N] [--clock-ppm N] [--listing FILE] [--golden DIR [--force]]\n  yahaha oracle <style or folder>... [--pairs | --scores | --diff scores.txt]\n  yahaha dump <style>...\n  yahaha pad <multi pad bank.pad>... | yahaha pad --demo [out.pad]\n  yahaha state-json <style or folder> [\"C Am\"] [--library]\n  yahaha plugin-test [name] [--list | --rescan] [--bench] [--swap-to name] [--oop] [--gui] [--channel N] [--sf2 file | --no-sf2]   (needs --features plugins)\n  yahaha ireal <file or irealb:// link> [--choruses N]\n  yahaha fake-device [name] [secs]   (a Launchkey-like MIDI device from another process, for hot-plug tests)"
+            "usage:\n  yahaha play <style or folder>... [--split F#2] [--input <name>] [--all-inputs] [--no-pads] [--soundfonts DIR | --no-synth] [--palette-leds] [--audio-out 11] [--data-dir DIR]\n      [--fingering single|multi|fingered|on-bass|ai|full|ai-full] [--upper [--no-manual-bass]] [--transpose N] [--master-transpose N] [--chord-settle MS] [--ireal <playlist.html or irealb:// link>]\n  yahaha bench <style> [spin_us]\n  yahaha sim <style> <\"C Am F G7\" | script file>\n  yahaha capture-kit <out-dir> [--clock-ppm N] [style]...\n  yahaha capture-import <recording.mid> <style> [--tolerance-ms N] [--offset-ms N] [--clock-ppm N] [--listing FILE] [--golden DIR [--force]]\n  yahaha oracle <style or folder>... [--pairs | --scores | --diff scores.txt]\n  yahaha dump <style>...\n  yahaha pad <multi pad bank.pad>... | yahaha pad --demo [out.pad]\n  yahaha state-json <style or folder> [\"C Am\"] [--library]\n  yahaha plugin-test [name] [--list | --rescan] [--bench] [--swap-to name] [--oop] [--gui] [--channel N] [--sf2 file | --no-sf2]   (needs --features plugins)\n  yahaha ireal <file or irealb:// link> [--choruses N]\n  yahaha fake-device [name] [secs]   (a Launchkey-like MIDI device from another process, for hot-plug tests)"
         ),
     }
     Ok(())
@@ -263,6 +263,7 @@ fn play_cmd(args: &[String]) -> Result<()> {
     let mut upper = false;
     let mut manual_bass = true;
     let mut sf2: Option<PathBuf> = None;
+    let mut sf_dir = PathBuf::from("soundfonts");
     let mut fingering = fingering::Fingering::FingeredOnBass;
     let mut transpose = engine::Transpose::default();
     let mut inputs = Vec::new();
@@ -291,9 +292,15 @@ fn play_cmd(args: &[String]) -> Result<()> {
                 i += 1;
                 audio_out = args.get(i).and_then(|s| s.split('/').next()?.parse().ok());
             }
+            // Hidden override: play this SoundFont at start, whatever the default sound set
+            // setting says (#117).
             "--sf2" => {
                 i += 1;
                 sf2 = args.get(i).map(PathBuf::from);
+            }
+            "--soundfonts" => {
+                i += 1;
+                sf_dir = args.get(i).map(PathBuf::from).ok_or_else(|| anyhow::anyhow!("--soundfonts wants a folder"))?;
             }
             "--fingering" => {
                 i += 1;
@@ -343,16 +350,15 @@ fn play_cmd(args: &[String]) -> Result<()> {
     if paths.is_empty() {
         paths.push(PathBuf::from("corpus"));
     }
-    // Default SoundFont: the first .sf2 in ./soundfonts.
-    if sf2.is_none() && !no_synth {
-        sf2 = std::fs::read_dir("soundfonts").into_iter().flatten().flatten().map(|e| e.path())
-            .find(|p| p.extension().map_or(false, |x| x.eq_ignore_ascii_case("sf2")));
-    }
+    // Every .sf2 in the SoundFont folder is a source of sounds; the default sound set
+    // setting picks the one the band falls back to (#117). `--sf2` names a folder of its own
+    // only when there is no ./soundfonts.
+    let sound_font_dir = (!no_synth && (sf2.is_none() || sf_dir.is_dir())).then_some(sf_dir);
     if no_synth {
         sf2 = None;
     }
     ui::play(
-        yahaha::Options { paths, split, all_inputs, inputs, no_pads, sf2, palette_leds, audio_out, fingering, upper, manual_bass, transpose, chord_settle_ms, data_dir },
+        yahaha::Options { paths, split, all_inputs, inputs, no_pads, sf2, sound_font_dir, palette_leds, audio_out, fingering, upper, manual_bass, transpose, chord_settle_ms, data_dir },
         startup,
     )
 }
