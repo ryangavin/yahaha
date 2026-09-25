@@ -608,6 +608,21 @@ impl Control {
         Some((id, name))
     }
 
+    /// The library's patches, in the user's order (the sound catalog, #117).
+    pub(super) fn sound_patches(&self) -> &[Patch] {
+        &self.sound.lib.patches
+    }
+
+    /// What is being auditioned: a patch id, a catalog id, or "preset".
+    pub(super) fn sound_audition(&self) -> Option<&str> {
+        self.sound.audition.as_ref().map(|a| a.label.as_str())
+    }
+
+    /// The patch last created, duplicated or saved.
+    pub(super) fn sound_last_added(&self) -> Option<&str> {
+        self.sound.last_added.as_deref()
+    }
+
     /// Whether the sound library has patch `id`.
     pub(super) fn has_patch(&self, id: &str) -> bool {
         self.sound.lib.patch(id).is_some()
@@ -783,7 +798,7 @@ impl Control {
 
     // ----- auditions -----
 
-    fn start_audition(&mut self, label: String, file: String, bank: u16, program: u8, volume: Option<u8>) -> Result<(), CmdError> {
+    pub(super) fn start_audition(&mut self, label: String, file: String, bank: u16, program: u8, volume: Option<u8>) -> Result<(), CmdError> {
         if self.snap.running {
             return self.sl_fail("Stop the band to audition a sound");
         }

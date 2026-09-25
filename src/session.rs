@@ -53,6 +53,7 @@ mod settings;
 mod style_change;
 mod sound_library;
 mod sound_set;
+mod sounds;
 mod style_settings;
 mod surface;
 mod system;
@@ -307,6 +308,8 @@ struct Control {
     sound: sound_library::SoundLib,
     /// The default sound set (#117).
     sound_set: sound_set::SoundSet,
+    /// The sound catalog (#117).
+    sounds: sounds::Sounds,
 }
 
 /// What several parts of the state read, read once per `build_state` so they all agree.
@@ -369,6 +372,7 @@ impl Control {
             AppCmd::HarmonyArp(c) => self.harmony_arp_cmd(c),
             AppCmd::SoundLibrary(c) => self.sound_library_cmd(c),
             AppCmd::ParamLock(c) => self.param_lock_cmd(c),
+            AppCmd::Sounds(c) => self.sounds_cmd(c),
         }
     }
 
@@ -484,6 +488,7 @@ impl Control {
             plugins: self.plugins_state(),
             sound_library: self.sound_library_state(),
             param_locks: self.param_lock_state(),
+            sounds: self.sounds_state(),
         }
     }
 }
@@ -509,6 +514,9 @@ impl Inner {
             ctl.lib_published = ctl.lib_rev;
             ctl.lib_published_ns = now;
             events.push(Event::LibraryChanged { revision: ctl.lib_rev });
+        }
+        if let Some(revision) = ctl.sounds_touch() {
+            events.push(Event::SoundsChanged { revision });
         }
         let mut st = ctl.build_state(now);
         {
@@ -666,6 +674,7 @@ fn assemble(opts: &Options, engine_out: live::Out, input_out: live::Out, offline
         plugins: Default::default(),
         harmony_arp: live::FxConfig::default(),
         sound,
+        sounds: sounds::Sounds::open(sound_set.file()),
         sound_set,
     };
     let mut control = control;
@@ -795,6 +804,13 @@ impl Session {
             harmony_types: harmony_type_options(),
             arp_patterns: arp_pattern_options(),
         }
+    }
+
+    /// The sound catalog (#117): every preset, plugin and saved sound, for the Sound
+    /// Browser. Fetch it again when `AppState::sounds.revision` (`Event::SoundsChanged`)
+    /// moves. Cheap while it hasn't: an `Arc` clone.
+    pub fn sound_catalog(&self) -> Arc<SoundCatalog> {
+        self.inner.lock().sound_catalog()
     }
 
     /// Notifications: a `StateChanged` whenever the state's version moves, a

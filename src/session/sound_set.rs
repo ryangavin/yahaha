@@ -85,22 +85,32 @@ impl SoundSet {
     }
 
     fn save(&self) -> anyhow::Result<()> {
-        let Some(path) = &self.file else { return Ok(()) };
-        // Keep what a newer yahaha may have added to the file.
-        let mut v: serde_json::Value = std::fs::read_to_string(path)
-            .ok()
-            .and_then(|t| serde_json::from_str(&t).ok())
-            .filter(|v: &serde_json::Value| v.is_object())
-            .unwrap_or_else(|| serde_json::json!({}));
-        v["defaultSoundSet"] = serde_json::to_value(&self.choice)?;
-        if let Some(dir) = path.parent() {
-            std::fs::create_dir_all(dir)?;
-        }
-        let tmp = path.with_extension("json.tmp");
-        std::fs::write(&tmp, serde_json::to_string_pretty(&v)?)?;
-        std::fs::rename(&tmp, path)?;
-        Ok(())
+        write_key(self.file.as_deref(), "defaultSoundSet", serde_json::to_value(&self.choice)?)
     }
+
+    /// Where the settings are saved (None: nowhere).
+    pub(super) fn file(&self) -> Option<&Path> {
+        self.file.as_deref()
+    }
+}
+
+/// Set one key of `sound-settings.json` at `path` (None: nowhere), keeping the others
+/// (a newer yahaha's too).
+pub(super) fn write_key(path: Option<&Path>, key: &str, value: serde_json::Value) -> anyhow::Result<()> {
+    let Some(path) = path else { return Ok(()) };
+    let mut v: serde_json::Value = std::fs::read_to_string(path)
+        .ok()
+        .and_then(|t| serde_json::from_str(&t).ok())
+        .filter(|v: &serde_json::Value| v.is_object())
+        .unwrap_or_else(|| serde_json::json!({}));
+    v[key] = value;
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    let tmp = path.with_extension("json.tmp");
+    std::fs::write(&tmp, serde_json::to_string_pretty(&v)?)?;
+    std::fs::rename(&tmp, path)?;
+    Ok(())
 }
 
 impl Control {
