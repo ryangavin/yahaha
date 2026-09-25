@@ -426,12 +426,12 @@ mod tests {
     #[test]
     fn ots_recalls_pan_and_sends_across_the_corpus() {
         let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus/MOX_v2");
-        let Ok(rd) = std::fs::read_dir(&dir) else {
+        if !dir.exists() {
             eprintln!("corpus missing; skipping");
             return;
-        };
+        }
         let (mut settings, mut with_pan) = (0, 0);
-        for f in rd.flatten().map(|e| e.path()) {
+        for f in crate::library::style_files(&dir) {
             let Ok(style) = crate::sff::Style::load(&f) else { continue };
             let Some((_, otsc)) = style.other_chunks.iter().find(|(id, _)| id == "OTSc") else { continue };
             // The OTS tracks, read here independently of `parse_ots`.
