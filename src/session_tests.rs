@@ -1688,3 +1688,40 @@ fn chart_chords_trigger_no_ots_or_fill() {
     let st = s.state();
     assert_eq!((st.transport.section.as_deref(), st.ots.applied), (Some("Main B"), 2), "OTS 2 as Main B starts");
 }
+
+/// The Launchkey's Ending pads (100-102, with the pad's pressure) queue the Ending and
+/// change nothing the band sends before its bar line (#129): the output matches a session
+/// where no pad was pressed, 5 ms at a time, up to the Ending's start.
+#[test]
+fn an_ending_pad_changes_nothing_before_the_ending() {
+    let Some(p) = style("NightCruiser.S930.STY") else { return };
+    for pad in [100u8, 101, 102] {
+        let band = || {
+            let s = Session::offline(Options { paths: vec![p.clone()], ..Options::default() }).unwrap();
+            keys(&s, true, &[48, 52, 55]);
+            s.send(TransportCmd::StartStop).unwrap();
+            let bar = 4 * (60e9 / s.state().transport.tempo) as u64;
+            s.advance(bar + bar * 4 / 10);
+            s.take_output();
+            s
+        };
+        let (a, b) = (band(), band());
+        for m in [[0x90, pad, 100], [0xA0, pad, 90], [0xD0, 90, 0], [0x80, pad, 0]] {
+            a.midi_in(Port::Pads, &m);
+        }
+        assert!(a.state().transport.queued.as_deref().is_some_and(|q| q.starts_with("Ending")), "pad {pad} queued an Ending");
+        assert_eq!(a.take_output(), Vec::<[u8; 3]>::new(), "pad {pad}: nothing sent at the press");
+        let mut steps = 0;
+        while !a.state().transport.section.as_deref().is_some_and(|s| s.starts_with("Ending")) {
+            a.advance(5 * MS);
+            b.advance(5 * MS);
+            if a.state().transport.section.as_deref().is_some_and(|s| s.starts_with("Ending")) {
+                break;
+            }
+            assert_eq!(a.take_output(), b.take_output(), "pad {pad}: the Main plays on unchanged ({steps} steps after the press)");
+            steps += 1;
+            assert!(steps < 1000, "pad {pad}: the Ending never started");
+        }
+        assert!(steps > 100, "pad {pad}: the Ending waited for the bar line ({steps} steps)");
+    }
+}
