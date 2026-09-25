@@ -148,7 +148,12 @@ fn a_plugin_state_is_read_off_the_control_thread() {
     s.send(PluginCmd::SetPartPlugin { part: 0, id: DLS.into(), state: None }).unwrap();
     assert_eq!(wait_playing(&s, 0), PluginStatus::Playing);
     s.send(PluginCmd::SavePartPluginState { part: 0 }).unwrap();
-    assert!(!s.inner.lock().plugins.state_reads.is_empty(), "the read runs on a thread");
+    // `send` settles an offline session with a pump, which may already have taken a quick
+    // read's result (a small state, a fast read thread): pending, or landed at that pump.
+    {
+        let c = s.inner.lock();
+        assert!(!c.plugins.state_reads.is_empty() || c.part_plugin_voice(0).unwrap().1.is_some(), "the read runs on a thread");
+    }
     assert!(wait_saved(&s, 0).1.is_some_and(|b| b.len() > 100), "and lands at a pump");
     // A read of the old instance, then the part loads a new one: the read is dropped.
     s.send(PluginCmd::SetPartPlugin { part: 1, id: DLS.into(), state: None }).unwrap();
