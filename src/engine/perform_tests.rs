@@ -690,6 +690,84 @@ fn a_style_chosen_while_an_ending_is_queued_waits_for_its_end() {
     }
 }
 
+/// Play until the band stops: the old style (`old_bpm`) plays to the end, and `end`
+/// (the Ending) plays in it. The new style (`new_bpm`) is in at the stop.
+fn ending_plays_in_the_old_style(e: &mut Engine, rec: &mut Rec, from: u64, end: usize, old_bpm: f64, new_bpm: f64) {
+    let mut now = from;
+    let mut heard_ending = false;
+    while e.running {
+        let next = e.next_deadline().unwrap_or(now + 5_000_000).clamp(now + 1, now + 5_000_000);
+        play(e, rec, now, next);
+        now = next;
+        if e.running {
+            assert_eq!(e.style.bpm, old_bpm, "the old style plays on");
+            heard_ending |= e.cur == end;
+            if heard_ending {
+                assert_eq!(e.cur, end, "the Ending plays to its end");
+            }
+        }
+        assert!(now < from + 60_000_000_000, "the Ending never ended");
+    }
+    assert!(heard_ending, "the Ending played, in the old style");
+    assert!(!e.style_pending(), "the new style took over at the Ending's end");
+    assert_eq!(e.style.bpm, new_bpm);
+}
+
+/// TAP TEMPO (Section Reset, on by default) while an Ending plays with a style change
+/// waiting (#174): the Ending starts over and the style waits for its new end, not the
+/// new grid's next bar line in the middle of the Ending.
+#[test]
+fn section_reset_in_an_ending_keeps_the_style_waiting_for_its_end() {
+    let Some((mut e, mut rec)) = started(StyleSettings::default()) else { return };
+    let Some(other) = other_style() else { return };
+    let (ppq, tpb, _) = grid(&e);
+    let end1 = slot_of(SectionId::Ending(0));
+    if !e.style.has(end1) {
+        return;
+    }
+    let t = e.ns_at(tpb + 1.5 * ppq);
+    play(&mut e, &mut rec, 0, t);
+    e.button(Button::Ending(0), t, &mut rec);
+    let bar2 = e.ns_at(2.0 * tpb) + 1_000;
+    play(&mut e, &mut rec, t, bar2);
+    assert_eq!(e.cur, end1);
+    let (old_bpm, new_bpm) = (e.style.bpm, other.bpm);
+    e.change_style(other, bar2, &mut rec);
+    let tap = bar2 + 300_000_000;
+    play(&mut e, &mut rec, bar2, tap);
+    e.button(Button::TapTempo, tap, &mut rec);
+    let at = e.pending.as_ref().map(|p| p.at).expect("the style waits");
+    assert!((at - e.section_end().0).abs() < 1e-6, "for the Ending's new end: {at} vs {}", e.section_end().0);
+    ending_plays_in_the_old_style(&mut e, &mut rec, tap, end1, old_bpm, new_bpm);
+}
+
+/// TAP TEMPO (Section Reset) with an Ending queued and a style change waiting for it
+/// (#174): the Ending moves to the new grid's next bar line and the style waits for that
+/// Ending's end; the Ending plays in the old style (#118).
+#[test]
+fn section_reset_with_an_ending_queued_keeps_the_style_waiting_for_its_end() {
+    let Some((mut e, mut rec)) = started(StyleSettings::default()) else { return };
+    let Some(other) = other_style() else { return };
+    let (ppq, tpb, _) = grid(&e);
+    let end1 = slot_of(SectionId::Ending(0));
+    if !e.style.has(end1) {
+        return;
+    }
+    let t = e.ns_at(tpb + 1.5 * ppq);
+    play(&mut e, &mut rec, 0, t);
+    e.button(Button::Ending(0), t, &mut rec);
+    let (old_bpm, new_bpm) = (e.style.bpm, other.bpm);
+    e.change_style(other, t + 1_000, &mut rec);
+    let tap = t + 2_000;
+    e.button(Button::TapTempo, tap, &mut rec);
+    let q = e.queued.expect("the Ending is still queued");
+    assert_eq!(q.slot, end1);
+    let len = e.style.sections[end1].as_ref().unwrap().len as f64;
+    let at = e.pending.as_ref().map(|p| p.at).expect("the style waits");
+    assert!((at - (q.sec_start + len)).abs() < 1e-6, "for the queued Ending's end: {at} vs {}", q.sec_start + len);
+    ending_plays_in_the_old_style(&mut e, &mut rec, tap, end1, old_bpm, new_bpm);
+}
+
 /// TAP TEMPO during a ritardando (Style Section Reset off): the tapped tempo is the one the
 /// band slows from and comes back to at the stop.
 #[test]
