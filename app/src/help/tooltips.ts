@@ -689,28 +689,86 @@ const catalog = {
     launchkey: null,
   },
 
-  // ── Keyboard parts drawer ──────────────────────────────────────────────
-  'part.source_gm': {
-    title: 'GM voices',
-    body: 'Shows the built-in SoundFont voices for this part. A part playing a plugin keeps its SoundFont voice here for when you go back to it.',
-    genos: 'Voice select (VOICE buttons)',
+  // ── Sound Browser (#117) ───────────────────────────────────────────────
+  'sounds.close': {
+    title: 'Close',
+    body: 'Closes the Sound Browser. The part keeps the sound you picked.',
+    genos: 'EXIT',
     keys: [],
     launchkey: null,
   },
-  'part.source_library': {
-    title: 'Library',
-    body: 'Shows your sound library\'s patches for this part. A dot means the part plays one of its own.',
+  'sounds.filter': {
+    title: 'Filter sounds',
+    body: 'Type to filter by name, SoundFont file or plugin maker (SF, AU or Saved narrows by source). ↑/↓ move, Enter plays the sound on the part, Shift+Enter auditions it, Ctrl+D stars it.',
+    genos: 'Voice Selection › Search',
+    keys: [],
+    launchkey: null,
+  },
+  'sounds.all': {
+    title: 'All sounds',
+    body: 'Every sound: the presets of every SoundFont in the soundfonts folder, your instrument plugins and your saved sounds.',
     genos: 'Voice Selection',
     keys: [],
     launchkey: null,
   },
-  'part.source_plugins': {
-    title: 'Plugins',
-    body: 'Shows your instrument plugins (Audio Units) for this part. A dot means the part plays one.',
+  'sounds.favourites': {
+    title: 'Favourites',
+    body: 'The sounds you starred.',
+    genos: 'Voice Selection › Favorite tab',
+    keys: [],
+    launchkey: null,
+  },
+  'sounds.recents': {
+    title: 'Recent',
+    body: 'The last 20 sounds you picked for a part, most recent first.',
+    genos: 'Voice Selection › history',
+    keys: [],
+    launchkey: null,
+  },
+  'sounds.category': {
+    title: 'Category',
+    body: 'The sounds of one Genos voice category. A preset\'s category is its General MIDI family, and a plugin\'s is guessed from its name.',
+    genos: 'VOICE category buttons',
+    keys: [],
+    launchkey: null,
+  },
+  'sounds.row': {
+    title: 'Sound',
+    body: 'Click or Enter plays this sound on the part. SF is a SoundFont preset, AU an instrument plugin, Saved a sound from your library. ▶ marks what the part plays.',
+    genos: 'Voice Selection',
+    keys: [],
+    launchkey: null,
+  },
+  'sounds.row_failed': {
+    title: 'Plugin that failed',
+    body: 'This plugin failed to load last time (⚠ says why). Picking it tries again; until it loads, the part plays its SoundFont voice.',
     genos: null,
     keys: [],
     launchkey: null,
   },
+  'sounds.favourite': {
+    title: 'Star',
+    body: 'Adds the sound to your Favourites, or takes it out.',
+    genos: 'Voice Selection › Favorite',
+    keys: [],
+    launchkey: null,
+  },
+  'sounds.audition': {
+    title: 'Audition',
+    body: 'Plays the sound on its own for a few seconds, without changing the part. Only while the band is stopped.',
+    genos: 'Voice Selection › Demo',
+    keys: [],
+    launchkey: null,
+  },
+  'sounds.audition_stop': {
+    title: 'Stop audition',
+    body: 'Stops the audition.',
+    genos: null,
+    keys: [],
+    launchkey: null,
+  },
+
+  // ── Keyboard parts drawer ──────────────────────────────────────────────
   'part.plugin': {
     title: 'Plugin',
     body: 'Plays this part on an instrument plugin instead of its SoundFont voice. It loads in the background (the part keeps its SoundFont voice until then), and the fader stays the part\'s volume (CC 7). "⚠ in process" means macOS would not run the plugin in its own process, so it runs inside yahaha: if it crashes, yahaha goes with it.',
@@ -727,7 +785,7 @@ const catalog = {
   },
   'part.plugin_rescan': {
     title: 'Rescan plugins',
-    body: 'Looks for newly installed or removed instrument plugins. A ⚠ in the list marks a plugin that failed to load last time.',
+    body: 'Looks for newly installed or removed instrument plugins. A ⚠ in the Sound Browser marks a plugin that failed to load last time.',
     genos: null,
     keys: [],
     launchkey: null,
@@ -740,8 +798,8 @@ const catalog = {
     launchkey: null,
   },
   'part.voice': {
-    title: 'Voice',
-    body: 'Picks this part\'s voice. Under Manual Bass, Left plays the style\'s Bass voice instead, and this is the voice it goes back to.',
+    title: 'Sound',
+    body: 'What this part plays. Click to open the Sound Browser and pick a SoundFont preset, an instrument plugin or a saved sound. Under Manual Bass, Left plays the style\'s Bass voice instead, and this is the sound it goes back to.',
     genos: 'Voice select (VOICE buttons)',
     keys: [],
     launchkey: 'Pad page 3 (OTS/Parts): the Edit pads (bottom row, pads 5–8) pick the part, Voice −/+ (top row, pads 7–8) step its voice',
