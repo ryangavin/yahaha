@@ -19,6 +19,7 @@
 mod chart;
 mod chord;
 mod controllers;
+mod dynamics;
 mod harmony_arp;
 mod keyboard;
 mod library;
@@ -46,6 +47,7 @@ mod transport;
 pub use chart::*;
 pub use chord::*;
 pub use controllers::*;
+pub use dynamics::*;
 pub use harmony_arp::*;
 pub use keyboard::*;
 pub use library::*;
@@ -171,6 +173,8 @@ app_cmd! {
     ParamLock(ParamLockCmd),
     /// The sound catalog (#117): favourites, audition, assigning a sound to a part.
     Sounds(SoundsCmd),
+    /// Style Dynamics Control, Touch and Accent (#180).
+    Dynamics(DynamicsCmd),
 }
 
 impl From<Button> for AppCmd {
@@ -355,6 +359,9 @@ pub struct AppState {
     /// The sound catalog's summary (#117); the list is `Session::sound_catalog`.
     #[serde(default)]
     pub sounds: SoundsState,
+    /// Style Dynamics Control, Touch and Accent (#180).
+    #[serde(default)]
+    pub dynamics: DynamicsState,
 }
 
 // ---------------------------------------------------------------------------

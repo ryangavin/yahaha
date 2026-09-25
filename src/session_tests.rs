@@ -104,6 +104,8 @@ fn all_cmds() -> Vec<AppCmd> {
         AppCmd::Metronome(MetronomeCmd::SetMetronome { on: true }),
         AppCmd::Metronome(MetronomeCmd::SetMetronomeVolume { volume: 64 }),
         AppCmd::Metronome(MetronomeCmd::SetMetronomeBell { on: false }),
+        AppCmd::Dynamics(DynamicsCmd::SetDynamics { level: 90 }),
+        AppCmd::Dynamics(DynamicsCmd::ToggleAccent),
     ]
 }
 

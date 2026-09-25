@@ -272,6 +272,7 @@ export function initialState(): AppState {
     soundLibrary: initialSoundLibrary(),
     paramLocks: { splitPoint: false, fingeringType: false },
     sounds: initialSounds(),
+    dynamics: { control: true, level: 64, touch: false, accent: false, accentThreshold: 110 },
   }
   derive(state, LIBRARY)
   return state
@@ -1666,6 +1667,35 @@ export class MockSession implements Session {
       case 'setParamLock':
         this.state.paramLocks[cmd.item] = cmd.on
         break
+      case 'setDynamicsControl':
+        this.state.dynamics.control = cmd.on
+        break
+      case 'setDynamics':
+        this.state.dynamics.level = clampLevel(cmd.level)
+        break
+      case 'stepDynamics':
+        this.state.dynamics.level = clampLevel(this.state.dynamics.level + cmd.delta)
+        break
+      case 'setDynamicsTouch':
+        this.state.dynamics.touch = cmd.on
+        break
+      case 'toggleDynamicsTouch':
+        this.state.dynamics.touch = !this.state.dynamics.touch
+        break
+      case 'setAccent':
+        this.state.dynamics.accent = cmd.on
+        break
+      case 'toggleAccent':
+        this.state.dynamics.accent = !this.state.dynamics.accent
+        break
+      case 'setAccentThreshold':
+        this.state.dynamics.accentThreshold = Math.max(1, clampLevel(cmd.velocity))
+        break
     }
   }
+}
+
+/** A Dynamics level or velocity, as the session clamps it: a whole number 0-127. */
+function clampLevel(v: number): number {
+  return Math.max(0, Math.min(127, Math.round(v)))
 }

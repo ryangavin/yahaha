@@ -349,6 +349,7 @@ impl MockSession {
             sound_library: SoundLibraryState::default(),
             param_locks: ParamLockState::default(),
             sounds: SoundsState::default(),
+            dynamics: DynamicsState::default(),
         };
         let songs: Vec<(String, String)> = library.entries.iter().filter(|e| e.status == "ok").map(|e| (e.path.clone(), e.name.clone())).collect();
         let mut m = MockSession {
@@ -1631,6 +1632,18 @@ impl MockSession {
             AppCmd::Settings(SettingsCmd::SetPaletteLeds { on }) => self.state.pads.palette_leds = on,
             AppCmd::Chart(c) => self.chart_cmd(c),
             AppCmd::ParamLock(ParamLockCmd::SetParamLock { item, on }) => self.state.param_locks.set(item, on),
+            AppCmd::Dynamics(c) => {
+                // As the session: the command applies to the settings in effect.
+                let d = &self.state.dynamics;
+                let now = yahaha::engine::DynamicsSettings {
+                    control: d.control,
+                    level: d.level,
+                    touch: d.touch,
+                    accent: d.accent,
+                    accent_min: d.accent_threshold,
+                };
+                self.state.dynamics = c.apply(now).into();
+            }
             AppCmd::Registration(c) => {
                 let fx = self.regist.registration_cmd(c, &self.state);
                 self.run_regist(fx);
@@ -2415,6 +2428,21 @@ mod tests {
         m.send(RegistrationCmd::SetFreeze { on: true });
         m.send(RegistrationCmd::RecallRegist { index: 5 });
         assert_eq!(m.state.harmony_arp, scrambled, "frozen");
+    }
+
+    /// Style Dynamics (#180): commands apply to the settings in effect and clamp, as the
+    /// session's.
+    #[test]
+    fn dynamics_commands_apply_and_clamp_as_the_session() {
+        let mut m = MockSession::new();
+        assert_eq!(m.state.dynamics, DynamicsState::default());
+        m.send(DynamicsCmd::SetDynamics { level: 120 });
+        m.send(DynamicsCmd::StepDynamics { delta: 20 });
+        m.send(DynamicsCmd::ToggleAccent);
+        m.send(DynamicsCmd::SetAccentThreshold { velocity: 0 });
+        m.send(DynamicsCmd::SetDynamicsTouch { on: true });
+        let d = &m.state.dynamics;
+        assert_eq!((d.level, d.accent, d.accent_threshold, d.touch, d.control), (127, true, 1, true, true));
     }
 
     /// As the session's Parameter Lock: a locked group keeps the player's setting through

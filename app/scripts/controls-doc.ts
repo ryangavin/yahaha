@@ -26,6 +26,7 @@ const GROUPS: [string, string][] = [
   ['harmony', 'Keyboard Harmony / Arpeggio'],
   ['mixer', 'Mixer'],
   ['metronome', 'Metronome'],
+  ['dynamics', 'Style Dynamics'],
   ['looper', 'Chord Looper'],
   ['multipad', 'Multi Pads'],
   ['sound', 'Sound library'],
