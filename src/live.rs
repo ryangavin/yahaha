@@ -1542,6 +1542,37 @@ mod tests {
         }
     }
 
+    /// AI Fingered published slash chords (#194): play C, let go of all but C, add B
+    /// below it, and the chord the engine and the display read is C/B. Then the A-minor
+    /// walk-down: Am, G+A = Am/G. Plain Fingered reads the same keys with the root bass.
+    #[test]
+    fn ai_fingered_publishes_the_slash_bass() {
+        let (mut inp, shared) = input(Fingering::AiFingered);
+        let press = |inp: &mut Input, keys: &[u8], on: bool| {
+            for &k in keys {
+                inp.key_msg(&[if on { 0x90 } else { 0x80 }, k, 100]);
+            }
+        };
+        press(&mut inp, &[36, 40, 43], true);
+        assert_eq!(chord(&shared).as_deref(), Some("C"));
+        press(&mut inp, &[40, 43], false);
+        assert_eq!(chord(&shared).as_deref(), Some("C"));
+        press(&mut inp, &[35], true);
+        assert_eq!(chord(&shared).as_deref(), Some("C/B"));
+        press(&mut inp, &[35, 36], false);
+        press(&mut inp, &[45, 48, 52], true);
+        assert_eq!(chord(&shared).as_deref(), Some("Am"));
+        press(&mut inp, &[48, 52], false);
+        press(&mut inp, &[43], true);
+        assert_eq!(chord(&shared).as_deref(), Some("Am/G"));
+
+        let (mut inp, shared) = input(Fingering::Fingered);
+        press(&mut inp, &[36, 40, 43], true);
+        press(&mut inp, &[40, 43], false);
+        press(&mut inp, &[35], true);
+        assert_eq!(chord(&shared).as_deref(), Some("C"));
+    }
+
     #[test]
     fn full_keyboard_reads_both_hands_and_tracks_releases() {
         let (mut inp, shared) = input(Fingering::FullKeyboard);
