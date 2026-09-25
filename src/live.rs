@@ -712,7 +712,7 @@ impl Input {
             fingering::detect(&self.rec, mode, &held, split, self.current)
         };
         if let Some(c) = c
-            && (Some(c) != self.current || self.let_go)
+            && (Some(c) != self.current || (self.let_go && (upper || fingering::restrikes(&self.rec, mode, &held, split))))
         {
             self.current = Some(c);
             self.let_go = false;
@@ -2050,6 +2050,42 @@ mod tests {
         keys_msg(&mut input, &[36], false);
         keys_msg(&mut input, &[36], true);
         assert_eq!(packed(), again);
+    }
+
+    /// AI Full Keyboard (#107): after every key is up, a dyad that fits the chord is melody,
+    /// not the chord struck again; three notes of it are. A dyad that changes the chord
+    /// still changes it.
+    #[test]
+    fn ai_full_keyboard_dyad_does_not_restrike() {
+        let shared = Arc::new(Shared::new(54));
+        shared.fingering.store(Fingering::AiFullKeyboard.to_u8(), Relaxed);
+        let ch = channels(Out::new(PacketSink::new(rt::Target::Null), None));
+        let mut input = Input::new(shared.clone(), Recognizer::new(), ch.input_tx, Out::new(PacketSink::new(rt::Target::Null), None));
+        let packed = || shared.chord.load(Relaxed);
+        let name = |p: u32| Chord::unpack(p).map(|(c, _)| c.name());
+        keys_msg(&mut input, &C_KEYS, true);
+        let first = packed();
+        assert_eq!(name(first).as_deref(), Some("C"));
+        keys_msg(&mut input, &C_KEYS, false);
+        // E-G in the right hand: C still, and not struck again.
+        keys_msg(&mut input, &[76, 79], true);
+        keys_msg(&mut input, &[76, 79], false);
+        assert_eq!(packed(), first, "a dyad that keeps C is melody");
+        // C-E-G again: struck again.
+        keys_msg(&mut input, &[60, 64, 67], true);
+        let again = packed();
+        assert_ne!(again, first, "three notes: a new generation");
+        assert_eq!(name(again).as_deref(), Some("C"));
+        keys_msg(&mut input, &[60, 64, 67], false);
+        // D-F: a dyad that changes the chord (Dm) does.
+        keys_msg(&mut input, &[50, 53], true);
+        assert_eq!(name(packed()).as_deref(), Some("Dm"));
+        // Fingered: a re-struck chord counts whatever it is.
+        keys_msg(&mut input, &[50, 53], false);
+        shared.fingering.store(Fingering::AiFingered.to_u8(), Relaxed);
+        let dm = packed();
+        keys_msg(&mut input, &[38, 41], true);
+        assert_ne!(packed(), dm, "AI Fingered: the dyad re-strikes Dm");
     }
 
     /// Two held keys that land on the same note (an octave shift folding past the MIDI
