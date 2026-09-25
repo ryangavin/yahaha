@@ -1180,6 +1180,11 @@ impl EngineLoop {
                 self.start_audition(a, now);
             }
         }
+        // A Chord Looper memory before the commands: ON/OFF sent right after selecting it
+        // (the same wake) arms the memory's sequence (#110).
+        while let Ok(seq) = self.io.looper_in.pop() {
+            self.engine.looper_load(&seq);
+        }
         let packed = shared.chord.load(Acquire);
         if packed != self.last_packed {
             self.last_packed = packed;
@@ -1213,9 +1218,6 @@ impl EngineLoop {
                 self.io.fx.all_off(now, &self.engine, &shared, &mut self.io.out);
             }
             apply(&mut self.engine, &shared, cmd, now, &mut self.io.out);
-        }
-        while let Ok(seq) = self.io.looper_in.pop() {
-            self.engine.looper_load(&seq);
         }
         self.engine.process(now, &mut self.io.out);
         let looping = self.engine.looper_owns_chords();
@@ -1360,7 +1362,7 @@ fn apply(engine: &mut Engine, shared: &Shared, cmd: Cmd, now: u64, out: &mut Out
         Cmd::ChordSettle(ms) => engine.set_chord_settle(ms as u64 * 1_000_000),
         Cmd::StyleControls(c) => engine.set_style_controls(c, now, out),
         Cmd::Looper(true) => engine.looper_rec(),
-        Cmd::Looper(false) => engine.looper_on_off(),
+        Cmd::Looper(false) => engine.looper_on_off(now),
         Cmd::StyleSolo(p) => engine.set_style_solo(p, out),
         Cmd::StyleParts(m) => engine.set_style_parts(m, out),
         Cmd::Metronome { on, bell } => engine.set_metronome(on, bell, now),

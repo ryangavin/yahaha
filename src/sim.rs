@@ -2973,11 +2973,14 @@ mod style_queue {
         assert_eq!(e.snapshot(bar).style_tag, 3);
     }
 
+    /// An Ending queued for the bar line, then a style chosen (#111): the style waits for
+    /// that Ending's end (owner rule: a style change waits for the Ending to finish), so
+    /// the Ending plays in the old style and the band stops with the new one loaded.
     #[test]
-    fn a_section_queued_for_the_bar_line_starts_in_the_new_style() {
+    fn a_style_chosen_after_an_ending_is_queued_waits_for_its_end() {
         let (Some(a), Some(b)) = (prep("SlowWalker.T552.sty", 1), prep("TickingAway.T162.sty", 2)) else { return };
         let bar = bar_ns(&a);
-        let has_ending = b.sections[slot_of(SectionId::Ending(0))].is_some();
+        let has_ending = a.sections[slot_of(SectionId::Ending(0))].is_some();
         let mut e = Engine::new(a);
         let mut rec = Recorder::default();
         e.set_chord(Chord::new(0, 0), 0, &mut rec);
@@ -2986,11 +2989,18 @@ mod style_queue {
         e.change_style(b, bar / 2, &mut rec);
         drive(&mut e, &mut rec, bar / 2, bar + 1_000_000);
         let s = e.snapshot(bar + 1_000_000);
-        assert_eq!(s.style_tag, 2);
-        assert!(matches!(s.cur, Some(SectionId::Ending(_))), "{:?}", s.cur);
         if has_ending {
+            assert_eq!((s.style_tag, s.style_pending), (1, true), "the Ending plays in the old style");
             assert_eq!((s.cur, s.bar), (Some(SectionId::Ending(0)), 0), "the Ending starts from its first bar");
         }
+        let mut now = bar + 1_000_000;
+        while e.snapshot(now).running {
+            drive(&mut e, &mut rec, now, now + bar);
+            now += bar;
+            assert!(now < 64 * bar, "the Ending never ended");
+        }
+        let s = e.snapshot(now);
+        assert_eq!((s.style_tag, s.style_pending), (2, false), "stopped with the new style");
     }
 }
 

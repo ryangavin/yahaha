@@ -68,7 +68,13 @@ impl Engine {
             // plays waits for the Ending to end, even in its first beat; the band stops
             // there with the new style loaded. Section Change Timing applies only while a
             // Main plays; from an Intro, a Fill or the Break the change waits for the
-            // next bar line.
+            // next bar line. An Ending pressed but still waiting for its change point
+            // counts as playing (#111): the style waits for that Ending's end too, and the
+            // Ending plays in the old style.
+            Change::Style if self.queued_ending_end().is_some() => {
+                let end = self.queued_ending_end().unwrap_or_default();
+                (end, end)
+            }
             Change::Style => match id_of(self.cur) {
                 SectionId::Ending(_) => {
                     let at = self.sec_start + self.style.sections[self.cur].as_ref().map_or(0, |s| s.len) as f64;
@@ -116,6 +122,17 @@ impl Engine {
                 }
             }
         }
+    }
+
+    /// The tick a queued Ending (pressed, not playing yet) ends at, on the section
+    /// timeline: its start plus its length in the style playing.
+    fn queued_ending_end(&self) -> Option<f64> {
+        let q = self.queued?;
+        if !(13..=15).contains(&q.slot) {
+            return None;
+        }
+        let len = self.style.sections[q.slot].as_ref()?.len as f64;
+        Some(q.sec_start + len)
     }
 
     /// What plays when the section playing ends with no change queued for its end: a Main
