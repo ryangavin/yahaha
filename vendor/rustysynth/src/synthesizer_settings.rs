@@ -14,6 +14,10 @@ pub struct SynthesizerSettings {
     pub maximum_polyphony: usize,
     /// The value indicating whether reverb and chorus are enabled.
     pub enable_reverb_and_chorus: bool,
+    /// yahaha: whether a note's velocity lowers its filter cutoff (the SF2 2.01 default
+    /// modulator "note-on velocity to initial filter cutoff", section 8.4.2). On by default; off
+    /// renders as upstream rustysynth does (for A/B listening).
+    pub velocity_to_filter: bool,
 }
 
 impl SynthesizerSettings {
@@ -32,6 +36,7 @@ impl SynthesizerSettings {
             block_size: SynthesizerSettings::DEFAULT_BLOCK_SIZE,
             maximum_polyphony: SynthesizerSettings::DEFAULT_MAXIMUM_POLYPHONY,
             enable_reverb_and_chorus: SynthesizerSettings::DEFAULT_ENABLE_REVERB_AND_CHORUS,
+            velocity_to_filter: true,
         }
     }
 
