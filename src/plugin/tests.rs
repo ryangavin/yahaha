@@ -163,6 +163,40 @@ fn load_async_reports_progress_and_finishes() {
     assert_eq!(inst.info().id, PluginId::DLS);
 }
 
+/// Whoever drops a unit's last handle, it is disposed of on the `plugin-dispose` thread: an
+/// editor window closing on the main thread after its part moved on (the window's handle
+/// is the last one) never waits on the dispose (#104 PR 5).
+#[test]
+fn the_last_handle_disposes_on_the_dispose_thread() {
+    let log_len = || sys::DISPOSED.lock().unwrap().len();
+    let disposed = |raw: usize, from: usize| sys::DISPOSED.lock().unwrap()[from..].iter().find(|d| d.0 == raw).map(|d| d.1);
+    // The instance first (retired by the rack), the editor's handle last, here.
+    let inst = dls(512);
+    let target = inst.editor_target();
+    let raw = target.unit.raw() as usize;
+    let from = log_len();
+    drop(inst);
+    assert_eq!(disposed(raw, from), None, "the editor's handle keeps it alive");
+    drop(target);
+    let t0 = std::time::Instant::now();
+    while disposed(raw, from).is_none() {
+        assert!(t0.elapsed() < Duration::from_secs(10), "never disposed");
+        std::thread::sleep(Duration::from_millis(2));
+    }
+    assert_eq!(disposed(raw, from), Some(true), "disposed on the dispose thread, not the caller's");
+    // And an instance dropped directly (no editor) the same way.
+    let inst = dls(512);
+    let raw = inst.editor_target().unit.raw() as usize;
+    let from = log_len();
+    drop(inst);
+    let t0 = std::time::Instant::now();
+    while disposed(raw, from).is_none() {
+        assert!(t0.elapsed() < Duration::from_secs(10), "never disposed");
+        std::thread::sleep(Duration::from_millis(2));
+    }
+    assert_eq!(disposed(raw, from), Some(true));
+}
+
 #[test]
 fn a_load_past_its_deadline_times_out_and_is_abandoned() {
     // No plugin hangs on demand; a zero deadline stands in for one that never returns.

@@ -121,7 +121,9 @@ is allocated there)
   every out-of-process unit, as a remote view), else CoreAudioKit's `AUGenericView`.
   `Editor::{kind, size, is_open, focus, close}`; `close_editor(editor)`; dropping closes.
   The editor holds its own reference to the Audio Unit, so swapping the part out while its
-  window is open is safe.
+  window is open is safe. Whichever thread drops a unit's last reference (the main thread
+  closing a window, the control thread, a load thread), `sys::Unit` disposes of it on the
+  `plugin-dispose` thread; never on the audio thread.
 - The desktop app owns `NSApplication`, so it only calls these from its main thread
   (`app.run_on_main_thread`). Tools without an app call `prepare_app(mtm)` once and
   `pump_events(mtm, dur)` in their loop, and `run_main_loop(dur)` while they wait for loads.
@@ -420,8 +422,10 @@ each file on the board. In order:
 - **Editor button** on each keyboard part (Parts drawer and Mixer channel strip) when the
   part plays a plugin: a Tauri command that runs `open_editor` on the main thread
   (`app.run_on_main_thread`) and keeps the `Editor` in a main-thread map keyed by part;
-  pressing again focuses it; closing the part's plugin closes the window. On close, send
-  `SavePartPluginState`.
+  pressing again focuses it. The app's event thread closes a window once its part plays
+  another instance or none (a new pick, a reload, a failed load, back to the SoundFont),
+  without saving (the part has moved on). On close, send `SavePartPluginState`, only if
+  the part still plays a plugin.
 - Mixer: plugin parts get a "plugin" badge and the CPU / overrun readout in the channel
   tooltip. The fader is the same CC7 as always.
 - Settings: an Audio "buffer size" choice (64 / 128 / 256) for heavy plugins, and "Rescan

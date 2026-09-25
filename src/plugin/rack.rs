@@ -50,7 +50,6 @@
 //! thread nor the Session's control thread should wait on it.
 
 use rtrb::{Consumer, Producer, RingBuffer};
-use std::sync::{Mutex, OnceLock, mpsc};
 use std::time::{Duration, Instant};
 
 use super::PartGain;
@@ -270,26 +269,7 @@ pub fn balance(cc10: u8) -> (f32, f32) {
 /// Dispose of an instance on the `plugin-dispose` thread (started on first use). Not
 /// RT-safe (it may lock and allocate): for the control side and `Drop`.
 pub fn dispose_later(inst: Box<PluginInstance>) {
-    type Tx = Mutex<Option<mpsc::Sender<Box<PluginInstance>>>>;
-    static TX: OnceLock<Tx> = OnceLock::new();
-    let m = TX.get_or_init(|| {
-        let (tx, rx) = mpsc::channel::<Box<PluginInstance>>();
-        let ok = std::thread::Builder::new().name("plugin-dispose".into()).spawn(move || {
-            for inst in rx {
-                drop(inst);
-            }
-        });
-        Mutex::new(ok.ok().map(|_| tx))
-    });
-    let tx = m.lock().unwrap_or_else(|e| e.into_inner()).clone();
-    match tx {
-        Some(tx) => {
-            if let Err(mpsc::SendError(inst)) = tx.send(inst) {
-                drop(inst);
-            }
-        }
-        None => drop(inst),
-    }
+    super::sys::on_dispose_thread(Box::new(move || drop(inst)));
 }
 
 /// The control-thread half. See the module docs.
