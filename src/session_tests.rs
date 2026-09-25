@@ -321,6 +321,29 @@ fn keyboard_parts_mixer_and_pages() {
     assert_eq!(s.state().pads.pads[1].action, Some(AppCmd::Chord(ChordCmd::SetFingering { fingering: Fingering::Fingered })));
 }
 
+/// Pan and the reverb/chorus sends (#198): the part's CC10/91/93 on its own channel, to
+/// the port and the synth, and in the state. Before anything sets them the state shows the
+/// power-on values.
+#[test]
+fn part_pan_and_sends() {
+    let Some(s) = offline("SlowWalker.T552.sty") else { return };
+    let left = &s.state().keyboard_parts[crate::parts::LEFT];
+    assert_eq!((left.pan, left.reverb, left.chorus), (64, 40, 0));
+    s.take_output();
+    s.send(PartsCmd::SetPartPan { part: 3, pan: 20 }).unwrap();
+    s.send(PartsCmd::SetPartSend { part: 3, send: PartSend::Reverb, value: 90 }).unwrap();
+    s.send(PartsCmd::SetPartSend { part: 1, send: PartSend::Chorus, value: 200 }).unwrap();
+    let out = s.take_output();
+    assert!(out.contains(&[0xB1, 10, 20]), "Left is ch 2: {out:?}");
+    assert!(out.contains(&[0xB1, 91, 90]), "{out:?}");
+    assert!(out.contains(&[0xB2, 93, 127]), "Right 2 is ch 3, clamped: {out:?}");
+    assert!(!out.contains(&[0xB1, 93, 0]), "a send not set is not sent: {out:?}");
+    let st = s.state();
+    let (l, r2) = (&st.keyboard_parts[3], &st.keyboard_parts[1]);
+    assert_eq!((l.pan, l.reverb, l.chorus), (20, 90, 0));
+    assert_eq!((r2.pan, r2.reverb, r2.chorus), (64, 40, 127));
+}
+
 #[test]
 fn ots_and_ots_link() {
     let Some(s) = offline("SlowWalker.T552.sty") else { return };

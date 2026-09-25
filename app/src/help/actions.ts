@@ -70,6 +70,8 @@ export function tipFor(cmd: AppCmd | null): TipKey {
     case 'stepVoice': return cmd.delta < 0 ? 'part.voice_down' : 'part.voice_up'
     case 'setPartVolume': return PART_VOLUME[cmd.part]
     case 'setPartOctave': return 'part.octave_up'
+    case 'setPartPan': return 'mixer.part.pan'
+    case 'setPartSend': return cmd.send === 'reverb' ? 'mixer.part.reverb' : 'mixer.part.chorus'
     case 'setFaderPage':
     case 'toggleFaderPage': return 'mixer.page'
     case 'setPadPage': return PAGE[cmd.page]
@@ -144,7 +146,8 @@ export function tipFor(cmd: AppCmd | null): TipKey {
     case 'setRegistSequence': return 'regist.sequence_steps'
     case 'setRegistSequenceOn':
     case 'toggleRegistSequence': return 'regist.sequence_on'
-    case 'stepRegistSequence': return cmd.delta < 0 ? 'regist.seq_prev' : 'regist.seq_next'
+    case 'stepRegistSequence':
+    case 'stepRegist': return cmd.delta < 0 ? 'regist.seq_prev' : 'regist.seq_next'
     // Playlist
     case 'newPlaylist': return 'playlist.new'
     case 'loadPlaylist': return 'playlist.file'

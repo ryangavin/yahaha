@@ -890,6 +890,27 @@ const catalog = {
     keys: [],
     launchkey: 'Panel fader page: fader 4',
   },
+  'mixer.part.pan': {
+    title: 'Pan',
+    body: 'Where this part sits left to right: its channel\'s CC 10 (64 = centre), on the MIDI port and in the synth. Drag up or down; double-click for centre. A sound library patch or a One Touch Setting sets it too.',
+    genos: 'Mixer › Panel › Pan/Volume › Pan',
+    keys: [],
+    launchkey: null,
+  },
+  'mixer.part.reverb': {
+    title: 'Reverb',
+    body: 'How much of this part goes to the reverb: its channel\'s CC 91 (40 is the power-on depth). Drag up or down; double-click for 40. A sound library patch or a One Touch Setting sets it too.',
+    genos: 'Mixer › Panel › Effect › Reverb',
+    keys: [],
+    launchkey: null,
+  },
+  'mixer.part.chorus': {
+    title: 'Chorus',
+    body: 'How much of this part goes to the chorus: its channel\'s CC 93 (0 is the power-on depth). Drag up or down; double-click for 0. A sound library patch or a One Touch Setting sets it too.',
+    genos: 'Mixer › Panel › Effect › Chorus',
+    keys: [],
+    launchkey: null,
+  },
   'mixer.style.volume': {
     title: 'Style part volume',
     body: 'This band part\'s volume. The fader is its channel\'s CC 7 itself (channels 9–16), with no hidden gain behind it, except that a Fade In/Out scales the CC 7 it sends while the fade runs (the fader stays put). Loading a style sets the faders to the style\'s own levels, and a pattern that changes its volume moves the fader too, until you move it yourself.',

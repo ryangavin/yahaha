@@ -282,6 +282,7 @@ The engine, the runtime and the app API are the `yahaha` library. A `Session` ow
 
 - `yahaha dump <style>`: sections, channels, and CASM rules.
 - `yahaha sim <style> "C Am7 F G7"`: offline render, one chord per bar, printed per part.
+- `yahaha render <style> "C Am7 F G7" <font.sf2> <out.wav>`: the same played through the built-in SoundFont synth into a 48 kHz WAV, for listening tests. Keep the WAVs off the repo (they are the style's patterns). `YAHAHA_VEL_FILTER=off` (here, with `play`, or for the app) turns off velocity → tone: the SF2 default velocity → filter cutoff modulator and the SoundFont's own, which the vendored rustysynth applies (#203).
 - `yahaha capture-kit <out-dir> [--clock-ppm N] [style]...`: writes the Genos-owner reference capture kit, with a chord-script MIDI file per style and instructions (`docs/capture-kit/`). `--clock-ppm` runs the files that much faster, for an instrument whose clock drifts past a style's tolerance.
 - `yahaha capture-import <recording.mid> <style>`: compares a hardware recording of that kit with what yahaha plays, bar by bar and part by part. `--golden tests/reference` turns a verified recording into a reference digest (`tests/reference/README.md`).
 - `yahaha oracle corpus/ [--pairs | --scores | --diff tests/oracle/scores.txt]`: scores our chord conversion against the authors' own major/minor source channels (docs/oracle.md). Counts only.

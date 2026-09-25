@@ -28,7 +28,9 @@ afterEach(() => {
   ui.mixer = false
 })
 
-const sliders = () => [...document.querySelectorAll<HTMLElement>('.strips [role="slider"]')]
+/** The channel faders and the master (not the Panel strips' pan/send knobs). */
+const sliders = () => [...document.querySelectorAll<HTMLElement>('.strips [role="slider"]:not(.knob)')]
+const knobs = () => [...document.querySelectorAll<HTMLElement>('.strips .knob')]
 const tab = (name: string) => [...document.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find((t) => t.textContent?.includes(name))!
 
 describe('Mixer drawer', () => {
@@ -88,6 +90,27 @@ describe('Mixer drawer', () => {
     expect(on).toHaveLength(8)
     await fireEvent.click(on[0])
     expect(s.state.mixer.styleParts[0].on).toBe(false)
+  })
+
+  it('Panel strips have Pan, Reverb and Chorus knobs that send the part\'s CC 10/91/93; the Style tab has none', async () => {
+    const s = setup()
+    const k = knobs()
+    expect(k).toHaveLength(12)
+    expect(k.slice(9).map((e) => e.getAttribute('aria-label'))).toEqual(['Left pan', 'Left reverb', 'Left chorus'])
+    expect(k[0].getAttribute('aria-valuetext')).toBe('C')
+    await fireEvent.keyDown(k[9], { key: 'Home' })
+    expect(s.state.keyboardParts[3].pan).toBe(0)
+    flushSync()
+    expect(knobs()[9].getAttribute('aria-valuetext')).toBe('L64')
+    await fireEvent.keyDown(k[4], { key: 'PageUp' })
+    expect(s.state.keyboardParts[1].reverb).toBe(50)
+    await fireEvent.keyDown(k[2], { key: 'End' })
+    expect(s.state.keyboardParts[0].chorus).toBe(127)
+    await fireEvent.dblClick(k[2])
+    expect(s.state.keyboardParts[0].chorus).toBe(0)
+    await fireEvent.click(tab('Style'))
+    flushSync()
+    expect(knobs()).toHaveLength(0)
   })
 
   it('shows the soft-takeover mark and the ghost of the hardware fader while a level waits', async () => {
@@ -165,7 +188,7 @@ describe('voice lines', () => {
     expect(styleVoice(null)).toEqual({ plays: '—', writtenFor: '' })
   })
   it('a keyboard part under Manual Bass plays the Style Bass', () => {
-    const p = { name: 'Left', channel: 2, on: false, sounding: true, selected: false, volume: 100, waiting: false, program: 48, voiceName: 'Finger Bass', playsBass: true, octave: 0, fader: null, patch: null }
+    const p = { name: 'Left', channel: 2, on: false, sounding: true, selected: false, volume: 100, waiting: false, program: 48, voiceName: 'Finger Bass', playsBass: true, octave: 0, pan: 64, reverb: 40, chorus: 0, fader: null, patch: null }
     expect(partVoice(p).writtenFor).toContain('Manual Bass')
     expect(partVoice({ ...p, playsBass: false, voiceName: 'Strings' })).toEqual({ plays: 'Strings', writtenFor: 'GM 49' })
   })
