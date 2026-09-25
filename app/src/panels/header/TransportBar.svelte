@@ -1,6 +1,6 @@
 <!--
-  The transport section under the app bar: the Genos STYLE CONTROL and TEMPO buttons
-  in one row, always in reach whatever page the Launchkey is on.
+  The transport section in the app bar (Header.svelte): the Genos STYLE CONTROL and TEMPO
+  buttons in one row, always in reach whatever page the Launchkey is on.
 
   [▶ Start] [Sync Start] [Sync Stop] · Intro [I][II][III] · Ending [I][II][III] ·
   Tempo [−] 104 [+] [Tap] · 13.1 ●○○○ Main B → Fill B
@@ -53,7 +53,7 @@
 <!-- svelte-ignore a11y_no_noninteractive_tabindex (readouts are focusable so their tooltips are reachable from the keyboard) -->
 <section class="tbar mat-chassis" aria-label="Transport" data-state={state}>
   <div class="group">
-    <HwButton tip={tipOf(start)} led={lamp(start)} {beats} width="4.9rem" label={t.running ? 'Stop' : 'Start'} onclick={() => send(start)}>
+    <HwButton tip={tipOf(start)} led={lamp(start)} {beats} width="4.6em" label={t.running ? 'Stop' : 'Start'} onclick={() => send(start)}>
       <span class="icon">{t.running ? '■' : '▶'}</span>{t.running ? 'Stop' : 'Start'}
     </HwButton>
     <HwButton tip={tipOf(syncStart)} led={lamp(syncStart)} {beats} pressed={t.syncStart} onclick={() => send(syncStart)}>
@@ -108,9 +108,18 @@
     padding: 0.3rem 0.7rem;
     border-radius: 6px;
     font-size: 13px;
-    flex-shrink: 0;
+    flex: 0 1 auto;
     min-width: 0;
+    /* In the app bar: centred between the name and the app's own controls. */
+    margin-inline: auto;
     overflow: hidden;
+  }
+  /* Large windows: a size up, so the transport reads as the app bar's main section. */
+  @media (min-width: 1600px) {
+    .tbar {
+      font-size: 14.5px;
+      column-gap: 1.3rem;
+    }
   }
   .group {
     display: flex;
@@ -194,7 +203,7 @@
     flex: 1 1 0;
     min-width: 0;
   }
-  @media (max-width: 1100px) {
+  @media (max-width: 1260px) {
     .tbar {
       column-gap: 0.5rem;
       padding: 0.3rem 0.5rem;
@@ -214,6 +223,44 @@
     }
     .bpm {
       width: 3.2rem;
+    }
+  }
+  /* Toward the 900px minimum: smaller print, Intro/Ending engraved upright beside their buttons,
+     and bar.beat with the beat lights only (the lead-sheet band shows the sections). */
+  @media (max-width: 1080px) {
+    .tbar {
+      font-size: 12px;
+      column-gap: 0.4rem;
+      padding: 0.3rem 0.45rem;
+    }
+    .short {
+      font-size: 0.6rem;
+    }
+    .group {
+      gap: 0.25rem;
+    }
+    .bpm {
+      width: 2.8rem;
+    }
+    .lbl {
+      writing-mode: vertical-rl;
+      transform: rotate(180deg);
+      font-size: 0.56rem;
+      line-height: 1;
+      margin-right: 0;
+    }
+    .pos {
+      flex: none;
+      min-width: 0;
+      gap: 0.35rem;
+      padding: 0 0.4rem;
+    }
+    .bar {
+      min-width: 2.5rem;
+    }
+    .now,
+    .next {
+      display: none;
     }
   }
 </style>

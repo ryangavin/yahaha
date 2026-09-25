@@ -1,6 +1,12 @@
 <!--
-  The app bar above the hardware view: the app's own controls (Settings, help mode, theme).
-  Everything the hardware does lives on the Launchkey mirror, and each drawer opens from a
+  The app bar above the hardware view, one row: the brand, the transport section
+  (TransportBar.svelte: Start/Stop, Sync, Intro, Ending, Tempo, Tap, bar.beat and the
+  section) and the app's own controls (Settings, help mode, theme).
+
+  [yahaha] [▶ Start][Sync Start][Sync Stop] Intro[I][II][III] Ending[I][II][III]
+           Tempo[−]104[+][Tap] [13.1 ●○○○ Main B → Fill B]      [Settings] ? ☾
+
+  Everything else the hardware does lives on the Launchkey mirror, and each drawer opens from a
   small button next to the controls it details (Mixer by the faders, Multi Pads by the
   pads, Charts by the lead-sheet lane, …: lib/ui/DrawerButton.svelte), not from here.
 
@@ -11,6 +17,7 @@
   import { app, ui } from '../../lib/store.svelte'
   import { tips } from '../../lib/tooltip/tip.svelte'
   import HwButton from '../../lib/ui/HwButton.svelte'
+  import TransportBar from './TransportBar.svelte'
 
   const s = $derived(app.state)
   const amber = { rgb: [127, 90, 20] as [number, number, number], level: 'bright' as const, anim: 'solid' as const }
@@ -18,11 +25,17 @@
 
 <header class="bar">
   <span class="brand" aria-label="yahaha">yahaha</span>
-  <span class="engraved sub">software arranger</span>
+  <span class="tag">
+    <span class="engraved sub">software arranger</span>
+    {#if app.kind === 'mock' || s.io.offline}<span class="engraved badge"><span class="long">{app.kind === 'mock' ? 'mock session' : 'offline session'}</span><span class="short">{app.kind === 'mock' ? 'mock' : 'offline'}</span></span>{/if}
+  </span>
+
+  <TransportBar />
 
   <div class="app-controls">
-    <HwButton tip="settings.open" led={ui.settings ? amber : null} onclick={() => ui.toggleDrawer('settings')}>Settings</HwButton>
-    {#if app.kind === 'mock' || s.io.offline}<span class="engraved badge">{app.kind === 'mock' ? 'mock session' : 'offline session'}</span>{/if}
+    <HwButton tip="settings.open" led={ui.settings ? amber : null} label="Settings" onclick={() => ui.toggleDrawer('settings')}>
+      <span class="long">Settings</span><span class="short icon">⚙</span>
+    </HwButton>
     <HwButton tip="app.help" pressed={tips.help} led={tips.help ? amber : null} label="Help mode" onclick={() => tips.toggleHelp()}>?</HwButton>
     <HwButton tip="app.theme" label="Light or dark theme" onclick={() => ui.setTheme(ui.theme === 'dark' ? 'light' : 'dark')}>
       {ui.theme === 'dark' ? '☾' : '☀'}
@@ -46,45 +59,69 @@
     color: var(--ink);
     text-shadow: 0 1px 0 rgb(0 0 0 / 0.5);
   }
-  .sub {
+  /* Under the name's tagline: which session this is, when it isn't the engine's. */
+  .tag {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.15rem;
     margin-left: -0.5rem;
+    flex: none;
+  }
+  .sub {
+    line-height: 1.1;
+    white-space: nowrap;
   }
   .app-controls {
     display: flex;
     align-items: center;
     gap: 0.5rem;
+    /* The transport between takes the free space as its margins (centred). */
     margin-left: auto;
+    flex: none;
   }
   .badge {
-    padding: 0.1rem 0.45rem;
+    padding: 0 0.35rem;
+    line-height: 1.3;
     border: 1px dashed var(--line-strong);
     border-radius: 3px;
+    white-space: nowrap;
   }
-  /* The 900px minimum window. */
-  @media (max-width: 1000px) {
+  .short {
+    display: none;
+  }
+  .icon {
+    font-size: 1.1em;
+    line-height: 1;
+  }
+  /* Up to a laptop: the transport takes the room; the app's own controls go short. */
+  @media (max-width: 1360px) {
     .bar {
       gap: 0.6rem;
     }
     .sub {
       display: none;
     }
+    .tag {
+      margin-left: 0;
+    }
     .app-controls {
       gap: 0.3rem;
     }
-    .badge {
-      max-width: 3.6rem;
-      line-height: 1.1;
-      text-align: center;
+    .long {
+      display: none;
+    }
+    .short {
+      display: inline;
     }
   }
-  @media (max-width: 760px) {
+  @media (max-width: 1080px) {
     .bar {
-      flex-wrap: wrap;
-      gap: 0.5rem;
+      gap: 0.4rem;
     }
-    .sub,
-    .badge {
-      display: none;
+    .brand {
+      font-size: 1.25rem;
+      letter-spacing: 0.02em;
     }
   }
 </style>

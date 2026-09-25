@@ -2,8 +2,7 @@
   The layout shell: the app bar, the stage (lead-sheet band, Launchkey mirror, keyboard
   strip) and the panels that open around it. Each lives in its own folder under src/panels/.
 
-  ┌ app bar: yahaha ····································· Settings · ? · theme ┐
-  │ transport: Start/Stop · Sync · Intro · Ending · Tempo −/+ · Tap · bar.beat  │
+  ┌ app bar: yahaha [transport: Start · Sync · Intro · Ending · Tempo · 13.1] ⚙ ? ☾ ┐
   │ ┌ stage ──────────────────────────────────────────────────────────────┐   │
   │ │ lead-sheet band (panels/leadsheet): now · bar cells / chart · next  │   │
   │ │ Launchkey mirror (panels/launchkey)                                 │ ┌ drawer ┐
@@ -40,7 +39,6 @@
   import Browser from './panels/browser/Browser.svelte'
   import Charts from './panels/charts/Charts.svelte'
   import Header from './panels/header/Header.svelte'
-  import TransportBar from './panels/header/TransportBar.svelte'
   import KeyStrip from './panels/keystrip/KeyStrip.svelte'
   import Launchkey from './panels/launchkey/Launchkey.svelte'
   import LeadSheet from './panels/leadsheet/LeadSheet.svelte'
@@ -80,7 +78,6 @@
 
 <div class="app">
   <Header />
-  <TransportBar />
 
   <main class="stage">
     <div class="stack">
