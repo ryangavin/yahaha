@@ -195,7 +195,7 @@ function patternBars(s: string): number {
 /** The engine's default Style settings (src/engine/timing.rs). */
 export const DEFAULT_STYLE_SETTINGS: StyleSettingsState = {
   mainTiming: 'nextBar', introEndingTiming: 'nextBar', syncStopWindowMs: 0,
-  fadeInMs: 5000, fadeOutMs: 5000, fadeHoldMs: 2000, sectionReset: false, retriggerRate: 8,
+  fadeInMs: 5000, fadeOutMs: 5000, fadeHoldMs: 2000, sectionReset: true, retriggerRate: 8,
 }
 
 /** A stopped session with the first style loaded and Sync Start armed. */

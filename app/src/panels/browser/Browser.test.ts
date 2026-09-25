@@ -61,6 +61,20 @@ describe('style browser', () => {
     expect(r.querySelectorAll('.lamps i.on').length).toBeGreaterThan(5)
   })
 
+  it('shows a style tempo that is not a whole number as whole BPM, rounded', async () => {
+    // Tempos derive from the style's microseconds per quarter: 105.00029, 69.99998…
+    const tempos = [105.00028874, 69.99998]
+    await setup()
+    const lib = app.library
+    app.library = { ...lib, entries: lib.entries.map((e, i) => (i < tempos.length ? { ...e, tempo: tempos[i] } : e)) }
+    await tick()
+    flushSync()
+    const shown = rows()
+      .slice(0, tempos.length)
+      .map((r) => r.querySelector('.tempo')?.textContent)
+    expect(shown).toEqual(['105', '70'])
+  })
+
   it('filters as you type and loads with Enter, closing the browser', async () => {
     const s = await setup()
     await type('bossa')

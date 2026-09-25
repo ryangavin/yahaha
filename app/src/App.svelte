@@ -4,13 +4,13 @@
 
   ┌ app bar: Parts & OTS · Mixer · Browse · Charts · Settings ······· ? · theme ┐
   │ transport: Start/Stop · Sync · Intro · Ending · Tempo −/+ · Tap · bar.beat  │
-  │ Registration bar: bank · buttons 1–10 · Memory · Freeze · sequence · playlist │
   │ ┌ stage ──────────────────────────────────────────────────────────────┐   │
   │ │ lead-sheet band (panels/leadsheet): now · bar cells / chart · next  │   │
   │ │ Launchkey mirror (panels/launchkey)                                 │ ┌ drawer ┐
   │ │ keyboard strip (panels/keystrip)                                    │ │ parts  │
   │ └─────────────────────────────────────────────────────────────────────┘ │ mixer  │
-  │ status line                                                             │settings│
+  │ Registration bar (by the keys): bank · 1–10 · Memory · Freeze · seq.    │settings│
+  │ status line                                                             │        │
   │ help footer (lib/tooltip): the hovered control's entry · last Launchkey  └────────┘
   └──────────────────────────────────────────────────────────────────────────┘
   Browser: centred modal. Drawers and the browser end above the help footer
@@ -76,7 +76,6 @@
 <div class="app">
   <Header />
   <TransportBar />
-  <RegistBar />
 
   <main class="stage">
     <div class="stack">
@@ -85,6 +84,9 @@
       <div class="strip-slot"><KeyStrip /></div>
     </div>
   </main>
+
+  <!-- Under the keys, as the Genos's Registration Memory buttons sit by the keyboard. -->
+  <RegistBar />
 
   <!-- svelte-ignore a11y_no_noninteractive_tabindex (focusable so its tooltip is reachable from the keyboard) -->
   <footer class="status engraved" role="status" tabindex="0" use:tip={'display.status'}>
@@ -122,7 +124,7 @@
   /* ── The stage: sizes in em of --u, the largest that fits both ways ──────────────────
      --w: the stack's width in em (the mirror's design width).
      --h: its least height in em: lead band min + mirror + strip min + 2 gaps.
-     Measured from the rendered mirror: 24.95em tall wide, 45.14em stacked. */
+     Measured from the rendered mirror: 26.00em tall wide, 46.17em stacked. */
   .stage {
     container: stage / size;
     flex: 1;
@@ -133,7 +135,7 @@
   }
   .stack {
     --w: 96;
-    --h: 38.8;
+    --h: 39.9;
     --u: min(100cqw / var(--w), 100cqh / var(--h));
     font-size: var(--u);
     width: calc(var(--w) * 1em);
@@ -156,7 +158,7 @@
   @container stage (aspect-ratio < 1.45) {
     .stack {
       --w: 66;
-      --h: 59;
+      --h: 60;
     }
   }
   .status {
