@@ -100,6 +100,7 @@ export function tipFor(cmd: AppCmd | null): TipKey {
     case 'setDefaultSoundSet': return cmd.file === null ? 'audio.soundfont_auto' : 'audio.soundfont'
     case 'setMidiInputs': return cmd.all ? 'midi.merge_all' : 'midi.input'
     case 'setPaletteLeds': return 'midi.palette_leds'
+    case 'setAudioBuffer': return 'audio.buffer'
     case 'rescanLibrary': return 'settings.rescan'
     case 'importCharts': return 'chart.import_link'
     case 'importChartFile': return 'chart.import_file'
