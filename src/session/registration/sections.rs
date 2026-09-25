@@ -11,6 +11,7 @@
 //! `c.param_locked(item)` first and leaves the item alone when it is locked.
 
 use super::super::harmony_arp::{harmony_arp_capture, harmony_arp_recall};
+use super::super::style_settings::{style_settings_capture, style_settings_recall};
 use super::super::Control;
 use crate::api::{gm_name, ChordCmd, LibraryCmd, LockItem, MultiPadCmd, PartsCmd, StopAcmpMode};
 use crate::engine::{Button, StyleControls, Transpose};
@@ -51,6 +52,9 @@ pub(in crate::session) const REGISTRABLES: &[Registrable] = &[
     Registrable { key: "transpose", early: false, capture: transpose_capture, recall: transpose_recall },
     // Keyboard Harmony/Arpeggio (#32/#33): session/harmony_arp.rs.
     Registrable { key: "harmonyArp", early: false, capture: harmony_arp_capture, recall: harmony_arp_recall },
+    // Section Change Timing, Retrigger, Synchro Stop Window, Section Reset, fade times
+    // (#107): session/style_settings.rs.
+    Registrable { key: "styleSettings", early: false, capture: style_settings_capture, recall: style_settings_recall },
 ];
 
 fn to_value<T: Serialize>(t: &T) -> Option<Value> {
@@ -261,6 +265,7 @@ fn control_recall(c: &mut Control, v: &Value, g: Groups) -> Result<(), String> {
         parts: None,
         volumes: None,
         player_set: None,
+        retrigger: None,
     };
     c.engine_cmd(Cmd::StyleControls(set)).map_err(|e| e.to_string())
 }
