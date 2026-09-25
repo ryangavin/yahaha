@@ -1123,6 +1123,13 @@ const catalog = {
     keys: [],
     launchkey: `${P1} (Sync Start, Sync Stop, Auto Fill); ${P2}, bottom row, pad 2 (Stop ACMP)`,
   },
+  'settings.tab.lock': {
+    title: 'Settings: Parameter Lock',
+    body: 'Lock the split point or the fingering type, so Registration, One Touch Setting and Playlist recalls leave them as you set them.',
+    genos: 'Menu › Utility › Parameter Lock',
+    keys: [],
+    launchkey: null,
+  },
   'settings.tab.audio': {
     title: 'Settings: Audio',
     body: 'The built-in synth: on or off, which output pair it plays on, its SoundFont and its master volume.',
