@@ -66,6 +66,10 @@ pub struct PartPlugin {
     pub error: Option<String>,
     /// Runs in its own process (a crash there only silences the part).
     pub out_of_process: bool,
+    /// It was meant to run in its own process, but the system refused to host it there,
+    /// so it loaded in yahaha's process instead: a crash in it takes yahaha down.
+    #[serde(default)]
+    pub in_process_fallback: bool,
     /// Its render time as a share of real time (0.05 = 5% of one core), updated once a
     /// second.
     pub cpu: f32,

@@ -109,6 +109,9 @@ mod imp {
         /// A load the system refuses to host out of process may be retried in process
         /// (`plugin::may_retry_in_process`). Never for the start-up restore.
         pub(crate) allow_fallback: bool,
+        /// The system refused to host it out of process, so it was loaded in process
+        /// instead (a crash in it would take yahaha down): the app shows it.
+        pub(crate) fell_back: bool,
     }
 
     impl ChannelPlugin {
@@ -129,6 +132,7 @@ mod imp {
                 cpu: 0.0,
                 last: (0, 0),
                 allow_fallback: false,
+                fell_back: false,
             }
         }
 
@@ -260,6 +264,7 @@ mod imp {
                 cpu: 0.0,
                 last: (0, 0),
                 allow_fallback,
+                fell_back: false,
             });
             Ok(())
         }
@@ -364,6 +369,7 @@ mod imp {
                 stage: c.stage.clone(),
                 error: c.error.clone(),
                 out_of_process: c.out_of_process,
+                in_process_fallback: c.fell_back,
                 cpu: c.cpu,
                 overruns,
                 editor: c.status == PluginStatus::Playing,
@@ -558,7 +564,10 @@ mod imp {
                                 let c = self.plugins.channels[ch as usize].as_mut().unwrap();
                                 c.load = Some(h);
                                 c.mode = LoadMode::InProcess;
+                                c.fell_back = true;
                                 c.stage = Some("queued".into());
+                                let name = c.name();
+                                self.say(format!("{name} can't run in its own process; loading it inside yahaha instead (if it crashes, yahaha goes with it)"), false);
                                 return;
                             }
                         }
