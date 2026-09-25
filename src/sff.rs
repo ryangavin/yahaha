@@ -245,6 +245,9 @@ pub struct OtsPart {
     pub volume: u8,
     /// Octave shift (-2..=2).
     pub octave: i8,
+    /// Pan, reverb send and chorus send (CC10, CC91, CC93) as the track leaves them; None
+    /// where it doesn't set one.
+    pub fx: [Option<u8>; 3],
 }
 
 /// A One Touch Setting: the panel voices a style suggests for your hands.
@@ -257,6 +260,8 @@ pub struct Ots {
 /// Parse an OTSc chunk: a sequence of MTrk tracks, one per setting. Voices are plain bank
 /// select + program change on channels 1-4; part on/off and octave are Yamaha SysEx
 /// `F0 43 73 01 50 08 <part> <param> <value> F7` (param 00 = on/off, 03 = octave, 0x40 centre).
+/// Pan and the reverb/chorus sends are plain CC10/91/93 on the part's channel (the last one
+/// wins). The other controllers, RPNs and XG part SysEx the tracks carry are not read yet.
 pub fn parse_ots(data: &[u8]) -> Vec<Ots> {
     let mut out = Vec::new();
     let mut p = 0;
@@ -275,6 +280,9 @@ pub fn parse_ots(data: &[u8]) -> Vec<Ots> {
                         0 => bank[ch as usize].0 = val,
                         32 => bank[ch as usize].1 = val,
                         7 => ots.parts[ch as usize].volume = val,
+                        10 => ots.parts[ch as usize].fx[0] = Some(val),
+                        91 => ots.parts[ch as usize].fx[1] = Some(val),
+                        93 => ots.parts[ch as usize].fx[2] = Some(val),
                         _ => {}
                     },
                     Ev::Pc { ch, prog } if ch < 4 => {

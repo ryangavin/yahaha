@@ -193,7 +193,7 @@ Style Section Reset, the Fade In/Out times and the Style Retrigger length. The s
 
 | Command | Fields | Does |
 |---|---|---|
-| `recallOts` | `index` 0–3 | Recalls OTS 1–4 into the keyboard parts. A part the OTS gives a voice ends a plugin picked for it, as `setPartVoice` does. Ignored if the style has no such OTS. |
+| `recallOts` | `index` 0–3 | Recalls OTS 1–4 into the keyboard parts: voice, on/off, volume, octave, and the pan and reverb/chorus sends the OTS sets (CC10/91/93; one it does not set is left as it is). A part the OTS gives a voice ends a plugin picked for it, as `setPartVoice` does. Ignored if the style has no such OTS. |
 | `setOtsLink` / `toggleOtsLink` | `on` | OTS Link: Main A–D recall OTS 1–4, and so does a style change. |
 | `setOtsLinkTiming` | `timing`: `immediate` \| `mainChange` | OTS Link Timing: during playback, recall the Main's OTS as it is pressed (`immediate`), or when that Main starts playing (`mainChange`, the default: at its change point, or after its fill; never while the old section still plays). Stopped, both recall at once. A style change recalls the new style's OTS when that style takes over (the bar line or beat Section Change Timing gives, or the end of an Ending), under both. |
 | `loadStyle` | `id` | A library entry (`LibraryEntry.id`). Stopped, it loads at once. Playing, it takes over at the next bar line, as on a Genos: the band carries on in the same section (the same Main, or the nearest the new style has) at the same bar position, at the same tempo. Until then `preview.queued` names it and `style` is still the old one. A later style change before the bar line replaces it; stopping first loads it then. |

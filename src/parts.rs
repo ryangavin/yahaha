@@ -373,8 +373,10 @@ impl Parts {
         self.rebind.swap(false, Acquire).then(|| self.rebind_hw.each_ref().map(|a| a.load(Relaxed)))
     }
 
-    /// Load a One Touch Setting into Right 1-3 and Left: voice, on/off, volume, octave.
-    /// Drum-kit voices (bank MSB 126/127) keep the part's current voice.
+    /// Load a One Touch Setting into Right 1-3 and Left: voice, on/off, volume, octave, and
+    /// the pan and reverb/chorus sends the OTS sets (the engine thread sends them; one it
+    /// doesn't set stays as it is). Drum-kit voices (bank MSB 126/127) keep the part's
+    /// current voice.
     pub fn apply_ots(&self, ots: &crate::sff::Ots, number: u8) {
         for (p, part) in ots.parts.iter().enumerate() {
             if let Some((_, _, pc)) = part.voice.filter(|v| v.0 < 126) {
@@ -383,6 +385,9 @@ impl Parts {
             self.on[p].store(part.on, Relaxed);
             self.set_volume(p, part.volume);
             self.octave[p].store(part.octave, Relaxed);
+            if part.fx.iter().any(Option::is_some) {
+                self.set_fx(p, part.fx);
+            }
         }
         self.selected.store(RIGHT1 as u8, Relaxed);
         self.ots_applied.store(number, Relaxed);
@@ -430,6 +435,56 @@ mod tests {
             assert_eq!(parts.volume(i), o.volume);
             assert_eq!(parts.octave[i].load(Relaxed), o.octave);
         }
+    }
+
+    /// An OTS recall sets each part's pan, reverb and chorus as its OTS track does (#198):
+    /// over the corpus, the CC10/91/93 that `send_fx` sends after `apply_ots` are the last
+    /// ones each part's channel carries in the raw OTSc track, and nothing else.
+    #[test]
+    fn ots_recalls_pan_and_sends_across_the_corpus() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus/MOX_v2");
+        if !dir.exists() {
+            eprintln!("corpus missing; skipping");
+            return;
+        }
+        let (mut settings, mut with_pan) = (0, 0);
+        for f in crate::library::style_files(&dir) {
+            let Ok(style) = crate::sff::Style::load(&f) else { continue };
+            let Some((_, otsc)) = style.other_chunks.iter().find(|(id, _)| id == "OTSc") else { continue };
+            // The OTS tracks, read here independently of `parse_ots`.
+            let mut tracks = Vec::new();
+            let mut p = 0;
+            while p + 8 <= otsc.len() && &otsc[p..p + 4] == b"MTrk" {
+                let len = u32::from_be_bytes(otsc[p + 4..p + 8].try_into().unwrap()) as usize;
+                let end = (p + 8 + len).min(otsc.len());
+                tracks.push(crate::sff::parse_track(&otsc[p + 8..end]).unwrap_or_default());
+                p = end;
+            }
+            for (i, (ots, track)) in style.ots.iter().zip(&tracks).enumerate() {
+                let mut want = [[None; 3]; COUNT];
+                for e in track {
+                    if let crate::sff::Ev::Cc { ch, cc, val } = e.ev
+                        && ch < 4
+                        && let Some(k) = FX_CC.iter().position(|&c| c == cc)
+                    {
+                        want[ch as usize][k] = Some(val);
+                    }
+                }
+                let parts = Parts::new();
+                parts.send_fx(&mut |_| {});
+                parts.apply_ots(ots, i as u8 + 1);
+                let mut got = [[None; 3]; COUNT];
+                parts.send_fx(&mut |m| {
+                    let p = part_of_channel(m[0] & 0x0F).unwrap();
+                    got[p][FX_CC.iter().position(|&c| c == m[1]).unwrap()] = Some(m[2]);
+                });
+                assert_eq!(got, want, "{} OTS {}", f.display(), i + 1);
+                settings += 1;
+                with_pan += want.iter().any(|w| w[0].is_some()) as usize;
+            }
+        }
+        eprintln!("{settings} OTS, {with_pan} with pan");
+        assert!(settings == 0 || with_pan * 2 > settings, "most OTS set pan ({with_pan} of {settings})");
     }
 
     #[test]
