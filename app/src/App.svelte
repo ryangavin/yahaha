@@ -119,7 +119,7 @@
   /* ── The stage: sizes in em of --u, the largest that fits both ways ──────────────────
      --w: the stack's width in em (the mirror's design width).
      --h: its least height in em: lead band min + mirror + strip min + 2 gaps.
-     Measured from the rendered mirror: 24.95em tall wide, 45.14em stacked. */
+     Measured from the rendered mirror: 26.00em tall wide, 46.17em stacked. */
   .stage {
     container: stage / size;
     flex: 1;
@@ -130,7 +130,7 @@
   }
   .stack {
     --w: 96;
-    --h: 38.8;
+    --h: 39.9;
     --u: min(100cqw / var(--w), 100cqh / var(--h));
     font-size: var(--u);
     width: calc(var(--w) * 1em);
@@ -153,7 +153,7 @@
   @container stage (aspect-ratio < 1.45) {
     .stack {
       --w: 66;
-      --h: 59;
+      --h: 60;
     }
   }
   .status {
