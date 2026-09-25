@@ -27,6 +27,11 @@ pub enum PluginCmd {
     SavePartPluginState { part: u8 },
     /// Scan the installed instruments again (ignoring the cache).
     RescanPlugins,
+    /// Run plugin `id` in yahaha's process (`true`) or in its own (`false`, the default for
+    /// third-party plugins). In process saves the IPC per render for the lightest plugins,
+    /// but a crash in it takes yahaha down. Kept in the scan cache; applies from the
+    /// plugin's next load.
+    SetPluginInProcess { id: String, in_process: bool },
 }
 
 /// Where a part's plugin is.
@@ -84,6 +89,12 @@ pub struct PluginEntry {
     pub format: String,
     /// The last load's error ("timed out after 20.0 s"), so the browser can warn.
     pub last_error: Option<String>,
+    /// The player chose to run it in yahaha's process (`SetPluginInProcess`).
+    #[serde(default)]
+    pub in_process: bool,
+    /// It can run in yahaha's process: every AUv2, and an AUv3 that allows it.
+    #[serde(default)]
+    pub can_run_in_process: bool,
 }
 
 /// The plugin host.

@@ -217,6 +217,8 @@ impl PluginHost {
         if let Some(old) = cache.as_ref() {
             for p in &mut plugins {
                 p.last_load = old.plugins.iter().find(|o| o.id == p.id && o.version == p.version).and_then(|o| o.last_load.clone());
+                // The player's choice outlives an update.
+                p.in_process = old.plugins.iter().any(|o| o.id == p.id && o.in_process) && p.can_run_in_process();
             }
         }
         let fresh = ScanCache { schema: scan::SCHEMA, fingerprint: fp, plugins: plugins.clone() };
@@ -266,6 +268,24 @@ impl PluginHost {
             .find(|p| p.full_name().to_lowercase().contains(&q))
             .cloned()
             .ok_or_else(|| anyhow!("no instrument Audio Unit matches {query:?}"))
+    }
+
+    /// Set the player's "run in process" override for `id` and save it in the cache.
+    /// Returns the plugin as now cached. Err for an AUv3 that only runs out of process.
+    pub fn set_in_process(&self, id: &PluginId, on: bool) -> Result<PluginInfo> {
+        let info = self.info(id)?;
+        if on && !info.can_run_in_process() {
+            bail!("{} is an AUv3 that only runs out of process", info.full_name());
+        }
+        let mut cache = self.inner.cache.lock().unwrap();
+        let c = cache.as_mut().ok_or_else(|| anyhow!("no plugin scan"))?;
+        let p = c.plugins.iter_mut().find(|p| p.id == *id).ok_or_else(|| anyhow!("no instrument Audio Unit {id} is installed"))?;
+        p.in_process = on;
+        let out = p.clone();
+        if let Some(path) = &self.inner.cache_path {
+            scan::write_cache(path, c)?;
+        }
+        Ok(out)
     }
 
     fn record(&self, info: &PluginInfo, ms: Option<f64>, error: Option<String>) {

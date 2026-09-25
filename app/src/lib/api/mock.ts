@@ -1590,6 +1590,7 @@ export class MockSession implements Session {
         break
       case 'savePartPluginState':
       case 'rescanPlugins':
+      case 'setPluginInProcess':
         this.plugins.cmd(cmd)
         break
       case 'loadMultiPad':
