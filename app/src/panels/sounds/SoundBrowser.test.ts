@@ -89,6 +89,27 @@ describe('sound browser (#117)', () => {
     expect(broken.getAttribute('data-tip')).toBe('sounds.row_failed')
     expect(broken.textContent).toContain('⚠')
   })
+
+  it('the footer files the selected plugin under another category (#172)', async () => {
+    const s = await setup()
+    // A SoundFont preset's category is its GM family: no picker.
+    expect(tipped('sounds.set_category')).toHaveLength(0)
+    const plugin = app.sounds.entries.find((x) => x.source === 'plugin' && !x.plugin?.lastError)!
+    await fireEvent.input(input(), { target: { value: plugin.name } })
+    await tick()
+    flushSync()
+    const e = app.sounds.entries[Number(active().id.slice('sound-'.length))]
+    expect(e.id).toBe(plugin.id)
+    const pick = tipped('sounds.set_category')[0] as HTMLSelectElement
+    expect(pick.value).toBe(e.category)
+    const to = e.category === 'sfx' ? 'pad' : 'sfx'
+    await fireEvent.change(pick, { target: { value: to } })
+    const got = (await s.sounds()).entries.find((x) => x.id === e.id)!
+    expect(got.category).toBe(to)
+    await refresh(s)
+    expect((tipped('sounds.set_category')[0] as HTMLSelectElement).value).toBe(to)
+    expect(document.activeElement).toBe(input())
+  })
 })
 
 describe('saved sounds (#117)', () => {
