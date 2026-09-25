@@ -1090,11 +1090,12 @@ mod tests {
         fader_button_msgs(FaderPage::Panel, 0b1001, 0xFF, false, false, &mut out);
         assert_eq!(out[..4], [[0xB0, 37, BLUE], [0xB0, 38, DIM_BLUE], [0xB0, 39, DIM_BLUE], [0xB0, 40, BLUE]]);
         assert_eq!(out[4], [0xB0, 41, DIM_PURPLE], "button 5: HARMONY/ARPEGGIO off");
-        assert!(out[5..8].iter().all(|m| m[2] == OFF), "buttons 6-8 unused on Panel");
+        assert!(out[5..8].iter().all(|m| m[2] == OFF), "button 6 dark (no plugin to reload), 7-8 unused on Panel");
         assert_eq!(out[8], [0xB0, 45, BLUE]);
         out.clear();
         fader_button_msgs(FaderPage::Panel, 0b1001, 0xFF, true, true, &mut out);
         assert_eq!(out[4], [0xB0, 41, PURPLE], "button 5: HARMONY/ARPEGGIO on");
+        assert_eq!(out[5], [0xB0, 42, RED], "button 6: the selected part's plugin needs a reload");
         out.clear();
         // The Style page's button 5 is the Style's fifth part, whatever the switch.
         fader_button_msgs(FaderPage::Style, 0b1001, !(1 << 5), true, true, &mut out);

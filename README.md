@@ -133,7 +133,7 @@ Pressing the current Main again plays its fill. With Auto Fill on, switching Mai
 | **Shift + Play** | Section Reset: the section starts again from its top |
 | **Shift + Stop** | Fade In/Out: stopped, arm a fade in; playing, fade out and stop |
 | **Shift + > / Shift + Function** | Retrigger length shorter / longer |
-| buttons under faders 1–8 | Panel page: Right 1–3, Left on/off (Shift: edit that part's voice), button 5 Harmony/Arpeggio on/off · Style page: mute/unmute the style parts |
+| buttons under faders 1–8 | Panel page: Right 1–3, Left on/off (Shift: edit that part's voice), button 5 Harmony/Arpeggio on/off, button 6 reload the edited part's plugin (red while it stopped or failed to load) · Style page: mute/unmute the style parts |
 | button under the master fader | fader page Panel / Style |
 
 The last Launchkey note or CC that nothing is mapped to shows at the bottom of the screen, e.g. `unmapped CC 103 = 127`. If a button does nothing, that shows the number it really sends.
@@ -184,6 +184,7 @@ The screen shows `sus` beside each part the pedal is holding.
 - `F1`–`F4` pick the part to edit (Right 1–3, Left) · `9 0` previous/next voice for it
 - `F9` fader page Panel / Style
 - `J` Harmony/Arpeggio on/off · `L` next Harmony type or arpeggio · `*` Arpeggio Hold
+- `s` reload the edited part's plugin after it stopped or failed to load (the Panel mixer shows each part's plugin, its CPU and slow renders)
 - `Q W E R T Y U I O P` (with Shift) Registration Memory 1–10 · `F5` Memory (the next button memorizes) · `F6` Freeze
 - `F7 F8` Regist −/+ (the Registration Sequence) · `F11 F12` Registration bank −/+ (on macOS, F11 is Show Desktop until you turn that shortcut off in System Settings › Keyboard) · `< >` previous/next Playlist record
 - `←/→` previous/next style, in the style browser's order (folder, then name)

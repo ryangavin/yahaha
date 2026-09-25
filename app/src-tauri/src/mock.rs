@@ -2017,6 +2017,21 @@ mod tests {
         assert_eq!(m.state.keyboard_parts[0].plugin.as_ref().unwrap().recent_overruns, 0);
     }
 
+    /// `reloadPartPlugin` retries the selected part's failed plugin; Panel fader button 6
+    /// is red while it needs that.
+    #[test]
+    fn reload_part_plugin_and_its_launchkey_button() {
+        let mut m = MockSession::new();
+        let b6 = |m: &MockSession| m.surface().controls.into_iter().find(|c| c.id == "faderButton6").unwrap();
+        assert_eq!((b6(&m).label.as_str(), b6(&m).level), ("PLUGIN", Level::Off));
+        m.send(PluginCmd::SetPartPlugin { part: 0, id: "aumu Mock Demo".into(), state: None });
+        assert_eq!((b6(&m).level, b6(&m).action), (Level::Bright, Some(AppCmd::Plugins(PluginCmd::ReloadPartPlugin { part: None }))));
+        m.send(PluginCmd::ReloadPartPlugin { part: None });
+        assert_eq!(m.state.keyboard_parts[0].plugin.as_ref().unwrap().status, PluginStatus::Failed, "Broken Synth fails again");
+        m.send(PluginCmd::ReloadPartPlugin { part: Some(1) });
+        assert!(m.state.message.as_ref().is_some_and(|x| x.error && x.text.contains("SoundFont")));
+    }
+
     /// A plugin patch on a keyboard part plays its plugin, as the session does (#109).
     #[test]
     fn a_plugin_patch_on_a_part_plays_its_plugin() {

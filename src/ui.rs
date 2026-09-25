@@ -906,6 +906,7 @@ mod tests {
             }
         }
         assert_eq!(key_action(KeyCode::Char('P')), Some(Action::Regist(9)));
+        assert_eq!(key_action(KeyCode::Char('s')), Some(Action::ReloadPlugin));
         assert_eq!(key_action(KeyCode::Right), Some(Action::Style(1)));
         assert_eq!(key_action(KeyCode::Char('f')), Some(Action::NextFingering));
     }
