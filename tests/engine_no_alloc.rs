@@ -66,6 +66,8 @@ fn preview_and_next_bar_style_change_do_not_allocate() {
     let _one = count_here();
     let bar = (60e9 / a.bpm * (a.tpb as f64 / a.ppq as f64)) as u64;
     let preview_bar = (60e9 / c.bpm * (c.tpb as f64 / c.ppq as f64)) as u64;
+    // Taps in a bar of the style playing at the end (`d`, SlowWalker again).
+    let beats = d.tpb / d.ppq;
     let shared = Arc::new(Shared::new(54));
     let mut ch = live::channels(Out::new(PacketSink::new(Target::Null), None));
     let mut l = EngineLoop::new(Engine::new(a), ch.io, shared.clone());
@@ -135,9 +137,29 @@ fn preview_and_next_bar_style_change_do_not_allocate() {
     ch.ui_tx.push(Cmd::Button(Button::StartStop)).ok().unwrap();
     ch.ui_tx.push(Cmd::Panic).ok().unwrap();
     l.step(now + 1);
+    // Stopped: a bar of taps at 120 BPM counts the band in, and it starts a beat after
+    // the last tap (#195). The earlier taps are long forgotten.
+    now += 20_000_000_000;
+    for i in 0..beats {
+        if i > 0 {
+            let next = now + 500_000_000;
+            while now < next {
+                now = l.next_deadline().unwrap_or(next).clamp(now + 1, next);
+                l.step(now);
+            }
+        }
+        ch.ui_tx.push(Cmd::Button(Button::TapTempo)).ok().unwrap();
+        l.step(now);
+    }
+    let end = now + 1_000_000_000;
+    while now < end {
+        now = l.next_deadline().unwrap_or(now + 5_000_000).max(now + 1);
+        l.step(now);
+    }
     assert_eq!(ALLOCS.load(Ordering::Relaxed) - allocs, 0, "allocations on the engine thread");
     assert_eq!(FREES.load(Ordering::Relaxed) - frees, 0, "frees on the engine thread");
     let snaps: Vec<_> = std::iter::from_fn(|| ch.snap_rx.pop().ok()).collect();
+    assert!(snaps.iter().any(|s| s.running && (s.bpm - 120.0).abs() < 1e-6), "the taps started the band");
     assert!(snaps.iter().any(|s| s.audition.is_some_and(|a| a.bar == 4)), "the preview played its 4 bars");
     assert!(snaps.iter().any(|s| s.running && s.style_pending), "the style change waited for the bar line");
     assert!(snaps.iter().any(|s| s.running && (s.bpm - 96.0).abs() < 1e-9), "the recalled tempo took");

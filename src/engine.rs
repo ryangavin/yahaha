@@ -393,6 +393,8 @@ pub struct Engine {
     manual_bass: bool,
     taps: [u64; 4],
     tap_n: usize,
+    /// Stopped: when a bar of taps starts the style (one beat after the last tap).
+    tap_start: Option<u64>,
     sounding: [Sounding; MAX_SOUNDING],
     /// Retrigger Rule pitch shift per channel: the semitones every note on the channel is
     /// bent by. A note sent while it is set goes out that much lower so it sounds true
@@ -469,6 +471,7 @@ impl Engine {
             manual_bass: false,
             taps: [0; 4],
             tap_n: 0,
+            tap_start: None,
             sounding: [EMPTY; MAX_SOUNDING],
             rtr_bend: [0; 16],
             pat_bend: [BEND_CENTRE; 16],
@@ -577,7 +580,7 @@ impl Engine {
         let wake = [self.hook_wake_ns(), self.settle_at()].into_iter().flatten().min();
         if !self.running {
             // Stopped: those, and the free-running metronome.
-            return [wake, self.metronome_idle_deadline()].into_iter().flatten().min();
+            return [wake, self.metronome_idle_deadline(), self.tap_start].into_iter().flatten().min();
         }
         let Some(sec) = self.style.sections[self.cur].as_ref() else { return wake };
         let mut t = self.section_end().0;
