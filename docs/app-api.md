@@ -388,7 +388,7 @@ every change. A patch id that doesn't exist fails the command.
 | `duplicatePatch` | `id` | A copy ("… copy") right after it, with a new id. |
 | `movePatch` | `id`, `to` | Moves it to position `to` (0-based) in the list. |
 | `setPatchFavourite` | `id`, `favourite` | Marks or unmarks a favourite. |
-| `savePartAsPatch` | `part` 0–3, `name` or null | Saves a keyboard part's sound as a new patch: its own patch, else its GM voice on the synth's SoundFont, with its volume and octave as defaults. |
+| `savePartAsPatch` | `part` 0–3, `name` or null | Saves what a keyboard part plays as a new patch: its plugin (component id and its state as its editor left it; a playing plugin's state is read afresh and lands in the patch a moment later), else the patch it plays (its own, or the one the program map sends its GM voice to), else its GM voice on the synth's SoundFont. Its volume and octave become the defaults. |
 | `addPresetAsPatch` | `file`, `bank`, `program`, `name` or null | Adds a SoundFont preset (`browseSoundFont`) as a patch, named after the preset and categorised from its bank and program. |
 | `auditionPatch` | `id` | Plays the patch on its own for about 3 s (an arpeggio and a chord; a drum kit plays a beat), on channel 16 of the built-in synth, which the band is not using while stopped. A plugin patch first loads its plugin there (#91's rack), then plays; the plugin goes when the audition ends. Refused while the band plays (like `auditionStyle`); `soundLibrary.auditioning` names it. |
 | `auditionPreset` | `file`, `bank`, `program` | The same for a SoundFont preset, before adding it. A SoundFont the synth hasn't loaded loads first. |
@@ -533,7 +533,7 @@ Indices are 0-based unless a field says otherwise.
 | `playsBass` | bool | Left is playing the bass (Manual Bass). |
 | `octave` | −2..2 | The octave setting. It is not applied while `playsBass` is true. |
 | `fader` | 0–127? | Where its Launchkey fader (Panel page, faders 1–4) physically is, as last reported. Null until that fader moves. |
-| `plugin` | PartPlugin? | The instrument plugin the part plays instead of its SoundFont voice. The key is absent when there is none. `id`, `name`, `manufacturer`, `status` (`loading` \| `playing` \| `failed` \| `muted`: still on the SoundFont, or the previous plugin, while loading; on the SoundFont after a failed load, keeping the choice so it is saved and can be retried; silent after the plugin crashed or produced bad audio), `stage` (while loading: `queued`, `instantiating`, `initializing`, `restoringState`), `error`, `outOfProcess` (runs in its own process), `inProcessFallback` (the system refused to host it in its own process, so it loaded in yahaha's process instead: a crash in it takes yahaha down; the app shows a warning badge), `cpu` (share of real time, updated once a second), `overruns` (renders slower than half the buffer), `editor` (its window can be opened). Its volume is still `volume` (CC7), and its pan is CC10; the host applies both to the plugin's output. |
+| `plugin` | PartPlugin? | The instrument plugin the part plays instead of its SoundFont voice. The key is absent when there is none. `id`, `name`, `manufacturer`, `status` (`loading` \| `playing` \| `failed` \| `muted`: still on the SoundFont, or the previous plugin, while loading; on the SoundFont after a failed load, keeping the choice so it is saved and can be retried; silent after the plugin crashed or produced bad audio), `stage` (while loading: `queued`, `instantiating`, `initializing`, `restoringState`), `error`, `outOfProcess` (runs in its own process), `inProcessFallback` (the system refused to host it in its own process, so it loaded in yahaha's process instead: a crash in it takes yahaha down; the app shows a warning badge), `cpu` (share of real time, updated once a second), `overruns` (renders slower than half the buffer, since it loaded), `recentOverruns` (those in the last 10 seconds, updated once a second: the live readout the mixer badge shows; a larger `setAudioBuffer` gives the plugin more time), `editor` (its window can be opened). Its volume is still `volume` (CC7), and its pan is CC10; the host applies both to the plugin's output. |
 | `patch` | string? | Its own sound library patch (`setPartPatch`). Null: its GM voice plays, through the program map; `voiceName` then names the patch the map sends it to, if any. |
 
 ### `mixer`
@@ -1096,6 +1096,7 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
         "inProcessFallback": false,
         "cpu": 0.015625,
         "overruns": 0,
+        "recentOverruns": 0,
         "editor": true
       },
       "patch": null

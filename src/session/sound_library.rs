@@ -10,8 +10,8 @@
 
 use super::{Control, RackLoad};
 use crate::api::{
-    voice_label, CategoryInfo, CmdError, PatchFields, PatchInfo, ProgramUse, SoundFontBrowse, SoundLibraryCmd, SoundLibraryState,
-    STYLE_PART_NAMES,
+    voice_label, CategoryInfo, CmdError, PatchFields, PatchInfo, PluginStatus, ProgramUse, SoundFontBrowse, SoundLibraryCmd,
+    SoundLibraryState, STYLE_PART_NAMES,
 };
 use crate::engine::Prepared;
 use crate::patches::route::{AUDITION, AUDITION_CHANNEL, MAX_FONTS};
@@ -28,6 +28,22 @@ use std::sync::{mpsc, Arc};
 const AUDITION_WAIT_NS: u64 = 15_000_000_000;
 /// How long a plugin patch's audition waits for its plugin (#91's loads time out at 20 s).
 const PLUGIN_AUDITION_WAIT_NS: u64 = 25_000_000_000;
+/// How long a saved plugin patch waits for the fresh read of its plugin's state (a plugin
+/// that hangs answering leaves the patch with the state the part saved last).
+const SAVE_FILL_WAIT_NS: u64 = 10_000_000_000;
+
+/// A plugin patch just saved from a keyboard part (`savePartAsPatch`), waiting for the
+/// fresh read of the part's plugin state (plugin states are read off the control thread).
+struct SaveFill {
+    /// The new patch.
+    patch: String,
+    part: usize,
+    /// The plugin's component id, and the state (base64) the patch was saved with.
+    component_id: String,
+    old: String,
+    /// When the pump first saw it (0 = not yet).
+    since: u64,
+}
 
 /// An audition: what it plays, and how far it got.
 struct Audition {
@@ -128,6 +144,7 @@ pub(super) struct SoundLib {
     pub(super) audition_tx: Option<Producer<synth::Msg>>,
     browse: Option<SoundFontBrowse>,
     last_added: Option<String>,
+    save_fill: Option<SaveFill>,
 }
 
 impl SoundLib {
@@ -161,6 +178,7 @@ impl SoundLib {
             audition_tx: None,
             browse: None,
             last_added: None,
+            save_fill: None,
         }
     }
 
@@ -575,13 +593,45 @@ impl Control {
             .unwrap_or_else(|| format!("{} {bank}:{}", Path::new(file).file_stem().unwrap_or_default().to_string_lossy(), program + 1))
     }
 
+    /// Save what keyboard part `part` plays as a new patch (#109): its plugin (from the
+    /// Plugins tab or its own plugin patch, with the plugin's state as its editor left it),
+    /// else the patch it plays (its own, or the one the program map sends its GM voice to),
+    /// else its GM voice on the synth's SoundFont. Its volume and octave become the
+    /// defaults. A playing plugin's state is read afresh off the control thread: the patch
+    /// takes the state the part saved last at once, and the fresh one when it lands
+    /// (`pump_save_fill`).
     fn save_part_as_patch(&mut self, part: usize, name: Option<String>) -> Result<(), CmdError> {
         let kp = self.shared.parts.clone();
-        let mut p = match self.sound.part_patch[part].clone().and_then(|id| self.sound.lib.patch(&id).cloned()) {
-            Some(own) => own,
-            None => {
+        let ch = parts::CHANNEL[part];
+        let program = kp.channel_program(part);
+        let plays = self.part_plays(part).and_then(|id| self.sound.lib.patch(&id)).cloned();
+        let plugin = self.channel_plugin_state(ch).filter(|s| s.status != PluginStatus::Failed).zip(self.part_plugin_voice(part));
+        let mut fill = None;
+        let mut p = match (plugin, plays) {
+            (Some((st, (component_id, state))), plays) => {
+                let state = state.unwrap_or_default();
+                if st.status == PluginStatus::Playing {
+                    fill = Some((component_id.clone(), state.clone()));
+                }
+                let same = |q: &Patch| matches!(&q.source, PatchSource::Plugin { component_id: c, .. } if *c == component_id);
+                let source = PatchSource::Plugin { component_id: component_id.clone(), state };
+                match plays {
+                    // The plugin patch it plays, with the plugin's state now.
+                    Some(q) if same(&q) => Patch { source, ..q },
+                    plays => Patch {
+                        id: String::new(),
+                        name: st.name,
+                        category: plays.map_or_else(|| Category::guess(0, program), |q| q.category),
+                        tags: Vec::new(),
+                        favourite: false,
+                        source,
+                        defaults: PatchDefaults::default(),
+                    },
+                }
+            }
+            (None, Some(q)) => q,
+            (None, None) => {
                 let Some(file) = self.sf_file.clone() else { return self.sl_fail("the synth plays no SoundFont") };
-                let program = kp.channel_program(part);
                 Patch {
                     id: String::new(),
                     name: crate::api::gm_name(program).to_string(),
@@ -598,7 +648,42 @@ impl Control {
         if let Some(n) = name.filter(|n| !n.trim().is_empty()) {
             p.name = n;
         }
-        self.add_patch(p)
+        self.add_patch(p)?;
+        if let (Some((component_id, old)), Some(patch)) = (fill, self.sound.last_added.clone())
+            && self.save_channel_state(ch).is_ok()
+        {
+            self.sound.save_fill = Some(SaveFill { patch, part, component_id, old, since: 0 });
+        }
+        Ok(())
+    }
+
+    /// Every pump: once the fresh read of a saved plugin patch's plugin state is done, the
+    /// state goes into the patch, if the part still plays that plugin and the patch still
+    /// has the state it was saved with.
+    fn pump_save_fill(&mut self, now: u64) {
+        let Some(f) = self.sound.save_fill.as_mut() else { return };
+        if f.since == 0 {
+            f.since = now.max(1);
+            return;
+        }
+        let since = f.since;
+        if self.plugin_state_reads_pending() && now.saturating_sub(since) < SAVE_FILL_WAIT_NS {
+            return;
+        }
+        let f = self.sound.save_fill.take().unwrap();
+        let playing = self.channel_plugin_state(parts::CHANNEL[f.part]).is_some_and(|s| s.status == PluginStatus::Playing);
+        let Some((id, Some(new))) = self.part_plugin_voice(f.part) else { return };
+        if !playing || id != f.component_id || new == f.old {
+            return;
+        }
+        let Some(i) = self.sound.lib.index_of(&f.patch) else { return };
+        if let PatchSource::Plugin { component_id, state } = &mut self.sound.lib.patches[i].source
+            && *component_id == f.component_id
+            && *state == f.old
+        {
+            *state = new;
+            self.sound_library_changed();
+        }
     }
 
     /// A keyboard part plays a library patch (or its GM voice again): its defaults (volume,
@@ -925,7 +1010,6 @@ impl Control {
         let Some(start) = started else {
             // Waiting for its SoundFont to join the synth's rack, or its plugin to load.
             let (ready, wait) = if a.plugin.is_some() {
-                use crate::api::PluginStatus;
                 match self.channel_plugin_state(AUDITION_CHANNEL) {
                     Some(p) if p.status == PluginStatus::Playing => (true, PLUGIN_AUDITION_WAIT_NS),
                     Some(p) if p.status == PluginStatus::Loading => (false, PLUGIN_AUDITION_WAIT_NS),
@@ -1071,22 +1155,27 @@ impl Control {
             }
         }
         self.pump_audition(now);
+        self.pump_save_fill(now);
     }
 
     // ----- state -----
 
     /// A keyboard part's own patch and what its channel plays (for `KeyboardPart`).
     pub(super) fn part_sound(&self, part: usize) -> (Option<String>, Option<String>) {
+        let name = self.part_plays(part).and_then(|id| self.sound.lib.patch(&id).map(|p| p.name.clone()));
+        (self.sound.part_patch[part].clone(), name)
+    }
+
+    /// The patch keyboard part `part` plays: its own, else the one the map sends its GM
+    /// voice to (Left playing the Manual Bass voice goes through the map).
+    fn part_plays(&self, part: usize) -> Option<String> {
         let kp = &self.shared.parts;
-        let own = self.sound.part_patch[part].clone();
         let plays_bass = part == parts::LEFT && kp.manual_bass.load(Relaxed);
-        let name = |id: &str| self.sound.lib.patch(id).map(|p| p.name.clone());
-        if let Some(id) = own.as_deref().filter(|_| !plays_bass) {
-            return (own.clone(), name(id));
+        if let Some(id) = self.sound.part_patch[part].clone().filter(|_| !plays_bass) {
+            return Some(id);
         }
         let style = self.sound.lib.style_maps.get(&self.sound.cur_key);
-        let r = patches::resolve(&self.sound.lib.map, style, false, kp.channel_program(part));
-        (own, r.patch.and_then(name))
+        patches::resolve(&self.sound.lib.map, style, false, kp.channel_program(part)).patch.map(str::to_string)
     }
 
     pub(super) fn sound_library_state(&self) -> SoundLibraryState {

@@ -885,7 +885,14 @@ const catalog = {
   },
   'mixer.plugin': {
     title: 'Plugin part',
-    body: 'This part plays an instrument plugin, shown with its share of the CPU. Its fader is still the part\'s CC 7, applied to the plugin\'s output.',
+    body: 'This part plays an instrument plugin, shown with its share of one CPU core, updated every second. Its fader is still the part\'s CC 7, applied to the plugin\'s output.',
+    genos: null,
+    keys: [],
+    launchkey: null,
+  },
+  'mixer.plugin_overruns': {
+    title: 'Plugin running slow',
+    body: '"N slow" counts the plugin\'s renders in the last 10 seconds that took more than half the audio buffer, the first sign of crackles. Raise Settings › Audio › Buffer size to give it more time, or use a lighter plugin or preset.',
     genos: null,
     keys: [],
     launchkey: null,
@@ -2311,14 +2318,21 @@ const catalog = {
   },
   'sound.family': {
     title: 'Family rule',
-    body: 'The patch these eight GM programs play, with every bank variation of them. Blank: the voice the style asks for.',
+    body: 'The sound these eight GM programs play, with every bank variation of them. Click to pick one in the Sound Browser: a saved sound, a SoundFont preset or a plugin. Blank: the voice the style asks for.',
+    genos: null,
+    keys: [],
+    launchkey: null,
+  },
+  'sound.rule_clear': {
+    title: 'Clear rule',
+    body: 'Clears this rule: the programs it covered play what the rule below it gives them, or the style\'s own voice.',
     genos: null,
     keys: [],
     launchkey: null,
   },
   'sound.drums': {
     title: 'Drum rule',
-    body: 'The drum kit patch for Rhythm 1 and 2 and any part on a Yamaha drum kit bank. Blank: the kit the style asks for.',
+    body: 'The drum kit sound for Rhythm 1 and 2 and any part on a Yamaha drum kit bank. Click to pick one in the Sound Browser. Blank: the kit the style asks for.',
     genos: null,
     keys: [],
     launchkey: null,
@@ -2332,7 +2346,7 @@ const catalog = {
   },
   'sound.override_patch': {
     title: 'Override patch',
-    body: 'The patch this one program plays, whatever its family rule says.',
+    body: 'The sound this one program plays, whatever its family rule says. Click to pick one in the Sound Browser.',
     genos: null,
     keys: [],
     launchkey: null,
@@ -2367,7 +2381,7 @@ const catalog = {
   },
   'sound.remap': {
     title: 'Remap',
-    body: 'Picks the patch this program plays: an override for this program, for every style or for this style only (the switch above). Clear it to fall back to the family rule.',
+    body: 'Picks the sound this program plays in the Sound Browser: an override for this program, for every style or for this style only (the switch above). Clear it (✕) to fall back to the family rule.',
     genos: null,
     keys: [],
     launchkey: null,

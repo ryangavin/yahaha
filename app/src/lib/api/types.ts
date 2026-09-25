@@ -902,6 +902,8 @@ export interface PartPlugin {
   /** Share of real time (0.05 = 5% of a core), once a second. */
   cpu: number
   overruns: number
+  /** Overruns in the last 10 seconds (once a second): the live readout. */
+  recentOverruns: number
   /** Its editor window can be opened. */
   editor: boolean
 }

@@ -75,6 +75,10 @@ pub struct PartPlugin {
     pub cpu: f32,
     /// Renders slower than half the audio buffer, since it loaded.
     pub overruns: u64,
+    /// Those in the last 10 seconds (updated once a second): the live readout. Raising
+    /// the audio buffer (`setAudioBuffer`) gives the plugin more time per block.
+    #[serde(default)]
+    pub recent_overruns: u32,
     /// Its editor window can be opened (the app shell has the plugin host).
     pub editor: bool,
 }
