@@ -132,7 +132,7 @@ impl Reverb {
             energy += 1.0 / (1.0 - self.gain[i] * self.gain[i]);
         }
         // Normalise the tail's level: a longer, bigger room builds up more energy.
-        self.out_gain = 0.9 / (energy / 8.0).sqrt();
+        self.out_gain = 1.4 / (energy / 8.0).sqrt();
         for d in self.diffusers.iter_mut().flatten() {
             d.g = p.diffusion;
         }

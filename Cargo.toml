@@ -44,12 +44,18 @@ libc = "0.2.189"
 mach2 = "0.7.0"
 ratatui = { version = "0.30.2", optional = true }
 rtrb = "0.4.0"
-# rustysynth 1.3.6 (MIT, https://github.com/sinshu/rustysynth), vendored with two patches,
-# marked "yahaha:" in vendor/rustysynth/src/synthesizer.rs: `Synthesizer::channel_peaks`,
-# each MIDI channel's level for the mixer meters; and `render_with_sends` /
-# `set_channel_sends` / `set_internal_effects`, each channel's sends to yahaha's shared
-# effect bus (src/fx.rs) in place of the synthesizer's own reverb and chorus. With the
-# internal effects on and no sends, the audio it renders is upstream's.
+# rustysynth 1.3.6 (MIT, https://github.com/sinshu/rustysynth), vendored with three patches,
+# each marked "yahaha:" in vendor/rustysynth/src:
+# - `Synthesizer::channel_peaks`, each MIDI channel's level for the mixer meters
+#   (synthesizer.rs);
+# - velocity -> filter cutoff (#203), so a soft note is darker as well as quieter: the SF2
+#   2.01 default modulator, and the SoundFont's own velocity -> filter modulators from
+#   pmod/imod (modulator.rs, new; upstream read no modulators; every other modulator is
+#   still ignored). `SynthesizerSettings::velocity_to_filter = false` renders as upstream.
+# - the effect bus's sends (#204): `render_with_sends` / `set_channel_sends` tap each
+#   channel's dry mix into yahaha's shared effect bus (src/fx.rs), and
+#   `set_internal_effects(false)` turns the synthesizer's own reverb and chorus off in its
+#   place (synthesizer.rs). With them on and no sends, it renders as upstream.
 rustysynth = { path = "vendor/rustysynth" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

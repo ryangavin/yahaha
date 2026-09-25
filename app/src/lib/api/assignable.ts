@@ -69,6 +69,7 @@ export function functionCmd(id: FunctionId, st: { fingering: Fingering }): AppCm
   if (/^main[ABCD]$/.test(id)) return { type: 'main', index: letter('main') }
   if (/^ending[123]$/.test(id)) return { type: 'ending', index: n('ending') - 1 }
   if (/^ots[1234]$/.test(id)) return { type: 'recallOts', index: n('ots') - 1 }
+  if (/^regist([1-9]|10)$/.test(id)) return { type: 'pressRegist', index: n('regist') - 1 }
   const parts: Record<string, number> = { right1OnOff: 0, right2OnOff: 1, right3OnOff: 2, leftOnOff: 3 }
   if (id in parts) return { type: 'togglePart', part: parts[id] }
   const simple: Record<string, AppCmd> = {
@@ -91,6 +92,11 @@ export function functionCmd(id: FunctionId, st: { fingering: Fingering }): AppCm
     transposeDown: { type: 'stepTranspose', keyboard: 0, master: -1 },
     registBankNext: { type: 'stepRegistBank', delta: 1 },
     registBankPrev: { type: 'stepRegistBank', delta: -1 },
+    registNext: { type: 'stepRegist', delta: 1 },
+    registPrev: { type: 'stepRegist', delta: -1 },
+    registMemory: { type: 'toggleRegistMemory' },
+    registFreeze: { type: 'toggleFreeze' },
+    registSequence: { type: 'toggleRegistSequence' },
     fingeredOnBass: { type: 'setFingering', fingering: st.fingering === 'fingeredOnBass' ? 'fingered' : 'fingeredOnBass' },
     // The control-side switches: a press (a Toggle pedal, Try) switches them.
     kbdHarmonyArp: { type: 'toggleHarmonyArp' },

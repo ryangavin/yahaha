@@ -346,6 +346,9 @@
       "voiceName": "Grand Piano",
       "playsBass": false,
       "octave": 0,
+      "pan": 64,
+      "reverb": 40,
+      "chorus": 0,
       "patch": null
     },
     {
@@ -361,6 +364,9 @@
       "voiceName": "Strings",
       "playsBass": false,
       "octave": 0,
+      "pan": 64,
+      "reverb": 40,
+      "chorus": 0,
       "patch": null
     },
     {
@@ -376,6 +382,9 @@
       "voiceName": "Brass Section",
       "playsBass": false,
       "octave": 0,
+      "pan": 64,
+      "reverb": 40,
+      "chorus": 0,
       "patch": null
     },
     {
@@ -391,6 +400,9 @@
       "voiceName": "Strings",
       "playsBass": false,
       "octave": 0,
+      "pan": 64,
+      "reverb": 40,
+      "chorus": 0,
       "patch": null
     }
   ],

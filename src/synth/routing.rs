@@ -67,6 +67,7 @@ impl Rack {
         rack.slot_of[*main_id as usize % crate::patches::route::MAX_FONTS] = 0;
         let mut settings = SynthesizerSettings::new(sample_rate);
         settings.maximum_polyphony = EXTRA_POLYPHONY;
+        settings.velocity_to_filter = super::velocity_to_filter();
         for (id, font) in fonts.iter().skip(1) {
             let slot = &mut rack.slot_of[*id as usize % crate::patches::route::MAX_FONTS];
             if *slot != NO_SLOT || rack.extra.len() >= 250 {

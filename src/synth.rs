@@ -155,6 +155,7 @@ impl Rack {
     pub fn new(font: &Arc<SoundFont>, sample_rate: i32) -> Result<Rack> {
         let mut settings = SynthesizerSettings::new(sample_rate);
         settings.maximum_polyphony = 128;
+        settings.velocity_to_filter = velocity_to_filter();
         let mut band = Synthesizer::new(font, &settings).map_err(|e| anyhow!("{e:?}"))?;
         let mut player = Synthesizer::new(font, &settings).map_err(|e| anyhow!("{e:?}"))?;
         // The shared effect bus (src/fx.rs) plays the reverb and chorus (#204).
@@ -468,6 +469,64 @@ pub fn style_bass_program(voice: Option<(u8, u8, u8)>) -> u8 {
 /// come from each channel's CC7 (the mixer faders), CC11 and velocity alone, on the
 /// standard GM curves (rustysynth: gain = (vel/127)² · ((CC7/127)·(CC11/127))²).
 pub const MASTER_UNITY: u8 = 100;
+
+/// Whether a note's velocity lowers its filter cutoff, the SF2 default modulator the
+/// vendored rustysynth applies (#203): on, unless the environment has
+/// `YAHAHA_VEL_FILTER=off` (or `0`), which renders the old flat tone for A/B listening.
+/// Read when a rack is built, never on the audio thread.
+pub fn velocity_to_filter() -> bool {
+    std::env::var("YAHAHA_VEL_FILTER").map_or(true, |v| v != "off" && v != "0")
+}
+
+/// Whether renders use the SoundFont's own reverb and chorus instead of the effect bus
+/// (#204): `YAHAHA_FX=legacy` (or `off`), for before/after listening. Read by
+/// [`render_offline`] only.
+pub fn legacy_fx() -> bool {
+    std::env::var("YAHAHA_FX").is_ok_and(|v| v == "legacy" || v == "off")
+}
+
+/// Render what the band sent (`(time ns, message)`, as `sim::record` gives it) through
+/// the audio callback ([`AudioCore`]: a rack on `sf2`, the effect bus, the master at unity
+/// and the safety clipper) into stereo at `sample_rate`, for `end_ns` plus three seconds
+/// of tails. Messages take effect at the start of the 64-frame block they fall in, as
+/// live. For listening tests (`yahaha render`); not the audio thread.
+pub fn render_offline(sf2: &Path, msgs: &[(u64, Vec<u8>)], end_ns: u64, sample_rate: u32) -> Result<(Vec<f32>, Vec<f32>)> {
+    const BLOCK: usize = 64;
+    let rack = Rack::load(sf2, sample_rate)?;
+    let (mut tx, rx) = RingBuffer::<Msg>::new(4096);
+    let ctl = Arc::new(SynthControl::new(0));
+    ctl.fx.legacy.store(legacy_fx(), Relaxed);
+    let (mut core, _swap, _plugins) = AudioCore::new(Some(rack), vec![rx], Arc::new(Parts::new()), ctl, sample_rate, 2);
+    let frames = ((end_ns as f64 / 1e9 + 3.0) * sample_rate as f64) as usize;
+    let (mut left, mut right) = (Vec::with_capacity(frames), Vec::with_capacity(frames));
+    let mut out = [0f32; 2 * BLOCK];
+    let mut next = 0;
+    for start in (0..frames).step_by(BLOCK) {
+        let t = (start as f64 * 1e9 / sample_rate as f64) as u64;
+        while let Some((at, m)) = msgs.get(next)
+            && *at <= t
+        {
+            next += 1;
+            // Channel messages only (SysEx and the like don't reach the SoundFont live).
+            if m.is_empty() || m[0] < 0x80 || m[0] >= 0xF0 {
+                continue;
+            }
+            let msg: Msg = [m[0], m.get(1).copied().unwrap_or(0), m.get(2).copied().unwrap_or(0)];
+            if tx.push(msg).is_err() {
+                // A burst larger than the ring: take it in without rendering.
+                core.process(&mut out[..0]);
+                let _ = tx.push(msg);
+            }
+        }
+        let n = (frames - start).min(BLOCK);
+        core.process(&mut out[..2 * n]);
+        for f in out[..2 * n].chunks(2) {
+            left.push(f[0]);
+            right.push(f[1]);
+        }
+    }
+    Ok((left, right))
+}
 
 /// Output gain for a master fader value: linear, 1.0 at `MASTER_UNITY`.
 #[inline]

@@ -302,6 +302,20 @@ pub fn golden_act(s: &ScriptStep) -> u32 {
     }
 }
 
+/// Play a script on a style and record every message the band sends, with its time in ns,
+/// and the time the script ends (`yahaha render`).
+pub fn record(style: &Style, script: &str) -> Result<(Recorder, u64)> {
+    let (steps, bars) = parse_script(script, style.ticks_per_bar())?;
+    let prep = Box::new(Prepared::new(style));
+    let ns_per_tick = 60e9 / (prep.bpm * prep.ppq as f64);
+    let ns = |tick: u32| (tick as f64 * ns_per_tick).ceil() as u64;
+    let end = ns(bars * prep.tpb);
+    let mut timed: Vec<(u64, Step)> = steps.iter().map(|s| (ns(golden_act(s)), s.step)).collect();
+    timed.sort_by_key(|s| s.0);
+    let (_, rec) = run_observed(prep, &timed, end, |_, _| {});
+    Ok((rec, end))
+}
+
 /// Play a script on a style and record what every part plays (see [`Take`]).
 pub fn perform(style: &Style, script: &str) -> Result<Take> {
     let (steps, bars) = parse_script(script, style.ticks_per_bar())?;

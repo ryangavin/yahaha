@@ -16,6 +16,7 @@ fn main() -> Result<()> {
             }
         }
         Some("sim") => sim_cmd(&args[2..])?,
+        Some("render") => render_cmd(&args[2..])?,
         Some("capture-kit") => capture_kit_cmd(&args[2..])?,
         Some("capture-import") => capture::import_cmd(&args[2..])?,
         Some("oracle") => oracle_cmd(&args[2..])?,
@@ -40,7 +41,7 @@ fn main() -> Result<()> {
         #[cfg(feature = "plugins")]
         Some("plugin-test") => yahaha::plugin::cli::run(&args[2..])?,
         _ => eprintln!(
-            "usage:\n  yahaha play <style or folder>... [--split F#2] [--input <name>] [--all-inputs] [--no-pads] [--soundfonts DIR | --no-synth] [--palette-leds] [--audio-out 11] [--buffer 64|128|256] [--data-dir DIR]\n      [--fingering single|multi|fingered|on-bass|ai|full|ai-full] [--upper [--no-manual-bass]] [--transpose N] [--master-transpose N] [--chord-settle MS] [--ireal <playlist.html or irealb:// link>]\n  yahaha bench <style> [spin_us]\n  yahaha sim <style> <\"C Am F G7\" | script file>\n  yahaha capture-kit <out-dir> [--clock-ppm N] [style]...\n  yahaha capture-import <recording.mid> <style> [--tolerance-ms N] [--offset-ms N] [--clock-ppm N] [--listing FILE] [--golden DIR [--force]]\n  yahaha oracle <style or folder>... [--pairs | --scores | --diff scores.txt]\n  yahaha dump <style>...\n  yahaha pad <multi pad bank.pad>... | yahaha pad --demo [out.pad]\n  yahaha state-json <style or folder> [\"C Am\"] [--library]\n  yahaha plugin-test [name] [--list | --rescan] [--bench] [--swap-to name] [--oop] [--gui] [--channel N] [--sf2 file | --no-sf2]   (needs --features plugins)\n  yahaha ireal <file or irealb:// link> [--choruses N]\n  yahaha fake-device [name] [secs]   (a Launchkey-like MIDI device from another process, for hot-plug tests)"
+            "usage:\n  yahaha play <style or folder>... [--split F#2] [--input <name>] [--all-inputs] [--no-pads] [--soundfonts DIR | --no-synth] [--palette-leds] [--audio-out 11] [--buffer 64|128|256] [--data-dir DIR]\n      [--fingering single|multi|fingered|on-bass|ai|full|ai-full] [--upper [--no-manual-bass]] [--transpose N] [--master-transpose N] [--chord-settle MS] [--ireal <playlist.html or irealb:// link>]\n  yahaha bench <style> [spin_us]\n  yahaha sim <style> <\"C Am F G7\" | script file>\n  yahaha render <style> <\"C Am F G7\" | script file> <font.sf2> <out.wav>   (YAHAHA_VEL_FILTER=off: without velocity -> tone; YAHAHA_FX=legacy: the SoundFont's own reverb and chorus, not the effect bus)\n  yahaha capture-kit <out-dir> [--clock-ppm N] [style]...\n  yahaha capture-import <recording.mid> <style> [--tolerance-ms N] [--offset-ms N] [--clock-ppm N] [--listing FILE] [--golden DIR [--force]]\n  yahaha oracle <style or folder>... [--pairs | --scores | --diff scores.txt]\n  yahaha dump <style>...\n  yahaha pad <multi pad bank.pad>... | yahaha pad --demo [out.pad]\n  yahaha state-json <style or folder> [\"C Am\"] [--library]\n  yahaha plugin-test [name] [--list | --rescan] [--bench] [--swap-to name] [--oop] [--gui] [--channel N] [--sf2 file | --no-sf2]   (needs --features plugins)\n  yahaha ireal <file or irealb:// link> [--choruses N]\n  yahaha fake-device [name] [secs]   (a Launchkey-like MIDI device from another process, for hot-plug tests)"
         ),
     }
     Ok(())
@@ -192,6 +193,51 @@ fn sim_cmd(args: &[String]) -> Result<()> {
     let path = std::path::Path::new(script);
     let script = if path.is_file() { std::fs::read_to_string(path)? } else { script.clone() };
     print!("{}", sim::snapshot(&style, &script)?);
+    Ok(())
+}
+
+/// `yahaha render <style> <script> <font.sf2> <out.wav>`: play a script on a style through
+/// the built-in SoundFont synth, offline, into a 16-bit stereo WAV at 48 kHz (listening
+/// tests, e.g. #203's velocity -> tone A/B with `YAHAHA_VEL_FILTER=off`). Keep the WAVs off
+/// the repo: they are the style's patterns.
+fn render_cmd(args: &[String]) -> Result<()> {
+    let usage = "usage: yahaha render <style> <\"C Am F G7\" | script file> <font.sf2> <out.wav>";
+    let [style, script, sf2, out] = args else {
+        anyhow::bail!("{usage}");
+    };
+    let style = sff::Style::load(std::path::Path::new(style))?;
+    let path = std::path::Path::new(script);
+    let script = if path.is_file() { std::fs::read_to_string(path)? } else { script.clone() };
+    let (rec, end) = sim::record(&style, &script)?;
+    const RATE: u32 = 48_000;
+    let (l, r) = yahaha::synth::render_offline(std::path::Path::new(sf2), &rec.out, end, RATE)?;
+    let mut data = Vec::with_capacity(l.len() * 4);
+    for (a, b) in l.iter().zip(&r) {
+        for x in [a, b] {
+            data.extend_from_slice(&((x.clamp(-1.0, 1.0) * 32767.0) as i16).to_le_bytes());
+        }
+    }
+    let mut wav = Vec::with_capacity(data.len() + 44);
+    wav.extend_from_slice(b"RIFF");
+    wav.extend_from_slice(&(36 + data.len() as u32).to_le_bytes());
+    wav.extend_from_slice(b"WAVEfmt ");
+    for x in [16u32, 1 | 2 << 16, RATE, RATE * 4, 4 | 16 << 16] {
+        wav.extend_from_slice(&x.to_le_bytes());
+    }
+    wav.extend_from_slice(b"data");
+    wav.extend_from_slice(&(data.len() as u32).to_le_bytes());
+    wav.extend_from_slice(&data);
+    std::fs::write(out, wav)?;
+    let rms = |x: &[f32]| (x.iter().map(|v| (*v as f64).powi(2)).sum::<f64>() / x.len().max(1) as f64).sqrt();
+    let peak = l.iter().chain(&r).fold(0f32, |m, v| m.max(v.abs()));
+    println!(
+        "{out}: {:.1} s, velocity -> tone {}, effects {}, RMS {:.1} dBFS, peak {:.1} dBFS",
+        l.len() as f64 / RATE as f64,
+        if yahaha::synth::velocity_to_filter() { "on" } else { "off" },
+        if yahaha::synth::legacy_fx() { "legacy (the SoundFont's own)" } else { "bus" },
+        20.0 * ((rms(&l) + rms(&r)) / 2.0).log10(),
+        20.0 * (peak as f64).log10()
+    );
     Ok(())
 }
 
