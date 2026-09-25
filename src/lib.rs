@@ -13,6 +13,7 @@ pub mod controllers;
 pub mod engine;
 pub mod fingering;
 pub mod ireal;
+pub mod knobs;
 #[cfg(test)]
 mod golden;
 pub mod harmony;

@@ -120,6 +120,21 @@ Pressing the current Main again plays its fill. With Auto Fill on, switching Mai
 - The on/off pads are lit while the part is on. The lit Edit pad is the part whose voice Voice −/+ (`9`/`0`) changes.
 - The accompaniment parts are muted with the buttons under the faders on the Style fader page, or `z`…`,`.
 
+### Knobs
+
+The 8 encoders are the Genos LIVE CONTROL knobs, on Knob Assign pages. The **encoder page buttons ▲/▼** (right of the knobs) switch pages, as the Genos KNOB ASSIGN button does, stopping at the ends. The knobs are relative: a turn moves the value from where it is now, whoever set it last. Knob 8 is tempo on every page.
+
+| knob | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 |
+|---|---|---|---|---|---|---|---|---|
+| **1 · Style** | Dynamics | Retrigger length | Retrigger on/off | Style Track Mute A | Style Track Mute B | – | – | Tempo |
+| **2 · Parts** | Right 1 volume | Right 2 volume | Right 3 volume | Left volume | Harmony volume | Metronome volume | – | Tempo |
+
+- **Dynamics** is the Style Dynamics level (64 = as written), 2 a step. It only acts while Settings › Style › Dynamics Control is on.
+- **Retrigger length** turns shorter to the right (1/1 … 1/32), **Retrigger on/off** turns it on to the right and off to the left; both switch every 3 steps.
+- **Style Track Mute A/B** start fully right (every Style part on). Turning left takes parts out until one is left: A keeps Rhythm 2, then brings in Rhythm 1, Bass, Chord 1, Chord 2, Pad, Phrase 1, Phrase 2; B keeps Chord 1, then Chord 2, Pad, Bass, Phrase 1, Phrase 2, Rhythm 1, Rhythm 2 (RM p.148). They set the parts' on/off switches, as the Style fader buttons do.
+- **Tempo** moves 1 BPM a step; the volumes 2 a step (a part's volume is its CC7, as its fader).
+- yahaha turns the encoders' relative output on when it puts the Launchkey in DAW mode. They also work in the Transport encoder mode (Shift + the pad under "Transport"), which is always relative.
+
 ### Buttons
 
 | button | does |
@@ -128,6 +143,7 @@ Pressing the current Main again plays its fill. With Auto Fill on, switching Mai
 | **Stop** | stop |
 | **< Track** / **Track >** | previous/next style, playing or stopped (folder, then name: the browser's order) |
 | **Pad Bank ▲ / ▼** (left of the pads) | previous/next pad page |
+| **▲ / ▼ right of the knobs** | previous/next Knob Assign page |
 | **Shift + Pad Bank ▲ / ▼** | Left part on/off / OTS Link on/off |
 | **> (Scene Launch)** / **Function** (right of the pads) | tempo + / − |
 | **Shift + Play** | Section Reset: the section starts again from its top |

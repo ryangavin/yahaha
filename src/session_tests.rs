@@ -106,6 +106,8 @@ fn all_cmds() -> Vec<AppCmd> {
         AppCmd::Metronome(MetronomeCmd::SetMetronomeBell { on: false }),
         AppCmd::Dynamics(DynamicsCmd::SetDynamics { level: 90 }),
         AppCmd::Dynamics(DynamicsCmd::ToggleAccent),
+        AppCmd::Knobs(KnobsCmd::StepKnobPage { delta: 1 }),
+        AppCmd::Knobs(KnobsCmd::TurnKnob { knob: 0, delta: -3 }),
     ]
 }
 
@@ -440,8 +442,14 @@ fn launchkey_pads_are_commands() {
     s.send(stop).unwrap();
     assert!(!s.state().transport.running);
     // Unmapped controls show up for diagnosis.
-    s.midi_in(Port::Pads, &[0xB0, 51, 127]);
-    assert_eq!(s.state().io.unmapped, "unmapped CC 51 = 127");
+    s.midi_in(Port::Pads, &[0xB0, 53, 127]);
+    assert_eq!(s.state().io.unmapped, "unmapped CC 53 = 127");
+    // Knob 1 (an encoder on channel 16) turns Dynamics; the encoder page ▼ steps the
+    // Knob Assign page.
+    s.midi_in(Port::Pads, &[0xBF, 21, 67]);
+    assert_eq!(s.state().dynamics.level, 70);
+    s.midi_in(Port::Pads, &[0xB0, 52, 127]);
+    assert_eq!(s.state().knobs.page_name, "Parts");
 }
 
 /// Style faders move the Style parts (soft takeover); a software move makes the fader

@@ -272,6 +272,10 @@ const EVERY_CMD: &[&str] = &[
     r#"{"type":"setAccent","on":true}"#,
     r#"{"type":"toggleAccent"}"#,
     r#"{"type":"setAccentThreshold","velocity":110}"#,
+    // Knob Assign pages (#197)
+    r#"{"type":"setKnobPage","page":"parts"}"#,
+    r#"{"type":"stepKnobPage","delta":-1}"#,
+    r#"{"type":"turnKnob","knob":3,"delta":-2}"#,
 ];
 
 fn type_of(json: &str) -> String {
@@ -383,6 +387,7 @@ fn bad_commands_are_refused() {
         r#"{"type":"triggerFunction"}"#,
         r#"{"type":"setParamLock","item":"masterEq","on":true}"#,
         r#"{"type":"setDynamics","level":300}"#,
+        r#"{"type":"setKnobPage","page":"type9"}"#,
         r#"[1,2]"#,
         r#""startStop""#,
     ] {
