@@ -8,7 +8,10 @@
   │ ★ Favourites ││ ☆ Grand Piano      SF  GeneralUser-GS.sf2      ▶ │  virtualised
   │ ↺ Recent     ││ ☆ Serum            AU  Xfer Records  ⚠         ▶ │
   │ CATEGORIES   ││ …                                                 │
-  └──────────────┘└ Right 1 plays: Grand Piano · Edit… · Rescan ──────┘
+  └──────────────┘└ Right 1 plays: Grand Piano · [Synth Lead ▾] · Edit… · Rescan ┘
+
+  The footer's category picker shows while the selected row is a plugin: its category is
+  guessed from its name, and the picker corrects it (`setSoundCategory`).
 
   Keys (the filter keeps focus): ↑/↓ PgUp/PgDn Home/End move; Enter plays the sound on
   the part (the browser stays open, as the Genos Voice Selection does); Shift+Enter
@@ -20,6 +23,8 @@
   import { tip, tips } from '../../lib/tooltip/tip.svelte'
   import HwButton from '../../lib/ui/HwButton.svelte'
   import Overlay from '../../lib/ui/Overlay.svelte'
+  import { CATEGORY_LABELS } from '../../lib/api/sound-library'
+  import type { PatchCategory } from '../../lib/api/types'
   import { moveCursor } from '../browser/model'
   import { pluginStatusLine } from '../parts/parts'
   import { SOURCE_BADGE, categoryCounts, playingId, visibleSounds, type SoundView } from './model'
@@ -62,6 +67,19 @@
 
   let cursorId = $state<string | null>(null)
   const cursor = $derived(Math.max(0, cursorId === null ? rows.findIndex((i) => entries[i].id === playing) : rows.findIndex((i) => entries[i].id === cursorId)))
+
+  // The selected row's plugin: the footer's category picker files it (#172).
+  const selPlugin = $derived.by(() => {
+    const e = rows[cursor] === undefined ? undefined : entries[rows[cursor]]
+    return e?.source === 'plugin' ? e : null
+  })
+  function setCategory(id: string, category: PatchCategory) {
+    cursorId = id
+    app.send({ type: 'setSoundCategory', id, category })
+    // In a category view the sound moves with its category, so it stays selected.
+    if (view.kind === 'category') show({ kind: 'category', id: category })
+    input?.focus()
+  }
 
   let list: HTMLDivElement | undefined = $state()
   let input: HTMLInputElement | undefined = $state()
@@ -237,6 +255,15 @@
 
       <footer class="foot">
         {#if pick}<span class="now">Pick the sound for <b>{pick.title}</b></span>{:else}<span class="now">{kp?.name} plays <b>{kp?.voiceName}</b>{#if kp?.plugin}&nbsp;· {pluginStatusLine(kp.plugin, plugins.available).replace(/ ▾$/, '')}{#if kp.plugin.status === 'playing'}&nbsp;· CPU {Math.round(kp.plugin.cpu * 100)}%{/if}{/if}</span>{/if}
+        {#if selPlugin}
+          {@const e = selPlugin}
+          <label class="catpick">
+            <span class="engraved">{e.name} is</span>
+            <select aria-label="Category of {e.name}" value={e.category} use:tip={'sounds.set_category'} onchange={(ev) => setCategory(e.id, ev.currentTarget.value as PatchCategory)}>
+              {#each Object.entries(CATEGORY_LABELS) as [id, label] (id)}<option value={id}>{label}</option>{/each}
+            </select>
+          </label>
+        {/if}
         {#if auditioning}<HwButton tip="sounds.audition_stop" onclick={() => app.send({ type: 'stopSoundAudition' })}>■ Stop</HwButton>{/if}
         {#if kp}<HwButton tip="sounds.save" onclick={saveAsSound}>Save as sound</HwButton>{/if}
         {#if kp?.plugin?.editor}<HwButton tip="part.plugin_edit" onclick={() => app.pluginEditor(part, true)}>Edit…</HwButton>{/if}
@@ -441,5 +468,26 @@
   }
   .now b {
     color: var(--ink);
+  }
+  .catpick {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    min-width: 0;
+    max-width: 22rem;
+  }
+  .catpick .engraved {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .catpick select {
+    min-height: 2.2rem;
+    padding: 0 0.45rem;
+    border: 1px solid var(--well-edge);
+    border-radius: 4px;
+    background: var(--screen-bg);
+    color: var(--screen-ink);
+    font-size: 0.9rem;
   }
 </style>
