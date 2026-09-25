@@ -164,14 +164,15 @@ def pick_track(info: dict):
     return None
 
 
-def yt(cmd, tries=6):
+def yt(cmd, tries=int(os.environ.get("YT_TRIES", "6"))):
     """yt-dlp with a polite pause between requests and backoff on HTTP 429.
     YouTube's caption endpoint rate-limits bursts (a pass of ~70 videos hit it);
     the limit clears after some minutes, so back off 1, 2, 3... minutes."""
     import time
     r = None
+    exe = os.environ.get("YT_DLP", "yt-dlp")  # e.g. a venv's yt-dlp with curl_cffi
     for i in range(tries):
-        r = run(["yt-dlp", "--sleep-requests", "1", *cmd])
+        r = run([exe, "--sleep-requests", "1", *cmd])
         if "429" not in r.stderr:
             return r
         print(f"  429 rate limit, waiting {60 * (i + 1)} s", flush=True)
