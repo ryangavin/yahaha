@@ -449,6 +449,7 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | **Settings: Split point** | Where the keyboard divides between the chord section and the right hand. | Menu › Split & Fingering › Split Point | — | Pad page 2 (Chord/Setup), bottom row, pads 3–4 |
 | **Settings: Transpose** | Keyboard and Master transpose, in semitones. | Menu › Transpose | — | Pad page 2 (Chord/Setup), bottom row, pads 5–7 |
 | **Settings: Style** | How the band starts, stops and fills: Sync Start/Stop, Auto Fill and Stop Accompaniment. | Menu › Style Setting | — | Pad page 1 (Sections) (Sync Start, Sync Stop, Auto Fill); Pad page 2 (Chord/Setup), bottom row, pad 2 (Stop ACMP) |
+| **Settings: Parameter Lock** | Lock the split point or the fingering type, so Registration, One Touch Setting and Playlist recalls leave them as you set them. | Menu › Utility › Parameter Lock | — | — |
 | **Settings: Audio** | The built-in synth: on or off, which output pair it plays on, its SoundFont and its master volume. | — | — | — |
 | **Settings: MIDI** | Which MIDI inputs play yahaha, the yahaha output port, and the Launchkey connection. | Menu › MIDI | — | — |
 | **Settings: Library** | The folders yahaha looks for style files in, and a rescan. | Style selection (USB / User folders) | — | — |
