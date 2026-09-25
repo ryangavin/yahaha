@@ -107,7 +107,7 @@ state, and pressing the button is the action. For settings, a GUI checkbox can u
 | `fillSelf` | | Fill Self: the Main's own fill, as pressing the Main playing. |
 | `fillBreak` | | Fill Break: the Break (the same as `break`). |
 | `setHalfBarFill` / `toggleHalfBarFill` | `on` | Half Bar Fill In: a Main change or fill asked for on the first beat of a bar plays a fill from the middle of that bar (beat 3 in 4/4), then the Main at the next bar line, even with Auto Fill off. |
-| `tapTempo` | | TAP TEMPO. Taps set the tempo, from the second tap (the last four averaged), stopped or playing. While the style plays with `styleSettings.sectionReset` on (off by default), a tap is a Style Section Reset instead. |
+| `tapTempo` | | TAP TEMPO. Taps set the tempo, from the second tap (the last four averaged), stopped or playing. While the style plays with `styleSettings.sectionReset` on (the default, as on the Genos), a tap is a Style Section Reset instead and the tempo stays. |
 | `tempoUp`, `tempoDown` | | One tempo step. |
 | `toggleFade` | | FADE IN/OUT. Stopped: arms (or disarms) a fade in for the next start. Playing: fades out over `styleSettings.fadeOutMs`, then the band stops and the Style stays silent for `fadeHoldMs`. Only the Style fades: each Style part's CC7 (channels 9–16) goes out, on the port and to the built-in synth, as its fader value scaled by the fade; the faders don't move, and your playing and the Multi Pads never fade (docs/section-timing.md). `transport.fade` shows it. A fade out already running carries on; START/STOP mid-fade ends it at full volume. |
 | `sectionReset` | | Style Section Reset: the section playing starts again from its top, now. A change queued for the next bar line waits for the new bar grid's. Stopped: nothing. |
@@ -810,7 +810,7 @@ The settings the `Style settings` commands set.
 | `syncStopWindowMs` | 0–5000 | Synchro Stop Window; 0 = Off (the default). |
 | `fadeInMs`, `fadeOutMs` | 0–20000 | Default 5000 each. |
 | `fadeHoldMs` | 0–5000 | Default 2000. |
-| `sectionReset` | bool | TAP TEMPO while playing resets the section. Default off (the Genos's is on). |
+| `sectionReset` | bool | TAP TEMPO while playing resets the section. Default on (the Genos default). |
 | `retriggerRate` | 1, 2, 4, 8, 16, 32 | Style Retrigger length. Default 8 (an eighth note). |
 
 ### `registration`
@@ -1399,7 +1399,7 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
     "fadeInMs": 5000,
     "fadeOutMs": 5000,
     "fadeHoldMs": 2000,
-    "sectionReset": false,
+    "sectionReset": true,
     "retriggerRate": 8
   },
   "registration": {
