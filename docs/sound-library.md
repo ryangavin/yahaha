@@ -65,7 +65,10 @@ is handed to the engine, the control side writes the bank the playing style is n
 using, and puts its number in the style (`Prepared::route_bank`). When the engine takes
 the style over (`on_style_loaded`, right after the style's setup), it sends that bank to
 the synth, in the MIDI stream. So the synth switches maps exactly where the styles
-switch. An edit rewrites the table, and the synth routes its channels again from the
+switch. A style chosen while another is still waiting reuses that one's bank; but if the
+engine has already taken the waiting one over (its snapshot shows its tag), the control
+side promotes it first, so the new style gets the other bank and never rewrites the one
+playing. An edit rewrites the table, and the synth routes its channels again from the
 programs they have.
 
 The synth holds one synthesizer per SoundFont the library uses: the main font's two, as
