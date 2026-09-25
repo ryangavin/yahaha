@@ -24,7 +24,9 @@
 //! The master fader and soft clipper stay after the sum, in the caller. The part's pan
 //! (CC10) is the rack's too: plugins disagree about CC10 as they do about CC7, so the
 //! rack keeps it from the plugin and applies it as a balance on the plugin's stereo
-//! output (centre = the plugin's own image, untouched).
+//! output (centre = the plugin's own image, untouched). The effect sends (CC91/93/94)
+//! are kept from it too: the caller's shared effect bus plays them
+//! ([`PluginRack::render_add_sends`], #204).
 //!
 //! **Swaps.** An assign takes effect at the next block boundary. The outgoing instance gets
 //! Sustain off + All Notes Off and keeps rendering while it fades out over `fade_frames`
@@ -123,9 +125,10 @@ impl Controllers {
     }
 
     /// Controllers that describe the part's playing state (not volume, which the rack owns,
-    /// not bank select or the RPN/NRPN data sequence, not channel mode messages).
+    /// not the effect sends, which the effect bus plays, not bank select or the RPN/NRPN
+    /// data sequence, not channel mode messages).
     fn tracked(cc: u8) -> bool {
-        !matches!(cc, 0 | 32 | 6 | 38 | 7 | 39 | 10 | 42 | 11 | 43 | 96..=101 | 120..=127)
+        !matches!(cc, 0 | 32 | 6 | 38 | 7 | 39 | 10 | 42 | 11 | 43 | 91 | 93 | 94 | 96..=101 | 120..=127)
     }
 
     fn observe(&mut self, m: [u8; 3]) {
@@ -252,6 +255,11 @@ impl Slot {
         }
         // CC42 (pan LSB) is swallowed too; a balance has no use for 14 bits.
         if m[0] & 0xF0 == 0xB0 && m[1] == 42 {
+            return true;
+        }
+        // The effect sends (CC91/93/94) are the shared effect bus's (#204): the plugin's
+        // own reverb or chorus would play them a second time.
+        if m[0] & 0xF0 == 0xB0 && crate::fx::SEND_CC.contains(&m[1]) {
             return true;
         }
         self.gain.take(m)
@@ -597,7 +605,7 @@ impl PluginRack {
         while done < frames {
             let n = (frames - done).min(self.max_block);
             for ch in 0..SLOTS {
-                let send = sends.as_mut().map(|(s, g)| Send { buses: &mut **s, frames, at: done, gains: g[ch] });
+                let send = sends.as_mut().map(|(s, g)| Send { buses: s, frames, at: done, gains: g[ch] });
                 self.render_slot(ch, &mut left[done..done + n], &mut right[done..done + n], send);
             }
             done += n;

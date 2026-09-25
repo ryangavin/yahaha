@@ -123,6 +123,7 @@ impl Reverb {
         }
         self.depth = p.depth * rate / 48_000.0;
         let mut energy = 0.0;
+        #[allow(clippy::needless_range_loop)] // five arrays by line index
         for i in 0..8 {
             let len = (TANK_MS[i] * p.size * rate / 1000.0).max(8.0);
             self.len[i] = len.min(self.tank[i].capacity() as f32 - self.depth - 2.0);
@@ -156,6 +157,7 @@ impl Reverb {
     pub fn tick(&mut self, l: f32, r: f32) -> (f32, f32) {
         // Input: pre-delay, bandwidth, diffusion.
         let mut x = [l, r];
+        #[allow(clippy::needless_range_loop)] // four arrays by side
         for s in 0..2 {
             self.pre[s].write(x[s]);
             let mut v = self.bandwidth[s].tick(self.pre[s].read(self.predelay));
