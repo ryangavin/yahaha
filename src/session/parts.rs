@@ -15,13 +15,20 @@ impl Control {
                 return self.set_part_on(part, on);
             }
             PartsCmd::SelectPart { part } => parts.select(part as usize),
+            // A GM voice selected replaces the part's voice (#179): a plugin picked for the
+            // part ends (`end_picked_plugin`), and its own library patch goes, with a plugin
+            // that patch brought (`sound_library_part_voice`).
             PartsCmd::SetPartVoice { part, program } => {
-                parts.set_program((part & 3) as usize, program);
-                self.sound_library_part_voice((part & 3) as usize);
+                let p = (part & 3) as usize;
+                parts.set_program(p, program);
+                self.end_picked_plugin(p);
+                self.sound_library_part_voice(p);
             }
             PartsCmd::StepVoice { delta } => {
                 parts.step_program(delta as i32);
-                self.sound_library_part_voice(parts.selected());
+                let p = parts.selected();
+                self.end_picked_plugin(p);
+                self.sound_library_part_voice(p);
             }
             PartsCmd::SetPartVolume { part, volume } => {
                 parts.set_volume((part & 3) as usize, volume);

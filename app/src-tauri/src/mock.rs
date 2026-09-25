@@ -418,14 +418,9 @@ impl MockSession {
             Err(e) => self.message(e, true),
             Ok(sounds::Then::Nothing) => {}
             Ok(sounds::Then::Run(cmds)) => {
+                // A preset from the synth's own font is the part's GM voice (SetPartVoice):
+                // it ends a plugin picked for the part, as a SoundFont patch does.
                 for c in cmds {
-                    // A preset from the synth's own font (the part's GM voice) ends a
-                    // plugin picked for the part, as a SoundFont patch does.
-                    if let AppCmd::Parts(PartsCmd::SetPartVoice { part, .. }) = &c
-                        && self.sound.own_plugin(*part as usize)
-                    {
-                        self.state.keyboard_parts[(*part & 3) as usize].plugin = None;
-                    }
                     self.cmd(c);
                 }
             }
@@ -842,12 +837,27 @@ impl MockSession {
         self.looper.on_stop(&mut self.state.looper);
     }
 
+    /// Part `part` was given a GM voice (SetPartVoice, Voice −/+, #179): a plugin picked
+    /// for it ends, and its own library patch goes (with that patch's plugin).
+    fn gm_voice(&mut self, part: usize) {
+        if self.sound.own_plugin(part)
+            && let Some(p) = self.state.keyboard_parts.get_mut(part & 3)
+        {
+            p.plugin = None;
+        }
+        self.sound.part_voice(part);
+    }
+
     fn recall_ots(&mut self, n: usize) {
         let panel = self.state.mixer.fader_page == FaderPage::Panel;
         let setting = self.state.ots.settings[n].clone();
         for (i, (p, o)) in self.state.keyboard_parts.iter_mut().zip(&setting.parts).enumerate() {
             if let Some(prog) = o.program {
                 p.program = prog;
+                // A GM voice ends a plugin picked for the part (#179).
+                if self.sound.own_plugin(i) {
+                    p.plugin = None;
+                }
                 self.sound.part_voice(i);
             }
             p.on = o.on;
@@ -1489,13 +1499,13 @@ impl MockSession {
                 if let Some(p) = self.state.keyboard_parts.get_mut(part as usize) {
                     p.program = program & 127;
                 }
-                self.sound.part_voice(part as usize);
+                self.gm_voice(part as usize);
             }
             AppCmd::Parts(PartsCmd::StepVoice { delta }) => {
                 if let Some(i) = self.state.keyboard_parts.iter().position(|p| p.selected) {
                     let p = &mut self.state.keyboard_parts[i];
                     p.program = (p.program as i16 + delta as i16).rem_euclid(128) as u8;
-                    self.sound.part_voice(i);
+                    self.gm_voice(i);
                 }
             }
             AppCmd::Parts(PartsCmd::SetPartVolume { part, volume }) => {
@@ -2076,6 +2086,28 @@ mod tests {
             assert_eq!(plugin(&m, part as usize), None, "{id} ends the plugin");
         }
         assert_eq!(m.state.keyboard_parts[0].patch, None, "the synth's own preset is the GM voice");
+    }
+
+    /// #179: a GM voice selection ends a plugin picked for the part: Voice −/+,
+    /// SetPartVoice and a One Touch Setting's voice.
+    #[test]
+    fn a_gm_voice_selection_ends_a_picked_plugin() {
+        let mut m = MockSession::new();
+        let pick = |m: &mut MockSession, part: u8| {
+            m.send(PluginCmd::SetPartPlugin { part, id: "aumu dls  appl".into(), state: None });
+            assert!(m.state.keyboard_parts[part as usize].plugin.is_some());
+        };
+        pick(&mut m, 1);
+        m.send(PartsCmd::SelectPart { part: 1 });
+        m.send(PartsCmd::StepVoice { delta: 1 });
+        assert!(m.state.keyboard_parts[1].plugin.is_none(), "Voice +");
+        pick(&mut m, 2);
+        m.send(PartsCmd::SetPartVoice { part: 2, program: 40 });
+        assert!(m.state.keyboard_parts[2].plugin.is_none(), "SetPartVoice");
+        let i = m.state.ots.settings.iter().position(|o| o.parts[0].program.is_some()).expect("an OTS with a voice");
+        pick(&mut m, 0);
+        m.send(OtsCmd::RecallOts { index: i as u8 });
+        assert!(m.state.keyboard_parts[0].plugin.is_none(), "OTS");
     }
 
     /// The sound catalog (#117): every preset, plugin and saved sound; assigning routes

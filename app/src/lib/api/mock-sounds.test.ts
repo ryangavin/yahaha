@@ -56,6 +56,26 @@ describe('sound catalog (#117)', () => {
     expect(m.state.keyboardParts[0].patch).toBe(null)
   })
 
+  it('a GM voice selection ends a plugin picked for the part: Voice −/+, setPartVoice, an OTS voice (#179)', () => {
+    const m = new MockSession({ manual: true })
+    const pick = (part: number) => {
+      m.send({ type: 'setPartPlugin', part, id: 'aumu dls  appl', state: null })
+      expect(m.state.keyboardParts[part].plugin?.id).toBe('aumu dls  appl')
+    }
+    pick(1)
+    m.send({ type: 'selectPart', part: 1 })
+    m.send({ type: 'stepVoice', delta: 1 })
+    expect(m.state.keyboardParts[1].plugin, 'Voice +').toBeUndefined()
+    pick(2)
+    m.send({ type: 'setPartVoice', part: 2, program: 40 })
+    expect(m.state.keyboardParts[2].plugin, 'setPartVoice').toBeUndefined()
+    const i = m.state.ots.settings.findIndex((o) => o.parts[0].program !== null)
+    expect(i).toBeGreaterThanOrEqual(0)
+    pick(0)
+    m.send({ type: 'recallOts', index: i })
+    expect(m.state.keyboardParts[0].plugin, 'OTS').toBeUndefined()
+  })
+
   it('auditions a sound while the band is stopped', () => {
     const m = new MockSession({ manual: true })
     m.send({ type: 'auditionSound', id: 'sf:GeneralUser-GS.sf2:128:0' })

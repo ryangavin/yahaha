@@ -990,13 +990,20 @@ export class MockSession implements Session {
     if (was) this.multiPads.bandStopped()
   }
 
+  /** Part `part` was given a GM voice (setPartVoice, Voice −/+, an OTS voice, #179): a
+   * plugin picked for it ends, and its own library patch goes (with that patch's plugin). */
+  private gmVoice(part: number) {
+    if (this.sound.ownPlugin(part) && this.state.keyboardParts[part & 3].plugin) this.plugins.cmd({ type: 'clearPartPlugin', part })
+    this.sound.partVoice(part)
+  }
+
   private recallOts(n: number) {
     const panel = this.state.mixer.faderPage === 'panel'
     this.state.ots.settings[n].parts.forEach((o, i) => {
       const p = this.state.keyboardParts[i]
       if (o.program !== null) {
         p.program = o.program
-        this.sound.partVoice(i)
+        this.gmVoice(i)
       }
       p.on = o.on
       p.octave = o.octave
@@ -1319,12 +1326,12 @@ export class MockSession implements Session {
         break
       case 'setPartVoice':
         st.keyboardParts[cmd.part].program = cmd.program & 127
-        this.sound.partVoice(cmd.part)
+        this.gmVoice(cmd.part)
         break
       case 'stepVoice': {
         const p = st.keyboardParts.find((x) => x.selected) ?? st.keyboardParts[0]
         p.program = (p.program + cmd.delta + 128) % 128
-        this.sound.partVoice(st.keyboardParts.indexOf(p))
+        this.gmVoice(st.keyboardParts.indexOf(p))
         break
       }
       case 'setPartVolume':
@@ -1652,14 +1659,9 @@ export class MockSession implements Session {
       case 'setSoundCategory': {
         const r = this.catalogMock.cmd(this.state, cmd)
         if (r.error) this.message(r.error, true)
-        for (const c of r.run ?? []) {
-          // A preset from the synth's own font (the part's GM voice) ends a plugin picked
-          // for the part, as a SoundFont patch does.
-          if (c.type === 'setPartVoice' && this.sound.ownPlugin(c.part) && this.state.keyboardParts[c.part & 3].plugin) {
-            this.plugins.cmd({ type: 'clearPartPlugin', part: c.part })
-          }
-          this.cmd(c)
-        }
+        // A preset from the synth's own font is the part's GM voice (setPartVoice): it ends
+        // a plugin picked for the part, as a SoundFont patch does.
+        for (const c of r.run ?? []) this.cmd(c)
         if (r.assignLastAdded !== undefined) this.cmd({ type: 'setPartPatch', part: r.assignLastAdded, id: this.state.soundLibrary.lastAdded })
         break
       }

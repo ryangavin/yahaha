@@ -710,8 +710,9 @@ impl Control {
         Ok(())
     }
 
-    /// A SoundFont sound was picked for keyboard part `part` (a SoundFont patch, or a
-    /// preset in the Sound Browser): a plugin picked for it directly (the Sound Browser's
+    /// A SoundFont sound was picked for keyboard part `part` (a SoundFont patch, a preset
+    /// in the Sound Browser, or a GM voice: `setPartVoice`, Voice −/+ and a One Touch
+    /// Setting's voice, #179): a plugin picked for it directly (the Sound Browser's
     /// or the Plugins tab's) ends, and is no longer saved, so the part plays what was
     /// picked last. The plugin is disposed off the audio thread, as `clearPartPlugin`'s
     /// is. A plugin the part's own patch brought is the patch's to end
