@@ -70,6 +70,8 @@ export function tipFor(cmd: AppCmd | null): TipKey {
     case 'stepVoice': return cmd.delta < 0 ? 'part.voice_down' : 'part.voice_up'
     case 'setPartVolume': return PART_VOLUME[cmd.part]
     case 'setPartOctave': return 'part.octave_up'
+    case 'setPartPan': return 'mixer.part.pan'
+    case 'setPartSend': return cmd.send === 'reverb' ? 'mixer.part.reverb' : 'mixer.part.chorus'
     case 'setFaderPage':
     case 'toggleFaderPage': return 'mixer.page'
     case 'setPadPage': return PAGE[cmd.page]
