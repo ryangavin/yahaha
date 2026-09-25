@@ -52,7 +52,7 @@ split by a slash). The 10:08 readout is too blurry to read.
   "generally" set to Multi Finger by default and urges players to switch to AI Fingered.
   [V8 12:55–13:09; V2 01:31, 02:33–02:59 uses Multi Finger for students]
 - AI Full Keyboard: play anywhere with both hands; not always appropriate depending on arrangement;
-  9th, 11th and 13th chords cannot be played. OM p.46, RM p.9.
+  it never recognises 9th, 11th or 13th chords. OM p.46, RM p.9.
 - Chord Cancel (root + b2 + 2) exists only in Fingered, Fingered On Bass and AI Fingered. OM p.46,
   DL p.45.
 - 1+5 and 1+8 are chord types (DL p.45); Fingered\* (Upper detection) has neither, nor Cancel. RM p.9,

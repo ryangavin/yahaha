@@ -18,7 +18,7 @@ what yahaha does today, and updates [parity-matrix.md](parity-matrix.md).
 The repo is public. **Nothing raw is committed**: no transcripts, subtitles,
 video frames, manual text or style data. Raw material lives only in the private
 folder, `$YAHAHA_RESEARCH_DIR` (default: `yahaha-research/` next to the main
-checkout, i.e. `/Users/ryan/The Source/yahaha-research`). The scripts refuse a
+checkout, i.e. `../yahaha-research` from the repo root). The scripts refuse a
 private folder inside the repo.
 
 What is committed: our own paraphrased notes (at most a short attributed
@@ -44,7 +44,7 @@ Needs `python3` ≥ 3.11, `yt-dlp`, `ffmpeg`, `gh`. Everything below runs from
 the repo root.
 
 ```bash
-export YAHAHA_RESEARCH_DIR="/Users/ryan/The Source/yahaha-research"
+export YAHAHA_RESEARCH_DIR=../yahaha-research
 R=docs/research/genos-parity/scripts/research.py
 
 python3 $R disk                       # stop if under 8 GB free

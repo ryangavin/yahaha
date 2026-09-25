@@ -21,8 +21,8 @@ V3 and V5.
 ## Genos behaviour (subtleties a player notices)
 
 - **Tempo range and buttons** (OM p.46): TEMPO −/+ open a tempo pop-up. The range is 5-500
-  BPM, and holding a button changes the value continuously. Pressing −/+ together restores the
-  default tempo of the last selected Style or Song. The manual gives no step size per press.
+  BPM, and holding a button keeps stepping it. Pressing −/+ together goes back to the tempo
+  that the most recently chosen Style or Song came with. The manual gives no step size per press.
   *manual-confirmed*.
 - **Change Behavior › Tempo** (RM p.12). *manual-confirmed*.
   - **Lock**: always keep the tempo.

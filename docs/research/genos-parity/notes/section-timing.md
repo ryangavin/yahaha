@@ -37,8 +37,8 @@ audible result). This note rests mostly on the manual and yahaha's code.
   (PSR-S670). A fill or break is always exactly one bar in the style data [V5 00:47], so a
   fill entered mid-bar can only be the rest of that bar.
 - **Half Bar Fill In** (RM p.142): an assignable function with a control type (Toggle / Hold).
-  While it is on, a section change on the first beat starts the next section from the middle,
-  with an automatic fill. It does not work with Audio Styles. *manual-confirmed*. The V1 still
+  While it is on, changing section during beat 1 brings the new section in halfway through,
+  led by a fill it adds on its own. It does not work with Audio Styles. *manual-confirmed*. The V1 still
   at 01:10 shows the presenter on the Assignable settings page, pressing an Assignable button
   (the screen text can't be read at 480p). The audible half-bar entry is not yet confirmed
   from video.

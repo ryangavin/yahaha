@@ -46,7 +46,7 @@ and Left at C4).
   as soon as R1/R2 are on it is confined above its point, so "my Right 3 voice went silent" is a
   common support question. [V3 00:04–00:29, 02:03] Clearing it: set the point back to the bottom
   [V3 03:18–03:44] or hold the Right 3 label [V4 03:30]. *video-only*
-- Left part off: a Right voice covers the whole keyboard (outside the chord section when ACMP is on).
+- Left part off: a Right voice covers the whole keyboard (except the chord-detection keys while ACMP is on).
   OM p.48, p.56.
 - ACMP off + LEFT on: the Left section still yields a chord for Keyboard Harmony and Multi Pad Chord
   Match. OM p.57, RM p.65.

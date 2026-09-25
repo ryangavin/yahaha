@@ -18,7 +18,7 @@ Setup:
 - Read `docs/research/genos-parity/README.md`, `parity-matrix.md` (especially the
   Run log and the open gaps), `topics.toml`, `docs/genos-features.md`,
   `docs/handoff.md`, and the open issues (`gh issue list`).
-- `export YAHAHA_RESEARCH_DIR="/Users/ryan/The Source/yahaha-research"`; run
+- `export YAHAHA_RESEARCH_DIR=../yahaha-research`; run
   `python3 docs/research/genos-parity/scripts/research.py disk` (stop and report
   if under 8 GB).
 
@@ -66,12 +66,12 @@ Steps:
 
 You are a research worker for yahaha's Genos parity pass. Your cluster:
 `<TOPIC IDS>`. Repo worktree: `<PATH>`. Private folder:
-`$YAHAHA_RESEARCH_DIR` = `/Users/ryan/The Source/yahaha-research`.
+`$YAHAHA_RESEARCH_DIR` = `../yahaha-research` (a sibling of the repo).
 
 Inputs per topic (see `docs/research/genos-parity/topics.toml`):
 - transcripts: `$YAHAHA_RESEARCH_DIR/text/<id>.txt` for the videos listed under
   the topic in `$YAHAHA_RESEARCH_DIR/sources.tsv`;
-- the manuals: `/Users/ryan/The Source/yahaha/docs/manuals/*.txt` (OM = Genos2
+- the manuals: `docs/manuals/*.txt` (OM = Genos2
   owner's manual, RM = reference manual, DL = Genos data list; printed page =
   form-feed page index);
 - yahaha: the docs/code listed under `yahaha` in topics.toml, plus
