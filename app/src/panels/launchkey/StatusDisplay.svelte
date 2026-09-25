@@ -6,6 +6,7 @@
 -->
 <script lang="ts">
   import { sectionLabel } from '../../lib/api/types'
+  import { formatTempo } from '../../lib/format'
   import { app } from '../../lib/store.svelte'
   import { tip } from '../../lib/tooltip/tip.svelte'
 
@@ -20,7 +21,7 @@
   <div class="col left">
     <span class="style glow-text" tabindex="0" use:tip={'style.name'}>{s.style.name || 'No style'}</span>
     <span class="tempo" tabindex="0" use:tip={'display.tempo'}>
-      <span class="glow-text">{Math.round(t.tempo)}</span><small> BPM</small>
+      <span class="glow-text">{formatTempo(t.tempo)}</span><small> BPM</small>
       <small class="ts">{s.style.timeSignature[0]}/{s.style.timeSignature[1]}</small>
     </span>
     <span class="pos" tabindex="0" use:tip={'display.position'}>
