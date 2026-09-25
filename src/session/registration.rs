@@ -128,6 +128,15 @@ impl RegState {
         self.banks = self.dir.as_deref().map(reg::list_banks).unwrap_or_default();
     }
 
+    /// Another bank takes this one's place (loaded, or a new one). A Memorize still
+    /// waiting for its plugin states was for the bank that goes: its states are dropped,
+    /// never written into this one's buttons (#173).
+    fn replace_bank(&mut self, b: Bank, path: Option<PathBuf>) {
+        self.bank = b;
+        self.path = path;
+        self.plugin_fill = None;
+    }
+
     /// Rebuild Regist Bank Info from the bank.
     fn summarize(&mut self) {
         self.buttons = (0..BUTTONS).map(|i| summary(i as u8, self.bank.memories[i].as_ref())).collect();
@@ -191,8 +200,7 @@ impl Control {
             RegistrationCmd::StepRegistBank { delta } => return self.step_bank(delta, false),
             RegistrationCmd::SelectRegistBank { path } => return self.load_regist_bank(Path::new(&path)),
             RegistrationCmd::NewRegistBank => {
-                self.reg.bank = Bank::default();
-                self.reg.path = None;
+                self.reg.replace_bank(Bank::default(), None);
                 self.reg.dirty = false;
                 self.reg.selected = None;
                 self.reg.seq_pos = None;
@@ -310,8 +318,7 @@ impl Control {
             Ok(mut b) => {
                 b.name = reg::bank_name(path);
                 b.sequence = b.sequence.clean();
-                self.reg.bank = b;
-                self.reg.path = Some(path.to_path_buf());
+                self.reg.replace_bank(b, Some(path.to_path_buf()));
                 self.reg.dirty = false;
                 self.reg.selected = None;
                 self.reg.memory = false;
