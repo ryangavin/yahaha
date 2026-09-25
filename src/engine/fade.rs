@@ -11,6 +11,11 @@
 //! move, and when the fade ends the fader values go out again unchanged. A fader moved, or
 //! a pattern CC7, during a fade goes out scaled too.
 //!
+//! The Style volume (#199, the Genos Balance page's Style slider, a Panel fader here) is
+//! the same kind of scale and the owner's other exception to the mixer rule: `level` (0-127,
+//! 100 = as written) multiplies the Style parts' CC7 as they go out, together with the fade
+//! position, and the faders again never move. Above 100 it raises them, up to CC7 127.
+//!
 //! The level follows a fader-like curve: the position moves linearly with time, and CC7
 //! is a squared gain on a GM receiver. The engine sends new levels every `STEP_NS` while it
 //! moves, on its own clock (`hook_wake_ns`), band running or not.
@@ -54,13 +59,15 @@ pub(super) struct Fade {
     armed: bool,
     /// The fade position (the Style parts' CC7 scale), 1 = full.
     pos: f32,
+    /// The Style volume, 0-127: the Style parts' CC7 go out scaled by `level / 100`.
+    level: u8,
     /// When the level moves next (during a fade).
     next_ns: u64,
 }
 
 impl Default for Fade {
     fn default() -> Fade {
-        Fade { phase: Phase::Idle, armed: false, pos: 1.0, next_ns: 0 }
+        Fade { phase: Phase::Idle, armed: false, pos: 1.0, level: 100, next_ns: 0 }
     }
 }
 
@@ -162,14 +169,30 @@ impl Engine {
         self.fade_set(1.0, sink);
     }
 
-    /// A Style part's level as it goes out: fader value `v` scaled by the fade.
+    /// A Style part's level as it goes out: fader value `v` scaled by the fade and the
+    /// Style volume.
     #[inline]
     pub(super) fn faded(&self, v: u8) -> u8 {
-        let pos = self.features.fade.pos;
-        if pos >= 1.0 {
+        let Fade { pos, level, .. } = self.features.fade;
+        if pos >= 1.0 && level == 100 {
             v
         } else {
-            (v as f32 * pos).round() as u8
+            (v as f32 * pos * level as f32 / 100.0).round().min(127.0) as u8
+        }
+    }
+
+    /// The Style volume (0-127, 100 = the parts' CC7 as written).
+    pub fn style_level(&self) -> u8 {
+        self.features.fade.level
+    }
+
+    /// Set the Style volume (0-127, 100 = as written) and send each Style part's level
+    /// where it changed.
+    pub fn set_style_level(&mut self, level: u8, sink: &mut impl Sink) {
+        let level = level.min(127);
+        if level != self.features.fade.level {
+            self.features.fade.level = level;
+            self.send_style_levels(sink);
         }
     }
 
@@ -190,6 +213,12 @@ impl Engine {
             return;
         }
         self.features.fade.pos = pos;
+        self.send_style_levels(sink);
+    }
+
+    /// Each Style part's level as it goes out now (its fader value scaled), where the
+    /// channel has something else.
+    fn send_style_levels(&mut self, sink: &mut impl Sink) {
         for p in 0..8u8 {
             let v = self.faded(self.mixer[p as usize]);
             let ch = 8 + p;

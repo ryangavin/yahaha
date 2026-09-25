@@ -27,6 +27,13 @@ pub const CHANNEL: [u8; COUNT] = [0, 2, 3, 1];
 /// Default voices (GM programs): Grand Piano, Strings, Brass Section; Left Strings.
 pub const DEFAULT_PROGRAMS: [u8; COUNT] = [0, 48, 61, 48];
 
+/// Panel fader 5: the Style volume (#199), a scale on the Style parts' CC7 (100 = as
+/// written), kept with the keyboard parts' levels (`Parts::volume(STYLE_LEVEL)`), with the
+/// same soft takeover.
+pub const STYLE_LEVEL: usize = 4;
+/// The levels the Panel page's faders control: the four keyboard parts, then the Style.
+pub const PANEL_FADERS: usize = 5;
+
 /// The part on MIDI channel `ch`, if it is a keyboard part's.
 pub fn part_of_channel(ch: u8) -> Option<usize> {
     CHANNEL.iter().position(|&c| c == ch)
@@ -44,7 +51,7 @@ fn pack(volume: u8, picked: bool) -> u8 {
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum FaderPage {
-    /// Faders 1-4: Right 1, Right 2, Right 3, Left. 5-8 unused.
+    /// Faders 1-4: Right 1, Right 2, Right 3, Left; 5: the Style volume. 6-8 unused.
     #[default]
     Panel,
     /// Faders 1-8: the Style parts.
@@ -58,7 +65,8 @@ pub struct Parts {
     /// The part's volume (its CC7, sent unchanged on its channel) in bits 0-6, and in bit 7
     /// whether its Panel fader controls it (soft takeover). One atomic, so a fader move and
     /// an OTS recall on other threads can never mix one's volume with the other's pickup.
-    level: [AtomicU8; COUNT],
+    /// After the parts, the other Panel faders' levels (`STYLE_LEVEL`).
+    level: [AtomicU8; PANEL_FADERS],
     /// Octave shift, -2..=2.
     pub octave: [AtomicI8; COUNT],
     /// The part the voice keys (9/0, Voice -/+ pads) edit.
@@ -119,7 +127,7 @@ impl Parts {
         Parts {
             program: DEFAULT_PROGRAMS.map(AtomicU8::new),
             on: [true, false, false, false].map(AtomicBool::new),
-            level: [const { AtomicU8::new(100) }; COUNT],
+            level: [const { AtomicU8::new(100) }; PANEL_FADERS],
             octave: [const { AtomicI8::new(0) }; COUNT],
             selected: AtomicU8::new(RIGHT1 as u8),
             changed: AtomicBool::new(true),
@@ -256,7 +264,7 @@ impl Parts {
         }
     }
 
-    /// The part's volume (its CC7).
+    /// The part's volume (its CC7), or another Panel fader's level (`STYLE_LEVEL`).
     pub fn volume(&self, part: usize) -> u8 {
         self.level[part].load(Relaxed) & VOLUME
     }
