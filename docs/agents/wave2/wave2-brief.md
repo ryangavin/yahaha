@@ -5,7 +5,7 @@ First read `docs/agents/wave-brief.md` in the repo and follow ALL of its hard ru
 ## How this wave works
 - You own a TRACK: a short, ordered list of SMALL PRs. Each PR covers ONE concern and aims to be approved on first look: typically under ~400 changed lines, excluding tests and generated files.
 - For each PR:
-  1. `git fetch origin && git checkout -b <track>/<short-name> origin/integration/m3-ui`
+  1. `git fetch origin && git checkout -b <track>/<short-name> origin/develop`
   2. Implement it with tests, committing and pushing after every step.
   3. Run the gates:
      - `cargo build --release`
@@ -14,7 +14,7 @@ First read `docs/agents/wave-brief.md` in the repo and follow ALL of its hard ru
      - `cargo test` in app/src-tauri (if the API changed)
      - `npm run verify` in app/ (if the app changed)
      - clippy: no new warnings in touched files
-  4. Open a PR against `integration/m3-ui`. The body says what changed, lists Decisions, says "Part of #N" or "Closes #N", and ends with the Claude Code footer. Use a unique scratch file name.
+  4. Open a PR against `develop`. The body says what changed, lists Decisions, says "Part of #N" or "Closes #N", and ends with the Claude Code footer. Use a unique scratch file name.
   5. Once the PR is green and MERGEABLE, post the comment `READY <full-40-char-sha>` and add the `ready-to-merge` label.
   6. The merge steward reviews it for REAL bugs only and merges it. If it comments with a blocker, fix it, push, and post a new READY.
 - Do NOT stack PRs on each other. If PR n+1 is independent of PR n, start it from integration right away. If it depends on n, wait until n is merged (poll `gh pr view` every ~2 min), then branch from the fresh integration.

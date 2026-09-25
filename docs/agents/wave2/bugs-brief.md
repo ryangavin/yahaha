@@ -1,6 +1,6 @@
 # yahaha owner-reported playing bugs (read fully)
 
-Follow `docs/agents/wave2/wave2-brief.md` for process: small PRs from `origin/integration/m3-ui`, gates, READY plus the label, and the merge steward merges.
+Follow `docs/agents/wave2/wave2-brief.md` for process: small PRs from `origin/develop`, gates, READY plus the label, and the merge steward merges.
 
 These bugs come from the owner PLAYING the current integration build: the Tauri app driven by a Launchkey, using the soundfonts in `soundfonts/` and corpus styles. Treat them as REAL bugs.
 - REPRODUCE FIRST, headless where possible. Use `Session::offline()` / `offline_audio`, `yahaha sim`, or the engine directly with corpus styles, and write a failing test.

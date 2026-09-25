@@ -1,4 +1,4 @@
-You are working on the yahaha desktop app, in the `app/` folder of ryangavin/yahaha. That repo is PUBLIC. The app uses Svelte 5, TypeScript and Vite inside Tauri 2. yahaha is a Rust arranger that plays Yamaha Genos style files live. The app's main screen is a skeuomorphic 1:1 mirror of the owner's Novation Launchkey MK4 (49/61 keys), with a sleek look in the spirit of Sylenth1. The app foundation (PR #72) is merged into `integration/m3-ui`.
+You are working on the yahaha desktop app, in the `app/` folder of ryangavin/yahaha. That repo is PUBLIC. The app uses Svelte 5, TypeScript and Vite inside Tauri 2. yahaha is a Rust arranger that plays Yamaha Genos style files live. The app's main screen is a skeuomorphic 1:1 mirror of the owner's Novation Launchkey MK4 (49/61 keys), with a sleek look in the spirit of Sylenth1. The app foundation (PR #72) is merged into `develop`.
 
 Owner rules:
 - EVERY interactive control gets a tooltip from the single catalog `app/src/help/tooltips.ts`. Each tooltip gives what the control does, the Genos term, the keyboard shortcut, and where it lives on the Launchkey, if anywhere. A coverage test enforces this.
@@ -19,7 +19,7 @@ Coordination:
 
 Setup:
 ```
-git fetch origin && git checkout -b <your-branch> origin/integration/m3-ui
+git fetch origin && git checkout -b <your-branch> origin/develop
 cd app && npm install
 ```
 
@@ -31,7 +31,7 @@ Verify:
 
 Commit messages end with: `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`
 
-Open the PR against `integration/m3-ui` with screenshots in the body. The body ends with: `🤖 Generated with [Claude Code](https://claude.com/claude-code)`
+Open the PR against `develop` with screenshots in the body. The body ends with: `🤖 Generated with [Claude Code](https://claude.com/claude-code)`
 
 Do not merge. If git signing fails, stop and report.
 

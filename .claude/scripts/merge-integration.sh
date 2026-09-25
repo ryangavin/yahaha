@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Squash-merge a PR, but only when its base branch is integration/*.
+# Squash-merge a PR, but only when its base branch is develop (or a legacy integration/* branch).
 # Usage: merge-integration.sh <pr-number> [expected-head-sha]
-# Merges into main (or any non-integration base) are refused: those stay the owner's call.
+# Merges into main (or any other base) are refused: those stay the owner's call.
 set -euo pipefail
 
 pr="${1:?usage: merge-integration.sh <pr-number> [expected-head-sha]}"
@@ -14,8 +14,8 @@ state=$(gh pr view "$pr" --json state -q .state)
 if [[ "$state" != "OPEN" ]]; then
   echo "PR #$pr is $state, not OPEN" >&2; exit 3
 fi
-if [[ "$base" != integration/* ]]; then
-  echo "refusing: PR #$pr targets '$base', only integration/* bases may be merged by agents" >&2
+if [[ "$base" != develop && "$base" != integration/* ]]; then
+  echo "refusing: PR #$pr targets '$base', only develop (or integration/*) bases may be merged by agents" >&2
   exit 4
 fi
 if [[ -n "${2:-}" && "$head" != "$2"* ]]; then
