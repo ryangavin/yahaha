@@ -10,10 +10,35 @@
 //! the filter's effect shows directly in the high-frequency share of the output. No
 //! SoundFont file is needed.
 
+use std::alloc::{GlobalAlloc, Layout, System};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use yahaha_test_font::{noise_font, noise_font_with};
 
 use rustysynth::{SoundFont, Synthesizer, SynthesizerSettings};
+
+/// Counts allocations on a thread while it is counting (the no-allocation test).
+struct Counting;
+static ALLOCS: AtomicUsize = AtomicUsize::new(0);
+thread_local! {
+    static COUNT: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+unsafe impl GlobalAlloc for Counting {
+    unsafe fn alloc(&self, l: Layout) -> *mut u8 {
+        if COUNT.try_with(|c| c.get()).unwrap_or(false) {
+            ALLOCS.fetch_add(1, Ordering::Relaxed);
+        }
+        unsafe { System.alloc(l) }
+    }
+    unsafe fn dealloc(&self, p: *mut u8, l: Layout) {
+        if COUNT.try_with(|c| c.get()).unwrap_or(false) {
+            ALLOCS.fetch_add(1, Ordering::Relaxed);
+        }
+        unsafe { System.dealloc(p, l) }
+    }
+}
+#[global_allocator]
+static A: Counting = Counting;
 
 const RATE: i32 = 48_000;
 /// Rendered length: 0.25 s of held note, then 0.25 s after the note-off.
@@ -128,6 +153,27 @@ fn a_presets_own_modulator_adds_to_the_default() {
     // (48) and key -> cutoff (source 3) change nothing.
     let foreign = noise_font_with(&[modulator(0x0502, 48, 800, 0), modulator(0x0003, 8, 2400, 0)], &[]);
     assert_eq!(hit(&foreign, 32, true), hit(&plain, 32, true));
+}
+
+#[test]
+fn velocity_to_tone_does_not_allocate() {
+    // The default, a switched-off default and a preset's own modulator, on the audio path:
+    // note-ons (where the modulators are summed) and renders.
+    let font = noise_font_with(&[modulator(0x0102, 8, 0, 0x0D02)], &[modulator(0x0102, 8, -3600, 0), modulator(0x0202, 8, 600, 0)]);
+    for font in [noise_font(), font] {
+        let mut s = Synthesizer::new(&font, &SynthesizerSettings::new(RATE)).unwrap();
+        let (mut l, mut r) = (vec![0f32; 64], vec![0f32; 64]);
+        s.render(&mut l, &mut r);
+        COUNT.with(|c| c.set(true));
+        for v in [1, 20, 64, 100, 127] {
+            s.note_on(0, 60, v);
+            s.render(&mut l, &mut r);
+            s.note_off(0, 60);
+            s.render(&mut l, &mut r);
+        }
+        COUNT.with(|c| c.set(false));
+    }
+    assert_eq!(ALLOCS.load(Ordering::Relaxed), 0, "velocity -> tone allocated on the audio path");
 }
 
 /// A tiny SoundFont in memory: preset 0:0 plays one second of white noise, root key 60.
