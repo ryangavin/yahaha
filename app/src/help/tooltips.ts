@@ -739,6 +739,13 @@ const catalog = {
     keys: [],
     launchkey: null,
   },
+  'sounds.set_category': {
+    title: 'Plugin category',
+    body: 'The category the selected plugin is listed under. yahaha guesses it from the plugin\'s name; pick another to file it where you look for it.',
+    genos: null,
+    keys: [],
+    launchkey: null,
+  },
   'sounds.row': {
     title: 'Sound',
     body: 'Click or Enter plays this sound on the part. SF is a SoundFont preset, AU an instrument plugin, Saved a sound from your library. ▶ marks what the part plays.',
