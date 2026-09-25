@@ -7,9 +7,10 @@
   │ ┌ stage ──────────────────────────────────────────────────────────────┐   │
   │ │ lead-sheet band (panels/leadsheet): now · bar cells / chart · next  │   │
   │ │ Launchkey mirror (panels/launchkey)                                 │ ┌ drawer ┐
-  │ │ keyboard strip (panels/keystrip)                                    │ │ parts  │
-  │ └─────────────────────────────────────────────────────────────────────┘ │ mixer  │
-  │ Registration bar (by the keys): bank · 1–10 · Memory · Freeze · seq.    │settings│
+  │ │ keyboard strip (panels/keystrip), one panel:                        │ │ parts  │
+  │ │   Registration bar: bank · 1–10 · Memory · Freeze · seq. · playlist │ │ mixer  │
+  │ │   chord tones · the keys                                            │ │settings│
+  │ └─────────────────────────────────────────────────────────────────────┘ │        │
   │ status line                                                             │        │
   │ help footer (lib/tooltip): the hovered control's entry · last Launchkey  └────────┘
   └──────────────────────────────────────────────────────────────────────────┘
@@ -81,12 +82,10 @@
     <div class="stack">
       <div class="lead-slot"><LeadSheet /></div>
       <Launchkey />
-      <div class="strip-slot"><KeyStrip /></div>
+      <!-- The Registration bar sits in the keyboard strip's panel, above the keys. -->
+      <div class="strip-slot"><KeyStrip><RegistBar /></KeyStrip></div>
     </div>
   </main>
-
-  <!-- Under the keys, as the Genos's Registration Memory buttons sit by the keyboard. -->
-  <RegistBar />
 
   <!-- svelte-ignore a11y_no_noninteractive_tabindex (focusable so its tooltip is reachable from the keyboard) -->
   <footer class="status engraved" role="status" tabindex="0" use:tip={'display.status'}>
@@ -124,7 +123,9 @@
   /* ── The stage: sizes in em of --u, the largest that fits both ways ──────────────────
      --w: the stack's width in em (the mirror's design width).
      --h: its least height in em: lead band min + mirror + strip min + 2 gaps.
-     Measured from the rendered mirror: 26.00em tall wide, 46.17em stacked. */
+     --top: the Registration bar's row in the strip, with its gap (one row wide, two stacked).
+     Measured from the rendered mirror: 26.00em tall wide, 46.17em stacked; the Registration
+     row 4.0em wide, 6.7em stacked. */
   .stage {
     container: stage / size;
     flex: 1;
@@ -135,7 +136,9 @@
   }
   .stack {
     --w: 96;
-    --h: 39.9;
+    --h: 44.5;
+    /* The Registration bar's row at the top of the keyboard strip (+ its gap). */
+    --top: 4.6em;
     --u: min(100cqw / var(--w), 100cqh / var(--h));
     font-size: var(--u);
     width: calc(var(--w) * 1em);
@@ -152,13 +155,14 @@
   }
   .strip-slot {
     flex: 1.3 1 0;
-    min-height: 7.2em;
-    max-height: 14em;
+    min-height: calc(7.2em + var(--top));
+    max-height: calc(14em + var(--top));
   }
   @container stage (aspect-ratio < 1.45) {
     .stack {
       --w: 66;
-      --h: 60;
+      --h: 67.4;
+      --top: 7.4em;
     }
   }
   .status {

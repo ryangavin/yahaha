@@ -4,6 +4,7 @@
 import { cleanup, fireEvent, render } from '@testing-library/svelte'
 import { flushSync } from 'svelte'
 import { afterEach, describe, expect, it } from 'vitest'
+import App from '../../App.svelte'
 import { MockSession } from '../../lib/api/mock'
 import { app, ui } from '../../lib/store.svelte'
 import RegistBar from './RegistBar.svelte'
@@ -26,6 +27,17 @@ afterEach(() => {
 })
 
 describe('Registration bar', () => {
+  it('sits in the keyboard strip\'s panel, above the keys', () => {
+    render(App, { props: { session: new MockSession({ demo: true, manual: true }) } })
+    flushSync()
+    const strip = q<HTMLElement>('section[aria-label="Keyboard"]')
+    const bar = strip.querySelector('section[aria-label="Registration"]')!
+    expect(bar).toBeTruthy()
+    expect(document.querySelectorAll('section[aria-label="Registration"]')).toHaveLength(1)
+    const keys = strip.querySelector('[data-tip="keystrip.keys"]')!
+    expect(bar.compareDocumentPosition(keys) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
   it('starts on the demo bank with its stored buttons lit blue', () => {
     const s = setup()
     const r = s.state.registration
