@@ -184,9 +184,31 @@ impl MockSound {
                 self.patches[i].favourite = favourite;
             }
             SoundLibraryCmd::SavePartAsPatch { part, name } => {
+                // What the part plays: its plugin, else its own patch, else the patch the
+                // map sends its GM voice to, else its GM voice (as the session's).
                 let kp = &st.keyboard_parts[(part & 3) as usize];
-                let own = self.parts[(part & 3) as usize].clone().and_then(|id| self.at(&id)).map(|i| self.patches[i].clone());
-                let mut p = own.unwrap_or_else(|| Patch {
+                let key = st.style.path.rsplit('/').next().unwrap_or_default().to_string();
+                let own = self.parts[(part & 3) as usize].clone().filter(|_| !kp.plays_bass);
+                let plays = own
+                    .or_else(|| patches::resolve(&self.map, self.style_maps.get(&key), false, kp.program).patch.map(str::to_string))
+                    .and_then(|id| self.at(&id))
+                    .map(|i| self.patches[i].clone());
+                let plugin = kp.plugin.as_ref().filter(|p| p.status != PluginStatus::Failed).map(|p| {
+                    let source = PatchSource::Plugin { component_id: p.id.clone(), state: String::new() };
+                    match plays.clone() {
+                        Some(q) if matches!(&q.source, PatchSource::Plugin { component_id, .. } if *component_id == p.id) => Patch { source, ..q },
+                        q => Patch {
+                            id: String::new(),
+                            name: p.name.clone(),
+                            category: q.map_or_else(|| Category::guess(0, kp.program), |q| q.category),
+                            tags: vec![],
+                            favourite: false,
+                            source,
+                            defaults: PatchDefaults::default(),
+                        },
+                    }
+                });
+                let mut p = plugin.or(plays).unwrap_or_else(|| Patch {
                     id: String::new(),
                     name: gm_name(kp.program).into(),
                     category: Category::guess(0, kp.program),
