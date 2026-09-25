@@ -32,6 +32,7 @@ mod chart;
 mod chord;
 mod controllers;
 mod devices;
+mod display;
 mod dynamics;
 mod harmony_arp;
 mod keyboard;
@@ -305,6 +306,8 @@ struct Control {
     dynamics: crate::engine::DynamicsSettings,
     /// Knob Assign pages (session/knobs.rs).
     knobs: crate::knobs::Knobs,
+    /// The Launchkey display: what the control last touched did (session/display.rs).
+    display: display::Display,
     /// Multi Pad banks to the engine thread, and replaced players back to free here.
     pad_tx: Producer<live::PadBank>,
     old_pad_rx: Consumer<Box<crate::multipad::MultiPadPlayer>>,
@@ -535,6 +538,7 @@ impl Inner {
             events.push(Event::SoundsChanged { revision });
         }
         let mut st = ctl.build_state(now);
+        ctl.pump_display(&st, now);
         {
             let mut cur = self.state.lock().unwrap_or_else(|e| e.into_inner());
             st.version = cur.version;
@@ -693,6 +697,7 @@ fn assemble(opts: &Options, engine_out: live::Out, input_out: live::Out, offline
         sounds: sounds::Sounds::open(sound_set.file()),
         dynamics: Default::default(),
         knobs: Default::default(),
+        display: Default::default(),
         sound_set,
     };
     let mut control = control;
@@ -854,6 +859,12 @@ impl Session {
 
     /// The session clock, in ns (monotonic; the virtual clock offline): the time base of
     /// `AppState::clock`.
+    /// What the Launchkey display was last sent: title, name, value (tests).
+    #[cfg(test)]
+    pub(crate) fn display_shown(&self) -> Option<display::Text> {
+        self.inner.lock().display.shown.clone()
+    }
+
     pub fn now_ns(&self) -> u64 {
         match &self.inner.lock().offline {
             Some(o) => o.now,

@@ -152,6 +152,10 @@ The 8 encoders are the Genos LIVE CONTROL knobs, on Knob Assign pages. The **enc
 | buttons under faders 1–8 | Panel page: Right 1–3, Left on/off (Shift: edit that part's voice), button 5 Harmony/Arpeggio on/off, button 6 reload the edited part's plugin (red while it stopped or failed to load) · Style page: mute/unmute the style parts |
 | button under the master fader | fader page Panel / Style |
 
+### The Launchkey display
+
+Touch or move any control yahaha maps (a pad, a button, a fader, a fader button, a knob) and the Launchkey's display says what it did: where it is, the function's name and its new value, e.g. `Pads: Sections` / `MAIN B` / `Fill In BB`, `Knobs: Style` / `Dynamics Control` / `72`, `Faders: Panel` / `LEFT` / `96 > 80` (the level is 96 and the fader, not caught yet by soft takeover, is at 80). The value follows for a moment after the touch, so a tempo or section change shows once the band has it. The display then goes back to the normal screen after the Launchkey's own display timeout (Settings on the Launchkey). The faders' and knobs' own raw CC readouts are turned off while yahaha drives the Launchkey.
+
 The last Launchkey note or CC that nothing is mapped to shows at the bottom of the screen, e.g. `unmapped CC 103 = 127`. If a button does nothing, that shows the number it really sends.
 
 ### Pedals and wheels
