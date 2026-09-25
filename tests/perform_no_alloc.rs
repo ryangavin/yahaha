@@ -1,5 +1,6 @@
 //! The engine thread must not allocate or free while it fades, retriggers, resets a
-//! section, slows an ending down or times the Synchro Stop Window. A counting global
+//! section, slows an ending down, leaves an Ending for a Main or times the Synchro Stop
+//! Window. A counting global
 //! allocator (in this test binary only) checks `EngineLoop::step` through all of them.
 
 use std::alloc::{GlobalAlloc, Layout, System};
@@ -8,7 +9,7 @@ use std::sync::Arc;
 use yahaha::engine::{Button, Engine, FadeState, MainTiming, Prepared, StyleSettings};
 use yahaha::live::{self, Cmd, EngineLoop, Out, Shared};
 use yahaha::rt::{PacketSink, Target};
-use yahaha::sff::Style;
+use yahaha::sff::{SectionId, Style};
 
 struct Counting;
 static ALLOCS: AtomicUsize = AtomicUsize::new(0);
@@ -58,6 +59,8 @@ fn fades_retrigger_reset_and_ritardando_do_not_allocate() {
                 seen.retrigger |= s.retrigger;
                 seen.rit |= s.ritardando;
                 seen.hold |= s.fade == FadeState::Holding;
+                seen.main_after_ending |= matches!((seen.cur, s.cur), (Some(SectionId::Ending(_)), Some(SectionId::Main(_))));
+                seen.cur = s.cur;
                 seen.last = Some((s.running, s.fade));
             }
         }
@@ -99,10 +102,17 @@ fn fades_retrigger_reset_and_ritardando_do_not_allocate() {
     ch.ui_tx.push(Cmd::Button(Button::Ending(0))).ok().unwrap();
     l.step(now);
     run(&mut l, snaps, &mut now, 6 * bar);
-    // Again, then a fade out to the stop and its hold.
+    // Again; an Ending, left for Main A at its next bar line (its fade reset, #122).
     ch.ui_tx.push(Cmd::Button(Button::StartStop)).ok().unwrap();
     l.step(now);
     run(&mut l, snaps, &mut now, bar);
+    ch.ui_tx.push(Cmd::Button(Button::Ending(0))).ok().unwrap();
+    l.step(now);
+    run(&mut l, snaps, &mut now, bar + bar / 2);
+    ch.ui_tx.push(Cmd::Button(Button::Main(0))).ok().unwrap();
+    l.step(now);
+    run(&mut l, snaps, &mut now, 2 * bar);
+    // Then a fade out to the stop and its hold.
     ch.ui_tx.push(Cmd::Button(Button::Fade)).ok().unwrap();
     l.step(now);
     run(&mut l, snaps, &mut now, 500_000_000);
@@ -112,6 +122,7 @@ fn fades_retrigger_reset_and_ritardando_do_not_allocate() {
     assert!(seen.retrigger, "retriggered");
     assert!(seen.rit, "slowed down");
     assert!(seen.hold, "faded out and held");
+    assert!(seen.main_after_ending, "a Main followed an Ending");
     assert_eq!(seen.last, Some((false, FadeState::Off)));
 }
 
@@ -122,4 +133,6 @@ struct Seen {
     rit: bool,
     hold: bool,
     last: Option<(bool, FadeState)>,
+    cur: Option<SectionId>,
+    main_after_ending: bool,
 }
