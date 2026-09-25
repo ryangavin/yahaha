@@ -11,6 +11,8 @@
     style sets the Style faders to the style's own levels.
   - Soft takeover: ↕ while a level waits for its Launchkey fader, and a dashed ghost cap
     where that fader physically sits (from the provisional `state.surface`).
+  - Panel strips have Pan, Reverb and Chorus knobs (the part's CC 10, 91, 93: `setPartPan`,
+    `setPartSend`, #198); double-click one to put it back to its default.
   - Solo (S): only that part plays, even if it is off; the Style tab solos a band part,
     the Panel tab a keyboard part (`setStyleSolo` / `setPartSolo`, #30). Press again to end.
   - The metronome (on/off, bell, its own volume) sits above the strips: it is the
@@ -19,7 +21,7 @@
   - No level meters yet.
 -->
 <script lang="ts">
-  import type { FaderPage, KeyboardPart, StylePart, TrackMuteOrder } from '../../lib/api/types'
+  import type { FaderPage, KeyboardPart, PartSend, StylePart, TrackMuteOrder } from '../../lib/api/types'
   import { app, ui } from '../../lib/store.svelte'
   import { tipFor } from '../../help/actions'
   import { css } from '../../lib/leds'
@@ -101,6 +103,13 @@
     hw: hwAt(i),
     faderTip: tipFor({ type: 'setPartVolume', part: i, volume: 0 }),
     onchange: (v: number) => app.send({ type: 'setPartVolume', part: i, volume: v }),
+    fx: {
+      pan: p.pan,
+      reverb: p.reverb,
+      chorus: p.chorus,
+      onpan: (v: number) => app.send({ type: 'setPartPan', part: i, pan: v }),
+      onsend: (send: PartSend, v: number) => app.send({ type: 'setPartSend', part: i, send, value: v }),
+    },
     lit: p.sounding,
     on: {
       led: ledAt(i),
@@ -225,7 +234,7 @@
           <Strip {...panelStrip(p, i)} />
         {/each}
         {#each unusedSlots as n (n)}
-          <Strip name="—" value={0} faderTip="launchkey.fader_unused" onchange={() => {}} unused button={slotButton(n)} />
+          <Strip name="—" value={0} faderTip="launchkey.fader_unused" onchange={() => {}} unused fxRow button={slotButton(n)} />
         {/each}
       {:else}
         {#each mixer.styleParts as p, i (i)}
@@ -233,8 +242,9 @@
         {/each}
       {/if}
 
-      <div class="master">
+      <div class="master" class:knobs={page === 'panel'}>
         <div class="ch engraved">Synth</div>
+        {#if page === 'panel'}<div class="fx-space" aria-hidden="true"></div>{/if}
         <div class="fader">
           <Fader
             value={mixer.master ?? 0}
@@ -405,6 +415,10 @@
     padding: 0.5rem 0.25rem 0.4rem 0.5rem;
     margin-left: 0.2rem;
     border-left: 1px solid var(--seam);
+  }
+  /* The row the Panel strips' knobs take, so the master fader lines up with theirs. */
+  .master.knobs {
+    grid-template-rows: auto var(--fx-h, 3.4rem) minmax(13rem, 1fr) auto;
   }
   .master .ch {
     font-size: 0.8rem;

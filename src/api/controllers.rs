@@ -111,6 +111,23 @@ pub fn function_run(f: Function, fingering: crate::fingering::Fingering, ots_cou
             // The REGIST BANK [+]/[−] buttons (RM p.144).
             Function::RegistBankNext => super::RegistrationCmd::StepRegistBank { delta: 1 }.into(),
             Function::RegistBankPrev => super::RegistrationCmd::StepRegistBank { delta: -1 }.into(),
+            // Regist +/− (RM p.114 Pedal Control), the REGISTRATION MEMORY buttons, MEMORY,
+            // and the Freeze and Sequence switches (RM p.141).
+            Function::RegistNext => super::RegistrationCmd::StepRegist { delta: 1 }.into(),
+            Function::RegistPrev => super::RegistrationCmd::StepRegist { delta: -1 }.into(),
+            Function::Regist1
+            | Function::Regist2
+            | Function::Regist3
+            | Function::Regist4
+            | Function::Regist5
+            | Function::Regist6
+            | Function::Regist7
+            | Function::Regist8
+            | Function::Regist9
+            | Function::Regist10 => super::RegistrationCmd::PressRegist { index: f as u8 - Function::Regist1 as u8 }.into(),
+            Function::RegistMemory => super::RegistrationCmd::ToggleRegistMemory.into(),
+            Function::RegistFreeze => super::RegistrationCmd::ToggleFreeze.into(),
+            Function::RegistSequence => super::RegistrationCmd::ToggleRegistSequence.into(),
             Function::TransposeUp => super::ChordCmd::StepTranspose { keyboard: 0, master: 1 }.into(),
             Function::TransposeDown => super::ChordCmd::StepTranspose { keyboard: 0, master: -1 }.into(),
             Function::Right1OnOff => super::PartsCmd::TogglePart { part: parts::RIGHT1 as u8 }.into(),

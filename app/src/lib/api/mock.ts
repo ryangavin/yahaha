@@ -203,7 +203,7 @@ export function initialState(): AppState {
   const s = STYLES[0]
   const part = (i: number, program: number, on: boolean) => ({
     name: KEYBOARD_PART_NAMES[i], channel: [1, 3, 4, 2][i], on, sounding: on, selected: i === 0,
-    volume: 100, waiting: false, program, voiceName: GM[program], playsBass: false, octave: 0, fader: null, patch: null as string | null,
+    volume: 100, waiting: false, program, voiceName: GM[program], playsBass: false, octave: 0, pan: 64, reverb: 40, chorus: 0, fader: null, patch: null as string | null,
   })
   const state: AppState = {
     version: 1,
@@ -1341,6 +1341,12 @@ export class MockSession implements Session {
         break
       case 'setPartOctave':
         st.keyboardParts[cmd.part].octave = clamp(cmd.octave, -2, 2)
+        break
+      case 'setPartPan':
+        st.keyboardParts[cmd.part].pan = vol(cmd.pan)
+        break
+      case 'setPartSend':
+        st.keyboardParts[cmd.part][cmd.send] = vol(cmd.value)
         break
       case 'setFaderPage':
       case 'toggleFaderPage': {

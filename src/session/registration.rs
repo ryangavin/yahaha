@@ -219,6 +219,7 @@ impl Control {
             RegistrationCmd::SetRegistSequenceOn { on } => return self.set_sequence_on(on),
             RegistrationCmd::ToggleRegistSequence => return self.set_sequence_on(!self.reg.seq_on),
             RegistrationCmd::StepRegistSequence { delta } => return self.step_sequence(delta),
+            RegistrationCmd::StepRegist { delta } => return self.step_regist(delta),
         }
         Ok(())
     }
@@ -386,6 +387,22 @@ impl Control {
                 self.reg.seq_pos = Some(p);
                 self.recall_index(b, false)
             }
+        }
+    }
+
+    /// Regist +/- from a pedal: the sequence while it is on and programmed (RM p.114), else
+    /// the bank's next/previous stored button, so a pedal steps through a song with no
+    /// sequence programmed (docs/registration.md).
+    fn step_regist(&mut self, delta: i8) -> Result<(), CmdError> {
+        if self.reg.seq_on && !self.reg.bank.sequence.steps.is_empty() {
+            return self.step_sequence(delta);
+        }
+        if self.reg.bank.stored_mask() == 0 {
+            return self.fail("no Registration stored in this bank");
+        }
+        match reg::step_stored(self.reg.bank.stored_mask(), self.reg.selected, delta) {
+            Some(b) => self.recall_index(b, true),
+            None => Ok(()),
         }
     }
 
