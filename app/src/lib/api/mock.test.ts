@@ -70,6 +70,30 @@ describe('mock session', () => {
     expect(m.state.transport.running).toBe(true)
   })
 
+  it('a bar of taps while stopped starts the band a beat after the last tap (#195)', () => {
+    const m = new MockSession({ manual: true })
+    const beats = m.state.transport.beatsPerBar
+    for (let i = 0; i < beats; i++) {
+      if (i > 0) m.advance(500)
+      m.send({ type: 'tapTempo' })
+    }
+    expect(m.state.transport.tempo).toBe(120)
+    m.advance(480)
+    expect(m.state.transport.running).toBe(false)
+    m.advance(40)
+    expect(m.state.transport.running).toBe(true)
+    // STOP during the count-in calls it off.
+    m.send({ type: 'startStop' })
+    m.advance(20000)
+    for (let i = 0; i < beats; i++) {
+      if (i > 0) m.advance(500)
+      m.send({ type: 'tapTempo' })
+    }
+    m.send({ type: 'stop' })
+    m.advance(2000)
+    expect(m.state.transport.running).toBe(false)
+  })
+
   it('an armed Intro plays first, then the Main', () => {
     const m = new MockSession({ manual: true })
     m.send({ type: 'intro', index: 0 })
