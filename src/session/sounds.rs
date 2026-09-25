@@ -9,29 +9,19 @@
 
 use super::sound_set::write_key;
 use super::Control;
-use crate::api::{
-    CmdError, PartsCmd, PatchFields, PluginCmd, SoundCatalog, SoundEntry, SoundLibraryCmd, SoundPluginInfo,
-    SoundSource, SoundsCmd, SoundsState,
-};
+use crate::api::{parse_preset_id, CmdError, PartsCmd, PatchFields, PluginCmd, SoundCatalog, SoundLibraryCmd, SoundPrefs, SoundsCmd, SoundsState};
 use crate::patches::sf2::{self, Preset};
 use crate::patches::{Category, PatchSource};
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::HashMap;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::Path;
 use std::sync::Arc;
 
-/// How many Recents are kept.
-pub const MAX_RECENTS: usize = 20;
-
 /// The control side's catalog state.
 #[derive(Debug, Default)]
 pub(super) struct Sounds {
-    /// Favourite presets and plugins (a saved sound's is its patch's).
-    favourites: BTreeSet<String>,
-    /// Most recent first.
-    recents: Vec<String>,
-    /// Plugin categories the user set, by entry id.
-    categories: BTreeMap<String, Category>,
+    /// Favourites, Recents and plugin categories (saved).
+    prefs: SoundPrefs,
     /// Each font's presets, read once per file (the folder as last listed).
     presets: HashMap<String, Vec<Preset>>,
     /// The fingerprint of what the catalog is built from, and its revision.
@@ -44,61 +34,8 @@ pub(super) struct Sounds {
 impl Sounds {
     /// Read the favourites, Recents and categories saved in `sound-settings.json`.
     pub(super) fn open(file: Option<&Path>) -> Sounds {
-        let v: serde_json::Value =
-            file.and_then(|f| std::fs::read_to_string(f).ok()).and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
-        let get = |k: &str| v.get(k).cloned().unwrap_or_default();
-        Sounds {
-            favourites: serde_json::from_value(get("favourites")).unwrap_or_default(),
-            recents: serde_json::from_value(get("recents")).unwrap_or_default(),
-            categories: serde_json::from_value(get("soundCategories")).unwrap_or_default(),
-            ..Sounds::default()
-        }
-    }
-}
-
-/// A preset's catalog id.
-pub fn preset_id(file: &str, bank: u16, program: u8) -> String {
-    format!("sf:{file}:{bank}:{program}")
-}
-
-/// A preset id's file, bank and program. The file may hold ':' itself: bank and program
-/// are the last two fields.
-pub fn parse_preset_id(id: &str) -> Option<(&str, u16, u8)> {
-    let rest = id.strip_prefix("sf:")?;
-    let (rest, program) = rest.rsplit_once(':')?;
-    let (file, bank) = rest.rsplit_once(':')?;
-    Some((file, bank.parse().ok()?, program.parse().ok().filter(|&p: &u8| p < 128)?))
-}
-
-/// A plugin's likely category, from its name and maker: most instrument plugins are
-/// synths, so anything else is Synth Lead.
-pub fn plugin_category(name: &str, maker: &str) -> Category {
-    let n = format!("{name} {maker}").to_lowercase();
-    let has = |words: &[&str]| words.iter().any(|w| n.contains(w));
-    if has(&["rhodes", "wurli", "e.piano", "epiano", "electric piano", "e-piano", "ep-", "clav"]) {
-        Category::EPiano
-    } else if has(&["piano", "grand", "keyscape", "pianoteq"]) {
-        Category::Piano
-    } else if has(&["organ", "b-3", "b3", "hammond", "vox continental", "farfisa"]) {
-        Category::Organ
-    } else if has(&["drum", "perc", "kit", "beat", "battery", "808", "909"]) {
-        Category::DrumsPerc
-    } else if has(&["bass"]) {
-        Category::Bass
-    } else if has(&["guitar", "strum"]) {
-        Category::Guitar
-    } else if has(&["string", "violin", "cello", "orchestra", "symphon"]) {
-        Category::Strings
-    } else if has(&["brass", "trumpet", "horn", "trombone"]) {
-        Category::Brass
-    } else if has(&["sax", "flute", "clarinet", "oboe", "wind"]) {
-        Category::SaxWoodwind
-    } else if has(&["choir", "vocal", "voice", "vox"]) {
-        Category::Choir
-    } else if has(&["pad", "ambient", "atmos"]) {
-        Category::Pad
-    } else {
-        Category::SynthLead
+        let prefs = file.and_then(|f| std::fs::read_to_string(f).ok()).and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
+        Sounds { prefs, ..Sounds::default() }
     }
 }
 
@@ -125,11 +62,7 @@ impl Control {
             (&p.id, &p.name, p.category as u8, p.favourite).hash(&mut h);
             serde_json::to_string(&p.source).unwrap_or_default().hash(&mut h);
         }
-        let s = &self.sounds;
-        (&s.favourites, &s.recents).hash(&mut h);
-        for (id, c) in &s.categories {
-            (id, *c as u8).hash(&mut h);
-        }
+        serde_json::to_string(&self.sounds.prefs).unwrap_or_default().hash(&mut h);
         let key = h.finish();
         if key == self.sounds.key && self.sounds.revision > 0 {
             return None;
@@ -153,60 +86,17 @@ impl Control {
 
     fn build_catalog(&self) -> SoundCatalog {
         let s = &self.sounds;
-        let recent = |id: &str| s.recents.iter().any(|r| r == id);
-        let mut entries = Vec::new();
-        for f in &self.sound_fonts {
-            for p in s.presets.get(f).into_iter().flatten() {
-                let id = preset_id(f, p.bank, p.program);
-                entries.push(SoundEntry {
-                    name: if p.name.trim().is_empty() { format!("{f} {}:{}", p.bank, p.program) } else { p.name.trim().to_string() },
-                    category: Category::guess(p.bank, p.program),
-                    source: SoundSource::SoundFont,
-                    detail: f.clone(),
-                    favourite: s.favourites.contains(&id),
-                    recent: recent(&id),
-                    plugin: None,
-                    id,
-                });
-            }
-        }
-        for p in self.plugins_state().list {
-            let id = format!("au:{}", p.id);
-            entries.push(SoundEntry {
-                category: s.categories.get(&id).copied().unwrap_or_else(|| plugin_category(&p.name, &p.manufacturer)),
-                source: SoundSource::Plugin,
-                detail: p.manufacturer,
-                favourite: s.favourites.contains(&id),
-                recent: recent(&id),
-                plugin: Some(SoundPluginInfo { format: p.format, last_error: p.last_error }),
-                name: p.name,
-                id,
-            });
-        }
-        for p in self.sound_patches() {
-            let id = format!("saved:{}", p.id);
-            let detail = match &p.source {
-                PatchSource::SoundFont { file, .. } => file.clone(),
-                PatchSource::Plugin { component_id, .. } => component_id.clone(),
-            };
-            entries.push(SoundEntry {
-                name: p.name.clone(),
-                category: p.category,
-                source: SoundSource::Saved,
-                detail,
-                favourite: p.favourite,
-                recent: recent(&id),
-                plugin: None,
-                id,
-            });
-        }
-        SoundCatalog { revision: s.revision, entries, recents: s.recents.clone() }
+        let fonts: Vec<(&str, &[Preset])> =
+            self.sound_fonts.iter().map(|f| (f.as_str(), s.presets.get(f).map_or(&[][..], Vec::as_slice))).collect();
+        let entries = s.prefs.entries(&fonts, &self.plugins_state().list, self.sound_patches());
+        SoundCatalog { revision: s.revision, entries, recents: s.prefs.recents.clone() }
     }
 
     pub(super) fn sounds_state(&self) -> SoundsState {
         let presets: usize = self.sound_fonts.iter().filter_map(|f| self.sounds.presets.get(f)).map(Vec::len).sum();
         let plugins = self.plugins_state();
-        let auditioning = self.sound_audition().map(|l| if l.starts_with("sf:") { l.to_string() } else { format!("saved:{l}") });
+        let auditioning =
+            self.sound_audition().map(|l| if l.starts_with("sf:") || l.starts_with("au:") { l.to_string() } else { format!("saved:{l}") });
         SoundsState {
             revision: self.sounds.revision,
             count: (presets + plugins.list.len() + self.sound_patches().len()) as u32,
@@ -223,19 +113,23 @@ impl Control {
                 }
                 self.need_sound(&id)?;
                 if on {
-                    self.sounds.favourites.insert(id);
+                    self.sounds.prefs.favourites.insert(id);
                 } else {
-                    self.sounds.favourites.remove(&id);
+                    self.sounds.prefs.favourites.remove(&id);
                 }
-                self.save_sounds("favourites", serde_json::to_value(&self.sounds.favourites));
+                self.save_sounds("favourites", serde_json::to_value(&self.sounds.prefs.favourites));
             }
             SoundsCmd::AuditionSound { id } => {
                 if let Some(patch) = id.strip_prefix("saved:") {
                     return self.sound_library_cmd(SoundLibraryCmd::AuditionPatch { id: patch.into() });
                 }
-                let Some((file, bank, program)) = parse_preset_id(&id) else {
-                    return self.fail(format!("{}: a plugin auditions on a part (assign it)", self.sound_name(&id)));
-                };
+                if let Some(plugin) = id.strip_prefix("au:") {
+                    self.need_sound(&id)?;
+                    let (name, drums) = (self.sound_name(&id), self.plugin_category_of(&id) == Category::DrumsPerc);
+                    let voice = super::PluginVoice { id: plugin.to_string(), state: None };
+                    return self.start_plugin_audition(id, &name, voice, drums, None);
+                }
+                let Some((file, bank, program)) = parse_preset_id(&id) else { return self.fail(format!("no sound {id}")) };
                 let file = file.to_string();
                 self.need_sound(&id)?;
                 return self.start_audition(id, file, bank, program, None);
@@ -254,8 +148,8 @@ impl Control {
                     return self.fail("a preset's category is its GM family");
                 }
                 self.need_sound(&id)?;
-                self.sounds.categories.insert(id, category);
-                self.save_sounds("soundCategories", serde_json::to_value(&self.sounds.categories));
+                self.sounds.prefs.sound_categories.insert(id, category);
+                self.save_sounds("soundCategories", serde_json::to_value(&self.sounds.prefs.sound_categories));
             }
         }
         Ok(())
@@ -294,10 +188,8 @@ impl Control {
         } else {
             return self.fail(format!("no sound {id}"));
         }
-        self.sounds.recents.retain(|r| *r != id);
-        self.sounds.recents.insert(0, id);
-        self.sounds.recents.truncate(MAX_RECENTS);
-        self.save_sounds("recents", serde_json::to_value(&self.sounds.recents));
+        self.sounds.prefs.push_recent(id);
+        self.save_sounds("recents", serde_json::to_value(&self.sounds.prefs.recents));
         Ok(())
     }
 
@@ -311,6 +203,14 @@ impl Control {
             false
         };
         if known { Ok(()) } else { self.fail(format!("no sound {id}")) }
+    }
+
+    /// A plugin's category: the user's, else the guess.
+    fn plugin_category_of(&self, id: &str) -> Category {
+        let plugin = id.strip_prefix("au:").unwrap_or(id);
+        let list = self.plugins_state().list;
+        let p = list.iter().find(|p| p.id == plugin);
+        self.sounds.prefs.plugin_category(id, p.map_or("", |p| &p.name), p.map_or("", |p| &p.manufacturer))
     }
 
     fn sound_name(&self, id: &str) -> String {

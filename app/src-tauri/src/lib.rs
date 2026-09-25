@@ -3,12 +3,13 @@
 //! - command `send(cmd: AppCmd) -> Result<(), CmdError>`
 //! - command `state() -> AppState`
 //! - command `library() -> LibraryList`
+//! - command `sounds() -> SoundCatalog` (the Sound Browser's list, #117)
 //! - command `meters() -> Meters` (output levels since the last call; poll at display rate)
 //! - commands `open_plugin_editor(part)` / `close_plugin_editor(part)`: a keyboard part's
 //!   instrument plugin window, opened on the main thread (AppKit); closing it keeps the
 //!   plugin's settings with the part (`savePartPluginState`)
 //! - event `yahaha` (`Event`): `stateChanged { version }`, `libraryChanged { revision }`,
-//!   `stopped`
+//!   `soundsChanged { revision }`, `stopped`
 //!
 //! Behind them is either the real engine (`yahaha::Session`: MIDI, the Launchkey, the
 //! synth) or `mock::MockSession`, a band that plays itself with no I/O:
@@ -89,6 +90,15 @@ fn library(backend: State<'_, Shared>) -> Value {
     match &**backend {
         Backend::Live(s) => serde_json::to_value(s.library_list()).unwrap_or(Value::Null),
         Backend::Mock(m) => serde_json::to_value(m.lock().unwrap().library()).unwrap_or(Value::Null),
+    }
+}
+
+/// The sound catalog (#117): every preset, plugin and saved sound.
+#[tauri::command]
+fn sounds(backend: State<'_, Shared>) -> Value {
+    match &**backend {
+        Backend::Live(s) => serde_json::to_value(&*s.sound_catalog()).unwrap_or(Value::Null),
+        Backend::Mock(m) => serde_json::to_value(m.lock().unwrap().sounds()).unwrap_or(Value::Null),
     }
 }
 
@@ -243,7 +253,7 @@ pub fn run() {
                 .spawn(move || if live { forward_events(handle, b) } else { tick_mock(handle, b) })?;
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![send, state, library, meters, open_plugin_editor, close_plugin_editor])
+        .invoke_handler(tauri::generate_handler![send, state, library, sounds, meters, open_plugin_editor, close_plugin_editor])
         .build(tauri::generate_context!())
         .expect("error while building tauri application");
     app.run(|app, event| {

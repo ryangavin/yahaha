@@ -249,6 +249,12 @@ const EVERY_CMD: &[&str] = &[
     // Parameter Lock
     r#"{"type":"setParamLock","item":"splitPoint","on":true}"#,
     r#"{"type":"setParamLock","item":"fingeringType","on":false}"#,
+    // Sound catalog
+    r#"{"type":"setSoundFavourite","id":"sf:GeneralUser-GS.sf2:0:0","on":true}"#,
+    r#"{"type":"auditionSound","id":"au:aumu Xf2X XFER"}"#,
+    r#"{"type":"stopSoundAudition"}"#,
+    r#"{"type":"assignSound","part":0,"id":"saved:warm-pad"}"#,
+    r#"{"type":"setSoundCategory","id":"au:aumu Xf2X XFER","category":"pad"}"#,
 ];
 
 fn type_of(json: &str) -> String {
@@ -399,6 +405,7 @@ fn events_keep_their_form() {
     for (e, json) in [
         (Event::StateChanged { version: 3 }, r#"{"type":"stateChanged","version":3}"#),
         (Event::LibraryChanged { revision: 2 }, r#"{"type":"libraryChanged","revision":2}"#),
+        (Event::SoundsChanged { revision: 4 }, r#"{"type":"soundsChanged","revision":4}"#),
         (Event::Stopped, r#"{"type":"stopped"}"#),
     ] {
         assert_eq!(serde_json::to_string(&e).unwrap(), json);

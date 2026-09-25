@@ -2,6 +2,7 @@
 //! offline session.
 
 use super::*;
+use crate::api::{parse_preset_id, plugin_category, preset_id, SoundSource};
 use crate::api::{AppState, SoundLibraryCmd};
 use crate::patches::sf2::tiny_sound_font;
 use crate::session::{Options, Session};
@@ -132,7 +133,7 @@ fn favourites_and_recents_are_saved() {
 }
 
 #[test]
-fn a_preset_auditions_and_a_plugin_is_refused() {
+fn a_preset_auditions_and_an_unknown_plugin_is_refused() {
     let data = folder("audition");
     let Some(s) = offline(&data) else { return };
     s.send(SoundsCmd::AuditionSound { id: "sf:B.sf2:0:88".into() }).unwrap();

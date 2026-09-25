@@ -836,7 +836,7 @@ impl Control {
     /// SoundFont auditions' channel) through #91's `assign_channel_plugin`, and plays the
     /// audition's phrase through the rack once it plays. The channel's own plugin from the
     /// map, if it has one, comes back afterwards (`stop_patch_audition`).
-    fn start_plugin_audition(&mut self, label: String, name: &str, voice: super::PluginVoice, drums: bool, volume: Option<u8>) -> Result<(), CmdError> {
+    pub(super) fn start_plugin_audition(&mut self, label: String, name: &str, voice: super::PluginVoice, drums: bool, volume: Option<u8>) -> Result<(), CmdError> {
         if self.snap.running {
             return self.sl_fail("Stop the band to audition a sound");
         }
