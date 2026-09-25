@@ -19,6 +19,10 @@
 //! 63 = Shift. Shift + Play = Style Section Reset, Shift + Stop = Fade In/Out, Shift +
 //! Scene Launch / Function = Retrigger length shorter / longer.
 //!
+//! The 8 encoders are knobs on Knob Assign pages (`knobs.rs`), stepped with the encoder
+//! page buttons ▲/▼ (CC 51/52) right of them, like the Genos KNOB ASSIGN button. yahaha
+//! turns the encoders' relative output on when it enters DAW mode.
+//!
 //! Faders have two pages, like the Genos Mixer's Panel and Style tabs; the button under
 //! the master fader switches them (see `parts`). Panel: faders 1-4 = Right 1, Right 2,
 //! Right 3, Left volumes, their buttons = part on/off (Shift: select the part). Style:
@@ -31,6 +35,34 @@ use crate::sff::SectionId;
 
 pub const ENTER_DAW: [u8; 3] = [0x9F, 0x0C, 0x7F];
 pub const EXIT_DAW: [u8; 3] = [0x9F, 0x0C, 0x00];
+/// Feature control 45h, DAW Encoder Relative output on / off (Programmer's Reference
+/// Guide v3.0, p.22): the encoders send steps, not positions.
+pub const ENCODERS_RELATIVE: [u8; 3] = [0xB6, 0x45, 0x7F];
+pub const ENCODERS_ABSOLUTE: [u8; 3] = [0xB6, 0x45, 0x00];
+
+/// The encoders send on channel 16 (pp.12-13): CC 21-28 in the Plugin, Mixer and Sends
+/// modes (relative once `ENCODERS_RELATIVE` is sent), CC 85-92 in the Transport mode
+/// (always relative). Relative: 64 = no move, 65 = one step clockwise, 63 = one step back.
+pub const ENCODER_STATUS: u8 = 0xBF;
+pub const ENCODER_CC: std::ops::RangeInclusive<u8> = 21..=28;
+pub const ENCODER_TRANSPORT_CC: std::ops::RangeInclusive<u8> = 85..=92;
+
+/// An encoder message: (knob 0-7, steps; positive = clockwise). Touch events (channel 15)
+/// and the other channels are not encoder turns.
+pub fn encoder(status: u8, cc: u8, value: u8) -> Option<(u8, i8)> {
+    if status != ENCODER_STATUS {
+        return None;
+    }
+    let knob = if ENCODER_CC.contains(&cc) {
+        cc - ENCODER_CC.start()
+    } else if ENCODER_TRANSPORT_CC.contains(&cc) {
+        cc - ENCODER_TRANSPORT_CC.start()
+    } else {
+        return None;
+    };
+    let delta = (value & 0x7F) as i8 - 64;
+    (delta != 0).then_some((knob, delta))
+}
 
 /// Page 1 (Sections) pad buttons: the original layout, unchanged.
 pub fn pad_button(note: u8) -> Option<Button> {
@@ -70,6 +102,9 @@ pub const FADER_BTN_CC: std::ops::RangeInclusive<u8> = 37..=45;
 pub const SHIFT_CC: u8 = 63;
 pub const TRACK_LEFT_CC: u8 = 103;
 pub const TRACK_RIGHT_CC: u8 = 102;
+/// The encoder page buttons ▲ / ▼, right of the encoders: the Knob Assign page.
+pub const KNOB_UP_CC: u8 = 51;
+pub const KNOB_DOWN_CC: u8 = 52;
 /// Pad Bank ▲ / ▼, left of the top / bottom pad row.
 pub const PAD_UP_CC: u8 = 106;
 pub const PAD_DOWN_CC: u8 = 107;
@@ -197,6 +232,10 @@ pub enum Action {
     /// Load the selected part's plugin again after it stopped or failed to load (`s`,
     /// fader button 6 on the Panel fader page).
     ReloadPlugin,
+    /// An encoder turned: knob 0-7, steps (positive: clockwise).
+    Knob(u8, i8),
+    /// The Knob Assign page up (-1) / down (+1): the encoder page buttons.
+    KnobPage(i8),
 }
 
 /// What a pad does on a page.
@@ -261,6 +300,8 @@ pub fn cc_control(cc: u8, shift: bool) -> Option<Control> {
         // Shift + Pad Bank ▲/▼: the toggles these buttons had before pages (also on page 3).
         PAD_UP_CC if shift => act(Action::PartOnOff(parts::LEFT as u8)),
         PAD_DOWN_CC if shift => act(Action::ToggleOtsLink),
+        KNOB_UP_CC => act(Action::KnobPage(-1)),
+        KNOB_DOWN_CC => act(Action::KnobPage(1)),
         PAD_UP_CC => Some(Control::Page(-1)),
         PAD_DOWN_CC => Some(Control::Page(1)),
         _ => None,
@@ -888,6 +929,21 @@ mod tests {
 
     const PADS: [u8; 16] = [96, 97, 98, 99, 100, 101, 102, 103, 112, 113, 114, 115, 116, 117, 118, 119];
 
+    /// Encoders: relative steps on channel 16 in any encoder mode; touch events (channel
+    /// 15) and other channels are not turns.
+    #[test]
+    fn encoders_are_relative_knobs() {
+        assert_eq!(encoder(0xBF, 21, 65), Some((0, 1)));
+        assert_eq!(encoder(0xBF, 28, 60), Some((7, -4)));
+        assert_eq!(encoder(0xBF, 85, 63), Some((0, -1)), "Transport encoder mode");
+        assert_eq!(encoder(0xBF, 92, 70), Some((7, 6)));
+        assert_eq!(encoder(0xBF, 21, 64), None, "no move");
+        assert_eq!(encoder(0xBE, 85, 127), None, "touch on");
+        assert_eq!(encoder(0xB0, 21, 65), None);
+        assert_eq!(encoder(0xBF, 13, 65), None, "the master fader");
+        assert_eq!(encoder(0xBF, 29, 65), None);
+    }
+
     #[test]
     fn page_1_is_the_original_layout() {
         for n in 0..=127u8 {
@@ -988,7 +1044,9 @@ mod tests {
         assert_eq!(cc_control(115, false), Some(Control::Act(Action::Button(Button::StartStop))));
         assert_eq!(cc_control(116, false), Some(Control::Act(Action::Button(Button::Stop))));
         assert_eq!(cc_control(SHIFT_CC, false), None);
-        assert_eq!(cc_control(51, false), None);
+        assert_eq!(cc_control(51, false), Some(Control::Act(Action::KnobPage(-1))));
+        assert_eq!(cc_control(52, true), Some(Control::Act(Action::KnobPage(1))));
+        assert_eq!(cc_control(53, false), None);
 
         // ▲/▼ stop at the ends; Tab wraps.
         assert_eq!(Page::Sections.step(-1), Page::Sections);

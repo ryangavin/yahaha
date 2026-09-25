@@ -220,3 +220,28 @@ describe('mock session', () => {
     expect(transposeChord('C', -1)).toBe('B')
   })
 })
+
+describe('mock knobs (#197)', () => {
+  it('a knob turn runs its function from the value in effect, as the session', () => {
+    const m = new MockSession({ manual: true })
+    expect(m.state.knobs.knobs.map((k) => k.short)).toEqual(['DynCtrl', 'RtgRate', 'RtgOnOff', 'StyMuteA', 'StyMuteB', '---', '---', 'Tempo'])
+    m.send({ type: 'turnKnob', knob: 0, delta: 4 })
+    expect(m.state.dynamics.level).toBe(72)
+    expect(m.state.knobs.knobs[0]).toMatchObject({ value: '72', level: 72 })
+    // Track Mute A fully left: only Rhythm 2 plays.
+    m.send({ type: 'turnKnob', knob: 3, delta: -40 })
+    expect(m.state.mixer.styleParts.map((p) => p.on)).toEqual([false, true, false, false, false, false, false, false])
+    expect(m.state.knobs.knobs[3].value).toBe('1 of 8')
+    // Retrigger on/off switches every 3 steps.
+    m.send({ type: 'turnKnob', knob: 2, delta: 2 })
+    expect(m.state.transport.retrigger).toBe(false)
+    m.send({ type: 'turnKnob', knob: 2, delta: 1 })
+    expect(m.state.transport.retrigger).toBe(true)
+    m.send({ type: 'stepKnobPage', delta: 1 })
+    m.send({ type: 'stepKnobPage', delta: 1 })
+    expect(m.state.knobs).toMatchObject({ page: 'parts', pageNumber: 2, pageCount: 2 })
+    const v = m.state.keyboardParts[1].volume
+    m.send({ type: 'turnKnob', knob: 1, delta: -1 })
+    expect(m.state.keyboardParts[1].volume).toBe(Math.max(0, v - 2))
+  })
+})

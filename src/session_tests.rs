@@ -106,6 +106,8 @@ fn all_cmds() -> Vec<AppCmd> {
         AppCmd::Metronome(MetronomeCmd::SetMetronomeBell { on: false }),
         AppCmd::Dynamics(DynamicsCmd::SetDynamics { level: 90 }),
         AppCmd::Dynamics(DynamicsCmd::ToggleAccent),
+        AppCmd::Knobs(KnobsCmd::StepKnobPage { delta: 1 }),
+        AppCmd::Knobs(KnobsCmd::TurnKnob { knob: 0, delta: -3 }),
     ]
 }
 
@@ -349,7 +351,17 @@ fn ots_and_ots_link() {
     assert!(st.ots.settings.len() >= 2);
     assert_eq!(st.ots.settings[0].name, "OTS 1");
     assert_eq!(st.ots.applied, 0);
+    s.take_output();
     s.send(OtsCmd::RecallOts { index: 0 }).unwrap();
+    // Its pan and reverb/chorus sends go out on the parts' channels too (#198).
+    let fx = crate::sff::Style::load(&style("SlowWalker.T552.sty").unwrap()).unwrap().ots[0].parts[0].fx;
+    let out = s.take_output();
+    for (cc, v) in crate::parts::FX_CC.into_iter().zip(fx) {
+        if let Some(v) = v {
+            assert!(out.contains(&[0xB0, cc, v]), "Right 1 CC{cc} {v}: {out:?}");
+        }
+    }
+    assert!(fx[0].is_some(), "SlowWalker's OTS 1 sets Right 1's pan");
     let st = s.state();
     assert_eq!(st.ots.applied, 1);
     assert_eq!(st.keyboard_parts.iter().map(|p| p.on).collect::<Vec<_>>(), vec![true, true, false, true]);
@@ -440,8 +452,14 @@ fn launchkey_pads_are_commands() {
     s.send(stop).unwrap();
     assert!(!s.state().transport.running);
     // Unmapped controls show up for diagnosis.
-    s.midi_in(Port::Pads, &[0xB0, 51, 127]);
-    assert_eq!(s.state().io.unmapped, "unmapped CC 51 = 127");
+    s.midi_in(Port::Pads, &[0xB0, 53, 127]);
+    assert_eq!(s.state().io.unmapped, "unmapped CC 53 = 127");
+    // Knob 1 (an encoder on channel 16) turns Dynamics; the encoder page ▼ steps the
+    // Knob Assign page.
+    s.midi_in(Port::Pads, &[0xBF, 21, 67]);
+    assert_eq!(s.state().dynamics.level, 70);
+    s.midi_in(Port::Pads, &[0xB0, 52, 127]);
+    assert_eq!(s.state().knobs.page_name, "Parts");
 }
 
 /// Style faders move the Style parts (soft takeover); a software move makes the fader
