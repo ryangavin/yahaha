@@ -102,7 +102,7 @@
 {#if ui.harmony}<Harmony />{/if}
 {#if ui.regist}<Registration />{/if}
 {#if ui.browser}<Browser />{/if}
-{#if ui.soundBrowser !== null}<SoundBrowser part={ui.soundBrowser} />{/if}
+{#if ui.soundPick !== null}<SoundBrowser pick={ui.soundPick} />{:else if ui.soundBrowser !== null}<SoundBrowser part={ui.soundBrowser} />{/if}
 {#if tips.floating}<Tooltip />{/if}
 
 <style>

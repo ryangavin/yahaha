@@ -2318,14 +2318,21 @@ const catalog = {
   },
   'sound.family': {
     title: 'Family rule',
-    body: 'The patch these eight GM programs play, with every bank variation of them. Blank: the voice the style asks for.',
+    body: 'The sound these eight GM programs play, with every bank variation of them. Click to pick one in the Sound Browser: a saved sound, a SoundFont preset or a plugin. Blank: the voice the style asks for.',
+    genos: null,
+    keys: [],
+    launchkey: null,
+  },
+  'sound.rule_clear': {
+    title: 'Clear rule',
+    body: 'Clears this rule: the programs it covered play what the rule below it gives them, or the style\'s own voice.',
     genos: null,
     keys: [],
     launchkey: null,
   },
   'sound.drums': {
     title: 'Drum rule',
-    body: 'The drum kit patch for Rhythm 1 and 2 and any part on a Yamaha drum kit bank. Blank: the kit the style asks for.',
+    body: 'The drum kit sound for Rhythm 1 and 2 and any part on a Yamaha drum kit bank. Click to pick one in the Sound Browser. Blank: the kit the style asks for.',
     genos: null,
     keys: [],
     launchkey: null,
@@ -2339,7 +2346,7 @@ const catalog = {
   },
   'sound.override_patch': {
     title: 'Override patch',
-    body: 'The patch this one program plays, whatever its family rule says.',
+    body: 'The sound this one program plays, whatever its family rule says. Click to pick one in the Sound Browser.',
     genos: null,
     keys: [],
     launchkey: null,
@@ -2374,7 +2381,7 @@ const catalog = {
   },
   'sound.remap': {
     title: 'Remap',
-    body: 'Picks the patch this program plays: an override for this program, for every style or for this style only (the switch above). Clear it to fall back to the family rule.',
+    body: 'Picks the sound this program plays in the Sound Browser: an override for this program, for every style or for this style only (the switch above). Clear it (✕) to fall back to the family rule.',
     genos: null,
     keys: [],
     launchkey: null,

@@ -352,15 +352,16 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | **Play on a part** | Picks the patch for that keyboard part, with its defaults. The part's voice picker has the same list. | Voice Selection | — | — |
 | **Save part's sound** | Saves a keyboard part's sound as a new patch: its own patch, or its GM voice on the synth's SoundFont, with its volume and octave. | — | — | — |
 | **Every style / this style** | Which map you edit: the one every style uses, or this style's own rules, which win over it. This style's map is kept in your library, not in the style file. | — | — | — |
-| **Family rule** | The patch these eight GM programs play, with every bank variation of them. Blank: the voice the style asks for. | — | — | — |
-| **Drum rule** | The drum kit patch for Rhythm 1 and 2 and any part on a Yamaha drum kit bank. Blank: the kit the style asks for. | — | — | — |
+| **Family rule** | The sound these eight GM programs play, with every bank variation of them. Click to pick one in the Sound Browser: a saved sound, a SoundFont preset or a plugin. Blank: the voice the style asks for. | — | — | — |
+| **Clear rule** | Clears this rule: the programs it covered play what the rule below it gives them, or the style's own voice. | — | — | — |
+| **Drum rule** | The drum kit sound for Rhythm 1 and 2 and any part on a Yamaha drum kit bank. Click to pick one in the Sound Browser. Blank: the kit the style asks for. | — | — | — |
 | **Program** | The GM program for a new override, when its family rule is too coarse (for example E.Piano 1 inside Piano). | — | — | — |
-| **Override patch** | The patch this one program plays, whatever its family rule says. | — | — | — |
+| **Override patch** | The sound this one program plays, whatever its family rule says. Click to pick one in the Sound Browser. | — | — | — |
 | **Add override** | Adds the override: the program plays the patch chosen next to it. | — | — | — |
 | **Remove override** | Removes the override: the program follows its family rule again. | — | — | — |
 | **Clear this style's rules** | Forgets this style's own rules: it plays by the map every style uses. | — | — | — |
 | **Port sends mapped programs** | Off, the yahaha MIDI port carries the style's own program changes, so a DAW records the style as written. On, it carries the mapped patch's bank and program instead. | — | — | — |
-| **Remap** | Picks the patch this program plays: an override for this program, for every style or for this style only (the switch above). Clear it to fall back to the family rule. | — | — | — |
+| **Remap** | Picks the sound this program plays in the Sound Browser: an override for this program, for every style or for this style only (the switch above). Clear it (✕) to fall back to the family rule. | — | — | — |
 | **SoundFont** | The SoundFont in the SoundFont folder whose presets are listed. | — | — | — |
 | **Search presets** | Shows only the presets whose name contains the text. | — | — | — |
 | **Preset** | Plays the preset on its own for a moment, while the band is stopped. | — | — | — |
