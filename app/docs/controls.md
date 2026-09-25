@@ -319,7 +319,7 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | **Favourites only** | Shows only the patches marked with a star. | Favorite tab | — | — |
 | **Patch** | Selects the patch to edit it below. A dimmed patch plays the SoundFont fallback; its note says why. | — | — | — |
 | **Favourite** | Marks or unmarks the patch as a favourite. | Favorite | — | — |
-| **Audition** | Plays the sound on its own for a moment: a short arpeggio and a chord, or a beat for a drum kit. Works while the band is stopped. | — | — | — |
+| **Audition** | Plays the sound on its own for a moment: a short arpeggio and a chord, or a beat for a drum kit. Works while the band is stopped. A plugin patch loads its plugin first. | — | — | — |
 | **Stop audition** | Stops the sound playing on its own. | — | — | — |
 | **Move up** | Moves the patch one place up in your list. | — | — | — |
 | **Move down** | Moves the patch one place down in your list. | — | — | — |

@@ -169,8 +169,11 @@ impl Session {
             };
             let band = std::mem::replace(&mut o.band, RingBuffer::new(1).1);
             let keys = std::mem::replace(&mut o.keys, RingBuffer::new(1).1);
+            // The control side's ring (library auditions), as a live synth has it.
+            let (audition_tx, auditions) = RingBuffer::new(256);
+            ctl.sound.audition_tx = Some(audition_tx);
             let control = Arc::new(synth::SynthControl::new(0));
-            let (mut core, swap, plugins) = synth::AudioCore::new(rack, vec![band, keys], ctl.shared.parts.clone(), control.clone(), sample_rate, 2);
+            let (mut core, swap, plugins) = synth::AudioCore::new(rack, vec![band, keys, auditions], ctl.shared.parts.clone(), control.clone(), sample_rate, 2);
             core.set_routes(ctl.shared.routes.clone());
             if let Some(m) = &main {
                 ctl.sound.synth_started(m);
