@@ -76,6 +76,7 @@ impl Rack {
             s.process_midi_message(8, 0xB0, 0, 128);
             *slot = rack.extra.len() as u8 + 1;
             rack.extra.push(s);
+            rack.quiet.push(0);
         }
         Ok(rack)
     }
@@ -374,5 +375,37 @@ mod tests {
         follow_table(&mut rack, &shadow, &mut bank, &parts, &mut router);
         assert_eq!(rack.ch_slot[0], 1, "Right 1's own patch");
         assert!(!control_msg(&[0xB0, 7, 100], &mut rack, &shadow, &mut bank, &parts, &mut router));
+    }
+
+    /// An extra SoundFont's synthesizer no channel plays is rendered until its tail has
+    /// died away, then skipped; a channel routed to it again brings it back (#109).
+    #[test]
+    fn an_idle_extra_soundfont_is_not_rendered() {
+        let Some(f) = fonts() else { return };
+        let mut rack = Rack::with_fonts(&[(0, f[0].1.clone()), (1, f[1].1.clone())], 48_000).unwrap();
+        let p = peaks();
+        let (mut l, mut r) = (vec![0f32; 512], vec![0f32; 512]);
+        rack.route_to(10, 1, Route::sound_font(1, 0, 33));
+        rack.process(10, 0x90, 40, 110);
+        rack.render(&mut l, &mut r, &p, None);
+        assert_eq!(rack.quiet[0], 0, "a slot a channel plays renders");
+        rack.process(10, 0x80, 40, 0);
+        rack.unroute(10);
+        let mut n = 0;
+        while rack.quiet[0] < IDLE_FRAMES && n < 4000 {
+            rack.render(&mut l, &mut r, &p, None);
+            n += 1;
+        }
+        assert!(n > 1, "the tail is rendered first");
+        let idle = rack.quiet[0];
+        assert!(idle >= IDLE_FRAMES, "the tail died away ({n} buffers)");
+        rack.render(&mut l, &mut r, &p, None);
+        assert_eq!(rack.quiet[0], idle, "then it is skipped");
+        rack.route_to(10, 1, Route::sound_font(1, 0, 33));
+        rack.render(&mut l, &mut r, &p, None);
+        assert_eq!(rack.quiet[0], 0, "a channel routed to it again renders it");
+        rack.process(10, 0x90, 40, 110);
+        rack.render(&mut l, &mut r, &p, None);
+        assert!(level(&p, 10) > 1e-3, "and it sounds");
     }
 }

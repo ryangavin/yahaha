@@ -329,6 +329,13 @@ impl EditorTarget {
     pub fn instance(&self) -> InstanceRef {
         InstanceRef(Arc::downgrade(&self.unit))
     }
+
+    /// A number naming this instance, never 0, as long as some handle on it is alive (an
+    /// open editor window's, say): to tell, off the main thread, whether a window still
+    /// edits the instance a part plays.
+    pub fn instance_id(&self) -> usize {
+        Arc::as_ptr(&self.unit) as usize
+    }
 }
 
 /// Which instance an [`EditorTarget`] is, without keeping its Audio Unit alive.

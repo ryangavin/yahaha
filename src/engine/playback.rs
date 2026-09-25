@@ -154,7 +154,12 @@ impl Engine {
             }
             PKind::Off { key } => {
                 self.ev_idx += 1;
-                self.off_where(sink, |s| s.src == e.src && s.src_key == key);
+                // The note-off of an earlier strike of this key that a later one took over:
+                // the later one sounds on (the note struck first ends first).
+                match self.sounding.iter_mut().find(|s| s.active && s.src == e.src && s.src_key == key && s.owed > 0) {
+                    Some(s) => s.owed -= 1,
+                    None => self.off_where(sink, |s| s.src == e.src && s.src_key == key),
+                }
             }
             PKind::Cc { .. } | PKind::Pc { .. } | PKind::Bend { .. } => {
                 self.ev_idx += 1;
@@ -192,12 +197,21 @@ impl Engine {
             s.active && s.dest == dest && s.out == out && (s.attack_ns == now || guitar && now.saturating_sub(s.attack_ns) < strum)
         };
         let muted = follows_chords(dest) && self.sounding.iter().any(same_instant);
+        let mut owed = 0u8;
         if !muted {
+            // A strike of this same source note still sounding (the pattern strikes the key
+            // again before its note-off): the new note takes the key over and lets that
+            // strike's note-off pass, so it sounds its own full length.
+            owed = self
+                .sounding
+                .iter()
+                .filter(|s| s.active && s.dest == dest && s.out == out && s.src == src && s.src_key == src_key)
+                .fold(0u8, |n, s| n.saturating_add(s.owed).saturating_add(1));
             // Steal an identical sounding note on the same channel so offs stay balanced.
             self.off_where(sink, |s| s.dest == dest && s.out == out);
         }
         if let Some(free) = self.sounding.iter_mut().find(|s| !s.active) {
-            *free = Sounding { active: true, src, src_key, dest, out, vel, slot, started_ns: now, attack_ns: now, muted };
+            *free = Sounding { active: true, src, src_key, dest, out, vel, slot, started_ns: now, attack_ns: now, muted, owed };
             if !muted {
                 sink.send(&[0x90 | dest, out, vel]);
             }
