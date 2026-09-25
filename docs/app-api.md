@@ -41,11 +41,12 @@ A Tauri shell needs about four pieces:
 | `#[tauri::command] fn send(cmd: AppCmd) -> Result<(), CmdError>` | `session.send(cmd)` |
 | `#[tauri::command] fn state() -> AppState` | `session.state_now()` (the state, with its clock read now: see [`surface.clock`](#surfaceclock)) |
 | `#[tauri::command] fn library() -> LibraryList` | `session.library_list()` |
+| `#[tauri::command] fn sounds() -> SoundCatalog` | `session.sound_catalog()` (the sound catalog; see [`sounds`](#sounds)) |
 | `#[tauri::command] fn meters() -> Meters` | `session.meters()` (output levels; see [Meters](#meters)) |
 | a thread that emits events to the webview | `for e in session.subscribe() { app.emit("yahaha", e) }` |
 
 The frontend listens for `yahaha` events. On `stateChanged` it fetches `state()`. On
-`libraryChanged` it fetches `library()`. Events can arrive at up to about 100 per second
+`libraryChanged` it fetches `library()`, and on `soundsChanged` it fetches `sounds()`. Events can arrive at up to about 100 per second
 while playing. Throttle to the frame rate if you like: several changes can be merged
 into one fetch, because the state is always complete.
 
@@ -410,6 +411,23 @@ groups are the Data List's lock groups that yahaha has: `splitPoint` (the split 
 | Command | Fields | What it does |
 |---|---|---|
 | `setParamLock` | `item` (`splitPoint` \| `fingeringType`), `on` | Locks or unlocks a group. A setup setting, not part of a bank: it is kept in the Registration folder's `setup.json`. |
+
+### Sound catalog
+One list of every sound for the Sound Browser (#117): every preset of every `.sf2` in the
+SoundFont folder, every instrument plugin, and every saved sound (the sound library's
+patches). Entry ids: `sf:<file>:<bank>:<program>`, `au:<component id>`, `saved:<patch id>`.
+Favourites, Recents and plugin categories are saved in `sound-settings.json` in the data
+folder.
+
+| Command | Fields | What it does |
+|---|---|---|
+| `setSoundFavourite` | `id`, `on` | Marks or unmarks a favourite. A saved sound's favourite is its patch's `favourite`. |
+| `auditionSound` | `id` | Plays the sound on its own for about 3 s, as `auditionPatch` does (a plugin plays its default preset). Refused while the band plays. `sounds.auditioning` names it. |
+| `stopSoundAudition` | | Stops the audition. |
+| `assignSound` | `part` 0–3, `id` | The keyboard part plays the sound. A preset of the default sound set (bank 0) becomes the part's voice (`setPartVoice`). A preset of another font becomes a saved sound (the library's patch for it, added once) and plays as `setPartPatch`. A plugin plays as `setPartPlugin` (its default preset), and a saved sound as `setPartPatch`. The sound goes to the top of the Recents (20 kept). |
+| `setSoundCategory` | `id`, `category` | A plugin's category (the guess from its name and maker until set), or a saved sound's (its patch's). A preset's category is its GM family: refused. |
+
+The list itself is fetched, not in the state: see [`sounds`](#sounds).
 
 ### Result: `CmdError`
 
@@ -895,6 +913,33 @@ The sound library (docs/sound-library.md).
 | `extraSoundFonts` | string[] | The SoundFonts the synth has loaded for library patches besides its own. |
 | `lastAdded` | string? | The id of the patch last created, duplicated or saved. |
 
+### `sounds`
+The sound catalog's summary (#117; the list is `sounds()`, see [Sound catalog](#sound-catalog)).
+
+| Field | Type | Meaning |
+|---|---|---|
+| `revision` | number | Moves whenever the catalog changes (fonts, plugins, saved sounds, favourites, Recents, categories). |
+| `count` | number | Entries in the catalog. |
+| `scanning` | bool | Plugins are being scanned: more may come. |
+| `auditioning` | string? | The id being auditioned (`sf:`, `au:` or `saved:`), or null. |
+
+The catalog itself: `session.sound_catalog()` (Tauri `sounds()`)
+returns `{ revision, entries, recents }`. Fetch it again when `sounds.revision` moves
+(`soundsChanged`). `recents` lists ids, most recent first. Each entry has:
+
+| Field | Type | Meaning |
+|---|---|---|
+| `id` | string | `sf:<file>:<bank>:<program>`, `au:<component id>` or `saved:<patch id>`. |
+| `name` | string | The preset's, the plugin's or the patch's name. |
+| `category` | string | One of `soundLibrary.categories`. A preset's comes from its GM family (bank 128: `drumsPerc`), and a plugin's from its name and maker. |
+| `source` | `soundFont` \| `plugin` \| `saved` | Where it comes from. |
+| `detail` | string | The SoundFont file, the plugin's maker, or what a saved sound plays (its file or component id). |
+| `favourite`, `recent` | bool | In the Favourites, in the Recents. |
+| `plugin` | object? | Plugins only: `format` (`AUv2` \| `AUv3`) and `lastError` (the last load's error, or null). |
+
+Entries are in this order: presets by file, then bank and program; plugins by maker, then
+name; saved sounds in the library's order.
+
 ### `paramLocks`
 Parameter Lock: `{ splitPoint, fingeringType }`, each a bool (true: locked). All false by
 default.
@@ -931,6 +976,7 @@ JSON form `{"type": …}`:
 - `libraryChanged { revision }`: `library()` changed. This happens while indexing (at
   most every 250 ms), when a file fails to load, when a path is added, and after a
   rescan.
+- `soundsChanged { revision }`: the sound catalog changed; fetch `sounds()`.
 - `stopped`: the session stopped.
 
 Events carry no state. Always read the latest.
@@ -1537,6 +1583,7 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
     "lastAdded": "my-bass"
   },
   "paramLocks": { "splitPoint": false, "fingeringType": true },
+  "sounds": { "revision": 3, "count": 1219, "scanning": false, "auditioning": null },
   "message": null
 }
 ```
