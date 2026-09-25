@@ -452,6 +452,7 @@ impl MockSession {
             return self.message(format!("no instrument Audio Unit {id} is installed"), true);
         };
         let failed = e.last_error.clone();
+        let fallback = failed.is_none() && e.id == MOCK_FALLBACK_ID;
         self.state.keyboard_parts[part & 3].plugin = Some(PartPlugin {
             id: e.id,
             name: e.name.clone(),
@@ -459,13 +460,16 @@ impl MockSession {
             status: if failed.is_some() { PluginStatus::Failed } else { PluginStatus::Playing },
             stage: None,
             error: failed.clone(),
-            out_of_process: e.manufacturer != "Apple",
+            out_of_process: e.manufacturer != "Apple" && !fallback,
+            in_process_fallback: fallback,
             cpu: if failed.is_some() { 0.0 } else { 0.012 },
             overruns: 0,
             editor: failed.is_none(),
         });
         if let Some(err) = failed {
             self.message(format!("{} didn't load: {err}", e.name), true);
+        } else if fallback {
+            self.message(format!("{} can't run in its own process; loading it inside yahaha instead (if it crashes, yahaha goes with it)", e.name), false);
         }
     }
 
@@ -1910,6 +1914,18 @@ mod tests {
         assert_eq!(m.state.style_settings.retrigger_rate, 16);
     }
 
+    /// A plugin the system won't host out of process loads in process and says so (#104).
+    #[test]
+    fn a_plugin_that_falls_back_in_process_says_so() {
+        let mut m = MockSession::new();
+        m.send(PluginCmd::SetPartPlugin { part: 1, id: MOCK_FALLBACK_ID.into(), state: None });
+        let p = m.state.keyboard_parts[1].plugin.clone().unwrap();
+        assert_eq!((p.status, p.out_of_process, p.in_process_fallback), (PluginStatus::Playing, false, true));
+        assert!(m.state.message.as_ref().is_some_and(|x| x.text.contains("can't run in its own process") && !x.error));
+        m.send(PluginCmd::SetPartPlugin { part: 1, id: "aumu dls  appl".into(), state: None });
+        assert!(!m.state.keyboard_parts[1].plugin.as_ref().unwrap().in_process_fallback);
+    }
+
     /// A plugin patch on a keyboard part plays its plugin, as the session does (#109).
     #[test]
     fn a_plugin_patch_on_a_part_plays_its_plugin() {
@@ -2506,8 +2522,13 @@ impl MockSession {
     }
 }
 
-/// The mock's installed plugins: Apple's built-in instruments and one made-up synth that
-/// always fails to load (as app/src/lib/api/mock-plugins.ts).
+/// The mock plugin the system won't host out of process: it loads in process instead (as
+/// app/src/lib/api/mock-plugins.ts).
+const MOCK_FALLBACK_ID: &str = "aumu Tiny Demo";
+
+/// The mock's installed plugins: Apple's built-in instruments, one made-up synth that
+/// always fails to load, and one that falls back to loading in process (as
+/// app/src/lib/api/mock-plugins.ts).
 fn mock_plugins() -> PluginsState {
     let e = |id: &str, name: &str, manufacturer: &str, format: &str, last_error: Option<&str>| PluginEntry {
         id: id.into(),
@@ -2524,6 +2545,7 @@ fn mock_plugins() -> PluginsState {
             e("aumu dls  appl", "DLSMusicDevice", "Apple", "AUv2", None),
             e("aumu samp appl", "AUSampler", "Apple", "AUv2", None),
             e("aumu Mock Demo", "Broken Synth", "Example Audio", "AUv3", Some("timed out after 20.0 s")),
+            e(MOCK_FALLBACK_ID, "Tiny Synth", "Example Audio", "AUv2", None),
         ],
     }
 }

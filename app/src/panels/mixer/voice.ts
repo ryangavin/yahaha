@@ -41,6 +41,6 @@ export function pluginBadge(p: PartPlugin): string {
     case 'muted':
       return 'Plugin muted'
     default:
-      return `Plugin · ${Math.round(p.cpu * 100)}% CPU`
+      return `Plugin${p.inProcessFallback ? ' ⚠' : ''} · ${Math.round(p.cpu * 100)}% CPU`
   }
 }
