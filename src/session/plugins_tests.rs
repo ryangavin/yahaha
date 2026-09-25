@@ -47,7 +47,9 @@ fn a_plugin_is_looked_up_off_the_control_thread() {
     let p = s.state().keyboard_parts[0].plugin.clone().unwrap();
     assert!(p.name == "aumu nope nope" && p.error.as_deref().is_some_and(|e| e.contains("no instrument Audio Unit")), "{p:?}");
     s.send(PluginCmd::SetPartPlugin { part: 1, id: DLS.into(), state: None }).unwrap();
-    assert_eq!(s.state().keyboard_parts[1].plugin.clone().unwrap().name, DLS, "named by its id until looked up");
+    // `send` pumps, so a quick load may already be in: the id names it only while loading.
+    let p = s.state().keyboard_parts[1].plugin.clone().unwrap();
+    assert!(p.status != PluginStatus::Loading || p.name == DLS, "named by its id until looked up: {p:?}");
     assert_eq!(wait_playing(&s, 1), PluginStatus::Playing);
     assert_eq!(s.state().keyboard_parts[1].plugin.clone().unwrap().name, "DLSMusicDevice");
     {
@@ -93,8 +95,9 @@ fn a_keyboard_part_plays_an_audio_unit() {
     wait_scanned(&s);
     assert!(s.send(PluginCmd::SetPartPlugin { part: 0, id: "aumu nope nope".into(), state: None }).is_err(), "not installed");
     s.send(PluginCmd::SetPartPlugin { part: 0, id: DLS.into(), state: None }).unwrap();
+    // `send` pumps, so a quick load may already be playing.
     let p = s.state().keyboard_parts[0].plugin.clone().unwrap();
-    assert_eq!((p.status, p.name.as_str()), (PluginStatus::Loading, "DLSMusicDevice"));
+    assert!(matches!(p.status, PluginStatus::Loading | PluginStatus::Playing) && p.name == "DLSMusicDevice", "{p:?}");
     // Keys played while it loads: the part keeps its (here silent) SoundFont voice.
     assert_eq!(wait_playing(&s, 0), PluginStatus::Playing);
     let p = s.state().keyboard_parts[0].plugin.clone().unwrap();
@@ -522,7 +525,7 @@ fn a_plugin_patch_auditions_on_channel_16() {
     let ch16 = |s: &Session| s.inner.lock().channel_plugin(15).map(|p| p.status);
     s.send(SoundLibraryCmd::AuditionPatch { id: id.clone() }).unwrap();
     assert_eq!(s.state().sound_library.auditioning.as_deref(), Some(id.as_str()));
-    assert_eq!(ch16(&s), Some(PluginStatus::Loading));
+    assert!(matches!(ch16(&s), Some(PluginStatus::Loading | PluginStatus::Playing)), "`send` pumps: it may be in already");
     let t0 = Instant::now();
     while ch16(&s) == Some(PluginStatus::Loading) && t0.elapsed() < Duration::from_secs(20) {
         s.advance(1_000_000);
@@ -637,7 +640,8 @@ fn reload_part_plugin_retries_a_failed_plugin() {
     s.send(PartsCmd::SelectPart { part: 1 }).unwrap();
     assert!(fault(&s), "the button lights for the selected part");
     s.send(PluginCmd::ReloadPartPlugin { part: None }).unwrap();
-    assert_eq!(s.state().keyboard_parts[1].plugin.as_ref().unwrap().status, PluginStatus::Loading);
+    // `send` pumps, so the reload may have failed again already.
+    assert!(matches!(s.state().keyboard_parts[1].plugin.as_ref().unwrap().status, PluginStatus::Loading | PluginStatus::Failed));
     assert_eq!(wait_playing(&s, 1), PluginStatus::Failed, "reloaded with its kept state");
     let kept = s.inner.lock().saved_parts().parts[1].as_ref().and_then(|v| v.state.clone());
     assert_eq!(kept.as_deref(), Some(&b"junk"[..]));
