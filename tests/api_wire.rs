@@ -82,6 +82,8 @@ const EVERY_CMD: &[&str] = &[
     r#"{"type":"clearMessage"}"#,
     // Settings
     r#"{"type":"setSoundFont","file":"FluidR3_GM.sf2"}"#,
+    r#"{"type":"setDefaultSoundSet","file":"FluidR3_GM.sf2"}"#,
+    r#"{"type":"setDefaultSoundSet","file":null}"#,
     r#"{"type":"setMidiInputs","all":false,"names":["Launchkey 49 MK4 LKMK4 MIDI Out"]}"#,
     r#"{"type":"setPaletteLeds","on":true}"#,
     r#"{"type":"setAudioBuffer","frames":128}"#,

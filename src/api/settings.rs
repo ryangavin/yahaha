@@ -10,10 +10,16 @@ pub enum SettingsCmd {
     SetAudioOutput { first: u8 },
     /// Next stereo output pair, wrapping: 1/2 -> 3/4 -> ... -> 1/2.
     NextAudioOutput,
-    /// Reload the synth from another SoundFont in its folder (`io.soundFonts`, by file
-    /// name). It loads in the background (`io.soundFontLoading`) and swaps in between two
-    /// audio buffers; the voices and controllers in use carry over, notes sounding stop.
+    /// Make a SoundFont in the folder (`io.soundFonts`, by file name) the default sound
+    /// set, as `SetDefaultSoundSet` with a file. Kept for older clients.
     SetSoundFont { file: String },
+    /// The default sound set (#117): the SoundFont that plays whatever the program map
+    /// leaves unmapped. A file in the SoundFont folder, or None for Auto (the most
+    /// GM-complete font there, `io.autoSoundSet`). Saved in the data folder. When the
+    /// synth plays another font, the new one loads in the background
+    /// (`io.soundFontLoading`) and swaps in between two audio buffers; the voices and
+    /// controllers in use carry over, notes sounding stop.
+    SetDefaultSoundSet { file: Option<String> },
     /// Which MIDI sources play the keyboard: every one (`all`), or those named in `names`
     /// (a name matches a source whose name contains it). `all` false with no names: the
     /// default, a Launchkey's keys when there is one, else every source. The Launchkey's
@@ -50,12 +56,18 @@ pub struct IoState {
     pub sources: Vec<MidiSource>,
     /// Every source is a keyboard (`SetMidiInputs { all: true }`, `--all-inputs`).
     pub all_inputs: bool,
-    /// The SoundFonts (`.sf2` file names) in the synth's folder, for `SetSoundFont`.
+    /// The SoundFonts (`.sf2` file names) in the SoundFont folder.
     pub sound_fonts: Vec<String>,
-    /// The file the synth plays (None without the synth).
+    /// The file the synth plays as its default sound set (None without the synth).
     pub sound_font_file: Option<String>,
-    /// A `SetSoundFont` is loading.
+    /// A `SetDefaultSoundSet` is loading.
     pub sound_font_loading: bool,
+    /// The default sound set chosen (`SetDefaultSoundSet`); None: Auto.
+    #[serde(default)]
+    pub default_sound_set: Option<String>,
+    /// The font Auto picks: the most GM-complete in the folder (None: no fonts).
+    #[serde(default)]
+    pub auto_sound_set: Option<String>,
 }
 
 /// A MIDI source.

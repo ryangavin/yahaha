@@ -52,6 +52,7 @@ mod registration;
 mod settings;
 mod style_change;
 mod sound_library;
+mod sound_set;
 mod style_settings;
 mod surface;
 mod system;
@@ -96,8 +97,14 @@ pub struct Options {
     pub inputs: Vec<String>,
     /// Leave the Launchkey DAW port alone (no pads, buttons, faders or LEDs).
     pub no_pads: bool,
-    /// SoundFont for the built-in synth; None = no synth.
+    /// A SoundFont the built-in synth plays at start, whatever the default sound set
+    /// setting says (the hidden `--sf2` override). Its folder is the SoundFont folder when
+    /// `sound_font_dir` is None.
     pub sf2: Option<PathBuf>,
+    /// The SoundFont folder: every `.sf2` there is a source of sounds, and the default
+    /// sound set (#117, session/sound_set.rs) is one of them. The synth runs when there is
+    /// a font to play (here or `sf2`); None and no `sf2`: no synth.
+    pub sound_font_dir: Option<PathBuf>,
     /// Use Novation palette colours (and hardware flashing) instead of RGB SysEx.
     pub palette_leds: bool,
     /// 1-based left output channel for the synth (None = auto).
@@ -136,6 +143,7 @@ impl Default for Options {
             inputs: Vec::new(),
             no_pads: false,
             sf2: None,
+            sound_font_dir: None,
             palette_leds: false,
             audio_out: None,
             audio_buffer: None,
@@ -301,6 +309,8 @@ struct Control {
     harmony_arp: live::FxConfig,
     /// The sound library (#103).
     sound: sound_library::SoundLib,
+    /// The default sound set (#117).
+    sound_set: sound_set::SoundSet,
 }
 
 /// What several parts of the state read, read once per `build_state` so they all agree.
@@ -564,9 +574,17 @@ fn assemble(opts: &Options, engine_out: live::Out, input_out: live::Out, offline
     let shared = Arc::new(Shared::new(opts.split));
     let mut engine_out = engine_out;
     engine_out.port_map = crate::patches::port::PortMap::new(shared.routes.clone());
-    let sf_dir = opts.sf2.as_ref().and_then(|p| p.parent()).map(|d| if d.as_os_str().is_empty() { Path::new(".") } else { d }.to_path_buf());
+    let sf_dir = opts.sound_font_dir.clone().or_else(|| {
+        opts.sf2.as_ref().and_then(|p| p.parent()).map(|d| if d.as_os_str().is_empty() { Path::new(".") } else { d }.to_path_buf())
+    });
     let mut sound = sound_library::SoundLib::open(opts.data_dir.as_deref());
     let avail = sf_dir.as_deref().map(crate::library::sound_font_files).unwrap_or_default();
+    let sound_set = sound_set::SoundSet::open(opts.data_dir.as_deref(), sf_dir.as_deref(), &avail);
+    // The synth's main font: the override, else the default sound set.
+    let sf_file = match &opts.sf2 {
+        Some(p) => p.file_name().map(|n| n.to_string_lossy().to_string()),
+        None => sound_set.resolve(&avail),
+    };
     Control::sound_library_first_style(&mut sound, &shared.routes, &mut prep, &info.path, &avail);
     shared.fingering.store(opts.fingering.to_u8(), Relaxed);
     shared.upper.store(opts.upper, Relaxed);
@@ -630,8 +648,8 @@ fn assemble(opts: &Options, engine_out: live::Out, input_out: live::Out, offline
         roots: opts.paths.clone(),
         scan_rx: None,
         sf_dir,
-        sf_file: opts.sf2.as_ref().and_then(|p| p.file_name()).map(|n| n.to_string_lossy().to_string()),
-        sound_fonts: Vec::new(),
+        sf_file,
+        sound_fonts: avail,
         sf_load: None,
         sf_ready: None,
         all_inputs: opts.all_inputs,
@@ -652,6 +670,7 @@ fn assemble(opts: &Options, engine_out: live::Out, input_out: live::Out, offline
         plugins: Default::default(),
         harmony_arp: live::FxConfig::default(),
         sound,
+        sound_set,
     };
     let mut control = control;
     control.list_sound_fonts();
@@ -686,7 +705,9 @@ impl Session {
             (shared, p)
         };
         let mut synth_thread = None;
-        if let Some(sf2) = &opts.sf2 {
+        // The override, else the default sound set from the folder.
+        let main_font = opts.sf2.clone().or_else(|| p.control.sf_dir.as_ref().zip(p.control.sf_file.as_ref()).map(|(d, f)| d.join(f)));
+        if let Some(sf2) = &main_font {
             let main = sf2.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
             let routing = synth::Routing { routes: shared.routes.clone(), font_id: p.control.sound.font_id(&main).unwrap_or(0) };
             let buffer = opts.audio_buffer.or_else(saved_buffer);

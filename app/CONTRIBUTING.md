@@ -62,7 +62,7 @@ app/
                              icons/icon.svg` in src-tauri regenerates the set
     src/lib.rs               commands send/state/library and the `yahaha` event, backed by
                              yahaha::Session (the engine) or the mock; env: YAHAHA_STYLES,
-                             YAHAHA_SF2, YAHAHA_MOCK (see the file's header)
+                             YAHAHA_SOUNDFONTS, YAHAHA_SF2, YAHAHA_MOCK (see the file's header)
     src/mock.rs              mock session on the engine's own AppState types
   src/
     App.svelte               the layout shell: app bar, the stage (lead-sheet band, Launchkey

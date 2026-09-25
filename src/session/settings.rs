@@ -139,6 +139,7 @@ impl Control {
     pub(super) fn settings_cmd(&mut self, c: SettingsCmd) -> Result<(), CmdError> {
         match c {
             SettingsCmd::SetSoundFont { file } => return self.set_sound_font(file),
+            SettingsCmd::SetDefaultSoundSet { file } => return self.set_default_sound_set(file),
             SettingsCmd::SetMidiInputs { all, names } => {
                 self.all_inputs = all;
                 self.input_names = names;
@@ -202,23 +203,39 @@ impl Control {
         }
     }
 
-    /// The SoundFonts in the synth's folder.
+    /// The SoundFonts in the SoundFont folder, and what Auto picks among them.
     pub(super) fn list_sound_fonts(&mut self) {
         if let Some(dir) = &self.sf_dir {
-            self.sound_fonts = library::sound_font_files(dir);
+            let fonts = library::sound_font_files(dir);
+            if fonts != self.sound_fonts {
+                self.sound_set.refresh(Some(dir), &fonts);
+                self.sound_fonts = fonts;
+            }
         }
     }
 
-    /// Start loading another SoundFont from the synth's folder, on a thread of its own.
+    /// `SetSoundFont`: the default sound set is this file from now on (#117).
     fn set_sound_font(&mut self, file: String) -> Result<(), CmdError> {
         let Some(sy) = &self.synth else { return self.fail("the synth is off") };
         if sy.swap.is_none() {
             return self.fail("this synth can't change SoundFonts");
         }
-        self.list_sound_fonts();
         let bad = file.contains('/') || file.contains('\\') || file.starts_with('.') || !file.to_lowercase().ends_with(".sf2");
+        if bad {
+            return self.fail(format!("no SoundFont {file} in the SoundFont folder"));
+        }
+        self.set_default_sound_set(Some(file))
+    }
+
+    /// Start loading another SoundFont from the folder as the synth's main one (the
+    /// default sound set), on a thread of its own.
+    pub(super) fn load_sound_font(&mut self, file: String) -> Result<(), CmdError> {
+        let Some(sy) = &self.synth else { return self.fail("the synth is off") };
+        if sy.swap.is_none() {
+            return self.fail("this synth can't change SoundFonts");
+        }
         let path = self.sf_dir.as_ref().map(|d| d.join(&file));
-        if path.filter(|p| !bad && p.is_file()).is_none() {
+        if path.filter(|p| p.is_file()).is_none() {
             return self.fail(format!("no SoundFont {file} in the SoundFont folder"));
         }
         // The new SoundFont, with the ones the sound library plays (#103).
@@ -347,6 +364,8 @@ impl Control {
             sound_fonts: self.sound_fonts.clone(),
             sound_font_file: self.synth.as_ref().and(self.sf_file.clone()),
             sound_font_loading: self.sf_load.is_some() || self.sf_ready.is_some(),
+            default_sound_set: self.sound_set.choice.clone(),
+            auto_sound_set: self.sound_set.auto.clone(),
         }
     }
 }

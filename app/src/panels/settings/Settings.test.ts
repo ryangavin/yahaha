@@ -191,14 +191,20 @@ describe('Settings drawer', () => {
     expect(s.state.mixer.master).toBe(90)
   })
 
-  it('switches the SoundFont', async () => {
+  it('picks the default sound set, or Auto', async () => {
     const s = setup()
+    const auto = byTip('audio.soundfont_auto')[0]
     const fonts = byTip('audio.soundfont')
     expect(fonts.length).toBe(s.state.io.soundFonts.length)
-    expect(fonts[0].getAttribute('aria-checked')).toBe('true') // GeneralUser-GS, io.soundFontFile
+    expect(auto.getAttribute('aria-checked')).toBe('true') // Auto, the default
+    expect(auto.textContent).toContain('Auto (GeneralUser-GS)')
     await fireEvent.click(fonts[1])
+    expect(s.state.io.defaultSoundSet).toBe('FluidR3_GM.sf2')
     expect(s.state.io.soundFontFile).toBe('FluidR3_GM.sf2')
     expect(fonts[1].getAttribute('aria-checked')).toBe('true')
+    await fireEvent.click(auto)
+    expect(s.state.io.defaultSoundSet).toBe(null)
+    expect(s.state.io.soundFontFile).toBe('GeneralUser-GS.sf2')
   })
 
   it('MIDI: merging all inputs, or picking sources', async () => {
@@ -229,7 +235,7 @@ describe('Settings drawer', () => {
   it('on an engine older than these settings, they are badged, inert and show no sample data', async () => {
     const s = new MockSession({ manual: true, demo: false })
     const st = structuredClone(s.state) as unknown as { io: Record<string, unknown>; library: Record<string, unknown> }
-    for (const k of ['sources', 'allInputs', 'soundFonts', 'soundFontFile', 'soundFontLoading']) delete st.io[k]
+    for (const k of ['sources', 'allInputs', 'soundFonts', 'soundFontFile', 'soundFontLoading', 'defaultSoundSet', 'autoSoundSet']) delete st.io[k]
     for (const k of ['roots', 'scanning']) delete st.library[k]
     const sent = vi.fn()
     app.attach({ kind: 'tauri', subscribe: (fn) => (fn(st as unknown as AppState), () => {}), send: sent, library: () => s.library(), meters: () => s.meters(), dispose: () => {} })

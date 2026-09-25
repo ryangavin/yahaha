@@ -1054,8 +1054,15 @@ const catalog = {
     launchkey: null,
   },
   'audio.soundfont': {
-    title: 'SoundFont',
-    body: 'The General MIDI SoundFont (.sf2) the built-in synth plays, from the soundfonts folder. `--sf2 file` sets it at launch.',
+    title: 'Default sound set',
+    body: 'The SoundFont that plays every sound nothing else is chosen for: style parts the program map leaves unmapped, and GM voices. Every .sf2 in the soundfonts folder is a source of sounds; this picks the fallback.',
+    genos: null,
+    keys: [],
+    launchkey: null,
+  },
+  'audio.soundfont_auto': {
+    title: 'Auto sound set',
+    body: 'Picks the most complete General MIDI SoundFont in the soundfonts folder: the most GM programs, then a drum kit. Follows the folder as fonts come and go.',
     genos: null,
     keys: [],
     launchkey: null,
