@@ -64,3 +64,22 @@ describe('sound catalog (#117)', () => {
     expect(m.state.message?.error).toBe(true)
   })
 })
+
+describe('savePartAsPatch (#109)', () => {
+  it('saves what the part plays: the mapped patch, else its plugin', () => {
+    const m = new MockSession({ manual: true })
+    const family = Math.floor(m.state.keyboardParts[1].program / 8)
+    m.send({ type: 'setFamilyRule', family, patch: 'sf:FluidR3_GM.sf2:0:50', style: false })
+    const mapped = m.state.soundLibrary.map.families[family]
+    m.send({ type: 'savePartAsPatch', part: 1, name: null })
+    const saved = m.state.soundLibrary.patches.at(-1)!
+    expect(saved.id).not.toBe(mapped)
+    expect(saved.source).toMatchObject({ kind: 'soundFont', file: 'FluidR3_GM.sf2', program: 50 })
+
+    m.send({ type: 'assignSound', part: 3, id: 'au:aumu dls  appl' })
+    m.send({ type: 'savePartAsPatch', part: 3, name: 'Mine' })
+    const p = m.state.soundLibrary.patches.at(-1)!
+    expect(p.name).toBe('Mine')
+    expect(p.source).toMatchObject({ kind: 'plugin', componentId: 'aumu dls  appl' })
+  })
+})
