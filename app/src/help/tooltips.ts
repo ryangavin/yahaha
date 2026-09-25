@@ -1055,14 +1055,14 @@ const catalog = {
     body: 'Records the chords you play, from the next bar line; stopped, it arms Sync Start and your first chord starts the band and the recording together. Press again to stop recording while the band plays on.',
     genos: 'CHORD LOOPER [REC/STOP]',
     keys: ['r'],
-    launchkey: null,
+    launchkey: 'Panel fader page: Shift + button under fader 8 (red while recording)',
   },
   'looper.on_off': {
     title: 'Chord Looper ON/OFF',
     body: 'Loops the recorded chords from the next bar line, feeding them to the band as if you played them, so both hands are free. While it loops your chords are ignored; press again to stop it at once. Arming a loop turns chart mode off.',
     genos: 'CHORD LOOPER [ON/OFF]',
     keys: ['^'],
-    launchkey: null,
+    launchkey: 'Panel fader page: button under fader 8 (green while looping)',
   },
   'looper.memory': {
     title: 'Chord Looper memory',
