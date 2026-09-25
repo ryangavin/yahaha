@@ -1,9 +1,10 @@
-// The transport section under the app bar, on the mock session: its buttons send the
+// The transport section in the app bar, on the mock session: its buttons send the
 // transport commands, light from the page-1 pad lamps, and the readouts follow the state.
 
 import { cleanup, fireEvent, render } from '@testing-library/svelte'
 import { flushSync } from 'svelte'
 import { afterEach, describe, expect, it } from 'vitest'
+import App from '../../App.svelte'
 import { MockSession } from '../../lib/api/mock'
 import { app } from '../../lib/store.svelte'
 import TransportBar from './TransportBar.svelte'
@@ -21,6 +22,15 @@ const bar = () => q<HTMLElement>('section[aria-label="Transport"]')
 afterEach(() => cleanup())
 
 describe('transport section', () => {
+  it('is in the app bar itself, not a row of its own', () => {
+    render(App, { props: { session: new MockSession({ demo: true, manual: true }) } })
+    flushSync()
+    expect(document.querySelectorAll('section[aria-label="Transport"]')).toHaveLength(1)
+    const bar = document.querySelector('header.bar')!
+    expect(bar.querySelector('section[aria-label="Transport"] [data-tip="transport.start_stop"]')).toBeTruthy()
+    expect(bar.querySelector('[data-tip="settings.open"]')).toBeTruthy()
+  })
+
   it('Start / Stop starts and stops the band, and shows which it will do', async () => {
     const s = setup()
     if (s.state.transport.running) await fireEvent.click(q('[data-tip="transport.start_stop"]'))

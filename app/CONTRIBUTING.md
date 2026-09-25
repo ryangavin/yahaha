@@ -13,7 +13,10 @@ modal). Each drawer opens from a small `DrawerButton` on the stage next to the c
 details (Parts & OTS, Sounds and Mixer on the fader head, Multi Pads by the pad-page tabs,
 Charts by the lead-sheet lane, Harmony/Arp and Chord Looper on the keyboard strip's cheek;
 the style name on the display opens the browser). The app bar keeps only the app's own
-controls (Settings, help, theme).
+controls (Settings, help, theme) and, between them, the transport section: Start/Stop,
+Sync, Intro, Ending, Tempo, Tap and bar.beat, the same commands as the mirror's pads. It
+fits one row down to the 900×600 minimum (shorter labels, then bar.beat without the
+section names, which the lead-sheet band shows anyway).
 
 ## Run it
 
@@ -93,8 +96,8 @@ app/
       tooltip/               tip action, HelpFooter (+ last Launchkey control), TipCard, opt-in pop-up Tooltip
       ui/                    shared components: HwButton, DrawerButton, Fader, Toggle, Overlay, PanelSlot
     panels/
-      header/Header.svelte         BUILT: the app bar (Settings, help, theme)
-      header/TransportBar.svelte   BUILT: the transport row under it (Start/Stop, Sync Start/Stop,
+      header/Header.svelte         BUILT: the app bar, one row: name, the transport, Settings, help, theme
+      header/TransportBar.svelte   BUILT: the transport section in it (Start/Stop, Sync Start/Stop,
                                    Intro/Ending I–III, Tempo −/+ and Tap, bar.beat, section);
                                    buttons light from `transport.lamps` like their pads
       leadsheet/                   BUILT: the lead-sheet band above the mirror (see below), and
