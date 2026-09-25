@@ -220,6 +220,9 @@ impl MockSession {
             voice_name: gm[program as usize].clone(),
             plays_bass: false,
             octave: 0,
+            pan: 64,
+            reverb: 40,
+            chorus: 0,
             fader: None,
             plugin: None,
             patch: None,
@@ -1520,6 +1523,19 @@ impl MockSession {
                     p.octave = octave.clamp(-2, 2);
                 }
             }
+            AppCmd::Parts(PartsCmd::SetPartPan { part, pan }) => {
+                if let Some(p) = self.state.keyboard_parts.get_mut(part as usize) {
+                    p.pan = vol(pan);
+                }
+            }
+            AppCmd::Parts(PartsCmd::SetPartSend { part, send, value }) => {
+                if let Some(p) = self.state.keyboard_parts.get_mut(part as usize) {
+                    match send {
+                        PartSend::Reverb => p.reverb = vol(value),
+                        PartSend::Chorus => p.chorus = vol(value),
+                    }
+                }
+            }
             AppCmd::Mixer(MixerCmd::SetFaderPage { page }) => self.set_fader_page(page),
             AppCmd::Mixer(MixerCmd::ToggleFaderPage) => {
                 let page = if self.state.mixer.fader_page == FaderPage::Panel { FaderPage::Style } else { FaderPage::Panel };
@@ -2212,6 +2228,13 @@ mod tests {
         m.send(ControllersCmd::TriggerFunction { function: Function::RegistBankNext });
         assert!(m.state.registration.bank.path.is_some());
         assert_ne!(m.state.registration.bank.path, before);
+        // Regist + (#200): the demo bank's first stored button, then the next one.
+        m.send(RegistrationCmd::SetRegistSequenceOn { on: false });
+        m.send(ControllersCmd::TriggerFunction { function: Function::RegistNext });
+        let first = m.state.registration.selected;
+        assert!(first.is_some());
+        m.send(ControllersCmd::TriggerFunction { function: Function::Regist1 });
+        assert_eq!(m.state.registration.selected, Some(0));
     }
 
     #[test]

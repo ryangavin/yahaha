@@ -78,6 +78,9 @@ pub(crate) struct Voice {
     // This is used to smooth out the cutoff frequency.
     smoothed_cutoff: f32,
 
+    // yahaha: apply velocity -> filter cutoff modulators (`SynthesizerSettings`).
+    velocity_to_filter: bool,
+
     voice_state: VoiceState,
     /// Time elapsed in samples
     voice_length: usize,
@@ -121,6 +124,7 @@ impl Voice {
             instrument_reverb: 0_f32,
             instrument_chorus: 0_f32,
             smoothed_cutoff: 0_f32,
+            velocity_to_filter: settings.velocity_to_filter,
             voice_state: VoiceState::Playing,
             voice_length: 0,
             min_voice_length: (settings.sample_rate / 500) as usize,
@@ -147,6 +151,16 @@ impl Voice {
         }
 
         self.cutoff = region.get_initial_filter_cutoff_frequency();
+        // yahaha: velocity -> filter cutoff (the SF2 default modulator and the SoundFont's
+        // own, modulator.rs). Not below the spec's lowest cutoff (1500 cents, 19.45 Hz).
+        if self.velocity_to_filter && velocity > 0 {
+            let cents = region.velocity_to_filter_cents(velocity);
+            if cents != 0_f32 {
+                let floor = self.cutoff.min(19.45_f32);
+                self.cutoff =
+                    (self.cutoff * SoundFontMath::cents_to_multiplying_factor(cents)).max(floor);
+            }
+        }
         self.resonance = SoundFontMath::decibels_to_linear(region.get_initial_filter_q());
 
         self.vib_lfo_to_pitch = 0.01_f32 * region.get_vibrato_lfo_to_pitch() as f32;

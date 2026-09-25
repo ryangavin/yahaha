@@ -139,6 +139,34 @@ describe('mock session', () => {
     expect(m.state.harmonyArp).toEqual(scrambled)
   })
 
+  it('a Regist + pedal steps the stored buttons, or the sequence while it is on (#200)', () => {
+    const m = new MockSession({ manual: true })
+    m.send({ type: 'newRegistBank' })
+    for (const [index, program] of [[0, 10], [2, 30], [5, 60]]) {
+      m.send({ type: 'setPartVoice', part: 0, program })
+      m.send({ type: 'memorizeRegist', index })
+    }
+    m.send({ type: 'recallRegist', index: 0 })
+    m.send({ type: 'triggerFunction', function: 'registNext' })
+    expect(m.state.registration.selected).toBe(2)
+    m.send({ type: 'triggerFunction', function: 'registNext' })
+    m.send({ type: 'triggerFunction', function: 'registNext' })
+    expect(m.state.registration.selected).toBe(5)
+    m.send({ type: 'triggerFunction', function: 'registPrev' })
+    expect(m.state.keyboardParts[0].program).toBe(30)
+    m.send({ type: 'setRegistSequence', steps: [5, 0], end: 'stop' })
+    m.send({ type: 'setRegistSequenceOn', on: true })
+    m.send({ type: 'triggerFunction', function: 'registNext' })
+    m.send({ type: 'triggerFunction', function: 'registNext' })
+    expect(m.state.registration.selected).toBe(0)
+    m.send({ type: 'triggerFunction', function: 'regist3' })
+    expect(m.state.registration.selected).toBe(2)
+    m.send({ type: 'triggerFunction', function: 'registFreeze' })
+    expect(m.state.registration.freeze).toBe(true)
+    m.send({ type: 'triggerFunction', function: 'registSequence' })
+    expect(m.state.registration.sequence.on).toBe(false)
+  })
+
   it('Parameter Lock keeps a locked group through a registration recall', () => {
     const m = new MockSession({ manual: true })
     m.send({ type: 'setSplit', note: 60 })

@@ -97,6 +97,13 @@ pub struct Parts {
 const NO_FX: u8 = 0xFF;
 /// The controllers `Parts::fx` holds: pan, reverb send, chorus send.
 pub const FX_CC: [u8; 3] = [10, 91, 93];
+/// `Parts::fx` indices.
+pub const PAN: usize = 0;
+pub const REVERB: usize = 1;
+pub const CHORUS: usize = 2;
+/// What a part's pan and sends are before anything sets them: the GM (and the built-in
+/// synth's) power-on values, pan centre, reverb 40, chorus 0.
+pub const FX_DEFAULT: [u8; 3] = [64, 40, 0];
 
 /// `Parts::solo`: no part soloed.
 pub const NO_SOLO: u8 = 255;
@@ -140,6 +147,16 @@ impl Parts {
             }
         }
         self.fx_dirty.fetch_or(1 << part, Release);
+    }
+
+    /// A part's pan, reverb send and chorus send (`PAN`, `REVERB`, `CHORUS`) as last set,
+    /// or the power-on value (`FX_DEFAULT`) where nothing has set it.
+    pub fn fx(&self, part: usize) -> [u8; 3] {
+        let part = part % COUNT;
+        std::array::from_fn(|i| match self.fx[part][i].load(Relaxed) {
+            NO_FX => FX_DEFAULT[i],
+            v => v,
+        })
     }
 
     /// Engine thread: send the pan and sends set since the last call.
