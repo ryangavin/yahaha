@@ -5,7 +5,7 @@
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
-use yahaha::engine::{Button, Engine, PadCmd, Prepared, StyleControls, Transpose, PAD_PPQ};
+use yahaha::engine::{Button, Engine, PadCmd, Prepared, StyleControls, StyleSettings, Transpose, PAD_PPQ};
 use yahaha::live::{self, Audition, Cmd, EngineLoop, FxConfig, FxKey, FxMode, Out, PadBank, Shared};
 use yahaha::multipad::{file::parse, synthetic, MultiPadPlayer};
 use yahaha::rt::{PacketSink, Target};
@@ -103,9 +103,13 @@ fn preview_and_next_bar_style_change_do_not_allocate() {
         now = l.next_deadline().unwrap_or(now + 5_000_000).max(now + 1);
         l.step(now);
     }
-    // TAP TEMPO while the band plays sets the tempo (#128); Section Reset is its own button.
+    // TAP TEMPO while the band plays: a Section Reset by default (the Genos's); with the
+    // setting off it sets the tempo. Section Reset is also its own button.
     ch.ui_tx.push(Cmd::Button(Button::TapTempo)).ok().unwrap();
     l.step(now + 1);
+    ch.ui_tx.push(Cmd::StyleSettings(StyleSettings { section_reset: false, ..StyleSettings::default() })).ok().unwrap();
+    ch.ui_tx.push(Cmd::Button(Button::TapTempo)).ok().unwrap();
+    l.step(now + 2);
     now += 400_000_000;
     l.step(now);
     ch.ui_tx.push(Cmd::Button(Button::TapTempo)).ok().unwrap();
