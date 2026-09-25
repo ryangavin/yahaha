@@ -36,6 +36,23 @@
   const rows = $derived(visibleSounds(catalog, view, query))
   const cats = $derived(categoryCounts(entries))
   const favourites = $derived(entries.reduce((n, e) => n + (e.favourite ? 1 : 0), 0))
+  const saved = $derived(entries.reduce((n, e) => n + (e.source === 'saved' ? 1 : 0), 0))
+  // Save as sound (#117): what the part plays, with its volume and octave, as a saved sound.
+  // It shows under Saved, highlighted, once the catalog has it.
+  let justSaved = $state(false)
+  function saveAsSound() {
+    if (!kp) return
+    app.send({ type: 'savePartAsPatch', part, name: null })
+    justSaved = true
+  }
+  $effect(() => {
+    const id = app.state.soundLibrary.lastAdded
+    if (!justSaved || !id || !entries.some((e) => e.id === `saved:${id}`)) return
+    justSaved = false
+    view = { kind: 'saved' }
+    cursorId = `saved:${id}`
+    void tick().then(() => ensureVisible(cursor, true))
+  })
 
   const kp = $derived(pick ? undefined : app.state.keyboardParts[part])
   const playing = $derived(pick ? (pick.value ? `saved:${pick.value}` : null) : kp ? playingId(kp, app.state.io.soundFontFile) : null)
@@ -139,6 +156,9 @@
       <button type="button" class="cat" class:on={is({ kind: 'recents' })} aria-pressed={is({ kind: 'recents' })} use:tip={'sounds.recents'} onclick={() => show({ kind: 'recents' })}>
         <span><span class="ico" aria-hidden="true">↺</span> Recent</span><span class="n">{catalog.recents.length}</span>
       </button>
+      <button type="button" class="cat" class:on={is({ kind: 'saved' })} aria-pressed={is({ kind: 'saved' })} use:tip={'sounds.saved'} onclick={() => show({ kind: 'saved' })}>
+        <span><span class="ico" aria-hidden="true">●</span> Saved</span><span class="n">{saved}</span>
+      </button>
       <h3 class="engraved">Categories</h3>
       {#each cats as c (c.id)}
         {@const v: SoundView = { kind: 'category', id: c.id }}
@@ -208,6 +228,7 @@
               {#if entries.length === 0}No sounds yet: no SoundFonts, plugins or saved sounds.
               {:else if view.kind === 'favourites' && !query}No favourites yet: star a sound with ☆ (or Ctrl+D).
               {:else if view.kind === 'recents' && !query}Nothing picked yet.
+              {:else if view.kind === 'saved' && !query}No saved sounds yet: Save as sound keeps what a part plays.
               {:else}No sound matches “{query}”.{/if}
             </p>
           {/if}
@@ -217,6 +238,7 @@
       <footer class="foot">
         {#if pick}<span class="now">Pick the sound for <b>{pick.title}</b></span>{:else}<span class="now">{kp?.name} plays <b>{kp?.voiceName}</b>{#if kp?.plugin}&nbsp;· {pluginStatusLine(kp.plugin, plugins.available).replace(/ ▾$/, '')}{#if kp.plugin.status === 'playing'}&nbsp;· CPU {Math.round(kp.plugin.cpu * 100)}%{/if}{/if}</span>{/if}
         {#if auditioning}<HwButton tip="sounds.audition_stop" onclick={() => app.send({ type: 'stopSoundAudition' })}>■ Stop</HwButton>{/if}
+        {#if kp}<HwButton tip="sounds.save" onclick={saveAsSound}>Save as sound</HwButton>{/if}
         {#if kp?.plugin?.editor}<HwButton tip="part.plugin_edit" onclick={() => app.pluginEditor(part, true)}>Edit…</HwButton>{/if}
         {#if plugins.available}
           <HwButton tip="part.plugin_rescan" onclick={() => !plugins.scanning && app.send({ type: 'rescanPlugins' })}>{plugins.scanning ? 'Scanning' : 'Rescan'}</HwButton>

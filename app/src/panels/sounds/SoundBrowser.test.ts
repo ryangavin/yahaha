@@ -91,6 +91,25 @@ describe('sound browser (#117)', () => {
   })
 })
 
+describe('saved sounds (#117)', () => {
+  it('Save as sound keeps what the part plays and shows it under Saved', async () => {
+    const s = await setup(1)
+    const before = s.state.soundLibrary.patches.length
+    await fireEvent.click(tipped('sounds.save')[0])
+    expect(s.state.soundLibrary.patches.length).toBe(before + 1)
+    const id = s.state.soundLibrary.lastAdded!
+    await refresh(s)
+    await tick()
+    flushSync()
+    expect(tipped('sounds.saved')[0].getAttribute('aria-pressed')).toBe('true')
+    expect(rows().every((r) => r.textContent!.includes('Saved'))).toBe(true)
+    expect(active().id).toBe(`sound-${app.sounds.entries.findIndex((e) => e.id === `saved:${id}`)}`)
+    // Picking it plays it on the part.
+    await key('Enter')
+    expect(s.state.keyboardParts[1].patch).toBe(id)
+  })
+})
+
 describe('sound browser picking for a map rule', () => {
   it('Enter hands the sound over and closes', async () => {
     const session = new MockSession({ manual: true, demo: false })
