@@ -34,6 +34,11 @@
   const plugins = $derived(app.state.plugins)
   const plugin = $derived(part.plugin)
   const pluginLine = $derived(pluginStatusLine(plugin, plugins.available).replace(/ ▾$/, ''))
+  // The part's plugin in the scan list: its "run in process" override (#141).
+  const entry = $derived(plugin ? plugins.list.find((p) => p.id === plugin.id) : undefined)
+  function toggleInProcess() {
+    if (entry?.canRunInProcess) app.send({ type: 'setPluginInProcess', id: entry.id, inProcess: !entry.inProcess })
+  }
   const own = $derived(voices.find((v) => v.program === part.program)?.name ?? `Program ${part.program + 1}`)
   const octave = (d: number) => app.send({ type: 'setPartOctave', part: index, octave: Math.max(-2, Math.min(2, part.octave + d)) })
   const link = (on: boolean) => (mirror.panelFader = on ? index : mirror.panelFader === index ? null : mirror.panelFader)
@@ -90,8 +95,11 @@
       {:else}Sounds ▾{/if}
     </span>
   </button>
-  {#if plugin?.editor}
-    <button type="button" class="mini mat-raised wide" use:tip={'part.plugin_edit'} onclick={() => app.pluginEditor(index, true)}>Edit plugin…</button>
+  {#if plugin}
+    <div class="prow">
+      <button type="button" class="mini mat-raised wide" aria-disabled={!plugin.editor} use:tip={'part.plugin_edit'} onclick={() => plugin.editor && app.pluginEditor(index, true)}>Edit…</button>
+      <button type="button" class="mini mat-raised wide" class:on={!!entry?.inProcess} aria-pressed={!!entry?.inProcess} aria-disabled={!entry?.canRunInProcess} use:tip={'part.plugin_in_process'} onclick={toggleInProcess}>In proc</button>
+    </div>
   {/if}
 
   <div class="octave">
@@ -118,9 +126,18 @@
   .voice.failed .vname {
     color: var(--danger, #e66);
   }
+  .prow {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.25rem;
+  }
   .mini.wide {
     width: auto;
     font-size: 0.7rem;
+  }
+  /* In proc on: lit, since a crash there takes yahaha down. */
+  .mini.wide.on {
+    color: var(--accent);
   }
   .strip {
     position: relative;

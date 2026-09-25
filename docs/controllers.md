@@ -28,7 +28,7 @@ an expression pedal), `available`.
 | Category | Functions |
 |---|---|
 | Voice | Sustain, Sostenuto, Soft (switch); Modulation, Pitch Bend (continuous); Kbd Harmony/Arpeggio On/Off, Arpeggio Hold (switch, RM p.141) |
-| Style | Start/Stop, Sync Start, Sync Stop, Intro 1-3, Main A-D, Fill Down, Fill Self, Fill Break, Fill Up, Ending 1-3, Auto Fill, Stop Acmp, Fingered/Fingered On Bass, Fade In/Out (the FADE IN/OUT button: stopped, arms a fade in; playing, fades out to the stop) |
+| Style | Start/Stop, Sync Start, Sync Stop, Intro 1-3, Main A-D, Fill Down, Fill Self, Fill Break, Fill Up, Ending 1-3, Auto Fill, Stop Acmp, Fingered/Fingered On Bass, Fade In/Out (the FADE IN/OUT button: stopped, arms a fade in; playing, fades out to the stop), Style Section Reset (yahaha's own: the section starts again from its top) |
 | OTS | OTS Link, OTS 1-4, OTS +, OTS − |
 | Registration | Registration Bank +, Registration Bank − (the REGIST BANK [+]/[−] buttons: they load the next or previous bank file, see docs/registration.md). Registration Sequence +/− is not pedal-assignable on the Genos (a pedal drives it through Pedal Control on the Registration Sequence display), so it is not in the table. |
 | Overall | Tempo +, Tempo −, Tap Tempo, Transpose +, Transpose − (Master transpose, as the TRANSPOSE buttons), Right 1-3 and Left On/Off |

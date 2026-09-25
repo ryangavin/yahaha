@@ -183,6 +183,19 @@ mod imp {
         }.into())
     }
 
+    /// Where a plugin loads: in process if the player chose that (`setPluginInProcess`),
+    /// else Apple's units and AUv3s as macOS decides (`Auto`), and everything else in its
+    /// own process.
+    pub(crate) fn load_mode(info: &PluginInfo) -> LoadMode {
+        if info.in_process && info.can_run_in_process() {
+            LoadMode::InProcess
+        } else if info.id.manufacturer == APPLE || info.format == PluginFormat::Au3 {
+            LoadMode::Auto
+        } else {
+            LoadMode::OutOfProcess
+        }
+    }
+
     impl PluginCtl {
         pub(crate) fn host(&mut self) -> PluginHost {
             self.host.get_or_insert_with(PluginHost::with_default_cache).clone()
@@ -224,7 +237,7 @@ mod imp {
             let id = PluginId::parse(&voice.id).ok_or_else(|| format!("{:?} is not a plugin id", voice.id))?;
             let host = self.plugins.host();
             let info = host.info(&id).map_err(|e| format!("{e:#}"))?;
-            let mode = if id.manufacturer == APPLE || info.format == PluginFormat::Au3 { LoadMode::Auto } else { LoadMode::OutOfProcess };
+            let mode = load_mode(&info);
             let rate = self.synth.as_ref().map_or(48_000, |s| s.info.sample_rate) as f64;
             let cfg = LoadConfig { sample_rate: rate, max_frames: crate::synth::PLUGIN_MAX_BLOCK as u32, state: voice.state.clone(), mode, timeout: Duration::from_secs(20) };
             let load = host.load_async(&id, cfg).map_err(|e| format!("{e:#}"))?;
@@ -343,6 +356,11 @@ mod imp {
             }
         }
 
+        /// Plugin state reads still running (their states land at a later pump).
+        pub(crate) fn plugin_state_reads_pending(&self) -> bool {
+            !self.plugins.state_reads.is_empty()
+        }
+
         pub(crate) fn channel_plugin_state(&self, ch: u8) -> Option<PartPlugin> {
             let c = self.plugins.channels[(ch & 15) as usize].as_ref()?;
             // A plugin that isn't installed (a failed restore) has no info: its id names it.
@@ -382,9 +400,28 @@ mod imp {
                         }
                         .into(),
                         last_error: p.last_load.as_ref().and_then(|l| l.error.clone()),
+                        in_process: p.in_process,
+                        can_run_in_process: p.can_run_in_process(),
                     })
                     .collect(),
             }
+        }
+
+        /// The player's "run in process" override for plugin `id`, saved in the scan cache.
+        /// It applies from the plugin's next load; a part playing it now keeps running where
+        /// it is.
+        pub(crate) fn set_plugin_in_process(&mut self, id: &str, on: bool) -> Result<(), String> {
+            let pid = PluginId::parse(id).ok_or_else(|| format!("{id:?} is not a plugin id"))?;
+            let info = self.plugins.host().set_in_process(&pid, on).map_err(|e| format!("{e:#}"))?;
+            if let Some(p) = self.plugins.list.iter_mut().find(|p| p.id == pid) {
+                p.in_process = info.in_process;
+            }
+            let playing = self.plugins.channels.iter().flatten().any(|c| c.voice.id == id && c.status == PluginStatus::Playing);
+            if playing {
+                let r#where = if on { "inside yahaha" } else { "in its own process" };
+                self.say(format!("{} runs {where} from its next load (the next start, or pick it again)", info.name), false);
+            }
+            Ok(())
         }
 
         /// Scan (from the cache: instant when nothing changed) on a thread.
@@ -694,10 +731,16 @@ impl Control {
     pub(crate) fn channel_plugin_state(&self, _ch: u8) -> Option<PartPlugin> {
         None
     }
+    pub(crate) fn plugin_state_reads_pending(&self) -> bool {
+        false
+    }
     pub(crate) fn plugins_list(&self) -> PluginsState {
         PluginsState::default()
     }
     pub(crate) fn start_plugin_scan(&mut self, _rescan: bool) {}
+    pub(crate) fn set_plugin_in_process(&mut self, _id: &str, _on: bool) -> Result<(), String> {
+        Err("this build has no plugin host".into())
+    }
     pub(crate) fn pump_plugins(&mut self, _now: u64) {}
     pub(crate) fn restore_plugin_parts(&mut self) {}
     pub(crate) fn save_plugin_states_on_stop(&mut self) {}
@@ -753,6 +796,11 @@ impl Control {
                 }
             }
             PluginCmd::RescanPlugins => self.start_plugin_scan(true),
+            PluginCmd::SetPluginInProcess { id, in_process } => {
+                if let Err(e) = self.set_plugin_in_process(&id, in_process) {
+                    return self.fail(e);
+                }
+            }
         }
         Ok(())
     }

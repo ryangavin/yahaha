@@ -103,13 +103,23 @@ fn preview_and_next_bar_style_change_do_not_allocate() {
         now = l.next_deadline().unwrap_or(now + 5_000_000).max(now + 1);
         l.step(now);
     }
+    // TAP TEMPO while the band plays sets the tempo (#128); Section Reset is its own button.
+    ch.ui_tx.push(Cmd::Button(Button::TapTempo)).ok().unwrap();
+    l.step(now + 1);
+    now += 400_000_000;
+    l.step(now);
+    ch.ui_tx.push(Cmd::Button(Button::TapTempo)).ok().unwrap();
+    l.step(now + 1);
+    ch.ui_tx.push(Cmd::Button(Button::SectionReset)).ok().unwrap();
+    l.step(now + 2);
+    now += 2;
     // Controllers: a bend range, a part switched on under a held pedal, Fill Up, KeysOff
     // and Panic (the pedal reset).
     shared.controllers.set_bend_range(0, 9);
     shared.controllers.toggle_switch(yahaha::controllers::SUSTAIN);
     shared.parts.toggle(1);
     l.step(now + 1);
-    ch.ui_tx.push(Cmd::Button(Button::Fill(1))).ok().unwrap();
+    ch.ui_tx.push(Cmd::Button(Button::FillUp)).ok().unwrap();
     ch.ui_tx.push(Cmd::KeysOff).ok().unwrap();
     l.step(now + 1);
     ch.ui_tx.push(Cmd::Button(Button::StartStop)).ok().unwrap();
@@ -121,6 +131,7 @@ fn preview_and_next_bar_style_change_do_not_allocate() {
     assert!(snaps.iter().any(|s| s.audition.is_some_and(|a| a.bar == 4)), "the preview played its 4 bars");
     assert!(snaps.iter().any(|s| s.running && s.style_pending), "the style change waited for the bar line");
     assert!(snaps.iter().any(|s| s.running && (s.bpm - 96.0).abs() < 1e-9), "the recalled tempo took");
+    assert!(snaps.iter().any(|s| s.running && (s.bpm - 150.0).abs() < 1e-6), "the tapped tempo took");
     // The preview and the old style came back to be freed off it.
     assert!(ch.old_audition_rx.pop().is_ok());
     assert!(ch.old_rx.pop().is_ok());

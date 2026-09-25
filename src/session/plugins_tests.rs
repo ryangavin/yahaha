@@ -148,7 +148,12 @@ fn a_plugin_state_is_read_off_the_control_thread() {
     s.send(PluginCmd::SetPartPlugin { part: 0, id: DLS.into(), state: None }).unwrap();
     assert_eq!(wait_playing(&s, 0), PluginStatus::Playing);
     s.send(PluginCmd::SavePartPluginState { part: 0 }).unwrap();
-    assert!(!s.inner.lock().plugins.state_reads.is_empty(), "the read runs on a thread");
+    // `send` settles an offline session with a pump, which may already have taken a quick
+    // read's result (a small state, a fast read thread): pending, or landed at that pump.
+    {
+        let c = s.inner.lock();
+        assert!(!c.plugins.state_reads.is_empty() || c.part_plugin_voice(0).unwrap().1.is_some(), "the read runs on a thread");
+    }
     assert!(wait_saved(&s, 0).1.is_some_and(|b| b.len() > 100), "and lands at a pump");
     // A read of the old instance, then the part loads a new one: the read is dropped.
     s.send(PluginCmd::SetPartPlugin { part: 1, id: DLS.into(), state: None }).unwrap();
@@ -459,4 +464,54 @@ fn a_plugin_patch_auditions_on_channel_16() {
     s.advance(10_000_000);
     assert!(s.send(SoundLibraryCmd::AuditionPatch { id }).is_err(), "not while the band plays");
     assert_eq!(ch16(&s), None);
+}
+
+/// Where a plugin loads: the player's override first, then Apple's units and AUv3s as
+/// macOS decides, and third-party AUv2s in their own process.
+#[test]
+fn the_in_process_override_picks_the_load_mode() {
+    use crate::plugin::{LoadMode, PluginFormat, PluginId, PluginInfo};
+    let info = |id: &str, format: PluginFormat, can_load_in_process: bool, in_process: bool| PluginInfo {
+        id: PluginId::parse(id).unwrap(),
+        name: "x".into(),
+        manufacturer: String::new(),
+        version: 1,
+        format,
+        requires_async: false,
+        can_load_in_process,
+        sandbox_safe: true,
+        last_load: None,
+        in_process,
+    };
+    let mode = super::imp::load_mode;
+    assert_eq!(mode(&info("aumu Xf2X XFER", PluginFormat::Au2, false, false)), LoadMode::OutOfProcess);
+    assert_eq!(mode(&info("aumu Xf2X XFER", PluginFormat::Au2, false, true)), LoadMode::InProcess);
+    assert_eq!(mode(&info(DLS, PluginFormat::Au2, false, false)), LoadMode::Auto);
+    assert_eq!(mode(&info(DLS, PluginFormat::Au2, false, true)), LoadMode::InProcess);
+    assert_eq!(mode(&info("aumu Ab3X ACME", PluginFormat::Au3, false, false)), LoadMode::Auto);
+    assert_eq!(mode(&info("aumu Ab3X ACME", PluginFormat::Au3, false, true)), LoadMode::Auto, "an AUv3 that can't run in process");
+    assert_eq!(mode(&info("aumu Ab3X ACME", PluginFormat::Au3, true, true)), LoadMode::InProcess);
+}
+
+/// `setPluginInProcess` shows in the plugin list; an unknown id is an error.
+#[test]
+fn set_plugin_in_process_shows_in_the_list() {
+    let Some(s) = session() else { return };
+    s.offline_audio(None, 48_000).unwrap();
+    assert!(s.send(PluginCmd::SetPluginInProcess { id: "aumu nope nope".into(), in_process: true }).is_err());
+    // An offline session has no plugin list until a scan runs.
+    s.send(PluginCmd::RescanPlugins).unwrap();
+    let t0 = Instant::now();
+    while !s.state().plugins.list.iter().any(|p| p.id == DLS) && t0.elapsed() < Duration::from_secs(20) {
+        s.advance(1_000_000);
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    let dls = |s: &Session| s.state().plugins.list.iter().find(|p| p.id == DLS).cloned().unwrap();
+    assert!(dls(&s).can_run_in_process);
+    let was = dls(&s).in_process;
+    s.send(PluginCmd::SetPluginInProcess { id: DLS.into(), in_process: !was }).unwrap();
+    assert_eq!(dls(&s).in_process, !was);
+    // Put the player's cache back as it was.
+    s.send(PluginCmd::SetPluginInProcess { id: DLS.into(), in_process: was }).unwrap();
+    assert_eq!(dls(&s).in_process, was);
 }

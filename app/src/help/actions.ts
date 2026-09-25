@@ -194,6 +194,7 @@ export function tipFor(cmd: AppCmd | null): TipKey {
     case 'clearPartPlugin':
     case 'savePartPluginState': return 'part.plugin'
     case 'rescanPlugins': return 'part.plugin_rescan'
+    case 'setPluginInProcess': return 'part.plugin_in_process'
     case 'toggleHarmonyArp':
     case 'setHarmonyArpOn': return 'harmony.switch'
     case 'setHarmonyType': return 'harmony.type'

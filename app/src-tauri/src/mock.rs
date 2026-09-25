@@ -444,6 +444,22 @@ impl MockSession {
                 self.state.keyboard_parts[(part & 3) as usize].plugin = None;
             }
             PluginCmd::SavePartPluginState { .. } | PluginCmd::RescanPlugins => {}
+            PluginCmd::SetPluginInProcess { id, in_process } => {
+                let Some(e) = self.state.plugins.list.iter_mut().find(|p| p.id == id) else {
+                    return self.message(format!("no instrument Audio Unit {id} is installed"), true);
+                };
+                if in_process && !e.can_run_in_process {
+                    let text = format!("{}: {} is an AUv3 that only runs out of process", e.manufacturer, e.name);
+                    return self.message(text, true);
+                }
+                e.in_process = in_process;
+                let name = e.name.clone();
+                let playing = self.state.keyboard_parts.iter().any(|k| k.plugin.as_ref().is_some_and(|p| p.id == id && p.status == PluginStatus::Playing));
+                if playing {
+                    let r#where = if in_process { "inside yahaha" } else { "in its own process" };
+                    self.message(format!("{name} runs {where} from its next load (the next start, or pick it again)"), false);
+                }
+            }
         }
     }
 
@@ -452,7 +468,7 @@ impl MockSession {
             return self.message(format!("no instrument Audio Unit {id} is installed"), true);
         };
         let failed = e.last_error.clone();
-        let fallback = failed.is_none() && e.id == MOCK_FALLBACK_ID;
+        let fallback = failed.is_none() && e.id == MOCK_FALLBACK_ID && !e.in_process;
         self.state.keyboard_parts[part & 3].plugin = Some(PartPlugin {
             id: e.id,
             name: e.name.clone(),
@@ -460,7 +476,7 @@ impl MockSession {
             status: if failed.is_some() { PluginStatus::Failed } else { PluginStatus::Playing },
             stage: None,
             error: failed.clone(),
-            out_of_process: e.manufacturer != "Apple" && !fallback,
+            out_of_process: e.manufacturer != "Apple" && !e.in_process && !fallback,
             in_process_fallback: fallback,
             cpu: if failed.is_some() { 0.0 } else { 0.012 },
             overruns: 0,
@@ -1229,13 +1245,12 @@ impl MockSession {
                 self.state.transport.stop_acmp_mode = mode;
                 self.state.transport.stop_acmp = mode != StopAcmpMode::Off;
             }
-            AppCmd::Transport(TransportCmd::Fill { delta }) => {
-                // The Main to the left/right (or the same), always with a fill.
-                let to = (self.state.transport.main as i8 + delta.signum()).clamp(0, 3) as u8;
-                let auto = std::mem::replace(&mut self.state.transport.auto_fill, true);
-                self.cmd(AppCmd::Transport(TransportCmd::Main { index: to }));
-                self.state.transport.auto_fill = auto;
-            }
+            // The same as Fill Down / Self / Up.
+            AppCmd::Transport(TransportCmd::Fill { delta }) => self.cmd(AppCmd::Transport(match delta.signum() {
+                -1 => TransportCmd::FillDown,
+                1 => TransportCmd::FillUp,
+                _ => TransportCmd::FillSelf,
+            })),
             AppCmd::Plugins(c) => self.plugin_cmd(c),
             AppCmd::Sounds(c) => self.sounds_cmd(c),
             AppCmd::Controllers(c) => {
@@ -1605,6 +1620,22 @@ impl MockSession {
                 }
             }
             AppCmd::SoundLibrary(c) => {
+                // A rule may name a catalog entry (#117): it gets that sound's library patch.
+                let c = match c {
+                    SoundLibraryCmd::SetFamilyRule { family, patch, style } => match self.rule_patch(patch) {
+                        Ok(patch) => SoundLibraryCmd::SetFamilyRule { family, patch, style },
+                        Err(e) => return self.message(e, true),
+                    },
+                    SoundLibraryCmd::SetProgramOverride { program, patch, style } => match self.rule_patch(patch) {
+                        Ok(patch) => SoundLibraryCmd::SetProgramOverride { program, patch, style },
+                        Err(e) => return self.message(e, true),
+                    },
+                    SoundLibraryCmd::SetDrumRule { patch, style } => match self.rule_patch(patch) {
+                        Ok(patch) => SoundLibraryCmd::SetDrumRule { patch, style },
+                        Err(e) => return self.message(e, true),
+                    },
+                    c => c,
+                };
                 let export = matches!(c, SoundLibraryCmd::ExportSoundLibrary { .. });
                 // A SoundFont patch picked over a Plugins-tab plugin ends that plugin.
                 if let SoundLibraryCmd::SetPartPatch { part, id: Some(id) } = &c
@@ -1618,6 +1649,19 @@ impl MockSession {
                     None if export => self.message("Sound library exported to /Users/me/Documents/yahaha/sound-library-export.json", false),
                     None => {}
                 }
+            }
+        }
+    }
+
+    /// A rule's patch: a catalog id becomes its library patch, added once (#117).
+    fn rule_patch(&mut self, patch: Option<String>) -> Result<Option<String>, String> {
+        let Some(id) = patch else { return Ok(None) };
+        match self.sounds.patch_for(&self.state, &id)? {
+            Ok(patch) => Ok(Some(patch)),
+            Err(add) => {
+                self.cmd(add);
+                self.derive();
+                Ok(self.state.sound_library.last_added.clone())
             }
         }
     }
@@ -1915,6 +1959,20 @@ mod tests {
         assert_eq!(m.state.style_settings.retrigger_rate, 16);
     }
 
+    /// `setPluginInProcess` sets the list's override; the next load runs in process (#104).
+    #[test]
+    fn the_in_process_override_applies_from_the_next_load() {
+        let mut m = MockSession::new();
+        let entry = |m: &MockSession, id: &str| m.state.plugins.list.iter().find(|p| p.id == id).cloned().unwrap();
+        m.send(PluginCmd::SetPluginInProcess { id: "aumu Mock Demo".into(), in_process: true });
+        assert!(!entry(&m, "aumu Mock Demo").in_process, "an AUv3 that only runs out of process");
+        assert!(m.state.message.as_ref().is_some_and(|x| x.error));
+        m.send(PluginCmd::SetPluginInProcess { id: "aumu dls  appl".into(), in_process: true });
+        assert!(entry(&m, "aumu dls  appl").in_process);
+        m.send(PluginCmd::SetPluginInProcess { id: "aumu dls  appl".into(), in_process: false });
+        assert!(!entry(&m, "aumu dls  appl").in_process);
+    }
+
     /// A plugin the system won't host out of process loads in process and says so (#104).
     #[test]
     fn a_plugin_that_falls_back_in_process_says_so() {
@@ -1981,6 +2039,23 @@ mod tests {
         assert_eq!(m.state.sounds.auditioning, None);
     }
 
+    /// Program map rules take catalog ids (#117): a preset or plugin becomes a patch once.
+    #[test]
+    fn map_rules_take_catalog_ids() {
+        let mut m = MockSession::new();
+        let n = m.state.sound_library.patches.len();
+        m.send(SoundLibraryCmd::SetFamilyRule { family: 2, patch: Some("au:aumu samp appl".into()), style: false });
+        m.send(SoundLibraryCmd::SetDrumRule { patch: Some("au:aumu samp appl".into()), style: true });
+        assert_eq!(m.state.sound_library.patches.len(), n + 1);
+        let id = m.state.sound_library.patches[n].patch.id.clone();
+        assert_eq!(m.state.sound_library.map.families[2].as_deref(), Some(id.as_str()));
+        assert_eq!(m.state.sound_library.style_map.drums.as_deref(), Some(id.as_str()));
+        m.send(SoundLibraryCmd::SetProgramOverride { program: 5, patch: Some("saved:stage-grand".into()), style: false });
+        assert!(m.state.sound_library.map.overrides.iter().any(|o| o.program == 5 && o.patch == "stage-grand"));
+        m.send(SoundLibraryCmd::SetDrumRule { patch: Some("sf:Nope.sf2:0:0".into()), style: false });
+        assert!(m.state.message.as_ref().is_some_and(|x| x.error));
+    }
+
     #[test]
     fn a_queued_main_takes_over_at_the_next_bar() {
         let mut m = MockSession::new();
@@ -2008,7 +2083,7 @@ mod tests {
         assert_eq!(m.state.controllers.pedals[1].function, Function::FillUp);
         // Playing Main B: Fill Up plays Main C's fill, then Main C.
         m.send(ControllersCmd::TriggerFunction { function: Function::FillUp });
-        assert_eq!(m.state.transport.queued.as_deref(), Some("Fill In BB"));
+        assert_eq!(m.state.transport.queued.as_deref(), Some("Fill In CC"));
         assert_eq!(m.state.transport.main, 2);
         m.send(ControllersCmd::TriggerFunction { function: Function::Sustain });
         assert!(m.state.controllers.sustain);
@@ -2538,6 +2613,8 @@ fn mock_plugins() -> PluginsState {
         version: if manufacturer == "Apple" { "1.0.0" } else { "0.9.0" }.into(),
         format: format.into(),
         last_error: last_error.map(Into::into),
+        in_process: false,
+        can_run_in_process: format == "AUv2",
     };
     PluginsState {
         available: true,

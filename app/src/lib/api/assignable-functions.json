@@ -327,5 +327,12 @@
     "category": "voice",
     "kind": "switch",
     "available": true
+  },
+  {
+    "id": "sectionReset",
+    "name": "Style Section Reset",
+    "category": "style",
+    "kind": "trigger",
+    "available": true
   }
 ]

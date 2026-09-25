@@ -94,7 +94,7 @@ state, and pressing the button is the action. For settings, a GUI checkbox can u
 | `intro` | `index` 0–2 | Intro 1–3. Stopped: plays at the start. Playing: queued for its change point (see Section Change Timing below). |
 | `main` | `index` 0–3 | Main A–D. Pressing the Main that is playing plays its fill. With Auto Fill on, a change plays the fill first. |
 | `break` | | Break (Fill In BA). |
-| `fill` | `delta` −1, 0, 1 | Fill Down, Fill Self, Fill Up (the Genos assignable functions): the fill, then the Main to the left, the same Main, or the Main to the right, whatever Auto Fill says. Past Main A or D, the fill of the Main at the end. Stopped: selects that Main. |
+| `fill` | `delta` −1, 0, 1 | Fill Down, Fill Self, Fill Up (the Genos assignable functions): the same as `fillDown`, `fillSelf` and `fillUp`. |
 | `ending` | `index` 0–2 | Ending 1–3. Pressing the Ending that is playing again adds a ritardando (`transport.ritardando`): the tempo slows to 65% by the ending's end, and comes back when the band stops. |
 | `startStop` | | START/STOP. |
 | `stop` | | Stops if playing, otherwise does nothing. This is the Launchkey Stop button. |
@@ -107,7 +107,7 @@ state, and pressing the button is the action. For settings, a GUI checkbox can u
 | `fillSelf` | | Fill Self: the Main's own fill, as pressing the Main playing. |
 | `fillBreak` | | Fill Break: the Break (the same as `break`). |
 | `setHalfBarFill` / `toggleHalfBarFill` | `on` | Half Bar Fill In: a Main change or fill asked for on the first beat of a bar plays a fill from the middle of that bar (beat 3 in 4/4), then the Main at the next bar line, even with Auto Fill off. |
-| `tapTempo` | | TAP TEMPO. Taps set the tempo. While the style plays with `styleSettings.sectionReset` on (the default), a tap is a Style Section Reset instead. |
+| `tapTempo` | | TAP TEMPO. Taps set the tempo, from the second tap (the last four averaged), stopped or playing. While the style plays with `styleSettings.sectionReset` on (off by default), a tap is a Style Section Reset instead. |
 | `tempoUp`, `tempoDown` | | One tempo step. |
 | `toggleFade` | | FADE IN/OUT. Stopped: arms (or disarms) a fade in for the next start. Playing: fades out over `styleSettings.fadeOutMs`, then the band stops and the Style stays silent for `fadeHoldMs`. Only the Style fades: each Style part's CC7 (channels 9–16) goes out, on the port and to the built-in synth, as its fader value scaled by the fade; the faders don't move, and your playing and the Multi Pads never fade (docs/section-timing.md). `transport.fade` shows it. A fade out already running carries on; START/STOP mid-fade ends it at full volume. |
 | `sectionReset` | | Style Section Reset: the section playing starts again from its top, now. A change queued for the next bar line waits for the new bar grid's. Stopped: nothing. |
@@ -131,7 +131,7 @@ Style Section Reset, the Fade In/Out times and the Style Retrigger length. The s
 | `setSyncStopWindow` | `ms` 0–5000 | Synchro Stop Window. 0 = Off. With Sync Stop on, a chord held longer than this turns Sync Stop off, so letting go no longer stops the band; a quicker release stops it. |
 | `setFadeInTime`, `setFadeOutTime` | `ms` 0–20000 | Fade In and Fade Out times. |
 | `setFadeHoldTime` | `ms` 0–5000 | How long the volume stays at 0 after a fade out. |
-| `setSectionReset` | `on` | TAP TEMPO while the style plays: Section Reset (on, the default) or set the tempo (off). |
+| `setSectionReset` | `on` | TAP TEMPO while the style plays: Section Reset (on, the Genos default) or set the tempo (off, yahaha's default). |
 | `setRetriggerRate` | `rate` | Style Retrigger length: 1, 2, 4, 8, 16 or 32 (a whole note .. a 32nd). Other values snap down to one of these. |
 | `stepRetriggerRate` | `delta` | Steps along 1, 2, 4, 8, 16, 32; positive is shorter. Stops at the ends. |
 
@@ -345,6 +345,7 @@ with the `plugins` feature (the desktop app has it) and the built-in synth
 | `clearPartPlugin` | `part` 0–3 | Back to the part's SoundFont voice (a 5 ms fade). |
 | `savePartPluginState` | `part` 0–3 | Stores the plugin's current preset (what its editor changed) with the part, so it is kept across restarts. Send it when the editor window closes. The state is read on a thread of its own and lands a moment later; a failed read shows in `message`. |
 | `rescanPlugins` | | Scans the installed instruments again, ignoring the cache (`plugins.scanning` meanwhile). |
+| `setPluginInProcess` | `id`, `inProcess` | Runs plugin `id` in yahaha's process (`true`) or in its own (`false`, the default for third-party plugins). In process saves the IPC cost per render for the lightest plugins, but a crash in the plugin takes yahaha down. Kept in the scan cache (across rescans and plugin updates) and shown as `plugins.list[i].inProcess`. It applies from the plugin's next load; a part playing it now keeps running where it is (the message line says so). Fails for an unknown id, or for an AUv3 that only runs out of process (`canRunInProcess` false). |
 
 The plugin's editor window is not a command: it opens on the app's main thread. The
 Tauri shell has the commands `open_plugin_editor(part)` and `close_plugin_editor(part)` for it
@@ -392,7 +393,7 @@ every change. A patch id that doesn't exist fails the command.
 | `auditionPatch` | `id` | Plays the patch on its own for about 3 s (an arpeggio and a chord; a drum kit plays a beat), on channel 16 of the built-in synth, which the band is not using while stopped. A plugin patch first loads its plugin there (#91's rack), then plays; the plugin goes when the audition ends. Refused while the band plays (like `auditionStyle`); `soundLibrary.auditioning` names it. |
 | `auditionPreset` | `file`, `bank`, `program` | The same for a SoundFont preset, before adding it. A SoundFont the synth hasn't loaded loads first. |
 | `stopPatchAudition` | | Ends the audition now. |
-| `setFamilyRule` | `family` 0–15, `patch` or null, `style` | A GM family (programs 8·family … 8·family+7) plays `patch`; null clears the rule. `style`: the current style's own map instead of the global one (may be left out: false). |
+| `setFamilyRule` | `family` 0–15, `patch` or null, `style` | A GM family (programs 8·family … 8·family+7) plays `patch`; null clears the rule. `style`: the current style's own map instead of the global one (may be left out: false). In the three rule commands `patch` may also be a [sound catalog](#sound-catalog) id: a saved sound's patch, or a preset or plugin, which becomes a library patch the first time (a plugin with its default preset). |
 | `setProgramOverride` | `program` 0–127, `patch` or null, `style` | One GM program plays `patch`, whatever its family's rule. |
 | `setDrumRule` | `patch` or null, `style` | The drum parts (Rhythm 1 and 2, and any part on a Yamaha drum kit bank, MSB 126/127) play `patch`. |
 | `clearStyleMap` | | Forgets the current style's own map. |
@@ -428,6 +429,9 @@ folder.
 | `setSoundCategory` | `id`, `category` | A plugin's category (the guess from its name and maker until set), or a saved sound's (its patch's). A preset's category is its GM family: refused. |
 
 The list itself is fetched, not in the state: see [`sounds`](#sounds).
+
+The program map's rule commands (`setFamilyRule`, `setProgramOverride`, `setDrumRule`) also
+take a catalog id as their `patch`, so the map's pickers pick from the same list.
 
 ### Result: `CmdError`
 
@@ -806,7 +810,7 @@ The settings the `Style settings` commands set.
 | `syncStopWindowMs` | 0–5000 | Synchro Stop Window; 0 = Off (the default). |
 | `fadeInMs`, `fadeOutMs` | 0–20000 | Default 5000 each. |
 | `fadeHoldMs` | 0–5000 | Default 2000. |
-| `sectionReset` | bool | TAP TEMPO while playing resets the section. Default on. |
+| `sectionReset` | bool | TAP TEMPO while playing resets the section. Default off (the Genos's is on). |
 | `retriggerRate` | 1, 2, 4, 8, 16, 32 | Style Retrigger length. Default 8 (an eighth note). |
 
 ### `registration`
@@ -864,7 +868,7 @@ The instrument plugin host.
 |---|---|---|
 | `available` | bool | Plugins can be used: the build hosts them and the built-in synth runs. |
 | `scanning` | bool | A scan is running. |
-| `list` | PluginEntry[] | The installed instrument Audio Units, by manufacturer then name, from the cached scan: `id` (what `setPartPlugin` takes), `name`, `manufacturer`, `version`, `format` (`AUv2` \| `AUv3`), `lastError` (why the last load failed, or null). |
+| `list` | PluginEntry[] | The installed instrument Audio Units, by manufacturer then name, from the cached scan: `id` (what `setPartPlugin` takes), `name`, `manufacturer`, `version`, `format` (`AUv2` \| `AUv3`), `lastError` (why the last load failed, or null), `inProcess` (the player chose to run it in yahaha's process: `setPluginInProcess`), `canRunInProcess` (every AUv2, and an AUv3 that allows it). |
 
 ### `multiPad`
 Multi Pads (docs/multipad.md).
@@ -1394,7 +1398,7 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
     "fadeInMs": 5000,
     "fadeOutMs": 5000,
     "fadeHoldMs": 2000,
-    "sectionReset": true,
+    "sectionReset": false,
     "retriggerRate": 8
   },
   "registration": {
@@ -1493,7 +1497,7 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
     "available": true,
     "scanning": false,
     "list": [
-      { "id": "aumu dls  appl", "name": "DLSMusicDevice", "manufacturer": "Apple", "version": "1.0.0", "format": "AUv2", "lastError": null }
+      { "id": "aumu dls  appl", "name": "DLSMusicDevice", "manufacturer": "Apple", "version": "1.0.0", "format": "AUv2", "lastError": null, "inProcess": false, "canRunInProcess": true }
     ]
   },
   "multiPad": {

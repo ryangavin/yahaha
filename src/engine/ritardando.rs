@@ -2,7 +2,8 @@
 //! gradually to the end of the ending.
 //!
 //! The manuals don't say how much or how. yahaha slows it linearly, from the press to the
-//! ending's last tick, to `RIT_END` of the tempo, in sixteenth-note steps. The tempo comes
+//! ending's last tick, to `RIT_END` of the tempo: set at every engine wake, and at least every
+//! sixteenth note (`rit_deadline`). The tempo comes
 //! back when the band stops (or the ending gives way to a Main).
 
 use super::*;

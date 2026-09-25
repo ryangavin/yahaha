@@ -86,6 +86,7 @@ export function functionCmd(id: FunctionId, st: { fingering: Fingering }): AppCm
     tempoDown: { type: 'tempoDown' },
     tapTempo: { type: 'tapTempo' },
     fadeInOut: { type: 'toggleFade' },
+    sectionReset: { type: 'sectionReset' },
     transposeUp: { type: 'stepTranspose', keyboard: 0, master: 1 },
     transposeDown: { type: 'stepTranspose', keyboard: 0, master: -1 },
     registBankNext: { type: 'stepRegistBank', delta: 1 },

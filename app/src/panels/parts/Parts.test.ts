@@ -135,6 +135,28 @@ describe('Keyboard parts drawer', () => {
 })
 
 describe('plugin status', () => {
+  it('In proc sets the plugin\'s run-in-process override, which the next load follows', async () => {
+    const { session } = setup()
+    session.send({ type: 'setPartPlugin', part: 0, id: 'aumu Mock Demo', state: null })
+    session.advance(1000)
+    flushSync()
+    const btn = strip('Right 1').querySelector<HTMLElement>('[data-tip="part.plugin_in_process"]')!
+    expect(btn.getAttribute('aria-disabled')).toBe('true')
+    await fireEvent.click(btn)
+    expect(session.state.plugins.list.find((p) => p.id === 'aumu Mock Demo')!.inProcess).toBe(false)
+    session.send({ type: 'setPartPlugin', part: 0, id: 'aumu dls  appl', state: null })
+    session.advance(1000)
+    flushSync()
+    expect(btn.getAttribute('aria-pressed')).toBe('false')
+    await fireEvent.click(btn)
+    flushSync()
+    expect(session.state.plugins.list.find((p) => p.id === 'aumu dls  appl')!.inProcess).toBe(true)
+    expect(btn.getAttribute('aria-pressed')).toBe('true')
+    expect(session.state.message?.text).toContain('from its next load')
+    await fireEvent.click(btn)
+    expect(session.state.plugins.list.find((p) => p.id === 'aumu dls  appl')!.inProcess).toBe(false)
+  })
+
   it('a plugin that fell back to loading in process says so, in the part and on the mixer badge', () => {
     const s = new MockSession({ manual: true, demo: false })
     s.send({ type: 'setPartPlugin', part: 1, id: 'aumu Tiny Demo', state: null })

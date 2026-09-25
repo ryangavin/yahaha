@@ -501,6 +501,7 @@ impl Control {
                 if family >= 16 {
                     return self.sl_fail(format!("no GM family {family} (0-15)"));
                 }
+                let patch = self.rule_patch(patch)?;
                 self.need_patch_or_none(&patch)?;
                 self.map_mut(style)?.set_family(family as usize, patch);
             }
@@ -508,10 +509,12 @@ impl Control {
                 if program > 127 {
                     return self.sl_fail(format!("no program {program} (0-127)"));
                 }
+                let patch = self.rule_patch(patch)?;
                 self.need_patch_or_none(&patch)?;
                 self.map_mut(style)?.set_override(program, patch);
             }
             SoundLibraryCmd::SetDrumRule { patch, style } => {
+                let patch = self.rule_patch(patch)?;
                 self.need_patch_or_none(&patch)?;
                 self.map_mut(style)?.drums = patch;
             }
@@ -643,6 +646,12 @@ impl Control {
             self.sound.write_parts(&routes, &avail);
             self.sync_part_plugins();
         }
+    }
+
+    /// Whether keyboard part `part` plays its own library patch's plugin (not one picked
+    /// on the Plugins tab).
+    pub(super) fn part_has_patch_plugin(&self, part: usize) -> bool {
+        self.sound.part_plugin[part & 3].is_some()
     }
 
     /// A plugin was picked for keyboard part `part` on the Plugins tab (`setPartPlugin`),

@@ -42,7 +42,11 @@ Decisions (the manuals leave these open):
   band stops there with the new style loaded. The first-beat rule and Immediate apply to
   a style change only while a Main plays; from an Intro, a Fill or the Break it waits for
   the next bar line, as before this setting existed (`Engine::change_point`,
-  `Change::Style`).
+  `Change::Style`). Checked against RM p.12 (#107): To Main covers "changing from a
+  section to a Main section" and "loading another Style", both about the Main playing;
+  during an Intro, Fill or Break no Main plays yet, so the style keeps the bar line (a
+  Fill's bar line is where its Main starts). Pinned by
+  `perform_tests::a_style_change_from_an_intro_or_a_fill_waits_for_the_bar_line`.
 - **An Ending pressed but still waiting for its bar line counts as playing (#111).** A
   style chosen then waits for that Ending's end as well: the Ending plays in the old
   style, and the band stops with the new style loaded. A style chosen first and an
@@ -61,7 +65,8 @@ Decisions (the manuals leave these open):
 Press the Ending that is playing again: the tempo slows down to the end of the ending.
 
 Decisions:
-- **Linear to 65% of the tempo at the ending's last tick, in sixteenth-note steps**
+- **Linear to 65% of the tempo at the ending's last tick**, updated at every engine wake
+  and at least every sixteenth note
   (`RIT_END`). The manual says only "gradually slows".
 - **The tempo comes back when the band stops**, or when a Main takes over from the
   ending. The tempo buttons during a ritardando move the tempo it comes back to, and a
@@ -107,11 +112,17 @@ Decisions:
 
 ## Style Section Reset (#25)
 
-TAP TEMPO while the style plays restarts the section from its top, at the tap (OM p.46).
-`styleSettings.sectionReset` (default on, as the OM describes) turns it back into tap
-tempo. `sectionReset` is also a command of its own (Launchkey Shift + Play, key `|`).
+On the Genos, TAP TEMPO while the style plays restarts the section from its top, at the
+tap (OM p.46), unless Tap Tempo › Style Section Reset is turned off. In yahaha
+`styleSettings.sectionReset` defaults to **off** (#128): TAP TEMPO always sets the tempo,
+from the second tap, averaging the last four. Turning it on gives the Genos behaviour.
+Section Reset is also a command of its own (Launchkey Shift + Play, key `|`) and an
+assignable function, Style Section Reset (yahaha's own row: the Genos reaches it only
+through TAP TEMPO).
 
 Decisions:
+- Decision (#128): Section Reset defaults to off, because the owner plays tap tempo during
+  the song and the Genos default made that impossible; the Genos setting is kept.
 - The bar grid restarts at the tap. A section change queued for a bar line moves to the
   new grid's next bar line; a queued fill to its next beat; a style waiting for the bar
   line to the new grid's next one.
@@ -137,6 +148,12 @@ Decisions:
   chord is read from was up; the Synchro Stop Window times it and Sync Stop restarts
   the band on it too. It is no chord change, though: the Retrigger Rules move no
   sounding note (a Pitch Shift to Root bass stays where it walked).
+- **Decision (#107): in AI Full Keyboard, only three notes or more strike the same chord
+  again.** A single note or a dyad that fits the chord is melody (the AI reads fewer
+  than three notes "based on the previously played chord", RM p.9). So a two-note
+  figure in the right hand does not restart the head, time the Synchro Stop Window or
+  restart Sync Stop. A dyad that changes the chord still changes it
+  (`fingering::restrikes`, checked in `Input::recompute`).
 - **The restart is at the chord's instant**, not quantised: the stutter follows the
   player. The bar grid restarts with it (as Section Reset).
 - Turning Retrigger off lets the Main play on from where the head is.
@@ -153,7 +170,7 @@ Decisions:
 | | Terminal | Launchkey | App |
 |---|---|---|---|
 | Fade In/Out | `F` | page 3 top pad 6; Shift + Stop | Settings › Style; the mirror; a pedal (assignable function Fade In/Out, RM p.142) |
-| Section Reset | `\|` (and `t` while playing) | Shift + Play (and Tap while playing) | Settings › Style (Tap setting); the mirror |
+| Section Reset | `\|` (and `t` while playing, with the Tap setting on) | Shift + Play (and Tap while playing, with the Tap setting on) | Settings › Style (Tap setting); the mirror; a pedal (assignable function Style Section Reset) |
 | Retrigger on/off | `~` | page 2 bottom pad 8 | Settings › Style; the mirror |
 | Retrigger length | `{` `}` | Shift + > / Shift + Function | Settings › Style |
 | Ritardando | the Ending key again | the Ending pad again | the Ending pad again |

@@ -121,7 +121,7 @@ const catalog = {
   },
   'transport.section_reset': {
     title: 'Section Reset',
-    body: 'Starts the section playing again from its top, right now, for stutter effects. With Section Reset on in Settings › Style (the default), Tap does the same while the band plays.',
+    body: 'Starts the section playing again from its top, right now, for stutter effects. A pedal can run it too (Style Section Reset). Turn on Tap: Section Reset in Settings › Style to make Tap do it while the band plays, as the Genos does.',
     genos: 'Style Section Reset (TAP TEMPO)',
     keys: ['|'],
     launchkey: 'Shift + Play button',
@@ -244,7 +244,7 @@ const catalog = {
   // ── Tempo and display ───────────────────────────────────────────────────
   'tempo.tap': {
     title: 'Tap tempo',
-    body: 'Tap two or more times in time to set the tempo from your taps. While the band plays, a tap restarts the section instead (Section Reset), unless you turn that off in Settings › Style. The pad lights on the downbeat while the band plays.',
+    body: 'Tap two or more times in time to set the tempo from your taps (the last four count), also while the band plays. With Tap: Section Reset on in Settings › Style, a tap while the band plays restarts the section instead. The pad lights on the downbeat while the band plays.',
     genos: 'TAP TEMPO',
     keys: ['t'],
     launchkey: pad(P1, 'bottom', 6),
@@ -790,6 +790,13 @@ const catalog = {
     keys: [],
     launchkey: null,
   },
+  'part.plugin_in_process': {
+    title: 'Run in process',
+    body: 'Runs this plugin inside yahaha instead of in its own process: a little less CPU for the lightest plugins, but if the plugin crashes, yahaha goes with it. It is remembered for the plugin and applies from its next load.',
+    genos: null,
+    keys: [],
+    launchkey: null,
+  },
   'part.voice': {
     title: 'Sound',
     body: 'What this part plays. Click to open the Sound Browser and pick a SoundFont preset, an instrument plugin or a saved sound. Under Manual Bass, Left plays the style\'s Bass voice instead, and this is the sound it goes back to.',
@@ -1316,7 +1323,7 @@ const catalog = {
   },
   'settings.section_reset': {
     title: 'Tap: Section Reset',
-    body: 'On: Tap while the band plays restarts the section from its top. Off: Tap always sets the tempo.',
+    body: 'On (the Genos default): Tap while the band plays restarts the section from its top. Off (yahaha\'s default): Tap always sets the tempo.',
     genos: 'Tap Tempo › Style Section Reset',
     keys: [],
     launchkey: null,
