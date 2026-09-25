@@ -1652,7 +1652,14 @@ export class MockSession implements Session {
       case 'setSoundCategory': {
         const r = this.catalogMock.cmd(this.state, cmd)
         if (r.error) this.message(r.error, true)
-        for (const c of r.run ?? []) this.cmd(c)
+        for (const c of r.run ?? []) {
+          // A preset from the synth's own font (the part's GM voice) ends a plugin picked
+          // for the part, as a SoundFont patch does.
+          if (c.type === 'setPartVoice' && this.sound.ownPlugin(c.part) && this.state.keyboardParts[c.part & 3].plugin) {
+            this.plugins.cmd({ type: 'clearPartPlugin', part: c.part })
+          }
+          this.cmd(c)
+        }
         if (r.assignLastAdded !== undefined) this.cmd({ type: 'setPartPatch', part: r.assignLastAdded, id: this.state.soundLibrary.lastAdded })
         break
       }

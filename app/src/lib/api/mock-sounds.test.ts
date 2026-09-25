@@ -40,6 +40,22 @@ describe('sound catalog (#117)', () => {
     expect(m.state.message?.error).toBe(true)
   })
 
+  it('a SoundFont sound ends a plugin picked for the part (#171 review)', () => {
+    const m = new MockSession({ manual: true })
+    const cases: [number, string][] = [
+      [0, 'sf:GeneralUser-GS.sf2:0:0'], // the synth's own font: the part's GM voice
+      [1, 'sf:FluidR3_GM.sf2:0:48'],
+      [2, 'saved:stage-grand'],
+    ]
+    for (const [part, id] of cases) {
+      m.send({ type: 'assignSound', part, id: 'au:aumu dls  appl' })
+      expect(m.state.keyboardParts[part].plugin?.id).toBe('aumu dls  appl')
+      m.send({ type: 'assignSound', part, id })
+      expect(m.state.keyboardParts[part].plugin, id).toBeUndefined()
+    }
+    expect(m.state.keyboardParts[0].patch).toBe(null)
+  })
+
   it('auditions a sound while the band is stopped', () => {
     const m = new MockSession({ manual: true })
     m.send({ type: 'auditionSound', id: 'sf:GeneralUser-GS.sf2:128:0' })
