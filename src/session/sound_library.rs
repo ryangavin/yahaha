@@ -97,7 +97,8 @@ pub(super) struct SoundLib {
     data_dir: Option<PathBuf>,
     /// Each keyboard part's own patch (Right 1, Right 2, Right 3, Left).
     part_patch: [Option<String>; parts::COUNT],
-    /// Font ids: `fonts[id]` is the SoundFont file (stable for the session).
+    /// Font ids: `fonts[id]` is the SoundFont file (an id is given again only once nothing
+    /// uses its file, `font_id`).
     fonts: Vec<String>,
     /// SoundFonts parsed for racks, by file (control side only).
     cache: HashMap<String, Arc<SoundFont>>,
@@ -173,16 +174,31 @@ impl SoundLib {
         self.locked.as_deref()
     }
 
-    /// The font id of a SoundFont file (a new one if it has none yet).
+    /// The font id of a SoundFont file (a new one if it has none yet). When all
+    /// `MAX_FONTS` ids are taken, the id of a SoundFont nothing uses any more is given
+    /// again (`font_in_use`): auditioning presets of many SoundFonts never runs out.
     pub(super) fn font_id(&mut self, file: &str) -> Option<u8> {
         if let Some(i) = self.fonts.iter().position(|f| f == file) {
             return Some(i as u8);
         }
-        if self.fonts.len() >= MAX_FONTS {
-            return None;
+        if self.fonts.len() < MAX_FONTS {
+            self.fonts.push(file.to_string());
+            return Some(self.fonts.len() as u8 - 1);
         }
-        self.fonts.push(file.to_string());
-        Some(self.fonts.len() as u8 - 1)
+        let free = (0..self.fonts.len()).find(|&i| !self.font_in_use(&self.fonts[i]))?;
+        self.fonts[free] = file.to_string();
+        Some(free as u8)
+    }
+
+    /// A SoundFont's id may still be read somewhere: the rack playing or the one loading
+    /// has the font (their `slot_of`), or a patch or the audition plays it (the route
+    /// table). An id none of these knows can name another file safely.
+    fn font_in_use(&self, file: &str) -> bool {
+        let has = |fonts: &[String]| fonts.iter().any(|f| f == file);
+        has(&self.rack_fonts)
+            || self.loading.as_deref().is_some_and(has)
+            || self.audition.as_ref().is_some_and(|a| a.font.as_deref() == Some(file))
+            || self.lib.patches.iter().any(|p| matches!(&p.source, PatchSource::SoundFont { file: f, .. } if f == file))
     }
 
     /// The synth starts on `main`.
@@ -353,6 +369,8 @@ impl Control {
 
     /// Rewrite the route table, and save the library (after an edit).
     fn sound_library_changed(&mut self) {
+        // A style's own map left with no rules (all cleared through `map_mut`) goes.
+        self.sound.lib.style_maps.retain(|_, m| !m.is_empty());
         let avail = self.avail_fonts();
         let routes = self.shared.routes.clone();
         self.sound.write_all(&routes, &avail);

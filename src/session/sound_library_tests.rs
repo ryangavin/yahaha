@@ -417,3 +417,50 @@ fn a_merge_import_keeps_a_newer_file() {
     assert!(std::fs::read_to_string(&file).unwrap().contains("\"version\": 1"));
     let _ = std::fs::remove_dir_all(&data);
 }
+
+/// A style's own map left with no rules (#109) is dropped from the library, not kept as
+/// an empty entry.
+#[test]
+fn a_styles_map_cleared_rule_by_rule_goes() {
+    let Some((s, data)) = session("prune", &["SlowWalker.T552.sty"], true) else { return };
+    let own = add(&s, "Slow Bass", 0, 35);
+    s.send(SoundLibraryCmd::SetFamilyRule { family: 4, patch: Some(own.clone()), style: true }).unwrap();
+    let key = s.state().sound_library.style_key.clone();
+    assert!(s.inner.lock().sound.lib.style_maps.contains_key(&key));
+    s.send(SoundLibraryCmd::SetFamilyRule { family: 4, patch: None, style: true }).unwrap();
+    assert!(!s.inner.lock().sound.lib.style_maps.contains_key(&key), "no empty entry left");
+    // Clearing a rule the style never had leaves no entry either.
+    s.send(SoundLibraryCmd::SetFamilyRule { family: 5, patch: None, style: true }).unwrap();
+    assert!(s.inner.lock().sound.lib.style_maps.is_empty());
+    let _ = std::fs::remove_dir_all(&data);
+}
+
+/// Font ids are recycled once all `MAX_FONTS` are taken (#109): an id whose SoundFont
+/// nothing uses names the new file; one the rack, a load or a patch still uses is never
+/// given away.
+#[test]
+fn font_ids_are_recycled_only_when_unused() {
+    use crate::patches::route::MAX_FONTS;
+    let mut sl = SoundLib::open(None);
+    for i in 0..MAX_FONTS {
+        assert_eq!(sl.font_id(&format!("f{i}.sf2")), Some(i as u8));
+    }
+    assert_eq!(sl.font_id("f3.sf2"), Some(3), "a known file keeps its id");
+    sl.rack_fonts = vec!["f0.sf2".into(), "f1.sf2".into()];
+    sl.loading = Some(vec!["f2.sf2".into()]);
+    sl.lib.patches.push(patches::Patch {
+        id: "p".into(),
+        name: "P".into(),
+        category: patches::Category::Piano,
+        tags: vec![],
+        favourite: false,
+        source: PatchSource::SoundFont { file: "f3.sf2".into(), bank: 0, program: 0 },
+        defaults: PatchDefaults::default(),
+    });
+    assert_eq!(sl.font_id("new.sf2"), Some(4), "the first id nothing uses");
+    assert_eq!(sl.font_id("new.sf2"), Some(4));
+    assert_eq!(sl.font_id("f0.sf2"), Some(0));
+    // Every id in use: none to give.
+    sl.rack_fonts = (0..MAX_FONTS).map(|i| if i == 4 { "new.sf2".to_string() } else { format!("f{i}.sf2") }).collect();
+    assert_eq!(sl.font_id("other.sf2"), None);
+}
