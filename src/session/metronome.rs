@@ -8,7 +8,7 @@ use std::sync::atomic::Ordering::Relaxed;
 
 pub(super) struct MetronomeCtl {
     on: bool,
-    volume: u8,
+    pub(super) volume: u8,
     bell: bool,
 }
 

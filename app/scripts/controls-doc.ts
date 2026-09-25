@@ -27,6 +27,7 @@ const GROUPS: [string, string][] = [
   ['mixer', 'Mixer'],
   ['metronome', 'Metronome'],
   ['dynamics', 'Style Dynamics'],
+  ['knobs', 'Knob Assign pages'],
   ['looper', 'Chord Looper'],
   ['multipad', 'Multi Pads'],
   ['sound', 'Sound library'],

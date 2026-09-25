@@ -22,6 +22,7 @@ mod controllers;
 mod dynamics;
 mod harmony_arp;
 mod keyboard;
+mod knobs;
 mod library;
 mod looper;
 mod metronome;
@@ -50,6 +51,7 @@ pub use controllers::*;
 pub use dynamics::*;
 pub use harmony_arp::*;
 pub use keyboard::*;
+pub use knobs::*;
 pub use library::*;
 pub use looper::*;
 pub use metronome::*;
@@ -175,6 +177,8 @@ app_cmd! {
     Sounds(SoundsCmd),
     /// Style Dynamics Control, Touch and Accent (#180).
     Dynamics(DynamicsCmd),
+    /// Knob Assign pages for the Launchkey's encoders (#197).
+    Knobs(KnobsCmd),
 }
 
 impl From<Button> for AppCmd {
@@ -250,6 +254,8 @@ impl From<Action> for AppCmd {
             Action::ToggleHarmonyArp => HarmonyArpCmd::ToggleHarmonyArp.into(),
             Action::ReloadPlugin => PluginCmd::ReloadPartPlugin { part: None }.into(),
             Action::MultiPad(c) => MultiPadCmd::from(c).into(),
+            Action::Knob(knob, delta) => KnobsCmd::TurnKnob { knob, delta }.into(),
+            Action::KnobPage(delta) => KnobsCmd::StepKnobPage { delta }.into(),
         }
     }
 }
@@ -363,6 +369,9 @@ pub struct AppState {
     /// Style Dynamics Control, Touch and Accent (#180).
     #[serde(default)]
     pub dynamics: DynamicsState,
+    /// Knob Assign pages for the Launchkey's encoders (#197).
+    #[serde(default)]
+    pub knobs: KnobsState,
 }
 
 // ---------------------------------------------------------------------------

@@ -255,5 +255,9 @@ export function tipFor(cmd: AppCmd | null): TipKey {
     case 'setAccent':
     case 'toggleAccent': return 'dynamics.accent'
     case 'setAccentThreshold': return 'dynamics.accent_threshold'
+    // Knob Assign pages (#197).
+    case 'setKnobPage':
+    case 'stepKnobPage': return 'knobs.page'
+    case 'turnKnob': return 'knobs.knob'
   }
 }
