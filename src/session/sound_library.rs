@@ -501,6 +501,7 @@ impl Control {
                 if family >= 16 {
                     return self.sl_fail(format!("no GM family {family} (0-15)"));
                 }
+                let patch = self.rule_patch(patch)?;
                 self.need_patch_or_none(&patch)?;
                 self.map_mut(style)?.set_family(family as usize, patch);
             }
@@ -508,10 +509,12 @@ impl Control {
                 if program > 127 {
                     return self.sl_fail(format!("no program {program} (0-127)"));
                 }
+                let patch = self.rule_patch(patch)?;
                 self.need_patch_or_none(&patch)?;
                 self.map_mut(style)?.set_override(program, patch);
             }
             SoundLibraryCmd::SetDrumRule { patch, style } => {
+                let patch = self.rule_patch(patch)?;
                 self.need_patch_or_none(&patch)?;
                 self.map_mut(style)?.drums = patch;
             }

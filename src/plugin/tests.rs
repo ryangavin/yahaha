@@ -90,6 +90,29 @@ fn scan_finds_dls_and_caches_it() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// The player's "run in process" override is kept in the scan cache: a new host (the next
+/// launch) reads it back, and a rescan keeps it.
+#[test]
+fn the_in_process_override_is_cached_and_survives_a_rescan() {
+    let dir = std::env::temp_dir().join(format!("yahaha-plugin-inproc-{}", std::process::id()));
+    let path = dir.join("plugins.json");
+    let _ = std::fs::remove_dir_all(&dir);
+    let h = PluginHost::new(Some(path.clone()));
+    assert!(!h.info(&PluginId::DLS).unwrap().in_process, "off by default");
+    assert!(h.set_in_process(&PluginId::DLS, true).unwrap().in_process);
+    let next = PluginHost::new(Some(path.clone()));
+    assert!(next.info(&PluginId::DLS).unwrap().in_process, "read back from the file");
+    assert!(next.rescan().unwrap().iter().find(|p| p.id == PluginId::DLS).unwrap().in_process, "a rescan keeps it");
+    assert!(!next.set_in_process(&PluginId::DLS, false).unwrap().in_process);
+    assert!(!PluginHost::new(Some(path.clone())).info(&PluginId::DLS).unwrap().in_process);
+    assert!(h.set_in_process(&PluginId::parse("aumu nope nope").unwrap(), true).is_err(), "not installed");
+    // An AUv3 that only runs out of process refuses it (if one is installed).
+    if let Some(v3) = next.scan().unwrap().into_iter().find(|p| !p.can_run_in_process()) {
+        assert!(next.set_in_process(&v3.id, true).is_err());
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 #[test]
 fn dls_renders_a_note_offline() {
     let mut inst = dls(512);

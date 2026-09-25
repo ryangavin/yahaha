@@ -881,6 +881,8 @@ export type PluginCmd =
   | { type: 'savePartPluginState'; part: number }
   /** Scan the installed instruments again. */
   | { type: 'rescanPlugins' }
+  /** Run plugin `id` in yahaha's process (true) or its own (false); from its next load. */
+  | { type: 'setPluginInProcess'; id: string; inProcess: boolean }
 
 /** loading: still on the SoundFont; failed: back on it; muted: the plugin crashed. */
 export type PluginStatus = 'loading' | 'playing' | 'failed' | 'muted'
@@ -914,6 +916,10 @@ export interface PluginEntry {
   version: string
   format: 'AUv2' | 'AUv3'
   lastError: string | null
+  /** The player chose to run it in yahaha's process (setPluginInProcess). */
+  inProcess: boolean
+  /** It can run in yahaha's process: every AUv2, and an AUv3 that allows it. */
+  canRunInProcess: boolean
 }
 
 export interface PluginsState {

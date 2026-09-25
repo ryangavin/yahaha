@@ -485,3 +485,53 @@ fn recent_overruns_cover_the_last_ten_seconds() {
     w.tick(9 + u64::from(u32::MAX) + 10);
     assert_eq!(w.count(), u32::MAX, "saturates");
 }
+
+/// Where a plugin loads: the player's override first, then Apple's units and AUv3s as
+/// macOS decides, and third-party AUv2s in their own process.
+#[test]
+fn the_in_process_override_picks_the_load_mode() {
+    use crate::plugin::{LoadMode, PluginFormat, PluginId, PluginInfo};
+    let info = |id: &str, format: PluginFormat, can_load_in_process: bool, in_process: bool| PluginInfo {
+        id: PluginId::parse(id).unwrap(),
+        name: "x".into(),
+        manufacturer: String::new(),
+        version: 1,
+        format,
+        requires_async: false,
+        can_load_in_process,
+        sandbox_safe: true,
+        last_load: None,
+        in_process,
+    };
+    let mode = super::imp::load_mode;
+    assert_eq!(mode(&info("aumu Xf2X XFER", PluginFormat::Au2, false, false)), LoadMode::OutOfProcess);
+    assert_eq!(mode(&info("aumu Xf2X XFER", PluginFormat::Au2, false, true)), LoadMode::InProcess);
+    assert_eq!(mode(&info(DLS, PluginFormat::Au2, false, false)), LoadMode::Auto);
+    assert_eq!(mode(&info(DLS, PluginFormat::Au2, false, true)), LoadMode::InProcess);
+    assert_eq!(mode(&info("aumu Ab3X ACME", PluginFormat::Au3, false, false)), LoadMode::Auto);
+    assert_eq!(mode(&info("aumu Ab3X ACME", PluginFormat::Au3, false, true)), LoadMode::Auto, "an AUv3 that can't run in process");
+    assert_eq!(mode(&info("aumu Ab3X ACME", PluginFormat::Au3, true, true)), LoadMode::InProcess);
+}
+
+/// `setPluginInProcess` shows in the plugin list; an unknown id is an error.
+#[test]
+fn set_plugin_in_process_shows_in_the_list() {
+    let Some(s) = session() else { return };
+    s.offline_audio(None, 48_000).unwrap();
+    assert!(s.send(PluginCmd::SetPluginInProcess { id: "aumu nope nope".into(), in_process: true }).is_err());
+    // An offline session has no plugin list until a scan runs.
+    s.send(PluginCmd::RescanPlugins).unwrap();
+    let t0 = Instant::now();
+    while !s.state().plugins.list.iter().any(|p| p.id == DLS) && t0.elapsed() < Duration::from_secs(20) {
+        s.advance(1_000_000);
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    let dls = |s: &Session| s.state().plugins.list.iter().find(|p| p.id == DLS).cloned().unwrap();
+    assert!(dls(&s).can_run_in_process);
+    let was = dls(&s).in_process;
+    s.send(PluginCmd::SetPluginInProcess { id: DLS.into(), in_process: !was }).unwrap();
+    assert_eq!(dls(&s).in_process, !was);
+    // Put the player's cache back as it was.
+    s.send(PluginCmd::SetPluginInProcess { id: DLS.into(), in_process: was }).unwrap();
+    assert_eq!(dls(&s).in_process, was);
+}
