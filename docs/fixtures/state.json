@@ -330,7 +330,8 @@
     "splitName": "F#2",
     "transposeKeyboard": 0,
     "transposeMaster": 0,
-    "settleMs": 10
+    "settleMs": 10,
+    "leftHold": false
   },
   "keyboardParts": [
     {

@@ -23,7 +23,7 @@ interface Memory {
   style?: { path: string; name: string }
   tempo?: number
   control?: { main: number; otsLink: boolean; stopAcmp: boolean }
-  chord?: { fingering: Fingering; upper: boolean; manualBass: boolean; split: number }
+  chord?: { fingering: Fingering; upper: boolean; manualBass: boolean; split: number; leftHold?: boolean }
   mixer?: { volumes: number[]; on: boolean[] }
   /** Right 1, Right 2, Right 3, Left; null for a part outside the memorized groups. */
   parts?: ({ on: boolean; program: number; volume: number; octave: number } | null)[]
@@ -297,7 +297,7 @@ export class MockRegistration {
     if (g.includes('style')) {
       m.style = { path: st.style.path, name: st.style.name }
       m.control = { main: st.transport.main, otsLink: st.ots.link, stopAcmp: st.transport.stopAcmp }
-      m.chord = { fingering: st.chord.fingering, upper: st.chord.upper, manualBass: st.chord.manualBass, split: st.chord.split }
+      m.chord = { fingering: st.chord.fingering, upper: st.chord.upper, manualBass: st.chord.manualBass, split: st.chord.split, leftHold: st.chord.leftHold }
       m.mixer = { volumes: st.mixer.styleParts.map((p) => p.volume), on: st.mixer.styleParts.map((p) => p.on) }
     }
     if (g.includes('style') || g.includes('voice')) {
@@ -350,6 +350,7 @@ export class MockRegistration {
       // Parameter Lock: a locked group keeps what the player set.
       if (!st.paramLocks.fingeringType) Object.assign(st.chord, { fingering: m.chord.fingering, upper: m.chord.upper, manualBass: m.chord.manualBass })
       if (!st.paramLocks.splitPoint) st.chord.split = m.chord.split
+      if (m.chord.leftHold !== undefined) st.chord.leftHold = m.chord.leftHold
     }
     if (allowed('style') && m.control) {
       st.ots.link = m.control.otsLink

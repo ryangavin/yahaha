@@ -63,6 +63,8 @@ export function tipFor(cmd: AppCmd | null): TipKey {
       return cmd.master < 0 ? 'transpose.master_down' : 'transpose.master_up'
     case 'resetTranspose': return 'transpose.reset'
     case 'setChordSettle': return 'settings.chord_settle'
+    case 'setLeftHold':
+    case 'toggleLeftHold': return 'detection.left_hold'
     case 'setPartOn':
     case 'togglePart': return PART_ON[cmd.part]
     case 'selectPart': return PART_SELECT[cmd.part]

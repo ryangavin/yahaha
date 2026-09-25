@@ -139,6 +139,16 @@ describe('mock session', () => {
     expect(m.state.harmonyArp).toEqual(scrambled)
   })
 
+  it('Left Hold is a switch Registration stores (#202)', () => {
+    const m = new MockSession({ manual: true })
+    m.send({ type: 'setLeftHold', on: true })
+    m.send({ type: 'memorizeRegist', index: 2 })
+    m.send({ type: 'toggleLeftHold' })
+    expect(m.state.chord.leftHold).toBe(false)
+    m.send({ type: 'recallRegist', index: 2 })
+    expect(m.state.chord.leftHold).toBe(true)
+  })
+
   it('Parameter Lock keeps a locked group through a registration recall', () => {
     const m = new MockSession({ manual: true })
     m.send({ type: 'setSplit', note: 60 })

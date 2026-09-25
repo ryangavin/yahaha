@@ -86,6 +86,9 @@ export type AppCmd =
   | { type: 'resetTranspose' }
   /** The chord-settle window, ms (0–`CHORD_SETTLE_MAX_MS`). */
   | { type: 'setChordSettle'; ms: number }
+  /** LEFT HOLD: Left rings on after its keys are let go, until its next key, a stop, or off. */
+  | { type: 'setLeftHold'; on: boolean }
+  | { type: 'toggleLeftHold' }
   // Keyboard parts
   | { type: 'setPartOn'; part: number; on: boolean }
   | { type: 'togglePart'; part: number }
@@ -413,6 +416,8 @@ export interface ChordState {
   /** The chord-settle window in ms: while the style plays, a chord change reaches the
    * accompaniment once the chord has held still this long (a rolled chord is followed once). */
   settleMs: number
+  /** Left Hold (`setLeftHold`). */
+  leftHold: boolean
 }
 
 /** The widest chord-settle window, ms (`setChordSettle`). */

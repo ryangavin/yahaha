@@ -217,7 +217,7 @@ export function initialState(): AppState {
     },
     chord: {
       name: null, fingered: null, fingering: 'fingeredOnBass', fingeringName: 'Fingered On Bass', upper: false,
-      manualBass: true, manualBassActive: false, split: 54, splitName: noteName(54), transposeKeyboard: 0, transposeMaster: 0, settleMs: 10,
+      manualBass: true, manualBassActive: false, split: 54, splitName: noteName(54), transposeKeyboard: 0, transposeMaster: 0, settleMs: 10, leftHold: false,
     },
     keyboardParts: [part(0, 0, true), part(1, 48, false), part(2, 61, false), part(3, 48, false)],
     keyboard: { held: [], leftSplit: 54, chordTones: [], chordBass: null, detection: [0, 54] },
@@ -1313,6 +1313,12 @@ export class MockSession implements Session {
         break
       case 'setChordSettle':
         c.settleMs = clamp(cmd.ms, 0, CHORD_SETTLE_MAX_MS)
+        break
+      case 'setLeftHold':
+        c.leftHold = cmd.on
+        break
+      case 'toggleLeftHold':
+        c.leftHold = !c.leftHold
         break
       case 'setPartOn':
       case 'togglePart': {

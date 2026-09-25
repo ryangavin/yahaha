@@ -53,7 +53,7 @@ The M5–M8 wave is fully merged into `develop`, and all gates are green. No PRs
   - Third-party AUv2 plugins run out of process by default.
   - Start it after the wave. The design is in `docs/plugin-hosting.md`.
 - **Sound library (#103):** a user patch list built from SoundFont presets and AU plugins (and later VST3/CLAP). Parts, OTS and registration pick from it, and a program map (GM family rules plus overrides) sends every style part to one of about 20 reusable patches. SoundFont-only patches could ship first; plugin patches need #91.
-- **#31 remainder:** three split points (Style, Left, Right 3) and Left Hold.
+- **#31 remainder:** three split points (Style, Left, Right 3). Left Hold is #202.
 - **Clippy drift:** a newer toolchain flagged lints in files no one touched (`src/sff.rs`, `src/theory.rs`). If `clippy -D warnings` fails on untouched code, fix it in a separate small PR rather than inside a feature PR.
 - After the wave: the owner playtests `develop`, then it merges to `main`.
 

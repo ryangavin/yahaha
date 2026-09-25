@@ -493,6 +493,12 @@ const catalog = {
     keys: ['D'],
     launchkey: pad(P2, 'bottom', 1),
   },
+  'detection.left_hold': {
+    title: 'Left Hold',
+    body: 'Left keeps sounding after you let go of its keys, until you play the next note on Left, stop the style, or turn Left Hold off. A string or organ Left holds your chord across the band. Stored in Registration (Style group).',
+    genos: 'LEFT HOLD',
+    keys: [],
+  },
   'split.display': {
     title: 'Split point',
     body: 'The key that divides the chord section from the right hand (C3 = middle C). Right 1–3 play above it, Left and the chord section at and below it.',
