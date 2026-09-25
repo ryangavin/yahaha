@@ -22,7 +22,7 @@ import type { Session } from './session'
 import {
   BREAK, CHORD_SETTLE_MAX_MS, ENDINGS, FILLS, FINGERINGS, INTROS, KEYBOARD_PART_NAMES, MAINS, PAD_PAGES, RETRIGGER_RATES,
   STYLE_PART_NAMES, type AppCmd, type AppState, type LibraryEntry, type LibraryList, type OtsPart, type PreviewState, type StopAcmpMode,
-  type StyleSettingsState, type StyleState,
+  type SoundLibraryCmd, type StyleSettingsState, type StyleState,
 } from './types'
 
 export const GM: string[] = fixture.gm
@@ -1627,12 +1627,22 @@ export class MockSession implements Session {
       case 'browseSoundFont':
       case 'importSoundLibrary':
       case 'exportSoundLibrary': {
+        // A rule may name a catalog entry (#117): it gets that sound's library patch.
+        let sc: SoundLibraryCmd = cmd
+        if ((cmd.type === 'setFamilyRule' || cmd.type === 'setProgramOverride' || cmd.type === 'setDrumRule') && cmd.patch) {
+          const r = this.catalogMock.patchFor(this.state, cmd.patch, (c) => this.cmd(c))
+          if ('error' in r) {
+            this.message(r.error, true)
+            break
+          }
+          sc = { ...cmd, patch: r.patch }
+        }
         // A SoundFont patch picked over a Plugins-tab plugin ends that plugin.
         if (cmd.type === 'setPartPatch' && cmd.id && this.sound.ownPlugin(cmd.part)) {
           const p = this.state.soundLibrary.patches.find((q) => q.id === cmd.id)
           if (p?.source.kind === 'soundFont') this.plugins.cmd({ type: 'clearPartPlugin', part: cmd.part })
         }
-        const err = this.sound.cmd(cmd, t.running)
+        const err = this.sound.cmd(sc, t.running)
         if (err) this.message(err, true)
         else if (cmd.type === 'exportSoundLibrary') this.message(`Sound library exported to ${cmd.path ?? '/Users/me/Documents/yahaha/sound-library-export.json'}`)
         break

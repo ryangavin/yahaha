@@ -393,7 +393,7 @@ every change. A patch id that doesn't exist fails the command.
 | `auditionPatch` | `id` | Plays the patch on its own for about 3 s (an arpeggio and a chord; a drum kit plays a beat), on channel 16 of the built-in synth, which the band is not using while stopped. A plugin patch first loads its plugin there (#91's rack), then plays; the plugin goes when the audition ends. Refused while the band plays (like `auditionStyle`); `soundLibrary.auditioning` names it. |
 | `auditionPreset` | `file`, `bank`, `program` | The same for a SoundFont preset, before adding it. A SoundFont the synth hasn't loaded loads first. |
 | `stopPatchAudition` | | Ends the audition now. |
-| `setFamilyRule` | `family` 0–15, `patch` or null, `style` | A GM family (programs 8·family … 8·family+7) plays `patch`; null clears the rule. `style`: the current style's own map instead of the global one (may be left out: false). |
+| `setFamilyRule` | `family` 0–15, `patch` or null, `style` | A GM family (programs 8·family … 8·family+7) plays `patch`; null clears the rule. `style`: the current style's own map instead of the global one (may be left out: false). In the three rule commands `patch` may also be a [sound catalog](#sound-catalog) id: a saved sound's patch, or a preset or plugin, which becomes a library patch the first time (a plugin with its default preset). |
 | `setProgramOverride` | `program` 0–127, `patch` or null, `style` | One GM program plays `patch`, whatever its family's rule. |
 | `setDrumRule` | `patch` or null, `style` | The drum parts (Rhythm 1 and 2, and any part on a Yamaha drum kit bank, MSB 126/127) play `patch`. |
 | `clearStyleMap` | | Forgets the current style's own map. |
@@ -429,6 +429,9 @@ folder.
 | `setSoundCategory` | `id`, `category` | A plugin's category (the guess from its name and maker until set), or a saved sound's (its patch's). A preset's category is its GM family: refused. |
 
 The list itself is fetched, not in the state: see [`sounds`](#sounds).
+
+The program map's rule commands (`setFamilyRule`, `setProgramOverride`, `setDrumRule`) also
+take a catalog id as their `patch`, so the map's pickers pick from the same list.
 
 ### Result: `CmdError`
 
