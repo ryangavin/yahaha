@@ -652,3 +652,54 @@ fn reload_part_plugin_retries_a_failed_plugin() {
     s.send(PartsCmd::SelectPart { part: 0 }).unwrap();
     assert!(!fault(&s));
 }
+
+/// The Sound Browser (#117): a SoundFont sound assigned to a part that plays a plugin
+/// picked for it directly ends that plugin, and it is no longer saved to come back at
+/// the next start. A preset from the synth's own font in bank 0 (the part's GM voice),
+/// one from another font and a saved SoundFont sound all do (#171 review blocker).
+#[test]
+fn a_soundfont_sound_from_the_browser_ends_a_picked_plugin() {
+    use crate::api::{SoundLibraryCmd, SoundsCmd};
+    let p = Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus/MOX_v2/SlowWalker.T552.sty");
+    if !p.exists() {
+        eprintln!("corpus missing; skipping");
+        return;
+    }
+    let data = std::env::temp_dir().join(format!("yahaha-browser-plugin-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&data);
+    let sf = data.join("sf");
+    std::fs::create_dir_all(&sf).unwrap();
+    let tiny = crate::patches::sf2::tiny_sound_font;
+    std::fs::write(sf.join("A.sf2"), tiny(&[(0, 0, "Piano"), (0, 33, "Finger Bass"), (128, 0, "Standard Kit")])).unwrap();
+    std::fs::write(sf.join("B.sf2"), tiny(&[(0, 88, "Warm Pad")])).unwrap();
+    let opts = Options { paths: vec![p], data_dir: Some(data.clone()), sound_font_dir: Some(sf.clone()), ..Options::default() };
+    let s = Session::offline(opts).unwrap();
+    s.offline_audio(Some(&sf.join("A.sf2")), 48_000).unwrap();
+    wait_scanned(&s);
+    let au = format!("au:{DLS}");
+    let pick = |part: u8| {
+        s.send(SoundsCmd::AssignSound { part, id: au.clone() }).unwrap();
+        assert_eq!(wait_playing(&s, part as usize), PluginStatus::Playing);
+        assert_eq!(saved_id(&s, part as usize).as_deref(), Some(DLS));
+    };
+    let ended = |part: usize, what: &str| {
+        assert!(s.state().keyboard_parts[part].plugin.is_none(), "{what}: the plugin ended");
+        assert_eq!(saved_id(&s, part), None, "{what}: and is not saved to come back");
+    };
+    // The synth's own font, bank 0: the part's GM voice.
+    pick(0);
+    s.send(SoundsCmd::AssignSound { part: 0, id: "sf:A.sf2:0:33".into() }).unwrap();
+    let r1 = s.state().keyboard_parts[0].clone();
+    assert_eq!((r1.program, r1.patch), (33, None), "the synth's own preset is the part's GM voice");
+    ended(0, "own font");
+    // Another font's preset, and a saved SoundFont sound.
+    pick(1);
+    s.send(SoundsCmd::AssignSound { part: 1, id: "sf:B.sf2:0:88".into() }).unwrap();
+    ended(1, "another font");
+    pick(2);
+    s.send(SoundLibraryCmd::AddPresetAsPatch { file: "A.sf2".into(), bank: 0, program: 0, name: Some("Mine".into()) }).unwrap();
+    let mine = s.state().sound_library.last_added.clone().unwrap();
+    s.send(SoundsCmd::AssignSound { part: 2, id: format!("saved:{mine}") }).unwrap();
+    ended(2, "saved sound");
+    let _ = std::fs::remove_dir_all(&data);
+}
