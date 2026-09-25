@@ -173,7 +173,7 @@ fn tap_while_playing_sets_the_tempo_by_default() {
 
 #[test]
 fn tap_resets_the_section_or_sets_the_tempo() {
-    let Some((mut e, mut rec)) = started(StyleSettings::default()) else { return };
+    let Some((mut e, mut rec)) = started(StyleSettings { section_reset: true, ..StyleSettings::default() }) else { return };
     let (ppq, tpb, _) = grid(&e);
     let t = e.ns_at(tpb + 2.5 * ppq);
     play(&mut e, &mut rec, 0, t);
