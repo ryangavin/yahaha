@@ -63,6 +63,8 @@
   "harmonyArp.volume: number",
   "harmonyArp: object",
   "io.allInputs: boolean",
+  "io.autoSoundSet: null",
+  "io.defaultSoundSet: null",
   "io.engine.chordP99Us: number",
   "io.engine.midiInP99Us: number",
   "io.engine.realtime: boolean",

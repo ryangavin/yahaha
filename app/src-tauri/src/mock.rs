@@ -318,6 +318,8 @@ impl MockSession {
                 sound_fonts: MOCK_SOUND_FONTS.iter().map(|f| f.to_string()).collect(),
                 sound_font_file: Some(MOCK_SOUND_FONTS[0].into()),
                 sound_font_loading: false,
+                default_sound_set: None,
+                auto_sound_set: Some(MOCK_SOUND_FONTS[0].into()),
             },
             preview: PreviewState::default(),
             chart: ChartState::default(),
@@ -440,6 +442,22 @@ impl MockSession {
         if let Some(err) = failed {
             self.message(format!("{} didn't load: {err}", e.name), true);
         }
+    }
+
+    /// The default sound set (#117): a font in the folder, or None for Auto.
+    fn set_default_sound_set(&mut self, file: Option<String>) {
+        if let Some(f) = &file
+            && !self.state.io.sound_fonts.contains(f)
+        {
+            return self.message(format!("no SoundFont {f} in the SoundFont folder"), true);
+        }
+        let io = &mut self.state.io;
+        io.default_sound_set = file.clone();
+        let Some(play) = file.or_else(|| io.auto_sound_set.clone()) else { return };
+        if let Some(s) = io.synth.as_mut() {
+            s.sound_font = play.trim_end_matches(".sf2").to_string();
+        }
+        io.sound_font_file = Some(play);
     }
 
     fn message(&mut self, text: impl Into<String>, error: bool) {
@@ -1517,16 +1535,8 @@ impl MockSession {
             }
             AppCmd::Preview(PreviewCmd::StopAudition) => self.state.preview.audition = None,
             AppCmd::Library(LibraryCmd::RescanLibrary) => self.message("Style folders rescanned", false),
-            AppCmd::Settings(SettingsCmd::SetSoundFont { file }) => {
-                if self.state.io.sound_fonts.contains(&file) {
-                    if let Some(s) = self.state.io.synth.as_mut() {
-                        s.sound_font = file.trim_end_matches(".sf2").to_string();
-                    }
-                    self.state.io.sound_font_file = Some(file);
-                } else {
-                    self.message(format!("no SoundFont {file} in the SoundFont folder"), true);
-                }
-            }
+            AppCmd::Settings(SettingsCmd::SetSoundFont { file }) => self.set_default_sound_set(Some(file)),
+            AppCmd::Settings(SettingsCmd::SetDefaultSoundSet { file }) => self.set_default_sound_set(file),
             AppCmd::Settings(SettingsCmd::SetMidiInputs { all, names }) => {
                 let io = &mut self.state.io;
                 io.all_inputs = all;

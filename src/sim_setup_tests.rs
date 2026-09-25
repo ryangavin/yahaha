@@ -135,8 +135,20 @@ fn voices_after(out: &[(u64, Vec<u8>)]) -> [Option<(u8, u8, u8)>; 16] {
 /// Ending, a stopped load sent the Ending's routing). Two paths: a load after the Ending
 /// ended (`Engine::load`, what `change_style` does stopped), and a style change queued in
 /// the Ending's last bar, which takes over as the Ending ends (`swap_style`). The load's
-/// output must be exactly a fresh engine's load, and after the swap the receiver has Main
-/// A's voices.
+/// output must be exactly a fresh engine's load (after the expression resets, #122), every
+/// Style part's expression is back to full, and after the swap the receiver has Main A's
+/// voices.
+/// Each channel's expression (CC11) after `out`: the last value sent, else full.
+fn expression<'a>(out: impl Iterator<Item = &'a Vec<u8>>) -> [u8; 16] {
+    let mut expr = [127u8; 16];
+    for m in out {
+        if m.len() == 3 && m[0] & 0xF0 == 0xB0 && m[1] == 11 {
+            expr[(m[0] & 0x0F) as usize] = m[2];
+        }
+    }
+    expr
+}
+
 #[test]
 fn corpus_stopped_load_after_an_ending_sends_the_mains_setup() {
     let files = tests::corpus();
@@ -159,6 +171,7 @@ fn corpus_stopped_load_after_an_ending_sends_the_mains_setup() {
             e.load(Box::new(Prepared::new(&style)), 0, &mut rec);
             rec.out.into_iter().map(|(_, m)| m).collect::<Vec<_>>()
         };
+        let fresh_expr = expression(fresh.iter());
         for i in 0..4u8 {
             let slot = slot_of(SectionId::Ending(i));
             if p.sections[slot].is_none() {
@@ -174,7 +187,16 @@ fn corpus_stopped_load_after_an_ending_sends_the_mains_setup() {
             let from = rec.out.len();
             rec.now = end;
             e.load(Box::new(Prepared::new(&style)), end, &mut rec);
-            let sent: Vec<_> = rec.out[from..].iter().map(|(_, m)| m.clone()).collect();
+            let mut sent: Vec<_> = rec.out[from..].iter().map(|(_, m)| m.clone()).collect();
+            // Past the expression the Ending left (#122): the Ending's fade-out moves CC11,
+            // so the load first puts it back to full; the rest is a fresh load's.
+            let at = sent.iter().zip(&fresh).take_while(|(a, b)| a == b).count();
+            let resets = sent[at..].iter().take_while(|m| m.len() == 3 && m[0] & 0xF8 == 0xB8 && m[1] == 11 && m[2] == 127).count();
+            sent.drain(at..at + resets);
+            let expr = expression(rec.out.iter().map(|(_, m)| m));
+            if let Some(c) = (8..16).find(|&c| expr[c] != fresh_expr[c]) {
+                fails.push(format!("{name} Ending {i} ch{}: expression {} after the load, {} fresh", c + 1, expr[c], fresh_expr[c]));
+            }
             if sent != fresh {
                 let differ = sent.iter().zip(&fresh).filter(|(a, b)| a != b).count() + sent.len().abs_diff(fresh.len());
                 fails.push(format!("{name} Ending {i}: the stopped load sent {differ} messages unlike a fresh load's"));

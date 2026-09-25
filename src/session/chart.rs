@@ -159,8 +159,11 @@ impl Control {
         }
     }
 
-    pub(super) fn chart_mode_on(&self) -> bool {
-        self.charts.settings.on
+    /// The engine turned chart mode off (Chord Looper ON/OFF arming a loop,
+    /// `Engine::looper_on_off`): the settings follow, so later chart settings keep it off.
+    /// Whether it was on here.
+    pub(super) fn chart_mode_off_by_engine(&mut self) -> bool {
+        std::mem::replace(&mut self.charts.settings.on, false)
     }
 
     /// Chart mode on needs a chart. It stops a Chord Looper loop that plays or is armed

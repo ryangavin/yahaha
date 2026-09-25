@@ -16,8 +16,10 @@
 //! - `YAHAHA_MOCK=1`: the mock.
 //! - `YAHAHA_STYLES=path[:path…]`: the engine, with those style files/folders. Without it,
 //!   the repo's `corpus/` folder when it exists (a dev checkout), else the mock.
-//! - `YAHAHA_SF2=file.sf2`: the synth's SoundFont; else the first `.sf2` in the repo's
-//!   `soundfonts/`, else no synth.
+//! - `YAHAHA_SOUNDFONTS=dir`: the SoundFont folder; else the repo's `soundfonts/`. Every
+//!   `.sf2` there is a source of sounds, and the default sound set setting (#117) picks the
+//!   synth's main one. No fonts: no synth.
+//! - `YAHAHA_SF2=file.sf2`: a hidden override, the synth's main SoundFont at start.
 //!
 //! If the engine can't start (no CoreMIDI, say), the shell falls back to the mock, which then
 //! reports an offline session with no Launchkey and the reason in the status line.
@@ -186,16 +188,6 @@ fn repo_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
 }
 
-fn first_sf2(dir: &Path) -> Option<PathBuf> {
-    let mut v: Vec<PathBuf> = std::fs::read_dir(dir)
-        .ok()?
-        .filter_map(|e| e.ok().map(|e| e.path()))
-        .filter(|p| p.extension().is_some_and(|x| x.eq_ignore_ascii_case("sf2")))
-        .collect();
-    v.sort();
-    v.into_iter().next()
-}
-
 fn backend() -> Backend {
     if std::env::var_os("YAHAHA_MOCK").is_some_and(|v| v != "0") {
         return Backend::Mock(Box::new(Mutex::new(MockSession::new())));
@@ -213,8 +205,10 @@ fn backend() -> Backend {
             "No styles found (set YAHAHA_STYLES): a demo band with no sound or MIDI",
         ))));
     }
-    let sf2 = std::env::var_os("YAHAHA_SF2").map(PathBuf::from).or_else(|| first_sf2(&repo_root().join("soundfonts")));
-    match yahaha::Session::start(yahaha::Options { paths, sf2, data_dir: yahaha::session::default_data_dir(), ..yahaha::Options::default() }) {
+    let sf2 = std::env::var_os("YAHAHA_SF2").map(PathBuf::from);
+    let sound_font_dir = Some(std::env::var_os("YAHAHA_SOUNDFONTS").map_or_else(|| repo_root().join("soundfonts"), PathBuf::from));
+    let opts = yahaha::Options { paths, sf2, sound_font_dir, data_dir: yahaha::session::default_data_dir(), ..yahaha::Options::default() };
+    match yahaha::Session::start(opts) {
         Ok(s) => Backend::Live(s),
         Err(e) => {
             eprintln!("yahaha: the engine didn't start ({e:#}); running the mock session");
