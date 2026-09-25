@@ -534,27 +534,60 @@ mod tests {
         let am7 = Some(Chord::new(9, 10));
         let c = Some(Chord::new(0, 0));
         let f = Some(Chord::new(5, 0));
-        assert_eq!(name(&r, ai, &[48, 52], am7), "Am7"); // C-E are in Am7: keep it
+        assert_eq!(name(&r, ai, &[45, 52], am7), "Am7"); // A-E are in Am7: keep it
+        assert_eq!(name(&r, ai, &[48, 52], am7), "Am7/C"); // C-E too, over the lower C
         assert_eq!(name(&r, ai, &[57], am7), "Am7"); // so is a lone A
+        assert_eq!(name(&r, ai, &[48], am7), "Am7"); // or a lone C: no bass change
         assert_eq!(name(&r, ai, &[50], am7), "D"); // lone note outside it: major on it
         assert_eq!(get(&r, ai, &[38, 50], am7), Some(Chord::new(2, ONE_EIGHT))); // doubled: 1+8
         assert_eq!(name(&r, ai, &[50, 53], am7), "Dm");
         assert_eq!(name(&r, ai, &[50, 54], None), "D");
-        assert_eq!(name(&r, ai, &[52, 60], None), "C");
-        assert_eq!(name(&r, ai, &[48, 57], None), "Am");
+        assert_eq!(name(&r, ai, &[52, 60], None), "C/E"); // inferred, lowest note is the bass
+        assert_eq!(name(&r, ai, &[48, 57], None), "Am/C");
         assert_eq!(name(&r, ai, &[48, 58], None), "C7");
         assert_eq!(name(&r, ai, &[48, 59], None), "Cmaj7");
         assert_eq!(get(&r, ai, &[48, 55], None), Some(Chord::new(0, ONE_FIVE)));
         assert_eq!(get(&r, ai, &[43, 48], None), Some(Chord::new(0, ONE_FIVE)));
         // Tritones: the dominant nearer the previous chord on the circle of fifths.
-        assert_eq!(name(&r, ai, &[47, 53], None), "G7"); // B-F: the lower note is the 3rd
-        assert_eq!(name(&r, ai, &[41, 47], c), "G7"); // F-B over C
-        assert_eq!(name(&r, ai, &[41, 47], None), "C#7");
-        assert_eq!(name(&r, ai, &[46, 52], f), "C7"); // Bb-E over F
-        assert_eq!(name(&r, ai, &[48, 50], am7), "Am7"); // a 2nd: passing note
-        assert_eq!(name(&r, ai, &[40, 48, 52, 55], None), "C"); // 3+ notes, bass = root
-        assert_eq!(name(&r, ai, &[42, 48, 52, 55], None), "-"); // foreign bass, as Fingered
+        assert_eq!(name(&r, ai, &[47, 53], None), "G7/B"); // B-F: the lower note is the 3rd
+        assert_eq!(name(&r, ai, &[41, 47], c), "G7/F"); // F-B over C
+        assert_eq!(name(&r, ai, &[41, 47], None), "C#7/F");
+        assert_eq!(name(&r, ai, &[46, 52], f), "C7/Bb"); // Bb-E over F
+        assert_eq!(name(&r, ai, &[48, 50], am7), "Am7"); // a 2nd: passing note, chord unchanged
+        assert_eq!(name(&r, ai, &[40, 48, 52, 55], None), "C/E"); // 3+ notes: On Bass reading
+        assert_eq!(name(&r, ai, &[42, 48, 52, 55], None), "C/F#"); // foreign bass, as On Bass
         assert_eq!(get(&r, ai, &[48, 49, 50], am7).unwrap().ty, CANCEL);
+    }
+
+    /// AI Fingered keeps a slash bass (#194): after a chord, a held chord note with a
+    /// lower note puts the chord over that note. Plain Fingered keeps the root bass.
+    #[test]
+    fn ai_fingered_slash_bass() {
+        let r = Recognizer::new();
+        let ai = Fingering::AiFingered;
+        let c = Some(Chord::new(0, MAJOR));
+        let am = Some(Chord::new(9, MINOR));
+        let e7 = Some(Chord::new(4, SEVENTH));
+        // C, then a lone C keeps it, then B below: C/B.
+        assert_eq!(name(&r, ai, &[48], c), "C");
+        assert_eq!(name(&r, ai, &[47, 48], c), "C/B");
+        // A descending line under C: C/Bb, C/A, C/G.
+        let c_b = get(&r, ai, &[47, 48], c);
+        assert_eq!(name(&r, ai, &[46, 48], c_b), "C/Bb");
+        assert_eq!(name(&r, ai, &[45, 48], c), "C/A");
+        assert_eq!(name(&r, ai, &[43, 48], c), "C/G");
+        // Am, then G+A: Am/G, then F#+A: Am/F#.
+        assert_eq!(name(&r, ai, &[43, 45], am), "Am/G");
+        let am_g = get(&r, ai, &[43, 45], am);
+        assert_eq!(name(&r, ai, &[42, 45], am_g), "Am/F#");
+        // Two-note E7/G#: G# under E after E7, or the G#-D tritone after Am/G.
+        assert_eq!(name(&r, ai, &[44, 52], e7), "E7/G#");
+        assert_eq!(name(&r, ai, &[44, 50], am_g), "E7/G#");
+        // The root lowest is no slash chord.
+        assert_eq!(name(&r, ai, &[48, 52], c), "C");
+        // Plain Fingered never takes the lowest note as the bass.
+        assert_eq!(name(&r, Fingering::Fingered, &[47, 48, 52, 55], c), "Cmaj7");
+        assert_eq!(get(&r, Fingering::Fingered, &[47, 48], c), None);
     }
 
     #[test]
