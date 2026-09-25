@@ -189,8 +189,10 @@ mod tests {
                     match slot.take() {
                         Some(mut c) => {
                             c.process(&mut out);
-                            slot.put(c);
+                            // Counted before the core goes back: once the control side
+                            // holds it, every render with it has been counted.
                             rendered.fetch_add(1, Relaxed);
+                            slot.put(c);
                         }
                         None => {
                             silent.fetch_add(1, Relaxed);
