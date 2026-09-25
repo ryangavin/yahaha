@@ -185,6 +185,49 @@ export type AppCmd =
   | { type: 'setParamLock'; item: LockItem; on: boolean }
   // Style Dynamics Control, Touch and Accent (#180): see DynamicsState below.
   | DynamicsCmd
+  // Knob Assign pages for the Launchkey's encoders (#197): see KnobsState below.
+  | KnobsCmd
+
+/** Knob Assign pages (#197; docs/app-api.md › Knob Assign pages). */
+export type KnobsCmd =
+  | { type: 'setKnobPage'; page: KnobPage }
+  | { type: 'stepKnobPage'; delta: number }
+  | { type: 'turnKnob'; knob: number; delta: number }
+
+export type KnobPage = 'style' | 'parts'
+export type KnobFunction =
+  | 'none'
+  | 'dynamics'
+  | 'retriggerRate'
+  | 'retriggerOnOff'
+  | 'trackMuteA'
+  | 'trackMuteB'
+  | 'tempo'
+  | 'partVolume'
+  | 'harmonyVolume'
+  | 'metronomeVolume'
+
+/** The Knob Assign page and its eight knobs. */
+export interface KnobsState {
+  page: KnobPage
+  pageName: string
+  /** 1-based. */
+  pageNumber: number
+  pageCount: number
+  /** Knobs 1-8. */
+  knobs: KnobState[]
+}
+
+export interface KnobState {
+  function: KnobFunction
+  /** "Dynamics Control"; `short` is up to 8 characters ("DynCtrl", "---"). */
+  name: string
+  short: string
+  /** The value as text ("64", "1/8", "On", "3 of 8", "120 BPM"); empty for No Assign. */
+  value: string
+  /** Where the knob is, 0-127 (the LED ring); null for tempo and No Assign. */
+  level: number | null
+}
 
 /** Style Dynamics Control, Touch and Accent (#180; docs/app-api.md › Style Dynamics). */
 export type DynamicsCmd =
@@ -913,6 +956,8 @@ export interface AppState {
   sounds: SoundsState
   /** Style Dynamics Control, Touch and Accent (#180). */
   dynamics: DynamicsState
+  /** Knob Assign pages for the Launchkey's encoders (#197). */
+  knobs: KnobsState
 }
 
 // ── Instrument plugins (docs/plugin-hosting.md) ──────────────────────────

@@ -2060,5 +2060,69 @@
     "touch": false,
     "accent": false,
     "accentThreshold": 110
+  },
+  "knobs": {
+    "page": "style",
+    "pageName": "Style",
+    "pageNumber": 1,
+    "pageCount": 2,
+    "knobs": [
+      {
+        "function": "dynamics",
+        "name": "Dynamics Control",
+        "short": "DynCtrl",
+        "value": "64",
+        "level": 64
+      },
+      {
+        "function": "retriggerRate",
+        "name": "Retrigger Rate",
+        "short": "RtgRate",
+        "value": "1/8",
+        "level": 76
+      },
+      {
+        "function": "retriggerOnOff",
+        "name": "Retrigger On/Off",
+        "short": "RtgOnOff",
+        "value": "Off",
+        "level": 0
+      },
+      {
+        "function": "trackMuteA",
+        "name": "Style Track Mute A",
+        "short": "StyMuteA",
+        "value": "All",
+        "level": 127
+      },
+      {
+        "function": "trackMuteB",
+        "name": "Style Track Mute B",
+        "short": "StyMuteB",
+        "value": "All",
+        "level": 127
+      },
+      {
+        "function": "none",
+        "name": "No Assign",
+        "short": "---",
+        "value": "",
+        "level": null
+      },
+      {
+        "function": "none",
+        "name": "No Assign",
+        "short": "---",
+        "value": "",
+        "level": null
+      },
+      {
+        "function": "tempo",
+        "name": "Tempo",
+        "short": "Tempo",
+        "value": "75 BPM",
+        "level": null
+      }
+    ]
   }
 }

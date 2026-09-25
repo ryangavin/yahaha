@@ -173,6 +173,8 @@ pub struct MockSession {
     sound: sound::MockSound,
     /// The sound catalog (mock_sounds.rs).
     sounds: sounds::MockSounds,
+    /// Knob Assign pages (#197): the engine's own model.
+    knobs: yahaha::knobs::Knobs,
 }
 
 impl Default for MockSession {
@@ -354,6 +356,7 @@ impl MockSession {
             param_locks: ParamLockState::default(),
             sounds: SoundsState::default(),
             dynamics: DynamicsState::default(),
+            knobs: KnobsState::default(),
         };
         let songs: Vec<(String, String)> = library.entries.iter().filter(|e| e.status == "ok").map(|e| (e.path.clone(), e.name.clone())).collect();
         let mut m = MockSession {
@@ -382,6 +385,7 @@ impl MockSession {
             controllers: Controllers::new(),
             sound: sound::MockSound::default(),
             sounds: sounds::MockSounds::default(),
+            knobs: Default::default(),
         };
         m.set_style(0);
         m.state.ots.applied = 2;
@@ -587,6 +591,20 @@ impl MockSession {
         self.cmd(cmd.into());
         self.sync_part_plugins();
         self.bump(&before)
+    }
+
+    /// The values the knobs turn from (the session's `knobs_now`).
+    fn knobs_now(&self) -> yahaha::knobs::Now {
+        let s = &self.state;
+        yahaha::knobs::Now {
+            dynamics: s.dynamics.level,
+            retrigger: s.transport.retrigger,
+            retrigger_rate: s.style_settings.retrigger_rate,
+            bpm: s.transport.tempo,
+            part_volume: [0, 1, 2, 3].map(|p| s.keyboard_parts[p].volume),
+            harmony_volume: s.harmony_arp.volume,
+            metronome_volume: s.metronome.volume,
+        }
     }
 
     /// A keyboard part's own plugin patch plays its plugin (the session's
@@ -986,6 +1004,7 @@ impl MockSession {
     /// The fields the engine computes from the others: names, flags, pads and lamps.
     fn derive(&mut self) {
         self.looper.publish(&mut self.state.looper);
+        self.state.knobs = self.knobs.state(&self.knobs_now());
         let st = &mut self.state;
         let c = &mut st.chord;
         c.fingering_name = if c.upper { "Fingered*".into() } else { c.fingering.name().into() };
@@ -1661,6 +1680,17 @@ impl MockSession {
             AppCmd::Settings(SettingsCmd::SetPaletteLeds { on }) => self.state.pads.palette_leds = on,
             AppCmd::Chart(c) => self.chart_cmd(c),
             AppCmd::ParamLock(ParamLockCmd::SetParamLock { item, on }) => self.state.param_locks.set(item, on),
+            // As the session: a turn runs its function's command from the value in effect.
+            AppCmd::Knobs(c) => match c {
+                KnobsCmd::SetKnobPage { page } => self.knobs.set_page(page),
+                KnobsCmd::StepKnobPage { delta } => self.knobs.set_page(self.knobs.page.step(delta)),
+                KnobsCmd::TurnKnob { knob, delta } => {
+                    let now = self.knobs_now();
+                    if let Some(cmd) = self.knobs.turn(knob, delta, &now) {
+                        self.cmd(cmd);
+                    }
+                }
+            },
             AppCmd::Dynamics(c) => {
                 // As the session: the command applies to the settings in effect.
                 let d = &self.state.dynamics;
@@ -2486,6 +2516,24 @@ mod tests {
         m.send(RegistrationCmd::SetFreeze { on: true });
         m.send(RegistrationCmd::RecallRegist { index: 5 });
         assert_eq!(m.state.harmony_arp, scrambled, "frozen");
+    }
+
+    /// Knob Assign pages (#197): a turn runs its function's command, as the session's.
+    #[test]
+    fn knobs_turn_their_functions_as_the_session() {
+        let mut m = MockSession::new();
+        assert_eq!((m.state.knobs.page_name.as_str(), m.state.knobs.knobs.len()), ("Style", 8));
+        m.send(KnobsCmd::TurnKnob { knob: 0, delta: 4 });
+        assert_eq!(m.state.dynamics.level, 72);
+        assert_eq!(m.state.knobs.knobs[0].value, "72");
+        let bpm = m.state.transport.tempo.round();
+        m.send(KnobsCmd::TurnKnob { knob: 7, delta: -3 });
+        assert_eq!(m.state.transport.tempo, bpm - 3.0);
+        m.send(KnobsCmd::StepKnobPage { delta: 1 });
+        let v = m.state.keyboard_parts[3].volume;
+        m.send(KnobsCmd::TurnKnob { knob: 3, delta: -1 });
+        assert_eq!(m.state.keyboard_parts[3].volume, v.saturating_sub(2));
+        assert_eq!(m.state.knobs.page_number, 2);
     }
 
     /// Style Dynamics (#180): commands apply to the settings in effect and clamp, as the

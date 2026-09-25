@@ -99,6 +99,7 @@ impl Leds {
         for m in &self.buf {
             self.out.push(m);
         }
+        self.out.push(&launchkey::ENCODERS_ABSOLUTE);
         self.out.push(&launchkey::EXIT_DAW);
         self.out.flush();
     }

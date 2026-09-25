@@ -434,6 +434,20 @@ Genos2 Style Dynamics Control (OM p.11, p.69; RM p.11, p.142, p.147), with Touch
 | `setAccent`, `toggleAccent` | `on` | Accent: a chord-section strike at or above the threshold, while a Main plays, starts that Main's own fill at the next beat, as Fill Self does. It is not a Main press, so OTS Link does not follow it. It does nothing during an Intro, fill, break or Ending, or while a change is queued. |
 | `setAccentThreshold` | `velocity` 1–127 | The Accent threshold (default 110). |
 
+### Knob Assign pages
+The Launchkey's 8 encoders as the Genos LIVE CONTROL knobs (#197; OM p.62–63, RM p.145–148;
+README › Knobs). A page gives each knob a function; the knobs are relative, so a turn moves
+the value from where it is now, whoever set it last. A turn runs the command of the knob's
+function (`setDynamics`, `stepRetriggerRate`, `toggleRetrigger`, `styleTrackMute`,
+`setTempo`, `setPartVolume`, `setHarmonyVolume`, `setMetronomeVolume`), so it behaves
+exactly as that command does.
+
+| Command | Fields | What it does |
+|---|---|---|
+| `setKnobPage` | `page` `style` \| `parts` | The Knob Assign page. |
+| `stepKnobPage` | `delta` | Steps the page, stopping at the first and last (the encoder page buttons ▲/▼). |
+| `turnKnob` | `knob` 0–7, `delta` | Turns a knob `delta` steps (positive: clockwise). Levels move 2 a step, tempo 1 BPM; Retrigger Rate and On/Off switch every 3 steps (right: shorter, on); Track Mute A/B move their position 4 a step. A knob with No Assign does nothing. |
+
 ### Sound catalog
 One list of every sound for the Sound Browser (#117): every preset of every `.sf2` in the
 SoundFont folder, every instrument plugin, and every saved sound (the sound library's
@@ -478,6 +492,9 @@ The session owns the Launchkey, so it works the same whichever client is running
 - Some controls stay on the MIDI thread for real-time reasons: the faders (soft takeover
   against session-internal atomics), Pad Bank ▲/▼ and the fader-page button. A pad
   pressed straight after a page change must already read the new page.
+- The encoders and their page buttons ▲/▼ become `turnKnob` and `stepKnobPage` (see
+  Knob Assign pages). On entering DAW mode the session turns the encoders' relative
+  output on (feature control 45h); in the Transport encoder mode they are relative anyway.
 - The session drives all the LEDs.
 
 `state.pads` mirrors the hardware.
@@ -978,6 +995,20 @@ Style Dynamics: `{ control, level, touch, accent, accentThreshold }`.
 - `level`: the level in effect, 0–127. Touch moves it. Default 64.
 - `touch`, `accent`: default false.
 - `accentThreshold`: a velocity from 1 to 127. Default 110.
+
+### `knobs`
+The Knob Assign page: `{ page, pageName, pageNumber, pageCount, knobs }`.
+- `page`: `style` (the default) or `parts`. `pageNumber` is 1-based.
+- `knobs`: always eight, knob 1 first: `{ function, name, short, value, level }`.
+  - `function`: `none`, `dynamics`, `retriggerRate`, `retriggerOnOff`, `trackMuteA`,
+    `trackMuteB`, `tempo`, `partVolume`, `harmonyVolume` or `metronomeVolume`.
+  - `name` is the full name ("Dynamics Control"); `short` is up to 8 characters ("DynCtrl",
+    "---" for No Assign), as the Genos Live Control view and the Launchkey display show it.
+  - `value`: the value as text ("64", "1/8", "On", "3 of 8", "All", "120 BPM"); empty for No
+    Assign.
+  - `level`: where the knob is, 0–127, as the Genos LED ring shows it; null for tempo and No
+    Assign. Track Mute A/B keep their own position (they only set the Style parts' switches),
+    starting fully right.
 
 ### `message`
 `{ seq, text, error }` or null. It holds the last notice or error, for example a style
@@ -1635,6 +1666,22 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
   "paramLocks": { "splitPoint": false, "fingeringType": true },
   "sounds": { "revision": 3, "count": 1219, "scanning": false, "auditioning": null },
   "dynamics": { "control": true, "level": 72, "touch": true, "accent": true, "accentThreshold": 110 },
+  "knobs": {
+    "page": "style",
+    "pageName": "Style",
+    "pageNumber": 1,
+    "pageCount": 2,
+    "knobs": [
+      { "function": "dynamics", "name": "Dynamics Control", "short": "DynCtrl", "value": "72", "level": 72 },
+      { "function": "retriggerRate", "name": "Retrigger Rate", "short": "RtgRate", "value": "1/8", "level": 76 },
+      { "function": "retriggerOnOff", "name": "Retrigger On/Off", "short": "RtgOnOff", "value": "Off", "level": 0 },
+      { "function": "trackMuteA", "name": "Style Track Mute A", "short": "StyMuteA", "value": "All", "level": 127 },
+      { "function": "trackMuteB", "name": "Style Track Mute B", "short": "StyMuteB", "value": "All", "level": 127 },
+      { "function": "none", "name": "No Assign", "short": "---", "value": "", "level": null },
+      { "function": "none", "name": "No Assign", "short": "---", "value": "", "level": null },
+      { "function": "tempo", "name": "Tempo", "short": "Tempo", "value": "92 BPM", "level": null }
+    ]
+  },
   "message": null
 }
 ```
