@@ -370,7 +370,7 @@ export class MockSoundLibrary {
 }
 
 /** The presets of a mock SoundFont: the GM set on bank 0 and a few kits on bank 128. */
-function presetsOf(file: string) {
+export function presetsOf(file: string) {
   const kits = ['Standard', 'Room', 'Power', 'Electronic', 'Jazz', 'Brush']
   return [
     ...GM.map((name, program) => ({ bank: 0, program, name: file === SF2 ? name : `${name} (Fluid)` })),

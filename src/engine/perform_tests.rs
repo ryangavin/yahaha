@@ -138,6 +138,40 @@ fn inside_intro_ending_timing() {
     assert_eq!(e.change_point(Change::IntroEnding(end2), now), (tpb, tpb));
 }
 
+/// TAP TEMPO while the band plays, with the default settings (#128): the taps set the
+/// tempo (from the second tap, as the Genos does for a Song, OM p.46), averaging up to four
+/// taps, and the band plays on from where it is: no Section Reset.
+#[test]
+#[ignore = "#128 pending: ending/tap-tempo removes this"]
+fn tap_while_playing_sets_the_tempo_by_default() {
+    let Some((mut e, mut rec)) = started(StyleSettings::default()) else { return };
+    let (ppq, tpb, _) = grid(&e);
+    let t = e.ns_at(tpb + 2.5 * ppq);
+    play(&mut e, &mut rec, 0, t);
+    let (bpm, idx) = (e.bpm, e.ev_idx);
+    assert!(idx > 0);
+    e.button(Button::TapTempo, t, &mut rec);
+    assert_eq!(e.bpm, bpm, "one tap alone keeps the tempo");
+    assert_eq!(e.ev_idx, idx, "and does not rewind the section");
+    let s = e.snapshot(t);
+    assert_eq!((s.bar, s.beat), (1, 2), "still in bar 2, beat 3");
+    // Taps 400 ms apart: 150 BPM from the second tap on.
+    let mut now = t;
+    for _ in 0..3 {
+        play(&mut e, &mut rec, now, now + 400_000_000);
+        now += 400_000_000;
+        let tick = e.tick_at(now);
+        e.button(Button::TapTempo, now, &mut rec);
+        assert!((e.bpm - 150.0).abs() < 0.01, "{}", e.bpm);
+        assert!((e.tick_at(now) - tick).abs() < 1.0, "the band plays on from where it is");
+    }
+    // A fifth tap 500 ms later averages the last four taps (1.2 s over 3 beats).
+    play(&mut e, &mut rec, now, now + 500_000_000);
+    e.button(Button::TapTempo, now + 500_000_000, &mut rec);
+    assert!((e.bpm - 60.0 / 1.3 * 3.0).abs() < 0.01, "{}", e.bpm);
+    assert!(e.running);
+}
+
 #[test]
 fn tap_resets_the_section_or_sets_the_tempo() {
     let Some((mut e, mut rec)) = started(StyleSettings::default()) else { return };

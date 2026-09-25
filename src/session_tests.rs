@@ -879,6 +879,7 @@ fn fader_positions_and_master_takeover() {
             control: ctl.clone(),
             swap: None,
             plugins: None,
+            thread: None,
         });
     }
     s.midi_in(Port::Pads, &[0xB0, 13, 100]); // at unity: picks up
@@ -1240,6 +1241,7 @@ fn sound_font_switch_needs_the_synth_and_a_file_in_its_folder() {
         control: Arc::new(SynthControl::new(0)),
         swap: Some(synth::RackSwap { tx, old }),
         plugins: None,
+        thread: None,
     });
     for bad in ["../x.sf2", "nope.sf2", "a/b.sf2"] {
         assert!(s.send(SettingsCmd::SetSoundFont { file: bad.into() }).is_err(), "{bad}");
@@ -1252,6 +1254,56 @@ fn sound_font_switch_needs_the_synth_and_a_file_in_its_folder() {
     assert!(rx.pop().is_ok(), "the new rack went to the audio thread");
     let m = s.meters();
     assert_eq!(m.channels.iter().map(|c| c.channel).collect::<Vec<_>>(), vec![1, 2, 3, 4, 9, 10, 11, 12, 13, 14, 15, 16]);
+}
+
+/// The audio buffer (#104): 64, 128 or 256 only. Offline it sets the render block; a note
+/// held across the change sounds on and releases (nothing sticks). Live, the synth thread
+/// reopens the stream and the size it reports is the one shown.
+#[test]
+fn audio_buffer_changes_keep_notes_and_report_the_size() {
+    let Some(p) = style("SlowWalker.T552.sty") else { return };
+    let s = Session::offline(Options { paths: vec![p.clone()], ..Options::default() }).unwrap();
+    assert!(s.send(SettingsCmd::SetAudioBuffer { frames: 128 }).is_err(), "no synth");
+    let sf_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("soundfonts");
+    let Some(sf2) = library::sound_font_files(&sf_dir).into_iter().map(|f| sf_dir.join(f)).min_by_key(|p| p.metadata().map(|m| m.len()).unwrap_or(u64::MAX)) else {
+        return;
+    };
+    s.offline_audio(Some(&sf2), 48_000).unwrap();
+    let energy = |(l, r): (Vec<f32>, Vec<f32>)| l.iter().chain(&r).map(|x| (*x as f64).powi(2)).sum::<f64>();
+    s.midi_in(Port::Keys, &[0x90, 72, 110]);
+    assert!(energy(s.render(4800)) > 1e-4);
+    for bad in [0, 100, 512] {
+        assert!(s.send(SettingsCmd::SetAudioBuffer { frames: bad }).is_err(), "{bad}");
+    }
+    s.send(SettingsCmd::SetAudioBuffer { frames: 256 }).unwrap();
+    assert_eq!(s.state().io.synth.as_ref().unwrap().buffer_frames, Some(256));
+    assert!(energy(s.render(4800)) > 1e-4, "the held note plays on");
+    s.midi_in(Port::Keys, &[0x80, 72, 0]);
+    s.render(96_000);
+    assert!(energy(s.render(4800)) < 1e-6, "and releases");
+
+    // Live: the synth thread answers with the size the device took.
+    let s = Session::offline(Options { paths: vec![p], ..Options::default() }).unwrap();
+    let (tx, rx) = std::sync::mpsc::channel::<SynthMsg>();
+    let t = std::thread::spawn(move || {
+        while let Ok(SynthMsg::Buffer(n, reply)) = rx.recv() {
+            let _ = reply.send(Ok(Some(n.max(128))));
+        }
+    });
+    s.inner.lock().synth = Some(SynthRef {
+        info: SynthInfo { name: "test".into(), sample_rate: 48000, buffer: Some(128), device: "none".into(), channels: 2 },
+        control: Arc::new(SynthControl::new(0)),
+        swap: None,
+        plugins: None,
+        thread: Some(tx.clone()),
+    });
+    s.send(SettingsCmd::SetAudioBuffer { frames: 256 }).unwrap();
+    assert_eq!(s.state().io.synth.as_ref().unwrap().buffer_frames, Some(256));
+    s.send(SettingsCmd::SetAudioBuffer { frames: 64 }).unwrap();
+    assert_eq!(s.state().io.synth.as_ref().unwrap().buffer_frames, Some(128), "the nearest the device allows");
+    let _ = tx.send(SynthMsg::Stop);
+    s.inner.lock().synth = None;
+    t.join().unwrap();
 }
 
 #[test]
