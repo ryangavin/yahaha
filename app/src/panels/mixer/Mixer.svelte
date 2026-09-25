@@ -112,7 +112,7 @@
     badge: p.playsBass
       ? { text: 'Plays bass', tip: 'detection.manual_bass' as const }
       : p.plugin
-        ? { text: pluginBadge(p.plugin), tip: 'mixer.plugin' as const }
+        ? { text: pluginBadge(p.plugin), tip: p.plugin.inProcessFallback ? ('mixer.plugin_fallback' as const) : ('mixer.plugin' as const) }
         : null,
     solo: {
       isSolo: mixer.partSolo === i,

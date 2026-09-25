@@ -43,7 +43,8 @@ impl Control {
     /// 1-4 when the Main changes, on a style change, and when Link is switched on. When the
     /// Main "changes" is OTS Link Timing: Immediate, as it is pressed (`main`, which moves at
     /// once); At Main Section Change, when that Main starts playing (the section playing;
-    /// an Intro, fill or break in between changes nothing). Stopped, both follow the press,
+    /// an Intro, fill or break in between changes nothing, and a style that takes over
+    /// during one recalls its OTS when the Main starts). Stopped, both follow the press,
     /// except that stopping the band is not itself a change: a Main pressed but not yet
     /// played when the band stops waits for the band to start it or for a Main press (the
     /// same Main again included). Switching the timing while it waits changes nothing
@@ -61,14 +62,17 @@ impl Control {
         }
         self.ots_was_running = s.running;
         let held = self.last_ots_key.filter(|k| k.0 == self.cur).map_or(s.main, |k| k.1);
-        let main = match (at_change, s.running, s.cur) {
-            (true, true, Some(SectionId::Main(m))) if resolve_main(&self.info.has, s.main) == Some(m) => s.main,
-            (true, true, Some(SectionId::Main(m))) => m,
-            (true, true, _) => held,
-            (_, false, _) if self.ots_stop_main.is_some() => held,
-            _ => s.main,
+        let key = match (at_change, s.running, s.cur) {
+            (true, true, Some(SectionId::Main(m))) if resolve_main(&self.info.has, s.main) == Some(m) => (self.cur, s.main),
+            (true, true, Some(SectionId::Main(m))) => (self.cur, m),
+            // An Intro, fill or break: nothing changes the keyboard parts before the Main
+            // starts, not even a style that took over meanwhile (#111): its OTS comes with
+            // the Main.
+            (true, true, _) => self.last_ots_key.unwrap_or((self.cur, held)),
+            (_, false, _) if self.ots_stop_main.is_some() => (self.cur, held),
+            _ => (self.cur, s.main),
         };
-        let key = (self.cur, main);
+        let main = key.1;
         let link = self.shared.parts.ots_link.load(Relaxed);
         // A Registration recall settling: its voices, not the OTS of its section.
         if self.registration_holds_ots() {
