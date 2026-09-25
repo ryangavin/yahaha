@@ -2106,7 +2106,7 @@ const catalog = {
   },
   'sound.audition': {
     title: 'Audition',
-    body: 'Plays the sound on its own for a moment: a short arpeggio and a chord, or a beat for a drum kit. Works while the band is stopped.',
+    body: 'Plays the sound on its own for a moment: a short arpeggio and a chord, or a beat for a drum kit. Works while the band is stopped. A plugin patch loads its plugin first.',
     genos: null,
     keys: [],
     launchkey: null,

@@ -952,6 +952,96 @@ fn stop_acmp_mode_is_recalled() {
     let _ = std::fs::remove_dir_all(dir);
 }
 
+// ----- Style settings (#107) -----
+
+/// (Section Change Timing To Main, Inside Intro/Ending, Retrigger on, rate, Synchro Stop
+/// Window, Section Reset, fade in, fade out, fade hold).
+type Settings = (crate::engine::MainTiming, crate::engine::IntroEndingTiming, bool, u8, u16, bool, u16, u16, u16);
+
+fn settings(s: &Session) -> Settings {
+    let st = s.state();
+    let x = &st.style_settings;
+    (x.main_timing, x.intro_ending_timing, st.transport.retrigger, x.retrigger_rate, x.sync_stop_window_ms, x.section_reset, x.fade_in_ms, x.fade_out_ms, x.fade_hold_ms)
+}
+
+fn set_settings(s: &Session, immediate: bool, retrigger: bool, rate: u8, window: u16, reset: bool, fade: u16) {
+    use crate::engine::{IntroEndingTiming, MainTiming};
+    let main = if immediate { MainTiming::Immediate } else { MainTiming::NextBar };
+    let ie = if immediate { IntroEndingTiming::EndOfSection } else { IntroEndingTiming::NextBar };
+    s.send(StyleSettingsCmd::SetMainTiming { timing: main }).unwrap();
+    s.send(StyleSettingsCmd::SetIntroEndingTiming { timing: ie }).unwrap();
+    s.send(StyleSettingsCmd::SetRetriggerRate { rate }).unwrap();
+    s.send(StyleSettingsCmd::SetSyncStopWindow { ms: window }).unwrap();
+    s.send(StyleSettingsCmd::SetSectionReset { on: reset }).unwrap();
+    s.send(StyleSettingsCmd::SetFadeInTime { ms: fade }).unwrap();
+    s.send(StyleSettingsCmd::SetFadeOutTime { ms: fade + 1000 }).unwrap();
+    s.send(StyleSettingsCmd::SetFadeHoldTime { ms: fade / 2 }).unwrap();
+    if s.state().transport.retrigger != retrigger {
+        s.send(TransportCmd::ToggleRetrigger).unwrap();
+    }
+    s.advance(MS);
+}
+
+#[test]
+fn style_settings_are_registered() {
+    let Some((s, dir)) = session("stylesettings") else { return };
+    set_settings(&s, true, true, 16, 800, false, 3000);
+    let want = settings(&s);
+    s.send(RegistrationCmd::MemorizeRegist { index: 0 }).unwrap();
+    set_settings(&s, false, false, 4, 0, true, 9000);
+    let other = settings(&s);
+    s.send(RegistrationCmd::RecallRegist { index: 0 }).unwrap();
+    s.advance(MS);
+    let got = settings(&s);
+    // Inside Intro/Ending is not a Registration item: it stays.
+    let mut expect = want;
+    expect.1 = other.1;
+    assert_eq!(got, expect);
+
+    // Freeze Style keeps the Style settings; Freeze Assignable keeps the fade times.
+    set_settings(&s, false, false, 4, 0, true, 9000);
+    s.send(RegistrationCmd::SetFreezeGroup { group: Group::Assignable, on: true }).unwrap();
+    s.send(RegistrationCmd::ToggleFreeze).unwrap();
+    s.send(RegistrationCmd::RecallRegist { index: 0 }).unwrap();
+    s.advance(MS);
+    let got = settings(&s);
+    assert_eq!((got.0, got.2, got.3, got.4, got.5), (want.0, want.2, want.3, want.4, want.5));
+    assert_eq!((got.6, got.7, got.8), (other.6, other.7, other.8));
+    s.send(RegistrationCmd::SetFreezeGroup { group: Group::Assignable, on: false }).unwrap();
+    s.send(RegistrationCmd::SetFreezeGroup { group: Group::Style, on: true }).unwrap();
+    set_settings(&s, false, false, 4, 0, true, 9000);
+    s.send(RegistrationCmd::RecallRegist { index: 0 }).unwrap();
+    s.advance(MS);
+    let got = settings(&s);
+    assert_eq!((got.0, got.2, got.3, got.4, got.5), (other.0, other.2, other.3, other.4, other.5));
+    assert_eq!((got.6, got.7, got.8), (want.6, want.7, want.8));
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+/// A bank from before #107 (no `styleSettings`, no `assignable` group) leaves the settings
+/// as they are.
+#[test]
+fn a_bank_without_style_settings_leaves_them() {
+    let Some((s, dir)) = session("oldstylesettings") else { return };
+    s.send(RegistrationCmd::MemorizeRegist { index: 0 }).unwrap();
+    save(&s, "Old");
+    let file = dir.join("Registration/Old.regist.json");
+    let mut v: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&file).unwrap()).unwrap();
+    let m = &mut v["memories"][0];
+    assert!(m["sections"]["styleSettings"].is_object());
+    m["sections"].as_object_mut().unwrap().remove("styleSettings");
+    m["groups"] = serde_json::json!(["style", "voice", "tempo", "transpose"]);
+    std::fs::write(&file, v.to_string()).unwrap();
+    s.send(RegistrationCmd::SelectRegistBank { path: file.display().to_string() }).unwrap();
+    set_settings(&s, true, true, 16, 800, false, 3000);
+    let before = settings(&s);
+    s.send(RegistrationCmd::RecallRegist { index: 0 }).unwrap();
+    s.advance(MS);
+    assert_eq!(settings(&s), before);
+    assert!(!s.state().registration.buttons[0].groups.has(Group::Assignable));
+    let _ = std::fs::remove_dir_all(dir);
+}
+
 // ----- a keyboard part's library patch (#109) -----
 
 /// A session with a data folder holding a SoundFont folder (`<data>/sf/Test.sf2`, the

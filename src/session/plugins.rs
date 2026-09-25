@@ -81,7 +81,7 @@ mod imp {
     use super::*;
     use crate::api::{PluginEntry, PluginStatus};
     use crate::plugin::{
-        dispose_later, EditorTarget, LoadConfig, LoadHandle, LoadMode, LoadProgress, PluginFormat, PluginHost, PluginId, PluginInfo,
+        dispose_later, EditorTarget, InstanceRef, LoadConfig, LoadHandle, LoadMode, LoadProgress, PluginFormat, PluginHost, PluginId, PluginInfo,
         PluginStats, RackEvent, Swap, DEFAULT_FADE_FRAMES,
     };
     use crate::route::Source;
@@ -153,6 +153,20 @@ mod imp {
         pub(crate) autosave_ns: u64,
         /// Save the parts' plugins at the next pump (live sessions only).
         pub(crate) dirty: bool,
+        /// Plugin state reads running on `plugin-state` threads (the autosave and
+        /// `savePartPluginState`): an out-of-process plugin's state is an XPC round trip and
+        /// a sampler's can be MBs, so the control thread never waits for one.
+        pub(crate) state_reads: Vec<mpsc::Receiver<StateRead>>,
+    }
+
+    /// A plugin state read on a `plugin-state` thread.
+    pub(crate) struct StateRead {
+        ch: u8,
+        /// The instance read (it applies only if the channel still plays it).
+        inst: InstanceRef,
+        state: Result<Vec<u8>, String>,
+        /// Say it in the message line if it fails (an explicit save, not the autosave).
+        report: bool,
     }
 
     fn stage_name(p: &LoadProgress) -> Option<String> {
@@ -261,13 +275,67 @@ mod imp {
             }
         }
 
-        /// Read channel `ch`'s playing plugin's state into its voice (and save it).
+        /// Read channel `ch`'s playing plugin's state into its voice (and save it). The
+        /// read runs on a thread of its own; the pump applies it.
         pub(crate) fn save_channel_state(&mut self, ch: u8) -> Result<(), String> {
-            let c = self.plugins.channels[(ch & 15) as usize].as_mut().ok_or("the part plays its SoundFont voice")?;
+            let c = self.plugins.channels[(ch & 15) as usize].as_ref().ok_or("the part plays its SoundFont voice")?;
             let ed = c.editor.clone().ok_or("the plugin is not playing yet")?;
-            c.voice.state = Some(ed.state().map_err(|e| format!("{e:#}"))?);
-            self.plugins.dirty = true;
+            self.read_states(vec![(ch & 15, ed)], true);
             Ok(())
+        }
+
+        /// Read these instances' states on a `plugin-state` thread; the pump applies them.
+        fn read_states(&mut self, targets: Vec<(u8, EditorTarget)>, report: bool) {
+            let (tx, rx) = mpsc::channel();
+            let ok = std::thread::Builder::new().name("plugin-state".into()).spawn(move || {
+                for (ch, e) in targets {
+                    let state = e.state().map_err(|e| format!("{e:#}"));
+                    let inst = e.instance();
+                    // The editor handle goes first: if it held the unit's last reference,
+                    // the unit is disposed of here, not on the control thread.
+                    drop(e);
+                    if tx.send(StateRead { ch, inst, state, report }).is_err() {
+                        return;
+                    }
+                }
+            });
+            match ok {
+                Ok(_) => self.plugins.state_reads.push(rx),
+                Err(e) if report => self.say(format!("could not read the plugin's settings: {e}"), true),
+                Err(_) => {}
+            }
+        }
+
+        /// Plugin states read since the last pump: into the channels' voices (to be saved),
+        /// if the channel still plays the instance read.
+        fn pump_state_reads(&mut self) {
+            let mut done = Vec::new();
+            self.plugins.state_reads.retain(|rx| loop {
+                match rx.try_recv() {
+                    Ok(r) => done.push(r),
+                    Err(mpsc::TryRecvError::Empty) => break true,
+                    Err(mpsc::TryRecvError::Disconnected) => break false,
+                }
+            });
+            for r in done {
+                let Some(c) = self.plugins.channels[r.ch as usize].as_mut() else { continue };
+                if c.status != PluginStatus::Playing || !c.editor.as_ref().is_some_and(|e| r.inst.is(e)) {
+                    continue;
+                }
+                match r.state {
+                    Ok(s) => {
+                        if c.voice.state.as_ref() != Some(&s) {
+                            c.voice.state = Some(s);
+                            self.plugins.dirty = true;
+                        }
+                    }
+                    Err(e) if r.report => {
+                        let name = c.name();
+                        self.say(format!("{name}: could not read its settings ({e})"), true);
+                    }
+                    Err(_) => {}
+                }
+            }
         }
 
         pub(crate) fn channel_plugin_state(&self, ch: u8) -> Option<PartPlugin> {
@@ -383,21 +451,20 @@ mod imp {
                 }
             }
             // Every 30 s (live), the keyboard parts' plugin settings as the editor left
-            // them, so a crash or a window closed with the red button loses little.
-            if self.offline.is_none() && now.saturating_sub(self.plugins.autosave_ns) >= 30_000_000_000 {
+            // them, so a crash or a window closed with the red button loses little. Read
+            // on a thread (not while the last reads are still running).
+            self.pump_state_reads();
+            if self.offline.is_none() && now.saturating_sub(self.plugins.autosave_ns) >= 30_000_000_000 && self.plugins.state_reads.is_empty() {
                 self.plugins.autosave_ns = now;
-                for p in 0..parts::COUNT {
-                    let ch = parts::CHANNEL[p] as usize;
-                    let Some(c) = self.plugins.channels[ch].as_mut() else { continue };
-                    if c.status != PluginStatus::Playing {
-                        continue;
-                    }
-                    if let Some(Ok(s)) = c.editor.as_ref().map(|e| e.state())
-                        && c.voice.state.as_ref() != Some(&s)
-                    {
-                        c.voice.state = Some(s);
-                        self.plugins.dirty = true;
-                    }
+                let targets: Vec<(u8, EditorTarget)> = parts::CHANNEL
+                    .iter()
+                    .filter_map(|&ch| {
+                        let c = self.plugins.channels[ch as usize].as_ref()?;
+                        (c.status == PluginStatus::Playing).then(|| c.editor.clone()).flatten().map(|e| (ch, e))
+                    })
+                    .collect();
+                if !targets.is_empty() {
+                    self.read_states(targets, false);
                 }
             }
             if self.plugins.dirty && self.offline.is_none() {
