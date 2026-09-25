@@ -212,9 +212,12 @@ pub fn instruments() -> Vec<Component> {
     out
 }
 
-/// One Audio Unit instance. Disposed (uninitialized first, if needed) on drop, on whatever
-/// thread drops the last `Arc<Unit>`: never the audio thread (the rack hands retired
-/// instances back to the control side for that).
+/// One Audio Unit instance. Disposed (uninitialized first, if needed) once the last
+/// `Arc<Unit>` drops, always on the `plugin-dispose` thread ([`on_dispose_thread`]),
+/// whichever thread dropped it: an editor window closing on the main thread, the Session's
+/// control thread, a load or state-read thread. Never the audio thread: the rack hands
+/// retired instances back to the control side, and dropping a `Unit` does not dispose of it
+/// inline (except on the dispose thread itself).
 pub struct Unit {
     raw: AudioUnit,
     initialized: bool,
@@ -252,14 +255,82 @@ unsafe impl Sync for Unit {}
 
 impl Drop for Unit {
     fn drop(&mut self) {
-        let lifecycle = self.lifecycle.clone();
-        let _g = lifecycle.lock().unwrap_or_else(|e| e.into_inner());
+        let raw = RawUnit { raw: self.raw, initialized: self.initialized, lifecycle: self.lifecycle.clone() };
+        on_dispose_thread(Box::new(move || raw.dispose()));
+    }
+}
+
+/// A unit's instance handle on its way to the dispose thread.
+struct RawUnit {
+    raw: AudioUnit,
+    initialized: bool,
+    lifecycle: Arc<Mutex<()>>,
+}
+
+// SAFETY: the handle moves to the dispose thread, the only one that touches it from here on
+// (its `Unit` is gone).
+unsafe impl Send for RawUnit {}
+
+impl RawUnit {
+    fn dispose(self) {
+        let _g = self.lifecycle.lock().unwrap_or_else(|e| e.into_inner());
         unsafe {
             if self.initialized {
                 AudioUnitUninitialize(self.raw);
             }
             AudioComponentInstanceDispose(self.raw);
         }
+        #[cfg(test)]
+        DISPOSED.lock().unwrap_or_else(|e| e.into_inner()).push((self.raw as usize, is_dispose_thread()));
+    }
+}
+
+/// Every unit disposed of (tests): its handle, and whether that was on the dispose thread.
+#[cfg(test)]
+pub(crate) static DISPOSED: Mutex<Vec<(usize, bool)>> = Mutex::new(Vec::new());
+
+thread_local! {
+    static IS_DISPOSE_THREAD: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Whether this is the `plugin-dispose` thread.
+pub(crate) fn is_dispose_thread() -> bool {
+    IS_DISPOSE_THREAD.with(|t| t.get())
+}
+
+/// A disposal for the dispose thread.
+pub(crate) type DisposeJob = Box<dyn FnOnce() + Send>;
+
+/// Run `job` (a disposal) on the `plugin-dispose` thread, started on first use; at once if
+/// this is that thread (or it could not be started). An Audio Unit's dispose takes a
+/// per-component lock that a slow load of the same plugin can hold, and an out-of-process
+/// unit's is a round trip to its host: neither the main thread (an editor closing), the
+/// Session's control thread nor the audio thread should wait on it. Not RT-safe (it may lock
+/// and allocate): the audio thread never drops a unit.
+pub(crate) fn on_dispose_thread(job: DisposeJob) {
+    type Tx = Mutex<Option<mpsc::Sender<DisposeJob>>>;
+    static TX: OnceLock<Tx> = OnceLock::new();
+    if is_dispose_thread() {
+        return job();
+    }
+    let m = TX.get_or_init(|| {
+        let (tx, rx) = mpsc::channel::<DisposeJob>();
+        let ok = std::thread::Builder::new().name("plugin-dispose".into()).spawn(move || {
+            IS_DISPOSE_THREAD.with(|t| t.set(true));
+            for job in rx {
+                job();
+            }
+        });
+        Mutex::new(ok.ok().map(|_| tx))
+    });
+    let tx = m.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    match tx {
+        Some(tx) => {
+            if let Err(mpsc::SendError(job)) = tx.send(job) {
+                job();
+            }
+        }
+        None => job(),
     }
 }
 

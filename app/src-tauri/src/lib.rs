@@ -31,6 +31,7 @@ mod mock_regist;
 mod mock_looper;
 
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -117,6 +118,44 @@ thread_local! {
     static EDITORS: std::cell::RefCell<std::collections::HashMap<u8, yahaha::plugin::editor::Editor>> = Default::default();
 }
 
+/// The instance each keyboard part's editor window edits (`EditorTarget::instance_id`; 0 =
+/// no window), for the event thread to see when a part's instance changes. Set on the main
+/// thread as a window opens.
+static EDITING: [AtomicUsize; 4] = [const { AtomicUsize::new(0) }; 4];
+
+/// The parts whose editor window edits an instance the part no longer plays (another
+/// instance, or none), with the instance their window edits. `current(part)` is the
+/// instance the part plays now.
+fn stale_editors(editing: &[usize; 4], current: impl Fn(u8) -> Option<usize>) -> Vec<(u8, usize)> {
+    (0..4u8).filter(|&p| editing[p as usize] != 0 && current(p) != Some(editing[p as usize])).map(|p| (p, editing[p as usize])).collect()
+}
+
+/// Close the editor windows whose part now plays another instance (a new pick, the same
+/// plugin loaded again, a failed load, back to the SoundFont): the window would edit a
+/// plugin nobody hears. Its settings are not saved (the part has moved on). A window the
+/// player closed with the red button is let go here too, so its unit does not stay alive
+/// in the map until the part's editor is opened again.
+fn close_stale_editors(app: &tauri::AppHandle, s: &yahaha::Session) {
+    let editing: [usize; 4] = std::array::from_fn(|p| EDITING[p].load(Ordering::Acquire));
+    if editing == [0; 4] {
+        return;
+    }
+    for (part, id) in stale_editors(&editing, |p| s.plugin_editor(p).map(|t| t.instance_id())) {
+        // Only if no newer window opened meanwhile.
+        if EDITING[part as usize].compare_exchange(id, 0, Ordering::AcqRel, Ordering::Acquire).is_err() {
+            continue;
+        }
+        let _ = app.run_on_main_thread(move || {
+            EDITORS.with(|eds| {
+                let mut eds = eds.borrow_mut();
+                if eds.get(&part).is_some_and(|e| e.instance_id() == id) {
+                    eds.remove(&part);
+                }
+            })
+        });
+    }
+}
+
 /// Open keyboard part `part`'s plugin editor (or bring it to the front). The mock has no
 /// plugins: it says so in the message line.
 #[tauri::command]
@@ -142,6 +181,7 @@ fn open_plugin_editor(part: u8, backend: State<'_, Shared>, app: tauri::AppHandl
             eds.remove(&part);
             match yahaha::plugin::editor::open_editor(mtm, &target) {
                 Ok(e) => {
+                    EDITING[part as usize].store(e.instance_id(), Ordering::Release);
                     eds.insert(part, e);
                 }
                 Err(e) => eprintln!("plugin editor: {e:#}"),
@@ -151,12 +191,19 @@ fn open_plugin_editor(part: u8, backend: State<'_, Shared>, app: tauri::AppHandl
     .map_err(failed)
 }
 
-/// Close keyboard part `part`'s plugin editor and keep the plugin's settings with the part.
+/// Close keyboard part `part`'s plugin editor and keep the plugin's settings with the part
+/// (if it plays a plugin: a part back on its SoundFont voice has none to save).
 #[tauri::command]
 fn close_plugin_editor(part: u8, backend: State<'_, Shared>, app: tauri::AppHandle) -> Result<(), Value> {
     let part = part & 3;
-    app.run_on_main_thread(move || EDITORS.with(|eds| drop(eds.borrow_mut().remove(&part)))).map_err(failed)?;
-    if let Backend::Live(s) = &**backend {
+    app.run_on_main_thread(move || {
+        EDITING[part as usize].store(0, Ordering::Release);
+        EDITORS.with(|eds| drop(eds.borrow_mut().remove(&part)))
+    })
+    .map_err(failed)?;
+    if let Backend::Live(s) = &**backend
+        && s.plugin_editor(part).is_some()
+    {
         let _ = s.send(yahaha::api::PluginCmd::SavePartPluginState { part });
     }
     Ok(())
@@ -168,6 +215,9 @@ fn forward_events(app: tauri::AppHandle, backend: Shared) {
     let Backend::Live(s) = &*backend else { return };
     for e in s.subscribe() {
         let stopped = e == yahaha::Event::Stopped;
+        if matches!(e, yahaha::Event::StateChanged { .. }) {
+            close_stale_editors(&app, s);
+        }
         if app.emit("yahaha", e).is_err() || stopped {
             break;
         }
@@ -284,6 +334,18 @@ mod tests {
         shutdown(&backend);
         assert!(events.try_iter().any(|e| e == yahaha::Event::Stopped));
         shutdown(&held); // idempotent
+    }
+
+    /// An editor window closes once its part plays another instance or none; one whose
+    /// part still plays its instance stays, and parts with no window are left alone.
+    #[test]
+    fn editor_windows_close_when_their_part_moves_on() {
+        let editing = [0x10, 0, 0x30, 0x40];
+        // Right 1 still plays 0x10; Right 2 has no window; Right 3 plays a new instance;
+        // Left is back on its SoundFont.
+        let now = |p: u8| [Some(0x10), Some(0x99), Some(0x31), None][p as usize];
+        assert_eq!(stale_editors(&editing, now), vec![(2, 0x30), (3, 0x40)]);
+        assert!(stale_editors(&[0; 4], |_| None).is_empty());
     }
 
     /// When the engine can't start, the stand-in mock doesn't pass for a working rig.

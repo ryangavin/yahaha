@@ -139,7 +139,15 @@ pub struct Rack {
     ch_slot: [u8; 16],
     /// Channels routed to a library patch (bit = channel).
     mapped: u16,
+    /// Per extra synthesizer: how many frames it has rendered silence with no channel on
+    /// it. Past `IDLE_FRAMES` it is not rendered until a channel routes to it again.
+    quiet: Vec<u32>,
 }
+
+/// An extra synthesizer no channel plays is rendered until its output (reverb and chorus
+/// tails included) has been below `IDLE_LEVEL` for this long, then skipped.
+const IDLE_FRAMES: u32 = 4800;
+const IDLE_LEVEL: f32 = 1e-6;
 
 impl Rack {
     pub fn new(font: &Arc<SoundFont>, sample_rate: i32) -> Result<Rack> {
@@ -156,6 +164,7 @@ impl Rack {
             slot_of: [NO_SLOT; crate::patches::route::MAX_FONTS],
             ch_slot: [0; 16],
             mapped: 0,
+            quiet: Vec::new(),
         };
         // Rhythm 1 (ch 9) is a drum part too: on the drum bank.
         r.process(8, 0xB0, 0, 128);
@@ -185,11 +194,31 @@ impl Rack {
         let (left, right) = (&mut left[..n], &mut right[..n]);
         self.band.render(left, right);
         let (l, r) = (&mut self.tmp_l[..n], &mut self.tmp_r[..n]);
-        for s in std::iter::once(&mut self.player).chain(self.extra.iter_mut()) {
+        // The extra synthesizers some channel plays (slot k+1 = extra[k]).
+        let mut used = 0u64;
+        for &s in &self.ch_slot {
+            if s != 0 && s != NO_SLOT {
+                used |= 1 << ((s - 1) & 63);
+            }
+        }
+        for (i, s) in std::iter::once(&mut self.player).chain(self.extra.iter_mut()).enumerate() {
+            let quiet = if i == 0 { None } else { self.quiet.get_mut(i - 1) };
+            let played = i == 0 || (used >> ((i - 1) & 63)) & 1 == 1;
+            if let Some(q) = quiet.as_deref()
+                && !played
+                && *q >= IDLE_FRAMES
+            {
+                continue;
+            }
             s.render(l, r);
+            let mut peak = 0f32;
             for k in 0..n {
                 left[k] += l[k];
                 right[k] += r[k];
+                peak = peak.max(l[k].abs()).max(r[k].abs());
+            }
+            if let Some(q) = quiet {
+                *q = if played || peak >= IDLE_LEVEL { 0 } else { q.saturating_add(n as u32) };
             }
         }
         let mut most = 1f32;

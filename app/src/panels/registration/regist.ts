@@ -4,6 +4,7 @@
 import type { TipKey } from '../../help/tooltips'
 import type { RegistrationState } from '../../lib/api/registration'
 import type { Anim, Level, Rgb } from '../../lib/api/types'
+import { formatTempo } from '../../lib/format'
 
 /** Red = the button in use, blue = stored (OM p.97); the same as the Launchkey pads. */
 export const REGIST_SELECTED: Rgb = [127, 0, 0]
@@ -42,5 +43,5 @@ export function buttonSummary(r: RegistrationState, i: number): string {
   const b = r.buttons[i]
   if (!b?.stored) return 'empty'
   const voices = b.voices.filter((v) => v.on && v.name).map((v) => v.name)
-  return [b.style, b.tempo ? `♩=${Math.round(b.tempo)}` : null, voices.join(' + ') || null].filter(Boolean).join(' · ')
+  return [b.style, b.tempo ? `♩=${formatTempo(b.tempo)}` : null, voices.join(' + ') || null].filter(Boolean).join(' · ')
 }

@@ -211,7 +211,7 @@ Sequence On/Off, never in a bank.
   ten lamps, Memory, Freeze, the sequence and the playlist. On macOS, F11 is Show Desktop
   by default: turn that shortcut off (System Settings › Keyboard › Keyboard Shortcuts ›
   Mission Control), or use the app's Registration bar / pad page 4 for Bank −.
-- **App**: the Registration bar under the app bar (bank, the ten buttons with their
+- **App**: the Registration bar under the keyboard strip (bank, the ten buttons with their
   names, Memory, Freeze, the sequence, the playlist) and the Registration panel (Bank,
   Memory & Freeze, Sequence, Playlist pages).
 

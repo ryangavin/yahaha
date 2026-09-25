@@ -121,7 +121,7 @@ const catalog = {
   },
   'transport.section_reset': {
     title: 'Section Reset',
-    body: 'Starts the section playing again from its top, right now, for stutter effects. A pedal can run it too (Style Section Reset). Turn on Tap: Section Reset in Settings › Style to make Tap do it while the band plays, as the Genos does.',
+    body: 'Starts the section playing again from its top, right now, for stutter effects. With Tap: Section Reset on in Settings › Style (the default, as on the Genos), Tap does the same while the band plays. A pedal can run it too (Style Section Reset).',
     genos: 'Style Section Reset (TAP TEMPO)',
     keys: ['|'],
     launchkey: 'Shift + Play button',
@@ -244,7 +244,7 @@ const catalog = {
   // ── Tempo and display ───────────────────────────────────────────────────
   'tempo.tap': {
     title: 'Tap tempo',
-    body: 'Tap two or more times in time to set the tempo from your taps (the last four count), also while the band plays. With Tap: Section Reset on in Settings › Style, a tap while the band plays restarts the section instead. The pad lights on the downbeat while the band plays.',
+    body: 'Tap two or more times in time to set the tempo from your taps (the last four count). While the band plays, a tap restarts the section instead (Section Reset) and the tempo stays, unless you turn Tap: Section Reset off in Settings › Style. The pad lights on the downbeat while the band plays.',
     genos: 'TAP TEMPO',
     keys: ['t'],
     launchkey: pad(P1, 'bottom', 6),
@@ -722,6 +722,20 @@ const catalog = {
     title: 'Recent',
     body: 'The last 20 sounds you picked for a part, most recent first.',
     genos: 'Voice Selection › history',
+    keys: [],
+    launchkey: null,
+  },
+  'sounds.saved': {
+    title: 'Saved',
+    body: 'Your saved sounds: the sound library\'s patches, each a preset or plugin with its volume, octave, pan and sends (and a plugin\'s own settings). Edit them in the Sound Library drawer.',
+    genos: 'Voice Selection › User tab',
+    keys: [],
+    launchkey: null,
+  },
+  'sounds.save': {
+    title: 'Save as sound',
+    body: 'Saves what this part plays now as a new saved sound: its preset or plugin (with the plugin\'s current settings), volume and octave. It appears under Saved, ready to rename in the Sound Library drawer.',
+    genos: 'Voice Setting › Save',
     keys: [],
     launchkey: null,
   },
@@ -1344,7 +1358,7 @@ const catalog = {
   },
   'settings.section_reset': {
     title: 'Tap: Section Reset',
-    body: 'On (the Genos default): Tap while the band plays restarts the section from its top. Off (yahaha\'s default): Tap always sets the tempo.',
+    body: 'On (the default, as on the Genos): Tap while the band plays restarts the section from its top and keeps the tempo. Off: Tap always sets the tempo.',
     genos: 'Tap Tempo › Style Section Reset',
     keys: [],
     launchkey: null,

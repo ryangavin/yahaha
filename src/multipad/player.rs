@@ -175,6 +175,10 @@ struct Sounding {
     ch: u8,
     src_key: u8,
     out_key: u8,
+    /// Note-offs this note lets pass before it ends: the pad struck its key again while
+    /// an earlier strike of the same source key still sounded, and the next note-off of
+    /// that key ends the earlier strike (the note struck first ends first).
+    owed: u8,
 }
 
 /// What a pad does next, in the order same-tick actions of different pads run: offs and
@@ -605,20 +609,29 @@ impl MultiPadPlayer {
 
     fn note_on(&mut self, pad: usize, ch: u8, src_key: u8, out_key: u8, vel: u8, sink: &mut impl Sink) {
         // The same pitch again on this pad: end the old one so ons and offs stay balanced.
+        // If it was a strike of this same source key, the new note owes its note-off.
+        let mut owed = 0u8;
         for s in self.sounding.iter_mut() {
             if s.active && s.pad as usize == pad && s.out_key == out_key {
                 sink.send(&[0x80 | s.ch, out_key, 0]);
                 s.active = false;
+                if s.src_key == src_key {
+                    owed = owed.saturating_add(s.owed).saturating_add(1);
+                }
             }
         }
         if let Some(free) = self.sounding.iter_mut().find(|s| !s.active) {
-            *free = Sounding { active: true, pad: pad as u8, ch, src_key, out_key };
+            *free = Sounding { active: true, pad: pad as u8, ch, src_key, out_key, owed };
             sink.send(&[0x90 | ch, out_key, vel]);
         }
     }
 
     fn note_off(&mut self, pad: usize, src_key: u8, sink: &mut impl Sink) {
         if let Some(s) = self.sounding.iter_mut().find(|s| s.active && s.pad as usize == pad && s.src_key == src_key) {
+            if s.owed > 0 {
+                s.owed -= 1;
+                return;
+            }
             sink.send(&[0x80 | s.ch, s.out_key, 0]);
             s.active = false;
         }

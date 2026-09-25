@@ -20,7 +20,7 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | **Fill Break** | Plays the one-bar Break, then goes back to the Main. The same as Break. | Fill Break | — | — |
 | **Stop ACMP** | With Sync Start off and the band stopped, a chord you hold sounds on bass and pad voices. This switches it off, or back on in the mode you picked in Settings (Style at first). | Stop Accompaniment | `H` | Pad page 2 (Chord/Setup), bottom row, pad 2 |
 | **Fade In/Out** | Stopped, it arms a fade in: the next start comes up from silence. Playing, the band fades out and stops, and stays silent for the hold time before its volume comes back (only the style fades, not what you play). The fade times are in Settings › Style. | Fade In/Out (Assignable) | `Shift+F` | Pad page 3 (OTS/Parts), top row, pad 6; Shift + Stop button |
-| **Section Reset** | Starts the section playing again from its top, right now, for stutter effects. A pedal can run it too (Style Section Reset). Turn on Tap: Section Reset in Settings › Style to make Tap do it while the band plays, as the Genos does. | Style Section Reset (TAP TEMPO) | `\|` | Shift + Play button |
+| **Section Reset** | Starts the section playing again from its top, right now, for stutter effects. With Tap: Section Reset on in Settings › Style (the default, as on the Genos), Tap does the same while the band plays. A pedal can run it too (Style Section Reset). | Style Section Reset (TAP TEMPO) | `\|` | Shift + Play button |
 | **Retrigger** | While on, each chord you play restarts the Main and loops its first few beats (the Retrigger length) until you change section or turn it off. Only Mains retrigger. | Style Retrigger (RtgOnOff) | `~` | Pad page 2 (Chord/Setup), bottom row, pad 8 |
 | **Retrigger length shorter** | Makes the Retrigger loop one step shorter: 1, 1/2, 1/4, 1/8, 1/16, 1/32 of a whole note. | Style Retrigger Rate (RtgRate) | `}` | Shift + > (Scene Launch) button |
 | **Retrigger length longer** | Makes the Retrigger loop one step longer, up to a whole note. | Style Retrigger Rate (RtgRate) | `{` | Shift + Function button |
@@ -47,7 +47,7 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 
 | control | what it does | Genos | key | Launchkey |
 |---|---|---|---|---|
-| **Tap tempo** | Tap two or more times in time to set the tempo from your taps (the last four count), also while the band plays. With Tap: Section Reset on in Settings › Style, a tap while the band plays restarts the section instead. The pad lights on the downbeat while the band plays. | TAP TEMPO | `T` | Pad page 1 (Sections), bottom row, pad 6 |
+| **Tap tempo** | Tap two or more times in time to set the tempo from your taps (the last four count). While the band plays, a tap restarts the section instead (Section Reset) and the tempo stays, unless you turn Tap: Section Reset off in Settings › Style. The pad lights on the downbeat while the band plays. | TAP TEMPO | `T` | Pad page 1 (Sections), bottom row, pad 6 |
 | **Tempo −** | Slows the tempo by 1 BPM. | TEMPO − | `-` | Function button (right of the pads) |
 | **Tempo +** | Speeds the tempo up by 1 BPM. | TEMPO + | `=` | > (Scene Launch) button (right of the pads) |
 
@@ -235,6 +235,8 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | **All sounds** | Every sound: the presets of every SoundFont in the soundfonts folder, your instrument plugins and your saved sounds. | Voice Selection | — | — |
 | **Favourites** | The sounds you starred. | Voice Selection › Favorite tab | — | — |
 | **Recent** | The last 20 sounds you picked for a part, most recent first. | Voice Selection › history | — | — |
+| **Saved** | Your saved sounds: the sound library's patches, each a preset or plugin with its volume, octave, pan and sends (and a plugin's own settings). Edit them in the Sound Library drawer. | Voice Selection › User tab | — | — |
+| **Save as sound** | Saves what this part plays now as a new saved sound: its preset or plugin (with the plugin's current settings), volume and octave. It appears under Saved, ready to rename in the Sound Library drawer. | Voice Setting › Save | — | — |
 | **Category** | The sounds of one Genos voice category. A preset's category is its General MIDI family, and a plugin's is guessed from its name. | VOICE category buttons | — | — |
 | **Sound** | Click or Enter plays this sound on the part. SF is a SoundFont preset, AU an instrument plugin, Saved a sound from your library. ▶ marks what the part plays. | Voice Selection | — | — |
 | **Plugin that failed** | This plugin failed to load last time (⚠ says why). Picking it tries again; until it loads, the part plays its SoundFont voice. | — | — | — |
@@ -473,7 +475,7 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | **Fade in time** | How long a fade in takes to reach full volume, from 0 to 20 seconds. | Fade In Time | — | — |
 | **Fade out time** | How long a fade out takes to reach silence before the band stops, from 0 to 20 seconds. | Fade Out Time | — | — |
 | **Fade out hold time** | How long the style stays silent after a fade out before its volume comes back, from 0 to 5 seconds. | Fade Out Hold Time | — | — |
-| **Tap: Section Reset** | On (the Genos default): Tap while the band plays restarts the section from its top. Off (yahaha's default): Tap always sets the tempo. | Tap Tempo › Style Section Reset | — | — |
+| **Tap: Section Reset** | On (the default, as on the Genos): Tap while the band plays restarts the section from its top and keeps the tempo. Off: Tap always sets the tempo. | Tap Tempo › Style Section Reset | — | — |
 | **Retrigger length** | How much of the Main's start Retrigger loops: a whole note (1) down to a 32nd (1/32). | Style Retrigger Rate (RtgRate) | — | Shift + > (Scene Launch) / Shift + Function buttons |
 | **Style folders** | The folders yahaha reads style files from (.sty, .prs, .sst and more), with subfolders as categories. Pass them on the command line or set YAHAHA_STYLES. | Style selection (User / USB) | — | — |
 | **Rescan styles** | Reads the style folders again, picking up files you added, changed or removed. The band keeps playing. | — | — | — |

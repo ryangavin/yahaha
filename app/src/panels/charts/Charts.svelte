@@ -17,6 +17,7 @@
   it lists (defaulting to the chosen song's) and the link being typed.
 -->
 <script lang="ts">
+  import { formatTempo } from '../../lib/format'
   import { app, ui } from '../../lib/store.svelte'
   import { tip } from '../../lib/tooltip/tip.svelte'
   import HwButton from '../../lib/ui/HwButton.svelte'
@@ -95,7 +96,7 @@
         <div class="song-now">
           {#if c.song}
             <span class="title">{c.song.title}</span>
-            <span class="meta">{c.song.style} · {c.song.key}{c.song.tempo ? ` · ${c.song.tempo} bpm` : ''} · {c.song.bars.length} bars</span>
+            <span class="meta">{c.song.style} · {c.song.key}{c.song.tempo ? ` · ${formatTempo(c.song.tempo)} bpm` : ''} · {c.song.bars.length} bars</span>
           {:else}
             <span class="meta">No chart yet: open an iReal Pro playlist or paste a link.</span>
           {/if}
@@ -161,7 +162,7 @@
             <span class="title">{song.title}</span>
             <span class="style">{song.style}</span>
             <span class="key">{song.key}</span>
-            <span class="tempo">{song.tempo ?? ''}</span>
+            <span class="tempo">{formatTempo(song.tempo)}</span>
           </button>
         {/each}
       </div>
