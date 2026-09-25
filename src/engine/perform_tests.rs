@@ -873,3 +873,32 @@ fn a_restruck_chord_moves_no_note() {
     }
 }
 
+
+/// #107 Decision: from an Intro, a Fill or the Break, a style change waits for the next
+/// bar line under both To Main settings, even asked in the first beat (RM p.12's To Main
+/// is about changes into a Main; the section playing here is none).
+#[test]
+fn a_style_change_from_an_intro_or_a_fill_waits_for_the_bar_line() {
+    for main_timing in [MainTiming::NextBar, MainTiming::Immediate] {
+        let settings = StyleSettings { main_timing, ..StyleSettings::default() };
+        // The Intro, in its first beat.
+        let Some(mut e) = engine() else { return };
+        e.set_style_settings(settings);
+        let mut rec = Rec::default();
+        e.button(Button::Intro(0), 0, &mut rec);
+        e.set_chord(chord("C"), 0, &mut rec);
+        assert!(matches!(id_of(e.cur), SectionId::Intro(_)), "{main_timing:?}: the Intro plays");
+        let (ppq, tpb, _) = grid(&e);
+        let bar = e.sec_start + tpb;
+        assert_eq!(e.change_point(Change::Style, e.ns_at(e.sec_start + 0.5 * ppq)), (bar, bar), "{main_timing:?}: from the Intro");
+        // A fill (Fill Self in bar 2's first beat starts at its second), in its first beat.
+        let Some((mut e, mut rec)) = started(settings) else { return };
+        let t = e.ns_at(tpb + 0.5 * ppq);
+        play(&mut e, &mut rec, 0, t);
+        e.button(Button::FillSelf, t, &mut rec);
+        let in_fill = e.ns_at(tpb + 1.5 * ppq);
+        play(&mut e, &mut rec, t, in_fill);
+        assert!(matches!(id_of(e.cur), SectionId::Fill(_)), "{main_timing:?}: the fill plays");
+        assert_eq!(e.change_point(Change::Style, in_fill), (2.0 * tpb, 2.0 * tpb), "{main_timing:?}: from the fill");
+    }
+}

@@ -135,10 +135,6 @@ pub enum Button {
     Intro(u8),
     Main(u8),
     Break,
-    /// Fill Down (-1), Fill Self (0), Fill Up (+1): a fill, then the Main to the left, the
-    /// same Main, or the Main to the right (an assignable function, RM p.142). The same as
-    /// `FillDown`, `FillSelf` and `FillUp`.
-    Fill(i8),
     Ending(u8),
     StartStop,
     Stop,
@@ -155,7 +151,8 @@ pub enum Button {
     StopAcmp,
     /// Stop Accompaniment mode: Off, Style or Fixed voices.
     SetStopAcmp(StopAcmp),
-    /// Fill Up / Fill Down: a fill, then the next Main to the right / left.
+    /// Fill Up / Fill Down: a fill, then the next Main to the right / left (the Genos
+    /// assignable functions, RM p.142).
     FillUp,
     FillDown,
     /// Fill Self: the Main's own fill (the same as pressing the Main playing).
