@@ -220,6 +220,9 @@ impl MockSession {
             voice_name: gm[program as usize].clone(),
             plays_bass: false,
             octave: 0,
+            pan: 64,
+            reverb: 40,
+            chorus: 0,
             fader: None,
             plugin: None,
             patch: None,
@@ -1518,6 +1521,19 @@ impl MockSession {
             AppCmd::Parts(PartsCmd::SetPartOctave { part, octave }) => {
                 if let Some(p) = self.state.keyboard_parts.get_mut(part as usize) {
                     p.octave = octave.clamp(-2, 2);
+                }
+            }
+            AppCmd::Parts(PartsCmd::SetPartPan { part, pan }) => {
+                if let Some(p) = self.state.keyboard_parts.get_mut(part as usize) {
+                    p.pan = vol(pan);
+                }
+            }
+            AppCmd::Parts(PartsCmd::SetPartSend { part, send, value }) => {
+                if let Some(p) = self.state.keyboard_parts.get_mut(part as usize) {
+                    match send {
+                        PartSend::Reverb => p.reverb = vol(value),
+                        PartSend::Chorus => p.chorus = vol(value),
+                    }
                 }
             }
             AppCmd::Mixer(MixerCmd::SetFaderPage { page }) => self.set_fader_page(page),
