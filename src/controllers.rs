@@ -177,6 +177,9 @@ pub enum Function {
     /// TAP TEMPO while a style plays; here Tap sets the tempo by default (#128), so Section
     /// Reset gets a pedal or button of its own.
     SectionReset,
+    /// Style Dynamics Control (RM p.142, a foot controller "*" function): the pedal's
+    /// position is the Dynamics level (engine/dynamics.rs, #180).
+    DynamicsControl,
 }
 
 /// One row of the assignable-function table.
@@ -205,7 +208,7 @@ use Kind::*;
 /// The assignable functions, in `Function` order: the Genos live-play list (RM p.139-144)
 /// as far as yahaha has the feature. app/src/lib/api/assignable-functions.json is this table
 /// as the app reads it (a test keeps the two equal).
-pub const FUNCTIONS: [FunctionInfo; 48] = [
+pub const FUNCTIONS: [FunctionInfo; 49] = [
     f(Function::None, "No Assign", Overall, Trigger),
     f(Function::Sustain, "Sustain", Voice, Switch),
     f(Function::Sostenuto, "Sostenuto", Voice, Switch),
@@ -254,6 +257,7 @@ pub const FUNCTIONS: [FunctionInfo; 48] = [
     f(Function::KbdHarmonyArp, "Kbd Harmony/Arpeggio On/Off", Voice, Switch),
     f(Function::ArpHold, "Arpeggio Hold", Voice, Switch),
     f(Function::SectionReset, "Style Section Reset", Style, Trigger),
+    f(Function::DynamicsControl, "Dynamics Control", Style, Continuous),
 ];
 
 /// What running a function means, for the input thread.
@@ -265,6 +269,8 @@ pub enum Effect {
     Switch(u8),
     Modulation,
     PitchBend,
+    /// The Dynamics level: straight to the engine (`Cmd::DynamicsLevel`).
+    Dynamics,
     /// An engine button: straight to the engine.
     Engine(Button),
     /// Anything else: the control side runs it (`ControllersCmd::Trigger`).
@@ -297,6 +303,7 @@ impl Function {
             F::Soft => Effect::Switch(SOFT),
             F::Modulation => Effect::Modulation,
             F::PitchBend => Effect::PitchBend,
+            F::DynamicsControl => Effect::Dynamics,
             F::StartStop => Effect::Engine(Button::StartStop),
             F::SyncStart => Effect::Engine(Button::SyncStart),
             F::SyncStop => Effect::Engine(Button::SyncStop),
@@ -530,7 +537,8 @@ impl Controllers {
                 }
                 Effect::Modulation => self.modulation.store(0, Relaxed),
                 Effect::PitchBend => self.bend.store(BEND_CENTRE, Relaxed),
-                Effect::Nothing | Effect::Engine(_) | Effect::Control | Effect::ControlSwitch => {}
+                // A Dynamics Control pedal given another job leaves the level where it is.
+                Effect::Nothing | Effect::Engine(_) | Effect::Control | Effect::ControlSwitch | Effect::Dynamics => {}
             }
         }
         let retyped = rebound || old.control_type != p.control_type;
@@ -724,6 +732,7 @@ impl Controllers {
                     self.bend.store(p.bend_at(pos), Relaxed);
                     fire.sync = true;
                 }
+                Effect::Dynamics => fire.dynamics = Some(pos),
                 Effect::Engine(b) if pressed && !was => fire.engine = Some(b),
                 Effect::Control if pressed && !was => fire.control = Some(p.function),
                 Effect::ControlSwitch => match p.control_type {
@@ -935,6 +944,8 @@ pub struct Fire {
     pub control: Option<Function>,
     /// A control-side switch a Hold A or Hold B pedal sets on or off (`Effect::ControlSwitch`).
     pub set: Option<(Function, bool)>,
+    /// A Dynamics Control pedal moved: the Dynamics level (`Effect::Dynamics`).
+    pub dynamics: Option<u8>,
 }
 
 /// What a pedal's new setup (`Controllers::set_pedal` from `old` to `new`) does to the
@@ -1209,6 +1220,25 @@ mod tests {
         c.set_pedal(2, PedalSetup { cc: Some(4), function: Function::Modulation, ..PedalSetup::default() });
         c.control_change(0, 4, 77, &mut e);
         assert_eq!(c.modulation(), 77);
+    }
+
+    /// Dynamics Control (#180): a foot controller whose position is the Dynamics level,
+    /// every move (Reverse flips it).
+    #[test]
+    fn a_dynamics_control_pedal_sends_its_position() {
+        let c = Controllers::new();
+        let mut e = [0u8; 4];
+        assert_eq!(Function::DynamicsControl.kind(), Kind::Continuous);
+        c.set_pedal(2, PedalSetup { cc: Some(4), function: Function::DynamicsControl, ..PedalSetup::default() });
+        for v in [0u8, 30, 64, 127] {
+            let Handled::Fire(f) = c.control_change(0, 4, v, &mut e) else { panic!() };
+            assert_eq!(f.dynamics, Some(v));
+            assert_eq!(f.engine, None);
+        }
+        c.set_pedal(2, PedalSetup { cc: Some(4), function: Function::DynamicsControl, reverse: true, ..PedalSetup::default() });
+        let Handled::Fire(f) = c.control_change(0, 4, 100, &mut e) else { panic!() };
+        assert_eq!(f.dynamics, Some(27));
+        assert_eq!(c.modulation(), 0, "not the modulation");
     }
 
     #[test]
