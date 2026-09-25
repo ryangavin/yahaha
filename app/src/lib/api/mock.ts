@@ -12,6 +12,7 @@ import { clockAt, mockSurface, type MockHardware } from './mock-surface'
 import { emptyLooper, MockLooper } from './mock-looper'
 import { initialMultiPad, MockPads } from './mock-multipad'
 import { initialSoundLibrary, MockSoundLibrary } from './mock-sound-library'
+import { initialSounds, MockSounds } from './mock-sounds'
 import { padsFor } from './mock-pads'
 import { initialPlugins, MockPlugins } from './mock-plugins'
 import { ARP_PATTERNS, HARMONY_TYPES, harmonyArpCmd, initialHarmonyArp } from './mock-harmony'
@@ -270,6 +271,7 @@ export function initialState(): AppState {
     harmonyArp: initialHarmonyArp(),
     soundLibrary: initialSoundLibrary(),
     paramLocks: { splitPoint: false, fingeringType: false },
+    sounds: initialSounds(),
   }
   derive(state, LIBRARY)
   return state
@@ -424,6 +426,8 @@ export class MockSession implements Session {
   )
   /** The sound library (mock-sound-library.ts). */
   private sound = new MockSoundLibrary(() => this.state)
+  /** The sound catalog (mock-sounds.ts). */
+  private catalogMock = new MockSounds()
 
   constructor(opts: MockOptions = {}) {
     this.demo = opts.demo ?? false
@@ -451,6 +455,7 @@ export class MockSession implements Session {
     }
     derive(this.state, this.lib, this.hardware(), [...this.leftHand, ...this.rightHand])
     this.sound.derive(this.state)
+    this.catalogMock.derive(this.state)
     if (!opts.manual) {
       this.last = performance.now()
       this.timer = setInterval(() => {
@@ -498,6 +503,10 @@ export class MockSession implements Session {
     return Promise.resolve(this.lib)
   }
 
+  sounds() {
+    return Promise.resolve(this.catalogMock.catalog(this.state))
+  }
+
   /** No audio: silent meters with no channels, as the engine without its synth. */
   meters() {
     return Promise.resolve({ atMs: this.now, channels: [], master: [0, 0] as [number, number], clips: 0 })
@@ -531,6 +540,7 @@ export class MockSession implements Session {
     this.looper.publish()
     derive(this.state, this.lib, this.hardware(), [...this.leftHand, ...this.rightHand])
     this.sound.derive(this.state)
+    this.catalogMock.derive(this.state)
     const snap = this.snapshot()
     for (const f of this.subs) f(snap)
   }
@@ -575,6 +585,7 @@ export class MockSession implements Session {
     if (!t.running) this.stepAudition(ms)
     else this.state.soundLibrary.auditioning = null
     this.sound.advance(ms)
+    this.catalogMock.advance(ms, t.running)
     this.multiPads.beats((ms / 60000) * t.tempo)
     this.plugins.step(ms)
     if (this.scanLeft > 0) {
@@ -1619,6 +1630,17 @@ export class MockSession implements Session {
         const err = this.sound.cmd(cmd, t.running)
         if (err) this.message(err, true)
         else if (cmd.type === 'exportSoundLibrary') this.message(`Sound library exported to ${cmd.path ?? '/Users/me/Documents/yahaha/sound-library-export.json'}`)
+        break
+      }
+      case 'setSoundFavourite':
+      case 'auditionSound':
+      case 'stopSoundAudition':
+      case 'assignSound':
+      case 'setSoundCategory': {
+        const r = this.catalogMock.cmd(this.state, cmd)
+        if (r.error) this.message(r.error, true)
+        for (const c of r.run ?? []) this.cmd(c)
+        if (r.assignLastAdded !== undefined) this.cmd({ type: 'setPartPatch', part: r.assignLastAdded, id: this.state.soundLibrary.lastAdded })
         break
       }
       case 'setParamLock':

@@ -230,6 +230,12 @@ export function tipFor(cmd: AppCmd | null): TipKey {
     case 'browseSoundFont': return 'sound.soundfont'
     case 'importSoundLibrary': return 'sound.import'
     case 'exportSoundLibrary': return 'sound.export'
+    // The sound catalog (#117); the Sound Browser gives these their own tips.
+    case 'setSoundFavourite': return 'sound.favourite'
+    case 'auditionSound': return 'sound.audition'
+    case 'stopSoundAudition': return 'sound.audition_stop'
+    case 'assignSound': return 'part.voice'
+    case 'setSoundCategory': return 'sound.category'
     case 'setParamLock': return cmd.item === 'splitPoint' ? 'settings.param_lock_split_point' : 'settings.param_lock_fingering_type'
   }
 }
