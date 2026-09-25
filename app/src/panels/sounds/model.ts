@@ -5,7 +5,7 @@ import { CATEGORY_LABELS } from '../../lib/api/sound-library'
 import type { PatchCategory, SoundCatalog, SoundEntry, SoundSource } from '../../lib/api/types'
 
 /** A sidebar choice. */
-export type SoundView = { kind: 'all' } | { kind: 'favourites' } | { kind: 'recents' } | { kind: 'category'; id: PatchCategory }
+export type SoundView = { kind: 'all' } | { kind: 'favourites' } | { kind: 'recents' } | { kind: 'saved' } | { kind: 'category'; id: PatchCategory }
 
 export const SOURCE_BADGE: Record<SoundSource, string> = { soundFont: 'SF', plugin: 'AU', saved: 'Saved' }
 
@@ -36,8 +36,14 @@ export function visibleSounds(catalog: SoundCatalog, view: SoundView, query: str
       return i !== undefined && match(entries[i]) ? [i] : []
     })
   }
-  const keep = (e: SoundEntry) =>
-    view.kind === 'all' || (view.kind === 'favourites' ? e.favourite : view.kind === 'category' ? e.category === view.id : true)
+  const keep = (e: SoundEntry) => {
+    switch (view.kind) {
+      case 'favourites': return e.favourite
+      case 'saved': return e.source === 'saved'
+      case 'category': return e.category === view.id
+      default: return true
+    }
+  }
   return entries.flatMap((e, i) => (keep(e) && match(e) ? [i] : []))
 }
 
