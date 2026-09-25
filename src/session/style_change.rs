@@ -432,21 +432,21 @@ mod tests {
     /// comes when the Main starts, not at the swap.
     #[test]
     fn ots_at_change_style_swapping_in_during_an_intro() {
-        let Some((s, other)) = two_styles() else { return };
-        let want = ots_sounds("BubblyDub.T552.sty", 0).unwrap();
-        s.send(TransportCmd::Intro { index: 2 }).unwrap();
+        let Some((s, bubbly)) = two_styles() else { return };
+        let walker = s.state().style.id;
+        let want = ots_sounds("SlowWalker.T552.sty", 0).unwrap();
+        // BubblyDub's Intro B is two bars: the style's bar line falls inside it.
+        s.send(LibraryCmd::LoadStyle { id: bubbly }).unwrap();
+        s.send(TransportCmd::Intro { index: 1 }).unwrap();
         chord_c(&s);
         assert!(until(&s, 4000, |st| st.transport.running), "started");
         let before = sounds(&s.state());
         assert_ne!(before, want);
-        s.send(LibraryCmd::QueueStyle { id: other }).unwrap();
-        let st = nothing_until(&s, &before, 8000, |st| st.style.id == other);
-        if !st.transport.section.as_deref().is_some_and(|n| n.starts_with("Intro")) {
-            // The Intro ended at the swap: nothing to test here.
-            return;
-        }
+        s.send(LibraryCmd::QueueStyle { id: walker }).unwrap();
+        let st = nothing_until(&s, &before, 8000, |st| st.style.id == walker);
+        assert_eq!(st.transport.section.as_deref(), Some("Intro B"), "the new style came in during the Intro");
         let st = nothing_until(&s, &before, 20_000, |st| st.transport.section.as_deref().is_some_and(|n| n.starts_with("Main")));
-        assert_eq!(sounds(&st), want, "the Main starts: the new style's OTS 1");
+        assert_eq!((st.ots.applied, sounds(&st)), (1, want), "the Main starts: the new style's OTS 1");
     }
 
     /// Real Time (Immediate) is still there: the pressed Main's OTS at once, while Main A
