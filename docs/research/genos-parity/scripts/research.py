@@ -173,7 +173,7 @@ def yt(cmd, tries=int(os.environ.get("YT_TRIES", "6"))):
     exe = os.environ.get("YT_DLP", "yt-dlp")  # e.g. a venv's yt-dlp with curl_cffi
     for i in range(tries):
         r = run([exe, "--sleep-requests", "1", *cmd])
-        if "429" not in r.stderr:
+        if "429" not in r.stderr or i == tries - 1:
             return r
         print(f"  429 rate limit, waiting {60 * (i + 1)} s", flush=True)
         time.sleep(60 * (i + 1))

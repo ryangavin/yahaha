@@ -74,6 +74,23 @@ Budgets: subtitles are tiny; stills are fetched as a few seconds of ≤480p vide
 each and the clip is deleted at once. Keep a pass under ~500 MB of downloads,
 never download whole videos, and stop if the disk drops under 8 GB free.
 
+### YouTube rate limits
+
+YouTube rate-limits the caption endpoint (HTTP 429) after a burst of downloads;
+the first pass hit it after about ten videos and it came and went for hours.
+What helps:
+- `subs` asks for one English track per video (asking for every `en.*` track
+  multiplies requests), pauses between videos (`--pause`), and skips videos
+  already fetched, so re-running a list is cheap.
+- A yt-dlp with browser impersonation in a private venv:
+  `python3 -m venv "$YAHAHA_RESEARCH_DIR/.venv" && "$YAHAHA_RESEARCH_DIR/.venv/bin/pip" install "yt-dlp[default,curl-cffi]"`,
+  then `export YT_DLP="$YAHAHA_RESEARCH_DIR/.venv/bin/yt-dlp"`.
+- `YT_TRIES=1` fails fast instead of backing off, for a loop that re-runs the
+  whole list every 10 minutes in the background while the workers read what
+  has arrived.
+- Start fetching early (before planning the notes), and fetch the playing-feel
+  topics first.
+
 ## Cadence
 
 - **Before each wave** (when the coordinator plans the next milestone): a

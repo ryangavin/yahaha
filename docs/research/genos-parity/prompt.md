@@ -42,7 +42,11 @@ Steps:
    Keyboard-Akademie, Keyboardseminare, Scan Keyboards, Leigh Wilbraham, Genos
    Genie, ePianos, Alois Müller; English or English subtitles; skip videos
    already in `sources.tsv` unless re-checking).
-3. `research.py subs <topic> <ids...>` for each topic.
+3. `research.py subs <topic> <ids...>` for each topic. Put the whole list in a
+   script and run it in the background, re-running it every ~10 minutes with
+   `YT_TRIES=1` until every transcript has arrived (see README "YouTube rate
+   limits"); workers start on the manuals and code meanwhile, and get a second
+   message to fold in the transcripts that arrived late.
 4. Group topics into 4–6 clusters and spawn one worker per cluster with the
    Worker prompt (in parallel). Workers write `notes/<topic>.md` and return
    matrix rows; they do not commit.
