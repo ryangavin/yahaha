@@ -45,6 +45,9 @@ pub struct LooperSnap {
     pub pending: bool,
     /// Counts changes of the sequence (a recording, a memory taking over).
     pub seq_gen: u32,
+    /// Counts the times ON/OFF turned chart mode off to arm a loop (wrapping): the session
+    /// follows it (its chart settings, a message).
+    pub chart_yields: u16,
 }
 
 #[derive(Default)]
@@ -65,6 +68,7 @@ pub(super) struct Looper {
     seq_gen: u32,
     /// REC/STOP turned Sync Start on (stopped): cancelling the recording turns it off again.
     armed_sync: bool,
+    chart_yields: u16,
 }
 
 impl Looper {
@@ -107,18 +111,25 @@ impl Engine {
         }
     }
 
-    /// Chord Looper ON/OFF.
-    pub fn looper_on_off(&mut self) {
-        let chart = self.chart_mode_on();
+    /// Chord Looper ON/OFF. Only one of the chart player and the Chord Looper gives the
+    /// chords: a loop about to arm (a recording finishing, or a sequence to loop) turns
+    /// chart mode off first, here, on the engine's own state (#110: the session's snapshot
+    /// may not have seen a memory just selected yet), and counts it in `chart_yields` for
+    /// the session to follow.
+    pub fn looper_on_off(&mut self, now: u64) {
+        let l = &self.features.looper;
+        let arms = l.state == LoopState::Recording || l.state == LoopState::Off && !l.seq.is_empty();
+        if arms && self.chart_mode_on() {
+            self.chart_mode_off(now);
+            let l = &mut self.features.looper;
+            l.chart_yields = l.chart_yields.wrapping_add(1);
+        }
         let l = &mut self.features.looper;
         match l.state {
-            // While chart mode is on (the chart gives the chords, engine/chart.rs) a loop
-            // doesn't arm: the session turns chart mode off first.
-            LoopState::Recording if chart => self.finish_recording(LoopState::Off),
             LoopState::Recording => self.finish_recording(LoopState::LoopArmed),
             LoopState::RecArmed => self.cancel_rec(),
             LoopState::LoopArmed => l.state = LoopState::Off,
-            LoopState::Off if !l.seq.is_empty() && !chart => l.state = LoopState::LoopArmed,
+            LoopState::Off if !l.seq.is_empty() => l.state = LoopState::LoopArmed,
             LoopState::Off => {}
             // The loop stops at once; the style keeps the loop's chord until the keyboard
             // plays one (chord input was disabled while looping: RM p.15, OM p.68).
@@ -172,6 +183,7 @@ impl Engine {
             has_data: !l.seq.is_empty(),
             pending: l.pending.is_some(),
             seq_gen: l.seq_gen,
+            chart_yields: l.chart_yields,
         }
     }
 
@@ -395,7 +407,7 @@ mod tests {
         // Recording starts at bar 2 with C held; F at bar 3, G half-way through it.
         run(&mut e, bar / 3, 3 * bar - bar / 4, &[(2 * bar, "F"), (2 * bar + half, "G")]);
         assert_eq!(e.looper_snapshot().state, LoopState::Recording);
-        e.looper_on_off();
+        e.looper_on_off(3 * bar - bar / 4);
         let s = e.looper_snapshot();
         assert_eq!((s.state, s.bars), (LoopState::LoopArmed, 2));
         let rec = e.take_recorded().unwrap();
@@ -412,7 +424,7 @@ mod tests {
         }
         // Off: at once, and the style keeps the loop's chord: the Bb played while looping
         // was not chord input (RM p.15, OM p.68).
-        e.looper_on_off();
+        e.looper_on_off(7 * bar + bar / 4);
         assert_eq!(e.played, Some(c("C")));
         // The next chord from the keyboard is followed.
         e.set_chord(c("Bb"), 7 * bar + bar / 2, &mut Nop);
@@ -470,7 +482,7 @@ mod tests {
                     e.looper_rec();
                 }
                 if now == 3 * bar - bar / 4 {
-                    e.looper_on_off();
+                    e.looper_on_off(now);
                 }
                 s.1 = now;
                 for &(t, n) in &chords {
@@ -506,7 +518,7 @@ mod tests {
         assert_eq!(e.looper_snapshot().state, LoopState::Off);
         assert!(!e.starts_on_chord(), "REC cancelled: Sync Start off again");
         e.looper_rec();
-        e.looper_on_off();
+        e.looper_on_off(0);
         assert_eq!(e.looper_snapshot().state, LoopState::Off);
         assert!(!e.starts_on_chord(), "cancelled with ON/OFF too");
         // Already on: REC did not turn it on, so cancelling leaves it on.
@@ -549,7 +561,7 @@ mod tests {
         let Some(mut e) = engine() else { return };
         let ev = |ch: &str| crate::looper::LoopEvent { bar: 0, at: 0, chord: c(ch) };
         e.looper_load(&ChordSeq::from_events(1, &[ev("E")]));
-        e.looper_on_off();
+        e.looper_on_off(0);
         assert_eq!(e.looper_snapshot().state, LoopState::LoopArmed);
         let bar = e.ns_at_bar(1);
         e.button(Button::StartStop, 0, &mut Nop);

@@ -41,6 +41,16 @@ export function pluginBadge(p: PartPlugin): string {
     case 'muted':
       return 'Plugin muted'
     default:
-      return `Plugin · ${Math.round(p.cpu * 100)}% CPU`
+      // Slow renders replace the word "Plugin" (the voice line names it), so the badge
+      // stays short enough for the strip.
+      return `${p.recentOverruns > 0 ? `${p.recentOverruns} slow` : 'Plugin'}${p.inProcessFallback ? ' ⚠' : ''} · ${Math.round(p.cpu * 100)}% CPU`
   }
+}
+
+/** The badge's tooltip: slow renders right now first (the player can act on them), then an
+ * in-process fallback, else the plain plugin entry. */
+export function pluginTip(p: PartPlugin): 'mixer.plugin' | 'mixer.plugin_overruns' | 'mixer.plugin_fallback' {
+  if (p.status === 'playing' && p.recentOverruns > 0) return 'mixer.plugin_overruns'
+  if (p.inProcessFallback) return 'mixer.plugin_fallback'
+  return 'mixer.plugin'
 }

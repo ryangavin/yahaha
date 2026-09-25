@@ -32,6 +32,8 @@
 //! new instance first gets the part's current controllers (modulation, pan, sustain, pitch
 //! bend and the rest the part has sent), so a swap mid-phrase picks up where the old voice
 //! was. The part's CC7/CC11 gain belongs to the slot, not the instance, so it carries over.
+//! A command for a channel still crossfading waits in that channel's slot until the fade
+//! ends (a newer command for the channel replaces it); other channels' commands go ahead.
 //!
 //! **Faults.** A render that fails (an OSStatus, or NaN/infinity) mutes the slot: it keeps
 //! owning its channel (so the part goes quiet rather than jumping to the SoundFont), emits
@@ -48,7 +50,6 @@
 //! thread nor the Session's control thread should wait on it.
 
 use rtrb::{Consumer, Producer, RingBuffer};
-use std::sync::{Mutex, OnceLock, mpsc};
 use std::time::{Duration, Instant};
 
 use super::PartGain;
@@ -210,6 +211,9 @@ struct Slot {
     ctl: Controllers,
     /// Sample count at the last overrun event, for rate limiting (`u64::MAX`: none yet).
     last_overrun: u64,
+    /// The command waiting for this channel's crossfade to end (the latest one: a newer
+    /// command for the channel replaces it). Other channels' commands do not wait for it.
+    pending: Option<RackCmd>,
 }
 
 impl Slot {
@@ -228,6 +232,7 @@ impl Slot {
             peak: 0.0,
             ctl: Controllers::new(),
             last_overrun: u64::MAX,
+            pending: None,
         }
     }
 
@@ -264,26 +269,7 @@ pub fn balance(cc10: u8) -> (f32, f32) {
 /// Dispose of an instance on the `plugin-dispose` thread (started on first use). Not
 /// RT-safe (it may lock and allocate): for the control side and `Drop`.
 pub fn dispose_later(inst: Box<PluginInstance>) {
-    type Tx = Mutex<Option<mpsc::Sender<Box<PluginInstance>>>>;
-    static TX: OnceLock<Tx> = OnceLock::new();
-    let m = TX.get_or_init(|| {
-        let (tx, rx) = mpsc::channel::<Box<PluginInstance>>();
-        let ok = std::thread::Builder::new().name("plugin-dispose".into()).spawn(move || {
-            for inst in rx {
-                drop(inst);
-            }
-        });
-        Mutex::new(ok.ok().map(|_| tx))
-    });
-    let tx = m.lock().unwrap_or_else(|e| e.into_inner()).clone();
-    match tx {
-        Some(tx) => {
-            if let Err(mpsc::SendError(inst)) = tx.send(inst) {
-                drop(inst);
-            }
-        }
-        None => drop(inst),
-    }
+    super::sys::on_dispose_thread(Box::new(move || drop(inst)));
 }
 
 /// The control-thread half. See the module docs.
@@ -473,67 +459,87 @@ impl PluginRack {
             }
         }
         // A swap or clear for a channel still crossfading waits for the fade to end:
-        // applying it now would cut the outgoing instance off mid-fade (a click).
-        while let Ok(RackCmd::Assign { channel, .. } | RackCmd::Clear { channel, .. }) = self.rx.peek() {
-            if self.slots[*channel as usize].old.is_some() {
-                break;
+        // applying it now would cut the outgoing instance off mid-fade (a click). It waits
+        // in its slot, so the commands for other channels behind it still apply now.
+        for ch in 0..SLOTS {
+            if self.slots[ch].old.is_none()
+                && let Some(cmd) = self.slots[ch].pending.take()
+            {
+                self.apply(cmd);
             }
-            let Ok(cmd) = self.rx.pop() else { break };
-            match cmd {
-                RackCmd::Assign { channel, mut inst, swap, sent } => {
-                    let ch = channel as usize;
-                    // Whatever was still fading goes straight back.
-                    if let Some(prev) = self.slots[ch].old.take() {
-                        self.retire(prev);
-                    }
-                    let slot = &mut self.slots[ch];
-                    slot.ctl.replay(channel, &mut inst);
-                    let outgoing = slot.cur.replace(inst);
-                    let was_faulted = std::mem::replace(&mut slot.faulted, false);
-                    slot.old_trim = slot.cur_trim;
-                    slot.cur_trim = swap.trim;
-                    let mut retire_now = None;
-                    if let Some(mut old) = outgoing {
-                        if swap.fade_frames == 0 || was_faulted {
-                            retire_now = Some(old);
-                        } else {
-                            let _ = old.midi([0xB0 | channel, 64, 0], 0);
-                            let _ = old.midi([0xB0 | channel, 123, 0], 0);
-                            slot.old = Some(old);
-                        }
-                    }
-                    slot.fade_len = if slot.old.is_some() { swap.fade_frames } else { 0 };
-                    slot.fade_pos = 0;
-                    if let Some(old) = retire_now {
-                        self.retire(old);
-                    }
-                    self.event(RackEvent::Swapped { channel, latency: sent.elapsed() });
+        }
+        while let Ok(cmd) = self.rx.pop() {
+            let ch = match &cmd {
+                RackCmd::Assign { channel, .. } | RackCmd::Clear { channel, .. } => *channel as usize,
+            };
+            if self.slots[ch].old.is_none() {
+                self.apply(cmd);
+                continue;
+            }
+            // The latest command for a channel is the one that counts: one it replaces never
+            // plays (its instance goes back to the control side).
+            if let Some(RackCmd::Assign { inst, .. }) = self.slots[ch].pending.replace(cmd) {
+                self.retire(inst);
+            }
+        }
+    }
+
+    /// Apply an assign or clear to a channel that is not crossfading.
+    fn apply(&mut self, cmd: RackCmd) {
+        match cmd {
+            RackCmd::Assign { channel, mut inst, swap, sent } => {
+                let ch = channel as usize;
+                // Whatever was still fading goes straight back.
+                if let Some(prev) = self.slots[ch].old.take() {
+                    self.retire(prev);
                 }
-                RackCmd::Clear { channel, fade_frames } => {
-                    let ch = channel as usize;
-                    if let Some(prev) = self.slots[ch].old.take() {
-                        self.retire(prev);
+                let slot = &mut self.slots[ch];
+                slot.ctl.replay(channel, &mut inst);
+                let outgoing = slot.cur.replace(inst);
+                let was_faulted = std::mem::replace(&mut slot.faulted, false);
+                slot.old_trim = slot.cur_trim;
+                slot.cur_trim = swap.trim;
+                let mut retire_now = None;
+                if let Some(mut old) = outgoing {
+                    if swap.fade_frames == 0 || was_faulted {
+                        retire_now = Some(old);
+                    } else {
+                        let _ = old.midi([0xB0 | channel, 64, 0], 0);
+                        let _ = old.midi([0xB0 | channel, 123, 0], 0);
+                        slot.old = Some(old);
                     }
-                    let slot = &mut self.slots[ch];
-                    let was_faulted = std::mem::replace(&mut slot.faulted, false);
-                    let mut retire_now = None;
-                    if let Some(mut old) = slot.cur.take() {
-                        if fade_frames == 0 || was_faulted {
-                            retire_now = Some(old);
-                        } else {
-                            let _ = old.midi([0xB0 | channel, 64, 0], 0);
-                            let _ = old.midi([0xB0 | channel, 123, 0], 0);
-                            slot.old = Some(old);
-                            slot.old_trim = slot.cur_trim;
-                            slot.fade_len = fade_frames;
-                            slot.fade_pos = 0;
-                        }
-                    }
-                    if let Some(old) = retire_now {
-                        self.retire(old);
-                    }
-                    self.event(RackEvent::Cleared { channel });
                 }
+                slot.fade_len = if slot.old.is_some() { swap.fade_frames } else { 0 };
+                slot.fade_pos = 0;
+                if let Some(old) = retire_now {
+                    self.retire(old);
+                }
+                self.event(RackEvent::Swapped { channel, latency: sent.elapsed() });
+            }
+            RackCmd::Clear { channel, fade_frames } => {
+                let ch = channel as usize;
+                if let Some(prev) = self.slots[ch].old.take() {
+                    self.retire(prev);
+                }
+                let slot = &mut self.slots[ch];
+                let was_faulted = std::mem::replace(&mut slot.faulted, false);
+                let mut retire_now = None;
+                if let Some(mut old) = slot.cur.take() {
+                    if fade_frames == 0 || was_faulted {
+                        retire_now = Some(old);
+                    } else {
+                        let _ = old.midi([0xB0 | channel, 64, 0], 0);
+                        let _ = old.midi([0xB0 | channel, 123, 0], 0);
+                        slot.old = Some(old);
+                        slot.old_trim = slot.cur_trim;
+                        slot.fade_len = fade_frames;
+                        slot.fade_pos = 0;
+                    }
+                }
+                if let Some(old) = retire_now {
+                    self.retire(old);
+                }
+                self.event(RackEvent::Cleared { channel });
             }
         }
     }
@@ -687,6 +693,9 @@ impl Drop for PluginRack {
     fn drop(&mut self) {
         for slot in &mut self.slots {
             for inst in [slot.cur.take(), slot.old.take()].into_iter().flatten() {
+                dispose_later(inst);
+            }
+            if let Some(RackCmd::Assign { inst, .. }) = slot.pending.take() {
                 dispose_later(inst);
             }
         }

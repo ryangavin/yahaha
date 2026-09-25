@@ -566,6 +566,7 @@ fn launchkey_hardware_matches_its_commands() {
                         (0..=3, FaderPage::Panel, true) => Some(AppCmd::Parts(PartsCmd::SelectPart { part: i })),
                         (0..=3, FaderPage::Panel, false) => Some(AppCmd::Parts(PartsCmd::TogglePart { part: i })),
                         (4, FaderPage::Panel, _) => Some(AppCmd::HarmonyArp(HarmonyArpCmd::ToggleHarmonyArp)),
+                        (5, FaderPage::Panel, _) => Some(AppCmd::Plugins(crate::api::PluginCmd::ReloadPartPlugin { part: None })),
                         (_, FaderPage::Panel, _) => None,
                         (_, FaderPage::Style, _) => Some(AppCmd::Mixer(MixerCmd::ToggleStylePart { part: i })),
                     };
@@ -722,14 +723,17 @@ fn launchkey_button_descriptions() {
     assert_eq!((f1.label.as_str(), f1.action, f1.shift_action), ("RIGHT 1", Some(AppCmd::Parts(PartsCmd::TogglePart { part: 0 })), Some(AppCmd::Parts(PartsCmd::SelectPart { part: 0 }))));
     assert_eq!((f1.level, f1.rgb), (Level::Bright, [0, 0, 127]));
     assert_eq!(b(&s, "faderButton2").level, Level::Dim);
-    // Button 5: HARMONY/ARPEGGIO, dim purple while off, bright while on; 6-8 do nothing.
+    // Button 5: HARMONY/ARPEGGIO, dim purple while off, bright while on. Button 6 reloads
+    // the selected part's plugin (dark while there is nothing to reload); 7-8 do nothing.
     let f5 = b(&s, "faderButton5");
     assert_eq!((f5.label.as_str(), f5.action, f5.level), ("HARM/ARP", Some(AppCmd::HarmonyArp(HarmonyArpCmd::ToggleHarmonyArp)), Level::Dim));
     s.send(HarmonyArpCmd::ToggleHarmonyArp).unwrap();
     assert_eq!((b(&s, "faderButton5").level, b(&s, "faderButton5").rgb), (Level::Bright, [90, 0, 127]));
     s.send(HarmonyArpCmd::ToggleHarmonyArp).unwrap();
     let f6 = b(&s, "faderButton6");
-    assert_eq!((f6.action, f6.level), (None, Level::Off));
+    assert_eq!((f6.label.as_str(), f6.action, f6.level), ("PLUGIN", Some(AppCmd::Plugins(crate::api::PluginCmd::ReloadPartPlugin { part: None })), Level::Off));
+    let f7 = b(&s, "faderButton7");
+    assert_eq!((f7.action, f7.level), (None, Level::Off));
     assert_eq!(b(&s, "masterButton").label, "PANEL");
     // Style page: the Style parts' mutes, green.
     s.send(MixerCmd::ToggleFaderPage).unwrap();
@@ -879,6 +883,7 @@ fn fader_positions_and_master_takeover() {
             control: ctl.clone(),
             swap: None,
             plugins: None,
+            thread: None,
         });
     }
     s.midi_in(Port::Pads, &[0xB0, 13, 100]); // at unity: picks up
@@ -1240,6 +1245,7 @@ fn sound_font_switch_needs_the_synth_and_a_file_in_its_folder() {
         control: Arc::new(SynthControl::new(0)),
         swap: Some(synth::RackSwap { tx, old }),
         plugins: None,
+        thread: None,
     });
     for bad in ["../x.sf2", "nope.sf2", "a/b.sf2"] {
         assert!(s.send(SettingsCmd::SetSoundFont { file: bad.into() }).is_err(), "{bad}");
@@ -1252,6 +1258,56 @@ fn sound_font_switch_needs_the_synth_and_a_file_in_its_folder() {
     assert!(rx.pop().is_ok(), "the new rack went to the audio thread");
     let m = s.meters();
     assert_eq!(m.channels.iter().map(|c| c.channel).collect::<Vec<_>>(), vec![1, 2, 3, 4, 9, 10, 11, 12, 13, 14, 15, 16]);
+}
+
+/// The audio buffer (#104): 64, 128 or 256 only. Offline it sets the render block; a note
+/// held across the change sounds on and releases (nothing sticks). Live, the synth thread
+/// reopens the stream and the size it reports is the one shown.
+#[test]
+fn audio_buffer_changes_keep_notes_and_report_the_size() {
+    let Some(p) = style("SlowWalker.T552.sty") else { return };
+    let s = Session::offline(Options { paths: vec![p.clone()], ..Options::default() }).unwrap();
+    assert!(s.send(SettingsCmd::SetAudioBuffer { frames: 128 }).is_err(), "no synth");
+    let sf_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("soundfonts");
+    let Some(sf2) = library::sound_font_files(&sf_dir).into_iter().map(|f| sf_dir.join(f)).min_by_key(|p| p.metadata().map(|m| m.len()).unwrap_or(u64::MAX)) else {
+        return;
+    };
+    s.offline_audio(Some(&sf2), 48_000).unwrap();
+    let energy = |(l, r): (Vec<f32>, Vec<f32>)| l.iter().chain(&r).map(|x| (*x as f64).powi(2)).sum::<f64>();
+    s.midi_in(Port::Keys, &[0x90, 72, 110]);
+    assert!(energy(s.render(4800)) > 1e-4);
+    for bad in [0, 100, 512] {
+        assert!(s.send(SettingsCmd::SetAudioBuffer { frames: bad }).is_err(), "{bad}");
+    }
+    s.send(SettingsCmd::SetAudioBuffer { frames: 256 }).unwrap();
+    assert_eq!(s.state().io.synth.as_ref().unwrap().buffer_frames, Some(256));
+    assert!(energy(s.render(4800)) > 1e-4, "the held note plays on");
+    s.midi_in(Port::Keys, &[0x80, 72, 0]);
+    s.render(96_000);
+    assert!(energy(s.render(4800)) < 1e-6, "and releases");
+
+    // Live: the synth thread answers with the size the device took.
+    let s = Session::offline(Options { paths: vec![p], ..Options::default() }).unwrap();
+    let (tx, rx) = std::sync::mpsc::channel::<SynthMsg>();
+    let t = std::thread::spawn(move || {
+        while let Ok(SynthMsg::Buffer(n, reply)) = rx.recv() {
+            let _ = reply.send(Ok(Some(n.max(128))));
+        }
+    });
+    s.inner.lock().synth = Some(SynthRef {
+        info: SynthInfo { name: "test".into(), sample_rate: 48000, buffer: Some(128), device: "none".into(), channels: 2 },
+        control: Arc::new(SynthControl::new(0)),
+        swap: None,
+        plugins: None,
+        thread: Some(tx.clone()),
+    });
+    s.send(SettingsCmd::SetAudioBuffer { frames: 256 }).unwrap();
+    assert_eq!(s.state().io.synth.as_ref().unwrap().buffer_frames, Some(256));
+    s.send(SettingsCmd::SetAudioBuffer { frames: 64 }).unwrap();
+    assert_eq!(s.state().io.synth.as_ref().unwrap().buffer_frames, Some(128), "the nearest the device allows");
+    let _ = tx.send(SynthMsg::Stop);
+    s.inner.lock().synth = None;
+    t.join().unwrap();
 }
 
 #[test]
@@ -1384,6 +1440,50 @@ fn chart_mode_and_the_chord_looper_take_turns() {
     let st = s.state();
     assert!(st.chart.on);
     assert_eq!(st.looper.mode, LooperMode::Off, "chart mode on stops the loop");
+}
+
+/// #110: ON/OFF straight after a memory is selected, with chart mode on, before any
+/// snapshot shows the memory's sequence: one press arms the loop, and chart mode goes off
+/// (the engine decides, on its own state, and reports it).
+#[test]
+fn looper_on_off_right_after_selecting_a_memory_with_chart_mode_on() {
+    let Some(s) = offline("SlowWalker.T552.sty") else { return };
+    s.send(ChartCmd::ImportCharts { text: TEST_CHART.into() }).unwrap();
+    // Record one bar of C and keep it in memory 1.
+    s.send(LooperCmd::LooperRec).unwrap();
+    keys(&s, true, &[36, 40, 43]);
+    s.advance(bar_ns(&s));
+    keys(&s, false, &[36, 40, 43]);
+    s.send(LooperCmd::LooperOnOff).unwrap();
+    s.send(LooperCmd::LooperOnOff).unwrap();
+    assert_eq!(s.state().looper.mode, LooperMode::Off);
+    s.send(LooperCmd::StoreLooperMemory { index: 0 }).unwrap();
+    // The engine's sequence emptied (as in a fresh engine), and chart mode on.
+    {
+        let mut ctl = s.inner.lock();
+        ctl.looper.empty_engine_seq();
+    }
+    s.settle();
+    s.send(ChartCmd::SetChartMode { on: true }).unwrap();
+    let st = s.state();
+    assert!(st.chart.on && !st.looper.has_data);
+    // Select the memory and press ON/OFF at once: no snapshot in between.
+    {
+        let mut ctl = s.inner.lock();
+        ctl.apply(LooperCmd::SelectLooperMemory { index: 0 }.into()).unwrap();
+        assert!(!ctl.snap.looper.has_data, "the snapshot has not seen the memory yet");
+        ctl.apply(LooperCmd::LooperOnOff.into()).unwrap();
+    }
+    s.settle();
+    let st = s.state();
+    assert_eq!(st.looper.mode, LooperMode::LoopArmed, "one press arms the loop");
+    assert!(!st.chart.on, "chart mode went off for it");
+    assert_eq!(st.message.as_ref().map(|m| m.text.as_str()), Some("Chart mode off: the Chord Looper plays"));
+    // The session's chart settings follow: a later chart setting keeps chart mode off.
+    s.send(ChartCmd::SetChartIntro { index: None }).unwrap();
+    let st = s.state();
+    assert!(!st.chart.on);
+    assert_eq!(st.looper.mode, LooperMode::LoopArmed);
 }
 
 #[test]
@@ -1587,4 +1687,41 @@ fn chart_chords_trigger_no_ots_or_fill() {
     assert!(chords.len() >= 3, "the chart's chords played: {chords:?}");
     let st = s.state();
     assert_eq!((st.transport.section.as_deref(), st.ots.applied), (Some("Main B"), 2), "OTS 2 as Main B starts");
+}
+
+/// The Launchkey's Ending pads (100-102, with the pad's pressure) queue the Ending and
+/// change nothing the band sends before its bar line (#129): the output matches a session
+/// where no pad was pressed, 5 ms at a time, up to the Ending's start.
+#[test]
+fn an_ending_pad_changes_nothing_before_the_ending() {
+    let Some(p) = style("NightCruiser.S930.STY") else { return };
+    for pad in [100u8, 101, 102] {
+        let band = || {
+            let s = Session::offline(Options { paths: vec![p.clone()], ..Options::default() }).unwrap();
+            keys(&s, true, &[48, 52, 55]);
+            s.send(TransportCmd::StartStop).unwrap();
+            let bar = 4 * (60e9 / s.state().transport.tempo) as u64;
+            s.advance(bar + bar * 4 / 10);
+            s.take_output();
+            s
+        };
+        let (a, b) = (band(), band());
+        for m in [[0x90, pad, 100], [0xA0, pad, 90], [0xD0, 90, 0], [0x80, pad, 0]] {
+            a.midi_in(Port::Pads, &m);
+        }
+        assert!(a.state().transport.queued.as_deref().is_some_and(|q| q.starts_with("Ending")), "pad {pad} queued an Ending");
+        assert_eq!(a.take_output(), Vec::<[u8; 3]>::new(), "pad {pad}: nothing sent at the press");
+        let mut steps = 0;
+        while !a.state().transport.section.as_deref().is_some_and(|s| s.starts_with("Ending")) {
+            a.advance(5 * MS);
+            b.advance(5 * MS);
+            if a.state().transport.section.as_deref().is_some_and(|s| s.starts_with("Ending")) {
+                break;
+            }
+            assert_eq!(a.take_output(), b.take_output(), "pad {pad}: the Main plays on unchanged ({steps} steps after the press)");
+            steps += 1;
+            assert!(steps < 1000, "pad {pad}: the Ending never started");
+        }
+        assert!(steps > 100, "pad {pad}: the Ending waited for the bar line ({steps} steps)");
+    }
 }

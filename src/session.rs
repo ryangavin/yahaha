@@ -43,6 +43,7 @@ mod multipad;
 mod offline;
 mod ots;
 mod pads;
+mod param_lock;
 mod parts;
 mod plugins;
 mod playlist;
@@ -51,6 +52,8 @@ mod registration;
 mod settings;
 mod style_change;
 mod sound_library;
+mod sound_set;
+mod sounds;
 mod style_settings;
 mod surface;
 mod system;
@@ -77,7 +80,7 @@ use leds::Leds;
 use library::{open_library, Loaded};
 use offline::Offline;
 use rtrb::{Consumer, Producer, RingBuffer};
-use settings::{is_daw, start_synth, MidiIo, RackLoad, SynthRef};
+use settings::{is_daw, saved_buffer, start_synth, MidiIo, RackLoad, SynthMsg, SynthRef};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering::Relaxed};
 use std::sync::{mpsc, Arc, Mutex, MutexGuard};
@@ -95,12 +98,21 @@ pub struct Options {
     pub inputs: Vec<String>,
     /// Leave the Launchkey DAW port alone (no pads, buttons, faders or LEDs).
     pub no_pads: bool,
-    /// SoundFont for the built-in synth; None = no synth.
+    /// A SoundFont the built-in synth plays at start, whatever the default sound set
+    /// setting says (the hidden `--sf2` override). Its folder is the SoundFont folder when
+    /// `sound_font_dir` is None.
     pub sf2: Option<PathBuf>,
+    /// The SoundFont folder: every `.sf2` there is a source of sounds, and the default
+    /// sound set (#117, session/sound_set.rs) is one of them. The synth runs when there is
+    /// a font to play (here or `sf2`); None and no `sf2`: no synth.
+    pub sound_font_dir: Option<PathBuf>,
     /// Use Novation palette colours (and hardware flashing) instead of RGB SysEx.
     pub palette_leds: bool,
     /// 1-based left output channel for the synth (None = auto).
     pub audio_out: Option<u8>,
+    /// The synth's buffer size in frames, 64, 128 or 256 (None: the one saved by
+    /// `SetAudioBuffer`, else 64).
+    pub audio_buffer: Option<u32>,
     /// Chord fingering type at startup.
     pub fingering: Fingering,
     /// Chord Detection Area = Upper.
@@ -132,8 +144,10 @@ impl Default for Options {
             inputs: Vec::new(),
             no_pads: false,
             sf2: None,
+            sound_font_dir: None,
             palette_leds: false,
             audio_out: None,
+            audio_buffer: None,
             fingering: Fingering::FingeredOnBass,
             upper: false,
             manual_bass: true,
@@ -184,7 +198,7 @@ struct Live {
 }
 
 struct SynthThread {
-    stop: mpsc::Sender<()>,
+    stop: mpsc::Sender<SynthMsg>,
     thread: std::thread::JoinHandle<()>,
 }
 
@@ -296,6 +310,10 @@ struct Control {
     harmony_arp: live::FxConfig,
     /// The sound library (#103).
     sound: sound_library::SoundLib,
+    /// The default sound set (#117).
+    sound_set: sound_set::SoundSet,
+    /// The sound catalog (#117).
+    sounds: sounds::Sounds,
 }
 
 /// What several parts of the state read, read once per `build_state` so they all agree.
@@ -357,6 +375,8 @@ impl Control {
             AppCmd::Plugins(c) => self.plugins_cmd(c),
             AppCmd::HarmonyArp(c) => self.harmony_arp_cmd(c),
             AppCmd::SoundLibrary(c) => self.sound_library_cmd(c),
+            AppCmd::ParamLock(c) => self.param_lock_cmd(c),
+            AppCmd::Sounds(c) => self.sounds_cmd(c),
         }
     }
 
@@ -371,6 +391,7 @@ impl Control {
             ots_applied: parts.ots_applied.load(Relaxed),
             ots_link: parts.ots_link.load(Relaxed),
             harmony_arp: self.harmony_arp.on,
+            plugin_fault: self.selected_plugin_fault(),
             parts_on: parts.sounding_mask(),
             selected: parts.selected() as u8,
             regist: self.regist_panel(),
@@ -471,6 +492,8 @@ impl Control {
             metronome: self.metronome_state(),
             plugins: self.plugins_state(),
             sound_library: self.sound_library_state(),
+            param_locks: self.param_lock_state(),
+            sounds: self.sounds_state(),
         }
     }
 }
@@ -496,6 +519,9 @@ impl Inner {
             ctl.lib_published = ctl.lib_rev;
             ctl.lib_published_ns = now;
             events.push(Event::LibraryChanged { revision: ctl.lib_rev });
+        }
+        if let Some(revision) = ctl.sounds_touch() {
+            events.push(Event::SoundsChanged { revision });
         }
         let mut st = ctl.build_state(now);
         {
@@ -557,9 +583,17 @@ fn assemble(opts: &Options, engine_out: live::Out, input_out: live::Out, offline
     let shared = Arc::new(Shared::new(opts.split));
     let mut engine_out = engine_out;
     engine_out.port_map = crate::patches::port::PortMap::new(shared.routes.clone());
-    let sf_dir = opts.sf2.as_ref().and_then(|p| p.parent()).map(|d| if d.as_os_str().is_empty() { Path::new(".") } else { d }.to_path_buf());
+    let sf_dir = opts.sound_font_dir.clone().or_else(|| {
+        opts.sf2.as_ref().and_then(|p| p.parent()).map(|d| if d.as_os_str().is_empty() { Path::new(".") } else { d }.to_path_buf())
+    });
     let mut sound = sound_library::SoundLib::open(opts.data_dir.as_deref());
     let avail = sf_dir.as_deref().map(crate::library::sound_font_files).unwrap_or_default();
+    let sound_set = sound_set::SoundSet::open(opts.data_dir.as_deref(), sf_dir.as_deref(), &avail);
+    // The synth's main font: the override, else the default sound set.
+    let sf_file = match &opts.sf2 {
+        Some(p) => p.file_name().map(|n| n.to_string_lossy().to_string()),
+        None => sound_set.resolve(&avail),
+    };
     Control::sound_library_first_style(&mut sound, &shared.routes, &mut prep, &info.path, &avail);
     shared.fingering.store(opts.fingering.to_u8(), Relaxed);
     shared.upper.store(opts.upper, Relaxed);
@@ -623,8 +657,8 @@ fn assemble(opts: &Options, engine_out: live::Out, input_out: live::Out, offline
         roots: opts.paths.clone(),
         scan_rx: None,
         sf_dir,
-        sf_file: opts.sf2.as_ref().and_then(|p| p.file_name()).map(|n| n.to_string_lossy().to_string()),
-        sound_fonts: Vec::new(),
+        sf_file,
+        sound_fonts: avail,
         sf_load: None,
         sf_ready: None,
         all_inputs: opts.all_inputs,
@@ -645,6 +679,8 @@ fn assemble(opts: &Options, engine_out: live::Out, input_out: live::Out, offline
         plugins: Default::default(),
         harmony_arp: live::FxConfig::default(),
         sound,
+        sounds: sounds::Sounds::open(sound_set.file()),
+        sound_set,
     };
     let mut control = control;
     control.list_sound_fonts();
@@ -679,10 +715,13 @@ impl Session {
             (shared, p)
         };
         let mut synth_thread = None;
-        if let Some(sf2) = &opts.sf2 {
+        // The override, else the default sound set from the folder.
+        let main_font = opts.sf2.clone().or_else(|| p.control.sf_dir.as_ref().zip(p.control.sf_file.as_ref()).map(|(d, f)| d.join(f)));
+        if let Some(sf2) = &main_font {
             let main = sf2.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
             let routing = synth::Routing { routes: shared.routes.clone(), font_id: p.control.sound.font_id(&main).unwrap_or(0) };
-            match start_synth(sf2, std::mem::take(&mut feeds.consumers), opts.audio_out, shared.parts.clone(), routing) {
+            let buffer = opts.audio_buffer.or_else(saved_buffer);
+            match start_synth(sf2, std::mem::take(&mut feeds.consumers), opts.audio_out, shared.parts.clone(), routing, buffer) {
                 Ok((r, t)) => {
                     p.control.sound.synth_started(&main);
                     p.control.sound.audition_tx = feeds.control.take();
@@ -773,6 +812,13 @@ impl Session {
         }
     }
 
+    /// The sound catalog (#117): every preset, plugin and saved sound, for the Sound
+    /// Browser. Fetch it again when `AppState::sounds.revision` (`Event::SoundsChanged`)
+    /// moves. Cheap while it hasn't: an `Arc` clone.
+    pub fn sound_catalog(&self) -> Arc<SoundCatalog> {
+        self.inner.lock().sound_catalog()
+    }
+
     /// Notifications: a `StateChanged` whenever the state's version moves, a
     /// `LibraryChanged` when the library does, `Stopped` at the end. Unread events queue up;
     /// drop the receiver to unsubscribe.
@@ -855,7 +901,7 @@ impl Session {
             }
             self.inner.lock().save_plugin_states_on_stop();
             if let Some(s) = live.synth {
-                let _ = s.stop.send(());
+                let _ = s.stop.send(SynthMsg::Stop);
                 let _ = s.thread.join();
             }
             live.client.dispose();

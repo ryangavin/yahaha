@@ -32,7 +32,7 @@ describe('Settings drawer', () => {
   it('groups the pages like the Genos menus, one visible at a time', async () => {
     setup()
     const tabs = [...document.querySelectorAll('[role="tab"]')].map((t) => t.textContent?.trim())
-    expect(tabs).toEqual(['Chord', 'Split', 'Transpose', 'Style', 'Pedals', 'Audio', 'MIDI', 'Library'])
+    expect(tabs).toEqual(['Chord', 'Split', 'Transpose', 'Style', 'Pedals', 'Lock', 'Audio', 'MIDI', 'Library'])
     expect(page('chord').hidden).toBe(false)
     expect(page('audio').hidden).toBe(true)
     await fireEvent.click(q('#settings-tab-audio'))
@@ -47,6 +47,22 @@ describe('Settings drawer', () => {
     expect(nav.tab).toBe('library')
     await fireEvent.keyDown(q('#settings-tab-library'), { key: 'ArrowRight' })
     expect(nav.tab).toBe('chord')
+  })
+
+  it('Lock page: a toggle per Parameter Lock group, wired to setParamLock', async () => {
+    const s = setup()
+    await fireEvent.click(q('#settings-tab-lock'))
+    expect(page('lock').hidden).toBe(false)
+    const split = page('lock').querySelector<HTMLElement>('[data-tip="settings.param_lock_split_point"]')!
+    const fing = page('lock').querySelector<HTMLElement>('[data-tip="settings.param_lock_fingering_type"]')!
+    expect(split.getAttribute('aria-checked')).toBe('false')
+    await fireEvent.click(split)
+    expect(s.state.paramLocks).toEqual({ splitPoint: true, fingeringType: false })
+    expect(split.getAttribute('aria-checked')).toBe('true')
+    await fireEvent.click(fing)
+    await fireEvent.click(split)
+    expect(s.state.paramLocks).toEqual({ splitPoint: false, fingeringType: true })
+    expect(fing.textContent?.trim()).toBe('Locked')
   })
 
   it('has no Save button: every control applies at once', () => {
@@ -191,14 +207,20 @@ describe('Settings drawer', () => {
     expect(s.state.mixer.master).toBe(90)
   })
 
-  it('switches the SoundFont', async () => {
+  it('picks the default sound set, or Auto', async () => {
     const s = setup()
+    const auto = byTip('audio.soundfont_auto')[0]
     const fonts = byTip('audio.soundfont')
     expect(fonts.length).toBe(s.state.io.soundFonts.length)
-    expect(fonts[0].getAttribute('aria-checked')).toBe('true') // GeneralUser-GS, io.soundFontFile
+    expect(auto.getAttribute('aria-checked')).toBe('true') // Auto, the default
+    expect(auto.textContent).toContain('Auto (GeneralUser-GS)')
     await fireEvent.click(fonts[1])
+    expect(s.state.io.defaultSoundSet).toBe('FluidR3_GM.sf2')
     expect(s.state.io.soundFontFile).toBe('FluidR3_GM.sf2')
     expect(fonts[1].getAttribute('aria-checked')).toBe('true')
+    await fireEvent.click(auto)
+    expect(s.state.io.defaultSoundSet).toBe(null)
+    expect(s.state.io.soundFontFile).toBe('GeneralUser-GS.sf2')
   })
 
   it('MIDI: merging all inputs, or picking sources', async () => {
@@ -229,7 +251,7 @@ describe('Settings drawer', () => {
   it('on an engine older than these settings, they are badged, inert and show no sample data', async () => {
     const s = new MockSession({ manual: true, demo: false })
     const st = structuredClone(s.state) as unknown as { io: Record<string, unknown>; library: Record<string, unknown> }
-    for (const k of ['sources', 'allInputs', 'soundFonts', 'soundFontFile', 'soundFontLoading']) delete st.io[k]
+    for (const k of ['sources', 'allInputs', 'soundFonts', 'soundFontFile', 'soundFontLoading', 'defaultSoundSet', 'autoSoundSet']) delete st.io[k]
     for (const k of ['roots', 'scanning']) delete st.library[k]
     const sent = vi.fn()
     app.attach({ kind: 'tauri', subscribe: (fn) => (fn(st as unknown as AppState), () => {}), send: sent, library: () => s.library(), meters: () => s.meters(), dispose: () => {} })

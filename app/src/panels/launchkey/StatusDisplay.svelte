@@ -1,12 +1,14 @@
 <!--
-  The status display, where the Launchkey's screen is: style, tempo, bar/beat, the
+  The status display, where the Launchkey's screen is: style (click it to browse styles),
+  tempo, bar/beat, the
   section playing and the one queued (left); the big chord (centre); fingering, chord
   detection, split and transpose (right). A recessed glass (`.mat-screen`) with glowing
   text. Every item has a tooltip and can be reached with Tab.
 -->
 <script lang="ts">
   import { sectionLabel } from '../../lib/api/types'
-  import { app } from '../../lib/store.svelte'
+  import { formatTempo } from '../../lib/format'
+  import { app, ui } from '../../lib/store.svelte'
   import { tip } from '../../lib/tooltip/tip.svelte'
 
   const s = $derived(app.state)
@@ -18,9 +20,12 @@
 <!-- svelte-ignore a11y_no_noninteractive_tabindex (display items are focusable so their tooltips are reachable from the keyboard) -->
 <div class="screen mat-screen" role="group" aria-label="Status display">
   <div class="col left">
-    <span class="style glow-text" tabindex="0" use:tip={'style.name'}>{s.style.name || 'No style'}</span>
+    <!-- Touching the style name opens the Style Selection display on the Genos: here, the style browser. -->
+    <button type="button" class="style" use:tip={'browser.open'} onclick={() => (ui.browser = true)}>
+      <span class="sname glow-text">{s.style.name || 'No style'}</span><span class="browse">Browse</span>
+    </button>
     <span class="tempo" tabindex="0" use:tip={'display.tempo'}>
-      <span class="glow-text">{Math.round(t.tempo)}</span><small> BPM</small>
+      <span class="glow-text">{formatTempo(t.tempo)}</span><small> BPM</small>
       <small class="ts">{s.style.timeSignature[0]}/{s.style.timeSignature[1]}</small>
     </span>
     <span class="pos" tabindex="0" use:tip={'display.position'}>
@@ -79,8 +84,42 @@
     text-overflow: ellipsis;
   }
   .style {
+    display: flex;
+    align-items: baseline;
+    gap: 0.6em;
+    min-width: 0;
+    max-width: 100%;
+    padding: 0;
+    font: inherit;
     font-weight: 600;
     font-size: 1.2em;
+    color: inherit;
+    text-align: left;
+    background: none;
+    border: 0;
+    cursor: pointer;
+  }
+  .sname {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  /* A soft-key label on the glass: the name is the button, as on the Genos. */
+  .browse {
+    flex: none;
+    padding: 0.1em 0.45em;
+    font-size: 0.55em;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--screen-dim);
+    border: 1px solid color-mix(in srgb, var(--screen-dim) 55%, transparent);
+    border-radius: 0.3em;
+  }
+  .style:hover .browse,
+  .style:focus-visible .browse {
+    color: var(--screen-ink);
+    border-color: var(--screen-ink);
   }
   .tempo {
     font-weight: 600;

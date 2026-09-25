@@ -48,7 +48,7 @@ All of it is `yahaha::plugin::*`.
 | `scan() -> Vec<PluginInfo>` | Every instrument AU (AUv2 and AUv3), sorted by vendor and name. Served from the cache while a fingerprint of every component's (type, subtype, manufacturer, flags, version) matches; any install, removal or update rescans. 22 ms live, 0.01 ms cached on this Mac (14 instruments). |
 | `rescan()` | Ignore the cache (keeps the per-plugin load records). |
 | `find(query)`, `info(&id)` | By id ("aumu Xf2X XFER") or name substring. |
-| `load_async(&id, LoadConfig) -> LoadHandle` | Loads on its own thread. `LoadConfig { sample_rate, max_frames, state, mode, timeout }`; `mode` is `Auto` (AUv2 in process, AUv3 out of process), `InProcess` or `OutOfProcess`. |
+| `load_async(&id, LoadConfig) -> LoadHandle` | Loads on its own thread, and looks the plugin up there too (a stale scan cache means a full scan; the caller never waits for one): an id that is not installed fails through the handle. `LoadConfig { sample_rate, max_frames, state, mode, timeout, choose_mode }`; `mode` is `Auto` (AUv2 in process, AUv3 out of process), `InProcess` or `OutOfProcess`; `choose_mode` picks it from the plugin once looked up. `LoadHandle::info()` / `mode()` once looked up. |
 | `load(&id, cfg)` | `load_async` + `wait`, for tools and tests. |
 
 `PluginInfo { id: PluginId, name, manufacturer, version, format: AUv2 / AUv3, requires_async,
@@ -121,7 +121,9 @@ is allocated there)
   every out-of-process unit, as a remote view), else CoreAudioKit's `AUGenericView`.
   `Editor::{kind, size, is_open, focus, close}`; `close_editor(editor)`; dropping closes.
   The editor holds its own reference to the Audio Unit, so swapping the part out while its
-  window is open is safe.
+  window is open is safe. Whichever thread drops a unit's last reference (the main thread
+  closing a window, the control thread, a load thread), `sys::Unit` disposes of it on the
+  `plugin-dispose` thread; never on the audio thread.
 - The desktop app owns `NSApplication`, so it only calls these from its main thread
   (`app.run_on_main_thread`). Tools without an app call `prepare_app(mtm)` once and
   `pump_events(mtm, dur)` in their loop, and `run_main_loop(dur)` while they wait for loads.
@@ -420,14 +422,21 @@ each file on the board. In order:
 - **Editor button** on each keyboard part (Parts drawer and Mixer channel strip) when the
   part plays a plugin: a Tauri command that runs `open_editor` on the main thread
   (`app.run_on_main_thread`) and keeps the `Editor` in a main-thread map keyed by part;
-  pressing again focuses it; closing the part's plugin closes the window. On close, send
-  `SavePartPluginState`.
+  pressing again focuses it. The app's event thread closes a window once its part plays
+  another instance or none (a new pick, a reload, a failed load, back to the SoundFont),
+  without saving (the part has moved on). On close, send `SavePartPluginState`, only if
+  the part still plays a plugin.
 - Mixer: plugin parts get a "plugin" badge and the CPU / overrun readout in the channel
   tooltip. The fader is the same CC7 as always.
 - Settings: an Audio "buffer size" choice (64 / 128 / 256) for heavy plugins, and "Rescan
   plugins".
 
 ### 4. Registration Memory
+
+As built (#104): `VoiceRef::Plugin` in the `parts` registrable, and a warm pool of at most 8
+instances keyed by (plugin id, state) rather than (button, part), refilled after each recall
+(docs/registration.md). Retired instances are not recycled into the pool yet. The design as
+first planned:
 
 - A Registration stores each part's `VoiceRef` (plugin id, version, name, base64 state,
   trim). Sizes seen: 1-23 KB per part.

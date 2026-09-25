@@ -81,8 +81,6 @@ export function initialSoundLibrary(): SoundLibraryState {
       ...sf('keys-au', 'Keys (AU)', 0, 4),
       category: 'ePiano',
       source: { kind: 'plugin', componentId: 'aumu dls  appl', state: '' },
-      available: false,
-      note: 'needs plugin hosting (#91)',
     },
   ]
   const map = emptyMap()
@@ -121,13 +119,13 @@ function slug(name: string, taken: string[]): string {
 }
 
 function info(id: string, f: PatchFields): PatchInfo {
-  const plugin = f.source.kind === 'plugin'
   const missing = f.source.kind === 'soundFont' && !FONTS.includes(f.source.file)
   return {
     id,
     ...f,
-    available: !plugin && !missing,
-    note: plugin ? 'needs plugin hosting (#91)' : missing ? `${(f.source as { file: string }).file} is not in the SoundFont folder` : null,
+    // The desktop app builds with plugin hosting (#91): a plugin patch plays itself.
+    available: !missing,
+    note: missing ? `${(f.source as { file: string }).file} is not in the SoundFont folder` : null,
   }
 }
 
@@ -171,6 +169,38 @@ export class MockSoundLibrary {
   /** A GM voice was picked for a part (the voice list, an OTS): its own patch goes. */
   partVoice(part: number) {
     this.parts[part] = null
+  }
+
+  /** The plugin patch whose plugin each part was given (`partPlugins`). */
+  private pluginParts: (string | null)[] = [null, null, null, null]
+
+  /** A plugin picked (or, while a plugin patch plays, cleared) on the Plugins tab: the
+   * part's own patch goes. */
+  partPlugin(part: number, picked: boolean) {
+    if (!picked && !this.pluginParts[part & 3]) return
+    this.pluginParts[part & 3] = null
+    this.parts[part & 3] = null
+  }
+
+  /** Whether part `part` plays a plugin the Plugins tab picked (not a plugin patch's). */
+  ownPlugin(part: number): boolean {
+    return !this.pluginParts[part & 3]
+  }
+
+  /** The parts' plugins to change for their own plugin patches, as the session's
+   * `sync_part_plugins` does: [part, the plugin to load] or [part, null] to clear it. */
+  partPlugins(): [number, { componentId: string; state: string } | null][] {
+    const out: [number, { componentId: string; state: string } | null][] = []
+    this.parts.forEach((id, i) => {
+      const p = id ? this.sl.patches.find((q) => q.id === id) : undefined
+      const want = p && p.source.kind === 'plugin' ? p : null
+      if ((want?.id ?? null) === this.pluginParts[i]) return
+      const had = this.pluginParts[i]
+      this.pluginParts[i] = want?.id ?? null
+      if (want && want.source.kind === 'plugin') out.push([i, { componentId: want.source.componentId, state: want.source.state }])
+      else if (had) out.push([i, null])
+    })
+    return out
   }
 
   /** Runs a command; returns an error message if it is refused. */
@@ -218,12 +248,23 @@ export class MockSoundLibrary {
         break
       }
       case 'savePartAsPatch': {
+        // What the part plays: its plugin, else its own patch, else the patch the map
+        // sends its GM voice to, else its GM voice (as the session's).
         const kp = this.get().keyboardParts[c.part & 3]
-        const own = this.parts[c.part & 3]
-        const base = own ? sl.patches.find((p) => p.id === own) : null
-        const f: PatchFields = base
+        const own = kp.playsBass ? null : this.parts[c.part & 3]
+        const style = this.styleMaps.get(sl.styleKey) ?? null
+        const id = own ?? resolveProgram(sl.map, style, false, kp.program).patch
+        const base = id ? sl.patches.find((p) => p.id === id) : null
+        const plugin = kp.plugin && kp.plugin.status !== 'failed' ? kp.plugin : null
+        const blank = { volume: null, pan: null, reverb: null, chorus: null, octave: 0 }
+        let f: PatchFields = base
           ? { name: base.name, category: base.category, tags: [...base.tags], favourite: false, source: structuredClone(base.source), defaults: { ...base.defaults } }
-          : { name: GM[kp.program], category: guessCategory(0, kp.program), tags: [], favourite: false, source: { kind: 'soundFont', file: SF2, bank: 0, program: kp.program }, defaults: { volume: null, pan: null, reverb: null, chorus: null, octave: 0 } }
+          : { name: GM[kp.program], category: guessCategory(0, kp.program), tags: [], favourite: false, source: { kind: 'soundFont', file: SF2, bank: 0, program: kp.program }, defaults: blank }
+        if (plugin) {
+          const source = { kind: 'plugin' as const, componentId: plugin.id, state: '' }
+          const same = base?.source.kind === 'plugin' && base.source.componentId === plugin.id
+          f = same ? { ...f, source } : { name: plugin.name, category: base?.category ?? guessCategory(0, kp.program), tags: [], favourite: false, source, defaults: blank }
+        }
         f.defaults.volume = kp.volume
         f.defaults.octave = kp.octave
         if (c.name?.trim()) f.name = c.name
@@ -340,7 +381,7 @@ export class MockSoundLibrary {
 }
 
 /** The presets of a mock SoundFont: the GM set on bank 0 and a few kits on bank 128. */
-function presetsOf(file: string) {
+export function presetsOf(file: string) {
   const kits = ['Standard', 'Room', 'Power', 'Electronic', 'Jazz', 'Brush']
   return [
     ...GM.map((name, program) => ({ bank: 0, program, name: file === SF2 ? name : `${name} (Fluid)` })),

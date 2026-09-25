@@ -138,6 +138,43 @@ fn inside_intro_ending_timing() {
     assert_eq!(e.change_point(Change::IntroEnding(end2), now), (tpb, tpb));
 }
 
+/// TAP TEMPO while the band plays, with Style Section Reset off (RM p.39): the taps set the
+/// tempo (from the second tap, as the Genos does for a Song, OM p.46), averaging up to four
+/// taps, and the band plays on from where it is: no Section Reset.
+#[test]
+fn tap_while_playing_sets_the_tempo_with_section_reset_off() {
+    let Some((mut e, mut rec)) = started(StyleSettings { section_reset: false, ..StyleSettings::default() }) else { return };
+    let (ppq, tpb, _) = grid(&e);
+    let t = e.ns_at(tpb + 2.5 * ppq);
+    play(&mut e, &mut rec, 0, t);
+    let (bpm, idx) = (e.bpm, e.ev_idx);
+    assert!(idx > 0);
+    e.button(Button::TapTempo, t, &mut rec);
+    assert_eq!(e.bpm, bpm, "one tap alone keeps the tempo");
+    assert_eq!(e.ev_idx, idx, "and does not rewind the section");
+    let s = e.snapshot(t);
+    assert_eq!((s.bar, s.beat), (1, 2), "still in bar 2, beat 3");
+    // Taps 400 ms apart: 150 BPM from the second tap on.
+    let mut now = t;
+    for _ in 0..3 {
+        play(&mut e, &mut rec, now, now + 400_000_000);
+        now += 400_000_000;
+        let tick = e.tick_at(now);
+        e.button(Button::TapTempo, now, &mut rec);
+        assert!((e.bpm - 150.0).abs() < 0.01, "{}", e.bpm);
+        assert!((e.tick_at(now) - tick).abs() < 1.0, "the band plays on from where it is");
+    }
+    // A fifth tap 500 ms later averages the last four taps (1.2 s over 3 beats).
+    play(&mut e, &mut rec, now, now + 500_000_000);
+    e.button(Button::TapTempo, now + 500_000_000, &mut rec);
+    assert!((e.bpm - 60.0 / 1.3 * 3.0).abs() < 0.01, "{}", e.bpm);
+    assert!(e.running);
+}
+
+/// TAP TEMPO while the band plays, with the default settings (Style Section Reset on, the
+/// Genos default: RM p.39, OM p.46/p.67): the section starts again from its top and the
+/// tempo stays (the manual's note: turning the setting off makes Tap "change the tempo
+/// instead"). Tapping on keeps resetting; no tempo builds up from the taps.
 #[test]
 fn tap_resets_the_section_or_sets_the_tempo() {
     let Some((mut e, mut rec)) = started(StyleSettings::default()) else { return };
@@ -153,6 +190,9 @@ fn tap_resets_the_section_or_sets_the_tempo() {
     let later = t + 10_000_000;
     play(&mut e, &mut rec, t, later);
     assert!(e.ev_idx > 0, "its first events played");
+    // A second tap resets again: the tempo stays, however the taps are spaced.
+    e.button(Button::TapTempo, later, &mut rec);
+    assert_eq!((e.bpm, e.ev_idx), (bpm, 0), "reset again, same tempo");
     // Off: taps set the tempo.
     e.set_style_settings(StyleSettings { section_reset: false, ..StyleSettings::default() });
     e.button(Button::TapTempo, later, &mut rec);
@@ -350,6 +390,65 @@ fn pressing_the_ending_again_slows_down_and_the_tempo_comes_back() {
     assert!(slowest < bpm * 0.75 && slowest >= bpm * RIT_END - 1e-6, "{slowest} of {bpm}");
     assert_eq!(e.bpm, bpm, "the tempo comes back when it stops");
     assert!(!e.ritardando());
+}
+
+/// An Ending played once keeps the tempo to its end; pressed again (#129), the
+/// ritardando's curve: no jump at the press, then the tempo on a straight line (in ticks)
+/// from the base at the press to `RIT_END` of it at the Ending's last tick. The engine
+/// sets it at every wake and wakes at least every sixteenth note for it, so no stretch of
+/// the Ending plays at a stale tempo.
+#[test]
+fn the_ending_ritardando_curve() {
+    // Played once: no slowing.
+    let Some((mut e, mut rec)) = started(StyleSettings::default()) else { return };
+    let (ppq, tpb, _) = grid(&e);
+    let end1 = slot_of(SectionId::Ending(0));
+    if !e.style.has(end1) {
+        return;
+    }
+    let base = e.bpm;
+    let t = e.ns_at(tpb + 1.5 * ppq);
+    play(&mut e, &mut rec, 0, t);
+    e.button(Button::Ending(0), t, &mut rec);
+    let mut now = t;
+    while e.running {
+        now = e.next_deadline().unwrap().max(now + 1).min(now + 5_000_000);
+        rec.now = now;
+        e.process(now, &mut rec);
+        assert!(!e.ritardando());
+        assert_eq!(e.bpm, base, "an Ending played once keeps the tempo");
+    }
+
+    // Pressed again in its first beat: the curve, at the engine's own wakes.
+    let Some((mut e, mut rec, press)) = in_ending_rit() else { return };
+    assert_eq!(e.bpm, base, "no jump at the press");
+    let from = e.tick_at(press);
+    let to = e.section_end().0;
+    assert!(to - from > 4.0 * ppq, "a long enough Ending: {from}..{to}");
+    let step = ppq / 4.0;
+    let line = |tick: f64| base * (1.0 - (1.0 - RIT_END) * ((tick - from) / (to - from)).clamp(0.0, 1.0));
+    let mut changes: Vec<(f64, f64)> = vec![(from, base)];
+    let mut now = press;
+    while e.running {
+        now = e.next_deadline().unwrap().max(now + 1);
+        rec.now = now;
+        let tick = e.tick_at(now);
+        e.process(now, &mut rec);
+        let last = changes.last().unwrap().1;
+        if e.running && e.bpm != last {
+            assert!(e.bpm < last, "it only slows");
+            assert!((e.bpm - line(tick)).abs() < 1e-6, "at tick {tick}: {} BPM, the line says {}", e.bpm, line(tick));
+            changes.push((tick, e.bpm));
+        }
+    }
+    assert_eq!(e.bpm, base, "the tempo comes back at the stop");
+    // At least one change every sixteenth, to the last sixteenth before the end.
+    for w in changes.windows(2) {
+        assert!(w[1].0 - w[0].0 <= step + 0.05, "{:.1} ticks at {:.2} BPM", w[1].0 - w[0].0, w[0].1);
+    }
+    let (last_tick, slowest) = *changes.last().unwrap();
+    assert!(to - last_tick <= step + 0.05, "the last change at {last_tick}, the end at {to}");
+    assert!(slowest >= base * RIT_END - 1e-9 && slowest <= line(to - step) + 1e-6, "{slowest} of {base}");
 }
 
 #[test]
@@ -550,6 +649,47 @@ fn a_style_change_in_an_endings_first_beat_waits_for_its_end() {
     }
 }
 
+/// A style chosen while an Ending is queued but not playing yet (#111) waits for that
+/// Ending's end too: the Ending plays in the old style, and the new style is loaded at the
+/// stop (owner rule: a style change waits for the Ending to finish).
+#[test]
+fn a_style_chosen_while_an_ending_is_queued_waits_for_its_end() {
+    for timing in [MainTiming::NextBar, MainTiming::Immediate] {
+        let Some((mut e, mut rec)) = started(StyleSettings { main_timing: timing, ..StyleSettings::default() }) else { return };
+        let Some(other) = other_style() else { return };
+        let (ppq, tpb, _) = grid(&e);
+        let end1 = slot_of(SectionId::Ending(0));
+        if !e.style.has(end1) {
+            return;
+        }
+        let t = e.ns_at(tpb + 1.5 * ppq);
+        play(&mut e, &mut rec, 0, t);
+        e.button(Button::Ending(0), t, &mut rec);
+        assert!(matches!(id_of(e.cur), SectionId::Main(_)), "the Ending is only queued");
+        let (old_bpm, new_bpm) = (e.style.bpm, other.bpm);
+        assert_ne!(old_bpm, new_bpm);
+        e.change_style(other, t + 1_000, &mut rec);
+        let at = e.pending.as_ref().map(|p| p.at).expect("the style waits");
+        let len = e.style.sections[end1].as_ref().unwrap().len as f64;
+        assert!((at - (2.0 * tpb + len)).abs() < 1e-6, "{timing:?}: for the queued Ending's end, not the bar line: {at}");
+        let mut now = t + 1_000;
+        let mut heard_ending = false;
+        while e.running {
+            let next = e.next_deadline().unwrap_or(now + 5_000_000).clamp(now + 1, now + 5_000_000);
+            play(&mut e, &mut rec, now, next);
+            now = next;
+            if e.running {
+                assert_eq!(e.style.bpm, old_bpm, "{timing:?}: the old style plays on");
+                heard_ending |= e.cur == end1;
+            }
+            assert!(now < t + 60_000_000_000, "the Ending never ended");
+        }
+        assert!(heard_ending, "{timing:?}: the Ending played, in the old style");
+        assert!(!e.style_pending(), "{timing:?}: the new style took over at the Ending's end");
+        assert_eq!(e.style.bpm, new_bpm);
+    }
+}
+
 /// TAP TEMPO during a ritardando (Style Section Reset off): the tapped tempo is the one the
 /// band slows from and comes back to at the stop.
 #[test]
@@ -740,3 +880,75 @@ fn a_restruck_chord_moves_no_note() {
     }
 }
 
+
+/// #107 Decision: from an Intro, a Fill or the Break, a style change waits for the next
+/// bar line under both To Main settings, even asked in the first beat (RM p.12's To Main
+/// is about changes into a Main; the section playing here is none).
+#[test]
+fn a_style_change_from_an_intro_or_a_fill_waits_for_the_bar_line() {
+    for main_timing in [MainTiming::NextBar, MainTiming::Immediate] {
+        let settings = StyleSettings { main_timing, ..StyleSettings::default() };
+        // The Intro, in its first beat.
+        let Some(mut e) = engine() else { return };
+        e.set_style_settings(settings);
+        let mut rec = Rec::default();
+        e.button(Button::Intro(0), 0, &mut rec);
+        e.set_chord(chord("C"), 0, &mut rec);
+        assert!(matches!(id_of(e.cur), SectionId::Intro(_)), "{main_timing:?}: the Intro plays");
+        let (ppq, tpb, _) = grid(&e);
+        let bar = e.sec_start + tpb;
+        assert_eq!(e.change_point(Change::Style, e.ns_at(e.sec_start + 0.5 * ppq)), (bar, bar), "{main_timing:?}: from the Intro");
+        // A fill (Fill Self in bar 2's first beat starts at its second), in its first beat.
+        let Some((mut e, mut rec)) = started(settings) else { return };
+        let t = e.ns_at(tpb + 0.5 * ppq);
+        play(&mut e, &mut rec, 0, t);
+        e.button(Button::FillSelf, t, &mut rec);
+        let in_fill = e.ns_at(tpb + 1.5 * ppq);
+        play(&mut e, &mut rec, t, in_fill);
+        assert!(matches!(id_of(e.cur), SectionId::Fill(_)), "{main_timing:?}: the fill plays");
+        assert_eq!(e.change_point(Change::Style, in_fill), (2.0 * tpb, 2.0 * tpb), "{main_timing:?}: from the fill");
+    }
+}
+
+/// An Ending queued in a Main changes nothing the band plays before its bar line (#129):
+/// no fade, no CC7/CC11, no note cut early. Up to the Ending's start every message, and its
+/// time, is what the band sends with no Ending pressed. Ending I, II and III, pressed
+/// mid-bar and within a bar's first beat, on a MOX and a T5 style.
+#[test]
+fn a_queued_ending_changes_nothing_before_its_bar_line() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus");
+    for name in ["MOX_v2/SlowWalker.T552.sty", "MOX_v2/NightCruiser.S930.STY", "T5Style/60s8Beat.T160.prs"] {
+        let p = root.join(name);
+        if !p.exists() {
+            eprintln!("corpus missing; skipping");
+            return;
+        }
+        let style = Style::load(&p).unwrap();
+        let band = || {
+            let mut e = Engine::new(Box::new(Prepared::new(&style)));
+            let mut rec = Rec::default();
+            e.set_chord(chord("C"), 0, &mut rec);
+            (e, rec)
+        };
+        for end in 0..3u8 {
+            for beats in [2.5, 0.25] {
+                let (mut e, mut rec) = band();
+                let (ppq, tpb, _) = grid(&e);
+                let press = e.ns_at(tpb + beats * ppq);
+                play(&mut e, &mut rec, 0, press);
+                rec.now = press;
+                e.button(Button::Ending(end), press, &mut rec);
+                let q = e.queued.expect("the Ending is queued");
+                assert!(matches!(id_of(q.slot), SectionId::Ending(_)), "{name} E{end}");
+                assert_eq!(q.at, 2.0 * tpb, "{name} E{end}: at the next bar line");
+                let start = e.ns_at(q.at);
+                play(&mut e, &mut rec, press, start);
+                assert!(matches!(id_of(e.cur), SectionId::Ending(_)), "{name} E{end}: the Ending plays");
+                let (mut b, mut brec) = band();
+                play(&mut b, &mut brec, 0, start);
+                let before = |r: &Rec| r.msgs.iter().filter(|(t, _)| *t < start).cloned().collect::<Vec<_>>();
+                assert_eq!(before(&rec), before(&brec), "{name} E{end} pressed at beat {beats}: the Main plays on unchanged up to the Ending");
+            }
+        }
+    }
+}

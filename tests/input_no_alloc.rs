@@ -74,6 +74,11 @@ fn keyboard_note_path_does_not_allocate() {
         shared.parts.set_solo([None, Some(3), Some(1)][round as usize % 3]);
         // Some rounds with the Chord Looper looping: the left hand plays too.
         shared.looping.store(round % 2 == 1, Ordering::Relaxed);
+        // Some rounds in AI Full Keyboard, where a re-struck chord is checked for three
+        // notes (#107); the dyad after everything is up at the end of the round is one.
+        use yahaha::fingering::Fingering;
+        let mode = if round % 3 == 2 { Fingering::AiFullKeyboard } else { Fingering::Fingered };
+        shared.fingering.store(mode.to_u8(), Ordering::Relaxed);
         // A left-hand chord, a right-hand melody over layered parts, a retrigger, the
         // sustain pedal, poly aftertouch, then everything up (one note-off as a note-on
         // with velocity 0, one through running status).
@@ -86,6 +91,7 @@ fn keyboard_note_path_does_not_allocate() {
         input.packet(1, 0, &[0xB0, 1, round, 0xE0, round, 0x50, 0xB0, 66, 127, 0xB0, 4, round]);
         shared.parts.toggle(1);
         input.packet(1, 0, &[0xB0, 66, 0, 0xB0, 64, 127, 0xB0, 121, 0, 0xB0, 64, 0]);
+        input.packet(1, 0, &[0x90, 64, 90, 67, 90, 0x80, 64, 0, 67, 0]);
         input.end_of_list();
         ctl.reset(&mut |_| {});
     }

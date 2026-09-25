@@ -9,7 +9,14 @@ maps 1:1 onto the hardware under your hands. Above it sits the **lead-sheet band
 the song is, what's next; later the chord chart), and below it the **keyboard strip** (the
 keys you hold, the splits, the chord). Everything else opens in panels around it:
 Keyboard parts + OTS, Mixer, Settings (right-side drawers), and the style browser (a
-modal).
+modal). Each drawer opens from a small `DrawerButton` on the stage next to the controls it
+details (Parts & OTS, Sounds and Mixer on the fader head, Multi Pads by the pad-page tabs,
+Charts by the lead-sheet lane, Harmony/Arp and Chord Looper on the keyboard strip's cheek;
+the style name on the display opens the browser). The app bar keeps only the app's own
+controls (Settings, help, theme) and, between them, the transport section: Start/Stop,
+Sync, Intro, Ending, Tempo, Tap and bar.beat, the same commands as the mirror's pads. It
+fits one row down to the 900×600 minimum (shorter labels, then bar.beat without the
+section names, which the lead-sheet band shows anyway).
 
 ## Run it
 
@@ -62,7 +69,7 @@ app/
                              icons/icon.svg` in src-tauri regenerates the set
     src/lib.rs               commands send/state/library and the `yahaha` event, backed by
                              yahaha::Session (the engine) or the mock; env: YAHAHA_STYLES,
-                             YAHAHA_SF2, YAHAHA_MOCK (see the file's header)
+                             YAHAHA_SOUNDFONTS, YAHAHA_SF2, YAHAHA_MOCK (see the file's header)
     src/mock.rs              mock session on the engine's own AppState types
   src/
     App.svelte               the layout shell: app bar, the stage (lead-sheet band, Launchkey
@@ -87,9 +94,12 @@ app/
       surface.ts             the Launchkey surface beyond the pads (see "The surface")
       keys.ts, shortcuts.ts  keyboard bindings (the terminal UI's keys) and the window handler
       tooltip/               tip action, HelpFooter (+ last Launchkey control), TipCard, opt-in pop-up Tooltip
-      ui/                    shared components: HwButton, Fader, Toggle, Overlay, PanelSlot
+      ui/                    shared components: HwButton, DrawerButton, Fader, Toggle, Overlay, PanelSlot
     panels/
-      header/Header.svelte         BUILT: the app bar (panel buttons, help, theme)
+      header/Header.svelte         BUILT: the app bar, one row: name, the transport, Settings, help, theme
+      header/TransportBar.svelte   BUILT: the transport section in it (Start/Stop, Sync Start/Stop,
+                                   Intro/Ending I–III, Tempo −/+ and Tap, bar.beat, section);
+                                   buttons light from `transport.lamps` like their pads
       leadsheet/                   BUILT: the lead-sheet band above the mirror (see below), and
                                    ChartLane.svelte: the iReal chord chart in it (chart mode)
       charts/Charts.svelte         BUILT: the iReal Pro chart player drawer (import, songs, settings)
@@ -134,7 +144,11 @@ When the stage is taller than 1.45:1 (a 1024-wide window, say), the mirror switc
 its **stacked layout**, `@container stage (aspect-ratio < 1.45)`: the fader bank moves
 under the pads, the design width drops to 66em, and so everything grows. If you change the
 mirror's rows or the band's or strip's minimum heights, re-measure the mirror's height in
-em (`.device` height ÷ `--u`) in both layouts and update `--h` in `App.svelte`.
+em (`.device` height ÷ `--u`) in both layouts and update `--h` in `App.svelte`. The
+Registration bar is a row at the top of the keyboard strip's panel, above the keys
+(`<KeyStrip><RegistBar /></KeyStrip>`), sized in em like the rest of the stage: one row
+wide, two stacked. `--top` in `App.svelte` is its height plus the gap (measure `.strip .top`
+÷ `--u`), and it is already in `--h`.
 
 Panel print on the stage is `0.78em` (the global `.engraved` is in `rem`, for drawers).
 Anything that can grow (a style name under Track ◀/▶) wraps rather than being cut off.
@@ -240,6 +254,8 @@ when a second panel needs it.
    `lib/api/types.ts` has them all, with comments. The library is `app.library.entries`.
 3. **Use the shared components:**
    - `HwButton`: a backlit button. Pass an LED look for anything lit.
+   - `DrawerButton`: the small, quieter button on the stage that opens a drawer. Put it
+     next to the controls the drawer details, never in place of a mirrored control.
    - `Fader`: 0–127, with a slot, cap, scale, readout and the soft-takeover mark.
    - `Toggle`: an on/off setting.
    - `Overlay`: the drawer or modal frame.

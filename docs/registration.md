@@ -95,17 +95,44 @@ Today's sections: `style` (early), `multiPad` (early: the bank file, or null for
 `tempo`, `chord` (fingering, Upper, Manual Bass, split), `styleControl` (Main, Intro, Sync
 Start/Stop, Stop ACMP and its mode `stopAcmpMode` (Data List p.91: group Style; a bank without it
 recalls only on/off), OTS Link), `styleMixer` (the 8 Style parts' CC7, on/off, and `set`:
-which levels the player had set), `parts` (Right 1–3 and Left: on, voice, CC7, octave),
+which levels the player had set), `parts` (Right 1–3 and Left: on, voice, CC7, octave, and the part's own sound library
+patch `patch: { id, name }` (#109), recalled through `setPartPatch`),
 `transpose`, `harmonyArp` (Keyboard Harmony/Arpeggio: the switch, the type and pattern by
 name, Volume, Speed, Assign, Chord Note Only, Touch Limit, and the arpeggio's Quantize, Hold
 setting, velocity and Keep Key On; not the Arpeggio Hold pedal function, which is the
-pedal's). The Chord Looper and Live Control add theirs when they're wired in (their groups
+pedal's), `styleSettings` (#107: Section Change Timing To Main, Style Retrigger on/off and
+rate, Synchro Stop Window, Tap Tempo's Style Section Reset, all group Style; the Fade In,
+Fade Out and Fade Out Hold times, group Assignable). The Chord Looper and Live Control add theirs when they're wired in (their groups
 already exist).
 
-The voice is a `VoiceRef` tagged by `kind` (`{"kind":"gm","program":…}`), so plugin
-instruments (#35 phase 2) become a new kind without breaking old banks. A voice kind the
+The voice is a `VoiceRef` tagged by `kind` (`{"kind":"gm","program":…}`). A voice kind the
 build can't read or play (a newer build's `kind`) is reported for that part only: its other
 settings and the other parts still recall, and the bank file keeps the voice as it was.
+
+**A part's plugin (#104).** A plugin picked on the Plugins tab (`setPartPlugin`) is stored as
+`{"kind":"plugin","id":"aumu dls  appl","name":"DLSMusicDevice","state":"<base64>","program":4}`:
+the plugin's id, its name (Regist Bank Info shows it), its full state (absent: its default
+preset; a state over 64 MB is not stored, and Memorize says so), and the GM voice the part
+has underneath. (session/registration/plugin.rs)
+- **Memorize** stores the state the part saved last at once, then reads each part's playing
+  plugin's state on a `plugin-state` thread (a plugin's state is never read on the control
+  thread, #125) and puts it into the button when it lands, so the button keeps the plugin as
+  it sounded at Memorize, not as the last 30 s autosave had it.
+- **Recall** loads the plugin as `setPartPlugin` does: on a load thread, the part keeping
+  what it plays until the plugin is ready; the part's library patch ends. A part that already
+  plays that plugin with that state is left alone (nothing reloads). A plugin that isn't
+  installed, or a build without the plugin host, leaves the part on the stored GM voice, and
+  the recall says so.
+- **Warm preload.** Selecting a bank (or changing one) preloads the plugin voices its
+  buttons play, with their stored states, on `plugin-load` threads (session/plugin_pool.rs):
+  each voice as many times as one button plays it, in button order, at most 8 instances. A
+  recall then hands a preloaded instance to the rack at the next pump instead of loading;
+  the pool refills after a recall, and lets go of what the bank no longer plays (instances
+  are disposed of on `plugin-dispose`). Past 8, a button's plugin loads when pressed and the
+  part shows Loading. A preload that fails isn't retried until the bank changes.
+- A **GM voice** recalled on a part ends its Plugins-tab plugin. A plugin that the part's own
+  library patch plays is not stored as a plugin voice: the `patch` is, and its recall brings
+  the plugin back.
 
 ## Recall order and timing
 
@@ -144,11 +171,12 @@ first).
 
 | Group | Items here |
 |---|---|
-| Style | the style, section (Main, armed Intro), Sync Start/Stop, Stop ACMP, OTS Link, the Style part mixer, the **Left** part, split point, fingering, Chord Detection Area / Manual Bass |
+| Style | the style, section (Main, armed Intro), Sync Start/Stop, Stop ACMP, OTS Link, the Style part mixer, the **Left** part, split point, fingering, Chord Detection Area / Manual Bass, Section Change Timing To Main, Style Retrigger on/off and rate, Synchro Stop Window, Style Section Reset |
 | Voice | Right 1–3: voice, on/off, volume, octave |
 | Tempo | the tempo, in whole BPM as on the Genos panel (recalled as SET TEMPO) |
 | Transpose | Keyboard and Master transpose |
 | Multi Pad | the Multi Pad bank (Data List "Multi Pad File"; a bank already chosen is left playing). Not the pads' Synchro Start standby |
+| Assignable | the Fade In, Fade Out and Fade Out Hold times (Data List: Freeze group "Assignable Buttons") |
 | Keyboard Harmony/Arpeggio, Chord Looper, Live Control | reserved for those features |
 
 Not stored (as on the Genos): Auto Fill In, the Style Change Behavior settings, OTS Link
@@ -156,10 +184,22 @@ Timing, the synth's master level, the fader page, the pad page, the selected par
 
 ## Parameter Lock
 
-Recall asks `Control::param_locked(LockItem)` before changing a lockable item. Today:
-`SplitPoint` (the split) and `FingeringType` (fingering, Upper/Lower, Manual Bass), as the
-Data List's lock groups; Parameter Lock itself (M5) owns that function and its state, and
-nothing is locked until it lands.
+Parameter Lock (RM p.163; `setParamLock`, `paramLocks`, `src/session/param_lock.rs`): a
+locked group changes only from the panel. Registration, OTS and Playlist recalls leave it
+alone. The groups are the Data List's Parameter Lock column, where yahaha has the items:
+
+| Lock group | Items here |
+|---|---|
+| Split Point | the split point |
+| Fingering Type | the fingering type, the Chord Detection Area (Upper) and Manual Bass |
+
+The Genos's other groups (Master EQ, Reverb Type, the Reverb/Chorus/Variation Return
+Levels, Vocal Harmony/Mic Setting) cover things yahaha doesn't have. A recall asks
+`Control::param_locked(LockItem)` before it changes an item of a lock group; a new
+registrable with such an item (a Left or Right 3 split point, say) must ask too. A One
+Touch Setting has no item in any lock group (the Data List's OTS column), so an OTS recall
+never needs to ask. The lock state is a setup setting: it is kept in `setup.json` beside
+Sequence On/Off, never in a bank.
 
 ## Launchkey, keys, app
 
@@ -171,7 +211,7 @@ nothing is locked until it lands.
   ten lamps, Memory, Freeze, the sequence and the playlist. On macOS, F11 is Show Desktop
   by default: turn that shortcut off (System Settings › Keyboard › Keyboard Shortcuts ›
   Mission Control), or use the app's Registration bar / pad page 4 for Bank −.
-- **App**: the Registration bar under the app bar (bank, the ten buttons with their
+- **App**: the Registration bar under the keyboard strip (bank, the ten buttons with their
   names, Memory, Freeze, the sequence, the playlist) and the Registration panel (Bank,
   Memory & Freeze, Sequence, Playlist pages).
 
@@ -209,6 +249,22 @@ nothing is locked until it lands.
   otherwise the rest of the registration is still recalled and the message says so.
 - **Playlist style records**: yahaha records may point straight at a style file (the
   Genos goes through a bank); handy for a set list of styles.
+- **Style settings** (#107), from the Data List's Registration column: Style Retrigger
+  On/Off and Rate, Synchro Stop Window and Tap Tempo's Style Section Reset are group Style;
+  Fade In, Fade Out and Fade Out Hold Time are group "Assignable Buttons", which yahaha adds
+  as the `assignable` group (the Assignable buttons' own functions can join it later). The
+  Data List (Genos) has no Section Change Timing; the Genos2 Reference Manual (p.12) says
+  To Main "is also set when you load a Registration Memory", so To Main is stored (group
+  Style) and Inside Intro/Ending, which it doesn't mention, is not. The recalled To Main
+  applies to the registration's own style: the rest of a recall waits for it anyway.
+  Retrigger on/off is sent as a state (`StyleControls.retrigger`). A bank from an
+  earlier build (no `styleSettings`) leaves the settings as they are.
+- **A part's library patch** (#109): stored with its GM voice underneath. A recall sets
+  the GM voice, then the patch (skipped if the part already plays it), then the stored
+  level and octave, which win over the patch's defaults (its pan and sends still apply).
+  A patch deleted from the library leaves the part on the GM voice, and the message says
+  so. A memory without a patch (a GM voice, or a bank from an earlier build) clears the
+  part's own patch, since the GM voice is what it stored.
 - **Launchkey**: a fourth pad page rather than a Shift layer on page 1, so the lamps can
   show which buttons are stored and which is in use. Shift + Track was free and is where a
   set list's "next song" belongs.

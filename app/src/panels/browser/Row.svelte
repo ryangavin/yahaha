@@ -6,6 +6,7 @@
 -->
 <script lang="ts">
   import type { LibraryEntry } from '../../lib/api/types'
+  import { formatTempo } from '../../lib/format'
   import { brightness } from '../../lib/leds'
   import { clock } from '../../lib/store.svelte'
   import { tip } from '../../lib/tooltip/tip.svelte'
@@ -84,7 +85,7 @@
     <span class="why">{entry.error ?? 'unreadable'}</span>
   {:else}
     <span class="folder">{entry.folder}</span>
-    <span class="num">{pending ? '…' : (entry.tempo ?? '')}</span>
+    <span class="num tempo">{pending ? '…' : formatTempo(entry.tempo)}</span>
     <span class="num">{pending ? '' : entry.timeSignature ? `${entry.timeSignature[0]}/${entry.timeSignature[1]}` : ''}</span>
     <span class="secs">{#if !pending}<Lamps summary={entry.sections} {colours} />{/if}</span>
     <span class="sff">{#if entry.format}<b>{entry.format}</b>{:else}<i>{pending ? '…' : '—'}</i>{/if}</span>
@@ -176,6 +177,9 @@
   }
   .num {
     text-align: right;
+    /* Fixed-width column: clip rather than spill into the next one. */
+    overflow: hidden;
+    min-width: 0;
     font-family: var(--font-display);
     font-size: 0.95rem;
   }

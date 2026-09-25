@@ -34,7 +34,7 @@
 //! `~/Library/Application Support/yahaha/plugin-parts.json` and loads them again at start.
 
 use super::Control;
-use crate::api::{base64_decode, base64_encode, CmdError, PartPlugin, PluginCmd, PluginsState};
+use crate::api::{base64_decode, base64_encode, CmdError, PartPlugin, PluginCmd, PluginStatus, PluginsState};
 use crate::parts;
 use serde::{Deserialize, Serialize};
 #[cfg(feature = "plugins")]
@@ -79,9 +79,9 @@ fn saved_path() -> Option<PathBuf> {
 #[cfg(feature = "plugins")]
 mod imp {
     use super::*;
-    use crate::api::{PluginEntry, PluginStatus};
+    use crate::api::PluginEntry;
     use crate::plugin::{
-        dispose_later, EditorTarget, LoadConfig, LoadHandle, LoadMode, LoadProgress, PluginFormat, PluginHost, PluginId, PluginInfo,
+        dispose_later, EditorTarget, InstanceRef, LoadConfig, LoadHandle, LoadMode, LoadProgress, PluginFormat, PluginHost, PluginId, PluginInfo,
         PluginStats, RackEvent, Swap, DEFAULT_FADE_FRAMES,
     };
     use crate::route::Source;
@@ -106,9 +106,14 @@ mod imp {
         pub(crate) cpu: f32,
         /// (total ns, frames) at the last CPU reading.
         pub(crate) last: (u64, u64),
+        /// Its overruns over the last few seconds (the live readout).
+        pub(crate) recent: OverrunWindow,
         /// A load the system refuses to host out of process may be retried in process
         /// (`plugin::may_retry_in_process`). Never for the start-up restore.
         pub(crate) allow_fallback: bool,
+        /// The system refused to host it out of process, so it was loaded in process
+        /// instead (a crash in it would take yahaha down): the app shows it.
+        pub(crate) fell_back: bool,
     }
 
     impl ChannelPlugin {
@@ -128,12 +133,45 @@ mod imp {
                 out_of_process: false,
                 cpu: 0.0,
                 last: (0, 0),
+                recent: OverrunWindow::default(),
                 allow_fallback: false,
+                fell_back: false,
             }
         }
 
         fn name(&self) -> String {
             self.info.as_ref().map_or_else(|| self.voice.id.clone(), |i| i.name.clone())
+        }
+    }
+
+    /// How many seconds the live overrun readout (`PartPlugin::recent_overruns`) covers.
+    pub(crate) const OVERRUN_WINDOW_SECS: usize = 10;
+
+    /// A plugin's overruns per second over the last `OVERRUN_WINDOW_SECS` seconds, from its
+    /// running total (read once a second on the control thread).
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub(crate) struct OverrunWindow {
+        /// The total at the last reading.
+        total: u64,
+        secs: [u32; OVERRUN_WINDOW_SECS],
+        at: usize,
+    }
+
+    impl OverrunWindow {
+        pub(crate) fn starting_at(total: u64) -> OverrunWindow {
+            OverrunWindow { total, ..OverrunWindow::default() }
+        }
+
+        /// A new reading of the running total: one second more.
+        pub(crate) fn tick(&mut self, total: u64) {
+            self.secs[self.at] = total.saturating_sub(self.total).min(u32::MAX as u64) as u32;
+            self.at = (self.at + 1) % OVERRUN_WINDOW_SECS;
+            self.total = total;
+        }
+
+        /// The overruns in the window.
+        pub(crate) fn count(&self) -> u32 {
+            self.secs.iter().fold(0u32, |a, &n| a.saturating_add(n))
         }
     }
 
@@ -153,6 +191,22 @@ mod imp {
         pub(crate) autosave_ns: u64,
         /// Save the parts' plugins at the next pump (live sessions only).
         pub(crate) dirty: bool,
+        /// Plugin state reads running on `plugin-state` threads (the autosave and
+        /// `savePartPluginState`): an out-of-process plugin's state is an XPC round trip and
+        /// a sampler's can be MBs, so the control thread never waits for one.
+        pub(crate) state_reads: Vec<mpsc::Receiver<StateRead>>,
+        /// Plugins preloaded for the Registration bank's buttons (plugins/pool.rs).
+        pub(crate) warm: super::pool::WarmPool,
+    }
+
+    /// A plugin state read on a `plugin-state` thread.
+    pub(crate) struct StateRead {
+        ch: u8,
+        /// The instance read (it applies only if the channel still plays it).
+        inst: InstanceRef,
+        state: Result<Vec<u8>, String>,
+        /// Say it in the message line if it fails (an explicit save, not the autosave).
+        report: bool,
     }
 
     fn stage_name(p: &LoadProgress) -> Option<String> {
@@ -165,6 +219,19 @@ mod imp {
         }.into())
     }
 
+    /// Where a plugin loads: in process if the player chose that (`setPluginInProcess`),
+    /// else Apple's units and AUv3s as macOS decides (`Auto`), and everything else in its
+    /// own process.
+    pub(crate) fn load_mode(info: &PluginInfo) -> LoadMode {
+        if info.in_process && info.can_run_in_process() {
+            LoadMode::InProcess
+        } else if info.id.manufacturer == APPLE || info.format == PluginFormat::Au3 {
+            LoadMode::Auto
+        } else {
+            LoadMode::OutOfProcess
+        }
+    }
+
     impl PluginCtl {
         pub(crate) fn host(&mut self) -> PluginHost {
             self.host.get_or_insert_with(PluginHost::with_default_cache).clone()
@@ -172,7 +239,7 @@ mod imp {
     }
 
     impl Control {
-        fn plugin_ready(&self) -> Result<(), String> {
+        pub(crate) fn plugin_ready(&self) -> Result<(), String> {
             match &self.synth {
                 Some(s) if s.plugins.is_some() => Ok(()),
                 Some(_) => Err("the synth has no plugin rack".into()),
@@ -203,13 +270,11 @@ mod imp {
             if voice.state.as_ref().is_some_and(|s| s.len() > MAX_STATE_BYTES) {
                 return Err(format!("the plugin state is larger than {} MB", MAX_STATE_BYTES >> 20));
             }
-            let id = PluginId::parse(&voice.id).ok_or_else(|| format!("{:?} is not a plugin id", voice.id))?;
-            let host = self.plugins.host();
-            let info = host.info(&id).map_err(|e| format!("{e:#}"))?;
-            let mode = if id.manufacturer == APPLE || info.format == PluginFormat::Au3 { LoadMode::Auto } else { LoadMode::OutOfProcess };
-            let rate = self.synth.as_ref().map_or(48_000, |s| s.info.sample_rate) as f64;
-            let cfg = LoadConfig { sample_rate: rate, max_frames: crate::synth::PLUGIN_MAX_BLOCK as u32, state: voice.state.clone(), mode, timeout: Duration::from_secs(20) };
-            let load = host.load_async(&id, cfg).map_err(|e| format!("{e:#}"))?;
+            // A plugin preloaded for a Registration button plays at once; else it loads now.
+            let (info, mode, load) = match self.take_warm(&voice) {
+                Some(w) => (w.info, w.mode, w.load),
+                None => self.start_load(&voice)?,
+            };
             // What is in the rack now (playing, or muted by a fault) stays there until the
             // new one is ready: it keeps playing, and comes back if the new one fails. A
             // quick re-pick while loading keeps the one from before the first pick.
@@ -221,7 +286,7 @@ mod imp {
             }
             self.plugins.channels[ch as usize] = Some(ChannelPlugin {
                 voice,
-                info: Some(info),
+                info,
                 load: Some(load),
                 mode,
                 status: PluginStatus::Loading,
@@ -232,9 +297,46 @@ mod imp {
                 out_of_process: false,
                 cpu: 0.0,
                 last: (0, 0),
+                recent: OverrunWindow::default(),
                 allow_fallback,
+                fell_back: false,
             });
             Ok(())
+        }
+
+        /// Start loading `voice` on a thread of its own, as a part plays it ([`load_mode`]).
+        ///
+        /// The plugin is checked against the scanned list, never by scanning here: a stale
+        /// scan cache means a full component scan, and this runs on the control thread under
+        /// the Session lock. Before the first scan is in, the load thread looks the plugin up
+        /// (and chooses its mode); one that is not installed fails there, through the handle.
+        /// Once the list is in, an id missing from it is refused at once. The info is None
+        /// until the load thread has it (`LoadHandle::info`).
+        pub(crate) fn start_load(&mut self, voice: &PluginVoice) -> Result<(Option<PluginInfo>, LoadMode, LoadHandle), String> {
+            let id = PluginId::parse(&voice.id).ok_or_else(|| format!("{:?} is not a plugin id", voice.id))?;
+            let info = self.plugins.list.iter().find(|p| p.id == id).cloned();
+            if info.is_none() && self.plugins.scan_rx.is_none() && !self.plugins.list.is_empty() {
+                return Err(format!("no instrument Audio Unit {id} is installed (rescan the plugins if it was just installed)"));
+            }
+            let (mode, choose_mode) = match &info {
+                Some(i) => (load_mode(i), None),
+                None => (LoadMode::Auto, Some(load_mode as fn(&PluginInfo) -> LoadMode)),
+            };
+            let cfg = LoadConfig {
+                sample_rate: self.plugin_rate(),
+                max_frames: crate::synth::PLUGIN_MAX_BLOCK as u32,
+                state: voice.state.clone(),
+                mode,
+                timeout: Duration::from_secs(20),
+                choose_mode,
+            };
+            let load = self.plugins.host().load_async(&id, cfg).map_err(|e| format!("{e:#}"))?;
+            Ok((info, mode, load))
+        }
+
+        /// The rate plugins load at: the synth's.
+        pub(crate) fn plugin_rate(&self) -> f64 {
+            self.synth.as_ref().map_or(48_000, |s| s.info.sample_rate) as f64
         }
 
         /// Channel `ch` back to its SoundFont (a short fade out), cancelling a load.
@@ -261,13 +363,72 @@ mod imp {
             }
         }
 
-        /// Read channel `ch`'s playing plugin's state into its voice (and save it).
+        /// Read channel `ch`'s playing plugin's state into its voice (and save it). The
+        /// read runs on a thread of its own; the pump applies it.
         pub(crate) fn save_channel_state(&mut self, ch: u8) -> Result<(), String> {
-            let c = self.plugins.channels[(ch & 15) as usize].as_mut().ok_or("the part plays its SoundFont voice")?;
+            let c = self.plugins.channels[(ch & 15) as usize].as_ref().ok_or("the part plays its SoundFont voice")?;
             let ed = c.editor.clone().ok_or("the plugin is not playing yet")?;
-            c.voice.state = Some(ed.state().map_err(|e| format!("{e:#}"))?);
-            self.plugins.dirty = true;
+            self.read_states(vec![(ch & 15, ed)], true);
             Ok(())
+        }
+
+        /// Read these instances' states on a `plugin-state` thread; the pump applies them.
+        fn read_states(&mut self, targets: Vec<(u8, EditorTarget)>, report: bool) {
+            let (tx, rx) = mpsc::channel();
+            let ok = std::thread::Builder::new().name("plugin-state".into()).spawn(move || {
+                for (ch, e) in targets {
+                    let state = e.state().map_err(|e| format!("{e:#}"));
+                    let inst = e.instance();
+                    // The editor handle goes first: if it held the unit's last reference,
+                    // the unit is disposed of here, not on the control thread.
+                    drop(e);
+                    if tx.send(StateRead { ch, inst, state, report }).is_err() {
+                        return;
+                    }
+                }
+            });
+            match ok {
+                Ok(_) => self.plugins.state_reads.push(rx),
+                Err(e) if report => self.say(format!("could not read the plugin's settings: {e}"), true),
+                Err(_) => {}
+            }
+        }
+
+        /// Plugin states read since the last pump: into the channels' voices (to be saved),
+        /// if the channel still plays the instance read.
+        fn pump_state_reads(&mut self) {
+            let mut done = Vec::new();
+            self.plugins.state_reads.retain(|rx| loop {
+                match rx.try_recv() {
+                    Ok(r) => done.push(r),
+                    Err(mpsc::TryRecvError::Empty) => break true,
+                    Err(mpsc::TryRecvError::Disconnected) => break false,
+                }
+            });
+            for r in done {
+                let Some(c) = self.plugins.channels[r.ch as usize].as_mut() else { continue };
+                if c.status != PluginStatus::Playing || !c.editor.as_ref().is_some_and(|e| r.inst.is(e)) {
+                    continue;
+                }
+                match r.state {
+                    Ok(s) => {
+                        if c.voice.state.as_ref() != Some(&s) {
+                            c.voice.state = Some(s);
+                            self.plugins.dirty = true;
+                        }
+                    }
+                    Err(e) if r.report => {
+                        let name = c.name();
+                        self.say(format!("{name}: could not read its settings ({e})"), true);
+                    }
+                    Err(_) => {}
+                }
+            }
+        }
+
+        /// Plugin state reads still running (their states land at a later pump).
+        pub(crate) fn plugin_state_reads_pending(&self) -> bool {
+            !self.plugins.state_reads.is_empty()
         }
 
         pub(crate) fn channel_plugin_state(&self, ch: u8) -> Option<PartPlugin> {
@@ -283,8 +444,10 @@ mod imp {
                 stage: c.stage.clone(),
                 error: c.error.clone(),
                 out_of_process: c.out_of_process,
+                in_process_fallback: c.fell_back,
                 cpu: c.cpu,
                 overruns,
+                recent_overruns: c.recent.count(),
                 editor: c.status == PluginStatus::Playing,
             })
         }
@@ -308,9 +471,28 @@ mod imp {
                         }
                         .into(),
                         last_error: p.last_load.as_ref().and_then(|l| l.error.clone()),
+                        in_process: p.in_process,
+                        can_run_in_process: p.can_run_in_process(),
                     })
                     .collect(),
             }
+        }
+
+        /// The player's "run in process" override for plugin `id`, saved in the scan cache.
+        /// It applies from the plugin's next load; a part playing it now keeps running where
+        /// it is.
+        pub(crate) fn set_plugin_in_process(&mut self, id: &str, on: bool) -> Result<(), String> {
+            let pid = PluginId::parse(id).ok_or_else(|| format!("{id:?} is not a plugin id"))?;
+            let info = self.plugins.host().set_in_process(&pid, on).map_err(|e| format!("{e:#}"))?;
+            if let Some(p) = self.plugins.list.iter_mut().find(|p| p.id == pid) {
+                p.in_process = info.in_process;
+            }
+            let playing = self.plugins.channels.iter().flatten().any(|c| c.voice.id == id && c.status == PluginStatus::Playing);
+            if playing {
+                let r#where = if on { "inside yahaha" } else { "in its own process" };
+                self.say(format!("{} runs {where} from its next load (the next start, or pick it again)", info.name), false);
+            }
+            Ok(())
         }
 
         /// Scan (from the cache: instant when nothing changed) on a thread.
@@ -348,6 +530,7 @@ mod imp {
             for ch in 0..16u8 {
                 self.pump_channel_load(ch);
             }
+            self.pump_warm();
             let events = match self.synth.as_mut().and_then(|s| s.plugins.as_mut()) {
                 Some(link) => link.poll(),
                 None => Vec::new(),
@@ -379,25 +562,25 @@ mod imp {
                         let (dt, df) = (t.saturating_sub(c.last.0), f.saturating_sub(c.last.1));
                         c.last = (t, f);
                         c.cpu = if df > 0 { ((dt as f64 / 1e9) / (df as f64 / rate)) as f32 } else { 0.0 };
+                        c.recent.tick(s.overruns.load(Relaxed));
                     }
                 }
             }
             // Every 30 s (live), the keyboard parts' plugin settings as the editor left
-            // them, so a crash or a window closed with the red button loses little.
-            if self.offline.is_none() && now.saturating_sub(self.plugins.autosave_ns) >= 30_000_000_000 {
+            // them, so a crash or a window closed with the red button loses little. Read
+            // on a thread (not while the last reads are still running).
+            self.pump_state_reads();
+            if self.offline.is_none() && now.saturating_sub(self.plugins.autosave_ns) >= 30_000_000_000 && self.plugins.state_reads.is_empty() {
                 self.plugins.autosave_ns = now;
-                for p in 0..parts::COUNT {
-                    let ch = parts::CHANNEL[p] as usize;
-                    let Some(c) = self.plugins.channels[ch].as_mut() else { continue };
-                    if c.status != PluginStatus::Playing {
-                        continue;
-                    }
-                    if let Some(Ok(s)) = c.editor.as_ref().map(|e| e.state())
-                        && c.voice.state.as_ref() != Some(&s)
-                    {
-                        c.voice.state = Some(s);
-                        self.plugins.dirty = true;
-                    }
+                let targets: Vec<(u8, EditorTarget)> = parts::CHANNEL
+                    .iter()
+                    .filter_map(|&ch| {
+                        let c = self.plugins.channels[ch as usize].as_ref()?;
+                        (c.status == PluginStatus::Playing).then(|| c.editor.clone()).flatten().map(|e| (ch, e))
+                    })
+                    .collect();
+                if !targets.is_empty() {
+                    self.read_states(targets, false);
                 }
             }
             if self.plugins.dirty && self.offline.is_none() {
@@ -416,6 +599,14 @@ mod imp {
                 }
                 Some(r) => r,
             };
+            // Looked up on the load thread (the plugin was not in the list yet): its name
+            // and the mode it loaded in.
+            if c.info.is_none() {
+                c.info = load.info();
+            }
+            if let Some(m) = load.mode() {
+                c.mode = m;
+            }
             c.load = None;
             c.stage = None;
             match res {
@@ -434,6 +625,7 @@ mod imp {
                             c.error = None;
                             c.editor = Some(editor);
                             c.last = (stats.total_ns.load(std::sync::atomic::Ordering::Relaxed), stats.frames.load(std::sync::atomic::Ordering::Relaxed));
+                            c.recent = OverrunWindow::starting_at(stats.overruns.load(std::sync::atomic::Ordering::Relaxed));
                             c.stats = Some(stats);
                             c.out_of_process = oop;
                             self.plugins.playing[ch as usize] = None;
@@ -454,12 +646,15 @@ mod imp {
                         let voice = c.voice.clone();
                         if let Some(id) = PluginId::parse(&voice.id) {
                             let rate = self.synth.as_ref().map_or(48_000, |s| s.info.sample_rate) as f64;
-                            let cfg = LoadConfig { sample_rate: rate, max_frames: crate::synth::PLUGIN_MAX_BLOCK as u32, state: voice.state.clone(), mode: LoadMode::InProcess, timeout: Duration::from_secs(20) };
+                            let cfg = LoadConfig { sample_rate: rate, max_frames: crate::synth::PLUGIN_MAX_BLOCK as u32, state: voice.state.clone(), mode: LoadMode::InProcess, timeout: Duration::from_secs(20), choose_mode: None };
                             if let Ok(h) = self.plugins.host().load_async(&id, cfg) {
                                 let c = self.plugins.channels[ch as usize].as_mut().unwrap();
                                 c.load = Some(h);
                                 c.mode = LoadMode::InProcess;
+                                c.fell_back = true;
                                 c.stage = Some("queued".into());
+                                let name = c.name();
+                                self.say(format!("{name} can't run in its own process; loading it inside yahaha instead (if it crashes, yahaha goes with it)"), false);
                                 return;
                             }
                         }
@@ -618,10 +813,17 @@ impl Control {
     pub(crate) fn channel_plugin_state(&self, _ch: u8) -> Option<PartPlugin> {
         None
     }
+    pub(crate) fn plugin_state_reads_pending(&self) -> bool {
+        false
+    }
+    pub(crate) fn warm_plugins(&mut self, _want: Vec<PluginVoice>) {}
     pub(crate) fn plugins_list(&self) -> PluginsState {
         PluginsState::default()
     }
     pub(crate) fn start_plugin_scan(&mut self, _rescan: bool) {}
+    pub(crate) fn set_plugin_in_process(&mut self, _id: &str, _on: bool) -> Result<(), String> {
+        Err("this build has no plugin host".into())
+    }
     pub(crate) fn pump_plugins(&mut self, _now: u64) {}
     pub(crate) fn restore_plugin_parts(&mut self) {}
     pub(crate) fn save_plugin_states_on_stop(&mut self) {}
@@ -660,11 +862,14 @@ impl Control {
                     },
                     None => None,
                 };
+                // A plugin picked here ends the part's own library patch (#103).
+                self.sound_library_part_plugin(part as usize, true);
                 if let Err(e) = self.assign_channel_plugin(ch(part), PluginVoice { id, state }) {
                     return self.fail(e);
                 }
             }
             PluginCmd::ClearPartPlugin { part } => {
+                self.sound_library_part_plugin(part as usize, false);
                 self.clear_channel_plugin(ch(part));
                 self.mark_plugins_dirty();
             }
@@ -674,11 +879,50 @@ impl Control {
                 }
             }
             PluginCmd::RescanPlugins => self.start_plugin_scan(true),
+            PluginCmd::SetPluginInProcess { id, in_process } => {
+                if let Err(e) = self.set_plugin_in_process(&id, in_process) {
+                    return self.fail(e);
+                }
+            }
+            PluginCmd::ReloadPartPlugin { part } => {
+                let part = part.map_or_else(|| self.shared.parts.selected(), |p| (p & 3) as usize);
+                if let Err(e) = self.reload_part_plugin(part) {
+                    return self.fail(e);
+                }
+            }
         }
         Ok(())
     }
 
-    fn mark_plugins_dirty(&mut self) {
+    /// The selected part's plugin stopped working or failed to load: the Launchkey's reload
+    /// button (Panel fader button 6) lights.
+    pub(super) fn selected_plugin_fault(&self) -> bool {
+        let ch = parts::CHANNEL[self.shared.parts.selected() & 3];
+        self.channel_plugin_state(ch).is_some_and(|p| matches!(p.status, PluginStatus::Muted | PluginStatus::Failed))
+    }
+
+    /// Load part `part`'s plugin again with its saved voice (id and preset), if it stopped
+    /// working or failed to load. `reloadPartPlugin`.
+    fn reload_part_plugin(&mut self, part: usize) -> Result<(), String> {
+        let name = parts::NAMES[part];
+        let Some(p) = self.channel_plugin_state(parts::CHANNEL[part]) else {
+            return Err(format!("{name} plays its SoundFont voice; there is no plugin to reload"));
+        };
+        match p.status {
+            PluginStatus::Muted | PluginStatus::Failed => {}
+            PluginStatus::Playing => return Err(format!("{name}'s {} is playing; nothing to reload", p.name)),
+            PluginStatus::Loading => return Err(format!("{name}'s {} is still loading", p.name)),
+        }
+        #[cfg(feature = "plugins")]
+        {
+            let voice = self.plugins.channels[parts::CHANNEL[part] as usize].as_ref().map(|c| c.voice.clone()).unwrap_or_default();
+            self.assign_channel_plugin(parts::CHANNEL[part], voice)?;
+            self.say(format!("{name}: loading {} again", p.name), false);
+        }
+        Ok(())
+    }
+
+    pub(super) fn mark_plugins_dirty(&mut self) {
         #[cfg(feature = "plugins")]
         {
             self.plugins.dirty = true;
@@ -705,6 +949,10 @@ impl Control {
         }
     }
 }
+
+#[cfg(feature = "plugins")]
+#[path = "plugin_pool.rs"]
+pub(crate) mod pool;
 
 #[cfg(all(test, feature = "plugins"))]
 #[path = "plugins_tests.rs"]

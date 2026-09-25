@@ -6,11 +6,14 @@
 //! whatever is not in the groups being recalled (Memorize groups less Freeze), and an old
 //! bank file that lacks the section leaves the feature alone. The Chord Looper and Live
 //! Control add theirs when they are wired in.
+//!
+//! Parameter Lock: a recall that sets an item of a Data List lock group (`LockItem`) asks
+//! `c.param_locked(item)` first and leaves the item alone when it is locked.
 
 use super::super::harmony_arp::{harmony_arp_capture, harmony_arp_recall};
+use super::super::style_settings::{style_settings_capture, style_settings_recall};
 use super::super::Control;
-use super::LockItem;
-use crate::api::{gm_name, ChordCmd, LibraryCmd, MultiPadCmd, PartsCmd, StopAcmpMode};
+use crate::api::{gm_name, ChordCmd, LibraryCmd, LockItem, MultiPadCmd, PartsCmd, StopAcmpMode};
 use crate::engine::{Button, StyleControls, Transpose};
 use crate::fingering::Fingering;
 use crate::live::Cmd;
@@ -49,6 +52,9 @@ pub(in crate::session) const REGISTRABLES: &[Registrable] = &[
     Registrable { key: "transpose", early: false, capture: transpose_capture, recall: transpose_recall },
     // Keyboard Harmony/Arpeggio (#32/#33): session/harmony_arp.rs.
     Registrable { key: "harmonyArp", early: false, capture: harmony_arp_capture, recall: harmony_arp_recall },
+    // Section Change Timing, Retrigger, Synchro Stop Window, Section Reset, fade times
+    // (#107): session/style_settings.rs.
+    Registrable { key: "styleSettings", early: false, capture: style_settings_capture, recall: style_settings_recall },
 ];
 
 fn to_value<T: Serialize>(t: &T) -> Option<Value> {
@@ -259,6 +265,7 @@ fn control_recall(c: &mut Control, v: &Value, g: Groups) -> Result<(), String> {
         parts: None,
         volumes: None,
         player_set: None,
+        retrigger: None,
     };
     c.engine_cmd(Cmd::StyleControls(set)).map_err(|e| e.to_string())
 }
@@ -323,6 +330,19 @@ struct PartReg {
     volume: u8,
     /// -2..=2.
     octave: i8,
+    /// The part's own sound library patch (#103), played instead of `voice`. None: the
+    /// GM voice (and a bank from an earlier build). A patch that is gone from the library
+    /// falls back to `voice`, which is the GM voice the part had underneath.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    patch: Option<PatchReg>,
+}
+
+/// A library patch in a registration: its id, and its name for Regist Bank Info (and the
+/// message when it is gone).
+#[derive(Clone, Serialize, Deserialize)]
+struct PatchReg {
+    id: String,
+    name: String,
 }
 
 /// Right 1, Right 2, Right 3, Left; None for a part outside the memorized groups.
@@ -335,7 +355,7 @@ fn lenient_voice<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<VoiceR
     Ok(serde_json::from_value(Value::deserialize(d)?).ok())
 }
 
-fn part_group(p: usize) -> Group {
+pub(super) fn part_group(p: usize) -> Group {
     if p == parts::LEFT { Group::Style } else { Group::Voice }
 }
 
@@ -347,9 +367,10 @@ fn parts_capture(c: &Control, g: Groups) -> Option<Value> {
     let parts = std::array::from_fn(|p| {
         g.has(part_group(p)).then(|| PartReg {
             on: kp.is_on(p),
-            voice: Some(VoiceRef::gm(kp.program[p].load(Relaxed))),
+            voice: Some(c.part_plugin_reg(p).unwrap_or_else(|| VoiceRef::gm(kp.program[p].load(Relaxed)))),
             volume: kp.volume(p),
             octave: kp.octave[p].load(Relaxed).clamp(-2, 2),
+            patch: c.part_patch(p).map(|(id, name)| PatchReg { id, name }),
         })
     });
     to_value(&PartsReg { parts })
@@ -361,10 +382,25 @@ fn parts_recall(c: &mut Control, v: &Value, g: Groups) -> Result<(), String> {
     for (p, part) in r.parts.iter().enumerate() {
         let Some(part) = part.as_ref().filter(|_| g.has(part_group(p))) else { continue };
         let kp = c.shared.parts.clone();
-        match part.voice.as_ref().and_then(VoiceRef::program) {
-            Some(prog) => kp.set_program(p, prog),
+        match part.voice.as_ref() {
+            Some(v) => {
+                kp.set_program(p, v.program().unwrap_or(0));
+                let r = match v {
+                    VoiceRef::Plugin { id, name, state, .. } => c.recall_part_plugin(p, id, name, state.as_deref()),
+                    VoiceRef::Gm { .. } => {
+                        // A GM voice: no plugin from the Plugins tab (a library patch's own
+                        // plugin is the patch's business, below).
+                        c.clear_part_tab_plugin(p);
+                        recall_patch(c, p, part.patch.as_ref())
+                    }
+                };
+                if let Err(e) = r {
+                    err = Some(e);
+                }
+            }
             None => err = Some(format!("{}: voice not available", parts::NAMES[p])),
         }
+        // After the patch: its defaults give way to the registration's level and octave.
         kp.set_volume(p, part.volume.min(127));
         kp.octave[p].store(part.octave.clamp(-2, 2), Relaxed);
         // Left plays the bass under Manual Bass: its switch stays as it is.
@@ -376,6 +412,25 @@ fn parts_recall(c: &mut Control, v: &Value, g: Groups) -> Result<(), String> {
     // The engine sends the new volumes (CC7) on its next wake.
     c.wake_engine();
     err.map_or(Ok(()), Err)
+}
+
+/// Part `p`'s own patch, as the registration has it: the patch (if it isn't already the
+/// part's), or none (the GM voice just set). A patch no longer in the sound library leaves
+/// the part on its GM voice, and says so.
+fn recall_patch(c: &mut Control, p: usize, patch: Option<&PatchReg>) -> Result<(), String> {
+    let now = c.part_patch(p).map(|(id, _)| id);
+    match patch {
+        Some(r) if now.as_deref() == Some(r.id.as_str()) => Ok(()),
+        Some(r) if c.has_patch(&r.id) => c.set_part_patch(p, Some(r.id.clone())).map_err(|e| e.to_string()),
+        Some(r) => {
+            c.sound_library_part_voice(p);
+            Err(format!("{}: patch {} is not in the sound library; it plays its GM voice", parts::NAMES[p], r.name))
+        }
+        None => {
+            c.sound_library_part_voice(p);
+            Ok(())
+        }
+    }
 }
 
 // ----- transpose (group Transpose) -----
@@ -418,7 +473,11 @@ pub(in crate::session) fn info(m: &Memory) -> Info {
             r.parts
                 .iter()
                 .map(|p| match p {
-                    Some(p) => (p.voice.as_ref().and_then(VoiceRef::program).map_or("?", gm_name).to_string(), p.on),
+                    Some(p) => match (&p.patch, &p.voice) {
+                        (Some(patch), _) => (patch.name.clone(), p.on),
+                        (None, Some(VoiceRef::Plugin { id, name, .. })) => (if name.is_empty() { id.clone() } else { name.clone() }, p.on),
+                        (None, v) => (v.as_ref().and_then(VoiceRef::program).map_or("?", gm_name).to_string(), p.on),
+                    },
                     None => (String::new(), false),
                 })
                 .collect()

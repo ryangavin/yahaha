@@ -16,7 +16,7 @@
 //! the code the audio device does.
 
 use anyhow::{anyhow, Context, Result};
-use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+use cpal::traits::{DeviceTrait, HostTrait};
 use rtrb::{Consumer, Producer, RingBuffer};
 use rustysynth::{SoundFont, Synthesizer, SynthesizerSettings};
 use std::path::Path;
@@ -40,7 +40,9 @@ pub type PluginLink = ();
 pub const PLUGIN_MAX_BLOCK: usize = 1024;
 
 mod routing;
+mod stream;
 pub use routing::Router;
+pub use stream::{BUFFER_CHOICES, DEFAULT_BUFFER};
 use routing::{apply_routed, NO_SLOT};
 
 pub type Msg = [u8; 3];
@@ -85,7 +87,7 @@ pub struct SynthControl {
 }
 
 pub struct Synth {
-    _stream: cpal::Stream,
+    output: stream::Output,
     pub info: SynthInfo,
     pub control: Arc<SynthControl>,
     /// The ends of the rings that swap racks: new ones to the audio thread, old ones back
@@ -93,6 +95,16 @@ pub struct Synth {
     pub swap: Option<RackSwap>,
     /// The plugin rack's control half (`plugins` feature). Taken by the Session.
     pub plugins: Option<PluginLink>,
+}
+
+impl Synth {
+    /// Reopen the output with `frames` per buffer (#104); every voice, plugin and queued
+    /// message carries over. Returns the buffer size now in use (None: the device default).
+    pub fn set_buffer(&mut self, frames: u32) -> Result<Option<u32>> {
+        let r = self.output.set_buffer(frames);
+        self.info.buffer = self.output.buffer;
+        r
+    }
 }
 
 /// Swapping SoundFonts: `tx` hands a new rack to the audio thread, `old` brings back the
@@ -127,7 +139,15 @@ pub struct Rack {
     ch_slot: [u8; 16],
     /// Channels routed to a library patch (bit = channel).
     mapped: u16,
+    /// Per extra synthesizer: how many frames it has rendered silence with no channel on
+    /// it. Past `IDLE_FRAMES` it is not rendered until a channel routes to it again.
+    quiet: Vec<u32>,
 }
+
+/// An extra synthesizer no channel plays is rendered until its output (reverb and chorus
+/// tails included) has been below `IDLE_LEVEL` for this long, then skipped.
+const IDLE_FRAMES: u32 = 4800;
+const IDLE_LEVEL: f32 = 1e-6;
 
 impl Rack {
     pub fn new(font: &Arc<SoundFont>, sample_rate: i32) -> Result<Rack> {
@@ -144,6 +164,7 @@ impl Rack {
             slot_of: [NO_SLOT; crate::patches::route::MAX_FONTS],
             ch_slot: [0; 16],
             mapped: 0,
+            quiet: Vec::new(),
         };
         // Rhythm 1 (ch 9) is a drum part too: on the drum bank.
         r.process(8, 0xB0, 0, 128);
@@ -173,11 +194,31 @@ impl Rack {
         let (left, right) = (&mut left[..n], &mut right[..n]);
         self.band.render(left, right);
         let (l, r) = (&mut self.tmp_l[..n], &mut self.tmp_r[..n]);
-        for s in std::iter::once(&mut self.player).chain(self.extra.iter_mut()) {
+        // The extra synthesizers some channel plays (slot k+1 = extra[k]).
+        let mut used = 0u64;
+        for &s in &self.ch_slot {
+            if s != 0 && s != NO_SLOT {
+                used |= 1 << ((s - 1) & 63);
+            }
+        }
+        for (i, s) in std::iter::once(&mut self.player).chain(self.extra.iter_mut()).enumerate() {
+            let quiet = if i == 0 { None } else { self.quiet.get_mut(i - 1) };
+            let played = i == 0 || (used >> ((i - 1) & 63)) & 1 == 1;
+            if let Some(q) = quiet.as_deref()
+                && !played
+                && *q >= IDLE_FRAMES
+            {
+                continue;
+            }
             s.render(l, r);
+            let mut peak = 0f32;
             for k in 0..n {
                 left[k] += l[k];
                 right[k] += r[k];
+                peak = peak.max(l[k].abs()).max(r[k].abs());
+            }
+            if let Some(q) = quiet {
+                *q = if played || peak >= IDLE_LEVEL { 0 } else { q.saturating_add(n as u32) };
             }
         }
         let mut most = 1f32;
@@ -498,6 +539,10 @@ pub struct AudioCore {
     right2: Vec<f32>,
     /// A rack just replaced: it plays out one buffer, fading, then goes back to be freed.
     fading: Option<Box<Rack>>,
+    /// A played-out rack the return ring had no room for: it waits here and goes back on a
+    /// later buffer, so it is never freed on the audio thread. No new rack is taken while
+    /// it waits.
+    parked: Option<Box<Rack>>,
     unmetered: [AtomicU32; 16],
     click: Click,
     #[cfg(feature = "plugins")]
@@ -543,6 +588,7 @@ impl AudioCore {
             left2: vec![0f32; 8192],
             right2: vec![0f32; 8192],
             fading: None,
+            parked: None,
             unmetered: std::array::from_fn(|_| AtomicU32::new(0)),
             click: Click::new(sample_rate),
             #[cfg(feature = "plugins")]
@@ -568,14 +614,21 @@ impl AudioCore {
     pub fn process(&mut self, out: &mut [f32]) {
         let channels = self.channels;
         let ctl = &*self.ctl;
+        // A rack still waiting to go back: try again.
+        if let Some(p) = self.parked.take() {
+            retire(&mut self.old_tx, &mut self.parked, p);
+        }
         // A new SoundFont: the new rack takes over with the channels' voices and controllers.
-        if let Ok(mut new) = self.swap_rx.pop() {
+        // Only when the one it replaces has a place to go back to: a free slot in the return
+        // ring (the audio thread is its only producer, so the slot is still free when the
+        // fade ends below). Otherwise the new rack waits in its ring for a later buffer.
+        if self.parked.is_none()
+            && self.fading.is_none()
+            && self.old_tx.slots() > 0
+            && let Ok(mut new) = self.swap_rx.pop()
+        {
             self.shadow.replay(&mut new, &mut self.bank, &self.parts, self.router.as_ref());
-            if let Some(old) = self.rack.replace(new)
-                && let Some(f) = self.fading.replace(old)
-            {
-                let _ = self.old_tx.push(f);
-            }
+            self.fading = self.rack.replace(new);
             self.last_master = 255;
             ctl.swaps.fetch_add(1, Relaxed);
         }
@@ -686,7 +739,7 @@ impl AudioCore {
                 left[i] += left2[i];
                 right[i] += right2[i];
             }
-            let _ = self.old_tx.push(f);
+            retire(&mut self.old_tx, &mut self.parked, f);
         }
         // The plugin parts: their own CC7/CC11/CC10 applied in the rack, then the master
         // fader (rustysynth applies it inside its render; the rack does not).
@@ -731,7 +784,23 @@ impl AudioCore {
     }
 }
 
-pub fn start(sf2: &Path, consumers: Vec<Consumer<Msg>>, out_pair: Option<u8>, parts: Arc<Parts>, routing: Routing) -> Result<Synth> {
+/// Send a played-out rack back to the control side to be freed there. The ring is never
+/// full here (a swap waits for a free slot), but if it were, the rack is parked for a later
+/// buffer rather than dropped on the audio thread.
+fn retire(old_tx: &mut Producer<Box<Rack>>, parked: &mut Option<Box<Rack>>, rack: Box<Rack>) {
+    if let Err(rtrb::PushError::Full(rack)) = old_tx.push(rack) {
+        // `parked` is empty whenever a rack is retired (it is retried first, and a swap
+        // waits for it), so this never drops one; if it somehow held one, leaking it beats
+        // freeing it here.
+        if let Some(stray) = parked.replace(rack) {
+            std::mem::forget(stray);
+        }
+    }
+}
+
+/// Start the synth on the default output device. `buffer`: frames per buffer to ask for
+/// (None: [`DEFAULT_BUFFER`]), within what the device allows.
+pub fn start(sf2: &Path, consumers: Vec<Consumer<Msg>>, out_pair: Option<u8>, parts: Arc<Parts>, routing: Routing, buffer: Option<u32>) -> Result<Synth> {
     let mut file = std::fs::File::open(sf2).with_context(|| format!("opening {}", sf2.display()))?;
     let font = Arc::new(SoundFont::new(&mut file).map_err(|e| anyhow!("{e:?}"))?);
 
@@ -760,24 +829,15 @@ pub fn start(sf2: &Path, consumers: Vec<Consumer<Msg>>, out_pair: Option<u8>, pa
     let control = Arc::new(SynthControl::new(first));
     let (mut core, swap, plugins) = AudioCore::new(Some(rack), consumers, parts, control.clone(), sample_rate, channels);
     core.set_routes(routing.routes);
-    let callback = move |out: &mut [f32], _: &cpal::OutputCallbackInfo| core.process(out);
-
-    // Ask for a 64-frame buffer when the device allows it.
-    let buffer = match default.buffer_size() {
-        cpal::SupportedBufferSize::Range { min, max } if *min <= 64 && 64 <= *max => Some(64u32),
-        cpal::SupportedBufferSize::Range { min, .. } if *min > 64 => Some(*min),
+    let range = match default.buffer_size() {
+        cpal::SupportedBufferSize::Range { min, max } => Some((*min, *max)),
         _ => None,
     };
-    let cfg = cpal::StreamConfig {
-        channels: channels as u16,
-        sample_rate,
-        buffer_size: buffer.map(cpal::BufferSize::Fixed).unwrap_or(cpal::BufferSize::Default),
-    };
-    let stream = device.build_output_stream(cfg, callback, |e| eprintln!("audio error: {e}"), None)?;
-    stream.play()?;
+    let output = stream::Output::open(device, channels as u16, sample_rate, range, core, buffer.unwrap_or(DEFAULT_BUFFER))?;
+    let buffer = output.buffer;
     let name = sf2.file_stem().unwrap_or_default().to_string_lossy().to_string();
     Ok(Synth {
-        _stream: stream,
+        output,
         info: SynthInfo { name, sample_rate, buffer, device: device_name, channels },
         control,
         swap: Some(swap),

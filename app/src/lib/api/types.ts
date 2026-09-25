@@ -8,7 +8,9 @@
 
 import type { PlaylistCmd, PlaylistState, RegistrationCmd, RegistrationState } from './registration'
 import type { SoundLibraryCmd, SoundLibraryState } from './sound-library'
+import type { SoundsCmd, SoundsState } from './sounds'
 export type * from './sound-library'
+export type * from './sounds'
 
 export type Fingering =
   | 'singleFinger' | 'multiFinger' | 'fingered' | 'fingeredOnBass'
@@ -128,14 +130,21 @@ export type AppCmd =
   // Style preview and queue: see PreviewState below.
   | PreviewCmd
   // Settings (docs/app-api.md)
-  /** Reload the synth from another `.sf2` in its folder (`io.soundFonts`); loads in the
-   * background (`io.soundFontLoading`). */
+  /** Make a `.sf2` in the folder (`io.soundFonts`) the default sound set; as
+   * `setDefaultSoundSet` with a file (kept for older clients). */
   | { type: 'setSoundFont'; file: string }
+  /** The default sound set (#117): the SoundFont whatever the program map leaves unmapped
+   * plays. A file in the folder, or null for Auto (`io.autoSoundSet`). Saved; a new font
+   * loads in the background (`io.soundFontLoading`). */
+  | { type: 'setDefaultSoundSet'; file: string | null }
   /** Keyboard sources: every one (`all`), or those whose name contains one of `names`
    * (`all` false, no names: a Launchkey's keys, else every source). */
   | { type: 'setMidiInputs'; all: boolean; names: string[] }
   /** Launchkey LEDs in Novation palette colours instead of RGB. */
   | { type: 'setPaletteLeds'; on: boolean }
+  /** The synth's audio buffer, 64, 128 or 256 frames (`io.synth.bufferFrames`). The
+   * output reopens; voices, plugins and held notes carry over. */
+  | { type: 'setAudioBuffer'; frames: 64 | 128 | 256 }
   /** Re-walk the style folders (`library.roots`); `library.scanning` while it runs. */
   | { type: 'rescanLibrary' }
   // iReal Pro chart player: see ChartState below.
@@ -163,8 +172,21 @@ export type AppCmd =
   | PluginCmd
   // Sound library: patches, the program map (docs/sound-library.md)
   | SoundLibraryCmd
+  // The sound catalog (#117): favourites, audition, assigning a sound to a part
+  | SoundsCmd
   // Keyboard Harmony / Arpeggio (docs/app-api.md): see HarmonyArpState below.
   | HarmonyArpCmd
+  // Parameter Lock: groups that Registration, OTS and Playlist recalls leave alone.
+  | { type: 'setParamLock'; item: LockItem; on: boolean }
+
+/** A Parameter Lock group (the Genos Data List's lock groups that yahaha has). */
+export type LockItem = 'splitPoint' | 'fingeringType'
+
+/** Parameter Lock: true = locked (a recall leaves the group as the player set it). */
+export interface ParamLockState {
+  splitPoint: boolean
+  fingeringType: boolean
+}
 
 /** Keyboard Harmony / Arpeggio: one HARMONY/ARPEGGIO switch and one type. */
 export type HarmonyArpCmd =
@@ -258,6 +280,7 @@ export type FadeState = 'off' | 'armed' | 'fadingIn' | 'fadingOut' | 'holding'
 export type SessionEvent =
   | { type: 'stateChanged'; version: number }
   | { type: 'libraryChanged'; revision: number }
+  | { type: 'soundsChanged'; revision: number }
   | { type: 'stopped' }
 
 export interface Pad {
@@ -549,12 +572,16 @@ export interface IoState {
   sources: MidiSource[]
   /** Every source is a keyboard (`setMidiInputs { all: true }`). */
   allInputs: boolean
-  /** The `.sf2` files in the synth's folder, for `setSoundFont`. */
+  /** The `.sf2` files in the SoundFont folder. */
   soundFonts: string[]
-  /** The file the synth plays; null without the synth. */
+  /** The file the synth plays as its default sound set; null without the synth. */
   soundFontFile: string | null
-  /** A `setSoundFont` is loading. */
+  /** A `setDefaultSoundSet` is loading. */
   soundFontLoading: boolean
+  /** The default sound set chosen; null: Auto. */
+  defaultSoundSet: string | null
+  /** The font Auto picks: the most GM-complete in the folder (null: no fonts). */
+  autoSoundSet: string | null
 }
 
 /** Output levels (`meters()`): peaks since the last call, linear (1 = full scale). The
@@ -837,6 +864,10 @@ export interface AppState {
   harmonyArp: HarmonyArpState
   /** The sound library: patches, the program map, what the current style uses. */
   soundLibrary: SoundLibraryState
+  /** Parameter Lock: the locked groups. */
+  paramLocks: ParamLockState
+  /** The sound catalog's summary (#117); the list is `session.sounds()`. */
+  sounds: SoundsState
 }
 
 // ── Instrument plugins (docs/plugin-hosting.md) ──────────────────────────
@@ -850,6 +881,10 @@ export type PluginCmd =
   | { type: 'savePartPluginState'; part: number }
   /** Scan the installed instruments again. */
   | { type: 'rescanPlugins' }
+  /** Run plugin `id` in yahaha's process (true) or its own (false); from its next load. */
+  | { type: 'setPluginInProcess'; id: string; inProcess: boolean }
+  /** Load a part's plugin again after it stopped or failed (null: the selected part). */
+  | { type: 'reloadPartPlugin'; part: number | null }
 
 /** loading: still on the SoundFont; failed: back on it; muted: the plugin crashed. */
 export type PluginStatus = 'loading' | 'playing' | 'failed' | 'muted'
@@ -863,9 +898,14 @@ export interface PartPlugin {
   stage: string | null
   error: string | null
   outOfProcess: boolean
+  /** The system refused to host it in its own process, so it loaded in yahaha's process
+   * instead: a crash in it takes yahaha down. */
+  inProcessFallback: boolean
   /** Share of real time (0.05 = 5% of a core), once a second. */
   cpu: number
   overruns: number
+  /** Overruns in the last 10 seconds (once a second): the live readout. */
+  recentOverruns: number
   /** Its editor window can be opened. */
   editor: boolean
 }
@@ -878,6 +918,10 @@ export interface PluginEntry {
   version: string
   format: 'AUv2' | 'AUv3'
   lastError: string | null
+  /** The player chose to run it in yahaha's process (setPluginInProcess). */
+  inProcess: boolean
+  /** It can run in yahaha's process: every AUv2, and an AUv3 that allows it. */
+  canRunInProcess: boolean
 }
 
 export interface PluginsState {

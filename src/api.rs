@@ -28,6 +28,7 @@ mod mixer;
 mod multipad;
 mod ots;
 mod pads;
+mod param_lock;
 mod plugins;
 mod parts;
 mod playlist;
@@ -36,6 +37,7 @@ mod registration;
 mod settings;
 mod style_change;
 mod sound_library;
+mod sounds;
 mod style_settings;
 mod surface;
 mod system;
@@ -53,6 +55,7 @@ pub use mixer::*;
 pub use multipad::*;
 pub use ots::*;
 pub use pads::*;
+pub use param_lock::*;
 pub use plugins::*;
 pub use parts::*;
 pub use playlist::*;
@@ -61,6 +64,7 @@ pub use registration::*;
 pub use settings::*;
 pub use style_change::*;
 pub use sound_library::*;
+pub use sounds::*;
 pub use style_settings::*;
 pub use surface::*;
 pub use system::*;
@@ -163,6 +167,10 @@ app_cmd! {
     HarmonyArp(HarmonyArpCmd),
     /// The sound library: patches, the program map, auditions, import/export.
     SoundLibrary(SoundLibraryCmd),
+    /// Parameter Lock: groups that Registration, OTS and Playlist recalls leave alone.
+    ParamLock(ParamLockCmd),
+    /// The sound catalog (#117): favourites, audition, assigning a sound to a part.
+    Sounds(SoundsCmd),
 }
 
 impl From<Button> for AppCmd {
@@ -171,7 +179,6 @@ impl From<Button> for AppCmd {
             Button::Intro(i) => TransportCmd::Intro { index: i }.into(),
             Button::Main(i) => TransportCmd::Main { index: i }.into(),
             Button::Break => TransportCmd::Break.into(),
-            Button::Fill(d) => TransportCmd::Fill { delta: d }.into(),
             Button::Ending(i) => TransportCmd::Ending { index: i }.into(),
             Button::StartStop => TransportCmd::StartStop.into(),
             Button::Stop => TransportCmd::Stop.into(),
@@ -237,6 +244,7 @@ impl From<Action> for AppCmd {
             Action::Assign(f) => ControllersCmd::TriggerFunction { function: f }.into(),
             Action::AssignSet(f, on) => function_set(f, on).unwrap_or(ControllersCmd::TriggerFunction { function: f }.into()),
             Action::ToggleHarmonyArp => HarmonyArpCmd::ToggleHarmonyArp.into(),
+            Action::ReloadPlugin => PluginCmd::ReloadPartPlugin { part: None }.into(),
         }
     }
 }
@@ -276,6 +284,9 @@ pub enum Event {
     /// The style library changed (indexing progress, a file that failed to load, a style
     /// added by path); `revision` is the new `LibraryStatus::revision`.
     LibraryChanged { revision: u64 },
+    /// The sound catalog changed (#117); `revision` is the new `SoundsState::revision`.
+    /// Fetch it with `Session::sound_catalog`.
+    SoundsChanged { revision: u64 },
     /// The session stopped.
     Stopped,
 }
@@ -338,6 +349,12 @@ pub struct AppState {
     pub plugins: PluginsState,
     /// The sound library: patches, the program map, what the current style uses.
     pub sound_library: SoundLibraryState,
+    /// Parameter Lock: the locked groups.
+    #[serde(default)]
+    pub param_locks: ParamLockState,
+    /// The sound catalog's summary (#117); the list is `Session::sound_catalog`.
+    #[serde(default)]
+    pub sounds: SoundsState,
 }
 
 // ---------------------------------------------------------------------------

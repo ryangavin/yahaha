@@ -46,7 +46,8 @@ pub enum SoundLibraryCmd {
     AuditionPreset { file: String, bank: u16, program: u8 },
     StopPatchAudition,
     /// A GM family rule (`family` 0-15: programs 8·family .. 8·family+7), or with `style` the
-    /// current style's own rule. `patch` None clears it.
+    /// current style's own rule. `patch` None clears it. In the rule commands `patch` may
+    /// also be a sound catalog id (#117): a preset or plugin becomes a library patch once.
     SetFamilyRule {
         family: u8,
         patch: Option<String>,

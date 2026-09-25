@@ -37,6 +37,39 @@ describe('mock session', () => {
     expect(m.state.transport.section).toBe('Fill In AA')
   })
 
+  it('Tap while the band plays resets the section by default (the Genos default)', () => {
+    const m = new MockSession({ manual: true })
+    expect(m.state.styleSettings.sectionReset).toBe(true)
+    m.send({ type: 'startStop' })
+    m.advance(bar(m) * 1.3)
+    expect(m.state.transport.bar).toBe(2)
+    const tempo = m.state.transport.tempo
+    m.send({ type: 'tapTempo' })
+    m.advance(400)
+    m.send({ type: 'tapTempo' })
+    expect(m.state.transport.tempo).toBe(tempo)
+    expect(m.state.transport.bar).toBe(1)
+    expect(m.state.transport.running).toBe(true)
+  })
+
+  it('Tap while the band plays sets the tempo with Section Reset off; Style Section Reset is a function of its own (#128)', () => {
+    const m = new MockSession({ manual: true })
+    m.send({ type: 'setSectionReset', on: false })
+    m.send({ type: 'startStop' })
+    m.advance(bar(m) * 1.3)
+    expect(m.state.transport.bar).toBe(2)
+    m.send({ type: 'tapTempo' })
+    m.advance(400)
+    m.send({ type: 'tapTempo' })
+    expect(m.state.transport.tempo).toBeCloseTo(150, 1)
+    expect(m.state.transport.bar).toBe(2)
+    m.advance(bar(m) * 0.1)
+    expect(m.state.transport.beat).not.toBe(1)
+    m.send({ type: 'triggerFunction', function: 'sectionReset' })
+    expect(m.state.transport.beat).toBe(1)
+    expect(m.state.transport.running).toBe(true)
+  })
+
   it('an armed Intro plays first, then the Main', () => {
     const m = new MockSession({ manual: true })
     m.send({ type: 'intro', index: 0 })
@@ -104,6 +137,20 @@ describe('mock session', () => {
     m.send({ type: 'setFreeze', on: true })
     m.send({ type: 'recallRegist', index: 5 })
     expect(m.state.harmonyArp).toEqual(scrambled)
+  })
+
+  it('Parameter Lock keeps a locked group through a registration recall', () => {
+    const m = new MockSession({ manual: true })
+    m.send({ type: 'setSplit', note: 60 })
+    m.send({ type: 'setFingering', fingering: 'fingered' })
+    m.send({ type: 'memorizeRegist', index: 4 })
+    m.send({ type: 'setSplit', note: 50 })
+    m.send({ type: 'setFingering', fingering: 'singleFinger' })
+    m.send({ type: 'setParamLock', item: 'splitPoint', on: true })
+    expect(m.state.paramLocks).toEqual({ splitPoint: true, fingeringType: false })
+    m.send({ type: 'recallRegist', index: 4 })
+    expect(m.state.chord.split).toBe(50)
+    expect(m.state.chord.fingering).toBe('fingered')
   })
 
   it('Kbd Harmony/Arpeggio and Arpeggio Hold are control-side switches, as the engine keeps them', () => {

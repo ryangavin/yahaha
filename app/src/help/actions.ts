@@ -97,8 +97,10 @@ export function tipFor(cmd: AppCmd | null): TipKey {
     case 'stopAudition': return 'browser.preview_stop'
     case 'queueStyle': return 'browser.queue'
     case 'setSoundFont': return 'audio.soundfont'
+    case 'setDefaultSoundSet': return cmd.file === null ? 'audio.soundfont_auto' : 'audio.soundfont'
     case 'setMidiInputs': return cmd.all ? 'midi.merge_all' : 'midi.input'
     case 'setPaletteLeds': return 'midi.palette_leds'
+    case 'setAudioBuffer': return 'audio.buffer'
     case 'rescanLibrary': return 'settings.rescan'
     case 'importCharts': return 'chart.import_link'
     case 'importChartFile': return 'chart.import_file'
@@ -192,6 +194,8 @@ export function tipFor(cmd: AppCmd | null): TipKey {
     case 'clearPartPlugin':
     case 'savePartPluginState': return 'part.plugin'
     case 'rescanPlugins': return 'part.plugin_rescan'
+    case 'setPluginInProcess': return 'part.plugin_in_process'
+    case 'reloadPartPlugin': return 'part.plugin_reload'
     case 'toggleHarmonyArp':
     case 'setHarmonyArpOn': return 'harmony.switch'
     case 'setHarmonyType': return 'harmony.type'
@@ -229,5 +233,12 @@ export function tipFor(cmd: AppCmd | null): TipKey {
     case 'browseSoundFont': return 'sound.soundfont'
     case 'importSoundLibrary': return 'sound.import'
     case 'exportSoundLibrary': return 'sound.export'
+    // The Sound Browser (#117).
+    case 'setSoundFavourite': return 'sounds.favourite'
+    case 'auditionSound': return 'sounds.audition'
+    case 'stopSoundAudition': return 'sounds.audition_stop'
+    case 'assignSound': return 'sounds.row'
+    case 'setSoundCategory': return 'sound.category'
+    case 'setParamLock': return cmd.item === 'splitPoint' ? 'settings.param_lock_split_point' : 'settings.param_lock_fingering_type'
   }
 }

@@ -159,7 +159,7 @@ ${review.nonblocking.map(b => '- ' + b).join('\n') || '(none)'}
 Steps:
 1. git fetch origin && git checkout -B fix-${t.key} origin/${impl.branch}
 2. Symlink the corpus.
-3. If integration/m3-ui has moved, merge it in with a merge commit (not a rebase) and resolve any conflicts.
+3. If develop has moved, merge it in with a merge commit (not a rebase) and resolve any conflicts.
 4. Fix every blocking item and prove each fix with a test. If you think a blocking item is wrong, prove that with a test or manual citation instead.
 5. Implement the nonblocking items that are sound and in scope; decline the rest with a reason.
 6. Run all gates.

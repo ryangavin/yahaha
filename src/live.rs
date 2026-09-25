@@ -712,7 +712,7 @@ impl Input {
             fingering::detect(&self.rec, mode, &held, split, self.current)
         };
         if let Some(c) = c
-            && (Some(c) != self.current || self.let_go)
+            && (Some(c) != self.current || (self.let_go && (upper || fingering::restrikes(&self.rec, mode, &held, split))))
         {
             self.current = Some(c);
             self.let_go = false;
@@ -931,6 +931,7 @@ impl Input {
             // Left is refused under Manual Bass; its LED stays lit, as the bass sounds.
             FaderPage::Panel if (i as usize) < parts::COUNT => self.act(Action::PartOnOff(i)),
             FaderPage::Panel if i == launchkey::HARM_ARP_FADER_BTN => self.act(Action::ToggleHarmonyArp),
+            FaderPage::Panel if i == launchkey::PLUGIN_FADER_BTN => self.act(Action::ReloadPlugin),
             FaderPage::Panel => {}
             FaderPage::Style => self.act(Action::Button(Button::TogglePart(i))),
         }
@@ -1180,6 +1181,11 @@ impl EngineLoop {
                 self.start_audition(a, now);
             }
         }
+        // A Chord Looper memory before the commands: ON/OFF sent right after selecting it
+        // (the same wake) arms the memory's sequence (#110).
+        while let Ok(seq) = self.io.looper_in.pop() {
+            self.engine.looper_load(&seq);
+        }
         let packed = shared.chord.load(Acquire);
         if packed != self.last_packed {
             self.last_packed = packed;
@@ -1213,9 +1219,6 @@ impl EngineLoop {
                 self.io.fx.all_off(now, &self.engine, &shared, &mut self.io.out);
             }
             apply(&mut self.engine, &shared, cmd, now, &mut self.io.out);
-        }
-        while let Ok(seq) = self.io.looper_in.pop() {
-            self.engine.looper_load(&seq);
         }
         self.engine.process(now, &mut self.io.out);
         let looping = self.engine.looper_owns_chords();
@@ -1360,7 +1363,7 @@ fn apply(engine: &mut Engine, shared: &Shared, cmd: Cmd, now: u64, out: &mut Out
         Cmd::ChordSettle(ms) => engine.set_chord_settle(ms as u64 * 1_000_000),
         Cmd::StyleControls(c) => engine.set_style_controls(c, now, out),
         Cmd::Looper(true) => engine.looper_rec(),
-        Cmd::Looper(false) => engine.looper_on_off(),
+        Cmd::Looper(false) => engine.looper_on_off(now),
         Cmd::StyleSolo(p) => engine.set_style_solo(p, out),
         Cmd::StyleParts(m) => engine.set_style_parts(m, out),
         Cmd::Metronome { on, bell } => engine.set_metronome(on, bell, now),
@@ -2050,6 +2053,42 @@ mod tests {
         assert_eq!(packed(), again);
     }
 
+    /// AI Full Keyboard (#107): after every key is up, a dyad that fits the chord is melody,
+    /// not the chord struck again; three notes of it are. A dyad that changes the chord
+    /// still changes it.
+    #[test]
+    fn ai_full_keyboard_dyad_does_not_restrike() {
+        let shared = Arc::new(Shared::new(54));
+        shared.fingering.store(Fingering::AiFullKeyboard.to_u8(), Relaxed);
+        let ch = channels(Out::new(PacketSink::new(rt::Target::Null), None));
+        let mut input = Input::new(shared.clone(), Recognizer::new(), ch.input_tx, Out::new(PacketSink::new(rt::Target::Null), None));
+        let packed = || shared.chord.load(Relaxed);
+        let name = |p: u32| Chord::unpack(p).map(|(c, _)| c.name());
+        keys_msg(&mut input, &C_KEYS, true);
+        let first = packed();
+        assert_eq!(name(first).as_deref(), Some("C"));
+        keys_msg(&mut input, &C_KEYS, false);
+        // E-G in the right hand: C still, and not struck again.
+        keys_msg(&mut input, &[76, 79], true);
+        keys_msg(&mut input, &[76, 79], false);
+        assert_eq!(packed(), first, "a dyad that keeps C is melody");
+        // C-E-G again: struck again.
+        keys_msg(&mut input, &[60, 64, 67], true);
+        let again = packed();
+        assert_ne!(again, first, "three notes: a new generation");
+        assert_eq!(name(again).as_deref(), Some("C"));
+        keys_msg(&mut input, &[60, 64, 67], false);
+        // D-F: a dyad that changes the chord (Dm) does.
+        keys_msg(&mut input, &[50, 53], true);
+        assert_eq!(name(packed()).as_deref(), Some("Dm"));
+        // Fingered: a re-struck chord counts whatever it is.
+        keys_msg(&mut input, &[50, 53], false);
+        shared.fingering.store(Fingering::AiFingered.to_u8(), Relaxed);
+        let dm = packed();
+        keys_msg(&mut input, &[38, 41], true);
+        assert_ne!(packed(), dm, "AI Fingered: the dyad re-strikes Dm");
+    }
+
     /// Two held keys that land on the same note (an octave shift folding past the MIDI
     /// range, or a transpose change between presses): the note stops only when the last
     /// key holding it lets go.
@@ -2131,7 +2170,9 @@ mod tests {
         assert_eq!(acts.pop(), Ok(Action::SelectPart(2)));
         input.pad_msg(&[0xB0, 41, 127]); // button 5: HARMONY/ARPEGGIO
         assert_eq!(acts.pop(), Ok(Action::ToggleHarmonyArp));
-        input.pad_msg(&[0xB0, 42, 127]); // button 6: unused on Panel
+        input.pad_msg(&[0xB0, 42, 127]); // button 6: reload the selected part's plugin
+        assert_eq!(acts.pop(), Ok(Action::ReloadPlugin));
+        input.pad_msg(&[0xB0, 43, 127]); // button 7: unused on Panel
         assert!(acts.pop().is_err());
         assert!(cmds.pop().is_err());
 

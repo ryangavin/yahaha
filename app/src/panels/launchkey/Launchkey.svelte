@@ -6,10 +6,13 @@
 
    ┌──────────────┬────────────────────────────────────────────────────────────────────────┐
    │ 8 faders   M │ [ status display: style · tempo · bar/beat │ CHORD │ fingering · split ] │
-   │              │ (pad page tabs)                                                         │
-   │              │ [Shift] [◀ Track ▶]  ▲ [ 8 pads, top row    ] Scene›  Stop              │
-   │ 8 buttons  M │                      ▼ [ 8 pads, bottom row ] Func    Play              │
+   │              │ (pad page tabs)                                          [Multi Pads]  │
+   │              │ [Shift] [▲ ▼]    [ 8 pads, top row    ] Scene›  Stop                   │
+   │ 8 buttons  M │  Track  [◀ ▶]    [ 8 pads, bottom row ] Func    Play                   │
    └──────────────┴────────────────────────────────────────────────────────────────────────┘
+
+  The fader head carries the Parts & OTS, Sounds and Mixer drawer buttons, and the pad-page
+  row the Multi Pads one (lib/ui/DrawerButton: small and quieter, not hardware).
 
   Every element shows its function on the current pad/fader page and Shift layer, has a
   tooltip from the catalog, and clicking it sends exactly what the hardware sends. Every
@@ -22,6 +25,7 @@
   import { app, clock, ui } from '../../lib/store.svelte'
   import { surfaceOf } from '../../lib/surface'
   import { tip } from '../../lib/tooltip/tip.svelte'
+  import DrawerButton from '../../lib/ui/DrawerButton.svelte'
   import HwButton from '../../lib/ui/HwButton.svelte'
   import Control from './Control.svelte'
   import FaderBank from './FaderBank.svelte'
@@ -52,6 +56,12 @@
     <div class="faders">
       <div class="fader-head">
         <span class="engraved">Faders · {s.mixer.faderPage === 'panel' ? 'Panel: your parts' : 'Style: the band'}</span>
+        <!-- The drawers that detail what the faders play: your parts, their sounds, the mix. -->
+        <nav class="drawers" aria-label="Part panels">
+          <DrawerButton tip="drawer.parts" open={ui.parts} onclick={() => ui.toggleDrawer('parts')}>Parts & OTS</DrawerButton>
+          <DrawerButton tip="drawer.sound" open={ui.sound} onclick={() => ui.toggleDrawer('sound')}>Sounds</DrawerButton>
+          <DrawerButton tip="drawer.mixer" open={ui.mixer} onclick={() => ui.toggleDrawer('mixer')}>Mixer</DrawerButton>
+        </nav>
       </div>
       <div class="fader-body"><FaderBank {surface} /></div>
     </div>
@@ -76,23 +86,24 @@
         {/each}
       </div>
       <span class="engraved lk" class:on={s.pads.connected}>{s.pads.connected ? 'Launchkey connected' : 'No Launchkey'}</span>
+      <DrawerButton tip="drawer.multipad" open={ui.multipad} onclick={() => ui.toggleDrawer('multipad')}>Multi Pads</DrawerButton>
     </div>
 
-    <div class="left-controls">
-      <HwButton tip="launchkey.shift" pressed={shift} caption="Shift" label="Shift" onclick={() => (ui.shiftLatched = !ui.shiftLatched)}>
+    <!-- Shift, Pad Bank ▲ ▼ and Track ◀ ▶, stacked in two rows beside the pads. -->
+    <div class="nav">
+      <HwButton tip="launchkey.shift" pressed={shift} shape="square" caption="Shift" label="Shift" onclick={() => (ui.shiftLatched = !ui.shiftLatched)}>
         <span class="icon">⇧</span>
       </HwButton>
-      <div class="track">
+      <div class="padbank" role="group" aria-label="Pad Bank">
+        <Control {surface} id="padBankUp" legend="▲" shape="square" />
+        <Control {surface} id="padBankDown" legend="▼" shape="square" />
+        <span class="engraved page-num">Page <b style:color={cssRgb(PAGE_RGB[s.pads.page])}>{pageIndex + 1}</b></span>
+      </div>
+      <span class="engraved track-label">Track</span>
+      <div class="track" role="group" aria-label="Track">
         <Control {surface} id="trackPrev" legend="◀" caption={surface.trackPrev?.name ?? ''} />
         <Control {surface} id="trackNext" legend="▶" caption={surface.trackNext?.name ?? ''} />
       </div>
-      <span class="engraved track-label">Track</span>
-    </div>
-
-    <div class="padbank" role="group" aria-label="Pad Bank">
-      <Control {surface} id="padBankUp" legend="▲" shape="square" />
-      <Control {surface} id="padBankDown" legend="▼" shape="square" />
-      <span class="engraved page-num" style:color={cssRgb(PAGE_RGB[s.pads.page])}>{pageIndex + 1}</span>
     </div>
 
     <div class="pads mat-well" role="group" aria-label="Pads: page {pageIndex + 1}, {s.pads.pageName}">
@@ -119,12 +130,12 @@
     font-size: var(--u, 16px);
     position: relative;
     display: grid;
-    grid-template-columns: 30em 11.5em 3.3em minmax(0, 1fr) 4.2em 4.2em;
+    grid-template-columns: 30em 11.5em minmax(0, 1fr) 4.2em 4.2em;
     grid-template-rows: 9.5em auto auto;
     grid-template-areas:
-      'faders screen screen screen screen screen'
-      'faders pagebar pagebar pagebar pagebar pagebar'
-      'faders left padbank pads side transport';
+      'faders screen screen screen screen'
+      'faders pagebar pagebar pagebar pagebar'
+      'faders nav pads side transport';
     column-gap: 1em;
     row-gap: 0.9em;
     padding: 1.3em 1.5em 1.2em;
@@ -186,23 +197,42 @@
   .lk {
     margin-left: auto;
   }
+  /* A touch taller than the tabs: let it rise into the row gap, so the mirror's height
+     (and so --h in App.svelte) stays as measured. */
+  .pagebar :global(.drawer-btn) {
+    margin-top: -0.5em;
+  }
   .lk.on {
     color: #5fd68a;
   }
-  .left-controls {
-    grid-area: left;
+  /* Two rows beside the pads: [Shift] [▲ ▼ page] over [Track] [◀ ▶ + the neighbouring
+     styles' names]. One narrow block, so the pads get the width. */
+  .nav {
+    grid-area: nav;
     display: grid;
-    grid-template-columns: 3em 1fr;
-    grid-template-rows: auto auto 1fr;
-    column-gap: 0.7em;
-    align-content: start;
+    grid-template-columns: 3em minmax(0, 1fr);
+    grid-template-rows: auto auto;
+    column-gap: 0.5em;
+    row-gap: 0.5em;
+    align-content: space-between;
+    align-items: start;
     padding-top: 0.35em;
+    min-width: 0;
   }
+  .padbank,
   .track {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 0.4em;
+    column-gap: 0.4em;
     min-width: 0;
+  }
+  .page-num {
+    grid-column: 1 / -1;
+    margin-top: 0.3em;
+    text-align: center;
+  }
+  .page-num b {
+    font-weight: 700;
   }
   /* The neighbouring styles' names: wrap onto two lines rather than cut off. */
   .track :global(.caption) {
@@ -211,11 +241,12 @@
     line-height: 1.1;
     min-height: 2.2em;
   }
+  /* Level with the middle of ◀ ▶ (2.1em buttons). */
   .track-label {
-    grid-column: 2;
+    align-self: start;
+    margin-top: 0.75em;
     text-align: center;
   }
-  .padbank,
   .side,
   .transport {
     display: flex;
@@ -224,21 +255,11 @@
     gap: 0.7em;
     padding-top: 0.35em;
   }
-  .padbank {
-    grid-area: padbank;
-  }
   .side {
     grid-area: side;
   }
   .transport {
     grid-area: transport;
-  }
-  .padbank .engraved {
-    text-align: center;
-  }
-  .page-num {
-    font-size: 1.1em;
-    font-weight: 700;
   }
   .pads {
     grid-area: pads;
@@ -259,6 +280,17 @@
     box-shadow: 1px 0 0 rgb(255 255 255 / 0.04);
     min-width: 0;
   }
+  .fader-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.8em;
+    min-width: 0;
+  }
+  .drawers {
+    display: flex;
+    gap: 0.35em;
+  }
   .fader-body {
     min-height: 0;
   }
@@ -275,13 +307,13 @@
      pads, so the surface is 66em wide and can grow larger. */
   @container stage (aspect-ratio < 1.45) {
     .device {
-      grid-template-columns: 11.5em 3.3em minmax(0, 1fr) 4.2em 4.2em;
+      grid-template-columns: 11.5em minmax(0, 1fr) 4.2em 4.2em;
       grid-template-rows: 9.5em auto auto 19em;
       grid-template-areas:
-        'screen screen screen screen screen'
-        'pagebar pagebar pagebar pagebar pagebar'
-        'left padbank pads side transport'
-        'faders faders faders faders faders';
+        'screen screen screen screen'
+        'pagebar pagebar pagebar pagebar'
+        'nav pads side transport'
+        'faders faders faders faders';
     }
     .faders {
       padding: 0.7em 0 0;

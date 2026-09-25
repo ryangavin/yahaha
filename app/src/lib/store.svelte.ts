@@ -6,21 +6,24 @@
 //   only touches the DOM where a value really changed.
 // - `app.send(cmd)`: every action goes through here.
 // - `app.library`: the style list, re-fetched when `state.library.revision` changes.
+// - `app.sounds`: the sound catalog (#117), re-fetched when `state.sounds.revision` changes.
 // - `clock.beats`: the engine's LED clock (lamps flash and pulse on it) and `clock.pos`:
 //   the position in the section, both run on from the state's anchors every frame.
 // - `ui`: app-only state (overlays, theme) that the engine doesn't know about.
 
 import { initialState } from './api/mock'
 import type { Session } from './api/session'
-import type { AppCmd, AppState, ClockState, LibraryList } from './api/types'
+import type { AppCmd, AppState, ClockState, LibraryList, SoundCatalog } from './api/types'
 
 class AppStore {
   state = $state.raw<AppState>(initialState())
   library = $state.raw<LibraryList>({ revision: 0, entries: [], voices: [], harmonyTypes: [], arpPatterns: [] })
+  sounds = $state.raw<SoundCatalog>({ revision: 0, entries: [], recents: [] })
   kind = $state<'mock' | 'tauri' | null>(null)
   private session: Session | null = null
   private unsub: (() => void) | null = null
   private libraryRevision = -1
+  private soundsRevision = -1
 
   /** The version of the state last applied; older or repeated snapshots are dropped. */
   private version = -Infinity
@@ -30,6 +33,7 @@ class AppStore {
     this.session = session
     this.kind = session.kind
     this.version = -Infinity
+    this.soundsRevision = -1
     this.unsub = session.subscribe((s) => this.apply(s))
   }
 
@@ -46,6 +50,12 @@ class AppStore {
     if (s.library.revision !== this.libraryRevision && this.session) {
       this.libraryRevision = s.library.revision
       this.session.library().then((l) => (this.library = l))
+    }
+    // An engine before #117 has no catalog.
+    const sounds = s.sounds?.revision
+    if (sounds !== undefined && sounds !== this.soundsRevision && this.session?.sounds) {
+      this.soundsRevision = sounds
+      this.session.sounds().then((c) => (this.sounds = c))
     }
     return true
   }
@@ -145,6 +155,16 @@ function storedKeyRange(): KeyRange | null {
   }
 }
 
+/** A Sound Browser pick for something other than a keyboard part. */
+export interface SoundPick {
+  /** "Piano family", "Drum rule". */
+  title: string
+  /** The library patch it names now (null: none). */
+  value: string | null
+  /** Gets the catalog id picked. */
+  onpick: (id: string) => void
+}
+
 class UiStore {
   /** Overlays and drawers around the hardware view. */
   browser = $state(false)
@@ -159,6 +179,11 @@ class UiStore {
   multipad = $state(false)
   harmony = $state(false)
   sound = $state(false)
+  /** The Sound Browser (#117), for this keyboard part (0-3); null: closed. */
+  soundBrowser = $state<number | null>(null)
+  /** The Sound Browser picking for something else (a program map rule, #117): what for,
+   * the patch it names now, and where the pick goes. Null: not picking. */
+  soundPick = $state.raw<SoundPick | null>(null)
   theme = $state<Theme>(storedTheme())
   /** The keyboard strip's size; null: match the connected Launchkey (49 or 61). */
   keyRange = $state<KeyRange | null>(storedKeyRange())
@@ -198,6 +223,14 @@ class UiStore {
 
   /** Esc: close the topmost overlay. Returns whether anything closed. */
   escape(): boolean {
+    if (this.soundPick !== null) {
+      this.soundPick = null
+      return true
+    }
+    if (this.soundBrowser !== null) {
+      this.soundBrowser = null
+      return true
+    }
     if (this.browser) return !(this.browser = false)
     if (this.settings) return !(this.settings = false)
     if (this.parts) return !(this.parts = false)

@@ -96,9 +96,19 @@ pub struct PluginInfo {
     pub sandbox_safe: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_load: Option<LoadRecord>,
+    /// The player's override: load it in yahaha's process, not its own (for the lightest
+    /// plugins: no IPC per render, but a crash takes yahaha down). Kept across rescans and
+    /// updates of the plugin (`PluginHost::set_in_process`).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub in_process: bool,
 }
 
 impl PluginInfo {
+    /// Whether it can run in yahaha's process at all: every AUv2, and an AUv3 that allows it.
+    pub fn can_run_in_process(&self) -> bool {
+        self.format == PluginFormat::Au2 || self.can_load_in_process
+    }
+
     /// "2.1.4" from 0x00020104.
     pub fn version_string(&self) -> String {
         format!("{}.{}.{}", self.version >> 16, (self.version >> 8) & 0xFF, self.version & 0xFF)
@@ -125,6 +135,7 @@ impl PluginInfo {
             can_load_in_process: c.flags & sys::FLAG_CAN_LOAD_IN_PROCESS != 0,
             sandbox_safe: c.flags & sys::FLAG_SANDBOX_SAFE != 0,
             last_load: None,
+            in_process: false,
         }
     }
 }
@@ -167,7 +178,11 @@ pub(crate) fn write_cache(path: &Path, c: &ScanCache) -> Result<()> {
         std::fs::create_dir_all(dir).with_context(|| format!("creating {}", dir.display()))?;
     }
     // Write-then-rename, so a crash mid-write never leaves a torn cache.
-    let tmp = path.with_extension("json.tmp");
+    // A temporary name of its own per write: two sessions (or a scan and a load recording
+    // its time) writing at once must not rename each other's file away.
+    static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let n = SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let tmp = path.with_extension(format!("json.{}.{n}.tmp", std::process::id()));
     std::fs::write(&tmp, serde_json::to_vec_pretty(c)?).with_context(|| format!("writing {}", tmp.display()))?;
     std::fs::rename(&tmp, path).with_context(|| format!("replacing {}", path.display()))?;
     Ok(())

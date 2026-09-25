@@ -169,8 +169,11 @@ impl Session {
             };
             let band = std::mem::replace(&mut o.band, RingBuffer::new(1).1);
             let keys = std::mem::replace(&mut o.keys, RingBuffer::new(1).1);
+            // The control side's ring (library auditions), as a live synth has it.
+            let (audition_tx, auditions) = RingBuffer::new(256);
+            ctl.sound.audition_tx = Some(audition_tx);
             let control = Arc::new(synth::SynthControl::new(0));
-            let (mut core, swap, plugins) = synth::AudioCore::new(rack, vec![band, keys], ctl.shared.parts.clone(), control.clone(), sample_rate, 2);
+            let (mut core, swap, plugins) = synth::AudioCore::new(rack, vec![band, keys, auditions], ctl.shared.parts.clone(), control.clone(), sample_rate, 2);
             core.set_routes(ctl.shared.routes.clone());
             if let Some(m) = &main {
                 ctl.sound.synth_started(m);
@@ -183,6 +186,7 @@ impl Session {
                 control,
                 swap: Some(swap),
                 plugins,
+                thread: None,
             });
         }
         self.settle();
@@ -190,16 +194,18 @@ impl Session {
     }
 
     /// Offline only, after [`Session::offline_audio`]: render `frames` of stereo (in
-    /// buffers of 64, as a device would), then pump and publish. Empty without a synth.
+    /// buffers of 64, or the size `SetAudioBuffer` chose, as a device would), then pump
+    /// and publish. Empty without a synth.
     pub fn render(&self, frames: usize) -> (Vec<f32>, Vec<f32>) {
         let (mut l, mut r) = (Vec::with_capacity(frames), Vec::with_capacity(frames));
         {
             let mut ctl = self.inner.lock();
+            let block = ctl.synth.as_ref().and_then(|s| s.info.buffer).unwrap_or(synth::DEFAULT_BUFFER).min(512) as usize;
             let Some(core) = ctl.offline.as_mut().and_then(|o| o.audio.as_mut()) else { return (l, r) };
-            let mut buf = [0f32; 128];
+            let mut buf = [0f32; 1024];
             let mut done = 0;
             while done < frames {
-                let n = (frames - done).min(64);
+                let n = (frames - done).min(block);
                 core.process(&mut buf[..n * 2]);
                 for f in buf[..n * 2].chunks(2) {
                     l.push(f[0]);

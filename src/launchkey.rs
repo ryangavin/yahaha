@@ -194,6 +194,9 @@ pub enum Action {
     /// The HARMONY/ARPEGGIO button: the selected Harmony type or arpeggio on/off (`J`,
     /// fader button 5 on the Panel fader page).
     ToggleHarmonyArp,
+    /// Load the selected part's plugin again after it stopped or failed to load (`s`,
+    /// fader button 6 on the Panel fader page).
+    ReloadPlugin,
 }
 
 /// What a pad does on a page.
@@ -294,11 +297,16 @@ pub fn buttons_off_msgs(out: &mut Vec<[u8; 3]>) {
 /// Panel fader page. Every pad on every page is taken; Panel buttons 5-8 were dark.
 pub const HARM_ARP_FADER_BTN: u8 = 4;
 
+/// The fader button (0-based, under fader 6) that reloads the selected part's plugin on the
+/// Panel fader page. It lights red while that plugin has stopped or failed to load.
+pub const PLUGIN_FADER_BTN: u8 = 5;
+
 /// Palette colours for the fader buttons. Panel page (blue): Right 1-3 and Left lit while
 /// on (`parts_on`, bit = part), button 5 (purple) lit while HARMONY/ARPEGGIO is on
-/// (`harmony_arp`), 6-8 dark. Style page (green): the Style parts lit while they play
+/// (`harmony_arp`), button 6 red while the selected part's plugin needs a reload
+/// (`plugin_fault`), 7-8 dark. Style page (green): the Style parts lit while they play
 /// (`style_on`). The master button shows the page's colour.
-pub fn fader_button_msgs(page: FaderPage, parts_on: u8, style_on: u8, harmony_arp: bool, out: &mut Vec<[u8; 3]>) {
+pub fn fader_button_msgs(page: FaderPage, parts_on: u8, style_on: u8, harmony_arp: bool, plugin_fault: bool, out: &mut Vec<[u8; 3]>) {
     let (on, n, (bright, dim)) = match page {
         FaderPage::Panel => (parts_on, parts::COUNT as u8, (BLUE, DIM_BLUE)),
         FaderPage::Style => (style_on, 8, (GREEN, DIM_GREEN)),
@@ -306,6 +314,8 @@ pub fn fader_button_msgs(page: FaderPage, parts_on: u8, style_on: u8, harmony_ar
     for i in 0..8u8 {
         let c = if page == FaderPage::Panel && i == HARM_ARP_FADER_BTN {
             if harmony_arp { PURPLE } else { DIM_PURPLE }
+        } else if page == FaderPage::Panel && i == PLUGIN_FADER_BTN {
+            if plugin_fault { RED } else { OFF }
         } else if i >= n {
             OFF
         } else if on & (1 << i) != 0 {
@@ -327,10 +337,10 @@ pub fn style_lit(parts: u8, manual_bass: bool) -> u8 {
 
 /// The button LEDs as `nav_button_msgs` and `fader_button_msgs` set them: (CC, palette
 /// colour) for Pad Bank ▲/▼, Track ◀/▶, the fader buttons and the master fader button.
-pub fn button_colours(page: Page, styles: bool, fader_page: FaderPage, parts_on: u8, style_on: u8, harmony_arp: bool) -> Vec<(u8, u8)> {
+pub fn button_colours(page: Page, styles: bool, fader_page: FaderPage, parts_on: u8, style_on: u8, harmony_arp: bool, plugin_fault: bool) -> Vec<(u8, u8)> {
     let mut msgs = Vec::new();
     nav_button_msgs(page, styles, &mut msgs);
-    fader_button_msgs(fader_page, parts_on, style_on, harmony_arp, &mut msgs);
+    fader_button_msgs(fader_page, parts_on, style_on, harmony_arp, plugin_fault, &mut msgs);
     // Channel 1 carries the colour (channel 4 the brightness, for single-colour LEDs).
     msgs.iter().filter(|m| m[0] == 0xB0).map(|m| (m[1], m[2])).collect()
 }
@@ -376,6 +386,8 @@ pub struct Panel {
     pub ots_link: bool,
     /// The HARMONY/ARPEGGIO switch.
     pub harmony_arp: bool,
+    /// The selected part's plugin stopped working or failed to load (fader button 6 red).
+    pub plugin_fault: bool,
     /// Keyboard parts that are on (bit = `parts::RIGHT1`..`LEFT`), and the selected one.
     pub parts_on: u8,
     pub selected: u8,
@@ -410,6 +422,7 @@ impl Default for Panel {
             ots_applied: 0,
             ots_link: false,
             harmony_arp: false,
+            plugin_fault: false,
             parts_on: 1 << parts::RIGHT1,
             selected: parts::RIGHT1 as u8,
             regist: RegistPanel::default(),
@@ -866,7 +879,7 @@ mod tests {
             assert_ne!(palette_colour(c).1, Level::Off, "{c}");
         }
         assert_eq!(palette_colour(OFF).1, Level::Off);
-        let b = button_colours(Page::Sections, true, FaderPage::Panel, 0b0001, 0xFF, false);
+        let b = button_colours(Page::Sections, true, FaderPage::Panel, 0b0001, 0xFF, false, false);
         assert!(b.contains(&(PAD_UP_CC, OFF)) && b.contains(&(PAD_DOWN_CC, WHITE)));
         assert!(b.contains(&(TRACK_LEFT_CC, WHITE)));
         assert!(b.contains(&(37, BLUE)) && b.contains(&(38, DIM_BLUE)) && b.contains(&(41, DIM_PURPLE)) && b.contains(&(42, OFF)) && b.contains(&(45, BLUE)));
@@ -1074,17 +1087,18 @@ mod tests {
     #[test]
     fn fader_buttons_follow_the_page() {
         let mut out = Vec::new();
-        fader_button_msgs(FaderPage::Panel, 0b1001, 0xFF, false, &mut out);
+        fader_button_msgs(FaderPage::Panel, 0b1001, 0xFF, false, false, &mut out);
         assert_eq!(out[..4], [[0xB0, 37, BLUE], [0xB0, 38, DIM_BLUE], [0xB0, 39, DIM_BLUE], [0xB0, 40, BLUE]]);
         assert_eq!(out[4], [0xB0, 41, DIM_PURPLE], "button 5: HARMONY/ARPEGGIO off");
-        assert!(out[5..8].iter().all(|m| m[2] == OFF), "buttons 6-8 unused on Panel");
+        assert!(out[5..8].iter().all(|m| m[2] == OFF), "button 6 dark (no plugin to reload), 7-8 unused on Panel");
         assert_eq!(out[8], [0xB0, 45, BLUE]);
         out.clear();
-        fader_button_msgs(FaderPage::Panel, 0b1001, 0xFF, true, &mut out);
+        fader_button_msgs(FaderPage::Panel, 0b1001, 0xFF, true, true, &mut out);
         assert_eq!(out[4], [0xB0, 41, PURPLE], "button 5: HARMONY/ARPEGGIO on");
+        assert_eq!(out[5], [0xB0, 42, RED], "button 6: the selected part's plugin needs a reload");
         out.clear();
         // The Style page's button 5 is the Style's fifth part, whatever the switch.
-        fader_button_msgs(FaderPage::Style, 0b1001, !(1 << 5), true, &mut out);
+        fader_button_msgs(FaderPage::Style, 0b1001, !(1 << 5), true, true, &mut out);
         assert_eq!(out[5], [0xB0, 42, DIM_GREEN], "Pad muted");
         assert!(out.iter().enumerate().all(|(i, m)| i == 5 || m[2] == GREEN));
     }

@@ -135,10 +135,6 @@ pub enum Button {
     Intro(u8),
     Main(u8),
     Break,
-    /// Fill Down (-1), Fill Self (0), Fill Up (+1): a fill, then the Main to the left, the
-    /// same Main, or the Main to the right (an assignable function, RM p.142). The same as
-    /// `FillDown`, `FillSelf` and `FillUp`.
-    Fill(i8),
     Ending(u8),
     StartStop,
     Stop,
@@ -155,7 +151,8 @@ pub enum Button {
     StopAcmp,
     /// Stop Accompaniment mode: Off, Style or Fixed voices.
     SetStopAcmp(StopAcmp),
-    /// Fill Up / Fill Down: a fill, then the next Main to the right / left.
+    /// Fill Up / Fill Down: a fill, then the next Main to the right / left (the Genos
+    /// assignable functions, RM p.142).
     FillUp,
     FillDown,
     /// Fill Self: the Main's own fill (the same as pressing the Main playing).
@@ -314,10 +311,14 @@ struct Sounding {
     /// later chord can part the two again, and it sounds on in the other's place if that
     /// one ends first. There is always an unmuted voice on the same part and key.
     muted: bool,
+    /// Note-offs this voice lets pass before it ends: its source note was struck again
+    /// while the earlier strike still sounded (a legato pattern), so the next note-off of
+    /// that source key ends the earlier strike, which this voice took the key over from.
+    owed: u8,
 }
 
 const EMPTY: Sounding =
-    Sounding { active: false, src: 0, src_key: 0, dest: 0, out: 0, vel: 0, slot: 0, started_ns: 0, attack_ns: 0, muted: false };
+    Sounding { active: false, src: 0, src_key: 0, dest: 0, out: 0, vel: 0, slot: 0, started_ns: 0, attack_ns: 0, muted: false, owed: 0 };
 const MAX_SOUNDING: usize = 256;
 /// Pseudo source channel for Stop Accompaniment notes.
 const STOP_ACMP_SRC: u8 = 255;
@@ -594,6 +595,10 @@ impl Engine {
 
 #[cfg(test)]
 mod perform_tests;
+#[cfg(test)]
+mod overlap_tests;
+#[cfg(test)]
+mod ending_level_tests;
 
 #[cfg(test)]
 mod tests {

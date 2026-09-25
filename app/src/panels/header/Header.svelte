@@ -1,7 +1,14 @@
 <!--
-  The app bar above the hardware view: the drawers around it (Keyboard parts + OTS,
-  Mixer, Chord Looper, Browse, Charts, Settings) and the app's own controls (help mode, theme). Everything the
-  hardware does lives on the Launchkey mirror, not here.
+  The app bar above the hardware view, one row: the brand, the transport section
+  (TransportBar.svelte: Start/Stop, Sync, Intro, Ending, Tempo, Tap, bar.beat and the
+  section) and the app's own controls (Settings, help mode, theme).
+
+  [yahaha] [▶ Start][Sync Start][Sync Stop] Intro[I][II][III] Ending[I][II][III]
+           Tempo[−]104[+][Tap] [13.1 ●○○○ Main B → Fill B]      [Settings] ? ☾
+
+  Everything else the hardware does lives on the Launchkey mirror, and each drawer opens from a
+  small button next to the controls it details (Mixer by the faders, Multi Pads by the
+  pads, Charts by the lead-sheet lane, …: lib/ui/DrawerButton.svelte), not from here.
 
   REFERENCE for a small component: read `app.state` with `$derived`, act with
   `app.send(...)` or the `ui` store, and give every control a catalog `tip`.
@@ -10,6 +17,7 @@
   import { app, ui } from '../../lib/store.svelte'
   import { tips } from '../../lib/tooltip/tip.svelte'
   import HwButton from '../../lib/ui/HwButton.svelte'
+  import TransportBar from './TransportBar.svelte'
 
   const s = $derived(app.state)
   const amber = { rgb: [127, 90, 20] as [number, number, number], level: 'bright' as const, anim: 'solid' as const }
@@ -17,22 +25,17 @@
 
 <header class="bar">
   <span class="brand" aria-label="yahaha">yahaha</span>
-  <span class="engraved sub">software arranger</span>
+  <span class="tag">
+    <span class="engraved sub">software arranger</span>
+    {#if app.kind === 'mock' || s.io.offline}<span class="engraved badge"><span class="long">{app.kind === 'mock' ? 'mock session' : 'offline session'}</span><span class="short">{app.kind === 'mock' ? 'mock' : 'offline'}</span></span>{/if}
+  </span>
 
-  <nav class="drawers" aria-label="Panels">
-    <HwButton tip="drawer.parts" led={ui.parts ? amber : null} onclick={() => ui.toggleDrawer('parts')}>Parts & OTS</HwButton>
-    <HwButton tip="drawer.mixer" led={ui.mixer ? amber : null} onclick={() => ui.toggleDrawer('mixer')}>Mixer</HwButton>
-    <HwButton tip="drawer.looper" led={ui.looper ? amber : null} onclick={() => ui.toggleDrawer('looper')}>Chord Looper</HwButton>
-    <HwButton tip="drawer.multipad" led={ui.multipad ? amber : null} onclick={() => ui.toggleDrawer('multipad')}>Multi Pads</HwButton>
-    <HwButton tip="drawer.harmony" led={ui.harmony ? amber : null} onclick={() => ui.toggleDrawer('harmony')}>Harmony/Arp</HwButton>
-    <HwButton tip="drawer.sound" led={ui.sound ? amber : null} onclick={() => ui.toggleDrawer('sound')}>Sounds</HwButton>
-    <HwButton tip="browser.open" led={ui.browser ? amber : null} onclick={() => (ui.browser = true)}>Browse styles</HwButton>
-    <HwButton tip="drawer.charts" led={ui.charts ? amber : null} onclick={() => ui.toggleDrawer('charts')}>Charts</HwButton>
-    <HwButton tip="settings.open" led={ui.settings ? amber : null} onclick={() => ui.toggleDrawer('settings')}>Settings</HwButton>
-  </nav>
+  <TransportBar />
 
   <div class="app-controls">
-    {#if app.kind === 'mock' || s.io.offline}<span class="engraved badge">{app.kind === 'mock' ? 'mock session' : 'offline session'}</span>{/if}
+    <HwButton tip="settings.open" led={ui.settings ? amber : null} label="Settings" onclick={() => ui.toggleDrawer('settings')}>
+      <span class="long">Settings</span><span class="short icon">⚙</span>
+    </HwButton>
     <HwButton tip="app.help" pressed={tips.help} led={tips.help ? amber : null} label="Help mode" onclick={() => tips.toggleHelp()}>?</HwButton>
     <HwButton tip="app.theme" label="Light or dark theme" onclick={() => ui.setTheme(ui.theme === 'dark' ? 'light' : 'dark')}>
       {ui.theme === 'dark' ? '☾' : '☀'}
@@ -56,39 +59,69 @@
     color: var(--ink);
     text-shadow: 0 1px 0 rgb(0 0 0 / 0.5);
   }
-  .sub {
-    margin-left: -0.5rem;
-  }
-  .drawers {
+  /* Under the name's tagline: which session this is, when it isn't the engine's. */
+  .tag {
     display: flex;
-    gap: 0.5rem;
-    margin-left: 1rem;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.15rem;
+    margin-left: -0.5rem;
+    flex: none;
+  }
+  .sub {
+    line-height: 1.1;
+    white-space: nowrap;
   }
   .app-controls {
     display: flex;
     align-items: center;
     gap: 0.5rem;
+    /* The transport between takes the free space as its margins (centred). */
     margin-left: auto;
+    flex: none;
   }
   .badge {
-    padding: 0.1rem 0.45rem;
+    padding: 0 0.35rem;
+    line-height: 1.3;
     border: 1px dashed var(--line-strong);
     border-radius: 3px;
+    white-space: nowrap;
   }
-  @media (max-width: 760px) {
+  .short {
+    display: none;
+  }
+  .icon {
+    font-size: 1.1em;
+    line-height: 1;
+  }
+  /* Up to a laptop: the transport takes the room; the app's own controls go short. */
+  @media (max-width: 1360px) {
     .bar {
-      flex-wrap: wrap;
-      gap: 0.5rem;
+      gap: 0.6rem;
     }
-    .sub,
-    .badge {
+    .sub {
       display: none;
     }
-    .drawers {
-      order: 3;
-      flex-basis: 100%;
+    .tag {
       margin-left: 0;
-      flex-wrap: wrap;
+    }
+    .app-controls {
+      gap: 0.3rem;
+    }
+    .long {
+      display: none;
+    }
+    .short {
+      display: inline;
+    }
+  }
+  @media (max-width: 1080px) {
+    .bar {
+      gap: 0.4rem;
+    }
+    .brand {
+      font-size: 1.25rem;
+      letter-spacing: 0.02em;
     }
   }
 </style>

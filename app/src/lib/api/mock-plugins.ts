@@ -1,15 +1,23 @@
 // Instrument plugins as the engine runs them (src/session/plugins.rs): a part's plugin
 // loads in the background (`loading`, with its stage), then plays; the list comes from the
-// cached scan. The mock lists Apple's built-in instruments (every Mac has them) and one
-// made-up third-party synth that always fails to load, to show the error path.
+// cached scan. The mock lists Apple's built-in instruments (every Mac has them), one
+// made-up third-party synth that always fails to load, to show the error path, and one
+// the system refuses to host out of process, so it falls back to loading in process.
 
 import type { AppState, KeyboardPart, PluginCmd, PluginEntry, PluginsState } from './types'
 
 export const MOCK_PLUGINS: PluginEntry[] = [
-  { id: 'aumu dls  appl', name: 'DLSMusicDevice', manufacturer: 'Apple', version: '1.0.0', format: 'AUv2', lastError: null },
-  { id: 'aumu samp appl', name: 'AUSampler', manufacturer: 'Apple', version: '1.0.0', format: 'AUv2', lastError: null },
-  { id: 'aumu Mock Demo', name: 'Broken Synth', manufacturer: 'Example Audio', version: '0.9.0', format: 'AUv3', lastError: 'timed out after 20.0 s' },
+  { id: 'aumu dls  appl', name: 'DLSMusicDevice', manufacturer: 'Apple', version: '1.0.0', format: 'AUv2', lastError: null, inProcess: false, canRunInProcess: true },
+  { id: 'aumu samp appl', name: 'AUSampler', manufacturer: 'Apple', version: '1.0.0', format: 'AUv2', lastError: null, inProcess: false, canRunInProcess: true },
+  { id: 'aumu Mock Demo', name: 'Broken Synth', manufacturer: 'Example Audio', version: '0.9.0', format: 'AUv3', lastError: 'timed out after 20.0 s', inProcess: false, canRunInProcess: false },
+  { id: 'aumu Tiny Demo', name: 'Tiny Synth', manufacturer: 'Example Audio', version: '0.9.0', format: 'AUv2', lastError: null, inProcess: false, canRunInProcess: true },
 ]
+
+/** The mock plugin the system won't host out of process: it loads in process instead. */
+export const MOCK_FALLBACK_ID = 'aumu Tiny Demo'
+
+/** The mock plugin that plays heavy: a high CPU share and a few slow renders. */
+export const MOCK_HEAVY_ID = 'aumu samp appl'
 
 export function initialPlugins(): PluginsState {
   return { available: true, scanning: false, list: MOCK_PLUGINS.map((p) => ({ ...p })) }
@@ -45,9 +53,11 @@ export class MockPlugins {
           status: 'loading',
           stage: 'queued',
           error: null,
-          outOfProcess: e.manufacturer !== 'Apple',
+          outOfProcess: e.manufacturer !== 'Apple' && !e.inProcess,
+          inProcessFallback: false,
           cpu: 0,
           overruns: 0,
+          recentOverruns: 0,
           editor: false,
         }
         this.loading[cmd.part & 3] = 0
@@ -66,6 +76,28 @@ export class MockPlugins {
         st.plugins.scanning = true
         this.scanLeft = RESCAN_MS
         break
+      case 'reloadPartPlugin': {
+        const i = cmd.part ?? st.keyboardParts.findIndex((k) => k.selected)
+        const part = st.keyboardParts[i & 3]
+        const p = part.plugin
+        if (!p) return this.say(`${part.name} plays its SoundFont voice; there is no plugin to reload`, true)
+        if (p.status === 'playing') return this.say(`${part.name}'s ${p.name} is playing; nothing to reload`, true)
+        if (p.status === 'loading') return this.say(`${part.name}'s ${p.name} is still loading`, true)
+        Object.assign(p, { status: 'loading', stage: 'queued', error: null, editor: false })
+        this.loading[i & 3] = 0
+        this.say(`${part.name}: loading ${p.name} again`, false)
+        break
+      }
+      case 'setPluginInProcess': {
+        const e = st.plugins.list.find((p) => p.id === cmd.id)
+        if (!e) return this.say(`no instrument Audio Unit ${cmd.id} is installed`, true)
+        if (cmd.inProcess && !e.canRunInProcess) return this.say(`${e.manufacturer}: ${e.name} is an AUv3 that only runs out of process`, true)
+        e.inProcess = cmd.inProcess
+        if (st.keyboardParts.some((k) => k.plugin?.id === cmd.id && k.plugin.status === 'playing')) {
+          this.say(`${e.name} runs ${cmd.inProcess ? 'inside yahaha' : 'in its own process'} from its next load (the next start, or pick it again)`, false)
+        }
+        break
+      }
     }
   }
 
@@ -93,9 +125,15 @@ export class MockPlugins {
           p.error = e.lastError
           this.say(`${p.name} didn't load: ${e.lastError}`, true)
         } else {
+          if (p.id === MOCK_FALLBACK_ID && !e?.inProcess) {
+            p.outOfProcess = false
+            p.inProcessFallback = true
+            this.say(`${p.name} can't run in its own process; loading it inside yahaha instead (if it crashes, yahaha goes with it)`, false)
+          }
           p.status = 'playing'
           p.editor = true
-          p.cpu = 0.012
+          p.cpu = p.id === MOCK_HEAVY_ID ? 0.31 : 0.012
+          if (p.id === MOCK_HEAVY_ID) p.overruns = p.recentOverruns = 4
         }
       }
     })

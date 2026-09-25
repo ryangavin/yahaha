@@ -2,16 +2,21 @@
   The layout shell: the app bar, the stage (lead-sheet band, Launchkey mirror, keyboard
   strip) and the panels that open around it. Each lives in its own folder under src/panels/.
 
-  ┌ app bar: Parts & OTS · Mixer · Browse · Charts · Settings ······· ? · theme ┐
-  │ Registration bar: bank · buttons 1–10 · Memory · Freeze · sequence · playlist │
+  ┌ app bar: yahaha [transport: Start · Sync · Intro · Ending · Tempo · 13.1] ⚙ ? ☾ ┐
   │ ┌ stage ──────────────────────────────────────────────────────────────┐   │
   │ │ lead-sheet band (panels/leadsheet): now · bar cells / chart · next  │   │
   │ │ Launchkey mirror (panels/launchkey)                                 │ ┌ drawer ┐
-  │ │ keyboard strip (panels/keystrip)                                    │ │ parts  │
-  │ └─────────────────────────────────────────────────────────────────────┘ │ mixer  │
-  │ status line                                                             │settings│
+  │ │ keyboard strip (panels/keystrip), one panel:                        │ │ parts  │
+  │ │   Registration bar: bank · 1–10 · Memory · Freeze · seq. · playlist │ │ mixer  │
+  │ │   chord tones · the keys                                            │ │settings│
+  │ └─────────────────────────────────────────────────────────────────────┘ │        │
+  │ status line                                                             │        │
   │ help footer (lib/tooltip): the hovered control's entry · last Launchkey  └────────┘
   └──────────────────────────────────────────────────────────────────────────┘
+  Each drawer opens from a small button on the stage by what it details (lib/ui/DrawerButton):
+  Parts & OTS, Sounds, Mixer on the fader head; Multi Pads by the pad-page tabs; Charts by
+  the lead-sheet lane; Harmony/Arp and Chord Looper on the keyboard strip's cheek; the style
+  name on the display opens the browser (as touching it does on the Genos).
   Browser: centred modal. Drawers and the browser end above the help footer
   (--help-footer-space), so it always explains what the pointer is on.
 
@@ -46,6 +51,7 @@
   import Registration from './panels/registration/Registration.svelte'
   import Settings from './panels/settings/Settings.svelte'
   import SoundLibrary from './panels/sound/SoundLibrary.svelte'
+  import SoundBrowser from './panels/sounds/SoundBrowser.svelte'
 
   let { session }: { session: Session } = $props()
 
@@ -72,13 +78,13 @@
 
 <div class="app">
   <Header />
-  <RegistBar />
 
   <main class="stage">
     <div class="stack">
       <div class="lead-slot"><LeadSheet /></div>
       <Launchkey />
-      <div class="strip-slot"><KeyStrip /></div>
+      <!-- The Registration bar sits in the keyboard strip's panel, above the keys. -->
+      <div class="strip-slot"><KeyStrip><RegistBar /></KeyStrip></div>
     </div>
   </main>
 
@@ -101,6 +107,7 @@
 {#if ui.harmony}<Harmony />{/if}
 {#if ui.regist}<Registration />{/if}
 {#if ui.browser}<Browser />{/if}
+{#if ui.soundPick !== null}<SoundBrowser pick={ui.soundPick} />{:else if ui.soundBrowser !== null}<SoundBrowser part={ui.soundBrowser} />{/if}
 {#if tips.floating}<Tooltip />{/if}
 
 <style>
@@ -117,7 +124,9 @@
   /* ── The stage: sizes in em of --u, the largest that fits both ways ──────────────────
      --w: the stack's width in em (the mirror's design width).
      --h: its least height in em: lead band min + mirror + strip min + 2 gaps.
-     Measured from the rendered mirror: 24.95em tall wide, 45.14em stacked. */
+     --top: the Registration bar's row in the strip, with its gap (one row wide, two stacked).
+     Measured from the rendered mirror: 26.00em tall wide, 46.17em stacked; the Registration
+     row 4.0em wide, 6.7em stacked. */
   .stage {
     container: stage / size;
     flex: 1;
@@ -128,7 +137,9 @@
   }
   .stack {
     --w: 96;
-    --h: 38.8;
+    --h: 44.5;
+    /* The Registration bar's row at the top of the keyboard strip (+ its gap). */
+    --top: 4.6em;
     --u: min(100cqw / var(--w), 100cqh / var(--h));
     font-size: var(--u);
     width: calc(var(--w) * 1em);
@@ -145,13 +156,14 @@
   }
   .strip-slot {
     flex: 1.3 1 0;
-    min-height: 7.2em;
-    max-height: 14em;
+    min-height: calc(7.2em + var(--top));
+    max-height: calc(14em + var(--top));
   }
   @container stage (aspect-ratio < 1.45) {
     .stack {
       --w: 66;
-      --h: 59;
+      --h: 67.4;
+      --top: 7.4em;
     }
   }
   .status {

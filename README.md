@@ -24,7 +24,7 @@ On launch:
 
 Play a chord left of **F#2** (Yamaha numbering, C3 = middle C) and the band starts.
 
-The built-in synth uses the first `.sf2` file in `soundfonts/` (GeneralUser GS, downloaded separately; it's not in git). It plays on your default audio output with a 64-frame buffer (about 1.3 ms at 48 kHz).
+Every `.sf2` file in `soundfonts/` is a source of sounds. The built-in synth's default sound set (Settings › Audio) is the most complete General MIDI one there, unless you pick another. Put at least one General MIDI font there, for example GeneralUser GS (downloaded separately; SoundFonts are not in git). It plays on your default audio output with a 64-frame buffer (about 1.3 ms at 48 kHz).
 - **Keyboard parts:** like the Genos, you play four parts: **Right 1**, **Right 2** and **Right 3** right of the split, and **Left** left of it. Each part has its own voice, volume, octave shift and on/off. The Right parts that are on sound together, which is how you layer (Piano + Strings = Right 1 + Right 2 on). At start only Right 1 (Grand Piano) is on; Right 2 is Strings, Right 3 Brass, Left Strings. Turn parts on/off with the buttons under faders 1–4 (fader Panel page), the bottom-left pads on pad page 3, or `5` `6` `7` `8` (`l` also toggles Left). Pick the part whose voice you want to change with `F1`–`F4`, the EDIT pads on pad page 3, or Shift + the button under its fader, then step its voice with `9`/`0` or the VOICE −/+ pads.
 - **Where your parts go:** each part has its own channel, on the `yahaha` port and in the built-in synth alike: Right 1 = ch 1, Left = ch 2 (the channels your right and left hand always had), Right 2 = ch 3, Right 3 = ch 4. A part that is off sends nothing. With Left off, the Right parts play over the whole keyboard, as on the Genos, except that in Lower chord detection (outside the Full Keyboard fingerings) the keys left of the split only drive the chords. Each part's octave shift is applied to the notes it sends. The sustain pedal and the wheels go to the parts that are on (which parts each reaches is a setting: see Pedals and wheels below); other controllers and pressure go to all four parts (polyphonic aftertouch to the notes its key sounds); the keyboard's own volume (CC 7), bank select and program changes are ignored, because each part's voice and volume are its own.
 - **Mixer:** the faders have two pages, like the Genos Mixer's Panel and Style tabs. The button under the master fader (or `F9`) switches between them; it lights blue on Panel and green on Style, and the screen outlines the active page in yellow.
@@ -40,8 +40,9 @@ The built-in synth uses the first `.sf2` file in `soundfonts/` (GeneralUser GS, 
 - The synth plays on outputs 11/12 when the audio device is a TASCAM Model 16, and on 1/2 otherwise. `a` steps through the output pairs while playing, and `--audio-out 11` sets the pair at launch.
 
 Options:
-- `--sf2 file` uses a different SoundFont.
+- `--soundfonts DIR` uses another SoundFont folder.
 - `--audio-out N` sends the synth to outputs N/N+1.
+- `--buffer 64|128|256` sets the synth's audio buffer in frames (default 64, or the size last chosen in Settings › Audio). Heavy plugins may need 128 or 256.
 - `--no-synth` turns the synth off, leaving MIDI out only.
 - `--palette-leds` uses the Launchkey's built-in palette colours instead of RGB SysEx.
 - `--split C3` moves the split point. You can also use `[` and `]` while playing.
@@ -132,7 +133,7 @@ Pressing the current Main again plays its fill. With Auto Fill on, switching Mai
 | **Shift + Play** | Section Reset: the section starts again from its top |
 | **Shift + Stop** | Fade In/Out: stopped, arm a fade in; playing, fade out and stop |
 | **Shift + > / Shift + Function** | Retrigger length shorter / longer |
-| buttons under faders 1–8 | Panel page: Right 1–3, Left on/off (Shift: edit that part's voice), button 5 Harmony/Arpeggio on/off · Style page: mute/unmute the style parts |
+| buttons under faders 1–8 | Panel page: Right 1–3, Left on/off (Shift: edit that part's voice), button 5 Harmony/Arpeggio on/off, button 6 reload the edited part's plugin (red while it stopped or failed to load) · Style page: mute/unmute the style parts |
 | button under the master fader | fader page Panel / Style |
 
 The last Launchkey note or CC that nothing is mapped to shows at the bottom of the screen, e.g. `unmapped CC 103 = 127`. If a button does nothing, that shows the number it really sends.
@@ -168,7 +169,7 @@ The screen shows `sus` beside each part the pedal is holding.
 - `i o p` Ending I–III (again while it plays: ritardando)
 - `g` break
 - `A` `S` Fill Down / Fill Up (a fill, then the Main to the left / right) · `G` Fill Self · `N` Half Bar Fill In
-- `t` tap tempo (while the band plays: Section Reset, unless turned off in Settings)
+- `t` tap tempo (while the band plays: Section Reset, as on the Genos, unless Settings › Style › Tap: Section Reset is off)
 - `|` Section Reset · `F` Fade In/Out
 - `~` Retrigger on/off · `{ }` Retrigger length longer/shorter
 - `- =` tempo down/up
@@ -183,6 +184,7 @@ The screen shows `sus` beside each part the pedal is holding.
 - `F1`–`F4` pick the part to edit (Right 1–3, Left) · `9 0` previous/next voice for it
 - `F9` fader page Panel / Style
 - `J` Harmony/Arpeggio on/off · `L` next Harmony type or arpeggio · `*` Arpeggio Hold
+- `s` reload the edited part's plugin after it stopped or failed to load (the Panel mixer shows each part's plugin, its CPU and slow renders)
 - `Q W E R T Y U I O P` (with Shift) Registration Memory 1–10 · `F5` Memory (the next button memorizes) · `F6` Freeze
 - `F7 F8` Regist −/+ (the Registration Sequence) · `F11 F12` Registration bank −/+ (on macOS, F11 is Show Desktop until you turn that shortcut off in System Settings › Keyboard) · `< >` previous/next Playlist record
 - `←/→` previous/next style, in the style browser's order (folder, then name)

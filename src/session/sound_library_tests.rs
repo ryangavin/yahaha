@@ -232,6 +232,29 @@ fn a_keyboard_part_takes_its_patch_and_defaults() {
     let _ = std::fs::remove_dir_all(&data);
 }
 
+/// `savePartAsPatch` saves what the part plays (#109): a GM voice the map sends to a patch
+/// is saved as that patch, not as the raw GM program.
+#[test]
+fn saving_a_part_saves_the_patch_the_map_plays() {
+    let Some((s, data)) = session("save-mapped", &["SlowWalker.T552.sty"], true) else { return };
+    let strings = s.state().keyboard_parts[1].program;
+    let mut f = fields("Lush Strings", 0, 50);
+    f.source = PatchSource::SoundFont { file: OTHER.into(), bank: 0, program: 50 };
+    f.tags = vec!["warm".into()];
+    s.send(SoundLibraryCmd::CreatePatch { patch: f }).unwrap();
+    let id = s.state().sound_library.last_added.clone().unwrap();
+    s.send(SoundLibraryCmd::SetFamilyRule { family: strings / 8, patch: Some(id.clone()), style: false }).unwrap();
+    assert_eq!(s.state().keyboard_parts[1].voice_name, "Lush Strings");
+    s.send(SoundLibraryCmd::SavePartAsPatch { part: 1, name: None }).unwrap();
+    let st = s.state();
+    let p = &st.sound_library.patches.last().unwrap().patch;
+    assert_ne!(p.id, id);
+    assert_eq!((p.name.as_str(), &p.tags), ("Lush Strings", &vec!["warm".to_string()]));
+    assert_eq!(p.source, PatchSource::SoundFont { file: OTHER.into(), bank: 0, program: 50 }, "the mapped patch's sound");
+    assert_eq!(p.defaults.volume, Some(st.keyboard_parts[1].volume));
+    let _ = std::fs::remove_dir_all(&data);
+}
+
 #[test]
 fn import_export_and_browse() {
     let Some((s, data)) = session("io", &["SlowWalker.T552.sty"], true) else { return };
@@ -331,6 +354,51 @@ fn a_patch_volume_fills_in_where_the_style_sets_none() {
     }
 }
 
+/// The hand-over race (#109): a style chosen after the engine has taken over the style
+/// handed to it before, but before the control side has promoted that one, must not reuse
+/// (rewrite) the bank the engine now plays from. The snapshot already shows the takeover.
+#[test]
+fn a_style_chosen_during_the_hand_over_gets_the_other_bank() {
+    let Some((s, data)) = session("race", &["SlowWalker.T552.sty", "BubblyDub.T552.sty"], true) else { return };
+    let g = add(&s, "Global Bass", 0, 33);
+    let own = add(&s, "Dub Bass", 0, 35);
+    s.send(SoundLibraryCmd::SetFamilyRule { family: 4, patch: Some(g), style: false }).unwrap();
+    let id = |name: &str| s.library_list().entries.iter().find(|e| e.path.contains(name)).unwrap().id;
+    let (slow, dub) = (id("SlowWalker"), id("BubblyDub"));
+    load(&s, "BubblyDub");
+    s.send(SoundLibraryCmd::SetFamilyRule { family: 4, patch: Some(own), style: true }).unwrap();
+    load(&s, "SlowWalker");
+    let routes = s.inner.shared.routes.clone();
+    let slow_bank = routes.current.load(Relaxed);
+    assert_eq!(routes.bank_route(slow_bank, 33).map(|r| r.program), Some(33));
+    let dub_bank;
+    {
+        let mut guard = s.inner.lock();
+        let ctl = &mut *guard;
+        // BubblyDub handed over; the (stopped) engine takes it over at its next step, and its
+        // snapshot arrives, but no pump has promoted it yet.
+        ctl.apply(LibraryCmd::LoadStyle { id: dub }.into()).unwrap();
+        dub_bank = ctl.sound.pending.as_ref().unwrap().0;
+        assert_ne!(dub_bank, slow_bank);
+        let o = ctl.offline.as_mut().unwrap();
+        let now = o.now;
+        o.engine.step(now);
+        while let Ok(sn) = ctl.snap_rx.pop() {
+            ctl.snap = sn;
+        }
+        assert_eq!(routes.bank_route(dub_bank, 33).map(|r| r.program), Some(35), "BubblyDub plays its own rule");
+        // SlowWalker chosen right then.
+        ctl.apply(LibraryCmd::LoadStyle { id: slow }.into()).unwrap();
+        assert_eq!(routes.bank_route(dub_bank, 33).map(|r| r.program), Some(35), "the bank BubblyDub plays from is not rewritten");
+        assert_eq!(ctl.sound.pending.as_ref().unwrap().0, slow_bank, "SlowWalker gets the other bank");
+    }
+    s.advance(10 * MS);
+    assert!(s.state().style.path.contains("SlowWalker"));
+    let cur = routes.current.load(Relaxed);
+    assert_eq!((cur, routes.bank_route(cur, 33).map(|r| r.program)), (slow_bank, Some(33)));
+    let _ = std::fs::remove_dir_all(&data);
+}
+
 /// B2 (review of #106): at a style change the per-channel routes follow the NEW style's
 /// setup voices: `info` is the new style's before the routes are synced.
 #[test]
@@ -416,4 +484,51 @@ fn a_merge_import_keeps_a_newer_file() {
     assert_eq!(std::fs::read_to_string(file.with_extension("json.bak")).unwrap(), newer, "kept beside");
     assert!(std::fs::read_to_string(&file).unwrap().contains("\"version\": 1"));
     let _ = std::fs::remove_dir_all(&data);
+}
+
+/// A style's own map left with no rules (#109) is dropped from the library, not kept as
+/// an empty entry.
+#[test]
+fn a_styles_map_cleared_rule_by_rule_goes() {
+    let Some((s, data)) = session("prune", &["SlowWalker.T552.sty"], true) else { return };
+    let own = add(&s, "Slow Bass", 0, 35);
+    s.send(SoundLibraryCmd::SetFamilyRule { family: 4, patch: Some(own.clone()), style: true }).unwrap();
+    let key = s.state().sound_library.style_key.clone();
+    assert!(s.inner.lock().sound.lib.style_maps.contains_key(&key));
+    s.send(SoundLibraryCmd::SetFamilyRule { family: 4, patch: None, style: true }).unwrap();
+    assert!(!s.inner.lock().sound.lib.style_maps.contains_key(&key), "no empty entry left");
+    // Clearing a rule the style never had leaves no entry either.
+    s.send(SoundLibraryCmd::SetFamilyRule { family: 5, patch: None, style: true }).unwrap();
+    assert!(s.inner.lock().sound.lib.style_maps.is_empty());
+    let _ = std::fs::remove_dir_all(&data);
+}
+
+/// Font ids are recycled once all `MAX_FONTS` are taken (#109): an id whose SoundFont
+/// nothing uses names the new file; one the rack, a load or a patch still uses is never
+/// given away.
+#[test]
+fn font_ids_are_recycled_only_when_unused() {
+    use crate::patches::route::MAX_FONTS;
+    let mut sl = SoundLib::open(None);
+    for i in 0..MAX_FONTS {
+        assert_eq!(sl.font_id(&format!("f{i}.sf2")), Some(i as u8));
+    }
+    assert_eq!(sl.font_id("f3.sf2"), Some(3), "a known file keeps its id");
+    sl.rack_fonts = vec!["f0.sf2".into(), "f1.sf2".into()];
+    sl.loading = Some(vec!["f2.sf2".into()]);
+    sl.lib.patches.push(patches::Patch {
+        id: "p".into(),
+        name: "P".into(),
+        category: patches::Category::Piano,
+        tags: vec![],
+        favourite: false,
+        source: PatchSource::SoundFont { file: "f3.sf2".into(), bank: 0, program: 0 },
+        defaults: PatchDefaults::default(),
+    });
+    assert_eq!(sl.font_id("new.sf2"), Some(4), "the first id nothing uses");
+    assert_eq!(sl.font_id("new.sf2"), Some(4));
+    assert_eq!(sl.font_id("f0.sf2"), Some(0));
+    // Every id in use: none to give.
+    sl.rack_fonts = (0..MAX_FONTS).map(|i| if i == 4 { "new.sf2".to_string() } else { format!("f{i}.sf2") }).collect();
+    assert_eq!(sl.font_id("other.sf2"), None);
 }

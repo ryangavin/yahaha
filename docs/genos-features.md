@@ -130,6 +130,7 @@ Tags: `[chord-following]` `[transport]` `[sections]` `[voices]` `[registration]`
 ### Style Section Reset (TAP TEMPO during playback) `[transport]` `[sections]`
 - **Spec:** Tapping TAP TEMPO while a Style plays rewinds to the top of the current section, for stutter effects. A setting switches the button to change tempo during playback instead.
 - **Settings:** Menu → Metronome → Tap Tempo → Style Section Reset: on/off. Default is on, implied by the OM description.
+- **yahaha:** defaults to on, as the Genos (#128, owner: keep the Genos default); with it on a tap while playing only resets (the tempo stays). Off: TAP TEMPO while playing sets the tempo. Section Reset also has its own command and an assignable function (Style Section Reset).
 - **Ref:** OM p.46, p.67; RM p.39
 
 ### Style Retrigger `[transport]` `[sections]`

@@ -82,8 +82,11 @@ const EVERY_CMD: &[&str] = &[
     r#"{"type":"clearMessage"}"#,
     // Settings
     r#"{"type":"setSoundFont","file":"FluidR3_GM.sf2"}"#,
+    r#"{"type":"setDefaultSoundSet","file":"FluidR3_GM.sf2"}"#,
+    r#"{"type":"setDefaultSoundSet","file":null}"#,
     r#"{"type":"setMidiInputs","all":false,"names":["Launchkey 49 MK4 LKMK4 MIDI Out"]}"#,
     r#"{"type":"setPaletteLeds","on":true}"#,
+    r#"{"type":"setAudioBuffer","frames":128}"#,
     r#"{"type":"rescanLibrary"}"#,
     // Style settings
     r#"{"type":"setMainTiming","timing":"immediate"}"#,
@@ -201,6 +204,9 @@ const EVERY_CMD: &[&str] = &[
     r#"{"type":"clearPartPlugin","part":0}"#,
     r#"{"type":"savePartPluginState","part":3}"#,
     r#"{"type":"rescanPlugins"}"#,
+    r#"{"type":"setPluginInProcess","id":"aumu dls  appl","inProcess":true}"#,
+    r#"{"type":"reloadPartPlugin","part":null}"#,
+    r#"{"type":"reloadPartPlugin","part":2}"#,
     // Keyboard Harmony / Arpeggio
     r#"{"type":"toggleHarmonyArp"}"#,
     r#"{"type":"setHarmonyArpOn","on":true}"#,
@@ -244,6 +250,15 @@ const EVERY_CMD: &[&str] = &[
     r#"{"type":"browseSoundFont","file":null}"#,
     r#"{"type":"importSoundLibrary","path":"/tmp/lib.json","replace":false,"maps":true}"#,
     r#"{"type":"exportSoundLibrary","path":null}"#,
+    // Parameter Lock
+    r#"{"type":"setParamLock","item":"splitPoint","on":true}"#,
+    r#"{"type":"setParamLock","item":"fingeringType","on":false}"#,
+    // Sound catalog
+    r#"{"type":"setSoundFavourite","id":"sf:GeneralUser-GS.sf2:0:0","on":true}"#,
+    r#"{"type":"auditionSound","id":"au:aumu Xf2X XFER"}"#,
+    r#"{"type":"stopSoundAudition"}"#,
+    r#"{"type":"assignSound","part":0,"id":"saved:warm-pad"}"#,
+    r#"{"type":"setSoundCategory","id":"au:aumu Xf2X XFER","category":"pad"}"#,
 ];
 
 fn type_of(json: &str) -> String {
@@ -353,6 +368,7 @@ fn bad_commands_are_refused() {
         r#"{"type":"setMidiInputs","all":false}"#,
         r#"{"type":"setPedal","pedal":0,"cc":64,"function":"noSuchFunction"}"#,
         r#"{"type":"triggerFunction"}"#,
+        r#"{"type":"setParamLock","item":"masterEq","on":true}"#,
         r#"[1,2]"#,
         r#""startStop""#,
     ] {
@@ -393,6 +409,7 @@ fn events_keep_their_form() {
     for (e, json) in [
         (Event::StateChanged { version: 3 }, r#"{"type":"stateChanged","version":3}"#),
         (Event::LibraryChanged { revision: 2 }, r#"{"type":"libraryChanged","revision":2}"#),
+        (Event::SoundsChanged { revision: 4 }, r#"{"type":"soundsChanged","revision":4}"#),
         (Event::Stopped, r#"{"type":"stopped"}"#),
     ] {
         assert_eq!(serde_json::to_string(&e).unwrap(), json);

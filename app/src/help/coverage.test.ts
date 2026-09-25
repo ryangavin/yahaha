@@ -66,6 +66,14 @@ const STATES: [string, Setup][] = [
   ['style browser open, stopped (preview buttons)', (s) => (s.send({ type: 'stop' }), (ui.browser = true))],
   ['style browser, previewing', (s) => (s.send({ type: 'stop' }), s.send({ type: 'auditionStyle', id: 1 }), (ui.browser = true))],
   ['style browser, style queued for the next bar', (s) => (s.send({ type: 'queueStyle', id: 1 }), (ui.browser = true))],
+  ['sound browser open for Right 1', () => (ui.soundBrowser = 0)],
+  ['sound browser, stopped, a plugin part (audition, Edit, Rescan)', (s) => (
+    s.send({ type: 'stop' }),
+    s.send({ type: 'setPartPlugin', part: 0, id: 'aumu dls  appl', state: null }),
+    s.advance(1000),
+    (ui.soundBrowser = 0)
+  )],
+  ['sound browser picking for a map rule', () => (ui.soundPick = { title: 'Piano family', value: 'stage-grand', onpick: () => {} })],
   ['settings open', () => (ui.settings = true)],
   ['settings open, a pitch-bend pedal learning its CC', (s) => {
     s.send({ type: 'setPedal', pedal: 2, cc: 4, function: 'pitchBend', controlType: 'holdA', reverse: false, range: 'full' })
@@ -127,6 +135,8 @@ const STATES: [string, Setup][] = [
 afterEach(() => {
   cleanup()
   ui.browser = false
+  ui.soundBrowser = null
+  ui.soundPick = null
   ui.settings = false
   ui.parts = false
   ui.mixer = false

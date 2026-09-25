@@ -1,6 +1,7 @@
 <!--
-  The Registration bar, under the app bar: the Genos REGISTRATION MEMORY section and the
-  Playlist, always in reach while you play.
+  The Registration bar, in the keyboard strip's panel above the keys (the Genos has these
+  buttons by the keys): the Genos REGISTRATION MEMORY section and the Playlist, always in
+  reach while you play. It is on the stage, so every size is in em of `--u`.
 
   [◀ Bank ▶] [1]…[10] [Memory] [Freeze] [Regist − 3/6 +] [◀ Song ▶] [Panel]
 
@@ -37,7 +38,7 @@
   }
 </script>
 
-<section class="rbar mat-chassis" aria-label="Registration">
+<section class="rbar" aria-label="Registration">
   <div class="group bank">
     <span class="engraved lbl">Regist bank</span>
     <HwButton tip="regist.bank_prev" label="Previous bank" onclick={() => app.send({ type: 'stepRegistBank', delta: -1 })}>◀</HwButton>
@@ -79,31 +80,36 @@
     <HwButton tip="playlist.next" label="Next song" onclick={() => app.send({ type: 'stepPlaylist', delta: 1 })}>▶</HwButton>
   </div>
 
-  <HwButton tip="regist.open" led={ui.regist ? amber : null} onclick={() => openPanel(ui.registTab)}>Panel</HwButton>
+  <div class="group">
+    <HwButton tip="regist.open" led={ui.regist ? amber : null} onclick={() => openPanel(ui.registTab)}>Panel</HwButton>
+  </div>
 </section>
 
 <style>
+  /* One row across the strip (93em wide); in the stacked layout (63em) it wraps to two. */
   .rbar {
     display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    column-gap: 0.9rem;
-    row-gap: 0.3rem;
-    padding: 0.3rem 0.7rem;
-    border-radius: 6px;
-    font-size: 13px;
-    overflow: hidden;
-    flex-shrink: 0;
+    flex-wrap: nowrap;
+    align-items: flex-start;
+    justify-content: space-between;
+    column-gap: 0.9em;
+    row-gap: 0.4em;
+    min-width: 0;
   }
+  /* Level with the middle of the square 1–10 buttons (2.6em of their 0.9em print). */
   .group {
     display: flex;
     align-items: center;
-    gap: 0.35rem;
+    gap: 0.35em;
     min-width: 0;
+    min-height: 2.34em;
     flex: 0 1 auto;
   }
   .buttons {
     flex: none;
+    align-items: flex-start;
+    min-height: 0;
+    gap: 0.3em;
   }
   .group.off {
     opacity: 0.55;
@@ -111,14 +117,12 @@
   .lbl {
     white-space: nowrap;
   }
-  .buttons {
-    gap: 0.3rem;
-  }
   .slot {
     display: flex;
     flex-direction: column;
     align-items: center;
-    width: 3.4rem;
+    gap: 0.15em;
+    width: 3.1em;
   }
   .bname {
     width: 100%;
@@ -126,54 +130,42 @@
     text-overflow: ellipsis;
     white-space: nowrap;
     text-align: center;
-    font-size: 0.62rem;
-    min-height: 0.9rem;
+    min-height: 1em;
+  }
+  .rbar .bname {
+    font-size: 0.62em;
   }
   .name,
   .pos {
     min-width: 0;
-    height: 2.1rem;
-    padding: 0 0.6rem;
+    height: 2.2em;
+    padding: 0 0.6em;
     border: 0;
-    border-radius: 4px;
+    border-radius: 0.3em;
     font-family: var(--font-display);
-    font-size: 0.95rem;
+    font-size: 0.95em;
     cursor: pointer;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
   }
   .bank .name {
-    flex: 0 1 9rem;
-    min-width: 4.5rem;
+    flex: 0 1 8.5em;
+    min-width: 4.5em;
   }
   .song .name {
-    flex: 0 1 10rem;
-    min-width: 4.5rem;
+    flex: 0 1 8.5em;
+    min-width: 4.5em;
   }
   .pos {
-    width: 4.2rem;
+    width: 4em;
     text-align: center;
     font-variant-numeric: tabular-nums;
   }
-  @media (max-width: 1400px) {
-    .bname,
-    .lbl {
-      display: none;
-    }
-    .slot {
-      width: auto;
-    }
-  }
-  @media (max-width: 1150px) {
+  @container stage (aspect-ratio < 1.45) {
     .rbar {
-      column-gap: 0.5rem;
-    }
-    .buttons {
-      gap: 0.15rem;
-    }
-    .pos {
-      width: 3.4rem;
+      flex-wrap: wrap;
+      justify-content: flex-start;
     }
   }
 </style>

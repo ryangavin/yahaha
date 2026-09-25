@@ -68,7 +68,13 @@ impl Engine {
             // plays waits for the Ending to end, even in its first beat; the band stops
             // there with the new style loaded. Section Change Timing applies only while a
             // Main plays; from an Intro, a Fill or the Break the change waits for the
-            // next bar line.
+            // next bar line. An Ending pressed but still waiting for its change point
+            // counts as playing (#111): the style waits for that Ending's end too, and the
+            // Ending plays in the old style.
+            Change::Style if self.queued_ending_end().is_some() => {
+                let end = self.queued_ending_end().unwrap_or_default();
+                (end, end)
+            }
             Change::Style => match id_of(self.cur) {
                 SectionId::Ending(_) => {
                     let at = self.sec_start + self.style.sections[self.cur].as_ref().map_or(0, |s| s.len) as f64;
@@ -116,6 +122,17 @@ impl Engine {
                 }
             }
         }
+    }
+
+    /// The tick a queued Ending (pressed, not playing yet) ends at, on the section
+    /// timeline: its start plus its length in the style playing.
+    fn queued_ending_end(&self) -> Option<f64> {
+        let q = self.queued?;
+        if !(13..=15).contains(&q.slot) {
+            return None;
+        }
+        let len = self.style.sections[q.slot].as_ref()?.len as f64;
+        Some(q.sec_start + len)
     }
 
     /// What plays when the section playing ends with no change queued for its end: a Main
@@ -199,6 +216,14 @@ impl Engine {
         // A section repeating itself is not a change: its own pattern carries on.
         if change {
             let own_voice = self.own_voice(at - start);
+            // An Ending's fade-out (CC11) ends the song, not the section that follows it:
+            // a Main, Break or Intro pressed during the Ending starts at full expression,
+            // as it would after a start (#122). The setup's own CC11 still has the last
+            // word (reapply_init), and so does the new section's at its entry.
+            if matches!(id_of(from), SectionId::Ending(_)) {
+                let own = self.own_expression(at - start);
+                self.reset_expression(own, sink);
+            }
             self.reapply_init(own_voice, sink);
         }
         self.chase(sink);
@@ -213,6 +238,19 @@ impl Engine {
         let mut m = 0u16;
         for e in sec.events.iter().take_while(|e| e.tick as f64 <= entry + 1e-6) {
             if let (PKind::Pc { .. }, Some(r)) = (e.kind, sec.rules[e.src as usize & 15].as_ref()) {
+                m |= 1 << (r.dest_ch & 15);
+            }
+        }
+        m
+    }
+
+    /// Channels whose current section sets expression (CC11) up to section tick `entry`
+    /// (inclusive): they take the section's own value at the section change.
+    pub(super) fn own_expression(&self, entry: f64) -> u16 {
+        let sec = self.style.sections[self.cur].as_ref().unwrap();
+        let mut m = 0u16;
+        for e in sec.events.iter().take_while(|e| e.tick as f64 <= entry + 1e-6) {
+            if let (PKind::Cc { cc: 11, .. }, Some(r)) = (e.kind, sec.rules[e.src as usize & 15].as_ref()) {
                 m |= 1 << (r.dest_ch & 15);
             }
         }

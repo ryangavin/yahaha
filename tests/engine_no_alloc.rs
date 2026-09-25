@@ -5,7 +5,7 @@
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
-use yahaha::engine::{Button, Engine, PadCmd, Prepared, StyleControls, Transpose, PAD_PPQ};
+use yahaha::engine::{Button, Engine, PadCmd, Prepared, StyleControls, StyleSettings, Transpose, PAD_PPQ};
 use yahaha::live::{self, Audition, Cmd, EngineLoop, FxConfig, FxKey, FxMode, Out, PadBank, Shared};
 use yahaha::multipad::{file::parse, synthetic, MultiPadPlayer};
 use yahaha::rt::{PacketSink, Target};
@@ -96,20 +96,34 @@ fn preview_and_next_bar_style_change_do_not_allocate() {
     ch.ui_tx.push(Cmd::Button(Button::SetTempo(96))).ok().unwrap();
     ch.ui_tx.push(Cmd::StyleVolume(3, 64)).ok().unwrap();
     ch.ui_tx.push(Cmd::Button(Button::TogglePart(5))).ok().unwrap();
-    let controls = StyleControls { main: Some(1), intro: None, sync_start: None, sync_stop: Some(true), stop_acmp: Some(true), stop_acmp_mode: None, parts: Some(0b1011_1111), volumes: Some([90, 80, 100, 64, 100, 100, 100, 70]), player_set: Some(0b1000_0001) };
+    let controls = StyleControls { main: Some(1), intro: None, sync_start: None, sync_stop: Some(true), stop_acmp: Some(true), stop_acmp_mode: None, parts: Some(0b1011_1111), volumes: Some([90, 80, 100, 64, 100, 100, 100, 70]), player_set: Some(0b1000_0001), retrigger: Some(true) };
     // Part 4 (moved above) goes back to the style: the player_set mask leaves it out.
     ch.ui_tx.push(Cmd::StyleControls(controls)).ok().unwrap();
     while now < t0 + 2 * bar {
         now = l.next_deadline().unwrap_or(now + 5_000_000).max(now + 1);
         l.step(now);
     }
+    // TAP TEMPO while the band plays: a Section Reset by default (the Genos's); with the
+    // setting off it sets the tempo. Section Reset is also its own button.
+    ch.ui_tx.push(Cmd::Button(Button::TapTempo)).ok().unwrap();
+    l.step(now + 1);
+    ch.ui_tx.push(Cmd::StyleSettings(StyleSettings { section_reset: false, ..StyleSettings::default() })).ok().unwrap();
+    ch.ui_tx.push(Cmd::Button(Button::TapTempo)).ok().unwrap();
+    l.step(now + 2);
+    now += 400_000_000;
+    l.step(now);
+    ch.ui_tx.push(Cmd::Button(Button::TapTempo)).ok().unwrap();
+    l.step(now + 1);
+    ch.ui_tx.push(Cmd::Button(Button::SectionReset)).ok().unwrap();
+    l.step(now + 2);
+    now += 2;
     // Controllers: a bend range, a part switched on under a held pedal, Fill Up, KeysOff
     // and Panic (the pedal reset).
     shared.controllers.set_bend_range(0, 9);
     shared.controllers.toggle_switch(yahaha::controllers::SUSTAIN);
     shared.parts.toggle(1);
     l.step(now + 1);
-    ch.ui_tx.push(Cmd::Button(Button::Fill(1))).ok().unwrap();
+    ch.ui_tx.push(Cmd::Button(Button::FillUp)).ok().unwrap();
     ch.ui_tx.push(Cmd::KeysOff).ok().unwrap();
     l.step(now + 1);
     ch.ui_tx.push(Cmd::Button(Button::StartStop)).ok().unwrap();
@@ -121,6 +135,7 @@ fn preview_and_next_bar_style_change_do_not_allocate() {
     assert!(snaps.iter().any(|s| s.audition.is_some_and(|a| a.bar == 4)), "the preview played its 4 bars");
     assert!(snaps.iter().any(|s| s.running && s.style_pending), "the style change waited for the bar line");
     assert!(snaps.iter().any(|s| s.running && (s.bpm - 96.0).abs() < 1e-9), "the recalled tempo took");
+    assert!(snaps.iter().any(|s| s.running && (s.bpm - 150.0).abs() < 1e-6), "the tapped tempo took");
     // The preview and the old style came back to be freed off it.
     assert!(ch.old_audition_rx.pop().is_ok());
     assert!(ch.old_rx.pop().is_ok());

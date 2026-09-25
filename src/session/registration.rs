@@ -8,12 +8,13 @@
 //! order. While a recall settles, OTS Link holds still (`registration_holds_ots`): the
 //! registration's own voices win over the OTS of the section it selects.
 
+mod plugin;
 mod sections;
 
 pub(super) use sections::REGISTRABLES;
 
 use super::Control;
-use crate::api::{BankFile, BankState, CmdError, RegistButton, RegistVoice, RegistrationCmd, RegistrationState, SequenceState};
+use crate::api::{ParamLockState, BankFile, BankState, CmdError, RegistButton, RegistVoice, RegistrationCmd, RegistrationState, SequenceState};
 use crate::launchkey::RegistPanel;
 use crate::registration::{self as reg, Bank, Group, Groups, Memory, SeqMove, BANK_EXT, BUTTONS};
 use std::path::{Path, PathBuf};
@@ -31,16 +32,9 @@ const SETUP_FILE: &str = "setup.json";
 struct Setup {
     #[serde(default)]
     sequence_on: bool,
-}
-
-/// Items Parameter Lock can protect from Registration (and Playlist) recall. The lock
-/// state belongs to Parameter Lock (#102); recall asks `param_locked`.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum LockItem {
-    /// Split points (Data List lock group "Split Point").
-    SplitPoint,
-    /// Fingering type and Chord Detection Area (lock group "Fingering Type").
-    FingeringType,
+    /// Parameter Lock (a System setting on the Genos, in its Setup/Backup; not in banks).
+    #[serde(default)]
+    param_locks: ParamLockState,
 }
 
 /// A recall waiting for the style it loads to play.
@@ -75,6 +69,9 @@ pub(super) struct RegState {
     /// Registration Sequence On/Off: a panel setting kept across banks (not in the bank
     /// file; Data List: Regist = X, Setup = O), saved in `SETUP_FILE`.
     seq_on: bool,
+    /// Parameter Lock: groups a recall leaves alone (session/param_lock.rs). Kept in
+    /// `SETUP_FILE` with `seq_on`.
+    pub(super) locks: ParamLockState,
     /// A recall waiting for its style to play.
     deferred: Option<Deferred>,
     /// OTS Link waits for this recall to settle: the Main it selected (None: only a style
@@ -82,6 +79,11 @@ pub(super) struct RegState {
     ots_hold: Option<(Option<u8>, u64)>,
     /// Regist Bank Info, rebuilt when the bank changes.
     buttons: Vec<RegistButton>,
+    /// A Memorize waiting for its parts' plugin states (registration/plugin.rs).
+    plugin_fill: Option<plugin::PluginFill>,
+    /// The bank (or what its buttons' plugins play) changed: preload its plugins again at
+    /// the next pump (registration/plugin.rs, `warm_bank_plugins`).
+    warm_dirty: bool,
 }
 
 impl RegState {
@@ -99,21 +101,26 @@ impl RegState {
             frozen: Groups::NONE,
             seq_pos: None,
             seq_on: false,
+            locks: ParamLockState::default(),
             deferred: None,
             ots_hold: None,
             buttons: Vec::new(),
+            plugin_fill: None,
+            warm_dirty: false,
         };
         let setup = r.dir.as_deref().and_then(|d| std::fs::read_to_string(d.join(SETUP_FILE)).ok());
-        r.seq_on = setup.and_then(|t| serde_json::from_str::<Setup>(&t).ok()).is_some_and(|s| s.sequence_on);
+        let setup = setup.and_then(|t| serde_json::from_str::<Setup>(&t).ok()).unwrap_or_default();
+        r.seq_on = setup.sequence_on;
+        r.locks = setup.param_locks;
         r.list_banks();
         r.summarize();
         r
     }
 
     /// Save the Registration settings that are not part of a bank.
-    fn save_setup(&self) -> anyhow::Result<()> {
+    pub(super) fn save_setup(&self) -> anyhow::Result<()> {
         let Some(dir) = &self.dir else { return Ok(()) };
-        let text = serde_json::to_string_pretty(&Setup { sequence_on: self.seq_on })?;
+        let text = serde_json::to_string_pretty(&Setup { sequence_on: self.seq_on, param_locks: self.locks })?;
         reg::write_atomic(&dir.join(SETUP_FILE), &text)
     }
 
@@ -190,6 +197,7 @@ impl Control {
                 self.reg.selected = None;
                 self.reg.seq_pos = None;
                 self.reg.summarize();
+                self.reg.warm_dirty = true;
             }
             RegistrationCmd::SaveRegistBank { name, overwrite } => return self.save_bank(name, overwrite),
             RegistrationCmd::SetFreeze { on } => self.reg.freeze = on,
@@ -241,6 +249,8 @@ impl Control {
         // Named after its style, as Regist Bank Info shows a button (rename to change).
         m.name = sections::info(&m).style.unwrap_or_else(|| format!("Registration {}", i + 1));
         self.reg.bank.memories[i] = Some(m);
+        // The parts' plugins as they sound now, not as last autosaved: read, then filled in.
+        self.start_plugin_fill(i, groups);
         self.reg.selected = Some(index);
         self.say(format!("Memorized to Registration {}", i + 1), false);
         self.bank_changed()
@@ -250,6 +260,7 @@ impl Control {
     /// `SaveRegistBank` with a name).
     fn bank_changed(&mut self) -> Result<(), CmdError> {
         self.reg.summarize();
+        self.reg.warm_dirty = true;
         self.reg.dirty = true;
         match self.reg.path.clone() {
             Some(p) => self.write_bank(&p),
@@ -307,6 +318,7 @@ impl Control {
                 self.reg.seq_pos = None;
                 self.reg.summarize();
                 self.reg.list_banks();
+                self.reg.warm_dirty = true;
                 Ok(())
             }
             Err(e) => self.fail(format!("{e:#}")),
@@ -464,6 +476,10 @@ impl Control {
     /// Every pump: a deferred recall runs once its style plays; the OTS Link hold ends
     /// when the engine shows what the recall asked for (or after `OTS_HOLD_NS`).
     pub(super) fn pump_registration(&mut self, now: u64) {
+        self.pump_plugin_fill(now);
+        if std::mem::take(&mut self.reg.warm_dirty) {
+            self.warm_bank_plugins();
+        }
         // The style chosen last: the one waiting, else the one playing.
         let chosen = self.pending_style.as_ref().map_or(self.snap.style_tag, |p| p.1);
         if self.reg.deferred.as_ref().is_some_and(|d| d.tag != chosen) {
@@ -497,14 +513,6 @@ impl Control {
                 self.reg.ots_hold = None;
             }
         }
-    }
-
-    /// The parameter lock for `item` (Parameter Lock, RM p.163): a locked item only
-    /// changes from the panel, never from Registration, OTS or Playlist recall.
-    /// Parameter Lock itself is not built yet (#102): nothing is locked.
-    pub(super) fn param_locked(&self, item: LockItem) -> bool {
-        let _ = item;
-        false
     }
 
     /// The bank's file, if it has one (a Playlist record links to it).

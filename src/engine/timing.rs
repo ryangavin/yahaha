@@ -50,7 +50,8 @@ pub struct StyleSettings {
     pub fade_out_ms: u16,
     /// How long the volume stays at 0 after a fade out.
     pub fade_hold_ms: u16,
-    /// TAP TEMPO while the style plays rewinds the section (on) or sets the tempo (off).
+    /// TAP TEMPO while the style plays rewinds the section (on, the Genos default, RM p.39)
+    /// or sets the tempo (off).
     pub section_reset: bool,
     /// Style Retrigger length: 1, 2, 4, 8, 16 or 32 (a whole note .. a 32nd).
     pub retrigger_rate: u8,

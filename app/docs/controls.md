@@ -20,7 +20,7 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | **Fill Break** | Plays the one-bar Break, then goes back to the Main. The same as Break. | Fill Break | — | — |
 | **Stop ACMP** | With Sync Start off and the band stopped, a chord you hold sounds on bass and pad voices. This switches it off, or back on in the mode you picked in Settings (Style at first). | Stop Accompaniment | `H` | Pad page 2 (Chord/Setup), bottom row, pad 2 |
 | **Fade In/Out** | Stopped, it arms a fade in: the next start comes up from silence. Playing, the band fades out and stops, and stays silent for the hold time before its volume comes back (only the style fades, not what you play). The fade times are in Settings › Style. | Fade In/Out (Assignable) | `Shift+F` | Pad page 3 (OTS/Parts), top row, pad 6; Shift + Stop button |
-| **Section Reset** | Starts the section playing again from its top, right now, for stutter effects. With Section Reset on in Settings › Style (the default), Tap does the same while the band plays. | Style Section Reset (TAP TEMPO) | `\|` | Shift + Play button |
+| **Section Reset** | Starts the section playing again from its top, right now, for stutter effects. With Tap: Section Reset on in Settings › Style (the default, as on the Genos), Tap does the same while the band plays. A pedal can run it too (Style Section Reset). | Style Section Reset (TAP TEMPO) | `\|` | Shift + Play button |
 | **Retrigger** | While on, each chord you play restarts the Main and loops its first few beats (the Retrigger length) until you change section or turn it off. Only Mains retrigger. | Style Retrigger (RtgOnOff) | `~` | Pad page 2 (Chord/Setup), bottom row, pad 8 |
 | **Retrigger length shorter** | Makes the Retrigger loop one step shorter: 1, 1/2, 1/4, 1/8, 1/16, 1/32 of a whole note. | Style Retrigger Rate (RtgRate) | `}` | Shift + > (Scene Launch) button |
 | **Retrigger length longer** | Makes the Retrigger loop one step longer, up to a whole note. | Style Retrigger Rate (RtgRate) | `{` | Shift + Function button |
@@ -47,7 +47,7 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 
 | control | what it does | Genos | key | Launchkey |
 |---|---|---|---|---|
-| **Tap tempo** | Tap two or more times in time to set the tempo from your taps. While the band plays, a tap restarts the section instead (Section Reset), unless you turn that off in Settings › Style. The pad lights on the downbeat while the band plays. | TAP TEMPO | `T` | Pad page 1 (Sections), bottom row, pad 6 |
+| **Tap tempo** | Tap two or more times in time to set the tempo from your taps (the last four count). While the band plays, a tap restarts the section instead (Section Reset) and the tempo stays, unless you turn Tap: Section Reset off in Settings › Style. The pad lights on the downbeat while the band plays. | TAP TEMPO | `T` | Pad page 1 (Sections), bottom row, pad 6 |
 | **Tempo −** | Slows the tempo by 1 BPM. | TEMPO − | `-` | Function button (right of the pads) |
 | **Tempo +** | Speeds the tempo up by 1 BPM. | TEMPO + | `=` | > (Scene Launch) button (right of the pads) |
 
@@ -65,7 +65,6 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 
 | control | what it does | Genos | key | Launchkey |
 |---|---|---|---|---|
-| **Style** | The style that's loaded, and its folder. Click to browse the library. | Style name | `Enter` | — |
 | **Previous style** | Loads the previous style in the browser's order (folder, then name). While the band plays it keeps playing and follows your next chord in the new style. | — | `←` | < Track button |
 | **Next style** | Loads the next style in the browser's order (folder, then name). While the band plays it keeps playing and follows your next chord in the new style. | — | `→` | Track > button |
 
@@ -73,7 +72,7 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 
 | control | what it does | Genos | key | Launchkey |
 |---|---|---|---|---|
-| **Browse styles** | Opens the style browser: every style under the library folder, by folder. Your keyboard and the Launchkey keep playing while it's open. | Style selection display | `Enter` | — |
+| **Browse styles** | The style that's loaded, on the display. Click it to open the style browser: every style under the library folder, by folder, while your keyboard and the Launchkey keep playing. | Style name (touch it for the Style Selection display) | `Enter` | — |
 | **Filter** | Type to filter by style name, file name or folder (not case-sensitive). ↑/↓, PgUp/PgDn and Home/End move; Enter loads; Shift+Enter previews, or queues for the next bar while the band plays. | — | — | — |
 | **All styles** | Every style in the library, in the order < Track and Track > step through: folder, then name. | — | — | < Track and Track > step through this order |
 | **Folder** | Shows only the styles in this folder and its subfolders. The folder a style is in is its category. | Style category | — | — |
@@ -215,17 +214,34 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | **Voice +** | Steps the selected part (the lit Edit pad) to the next voice. | Voice select | `0` | Pad page 3 (OTS/Parts), top row, pad 8 |
 | **Octave −** | Shifts this part down an octave (down to −2). OTS recalls set it too. | Voice Setting → Tune → Octave | — | — |
 | **Octave +** | Shifts this part up an octave (up to +2). OTS recalls set it too. | Voice Setting → Tune → Octave | — | — |
-| **GM voices** | Shows the built-in SoundFont voices for this part. A part playing a plugin keeps its SoundFont voice here for when you go back to it. | Voice select (VOICE buttons) | — | — |
-| **Library** | Shows your sound library's patches for this part. A dot means the part plays one of its own. | Voice Selection | — | — |
-| **Plugins** | Shows your instrument plugins (Audio Units) for this part. A dot means the part plays one. | — | — | — |
-| **Plugin** | Plays this part on an instrument plugin instead of its SoundFont voice. It loads in the background, and the part keeps its SoundFont voice until the plugin is ready. The fader stays the part's volume (CC 7). | — | — | — |
+| **Plugin** | Plays this part on an instrument plugin instead of its SoundFont voice. It loads in the background (the part keeps its SoundFont voice until then), and the fader stays the part's volume (CC 7). "⚠ in process" means macOS would not run the plugin in its own process, so it runs inside yahaha: if it crashes, yahaha goes with it. | — | — | — |
 | **Edit plugin** | Opens the plugin's own window to change its sound. yahaha keeps the plugin's settings with the part. | — | — | — |
-| **Rescan plugins** | Looks for newly installed or removed instrument plugins. A ⚠ in the list marks a plugin that failed to load last time. | — | — | — |
-| **Voice** | Picks this part's voice. Under Manual Bass, Left plays the style's Bass voice instead, and this is the voice it goes back to. | Voice select (VOICE buttons) | — | Pad page 3 (OTS/Parts): the Edit pads (bottom row, pads 5–8) pick the part, Voice −/+ (top row, pads 7–8) step its voice |
+| **Rescan plugins** | Looks for newly installed or removed instrument plugins. A ⚠ in the Sound Browser marks a plugin that failed to load last time. | — | — | — |
+| **Reload plugin** | Loads the selected part's plugin again, with its saved sound, after it stopped working or failed to load. The Launchkey button lights red while there is one to reload. | — | `S` | Panel fader page: button under fader 6 |
+| **Run in process** | Runs this plugin inside yahaha instead of in its own process: a little less CPU for the lightest plugins, but if the plugin crashes, yahaha goes with it. It is remembered for the plugin and applies from its next load. | — | — | — |
+| **Sound** | What this part plays. Click to open the Sound Browser and pick a SoundFont preset, an instrument plugin or a saved sound. Under Manual Bass, Left plays the style's Bass voice instead, and this is the sound it goes back to. | Voice select (VOICE buttons) | — | Pad page 3 (OTS/Parts): the Edit pads (bottom row, pads 5–8) pick the part, Voice −/+ (top row, pads 7–8) step its voice |
 | **Layer** | The Right parts that are on all sound together on every key above the split: that's a layer. Turn on Right 1 and Right 2 to stack, for example, piano and strings. | PART ON/OFF (Right 1–3 layered) | `5` `6` `7` | Panel fader page: buttons under faders 1–3 |
 | **Left hand** | Left plays the keys at and below the split point, with its own voice. Under Manual Bass it plays the style's Bass voice there instead, and the band's own bass goes quiet. | Split Point (Left) | — | — |
 | **As written for** | The voice the style's author wrote this band part for, and its MIDI channel on the yahaha port. Load a matching instrument on that channel in Ableton to hear the style as intended; ≈ marks the nearest General MIDI voice to a Yamaha one. | Style parts (Mixer › Style) | — | — |
 | **Library patch** | The part plays a patch from your sound library. Pick a GM voice instead to go back to it. | Voice Selection | — | — |
+
+## Sound Browser
+
+| control | what it does | Genos | key | Launchkey |
+|---|---|---|---|---|
+| **Close** | Closes the Sound Browser. The part keeps the sound you picked. | EXIT | — | — |
+| **Filter sounds** | Type to filter by name, SoundFont file or plugin maker (SF, AU or Saved narrows by source). ↑/↓ move, Enter plays the sound on the part, Shift+Enter auditions it, Ctrl+D stars it. | Voice Selection › Search | — | — |
+| **All sounds** | Every sound: the presets of every SoundFont in the soundfonts folder, your instrument plugins and your saved sounds. | Voice Selection | — | — |
+| **Favourites** | The sounds you starred. | Voice Selection › Favorite tab | — | — |
+| **Recent** | The last 20 sounds you picked for a part, most recent first. | Voice Selection › history | — | — |
+| **Saved** | Your saved sounds: the sound library's patches, each a preset or plugin with its volume, octave, pan and sends (and a plugin's own settings). Edit them in the Sound Library drawer. | Voice Selection › User tab | — | — |
+| **Save as sound** | Saves what this part plays now as a new saved sound: its preset or plugin (with the plugin's current settings), volume and octave. It appears under Saved, ready to rename in the Sound Library drawer. | Voice Setting › Save | — | — |
+| **Category** | The sounds of one Genos voice category. A preset's category is its General MIDI family, and a plugin's is guessed from its name. | VOICE category buttons | — | — |
+| **Sound** | Click or Enter plays this sound on the part. SF is a SoundFont preset, AU an instrument plugin, Saved a sound from your library. ▶ marks what the part plays. | Voice Selection | — | — |
+| **Plugin that failed** | This plugin failed to load last time (⚠ says why). Picking it tries again; until it loads, the part plays its SoundFont voice. | — | — | — |
+| **Star** | Adds the sound to your Favourites, or takes it out. | Voice Selection › Favorite | — | — |
+| **Audition** | Plays the sound on its own for a few seconds, without changing the part. Only while the band is stopped. | Voice Selection › Demo | — | — |
+| **Stop audition** | Stops the audition. | — | — | — |
 
 ## Keyboard Harmony / Arpeggio
 
@@ -261,7 +277,9 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | **Left volume** | Left's volume. The fader is channel 2's CC 7 itself, with no hidden gain behind it; under Manual Bass it is the bass's level too. | Mixer › Panel › Left Volume | — | Panel fader page: fader 4 |
 | **Style part volume** | This band part's volume. The fader is its channel's CC 7 itself (channels 9–16), with no hidden gain behind it, except that a Fade In/Out scales the CC 7 it sends while the fade runs (the fader stays put). Loading a style sets the faders to the style's own levels, and a pattern that changes its volume moves the fader too, until you move it yourself. | Mixer › Style › Volume | — | Style fader page: faders 1–8 (Rhythm 1 … Phrase 2) |
 | **Style part on/off** | Mutes or unmutes this band part. The Launchkey button is lit while the part plays. | Channel On/Off | `Z` `X` `C` `V` `B` `N` `M` `,` | Style fader page: buttons under faders 1–8 |
-| **Plugin part** | This part plays an instrument plugin, shown with its share of the CPU. Its fader is still the part's CC 7, applied to the plugin's output. | — | — | — |
+| **Plugin part** | This part plays an instrument plugin, shown with its share of one CPU core, updated every second. Its fader is still the part's CC 7, applied to the plugin's output. | — | — | — |
+| **Plugin running slow** | "N slow" counts the plugin's renders in the last 10 seconds that took more than half the audio buffer, the first sign of crackles. Raise Settings › Audio › Buffer size to give it more time, or use a lighter plugin or preset. | — | — | — |
+| **Plugin in process ⚠** | This part's plugin was meant to run in its own process, where a crash only silences the part. macOS refused to host it there, so it runs inside yahaha instead: if it crashes, yahaha goes with it. Save your setup, or pick another plugin for live use. | — | — | — |
 | **Master volume** | The built-in synth's output level (100 = unity), the only gain after the channel faders. A safety soft clipper above −1 dBFS keeps loud passages from hard clipping; below that the output is untouched. It does not change the MIDI output. | MASTER VOLUME | — | Master fader (both fader pages) |
 | **Solo** | Plays only this part, even if it is switched off; press again to end the solo. The Style tab solos a band part, the Panel tab a keyboard part, and the On switches stay as they were. | Mixer › touch and hold a channel (Solo) | — | — |
 | **Style Track Mute** | A knob for the band: fully left leaves one part on, and turning it up brings the others in one by one until all eight play. It switches the Style parts on and off, so the On buttons follow it. | Live Control › Style Track Mute A/B (StyMuteA, StyMuteB) | — | — |
@@ -319,7 +337,7 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | **Favourites only** | Shows only the patches marked with a star. | Favorite tab | — | — |
 | **Patch** | Selects the patch to edit it below. A dimmed patch plays the SoundFont fallback; its note says why. | — | — | — |
 | **Favourite** | Marks or unmarks the patch as a favourite. | Favorite | — | — |
-| **Audition** | Plays the sound on its own for a moment: a short arpeggio and a chord, or a beat for a drum kit. Works while the band is stopped. | — | — | — |
+| **Audition** | Plays the sound on its own for a moment: a short arpeggio and a chord, or a beat for a drum kit. Works while the band is stopped. A plugin patch loads its plugin first. | — | — | — |
 | **Stop audition** | Stops the sound playing on its own. | — | — | — |
 | **Move up** | Moves the patch one place up in your list. | — | — | — |
 | **Move down** | Moves the patch one place down in your list. | — | — | — |
@@ -336,15 +354,16 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | **Play on a part** | Picks the patch for that keyboard part, with its defaults. The part's voice picker has the same list. | Voice Selection | — | — |
 | **Save part's sound** | Saves a keyboard part's sound as a new patch: its own patch, or its GM voice on the synth's SoundFont, with its volume and octave. | — | — | — |
 | **Every style / this style** | Which map you edit: the one every style uses, or this style's own rules, which win over it. This style's map is kept in your library, not in the style file. | — | — | — |
-| **Family rule** | The patch these eight GM programs play, with every bank variation of them. Blank: the voice the style asks for. | — | — | — |
-| **Drum rule** | The drum kit patch for Rhythm 1 and 2 and any part on a Yamaha drum kit bank. Blank: the kit the style asks for. | — | — | — |
+| **Family rule** | The sound these eight GM programs play, with every bank variation of them. Click to pick one in the Sound Browser: a saved sound, a SoundFont preset or a plugin. Blank: the voice the style asks for. | — | — | — |
+| **Clear rule** | Clears this rule: the programs it covered play what the rule below it gives them, or the style's own voice. | — | — | — |
+| **Drum rule** | The drum kit sound for Rhythm 1 and 2 and any part on a Yamaha drum kit bank. Click to pick one in the Sound Browser. Blank: the kit the style asks for. | — | — | — |
 | **Program** | The GM program for a new override, when its family rule is too coarse (for example E.Piano 1 inside Piano). | — | — | — |
-| **Override patch** | The patch this one program plays, whatever its family rule says. | — | — | — |
+| **Override patch** | The sound this one program plays, whatever its family rule says. Click to pick one in the Sound Browser. | — | — | — |
 | **Add override** | Adds the override: the program plays the patch chosen next to it. | — | — | — |
 | **Remove override** | Removes the override: the program follows its family rule again. | — | — | — |
 | **Clear this style's rules** | Forgets this style's own rules: it plays by the map every style uses. | — | — | — |
 | **Port sends mapped programs** | Off, the yahaha MIDI port carries the style's own program changes, so a DAW records the style as written. On, it carries the mapped patch's bank and program instead. | — | — | — |
-| **Remap** | Picks the patch this program plays: an override for this program, for every style or for this style only (the switch above). Clear it to fall back to the family rule. | — | — | — |
+| **Remap** | Picks the sound this program plays in the Sound Browser: an override for this program, for every style or for this style only (the switch above). Clear it (✕) to fall back to the family rule. | — | — | — |
 | **SoundFont** | The SoundFont in the SoundFont folder whose presets are listed. | — | — | — |
 | **Search presets** | Shows only the presets whose name contains the text. | — | — | — |
 | **Preset** | Plays the preset on its own for a moment, while the band is stopped. | — | — | — |
@@ -434,6 +453,7 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | **Settings: Split point** | Where the keyboard divides between the chord section and the right hand. | Menu › Split & Fingering › Split Point | — | Pad page 2 (Chord/Setup), bottom row, pads 3–4 |
 | **Settings: Transpose** | Keyboard and Master transpose, in semitones. | Menu › Transpose | — | Pad page 2 (Chord/Setup), bottom row, pads 5–7 |
 | **Settings: Style** | How the band starts, stops and fills: Sync Start/Stop, Auto Fill and Stop Accompaniment. | Menu › Style Setting | — | Pad page 1 (Sections) (Sync Start, Sync Stop, Auto Fill); Pad page 2 (Chord/Setup), bottom row, pad 2 (Stop ACMP) |
+| **Settings: Parameter Lock** | Lock the split point or the fingering type, so Registration, One Touch Setting and Playlist recalls leave them as you set them. | Menu › Utility › Parameter Lock | — | — |
 | **Settings: Audio** | The built-in synth: on or off, which output pair it plays on, its SoundFont and its master volume. | — | — | — |
 | **Settings: MIDI** | Which MIDI inputs play yahaha, the yahaha output port, and the Launchkey connection. | Menu › MIDI | — | — |
 | **Settings: Library** | The folders yahaha looks for style files in, and a rescan. | Style selection (USB / User folders) | — | — |
@@ -448,11 +468,13 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | **Part on/off on style change** | What choosing another style does to the style parts you muted. Lock keeps them muted, Hold keeps them muted only while the band plays, and Reset turns every part back on. | Change Behavior: Part On/Off | — | — |
 | **Section on style change** | The Main a style you choose while stopped starts on (the nearest one it has), or Off to keep the Main you had. | Change Behavior: Section Set | — | — |
 | **Chord settle** | How long a new chord must hold still before the style follows it (0–30 ms; 0 follows every change at once). A chord whose keys land a few ms apart is then one chord change, not two, so no note is struck on the passing chord and cut a moment later. Only the accompaniment's chord parts wait (also Stop Accompaniment, and Multi Pads with Chord Match, even with the style stopped), and only when you change the chord on or just before their notes; drums keep time, and a chord struck a little ahead of the beat costs nothing. | — | — | — |
+| **Lock Split Point** | On: the split point stays where you set it. Registration, One Touch Setting and Playlist recalls leave it alone; you can still move it yourself. | Parameter Lock: Split Point | — | — |
+| **Lock Fingering Type** | On: the fingering type and the Chord Detection Area (Upper, Manual Bass) stay as you set them. Registration, One Touch Setting and Playlist recalls leave them alone; you can still change them yourself. | Parameter Lock: Fingering Type | — | — |
 | **Synchro Stop window** | With Sync Stop on: hold a chord longer than this and Sync Stop turns itself off, so the style keeps playing when you let go. A quicker release still stops the style. Off (all the way left): Sync Stop never turns itself off. | Synchro Stop Window | — | — |
 | **Fade in time** | How long a fade in takes to reach full volume, from 0 to 20 seconds. | Fade In Time | — | — |
 | **Fade out time** | How long a fade out takes to reach silence before the band stops, from 0 to 20 seconds. | Fade Out Time | — | — |
 | **Fade out hold time** | How long the style stays silent after a fade out before its volume comes back, from 0 to 5 seconds. | Fade Out Hold Time | — | — |
-| **Tap: Section Reset** | On: Tap while the band plays restarts the section from its top. Off: Tap always sets the tempo. | Tap Tempo › Style Section Reset | — | — |
+| **Tap: Section Reset** | On (the default, as on the Genos): Tap while the band plays restarts the section from its top and keeps the tempo. Off: Tap always sets the tempo. | Tap Tempo › Style Section Reset | — | — |
 | **Retrigger length** | How much of the Main's start Retrigger loops: a whole note (1) down to a 32nd (1/32). | Style Retrigger Rate (RtgRate) | — | Shift + > (Scene Launch) / Shift + Function buttons |
 | **Style folders** | The folders yahaha reads style files from (.sty, .prs, .sst and more), with subfolders as categories. Pass them on the command line or set YAHAHA_STYLES. | Style selection (User / USB) | — | — |
 | **Rescan styles** | Reads the style folders again, picking up files you added, changed or removed. The band keeps playing. | — | — | — |
@@ -463,7 +485,9 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | control | what it does | Genos | key | Launchkey |
 |---|---|---|---|---|
 | **Audio output** | The output pair the built-in synth plays on. `--audio-out N` sets it at launch. | — | `A` | — |
-| **SoundFont** | The General MIDI SoundFont (.sf2) the built-in synth plays, from the soundfonts folder. `--sf2 file` sets it at launch. | — | — | — |
+| **Audio buffer** | Frames the built-in synth renders at a time: 64 (1.3 ms at 48 kHz) feels tightest, while 128 or 256 give heavy plugins more time per block for up to 5 ms more latency. Changing it reopens the output with a moment of silence; held notes and plugins carry over. It is remembered, and `--buffer N` sets it at launch. | — | — | — |
+| **Default sound set** | The SoundFont that plays every sound nothing else is chosen for: style parts the program map leaves unmapped, and GM voices. Every .sf2 in the soundfonts folder is a source of sounds; this picks the fallback. | — | — | — |
+| **Auto sound set** | Picks the most complete General MIDI SoundFont in the soundfonts folder: the most GM programs, then a drum kit. Follows the folder as fonts come and go. | — | — | — |
 | **Mute synth** | Silences the built-in synth, for when you play Ableton's sounds from the yahaha MIDI port instead. | — | `K` | — |
 | **Built-in synth** | Turns the built-in SoundFont synth's sound on or off. The yahaha MIDI port keeps playing either way, for Ableton or other sounds. | — | `K` | — |
 

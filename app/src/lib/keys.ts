@@ -61,6 +61,7 @@ export const BINDINGS: Record<string, Binding> = {
   '0': c({ type: 'stepVoice', delta: 1 }),
   F9: c({ type: 'toggleFaderPage' }),
   J: c({ type: 'toggleHarmonyArp' }),
+  s: c({ type: 'reloadPartPlugin', part: null }),
   L: c({ type: 'stepHarmonyArpType', delta: 1 }),
   '*': c({ type: 'toggleArpHold' }),
   // Registration Memory: Shift + the top letter row = buttons 1–10.

@@ -90,6 +90,29 @@ fn scan_finds_dls_and_caches_it() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// The player's "run in process" override is kept in the scan cache: a new host (the next
+/// launch) reads it back, and a rescan keeps it.
+#[test]
+fn the_in_process_override_is_cached_and_survives_a_rescan() {
+    let dir = std::env::temp_dir().join(format!("yahaha-plugin-inproc-{}", std::process::id()));
+    let path = dir.join("plugins.json");
+    let _ = std::fs::remove_dir_all(&dir);
+    let h = PluginHost::new(Some(path.clone()));
+    assert!(!h.info(&PluginId::DLS).unwrap().in_process, "off by default");
+    assert!(h.set_in_process(&PluginId::DLS, true).unwrap().in_process);
+    let next = PluginHost::new(Some(path.clone()));
+    assert!(next.info(&PluginId::DLS).unwrap().in_process, "read back from the file");
+    assert!(next.rescan().unwrap().iter().find(|p| p.id == PluginId::DLS).unwrap().in_process, "a rescan keeps it");
+    assert!(!next.set_in_process(&PluginId::DLS, false).unwrap().in_process);
+    assert!(!PluginHost::new(Some(path.clone())).info(&PluginId::DLS).unwrap().in_process);
+    assert!(h.set_in_process(&PluginId::parse("aumu nope nope").unwrap(), true).is_err(), "not installed");
+    // An AUv3 that only runs out of process refuses it (if one is installed).
+    if let Some(v3) = next.scan().unwrap().into_iter().find(|p| !p.can_run_in_process()) {
+        assert!(next.set_in_process(&v3.id, true).is_err());
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 #[test]
 fn dls_renders_a_note_offline() {
     let mut inst = dls(512);
@@ -140,6 +163,40 @@ fn load_async_reports_progress_and_finishes() {
     assert_eq!(inst.info().id, PluginId::DLS);
 }
 
+/// Whoever drops a unit's last handle, it is disposed of on the `plugin-dispose` thread: an
+/// editor window closing on the main thread after its part moved on (the window's handle
+/// is the last one) never waits on the dispose (#104 PR 5).
+#[test]
+fn the_last_handle_disposes_on_the_dispose_thread() {
+    let log_len = || sys::DISPOSED.lock().unwrap().len();
+    let disposed = |raw: usize, from: usize| sys::DISPOSED.lock().unwrap()[from..].iter().find(|d| d.0 == raw).map(|d| d.1);
+    // The instance first (retired by the rack), the editor's handle last, here.
+    let inst = dls(512);
+    let target = inst.editor_target();
+    let raw = target.unit.raw() as usize;
+    let from = log_len();
+    drop(inst);
+    assert_eq!(disposed(raw, from), None, "the editor's handle keeps it alive");
+    drop(target);
+    let t0 = std::time::Instant::now();
+    while disposed(raw, from).is_none() {
+        assert!(t0.elapsed() < Duration::from_secs(10), "never disposed");
+        std::thread::sleep(Duration::from_millis(2));
+    }
+    assert_eq!(disposed(raw, from), Some(true), "disposed on the dispose thread, not the caller's");
+    // And an instance dropped directly (no editor) the same way.
+    let inst = dls(512);
+    let raw = inst.editor_target().unit.raw() as usize;
+    let from = log_len();
+    drop(inst);
+    let t0 = std::time::Instant::now();
+    while disposed(raw, from).is_none() {
+        assert!(t0.elapsed() < Duration::from_secs(10), "never disposed");
+        std::thread::sleep(Duration::from_millis(2));
+    }
+    assert_eq!(disposed(raw, from), Some(true));
+}
+
 #[test]
 fn a_load_past_its_deadline_times_out_and_is_abandoned() {
     // No plugin hangs on demand; a zero deadline stands in for one that never returns.
@@ -155,7 +212,10 @@ fn a_load_past_its_deadline_times_out_and_is_abandoned() {
 #[test]
 fn unknown_plugins_fail_cleanly() {
     let bogus = PluginId::parse("aumu zzzz zzzz").unwrap();
-    assert!(host().load_async(&bogus, LoadConfig::default()).is_err());
+    // Looked up on the load thread (the caller never waits for a scan): the handle fails.
+    let h = host().load_async(&bogus, LoadConfig::default()).unwrap();
+    let err = h.wait().err().expect("not installed");
+    assert!(format!("{err:#}").contains("no instrument Audio Unit"), "{err:#}");
 }
 
 #[test]
@@ -370,6 +430,56 @@ fn a_swap_during_a_crossfade_waits_for_it() {
         block(&mut rack, &[], 64);
     }
     assert_eq!(swapped(&mut ctl), 1, "then it lands");
+}
+
+/// A command waiting for one channel's crossfade does not hold up another channel's
+/// (#104 review item 2): Right 2's assign, sent after Right 1's, lands at once.
+#[test]
+fn a_waiting_swap_does_not_hold_up_other_channels() {
+    let (mut rack, mut ctl) = rack(64, RATE);
+    ctl.assign(0, dls(64), Swap::default()).ok().unwrap();
+    let _ = block(&mut rack, &[[0x90, 60, 110]], 64);
+    ctl.assign(0, dls(64), Swap::default()).ok().unwrap();
+    block(&mut rack, &[], 64);
+    assert!(rack.is_fading(0));
+    let _ = ctl.poll_events();
+    ctl.assign(0, dls(64), Swap::default()).ok().unwrap();
+    ctl.assign(2, dls(64), Swap::default()).ok().unwrap();
+    block(&mut rack, &[], 64);
+    let ev = ctl.poll_events();
+    assert_eq!(ev.iter().filter(|e| matches!(e, RackEvent::Swapped { channel: 2, .. })).count(), 1, "Right 2 lands now: {ev:?}");
+    assert!(!ev.iter().any(|e| matches!(e, RackEvent::Swapped { channel: 0, .. })), "Right 1 still waits: {ev:?}");
+    assert!(rack.owns(2));
+    for _ in 0..4 {
+        block(&mut rack, &[], 64);
+    }
+    let ev = ctl.poll_events();
+    assert_eq!(ev.iter().filter(|e| matches!(e, RackEvent::Swapped { channel: 0, .. })).count(), 1, "then Right 1's: {ev:?}");
+}
+
+/// Two commands for a crossfading channel: the later one counts. A clear after an assign
+/// that was still waiting clears the channel, and the waiting instance goes back to the
+/// control side without playing.
+#[test]
+fn the_latest_waiting_command_for_a_channel_wins() {
+    let (mut rack, mut ctl) = rack(64, RATE);
+    ctl.assign(0, dls(64), Swap::default()).ok().unwrap();
+    block(&mut rack, &[], 64);
+    ctl.assign(0, dls(64), Swap::default()).ok().unwrap();
+    block(&mut rack, &[], 64);
+    assert!(rack.is_fading(0));
+    let _ = ctl.poll_events();
+    ctl.assign(0, dls(64), Swap::default()).ok().unwrap();
+    assert!(ctl.clear(0, 0));
+    block(&mut rack, &[], 64);
+    assert_eq!(ctl.take_retired().len(), 1, "the replaced assign's instance came back unplayed");
+    for _ in 0..4 {
+        block(&mut rack, &[], 64);
+    }
+    let ev = ctl.poll_events();
+    assert!(!ev.iter().any(|e| matches!(e, RackEvent::Swapped { .. })), "{ev:?}");
+    assert!(ev.contains(&RackEvent::Cleared { channel: 0 }), "{ev:?}");
+    assert!(!rack.owns(0) && !rack.active());
 }
 
 /// The strongest autocorrelation lag (the pitch period, in samples) between `lo` and `hi`.

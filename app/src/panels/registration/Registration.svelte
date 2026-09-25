@@ -131,7 +131,7 @@
           <Toggle tip="regist.freeze_group" on={has(r.freezeGroups, g.id)} onclick={() => app.send({ type: 'setFreezeGroup', group: g.id, on: !has(r.freezeGroups, g.id) })}>{g.name}</Toggle>
         {/each}
       </div>
-      <p class="note">Harmony/Arp, Multi Pad, Chord Looper and Live Control are stored once those features are in.</p>
+      <p class="note">Chord Looper and Live Control are stored once those features are in. Assignable holds the Fade In/Out times.</p>
     </section>
   {:else if ui.registTab === 'sequence'}
     <section class="block" aria-label="Registration Sequence">

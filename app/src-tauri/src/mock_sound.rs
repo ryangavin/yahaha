@@ -27,6 +27,8 @@ pub struct MockSound {
     map: ProgramMap,
     style_maps: BTreeMap<String, ProgramMap>,
     pub parts: [Option<String>; 4],
+    /// The plugin patch whose plugin each part was given (`part_plugins`).
+    plugin_parts: [Option<String>; 4],
     port: bool,
     audition: Option<(String, f64)>,
     browse: Option<SoundFontBrowse>,
@@ -62,11 +64,11 @@ impl Default for MockSound {
         map.set_override(4, Some("warm-rhodes".into()));
         map.set_override(5, Some("warm-rhodes".into()));
         map.drums = Some("studio-kit".into());
-        MockSound { patches, map, style_maps: BTreeMap::new(), parts: Default::default(), port: false, audition: None, browse: None, last_added: None }
+        MockSound { patches, map, style_maps: BTreeMap::new(), parts: Default::default(), plugin_parts: Default::default(), port: false, audition: None, browse: None, last_added: None }
     }
 }
 
-fn presets(file: &str) -> Vec<Preset> {
+pub fn presets(file: &str) -> Vec<Preset> {
     let gm: Vec<Preset> = (0..128u8).map(|p| Preset { bank: 0, program: p, name: format!("{}{}", gm_name(p), if file == SF2 { "" } else { " (Fluid)" }) }).collect();
     let kits = ["Standard", "Room", "Power", "Electronic", "Jazz", "Brush"].iter().enumerate().map(|(i, n)| Preset { bank: 128, program: i as u8 * 8, name: n.to_string() });
     gm.into_iter().chain(kits).collect()
@@ -92,6 +94,46 @@ impl MockSound {
         if let Some(p) = self.parts.get_mut(part) {
             *p = None;
         }
+    }
+
+    /// A plugin picked (or, while a plugin patch plays, cleared) on the Plugins tab: the
+    /// part's own patch goes.
+    pub fn part_plugin(&mut self, part: usize, picked: bool) {
+        let p = part & 3;
+        if picked || self.plugin_parts[p].is_some() {
+            self.plugin_parts[p] = None;
+            self.parts[p] = None;
+        }
+    }
+
+    /// Whether part `part` plays a plugin the Plugins tab picked (not a plugin patch's).
+    pub fn own_plugin(&self, part: usize) -> bool {
+        self.plugin_parts[part & 3].is_none()
+    }
+
+    /// The parts' plugins to change for their own plugin patches, as the session's
+    /// `sync_part_plugins` does: (part, Some((component id, state)) to load, None to clear).
+    pub fn part_plugins(&mut self) -> Vec<(usize, Option<(String, String)>)> {
+        let mut out = Vec::new();
+        for p in 0..4 {
+            let want = self.parts[p].as_ref().and_then(|id| self.at(id)).and_then(|i| match &self.patches[i].source {
+                PatchSource::Plugin { component_id, state } => Some((self.patches[i].id.clone(), (component_id.clone(), state.clone()))),
+                PatchSource::SoundFont { .. } => None,
+            });
+            if want.as_ref().map(|w| &w.0) == self.plugin_parts[p].as_ref() {
+                continue;
+            }
+            let had = self.plugin_parts[p].take().is_some();
+            match want {
+                Some((id, voice)) => {
+                    self.plugin_parts[p] = Some(id);
+                    out.push((p, Some(voice)));
+                }
+                None if had => out.push((p, None)),
+                None => {}
+            }
+        }
+        out
     }
 
     fn map_mut(&mut self, style: bool, key: &str) -> &mut ProgramMap {
@@ -142,9 +184,31 @@ impl MockSound {
                 self.patches[i].favourite = favourite;
             }
             SoundLibraryCmd::SavePartAsPatch { part, name } => {
+                // What the part plays: its plugin, else its own patch, else the patch the
+                // map sends its GM voice to, else its GM voice (as the session's).
                 let kp = &st.keyboard_parts[(part & 3) as usize];
-                let own = self.parts[(part & 3) as usize].clone().and_then(|id| self.at(&id)).map(|i| self.patches[i].clone());
-                let mut p = own.unwrap_or_else(|| Patch {
+                let key = st.style.path.rsplit('/').next().unwrap_or_default().to_string();
+                let own = self.parts[(part & 3) as usize].clone().filter(|_| !kp.plays_bass);
+                let plays = own
+                    .or_else(|| patches::resolve(&self.map, self.style_maps.get(&key), false, kp.program).patch.map(str::to_string))
+                    .and_then(|id| self.at(&id))
+                    .map(|i| self.patches[i].clone());
+                let plugin = kp.plugin.as_ref().filter(|p| p.status != PluginStatus::Failed).map(|p| {
+                    let source = PatchSource::Plugin { component_id: p.id.clone(), state: String::new() };
+                    match plays.clone() {
+                        Some(q) if matches!(&q.source, PatchSource::Plugin { component_id, .. } if *component_id == p.id) => Patch { source, ..q },
+                        q => Patch {
+                            id: String::new(),
+                            name: p.name.clone(),
+                            category: q.map_or_else(|| Category::guess(0, kp.program), |q| q.category),
+                            tags: vec![],
+                            favourite: false,
+                            source,
+                            defaults: PatchDefaults::default(),
+                        },
+                    }
+                });
+                let mut p = plugin.or(plays).unwrap_or_else(|| Patch {
                     id: String::new(),
                     name: gm_name(kp.program).into(),
                     category: Category::guess(0, kp.program),

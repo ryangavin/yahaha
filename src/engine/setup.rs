@@ -18,6 +18,7 @@ impl Engine {
         }
         self.bend_range = self.style.setup(self.cur).bend_range;
         self.rpn = [RPN_NULL; 16];
+        self.reset_expression(0, sink);
         for i in 0..self.style.setup(self.cur).init.len() {
             let m = self.style.setup(self.cur).init.get(i);
             if m[0] == 0xF0 || m.len() > 3 {
@@ -41,6 +42,22 @@ impl Engine {
         }
         self.pattern_pc = 0;
         self.sync_rpn();
+    }
+
+    /// Expression (CC11) back to full on every Style part where the engine left it lower
+    /// (#122). Patterns move it (an Ending's fade-out, a swell, ghost notes), and most
+    /// styles' setups never set it, so without this the last pattern's value stuck: after
+    /// an Ending faded the Bass to 8, the next style (or the same one started again)
+    /// played its Bass inaudibly. A setup that sets CC11 itself still has the last word
+    /// (it goes out after this). Only where the mirror knows a lower value: a part never
+    /// touched is already at the receiver's default, 127. Not on the channels in `keep`.
+    pub(super) fn reset_expression(&mut self, keep: u16, sink: &mut impl Sink) {
+        for ch in 8..16u8 {
+            let v = self.mirror.cc[ch as usize][11];
+            if keep & (1 << ch) == 0 && v != 127 && v != UNSENT {
+                self.mirror.send(sink, &[0xB0 | ch, 11, 127]);
+            }
+        }
     }
 
     /// The section the band would start on (the Main in use), whose routing of the setup a
@@ -192,6 +209,10 @@ impl Engine {
     /// and send the style's setup again, all of it.
     pub fn resync(&mut self, sink: &mut impl Sink) {
         *self.mirror = Mirror::NEW;
+        // The preview may have left any expression: taken as not full, so it goes back.
+        for ch in 8..16 {
+            self.mirror.cc[ch][11] = 0;
+        }
         self.send_init(sink);
     }
 }

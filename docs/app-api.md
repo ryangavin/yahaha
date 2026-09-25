@@ -41,11 +41,12 @@ A Tauri shell needs about four pieces:
 | `#[tauri::command] fn send(cmd: AppCmd) -> Result<(), CmdError>` | `session.send(cmd)` |
 | `#[tauri::command] fn state() -> AppState` | `session.state_now()` (the state, with its clock read now: see [`surface.clock`](#surfaceclock)) |
 | `#[tauri::command] fn library() -> LibraryList` | `session.library_list()` |
+| `#[tauri::command] fn sounds() -> SoundCatalog` | `session.sound_catalog()` (the sound catalog; see [`sounds`](#sounds)) |
 | `#[tauri::command] fn meters() -> Meters` | `session.meters()` (output levels; see [Meters](#meters)) |
 | a thread that emits events to the webview | `for e in session.subscribe() { app.emit("yahaha", e) }` |
 
 The frontend listens for `yahaha` events. On `stateChanged` it fetches `state()`. On
-`libraryChanged` it fetches `library()`. Events can arrive at up to about 100 per second
+`libraryChanged` it fetches `library()`, and on `soundsChanged` it fetches `sounds()`. Events can arrive at up to about 100 per second
 while playing. Throttle to the frame rate if you like: several changes can be merged
 into one fetch, because the state is always complete.
 
@@ -93,7 +94,7 @@ state, and pressing the button is the action. For settings, a GUI checkbox can u
 | `intro` | `index` 0–2 | Intro 1–3. Stopped: plays at the start. Playing: queued for its change point (see Section Change Timing below). |
 | `main` | `index` 0–3 | Main A–D. Pressing the Main that is playing plays its fill. With Auto Fill on, a change plays the fill first. |
 | `break` | | Break (Fill In BA). |
-| `fill` | `delta` −1, 0, 1 | Fill Down, Fill Self, Fill Up (the Genos assignable functions): the fill, then the Main to the left, the same Main, or the Main to the right, whatever Auto Fill says. Past Main A or D, the fill of the Main at the end. Stopped: selects that Main. |
+| `fill` | `delta` −1, 0, 1 | Fill Down, Fill Self, Fill Up (the Genos assignable functions): the same as `fillDown`, `fillSelf` and `fillUp`. |
 | `ending` | `index` 0–2 | Ending 1–3. Pressing the Ending that is playing again adds a ritardando (`transport.ritardando`): the tempo slows to 65% by the ending's end, and comes back when the band stops. |
 | `startStop` | | START/STOP. |
 | `stop` | | Stops if playing, otherwise does nothing. This is the Launchkey Stop button. |
@@ -106,7 +107,7 @@ state, and pressing the button is the action. For settings, a GUI checkbox can u
 | `fillSelf` | | Fill Self: the Main's own fill, as pressing the Main playing. |
 | `fillBreak` | | Fill Break: the Break (the same as `break`). |
 | `setHalfBarFill` / `toggleHalfBarFill` | `on` | Half Bar Fill In: a Main change or fill asked for on the first beat of a bar plays a fill from the middle of that bar (beat 3 in 4/4), then the Main at the next bar line, even with Auto Fill off. |
-| `tapTempo` | | TAP TEMPO. Taps set the tempo. While the style plays with `styleSettings.sectionReset` on (the default), a tap is a Style Section Reset instead. |
+| `tapTempo` | | TAP TEMPO. Taps set the tempo, from the second tap (the last four averaged), stopped or playing. While the style plays with `styleSettings.sectionReset` on (the default, as on the Genos), a tap is a Style Section Reset instead and the tempo stays. |
 | `tempoUp`, `tempoDown` | | One tempo step. |
 | `toggleFade` | | FADE IN/OUT. Stopped: arms (or disarms) a fade in for the next start. Playing: fades out over `styleSettings.fadeOutMs`, then the band stops and the Style stays silent for `fadeHoldMs`. Only the Style fades: each Style part's CC7 (channels 9–16) goes out, on the port and to the built-in synth, as its fader value scaled by the fade; the faders don't move, and your playing and the Multi Pads never fade (docs/section-timing.md). `transport.fade` shows it. A fade out already running carries on; START/STOP mid-fade ends it at full volume. |
 | `sectionReset` | | Style Section Reset: the section playing starts again from its top, now. A change queued for the next bar line waits for the new bar grid's. Stopped: nothing. |
@@ -130,7 +131,7 @@ Style Section Reset, the Fade In/Out times and the Style Retrigger length. The s
 | `setSyncStopWindow` | `ms` 0–5000 | Synchro Stop Window. 0 = Off. With Sync Stop on, a chord held longer than this turns Sync Stop off, so letting go no longer stops the band; a quicker release stops it. |
 | `setFadeInTime`, `setFadeOutTime` | `ms` 0–20000 | Fade In and Fade Out times. |
 | `setFadeHoldTime` | `ms` 0–5000 | How long the volume stays at 0 after a fade out. |
-| `setSectionReset` | `on` | TAP TEMPO while the style plays: Section Reset (on, the default) or set the tempo (off). |
+| `setSectionReset` | `on` | TAP TEMPO while the style plays: Section Reset (on, the Genos default) or set the tempo (off, yahaha's default). |
 | `setRetriggerRate` | `rate` | Style Retrigger length: 1, 2, 4, 8, 16 or 32 (a whole note .. a 32nd). Other values snap down to one of these. |
 | `stepRetriggerRate` | `delta` | Steps along 1, 2, 4, 8, 16, 32; positive is shorter. Stops at the ends. |
 
@@ -179,9 +180,11 @@ Style Section Reset, the Fade In/Out times and the Style Retrigger length. The s
 
 | Command | Fields | Does |
 |---|---|---|
-| `setSoundFont` | `file` | Reloads the synth from another `.sf2` in its folder (`io.soundFonts`, by file name; the folder is the one the `--sf2` file is in). The SoundFont loads on a thread of its own (`io.soundFontLoading`) and swaps in between two audio buffers: the voices and controllers every channel has carry over, notes sounding fade out over one buffer. Fails when the synth is off or the file isn't there. |
+| `setDefaultSoundSet` | `file` (string or null) | The default sound set (#117): the SoundFont that plays whatever the program map leaves unmapped (Style parts' and keyboard parts' GM voices). A `.sf2` in the SoundFont folder (`io.soundFonts`, by file name), or null for Auto: the most GM-complete font there (`io.autoSoundSet`: the most GM programs on bank 0, then a drum kit on bank 128, then the first file name). The choice is saved in `sound-settings.json` in the data folder. When the synth plays another font, the new one loads on a thread of its own (`io.soundFontLoading`) and swaps in between two audio buffers: the voices and controllers every channel has carry over, notes sounding fade out over one buffer. Fails when the file isn't in the folder. Without the synth it is only saved. |
+| `setSoundFont` | `file` | `setDefaultSoundSet` with that file, kept for older clients. Fails when the synth is off. |
 | `setMidiInputs` | `all`, `names` | Which MIDI sources play the keyboard: every one (`all`), or the ones whose name contains one of `names`. `all` false with no names is the default: a Launchkey's keys when there is one, else every source. yahaha's own port and DAW ports are never keyboards; the Launchkey DAW port is always the pads. Sources connect and disconnect at once. Keys held on a source that is dropped are released: their notes stop at once (All Notes Off on the keyboard parts' channels, which also stops notes other sources hold) and the chord section lets go. |
 | `setPaletteLeds` | `on` | Launchkey LEDs in Novation palette colours (and hardware flashing) instead of RGB. Every pad is sent again. |
+| `setAudioBuffer` | `frames` 64, 128 or 256 | The synth's audio buffer (`io.synth.bufferFrames`; within what the device allows, and a message says so when it differs). The output reopens with a moment of silence; the voices, the plugins and held notes carry over, and messages sent meanwhile wait for the new stream (nothing sticks). Plugins are loaded for larger blocks already, so none reloads. A live session remembers it (`~/Library/Application Support/yahaha/audio.json`; `--buffer N` at launch wins). Fails when the synth is off or for another size. |
 | `rescanLibrary` | | Walks the style folders (`library.roots`) again on a thread of its own (`library.scanning`). A file still there keeps its id and index; new files are added and indexed; a file gone leaves the list (its id stays valid). |
 
 ### One Touch Settings and styles
@@ -233,8 +236,8 @@ left hand ([ireal.md](ireal.md), "Chart player"). Playlists live in the session'
 ### Registration Memory
 
 Buttons are 0-based (`index` 0–9 = the panel's [1]–[10]). Groups are `style`, `voice`,
-`harmonyArp`, `multiPad`, `tempo`, `transpose`, `chordLooper`, `liveControl` (the Genos
-Freeze groups; docs/registration.md lists what each covers).
+`harmonyArp`, `multiPad`, `tempo`, `transpose`, `chordLooper`, `liveControl`, `assignable`
+(the Genos Freeze groups; docs/registration.md lists what each covers).
 
 | Command | Fields | Does |
 |---|---|---|
@@ -340,8 +343,10 @@ with the `plugins` feature (the desktop app has it) and the built-in synth
 |---|---|---|
 | `setPartPlugin` | `part` 0–3, `id`, `state`? | Plays the part on an instrument plugin: `id` from `plugins.list` (for example `"aumu dls  appl"`), `state` a saved preset (base64) or null for the plugin's default. It loads in the background (`keyboardParts[i].plugin.status` `loading`, with the `stage`). The part keeps its SoundFont voice until the plugin is ready, then switches without a click. If the load fails, a plugin that was playing keeps the part; otherwise the part plays its SoundFont voice (`failed`, with the `error`), and picking the plugin again with a null `state` retries it with the state it kept (a restore that timed out, or a plugin reinstalled since, comes back as saved; go back to the SoundFont voice first to start it fresh). A state over 64 MB is refused. Fails at once for an unknown id or with no synth. |
 | `clearPartPlugin` | `part` 0–3 | Back to the part's SoundFont voice (a 5 ms fade). |
-| `savePartPluginState` | `part` 0–3 | Stores the plugin's current preset (what its editor changed) with the part, so it is kept across restarts. Send it when the editor window closes. |
+| `savePartPluginState` | `part` 0–3 | Stores the plugin's current preset (what its editor changed) with the part, so it is kept across restarts. Send it when the editor window closes. The state is read on a thread of its own and lands a moment later; a failed read shows in `message`. |
 | `rescanPlugins` | | Scans the installed instruments again, ignoring the cache (`plugins.scanning` meanwhile). |
+| `reloadPartPlugin` | `part` 0–3 or null | Loads the part's plugin again with its saved preset after it stopped working (`muted`) or failed to load (`failed`); null is the part selected for editing. Fails when the part has no plugin, or it is playing or still loading. The TUI's `s` and the Launchkey's Panel fader button 6 send it; that button is red while the selected part's plugin needs it. |
+| `setPluginInProcess` | `id`, `inProcess` | Runs plugin `id` in yahaha's process (`true`) or in its own (`false`, the default for third-party plugins). In process saves the IPC cost per render for the lightest plugins, but a crash in the plugin takes yahaha down. Kept in the scan cache (across rescans and plugin updates) and shown as `plugins.list[i].inProcess`. It applies from the plugin's next load; a part playing it now keeps running where it is (the message line says so). Fails for an unknown id, or for an AUv3 that only runs out of process (`canRunInProcess` false). |
 
 The plugin's editor window is not a command: it opens on the app's main thread. The
 Tauri shell has the commands `open_plugin_editor(part)` and `close_plugin_editor(part)` for it
@@ -384,20 +389,50 @@ every change. A patch id that doesn't exist fails the command.
 | `duplicatePatch` | `id` | A copy ("… copy") right after it, with a new id. |
 | `movePatch` | `id`, `to` | Moves it to position `to` (0-based) in the list. |
 | `setPatchFavourite` | `id`, `favourite` | Marks or unmarks a favourite. |
-| `savePartAsPatch` | `part` 0–3, `name` or null | Saves a keyboard part's sound as a new patch: its own patch, else its GM voice on the synth's SoundFont, with its volume and octave as defaults. |
+| `savePartAsPatch` | `part` 0–3, `name` or null | Saves what a keyboard part plays as a new patch: its plugin (component id and its state as its editor left it; a playing plugin's state is read afresh and lands in the patch a moment later), else the patch it plays (its own, or the one the program map sends its GM voice to), else its GM voice on the synth's SoundFont. Its volume and octave become the defaults. |
 | `addPresetAsPatch` | `file`, `bank`, `program`, `name` or null | Adds a SoundFont preset (`browseSoundFont`) as a patch, named after the preset and categorised from its bank and program. |
-| `auditionPatch` | `id` | Plays the patch on its own for about 3 s (an arpeggio and a chord; a drum kit plays a beat), on channel 16 of the built-in synth, which the band is not using while stopped. Refused while the band plays (like `auditionStyle`); `soundLibrary.auditioning` names it. |
+| `auditionPatch` | `id` | Plays the patch on its own for about 3 s (an arpeggio and a chord; a drum kit plays a beat), on channel 16 of the built-in synth, which the band is not using while stopped. A plugin patch first loads its plugin there (#91's rack), then plays; the plugin goes when the audition ends. Refused while the band plays (like `auditionStyle`); `soundLibrary.auditioning` names it. |
 | `auditionPreset` | `file`, `bank`, `program` | The same for a SoundFont preset, before adding it. A SoundFont the synth hasn't loaded loads first. |
 | `stopPatchAudition` | | Ends the audition now. |
-| `setFamilyRule` | `family` 0–15, `patch` or null, `style` | A GM family (programs 8·family … 8·family+7) plays `patch`; null clears the rule. `style`: the current style's own map instead of the global one (may be left out: false). |
+| `setFamilyRule` | `family` 0–15, `patch` or null, `style` | A GM family (programs 8·family … 8·family+7) plays `patch`; null clears the rule. `style`: the current style's own map instead of the global one (may be left out: false). In the three rule commands `patch` may also be a [sound catalog](#sound-catalog) id: a saved sound's patch, or a preset or plugin, which becomes a library patch the first time (a plugin with its default preset). |
 | `setProgramOverride` | `program` 0–127, `patch` or null, `style` | One GM program plays `patch`, whatever its family's rule. |
 | `setDrumRule` | `patch` or null, `style` | The drum parts (Rhythm 1 and 2, and any part on a Yamaha drum kit bank, MSB 126/127) play `patch`. |
 | `clearStyleMap` | | Forgets the current style's own map. |
-| `setPartPatch` | `part` 0–3, `id` or null | A keyboard part plays a library patch; its defaults (volume, octave, pan, reverb and chorus sends) go to the part as CCs. Null: back to its GM voice (through the map). `setPartVoice`, `stepVoice` and an OTS recall that gives the part a voice also end it. |
+| `setPartPatch` | `part` 0–3, `id` or null | A keyboard part plays a library patch; its defaults (volume, octave, pan, reverb and chorus sends) go to the part as CCs. Null: back to its GM voice (through the map). `setPartVoice`, `stepVoice` and an OTS recall that gives the part a voice also end it. A plugin patch loads its plugin with the patch's state, as `setPartPlugin` does (the part's `plugin` shows it loading, then playing); leaving the patch takes that plugin away. `setPartPlugin` (and `clearPartPlugin` while a plugin patch plays) ends the part's patch; a SoundFont patch picked over a `setPartPlugin` plugin ends that plugin. |
 | `setPortSendsMapped` | `on` | The `yahaha` MIDI port gets the mapped bank and program for the band's program changes the map sends to a SoundFont patch, instead of the style's own (default off: the port mirrors the style). |
 | `browseSoundFont` | `file` or null | Lists a SoundFont's presets in `soundLibrary.browse` (a file in `io.soundFonts`); null closes the list. |
 | `importSoundLibrary` | `path`, `replace`, `maps` | Reads a library file (a full library, or a bare list of patches). Its patches are added (ids that clash get new ones); `maps`: its program maps' rules are added too; `replace`: it replaces the library instead. `replace` and `maps` may be left out (false). |
 | `exportSoundLibrary` | `path` or null | Writes the library to `path` (null: `sound-library-export.json` in the data folder). |
+
+### Parameter Lock
+Genos Menu › Utility › Parameter Lock (RM p.163): a locked group changes only from the
+panel. Registration Memory, One Touch Setting and Playlist recalls leave it as it is. The
+groups are the Data List's lock groups that yahaha has: `splitPoint` (the split point) and
+`fingeringType` (the fingering type and the Chord Detection Area: Upper, Manual Bass).
+
+| Command | Fields | What it does |
+|---|---|---|
+| `setParamLock` | `item` (`splitPoint` \| `fingeringType`), `on` | Locks or unlocks a group. A setup setting, not part of a bank: it is kept in the Registration folder's `setup.json`. |
+
+### Sound catalog
+One list of every sound for the Sound Browser (#117): every preset of every `.sf2` in the
+SoundFont folder, every instrument plugin, and every saved sound (the sound library's
+patches). Entry ids: `sf:<file>:<bank>:<program>`, `au:<component id>`, `saved:<patch id>`.
+Favourites, Recents and plugin categories are saved in `sound-settings.json` in the data
+folder.
+
+| Command | Fields | What it does |
+|---|---|---|
+| `setSoundFavourite` | `id`, `on` | Marks or unmarks a favourite. A saved sound's favourite is its patch's `favourite`. |
+| `auditionSound` | `id` | Plays the sound on its own for about 3 s, as `auditionPatch` does (a plugin plays its default preset). Refused while the band plays. `sounds.auditioning` names it. |
+| `stopSoundAudition` | | Stops the audition. |
+| `assignSound` | `part` 0–3, `id` | The keyboard part plays the sound. A preset of the default sound set (bank 0) becomes the part's voice (`setPartVoice`). A preset of another font becomes a saved sound (the library's patch for it, added once) and plays as `setPartPatch`. A plugin plays as `setPartPlugin` (its default preset), and a saved sound as `setPartPatch`. The sound goes to the top of the Recents (20 kept). |
+| `setSoundCategory` | `id`, `category` | A plugin's category (the guess from its name and maker until set), or a saved sound's (its patch's). A preset's category is its GM family: refused. |
+
+The list itself is fetched, not in the state: see [`sounds`](#sounds).
+
+The program map's rule commands (`setFamilyRule`, `setProgramOverride`, `setDrumRule`) also
+take a catalog id as their `patch`, so the map's pickers pick from the same list.
 
 ### Result: `CmdError`
 
@@ -499,7 +534,7 @@ Indices are 0-based unless a field says otherwise.
 | `playsBass` | bool | Left is playing the bass (Manual Bass). |
 | `octave` | −2..2 | The octave setting. It is not applied while `playsBass` is true. |
 | `fader` | 0–127? | Where its Launchkey fader (Panel page, faders 1–4) physically is, as last reported. Null until that fader moves. |
-| `plugin` | PartPlugin? | The instrument plugin the part plays instead of its SoundFont voice. The key is absent when there is none. `id`, `name`, `manufacturer`, `status` (`loading` \| `playing` \| `failed` \| `muted`: still on the SoundFont, or the previous plugin, while loading; on the SoundFont after a failed load, keeping the choice so it is saved and can be retried; silent after the plugin crashed or produced bad audio), `stage` (while loading: `queued`, `instantiating`, `initializing`, `restoringState`), `error`, `outOfProcess` (runs in its own process), `cpu` (share of real time, updated once a second), `overruns` (renders slower than half the buffer), `editor` (its window can be opened). Its volume is still `volume` (CC7), and its pan is CC10; the host applies both to the plugin's output. |
+| `plugin` | PartPlugin? | The instrument plugin the part plays instead of its SoundFont voice. The key is absent when there is none. `id`, `name`, `manufacturer`, `status` (`loading` \| `playing` \| `failed` \| `muted`: still on the SoundFont, or the previous plugin, while loading; on the SoundFont after a failed load, keeping the choice so it is saved and can be retried; silent after the plugin crashed or produced bad audio), `stage` (while loading: `queued`, `instantiating`, `initializing`, `restoringState`), `error`, `outOfProcess` (runs in its own process), `inProcessFallback` (the system refused to host it in its own process, so it loaded in yahaha's process instead: a crash in it takes yahaha down; the app shows a warning badge), `cpu` (share of real time, updated once a second), `overruns` (renders slower than half the buffer, since it loaded), `recentOverruns` (those in the last 10 seconds, updated once a second: the live readout the mixer badge shows; a larger `setAudioBuffer` gives the plugin more time), `editor` (its window can be opened). Its volume is still `volume` (CC7), and its pan is CC10; the host applies both to the plugin's output. |
 | `patch` | string? | Its own sound library patch (`setPartPatch`). Null: its GM voice plays, through the program map; `voiceName` then names the patch the map sends it to, if any. |
 
 ### `mixer`
@@ -705,9 +740,11 @@ led   = ledAnchorBeats + (t − ledAnchorMs) · tempo / 60000        // `beats` 
 | `inputs` | string[] | The MIDI sources connected now. The Launchkey DAW port is listed with ` (pads)`. |
 | `sources` | MidiSource[] | Every MIDI source but yahaha's own: `name` (as `setMidiInputs` matches it), `listening` (yahaha listens to it, as a keyboard or as the pads), `pads` (the Launchkey DAW port). Empty offline. |
 | `allInputs` | bool | Every source is a keyboard (`setMidiInputs { all: true }`, `--all-inputs`). |
-| `soundFonts` | string[] | The `.sf2` files in the synth's folder, for `setSoundFont`. |
-| `soundFontFile` | string? | The file the synth plays. Null without the synth. |
-| `soundFontLoading` | bool | A `setSoundFont` is loading. |
+| `soundFonts` | string[] | The `.sf2` files in the SoundFont folder (`--soundfonts DIR`, the app's `YAHAHA_SOUNDFONTS`; `soundfonts/` by default). |
+| `soundFontFile` | string? | The file the synth plays as its default sound set. Null without the synth. |
+| `soundFontLoading` | bool | A `setDefaultSoundSet` is loading. |
+| `defaultSoundSet` | string? | The default sound set chosen (`setDefaultSoundSet`). Null: Auto. |
+| `autoSoundSet` | string? | The font Auto picks from the folder. Null when there are no fonts. |
 | `synth` | SynthState? | `soundFont`, `device`, `sampleRate` (Hz), `bufferFrames`, `channels`, `outputPair` (1-based, for example [1, 2]), `muted`. Null when the synth is off. |
 | `engine` | EngineStats | `realtime` (the engine thread got real-time scheduling), and 99th percentiles in µs: `wakeP99Us` (wake versus deadline), `chordP99Us` (chord to engine), `midiInP99Us` (MIDI in to callback). |
 | `lastControl` | number | The last Launchkey DAW-port message, packed 0x00SSDDVV. |
@@ -774,7 +811,7 @@ The settings the `Style settings` commands set.
 | `syncStopWindowMs` | 0–5000 | Synchro Stop Window; 0 = Off (the default). |
 | `fadeInMs`, `fadeOutMs` | 0–20000 | Default 5000 each. |
 | `fadeHoldMs` | 0–5000 | Default 2000. |
-| `sectionReset` | bool | TAP TEMPO while playing resets the section. Default on. |
+| `sectionReset` | bool | TAP TEMPO while playing resets the section. Default on (the Genos default). |
 | `retriggerRate` | 1, 2, 4, 8, 16, 32 | Style Retrigger length. Default 8 (an eighth note). |
 
 ### `registration`
@@ -832,7 +869,7 @@ The instrument plugin host.
 |---|---|---|
 | `available` | bool | Plugins can be used: the build hosts them and the built-in synth runs. |
 | `scanning` | bool | A scan is running. |
-| `list` | PluginEntry[] | The installed instrument Audio Units, by manufacturer then name, from the cached scan: `id` (what `setPartPlugin` takes), `name`, `manufacturer`, `version`, `format` (`AUv2` \| `AUv3`), `lastError` (why the last load failed, or null). |
+| `list` | PluginEntry[] | The installed instrument Audio Units, by manufacturer then name, from the cached scan: `id` (what `setPartPlugin` takes), `name`, `manufacturer`, `version`, `format` (`AUv2` \| `AUv3`), `lastError` (why the last load failed, or null), `inProcess` (the player chose to run it in yahaha's process: `setPluginInProcess`), `canRunInProcess` (every AUv2, and an AUv3 that allows it). |
 
 ### `multiPad`
 Multi Pads (docs/multipad.md).
@@ -881,6 +918,37 @@ The sound library (docs/sound-library.md).
 | `extraSoundFonts` | string[] | The SoundFonts the synth has loaded for library patches besides its own. |
 | `lastAdded` | string? | The id of the patch last created, duplicated or saved. |
 
+### `sounds`
+The sound catalog's summary (#117; the list is `sounds()`, see [Sound catalog](#sound-catalog)).
+
+| Field | Type | Meaning |
+|---|---|---|
+| `revision` | number | Moves whenever the catalog changes (fonts, plugins, saved sounds, favourites, Recents, categories). |
+| `count` | number | Entries in the catalog. |
+| `scanning` | bool | Plugins are being scanned: more may come. |
+| `auditioning` | string? | The id being auditioned (`sf:`, `au:` or `saved:`), or null. |
+
+The catalog itself: `session.sound_catalog()` (Tauri `sounds()`)
+returns `{ revision, entries, recents }`. Fetch it again when `sounds.revision` moves
+(`soundsChanged`). `recents` lists ids, most recent first. Each entry has:
+
+| Field | Type | Meaning |
+|---|---|---|
+| `id` | string | `sf:<file>:<bank>:<program>`, `au:<component id>` or `saved:<patch id>`. |
+| `name` | string | The preset's, the plugin's or the patch's name. |
+| `category` | string | One of `soundLibrary.categories`. A preset's comes from its GM family (bank 128: `drumsPerc`), and a plugin's from its name and maker. |
+| `source` | `soundFont` \| `plugin` \| `saved` | Where it comes from. |
+| `detail` | string | The SoundFont file, the plugin's maker, or what a saved sound plays (its file or component id). |
+| `favourite`, `recent` | bool | In the Favourites, in the Recents. |
+| `plugin` | object? | Plugins only: `format` (`AUv2` \| `AUv3`) and `lastError` (the last load's error, or null). |
+
+Entries are in this order: presets by file, then bank and program; plugins by maker, then
+name; saved sounds in the library's order.
+
+### `paramLocks`
+Parameter Lock: `{ splitPoint, fingeringType }`, each a bool (true: locked). All false by
+default.
+
 ### `message`
 `{ seq, text, error }` or null. It holds the last notice or error, for example a style
 that fails to load. `seq` increases with every new message, so the same text arriving
@@ -913,6 +981,7 @@ JSON form `{"type": …}`:
 - `libraryChanged { revision }`: `library()` changed. This happens while indexing (at
   most every 250 ms), when a file fails to load, when a path is added, and after a
   rescan.
+- `soundsChanged { revision }`: the sound catalog changed; fetch `sounds()`.
 - `stopped`: the session stopped.
 
 Events carry no state. Always read the latest.
@@ -1025,8 +1094,10 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
         "stage": null,
         "error": null,
         "outOfProcess": false,
+        "inProcessFallback": false,
         "cpu": 0.015625,
         "overruns": 0,
+        "recentOverruns": 0,
         "editor": true
       },
       "patch": null
@@ -1290,7 +1361,9 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
     "allInputs": false,
     "soundFonts": ["GeneralUser-GS.sf2", "MuseScore_General.sf2"],
     "soundFontFile": "GeneralUser-GS.sf2",
-    "soundFontLoading": false
+    "soundFontLoading": false,
+    "defaultSoundSet": null,
+    "autoSoundSet": null
   },
   "preview": { "audition": null, "queued": null },
   "keyboard": {
@@ -1342,7 +1415,7 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
         "index": 0,
         "stored": true,
         "name": "SlowWalker",
-        "groups": ["style", "voice", "harmonyArp", "multiPad", "tempo", "transpose", "chordLooper", "liveControl"],
+        "groups": ["style", "voice", "harmonyArp", "multiPad", "tempo", "transpose", "chordLooper", "liveControl", "assignable"],
         "style": "SlowWalker",
         "tempo": 91.0,
         "voices": [
@@ -1356,7 +1429,7 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
     ],
     "selected": 0,
     "memory": false,
-    "memorizeGroups": ["style", "voice", "harmonyArp", "multiPad", "tempo", "transpose", "chordLooper", "liveControl"],
+    "memorizeGroups": ["style", "voice", "harmonyArp", "multiPad", "tempo", "transpose", "chordLooper", "liveControl", "assignable"],
     "freeze": false,
     "freezeGroups": ["tempo"],
     "sequence": { "on": true, "steps": [0, 2, 1], "end": "next", "position": 0 },
@@ -1426,7 +1499,7 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
     "available": true,
     "scanning": false,
     "list": [
-      { "id": "aumu dls  appl", "name": "DLSMusicDevice", "manufacturer": "Apple", "version": "1.0.0", "format": "AUv2", "lastError": null }
+      { "id": "aumu dls  appl", "name": "DLSMusicDevice", "manufacturer": "Apple", "version": "1.0.0", "format": "AUv2", "lastError": null, "inProcess": false, "canRunInProcess": true }
     ]
   },
   "multiPad": {
@@ -1516,6 +1589,8 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
     "extraSoundFonts": [],
     "lastAdded": "my-bass"
   },
+  "paramLocks": { "splitPoint": false, "fingeringType": true },
+  "sounds": { "revision": 3, "count": 1219, "scanning": false, "auditioning": null },
   "message": null
 }
 ```

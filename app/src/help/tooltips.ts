@@ -121,7 +121,7 @@ const catalog = {
   },
   'transport.section_reset': {
     title: 'Section Reset',
-    body: 'Starts the section playing again from its top, right now, for stutter effects. With Section Reset on in Settings › Style (the default), Tap does the same while the band plays.',
+    body: 'Starts the section playing again from its top, right now, for stutter effects. With Tap: Section Reset on in Settings › Style (the default, as on the Genos), Tap does the same while the band plays. A pedal can run it too (Style Section Reset).',
     genos: 'Style Section Reset (TAP TEMPO)',
     keys: ['|'],
     launchkey: 'Shift + Play button',
@@ -244,7 +244,7 @@ const catalog = {
   // ── Tempo and display ───────────────────────────────────────────────────
   'tempo.tap': {
     title: 'Tap tempo',
-    body: 'Tap two or more times in time to set the tempo from your taps. While the band plays, a tap restarts the section instead (Section Reset), unless you turn that off in Settings › Style. The pad lights on the downbeat while the band plays.',
+    body: 'Tap two or more times in time to set the tempo from your taps (the last four count). While the band plays, a tap restarts the section instead (Section Reset) and the tempo stays, unless you turn Tap: Section Reset off in Settings › Style. The pad lights on the downbeat while the band plays.',
     genos: 'TAP TEMPO',
     keys: ['t'],
     launchkey: pad(P1, 'bottom', 6),
@@ -300,13 +300,6 @@ const catalog = {
   },
 
   // ── Style ───────────────────────────────────────────────────────────────
-  'style.name': {
-    title: 'Style',
-    body: 'The style that\'s loaded, and its folder. Click to browse the library.',
-    genos: 'Style name',
-    keys: ['enter'],
-    launchkey: null,
-  },
   'style.prev': {
     title: 'Previous style',
     body: 'Loads the previous style in the browser\'s order (folder, then name). While the band plays it keeps playing and follows your next chord in the new style.',
@@ -325,8 +318,8 @@ const catalog = {
   // ── Style browser ───────────────────────────────────────────────────────
   'browser.open': {
     title: 'Browse styles',
-    body: 'Opens the style browser: every style under the library folder, by folder. Your keyboard and the Launchkey keep playing while it\'s open.',
-    genos: 'Style selection display',
+    body: 'The style that\'s loaded, on the display. Click it to open the style browser: every style under the library folder, by folder, while your keyboard and the Launchkey keep playing.',
+    genos: 'Style name (touch it for the Style Selection display)',
     keys: ['enter'],
     launchkey: null,
   },
@@ -689,31 +682,103 @@ const catalog = {
     launchkey: null,
   },
 
-  // ── Keyboard parts drawer ──────────────────────────────────────────────
-  'part.source_gm': {
-    title: 'GM voices',
-    body: 'Shows the built-in SoundFont voices for this part. A part playing a plugin keeps its SoundFont voice here for when you go back to it.',
-    genos: 'Voice select (VOICE buttons)',
+  // ── Sound Browser (#117) ───────────────────────────────────────────────
+  'sounds.close': {
+    title: 'Close',
+    body: 'Closes the Sound Browser. The part keeps the sound you picked.',
+    genos: 'EXIT',
     keys: [],
     launchkey: null,
   },
-  'part.source_library': {
-    title: 'Library',
-    body: 'Shows your sound library\'s patches for this part. A dot means the part plays one of its own.',
+  'sounds.filter': {
+    title: 'Filter sounds',
+    body: 'Type to filter by name, SoundFont file or plugin maker (SF, AU or Saved narrows by source). ↑/↓ move, Enter plays the sound on the part, Shift+Enter auditions it, Ctrl+D stars it.',
+    genos: 'Voice Selection › Search',
+    keys: [],
+    launchkey: null,
+  },
+  'sounds.all': {
+    title: 'All sounds',
+    body: 'Every sound: the presets of every SoundFont in the soundfonts folder, your instrument plugins and your saved sounds.',
     genos: 'Voice Selection',
     keys: [],
     launchkey: null,
   },
-  'part.source_plugins': {
-    title: 'Plugins',
-    body: 'Shows your instrument plugins (Audio Units) for this part. A dot means the part plays one.',
+  'sounds.favourites': {
+    title: 'Favourites',
+    body: 'The sounds you starred.',
+    genos: 'Voice Selection › Favorite tab',
+    keys: [],
+    launchkey: null,
+  },
+  'sounds.recents': {
+    title: 'Recent',
+    body: 'The last 20 sounds you picked for a part, most recent first.',
+    genos: 'Voice Selection › history',
+    keys: [],
+    launchkey: null,
+  },
+  'sounds.saved': {
+    title: 'Saved',
+    body: 'Your saved sounds: the sound library\'s patches, each a preset or plugin with its volume, octave, pan and sends (and a plugin\'s own settings). Edit them in the Sound Library drawer.',
+    genos: 'Voice Selection › User tab',
+    keys: [],
+    launchkey: null,
+  },
+  'sounds.save': {
+    title: 'Save as sound',
+    body: 'Saves what this part plays now as a new saved sound: its preset or plugin (with the plugin\'s current settings), volume and octave. It appears under Saved, ready to rename in the Sound Library drawer.',
+    genos: 'Voice Setting › Save',
+    keys: [],
+    launchkey: null,
+  },
+  'sounds.category': {
+    title: 'Category',
+    body: 'The sounds of one Genos voice category. A preset\'s category is its General MIDI family, and a plugin\'s is guessed from its name.',
+    genos: 'VOICE category buttons',
+    keys: [],
+    launchkey: null,
+  },
+  'sounds.row': {
+    title: 'Sound',
+    body: 'Click or Enter plays this sound on the part. SF is a SoundFont preset, AU an instrument plugin, Saved a sound from your library. ▶ marks what the part plays.',
+    genos: 'Voice Selection',
+    keys: [],
+    launchkey: null,
+  },
+  'sounds.row_failed': {
+    title: 'Plugin that failed',
+    body: 'This plugin failed to load last time (⚠ says why). Picking it tries again; until it loads, the part plays its SoundFont voice.',
     genos: null,
     keys: [],
     launchkey: null,
   },
+  'sounds.favourite': {
+    title: 'Star',
+    body: 'Adds the sound to your Favourites, or takes it out.',
+    genos: 'Voice Selection › Favorite',
+    keys: [],
+    launchkey: null,
+  },
+  'sounds.audition': {
+    title: 'Audition',
+    body: 'Plays the sound on its own for a few seconds, without changing the part. Only while the band is stopped.',
+    genos: 'Voice Selection › Demo',
+    keys: [],
+    launchkey: null,
+  },
+  'sounds.audition_stop': {
+    title: 'Stop audition',
+    body: 'Stops the audition.',
+    genos: null,
+    keys: [],
+    launchkey: null,
+  },
+
+  // ── Keyboard parts drawer ──────────────────────────────────────────────
   'part.plugin': {
     title: 'Plugin',
-    body: 'Plays this part on an instrument plugin instead of its SoundFont voice. It loads in the background, and the part keeps its SoundFont voice until the plugin is ready. The fader stays the part\'s volume (CC 7).',
+    body: 'Plays this part on an instrument plugin instead of its SoundFont voice. It loads in the background (the part keeps its SoundFont voice until then), and the fader stays the part\'s volume (CC 7). "⚠ in process" means macOS would not run the plugin in its own process, so it runs inside yahaha: if it crashes, yahaha goes with it.',
     genos: null,
     keys: [],
     launchkey: null,
@@ -727,14 +792,28 @@ const catalog = {
   },
   'part.plugin_rescan': {
     title: 'Rescan plugins',
-    body: 'Looks for newly installed or removed instrument plugins. A ⚠ in the list marks a plugin that failed to load last time.',
+    body: 'Looks for newly installed or removed instrument plugins. A ⚠ in the Sound Browser marks a plugin that failed to load last time.',
+    genos: null,
+    keys: [],
+    launchkey: null,
+  },
+  'part.plugin_reload': {
+    title: 'Reload plugin',
+    body: 'Loads the selected part\'s plugin again, with its saved sound, after it stopped working or failed to load. The Launchkey button lights red while there is one to reload.',
+    genos: null,
+    keys: ['s'],
+    launchkey: 'Panel fader page: button under fader 6',
+  },
+  'part.plugin_in_process': {
+    title: 'Run in process',
+    body: 'Runs this plugin inside yahaha instead of in its own process: a little less CPU for the lightest plugins, but if the plugin crashes, yahaha goes with it. It is remembered for the plugin and applies from its next load.',
     genos: null,
     keys: [],
     launchkey: null,
   },
   'part.voice': {
-    title: 'Voice',
-    body: 'Picks this part\'s voice. Under Manual Bass, Left plays the style\'s Bass voice instead, and this is the voice it goes back to.',
+    title: 'Sound',
+    body: 'What this part plays. Click to open the Sound Browser and pick a SoundFont preset, an instrument plugin or a saved sound. Under Manual Bass, Left plays the style\'s Bass voice instead, and this is the sound it goes back to.',
     genos: 'Voice select (VOICE buttons)',
     keys: [],
     launchkey: 'Pad page 3 (OTS/Parts): the Edit pads (bottom row, pads 5–8) pick the part, Voice −/+ (top row, pads 7–8) step its voice',
@@ -820,7 +899,21 @@ const catalog = {
   },
   'mixer.plugin': {
     title: 'Plugin part',
-    body: 'This part plays an instrument plugin, shown with its share of the CPU. Its fader is still the part\'s CC 7, applied to the plugin\'s output.',
+    body: 'This part plays an instrument plugin, shown with its share of one CPU core, updated every second. Its fader is still the part\'s CC 7, applied to the plugin\'s output.',
+    genos: null,
+    keys: [],
+    launchkey: null,
+  },
+  'mixer.plugin_overruns': {
+    title: 'Plugin running slow',
+    body: '"N slow" counts the plugin\'s renders in the last 10 seconds that took more than half the audio buffer, the first sign of crackles. Raise Settings › Audio › Buffer size to give it more time, or use a lighter plugin or preset.',
+    genos: null,
+    keys: [],
+    launchkey: null,
+  },
+  'mixer.plugin_fallback': {
+    title: 'Plugin in process ⚠',
+    body: 'This part\'s plugin was meant to run in its own process, where a crash only silences the part. macOS refused to host it there, so it runs inside yahaha instead: if it crashes, yahaha goes with it. Save your setup, or pick another plugin for live use.',
     genos: null,
     keys: [],
     launchkey: null,
@@ -1046,9 +1139,23 @@ const catalog = {
     keys: ['a'],
     launchkey: null,
   },
+  'audio.buffer': {
+    title: 'Audio buffer',
+    body: 'Frames the built-in synth renders at a time: 64 (1.3 ms at 48 kHz) feels tightest, while 128 or 256 give heavy plugins more time per block for up to 5 ms more latency. Changing it reopens the output with a moment of silence; held notes and plugins carry over. It is remembered, and `--buffer N` sets it at launch.',
+    genos: null,
+    keys: [],
+    launchkey: null,
+  },
   'audio.soundfont': {
-    title: 'SoundFont',
-    body: 'The General MIDI SoundFont (.sf2) the built-in synth plays, from the soundfonts folder. `--sf2 file` sets it at launch.',
+    title: 'Default sound set',
+    body: 'The SoundFont that plays every sound nothing else is chosen for: style parts the program map leaves unmapped, and GM voices. Every .sf2 in the soundfonts folder is a source of sounds; this picks the fallback.',
+    genos: null,
+    keys: [],
+    launchkey: null,
+  },
+  'audio.soundfont_auto': {
+    title: 'Auto sound set',
+    body: 'Picks the most complete General MIDI SoundFont in the soundfonts folder: the most GM programs, then a drum kit. Follows the folder as fonts come and go.',
     genos: null,
     keys: [],
     launchkey: null,
@@ -1094,6 +1201,13 @@ const catalog = {
     genos: 'Menu › Style Setting',
     keys: [],
     launchkey: `${P1} (Sync Start, Sync Stop, Auto Fill); ${P2}, bottom row, pad 2 (Stop ACMP)`,
+  },
+  'settings.tab.lock': {
+    title: 'Settings: Parameter Lock',
+    body: 'Lock the split point or the fingering type, so Registration, One Touch Setting and Playlist recalls leave them as you set them.',
+    genos: 'Menu › Utility › Parameter Lock',
+    keys: [],
+    launchkey: null,
   },
   'settings.tab.audio': {
     title: 'Settings: Audio',
@@ -1193,6 +1307,20 @@ const catalog = {
     keys: [],
     launchkey: null,
   },
+  'settings.param_lock_split_point': {
+    title: 'Lock Split Point',
+    body: 'On: the split point stays where you set it. Registration, One Touch Setting and Playlist recalls leave it alone; you can still move it yourself.',
+    genos: 'Parameter Lock: Split Point',
+    keys: [],
+    launchkey: null,
+  },
+  'settings.param_lock_fingering_type': {
+    title: 'Lock Fingering Type',
+    body: 'On: the fingering type and the Chord Detection Area (Upper, Manual Bass) stay as you set them. Registration, One Touch Setting and Playlist recalls leave them alone; you can still change them yourself.',
+    genos: 'Parameter Lock: Fingering Type',
+    keys: [],
+    launchkey: null,
+  },
   'settings.synchro_stop_window': {
     title: 'Synchro Stop window',
     body: 'With Sync Stop on: hold a chord longer than this and Sync Stop turns itself off, so the style keeps playing when you let go. A quicker release still stops the style. Off (all the way left): Sync Stop never turns itself off.',
@@ -1223,7 +1351,7 @@ const catalog = {
   },
   'settings.section_reset': {
     title: 'Tap: Section Reset',
-    body: 'On: Tap while the band plays restarts the section from its top. Off: Tap always sets the tempo.',
+    body: 'On (the default, as on the Genos): Tap while the band plays restarts the section from its top and keeps the tempo. Off: Tap always sets the tempo.',
     genos: 'Tap Tempo › Style Section Reset',
     keys: [],
     launchkey: null,
@@ -2085,7 +2213,7 @@ const catalog = {
   },
   'sound.audition': {
     title: 'Audition',
-    body: 'Plays the sound on its own for a moment: a short arpeggio and a chord, or a beat for a drum kit. Works while the band is stopped.',
+    body: 'Plays the sound on its own for a moment: a short arpeggio and a chord, or a beat for a drum kit. Works while the band is stopped. A plugin patch loads its plugin first.',
     genos: null,
     keys: [],
     launchkey: null,
@@ -2204,14 +2332,21 @@ const catalog = {
   },
   'sound.family': {
     title: 'Family rule',
-    body: 'The patch these eight GM programs play, with every bank variation of them. Blank: the voice the style asks for.',
+    body: 'The sound these eight GM programs play, with every bank variation of them. Click to pick one in the Sound Browser: a saved sound, a SoundFont preset or a plugin. Blank: the voice the style asks for.',
+    genos: null,
+    keys: [],
+    launchkey: null,
+  },
+  'sound.rule_clear': {
+    title: 'Clear rule',
+    body: 'Clears this rule: the programs it covered play what the rule below it gives them, or the style\'s own voice.',
     genos: null,
     keys: [],
     launchkey: null,
   },
   'sound.drums': {
     title: 'Drum rule',
-    body: 'The drum kit patch for Rhythm 1 and 2 and any part on a Yamaha drum kit bank. Blank: the kit the style asks for.',
+    body: 'The drum kit sound for Rhythm 1 and 2 and any part on a Yamaha drum kit bank. Click to pick one in the Sound Browser. Blank: the kit the style asks for.',
     genos: null,
     keys: [],
     launchkey: null,
@@ -2225,7 +2360,7 @@ const catalog = {
   },
   'sound.override_patch': {
     title: 'Override patch',
-    body: 'The patch this one program plays, whatever its family rule says.',
+    body: 'The sound this one program plays, whatever its family rule says. Click to pick one in the Sound Browser.',
     genos: null,
     keys: [],
     launchkey: null,
@@ -2260,7 +2395,7 @@ const catalog = {
   },
   'sound.remap': {
     title: 'Remap',
-    body: 'Picks the patch this program plays: an override for this program, for every style or for this style only (the switch above). Clear it to fall back to the family rule.',
+    body: 'Picks the sound this program plays in the Sound Browser: an override for this program, for every style or for this style only (the switch above). Clear it (✕) to fall back to the family rule.',
     genos: null,
     keys: [],
     launchkey: null,

@@ -12,6 +12,7 @@ import { clockAt, mockSurface, type MockHardware } from './mock-surface'
 import { emptyLooper, MockLooper } from './mock-looper'
 import { initialMultiPad, MockPads } from './mock-multipad'
 import { initialSoundLibrary, MockSoundLibrary } from './mock-sound-library'
+import { initialSounds, MockSounds } from './mock-sounds'
 import { padsFor } from './mock-pads'
 import { initialPlugins, MockPlugins } from './mock-plugins'
 import { ARP_PATTERNS, HARMONY_TYPES, harmonyArpCmd, initialHarmonyArp } from './mock-harmony'
@@ -21,7 +22,7 @@ import type { Session } from './session'
 import {
   BREAK, CHORD_SETTLE_MAX_MS, ENDINGS, FILLS, FINGERINGS, INTROS, KEYBOARD_PART_NAMES, MAINS, PAD_PAGES, RETRIGGER_RATES,
   STYLE_PART_NAMES, type AppCmd, type AppState, type LibraryEntry, type LibraryList, type OtsPart, type PreviewState, type StopAcmpMode,
-  type StyleSettingsState, type StyleState,
+  type SoundLibraryCmd, type StyleSettingsState, type StyleState,
 } from './types'
 
 export const GM: string[] = fixture.gm
@@ -251,6 +252,8 @@ export function initialState(): AppState {
       soundFonts: [...MOCK_SOUND_FONTS],
       soundFontFile: MOCK_SOUND_FONTS[0],
       soundFontLoading: false,
+      defaultSoundSet: null,
+      autoSoundSet: MOCK_SOUND_FONTS[0],
     },
     message: null,
     styleChange: { tempo: 'hold', parts: 'hold', sectionSet: null },
@@ -267,6 +270,8 @@ export function initialState(): AppState {
     plugins: initialPlugins(),
     harmonyArp: initialHarmonyArp(),
     soundLibrary: initialSoundLibrary(),
+    paramLocks: { splitPoint: false, fingeringType: false },
+    sounds: initialSounds(),
   }
   derive(state, LIBRARY)
   return state
@@ -421,6 +426,8 @@ export class MockSession implements Session {
   )
   /** The sound library (mock-sound-library.ts). */
   private sound = new MockSoundLibrary(() => this.state)
+  /** The sound catalog (mock-sounds.ts). */
+  private catalogMock = new MockSounds()
 
   constructor(opts: MockOptions = {}) {
     this.demo = opts.demo ?? false
@@ -448,6 +455,7 @@ export class MockSession implements Session {
     }
     derive(this.state, this.lib, this.hardware(), [...this.leftHand, ...this.rightHand])
     this.sound.derive(this.state)
+    this.catalogMock.derive(this.state)
     if (!opts.manual) {
       this.last = performance.now()
       this.timer = setInterval(() => {
@@ -495,6 +503,10 @@ export class MockSession implements Session {
     return Promise.resolve(this.lib)
   }
 
+  sounds() {
+    return Promise.resolve(this.catalogMock.catalog(this.state))
+  }
+
   /** No audio: silent meters with no channels, as the engine without its synth. */
   meters() {
     return Promise.resolve({ atMs: this.now, channels: [], master: [0, 0] as [number, number], clips: 0 })
@@ -518,11 +530,17 @@ export class MockSession implements Session {
   }
 
   private publish() {
+    // A keyboard part's own plugin patch plays its plugin (the session's sync_part_plugins).
+    for (const [part, v] of this.sound.partPlugins()) {
+      if (v) this.plugins.cmd({ type: 'setPartPlugin', part, id: v.componentId, state: v.state || null })
+      else this.plugins.cmd({ type: 'clearPartPlugin', part })
+    }
     this.state.version++
     this.reg.fill(this.state)
     this.looper.publish()
     derive(this.state, this.lib, this.hardware(), [...this.leftHand, ...this.rightHand])
     this.sound.derive(this.state)
+    this.catalogMock.derive(this.state)
     const snap = this.snapshot()
     for (const f of this.subs) f(snap)
   }
@@ -567,6 +585,7 @@ export class MockSession implements Session {
     if (!t.running) this.stepAudition(ms)
     else this.state.soundLibrary.auditioning = null
     this.sound.advance(ms)
+    this.catalogMock.advance(ms, t.running)
     this.multiPads.beats((ms / 60000) * t.tempo)
     this.plugins.step(ms)
     if (this.scanLeft > 0) {
@@ -1108,12 +1127,9 @@ export class MockSession implements Session {
         if (t.running && this.has(BREAK)) t.queued = BREAK
         break
       case 'fill': {
-        // The Main to the left/right (or the same), always with a fill.
-        const to = clamp(t.main + Math.sign(cmd.delta), 0, 3)
-        const auto = t.autoFill
-        t.autoFill = true
-        this.cmd({ type: 'main', index: to })
-        t.autoFill = auto
+        // The same as Fill Down / Self / Up.
+        const d = Math.sign(cmd.delta)
+        this.cmd({ type: d < 0 ? 'fillDown' : d > 0 ? 'fillUp' : 'fillSelf' })
         break
       }
       case 'ending':
@@ -1407,11 +1423,19 @@ export class MockSession implements Session {
         }
         break
       case 'setSoundFont':
-        if (st.io.soundFonts.includes(cmd.file)) {
-          st.io.soundFontFile = cmd.file
-          if (st.io.synth) st.io.synth.soundFont = cmd.file.replace(/\.sf2$/i, '')
-        } else this.message(`no SoundFont ${cmd.file} in the SoundFont folder`, true)
+      case 'setDefaultSoundSet': {
+        if (cmd.file !== null && !st.io.soundFonts.includes(cmd.file)) {
+          this.message(`no SoundFont ${cmd.file} in the SoundFont folder`, true)
+          break
+        }
+        st.io.defaultSoundSet = cmd.file
+        const play = cmd.file ?? st.io.autoSoundSet
+        if (play) {
+          st.io.soundFontFile = play
+          if (st.io.synth) st.io.synth.soundFont = play.replace(/\.sf2$/i, '')
+        }
         break
+      }
       case 'setMidiInputs': {
         st.io.allInputs = cmd.all
         for (const s of st.io.sources) s.listening = s.pads || cmd.all || cmd.names.some((n) => n && s.name.includes(n))
@@ -1420,6 +1444,10 @@ export class MockSession implements Session {
       }
       case 'setPaletteLeds':
         st.pads.paletteLeds = cmd.on
+        break
+      case 'setAudioBuffer':
+        if (!st.io.synth) this.message('the synth is off', true)
+        else st.io.synth.bufferFrames = cmd.frames
         break
       case 'rescanLibrary':
         st.library.scanning = true
@@ -1553,8 +1581,14 @@ export class MockSession implements Session {
         break
       case 'setPartPlugin':
       case 'clearPartPlugin':
+        // A plugin picked here ends the part's own library patch.
+        this.sound.partPlugin(cmd.part, cmd.type === 'setPartPlugin')
+        this.plugins.cmd(cmd)
+        break
       case 'savePartPluginState':
       case 'rescanPlugins':
+      case 'setPluginInProcess':
+      case 'reloadPartPlugin':
         this.plugins.cmd(cmd)
         break
       case 'loadMultiPad':
@@ -1591,11 +1625,47 @@ export class MockSession implements Session {
       case 'browseSoundFont':
       case 'importSoundLibrary':
       case 'exportSoundLibrary': {
-        const err = this.sound.cmd(cmd, t.running)
+        // A rule may name a catalog entry (#117): it gets that sound's library patch.
+        let sc: SoundLibraryCmd = cmd
+        if ((cmd.type === 'setFamilyRule' || cmd.type === 'setProgramOverride' || cmd.type === 'setDrumRule') && cmd.patch) {
+          const r = this.catalogMock.patchFor(this.state, cmd.patch, (c) => this.cmd(c))
+          if ('error' in r) {
+            this.message(r.error, true)
+            break
+          }
+          sc = { ...cmd, patch: r.patch }
+        }
+        // A SoundFont patch picked over a Plugins-tab plugin ends that plugin.
+        if (cmd.type === 'setPartPatch' && cmd.id && this.sound.ownPlugin(cmd.part)) {
+          const p = this.state.soundLibrary.patches.find((q) => q.id === cmd.id)
+          if (p?.source.kind === 'soundFont') this.plugins.cmd({ type: 'clearPartPlugin', part: cmd.part })
+        }
+        const err = this.sound.cmd(sc, t.running)
         if (err) this.message(err, true)
         else if (cmd.type === 'exportSoundLibrary') this.message(`Sound library exported to ${cmd.path ?? '/Users/me/Documents/yahaha/sound-library-export.json'}`)
         break
       }
+      case 'setSoundFavourite':
+      case 'auditionSound':
+      case 'stopSoundAudition':
+      case 'assignSound':
+      case 'setSoundCategory': {
+        const r = this.catalogMock.cmd(this.state, cmd)
+        if (r.error) this.message(r.error, true)
+        for (const c of r.run ?? []) {
+          // A preset from the synth's own font (the part's GM voice) ends a plugin picked
+          // for the part, as a SoundFont patch does.
+          if (c.type === 'setPartVoice' && this.sound.ownPlugin(c.part) && this.state.keyboardParts[c.part & 3].plugin) {
+            this.plugins.cmd({ type: 'clearPartPlugin', part: c.part })
+          }
+          this.cmd(c)
+        }
+        if (r.assignLastAdded !== undefined) this.cmd({ type: 'setPartPatch', part: r.assignLastAdded, id: this.state.soundLibrary.lastAdded })
+        break
+      }
+      case 'setParamLock':
+        this.state.paramLocks[cmd.item] = cmd.on
+        break
     }
   }
 }

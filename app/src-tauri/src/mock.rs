@@ -11,6 +11,8 @@ use std::time::Instant;
 mod multipad;
 #[path = "mock_sound.rs"]
 mod sound;
+#[path = "mock_sounds.rs"]
+mod sounds;
 
 use yahaha::api::*;
 use yahaha::engine::{FadeState, StyleSettings};
@@ -169,6 +171,8 @@ pub struct MockSession {
     controllers: Controllers,
     /// The sound library (mock_sound.rs).
     sound: sound::MockSound,
+    /// The sound catalog (mock_sounds.rs).
+    sounds: sounds::MockSounds,
 }
 
 impl Default for MockSession {
@@ -318,6 +322,8 @@ impl MockSession {
                 sound_fonts: MOCK_SOUND_FONTS.iter().map(|f| f.to_string()).collect(),
                 sound_font_file: Some(MOCK_SOUND_FONTS[0].into()),
                 sound_font_loading: false,
+                default_sound_set: None,
+                auto_sound_set: Some(MOCK_SOUND_FONTS[0].into()),
             },
             preview: PreviewState::default(),
             chart: ChartState::default(),
@@ -341,6 +347,8 @@ impl MockSession {
             metronome: MetronomeState { on: false, volume: 90, bell: true, audible: true },
             plugins: mock_plugins(),
             sound_library: SoundLibraryState::default(),
+            param_locks: ParamLockState::default(),
+            sounds: SoundsState::default(),
         };
         let songs: Vec<(String, String)> = library.entries.iter().filter(|e| e.status == "ok").map(|e| (e.path.clone(), e.name.clone())).collect();
         let mut m = MockSession {
@@ -368,6 +376,7 @@ impl MockSession {
             pads: multipad::MockPads::default(),
             controllers: Controllers::new(),
             sound: sound::MockSound::default(),
+            sounds: sounds::MockSounds::default(),
         };
         m.set_style(0);
         m.state.ots.applied = 2;
@@ -399,6 +408,36 @@ impl MockSession {
         &self.library
     }
 
+    /// The sound catalog (#117).
+    pub fn sounds(&self) -> SoundCatalog {
+        self.sounds.catalog(&self.state)
+    }
+
+    fn sounds_cmd(&mut self, c: SoundsCmd) {
+        match self.sounds.cmd(&self.state, c) {
+            Err(e) => self.message(e, true),
+            Ok(sounds::Then::Nothing) => {}
+            Ok(sounds::Then::Run(cmds)) => {
+                for c in cmds {
+                    // A preset from the synth's own font (the part's GM voice) ends a
+                    // plugin picked for the part, as a SoundFont patch does.
+                    if let AppCmd::Parts(PartsCmd::SetPartVoice { part, .. }) = &c
+                        && self.sound.own_plugin(*part as usize)
+                    {
+                        self.state.keyboard_parts[(*part & 3) as usize].plugin = None;
+                    }
+                    self.cmd(c);
+                }
+            }
+            Ok(sounds::Then::AddThenAssign(add, part)) => {
+                self.cmd(add);
+                self.derive();
+                let id = self.state.sound_library.last_added.clone();
+                self.cmd(SoundLibraryCmd::SetPartPatch { part, id }.into());
+            }
+        }
+    }
+
     fn has(&self, s: &str) -> bool {
         self.state.style.sections.iter().any(|x| x == s)
     }
@@ -408,29 +447,89 @@ impl MockSession {
     fn plugin_cmd(&mut self, c: PluginCmd) {
         match c {
             PluginCmd::SetPartPlugin { part, id, .. } => {
-                let Some(e) = self.state.plugins.list.iter().find(|p| p.id == id).cloned() else {
-                    return self.message(format!("no instrument Audio Unit {id} is installed"), true);
+                self.sound.part_plugin(part as usize, true);
+                self.set_part_plugin(part as usize, id);
+            }
+            PluginCmd::ClearPartPlugin { part } => {
+                self.sound.part_plugin(part as usize, false);
+                self.state.keyboard_parts[(part & 3) as usize].plugin = None;
+            }
+            PluginCmd::SavePartPluginState { .. } | PluginCmd::RescanPlugins => {}
+            PluginCmd::ReloadPartPlugin { part } => {
+                let part = match part {
+                    Some(p) => (p & 3) as usize,
+                    None => self.state.keyboard_parts.iter().position(|p| p.selected).unwrap_or(0),
                 };
-                let failed = e.last_error.clone();
-                self.state.keyboard_parts[(part & 3) as usize].plugin = Some(PartPlugin {
-                    id: e.id,
-                    name: e.name.clone(),
-                    manufacturer: e.manufacturer.clone(),
-                    status: if failed.is_some() { PluginStatus::Failed } else { PluginStatus::Playing },
-                    stage: None,
-                    error: failed.clone(),
-                    out_of_process: e.manufacturer != "Apple",
-                    cpu: if failed.is_some() { 0.0 } else { 0.012 },
-                    overruns: 0,
-                    editor: failed.is_none(),
-                });
-                if let Some(err) = failed {
-                    self.message(format!("{} didn't load: {err}", e.name), true);
+                let name = self.state.keyboard_parts[part].name.clone();
+                match self.state.keyboard_parts[part].plugin.as_ref().map(|p| (p.status, p.id.clone(), p.name.clone())) {
+                    None => self.message(format!("{name} plays its SoundFont voice; there is no plugin to reload"), true),
+                    Some((PluginStatus::Muted | PluginStatus::Failed, id, _)) => self.set_part_plugin(part, id),
+                    Some((PluginStatus::Playing, _, plugin)) => self.message(format!("{name}'s {plugin} is playing; nothing to reload"), true),
+                    Some((PluginStatus::Loading, _, plugin)) => self.message(format!("{name}'s {plugin} is still loading"), true),
                 }
             }
-            PluginCmd::ClearPartPlugin { part } => self.state.keyboard_parts[(part & 3) as usize].plugin = None,
-            PluginCmd::SavePartPluginState { .. } | PluginCmd::RescanPlugins => {}
+            PluginCmd::SetPluginInProcess { id, in_process } => {
+                let Some(e) = self.state.plugins.list.iter_mut().find(|p| p.id == id) else {
+                    return self.message(format!("no instrument Audio Unit {id} is installed"), true);
+                };
+                if in_process && !e.can_run_in_process {
+                    let text = format!("{}: {} is an AUv3 that only runs out of process", e.manufacturer, e.name);
+                    return self.message(text, true);
+                }
+                e.in_process = in_process;
+                let name = e.name.clone();
+                let playing = self.state.keyboard_parts.iter().any(|k| k.plugin.as_ref().is_some_and(|p| p.id == id && p.status == PluginStatus::Playing));
+                if playing {
+                    let r#where = if in_process { "inside yahaha" } else { "in its own process" };
+                    self.message(format!("{name} runs {where} from its next load (the next start, or pick it again)"), false);
+                }
+            }
         }
+    }
+
+    fn set_part_plugin(&mut self, part: usize, id: String) {
+        let Some(e) = self.state.plugins.list.iter().find(|p| p.id == id).cloned() else {
+            return self.message(format!("no instrument Audio Unit {id} is installed"), true);
+        };
+        let failed = e.last_error.clone();
+        let fallback = failed.is_none() && e.id == MOCK_FALLBACK_ID && !e.in_process;
+        // AUSampler plays the heavy plugin: a high CPU share and a few slow renders.
+        let heavy = failed.is_none() && e.id == MOCK_HEAVY_ID;
+        self.state.keyboard_parts[part & 3].plugin = Some(PartPlugin {
+            id: e.id,
+            name: e.name.clone(),
+            manufacturer: e.manufacturer.clone(),
+            status: if failed.is_some() { PluginStatus::Failed } else { PluginStatus::Playing },
+            stage: None,
+            error: failed.clone(),
+            out_of_process: e.manufacturer != "Apple" && !e.in_process && !fallback,
+            in_process_fallback: fallback,
+            cpu: if failed.is_some() { 0.0 } else if heavy { 0.31 } else { 0.012 },
+            overruns: if heavy { 4 } else { 0 },
+            recent_overruns: if heavy { 4 } else { 0 },
+            editor: failed.is_none(),
+        });
+        if let Some(err) = failed {
+            self.message(format!("{} didn't load: {err}", e.name), true);
+        } else if fallback {
+            self.message(format!("{} can't run in its own process; loading it inside yahaha instead (if it crashes, yahaha goes with it)", e.name), false);
+        }
+    }
+
+    /// The default sound set (#117): a font in the folder, or None for Auto.
+    fn set_default_sound_set(&mut self, file: Option<String>) {
+        if let Some(f) = &file
+            && !self.state.io.sound_fonts.contains(f)
+        {
+            return self.message(format!("no SoundFont {f} in the SoundFont folder"), true);
+        }
+        let io = &mut self.state.io;
+        io.default_sound_set = file.clone();
+        let Some(play) = file.or_else(|| io.auto_sound_set.clone()) else { return };
+        if let Some(s) = io.synth.as_mut() {
+            s.sound_font = play.trim_end_matches(".sf2").to_string();
+        }
+        io.sound_font_file = Some(play);
     }
 
     fn message(&mut self, text: impl Into<String>, error: bool) {
@@ -486,7 +585,19 @@ impl MockSession {
     pub fn send(&mut self, cmd: impl Into<AppCmd>) -> bool {
         let before = self.state.clone();
         self.cmd(cmd.into());
+        self.sync_part_plugins();
         self.bump(&before)
+    }
+
+    /// A keyboard part's own plugin patch plays its plugin (the session's
+    /// `sync_part_plugins`).
+    fn sync_part_plugins(&mut self) {
+        for (p, voice) in self.sound.part_plugins() {
+            match voice {
+                Some((id, _state)) => self.set_part_plugin(p, id),
+                None => self.state.keyboard_parts[p].plugin = None,
+            }
+        }
     }
 
     fn bump(&mut self, before: &AppState) -> bool {
@@ -508,6 +619,7 @@ impl MockSession {
         self.step_fade(ms);
         self.pads.beats(&mut self.state.multi_pad, ms / 60000.0 * self.state.transport.tempo);
         self.sound.advance(ms, self.state.transport.running);
+        self.sounds.advance(ms, self.state.transport.running);
         if !self.state.transport.running {
             return;
         }
@@ -888,6 +1000,7 @@ impl MockSession {
             p.voice_name = if p.plays_bass { "Finger Bass".into() } else { self.gm[p.program as usize].clone() };
         }
         self.sound.derive(st, &self.gm);
+        self.sounds.derive(st);
         for (i, p) in st.mixer.style_parts.iter_mut().enumerate() {
             p.muted_by_manual_bass = i == 2 && mb;
         }
@@ -936,7 +1049,8 @@ impl MockSession {
         let mask = |bits: Vec<bool>| bits.iter().enumerate().fold(0u8, |m, (i, on)| m | (*on as u8) << i);
         let parts_on = mask(st.keyboard_parts.iter().map(|p| p.sounding).collect());
         let style_on = lk::style_lit(mask(st.mixer.style_parts.iter().map(|p| p.on).collect()), st.chord.manual_bass_active);
-        let colours = lk::button_colours(page, styles, fader_page, parts_on, style_on, st.harmony_arp.on);
+        let fault = st.keyboard_parts.iter().find(|p| p.selected).and_then(|p| p.plugin.as_ref()).is_some_and(|p| matches!(p.status, PluginStatus::Muted | PluginStatus::Failed));
+        let colours = lk::button_colours(page, styles, fader_page, parts_on, style_on, st.harmony_arp.on, fault);
         let act = |cc: u8, shift: bool| -> Option<AppCmd> {
             match lk::cc_control(cc, shift)? {
                 Control::Page(d) => {
@@ -997,6 +1111,9 @@ impl MockSession {
                 }
                 FaderPage::Panel if i == lk::HARM_ARP_FADER_BTN => {
                     push(id, cc, "HARM/ARP", Some(AppCmd::HarmonyArp(HarmonyArpCmd::ToggleHarmonyArp)), None)
+                }
+                FaderPage::Panel if i == lk::PLUGIN_FADER_BTN => {
+                    push(id, cc, "PLUGIN", Some(AppCmd::Plugins(PluginCmd::ReloadPartPlugin { part: None })), None)
                 }
                 FaderPage::Panel => push(id, cc, "", None, None),
                 FaderPage::Style => {
@@ -1159,14 +1276,14 @@ impl MockSession {
                 self.state.transport.stop_acmp_mode = mode;
                 self.state.transport.stop_acmp = mode != StopAcmpMode::Off;
             }
-            AppCmd::Transport(TransportCmd::Fill { delta }) => {
-                // The Main to the left/right (or the same), always with a fill.
-                let to = (self.state.transport.main as i8 + delta.signum()).clamp(0, 3) as u8;
-                let auto = std::mem::replace(&mut self.state.transport.auto_fill, true);
-                self.cmd(AppCmd::Transport(TransportCmd::Main { index: to }));
-                self.state.transport.auto_fill = auto;
-            }
+            // The same as Fill Down / Self / Up.
+            AppCmd::Transport(TransportCmd::Fill { delta }) => self.cmd(AppCmd::Transport(match delta.signum() {
+                -1 => TransportCmd::FillDown,
+                1 => TransportCmd::FillUp,
+                _ => TransportCmd::FillSelf,
+            })),
             AppCmd::Plugins(c) => self.plugin_cmd(c),
+            AppCmd::Sounds(c) => self.sounds_cmd(c),
             AppCmd::Controllers(c) => {
                 let before = match c {
                     ControllersCmd::SetPedal { pedal, .. } => Some((pedal as usize % PEDALS, self.controllers.pedal(pedal as usize % PEDALS))),
@@ -1461,6 +1578,11 @@ impl MockSession {
                     }
                 }
             }
+            AppCmd::Settings(SettingsCmd::SetAudioBuffer { frames }) => match &mut self.state.io.synth {
+                Some(s) if matches!(frames, 64 | 128 | 256) => s.buffer_frames = Some(frames),
+                Some(_) => self.message(format!("the audio buffer is 64, 128 or 256 frames, not {frames}"), true),
+                None => self.message("the synth is off", true),
+            },
             AppCmd::Settings(SettingsCmd::NextAudioOutput) => {
                 if let Some(s) = &mut self.state.io.synth {
                     let next = s.output_pair[1] + 1;
@@ -1496,16 +1618,8 @@ impl MockSession {
             }
             AppCmd::Preview(PreviewCmd::StopAudition) => self.state.preview.audition = None,
             AppCmd::Library(LibraryCmd::RescanLibrary) => self.message("Style folders rescanned", false),
-            AppCmd::Settings(SettingsCmd::SetSoundFont { file }) => {
-                if self.state.io.sound_fonts.contains(&file) {
-                    if let Some(s) = self.state.io.synth.as_mut() {
-                        s.sound_font = file.trim_end_matches(".sf2").to_string();
-                    }
-                    self.state.io.sound_font_file = Some(file);
-                } else {
-                    self.message(format!("no SoundFont {file} in the SoundFont folder"), true);
-                }
-            }
+            AppCmd::Settings(SettingsCmd::SetSoundFont { file }) => self.set_default_sound_set(Some(file)),
+            AppCmd::Settings(SettingsCmd::SetDefaultSoundSet { file }) => self.set_default_sound_set(file),
             AppCmd::Settings(SettingsCmd::SetMidiInputs { all, names }) => {
                 let io = &mut self.state.io;
                 io.all_inputs = all;
@@ -1516,6 +1630,7 @@ impl MockSession {
             }
             AppCmd::Settings(SettingsCmd::SetPaletteLeds { on }) => self.state.pads.palette_leds = on,
             AppCmd::Chart(c) => self.chart_cmd(c),
+            AppCmd::ParamLock(ParamLockCmd::SetParamLock { item, on }) => self.state.param_locks.set(item, on),
             AppCmd::Registration(c) => {
                 let fx = self.regist.registration_cmd(c, &self.state);
                 self.run_regist(fx);
@@ -1536,12 +1651,48 @@ impl MockSession {
                 }
             }
             AppCmd::SoundLibrary(c) => {
+                // A rule may name a catalog entry (#117): it gets that sound's library patch.
+                let c = match c {
+                    SoundLibraryCmd::SetFamilyRule { family, patch, style } => match self.rule_patch(patch) {
+                        Ok(patch) => SoundLibraryCmd::SetFamilyRule { family, patch, style },
+                        Err(e) => return self.message(e, true),
+                    },
+                    SoundLibraryCmd::SetProgramOverride { program, patch, style } => match self.rule_patch(patch) {
+                        Ok(patch) => SoundLibraryCmd::SetProgramOverride { program, patch, style },
+                        Err(e) => return self.message(e, true),
+                    },
+                    SoundLibraryCmd::SetDrumRule { patch, style } => match self.rule_patch(patch) {
+                        Ok(patch) => SoundLibraryCmd::SetDrumRule { patch, style },
+                        Err(e) => return self.message(e, true),
+                    },
+                    c => c,
+                };
                 let export = matches!(c, SoundLibraryCmd::ExportSoundLibrary { .. });
+                // A SoundFont patch picked over a Plugins-tab plugin ends that plugin.
+                if let SoundLibraryCmd::SetPartPatch { part, id: Some(id) } = &c
+                    && self.state.sound_library.patches.iter().any(|p| &p.patch.id == id && matches!(p.patch.source, PatchSource::SoundFont { .. }))
+                    && self.sound.own_plugin(*part as usize)
+                {
+                    self.state.keyboard_parts[(*part & 3) as usize].plugin = None;
+                }
                 match self.sound.cmd(&mut self.state, c) {
                     Some(e) => self.message(e, true),
                     None if export => self.message("Sound library exported to /Users/me/Documents/yahaha/sound-library-export.json", false),
                     None => {}
                 }
+            }
+        }
+    }
+
+    /// A rule's patch: a catalog id becomes its library patch, added once (#117).
+    fn rule_patch(&mut self, patch: Option<String>) -> Result<Option<String>, String> {
+        let Some(id) = patch else { return Ok(None) };
+        match self.sounds.patch_for(&self.state, &id)? {
+            Ok(patch) => Ok(Some(patch)),
+            Err(add) => {
+                self.cmd(add);
+                self.derive();
+                Ok(self.state.sound_library.last_added.clone())
             }
         }
     }
@@ -1839,6 +1990,145 @@ mod tests {
         assert_eq!(m.state.style_settings.retrigger_rate, 16);
     }
 
+    /// `setPluginInProcess` sets the list's override; the next load runs in process (#104).
+    #[test]
+    fn the_in_process_override_applies_from_the_next_load() {
+        let mut m = MockSession::new();
+        let entry = |m: &MockSession, id: &str| m.state.plugins.list.iter().find(|p| p.id == id).cloned().unwrap();
+        m.send(PluginCmd::SetPluginInProcess { id: "aumu Mock Demo".into(), in_process: true });
+        assert!(!entry(&m, "aumu Mock Demo").in_process, "an AUv3 that only runs out of process");
+        assert!(m.state.message.as_ref().is_some_and(|x| x.error));
+        m.send(PluginCmd::SetPluginInProcess { id: "aumu dls  appl".into(), in_process: true });
+        assert!(entry(&m, "aumu dls  appl").in_process);
+        m.send(PluginCmd::SetPluginInProcess { id: "aumu dls  appl".into(), in_process: false });
+        assert!(!entry(&m, "aumu dls  appl").in_process);
+    }
+
+    /// A plugin the system won't host out of process loads in process and says so (#104).
+    #[test]
+    fn a_plugin_that_falls_back_in_process_says_so() {
+        let mut m = MockSession::new();
+        m.send(PluginCmd::SetPartPlugin { part: 1, id: MOCK_FALLBACK_ID.into(), state: None });
+        let p = m.state.keyboard_parts[1].plugin.clone().unwrap();
+        assert_eq!((p.status, p.out_of_process, p.in_process_fallback), (PluginStatus::Playing, false, true));
+        assert!(m.state.message.as_ref().is_some_and(|x| x.text.contains("can't run in its own process") && !x.error));
+        m.send(PluginCmd::SetPartPlugin { part: 1, id: "aumu dls  appl".into(), state: None });
+        assert!(!m.state.keyboard_parts[1].plugin.as_ref().unwrap().in_process_fallback);
+    }
+
+    /// AUSampler plays the heavy plugin: the CPU and overrun readout has something to show.
+    #[test]
+    fn the_heavy_mock_plugin_reports_slow_renders() {
+        let mut m = MockSession::new();
+        m.send(PluginCmd::SetPartPlugin { part: 0, id: MOCK_HEAVY_ID.into(), state: None });
+        let p = m.state.keyboard_parts[0].plugin.clone().unwrap();
+        assert_eq!((p.recent_overruns, p.overruns), (4, 4));
+        assert!(p.cpu > 0.3);
+        m.send(PluginCmd::SetPartPlugin { part: 0, id: "aumu dls  appl".into(), state: None });
+        assert_eq!(m.state.keyboard_parts[0].plugin.as_ref().unwrap().recent_overruns, 0);
+    }
+
+    /// `reloadPartPlugin` retries the selected part's failed plugin; Panel fader button 6
+    /// is red while it needs that.
+    #[test]
+    fn reload_part_plugin_and_its_launchkey_button() {
+        let mut m = MockSession::new();
+        let b6 = |m: &MockSession| m.surface().controls.into_iter().find(|c| c.id == "faderButton6").unwrap();
+        assert_eq!((b6(&m).label.as_str(), b6(&m).level), ("PLUGIN", Level::Off));
+        m.send(PluginCmd::SetPartPlugin { part: 0, id: "aumu Mock Demo".into(), state: None });
+        assert_eq!((b6(&m).level, b6(&m).action), (Level::Bright, Some(AppCmd::Plugins(PluginCmd::ReloadPartPlugin { part: None }))));
+        m.send(PluginCmd::ReloadPartPlugin { part: None });
+        assert_eq!(m.state.keyboard_parts[0].plugin.as_ref().unwrap().status, PluginStatus::Failed, "Broken Synth fails again");
+        m.send(PluginCmd::ReloadPartPlugin { part: Some(1) });
+        assert!(m.state.message.as_ref().is_some_and(|x| x.error && x.text.contains("SoundFont")));
+    }
+
+    /// A plugin patch on a keyboard part plays its plugin, as the session does (#109).
+    #[test]
+    fn a_plugin_patch_on_a_part_plays_its_plugin() {
+        let mut m = MockSession::new();
+        let r1 = |m: &MockSession| (m.state.keyboard_parts[0].patch.clone(), m.state.keyboard_parts[0].plugin.as_ref().map(|p| p.id.clone()));
+        let dls = Some("aumu dls  appl".to_string());
+        m.send(SoundLibraryCmd::SetPartPatch { part: 0, id: Some("keys-au".into()) });
+        assert_eq!(r1(&m), (Some("keys-au".into()), dls.clone()));
+        m.send(SoundLibraryCmd::SetPartPatch { part: 0, id: Some("stage-grand".into()) });
+        assert_eq!(r1(&m), (Some("stage-grand".into()), None));
+        m.send(SoundLibraryCmd::SetPartPatch { part: 0, id: Some("keys-au".into()) });
+        m.send(PluginCmd::SetPartPlugin { part: 0, id: "aumu dls  appl".into(), state: None });
+        assert_eq!(r1(&m), (None, dls.clone()), "a Plugins-tab plugin ends the patch");
+        m.send(SoundLibraryCmd::SetPartPatch { part: 0, id: Some("stage-grand".into()) });
+        assert_eq!(r1(&m), (Some("stage-grand".into()), None), "a SoundFont patch ends a Plugins-tab plugin");
+        m.send(SoundLibraryCmd::SetPartPatch { part: 0, id: Some("keys-au".into()) });
+        m.send(PartsCmd::SetPartVoice { part: 0, program: 0 });
+        assert_eq!(r1(&m), (None, None), "a GM voice ends the plugin patch");
+    }
+
+    /// A SoundFont sound from the Sound Browser ends a plugin picked for the part: a
+    /// preset from the synth's own font, another font's and a saved one (#171 review).
+    #[test]
+    fn a_soundfont_sound_from_the_browser_ends_a_picked_plugin() {
+        let mut m = MockSession::new();
+        let plugin = |m: &MockSession, p: usize| m.state.keyboard_parts[p].plugin.as_ref().map(|x| x.id.clone());
+        for (part, id) in [(0u8, "sf:GeneralUser-GS.sf2:0:0"), (1, "sf:FluidR3_GM.sf2:0:48"), (2, "saved:stage-grand")] {
+            m.send(SoundsCmd::AssignSound { part, id: "au:aumu dls  appl".into() });
+            assert_eq!(plugin(&m, part as usize).as_deref(), Some("aumu dls  appl"));
+            m.send(SoundsCmd::AssignSound { part, id: id.into() });
+            assert_eq!(plugin(&m, part as usize), None, "{id} ends the plugin");
+        }
+        assert_eq!(m.state.keyboard_parts[0].patch, None, "the synth's own preset is the GM voice");
+    }
+
+    /// The sound catalog (#117): every preset, plugin and saved sound; assigning routes
+    /// by source, as the session does.
+    #[test]
+    fn the_sound_catalog_assigns_by_source() {
+        let mut m = MockSession::new();
+        let cat = m.sounds();
+        assert_eq!(cat.entries.len() as u32, m.state.sounds.count);
+        assert_eq!(cat.revision, m.state.sounds.revision);
+        assert!(cat.entries.iter().any(|e| e.id == "au:aumu dls  appl" && e.plugin.is_some()));
+        assert!(cat.entries.iter().any(|e| e.id == "saved:stage-grand" && e.favourite));
+        m.send(SoundsCmd::AssignSound { part: 1, id: "sf:GeneralUser-GS.sf2:0:33".into() });
+        assert_eq!((m.state.keyboard_parts[1].program, m.state.keyboard_parts[1].patch.clone()), (33, None));
+        let n = m.state.sound_library.patches.len();
+        m.send(SoundsCmd::AssignSound { part: 0, id: "sf:FluidR3_GM.sf2:0:48".into() });
+        m.send(SoundsCmd::AssignSound { part: 2, id: "sf:FluidR3_GM.sf2:0:48".into() });
+        assert_eq!(m.state.sound_library.patches.len(), n + 1, "added once");
+        assert_eq!(m.state.keyboard_parts[0].patch, m.state.keyboard_parts[2].patch);
+        m.send(SoundsCmd::AssignSound { part: 3, id: "au:aumu dls  appl".into() });
+        assert_eq!(m.state.keyboard_parts[3].plugin.as_ref().map(|p| p.id.as_str()), Some("aumu dls  appl"));
+        let rev = m.state.sounds.revision;
+        m.send(SoundsCmd::SetSoundFavourite { id: "au:aumu dls  appl".into(), on: true });
+        assert!(m.state.sounds.revision > rev);
+        let cat = m.sounds();
+        assert_eq!(cat.recents[0], "au:aumu dls  appl");
+        assert!(cat.entries.iter().any(|e| e.id == "au:aumu dls  appl" && e.favourite && e.recent));
+        m.send(TransportCmd::Stop);
+        m.advance(10.0);
+        assert!(!m.state.transport.running);
+        m.send(SoundsCmd::AuditionSound { id: "sf:GeneralUser-GS.sf2:128:0".into() });
+        assert_eq!(m.state.sounds.auditioning.as_deref(), Some("sf:GeneralUser-GS.sf2:128:0"));
+        m.advance(3100.0);
+        assert_eq!(m.state.sounds.auditioning, None);
+    }
+
+    /// Program map rules take catalog ids (#117): a preset or plugin becomes a patch once.
+    #[test]
+    fn map_rules_take_catalog_ids() {
+        let mut m = MockSession::new();
+        let n = m.state.sound_library.patches.len();
+        m.send(SoundLibraryCmd::SetFamilyRule { family: 2, patch: Some("au:aumu samp appl".into()), style: false });
+        m.send(SoundLibraryCmd::SetDrumRule { patch: Some("au:aumu samp appl".into()), style: true });
+        assert_eq!(m.state.sound_library.patches.len(), n + 1);
+        let id = m.state.sound_library.patches[n].patch.id.clone();
+        assert_eq!(m.state.sound_library.map.families[2].as_deref(), Some(id.as_str()));
+        assert_eq!(m.state.sound_library.style_map.drums.as_deref(), Some(id.as_str()));
+        m.send(SoundLibraryCmd::SetProgramOverride { program: 5, patch: Some("saved:stage-grand".into()), style: false });
+        assert!(m.state.sound_library.map.overrides.iter().any(|o| o.program == 5 && o.patch == "stage-grand"));
+        m.send(SoundLibraryCmd::SetDrumRule { patch: Some("sf:Nope.sf2:0:0".into()), style: false });
+        assert!(m.state.message.as_ref().is_some_and(|x| x.error));
+    }
+
     #[test]
     fn a_queued_main_takes_over_at_the_next_bar() {
         let mut m = MockSession::new();
@@ -1866,7 +2156,7 @@ mod tests {
         assert_eq!(m.state.controllers.pedals[1].function, Function::FillUp);
         // Playing Main B: Fill Up plays Main C's fill, then Main C.
         m.send(ControllersCmd::TriggerFunction { function: Function::FillUp });
-        assert_eq!(m.state.transport.queued.as_deref(), Some("Fill In BB"));
+        assert_eq!(m.state.transport.queued.as_deref(), Some("Fill In CC"));
         assert_eq!(m.state.transport.main, 2);
         m.send(ControllersCmd::TriggerFunction { function: Function::Sustain });
         assert!(m.state.controllers.sustain);
@@ -1998,7 +2288,7 @@ mod tests {
         let s = &m.state.surface;
         assert_eq!(
             labels(&m),
-            ["", "PAGE ▼", "◀ STYLE", "STYLE ▶", "PLAY", "STOP", "TEMPO +", "TEMPO -", "RIGHT 1", "RIGHT 2", "RIGHT 3", "LEFT", "HARM/ARP", "", "", "", "PANEL"]
+            ["", "PAGE ▼", "◀ STYLE", "STYLE ▶", "PLAY", "STOP", "TEMPO +", "TEMPO -", "RIGHT 1", "RIGHT 2", "RIGHT 3", "LEFT", "HARM/ARP", "PLUGIN", "", "", "PANEL"]
         );
         assert_eq!((s.controls[0].shift_label.as_str(), s.controls[1].shift_label.as_str()), ("LEFT", "OTS LINK"));
         assert_eq!(s.controls[0].action, None);
@@ -2125,6 +2415,23 @@ mod tests {
         m.send(RegistrationCmd::SetFreeze { on: true });
         m.send(RegistrationCmd::RecallRegist { index: 5 });
         assert_eq!(m.state.harmony_arp, scrambled, "frozen");
+    }
+
+    /// As the session's Parameter Lock: a locked group keeps the player's setting through
+    /// a recall; the other groups are recalled.
+    #[test]
+    fn param_lock_keeps_locked_groups_through_a_recall() {
+        let mut m = MockSession::new();
+        m.send(ChordCmd::SetSplit { note: 60 });
+        m.send(ChordCmd::SetFingering { fingering: yahaha::fingering::Fingering::Fingered });
+        m.send(RegistrationCmd::MemorizeRegist { index: 4 });
+        m.send(ChordCmd::SetSplit { note: 50 });
+        m.send(ChordCmd::SetFingering { fingering: yahaha::fingering::Fingering::SingleFinger });
+        m.send(ParamLockCmd::SetParamLock { item: LockItem::SplitPoint, on: true });
+        assert!(m.state.param_locks.split_point && !m.state.param_locks.fingering_type);
+        m.send(RegistrationCmd::RecallRegist { index: 4 });
+        assert_eq!(m.state.chord.split, 50, "locked");
+        assert_eq!(m.state.chord.fingering, yahaha::fingering::Fingering::Fingered, "not locked");
     }
 
     /// Save As names files as the session does ("A:B" is "A_B") and, like the Mac's file
@@ -2364,8 +2671,17 @@ impl MockSession {
     }
 }
 
-/// The mock's installed plugins: Apple's built-in instruments and one made-up synth that
-/// always fails to load (as app/src/lib/api/mock-plugins.ts).
+/// The mock plugin the system won't host out of process: it loads in process instead (as
+/// app/src/lib/api/mock-plugins.ts).
+const MOCK_FALLBACK_ID: &str = "aumu Tiny Demo";
+
+/// The mock plugin that plays heavy: a high CPU share and a few slow renders (as
+/// app/src/lib/api/mock-plugins.ts).
+const MOCK_HEAVY_ID: &str = "aumu samp appl";
+
+/// The mock's installed plugins: Apple's built-in instruments, one made-up synth that
+/// always fails to load, and one that falls back to loading in process (as
+/// app/src/lib/api/mock-plugins.ts).
 fn mock_plugins() -> PluginsState {
     let e = |id: &str, name: &str, manufacturer: &str, format: &str, last_error: Option<&str>| PluginEntry {
         id: id.into(),
@@ -2374,6 +2690,8 @@ fn mock_plugins() -> PluginsState {
         version: if manufacturer == "Apple" { "1.0.0" } else { "0.9.0" }.into(),
         format: format.into(),
         last_error: last_error.map(Into::into),
+        in_process: false,
+        can_run_in_process: format == "AUv2",
     };
     PluginsState {
         available: true,
@@ -2382,6 +2700,7 @@ fn mock_plugins() -> PluginsState {
             e("aumu dls  appl", "DLSMusicDevice", "Apple", "AUv2", None),
             e("aumu samp appl", "AUSampler", "Apple", "AUv2", None),
             e("aumu Mock Demo", "Broken Synth", "Example Audio", "AUv3", Some("timed out after 20.0 s")),
+            e(MOCK_FALLBACK_ID, "Tiny Synth", "Example Audio", "AUv2", None),
         ],
     }
 }

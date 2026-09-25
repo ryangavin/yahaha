@@ -1,9 +1,11 @@
 //! The audio callback (`synth::AudioCore::process`) must not allocate or free: SoundFont
 //! notes and controllers, the master fader, a SoundFont swap, and (feature `plugins`) a
 //! keyboard part going over to an Audio Unit instrument (Apple's DLSMusicDevice), playing
-//! it, crossfading to a second instance, and back to the SoundFont. A counting global
-//! allocator (in this test binary only) checks every `process` call. What the plugin does
-//! inside its own render is its own business and does not go through Rust's allocator.
+//! it, crossfading to a second instance, and back to the SoundFont. SoundFont swaps while
+//! the control side is not taking old racks back must not free one either. A counting
+//! global allocator (in this test binary only) checks every `process` call, on the calling
+//! thread. What the plugin does inside its own render is its own business and does not go
+//! through Rust's allocator.
 
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::sync::Arc;
@@ -15,13 +17,27 @@ struct Counting;
 static ALLOCS: AtomicUsize = AtomicUsize::new(0);
 static FREES: AtomicUsize = AtomicUsize::new(0);
 
+thread_local! {
+    /// Count on this thread only, only inside `process`: plugin load threads and the
+    /// dispose thread allocate and free on their own time.
+    static COUNT: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+fn counting() -> bool {
+    COUNT.try_with(|c| c.get()).unwrap_or(false)
+}
+
 unsafe impl GlobalAlloc for Counting {
     unsafe fn alloc(&self, l: Layout) -> *mut u8 {
-        ALLOCS.fetch_add(1, Ordering::Relaxed);
+        if counting() {
+            ALLOCS.fetch_add(1, Ordering::Relaxed);
+        }
         unsafe { System.alloc(l) }
     }
     unsafe fn dealloc(&self, p: *mut u8, l: Layout) {
-        FREES.fetch_add(1, Ordering::Relaxed);
+        if counting() {
+            FREES.fetch_add(1, Ordering::Relaxed);
+        }
         unsafe { System.dealloc(p, l) }
     }
 }
@@ -52,7 +68,9 @@ fn the_audio_callback_does_not_allocate() {
             feed.push(*m).unwrap();
         }
         let (a, f) = (ALLOCS.load(Ordering::Relaxed), FREES.load(Ordering::Relaxed));
+        COUNT.with(|c| c.set(true));
         core.process(&mut out);
+        COUNT.with(|c| c.set(false));
         (ALLOCS.load(Ordering::Relaxed) - a, FREES.load(Ordering::Relaxed) - f)
     };
     let none = (0, 0);
@@ -70,6 +88,30 @@ fn the_audio_callback_does_not_allocate() {
             assert_eq!(run(&mut core, &mut feed, &[]), none, "SoundFont swap");
         }
         while swap.old.pop().is_ok() {}
+
+        // The control side stops taking old racks back (busy, or not pumping): the return
+        // ring fills. The callback holds further swaps until there is room again, rather
+        // than freeing a rack itself.
+        let sf = Arc::new(rustysynth::SoundFont::new(&mut std::fs::File::open(f).unwrap()).unwrap());
+        let cap = swap.old.buffer().capacity();
+        let before = ctl.swaps.load(Ordering::Relaxed);
+        let mut sent = 0;
+        for _ in 0..(cap + 3) * 2 {
+            if swap.tx.push(Box::new(Rack::new(&sf, 48_000).unwrap())).is_ok() {
+                sent += 1;
+            }
+            assert_eq!(run(&mut core, &mut feed, &[[0x90, 62, 90]]), none, "SoundFont swaps with the return ring full");
+        }
+        let taken = (ctl.swaps.load(Ordering::Relaxed) - before) as usize;
+        assert_eq!(taken, cap, "swaps wait once the return ring is full");
+        assert_eq!(swap.old.slots(), taken, "every replaced rack came back");
+        // The control side drains the ring: the waiting racks go in.
+        while swap.old.pop().is_ok() {}
+        for _ in 0..8 {
+            assert_eq!(run(&mut core, &mut feed, &[]), none, "swaps resume");
+            while swap.old.pop().is_ok() {}
+        }
+        assert_eq!((ctl.swaps.load(Ordering::Relaxed) - before) as usize, sent, "every rack sent was taken");
     }
 
     #[cfg(feature = "plugins")]

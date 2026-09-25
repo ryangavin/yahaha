@@ -42,11 +42,15 @@ pub struct LoadConfig {
     pub mode: LoadMode,
     /// Give up after this long (default 20 s: Kontakt with a big library takes several).
     pub timeout: Duration,
+    /// Choose the mode from the plugin as the load thread looks it up (instead of `mode`):
+    /// a caller that does not know the plugin yet (the scan still running, say) never scans
+    /// to find out.
+    pub choose_mode: Option<fn(&PluginInfo) -> LoadMode>,
 }
 
 impl Default for LoadConfig {
     fn default() -> Self {
-        LoadConfig { sample_rate: 48_000.0, max_frames: 4096, state: None, mode: LoadMode::Auto, timeout: Duration::from_secs(20) }
+        LoadConfig { sample_rate: 48_000.0, max_frames: 4096, state: None, mode: LoadMode::Auto, timeout: Duration::from_secs(20), choose_mode: None }
     }
 }
 
@@ -90,6 +94,8 @@ struct LoadState {
     result: Option<Result<PluginInstance>>,
     /// The caller gave up (timeout or cancel): the worker disposes of whatever it makes.
     abandoned: bool,
+    /// The plugin and the mode it loads in, once the load thread has looked it up.
+    info: Option<(PluginInfo, LoadMode)>,
 }
 
 struct LoadShared {
@@ -104,13 +110,20 @@ pub struct LoadHandle {
     started: Instant,
     timeout: Duration,
     host: PluginHost,
-    info: PluginInfo,
+    id: PluginId,
     taken: bool,
 }
 
 impl LoadHandle {
-    pub fn info(&self) -> &PluginInfo {
-        &self.info
+    /// The plugin loading, once the load thread has looked it up (None before that, or if
+    /// it is not installed).
+    pub fn info(&self) -> Option<PluginInfo> {
+        self.shared.state.lock().unwrap().info.as_ref().map(|(i, _)| i.clone())
+    }
+
+    /// The mode it loads in (`LoadConfig::mode`, or what `choose_mode` chose), once looked up.
+    pub fn mode(&self) -> Option<LoadMode> {
+        self.shared.state.lock().unwrap().info.as_ref().map(|(_, m)| *m)
     }
 
     pub fn elapsed(&self) -> Duration {
@@ -128,7 +141,9 @@ impl LoadHandle {
         if !st.progress.is_finished() && self.started.elapsed() >= self.timeout {
             st.progress = LoadProgress::TimedOut(self.timeout);
             st.abandoned = true;
-            self.host.record(&self.info, None, Some(format!("timed out after {:.1} s", self.timeout.as_secs_f64())));
+            if let Some((info, _)) = &st.info {
+                self.host.record(info, None, Some(format!("timed out after {:.1} s", self.timeout.as_secs_f64())));
+            }
         }
     }
 
@@ -139,7 +154,8 @@ impl LoadHandle {
         match &st.progress {
             LoadProgress::TimedOut(d) => {
                 self.taken = true;
-                Some(Err(anyhow::Error::new(LoadTimedOut(*d)).context(format!("{} did not load", self.info.full_name()))))
+                let name = st.info.as_ref().map_or_else(|| self.id.to_string(), |(i, _)| i.full_name());
+                Some(Err(anyhow::Error::new(LoadTimedOut(*d)).context(format!("{name} did not load"))))
             }
             p if p.is_finished() => {
                 self.taken = true;
@@ -217,6 +233,8 @@ impl PluginHost {
         if let Some(old) = cache.as_ref() {
             for p in &mut plugins {
                 p.last_load = old.plugins.iter().find(|o| o.id == p.id && o.version == p.version).and_then(|o| o.last_load.clone());
+                // The player's choice outlives an update.
+                p.in_process = old.plugins.iter().any(|o| o.id == p.id && o.in_process) && p.can_run_in_process();
             }
         }
         let fresh = ScanCache { schema: scan::SCHEMA, fingerprint: fp, plugins: plugins.clone() };
@@ -268,6 +286,24 @@ impl PluginHost {
             .ok_or_else(|| anyhow!("no instrument Audio Unit matches {query:?}"))
     }
 
+    /// Set the player's "run in process" override for `id` and save it in the cache.
+    /// Returns the plugin as now cached. Err for an AUv3 that only runs out of process.
+    pub fn set_in_process(&self, id: &PluginId, on: bool) -> Result<PluginInfo> {
+        let info = self.info(id)?;
+        if on && !info.can_run_in_process() {
+            bail!("{} is an AUv3 that only runs out of process", info.full_name());
+        }
+        let mut cache = self.inner.cache.lock().unwrap();
+        let c = cache.as_mut().ok_or_else(|| anyhow!("no plugin scan"))?;
+        let p = c.plugins.iter_mut().find(|p| p.id == *id).ok_or_else(|| anyhow!("no instrument Audio Unit {id} is installed"))?;
+        p.in_process = on;
+        let out = p.clone();
+        if let Some(path) = &self.inner.cache_path {
+            scan::write_cache(path, c)?;
+        }
+        Ok(out)
+    }
+
     fn record(&self, info: &PluginInfo, ms: Option<f64>, error: Option<String>) {
         let at = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
         let mut cache = self.inner.cache.lock().unwrap();
@@ -279,41 +315,41 @@ impl PluginHost {
         }
     }
 
-    /// Start loading `id` on a background thread. Returns at once; follow the handle.
+    /// Start loading `id` on a background thread. Returns at once; follow the handle. The
+    /// plugin is looked up on that thread too (a stale scan cache means a full component
+    /// scan), so the caller never waits for a scan: an id that is not installed fails
+    /// through the handle.
     pub fn load_async(&self, id: &PluginId, cfg: LoadConfig) -> Result<LoadHandle> {
-        let info = self.info(id)?;
-        let comp = sys::instruments()
-            .into_iter()
-            .find(|c| c.desc == [id.kind, id.subtype, id.manufacturer])
-            .ok_or_else(|| anyhow!("{id} disappeared from the registrar"))?;
         let shared = Arc::new(LoadShared {
-            state: Mutex::new(LoadState { progress: LoadProgress::Queued, result: None, abandoned: false }),
+            state: Mutex::new(LoadState { progress: LoadProgress::Queued, result: None, abandoned: false, info: None }),
             done: Condvar::new(),
         });
-        let handle = LoadHandle { shared: shared.clone(), started: Instant::now(), timeout: cfg.timeout, host: self.clone(), info: info.clone(), taken: false };
+        let id = *id;
+        let handle = LoadHandle { shared: shared.clone(), started: Instant::now(), timeout: cfg.timeout, host: self.clone(), id, taken: false };
         let host = self.clone();
         std::thread::Builder::new()
-            .name(format!("plugin-load {}", info.name))
+            .name(format!("plugin-load {id}"))
             .spawn(move || {
-                let r = sys::guard("loading", || load_blocking(&comp, &info, &cfg, &shared));
+                let found = host.info(&id).and_then(|info| {
+                    let comp = sys::instruments()
+                        .into_iter()
+                        .find(|c| c.desc == [id.kind, id.subtype, id.manufacturer])
+                        .ok_or_else(|| anyhow!("{id} disappeared from the registrar"))?;
+                    Ok((info, comp))
+                });
+                let (info, comp) = match found {
+                    Ok(x) => x,
+                    Err(e) => return finish(&shared, Err(e)),
+                };
+                let mode = cfg.choose_mode.map_or(cfg.mode, |f| f(&info));
+                shared.state.lock().unwrap().info = Some((info.clone(), mode));
+                let r = sys::guard("loading", || load_blocking(&comp, &info, mode, &cfg, &shared));
                 match &r {
                     Ok(inst) => host.record(&info, Some(inst.load_times().total().as_secs_f64() * 1000.0), None),
                     Err(e) if !shared.state.lock().unwrap().abandoned => host.record(&info, None, Some(format!("{e:#}"))),
                     Err(_) => {}
                 }
-                let mut st = shared.state.lock().unwrap();
-                if st.abandoned {
-                    // Timed out or cancelled: the instance (if any) is disposed of here.
-                    drop(st);
-                    drop(r);
-                    return;
-                }
-                st.progress = match &r {
-                    Ok(_) => LoadProgress::Ready,
-                    Err(e) => LoadProgress::Failed(format!("{e:#}")),
-                };
-                st.result = Some(r);
-                shared.done.notify_all();
+                finish(&shared, r);
             })
             .map_err(|e| anyhow!("could not start the load thread: {e}"))?;
         Ok(handle)
@@ -323,6 +359,23 @@ impl PluginHost {
     pub fn load(&self, id: &PluginId, cfg: LoadConfig) -> Result<PluginInstance> {
         self.load_async(id, cfg)?.wait()
     }
+}
+
+/// Hand the load's result to the handle (or, if the caller gave up, dispose of it here).
+fn finish(shared: &LoadShared, r: Result<PluginInstance>) {
+    let mut st = shared.state.lock().unwrap();
+    if st.abandoned {
+        // Timed out or cancelled: the instance (if any) is disposed of here.
+        drop(st);
+        drop(r);
+        return;
+    }
+    st.progress = match &r {
+        Ok(_) => LoadProgress::Ready,
+        Err(e) => LoadProgress::Failed(format!("{e:#}")),
+    };
+    st.result = Some(r);
+    shared.done.notify_all();
 }
 
 fn set_progress(shared: &LoadShared, p: LoadProgress) -> Result<()> {
@@ -335,8 +388,8 @@ fn set_progress(shared: &LoadShared, p: LoadProgress) -> Result<()> {
 }
 
 /// The load itself, on the load thread.
-fn load_blocking(comp: &Component, info: &PluginInfo, cfg: &LoadConfig, shared: &LoadShared) -> Result<PluginInstance> {
-    let out_of_process = match cfg.mode {
+fn load_blocking(comp: &Component, info: &PluginInfo, mode: LoadMode, cfg: &LoadConfig, shared: &LoadShared) -> Result<PluginInstance> {
+    let out_of_process = match mode {
         LoadMode::Auto => info.format == PluginFormat::Au3,
         LoadMode::InProcess => {
             if info.format == PluginFormat::Au3 && !info.can_load_in_process {

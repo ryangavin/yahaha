@@ -3,12 +3,13 @@
 //! - command `send(cmd: AppCmd) -> Result<(), CmdError>`
 //! - command `state() -> AppState`
 //! - command `library() -> LibraryList`
+//! - command `sounds() -> SoundCatalog` (the Sound Browser's list, #117)
 //! - command `meters() -> Meters` (output levels since the last call; poll at display rate)
 //! - commands `open_plugin_editor(part)` / `close_plugin_editor(part)`: a keyboard part's
 //!   instrument plugin window, opened on the main thread (AppKit); closing it keeps the
 //!   plugin's settings with the part (`savePartPluginState`)
 //! - event `yahaha` (`Event`): `stateChanged { version }`, `libraryChanged { revision }`,
-//!   `stopped`
+//!   `soundsChanged { revision }`, `stopped`
 //!
 //! Behind them is either the real engine (`yahaha::Session`: MIDI, the Launchkey, the
 //! synth) or `mock::MockSession`, a band that plays itself with no I/O:
@@ -16,8 +17,10 @@
 //! - `YAHAHA_MOCK=1`: the mock.
 //! - `YAHAHA_STYLES=path[:path…]`: the engine, with those style files/folders. Without it,
 //!   the repo's `corpus/` folder when it exists (a dev checkout), else the mock.
-//! - `YAHAHA_SF2=file.sf2`: the synth's SoundFont; else the first `.sf2` in the repo's
-//!   `soundfonts/`, else no synth.
+//! - `YAHAHA_SOUNDFONTS=dir`: the SoundFont folder; else the repo's `soundfonts/`. Every
+//!   `.sf2` there is a source of sounds, and the default sound set setting (#117) picks the
+//!   synth's main one. No fonts: no synth.
+//! - `YAHAHA_SF2=file.sf2`: a hidden override, the synth's main SoundFont at start.
 //!
 //! If the engine can't start (no CoreMIDI, say), the shell falls back to the mock, which then
 //! reports an offline session with no Launchkey and the reason in the status line.
@@ -28,6 +31,7 @@ mod mock_regist;
 mod mock_looper;
 
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -90,6 +94,15 @@ fn library(backend: State<'_, Shared>) -> Value {
     }
 }
 
+/// The sound catalog (#117): every preset, plugin and saved sound.
+#[tauri::command]
+fn sounds(backend: State<'_, Shared>) -> Value {
+    match &**backend {
+        Backend::Live(s) => serde_json::to_value(&*s.sound_catalog()).unwrap_or(Value::Null),
+        Backend::Mock(m) => serde_json::to_value(m.lock().unwrap().sounds()).unwrap_or(Value::Null),
+    }
+}
+
 /// Output levels: each part's and the master's peak since the last call, and the clip
 /// count. The mock has no audio: zero levels, no channels.
 #[tauri::command]
@@ -103,6 +116,44 @@ fn meters(backend: State<'_, Shared>) -> Value {
 thread_local! {
     /// The open plugin editor windows, by keyboard part. Main thread only (AppKit).
     static EDITORS: std::cell::RefCell<std::collections::HashMap<u8, yahaha::plugin::editor::Editor>> = Default::default();
+}
+
+/// The instance each keyboard part's editor window edits (`EditorTarget::instance_id`; 0 =
+/// no window), for the event thread to see when a part's instance changes. Set on the main
+/// thread as a window opens.
+static EDITING: [AtomicUsize; 4] = [const { AtomicUsize::new(0) }; 4];
+
+/// The parts whose editor window edits an instance the part no longer plays (another
+/// instance, or none), with the instance their window edits. `current(part)` is the
+/// instance the part plays now.
+fn stale_editors(editing: &[usize; 4], current: impl Fn(u8) -> Option<usize>) -> Vec<(u8, usize)> {
+    (0..4u8).filter(|&p| editing[p as usize] != 0 && current(p) != Some(editing[p as usize])).map(|p| (p, editing[p as usize])).collect()
+}
+
+/// Close the editor windows whose part now plays another instance (a new pick, the same
+/// plugin loaded again, a failed load, back to the SoundFont): the window would edit a
+/// plugin nobody hears. Its settings are not saved (the part has moved on). A window the
+/// player closed with the red button is let go here too, so its unit does not stay alive
+/// in the map until the part's editor is opened again.
+fn close_stale_editors(app: &tauri::AppHandle, s: &yahaha::Session) {
+    let editing: [usize; 4] = std::array::from_fn(|p| EDITING[p].load(Ordering::Acquire));
+    if editing == [0; 4] {
+        return;
+    }
+    for (part, id) in stale_editors(&editing, |p| s.plugin_editor(p).map(|t| t.instance_id())) {
+        // Only if no newer window opened meanwhile.
+        if EDITING[part as usize].compare_exchange(id, 0, Ordering::AcqRel, Ordering::Acquire).is_err() {
+            continue;
+        }
+        let _ = app.run_on_main_thread(move || {
+            EDITORS.with(|eds| {
+                let mut eds = eds.borrow_mut();
+                if eds.get(&part).is_some_and(|e| e.instance_id() == id) {
+                    eds.remove(&part);
+                }
+            })
+        });
+    }
 }
 
 /// Open keyboard part `part`'s plugin editor (or bring it to the front). The mock has no
@@ -130,6 +181,7 @@ fn open_plugin_editor(part: u8, backend: State<'_, Shared>, app: tauri::AppHandl
             eds.remove(&part);
             match yahaha::plugin::editor::open_editor(mtm, &target) {
                 Ok(e) => {
+                    EDITING[part as usize].store(e.instance_id(), Ordering::Release);
                     eds.insert(part, e);
                 }
                 Err(e) => eprintln!("plugin editor: {e:#}"),
@@ -139,12 +191,19 @@ fn open_plugin_editor(part: u8, backend: State<'_, Shared>, app: tauri::AppHandl
     .map_err(failed)
 }
 
-/// Close keyboard part `part`'s plugin editor and keep the plugin's settings with the part.
+/// Close keyboard part `part`'s plugin editor and keep the plugin's settings with the part
+/// (if it plays a plugin: a part back on its SoundFont voice has none to save).
 #[tauri::command]
 fn close_plugin_editor(part: u8, backend: State<'_, Shared>, app: tauri::AppHandle) -> Result<(), Value> {
     let part = part & 3;
-    app.run_on_main_thread(move || EDITORS.with(|eds| drop(eds.borrow_mut().remove(&part)))).map_err(failed)?;
-    if let Backend::Live(s) = &**backend {
+    app.run_on_main_thread(move || {
+        EDITING[part as usize].store(0, Ordering::Release);
+        EDITORS.with(|eds| drop(eds.borrow_mut().remove(&part)))
+    })
+    .map_err(failed)?;
+    if let Backend::Live(s) = &**backend
+        && s.plugin_editor(part).is_some()
+    {
         let _ = s.send(yahaha::api::PluginCmd::SavePartPluginState { part });
     }
     Ok(())
@@ -156,6 +215,9 @@ fn forward_events(app: tauri::AppHandle, backend: Shared) {
     let Backend::Live(s) = &*backend else { return };
     for e in s.subscribe() {
         let stopped = e == yahaha::Event::Stopped;
+        if matches!(e, yahaha::Event::StateChanged { .. }) {
+            close_stale_editors(&app, s);
+        }
         if app.emit("yahaha", e).is_err() || stopped {
             break;
         }
@@ -186,16 +248,6 @@ fn repo_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
 }
 
-fn first_sf2(dir: &Path) -> Option<PathBuf> {
-    let mut v: Vec<PathBuf> = std::fs::read_dir(dir)
-        .ok()?
-        .filter_map(|e| e.ok().map(|e| e.path()))
-        .filter(|p| p.extension().is_some_and(|x| x.eq_ignore_ascii_case("sf2")))
-        .collect();
-    v.sort();
-    v.into_iter().next()
-}
-
 fn backend() -> Backend {
     if std::env::var_os("YAHAHA_MOCK").is_some_and(|v| v != "0") {
         return Backend::Mock(Box::new(Mutex::new(MockSession::new())));
@@ -213,8 +265,10 @@ fn backend() -> Backend {
             "No styles found (set YAHAHA_STYLES): a demo band with no sound or MIDI",
         ))));
     }
-    let sf2 = std::env::var_os("YAHAHA_SF2").map(PathBuf::from).or_else(|| first_sf2(&repo_root().join("soundfonts")));
-    match yahaha::Session::start(yahaha::Options { paths, sf2, data_dir: yahaha::session::default_data_dir(), ..yahaha::Options::default() }) {
+    let sf2 = std::env::var_os("YAHAHA_SF2").map(PathBuf::from);
+    let sound_font_dir = Some(std::env::var_os("YAHAHA_SOUNDFONTS").map_or_else(|| repo_root().join("soundfonts"), PathBuf::from));
+    let opts = yahaha::Options { paths, sf2, sound_font_dir, data_dir: yahaha::session::default_data_dir(), ..yahaha::Options::default() };
+    match yahaha::Session::start(opts) {
         Ok(s) => Backend::Live(s),
         Err(e) => {
             eprintln!("yahaha: the engine didn't start ({e:#}); running the mock session");
@@ -249,7 +303,7 @@ pub fn run() {
                 .spawn(move || if live { forward_events(handle, b) } else { tick_mock(handle, b) })?;
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![send, state, library, meters, open_plugin_editor, close_plugin_editor])
+        .invoke_handler(tauri::generate_handler![send, state, library, sounds, meters, open_plugin_editor, close_plugin_editor])
         .build(tauri::generate_context!())
         .expect("error while building tauri application");
     app.run(|app, event| {
@@ -280,6 +334,18 @@ mod tests {
         shutdown(&backend);
         assert!(events.try_iter().any(|e| e == yahaha::Event::Stopped));
         shutdown(&held); // idempotent
+    }
+
+    /// An editor window closes once its part plays another instance or none; one whose
+    /// part still plays its instance stays, and parts with no window are left alone.
+    #[test]
+    fn editor_windows_close_when_their_part_moves_on() {
+        let editing = [0x10, 0, 0x30, 0x40];
+        // Right 1 still plays 0x10; Right 2 has no window; Right 3 plays a new instance;
+        // Left is back on its SoundFont.
+        let now = |p: u8| [Some(0x10), Some(0x99), Some(0x31), None][p as usize];
+        assert_eq!(stale_editors(&editing, now), vec![(2, 0x30), (3, 0x40)]);
+        assert!(stale_editors(&[0; 4], |_| None).is_empty());
     }
 
     /// When the engine can't start, the stand-in mock doesn't pass for a working rig.

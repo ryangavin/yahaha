@@ -323,4 +323,29 @@ impl EditorTarget {
     pub fn state(&self) -> Result<Vec<u8>> {
         sys::guard("reading the state", || self.unit.class_info())
     }
+
+    /// A reference to this instance that does not keep it alive: to recognise it later
+    /// ([`InstanceRef::is`]) without being the one that disposes of it.
+    pub fn instance(&self) -> InstanceRef {
+        InstanceRef(Arc::downgrade(&self.unit))
+    }
+
+    /// A number naming this instance, never 0, as long as some handle on it is alive (an
+    /// open editor window's, say): to tell, off the main thread, whether a window still
+    /// edits the instance a part plays.
+    pub fn instance_id(&self) -> usize {
+        Arc::as_ptr(&self.unit) as usize
+    }
+}
+
+/// Which instance an [`EditorTarget`] is, without keeping its Audio Unit alive.
+#[derive(Clone)]
+pub struct InstanceRef(std::sync::Weak<Unit>);
+
+impl InstanceRef {
+    /// Whether `target` is this instance (not just the same plugin: a part that loaded the
+    /// plugin again has a new instance).
+    pub fn is(&self, target: &EditorTarget) -> bool {
+        std::sync::Weak::ptr_eq(&self.0, &Arc::downgrade(&target.unit))
+    }
 }

@@ -57,10 +57,13 @@ pub enum Group {
     Transpose,
     ChordLooper,
     LiveControl,
+    /// The Assignable settings: today the Fade In/Out and Fade Out Hold times (Data List:
+    /// Freeze group "Assignable Buttons"; #107).
+    Assignable,
 }
 
 impl Group {
-    pub const ALL: [Group; 8] = [
+    pub const ALL: [Group; 9] = [
         Group::Style,
         Group::Voice,
         Group::HarmonyArp,
@@ -69,6 +72,7 @@ impl Group {
         Group::Transpose,
         Group::ChordLooper,
         Group::LiveControl,
+        Group::Assignable,
     ];
 
     /// Display name, as the Genos lists it.
@@ -82,6 +86,7 @@ impl Group {
             Group::Transpose => "Transpose",
             Group::ChordLooper => "Chord Looper",
             Group::LiveControl => "Live Control",
+            Group::Assignable => "Assignable",
         }
     }
 
@@ -170,6 +175,19 @@ pub enum VoiceRef {
         #[serde(default)]
         bank_lsb: u8,
     },
+    /// An instrument plugin on the part (#91's `setPartPlugin`, #104): its id
+    /// (`"aumu dls  appl"`), its name for Regist Bank Info, its full state (base64; none =
+    /// its default preset), and the GM voice the part has underneath, which a build or a
+    /// Mac without the plugin plays instead.
+    Plugin {
+        id: String,
+        #[serde(default)]
+        name: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        state: Option<String>,
+        #[serde(default)]
+        program: u8,
+    },
 }
 
 impl VoiceRef {
@@ -177,10 +195,11 @@ impl VoiceRef {
         VoiceRef::Gm { program: program & 127, bank_msb: 0, bank_lsb: 0 }
     }
 
-    /// The GM program to play, when this build can play the voice.
+    /// The GM program to play, when this build can play the voice: a plugin's is the GM
+    /// voice underneath it.
     pub fn program(&self) -> Option<u8> {
         match self {
-            VoiceRef::Gm { program, .. } => Some(*program & 127),
+            VoiceRef::Gm { program, .. } | VoiceRef::Plugin { program, .. } => Some(*program & 127),
         }
     }
 }
@@ -450,7 +469,10 @@ mod tests {
         assert_eq!(serde_json::to_string(&v).unwrap(), r#"{"kind":"gm","program":48,"bankMsb":0,"bankLsb":0}"#);
         let back: VoiceRef = serde_json::from_str(r#"{"kind":"gm","program":5}"#).unwrap();
         assert_eq!(back.program(), Some(5));
-        assert!(serde_json::from_str::<VoiceRef>(r#"{"kind":"plugin","id":"x"}"#).is_err());
+        assert!(serde_json::from_str::<VoiceRef>(r#"{"kind":"clap","id":"x"}"#).is_err());
+        let p: VoiceRef = serde_json::from_str(r#"{"kind":"plugin","id":"aumu dls  appl","program":4}"#).unwrap();
+        assert_eq!(p, VoiceRef::Plugin { id: "aumu dls  appl".into(), name: String::new(), state: None, program: 4 });
+        assert_eq!(p.program(), Some(4));
     }
 
     #[test]
