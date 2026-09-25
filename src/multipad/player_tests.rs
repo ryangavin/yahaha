@@ -439,3 +439,28 @@ fn retimed_presses_start_at_the_new_tick() {
     assert_eq!(r.ons(), [60]);
     assert_eq!(p.state(0), PadState::Playing);
 }
+
+/// A key the pad strikes again before its note-off (#127): the second note sounds its
+/// full length; the first note-off ends the first strike, which the second took over.
+#[test]
+fn a_key_struck_again_before_its_note_off_sounds_its_full_length() {
+    let legato = || vec![on(0, 60), on(240, 60), off(300, 60), off(900, 60)];
+    let mut p = player(vec![pad(legato(), 1920, false, false)]);
+    let mut s = Rec::default();
+    p.trigger(0, 0);
+    p.process(0..241, None, &mut s);
+    assert_eq!(s.take(), vec![vec![0x94, 60, 100], vec![0x84, 60, 0], vec![0x94, 60, 100]]);
+    p.process(241..900, None, &mut s);
+    assert!(s.take().is_empty(), "the first strike's note-off must not end the second");
+    p.process(900..901, None, &mut s);
+    assert_eq!(s.take(), vec![vec![0x84, 60, 0]]);
+    // Stopped while the second strike still owes the first one's note-off: it ends.
+    let mut p = player(vec![pad(legato(), 1920, false, false)]);
+    p.trigger(0, 0);
+    p.process(0..250, None, &mut s);
+    s.take();
+    p.stop(0, &mut s);
+    assert!(s.take().contains(&vec![0x84, 60, 0]), "Stop leaves the re-struck note sounding");
+    p.process(250..10_000, None, &mut s);
+    assert!(s.ons().is_empty());
+}
