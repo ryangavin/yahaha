@@ -187,6 +187,15 @@ fn a_registration_stores_and_recalls_a_parts_plugin() {
     assert_eq!(s.state().keyboard_parts[0].plugin.as_ref().map(|p| p.status), Some(PluginStatus::Playing));
 
     // A plugin that isn't installed: the part plays its GM voice, and the recall says so.
+    // (Refused from the plugin list, which a live session scans at start: the load itself
+    // never scans on the control thread.)
+    s.inner.lock().start_plugin_scan(false);
+    let t0 = Instant::now();
+    while s.state().plugins.scanning || s.state().plugins.list.is_empty() {
+        assert!(t0.elapsed() < Duration::from_secs(60), "the plugin scan did not finish");
+        s.advance(1_000_000);
+        std::thread::sleep(Duration::from_millis(5));
+    }
     {
         let mut ctl = s.inner.lock();
         let m = ctl.reg.bank.memories[2].as_mut().unwrap();
