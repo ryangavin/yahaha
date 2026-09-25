@@ -92,7 +92,7 @@ export function pluginStatusLine(p: PartPlugin | undefined, available: boolean):
     case 'muted':
       return 'Muted: the plugin stopped'
     default:
-      return `${p.manufacturer}${p.outOfProcess ? ' · own process' : ''} ▾`
+      return `${p.manufacturer}${p.outOfProcess ? ' · own process' : p.inProcessFallback ? ' · ⚠ in process' : ''} ▾`
   }
 }
 
