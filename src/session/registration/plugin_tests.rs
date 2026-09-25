@@ -177,7 +177,7 @@ fn a_registration_stores_and_recalls_a_parts_plugin() {
     s.send(PluginCmd::ClearPartPlugin { part: 0 }).unwrap();
     s.send(PartsCmd::SetPartVoice { part: 0, program: 20 }).unwrap();
     s.send(RegistrationCmd::RecallRegist { index: 2 }).unwrap();
-    assert_eq!(s.state().keyboard_parts[0].plugin.as_ref().map(|p| p.status), Some(PluginStatus::Loading));
+    assert!(s.state().keyboard_parts[0].plugin.is_some(), "loading (or preloaded: playing)");
     assert_eq!(wait_loaded(&s, 0), Some(PluginStatus::Playing));
     assert_eq!(s.inner.lock().part_plugin_voice(0), Some((DLS.to_string(), Some(state.clone()))));
     assert_eq!(s.state().keyboard_parts[0].program, 5, "the GM voice underneath");
@@ -227,5 +227,88 @@ fn a_plugin_patch_is_stored_as_the_patch() {
     assert_eq!(s.state().keyboard_parts[0].patch.as_deref(), Some(id.as_str()));
     assert_eq!(wait_loaded(&s, 0), Some(PluginStatus::Playing), "the patch's plugin");
     assert!(c5(&s) > 1e-3);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Pump until `n` preloaded instances are ready (or 20 s).
+fn wait_warm(s: &Session, n: usize) -> usize {
+    let t0 = Instant::now();
+    loop {
+        s.advance(1_000_000);
+        let k = s.inner.lock().warm_ready();
+        if k == n || t0.elapsed() > Duration::from_secs(20) {
+            return k;
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    }
+}
+
+/// Selecting a bank preloads its buttons' plugins (with their states) off the real-time
+/// threads, so a recall plays at the next pump instead of loading; the pool refills what a
+/// press used, and a bank without plugins lets them go.
+#[test]
+fn a_selected_banks_plugins_are_preloaded() {
+    let Some((s, dir)) = session("warm", None) else { return };
+    s.send(PluginCmd::SetPartPlugin { part: 0, id: DLS.into(), state: None }).unwrap();
+    assert_eq!(wait_loaded(&s, 0), Some(PluginStatus::Playing));
+    s.send(RegistrationCmd::MemorizeRegist { index: 0 }).unwrap();
+    wait_reads(&s);
+    s.send(RegistrationCmd::SaveRegistBank { name: Some("Warm".into()), overwrite: false }).unwrap();
+    let path = s.state().registration.banks.iter().find(|b| b.name == "Warm").unwrap().path.clone();
+    s.send(PluginCmd::ClearPartPlugin { part: 0 }).unwrap();
+    s.send(RegistrationCmd::NewRegistBank).unwrap();
+    assert_eq!(wait_warm(&s, 0), 0, "an empty bank keeps nothing warm");
+
+    s.send(RegistrationCmd::SelectRegistBank { path }).unwrap();
+    assert_eq!(wait_warm(&s, 1), 1, "the bank's plugin is preloaded");
+    assert!(s.state().keyboard_parts[0].plugin.is_none(), "preloaded, not playing");
+    let used = s.inner.lock().plugins.warm.used;
+    s.send(RegistrationCmd::RecallRegist { index: 0 }).unwrap();
+    assert_eq!(s.inner.lock().plugins.warm.used, used + 1, "the recall takes the preloaded instance");
+    s.advance(1_000_000);
+    assert_eq!(s.state().keyboard_parts[0].plugin.as_ref().map(|p| p.status), Some(PluginStatus::Playing), "the recall plays at the next pump");
+    let stored = stored_voice(&s, 0)["state"].as_str().map(str::to_string);
+    assert_eq!(s.inner.lock().part_plugin_voice(0).unwrap().1, stored, "with the button's state");
+    assert!(c5(&s) > 1e-3);
+    assert_eq!(wait_warm(&s, 1), 1, "the pool refills");
+    s.send(RegistrationCmd::NewRegistBank).unwrap();
+    assert_eq!(wait_warm(&s, 0), 0);
+    assert!(s.inner.lock().plugins.warm.entries.is_empty());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// What a bank preloads: each plugin voice once per part a single button plays it on, in
+/// button order; the pool keeps at most `MAX_WARM`.
+#[test]
+fn a_banks_plugin_voices() {
+    use crate::registration::{Bank, Memory};
+    use serde_json::json;
+    let voice = |id: &str, state: Option<&str>| match state {
+        Some(s) => json!({ "kind": "plugin", "id": id, "state": s }),
+        None => json!({ "kind": "plugin", "id": id }),
+    };
+    let button = |voices: Vec<Value>| {
+        let parts: Vec<Value> = voices.into_iter().map(|v| json!({ "on": true, "voice": v, "volume": 100, "octave": 0 })).collect();
+        let mut m = Memory::default();
+        m.sections.insert("parts".into(), json!({ "parts": parts }));
+        Some(m)
+    };
+    let mut b = Bank::new("b");
+    b.memories[0] = button(vec![voice("aumu a", None), voice("aumu a", None), json!({ "kind": "gm", "program": 1 })]);
+    b.memories[3] = button(vec![voice("aumu a", None), voice("aumu b", Some("AQID"))]);
+    b.memories[5] = button(vec![voice("aumu b", Some("AQID")), voice("aumu b", Some("not base64!"))]);
+    let v = super::bank_plugin_voices(&b);
+    let ids: Vec<(&str, Option<&[u8]>)> = v.iter().map(|v| (v.id.as_str(), v.state.as_deref())).collect();
+    assert_eq!(ids, [("aumu a", None), ("aumu a", None), ("aumu b", Some(&[1u8, 2, 3][..]))]);
+    for i in 0..10 {
+        b.memories[i] = button(vec![voice(&format!("aumu {i}"), None)]);
+    }
+    assert_eq!(super::bank_plugin_voices(&b).len(), 10);
+    let Some((s, dir)) = session("warm-cap", None) else { return };
+    s.inner.lock().warm_plugins(super::bank_plugin_voices(&b));
+    assert!(s.inner.lock().plugins.warm.entries.is_empty(), "unknown plugins are not loaded");
+    let dls: Vec<crate::session::PluginVoice> = (0..10).map(|_| crate::session::PluginVoice { id: DLS.into(), state: None }).collect();
+    s.inner.lock().warm_plugins(dls);
+    assert_eq!(s.inner.lock().plugins.warm.entries.len(), crate::session::plugins::pool::MAX_WARM, "bounded");
     let _ = std::fs::remove_dir_all(&dir);
 }

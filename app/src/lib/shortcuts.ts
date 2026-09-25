@@ -32,9 +32,9 @@ export function handleKey(e: KeyboardEvent) {
     else if (document.activeElement instanceof HTMLElement && document.activeElement !== document.body) document.activeElement.blur()
     return
   }
-  // The style browser owns the keyboard while open (its filter takes typed keys).
-  // Side drawers don't: performance keys keep working next to them.
-  if (ui.browser) return
+  // The style and sound browsers own the keyboard while open (their filters take typed
+  // keys). Side drawers don't: performance keys keep working next to them.
+  if (ui.browser || ui.soundBrowser !== null) return
   if (isTextField(target)) return
   if (target instanceof HTMLButtonElement && (e.key === ' ' || e.key === 'Enter')) return
   const b = binding(e)
