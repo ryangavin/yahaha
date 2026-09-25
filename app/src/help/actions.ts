@@ -240,5 +240,14 @@ export function tipFor(cmd: AppCmd | null): TipKey {
     case 'assignSound': return 'sounds.row'
     case 'setSoundCategory': return 'sound.category'
     case 'setParamLock': return cmd.item === 'splitPoint' ? 'settings.param_lock_split_point' : 'settings.param_lock_fingering_type'
+    // Style Dynamics (#180).
+    case 'setDynamicsControl': return 'dynamics.control'
+    case 'setDynamics':
+    case 'stepDynamics': return 'dynamics.level'
+    case 'setDynamicsTouch':
+    case 'toggleDynamicsTouch': return 'dynamics.touch'
+    case 'setAccent':
+    case 'toggleAccent': return 'dynamics.accent'
+    case 'setAccentThreshold': return 'dynamics.accent_threshold'
   }
 }

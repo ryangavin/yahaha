@@ -218,7 +218,7 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | **Edit plugin** | Opens the plugin's own window to change its sound. yahaha keeps the plugin's settings with the part. | — | — | — |
 | **Rescan plugins** | Looks for newly installed or removed instrument plugins. A ⚠ in the Sound Browser marks a plugin that failed to load last time. | — | — | — |
 | **Reload plugin** | Loads the selected part's plugin again, with its saved sound, after it stopped working or failed to load. The Launchkey button lights red while there is one to reload. | — | `S` | Panel fader page: button under fader 6 |
-| **Run in process** | Runs this plugin inside yahaha instead of in its own process: a little less CPU for the lightest plugins, but if the plugin crashes, yahaha goes with it. It is remembered for the plugin and applies from its next load. | — | — | — |
+| **Run in process** | Runs this plugin inside yahaha instead of in its own process: a little less CPU for the lightest plugins, but if the plugin crashes, yahaha goes with it. It is remembered for the plugin and applies from its next load: a part already playing it keeps running where it is, and the button shows ↻ until the plugin loads again (pick it again, or the next start). A plugin preloaded for the Registration bank loads again in the new mode at once. | — | — | — |
 | **Sound** | What this part plays. Click to open the Sound Browser and pick a SoundFont preset, an instrument plugin or a saved sound. Under Manual Bass, Left plays the style's Bass voice instead, and this is the sound it goes back to. | Voice select (VOICE buttons) | — | Pad page 3 (OTS/Parts): the Edit pads (bottom row, pads 5–8) pick the part, Voice −/+ (top row, pads 7–8) step its voice |
 | **Layer** | The Right parts that are on all sound together on every key above the split: that's a layer. Turn on Right 1 and Right 2 to stack, for example, piano and strings. | PART ON/OFF (Right 1–3 layered) | `5` `6` `7` | Panel fader page: buttons under faders 1–3 |
 | **Left hand** | Left plays the keys at and below the split point, with its own voice. Under Manual Bass it plays the style's Bass voice there instead, and the band's own bass goes quiet. | Split Point (Left) | — | — |
@@ -297,6 +297,16 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | **Metronome** | A click on every beat, with the band while it plays and on its own at the tempo while stopped. It sounds on the built-in synth only and never goes out on the MIDI port. | Menu › Metronome › On/Off | `.` | — |
 | **Metronome volume** | The click's own level (0–127). The synth's master volume applies on top of it. | Menu › Metronome › Volume | — | — |
 | **Bell on beat 1** | A higher bell instead of the click on the first beat of each bar. | Menu › Metronome › Bell Sound | — | — |
+
+## Style Dynamics
+
+| control | what it does | Genos | key | Launchkey |
+|---|---|---|---|---|
+| **Dynamics Control** | On: the Dynamics level (and Touch) can change how hard the band plays. Off: the Style plays exactly as written. | Menu › Style Setting › Dynamics Control | — | — |
+| **Dynamics** | How hard the whole band plays, 0–127; at 64 the Style plays as written. It changes every Style note's velocity, so the drums and instruments get softer and darker or harder and brighter, not just quieter or louder. The mixer volumes stay as they are. | Live Control › Style Dynamics (DynCtrl) | — | — |
+| **Touch** | The band follows your left hand. Each key you strike in the chord section sets the Dynamics level from how hard you hit it, and a strike at velocity 100 plays the Style as written. | — | — | — |
+| **Accent** | Strike a chord-section key at least as hard as the threshold while a Main plays, and the Main plays its own fill from the next beat, so you can play the fills with your left hand. It is not a Main press, so OTS Link does not follow it, and nothing happens during an Intro, fill, break or Ending. | — | — | — |
+| **Accent threshold** | How hard (velocity 1–127) a chord-section strike must be to play the fill. The default is 110. | — | — | — |
 
 ## Chord Looper
 

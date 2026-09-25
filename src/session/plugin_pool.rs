@@ -93,6 +93,19 @@ impl Control {
         }
     }
 
+    /// Plugin `id`'s "run in process" override changed (#176): its preloaded instances
+    /// were loaded in the old mode. They go (disposed of on `plugin-dispose`, a running load
+    /// abandoned) and load again in the new mode on `plugin-load` threads. A preload of it
+    /// that failed is tried again, since the new mode may load it.
+    pub(crate) fn rewarm_plugin(&mut self, id: &str) {
+        let pool = &mut self.plugins.warm;
+        pool.failed.retain(|v| v.id != id);
+        let (old, keep): (Vec<Warm>, Vec<Warm>) = std::mem::take(&mut pool.entries).into_iter().partition(|w| w.voice.id == id);
+        pool.entries = keep;
+        old.into_iter().for_each(evict);
+        self.sync_warm();
+    }
+
     /// A preloaded instance of `voice` (loaded, or still loading), for a part to play.
     pub(crate) fn take_warm(&mut self, voice: &PluginVoice) -> Option<Warm> {
         let rate = self.plugin_rate();
