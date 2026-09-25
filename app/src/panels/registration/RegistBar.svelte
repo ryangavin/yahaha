@@ -1,6 +1,6 @@
 <!--
-  The Registration bar, under the app bar: the Genos REGISTRATION MEMORY section and the
-  Playlist, always in reach while you play.
+  The Registration bar, under the keyboard strip (the Genos has these buttons by the keys):
+  the Genos REGISTRATION MEMORY section and the Playlist, always in reach while you play.
 
   [◀ Bank ▶] [1]…[10] [Memory] [Freeze] [Regist − 3/6 +] [◀ Song ▶] [Panel]
 
