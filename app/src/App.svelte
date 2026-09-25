@@ -3,6 +3,7 @@
   strip) and the panels that open around it. Each lives in its own folder under src/panels/.
 
   ┌ app bar: Parts & OTS · Mixer · Browse · Charts · Settings ······· ? · theme ┐
+  │ transport: Start/Stop · Sync · Intro · Ending · Tempo −/+ · Tap · bar.beat  │
   │ ┌ stage ──────────────────────────────────────────────────────────────┐   │
   │ │ lead-sheet band (panels/leadsheet): now · bar cells / chart · next  │   │
   │ │ Launchkey mirror (panels/launchkey)                                 │ ┌ drawer ┐
@@ -34,6 +35,7 @@
   import Browser from './panels/browser/Browser.svelte'
   import Charts from './panels/charts/Charts.svelte'
   import Header from './panels/header/Header.svelte'
+  import TransportBar from './panels/header/TransportBar.svelte'
   import KeyStrip from './panels/keystrip/KeyStrip.svelte'
   import Launchkey from './panels/launchkey/Launchkey.svelte'
   import LeadSheet from './panels/leadsheet/LeadSheet.svelte'
@@ -73,6 +75,7 @@
 
 <div class="app">
   <Header />
+  <TransportBar />
 
   <main class="stage">
     <div class="stack">

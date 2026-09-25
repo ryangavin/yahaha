@@ -75,6 +75,27 @@
     border: 1px dashed var(--line-strong);
     border-radius: 3px;
   }
+  /* The 900px minimum window: the panel buttons and the app controls still fit one row. */
+  @media (max-width: 1000px) {
+    .bar {
+      gap: 0.6rem;
+    }
+    .sub {
+      display: none;
+    }
+    .drawers {
+      gap: 0.3rem;
+      margin-left: 0;
+    }
+    .app-controls {
+      gap: 0.3rem;
+    }
+    .badge {
+      max-width: 3.6rem;
+      line-height: 1.1;
+      text-align: center;
+    }
+  }
   @media (max-width: 760px) {
     .bar {
       flex-wrap: wrap;
