@@ -27,6 +27,11 @@ pub enum SettingsCmd {
     SetMidiInputs { all: bool, names: Vec<String> },
     /// Launchkey LEDs in Novation palette colours (and hardware flashing) instead of RGB.
     SetPaletteLeds { on: bool },
+    /// The synth's audio buffer: 64, 128 or 256 frames (`io.synth.bufferFrames`). Larger
+    /// buffers give heavy plugins more time per block, at the cost of latency. The output
+    /// reopens with a moment of silence; voices, plugins and held notes carry over. A live
+    /// session remembers it.
+    SetAudioBuffer { frames: u32 },
 }
 
 /// MIDI and audio.

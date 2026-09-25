@@ -53,6 +53,7 @@ mod settings;
 mod style_change;
 mod sound_library;
 mod sound_set;
+mod sounds;
 mod style_settings;
 mod surface;
 mod system;
@@ -79,7 +80,7 @@ use leds::Leds;
 use library::{open_library, Loaded};
 use offline::Offline;
 use rtrb::{Consumer, Producer, RingBuffer};
-use settings::{is_daw, start_synth, MidiIo, RackLoad, SynthRef};
+use settings::{is_daw, saved_buffer, start_synth, MidiIo, RackLoad, SynthMsg, SynthRef};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering::Relaxed};
 use std::sync::{mpsc, Arc, Mutex, MutexGuard};
@@ -109,6 +110,9 @@ pub struct Options {
     pub palette_leds: bool,
     /// 1-based left output channel for the synth (None = auto).
     pub audio_out: Option<u8>,
+    /// The synth's buffer size in frames, 64, 128 or 256 (None: the one saved by
+    /// `SetAudioBuffer`, else 64).
+    pub audio_buffer: Option<u32>,
     /// Chord fingering type at startup.
     pub fingering: Fingering,
     /// Chord Detection Area = Upper.
@@ -143,6 +147,7 @@ impl Default for Options {
             sound_font_dir: None,
             palette_leds: false,
             audio_out: None,
+            audio_buffer: None,
             fingering: Fingering::FingeredOnBass,
             upper: false,
             manual_bass: true,
@@ -193,7 +198,7 @@ struct Live {
 }
 
 struct SynthThread {
-    stop: mpsc::Sender<()>,
+    stop: mpsc::Sender<SynthMsg>,
     thread: std::thread::JoinHandle<()>,
 }
 
@@ -307,6 +312,8 @@ struct Control {
     sound: sound_library::SoundLib,
     /// The default sound set (#117).
     sound_set: sound_set::SoundSet,
+    /// The sound catalog (#117).
+    sounds: sounds::Sounds,
 }
 
 /// What several parts of the state read, read once per `build_state` so they all agree.
@@ -369,6 +376,7 @@ impl Control {
             AppCmd::HarmonyArp(c) => self.harmony_arp_cmd(c),
             AppCmd::SoundLibrary(c) => self.sound_library_cmd(c),
             AppCmd::ParamLock(c) => self.param_lock_cmd(c),
+            AppCmd::Sounds(c) => self.sounds_cmd(c),
         }
     }
 
@@ -484,6 +492,7 @@ impl Control {
             plugins: self.plugins_state(),
             sound_library: self.sound_library_state(),
             param_locks: self.param_lock_state(),
+            sounds: self.sounds_state(),
         }
     }
 }
@@ -509,6 +518,9 @@ impl Inner {
             ctl.lib_published = ctl.lib_rev;
             ctl.lib_published_ns = now;
             events.push(Event::LibraryChanged { revision: ctl.lib_rev });
+        }
+        if let Some(revision) = ctl.sounds_touch() {
+            events.push(Event::SoundsChanged { revision });
         }
         let mut st = ctl.build_state(now);
         {
@@ -666,6 +678,7 @@ fn assemble(opts: &Options, engine_out: live::Out, input_out: live::Out, offline
         plugins: Default::default(),
         harmony_arp: live::FxConfig::default(),
         sound,
+        sounds: sounds::Sounds::open(sound_set.file()),
         sound_set,
     };
     let mut control = control;
@@ -706,7 +719,8 @@ impl Session {
         if let Some(sf2) = &main_font {
             let main = sf2.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
             let routing = synth::Routing { routes: shared.routes.clone(), font_id: p.control.sound.font_id(&main).unwrap_or(0) };
-            match start_synth(sf2, std::mem::take(&mut feeds.consumers), opts.audio_out, shared.parts.clone(), routing) {
+            let buffer = opts.audio_buffer.or_else(saved_buffer);
+            match start_synth(sf2, std::mem::take(&mut feeds.consumers), opts.audio_out, shared.parts.clone(), routing, buffer) {
                 Ok((r, t)) => {
                     p.control.sound.synth_started(&main);
                     p.control.sound.audition_tx = feeds.control.take();
@@ -797,6 +811,13 @@ impl Session {
         }
     }
 
+    /// The sound catalog (#117): every preset, plugin and saved sound, for the Sound
+    /// Browser. Fetch it again when `AppState::sounds.revision` (`Event::SoundsChanged`)
+    /// moves. Cheap while it hasn't: an `Arc` clone.
+    pub fn sound_catalog(&self) -> Arc<SoundCatalog> {
+        self.inner.lock().sound_catalog()
+    }
+
     /// Notifications: a `StateChanged` whenever the state's version moves, a
     /// `LibraryChanged` when the library does, `Stopped` at the end. Unread events queue up;
     /// drop the receiver to unsubscribe.
@@ -879,7 +900,7 @@ impl Session {
             }
             self.inner.lock().save_plugin_states_on_stop();
             if let Some(s) = live.synth {
-                let _ = s.stop.send(());
+                let _ = s.stop.send(SynthMsg::Stop);
                 let _ = s.thread.join();
             }
             live.client.dispose();

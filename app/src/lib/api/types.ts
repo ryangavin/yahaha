@@ -8,7 +8,9 @@
 
 import type { PlaylistCmd, PlaylistState, RegistrationCmd, RegistrationState } from './registration'
 import type { SoundLibraryCmd, SoundLibraryState } from './sound-library'
+import type { SoundsCmd, SoundsState } from './sounds'
 export type * from './sound-library'
+export type * from './sounds'
 
 export type Fingering =
   | 'singleFinger' | 'multiFinger' | 'fingered' | 'fingeredOnBass'
@@ -140,6 +142,9 @@ export type AppCmd =
   | { type: 'setMidiInputs'; all: boolean; names: string[] }
   /** Launchkey LEDs in Novation palette colours instead of RGB. */
   | { type: 'setPaletteLeds'; on: boolean }
+  /** The synth's audio buffer, 64, 128 or 256 frames (`io.synth.bufferFrames`). The
+   * output reopens; voices, plugins and held notes carry over. */
+  | { type: 'setAudioBuffer'; frames: 64 | 128 | 256 }
   /** Re-walk the style folders (`library.roots`); `library.scanning` while it runs. */
   | { type: 'rescanLibrary' }
   // iReal Pro chart player: see ChartState below.
@@ -167,6 +172,8 @@ export type AppCmd =
   | PluginCmd
   // Sound library: patches, the program map (docs/sound-library.md)
   | SoundLibraryCmd
+  // The sound catalog (#117): favourites, audition, assigning a sound to a part
+  | SoundsCmd
   // Keyboard Harmony / Arpeggio (docs/app-api.md): see HarmonyArpState below.
   | HarmonyArpCmd
   // Parameter Lock: groups that Registration, OTS and Playlist recalls leave alone.
@@ -273,6 +280,7 @@ export type FadeState = 'off' | 'armed' | 'fadingIn' | 'fadingOut' | 'holding'
 export type SessionEvent =
   | { type: 'stateChanged'; version: number }
   | { type: 'libraryChanged'; revision: number }
+  | { type: 'soundsChanged'; revision: number }
   | { type: 'stopped' }
 
 export interface Pad {
@@ -858,6 +866,8 @@ export interface AppState {
   soundLibrary: SoundLibraryState
   /** Parameter Lock: the locked groups. */
   paramLocks: ParamLockState
+  /** The sound catalog's summary (#117); the list is `session.sounds()`. */
+  sounds: SoundsState
 }
 
 // ── Instrument plugins (docs/plugin-hosting.md) ──────────────────────────

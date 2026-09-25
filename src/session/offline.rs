@@ -186,6 +186,7 @@ impl Session {
                 control,
                 swap: Some(swap),
                 plugins,
+                thread: None,
             });
         }
         self.settle();
@@ -193,16 +194,18 @@ impl Session {
     }
 
     /// Offline only, after [`Session::offline_audio`]: render `frames` of stereo (in
-    /// buffers of 64, as a device would), then pump and publish. Empty without a synth.
+    /// buffers of 64, or the size `SetAudioBuffer` chose, as a device would), then pump
+    /// and publish. Empty without a synth.
     pub fn render(&self, frames: usize) -> (Vec<f32>, Vec<f32>) {
         let (mut l, mut r) = (Vec::with_capacity(frames), Vec::with_capacity(frames));
         {
             let mut ctl = self.inner.lock();
+            let block = ctl.synth.as_ref().and_then(|s| s.info.buffer).unwrap_or(synth::DEFAULT_BUFFER).min(512) as usize;
             let Some(core) = ctl.offline.as_mut().and_then(|o| o.audio.as_mut()) else { return (l, r) };
-            let mut buf = [0f32; 128];
+            let mut buf = [0f32; 1024];
             let mut done = 0;
             while done < frames {
-                let n = (frames - done).min(64);
+                let n = (frames - done).min(block);
                 core.process(&mut buf[..n * 2]);
                 for f in buf[..n * 2].chunks(2) {
                     l.push(f[0]);

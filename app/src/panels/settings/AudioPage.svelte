@@ -1,7 +1,8 @@
 <!--
   Audio: the built-in SoundFont synth (yahaha-only; the Genos has its own tone
   generator). On/off, the output pair (multi-output interfaces list every pair), the
-  SoundFont (`setSoundFont`, from the .sf2 files in the synth's folder) and master volume.
+  SoundFont (`setSoundFont`, from the .sf2 files in the synth's folder), the buffer size
+  (`setAudioBuffer`, for heavy plugins) and master volume.
 -->
 <script lang="ts">
   import { settings } from '../../lib/api/settings.svelte'
@@ -12,6 +13,8 @@
   import HSlider from './HSlider.svelte'
 
   const synth = $derived(app.state.io.synth)
+  /** `setAudioBuffer`'s sizes, in frames. */
+  const BUFFERS = [64, 128, 256] as const
   const master = $derived(app.state.mixer.master)
   const view = $derived(settings.view(app.state))
   // A setting the engine lacks (an older engine) is badged and inert: it never pretends to work.
@@ -62,6 +65,22 @@
     columns={Math.min(4, pairs.length)}
     options={pairs}
     onselect={(first) => app.send({ type: 'setAudioOutput', first })}
+  />
+</Field>
+
+<Field
+  name="Buffer size"
+  note={synth
+    ? `${synth.bufferFrames ? `${((synth.bufferFrames / synth.sampleRate) * 1000).toFixed(1)} ms per buffer. ` : ''}Raise it if a heavy plugin crackles or shows overruns.`
+    : null}
+>
+  <Choice
+    label="Buffer size"
+    disabled={!synth}
+    value={synth?.bufferFrames ?? null}
+    columns={3}
+    options={BUFFERS.map((n) => ({ id: n, label: `${n}`, tip: 'audio.buffer' as const }))}
+    onselect={(frames) => app.send({ type: 'setAudioBuffer', frames: frames as (typeof BUFFERS)[number] })}
   />
 </Field>
 
