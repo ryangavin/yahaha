@@ -356,8 +356,10 @@ impl Parts {
         self.rebind.swap(false, Acquire).then(|| self.rebind_hw.each_ref().map(|a| a.load(Relaxed)))
     }
 
-    /// Load a One Touch Setting into Right 1-3 and Left: voice, on/off, volume, octave.
-    /// Drum-kit voices (bank MSB 126/127) keep the part's current voice.
+    /// Load a One Touch Setting into Right 1-3 and Left: voice, on/off, volume, octave, and
+    /// the pan and reverb/chorus sends the OTS sets (the engine thread sends them; one it
+    /// doesn't set stays as it is). Drum-kit voices (bank MSB 126/127) keep the part's
+    /// current voice.
     pub fn apply_ots(&self, ots: &crate::sff::Ots, number: u8) {
         for (p, part) in ots.parts.iter().enumerate() {
             if let Some((_, _, pc)) = part.voice.filter(|v| v.0 < 126) {
@@ -366,6 +368,9 @@ impl Parts {
             self.on[p].store(part.on, Relaxed);
             self.set_volume(p, part.volume);
             self.octave[p].store(part.octave, Relaxed);
+            if part.fx.iter().any(Option::is_some) {
+                self.set_fx(p, part.fx);
+            }
         }
         self.selected.store(RIGHT1 as u8, Relaxed);
         self.ots_applied.store(number, Relaxed);
