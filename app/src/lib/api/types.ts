@@ -883,6 +883,8 @@ export type PluginCmd =
   | { type: 'rescanPlugins' }
   /** Run plugin `id` in yahaha's process (true) or its own (false); from its next load. */
   | { type: 'setPluginInProcess'; id: string; inProcess: boolean }
+  /** Load a part's plugin again after it stopped or failed (null: the selected part). */
+  | { type: 'reloadPartPlugin'; part: number | null }
 
 /** loading: still on the SoundFont; failed: back on it; muted: the plugin crashed. */
 export type PluginStatus = 'loading' | 'playing' | 'failed' | 'muted'

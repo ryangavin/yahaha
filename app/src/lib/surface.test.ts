@@ -23,7 +23,7 @@ describe('the mock surface matches the engine (src/session.rs surface)', () => {
       'padBankUp', 'padBankDown', 'trackPrev', 'trackNext', 'play', 'stop', 'scene', 'function',
       'faderButton1', 'faderButton2', 'faderButton3', 'faderButton4', 'faderButton5', 'faderButton6', 'faderButton7', 'faderButton8', 'masterButton',
     ])
-    expect(labels(m)).toEqual(['', 'PAGE ▼', '◀ STYLE', 'STYLE ▶', 'PLAY', 'STOP', 'TEMPO +', 'TEMPO -', 'RIGHT 1', 'RIGHT 2', 'RIGHT 3', 'LEFT', 'HARM/ARP', '', '', '', 'PANEL'])
+    expect(labels(m)).toEqual(['', 'PAGE ▼', '◀ STYLE', 'STYLE ▶', 'PLAY', 'STOP', 'TEMPO +', 'TEMPO -', 'RIGHT 1', 'RIGHT 2', 'RIGHT 3', 'LEFT', 'HARM/ARP', 'PLUGIN', '', '', 'PANEL'])
     expect(m.state.surface.controls.map((c) => c.shiftLabel).slice(0, 2)).toEqual(['LEFT', 'OTS LINK'])
     expect(m.state.surface.controls[8].shiftLabel).toBe('EDIT R1')
     expect(m.state.surface.faders).toHaveLength(9)
@@ -38,6 +38,22 @@ describe('the mock surface matches the engine (src/session.rs surface)', () => {
     expect([b5().action, b5().level, b5().rgb]).toEqual([{ type: 'toggleHarmonyArp' }, 'dim', [90, 0, 127]])
     m.send({ type: 'toggleHarmonyArp' })
     expect(b5().level).toBe('bright')
+  })
+
+  it('Panel button 6 reloads the selected part\'s plugin, lit red while it failed', () => {
+    const m = new MockSession({ manual: true, demo: true })
+    const b6 = () => m.state.surface.controls.find((x) => x.id === 'faderButton6')!
+    expect([b6().label, b6().action, b6().level]).toEqual(['PLUGIN', { type: 'reloadPartPlugin', part: null }, 'off'])
+    m.send({ type: 'setPartPlugin', part: 0, id: 'aumu Mock Demo', state: null })
+    m.advance(1000)
+    expect([b6().level, b6().rgb]).toEqual(['bright', [127, 0, 0]])
+    m.send({ type: 'selectPart', part: 1 })
+    expect(b6().level).toBe('off')
+    m.send({ type: 'selectPart', part: 0 })
+    m.send({ type: 'reloadPartPlugin', part: null })
+    expect(m.state.keyboardParts[0].plugin!.status).toBe('loading')
+    m.advance(1000)
+    expect(m.state.keyboardParts[0].plugin!.status).toBe('failed')
   })
 
   it('Play, Stop, Scene and Function are not driven: off, no colour', () => {

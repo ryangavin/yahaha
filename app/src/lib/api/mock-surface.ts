@@ -17,6 +17,7 @@ const PINK = 57
 const PURPLE = 53
 const DIM_PURPLE = 55
 const ORANGE = 9
+const RED = 5
 const PALETTE: Record<number, [Rgb, Level]> = {
   [WHITE]: [[127, 127, 127], 'bright'],
   [CYAN]: [[0, 100, 127], 'bright'],
@@ -27,12 +28,15 @@ const PALETTE: Record<number, [Rgb, Level]> = {
   [BLUE]: [[0, 0, 127], 'bright'],
   [DIM_BLUE]: [[0, 0, 127], 'dim'],
   [PURPLE]: [[90, 0, 127], 'bright'],
+  [RED]: [[127, 0, 0], 'bright'],
   [DIM_PURPLE]: [[90, 0, 127], 'dim'],
 }
 const PAGE_COLOUR = [WHITE, CYAN, PINK, ORANGE]
 
 /** The Panel-page fader button (0-based) that is the HARMONY/ARPEGGIO switch (src/launchkey.rs). */
 const HARM_ARP_FADER_BTN = 4
+/** The Panel-page fader button that reloads the selected part's plugin (src/launchkey.rs). */
+const PLUGIN_FADER_BTN = 5
 const PART_LABELS = ['RIGHT 1', 'RIGHT 2', 'RIGHT 3', 'LEFT']
 const SELECT_LABELS = ['EDIT R1', 'EDIT R2', 'EDIT R3', 'EDIT L']
 
@@ -111,6 +115,10 @@ export function mockSurface(s: AppState, lib: LibraryList, hw: MockHardware): Su
       }))
     } else if (i === HARM_ARP_FADER_BTN) {
       controls.push(control(id, cc, 'HARM/ARP', { type: 'toggleHarmonyArp' }, s.harmonyArp.on ? PURPLE : DIM_PURPLE))
+    } else if (i === PLUGIN_FADER_BTN) {
+      // Red while the selected part's plugin stopped or failed to load: press to reload it.
+      const st = s.keyboardParts.find((k) => k.selected)?.plugin?.status
+      controls.push(control(id, cc, 'PLUGIN', { type: 'reloadPartPlugin', part: null }, st === 'muted' || st === 'failed' ? RED : OFF))
     } else controls.push(control(id, cc, '', null, OFF))
   }
   controls.push(control('masterButton', 45, style ? 'STYLE' : 'PANEL', { type: 'toggleFaderPage' }, style ? GREEN : BLUE))

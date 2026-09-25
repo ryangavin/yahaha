@@ -909,3 +909,46 @@ fn a_style_change_from_an_intro_or_a_fill_waits_for_the_bar_line() {
         assert_eq!(e.change_point(Change::Style, in_fill), (2.0 * tpb, 2.0 * tpb), "{main_timing:?}: from the fill");
     }
 }
+
+/// An Ending queued in a Main changes nothing the band plays before its bar line (#129):
+/// no fade, no CC7/CC11, no note cut early. Up to the Ending's start every message, and its
+/// time, is what the band sends with no Ending pressed. Ending I, II and III, pressed
+/// mid-bar and within a bar's first beat, on a MOX and a T5 style.
+#[test]
+fn a_queued_ending_changes_nothing_before_its_bar_line() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus");
+    for name in ["MOX_v2/SlowWalker.T552.sty", "MOX_v2/NightCruiser.S930.STY", "T5Style/60s8Beat.T160.prs"] {
+        let p = root.join(name);
+        if !p.exists() {
+            eprintln!("corpus missing; skipping");
+            return;
+        }
+        let style = Style::load(&p).unwrap();
+        let band = || {
+            let mut e = Engine::new(Box::new(Prepared::new(&style)));
+            let mut rec = Rec::default();
+            e.set_chord(chord("C"), 0, &mut rec);
+            (e, rec)
+        };
+        for end in 0..3u8 {
+            for beats in [2.5, 0.25] {
+                let (mut e, mut rec) = band();
+                let (ppq, tpb, _) = grid(&e);
+                let press = e.ns_at(tpb + beats * ppq);
+                play(&mut e, &mut rec, 0, press);
+                rec.now = press;
+                e.button(Button::Ending(end), press, &mut rec);
+                let q = e.queued.expect("the Ending is queued");
+                assert!(matches!(id_of(q.slot), SectionId::Ending(_)), "{name} E{end}");
+                assert_eq!(q.at, 2.0 * tpb, "{name} E{end}: at the next bar line");
+                let start = e.ns_at(q.at);
+                play(&mut e, &mut rec, press, start);
+                assert!(matches!(id_of(e.cur), SectionId::Ending(_)), "{name} E{end}: the Ending plays");
+                let (mut b, mut brec) = band();
+                play(&mut b, &mut brec, 0, start);
+                let before = |r: &Rec| r.msgs.iter().filter(|(t, _)| *t < start).cloned().collect::<Vec<_>>();
+                assert_eq!(before(&rec), before(&brec), "{name} E{end} pressed at beat {beats}: the Main plays on unchanged up to the Ending");
+            }
+        }
+    }
+}
