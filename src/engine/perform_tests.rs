@@ -690,6 +690,37 @@ fn a_style_chosen_while_an_ending_is_queued_waits_for_its_end() {
     }
 }
 
+/// A queued Ending cancelled (another Main, or the Main's own fill, pressed before it
+/// starts) with a style change waiting for it (#175): the style no longer waits for the
+/// Ending's end, it comes in at the bar line it would have without the Ending.
+#[test]
+fn a_cancelled_queued_ending_no_longer_delays_a_style_change() {
+    for cancel in [Button::Main(1), Button::Main(0)] {
+        let Some((mut e, mut rec)) = started(StyleSettings::default()) else { return };
+        let Some(other) = other_style() else { return };
+        let (ppq, tpb, _) = grid(&e);
+        let end1 = slot_of(SectionId::Ending(0));
+        if !e.style.has(end1) || !e.style.has(slot_of(SectionId::Main(1))) {
+            return;
+        }
+        let t = e.ns_at(tpb + 1.5 * ppq);
+        play(&mut e, &mut rec, 0, t);
+        e.button(Button::Ending(0), t, &mut rec);
+        let new_bpm = other.bpm;
+        e.change_style(other, t + 1_000, &mut rec);
+        e.button(cancel, t + 2_000, &mut rec);
+        assert!(e.queued.is_some_and(|q| q.slot != end1), "{cancel:?}: the Ending is off");
+        let at = e.pending.as_ref().map(|p| p.at).expect("the style waits");
+        assert!((at - 2.0 * tpb).abs() < 1e-6, "{cancel:?}: for the next bar line, not the Ending's end: {at}");
+        let bar2 = e.ns_at(2.0 * tpb);
+        play(&mut e, &mut rec, t + 2_000, bar2 + 1_000);
+        assert!(e.running, "{cancel:?}: the band plays on");
+        assert!(!e.style_pending(), "{cancel:?}: the new style came in at the bar line");
+        assert_eq!(e.style.bpm, new_bpm);
+        assert!(matches!(id_of(e.cur), SectionId::Main(_)), "{cancel:?}: a Main plays");
+    }
+}
+
 /// TAP TEMPO during a ritardando (Style Section Reset off): the tapped tempo is the one the
 /// band slows from and comes back to at the stop.
 #[test]
