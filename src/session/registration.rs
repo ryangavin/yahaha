@@ -8,6 +8,7 @@
 //! order. While a recall settles, OTS Link holds still (`registration_holds_ots`): the
 //! registration's own voices win over the OTS of the section it selects.
 
+mod plugin;
 mod sections;
 
 pub(super) use sections::REGISTRABLES;
@@ -78,6 +79,8 @@ pub(super) struct RegState {
     ots_hold: Option<(Option<u8>, u64)>,
     /// Regist Bank Info, rebuilt when the bank changes.
     buttons: Vec<RegistButton>,
+    /// A Memorize waiting for its parts' plugin states (registration/plugin.rs).
+    plugin_fill: Option<plugin::PluginFill>,
 }
 
 impl RegState {
@@ -99,6 +102,7 @@ impl RegState {
             deferred: None,
             ots_hold: None,
             buttons: Vec::new(),
+            plugin_fill: None,
         };
         let setup = r.dir.as_deref().and_then(|d| std::fs::read_to_string(d.join(SETUP_FILE)).ok());
         let setup = setup.and_then(|t| serde_json::from_str::<Setup>(&t).ok()).unwrap_or_default();
@@ -240,6 +244,8 @@ impl Control {
         // Named after its style, as Regist Bank Info shows a button (rename to change).
         m.name = sections::info(&m).style.unwrap_or_else(|| format!("Registration {}", i + 1));
         self.reg.bank.memories[i] = Some(m);
+        // The parts' plugins as they sound now, not as last autosaved: read, then filled in.
+        self.start_plugin_fill(i, groups);
         self.reg.selected = Some(index);
         self.say(format!("Memorized to Registration {}", i + 1), false);
         self.bank_changed()
@@ -463,6 +469,7 @@ impl Control {
     /// Every pump: a deferred recall runs once its style plays; the OTS Link hold ends
     /// when the engine shows what the recall asked for (or after `OTS_HOLD_NS`).
     pub(super) fn pump_registration(&mut self, now: u64) {
+        self.pump_plugin_fill(now);
         // The style chosen last: the one waiting, else the one playing.
         let chosen = self.pending_style.as_ref().map_or(self.snap.style_tag, |p| p.1);
         if self.reg.deferred.as_ref().is_some_and(|d| d.tag != chosen) {
