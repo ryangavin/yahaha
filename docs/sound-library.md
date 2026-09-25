@@ -126,6 +126,11 @@ value as it is.
 - **Decision: auditions play on channel 16 while the band is stopped**, like the style
   preview. Every channel is taken by a part, and channel 16 (Phrase 2) is silent when the
   band is stopped. Its setup comes back afterwards from the synth's record of it.
+- **Decision: a plugin patch auditions on channel 16 too.** Its plugin loads there
+  through #91's `assign_channel_plugin`, like a part's, then plays the same phrase
+  through the rack, and is cleared when the audition ends (the band starting ends it).
+  A plugin the map gives Phrase 2 is assigned again afterwards. The audition sets the
+  channel's CC7, CC11 and CC10, because the rack keeps a plugin channel's own.
 - **Decision: Multi Pad channels (5–8) are not mapped.** Pads are short phrases written
   for their voices.
 - **Decision: a keyboard part plays whatever was picked last.** A plugin patch on a part
@@ -143,7 +148,6 @@ value as it is.
 ## Not yet
 
 - A user OTS / Registration item for a part's patch (after #99).
-- Plugin patch auditions (they need #91's rack; pick the patch on a part to hear it).
 - A keyboard part's GM voice that the map sends to a plugin patch plays the SoundFont
   fallback; only a part's own plugin patch plays its plugin.
 - A patch's optional keyboard range.

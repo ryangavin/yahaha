@@ -550,6 +550,47 @@ fn a_style_change_in_an_endings_first_beat_waits_for_its_end() {
     }
 }
 
+/// A style chosen while an Ending is queued but not playing yet (#111) waits for that
+/// Ending's end too: the Ending plays in the old style, and the new style is loaded at the
+/// stop (owner rule: a style change waits for the Ending to finish).
+#[test]
+fn a_style_chosen_while_an_ending_is_queued_waits_for_its_end() {
+    for timing in [MainTiming::NextBar, MainTiming::Immediate] {
+        let Some((mut e, mut rec)) = started(StyleSettings { main_timing: timing, ..StyleSettings::default() }) else { return };
+        let Some(other) = other_style() else { return };
+        let (ppq, tpb, _) = grid(&e);
+        let end1 = slot_of(SectionId::Ending(0));
+        if !e.style.has(end1) {
+            return;
+        }
+        let t = e.ns_at(tpb + 1.5 * ppq);
+        play(&mut e, &mut rec, 0, t);
+        e.button(Button::Ending(0), t, &mut rec);
+        assert!(matches!(id_of(e.cur), SectionId::Main(_)), "the Ending is only queued");
+        let (old_bpm, new_bpm) = (e.style.bpm, other.bpm);
+        assert_ne!(old_bpm, new_bpm);
+        e.change_style(other, t + 1_000, &mut rec);
+        let at = e.pending.as_ref().map(|p| p.at).expect("the style waits");
+        let len = e.style.sections[end1].as_ref().unwrap().len as f64;
+        assert!((at - (2.0 * tpb + len)).abs() < 1e-6, "{timing:?}: for the queued Ending's end, not the bar line: {at}");
+        let mut now = t + 1_000;
+        let mut heard_ending = false;
+        while e.running {
+            let next = e.next_deadline().unwrap_or(now + 5_000_000).clamp(now + 1, now + 5_000_000);
+            play(&mut e, &mut rec, now, next);
+            now = next;
+            if e.running {
+                assert_eq!(e.style.bpm, old_bpm, "{timing:?}: the old style plays on");
+                heard_ending |= e.cur == end1;
+            }
+            assert!(now < t + 60_000_000_000, "the Ending never ended");
+        }
+        assert!(heard_ending, "{timing:?}: the Ending played, in the old style");
+        assert!(!e.style_pending(), "{timing:?}: the new style took over at the Ending's end");
+        assert_eq!(e.style.bpm, new_bpm);
+    }
+}
+
 /// TAP TEMPO during a ritardando (Style Section Reset off): the tapped tempo is the one the
 /// band slows from and comes back to at the stop.
 #[test]

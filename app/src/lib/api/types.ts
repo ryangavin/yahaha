@@ -168,6 +168,17 @@ export type AppCmd =
   | SoundLibraryCmd
   // Keyboard Harmony / Arpeggio (docs/app-api.md): see HarmonyArpState below.
   | HarmonyArpCmd
+  // Parameter Lock: groups that Registration, OTS and Playlist recalls leave alone.
+  | { type: 'setParamLock'; item: LockItem; on: boolean }
+
+/** A Parameter Lock group (the Genos Data List's lock groups that yahaha has). */
+export type LockItem = 'splitPoint' | 'fingeringType'
+
+/** Parameter Lock: true = locked (a recall leaves the group as the player set it). */
+export interface ParamLockState {
+  splitPoint: boolean
+  fingeringType: boolean
+}
 
 /** Keyboard Harmony / Arpeggio: one HARMONY/ARPEGGIO switch and one type. */
 export type HarmonyArpCmd =
@@ -840,6 +851,8 @@ export interface AppState {
   harmonyArp: HarmonyArpState
   /** The sound library: patches, the program map, what the current style uses. */
   soundLibrary: SoundLibraryState
+  /** Parameter Lock: the locked groups. */
+  paramLocks: ParamLockState
 }
 
 // ── Instrument plugins (docs/plugin-hosting.md) ──────────────────────────

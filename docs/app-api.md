@@ -234,8 +234,8 @@ left hand ([ireal.md](ireal.md), "Chart player"). Playlists live in the session'
 ### Registration Memory
 
 Buttons are 0-based (`index` 0–9 = the panel's [1]–[10]). Groups are `style`, `voice`,
-`harmonyArp`, `multiPad`, `tempo`, `transpose`, `chordLooper`, `liveControl` (the Genos
-Freeze groups; docs/registration.md lists what each covers).
+`harmonyArp`, `multiPad`, `tempo`, `transpose`, `chordLooper`, `liveControl`, `assignable`
+(the Genos Freeze groups; docs/registration.md lists what each covers).
 
 | Command | Fields | Does |
 |---|---|---|
@@ -341,7 +341,7 @@ with the `plugins` feature (the desktop app has it) and the built-in synth
 |---|---|---|
 | `setPartPlugin` | `part` 0–3, `id`, `state`? | Plays the part on an instrument plugin: `id` from `plugins.list` (for example `"aumu dls  appl"`), `state` a saved preset (base64) or null for the plugin's default. It loads in the background (`keyboardParts[i].plugin.status` `loading`, with the `stage`). The part keeps its SoundFont voice until the plugin is ready, then switches without a click. If the load fails, a plugin that was playing keeps the part; otherwise the part plays its SoundFont voice (`failed`, with the `error`), and picking the plugin again with a null `state` retries it with the state it kept (a restore that timed out, or a plugin reinstalled since, comes back as saved; go back to the SoundFont voice first to start it fresh). A state over 64 MB is refused. Fails at once for an unknown id or with no synth. |
 | `clearPartPlugin` | `part` 0–3 | Back to the part's SoundFont voice (a 5 ms fade). |
-| `savePartPluginState` | `part` 0–3 | Stores the plugin's current preset (what its editor changed) with the part, so it is kept across restarts. Send it when the editor window closes. |
+| `savePartPluginState` | `part` 0–3 | Stores the plugin's current preset (what its editor changed) with the part, so it is kept across restarts. Send it when the editor window closes. The state is read on a thread of its own and lands a moment later; a failed read shows in `message`. |
 | `rescanPlugins` | | Scans the installed instruments again, ignoring the cache (`plugins.scanning` meanwhile). |
 
 The plugin's editor window is not a command: it opens on the app's main thread. The
@@ -387,7 +387,7 @@ every change. A patch id that doesn't exist fails the command.
 | `setPatchFavourite` | `id`, `favourite` | Marks or unmarks a favourite. |
 | `savePartAsPatch` | `part` 0–3, `name` or null | Saves a keyboard part's sound as a new patch: its own patch, else its GM voice on the synth's SoundFont, with its volume and octave as defaults. |
 | `addPresetAsPatch` | `file`, `bank`, `program`, `name` or null | Adds a SoundFont preset (`browseSoundFont`) as a patch, named after the preset and categorised from its bank and program. |
-| `auditionPatch` | `id` | Plays the patch on its own for about 3 s (an arpeggio and a chord; a drum kit plays a beat), on channel 16 of the built-in synth, which the band is not using while stopped. Refused while the band plays (like `auditionStyle`); `soundLibrary.auditioning` names it. |
+| `auditionPatch` | `id` | Plays the patch on its own for about 3 s (an arpeggio and a chord; a drum kit plays a beat), on channel 16 of the built-in synth, which the band is not using while stopped. A plugin patch first loads its plugin there (#91's rack), then plays; the plugin goes when the audition ends. Refused while the band plays (like `auditionStyle`); `soundLibrary.auditioning` names it. |
 | `auditionPreset` | `file`, `bank`, `program` | The same for a SoundFont preset, before adding it. A SoundFont the synth hasn't loaded loads first. |
 | `stopPatchAudition` | | Ends the audition now. |
 | `setFamilyRule` | `family` 0–15, `patch` or null, `style` | A GM family (programs 8·family … 8·family+7) plays `patch`; null clears the rule. `style`: the current style's own map instead of the global one (may be left out: false). |
@@ -399,6 +399,16 @@ every change. A patch id that doesn't exist fails the command.
 | `browseSoundFont` | `file` or null | Lists a SoundFont's presets in `soundLibrary.browse` (a file in `io.soundFonts`); null closes the list. |
 | `importSoundLibrary` | `path`, `replace`, `maps` | Reads a library file (a full library, or a bare list of patches). Its patches are added (ids that clash get new ones); `maps`: its program maps' rules are added too; `replace`: it replaces the library instead. `replace` and `maps` may be left out (false). |
 | `exportSoundLibrary` | `path` or null | Writes the library to `path` (null: `sound-library-export.json` in the data folder). |
+
+### Parameter Lock
+Genos Menu › Utility › Parameter Lock (RM p.163): a locked group changes only from the
+panel. Registration Memory, One Touch Setting and Playlist recalls leave it as it is. The
+groups are the Data List's lock groups that yahaha has: `splitPoint` (the split point) and
+`fingeringType` (the fingering type and the Chord Detection Area: Upper, Manual Bass).
+
+| Command | Fields | What it does |
+|---|---|---|
+| `setParamLock` | `item` (`splitPoint` \| `fingeringType`), `on` | Locks or unlocks a group. A setup setting, not part of a bank: it is kept in the Registration folder's `setup.json`. |
 
 ### Result: `CmdError`
 
@@ -882,6 +892,10 @@ The sound library (docs/sound-library.md).
 | `extraSoundFonts` | string[] | The SoundFonts the synth has loaded for library patches besides its own. |
 | `lastAdded` | string? | The id of the patch last created, duplicated or saved. |
 
+### `paramLocks`
+Parameter Lock: `{ splitPoint, fingeringType }`, each a bool (true: locked). All false by
+default.
+
 ### `message`
 `{ seq, text, error }` or null. It holds the last notice or error, for example a style
 that fails to load. `seq` increases with every new message, so the same text arriving
@@ -1343,7 +1357,7 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
         "index": 0,
         "stored": true,
         "name": "SlowWalker",
-        "groups": ["style", "voice", "harmonyArp", "multiPad", "tempo", "transpose", "chordLooper", "liveControl"],
+        "groups": ["style", "voice", "harmonyArp", "multiPad", "tempo", "transpose", "chordLooper", "liveControl", "assignable"],
         "style": "SlowWalker",
         "tempo": 91.0,
         "voices": [
@@ -1357,7 +1371,7 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
     ],
     "selected": 0,
     "memory": false,
-    "memorizeGroups": ["style", "voice", "harmonyArp", "multiPad", "tempo", "transpose", "chordLooper", "liveControl"],
+    "memorizeGroups": ["style", "voice", "harmonyArp", "multiPad", "tempo", "transpose", "chordLooper", "liveControl", "assignable"],
     "freeze": false,
     "freezeGroups": ["tempo"],
     "sequence": { "on": true, "steps": [0, 2, 1], "end": "next", "position": 0 },
@@ -1517,6 +1531,7 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
     "extraSoundFonts": [],
     "lastAdded": "my-bass"
   },
+  "paramLocks": { "splitPoint": false, "fingeringType": true },
   "message": null
 }
 ```

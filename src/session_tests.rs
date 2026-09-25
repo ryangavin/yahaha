@@ -1438,6 +1438,50 @@ fn chart_mode_and_the_chord_looper_take_turns() {
     assert_eq!(st.looper.mode, LooperMode::Off, "chart mode on stops the loop");
 }
 
+/// #110: ON/OFF straight after a memory is selected, with chart mode on, before any
+/// snapshot shows the memory's sequence: one press arms the loop, and chart mode goes off
+/// (the engine decides, on its own state, and reports it).
+#[test]
+fn looper_on_off_right_after_selecting_a_memory_with_chart_mode_on() {
+    let Some(s) = offline("SlowWalker.T552.sty") else { return };
+    s.send(ChartCmd::ImportCharts { text: TEST_CHART.into() }).unwrap();
+    // Record one bar of C and keep it in memory 1.
+    s.send(LooperCmd::LooperRec).unwrap();
+    keys(&s, true, &[36, 40, 43]);
+    s.advance(bar_ns(&s));
+    keys(&s, false, &[36, 40, 43]);
+    s.send(LooperCmd::LooperOnOff).unwrap();
+    s.send(LooperCmd::LooperOnOff).unwrap();
+    assert_eq!(s.state().looper.mode, LooperMode::Off);
+    s.send(LooperCmd::StoreLooperMemory { index: 0 }).unwrap();
+    // The engine's sequence emptied (as in a fresh engine), and chart mode on.
+    {
+        let mut ctl = s.inner.lock();
+        ctl.looper.empty_engine_seq();
+    }
+    s.settle();
+    s.send(ChartCmd::SetChartMode { on: true }).unwrap();
+    let st = s.state();
+    assert!(st.chart.on && !st.looper.has_data);
+    // Select the memory and press ON/OFF at once: no snapshot in between.
+    {
+        let mut ctl = s.inner.lock();
+        ctl.apply(LooperCmd::SelectLooperMemory { index: 0 }.into()).unwrap();
+        assert!(!ctl.snap.looper.has_data, "the snapshot has not seen the memory yet");
+        ctl.apply(LooperCmd::LooperOnOff.into()).unwrap();
+    }
+    s.settle();
+    let st = s.state();
+    assert_eq!(st.looper.mode, LooperMode::LoopArmed, "one press arms the loop");
+    assert!(!st.chart.on, "chart mode went off for it");
+    assert_eq!(st.message.as_ref().map(|m| m.text.as_str()), Some("Chart mode off: the Chord Looper plays"));
+    // The session's chart settings follow: a later chart setting keeps chart mode off.
+    s.send(ChartCmd::SetChartIntro { index: None }).unwrap();
+    let st = s.state();
+    assert!(!st.chart.on);
+    assert_eq!(st.looper.mode, LooperMode::LoopArmed);
+}
+
 #[test]
 fn chart_commands_serialize_as_documented() {
     use serde_json::json;

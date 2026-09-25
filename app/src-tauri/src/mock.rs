@@ -341,6 +341,7 @@ impl MockSession {
             metronome: MetronomeState { on: false, volume: 90, bell: true, audible: true },
             plugins: mock_plugins(),
             sound_library: SoundLibraryState::default(),
+            param_locks: ParamLockState::default(),
         };
         let songs: Vec<(String, String)> = library.entries.iter().filter(|e| e.status == "ok").map(|e| (e.path.clone(), e.name.clone())).collect();
         let mut m = MockSession {
@@ -1541,6 +1542,7 @@ impl MockSession {
             }
             AppCmd::Settings(SettingsCmd::SetPaletteLeds { on }) => self.state.pads.palette_leds = on,
             AppCmd::Chart(c) => self.chart_cmd(c),
+            AppCmd::ParamLock(ParamLockCmd::SetParamLock { item, on }) => self.state.param_locks.set(item, on),
             AppCmd::Registration(c) => {
                 let fx = self.regist.registration_cmd(c, &self.state);
                 self.run_regist(fx);
@@ -2177,6 +2179,23 @@ mod tests {
         m.send(RegistrationCmd::SetFreeze { on: true });
         m.send(RegistrationCmd::RecallRegist { index: 5 });
         assert_eq!(m.state.harmony_arp, scrambled, "frozen");
+    }
+
+    /// As the session's Parameter Lock: a locked group keeps the player's setting through
+    /// a recall; the other groups are recalled.
+    #[test]
+    fn param_lock_keeps_locked_groups_through_a_recall() {
+        let mut m = MockSession::new();
+        m.send(ChordCmd::SetSplit { note: 60 });
+        m.send(ChordCmd::SetFingering { fingering: yahaha::fingering::Fingering::Fingered });
+        m.send(RegistrationCmd::MemorizeRegist { index: 4 });
+        m.send(ChordCmd::SetSplit { note: 50 });
+        m.send(ChordCmd::SetFingering { fingering: yahaha::fingering::Fingering::SingleFinger });
+        m.send(ParamLockCmd::SetParamLock { item: LockItem::SplitPoint, on: true });
+        assert!(m.state.param_locks.split_point && !m.state.param_locks.fingering_type);
+        m.send(RegistrationCmd::RecallRegist { index: 4 });
+        assert_eq!(m.state.chord.split, 50, "locked");
+        assert_eq!(m.state.chord.fingering, yahaha::fingering::Fingering::Fingered, "not locked");
     }
 
     /// Save As names files as the session does ("A:B" is "A_B") and, like the Mac's file

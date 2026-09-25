@@ -230,5 +230,6 @@ export function tipFor(cmd: AppCmd | null): TipKey {
     case 'browseSoundFont': return 'sound.soundfont'
     case 'importSoundLibrary': return 'sound.import'
     case 'exportSoundLibrary': return 'sound.export'
+    case 'setParamLock': return cmd.item === 'splitPoint' ? 'settings.param_lock_split_point' : 'settings.param_lock_fingering_type'
   }
 }

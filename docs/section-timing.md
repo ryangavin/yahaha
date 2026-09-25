@@ -43,6 +43,11 @@ Decisions (the manuals leave these open):
   a style change only while a Main plays; from an Intro, a Fill or the Break it waits for
   the next bar line, as before this setting existed (`Engine::change_point`,
   `Change::Style`).
+- **An Ending pressed but still waiting for its bar line counts as playing (#111).** A
+  style chosen then waits for that Ending's end as well: the Ending plays in the old
+  style, and the band stops with the new style loaded. A style chosen first and an
+  Ending pressed later, both due at the same bar line, is left as it was: the style takes
+  over at that bar line and the Ending plays in the new style.
 - **Into Ending I, and from a Main or Fill into an Intro or Ending: the next bar line.**
   The manual says Ending I follows "the conventional rules" without saying what they are;
   yahaha's rule before this setting existed was the next bar line, so that is kept. The

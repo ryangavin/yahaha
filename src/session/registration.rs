@@ -13,7 +13,7 @@ mod sections;
 pub(super) use sections::REGISTRABLES;
 
 use super::Control;
-use crate::api::{BankFile, BankState, CmdError, RegistButton, RegistVoice, RegistrationCmd, RegistrationState, SequenceState};
+use crate::api::{ParamLockState, BankFile, BankState, CmdError, RegistButton, RegistVoice, RegistrationCmd, RegistrationState, SequenceState};
 use crate::launchkey::RegistPanel;
 use crate::registration::{self as reg, Bank, Group, Groups, Memory, SeqMove, BANK_EXT, BUTTONS};
 use std::path::{Path, PathBuf};
@@ -31,16 +31,9 @@ const SETUP_FILE: &str = "setup.json";
 struct Setup {
     #[serde(default)]
     sequence_on: bool,
-}
-
-/// Items Parameter Lock can protect from Registration (and Playlist) recall. The lock
-/// state belongs to Parameter Lock (#102); recall asks `param_locked`.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum LockItem {
-    /// Split points (Data List lock group "Split Point").
-    SplitPoint,
-    /// Fingering type and Chord Detection Area (lock group "Fingering Type").
-    FingeringType,
+    /// Parameter Lock (a System setting on the Genos, in its Setup/Backup; not in banks).
+    #[serde(default)]
+    param_locks: ParamLockState,
 }
 
 /// A recall waiting for the style it loads to play.
@@ -75,6 +68,9 @@ pub(super) struct RegState {
     /// Registration Sequence On/Off: a panel setting kept across banks (not in the bank
     /// file; Data List: Regist = X, Setup = O), saved in `SETUP_FILE`.
     seq_on: bool,
+    /// Parameter Lock: groups a recall leaves alone (session/param_lock.rs). Kept in
+    /// `SETUP_FILE` with `seq_on`.
+    pub(super) locks: ParamLockState,
     /// A recall waiting for its style to play.
     deferred: Option<Deferred>,
     /// OTS Link waits for this recall to settle: the Main it selected (None: only a style
@@ -99,21 +95,24 @@ impl RegState {
             frozen: Groups::NONE,
             seq_pos: None,
             seq_on: false,
+            locks: ParamLockState::default(),
             deferred: None,
             ots_hold: None,
             buttons: Vec::new(),
         };
         let setup = r.dir.as_deref().and_then(|d| std::fs::read_to_string(d.join(SETUP_FILE)).ok());
-        r.seq_on = setup.and_then(|t| serde_json::from_str::<Setup>(&t).ok()).is_some_and(|s| s.sequence_on);
+        let setup = setup.and_then(|t| serde_json::from_str::<Setup>(&t).ok()).unwrap_or_default();
+        r.seq_on = setup.sequence_on;
+        r.locks = setup.param_locks;
         r.list_banks();
         r.summarize();
         r
     }
 
     /// Save the Registration settings that are not part of a bank.
-    fn save_setup(&self) -> anyhow::Result<()> {
+    pub(super) fn save_setup(&self) -> anyhow::Result<()> {
         let Some(dir) = &self.dir else { return Ok(()) };
-        let text = serde_json::to_string_pretty(&Setup { sequence_on: self.seq_on })?;
+        let text = serde_json::to_string_pretty(&Setup { sequence_on: self.seq_on, param_locks: self.locks })?;
         reg::write_atomic(&dir.join(SETUP_FILE), &text)
     }
 
@@ -497,14 +496,6 @@ impl Control {
                 self.reg.ots_hold = None;
             }
         }
-    }
-
-    /// The parameter lock for `item` (Parameter Lock, RM p.163): a locked item only
-    /// changes from the panel, never from Registration, OTS or Playlist recall.
-    /// Parameter Lock itself is not built yet (#102): nothing is locked.
-    pub(super) fn param_locked(&self, item: LockItem) -> bool {
-        let _ = item;
-        false
     }
 
     /// The bank's file, if it has one (a Playlist record links to it).

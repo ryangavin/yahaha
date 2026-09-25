@@ -106,6 +106,20 @@ describe('mock session', () => {
     expect(m.state.harmonyArp).toEqual(scrambled)
   })
 
+  it('Parameter Lock keeps a locked group through a registration recall', () => {
+    const m = new MockSession({ manual: true })
+    m.send({ type: 'setSplit', note: 60 })
+    m.send({ type: 'setFingering', fingering: 'fingered' })
+    m.send({ type: 'memorizeRegist', index: 4 })
+    m.send({ type: 'setSplit', note: 50 })
+    m.send({ type: 'setFingering', fingering: 'singleFinger' })
+    m.send({ type: 'setParamLock', item: 'splitPoint', on: true })
+    expect(m.state.paramLocks).toEqual({ splitPoint: true, fingeringType: false })
+    m.send({ type: 'recallRegist', index: 4 })
+    expect(m.state.chord.split).toBe(50)
+    expect(m.state.chord.fingering).toBe('fingered')
+  })
+
   it('Kbd Harmony/Arpeggio and Arpeggio Hold are control-side switches, as the engine keeps them', () => {
     const m = new MockSession({ manual: true })
     // Try: a press switches them; no pedal switch field is written.
