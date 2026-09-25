@@ -15,7 +15,7 @@ const C_TAP: Rgb = [100, 100, 100]
 const C_STOPSYNC: Rgb = [0, 110, 110]
 const C_RUN: Rgb = [0, 127, 0]
 const C_IDLE: Rgb = [127, 0, 0]
-export const PAGE_RGB: Record<PadPage, Rgb> = { sections: C_TAP, chordSetup: [0, 100, 127], otsParts: [127, 0, 70], registration: [127, 60, 0] }
+export const PAGE_RGB: Record<PadPage, Rgb> = { sections: C_TAP, chordSetup: [0, 100, 127], otsParts: [127, 0, 70], registration: [127, 60, 0], multiPads: [127, 127, 0] }
 /** Registration lamps: red = selected, blue = stored (OM p.97). */
 const C_REGIST_SELECTED: Rgb = [127, 0, 0]
 const C_REGIST_STORED: Rgb = [0, 40, 127]
@@ -129,8 +129,45 @@ function registPads(s: AppState): Pad[] {
   ]
 }
 
+/** Multi Pad lamps (OM p.75): blue = data, red = playing, amber = waiting for the bar. */
+const C_PAD_READY: Rgb = [0, 40, 127]
+const C_PAD_PLAYING: Rgb = [127, 0, 0]
+const C_PAD_QUEUED: Rgb = [127, 60, 0]
+
+function multiPadPads(s: AppState): Pad[] {
+  const lamps = s.multiPad.pads.map((x) => x.lamp)
+  const has = (i: number) => lamps[i] !== 'empty'
+  const sounding = (i: number) => lamps[i] === 'playing' || lamps[i] === 'queued'
+  const p = (note: number, label: string, key: string, action: AppCmd | null, available: boolean, on: boolean) =>
+    pagePad('multiPads', note, label, key, action, available, on)
+  const lamp = (i: number): Look => {
+    switch (lamps[i]) {
+      case 'ready': return look(C_PAD_READY, 'bright')
+      case 'armed': return look(C_PAD_PLAYING, 'bright', 'flash')
+      case 'queued': return look(C_PAD_QUEUED, 'bright', 'flash')
+      case 'playing': return look(C_PAD_PLAYING, 'bright')
+      default: return look(C_PAD_READY, 'off')
+    }
+  }
+  const busy = lamps.some((l, i) => sounding(i) || l === 'armed')
+  return [
+    ...[0, 1, 2, 3].map((i) => pad(96 + i, `PAD ${i + 1}`, ['Z', 'X', 'C', 'V'][i], { type: 'triggerMultiPad', pad: i }, lamp(i))),
+    p(100, 'STOP', 'B', { type: 'stopAllMultiPads' }, lamps.some((_, i) => has(i)), busy),
+    p(101, '', '', null, false, false),
+    p(102, '', '', null, false, false),
+    p(103, '', '', null, false, false),
+    ...[0, 1, 2, 3].map((i) => {
+      const armed = lamps[i] === 'armed'
+      const x = p(112 + i, `SELECT ${i + 1}`, 'pad', { type: 'armMultiPad', pad: i }, has(i), armed)
+      return armed ? { ...x, anim: 'flash' as const } : x
+    }),
+    ...[0, 1, 2, 3].map((i) => p(116 + i, `STOP ${i + 1}`, 'pad', { type: 'stopMultiPad', pad: i }, has(i), sounding(i))),
+  ]
+}
+
 /** The 16 pads of a page, top row then bottom row. */
 export function padsFor(s: AppState, page: PadPage): Pad[] {
+  if (page === 'multiPads') return multiPadPads(s)
   if (page === 'registration') return registPads(s)
   if (page === 'chordSetup') return chordPads(s)
   if (page === 'otsParts') return otsPads(s)
