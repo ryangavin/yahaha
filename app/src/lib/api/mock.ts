@@ -1437,6 +1437,10 @@ export class MockSession implements Session {
       case 'setPaletteLeds':
         st.pads.paletteLeds = cmd.on
         break
+      case 'setAudioBuffer':
+        if (!st.io.synth) this.message('the synth is off', true)
+        else st.io.synth.bufferFrames = cmd.frames
+        break
       case 'rescanLibrary':
         st.library.scanning = true
         this.scanLeft = RESCAN_MS

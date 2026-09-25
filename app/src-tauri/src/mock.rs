@@ -1500,6 +1500,11 @@ impl MockSession {
                     }
                 }
             }
+            AppCmd::Settings(SettingsCmd::SetAudioBuffer { frames }) => match &mut self.state.io.synth {
+                Some(s) if matches!(frames, 64 | 128 | 256) => s.buffer_frames = Some(frames),
+                Some(_) => self.message(format!("the audio buffer is 64, 128 or 256 frames, not {frames}"), true),
+                None => self.message("the synth is off", true),
+            },
             AppCmd::Settings(SettingsCmd::NextAudioOutput) => {
                 if let Some(s) = &mut self.state.io.synth {
                     let next = s.output_pair[1] + 1;
