@@ -16,7 +16,10 @@
 //! [`prepare_app`] once and [`pump_events`] in its loop.
 //!
 //! An [`Editor`] holds its own reference to the Audio Unit (through the [`EditorTarget`]),
-//! so a part swapped out while its window is open stays alive until the window closes.
+//! so a part swapped out while its window is open stays alive until the window closes. The
+//! desktop app closes a window once its part plays another instance (or none); if that
+//! was the unit's last reference, the unit is disposed of on the `plugin-dispose` thread,
+//! not the main thread.
 
 use anyhow::{Result, anyhow};
 use objc2::rc::Retained;
@@ -79,6 +82,10 @@ impl Editor {
     /// that loaded the plugin again has a new instance, and needs a new window).
     pub fn is_for(&self, target: &EditorTarget) -> bool {
         std::sync::Arc::ptr_eq(&self._target.unit, &target.unit)
+    }
+    /// The instance this window edits ([`EditorTarget::instance_id`]).
+    pub fn instance_id(&self) -> usize {
+        self._target.instance_id()
     }
 }
 
