@@ -43,7 +43,7 @@ yahaha's own JSON, never Yamaha's `.rgt`. By default in `~/Documents/yahaha`
         "sections": {
           "style": { "path": "/Users/me/Styles/SlowWalker.T552.sty", "name": "SlowWalker" },
           "tempo": { "bpm": 96.0 },
-          "chord": { "fingering": "fingeredOnBass", "upper": false, "manualBass": true, "split": 54 },
+          "chord": { "fingering": "fingeredOnBass", "upper": false, "manualBass": true, "split": 54, "leftHold": true },
           "styleControl": { "main": 1, "intro": null, "syncStart": true, "syncStop": false, "stopAcmp": false, "stopAcmpMode": "off", "otsLink": false },
           "styleMixer": { "volumes": [100, 100, 96, 64, 76, 70, 88, 84], "on": [true, true, true, true, true, true, true, true], "set": [false, false, false, true, false, false, false, false] },
           "parts": { "parts": [
@@ -171,7 +171,7 @@ first).
 
 | Group | Items here |
 |---|---|
-| Style | the style, section (Main, armed Intro), Sync Start/Stop, Stop ACMP, OTS Link, the Style part mixer, the **Left** part, split point, fingering, Chord Detection Area / Manual Bass, Section Change Timing To Main, Style Retrigger on/off and rate, Synchro Stop Window, Style Section Reset |
+| Style | the style, section (Main, armed Intro), Sync Start/Stop, Stop ACMP, OTS Link, the Style part mixer, the **Left** part, split point, fingering, Chord Detection Area / Manual Bass, Left Hold, Section Change Timing To Main, Style Retrigger on/off and rate, Synchro Stop Window, Style Section Reset |
 | Voice | Right 1–3: voice, on/off, volume, octave |
 | Tempo | the tempo, in whole BPM as on the Genos panel (recalled as SET TEMPO) |
 | Transpose | Keyboard and Master transpose |

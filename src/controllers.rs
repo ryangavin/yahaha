@@ -505,6 +505,13 @@ pub struct Controllers {
     /// (`Effect::ControlSwitch`), as `reset` does the pedal switches
     /// (`take_reset_releases`, `reset_release`).
     reset_seen: AtomicU16,
+    /// Left Hold (OM p.49): the Left part's channel holds as if its sustain pedal were
+    /// down (`set_left_hold`).
+    left_hold: AtomicBool,
+    /// Bumped to let go of what Left Hold holds (a new Left key, a stop:
+    /// `release_left_hold`); `sync` re-pedals Left when it moved since `sent_left_release`.
+    left_release: AtomicU8,
+    sent_left_release: AtomicU8,
     /// A thread holds the right to send the parts' controllers (`claim`).
     busy: AtomicBool,
     /// A thread wanted to sync while the other held it: the holder syncs again.
@@ -537,6 +544,9 @@ impl Controllers {
             learn: AtomicU8::new(NOT_LEARNING),
             forget: AtomicU8::new(0),
             reset_seen: AtomicU16::new(0),
+            left_hold: AtomicBool::new(false),
+            left_release: AtomicU8::new(0),
+            sent_left_release: AtomicU8::new(0),
             busy: AtomicBool::new(false),
             pending: AtomicBool::new(false),
         }
@@ -822,6 +832,28 @@ impl Controllers {
         self.touched.fetch_or(1 << (slot & 15), Relaxed);
     }
 
+    /// Left Hold on or off (the control side).
+    pub fn set_left_hold(&self, on: bool) {
+        self.left_hold.store(on, Relaxed);
+    }
+
+    pub fn left_hold(&self) -> bool {
+        self.left_hold.load(Relaxed)
+    }
+
+    /// Let go of the Left notes Left Hold holds, at the next `sync`: the input thread when
+    /// a key sounds on Left (the next chord), the engine thread when the style stops. The
+    /// keys still down keep sounding (a sustain release only ends released notes).
+    pub fn release_left_hold(&self) {
+        self.left_release.fetch_add(1, Relaxed);
+    }
+
+    /// Tests: how many releases were asked for (wrapping).
+    #[cfg(test)]
+    pub fn left_releases(&self) -> u8 {
+        self.left_release.load(Relaxed)
+    }
+
     /// Switch a pedal switch bit on or off from software (`TriggerFunction`).
     pub fn toggle_switch(&self, b: u8) {
         self.switches.fetch_xor(b, Relaxed);
@@ -867,8 +899,21 @@ impl Controllers {
             let ch = parts::CHANNEL[p];
             let on = sounding >> p & 1 != 0;
             let reaches = |mask: u8| on && mask >> p & 1 != 0;
-            let want = if reaches(sus) { switches } else { 0 };
-            let was = self.sent_switches[p].swap(want, Relaxed);
+            let pedal = if reaches(sus) { switches } else { 0 };
+            // Left Hold: Left's channel holds while it sounds, unless the pedal already
+            // sustains it.
+            let held = p == parts::LEFT && on && self.left_hold.load(Relaxed) && pedal & SUSTAIN == 0;
+            let want = if held { pedal | SUSTAIN } else { pedal };
+            let mut was = self.sent_switches[p].swap(want, Relaxed);
+            if p == parts::LEFT {
+                // A release asked for since the last sync: re-pedal, so the notes held
+                // stop and the keys going down now are held next.
+                let rel = self.left_release.load(Relaxed);
+                if self.sent_left_release.swap(rel, Relaxed) != rel && held && was != UNKNOWN_SWITCHES && was & SUSTAIN != 0 {
+                    out(&[0xB0 | ch, 64, 0]);
+                    was &= !SUSTAIN;
+                }
+            }
             let diff = if was == UNKNOWN_SWITCHES { u8::MAX } else { was ^ want };
             for (b, cc) in SWITCH_CC {
                 if diff & b != 0 {
@@ -1076,6 +1121,38 @@ mod tests {
         assert_eq!(sent(&c, 0b0011), vec![[0xB2, 64, 127], [0xB1, 64, 0]]);
         c.control_change(0, 64, 0, &mut e);
         assert_eq!(sent(&c, 0b0011), vec![[0xB0, 64, 0], [0xB2, 64, 0]]);
+    }
+
+    /// Left Hold (OM p.49, #202): Left's channel holds as if its sustain pedal were down;
+    /// a new Left key lets go of what was held (a re-pedal before the key's note-on), and
+    /// so does a stop. The pedal's own sustain wins over the re-pedal.
+    #[test]
+    fn left_hold_holds_the_left_part_until_the_next_left_key() {
+        let c = Controllers::new();
+        c.set_left_hold(true);
+        assert!(c.left_hold());
+        assert_eq!(sent(&c, 0b1001), vec![[0xB1, 64, 127]], "Left only");
+        // A new Left key: re-pedal.
+        c.release_left_hold();
+        assert_eq!(sent(&c, 0b1001), vec![[0xB1, 64, 0], [0xB1, 64, 127]]);
+        assert!(sent(&c, 0b1001).is_empty(), "once");
+        // Left off: nothing held; on again: held again, with nothing to let go.
+        assert_eq!(sent(&c, 0b0001), vec![[0xB1, 64, 0]]);
+        c.release_left_hold();
+        assert_eq!(sent(&c, 0b1001), vec![[0xB1, 64, 127]]);
+        // The sustain pedal down on Left: a new Left key doesn't let go of what it sustains.
+        let mut e = [0u8; 4];
+        c.control_change(0, 64, 127, &mut e);
+        assert_eq!(sent(&c, 0b1001), vec![[0xB0, 64, 127]]);
+        c.release_left_hold();
+        assert!(sent(&c, 0b1001).is_empty());
+        c.control_change(0, 64, 0, &mut e);
+        assert_eq!(sent(&c, 0b1001), vec![[0xB0, 64, 0]], "Left stays held by Left Hold");
+        // Left Hold off: let go.
+        c.set_left_hold(false);
+        assert_eq!(sent(&c, 0b1001), vec![[0xB1, 64, 0]]);
+        c.release_left_hold();
+        assert!(sent(&c, 0b1001).is_empty(), "off: nothing to re-pedal");
     }
 
     #[test]

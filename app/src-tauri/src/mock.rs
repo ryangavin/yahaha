@@ -272,6 +272,7 @@ impl MockSession {
                 transpose_keyboard: 0,
                 transpose_master: 0,
                 settle_ms: yahaha::engine::CHORD_SETTLE_DEFAULT_MS,
+                left_hold: false,
             },
             keyboard_parts: vec![part(0, 0, true), part(1, 48, true), part(2, 61, false), part(3, 48, false)],
             mixer: MixerState {
@@ -1530,6 +1531,8 @@ impl MockSession {
                 self.state.chord.transpose_master = 0;
             }
             AppCmd::Chord(ChordCmd::SetChordSettle { ms }) => self.state.chord.settle_ms = ms.min(yahaha::engine::CHORD_SETTLE_MAX_MS),
+            AppCmd::Chord(ChordCmd::SetLeftHold { on }) => self.state.chord.left_hold = on,
+            AppCmd::Chord(ChordCmd::ToggleLeftHold) => self.state.chord.left_hold = !self.state.chord.left_hold,
             AppCmd::Parts(PartsCmd::SetPartOn { part, on }) => self.set_part_on(part, on),
             AppCmd::Parts(PartsCmd::TogglePart { part }) => {
                 let on = self.state.keyboard_parts.get(part as usize).is_some_and(|p| !p.on);
