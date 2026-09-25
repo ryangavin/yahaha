@@ -178,7 +178,11 @@ pub(crate) fn write_cache(path: &Path, c: &ScanCache) -> Result<()> {
         std::fs::create_dir_all(dir).with_context(|| format!("creating {}", dir.display()))?;
     }
     // Write-then-rename, so a crash mid-write never leaves a torn cache.
-    let tmp = path.with_extension("json.tmp");
+    // A temporary name of its own per write: two sessions (or a scan and a load recording
+    // its time) writing at once must not rename each other's file away.
+    static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let n = SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let tmp = path.with_extension(format!("json.{}.{n}.tmp", std::process::id()));
     std::fs::write(&tmp, serde_json::to_vec_pretty(c)?).with_context(|| format!("writing {}", tmp.display()))?;
     std::fs::rename(&tmp, path).with_context(|| format!("replacing {}", path.display()))?;
     Ok(())

@@ -21,6 +21,45 @@ fn energy(l: &[f32], r: &[f32]) -> f64 {
     l.iter().chain(r).map(|x| (*x as f64).powi(2)).sum()
 }
 
+/// Scan the plugins (the scan cache, on the `plugin-scan` thread) and pump until the list
+/// is in.
+fn wait_scanned(s: &Session) {
+    s.inner.lock().start_plugin_scan(false);
+    let t0 = Instant::now();
+    while s.state().plugins.scanning || s.state().plugins.list.is_empty() {
+        assert!(t0.elapsed() < Duration::from_secs(60), "the plugin scan did not finish");
+        s.advance(1_000_000);
+        std::thread::sleep(Duration::from_millis(5));
+    }
+}
+
+/// Picking a plugin never scans on the control thread (#104 plug-rt PR 4). Before the
+/// first scan is in, the load thread looks the id up: an unknown one fails there, named
+/// by its id, and DLS loads (and gets its name and load mode) as usual. Once the list is
+/// in, an unknown id is refused at once from it.
+#[test]
+fn a_plugin_is_looked_up_off_the_control_thread() {
+    let Some(s) = session() else { return };
+    s.offline_audio(None, 48_000).unwrap();
+    assert!(s.inner.lock().plugins.list.is_empty(), "no scan yet");
+    s.send(PluginCmd::SetPartPlugin { part: 0, id: "aumu nope nope".into(), state: None }).unwrap();
+    assert_eq!(wait_playing(&s, 0), PluginStatus::Failed);
+    let p = s.state().keyboard_parts[0].plugin.clone().unwrap();
+    assert!(p.name == "aumu nope nope" && p.error.as_deref().is_some_and(|e| e.contains("no instrument Audio Unit")), "{p:?}");
+    s.send(PluginCmd::SetPartPlugin { part: 1, id: DLS.into(), state: None }).unwrap();
+    assert_eq!(s.state().keyboard_parts[1].plugin.clone().unwrap().name, DLS, "named by its id until looked up");
+    assert_eq!(wait_playing(&s, 1), PluginStatus::Playing);
+    assert_eq!(s.state().keyboard_parts[1].plugin.clone().unwrap().name, "DLSMusicDevice");
+    {
+        let ctl = s.inner.lock();
+        let c = ctl.plugins.channels[crate::parts::CHANNEL[1] as usize].as_ref().unwrap();
+        let info = c.info.as_ref().expect("looked up on the load thread");
+        assert_eq!(c.mode, super::imp::load_mode(info), "the load thread chose the mode");
+    }
+    wait_scanned(&s);
+    assert!(s.send(PluginCmd::SetPartPlugin { part: 2, id: "aumu nope nope".into(), state: None }).is_err(), "refused from the list");
+}
+
 /// Pump until Right 1's plugin has finished loading (the load runs on its own thread).
 fn wait_playing(s: &Session, part: usize) -> PluginStatus {
     let t0 = Instant::now();
@@ -51,6 +90,7 @@ fn a_keyboard_part_plays_an_audio_unit() {
     let Some(s) = session() else { return };
     s.offline_audio(None, 48_000).unwrap();
     assert!(s.state().plugins.available);
+    wait_scanned(&s);
     assert!(s.send(PluginCmd::SetPartPlugin { part: 0, id: "aumu nope nope".into(), state: None }).is_err(), "not installed");
     s.send(PluginCmd::SetPartPlugin { part: 0, id: DLS.into(), state: None }).unwrap();
     let p = s.state().keyboard_parts[0].plugin.clone().unwrap();
@@ -220,7 +260,7 @@ fn a_missing_plugin_is_named_by_its_id() {
     let mut saved = super::Saved::default();
     saved.parts[2] = Some(super::PluginVoice { id: "aumu Nope Gone".into(), state: None });
     s.inner.lock().restore_saved(saved);
-    s.advance(1_000_000);
+    assert_eq!(wait_playing(&s, 2), PluginStatus::Failed);
     let p = s.state().keyboard_parts[2].plugin.clone().unwrap();
     assert_eq!((p.status, p.name.as_str()), (PluginStatus::Failed, "aumu Nope Gone"));
 }
@@ -243,6 +283,7 @@ fn a_restore_keeps_a_missing_plugin_and_never_falls_back_in_process() {
         assert!(!ctl.plugins.channels[ch].as_ref().unwrap().allow_fallback, "no in-process fallback at start-up");
     }
     assert_eq!(wait_playing(&s, 3), PluginStatus::Playing);
+    assert_eq!(wait_playing(&s, 0), PluginStatus::Failed);
     let p = s.state().keyboard_parts[0].plugin.clone().unwrap();
     assert_eq!((p.status, p.id.as_str()), (PluginStatus::Failed, "aumu Nope Gone"));
     let kept = s.inner.lock().saved_parts();

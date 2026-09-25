@@ -113,16 +113,18 @@ Decisions:
 ## Style Section Reset (#25)
 
 On the Genos, TAP TEMPO while the style plays restarts the section from its top, at the
-tap (OM p.46), unless Tap Tempo › Style Section Reset is turned off. In yahaha
-`styleSettings.sectionReset` defaults to **off** (#128): TAP TEMPO always sets the tempo,
-from the second tap, averaging the last four. Turning it on gives the Genos behaviour.
-Section Reset is also a command of its own (Launchkey Shift + Play, key `|`) and an
+tap (OM p.46, p.67), unless Tap Tempo › Style Section Reset is turned off (RM p.39).
+yahaha does the same: `styleSettings.sectionReset` defaults to **on**, and a tap while
+playing resets the section and leaves the tempo alone (the OM's note: the setting makes
+Tap "change the tempo instead"). Turned off, TAP TEMPO always sets the tempo, from the
+second tap, averaging the last four. Section Reset is also a command of its own (Launchkey Shift + Play, key `|`) and an
 assignable function, Style Section Reset (yahaha's own row: the Genos reaches it only
 through TAP TEMPO).
 
 Decisions:
-- Decision (#128): Section Reset defaults to off, because the owner plays tap tempo during
-  the song and the Genos default made that impossible; the Genos setting is kept.
+- Decision (#128, owner 2026-09-25: "keep the genos default"): Section Reset defaults to
+  on, as on the Genos. With it on, a tap while playing is a reset only: the tapped tempo
+  does not apply (the manuals give reset and tempo change as alternatives).
 - The bar grid restarts at the tap. A section change queued for a bar line moves to the
   new grid's next bar line; a queued fill to its next beat; a style waiting for the bar
   line to the new grid's next one.

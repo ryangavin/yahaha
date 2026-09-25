@@ -165,12 +165,14 @@ mod tests {
         assert_eq!(s.state().transport.fade, FadeState::Off, "and software takes it off");
     }
 
-    /// TAP TEMPO while the band plays sets the tempo, from the app and from the Launchkey's
-    /// Tap pad (117), and Style Section Reset is a function of its own (#128).
+    /// TAP TEMPO while the band plays, with Tap › Style Section Reset turned off, sets the
+    /// tempo, from the app and from the Launchkey's Tap pad (117), and Style Section Reset
+    /// is a function of its own (#128).
     #[test]
     fn tap_sets_the_tempo_while_playing_and_section_reset_is_assignable() {
         const MS: u64 = 1_000_000;
         let Some(s) = offline() else { return };
+        s.send(StyleSettingsCmd::SetSectionReset { on: false }).unwrap();
         // The position as the app shows it: bar and beat from 1.
         let at = |s: &Session| (s.state().transport.bar, s.state().transport.beat);
         s.send(TransportCmd::StartStop).unwrap();

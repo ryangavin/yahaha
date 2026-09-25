@@ -354,6 +354,51 @@ fn a_patch_volume_fills_in_where_the_style_sets_none() {
     }
 }
 
+/// The hand-over race (#109): a style chosen after the engine has taken over the style
+/// handed to it before, but before the control side has promoted that one, must not reuse
+/// (rewrite) the bank the engine now plays from. The snapshot already shows the takeover.
+#[test]
+fn a_style_chosen_during_the_hand_over_gets_the_other_bank() {
+    let Some((s, data)) = session("race", &["SlowWalker.T552.sty", "BubblyDub.T552.sty"], true) else { return };
+    let g = add(&s, "Global Bass", 0, 33);
+    let own = add(&s, "Dub Bass", 0, 35);
+    s.send(SoundLibraryCmd::SetFamilyRule { family: 4, patch: Some(g), style: false }).unwrap();
+    let id = |name: &str| s.library_list().entries.iter().find(|e| e.path.contains(name)).unwrap().id;
+    let (slow, dub) = (id("SlowWalker"), id("BubblyDub"));
+    load(&s, "BubblyDub");
+    s.send(SoundLibraryCmd::SetFamilyRule { family: 4, patch: Some(own), style: true }).unwrap();
+    load(&s, "SlowWalker");
+    let routes = s.inner.shared.routes.clone();
+    let slow_bank = routes.current.load(Relaxed);
+    assert_eq!(routes.bank_route(slow_bank, 33).map(|r| r.program), Some(33));
+    let dub_bank;
+    {
+        let mut guard = s.inner.lock();
+        let ctl = &mut *guard;
+        // BubblyDub handed over; the (stopped) engine takes it over at its next step, and its
+        // snapshot arrives, but no pump has promoted it yet.
+        ctl.apply(LibraryCmd::LoadStyle { id: dub }.into()).unwrap();
+        dub_bank = ctl.sound.pending.as_ref().unwrap().0;
+        assert_ne!(dub_bank, slow_bank);
+        let o = ctl.offline.as_mut().unwrap();
+        let now = o.now;
+        o.engine.step(now);
+        while let Ok(sn) = ctl.snap_rx.pop() {
+            ctl.snap = sn;
+        }
+        assert_eq!(routes.bank_route(dub_bank, 33).map(|r| r.program), Some(35), "BubblyDub plays its own rule");
+        // SlowWalker chosen right then.
+        ctl.apply(LibraryCmd::LoadStyle { id: slow }.into()).unwrap();
+        assert_eq!(routes.bank_route(dub_bank, 33).map(|r| r.program), Some(35), "the bank BubblyDub plays from is not rewritten");
+        assert_eq!(ctl.sound.pending.as_ref().unwrap().0, slow_bank, "SlowWalker gets the other bank");
+    }
+    s.advance(10 * MS);
+    assert!(s.state().style.path.contains("SlowWalker"));
+    let cur = routes.current.load(Relaxed);
+    assert_eq!((cur, routes.bank_route(cur, 33).map(|r| r.program)), (slow_bank, Some(33)));
+    let _ = std::fs::remove_dir_all(&data);
+}
+
 /// B2 (review of #106): at a style change the per-channel routes follow the NEW style's
 /// setup voices: `info` is the new style's before the routes are synced.
 #[test]

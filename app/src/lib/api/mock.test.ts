@@ -37,8 +37,24 @@ describe('mock session', () => {
     expect(m.state.transport.section).toBe('Fill In AA')
   })
 
-  it('Tap while the band plays sets the tempo; Style Section Reset is a function of its own (#128)', () => {
+  it('Tap while the band plays resets the section by default (the Genos default)', () => {
     const m = new MockSession({ manual: true })
+    expect(m.state.styleSettings.sectionReset).toBe(true)
+    m.send({ type: 'startStop' })
+    m.advance(bar(m) * 1.3)
+    expect(m.state.transport.bar).toBe(2)
+    const tempo = m.state.transport.tempo
+    m.send({ type: 'tapTempo' })
+    m.advance(400)
+    m.send({ type: 'tapTempo' })
+    expect(m.state.transport.tempo).toBe(tempo)
+    expect(m.state.transport.bar).toBe(1)
+    expect(m.state.transport.running).toBe(true)
+  })
+
+  it('Tap while the band plays sets the tempo with Section Reset off; Style Section Reset is a function of its own (#128)', () => {
+    const m = new MockSession({ manual: true })
+    m.send({ type: 'setSectionReset', on: false })
     m.send({ type: 'startStop' })
     m.advance(bar(m) * 1.3)
     expect(m.state.transport.bar).toBe(2)

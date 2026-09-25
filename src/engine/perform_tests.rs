@@ -138,12 +138,12 @@ fn inside_intro_ending_timing() {
     assert_eq!(e.change_point(Change::IntroEnding(end2), now), (tpb, tpb));
 }
 
-/// TAP TEMPO while the band plays, with the default settings (#128): the taps set the
+/// TAP TEMPO while the band plays, with Style Section Reset off (RM p.39): the taps set the
 /// tempo (from the second tap, as the Genos does for a Song, OM p.46), averaging up to four
 /// taps, and the band plays on from where it is: no Section Reset.
 #[test]
-fn tap_while_playing_sets_the_tempo_by_default() {
-    let Some((mut e, mut rec)) = started(StyleSettings::default()) else { return };
+fn tap_while_playing_sets_the_tempo_with_section_reset_off() {
+    let Some((mut e, mut rec)) = started(StyleSettings { section_reset: false, ..StyleSettings::default() }) else { return };
     let (ppq, tpb, _) = grid(&e);
     let t = e.ns_at(tpb + 2.5 * ppq);
     play(&mut e, &mut rec, 0, t);
@@ -171,9 +171,13 @@ fn tap_while_playing_sets_the_tempo_by_default() {
     assert!(e.running);
 }
 
+/// TAP TEMPO while the band plays, with the default settings (Style Section Reset on, the
+/// Genos default: RM p.39, OM p.46/p.67): the section starts again from its top and the
+/// tempo stays (the manual's note: turning the setting off makes Tap "change the tempo
+/// instead"). Tapping on keeps resetting; no tempo builds up from the taps.
 #[test]
 fn tap_resets_the_section_or_sets_the_tempo() {
-    let Some((mut e, mut rec)) = started(StyleSettings { section_reset: true, ..StyleSettings::default() }) else { return };
+    let Some((mut e, mut rec)) = started(StyleSettings::default()) else { return };
     let (ppq, tpb, _) = grid(&e);
     let t = e.ns_at(tpb + 2.5 * ppq);
     play(&mut e, &mut rec, 0, t);
@@ -186,6 +190,9 @@ fn tap_resets_the_section_or_sets_the_tempo() {
     let later = t + 10_000_000;
     play(&mut e, &mut rec, t, later);
     assert!(e.ev_idx > 0, "its first events played");
+    // A second tap resets again: the tempo stays, however the taps are spaced.
+    e.button(Button::TapTempo, later, &mut rec);
+    assert_eq!((e.bpm, e.ev_idx), (bpm, 0), "reset again, same tempo");
     // Off: taps set the tempo.
     e.set_style_settings(StyleSettings { section_reset: false, ..StyleSettings::default() });
     e.button(Button::TapTempo, later, &mut rec);

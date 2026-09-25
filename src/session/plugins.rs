@@ -286,7 +286,7 @@ mod imp {
             }
             self.plugins.channels[ch as usize] = Some(ChannelPlugin {
                 voice,
-                info: Some(info),
+                info,
                 load: Some(load),
                 mode,
                 status: PluginStatus::Loading,
@@ -304,15 +304,33 @@ mod imp {
             Ok(())
         }
 
-        /// Start loading `voice` on a thread of its own, as a part plays it: Apple's units
-        /// and AUv3s as the system decides, third-party AUv2s out of process.
-        pub(crate) fn start_load(&mut self, voice: &PluginVoice) -> Result<(PluginInfo, LoadMode, LoadHandle), String> {
+        /// Start loading `voice` on a thread of its own, as a part plays it ([`load_mode`]).
+        ///
+        /// The plugin is checked against the scanned list, never by scanning here: a stale
+        /// scan cache means a full component scan, and this runs on the control thread under
+        /// the Session lock. Before the first scan is in, the load thread looks the plugin up
+        /// (and chooses its mode); one that is not installed fails there, through the handle.
+        /// Once the list is in, an id missing from it is refused at once. The info is None
+        /// until the load thread has it (`LoadHandle::info`).
+        pub(crate) fn start_load(&mut self, voice: &PluginVoice) -> Result<(Option<PluginInfo>, LoadMode, LoadHandle), String> {
             let id = PluginId::parse(&voice.id).ok_or_else(|| format!("{:?} is not a plugin id", voice.id))?;
-            let host = self.plugins.host();
-            let info = host.info(&id).map_err(|e| format!("{e:#}"))?;
-            let mode = load_mode(&info);
-            let cfg = LoadConfig { sample_rate: self.plugin_rate(), max_frames: crate::synth::PLUGIN_MAX_BLOCK as u32, state: voice.state.clone(), mode, timeout: Duration::from_secs(20) };
-            let load = host.load_async(&id, cfg).map_err(|e| format!("{e:#}"))?;
+            let info = self.plugins.list.iter().find(|p| p.id == id).cloned();
+            if info.is_none() && self.plugins.scan_rx.is_none() && !self.plugins.list.is_empty() {
+                return Err(format!("no instrument Audio Unit {id} is installed (rescan the plugins if it was just installed)"));
+            }
+            let (mode, choose_mode) = match &info {
+                Some(i) => (load_mode(i), None),
+                None => (LoadMode::Auto, Some(load_mode as fn(&PluginInfo) -> LoadMode)),
+            };
+            let cfg = LoadConfig {
+                sample_rate: self.plugin_rate(),
+                max_frames: crate::synth::PLUGIN_MAX_BLOCK as u32,
+                state: voice.state.clone(),
+                mode,
+                timeout: Duration::from_secs(20),
+                choose_mode,
+            };
+            let load = self.plugins.host().load_async(&id, cfg).map_err(|e| format!("{e:#}"))?;
             Ok((info, mode, load))
         }
 
@@ -581,6 +599,14 @@ mod imp {
                 }
                 Some(r) => r,
             };
+            // Looked up on the load thread (the plugin was not in the list yet): its name
+            // and the mode it loaded in.
+            if c.info.is_none() {
+                c.info = load.info();
+            }
+            if let Some(m) = load.mode() {
+                c.mode = m;
+            }
             c.load = None;
             c.stage = None;
             match res {
@@ -620,7 +646,7 @@ mod imp {
                         let voice = c.voice.clone();
                         if let Some(id) = PluginId::parse(&voice.id) {
                             let rate = self.synth.as_ref().map_or(48_000, |s| s.info.sample_rate) as f64;
-                            let cfg = LoadConfig { sample_rate: rate, max_frames: crate::synth::PLUGIN_MAX_BLOCK as u32, state: voice.state.clone(), mode: LoadMode::InProcess, timeout: Duration::from_secs(20) };
+                            let cfg = LoadConfig { sample_rate: rate, max_frames: crate::synth::PLUGIN_MAX_BLOCK as u32, state: voice.state.clone(), mode: LoadMode::InProcess, timeout: Duration::from_secs(20), choose_mode: None };
                             if let Ok(h) = self.plugins.host().load_async(&id, cfg) {
                                 let c = self.plugins.channels[ch as usize].as_mut().unwrap();
                                 c.load = Some(h);
