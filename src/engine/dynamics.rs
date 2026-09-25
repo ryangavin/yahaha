@@ -100,6 +100,14 @@ impl Engine {
         d.update();
     }
 
+    /// The Dynamics level from a Dynamics Control pedal (`Cmd::DynamicsLevel`). With
+    /// Dynamics Control off it is kept but does nothing, as any level.
+    pub fn set_dynamics_level(&mut self, level: u8) {
+        let d = &mut self.features.dynamics;
+        d.settings.level = level.min(127);
+        d.update();
+    }
+
     /// The Dynamics settings in effect; `level` is the level now (Touch moves it).
     pub fn dynamics(&self) -> DynamicsSettings {
         self.features.dynamics.settings
@@ -265,6 +273,19 @@ mod tests {
         assert!(matches!(e.snapshot(t).cur, Some(SectionId::Fill(_))), "the fill plays");
         e.strike(127, t);
         assert_eq!(e.snapshot(t).queued, None, "no accent during a fill");
+    }
+
+    #[test]
+    fn a_pedal_sets_the_level() {
+        let Some(mut e) = engine() else { return };
+        e.set_dynamics_level(0);
+        assert_eq!(e.dynamics().level, 0);
+        assert!(e.dynamics_vel(100) < 40);
+        e.set_dynamics_level(200);
+        assert_eq!(e.dynamics().level, 127);
+        e.set_dynamics(DynamicsSettings { control: false, ..e.dynamics() });
+        e.set_dynamics_level(0);
+        assert_eq!(e.dynamics_vel(100), 100, "Dynamics Control off: the pedal does nothing");
     }
 
     #[test]

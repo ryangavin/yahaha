@@ -177,6 +177,7 @@ Tags: `[chord-following]` `[transport]` `[sections]` `[voices]` `[registration]`
   - **Accent** (a stand-in for the PSR-SX Unison & Accent, §C.9). A chord-section strike at or above the threshold (default 110) makes the Main that is playing play its own fill from the next beat, as Fill Self does.
     - It is not a Main press, so OTS Link does not follow it.
     - It does nothing during an Intro, a fill, a break or an Ending, or while a change is queued.
+  - **Pedal.** The assignable function "Dynamics Control" (RM p.142 marks it pedal-assignable) turns a foot controller's position into the level, 0–127. With Dynamics Control off the pedal does nothing. A pedal that is given another function leaves the level where it was.
   - **Storage.** System settings, not Registration (DL p.91: Dynamics Control is System only).
   - **Defaults.** Dynamics Control on, level 64, Touch off, Accent off.
 - **Ref:** OM p.11, p.69; RM p.11, p.142, p.147

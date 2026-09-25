@@ -82,7 +82,7 @@ pub fn function_run(f: Function, fingering: crate::fingering::Fingering, ots_cou
         Effect::Nothing => return Ok(FunctionRun::Nothing),
         Effect::Engine(b) => b.into(),
         Effect::Switch(b) => return Ok(FunctionRun::Switch(b)),
-        Effect::Modulation | Effect::PitchBend => return Err(format!("{} needs a foot controller (an expression pedal)", info.name)),
+        Effect::Modulation | Effect::PitchBend | Effect::Dynamics => return Err(format!("{} needs a foot controller (an expression pedal)", info.name)),
         // A press (a Toggle pedal, `TriggerFunction`) switches it; Hold pedals set it
         // (`function_set`).
         Effect::ControlSwitch => match f {
