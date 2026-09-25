@@ -259,6 +259,15 @@ const EVERY_CMD: &[&str] = &[
     r#"{"type":"stopSoundAudition"}"#,
     r#"{"type":"assignSound","part":0,"id":"saved:warm-pad"}"#,
     r#"{"type":"setSoundCategory","id":"au:aumu Xf2X XFER","category":"pad"}"#,
+    // Style Dynamics Control, Touch, Accent
+    r#"{"type":"setDynamicsControl","on":false}"#,
+    r#"{"type":"setDynamics","level":90}"#,
+    r#"{"type":"stepDynamics","delta":-8}"#,
+    r#"{"type":"setDynamicsTouch","on":true}"#,
+    r#"{"type":"toggleDynamicsTouch"}"#,
+    r#"{"type":"setAccent","on":true}"#,
+    r#"{"type":"toggleAccent"}"#,
+    r#"{"type":"setAccentThreshold","velocity":110}"#,
 ];
 
 fn type_of(json: &str) -> String {
@@ -369,6 +378,7 @@ fn bad_commands_are_refused() {
         r#"{"type":"setPedal","pedal":0,"cc":64,"function":"noSuchFunction"}"#,
         r#"{"type":"triggerFunction"}"#,
         r#"{"type":"setParamLock","item":"masterEq","on":true}"#,
+        r#"{"type":"setDynamics","level":300}"#,
         r#"[1,2]"#,
         r#""startStop""#,
     ] {

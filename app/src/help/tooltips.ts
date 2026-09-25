@@ -975,6 +975,43 @@ const catalog = {
     launchkey: null,
   },
 
+  // ── Style Dynamics (#180) ───────────────────────────────────────────────
+  'dynamics.control': {
+    title: 'Dynamics Control',
+    body: 'On: the Dynamics level (and Touch) can change how hard the band plays. Off: the Style plays exactly as written.',
+    genos: 'Menu › Style Setting › Dynamics Control',
+    keys: [],
+    launchkey: null,
+  },
+  'dynamics.level': {
+    title: 'Dynamics',
+    body: 'How hard the whole band plays, 0–127; at 64 the Style plays as written. It changes every Style note\'s velocity, so the drums and instruments get softer and darker or harder and brighter, not just quieter or louder. The mixer volumes stay as they are.',
+    genos: 'Live Control › Style Dynamics (DynCtrl)',
+    keys: [],
+    launchkey: null,
+  },
+  'dynamics.touch': {
+    title: 'Touch',
+    body: 'The band follows your left hand. Each key you strike in the chord section sets the Dynamics level from how hard you hit it, and a strike at velocity 100 plays the Style as written.',
+    genos: null,
+    keys: [],
+    launchkey: null,
+  },
+  'dynamics.accent': {
+    title: 'Accent',
+    body: 'Strike a chord-section key at least as hard as the threshold while a Main plays, and the Main plays its own fill from the next beat, so you can play the fills with your left hand. It is not a Main press, so OTS Link does not follow it, and nothing happens during an Intro, fill, break or Ending.',
+    genos: null,
+    keys: [],
+    launchkey: null,
+  },
+  'dynamics.accent_threshold': {
+    title: 'Accent threshold',
+    body: 'How hard (velocity 1–127) a chord-section strike must be to play the fill. The default is 110.',
+    genos: null,
+    keys: [],
+    launchkey: null,
+  },
+
   // ── Chord Looper ────────────────────────────────────────────────────────
   'looper.rec': {
     title: 'Chord Looper REC/STOP',

@@ -414,6 +414,22 @@ groups are the Data List's lock groups that yahaha has: `splitPoint` (the split 
 |---|---|---|
 | `setParamLock` | `item` (`splitPoint` \| `fingeringType`), `on` | Locks or unlocks a group. A setup setting, not part of a bank: it is kept in the Registration folder's `setup.json`. |
 
+### Style Dynamics
+Genos2 Style Dynamics Control (OM p.11, p.69; RM p.11, p.142, p.147), with Touch and Accent (#180; docs/genos-features.md, Style Dynamics Control).
+- **Level.** A value from 0 to 127 that scales the velocity of every Style note. At 64 the Style plays as written. The level changes the band's intensity; the parts' CC7 volumes are never touched.
+- **Touch.** Each key struck in the chord section sets the level from that key's velocity.
+- **Accent.** A chord-section key struck at or above the threshold, while a Main plays, starts that Main's fill from the next beat. yahaha's Accent stands in for the PSR-SX Unison & Accent feature: no style carries Yamaha's accent data.
+- **Storage.** All of these are System settings. Registration does not store them.
+
+| Command | Fields | What it does |
+|---|---|---|
+| `setDynamicsControl` | `on` | Style Setting › Dynamics Control. Off: the Style plays as written, whatever the level. |
+| `setDynamics` | `level` 0–127 | The Dynamics level (64: as written). |
+| `stepDynamics` | `delta` | Moves the level by `delta`, clamped to 0–127. |
+| `setDynamicsTouch`, `toggleDynamicsTouch` | `on` | Touch: each chord-section strike sets the level to its velocity minus 36, so a strike at 100 plays as written. |
+| `setAccent`, `toggleAccent` | `on` | Accent: a chord-section strike at or above the threshold, while a Main plays, starts that Main's own fill at the next beat, as Fill Self does. It is not a Main press, so OTS Link does not follow it. It does nothing during an Intro, fill, break or Ending, or while a change is queued. |
+| `setAccentThreshold` | `velocity` 1–127 | The Accent threshold (default 110). |
+
 ### Sound catalog
 One list of every sound for the Sound Browser (#117): every preset of every `.sf2` in the
 SoundFont folder, every instrument plugin, and every saved sound (the sound library's
@@ -948,6 +964,13 @@ name; saved sounds in the library's order.
 ### `paramLocks`
 Parameter Lock: `{ splitPoint, fingeringType }`, each a bool (true: locked). All false by
 default.
+
+### `dynamics`
+Style Dynamics: `{ control, level, touch, accent, accentThreshold }`.
+- `control`: Style Setting › Dynamics Control. Default true.
+- `level`: the level in effect, 0–127. Touch moves it. Default 64.
+- `touch`, `accent`: default false.
+- `accentThreshold`: a velocity from 1 to 127. Default 110.
 
 ### `message`
 `{ seq, text, error }` or null. It holds the last notice or error, for example a style
@@ -1591,6 +1614,7 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
   },
   "paramLocks": { "splitPoint": false, "fingeringType": true },
   "sounds": { "revision": 3, "count": 1219, "scanning": false, "auditioning": null },
+  "dynamics": { "control": true, "level": 72, "touch": true, "accent": true, "accentThreshold": 110 },
   "message": null
 }
 ```
