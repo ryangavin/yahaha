@@ -237,6 +237,7 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | **Saved** | Your saved sounds: the sound library's patches, each a preset or plugin with its volume, octave, pan and sends (and a plugin's own settings). Edit them in the Sound Library drawer. | Voice Selection › User tab | — | — |
 | **Save as sound** | Saves what this part plays now as a new saved sound: its preset or plugin (with the plugin's current settings), volume and octave. It appears under Saved, ready to rename in the Sound Library drawer. | Voice Setting › Save | — | — |
 | **Category** | The sounds of one Genos voice category. A preset's category is its General MIDI family, and a plugin's is guessed from its name. | VOICE category buttons | — | — |
+| **Plugin category** | The category the selected plugin is listed under. yahaha guesses it from the plugin's name; pick another to file it where you look for it. | — | — | — |
 | **Sound** | Click or Enter plays this sound on the part. SF is a SoundFont preset, AU an instrument plugin, Saved a sound from your library. ▶ marks what the part plays. | Voice Selection | — | — |
 | **Plugin that failed** | This plugin failed to load last time (⚠ says why). Picking it tries again; until it loads, the part plays its SoundFont voice. | — | — | — |
 | **Star** | Adds the sound to your Favourites, or takes it out. | Voice Selection › Favorite | — | — |
