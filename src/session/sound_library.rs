@@ -696,8 +696,14 @@ impl Control {
         if patch.is_some_and(|p| matches!(p.source, PatchSource::SoundFont { .. })) {
             self.end_picked_plugin(part);
         }
-        self.sound.part_patch[part] = id;
         let kp = self.shared.parts.clone();
+        // Another sound: the voice settings an OTS or Registration set go back to neutral
+        // (#238), as for a GM voice change.
+        if self.sound.part_patch[part] != id {
+            kp.voice_changed(part);
+            self.wake_engine();
+        }
+        self.sound.part_patch[part] = id;
         if let Some(d) = defaults {
             if let Some(v) = d.volume {
                 kp.set_volume(part, v);

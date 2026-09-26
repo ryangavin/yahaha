@@ -1,5 +1,5 @@
 //! The audio callback (`synth::AudioCore::process`) must not allocate or free: SoundFont
-//! notes and controllers, the effect bus (sends, band send scales, types, parameters, returns, legacy effects), the
+//! notes and controllers, a style's XG drum setup (#239), the effect bus (sends, band send scales, types, parameters, returns, legacy effects), the
 //! master fader, a SoundFont swap, and (feature `plugins`) a
 //! keyboard part going over to an Audio Unit instrument (Apple's DLSMusicDevice), playing
 //! it, crossfading to a second instance, and back to the SoundFont. SoundFont swaps while
@@ -123,6 +123,19 @@ fn the_audio_callback_does_not_allocate() {
     for _ in 0..20 {
         assert_eq!(run(&mut core, &mut feed, &[]), none, "tails");
     }
+    // The style's XG Drum Setup (#239): drum messages, drum notes starting with their own
+    // level, pitch, pan (random too), sends, filter and envelope, a program change resetting
+    // the setup, and a system reset.
+    let ds = |key: u8, p: u8, v: u8| synth::drum_setup::encode(&[0xF0, 0x43, 0x10, 0x4C, 0x30, key, p, v, 0xF7]).unwrap();
+    let mut drum: Vec<[u8; 3]> = (0..16u8).map(|p| ds(38, p, if p == 4 { 0 } else { 0x50 })).collect();
+    drum.extend([ds(36, 0x05, 0), ds(42, 0x02, 80), synth::drum_setup::encode(&[0xF0, 0x43, 0x10, 0x4C, 0x08, 0x08, 0x07, 0x03, 0xF7]).unwrap()]);
+    assert_eq!(run(&mut core, &mut feed, &drum), none, "drum setup");
+    assert_eq!(run(&mut core, &mut feed, &[[0xB9, 91, 100], [0x99, 38, 100], [0x99, 36, 110], [0x99, 42, 90], [0x98, 38, 90]]), none, "drum notes with their setup");
+    for _ in 0..10 {
+        assert_eq!(run(&mut core, &mut feed, &[[0x99, 38, 60]]), none, "drum notes ringing");
+    }
+    let reset = synth::drum_setup::encode(&[0xF0, 0x43, 0x10, 0x4C, 0x00, 0x00, 0x7E, 0x00, 0xF7]).unwrap();
+    assert_eq!(run(&mut core, &mut feed, &[[0xC9, 0, 0], [0x99, 38, 100], reset]), none, "drum setup resets");
     ctl.master.store(90, Ordering::Relaxed);
     parts.set_program(0, 5);
     assert_eq!(run(&mut core, &mut feed, &[[0xB0, 1, 30], [0xE0, 0, 80]]), none, "master, program, controllers");

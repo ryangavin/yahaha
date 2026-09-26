@@ -131,6 +131,14 @@ fn preview_and_next_bar_style_change_do_not_allocate() {
     shared.controllers.toggle_switch(yahaha::controllers::SUSTAIN);
     shared.parts.toggle(1);
     l.step(now + 1);
+    // An OTS recall's voice settings (#238), then a voice change putting them back.
+    let mut ots = yahaha::sff::Ots::default();
+    ots.parts[0].tone = [Some(80); yahaha::parts::TONE];
+    ots.parts[0].xg.set(0x08, 0x05, 0);
+    shared.parts.apply_ots(&ots, 1);
+    l.step(now + 1);
+    shared.parts.set_program(0, 3);
+    l.step(now + 1);
     ch.ui_tx.push(Cmd::Button(Button::FillUp)).ok().unwrap();
     ch.ui_tx.push(Cmd::KeysOff).ok().unwrap();
     l.step(now + 1);
@@ -518,8 +526,8 @@ fn back_to_back_fills_do_not_allocate() {
     assert!(ch.old_rx.pop().is_ok(), "the new style took over");
 }
 
-/// The built-in synth's drum setup (#239): following a style's XG Drum Setup SysEx and
-/// scaling its drum notes on the way to the synth, on the engine thread.
+/// The built-in synth's drum setup (#239): a style's XG Drum Setup SysEx turned into drum
+/// messages for the synth, and its drum notes, on the engine thread.
 #[test]
 fn drum_setup_on_the_way_to_the_synth_does_not_allocate() {
     // Set up under the lock, as the other tests do: a test that just finished may still be
