@@ -29,6 +29,8 @@ pub(super) struct Mirror {
     /// (parameter, data entry MSB, LSB) per channel; parameter as `selected` returns it.
     pub(super) params: [[(u16, u8, u8); MIRROR_PARAMS]; 16],
     pub(super) bend: [Option<u16>; 16],
+    /// Channels in mono mode (#253): CC126/127, or the XG part's Mono/Poly (08 pp 05).
+    pub(super) mono: u16,
 }
 
 impl Mirror {
@@ -40,6 +42,7 @@ impl Mirror {
         nrpn_on: 0,
         params: [[(NO_PARAM, UNSENT, UNSENT); MIRROR_PARAMS]; 16],
         bend: [None; 16],
+        mono: 0,
     };
 
     /// The (N)RPN a data entry on `ch` sets, if any (the null RPN/NRPN sets nothing).
@@ -79,6 +82,11 @@ impl Mirror {
 
     /// Note a message sent.
     pub(super) fn track(&mut self, m: &[u8]) {
+        // An XG part's Mono/Poly (the XG part is the channel of its number).
+        if let Some((part, 0x05, v)) = crate::sff::xg_part_param(m) {
+            self.set_mono(part, v == 0);
+            return;
+        }
         if m.len() < 2 || m[0] >= 0xF0 {
             return;
         }
@@ -107,12 +115,23 @@ impl Mirror {
                             self.set_param(ch, p, msb, lsb);
                         }
                     }
+                    126 => self.set_mono(ch as u8, true),
+                    127 => self.set_mono(ch as u8, false),
                     _ => {}
                 }
             }
             (0xC0, _) => self.voice[ch] = Some((self.cc[ch][0], self.cc[ch][32], m[1])),
             (0xE0, 3) => self.bend[ch] = Some((m[2] as u16) << 7 | m[1] as u16),
             _ => {}
+        }
+    }
+
+    fn set_mono(&mut self, ch: u8, mono: bool) {
+        let bit = 1 << (ch & 15);
+        if mono {
+            self.mono |= bit;
+        } else {
+            self.mono &= !bit;
         }
     }
 

@@ -189,9 +189,15 @@ fn corpus_stopped_load_after_an_ending_sends_the_mains_setup() {
             e.load(Box::new(Prepared::new(&style)), end, &mut rec);
             let mut sent: Vec<_> = rec.out[from..].iter().map(|(_, m)| m.clone()).collect();
             // Past the expression the Ending left (#122): the Ending's fade-out moves CC11,
-            // so the load first puts it back to full; the rest is a fresh load's.
+            // so the load first puts it back to full; and the voice settings its patterns
+            // moved (#253: CC71-78 to 64, portamento off, poly); the rest is a fresh load's.
             let at = sent.iter().zip(&fresh).take_while(|(a, b)| a == b).count();
-            let resets = sent[at..].iter().take_while(|m| m.len() == 3 && m[0] & 0xF8 == 0xB8 && m[1] == 11 && m[2] == 127).count();
+            let style_part_reset = |m: &Vec<u8>| match m[..] {
+                [st, 11, 127] | [st, 71..=78, 64] | [st, 65 | 5, 0] => st & 0xF8 == 0xB8,
+                [0xF0, 0x43, 0x10, 0x4C, 0x08, ch, 0x05, 0x01, 0xF7] => ch >= 8,
+                _ => false,
+            };
+            let resets = sent[at..].iter().take_while(|m| style_part_reset(m)).count();
             sent.drain(at..at + resets);
             let expr = expression(rec.out.iter().map(|(_, m)| m));
             if let Some(c) = (8..16).find(|&c| expr[c] != fresh_expr[c]) {
