@@ -36,6 +36,9 @@ pub const RETRIGGER_RATES: [u8; 6] = [1, 2, 4, 8, 16, 32];
 /// The longest Fade In / Fade Out time (20.0 s) and Fade Out Hold time (5.0 s), in ms.
 pub const MAX_FADE_MS: u16 = 20_000;
 pub const MAX_FADE_HOLD_MS: u16 = 5_000;
+/// The fill late-press grace window's cap, in ms (#265): a fill pressed at most a 32nd
+/// note, and at most this long, after a beat line counts as pressed on that beat.
+pub const FILL_GRACE_MAX_MS: u32 = 60;
 /// The longest Synchro Stop Window yahaha offers, in ms (the manuals list no values).
 pub const MAX_SYNC_STOP_WINDOW_MS: u16 = 5_000;
 
@@ -120,6 +123,30 @@ impl Engine {
             let at = self.next_bar(now);
             (at, at)
         }
+    }
+
+    /// The fill late-press grace window, in ticks (#265): a 32nd note, at most
+    /// `FILL_GRACE_MAX_MS` at the tempo playing.
+    pub(super) fn fill_grace(&self) -> f64 {
+        let ppq = self.style.ppq.max(1) as f64;
+        let cap = FILL_GRACE_MAX_MS as f64 * 1e6 / self.ns_per_tick.max(1e-9);
+        (ppq / 8.0).min(cap)
+    }
+
+    /// Where a fill asked for at `now` starts, and the start of its bar (#265): at once
+    /// when `now` is within the grace window after a beat line (the press counts as made
+    /// on that beat: the fill plays on from here in its pattern, the notes before skipped,
+    /// none crammed in), else at the next beat line (`next_beat`).
+    pub(super) fn fill_beat(&self, now: u64) -> (f64, f64) {
+        let t = self.tick_at(now);
+        let (ppq, tpb) = (self.style.ppq.max(1) as f64, self.style.tpb.max(1) as f64);
+        let pos = t - self.sec_start;
+        let beat = (pos / ppq + 1e-9).floor() * ppq;
+        let late = pos - beat;
+        if late > 1e-6 && late <= self.fill_grace() {
+            return (t, self.sec_start + (beat / tpb + 1e-9).floor() * tpb);
+        }
+        self.next_beat(now)
     }
 
     /// The next beat line after `now`, and the start of its bar (a Fill, an Immediate

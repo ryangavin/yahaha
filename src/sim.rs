@@ -1436,7 +1436,7 @@ mod rtr {
         let prep = Box::new(Prepared::new(&bend_style()));
         let bar = bar_ns(&prep);
         let change = bar * 4 / 5;
-        let script = [(0, Step::Chord(Chord::new(0, 0))), (bar / 2 + 1_000_000, Step::Button(Button::Main(0))),
+        let script = [(0, Step::Chord(Chord::new(0, 0))), (bar / 2 + bar / 16, Step::Button(Button::Main(0))),
                       (change, Step::Chord(Chord::new(5, 0)))];
         let (e, rec) = run(prep, &script, change + 1);
         assert_eq!(e.snapshot(change).cur, Some(SectionId::Fill(0)));
@@ -2297,10 +2297,11 @@ mod mixer {
         let mut e = Engine::new(p);
         let mut rec = Recorder::default();
         e.set_chord(Chord::new(0, 0), 0, &mut rec);
-        play(&mut e, &mut rec, 0, bar / 2 + 1_000_000);
-        // Just after beat 2: the Fill comes in on beat 3.
-        e.button(Button::Main(0), bar / 2 + 1_000_000, &mut rec);
-        play(&mut e, &mut rec, bar / 2 + 1_000_000, bar);
+        play(&mut e, &mut rec, 0, bar / 2 + bar / 16);
+        // A 16th after beat 3 (past the late-press grace window, #265): the Fill comes in
+        // on beat 4.
+        e.button(Button::Main(0), bar / 2 + bar / 16, &mut rec);
+        play(&mut e, &mut rec, bar / 2 + bar / 16, bar);
         let entry = 3 * bar / 4;
         let at = |want: &dyn Fn(&[u8]) -> bool| rec.out.iter().position(|(t, m)| *t >= entry && *t < bar && want(m));
         assert_eq!(at(&|m| m == [0xCC, 5]), None, "the SInt's voice, replaced at once");
@@ -2322,8 +2323,8 @@ mod mixer {
         let mut e = Engine::new(p);
         let mut rec = Recorder::default();
         e.set_chord(Chord::new(0, 0), 0, &mut rec); // Sync Start
-        play(&mut e, &mut rec, 0, bar / 2 + 1_000_000);
-        e.button(Button::Main(0), bar / 2 + 1_000_000, &mut rec);
+        play(&mut e, &mut rec, 0, bar / 2 + bar / 16);
+        e.button(Button::Main(0), bar / 2 + bar / 16, &mut rec);
         play(&mut e, &mut rec, bar / 2 + 1_000_000, bar - 1_000_000);
         assert_eq!(e.snapshot(bar - 1_000_000).cur, Some(crate::sff::SectionId::Fill(0)));
         assert_eq!(voice_after(rec.out.iter().map(|(_, m)| &m[..]), 14), (104, 8, 4));
