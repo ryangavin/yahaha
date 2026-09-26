@@ -9,7 +9,8 @@ use yahaha::api::*;
 use yahaha::fingering::Fingering;
 use yahaha::launchkey::{Anim, Level};
 use yahaha::registration::playlist::PLAYLIST_EXT;
-use yahaha::registration::{file_name, Group, Groups, BANK_EXT, Playlist, PlaylistSort, Record, RecordTarget, SeqMove, Sequence, SequenceEnd, BUTTONS};
+use yahaha::registration::{file_name, Group, Groups, BANK_EXT, Playlist, PlaylistSort, Record, RecordTarget, SeqMove, Sequence, SequenceEnd, MAX_BANKS, MAX_SLOTS, SLOTS};
+use yahaha::registration::{bank_letter, snapshot_label};
 
 const BANK_DIR: &str = "/Users/me/Documents/yahaha/Registration";
 const LIST_DIR: &str = "/Users/me/Documents/yahaha/Playlists";
@@ -46,7 +47,25 @@ struct Bank {
 
 impl Bank {
     fn empty(name: &str) -> Bank {
-        Bank { name: name.into(), memories: vec![None; BUTTONS], sequence: Sequence::default() }
+        Bank { name: name.into(), memories: vec![None; SLOTS], sequence: Sequence::default() }
+    }
+
+    /// Store or empty snapshot `index`, keeping whole snapshot banks of eight (as
+    /// `registration::Bank::set`).
+    fn set(&mut self, index: usize, m: Option<Memory>) {
+        if index >= MAX_SLOTS {
+            return;
+        }
+        if index >= self.memories.len() {
+            self.memories.resize(index + 1, None);
+        }
+        self.memories[index] = m;
+        let used = self.memories.iter().rposition(Option::is_some).map_or(0, |i| i + 1);
+        self.memories.resize(used.div_ceil(SLOTS).max(1) * SLOTS, None);
+    }
+
+    fn banks(&self) -> usize {
+        self.memories.len() / SLOTS
     }
 }
 
@@ -68,6 +87,8 @@ pub struct MockRegist {
     path: Option<String>,
     dirty: bool,
     selected: Option<u8>,
+    /// The snapshot bank on view (0 = A).
+    view: u8,
     memory: bool,
     memorize: Groups,
     freeze: bool,
@@ -126,6 +147,7 @@ impl MockRegist {
             path: None,
             dirty: false,
             selected: None,
+            view: 0,
             memory: false,
             memorize: Groups::all(),
             freeze: false,
@@ -148,6 +170,9 @@ impl MockRegist {
         gig.memories[1] = Some(demo("Verse", st(1), 96.0, [4, 48, 61, 32], [true, false, false, false]));
         gig.memories[2] = Some(demo("Chorus", st(1), 96.0, [61, 48, 56, 32], [true, true, true, false]));
         gig.memories[3] = Some(demo("Swing", st(2), 132.0, [26, 48, 65, 32], [true, false, true, false]));
+        // Bank B: a ten-button bank's 9 and 10 land here.
+        gig.memories.resize(2 * SLOTS, None);
+        gig.memories[8] = Some(demo("Ballad ending", st(0), 68.0, [0, 48, 61, 48], [true, true, false, false]));
         gig.sequence = Sequence { steps: vec![0, 1, 2, 1, 2, 3], end: SequenceEnd::Next };
         let mut jazz = Bank::empty("Jazz Set");
         jazz.memories[0] = Some(demo("Trio", st(3), 120.0, [0, 32, 48, 32], [true, false, false, false]));
@@ -173,9 +198,24 @@ impl MockRegist {
         self.path = Some(path.into());
         self.dirty = false;
         self.selected = None;
+        self.view = 0;
         self.memory = false;
         self.seq_pos = None;
         true
+    }
+
+    /// The last snapshot bank that can be viewed: one empty bank past the file's last.
+    fn last_view(&self) -> u8 {
+        self.bank.banks().min(MAX_BANKS - 1) as u8
+    }
+
+    /// A snapshot button: store while Store is armed, else recall.
+    fn press(&mut self, index: u8, st: &AppState, fx: &mut Vec<Effect>) {
+        if self.memory {
+            self.memorize_into(index, st, fx)
+        } else {
+            self.recall(index, st, true, fx)
+        }
     }
 
     fn load_list(&mut self, path: &str) -> bool {
@@ -219,14 +259,32 @@ impl MockRegist {
     pub fn registration_cmd(&mut self, c: RegistrationCmd, st: &AppState) -> Vec<Effect> {
         let mut fx = Vec::new();
         match c {
-            RegistrationCmd::PressRegist { index } if self.memory => self.memorize_into(index, st, &mut fx),
-            RegistrationCmd::PressRegist { index } | RegistrationCmd::RecallRegist { index } => self.recall(index, st, true, &mut fx),
+            RegistrationCmd::PressRegist { index } => self.press(index, st, &mut fx),
+            RegistrationCmd::PressSnapshot { slot } => {
+                let index = self.view as usize * SLOTS + slot as usize;
+                if index < MAX_SLOTS {
+                    self.press(index as u8, st, &mut fx);
+                }
+            }
+            RegistrationCmd::StepSnapshotBank { delta } => {
+                self.view = (self.view as i16 + delta.signum() as i16).clamp(0, self.last_view() as i16) as u8;
+                fx.push(Effect::Message(format!("Snapshot Bank {}", bank_letter(self.view as usize)), false));
+            }
+            RegistrationCmd::SelectSnapshotBank { bank } => {
+                if bank <= self.last_view() {
+                    self.view = bank;
+                } else {
+                    fx.push(Effect::Message(format!("no Bank {}", bank_letter(bank as usize)), true));
+                }
+            }
+            RegistrationCmd::RecallRegist { index } => self.recall(index, st, true, &mut fx),
             RegistrationCmd::MemorizeRegist { index } => self.memorize_into(index, st, &mut fx),
             RegistrationCmd::ToggleRegistMemory => self.memory = !self.memory,
             RegistrationCmd::SetMemorizeGroup { group, on } => self.memorize.set(group, on),
             RegistrationCmd::ClearRegist { index } => {
-                if let Some(m) = self.bank.memories.get_mut(index as usize) {
-                    *m = None;
+                if (index as usize) < MAX_SLOTS {
+                    self.bank.set(index as usize, None);
+                    self.view = self.view.min(self.last_view());
                     if self.selected == Some(index) {
                         self.selected = None;
                     }
@@ -238,7 +296,7 @@ impl MockRegist {
                     m.name = name.trim().into();
                     self.changed();
                 }
-                None => fx.push(Effect::Message(format!("Registration {} is empty", index + 1), true)),
+                None => fx.push(Effect::Message(format!("Snapshot {} is empty", snapshot_label(index as usize)), true)),
             },
             RegistrationCmd::StepRegistBank { delta } => {
                 if self.banks.is_empty() {
@@ -257,6 +315,7 @@ impl MockRegist {
                 self.path = None;
                 self.dirty = false;
                 self.selected = None;
+                self.view = 0;
                 self.seq_pos = None;
             }
             RegistrationCmd::SaveRegistBank { name, overwrite } => {
@@ -319,7 +378,7 @@ impl MockRegist {
                 if self.seq_on && !self.bank.sequence.steps.is_empty() {
                     return self.registration_cmd(RegistrationCmd::StepRegistSequence { delta }, st);
                 }
-                let stored = self.bank.memories.iter().enumerate().filter(|(_, m)| m.is_some()).fold(0u16, |a, (i, _)| a | 1 << i);
+                let stored = self.bank.memories.iter().enumerate().filter(|(_, m)| m.is_some()).fold(0u64, |a, (i, _)| a | 1 << i);
                 if stored == 0 {
                     fx.push(Effect::Message("no Registration stored in this bank".into(), true));
                     return fx;
@@ -335,7 +394,7 @@ impl MockRegist {
     fn memorize_into(&mut self, index: u8, st: &AppState, fx: &mut Vec<Effect>) {
         self.memory = false;
         let g = self.memorize;
-        if (index as usize) >= BUTTONS {
+        if (index as usize) >= MAX_SLOTS {
             return;
         }
         if g.is_empty() {
@@ -345,7 +404,7 @@ impl MockRegist {
         let style = g.has(Group::Style);
         let c = &st.chord;
         let m = Memory {
-            name: if style { st.style.name.clone() } else { format!("Registration {}", index + 1) },
+            name: if style { st.style.name.clone() } else { format!("Snapshot {}", snapshot_label(index as usize)) },
             groups: g,
             style: style.then(|| (st.style.path.clone(), st.style.name.clone())),
             tempo: g.has(Group::Tempo).then_some(st.transport.tempo),
@@ -365,9 +424,10 @@ impl MockRegist {
             harmony_arp: g.has(Group::HarmonyArp).then(|| st.harmony_arp.clone()),
             looper: g.has(Group::ChordLooper).then_some((st.looper.memory, matches!(st.looper.mode, LooperMode::LoopArmed | LooperMode::Looping))),
         };
-        self.bank.memories[index as usize] = Some(m);
+        self.bank.set(index as usize, Some(m));
         self.selected = Some(index);
-        fx.push(Effect::Message(format!("Memorized to Registration {}", index + 1), false));
+        self.view = index / SLOTS as u8;
+        fx.push(Effect::Message(format!("Stored to Snapshot {}", snapshot_label(index as usize)), false));
         self.changed();
     }
 
@@ -375,11 +435,12 @@ impl MockRegist {
     /// everything else is written to `apply` for the session to copy in.
     fn recall(&mut self, index: u8, st: &AppState, follow: bool, fx: &mut Vec<Effect>) {
         let Some(m) = self.bank.memories.get(index as usize).cloned().flatten() else {
-            fx.push(Effect::Message(format!("Registration {} is empty", index + 1), true));
+            fx.push(Effect::Message(format!("Snapshot {} is empty", snapshot_label(index as usize)), true));
             return;
         };
         self.memory = false;
         self.selected = Some(index);
+        self.view = index / SLOTS as u8;
         if follow {
             self.seq_pos = self.bank.sequence.follow(self.seq_pos, index);
         }
@@ -405,7 +466,7 @@ impl MockRegist {
             }
         }
         self.pending = Some((m.clone(), allowed));
-        fx.push(Effect::Message(format!("Registration {}: {}", index + 1, m.name), false));
+        fx.push(Effect::Message(format!("Snapshot {}: {}", snapshot_label(index as usize), m.name), false));
     }
 
     /// The rest of a recall, once the style and the section are in (the session calls it
@@ -613,10 +674,9 @@ impl MockRegist {
             },
             banks: self.banks.iter().map(|(p, b)| BankFile { name: b.name.clone(), path: p.clone() }).collect(),
             folder: Some(BANK_DIR.into()),
-            buttons: self
-                .bank
-                .memories
-                .iter()
+            // Every snapshot, through the bank on view.
+            buttons: (0..self.bank.banks().max(self.view as usize + 1) * SLOTS)
+                .map(|i| self.bank.memories.get(i).and_then(Option::as_ref))
                 .enumerate()
                 .map(|(i, m)| match m {
                     None => RegistButton { index: i as u8, ..RegistButton::default() },
@@ -644,6 +704,8 @@ impl MockRegist {
                 .collect(),
             selected: self.selected,
             memory: self.memory,
+            snapshot_bank: self.view,
+            snapshot_banks: self.bank.banks() as u8,
             memorize_groups: self.memorize,
             freeze: self.freeze,
             freeze_groups: self.frozen,
@@ -681,7 +743,7 @@ impl MockRegist {
         const SELECTED: [u8; 3] = [127, 0, 0];
         const STORED: [u8; 3] = [0, 40, 127];
         const PAGE: [u8; 3] = [127, 60, 0];
-        const KEYS: [&str; 10] = ["Q", "W", "E", "R", "T", "Y", "U", "I", "O", "P"];
+        const KEYS: [&str; 8] = ["Q", "W", "E", "R", "T", "Y", "U", "I"];
         let pad = |note: u8, label: String, key: &str, action: AppCmd, (rgb, level, anim): ([u8; 3], Level, Anim)| Pad {
             note,
             label,
@@ -695,26 +757,28 @@ impl MockRegist {
         let page = |on: bool, avail: bool| (PAGE, if !avail { Level::Off } else if on { Level::Bright } else { Level::Dim }, Anim::Solid);
         let seq = self.seq_on && !self.bank.sequence.steps.is_empty();
         let banks = !self.banks.is_empty();
-        let mut v: Vec<Pad> = (0..10u8)
+        let first = self.view * SLOTS as u8;
+        let mut v: Vec<Pad> = (0..8u8)
             .map(|i| {
-                let stored = self.bank.memories[i as usize].is_some();
+                let stored = self.bank.memories.get((first + i) as usize).is_some_and(Option::is_some);
                 let look = if self.memory {
                     (SELECTED, Level::Bright, Anim::Flash)
-                } else if stored && self.selected == Some(i) {
+                } else if stored && self.selected == Some(first + i) {
                     (SELECTED, Level::Bright, Anim::Solid)
                 } else {
                     (STORED, if stored { Level::Bright } else { Level::Off }, Anim::Solid)
                 };
-                let note = if i < 8 { 96 + i } else { 104 + i };
-                pad(note, format!("REGIST {}", i + 1), KEYS[i as usize], RegistrationCmd::PressRegist { index: i }.into(), look)
+                pad(96 + i, format!("SNAP {}", i + 1), KEYS[i as usize], RegistrationCmd::PressSnapshot { slot: i }.into(), look)
             })
             .collect();
         v.extend([
-            pad(114, "BANK -".into(), "F11", RegistrationCmd::StepRegistBank { delta: -1 }.into(), page(false, banks)),
-            pad(115, "BANK +".into(), "F12", RegistrationCmd::StepRegistBank { delta: 1 }.into(), page(false, banks)),
+            pad(112, "BANK -".into(), "O", RegistrationCmd::StepSnapshotBank { delta: -1 }.into(), page(false, self.view > 0)),
+            pad(113, "BANK +".into(), "P", RegistrationCmd::StepSnapshotBank { delta: 1 }.into(), page(false, self.view < self.last_view())),
+            pad(114, "FILE -".into(), "F11", RegistrationCmd::StepRegistBank { delta: -1 }.into(), page(false, banks)),
+            pad(115, "FILE +".into(), "F12", RegistrationCmd::StepRegistBank { delta: 1 }.into(), page(false, banks)),
             pad(
                 116,
-                "MEMORY".into(),
+                "STORE".into(),
                 "F5",
                 RegistrationCmd::ToggleRegistMemory.into(),
                 if self.memory { (SELECTED, Level::Bright, Anim::Flash) } else { page(false, true) },

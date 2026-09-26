@@ -1,5 +1,5 @@
-// The Registration bar and panel on the mock session: the ten buttons light and press
-// like pad page 4, Memory arms Memorize, the panel's pages send their commands.
+// The Registration bar and panel on the mock session: the eight snapshots light and press
+// like pad page 4, Store arms, the panel's pages send their commands.
 
 import { cleanup, fireEvent, render } from '@testing-library/svelte'
 import { flushSync } from 'svelte'
@@ -43,7 +43,7 @@ describe('Registration bar', () => {
     const r = s.state.registration
     expect(r.bank.name).toBe('Friday Gig')
     expect(buttonLook(r, 0)).toMatchObject({ level: 'bright', rgb: [0, 40, 127] })
-    expect(buttonLook(r, 9).level).toBe('off')
+    expect(buttonLook(r, 7).level).toBe('off')
     expect(sequenceText(r)).toBe('– / 6')
   })
 
@@ -58,17 +58,28 @@ describe('Registration bar', () => {
     expect(s.state.keyboardParts[0].program).toBe(26)
   })
 
-  it('Memory arms Memorize: every button flashes, the next press stores the panel', async () => {
+  it('Store arms: every snapshot flashes, the next press stores the panel', async () => {
     const s = setup()
     render(RegistBar)
     s.send({ type: 'setPartVoice', part: 0, program: 71 })
+    // Bank + shows Bank B (the demo's B1 holds a ten-button bank's 9).
+    await fireEvent.click(q('[data-tip="regist.snap_bank_next"]'))
+    expect(s.state.registration.snapshotBank).toBe(1)
+    expect(buttonLook(s.state.registration, 8).level).toBe('bright')
     await fireEvent.click(q('[data-tip="regist.memory"]'))
     expect(buttonLook(s.state.registration, 9).anim).toBe('flash')
-    await fireEvent.click(q('[data-tip="regist.10"]'))
+    await fireEvent.click(q('[data-tip="regist.2"]'))
     const r = s.state.registration
     expect(r.memory).toBe(false)
     expect(r.buttons[9].stored).toBe(true)
+    expect(r.selected).toBe(9)
     expect(buttonSummary(r, 9)).toContain(s.state.style.name)
+  })
+
+  it('shows the eight snapshots of the bank on view', () => {
+    setup()
+    render(RegistBar)
+    expect(all('[aria-label="Snapshots 1 to 8"] [data-tip^="regist."]')).toHaveLength(8)
   })
 
   it('Regist + walks the sequence; the playlist steps songs', async () => {

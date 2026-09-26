@@ -1343,7 +1343,7 @@ export const PAD_PAGES: { id: PadPage; name: string }[] = [
   { id: 'sections', name: 'Sections' },
   { id: 'chordSetup', name: 'Chord/Setup' },
   { id: 'otsParts', name: 'OTS/Parts' },
-  { id: 'registration', name: 'Registration' },
+  { id: 'registration', name: 'Snapshots' },
   { id: 'multiPads', name: 'Multi Pads' },
 ]
 
