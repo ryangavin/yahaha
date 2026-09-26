@@ -272,10 +272,20 @@ describe('mock knobs (#197)', () => {
     m.send({ type: 'turnKnob', knob: 2, delta: 1 })
     expect(m.state.transport.retrigger).toBe(true)
     m.send({ type: 'stepKnobPage', delta: 1 })
-    m.send({ type: 'stepKnobPage', delta: 1 })
-    expect(m.state.knobs).toMatchObject({ page: 'parts', pageNumber: 2, pageCount: 2 })
+    expect(m.state.knobs).toMatchObject({ page: 'parts', pageNumber: 2, pageCount: 4 })
     const v = m.state.keyboardParts[1].volume
     m.send({ type: 'turnKnob', knob: 1, delta: -1 })
     expect(m.state.keyboardParts[1].volume).toBe(Math.max(0, v - 2))
+    // Pan and the effect sends (#198).
+    m.send({ type: 'setKnobPage', page: 'pan' })
+    const pan = m.state.keyboardParts[0].pan
+    m.send({ type: 'turnKnob', knob: 0, delta: 1 })
+    expect(m.state.keyboardParts[0].pan).toBe(Math.min(127, pan + 2))
+    m.send({ type: 'setKnobPage', page: 'effects' })
+    expect(m.state.knobs.knobs.map((k) => k.short)).toEqual(['RevR1', 'RevR2', 'RevR3', 'RevL', 'ChoR1', 'ChoR2', 'ChoR3', 'ChoL'])
+    const rev = m.state.keyboardParts[3].reverb
+    m.send({ type: 'turnKnob', knob: 3, delta: -1 })
+    expect(m.state.keyboardParts[3].reverb).toBe(Math.max(0, rev - 2))
+    expect(m.state.knobs.knobs[3].value).toBe(String(m.state.keyboardParts[3].reverb))
   })
 })

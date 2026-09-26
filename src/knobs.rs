@@ -6,7 +6,7 @@
 //! This is the pure model: the session hands it the values in effect (`Now`) and runs the
 //! command a turn gives back, the same command the app's control for it sends.
 
-use crate::api::{AppCmd, DynamicsCmd, KnobState, KnobsState, HarmonyArpCmd, MetronomeCmd, MixerCmd, PartsCmd, StyleSettingsCmd, TrackMuteOrder, TransportCmd};
+use crate::api::{AppCmd, DynamicsCmd, KnobState, KnobsState, HarmonyArpCmd, PartSend, MetronomeCmd, MixerCmd, PartsCmd, StyleSettingsCmd, TrackMuteOrder, TransportCmd};
 use crate::engine::RETRIGGER_RATES;
 use serde::{Deserialize, Serialize};
 
@@ -19,15 +19,21 @@ pub enum KnobPage {
     Style,
     /// Levels: the keyboard parts' volumes, Harmony, the metronome, tempo.
     Parts,
+    /// The keyboard parts' pan, tempo.
+    Pan,
+    /// The keyboard parts' Reverb and Chorus sends (Genos Mixer > Effect).
+    Effects,
 }
 
 impl KnobPage {
-    pub const ALL: [KnobPage; 2] = [KnobPage::Style, KnobPage::Parts];
+    pub const ALL: [KnobPage; 4] = [KnobPage::Style, KnobPage::Parts, KnobPage::Pan, KnobPage::Effects];
 
     pub fn name(self) -> &'static str {
         match self {
             KnobPage::Style => "Style",
             KnobPage::Parts => "Parts",
+            KnobPage::Pan => "Pan",
+            KnobPage::Effects => "Effects",
         }
     }
 
@@ -40,12 +46,15 @@ impl KnobPage {
         KnobPage::ALL[(self as i16 + d as i16).clamp(0, KnobPage::ALL.len() as i16 - 1) as usize]
     }
 
-    /// Knobs 1-8. Tempo is knob 8 on every page.
+    /// Knobs 1-8. Tempo is knob 8 on every page but Effects, whose eight knobs are the
+    /// four parts' two sends.
     pub fn functions(self) -> [KnobFn; 8] {
         use KnobFn::*;
         match self {
             KnobPage::Style => [Dynamics, RetriggerRate, RetriggerOnOff, TrackMuteA, TrackMuteB, None, None, Tempo],
             KnobPage::Parts => [PartVolume(0), PartVolume(1), PartVolume(2), PartVolume(3), HarmonyVolume, MetronomeVolume, None, Tempo],
+            KnobPage::Pan => [PartPan(0), PartPan(1), PartPan(2), PartPan(3), None, None, None, Tempo],
+            KnobPage::Effects => [PartReverb(0), PartReverb(1), PartReverb(2), PartReverb(3), PartChorus(0), PartChorus(1), PartChorus(2), PartChorus(3)],
         }
     }
 }
@@ -72,6 +81,11 @@ pub enum KnobFn {
     HarmonyVolume,
     /// The metronome's volume.
     MetronomeVolume,
+    /// Mixer Pan of a keyboard part (0-3): its CC10, 64 = centre.
+    PartPan(u8),
+    /// Mixer Reverb / Chorus depth of a keyboard part (0-3): its CC91 / CC93.
+    PartReverb(u8),
+    PartChorus(u8),
 }
 
 /// Knob steps per Retrigger length, and per Retrigger on/off switch.
@@ -98,6 +112,9 @@ impl KnobFn {
             KnobFn::PartVolume(_) => "partVolume",
             KnobFn::HarmonyVolume => "harmonyVolume",
             KnobFn::MetronomeVolume => "metronomeVolume",
+            KnobFn::PartPan(_) => "partPan",
+            KnobFn::PartReverb(_) => "partReverb",
+            KnobFn::PartChorus(_) => "partChorus",
         }
     }
 
@@ -114,6 +131,9 @@ impl KnobFn {
             KnobFn::PartVolume(p) => ["Right1", "Right2", "Right3", "Left"][(p & 3) as usize],
             KnobFn::HarmonyVolume => "HarmVol",
             KnobFn::MetronomeVolume => "MetroVol",
+            KnobFn::PartPan(p) => ["PanR1", "PanR2", "PanR3", "PanL"][(p & 3) as usize],
+            KnobFn::PartReverb(p) => ["RevR1", "RevR2", "RevR3", "RevL"][(p & 3) as usize],
+            KnobFn::PartChorus(p) => ["ChoR1", "ChoR2", "ChoR3", "ChoL"][(p & 3) as usize],
         }
     }
 
@@ -130,6 +150,9 @@ impl KnobFn {
             KnobFn::PartVolume(p) => ["Right 1 Volume", "Right 2 Volume", "Right 3 Volume", "Left Volume"][(p & 3) as usize],
             KnobFn::HarmonyVolume => "Harmony Volume",
             KnobFn::MetronomeVolume => "Metronome Volume",
+            KnobFn::PartPan(p) => ["Right 1 Pan", "Right 2 Pan", "Right 3 Pan", "Left Pan"][(p & 3) as usize],
+            KnobFn::PartReverb(p) => ["Right 1 Reverb", "Right 2 Reverb", "Right 3 Reverb", "Left Reverb"][(p & 3) as usize],
+            KnobFn::PartChorus(p) => ["Right 1 Chorus", "Right 2 Chorus", "Right 3 Chorus", "Left Chorus"][(p & 3) as usize],
         }
     }
 }
@@ -144,6 +167,8 @@ pub struct Now {
     pub part_volume: [u8; 4],
     pub harmony_volume: u8,
     pub metronome_volume: u8,
+    /// Each keyboard part's pan, reverb and chorus (`parts::Parts::fx`).
+    pub part_fx: [[u8; 3]; 4],
 }
 
 /// A knob as it reads now: its value as text, and where it is (0-127) if it has a
@@ -221,6 +246,13 @@ impl Knobs {
             KnobFn::PartVolume(p) => PartsCmd::SetPartVolume { part: p, volume: level(now.part_volume[(p & 3) as usize]) }.into(),
             KnobFn::HarmonyVolume => HarmonyArpCmd::SetHarmonyVolume { volume: level(now.harmony_volume) }.into(),
             KnobFn::MetronomeVolume => MetronomeCmd::SetMetronomeVolume { volume: level(now.metronome_volume) }.into(),
+            KnobFn::PartPan(p) => PartsCmd::SetPartPan { part: p, pan: level(now.part_fx[(p & 3) as usize][0]) }.into(),
+            KnobFn::PartReverb(p) => {
+                PartsCmd::SetPartSend { part: p, send: PartSend::Reverb, value: level(now.part_fx[(p & 3) as usize][1]) }.into()
+            }
+            KnobFn::PartChorus(p) => {
+                PartsCmd::SetPartSend { part: p, send: PartSend::Chorus, value: level(now.part_fx[(p & 3) as usize][2]) }.into()
+            }
         };
         Some(cmd)
     }
@@ -273,7 +305,24 @@ impl Knobs {
             }
             KnobFn::HarmonyVolume => r(now.harmony_volume.to_string(), Some(now.harmony_volume)),
             KnobFn::MetronomeVolume => r(now.metronome_volume.to_string(), Some(now.metronome_volume)),
+            KnobFn::PartPan(p) => {
+                let v = now.part_fx[(p & 3) as usize][0];
+                r(pan_text(v), Some(v))
+            }
+            KnobFn::PartReverb(p) | KnobFn::PartChorus(p) => {
+                let v = now.part_fx[(p & 3) as usize][if matches!(self.function(knob), KnobFn::PartReverb(_)) { 1 } else { 2 }];
+                r(v.to_string(), Some(v))
+            }
         }
+    }
+}
+
+/// A pan as the Genos shows it: L63 … C … R63.
+pub fn pan_text(v: u8) -> String {
+    match v.min(127) as i16 - 64 {
+        0 => "C".into(),
+        d if d < 0 => format!("L{}", -d),
+        d => format!("R{d}"),
     }
 }
 
@@ -282,16 +331,25 @@ mod tests {
     use super::*;
 
     fn now() -> Now {
-        Now { dynamics: 64, retrigger: false, retrigger_rate: 8, bpm: 120.0, part_volume: [100, 90, 80, 70], harmony_volume: 100, metronome_volume: 64 }
+        Now {
+            dynamics: 64,
+            retrigger: false,
+            retrigger_rate: 8,
+            bpm: 120.0,
+            part_volume: [100, 90, 80, 70],
+            harmony_volume: 100,
+            metronome_volume: 64,
+            part_fx: [[64, 40, 0], [30, 50, 10], [100, 0, 0], [64, 127, 5]],
+        }
     }
 
     #[test]
     fn pages_step_and_stop_at_the_ends() {
         assert_eq!(KnobPage::Style.step(-1), KnobPage::Style);
         assert_eq!(KnobPage::Style.step(1), KnobPage::Parts);
-        assert_eq!(KnobPage::Parts.step(1), KnobPage::Parts);
+        assert_eq!(KnobPage::Effects.step(1), KnobPage::Effects);
         for p in KnobPage::ALL {
-            assert_eq!(p.functions()[7], KnobFn::Tempo, "tempo is knob 8 on {p:?}");
+            assert!(p == KnobPage::Effects || p.functions()[7] == KnobFn::Tempo, "tempo is knob 8 on {p:?}");
             assert!(p.functions().iter().all(|f| f.short().len() <= 8));
         }
     }
@@ -339,6 +397,25 @@ mod tests {
         assert_eq!(k.turn(4, -40, &now()), Some(MixerCmd::StyleTrackMute { order: TrackMuteOrder::B, value: 0 }.into()));
         assert_eq!(k.reading(4, &now()), Reading { value: "1 of 8".into(), level: Some(0) });
         assert_eq!(k.reading(3, &now()).level, Some(111));
+    }
+
+    /// Pan and the effect sends, on the Pan and Effects pages (#198's per-part controls).
+    #[test]
+    fn pan_and_effect_knobs() {
+        let mut k = Knobs::default();
+        k.set_page(KnobPage::Pan);
+        assert_eq!(k.turn(1, -3, &now()), Some(PartsCmd::SetPartPan { part: 1, pan: 24 }.into()));
+        assert_eq!(k.reading(0, &now()), Reading { value: "C".into(), level: Some(64) });
+        assert_eq!(k.reading(1, &now()).value, "L34");
+        assert_eq!(k.reading(2, &now()).value, "R36");
+        assert_eq!(k.function(7), KnobFn::Tempo);
+        k.set_page(KnobPage::Effects);
+        assert_eq!(k.turn(3, 1, &now()), Some(PartsCmd::SetPartSend { part: 3, send: PartSend::Reverb, value: 127 }.into()));
+        assert_eq!(k.turn(5, 2, &now()), Some(PartsCmd::SetPartSend { part: 1, send: PartSend::Chorus, value: 14 }.into()));
+        assert_eq!(k.reading(0, &now()), Reading { value: "40".into(), level: Some(40) });
+        assert_eq!(k.reading(7, &now()), Reading { value: "5".into(), level: Some(5) });
+        assert_eq!(pan_text(0), "L64");
+        assert_eq!(pan_text(127), "R63");
     }
 
     #[test]

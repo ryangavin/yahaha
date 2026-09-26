@@ -115,6 +115,13 @@ impl Control {
                         position,
                         set: Some(AppCmd::Parts(PartsCmd::SetPartVolume { part: i, volume: 0 })),
                     },
+                    FaderPage::Panel if p == parts::STYLE_LEVEL => SurfaceFader {
+                        label: "STYLE".to_string(),
+                        value: Some(kp.volume(p)),
+                        waiting: kp.waiting(p),
+                        position,
+                        set: Some(AppCmd::Mixer(MixerCmd::SetStyleVolume { volume: 0 })),
+                    },
                     FaderPage::Panel => SurfaceFader { position, ..SurfaceFader::default() },
                     FaderPage::Style => SurfaceFader {
                         label: STYLE_PART_NAMES[p].to_uppercase(),

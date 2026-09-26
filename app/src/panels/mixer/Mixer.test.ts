@@ -41,10 +41,22 @@ describe('Mixer drawer', () => {
     expect(f).toHaveLength(9)
     expect(f.slice(0, 4).map((e) => e.getAttribute('aria-label'))).toEqual(['Right 1', 'Right 2', 'Right 3', 'Left'])
     expect(f[1].getAttribute('aria-valuenow')).toBe(String(s.state.keyboardParts[1].volume))
-    expect(f.slice(4, 8).every((e) => e.dataset.tip === 'launchkey.fader_unused')).toBe(true)
+    expect(f[4].dataset.tip).toBe('mixer.style_level')
+    expect(f[4].getAttribute('aria-label')).toBe('Style')
+    expect(f.slice(5, 8).every((e) => e.dataset.tip === 'launchkey.fader_unused')).toBe(true)
     expect(f[8].dataset.tip).toBe('mixer.master')
     const chans = [...document.querySelectorAll('.strips [data-tip="mixer.channel"]')].map((e) => e.textContent?.replace(/\s+/g, ' ').trim())
     expect(chans).toEqual(['Ch 1', 'Ch 3', 'Ch 4', 'Ch 2'])
+  })
+
+  it('Panel fader 5 is the Style volume, a scale on the Style parts; their faders stay', async () => {
+    const s = setup()
+    const before = s.state.mixer.styleParts.map((p) => p.volume)
+    expect(sliders()[4].getAttribute('aria-valuenow')).toBe('100')
+    await fireEvent.keyDown(sliders()[4], { key: 'PageDown' })
+    expect(s.state.mixer.styleVolume).toBe(90)
+    expect(s.state.mixer.styleParts.map((p) => p.volume)).toEqual(before)
+    expect(s.state.surface.faders[4].label).toBe('STYLE')
   })
 
   it('Panel strip 5 has the HARMONY/ARPEGGIO button, as the Launchkey button under fader 5', async () => {
@@ -103,7 +115,7 @@ describe('Mixer drawer', () => {
     flushSync()
     expect(knobs()[9].getAttribute('aria-valuetext')).toBe('L64')
     await fireEvent.keyDown(k[4], { key: 'PageUp' })
-    expect(s.state.keyboardParts[1].reverb).toBe(50)
+    expect(s.state.keyboardParts[1].reverb).toBe(60)
     await fireEvent.keyDown(k[2], { key: 'End' })
     expect(s.state.keyboardParts[0].chorus).toBe(127)
     await fireEvent.dblClick(k[2])

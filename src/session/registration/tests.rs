@@ -54,6 +54,8 @@ struct Panel {
     fingering: Fingering,
     style_on: Vec<bool>,
     style_vol: Vec<u8>,
+    /// The Style volume (#199).
+    style_volume: u8,
     ots_link: bool,
 }
 
@@ -79,6 +81,7 @@ fn panel(s: &Session) -> Panel {
         fingering: st.chord.fingering,
         style_on: st.mixer.style_parts.iter().map(|p| p.on).collect(),
         style_vol: st.mixer.style_parts.iter().map(|p| p.volume).collect(),
+        style_volume: st.mixer.style_volume,
         ots_link: st.ots.link,
     }
 }
@@ -104,6 +107,7 @@ fn dress(s: &Session) {
     s.send(ChordCmd::SetFingering { fingering: Fingering::Fingered }).unwrap();
     s.send(MixerCmd::ToggleStylePart { part: 5 }).unwrap();
     s.send(MixerCmd::SetStylePartVolume { part: 3, volume: 64 }).unwrap();
+    s.send(MixerCmd::SetStyleVolume { volume: 80 }).unwrap();
     s.send(OtsCmd::SetOtsLink { on: false }).unwrap();
     s.advance(MS);
 }
@@ -125,6 +129,7 @@ fn scramble(s: &Session) {
     s.send(ChordCmd::SetSplit { note: 50 }).unwrap();
     s.send(ChordCmd::SetFingering { fingering: Fingering::SingleFinger }).unwrap();
     s.send(MixerCmd::SetStylePartVolume { part: 3, volume: 120 }).unwrap();
+    s.send(MixerCmd::SetStyleVolume { volume: 110 }).unwrap();
     s.advance(MS);
 }
 

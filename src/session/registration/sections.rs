@@ -4,13 +4,14 @@
 //! A feature adds its own `Registrable` (in its own module, or here) and one line in
 //! `REGISTRABLES`. Its section is its own serde struct under its own key; a recall skips
 //! whatever is not in the groups being recalled (Memorize groups less Freeze), and an old
-//! bank file that lacks the section leaves the feature alone. The Chord Looper and Live
-//! Control add theirs when they are wired in.
+//! bank file that lacks the section leaves the feature alone. Live Control adds its own
+//! when it is wired in.
 //!
 //! Parameter Lock: a recall that sets an item of a Data List lock group (`LockItem`) asks
 //! `c.param_locked(item)` first and leaves the item alone when it is locked.
 
 use super::super::harmony_arp::{harmony_arp_capture, harmony_arp_recall};
+use super::super::looper::{looper_capture, looper_recall};
 use super::super::style_settings::{style_settings_capture, style_settings_recall};
 use super::super::Control;
 use crate::api::{gm_name, ChordCmd, LibraryCmd, LockItem, MultiPadCmd, PartsCmd, StopAcmpMode};
@@ -55,6 +56,9 @@ pub(in crate::session) const REGISTRABLES: &[Registrable] = &[
     // Section Change Timing, Retrigger, Synchro Stop Window, Section Reset, fade times
     // (#107): session/style_settings.rs.
     Registrable { key: "styleSettings", early: false, capture: style_settings_capture, recall: style_settings_recall },
+    // The Chord Looper (#201): session/looper.rs. After the style, so a loop armed by the
+    // recall follows the recalled style.
+    Registrable { key: "chordLooper", early: false, capture: looper_capture, recall: looper_recall },
 ];
 
 fn to_value<T: Serialize>(t: &T) -> Option<Value> {
@@ -292,6 +296,10 @@ struct MixerReg {
     /// build): a level is set where it differs.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     set: Option<[bool; 8]>,
+    /// The Style volume (#199; the Genos's Style volume offset, DL p.83), 100 = as
+    /// written. Missing (a bank from an earlier build): left as it is.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    level: Option<u8>,
 }
 
 fn mixer_capture(c: &Control, g: Groups) -> Option<Value> {
@@ -303,6 +311,7 @@ fn mixer_capture(c: &Control, g: Groups) -> Option<Value> {
         volumes: s.volumes,
         on: std::array::from_fn(|p| s.parts & (1 << p) != 0),
         set: Some(std::array::from_fn(|p| s.user_set & (1 << p) != 0)),
+        level: Some(c.shared.parts.volume(parts::STYLE_LEVEL)),
     })
 }
 
@@ -311,6 +320,11 @@ fn mixer_recall(c: &mut Control, v: &Value, g: Groups) -> Result<(), String> {
         return Ok(());
     }
     let r: MixerReg = parse("styleMixer", v)?;
+    if let Some(level) = r.level {
+        // Panel fader 5 picks it up; the engine thread scales the parts on its next wake.
+        c.shared.parts.set_volume(parts::STYLE_LEVEL, level);
+        c.wake_engine();
+    }
     // Absolute levels and states only: the engine compares them with its own (the
     // snapshot may be behind an earlier recall's changes). It sets the player's levels and
     // hands every other part back to the style, so the patterns' CC7 move it as usual.

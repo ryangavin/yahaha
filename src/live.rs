@@ -890,7 +890,7 @@ impl Input {
                     match parts.fader_page() {
                         // The engine thread sends the new volume as the part's CC7.
                         FaderPage::Panel => {
-                            if f < parts::COUNT && parts.hw_fader(f, prev, v) {
+                            if f < parts::PANEL_FADERS && parts.hw_fader(f, prev, v) {
                                 self.signal = true;
                             }
                         }
@@ -1302,6 +1302,8 @@ impl EngineLoop {
         self.play_audition(now);
         let (engine, io) = (&mut self.engine, &mut self.io);
         sync_part_volumes(&mut io.out, &shared.parts, &mut self.last_part_vol);
+        // The Style volume (Panel fader 5, #199): a scale on the Style parts' CC7.
+        engine.set_style_level(shared.parts.volume(parts::STYLE_LEVEL), &mut io.out);
         shared.parts.send_fx(&mut |m| io.out.push(m));
         let ctl = &shared.controllers;
         ctl.sync_ranges(&mut |m| io.out.push(m));

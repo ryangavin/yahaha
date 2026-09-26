@@ -44,6 +44,7 @@ export function faderTip(f: SurfaceFader): TipKey {
   if (!f.set) return 'launchkey.fader_unused'
   if (f.set.type === 'setPartVolume') return tipFor(f.set)
   if (f.set.type === 'setStylePartVolume') return 'mixer.style.volume'
+  if (f.set.type === 'setStyleVolume') return 'mixer.style_level'
   return 'mixer.master'
 }
 

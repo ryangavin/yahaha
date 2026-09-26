@@ -535,6 +535,8 @@
     ],
     "master": null,
     "masterWaiting": false,
+    "styleVolume": 100,
+    "styleVolumeWaiting": false,
     "styleSolo": null,
     "partSolo": null
   },
@@ -2065,7 +2067,7 @@
     "page": "style",
     "pageName": "Style",
     "pageNumber": 1,
-    "pageCount": 2,
+    "pageCount": 4,
     "knobs": [
       {
         "function": "dynamics",

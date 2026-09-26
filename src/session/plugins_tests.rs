@@ -371,6 +371,9 @@ fn section_setups_never_reach_a_keyboard_parts_plugin() {
     let Some(s) = session() else { return };
     s.finish_indexing();
     s.offline_audio(None, 48_000).unwrap();
+    // The plugin's own sound only: the effect bus's chorus (Right 1's default send, #204)
+    // moves the C5 measure from one note to the next.
+    s.fx_returns_off();
     s.send(PluginCmd::SetPartPlugin { part: 0, id: DLS.into(), state: None }).unwrap();
     assert_eq!(wait_playing(&s, 0), PluginStatus::Playing);
     // A C5 on Right 1: its level and how much of it is C5.

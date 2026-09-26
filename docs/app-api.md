@@ -115,6 +115,7 @@ state, and pressing the button is the action. For settings, a GUI checkbox can u
 | `setTempo` | `bpm` | Sets the tempo. The range is 5–500 BPM (Genos, OM p.46); values outside are clamped. |
 | `toggleStylePart` | `part` 0–7 | Mutes or unmutes a Style part. |
 | `setStylePartVolume` | `part` 0–7, `volume` 0–127 | The part's CC7. The Launchkey fader has to reach the new value before it takes over again. |
+| `setStyleVolume` | `volume` 0–127 | The Style volume (the Genos Balance page's Style slider), 100 = as written: every Style part's CC7 goes out multiplied by `volume`/100 (at most 127), as a Fade In/Out scales it; the part levels (`styleParts[].volume`) do not move. One of the two exceptions to the mixer rule, with the Fade. Launchkey Panel fader 5, with soft takeover. Registered with the Style mixer. |
 | `setStyleSolo` | `part` 0–7 or null | Solos a Style part: only it plays, even if it is switched off; the other parts' notes stop. `null` ends the solo. The on/off switches are not changed (`mixer.styleSolo`). |
 | `styleTrackMute` | `order` `a` \| `b`, `value` 0–127 | Style Track Mute, a Genos Live Control knob (RM p.148). `value` is the knob: fully left (0) leaves one part on, and turning up adds parts until all eight are on at 127. Order A: Rhythm 2, Rhythm 1, Bass, Chord 1, Chord 2, Pad, Phrase 1, Phrase 2. Order B: Chord 1, Chord 2, Pad, Bass, Phrase 1, Phrase 2, Rhythm 1, Rhythm 2. It sets the parts' on/off switches. |
 
@@ -439,12 +440,13 @@ The Launchkey's 8 encoders as the Genos LIVE CONTROL knobs (#197; OM p.62–63, 
 README › Knobs). A page gives each knob a function; the knobs are relative, so a turn moves
 the value from where it is now, whoever set it last. A turn runs the command of the knob's
 function (`setDynamics`, `stepRetriggerRate`, `toggleRetrigger`, `styleTrackMute`,
-`setTempo`, `setPartVolume`, `setHarmonyVolume`, `setMetronomeVolume`), so it behaves
+`setTempo`, `setPartVolume`, `setHarmonyVolume`, `setMetronomeVolume`, `setPartPan`,
+`setPartSend`), so it behaves
 exactly as that command does.
 
 | Command | Fields | What it does |
 |---|---|---|
-| `setKnobPage` | `page` `style` \| `parts` | The Knob Assign page. |
+| `setKnobPage` | `page` `style` \| `parts` \| `pan` \| `effects` | The Knob Assign page. |
 | `stepKnobPage` | `delta` | Steps the page, stopping at the first and last (the encoder page buttons ▲/▼). |
 | `turnKnob` | `knob` 0–7, `delta` | Turns a knob `delta` steps (positive: clockwise). Levels move 2 a step, tempo 1 BPM; Retrigger Rate and On/Off switch every 3 steps (right: shorter, on); Track Mute A/B move their position 4 a step. A knob with No Assign does nothing. |
 
@@ -572,7 +574,7 @@ Indices are 0-based unless a field says otherwise.
 | `playsBass` | bool | Left is playing the bass (Manual Bass). |
 | `octave` | −2..2 | The octave setting. It is not applied while `playsBass` is true. |
 | `pan` | 0–127 | Pan (CC10): 0 left, 64 centre, 127 right. 64 until something sets it (`setPartPan`, a library patch, an OTS). |
-| `reverb`, `chorus` | 0–127 | Reverb and chorus send depth (CC91, CC93). 40 and 0 (the GM power-on values) until something sets them (`setPartSend`, a library patch, an OTS). |
+| `reverb`, `chorus` | 0–127 | Reverb and chorus send depth (CC91, CC93). Until something sets them (`setPartSend`, a library patch, an OTS), Genos-like defaults sent at start: reverb 50 and chorus 10 on Right 1–3, reverb 40 and chorus 10 on Left. |
 | `fader` | 0–127? | Where its Launchkey fader (Panel page, faders 1–4) physically is, as last reported. Null until that fader moves. |
 | `plugin` | PartPlugin? | The instrument plugin the part plays instead of its SoundFont voice. The key is absent when there is none. `id`, `name`, `manufacturer`, `status` (`loading` \| `playing` \| `failed` \| `muted`: still on the SoundFont, or the previous plugin, while loading; on the SoundFont after a failed load, keeping the choice so it is saved and can be retried; silent after the plugin crashed or produced bad audio), `stage` (while loading: `queued`, `instantiating`, `initializing`, `restoringState`), `error`, `outOfProcess` (runs in its own process), `inProcessFallback` (the system refused to host it in its own process, so it loaded in yahaha's process instead: a crash in it takes yahaha down; the app shows a warning badge), `cpu` (share of real time, updated once a second), `overruns` (renders slower than half the buffer, since it loaded), `recentOverruns` (those in the last 10 seconds, updated once a second: the live readout the mixer badge shows; a larger `setAudioBuffer` gives the plugin more time), `editor` (its window can be opened). Its volume is still `volume` (CC7), and its pan is CC10; the host applies both to the plugin's output. |
 | `patch` | string? | Its own sound library patch (`setPartPatch`). Null: its GM voice plays, through the program map; `voiceName` then names the patch the map sends it to, if any. |
@@ -580,10 +582,12 @@ Indices are 0-based unless a field says otherwise.
 ### `mixer`
 | Field | Type | Meaning |
 |---|---|---|
-| `faderPage` | `panel` \| `style` | What the Launchkey faders control. Panel: faders 1–4 are the keyboard parts. Style: faders 1–8 are the Style parts. |
+| `faderPage` | `panel` \| `style` | What the Launchkey faders control. Panel: faders 1–4 are the keyboard parts, fader 5 the Style volume. Style: faders 1–8 are the Style parts. |
 | `styleParts` | StylePart[8] | See the table below. |
 | `master` | 0–127? | The synth master level (100 = unity). Null without the synth. |
 | `masterWaiting` | bool | The master fader has not yet reached `master`. It turns on as soon as `setMasterVolume` moves the level away from the fader. |
+| `styleVolume` | 0–127 | The Style volume (`setStyleVolume`; Panel fader 5): 100 = the Style parts' CC7 as written. |
+| `styleVolumeWaiting` | bool | Panel fader 5 has not yet reached `styleVolume`. |
 | `styleSolo` | 0–7? | The Style part soloed (`setStyleSolo`): only it plays. Null when none. |
 | `partSolo` | 0–3? | The keyboard part soloed (`setPartSolo`). Null when none. |
 
@@ -729,7 +733,7 @@ Which button LEDs are lit, and in what colour:
 | `value` | 0–127? | The level it controls. Null when unused. |
 | `waiting` | bool | The level is waiting for the hardware fader (soft takeover). |
 | `position` | 0–127? | Where the hardware fader physically is, as last reported. It is the same physical fader on both pages. Null until it moves. |
-| `set` | AppCmd? | What moving it sends: this command with `volume` filled in (`setPartVolume`, `setStylePartVolume` or `setMasterVolume`; `volume` is 0 here). Null when unused. |
+| `set` | AppCmd? | What moving it sends: this command with `volume` filled in (`setPartVolume`, `setStylePartVolume`, `setStyleVolume` or `setMasterVolume`; `volume` is 0 here). Null when unused. |
 
 #### `surface.clock`
 Everything here is about time: the playing position, and the clock the pads flash on.
@@ -998,13 +1002,15 @@ Style Dynamics: `{ control, level, touch, accent, accentThreshold }`.
 
 ### `knobs`
 The Knob Assign page: `{ page, pageName, pageNumber, pageCount, knobs }`.
-- `page`: `style` (the default) or `parts`. `pageNumber` is 1-based.
+- `page`: `style` (the default), `parts`, `pan` or `effects`. `pageNumber` is 1-based.
 - `knobs`: always eight, knob 1 first: `{ function, name, short, value, level }`.
   - `function`: `none`, `dynamics`, `retriggerRate`, `retriggerOnOff`, `trackMuteA`,
-    `trackMuteB`, `tempo`, `partVolume`, `harmonyVolume` or `metronomeVolume`.
+    `trackMuteB`, `tempo`, `partVolume`, `harmonyVolume`, `metronomeVolume`, `partPan`,
+    `partReverb` or `partChorus`.
   - `name` is the full name ("Dynamics Control"); `short` is up to 8 characters ("DynCtrl",
     "---" for No Assign), as the Genos Live Control view and the Launchkey display show it.
-  - `value`: the value as text ("64", "1/8", "On", "3 of 8", "All", "120 BPM"); empty for No
+  - `value`: the value as text ("64", "1/8", "On", "3 of 8", "All", "120 BPM", a pan "L20" /
+    "C" / "R20"); empty for No
     Assign.
   - `level`: where the knob is, 0–127, as the Genos LED ring shows it; null for tempo and No
     Assign. Track Mute A/B keep their own position (they only set the Style parts' switches),
@@ -1264,6 +1270,8 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
     ],
     "master": 100,
     "masterWaiting": false,
+    "styleVolume": 100,
+    "styleVolumeWaiting": false,
     "styleSolo": null,
     "partSolo": null
   },
@@ -1670,7 +1678,7 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
     "page": "style",
     "pageName": "Style",
     "pageNumber": 1,
-    "pageCount": 2,
+    "pageCount": 4,
     "knobs": [
       { "function": "dynamics", "name": "Dynamics Control", "short": "DynCtrl", "value": "72", "level": 72 },
       { "function": "retriggerRate", "name": "Retrigger Rate", "short": "RtgRate", "value": "1/8", "level": 76 },
