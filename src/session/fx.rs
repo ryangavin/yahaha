@@ -181,4 +181,45 @@ mod tests {
         assert!(out.contains(&[0xB0, 121, 0]) && resent(&out), "Reset All Controllers, then the sends: {out:?}");
         assert!(!resent(&s.take_output()), "once");
     }
+
+    /// Each block's type and return level: in the state, on the audio thread's atomics,
+    /// refused when the type is another block's, and stored in a Registration Memory.
+    #[test]
+    fn effect_types_and_returns_reach_the_bus_and_the_registration() {
+        use crate::api::{FxBlock, FxCmd, FxType, RegistrationCmd};
+        let p = Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus/MOX_v2/SlowWalker.T552.sty");
+        if !p.exists() {
+            eprintln!("corpus missing; skipping");
+            return;
+        }
+        let dir = std::env::temp_dir().join(format!("yahaha-fx-regist-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let s = Session::offline(Options { paths: vec![p], data_dir: Some(dir.clone()), ..Options::default() }).unwrap();
+        s.offline_audio(None, 48_000).unwrap();
+        let blocks = |s: &Session| s.state().effects.blocks.iter().map(|b| (b.effect, b.return_level)).collect::<Vec<_>>();
+        assert_eq!(blocks(&s), vec![(FxType::Hall, 64), (FxType::Chorus, 64), (FxType::DottedEighth, 64)]);
+        assert_eq!(s.state().effects.blocks[0].types.len(), 4);
+        s.send(RegistrationCmd::MemorizeRegist { index: 0 }).unwrap();
+
+        s.send(FxCmd::SetEffectType { block: FxBlock::Reverb, effect: FxType::Plate }).unwrap();
+        s.send(FxCmd::SetEffectType { block: FxBlock::Variation, effect: FxType::PingPong }).unwrap();
+        s.send(FxCmd::SetEffectReturn { block: FxBlock::Variation, level: 200 }).unwrap();
+        assert!(s.send(FxCmd::SetEffectType { block: FxBlock::Reverb, effect: FxType::Flanger }).is_err(), "not a reverb");
+        assert_eq!(blocks(&s), vec![(FxType::Plate, 64), (FxType::Chorus, 64), (FxType::PingPong, 127)]);
+        {
+            let ctl = s.inner.lock();
+            let fx = &ctl.synth.as_ref().unwrap().control.fx;
+            let got = [fx.reverb_type.load(Relaxed), fx.variation_type.load(Relaxed), fx.variation_return.load(Relaxed)];
+            assert_eq!(got, [crate::fx::ReverbType::Plate as u8, crate::fx::DelayType::PingPong as u8, 127]);
+        }
+        // Registration: the bank keeps what was memorized.
+        s.send(RegistrationCmd::MemorizeRegist { index: 1 }).unwrap();
+        s.send(RegistrationCmd::RecallRegist { index: 0 }).unwrap();
+        s.advance(1_000_000_000);
+        assert_eq!(blocks(&s), vec![(FxType::Hall, 64), (FxType::Chorus, 64), (FxType::DottedEighth, 64)]);
+        s.send(RegistrationCmd::RecallRegist { index: 1 }).unwrap();
+        s.advance(1_000_000_000);
+        assert_eq!(blocks(&s), vec![(FxType::Plate, 64), (FxType::Chorus, 64), (FxType::PingPong, 127)]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
