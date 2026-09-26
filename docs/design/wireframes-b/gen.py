@@ -27,39 +27,26 @@ def krow(var, size=52, w=70):
     return KNOBROW % (var, w, size, size, size, size)
 
 
-# The "song map" artwork: a style's structure, drawn like an arrangement. It is used as the
-# display background (full bleed) and as the style's art everywhere.
-#   bands   - its sections left to right in playing order, each as wide as its bars and coloured
-#             by section type, the Launchkey pad colours: Intro amber, Main green (A darkest to
-#             D brightest), Fill blue, Break purple, Ending red. Calm sections are dimmer.
-#   lines   - 8 flowing lines, one per style part (Rhythm 1 at the bottom ... Phrase 2 at the top);
-#             a line swings wider where its part is busier.
-#   playhead - on the display, the section playing is lit and a white line marks the bar.
+# The style artwork: an abstract swirl of colour from a few of the style's attributes. It is
+# the display background (full bleed) and the style's art everywhere. It doesn't try to encode
+# the structure: the category picks the palette, the tempo sets how tight the swirl turns, the
+# energy sets how bright it is, and the seed (the file) makes every style its own.
+# (The function keeps its old name and arguments so every caller stays the same.)
 SONGMAP_JS = r"""
-    const SECCOL = { I: '#ffae1f', A: '#159a52', B: '#1fb863', C: '#2fd277', D: '#5aea97', F: '#3d7dff', K: '#9b4dff', E: '#ff4d57' };
-    const SONG = { pop: [['I', 4, .3], ['A', 4, .42], ['F', 1, .62], ['B', 4, .55], ['F', 1, .7], ['C', 8, .72], ['K', 1, .28], ['D', 8, .92], ['E', 4, .38]],
-      ballad: [['I', 4, .18], ['A', 8, .3], ['F', 1, .45], ['B', 8, .5], ['K', 1, .2], ['C', 8, .62], ['E', 4, .22]],
-      latin: [['I', 2, .45], ['A', 4, .6], ['F', 1, .8], ['B', 4, .7], ['F', 1, .85], ['C', 4, .78], ['D', 8, .95], ['E', 2, .6]],
-      dance: [['I', 8, .35], ['A', 8, .55], ['K', 2, .2], ['B', 8, .75], ['F', 1, .85], ['D', 8, 1], ['E', 4, .4]] };
-    const songMap = (seed, cat, hot, form, gid, W, H, playing) => {
-      let s = seed; const r = () => { s = (s * 9301 + 49297) % 233280; return s / 233280; };
-      const secs = SONG[form].map(x => [x[0], x[0] === 'F' || x[0] === 'K' ? x[1] : Math.max(1, Math.round(x[1] * (0.75 + r() * 0.5))), Math.min(1, x[2] + (r() - .5) * .1)]);
-      const bars = secs.reduce((n, x) => n + x[1], 0), gap = Math.max(1, W / 400);
-      let x = 0; const bands = [], at = [];
-      secs.forEach((sec, i) => { const w = sec[1] / bars * W, on = i === playing;
-        bands.push({ x: (x + gap / 2).toFixed(1), w: Math.max(1, w - gap).toFixed(1), c: SECCOL[sec[0]], dim: on ? 0 : (0.62 - sec[2] * 0.5).toFixed(2), rx: Math.min(6, W / 120).toFixed(1) });
-        at.push([x, x + w, sec[2] * (sec[0] === 'F' ? 1.4 : 1)]); x += w; });
-      const dens = [.9, .55, .8, .6, .5, .35, .3, .25].map(d => d * (0.8 + r() * 0.4));
-      const N = 160, amp = k => { const raw = []; for (let j = 0; j <= N; j++) { const px = j / N * W; const sec = at.find(a => px >= a[0] && px <= a[1]) || at[at.length - 1]; raw.push(dens[k] * sec[2]); }
-        return raw.map((v, j) => { let t = 0, n = 0; for (let d = -4; d <= 4; d++) { const q = raw[j + d]; if (q !== undefined) { t += q; n++; } } return t / n; }); };
-      const lines = dens.map((d, k) => { const a = amp(k), base = H * (1 - (k + 0.6) / 8.4), f1 = (2 + r() * 3) * Math.PI * 2 / W, f2 = (7 + r() * 6) * Math.PI * 2 / W, p1 = r() * 6, p2 = r() * 6;
-        let path = ''; for (let j = 0; j <= N; j++) { const px = j / N * W, y = base + a[j] * H / 11 * (Math.sin(px * f1 + p1) * 0.65 + Math.sin(px * f2 + p2) * 0.35); path += (j ? ' L ' : 'M ') + px.toFixed(1) + ' ' + y.toFixed(1); }
-        return { d: path, o: (0.22 + d * 0.3).toFixed(2), w: Math.max(0.8, H / 110).toFixed(2) }; });
-      const pb = playing >= 0 ? at[playing] : null;
-      return { gid, url: 'url(#' + gid + ')', bands, lines, H, W, ph: { x: pb ? (pb[0] + (pb[1] - pb[0]) * 0.62).toFixed(1) : 0, o: pb ? .95 : 0 } };
+    const PAL = { pop: ['#ff8a3d', '#ff4f6d', '#ffc94d', '#b83dff'], ballad: ['#8f7bff', '#3fc6c6', '#ff8fb3', '#2b3a8f'],
+      latin: ['#ff6b2b', '#ff3d8b', '#ffd23f', '#1fb8a0'], dance: ['#3de0ff', '#8b5cff', '#ff4fd8', '#1f5cff'] };
+    const songMap = (seed, cat, hot, form, gid, W, H) => {
+      let s = seed * 7 + 3; const r = () => { s = (s * 9301 + 49297) % 233280; return s / 233280; };
+      const pal = PAL[form].concat([cat, hot]), tempo = 70 + r() * 110, energy = 0.55 + r() * 0.45;
+      const turn = 1.6 + (tempo - 70) / 110 * 2.2, m = Math.min(W, H), big = Math.max(W, H), blobs = [];
+      const start = r() * 6.28, n = 7;
+      for (let i = 0; i < n; i++) { const t = i / (n - 1), ang = start + t * turn * 3.14, rad = (0.08 + t * 0.42) * big;
+        blobs.push({ cx: (W / 2 + Math.cos(ang) * rad).toFixed(1), cy: (H / 2 + Math.sin(ang) * rad * (H / W + 0.35)).toFixed(1), rx: ((0.22 + r() * 0.28) * big).toFixed(1), ry: ((0.12 + r() * 0.2) * big).toFixed(1),
+          rot: ((ang * 57.3 + 90) % 360).toFixed(0), c: pal[Math.floor(r() * pal.length)], o: (0.55 + r() * 0.4 * energy).toFixed(2) }); }
+      return { gid, url: 'url(#' + gid + ')', blobs, blur: (m * 0.16).toFixed(1), bg: pal[3], dim: (0.55 - energy * 0.35).toFixed(2), H, W };
     };
 """
-SONGMAP_SVG = """<defs><linearGradient id="{{%(v)s.gid}}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0e0e10" stop-opacity=".5"></stop><stop offset=".5" stop-color="#0e0e10" stop-opacity="0"></stop><stop offset="1" stop-color="#0e0e10" stop-opacity=".45"></stop></linearGradient></defs><rect width="100%%" height="100%%" fill="#0e0e10"></rect><sc-for list="{{%(v)s.bands}}" as="b" hint-placeholder-count="9"><rect x="{{b.x}}" y="0" width="{{b.w}}" height="{{%(v)s.H}}" rx="{{b.rx}}" fill="{{b.c}}"></rect><rect x="{{b.x}}" y="0" width="{{b.w}}" height="{{%(v)s.H}}" rx="{{b.rx}}" fill="#0e0e10" opacity="{{b.dim}}"></rect></sc-for><rect width="100%%" height="100%%" fill="{{%(v)s.url}}"></rect><sc-for list="{{%(v)s.lines}}" as="l" hint-placeholder-count="8"><path d="{{l.d}}" fill="none" stroke="#ffffff" stroke-opacity="{{l.o}}" stroke-width="{{l.w}}" stroke-linecap="round"></path></sc-for><rect x="{{%(v)s.ph.x}}" y="0" width="2" height="{{%(v)s.H}}" fill="#ffffff" opacity="{{%(v)s.ph.o}}"></rect>"""
+SONGMAP_SVG = """<defs><filter id="{{%(v)s.gid}}" x="-50%%" y="-50%%" width="200%%" height="200%%"><feGaussianBlur stdDeviation="{{%(v)s.blur}}"></feGaussianBlur></filter></defs><rect width="100%%" height="100%%" fill="{{%(v)s.bg}}"></rect><g filter="{{%(v)s.url}}"><sc-for list="{{%(v)s.blobs}}" as="b" hint-placeholder-count="7"><ellipse cx="{{b.cx}}" cy="{{b.cy}}" rx="{{b.rx}}" ry="{{b.ry}}" fill="{{b.c}}" opacity="{{b.o}}" transform="rotate({{b.rot}} {{b.cx}} {{b.cy}})"></ellipse></sc-for></g><rect width="100%%" height="100%%" fill="#0e0e10" opacity="{{%(v)s.dim}}"></rect>"""
 
 screens = {}
 

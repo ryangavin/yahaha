@@ -76,20 +76,20 @@ class Component extends DCLogic {
 '''
 open(os.path.join(D, "project", "BArtOptions.dc.html"), "w").write(art_html)
 
-# ---------- Sheet 9: the song map (gradient + contour + shape, from the style's structure) ----------
+# ---------- Sheet 9: the colour swirl artwork ----------
 def sm_svg(var, w, h, vw, vh):
     return '<svg width="%s" height="%s" viewBox="0 0 %d %d" preserveAspectRatio="none" aria-hidden="true" style="display: block; border-radius: 8px">%s</svg>' % (w, h, vw, vh, SONGMAP_SVG % {"v": var})
 
-KEY = [("Sections", "Left to right in playing order, each as wide as its bars. The colour is the section type, the same as on the Launchkey pads: Intro amber, Main green (A darkest to D brightest), Fill blue, Break purple, Ending red."),
-       ("Energy", "Calm sections sit darker and busy ones glow, so a style that builds brightens from left to right."),
-       ("Parts", "Eight lines, one per style part, from Rhythm 1 at the bottom to Phrase 2 at the top. A line swings wider where its part is busier. On the display, the section playing is lit and a white line marks the bar.")]
+KEY = [("Palette", "The category picks the colours: warm for pop and rock, cool for ballads, hot for Latin, electric for dance."),
+       ("Swirl", "The tempo sets how tight it turns: slow styles drift, fast ones spin."),
+       ("Glow", "Energy sets the brightness. The file itself seeds the shapes, so no two styles look alike.")]
 key_html = "".join('<div style="flex: 1; display: flex; flex-direction: column; gap: 6px"><span style="font-family: \'Archivo Narrow\', sans-serif; font-size: 20px; font-weight: 700">%s</span><span style="font-size: 13px; color: #a9a9b1; line-height: 1.45">%s</span></div>' % k for k in KEY)
 
 sm_html = '''<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>B · Style artwork: the song map</title>
+<title>B · Style artwork: colour swirls</title>
 <script src="./support.js"></script>
 </head>
 <body>
@@ -99,8 +99,8 @@ sm_html = '''<!doctype html>
 <style>body{margin:0;background:#0e0e10}</style>
 </helmet>
 <div style="width: 1440px; height: 900px; box-sizing: border-box; background: #0e0e10; color: #f2f2f2; font-family: Archivo, sans-serif; display: flex; flex-direction: column; gap: 18px; padding: 24px 32px">
-<div style="display: flex; align-items: baseline; gap: 16px"><span style="font-family: 'Archivo Narrow', sans-serif; font-size: 32px; font-weight: 700">Style artwork: the song map</span><span style="font-size: 13px; color: #8d8d95">The style's structure as a picture, coloured like the Launchkey pads. It fills whatever it sits in: the display, a card or an icon.</span></div>
-<div style="position: relative">''' + sm_svg("hero", "1376", "250", 1376, 250) + '''<div style="position: absolute; left: 20px; bottom: 16px; display: flex; flex-direction: column; gap: 2px"><span style="font-size: 11px; letter-spacing: .09em; text-transform: uppercase; color: #f2f2f2; opacity: .8">Pop &amp; Rock · playing Main B</span><span style="font-family: 'Archivo Narrow', sans-serif; font-size: 40px; font-weight: 700; line-height: 1">Cool 8Beat</span></div></div>
+<div style="display: flex; align-items: baseline; gap: 16px"><span style="font-family: 'Archivo Narrow', sans-serif; font-size: 32px; font-weight: 700">Style artwork: colour swirls</span><span style="font-size: 13px; color: #8d8d95">An abstract swirl from a few of the style's attributes. It fills whatever it sits in: the display, a card or an icon.</span></div>
+<div style="position: relative">''' + sm_svg("hero", "1376", "250", 1376, 250) + '''<div style="position: absolute; left: 20px; bottom: 16px; display: flex; flex-direction: column; gap: 2px"><span style="font-size: 11px; letter-spacing: .09em; text-transform: uppercase; color: #f2f2f2; opacity: .8">Pop &amp; Rock · 112 bpm</span><span style="font-family: 'Archivo Narrow', sans-serif; font-size: 40px; font-weight: 700; line-height: 1">Cool 8Beat</span></div></div>
 <div style="display: flex; gap: 28px">''' + key_html + '''</div>
 <div style="display: flex; flex-direction: column; gap: 8px"><span style="font-size: 11px; letter-spacing: .09em; text-transform: uppercase; color: #8d8d95">Browser cards</span>
 <div style="display: flex; gap: 16px"><sc-for list="{{cards}}" as="t" hint-placeholder-count="6"><div style="width: 214px; display: flex; flex-direction: column; gap: 6px">''' + sm_svg("t.m", "214", "120", 214, 120) + '''<span style="font-size: 13px; font-weight: 700">{{t.name}}</span><span style="font-size: 11px; color: #8d8d95; margin-top: -4px">{{t.meta}}</span></div></sc-for></div></div>

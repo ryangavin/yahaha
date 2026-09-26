@@ -62,7 +62,7 @@ The owner was asked short atomic questions. Keep doing that: they asked for it.
 
 **Round 4 (canvas comments)**
 - **The canvas is in pages:** The app, Window sizes, Style artwork and Earlier directions.
-- **The song map** is coded by section type in the Launchkey pad colours and fills its space; energy shows as brightness, and each part is a flowing line. On the display, a playhead marks the section playing.
+- **Style artwork is an abstract colour swirl** (the owner rejected the song map as ugly and samey): the category picks the palette, the tempo sets the swirl, and the energy sets the brightness, seeded by the file. `SONGMAP_JS` in `gen.py` (the old name is kept).
 - **Every strip has R/C/D send faders** on its right edge.
 - **Home's right column is the Master bus:** EQ, Glue, Room and Level. The owner rejects chorus or delay on the whole mix. Master EQ, compression and room are **new engine work**; model them on the Genos Master EQ and Compressor.
 
