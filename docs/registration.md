@@ -102,8 +102,11 @@ name, Volume, Speed, Assign, Chord Note Only, Touch Limit, and the arpeggio's Qu
 setting, velocity and Keep Key On; not the Arpeggio Hold pedal function, which is the
 pedal's), `styleSettings` (#107: Section Change Timing To Main, Style Retrigger on/off and
 rate, Synchro Stop Window, Tap Tempo's Style Section Reset, all group Style; the Fade In,
-Fade Out and Fade Out Hold times, group Assignable). The Chord Looper and Live Control add theirs when they're wired in (their groups
-already exist).
+Fade Out and Fade Out Hold times, group Assignable), `chordLooper` (#201, group Chord Looper:
+`memory` 0–7 or null, `on` (ON/OFF: armed or looping), and the memory's `sequence` itself
+(`bars`, `chords: [{ bar, at, root, type, bass?, name }]`) with its `name`, so a recall works
+in a later session even when the looper's memories are gone). Live Control adds its own when
+it is wired in (its group already exists).
 
 The voice is a `VoiceRef` tagged by `kind` (`{"kind":"gm","program":…}`). A voice kind the
 build can't read or play (a newer build's `kind`) is reported for that part only: its other
@@ -177,7 +180,9 @@ first).
 | Transpose | Keyboard and Master transpose |
 | Multi Pad | the Multi Pad bank (Data List "Multi Pad File"; a bank already chosen is left playing). Not the pads' Synchro Start standby |
 | Assignable | the Fade In, Fade Out and Fade Out Hold times (Data List: Freeze group "Assignable Buttons") |
-| Keyboard Harmony/Arpeggio, Chord Looper, Live Control | reserved for those features |
+| Keyboard Harmony/Arpeggio | the `harmonyArp` section |
+| Chord Looper | the Chord Looper's memory, its sequence and ON/OFF (a recall arms the loop, from the next bar line or with the style, or stops it at once; a recording under way is left alone) |
+| Live Control | reserved |
 
 Not stored (as on the Genos): Auto Fill In, the Style Change Behavior settings, OTS Link
 Timing, the synth's master level, the fader page, the pad page, the selected part.
