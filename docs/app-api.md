@@ -444,10 +444,17 @@ through its sends (CC91 Reverb, CC93 Chorus, CC94 Variation; `setPartSend` for t
 parts, the style's own for the Style parts). Each block's return comes back into the mix
 before the master fader.
 
+A block's **band send** (#236) scales every Style part's send to it: the style's CC as
+written times the band send, in the built-in synth only (the MIDI port carries the style's
+CCs unchanged). By default the band's reverb plays as the style wrote it (100) and the
+band's chorus and delay are off (0); the keyboard parts' and Multi Pads' sends are never
+scaled. A change glides in over about 30 ms.
+
 | Command | Fields | What it does |
 |---|---|---|
 | `setEffectType` | `block` `reverb` \| `chorus` \| `variation`, `effect` | The block's type. Reverb: `hall` (default), `room`, `stage`, `plate`. Chorus: `chorus` (default), `celeste`, `flanger`. Variation, a stereo delay at the style tempo: `eighth`, `dottedEighth` (default), `quarter`, `pingPong` (1/8, alternating sides). Another block's type is refused. |
 | `setEffectReturn` | `block`, `level` 0–127 | The block's return level: 64 = 0 dB (default), 127 = +6 dB, 0 = off (Genos). |
+| `setBandSend` | `block`, `level` 0–127 | The block's band send, in percent: 100 = the Style parts' sends as written, 0 = none of the band, above 100 up to 127 raises them (each part's send at most the whole signal). Defaults: reverb 100, chorus 0, variation 0. Stored in Registration with the effects. |
 
 ### Knob Assign pages
 The Launchkey's 8 encoders as the Genos LIVE CONTROL knobs (#197; OM p.62–63, RM p.145–148;
@@ -1039,9 +1046,11 @@ The Knob Assign page: `{ page, pageName, pageNumber, pageCount, knobs }`.
 
 ### `effects`
 `{ blocks }`: the effect bus's Reverb, Chorus and Variation blocks, in that order (#204).
-Each is `{ block, name, effect, effectName, types, returnLevel }`: `effect` is the type
+Each is `{ block, name, effect, effectName, types, returnLevel, bandSend }`: `effect` is the type
 (`setEffectType`), `effectName` its name ("Hall", "Delay 1/8."), `types` the block's own
-types as `{ effect, name }`, `returnLevel` 0–127 (64 = 0 dB).
+types as `{ effect, name }`, `returnLevel` 0–127 (64 = 0 dB), `bandSend` 0–127 % (#236,
+`setBandSend`: 100 = the Style parts' sends as written; reverb 100, chorus 0, variation 0
+at start).
 
 ### `message`
 `{ seq, text, error }` or null. It holds the last notice or error, for example a style
@@ -1729,15 +1738,15 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
   "effects": {
     "blocks": [
       {
-        "block": "reverb", "name": "Reverb", "effect": "hall", "effectName": "Hall", "returnLevel": 64,
+        "block": "reverb", "name": "Reverb", "effect": "hall", "effectName": "Hall", "returnLevel": 64, "bandSend": 100,
         "types": [{ "effect": "hall", "name": "Hall" }, { "effect": "room", "name": "Room" }, { "effect": "stage", "name": "Stage" }, { "effect": "plate", "name": "Plate" }]
       },
       {
-        "block": "chorus", "name": "Chorus", "effect": "chorus", "effectName": "Chorus", "returnLevel": 64,
+        "block": "chorus", "name": "Chorus", "effect": "chorus", "effectName": "Chorus", "returnLevel": 64, "bandSend": 0,
         "types": [{ "effect": "chorus", "name": "Chorus" }, { "effect": "celeste", "name": "Celeste" }, { "effect": "flanger", "name": "Flanger" }]
       },
       {
-        "block": "variation", "name": "Variation", "effect": "dottedEighth", "effectName": "Delay 1/8.", "returnLevel": 64,
+        "block": "variation", "name": "Variation", "effect": "dottedEighth", "effectName": "Delay 1/8.", "returnLevel": 64, "bandSend": 0,
         "types": [{ "effect": "eighth", "name": "Delay 1/8" }, { "effect": "dottedEighth", "name": "Delay 1/8." }, { "effect": "quarter", "name": "Delay 1/4" }, { "effect": "pingPong", "name": "Ping-Pong" }]
       }
     ]
