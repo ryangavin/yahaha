@@ -525,3 +525,39 @@ fn back_to_back_fills_do_not_allocate() {
     assert!(snaps[last..].iter().any(|s| s.cur == Some(Main(0))), "the Main came back");
     assert!(ch.old_rx.pop().is_ok(), "the new style took over");
 }
+
+/// The built-in synth's drum setup (#239): following a style's XG Drum Setup SysEx and
+/// scaling its drum notes on the way to the synth, on the engine thread.
+#[test]
+fn drum_setup_on_the_way_to_the_synth_does_not_allocate() {
+    // Set up under the lock, as the other tests do: a test that just finished may still be
+    // dropping its engine on a counting thread.
+    let _one = count_here();
+    let Some(p) = prep("AustinCityBlues.S930.STY") else {
+        eprintln!("corpus missing; skipping");
+        return;
+    };
+    let (synth, mut heard) = rtrb::RingBuffer::new(1 << 16);
+    let mut out = Out::new(PacketSink::new(Target::Null), Some(synth));
+    let init = &p.setups[0].init;
+    let mut pass = |out: &mut Out| {
+        for i in 0..init.len() {
+            out.push(init.get(i));
+        }
+        for ch in [8u8, 9] {
+            for note in 0..128u8 {
+                out.push(&[0x90 | ch, note, 100]);
+                out.push(&[0x80 | ch, note, 0]);
+            }
+            out.push(&[0xC0 | ch, 0]);
+        }
+        out.flush();
+        while heard.pop().is_ok() {}
+    };
+    // Warm up (the port side's first packets), then count a second pass.
+    pass(&mut out);
+    let (allocs, frees) = (ALLOCS.load(Ordering::Relaxed), FREES.load(Ordering::Relaxed));
+    pass(&mut out);
+    assert_eq!(ALLOCS.load(Ordering::Relaxed) - allocs, 0, "allocations on the engine thread");
+    assert_eq!(FREES.load(Ordering::Relaxed) - frees, 0, "frees on the engine thread");
+}

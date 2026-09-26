@@ -199,6 +199,33 @@ Tags: `[chord-following]` `[transport]` `[sections]` `[voices]` `[registration]`
 - **Spec:** 8 channels: Rhythm1, Rhythm2, Bass, Chord1, Chord2, Pad, Phrase1, Phrase2, plus "Audio" for Audio Styles. On a MIDI Song they map to ch9–16.
 - **Ref:** OM p.92; RM p.10, p.76
 
+### Drum Setup (per-note kit tuning) `[mixer]` `[voices]`
+- **Spec:** the Style Creator's Drum Setup edits a Rhythm part's kit note by note: instrument (from another kit), Level, Pan, Pitch (cents), Cutoff, Resonance, Attack, Decay 1/2, Alternate Group, Reverb/Chorus/Variation depth, Ambience depth, Rcv Note Off, and Insertion Effect bypass (RM p.32–33). The style stores these as XG Drum Setup SysEx in SInt: `F0 43 10 4C 3s rr pp vv F7`, setup s = 0/1, note rr, parameter pp (DL "MIDI Parameter Change table (DRUM SETUP)").
+  - A part plays setup 1 or 2 through its XG Part Mode (DRUMS1/DRUMS2; part 10 defaults to DRUMS1).
+  - A program change on that part initializes its setup, and so do Drum Setup Reset and the system resets.
+  - The Level default "depends on the note", and nothing lists it.
+- **Corpus (#239):** 170 of 208 styles, 2249 messages, up to 39 per style. All the corpus styles with Part Mode messages but one put ch 9 on DRUMS2 and ch 10 on DRUMS1 (setup 1: 1854 messages, setup 2: 395). No Drum Setup Reset and no source-kit (70H) messages.
+
+  | Parameter | Messages | Styles |
+  |---|---|---|
+  | Level (02) | 1021 | 152 |
+  | Reverb send (05) | 632 | 156 (154 of them set to 0) |
+  | EG Decay 1 (0E) | 224 | 73 |
+  | Pitch coarse (00) | 135 | 64 (mostly ±1–2 semitones, up to −20/+17) |
+  | EG Decay 2 (0F) | 77 | 30 |
+  | Pan (04) | 62 | 28 |
+  | Filter cutoff (0B) | 50 | 36 |
+  | Pitch fine (01) | 25 | 22 |
+  | Variation send (07) | 9 | 3 |
+  | Resonance (0C), Attack (0D) | 7 each | 5, 4 |
+
+  - Levels span 40–127, clustering at 72–127, mean ≈ 100. 100 is the most common value (117). Hi-hats average ≈ 96, kicks and snares ≈ 111–114.
+  - About 86% of the messages address a note the part actually plays.
+- **yahaha:**
+  - The port gets the SysEx as the style sends it (`engine::Prepared`), so an XG instrument applies all of it. yahaha also resends it after a program change that would reset it (`engine::setup`).
+  - The built-in synth applies **Level** as the drum note's velocity, on the same curve as CC7 (`synth::drum_setup`, in `live::Out` and `synth::render_offline`). Decision: the unset level counts as 100.
+  - Pitch, Pan, the sends, the filter and the EG need per-voice parameters inside the synthesizer. Channel controllers would move every note already ringing on the part. So they are not applied on the built-in synth (follow-up: a small per-voice offset patch in `vendor/rustysynth`).
+
 ---
 
 ## 2. Chord Looper `[chord-following]` `[transport]`
@@ -974,6 +1001,42 @@ With NTR = Guitar:
   - `dd`: 00 = off, 7F = on.
 - **Tempo SysEx:** `F0 43 7E 01 t4 t3 t2 t1 F7`.
 - Ref: DL p.111, p.115
+
+### C.11 The Ctb2 tail (bytes 40–46): the "extra break drum voice" (#239, findings only)
+
+Every SFF2 `Ctb2` record is 47 bytes; bytes 40–46 are undocumented by Yamaha. The manuals name no feature that stores anything per channel beyond the SFF Edit parameters (§C.5), so what follows comes from the reverse-engineered specs and a corpus scan (208 styles, 7451 Ctb2 records; 78 SFF1 Ctab records). yahaha reads the tail and ignores it (`sff::parse_ctab`).
+
+**What the sources say.**
+- Wierzba/Bedesem v2.1 (§4.6.3.4, §5.2.9): the SFF1 `Ctab` has an optional "special feature" at byte 26. `01H` means *extra break drum voice* and adds 4 bytes: `00`, `18H`, a GM drum note (typically 31H Crash Cymbal 1), and a volume 0–127. The crash "will sound at time 0 within the break measure". Their recipe: a channel with only a drum-kit program change and **no notes**, routed to Rhythm 1 or 2.
+- The same document (§4.6.3.7) lists the Ctb2 tail as unknown, with the same shape: byte 41 = `01H` and byte 43 = `18H` on "enhanced" drum channels, followed by a note (31H–54H) and a volume (22H–5AH). It marks the break-voice reading "STILL UNSURE".
+- Jørgen Sørensen's CASM articles reproduce W&B. `bures/sff2-tools` decodes the Ctab special feature exactly like W&B (type byte, then 4 bytes if it is 1) and leaves the Ctb2 tail as `unknown[7]`.
+
+**The corpus.**
+
+| Form of bytes 40–46 | Records | Styles | Where |
+|---|---|---|---|
+| `00 00 00 00 7F 00 00` | 3421 | 91 | T5Style only; every part |
+| `00 00 00 00 80 00 00` | 1865 | 48 | mostly T5Style; every part |
+| all zero | 1663 | 67 | mostly SX900 and MOX_v2 (converted styles) |
+| byte 40 ≠ 0 (62H–8AH), rest as above | 170 | 71 | melodic parts (dest ch 12–16: Chord 2, Pad, Phrase 1–2) |
+| `00 01 00 18 nn vv 00` ("enhanced") | 325 | 169 | the two rhythm parts only |
+| odd one-offs (`00 00 00 18 31 50 00`, …) | 7 | – | – |
+
+- **7F vs 80 at byte 44** is a per-style (per-tool) default; only 12 styles mix it with the other forms. It has no audible meaning we could find: it is the "no instrument" value of the note byte.
+- **The enhanced form** appears only on source ch 9 and 10, each routed to itself (Rhythm 1: 56 records, Rhythm 2: 269). No SFF1 file in the corpus uses the Ctab special feature (all 78 Ctab records are 27 bytes, byte 26 = 00).
+  - `nn` is a GM crash: 49 (Crash Cymbal 1) in 261 records, 57 (Crash Cymbal 2) in 68. `vv` ranges 50–92.
+  - `vv` tracks the part's own crash velocity: where the section plays note `nn`, `vv` averages 70.4 against a mean velocity of 70.2, correlation 0.78 (819 sections).
+  - Unlike W&B's recipe, the channel is the style's real rhythm part and plays notes in 96% of the sections (1791 of 1858). The flagged part is the one that carries the crashes in 95% of them.
+  - All the other bytes of these records are the usual rhythm-part values (Root Fixed, Bypass, full range).
+  - It is set for Intro A, Main A–D, Fill In AA–DD, Break and Ending A in 165 of the 169 styles. It is **not** set for Intro B/C and Ending B/C, whose drum records are identical to Main A in bytes 0–39 in ~90% of cases. So the flag is deliberately per section, not an artefact of how CSEGs are grouped.
+  - Main sections almost never start with a crash in their data (≤ 11 of 167 per Main), and neither do the fills. Break already has a crash at tick 0 in 41 of 167 flagged styles, which an automatic "crash at time 0 of the Break" would double. Ending A (flagged) has any crash at all in only 29 of 169 styles, but Ending B/C (unflagged) have one in 123 and 144.
+- **Byte 40** (62H–8AH, centred on 80H) sits only on melodic parts, never with the enhanced form, and does not correlate with the part's velocities (r = 0.09) or voice. Unknown.
+
+**Conclusion (confidence).**
+- High: bytes 41–45 of the enhanced form are the SFF2 descendant of the SFF1 special feature 01H, with the same 4-byte payload (`00 18 note volume`). The note is a crash cymbal and the volume is that crash's velocity, both set per rhythm part and per section by Yamaha's own tools.
+- Low: *when* a Genos sounds it. W&B's "time 0 of the Break" doesn't fit the corpus well: the flag is on every Main, Fill, Intro A and Ending A as well, and many Breaks already start with a crash. The pattern fits a keyboard-generated crash on the downbeat of a transition (after a Fill In or Break into the Main, and perhaps into or out of Intro A / Ending A) equally well. The owner's "more rhythmic stuff" guess is right in spirit, but it is one cymbal hit, not a Rhythm 2 / sub-rhythm pattern. It is not a Drum Setup either: that lives in SInt as XG Drum Setup SysEx.
+- **Not implemented.** Guessing the trigger would add a cymbal the style author may not want, on 169 styles.
+- **Proposal:** settle it on a real Genos. Load a T5 style with the flag (for example one whose Rhythm 2 tail is `00 01 00 18 31 50 00`) and play Main A → Fill In → Main B, Break → Main, and Intro A → Main. Listen for a crash that isn't in the pattern data. Then, in a copy, zero bytes 41–45 of that CSEG's Rhythm 2 record and compare. If the crash comes and goes, yahaha can play `nn`/`vv` on the flagged rhythm part at that moment (engine section-change hook, dest ch 9/10). Byte 40 needs the same A/B on a melodic part.
 
 ---
 

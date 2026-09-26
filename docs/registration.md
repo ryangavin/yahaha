@@ -99,7 +99,8 @@ which levels the player had set, and `level`: the Style volume, #199, the Genos'
 patch `patch: { id, name }` (#109), recalled through `setPartPatch`),
 `effects` (#204, group Style: each effect block's `effect` type, `returnLevel` and
 `bandSend` (#236; a bank from before it recalls the defaults, reverb 100, chorus 0,
-variation 0), under `reverb`, `chorus`, `variation`; a bank without it leaves them), `transpose`, `harmonyArp` (Keyboard Harmony/Arpeggio: the switch, the type and pattern by
+variation 0) and `params` (#236, `{ reverbTime: 24, ... }`; one absent is the type's own
+value), under `reverb`, `chorus`, `variation`; a bank without it leaves them), `transpose`, `harmonyArp` (Keyboard Harmony/Arpeggio: the switch, the type and pattern by
 name, Volume, Speed, Assign, Chord Note Only, Touch Limit, and the arpeggio's Quantize, Hold
 setting, velocity and Keep Key On; not the Arpeggio Hold pedal function, which is the
 pedal's), `styleSettings` (#107: Section Change Timing To Main, Style Retrigger on/off and
