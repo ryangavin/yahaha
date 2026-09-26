@@ -48,10 +48,10 @@ impl Engine {
             // leads to plays that fill right after this one, back to back from its top, so
             // tapping every bar loops fills. Other presses just select the Main to follow.
             SectionId::Fill(_) => {
-                if i == led_to || self.auto_fill || force_fill {
-                    if let Some(f) = self.style.resolve(8 + i as usize) {
-                        self.queue_change(f, Change::AfterFill, now);
-                    }
+                if (i == led_to || self.auto_fill || force_fill)
+                    && let Some(f) = self.style.resolve(8 + i as usize)
+                {
+                    self.queue_change(f, Change::AfterFill, now);
                 }
             }
             SectionId::Ending(_) => {

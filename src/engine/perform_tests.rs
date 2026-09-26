@@ -1159,9 +1159,12 @@ fn unsteady_taps_or_stop_while_counting_in_do_not_start() {
     assert!(!e.running, "STOP cancels the count-in");
 }
 
+/// The sections that came in, and the tick each started at.
+type Played = Vec<(SectionId, f64)>;
+
 /// Play from `from` to `to` as `play` does, noting each section that comes in: its slot
 /// and the tick (on the section timeline) it starts at.
-fn sections_played(e: &mut Engine, rec: &mut Rec, from: u64, to: u64, out: &mut Vec<(SectionId, f64)>) {
+fn sections_played(e: &mut Engine, rec: &mut Rec, from: u64, to: u64, out: &mut Played) {
     let mut now = from;
     loop {
         rec.now = now;
@@ -1235,7 +1238,7 @@ fn tapping_during_a_fill_loops_the_fill_back_to_back() {
 /// during the Break follows it.
 #[test]
 fn presses_during_a_fill_queue_for_its_end() {
-    let setup = |auto_fill: bool| -> Option<(Engine, Rec, Vec<(SectionId, f64)>, u64)> {
+    let setup = |auto_fill: bool| -> Option<(Engine, Rec, Played, u64)> {
         let (mut e, mut rec) = started(StyleSettings::default())?;
         if !auto_fill {
             e.button(Button::AutoFill, 0, &mut rec);
