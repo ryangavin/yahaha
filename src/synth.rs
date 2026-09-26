@@ -41,12 +41,22 @@ pub const PLUGIN_MAX_BLOCK: usize = 1024;
 
 pub mod drum_setup;
 mod routing;
+pub mod xg_part;
+#[cfg(test)]
+mod sound_tests;
 mod stream;
 pub use routing::Router;
 pub use stream::{BUFFER_CHOICES, DEFAULT_BUFFER};
 use routing::{apply_routed, NO_SLOT};
 
 pub type Msg = [u8; 3];
+
+/// What the built-in synth's ring carries for SysEx `m`, if anything: a drum setup's drum
+/// message (#239), or a part's XG voice setting (#246) as its controller or a mono message.
+#[inline]
+pub fn sysex_msg(m: &[u8]) -> Option<Msg> {
+    drum_setup::encode(m).or_else(|| xg_part::encode(m))
+}
 
 #[derive(Clone, Debug)]
 pub struct SynthInfo {
@@ -206,6 +216,13 @@ impl Rack {
         }
     }
 
+    /// A channel's mono or poly mode (#246), on every synthesizer (as a controller).
+    fn set_mono(&mut self, ch: u8, mono: bool) {
+        for s in self.synths() {
+            s.set_mono(ch as i32, mono);
+        }
+    }
+
     fn set_master_volume(&mut self, v: f32) {
         self.band.set_master_volume(v);
         self.player.set_master_volume(v);
@@ -294,13 +311,15 @@ struct Shadow {
     rpn: [[(u8, u8); 3]; 16],
     /// An NRPN (CC98/99) was selected after the last RPN: data entry goes nowhere.
     nrpn: [bool; 16],
+    /// Channels in mono mode (#246; bit = channel): CC126/127 or the XG part's Mono/Poly.
+    mono: u16,
 }
 
 const NO_CC: u8 = 0xFF;
 
 impl Shadow {
     fn new() -> Shadow {
-        Shadow { cc: [[NO_CC; 128]; 16], program: [None; 16], bend: [None; 16], rpn: [[(NO_CC, NO_CC); 3]; 16], nrpn: [false; 16] }
+        Shadow { cc: [[NO_CC; 128]; 16], program: [None; 16], bend: [None; 16], rpn: [[(NO_CC, NO_CC); 3]; 16], nrpn: [false; 16], mono: 0 }
     }
 
     fn note(&mut self, m: &Msg) {
@@ -323,10 +342,17 @@ impl Shadow {
                     _ => {}
                 }
             }
+            0xB0 if m[1] == 126 => self.set_mono(ch as u8, true),
+            0xB0 if m[1] == 127 => self.set_mono(ch as u8, false),
             0xC0 => self.program[ch] = Some(m[1]),
             0xE0 => self.bend[ch] = Some((m[1], m[2])),
             _ => {}
         }
+    }
+
+    fn set_mono(&mut self, ch: u8, mono: bool) {
+        let bit = 1 << (ch & 15);
+        if mono { self.mono |= bit } else { self.mono &= !bit }
     }
 
     /// Bring `rack` to what the channels have: bank and voice, controllers, pitch bend.
@@ -334,6 +360,7 @@ impl Shadow {
         // Every channel: the metered ones and the Multi Pads' (5-8).
         for ch in 0..16u8 {
             self.replay_channel(rack, bank, ch, router);
+            rack.set_mono(ch, self.mono >> ch & 1 == 1);
         }
         routing::sync_parts(rack, parts, router);
     }
@@ -515,8 +542,8 @@ pub fn render_offline(sf2: &Path, msgs: &[(u64, Vec<u8>)], end_ns: u64, sample_r
         {
             next += 1;
             // Channel messages only (SysEx and the like don't reach the SoundFont live), and
-            // the drum setup as drum messages, as live (`live::Out`).
-            let msg: Msg = if let Some(d) = m.first().filter(|&&b| b == 0xF0).and_then(|_| drum_setup::encode(m)) {
+            // the drum setup and the parts' XG voice settings as synth messages, as live (`live::Out`).
+            let msg: Msg = if let Some(d) = m.first().filter(|&&b| b == 0xF0).and_then(|_| sysex_msg(m)) {
                 d
             } else if m.is_empty() || m[0] < 0x80 || m[0] >= 0xF0 {
                 continue;
@@ -839,6 +866,16 @@ impl AudioCore {
                 // The style's drum setup (#239): not a MIDI message.
                 if drum_setup::is_drum_msg(&m) {
                     self.drums.observe(&m);
+                    continue;
+                }
+                // A part's Mono/Poly (#246): not a MIDI message either.
+                if let Some((ch, mono)) = xg_part::mono(&m) {
+                    if i != CONTROL_RING {
+                        self.shadow.set_mono(ch, mono);
+                    }
+                    if let Some(rack) = self.rack.as_mut() {
+                        rack.set_mono(ch, mono);
+                    }
                     continue;
                 }
                 // The program map's own messages (a table bank switch, an audition; #103).
