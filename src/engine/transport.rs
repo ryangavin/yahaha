@@ -209,14 +209,9 @@ impl Engine {
             Button::FillSelf => self.fill_to(self.main, now),
             Button::HalfBarFill => self.features.fills.half_bar = !self.features.fills.half_bar,
             Button::SetHalfBarFill(on) => self.features.fills.half_bar = on,
-            Button::TempoUp => {
-                self.rit_tempo(2.0);
-                self.set_bpm_internal(self.bpm + 2.0, now)
-            }
-            Button::TempoDown => {
-                self.rit_tempo(-2.0);
-                self.set_bpm_internal(self.bpm - 2.0, now)
-            }
+            Button::TempoUp => self.tempo_step(1, now),
+            Button::TempoDown => self.tempo_step(-1, now),
+            Button::TempoReset => self.reset_tempo(now),
             // Playing, with Style Section Reset on: rewind the section (OM p.46).
             Button::TapTempo if self.running && self.features.settings.section_reset => self.reset_section(now, sink),
             // A tempo set outright during a ritardando becomes the tempo it slows from.

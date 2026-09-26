@@ -400,6 +400,17 @@ pub fn pad_action(page: Page, note: u8) -> Option<Action> {
     })
 }
 
+/// The TEMPO buttons (Function −, Scene +; without Shift): their direction. They act on
+/// release too (a held button repeats), so the input thread handles them before
+/// `cc_control`.
+pub fn tempo_button(cc: u8) -> Option<i8> {
+    match cc {
+        SCENE_CC => Some(1),
+        FUNCTION_CC => Some(-1),
+        _ => None,
+    }
+}
+
 /// What a pressed button (CC) does.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Control {

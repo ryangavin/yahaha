@@ -271,17 +271,24 @@ const catalog = {
   },
   'tempo.down': {
     title: 'Tempo −',
-    body: 'Slows the tempo by 1 BPM.',
+    body: 'Slows the tempo by 1 BPM; hold it to keep going, faster the longer you hold. Press − and + together for the style\'s own tempo.',
     genos: 'TEMPO −',
     keys: ['-'],
     launchkey: 'Function button (right of the pads)',
   },
   'tempo.up': {
     title: 'Tempo +',
-    body: 'Speeds the tempo up by 1 BPM.',
+    body: 'Speeds the tempo up by 1 BPM; hold it to keep going, faster the longer you hold. Press − and + together for the style\'s own tempo.',
     genos: 'TEMPO +',
     keys: ['='],
     launchkey: '> (Scene Launch) button (right of the pads)',
+  },
+  'tempo.reset': {
+    title: 'Style tempo',
+    body: 'Back to the tempo the style came with, as pressing TEMPO − and + together does on the Genos. Hold one tempo button and press the other, here or on the Launchkey.',
+    genos: 'TEMPO − and + together',
+    keys: ['+'],
+    launchkey: 'Function and > (Scene Launch) pressed together',
   },
   'display.tempo': {
     title: 'Tempo',

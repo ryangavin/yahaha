@@ -32,6 +32,7 @@ mod settle;
 mod setup;
 mod style_change;
 mod sync_stop;
+mod tempo_repeat;
 mod timing;
 mod transport;
 
@@ -49,6 +50,7 @@ pub use dynamics::{touch_level, DynamicsSettings, ACCENT_DEFAULT, DYNAMICS_NEUTR
 pub use fade::FadeState;
 pub use prepared::{id_of, slot_of, Msgs, PSection, Prepared, Setup, NUM_SLOTS};
 pub use ritardando::RIT_END;
+pub use tempo_repeat::{repeat_interval_ms, MAX_HOLD_MS, REPEAT_DELAY_MS, TEMPO_STEP};
 pub use settle::{CHORD_SETTLE_DEFAULT_MS, CHORD_SETTLE_MAX_MS};
 use settle::{Hold, Unsettled};
 pub use timing::{IntroEndingTiming, MainTiming, StyleSettings, MAX_FADE_HOLD_MS, MAX_FADE_MS, MAX_SYNC_STOP_WINDOW_MS, RETRIGGER_RATES};
@@ -146,6 +148,8 @@ pub enum Button {
     TapTempo,
     TempoUp,
     TempoDown,
+    /// TEMPO − and + together: the tempo the style came with (OM p.46).
+    TempoReset,
     /// Set the tempo (BPM; clamped to `MIN_BPM`..=`MAX_BPM`).
     SetTempo(u16),
     TogglePart(u8),

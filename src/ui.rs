@@ -73,7 +73,9 @@ fn key_action(code: KeyCode) -> Option<Action> {
         KeyCode::Char('u') => b(Button::AutoFill),
         KeyCode::Char('j') => b(Button::SyncStop),
         KeyCode::Char('t') => b(Button::TapTempo),
-        KeyCode::Char('=') | KeyCode::Char('+') => b(Button::TempoUp),
+        KeyCode::Char('=') => b(Button::TempoUp),
+        // Shift+= : TEMPO - and + together, the style's own tempo.
+        KeyCode::Char('+') => b(Button::TempoReset),
         KeyCode::Char('-') => b(Button::TempoDown),
         KeyCode::Char('h') => b(Button::StopAcmp),
         KeyCode::Char('|') => b(Button::SectionReset),
@@ -660,7 +662,7 @@ fn draw(f: &mut ratatui::Frame, st: &AppState, message: &str, beats: f64) {
 
     let mut help = vec![
         Line::from(Span::styled(
-            " space start/stop · 1-4 Main A-D (again = fill) · q w e intro · i o p ending (again = rit.) · g break · A S G fill down/up/self · N half bar fill · t tap · | reset · ~ retrig · F fade · -/= tempo · F1-F4 part · 9/0 voice · 5-8 part on/off · J harmony/arp (L type, * hold) · F9 faders Panel/Style · ; ' kbd transpose · : \" master · / reset · r/^ chord looper rec, on/off · . metronome · Z X C V multi pads · B pad stop · M chart mode · ( ) chart song · tab pad page · enter browse styles · \\ panic · esc twice quit",
+            " space start/stop · 1-4 Main A-D (again = fill) · q w e intro · i o p ending (again = rit.) · g break · A S G fill down/up/self · N half bar fill · t tap · | reset · ~ retrig · F fade · -/= tempo (+ style tempo) · F1-F4 part · 9/0 voice · 5-8 part on/off · J harmony/arp (L type, * hold) · F9 faders Panel/Style · ; ' kbd transpose · : \" master · / reset · r/^ chord looper rec, on/off · . metronome · Z X C V multi pads · B pad stop · M chart mode · ( ) chart song · tab pad page · enter browse styles · \\ panic · esc twice quit",
             dim,
         )),
         Line::from(Span::styled(
@@ -936,6 +938,8 @@ mod tests {
         assert!(matches!(key_action(KeyCode::Char('m')), Some(Action::Button(Button::TogglePart(6)))));
         assert_eq!(key_cmd(KeyCode::Char(')')), Some(AppCmd::Chart(ChartCmd::StepChart { delta: 1 })));
         assert_eq!(key_cmd(KeyCode::Char('|')), Some(AppCmd::Transport(TransportCmd::SectionReset)));
+        assert_eq!(key_cmd(KeyCode::Char('+')), Some(AppCmd::Transport(TransportCmd::ResetTempo)));
+        assert_eq!(key_cmd(KeyCode::Char('=')), Some(AppCmd::Transport(TransportCmd::TempoUp)));
         assert_eq!(key_cmd(KeyCode::Char('F')), Some(AppCmd::Transport(TransportCmd::ToggleFade)));
         assert_eq!(key_cmd(KeyCode::Char('~')), Some(AppCmd::Transport(TransportCmd::ToggleRetrigger)));
         assert_eq!(key_cmd(KeyCode::Char('}')), Some(AppCmd::StyleSettings(StyleSettingsCmd::StepRetriggerRate { delta: 1 })));

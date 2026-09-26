@@ -144,7 +144,7 @@ fn value_of(cmd: &AppCmd, level: Level, st: &AppState) -> String {
             TransportCmd::StartStop | TransportCmd::Stop | TransportCmd::SectionReset => {
                 if t.running { section() } else { "Stopped".into() }
             }
-            TransportCmd::TapTempo | TransportCmd::TempoUp | TransportCmd::TempoDown | TransportCmd::SetTempo { .. } => bpm(),
+            TransportCmd::TapTempo | TransportCmd::TempoUp | TransportCmd::TempoDown | TransportCmd::ResetTempo | TransportCmd::SetTempo { .. } => bpm(),
             TransportCmd::ToggleSyncStart => on(t.sync_start),
             TransportCmd::ToggleSyncStop => on(t.sync_stop),
             TransportCmd::ToggleAutoFill => on(t.auto_fill),

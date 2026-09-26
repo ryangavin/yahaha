@@ -58,6 +58,7 @@ export type AppCmd =
   | { type: 'tapTempo' }
   | { type: 'tempoUp' }
   | { type: 'tempoDown' }
+  | { type: 'resetTempo' }
   /** FADE IN/OUT: stopped, arm a fade in; playing, fade out and stop (`transport.fade`). */
   | { type: 'toggleFade' }
   /** Style Section Reset: the section playing starts again from its top, now. */
