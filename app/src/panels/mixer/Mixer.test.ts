@@ -106,6 +106,22 @@ describe('Mixer drawer', () => {
     expect(s.state.effects.blocks[0].returnLevel).toBe(0)
   })
 
+  it('Effects: a block\'s editor sets its parameters; a type change puts them back (#236)', async () => {
+    const s = setup()
+    const open = document.querySelector<HTMLElement>('[aria-label="Reverb settings"]')!
+    expect(open.getAttribute('aria-expanded')).toBe('false')
+    await fireEvent.click(open)
+    flushSync()
+    const time = document.querySelector<HTMLElement>('[aria-label="Reverb Time"]')!
+    expect(time.getAttribute('aria-valuetext')).toBe('2.4 s')
+    await fireEvent.keyDown(time, { key: 'End' })
+    expect(s.state.effects.blocks[0].params[0].value).toBe(100)
+    expect(s.state.effects.blocks[0].params[0].display).toBe('10.0 s')
+    const types = document.querySelectorAll<HTMLSelectElement>('select[aria-label$=" type"]')
+    await fireEvent.change(types[0], { target: { value: 'room' } })
+    expect(s.state.effects.blocks[0].params.map((p) => p.value)).toEqual([9, 4, 60])
+  })
+
   it('Effects: a band send per block, the band\'s chorus and delay off at start (#236)', async () => {
     const s = setup()
     const band = (name: string) => document.querySelector<HTMLElement>(`[aria-label="${name} band send"]`)!

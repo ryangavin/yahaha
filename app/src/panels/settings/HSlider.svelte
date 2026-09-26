@@ -1,5 +1,5 @@
 <!--
-  A horizontal fader for the drawer (0–max): a recessed slot, a ribbed cap moved with
+  A horizontal fader for the drawer (min–max, min 0 unless given): a recessed slot, a ribbed cap moved with
   `transform`, a unity tick, and a readout. Drag or click; with focus, the arrows move ±1,
   PgUp/PgDn ±10, Home/End the ends. No wheel: the drawer scrolls.
 -->
@@ -13,6 +13,7 @@
     label,
     onchange,
     max = 127,
+    min = 0,
     unity = null,
     disabled = false,
     format = String,
@@ -22,6 +23,8 @@
     label: string
     onchange: (v: number) => void
     max?: number
+    /** The lowest value (default 0). */
+    min?: number
     /** A tick at this value (100 = unity for the synth master). */
     unity?: number | null
     disabled?: boolean
@@ -31,12 +34,12 @@
 
   let slot: HTMLDivElement | undefined = $state()
   let dragging = $state(false)
-  const frac = $derived(Math.max(0, Math.min(max, value)) / max)
+  const frac = $derived((Math.max(min, Math.min(max, value)) - min) / Math.max(1, max - min))
 
   function fromX(x: number) {
     if (!slot || disabled) return
     const r = slot.getBoundingClientRect()
-    const v = Math.round(Math.max(0, Math.min(1, (x - r.left) / r.width)) * max)
+    const v = min + Math.round(Math.max(0, Math.min(1, (x - r.left) / r.width)) * (max - min))
     if (v !== value) onchange(v)
   }
   function down(e: PointerEvent) {
@@ -58,12 +61,12 @@
     const step: Record<string, number> = { ArrowUp: 1, ArrowRight: 1, ArrowDown: -1, ArrowLeft: -1, PageUp: 10, PageDown: -10 }
     let v: number | null = null
     if (e.key in step) v = value + step[e.key]
-    else if (e.key === 'Home') v = 0
+    else if (e.key === 'Home') v = min
     else if (e.key === 'End') v = max
     if (v === null) return
     e.preventDefault()
     e.stopPropagation()
-    onchange(Math.max(0, Math.min(max, v)))
+    onchange(Math.max(min, Math.min(max, v)))
   }
 </script>
 
@@ -74,7 +77,7 @@
     tabindex="0"
     aria-label={label}
     aria-disabled={disabled || undefined}
-    aria-valuemin={0}
+    aria-valuemin={min}
     aria-valuemax={max}
     aria-valuenow={value}
     aria-valuetext={format(value)}
@@ -86,7 +89,7 @@
     onkeydown={key}
   >
     <div class="slot mat-well" bind:this={slot}>
-      {#if unity !== null}<span class="unity" style:left="{(unity / max) * 100}%"></span>{/if}
+      {#if unity !== null}<span class="unity" style:left="{((unity - min) / Math.max(1, max - min)) * 100}%"></span>{/if}
     </div>
     <div class="rail" aria-hidden="true">
       <div class="carrier" style:transform="translateX({frac * 100}%)"><div class="cap mat-raised"></div></div>
