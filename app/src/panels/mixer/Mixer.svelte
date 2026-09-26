@@ -6,7 +6,8 @@
     tab. There is no local copy of the page.
   - Panel: Right 1–3 and Left on faders 1–4, the Style volume on fader 5 (#199: a scale
     on every Style part's CC 7, like a fade; the button under it is HARMONY/ARPEGGIO, as on
-    the Launchkey); 6–8 are unused on the hardware, drawn dim.
+    the Launchkey), the Multi Pad volume on fader 6 (#196, the same kind of scale on the
+    pads' CC 7); 7–8 are unused on the hardware, drawn dim.
     Style: the eight band parts, Rhythm 1 … Phrase 2, on faders 1–8. Master on the right.
   - A fader is the channel's CC 7 (0–127) and nothing else: no hidden gain. Loading a
     style sets the Style faders to the style's own levels.
@@ -63,8 +64,10 @@
 
   /** Panel fader 5 (0-based 4): the Style volume. */
   const STYLE_SLOT = 4
-  /** Panel page faders after the Style volume (6–8): unused on the Launchkey too. */
-  const unusedSlots = $derived(Array.from({ length: Math.max(0, 8 - STYLE_SLOT - 1) }, (_, k) => STYLE_SLOT + 1 + k))
+  /** Panel fader 6: the Multi Pad volume. */
+  const PAD_SLOT = 5
+  /** Panel page faders after the Multi Pad volume (7–8): unused on the Launchkey too. */
+  const unusedSlots = $derived(Array.from({ length: Math.max(0, 8 - PAD_SLOT - 1) }, (_, k) => PAD_SLOT + 1 + k))
 
   /** The Panel page's button under fader 5 is HARMONY/ARPEGGIO, on the Launchkey and here. */
   const HARM_ARP_SLOT = 4
@@ -245,6 +248,16 @@
           onchange={(v) => app.send({ type: 'setStyleVolume', volume: v })}
           fxRow
           button={slotButton(STYLE_SLOT)}
+        />
+        <Strip
+          name="M.Pad"
+          value={mixer.multiPadVolume}
+          waiting={mixer.multiPadVolumeWaiting}
+          hw={hwAt(PAD_SLOT)}
+          faderTip="mixer.pad_level"
+          onchange={(v) => app.send({ type: 'setMultiPadVolume', volume: v })}
+          fxRow
+          button={slotButton(PAD_SLOT)}
         />
         {#each unusedSlots as n (n)}
           <Strip name="—" value={0} faderTip="launchkey.fader_unused" onchange={() => {}} unused fxRow button={slotButton(n)} />

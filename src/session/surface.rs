@@ -122,6 +122,13 @@ impl Control {
                         position,
                         set: Some(AppCmd::Mixer(MixerCmd::SetStyleVolume { volume: 0 })),
                     },
+                    FaderPage::Panel if p == parts::PAD_LEVEL => SurfaceFader {
+                        label: "M.PAD".to_string(),
+                        value: Some(kp.volume(p)),
+                        waiting: kp.waiting(p),
+                        position,
+                        set: Some(AppCmd::Mixer(MixerCmd::SetMultiPadVolume { volume: 0 })),
+                    },
                     FaderPage::Panel => SurfaceFader { position, ..SurfaceFader::default() },
                     FaderPage::Style => SurfaceFader {
                         label: STYLE_PART_NAMES[p].to_uppercase(),

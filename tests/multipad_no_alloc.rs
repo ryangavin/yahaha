@@ -72,6 +72,11 @@ fn multi_pads_do_not_allocate_on_the_engine_thread() {
     run(&mut l, &mut now, bar);
     shared.chord.store(chord.pack(1), Ordering::Release);
     l.step(now + 1);
+    run(&mut l, &mut now, 2 * bar);
+    // The Multi Pad volume (#196) moves while pads play.
+    shared.parts.set_volume(yahaha::parts::PAD_LEVEL, 70);
+    run(&mut l, &mut now, 2 * bar + bar / 6);
+    shared.parts.set_volume(yahaha::parts::PAD_LEVEL, 120);
     run(&mut l, &mut now, 2 * bar + bar / 3);
     // Playing: a press waits for the bar; a tempo change; Master transpose; a style
     // change to another ppq.

@@ -178,7 +178,7 @@ first).
 | Voice | Right 1–3: voice, on/off, volume, octave, pan, reverb and chorus sends |
 | Tempo | the tempo, in whole BPM as on the Genos panel (recalled as SET TEMPO) |
 | Transpose | Keyboard and Master transpose |
-| Multi Pad | the Multi Pad bank (Data List "Multi Pad File"; a bank already chosen is left playing). Not the pads' Synchro Start standby |
+| Multi Pad | the Multi Pad bank (Data List "Multi Pad File"; a bank already chosen is left playing) and the Multi Pad volume (#196; a bank without it leaves it). Not the pads' Synchro Start standby |
 | Assignable | the Fade In, Fade Out and Fade Out Hold times (Data List: Freeze group "Assignable Buttons") |
 | Keyboard Harmony/Arpeggio | the `harmonyArp` section |
 | Chord Looper | the Chord Looper's memory, its sequence and ON/OFF (a recall arms the loop, from the next bar line or with the style, or stops it at once; a recording under way is left alone) |

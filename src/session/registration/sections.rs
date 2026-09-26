@@ -116,13 +116,20 @@ fn find_style(c: &Control, path: &Path) -> Option<PathBuf> {
 struct MultiPadReg {
     /// The bank file; None: no bank.
     bank: Option<String>,
+    /// The Multi Pad volume (#196; the Genos's Multi Pad volume offset), 100 = as written.
+    /// Missing (a bank from an earlier build): left as it is.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    level: Option<u8>,
 }
 
 fn multipad_capture(c: &Control, g: Groups) -> Option<Value> {
     if !g.has(Group::MultiPad) {
         return None;
     }
-    to_value(&MultiPadReg { bank: c.multipad_bank_path().map(|p| p.display().to_string()) })
+    to_value(&MultiPadReg {
+        bank: c.multipad_bank_path().map(|p| p.display().to_string()),
+        level: Some(c.shared.parts.volume(parts::PAD_LEVEL)),
+    })
 }
 
 fn multipad_recall(c: &mut Control, v: &Value, g: Groups) -> Result<(), String> {
@@ -130,6 +137,11 @@ fn multipad_recall(c: &mut Control, v: &Value, g: Groups) -> Result<(), String> 
         return Ok(());
     }
     let r: MultiPadReg = parse("multiPad", v)?;
+    if let Some(level) = r.level {
+        // Panel fader 6 picks it up; the engine thread scales the pads on its next wake.
+        c.shared.parts.set_volume(parts::PAD_LEVEL, level);
+        c.wake_engine();
+    }
     let now = c.multipad_bank_path().map(Path::to_path_buf);
     let cmd = match r.bank {
         // Already chosen: pads playing from it carry on.

@@ -954,7 +954,7 @@ fn fader_positions_and_master_takeover() {
     let f = &st.surface.faders[1];
     assert_eq!((f.label.as_str(), f.value, f.waiting, f.position), ("RIGHT 2", Some(100), true, Some(30)));
     assert_eq!(f.set, Some(AppCmd::Parts(PartsCmd::SetPartVolume { part: 1, volume: 0 })));
-    assert_eq!((st.surface.faders[5].label.as_str(), st.surface.faders[5].set.clone()), ("", None), "fader 6 unused on Panel");
+    assert_eq!((st.surface.faders[6].label.as_str(), st.surface.faders[6].set.clone()), ("", None), "fader 7 unused on Panel");
     assert_eq!(st.keyboard_parts[1].fader, Some(30));
     assert_eq!(st.mixer.style_parts[1].fader, Some(30), "the same physical fader");
     assert!(st.keyboard_parts[1].waiting && st.keyboard_parts[1].volume == 100);
