@@ -44,12 +44,12 @@ impl BankFiles {
     pub(super) fn startup(&mut self) -> Option<BankFile> {
         let dir = self.dir.clone()?;
         let setup: Setup = std::fs::read_to_string(dir.join(SETUP_FILE)).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
-        if let Some(path) = setup.bank {
-            if let Some(b) = read(&path) {
-                self.name = reg::file_stem(&path, BANK_EXT);
-                self.path = Some(path);
-                return Some(b);
-            }
+        if let Some(path) = setup.bank
+            && let Some(b) = read(&path)
+        {
+            self.name = reg::file_stem(&path, BANK_EXT);
+            self.path = Some(path);
+            return Some(b);
         }
         let b = read(&dir.join(AUTOSAVE_FILE))?;
         self.name = if b.name.trim().is_empty() { NEW_BANK.into() } else { b.name.clone() };
@@ -80,10 +80,10 @@ impl BankFiles {
 
     fn set_path(&mut self, path: Option<PathBuf>) {
         self.path = path;
-        if let Some(dir) = &self.dir {
-            if let Ok(text) = serde_json::to_string_pretty(&Setup { bank: self.path.clone() }) {
-                let _ = reg::write_atomic(&dir.join(SETUP_FILE), &text);
-            }
+        if let Some(dir) = &self.dir
+            && let Ok(text) = serde_json::to_string_pretty(&Setup { bank: self.path.clone() })
+        {
+            let _ = reg::write_atomic(&dir.join(SETUP_FILE), &text);
         }
         self.relist();
     }

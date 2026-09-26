@@ -281,12 +281,12 @@ pub(super) fn looper_recall(c: &mut Control, v: &serde_json::Value, g: Groups) -
     match (r.memory, seq) {
         (Some(i), seq) => {
             let i = i as usize % MEMORIES;
-            if let Some(seq) = seq {
-                if c.looper.memories[i].as_ref().is_none_or(|(_, m)| *m != seq) {
-                    let name = r.name.clone().unwrap_or_else(|| format!("Registration {}", i + 1));
-                    c.looper.memories[i] = Some((name, seq));
-                    c.looper_autosave();
-                }
+            if let Some(seq) = seq
+                && c.looper.memories[i].as_ref().is_none_or(|(_, m)| *m != seq)
+            {
+                let name = r.name.clone().unwrap_or_else(|| format!("Registration {}", i + 1));
+                c.looper.memories[i] = Some((name, seq));
+                c.looper_autosave();
             }
             c.looper_cmd(LooperCmd::SelectLooperMemory { index: i as u8 }).map_err(e)?;
         }
