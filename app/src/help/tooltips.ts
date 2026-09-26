@@ -1099,6 +1099,27 @@ const catalog = {
     keys: [],
     launchkey: null,
   },
+  'fx.reverb_pad': {
+    title: 'Multi Pad reverb',
+    body: 'How much of the Multi Pads goes to the reverb: each pad\'s own reverb send (CC 91) times this, in the built-in synth only. 100% plays the reverb the pad wrote and 0% is none. Stored in a Registration Memory with the Multi Pad bank.',
+    genos: 'Mixer › Panel › Multi Pad › Effect › Reverb',
+    keys: [],
+    launchkey: null,
+  },
+  'fx.chorus_pad': {
+    title: 'Multi Pad chorus',
+    body: 'How much of the Multi Pads goes to the chorus: each pad\'s own chorus send (CC 93) times this, in the built-in synth only. 0% at start, as for the band; 100% plays the chorus the pad wrote. Stored in a Registration Memory with the Multi Pad bank.',
+    genos: 'Mixer › Panel › Multi Pad › Effect › Chorus',
+    keys: [],
+    launchkey: null,
+  },
+  'fx.variation_pad': {
+    title: 'Multi Pad delay',
+    body: 'How much of the Multi Pads goes to the tempo delay: each pad\'s own variation send (CC 94) times this, in the built-in synth only. 0% at start, because a pad\'s CC 94 was meant for its own Variation effect, not this delay; turn it up to echo the pads. Stored in a Registration Memory with the Multi Pad bank.',
+    genos: 'Mixer › Panel › Multi Pad › Effect › Variation',
+    keys: [],
+    launchkey: null,
+  },
   'mixer.style_level': {
     title: 'Style volume',
     body: 'The whole band against your hands, in one fader: 100 plays the Style parts at their own levels, lower scales every Style part\'s CC 7 down together (above 100 raises them, up to 127), the way a Fade In/Out does. The part faders stay where they are. A Registration stores it with the Style mixer.',

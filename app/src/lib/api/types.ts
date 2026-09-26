@@ -202,6 +202,8 @@ export type FxCmd =
   | { type: 'setEffectReturn'; block: FxBlock; level: number }
   /** #236: every Style part's send to the block scaled, 0-127 % (100 = as the style wrote it). */
   | { type: 'setBandSend'; block: FxBlock; level: number }
+  /** #267: every Multi Pad's send to the block scaled, 0-127 % (100 = as the pad wrote it). */
+  | { type: 'setPadSend'; block: FxBlock; level: number }
   /** #236: one of the block's parameters, in its own unit (see FxParamState). */
   | { type: 'setEffectParam'; block: FxBlock; param: FxParam; value: number }
   /** #237: the block takes the style's own effect type at each style change (on), or keeps the player's (off). */
@@ -258,6 +260,8 @@ export interface EffectBlockState {
   returnLevel: number
   /** The band send (#236): every Style part's send to this block scaled, 0-127 % (100 = as written). Reverb 100, Chorus 0, Variation 0 at start. */
   bandSend: number
+  /** The Multi Pad send (#267): every Multi Pad's send to this block scaled, 0-127 % (100 = as written). Reverb 100, Chorus 0, Variation 0 at start. */
+  padSend: number
   /** Its parameters (#236), in order. A 0–1 parameter is a switch. */
   params: FxParamState[]
   /** The loaded style's own type for this block (#237): the XG name and what it plays as (null: nothing near it). Null if the style sets none. */

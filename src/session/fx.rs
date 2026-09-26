@@ -17,6 +17,8 @@ pub(super) struct FxSettings {
     pub(super) returns: [u8; 3],
     /// The band send scales (#236), 0-127 %.
     pub(super) band: [u8; 3],
+    /// The Multi Pad send scales (#267), 0-127 % (Registration: the Multi Pad group).
+    pub(super) pad: [u8; 3],
     /// The effect parameters (#236, `crate::fx::Param::index`).
     pub(super) params: [u16; crate::fx::PARAMS],
     /// Each block follows the style's own type (#237).
@@ -27,7 +29,7 @@ impl Default for FxSettings {
     /// The Genos defaults: Hall, Chorus, and here the dotted 1/8 delay; every return 0 dB.
     /// The band's reverb as the style wrote it, and no band chorus or delay (#236).
     fn default() -> FxSettings {
-        FxSettings { effect: FxBlock::DEFAULT_TYPES, returns: [crate::fx::RETURN_UNITY; 3], band: crate::fx::BAND_SEND_DEFAULT, params: crate::fx::default_params(), follow: [true; 3] }
+        FxSettings { effect: FxBlock::DEFAULT_TYPES, returns: [crate::fx::RETURN_UNITY; 3], band: crate::fx::BAND_SEND_DEFAULT, pad: crate::fx::PAD_SEND_DEFAULT, params: crate::fx::default_params(), follow: [true; 3] }
     }
 }
 
@@ -96,6 +98,27 @@ struct EffectsReg {
     variation: EffectReg,
 }
 
+/// The Multi Pad send scales (#267), stored in the Registration's `multiPad` section
+/// (group Multi Pad), 0-127 %.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub(in crate::session) struct PadSendsReg {
+    reverb: u8,
+    chorus: u8,
+    variation: u8,
+}
+
+impl Control {
+    pub(in crate::session) fn pad_sends_capture(&self) -> PadSendsReg {
+        let [reverb, chorus, variation] = self.fx.pad;
+        PadSendsReg { reverb, chorus, variation }
+    }
+
+    pub(in crate::session) fn pad_sends_recall(&mut self, r: PadSendsReg) {
+        self.fx.pad = [r.reverb, r.chorus, r.variation].map(|v| v.min(127));
+        self.pump_fx();
+    }
+}
+
 pub(super) fn effects_capture(c: &Control, g: Groups) -> Option<serde_json::Value> {
     c.effects_capture(g)
 }
@@ -125,6 +148,7 @@ impl Control {
             }
             FxCmd::SetEffectReturn { block, level } => self.fx.returns[block.index()] = level.min(127),
             FxCmd::SetBandSend { block, level } => self.fx.band[block.index()] = level.min(127),
+            FxCmd::SetPadSend { block, level } => self.fx.pad[block.index()] = level.min(127),
             FxCmd::SetEffectParam { block, param, value } => {
                 if param.spec().block != block.index() {
                     return self.fail(format!("{} has no {} parameter", block.name(), param.spec().name));
@@ -150,6 +174,9 @@ impl Control {
         fx.chorus_return.store(s.returns[1], Relaxed);
         fx.variation_return.store(s.returns[2], Relaxed);
         for (a, &v) in fx.band_send.iter().zip(&s.band) {
+            a.store(v, Relaxed);
+        }
+        for (a, &v) in fx.pad_send.iter().zip(&s.pad) {
             a.store(v, Relaxed);
         }
         for (a, &v) in fx.params.iter().zip(&s.params) {
@@ -199,6 +226,7 @@ impl Control {
     pub(super) fn effects_state(&self) -> EffectsState {
         let mut s = EffectsState::new(self.fx.effect, self.fx.returns, self.fx.band, self.fx.params);
         for (b, st) in s.blocks.iter_mut().enumerate() {
+            st.pad_send = self.fx.pad[b];
             st.follow_style = self.fx.follow[b];
             st.style_effect = self.info.effects.blocks[b].as_ref().map(|c| StyleEffectState {
                 name: c.name.clone(),
@@ -348,6 +376,52 @@ mod tests {
         s.inner.lock().effects_recall(&old, Groups::all()).unwrap();
         s.advance(1_000_000_000);
         assert_eq!(band(&s), vec![100, 0, 0]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// #267: the Multi Pad send scales, in the state, on the audio thread's atomics and in
+    /// a Registration Memory's Multi Pad section (not recalled when the Multi Pad group is
+    /// frozen); a bank from before them leaves them as they are.
+    #[test]
+    fn pad_sends_reach_the_bus_and_the_registration() {
+        use crate::api::{FxBlock, FxCmd, RegistrationCmd};
+        use crate::registration::Group;
+        let p = Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus/MOX_v2/SlowWalker.T552.sty");
+        if !p.exists() {
+            eprintln!("corpus missing; skipping");
+            return;
+        }
+        let dir = std::env::temp_dir().join(format!("yahaha-fx-pad-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let s = Session::offline(Options { paths: vec![p], data_dir: Some(dir.clone()), ..Options::default() }).unwrap();
+        s.offline_audio(None, 48_000).unwrap();
+        let pad = |s: &Session| s.state().effects.blocks.iter().map(|b| b.pad_send).collect::<Vec<_>>();
+        let atomics = |s: &Session| {
+            let ctl = s.inner.lock();
+            ctl.synth.as_ref().unwrap().control.fx.pad_send.iter().map(|a| a.load(Relaxed)).collect::<Vec<_>>()
+        };
+        assert_eq!(pad(&s), vec![100, 0, 0], "the pads' reverb as written, no chorus or delay");
+        assert_eq!(atomics(&s), vec![100, 0, 0]);
+        s.send(RegistrationCmd::MemorizeRegist { index: 0 }).unwrap();
+        s.send(FxCmd::SetPadSend { block: FxBlock::Chorus, level: 80 }).unwrap();
+        s.send(FxCmd::SetPadSend { block: FxBlock::Reverb, level: 200 }).unwrap();
+        assert_eq!(pad(&s), vec![127, 80, 0]);
+        assert_eq!(atomics(&s), vec![127, 80, 0]);
+        assert_eq!(s.state().effects.blocks.iter().map(|b| b.band_send).collect::<Vec<_>>(), vec![100, 0, 0], "the band's are its own");
+        s.send(RegistrationCmd::MemorizeRegist { index: 1 }).unwrap();
+        s.send(RegistrationCmd::RecallRegist { index: 0 }).unwrap();
+        s.advance(1_000_000_000);
+        assert_eq!(pad(&s), vec![100, 0, 0]);
+        s.send(RegistrationCmd::RecallRegist { index: 1 }).unwrap();
+        s.advance(1_000_000_000);
+        assert_eq!(pad(&s), vec![127, 80, 0]);
+        assert_eq!(atomics(&s), vec![127, 80, 0]);
+        // Multi Pad frozen: a recall leaves them.
+        s.send(RegistrationCmd::SetFreezeGroup { group: Group::MultiPad, on: true }).unwrap();
+        s.send(RegistrationCmd::SetFreeze { on: true }).unwrap();
+        s.send(RegistrationCmd::RecallRegist { index: 0 }).unwrap();
+        s.advance(1_000_000_000);
+        assert_eq!(pad(&s), vec![127, 80, 0], "frozen");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
