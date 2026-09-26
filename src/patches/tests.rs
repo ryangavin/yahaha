@@ -77,6 +77,22 @@ fn genos_bank_8_voices_map_to_their_gm_instrument() {
     assert_eq!(map_program(chord1, 104, 0), 0);
 }
 
+/// Bank 9 (the Ensemble parts' S.Art! voices) keeps bank 8's numbering; bank 104 is GM
+/// numbered (#270).
+#[test]
+fn genos_bank_9_and_104_voices_map_to_their_gm_instrument() {
+    let (chord1, pad, phrase1) = (11, 13, 14);
+    assert_eq!(map_program(phrase1, 9, 80), 66, "TenorSax 9/66/81: Tenor Sax, not Saw Lead");
+    assert_eq!(FAMILY_NAMES[family_of(map_program(pad, 9, 39))], "Ensemble", "Haa 9/32/40: Choir Aahs, not a synth bass");
+    assert_eq!(map_program(pad, 9, 43), 40, "Seattle1stViolins: Violin, not Pizzicato");
+    assert_eq!(map_program(chord1, 9, 6), 26, "SemiAcoustic: Jazz Guitar");
+    assert_eq!(map_program(phrase1, 9, 73), 57, "Trombone 9/65/74");
+    assert_eq!(map_program(10, 9, 43), 33, "the Bass part rule still applies");
+    for prog in [0, 5, 21, 56, 88] {
+        assert_eq!(map_program(chord1, 104, prog), prog, "bank 104 is GM numbered");
+    }
+}
+
 #[test]
 fn bank_variations_collapse_onto_their_program() {
     // XG/GS variations of Finger Bass (MSB 0 LSB x, or a Yamaha bank that keeps GM
