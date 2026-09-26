@@ -1,5 +1,5 @@
 //! The audio callback (`synth::AudioCore::process`) must not allocate or free: SoundFont
-//! notes and controllers, the effect bus (sends, types, returns, legacy effects), the
+//! notes and controllers, the effect bus (sends, band send scales, types, returns, legacy effects), the
 //! master fader, a SoundFont swap, and (feature `plugins`) a
 //! keyboard part going over to an Audio Unit instrument (Apple's DLSMusicDevice), playing
 //! it, crossfading to a second instance, and back to the SoundFont. SoundFont swaps while
@@ -89,6 +89,13 @@ fn the_audio_callback_does_not_allocate() {
         ctl.fx.variation_type.store(t, Ordering::Relaxed);
         ctl.fx.set_tempo(90.0 + t as f64 * 20.0);
         assert_eq!(run(&mut core, &mut feed, &[]), none, "effect types and returns");
+    }
+    // The band send scales (#236) gliding up and back.
+    for (b, level) in [(1, 100u8), (2, 127), (0, 50), (1, 0), (2, 0), (0, 100)] {
+        ctl.fx.band_send[b].store(level, Ordering::Relaxed);
+        for _ in 0..3 {
+            assert_eq!(run(&mut core, &mut feed, &[]), none, "band send scales");
+        }
     }
     ctl.fx.legacy.store(true, Ordering::Relaxed);
     assert_eq!(run(&mut core, &mut feed, &[[0x90, 67, 100]]), none, "the SoundFont's own effects");

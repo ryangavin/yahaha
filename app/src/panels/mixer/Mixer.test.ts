@@ -106,6 +106,16 @@ describe('Mixer drawer', () => {
     expect(s.state.effects.blocks[0].returnLevel).toBe(0)
   })
 
+  it('Effects: a band send per block, the band\'s chorus and delay off at start (#236)', async () => {
+    const s = setup()
+    const band = (name: string) => document.querySelector<HTMLElement>(`[aria-label="${name} band send"]`)!
+    expect(['Reverb', 'Chorus', 'Variation'].map((n) => band(n).getAttribute('aria-valuetext'))).toEqual(['100%', '0%', '0%'])
+    await fireEvent.keyDown(band('Variation'), { key: 'PageUp' })
+    expect(s.state.effects.blocks[2].bandSend).toBe(10)
+    await fireEvent.keyDown(band('Reverb'), { key: 'Home' })
+    expect(s.state.effects.blocks[0].bandSend).toBe(0)
+  })
+
   it('follows the page when the Launchkey switches it', () => {
     const s = setup()
     s.send({ type: 'toggleFaderPage' })
