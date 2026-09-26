@@ -206,7 +206,11 @@ A key for the command: `key_action` for a control the Launchkey also has (it map
 
 A pad or button: an `Action` (`launchkey::pad_action` / `cc_control`) that the control
 side runs as its `AppCmd` (`impl From<Action> for AppCmd` in `src/api.rs`); its LED in
-`session/leds.rs` (`Leds::update`) and `session/surface.rs` (the app's mirror).
+`session/leds.rs` (`Leds::update`) and `session/surface.rs` (the app's mirror). The display
+text (#213, `session/display.rs`) comes from the same state: a pad's label, a button's or
+fader's `surface` label, a knob's name. A new function on a Launchkey control gets its
+display text by having its label there; `display::value_of` says its value (a switch
+without a case there shows On/Off from its light).
 
 ### 8. Desktop app
 

@@ -123,6 +123,119 @@ pub const FEATURE_CH_STATUS: u8 = 0xB6;
 /// Pad mode report on channel 7 (p.10); 2 = DAW layout.
 pub const PAD_MODE_CC: u8 = 29;
 
+/// A Launchkey control the player just touched or moved, as the input thread records it
+/// for the display (`live::Shared::touched`, packed with a sequence number so a second
+/// press of the same control counts). The control side works out what it did from the
+/// state: the pads, the surface (buttons, fader buttons, faders) and the knobs.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Touch {
+    /// A pad (its note) on the current page.
+    Pad(u8),
+    /// A button (its CC), with Shift held or not.
+    Button { cc: u8, shift: bool },
+    /// Fader 1-8 (0-7) or the master fader (8).
+    Fader(u8),
+    /// The button under fader 1-8 (0-7) or under the master fader (8).
+    FaderButton { index: u8, shift: bool },
+    /// Encoder 1-8 (0-7).
+    Knob(u8),
+}
+
+impl Touch {
+    /// Packed with `seq` for an atomic: seq in bits 16-31, the kind in 8-11, Shift in bit
+    /// 7, the index in 0-6. Never 0 (0 = nothing touched yet).
+    pub fn pack(self, seq: u16) -> u32 {
+        let (kind, shift, i) = match self {
+            Touch::Pad(n) => (1, false, n),
+            Touch::Button { cc, shift } => (2, shift, cc),
+            Touch::Fader(i) => (3, false, i),
+            Touch::FaderButton { index, shift } => (4, shift, index),
+            Touch::Knob(i) => (5, false, i),
+        };
+        (seq as u32) << 16 | kind << 8 | (shift as u32) << 7 | (i & 0x7F) as u32
+    }
+
+    pub fn unpack(v: u32) -> Option<Touch> {
+        let (i, shift) = ((v & 0x7F) as u8, v & 0x80 != 0);
+        Some(match (v >> 8) & 0xF {
+            1 => Touch::Pad(i),
+            2 => Touch::Button { cc: i, shift },
+            3 => Touch::Fader(i),
+            4 => Touch::FaderButton { index: i, shift },
+            5 => Touch::Knob(i),
+            _ => return None,
+        })
+    }
+}
+
+/// The display target yahaha writes to: the Global temporary display (Programmer's
+/// Reference Guide v3.0, p.17), which goes back to the normal screen by itself after the
+/// Launchkey's display timeout.
+pub const DISPLAY_TARGET: u8 = 0x21;
+/// Arrangement 2: three lines, Title, Name and Value (p.18).
+const DISPLAY_TITLE_NAME_VALUE: u8 = 2;
+/// Characters per line yahaha sends (the display is 128 pixels wide).
+pub const DISPLAY_CHARS: usize = 16;
+
+fn display_header(cmd: u8, target: u8, out: &mut Vec<u8>) {
+    out.extend_from_slice(&[0xF0, 0x00, 0x20, 0x29, 0x02, 0x14, cmd, target]);
+}
+
+/// Configure a display target (SysEx 04h): `config` 0 cancels it, 7Fh brings it up.
+pub fn display_config(target: u8, config: u8) -> Vec<u8> {
+    let mut m = Vec::with_capacity(10);
+    display_header(0x04, target, &mut m);
+    m.extend_from_slice(&[config & 0x7F, 0xF7]);
+    m
+}
+
+/// Set a text field of a display target (SysEx 06h). The text is made printable: the
+/// display takes ASCII 20h-7Eh, plus a flat sign at 1Dh.
+pub fn display_field(target: u8, field: u8, text: &str) -> Vec<u8> {
+    let mut m = Vec::with_capacity(12 + DISPLAY_CHARS);
+    display_header(0x06, target, &mut m);
+    m.push(field);
+    m.extend(display_chars(text));
+    m.push(0xF7);
+    m
+}
+
+/// `text` as the display's characters, at most `DISPLAY_CHARS`.
+pub fn display_chars(text: &str) -> impl Iterator<Item = u8> + '_ {
+    text.chars()
+        .filter_map(|c| match c {
+            ' '..='~' => Some(c as u8),
+            '♭' => Some(0x1D),
+            '▲' => Some(b'^'),
+            '▼' => Some(b'v'),
+            '◀' => Some(b'<'),
+            '▶' | '▸' | '→' => Some(b'>'),
+            '−' | '–' | '—' => Some(b'-'),
+            '·' => Some(b'.'),
+            _ => None,
+        })
+        .take(DISPLAY_CHARS)
+}
+
+/// What the display shows for a touched control: a title (where it is), the function's
+/// name and its value, brought up at once.
+pub fn display_msgs(title: &str, name: &str, value: &str) -> [Vec<u8>; 5] {
+    [
+        display_config(DISPLAY_TARGET, DISPLAY_TITLE_NAME_VALUE),
+        display_field(DISPLAY_TARGET, 0, title),
+        display_field(DISPLAY_TARGET, 1, name),
+        display_field(DISPLAY_TARGET, 2, value),
+        display_config(DISPLAY_TARGET, 0x7F),
+    ]
+}
+
+/// On entering DAW mode: the faders' and encoders' own temporary displays (the raw CC
+/// value) off, as yahaha shows what they do instead (targets 05h-0Dh and 15h-1Ch, config
+/// with the "on change" and "on touch" bits clear).
+pub fn analogue_displays_off() -> impl Iterator<Item = Vec<u8>> {
+    FADER_CC.chain(ENCODER_CC).map(|t| display_config(t, DISPLAY_TITLE_NAME_VALUE))
+}
+
 /// Pad pages.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -1087,6 +1200,42 @@ mod tests {
         assert_eq!(encoder(0xB0, 21, 65), None);
         assert_eq!(encoder(0xBF, 13, 65), None, "the master fader");
         assert_eq!(encoder(0xBF, 29, 65), None);
+    }
+
+    #[test]
+    fn touches_pack_and_unpack() {
+        for t in [
+            Touch::Pad(119),
+            Touch::Button { cc: SHIFT_CC, shift: true },
+            Touch::Button { cc: KNOB_DOWN_CC, shift: false },
+            Touch::Fader(8),
+            Touch::FaderButton { index: 3, shift: true },
+            Touch::Knob(7),
+        ] {
+            let v = t.pack(0xFFFF);
+            assert_ne!(v, 0);
+            assert_eq!(Touch::unpack(v), Some(t));
+            assert_ne!(t.pack(1), t.pack(2), "a second press of the same control counts");
+        }
+        assert_eq!(Touch::unpack(0), None);
+    }
+
+    /// The display SysEx (Programmer's Reference Guide v3.0, pp.17-19): configure the
+    /// Global temporary display for Title/Name/Value, the three fields, then bring it up.
+    #[test]
+    fn display_sysex() {
+        let m = display_msgs("Pads Sections", "MAIN B", "Fill In BB");
+        assert_eq!(m[0], [0xF0, 0x00, 0x20, 0x29, 0x02, 0x14, 0x04, 0x21, 0x02, 0xF7]);
+        assert_eq!(m[2], [&[0xF0, 0x00, 0x20, 0x29, 0x02, 0x14, 0x06, 0x21, 0x01][..], b"MAIN B", &[0xF7]].concat());
+        assert_eq!(m[4], [0xF0, 0x00, 0x20, 0x29, 0x02, 0x14, 0x04, 0x21, 0x7F, 0xF7]);
+        // Printable ASCII only, and short.
+        let f = display_field(DISPLAY_TARGET, 2, "PAGE ▲ B♭ ✓ a very long value indeed");
+        assert_eq!(&f[9..f.len() - 1], b"PAGE ^ B\x1D  a ver");
+        assert!(f[9..f.len() - 1].iter().all(|&c| c < 0x80));
+        let off: Vec<_> = analogue_displays_off().collect();
+        assert_eq!(off.len(), 9 + 8);
+        assert_eq!(off[0], display_config(0x05, 2));
+        assert_eq!(off[9], display_config(0x15, 2));
     }
 
     #[test]

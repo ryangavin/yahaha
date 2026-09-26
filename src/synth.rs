@@ -487,15 +487,16 @@ pub fn legacy_fx() -> bool {
 
 /// Render what the band sent (`(time ns, message)`, as `sim::record` gives it) through
 /// the audio callback ([`AudioCore`]: a rack on `sf2`, the effect bus, the master at unity
-/// and the safety clipper) into stereo at `sample_rate`, for `end_ns` plus three seconds
+/// and the safety clipper; the delay at `bpm`) into stereo at `sample_rate`, for `end_ns` plus three seconds
 /// of tails. Messages take effect at the start of the 64-frame block they fall in, as
 /// live. For listening tests (`yahaha render`); not the audio thread.
-pub fn render_offline(sf2: &Path, msgs: &[(u64, Vec<u8>)], end_ns: u64, sample_rate: u32) -> Result<(Vec<f32>, Vec<f32>)> {
+pub fn render_offline(sf2: &Path, msgs: &[(u64, Vec<u8>)], end_ns: u64, sample_rate: u32, bpm: f64) -> Result<(Vec<f32>, Vec<f32>)> {
     const BLOCK: usize = 64;
     let rack = Rack::load(sf2, sample_rate)?;
     let (mut tx, rx) = RingBuffer::<Msg>::new(4096);
     let ctl = Arc::new(SynthControl::new(0));
     ctl.fx.legacy.store(legacy_fx(), Relaxed);
+    ctl.fx.set_tempo(bpm);
     let (mut core, _swap, _plugins) = AudioCore::new(Some(rack), vec![rx], Arc::new(Parts::new()), ctl, sample_rate, 2);
     let frames = ((end_ns as f64 / 1e9 + 3.0) * sample_rate as f64) as usize;
     let (mut left, mut right) = (Vec::with_capacity(frames), Vec::with_capacity(frames));
