@@ -375,4 +375,34 @@ mod tests {
         let got = [FxParam::DelaySync, FxParam::DelayNote, FxParam::DelayTime, FxParam::DelayFeedback, FxParam::PingPong].map(|p| fx.params[p.index()].load(Relaxed));
         assert_eq!(got, [0, 1, 10, 90, 1]);
     }
+
+    /// #236: the chorus's rate and depth start at the type's own and reach the bus; the
+    /// FX knob page turns them.
+    #[test]
+    fn chorus_parameters_and_the_fx_knobs() {
+        use crate::api::{FxBlock, FxCmd, FxParam, FxType, KnobsCmd};
+        use crate::knobs::KnobPage;
+        let p = Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus/MOX_v2/SlowWalker.T552.sty");
+        if !p.exists() {
+            eprintln!("corpus missing; skipping");
+            return;
+        }
+        let s = Session::offline(Options { paths: vec![p], ..Options::default() }).unwrap();
+        s.offline_audio(None, 48_000).unwrap();
+        let chorus = |s: &Session| s.state().effects.blocks[1].params.iter().map(|p| p.display.clone()).collect::<Vec<_>>();
+        assert_eq!(chorus(&s), ["0.55 Hz", "2.2 ms"]);
+        s.send(FxCmd::SetEffectType { block: FxBlock::Chorus, effect: FxType::Celeste }).unwrap();
+        assert_eq!(chorus(&s), ["0.29 Hz", "0.9 ms"]);
+        s.send(KnobsCmd::SetKnobPage { page: KnobPage::Fx }).unwrap();
+        s.send(KnobsCmd::TurnKnob { knob: 6, delta: 3 }).unwrap();
+        s.send(KnobsCmd::TurnKnob { knob: 0, delta: 6 }).unwrap();
+        s.send(KnobsCmd::TurnKnob { knob: 4, delta: 10 }).unwrap();
+        let st = s.state();
+        assert_eq!(chorus(&s)[1], "1.2 ms");
+        assert_eq!(st.effects.blocks[0].params[0].display, "3.0 s", "the reverb time, 0.1 s a step");
+        assert_eq!(st.effects.blocks[2].params[3].display, "58%", "the delay feedback, 2% a step");
+        assert_eq!((st.knobs.page_name.as_str(), st.knobs.knobs[4].short.as_str(), st.knobs.knobs[4].value.as_str()), ("FX", "DlyFdbk", "58%"));
+        let ctl = s.inner.lock();
+        assert_eq!(ctl.synth.as_ref().unwrap().control.fx.params[FxParam::ChorusDepth.index()].load(Relaxed), 12);
+    }
 }
