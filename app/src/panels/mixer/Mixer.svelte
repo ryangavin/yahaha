@@ -21,7 +21,9 @@
     Band send (#236, `setBandSend`) scales every Style part's send to it, in percent: the
     band's reverb as written, its chorus and delay off until turned up. The ▸ button
     opens a block's editor with its parameters (#236, `setEffectParam`), which a type
-    change puts back to that type's own values.
+    change puts back to that type's own values. The Style switch (#237, `setFollowStyle`):
+    lit, the block takes the style's own effect type at each style change (its XG name shows
+    beside it); choosing a type turns it off.
   - Solo (S): only that part plays, even if it is off; the Style tab solos a band part,
     the Panel tab a keyboard part (`setStyleSolo` / `setPartSolo`, #30). Press again to end.
   - The metronome (on/off, bell, its own volume) sits above the strips: it is the
@@ -302,6 +304,14 @@
               onchange={(v) => app.send({ type: 'setEffectReturn', block: b.block, level: v })}
             />
           </div>
+          <Toggle
+            on={b.followStyle}
+            tip="fx.follow_style"
+            onclick={() => app.send({ type: 'setFollowStyle', block: b.block, on: !b.followStyle })}>Style</Toggle
+          >
+          <span class="style-name" title={b.styleEffect?.name ?? ''}
+            >{b.styleEffect ? b.styleEffect.name + (b.styleEffect.effect ? '' : ' (no match)') : '—'}</span
+          >
           <span class="band-label">Band</span>
           <div class="slider return">
             <HSlider
@@ -543,6 +553,14 @@
     display: flex;
     align-items: center;
     gap: 0.4rem;
+  }
+  .style-name {
+    max-width: 9rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: var(--fs-small);
+    color: var(--muted);
   }
   .band-label {
     font-size: var(--fs-small);

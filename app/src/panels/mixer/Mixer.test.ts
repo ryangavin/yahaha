@@ -150,6 +150,20 @@ describe('Mixer drawer', () => {
     expect(s.state.effects.blocks[1].params[1].display).toBe('2.3 ms')
   })
 
+  it('Effects: the Style switch per block; choosing a type turns it off (#237)', async () => {
+    const s = setup()
+    const styleSwitch = (i: number) => [...document.querySelectorAll<HTMLElement>('.effects [role="switch"]')][i]
+    expect(styleSwitch(0).getAttribute('aria-checked')).toBe('true')
+    const types = document.querySelectorAll<HTMLSelectElement>('select[aria-label$=" type"]')
+    await fireEvent.change(types[0], { target: { value: 'plate' } })
+    flushSync()
+    expect(s.state.effects.blocks[0].followStyle).toBe(false)
+    expect(styleSwitch(0).getAttribute('aria-checked')).toBe('false')
+    await fireEvent.click(styleSwitch(0))
+    expect(s.state.effects.blocks[0].followStyle).toBe(true)
+    expect(s.state.effects.blocks[0].effect).toBe('hall')
+  })
+
   it('Effects: a band send per block, the band\'s chorus and delay off at start (#236)', async () => {
     const s = setup()
     const band = (name: string) => document.querySelector<HTMLElement>(`[aria-label="${name} band send"]`)!
