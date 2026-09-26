@@ -40,4 +40,31 @@ mod tests {
         s.send(TransportCmd::SetTempo { bpm: 93 }).unwrap();
         assert_eq!(tempo(&s).0, 9300);
     }
+
+    /// The keyboard parts' sends go out again after anything that may reset a receiver to
+    /// its power-on sends: a Panic, a Reset All Controllers from the keyboard (and a new
+    /// offline synth, `offline_audio`). A send set since boot goes out as it is now.
+    #[test]
+    fn the_parts_sends_go_out_again_after_a_reset() {
+        use crate::api::{PartSend, PartsCmd, SystemCmd};
+        use crate::session::Port;
+        let p = Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus/MOX_v2/SlowWalker.T552.sty");
+        if !p.exists() {
+            eprintln!("corpus missing; skipping");
+            return;
+        }
+        let s = Session::offline(Options { paths: vec![p], ..Options::default() }).unwrap();
+        s.send(PartsCmd::SetPartSend { part: 0, send: PartSend::Reverb, value: 70 }).unwrap();
+        s.take_output();
+        let resent = |out: &[[u8; 3]]| out.contains(&[0xB0, 91, 70]) && out.contains(&[0xB1, 91, 40]) && out.contains(&[0xB2, 93, 10]);
+        s.send(SystemCmd::Panic).unwrap();
+        let out = s.take_output();
+        assert!(resent(&out), "Panic: {out:?}");
+        s.midi_in(Port::Keys, &[0xB0, 121, 0]);
+        // The input thread sends the reset at once; the engine thread the sends at its wake
+        // just after.
+        let out = s.take_output();
+        assert!(out.contains(&[0xB0, 121, 0]) && resent(&out), "Reset All Controllers, then the sends: {out:?}");
+        assert!(!resent(&s.take_output()), "once");
+    }
 }

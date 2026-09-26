@@ -89,7 +89,7 @@ pub struct Parts {
     /// Each part's pan and reverb/chorus sends (CC10, 91, 93; `NO_FX` = not set) as a sound
     /// library patch set them (#103), and the parts whose values the engine thread still
     /// has to send (bit = part).
-    fx: [[AtomicU8; 3]; COUNT],
+    fx: [[AtomicU8; FX]; COUNT],
     fx_dirty: AtomicU8,
     /// The parts whose power-on pan and sends (`FX_DEFAULT`) the engine thread has not
     /// sent yet (bit = part): all of them at first, so a fresh start isn't dry (#204).
@@ -98,17 +98,22 @@ pub struct Parts {
 
 /// `Parts::fx`: not set.
 const NO_FX: u8 = 0xFF;
-/// The controllers `Parts::fx` holds: pan, reverb send, chorus send.
-pub const FX_CC: [u8; 3] = [10, 91, 93];
+/// The controllers `Parts::fx` holds: pan, reverb send, chorus send, variation send
+/// (the effect bus's tempo delay, #204).
+pub const FX_CC: [u8; FX] = [10, 91, 93, 94];
+/// How many controllers `Parts::fx` holds.
+pub const FX: usize = 4;
 /// `Parts::fx` indices.
 pub const PAN: usize = 0;
 pub const REVERB: usize = 1;
 pub const CHORUS: usize = 2;
+pub const VARIATION: usize = 3;
 /// What each part's pan and sends are before anything sets them (#204): pan centre and,
 /// like a Genos keyboard voice, some reverb and a touch of chorus (Right 1-3: reverb 50,
 /// chorus 10; Left: reverb 40, chorus 10), where GM's power-on values (reverb 40, chorus
-/// 0) sound dry. The engine thread sends them once at start (`send_fx`).
-pub const FX_DEFAULT: [[u8; 3]; COUNT] = [[64, 50, 10], [64, 50, 10], [64, 50, 10], [64, 40, 10]];
+/// 0) sound dry; no variation (delay) send. The engine thread sends them at start and
+/// again after anything that may have reset them (`resend_fx`).
+pub const FX_DEFAULT: [[u8; FX]; COUNT] = [[64, 50, 10, 0], [64, 50, 10, 0], [64, 50, 10, 0], [64, 40, 10, 0]];
 
 /// `Parts::solo`: no part soloed.
 pub const NO_SOLO: u8 = 255;
@@ -137,7 +142,7 @@ impl Parts {
             rebind: AtomicBool::new(false),
             rebind_hw: [const { AtomicU8::new(HW_UNKNOWN) }; 8],
             solo: AtomicU8::new(NO_SOLO),
-            fx: [const { [const { AtomicU8::new(NO_FX) }; 3] }; COUNT],
+            fx: [const { [const { AtomicU8::new(NO_FX) }; FX] }; COUNT],
             fx_dirty: AtomicU8::new(0),
             fx_boot: AtomicU8::new((1 << COUNT) - 1),
         }
@@ -145,7 +150,7 @@ impl Parts {
 
     /// A part's pan, reverb and chorus sends from a sound library patch (None: leave it).
     /// The engine thread sends them as CCs on the part's channel, to the port and the synth.
-    pub fn set_fx(&self, part: usize, fx: [Option<u8>; 3]) {
+    pub fn set_fx(&self, part: usize, fx: [Option<u8>; FX]) {
         let part = part % COUNT;
         for (a, v) in self.fx[part].iter().zip(fx) {
             if let Some(v) = v {
@@ -157,12 +162,20 @@ impl Parts {
 
     /// A part's pan, reverb send and chorus send (`PAN`, `REVERB`, `CHORUS`) as last set,
     /// or the power-on value (`FX_DEFAULT`) where nothing has set it.
-    pub fn fx(&self, part: usize) -> [u8; 3] {
+    pub fn fx(&self, part: usize) -> [u8; FX] {
         let part = part % COUNT;
         std::array::from_fn(|i| match self.fx[part][i].load(Relaxed) {
             NO_FX => FX_DEFAULT[part][i],
             v => v,
         })
+    }
+
+    /// Every part's pan and sends go out again on the engine thread's next `send_fx`
+    /// (the power-on values where nothing has set them): after a Panic, a Reset All
+    /// Controllers or a new synth, anything that may have put a channel back to its
+    /// power-on sends.
+    pub fn resend_fx(&self) {
+        self.fx_boot.fetch_or((1 << COUNT) - 1, Release);
     }
 
     /// Engine thread: send the pan and sends set since the last call; on the first call,
@@ -474,7 +487,7 @@ mod tests {
                 p = end;
             }
             for (i, (ots, track)) in style.ots.iter().zip(&tracks).enumerate() {
-                let mut want = [[None; 3]; COUNT];
+                let mut want = [[None; FX]; COUNT];
                 for e in track {
                     if let crate::sff::Ev::Cc { ch, cc, val } = e.ev
                         && ch < 4
@@ -486,7 +499,7 @@ mod tests {
                 let parts = Parts::new();
                 parts.send_fx(&mut |_| {});
                 parts.apply_ots(ots, i as u8 + 1);
-                let mut got = [[None; 3]; COUNT];
+                let mut got = [[None; FX]; COUNT];
                 parts.send_fx(&mut |m| {
                     let p = part_of_channel(m[0] & 0x0F).unwrap();
                     got[p][FX_CC.iter().position(|&c| c == m[1]).unwrap()] = Some(m[2]);
@@ -505,20 +518,26 @@ mod tests {
     #[test]
     fn the_first_send_gives_every_part_its_default_sends() {
         let parts = Parts::new();
-        parts.set_fx(LEFT, [None, Some(90), None]);
+        parts.set_fx(LEFT, [None, Some(90), None, None]);
         let mut sent = Vec::new();
         parts.send_fx(&mut |m| sent.push([m[0], m[1], m[2]]));
         for p in 0..COUNT {
-            let want = if p == LEFT { [64, 90, 10] } else { FX_DEFAULT[p] };
+            let want = if p == LEFT { [64, 90, 10, 0] } else { FX_DEFAULT[p] };
             for (cc, v) in FX_CC.into_iter().zip(want) {
                 assert!(sent.contains(&[0xB0 | CHANNEL[p], cc, v]), "part {p} CC{cc} {v}: {sent:?}");
             }
         }
-        assert_eq!(sent.len(), COUNT * 3, "once each: {sent:?}");
-        assert_eq!(parts.fx(RIGHT1), [64, 50, 10]);
+        assert_eq!(sent.len(), COUNT * FX, "once each: {sent:?}");
+        assert_eq!(parts.fx(RIGHT1), [64, 50, 10, 0]);
         let mut again = 0;
         parts.send_fx(&mut |_| again += 1);
         assert_eq!(again, 0, "only once");
+        // After a reset: all of them again, as they are now.
+        parts.resend_fx();
+        let mut sent = Vec::new();
+        parts.send_fx(&mut |m| sent.push([m[0], m[1], m[2]]));
+        assert_eq!(sent.len(), COUNT * FX);
+        assert!(sent.contains(&[0xB1, 91, 90]) && sent.contains(&[0xB0, 91, 50]), "{sent:?}");
     }
 
     #[test]

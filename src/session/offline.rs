@@ -179,6 +179,8 @@ impl Session {
                 ctl.sound.synth_started(m);
             }
             o.audio = Some(Box::new(core));
+            // A new synth starts at the GM power-on sends: give it the parts' (#204).
+            ctl.shared.parts.resend_fx();
             o.input.set_synth(Some(control.clone()));
             let name = sf2.and_then(|p| p.file_stem()).map_or_else(String::new, |n| n.to_string_lossy().to_string());
             ctl.synth = Some(super::SynthRef {
