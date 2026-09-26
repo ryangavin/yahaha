@@ -317,7 +317,7 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 
 | control | what it does | Genos | key | Launchkey |
 |---|---|---|---|---|
-| **Knob Assign page** | What the eight Launchkey knobs do. Style: Dynamics, Retrigger length and on/off, Style Track Mute A and B, tempo. Parts: the keyboard parts' volumes, Harmony and metronome volume, tempo. | KNOB ASSIGN | — | ▲ / ▼ right of the knobs |
+| **Knob Assign page** | What the eight Launchkey knobs do, on four pages. Style has Dynamics, Retrigger length and on/off, Style Track Mute A and B and tempo; Parts has the keyboard parts' volumes, Harmony and metronome volume and tempo; Pan has the parts' pan and tempo; Effects has their Reverb and Chorus sends. | KNOB ASSIGN | — | ▲ / ▼ right of the knobs |
 | **Knob** | Turns what the knob has on the Knob Assign page, from where it is now: levels 2 a step, tempo 1 BPM, Retrigger every 3 steps. | LIVE CONTROL knobs | — | The eight knobs |
 
 ## Chord Looper

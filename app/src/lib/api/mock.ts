@@ -276,7 +276,7 @@ export function initialState(): AppState {
     paramLocks: { splitPoint: false, fingeringType: false },
     sounds: initialSounds(),
     dynamics: { control: true, level: 64, touch: false, accent: false, accentThreshold: 110 },
-    knobs: { page: 'style', pageName: 'Style', pageNumber: 1, pageCount: 2, knobs: [] },
+    knobs: { page: 'style', pageName: 'Style', pageNumber: 1, pageCount: 4, knobs: [] },
   }
   derive(state, LIBRARY)
   state.knobs = new MockKnobs().state(state)
