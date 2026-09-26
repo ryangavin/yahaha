@@ -506,8 +506,9 @@ With a matching type, the style's reverb parameters come too (#269): parameter 1
 Time (Data List Table#1) as `reverbTime` (at most 10 s), 3 Initial Delay (Table#2) as
 `preDelay`, and the high cut (Table#3; a Real Reverb's 4 High Damp Frequency, another
 reverb's 5 LPF Cutoff; Thru = 20 kHz) as `reverbTone`. A block's return level (Reverb
-`0C`, Chorus `2C`, Variation `56`) comes where the style sets one; where it sets none, the
-return stays as it is. The chorus's parameters are not read (no corpus style sets them on
+`0C`, Chorus `2C`, Variation `56`) comes where the style sets one; where it sets none (or
+the block has no match), a following block's return goes back to 64 (0 dB), so one style's
+return never carries into the next. A block that doesn't follow keeps the player's. The chorus's parameters are not read (no corpus style sets them on
 a chorus type yahaha has).
 
 Any other type (a phaser or a tempo delay in the chorus block, a distortion or a reverb as the
