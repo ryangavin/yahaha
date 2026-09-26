@@ -312,7 +312,7 @@ fn a_banks_plugin_voices() {
     let ids: Vec<(&str, Option<&[u8]>)> = v.iter().map(|v| (v.id.as_str(), v.state.as_deref())).collect();
     assert_eq!(ids, [("aumu a", None), ("aumu a", None), ("aumu b", Some(&[1u8, 2, 3][..]))]);
     for i in 0..10 {
-        b.memories[i] = button(vec![voice(&format!("aumu {i}"), None)]);
+        b.set(i, button(vec![voice(&format!("aumu {i}"), None)]));
     }
     assert_eq!(super::bank_plugin_voices(&b).len(), 10);
     let Some((s, dir)) = session("warm-cap", None) else { return };

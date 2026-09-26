@@ -2672,7 +2672,7 @@ mod tests {
     fn registration_recalls_lights_page_4_and_the_playlist_steps() {
         let mut m = MockSession::new();
         assert_eq!(m.state.registration.bank.name, "Friday Gig");
-        assert_eq!(m.state.registration.buttons.len(), 10);
+        assert_eq!(m.state.registration.buttons.len(), 16, "Friday Gig has Banks A and B");
         m.send(RegistrationCmd::RecallRegist { index: 3 });
         assert_eq!(m.state.registration.selected, Some(3));
         assert_eq!(m.state.transport.tempo, 132.0);
@@ -2680,12 +2680,17 @@ mod tests {
         m.send(PadsCmd::SetPadPage { page: Page::Registration });
         assert_eq!(m.state.pads.pads.len(), 16);
         assert_eq!((m.state.pads.pads[3].rgb, m.state.pads.pads[0].rgb), ([127, 0, 0], [0, 40, 127]));
-        assert_eq!(m.state.pads.pads[9].level, Level::Off);
-        // Memory, then button 10.
+        assert_eq!(m.state.pads.pads[7].level, Level::Off);
+        assert_eq!((m.state.pads.pads[0].label.as_str(), m.state.pads.pads[12].label.as_str()), ("SNAP 1", "STORE"));
+        // Bank +, Store, then snapshot 2: B2.
+        m.send(RegistrationCmd::StepSnapshotBank { delta: 1 });
+        assert_eq!(m.state.registration.snapshot_bank, 1);
+        assert_eq!(m.state.pads.pads[0].level, Level::Bright, "B1 (a ten-button bank's 9) is stored");
         m.send(RegistrationCmd::ToggleRegistMemory);
-        assert!(m.state.pads.pads.iter().take(10).all(|p| p.anim == Anim::Flash));
-        m.send(RegistrationCmd::PressRegist { index: 9 });
+        assert!(m.state.pads.pads.iter().take(8).all(|p| p.anim == Anim::Flash));
+        m.send(RegistrationCmd::PressSnapshot { slot: 1 });
         assert!(m.state.registration.buttons[9].stored);
+        assert_eq!(m.state.registration.selected, Some(9));
         // Shift + Track steps the playlist: its first record recalls Friday Gig [1].
         let tl = m.state.surface.controls.iter().find(|c| c.id == "trackNext").unwrap().clone();
         assert_eq!((tl.shift_label.as_str(), tl.shift_action.clone()), ("SONG ▶", Some(AppCmd::Playlist(PlaylistCmd::StepPlaylist { delta: 1 }))));

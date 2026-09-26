@@ -266,6 +266,8 @@
   "registration.sequence.position: null",
   "registration.sequence.steps: array",
   "registration.sequence: object",
+ "registration.snapshotBank: number",
+ "registration.snapshotBanks: number",
   "registration: object",
   "soundLibrary.auditioning: null",
   "soundLibrary.browse: null",

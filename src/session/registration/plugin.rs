@@ -170,7 +170,7 @@ impl Control {
                 self.say(format!("{}: the plugin's settings are larger than {} MB: the registration keeps its default preset", parts::NAMES[p], MAX_STATE_BYTES >> 20), true);
                 continue;
             }
-            let Some(m) = self.reg.bank.memories[f.button].as_mut() else { break };
+            let Some(m) = self.reg.bank.get_mut(f.button) else { break };
             let Some(Value::Object(v)) = m.sections.get_mut("parts").and_then(|s| s.pointer_mut(&format!("/parts/{p}/voice"))) else { continue };
             let stored = (v.get("kind"), v.get("id"), v.get("state"));
             if stored.0.and_then(Value::as_str) != Some("plugin") || stored.1.and_then(Value::as_str) != Some(id.as_str()) || stored.2.and_then(Value::as_str) != old.as_deref() {

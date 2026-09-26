@@ -6,7 +6,7 @@
 import fixture from './mock-fixture.json'
 import type { AppCmd, AppState, Fingering, HarmonyArpState } from './types'
 import {
-  emptyPlaylist, emptyRegistration, fileStem, REGIST_GROUPS,
+  bankLetter, emptyPlaylist, emptyRegistration, fileStem, MAX_BANKS, normalizeSlots, REGIST_GROUPS, SLOTS, snapshotLabel,
   type PlaylistCmd, type PlaylistRecord, type PlaylistSort, type RegistGroup, type RegistrationCmd, type SequenceEnd,
 } from './registration'
 
@@ -79,10 +79,12 @@ function demoMemory(name: string, style: [string, string], tempo: number, progra
 export class MockRegistration {
   private banks = new Map<string, Bank>()
   private lists = new Map<string, List>()
-  private bank: Bank = { name: 'New Bank', memories: Array(10).fill(null), sequence: { steps: [], end: 'stop' } }
+  private bank: Bank = { name: 'New Bank', memories: Array(SLOTS).fill(null), sequence: { steps: [], end: 'stop' } }
   private path: string | null = null
   private dirty = false
   private selected: number | null = null
+  /** The snapshot bank on view (0 = A). */
+  private view = 0
   private memory = false
   private memorize: RegistGroup[] = REGIST_GROUPS.map((g) => g.id)
   private freeze = false
@@ -107,13 +109,16 @@ export class MockRegistration {
         demoMemory('Verse', st(1), 96, [4, 48, 61, 32], [true, false, false, false]),
         demoMemory('Chorus', st(1), 96, [61, 48, 56, 32], [true, true, true, false]),
         demoMemory('Swing', st(2), 132, [26, 48, 65, 32], [true, false, true, false]),
-        ...Array(6).fill(null),
+        ...Array(4).fill(null),
+        // Bank B: a ten-button bank's 9 and 10 land here.
+        demoMemory('Ballad ending', st(0), 68, [0, 48, 61, 48], [true, true, false, false]),
+        ...Array(7).fill(null),
       ],
       sequence: { steps: [0, 1, 2, 1, 2, 3], end: 'next' },
     }
     const jazz: Bank = {
       name: 'Jazz Set',
-      memories: [demoMemory('Trio', st(3), 120, [0, 32, 48, 32], [true, false, false, false]), null, null, null, null, null, null, null, null, null],
+      memories: [demoMemory('Trio', st(3), 120, [0, 32, 48, 32], [true, false, false, false]), null, null, null, null, null, null, null],
       sequence: { steps: [], end: 'stop' },
     }
     this.banks.set(bankPath(gig.name), gig)
@@ -148,8 +153,20 @@ export class MockRegistration {
   private regist(cmd: RegistrationCmd, host: RegistHost) {
     switch (cmd.type) {
       case 'pressRegist':
-        if (this.memory) this.memorizeInto(cmd.index, host)
-        else this.recall(cmd.index, host, true)
+        this.press(cmd.index, host)
+        break
+      case 'pressSnapshot': {
+        const index = this.view * SLOTS + cmd.slot
+        if (index < SLOTS * MAX_BANKS) this.press(index, host)
+        break
+      }
+      case 'stepSnapshotBank':
+        this.view = Math.max(0, Math.min(this.lastView(), this.view + Math.sign(cmd.delta)))
+        host.message(`Snapshot Bank ${bankLetter(this.view)}`)
+        break
+      case 'selectSnapshotBank':
+        if (cmd.bank < 0 || cmd.bank > this.lastView()) return this.fail(host, `no Bank ${bankLetter(cmd.bank)}`)
+        this.view = cmd.bank
         break
       case 'recallRegist':
         this.recall(cmd.index, host, true)
@@ -164,13 +181,14 @@ export class MockRegistration {
         this.memorize = toggled(this.memorize, cmd.group, cmd.on)
         break
       case 'clearRegist':
-        this.bank.memories[cmd.index] = null
+        this.setSlot(cmd.index, null)
+        this.view = Math.min(this.view, this.lastView())
         if (this.selected === cmd.index) this.selected = null
         this.changed()
         break
       case 'renameRegist': {
         const m = this.bank.memories[cmd.index]
-        if (!m) return this.fail(host, `Registration ${cmd.index + 1} is empty`)
+        if (!m) return this.fail(host, `Snapshot ${snapshotLabel(cmd.index)} is empty`)
         m.name = cmd.name.trim()
         this.changed()
         break
@@ -182,10 +200,11 @@ export class MockRegistration {
         if (!this.loadBank(cmd.path)) this.fail(host, `${cmd.path}: not found`)
         break
       case 'newRegistBank':
-        this.bank = { name: 'New Bank', memories: Array(10).fill(null), sequence: { steps: [], end: 'stop' } }
+        this.bank = { name: 'New Bank', memories: Array(SLOTS).fill(null), sequence: { steps: [], end: 'stop' } }
         this.path = null
         this.dirty = false
         this.selected = null
+        this.view = 0
         this.seqPos = null
         break
       case 'saveRegistBank': {
@@ -216,7 +235,7 @@ export class MockRegistration {
         this.frozen = toggled(this.frozen, cmd.group, cmd.on)
         break
       case 'setRegistSequence':
-        this.bank.sequence = { steps: cmd.steps.filter((b) => b >= 0 && b < 10).slice(0, 128), end: cmd.end }
+        this.bank.sequence = { steps: cmd.steps.filter((b) => b >= 0 && b < SLOTS * MAX_BANKS).slice(0, 128), end: cmd.end }
         this.seqPos = null
         this.changed()
         break
@@ -245,6 +264,26 @@ export class MockRegistration {
     }
   }
 
+  /** A snapshot button: store while Store is armed, else recall. */
+  private press(index: number, host: RegistHost) {
+    if (this.memory) this.memorizeInto(index, host)
+    else this.recall(index, host, true)
+  }
+
+  /** The last snapshot bank that can be viewed: one empty bank past the file's last. */
+  private lastView(): number {
+    return Math.min(this.bank.memories.length / SLOTS, MAX_BANKS - 1)
+  }
+
+  /** Store or empty snapshot `index`, keeping whole banks of eight. */
+  private setSlot(index: number, m: Memory | null) {
+    if (index < 0 || index >= SLOTS * MAX_BANKS) return
+    const v = [...this.bank.memories]
+    while (v.length <= index) v.push(null)
+    v[index] = m
+    this.bank.memories = normalizeSlots(v)
+  }
+
   /** A saved bank is written at once; a new one waits for a name. */
   private changed() {
     this.dirty = true
@@ -261,6 +300,7 @@ export class MockRegistration {
     this.path = path
     this.dirty = false
     this.selected = null
+    this.view = 0
     this.memory = false
     this.seqPos = null
     return true
@@ -324,20 +364,23 @@ export class MockRegistration {
     if (g.includes('transpose')) m.transpose = [st.chord.transposeKeyboard, st.chord.transposeMaster]
     if (g.includes('harmonyArp')) m.harmonyArp = clone(st.harmonyArp)
     if (g.includes('chordLooper')) m.looper = { memory: st.looper.memory, on: st.looper.mode === 'loopArmed' || st.looper.mode === 'looping' }
-    m.name = m.style?.name ?? `Registration ${index + 1}`
-    this.bank.memories[index] = m
+    if (index < 0 || index >= SLOTS * MAX_BANKS) return
+    m.name = m.style?.name ?? `Snapshot ${snapshotLabel(index)}`
+    this.setSlot(index, m)
     this.selected = index
-    host.message(`Memorized to Registration ${index + 1}`)
+    this.view = Math.floor(index / SLOTS)
+    host.message(`Stored to Snapshot ${snapshotLabel(index)}`)
     this.changed()
   }
 
   /** Recall a button and say so; `label` is the message (what could not be recalled follows it, as an error). */
   private recall(index: number, host: RegistHost, follow: boolean, label?: string) {
     const m = this.bank.memories[index]
-    if (!m) return this.fail(host, `Registration ${index + 1} is empty`)
+    if (!m) return this.fail(host, `Snapshot ${snapshotLabel(index)} is empty`)
     const errors: string[] = []
     this.memory = false
     this.selected = index
+    this.view = Math.floor(index / SLOTS)
     const seq = this.bank.sequence
     if (follow && seq.steps.length) {
       const start = this.seqPos === null ? 0 : this.seqPos + 1
@@ -402,7 +445,7 @@ export class MockRegistration {
       const on = st.looper.mode === 'loopArmed' || st.looper.mode === 'looping'
       if (on !== m.looper.on) host.command({ type: 'looperOnOff' })
     }
-    const text = label ?? `Registration ${index + 1}: ${m.name || `Registration ${index + 1}`}`
+    const text = label ?? `Snapshot ${snapshotLabel(index)}: ${m.name || `Snapshot ${snapshotLabel(index)}`}`
     if (errors.length) host.message(`${text}: ${errors.join('; ')}`, true)
     else host.message(text)
   }
@@ -555,7 +598,8 @@ export class MockRegistration {
     r.bank = { name: this.bank.name, path: this.path, dirty: this.dirty, position: this.path ? banks.indexOf(this.path) : null }
     r.banks = banks.map((path) => ({ name: this.banks.get(path)!.name, path }))
     r.folder = BANK_DIR
-    r.buttons = this.bank.memories.map((m, index) =>
+    const shown = Math.max(this.bank.memories.length / SLOTS, this.view + 1) * SLOTS
+    r.buttons = Array.from({ length: shown }, (_, i) => this.bank.memories[i] ?? null).map((m, index) =>
       m
         ? {
             index, stored: true, name: m.name, groups: [...m.groups], style: m.style?.name ?? null, tempo: m.tempo ?? null,
@@ -565,6 +609,8 @@ export class MockRegistration {
     )
     r.selected = this.selected
     r.memory = this.memory
+    r.snapshotBank = this.view
+    r.snapshotBanks = this.bank.memories.length / SLOTS
     r.memorizeGroups = REGIST_GROUPS.map((g) => g.id).filter((g) => this.memorize.includes(g))
     r.freeze = this.freeze
     r.freezeGroups = REGIST_GROUPS.map((g) => g.id).filter((g) => this.frozen.includes(g))
@@ -589,7 +635,7 @@ export class MockRegistration {
 }
 
 const REGIST_TYPES = new Set<string>([
-  'pressRegist', 'recallRegist', 'memorizeRegist', 'toggleRegistMemory', 'setMemorizeGroup', 'clearRegist', 'renameRegist',
+  'pressRegist', 'pressSnapshot', 'stepSnapshotBank', 'selectSnapshotBank', 'recallRegist', 'memorizeRegist', 'toggleRegistMemory', 'setMemorizeGroup', 'clearRegist', 'renameRegist',
   'stepRegistBank', 'selectRegistBank', 'newRegistBank', 'saveRegistBank', 'setFreeze', 'toggleFreeze', 'setFreezeGroup',
   'setRegistSequence', 'setRegistSequenceOn', 'toggleRegistSequence', 'stepRegistSequence', 'stepRegist',
 ])

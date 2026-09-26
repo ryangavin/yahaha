@@ -2,7 +2,7 @@
 // them in src/launchkey.rs), names and the catalog keys.
 
 import type { TipKey } from '../../help/tooltips'
-import type { RegistrationState } from '../../lib/api/registration'
+import { SLOTS, snapshotLabel, type RegistrationState } from '../../lib/api/registration'
 import type { Anim, Level, Rgb } from '../../lib/api/types'
 import { formatTempo } from '../../lib/format'
 
@@ -12,7 +12,7 @@ export const REGIST_STORED: Rgb = [0, 40, 127]
 
 export type Look = { rgb: Rgb; level: Level; anim: Anim }
 
-/** Button `i`'s lamp: flashing red while Memory is armed, red in use, blue stored, dark empty. */
+/** Snapshot `i`'s lamp (its index): flashing red while Store is armed, red in use, blue stored, dark empty. */
 export function buttonLook(r: RegistrationState, i: number): Look {
   const stored = r.buttons[i]?.stored ?? false
   if (r.memory) return { rgb: REGIST_SELECTED, level: 'bright', anim: 'flash' }
@@ -20,15 +20,19 @@ export function buttonLook(r: RegistrationState, i: number): Look {
   return { rgb: REGIST_STORED, level: stored ? 'bright' : 'off', anim: 'solid' }
 }
 
-export const REGIST_TIPS: TipKey[] = [
-  'regist.1', 'regist.2', 'regist.3', 'regist.4', 'regist.5', 'regist.6', 'regist.7', 'regist.8', 'regist.9', 'regist.10',
-]
+/** By slot in the snapshot bank (0–7). */
+export const REGIST_TIPS: TipKey[] = ['regist.1', 'regist.2', 'regist.3', 'regist.4', 'regist.5', 'regist.6', 'regist.7', 'regist.8']
 
-/** A button's name as the bar shows it: its own, else its style, else empty. */
+/** The indices of the snapshot bank on view (its eight snapshots). */
+export function viewIndices(r: RegistrationState): number[] {
+  return Array.from({ length: SLOTS }, (_, k) => r.snapshotBank * SLOTS + k)
+}
+
+/** A snapshot's name as the bar shows it: its own, else its style, else empty. */
 export function buttonName(r: RegistrationState, i: number): string {
   const b = r.buttons[i]
   if (!b?.stored) return ''
-  return b.name || b.style || `Registration ${i + 1}`
+  return b.name || b.style || `Snapshot ${snapshotLabel(i)}`
 }
 
 /** "3 / 6" for the sequence position, or "– / 6" before the first step. */
