@@ -503,6 +503,23 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | **Auto style** | Choosing a song loads the library style its iReal style label suggests. Pick any other style in the browser to override it. | — | — | — |
 | **Suggested style** | The library style that best matches the chart's iReal style label. Press it to load that style now. | — | — | — |
 
+## Quick nav (app bar)
+
+| control | what it does | Genos | key | Launchkey |
+|---|---|---|---|---|
+| **Sound Browser** | Opens the Sound Browser for the selected keyboard part (Right 1 if none): every preset, plugin and saved sound. Press again to close. | Voice Selection | `Alt+B` (terminal: ) | — |
+| **Styles** | Opens the style browser. Press again to close. | Style Selection | `Alt+S` (terminal: ) | — |
+| **Registrations** | Opens the Registration panel: bank, groups, sequence and playlist. Press again to close. | REGISTRATION MEMORY | `Alt+R` (terminal: ) | — |
+| **Parts and OTS** | Opens the keyboard parts drawer with the style's One Touch Settings. Press again to close. | ONE TOUCH SETTING | `Alt+O` (terminal: ) | — |
+| **Multi Pads** | Opens the Multi Pads drawer. Press again to close. | MULTI PAD CONTROL | `Alt+P` (terminal: ) | — |
+| **Effects** | Opens the Mixer, where the Reverb, Chorus and Variation effect blocks live. Press again to close. | Mixer (Effect) | `Alt+E` (terminal: ) | — |
+| **Mixer** | Opens the full mixer. Press again to close. | Mixer | `Alt+M` (terminal: ) | — |
+| **Chord Looper** | Opens the Chord Looper. Press again to close. | Menu › Chord Looper | `Alt+L` (terminal: ) | — |
+| **Charts** | Opens the iReal Pro chart player. Press again to close. | — | `Alt+C` (terminal: ) | — |
+| **Harmony/Arp** | Opens the Keyboard Harmony and Arpeggio panel. Press again to close. | HARMONY/ARPEGGIO | `Alt+H` (terminal: ) | — |
+| **Sound Library** | Opens your sound library and program map. Press again to close. | — | `Alt+Y` (terminal: ) | — |
+| **Settings** | Opens the settings. Press again to close. | — | `Alt+T` (terminal: ) | — |
+
 ## Panels around the hardware view
 
 | control | what it does | Genos | key | Launchkey |

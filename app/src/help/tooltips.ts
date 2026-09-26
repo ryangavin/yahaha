@@ -2364,6 +2364,104 @@ const catalog = {
     launchkey: null,
   },
 
+  // ── Quick-nav strip in the app bar (lib/nav.ts) ─────────────────────────
+  'nav.sounds': {
+    title: 'Sound Browser',
+    body: 'Opens the Sound Browser for the selected keyboard part (Right 1 if none): every preset, plugin and saved sound. Press again to close.',
+    genos: 'Voice Selection',
+    keys: [],
+    app_keys: ['alt+b'],
+    launchkey: null,
+  },
+  'nav.styles': {
+    title: 'Styles',
+    body: 'Opens the style browser. Press again to close.',
+    genos: 'Style Selection',
+    keys: [],
+    app_keys: ['alt+s'],
+    launchkey: null,
+  },
+  'nav.regist': {
+    title: 'Registrations',
+    body: 'Opens the Registration panel: bank, groups, sequence and playlist. Press again to close.',
+    genos: 'REGISTRATION MEMORY',
+    keys: [],
+    app_keys: ['alt+r'],
+    launchkey: null,
+  },
+  'nav.parts': {
+    title: 'Parts and OTS',
+    body: 'Opens the keyboard parts drawer with the style\'s One Touch Settings. Press again to close.',
+    genos: 'ONE TOUCH SETTING',
+    keys: [],
+    app_keys: ['alt+o'],
+    launchkey: null,
+  },
+  'nav.multipad': {
+    title: 'Multi Pads',
+    body: 'Opens the Multi Pads drawer. Press again to close.',
+    genos: 'MULTI PAD CONTROL',
+    keys: [],
+    app_keys: ['alt+p'],
+    launchkey: null,
+  },
+  'nav.effects': {
+    title: 'Effects',
+    body: 'Opens the Mixer, where the Reverb, Chorus and Variation effect blocks live. Press again to close.',
+    genos: 'Mixer (Effect)',
+    keys: [],
+    app_keys: ['alt+e'],
+    launchkey: null,
+  },
+  'nav.mixer': {
+    title: 'Mixer',
+    body: 'Opens the full mixer. Press again to close.',
+    genos: 'Mixer',
+    keys: [],
+    app_keys: ['alt+m'],
+    launchkey: null,
+  },
+  'nav.looper': {
+    title: 'Chord Looper',
+    body: 'Opens the Chord Looper. Press again to close.',
+    genos: 'Menu › Chord Looper',
+    keys: [],
+    app_keys: ['alt+l'],
+    launchkey: null,
+  },
+  'nav.charts': {
+    title: 'Charts',
+    body: 'Opens the iReal Pro chart player. Press again to close.',
+    genos: null,
+    keys: [],
+    app_keys: ['alt+c'],
+    launchkey: null,
+  },
+  'nav.harmony': {
+    title: 'Harmony/Arp',
+    body: 'Opens the Keyboard Harmony and Arpeggio panel. Press again to close.',
+    genos: 'HARMONY/ARPEGGIO',
+    keys: [],
+    app_keys: ['alt+h'],
+    launchkey: null,
+  },
+  'nav.library': {
+    title: 'Sound Library',
+    body: 'Opens your sound library and program map. Press again to close.',
+    genos: null,
+    keys: [],
+    app_keys: ['alt+y'],
+    launchkey: null,
+  },
+  'nav.settings': {
+    title: 'Settings',
+    body: 'Opens the settings. Press again to close.',
+    genos: null,
+    keys: [],
+    app_keys: ['alt+t'],
+    launchkey: null,
+  },
+
   // ── Drawers around the hardware view ────────────────────────────────────
   'drawer.parts': {
     title: 'Keyboard parts and OTS',
@@ -3002,6 +3100,7 @@ const KEY_NAMES: Record<string, string> = {
 export function keyLabel(k: string): string {
   if (KEY_NAMES[k]) return KEY_NAMES[k]
   if (k.startsWith('shift+')) return 'Shift+' + k.slice(6).toUpperCase()
+  if (k.startsWith('alt+')) return 'Alt+' + k.slice(4).toUpperCase()
   if (/^[A-Z]$/.test(k)) return 'Shift+' + k
   return k.length === 1 ? k.toUpperCase() : k
 }

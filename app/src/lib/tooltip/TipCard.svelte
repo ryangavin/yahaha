@@ -17,7 +17,7 @@
     <dd>
       {#if keys.length}
         {#each keys as k, i (k)}{#if i > 0}<span class="or"> or </span>{/if}<kbd>{keyLabel(k)}</kbd>{/each}
-        {#if t.app_keys}<span class="or"> (terminal: {t.keys.map(keyLabel).join(' / ')})</span>{/if}
+        {#if t.app_keys && t.keys.length}<span class="or"> (terminal: {t.keys.map(keyLabel).join(' / ')})</span>{/if}
       {:else}
         <span class="none">none</span>
       {/if}
