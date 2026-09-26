@@ -103,7 +103,7 @@ button{font-family:inherit;cursor:pointer}
 </div>
 </div>
 <div style="display: flex; gap: 3px">
-<button aria-label="Mute {{p.name}}" style="flex: 1; height: 20px; padding: 0; border-radius: 3px; border: 1px solid #2d2d32; background: {{p.mBg}}; color: {{p.mInk}}; font-size: 10px; font-weight: 700">M</button>
+<button aria-label="{{p.name}} on/off" title="{{p.btnTip}}" style="flex: 1; height: 20px; padding: 0; border-radius: 3px; border: 1px solid {{p.mBorder}}; background: {{p.mBg}}; color: {{p.mInk}}; font-size: 10px; font-weight: 800; box-shadow: {{p.mGlow}}">ON</button>
 <button aria-label="Solo {{p.name}}" style="flex: 1; height: 20px; padding: 0; border-radius: 3px; border: 1px solid #2d2d32; background: #26262b; color: #8d8d95; font-size: 10px; font-weight: 700">S</button>
 </div>
 </div>
@@ -169,12 +169,17 @@ class Component extends DCLogic {
     const LAY = [['VOL', 'Faders set each part\'s volume'], ['PAN', 'Faders set each part\'s pan'], ['REV', 'Faders set each part\'s reverb send'], ['CHO', 'Faders set each part\'s chorus send'], ['DLY', 'Faders set each part\'s delay send']];
     const layers = LAY.map(l => { const on = l[0] === LAYER; return { name: l[0], tip: l[1], on, bg: on ? A : '#141417', ink: on ? AI : '#8d8d95', border: on ? A : '#2d2d32', glow: on ? '0 0 10px rgba(255,122,47,.45)' : 'none' }; });
     const panTxt = v => { const d = Math.round((v - .5) * 128); return d === 0 ? 'C' : (d < 0 ? 'L' + (-d) : 'R' + d); };
+    const FPAGE0 = { VOL: 'Vol', PAN: 'Pan', REV: 'Rev', CHO: 'Cho', DLY: 'Dly' }[LAYER];
+    const ring = { i: 4, n: 8, label: 'LAUNCHKEY FADERS + BUTTONS · STYLE ' + FPAGE0.toUpperCase() };
+    const LED = i => i < 4 ? '#3d7dff' : '#2fd26a';
     const parts = P.map((p, i) => {
       const send = { REV: p[5], CHO: p[6], DLY: p[7] }[LAYER];
       const isVol = LAYER === 'VOL', isPan = LAYER === 'PAN';
       const v = isVol ? p[3] / 100 : (isPan ? p[8] : send);
       const val = isVol ? String(Math.round(p[3] * 1.27)) : (isPan ? panTxt(p[8]) : String(Math.round(send * 127)));
-      return { name: p[0], voice: p[1], meter: p[2], op: p[4] ? 1 : 0.45, col: COL[i], mBg: p[4] ? '#26262b' : A, mInk: p[4] ? '#8d8d95' : AI, bg: i === SEL ? '#26262e' : '#141417', outline: i === SEL ? '2px solid ' + COL[i] : 'none',
+      return { name: p[0], voice: p[1], meter: p[2], op: p[4] ? 1 : 0.45, col: COL[i], // The first button is the Launchkey fader button's function: part on/off, lit like its LED
+        // (Style page green, Panel page blue; bright = playing, dim = off). White edge = on the hardware now.
+        mBg: p[4] ? LED(i) : LED(i) + '2e', mInk: p[4] ? '#0e0e10' : LED(i), mBorder: i >= ring.i && i < ring.i + ring.n ? '#ffffff' : 'transparent', mGlow: p[4] && i >= ring.i && i < ring.i + ring.n ? '0 0 8px ' + LED(i) + '99' : 'none', btnTip: (i >= ring.i && i < ring.i + ring.n ? 'Launchkey fader button ' + (i - ring.i + 1) + ': ' : '') + p[0] + ' on/off · ⇧ selects it', bg: i === SEL ? '#26262e' : '#141417', outline: i === SEL ? '2px solid ' + COL[i] : 'none',
         faderDisp: isPan ? 'none' : 'block', knobDisp: isPan ? 'flex' : 'none', layerName: LAYER,
         // The fader body is the part colour, dimmed; the level (post-fader) lights it from the bottom.
         fader: Math.round(v * 100), level: isVol ? Math.round(p[2] * p[3] / 100) : 0, body: COL[i] + '55',
@@ -198,7 +203,6 @@ class Component extends DCLogic {
     // the faders around their 8 strips, the pads around the Home section grid. The mirror only
     // draws what has no place on the current screen.
     const PADRING = %%PADRING%%;
-    const ring = { i: 4, n: 8, label: 'LAUNCHKEY FADERS · STYLE ' + FPAGE.toUpperCase() };
     const mir = {};
     const mm = { disp: PADRING ? 'none' : 'flex', w: COMPACT ? 22 : 30 };
     const mirLegend = [{ what: 'PADS', page: 'Sections', disp: PADRING ? 'block' : 'none' }, { what: 'FADERS', page: 'Style ' + FPAGE, disp: 'block' }, { what: 'KNOBS', page: 'Style', disp: COMPACT ? 'none' : 'block' }];
