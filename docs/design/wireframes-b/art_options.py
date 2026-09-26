@@ -75,3 +75,55 @@ class Component extends DCLogic {
 </html>
 '''
 open(os.path.join(D, "project", "BArtOptions.dc.html"), "w").write(art_html)
+
+# ---------- Sheet 9: the song map (gradient + contour + shape, from the style's structure) ----------
+def sm_svg(var, w, h, vw, vh):
+    return '<svg width="%s" height="%s" viewBox="0 0 %d %d" preserveAspectRatio="none" aria-hidden="true" style="display: block; border-radius: 8px">%s</svg>' % (w, h, vw, vh, SONGMAP_SVG % {"v": var})
+
+KEY = [("Shape", "Height is energy. Each section is a plateau as wide as its bars: Intro low, the Mains climbing, Break dipping, Ending falling away."),
+       ("Gradient", "Colour runs from the category's colour when calm to hot when busy, so a build reads as the picture warming up."),
+       ("Contour", "Eight lines, one per style part, from Rhythm 1 at the bottom to Phrase 2 at the top. A line ridges where its part plays, so busy parts are rough and sparse ones smooth. Repeats, like the fills, look alike.")]
+key_html = "".join('<div style="flex: 1; display: flex; flex-direction: column; gap: 6px"><span style="font-family: \'Archivo Narrow\', sans-serif; font-size: 20px; font-weight: 700">%s</span><span style="font-size: 13px; color: #a9a9b1; line-height: 1.45">%s</span></div>' % k for k in KEY)
+
+sm_html = '''<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>B · Style artwork: the song map</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&amp;family=Archivo+Narrow:wght@500;600;700&amp;display=swap" rel="stylesheet">
+<style>body{margin:0;background:#0e0e10}</style>
+</helmet>
+<div style="width: 1440px; height: 900px; box-sizing: border-box; background: #0e0e10; color: #f2f2f2; font-family: Archivo, sans-serif; display: flex; flex-direction: column; gap: 18px; padding: 24px 32px">
+<div style="display: flex; align-items: baseline; gap: 16px"><span style="font-family: 'Archivo Narrow', sans-serif; font-size: 32px; font-weight: 700">Style artwork: the song map</span><span style="font-size: 13px; color: #8d8d95">Gradient, contour and shape in one picture of the style's structure. No labels, but you can read it once you know the key.</span></div>
+<div style="position: relative">''' + sm_svg("hero", "1376", "250", 1376, 250) + '''<div style="position: absolute; left: 20px; bottom: 16px; display: flex; flex-direction: column; gap: 2px"><span style="font-size: 11px; letter-spacing: .09em; text-transform: uppercase; color: #f2f2f2; opacity: .8">Pop &amp; Rock · Intro · A · fill · B · fill · C · break · D · Ending</span><span style="font-family: 'Archivo Narrow', sans-serif; font-size: 40px; font-weight: 700; line-height: 1">Cool 8Beat</span></div></div>
+<div style="display: flex; gap: 28px">''' + key_html + '''</div>
+<div style="display: flex; flex-direction: column; gap: 8px"><span style="font-size: 11px; letter-spacing: .09em; text-transform: uppercase; color: #8d8d95">Browser cards</span>
+<div style="display: flex; gap: 16px"><sc-for list="{{cards}}" as="t" hint-placeholder-count="6"><div style="width: 214px; display: flex; flex-direction: column; gap: 6px">''' + sm_svg("t.m", "214", "120", 214, 120) + '''<span style="font-size: 13px; font-weight: 700">{{t.name}}</span><span style="font-size: 11px; color: #8d8d95; margin-top: -4px">{{t.meta}}</span></div></sc-for></div></div>
+<div style="display: flex; flex-direction: column; gap: 8px"><span style="font-size: 11px; letter-spacing: .09em; text-transform: uppercase; color: #8d8d95">List and quick-list icons</span>
+<div style="display: flex; gap: 14px"><sc-for list="{{icons}}" as="t" hint-placeholder-count="10"><div style="width: 72px; display: flex; flex-direction: column; gap: 4px">''' + sm_svg("t.m", "72", "72", 72, 72) + '''<span style="font-size: 10px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{t.name}}</span></div></sc-for></div></div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const COL = ['#ff5a5a','#ff9a3c','#ffd23f','#9be15d','#3fd6c6','#3fa9ff','#7a7dff','#c46bff','#ff6bd0','#ff8c8c','#5de0ff','#b8f05d'];
+''' + SONGMAP_JS + '''
+    // name, category colour, hot colour, form, meta
+    const S = [['Cool 8Beat', COL[2], '#ff5a3c', 'pop', 'Pop & Rock · 112'], ['Jazz Ballad', COL[6], '#ff9a3c', 'ballad', 'Swing & Jazz · 72'], ['Salsa Classic', COL[7], '#ffd23f', 'latin', 'Latin · 180'], ['Funky Pop', COL[4], '#ff6bd0', 'dance', 'Dance · 118'], ['Country Pop', COL[8], '#ffd23f', 'pop', 'Country · 104'], ['Slow Rock', COL[3], '#ff9a3c', 'ballad', 'Ballad · 68'],
+      ['Bossa Nova', COL[7], '#ff9a3c', 'latin', ''], ['Big Band', COL[6], '#ff5a3c', 'pop', ''], ['Soul', COL[5], '#ff6bd0', 'ballad', ''], ['Vienna Waltz', COL[9], '#ffd23f', 'ballad', ''], ['Disco Fever', COL[4], '#ff5a3c', 'dance', ''], ['Euro Beat', COL[10], '#ff6bd0', 'dance', ''], ['Samba', COL[7], '#ff5a3c', 'latin', ''], ['Rock Shuffle', COL[2], '#ff5a3c', 'pop', ''], ['Gospel', COL[5], '#ffd23f', 'ballad', ''], ['House', COL[4], '#ff9a3c', 'dance', '']];
+    const hero = songMap(7, COL[2], '#ff5a3c', 'pop', 'smhero', 1376, 250);
+    const cards = S.slice(0, 6).map((x, i) => ({ name: x[0], meta: x[4] + ' bpm', m: songMap(7 + i * 12, x[1], x[2], x[3], 'smc' + i, 214, 120) }));
+    const icons = S.slice(6).map((x, i) => ({ name: x[0], m: songMap(11 + i * 17, x[1], x[2], x[3], 'smi' + i, 72, 72) }));
+    return { hero, cards, icons };
+  }
+}
+</script>
+</body>
+</html>
+'''
+open(os.path.join(D, "project", "BArtSongMap.dc.html"), "w").write(sm_html)

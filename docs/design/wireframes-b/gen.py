@@ -26,27 +26,56 @@ KNOBROW = '''<sc-for list="{{%s}}" as="k" hint-placeholder-count="4">
 def krow(var, size=52, w=70):
     return KNOBROW % (var, w, size, size, size, size)
 
+
+# The "song map" artwork: one picture of a style's structure, used as the display background
+# and as the style's art everywhere. Left to right are its sections in playing order, each as
+# wide as its bars. Three layers each carry one thing:
+#   shape    - the silhouette's height is each section's energy (Intro low, Main D high, Ending falling)
+#   gradient - colour runs from the category colour (calm) to hot (busy), so builds read as warming
+#   contour  - 8 lines, one per style part (Rhythm 1 at the bottom ... Phrase 2 at the top), ridged
+#              where that part plays in that section; sparse parts stay flat, busy ones get ridges.
+# Sections that repeat (the fills, the Mains) get the same colour and ridges, so recurrence shows.
+SONGMAP_JS = r"""
+    const hexmix = (a, b, t) => { const p = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16)); const x = p(a), y = p(b); return '#' + x.map((v, i) => Math.round(v + (y[i] - v) * t).toString(16).padStart(2, '0')).join(''); };
+    const SONG = { pop: [['I', 4, .3], ['A', 4, .42], ['F', 1, .62], ['B', 4, .55], ['F', 1, .7], ['C', 8, .72], ['K', 1, .28], ['D', 8, .92], ['E', 4, .38]],
+      ballad: [['I', 4, .18], ['A', 8, .3], ['F', 1, .45], ['B', 8, .5], ['K', 1, .2], ['C', 8, .62], ['E', 4, .22]],
+      latin: [['I', 2, .45], ['A', 4, .6], ['F', 1, .8], ['B', 4, .7], ['F', 1, .85], ['C', 4, .78], ['D', 8, .95], ['E', 2, .6]],
+      dance: [['I', 8, .35], ['A', 8, .55], ['K', 2, .2], ['B', 8, .75], ['F', 1, .85], ['D', 8, 1], ['E', 4, .4]] };
+    const songMap = (seed, cat, hot, form, gid, W, H) => {
+      let s = seed; const r = () => { s = (s * 9301 + 49297) % 233280; return s / 233280; };
+      const secs = SONG[form], bars = secs.reduce((n, x) => n + x[1], 0);
+      const dens = [.9, .55, .8, .6, .5, .35, .25, .2].map(d => d * (0.8 + r() * 0.4));
+      const lo = hexmix(cat, '#0e0e10', .35);
+      let x = 0; const cols = [], stops = [], cuts = [], tops = [];
+      secs.forEach((sec, i) => { const w = sec[1] / bars * W, e = Math.min(1, sec[2] + (r() - .5) * .08);
+        const c = hexmix(lo, hot, e); cols.push({ x0: x, x1: x + w, e, c, busy: sec[0] === 'F' ? 1.5 : 1 });
+        stops.push({ o: ((x + w / 2) / W).toFixed(3), c }); if (i) cuts.push({ x: (x - 1).toFixed(1) }); x += w; });
+      const ht = e => H * (0.22 + 0.68 * e);
+      let area = 'M 0 ' + H;
+      cols.forEach(c => { const ramp = Math.min(6, (c.x1 - c.x0) / 4); area += ' L ' + (c.x0 + ramp).toFixed(1) + ' ' + (H - ht(c.e)).toFixed(1) + ' L ' + (c.x1 - ramp).toFixed(1) + ' ' + (H - ht(c.e)).toFixed(1); });
+      area += ' L ' + W + ' ' + H + ' Z';
+      const lines = dens.map((d, k) => { const f = (k + 1) / 9; let pts = '';
+        cols.forEach(c => { const n = Math.max(2, Math.round((c.x1 - c.x0) / (W / 64))); for (let j = 0; j <= n; j++) { const px = c.x0 + (c.x1 - c.x0) * j / n; const on = r() < d * c.e * c.busy; const ridge = on ? (2 + r() * 5) * (H / 160) : 0; pts += px.toFixed(1) + ',' + (H - ht(c.e) * f - ridge).toFixed(1) + ' '; } });
+        return { pts, o: (0.35 + f * 0.4).toFixed(2), w: (H / 160 * 1.4).toFixed(2) }; });
+      return { gid, url: 'url(#' + gid + ')', stops, area, lines, cuts, H };
+    };
+"""
+SONGMAP_SVG = """<defs><linearGradient id="{{%(v)s.gid}}" x1="0" y1="0" x2="1" y2="0"><sc-for list="{{%(v)s.stops}}" as="st" hint-placeholder-count="9"><stop offset="{{st.o}}" stop-color="{{st.c}}"></stop></sc-for></linearGradient></defs><rect width="100%%" height="100%%" fill="#0f0f12"></rect><path d="{{%(v)s.area}}" fill="{{%(v)s.url}}"></path><sc-for list="{{%(v)s.lines}}" as="l" hint-placeholder-count="8"><polyline points="{{l.pts}}" fill="none" stroke="#0e0e10" stroke-opacity="{{l.o}}" stroke-width="{{l.w}}" stroke-linejoin="round"></polyline></sc-for><sc-for list="{{%(v)s.cuts}}" as="c" hint-placeholder-count="8"><rect x="{{c.x}}" y="0" width="2" height="{{%(v)s.H}}" fill="#0e0e10" opacity=".75"></rect></sc-for>"""
+
 screens = {}
 
 # ---------- Home ----------
 # The sections are the Launchkey Sections pad page, drawn big: same order, colours and
 # lights as the hardware. The Mains carry their real pattern (a row per drum/bass voice).
-def home(artW=200, fxW=220, wide=False):
-    art = '' if not artW else '''<aside aria-label="Style" style="width: %dpx; flex-shrink: 0; display: flex; flex-direction: column; gap: 6px; padding: 14px; border-right: 1px solid #26262b; min-height: 0">
-<svg width="%d" height="%d" viewBox="0 0 160 160" aria-hidden="true" style="flex-shrink: 0; border-radius: 8px; background: #15151a"><sc-for list="{{print}}" as="c" hint-placeholder-count="40"><rect x="{{c.x}}" y="{{c.y}}" width="{{c.w}}" height="{{c.h}}" rx="1.5" fill="{{c.col}}" opacity="{{c.o}}"></rect></sc-for></svg>
-<span class="cap" style="margin-top: 2px">Pop &amp; Rock · 4/4</span>
-<div style="font-family: 'Archivo Narrow', sans-serif; font-size: %dpx; font-weight: 700; line-height: 1">Cool 8Beat</div>
-<span style="font-size: 12px; color: #c9c9cf; white-space: nowrap; overflow: hidden; text-overflow: ellipsis"><b style="color: #ff7a2f">Snapshot 3</b> · Bank A</span>
-<span style="font-size: 12px; color: #c9c9cf; white-space: nowrap; overflow: hidden; text-overflow: ellipsis"><b style="color: #ff7a2f">OTS 2</b> · Piano &amp; Strings</span>
-<div style="flex-grow: 1"></div>
-<div style="display: flex; gap: 6px"><button class="chip" style="flex: 1">Browse</button><button class="chip" style="flex: 1">Edit…</button></div>
-</aside>''' % (artW, artW - 28, artW - 28, 32 if wide else 26)
-    # With no art column (narrow window) the style, registration and OTS move into the status line.
-    mini = '' if artW else '''<div style="display: flex; gap: 10px; align-items: center; min-width: 0">
-<svg width="46" height="46" viewBox="0 0 160 160" aria-hidden="true" style="flex-shrink: 0; border-radius: 6px; background: #15151a"><sc-for list="{{print}}" as="c" hint-placeholder-count="40"><rect x="{{c.x}}" y="{{c.y}}" width="{{c.w}}" height="{{c.h}}" fill="{{c.col}}" opacity="{{c.o}}"></rect></sc-for></svg>
-<div style="display: flex; flex-direction: column; gap: 2px; min-width: 0"><span style="font-family: 'Archivo Narrow', sans-serif; font-size: 22px; font-weight: 700; line-height: 1; white-space: nowrap">Cool 8Beat</span><span style="font-size: 11px; color: #c9c9cf; white-space: nowrap"><b style="color: #ff7a2f">Snapshot 3</b> Bank A · <b style="color: #ff7a2f">OTS 2</b></span></div>
-</div>'''
-    fx = '' if not fxW else '''<aside aria-label="Band effects" style="width: %dpx; flex-shrink: 0; display: flex; flex-direction: column; gap: 10px; padding: 14px; border-left: 1px solid #26262b">
+def home(fxW=220, wide=False):
+    # The style's artwork is the display's background (shell.html); the style, bank, snapshot
+    # and OTS lead the status line.
+    style = '''<div style="display: flex; flex-direction: column; gap: 3px; min-width: 0; margin-right: 8px">
+<span class="cap" style="color: #c9c9cf">Pop &amp; Rock · 4/4</span>
+<div style="display: flex; align-items: baseline; gap: 8px"><span style="font-family: 'Archivo Narrow', sans-serif; font-size: %dpx; font-weight: 700; line-height: 1; white-space: nowrap">Cool 8Beat</span><button class="chip" style="height: 22px; padding: 0 8px; font-size: 11px">Edit…</button></div>
+<span style="font-size: 12px; color: #c9c9cf; white-space: nowrap">Bank A · <b style="color: #ff7a2f">Snapshot 3</b> · <b style="color: #ff7a2f">OTS 2</b> Piano &amp; Strings</span>
+</div>''' % (36 if wide else 30)
+    fx = '' if not fxW else '''<aside aria-label="Band effects" style="width: %dpx; flex-shrink: 0; display: flex; flex-direction: column; gap: 10px; padding: 14px; border-left: 1px solid #26262b; background: rgba(18,19,23,.55)">
 <div style="display: flex; justify-content: space-between; align-items: baseline"><span class="cap">Band effects</span><button class="chip" style="height: 24px; padding: 0 8px; font-size: 11px">Effects ›</button></div>
 <sc-for list="{{bandFx}}" as="f" hint-placeholder-count="3">
 <div style="display: flex; flex-direction: column; gap: 5px">
@@ -57,15 +86,16 @@ def home(artW=200, fxW=220, wide=False):
 <div style="flex-grow: 1"></div>
 <span style="font-size: 11px; color: #8d8d95; line-height: 1.35">How much the whole band feeds each effect. Each part's own send: the mixer's REV, CHO and DLY layers.</span>
 </aside>''' % fxW
-    return dict(TAB="Home", SEL="-1", DISPLAY=art + '''
+    return dict(TAB="Home", SEL="-1", PADRING="1", DISPLAY='''
 <div style="flex-grow: 1; min-width: 0; display: flex; flex-direction: column; gap: 10px; padding: 12px 14px">
-<div style="display: flex; align-items: flex-end; gap: 24px">''' + mini + '''
+<div style="display: flex; align-items: flex-end; gap: 24px">''' + style + '''
 <div style="display: flex; flex-direction: column; gap: 2px"><span class="cap">Playing</span><span style="font-family: 'Archivo Narrow', sans-serif; font-size: 32px; font-weight: 700; line-height: 1; white-space: nowrap">Main B</span></div>
 <div style="display: flex; flex-direction: column; gap: 2px"><span class="cap">Next</span><span style="font-family: 'Archivo Narrow', sans-serif; font-size: 32px; font-weight: 700; line-height: 1; color: #ff7a2f; white-space: nowrap">Fill B</span></div>
 <div style="flex-grow: 1; min-width: 60px; display: flex; flex-direction: column; gap: 6px; padding-bottom: 4px"><span class="cap">Bar 3 of 4</span><div style="height: 8px; border-radius: 4px; background: #26262b; position: relative"><div style="position: absolute; left: 0; top: 0; bottom: 0; width: 62%; border-radius: 4px; background: #ff7a2f"></div></div></div>
 <div style="display: flex; flex-direction: column; gap: 2px; align-items: flex-end"><span class="cap">Chord</span><span style="font-family: 'Archivo Narrow', sans-serif; font-size: 50px; font-weight: 700; line-height: .9; white-space: nowrap">Am<span style="font-size: 28px; color: #8d8d95">/G</span></span></div>
 </div>
-<div role="group" aria-label="Sections (the Launchkey pads)" style="flex-grow: 1; min-height: 0; display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); grid-template-rows: minmax(0, 1fr) minmax(0, 1.35fr); gap: 7px">
+<div role="group" aria-label="Sections (the Launchkey pads)" style="flex-grow: 1; min-height: 0; margin: 4px 0; position: relative; outline: 2px solid #ffffff; outline-offset: 5px; border-radius: 6px; display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); grid-template-rows: minmax(0, 1fr) minmax(0, 1.35fr); gap: 7px">
+<span style="position: absolute; top: -13px; right: 10px; z-index: 1; font-size: 9px; font-weight: 700; letter-spacing: .06em; padding: 1px 6px; border-radius: 3px; background: #ffffff; color: #0e0e10">LAUNCHKEY PADS · SECTIONS</span>
 <sc-for list="{{homePads}}" as="d" hint-placeholder-count="16">
 <button title="{{d.tip}}" style="position: relative; overflow: hidden; min-height: 0; border-radius: 8px; border: 1px solid {{d.border}}; outline: {{d.outline}}; outline-offset: 2px; background: {{d.bg}}; color: {{d.ink}}; box-shadow: {{d.glow}}; text-align: left; padding: 8px 10px; display: flex; flex-direction: column; gap: 4px">
 <span style="font-family: 'Archivo Narrow', sans-serif; font-size: {{d.fs}}px; font-weight: 700; line-height: 1; white-space: nowrap">{{d.name}}</span>
@@ -85,8 +115,7 @@ def home(artW=200, fxW=220, wide=False):
       if (p) p.forEach((row, y) => row.split('').forEach((c, x) => { if (c === 'x') cells.push({ x: x * 10 + 1, y: y * 10 + 1, o: y === 2 ? .55 : 1 }); }));
       return Object.assign({}, d, { tip: TIP[i] || d.name, fs: i >= 8 && i < 12 ? %d : %d, pat: cells, patDisp: p ? 'block' : 'none', patH: %d, patCol: d.ink, tag: i === 9 ? 'FILL ▸' : '', tagDisp: i === 9 ? 'block' : 'none' }); });
     const bandFx = [['Reverb', 'Hall 2', 100], ['Chorus', 'Chorus 1', 0], ['Delay', '1/8 dotted', 20]].map(f => ({ name: f[0], type: f[1], pct: Math.round(f[2] / 127 * 100), val: f[2] + '%%' }));
-    const print = printFor(7, 160, 160, 16);
-    const extra = { homePads, bandFx, print };''' % ((30, 20, 44) if wide else (24, 16, 34)), OVERLAY="", LAYER="VOL")
+    const extra = { homePads, bandFx };''' % ((30, 20, 44) if wide else (24, 16, 34)), OVERLAY="", LAYER="VOL")
 
 screens["Home"] = home()
 
@@ -191,17 +220,17 @@ screens["Looper"] = dict(TAB="Looper & Charts", SEL="-1", DISPLAY='''
     const extra = { mem, seq, bars };''', OVERLAY="")
 
 # ---------- Voice quick list ----------
-screens["VoiceList"] = dict(TAB="Home", SEL="7", DISPLAY=screens["Home"]["DISPLAY"], JS=screens["Home"]["JS"], OVERLAY='''
-<div role="dialog" aria-label="Voices for Chord 1" style="position: absolute; left: 600px; top: 250px; width: 300px; padding: 8px; border-radius: 8px; background: #1f1f24; border: 1px solid #c46bff; box-shadow: 0 18px 40px rgba(0,0,0,.6); display: flex; flex-direction: column; gap: 2px">
+screens["VoiceList"] = dict(TAB="Home", SEL="7", PADRING="1", DISPLAY=screens["Home"]["DISPLAY"], JS=screens["Home"]["JS"], OVERLAY='''
+<div role="dialog" aria-label="Voices for Chord 1" style="position: absolute; left: 800px; top: 250px; width: 300px; padding: 8px; border-radius: 8px; background: #1f1f24; border: 1px solid #c46bff; box-shadow: 0 18px 40px rgba(0,0,0,.6); display: flex; flex-direction: column; gap: 2px">
 <div style="display: flex; justify-content: space-between; padding: 4px 8px"><span class="cap" style="color: #c46bff">Chord 1 · Guitars</span><span class="cap">Esc</span></div>
 <sc-for list="{{vl}}" as="v" hint-placeholder-count="8"><button style="height: 32px; border: 0; border-radius: 4px; background: {{v.bg}}; color: #f2f2f2; text-align: left; padding: 0 10px; font-size: 13px; font-weight: {{v.w}}; display: flex; justify-content: space-between; align-items: center">{{v.name}}<span style="font-size: 10px; color: #8d8d95">{{v.src}}</span></button></sc-for>
 <div style="height: 1px; background: #2d2d32; margin: 4px 0"></div>
 <button style="height: 34px; border: 0; border-radius: 4px; background: #26262b; color: #ff7a2f; text-align: left; padding: 0 10px; font-size: 13px; font-weight: 700">More in the Browser…</button>
 </div>''')
-screens["VoiceList"]["JS"] = screens["Home"]["JS"].replace("const extra = { homePads, bandFx, print };", "const vl = [['Steel Gtr','current'],['Nylon Gtr','SoundFont'],['Clean Gtr','SoundFont'],['Jazz Gtr','SoundFont'],['12-String','SoundFont'],['★ Ample Guitar M','plugin'],['★ My Strum Gtr','patch'],['Muted Gtr','SoundFont']].map((v, i) => ({ name: v[0], src: v[1], bg: i === 0 ? '#2c2536' : 'transparent', w: i === 0 ? 700 : 500 }));\n    const extra = { homePads, bandFx, print, vl };")
+screens["VoiceList"]["JS"] = screens["Home"]["JS"].replace("const extra = { homePads, bandFx };", "const vl = [['Steel Gtr','current'],['Nylon Gtr','SoundFont'],['Clean Gtr','SoundFont'],['Jazz Gtr','SoundFont'],['12-String','SoundFont'],['★ Ample Guitar M','plugin'],['★ My Strum Gtr','patch'],['Muted Gtr','SoundFont']].map((v, i) => ({ name: v[0], src: v[1], bg: i === 0 ? '#2c2536' : 'transparent', w: i === 0 ? 700 : 500 }));\n    const extra = { homePads, bandFx, vl };")
 
 # ---------- Browser (full screen) ----------
-screens["Browser"] = dict(TAB="Home", SEL="-1", DISPLAY=screens["Home"]["DISPLAY"], BROWSEBTN="background: #ff7a2f; color: #1a0a00; border-color: #ff7a2f", OVERLAY='''
+screens["Browser"] = dict(TAB="Home", SEL="-1", PADRING="1", DISPLAY=screens["Home"]["DISPLAY"], BROWSEBTN="background: #ff7a2f; color: #1a0a00; border-color: #ff7a2f", OVERLAY='''
 <div role="dialog" aria-label="Browser" style="position: absolute; left: 0; right: 0; top: 52px; bottom: 0; background: #0e0e10; display: flex; gap: 0">
 <nav style="width: 220px; flex-shrink: 0; padding: 14px; display: flex; flex-direction: column; gap: 4px; border-right: 1px solid #26262b">
 <div style="display: flex; gap: 4px; margin-bottom: 10px"><button class="chip on">Styles</button><button class="chip">Voices</button><button class="chip">Pads</button><button class="chip">Songs</button></div>
@@ -212,7 +241,7 @@ screens["Browser"] = dict(TAB="Home", SEL="-1", DISPLAY=screens["Home"]["DISPLAY
 <div style="flex-grow: 1; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; align-content: start">
 <sc-for list="{{cards}}" as="s" hint-placeholder-count="15">
 <button style="padding: 0; border-radius: 8px; overflow: hidden; border: 2px solid {{s.border}}; background: #19191c; color: #f2f2f2; text-align: left; display: flex; flex-direction: column">
-<svg width="100%" height="110" viewBox="0 0 200 110" preserveAspectRatio="xMidYMid slice" aria-hidden="true" style="display: block; background: #15151a"><sc-for list="{{s.art.bars}}" as="b" hint-placeholder-count="10"><rect x="{{b.x}}" y="{{b.y}}" width="{{b.w}}" height="{{b.h}}" fill="{{b.col}}" opacity="{{b.o}}"></rect></sc-for><sc-for list="{{s.art.rings}}" as="c" hint-placeholder-count="6"><circle cx="{{c.x}}" cy="{{c.y}}" r="{{c.r}}" fill="none" stroke="{{c.col}}" stroke-width="{{c.sw}}" opacity="{{c.o}}"></circle></sc-for></svg>
+<svg width="100%" height="110" viewBox="0 0 200 110" preserveAspectRatio="none" aria-hidden="true" style="display: block">''' + SONGMAP_SVG % {'v': 's.m'} + '''</svg>
 <span style="padding: 8px 10px 2px; font-size: 14px; font-weight: 700">{{s.name}}</span>
 <span style="padding: 0 10px 10px; font-size: 11px; color: #8d8d95">{{s.meta}}</span>
 </button>
@@ -220,7 +249,7 @@ screens["Browser"] = dict(TAB="Home", SEL="-1", DISPLAY=screens["Home"]["DISPLAY
 </div>
 </div>
 <aside style="width: 300px; flex-shrink: 0; padding: 14px; display: flex; flex-direction: column; gap: 10px; border-left: 1px solid #26262b">
-<svg width="272" height="180" viewBox="0 0 200 132" preserveAspectRatio="xMidYMid slice" aria-hidden="true" style="border-radius: 8px; background: #15151a"><sc-for list="{{sel.art.bars}}" as="b" hint-placeholder-count="10"><rect x="{{b.x}}" y="{{b.y}}" width="{{b.w}}" height="{{b.h}}" fill="{{b.col}}" opacity="{{b.o}}"></rect></sc-for><sc-for list="{{sel.art.rings}}" as="c" hint-placeholder-count="6"><circle cx="{{c.x}}" cy="{{c.y}}" r="{{c.r}}" fill="none" stroke="{{c.col}}" stroke-width="{{c.sw}}" opacity="{{c.o}}"></circle></sc-for></svg>
+<svg width="272" height="180" viewBox="0 0 272 180" preserveAspectRatio="none" aria-hidden="true" style="border-radius: 8px">''' + SONGMAP_SVG % {'v': 'sel.m'} + '''</svg>
 <div style="font-family: 'Archivo Narrow', sans-serif; font-size: 28px; font-weight: 700; line-height: 1">Funky Pop</div>
 <span class="cap">Dance · 4/4 · 118 bpm · SFF2</span>
 <span style="font-size: 12px; color: #8d8d95">Main A–D, 3 Intros, 3 Endings · 4 One Touch Settings · Chord guitars on Yamaha Mega Voices</span>
@@ -233,22 +262,23 @@ screens["Browser"] = dict(TAB="Home", SEL="-1", DISPLAY=screens["Home"]["DISPLAY
     const CATS = [['All', 208], ['Favourites', 12], ['Pop & Rock', 46], ['Ballad', 19], ['Dance', 24], ['R&B', 17], ['Swing & Jazz', 21], ['Latin', 18], ['Country', 14], ['Ballroom', 11], ['Entertainer', 9], ['World', 9]];
     const cats = CATS.map((c, i) => ({ name: c[0], n: c[1], col: COL[i % 12], bg: i === 4 ? '#222228' : 'transparent', ink: i === 4 ? '#ffffff' : '#c9c9cf' }));
     const S = [['Funky Pop', 'Dance · 118'], ['Disco Fever', 'Dance · 124'], ['Synth Pop', 'Dance · 124'], ['Club House', 'Dance · 126'], ['Dance Pop 2', 'Dance · 120'], ['Euro Beat', 'Dance · 140'], ['Nu Disco', 'Dance · 116'], ['Future Bass', 'Dance · 150'], ['Tropical', 'Dance · 102'], ['Electro Swing', 'Dance · 128'], ['Deep House', 'Dance · 122'], ['80s Dance', 'Dance · 120'], ['Funky Finger', 'Dance · 112'], ['Trance Pop', 'Dance · 132'], ['Latin House', 'Dance · 124']];
-    const cards = S.map((s, i) => ({ name: s[0], meta: s[1] + ' bpm', border: i === 0 ? A : 'transparent', art: artFor(11 + i * 5, 200, 110, 6) }));
-    const extra = Object.assign(homeExtra, { cats, cards, sel: { art: artFor(11, 200, 132, 7) } });''')
+    const FORMS = ['dance', 'pop', 'latin', 'ballad'];
+    const cards = S.map((s, i) => ({ name: s[0], meta: s[1] + ' bpm', border: i === 0 ? A : 'transparent', m: songMap(11 + i * 5, COL[4], ['#ff5a3c', '#ff6bd0', '#ffd23f', '#ff9a3c'][i % 4], FORMS[i % 4], 'bc' + i, 200, 110) }));
+    const extra = Object.assign(homeExtra, { cats, cards, sel: { m: songMap(11, COL[4], '#ff5a3c', 'dance', 'bsel', 272, 180) } });''')
 screens["Browser"]["JS"] = screens["Home"]["JS"].replace("const extra =", "const homeExtra =") + screens["Browser"]["JS"]
 
 # ---------- Home at other window sizes ----------
 # The display stays about half the window. What gives way first: the Launchkey mirror,
 # then the art column (it folds into the status line), then the band-effects column.
 SIZES = {
-    "1440": dict(W=1440, H=900, DISPH=400, MIRW=350, MIRDISP="flex", KEYH=104, NW=36, COMPACT=0, WIDE=0),
-    "1280": dict(W=1280, H=800, DISPH=360, MIRW=270, MIRDISP="flex", KEYH=84, NW=36, COMPACT=0, WIDE=0),
-    "1024": dict(W=1024, H=768, DISPH=350, MIRW=0, MIRDISP="none", KEYH=80, NW=29, COMPACT=1, WIDE=0),
-    "1920": dict(W=1920, H=1080, DISPH=520, MIRW=440, MIRDISP="flex", KEYH=130, NW=52, COMPACT=0, WIDE=1),
+    "1440": dict(W=1440, H=900, DISPH=400, KEYH=104, NW=36, COMPACT=0, WIDE=0),
+    "1280": dict(W=1280, H=800, DISPH=360, KEYH=84, NW=36, COMPACT=0, WIDE=0),
+    "1024": dict(W=1024, H=768, DISPH=350, KEYH=80, NW=29, COMPACT=1, WIDE=0),
+    "1920": dict(W=1920, H=1080, DISPH=520, KEYH=130, NW=52, COMPACT=0, WIDE=1),
 }
-screens["Home1280"] = dict(home(artW=180, fxW=200), SIZE="1280")
-screens["Home1024"] = dict(home(artW=0, fxW=0), SIZE="1024")
-screens["Home1920"] = dict(home(artW=300, fxW=300, wide=True), SIZE="1920")
+screens["Home1280"] = dict(home(fxW=200), SIZE="1280")
+screens["Home1024"] = dict(home(fxW=0), SIZE="1024")
+screens["Home1920"] = dict(home(fxW=300, wide=True), SIZE="1920")
 
 TITLES = {"Home": "B · Home", "Channel": "B · Channel (selected track)", "Effects": "B · Effects", "MultiPads": "B · Multi Pads", "Looper": "B · Looper & Charts", "VoiceList": "B · Voice quick list", "Browser": "B · Browser",
           "Home1280": "B · Home at 1280×800", "Home1024": "B · Home at 1024×768", "Home1920": "B · Home at 1920×1080"}
@@ -260,9 +290,9 @@ for name in TITLES:
     out = shell
     for k, v in size.items():
         out = out.replace("%%" + k + "%%", str(v))
-    out = out.replace("%%TITLE%%", TITLES[name]).replace("%%LAYER%%", sc.get("LAYER", "VOL"))
+    out = out.replace("%%TITLE%%", TITLES[name]).replace("%%LAYER%%", sc.get("LAYER", "VOL")).replace("%%PADRING%%", sc.get("PADRING", "0"))
     out = out.replace("%%TAB%%", sc["TAB"]).replace("%%SEL%%", sc["SEL"]).replace("%%DISPLAY%%", sc["DISPLAY"]).replace("%%OVERLAY%%", sc.get("OVERLAY", "")).replace("%%BROWSEBTN%%", sc.get("BROWSEBTN", ""))
-    out = out.replace("%%JS%%", sc["JS"])
+    out = out.replace("%%JS%%", sc["JS"]).replace("%%SONGMAP%%", SONGMAP_JS).replace("%%BGSVG%%", SONGMAP_SVG % {"v": "bgArt"})
     assert "%%" not in out, name
     open(os.path.join(D, "project", "B" + name + ".dc.html"), "w").write(out)
 

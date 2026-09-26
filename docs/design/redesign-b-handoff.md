@@ -50,6 +50,16 @@ The owner was asked short atomic questions. Keep doing that: they asked for it.
 
 **Snapshots (2026-09-26 comment):** the owner finds "registration" a terrible word and wants **8 per bank**, to match the controllers' 8s; banks give more. The wireframes call them **Snapshots**: Bank A · 1–8 · Save · Freeze. The engine has 10 per bank and the Launchkey page uses 10 pads, so both need changing.
 
+**Round 3 (canvas comments, 2026-09-26)**
+- **No duplicated Launchkey view.** What the Launchkey drives is outlined where it lives on screen, like Ableton's session ring, in plain white:
+  - the pads around Home's section grid;
+  - the faders around their 8 style strips.
+- The Launchkey block moved **into the header**: pad light map (only when the pads aren't on screen), knobs, and page names. The mirror beside the mixer is gone, so the mixer is full width.
+- **The fader body contains the level:** a dimmed part-colour body up to the fader, the level lit from the bottom, and a white fader line.
+- **The artwork fills the display** behind every tab. The art column is gone; the style, bank, snapshot and OTS lead Home's status line.
+- **The song map artwork** (sheet 9) is the default: sections left to right, with height for energy, a gradient from calm to hot, and a contour line per style part. `SONGMAP_JS` and `SONGMAP_SVG` in `gen.py`.
+- Snapshots: Save is renamed **Store**.
+
 **Look**
 - **A colour per part plus lit active states**: Maschine groups plus Genos lamps.
 - **"In between" feel:** mostly flat, with lit, glowing highlights. Direction B is near-black, vivid part colours and orange for active.
