@@ -2502,7 +2502,7 @@ mod tests {
         input.pad_msg(&[0xB0, launchkey::PAD_DOWN_CC, 127]);
         assert_eq!(page(), Page::Registration);
         input.pad_msg(&[0x90, 113, 100]);
-        assert_eq!(acts.pop(), Ok(Action::Regist(9)));
+        assert_eq!(acts.pop(), Ok(Action::SnapshotBank(1)));
         input.pad_msg(&[0xB0, launchkey::PAD_DOWN_CC, 127]);
         input.pad_msg(&[0xB0, launchkey::PAD_DOWN_CC, 127]); // stops at the last page
         assert_eq!(page(), Page::MultiPads);
