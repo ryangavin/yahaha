@@ -104,6 +104,7 @@ export function functionCmd(id: FunctionId, st: { fingering: Fingering }): AppCm
     // The control-side switches: a press (a Toggle pedal, Try) switches them.
     kbdHarmonyArp: { type: 'toggleHarmonyArp' },
     arpHold: { type: 'toggleArpPedalHold' },
+    leftHold: { type: 'toggleLeftHold' },
   }
   return simple[id] ?? null
 }
@@ -118,6 +119,7 @@ export function isPedalSwitch(id: FunctionId): id is 'sustain' | 'sostenuto' | '
 export function functionSet(id: FunctionId, on: boolean): AppCmd | null {
   if (id === 'kbdHarmonyArp') return { type: 'setHarmonyArpOn', on }
   if (id === 'arpHold') return { type: 'setArpPedalHold', on }
+  if (id === 'leftHold') return { type: 'setLeftHold', on }
   return null
 }
 

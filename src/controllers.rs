@@ -207,6 +207,9 @@ pub enum Function {
     /// The CHORD LOOPER [ON/OFF] and [REC/STOP] buttons (RM p.141, #201).
     ChordLooperOnOff,
     ChordLooperRec,
+    /// Left Hold On/Off (RM p.140: "Same as the [LEFT HOLD] button", with a Control Type):
+    /// a control-side switch like Arpeggio Hold (#202).
+    LeftHold,
 }
 
 /// One row of the assignable-function table.
@@ -235,7 +238,7 @@ use Kind::*;
 /// The assignable functions, in `Function` order: the Genos live-play list (RM p.139-144)
 /// as far as yahaha has the feature. app/src/lib/api/assignable-functions.json is this table
 /// as the app reads it (a test keeps the two equal).
-pub const FUNCTIONS: [FunctionInfo; 66] = [
+pub const FUNCTIONS: [FunctionInfo; 67] = [
     f(Function::None, "No Assign", Overall, Trigger),
     f(Function::Sustain, "Sustain", Voice, Switch),
     f(Function::Sostenuto, "Sostenuto", Voice, Switch),
@@ -302,6 +305,7 @@ pub const FUNCTIONS: [FunctionInfo; 66] = [
     f(Function::RegistSequence, "Registration Sequence On/Off", Registration, Trigger),
     f(Function::ChordLooperOnOff, "Chord Looper On/Off", ChordLooper, Trigger),
     f(Function::ChordLooperRec, "Chord Looper Rec/Stop", ChordLooper, Trigger),
+    f(Function::LeftHold, "Left Hold On/Off", Voice, Switch),
 ];
 
 /// What running a function means, for the input thread.
@@ -367,7 +371,7 @@ impl Function {
             // The FADE IN/OUT button (OM p.67): stopped, arms a fade in; playing, fades
             // out to the stop.
             F::FadeInOut => Effect::Engine(Button::Fade),
-            F::KbdHarmonyArp | F::ArpHold => Effect::ControlSwitch,
+            F::KbdHarmonyArp | F::ArpHold | F::LeftHold => Effect::ControlSwitch,
             _ => Effect::Control,
         }
     }

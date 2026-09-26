@@ -460,5 +460,12 @@
     "category": "chordLooper",
     "kind": "trigger",
     "available": true
+  },
+  {
+    "id": "leftHold",
+    "name": "Left Hold On/Off",
+    "category": "voice",
+    "kind": "switch",
+    "available": true
   }
 ]
