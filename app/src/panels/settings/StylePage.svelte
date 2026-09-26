@@ -158,6 +158,19 @@
   />
 </Field>
 
+<Field name="Swing" genos={null} note="0 plays the Style as written; 100 moves the off-beats to a heavy triplet feel. Drums and every accompaniment part follow it; each new style starts at 0.">
+  <HSlider label="Swing" tip="style.swing" value={st.swing} max={100} unity={0} format={(v) => `${v}%`} onchange={(amount) => app.send({ type: 'setSwing', amount })} />
+</Field>
+
+<Field name="Swing grid" genos={null}>
+  <Choice
+    label="Swing grid"
+    value={st.swingGrid}
+    options={[8, 16].map((g) => ({ id: g, label: `1/${g}`, tip: 'style.swing_grid' as const }))}
+    onselect={(grid: number) => app.send({ type: 'setSwingGrid', grid })}
+  />
+</Field>
+
 <Field name="Dynamics Control" genos="Style Setting › Dynamics Control" inline note="On: the Dynamics level below (and Touch) sets how hard the band plays. Off: the Style plays as written.">
   <Toggle on={dyn.control} tip="dynamics.control" onclick={() => app.send({ type: 'setDynamicsControl', on: !dyn.control })}>{onOff(dyn.control)}</Toggle>
 </Field>

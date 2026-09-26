@@ -630,6 +630,7 @@ impl MockSession {
             dynamics: s.dynamics.level,
             retrigger: s.transport.retrigger,
             retrigger_rate: s.style_settings.retrigger_rate,
+            swing: s.style_settings.swing,
             bpm: s.transport.tempo,
             part_volume: [0, 1, 2, 3].map(|p| s.keyboard_parts[p].volume),
             harmony_volume: s.harmony_arp.volume,
@@ -1046,6 +1047,9 @@ impl MockSession {
         self.set_style(id);
         // Dynamics starts at its maximum (as written) with each style, as the session.
         self.state.dynamics.level = yahaha::engine::DYNAMICS_NEUTRAL;
+        // Swing starts at 0 (as written) with each style, as the session.
+        self.settings.swing = 0;
+        self.state.style_settings = self.settings.into();
         // Change Behavior: Lock keeps, Hold keeps while playing, Reset takes the new style's.
         let running = self.state.transport.running;
         let rules = self.state.style_change;

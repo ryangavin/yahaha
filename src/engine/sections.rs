@@ -210,7 +210,7 @@ impl Engine {
     pub(super) fn seek(&mut self, pos: f64) {
         let sec = self.style.sections[self.cur].as_ref().unwrap();
         self.entry = pos;
-        self.ev_idx = sec.events.partition_point(|e| (e.tick as f64) < pos);
+        self.ev_idx = sec.events.partition_point(|e| self.ev_tick(e.tick) < pos);
     }
 
     /// A section boundary at tick `at`: the section queued for it, else `follow_on`, takes
@@ -264,7 +264,7 @@ impl Engine {
     pub(super) fn own_voice(&self, entry: f64) -> u16 {
         let sec = self.style.sections[self.cur].as_ref().unwrap();
         let mut m = 0u16;
-        for e in sec.events.iter().take_while(|e| e.tick as f64 <= entry + 1e-6) {
+        for e in sec.events.iter().take_while(|e| self.ev_tick(e.tick) <= entry + 1e-6) {
             if let (PKind::Pc { .. }, Some(r)) = (e.kind, sec.rules[e.src as usize & 15].as_ref()) {
                 m |= 1 << (r.dest_ch & 15);
             }
@@ -277,7 +277,7 @@ impl Engine {
     pub(super) fn own_expression(&self, entry: f64) -> u16 {
         let sec = self.style.sections[self.cur].as_ref().unwrap();
         let mut m = 0u16;
-        for e in sec.events.iter().take_while(|e| e.tick as f64 <= entry + 1e-6) {
+        for e in sec.events.iter().take_while(|e| self.ev_tick(e.tick) <= entry + 1e-6) {
             if let (PKind::Cc { cc: 11, .. }, Some(r)) = (e.kind, sec.rules[e.src as usize & 15].as_ref()) {
                 m |= 1 << (r.dest_ch & 15);
             }
