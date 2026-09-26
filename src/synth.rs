@@ -39,6 +39,7 @@ pub type PluginLink = ();
 /// The plugin rack's largest render slice, and the block size plugins are loaded for.
 pub const PLUGIN_MAX_BLOCK: usize = 1024;
 
+pub mod drum_setup;
 mod routing;
 mod stream;
 pub use routing::Router;
@@ -507,17 +508,21 @@ pub fn render_offline(sf2: &Path, msgs: &[(u64, Vec<u8>)], end_ns: u64, sample_r
     let (mut left, mut right) = (Vec::with_capacity(frames), Vec::with_capacity(frames));
     let mut out = [0f32; 2 * BLOCK];
     let mut next = 0;
+    let mut drums = drum_setup::DrumSetups::new();
     for start in (0..frames).step_by(BLOCK) {
         let t = (start as f64 * 1e9 / sample_rate as f64) as u64;
         while let Some((at, m)) = msgs.get(next)
             && *at <= t
         {
             next += 1;
-            // Channel messages only (SysEx and the like don't reach the SoundFont live).
+            // Channel messages only (SysEx and the like don't reach the SoundFont live),
+            // with the style's drum setup levels applied as live (`live::Out`).
+            drums.observe(m);
             if m.is_empty() || m[0] < 0x80 || m[0] >= 0xF0 {
                 continue;
             }
-            let msg: Msg = [m[0], m.get(1).copied().unwrap_or(0), m.get(2).copied().unwrap_or(0)];
+            let mut msg: Msg = [m[0], m.get(1).copied().unwrap_or(0), m.get(2).copied().unwrap_or(0)];
+            drums.apply(&mut msg);
             if tx.push(msg).is_err() {
                 // A burst larger than the ring: take it in without rendering.
                 core.process(&mut out[..0]);
