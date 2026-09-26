@@ -1236,14 +1236,14 @@ const catalog = {
   },
   'dynamics.level': {
     title: 'Dynamics',
-    body: 'How hard the whole band plays, 0–127; at 64 the Style plays as written. It changes every Style note\'s velocity, so the drums and instruments get softer and darker or harder and brighter, not just quieter or louder. The mixer volumes stay as they are.',
+    body: 'How hard the whole band plays, 0–127; it starts at the maximum, 127, which plays the Style as written, and goes back there with each new style. Turning it down lowers every Style note\'s velocity, so the drums and instruments get softer and darker, not just quieter. The mixer volumes stay as they are.',
     genos: 'Live Control › Style Dynamics (DynCtrl)',
     keys: [],
     launchkey: 'Knob 1 on the Style knob page',
   },
   'dynamics.touch': {
     title: 'Touch',
-    body: 'The band follows your left hand. Each key you strike in the chord section sets the Dynamics level from how hard you hit it, and a strike at velocity 100 plays the Style as written.',
+    body: 'The band follows your left hand. Each key you strike in the chord section sets the Dynamics level from how hard you hit it, and a strike at velocity 100 or harder plays the Style as written.',
     genos: null,
     keys: ['&'],
     launchkey: null,

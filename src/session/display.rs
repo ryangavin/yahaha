@@ -254,8 +254,8 @@ mod tests {
         s.midi_in(Port::Pads, &[0x90, 119, 100]);
         assert_eq!(shown(&s), text("Pads: Sections", "START", "Main A"));
         // A knob.
-        s.midi_in(Port::Pads, &[0xBF, 21, 66]);
-        assert_eq!(shown(&s), text("Knobs: Style", "Dynamics Control", "68"));
+        s.midi_in(Port::Pads, &[0xBF, 21, 62]);
+        assert_eq!(shown(&s), text("Knobs: Style", "Dynamics Control", "123"));
         // A Panel fader: Right 2's level.
         s.midi_in(Port::Pads, &[0xB0, 6, 90]);
         let v = s.state().keyboard_parts[1].volume;

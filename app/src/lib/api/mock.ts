@@ -277,7 +277,7 @@ export function initialState(): AppState {
     soundLibrary: initialSoundLibrary(),
     paramLocks: { splitPoint: false, fingeringType: false },
     sounds: initialSounds(),
-    dynamics: { control: true, level: 64, touch: false, accent: false, accentThreshold: 110 },
+    dynamics: { control: true, level: 127, touch: false, accent: false, accentThreshold: 110 },
     knobs: { page: 'style', pageName: 'Style', pageNumber: 1, pageCount: 4, knobs: [] },
     effects: initialEffects(),
   }
@@ -1065,6 +1065,8 @@ export class MockSession implements Session {
     const st = this.state
     const t = st.transport
     st.style = styleState(s)
+    // Dynamics starts at its maximum (as written) with each style, as the session.
+    st.dynamics.level = 127
     // Change Behavior: Lock keeps, Hold keeps while playing, Reset takes the new style's.
     const resets = (rule: string) => rule === 'reset' || (rule === 'hold' && !t.running)
     if (resets(st.styleChange.tempo)) t.tempo = s.tempo

@@ -279,9 +279,9 @@ describe('mock knobs (#197)', () => {
   it('a knob turn runs its function from the value in effect, as the session', () => {
     const m = new MockSession({ manual: true })
     expect(m.state.knobs.knobs.map((k) => k.short)).toEqual(['DynCtrl', 'RtgRate', 'RtgOnOff', 'StyMuteA', 'StyMuteB', '---', '---', 'Tempo'])
-    m.send({ type: 'turnKnob', knob: 0, delta: 4 })
-    expect(m.state.dynamics.level).toBe(72)
-    expect(m.state.knobs.knobs[0]).toMatchObject({ value: '72', level: 72 })
+    m.send({ type: 'turnKnob', knob: 0, delta: -4 })
+    expect(m.state.dynamics.level).toBe(119)
+    expect(m.state.knobs.knobs[0]).toMatchObject({ value: '119', level: 119 })
     // Track Mute A fully left: only Rhythm 2 plays.
     m.send({ type: 'turnKnob', knob: 3, delta: -40 })
     expect(m.state.mixer.styleParts.map((p) => p.on)).toEqual([false, true, false, false, false, false, false, false])

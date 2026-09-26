@@ -395,7 +395,7 @@ fn looper_metronome_and_solo_do_not_allocate() {
 
     let snaps: Vec<_> = std::iter::from_fn(|| ch.snap_rx.pop().ok()).collect();
     assert!(snaps.iter().any(|s| s.looper.state == LoopState::Recording));
-    assert!(snaps.iter().any(|s| s.dynamics == 4), "Touch set the level");
+    assert!(snaps.iter().any(|s| s.dynamics == 50), "Touch set the level");
     assert!(snaps.iter().any(|s| matches!(s.cur, Some(yahaha::sff::SectionId::Fill(_)))), "the Accent fill played");
     assert!(snaps.iter().any(|s| s.looper.state == LoopState::Looping && s.style_solo == Some(2)));
     assert!(snaps.iter().any(|s| s.looper.state == LoopState::Looping && s.played == Some(chord("A"))), "the memory took over");

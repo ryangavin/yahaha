@@ -387,7 +387,7 @@ fn playlist_records_load_banks_buttons_and_styles() {
     s.send(RegistrationCmd::MemorizeRegist { index: 6 }).unwrap();
     s.send(RegistrationCmd::SaveRegistBank { name: Some("Gig".into()), overwrite: false }).unwrap();
     s.send(PlaylistCmd::AddCurrentBank).unwrap();
-    s.send(LibraryCmd::LoadStyle { id: style_id(&s, "BubblyDub") }).unwrap();
+    s.send(LibraryCmd::StepStyle { delta: 1 }).unwrap();
     s.advance(MS);
     s.send(PlaylistCmd::AddCurrentStyle).unwrap();
     let st = s.state();
@@ -1266,5 +1266,20 @@ fn a_pedal_steps_the_registrations() {
     assert!(!st.registration.memory && st.registration.buttons[9].stored, "Memory, then Regist 10, memorizes");
     trigger(Function::RegistFreeze).unwrap();
     assert!(s.state().registration.freeze);
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+/// Style Dynamics: a stored level recalls, across the style load that maxes it.
+#[test]
+fn registration_recalls_the_dynamics_level() {
+    let Some((s, dir)) = session("dynamics") else { return };
+    s.send(DynamicsCmd::SetDynamics { level: 50 }).unwrap();
+    s.send(RegistrationCmd::MemorizeRegist { index: 0 }).unwrap();
+    s.send(LibraryCmd::StepStyle { delta: 1 }).unwrap();
+    s.advance(50 * MS);
+    assert_eq!(s.state().dynamics.level, 127, "a style load maxes Dynamics");
+    s.send(RegistrationCmd::PressRegist { index: 0 }).unwrap();
+    s.advance(50 * MS);
+    assert_eq!(s.state().dynamics.level, 50);
     let _ = std::fs::remove_dir_all(dir);
 }

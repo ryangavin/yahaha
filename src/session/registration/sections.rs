@@ -49,6 +49,8 @@ pub(in crate::session) const REGISTRABLES: &[Registrable] = &[
     Registrable { key: "tempo", early: false, capture: tempo_capture, recall: tempo_recall },
     Registrable { key: "chord", early: false, capture: chord_capture, recall: chord_recall },
     Registrable { key: "styleControl", early: false, capture: control_capture, recall: control_recall },
+    // The Style Dynamics level. A bank without it: the style load's maximum stands.
+    Registrable { key: "dynamics", early: false, capture: dynamics_capture, recall: dynamics_recall },
     Registrable { key: "styleMixer", early: false, capture: mixer_capture, recall: mixer_recall },
     // The effect bus's types and return levels (#204): session/fx.rs.
     Registrable { key: "effects", early: false, capture: effects_capture, recall: effects_recall },
@@ -303,6 +305,29 @@ fn control_recall(c: &mut Control, v: &Value, g: Groups) -> Result<(), String> {
         retrigger: None,
     };
     c.engine_cmd(Cmd::StyleControls(set)).map_err(|e| e.to_string())
+}
+
+// ----- the Style Dynamics level (group Style) -----
+
+#[derive(Serialize, Deserialize)]
+struct DynamicsReg {
+    /// The Dynamics level, 0-127 (127: as written).
+    level: u8,
+}
+
+fn dynamics_capture(c: &Control, g: Groups) -> Option<Value> {
+    if !g.has(Group::Style) {
+        return None;
+    }
+    to_value(&DynamicsReg { level: c.dynamics_state().level })
+}
+
+fn dynamics_recall(c: &mut Control, v: &Value, g: Groups) -> Result<(), String> {
+    if !g.has(Group::Style) {
+        return Ok(());
+    }
+    let d: DynamicsReg = parse("dynamics", v)?;
+    c.dynamics_cmd(crate::api::DynamicsCmd::SetDynamics { level: d.level.min(127) }).map_err(|e| e.to_string())
 }
 
 // ----- the Style part mixer (group Style) -----

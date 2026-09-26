@@ -24,7 +24,7 @@ fn strike(s: &Session, key: u8, vel: u8) {
 fn settings_and_the_level() {
     let Some(s) = session() else { return };
     let d = s.state().dynamics.clone();
-    assert_eq!(d, DynamicsState { control: true, level: 64, touch: false, accent: false, accent_threshold: 110 });
+    assert_eq!(d, DynamicsState { control: true, level: 127, touch: false, accent: false, accent_threshold: 110 });
     s.send(DynamicsCmd::SetDynamics { level: 100 }).unwrap();
     s.send(DynamicsCmd::StepDynamics { delta: -10 }).unwrap();
     s.send(DynamicsCmd::SetDynamicsControl { on: false }).unwrap();
@@ -41,26 +41,41 @@ fn touch_follows_the_left_hand() {
     let Some(s) = session() else { return };
     strike(&s, 38, 30);
     s.advance(10 * MS);
-    assert_eq!(s.state().dynamics.level, 64, "Touch off");
+    assert_eq!(s.state().dynamics.level, 127, "Touch off");
     s.send(DynamicsCmd::SetDynamicsTouch { on: true }).unwrap();
     strike(&s, 36, 100);
     s.advance(10 * MS);
-    assert_eq!(s.state().dynamics.level, 64);
+    assert_eq!(s.state().dynamics.level, 127);
     strike(&s, 38, 30);
     s.advance(10 * MS);
-    assert_eq!(s.state().dynamics.level, 0);
+    assert_eq!(s.state().dynamics.level, 38);
     // The right hand does not move it.
     strike(&s, 72, 127);
     s.advance(10 * MS);
-    assert_eq!(s.state().dynamics.level, 0);
+    assert_eq!(s.state().dynamics.level, 38);
     s.send(DynamicsCmd::SetAccent { on: true }).unwrap();
-    assert_eq!(s.state().dynamics.level, 0, "a setting keeps the level Touch set");
+    assert_eq!(s.state().dynamics.level, 38, "a setting keeps the level Touch set");
     // Touch and Accent off: strikes no longer reach the engine.
     s.send(DynamicsCmd::SetAccent { on: false }).unwrap();
     s.send(DynamicsCmd::SetDynamicsTouch { on: false }).unwrap();
     strike(&s, 36, 127);
     s.advance(10 * MS);
-    assert_eq!(s.state().dynamics.level, 0);
+    assert_eq!(s.state().dynamics.level, 38);
+}
+
+/// Dynamics starts at its maximum (as written) and goes back there with each style load.
+#[test]
+fn a_style_load_maxes_dynamics() {
+    let Some(s) = session() else { return };
+    assert_eq!(s.state().dynamics.level, 127);
+    s.send(DynamicsCmd::SetDynamics { level: 40 }).unwrap();
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus/MOX_v2");
+    let other = std::fs::read_dir(&dir).unwrap().filter_map(|e| e.ok()).map(|e| e.path())
+        .find(|p| p.extension().is_some_and(|x| x == "sty") && !p.ends_with("SlowWalker.T552.sty"));
+    let Some(other) = other else { return };
+    s.send(crate::api::LibraryCmd::LoadStylePath { path: other.display().to_string() }).unwrap();
+    s.advance(50 * MS);
+    assert_eq!(s.state().dynamics.level, 127);
 }
 
 /// Accent: a hard left-hand strike while a Main plays queues the Main's fill.
