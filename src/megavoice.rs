@@ -285,6 +285,8 @@ mod tests {
             sections: [(id, Section { id, start: 0, len: 1920, events })].into(),
             casm: vec![],
             ots: vec![],
+            opaque_sections: vec![],
+            timing_changes: vec![],
             other_chunks: vec![],
         };
         let (_, rec) = run(Box::new(Prepared::new(&style)), &[(0, Step::Chord(Chord::new(0, 0)))], 1_900_000_000);
