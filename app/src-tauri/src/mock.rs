@@ -141,6 +141,8 @@ pub struct MockSession {
     library: LibraryList,
     clock: f64,
     section_start: u32,
+    /// A style took over mid-Intro, -Fill or -Break: its OTS comes when the Main starts (#111).
+    ots_due: bool,
     taps: Vec<f64>,
     /// Steady taps in a row (the engine's count), and when a bar of them starts the band.
     tap_run: usize,
@@ -382,6 +384,7 @@ impl MockSession {
             library,
             clock: 0.0,
             section_start: 0,
+            ots_due: false,
             taps: vec![],
             tap_run: 0,
             tap_start: None,
@@ -723,6 +726,15 @@ impl MockSession {
             return;
         }
         self.pads.bar(&mut self.state.multi_pad);
+        // A queued style takes over at the bar line, but waits for an Ending, playing or
+        // queued: it loads at the stop (#111).
+        let t = &self.state.transport;
+        let ending = [&t.section, &t.queued].iter().any(|s| s.as_deref().is_some_and(|s| ENDINGS.contains(&s)));
+        if !ending {
+            if let Some(id) = self.state.preview.queued.take() {
+                self.load_style_at(id, true);
+            }
+        }
         let t = &self.state.transport;
         let main = MAINS[t.main as usize];
         let section = t.section.clone();
@@ -799,9 +811,10 @@ impl MockSession {
             self.state.transport.main = m as u8;
             // OTS Link Timing "At Main Section Change": as the Main starts playing.
             let ots = &self.state.ots;
-            if ots.link && ots.link_timing == OtsLinkTiming::MainChange && m < ots.settings.len() && ots.applied as usize != m + 1 {
+            if ots.link && m < ots.settings.len() && (self.ots_due || (ots.link_timing == OtsLinkTiming::MainChange && ots.applied as usize != m + 1)) {
                 self.recall_ots(m);
             }
+            self.ots_due = false;
         }
     }
 
@@ -885,6 +898,10 @@ impl MockSession {
     }
 
     fn stop_band(&mut self) {
+        // A style queued for the next bar loads when the band stops first.
+        if let Some(id) = self.state.preview.queued.take() {
+            self.load_style(id);
+        }
         self.state.chart.bar = None;
         self.chart_end = false;
         if self.state.transport.running {
@@ -1005,6 +1022,20 @@ impl MockSession {
     }
 
     fn load_style(&mut self, id: usize) {
+        self.load_style_at(id, false);
+    }
+
+    /// A style while the band plays (QueueStyle): it waits for the next bar line.
+    fn queue_style(&mut self, id: usize) {
+        if self.state.transport.running {
+            self.state.preview.queued = Some(id);
+        } else {
+            self.load_style(id);
+        }
+    }
+
+    /// `at_bar`: a queued style taking over while the band plays (its OTS waits for a Main).
+    fn load_style_at(&mut self, id: usize, at_bar: bool) {
         let Some(s) = self.styles.get(id) else { return };
         if let Some(e) = &s.error {
             let text = format!("{}/{}: {e}", s.folder, s.file);
@@ -1037,8 +1068,17 @@ impl MockSession {
             p.waiting = style_page;
         }
         let main = self.state.transport.main as usize;
+        self.ots_due = false;
         if self.state.ots.link && main < self.state.ots.settings.len() {
-            self.recall_ots(main);
+            // Taking over while the band plays: the new style's OTS comes with a Main (#111).
+            let t = &self.state.transport;
+            let is_main = |s: &Option<String>| s.as_deref().is_some_and(|s| MAINS.contains(&s));
+            let in_main = is_main(&t.section) && (t.queued.is_none() || is_main(&t.queued));
+            if at_bar && !in_main {
+                self.ots_due = true;
+            } else {
+                self.recall_ots(main);
+            }
         }
         if self.state.transport.section.as_deref().is_some_and(|s| !self.has(s)) {
             self.state.transport.section = MAINS.iter().find(|m| self.has(m)).map(|m| m.to_string());
@@ -1780,7 +1820,7 @@ impl MockSession {
             }
             AppCmd::System(SystemCmd::ClearMessage) => self.state.message = None,
             // Without a clock of its own for the bar line, the mock loads at once.
-            AppCmd::Library(LibraryCmd::QueueStyle { id }) => self.load_style(id),
+            AppCmd::Library(LibraryCmd::QueueStyle { id }) => self.queue_style(id),
             AppCmd::Preview(PreviewCmd::AuditionStyle { id }) => {
                 if self.state.transport.running {
                     self.message("Stop the band to preview a style", true);
@@ -2425,6 +2465,51 @@ mod tests {
         assert!(m.state.sound_library.map.overrides.iter().any(|o| o.program == 5 && o.patch == "stage-grand"));
         m.send(SoundLibraryCmd::SetDrumRule { patch: Some("sf:Nope.sf2:0:0".into()), style: false });
         assert!(m.state.message.as_ref().is_some_and(|x| x.error));
+    }
+
+    /// A style other than the one loaded, with OTS, Main A and Ending A (#111 tests).
+    fn other_style(m: &MockSession) -> usize {
+        let cur = m.state.style.id;
+        m.styles.iter().position(|s| s.error.is_none() && s.ots > 0 && ["Main A", "Ending A"].iter().all(|n| s.sections.iter().any(|x| x == n)) && s.id != cur).unwrap()
+    }
+
+    /// QueueStyle while the band plays waits for the bar line, and with OTS Link on the
+    /// new style's OTS comes as it takes over in a Main (#111).
+    #[test]
+    fn a_queued_style_takes_over_at_the_bar_line_with_its_ots() {
+        let mut m = MockSession::new();
+        m.send(OtsCmd::SetOtsLink { on: true });
+        m.advance(bar_ms(&m) * 0.3);
+        let id = other_style(&m);
+        m.send(LibraryCmd::QueueStyle { id });
+        assert_eq!(m.state.preview.queued, Some(id), "it waits for the bar line");
+        assert_ne!(m.state.style.id, id);
+        m.state.ots.applied = 0;
+        m.advance(bar_ms(&m) * 0.8);
+        assert_eq!(m.state.style.id, id);
+        assert_eq!(m.state.preview.queued, None);
+        assert_eq!(m.state.ots.applied, m.state.transport.main + 1);
+    }
+
+    /// A queued style waits for an Ending and loads at the stop (#111).
+    #[test]
+    fn a_queued_style_waits_for_the_ending() {
+        let mut m = MockSession::new();
+        m.advance(bar_ms(&m) * 0.3);
+        m.send(TransportCmd::Ending { index: 0 });
+        let id = other_style(&m);
+        m.send(LibraryCmd::QueueStyle { id });
+        for _ in 0..16 {
+            if !m.state.transport.running {
+                break;
+            }
+            m.advance(bar_ms(&m) * 0.5);
+            if m.state.transport.running {
+                assert_ne!(m.state.style.id, id, "the Ending plays in the old style");
+            }
+        }
+        assert!(!m.state.transport.running);
+        assert_eq!(m.state.style.id, id, "loaded at the stop");
     }
 
     #[test]

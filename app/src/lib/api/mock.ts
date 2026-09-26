@@ -373,6 +373,8 @@ export class MockSession implements Session {
   /** Fractional beats since the band started. */
   private clock = 0
   private sectionStart = 0
+  /** A style took over mid-Intro, -Fill or -Break: its OTS comes when the Main starts (#111). */
+  private otsDue = false
   private taps: number[] = []
   /** Steady taps in a row (the engine's count), and when a bar of them starts the band. */
   private tapRun = 0
@@ -728,10 +730,12 @@ export class MockSession implements Session {
       return
     }
     this.multiPads.bar()
+    // A queued style waits for an Ending, playing or queued: it loads at the stop (#111).
     const q = this.preview.queued
-    if (q !== null) {
+    const ending = [t.section, t.queued].some((s) => s !== null && ENDINGS.includes(s))
+    if (q !== null && !ending) {
       this.preview.queued = null
-      this.loadStyle(q)
+      this.loadStyle(q, true)
     }
     const played = bar - this.sectionStart
     const main = MAINS[t.main]
@@ -918,7 +922,8 @@ export class MockSession implements Session {
       t.main = m
       // OTS Link Timing "At Main Section Change": as the Main starts playing.
       const ots = this.state.ots
-      if (ots.link && ots.linkTiming === 'mainChange' && m < ots.settings.length && ots.applied !== m + 1) this.recallOts(m)
+      if (ots.link && m < ots.settings.length && (this.otsDue || (ots.linkTiming === 'mainChange' && ots.applied !== m + 1))) this.recallOts(m)
+      this.otsDue = false
     }
   }
 
@@ -1054,7 +1059,8 @@ export class MockSession implements Session {
     if (this.state.ots.link && this.state.ots.linkTiming === 'immediate' && target < this.state.ots.settings.length) this.recallOts(target)
   }
 
-  private loadStyle(id: number) {
+  /** `atBar`: a queued style taking over while the band plays (its OTS waits for a Main). */
+  private loadStyle(id: number, atBar = false) {
     const s = this.styles[id]
     if (!s) return
     // Loading hands over cleanly from an audition: it ends, the band stays as it was.
@@ -1076,7 +1082,13 @@ export class MockSession implements Session {
     if (!t.running && set !== null) t.main = [0, 1, 2, 3].map((d) => [set - d, set + d]).flat().find((j) => j >= 0 && j < 4 && s.sections.includes(MAINS[j])) ?? set
     t.beatsPerBar = beatsPerBar(st.style.timeSignature)
     st.ots = { settings: otsSettings(s.ots), applied: 0, link: st.ots.link, linkTiming: st.ots.linkTiming }
-    if (st.ots.link && t.main < s.ots) this.recallOts(t.main)
+    this.otsDue = false
+    if (st.ots.link && t.main < s.ots) {
+      // Taking over while the band plays: the new style's OTS comes with a Main (#111).
+      const inMain = t.section !== null && MAINS.includes(t.section) && !(t.queued !== null && !MAINS.includes(t.queued))
+      if (atBar && !inMain) this.otsDue = true
+      else this.recallOts(t.main)
+    }
     for (const p of st.mixer.styleParts) {
       p.volume = 100
       p.waiting = st.mixer.faderPage === 'style'
