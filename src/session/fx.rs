@@ -1,5 +1,5 @@
-//! The shared effect bus (#204, `crate::fx`): the control side's part. Each block's type
-//! and return level (`FxCmd`, `AppState::effects`, the Registration's `effects` section),
+//! The shared effect bus (#204, `crate::fx`): the control side's part. Each block's type,
+//! return level and band send (#236) (`FxCmd`, `AppState::effects`, the Registration's `effects` section),
 //! and the style tempo the Variation block's delay follows (from the engine's snapshot).
 //! The audio thread reads them from `SynthControl::fx`, which `pump_fx` keeps up to date.
 
@@ -14,12 +14,15 @@ use std::sync::atomic::Ordering::Relaxed;
 pub(super) struct FxSettings {
     pub(super) effect: [FxType; 3],
     pub(super) returns: [u8; 3],
+    /// The band send scales (#236), 0-127 %.
+    pub(super) band: [u8; 3],
 }
 
 impl Default for FxSettings {
     /// The Genos defaults: Hall, Chorus, and here the dotted 1/8 delay; every return 0 dB.
+    /// The band's reverb as the style wrote it, and no band chorus or delay (#236).
     fn default() -> FxSettings {
-        FxSettings { effect: FxBlock::DEFAULT_TYPES, returns: [crate::fx::RETURN_UNITY; 3] }
+        FxSettings { effect: FxBlock::DEFAULT_TYPES, returns: [crate::fx::RETURN_UNITY; 3], band: crate::fx::BAND_SEND_DEFAULT }
     }
 }
 
@@ -36,6 +39,9 @@ impl FxSettings {
 struct EffectReg {
     effect: FxType,
     return_level: u8,
+    /// Absent in a registration from before #236: the block's default.
+    #[serde(default)]
+    band_send: Option<u8>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -63,6 +69,7 @@ impl Control {
                 self.fx.effect[block.index()] = effect;
             }
             FxCmd::SetEffectReturn { block, level } => self.fx.returns[block.index()] = level.min(127),
+            FxCmd::SetBandSend { block, level } => self.fx.band[block.index()] = level.min(127),
         }
         self.pump_fx();
         Ok(())
@@ -81,6 +88,9 @@ impl Control {
         fx.reverb_return.store(s.returns[0], Relaxed);
         fx.chorus_return.store(s.returns[1], Relaxed);
         fx.variation_return.store(s.returns[2], Relaxed);
+        for (a, &v) in fx.band_send.iter().zip(&s.band) {
+            a.store(v, Relaxed);
+        }
     }
 
     /// The Registration's `effects` section (group Style, as the Genos Data List files
@@ -89,7 +99,11 @@ impl Control {
         if !g.has(Group::Style) {
             return None;
         }
-        let blocks = FxBlock::ALL.map(|b| EffectReg { effect: self.fx.effect[b.index()], return_level: self.fx.returns[b.index()] });
+        let blocks = FxBlock::ALL.map(|b| EffectReg {
+            effect: self.fx.effect[b.index()],
+            return_level: self.fx.returns[b.index()],
+            band_send: Some(self.fx.band[b.index()]),
+        });
         serde_json::to_value(EffectsReg { reverb: blocks[0], chorus: blocks[1], variation: blocks[2] }).ok()
     }
 
@@ -103,13 +117,14 @@ impl Control {
                 self.fx.effect[b.index()] = reg.effect;
             }
             self.fx.returns[b.index()] = reg.return_level.min(127);
+            self.fx.band[b.index()] = reg.band_send.unwrap_or(crate::fx::BAND_SEND_DEFAULT[b.index()]).min(127);
         }
         self.pump_fx();
         Ok(())
     }
 
     pub(super) fn effects_state(&self) -> EffectsState {
-        EffectsState::new(self.fx.effect, self.fx.returns)
+        EffectsState::new(self.fx.effect, self.fx.returns, self.fx.band)
     }
 }
 
@@ -206,6 +221,52 @@ mod tests {
         s.send(RegistrationCmd::RecallRegist { index: 1 }).unwrap();
         s.advance(1_000_000_000);
         assert_eq!(blocks(&s), vec![(FxType::Plate, 64), (FxType::Chorus, 64), (FxType::PingPong, 127)]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// #236: the band send scales, in the state, on the audio thread's atomics and in a
+    /// Registration Memory; a bank from before them recalls the defaults.
+    #[test]
+    fn band_sends_reach_the_bus_and_the_registration() {
+        use crate::api::{FxBlock, FxCmd, RegistrationCmd};
+        use crate::registration::Groups;
+        let p = Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus/MOX_v2/SlowWalker.T552.sty");
+        if !p.exists() {
+            eprintln!("corpus missing; skipping");
+            return;
+        }
+        let dir = std::env::temp_dir().join(format!("yahaha-fx-band-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let s = Session::offline(Options { paths: vec![p], data_dir: Some(dir.clone()), ..Options::default() }).unwrap();
+        s.offline_audio(None, 48_000).unwrap();
+        let band = |s: &Session| s.state().effects.blocks.iter().map(|b| b.band_send).collect::<Vec<_>>();
+        let atomics = |s: &Session| {
+            let ctl = s.inner.lock();
+            ctl.synth.as_ref().unwrap().control.fx.band_send.iter().map(|a| a.load(Relaxed)).collect::<Vec<_>>()
+        };
+        assert_eq!(band(&s), vec![100, 0, 0], "reverb as written, no band chorus or delay");
+        assert_eq!(atomics(&s), vec![100, 0, 0]);
+        s.send(RegistrationCmd::MemorizeRegist { index: 0 }).unwrap();
+        s.send(FxCmd::SetBandSend { block: FxBlock::Variation, level: 60 }).unwrap();
+        s.send(FxCmd::SetBandSend { block: FxBlock::Reverb, level: 200 }).unwrap();
+        assert_eq!(band(&s), vec![127, 0, 60]);
+        assert_eq!(atomics(&s), vec![127, 0, 60]);
+        s.send(RegistrationCmd::MemorizeRegist { index: 1 }).unwrap();
+        s.send(RegistrationCmd::RecallRegist { index: 0 }).unwrap();
+        s.advance(1_000_000_000);
+        assert_eq!(band(&s), vec![100, 0, 0]);
+        s.send(RegistrationCmd::RecallRegist { index: 1 }).unwrap();
+        s.advance(1_000_000_000);
+        assert_eq!(band(&s), vec![127, 0, 60]);
+        // A bank memorized before #236 has no band sends: the defaults.
+        let old = serde_json::json!({
+            "reverb": { "effect": "hall", "returnLevel": 64 },
+            "chorus": { "effect": "chorus", "returnLevel": 64 },
+            "variation": { "effect": "dottedEighth", "returnLevel": 64 },
+        });
+        s.inner.lock().effects_recall(&old, Groups::all()).unwrap();
+        s.advance(1_000_000_000);
+        assert_eq!(band(&s), vec![100, 0, 0]);
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

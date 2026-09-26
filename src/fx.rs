@@ -16,6 +16,14 @@
 //! Variation, a stereo delay synced to the style tempo ([`Delay`]: 1/8, dotted 1/8, 1/4,
 //! ping-pong). The control side keeps `FxControl::tempo` at the style's tempo.
 //!
+//! The band send scales (#236): every Style part's (channels 9-16) send to a block is
+//! its CC times that block's scale (`FxControl::band_send`, 100% = as the style wrote
+//! it). By default the reverb is as written and the chorus and delay are off; the keyboard
+//! parts' and the Multi Pads' sends are never scaled. The scale applies inside the
+//! built-in synth only: the MIDI port carries the style's CCs as written, for a Genos,
+//! whose Variation block plays the effect the style chose. A scale change glides over
+//! about 30 ms (`AudioCore`), so it never clicks.
+//!
 //! [`FxBus`] allocates everything in [`FxBus::new`]; [`FxBus::process_add`] never
 //! allocates, locks or blocks (`tests/synth_no_alloc.rs`). A block with no input whose
 //! output has died away is skipped, so an idle bus costs next to nothing.
@@ -47,6 +55,31 @@ pub const DEFAULT_SENDS: [u8; BUSES] = [40, 0, 0];
 /// A return level at unity gain (Genos: 64 = 0 dB).
 pub const RETURN_UNITY: u8 = 64;
 
+/// The Style parts' channels (MIDI channels 9-16): their sends go through the band send
+/// scales (#236).
+pub const BAND_CHANNELS: std::ops::Range<usize> = 8..16;
+
+/// A band send scale that leaves the Style's sends as it wrote them (100%).
+pub const BAND_SEND_UNITY: u8 = 100;
+
+/// Each block's band send scale before anything sets it (#236): the Style's reverb as it
+/// wrote it, but no chorus and no delay. A style's CC94 was meant for whatever Variation
+/// effect it chose, not for this tempo delay, and chorus on the whole band is too much.
+pub const BAND_SEND_DEFAULT: [u8; BUSES] = [BAND_SEND_UNITY, 0, 0];
+
+/// A Style part's send gain: its controller's gain (`send_gain`) times the block's band
+/// send scale (`level` %, 0-127: 100 = as written), at most the whole dry signal.
+#[inline]
+pub fn band_send_gain(cc: u8, scale: f32) -> f32 {
+    (send_gain(cc) * scale).min(1.0)
+}
+
+/// A band send scale as a gain (0-127 %, 100 = 1.0).
+#[inline]
+pub fn band_scale(level: u8) -> f32 {
+    level.min(127) as f32 / BAND_SEND_UNITY as f32
+}
+
 /// The gain of a send controller value: linear, 127 = the whole dry signal.
 #[inline]
 pub fn send_gain(cc: u8) -> f32 {
@@ -68,6 +101,10 @@ pub struct FxControl {
     pub chorus_return: AtomicU8,
     pub variation_type: AtomicU8,
     pub variation_return: AtomicU8,
+    /// Each block's band send scale (#236): every Style part's send to the block times
+    /// this, 0-127 % (100 = as the style wrote it). By bus (`REVERB`, `CHORUS`,
+    /// `VARIATION`).
+    pub band_send: [AtomicU8; BUSES],
     /// The style tempo the delay follows: BPM x 100.
     pub tempo: AtomicU32,
     /// The SoundFont's own reverb and chorus instead of the bus (the sound before #204).
@@ -83,6 +120,7 @@ impl FxControl {
             chorus_return: AtomicU8::new(RETURN_UNITY),
             variation_type: AtomicU8::new(DelayType::DottedEighth as u8),
             variation_return: AtomicU8::new(RETURN_UNITY),
+            band_send: BAND_SEND_DEFAULT.map(AtomicU8::new),
             tempo: AtomicU32::new(12_000),
             legacy: AtomicBool::new(false),
         }

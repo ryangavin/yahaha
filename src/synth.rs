@@ -39,6 +39,7 @@ pub type PluginLink = ();
 /// The plugin rack's largest render slice, and the block size plugins are loaded for.
 pub const PLUGIN_MAX_BLOCK: usize = 1024;
 
+pub mod drum_setup;
 mod routing;
 mod stream;
 pub use routing::Router;
@@ -507,17 +508,21 @@ pub fn render_offline(sf2: &Path, msgs: &[(u64, Vec<u8>)], end_ns: u64, sample_r
     let (mut left, mut right) = (Vec::with_capacity(frames), Vec::with_capacity(frames));
     let mut out = [0f32; 2 * BLOCK];
     let mut next = 0;
+    let mut drums = drum_setup::DrumSetups::new();
     for start in (0..frames).step_by(BLOCK) {
         let t = (start as f64 * 1e9 / sample_rate as f64) as u64;
         while let Some((at, m)) = msgs.get(next)
             && *at <= t
         {
             next += 1;
-            // Channel messages only (SysEx and the like don't reach the SoundFont live).
+            // Channel messages only (SysEx and the like don't reach the SoundFont live),
+            // with the style's drum setup levels applied as live (`live::Out`).
+            drums.observe(m);
             if m.is_empty() || m[0] < 0x80 || m[0] >= 0xF0 {
                 continue;
             }
-            let msg: Msg = [m[0], m.get(1).copied().unwrap_or(0), m.get(2).copied().unwrap_or(0)];
+            let mut msg: Msg = [m[0], m.get(1).copied().unwrap_or(0), m.get(2).copied().unwrap_or(0)];
+            drums.apply(&mut msg);
             if tx.push(msg).is_err() {
                 // A burst larger than the ring: take it in without rendering.
                 core.process(&mut out[..0]);
@@ -623,6 +628,9 @@ pub struct Routing {
     pub font_id: u8,
 }
 
+/// How long a band send scale takes to glide to a new value (time constant, s).
+const BAND_GLIDE_S: f32 = 0.03;
+
 /// The audio callback: the SoundFont rack, the plugin rack (feature `plugins`), the click,
 /// the master fader and the safety clipper, fed by the MIDI rings. [`AudioCore::process`]
 /// renders one buffer. All memory is allocated in [`AudioCore::new`]; `process` never
@@ -670,6 +678,9 @@ pub struct AudioCore {
     sends_dirty: bool,
     /// `FxControl::legacy` as last applied.
     legacy: bool,
+    /// The band send scales (#236) as they glide towards `FxControl::band_send`.
+    band_scale: [f32; crate::fx::BUSES],
+    sample_rate: f32,
 }
 
 impl AudioCore {
@@ -720,6 +731,8 @@ impl AudioCore {
             send_gains: [[0f32; crate::fx::BUSES]; 16],
             sends_dirty: true,
             legacy: false,
+            band_scale: crate::fx::BAND_SEND_DEFAULT.map(crate::fx::band_scale),
+            sample_rate: sample_rate.max(1) as f32,
         };
         (core, RackSwap { tx: swap_tx, old: old_rx }, Some(link))
     }
@@ -867,16 +880,33 @@ impl AudioCore {
                 r.set_internal_effects(legacy);
             }
         }
+        let frames = (out.len() / channels).min(self.left.len());
+        // The band send scales glide to where the control side set them (about 30 ms),
+        // one step a buffer, so a change never clicks.
+        let k = 1.0 - (-(frames as f32) / (BAND_GLIDE_S * self.sample_rate)).exp();
+        for (b, scale) in self.band_scale.iter_mut().enumerate() {
+            let target = crate::fx::band_scale(ctl.fx.band_send[b].load(Relaxed));
+            if *scale != target {
+                let d = target - *scale;
+                *scale = if d.abs() < 1e-3 { target } else { *scale + d * k };
+                self.sends_dirty = true;
+            }
+        }
         if self.sends_dirty {
             self.sends_dirty = false;
-            for (g, cc) in self.send_gains.iter_mut().zip(&self.send_cc) {
-                *g = if legacy { [0.0; crate::fx::BUSES] } else { cc.map(crate::fx::send_gain) };
+            for (ch, (g, cc)) in self.send_gains.iter_mut().zip(&self.send_cc).enumerate() {
+                *g = if legacy {
+                    [0.0; crate::fx::BUSES]
+                } else if crate::fx::BAND_CHANNELS.contains(&ch) {
+                    std::array::from_fn(|b| crate::fx::band_send_gain(cc[b], self.band_scale[b]))
+                } else {
+                    cc.map(crate::fx::send_gain)
+                };
             }
             for r in [self.rack.as_mut(), self.fading.as_mut()].into_iter().flatten() {
                 r.set_sends(&self.send_gains);
             }
         }
-        let frames = (out.len() / channels).min(self.left.len());
         let (left, right) = (&mut self.left[..frames], &mut self.right[..frames]);
         let (left2, right2) = (&mut self.left2[..frames], &mut self.right2[..frames]);
         let sends = &mut self.sends[..2 * crate::fx::BUSES * frames];
@@ -1357,6 +1387,69 @@ mod rack_tests {
         assert!(wet > dry * 100.0 + 1e-6, "the reverb rings on: {wet} vs {dry}");
         assert!((note - dry_note).abs() <= dry_note * 1e-9 && (muted - dry).abs() <= 1e-12, "no reverb inside the SoundFont");
         assert!(legacy > dry * 100.0 + 1e-6, "legacy: the SoundFont's own reverb");
+    }
+
+    /// #236: the band send scales. A Style part's (channel 11) delay send reaches the
+    /// delay only as far as the Delay band send lets it: off by default, as written at
+    /// 100%. A keyboard part's (channel 1) send is never scaled. A change glides in over
+    /// a few buffers rather than jumping.
+    #[test]
+    fn the_band_send_scales_only_the_style_parts() {
+        let Some(font) = font() else { return };
+        let play = |ch: u8, band: Option<u8>, send: u8| -> (f64, f64) {
+            let rack = Box::new(Rack::new(&font, 48_000).unwrap());
+            let (mut tx, rx) = RingBuffer::<Msg>::new(64);
+            let ctl = Arc::new(SynthControl::new(0));
+            ctl.fx.reverb_return.store(0, Relaxed);
+            ctl.fx.chorus_return.store(0, Relaxed);
+            if let Some(b) = band {
+                ctl.fx.band_send[crate::fx::VARIATION].store(b, Relaxed);
+            }
+            let (mut core, _swap, _link) = AudioCore::new(Some(rack), vec![rx], Arc::new(Parts::new()), ctl, 48_000, 2);
+            let mut out = vec![0f32; 256];
+            let mut energy = |core: &mut AudioCore, buffers: usize| {
+                let mut e = 0f64;
+                for _ in 0..buffers {
+                    core.process(&mut out);
+                    e += out.iter().map(|x| (*x as f64).powi(2)).sum::<f64>();
+                }
+                e
+            };
+            for m in [[0xC0 | ch, 0, 0], [0xB0 | ch, 94, send], [0x90 | ch, 60, 110]] {
+                tx.push(m).unwrap();
+            }
+            energy(&mut core, 40);
+            tx.push([0x80 | ch, 60, 0]).unwrap();
+            // Past the note's release, into the echoes (a dotted 1/8 at 120 is 375 ms).
+            energy(&mut core, 60);
+            (energy(&mut core, 150), energy(&mut core, 1))
+        };
+        let (dry, _) = play(10, None, 0);
+        let (style_default, _) = play(10, None, 127);
+        let (style_full, _) = play(10, Some(100), 127);
+        let (keys_default, _) = play(0, None, 127);
+        let (keys_zero, _) = play(0, Some(0), 127);
+        assert!(dry > 0.0 && (style_default - dry).abs() <= dry * 1e-6, "by default no delay on the band: {style_default} vs {dry}");
+        assert!(style_full > dry * 2.0, "at 100% the style's delay send plays: {style_full} vs {dry}");
+        assert!(keys_default > dry * 2.0 && (keys_zero - keys_default).abs() <= keys_default * 1e-6, "a keyboard part is never scaled");
+
+        // The glide: a scale moves over a few buffers, not at once.
+        let (_tx, rx) = RingBuffer::<Msg>::new(4);
+        let ctl = Arc::new(SynthControl::new(0));
+        let (mut core, _swap, _link) = AudioCore::new(None, vec![rx], Arc::new(Parts::new()), ctl.clone(), 48_000, 2);
+        let mut out = vec![0f32; 256];
+        core.process(&mut out);
+        assert_eq!(core.band_scale, [1.0, 0.0, 0.0], "the defaults: reverb as written, no chorus, no delay");
+        ctl.fx.band_send[crate::fx::CHORUS].store(100, Relaxed);
+        core.process(&mut out);
+        let first = core.band_scale[crate::fx::CHORUS];
+        assert!(first > 0.0 && first < 0.2, "the first buffer moves a little: {first}");
+        // 128 frames a buffer: 0.4 s.
+        for _ in 0..150 {
+            core.process(&mut out);
+        }
+        assert_eq!(core.band_scale[crate::fx::CHORUS], 1.0, "and arrives");
+        assert_eq!(core.send_gains[10][crate::fx::CHORUS], 0.0, "no send, no gain");
     }
 
     #[test]
