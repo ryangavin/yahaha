@@ -174,6 +174,16 @@ impl Engine {
         if self.manual_bass && dest == BASS_CH {
             return;
         }
+        // A pattern note written for a MegaVoice plays on a voice that is not one: its
+        // noise keys and dead notes are left out, and its other articulations play as
+        // plain notes (megavoice.rs). The written key and velocity pick the articulation.
+        let vel = match src {
+            STOP_ACMP_SRC => vel,
+            _ => match crate::megavoice::playable(self.mirror.voice[dest as usize & 15], src_key, vel) {
+                Some(v) => v,
+                None => return,
+            },
+        };
         // Style Dynamics Control (dynamics.rs).
         let vel = self.dynamics_vel(vel);
         let pitch = self.master(dest, out);
