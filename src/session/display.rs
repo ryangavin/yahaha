@@ -10,7 +10,7 @@
 
 use super::Control;
 use crate::api::{
-    AppCmd, AppState, ChordCmd, HarmonyArpCmd, LibraryCmd, MixerCmd, MultiPadCmd, OtsCmd, PadLamp, PadsCmd, PartsCmd,
+    AppCmd, AppState, ChordCmd, HarmonyArpCmd, LibraryCmd, LooperCmd, LooperMode, MixerCmd, MultiPadCmd, OtsCmd, PadLamp, PadsCmd, PartsCmd,
     PlaylistCmd, RegistrationCmd, StyleSettingsCmd, TransportCmd,
 };
 use crate::launchkey::{self, Level, Touch};
@@ -181,6 +181,15 @@ fn value_of(cmd: &AppCmd, level: Level, st: &AppState) -> String {
             RegistrationCmd::StepRegistBank { .. } => st.registration.bank.name.clone(),
             _ => level_text(level),
         },
+        AppCmd::Looper(LooperCmd::LooperOnOff | LooperCmd::LooperRec) => match st.looper.mode {
+            LooperMode::Off if st.looper.has_data => "Off",
+            LooperMode::Off => "Empty",
+            LooperMode::RecArmed => "Rec at bar",
+            LooperMode::Recording => "Recording",
+            LooperMode::LoopArmed => "Loop at bar",
+            LooperMode::Looping => "Looping",
+        }
+        .into(),
         AppCmd::HarmonyArp(HarmonyArpCmd::ToggleHarmonyArp) => {
             if st.harmony_arp.on { st.harmony_arp.type_name.clone() } else { "Off".into() }
         }
@@ -257,6 +266,12 @@ mod tests {
         assert_eq!(shown(&s), text("Buttons", "PAGE ▼", "Chord/Setup"));
         s.midi_in(Port::Pads, &[0x90, 103, 100]);
         assert_eq!(shown(&s), text("Pads: Chord/Setup", "UPPER", "Upper"));
+        // Fader button 8 on the Panel page: the Chord Looper; Shift: REC/STOP.
+        s.midi_in(Port::Pads, &[0xB0, 44, 127]);
+        assert_eq!(shown(&s).map(|t| t.1), Some("LOOPER".into()));
+        s.midi_in(Port::Pads, &[0xB0, launchkey::SHIFT_CC, 127, 0xB0, 44, 127, 0xB0, launchkey::SHIFT_CC, 0]);
+        let t = shown(&s).unwrap();
+        assert_eq!((t.1.as_str(), t.2.as_str()), ("LOOP REC", "Rec at bar"));
     }
 
     #[test]
