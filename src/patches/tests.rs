@@ -68,7 +68,7 @@ fn genos_bank_8_voices_map_to_their_gm_instrument() {
     assert_eq!(FAMILY_NAMES[family_of(map_program(chord1, 8, 0))], "Guitar");
     assert_eq!(FAMILY_NAMES[family_of(map_program(chord1, 8, 2))], "Guitar", "SolidGuitar2 (8/2/PC#4)");
     assert_eq!(FAMILY_NAMES[family_of(map_program(chord1, 8, 17))], "Bass", "ElectricBass on a Chord part");
-    assert_eq!(FAMILY_NAMES[family_of(map_program(13, 8, 49))], "Strings", "SeattleStrings on the Pad");
+    assert_eq!(FAMILY_NAMES[family_of(map_program(13, 8, 49))], "Ensemble", "SeattleStrings on the Pad: Slow Strings");
     assert_eq!(FAMILY_NAMES[family_of(map_program(14, 8, 100))], "Ensemble", "PopHaa: Choir Aahs");
     assert_eq!(map_program(bass, 8, 18), 34, "PickBass");
     assert_eq!(map_program(bass, 8, 20), 33, "ActiveBassSlap shares PC# 21 with the EPs; the Bass part plays a bass");
