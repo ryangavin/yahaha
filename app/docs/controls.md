@@ -307,6 +307,9 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | **Chorus return** | How loud the chorus comes back into the mix: 64 is 0 dB, 127 is +6 dB, 0 is off. | Mixer › Effect › Chorus Return Level | — | Pan knob page, knob 6 |
 | **Delay type** | The tempo delay every part sends to (CC 94), in step with the style tempo: an echo every 1/8, dotted 1/8 or 1/4 note, or Ping-Pong (1/8, alternating left and right). | Mixer › Effect › Variation type (Tempo Delay) | — | — |
 | **Delay return** | How loud the echoes come back into the mix: 64 is 0 dB, 127 is +6 dB, 0 is off. | Mixer › Effect › Variation Return Level | — | Pan knob page, knob 7 |
+| **Band reverb** | How much of the band (the eight Style parts) goes to the reverb: each Style part's own reverb send (CC 91) times this, in the built-in synth only. 100% plays the reverb the style wrote and 0% is none; your keyboard parts keep their own sends. Stored in a Registration Memory. | Mixer › Style › Effect › Reverb (all parts) | — | — |
+| **Band chorus** | How much of the band (the eight Style parts) goes to the chorus: each Style part's own chorus send (CC 93) times this, in the built-in synth only. 0% at start, so the chorus is for your keyboard parts; 100% plays the chorus the style wrote. Stored in a Registration Memory. | Mixer › Style › Effect › Chorus (all parts) | — | — |
+| **Band delay** | How much of the band (the eight Style parts) goes to the tempo delay: each Style part's own variation send (CC 94) times this, in the built-in synth only. 0% at start, because a style's CC 94 was meant for its own Variation effect, not this delay; turn it up to echo the band. Stored in a Registration Memory. | Mixer › Style › Effect › Variation (all parts) | — | — |
 
 ## Metronome
 
