@@ -2241,7 +2241,62 @@
         ],
         "returnLevel": 64,
         "bandSend": 0,
-        "params": []
+        "params": [
+          {
+            "param": "delaySync",
+            "name": "Tempo sync",
+            "value": 1,
+            "min": 0,
+            "max": 1,
+            "default": 1,
+            "display": "On"
+          },
+          {
+            "param": "delayNote",
+            "name": "Note",
+            "value": 4,
+            "min": 0,
+            "max": 7,
+            "default": 4,
+            "display": "1/8."
+          },
+          {
+            "param": "delayTime",
+            "name": "Time",
+            "value": 375,
+            "min": 10,
+            "max": 2000,
+            "default": 375,
+            "display": "375 ms"
+          },
+          {
+            "param": "delayFeedback",
+            "name": "Feedback",
+            "value": 38,
+            "min": 0,
+            "max": 90,
+            "default": 38,
+            "display": "38%"
+          },
+          {
+            "param": "delayTone",
+            "name": "Tone",
+            "value": 50,
+            "min": 10,
+            "max": 200,
+            "default": 50,
+            "display": "5.0 kHz"
+          },
+          {
+            "param": "pingPong",
+            "name": "Ping-pong",
+            "value": 0,
+            "min": 0,
+            "max": 1,
+            "default": 0,
+            "display": "Off"
+          }
+        ]
       }
     ]
   }

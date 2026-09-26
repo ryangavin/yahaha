@@ -161,7 +161,8 @@ pub struct EffectBlockState {
     /// The band send (#236): every Style part's send to this block scaled, 0-127 % (100 =
     /// as written). Reverb 100, Chorus 0, Variation 0 until something sets it.
     pub band_send: u8,
-    /// Its parameters (#236), in order: Reverb time, pre-delay, tone.
+    /// Its parameters (#236), in order. Reverb: time, pre-delay, tone. Variation: tempo
+    /// sync, note, time (ms), feedback, tone, ping-pong.
     pub params: Vec<FxParamState>,
 }
 
