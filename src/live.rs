@@ -3046,11 +3046,11 @@ mod source_tests {
         });
         let (setup, note, level) = init
             .iter()
-            .filter_map(|m| match m[..] {
+            .rev()
+            .find_map(|m| match m[..] {
                 [0xF0, 0x43, _, 0x4C, s @ (0x30 | 0x31), n, 0x02, v, 0xF7] if v != DEFAULT_LEVEL => Some((s - 0x30, n, v)),
                 _ => None,
             })
-            .last()
             .expect("a drum setup level");
         let ch = (8..10u8).find(|&c| mode(c).unwrap_or(if c == 9 { 2 } else { 0 }) == 2 + setup).expect("the setup's part");
         let (synth, mut heard) = RingBuffer::new(4096);
