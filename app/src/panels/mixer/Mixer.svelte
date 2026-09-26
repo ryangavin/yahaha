@@ -23,7 +23,8 @@
     opens a block's editor with its parameters (#236, `setEffectParam`), which a type
     change puts back to that type's own values. The Style switch (#237, `setFollowStyle`):
     lit, the block takes the style's own effect type at each style change (its XG name shows
-    beside it); choosing a type turns it off.
+    beside it); choosing a type turns it off. The editor ends with the block's Pads send
+    (#267, `setPadSend`): the same scale for the four Multi Pads' sends.
   - Solo (S): only that part plays, even if it is off; the Style tab solos a band part,
     the Panel tab a keyboard part (`setStyleSolo` / `setPartSolo`, #30). Press again to end.
   - The metronome (on/off, bell, its own volume) sits above the strips: it is the
@@ -53,10 +54,10 @@
   const outPort = $derived(app.state.io.outputPort)
   const metronome = $derived(app.state.metronome)
   const effects = $derived(app.state.effects.blocks)
-  const FX_TIPS: Record<FxBlock, [TipKey, TipKey, TipKey]> = {
-    reverb: ['fx.reverb_type', 'fx.reverb_return', 'fx.reverb_band'],
-    chorus: ['fx.chorus_type', 'fx.chorus_return', 'fx.chorus_band'],
-    variation: ['fx.variation_type', 'fx.variation_return', 'fx.variation_band'],
+  const FX_TIPS: Record<FxBlock, [TipKey, TipKey, TipKey, TipKey]> = {
+    reverb: ['fx.reverb_type', 'fx.reverb_return', 'fx.reverb_band', 'fx.reverb_pad'],
+    chorus: ['fx.chorus_type', 'fx.chorus_return', 'fx.chorus_band', 'fx.chorus_pad'],
+    variation: ['fx.variation_type', 'fx.variation_return', 'fx.variation_band', 'fx.variation_pad'],
   }
   /** Which blocks' editors are open. */
   let editing = $state<Record<FxBlock, boolean>>({ reverb: false, chorus: false, variation: false })
@@ -356,6 +357,19 @@
             {/if}
           </div>
         {/each}
+        <div class="param">
+          <span class="band-label">Pads</span>
+          <div class="slider return">
+            <HSlider
+              value={b.padSend}
+              tip={FX_TIPS[b.block][3]}
+              label="{b.name} Multi Pad send"
+              unity={100}
+              format={(v) => `${v}%`}
+              onchange={(v) => app.send({ type: 'setPadSend', block: b.block, level: v })}
+            />
+          </div>
+        </div>
       </div>
     {/each}
 

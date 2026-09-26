@@ -19,10 +19,13 @@
 //! The band send scales (#236): every Style part's (channels 9-16) send to a block is
 //! its CC times that block's scale (`FxControl::band_send`, 100% = as the style wrote
 //! it). By default the reverb is as written and the chorus and delay are off; the keyboard
-//! parts' and the Multi Pads' sends are never scaled. The scale applies inside the
+//! parts' sends are never scaled. The scale applies inside the
 //! built-in synth only: the MIDI port carries the style's CCs as written, for a Genos,
 //! whose Variation block plays the effect the style chose. A scale change glides over
 //! about 30 ms (`AudioCore`), so it never clicks.
+//!
+//! The Multi Pad send scales (#267) do the same for the pads (channels 5-8,
+//! `FxControl::pad_send`): by default the pads' reverb as written, and no chorus or delay.
 //!
 //! [`FxBus`] allocates everything in [`FxBus::new`]; [`FxBus::process_add`] never
 //! allocates, locks or blocks (`tests/synth_no_alloc.rs`). A block with no input whose
@@ -61,6 +64,14 @@ pub const RETURN_UNITY: u8 = 64;
 /// The Style parts' channels (MIDI channels 9-16): their sends go through the band send
 /// scales (#236).
 pub const BAND_CHANNELS: std::ops::Range<usize> = 8..16;
+
+/// The Multi Pads' channels (MIDI channels 5-8): their sends go through the pad send
+/// scales (#267).
+pub const PAD_CHANNELS: std::ops::Range<usize> = 4..8;
+
+/// Each block's Multi Pad send scale before anything sets it (#267): as the band's, the
+/// pads' reverb as written, but no chorus and no delay.
+pub const PAD_SEND_DEFAULT: [u8; BUSES] = BAND_SEND_DEFAULT;
 
 /// A band send scale that leaves the Style's sends as it wrote them (100%).
 pub const BAND_SEND_UNITY: u8 = 100;
@@ -108,6 +119,9 @@ pub struct FxControl {
     /// this, 0-127 % (100 = as the style wrote it). By bus (`REVERB`, `CHORUS`,
     /// `VARIATION`).
     pub band_send: [AtomicU8; BUSES],
+    /// Each block's Multi Pad send scale (#267): every pad's (channels 5-8) send to the
+    /// block times this, 0-127 % (100 = as the pad wrote it). By bus.
+    pub pad_send: [AtomicU8; BUSES],
     /// Each effect parameter (#236, `Param::index`), in its own unit (`Param::spec`).
     pub params: [AtomicU16; PARAMS],
     /// The style tempo the delay follows: BPM x 100.
@@ -126,6 +140,7 @@ impl FxControl {
             variation_type: AtomicU8::new(DEFAULT_TYPES[VARIATION]),
             variation_return: AtomicU8::new(RETURN_UNITY),
             band_send: BAND_SEND_DEFAULT.map(AtomicU8::new),
+            pad_send: PAD_SEND_DEFAULT.map(AtomicU8::new),
             params: default_params().map(AtomicU16::new),
             tempo: AtomicU32::new(12_000),
             legacy: AtomicBool::new(false),

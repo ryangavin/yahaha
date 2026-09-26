@@ -2163,6 +2163,7 @@
         ],
         "returnLevel": 64,
         "bandSend": 100,
+        "padSend": 100,
         "params": [
           {
             "param": "reverbTime",
@@ -2216,6 +2217,7 @@
         ],
         "returnLevel": 64,
         "bandSend": 0,
+        "padSend": 0,
         "params": [
           {
             "param": "chorusRate",
@@ -2264,6 +2266,7 @@
         ],
         "returnLevel": 64,
         "bandSend": 0,
+        "padSend": 0,
         "params": [
           {
             "param": "delaySync",

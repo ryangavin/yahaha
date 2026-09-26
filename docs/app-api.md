@@ -108,7 +108,8 @@ state, and pressing the button is the action. For settings, a GUI checkbox can u
 | `fillBreak` | | Fill Break: the Break (the same as `break`). |
 | `setHalfBarFill` / `toggleHalfBarFill` | `on` | Half Bar Fill In: a Main change or fill asked for on the first beat of a bar plays a fill from the middle of that bar (beat 3 in 4/4), then the Main at the next bar line, even with Auto Fill off. |
 | `tapTempo` | | TAP TEMPO. Taps set the tempo, from the second tap (the last four averaged), stopped or playing. Stopped, a bar's worth of steady taps (four in 4/4) also starts the style one beat after the last tap, rhythm only until a chord (OM p.46); `stop` calls that count-in off. While the style plays with `styleSettings.sectionReset` on (the default, as on the Genos), a tap is a Style Section Reset instead and the tempo stays. |
-| `tempoUp`, `tempoDown` | | One tempo step. |
+| `tempoUp`, `tempoDown` | | One tempo step (1 BPM). The Launchkey's TEMPO buttons also repeat while held, on the engine; a client that wants that repeats the command itself (the app: 400 ms, then 10, 20 and 40 steps a second). |
+| `resetTempo` | | TEMPO − and + together: back to the tempo the style came with (`style.tempo`; OM p.46). A ritardando playing slows on from it. |
 | `toggleFade` | | FADE IN/OUT. Stopped: arms (or disarms) a fade in for the next start. Playing: fades out over `styleSettings.fadeOutMs`, then the band stops and the Style stays silent for `fadeHoldMs`. Only the Style fades: each Style part's CC7 (channels 9–16) goes out, on the port and to the built-in synth, as its fader value scaled by the fade; the faders don't move, and your playing and the Multi Pads never fade (docs/section-timing.md). `transport.fade` shows it. A fade out already running carries on; START/STOP mid-fade ends it at full volume. |
 | `sectionReset` | | Style Section Reset: the section playing starts again from its top, now. A change queued for the next bar line waits for the new bar grid's. Stopped: nothing. |
 | `toggleRetrigger` | | Style Retrigger on/off (`transport.retrigger`). While on, each chord played in a Main restarts the Main at the chord and loops its first `4 / styleSettings.retriggerRate` beats (a whole note .. a 32nd) until a section change, a style change or Retrigger goes off; off, the Main plays on from there. The same chord struck again (after letting go) counts as a chord played. Only Mains retrigger. |
@@ -455,8 +456,9 @@ scaled. A change glides in over about 30 ms.
 | `setEffectType` | `block` `reverb` \| `chorus` \| `variation`, `effect` | The block's type. Reverb: `hall` (default), `room`, `stage`, `plate`. Chorus: `chorus` (default), `celeste`, `flanger`. Variation, a stereo delay at the style tempo: `eighth`, `dottedEighth` (default), `quarter`, `pingPong` (1/8, alternating sides). Another block's type is refused. |
 | `setEffectReturn` | `block`, `level` 0–127 | The block's return level: 64 = 0 dB (default), 127 = +6 dB, 0 = off (Genos). |
 | `setEffectParam` | `block`, `param`, `value` | One of the block's parameters (#236), in the parameter's own unit, clamped to its range (see the table below). A parameter of another block is refused. A change glides on the audio thread, so it never clicks. `setEffectType` puts the block's parameters back to the new type's own values. Stored in Registration with the effects. |
-| `setFollowStyle` | `block`, `on` | Whether the block follows the style's own effect type (#237). On (the default), each style load gives the block the style's type (and the delay's time, feedback and tone as the style sets them), or the block's default type if the style sets none that yahaha has. `setEffectType` turns it off, so the player's choice stays through style changes. Turning it on takes the loaded style's type at once. Stored in Registration with the effects. |
+| `setFollowStyle` | `block`, `on` | Whether the block follows the style's own effect type (#237). On (the default), each style load gives the block the style's type (and the delay's time, feedback and tone, the reverb's time, pre-delay and tone, and the block's return level, as the style sets them; #269), or the block's default type if the style sets none that yahaha has. `setEffectType` turns it off, so the player's choice stays through style changes. Turning it on takes the loaded style's type at once. Stored in Registration with the effects. |
 | `setBandSend` | `block`, `level` 0–127 | The block's band send, in percent: 100 = the Style parts' sends as written, 0 = none of the band, above 100 up to 127 raises them (each part's send at most the whole signal). Defaults: reverb 100, chorus 0, variation 0. Stored in Registration with the effects. |
+| `setPadSend` | `block`, `level` 0–127 | The block's Multi Pad send (#267), in percent: the same scale as `setBandSend`, on the four Multi Pads' sends (channels 5–8). Defaults: reverb 100, chorus 0, variation 0. In the built-in synth only (the MIDI port carries the pads' CCs as written). Stored in Registration with the Multi Pad bank (group Multi Pad). |
 
 The effect parameters (`param`, its unit and range, and each type's own value):
 
@@ -497,6 +499,14 @@ is 1, System). Each maps onto the nearest type here:
 | Variation | 21 Tempo Delay, Tempo Echo | `dottedEighth` with the style's delay time (Data List Table#5, nearest note), feedback and high damp |
 | Variation | 22 Tempo Cross | `pingPong`, the same |
 | Variation | 5 Delay LCR, 6 Delay LR | `dottedEighth` |
+
+With a matching type, the style's reverb parameters come too (#269): parameter 1 Reverb
+Time (Data List Table#1) as `reverbTime` (at most 10 s), 3 Initial Delay (Table#2) as
+`preDelay`, and the high cut (Table#3; a Real Reverb's 4 High Damp Frequency, another
+reverb's 5 LPF Cutoff; Thru = 20 kHz) as `reverbTone`. A block's return level (Reverb
+`0C`, Chorus `2C`, Variation `56`) comes where the style sets one; where it sets none, the
+return stays as it is. The chorus's parameters are not read (no corpus style sets them on
+a chorus type yahaha has).
 
 Any other type (a phaser or a tempo delay in the chorus block, a distortion or a reverb as the
 variation) has no match: the block plays its default type. The MIDI port gets the SysEx as
@@ -1099,11 +1109,12 @@ The Knob Assign page: `{ page, pageName, pageNumber, pageCount, knobs }`.
 
 ### `effects`
 `{ blocks }`: the effect bus's Reverb, Chorus and Variation blocks, in that order (#204).
-Each is `{ block, name, effect, effectName, types, returnLevel, bandSend }`: `effect` is the type
+Each is `{ block, name, effect, effectName, types, returnLevel, bandSend, padSend }`: `effect` is the type
 (`setEffectType`), `effectName` its name ("Hall", "Delay 1/8."), `types` the block's own
 types as `{ effect, name }`, `returnLevel` 0–127 (64 = 0 dB), `bandSend` 0–127 % (#236,
 `setBandSend`: 100 = the Style parts' sends as written; reverb 100, chorus 0, variation 0
-at start), and `params` (#236), the block's parameters in order, each
+at start), `padSend` 0–127 % (#267, `setPadSend`: the same for the Multi Pads' sends;
+reverb 100, chorus 0, variation 0 at start), and `params` (#236), the block's parameters in order, each
 `{ param, name, value, min, max, default, display }`: `value` in the parameter's own unit
 (`setEffectParam`), `default` the type's own value, `display` the value as it reads
 ("2.4 s", "22 ms", "4.5 kHz"); `styleEffect` (#237), the loaded style's own type for the
@@ -1797,7 +1808,7 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
   "effects": {
     "blocks": [
       {
-        "block": "reverb", "name": "Reverb", "effect": "hall", "effectName": "Hall", "returnLevel": 64, "bandSend": 100,
+        "block": "reverb", "name": "Reverb", "effect": "hall", "effectName": "Hall", "returnLevel": 64, "bandSend": 100, "padSend": 100,
         "params": [
           { "param": "reverbTime", "name": "Time", "value": 24, "min": 3, "max": 100, "default": 24, "display": "2.4 s" },
           { "param": "preDelay", "name": "Pre-delay", "value": 22, "min": 0, "max": 200, "default": 22, "display": "22 ms" },
@@ -1807,7 +1818,7 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
         "types": [{ "effect": "hall", "name": "Hall" }, { "effect": "room", "name": "Room" }, { "effect": "stage", "name": "Stage" }, { "effect": "plate", "name": "Plate" }]
       },
       {
-        "block": "chorus", "name": "Chorus", "effect": "chorus", "effectName": "Chorus", "returnLevel": 64, "bandSend": 0,
+        "block": "chorus", "name": "Chorus", "effect": "chorus", "effectName": "Chorus", "returnLevel": 64, "bandSend": 0, "padSend": 0,
         "params": [
           { "param": "chorusRate", "name": "Rate", "value": 55, "min": 5, "max": 500, "default": 55, "display": "0.55 Hz" },
           { "param": "chorusDepth", "name": "Depth", "value": 22, "min": 0, "max": 50, "default": 22, "display": "2.2 ms" }
@@ -1816,7 +1827,7 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
         "types": [{ "effect": "chorus", "name": "Chorus" }, { "effect": "celeste", "name": "Celeste" }, { "effect": "flanger", "name": "Flanger" }]
       },
       {
-        "block": "variation", "name": "Variation", "effect": "dottedEighth", "effectName": "Delay 1/8.", "returnLevel": 64, "bandSend": 0,
+        "block": "variation", "name": "Variation", "effect": "dottedEighth", "effectName": "Delay 1/8.", "returnLevel": 64, "bandSend": 0, "padSend": 0,
         "params": [
           { "param": "delaySync", "name": "Tempo sync", "value": 1, "min": 0, "max": 1, "default": 1, "display": "On" },
           { "param": "delayNote", "name": "Note", "value": 4, "min": 0, "max": 7, "default": 4, "display": "1/8." },

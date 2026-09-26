@@ -123,6 +123,15 @@ fn the_audio_callback_does_not_allocate() {
             assert_eq!(run(&mut core, &mut feed, &[]), none, "band send scales");
         }
     }
+    // The Multi Pad send scales (#267) gliding up and back, a pad sending to every block.
+    assert_eq!(run(&mut core, &mut feed, &[[0xB5, 91, 100], [0xB5, 93, 100], [0xB5, 94, 100], [0x95, 64, 100]]), none, "a pad's sends");
+    for (b, level) in [(1, 100u8), (2, 127), (0, 50), (1, 0), (2, 0), (0, 100)] {
+        ctl.fx.pad_send[b].store(level, Ordering::Relaxed);
+        for _ in 0..3 {
+            assert_eq!(run(&mut core, &mut feed, &[]), none, "pad send scales");
+        }
+    }
+    assert_eq!(run(&mut core, &mut feed, &[[0x85, 64, 0]]), none, "a pad's note off");
     ctl.fx.legacy.store(true, Ordering::Relaxed);
     assert_eq!(run(&mut core, &mut feed, &[[0x90, 67, 100]]), none, "the SoundFont's own effects");
     ctl.fx.legacy.store(false, Ordering::Relaxed);

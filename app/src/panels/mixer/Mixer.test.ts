@@ -174,6 +174,22 @@ describe('Mixer drawer', () => {
     expect(s.state.effects.blocks[0].bandSend).toBe(0)
   })
 
+  it('Effects: a Multi Pad send per block in its editor, the pads\' chorus and delay off at start (#267)', async () => {
+    const s = setup()
+    for (const b of ['Reverb', 'Chorus', 'Delay']) {
+      await fireEvent.click(document.querySelector<HTMLElement>(`[aria-label="${b === 'Delay' ? 'Variation' : b} settings"]`)!)
+    }
+    flushSync()
+    const pad = (name: string) => document.querySelector<HTMLElement>(`[aria-label="${name} Multi Pad send"]`)!
+    expect(['Reverb', 'Chorus', 'Variation'].map((n) => pad(n).getAttribute('aria-valuetext'))).toEqual(['100%', '0%', '0%'])
+    expect(pad('Chorus').dataset.tip).toBe('fx.chorus_pad')
+    await fireEvent.keyDown(pad('Variation'), { key: 'PageUp' })
+    expect(s.state.effects.blocks[2].padSend).toBe(10)
+    expect(s.state.effects.blocks[2].bandSend).toBe(0)
+    await fireEvent.keyDown(pad('Reverb'), { key: 'Home' })
+    expect(s.state.effects.blocks[0].padSend).toBe(0)
+  })
+
   it('follows the page when the Launchkey switches it', () => {
     const s = setup()
     s.send({ type: 'toggleFaderPage' })

@@ -57,13 +57,14 @@ fn keyboard_note_path_does_not_allocate() {
     input.end_of_list();
 
     let (allocs, frees) = (ALLOCS.load(Ordering::Relaxed), FREES.load(Ordering::Relaxed));
-    let (mut assigned, mut strikes, mut levels) = (0, 0, 0);
+    let (mut assigned, mut strikes, mut levels, mut holds) = (0, 0, 0, 0);
     for round in 0..50u8 {
         // Dynamics Touch / Accent on in some rounds: chord-section strikes go to the engine.
         shared.strikes.store(round % 4 < 2, Ordering::Relaxed);
         while let Ok(c) = rx.pop() {
             strikes += matches!(c, yahaha::live::Cmd::Strike(_)) as u32;
             levels += matches!(c, yahaha::live::Cmd::DynamicsLevel(_)) as u32;
+            holds += matches!(c, yahaha::live::Cmd::TempoHold(_) | yahaha::live::Cmd::Button(yahaha::engine::Button::TempoReset)) as u32;
         }
         let (function, control_type) = match round % 4 {
             0 => (Function::StartStop, ControlType::HoldA),
@@ -105,6 +106,11 @@ fn keyboard_note_path_does_not_allocate() {
         shared.parts.toggle(1);
         input.packet(1, 0, &[0xB0, 66, 0, 0xB0, 64, 127, 0xB0, 121, 0, 0xB0, 64, 0]);
         input.packet(1, 0, &[0x90, 64, 90, 67, 90, 0x80, 64, 0, 67, 0]);
+        // The Launchkey's TEMPO buttons: + held and let go, then − and + together (#263).
+        use yahaha::launchkey::{FUNCTION_CC, SCENE_CC};
+        use yahaha::live::TAG_PADS;
+        input.packet(TAG_PADS, 0, &[0xB0, SCENE_CC, 127, 0xB0, SCENE_CC, 0]);
+        input.packet(TAG_PADS, 0, &[0xB0, FUNCTION_CC, 127, 0xB0, SCENE_CC, 127, 0xB0, FUNCTION_CC, 0, 0xB0, SCENE_CC, 0]);
         input.end_of_list();
         ctl.reset(&mut |_| {});
     }
@@ -113,6 +119,7 @@ fn keyboard_note_path_does_not_allocate() {
     assert!(assigned > 0, "OTS + went through the actions ring");
     assert!(strikes > 0, "chord-section strikes went to the engine");
     assert!(levels > 0, "the Dynamics Control pedal went to the engine");
+    assert!(holds > 0, "the tempo buttons went to the engine");
 }
 
 /// The processor slot: every Harmony type (Strum's late notes and the Echo category go to

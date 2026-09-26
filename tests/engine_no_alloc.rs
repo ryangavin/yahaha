@@ -467,6 +467,12 @@ fn fills_stop_acmp_and_change_rules_do_not_allocate() {
     l.step(now);
     cmd(Cmd::Button(Button::FillSelf), &mut now, &mut l);
     run_to(t0 + 5 * bar, &mut now, &mut l);
+    // A TEMPO button held (repeating on the engine's own deadlines), let go, then − and +
+    // together (#263).
+    cmd(Cmd::TempoHold(1), &mut now, &mut l);
+    run_to(now + 1_500_000_000, &mut now, &mut l);
+    cmd(Cmd::TempoHold(0), &mut now, &mut l);
+    cmd(Cmd::Button(Button::TempoReset), &mut now, &mut l);
     cmd(Cmd::Button(Button::StartStop), &mut now, &mut l);
     assert_eq!(ALLOCS.load(Ordering::Relaxed) - allocs, 0, "allocations on the engine thread");
     assert_eq!(FREES.load(Ordering::Relaxed) - frees, 0, "frees on the engine thread");

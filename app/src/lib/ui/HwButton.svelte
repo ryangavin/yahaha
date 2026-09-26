@@ -22,6 +22,7 @@
     shape = 'rect',
     pressed,
     width,
+    onhold,
   }: {
     tip: TipKey
     onclick: () => void
@@ -37,7 +38,29 @@
     /** A latching button that's on (Shift). */
     pressed?: boolean
     width?: string
+    /** A button that repeats while held (TEMPO −/+): called with true when the pointer goes
+     *  down on it and false when it comes up; a pointer click then doesn't also run
+     *  `onclick` (Enter/Space still do). */
+    onhold?: (down: boolean) => void
   } = $props()
+
+  let holding = false
+  function down(e: PointerEvent) {
+    if (!onhold || e.button !== 0) return
+    holding = true
+    ;(e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId)
+    onhold(true)
+  }
+  function up() {
+    if (!holding) return
+    holding = false
+    onhold?.(false)
+  }
+  function click(e: MouseEvent) {
+    // A pointer click on a hold button was the hold; a keyboard click (detail 0) is a press.
+    if (onhold && e.detail > 0) return
+    onclick()
+  }
 
   const b = $derived(led ? brightness(led, beats) : 0)
 </script>
@@ -53,7 +76,11 @@
     style:--led={led ? css(led.rgb) : 'transparent'}
     style:--b={b}
     use:tipAction={tip}
-    {onclick}
+    onclick={click}
+    onpointerdown={down}
+    onpointerup={up}
+    onpointercancel={up}
+    onlostpointercapture={up}
   >
     <span class="glow" aria-hidden="true"></span>
     <span class="face">{@render children()}</span>
