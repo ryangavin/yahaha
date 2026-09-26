@@ -45,7 +45,9 @@ covers every XG/GS variation. A Yamaha voice outside the GM banks first becomes 
 program the synth already plays for it (`synth::gm_fallback`). Genos bank 8 voices
 (MegaVoice, S.Art!) map to their instrument's GM program through the Data List's table
 (`src/voice_gm.rs`, #228): NylonGuitar (8/0/PC#1) is Nylon Guitar, in the Guitar family, not
-Acoustic Grand Piano. Anything no rule covers
+Acoustic Grand Piano. Bank 9 (the Ensemble parts' S.Art! voices) keeps bank 8's numbering
+and has its own table (#270): TenorSax (9/66/PC#81) is Tenor Sax. Bank 104 is GM numbered
+and plays its program as it is. Anything no rule covers
 plays the SoundFont voice it played before the library existed.
 
 A style can have its own map as well. Its rules win, and whatever it leaves unset falls

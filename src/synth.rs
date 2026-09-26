@@ -470,17 +470,15 @@ pub fn feeds() -> Feeds {
 }
 
 /// GM program to use for a Yamaha voice. Yamaha's GM/XG banks (MSB 0) follow GM
-/// numbering. Bank 8 (MegaVoice, S.Art!) numbers its voices by instrument, which the Data
-/// List's table maps to GM (`voice_gm`, #228). For the other Genos-only banks, the part's
+/// numbering, and so does the Genos's bank 104. Banks 8 (MegaVoice, S.Art!) and 9 (the
+/// Ensemble parts' S.Art! voices) number their voices by instrument, which the Data List's
+/// tables map to GM (`voice_gm`, #228, #270). For the other Genos-only banks, the part's
 /// role decides when the number would land in the wrong instrument family.
 pub fn gm_fallback(dest: u8, msb: u8, prog: u8) -> u8 {
     if msb == 0 {
         return prog;
     }
-    let prog = match msb {
-        crate::voice_gm::MSB => crate::voice_gm::gm_program(prog).unwrap_or(prog),
-        _ => prog,
-    };
+    let prog = crate::voice_gm::gm_program(msb, prog).unwrap_or(prog);
     match dest {
         10 if !(32..=39).contains(&prog) => 33, // Bass part -> Finger Bass
         _ => prog,
