@@ -68,6 +68,10 @@ export type AppCmd =
   | { type: 'setTempo'; bpm: number }
   | { type: 'toggleStylePart'; part: number }
   | { type: 'setStylePartVolume'; part: number; volume: number }
+  /** #268: a Style part's own reverb/chorus/variation send (0–127), over the style's CC 91/93/94 until reset. */
+  | { type: 'setStylePartSend'; part: number; send: PartSend; value: number }
+  /** #268: hand a Style part's sends (null: every part's) back to the style. */
+  | { type: 'resetStylePartSends'; part: number | null }
   | { type: 'setStyleVolume'; volume: number }
   | { type: 'setMultiPadVolume'; volume: number }
   /** Solo a Style part 0–7 (only it plays, even if off); null ends the solo. */
@@ -612,6 +616,12 @@ export interface StylePart {
   voice: Voice | null
   /** Where its Launchkey fader (Style page, faders 1–8) physically is; null until it moves. */
   fader: number | null
+  /** Its sends as they play (CC 91/93/94, #268): its own where `sendsSet` lists them, else the style's. */
+  reverb: number
+  chorus: number
+  variation: number
+  /** The sends the player set (`setStylePartSend`); the others follow the style. */
+  sendsSet: PartSend[]
 }
 
 export interface MixerState {

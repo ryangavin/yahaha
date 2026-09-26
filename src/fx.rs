@@ -16,6 +16,9 @@
 //! Variation, a stereo delay synced to the style tempo ([`Delay`]: 1/8, dotted 1/8, 1/4,
 //! ping-pong). The control side keeps `FxControl::tempo` at the style's tempo.
 //!
+//! A Style part's own send (#268, `FxControl::part_send`, the mixer's per-part Rev/Cho/Dly)
+//! replaces its style's CC for that block and is not scaled.
+//!
 //! The band send scales (#236): every Style part's (channels 9-16) send to a block is
 //! its CC times that block's scale (`FxControl::band_send`, 100% = as the style wrote
 //! it). By default the reverb is as written and the chorus and delay are off; the keyboard
@@ -73,6 +76,9 @@ pub const PAD_CHANNELS: std::ops::Range<usize> = 4..8;
 /// pads' reverb as written, but no chorus and no delay.
 pub const PAD_SEND_DEFAULT: [u8; BUSES] = BAND_SEND_DEFAULT;
 
+/// `FxControl::part_send`: the Style part's send follows the style (#268).
+pub const SEND_STYLE: u8 = 255;
+
 /// A band send scale that leaves the Style's sends as it wrote them (100%).
 pub const BAND_SEND_UNITY: u8 = 100;
 
@@ -122,6 +128,10 @@ pub struct FxControl {
     /// Each block's Multi Pad send scale (#267): every pad's (channels 5-8) send to the
     /// block times this, 0-127 % (100 = as the pad wrote it). By bus.
     pub pad_send: [AtomicU8; BUSES],
+    /// Each Style part's own send to each block (#268, `[part][bus]`), 0-127, or
+    /// `SEND_STYLE`: the style's CC as the band send scales it. An own send is the part's
+    /// send as it plays: the band send scale doesn't touch it.
+    pub part_send: [[AtomicU8; BUSES]; 8],
     /// Each effect parameter (#236, `Param::index`), in its own unit (`Param::spec`).
     pub params: [AtomicU16; PARAMS],
     /// The style tempo the delay follows: BPM x 100.
@@ -141,6 +151,7 @@ impl FxControl {
             variation_return: AtomicU8::new(RETURN_UNITY),
             band_send: BAND_SEND_DEFAULT.map(AtomicU8::new),
             pad_send: PAD_SEND_DEFAULT.map(AtomicU8::new),
+            part_send: std::array::from_fn(|_| std::array::from_fn(|_| AtomicU8::new(SEND_STYLE))),
             params: default_params().map(AtomicU16::new),
             tempo: AtomicU32::new(12_000),
             legacy: AtomicBool::new(false),

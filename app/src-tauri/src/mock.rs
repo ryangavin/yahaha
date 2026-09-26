@@ -62,6 +62,9 @@ const BREAK: &str = "Fill In BA";
 const ENDINGS: [&str; 3] = ["Ending A", "Ending B", "Ending C"];
 const PROGRESSION: [&str; 12] = ["C", "Am7", "Fmaj7", "G7", "Em7", "A7", "Dm7", "G7sus4", "C/E", "F", "Fm6", "C"];
 const NOTE_NAMES: [&str; 12] = ["C", "C#", "D", "Eb", "E", "F", "F#", "G", "Ab", "A", "Bb", "B"];
+/// The mock style's own sends per Style part (#268): reverb, chorus, variation.
+const MOCK_STYLE_SENDS: [[u8; 3]; 8] = [[30, 0, 0], [30, 0, 0], [20, 0, 0], [40, 10, 0], [40, 10, 0], [50, 20, 0], [50, 10, 20], [50, 10, 20]];
+
 const STYLE_PARTS: [(&str, u8, u8, u8, bool, &str, u8); 8] = [
     ("Rhythm 1", 127, 0, 0, true, "drum kit 127/0/1", 100),
     ("Rhythm 2", 127, 0, 25, true, "drum kit 127/0/26", 100),
@@ -290,6 +293,10 @@ impl MockSession {
                         waiting: false,
                         fader: None,
                         voice: Some(Voice { bank_msb: *msb, bank_lsb: *lsb, program: *program, kit: *kit, label: label.to_string() }),
+                        reverb: MOCK_STYLE_SENDS[i][0],
+                        chorus: MOCK_STYLE_SENDS[i][1],
+                        variation: MOCK_STYLE_SENDS[i][2],
+                        sends_set: Vec::new(),
                     })
                     .collect(),
                 master: Some(100),
@@ -1564,6 +1571,29 @@ impl MockSession {
             AppCmd::Mixer(MixerCmd::SetMultiPadVolume { volume }) => {
                 self.state.mixer.multi_pad_volume = vol(volume);
                 self.state.mixer.multi_pad_volume_waiting = false;
+            }
+            // #268: a Style part's own send; reset hands them back to the (mock) style's.
+            AppCmd::Mixer(MixerCmd::SetStylePartSend { part, send, value }) => {
+                if let Some(p) = self.state.mixer.style_parts.get_mut(part as usize) {
+                    let v = value.min(127);
+                    match send {
+                        PartSend::Reverb => p.reverb = v,
+                        PartSend::Chorus => p.chorus = v,
+                        PartSend::Variation => p.variation = v,
+                    }
+                    if !p.sends_set.contains(&send) {
+                        p.sends_set.push(send);
+                        p.sends_set.sort_by_key(|s| s.index());
+                    }
+                }
+            }
+            AppCmd::Mixer(MixerCmd::ResetStylePartSends { part }) => {
+                for (i, p) in self.state.mixer.style_parts.iter_mut().enumerate() {
+                    if part.is_none_or(|x| x as usize == i) {
+                        [p.reverb, p.chorus, p.variation] = MOCK_STYLE_SENDS[i];
+                        p.sends_set.clear();
+                    }
+                }
             }
             AppCmd::Mixer(MixerCmd::SetStylePartVolume { part, volume }) => {
                 if let Some(p) = self.state.mixer.style_parts.get_mut(part as usize) {

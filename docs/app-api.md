@@ -115,6 +115,8 @@ state, and pressing the button is the action. For settings, a GUI checkbox can u
 | `setTempo` | `bpm` | Sets the tempo. The range is 5–500 BPM (Genos, OM p.46); values outside are clamped. |
 | `toggleStylePart` | `part` 0–7 | Mutes or unmutes a Style part. |
 | `setStylePartVolume` | `part` 0–7, `volume` 0–127 | The part's CC7. The Launchkey fader has to reach the new value before it takes over again. |
+| `setStylePartSend` | `part` 0–7, `send` `reverb` \| `chorus` \| `variation`, `value` 0–127 | The part's own send (#268): it goes out at once as the part's CC91/93/94, and every CC91/93/94 the style sends on that part goes out at this value instead, through section changes, style changes and restarts, on the MIDI port and in the synth. The block's band send scale (`setBandSend`) doesn't apply to it. Stored in Registration with the Style mixer. |
+| `resetStylePartSends` | `part` 0–7 or null | Hand the part's sends (null: every part's) back to the style: the style's last value (or the default, reverb 40, chorus and variation 0, where it set none) goes out, and its own CCs pass as written again. |
 | `setStyleVolume` | `volume` 0–127 | The Style volume (the Genos Balance page's Style slider), 100 = as written: every Style part's CC7 goes out multiplied by `volume`/100 (at most 127), as a Fade In/Out scales it; the part levels (`styleParts[].volume`) do not move. One of the two exceptions to the mixer rule, with the Fade. Launchkey Panel fader 5, with soft takeover. Registered with the Style mixer. |
 | `setMultiPadVolume` | `volume` 0–127 | The Multi Pad volume (the Genos Balance page's M.Pad slider), 100 = as written: the pads' CC7 on channels 5–8 go out multiplied by `volume`/100 (at most 127); a pad channel whose phrase sets no CC7 counts as 100. The same exception to the mixer rule as `setStyleVolume`. Launchkey Panel fader 6, with soft takeover. Registered with the Multi Pad bank. |
 | `setStyleSolo` | `part` 0–7 or null | Solos a Style part: only it plays, even if it is switched off; the other parts' notes stop. `null` ends the solo. The on/off switches are not changed (`mixer.styleSolo`). |
@@ -677,6 +679,8 @@ StylePart:
 | `volume` | 0–127 | CC7. |
 | `waiting` | bool | The fader is waiting to pick up the value. |
 | `fader` | 0–127? | Where its Launchkey fader (Style page, faders 1–8) physically is. Null until it moves. |
+| `reverb`, `chorus`, `variation` | 0–127 | Its sends as they play (CC91/93/94, #268): its own where `sendsSet` lists it, else the style's (the default where the style sets none). |
+| `sendsSet` | PartSend[] | The sends the player set (`setStylePartSend`); the others follow the style. |
 | `voice` | Voice? | The voice the style was written for: `bankMsb`, `bankLsb`, `program` (0-based), `kit` (a drum or SFX kit), and `label` (what the synth plays, for example `≈ Finger Bass  [Yamaha 104/18/88]`). |
 
 ### `pads`
@@ -1336,7 +1340,7 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
         "name": "Rhythm 1",
         "channel": 9,
         "on": true,
-        "mutedByManualBass": false,
+        "mutedByManualBass": false, "reverb": 40, "chorus": 0, "variation": 0, "sendsSet": [],
         "volume": 65,
         "waiting": false,
         "fader": null,
@@ -1346,7 +1350,7 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
         "name": "Rhythm 2",
         "channel": 10,
         "on": true,
-        "mutedByManualBass": false,
+        "mutedByManualBass": false, "reverb": 40, "chorus": 0, "variation": 0, "sendsSet": [],
         "volume": 70,
         "waiting": false,
         "fader": null,
@@ -1356,7 +1360,7 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
         "name": "Bass",
         "channel": 11,
         "on": true,
-        "mutedByManualBass": false,
+        "mutedByManualBass": false, "reverb": 40, "chorus": 0, "variation": 0, "sendsSet": [],
         "volume": 74,
         "waiting": false,
         "fader": null,

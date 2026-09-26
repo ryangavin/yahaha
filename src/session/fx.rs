@@ -182,6 +182,12 @@ impl Control {
         for (a, &v) in fx.params.iter().zip(&s.params) {
             a.store(v, Relaxed);
         }
+        // The Style parts' own sends (#268): the engine owns them.
+        for (a, own) in fx.part_send.iter().zip(&self.snap.style_send_own) {
+            for (a, &v) in a.iter().zip(own) {
+                a.store(v, Relaxed);
+            }
+        }
     }
 
     /// The Registration's `effects` section (group Style, as the Genos Data List files

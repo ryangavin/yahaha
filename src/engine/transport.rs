@@ -31,6 +31,8 @@ pub struct StyleControls {
     pub player_set: Option<u8>,
     /// Style Retrigger on/off.
     pub retrigger: Option<bool>,
+    /// The Style parts' own sends (#268, `[part][bus]`, 255 = the style's).
+    pub sends: Option<[[u8; 3]; 8]>,
 }
 
 impl Engine {
@@ -87,6 +89,9 @@ impl Engine {
                     self.button(Button::TogglePart(p), now, sink);
                 }
             }
+        }
+        if let Some(sends) = c.sends {
+            self.set_style_sends(sends, sink);
         }
         if let Some(volumes) = c.volumes {
             let set = c.player_set.unwrap_or(0xFF);
@@ -400,6 +405,7 @@ mod tests {
             volumes: None,
             player_set: None,
             retrigger: Some(true),
+            sends: None,
         };
         for _ in 0..2 {
             e.set_style_controls(set, 1, &mut Nop);
