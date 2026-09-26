@@ -38,9 +38,6 @@ button{font-family:inherit;cursor:pointer}
 <div style="flex-grow: 1"></div>
 <section aria-label="Launchkey" style="display: flex; align-items: center; gap: 10px; height: 40px; padding: 0 10px; border-radius: 6px; background: #141417; border: 1px solid #2d2d32">
 <span class="cap" style="font-size: 9px; color: #c9c9cf; display: {{hdr.lkCap}}">Launchkey</span>
-<div aria-label="Pad lights" style="display: {{mir.padsDisp}}; grid-template-columns: repeat(8, 9px); grid-auto-rows: 8px; gap: 2px">
-<sc-for list="{{mirPads}}" as="d" hint-placeholder-count="16"><span title="{{d.name}}" style="border-radius: 1px; background: {{d.bg}}; box-shadow: {{d.glow}}"></span></sc-for>
-</div>
 <div style="display: {{hdr.lkKnobs}}; gap: 2px" aria-label="Knobs: Style page">
 <sc-for list="{{knobs}}" as="k" hint-placeholder-count="8"><svg width="20" height="20" viewBox="0 0 30 30" aria-hidden="true"><title>{{k.name}}</title><path d="{{k.track}}" stroke="#2d2d32" stroke-width="4" fill="none" stroke-linecap="round"></path><path d="{{k.arc}}" stroke="#f2f2f2" stroke-width="4" fill="none" stroke-linecap="round"></path></svg></sc-for>
 </div>
@@ -62,6 +59,12 @@ button{font-family:inherit;cursor:pointer}
 </sc-for>
 <div style="flex-grow: 1"></div>
 <span class="cap" style="padding-bottom: 8px; display: {{hdr.tabCap}}">Cool 8Beat · Bank A · Snapshot 3 · OTS 2</span>
+<div aria-label="Launchkey pads map" style="display: {{mm.disp}}; align-items: center; gap: 8px; align-self: center; padding: 2px 6px; border-radius: 5px; outline: 2px solid #ffffff; outline-offset: 0">
+<span style="font-size: 9px; font-weight: 700; letter-spacing: .06em; line-height: 1.1; text-align: right">PADS<br><span style="color: #a9a9b1">SECTIONS</span></span>
+<div style="display: grid; grid-template-columns: repeat(8, {{mm.w}}px); grid-auto-rows: 12px; gap: 2px">
+<sc-for list="{{mirPads}}" as="d" hint-placeholder-count="16"><span title="{{d.name}}" style="border-radius: 2px; background: {{d.bg}}; color: {{d.ink}}; outline: {{d.outline}}; outline-offset: 0; font-size: 7.5px; font-weight: 800; line-height: 12px; text-align: center; overflow: hidden; white-space: nowrap">{{d.short}}</span></sc-for>
+</div>
+</div>
 </div>
 <div style="flex-grow: 1; display: flex; min-height: 0; position: relative">
 %%DISPLAY%%
@@ -160,7 +163,7 @@ class Component extends DCLogic {
     const SEL = %%SEL%%;
     const TAB = '%%TAB%%';
     const LAYER = '%%LAYER%%';
-    const hdr = { gap: COMPACT ? 6 : 10, lkCap: COMPACT ? 'none' : 'inline', lkKnobs: W >= 1400 ? 'flex' : 'none', syncStart: W < 1800 ? 'Sync ▶' : 'Sync Start', syncStop: W < 1800 ? 'Sync ■' : 'Sync Stop', masterCap: W < 1800 ? 'none' : 'inline', masterW: COMPACT ? 60 : 90, tabCap: COMPACT ? 'none' : 'inline', regCap: COMPACT ? 'none' : 'inline', bankW: COMPACT ? 150 : 190, regW: COMPACT ? 32 : 38, otsW: COMPACT ? 34 : 44, freeze: COMPACT ? 'Frz' : 'Freeze' };
+    const hdr = { gap: COMPACT ? 6 : 10, lkCap: COMPACT ? 'none' : 'inline', lkKnobs: W >= 1400 ? 'flex' : 'none', syncStart: W < 1800 ? 'Sync ▶' : 'Sync Start', syncStop: W < 1800 ? 'Sync ■' : 'Sync Stop', masterCap: W < 1800 ? 'none' : 'inline', masterW: COMPACT ? 60 : 90, tabCap: COMPACT || !%%PADRING%% ? 'none' : 'inline', regCap: COMPACT ? 'none' : 'inline', bankW: COMPACT ? 150 : 190, regW: COMPACT ? 32 : 38, otsW: COMPACT ? 34 : 44, freeze: COMPACT ? 'Frz' : 'Freeze' };
     const tabs = ['Home', 'Channel', 'Effects', 'Multi Pads', 'Looper & Charts', 'Harmony / Arp', 'Settings'].map(n => { const on = n === TAB; return { name: n, on, bg: on ? A : 'rgba(14,14,16,.55)', ink: on ? AI : '#a9a9b1', line: on ? A : 'transparent', weight: on ? 800 : 600, glow: on ? '0 -2px 14px rgba(255,122,47,.55)' : 'none', pad: COMPACT ? 9 : 14 }; });
     // name, voice, meter, volume, on, reverb, chorus, delay, pan (0-1)
     const P = [['Right 1','Grand Piano',86,70,1,.4,.1,.2,.5],['Right 2','Strings',60,55,1,.5,.2,.1,.35],['Right 3','Brass Sect',0,50,0,.3,.1,0,.6],['Left','Warm Pad',44,62,1,.4,.15,0,.5],['Rhythm 1','Live Kit',90,78,1,.3,0,0,.5],['Rhythm 2','Percussion',50,60,1,.3,0,0,.7],['Bass','Finger Bass',72,70,1,.1,0,0,.5],['Chord 1','Steel Gtr',58,64,1,.35,.15,0,.3],['Chord 2','E.Piano',40,58,1,.4,.3,0,.68],['Pad','Warm Strings',30,52,1,.5,.25,0,.5],['Phrase 1','Brass',0,60,1,.3,.1,0,.6],['Phrase 2','Synth Lead',0,48,1,.3,0,.25,.42]];
@@ -184,8 +187,9 @@ class Component extends DCLogic {
     const LKC = { intro: [127, 95, 0], main: [0, 127, 16], ending: [127, 0, 0], brk: [90, 0, 127], sync: [127, 45, 0], fill: [0, 45, 127], tap: [100, 100, 100], stopsync: [0, 110, 110], run: [0, 127, 0] };
     const PADS = [['INTRO 1', 'Intro I', LKC.intro, 'dim', '4 bars'], ['INTRO 2', 'Intro II', LKC.intro, 'dim', '8 bars'], ['INTRO 3', 'Intro III', LKC.intro, 'dim', '2 bars'], ['SYNC ST', 'Sync Start', LKC.sync, 'dim', ''], ['ENDING 1', 'Ending I', LKC.ending, 'dim', '2 bars'], ['ENDING 2', 'Ending II', LKC.ending, 'dim', '4 bars'], ['ENDING 3', 'Ending III', LKC.ending, 'dim', '4 bars'], ['AUTOFILL', 'Auto Fill', LKC.fill, 'bright', 'On'],
       ['MAIN A', 'Main A', LKC.main, 'dim', '4 bars'], ['MAIN B', 'Main B', LKC.main, 'flash', '4 bars'], ['MAIN C', 'Main C', LKC.main, 'dim', '8 bars'], ['MAIN D', 'Main D', LKC.main, 'dim', '8 bars'], ['BREAK', 'Break', LKC.brk, 'dim', '1 bar'], ['TAP', 'Tap', LKC.tap, 'dim', ''], ['SYNC STP', 'Sync Stop', LKC.stopsync, 'dim', ''], ['START', 'Start / Stop', LKC.run, 'bright', 'Running']];
+    const SHORT = { 'INTRO 1': 'I1', 'INTRO 2': 'I2', 'INTRO 3': 'I3', 'SYNC ST': 'SYNC', 'ENDING 1': 'E1', 'ENDING 2': 'E2', 'ENDING 3': 'E3', 'AUTOFILL': 'AUTO', 'MAIN A': 'A', 'MAIN B': 'B', 'MAIN C': 'C', 'MAIN D': 'D', 'BREAK': 'BRK', 'TAP': 'TAP', 'SYNC STP': 'STOP', 'START': '▶' };
     const padLook = (p) => { const c = p[2], st = p[3], lit = st !== 'dim';
-      return { label: p[0], name: p[1], len: p[4], bg: lit ? rgb(c) : rgb(c, .16), ink: lit ? '#0e0e10' : rgb(c), border: lit ? rgb(c) : rgb(c, .45), outline: st === 'flash' ? '2px dashed #ffffff' : 'none', glow: lit ? '0 0 14px ' + rgb(c, .55) : 'none', flash: st === 'flash' }; };
+      return { label: p[0], short: SHORT[p[0]], name: p[1], len: p[4], bg: lit ? rgb(c) : rgb(c, .16), ink: lit ? '#0e0e10' : rgb(c), border: lit ? rgb(c) : rgb(c, .45), outline: st === 'flash' ? '2px dashed #ffffff' : 'none', glow: lit ? '0 0 14px ' + rgb(c, .55) : 'none', flash: st === 'flash' }; };
     const secPads = PADS.map(padLook);
     const mirPads = secPads;
     const kn = ['Dynamics','Rtg len','Rtg on','Mute A','Mute B','—','—','Tempo'];
@@ -196,8 +200,9 @@ class Component extends DCLogic {
     // draws what has no place on the current screen.
     const PADRING = %%PADRING%%;
     const ring = { i: 4, n: 8, label: 'LAUNCHKEY FADERS · STYLE ' + FPAGE.toUpperCase() };
-    const mir = { padsDisp: PADRING || COMPACT ? 'none' : 'grid' };
-    const mirLegend = [{ what: 'PADS', page: 'Sections', disp: 'block' }, { what: 'FADERS', page: 'Style ' + FPAGE, disp: 'block' }, { what: 'KNOBS', page: 'Style', disp: COMPACT ? 'none' : 'block' }];
+    const mir = {};
+    const mm = { disp: PADRING ? 'none' : 'flex', w: COMPACT ? 22 : 30 };
+    const mirLegend = [{ what: 'PADS', page: 'Sections', disp: PADRING ? 'block' : 'none' }, { what: 'FADERS', page: 'Style ' + FPAGE, disp: 'block' }, { what: 'KNOBS', page: 'Style', disp: COMPACT ? 'none' : 'block' }];
     const regs = Array.from({ length: 8 }, (_, i) => ({ n: i + 1, bg: i === 2 ? A : '#26262b', ink: i === 2 ? AI : (i < 6 ? '#f2f2f2' : '#8d8d95'), border: i === 2 ? A : '#2d2d32' }));
     const ots = [1, 2, 3, 4].map(n => ({ n, bg: n === 2 ? A : '#26262b', ink: n === 2 ? AI : '#f2f2f2', border: n === 2 ? A : '#2d2d32' }));
     // Keyboard: NW white keys from C, the split at F#2-ish (white key 10 of a 36-key board, scaled).
@@ -215,7 +220,7 @@ class Component extends DCLogic {
       for (let y = 0; y < rows; y++) for (let x = 0; x < cols; x++) { const on = (y === 0 && x % 4 === 0) || (y === 1 && x % 8 === 4) || r() < dens[y]; if (on) cells.push({ x: (x * cw + 1).toFixed(1), y: (y * ch + 1).toFixed(1), w: (cw - 2).toFixed(1), h: (ch - 2).toFixed(1), col: COL[4 + y], o: (0.45 + r() * 0.55).toFixed(2) }); }
       return cells; };
 %%SONGMAP%%
-    const base = { hdr, tabs, layers, parts, knobs, mirPads, secPads, mirLegend, ring, bgArt: Object.assign(songMap(7, '#ffd23f', '#ff5a3c', 'pop', 'bgsm', 640, 160, 3), { o: TAB === 'Home' ? .7 : .4 }), mir, regs, ots, white, black, kb, art: artFor(7, 300, 366, 9) };
+    const base = { hdr, tabs, layers, parts, knobs, mirPads, secPads, mirLegend, ring, mm, bgArt: Object.assign(songMap(7, '#ffd23f', '#ff5a3c', 'pop', 'bgsm', 640, 160, 3), { o: TAB === 'Home' ? .7 : .4 }), mir, regs, ots, white, black, kb, art: artFor(7, 300, 366, 9) };
     %%JS%%
     return Object.assign(base, extra);
   }
