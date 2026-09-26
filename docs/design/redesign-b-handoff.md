@@ -66,6 +66,8 @@ The owner was asked short atomic questions. Keep doing that: they asked for it.
 - **Every strip has R/C/D send faders** on its right edge.
 - **Home's right column is the Master bus:** EQ, Glue, Room and Level. The owner rejects chorus or delay on the whole mix. Master EQ, compression and room are **new engine work**; model them on the Genos Master EQ and Compressor.
 
+**No raw 0–127 numbers** on controls: the visual is enough, with the value in a tooltip. Show numbers only when they are musical (tempo, note lengths, dB).
+
 **Look**
 - **A colour per part plus lit active states**: Maschine groups plus Genos lamps.
 - **"In between" feel:** mostly flat, with lit, glowing highlights. Direction B is near-black, vivid part colours and orange for active.

@@ -90,7 +90,7 @@ button{font-family:inherit;cursor:pointer}
 <span class="cap" style="font-size: 10px; white-space: nowrap; overflow: hidden; color: {{p.col}}">{{p.name}}</span>
 <button style="height: 24px; padding: 0 4px; border-radius: 4px; border: 1px solid #2d2d32; background: #0e0e10; color: #f2f2f2; font-size: 11px; font-weight: 600; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{p.voice}} ▾</button>
 <div style="flex-grow: 1; min-height: 0; display: flex; gap: 3px">
-<div role="slider" aria-label="{{p.name}} {{p.layerName}}" aria-valuenow="{{p.val}}" style="flex-grow: 1; display: {{p.faderDisp}}; position: relative; min-height: 0; border-radius: 4px; overflow: hidden; background: #202025">
+<div role="slider" aria-label="{{p.name}} {{p.layerName}}" aria-valuenow="{{p.val}}" title="{{p.name}} {{p.layerName}} {{p.val}}" style="flex-grow: 1; display: {{p.faderDisp}}; position: relative; min-height: 0; border-radius: 4px; overflow: hidden; background: #202025">
 <div style="position: absolute; left: 0; right: 0; bottom: 0; height: {{p.fader}}%; background: {{p.body}}"></div>
 <div style="position: absolute; left: 0; right: 0; bottom: 0; height: {{p.level}}%; background: {{p.col}}; opacity: .9"></div>
 <div style="position: absolute; left: 0; right: 0; bottom: {{p.fader}}%; height: 3px; margin-bottom: -1px; background: #ffffff"></div>
@@ -102,7 +102,6 @@ button{font-family:inherit;cursor:pointer}
 <sc-for list="{{p.sends}}" as="sd" hint-placeholder-count="3"><svg role="slider" aria-label="{{sd.tip}}" width="22" height="22" viewBox="0 0 22 22"><title>{{sd.tip}}</title><circle cx="11" cy="11" r="10" fill="{{sd.ringBg}}"></circle><path d="{{sd.track}}" stroke="#2d2d32" stroke-width="3" fill="none" stroke-linecap="round"></path><path d="{{sd.arc}}" stroke="{{sd.col}}" stroke-width="3" fill="none" stroke-linecap="round"></path><text x="11" y="14" text-anchor="middle" font-size="8" font-weight="700" fill="#ffffff">{{sd.n}}</text></svg></sc-for>
 </div>
 </div>
-<span style="font-size: 11px; font-weight: 700; text-align: center; color: {{p.valInk}}">{{p.val}}</span>
 <div style="display: flex; gap: 3px">
 <button aria-label="Mute {{p.name}}" style="flex: 1; height: 20px; padding: 0; border-radius: 3px; border: 1px solid #2d2d32; background: {{p.mBg}}; color: {{p.mInk}}; font-size: 10px; font-weight: 700">M</button>
 <button aria-label="Solo {{p.name}}" style="flex: 1; height: 20px; padding: 0; border-radius: 3px; border: 1px solid #2d2d32; background: #26262b; color: #8d8d95; font-size: 10px; font-weight: 700">S</button>
