@@ -97,8 +97,9 @@ Start/Stop, Stop ACMP and its mode `stopAcmpMode` (Data List p.91: group Style; 
 recalls only on/off), OTS Link), `styleMixer` (the 8 Style parts' CC7, on/off, and `set`:
 which levels the player had set, and `level`: the Style volume, #199, the Genos's Style volume offset; a bank without it leaves it), `parts` (Right 1–3 and Left: on, voice, CC7, octave, `pan`/`reverb`/`chorus`/`variation` (CC10/91/93/94, #198/#204; a bank without them leaves them as they are), and the part's own sound library
 patch `patch: { id, name }` (#109), recalled through `setPartPatch`),
-`effects` (#204, group Style: each effect block's `effect` type and `returnLevel`, under
-`reverb`, `chorus`, `variation`; a bank without it leaves them), `transpose`, `harmonyArp` (Keyboard Harmony/Arpeggio: the switch, the type and pattern by
+`effects` (#204, group Style: each effect block's `effect` type, `returnLevel` and
+`bandSend` (#236; a bank from before it recalls the defaults, reverb 100, chorus 0,
+variation 0), under `reverb`, `chorus`, `variation`; a bank without it leaves them), `transpose`, `harmonyArp` (Keyboard Harmony/Arpeggio: the switch, the type and pattern by
 name, Volume, Speed, Assign, Chord Note Only, Touch Limit, and the arpeggio's Quantize, Hold
 setting, velocity and Keep Key On; not the Arpeggio Hold pedal function, which is the
 pedal's), `styleSettings` (#107: Section Change Timing To Main, Style Retrigger on/off and
