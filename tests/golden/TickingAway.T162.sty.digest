@@ -129,17 +129,17 @@ bar 22  Main B > Fill In BA@4.000  Fmaj7@1.000  [Break]@3.479
   ch12 Chord1  6fa8ec1cb46f1e1c
   ch13 Chord2  efd85a39d5ff04f8
 
-bar 23  Fill In BA  E7sus4@1.000  E7@3.000
-  ch10 Rhythm2 041a543d8e7fa1c9
-  ch11 Bass    76151d0a7a6c9b87
-  ch12 Chord1  5b3d1f3702f15cdf
-  ch13 Chord2  505a0cdc31a0b5a4
+bar 23  Main B  E7sus4@1.000  E7@3.000
+  ch10 Rhythm2 3dcb140ae1fe4400
+  ch11 Bass    6a381d27aa74629f
+  ch12 Chord1  3b2ebac0bde31da4
+  ch13 Chord2  897631e234d83ea8
 
 bar 24  Main B > Fill In CC@4.000  Am@1.000  [MainC]@3.479
-  ch10 Rhythm2 365fcd57cb7934e1
-  ch11 Bass    5972f62446ae2e7a
-  ch12 Chord1  bde567503903de4e
-  ch13 Chord2  184e0ec1483203ff
+  ch10 Rhythm2 8cdc0d670c220e15
+  ch11 Bass    2a941a352b337340
+  ch12 Chord1  7ae73804b98acc2d
+  ch13 Chord2  40ad9a8ee705e28e
 
 bar 25  Main C  A7@1.000
   ch10 Rhythm2 8cdc0d670c220e15

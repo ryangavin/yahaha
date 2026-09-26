@@ -236,6 +236,32 @@ pub struct Section {
     pub events: Vec<TimedEv>,
 }
 
+/// A section under a marker yahaha doesn't know. Ticks as in `Section`.
+#[derive(Debug, Clone)]
+pub struct OpaqueSection {
+    pub name: String,
+    pub start: u32,
+    pub len: u32,
+    pub events: Vec<TimedEv>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Timing {
+    /// Microseconds per quarter note.
+    Tempo(u32),
+    /// Numerator, denominator.
+    TimeSig(u8, u8),
+}
+
+/// A tempo or time-signature change inside a section: its marker name and the tick
+/// relative to the section start.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TimingChange {
+    pub section: String,
+    pub tick: u32,
+    pub change: Timing,
+}
+
 /// One part of a One Touch Setting: Right 1, Right 2, Right 3 or Left.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct OtsPart {
@@ -444,6 +470,12 @@ pub struct Style {
     /// Channel setup events from the SInt part (and anything before the first section).
     pub init: Vec<Ev>,
     pub sections: BTreeMap<SectionId, Section>,
+    /// Sections under markers the Genos has no button for ("Fill In AB", "Fill In EE"): cut
+    /// out so they don't run on at the end of the section before them, and never played.
+    pub opaque_sections: Vec<OpaqueSection>,
+    /// Tempo and time-signature changes after bar 1 (mostly Ending ritardandos). Kept, not
+    /// played: the style's tempo and meter are those of bar 1 (`tempo_us`, `timesig`).
+    pub timing_changes: Vec<TimingChange>,
     pub casm: Vec<Cseg>,
     /// One Touch Settings (up to 4).
     pub ots: Vec<Ots>,
@@ -880,25 +912,48 @@ struct Meta {
     format: String,
     tempo_us: u32,
     timesig: (u8, u8),
-    /// Section markers in track order.
-    marks: Vec<(u32, SectionId)>,
+    /// Section markers in track order: every marker from the first known section on, so an
+    /// unknown one ends the section before it. `Err` holds an unknown marker's name.
+    marks: Vec<(u32, Result<SectionId, String>)>,
+    /// Tempo and time-signature changes after the first section: (tick, index into `marks`
+    /// of the section they fall in, change).
+    timing: Vec<(u32, usize, Timing)>,
     end_tick: u32,
 }
 
+impl Meta {
+    /// The known sections, in track order.
+    fn known(&self) -> impl Iterator<Item = SectionId> + '_ {
+        self.marks.iter().filter_map(|(_, id)| id.as_ref().ok().copied())
+    }
+}
+
 fn scan_meta(events: &[TimedEv]) -> Meta {
-    let mut m = Meta { name: String::new(), format: String::new(), tempo_us: 500_000, timesig: (4, 4), marks: Vec::new(), end_tick: 0 };
+    let mut m = Meta {
+        name: String::new(),
+        format: String::new(),
+        tempo_us: 500_000,
+        timesig: (4, 4),
+        marks: Vec::new(),
+        timing: Vec::new(),
+        end_tick: 0,
+    };
     for e in events {
         m.end_tick = m.end_tick.max(e.tick);
         if let Ev::Meta { ty, data } = &e.ev {
-            // Tempo and time signature count only before the first section.
+            // Tempo and time signature set the style only before the first section; later
+            // ones are kept per section (see `Style::timing_changes`).
             let before_sections = m.marks.is_empty();
+            let later = |m: &mut Meta, t: Timing| m.timing.push((e.tick, m.marks.len() - 1, t));
             match *ty {
                 0x06 => {
                     let t = String::from_utf8_lossy(data).to_string();
                     if t == "SFF1" || t == "SFF2" {
                         m.format = t;
                     } else if let Some(id) = SectionId::parse(&t) {
-                        m.marks.push((e.tick, id));
+                        m.marks.push((e.tick, Ok(id)));
+                    } else if !before_sections && t != "SInt" {
+                        m.marks.push((e.tick, Err(t.trim().to_string())));
                     }
                 }
                 // Names are often NUL-padded to a fixed width; the name ends at the first NUL.
@@ -906,12 +961,22 @@ fn scan_meta(events: &[TimedEv]) -> Meta {
                     let text = data.split(|&b| b == 0).next().unwrap_or_default();
                     m.name = String::from_utf8_lossy(text).trim().to_string()
                 }
-                0x51 if data.len() == 3 && data[..] != [0, 0, 0] && before_sections => {
-                    m.tempo_us = ((data[0] as u32) << 16) | ((data[1] as u32) << 8) | data[2] as u32
+                0x51 if data.len() == 3 && data[..] != [0, 0, 0] => {
+                    let us = ((data[0] as u32) << 16) | ((data[1] as u32) << 8) | data[2] as u32;
+                    if before_sections {
+                        m.tempo_us = us
+                    } else {
+                        later(&mut m, Timing::Tempo(us))
+                    }
                 }
                 // Ignore impossible signatures (n/0, 2^8+) so bar length stays non-zero.
-                0x58 if data.len() >= 2 && data[0] > 0 && data[1] < 8 && before_sections => {
-                    m.timesig = (data[0], 1u8 << data[1])
+                0x58 if data.len() >= 2 && data[0] > 0 && data[1] < 8 => {
+                    let sig = (data[0], 1u8 << data[1]);
+                    if before_sections {
+                        m.timesig = sig
+                    } else {
+                        later(&mut m, Timing::TimeSig(sig.0, sig.1))
+                    }
                 }
                 _ => {}
             }
@@ -960,10 +1025,10 @@ impl Summary {
 pub fn summarize(bytes: &[u8]) -> Result<Summary> {
     let (_, events, _) = parse_header_track(bytes)?;
     let m = scan_meta(&events);
-    if m.marks.is_empty() {
+    if m.known().next().is_none() {
         bail!("no section markers found");
     }
-    let mut sections: Vec<SectionId> = m.marks.iter().map(|&(_, id)| id).collect();
+    let mut sections: Vec<SectionId> = m.known().collect();
     sections.sort();
     sections.dedup();
     Ok(Summary { name: m.name, bpm: 60_000_000.0 / m.tempo_us as f64, timesig: m.timesig, sections, format: m.format })
@@ -975,7 +1040,7 @@ fn build_style(
     casm: Vec<Cseg>,
     other_chunks: Vec<(String, Vec<u8>)>,
 ) -> Result<Style> {
-    let Meta { name, format: fmt, tempo_us, timesig, marks, end_tick } = scan_meta(&events);
+    let Meta { name, format: fmt, tempo_us, timesig, marks, timing, end_tick } = scan_meta(&events);
     if marks.is_empty() {
         bail!("no section markers found");
     }
@@ -989,7 +1054,8 @@ fn build_style(
         .collect();
 
     let mut sections = BTreeMap::new();
-    for (i, &(start, id)) in marks.iter().enumerate() {
+    let mut opaque_sections = Vec::new();
+    for (i, &(start, ref id)) in marks.iter().enumerate() {
         let end = marks.get(i + 1).map(|m| m.0).unwrap_or(end_tick);
         let evs: Vec<TimedEv> = events
             .iter()
@@ -1005,11 +1071,24 @@ fn build_style(
         // Saturating: tick accumulation saturates, so a malformed file can put `end` at u32::MAX.
         let bars = ((end - start).saturating_add(tpb / 2) / tpb).clamp(1, u32::MAX / tpb);
         let len = bars * tpb;
-        sections.insert(id, Section { id, start, len, events: evs });
+        match id {
+            Ok(id) => {
+                sections.insert(*id, Section { id: *id, start, len, events: evs });
+            }
+            Err(name) => opaque_sections.push(OpaqueSection { name: name.clone(), start, len, events: evs }),
+        }
     }
+    let timing_changes = timing
+        .into_iter()
+        .map(|(tick, i, change)| {
+            let (start, ref id) = marks[i];
+            let section = id.as_ref().map_or_else(|n| n.clone(), |id| id.name());
+            TimingChange { section, tick: tick - start, change }
+        })
+        .collect();
 
     let ots = other_chunks.iter().find(|(id, _)| id == "OTSc").map(|(_, d)| parse_ots(d)).unwrap_or_default();
-    Ok(Style { name, format: fmt, ppq, tempo_us, timesig, init, sections, casm, ots, other_chunks })
+    Ok(Style { name, format: fmt, ppq, tempo_us, timesig, init, sections, opaque_sections, timing_changes, casm, ots, other_chunks })
 }
 
 
@@ -1462,5 +1541,137 @@ mod tests {
         assert_ne!(Some(low), transpose(36, r, c));
         assert_eq!(transpose(60, r, c_over_e), transpose(60, r, c));
         assert_eq!(transpose(60, r, c), Some(60));
+    }
+
+    /// A style track built from (delta, raw event bytes) pairs, ppq 96 (a 4/4 bar is 384).
+    fn track_style(evs: &[(u32, Vec<u8>)]) -> Vec<u8> {
+        let mut trk = Vec::new();
+        for (delta, ev) in evs {
+            let mut d = *delta;
+            let mut v = vec![(d & 0x7F) as u8];
+            d >>= 7;
+            while d > 0 {
+                v.insert(0, (d & 0x7F) as u8 | 0x80);
+                d >>= 7;
+            }
+            trk.extend(v);
+            trk.extend_from_slice(ev);
+        }
+        trk.extend_from_slice(&[0x00, 0xFF, 0x2F, 0]);
+        let mut out = chunk(b"MThd", &[0, 0, 0, 1, 0, 96]);
+        out.extend(chunk(b"MTrk", &trk));
+        out
+    }
+
+    fn marker(t: &str) -> Vec<u8> {
+        let mut v = vec![0xFF, 0x06, t.len() as u8];
+        v.extend_from_slice(t.as_bytes());
+        v
+    }
+
+    fn tempo(us: u32) -> Vec<u8> {
+        vec![0xFF, 0x51, 3, (us >> 16) as u8, (us >> 8) as u8, us as u8]
+    }
+
+    /// Main A, Fill In AA, an unknown "Fill In AB", then Ending A; one bar each, with a
+    /// tempo change inside Fill In AB and a tempo and time-signature change inside Ending A.
+    fn sections_style() -> Vec<u8> {
+        let on = |k: u8| vec![0x9B, k, 100];
+        let off = |k: u8| vec![0x8B, k, 0];
+        track_style(&[
+            (0, marker("SFF2")),
+            (0, tempo(500_000)),
+            (0, vec![0xFF, 0x58, 4, 4, 2, 24, 8]),
+            (0, marker("Main A")),
+            (0, on(60)),
+            (384, off(60)),
+            (0, marker("Fill In AA")),
+            (0, on(62)),
+            (384, off(62)),
+            (0, marker("Fill In AB")),
+            (0, on(64)),
+            (192, tempo(600_000)),
+            (192, off(64)),
+            (0, marker("Ending A")),
+            (0, on(65)),
+            (192, tempo(700_000)),
+            (0, vec![0xFF, 0x58, 4, 3, 2, 24, 8]),
+            (192, off(65)),
+        ])
+    }
+
+    fn note_ons(evs: &[TimedEv]) -> Vec<(u32, u8)> {
+        evs.iter()
+            .filter_map(|e| match e.ev {
+                Ev::NoteOn { key, .. } => Some((e.tick, key)),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// An unknown marker opens its own (opaque, unplayed) section: its events no longer
+    /// leak into the section before it.
+    #[test]
+    fn unknown_marker_is_its_own_section() {
+        let s = parse(&sections_style()).unwrap();
+        let fill = &s.sections[&SectionId::Fill(0)];
+        assert_eq!(fill.len, 384);
+        assert_eq!(note_ons(&fill.events), vec![(0, 62)]);
+        let ids: Vec<_> = s.sections.keys().copied().collect();
+        assert_eq!(ids, vec![SectionId::Main(0), SectionId::Fill(0), SectionId::Ending(0)]);
+        assert_eq!(s.opaque_sections.len(), 1);
+        let ab = &s.opaque_sections[0];
+        assert_eq!((ab.name.as_str(), ab.start, ab.len), ("Fill In AB", 768, 384));
+        assert_eq!(note_ons(&ab.events), vec![(0, 64)]);
+        let sum = summarize(&sections_style()).unwrap();
+        assert_eq!(sum.sections, ids);
+    }
+
+    /// Tempo and time-signature changes after the first section are kept per section, but the
+    /// style's tempo and meter stay those of bar 1.
+    #[test]
+    fn later_tempo_and_timesig_are_kept_not_applied() {
+        let s = parse(&sections_style()).unwrap();
+        assert_eq!((s.tempo_us, s.timesig), (500_000, (4, 4)));
+        let got: Vec<_> = s.timing_changes.iter().map(|c| (c.section.as_str(), c.tick, c.change)).collect();
+        assert_eq!(
+            got,
+            vec![
+                ("Fill In AB", 192, Timing::Tempo(600_000)),
+                ("Ending A", 192, Timing::Tempo(700_000)),
+                ("Ending A", 192, Timing::TimeSig(3, 4)),
+            ]
+        );
+        let sum = summarize(&sections_style()).unwrap();
+        assert_eq!((sum.bpm, sum.timesig), (120.0, (4, 4)));
+    }
+
+    /// Corpus counts: 3 unknown markers (2 Fill In AB, 1 Fill In EE) in 2 styles, and tempo
+    /// changes after bar 1 (Intro/Ending ritardandos) in 71 styles; no later meter changes.
+    #[test]
+    fn corpus_unknown_markers_and_later_timing() {
+        let (mut styles, mut opaque, mut tempo_styles, mut tempos, mut sigs) = (0, Vec::new(), 0, 0, 0);
+        for p in crate::library::corpus_styles() {
+            let s = Style::load(&p).unwrap_or_else(|e| panic!("{}: {e:#}", p.display()));
+            styles += 1;
+            opaque.extend(s.opaque_sections.iter().map(|o| o.name.clone()));
+            let t = s.timing_changes.iter().filter(|c| matches!(c.change, Timing::Tempo(_))).count();
+            tempos += t;
+            tempo_styles += (t > 0) as usize;
+            sigs += s.timing_changes.len() - t;
+            // Each opaque section ends where the next section starts: nothing leaks.
+            for o in &s.opaque_sections {
+                let next = s.sections.values().map(|x| x.start).filter(|&x| x > o.start).min();
+                assert_eq!(next, Some(o.start + o.len), "{p:?} {}", o.name);
+            }
+        }
+        if styles == 0 {
+            eprintln!("no corpus; skipping");
+            return;
+        }
+        opaque.sort();
+        eprintln!("{styles} styles: opaque {opaque:?}, {tempos} tempo changes in {tempo_styles} styles, {sigs} meter changes");
+        assert_eq!(opaque, vec!["Fill In AB", "Fill In AB", "Fill In EE"]);
+        assert_eq!((tempo_styles, tempos, sigs), (71, 1193, 0));
     }
 }

@@ -892,6 +892,8 @@ mod tests {
             sections: [(id, Section { id, start: 0, len: 3840, events })].into_iter().collect(),
             casm: vec![Cseg { sections: vec!["Main A".into()], rules: vec![maj, min] }],
             ots: vec![],
+            opaque_sections: vec![],
+            timing_changes: vec![],
             other_chunks: vec![],
         }
     }

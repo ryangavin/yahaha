@@ -8,9 +8,9 @@ pairs too-few 469
 pairs same-chord 1884
 pairs muted-own 511
 authored 249112 151368 172196
-identity RootTrans 330282 284297 330282
+identity RootTrans 330226 284241 330226
 identity RootTrans moved-in-limit 1426
-identity RootFixed 101646 101041 101646
+identity RootFixed 101645 101040 101645
 identity RootFixed moved-in-limit 0
 guitar GuitarAllPurpose notes 1463
 guitar GuitarAllPurpose noise 33
@@ -482,7 +482,7 @@ style MOX_v2/OrganCruise.S930.STY identity 12 12 12
 style MOX_v2/OrganCruise.S930.STY moved-in-limit 0
 style MOX_v2/Poppyhanger.T552.sty identity 1050 1050 1050
 style MOX_v2/Poppyhanger.T552.sty moved-in-limit 0
-style MOX_v2/SeeTheShow.T162.sty identity 904 897 904
+style MOX_v2/SeeTheShow.T162.sty identity 856 849 856
 style MOX_v2/SeeTheShow.T162.sty moved-in-limit 0
 style MOX_v2/SlowWalker.T552.sty identity 521 521 521
 style MOX_v2/SlowWalker.T552.sty moved-in-limit 0
@@ -504,7 +504,7 @@ style MOX_v2/TenorToTheMAX.S930.STY identity 869 837 869
 style MOX_v2/TenorToTheMAX.S930.STY moved-in-limit 0
 style MOX_v2/Thrust.S930.STY identity 240 239 240
 style MOX_v2/Thrust.S930.STY moved-in-limit 0
-style MOX_v2/TickingAway.T162.sty identity 253 248 253
+style MOX_v2/TickingAway.T162.sty identity 244 239 244
 style MOX_v2/TickingAway.T162.sty moved-in-limit 0
 style MOX_v2/WickedBreaks.S930.STY identity 117 39 117
 style MOX_v2/WickedBreaks.S930.STY moved-in-limit 0
