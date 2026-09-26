@@ -12,7 +12,7 @@ use std::cell::Cell;
 use std::path::Path;
 use std::time::Duration;
 use yahaha::api::{
-    AppCmd, AppState, ChartCmd, ChartState, HarmonyArpCmd, HarmonyArpMode, LibraryCmd, LooperCmd, MetronomeCmd, MixerCmd, MultiPadCmd,
+    AppCmd, AppState, ChartCmd, ChartState, DynamicsCmd, HarmonyArpCmd, HarmonyArpMode, LibraryCmd, LooperCmd, MetronomeCmd, MixerCmd, MultiPadCmd,
     MultiPadState, OtsCmd, Pad, PadLamp, PadsCmd, PartsCmd, SettingsCmd, SystemCmd,
 };
 use yahaha::engine::{Button, FadeState};
@@ -143,6 +143,11 @@ fn key_cmd(code: KeyCode) -> Option<AppCmd> {
         KeyCode::Char('r') => Some(AppCmd::Looper(LooperCmd::LooperRec)),
         KeyCode::Char('^') => Some(AppCmd::Looper(LooperCmd::LooperOnOff)),
         KeyCode::Char('.') => Some(AppCmd::Metronome(MetronomeCmd::ToggleMetronome)),
+        // Style Dynamics (#180): Accent (shift+h) and Touch (shift+7).
+        KeyCode::Char('H') => Some(AppCmd::Dynamics(DynamicsCmd::ToggleAccent)),
+        KeyCode::Char('&') => Some(AppCmd::Dynamics(DynamicsCmd::ToggleDynamicsTouch)),
+        // Left Hold (#202): shift+-.
+        KeyCode::Char('_') => Some(AppCmd::Chord(yahaha::api::ChordCmd::ToggleLeftHold)),
         // Multi Pads 1-4 (Shift+z x c v, above the Style part keys) and their STOP (Shift+b).
         KeyCode::Char(c) if "ZXCV".contains(c) => {
             Some(AppCmd::MultiPad(MultiPadCmd::TriggerMultiPad { pad: "ZXCV".find(c).unwrap() as u8 }))
@@ -823,6 +828,7 @@ pub fn screen_html(style: &Path, out: &Path) -> Result<()> {
         looper: Default::default(),
         style_solo: None,
         multipad: Default::default(),
+        dynamics: crate::engine::DYNAMICS_NEUTRAL,
     });
     // What a live session with the synth and a Launchkey would add.
     let mut st = (*session.state()).clone();
@@ -954,6 +960,9 @@ mod tests {
         assert_eq!(key_cmd(KeyCode::Char('V')), Some(AppCmd::MultiPad(MultiPadCmd::TriggerMultiPad { pad: 3 })));
         assert_eq!(key_cmd(KeyCode::Char('B')), Some(AppCmd::MultiPad(MultiPadCmd::StopAllMultiPads)));
         assert_eq!(key_cmd(KeyCode::Char('K')), None);
+        assert_eq!(key_cmd(KeyCode::Char('H')), Some(AppCmd::Dynamics(DynamicsCmd::ToggleAccent)));
+        assert_eq!(key_cmd(KeyCode::Char('&')), Some(AppCmd::Dynamics(DynamicsCmd::ToggleDynamicsTouch)));
+        assert_eq!(key_cmd(KeyCode::Char('_')), Some(AppCmd::Chord(ChordCmd::ToggleLeftHold)));
     }
 
     /// Letters typed into the browser filter; they never reach the performance shortcuts

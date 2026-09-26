@@ -330,7 +330,8 @@
     "splitName": "F#2",
     "transposeKeyboard": 0,
     "transposeMaster": 0,
-    "settleMs": 10
+    "settleMs": 10,
+    "leftHold": false
   },
   "keyboardParts": [
     {
@@ -346,6 +347,10 @@
       "voiceName": "Grand Piano",
       "playsBass": false,
       "octave": 0,
+      "pan": 64,
+      "reverb": 40,
+      "chorus": 0,
+      "variation": 0,
       "patch": null
     },
     {
@@ -361,6 +366,10 @@
       "voiceName": "Strings",
       "playsBass": false,
       "octave": 0,
+      "pan": 64,
+      "reverb": 40,
+      "chorus": 0,
+      "variation": 0,
       "patch": null
     },
     {
@@ -376,6 +385,10 @@
       "voiceName": "Brass Section",
       "playsBass": false,
       "octave": 0,
+      "pan": 64,
+      "reverb": 40,
+      "chorus": 0,
+      "variation": 0,
       "patch": null
     },
     {
@@ -391,6 +404,10 @@
       "voiceName": "Strings",
       "playsBass": false,
       "octave": 0,
+      "pan": 64,
+      "reverb": 40,
+      "chorus": 0,
+      "variation": 0,
       "patch": null
     }
   ],
@@ -522,6 +539,10 @@
     ],
     "master": null,
     "masterWaiting": false,
+    "styleVolume": 100,
+    "styleVolumeWaiting": false,
+    "multiPadVolume": 100,
+    "multiPadVolumeWaiting": false,
     "styleSolo": null,
     "partSolo": null
   },
@@ -1778,7 +1799,10 @@
         "bars": 0,
         "chords": []
       }
-    ]
+    ],
+    "bankName": "New Bank",
+    "bankPath": null,
+    "banks": []
   },
   "metronome": {
     "on": false,
@@ -2040,5 +2064,151 @@
     "count": 0,
     "scanning": false,
     "auditioning": null
+  },
+  "dynamics": {
+    "control": true,
+    "level": 64,
+    "touch": false,
+    "accent": false,
+    "accentThreshold": 110
+  },
+  "knobs": {
+    "page": "style",
+    "pageName": "Style",
+    "pageNumber": 1,
+    "pageCount": 4,
+    "knobs": [
+      {
+        "function": "dynamics",
+        "name": "Dynamics Control",
+        "short": "DynCtrl",
+        "value": "64",
+        "level": 64
+      },
+      {
+        "function": "retriggerRate",
+        "name": "Retrigger Rate",
+        "short": "RtgRate",
+        "value": "1/8",
+        "level": 76
+      },
+      {
+        "function": "retriggerOnOff",
+        "name": "Retrigger On/Off",
+        "short": "RtgOnOff",
+        "value": "Off",
+        "level": 0
+      },
+      {
+        "function": "trackMuteA",
+        "name": "Style Track Mute A",
+        "short": "StyMuteA",
+        "value": "All",
+        "level": 127
+      },
+      {
+        "function": "trackMuteB",
+        "name": "Style Track Mute B",
+        "short": "StyMuteB",
+        "value": "All",
+        "level": 127
+      },
+      {
+        "function": "none",
+        "name": "No Assign",
+        "short": "---",
+        "value": "",
+        "level": null
+      },
+      {
+        "function": "none",
+        "name": "No Assign",
+        "short": "---",
+        "value": "",
+        "level": null
+      },
+      {
+        "function": "tempo",
+        "name": "Tempo",
+        "short": "Tempo",
+        "value": "75 BPM",
+        "level": null
+      }
+    ]
+  },
+  "effects": {
+    "blocks": [
+      {
+        "block": "reverb",
+        "name": "Reverb",
+        "effect": "hall",
+        "effectName": "Hall",
+        "types": [
+          {
+            "effect": "hall",
+            "name": "Hall"
+          },
+          {
+            "effect": "room",
+            "name": "Room"
+          },
+          {
+            "effect": "stage",
+            "name": "Stage"
+          },
+          {
+            "effect": "plate",
+            "name": "Plate"
+          }
+        ],
+        "returnLevel": 64
+      },
+      {
+        "block": "chorus",
+        "name": "Chorus",
+        "effect": "chorus",
+        "effectName": "Chorus",
+        "types": [
+          {
+            "effect": "chorus",
+            "name": "Chorus"
+          },
+          {
+            "effect": "celeste",
+            "name": "Celeste"
+          },
+          {
+            "effect": "flanger",
+            "name": "Flanger"
+          }
+        ],
+        "returnLevel": 64
+      },
+      {
+        "block": "variation",
+        "name": "Variation",
+        "effect": "dottedEighth",
+        "effectName": "Delay 1/8.",
+        "types": [
+          {
+            "effect": "eighth",
+            "name": "Delay 1/8"
+          },
+          {
+            "effect": "dottedEighth",
+            "name": "Delay 1/8."
+          },
+          {
+            "effect": "quarter",
+            "name": "Delay 1/4"
+          },
+          {
+            "effect": "pingPong",
+            "name": "Ping-Pong"
+          }
+        ],
+        "returnLevel": 64
+      }
+    ]
   }
 }

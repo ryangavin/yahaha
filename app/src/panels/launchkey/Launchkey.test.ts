@@ -61,7 +61,8 @@ describe('Launchkey mirror', () => {
     await fireEvent.click(down())
     await fireEvent.click(down())
     await fireEvent.click(down())
-    expect(session.state.pads.page).toBe('registration')
+    await fireEvent.click(down())
+    expect(session.state.pads.page).toBe('multiPads')
   })
 
   it('the Shift layer turns Pad Bank into Left on/off and OTS Link, and fader buttons into Edit', async () => {
@@ -77,7 +78,9 @@ describe('Launchkey mirror', () => {
 
   it('the master fader button switches the fader page, and the faders follow', async () => {
     const { session } = setup()
-    expect(document.querySelectorAll('[data-tip="launchkey.fader_unused"][role="slider"]')).toHaveLength(4)
+    expect(document.querySelectorAll('[data-tip="launchkey.fader_unused"][role="slider"]')).toHaveLength(2)
+    expect(document.querySelectorAll('[data-tip="mixer.style_level"][role="slider"]')).toHaveLength(1)
+    expect(document.querySelectorAll('[data-tip="mixer.pad_level"][role="slider"]')).toHaveLength(1)
     await fireEvent.click(document.querySelector<HTMLButtonElement>('button[data-tip="mixer.page"]')!)
     expect(session.state.mixer.faderPage).toBe('style')
     flushSync()

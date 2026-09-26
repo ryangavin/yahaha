@@ -9,6 +9,7 @@ impl Engine {
     /// (settle.rs). The caller runs this once per wake, after every other input of the wake.
     pub fn process(&mut self, now: u64, sink: &mut impl Sink) {
         self.on_wake(now, sink);
+        self.tap_start_due(now, sink);
         self.settle_due(now, sink);
         self.play_due(now, sink);
     }
@@ -173,6 +174,18 @@ impl Engine {
         if self.manual_bass && dest == BASS_CH {
             return;
         }
+        // A pattern note written for a MegaVoice plays on a voice that is not one: its
+        // noise keys are left out, and its articulations play as plain notes
+        // (megavoice.rs). The written key and velocity pick the articulation.
+        let vel = match src {
+            STOP_ACMP_SRC => vel,
+            _ => match crate::megavoice::playable(self.mirror.voice[dest as usize & 15], src_key, vel) {
+                Some(v) => v,
+                None => return,
+            },
+        };
+        // Style Dynamics Control (dynamics.rs).
+        let vel = self.dynamics_vel(vel);
         let pitch = self.master(dest, out);
         // A part a pitch shift left bent is straightened once it has fallen silent.
         if self.rtr_bend[dest as usize & 15] != 0 && !self.sounding.iter().any(|s| s.active && s.dest == dest) {

@@ -17,9 +17,12 @@
 //!   pitch class, within an octave below a root key) is read as Single Finger. Two
 //!   pitch classes are Single Finger, except a perfect fifth up from the lowest key,
 //!   which is 1+5. One pitch class is the major chord.
-//! - **AI Fingered**: three or more pitch classes are read as Fingered. Fewer keep the
-//!   previous chord if they all belong to it; otherwise two notes are inferred from
-//!   their interval (`infer_dyad`) and one is the major chord on it (1+8 if doubled).
+//! - **AI Fingered**: the lowest key is the bass (#194). Three or more pitch classes are
+//!   read as Fingered On Bass. Two keep the previous chord over the lower note when the
+//!   upper one belongs to it (C then B+C is C/B, Am then G+A is Am/G); otherwise they
+//!   are inferred from their interval (`infer_dyad`), again over the lower note (G#-D is
+//!   E7/G#), and a 2nd keeps the chord as it is. One keeps the previous chord as it is
+//!   if it belongs to it, and is otherwise the major chord on it (1+8 if doubled).
 //! - **Full Keyboard**: the whole keyboard is read with On Bass rules (the lowest key is
 //!   the bass), with melody set aside (`full`). It needs three pitch classes, so a
 //!   melody alone never changes the chord, and 1+5 and 1+8 never occur. Sync Stop is
@@ -28,7 +31,7 @@
 //!   classes (single notes are melody and never change the chord). 9th, 11th and 13th
 //!   chords are reduced to the chord without the tension.
 //! - Chord Cancel only exists in Fingered, Fingered On Bass and AI Fingered.
-//! - Fingered, Multi Finger and AI Fingered always put the bass on the root.
+//! - Fingered and Multi Finger always put the bass on the root.
 
 use crate::theory::{chord_tones, Chord, Recognizer, CANCEL};
 
@@ -184,7 +187,7 @@ pub fn detect(rec: &Recognizer, mode: Fingering, held: &[bool; 128], split: u8, 
         Fingering::Fingered => plain(rec, s),
         Fingering::SingleFinger => Some(single(held, s)),
         Fingering::MultiFinger => multi(rec, held, s),
-        Fingering::AiFingered => ai(rec, s, prev).map(root_bass),
+        Fingering::AiFingered => ai(rec, s, prev),
         Fingering::FullKeyboard => full(rec, held, split),
         Fingering::AiFullKeyboard => ai_full(rec, held, split, prev).map(no_tensions),
     };
@@ -277,17 +280,32 @@ fn keep(s: Scan, prev: Option<Chord>) -> Option<Chord> {
     prev.filter(|&p| p.ty != CANCEL && s.mask & !tones_mask(p) == 0)
 }
 
-/// AI Fingered: Fingered for three or more pitch classes. Fewer keep the previous chord
-/// when they all belong to it, and are otherwise inferred: two by their interval, a lone
-/// pitch class as the major chord on it (1+8 when held in more than one octave).
+/// `c` over the pitch class `bass` (no slash when it is the root).
+fn over(c: Chord, bass: u8) -> Chord {
+    Chord { bass: (bass != c.root).then_some(bass), ..c }
+}
+
+/// AI Fingered, with the lowest key as the bass (#194). Three or more pitch classes are
+/// Fingered On Bass. Two keep the previous chord over the lower note when the upper
+/// note is one of its tones (C then B+C is C/B), and are otherwise inferred by their
+/// interval over the lower note; a 2nd is a passing note and changes nothing. A lone
+/// pitch class keeps the previous chord unchanged when it belongs to it, and is otherwise
+/// the major chord on it (1+8 when held in more than one octave).
 fn ai(rec: &Recognizer, s: Scan, prev: Option<Chord>) -> Option<Chord> {
-    if s.n >= 3 {
-        return plain(rec, s);
+    let low = s.low % 12;
+    match s.n {
+        3.. => fingered(rec, s),
+        2 => {
+            let upper = s.mask & !(1 << low);
+            match prev.filter(|&p| p.ty != CANCEL && upper & !tones_mask(root_bass(p)) == 0) {
+                Some(p) => Some(over(p, low)),
+                // infer_dyad gives `prev` back only for a 2nd (anything that fits `prev`
+                // was kept above): that passing note leaves the chord as it is.
+                None => infer_dyad(s, prev).map(|c| if Some(c) == prev { c } else { over(c, low) }),
+            }
+        }
+        _ => keep(s, prev).or(Some(Chord::new(low, if s.keys >= 2 { ONE_EIGHT } else { MAJOR }))),
     }
-    keep(s, prev).or_else(|| match s.n {
-        2 => infer_dyad(s, prev),
-        _ => Some(Chord::new(s.low % 12, if s.keys >= 2 { ONE_EIGHT } else { MAJOR })),
-    })
 }
 
 /// Distance between two roots around the circle of fifths (0..=6).
@@ -534,27 +552,60 @@ mod tests {
         let am7 = Some(Chord::new(9, 10));
         let c = Some(Chord::new(0, 0));
         let f = Some(Chord::new(5, 0));
-        assert_eq!(name(&r, ai, &[48, 52], am7), "Am7"); // C-E are in Am7: keep it
+        assert_eq!(name(&r, ai, &[45, 52], am7), "Am7"); // A-E are in Am7: keep it
+        assert_eq!(name(&r, ai, &[48, 52], am7), "Am7/C"); // C-E too, over the lower C
         assert_eq!(name(&r, ai, &[57], am7), "Am7"); // so is a lone A
+        assert_eq!(name(&r, ai, &[48], am7), "Am7"); // or a lone C: no bass change
         assert_eq!(name(&r, ai, &[50], am7), "D"); // lone note outside it: major on it
         assert_eq!(get(&r, ai, &[38, 50], am7), Some(Chord::new(2, ONE_EIGHT))); // doubled: 1+8
         assert_eq!(name(&r, ai, &[50, 53], am7), "Dm");
         assert_eq!(name(&r, ai, &[50, 54], None), "D");
-        assert_eq!(name(&r, ai, &[52, 60], None), "C");
-        assert_eq!(name(&r, ai, &[48, 57], None), "Am");
+        assert_eq!(name(&r, ai, &[52, 60], None), "C/E"); // inferred, lowest note is the bass
+        assert_eq!(name(&r, ai, &[48, 57], None), "Am/C");
         assert_eq!(name(&r, ai, &[48, 58], None), "C7");
         assert_eq!(name(&r, ai, &[48, 59], None), "Cmaj7");
         assert_eq!(get(&r, ai, &[48, 55], None), Some(Chord::new(0, ONE_FIVE)));
-        assert_eq!(get(&r, ai, &[43, 48], None), Some(Chord::new(0, ONE_FIVE)));
+        assert_eq!(get(&r, ai, &[43, 48], None), Some(Chord { bass: Some(7), ..Chord::new(0, ONE_FIVE) })); // G-C: C1+5/G
         // Tritones: the dominant nearer the previous chord on the circle of fifths.
-        assert_eq!(name(&r, ai, &[47, 53], None), "G7"); // B-F: the lower note is the 3rd
-        assert_eq!(name(&r, ai, &[41, 47], c), "G7"); // F-B over C
-        assert_eq!(name(&r, ai, &[41, 47], None), "C#7");
-        assert_eq!(name(&r, ai, &[46, 52], f), "C7"); // Bb-E over F
-        assert_eq!(name(&r, ai, &[48, 50], am7), "Am7"); // a 2nd: passing note
-        assert_eq!(name(&r, ai, &[40, 48, 52, 55], None), "C"); // 3+ notes, bass = root
-        assert_eq!(name(&r, ai, &[42, 48, 52, 55], None), "-"); // foreign bass, as Fingered
+        assert_eq!(name(&r, ai, &[47, 53], None), "G7/B"); // B-F: the lower note is the 3rd
+        assert_eq!(name(&r, ai, &[41, 47], c), "G7/F"); // F-B over C
+        assert_eq!(name(&r, ai, &[41, 47], None), "C#7/F");
+        assert_eq!(name(&r, ai, &[46, 52], f), "C7/Bb"); // Bb-E over F
+        assert_eq!(name(&r, ai, &[48, 50], am7), "Am7"); // a 2nd: passing note, chord unchanged
+        assert_eq!(name(&r, ai, &[40, 48, 52, 55], None), "C/E"); // 3+ notes: On Bass reading
+        assert_eq!(name(&r, ai, &[42, 48, 52, 55], None), "C/F#"); // foreign bass, as On Bass
         assert_eq!(get(&r, ai, &[48, 49, 50], am7).unwrap().ty, CANCEL);
+    }
+
+    /// AI Fingered keeps a slash bass (#194): after a chord, a held chord note with a
+    /// lower note puts the chord over that note. Plain Fingered keeps the root bass.
+    #[test]
+    fn ai_fingered_slash_bass() {
+        let r = Recognizer::new();
+        let ai = Fingering::AiFingered;
+        let c = Some(Chord::new(0, MAJOR));
+        let am = Some(Chord::new(9, MINOR));
+        let e7 = Some(Chord::new(4, SEVENTH));
+        // C, then a lone C keeps it, then B below: C/B.
+        assert_eq!(name(&r, ai, &[48], c), "C");
+        assert_eq!(name(&r, ai, &[47, 48], c), "C/B");
+        // A descending line under C: C/Bb, C/A, C/G.
+        let c_b = get(&r, ai, &[47, 48], c);
+        assert_eq!(name(&r, ai, &[46, 48], c_b), "C/Bb");
+        assert_eq!(name(&r, ai, &[45, 48], c), "C/A");
+        assert_eq!(name(&r, ai, &[43, 48], c), "C/G");
+        // Am, then G+A: Am/G, then F#+A: Am/F#.
+        assert_eq!(name(&r, ai, &[43, 45], am), "Am/G");
+        let am_g = get(&r, ai, &[43, 45], am);
+        assert_eq!(name(&r, ai, &[42, 45], am_g), "Am/F#");
+        // Two-note E7/G# (shown with yahaha's flat spelling): G# under E after E7, or the G#-D tritone after Am/G.
+        assert_eq!(name(&r, ai, &[44, 52], e7), "E7/Ab");
+        assert_eq!(name(&r, ai, &[44, 50], am_g), "E7/Ab");
+        // The root lowest is no slash chord.
+        assert_eq!(name(&r, ai, &[48, 52], c), "C");
+        // Plain Fingered never takes the lowest note as the bass.
+        assert_eq!(name(&r, Fingering::Fingered, &[47, 48, 52, 55], c), "Cmaj7");
+        assert_eq!(get(&r, Fingering::Fingered, &[47, 48], c), None);
     }
 
     #[test]

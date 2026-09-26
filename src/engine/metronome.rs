@@ -32,7 +32,7 @@ impl Engine {
         m.bell = bell;
     }
 
-    fn beat_ns(&self) -> u64 {
+    pub(super) fn beat_ns(&self) -> u64 {
         (60e9 / self.bpm.max(MIN_BPM)) as u64
     }
 

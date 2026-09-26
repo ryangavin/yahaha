@@ -24,6 +24,8 @@ struct Memory {
     main: Option<u8>,
     ots_link: Option<bool>,
     chord: Option<(Fingering, bool, bool, u8)>,
+    /// Left Hold (the session's `chord.leftHold`).
+    left_hold: Option<bool>,
     mixer: Option<(Vec<u8>, Vec<bool>)>,
     /// Right 1, Right 2, Right 3, Left: (on, program, volume, octave).
     parts: Option<Vec<Option<(bool, u8, u8, i8)>>>,
@@ -31,6 +33,8 @@ struct Memory {
     /// Keyboard Harmony/Arpeggio (the session's `harmonyArp` section); its `pedalHold` is
     /// the pedal's and is never recalled.
     harmony_arp: Option<HarmonyArpState>,
+    /// The Chord Looper (the session's `chordLooper` section): memory, ON/OFF.
+    looper: Option<(Option<u8>, bool)>,
 }
 
 #[derive(Clone, Debug)]
@@ -52,6 +56,8 @@ pub enum Effect {
     LoadStyle(String),
     /// Press Main n (with OTS Link held off).
     Main(u8),
+    /// Run a command (the Chord Looper's memory and ON/OFF).
+    Cmd(AppCmd),
     Message(String, bool),
 }
 
@@ -101,10 +107,12 @@ fn demo(name: &str, style: &(String, String), tempo: f64, programs: [u8; 4], on:
         main: Some(0),
         ots_link: Some(false),
         chord: Some((Fingering::FingeredOnBass, false, true, 54)),
+        left_hold: Some(false),
         mixer: Some((vec![100, 100, 96, 80, 76, 70, 88, 84], vec![true; 8])),
         parts: Some((0..4).map(|i| Some((on[i], programs[i], 100, 0))).collect()),
         transpose: Some((0, 0)),
         harmony_arp: None,
+        looper: None,
     }
 }
 
@@ -123,7 +131,7 @@ impl MockRegist {
             freeze: false,
             frozen: Groups::NONE,
             seq_pos: None,
-            seq_on: true,
+            seq_on: false,
             list: Playlist::default(),
             list_path: None,
             list_dirty: false,
@@ -305,6 +313,21 @@ impl MockRegist {
                     self.recall(b, st, false, &mut fx);
                 }
             }
+            // Regist +/- from a pedal: the sequence while it is on and programmed, else the
+            // next/previous stored button (as the session).
+            RegistrationCmd::StepRegist { delta } => {
+                if self.seq_on && !self.bank.sequence.steps.is_empty() {
+                    return self.registration_cmd(RegistrationCmd::StepRegistSequence { delta }, st);
+                }
+                let stored = self.bank.memories.iter().enumerate().filter(|(_, m)| m.is_some()).fold(0u16, |a, (i, _)| a | 1 << i);
+                if stored == 0 {
+                    fx.push(Effect::Message("no Registration stored in this bank".into(), true));
+                    return fx;
+                }
+                if let Some(b) = yahaha::registration::step_stored(stored, self.selected, delta) {
+                    self.recall(b, st, true, &mut fx);
+                }
+            }
         }
         fx
     }
@@ -329,6 +352,7 @@ impl MockRegist {
             main: style.then_some(st.transport.main),
             ots_link: style.then_some(st.ots.link),
             chord: style.then_some((c.fingering, c.upper, c.manual_bass, c.split)),
+            left_hold: style.then_some(c.left_hold),
             mixer: style.then(|| (st.mixer.style_parts.iter().map(|p| p.volume).collect(), st.mixer.style_parts.iter().map(|p| p.on).collect())),
             parts: (style || g.has(Group::Voice)).then(|| {
                 st.keyboard_parts
@@ -339,6 +363,7 @@ impl MockRegist {
             }),
             transpose: g.has(Group::Transpose).then_some((c.transpose_keyboard, c.transpose_master)),
             harmony_arp: g.has(Group::HarmonyArp).then(|| st.harmony_arp.clone()),
+            looper: g.has(Group::ChordLooper).then_some((st.looper.memory, matches!(st.looper.mode, LooperMode::LoopArmed | LooperMode::Looping))),
         };
         self.bank.memories[index as usize] = Some(m);
         self.selected = Some(index);
@@ -371,6 +396,14 @@ impl MockRegist {
                 }
             }
         }
+        if let (true, Some((memory, on))) = (allowed.has(Group::ChordLooper), m.looper) {
+            if let Some(index) = memory {
+                fx.push(Effect::Cmd(LooperCmd::SelectLooperMemory { index }.into()));
+            }
+            if on != matches!(st.looper.mode, LooperMode::LoopArmed | LooperMode::Looping) {
+                fx.push(Effect::Cmd(LooperCmd::LooperOnOff.into()));
+            }
+        }
         self.pending = Some((m.clone(), allowed));
         fx.push(Effect::Message(format!("Registration {}: {}", index + 1, m.name), false));
     }
@@ -396,6 +429,9 @@ impl MockRegist {
                 if !st.param_locks.get(LockItem::SplitPoint) {
                     st.chord.split = split;
                 }
+            }
+            if let Some(on) = m.left_hold {
+                st.chord.left_hold = on;
             }
             if let Some(link) = m.ots_link {
                 st.ots.link = link;

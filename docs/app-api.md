@@ -92,7 +92,7 @@ state, and pressing the button is the action. For settings, a GUI checkbox can u
 | Command | Fields | Does |
 |---|---|---|
 | `intro` | `index` 0–2 | Intro 1–3. Stopped: plays at the start. Playing: queued for its change point (see Section Change Timing below). |
-| `main` | `index` 0–3 | Main A–D. Pressing the Main that is playing plays its fill. With Auto Fill on, a change plays the fill first. |
+| `main` | `index` 0–3 | Main A–D. Pressing the Main that is playing plays its fill. With Auto Fill on, a change plays the fill first. Pressed during a fill, a press that would play a fill plays it right after that fill, from its top: tapping every bar loops fills (#229). |
 | `break` | | Break (Fill In BA). |
 | `fill` | `delta` −1, 0, 1 | Fill Down, Fill Self, Fill Up (the Genos assignable functions): the same as `fillDown`, `fillSelf` and `fillUp`. |
 | `ending` | `index` 0–2 | Ending 1–3. Pressing the Ending that is playing again adds a ritardando (`transport.ritardando`): the tempo slows to 65% by the ending's end, and comes back when the band stops. |
@@ -107,7 +107,7 @@ state, and pressing the button is the action. For settings, a GUI checkbox can u
 | `fillSelf` | | Fill Self: the Main's own fill, as pressing the Main playing. |
 | `fillBreak` | | Fill Break: the Break (the same as `break`). |
 | `setHalfBarFill` / `toggleHalfBarFill` | `on` | Half Bar Fill In: a Main change or fill asked for on the first beat of a bar plays a fill from the middle of that bar (beat 3 in 4/4), then the Main at the next bar line, even with Auto Fill off. |
-| `tapTempo` | | TAP TEMPO. Taps set the tempo, from the second tap (the last four averaged), stopped or playing. While the style plays with `styleSettings.sectionReset` on (the default, as on the Genos), a tap is a Style Section Reset instead and the tempo stays. |
+| `tapTempo` | | TAP TEMPO. Taps set the tempo, from the second tap (the last four averaged), stopped or playing. Stopped, a bar's worth of steady taps (four in 4/4) also starts the style one beat after the last tap, rhythm only until a chord (OM p.46); `stop` calls that count-in off. While the style plays with `styleSettings.sectionReset` on (the default, as on the Genos), a tap is a Style Section Reset instead and the tempo stays. |
 | `tempoUp`, `tempoDown` | | One tempo step. |
 | `toggleFade` | | FADE IN/OUT. Stopped: arms (or disarms) a fade in for the next start. Playing: fades out over `styleSettings.fadeOutMs`, then the band stops and the Style stays silent for `fadeHoldMs`. Only the Style fades: each Style part's CC7 (channels 9–16) goes out, on the port and to the built-in synth, as its fader value scaled by the fade; the faders don't move, and your playing and the Multi Pads never fade (docs/section-timing.md). `transport.fade` shows it. A fade out already running carries on; START/STOP mid-fade ends it at full volume. |
 | `sectionReset` | | Style Section Reset: the section playing starts again from its top, now. A change queued for the next bar line waits for the new bar grid's. Stopped: nothing. |
@@ -115,6 +115,8 @@ state, and pressing the button is the action. For settings, a GUI checkbox can u
 | `setTempo` | `bpm` | Sets the tempo. The range is 5–500 BPM (Genos, OM p.46); values outside are clamped. |
 | `toggleStylePart` | `part` 0–7 | Mutes or unmutes a Style part. |
 | `setStylePartVolume` | `part` 0–7, `volume` 0–127 | The part's CC7. The Launchkey fader has to reach the new value before it takes over again. |
+| `setStyleVolume` | `volume` 0–127 | The Style volume (the Genos Balance page's Style slider), 100 = as written: every Style part's CC7 goes out multiplied by `volume`/100 (at most 127), as a Fade In/Out scales it; the part levels (`styleParts[].volume`) do not move. One of the two exceptions to the mixer rule, with the Fade. Launchkey Panel fader 5, with soft takeover. Registered with the Style mixer. |
+| `setMultiPadVolume` | `volume` 0–127 | The Multi Pad volume (the Genos Balance page's M.Pad slider), 100 = as written: the pads' CC7 on channels 5–8 go out multiplied by `volume`/100 (at most 127); a pad channel whose phrase sets no CC7 counts as 100. The same exception to the mixer rule as `setStyleVolume`. Launchkey Panel fader 6, with soft takeover. Registered with the Multi Pad bank. |
 | `setStyleSolo` | `part` 0–7 or null | Solos a Style part: only it plays, even if it is switched off; the other parts' notes stop. `null` ends the solo. The on/off switches are not changed (`mixer.styleSolo`). |
 | `styleTrackMute` | `order` `a` \| `b`, `value` 0–127 | Style Track Mute, a Genos Live Control knob (RM p.148). `value` is the knob: fully left (0) leaves one part on, and turning up adds parts until all eight are on at 127. Order A: Rhythm 2, Rhythm 1, Bass, Chord 1, Chord 2, Pad, Phrase 1, Phrase 2. Order B: Chord 1, Chord 2, Pad, Bass, Phrase 1, Phrase 2, Rhythm 1, Rhythm 2. It sets the parts' on/off switches. |
 
@@ -149,6 +151,7 @@ Style Section Reset, the Fade In/Out times and the Style Retrigger length. The s
 | `stepTranspose` | `keyboard`, `master` | Adds to the current transpose. |
 | `resetTranspose` | | Both back to 0. |
 | `setChordSettle` | `ms` | The chord-settle window, clamped to 0–30 ms (default 10). While the style plays (and, with it stopped, for Stop Accompaniment and Chord Match Multi Pads), a chord change reaches the accompaniment once the chord has held still this long (at most three windows after the first change), so a rolled chord is followed once. 0: at once. Not a Genos setting; see docs/genos-features.md (Chord settle). |
+| `setLeftHold`, `toggleLeftHold` | `on` | LEFT HOLD (OM p.49): while on, the Left part's notes ring on after its keys are let go (its channel is held as if by a sustain pedal). Each key that sounds on Left lets go of what was held first, so a chord rings until the next one; stopping the style lets go too (the setting stays on). The sustain pedal on Left wins. Stored in Registration (`chord.leftHold`, group Style). |
 
 ### Keyboard parts
 
@@ -156,10 +159,12 @@ Style Section Reset, the Fade In/Out times and the Style Retrigger length. The s
 |---|---|---|
 | `setPartOn` / `togglePart` | `part` 0–3, `on` | Turns a part on or off. Left is refused while Manual Bass is in effect, with a `Failed` error and a message. |
 | `selectPart` | `part` | The part that `stepVoice` and the Launchkey voice pads edit. |
-| `setPartVoice` | `part`, `program` 0–127 | GM program. |
-| `stepVoice` | `delta` | Previous or next voice for the selected part. |
+| `setPartVoice` | `part`, `program` 0–127 | GM program. Selecting a voice replaces the part's voice: a plugin picked for the part (`setPartPlugin`) ends and is no longer saved, and its library patch goes (with a plugin that patch plays). |
+| `stepVoice` | `delta` | Previous or next voice for the selected part. Like `setPartVoice`, it ends a plugin picked for the part. |
 | `setPartVolume` | `part`, `volume` 0–127 | The part's CC7. The Launchkey fader has to reach it before it takes over. |
 | `setPartOctave` | `part`, `octave` −2..2 | Octave shift. |
+| `setPartPan` | `part`, `pan` 0–127 | The part's pan (CC10; 64 = centre), sent on its channel to the MIDI port and the synth. |
+| `setPartSend` | `part`, `send`: `reverb` \| `chorus` \| `variation`, `value` 0–127 | The part's reverb (CC91), chorus (CC93) or variation (CC94: the tempo delay) send depth to the effect bus (#204). |
 | `setPartSolo` | `part` 0–3 or null | Solos a keyboard part: only it sounds from the keys, even if it is switched off (Left soloed plays the left hand; another part soloed plays the whole keyboard when Left is not sounding). `null` ends it. The switches are not changed (`mixer.partSolo`). |
 
 ### Mixer, Launchkey pages, synth
@@ -167,7 +172,7 @@ Style Section Reset, the Fade In/Out times and the Style Retrigger length. The s
 | Command | Fields | Does |
 |---|---|---|
 | `setFaderPage` / `toggleFaderPage` | `page`: `panel` \| `style` | What the Launchkey faders control. |
-| `setPadPage` | `page`: `sections` \| `chordSetup` \| `otsParts` \| `registration` | The Launchkey pad page. |
+| `setPadPage` | `page`: `sections` \| `chordSetup` \| `otsParts` \| `registration` \| `multiPads` | The Launchkey pad page. |
 | `cyclePadPage` | `delta` | Steps the pad page, wrapping. |
 | `setMasterVolume` | `volume` 0–127 | Synth master (100 = unity). Fails when the synth is off. |
 | `setSynthMuted` / `toggleSynthMute` | `on` | Mutes the synth audio. |
@@ -191,7 +196,7 @@ Style Section Reset, the Fade In/Out times and the Style Retrigger length. The s
 
 | Command | Fields | Does |
 |---|---|---|
-| `recallOts` | `index` 0–3 | Recalls OTS 1–4 into the keyboard parts. Ignored if the style has no such OTS. |
+| `recallOts` | `index` 0–3 | Recalls OTS 1–4 into the keyboard parts: voice, on/off, volume, octave, and the pan and reverb/chorus sends the OTS sets (CC10/91/93; one it does not set is left as it is). A part the OTS gives a voice ends a plugin picked for it, as `setPartVoice` does. Ignored if the style has no such OTS. |
 | `setOtsLink` / `toggleOtsLink` | `on` | OTS Link: Main A–D recall OTS 1–4, and so does a style change. |
 | `setOtsLinkTiming` | `timing`: `immediate` \| `mainChange` | OTS Link Timing: during playback, recall the Main's OTS as it is pressed (`immediate`), or when that Main starts playing (`mainChange`, the default: at its change point, or after its fill; never while the old section still plays). Stopped, both recall at once. A style change recalls the new style's OTS when that style takes over (the bar line or beat Section Change Timing gives, or the end of an Ending), under both. |
 | `loadStyle` | `id` | A library entry (`LibraryEntry.id`). Stopped, it loads at once. Playing, it takes over at the next bar line, as on a Genos: the band carries on in the same section (the same Main, or the nearest the new style has) at the same bar position, at the same tempo. Until then `preview.queued` names it and `style` is still the old one. A later style change before the bar line replaces it; stopping first loads it then. |
@@ -257,6 +262,7 @@ Buttons are 0-based (`index` 0–9 = the panel's [1]–[10]). Groups are `style`
 | `setRegistSequence` | `steps` (buttons 0–9), `end`: `stop` \| `top` \| `next` | Programs the bank's Registration Sequence. |
 | `setRegistSequenceOn` / `toggleRegistSequence` | `on` | Registration Sequence on/off. A panel setting, not part of the bank (as on the Genos): it stays when the bank changes, and is kept in the Registration folder's `setup.json`. |
 | `stepRegistSequence` | `delta` | Regist +/−: recalls the next/previous step. Past the end: `stop` stays, `top` wraps, `next` loads the next bank and recalls its first step. Refused while the sequence is off. |
+| `stepRegist` | `delta` | Regist +/− from a pedal (the `registNext`/`registPrev` assignable functions): the sequence's next/previous step while it is on and has steps, else the bank's next/previous stored button (empty ones skipped; from none, + the first and − the last; it stops at either end). Refused when the bank has nothing stored. |
 
 ### Playlist
 
@@ -294,7 +300,9 @@ Details and decisions: [chord-looper.md](chord-looper.md).
 | `selectLooperMemory` | `index` 0–7 | Selects a memory. One that holds a sequence replaces the current one; while looping, at the next bar line (`looper.pendingMemory` until then). Refused while recording. |
 | `storeLooperMemory` | `index` 0–7 | Stores the current sequence in the memory (named `CLD_001` and on). Refused with nothing recorded. |
 | `clearLooperMemory` | `index` 0–7 | Empties the memory. |
-| `newLooperBank` | | Empties all eight memories. The current sequence stays. |
+| `newLooperBank` | | Empties all eight memories: a new, unsaved bank ("New Bank"). The current sequence stays. |
+| `saveLooperBank` | `name` (null: its own file), `overwrite`? | Saves the eight memories as a bank file (`<name>.looper.json` in the data folder's `ChordLooper` folder), which becomes the bank's file. Refused when another bank has that file, unless `overwrite: true`; refused without a name for a bank that has no file yet, and without a data folder. |
+| `loadLooperBank` | `path` | Loads a bank file (`looper.banks`): its memories replace the eight, and it becomes the bank in use (also at the next start). Refused while recording. |
 
 ### Metronome
 
@@ -414,6 +422,48 @@ groups are the Data List's lock groups that yahaha has: `splitPoint` (the split 
 |---|---|---|
 | `setParamLock` | `item` (`splitPoint` \| `fingeringType`), `on` | Locks or unlocks a group. A setup setting, not part of a bank: it is kept in the Registration folder's `setup.json`. |
 
+### Style Dynamics
+Genos2 Style Dynamics Control (OM p.11, p.69; RM p.11, p.142, p.147), with Touch and Accent (#180; docs/genos-features.md, Style Dynamics Control).
+- **Level.** A value from 0 to 127 that scales the velocity of every Style note. At 64 the Style plays as written. The level changes the band's intensity; the parts' CC7 volumes are never touched.
+- **Touch.** Each key struck in the chord section sets the level from that key's velocity.
+- **Accent.** A chord-section key struck at or above the threshold, while a Main plays, starts that Main's fill from the next beat. yahaha's Accent stands in for the PSR-SX Unison & Accent feature: no style carries Yamaha's accent data.
+- **Storage.** All of these are System settings. Registration does not store them.
+
+| Command | Fields | What it does |
+|---|---|---|
+| `setDynamicsControl` | `on` | Style Setting › Dynamics Control. Off: the Style plays as written, whatever the level. |
+| `setDynamics` | `level` 0–127 | The Dynamics level (64: as written). |
+| `stepDynamics` | `delta` | Moves the level by `delta`, clamped to 0–127. |
+| `setDynamicsTouch`, `toggleDynamicsTouch` | `on` | Touch: each chord-section strike sets the level to its velocity minus 36, so a strike at 100 plays as written. |
+| `setAccent`, `toggleAccent` | `on` | Accent: a chord-section strike at or above the threshold, while a Main plays, starts that Main's own fill at the next beat, as Fill Self does. It is not a Main press, so OTS Link does not follow it. It does nothing during an Intro, fill, break or Ending, or while a change is queued. |
+| `setAccentThreshold` | `velocity` 1–127 | The Accent threshold (default 110). |
+
+### Effects
+The shared effect bus (#204): every part, SoundFont or plugin, feeds three System Effect blocks
+through its sends (CC91 Reverb, CC93 Chorus, CC94 Variation; `setPartSend` for the keyboard
+parts, the style's own for the Style parts). Each block's return comes back into the mix
+before the master fader.
+
+| Command | Fields | What it does |
+|---|---|---|
+| `setEffectType` | `block` `reverb` \| `chorus` \| `variation`, `effect` | The block's type. Reverb: `hall` (default), `room`, `stage`, `plate`. Chorus: `chorus` (default), `celeste`, `flanger`. Variation, a stereo delay at the style tempo: `eighth`, `dottedEighth` (default), `quarter`, `pingPong` (1/8, alternating sides). Another block's type is refused. |
+| `setEffectReturn` | `block`, `level` 0–127 | The block's return level: 64 = 0 dB (default), 127 = +6 dB, 0 = off (Genos). |
+
+### Knob Assign pages
+The Launchkey's 8 encoders as the Genos LIVE CONTROL knobs (#197; OM p.62–63, RM p.145–148;
+README › Knobs). A page gives each knob a function; the knobs are relative, so a turn moves
+the value from where it is now, whoever set it last. A turn runs the command of the knob's
+function (`setDynamics`, `stepRetriggerRate`, `toggleRetrigger`, `styleTrackMute`,
+`setTempo`, `setPartVolume`, `setHarmonyVolume`, `setMetronomeVolume`, `setPartPan`,
+`setPartSend`, `setEffectReturn`), so it behaves
+exactly as that command does.
+
+| Command | Fields | What it does |
+|---|---|---|
+| `setKnobPage` | `page` `style` \| `parts` \| `pan` \| `effects` | The Knob Assign page. |
+| `stepKnobPage` | `delta` | Steps the page, stopping at the first and last (the encoder page buttons ▲/▼). |
+| `turnKnob` | `knob` 0–7, `delta` | Turns a knob `delta` steps (positive: clockwise). Levels move 2 a step, tempo 1 BPM; Retrigger Rate and On/Off switch every 3 steps (right: shorter, on); Track Mute A/B move their position 4 a step. A knob with No Assign does nothing. |
+
 ### Sound catalog
 One list of every sound for the Sound Browser (#117): every preset of every `.sf2` in the
 SoundFont folder, every instrument plugin, and every saved sound (the sound library's
@@ -458,6 +508,9 @@ The session owns the Launchkey, so it works the same whichever client is running
 - Some controls stay on the MIDI thread for real-time reasons: the faders (soft takeover
   against session-internal atomics), Pad Bank ▲/▼ and the fader-page button. A pad
   pressed straight after a page change must already read the new page.
+- The encoders and their page buttons ▲/▼ become `turnKnob` and `stepKnobPage` (see
+  Knob Assign pages). On entering DAW mode the session turns the encoders' relative
+  output on (feature control 45h); in the Transport encoder mode they are relative anyway.
 - The session drives all the LEDs.
 
 `state.pads` mirrors the hardware.
@@ -518,6 +571,7 @@ Indices are 0-based unless a field says otherwise.
 | `splitName` | string | Yamaha octave numbering (C3 = 60), for example `F#2` or `Ab2`. |
 | `transposeKeyboard`, `transposeMaster` | −12..12 | Semitones. |
 | `settleMs` | 0–30 | The chord-settle window in ms (`setChordSettle`). |
+| `leftHold` | bool | Left Hold (`setLeftHold`). |
 
 ### `keyboardParts`: always four, Right 1, Right 2, Right 3, Left
 | Field | Type | Meaning |
@@ -533,6 +587,9 @@ Indices are 0-based unless a field says otherwise.
 | `voiceName` | string | What its channel plays: its own patch's name, the patch its GM voice maps to, or the GM voice. For Left under Manual Bass, that is the Style's Bass voice. |
 | `playsBass` | bool | Left is playing the bass (Manual Bass). |
 | `octave` | −2..2 | The octave setting. It is not applied while `playsBass` is true. |
+| `pan` | 0–127 | Pan (CC10): 0 left, 64 centre, 127 right. 64 until something sets it (`setPartPan`, a library patch, an OTS). |
+| `reverb`, `chorus` | 0–127 | Reverb and chorus send depth (CC91, CC93). Until something sets them (`setPartSend`, a library patch, an OTS), Genos-like defaults sent at start: reverb 50 and chorus 10 on Right 1–3, reverb 40 and chorus 10 on Left. They go out again after a Panic, a Reset All Controllers from the keyboard, or a new synth. |
+| `variation` | 0–127 | Variation send depth (CC94): the effect bus's tempo delay. 0 until something sets it. |
 | `fader` | 0–127? | Where its Launchkey fader (Panel page, faders 1–4) physically is, as last reported. Null until that fader moves. |
 | `plugin` | PartPlugin? | The instrument plugin the part plays instead of its SoundFont voice. The key is absent when there is none. `id`, `name`, `manufacturer`, `status` (`loading` \| `playing` \| `failed` \| `muted`: still on the SoundFont, or the previous plugin, while loading; on the SoundFont after a failed load, keeping the choice so it is saved and can be retried; silent after the plugin crashed or produced bad audio), `stage` (while loading: `queued`, `instantiating`, `initializing`, `restoringState`), `error`, `outOfProcess` (runs in its own process), `inProcessFallback` (the system refused to host it in its own process, so it loaded in yahaha's process instead: a crash in it takes yahaha down; the app shows a warning badge), `cpu` (share of real time, updated once a second), `overruns` (renders slower than half the buffer, since it loaded), `recentOverruns` (those in the last 10 seconds, updated once a second: the live readout the mixer badge shows; a larger `setAudioBuffer` gives the plugin more time), `editor` (its window can be opened). Its volume is still `volume` (CC7), and its pan is CC10; the host applies both to the plugin's output. |
 | `patch` | string? | Its own sound library patch (`setPartPatch`). Null: its GM voice plays, through the program map; `voiceName` then names the patch the map sends it to, if any. |
@@ -540,10 +597,14 @@ Indices are 0-based unless a field says otherwise.
 ### `mixer`
 | Field | Type | Meaning |
 |---|---|---|
-| `faderPage` | `panel` \| `style` | What the Launchkey faders control. Panel: faders 1–4 are the keyboard parts. Style: faders 1–8 are the Style parts. |
+| `faderPage` | `panel` \| `style` | What the Launchkey faders control. Panel: faders 1–4 are the keyboard parts, fader 5 the Style volume, fader 6 the Multi Pad volume. Style: faders 1–8 are the Style parts. |
 | `styleParts` | StylePart[8] | See the table below. |
 | `master` | 0–127? | The synth master level (100 = unity). Null without the synth. |
 | `masterWaiting` | bool | The master fader has not yet reached `master`. It turns on as soon as `setMasterVolume` moves the level away from the fader. |
+| `styleVolume` | 0–127 | The Style volume (`setStyleVolume`; Panel fader 5): 100 = the Style parts' CC7 as written. |
+| `styleVolumeWaiting` | bool | Panel fader 5 has not yet reached `styleVolume`. |
+| `multiPadVolume` | 0–127 | The Multi Pad volume (`setMultiPadVolume`; Panel fader 6): 100 = the pads' CC7 as written. |
+| `multiPadVolumeWaiting` | bool | Panel fader 6 has not yet reached `multiPadVolume`. |
 | `styleSolo` | 0–7? | The Style part soloed (`setStyleSolo`): only it plays. Null when none. |
 | `partSolo` | 0–3? | The keyboard part soloed (`setPartSolo`). Null when none. |
 
@@ -566,7 +627,7 @@ control's meaning, and every LED as the hardware shows it.
 
 | Field | Type | Meaning |
 |---|---|---|
-| `page` | `sections` \| `chordSetup` \| `otsParts` | The current Launchkey pad page. |
+| `page` | `sections` \| `chordSetup` \| `otsParts` \| `registration` \| `multiPads` | The current Launchkey pad page. |
 | `pageName`, `pageNumber` (1-based), `pageCount` | | For example `Chord/Setup`, 2, 3. |
 | `pads` | Pad[16] | This page: the top row (notes 96–103), then the bottom row (112–119). |
 | `connected` | bool | A Launchkey DAW port is connected. It is set once, at start: see the limitation below. |
@@ -689,7 +750,7 @@ Which button LEDs are lit, and in what colour:
 | `value` | 0–127? | The level it controls. Null when unused. |
 | `waiting` | bool | The level is waiting for the hardware fader (soft takeover). |
 | `position` | 0–127? | Where the hardware fader physically is, as last reported. It is the same physical fader on both pages. Null until it moves. |
-| `set` | AppCmd? | What moving it sends: this command with `volume` filled in (`setPartVolume`, `setStylePartVolume` or `setMasterVolume`; `volume` is 0 here). Null when unused. |
+| `set` | AppCmd? | What moving it sends: this command with `volume` filled in (`setPartVolume`, `setStylePartVolume`, `setStyleVolume`, `setMultiPadVolume` or `setMasterVolume`; `volume` is 0 here). Null when unused. |
 
 #### `surface.clock`
 Everything here is about time: the playing position, and the clock the pads flash on.
@@ -853,6 +914,9 @@ The Chord Looper.
 | `memory` | 0–7? | The memory selected. A new recording is in no memory until stored. |
 | `pendingMemory` | 0–7? | A memory selected while looping, taking over at the next bar line. |
 | `memories` | LooperMemory[8] | `name` (`CLD_001`…, null when empty), `bars`, `chords` (LoopChord[]). |
+| `bankName` | string | The bank's name: "New Bank" until it is saved or loaded. |
+| `bankPath` | string? | Its file; null while unsaved. Either way every change to the memories is written at once (to the file, or to `ChordLooper/autosave.json`), and the next session starts with this bank. |
+| `banks` | BankFile[] | The bank files in the `ChordLooper` folder: `name`, `path`. |
 
 ### `metronome`
 | Field | Type | Meaning |
@@ -948,6 +1012,36 @@ name; saved sounds in the library's order.
 ### `paramLocks`
 Parameter Lock: `{ splitPoint, fingeringType }`, each a bool (true: locked). All false by
 default.
+
+### `dynamics`
+Style Dynamics: `{ control, level, touch, accent, accentThreshold }`.
+- `control`: Style Setting › Dynamics Control. Default true.
+- `level`: the level in effect, 0–127. Touch moves it. Default 64.
+- `touch`, `accent`: default false.
+- `accentThreshold`: a velocity from 1 to 127. Default 110.
+
+### `knobs`
+The Knob Assign page: `{ page, pageName, pageNumber, pageCount, knobs }`.
+- `page`: `style` (the default), `parts`, `pan` or `effects`. `pageNumber` is 1-based.
+- `knobs`: always eight, knob 1 first: `{ function, name, short, value, level }`.
+  - `function`: `none`, `dynamics`, `retriggerRate`, `retriggerOnOff`, `trackMuteA`,
+    `trackMuteB`, `tempo`, `partVolume`, `harmonyVolume`, `metronomeVolume`, `partPan`,
+    `partReverb`, `partChorus` or `fxReturn` (an effect block's return level; the `pan` page's
+    knobs 5–7 are Reverb, Chorus and Delay Return).
+  - `name` is the full name ("Dynamics Control"); `short` is up to 8 characters ("DynCtrl",
+    "---" for No Assign), as the Genos Live Control view and the Launchkey display show it.
+  - `value`: the value as text ("64", "1/8", "On", "3 of 8", "All", "120 BPM", a pan "L20" /
+    "C" / "R20"); empty for No
+    Assign.
+  - `level`: where the knob is, 0–127, as the Genos LED ring shows it; null for tempo and No
+    Assign. Track Mute A/B keep their own position (they only set the Style parts' switches),
+    starting fully right.
+
+### `effects`
+`{ blocks }`: the effect bus's Reverb, Chorus and Variation blocks, in that order (#204).
+Each is `{ block, name, effect, effectName, types, returnLevel }`: `effect` is the type
+(`setEffectType`), `effectName` its name ("Hall", "Delay 1/8."), `types` the block's own
+types as `{ effect, name }`, `returnLevel` 0–127 (64 = 0 dB).
 
 ### `message`
 `{ seq, text, error }` or null. It holds the last notice or error, for example a style
@@ -1070,7 +1164,8 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
     "splitName": "F#2",
     "transposeKeyboard": 0,
     "transposeMaster": 0,
-    "settleMs": 10
+    "settleMs": 10,
+    "leftHold": false
   },
   "keyboardParts": [
     {
@@ -1086,6 +1181,10 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
       "voiceName": "Square Lead",
       "playsBass": false,
       "octave": -1,
+      "pan": 64,
+      "reverb": 40,
+      "chorus": 0,
+      "variation": 0,
       "plugin": {
         "id": "aumu dls  appl",
         "name": "DLSMusicDevice",
@@ -1115,6 +1214,10 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
       "voiceName": "Halo Pad",
       "playsBass": false,
       "octave": 0,
+      "pan": 64,
+      "reverb": 40,
+      "chorus": 0,
+      "variation": 0,
       "patch": null
     },
     {
@@ -1130,6 +1233,10 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
       "voiceName": "Halo Pad",
       "playsBass": false,
       "octave": 0,
+      "pan": 64,
+      "reverb": 40,
+      "chorus": 0,
+      "variation": 0,
       "patch": null
     },
     {
@@ -1145,6 +1252,10 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
       "voiceName": "Choir Aahs",
       "playsBass": false,
       "octave": 1,
+      "pan": 64,
+      "reverb": 40,
+      "chorus": 0,
+      "variation": 0,
       "patch": null
     }
   ],
@@ -1190,6 +1301,10 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
     ],
     "master": 100,
     "masterWaiting": false,
+    "styleVolume": 100,
+    "styleVolumeWaiting": false,
+    "multiPadVolume": 100,
+    "multiPadVolumeWaiting": false,
     "styleSolo": null,
     "partSolo": null
   },
@@ -1487,7 +1602,10 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
       { "name": null, "bars": 0, "chords": [] },
       { "name": null, "bars": 0, "chords": [] },
       { "name": null, "bars": 0, "chords": [] }
-    ]
+    ],
+    "bankName": "New Bank",
+    "bankPath": null,
+    "banks": []
   },
   "metronome": {
     "on": false,
@@ -1591,6 +1709,39 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
   },
   "paramLocks": { "splitPoint": false, "fingeringType": true },
   "sounds": { "revision": 3, "count": 1219, "scanning": false, "auditioning": null },
+  "dynamics": { "control": true, "level": 72, "touch": true, "accent": true, "accentThreshold": 110 },
+  "knobs": {
+    "page": "style",
+    "pageName": "Style",
+    "pageNumber": 1,
+    "pageCount": 4,
+    "knobs": [
+      { "function": "dynamics", "name": "Dynamics Control", "short": "DynCtrl", "value": "72", "level": 72 },
+      { "function": "retriggerRate", "name": "Retrigger Rate", "short": "RtgRate", "value": "1/8", "level": 76 },
+      { "function": "retriggerOnOff", "name": "Retrigger On/Off", "short": "RtgOnOff", "value": "Off", "level": 0 },
+      { "function": "trackMuteA", "name": "Style Track Mute A", "short": "StyMuteA", "value": "All", "level": 127 },
+      { "function": "trackMuteB", "name": "Style Track Mute B", "short": "StyMuteB", "value": "All", "level": 127 },
+      { "function": "none", "name": "No Assign", "short": "---", "value": "", "level": null },
+      { "function": "none", "name": "No Assign", "short": "---", "value": "", "level": null },
+      { "function": "tempo", "name": "Tempo", "short": "Tempo", "value": "92 BPM", "level": null }
+    ]
+  },
+  "effects": {
+    "blocks": [
+      {
+        "block": "reverb", "name": "Reverb", "effect": "hall", "effectName": "Hall", "returnLevel": 64,
+        "types": [{ "effect": "hall", "name": "Hall" }, { "effect": "room", "name": "Room" }, { "effect": "stage", "name": "Stage" }, { "effect": "plate", "name": "Plate" }]
+      },
+      {
+        "block": "chorus", "name": "Chorus", "effect": "chorus", "effectName": "Chorus", "returnLevel": 64,
+        "types": [{ "effect": "chorus", "name": "Chorus" }, { "effect": "celeste", "name": "Celeste" }, { "effect": "flanger", "name": "Flanger" }]
+      },
+      {
+        "block": "variation", "name": "Variation", "effect": "dottedEighth", "effectName": "Delay 1/8.", "returnLevel": 64,
+        "types": [{ "effect": "eighth", "name": "Delay 1/8" }, { "effect": "dottedEighth", "name": "Delay 1/8." }, { "effect": "quarter", "name": "Delay 1/4" }, { "effect": "pingPong", "name": "Ping-Pong" }]
+      }
+    ]
+  },
   "message": null
 }
 ```

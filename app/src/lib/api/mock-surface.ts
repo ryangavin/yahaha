@@ -17,12 +17,16 @@ const PINK = 57
 const PURPLE = 53
 const DIM_PURPLE = 55
 const ORANGE = 9
+const DIM_ORANGE = 11
 const RED = 5
+const DIM_RED = 7
+const DIM_YELLOW = 15
 const PALETTE: Record<number, [Rgb, Level]> = {
   [WHITE]: [[127, 127, 127], 'bright'],
   [CYAN]: [[0, 100, 127], 'bright'],
   [PINK]: [[127, 0, 70], 'bright'],
   [ORANGE]: [[127, 60, 0], 'bright'],
+  [DIM_ORANGE]: [[127, 60, 0], 'dim'],
   [GREEN]: [[0, 127, 0], 'bright'],
   [DIM_GREEN]: [[0, 127, 0], 'dim'],
   [BLUE]: [[0, 0, 127], 'bright'],
@@ -30,6 +34,8 @@ const PALETTE: Record<number, [Rgb, Level]> = {
   [PURPLE]: [[90, 0, 127], 'bright'],
   [RED]: [[127, 0, 0], 'bright'],
   [DIM_PURPLE]: [[90, 0, 127], 'dim'],
+  [DIM_RED]: [[127, 0, 0], 'dim'],
+  [DIM_YELLOW]: [[127, 127, 0], 'dim'],
 }
 const PAGE_COLOUR = [WHITE, CYAN, PINK, ORANGE]
 
@@ -37,6 +43,10 @@ const PAGE_COLOUR = [WHITE, CYAN, PINK, ORANGE]
 const HARM_ARP_FADER_BTN = 4
 /** The Panel-page fader button that reloads the selected part's plugin (src/launchkey.rs). */
 const PLUGIN_FADER_BTN = 5
+/** The Panel-page fader button that is the CHORD LOOPER: ON/OFF, Shift REC/STOP (src/launchkey.rs). */
+const LOOPER_FADER_BTN = 7
+/** The Panel-page fader button that is LEFT HOLD (src/launchkey.rs). */
+const LEFT_HOLD_FADER_BTN = 6
 const PART_LABELS = ['RIGHT 1', 'RIGHT 2', 'RIGHT 3', 'LEFT']
 const SELECT_LABELS = ['EDIT R1', 'EDIT R2', 'EDIT R3', 'EDIT L']
 
@@ -119,15 +129,31 @@ export function mockSurface(s: AppState, lib: LibraryList, hw: MockHardware): Su
       // Red while the selected part's plugin stopped or failed to load: press to reload it.
       const st = s.keyboardParts.find((k) => k.selected)?.plugin?.status
       controls.push(control(id, cc, 'PLUGIN', { type: 'reloadPartPlugin', part: null }, st === 'muted' || st === 'failed' ? RED : OFF))
+    } else if (i === LEFT_HOLD_FADER_BTN) {
+      controls.push(control(id, cc, 'L HOLD', { type: 'toggleLeftHold' }, s.chord.leftHold ? ORANGE : DIM_ORANGE))
+    } else if (i === LOOPER_FADER_BTN) {
+      const l = s.looper
+      const colour = { off: l.hasData ? DIM_GREEN : OFF, recArmed: DIM_RED, recording: RED, loopArmed: DIM_YELLOW, looping: GREEN }[l.mode]
+      controls.push(control(id, cc, 'LOOPER', { type: 'looperOnOff' }, colour, { label: 'LOOP REC', action: { type: 'looperRec' } }))
     } else controls.push(control(id, cc, '', null, OFF))
   }
   controls.push(control('masterButton', 45, style ? 'STYLE' : 'PANEL', { type: 'toggleFaderPage' }, style ? GREEN : BLUE))
 
+  /** Panel fader 5 (0-based 4): the Style volume. */
+  const STYLE_FADER = 4
+  /** Panel fader 6: the Multi Pad volume. */
+  const PAD_FADER = 5
   const faders: SurfaceFader[] = Array.from({ length: 8 }, (_, i): SurfaceFader => {
     const position = hw.faders[i] ?? null
     if (style) {
       const p = s.mixer.styleParts[i]
       return { label: STYLE_PART_NAMES[i].toUpperCase(), value: p.volume, waiting: p.waiting, position, set: { type: 'setStylePartVolume', part: i, volume: 0 } }
+    }
+    if (i === STYLE_FADER) {
+      return { label: 'STYLE', value: s.mixer.styleVolume, waiting: s.mixer.styleVolumeWaiting, position, set: { type: 'setStyleVolume', volume: 0 } }
+    }
+    if (i === PAD_FADER) {
+      return { label: 'M.PAD', value: s.mixer.multiPadVolume, waiting: s.mixer.multiPadVolumeWaiting, position, set: { type: 'setMultiPadVolume', volume: 0 } }
     }
     const p = s.keyboardParts[i]
     if (!p) return { label: '', value: null, waiting: false, position, set: null }

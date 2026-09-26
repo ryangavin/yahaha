@@ -4,13 +4,15 @@
 //! A feature adds its own `Registrable` (in its own module, or here) and one line in
 //! `REGISTRABLES`. Its section is its own serde struct under its own key; a recall skips
 //! whatever is not in the groups being recalled (Memorize groups less Freeze), and an old
-//! bank file that lacks the section leaves the feature alone. The Chord Looper and Live
-//! Control add theirs when they are wired in.
+//! bank file that lacks the section leaves the feature alone. Live Control adds its own
+//! when it is wired in.
 //!
 //! Parameter Lock: a recall that sets an item of a Data List lock group (`LockItem`) asks
 //! `c.param_locked(item)` first and leaves the item alone when it is locked.
 
+use super::super::fx::{effects_capture, effects_recall};
 use super::super::harmony_arp::{harmony_arp_capture, harmony_arp_recall};
+use super::super::looper::{looper_capture, looper_recall};
 use super::super::style_settings::{style_settings_capture, style_settings_recall};
 use super::super::Control;
 use crate::api::{gm_name, ChordCmd, LibraryCmd, LockItem, MultiPadCmd, PartsCmd, StopAcmpMode};
@@ -48,6 +50,8 @@ pub(in crate::session) const REGISTRABLES: &[Registrable] = &[
     Registrable { key: "chord", early: false, capture: chord_capture, recall: chord_recall },
     Registrable { key: "styleControl", early: false, capture: control_capture, recall: control_recall },
     Registrable { key: "styleMixer", early: false, capture: mixer_capture, recall: mixer_recall },
+    // The effect bus's types and return levels (#204): session/fx.rs.
+    Registrable { key: "effects", early: false, capture: effects_capture, recall: effects_recall },
     Registrable { key: "parts", early: false, capture: parts_capture, recall: parts_recall },
     Registrable { key: "transpose", early: false, capture: transpose_capture, recall: transpose_recall },
     // Keyboard Harmony/Arpeggio (#32/#33): session/harmony_arp.rs.
@@ -55,6 +59,9 @@ pub(in crate::session) const REGISTRABLES: &[Registrable] = &[
     // Section Change Timing, Retrigger, Synchro Stop Window, Section Reset, fade times
     // (#107): session/style_settings.rs.
     Registrable { key: "styleSettings", early: false, capture: style_settings_capture, recall: style_settings_recall },
+    // The Chord Looper (#201): session/looper.rs. After the style, so a loop armed by the
+    // recall follows the recalled style.
+    Registrable { key: "chordLooper", early: false, capture: looper_capture, recall: looper_recall },
 ];
 
 fn to_value<T: Serialize>(t: &T) -> Option<Value> {
@@ -112,13 +119,20 @@ fn find_style(c: &Control, path: &Path) -> Option<PathBuf> {
 struct MultiPadReg {
     /// The bank file; None: no bank.
     bank: Option<String>,
+    /// The Multi Pad volume (#196; the Genos's Multi Pad volume offset), 100 = as written.
+    /// Missing (a bank from an earlier build): left as it is.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    level: Option<u8>,
 }
 
 fn multipad_capture(c: &Control, g: Groups) -> Option<Value> {
     if !g.has(Group::MultiPad) {
         return None;
     }
-    to_value(&MultiPadReg { bank: c.multipad_bank_path().map(|p| p.display().to_string()) })
+    to_value(&MultiPadReg {
+        bank: c.multipad_bank_path().map(|p| p.display().to_string()),
+        level: Some(c.shared.parts.volume(parts::PAD_LEVEL)),
+    })
 }
 
 fn multipad_recall(c: &mut Control, v: &Value, g: Groups) -> Result<(), String> {
@@ -126,6 +140,11 @@ fn multipad_recall(c: &mut Control, v: &Value, g: Groups) -> Result<(), String> 
         return Ok(());
     }
     let r: MultiPadReg = parse("multiPad", v)?;
+    if let Some(level) = r.level {
+        // Panel fader 6 picks it up; the engine thread scales the pads on its next wake.
+        c.shared.parts.set_volume(parts::PAD_LEVEL, level);
+        c.wake_engine();
+    }
     let now = c.multipad_bank_path().map(Path::to_path_buf);
     let cmd = match r.bank {
         // Already chosen: pads playing from it carry on.
@@ -175,6 +194,10 @@ struct ChordReg {
     manual_bass: bool,
     /// Split point (Style), a MIDI note.
     split: u8,
+    /// Left Hold (DL: a Registration item, group Style). Absent in banks from before it:
+    /// left as it is.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    left_hold: Option<bool>,
 }
 
 fn chord_capture(c: &Control, g: Groups) -> Option<Value> {
@@ -187,6 +210,7 @@ fn chord_capture(c: &Control, g: Groups) -> Option<Value> {
         upper: sh.upper.load(Relaxed),
         manual_bass: sh.manual_bass.load(Relaxed),
         split: sh.split.load(Relaxed),
+        left_hold: Some(sh.controllers.left_hold()),
     })
 }
 
@@ -204,6 +228,9 @@ fn chord_recall(c: &mut Control, v: &Value, g: Groups) -> Result<(), String> {
     }
     if !c.param_locked(LockItem::SplitPoint) {
         c.chord_cmd(ChordCmd::SetSplit { note: r.split }).map_err(e)?;
+    }
+    if let Some(on) = r.left_hold {
+        c.chord_cmd(ChordCmd::SetLeftHold { on }).map_err(e)?;
     }
     Ok(())
 }
@@ -284,6 +311,10 @@ struct MixerReg {
     /// build): a level is set where it differs.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     set: Option<[bool; 8]>,
+    /// The Style volume (#199; the Genos's Style volume offset, DL p.83), 100 = as
+    /// written. Missing (a bank from an earlier build): left as it is.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    level: Option<u8>,
 }
 
 fn mixer_capture(c: &Control, g: Groups) -> Option<Value> {
@@ -295,6 +326,7 @@ fn mixer_capture(c: &Control, g: Groups) -> Option<Value> {
         volumes: s.volumes,
         on: std::array::from_fn(|p| s.parts & (1 << p) != 0),
         set: Some(std::array::from_fn(|p| s.user_set & (1 << p) != 0)),
+        level: Some(c.shared.parts.volume(parts::STYLE_LEVEL)),
     })
 }
 
@@ -303,6 +335,11 @@ fn mixer_recall(c: &mut Control, v: &Value, g: Groups) -> Result<(), String> {
         return Ok(());
     }
     let r: MixerReg = parse("styleMixer", v)?;
+    if let Some(level) = r.level {
+        // Panel fader 5 picks it up; the engine thread scales the parts on its next wake.
+        c.shared.parts.set_volume(parts::STYLE_LEVEL, level);
+        c.wake_engine();
+    }
     // Absolute levels and states only: the engine compares them with its own (the
     // snapshot may be behind an earlier recall's changes). It sets the player's levels and
     // hands every other part back to the style, so the patterns' CC7 move it as usual.
@@ -330,6 +367,17 @@ struct PartReg {
     volume: u8,
     /// -2..=2.
     octave: i8,
+    /// Pan, reverb send and chorus send (CC10, CC91, CC93; #198). Missing (a bank from an
+    /// earlier build): the part's are left as they are.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pan: Option<u8>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    reverb: Option<u8>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    chorus: Option<u8>,
+    /// The variation (delay) send (CC94; #204). Missing: left as it is.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    variation: Option<u8>,
     /// The part's own sound library patch (#103), played instead of `voice`. None: the
     /// GM voice (and a bank from an earlier build). A patch that is gone from the library
     /// falls back to `voice`, which is the GM voice the part had underneath.
@@ -370,6 +418,10 @@ fn parts_capture(c: &Control, g: Groups) -> Option<Value> {
             voice: Some(c.part_plugin_reg(p).unwrap_or_else(|| VoiceRef::gm(kp.program[p].load(Relaxed)))),
             volume: kp.volume(p),
             octave: kp.octave[p].load(Relaxed).clamp(-2, 2),
+            pan: Some(kp.fx(p)[parts::PAN]),
+            reverb: Some(kp.fx(p)[parts::REVERB]),
+            chorus: Some(kp.fx(p)[parts::CHORUS]),
+            variation: Some(kp.fx(p)[parts::VARIATION]),
             patch: c.part_patch(p).map(|(id, name)| PatchReg { id, name }),
         })
     });
@@ -400,9 +452,11 @@ fn parts_recall(c: &mut Control, v: &Value, g: Groups) -> Result<(), String> {
             }
             None => err = Some(format!("{}: voice not available", parts::NAMES[p])),
         }
-        // After the patch: its defaults give way to the registration's level and octave.
+        // After the patch: its defaults give way to the registration's level, octave, pan
+        // and sends (the engine thread sends the CCs).
         kp.set_volume(p, part.volume.min(127));
         kp.octave[p].store(part.octave.clamp(-2, 2), Relaxed);
+        kp.set_fx(p, [part.pan, part.reverb, part.chorus, part.variation]);
         // Left plays the bass under Manual Bass: its switch stays as it is.
         let locked_left = p == parts::LEFT && c.shared.manual_bass();
         if kp.is_on(p) != part.on && !locked_left {

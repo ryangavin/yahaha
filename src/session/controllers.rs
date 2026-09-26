@@ -149,6 +149,56 @@ mod tests {
         assert!(s.state().controllers.sustain);
     }
 
+    /// Chord Looper On/Off and Rec/Stop (RM p.141, #201) are the CHORD LOOPER buttons: a
+    /// pedal press arms recording (stopped: Sync Start) and a second one cancels it; the
+    /// Launchkey's Panel fader button 8 runs the same functions.
+    /// Left Hold On/Off (RM p.140, #202) is a switch with a Control Type: a Hold A pedal
+    /// keeps Left Hold on while it is down; a Toggle pedal and Try switch it; Panel fader
+    /// button 7 switches it too.
+    #[test]
+    fn left_hold_is_assignable() {
+        let Some(s) = offline() else { return };
+        let hold = |s: &Session| s.state().chord.left_hold;
+        assert_eq!(Function::LeftHold.kind(), crate::controllers::Kind::Switch);
+        s.send(pedal(1, 66, Function::LeftHold)).unwrap();
+        s.midi_in(Port::Keys, &[0xB0, 66, 127]);
+        s.advance(1_000_000);
+        assert!(hold(&s), "Hold A: on while down");
+        s.midi_in(Port::Keys, &[0xB0, 66, 0]);
+        s.advance(1_000_000);
+        assert!(!hold(&s), "and off when let go");
+        s.send(ControllersCmd::TriggerFunction { function: Function::LeftHold }).unwrap();
+        assert!(hold(&s));
+        s.midi_in(Port::Pads, &[0xB0, 43, 127]); // Panel fader button 7
+        s.advance(1_000_000);
+        assert!(!hold(&s));
+    }
+
+    #[test]
+    fn chord_looper_is_assignable() {
+        use crate::api::LooperMode;
+        let Some(s) = offline() else { return };
+        assert_eq!(Function::ChordLooperRec.info().name, "Chord Looper Rec/Stop");
+        s.send(pedal(1, 66, Function::ChordLooperRec)).unwrap();
+        s.midi_in(Port::Keys, &[0xB0, 66, 127]);
+        s.advance(1_000_000);
+        assert_eq!(s.state().looper.mode, LooperMode::RecArmed);
+        s.midi_in(Port::Keys, &[0xB0, 66, 0]);
+        s.midi_in(Port::Keys, &[0xB0, 66, 127]);
+        s.advance(1_000_000);
+        assert_eq!(s.state().looper.mode, LooperMode::Off, "pressed again while armed: cancelled");
+        // ON/OFF with nothing recorded does nothing, and says so or not: no loop arms.
+        let _ = s.send(ControllersCmd::TriggerFunction { function: Function::ChordLooperOnOff });
+        s.advance(1_000_000);
+        assert_eq!(s.state().looper.mode, LooperMode::Off);
+        // Panel fader button 8 (CC 44 on the DAW port), Shift + it: REC/STOP.
+        s.midi_in(Port::Pads, &[0xB0, crate::launchkey::SHIFT_CC, 127]);
+        s.midi_in(Port::Pads, &[0xB0, 44, 127]);
+        s.midi_in(Port::Pads, &[0xB0, crate::launchkey::SHIFT_CC, 0]);
+        s.advance(1_000_000);
+        assert_eq!(s.state().looper.mode, LooperMode::RecArmed);
+    }
+
     /// Fade In/Out (RM p.142) is the FADE IN/OUT button (OM p.67): stopped, a pedal press
     /// arms the fade in and the next takes it off; software runs it the same way.
     #[test]

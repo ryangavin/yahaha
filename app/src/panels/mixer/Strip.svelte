@@ -1,7 +1,9 @@
 <!--
   One mixer channel strip, like a Genos Mixer channel: the MIDI out channel, a big fader
   that is the channel's CC 7 (with the soft-takeover mark and the ghost of where the
-  Launchkey fader physically sits), On and Solo, and the voice. Everything comes from the
+  Launchkey fader physically sits), On and Solo, and the voice. A keyboard part's strip
+  also has Pan, Reverb and Chorus knobs (CC 10, 91, 93) above the fader; `fxRow` keeps
+  that row's space on a strip without them, so the faders line up. Everything comes from the
   engine's state; the strip only sends commands.
 -->
 <script lang="ts">
@@ -10,6 +12,7 @@
   import { clock } from '../../lib/store.svelte'
   import { tip } from '../../lib/tooltip/tip.svelte'
   import Fader from '../../lib/ui/Fader.svelte'
+  import FxKnob from './FxKnob.svelte'
   import HwButton from '../../lib/ui/HwButton.svelte'
   import type { VoiceLines } from './voice'
 
@@ -28,6 +31,8 @@
     voice = null,
     badge = null,
     solo = null,
+    fx = null,
+    fxRow = false,
   }: {
     name: string
     /** 1-based MIDI channel at yahaha's output; null for an unused strip. */
@@ -51,13 +56,39 @@
     badge?: { text: string; tip: TipKey } | null
     /** Solo: whether this part is the one soloed, and the command that toggles it. */
     solo?: { isSolo: boolean; onclick: () => void } | null
+    /** Pan and the reverb/chorus/variation sends (0–127), what moving them sends, and the
+     *  part's default reverb send (a double-click goes back to it). */
+    fx?: {
+      pan: number
+      reverb: number
+      chorus: number
+      variation: number
+      reverbDefault: number
+      onpan: (v: number) => void
+      onsend: (send: 'reverb' | 'chorus' | 'variation', v: number) => void
+    } | null
+    /** Keep the knob row's space when there are no knobs. */
+    fxRow?: boolean
   } = $props()
+
+  const panText = (v: number) => (v === 64 ? 'C' : v < 64 ? `L${64 - v}` : `R${v - 64}`)
 </script>
 
-<div class="strip" class:unused>
-  <div class="ch" use:tip={unused ? 'launchkey.fader_unused' : 'mixer.channel'}>
+<div class="strip" class:unused class:knobs={fx !== null || fxRow}>
+  <div class="ch" use:tip={unused ? 'launchkey.fader_unused' : channel === null ? faderTip : 'mixer.channel'}>
     {#if channel !== null}<span class="engraved">Ch</span> <b>{channel}</b>{:else}&nbsp;{/if}
   </div>
+
+  {#if fx}
+    <div class="fx">
+      <FxKnob value={fx.pan} tip="mixer.part.pan" label="{name} pan" caption="Pan" reset={64} centre format={panText} onchange={fx.onpan} />
+      <FxKnob value={fx.reverb} tip="mixer.part.reverb" label="{name} reverb" caption="Rev" reset={fx.reverbDefault} onchange={(v) => fx.onsend('reverb', v)} />
+      <FxKnob value={fx.chorus} tip="mixer.part.chorus" label="{name} chorus" caption="Cho" reset={10} onchange={(v) => fx.onsend('chorus', v)} />
+      <FxKnob value={fx.variation} tip="mixer.part.variation" label="{name} delay" caption="Dly" reset={0} onchange={(v) => fx.onsend('variation', v)} />
+    </div>
+  {:else if fxRow}
+    <div class="fx" aria-hidden="true"></div>
+  {/if}
 
   <div class="fader">
     <Fader {value} tip={faderTip} label={name} pickup={waiting} {hw} {lit} disabled={unused} {onchange} />
@@ -107,6 +138,18 @@
     border-radius: var(--r-key);
     background: linear-gradient(180deg, rgb(255 255 255 / 0.025), transparent 40%);
     box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.18);
+  }
+  /* The knob row sits between the channel and the fader. */
+  .strip.knobs {
+    grid-template-rows: auto var(--fx-h, 3.4rem) minmax(13rem, 1fr) auto auto auto;
+  }
+  .fx {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 0.1rem;
+    width: 100%;
+    height: var(--fx-h, 3.4rem);
+    align-items: start;
   }
   .unused {
     opacity: 0.55;

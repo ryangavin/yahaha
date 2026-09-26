@@ -32,11 +32,16 @@ mod chart;
 mod chord;
 mod controllers;
 mod devices;
+mod display;
+mod dynamics;
+mod fx;
 mod harmony_arp;
 mod keyboard;
+mod knobs;
 mod leds;
 mod library;
 mod looper;
+mod looper_banks;
 mod metronome;
 mod mixer;
 mod multipad;
@@ -298,6 +303,15 @@ struct Control {
     looper: looper::LooperCtl,
     /// Metronome settings.
     metronome: metronome::MetronomeCtl,
+    /// Style Dynamics Control, Touch and Accent (session/dynamics.rs); the level in effect
+    /// is the snapshot's.
+    dynamics: crate::engine::DynamicsSettings,
+    /// Knob Assign pages (session/knobs.rs).
+    knobs: crate::knobs::Knobs,
+    /// The effect bus's types and return levels (session/fx.rs).
+    fx: fx::FxSettings,
+    /// The Launchkey display: what the control last touched did (session/display.rs).
+    display: display::Display,
     /// Multi Pad banks to the engine thread, and replaced players back to free here.
     pad_tx: Producer<live::PadBank>,
     old_pad_rx: Consumer<Box<crate::multipad::MultiPadPlayer>>,
@@ -377,6 +391,9 @@ impl Control {
             AppCmd::SoundLibrary(c) => self.sound_library_cmd(c),
             AppCmd::ParamLock(c) => self.param_lock_cmd(c),
             AppCmd::Sounds(c) => self.sounds_cmd(c),
+            AppCmd::Dynamics(c) => self.dynamics_cmd(c),
+            AppCmd::Knobs(c) => self.knobs_cmd(c),
+            AppCmd::Fx(c) => self.fx_cmd(c),
         }
     }
 
@@ -392,6 +409,8 @@ impl Control {
             ots_link: parts.ots_link.load(Relaxed),
             harmony_arp: self.harmony_arp.on,
             plugin_fault: self.selected_plugin_fault(),
+            left_hold: self.shared.controllers.left_hold(),
+            looper: self.looper_lamp(),
             parts_on: parts.sounding_mask(),
             selected: parts.selected() as u8,
             regist: self.regist_panel(),
@@ -431,6 +450,7 @@ impl Control {
         self.pump_looper();
         self.pump_metronome();
         self.pump_chart();
+        self.pump_fx();
 
         // Free-running beat clock for flashing/pulsing, following the current tempo.
         let s = self.snap;
@@ -494,6 +514,9 @@ impl Control {
             sound_library: self.sound_library_state(),
             param_locks: self.param_lock_state(),
             sounds: self.sounds_state(),
+            dynamics: self.dynamics_state(),
+            knobs: self.knobs_state(),
+            effects: self.effects_state(),
         }
     }
 }
@@ -524,6 +547,7 @@ impl Inner {
             events.push(Event::SoundsChanged { revision });
         }
         let mut st = ctl.build_state(now);
+        ctl.pump_display(&st, now);
         {
             let mut cur = self.state.lock().unwrap_or_else(|e| e.into_inner());
             st.version = cur.version;
@@ -671,7 +695,7 @@ fn assemble(opts: &Options, engine_out: live::Out, input_out: live::Out, offline
         style_settings: StyleSettings::default(),
         reg: registration::RegState::new(opts.data_dir.as_ref().map(|d| d.join("Registration"))),
         playlist: playlist::PlaylistCtl::new(opts.data_dir.as_ref().map(|d| d.join("Playlists"))),
-        looper: looper::LooperCtl::new(ch.looper_tx, ch.recorded_rx),
+        looper: looper::LooperCtl::new(ch.looper_tx, ch.recorded_rx, opts.data_dir.as_ref().map(|d| d.join("ChordLooper"))),
         metronome: Default::default(),
         pad_tx: ch.pad_tx,
         old_pad_rx: ch.old_pad_rx,
@@ -680,6 +704,10 @@ fn assemble(opts: &Options, engine_out: live::Out, input_out: live::Out, offline
         harmony_arp: live::FxConfig::default(),
         sound,
         sounds: sounds::Sounds::open(sound_set.file()),
+        dynamics: Default::default(),
+        knobs: Default::default(),
+        fx: Default::default(),
+        display: Default::default(),
         sound_set,
     };
     let mut control = control;
@@ -841,6 +869,12 @@ impl Session {
 
     /// The session clock, in ns (monotonic; the virtual clock offline): the time base of
     /// `AppState::clock`.
+    /// What the Launchkey display was last sent: title, name, value (tests).
+    #[cfg(test)]
+    pub(crate) fn display_shown(&self) -> Option<display::Text> {
+        self.inner.lock().display.shown.clone()
+    }
+
     pub fn now_ns(&self) -> u64 {
         match &self.inner.lock().offline {
             Some(o) => o.now,

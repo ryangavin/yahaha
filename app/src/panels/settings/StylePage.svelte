@@ -1,7 +1,8 @@
 <!--
   Style: Genos Menu › Style Setting. How the band starts, stops and fills, Section Change
   Timing, the Synchro Stop Window, Tap's Section Reset, Fade In/Out, Style Retrigger, Stop
-  Accompaniment, OTS Link timing and Change Behavior.
+  Accompaniment, OTS Link timing, Change Behavior, and Style Dynamics (Dynamics Control, the
+  level, and yahaha's Touch and Accent, #180).
 -->
 <script lang="ts">
   import { app } from '../../lib/store.svelte'
@@ -16,6 +17,7 @@
   const t = $derived(app.state.transport)
   const ots = $derived(app.state.ots)
   const st = $derived(app.state.styleSettings)
+  const dyn = $derived(app.state.dynamics)
   const onOff = (on: boolean) => (on ? 'On' : 'Off')
   /** Settings in ms, sliders in tenths of a second. */
   const tenths = (ms: number) => Math.round(ms / 100)
@@ -153,6 +155,33 @@
     value={st.retriggerRate}
     options={RETRIGGER_RATES.map((r) => ({ id: r as number, label: r === 1 ? '1' : `1/${r}`, tip: 'settings.retrigger_rate' as const }))}
     onselect={(rate: number) => app.send({ type: 'setRetriggerRate', rate })}
+  />
+</Field>
+
+<Field name="Dynamics Control" genos="Style Setting › Dynamics Control" inline note="On: the Dynamics level below (and Touch) sets how hard the band plays. Off: the Style plays as written.">
+  <Toggle on={dyn.control} tip="dynamics.control" onclick={() => app.send({ type: 'setDynamicsControl', on: !dyn.control })}>{onOff(dyn.control)}</Toggle>
+</Field>
+
+<Field name="Dynamics" genos="Live Control › Style Dynamics" note="64 plays the Style as written. The mixer volumes stay as they are.">
+  <span class="gate" class:off={!dyn.control}>
+    <HSlider label="Dynamics" tip="dynamics.level" value={dyn.level} unity={64} disabled={!dyn.control} onchange={(level) => app.send({ type: 'setDynamics', level })} />
+  </span>
+</Field>
+
+<Field name="Touch" genos={null} inline note="The band follows your left hand: each chord-section key you strike sets the Dynamics from how hard you hit it.">
+  <Toggle on={dyn.touch} tip="dynamics.touch" onclick={() => app.send({ type: 'toggleDynamicsTouch' })}>{onOff(dyn.touch)}</Toggle>
+</Field>
+
+<Field name="Accent" genos={null} inline note="Hit a chord-section key at least as hard as the threshold and the Main plays its fill from the next beat.">
+  <Toggle on={dyn.accent} tip="dynamics.accent" onclick={() => app.send({ type: 'toggleAccent' })}>{onOff(dyn.accent)}</Toggle>
+</Field>
+
+<Field name="Accent threshold" genos={null}>
+  <HSlider
+    label="Accent threshold"
+    tip="dynamics.accent_threshold"
+    value={dyn.accentThreshold}
+    onchange={(velocity) => app.send({ type: 'setAccentThreshold', velocity: Math.max(1, velocity) })}
   />
 </Field>
 

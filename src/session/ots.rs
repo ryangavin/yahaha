@@ -28,9 +28,10 @@ impl Control {
         if let Some(o) = self.info.ots.get(index as usize) {
             self.shared.parts.apply_ots(o, index + 1);
             // The parts the OTS gives a voice play it (through the program map), not their
-            // own library patch (#103).
+            // own library patch (#103), nor a plugin picked for them (#179).
             let voiced: Vec<usize> = o.parts.iter().enumerate().filter(|(_, q)| q.voice.is_some_and(|v| v.0 < 126)).map(|(p, _)| p).collect();
             for p in voiced {
+                self.end_picked_plugin(p);
                 self.sound_library_part_voice(p);
             }
             if self.engine_cmd(Cmd::SyncStartOn).is_err() {

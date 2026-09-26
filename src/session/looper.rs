@@ -5,8 +5,11 @@
 use super::Control;
 use crate::api::{CmdError, LoopChord, LooperCmd, LooperMemory, LooperMode, LooperState};
 use crate::engine::LoopState;
+use crate::launchkey::LooperLamp;
 use crate::live::Cmd;
-use crate::looper::{ChordSeq, LOOP_PPQ};
+use crate::looper::{ChordSeq, SeqFile, LOOP_PPQ};
+use crate::registration::{Group, Groups};
+use serde::{Deserialize, Serialize};
 use rtrb::{Consumer, Producer};
 
 /// Chord Looper memories per bank (RM p.17).
@@ -28,11 +31,44 @@ pub(super) struct LooperCtl {
     stored: u32,
     /// The engine's `chart_yields` last seen: ON/OFF turned chart mode off to arm a loop.
     chart_yields: u16,
+    /// Bank files (looper_banks.rs).
+    pub(super) files: super::looper_banks::BankFiles,
 }
 
 impl LooperCtl {
-    pub(super) fn new(tx: Producer<ChordSeq>, rx: Consumer<ChordSeq>) -> LooperCtl {
-        LooperCtl { tx, rx, current: ChordSeq::EMPTY, memories: Default::default(), selected: None, pending: None, stored: 0, chart_yields: 0 }
+    /// `dir`: the ChordLooper folder (None: nothing is saved). The memories come back as
+    /// the last session left them.
+    pub(super) fn new(tx: Producer<ChordSeq>, rx: Consumer<ChordSeq>, dir: Option<std::path::PathBuf>) -> LooperCtl {
+        let mut l = LooperCtl {
+            tx,
+            rx,
+            current: ChordSeq::EMPTY,
+            memories: Default::default(),
+            selected: None,
+            pending: None,
+            stored: 0,
+            chart_yields: 0,
+            files: super::looper_banks::BankFiles::new(dir),
+        };
+        if let Some(b) = l.files.startup() {
+            l.set_memories(&b);
+        }
+        l
+    }
+
+    /// The memories of bank file `b`; the CLD_ count carries on after its highest.
+    pub(super) fn set_memories(&mut self, b: &crate::looper::BankFile) {
+        for (i, m) in b.memories(MEMORIES).into_iter().enumerate() {
+            self.memories[i] = m;
+        }
+        let top = self.memories.iter().flatten().filter_map(|(n, _)| n.strip_prefix("CLD_")?.parse::<u32>().ok()).max();
+        self.stored = self.stored.max(top.unwrap_or(0));
+        self.selected = None;
+        self.pending = None;
+    }
+
+    pub(super) fn memories(&self) -> &[Option<(String, ChordSeq)>] {
+        &self.memories
     }
 
     /// Tests: hand the engine an empty sequence (as a fresh engine has).
@@ -90,6 +126,7 @@ impl Control {
                 self.looper.stored += 1;
                 self.looper.memories[i] = Some((format!("CLD_{:03}", self.looper.stored), self.looper.current));
                 self.looper.selected = Some(i as u8);
+                self.looper_autosave();
                 Ok(())
             }
             LooperCmd::ClearLooperMemory { index } => {
@@ -98,14 +135,19 @@ impl Control {
                 if self.looper.pending.is_some_and(|(p, _)| p as usize == i) {
                     self.looper.pending = None;
                 }
+                self.looper_autosave();
                 Ok(())
             }
             LooperCmd::NewLooperBank => {
                 self.looper.memories = Default::default();
                 self.looper.selected = None;
                 self.looper.pending = None;
+                self.looper.files.detach();
+                self.looper_autosave();
                 Ok(())
             }
+            LooperCmd::SaveLooperBank { name, overwrite } => self.save_looper_bank(name, overwrite),
+            LooperCmd::LoadLooperBank { path } => self.load_looper_bank(&path),
         }
     }
 
@@ -139,6 +181,19 @@ impl Control {
         }
     }
 
+    /// The Chord Looper as the Launchkey's Panel fader button 8 shows it.
+    pub(super) fn looper_lamp(&self) -> LooperLamp {
+        let s = self.snap.looper;
+        match s.state {
+            LoopState::Off if s.has_data => LooperLamp::Ready,
+            LoopState::Off => LooperLamp::Empty,
+            LoopState::RecArmed => LooperLamp::RecArmed,
+            LoopState::Recording => LooperLamp::Recording,
+            LoopState::LoopArmed => LooperLamp::LoopArmed,
+            LoopState::Looping => LooperLamp::Looping,
+        }
+    }
+
     pub(super) fn looper_state(&self) -> LooperState {
         let s = self.snap.looper;
         let l = &self.looper;
@@ -166,6 +221,86 @@ impl Control {
                     None => LooperMemory::default(),
                 })
                 .collect(),
+            bank_name: l.files.name().to_string(),
+            bank_path: l.files.path().map(|p| p.to_string_lossy().to_string()),
+            banks: l.files.list(),
         }
     }
+}
+
+// ----- Registration (group Chord Looper; Data List p.82) -----
+
+/// The Chord Looper in a Registration Memory: the memory selected, ON/OFF, and the
+/// sequence it plays, so a recall works in a later session too (#201).
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct LooperReg {
+    /// The memory selected (0-7), if any.
+    #[serde(default)]
+    memory: Option<u8>,
+    /// ON/OFF: the loop armed or playing.
+    #[serde(default)]
+    on: bool,
+    /// The selected memory's sequence (or the current one with no memory selected).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    sequence: Option<SeqFile>,
+    /// The memory's name ("CLD_001").
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    name: Option<String>,
+}
+
+pub(super) fn looper_capture(c: &Control, g: Groups) -> Option<serde_json::Value> {
+    if !g.has(Group::ChordLooper) {
+        return None;
+    }
+    let l = &c.looper;
+    let memory = l.selected;
+    let (name, seq) = match memory.and_then(|i| l.memories[i as usize].as_ref()) {
+        Some((name, seq)) => (Some(name.clone()), *seq),
+        None => (None, l.current),
+    };
+    let on = matches!(c.snap.looper.state, LoopState::LoopArmed | LoopState::Looping);
+    let r = LooperReg { memory, on, sequence: (!seq.is_empty()).then(|| SeqFile::of(&seq)), name };
+    serde_json::to_value(&r).ok()
+}
+
+/// Recall the `chordLooper` section: the memory (its sequence put back if the memory lost
+/// it), then ON/OFF: on arms the loop (it starts at the next bar line, or with the style),
+/// off stops a loop at once. A recording under way is left alone.
+pub(super) fn looper_recall(c: &mut Control, v: &serde_json::Value, g: Groups) -> Result<(), String> {
+    if !g.has(Group::ChordLooper) {
+        return Ok(());
+    }
+    let r: LooperReg = serde_json::from_value(v.clone()).map_err(|e| format!("registration chordLooper: {e}"))?;
+    let state = c.snap.looper.state;
+    if matches!(state, LoopState::RecArmed | LoopState::Recording) {
+        return Ok(());
+    }
+    let e = |e: CmdError| e.to_string();
+    let seq = r.sequence.as_ref().map(SeqFile::to_seq).filter(|s| !s.is_empty());
+    match (r.memory, seq) {
+        (Some(i), seq) => {
+            let i = i as usize % MEMORIES;
+            if let Some(seq) = seq
+                && c.looper.memories[i].as_ref().is_none_or(|(_, m)| *m != seq)
+            {
+                let name = r.name.clone().unwrap_or_else(|| format!("Registration {}", i + 1));
+                c.looper.memories[i] = Some((name, seq));
+                c.looper_autosave();
+            }
+            c.looper_cmd(LooperCmd::SelectLooperMemory { index: i as u8 }).map_err(e)?;
+        }
+        (None, Some(seq)) => {
+            c.looper.tx.push(seq).map_err(|_| "Chord Looper busy".to_string())?;
+            c.looper.current = seq;
+            c.looper.selected = None;
+            c.wake_engine();
+        }
+        (None, None) => {}
+    }
+    let on = matches!(state, LoopState::LoopArmed | LoopState::Looping);
+    if on != r.on {
+        c.looper_cmd(LooperCmd::LooperOnOff).map_err(e)?;
+    }
+    Ok(())
 }

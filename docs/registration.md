@@ -43,7 +43,7 @@ yahaha's own JSON, never Yamaha's `.rgt`. By default in `~/Documents/yahaha`
         "sections": {
           "style": { "path": "/Users/me/Styles/SlowWalker.T552.sty", "name": "SlowWalker" },
           "tempo": { "bpm": 96.0 },
-          "chord": { "fingering": "fingeredOnBass", "upper": false, "manualBass": true, "split": 54 },
+          "chord": { "fingering": "fingeredOnBass", "upper": false, "manualBass": true, "split": 54, "leftHold": true },
           "styleControl": { "main": 1, "intro": null, "syncStart": true, "syncStop": false, "stopAcmp": false, "stopAcmpMode": "off", "otsLink": false },
           "styleMixer": { "volumes": [100, 100, 96, 64, 76, 70, 88, 84], "on": [true, true, true, true, true, true, true, true], "set": [false, false, false, true, false, false, false, false] },
           "parts": { "parts": [
@@ -95,15 +95,19 @@ Today's sections: `style` (early), `multiPad` (early: the bank file, or null for
 `tempo`, `chord` (fingering, Upper, Manual Bass, split), `styleControl` (Main, Intro, Sync
 Start/Stop, Stop ACMP and its mode `stopAcmpMode` (Data List p.91: group Style; a bank without it
 recalls only on/off), OTS Link), `styleMixer` (the 8 Style parts' CC7, on/off, and `set`:
-which levels the player had set), `parts` (Right 1–3 and Left: on, voice, CC7, octave, and the part's own sound library
+which levels the player had set, and `level`: the Style volume, #199, the Genos's Style volume offset; a bank without it leaves it), `parts` (Right 1–3 and Left: on, voice, CC7, octave, `pan`/`reverb`/`chorus`/`variation` (CC10/91/93/94, #198/#204; a bank without them leaves them as they are), and the part's own sound library
 patch `patch: { id, name }` (#109), recalled through `setPartPatch`),
-`transpose`, `harmonyArp` (Keyboard Harmony/Arpeggio: the switch, the type and pattern by
+`effects` (#204, group Style: each effect block's `effect` type and `returnLevel`, under
+`reverb`, `chorus`, `variation`; a bank without it leaves them), `transpose`, `harmonyArp` (Keyboard Harmony/Arpeggio: the switch, the type and pattern by
 name, Volume, Speed, Assign, Chord Note Only, Touch Limit, and the arpeggio's Quantize, Hold
 setting, velocity and Keep Key On; not the Arpeggio Hold pedal function, which is the
 pedal's), `styleSettings` (#107: Section Change Timing To Main, Style Retrigger on/off and
 rate, Synchro Stop Window, Tap Tempo's Style Section Reset, all group Style; the Fade In,
-Fade Out and Fade Out Hold times, group Assignable). The Chord Looper and Live Control add theirs when they're wired in (their groups
-already exist).
+Fade Out and Fade Out Hold times, group Assignable), `chordLooper` (#201, group Chord Looper:
+`memory` 0–7 or null, `on` (ON/OFF: armed or looping), and the memory's `sequence` itself
+(`bars`, `chords: [{ bar, at, root, type, bass?, name }]`) with its `name`, so a recall works
+in a later session even when the looper's memories are gone). Live Control adds its own when
+it is wired in (its group already exists).
 
 The voice is a `VoiceRef` tagged by `kind` (`{"kind":"gm","program":…}`). A voice kind the
 build can't read or play (a newer build's `kind`) is reported for that part only: its other
@@ -171,13 +175,15 @@ first).
 
 | Group | Items here |
 |---|---|
-| Style | the style, section (Main, armed Intro), Sync Start/Stop, Stop ACMP, OTS Link, the Style part mixer, the **Left** part, split point, fingering, Chord Detection Area / Manual Bass, Section Change Timing To Main, Style Retrigger on/off and rate, Synchro Stop Window, Style Section Reset |
-| Voice | Right 1–3: voice, on/off, volume, octave |
+| Style | the style, section (Main, armed Intro), Sync Start/Stop, Stop ACMP, OTS Link, the Style part mixer and the Style volume, the **Left** part, split point, fingering, Chord Detection Area / Manual Bass, Left Hold, Section Change Timing To Main, Style Retrigger on/off and rate, Synchro Stop Window, Style Section Reset |
+| Voice | Right 1–3: voice, on/off, volume, octave, pan, reverb and chorus sends |
 | Tempo | the tempo, in whole BPM as on the Genos panel (recalled as SET TEMPO) |
 | Transpose | Keyboard and Master transpose |
-| Multi Pad | the Multi Pad bank (Data List "Multi Pad File"; a bank already chosen is left playing). Not the pads' Synchro Start standby |
+| Multi Pad | the Multi Pad bank (Data List "Multi Pad File"; a bank already chosen is left playing) and the Multi Pad volume (#196; a bank without it leaves it). Not the pads' Synchro Start standby |
 | Assignable | the Fade In, Fade Out and Fade Out Hold times (Data List: Freeze group "Assignable Buttons") |
-| Keyboard Harmony/Arpeggio, Chord Looper, Live Control | reserved for those features |
+| Keyboard Harmony/Arpeggio | the `harmonyArp` section |
+| Chord Looper | the Chord Looper's memory, its sequence and ON/OFF (a recall arms the loop, from the next bar line or with the style, or stops it at once; a recording under way is left alone) |
+| Live Control | reserved |
 
 Not stored (as on the Genos): Auto Fill In, the Style Change Behavior settings, OTS Link
 Timing, the synth's master level, the fader page, the pad page, the selected part.
@@ -211,6 +217,10 @@ Sequence On/Off, never in a bank.
   ten lamps, Memory, Freeze, the sequence and the playlist. On macOS, F11 is Show Desktop
   by default: turn that shortcut off (System Settings › Keyboard › Keyboard Shortcuts ›
   Mission Control), or use the app's Registration bar / pad page 4 for Bank −.
+- **Pedals** (Settings › Pedals, docs/controllers.md): Regist +/−, Registration Memory
+  1–10, Registration Memory (MEMORY), Registration Bank +/−, Registration Freeze On/Off
+  and Registration Sequence On/Off. A Regist +/− pedal steps the sequence while it is on
+  and programmed, and otherwise the bank's stored buttons in order (`stepRegist`).
 - **App**: the Registration bar under the keyboard strip (bank, the ten buttons with their
   names, Memory, Freeze, the sequence, the playlist) and the Registration panel (Bank,
   Memory & Freeze, Sequence, Playlist pages).
@@ -231,6 +241,12 @@ Sequence On/Off, never in a bank.
 - **Recalling a button by hand** moves the sequence cursor to that button's next
   occurrence, so Regist + carries on from there.
 - **Sequence steps while it's off** are refused with a message (the Genos needs it On).
+- **A Regist +/− pedal with no sequence** (off, or no steps) steps through the bank's
+  stored buttons in order, skipping empty ones, and stops at the first and last (from no
+  button: + recalls the first, − the last). Because: the Genos drives a pedal through the
+  sequence (RM p.114, Pedal Control), and Genos firmware 1.40 starts a new sequence as
+  1–10 in order (a video, not the manual), so a pedal steps a song with no programming;
+  skipping empty buttons keeps a press from doing nothing on stage (#200).
 - **Sequence On/Off** is a panel setting, not part of the bank: it stays when the bank
   changes (so End = Next runs through every bank), and is kept in `setup.json`. Because:
   the Genos Data List (Regist Sequence) marks Sequence Data and Sequence End as
@@ -239,8 +255,8 @@ Sequence On/Off, never in a bank.
 - **Frozen tempo across a style change**: the tempo is put back after the style load
   (a stopped load takes the style's own tempo). A button that didn't memorize Tempo lets
   the style load set it, as any style change does.
-- **Style part volumes**: stored per part (CC7), since yahaha has no Style volume offset;
-  the Genos stores the offset ("Volume(Style) Offset" in the Data List's Registration
+- **Style part volumes**: stored per part (CC7), besides the Style volume (`level`, #199:
+  one scale on all of them, the Genos's whole-Style offset); the Genos stores the offset ("Volume(Style) Offset" in the Data List's Registration
   items). Decision: only the levels the player set are recalled, because that is what the
   Genos's offset covers: an unset offset leaves the pattern levels alone. Only the synth
   master is a non-CC gain, and it's not stored.
@@ -261,7 +277,7 @@ Sequence On/Off, never in a bank.
   earlier build (no `styleSettings`) leaves the settings as they are.
 - **A part's library patch** (#109): stored with its GM voice underneath. A recall sets
   the GM voice, then the patch (skipped if the part already plays it), then the stored
-  level and octave, which win over the patch's defaults (its pan and sends still apply).
+  level, octave, pan and sends, which win over the patch's defaults.
   A patch deleted from the library leaves the part on the GM voice, and the message says
   so. A memory without a patch (a GM voice, or a bank from an earlier build) clears the
   part's own patch, since the GM voice is what it stored.

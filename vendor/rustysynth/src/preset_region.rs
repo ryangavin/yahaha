@@ -3,6 +3,7 @@
 use crate::error::SoundFontError;
 use crate::generator::Generator;
 use crate::generator_type::GeneratorType;
+use crate::modulator::Modulator;
 use crate::instrument::Instrument;
 use crate::soundfont_math::SoundFontMath;
 use crate::zone::Zone;
@@ -23,6 +24,8 @@ fn set_parameter(gs: &mut [i16; GeneratorType::COUNT], generator: &Generator) {
 pub struct PresetRegion {
     pub(crate) gs: [i16; GeneratorType::COUNT],
     pub(crate) instrument: usize,
+    // yahaha: the velocity -> filter cutoff modulators, added to the instrument's.
+    pub(crate) velocity_to_filter: Vec<Modulator>,
 }
 
 impl PresetRegion {
@@ -44,6 +47,10 @@ impl PresetRegion {
             set_parameter(&mut gs, generator);
         }
 
+        let mut velocity_to_filter = Vec::new();
+        Modulator::merge_velocity_to_filter(&mut velocity_to_filter, &global.modulators);
+        Modulator::merge_velocity_to_filter(&mut velocity_to_filter, &local.modulators);
+
         let instrument_id = gs[GeneratorType::INSTRUMENT as usize] as usize;
         if instrument_id >= samples.len() {
             return Err(SoundFontError::InvalidInstrumentId {
@@ -55,6 +62,7 @@ impl PresetRegion {
         Ok(Self {
             gs,
             instrument: instrument_id,
+            velocity_to_filter,
         })
     }
 

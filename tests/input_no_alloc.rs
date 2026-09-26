@@ -40,7 +40,7 @@ fn keyboard_note_path_does_not_allocate() {
     for p in 0..3 {
         shared.parts.on[p].store(true, Ordering::Relaxed);
     }
-    let (tx, _rx) = rtrb::RingBuffer::new(256);
+    let (tx, mut rx) = rtrb::RingBuffer::new(256);
     let mut input = Input::new(shared.clone(), Recognizer::new(), tx, Out::new(PacketSink::new(Target::Null), None));
     let (actions, mut actions_rx) = rtrb::RingBuffer::new(64);
     input.set_actions(actions);
@@ -57,8 +57,14 @@ fn keyboard_note_path_does_not_allocate() {
     input.end_of_list();
 
     let (allocs, frees) = (ALLOCS.load(Ordering::Relaxed), FREES.load(Ordering::Relaxed));
-    let mut assigned = 0;
+    let (mut assigned, mut strikes, mut levels) = (0, 0, 0);
     for round in 0..50u8 {
+        // Dynamics Touch / Accent on in some rounds: chord-section strikes go to the engine.
+        shared.strikes.store(round % 4 < 2, Ordering::Relaxed);
+        while let Ok(c) = rx.pop() {
+            strikes += matches!(c, yahaha::live::Cmd::Strike(_)) as u32;
+            levels += matches!(c, yahaha::live::Cmd::DynamicsLevel(_)) as u32;
+        }
         let (function, control_type) = match round % 4 {
             0 => (Function::StartStop, ControlType::HoldA),
             1 => (Function::OtsNext, ControlType::HoldA),
@@ -66,12 +72,19 @@ fn keyboard_note_path_does_not_allocate() {
             _ => (Function::KbdHarmonyArp, ControlType::Toggle),
         };
         ctl.set_pedal(1, PedalSetup { cc: Some(66), function, control_type, ..PedalSetup::default() });
+        // Pedal 3 alternates between a pitch-bend and a Dynamics Control foot controller
+        // (the level goes to the engine ring).
+        let foot = if round % 2 == 0 { Function::PitchBend } else { Function::DynamicsControl };
+        ctl.set_pedal(2, PedalSetup { cc: Some(4), function: foot, range: Range::Full, ..PedalSetup::default() });
         while actions_rx.pop().is_ok() {
             assigned += 1;
         }
         shared.key_shift.store((round % 5) as i8 - 2, Ordering::Relaxed);
         // Some rounds with a keyboard part soloed (Left, Right 2, none).
         shared.parts.set_solo([None, Some(3), Some(1)][round as usize % 3]);
+        // Left on in some rounds, with Left Hold (#202) on in some: its keys re-pedal Left.
+        shared.parts.on[3].store(round % 2 == 0, Ordering::Relaxed);
+        ctl.set_left_hold(round % 3 != 1);
         // Some rounds with the Chord Looper looping: the left hand plays too.
         shared.looping.store(round % 2 == 1, Ordering::Relaxed);
         // Some rounds in AI Full Keyboard, where a re-struck chord is checked for three
@@ -98,6 +111,8 @@ fn keyboard_note_path_does_not_allocate() {
     assert_eq!(ALLOCS.load(Ordering::Relaxed) - allocs, 0, "the input thread allocated");
     assert_eq!(FREES.load(Ordering::Relaxed) - frees, 0, "the input thread freed");
     assert!(assigned > 0, "OTS + went through the actions ring");
+    assert!(strikes > 0, "chord-section strikes went to the engine");
+    assert!(levels > 0, "the Dynamics Control pedal went to the engine");
 }
 
 /// The processor slot: every Harmony type (Strum's late notes and the Echo category go to

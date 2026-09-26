@@ -82,12 +82,13 @@ pub fn function_run(f: Function, fingering: crate::fingering::Fingering, ots_cou
         Effect::Nothing => return Ok(FunctionRun::Nothing),
         Effect::Engine(b) => b.into(),
         Effect::Switch(b) => return Ok(FunctionRun::Switch(b)),
-        Effect::Modulation | Effect::PitchBend => return Err(format!("{} needs a foot controller (an expression pedal)", info.name)),
+        Effect::Modulation | Effect::PitchBend | Effect::Dynamics => return Err(format!("{} needs a foot controller (an expression pedal)", info.name)),
         // A press (a Toggle pedal, `TriggerFunction`) switches it; Hold pedals set it
         // (`function_set`).
         Effect::ControlSwitch => match f {
             Function::KbdHarmonyArp => super::HarmonyArpCmd::ToggleHarmonyArp.into(),
             Function::ArpHold => super::HarmonyArpCmd::ToggleArpPedalHold.into(),
+            Function::LeftHold => super::ChordCmd::ToggleLeftHold.into(),
             _ => return Err(format!("{} can't be run here", info.name)),
         },
         Effect::Control => match f {
@@ -111,6 +112,26 @@ pub fn function_run(f: Function, fingering: crate::fingering::Fingering, ots_cou
             // The REGIST BANK [+]/[−] buttons (RM p.144).
             Function::RegistBankNext => super::RegistrationCmd::StepRegistBank { delta: 1 }.into(),
             Function::RegistBankPrev => super::RegistrationCmd::StepRegistBank { delta: -1 }.into(),
+            // Regist +/− (RM p.114 Pedal Control), the REGISTRATION MEMORY buttons, MEMORY,
+            // and the Freeze and Sequence switches (RM p.141).
+            Function::RegistNext => super::RegistrationCmd::StepRegist { delta: 1 }.into(),
+            Function::RegistPrev => super::RegistrationCmd::StepRegist { delta: -1 }.into(),
+            Function::Regist1
+            | Function::Regist2
+            | Function::Regist3
+            | Function::Regist4
+            | Function::Regist5
+            | Function::Regist6
+            | Function::Regist7
+            | Function::Regist8
+            | Function::Regist9
+            | Function::Regist10 => super::RegistrationCmd::PressRegist { index: f as u8 - Function::Regist1 as u8 }.into(),
+            Function::RegistMemory => super::RegistrationCmd::ToggleRegistMemory.into(),
+            Function::RegistFreeze => super::RegistrationCmd::ToggleFreeze.into(),
+            Function::RegistSequence => super::RegistrationCmd::ToggleRegistSequence.into(),
+            // The CHORD LOOPER buttons (RM p.141).
+            Function::ChordLooperOnOff => super::LooperCmd::LooperOnOff.into(),
+            Function::ChordLooperRec => super::LooperCmd::LooperRec.into(),
             Function::TransposeUp => super::ChordCmd::StepTranspose { keyboard: 0, master: 1 }.into(),
             Function::TransposeDown => super::ChordCmd::StepTranspose { keyboard: 0, master: -1 }.into(),
             Function::Right1OnOff => super::PartsCmd::TogglePart { part: parts::RIGHT1 as u8 }.into(),
@@ -134,6 +155,7 @@ pub fn function_set(f: Function, on: bool) -> Option<super::AppCmd> {
     match f {
         Function::KbdHarmonyArp => Some(super::HarmonyArpCmd::SetHarmonyArpOn { on }.into()),
         Function::ArpHold => Some(super::HarmonyArpCmd::SetArpPedalHold { on }.into()),
+        Function::LeftHold => Some(super::ChordCmd::SetLeftHold { on }.into()),
         _ => None,
     }
 }

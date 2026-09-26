@@ -2,7 +2,7 @@
 // state and only words it for the screen; no engine behaviour is decided here.
 
 import type { TipKey } from '../../help/tooltips'
-import type { AppState, KeyboardPart, OtsPart, PartPlugin } from '../../lib/api/types'
+import type { AppState, KeyboardPart, OtsPart, PartPlugin, PluginEntry } from '../../lib/api/types'
 import { MAINS } from '../../lib/api/types'
 
 export const PART_KEYS = ['right1', 'right2', 'right3', 'left'] as const
@@ -82,4 +82,17 @@ export function pluginStatusLine(p: PartPlugin | undefined, available: boolean):
     default:
       return `${p.manufacturer}${p.outOfProcess ? ' · own process' : p.inProcessFallback ? ' · ⚠ in process' : ''} ▾`
   }
+}
+
+/**
+ * The part's plugin was loaded before its "In proc" override changed, so it still runs
+ * where it did: the override applies from its next load (#176). Off, a plugin loads in
+ * its own process, except an Apple AUv2, which macOS runs in process either way (the
+ * engine's `load_mode`).
+ */
+export function inProcessPending(p: PartPlugin | null | undefined, entry: PluginEntry | undefined): boolean {
+  if (!p || !entry || p.status !== 'playing') return false
+  if (entry.inProcess) return p.outOfProcess
+  const ownProcess = !entry.id.endsWith('appl') || entry.format === 'AUv3'
+  return ownProcess && !p.outOfProcess && !p.inProcessFallback
 }

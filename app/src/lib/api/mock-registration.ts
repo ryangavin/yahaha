@@ -23,7 +23,7 @@ interface Memory {
   style?: { path: string; name: string }
   tempo?: number
   control?: { main: number; otsLink: boolean; stopAcmp: boolean }
-  chord?: { fingering: Fingering; upper: boolean; manualBass: boolean; split: number }
+  chord?: { fingering: Fingering; upper: boolean; manualBass: boolean; split: number; leftHold?: boolean }
   mixer?: { volumes: number[]; on: boolean[] }
   /** Right 1, Right 2, Right 3, Left; null for a part outside the memorized groups. */
   parts?: ({ on: boolean; program: number; volume: number; octave: number } | null)[]
@@ -31,6 +31,8 @@ interface Memory {
   /** Keyboard Harmony/Arpeggio (the session's `harmonyArp` section); its `pedalHold` is the
    * pedal's and is never recalled. */
   harmonyArp?: HarmonyArpState
+  /** The Chord Looper (the session's `chordLooper` section): memory selected, ON/OFF. */
+  looper?: { memory: number | null; on: boolean }
 }
 
 interface Bank {
@@ -87,7 +89,7 @@ export class MockRegistration {
   private frozen: RegistGroup[] = []
   private seqPos: number | null = null
   /** Sequence On/Off: a panel setting, not part of the bank (Genos Data List). */
-  private seqOn = true
+  private seqOn = false
   private list: List = { name: 'New Playlist', records: [] }
   private listPath: string | null = null
   private listDirty = false
@@ -227,6 +229,19 @@ export class MockRegistration {
       case 'stepRegistSequence':
         this.stepSequence(cmd.delta, host)
         break
+      case 'stepRegist': {
+        // A pedal's Regist +/−: the sequence while on and programmed, else the stored buttons.
+        if (this.seqOn && this.bank.sequence.steps.length) {
+          this.stepSequence(cmd.delta, host)
+          break
+        }
+        const stored = this.bank.memories.flatMap((m, i) => (m ? [i] : []))
+        if (!stored.length) return this.fail(host, 'no Registration stored in this bank')
+        const from = this.selected
+        const next = cmd.delta > 0 ? stored.find((b) => from === null || b > from) : [...stored].reverse().find((b) => from === null || b < from)
+        if (next !== undefined) this.recall(next, host, true)
+        break
+      }
     }
   }
 
@@ -297,7 +312,7 @@ export class MockRegistration {
     if (g.includes('style')) {
       m.style = { path: st.style.path, name: st.style.name }
       m.control = { main: st.transport.main, otsLink: st.ots.link, stopAcmp: st.transport.stopAcmp }
-      m.chord = { fingering: st.chord.fingering, upper: st.chord.upper, manualBass: st.chord.manualBass, split: st.chord.split }
+      m.chord = { fingering: st.chord.fingering, upper: st.chord.upper, manualBass: st.chord.manualBass, split: st.chord.split, leftHold: st.chord.leftHold }
       m.mixer = { volumes: st.mixer.styleParts.map((p) => p.volume), on: st.mixer.styleParts.map((p) => p.on) }
     }
     if (g.includes('style') || g.includes('voice')) {
@@ -308,6 +323,7 @@ export class MockRegistration {
     if (g.includes('tempo')) m.tempo = st.transport.tempo
     if (g.includes('transpose')) m.transpose = [st.chord.transposeKeyboard, st.chord.transposeMaster]
     if (g.includes('harmonyArp')) m.harmonyArp = clone(st.harmonyArp)
+    if (g.includes('chordLooper')) m.looper = { memory: st.looper.memory, on: st.looper.mode === 'loopArmed' || st.looper.mode === 'looping' }
     m.name = m.style?.name ?? `Registration ${index + 1}`
     this.bank.memories[index] = m
     this.selected = index
@@ -350,6 +366,7 @@ export class MockRegistration {
       // Parameter Lock: a locked group keeps what the player set.
       if (!st.paramLocks.fingeringType) Object.assign(st.chord, { fingering: m.chord.fingering, upper: m.chord.upper, manualBass: m.chord.manualBass })
       if (!st.paramLocks.splitPoint) st.chord.split = m.chord.split
+      if (m.chord.leftHold !== undefined) st.chord.leftHold = m.chord.leftHold
     }
     if (allowed('style') && m.control) {
       st.ots.link = m.control.otsLink
@@ -379,6 +396,11 @@ export class MockRegistration {
     if (allowed('harmonyArp') && m.harmonyArp) {
       // A fresh object, so the published snapshots never share it.
       st.harmonyArp = { ...clone(m.harmonyArp), arp: { ...clone(m.harmonyArp.arp), pedalHold: st.harmonyArp.arp.pedalHold } }
+    }
+    if (allowed('chordLooper') && m.looper) {
+      if (m.looper.memory !== null) host.command({ type: 'selectLooperMemory', index: m.looper.memory })
+      const on = st.looper.mode === 'loopArmed' || st.looper.mode === 'looping'
+      if (on !== m.looper.on) host.command({ type: 'looperOnOff' })
     }
     const text = label ?? `Registration ${index + 1}: ${m.name || `Registration ${index + 1}`}`
     if (errors.length) host.message(`${text}: ${errors.join('; ')}`, true)
@@ -569,7 +591,7 @@ export class MockRegistration {
 const REGIST_TYPES = new Set<string>([
   'pressRegist', 'recallRegist', 'memorizeRegist', 'toggleRegistMemory', 'setMemorizeGroup', 'clearRegist', 'renameRegist',
   'stepRegistBank', 'selectRegistBank', 'newRegistBank', 'saveRegistBank', 'setFreeze', 'toggleFreeze', 'setFreezeGroup',
-  'setRegistSequence', 'setRegistSequenceOn', 'toggleRegistSequence', 'stepRegistSequence',
+  'setRegistSequence', 'setRegistSequenceOn', 'toggleRegistSequence', 'stepRegistSequence', 'stepRegist',
 ])
 const PLAYLIST_TYPES = new Set<string>([
   'newPlaylist', 'loadPlaylist', 'savePlaylist', 'addPlaylistRecord', 'addCurrentBank', 'addCurrentStyle', 'appendPlaylist',

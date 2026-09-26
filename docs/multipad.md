@@ -97,22 +97,28 @@ engine thread never allocates or frees for pads (`tests/multipad_no_alloc.rs`).
 - **Decision: pads that don't parse fail the load** and keep the loaded bank; the message
   says why.
 
-## Launchkey (proposal, not wired)
-
-The Launchkey has no spare buttons for four more pads and STOP/SELECT on the pages in use.
-Proposal: a pad page of its own, **page 5 "Multi Pads"** (page 4 is Registration):
+## Launchkey: pad page 5 "Multi Pads" (#196)
 
 ```
-  top row     Pad 1   Pad 2   Pad 3   Pad 4   | STOP    Repeat*  Chord*  Bank ▲
-  bottom row  Arm 1   Arm 2   Arm 3   Arm 4   | Stop 1  Stop 2   Stop 3  Stop 4
+  top row     Pad 1     Pad 2     Pad 3     Pad 4     | STOP    -       -       -
+  bottom row  Select 1  Select 2  Select 3  Select 4  | Stop 1  Stop 2  Stop 3  Stop 4
 ```
 
-The pads light as the Genos lamps (blue = data, red = playing, flashing red = armed, dim
-white = waiting for the bar); STOP lights while anything plays. `Repeat*`/`Chord*` toggle the
-last pressed pad's flags; `Bank ▲` steps through `multiPad.banks`. The actions would go
-straight to the engine from the MIDI thread (like the section pads), so a press is not
-delayed by the control thread. Holding Shift on page 1 could also turn the bottom row into
-Pad 1–4 for one-handed use while playing sections.
+- Pads 1–4 light as the Genos lamps: blue = data, red = playing, flashing red = Synchro
+  Start standby, flashing amber = waiting for the bar line (the app's amber), dark = empty.
+- STOP lights while a pad plays, waits for the bar or waits in standby.
+- Select *n* (SELECT + pad) flashes while that pad is armed; Stop *n* (STOP + pad) lights
+  while that pad plays. Both are dark for an empty pad.
+- The presses go straight to the engine from the MIDI thread (`Action::MultiPad`, a
+  `PadCmd`), like the section pads, so a press is not delayed by the control thread.
+
+Decisions:
+- **Decision: dedicated Select and Stop pads instead of held modifiers.** The Launchkey has
+  no free buttons for SELECT and STOP, and a held pad as a modifier would fire its own
+  action; one pad per SELECT + pad and STOP + pad keeps every press one touch.
+- **Decision: pads 6–8 of the top row stay empty for now** (the proposal's Repeat, Chord
+  Match and Bank ▲). Repeat and Chord Match are edit settings on the Genos, not panel
+  buttons, and a bank is chosen in the app; the slots are free for other live functions.
 
 ## Keys
 

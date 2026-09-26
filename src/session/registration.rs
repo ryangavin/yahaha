@@ -128,6 +128,15 @@ impl RegState {
         self.banks = self.dir.as_deref().map(reg::list_banks).unwrap_or_default();
     }
 
+    /// Another bank takes this one's place (loaded, or a new one). A Memorize still
+    /// waiting for its plugin states was for the bank that goes: its states are dropped,
+    /// never written into this one's buttons (#173).
+    fn replace_bank(&mut self, b: Bank, path: Option<PathBuf>) {
+        self.bank = b;
+        self.path = path;
+        self.plugin_fill = None;
+    }
+
     /// Rebuild Regist Bank Info from the bank.
     fn summarize(&mut self) {
         self.buttons = (0..BUTTONS).map(|i| summary(i as u8, self.bank.memories[i].as_ref())).collect();
@@ -191,8 +200,7 @@ impl Control {
             RegistrationCmd::StepRegistBank { delta } => return self.step_bank(delta, false),
             RegistrationCmd::SelectRegistBank { path } => return self.load_regist_bank(Path::new(&path)),
             RegistrationCmd::NewRegistBank => {
-                self.reg.bank = Bank::default();
-                self.reg.path = None;
+                self.reg.replace_bank(Bank::default(), None);
                 self.reg.dirty = false;
                 self.reg.selected = None;
                 self.reg.seq_pos = None;
@@ -211,6 +219,7 @@ impl Control {
             RegistrationCmd::SetRegistSequenceOn { on } => return self.set_sequence_on(on),
             RegistrationCmd::ToggleRegistSequence => return self.set_sequence_on(!self.reg.seq_on),
             RegistrationCmd::StepRegistSequence { delta } => return self.step_sequence(delta),
+            RegistrationCmd::StepRegist { delta } => return self.step_regist(delta),
         }
         Ok(())
     }
@@ -310,8 +319,7 @@ impl Control {
             Ok(mut b) => {
                 b.name = reg::bank_name(path);
                 b.sequence = b.sequence.clean();
-                self.reg.bank = b;
-                self.reg.path = Some(path.to_path_buf());
+                self.reg.replace_bank(b, Some(path.to_path_buf()));
                 self.reg.dirty = false;
                 self.reg.selected = None;
                 self.reg.memory = false;
@@ -379,6 +387,22 @@ impl Control {
                 self.reg.seq_pos = Some(p);
                 self.recall_index(b, false)
             }
+        }
+    }
+
+    /// Regist +/- from a pedal: the sequence while it is on and programmed (RM p.114), else
+    /// the bank's next/previous stored button, so a pedal steps through a song with no
+    /// sequence programmed (docs/registration.md).
+    fn step_regist(&mut self, delta: i8) -> Result<(), CmdError> {
+        if self.reg.seq_on && !self.reg.bank.sequence.steps.is_empty() {
+            return self.step_sequence(delta);
+        }
+        if self.reg.bank.stored_mask() == 0 {
+            return self.fail("no Registration stored in this bank");
+        }
+        match reg::step_stored(self.reg.bank.stored_mask(), self.reg.selected, delta) {
+            Some(b) => self.recall_index(b, true),
+            None => Ok(()),
         }
     }
 

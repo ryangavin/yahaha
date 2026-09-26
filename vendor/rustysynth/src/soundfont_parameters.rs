@@ -8,6 +8,7 @@ use crate::four_cc::FourCC;
 use crate::generator::Generator;
 use crate::instrument::Instrument;
 use crate::instrument_info::InstrumentInfo;
+use crate::modulator::Modulator;
 use crate::preset::Preset;
 use crate::preset_info::PresetInfo;
 use crate::read_counter::ReadCounter;
@@ -43,6 +44,9 @@ impl SoundFontParameters {
         let mut preset_infos: Option<Vec<PresetInfo>> = None;
         let mut preset_bag: Option<Vec<ZoneInfo>> = None;
         let mut preset_generators: Option<Vec<Generator>> = None;
+        // yahaha: the modulators are read (upstream skipped them), for velocity -> filter.
+        let mut preset_modulators: Vec<Modulator> = Vec::new();
+        let mut instrument_modulators: Vec<Modulator> = Vec::new();
         let mut instrument_infos: Option<Vec<InstrumentInfo>> = None;
         let mut instrument_bag: Option<Vec<ZoneInfo>> = None;
         let mut instrument_generators: Option<Vec<Generator>> = None;
@@ -55,11 +59,11 @@ impl SoundFontParameters {
             match id.as_bytes() {
                 b"phdr" => preset_infos = Some(PresetInfo::read_from_chunk(reader, size)?),
                 b"pbag" => preset_bag = Some(ZoneInfo::read_from_chunk(reader, size)?),
-                b"pmod" => BinaryReader::discard_data(reader, size)?,
+                b"pmod" => preset_modulators = Modulator::read_from_chunk(reader, size)?,
                 b"pgen" => preset_generators = Some(Generator::read_from_chunk(reader, size)?),
                 b"inst" => instrument_infos = Some(InstrumentInfo::read_from_chunk(reader, size)?),
                 b"ibag" => instrument_bag = Some(ZoneInfo::read_from_chunk(reader, size)?),
-                b"imod" => BinaryReader::discard_data(reader, size)?,
+                b"imod" => instrument_modulators = Modulator::read_from_chunk(reader, size)?,
                 b"igen" => instrument_generators = Some(Generator::read_from_chunk(reader, size)?),
                 b"shdr" => sample_headers = Some(SampleHeader::read_from_chunk(reader, size)?),
                 _ => return Err(SoundFontError::ListContainsUnknownId(id)),
@@ -94,11 +98,11 @@ impl SoundFontParameters {
             FourCC::from_bytes(*b"SHDR"),
         ))?;
 
-        let instrument_zones = Zone::create(&instrument_bag, &instrument_generators)?;
+        let instrument_zones = Zone::create(&instrument_bag, &instrument_generators, &instrument_modulators)?;
         let instruments =
             Instrument::create(&instrument_infos, &instrument_zones, &sample_headers)?;
 
-        let preset_zones = Zone::create(&preset_bag, &preset_generators)?;
+        let preset_zones = Zone::create(&preset_bag, &preset_generators, &preset_modulators)?;
         let presets = Preset::create(&preset_infos, &preset_zones, &instruments)?;
 
         Ok(Self {

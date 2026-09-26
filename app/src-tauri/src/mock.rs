@@ -139,6 +139,9 @@ pub struct MockSession {
     clock: f64,
     section_start: u32,
     taps: Vec<f64>,
+    /// Steady taps in a row (the engine's count), and when a bar of them starts the band.
+    tap_run: usize,
+    tap_start: Option<f64>,
     now: f64,
     progression: usize,
     message_seq: u64,
@@ -173,6 +176,8 @@ pub struct MockSession {
     sound: sound::MockSound,
     /// The sound catalog (mock_sounds.rs).
     sounds: sounds::MockSounds,
+    /// Knob Assign pages (#197): the engine's own model.
+    knobs: yahaha::knobs::Knobs,
 }
 
 impl Default for MockSession {
@@ -220,6 +225,10 @@ impl MockSession {
             voice_name: gm[program as usize].clone(),
             plays_bass: false,
             octave: 0,
+            pan: 64,
+            reverb: yahaha::parts::FX_DEFAULT[i][yahaha::parts::REVERB],
+            chorus: yahaha::parts::FX_DEFAULT[i][yahaha::parts::CHORUS],
+            variation: yahaha::parts::FX_DEFAULT[i][yahaha::parts::VARIATION],
             fader: None,
             plugin: None,
             patch: None,
@@ -264,6 +273,7 @@ impl MockSession {
                 transpose_keyboard: 0,
                 transpose_master: 0,
                 settle_ms: yahaha::engine::CHORD_SETTLE_DEFAULT_MS,
+                left_hold: false,
             },
             keyboard_parts: vec![part(0, 0, true), part(1, 48, true), part(2, 61, false), part(3, 48, false)],
             mixer: MixerState {
@@ -284,6 +294,10 @@ impl MockSession {
                     .collect(),
                 master: Some(100),
                 master_waiting: false,
+                style_volume: 100,
+                style_volume_waiting: false,
+                multi_pad_volume: 100,
+                multi_pad_volume_waiting: false,
                 style_solo: None,
                 part_solo: None,
             },
@@ -349,6 +363,9 @@ impl MockSession {
             sound_library: SoundLibraryState::default(),
             param_locks: ParamLockState::default(),
             sounds: SoundsState::default(),
+            dynamics: DynamicsState::default(),
+            knobs: KnobsState::default(),
+            effects: EffectsState::initial(),
         };
         let songs: Vec<(String, String)> = library.entries.iter().filter(|e| e.status == "ok").map(|e| (e.path.clone(), e.name.clone())).collect();
         let mut m = MockSession {
@@ -359,6 +376,8 @@ impl MockSession {
             clock: 0.0,
             section_start: 0,
             taps: vec![],
+            tap_run: 0,
+            tap_start: None,
             now: 0.0,
             progression: 0,
             message_seq: 0,
@@ -377,6 +396,7 @@ impl MockSession {
             controllers: Controllers::new(),
             sound: sound::MockSound::default(),
             sounds: sounds::MockSounds::default(),
+            knobs: Default::default(),
         };
         m.set_style(0);
         m.state.ots.applied = 2;
@@ -418,14 +438,9 @@ impl MockSession {
             Err(e) => self.message(e, true),
             Ok(sounds::Then::Nothing) => {}
             Ok(sounds::Then::Run(cmds)) => {
+                // A preset from the synth's own font is the part's GM voice (SetPartVoice):
+                // it ends a plugin picked for the part, as a SoundFont patch does.
                 for c in cmds {
-                    // A preset from the synth's own font (the part's GM voice) ends a
-                    // plugin picked for the part, as a SoundFont patch does.
-                    if let AppCmd::Parts(PartsCmd::SetPartVoice { part, .. }) = &c
-                        && self.sound.own_plugin(*part as usize)
-                    {
-                        self.state.keyboard_parts[(*part & 3) as usize].plugin = None;
-                    }
                     self.cmd(c);
                 }
             }
@@ -589,6 +604,25 @@ impl MockSession {
         self.bump(&before)
     }
 
+    /// The values the knobs turn from (the session's `knobs_now`).
+    fn knobs_now(&self) -> yahaha::knobs::Now {
+        let s = &self.state;
+        yahaha::knobs::Now {
+            dynamics: s.dynamics.level,
+            retrigger: s.transport.retrigger,
+            retrigger_rate: s.style_settings.retrigger_rate,
+            bpm: s.transport.tempo,
+            part_volume: [0, 1, 2, 3].map(|p| s.keyboard_parts[p].volume),
+            harmony_volume: s.harmony_arp.volume,
+            metronome_volume: s.metronome.volume,
+            part_fx: [0, 1, 2, 3].map(|p| {
+                let k = &s.keyboard_parts[p];
+                [k.pan, k.reverb, k.chorus, k.variation]
+            }),
+            fx_return: [0, 1, 2].map(|b| s.effects.blocks[b].return_level),
+        }
+    }
+
     /// A keyboard part's own plugin patch plays its plugin (the session's
     /// `sync_part_plugins`).
     fn sync_part_plugins(&mut self) {
@@ -616,6 +650,15 @@ impl MockSession {
 
     fn step(&mut self, ms: f64) {
         self.now += ms;
+        // A bar of taps while stopped: the band starts a beat after the last (OM p.46).
+        if let Some(t) = self.tap_start
+            && self.now >= t
+        {
+            self.tap_start = None;
+            if !self.state.transport.running {
+                self.start_band();
+            }
+        }
         self.step_fade(ms);
         self.pads.beats(&mut self.state.multi_pad, ms / 60000.0 * self.state.transport.tempo);
         self.sound.advance(ms, self.state.transport.running);
@@ -785,6 +828,7 @@ impl MockSession {
     }
 
     fn start_band(&mut self) {
+        self.tap_start = None;
         match self.state.transport.fade {
             FadeState::Armed => {
                 self.state.transport.fade = FadeState::FadingIn;
@@ -842,12 +886,27 @@ impl MockSession {
         self.looper.on_stop(&mut self.state.looper);
     }
 
+    /// Part `part` was given a GM voice (SetPartVoice, Voice −/+, #179): a plugin picked
+    /// for it ends, and its own library patch goes (with that patch's plugin).
+    fn gm_voice(&mut self, part: usize) {
+        if self.sound.own_plugin(part)
+            && let Some(p) = self.state.keyboard_parts.get_mut(part & 3)
+        {
+            p.plugin = None;
+        }
+        self.sound.part_voice(part);
+    }
+
     fn recall_ots(&mut self, n: usize) {
         let panel = self.state.mixer.fader_page == FaderPage::Panel;
         let setting = self.state.ots.settings[n].clone();
         for (i, (p, o)) in self.state.keyboard_parts.iter_mut().zip(&setting.parts).enumerate() {
             if let Some(prog) = o.program {
                 p.program = prog;
+                // A GM voice ends a plugin picked for the part (#179).
+                if self.sound.own_plugin(i) {
+                    p.plugin = None;
+                }
                 self.sound.part_voice(i);
             }
             p.on = o.on;
@@ -971,6 +1030,7 @@ impl MockSession {
     /// The fields the engine computes from the others: names, flags, pads and lamps.
     fn derive(&mut self) {
         self.looper.publish(&mut self.state.looper);
+        self.state.knobs = self.knobs.state(&self.knobs_now());
         let st = &mut self.state;
         let c = &mut st.chord;
         c.fingering_name = if c.upper { "Fingered*".into() } else { c.fingering.name().into() };
@@ -1050,7 +1110,15 @@ impl MockSession {
         let parts_on = mask(st.keyboard_parts.iter().map(|p| p.sounding).collect());
         let style_on = lk::style_lit(mask(st.mixer.style_parts.iter().map(|p| p.on).collect()), st.chord.manual_bass_active);
         let fault = st.keyboard_parts.iter().find(|p| p.selected).and_then(|p| p.plugin.as_ref()).is_some_and(|p| matches!(p.status, PluginStatus::Muted | PluginStatus::Failed));
-        let colours = lk::button_colours(page, styles, fader_page, parts_on, style_on, st.harmony_arp.on, fault);
+        let looper = match st.looper.mode {
+            LooperMode::Off if st.looper.has_data => lk::LooperLamp::Ready,
+            LooperMode::Off => lk::LooperLamp::Empty,
+            LooperMode::RecArmed => lk::LooperLamp::RecArmed,
+            LooperMode::Recording => lk::LooperLamp::Recording,
+            LooperMode::LoopArmed => lk::LooperLamp::LoopArmed,
+            LooperMode::Looping => lk::LooperLamp::Looping,
+        };
+        let colours = lk::button_colours(page, styles, fader_page, parts_on, style_on, lk::PanelLamps { harmony_arp: st.harmony_arp.on, plugin_fault: fault, left_hold: st.chord.left_hold, looper });
         let act = |cc: u8, shift: bool| -> Option<AppCmd> {
             match lk::cc_control(cc, shift)? {
                 Control::Page(d) => {
@@ -1115,6 +1183,10 @@ impl MockSession {
                 FaderPage::Panel if i == lk::PLUGIN_FADER_BTN => {
                     push(id, cc, "PLUGIN", Some(AppCmd::Plugins(PluginCmd::ReloadPartPlugin { part: None })), None)
                 }
+                FaderPage::Panel if i == lk::LEFT_HOLD_FADER_BTN => push(id, cc, "L HOLD", Some(AppCmd::Chord(ChordCmd::ToggleLeftHold)), None),
+                FaderPage::Panel if i == lk::LOOPER_FADER_BTN => {
+                    push(id, cc, "LOOPER", Some(AppCmd::Looper(LooperCmd::LooperOnOff)), Some(("LOOP REC", Some(AppCmd::Looper(LooperCmd::LooperRec)))))
+                }
                 FaderPage::Panel => push(id, cc, "", None, None),
                 FaderPage::Style => {
                     let name = STYLE_PART_NAMES[i as usize].to_uppercase();
@@ -1140,6 +1212,20 @@ impl MockSession {
                         waiting: st.keyboard_parts[p].waiting,
                         position,
                         set: Some(AppCmd::Parts(PartsCmd::SetPartVolume { part: i, volume: 0 })),
+                    },
+                    FaderPage::Panel if p == parts::STYLE_LEVEL => SurfaceFader {
+                        label: "STYLE".into(),
+                        value: Some(st.mixer.style_volume),
+                        waiting: st.mixer.style_volume_waiting,
+                        position,
+                        set: Some(AppCmd::Mixer(MixerCmd::SetStyleVolume { volume: 0 })),
+                    },
+                    FaderPage::Panel if p == parts::PAD_LEVEL => SurfaceFader {
+                        label: "M.PAD".into(),
+                        value: Some(st.mixer.multi_pad_volume),
+                        waiting: st.mixer.multi_pad_volume_waiting,
+                        position,
+                        set: Some(AppCmd::Mixer(MixerCmd::SetMultiPadVolume { volume: 0 })),
                     },
                     FaderPage::Panel => SurfaceFader { position, ..SurfaceFader::default() },
                     FaderPage::Style => SurfaceFader {
@@ -1221,6 +1307,7 @@ impl MockSession {
                 }
             }
             AppCmd::Transport(TransportCmd::Stop) => {
+                self.tap_start = None;
                 if running {
                     self.stop_band()
                 }
@@ -1379,14 +1466,17 @@ impl MockSession {
                 if let Some(&last) = self.taps.last() {
                     if now - last > 12_500.0 {
                         self.taps.clear();
+                        self.tap_run = 0;
                     } else if self.taps.len() >= 2 {
                         let r = (now - last) / (last - self.taps[self.taps.len() - 2]).max(1.0);
                         if !(1.0 / 1.5..=1.5).contains(&r) {
                             self.taps = vec![last];
+                            self.tap_run = 1;
                         }
                     }
                 }
                 self.taps.push(now);
+                self.tap_run += 1;
                 if self.taps.len() > 4 {
                     self.taps.remove(0);
                 }
@@ -1396,6 +1486,9 @@ impl MockSession {
                         self.state.transport.tempo = (60000.0 / avg).round().clamp(5.0, 500.0);
                     }
                 }
+                // Stopped, a bar of steady taps (its quarters) starts the band a beat later.
+                let bar = self.bar_quarters().floor().max(1.0) as usize;
+                self.tap_start = (!running && self.tap_run >= bar).then(|| now + 60000.0 / self.state.transport.tempo);
             }
             AppCmd::Transport(TransportCmd::TempoUp) => self.state.transport.tempo = (self.state.transport.tempo + 1.0).min(500.0),
             AppCmd::Transport(TransportCmd::TempoDown) => self.state.transport.tempo = (self.state.transport.tempo - 1.0).max(5.0),
@@ -1433,6 +1526,18 @@ impl MockSession {
             }
             AppCmd::Looper(LooperCmd::ClearLooperMemory { index }) => self.looper.clear(&mut self.state.looper, index as usize % 8),
             AppCmd::Looper(LooperCmd::NewLooperBank) => self.looper.new_bank(&mut self.state.looper),
+            AppCmd::Looper(LooperCmd::SaveLooperBank { name, overwrite }) => match self.looper.save_bank(&mut self.state.looper, name, overwrite) {
+                Ok(()) => {
+                    let text = format!("Saved Chord Looper bank {}", self.state.looper.bank_name);
+                    self.message(text, false)
+                }
+                Err(e) => self.message(e, true),
+            },
+            AppCmd::Looper(LooperCmd::LoadLooperBank { path }) => {
+                if let Err(e) = self.looper.load_bank(&mut self.state.looper, &path) {
+                    self.message(e, true);
+                }
+            }
             AppCmd::Metronome(MetronomeCmd::ToggleMetronome) => self.state.metronome.on = !self.state.metronome.on,
             AppCmd::Metronome(MetronomeCmd::SetMetronome { on }) => self.state.metronome.on = on,
             AppCmd::Metronome(MetronomeCmd::SetMetronomeVolume { volume }) => self.state.metronome.volume = vol(volume),
@@ -1441,6 +1546,14 @@ impl MockSession {
                 if let Some(p) = self.state.mixer.style_parts.get_mut(part as usize) {
                     p.on = !p.on;
                 }
+            }
+            AppCmd::Mixer(MixerCmd::SetStyleVolume { volume }) => {
+                self.state.mixer.style_volume = vol(volume);
+                self.state.mixer.style_volume_waiting = false;
+            }
+            AppCmd::Mixer(MixerCmd::SetMultiPadVolume { volume }) => {
+                self.state.mixer.multi_pad_volume = vol(volume);
+                self.state.mixer.multi_pad_volume_waiting = false;
             }
             AppCmd::Mixer(MixerCmd::SetStylePartVolume { part, volume }) => {
                 if let Some(p) = self.state.mixer.style_parts.get_mut(part as usize) {
@@ -1475,6 +1588,8 @@ impl MockSession {
                 self.state.chord.transpose_master = 0;
             }
             AppCmd::Chord(ChordCmd::SetChordSettle { ms }) => self.state.chord.settle_ms = ms.min(yahaha::engine::CHORD_SETTLE_MAX_MS),
+            AppCmd::Chord(ChordCmd::SetLeftHold { on }) => self.state.chord.left_hold = on,
+            AppCmd::Chord(ChordCmd::ToggleLeftHold) => self.state.chord.left_hold = !self.state.chord.left_hold,
             AppCmd::Parts(PartsCmd::SetPartOn { part, on }) => self.set_part_on(part, on),
             AppCmd::Parts(PartsCmd::TogglePart { part }) => {
                 let on = self.state.keyboard_parts.get(part as usize).is_some_and(|p| !p.on);
@@ -1489,13 +1604,13 @@ impl MockSession {
                 if let Some(p) = self.state.keyboard_parts.get_mut(part as usize) {
                     p.program = program & 127;
                 }
-                self.sound.part_voice(part as usize);
+                self.gm_voice(part as usize);
             }
             AppCmd::Parts(PartsCmd::StepVoice { delta }) => {
                 if let Some(i) = self.state.keyboard_parts.iter().position(|p| p.selected) {
                     let p = &mut self.state.keyboard_parts[i];
                     p.program = (p.program as i16 + delta as i16).rem_euclid(128) as u8;
-                    self.sound.part_voice(i);
+                    self.gm_voice(i);
                 }
             }
             AppCmd::Parts(PartsCmd::SetPartVolume { part, volume }) => {
@@ -1507,6 +1622,20 @@ impl MockSession {
             AppCmd::Parts(PartsCmd::SetPartOctave { part, octave }) => {
                 if let Some(p) = self.state.keyboard_parts.get_mut(part as usize) {
                     p.octave = octave.clamp(-2, 2);
+                }
+            }
+            AppCmd::Parts(PartsCmd::SetPartPan { part, pan }) => {
+                if let Some(p) = self.state.keyboard_parts.get_mut(part as usize) {
+                    p.pan = vol(pan);
+                }
+            }
+            AppCmd::Parts(PartsCmd::SetPartSend { part, send, value }) => {
+                if let Some(p) = self.state.keyboard_parts.get_mut(part as usize) {
+                    match send {
+                        PartSend::Reverb => p.reverb = vol(value),
+                        PartSend::Chorus => p.chorus = vol(value),
+                        PartSend::Variation => p.variation = vol(value),
+                    }
                 }
             }
             AppCmd::Mixer(MixerCmd::SetFaderPage { page }) => self.set_fader_page(page),
@@ -1631,6 +1760,41 @@ impl MockSession {
             AppCmd::Settings(SettingsCmd::SetPaletteLeds { on }) => self.state.pads.palette_leds = on,
             AppCmd::Chart(c) => self.chart_cmd(c),
             AppCmd::ParamLock(ParamLockCmd::SetParamLock { item, on }) => self.state.param_locks.set(item, on),
+            // As the session: a turn runs its function's command from the value in effect.
+            AppCmd::Knobs(c) => match c {
+                KnobsCmd::SetKnobPage { page } => self.knobs.set_page(page),
+                KnobsCmd::StepKnobPage { delta } => self.knobs.set_page(self.knobs.page.step(delta)),
+                KnobsCmd::TurnKnob { knob, delta } => {
+                    let now = self.knobs_now();
+                    if let Some(cmd) = self.knobs.turn(knob, delta, &now) {
+                        self.cmd(cmd);
+                    }
+                }
+            },
+            // The effect bus (#204), as the session: a type must be the block's own.
+            AppCmd::Fx(FxCmd::SetEffectType { block, effect }) => {
+                if block.types().contains(&effect) {
+                    let mut types: [FxType; 3] = std::array::from_fn(|b| self.state.effects.blocks[b].effect);
+                    types[block.index()] = effect;
+                    let returns = std::array::from_fn(|b| self.state.effects.blocks[b].return_level);
+                    self.state.effects = EffectsState::new(types, returns);
+                } else {
+                    self.message(format!("{} has no {} type", block.name(), effect.name()), true);
+                }
+            }
+            AppCmd::Fx(FxCmd::SetEffectReturn { block, level }) => self.state.effects.blocks[block.index()].return_level = level.min(127),
+            AppCmd::Dynamics(c) => {
+                // As the session: the command applies to the settings in effect.
+                let d = &self.state.dynamics;
+                let now = yahaha::engine::DynamicsSettings {
+                    control: d.control,
+                    level: d.level,
+                    touch: d.touch,
+                    accent: d.accent,
+                    accent_min: d.accent_threshold,
+                };
+                self.state.dynamics = c.apply(now).into();
+            }
             AppCmd::Registration(c) => {
                 let fx = self.regist.registration_cmd(c, &self.state);
                 self.run_regist(fx);
@@ -1711,6 +1875,7 @@ impl MockSession {
                     self.state.ots.link = link;
                 }
                 Effect::Message(text, error) => self.message(text, error),
+                Effect::Cmd(c) => self.cmd(c),
             }
         }
         self.regist.apply_pending(&mut self.state, tempo);
@@ -1747,7 +1912,11 @@ impl MockSession {
         self.state.mixer.fader_page = page;
         // The hardware faders are wherever they were: every level on the new page waits.
         match page {
-            FaderPage::Panel => self.state.keyboard_parts.iter_mut().for_each(|p| p.waiting = true),
+            FaderPage::Panel => {
+                self.state.keyboard_parts.iter_mut().for_each(|p| p.waiting = true);
+                self.state.mixer.style_volume_waiting = true;
+                self.state.mixer.multi_pad_volume_waiting = true;
+            }
             FaderPage::Style => self.state.mixer.style_parts.iter_mut().for_each(|p| p.waiting = true),
         }
     }
@@ -1877,7 +2046,7 @@ fn pads_for(s: &AppState, page: Page) -> Vec<Pad> {
             v
         }
         // Page 4 comes from the Registration mock (`MockRegist::pads`).
-        Page::Registration => vec![],
+        Page::Registration | Page::MultiPads => vec![],
     }
 }
 
@@ -1990,6 +2159,36 @@ mod tests {
         assert_eq!(m.state.style_settings.retrigger_rate, 16);
     }
 
+    /// Stopped, a bar of steady taps starts the band a beat after the last tap, as the
+    /// engine does (#195, OM p.46); STOP during the count-in calls it off.
+    #[test]
+    fn a_bar_of_taps_while_stopped_starts_the_band() {
+        let mut m = MockSession::new();
+        let beats = quarters_per_bar(m.state.style.time_signature).floor() as usize;
+        let tap_bar = |m: &mut MockSession| {
+            for i in 0..beats {
+                if i > 0 {
+                    m.advance(500.0);
+                }
+                m.send(TransportCmd::TapTempo);
+            }
+        };
+        m.send(TransportCmd::Stop);
+        assert!(!m.state.transport.running, "stopped");
+        tap_bar(&mut m);
+        assert_eq!(m.state.transport.tempo, 120.0, "{beats} taps");
+        m.advance(480.0);
+        assert!(!m.state.transport.running);
+        m.advance(40.0);
+        assert!(m.state.transport.running);
+        m.send(TransportCmd::StartStop);
+        m.advance(20000.0);
+        tap_bar(&mut m);
+        m.send(TransportCmd::Stop);
+        m.advance(2000.0);
+        assert!(!m.state.transport.running);
+    }
+
     /// `setPluginInProcess` sets the list's override; the next load runs in process (#104).
     #[test]
     fn the_in_process_override_applies_from_the_next_load() {
@@ -2076,6 +2275,28 @@ mod tests {
             assert_eq!(plugin(&m, part as usize), None, "{id} ends the plugin");
         }
         assert_eq!(m.state.keyboard_parts[0].patch, None, "the synth's own preset is the GM voice");
+    }
+
+    /// #179: a GM voice selection ends a plugin picked for the part: Voice −/+,
+    /// SetPartVoice and a One Touch Setting's voice.
+    #[test]
+    fn a_gm_voice_selection_ends_a_picked_plugin() {
+        let mut m = MockSession::new();
+        let pick = |m: &mut MockSession, part: u8| {
+            m.send(PluginCmd::SetPartPlugin { part, id: "aumu dls  appl".into(), state: None });
+            assert!(m.state.keyboard_parts[part as usize].plugin.is_some());
+        };
+        pick(&mut m, 1);
+        m.send(PartsCmd::SelectPart { part: 1 });
+        m.send(PartsCmd::StepVoice { delta: 1 });
+        assert!(m.state.keyboard_parts[1].plugin.is_none(), "Voice +");
+        pick(&mut m, 2);
+        m.send(PartsCmd::SetPartVoice { part: 2, program: 40 });
+        assert!(m.state.keyboard_parts[2].plugin.is_none(), "SetPartVoice");
+        let i = m.state.ots.settings.iter().position(|o| o.parts[0].program.is_some()).expect("an OTS with a voice");
+        pick(&mut m, 0);
+        m.send(OtsCmd::RecallOts { index: i as u8 });
+        assert!(m.state.keyboard_parts[0].plugin.is_none(), "OTS");
     }
 
     /// The sound catalog (#117): every preset, plugin and saved sound; assigning routes
@@ -2167,6 +2388,13 @@ mod tests {
         m.send(ControllersCmd::TriggerFunction { function: Function::RegistBankNext });
         assert!(m.state.registration.bank.path.is_some());
         assert_ne!(m.state.registration.bank.path, before);
+        // Regist + (#200): the demo bank's first stored button, then the next one.
+        m.send(RegistrationCmd::SetRegistSequenceOn { on: false });
+        m.send(ControllersCmd::TriggerFunction { function: Function::RegistNext });
+        let first = m.state.registration.selected;
+        assert!(first.is_some());
+        m.send(ControllersCmd::TriggerFunction { function: Function::Regist1 });
+        assert_eq!(m.state.registration.selected, Some(0));
     }
 
     #[test]
@@ -2288,7 +2516,7 @@ mod tests {
         let s = &m.state.surface;
         assert_eq!(
             labels(&m),
-            ["", "PAGE ▼", "◀ STYLE", "STYLE ▶", "PLAY", "STOP", "TEMPO +", "TEMPO -", "RIGHT 1", "RIGHT 2", "RIGHT 3", "LEFT", "HARM/ARP", "PLUGIN", "", "", "PANEL"]
+            ["", "PAGE ▼", "◀ STYLE", "STYLE ▶", "PLAY", "STOP", "TEMPO +", "TEMPO -", "RIGHT 1", "RIGHT 2", "RIGHT 3", "LEFT", "HARM/ARP", "PLUGIN", "L HOLD", "LOOPER", "PANEL"]
         );
         assert_eq!((s.controls[0].shift_label.as_str(), s.controls[1].shift_label.as_str()), ("LEFT", "OTS LINK"));
         assert_eq!(s.controls[0].action, None);
@@ -2299,15 +2527,17 @@ mod tests {
         assert!(s.controls[4..8].iter().all(|c| c.colour.is_none() && c.level == Level::Off));
         assert!(s.controls.iter().all(|c| c.anim == Anim::Solid));
         assert_eq!(s.controls[16].level, Level::Bright);
-        assert_eq!(faders(&m), ["RIGHT 1", "RIGHT 2", "RIGHT 3", "LEFT", "", "", "", "", "MASTER"]);
+        assert_eq!(faders(&m), ["RIGHT 1", "RIGHT 2", "RIGHT 3", "LEFT", "STYLE", "M.PAD", "", "", "MASTER"]);
         assert_eq!(s.faders.iter().map(|f| f.position).collect::<Vec<_>>(), HW_FADERS.map(Some));
-        assert_eq!(s.faders[4].set, None);
+        assert_eq!(s.faders[4].set, Some(AppCmd::Mixer(MixerCmd::SetStyleVolume { volume: 0 })));
+        assert_eq!(s.faders[5].set, Some(AppCmd::Mixer(MixerCmd::SetMultiPadVolume { volume: 0 })));
+        assert_eq!(s.faders[6].set, None);
         assert_eq!(m.state.keyboard_parts[1].fader, Some(72));
         assert_eq!(m.state.mixer.style_parts[7].fader, Some(0));
 
         // Style page.
         m.send(MixerCmd::ToggleFaderPage);
-        m.send(PadsCmd::SetPadPage { page: Page::Registration });
+        m.send(PadsCmd::SetPadPage { page: Page::MultiPads });
         let s = &m.state.surface;
         assert_eq!(
             labels(&m),
@@ -2415,6 +2645,39 @@ mod tests {
         m.send(RegistrationCmd::SetFreeze { on: true });
         m.send(RegistrationCmd::RecallRegist { index: 5 });
         assert_eq!(m.state.harmony_arp, scrambled, "frozen");
+    }
+
+    /// Knob Assign pages (#197): a turn runs its function's command, as the session's.
+    #[test]
+    fn knobs_turn_their_functions_as_the_session() {
+        let mut m = MockSession::new();
+        assert_eq!((m.state.knobs.page_name.as_str(), m.state.knobs.knobs.len()), ("Style", 8));
+        m.send(KnobsCmd::TurnKnob { knob: 0, delta: 4 });
+        assert_eq!(m.state.dynamics.level, 72);
+        assert_eq!(m.state.knobs.knobs[0].value, "72");
+        let bpm = m.state.transport.tempo.round();
+        m.send(KnobsCmd::TurnKnob { knob: 7, delta: -3 });
+        assert_eq!(m.state.transport.tempo, bpm - 3.0);
+        m.send(KnobsCmd::StepKnobPage { delta: 1 });
+        let v = m.state.keyboard_parts[3].volume;
+        m.send(KnobsCmd::TurnKnob { knob: 3, delta: -1 });
+        assert_eq!(m.state.keyboard_parts[3].volume, v.saturating_sub(2));
+        assert_eq!(m.state.knobs.page_number, 2);
+    }
+
+    /// Style Dynamics (#180): commands apply to the settings in effect and clamp, as the
+    /// session's.
+    #[test]
+    fn dynamics_commands_apply_and_clamp_as_the_session() {
+        let mut m = MockSession::new();
+        assert_eq!(m.state.dynamics, DynamicsState::default());
+        m.send(DynamicsCmd::SetDynamics { level: 120 });
+        m.send(DynamicsCmd::StepDynamics { delta: 20 });
+        m.send(DynamicsCmd::ToggleAccent);
+        m.send(DynamicsCmd::SetAccentThreshold { velocity: 0 });
+        m.send(DynamicsCmd::SetDynamicsTouch { on: true });
+        let d = &m.state.dynamics;
+        assert_eq!((d.level, d.accent, d.accent_threshold, d.touch, d.control), (127, true, 1, true, true));
     }
 
     /// As the session's Parameter Lock: a locked group keeps the player's setting through

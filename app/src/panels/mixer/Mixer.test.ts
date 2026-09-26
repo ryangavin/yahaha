@@ -28,7 +28,9 @@ afterEach(() => {
   ui.mixer = false
 })
 
-const sliders = () => [...document.querySelectorAll<HTMLElement>('.strips [role="slider"]')]
+/** The channel faders and the master (not the Panel strips' pan/send knobs). */
+const sliders = () => [...document.querySelectorAll<HTMLElement>('.strips [role="slider"]:not(.knob)')]
+const knobs = () => [...document.querySelectorAll<HTMLElement>('.strips .knob')]
 const tab = (name: string) => [...document.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find((t) => t.textContent?.includes(name))!
 
 describe('Mixer drawer', () => {
@@ -39,10 +41,31 @@ describe('Mixer drawer', () => {
     expect(f).toHaveLength(9)
     expect(f.slice(0, 4).map((e) => e.getAttribute('aria-label'))).toEqual(['Right 1', 'Right 2', 'Right 3', 'Left'])
     expect(f[1].getAttribute('aria-valuenow')).toBe(String(s.state.keyboardParts[1].volume))
-    expect(f.slice(4, 8).every((e) => e.dataset.tip === 'launchkey.fader_unused')).toBe(true)
+    expect(f[4].dataset.tip).toBe('mixer.style_level')
+    expect(f[4].getAttribute('aria-label')).toBe('Style')
+    expect(f[5].dataset.tip).toBe('mixer.pad_level')
+    expect(f.slice(6, 8).every((e) => e.dataset.tip === 'launchkey.fader_unused')).toBe(true)
     expect(f[8].dataset.tip).toBe('mixer.master')
     const chans = [...document.querySelectorAll('.strips [data-tip="mixer.channel"]')].map((e) => e.textContent?.replace(/\s+/g, ' ').trim())
     expect(chans).toEqual(['Ch 1', 'Ch 3', 'Ch 4', 'Ch 2'])
+  })
+
+  it('Panel fader 5 is the Style volume, a scale on the Style parts; their faders stay', async () => {
+    const s = setup()
+    const before = s.state.mixer.styleParts.map((p) => p.volume)
+    expect(sliders()[4].getAttribute('aria-valuenow')).toBe('100')
+    await fireEvent.keyDown(sliders()[4], { key: 'PageDown' })
+    expect(s.state.mixer.styleVolume).toBe(90)
+    expect(s.state.mixer.styleParts.map((p) => p.volume)).toEqual(before)
+    expect(s.state.surface.faders[4].label).toBe('STYLE')
+  })
+
+  it('Panel fader 6 is the Multi Pad volume', async () => {
+    const s = setup()
+    expect(sliders()[5].getAttribute('aria-label')).toBe('M.Pad')
+    await fireEvent.keyDown(sliders()[5], { key: 'Home' })
+    expect(s.state.mixer.multiPadVolume).toBe(0)
+    expect(s.state.surface.faders[5].label).toBe('M.PAD')
   })
 
   it('Panel strip 5 has the HARMONY/ARPEGGIO button, as the Launchkey button under fader 5', async () => {
@@ -70,6 +93,19 @@ describe('Mixer drawer', () => {
     expect(document.body.textContent).toContain('104/0/49')
   })
 
+  it('Effects: each block\'s type and return level (#204)', async () => {
+    const s = setup()
+    const types = document.querySelectorAll<HTMLSelectElement>('select[aria-label$=" type"]')
+    expect([...types].map((e) => e.getAttribute('aria-label'))).toEqual(['Reverb type', 'Chorus type', 'Variation type'])
+    expect(types[0].value).toBe('hall')
+    await fireEvent.change(types[2], { target: { value: 'pingPong' } })
+    expect(s.state.effects.blocks[2].effect).toBe('pingPong')
+    const ret = document.querySelector<HTMLElement>('[aria-label="Reverb return"]')!
+    expect(ret.getAttribute('aria-valuetext')).toBe('+0.0 dB')
+    await fireEvent.keyDown(ret, { key: 'Home' })
+    expect(s.state.effects.blocks[0].returnLevel).toBe(0)
+  })
+
   it('follows the page when the Launchkey switches it', () => {
     const s = setup()
     s.send({ type: 'toggleFaderPage' })
@@ -88,6 +124,31 @@ describe('Mixer drawer', () => {
     expect(on).toHaveLength(8)
     await fireEvent.click(on[0])
     expect(s.state.mixer.styleParts[0].on).toBe(false)
+  })
+
+  it('Panel strips have Pan, Reverb, Chorus and Delay knobs that send the part\'s CC 10/91/93/94; the Style tab has none', async () => {
+    const s = setup()
+    const k = knobs()
+    expect(k).toHaveLength(16)
+    expect(k.slice(12).map((e) => e.getAttribute('aria-label'))).toEqual(['Left pan', 'Left reverb', 'Left chorus', 'Left delay'])
+    expect(k[0].getAttribute('aria-valuetext')).toBe('C')
+    await fireEvent.keyDown(k[12], { key: 'Home' })
+    expect(s.state.keyboardParts[3].pan).toBe(0)
+    flushSync()
+    expect(knobs()[12].getAttribute('aria-valuetext')).toBe('L64')
+    await fireEvent.keyDown(k[5], { key: 'PageUp' })
+    expect(s.state.keyboardParts[1].reverb).toBe(60)
+    await fireEvent.keyDown(k[2], { key: 'End' })
+    expect(s.state.keyboardParts[0].chorus).toBe(127)
+    await fireEvent.dblClick(k[2])
+    expect(s.state.keyboardParts[0].chorus).toBe(10)
+    await fireEvent.keyDown(k[3], { key: 'PageUp' })
+    expect(s.state.keyboardParts[0].variation).toBe(10)
+    await fireEvent.dblClick(k[1])
+    expect(s.state.keyboardParts[0].reverb).toBe(50)
+    await fireEvent.click(tab('Style'))
+    flushSync()
+    expect(knobs()).toHaveLength(0)
   })
 
   it('shows the soft-takeover mark and the ghost of the hardware fader while a level waits', async () => {
@@ -165,7 +226,7 @@ describe('voice lines', () => {
     expect(styleVoice(null)).toEqual({ plays: '—', writtenFor: '' })
   })
   it('a keyboard part under Manual Bass plays the Style Bass', () => {
-    const p = { name: 'Left', channel: 2, on: false, sounding: true, selected: false, volume: 100, waiting: false, program: 48, voiceName: 'Finger Bass', playsBass: true, octave: 0, fader: null, patch: null }
+    const p = { name: 'Left', channel: 2, on: false, sounding: true, selected: false, volume: 100, waiting: false, program: 48, voiceName: 'Finger Bass', playsBass: true, octave: 0, pan: 64, reverb: 40, chorus: 0, variation: 0, fader: null, patch: null }
     expect(partVoice(p).writtenFor).toContain('Manual Bass')
     expect(partVoice({ ...p, playsBass: false, voiceName: 'Strings' })).toEqual({ plays: 'Strings', writtenFor: 'GM 49' })
   })

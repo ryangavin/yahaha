@@ -42,7 +42,10 @@ one map, the most specific rule wins:
 
 Bank variations collapse onto their program: the bank select is ignored, so one rule
 covers every XG/GS variation. A Yamaha voice outside the GM banks first becomes the GM
-program the synth already plays for it (`synth::gm_fallback`). Anything no rule covers
+program the synth already plays for it (`synth::gm_fallback`). Genos bank 8 voices
+(MegaVoice, S.Art!) map to their instrument's GM program through the Data List's table
+(`src/voice_gm.rs`, #228): NylonGuitar (8/0/PC#1) is Nylon Guitar, in the Guitar family, not
+Acoustic Grand Piano. Anything no rule covers
 plays the SoundFont voice it played before the library existed.
 
 A style can have its own map as well. Its rules win, and whatever it leaves unset falls

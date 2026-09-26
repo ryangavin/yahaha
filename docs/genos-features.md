@@ -169,6 +169,18 @@ Tags: `[chord-following]` `[transport]` `[sections]` `[voices]` `[registration]`
 - **Settings:** Style Setting → "Dynamics Control" decides whether the Style can be controlled by the "Dynamics Control" Live Control or Assignable function at all.
 - **Default controller:** Knob Assign Type 2, knob 3. OM p.69 says it sets Style volume "depending on playing strength", so a velocity-responsive reading is possible.
 - **(Not specified):** the exact mapping from control value to Style intensity. Genos1 offered Off/Narrow/Medium/Wide.
+- **yahaha (#180, `src/engine/dynamics.rs`):**
+  - **Level.** A level from 0 to 127 scales the velocity of every Style note-on, on all eight parts. The factor is ×0.35 at 0, ×1 at 64 (as written) and ×1.6 at 127, with the result clamped to 1–127.
+    - Scaling velocity rather than volume changes intensity, as the manual describes. CC7 is never touched.
+    - With Dynamics Control off, the Style plays as written.
+  - **Touch** (reading OM p.69 literally). Each strike in the chord section sets the level to its velocity minus 36, so a strike at velocity 100 plays the Style as written.
+  - **Accent** (a stand-in for the PSR-SX Unison & Accent, §C.9). A chord-section strike at or above the threshold (default 110) makes the Main that is playing play its own fill from the next beat, as Fill Self does.
+    - It is not a Main press, so OTS Link does not follow it.
+    - It does nothing during an Intro, a fill, a break or an Ending, or while a change is queued.
+  - **Pedal.** The assignable function "Dynamics Control" (RM p.142 marks it pedal-assignable) turns a foot controller's position into the level, 0–127. With Dynamics Control off the pedal does nothing. A pedal that is given another function leaves the level where it was.
+  - **Storage.** System settings, not Registration (DL p.91: Dynamics Control is System only).
+  - **Defaults.** Dynamics Control on, level 64, Touch off, Accent off.
+  - **Controls.** The app's Settings › Style page (Dynamics Control, level, Touch, Accent, threshold). TUI and app keys: `H` toggles Accent, `&` toggles Touch. There is no Launchkey mapping: every pad page is full and yahaha does not read the encoders yet.
 - **Ref:** OM p.11, p.69; RM p.11, p.142, p.147
 
 ### Ambience Depth `[mixer]`
@@ -840,6 +852,7 @@ With NTR = Guitar:
   - A key's pitch class picks a string of a guitar voicing of the played chord: B (and B♭) = string 1, A (A♭) = 2, G = 3, F (F♯) = 4, E (E♭) = 5, D = 6.
   - C is the bass, the voicing's lowest string, and C♯ is the fifth above the bass (the octave over 1+8).
   - Keys from C7 (96) up are MegaVoice noise keys (strum, fret and body noises). They pass through untouched on every chord.
+  - yahaha sounds no real MegaVoice, so on a part whose Style voice is a MegaVoice the noise keys are left out at the output, and its velocity articulations play as plain notes (#223, `src/megavoice.rs`). The NTT still passes them through, and the oracle still checks that.
   - **Corpus evidence (all 208 styles, every file type):**
     - 382 CASM records in 140 styles have a Guitar zone: 26 All Purpose, 236 Stroke and 117 Arpeggio as the middle zone, plus 3 with a Guitar outer zone.
     - Of the strums of three or more strings (notes at most 30 ticks apart, below the noise keys), 13,372 of 14,153 are stacked seconds. That is 10,633 of 11,092 in T5Style, 2,739 of 2,787 in SX900, and 0 of 274 in MOX_v2.
@@ -944,6 +957,7 @@ With NTR = Guitar:
   - FM voice 2/4 Unison mode (RM p.55).
   - Style Creator "Dynamics / Accent Type" (an editor feature, RM p.27).
 - If yahaha wants Unison & Accent, the spec must come from another source.
+- **Corpus (#180).** 0 of 208 styles carry any Unison & Accent data. The only chunks present are MThd, MTrk, CASM, OTSc and FNRc, and the only markers are the standard section markers. yahaha therefore cannot play Yamaha's accent figures. Its Accent plays the Main's own fill instead (see Style Dynamics Control).
 
 ### C.10 Chord identity numbering (MIDI Chord SysEx and Song chord meta)
 - **Chord SysEx:** `F0 43 7E 02 cr ct bn bt F7`. The same data appears in the Song meta event `FF 7F 07 43 7B 01 cr ct bn bt`.
@@ -1048,7 +1062,7 @@ yahaha gives the three dash rows internal ids 35 (M7♭5), 36 ((♭5)) and 37 (m
 - **Utility and system:** speaker settings, touch calibration, brightness, storage format, Factory Reset, Backup/Restore, Setup files, Auto Power Off, Voice Guide, language, owner name. RM p.162–166
 - **Demo, Favorites tab and file management UI:** OM p.36–40; RM p.8
 - **Effects and mastering editors:** Master Compressor and Master EQ editing and saving, insertion, variation and system effect parameter editing, and User Effect storage. Selecting types can stay optional. RM p.131–136
-- **Super Articulation / AEM articulation engine, MegaVoices, S.Art2 auto articulation:** tied to Yamaha sample content. RM p.37–38, p.41
+- **Super Articulation / AEM articulation engine, MegaVoices, S.Art2 auto articulation:** tied to Yamaha sample content. RM p.37–38, p.41. A Style part written for a MegaVoice plays on a plain voice without its noise keys, and its velocity articulations play as plain notes (#223, `src/megavoice.rs`).
 - **Preset content:** Yamaha preset Styles, Multi Pad banks, Voices, Keyboard Harmony/Arpeggio *arpeggio pattern data*, Ensemble presets, and Vocal Harmony types. These are copyrighted.
 - **Panel Lock PIN, Chord Tutor and Registration search/tags:** UI niceties; optional.
 - **Unison & Accent:** not a Genos2 feature (§C.9).

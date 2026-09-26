@@ -67,8 +67,29 @@ The manuals leave these open (genos-features.md §G.4). What yahaha does, and wh
   The engine thread publishes the looping state (`Shared::looping`) each wake and the
   input thread's part routing reads it. When the loop stops, the left hand is the chord
   section again.
-- **No .clb/.cld files, no Registration or Freeze yet.** The file formats are
-  undocumented; memories last for the session. Registration Memory is not built yet.
-- **No Launchkey pads yet.** Page 2 and page 3 each have one free pad; REC/STOP and
-  ON/OFF belong together, so they wait for a pad-page rework. The terminal UI has `r`
-  (REC/STOP) and `^` (ON/OFF); the app has a Chord Looper drawer.
+- **Registration (#201):** a Registration Memory stores the memory selected, ON/OFF and
+  that memory's sequence itself (group Chord Looper; DL p.82, and the V2 video workflow:
+  verse/chorus registrations each arm their memory, the Ending's turns the loop off).
+  Storing the sequence, not only the memory number, keeps a registration working when the
+  looper's memories changed or a later session starts empty: the recall puts the sequence
+  back into that memory (keeping its name). Recalled ON arms the loop (next bar line, or
+  with the style); recalled OFF stops a loop at once. A recording under way is left alone,
+  so a recall never throws away what is being recorded.
+- **Banks are yahaha's own JSON files (#201), not .clb/.cld** (those formats are
+  undocumented). A bank is the eight memories: `<name>.looper.json` in the data folder's
+  `ChordLooper` folder (`{"format":"yahaha.chord-looper-bank","version":1,"name",
+  "memories":[null | {"name","sequence":{"bars","chords":[{bar,at,root,type,bass?,name}]}}]}`).
+  The drawer's Bank section picks a file (Load) and saves (Save As with a name; Overwrite
+  when another bank has it). **Every change to the memories saves itself** (store, clear,
+  new bank, a registration putting a memory back): to the bank's file, or, while the bank
+  has none, to `ChordLooper/autosave.json`. `ChordLooper/setup.json` remembers the bank in
+  use, so the next session starts with it. Because: the Genos keeps its memories on the
+  instrument, and a performer shouldn't lose a progression to a forgotten Save (the same
+  rule as Registration banks). The current (unstored) sequence is not saved. Per-memory
+  export/import (.cld) is not built.
+- **Hands-on controls (#201):** every pad page is full, so the Launchkey's Panel fader
+  page button 8 is the CHORD LOOPER: ON/OFF, and with Shift REC/STOP. Its lamp: dark with
+  nothing recorded, dim green with a loop to play, dim yellow while a loop is armed, green
+  while looping, dim red / red while recording is armed / recording. "Chord Looper On/Off"
+  and "Chord Looper Rec/Stop" are assignable functions too (pedals, RM p.141). The
+  terminal UI has `r` (REC/STOP) and `^` (ON/OFF); the app has a Chord Looper drawer.

@@ -73,6 +73,8 @@ describe('Registration bar', () => {
 
   it('Regist + walks the sequence; the playlist steps songs', async () => {
     const s = setup()
+    // Sequence On/Off starts off, as in the session.
+    s.send({ type: 'setRegistSequenceOn', on: true })
     render(RegistBar)
     await fireEvent.click(q('[data-tip="regist.seq_next"]'))
     await fireEvent.click(q('[data-tip="regist.seq_next"]'))

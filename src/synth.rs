@@ -84,6 +84,8 @@ pub struct SynthControl {
     /// (`crate::route`). The control side writes it; the audio thread reads it once per
     /// buffer.
     pub routes: ChannelRoutes,
+    /// The shared effect bus's settings (#204): types, return levels.
+    pub fx: crate::fx::FxControl,
 }
 
 pub struct Synth {
@@ -153,8 +155,12 @@ impl Rack {
     pub fn new(font: &Arc<SoundFont>, sample_rate: i32) -> Result<Rack> {
         let mut settings = SynthesizerSettings::new(sample_rate);
         settings.maximum_polyphony = 128;
-        let band = Synthesizer::new(font, &settings).map_err(|e| anyhow!("{e:?}"))?;
-        let player = Synthesizer::new(font, &settings).map_err(|e| anyhow!("{e:?}"))?;
+        settings.velocity_to_filter = velocity_to_filter();
+        let mut band = Synthesizer::new(font, &settings).map_err(|e| anyhow!("{e:?}"))?;
+        let mut player = Synthesizer::new(font, &settings).map_err(|e| anyhow!("{e:?}"))?;
+        // The shared effect bus (src/fx.rs) plays the reverb and chorus (#204).
+        band.set_internal_effects(false);
+        player.set_internal_effects(false);
         let mut r = Rack {
             band,
             player,
@@ -178,6 +184,27 @@ impl Rack {
         Ok(Box::new(Rack::new(&font, sample_rate as i32)?))
     }
 
+    fn synths(&mut self) -> impl Iterator<Item = &mut Synthesizer> {
+        [&mut self.band, &mut self.player].into_iter().chain(self.extra.iter_mut())
+    }
+
+    /// Each channel's gains into the effect bus's send buses (#204).
+    fn set_sends(&mut self, gains: &[[f32; crate::fx::BUSES]; 16]) {
+        for s in self.synths() {
+            for (ch, g) in gains.iter().enumerate() {
+                s.set_channel_sends(ch, *g);
+            }
+        }
+    }
+
+    /// The synthesizers' own reverb and chorus on (the sound before #204) or off (the
+    /// effect bus plays them).
+    fn set_internal_effects(&mut self, on: bool) {
+        for s in self.synths() {
+            s.set_internal_effects(on);
+        }
+    }
+
     fn set_master_volume(&mut self, v: f32) {
         self.band.set_master_volume(v);
         self.player.set_master_volume(v);
@@ -186,13 +213,23 @@ impl Rack {
         }
     }
 
-    /// Render `left.len()` frames of the mix into `left`/`right` (overwritten), noting each
-    /// channel's peak in `peaks`. `fade` ramps the whole from one gain to another over the
-    /// buffer.
-    fn render(&mut self, left: &mut [f32], right: &mut [f32], peaks: &[AtomicU32; 16], fade: Option<(f32, f32)>) {
-        let n = left.len().min(self.tmp_l.len());
+    /// `render`, the send buses left out (tests).
+    #[cfg(test)]
+    fn render_dry(&mut self, left: &mut [f32], right: &mut [f32], peaks: &[AtomicU32; 16], fade: Option<(f32, f32)>) {
+        let mut sends = vec![0f32; 2 * crate::fx::BUSES * left.len()];
+        self.render(left, right, &mut sends, peaks, fade);
+    }
+
+    /// Render `left.len()` frames of the mix into `left`/`right` and the effect bus's send
+    /// buses into `sends` (all overwritten; bus b's left side at `2 * b * n`, its right at
+    /// `(2 * b + 1) * n`), noting each channel's peak in `peaks`. `fade` ramps the whole
+    /// from one gain to another over the buffer.
+    fn render(&mut self, left: &mut [f32], right: &mut [f32], sends: &mut [f32], peaks: &[AtomicU32; 16], fade: Option<(f32, f32)>) {
+        let n = left.len().min(self.tmp_l.len()).min(sends.len() / (2 * crate::fx::BUSES));
         let (left, right) = (&mut left[..n], &mut right[..n]);
-        self.band.render(left, right);
+        let sends = &mut sends[..2 * crate::fx::BUSES * n];
+        sends.fill(0.0);
+        self.band.render_with_sends(left, right, sends);
         let (l, r) = (&mut self.tmp_l[..n], &mut self.tmp_r[..n]);
         // The extra synthesizers some channel plays (slot k+1 = extra[k]).
         let mut used = 0u64;
@@ -210,7 +247,7 @@ impl Rack {
             {
                 continue;
             }
-            s.render(l, r);
+            s.render_with_sends(l, r, sends);
             let mut peak = 0f32;
             for k in 0..n {
                 left[k] += l[k];
@@ -228,6 +265,10 @@ impl Rack {
                 let g = a + (b - a) * k as f32 / n as f32;
                 left[k] *= g;
                 right[k] *= g;
+            }
+            for (i, x) in sends.iter_mut().enumerate() {
+                let k = i % n;
+                *x *= a + (b - a) * k as f32 / n as f32;
             }
         }
         for s in [&mut self.band, &mut self.player].into_iter().chain(self.extra.iter_mut()) {
@@ -371,6 +412,7 @@ impl SynthControl {
             swaps: AtomicU64::new(0),
             click_volume: AtomicU8::new(crate::click::DEFAULT_VOLUME),
             routes: ChannelRoutes::new(),
+            fx: crate::fx::FxControl::new(),
         }
     }
 }
@@ -400,12 +442,17 @@ pub fn feeds() -> Feeds {
 }
 
 /// GM program to use for a Yamaha voice. Yamaha's GM/XG banks (MSB 0) follow GM
-/// numbering; Genos-only banks don't, so the part's role decides when the number would
-/// land in the wrong instrument family.
+/// numbering. Bank 8 (MegaVoice, S.Art!) numbers its voices by instrument, which the Data
+/// List's table maps to GM (`voice_gm`, #228). For the other Genos-only banks, the part's
+/// role decides when the number would land in the wrong instrument family.
 pub fn gm_fallback(dest: u8, msb: u8, prog: u8) -> u8 {
     if msb == 0 {
         return prog;
     }
+    let prog = match msb {
+        crate::voice_gm::MSB => crate::voice_gm::gm_program(prog).unwrap_or(prog),
+        _ => prog,
+    };
     match dest {
         10 if !(32..=39).contains(&prog) => 33, // Bass part -> Finger Bass
         _ => prog,
@@ -427,6 +474,65 @@ pub fn style_bass_program(voice: Option<(u8, u8, u8)>) -> u8 {
 /// come from each channel's CC7 (the mixer faders), CC11 and velocity alone, on the
 /// standard GM curves (rustysynth: gain = (vel/127)² · ((CC7/127)·(CC11/127))²).
 pub const MASTER_UNITY: u8 = 100;
+
+/// Whether a note's velocity lowers its filter cutoff, the SF2 default modulator the
+/// vendored rustysynth applies (#203): on, unless the environment has
+/// `YAHAHA_VEL_FILTER=off` (or `0`), which renders the old flat tone for A/B listening.
+/// Read when a rack is built, never on the audio thread.
+pub fn velocity_to_filter() -> bool {
+    std::env::var("YAHAHA_VEL_FILTER").map_or(true, |v| v != "off" && v != "0")
+}
+
+/// Whether renders use the SoundFont's own reverb and chorus instead of the effect bus
+/// (#204): `YAHAHA_FX=legacy` (or `off`), for before/after listening. Read by
+/// [`render_offline`] only.
+pub fn legacy_fx() -> bool {
+    std::env::var("YAHAHA_FX").is_ok_and(|v| v == "legacy" || v == "off")
+}
+
+/// Render what the band sent (`(time ns, message)`, as `sim::record` gives it) through
+/// the audio callback ([`AudioCore`]: a rack on `sf2`, the effect bus, the master at unity
+/// and the safety clipper; the delay at `bpm`) into stereo at `sample_rate`, for `end_ns` plus three seconds
+/// of tails. Messages take effect at the start of the 64-frame block they fall in, as
+/// live. For listening tests (`yahaha render`); not the audio thread.
+pub fn render_offline(sf2: &Path, msgs: &[(u64, Vec<u8>)], end_ns: u64, sample_rate: u32, bpm: f64) -> Result<(Vec<f32>, Vec<f32>)> {
+    const BLOCK: usize = 64;
+    let rack = Rack::load(sf2, sample_rate)?;
+    let (mut tx, rx) = RingBuffer::<Msg>::new(4096);
+    let ctl = Arc::new(SynthControl::new(0));
+    ctl.fx.legacy.store(legacy_fx(), Relaxed);
+    ctl.fx.set_tempo(bpm);
+    let (mut core, _swap, _plugins) = AudioCore::new(Some(rack), vec![rx], Arc::new(Parts::new()), ctl, sample_rate, 2);
+    let frames = ((end_ns as f64 / 1e9 + 3.0) * sample_rate as f64) as usize;
+    let (mut left, mut right) = (Vec::with_capacity(frames), Vec::with_capacity(frames));
+    let mut out = [0f32; 2 * BLOCK];
+    let mut next = 0;
+    for start in (0..frames).step_by(BLOCK) {
+        let t = (start as f64 * 1e9 / sample_rate as f64) as u64;
+        while let Some((at, m)) = msgs.get(next)
+            && *at <= t
+        {
+            next += 1;
+            // Channel messages only (SysEx and the like don't reach the SoundFont live).
+            if m.is_empty() || m[0] < 0x80 || m[0] >= 0xF0 {
+                continue;
+            }
+            let msg: Msg = [m[0], m.get(1).copied().unwrap_or(0), m.get(2).copied().unwrap_or(0)];
+            if tx.push(msg).is_err() {
+                // A burst larger than the ring: take it in without rendering.
+                core.process(&mut out[..0]);
+                let _ = tx.push(msg);
+            }
+        }
+        let n = (frames - start).min(BLOCK);
+        core.process(&mut out[..2 * n]);
+        for f in out[..2 * n].chunks(2) {
+            left.push(f[0]);
+            right.push(f[1]);
+        }
+    }
+    Ok((left, right))
+}
 
 /// Output gain for a master fader value: linear, 1.0 at `MASTER_UNITY`.
 #[inline]
@@ -552,6 +658,18 @@ pub struct AudioCore {
     /// The sound library's program map (#103; None: every channel plays its GM voice on
     /// the main SoundFont, as before).
     router: Option<Router>,
+    /// The shared effect bus (#204) and its send buses (see `Rack::render`): the playing
+    /// rack's, then the fading one's.
+    fx: crate::fx::FxBus,
+    sends: Vec<f32>,
+    sends2: Vec<f32>,
+    /// Each channel's send controllers (CC91/93/94) as last sent, and their gains.
+    send_cc: [[u8; crate::fx::BUSES]; 16],
+    send_gains: [[f32; crate::fx::BUSES]; 16],
+    /// The racks' send gains need setting again (a send changed, a rack came in).
+    sends_dirty: bool,
+    /// `FxControl::legacy` as last applied.
+    legacy: bool,
 }
 
 impl AudioCore {
@@ -595,6 +713,13 @@ impl AudioCore {
             plugins,
             plugin_on: 0,
             router: None,
+            fx: crate::fx::FxBus::new(sample_rate),
+            sends: vec![0f32; 2 * crate::fx::BUSES * 8192],
+            sends2: vec![0f32; 2 * crate::fx::BUSES * 8192],
+            send_cc: [crate::fx::DEFAULT_SENDS; 16],
+            send_gains: [[0f32; crate::fx::BUSES]; 16],
+            sends_dirty: true,
+            legacy: false,
         };
         (core, RackSwap { tx: swap_tx, old: old_rx }, Some(link))
     }
@@ -628,6 +753,8 @@ impl AudioCore {
             && let Ok(mut new) = self.swap_rx.pop()
         {
             self.shadow.replay(&mut new, &mut self.bank, &self.parts, self.router.as_ref());
+            new.set_internal_effects(self.legacy);
+            self.sends_dirty = true;
             self.fading = self.rack.replace(new);
             self.last_master = 255;
             ctl.swaps.fetch_add(1, Relaxed);
@@ -717,27 +844,59 @@ impl AudioCore {
                 // the band's setup of the channel for when the audition ends.
                 if i != CONTROL_RING {
                     self.shadow.note(&m);
+                    // A send to the effect bus (#204).
+                    if m[0] & 0xF0 == 0xB0
+                        && let Some(b) = crate::fx::SEND_CC.iter().position(|&c| c == m[1])
+                    {
+                        self.send_cc[(m[0] & 0x0F) as usize][b] = m[2];
+                        self.sends_dirty = true;
+                    }
                 }
                 if let Some(rack) = self.rack.as_mut() {
                     apply_routed(rack, &m, &mut self.bank, self.router.as_ref());
                 }
             }
         }
+        // The effect bus (#204): the SoundFont's own reverb and chorus instead, for a
+        // before/after comparison; each channel's send gains.
+        let legacy = ctl.fx.legacy.load(Relaxed);
+        if legacy != self.legacy {
+            self.legacy = legacy;
+            self.sends_dirty = true;
+            for r in [self.rack.as_mut(), self.fading.as_mut()].into_iter().flatten() {
+                r.set_internal_effects(legacy);
+            }
+        }
+        if self.sends_dirty {
+            self.sends_dirty = false;
+            for (g, cc) in self.send_gains.iter_mut().zip(&self.send_cc) {
+                *g = if legacy { [0.0; crate::fx::BUSES] } else { cc.map(crate::fx::send_gain) };
+            }
+            for r in [self.rack.as_mut(), self.fading.as_mut()].into_iter().flatten() {
+                r.set_sends(&self.send_gains);
+            }
+        }
         let frames = (out.len() / channels).min(self.left.len());
         let (left, right) = (&mut self.left[..frames], &mut self.right[..frames]);
         let (left2, right2) = (&mut self.left2[..frames], &mut self.right2[..frames]);
+        let sends = &mut self.sends[..2 * crate::fx::BUSES * frames];
         match self.rack.as_mut() {
-            Some(rack) => rack.render(left, right, &ctl.peaks, None),
+            Some(rack) => rack.render(left, right, sends, &ctl.peaks, None),
             None => {
                 left.fill(0.0);
                 right.fill(0.0);
+                sends.fill(0.0);
             }
         }
         if let Some(mut f) = self.fading.take() {
-            f.render(left2, right2, &self.unmetered, Some((1.0, 0.0)));
+            let sends2 = &mut self.sends2[..2 * crate::fx::BUSES * frames];
+            f.render(left2, right2, sends2, &self.unmetered, Some((1.0, 0.0)));
             for i in 0..frames {
                 left[i] += left2[i];
                 right[i] += right2[i];
+            }
+            for (a, b) in sends.iter_mut().zip(sends2.iter()) {
+                *a += *b;
             }
             retire(&mut self.old_tx, &mut self.parked, f);
         }
@@ -747,8 +906,11 @@ impl AudioCore {
         if self.plugins.active() {
             left2.fill(0.0);
             right2.fill(0.0);
-            self.plugins.render_add(left2, right2);
+            // Their sends too, at the master gain the SoundFont's carry (its channels'
+            // mix includes it).
             let g = master_gain(master);
+            let gains: [[f32; crate::fx::BUSES]; 16] = std::array::from_fn(|ch| self.send_gains[ch].map(|x| x * g));
+            self.plugins.render_add_sends(left2, right2, Some((&mut *sends, &gains)));
             for i in 0..frames {
                 left[i] += left2[i] * g;
                 right[i] += right2[i] * g;
@@ -759,6 +921,9 @@ impl AudioCore {
                     ctl.peaks[ch as usize].fetch_max(p.to_bits(), Relaxed);
                 }
             }
+        }
+        if !self.legacy {
+            self.fx.process_add(sends, frames, left, right, &ctl.fx);
         }
         self.click.render_add(left, right, master_gain(master));
         let mute = ctl.muted.load(Relaxed);
@@ -1152,6 +1317,48 @@ mod rack_tests {
         f32::from_bits(p[ch].swap(0, Relaxed))
     }
 
+    /// #204: a part's sends feed the shared effect bus. A note sent to the reverb rings
+    /// on after its release; with no send it stops. The SoundFont's own reverb and chorus
+    /// are off (fully sent at return 0, nothing is added), and `legacy` brings them back
+    /// in place of the bus.
+    #[test]
+    fn sends_feed_the_effect_bus_and_the_soundfonts_own_effects_are_off() {
+        let Some(font) = font() else { return };
+        let play = |setup: &[Msg], ret: u8, legacy: bool| -> (f64, f64) {
+            let rack = Box::new(Rack::new(&font, 48_000).unwrap());
+            let (mut tx, rx) = RingBuffer::<Msg>::new(64);
+            let ctl = Arc::new(SynthControl::new(0));
+            ctl.fx.reverb_return.store(ret, Relaxed);
+            ctl.fx.chorus_return.store(ret, Relaxed);
+            ctl.fx.legacy.store(legacy, Relaxed);
+            let (mut core, _swap, _link) = AudioCore::new(Some(rack), vec![rx], Arc::new(Parts::new()), ctl, 48_000, 2);
+            let mut out = vec![0f32; 256];
+            let mut energy = |core: &mut AudioCore, buffers: usize| {
+                let mut e = 0f64;
+                for _ in 0..buffers {
+                    core.process(&mut out);
+                    e += out.iter().map(|x| (*x as f64).powi(2)).sum::<f64>();
+                }
+                e
+            };
+            for m in setup.iter().chain(&[[0xCA, 32, 0], [0x9A, 45, 110]]) {
+                tx.push(*m).unwrap();
+            }
+            let note = energy(&mut core, 150);
+            tx.push([0x8A, 45, 0]).unwrap();
+            energy(&mut core, 150);
+            (note, energy(&mut core, 300))
+        };
+        let (dry_note, dry) = play(&[[0xBA, 91, 0], [0xBA, 93, 0]], 64, false);
+        let (_, wet) = play(&[[0xBA, 91, 127], [0xBA, 93, 0]], 64, false);
+        let (note, muted) = play(&[[0xBA, 91, 127], [0xBA, 93, 127]], 0, false);
+        let (_, legacy) = play(&[[0xBA, 91, 127], [0xBA, 93, 0]], 64, true);
+        assert!(dry_note > 1e-3, "the note sounds");
+        assert!(wet > dry * 100.0 + 1e-6, "the reverb rings on: {wet} vs {dry}");
+        assert!((note - dry_note).abs() <= dry_note * 1e-9 && (muted - dry).abs() <= 1e-12, "no reverb inside the SoundFont");
+        assert!(legacy > dry * 100.0 + 1e-6, "legacy: the SoundFont's own reverb");
+    }
+
     #[test]
     fn each_part_is_metered_on_its_own_channel() {
         let Some(font) = font() else { return };
@@ -1163,7 +1370,7 @@ mod rack_tests {
             apply_rack(&mut rack, &m, &mut bank);
         }
         for _ in 0..8 {
-            rack.render(&mut l, &mut r, &p, None);
+            rack.render_dry(&mut l, &mut r, &p, None);
         }
         let (bass, right1) = (level(&p, 10), level(&p, 0));
         assert!(bass > 1e-3 && right1 > 1e-3, "bass {bass}, right 1 {right1}");
@@ -1173,7 +1380,7 @@ mod rack_tests {
         // CC7 is the part's level: the meter follows it.
         apply_rack(&mut rack, &[0xBA, 7, 30], &mut bank);
         for _ in 0..8 {
-            rack.render(&mut l, &mut r, &p, None);
+            rack.render_dry(&mut l, &mut r, &p, None);
         }
         assert!(level(&p, 10) < bass * 0.5);
     }
@@ -1203,7 +1410,7 @@ mod rack_tests {
         shadow.replay(&mut replayed, &mut bank, &parts, None);
         let mut energy = |rack: &mut Rack| {
             apply_rack(rack, &[0x9A, 45, 100], &mut [0u8; 16]);
-            rack.render(&mut l, &mut r, &p, None);
+            rack.render_dry(&mut l, &mut r, &p, None);
             l.iter().zip(&r).map(|(a, b)| (a * a + b * b) as f64).sum::<f64>()
         };
         let (a, b) = (energy(&mut sent), energy(&mut replayed));
@@ -1241,7 +1448,7 @@ mod rack_tests {
         let render = |rack: &mut Rack| {
             let (mut l, mut r) = (vec![0f32; 4800], vec![0f32; 4800]);
             apply_rack(rack, &[0x9A, 40, 100], &mut [0u8; 16]);
-            rack.render(&mut l, &mut r, &p, None);
+            rack.render_dry(&mut l, &mut r, &p, None);
             l
         };
         let (a, b) = (render(&mut sent), render(&mut replayed));

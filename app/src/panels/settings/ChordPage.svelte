@@ -89,6 +89,12 @@
   </span>
 </Field>
 
+<Field name="Left Hold" genos="LEFT HOLD" inline note="Left rings on after you let go, until your next Left key or the style stops.">
+  <Toggle on={chord.leftHold} tip="detection.left_hold" onclick={() => app.send({ type: 'setLeftHold', on: !chord.leftHold })}>
+    {chord.leftHold ? 'On' : 'Off'}
+  </Toggle>
+</Field>
+
 <Field
   name="Chord settle"
   note={chord.settleMs === 0

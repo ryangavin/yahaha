@@ -5,7 +5,7 @@
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
-use yahaha::engine::{Button, Engine, PadCmd, Prepared, StyleControls, StyleSettings, Transpose, PAD_PPQ};
+use yahaha::engine::{Button, DynamicsSettings, Engine, PadCmd, Prepared, StyleControls, StyleSettings, Transpose, PAD_PPQ};
 use yahaha::live::{self, Audition, Cmd, EngineLoop, FxConfig, FxKey, FxMode, Out, PadBank, Shared};
 use yahaha::multipad::{file::parse, synthetic, MultiPadPlayer};
 use yahaha::rt::{PacketSink, Target};
@@ -59,13 +59,15 @@ fn prep(name: &str) -> Option<Box<Prepared>> {
 
 #[test]
 fn preview_and_next_bar_style_change_do_not_allocate() {
-    let (Some(a), Some(b), Some(c)) = (prep("SlowWalker.T552.sty"), prep("TickingAway.T162.sty"), prep("CoolRevibed.T552.sty")) else {
+    let (Some(a), Some(b), Some(c), Some(d)) = (prep("SlowWalker.T552.sty"), prep("TickingAway.T162.sty"), prep("CoolRevibed.T552.sty"), prep("SlowWalker.T552.sty")) else {
         eprintln!("corpus missing; skipping");
         return;
     };
     let _one = count_here();
     let bar = (60e9 / a.bpm * (a.tpb as f64 / a.ppq as f64)) as u64;
     let preview_bar = (60e9 / c.bpm * (c.tpb as f64 / c.ppq as f64)) as u64;
+    // Taps in a bar of the style playing at the end (`d`, SlowWalker again).
+    let beats = d.tpb / d.ppq;
     let shared = Arc::new(Shared::new(54));
     let mut ch = live::channels(Out::new(PacketSink::new(Target::Null), None));
     let mut l = EngineLoop::new(Engine::new(a), ch.io, shared.clone());
@@ -116,7 +118,13 @@ fn preview_and_next_bar_style_change_do_not_allocate() {
     l.step(now + 1);
     ch.ui_tx.push(Cmd::Button(Button::SectionReset)).ok().unwrap();
     l.step(now + 2);
-    now += 2;
+    // An Ending queued with a style change waiting for it, then a Section Reset (#174).
+    ch.ui_tx.push(Cmd::Button(Button::Ending(0))).ok().unwrap();
+    ch.style_tx.push(d).ok().unwrap();
+    l.step(now + 3);
+    ch.ui_tx.push(Cmd::Button(Button::SectionReset)).ok().unwrap();
+    l.step(now + 4);
+    now += 4;
     // Controllers: a bend range, a part switched on under a held pedal, Fill Up, KeysOff
     // and Panic (the pedal reset).
     shared.controllers.set_bend_range(0, 9);
@@ -129,9 +137,29 @@ fn preview_and_next_bar_style_change_do_not_allocate() {
     ch.ui_tx.push(Cmd::Button(Button::StartStop)).ok().unwrap();
     ch.ui_tx.push(Cmd::Panic).ok().unwrap();
     l.step(now + 1);
+    // Stopped: a bar of taps at 120 BPM counts the band in, and it starts a beat after
+    // the last tap (#195). The earlier taps are long forgotten.
+    now += 20_000_000_000;
+    for i in 0..beats {
+        if i > 0 {
+            let next = now + 500_000_000;
+            while now < next {
+                now = l.next_deadline().unwrap_or(next).clamp(now + 1, next);
+                l.step(now);
+            }
+        }
+        ch.ui_tx.push(Cmd::Button(Button::TapTempo)).ok().unwrap();
+        l.step(now);
+    }
+    let end = now + 1_000_000_000;
+    while now < end {
+        now = l.next_deadline().unwrap_or(now + 5_000_000).max(now + 1);
+        l.step(now);
+    }
     assert_eq!(ALLOCS.load(Ordering::Relaxed) - allocs, 0, "allocations on the engine thread");
     assert_eq!(FREES.load(Ordering::Relaxed) - frees, 0, "frees on the engine thread");
     let snaps: Vec<_> = std::iter::from_fn(|| ch.snap_rx.pop().ok()).collect();
+    assert!(snaps.iter().any(|s| s.running && (s.bpm - 120.0).abs() < 1e-6), "the taps started the band");
     assert!(snaps.iter().any(|s| s.audition.is_some_and(|a| a.bar == 4)), "the preview played its 4 bars");
     assert!(snaps.iter().any(|s| s.running && s.style_pending), "the style change waited for the bar line");
     assert!(snaps.iter().any(|s| s.running && (s.bpm - 96.0).abs() < 1e-9), "the recalled tempo took");
@@ -302,7 +330,8 @@ fn run(l: &mut EngineLoop, now: &mut u64, until: u64) {
 }
 
 /// The Chord Looper (record, loop, a memory at the bar line), the metronome's clicks,
-/// solos and Style Track Mute run on the engine thread too.
+/// solos, Style Track Mute and Style Dynamics (Touch, an Accent fill) run on the engine
+/// thread too.
 #[test]
 fn looper_metronome_and_solo_do_not_allocate() {
     let _one = count_here();
@@ -327,6 +356,7 @@ fn looper_metronome_and_solo_do_not_allocate() {
     let (allocs, frees) = (ALLOCS.load(Ordering::Relaxed), FREES.load(Ordering::Relaxed));
     let mut now = 1_000;
     ch.ui_tx.push(Cmd::Metronome { on: true, bell: true }).ok().unwrap();
+    ch.ui_tx.push(Cmd::Dynamics(DynamicsSettings { touch: true, accent: true, ..DynamicsSettings::default() })).ok().unwrap();
     ch.ui_tx.push(Cmd::Looper(true)).ok().unwrap();
     l.step(now);
     // Stopped, REC arms Sync Start: this chord starts the band and the recording.
@@ -336,12 +366,18 @@ fn looper_metronome_and_solo_do_not_allocate() {
     run(&mut l, &mut now, t0 + bar + bar / 2);
     shared.chord.store(chord("F").pack(2), Ordering::Release);
     run(&mut l, &mut now, t0 + 2 * bar - bar / 4);
+    ch.input_tx.push(Cmd::Strike(40)).ok().unwrap();
+    ch.input_tx.push(Cmd::DynamicsLevel(90)).ok().unwrap();
+    ch.input_tx.push(Cmd::Strike(40)).ok().unwrap();
+    run(&mut l, &mut now, t0 + 2 * bar - bar / 8);
     ch.ui_tx.push(Cmd::Looper(false)).ok().unwrap();
     ch.ui_tx.push(Cmd::StyleSolo(Some(2))).ok().unwrap();
     run(&mut l, &mut now, t0 + 4 * bar + bar / 2);
     ch.looper_tx.push(memory).ok().unwrap();
     ch.ui_tx.push(Cmd::StyleSolo(None)).ok().unwrap();
     ch.ui_tx.push(Cmd::StyleParts(0b0000_1010)).ok().unwrap();
+    run(&mut l, &mut now, t0 + 5 * bar + bar / 3);
+    ch.input_tx.push(Cmd::Strike(127)).ok().unwrap();
     run(&mut l, &mut now, t0 + 7 * bar);
     ch.ui_tx.push(Cmd::Button(Button::StartStop)).ok().unwrap();
     l.step(now + 1);
@@ -351,6 +387,8 @@ fn looper_metronome_and_solo_do_not_allocate() {
 
     let snaps: Vec<_> = std::iter::from_fn(|| ch.snap_rx.pop().ok()).collect();
     assert!(snaps.iter().any(|s| s.looper.state == LoopState::Recording));
+    assert!(snaps.iter().any(|s| s.dynamics == 4), "Touch set the level");
+    assert!(snaps.iter().any(|s| matches!(s.cur, Some(yahaha::sff::SectionId::Fill(_)))), "the Accent fill played");
     assert!(snaps.iter().any(|s| s.looper.state == LoopState::Looping && s.style_solo == Some(2)));
     assert!(snaps.iter().any(|s| s.looper.state == LoopState::Looping && s.played == Some(chord("A"))), "the memory took over");
     let rec = ch.recorded_rx.pop().expect("the recording came back");
@@ -413,8 +451,13 @@ fn fills_stop_acmp_and_change_rules_do_not_allocate() {
     run_to(t0 + 2 * bar + bar / 3, &mut now, &mut l);
     cmd(Cmd::Button(Button::FillDown), &mut now, &mut l);
     run_to(t0 + 3 * bar + bar / 3, &mut now, &mut l);
-    cmd(Cmd::Button(Button::FillSelf), &mut now, &mut l);
+    // An Ending queued with a style change waiting for it, then Fill Self in the Ending's
+    // place: the style no longer waits for the Ending (#175).
+    cmd(Cmd::Button(Button::Ending(0)), &mut now, &mut l);
     ch.style_tx.push(b).ok().unwrap();
+    now += 1;
+    l.step(now);
+    cmd(Cmd::Button(Button::FillSelf), &mut now, &mut l);
     run_to(t0 + 5 * bar, &mut now, &mut l);
     cmd(Cmd::Button(Button::StartStop), &mut now, &mut l);
     assert_eq!(ALLOCS.load(Ordering::Relaxed) - allocs, 0, "allocations on the engine thread");
@@ -423,4 +466,54 @@ fn fills_stop_acmp_and_change_rules_do_not_allocate() {
     assert!(snaps.iter().any(|s| s.half_bar_fill), "Half Bar Fill on");
     assert!(snaps.iter().any(|s| s.cur == Some(yahaha::sff::SectionId::Fill(1))), "Fill Up played B's fill");
     assert!(ch.old_rx.pop().is_ok(), "the old style came back");
+}
+
+/// Fills back to back (#229): Main A tapped during its fill, bar after bar (Fill Self too),
+/// and a style chosen during a fill that takes over as the next fill starts, all without
+/// allocating or freeing on the engine thread.
+#[test]
+fn back_to_back_fills_do_not_allocate() {
+    use yahaha::sff::SectionId::{Fill, Main};
+    let _one = count_here();
+    let (Some(a), Some(b)) = (prep("SlowWalker.T552.sty"), prep("TickingAway.T162.sty")) else {
+        eprintln!("corpus missing; skipping");
+        return;
+    };
+    let bar = (60e9 / a.bpm * (a.tpb as f64 / a.ppq as f64)) as u64;
+    let shared = Arc::new(Shared::new(54));
+    let mut ch = live::channels(Out::new(PacketSink::new(Target::Null), None));
+    let mut l = EngineLoop::new(Engine::new(a), ch.io, shared.clone());
+    l.step(1);
+    let (allocs, frees) = (ALLOCS.load(Ordering::Relaxed), FREES.load(Ordering::Relaxed));
+    let mut now = 1_000;
+    // Sync Start is armed: the chord starts the band on Main A.
+    shared.chord.store(yahaha::parse_chord("C").unwrap().pack(1), Ordering::Release);
+    l.step(now);
+    let t0 = now;
+    // Bar 2, beat 2: Main A's fill from the middle of the bar; then a tap late in each fill.
+    let taps = [(13, Button::Main(0)), (18, Button::Main(0)), (28, Button::FillSelf), (38, Button::Main(0))];
+    for (tenths, b) in taps {
+        run(&mut l, &mut now, t0 + tenths * bar / 10);
+        ch.ui_tx.push(Cmd::Button(b)).ok().unwrap();
+        now += 1;
+        l.step(now);
+    }
+    // A style chosen in the last fill, and one more tap: the next fill plays in it.
+    run(&mut l, &mut now, t0 + 45 * bar / 10);
+    ch.style_tx.push(b).ok().unwrap();
+    ch.ui_tx.push(Cmd::Button(Button::Main(0))).ok().unwrap();
+    now += 1;
+    l.step(now);
+    run(&mut l, &mut now, t0 + 8 * bar);
+    ch.ui_tx.push(Cmd::Button(Button::StartStop)).ok().unwrap();
+    now += 1;
+    l.step(now);
+    assert_eq!(ALLOCS.load(Ordering::Relaxed) - allocs, 0, "allocations on the engine thread");
+    assert_eq!(FREES.load(Ordering::Relaxed) - frees, 0, "frees on the engine thread");
+    let snaps: Vec<_> = std::iter::from_fn(|| ch.snap_rx.pop().ok()).collect();
+    let first = snaps.iter().position(|s| s.cur == Some(Fill(0))).expect("the fill played");
+    let last = snaps.iter().rposition(|s| s.cur == Some(Fill(0))).unwrap();
+    assert!(snaps[first..=last].iter().all(|s| s.cur == Some(Fill(0))), "no Main between the fills");
+    assert!(snaps[last..].iter().any(|s| s.cur == Some(Main(0))), "the Main came back");
+    assert!(ch.old_rx.pop().is_ok(), "the new style took over");
 }

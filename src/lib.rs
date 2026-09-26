@@ -12,7 +12,9 @@ pub mod click;
 pub mod controllers;
 pub mod engine;
 pub mod fingering;
+pub mod fx;
 pub mod ireal;
+pub mod knobs;
 #[cfg(test)]
 mod golden;
 pub mod harmony;
@@ -20,6 +22,7 @@ pub mod launchkey;
 pub mod library;
 pub mod live;
 pub mod looper;
+pub mod megavoice;
 pub mod midi;
 pub mod multipad;
 pub mod oracle;
@@ -37,6 +40,7 @@ pub mod sff;
 pub mod sim;
 pub mod synth;
 pub mod theory;
+pub mod voice_gm;
 
 pub use api::{AppCmd, AppState, Event};
 pub use session::{Options, Session};

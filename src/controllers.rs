@@ -114,6 +114,8 @@ pub enum Category {
     Ots,
     Registration,
     Overall,
+    /// Chord Looper (RM p.141, #201).
+    ChordLooper,
 }
 
 /// Every function a pedal can be given. The order is the table's ([`FUNCTIONS`]) and the
@@ -177,6 +179,37 @@ pub enum Function {
     /// TAP TEMPO while a style plays; here Tap sets the tempo by default (#128), so Section
     /// Reset gets a pedal or button of its own.
     SectionReset,
+    /// Style Dynamics Control (RM p.142, a foot controller "*" function): the pedal's
+    /// position is the Dynamics level (engine/dynamics.rs, #180).
+    DynamicsControl,
+    /// Regist + / Regist − (RM p.114, Pedal Control): the Registration Sequence's next /
+    /// previous step while the sequence is on and programmed, else the bank's next /
+    /// previous stored button (`RegistrationCmd::StepRegist`, #200).
+    RegistNext,
+    RegistPrev,
+    /// Regist 1-10 (RM p.141): the REGISTRATION MEMORY buttons.
+    Regist1,
+    Regist2,
+    Regist3,
+    Regist4,
+    Regist5,
+    Regist6,
+    Regist7,
+    Regist8,
+    Regist9,
+    Regist10,
+    /// The MEMORY button (RM p.141).
+    RegistMemory,
+    /// Freeze On/Off (RM p.141).
+    RegistFreeze,
+    /// Registration Sequence On/Off (RM p.141).
+    RegistSequence,
+    /// The CHORD LOOPER [ON/OFF] and [REC/STOP] buttons (RM p.141, #201).
+    ChordLooperOnOff,
+    ChordLooperRec,
+    /// Left Hold On/Off (RM p.140: "Same as the [LEFT HOLD] button", with a Control Type):
+    /// a control-side switch like Arpeggio Hold (#202).
+    LeftHold,
 }
 
 /// One row of the assignable-function table.
@@ -205,7 +238,7 @@ use Kind::*;
 /// The assignable functions, in `Function` order: the Genos live-play list (RM p.139-144)
 /// as far as yahaha has the feature. app/src/lib/api/assignable-functions.json is this table
 /// as the app reads it (a test keeps the two equal).
-pub const FUNCTIONS: [FunctionInfo; 48] = [
+pub const FUNCTIONS: [FunctionInfo; 67] = [
     f(Function::None, "No Assign", Overall, Trigger),
     f(Function::Sustain, "Sustain", Voice, Switch),
     f(Function::Sostenuto, "Sostenuto", Voice, Switch),
@@ -254,6 +287,25 @@ pub const FUNCTIONS: [FunctionInfo; 48] = [
     f(Function::KbdHarmonyArp, "Kbd Harmony/Arpeggio On/Off", Voice, Switch),
     f(Function::ArpHold, "Arpeggio Hold", Voice, Switch),
     f(Function::SectionReset, "Style Section Reset", Style, Trigger),
+    f(Function::DynamicsControl, "Dynamics Control", Style, Continuous),
+    f(Function::RegistNext, "Regist +", Registration, Trigger),
+    f(Function::RegistPrev, "Regist −", Registration, Trigger),
+    f(Function::Regist1, "Registration Memory 1", Registration, Trigger),
+    f(Function::Regist2, "Registration Memory 2", Registration, Trigger),
+    f(Function::Regist3, "Registration Memory 3", Registration, Trigger),
+    f(Function::Regist4, "Registration Memory 4", Registration, Trigger),
+    f(Function::Regist5, "Registration Memory 5", Registration, Trigger),
+    f(Function::Regist6, "Registration Memory 6", Registration, Trigger),
+    f(Function::Regist7, "Registration Memory 7", Registration, Trigger),
+    f(Function::Regist8, "Registration Memory 8", Registration, Trigger),
+    f(Function::Regist9, "Registration Memory 9", Registration, Trigger),
+    f(Function::Regist10, "Registration Memory 10", Registration, Trigger),
+    f(Function::RegistMemory, "Registration Memory", Registration, Trigger),
+    f(Function::RegistFreeze, "Registration Freeze On/Off", Registration, Trigger),
+    f(Function::RegistSequence, "Registration Sequence On/Off", Registration, Trigger),
+    f(Function::ChordLooperOnOff, "Chord Looper On/Off", ChordLooper, Trigger),
+    f(Function::ChordLooperRec, "Chord Looper Rec/Stop", ChordLooper, Trigger),
+    f(Function::LeftHold, "Left Hold On/Off", Voice, Switch),
 ];
 
 /// What running a function means, for the input thread.
@@ -265,6 +317,8 @@ pub enum Effect {
     Switch(u8),
     Modulation,
     PitchBend,
+    /// The Dynamics level: straight to the engine (`Cmd::DynamicsLevel`).
+    Dynamics,
     /// An engine button: straight to the engine.
     Engine(Button),
     /// Anything else: the control side runs it (`ControllersCmd::Trigger`).
@@ -297,6 +351,7 @@ impl Function {
             F::Soft => Effect::Switch(SOFT),
             F::Modulation => Effect::Modulation,
             F::PitchBend => Effect::PitchBend,
+            F::DynamicsControl => Effect::Dynamics,
             F::StartStop => Effect::Engine(Button::StartStop),
             F::SyncStart => Effect::Engine(Button::SyncStart),
             F::SyncStop => Effect::Engine(Button::SyncStop),
@@ -316,7 +371,7 @@ impl Function {
             // The FADE IN/OUT button (OM p.67): stopped, arms a fade in; playing, fades
             // out to the stop.
             F::FadeInOut => Effect::Engine(Button::Fade),
-            F::KbdHarmonyArp | F::ArpHold => Effect::ControlSwitch,
+            F::KbdHarmonyArp | F::ArpHold | F::LeftHold => Effect::ControlSwitch,
             _ => Effect::Control,
         }
     }
@@ -461,6 +516,13 @@ pub struct Controllers {
     /// (`Effect::ControlSwitch`), as `reset` does the pedal switches
     /// (`take_reset_releases`, `reset_release`).
     reset_seen: AtomicU16,
+    /// Left Hold (OM p.49): the Left part's channel holds as if its sustain pedal were
+    /// down (`set_left_hold`).
+    left_hold: AtomicBool,
+    /// Bumped to let go of what Left Hold holds (a new Left key, a stop:
+    /// `release_left_hold`); `sync` re-pedals Left when it moved since `sent_left_release`.
+    left_release: AtomicU8,
+    sent_left_release: AtomicU8,
     /// A thread holds the right to send the parts' controllers (`claim`).
     busy: AtomicBool,
     /// A thread wanted to sync while the other held it: the holder syncs again.
@@ -493,6 +555,9 @@ impl Controllers {
             learn: AtomicU8::new(NOT_LEARNING),
             forget: AtomicU8::new(0),
             reset_seen: AtomicU16::new(0),
+            left_hold: AtomicBool::new(false),
+            left_release: AtomicU8::new(0),
+            sent_left_release: AtomicU8::new(0),
             busy: AtomicBool::new(false),
             pending: AtomicBool::new(false),
         }
@@ -530,7 +595,8 @@ impl Controllers {
                 }
                 Effect::Modulation => self.modulation.store(0, Relaxed),
                 Effect::PitchBend => self.bend.store(BEND_CENTRE, Relaxed),
-                Effect::Nothing | Effect::Engine(_) | Effect::Control | Effect::ControlSwitch => {}
+                // A Dynamics Control pedal given another job leaves the level where it is.
+                Effect::Nothing | Effect::Engine(_) | Effect::Control | Effect::ControlSwitch | Effect::Dynamics => {}
             }
         }
         let retyped = rebound || old.control_type != p.control_type;
@@ -724,6 +790,7 @@ impl Controllers {
                     self.bend.store(p.bend_at(pos), Relaxed);
                     fire.sync = true;
                 }
+                Effect::Dynamics => fire.dynamics = Some(pos),
                 Effect::Engine(b) if pressed && !was => fire.engine = Some(b),
                 Effect::Control if pressed && !was => fire.control = Some(p.function),
                 Effect::ControlSwitch => match p.control_type {
@@ -776,6 +843,28 @@ impl Controllers {
         self.touched.fetch_or(1 << (slot & 15), Relaxed);
     }
 
+    /// Left Hold on or off (the control side).
+    pub fn set_left_hold(&self, on: bool) {
+        self.left_hold.store(on, Relaxed);
+    }
+
+    pub fn left_hold(&self) -> bool {
+        self.left_hold.load(Relaxed)
+    }
+
+    /// Let go of the Left notes Left Hold holds, at the next `sync`: the input thread when
+    /// a key sounds on Left (the next chord), the engine thread when the style stops. The
+    /// keys still down keep sounding (a sustain release only ends released notes).
+    pub fn release_left_hold(&self) {
+        self.left_release.fetch_add(1, Relaxed);
+    }
+
+    /// Tests: how many releases were asked for (wrapping).
+    #[cfg(test)]
+    pub fn left_releases(&self) -> u8 {
+        self.left_release.load(Relaxed)
+    }
+
     /// Switch a pedal switch bit on or off from software (`TriggerFunction`).
     pub fn toggle_switch(&self, b: u8) {
         self.switches.fetch_xor(b, Relaxed);
@@ -821,8 +910,21 @@ impl Controllers {
             let ch = parts::CHANNEL[p];
             let on = sounding >> p & 1 != 0;
             let reaches = |mask: u8| on && mask >> p & 1 != 0;
-            let want = if reaches(sus) { switches } else { 0 };
-            let was = self.sent_switches[p].swap(want, Relaxed);
+            let pedal = if reaches(sus) { switches } else { 0 };
+            // Left Hold: Left's channel holds while it sounds, unless the pedal already
+            // sustains it.
+            let held = p == parts::LEFT && on && self.left_hold.load(Relaxed) && pedal & SUSTAIN == 0;
+            let want = if held { pedal | SUSTAIN } else { pedal };
+            let mut was = self.sent_switches[p].swap(want, Relaxed);
+            if p == parts::LEFT {
+                // A release asked for since the last sync: re-pedal, so the notes held
+                // stop and the keys going down now are held next.
+                let rel = self.left_release.load(Relaxed);
+                if self.sent_left_release.swap(rel, Relaxed) != rel && held && was != UNKNOWN_SWITCHES && was & SUSTAIN != 0 {
+                    out(&[0xB0 | ch, 64, 0]);
+                    was &= !SUSTAIN;
+                }
+            }
             let diff = if was == UNKNOWN_SWITCHES { u8::MAX } else { was ^ want };
             for (b, cc) in SWITCH_CC {
                 if diff & b != 0 {
@@ -935,6 +1037,8 @@ pub struct Fire {
     pub control: Option<Function>,
     /// A control-side switch a Hold A or Hold B pedal sets on or off (`Effect::ControlSwitch`).
     pub set: Option<(Function, bool)>,
+    /// A Dynamics Control pedal moved: the Dynamics level (`Effect::Dynamics`).
+    pub dynamics: Option<u8>,
 }
 
 /// What a pedal's new setup (`Controllers::set_pedal` from `old` to `new`) does to the
@@ -1028,6 +1132,38 @@ mod tests {
         assert_eq!(sent(&c, 0b0011), vec![[0xB2, 64, 127], [0xB1, 64, 0]]);
         c.control_change(0, 64, 0, &mut e);
         assert_eq!(sent(&c, 0b0011), vec![[0xB0, 64, 0], [0xB2, 64, 0]]);
+    }
+
+    /// Left Hold (OM p.49, #202): Left's channel holds as if its sustain pedal were down;
+    /// a new Left key lets go of what was held (a re-pedal before the key's note-on), and
+    /// so does a stop. The pedal's own sustain wins over the re-pedal.
+    #[test]
+    fn left_hold_holds_the_left_part_until_the_next_left_key() {
+        let c = Controllers::new();
+        c.set_left_hold(true);
+        assert!(c.left_hold());
+        assert_eq!(sent(&c, 0b1001), vec![[0xB1, 64, 127]], "Left only");
+        // A new Left key: re-pedal.
+        c.release_left_hold();
+        assert_eq!(sent(&c, 0b1001), vec![[0xB1, 64, 0], [0xB1, 64, 127]]);
+        assert!(sent(&c, 0b1001).is_empty(), "once");
+        // Left off: nothing held; on again: held again, with nothing to let go.
+        assert_eq!(sent(&c, 0b0001), vec![[0xB1, 64, 0]]);
+        c.release_left_hold();
+        assert_eq!(sent(&c, 0b1001), vec![[0xB1, 64, 127]]);
+        // The sustain pedal down on Left: a new Left key doesn't let go of what it sustains.
+        let mut e = [0u8; 4];
+        c.control_change(0, 64, 127, &mut e);
+        assert_eq!(sent(&c, 0b1001), vec![[0xB0, 64, 127]]);
+        c.release_left_hold();
+        assert!(sent(&c, 0b1001).is_empty());
+        c.control_change(0, 64, 0, &mut e);
+        assert_eq!(sent(&c, 0b1001), vec![[0xB0, 64, 0]], "Left stays held by Left Hold");
+        // Left Hold off: let go.
+        c.set_left_hold(false);
+        assert_eq!(sent(&c, 0b1001), vec![[0xB1, 64, 0]]);
+        c.release_left_hold();
+        assert!(sent(&c, 0b1001).is_empty(), "off: nothing to re-pedal");
     }
 
     #[test]
@@ -1209,6 +1345,25 @@ mod tests {
         c.set_pedal(2, PedalSetup { cc: Some(4), function: Function::Modulation, ..PedalSetup::default() });
         c.control_change(0, 4, 77, &mut e);
         assert_eq!(c.modulation(), 77);
+    }
+
+    /// Dynamics Control (#180): a foot controller whose position is the Dynamics level,
+    /// every move (Reverse flips it).
+    #[test]
+    fn a_dynamics_control_pedal_sends_its_position() {
+        let c = Controllers::new();
+        let mut e = [0u8; 4];
+        assert_eq!(Function::DynamicsControl.kind(), Kind::Continuous);
+        c.set_pedal(2, PedalSetup { cc: Some(4), function: Function::DynamicsControl, ..PedalSetup::default() });
+        for v in [0u8, 30, 64, 127] {
+            let Handled::Fire(f) = c.control_change(0, 4, v, &mut e) else { panic!() };
+            assert_eq!(f.dynamics, Some(v));
+            assert_eq!(f.engine, None);
+        }
+        c.set_pedal(2, PedalSetup { cc: Some(4), function: Function::DynamicsControl, reverse: true, ..PedalSetup::default() });
+        let Handled::Fire(f) = c.control_change(0, 4, 100, &mut e) else { panic!() };
+        assert_eq!(f.dynamics, Some(27));
+        assert_eq!(c.modulation(), 0, "not the modulation");
     }
 
     #[test]

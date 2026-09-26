@@ -30,6 +30,10 @@ pub enum ChordCmd {
     /// plays, a chord change reaches the accompaniment once the chord has held still this
     /// long, so a rolled chord is followed once (docs/genos-features.md, Chord settle).
     SetChordSettle { ms: u32 },
+    /// LEFT HOLD (OM p.49): the Left part's notes ring on after its keys are let go, until
+    /// the next key on Left, the style stops, or Left Hold goes off.
+    SetLeftHold { on: bool },
+    ToggleLeftHold,
 }
 
 /// Chord detection.
@@ -60,4 +64,7 @@ pub struct ChordState {
     pub transpose_master: i8,
     /// The chord-settle window, in ms (`SetChordSettle`).
     pub settle_ms: u32,
+    /// Left Hold (`SetLeftHold`).
+    #[serde(default)]
+    pub left_hold: bool,
 }

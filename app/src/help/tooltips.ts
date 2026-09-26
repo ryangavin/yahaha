@@ -31,7 +31,27 @@ const P1 = 'Pad page 1 (Sections)'
 const P2 = 'Pad page 2 (Chord/Setup)'
 const P3 = 'Pad page 3 (OTS/Parts)'
 const P4 = 'Pad page 4 (Registration)'
+const P5 = 'Pad page 5 (Multi Pads)'
 const pad = (page: string, row: 'top' | 'bottom', n: number) => `${page}, ${row} row, pad ${n}`
+
+// The Multi Pad buttons (the drawer's, and pad page 5's, one entry per pad).
+const MP_PAD = {
+  title: 'Multi Pad',
+  body: 'Plays the pad\'s phrase from the top (keys Shift+Z, X, C, V): at once when the band is stopped, at the next bar line while it plays. With pads in Synchro Start standby, pressing one of them starts them all. Blue: has data; red: playing; flashing red: waiting for Synchro Start; amber: waiting for the bar line.',
+  genos: 'MULTI PAD CONTROL [1]–[4]',
+}
+const MP_ARM = {
+  title: 'Synchro Start',
+  body: 'Puts the pad in standby (flashing red): it starts with your next chord in the chord section, when the band starts, or when you press any pad in standby; while the band plays, at the next bar line. Press again to cancel.',
+  genos: '[SELECT] + pad (Synchro Start)',
+  keys: [],
+}
+const MP_STOP = {
+  title: 'Stop this pad',
+  body: 'Stops only this pad, now. The other pads keep playing.',
+  genos: '[STOP] + pad',
+  keys: [],
+}
 
 const catalog = {
   // ── Transport ───────────────────────────────────────────────────────────
@@ -244,7 +264,7 @@ const catalog = {
   // ── Tempo and display ───────────────────────────────────────────────────
   'tempo.tap': {
     title: 'Tap tempo',
-    body: 'Tap two or more times in time to set the tempo from your taps (the last four count). While the band plays, a tap restarts the section instead (Section Reset) and the tempo stays, unless you turn Tap: Section Reset off in Settings › Style. The pad lights on the downbeat while the band plays.',
+    body: 'Tap two or more times in time to set the tempo (the last four count); stopped, a whole bar of taps (four in 4/4) starts the style one beat after your last tap, rhythm only until you play a chord. While the band plays, a tap restarts the section instead (Section Reset) and the tempo stays, unless you turn Tap: Section Reset off in Settings › Style. The pad lights on the downbeat while the band plays.',
     genos: 'TAP TEMPO',
     keys: ['t'],
     launchkey: pad(P1, 'bottom', 6),
@@ -460,7 +480,7 @@ const catalog = {
   },
   'fingering.ai_fingered': {
     title: 'AI Fingered',
-    body: 'Like Fingered, but fewer than three keys can still give a chord, guessed from the chord before.',
+    body: 'Like Fingered, but fewer than three keys can still give a chord, guessed from the chord before. The lowest key is the bass: hold a chord note and add a key below it for a slash chord (C, then B+C is C/B).',
     genos: 'AI Fingered',
     keys: [],
     launchkey: pad(P2, 'top', 5),
@@ -492,6 +512,13 @@ const catalog = {
     genos: 'Manual Bass',
     keys: ['D'],
     launchkey: pad(P2, 'bottom', 1),
+  },
+  'detection.left_hold': {
+    title: 'Left Hold',
+    body: 'Left keeps sounding after you let go of its keys, until you play the next note on Left, stop the style, or turn Left Hold off. A string or organ Left holds your chord across the band. Stored in Registration (Style group).',
+    genos: 'LEFT HOLD',
+    keys: ['_'],
+    launchkey: 'Panel fader page: button under fader 7 (orange while on)',
   },
   'split.display': {
     title: 'Split point',
@@ -739,6 +766,13 @@ const catalog = {
     keys: [],
     launchkey: null,
   },
+  'sounds.set_category': {
+    title: 'Plugin category',
+    body: 'The category the selected plugin is listed under. yahaha guesses it from the plugin\'s name; pick another to file it where you look for it.',
+    genos: null,
+    keys: [],
+    launchkey: null,
+  },
   'sounds.row': {
     title: 'Sound',
     body: 'Click or Enter plays this sound on the part. SF is a SoundFont preset, AU an instrument plugin, Saved a sound from your library. ▶ marks what the part plays.',
@@ -806,7 +840,7 @@ const catalog = {
   },
   'part.plugin_in_process': {
     title: 'Run in process',
-    body: 'Runs this plugin inside yahaha instead of in its own process: a little less CPU for the lightest plugins, but if the plugin crashes, yahaha goes with it. It is remembered for the plugin and applies from its next load.',
+    body: 'Runs this plugin inside yahaha instead of in its own process: a little less CPU for the lightest plugins, but if the plugin crashes, yahaha goes with it. It is remembered for the plugin and applies from its next load: a part already playing it keeps running where it is, and the button shows ↻ until the plugin loads again (pick it again, or the next start). A plugin preloaded for the Registration bank loads again in the new mode at once.',
     genos: null,
     keys: [],
     launchkey: null,
@@ -883,6 +917,90 @@ const catalog = {
     keys: [],
     launchkey: 'Panel fader page: fader 4',
   },
+  'mixer.part.pan': {
+    title: 'Pan',
+    body: 'Where this part sits left to right: its channel\'s CC 10 (64 = centre), on the MIDI port and in the synth. Drag up or down; double-click for centre. A sound library patch or a One Touch Setting sets it too.',
+    genos: 'Mixer › Panel › Pan/Volume › Pan',
+    keys: [],
+    launchkey: null,
+  },
+  'mixer.part.reverb': {
+    title: 'Reverb',
+    body: 'How much of this part goes to the shared reverb: its channel\'s CC 91 (50 on Right 1–3 and 40 on Left at start). Drag up or down; double-click for that default. A sound library patch or a One Touch Setting sets it too.',
+    genos: 'Mixer › Panel › Effect › Reverb',
+    keys: [],
+    launchkey: null,
+  },
+  'mixer.part.chorus': {
+    title: 'Chorus',
+    body: 'How much of this part goes to the shared chorus: its channel\'s CC 93 (10 at start). Drag up or down; double-click for 10. A sound library patch or a One Touch Setting sets it too.',
+    genos: 'Mixer › Panel › Effect › Chorus',
+    keys: [],
+    launchkey: null,
+  },
+  'mixer.part.variation': {
+    title: 'Delay',
+    body: 'How much of this part goes to the tempo delay (the Variation effect): its channel\'s CC 94 (0 at start: no echo). Drag up or down; double-click for 0. The Delay type in Effects above sets the note length.',
+    genos: 'Mixer › Panel › Effect › Variation',
+    keys: [],
+    launchkey: null,
+  },
+  'fx.reverb_type': {
+    title: 'Reverb type',
+    body: 'The shared reverb every part sends to (CC 91): Hall (large, long), Room (small, short), Stage (in between, brighter) or Plate (dense and bright).',
+    genos: 'Mixer › Effect › Reverb type',
+    keys: [],
+    launchkey: null,
+  },
+  'fx.reverb_return': {
+    title: 'Reverb return',
+    body: 'How loud the reverb comes back into the mix: 64 is 0 dB, 127 is +6 dB, 0 is off. Stored in a Registration Memory.',
+    genos: 'Mixer › Effect › Reverb Return Level',
+    keys: [],
+    launchkey: 'Pan knob page, knob 5',
+  },
+  'fx.chorus_type': {
+    title: 'Chorus type',
+    body: 'The shared chorus every part sends to (CC 93): Chorus (warm, wide), Celeste (a gentle detune) or Flanger (the sweeping comb).',
+    genos: 'Mixer › Effect › Chorus type',
+    keys: [],
+    launchkey: null,
+  },
+  'fx.chorus_return': {
+    title: 'Chorus return',
+    body: 'How loud the chorus comes back into the mix: 64 is 0 dB, 127 is +6 dB, 0 is off.',
+    genos: 'Mixer › Effect › Chorus Return Level',
+    keys: [],
+    launchkey: 'Pan knob page, knob 6',
+  },
+  'fx.variation_type': {
+    title: 'Delay type',
+    body: 'The tempo delay every part sends to (CC 94), in step with the style tempo: an echo every 1/8, dotted 1/8 or 1/4 note, or Ping-Pong (1/8, alternating left and right).',
+    genos: 'Mixer › Effect › Variation type (Tempo Delay)',
+    keys: [],
+    launchkey: null,
+  },
+  'fx.variation_return': {
+    title: 'Delay return',
+    body: 'How loud the echoes come back into the mix: 64 is 0 dB, 127 is +6 dB, 0 is off.',
+    genos: 'Mixer › Effect › Variation Return Level',
+    keys: [],
+    launchkey: 'Pan knob page, knob 7',
+  },
+  'mixer.style_level': {
+    title: 'Style volume',
+    body: 'The whole band against your hands, in one fader: 100 plays the Style parts at their own levels, lower scales every Style part\'s CC 7 down together (above 100 raises them, up to 127), the way a Fade In/Out does. The part faders stay where they are. A Registration stores it with the Style mixer.',
+    genos: 'Balance › Style (Mixer › Panel › Style)',
+    keys: [],
+    launchkey: 'Panel fader page: fader 5',
+  },
+  'mixer.pad_level': {
+    title: 'Multi Pad volume',
+    body: 'All four Multi Pads against the band, in one fader: 100 plays each pad at its own level, lower scales the pads\' CC 7 down together (above 100 raises them, up to 127). A Registration stores it with the Multi Pad bank.',
+    genos: 'Balance › M.Pad (Mixer › Panel › Multi Pad)',
+    keys: [],
+    launchkey: 'Panel fader page: fader 6',
+  },
   'mixer.style.volume': {
     title: 'Style part volume',
     body: 'This band part\'s volume. The fader is its channel\'s CC 7 itself (channels 9–16), with no hidden gain behind it, except that a Fade In/Out scales the CC 7 it sends while the fade runs (the fader stays put). Loading a style sets the faders to the style\'s own levels, and a pattern that changes its volume moves the fader too, until you move it yourself.',
@@ -937,7 +1055,7 @@ const catalog = {
     body: 'A knob for the band: fully left leaves one part on, and turning it up brings the others in one by one until all eight play. It switches the Style parts on and off, so the On buttons follow it.',
     genos: 'Live Control › Style Track Mute A/B (StyMuteA, StyMuteB)',
     keys: [],
-    launchkey: null,
+    launchkey: 'Knobs 4 and 5 on the Style knob page',
   },
   'mixer.track_mute_order': {
     title: 'Track Mute order',
@@ -968,20 +1086,73 @@ const catalog = {
     launchkey: null,
   },
 
+  // ── Style Dynamics (#180) ───────────────────────────────────────────────
+  'dynamics.control': {
+    title: 'Dynamics Control',
+    body: 'On: the Dynamics level (and Touch) can change how hard the band plays. Off: the Style plays exactly as written.',
+    genos: 'Menu › Style Setting › Dynamics Control',
+    keys: [],
+    launchkey: null,
+  },
+  'dynamics.level': {
+    title: 'Dynamics',
+    body: 'How hard the whole band plays, 0–127; at 64 the Style plays as written. It changes every Style note\'s velocity, so the drums and instruments get softer and darker or harder and brighter, not just quieter or louder. The mixer volumes stay as they are.',
+    genos: 'Live Control › Style Dynamics (DynCtrl)',
+    keys: [],
+    launchkey: 'Knob 1 on the Style knob page',
+  },
+  'dynamics.touch': {
+    title: 'Touch',
+    body: 'The band follows your left hand. Each key you strike in the chord section sets the Dynamics level from how hard you hit it, and a strike at velocity 100 plays the Style as written.',
+    genos: null,
+    keys: ['&'],
+    launchkey: null,
+  },
+  'dynamics.accent': {
+    title: 'Accent',
+    body: 'Strike a chord-section key at least as hard as the threshold while a Main plays, and the Main plays its own fill from the next beat, so you can play the fills with your left hand. It is not a Main press, so OTS Link does not follow it, and nothing happens during an Intro, fill, break or Ending.',
+    genos: null,
+    keys: ['H'],
+    launchkey: null,
+  },
+  'dynamics.accent_threshold': {
+    title: 'Accent threshold',
+    body: 'How hard (velocity 1–127) a chord-section strike must be to play the fill. The default is 110.',
+    genos: null,
+    keys: [],
+    launchkey: null,
+  },
+
+  // ── Knob Assign pages (#197) ───────────────────────────────────────────
+  'knobs.page': {
+    title: 'Knob Assign page',
+    body: 'What the eight Launchkey knobs do, on four pages. Style has Dynamics, Retrigger length and on/off, Style Track Mute A and B and tempo; Parts has the keyboard parts\' volumes, Harmony and metronome volume and tempo; Pan has the parts\' pan and tempo; Effects has their Reverb and Chorus sends.',
+    genos: 'KNOB ASSIGN',
+    keys: [],
+    launchkey: '▲ / ▼ right of the knobs',
+  },
+  'knobs.knob': {
+    title: 'Knob',
+    body: 'Turns what the knob has on the Knob Assign page, from where it is now: levels 2 a step, tempo 1 BPM, Retrigger every 3 steps.',
+    genos: 'LIVE CONTROL knobs',
+    keys: [],
+    launchkey: 'The eight knobs',
+  },
+
   // ── Chord Looper ────────────────────────────────────────────────────────
   'looper.rec': {
     title: 'Chord Looper REC/STOP',
     body: 'Records the chords you play, from the next bar line; stopped, it arms Sync Start and your first chord starts the band and the recording together. Press again to stop recording while the band plays on.',
     genos: 'CHORD LOOPER [REC/STOP]',
     keys: ['r'],
-    launchkey: null,
+    launchkey: 'Panel fader page: Shift + button under fader 8 (red while recording)',
   },
   'looper.on_off': {
     title: 'Chord Looper ON/OFF',
     body: 'Loops the recorded chords from the next bar line, feeding them to the band as if you played them, so both hands are free. While it loops your chords are ignored; press again to stop it at once. Arming a loop turns chart mode off.',
     genos: 'CHORD LOOPER [ON/OFF]',
     keys: ['^'],
-    launchkey: null,
+    launchkey: 'Panel fader page: button under fader 8 (green while looping)',
   },
   'looper.memory': {
     title: 'Chord Looper memory',
@@ -1006,8 +1177,36 @@ const catalog = {
   },
   'looper.new_bank': {
     title: 'New bank',
-    body: 'Empties all eight memories. The current sequence stays.',
+    body: 'Empties all eight memories: a new bank with no file yet. The current sequence stays.',
     genos: 'Chord Looper › New Bank',
+    keys: [],
+    launchkey: null,
+  },
+  'looper.bank': {
+    title: 'Chord Looper bank',
+    body: 'The bank of eight memories in use. Pick a bank file to load its memories. Every change to the memories saves itself (a bank with no file is kept until next time too), and the next session starts with this bank.',
+    genos: 'Chord Looper › bank (.clb)',
+    keys: [],
+    launchkey: null,
+  },
+  'looper.bank_name': {
+    title: 'Bank name',
+    body: 'Type a name, then Save, to save the eight memories as a new bank file.',
+    genos: 'Chord Looper › Save',
+    keys: [],
+    launchkey: null,
+  },
+  'looper.save_bank': {
+    title: 'Save bank',
+    body: 'Saves the memories to the bank\'s file, or under the name you typed as a new file. If another bank already has that name, nothing is saved: pick another name, or use Overwrite.',
+    genos: 'Chord Looper › Save',
+    keys: [],
+    launchkey: null,
+  },
+  'looper.overwrite_bank': {
+    title: 'Overwrite bank',
+    body: 'Another Chord Looper bank has the name you typed: replace its file with these memories.',
+    genos: 'Chord Looper › Save (overwrite)',
     keys: [],
     launchkey: null,
   },
@@ -1645,6 +1844,14 @@ const catalog = {
     keys: [],
     launchkey: null,
   },
+  'padpage.multi_pads': {
+    title: 'Pad page 5: Multi Pads',
+    body: 'Multi Pads 1–4 in the Genos lamp colours (blue has data, red playing, flashing red Synchro Start standby, amber waiting for the bar line) and STOP on the top row; SELECT + pad (Synchro Start) and STOP + pad on the bottom row. The other pads are yellow.',
+    genos: 'MULTI PAD CONTROL',
+    keys: ['tab', 'shift+tab'],
+    app_keys: ['PgDn', 'PgUp'],
+    launchkey: 'Pad Bank ▲ / ▼ (left of the pads)',
+  },
   'padpage.registration': {
     title: 'Pad page 4: Registration',
     body: 'Registration buttons 1–10 in the Genos lamp colours (red in use, blue stored, dark empty), Bank −/+, Memory, Freeze and Regist −/+. The other pads are orange.',
@@ -2069,34 +2276,28 @@ const catalog = {
     keys: [],
     launchkey: null,
   },
-  'multipad.pad': {
-    title: 'Multi Pad',
-    body: 'Plays the pad\'s phrase from the top (keys Shift+Z, X, C, V): at once when the band is stopped, at the next bar line while it plays. With pads in Synchro Start standby, pressing one of them starts them all. Blue: has data; red: playing; flashing red: waiting for Synchro Start; amber: waiting for the bar line.',
-    genos: 'MULTI PAD CONTROL [1]–[4]',
-    keys: ['Z', 'X', 'C', 'V'],
-    launchkey: null,
-  },
+  'multipad.pad': { ...MP_PAD, keys: ['Z', 'X', 'C', 'V'], launchkey: `${P5}, top row, pads 1–4` },
+  'multipad.pad1': { ...MP_PAD, keys: ['Z'], launchkey: pad(P5, 'top', 1) },
+  'multipad.pad2': { ...MP_PAD, keys: ['X'], launchkey: pad(P5, 'top', 2) },
+  'multipad.pad3': { ...MP_PAD, keys: ['C'], launchkey: pad(P5, 'top', 3) },
+  'multipad.pad4': { ...MP_PAD, keys: ['V'], launchkey: pad(P5, 'top', 4) },
   'multipad.stop_all': {
     title: 'Stop all pads',
-    body: 'Stops every Multi Pad at once and cancels Synchro Start standby. The band keeps playing. Key: Shift+B.',
+    body: 'Stops every Multi Pad at once and cancels Synchro Start standby. The band keeps playing, and on the Launchkey it lights while a pad plays or waits. Key: Shift+B.',
     genos: 'MULTI PAD CONTROL [STOP]',
     keys: ['B'],
-    launchkey: null,
+    launchkey: pad(P5, 'top', 5),
   },
-  'multipad.stop': {
-    title: 'Stop this pad',
-    body: 'Stops only this pad, now. The other pads keep playing.',
-    genos: '[STOP] + pad',
-    keys: [],
-    launchkey: null,
-  },
-  'multipad.arm': {
-    title: 'Synchro Start',
-    body: 'Puts the pad in standby (flashing red): it starts with your next chord in the chord section, when the band starts, or when you press any pad in standby; while the band plays, at the next bar line. Press again to cancel.',
-    genos: '[SELECT] + pad (Synchro Start)',
-    keys: [],
-    launchkey: null,
-  },
+  'multipad.stop': { ...MP_STOP, launchkey: `${P5}, bottom row, pads 5–8` },
+  'multipad.stop1': { ...MP_STOP, launchkey: pad(P5, 'bottom', 5) },
+  'multipad.stop2': { ...MP_STOP, launchkey: pad(P5, 'bottom', 6) },
+  'multipad.stop3': { ...MP_STOP, launchkey: pad(P5, 'bottom', 7) },
+  'multipad.stop4': { ...MP_STOP, launchkey: pad(P5, 'bottom', 8) },
+  'multipad.arm': { ...MP_ARM, launchkey: `${P5}, bottom row, pads 1–4` },
+  'multipad.arm1': { ...MP_ARM, launchkey: pad(P5, 'bottom', 1) },
+  'multipad.arm2': { ...MP_ARM, launchkey: pad(P5, 'bottom', 2) },
+  'multipad.arm3': { ...MP_ARM, launchkey: pad(P5, 'bottom', 3) },
+  'multipad.arm4': { ...MP_ARM, launchkey: pad(P5, 'bottom', 4) },
   'multipad.repeat': {
     title: 'Repeat',
     body: 'On: the pad loops until you stop it. Off: it plays once. The bank file sets it; a change here lasts until another bank loads.',

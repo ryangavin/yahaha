@@ -47,11 +47,15 @@ struct Panel {
     tempo: f64,
     main: u8,
     parts: Vec<(bool, u8, u8, i8)>,
+    /// Each keyboard part's pan, reverb and chorus (#198).
+    part_fx: Vec<(u8, u8, u8)>,
     transpose: (i8, i8),
     split: u8,
     fingering: Fingering,
     style_on: Vec<bool>,
     style_vol: Vec<u8>,
+    /// The Style volume (#199).
+    style_volume: u8,
     ots_link: bool,
 }
 
@@ -71,11 +75,13 @@ fn panel(s: &Session) -> Panel {
         tempo: st.transport.tempo.round(),
         main: st.transport.main,
         parts: st.keyboard_parts.iter().map(|p| (p.on, p.program, p.volume, p.octave)).collect(),
+        part_fx: st.keyboard_parts.iter().map(|p| (p.pan, p.reverb, p.chorus)).collect(),
         transpose: (st.chord.transpose_keyboard, st.chord.transpose_master),
         split: st.chord.split,
         fingering: st.chord.fingering,
         style_on: st.mixer.style_parts.iter().map(|p| p.on).collect(),
         style_vol: st.mixer.style_parts.iter().map(|p| p.volume).collect(),
+        style_volume: st.mixer.style_volume,
         ots_link: st.ots.link,
     }
 }
@@ -91,6 +97,9 @@ fn dress(s: &Session) {
     s.send(PartsCmd::SetPartVoice { part: 0, program: 40 }).unwrap();
     s.send(PartsCmd::SetPartVolume { part: 0, volume: 90 }).unwrap();
     s.send(PartsCmd::SetPartOctave { part: 0, octave: 1 }).unwrap();
+    s.send(PartsCmd::SetPartPan { part: 0, pan: 30 }).unwrap();
+    s.send(PartsCmd::SetPartSend { part: 0, send: PartSend::Reverb, value: 100 }).unwrap();
+    s.send(PartsCmd::SetPartSend { part: 3, send: PartSend::Chorus, value: 55 }).unwrap();
     s.send(PartsCmd::SetPartOn { part: 1, on: true }).unwrap();
     s.send(PartsCmd::SetPartVoice { part: 1, program: 11 }).unwrap();
     s.send(ChordCmd::SetTranspose { keyboard: 2, master: -1 }).unwrap();
@@ -98,6 +107,7 @@ fn dress(s: &Session) {
     s.send(ChordCmd::SetFingering { fingering: Fingering::Fingered }).unwrap();
     s.send(MixerCmd::ToggleStylePart { part: 5 }).unwrap();
     s.send(MixerCmd::SetStylePartVolume { part: 3, volume: 64 }).unwrap();
+    s.send(MixerCmd::SetStyleVolume { volume: 80 }).unwrap();
     s.send(OtsCmd::SetOtsLink { on: false }).unwrap();
     s.advance(MS);
 }
@@ -111,11 +121,15 @@ fn scramble(s: &Session) {
     s.send(PartsCmd::SetPartVoice { part: 0, program: 1 }).unwrap();
     s.send(PartsCmd::SetPartVolume { part: 0, volume: 30 }).unwrap();
     s.send(PartsCmd::SetPartOctave { part: 0, octave: -1 }).unwrap();
+    s.send(PartsCmd::SetPartPan { part: 0, pan: 100 }).unwrap();
+    s.send(PartsCmd::SetPartSend { part: 0, send: PartSend::Reverb, value: 0 }).unwrap();
+    s.send(PartsCmd::SetPartSend { part: 3, send: PartSend::Chorus, value: 0 }).unwrap();
     s.send(PartsCmd::SetPartOn { part: 1, on: false }).unwrap();
     s.send(ChordCmd::ResetTranspose).unwrap();
     s.send(ChordCmd::SetSplit { note: 50 }).unwrap();
     s.send(ChordCmd::SetFingering { fingering: Fingering::SingleFinger }).unwrap();
     s.send(MixerCmd::SetStylePartVolume { part: 3, volume: 120 }).unwrap();
+    s.send(MixerCmd::SetStyleVolume { volume: 110 }).unwrap();
     s.advance(MS);
 }
 
@@ -151,7 +165,7 @@ fn memory_button_arms_memorize_for_the_next_press() {
     s.send(RegistrationCmd::PressRegist { index: 3 }).unwrap();
     let st = s.state();
     assert!(!st.registration.memory && st.registration.buttons[3].stored);
-    assert_eq!(st.pads.page_count, 4);
+    assert_eq!(st.pads.page_count, 5);
     let _ = std::fs::remove_dir_all(dir);
 }
 
@@ -1142,5 +1156,84 @@ fn a_bank_without_patches_recalls_the_gm_voice() {
     s.advance(MS);
     assert_eq!(part_sound(&s, 0).0, None);
     assert_eq!(part_sound(&s, 0).1, 24);
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+/// #202: Left Hold is a Registration item of the Style group (Data List); Freeze Style
+/// keeps it.
+#[test]
+fn registration_stores_left_hold() {
+    let Some((s, dir)) = session("left-hold") else { return };
+    let hold = |s: &Session| s.state().chord.left_hold;
+    s.send(ChordCmd::SetLeftHold { on: true }).unwrap();
+    assert!(hold(&s));
+    s.send(RegistrationCmd::MemorizeRegist { index: 0 }).unwrap();
+    s.send(ChordCmd::ToggleLeftHold).unwrap();
+    assert!(!hold(&s));
+    s.send(RegistrationCmd::RecallRegist { index: 0 }).unwrap();
+    s.advance(MS);
+    assert!(hold(&s), "recalled");
+    s.send(ChordCmd::SetLeftHold { on: false }).unwrap();
+    s.send(RegistrationCmd::SetFreezeGroup { group: Group::Style, on: true }).unwrap();
+    s.send(RegistrationCmd::SetFreeze { on: true }).unwrap();
+    s.send(RegistrationCmd::RecallRegist { index: 0 }).unwrap();
+    s.advance(MS);
+    assert!(!hold(&s), "Freeze Style keeps it");
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+/// #200: Regist +/− from a pedal step the bank's stored buttons with no sequence
+/// programmed, and the sequence while it is on; Regist 1–10, Memory, Freeze and Sequence
+/// On/Off are assignable too (RM p.114, p.141).
+#[test]
+fn a_pedal_steps_the_registrations() {
+    use crate::controllers::{ControlType, Function};
+    let Some((s, dir)) = session("pedal") else { return };
+    let trigger = |function| s.send(ControllersCmd::TriggerFunction { function });
+    assert!(trigger(Function::RegistNext).is_err(), "an empty bank: it says so");
+    for (i, program) in [(0, 10), (2, 30), (5, 60)] {
+        s.send(PartsCmd::SetPartVoice { part: 0, program }).unwrap();
+        s.send(RegistrationCmd::MemorizeRegist { index: i }).unwrap();
+    }
+    // Pedal 2 (CC 66) is Regist +.
+    let pedal = ControllersCmd::SetPedal { pedal: 1, cc: Some(66), function: Function::RegistNext, control_type: ControlType::HoldA, reverse: false, range: Default::default() };
+    s.send(pedal).unwrap();
+    let press = || {
+        s.midi_in(Port::Keys, &[0xB0, 66, 127]);
+        s.midi_in(Port::Keys, &[0xB0, 66, 0]);
+        s.advance(MS);
+    };
+    // The last memorize selected button 6, the last stored: Regist + stays there.
+    press();
+    assert_eq!(s.state().registration.selected, Some(5));
+    s.send(RegistrationCmd::RecallRegist { index: 0 }).unwrap();
+    s.advance(MS);
+    press();
+    let st = s.state();
+    assert_eq!((st.registration.selected, st.keyboard_parts[0].program), (Some(2), 30), "empty button 2 skipped");
+    press();
+    assert_eq!(s.state().keyboard_parts[0].program, 60);
+    trigger(Function::RegistPrev).unwrap();
+    s.advance(MS);
+    assert_eq!(s.state().keyboard_parts[0].program, 30);
+    // With the sequence on and programmed, Regist + follows the sequence instead.
+    s.send(RegistrationCmd::SetRegistSequence { steps: vec![5, 0], end: SequenceEnd::Stop }).unwrap();
+    trigger(Function::RegistSequence).unwrap();
+    assert!(s.state().registration.sequence.on);
+    press();
+    assert_eq!(s.state().keyboard_parts[0].program, 60);
+    press();
+    assert_eq!(s.state().keyboard_parts[0].program, 10);
+    // Regist 1–10 press the button; Memory arms Memorize; Freeze toggles.
+    trigger(Function::Regist3).unwrap();
+    s.advance(MS);
+    assert_eq!(s.state().keyboard_parts[0].program, 30);
+    trigger(Function::RegistMemory).unwrap();
+    assert!(s.state().registration.memory);
+    trigger(Function::Regist10).unwrap();
+    let st = s.state();
+    assert!(!st.registration.memory && st.registration.buttons[9].stored, "Memory, then Regist 10, memorizes");
+    trigger(Function::RegistFreeze).unwrap();
+    assert!(s.state().registration.freeze);
     let _ = std::fs::remove_dir_all(dir);
 }

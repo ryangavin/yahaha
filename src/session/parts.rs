@@ -15,19 +15,37 @@ impl Control {
                 return self.set_part_on(part, on);
             }
             PartsCmd::SelectPart { part } => parts.select(part as usize),
+            // A GM voice selected replaces the part's voice (#179): a plugin picked for the
+            // part ends (`end_picked_plugin`), and its own library patch goes, with a plugin
+            // that patch brought (`sound_library_part_voice`).
             PartsCmd::SetPartVoice { part, program } => {
-                parts.set_program((part & 3) as usize, program);
-                self.sound_library_part_voice((part & 3) as usize);
+                let p = (part & 3) as usize;
+                parts.set_program(p, program);
+                self.end_picked_plugin(p);
+                self.sound_library_part_voice(p);
             }
             PartsCmd::StepVoice { delta } => {
                 parts.step_program(delta as i32);
-                self.sound_library_part_voice(parts.selected());
+                let p = parts.selected();
+                self.end_picked_plugin(p);
+                self.sound_library_part_voice(p);
             }
             PartsCmd::SetPartVolume { part, volume } => {
                 parts.set_volume((part & 3) as usize, volume);
                 self.wake_engine();
             }
             PartsCmd::SetPartOctave { part, octave } => parts.octave[(part & 3) as usize].store(octave.clamp(-2, 2), Relaxed),
+            // The engine thread sends it as the part's CC, to the port and the synth.
+            PartsCmd::SetPartPan { part, pan } => {
+                parts.set_fx((part & 3) as usize, [Some(pan), None, None, None]);
+                self.wake_engine();
+            }
+            PartsCmd::SetPartSend { part, send, value } => {
+                let mut fx = [None; parts::FX];
+                fx[send.index()] = Some(value);
+                parts.set_fx((part & 3) as usize, fx);
+                self.wake_engine();
+            }
         }
         Ok(())
     }
@@ -62,6 +80,10 @@ impl Control {
                     voice_name: plays.unwrap_or_else(|| gm_name(kp.channel_program(p)).to_string()),
                     plays_bass,
                     octave: kp.octave[p].load(Relaxed).clamp(-2, 2),
+                    pan: kp.fx(p)[parts::PAN],
+                    reverb: kp.fx(p)[parts::REVERB],
+                    chorus: kp.fx(p)[parts::CHORUS],
+                    variation: kp.fx(p)[parts::VARIATION],
                     fader: v.fader_hw[p],
                     plugin: self.channel_plugin_state(parts::CHANNEL[p]),
                     patch,

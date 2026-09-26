@@ -14,6 +14,7 @@
 //! - At most [`MAX_EVENTS`] chords and [`MAX_BARS`] bars; recording stops when full.
 
 use crate::theory::Chord;
+use serde::{Deserialize, Serialize};
 
 /// Chord changes a sequence holds.
 pub const MAX_EVENTS: usize = 128;
@@ -142,6 +143,117 @@ impl ChordSeq {
     }
 }
 
+/// A sequence as a Registration Memory or a bank file keeps it: whole bars and the chord
+/// changes, each with its chord's parts (root and type as the engine numbers them, the
+/// on-bass note) and its name for a reader.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SeqFile {
+    pub bars: u16,
+    #[serde(default)]
+    pub chords: Vec<ChordFile>,
+}
+
+/// One chord change of a [`SeqFile`]: bar (0-based) and position in it (1/`LOOP_PPQ`
+/// quarter notes).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChordFile {
+    pub bar: u16,
+    pub at: u16,
+    pub root: u8,
+    #[serde(rename = "type")]
+    pub ty: u8,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bass: Option<u8>,
+    /// The chord's name ("Cm7"), for a reader: `root`, `type` and `bass` are what count.
+    #[serde(default)]
+    pub name: String,
+}
+
+impl SeqFile {
+    pub fn of(seq: &ChordSeq) -> SeqFile {
+        SeqFile {
+            bars: seq.bars(),
+            chords: seq
+                .events()
+                .iter()
+                .map(|e| ChordFile { bar: e.bar, at: e.at, root: e.chord.root, ty: e.chord.ty, bass: e.chord.bass, name: e.chord.name() })
+                .collect(),
+        }
+    }
+
+    /// The sequence (changes out of range or order are dropped, as `ChordSeq::from_events`).
+    pub fn to_seq(&self) -> ChordSeq {
+        let events: Vec<LoopEvent> = self
+            .chords
+            .iter()
+            .map(|c| LoopEvent { bar: c.bar, at: c.at, chord: Chord { root: c.root % 12, ty: c.ty, bass: c.bass.map(|b| b % 12) } })
+            .collect();
+        ChordSeq::from_events(self.bars, &events)
+    }
+}
+
+/// A Chord Looper bank file's `format` field, and its file extension (yahaha's own JSON:
+/// the Genos .clb format is undocumented).
+pub const BANK_FORMAT: &str = "yahaha.chord-looper-bank";
+pub const BANK_EXT: &str = ".looper.json";
+const BANK_VERSION: u32 = 1;
+
+/// A Chord Looper bank as a file: its eight memories (RM p.17).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BankFile {
+    pub format: String,
+    pub version: u32,
+    pub name: String,
+    /// Memories 1-8 (null: empty).
+    pub memories: Vec<Option<MemoryFile>>,
+}
+
+/// One memory of a [`BankFile`].
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MemoryFile {
+    /// "CLD_001", or the name it was given.
+    pub name: String,
+    pub sequence: SeqFile,
+}
+
+impl BankFile {
+    /// A bank named `name` from `memories` (name and sequence each; None: empty).
+    pub fn new(name: &str, memories: &[Option<(String, ChordSeq)>]) -> BankFile {
+        BankFile {
+            format: BANK_FORMAT.into(),
+            version: BANK_VERSION,
+            name: name.into(),
+            memories: memories.iter().map(|m| m.as_ref().map(|(n, s)| MemoryFile { name: n.clone(), sequence: SeqFile::of(s) })).collect(),
+        }
+    }
+
+    pub fn from_json(text: &str) -> anyhow::Result<BankFile> {
+        let b: BankFile = serde_json::from_str(text)?;
+        anyhow::ensure!(b.format == BANK_FORMAT, "not a yahaha Chord Looper bank (format {:?})", b.format);
+        Ok(b)
+    }
+
+    pub fn to_json(&self) -> String {
+        serde_json::to_string_pretty(self).expect("a bank serializes")
+    }
+
+    /// Its memories as the session keeps them, `n` of them (more are dropped, fewer are
+    /// empty); a memory whose sequence is empty is empty.
+    pub fn memories(&self, n: usize) -> Vec<Option<(String, ChordSeq)>> {
+        (0..n)
+            .map(|i| {
+                let m = self.memories.get(i)?.as_ref()?;
+                let seq = m.sequence.to_seq();
+                (!seq.is_empty()).then(|| (m.name.clone(), seq))
+            })
+            .collect()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -205,6 +317,35 @@ mod tests {
         }
         assert!(s.is_full());
         assert!(!s.push(LoopEvent { bar: 0, at: 0, chord: c("G") }));
+    }
+
+    #[test]
+    fn a_sequence_round_trips_through_its_file_form() {
+        let mut slash = c("C");
+        slash.bass = Some(7);
+        let s = ChordSeq::from_events(
+            4,
+            &[
+                LoopEvent { bar: 0, at: 0, chord: c("Cm7") },
+                LoopEvent { bar: 1, at: 960, chord: slash },
+                LoopEvent { bar: 3, at: 120, chord: c("G7") },
+            ],
+        );
+        let f = SeqFile::of(&s);
+        assert_eq!(f.chords[0].name, "Cm7");
+        let json = serde_json::to_string(&f).unwrap();
+        let back: SeqFile = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.to_seq(), s);
+    }
+
+    #[test]
+    fn a_bank_round_trips_and_checks_its_format() {
+        let s = ChordSeq::from_events(2, &[LoopEvent { bar: 0, at: 0, chord: c("C") }, LoopEvent { bar: 1, at: 0, chord: c("Am") }]);
+        let mems = vec![None, Some(("Verse".to_string(), s)), None];
+        let b = BankFile::new("Songs", &mems);
+        let back = BankFile::from_json(&b.to_json()).unwrap();
+        assert_eq!(back.memories(8), [None, Some(("Verse".to_string(), s)), None, None, None, None, None, None]);
+        assert!(BankFile::from_json(r#"{"format":"x","version":1,"name":"n","memories":[]}"#).is_err());
     }
 
     #[test]

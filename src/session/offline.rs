@@ -179,6 +179,8 @@ impl Session {
                 ctl.sound.synth_started(m);
             }
             o.audio = Some(Box::new(core));
+            // A new synth starts at the GM power-on sends: give it the parts' (#204).
+            ctl.shared.parts.resend_fx();
             o.input.set_synth(Some(control.clone()));
             let name = sf2.and_then(|p| p.file_stem()).map_or_else(String::new, |n| n.to_string_lossy().to_string());
             ctl.synth = Some(super::SynthRef {
@@ -191,6 +193,16 @@ impl Session {
         }
         self.settle();
         Ok(())
+    }
+
+    /// Tests: the effect bus's returns at 0, so a note's reverb tail doesn't ring into a
+    /// check for silence (#204).
+    #[cfg(test)]
+    #[cfg_attr(not(feature = "plugins"), allow(dead_code))] // the plugin tests use it
+    pub(crate) fn fx_returns_off(&self) {
+        let mut ctl = self.inner.lock();
+        ctl.fx.returns = [0; 3];
+        ctl.pump_fx();
     }
 
     /// Offline only, after [`Session::offline_audio`]: render `frames` of stereo (in

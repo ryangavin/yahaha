@@ -8,13 +8,17 @@
   2. The sequence, bar by bar, with the bar playing (or being recorded) lit.
   3. Memories 1–8: select one to loop it (while looping, from the next bar line). Memory /
      Clear, then a number, store or empty one; New bank empties them all.
+  4. The bank: pick a bank file to load its eight memories, or save them (Save As with a
+     name; Overwrite when another bank has that name). Changes save themselves.
 
   State: looper, transport.running. Commands: looperRec, looperOnOff, selectLooperMemory,
-  storeLooperMemory, clearLooperMemory, newLooperBank. The engine owns every value;
-  the Memory/Clear latch is the only UI state.
+  storeLooperMemory, clearLooperMemory, newLooperBank, saveLooperBank, loadLooperBank. The
+  engine owns every value; the Memory/Clear latch and the typed bank name are the only UI
+  state.
 -->
 <script lang="ts">
   import type { LoopChord, LooperMode } from '../../lib/api/types'
+  import { sameFile } from '../../lib/api/registration'
   import { app, clock, ui } from '../../lib/store.svelte'
   import { tip } from '../../lib/tooltip/tip.svelte'
   import HwButton from '../../lib/ui/HwButton.svelte'
@@ -34,6 +38,17 @@
     else if (pick === 'clear') app.send({ type: 'clearLooperMemory', index: i })
     else app.send({ type: 'selectLooperMemory', index: i })
     pick = null
+  }
+
+  /** The bank name typed for Save As. */
+  let bankName = $state('')
+  /** The typed name is another bank's file (as the backend names files): Save is refused,
+   * Overwrite replaces it. */
+  const clash = $derived(!!bankName.trim() && lp.banks.some((b) => sameFile(b.name, bankName) && b.path !== lp.bankPath))
+
+  function saveBank(overwrite = false) {
+    app.send({ type: 'saveLooperBank', name: bankName.trim() || null, ...(overwrite ? { overwrite } : {}) })
+    if (overwrite || !clash) bankName = ''
   }
 
   const summary = (chords: LoopChord[]) => chords.map((c) => c.chord).join(' · ')
@@ -109,6 +124,21 @@
         {#if pick}<span class="hint">{pick === 'store' ? 'Store the sequence in memory…' : 'Clear memory…'}</span>{/if}
       </div>
     </section>
+
+    <section aria-label="Bank">
+      <h3 class="engraved">Bank</h3>
+      <div class="ops">
+        <select class="field" aria-label="Chord Looper bank" use:tip={'looper.bank'} value={lp.bankPath ?? ''} onchange={(e) => e.currentTarget.value && app.send({ type: 'loadLooperBank', path: e.currentTarget.value })}>
+          {#if !lp.bankPath}<option value="">{lp.bankName} (no file)</option>{/if}
+          {#each lp.banks as b (b.path)}<option value={b.path}>{b.name}</option>{/each}
+        </select>
+      </div>
+      <div class="ops">
+        <input class="field" type="text" aria-label="Chord Looper bank name" placeholder={lp.bankPath ? `Save as… (${lp.bankName})` : 'Name this bank'} use:tip={'looper.bank_name'} bind:value={bankName} />
+        <HwButton tip="looper.save_bank" onclick={() => saveBank()}>Save</HwButton>
+        {#if clash}<HwButton tip="looper.overwrite_bank" onclick={() => saveBank(true)}>Overwrite</HwButton>{/if}
+      </div>
+    </section>
   </div>
 </Overlay>
 
@@ -116,6 +146,17 @@
   .looper {
     display: grid;
     gap: 1rem;
+  }
+  .field {
+    flex: 1;
+    min-width: 0;
+    min-height: 2.2rem;
+    padding: 0 0.5rem;
+    border: 1px solid var(--seam);
+    border-radius: 4px;
+    background: var(--well);
+    color: var(--ink);
+    font: inherit;
   }
   h3 {
     margin: 0 0 0.4rem;

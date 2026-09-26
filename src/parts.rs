@@ -27,6 +27,17 @@ pub const CHANNEL: [u8; COUNT] = [0, 2, 3, 1];
 /// Default voices (GM programs): Grand Piano, Strings, Brass Section; Left Strings.
 pub const DEFAULT_PROGRAMS: [u8; COUNT] = [0, 48, 61, 48];
 
+/// Panel fader 5: the Style volume (#199), a scale on the Style parts' CC7 (100 = as
+/// written), kept with the keyboard parts' levels (`Parts::volume(STYLE_LEVEL)`), with the
+/// same soft takeover.
+pub const STYLE_LEVEL: usize = 4;
+/// Panel fader 6: the Multi Pad volume (#196), the same kind of scale on the pads' CC7
+/// (channels 5-8).
+pub const PAD_LEVEL: usize = 5;
+/// The levels the Panel page's faders control: the four keyboard parts, then the Style
+/// and the Multi Pads.
+pub const PANEL_FADERS: usize = 6;
+
 /// The part on MIDI channel `ch`, if it is a keyboard part's.
 pub fn part_of_channel(ch: u8) -> Option<usize> {
     CHANNEL.iter().position(|&c| c == ch)
@@ -44,7 +55,8 @@ fn pack(volume: u8, picked: bool) -> u8 {
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum FaderPage {
-    /// Faders 1-4: Right 1, Right 2, Right 3, Left. 5-8 unused.
+    /// Faders 1-4: Right 1, Right 2, Right 3, Left; 5: the Style volume; 6: the Multi Pad
+    /// volume. 7-8 unused.
     #[default]
     Panel,
     /// Faders 1-8: the Style parts.
@@ -58,7 +70,8 @@ pub struct Parts {
     /// The part's volume (its CC7, sent unchanged on its channel) in bits 0-6, and in bit 7
     /// whether its Panel fader controls it (soft takeover). One atomic, so a fader move and
     /// an OTS recall on other threads can never mix one's volume with the other's pickup.
-    level: [AtomicU8; COUNT],
+    /// After the parts, the other Panel faders' levels (`STYLE_LEVEL`, `PAD_LEVEL`).
+    level: [AtomicU8; PANEL_FADERS],
     /// Octave shift, -2..=2.
     pub octave: [AtomicI8; COUNT],
     /// The part the voice keys (9/0, Voice -/+ pads) edit.
@@ -89,14 +102,31 @@ pub struct Parts {
     /// Each part's pan and reverb/chorus sends (CC10, 91, 93; `NO_FX` = not set) as a sound
     /// library patch set them (#103), and the parts whose values the engine thread still
     /// has to send (bit = part).
-    fx: [[AtomicU8; 3]; COUNT],
+    fx: [[AtomicU8; FX]; COUNT],
     fx_dirty: AtomicU8,
+    /// The parts whose power-on pan and sends (`FX_DEFAULT`) the engine thread has not
+    /// sent yet (bit = part): all of them at first, so a fresh start isn't dry (#204).
+    fx_boot: AtomicU8,
 }
 
 /// `Parts::fx`: not set.
 const NO_FX: u8 = 0xFF;
-/// The controllers `Parts::fx` holds: pan, reverb send, chorus send.
-const FX_CC: [u8; 3] = [10, 91, 93];
+/// The controllers `Parts::fx` holds: pan, reverb send, chorus send, variation send
+/// (the effect bus's tempo delay, #204).
+pub const FX_CC: [u8; FX] = [10, 91, 93, 94];
+/// How many controllers `Parts::fx` holds.
+pub const FX: usize = 4;
+/// `Parts::fx` indices.
+pub const PAN: usize = 0;
+pub const REVERB: usize = 1;
+pub const CHORUS: usize = 2;
+pub const VARIATION: usize = 3;
+/// What each part's pan and sends are before anything sets them (#204): pan centre and,
+/// like a Genos keyboard voice, some reverb and a touch of chorus (Right 1-3: reverb 50,
+/// chorus 10; Left: reverb 40, chorus 10), where GM's power-on values (reverb 40, chorus
+/// 0) sound dry; no variation (delay) send. The engine thread sends them at start and
+/// again after anything that may have reset them (`resend_fx`).
+pub const FX_DEFAULT: [[u8; FX]; COUNT] = [[64, 50, 10, 0], [64, 50, 10, 0], [64, 50, 10, 0], [64, 40, 10, 0]];
 
 /// `Parts::solo`: no part soloed.
 pub const NO_SOLO: u8 = 255;
@@ -112,7 +142,7 @@ impl Parts {
         Parts {
             program: DEFAULT_PROGRAMS.map(AtomicU8::new),
             on: [true, false, false, false].map(AtomicBool::new),
-            level: [const { AtomicU8::new(100) }; COUNT],
+            level: [const { AtomicU8::new(100) }; PANEL_FADERS],
             octave: [const { AtomicI8::new(0) }; COUNT],
             selected: AtomicU8::new(RIGHT1 as u8),
             changed: AtomicBool::new(true),
@@ -125,14 +155,15 @@ impl Parts {
             rebind: AtomicBool::new(false),
             rebind_hw: [const { AtomicU8::new(HW_UNKNOWN) }; 8],
             solo: AtomicU8::new(NO_SOLO),
-            fx: [const { [const { AtomicU8::new(NO_FX) }; 3] }; COUNT],
+            fx: [const { [const { AtomicU8::new(NO_FX) }; FX] }; COUNT],
             fx_dirty: AtomicU8::new(0),
+            fx_boot: AtomicU8::new((1 << COUNT) - 1),
         }
     }
 
     /// A part's pan, reverb and chorus sends from a sound library patch (None: leave it).
     /// The engine thread sends them as CCs on the part's channel, to the port and the synth.
-    pub fn set_fx(&self, part: usize, fx: [Option<u8>; 3]) {
+    pub fn set_fx(&self, part: usize, fx: [Option<u8>; FX]) {
         let part = part % COUNT;
         for (a, v) in self.fx[part].iter().zip(fx) {
             if let Some(v) = v {
@@ -142,9 +173,34 @@ impl Parts {
         self.fx_dirty.fetch_or(1 << part, Release);
     }
 
-    /// Engine thread: send the pan and sends set since the last call.
+    /// A part's pan, reverb send and chorus send (`PAN`, `REVERB`, `CHORUS`) as last set,
+    /// or the power-on value (`FX_DEFAULT`) where nothing has set it.
+    pub fn fx(&self, part: usize) -> [u8; FX] {
+        let part = part % COUNT;
+        std::array::from_fn(|i| match self.fx[part][i].load(Relaxed) {
+            NO_FX => FX_DEFAULT[part][i],
+            v => v,
+        })
+    }
+
+    /// Every part's pan and sends go out again on the engine thread's next `send_fx`
+    /// (the power-on values where nothing has set them): after a Panic, a Reset All
+    /// Controllers or a new synth, anything that may have put a channel back to its
+    /// power-on sends.
+    pub fn resend_fx(&self) {
+        self.fx_boot.fetch_or((1 << COUNT) - 1, Release);
+    }
+
+    /// Engine thread: send the pan and sends set since the last call; on the first call,
+    /// every part's (the power-on values where nothing has set them).
     pub fn send_fx(&self, out: &mut impl FnMut(&[u8])) {
-        let dirty = self.fx_dirty.swap(0, Acquire);
+        let boot = self.fx_boot.swap(0, Acquire);
+        let dirty = self.fx_dirty.swap(0, Acquire) & !boot;
+        for p in (0..COUNT).filter(|p| boot & 1 << p != 0) {
+            for (v, cc) in self.fx(p).into_iter().zip(FX_CC) {
+                out(&[0xB0 | CHANNEL[p], cc, v]);
+            }
+        }
         if dirty == 0 {
             return;
         }
@@ -239,7 +295,8 @@ impl Parts {
         }
     }
 
-    /// The part's volume (its CC7).
+    /// The part's volume (its CC7), or another Panel fader's level (`STYLE_LEVEL`,
+    /// `PAD_LEVEL`).
     pub fn volume(&self, part: usize) -> u8 {
         self.level[part].load(Relaxed) & VOLUME
     }
@@ -356,8 +413,10 @@ impl Parts {
         self.rebind.swap(false, Acquire).then(|| self.rebind_hw.each_ref().map(|a| a.load(Relaxed)))
     }
 
-    /// Load a One Touch Setting into Right 1-3 and Left: voice, on/off, volume, octave.
-    /// Drum-kit voices (bank MSB 126/127) keep the part's current voice.
+    /// Load a One Touch Setting into Right 1-3 and Left: voice, on/off, volume, octave, and
+    /// the pan and reverb/chorus sends the OTS sets (the engine thread sends them; one it
+    /// doesn't set stays as it is). Drum-kit voices (bank MSB 126/127) keep the part's
+    /// current voice.
     pub fn apply_ots(&self, ots: &crate::sff::Ots, number: u8) {
         for (p, part) in ots.parts.iter().enumerate() {
             if let Some((_, _, pc)) = part.voice.filter(|v| v.0 < 126) {
@@ -366,6 +425,9 @@ impl Parts {
             self.on[p].store(part.on, Relaxed);
             self.set_volume(p, part.volume);
             self.octave[p].store(part.octave, Relaxed);
+            if part.fx.iter().any(Option::is_some) {
+                self.set_fx(p, part.fx);
+            }
         }
         self.selected.store(RIGHT1 as u8, Relaxed);
         self.ots_applied.store(number, Relaxed);
@@ -413,6 +475,83 @@ mod tests {
             assert_eq!(parts.volume(i), o.volume);
             assert_eq!(parts.octave[i].load(Relaxed), o.octave);
         }
+    }
+
+    /// An OTS recall sets each part's pan, reverb and chorus as its OTS track does (#198):
+    /// over the corpus, the CC10/91/93 that `send_fx` sends after `apply_ots` are the last
+    /// ones each part's channel carries in the raw OTSc track, and nothing else.
+    #[test]
+    fn ots_recalls_pan_and_sends_across_the_corpus() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus/MOX_v2");
+        if !dir.exists() {
+            eprintln!("corpus missing; skipping");
+            return;
+        }
+        let (mut settings, mut with_pan) = (0, 0);
+        for f in crate::library::style_files(&dir) {
+            let Ok(style) = crate::sff::Style::load(&f) else { continue };
+            let Some((_, otsc)) = style.other_chunks.iter().find(|(id, _)| id == "OTSc") else { continue };
+            // The OTS tracks, read here independently of `parse_ots`.
+            let mut tracks = Vec::new();
+            let mut p = 0;
+            while p + 8 <= otsc.len() && &otsc[p..p + 4] == b"MTrk" {
+                let len = u32::from_be_bytes(otsc[p + 4..p + 8].try_into().unwrap()) as usize;
+                let end = (p + 8 + len).min(otsc.len());
+                tracks.push(crate::sff::parse_track(&otsc[p + 8..end]).unwrap_or_default());
+                p = end;
+            }
+            for (i, (ots, track)) in style.ots.iter().zip(&tracks).enumerate() {
+                let mut want = [[None; FX]; COUNT];
+                for e in track {
+                    if let crate::sff::Ev::Cc { ch, cc, val } = e.ev
+                        && ch < 4
+                        && let Some(k) = FX_CC.iter().position(|&c| c == cc)
+                    {
+                        want[ch as usize][k] = Some(val);
+                    }
+                }
+                let parts = Parts::new();
+                parts.send_fx(&mut |_| {});
+                parts.apply_ots(ots, i as u8 + 1);
+                let mut got = [[None; FX]; COUNT];
+                parts.send_fx(&mut |m| {
+                    let p = part_of_channel(m[0] & 0x0F).unwrap();
+                    got[p][FX_CC.iter().position(|&c| c == m[1]).unwrap()] = Some(m[2]);
+                });
+                assert_eq!(got, want, "{} OTS {}", f.display(), i + 1);
+                settings += 1;
+                with_pan += want.iter().any(|w| w[0].is_some()) as usize;
+            }
+        }
+        eprintln!("{settings} OTS, {with_pan} with pan");
+        assert!(settings == 0 || with_pan * 2 > settings, "most OTS set pan ({with_pan} of {settings})");
+    }
+
+    /// A fresh start isn't dry (#204): the first `send_fx` gives every keyboard part its
+    /// power-on pan and sends, once; what a patch or OTS set before it wins.
+    #[test]
+    fn the_first_send_gives_every_part_its_default_sends() {
+        let parts = Parts::new();
+        parts.set_fx(LEFT, [None, Some(90), None, None]);
+        let mut sent = Vec::new();
+        parts.send_fx(&mut |m| sent.push([m[0], m[1], m[2]]));
+        for p in 0..COUNT {
+            let want = if p == LEFT { [64, 90, 10, 0] } else { FX_DEFAULT[p] };
+            for (cc, v) in FX_CC.into_iter().zip(want) {
+                assert!(sent.contains(&[0xB0 | CHANNEL[p], cc, v]), "part {p} CC{cc} {v}: {sent:?}");
+            }
+        }
+        assert_eq!(sent.len(), COUNT * FX, "once each: {sent:?}");
+        assert_eq!(parts.fx(RIGHT1), [64, 50, 10, 0]);
+        let mut again = 0;
+        parts.send_fx(&mut |_| again += 1);
+        assert_eq!(again, 0, "only once");
+        // After a reset: all of them again, as they are now.
+        parts.resend_fx();
+        let mut sent = Vec::new();
+        parts.send_fx(&mut |m| sent.push([m[0], m[1], m[2]]));
+        assert_eq!(sent.len(), COUNT * FX);
+        assert!(sent.contains(&[0xB1, 91, 90]) && sent.contains(&[0xB0, 91, 50]), "{sent:?}");
     }
 
     #[test]

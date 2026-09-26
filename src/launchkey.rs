@@ -1,6 +1,6 @@
 //! Novation Launchkey MK4 in DAW mode: pads and buttons as arranger controls, with LEDs.
 //!
-//! The 16 pads have three pages, switched with the Pad Bank ▲/▼ buttons left of the pads
+//! The 16 pads have five pages, switched with the Pad Bank ▲/▼ buttons left of the pads
 //! (DAW port, channel 1 notes; top row 96..103, bottom row 112..119):
 //!
 //!   1 Sections     Intro I  Intro II  Intro III  SyncStart | Ending I  Ending II  Ending III  AutoFill
@@ -11,6 +11,8 @@
 //!                  Right 1  Right 2   Right 3    Left      | Select R1 Select R2 Select R3   Select Left
 //!   4 Registration Regist 1 Regist 2  Regist 3   Regist 4  | Regist 5  Regist 6  Regist 7    Regist 8
 //!                  Regist 9 Regist 10 Bank -     Bank +    | Memory    Freeze    Regist -    Regist +
+//!   5 Multi Pads   Pad 1    Pad 2     Pad 3      Pad 4     | STOP      -         -           -
+//!                  Select 1 Select 2  Select 3   Select 4  | Stop 1    Stop 2    Stop 3      Stop 4
 //!
 //! Buttons (CC in DAW mode; numbers from the MK4 Programmer's Reference Guide v3.0, p.9,
 //! Figure 3): 115 Play = Start/Stop, 116 Stop, 104 (Scene Launch >) / 105 (Function) =
@@ -19,18 +21,53 @@
 //! 63 = Shift. Shift + Play = Style Section Reset, Shift + Stop = Fade In/Out, Shift +
 //! Scene Launch / Function = Retrigger length shorter / longer.
 //!
+//! The 8 encoders are knobs on Knob Assign pages (`knobs.rs`), stepped with the encoder
+//! page buttons ▲/▼ (CC 51/52) right of them, like the Genos KNOB ASSIGN button. yahaha
+//! turns the encoders' relative output on when it enters DAW mode.
+//!
 //! Faders have two pages, like the Genos Mixer's Panel and Style tabs; the button under
 //! the master fader switches them (see `parts`). Panel: faders 1-4 = Right 1, Right 2,
-//! Right 3, Left volumes, their buttons = part on/off (Shift: select the part). Style:
+//! Right 3, Left volumes, their buttons = part on/off (Shift: select the part), button 5
+//! HARMONY/ARPEGGIO, 6 plugin reload, 7 LEFT HOLD, 8 CHORD LOOPER ON/OFF (Shift: REC/STOP).
+//! Style:
 //! faders 1-8 = the Style parts, their buttons = part mute. Master is always master.
 
-use crate::engine::{slot_of, Button, FadeState, Snapshot, Transpose};
+use crate::engine::{slot_of, Button, FadeState, PadCmd, Snapshot, Transpose};
 use crate::fingering::Fingering;
+use crate::multipad::PadState;
 use crate::parts::{self, FaderPage};
 use crate::sff::SectionId;
 
 pub const ENTER_DAW: [u8; 3] = [0x9F, 0x0C, 0x7F];
 pub const EXIT_DAW: [u8; 3] = [0x9F, 0x0C, 0x00];
+/// Feature control 45h, DAW Encoder Relative output on / off (Programmer's Reference
+/// Guide v3.0, p.22): the encoders send steps, not positions.
+pub const ENCODERS_RELATIVE: [u8; 3] = [0xB6, 0x45, 0x7F];
+pub const ENCODERS_ABSOLUTE: [u8; 3] = [0xB6, 0x45, 0x00];
+
+/// The encoders send on channel 16 (pp.12-13): CC 21-28 in the Plugin, Mixer and Sends
+/// modes (relative once `ENCODERS_RELATIVE` is sent), CC 85-92 in the Transport mode
+/// (always relative). Relative: 64 = no move, 65 = one step clockwise, 63 = one step back.
+pub const ENCODER_STATUS: u8 = 0xBF;
+pub const ENCODER_CC: std::ops::RangeInclusive<u8> = 21..=28;
+pub const ENCODER_TRANSPORT_CC: std::ops::RangeInclusive<u8> = 85..=92;
+
+/// An encoder message: (knob 0-7, steps; positive = clockwise). Touch events (channel 15)
+/// and the other channels are not encoder turns.
+pub fn encoder(status: u8, cc: u8, value: u8) -> Option<(u8, i8)> {
+    if status != ENCODER_STATUS {
+        return None;
+    }
+    let knob = if ENCODER_CC.contains(&cc) {
+        cc - ENCODER_CC.start()
+    } else if ENCODER_TRANSPORT_CC.contains(&cc) {
+        cc - ENCODER_TRANSPORT_CC.start()
+    } else {
+        return None;
+    };
+    let delta = (value & 0x7F) as i8 - 64;
+    (delta != 0).then_some((knob, delta))
+}
 
 /// Page 1 (Sections) pad buttons: the original layout, unchanged.
 pub fn pad_button(note: u8) -> Option<Button> {
@@ -70,6 +107,9 @@ pub const FADER_BTN_CC: std::ops::RangeInclusive<u8> = 37..=45;
 pub const SHIFT_CC: u8 = 63;
 pub const TRACK_LEFT_CC: u8 = 103;
 pub const TRACK_RIGHT_CC: u8 = 102;
+/// The encoder page buttons ▲ / ▼, right of the encoders: the Knob Assign page.
+pub const KNOB_UP_CC: u8 = 51;
+pub const KNOB_DOWN_CC: u8 = 52;
 /// Pad Bank ▲ / ▼, left of the top / bottom pad row.
 pub const PAD_UP_CC: u8 = 106;
 pub const PAD_DOWN_CC: u8 = 107;
@@ -84,6 +124,119 @@ pub const FEATURE_CH_STATUS: u8 = 0xB6;
 /// Pad mode report on channel 7 (p.10); 2 = DAW layout.
 pub const PAD_MODE_CC: u8 = 29;
 
+/// A Launchkey control the player just touched or moved, as the input thread records it
+/// for the display (`live::Shared::touched`, packed with a sequence number so a second
+/// press of the same control counts). The control side works out what it did from the
+/// state: the pads, the surface (buttons, fader buttons, faders) and the knobs.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Touch {
+    /// A pad (its note) on the current page.
+    Pad(u8),
+    /// A button (its CC), with Shift held or not.
+    Button { cc: u8, shift: bool },
+    /// Fader 1-8 (0-7) or the master fader (8).
+    Fader(u8),
+    /// The button under fader 1-8 (0-7) or under the master fader (8).
+    FaderButton { index: u8, shift: bool },
+    /// Encoder 1-8 (0-7).
+    Knob(u8),
+}
+
+impl Touch {
+    /// Packed with `seq` for an atomic: seq in bits 16-31, the kind in 8-11, Shift in bit
+    /// 7, the index in 0-6. Never 0 (0 = nothing touched yet).
+    pub fn pack(self, seq: u16) -> u32 {
+        let (kind, shift, i) = match self {
+            Touch::Pad(n) => (1, false, n),
+            Touch::Button { cc, shift } => (2, shift, cc),
+            Touch::Fader(i) => (3, false, i),
+            Touch::FaderButton { index, shift } => (4, shift, index),
+            Touch::Knob(i) => (5, false, i),
+        };
+        (seq as u32) << 16 | kind << 8 | (shift as u32) << 7 | (i & 0x7F) as u32
+    }
+
+    pub fn unpack(v: u32) -> Option<Touch> {
+        let (i, shift) = ((v & 0x7F) as u8, v & 0x80 != 0);
+        Some(match (v >> 8) & 0xF {
+            1 => Touch::Pad(i),
+            2 => Touch::Button { cc: i, shift },
+            3 => Touch::Fader(i),
+            4 => Touch::FaderButton { index: i, shift },
+            5 => Touch::Knob(i),
+            _ => return None,
+        })
+    }
+}
+
+/// The display target yahaha writes to: the Global temporary display (Programmer's
+/// Reference Guide v3.0, p.17), which goes back to the normal screen by itself after the
+/// Launchkey's display timeout.
+pub const DISPLAY_TARGET: u8 = 0x21;
+/// Arrangement 2: three lines, Title, Name and Value (p.18).
+const DISPLAY_TITLE_NAME_VALUE: u8 = 2;
+/// Characters per line yahaha sends (the display is 128 pixels wide).
+pub const DISPLAY_CHARS: usize = 16;
+
+fn display_header(cmd: u8, target: u8, out: &mut Vec<u8>) {
+    out.extend_from_slice(&[0xF0, 0x00, 0x20, 0x29, 0x02, 0x14, cmd, target]);
+}
+
+/// Configure a display target (SysEx 04h): `config` 0 cancels it, 7Fh brings it up.
+pub fn display_config(target: u8, config: u8) -> Vec<u8> {
+    let mut m = Vec::with_capacity(10);
+    display_header(0x04, target, &mut m);
+    m.extend_from_slice(&[config & 0x7F, 0xF7]);
+    m
+}
+
+/// Set a text field of a display target (SysEx 06h). The text is made printable: the
+/// display takes ASCII 20h-7Eh, plus a flat sign at 1Dh.
+pub fn display_field(target: u8, field: u8, text: &str) -> Vec<u8> {
+    let mut m = Vec::with_capacity(12 + DISPLAY_CHARS);
+    display_header(0x06, target, &mut m);
+    m.push(field);
+    m.extend(display_chars(text));
+    m.push(0xF7);
+    m
+}
+
+/// `text` as the display's characters, at most `DISPLAY_CHARS`.
+pub fn display_chars(text: &str) -> impl Iterator<Item = u8> + '_ {
+    text.chars()
+        .filter_map(|c| match c {
+            ' '..='~' => Some(c as u8),
+            '♭' => Some(0x1D),
+            '▲' => Some(b'^'),
+            '▼' => Some(b'v'),
+            '◀' => Some(b'<'),
+            '▶' | '▸' | '→' => Some(b'>'),
+            '−' | '–' | '—' => Some(b'-'),
+            '·' => Some(b'.'),
+            _ => None,
+        })
+        .take(DISPLAY_CHARS)
+}
+
+/// What the display shows for a touched control: a title (where it is), the function's
+/// name and its value, brought up at once.
+pub fn display_msgs(title: &str, name: &str, value: &str) -> [Vec<u8>; 5] {
+    [
+        display_config(DISPLAY_TARGET, DISPLAY_TITLE_NAME_VALUE),
+        display_field(DISPLAY_TARGET, 0, title),
+        display_field(DISPLAY_TARGET, 1, name),
+        display_field(DISPLAY_TARGET, 2, value),
+        display_config(DISPLAY_TARGET, 0x7F),
+    ]
+}
+
+/// On entering DAW mode: the faders' and encoders' own temporary displays (the raw CC
+/// value) off, as yahaha shows what they do instead (targets 05h-0Dh and 15h-1Ch, config
+/// with the "on change" and "on touch" bits clear).
+pub fn analogue_displays_off() -> impl Iterator<Item = Vec<u8>> {
+    FADER_CC.chain(ENCODER_CC).map(|t| display_config(t, DISPLAY_TITLE_NAME_VALUE))
+}
+
 /// Pad pages.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -94,10 +247,12 @@ pub enum Page {
     OtsParts,
     /// Registration Memory buttons 1-10, banks, Memory, Freeze, the Registration Sequence.
     Registration,
+    /// Multi Pads 1-4, STOP, SELECT + pad (Synchro Start) and STOP + pad (#196).
+    MultiPads,
 }
 
 impl Page {
-    pub const ALL: [Page; 4] = [Page::Sections, Page::ChordSetup, Page::OtsParts, Page::Registration];
+    pub const ALL: [Page; 5] = [Page::Sections, Page::ChordSetup, Page::OtsParts, Page::Registration, Page::MultiPads];
 
     pub fn name(self) -> &'static str {
         match self {
@@ -105,6 +260,7 @@ impl Page {
             Page::ChordSetup => "Chord/Setup",
             Page::OtsParts => "OTS/Parts",
             Page::Registration => "Registration",
+            Page::MultiPads => "Multi Pads",
         }
     }
 
@@ -135,6 +291,7 @@ impl Page {
             Page::ChordSetup => (C_PAGE_CHORD, CYAN, DIM_CYAN),
             Page::OtsParts => (C_PAGE_OTS, PINK, DIM_PINK),
             Page::Registration => (C_PAGE_REGIST, ORANGE, DIM_ORANGE),
+            Page::MultiPads => (C_PAGE_PADS, YELLOW, DIM_YELLOW),
         }
     }
 }
@@ -197,6 +354,13 @@ pub enum Action {
     /// Load the selected part's plugin again after it stopped or failed to load (`s`,
     /// fader button 6 on the Panel fader page).
     ReloadPlugin,
+    /// A Multi Pad button (page 5; `Z X C V`, `B`): straight to the engine, as a section
+    /// pad, so a press is not held up by the control side.
+    MultiPad(PadCmd),
+    /// An encoder turned: knob 0-7, steps (positive: clockwise).
+    Knob(u8, i8),
+    /// The Knob Assign page up (-1) / down (+1): the encoder page buttons.
+    KnobPage(i8),
 }
 
 /// What a pad does on a page.
@@ -228,6 +392,10 @@ pub fn pad_action(page: Page, note: u8) -> Option<Action> {
         (Page::Registration, 117) => Action::RegistFreeze,
         (Page::Registration, 118) => Action::RegistSeq(-1),
         (Page::Registration, 119) => Action::RegistSeq(1),
+        (Page::MultiPads, 96..=99) => Action::MultiPad(PadCmd::Trigger(note - 96)),
+        (Page::MultiPads, 100) => Action::MultiPad(PadCmd::StopAll),
+        (Page::MultiPads, 112..=115) => Action::MultiPad(PadCmd::Arm(note - 112)),
+        (Page::MultiPads, 116..=119) => Action::MultiPad(PadCmd::Stop(note - 116)),
         _ => return None,
     })
 }
@@ -261,6 +429,8 @@ pub fn cc_control(cc: u8, shift: bool) -> Option<Control> {
         // Shift + Pad Bank ▲/▼: the toggles these buttons had before pages (also on page 3).
         PAD_UP_CC if shift => act(Action::PartOnOff(parts::LEFT as u8)),
         PAD_DOWN_CC if shift => act(Action::ToggleOtsLink),
+        KNOB_UP_CC => act(Action::KnobPage(-1)),
+        KNOB_DOWN_CC => act(Action::KnobPage(1)),
         PAD_UP_CC => Some(Control::Page(-1)),
         PAD_DOWN_CC => Some(Control::Page(1)),
         _ => None,
@@ -301,21 +471,69 @@ pub const HARM_ARP_FADER_BTN: u8 = 4;
 /// Panel fader page. It lights red while that plugin has stopped or failed to load.
 pub const PLUGIN_FADER_BTN: u8 = 5;
 
+/// The fader button (0-based, under fader 7) that is LEFT HOLD on the Panel fader page
+/// (#202): lit orange while it is on.
+pub const LEFT_HOLD_FADER_BTN: u8 = 6;
+
+/// The fader button (0-based, under fader 8) that is the CHORD LOOPER on the Panel fader
+/// page: ON/OFF, and with Shift REC/STOP (#201).
+pub const LOOPER_FADER_BTN: u8 = 7;
+
+/// The Chord Looper as its fader button shows it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum LooperLamp {
+    /// Nothing recorded: dark.
+    #[default]
+    Empty,
+    /// A sequence to loop: dim green.
+    Ready,
+    /// REC armed (dim red) or recording (red).
+    RecArmed,
+    Recording,
+    /// ON/OFF armed (dim yellow: the loop starts at the next bar line) or looping (green).
+    LoopArmed,
+    Looping,
+}
+
+/// What the Panel page's own fader buttons (5-8) show.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct PanelLamps {
+    /// The HARMONY/ARPEGGIO switch (button 5).
+    pub harmony_arp: bool,
+    /// The selected part's plugin needs a reload (button 6 red).
+    pub plugin_fault: bool,
+    /// Left Hold (button 7).
+    pub left_hold: bool,
+    /// The Chord Looper (button 8).
+    pub looper: LooperLamp,
+}
+
 /// Palette colours for the fader buttons. Panel page (blue): Right 1-3 and Left lit while
-/// on (`parts_on`, bit = part), button 5 (purple) lit while HARMONY/ARPEGGIO is on
-/// (`harmony_arp`), button 6 red while the selected part's plugin needs a reload
-/// (`plugin_fault`), 7-8 dark. Style page (green): the Style parts lit while they play
-/// (`style_on`). The master button shows the page's colour.
-pub fn fader_button_msgs(page: FaderPage, parts_on: u8, style_on: u8, harmony_arp: bool, plugin_fault: bool, out: &mut Vec<[u8; 3]>) {
+/// on (`parts_on`, bit = part), button 5 (purple) lit while HARMONY/ARPEGGIO is on,
+/// button 6 red while the selected part's plugin needs a reload, button 7 (orange) lit
+/// while Left Hold is on, button 8 the Chord Looper (`LooperLamp`). Style page (green): the Style parts lit while they
+/// play (`style_on`). The master button shows the page's colour.
+pub fn fader_button_msgs(page: FaderPage, parts_on: u8, style_on: u8, lamps: PanelLamps, out: &mut Vec<[u8; 3]>) {
     let (on, n, (bright, dim)) = match page {
         FaderPage::Panel => (parts_on, parts::COUNT as u8, (BLUE, DIM_BLUE)),
         FaderPage::Style => (style_on, 8, (GREEN, DIM_GREEN)),
     };
     for i in 0..8u8 {
         let c = if page == FaderPage::Panel && i == HARM_ARP_FADER_BTN {
-            if harmony_arp { PURPLE } else { DIM_PURPLE }
+            if lamps.harmony_arp { PURPLE } else { DIM_PURPLE }
         } else if page == FaderPage::Panel && i == PLUGIN_FADER_BTN {
-            if plugin_fault { RED } else { OFF }
+            if lamps.plugin_fault { RED } else { OFF }
+        } else if page == FaderPage::Panel && i == LEFT_HOLD_FADER_BTN {
+            if lamps.left_hold { ORANGE } else { DIM_ORANGE }
+        } else if page == FaderPage::Panel && i == LOOPER_FADER_BTN {
+            match lamps.looper {
+                LooperLamp::Empty => OFF,
+                LooperLamp::Ready => DIM_GREEN,
+                LooperLamp::RecArmed => DIM_RED,
+                LooperLamp::Recording => RED,
+                LooperLamp::LoopArmed => DIM_YELLOW,
+                LooperLamp::Looping => GREEN,
+            }
         } else if i >= n {
             OFF
         } else if on & (1 << i) != 0 {
@@ -337,10 +555,10 @@ pub fn style_lit(parts: u8, manual_bass: bool) -> u8 {
 
 /// The button LEDs as `nav_button_msgs` and `fader_button_msgs` set them: (CC, palette
 /// colour) for Pad Bank ▲/▼, Track ◀/▶, the fader buttons and the master fader button.
-pub fn button_colours(page: Page, styles: bool, fader_page: FaderPage, parts_on: u8, style_on: u8, harmony_arp: bool, plugin_fault: bool) -> Vec<(u8, u8)> {
+pub fn button_colours(page: Page, styles: bool, fader_page: FaderPage, parts_on: u8, style_on: u8, lamps: PanelLamps) -> Vec<(u8, u8)> {
     let mut msgs = Vec::new();
     nav_button_msgs(page, styles, &mut msgs);
-    fader_button_msgs(fader_page, parts_on, style_on, harmony_arp, plugin_fault, &mut msgs);
+    fader_button_msgs(fader_page, parts_on, style_on, lamps, &mut msgs);
     // Channel 1 carries the colour (channel 4 the brightness, for single-colour LEDs).
     msgs.iter().filter(|m| m[0] == 0xB0).map(|m| (m[1], m[2])).collect()
 }
@@ -388,6 +606,10 @@ pub struct Panel {
     pub harmony_arp: bool,
     /// The selected part's plugin stopped working or failed to load (fader button 6 red).
     pub plugin_fault: bool,
+    /// Left Hold (fader button 7).
+    pub left_hold: bool,
+    /// The Chord Looper (fader button 8).
+    pub looper: LooperLamp,
     /// Keyboard parts that are on (bit = `parts::RIGHT1`..`LEFT`), and the selected one.
     pub parts_on: u8,
     pub selected: u8,
@@ -411,6 +633,13 @@ pub struct RegistPanel {
     pub banks: bool,
 }
 
+impl Panel {
+    /// What the Panel page's own fader buttons show.
+    pub fn lamps(&self) -> PanelLamps {
+        PanelLamps { harmony_arp: self.harmony_arp, plugin_fault: self.plugin_fault, left_hold: self.left_hold, looper: self.looper }
+    }
+}
+
 impl Default for Panel {
     fn default() -> Panel {
         Panel {
@@ -423,6 +652,8 @@ impl Default for Panel {
             ots_link: false,
             harmony_arp: false,
             plugin_fault: false,
+            left_hold: false,
+            looper: LooperLamp::Empty,
             parts_on: 1 << parts::RIGHT1,
             selected: parts::RIGHT1 as u8,
             regist: RegistPanel::default(),
@@ -465,6 +696,9 @@ pub fn pad_leds(s: &Snapshot, has: &[bool], panel: &Panel) -> [(u8, Led); 16] {
     }
     if panel.page == Page::Registration {
         return regist_leds(&panel.regist);
+    }
+    if panel.page == Page::MultiPads {
+        return multipad_leds(s);
     }
     let (_, bright, dim) = panel.page.colour();
     looks(s, has, panel).map(|(note, look)| {
@@ -576,6 +810,28 @@ fn regist_leds(r: &RegistPanel) -> [(u8, Led); 16] {
     ]
 }
 
+/// Page 5 in palette mode: the Genos Multi Pad lamps on pads 1-4 (blue = data, red =
+/// playing, flashing red = Synchro Start standby, flashing orange = waiting for the bar
+/// line, off = empty), yellow on the rest.
+fn multipad_leds(s: &Snapshot) -> [(u8, Led); 16] {
+    multipad_looks(s).map(|(note, look)| {
+        let (bright, dim) = match look.rgb {
+            C_PAD_READY => (BLUE, DIM_BLUE),
+            C_PAD_PLAYING => (RED, DIM_RED),
+            C_PAD_QUEUED => (ORANGE, DIM_ORANGE),
+            _ => (YELLOW, DIM_YELLOW),
+        };
+        let led = match (look.level, look.anim) {
+            (Level::Off, _) => Led::Solid(OFF),
+            (Level::Dim, _) => Led::Solid(dim),
+            (Level::Bright, Anim::Solid) => Led::Solid(bright),
+            (Level::Bright, Anim::Flash) => Led::Flash(dim, bright),
+            (Level::Bright, Anim::Pulse) => Led::Pulse(bright),
+        };
+        (note, led)
+    })
+}
+
 /// MIDI messages that set one pad's LED.
 pub fn led_msgs(note: u8, led: Led, out: &mut Vec<[u8; 3]>) {
     match led {
@@ -640,6 +896,12 @@ pub const C_PAGE_REGIST: (u8, u8, u8) = (127, 60, 0);
 /// Registration lamps: red = selected, blue = stored (OM p.97).
 pub const C_REGIST_SELECTED: (u8, u8, u8) = (127, 0, 0);
 pub const C_REGIST_STORED: (u8, u8, u8) = (0, 40, 127);
+/// Page 5: yellow, with the Multi Pads in the Genos lamp colours (blue = data, red =
+/// playing; OM p.75) and amber while a press waits for the bar line.
+pub const C_PAGE_PADS: (u8, u8, u8) = (127, 127, 0);
+pub const C_PAD_READY: (u8, u8, u8) = (0, 40, 127);
+pub const C_PAD_PLAYING: (u8, u8, u8) = (127, 0, 0);
+pub const C_PAD_QUEUED: (u8, u8, u8) = (127, 60, 0);
 
 /// Brightness of "dim" relative to full.
 const DIM: f32 = 0.18;
@@ -651,6 +913,7 @@ pub fn looks(s: &Snapshot, has: &[bool], panel: &Panel) -> [(u8, Look); 16] {
         Page::ChordSetup => chord_looks(s, panel),
         Page::OtsParts => ots_looks(s, panel),
         Page::Registration => regist_looks(&panel.regist),
+        Page::MultiPads => multipad_looks(s),
     }
 }
 
@@ -821,6 +1084,54 @@ fn regist_looks(r: &RegistPanel) -> [(u8, Look); 16] {
     ]
 }
 
+const MULTIPAD_LABELS: [&str; 4] = ["PAD 1", "PAD 2", "PAD 3", "PAD 4"];
+const MULTIPAD_KEYS: [&str; 4] = ["Z", "X", "C", "V"];
+const SELECT_PAD_LABELS: [&str; 4] = ["SELECT 1", "SELECT 2", "SELECT 3", "SELECT 4"];
+const STOP_PAD_LABELS: [&str; 4] = ["STOP 1", "STOP 2", "STOP 3", "STOP 4"];
+
+fn multipad_looks(s: &Snapshot) -> [(u8, Look); 16] {
+    let pl = |label, key, available, on| page_look(Page::MultiPads, label, key, available, on);
+    let st = s.multipad.states;
+    let has = |i: usize| st[i] != PadState::Empty;
+    let sounding = |i: usize| matches!(st[i], PadState::Playing | PadState::Queued);
+    let lamp = |i: usize| -> Look {
+        let look = |rgb, level, anim| Look { label: MULTIPAD_LABELS[i], key: MULTIPAD_KEYS[i], rgb, level, anim };
+        match st[i] {
+            PadState::Empty => look(C_PAD_READY, Level::Off, Anim::Solid),
+            PadState::Ready => look(C_PAD_READY, Level::Bright, Anim::Solid),
+            PadState::Armed => look(C_PAD_PLAYING, Level::Bright, Anim::Flash),
+            PadState::Queued => look(C_PAD_QUEUED, Level::Bright, Anim::Flash),
+            PadState::Playing => look(C_PAD_PLAYING, Level::Bright, Anim::Solid),
+        }
+    };
+    // SELECT + pad arms it: lit while it waits in standby.
+    let select = |i: usize| -> Look {
+        let armed = st[i] == PadState::Armed;
+        Look { anim: if armed { Anim::Flash } else { Anim::Solid }, ..pl(SELECT_PAD_LABELS[i], "pad", has(i), armed) }
+    };
+    let stop = |i: usize| pl(STOP_PAD_LABELS[i], "pad", has(i), sounding(i));
+    let busy = (0..4).any(|i| sounding(i) || st[i] == PadState::Armed);
+    let none = |_| pl("", "", false, false);
+    [
+        (96, lamp(0)),
+        (97, lamp(1)),
+        (98, lamp(2)),
+        (99, lamp(3)),
+        (100, pl("STOP", "B", (0..4).any(has), busy)),
+        (101, none(())),
+        (102, none(())),
+        (103, none(())),
+        (112, select(0)),
+        (113, select(1)),
+        (114, select(2)),
+        (115, select(3)),
+        (116, stop(0)),
+        (117, stop(1)),
+        (118, stop(2)),
+        (119, stop(3)),
+    ]
+}
+
 /// Colour at a point in time. `beats` is a free-running beat clock (fractional).
 pub fn rgb_at(look: &Look, beats: f64) -> (u8, u8, u8) {
     lit(look.rgb, look.level, look.anim, beats)
@@ -867,7 +1178,7 @@ mod tests {
             stop_acmp: false, stop_acmp_mode: crate::engine::StopAcmp::Off, half_bar_fill: false, main_presses: 0, transpose: Transpose::default(), played: None, anchor_ns: 0, anchor_beats: 0.0, style_tag: 0,
             style_pending: false, section_bars: 0, audition: None, fade: FadeState::Off, retrigger: false, ritardando: false,
             looper: Default::default(), style_solo: None,
-            multipad: Default::default(), chart_tag: 0, chart_bar: None, chart_override: false,
+            multipad: Default::default(), chart_tag: 0, chart_bar: None, chart_override: false, dynamics: 64,
         }
     }
 
@@ -879,7 +1190,7 @@ mod tests {
             assert_ne!(palette_colour(c).1, Level::Off, "{c}");
         }
         assert_eq!(palette_colour(OFF).1, Level::Off);
-        let b = button_colours(Page::Sections, true, FaderPage::Panel, 0b0001, 0xFF, false, false);
+        let b = button_colours(Page::Sections, true, FaderPage::Panel, 0b0001, 0xFF, PanelLamps::default());
         assert!(b.contains(&(PAD_UP_CC, OFF)) && b.contains(&(PAD_DOWN_CC, WHITE)));
         assert!(b.contains(&(TRACK_LEFT_CC, WHITE)));
         assert!(b.contains(&(37, BLUE)) && b.contains(&(38, DIM_BLUE)) && b.contains(&(41, DIM_PURPLE)) && b.contains(&(42, OFF)) && b.contains(&(45, BLUE)));
@@ -887,6 +1198,57 @@ mod tests {
     }
 
     const PADS: [u8; 16] = [96, 97, 98, 99, 100, 101, 102, 103, 112, 113, 114, 115, 116, 117, 118, 119];
+
+    /// Encoders: relative steps on channel 16 in any encoder mode; touch events (channel
+    /// 15) and other channels are not turns.
+    #[test]
+    fn encoders_are_relative_knobs() {
+        assert_eq!(encoder(0xBF, 21, 65), Some((0, 1)));
+        assert_eq!(encoder(0xBF, 28, 60), Some((7, -4)));
+        assert_eq!(encoder(0xBF, 85, 63), Some((0, -1)), "Transport encoder mode");
+        assert_eq!(encoder(0xBF, 92, 70), Some((7, 6)));
+        assert_eq!(encoder(0xBF, 21, 64), None, "no move");
+        assert_eq!(encoder(0xBE, 85, 127), None, "touch on");
+        assert_eq!(encoder(0xB0, 21, 65), None);
+        assert_eq!(encoder(0xBF, 13, 65), None, "the master fader");
+        assert_eq!(encoder(0xBF, 29, 65), None);
+    }
+
+    #[test]
+    fn touches_pack_and_unpack() {
+        for t in [
+            Touch::Pad(119),
+            Touch::Button { cc: SHIFT_CC, shift: true },
+            Touch::Button { cc: KNOB_DOWN_CC, shift: false },
+            Touch::Fader(8),
+            Touch::FaderButton { index: 3, shift: true },
+            Touch::Knob(7),
+        ] {
+            let v = t.pack(0xFFFF);
+            assert_ne!(v, 0);
+            assert_eq!(Touch::unpack(v), Some(t));
+            assert_ne!(t.pack(1), t.pack(2), "a second press of the same control counts");
+        }
+        assert_eq!(Touch::unpack(0), None);
+    }
+
+    /// The display SysEx (Programmer's Reference Guide v3.0, pp.17-19): configure the
+    /// Global temporary display for Title/Name/Value, the three fields, then bring it up.
+    #[test]
+    fn display_sysex() {
+        let m = display_msgs("Pads Sections", "MAIN B", "Fill In BB");
+        assert_eq!(m[0], [0xF0, 0x00, 0x20, 0x29, 0x02, 0x14, 0x04, 0x21, 0x02, 0xF7]);
+        assert_eq!(m[2], [&[0xF0, 0x00, 0x20, 0x29, 0x02, 0x14, 0x06, 0x21, 0x01][..], b"MAIN B", &[0xF7]].concat());
+        assert_eq!(m[4], [0xF0, 0x00, 0x20, 0x29, 0x02, 0x14, 0x04, 0x21, 0x7F, 0xF7]);
+        // Printable ASCII only, and short.
+        let f = display_field(DISPLAY_TARGET, 2, "PAGE ▲ B♭ ✓ a very long value indeed");
+        assert_eq!(&f[9..f.len() - 1], b"PAGE ^ B\x1D  a ver");
+        assert!(f[9..f.len() - 1].iter().all(|&c| c < 0x80));
+        let off: Vec<_> = analogue_displays_off().collect();
+        assert_eq!(off.len(), 9 + 8);
+        assert_eq!(off[0], display_config(0x05, 2));
+        assert_eq!(off[9], display_config(0x15, 2));
+    }
 
     #[test]
     fn page_1_is_the_original_layout() {
@@ -953,6 +1315,48 @@ mod tests {
         assert_eq!(cc_control(TRACK_RIGHT_CC, true), Some(Control::Act(Action::Playlist(1))));
     }
 
+    /// Page 5: pads 1-4 and STOP; SELECT + pad and STOP + pad on the bottom row.
+    #[test]
+    fn page_5_multi_pads() {
+        let p = Page::MultiPads;
+        for n in 0..4u8 {
+            assert_eq!(pad_action(p, 96 + n), Some(Action::MultiPad(PadCmd::Trigger(n))));
+            assert_eq!(pad_action(p, 112 + n), Some(Action::MultiPad(PadCmd::Arm(n))));
+            assert_eq!(pad_action(p, 116 + n), Some(Action::MultiPad(PadCmd::Stop(n))));
+        }
+        assert_eq!(pad_action(p, 100), Some(Action::MultiPad(PadCmd::StopAll)));
+        for n in 101..=103 {
+            assert_eq!(pad_action(p, n), None);
+        }
+    }
+
+    /// Page 5 lamps as on the Genos: blue = data, red = playing, flashing red = standby,
+    /// off = empty; amber flashing while a press waits for the bar line.
+    #[test]
+    fn page_5_lamps() {
+        let mut s = snap();
+        s.multipad.states = [PadState::Ready, PadState::Playing, PadState::Armed, PadState::Empty];
+        let panel = Panel { page: Page::MultiPads, ..Panel::default() };
+        let l = looks(&s, &[true; 32], &panel);
+        assert_eq!((l[0].1.rgb, l[0].1.level, l[0].1.anim), (C_PAD_READY, Level::Bright, Anim::Solid));
+        assert_eq!((l[1].1.rgb, l[1].1.anim), (C_PAD_PLAYING, Anim::Solid));
+        assert_eq!((l[2].1.rgb, l[2].1.anim), (C_PAD_PLAYING, Anim::Flash));
+        assert_eq!(l[3].1.level, Level::Off);
+        assert_eq!(l[4].1.level, Level::Bright, "STOP lit while a pad plays");
+        assert_eq!(l[5].1.level, Level::Off);
+        assert_eq!((l[10].1.level, l[10].1.anim), (Level::Bright, Anim::Flash), "SELECT 3: pad 3 in standby");
+        assert_eq!(l[8].1.level, Level::Dim);
+        assert_eq!(l[11].1.level, Level::Off, "no data on pad 4");
+        assert_eq!((l[12].1.level, l[13].1.level), (Level::Dim, Level::Bright), "STOP 2 lit: pad 2 plays");
+        let leds = pad_leds(&s, &[true; 32], &panel);
+        assert_eq!((leds[0].1, leds[1].1, leds[2].1, leds[3].1), (Led::Solid(BLUE), Led::Solid(RED), Led::Flash(DIM_RED, RED), Led::Solid(OFF)));
+        assert_eq!((leds[4].1, leds[8].1), (Led::Solid(YELLOW), Led::Solid(DIM_YELLOW)));
+        s.multipad.states = [PadState::Queued, PadState::Ready, PadState::Ready, PadState::Ready];
+        assert_eq!(pad_leds(&s, &[true; 32], &panel)[0].1, Led::Flash(DIM_ORANGE, ORANGE));
+        s.multipad.states = [PadState::Ready; 4];
+        assert_eq!(looks(&s, &[true; 32], &panel)[4].1.level, Level::Dim, "nothing plays");
+    }
+
     /// Page 4 lamps as on the Genos: red = selected, blue = stored, off = empty; all
     /// flashing while Memory is armed.
     #[test]
@@ -988,21 +1392,24 @@ mod tests {
         assert_eq!(cc_control(115, false), Some(Control::Act(Action::Button(Button::StartStop))));
         assert_eq!(cc_control(116, false), Some(Control::Act(Action::Button(Button::Stop))));
         assert_eq!(cc_control(SHIFT_CC, false), None);
-        assert_eq!(cc_control(51, false), None);
+        assert_eq!(cc_control(51, false), Some(Control::Act(Action::KnobPage(-1))));
+        assert_eq!(cc_control(52, true), Some(Control::Act(Action::KnobPage(1))));
+        assert_eq!(cc_control(53, false), None);
 
         // ▲/▼ stop at the ends; Tab wraps.
         assert_eq!(Page::Sections.step(-1), Page::Sections);
         assert_eq!(Page::Sections.step(1), Page::ChordSetup);
         assert_eq!(Page::ChordSetup.step(1), Page::OtsParts);
         assert_eq!(Page::OtsParts.step(1), Page::Registration);
-        assert_eq!(Page::Registration.step(1), Page::Registration);
+        assert_eq!(Page::Registration.step(1), Page::MultiPads);
+        assert_eq!(Page::MultiPads.step(1), Page::MultiPads);
         assert_eq!(Page::OtsParts.step(-1), Page::ChordSetup);
-        assert_eq!(Page::Registration.cycle(1), Page::Sections);
-        assert_eq!(Page::Sections.cycle(-1), Page::Registration);
+        assert_eq!(Page::MultiPads.cycle(1), Page::Sections);
+        assert_eq!(Page::Sections.cycle(-1), Page::MultiPads);
         for p in Page::ALL {
             assert_eq!(Page::from_u8(p.to_u8()), p);
         }
-        assert_eq!(Page::from_u8(200), Page::Registration);
+        assert_eq!(Page::from_u8(200), Page::MultiPads);
     }
 
     /// Every page lights all 16 pads in the same order, so the LED cache keyed by index
@@ -1087,18 +1494,25 @@ mod tests {
     #[test]
     fn fader_buttons_follow_the_page() {
         let mut out = Vec::new();
-        fader_button_msgs(FaderPage::Panel, 0b1001, 0xFF, false, false, &mut out);
+        fader_button_msgs(FaderPage::Panel, 0b1001, 0xFF, PanelLamps::default(), &mut out);
         assert_eq!(out[..4], [[0xB0, 37, BLUE], [0xB0, 38, DIM_BLUE], [0xB0, 39, DIM_BLUE], [0xB0, 40, BLUE]]);
         assert_eq!(out[4], [0xB0, 41, DIM_PURPLE], "button 5: HARMONY/ARPEGGIO off");
-        assert!(out[5..8].iter().all(|m| m[2] == OFF), "button 6 dark (no plugin to reload), 7-8 unused on Panel");
+        assert_eq!([out[5][2], out[7][2]], [OFF, OFF], "button 6 dark (no plugin to reload), 8 no loop");
+        assert_eq!(out[6], [0xB0, 43, DIM_ORANGE], "button 7: Left Hold off");
         assert_eq!(out[8], [0xB0, 45, BLUE]);
         out.clear();
-        fader_button_msgs(FaderPage::Panel, 0b1001, 0xFF, true, true, &mut out);
+        let lit = PanelLamps { harmony_arp: true, plugin_fault: true, left_hold: true, looper: LooperLamp::Looping };
+        fader_button_msgs(FaderPage::Panel, 0b1001, 0xFF, lit, &mut out);
         assert_eq!(out[4], [0xB0, 41, PURPLE], "button 5: HARMONY/ARPEGGIO on");
         assert_eq!(out[5], [0xB0, 42, RED], "button 6: the selected part's plugin needs a reload");
+        assert_eq!(out[6], [0xB0, 43, ORANGE], "button 7: Left Hold on");
+        assert_eq!(out[7], [0xB0, 44, GREEN], "button 8: the Chord Looper loops");
+        out.clear();
+        fader_button_msgs(FaderPage::Panel, 0, 0, PanelLamps { looper: LooperLamp::Recording, ..lit }, &mut out);
+        assert_eq!(out[7], [0xB0, 44, RED], "button 8: recording");
         out.clear();
         // The Style page's button 5 is the Style's fifth part, whatever the switch.
-        fader_button_msgs(FaderPage::Style, 0b1001, !(1 << 5), true, true, &mut out);
+        fader_button_msgs(FaderPage::Style, 0b1001, !(1 << 5), lit, &mut out);
         assert_eq!(out[5], [0xB0, 42, DIM_GREEN], "Pad muted");
         assert!(out.iter().enumerate().all(|(i, m)| i == 5 || m[2] == GREEN));
     }
@@ -1129,7 +1543,10 @@ mod tests {
         assert!(out.contains(&[0xB0, PAD_UP_CC, PINK]) && out.contains(&[0xB0, PAD_DOWN_CC, PINK]));
         out.clear();
         nav_button_msgs(Page::Registration, true, &mut out);
-        assert!(out.contains(&[0xB0, PAD_UP_CC, ORANGE]) && out.contains(&[0xB0, PAD_DOWN_CC, OFF]));
+        assert!(out.contains(&[0xB0, PAD_UP_CC, ORANGE]) && out.contains(&[0xB0, PAD_DOWN_CC, ORANGE]));
+        out.clear();
+        nav_button_msgs(Page::MultiPads, true, &mut out);
+        assert!(out.contains(&[0xB0, PAD_UP_CC, YELLOW]) && out.contains(&[0xB0, PAD_DOWN_CC, OFF]));
         out.clear();
         buttons_off_msgs(&mut out);
         for cc in [PAD_UP_CC, PAD_DOWN_CC, TRACK_LEFT_CC, TRACK_RIGHT_CC, 37, 45] {

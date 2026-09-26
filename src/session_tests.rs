@@ -104,6 +104,10 @@ fn all_cmds() -> Vec<AppCmd> {
         AppCmd::Metronome(MetronomeCmd::SetMetronome { on: true }),
         AppCmd::Metronome(MetronomeCmd::SetMetronomeVolume { volume: 64 }),
         AppCmd::Metronome(MetronomeCmd::SetMetronomeBell { on: false }),
+        AppCmd::Dynamics(DynamicsCmd::SetDynamics { level: 90 }),
+        AppCmd::Dynamics(DynamicsCmd::ToggleAccent),
+        AppCmd::Knobs(KnobsCmd::StepKnobPage { delta: 1 }),
+        AppCmd::Knobs(KnobsCmd::TurnKnob { knob: 0, delta: -3 }),
     ]
 }
 
@@ -307,14 +311,38 @@ fn keyboard_parts_mixer_and_pages() {
     assert!(s.send(MixerCmd::SetMasterVolume { volume: 90 }).is_err());
 
     assert_eq!(st.pads.page, Page::Sections);
-    s.send(PadsCmd::CyclePadPage { delta: -2 }).unwrap();
+    s.send(PadsCmd::CyclePadPage { delta: -3 }).unwrap();
     let st = s.state();
-    assert_eq!((st.pads.page, st.pads.page_number, st.pads.page_count), (Page::OtsParts, 3, 4));
+    assert_eq!((st.pads.page, st.pads.page_number, st.pads.page_count), (Page::OtsParts, 3, 5));
     assert_eq!(st.pads.pads.len(), 16);
     assert_eq!(st.pads.pads[0].label, "OTS 1");
     assert_eq!(st.pads.pads[0].action, Some(AppCmd::Ots(OtsCmd::RecallOts { index: 0 })));
     s.send(PadsCmd::SetPadPage { page: Page::ChordSetup }).unwrap();
     assert_eq!(s.state().pads.pads[1].action, Some(AppCmd::Chord(ChordCmd::SetFingering { fingering: Fingering::Fingered })));
+}
+
+/// Pan and the reverb/chorus sends (#198): the part's CC10/91/93 on its own channel, to
+/// the port and the synth, and in the state. Before anything sets them the state shows the
+/// power-on values (#204: some reverb and chorus, sent at start).
+#[test]
+fn part_pan_and_sends() {
+    let Some(s) = offline("SlowWalker.T552.sty") else { return };
+    let left = &s.state().keyboard_parts[crate::parts::LEFT];
+    assert_eq!((left.pan, left.reverb, left.chorus), (64, 40, 10));
+    let out = s.take_output();
+    assert!(out.contains(&[0xB0, 91, 50]) && out.contains(&[0xB1, 93, 10]), "sent at start: {out:?}");
+    s.send(PartsCmd::SetPartPan { part: 3, pan: 20 }).unwrap();
+    s.send(PartsCmd::SetPartSend { part: 3, send: PartSend::Reverb, value: 90 }).unwrap();
+    s.send(PartsCmd::SetPartSend { part: 1, send: PartSend::Chorus, value: 200 }).unwrap();
+    let out = s.take_output();
+    assert!(out.contains(&[0xB1, 10, 20]), "Left is ch 2: {out:?}");
+    assert!(out.contains(&[0xB1, 91, 90]), "{out:?}");
+    assert!(out.contains(&[0xB2, 93, 127]), "Right 2 is ch 3, clamped: {out:?}");
+    assert!(!out.contains(&[0xB1, 93, 0]), "a send not set is not sent: {out:?}");
+    let st = s.state();
+    let (l, r2) = (&st.keyboard_parts[3], &st.keyboard_parts[1]);
+    assert_eq!((l.pan, l.reverb, l.chorus), (20, 90, 10));
+    assert_eq!((r2.pan, r2.reverb, r2.chorus), (64, 50, 127));
 }
 
 #[test]
@@ -324,7 +352,17 @@ fn ots_and_ots_link() {
     assert!(st.ots.settings.len() >= 2);
     assert_eq!(st.ots.settings[0].name, "OTS 1");
     assert_eq!(st.ots.applied, 0);
+    s.take_output();
     s.send(OtsCmd::RecallOts { index: 0 }).unwrap();
+    // Its pan and reverb/chorus sends go out on the parts' channels too (#198).
+    let fx = crate::sff::Style::load(&style("SlowWalker.T552.sty").unwrap()).unwrap().ots[0].parts[0].fx;
+    let out = s.take_output();
+    for (cc, v) in crate::parts::FX_CC.into_iter().zip(fx) {
+        if let Some(v) = v {
+            assert!(out.contains(&[0xB0, cc, v]), "Right 1 CC{cc} {v}: {out:?}");
+        }
+    }
+    assert!(fx[0].is_some(), "SlowWalker's OTS 1 sets Right 1's pan");
     let st = s.state();
     assert_eq!(st.ots.applied, 1);
     assert_eq!(st.keyboard_parts.iter().map(|p| p.on).collect::<Vec<_>>(), vec![true, true, false, true]);
@@ -415,8 +453,14 @@ fn launchkey_pads_are_commands() {
     s.send(stop).unwrap();
     assert!(!s.state().transport.running);
     // Unmapped controls show up for diagnosis.
-    s.midi_in(Port::Pads, &[0xB0, 51, 127]);
-    assert_eq!(s.state().io.unmapped, "unmapped CC 51 = 127");
+    s.midi_in(Port::Pads, &[0xB0, 53, 127]);
+    assert_eq!(s.state().io.unmapped, "unmapped CC 53 = 127");
+    // Knob 1 (an encoder on channel 16) turns Dynamics; the encoder page ▼ steps the
+    // Knob Assign page.
+    s.midi_in(Port::Pads, &[0xBF, 21, 67]);
+    assert_eq!(s.state().dynamics.level, 70);
+    s.midi_in(Port::Pads, &[0xB0, 52, 127]);
+    assert_eq!(s.state().knobs.page_name, "Parts");
 }
 
 /// Style faders move the Style parts (soft takeover); a software move makes the fader
@@ -436,6 +480,44 @@ fn style_faders_and_software_volume() {
     let st = s.state();
     assert_eq!(st.mixer.style_parts[0].volume, 100, "no jump");
     assert!(st.mixer.style_parts[0].waiting);
+}
+
+/// The Style volume (#199): a scale on the Style parts' CC7 as they go out, like a fade;
+/// the part faders never move. Panel fader 5 controls it, with soft takeover.
+#[test]
+fn style_volume_scales_the_style_parts() {
+    let Some(s) = offline("SlowWalker.T552.sty") else { return };
+    let st = s.state();
+    assert_eq!((st.mixer.style_volume, st.mixer.style_volume_waiting), (100, false));
+    let vols: Vec<u8> = st.mixer.style_parts.iter().map(|p| p.volume).collect();
+    s.take_output();
+    s.send(MixerCmd::SetStyleVolume { volume: 50 }).unwrap();
+    let out = s.take_output();
+    for (p, &v) in vols.iter().enumerate() {
+        assert!(out.contains(&[0xB8 + p as u8, 7, (v as f32 / 2.0).round() as u8]), "part {p} at half: {out:?}");
+    }
+    let st = s.state();
+    assert_eq!(st.mixer.style_volume, 50);
+    assert_eq!(st.mixer.style_parts.iter().map(|p| p.volume).collect::<Vec<_>>(), vols, "the part faders stay");
+    // A part fader moved meanwhile goes out scaled too.
+    s.send(MixerCmd::SetStylePartVolume { part: 2, volume: 80 }).unwrap();
+    assert!(s.take_output().contains(&[0xBA, 7, 40]));
+    // Above 100 it raises them, up to 127.
+    s.send(MixerCmd::SetStyleVolume { volume: 127 }).unwrap();
+    let out = s.take_output();
+    assert!(out.contains(&[0xBA, 7, 102]), "{out:?}");
+    assert!(vols.iter().enumerate().all(|(p, &v)| p == 2 || v < 100 || out.contains(&[0xB8 + p as u8, 7, 127])), "{out:?}");
+    // Panel fader 5 (CC 9 on the pads port): soft takeover, as the part faders.
+    s.midi_in(Port::Pads, &[0xB0, 9, 20]);
+    assert_eq!(s.state().mixer.style_volume, 127, "no jump");
+    assert!(s.state().mixer.style_volume_waiting);
+    s.midi_in(Port::Pads, &[0xB0, 9, 126]);
+    s.midi_in(Port::Pads, &[0xB0, 9, 100]);
+    let st = s.state();
+    assert_eq!((st.mixer.style_volume, st.mixer.style_volume_waiting), (100, false));
+    assert!(s.take_output().contains(&[0xBA, 7, 80]), "back at 100: the parts as set");
+    let f = &st.surface.faders[4];
+    assert_eq!((f.label.as_str(), f.value), ("STYLE", Some(100)));
 }
 
 #[test]
@@ -567,6 +649,9 @@ fn launchkey_hardware_matches_its_commands() {
                         (0..=3, FaderPage::Panel, false) => Some(AppCmd::Parts(PartsCmd::TogglePart { part: i })),
                         (4, FaderPage::Panel, _) => Some(AppCmd::HarmonyArp(HarmonyArpCmd::ToggleHarmonyArp)),
                         (5, FaderPage::Panel, _) => Some(AppCmd::Plugins(crate::api::PluginCmd::ReloadPartPlugin { part: None })),
+                        (6, FaderPage::Panel, _) => Some(AppCmd::Chord(ChordCmd::ToggleLeftHold)),
+                        (7, FaderPage::Panel, false) => Some(AppCmd::Looper(crate::api::LooperCmd::LooperOnOff)),
+                        (7, FaderPage::Panel, true) => Some(AppCmd::Looper(crate::api::LooperCmd::LooperRec)),
                         (_, FaderPage::Panel, _) => None,
                         (_, FaderPage::Style, _) => Some(AppCmd::Mixer(MixerCmd::ToggleStylePart { part: i })),
                     };
@@ -586,12 +671,12 @@ fn launchkey_hardware_matches_its_commands() {
 fn cycle_pad_page_takes_any_delta() {
     let Some(s) = offline("SlowWalker.T552.sty") else { return };
     s.send(PadsCmd::SetPadPage { page: Page::OtsParts }).unwrap();
-    s.send(PadsCmd::CyclePadPage { delta: 127 }).unwrap(); // 2 + 127 = 129 = 1 mod 4
-    assert_eq!(s.state().pads.page, Page::ChordSetup);
-    s.send(PadsCmd::CyclePadPage { delta: -128 }).unwrap(); // 1 - 128 = -127 = 1 mod 4
+    s.send(PadsCmd::CyclePadPage { delta: 127 }).unwrap(); // 2 + 127 = 129 = 4 mod 5
+    assert_eq!(s.state().pads.page, Page::MultiPads);
+    s.send(PadsCmd::CyclePadPage { delta: -128 }).unwrap(); // 4 - 128 = -124 = 1 mod 5
     assert_eq!(s.state().pads.page, Page::ChordSetup);
     s.send(PadsCmd::CyclePadPage { delta: -2 }).unwrap();
-    assert_eq!(s.state().pads.page, Page::Registration);
+    assert_eq!(s.state().pads.page, Page::MultiPads);
 }
 
 /// While the library indexes, `library_list()` is labelled with the revision its entries
@@ -724,7 +809,8 @@ fn launchkey_button_descriptions() {
     assert_eq!((f1.level, f1.rgb), (Level::Bright, [0, 0, 127]));
     assert_eq!(b(&s, "faderButton2").level, Level::Dim);
     // Button 5: HARMONY/ARPEGGIO, dim purple while off, bright while on. Button 6 reloads
-    // the selected part's plugin (dark while there is nothing to reload); 7-8 do nothing.
+    // the selected part's plugin (dark while there is nothing to reload); 7 is Left Hold;
+    // 8 is the Chord Looper (ON/OFF, Shift: REC/STOP; dark with nothing recorded).
     let f5 = b(&s, "faderButton5");
     assert_eq!((f5.label.as_str(), f5.action, f5.level), ("HARM/ARP", Some(AppCmd::HarmonyArp(HarmonyArpCmd::ToggleHarmonyArp)), Level::Dim));
     s.send(HarmonyArpCmd::ToggleHarmonyArp).unwrap();
@@ -733,7 +819,12 @@ fn launchkey_button_descriptions() {
     let f6 = b(&s, "faderButton6");
     assert_eq!((f6.label.as_str(), f6.action, f6.level), ("PLUGIN", Some(AppCmd::Plugins(crate::api::PluginCmd::ReloadPartPlugin { part: None })), Level::Off));
     let f7 = b(&s, "faderButton7");
-    assert_eq!((f7.action, f7.level), (None, Level::Off));
+    assert_eq!((f7.label.as_str(), f7.action, f7.level), ("L HOLD", Some(AppCmd::Chord(ChordCmd::ToggleLeftHold)), Level::Dim));
+    s.send(ChordCmd::ToggleLeftHold).unwrap();
+    assert_eq!((b(&s, "faderButton7").level, b(&s, "faderButton7").rgb), (Level::Bright, [127, 60, 0]));
+    s.send(ChordCmd::ToggleLeftHold).unwrap();
+    let f8 = b(&s, "faderButton8");
+    assert_eq!((f8.label.as_str(), f8.action, f8.shift_action, f8.level), ("LOOPER", Some(AppCmd::Looper(LooperCmd::LooperOnOff)), Some(AppCmd::Looper(LooperCmd::LooperRec)), Level::Off));
     assert_eq!(b(&s, "masterButton").label, "PANEL");
     // Style page: the Style parts' mutes, green.
     s.send(MixerCmd::ToggleFaderPage).unwrap();
@@ -863,7 +954,7 @@ fn fader_positions_and_master_takeover() {
     let f = &st.surface.faders[1];
     assert_eq!((f.label.as_str(), f.value, f.waiting, f.position), ("RIGHT 2", Some(100), true, Some(30)));
     assert_eq!(f.set, Some(AppCmd::Parts(PartsCmd::SetPartVolume { part: 1, volume: 0 })));
-    assert_eq!((st.surface.faders[5].label.as_str(), st.surface.faders[5].set.clone()), ("", None), "fader 6 unused on Panel");
+    assert_eq!((st.surface.faders[6].label.as_str(), st.surface.faders[6].set.clone()), ("", None), "fader 7 unused on Panel");
     assert_eq!(st.keyboard_parts[1].fader, Some(30));
     assert_eq!(st.mixer.style_parts[1].fader, Some(30), "the same physical fader");
     assert!(st.keyboard_parts[1].waiting && st.keyboard_parts[1].volume == 100);
@@ -1283,7 +1374,8 @@ fn audio_buffer_changes_keep_notes_and_report_the_size() {
     assert_eq!(s.state().io.synth.as_ref().unwrap().buffer_frames, Some(256));
     assert!(energy(s.render(4800)) > 1e-4, "the held note plays on");
     s.midi_in(Port::Keys, &[0x80, 72, 0]);
-    s.render(96_000);
+    // Two seconds for the note, four more for the reverb tail (Hall, RT60 2.4 s; #204).
+    s.render(6 * 48_000);
     assert!(energy(s.render(4800)) < 1e-6, "and releases");
 
     // Live: the synth thread answers with the size the device took.
@@ -1599,6 +1691,112 @@ fn chord_looper_records_loops_and_keeps_memories() {
     s.send(LooperCmd::NewLooperBank).unwrap();
     assert!(s.state().looper.memories.iter().all(|m| m.name.is_none()));
     assert!(s.send(LooperCmd::StoreLooperMemory { index: 9 }).is_ok(), "index wraps, the sequence is still there");
+}
+
+/// #201: a Registration Memory keeps the Chord Looper (group Chord Looper, DL p.82): the
+/// memory selected with its sequence, and ON/OFF. A recall puts the memory back even when
+/// the looper's memories were cleared, and arms the loop; one stored with the loop off
+/// stops it. Freeze Chord Looper leaves it alone.
+#[test]
+fn registration_stores_the_chord_looper() {
+    use crate::registration::Group;
+    let Some(s) = offline("SlowWalker.T552.sty") else { return };
+    let bar = bar_ns(&s);
+    s.send(LooperCmd::LooperRec).unwrap();
+    keys(&s, true, &[36, 40, 43]); // C, starts the band and the recording
+    s.advance(bar);
+    keys(&s, false, &[36, 40, 43]);
+    keys(&s, true, &[33, 36, 40]); // Am
+    s.advance(bar / 2);
+    s.send(LooperCmd::LooperOnOff).unwrap();
+    s.advance(bar);
+    assert_eq!(s.state().looper.mode, LooperMode::Looping);
+    s.send(LooperCmd::StoreLooperMemory { index: 3 }).unwrap();
+    // Registration 1: memory 4, looping. Registration 2: the loop off.
+    s.send(RegistrationCmd::MemorizeRegist { index: 0 }).unwrap();
+    s.send(LooperCmd::LooperOnOff).unwrap();
+    assert_eq!(s.state().looper.mode, LooperMode::Off);
+    s.send(RegistrationCmd::MemorizeRegist { index: 1 }).unwrap();
+    // The looper's memories go (a later session, say).
+    s.send(LooperCmd::NewLooperBank).unwrap();
+    assert!(s.state().looper.memories.iter().all(|m| m.name.is_none()));
+    s.send(RegistrationCmd::RecallRegist { index: 0 }).unwrap();
+    s.advance(bar / 8);
+    let st = s.state();
+    assert_eq!(st.looper.memory, Some(3));
+    assert_eq!(st.looper.memories[3].name.as_deref(), Some("CLD_001"));
+    let chords: Vec<_> = st.looper.memories[3].chords.iter().map(|c| c.chord.as_str()).collect();
+    assert_eq!(chords, ["C", "Am"]);
+    assert!(matches!(st.looper.mode, LooperMode::LoopArmed | LooperMode::Looping), "{:?}", st.looper.mode);
+    s.advance(bar);
+    assert_eq!(s.state().looper.mode, LooperMode::Looping);
+    // Registration 2 stops it.
+    s.send(RegistrationCmd::RecallRegist { index: 1 }).unwrap();
+    s.advance(bar / 8);
+    assert_eq!(s.state().looper.mode, LooperMode::Off);
+    // Freeze Chord Looper: Registration 1 leaves the looper alone.
+    s.send(RegistrationCmd::SetFreezeGroup { group: Group::ChordLooper, on: true }).unwrap();
+    s.send(RegistrationCmd::SetFreeze { on: true }).unwrap();
+    s.send(RegistrationCmd::RecallRegist { index: 0 }).unwrap();
+    s.advance(bar);
+    assert_eq!(s.state().looper.mode, LooperMode::Off);
+}
+
+/// #201: Chord Looper banks are files. Save As names one; every memory change saves itself
+/// (to the bank's file, or the autosave while it has none); the next session starts with
+/// the same bank; Load puts a bank's memories back; a name another bank has is refused
+/// unless overwritten.
+#[test]
+fn chord_looper_banks_save_load_and_come_back() {
+    let Some(p) = style("SlowWalker.T552.sty") else { return };
+    let dir = std::env::temp_dir().join(format!("yahaha-looper-banks-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let open = || Session::offline(Options { paths: vec![p.clone()], data_dir: Some(dir.clone()), ..Options::default() }).unwrap();
+    let s = open();
+    assert_eq!((s.state().looper.bank_name.as_str(), s.state().looper.bank_path.as_deref()), ("New Bank", None));
+    assert!(s.send(LooperCmd::SaveLooperBank { name: None, overwrite: false }).is_err(), "a bank with no file needs a name");
+    // Record one bar of C and store it in memory 2: the autosave keeps it.
+    let bar = bar_ns(&s);
+    s.send(LooperCmd::LooperRec).unwrap();
+    keys(&s, true, &[36, 40, 43]);
+    s.advance(bar);
+    keys(&s, false, &[36, 40, 43]);
+    s.send(LooperCmd::LooperOnOff).unwrap();
+    s.send(LooperCmd::LooperOnOff).unwrap();
+    s.send(LooperCmd::StoreLooperMemory { index: 1 }).unwrap();
+    s.send(TransportCmd::Stop).unwrap();
+    drop(s);
+    let s = open();
+    let st = s.state();
+    assert_eq!(st.looper.memories[1].name.as_deref(), Some("CLD_001"), "the autosave came back");
+    assert_eq!(st.looper.bank_name, "New Bank");
+    // Save As "Songs": its file is the bank's from now on.
+    s.send(LooperCmd::SaveLooperBank { name: Some("Songs".into()), overwrite: false }).unwrap();
+    let st = s.state();
+    let songs = dir.join("ChordLooper/Songs.looper.json");
+    assert!(songs.is_file());
+    assert_eq!((st.looper.bank_name.as_str(), st.looper.bank_path.as_deref()), ("Songs", Some(songs.to_str().unwrap())));
+    assert_eq!(st.looper.banks.iter().map(|b| b.name.as_str()).collect::<Vec<_>>(), ["Songs"]);
+    // A change saves itself to the file; the next session starts with "Songs".
+    s.send(LooperCmd::ClearLooperMemory { index: 1 }).unwrap();
+    s.send(LooperCmd::SelectLooperMemory { index: 1 }).unwrap();
+    drop(s);
+    let s = open();
+    let st = s.state();
+    assert_eq!(st.looper.bank_name, "Songs");
+    assert!(st.looper.memories.iter().all(|m| m.name.is_none()), "the cleared memory stayed cleared");
+    // A new bank, a memory, Save As "Songs" again: refused, then overwritten.
+    s.send(LooperCmd::NewLooperBank).unwrap();
+    s.send(LooperCmd::StoreLooperMemory { index: 4 }).unwrap_err(); // the current sequence came back empty
+    assert!(s.send(LooperCmd::SaveLooperBank { name: Some("songs".into()), overwrite: false }).is_err(), "another bank's name");
+    s.send(LooperCmd::SaveLooperBank { name: Some("Ballads".into()), overwrite: false }).unwrap();
+    let st = s.state();
+    assert_eq!(st.looper.banks.iter().map(|b| b.name.as_str()).collect::<Vec<_>>(), ["Ballads", "Songs"]);
+    // Load "Songs" back.
+    s.send(LooperCmd::LoadLooperBank { path: songs.to_string_lossy().into() }).unwrap();
+    assert_eq!(s.state().looper.bank_name, "Songs");
+    assert!(s.send(LooperCmd::LoadLooperBank { path: dir.join("nope.looper.json").to_string_lossy().into() }).is_err());
+    let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[test]

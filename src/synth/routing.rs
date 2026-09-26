@@ -67,6 +67,7 @@ impl Rack {
         rack.slot_of[*main_id as usize % crate::patches::route::MAX_FONTS] = 0;
         let mut settings = SynthesizerSettings::new(sample_rate);
         settings.maximum_polyphony = EXTRA_POLYPHONY;
+        settings.velocity_to_filter = super::velocity_to_filter();
         for (id, font) in fonts.iter().skip(1) {
             let slot = &mut rack.slot_of[*id as usize % crate::patches::route::MAX_FONTS];
             if *slot != NO_SLOT || rack.extra.len() >= 250 {
@@ -74,6 +75,7 @@ impl Rack {
             }
             let mut s = Synthesizer::new(font, &settings).map_err(|e| anyhow!("{e:?}"))?;
             s.process_midi_message(8, 0xB0, 0, 128);
+            s.set_internal_effects(false);
             *slot = rack.extra.len() as u8 + 1;
             rack.extra.push(s);
             rack.quiet.push(0);
@@ -307,7 +309,7 @@ mod tests {
         }
         assert_eq!(rack.ch_slot[10], 1, "Fretless (bank 8) is in the Bass family: the second font");
         for _ in 0..8 {
-            rack.render(&mut l, &mut r, &p, None);
+            rack.render_dry(&mut l, &mut r, &p, None);
         }
         assert!(level(&p, 10) > 1e-3, "the routed bass is metered on ch 11");
         // The note-off reaches the slot that plays the note, wherever the channel is now.
@@ -316,11 +318,11 @@ mod tests {
         assert_eq!(rack.ch_slot[10], 0, "an unmapped program: back on the main font");
         apply_routed(&mut rack, &[0x8A, 40, 0], &mut bank, Some(&router));
         for _ in 0..200 {
-            rack.render(&mut l, &mut r, &p, None);
+            rack.render_dry(&mut l, &mut r, &p, None);
         }
         level(&p, 10);
         for _ in 0..4 {
-            rack.render(&mut l, &mut r, &p, None);
+            rack.render_dry(&mut l, &mut r, &p, None);
         }
         let tail = level(&p, 10);
         assert!(tail < 1e-4, "the note ended on the extra font ({tail})");
@@ -387,25 +389,25 @@ mod tests {
         let (mut l, mut r) = (vec![0f32; 512], vec![0f32; 512]);
         rack.route_to(10, 1, Route::sound_font(1, 0, 33));
         rack.process(10, 0x90, 40, 110);
-        rack.render(&mut l, &mut r, &p, None);
+        rack.render_dry(&mut l, &mut r, &p, None);
         assert_eq!(rack.quiet[0], 0, "a slot a channel plays renders");
         rack.process(10, 0x80, 40, 0);
         rack.unroute(10);
         let mut n = 0;
         while rack.quiet[0] < IDLE_FRAMES && n < 4000 {
-            rack.render(&mut l, &mut r, &p, None);
+            rack.render_dry(&mut l, &mut r, &p, None);
             n += 1;
         }
         assert!(n > 1, "the tail is rendered first");
         let idle = rack.quiet[0];
         assert!(idle >= IDLE_FRAMES, "the tail died away ({n} buffers)");
-        rack.render(&mut l, &mut r, &p, None);
+        rack.render_dry(&mut l, &mut r, &p, None);
         assert_eq!(rack.quiet[0], idle, "then it is skipped");
         rack.route_to(10, 1, Route::sound_font(1, 0, 33));
-        rack.render(&mut l, &mut r, &p, None);
+        rack.render_dry(&mut l, &mut r, &p, None);
         assert_eq!(rack.quiet[0], 0, "a channel routed to it again renders it");
         rack.process(10, 0x90, 40, 110);
-        rack.render(&mut l, &mut r, &p, None);
+        rack.render_dry(&mut l, &mut r, &p, None);
         assert!(level(&p, 10) > 1e-3, "and it sounds");
     }
 }

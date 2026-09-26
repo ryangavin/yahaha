@@ -91,6 +91,8 @@ fn plugins_need_the_synth() {
 fn a_keyboard_part_plays_an_audio_unit() {
     let Some(s) = session() else { return };
     s.offline_audio(None, 48_000).unwrap();
+    // Checks for silence below: no reverb tail.
+    s.fx_returns_off();
     assert!(s.state().plugins.available);
     wait_scanned(&s);
     assert!(s.send(PluginCmd::SetPartPlugin { part: 0, id: "aumu nope nope".into(), state: None }).is_err(), "not installed");
@@ -369,6 +371,9 @@ fn section_setups_never_reach_a_keyboard_parts_plugin() {
     let Some(s) = session() else { return };
     s.finish_indexing();
     s.offline_audio(None, 48_000).unwrap();
+    // The plugin's own sound only: the effect bus's chorus (Right 1's default send, #204)
+    // moves the C5 measure from one note to the next.
+    s.fx_returns_off();
     s.send(PluginCmd::SetPartPlugin { part: 0, id: DLS.into(), state: None }).unwrap();
     assert_eq!(wait_playing(&s, 0), PluginStatus::Playing);
     // A C5 on Right 1: its level and how much of it is C5.
@@ -623,6 +628,39 @@ fn set_plugin_in_process_shows_in_the_list() {
     assert_eq!(dls(&s).in_process, was);
 }
 
+/// #176: a plugin preloaded for a Registration bank (the warm pool) loaded in the old mode
+/// before its "run in process" override changed. The override drops it and preloads it
+/// again in the new mode, so a button press never hands a part the old one.
+#[test]
+fn the_in_process_override_refills_the_warm_pool() {
+    use crate::session::PluginVoice;
+    let Some(s) = session() else { return };
+    s.offline_audio(None, 48_000).unwrap();
+    wait_scanned(&s);
+    let info = || s.inner.lock().plugins.list.iter().find(|p| p.id.to_string() == DLS).cloned().unwrap();
+    let warm = |s: &Session, n: usize| {
+        let t0 = Instant::now();
+        while s.inner.lock().warm_ready() != n && t0.elapsed() < Duration::from_secs(20) {
+            s.advance(1_000_000);
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        s.inner.lock().plugins.warm.entries.iter().map(|w| w.mode).collect::<Vec<_>>()
+    };
+    s.inner.lock().warm_plugins(vec![PluginVoice { id: DLS.into(), state: None }]);
+    let was = info().in_process;
+    let before = warm(&s, 1);
+    s.send(PluginCmd::SetPluginInProcess { id: DLS.into(), in_process: !was }).unwrap();
+    let now = super::imp::load_mode(&info());
+    let after = warm(&s, 1);
+    let ready = s.inner.lock().warm_ready();
+    // Put the player's cache back as it was.
+    s.send(PluginCmd::SetPluginInProcess { id: DLS.into(), in_process: was }).unwrap();
+    assert_ne!(before, [now], "the override changes DLS's load mode");
+    assert_eq!(after, [now], "the pool holds DLS loaded in the new mode");
+    assert_eq!(ready, 1, "and it is ready again");
+    assert_eq!(warm(&s, 1), [super::imp::load_mode(&info())], "switched back: the old mode again");
+}
+
 /// `reloadPartPlugin` loads a failed (or stopped) plugin again with its kept state, for the
 /// selected part when no part is given; the Launchkey's reload button lights while the
 /// selected part's plugin needs it. A part without a plugin, or one playing, is refused.
@@ -702,4 +740,69 @@ fn a_soundfont_sound_from_the_browser_ends_a_picked_plugin() {
     s.send(SoundsCmd::AssignSound { part: 2, id: format!("saved:{mine}") }).unwrap();
     ended(2, "saved sound");
     let _ = std::fs::remove_dir_all(&data);
+}
+
+/// #179: selecting a GM voice replaces the part's voice, as on the Genos: Voice −/+ (the
+/// Launchkey's and the terminal UI's `stepVoice`), a voice picked by number
+/// (`setPartVoice`) and a One Touch Setting that gives the part a voice each end a plugin
+/// picked for the part, and it is no longer saved to come back.
+#[test]
+fn a_gm_voice_selection_ends_a_picked_plugin() {
+    use crate::api::OtsCmd;
+    let Some(s) = session() else { return };
+    s.offline_audio(None, 48_000).unwrap();
+    wait_scanned(&s);
+    let pick = |part: usize| {
+        s.send(PluginCmd::SetPartPlugin { part: part as u8, id: DLS.into(), state: None }).unwrap();
+        assert_eq!(wait_playing(&s, part), PluginStatus::Playing);
+        assert_eq!(saved_id(&s, part).as_deref(), Some(DLS));
+    };
+    let ended = |part: usize, what: &str| {
+        s.advance(1_000_000);
+        assert!(s.state().keyboard_parts[part].plugin.is_none(), "{what}: the plugin ended");
+        assert_eq!(saved_id(&s, part), None, "{what}: and is not saved to come back");
+    };
+    // Voice −/+ on the selected part.
+    pick(1);
+    s.send(PartsCmd::SelectPart { part: 1 }).unwrap();
+    let was = s.state().keyboard_parts[1].program;
+    s.send(PartsCmd::StepVoice { delta: 1 }).unwrap();
+    assert_ne!(s.state().keyboard_parts[1].program, was, "Voice + steps the voice");
+    ended(1, "Voice +");
+    // A voice picked by number.
+    pick(2);
+    s.send(PartsCmd::SetPartVoice { part: 2, program: 40 }).unwrap();
+    ended(2, "setPartVoice");
+    // A One Touch Setting that gives the part a voice.
+    let ots = s.inner.lock().info.ots.iter().enumerate().find_map(|(i, o)| o.parts.iter().position(|q| q.voice.is_some_and(|v| v.0 < 126)).map(|p| (i, p)));
+    let Some((i, p)) = ots else { panic!("SlowWalker has a One Touch Setting with a voice") };
+    pick(p);
+    s.send(OtsCmd::RecallOts { index: i as u8 }).unwrap();
+    ended(p, "One Touch Setting");
+}
+
+/// A plugin part feeds the shared effect bus through its sends, as a SoundFont part does
+/// (#204): fully sent to the reverb, its note rings on after the release; at return 0 the
+/// release is the plugin's own.
+#[test]
+fn a_plugin_part_feeds_the_effect_bus() {
+    let tail = |returns: bool| {
+        let s = session()?;
+        s.offline_audio(None, 48_000).unwrap();
+        if !returns {
+            s.fx_returns_off();
+        }
+        s.send(PluginCmd::SetPartPlugin { part: 0, id: DLS.into(), state: None }).unwrap();
+        assert_eq!(wait_playing(&s, 0), PluginStatus::Playing);
+        s.midi_in(Port::Keys, &[0xB0, 91, 127]);
+        s.midi_in(Port::Keys, &[0x90, 72, 110]);
+        let (l, r) = s.render(9600);
+        assert!(energy(&l, &r) > 1e-3, "the plugin sounds");
+        s.midi_in(Port::Keys, &[0x80, 72, 0]);
+        s.render(24_000);
+        let (l, r) = s.render(24_000);
+        Some(energy(&l, &r))
+    };
+    let (Some(wet), Some(dry)) = (tail(true), tail(false)) else { return };
+    assert!(wet > dry * 4.0 + 1e-6, "the reverb rings on: {wet} vs {dry}");
 }

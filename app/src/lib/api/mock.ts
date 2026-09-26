@@ -14,6 +14,7 @@ import { initialMultiPad, MockPads } from './mock-multipad'
 import { initialSoundLibrary, MockSoundLibrary } from './mock-sound-library'
 import { initialSounds, MockSounds } from './mock-sounds'
 import { padsFor } from './mock-pads'
+import { MockKnobs } from './mock-knobs'
 import { initialPlugins, MockPlugins } from './mock-plugins'
 import { ARP_PATTERNS, HARMONY_TYPES, harmonyArpCmd, initialHarmonyArp } from './mock-harmony'
 import { MockRegistration } from './mock-registration'
@@ -21,7 +22,7 @@ import { emptyPlaylist, emptyRegistration } from './registration'
 import type { Session } from './session'
 import {
   BREAK, CHORD_SETTLE_MAX_MS, ENDINGS, FILLS, FINGERINGS, INTROS, KEYBOARD_PART_NAMES, MAINS, PAD_PAGES, RETRIGGER_RATES,
-  STYLE_PART_NAMES, type AppCmd, type AppState, type LibraryEntry, type LibraryList, type OtsPart, type PreviewState, type StopAcmpMode,
+  STYLE_PART_NAMES, type AppCmd, type AppState, type EffectBlockState, type EffectsState, type FxBlock, type FxType, type LibraryEntry, type LibraryList, type OtsPart, type PreviewState, type StopAcmpMode,
   type SoundLibraryCmd, type StyleSettingsState, type StyleState,
 } from './types'
 
@@ -203,7 +204,7 @@ export function initialState(): AppState {
   const s = STYLES[0]
   const part = (i: number, program: number, on: boolean) => ({
     name: KEYBOARD_PART_NAMES[i], channel: [1, 3, 4, 2][i], on, sounding: on, selected: i === 0,
-    volume: 100, waiting: false, program, voiceName: GM[program], playsBass: false, octave: 0, fader: null, patch: null as string | null,
+    volume: 100, waiting: false, program, voiceName: GM[program], playsBass: false, octave: 0, pan: 64, reverb: i === 3 ? 40 : 50, chorus: 10, variation: 0, fader: null, patch: null as string | null,
   })
   const state: AppState = {
     version: 1,
@@ -217,7 +218,7 @@ export function initialState(): AppState {
     },
     chord: {
       name: null, fingered: null, fingering: 'fingeredOnBass', fingeringName: 'Fingered On Bass', upper: false,
-      manualBass: true, manualBassActive: false, split: 54, splitName: noteName(54), transposeKeyboard: 0, transposeMaster: 0, settleMs: 10,
+      manualBass: true, manualBassActive: false, split: 54, splitName: noteName(54), transposeKeyboard: 0, transposeMaster: 0, settleMs: 10, leftHold: false,
     },
     keyboardParts: [part(0, 0, true), part(1, 48, false), part(2, 61, false), part(3, 48, false)],
     keyboard: { held: [], leftSplit: 54, chordTones: [], chordBass: null, detection: [0, 54] },
@@ -230,6 +231,10 @@ export function initialState(): AppState {
       })),
       master: 100,
       masterWaiting: false,
+      styleVolume: 100,
+      styleVolumeWaiting: false,
+      multiPadVolume: 100,
+      multiPadVolumeWaiting: false,
       styleSolo: null,
       partSolo: null,
     },
@@ -272,8 +277,12 @@ export function initialState(): AppState {
     soundLibrary: initialSoundLibrary(),
     paramLocks: { splitPoint: false, fingeringType: false },
     sounds: initialSounds(),
+    dynamics: { control: true, level: 64, touch: false, accent: false, accentThreshold: 110 },
+    knobs: { page: 'style', pageName: 'Style', pageNumber: 1, pageCount: 4, knobs: [] },
+    effects: initialEffects(),
   }
   derive(state, LIBRARY)
+  state.knobs = new MockKnobs().state(state)
   return state
 }
 
@@ -364,6 +373,9 @@ export class MockSession implements Session {
   private clock = 0
   private sectionStart = 0
   private taps: number[] = []
+  /** Steady taps in a row (the engine's count), and when a bar of them starts the band. */
+  private tapRun = 0
+  private tapStart: number | null = null
   /** The Stop Accompaniment mode the toggle turns back on. */
   private lastStopAcmp: StopAcmpMode = 'style'
   private now = 0
@@ -379,6 +391,7 @@ export class MockSession implements Session {
   private anchor = { key: '', sectionMs: 0, sectionBeats: 0, ledMs: 0, ledBeats: 0, tempo: 0 }
   /** The Chord Looper, as the engine runs it (mock-looper.ts). */
   private looper = new MockLooper(() => this.state.looper)
+  private knobs = new MockKnobs()
 
   /** The hardware faders and the clocks, read now. */
   private hardware(): MockHardware {
@@ -541,6 +554,7 @@ export class MockSession implements Session {
     derive(this.state, this.lib, this.hardware(), [...this.leftHand, ...this.rightHand])
     this.sound.derive(this.state)
     this.catalogMock.derive(this.state)
+    this.state.knobs = this.knobs.state(this.state)
     const snap = this.snapshot()
     for (const f of this.subs) f(snap)
   }
@@ -572,6 +586,11 @@ export class MockSession implements Session {
     this.now += ms
     this.stepFade(ms)
     const t = this.state.transport
+    // A bar of taps while stopped: the band starts a beat after the last (OM p.46).
+    if (this.tapStart !== null && this.now >= this.tapStart) {
+      this.tapStart = null
+      if (!t.running) this.startBand()
+    }
     if (t.running) {
       const before = this.clock
       this.clock += (ms / 60000) * t.tempo
@@ -939,6 +958,7 @@ export class MockSession implements Session {
   }
 
   private startBand() {
+    this.tapStart = null
     const t = this.state.transport
     const c = this.state.chart
     if (t.fade === 'armed') {
@@ -990,13 +1010,20 @@ export class MockSession implements Session {
     if (was) this.multiPads.bandStopped()
   }
 
+  /** Part `part` was given a GM voice (setPartVoice, Voice −/+, an OTS voice, #179): a
+   * plugin picked for it ends, and its own library patch goes (with that patch's plugin). */
+  private gmVoice(part: number) {
+    if (this.sound.ownPlugin(part) && this.state.keyboardParts[part & 3].plugin) this.plugins.cmd({ type: 'clearPartPlugin', part })
+    this.sound.partVoice(part)
+  }
+
   private recallOts(n: number) {
     const panel = this.state.mixer.faderPage === 'panel'
     this.state.ots.settings[n].parts.forEach((o, i) => {
       const p = this.state.keyboardParts[i]
       if (o.program !== null) {
         p.program = o.program
-        this.sound.partVoice(i)
+        this.gmVoice(i)
       }
       p.on = o.on
       p.octave = o.octave
@@ -1085,6 +1112,7 @@ export class MockSession implements Session {
         else this.startBand()
         break
       case 'stop':
+        this.tapStart = null
         if (t.running) this.stopBand()
         break
       case 'intro':
@@ -1188,16 +1216,24 @@ export class MockSession implements Session {
         // As the engine: taps up to 12.5 s apart count (down to 5 BPM); a jump in the
         // interval by more than half starts a fresh average from the tap before.
         const last = this.taps[this.taps.length - 1]
-        if (last !== undefined && this.now - last > 12500) this.taps = []
-        else if (this.taps.length >= 2) {
+        if (last !== undefined && this.now - last > 12500) {
+          this.taps = []
+          this.tapRun = 0
+        } else if (this.taps.length >= 2) {
           const r = (this.now - last) / Math.max(1, last - this.taps[this.taps.length - 2])
-          if (r > 1.5 || r < 1 / 1.5) this.taps = [last]
+          if (r > 1.5 || r < 1 / 1.5) {
+            this.taps = [last]
+            this.tapRun = 1
+          }
         }
         this.taps = [...this.taps, this.now].slice(-4)
+        this.tapRun++
         if (this.taps.length >= 2) {
           const avg = (this.taps[this.taps.length - 1] - this.taps[0]) / (this.taps.length - 1)
           if (avg > 0) t.tempo = clamp(Math.round(60000 / avg), 5, 500)
         }
+        // Stopped, a bar of steady taps starts the band a beat after the last one.
+        this.tapStart = !t.running && this.tapRun >= Math.max(1, t.beatsPerBar) ? this.now + 60000 / t.tempo : null
         break
       }
       case 'tempoUp':
@@ -1250,6 +1286,17 @@ export class MockSession implements Session {
       case 'newLooperBank':
         this.looper.newBank()
         break
+      case 'saveLooperBank': {
+        const err = this.looper.saveBank(cmd.name, cmd.overwrite ?? false)
+        if (err) this.message(err, true)
+        else this.message(`Saved Chord Looper bank ${this.state.looper.bankName}`)
+        break
+      }
+      case 'loadLooperBank': {
+        const err = this.looper.loadBank(cmd.path)
+        if (err) this.message(err, true)
+        break
+      }
       case 'toggleMetronome':
       case 'setMetronome':
         st.metronome.on = cmd.type === 'setMetronome' ? cmd.on : !st.metronome.on
@@ -1306,6 +1353,12 @@ export class MockSession implements Session {
       case 'setChordSettle':
         c.settleMs = clamp(cmd.ms, 0, CHORD_SETTLE_MAX_MS)
         break
+      case 'setLeftHold':
+        c.leftHold = cmd.on
+        break
+      case 'toggleLeftHold':
+        c.leftHold = !c.leftHold
+        break
       case 'setPartOn':
       case 'togglePart': {
         const p = st.keyboardParts[cmd.part]
@@ -1319,12 +1372,12 @@ export class MockSession implements Session {
         break
       case 'setPartVoice':
         st.keyboardParts[cmd.part].program = cmd.program & 127
-        this.sound.partVoice(cmd.part)
+        this.gmVoice(cmd.part)
         break
       case 'stepVoice': {
         const p = st.keyboardParts.find((x) => x.selected) ?? st.keyboardParts[0]
         p.program = (p.program + cmd.delta + 128) % 128
-        this.sound.partVoice(st.keyboardParts.indexOf(p))
+        this.gmVoice(st.keyboardParts.indexOf(p))
         break
       }
       case 'setPartVolume':
@@ -1334,6 +1387,12 @@ export class MockSession implements Session {
       case 'setPartOctave':
         st.keyboardParts[cmd.part].octave = clamp(cmd.octave, -2, 2)
         break
+      case 'setPartPan':
+        st.keyboardParts[cmd.part].pan = vol(cmd.pan)
+        break
+      case 'setPartSend':
+        st.keyboardParts[cmd.part][cmd.send] = vol(cmd.value)
+        break
       case 'setFaderPage':
       case 'toggleFaderPage': {
         const page = cmd.type === 'setFaderPage' ? cmd.page : st.mixer.faderPage === 'panel' ? 'style' : 'panel'
@@ -1341,6 +1400,7 @@ export class MockSession implements Session {
         st.mixer.faderPage = page
         // The hardware faders are wherever they were: every level on the new page waits.
         for (const p of page === 'panel' ? st.keyboardParts : st.mixer.styleParts) p.waiting = true
+        if (page === 'panel') st.mixer.styleVolumeWaiting = st.mixer.multiPadVolumeWaiting = true
         break
       }
       case 'setPadPage':
@@ -1351,6 +1411,14 @@ export class MockSession implements Session {
         st.pads.page = PAD_PAGES[(((i + cmd.delta) % PAD_PAGES.length) + PAD_PAGES.length) % PAD_PAGES.length].id
         break
       }
+      case 'setStyleVolume':
+        st.mixer.styleVolume = vol(cmd.volume)
+        st.mixer.styleVolumeWaiting = false
+        break
+      case 'setMultiPadVolume':
+        st.mixer.multiPadVolume = vol(cmd.volume)
+        st.mixer.multiPadVolumeWaiting = false
+        break
       case 'setMasterVolume':
         st.mixer.master = vol(cmd.volume)
         st.mixer.masterWaiting = false
@@ -1652,20 +1720,86 @@ export class MockSession implements Session {
       case 'setSoundCategory': {
         const r = this.catalogMock.cmd(this.state, cmd)
         if (r.error) this.message(r.error, true)
-        for (const c of r.run ?? []) {
-          // A preset from the synth's own font (the part's GM voice) ends a plugin picked
-          // for the part, as a SoundFont patch does.
-          if (c.type === 'setPartVoice' && this.sound.ownPlugin(c.part) && this.state.keyboardParts[c.part & 3].plugin) {
-            this.plugins.cmd({ type: 'clearPartPlugin', part: c.part })
-          }
-          this.cmd(c)
-        }
+        // A preset from the synth's own font is the part's GM voice (setPartVoice): it ends
+        // a plugin picked for the part, as a SoundFont patch does.
+        for (const c of r.run ?? []) this.cmd(c)
         if (r.assignLastAdded !== undefined) this.cmd({ type: 'setPartPatch', part: r.assignLastAdded, id: this.state.soundLibrary.lastAdded })
         break
       }
       case 'setParamLock':
         this.state.paramLocks[cmd.item] = cmd.on
         break
+      case 'setDynamicsControl':
+        this.state.dynamics.control = cmd.on
+        break
+      case 'setDynamics':
+        this.state.dynamics.level = clampLevel(cmd.level)
+        break
+      case 'stepDynamics':
+        this.state.dynamics.level = clampLevel(this.state.dynamics.level + cmd.delta)
+        break
+      case 'setDynamicsTouch':
+        this.state.dynamics.touch = cmd.on
+        break
+      case 'toggleDynamicsTouch':
+        this.state.dynamics.touch = !this.state.dynamics.touch
+        break
+      case 'setAccent':
+        this.state.dynamics.accent = cmd.on
+        break
+      case 'toggleAccent':
+        this.state.dynamics.accent = !this.state.dynamics.accent
+        break
+      case 'setAccentThreshold':
+        this.state.dynamics.accentThreshold = Math.max(1, clampLevel(cmd.velocity))
+        break
+      // Knob Assign pages (#197): a turn runs its function's command, as the session does.
+      case 'setKnobPage':
+        this.knobs.setPage(cmd.page)
+        break
+      case 'stepKnobPage':
+        this.knobs.step(cmd.delta)
+        break
+      case 'turnKnob': {
+        const c = this.knobs.turn(cmd.knob, cmd.delta, this.state)
+        if (c) this.cmd(c)
+        break
+      }
+      // The effect bus (#204).
+      case 'setEffectType': {
+        const b = this.state.effects.blocks.find((x) => x.block === cmd.block)!
+        const t = b.types.find((x) => x.effect === cmd.effect)
+        if (!t) {
+          this.message(`${b.name} has no ${cmd.effect} type`, true)
+          break
+        }
+        b.effect = t.effect
+        b.effectName = t.name
+        break
+      }
+      case 'setEffectReturn':
+        this.state.effects.blocks.find((x) => x.block === cmd.block)!.returnLevel = clampLevel(cmd.level)
+        break
     }
   }
+}
+
+/** The effect bus as a session starts it: Hall, Chorus, the dotted 1/8 delay, every return 64. */
+export function initialEffects(): EffectsState {
+  const block = (block: FxBlock, name: string, effect: FxType, types: [FxType, string][]): EffectBlockState => ({
+    block, name, effect, effectName: types.find(([t]) => t === effect)![1],
+    types: types.map(([effect, name]) => ({ effect, name })), returnLevel: 64,
+  })
+  return {
+    blocks: [
+      block('reverb', 'Reverb', 'hall', [['hall', 'Hall'], ['room', 'Room'], ['stage', 'Stage'], ['plate', 'Plate']]),
+      block('chorus', 'Chorus', 'chorus', [['chorus', 'Chorus'], ['celeste', 'Celeste'], ['flanger', 'Flanger']]),
+      block('variation', 'Variation', 'dottedEighth', [['eighth', 'Delay 1/8'], ['dottedEighth', 'Delay 1/8.'], ['quarter', 'Delay 1/4'], ['pingPong', 'Ping-Pong']]),
+    ],
+  }
+}
+
+/** A Dynamics level or velocity, as the session clamps it: a whole number 0-127. */
+function clampLevel(v: number): number {
+  return Math.max(0, Math.min(127, Math.round(v)))
 }

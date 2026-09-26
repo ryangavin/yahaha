@@ -19,8 +19,11 @@
 mod chart;
 mod chord;
 mod controllers;
+mod dynamics;
 mod harmony_arp;
 mod keyboard;
+mod fx;
+mod knobs;
 mod library;
 mod looper;
 mod metronome;
@@ -46,8 +49,11 @@ mod transport;
 pub use chart::*;
 pub use chord::*;
 pub use controllers::*;
+pub use dynamics::*;
 pub use harmony_arp::*;
 pub use keyboard::*;
+pub use fx::*;
+pub use knobs::*;
 pub use library::*;
 pub use looper::*;
 pub use metronome::*;
@@ -171,6 +177,12 @@ app_cmd! {
     ParamLock(ParamLockCmd),
     /// The sound catalog (#117): favourites, audition, assigning a sound to a part.
     Sounds(SoundsCmd),
+    /// Style Dynamics Control, Touch and Accent (#180).
+    Dynamics(DynamicsCmd),
+    /// Knob Assign pages for the Launchkey's encoders (#197).
+    Knobs(KnobsCmd),
+    /// The effect bus's blocks: type and return level (#204).
+    Fx(FxCmd),
 }
 
 impl From<Button> for AppCmd {
@@ -245,6 +257,9 @@ impl From<Action> for AppCmd {
             Action::AssignSet(f, on) => function_set(f, on).unwrap_or(ControllersCmd::TriggerFunction { function: f }.into()),
             Action::ToggleHarmonyArp => HarmonyArpCmd::ToggleHarmonyArp.into(),
             Action::ReloadPlugin => PluginCmd::ReloadPartPlugin { part: None }.into(),
+            Action::MultiPad(c) => MultiPadCmd::from(c).into(),
+            Action::Knob(knob, delta) => KnobsCmd::TurnKnob { knob, delta }.into(),
+            Action::KnobPage(delta) => KnobsCmd::StepKnobPage { delta }.into(),
         }
     }
 }
@@ -355,6 +370,15 @@ pub struct AppState {
     /// The sound catalog's summary (#117); the list is `Session::sound_catalog`.
     #[serde(default)]
     pub sounds: SoundsState,
+    /// Style Dynamics Control, Touch and Accent (#180).
+    #[serde(default)]
+    pub dynamics: DynamicsState,
+    /// Knob Assign pages for the Launchkey's encoders (#197).
+    #[serde(default)]
+    pub knobs: KnobsState,
+    /// The effect bus's Reverb, Chorus and Variation blocks (#204).
+    #[serde(default)]
+    pub effects: EffectsState,
 }
 
 // ---------------------------------------------------------------------------

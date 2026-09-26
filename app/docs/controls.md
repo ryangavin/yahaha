@@ -47,7 +47,7 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 
 | control | what it does | Genos | key | Launchkey |
 |---|---|---|---|---|
-| **Tap tempo** | Tap two or more times in time to set the tempo from your taps (the last four count). While the band plays, a tap restarts the section instead (Section Reset) and the tempo stays, unless you turn Tap: Section Reset off in Settings › Style. The pad lights on the downbeat while the band plays. | TAP TEMPO | `T` | Pad page 1 (Sections), bottom row, pad 6 |
+| **Tap tempo** | Tap two or more times in time to set the tempo (the last four count); stopped, a whole bar of taps (four in 4/4) starts the style one beat after your last tap, rhythm only until you play a chord. While the band plays, a tap restarts the section instead (Section Reset) and the tempo stays, unless you turn Tap: Section Reset off in Settings › Style. The pad lights on the downbeat while the band plays. | TAP TEMPO | `T` | Pad page 1 (Sections), bottom row, pad 6 |
 | **Tempo −** | Slows the tempo by 1 BPM. | TEMPO − | `-` | Function button (right of the pads) |
 | **Tempo +** | Speeds the tempo up by 1 BPM. | TEMPO + | `=` | > (Scene Launch) button (right of the pads) |
 
@@ -97,7 +97,7 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | **Fingered** | Play the whole chord. The bass is always the chord's root. | Fingered | — | Pad page 2 (Chord/Setup), top row, pad 2 |
 | **Fingered On Bass** | Like Fingered, but the lowest note you play becomes the bass, so you can play slash chords. | Fingered On Bass | — | Pad page 2 (Chord/Setup), top row, pad 3 |
 | **Multi Finger** | Reads Single Finger and Fingered shapes both, without switching. | Multi Finger | — | Pad page 2 (Chord/Setup), top row, pad 4 |
-| **AI Fingered** | Like Fingered, but fewer than three keys can still give a chord, guessed from the chord before. | AI Fingered | — | Pad page 2 (Chord/Setup), top row, pad 5 |
+| **AI Fingered** | Like Fingered, but fewer than three keys can still give a chord, guessed from the chord before. The lowest key is the bass: hold a chord note and add a key below it for a slash chord (C, then B+C is C/B). | AI Fingered | — | Pad page 2 (Chord/Setup), top row, pad 5 |
 | **Full Keyboard** | Chords are read across the whole keyboard, even split between your hands. | Full Keyboard | — | Pad page 2 (Chord/Setup), top row, pad 6 |
 | **AI Full Keyboard** | Full Keyboard with AI Fingered's guessing from fewer keys. 9th, 11th and 13th chords can't be played. | AI Full Keyboard | — | Pad page 2 (Chord/Setup), top row, pad 7 |
 
@@ -107,6 +107,7 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 |---|---|---|---|---|
 | **Chord detection: Upper / Lower** | Lower: your left hand plays the chords. Upper: your right hand does (as Fingered*), and your left hand is free for a bass line. | Chord Detection Area | `D` | Pad page 2 (Chord/Setup), top row, pad 8 |
 | **Manual Bass** | In Upper, mutes the style's Bass and gives its voice to Left, so your left hand plays the bass. Left stays on while it's on. Dark in Lower, where it isn't available. | Manual Bass | `Shift+D` | Pad page 2 (Chord/Setup), bottom row, pad 1 |
+| **Left Hold** | Left keeps sounding after you let go of its keys, until you play the next note on Left, stop the style, or turn Left Hold off. A string or organ Left holds your chord across the band. Stored in Registration (Style group). | LEFT HOLD | `_` | Panel fader page: button under fader 7 (orange while on) |
 
 ## Split point
 
@@ -218,7 +219,7 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | **Edit plugin** | Opens the plugin's own window to change its sound. yahaha keeps the plugin's settings with the part. | — | — | — |
 | **Rescan plugins** | Looks for newly installed or removed instrument plugins. A ⚠ in the Sound Browser marks a plugin that failed to load last time. | — | — | — |
 | **Reload plugin** | Loads the selected part's plugin again, with its saved sound, after it stopped working or failed to load. The Launchkey button lights red while there is one to reload. | — | `S` | Panel fader page: button under fader 6 |
-| **Run in process** | Runs this plugin inside yahaha instead of in its own process: a little less CPU for the lightest plugins, but if the plugin crashes, yahaha goes with it. It is remembered for the plugin and applies from its next load. | — | — | — |
+| **Run in process** | Runs this plugin inside yahaha instead of in its own process: a little less CPU for the lightest plugins, but if the plugin crashes, yahaha goes with it. It is remembered for the plugin and applies from its next load: a part already playing it keeps running where it is, and the button shows ↻ until the plugin loads again (pick it again, or the next start). A plugin preloaded for the Registration bank loads again in the new mode at once. | — | — | — |
 | **Sound** | What this part plays. Click to open the Sound Browser and pick a SoundFont preset, an instrument plugin or a saved sound. Under Manual Bass, Left plays the style's Bass voice instead, and this is the sound it goes back to. | Voice select (VOICE buttons) | — | Pad page 3 (OTS/Parts): the Edit pads (bottom row, pads 5–8) pick the part, Voice −/+ (top row, pads 7–8) step its voice |
 | **Layer** | The Right parts that are on all sound together on every key above the split: that's a layer. Turn on Right 1 and Right 2 to stack, for example, piano and strings. | PART ON/OFF (Right 1–3 layered) | `5` `6` `7` | Panel fader page: buttons under faders 1–3 |
 | **Left hand** | Left plays the keys at and below the split point, with its own voice. Under Manual Bass it plays the style's Bass voice there instead, and the band's own bass goes quiet. | Split Point (Left) | — | — |
@@ -237,6 +238,7 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | **Saved** | Your saved sounds: the sound library's patches, each a preset or plugin with its volume, octave, pan and sends (and a plugin's own settings). Edit them in the Sound Library drawer. | Voice Selection › User tab | — | — |
 | **Save as sound** | Saves what this part plays now as a new saved sound: its preset or plugin (with the plugin's current settings), volume and octave. It appears under Saved, ready to rename in the Sound Library drawer. | Voice Setting › Save | — | — |
 | **Category** | The sounds of one Genos voice category. A preset's category is its General MIDI family, and a plugin's is guessed from its name. | VOICE category buttons | — | — |
+| **Plugin category** | The category the selected plugin is listed under. yahaha guesses it from the plugin's name; pick another to file it where you look for it. | — | — | — |
 | **Sound** | Click or Enter plays this sound on the part. SF is a SoundFont preset, AU an instrument plugin, Saved a sound from your library. ▶ marks what the part plays. | Voice Selection | — | — |
 | **Plugin that failed** | This plugin failed to load last time (⚠ says why). Picking it tries again; until it loads, the part plays its SoundFont voice. | — | — | — |
 | **Star** | Adds the sound to your Favourites, or takes it out. | Voice Selection › Favorite | — | — |
@@ -275,6 +277,12 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | **Right 2 volume** | Right 2's volume. The fader is channel 3's CC 7 itself, with no hidden gain behind it. | Mixer › Panel › Right 2 Volume | — | Panel fader page: fader 2 |
 | **Right 3 volume** | Right 3's volume. The fader is channel 4's CC 7 itself, with no hidden gain behind it. | Mixer › Panel › Right 3 Volume | — | Panel fader page: fader 3 |
 | **Left volume** | Left's volume. The fader is channel 2's CC 7 itself, with no hidden gain behind it; under Manual Bass it is the bass's level too. | Mixer › Panel › Left Volume | — | Panel fader page: fader 4 |
+| **Pan** | Where this part sits left to right: its channel's CC 10 (64 = centre), on the MIDI port and in the synth. Drag up or down; double-click for centre. A sound library patch or a One Touch Setting sets it too. | Mixer › Panel › Pan/Volume › Pan | — | — |
+| **Reverb** | How much of this part goes to the shared reverb: its channel's CC 91 (50 on Right 1–3 and 40 on Left at start). Drag up or down; double-click for that default. A sound library patch or a One Touch Setting sets it too. | Mixer › Panel › Effect › Reverb | — | — |
+| **Chorus** | How much of this part goes to the shared chorus: its channel's CC 93 (10 at start). Drag up or down; double-click for 10. A sound library patch or a One Touch Setting sets it too. | Mixer › Panel › Effect › Chorus | — | — |
+| **Delay** | How much of this part goes to the tempo delay (the Variation effect): its channel's CC 94 (0 at start: no echo). Drag up or down; double-click for 0. The Delay type in Effects above sets the note length. | Mixer › Panel › Effect › Variation | — | — |
+| **Style volume** | The whole band against your hands, in one fader: 100 plays the Style parts at their own levels, lower scales every Style part's CC 7 down together (above 100 raises them, up to 127), the way a Fade In/Out does. The part faders stay where they are. A Registration stores it with the Style mixer. | Balance › Style (Mixer › Panel › Style) | — | Panel fader page: fader 5 |
+| **Multi Pad volume** | All four Multi Pads against the band, in one fader: 100 plays each pad at its own level, lower scales the pads' CC 7 down together (above 100 raises them, up to 127). A Registration stores it with the Multi Pad bank. | Balance › M.Pad (Mixer › Panel › Multi Pad) | — | Panel fader page: fader 6 |
 | **Style part volume** | This band part's volume. The fader is its channel's CC 7 itself (channels 9–16), with no hidden gain behind it, except that a Fade In/Out scales the CC 7 it sends while the fade runs (the fader stays put). Loading a style sets the faders to the style's own levels, and a pattern that changes its volume moves the fader too, until you move it yourself. | Mixer › Style › Volume | — | Style fader page: faders 1–8 (Rhythm 1 … Phrase 2) |
 | **Style part on/off** | Mutes or unmutes this band part. The Launchkey button is lit while the part plays. | Channel On/Off | `Z` `X` `C` `V` `B` `N` `M` `,` | Style fader page: buttons under faders 1–8 |
 | **Plugin part** | This part plays an instrument plugin, shown with its share of one CPU core, updated every second. Its fader is still the part's CC 7, applied to the plugin's output. | — | — | — |
@@ -282,12 +290,23 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | **Plugin in process ⚠** | This part's plugin was meant to run in its own process, where a crash only silences the part. macOS refused to host it there, so it runs inside yahaha instead: if it crashes, yahaha goes with it. Save your setup, or pick another plugin for live use. | — | — | — |
 | **Master volume** | The built-in synth's output level (100 = unity), the only gain after the channel faders. A safety soft clipper above −1 dBFS keeps loud passages from hard clipping; below that the output is untouched. It does not change the MIDI output. | MASTER VOLUME | — | Master fader (both fader pages) |
 | **Solo** | Plays only this part, even if it is switched off; press again to end the solo. The Style tab solos a band part, the Panel tab a keyboard part, and the On switches stay as they were. | Mixer › touch and hold a channel (Solo) | — | — |
-| **Style Track Mute** | A knob for the band: fully left leaves one part on, and turning it up brings the others in one by one until all eight play. It switches the Style parts on and off, so the On buttons follow it. | Live Control › Style Track Mute A/B (StyMuteA, StyMuteB) | — | — |
+| **Style Track Mute** | A knob for the band: fully left leaves one part on, and turning it up brings the others in one by one until all eight play. It switches the Style parts on and off, so the On buttons follow it. | Live Control › Style Track Mute A/B (StyMuteA, StyMuteB) | — | Knobs 4 and 5 on the Style knob page |
 | **Track Mute order** | A starts from Rhythm 2, then Rhythm 1, Bass, Chord 1, Chord 2, Pad, Phrase 1 and Phrase 2. B starts from Chord 1, then Chord 2, Pad, Bass, Phrase 1, Phrase 2 and the rhythm parts last. | Style Track Mute A / B | — | — |
 | **MIDI out channel** | The channel this part plays on at yahaha's MIDI output: Right 1 = 1, Left = 2, Right 2 = 3, Right 3 = 4, the band 9–16. Map a DAW track (Ableton: MIDI From yahaha, this channel) to record or re-voice it. | Part / Style channel | — | — |
 | **Voice** | Keyboard parts: the GM voice the part plays. Style parts: the Yamaha voice (bank MSB/LSB/program) the style was written for, and after ≈ the nearest voice the built-in synth plays for it. | Mixer › Voice | — | — |
 | **A fader is the channel's CC 7** | Each fader shows and sends exactly its channel's CC 7 (0–127), with no hidden gain anywhere, so the MIDI output and the synth hear the same level. Loading a style sets the Style faders to the style's own levels. While a Fade In/Out runs, the Style parts' CC 7 goes out scaled by the fade, and the faders stay where they are. | Mixer › Volume | — | The faders, on both fader pages |
 | **Waiting for the fader** | This level moved without the Launchkey fader (a style load, an OTS recall, a pattern, a page switch). The hardware fader does nothing until you move it to within 2 of the level, or across it. | — | — | Soft takeover on every fader |
+
+## Effects
+
+| control | what it does | Genos | key | Launchkey |
+|---|---|---|---|---|
+| **Reverb type** | The shared reverb every part sends to (CC 91): Hall (large, long), Room (small, short), Stage (in between, brighter) or Plate (dense and bright). | Mixer › Effect › Reverb type | — | — |
+| **Reverb return** | How loud the reverb comes back into the mix: 64 is 0 dB, 127 is +6 dB, 0 is off. Stored in a Registration Memory. | Mixer › Effect › Reverb Return Level | — | Pan knob page, knob 5 |
+| **Chorus type** | The shared chorus every part sends to (CC 93): Chorus (warm, wide), Celeste (a gentle detune) or Flanger (the sweeping comb). | Mixer › Effect › Chorus type | — | — |
+| **Chorus return** | How loud the chorus comes back into the mix: 64 is 0 dB, 127 is +6 dB, 0 is off. | Mixer › Effect › Chorus Return Level | — | Pan knob page, knob 6 |
+| **Delay type** | The tempo delay every part sends to (CC 94), in step with the style tempo: an echo every 1/8, dotted 1/8 or 1/4 note, or Ping-Pong (1/8, alternating left and right). | Mixer › Effect › Variation type (Tempo Delay) | — | — |
+| **Delay return** | How loud the echoes come back into the mix: 64 is 0 dB, 127 is +6 dB, 0 is off. | Mixer › Effect › Variation Return Level | — | Pan knob page, knob 7 |
 
 ## Metronome
 
@@ -297,26 +316,59 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | **Metronome volume** | The click's own level (0–127). The synth's master volume applies on top of it. | Menu › Metronome › Volume | — | — |
 | **Bell on beat 1** | A higher bell instead of the click on the first beat of each bar. | Menu › Metronome › Bell Sound | — | — |
 
+## Style Dynamics
+
+| control | what it does | Genos | key | Launchkey |
+|---|---|---|---|---|
+| **Dynamics Control** | On: the Dynamics level (and Touch) can change how hard the band plays. Off: the Style plays exactly as written. | Menu › Style Setting › Dynamics Control | — | — |
+| **Dynamics** | How hard the whole band plays, 0–127; at 64 the Style plays as written. It changes every Style note's velocity, so the drums and instruments get softer and darker or harder and brighter, not just quieter or louder. The mixer volumes stay as they are. | Live Control › Style Dynamics (DynCtrl) | — | Knob 1 on the Style knob page |
+| **Touch** | The band follows your left hand. Each key you strike in the chord section sets the Dynamics level from how hard you hit it, and a strike at velocity 100 plays the Style as written. | — | `&` | — |
+| **Accent** | Strike a chord-section key at least as hard as the threshold while a Main plays, and the Main plays its own fill from the next beat, so you can play the fills with your left hand. It is not a Main press, so OTS Link does not follow it, and nothing happens during an Intro, fill, break or Ending. | — | `Shift+H` | — |
+| **Accent threshold** | How hard (velocity 1–127) a chord-section strike must be to play the fill. The default is 110. | — | — | — |
+
+## Knob Assign pages
+
+| control | what it does | Genos | key | Launchkey |
+|---|---|---|---|---|
+| **Knob Assign page** | What the eight Launchkey knobs do, on four pages. Style has Dynamics, Retrigger length and on/off, Style Track Mute A and B and tempo; Parts has the keyboard parts' volumes, Harmony and metronome volume and tempo; Pan has the parts' pan and tempo; Effects has their Reverb and Chorus sends. | KNOB ASSIGN | — | ▲ / ▼ right of the knobs |
+| **Knob** | Turns what the knob has on the Knob Assign page, from where it is now: levels 2 a step, tempo 1 BPM, Retrigger every 3 steps. | LIVE CONTROL knobs | — | The eight knobs |
+
 ## Chord Looper
 
 | control | what it does | Genos | key | Launchkey |
 |---|---|---|---|---|
-| **Chord Looper REC/STOP** | Records the chords you play, from the next bar line; stopped, it arms Sync Start and your first chord starts the band and the recording together. Press again to stop recording while the band plays on. | CHORD LOOPER [REC/STOP] | `R` | — |
-| **Chord Looper ON/OFF** | Loops the recorded chords from the next bar line, feeding them to the band as if you played them, so both hands are free. While it loops your chords are ignored; press again to stop it at once. Arming a loop turns chart mode off. | CHORD LOOPER [ON/OFF] | `^` | — |
+| **Chord Looper REC/STOP** | Records the chords you play, from the next bar line; stopped, it arms Sync Start and your first chord starts the band and the recording together. Press again to stop recording while the band plays on. | CHORD LOOPER [REC/STOP] | `R` | Panel fader page: Shift + button under fader 8 (red while recording) |
+| **Chord Looper ON/OFF** | Loops the recorded chords from the next bar line, feeding them to the band as if you played them, so both hands are free. While it loops your chords are ignored; press again to stop it at once. Arming a loop turns chart mode off. | CHORD LOOPER [ON/OFF] | `^` | Panel fader page: button under fader 8 (green while looping) |
 | **Chord Looper memory** | One of eight memories. Selecting one that holds a sequence makes it the loop; while looping it takes over at the next bar line. | Chord Looper › Memory 1–8 | — | — |
 | **Memory** | Stores the current sequence: press it, then a memory number. The memory is named CLD_001 and on. | Chord Looper › [Memory] | — | — |
 | **Clear** | Empties a memory: press it, then a memory number. | Chord Looper › [Clear] | — | — |
-| **New bank** | Empties all eight memories. The current sequence stays. | Chord Looper › New Bank | — | — |
+| **New bank** | Empties all eight memories: a new bank with no file yet. The current sequence stays. | Chord Looper › New Bank | — | — |
+| **Chord Looper bank** | The bank of eight memories in use. Pick a bank file to load its memories. Every change to the memories saves itself (a bank with no file is kept until next time too), and the next session starts with this bank. | Chord Looper › bank (.clb) | — | — |
+| **Bank name** | Type a name, then Save, to save the eight memories as a new bank file. | Chord Looper › Save | — | — |
+| **Save bank** | Saves the memories to the bank's file, or under the name you typed as a new file. If another bank already has that name, nothing is saved: pick another name, or use Overwrite. | Chord Looper › Save | — | — |
+| **Overwrite bank** | Another Chord Looper bank has the name you typed: replace its file with these memories. | Chord Looper › Save (overwrite) | — | — |
 | **The sequence** | The chords the loop plays, bar by bar; the bar playing is lit. Chord times snap to 16th notes and the loop is whole bars. | Chord Looper (current data) | — | — |
 
 ## Multi Pads
 
 | control | what it does | Genos | key | Launchkey |
 |---|---|---|---|---|
-| **Multi Pad** | Plays the pad's phrase from the top (keys Shift+Z, X, C, V): at once when the band is stopped, at the next bar line while it plays. With pads in Synchro Start standby, pressing one of them starts them all. Blue: has data; red: playing; flashing red: waiting for Synchro Start; amber: waiting for the bar line. | MULTI PAD CONTROL [1]–[4] | `Shift+Z` `Shift+X` `Shift+C` `Shift+V` | — |
-| **Stop all pads** | Stops every Multi Pad at once and cancels Synchro Start standby. The band keeps playing. Key: Shift+B. | MULTI PAD CONTROL [STOP] | `Shift+B` | — |
-| **Stop this pad** | Stops only this pad, now. The other pads keep playing. | [STOP] + pad | — | — |
-| **Synchro Start** | Puts the pad in standby (flashing red): it starts with your next chord in the chord section, when the band starts, or when you press any pad in standby; while the band plays, at the next bar line. Press again to cancel. | [SELECT] + pad (Synchro Start) | — | — |
+| **Multi Pad** | Plays the pad's phrase from the top (keys Shift+Z, X, C, V): at once when the band is stopped, at the next bar line while it plays. With pads in Synchro Start standby, pressing one of them starts them all. Blue: has data; red: playing; flashing red: waiting for Synchro Start; amber: waiting for the bar line. | MULTI PAD CONTROL [1]–[4] | `Shift+Z` `Shift+X` `Shift+C` `Shift+V` | Pad page 5 (Multi Pads), top row, pads 1–4 |
+| **Multi Pad** | Plays the pad's phrase from the top (keys Shift+Z, X, C, V): at once when the band is stopped, at the next bar line while it plays. With pads in Synchro Start standby, pressing one of them starts them all. Blue: has data; red: playing; flashing red: waiting for Synchro Start; amber: waiting for the bar line. | MULTI PAD CONTROL [1]–[4] | `Shift+Z` | Pad page 5 (Multi Pads), top row, pad 1 |
+| **Multi Pad** | Plays the pad's phrase from the top (keys Shift+Z, X, C, V): at once when the band is stopped, at the next bar line while it plays. With pads in Synchro Start standby, pressing one of them starts them all. Blue: has data; red: playing; flashing red: waiting for Synchro Start; amber: waiting for the bar line. | MULTI PAD CONTROL [1]–[4] | `Shift+X` | Pad page 5 (Multi Pads), top row, pad 2 |
+| **Multi Pad** | Plays the pad's phrase from the top (keys Shift+Z, X, C, V): at once when the band is stopped, at the next bar line while it plays. With pads in Synchro Start standby, pressing one of them starts them all. Blue: has data; red: playing; flashing red: waiting for Synchro Start; amber: waiting for the bar line. | MULTI PAD CONTROL [1]–[4] | `Shift+C` | Pad page 5 (Multi Pads), top row, pad 3 |
+| **Multi Pad** | Plays the pad's phrase from the top (keys Shift+Z, X, C, V): at once when the band is stopped, at the next bar line while it plays. With pads in Synchro Start standby, pressing one of them starts them all. Blue: has data; red: playing; flashing red: waiting for Synchro Start; amber: waiting for the bar line. | MULTI PAD CONTROL [1]–[4] | `Shift+V` | Pad page 5 (Multi Pads), top row, pad 4 |
+| **Stop all pads** | Stops every Multi Pad at once and cancels Synchro Start standby. The band keeps playing, and on the Launchkey it lights while a pad plays or waits. Key: Shift+B. | MULTI PAD CONTROL [STOP] | `Shift+B` | Pad page 5 (Multi Pads), top row, pad 5 |
+| **Stop this pad** | Stops only this pad, now. The other pads keep playing. | [STOP] + pad | — | Pad page 5 (Multi Pads), bottom row, pads 5–8 |
+| **Stop this pad** | Stops only this pad, now. The other pads keep playing. | [STOP] + pad | — | Pad page 5 (Multi Pads), bottom row, pad 5 |
+| **Stop this pad** | Stops only this pad, now. The other pads keep playing. | [STOP] + pad | — | Pad page 5 (Multi Pads), bottom row, pad 6 |
+| **Stop this pad** | Stops only this pad, now. The other pads keep playing. | [STOP] + pad | — | Pad page 5 (Multi Pads), bottom row, pad 7 |
+| **Stop this pad** | Stops only this pad, now. The other pads keep playing. | [STOP] + pad | — | Pad page 5 (Multi Pads), bottom row, pad 8 |
+| **Synchro Start** | Puts the pad in standby (flashing red): it starts with your next chord in the chord section, when the band starts, or when you press any pad in standby; while the band plays, at the next bar line. Press again to cancel. | [SELECT] + pad (Synchro Start) | — | Pad page 5 (Multi Pads), bottom row, pads 1–4 |
+| **Synchro Start** | Puts the pad in standby (flashing red): it starts with your next chord in the chord section, when the band starts, or when you press any pad in standby; while the band plays, at the next bar line. Press again to cancel. | [SELECT] + pad (Synchro Start) | — | Pad page 5 (Multi Pads), bottom row, pad 1 |
+| **Synchro Start** | Puts the pad in standby (flashing red): it starts with your next chord in the chord section, when the band starts, or when you press any pad in standby; while the band plays, at the next bar line. Press again to cancel. | [SELECT] + pad (Synchro Start) | — | Pad page 5 (Multi Pads), bottom row, pad 2 |
+| **Synchro Start** | Puts the pad in standby (flashing red): it starts with your next chord in the chord section, when the band starts, or when you press any pad in standby; while the band plays, at the next bar line. Press again to cancel. | [SELECT] + pad (Synchro Start) | — | Pad page 5 (Multi Pads), bottom row, pad 3 |
+| **Synchro Start** | Puts the pad in standby (flashing red): it starts with your next chord in the chord section, when the band starts, or when you press any pad in standby; while the band plays, at the next bar line. Press again to cancel. | [SELECT] + pad (Synchro Start) | — | Pad page 5 (Multi Pads), bottom row, pad 4 |
 | **Repeat** | On: the pad loops until you stop it. Off: it plays once. The bank file sets it; a change here lasts until another bank loads. | Repeat (Multi Pad Edit) | — | — |
 | **Chord Match** | On: the pad follows the chord you play, like the band does. Off: it plays exactly as recorded, as drum pads usually do. | Chord Match (Multi Pad Edit) | — | — |
 | **Multi Pad bank** | Loads this bank's four pads. Pads playing stop. The list is every .pad file in your style folders. | Multi Pad Bank Selection | — | — |
@@ -381,6 +433,7 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | **Pad page 3: OTS/Parts** | OTS 1–4 and OTS Link, voice −/+, keyboard parts on/off and which part to edit. All magenta. | — | `PgDn` `PgUp` (terminal: `Tab` `Shift+Tab`) | Pad Bank ▲ / ▼ (left of the pads) |
 | **Pad Bank ▲** | Goes to the previous pad page, stopping at page 1, so a few presses always take you home. Lit in the page's colour when there's a page to go to. With Shift: Left on/off. | — | `PgUp` (terminal: `Shift+Tab`) | Pad Bank ▲ (left of the pads) |
 | **Pad Bank ▼** | Goes to the next pad page, stopping at page 4. Lit in the page's colour when there's a page to go to. With Shift: OTS Link on/off. | — | `PgDn` (terminal: `Tab`) | Pad Bank ▼ (left of the pads) |
+| **Pad page 5: Multi Pads** | Multi Pads 1–4 in the Genos lamp colours (blue has data, red playing, flashing red Synchro Start standby, amber waiting for the bar line) and STOP on the top row; SELECT + pad (Synchro Start) and STOP + pad on the bottom row. The other pads are yellow. | MULTI PAD CONTROL | `PgDn` `PgUp` (terminal: `Tab` `Shift+Tab`) | Pad Bank ▲ / ▼ (left of the pads) |
 | **Pad page 4: Registration** | Registration buttons 1–10 in the Genos lamp colours (red in use, blue stored, dark empty), Bank −/+, Memory, Freeze and Regist −/+. The other pads are orange. | — | `PgDn` `PgUp` (terminal: `Tab` `Shift+Tab`) | Pad Bank ▲ / ▼ (left of the pads) |
 
 ## Launchkey

@@ -42,6 +42,8 @@ const EVERY_CMD: &[&str] = &[
     r#"{"type":"setTempo","bpm":480}"#,
     r#"{"type":"toggleStylePart","part":5}"#,
     r#"{"type":"setStylePartVolume","part":2,"volume":90}"#,
+    r#"{"type":"setStyleVolume","volume":80}"#,
+    r#"{"type":"setMultiPadVolume","volume":70}"#,
     r#"{"type":"setStyleSolo","part":3}"#,
     r#"{"type":"setStyleSolo","part":null}"#,
     r#"{"type":"styleTrackMute","order":"b","value":64}"#,
@@ -59,6 +61,8 @@ const EVERY_CMD: &[&str] = &[
     r#"{"type":"stepTranspose","keyboard":1,"master":0}"#,
     r#"{"type":"resetTranspose"}"#,
     r#"{"type":"setChordSettle","ms":10}"#,
+    r#"{"type":"setLeftHold","on":true}"#,
+    r#"{"type":"toggleLeftHold"}"#,
     // Keyboard parts
     r#"{"type":"setPartOn","part":1,"on":true}"#,
     r#"{"type":"togglePart","part":3}"#,
@@ -67,6 +71,10 @@ const EVERY_CMD: &[&str] = &[
     r#"{"type":"stepVoice","delta":-1}"#,
     r#"{"type":"setPartVolume","part":1,"volume":64}"#,
     r#"{"type":"setPartOctave","part":2,"octave":-2}"#,
+    r#"{"type":"setPartPan","part":3,"pan":20}"#,
+    r#"{"type":"setPartSend","part":0,"send":"reverb","value":64}"#,
+    r#"{"type":"setPartSend","part":1,"send":"chorus","value":10}"#,
+    r#"{"type":"setPartSend","part":2,"send":"variation","value":30}"#,
     r#"{"type":"setPartSolo","part":1}"#,
     // Mixer, Launchkey pages, synth
     r#"{"type":"setFaderPage","page":"style"}"#,
@@ -151,6 +159,7 @@ const EVERY_CMD: &[&str] = &[
     r#"{"type":"setRegistSequenceOn","on":true}"#,
     r#"{"type":"toggleRegistSequence"}"#,
     r#"{"type":"stepRegistSequence","delta":-1}"#,
+    r#"{"type":"stepRegist","delta":1}"#,
     // Playlist
     r#"{"type":"newPlaylist"}"#,
     r#"{"type":"loadPlaylist","path":"lists/Friday.playlist.json"}"#,
@@ -174,6 +183,9 @@ const EVERY_CMD: &[&str] = &[
     r#"{"type":"storeLooperMemory","index":7}"#,
     r#"{"type":"clearLooperMemory","index":0}"#,
     r#"{"type":"newLooperBank"}"#,
+    r#"{"type":"saveLooperBank","name":"Songs","overwrite":true}"#,
+    r#"{"type":"saveLooperBank","name":null}"#,
+    r#"{"type":"loadLooperBank","path":"/data/ChordLooper/Songs.looper.json"}"#,
     // Metronome
     r#"{"type":"toggleMetronome"}"#,
     r#"{"type":"setMetronome","on":true}"#,
@@ -259,6 +271,22 @@ const EVERY_CMD: &[&str] = &[
     r#"{"type":"stopSoundAudition"}"#,
     r#"{"type":"assignSound","part":0,"id":"saved:warm-pad"}"#,
     r#"{"type":"setSoundCategory","id":"au:aumu Xf2X XFER","category":"pad"}"#,
+    // Style Dynamics Control, Touch, Accent
+    r#"{"type":"setDynamicsControl","on":false}"#,
+    r#"{"type":"setDynamics","level":90}"#,
+    r#"{"type":"stepDynamics","delta":-8}"#,
+    r#"{"type":"setDynamicsTouch","on":true}"#,
+    r#"{"type":"toggleDynamicsTouch"}"#,
+    r#"{"type":"setAccent","on":true}"#,
+    r#"{"type":"toggleAccent"}"#,
+    r#"{"type":"setAccentThreshold","velocity":110}"#,
+    // Knob Assign pages (#197)
+    r#"{"type":"setKnobPage","page":"parts"}"#,
+    r#"{"type":"stepKnobPage","delta":-1}"#,
+    r#"{"type":"turnKnob","knob":3,"delta":-2}"#,
+    r#"{"type":"setEffectType","block":"reverb","effect":"plate"}"#,
+    r#"{"type":"setEffectType","block":"variation","effect":"pingPong"}"#,
+    r#"{"type":"setEffectReturn","block":"chorus","level":90}"#,
 ];
 
 fn type_of(json: &str) -> String {
@@ -369,6 +397,10 @@ fn bad_commands_are_refused() {
         r#"{"type":"setPedal","pedal":0,"cc":64,"function":"noSuchFunction"}"#,
         r#"{"type":"triggerFunction"}"#,
         r#"{"type":"setParamLock","item":"masterEq","on":true}"#,
+        r#"{"type":"setDynamics","level":300}"#,
+        r#"{"type":"setKnobPage","page":"type9"}"#,
+        r#"{"type":"setEffectType","block":"delay","effect":"hall"}"#,
+        r#"{"type":"setEffectReturn","block":"reverb","level":300}"#,
         r#"[1,2]"#,
         r#""startStop""#,
     ] {

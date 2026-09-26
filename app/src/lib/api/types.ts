@@ -17,7 +17,7 @@ export type Fingering =
   | 'aiFingered' | 'fullKeyboard' | 'aiFullKeyboard'
 
 /** The Launchkey pad pages, switched with Pad Bank ▲/▼. */
-export type PadPage = 'sections' | 'chordSetup' | 'otsParts' | 'registration'
+export type PadPage = 'sections' | 'chordSetup' | 'otsParts' | 'registration' | 'multiPads'
 
 /** What the Launchkey faders control, like the Genos Mixer's Panel and Style tabs. */
 export type FaderPage = 'panel' | 'style'
@@ -68,6 +68,8 @@ export type AppCmd =
   | { type: 'setTempo'; bpm: number }
   | { type: 'toggleStylePart'; part: number }
   | { type: 'setStylePartVolume'; part: number; volume: number }
+  | { type: 'setStyleVolume'; volume: number }
+  | { type: 'setMultiPadVolume'; volume: number }
   /** Solo a Style part 0–7 (only it plays, even if off); null ends the solo. */
   | { type: 'setStyleSolo'; part: number | null }
   /** Style Track Mute (a Genos Live Control knob): `value` 0–127 turns parts on in `order`. */
@@ -86,6 +88,9 @@ export type AppCmd =
   | { type: 'resetTranspose' }
   /** The chord-settle window, ms (0–`CHORD_SETTLE_MAX_MS`). */
   | { type: 'setChordSettle'; ms: number }
+  /** LEFT HOLD: Left rings on after its keys are let go, until its next key, a stop, or off. */
+  | { type: 'setLeftHold'; on: boolean }
+  | { type: 'toggleLeftHold' }
   // Keyboard parts
   | { type: 'setPartOn'; part: number; on: boolean }
   | { type: 'togglePart'; part: number }
@@ -94,6 +99,8 @@ export type AppCmd =
   | { type: 'stepVoice'; delta: number }
   | { type: 'setPartVolume'; part: number; volume: number }
   | { type: 'setPartOctave'; part: number; octave: number }
+  | { type: 'setPartPan'; part: number; pan: number }
+  | { type: 'setPartSend'; part: number; send: PartSend; value: number }
   /** Solo a keyboard part 0–3 (only it sounds from the keys); null ends the solo. */
   | { type: 'setPartSolo'; part: number | null }
   // Mixer and Launchkey pages
@@ -161,6 +168,10 @@ export type AppCmd =
   | { type: 'storeLooperMemory'; index: number }
   | { type: 'clearLooperMemory'; index: number }
   | { type: 'newLooperBank' }
+  /** Save the bank: to its file (`name` null), or as a new file named `name` (Save As). */
+  | { type: 'saveLooperBank'; name: string | null; overwrite?: boolean }
+  /** Load a bank file (`looper.banks`): its memories replace the eight. */
+  | { type: 'loadLooperBank'; path: string }
   // Metronome: the built-in synth's click voice, never on the MIDI port.
   | { type: 'toggleMetronome' }
   | { type: 'setMetronome'; on: boolean }
@@ -178,6 +189,112 @@ export type AppCmd =
   | HarmonyArpCmd
   // Parameter Lock: groups that Registration, OTS and Playlist recalls leave alone.
   | { type: 'setParamLock'; item: LockItem; on: boolean }
+  // Style Dynamics Control, Touch and Accent (#180): see DynamicsState below.
+  | DynamicsCmd
+  // Knob Assign pages for the Launchkey's encoders (#197): see KnobsState below.
+  | KnobsCmd
+  // The effect bus (#204): see EffectsState below.
+  | FxCmd
+
+/** The effect bus's blocks (#204; docs/app-api.md › Effects). */
+export type FxCmd =
+  | { type: 'setEffectType'; block: FxBlock; effect: FxType }
+  | { type: 'setEffectReturn'; block: FxBlock; level: number }
+
+export type FxBlock = 'reverb' | 'chorus' | 'variation'
+/** Reverb: hall, room, stage, plate. Chorus: chorus, celeste, flanger. Variation (tempo delay): eighth, dottedEighth, quarter, pingPong. */
+export type FxType =
+  | 'hall' | 'room' | 'stage' | 'plate'
+  | 'chorus' | 'celeste' | 'flanger'
+  | 'eighth' | 'dottedEighth' | 'quarter' | 'pingPong'
+
+/** The effect bus: Reverb, Chorus and Variation, in that order. */
+export interface EffectsState {
+  blocks: EffectBlockState[]
+}
+
+export interface EffectBlockState {
+  block: FxBlock
+  /** "Reverb". */
+  name: string
+  effect: FxType
+  /** "Hall", "Delay 1/8.". */
+  effectName: string
+  /** The block's own types. */
+  types: { effect: FxType; name: string }[]
+  /** 0-127: 64 = 0 dB, 127 = +6 dB, 0 = off. */
+  returnLevel: number
+}
+
+/** Knob Assign pages (#197; docs/app-api.md › Knob Assign pages). */
+export type KnobsCmd =
+  | { type: 'setKnobPage'; page: KnobPage }
+  | { type: 'stepKnobPage'; delta: number }
+  | { type: 'turnKnob'; knob: number; delta: number }
+
+export type KnobPage = 'style' | 'parts' | 'pan' | 'effects'
+export type KnobFunction =
+  | 'none'
+  | 'dynamics'
+  | 'retriggerRate'
+  | 'retriggerOnOff'
+  | 'trackMuteA'
+  | 'trackMuteB'
+  | 'tempo'
+  | 'partVolume'
+  | 'harmonyVolume'
+  | 'metronomeVolume'
+  | 'partPan'
+  | 'partReverb'
+  | 'partChorus'
+  | 'fxReturn'
+
+/** The Knob Assign page and its eight knobs. */
+export interface KnobsState {
+  page: KnobPage
+  pageName: string
+  /** 1-based. */
+  pageNumber: number
+  pageCount: number
+  /** Knobs 1-8. */
+  knobs: KnobState[]
+}
+
+export interface KnobState {
+  function: KnobFunction
+  /** "Dynamics Control"; `short` is up to 8 characters ("DynCtrl", "---"). */
+  name: string
+  short: string
+  /** The value as text ("64", "1/8", "On", "3 of 8", "120 BPM"); empty for No Assign. */
+  value: string
+  /** Where the knob is, 0-127 (the LED ring); null for tempo and No Assign. */
+  level: number | null
+}
+
+/** Style Dynamics Control, Touch and Accent (#180; docs/app-api.md › Style Dynamics). */
+export type DynamicsCmd =
+  | { type: 'setDynamicsControl'; on: boolean }
+  | { type: 'setDynamics'; level: number }
+  | { type: 'stepDynamics'; delta: number }
+  | { type: 'setDynamicsTouch'; on: boolean }
+  | { type: 'toggleDynamicsTouch' }
+  | { type: 'setAccent'; on: boolean }
+  | { type: 'toggleAccent' }
+  | { type: 'setAccentThreshold'; velocity: number }
+
+/** Style Dynamics: System settings, not in Registration. */
+export interface DynamicsState {
+  /** Style Setting › Dynamics Control: the level acts on the Style. */
+  control: boolean
+  /** The level in effect, 0-127 (64: as written); Touch moves it. */
+  level: number
+  /** Chord-section strikes set the level. */
+  touch: boolean
+  /** A hard chord-section strike plays the Main's fill. */
+  accent: boolean
+  /** The Accent threshold (velocity 1-127). */
+  accentThreshold: number
+}
 
 /** A Parameter Lock group (the Genos Data List's lock groups that yahaha has). */
 export type LockItem = 'splitPoint' | 'fingeringType'
@@ -386,10 +503,15 @@ export interface ChordState {
   /** The chord-settle window in ms: while the style plays, a chord change reaches the
    * accompaniment once the chord has held still this long (a rolled chord is followed once). */
   settleMs: number
+  /** Left Hold (`setLeftHold`). */
+  leftHold: boolean
 }
 
 /** The widest chord-settle window, ms (`setChordSettle`). */
 export const CHORD_SETTLE_MAX_MS = 30
+
+/** A keyboard part's effect send (`setPartSend`): reverb (CC 91), chorus (CC 93) or variation, the tempo delay (CC 94). */
+export type PartSend = 'reverb' | 'chorus' | 'variation'
 
 export interface KeyboardPart {
   /** "Right 1", "Right 2", "Right 3", "Left". */
@@ -407,6 +529,14 @@ export interface KeyboardPart {
   voiceName: string
   playsBass: boolean
   octave: number
+  /** Pan (CC 10): 0 left, 64 centre, 127 right. 64 until something sets it. */
+  pan: number
+  /** Reverb send depth (CC 91); 50 (Left 40) until something sets it. */
+  reverb: number
+  /** Chorus send depth (CC 93); 10 until something sets it. */
+  chorus: number
+  /** Variation (tempo delay) send depth (CC 94); 0 until something sets it. */
+  variation: number
   /** Where its Launchkey fader (Panel page, faders 1–4) physically is; null until it moves. */
   fader: number | null
   /** The instrument plugin it plays instead of its SoundFont voice (absent: the SoundFont). */
@@ -444,6 +574,14 @@ export interface MixerState {
   /** Synth master volume (100 = unity); null without the synth. */
   master: number | null
   masterWaiting: boolean
+  /** The Style volume (Panel fader 5): 100 = the Style parts' CC 7 as written. */
+  styleVolume: number
+  /** Panel fader 5 hasn't reached `styleVolume` yet. */
+  styleVolumeWaiting: boolean
+  /** The Multi Pad volume (Panel fader 6): 100 = the pads' CC 7 as written. */
+  multiPadVolume: number
+  /** Panel fader 6 hasn't reached `multiPadVolume` yet. */
+  multiPadVolumeWaiting: boolean
   /** The Style part soloed (0–7), or null. */
   styleSolo: number | null
   /** The keyboard part soloed (0–3), or null. */
@@ -480,6 +618,11 @@ export interface LooperState {
   pendingMemory: number | null
   /** Always 8. */
   memories: LooperMemory[]
+  /** The bank's name ("New Bank" until saved or loaded), its file (null: unsaved), and the
+   * bank files in the ChordLooper folder. */
+  bankName: string
+  bankPath: string | null
+  banks: { name: string; path: string }[]
 }
 
 export interface MetronomeState {
@@ -868,6 +1011,12 @@ export interface AppState {
   paramLocks: ParamLockState
   /** The sound catalog's summary (#117); the list is `session.sounds()`. */
   sounds: SoundsState
+  /** Style Dynamics Control, Touch and Accent (#180). */
+  dynamics: DynamicsState
+  /** Knob Assign pages for the Launchkey's encoders (#197). */
+  knobs: KnobsState
+  /** The effect bus's Reverb, Chorus and Variation blocks (#204). */
+  effects: EffectsState
 }
 
 // ── Instrument plugins (docs/plugin-hosting.md) ──────────────────────────
@@ -945,7 +1094,7 @@ export type BendRange = 'upper' | 'lower' | 'full'
 export interface AssignableFunction {
   id: FunctionId
   name: string
-  category: 'voice' | 'style' | 'ots' | 'registration' | 'overall'
+  category: 'voice' | 'style' | 'ots' | 'registration' | 'overall' | 'chordLooper'
   /** switch: Control Type applies; trigger: fires on the press; continuous: an expression pedal. */
   kind: 'switch' | 'trigger' | 'continuous'
   /** yahaha has it (Registration Bank +/− not yet). */
@@ -1148,6 +1297,7 @@ export const PAD_PAGES: { id: PadPage; name: string }[] = [
   { id: 'chordSetup', name: 'Chord/Setup' },
   { id: 'otsParts', name: 'OTS/Parts' },
   { id: 'registration', name: 'Registration' },
+  { id: 'multiPads', name: 'Multi Pads' },
 ]
 
 /** Section names as the engine reports them. */

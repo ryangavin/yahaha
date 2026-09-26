@@ -21,7 +21,10 @@ const PART_SELECT: TipKey[] = ['part.right1.select', 'part.right2.select', 'part
 const PART_VOLUME: TipKey[] = ['mixer.panel.right1', 'mixer.panel.right2', 'mixer.panel.right3', 'mixer.panel.left']
 const OTS: TipKey[] = ['ots.1', 'ots.2', 'ots.3', 'ots.4']
 const REGIST: TipKey[] = ['regist.1', 'regist.2', 'regist.3', 'regist.4', 'regist.5', 'regist.6', 'regist.7', 'regist.8', 'regist.9', 'regist.10']
-const PAGE: Record<string, TipKey> = { sections: 'padpage.sections', chordSetup: 'padpage.chord_setup', otsParts: 'padpage.ots_parts', registration: 'padpage.registration' }
+const MP_PAD: TipKey[] = ['multipad.pad1', 'multipad.pad2', 'multipad.pad3', 'multipad.pad4']
+const MP_ARM: TipKey[] = ['multipad.arm1', 'multipad.arm2', 'multipad.arm3', 'multipad.arm4']
+const MP_STOP: TipKey[] = ['multipad.stop1', 'multipad.stop2', 'multipad.stop3', 'multipad.stop4']
+const PAGE: Record<string, TipKey> = { sections: 'padpage.sections', chordSetup: 'padpage.chord_setup', otsParts: 'padpage.ots_parts', registration: 'padpage.registration', multiPads: 'padpage.multi_pads' }
 
 /** The catalog entry for a command; an unused pad (null) has its own. */
 export function tipFor(cmd: AppCmd | null): TipKey {
@@ -49,6 +52,8 @@ export function tipFor(cmd: AppCmd | null): TipKey {
     case 'tempoDown': return 'tempo.down'
     case 'toggleStylePart': return 'mixer.style.mute'
     case 'setStylePartVolume': return 'mixer.style.volume'
+    case 'setStyleVolume': return 'mixer.style_level'
+    case 'setMultiPadVolume': return 'mixer.pad_level'
     case 'setFingering': return FINGERING[cmd.fingering]
     case 'nextFingering': return 'fingering.next'
     case 'setUpper':
@@ -63,6 +68,8 @@ export function tipFor(cmd: AppCmd | null): TipKey {
       return cmd.master < 0 ? 'transpose.master_down' : 'transpose.master_up'
     case 'resetTranspose': return 'transpose.reset'
     case 'setChordSettle': return 'settings.chord_settle'
+    case 'setLeftHold':
+    case 'toggleLeftHold': return 'detection.left_hold'
     case 'setPartOn':
     case 'togglePart': return PART_ON[cmd.part]
     case 'selectPart': return PART_SELECT[cmd.part]
@@ -70,6 +77,8 @@ export function tipFor(cmd: AppCmd | null): TipKey {
     case 'stepVoice': return cmd.delta < 0 ? 'part.voice_down' : 'part.voice_up'
     case 'setPartVolume': return PART_VOLUME[cmd.part]
     case 'setPartOctave': return 'part.octave_up'
+    case 'setPartPan': return 'mixer.part.pan'
+    case 'setPartSend': return cmd.send === 'reverb' ? 'mixer.part.reverb' : cmd.send === 'chorus' ? 'mixer.part.chorus' : 'mixer.part.variation'
     case 'setFaderPage':
     case 'toggleFaderPage': return 'mixer.page'
     case 'setPadPage': return PAGE[cmd.page]
@@ -144,7 +153,8 @@ export function tipFor(cmd: AppCmd | null): TipKey {
     case 'setRegistSequence': return 'regist.sequence_steps'
     case 'setRegistSequenceOn':
     case 'toggleRegistSequence': return 'regist.sequence_on'
-    case 'stepRegistSequence': return cmd.delta < 0 ? 'regist.seq_prev' : 'regist.seq_next'
+    case 'stepRegistSequence':
+    case 'stepRegist': return cmd.delta < 0 ? 'regist.seq_prev' : 'regist.seq_next'
     // Playlist
     case 'newPlaylist': return 'playlist.new'
     case 'loadPlaylist': return 'playlist.file'
@@ -169,6 +179,8 @@ export function tipFor(cmd: AppCmd | null): TipKey {
     case 'storeLooperMemory': return 'looper.store'
     case 'clearLooperMemory': return 'looper.clear'
     case 'newLooperBank': return 'looper.new_bank'
+    case 'saveLooperBank': return 'looper.save_bank'
+    case 'loadLooperBank': return 'looper.bank'
     case 'toggleMetronome':
     case 'setMetronome': return 'metronome.on'
     case 'setMetronomeVolume': return 'metronome.volume'
@@ -176,10 +188,10 @@ export function tipFor(cmd: AppCmd | null): TipKey {
     case 'loadMultiPad':
     case 'loadMultiPadPath': return 'multipad.bank'
     case 'clearMultiPad': return 'multipad.clear'
-    case 'triggerMultiPad': return 'multipad.pad'
-    case 'stopMultiPad': return 'multipad.stop'
+    case 'triggerMultiPad': return MP_PAD[cmd.pad] ?? 'multipad.pad'
+    case 'stopMultiPad': return MP_STOP[cmd.pad] ?? 'multipad.stop'
     case 'stopAllMultiPads': return 'multipad.stop_all'
-    case 'armMultiPad': return 'multipad.arm'
+    case 'armMultiPad': return MP_ARM[cmd.pad] ?? 'multipad.arm'
     case 'setMultiPadRepeat': return 'multipad.repeat'
     case 'setMultiPadChordMatch': return 'multipad.chord_match'
     case 'setMultiPadSynchroStop': return 'multipad.synchro_style_stop'
@@ -240,5 +252,21 @@ export function tipFor(cmd: AppCmd | null): TipKey {
     case 'assignSound': return 'sounds.row'
     case 'setSoundCategory': return 'sound.category'
     case 'setParamLock': return cmd.item === 'splitPoint' ? 'settings.param_lock_split_point' : 'settings.param_lock_fingering_type'
+    // Style Dynamics (#180).
+    case 'setDynamicsControl': return 'dynamics.control'
+    case 'setDynamics':
+    case 'stepDynamics': return 'dynamics.level'
+    case 'setDynamicsTouch':
+    case 'toggleDynamicsTouch': return 'dynamics.touch'
+    case 'setAccent':
+    case 'toggleAccent': return 'dynamics.accent'
+    case 'setAccentThreshold': return 'dynamics.accent_threshold'
+    // Knob Assign pages (#197).
+    case 'setKnobPage':
+    case 'stepKnobPage': return 'knobs.page'
+    case 'turnKnob': return 'knobs.knob'
+    // The effect bus (#204).
+    case 'setEffectType': return `fx.${cmd.block}_type`
+    case 'setEffectReturn': return `fx.${cmd.block}_return`
   }
 }

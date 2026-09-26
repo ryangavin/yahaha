@@ -4,13 +4,20 @@
   - The tab IS the Launchkey fader page (`state.mixer.faderPage`): switching tabs sends
     `setFaderPage`, so the hardware follows, and the Launchkey's page button switches the
     tab. There is no local copy of the page.
-  - Panel: Right 1–3 and Left on faders 1–4 (5–8 are unused on the hardware, drawn dim;
-    the button under fader 5 is HARMONY/ARPEGGIO, as on the Launchkey).
+  - Panel: Right 1–3 and Left on faders 1–4, the Style volume on fader 5 (#199: a scale
+    on every Style part's CC 7, like a fade; the button under it is HARMONY/ARPEGGIO, as on
+    the Launchkey), the Multi Pad volume on fader 6 (#196, the same kind of scale on the
+    pads' CC 7); 7–8 are unused on the hardware, drawn dim.
     Style: the eight band parts, Rhythm 1 … Phrase 2, on faders 1–8. Master on the right.
   - A fader is the channel's CC 7 (0–127) and nothing else: no hidden gain. Loading a
     style sets the Style faders to the style's own levels.
   - Soft takeover: ↕ while a level waits for its Launchkey fader, and a dashed ghost cap
     where that fader physically sits (from the provisional `state.surface`).
+  - Panel strips have Pan, Reverb, Chorus and Delay knobs (the part's CC 10, 91, 93, 94:
+    `setPartPan`, `setPartSend`, #198/#204); double-click one to put it back to its default.
+  - Effects (#204): the shared effect bus's Reverb, Chorus and Variation (tempo delay)
+    blocks, each with its type and return level (`setEffectType`, `setEffectReturn`). Every
+    part, Panel and Style, SoundFont and plugin, feeds them through its sends.
   - Solo (S): only that part plays, even if it is off; the Style tab solos a band part,
     the Panel tab a keyboard part (`setStyleSolo` / `setPartSolo`, #30). Press again to end.
   - The metronome (on/off, bell, its own volume) sits above the strips: it is the
@@ -19,7 +26,8 @@
   - No level meters yet.
 -->
 <script lang="ts">
-  import type { FaderPage, KeyboardPart, StylePart, TrackMuteOrder } from '../../lib/api/types'
+  import type { FaderPage, FxBlock, FxType, KeyboardPart, PartSend, StylePart, TrackMuteOrder } from '../../lib/api/types'
+  import type { TipKey } from '../../help/tooltips'
   import { app, ui } from '../../lib/store.svelte'
   import { tipFor } from '../../help/actions'
   import { css } from '../../lib/leds'
@@ -38,6 +46,14 @@
   const surface = $derived(surfaceOf(app.state, app.library))
   const outPort = $derived(app.state.io.outputPort)
   const metronome = $derived(app.state.metronome)
+  const effects = $derived(app.state.effects.blocks)
+  const FX_TIPS: Record<FxBlock, [TipKey, TipKey]> = {
+    reverb: ['fx.reverb_type', 'fx.reverb_return'],
+    chorus: ['fx.chorus_type', 'fx.chorus_return'],
+    variation: ['fx.variation_type', 'fx.variation_return'],
+  }
+  /** A return level as the Genos shows it: 64 = 0 dB, 127 = +6 dB, 0 = off. */
+  const returnText = (v: number) => (v === 0 ? 'Off' : `${v >= 64 ? '+' : ''}${(20 * Math.log10(v / 64)).toFixed(1)} dB`)
 
   // Style Track Mute is a knob: the engine keeps only the parts' switches it sets, so the
   // knob's position and order are this drawer's. Choosing an order only chooses what the
@@ -58,8 +74,12 @@
   const ledAt = (i: number) => surface.controls.find((c) => c.id === `faderButton${i + 1}`) ?? null
   const pageLed = $derived(surface.controls.find((c) => c.id === 'masterButton') ?? null)
 
-  /** Panel page faders after the keyboard parts (5–8): unused on the Launchkey too. */
-  const unusedSlots = $derived(Array.from({ length: Math.max(0, 8 - parts.length) }, (_, k) => parts.length + k))
+  /** Panel fader 5 (0-based 4): the Style volume. */
+  const STYLE_SLOT = 4
+  /** Panel fader 6: the Multi Pad volume. */
+  const PAD_SLOT = 5
+  /** Panel page faders after the Multi Pad volume (7–8): unused on the Launchkey too. */
+  const unusedSlots = $derived(Array.from({ length: Math.max(0, 8 - PAD_SLOT - 1) }, (_, k) => PAD_SLOT + 1 + k))
 
   /** The Panel page's button under fader 5 is HARMONY/ARPEGGIO, on the Launchkey and here. */
   const HARM_ARP_SLOT = 4
@@ -101,6 +121,15 @@
     hw: hwAt(i),
     faderTip: tipFor({ type: 'setPartVolume', part: i, volume: 0 }),
     onchange: (v: number) => app.send({ type: 'setPartVolume', part: i, volume: v }),
+    fx: {
+      pan: p.pan,
+      reverb: p.reverb,
+      chorus: p.chorus,
+      variation: p.variation,
+      reverbDefault: i === 3 ? 40 : 50,
+      onpan: (v: number) => app.send({ type: 'setPartPan', part: i, pan: v }),
+      onsend: (send: PartSend, v: number) => app.send({ type: 'setPartSend', part: i, send, value: v }),
+    },
     lit: p.sounding,
     on: {
       led: ledAt(i),
@@ -214,6 +243,35 @@
       {/if}
     </div>
 
+    <div class="effects">
+      {#each effects as b (b.block)}
+        <div class="block">
+          <span class="engraved">{b.block === 'variation' ? 'Delay' : b.name}</span>
+          <select
+            class="field"
+            aria-label="{b.name} type"
+            use:tip={FX_TIPS[b.block][0]}
+            value={b.effect}
+            onchange={(e) => app.send({ type: 'setEffectType', block: b.block, effect: e.currentTarget.value as FxType })}
+          >
+            {#each b.types as t (t.effect)}
+              <option value={t.effect}>{t.name}</option>
+            {/each}
+          </select>
+          <div class="slider return">
+            <HSlider
+              value={b.returnLevel}
+              tip={FX_TIPS[b.block][1]}
+              label="{b.name} return"
+              unity={64}
+              format={returnText}
+              onchange={(v) => app.send({ type: 'setEffectReturn', block: b.block, level: v })}
+            />
+          </div>
+        </div>
+      {/each}
+    </div>
+
     <p class="info" use:tip={'mixer.info'}>
       <b>A fader is its channel’s CC 7</b>, 0–127, with no hidden gain. Loading a style sets the Style faders to the
       style’s own levels. <span class="wait">↕</span> waits for the Launchkey fader; the dashed cap is where it sits.
@@ -224,8 +282,28 @@
         {#each parts as p, i (i)}
           <Strip {...panelStrip(p, i)} />
         {/each}
+        <Strip
+          name="Style"
+          value={mixer.styleVolume}
+          waiting={mixer.styleVolumeWaiting}
+          hw={hwAt(STYLE_SLOT)}
+          faderTip="mixer.style_level"
+          onchange={(v) => app.send({ type: 'setStyleVolume', volume: v })}
+          fxRow
+          button={slotButton(STYLE_SLOT)}
+        />
+        <Strip
+          name="M.Pad"
+          value={mixer.multiPadVolume}
+          waiting={mixer.multiPadVolumeWaiting}
+          hw={hwAt(PAD_SLOT)}
+          faderTip="mixer.pad_level"
+          onchange={(v) => app.send({ type: 'setMultiPadVolume', volume: v })}
+          fxRow
+          button={slotButton(PAD_SLOT)}
+        />
         {#each unusedSlots as n (n)}
-          <Strip name="—" value={0} faderTip="launchkey.fader_unused" onchange={() => {}} unused button={slotButton(n)} />
+          <Strip name="—" value={0} faderTip="launchkey.fader_unused" onchange={() => {}} unused fxRow button={slotButton(n)} />
         {/each}
       {:else}
         {#each mixer.styleParts as p, i (i)}
@@ -233,8 +311,9 @@
         {/each}
       {/if}
 
-      <div class="master">
+      <div class="master" class:knobs={page === 'panel'}>
         <div class="ch engraved">Synth</div>
+        {#if page === 'panel'}<div class="fx-space" aria-hidden="true"></div>{/if}
         <div class="fader">
           <Fader
             value={mixer.master ?? 0}
@@ -265,7 +344,7 @@
   }
   .mixer {
     display: grid;
-    grid-template-rows: auto auto auto 1fr;
+    grid-template-rows: auto auto auto auto 1fr;
     gap: 0.7rem;
     height: 100%;
     min-height: 27rem;
@@ -340,6 +419,30 @@
     align-items: center;
     font-size: 0.9rem;
   }
+  .effects {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem 1.2rem;
+    align-items: center;
+    font-size: 0.9rem;
+  }
+  .block {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+  }
+  .field {
+    min-height: 2rem;
+    padding: 0 0.4rem;
+    border: 1px solid var(--seam);
+    border-radius: 4px;
+    background: var(--well);
+    color: var(--ink);
+    font: inherit;
+  }
+  .slider.return {
+    width: 7.5rem;
+  }
   .metronome,
   .trackmute {
     display: flex;
@@ -405,6 +508,10 @@
     padding: 0.5rem 0.25rem 0.4rem 0.5rem;
     margin-left: 0.2rem;
     border-left: 1px solid var(--seam);
+  }
+  /* The row the Panel strips' knobs take, so the master fader lines up with theirs. */
+  .master.knobs {
+    grid-template-rows: auto var(--fx-h, 3.4rem) minmax(13rem, 1fr) auto;
   }
   .master .ch {
     font-size: 0.8rem;

@@ -24,6 +24,8 @@ fn session(test: &str, sf2: Option<&Path>) -> Option<(Session, PathBuf)> {
     let s = Session::offline(Options { paths: vec![a, b], data_dir: Some(dir.clone()), ..Options::default() }).unwrap();
     s.finish_indexing();
     s.offline_audio(sf2, 48_000).unwrap();
+    // The checks for silence: no reverb tail from the last note.
+    s.fx_returns_off();
     Some((s, dir))
 }
 
@@ -319,5 +321,42 @@ fn a_banks_plugin_voices() {
     let dls: Vec<crate::session::PluginVoice> = (0..10).map(|_| crate::session::PluginVoice { id: DLS.into(), state: None }).collect();
     s.inner.lock().warm_plugins(dls);
     assert_eq!(s.inner.lock().plugins.warm.entries.len(), crate::session::plugins::pool::MAX_WARM, "bounded");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// #173: a Memorize's plugin state read lands after the player has already switched bank.
+/// It must not go into the newly loaded bank's button (nor its file): that button keeps
+/// what it stored.
+#[test]
+fn a_memorize_fill_never_lands_in_another_bank() {
+    use crate::registration::{Bank, Memory, BANK_EXT};
+    use serde_json::json;
+    let Some((s, dir)) = session("fill-bank", None) else { return };
+    s.send(PluginCmd::SetPartPlugin { part: 0, id: DLS.into(), state: None }).unwrap();
+    assert_eq!(wait_loaded(&s, 0), Some(PluginStatus::Playing));
+    assert_eq!(s.inner.lock().part_plugin_voice(0).unwrap().1, None, "no state saved yet");
+    // Bank B: button 1 plays the same plugin with no stored state (what Memorize stores
+    // before its read lands).
+    let regdir = s.inner.lock().reg.dir.clone().unwrap();
+    std::fs::create_dir_all(&regdir).unwrap();
+    let mut b = Bank::new("B");
+    let mut m = Memory::default();
+    let voice = json!({ "kind": "plugin", "id": DLS, "name": "DLSMusicDevice", "program": 0 });
+    m.sections.insert("parts".into(), json!({ "parts": [{ "on": true, "voice": voice, "volume": 100, "octave": 0 }] }));
+    b.memories[0] = Some(m);
+    let path = regdir.join(format!("B{BANK_EXT}"));
+    b.save(&path).unwrap();
+
+    // Memorize into the unsaved bank, then load B before the state read lands.
+    s.send(RegistrationCmd::MemorizeRegist { index: 0 }).unwrap();
+    s.send(RegistrationCmd::SelectRegistBank { path: path.display().to_string() }).unwrap();
+    wait_reads(&s);
+    for _ in 0..5 {
+        s.advance(1_000_000);
+    }
+    assert!(stored_voice(&s, 0).get("state").is_none(), "bank B's button keeps what it stored: {}", stored_voice(&s, 0));
+    let on_disk = Bank::load(&path).unwrap();
+    let v = &on_disk.memories[0].as_ref().unwrap().sections["parts"]["parts"][0]["voice"];
+    assert!(v.get("state").is_none(), "nor its file");
     let _ = std::fs::remove_dir_all(&dir);
 }

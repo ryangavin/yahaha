@@ -18,6 +18,34 @@ pub enum PartsCmd {
     SetPartVolume { part: u8, volume: u8 },
     /// A part's octave shift (-2..=2).
     SetPartOctave { part: u8, octave: i8 },
+    /// A part's pan (its CC10: 0 = left, 64 = centre, 127 = right).
+    SetPartPan { part: u8, pan: u8 },
+    /// A part's reverb, chorus or variation (delay) send depth (its CC91, CC93 or CC94,
+    /// 0-127).
+    SetPartSend { part: u8, send: PartSend, value: u8 },
+}
+
+/// A keyboard part's effect send (Genos Mixer > Effect: Reverb and Chorus depth).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum PartSend {
+    /// CC91.
+    Reverb,
+    /// CC93.
+    Chorus,
+    /// CC94: the effect bus's Variation block, the tempo delay (#204).
+    Variation,
+}
+
+impl PartSend {
+    /// Its index in `Parts::fx`.
+    pub fn index(self) -> usize {
+        match self {
+            PartSend::Reverb => crate::parts::REVERB,
+            PartSend::Chorus => crate::parts::CHORUS,
+            PartSend::Variation => crate::parts::VARIATION,
+        }
+    }
 }
 
 /// A keyboard part: Right 1, Right 2, Right 3 or Left.
@@ -49,6 +77,15 @@ pub struct KeyboardPart {
     pub plays_bass: bool,
     /// The octave setting, -2..=2 (not applied while `plays_bass`).
     pub octave: i8,
+    /// Pan (CC10): 0 = left, 64 = centre, 127 = right.
+    pub pan: u8,
+    /// Reverb send depth (CC91), 0-127.
+    pub reverb: u8,
+    /// Chorus send depth (CC93), 0-127.
+    pub chorus: u8,
+    /// Variation (tempo delay) send depth (CC94), 0-127 (#204).
+    #[serde(default)]
+    pub variation: u8,
     /// The instrument plugin the part plays instead of its SoundFont voice (absent: the
     /// SoundFont voice). Its fader is the same CC7.
     #[serde(default, skip_serializing_if = "Option::is_none")]

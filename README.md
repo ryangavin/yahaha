@@ -28,12 +28,12 @@ Every `.sf2` file in `soundfonts/` is a source of sounds. The built-in synth's d
 - **Keyboard parts:** like the Genos, you play four parts: **Right 1**, **Right 2** and **Right 3** right of the split, and **Left** left of it. Each part has its own voice, volume, octave shift and on/off. The Right parts that are on sound together, which is how you layer (Piano + Strings = Right 1 + Right 2 on). At start only Right 1 (Grand Piano) is on; Right 2 is Strings, Right 3 Brass, Left Strings. Turn parts on/off with the buttons under faders 1–4 (fader Panel page), the bottom-left pads on pad page 3, or `5` `6` `7` `8` (`l` also toggles Left). Pick the part whose voice you want to change with `F1`–`F4`, the EDIT pads on pad page 3, or Shift + the button under its fader, then step its voice with `9`/`0` or the VOICE −/+ pads.
 - **Where your parts go:** each part has its own channel, on the `yahaha` port and in the built-in synth alike: Right 1 = ch 1, Left = ch 2 (the channels your right and left hand always had), Right 2 = ch 3, Right 3 = ch 4. A part that is off sends nothing. With Left off, the Right parts play over the whole keyboard, as on the Genos, except that in Lower chord detection (outside the Full Keyboard fingerings) the keys left of the split only drive the chords. Each part's octave shift is applied to the notes it sends. The sustain pedal and the wheels go to the parts that are on (which parts each reaches is a setting: see Pedals and wheels below); other controllers and pressure go to all four parts (polyphonic aftertouch to the notes its key sounds); the keyboard's own volume (CC 7), bank select and program changes are ignored, because each part's voice and volume are its own.
 - **Mixer:** the faders have two pages, like the Genos Mixer's Panel and Style tabs. The button under the master fader (or `F9`) switches between them; it lights blue on Panel and green on Style, and the screen outlines the active page in yellow.
-  - **Panel:** faders 1–4 are the volumes of Right 1, Right 2, Right 3 and Left; their buttons turn the parts on/off (lit while on). The button under fader 5 is the HARMONY/ARPEGGIO switch (purple, bright while on). Faders 5–8 and buttons 6–8 do nothing on this page.
+  - **Panel:** faders 1–4 are the volumes of Right 1, Right 2, Right 3 and Left; their buttons turn the parts on/off (lit while on). Fader 5 is the **Style volume**, the whole band against your hands (the Genos Balance page's Style slider): at 100 the Style parts play at their own levels, and it scales every Style part's CC7 as it goes out, as a Fade In/Out does, without moving their faders; a Registration stores it. The button under fader 5 is the HARMONY/ARPEGGIO switch (purple, bright while on). The button under fader 6 reloads the edited part's plugin (red while it has stopped or failed to load), and the button under fader 8 is the Chord Looper (see Controls). Fader 6 is the **Multi Pad volume**, the same kind of scale on the four pads' CC7 (the Genos Balance page's M.Pad slider), also stored in a Registration. Faders 7–8 and button 7 do nothing on this page.
   - **Style:** faders 1–8 are the band's eight part volumes; their buttons mute and unmute the parts (lit while they play).
   - Every level is its part's CC 7, sent unchanged to the `yahaha` port and the built-in synth; there is no other per-part gain. Under Manual Bass, Left plays the Style's Bass voice at Left's own level (Panel fader 4), at the pitch you play (Left's octave shift is for its own voice), and Left can't be switched off until Manual Bass is. The master fader is always the synth's output level (100 = unity); a safety soft clipper above -1 dBFS keeps the output from hard clipping.
   - Loading a style sets the Style faders to the style's own levels (100 where it sets none). A volume change inside a style's pattern moves its part's fader too, until you move that fader yourself. Every section change puts back what the last section's patterns changed in the style's part setup (SInt: voices, pan, effect sends, bend ranges), routed as the new section routes its source channels (a section that sends another source to a part brings that source's voice), so parts you have not touched go back to the style's levels before the new section's own changes; the levels you set are kept. Only what differs is sent: a section change that changes nothing sends nothing, never a program change for the voice a part already has, and the XG part parameters and drum setup only after a program change that resets them. A Fill or Break that comes in mid-bar also takes the voice and controller values its skipped first beats leave. Start/Stop does the same, and also sends the style's XG effects, with insertion and variation effects moved to the parts' destination channels. The SInt's GM/XG System On resets are never sent, and its SysEx goes to the `yahaha` port only. Changing style resets all of them.
   - The Launchkey faders, master included, use soft takeover: whenever a level moves without the fader (a style load, a pattern's volume change, a restart resetting an untouched part, an OTS recall, or switching the fader page), the hardware fader does nothing until it comes within 2 of that level or crosses it (`↕` on screen until then).
-- **One Touch Settings:** each style carries four suggested panel setups. Each one sets Right 1–3 and Left: voice, on/off, volume and octave shift; the Panel faders then pick the new volumes up. Recall one with `shift+1`–`4` or the OTS pads on pad page 3. **OTS Link** (pad page 3, Shift + Pad Bank ▼, or `F10`) makes Main A–D recall settings 1–4 automatically, and picks the right one when you change style.
+- **One Touch Settings:** each style carries four suggested panel setups. Each one sets Right 1–3 and Left: voice, on/off, volume, octave shift, pan and reverb/chorus sends; the Panel faders then pick the new volumes up. Recall one with `shift+1`–`4` or the OTS pads on pad page 3. **OTS Link** (pad page 3, Shift + Pad Bank ▼, or `F10`) makes Main A–D recall settings 1–4 automatically, and picks the right one when you change style.
 - **Keyboard Harmony / Arpeggio:** one HARMONY/ARPEGGIO switch (`J`, the button under fader 5 on the Panel fader page, or the app's Harmony panel) and one type, as on the Genos. The type is a Keyboard Harmony type (Duet, Trio, Block, 4-Way, 1+5, Octave, Strum, Multi Assign, Echo, Tremolo, Trill; our own voicings, see [docs/harmony.md](docs/harmony.md)) or one of yahaha's own arpeggio patterns ([docs/arpeggio.md](docs/arpeggio.md)); `L` steps through them. Only the keys right of the split are processed. The harmony follows the chord you play for the style; only the top note of the right hand is harmonised. The arpeggio follows the style clock while the band plays (Quantize lines it up with the bar) and its own clock while it is stopped; `*` is the Arpeggio Hold setting (a pedal can hold it too, apart from the setting). Volume, Assign, Chord Note Only, Touch Limit, Speed, Quantize, Velocity and Keep Key On are in the app.
 - **Stop Accompaniment** (`h`): with Sync Start off and the band stopped, a held chord sounds on the style's bass and pad voices.
 - `k` mutes the synth, for example when you're using Ableton sounds instead.
@@ -85,7 +85,7 @@ The screen shows a live map of the pads, in the same colours as the hardware:
 
 ### Pad pages
 
-The 16 pads have three pages. The **Pad Bank ▲/▼** buttons left of the pads switch pages: ▼ goes to the next page, ▲ to the previous one, and they stop at the ends, so a few presses of ▲ always take you home to page 1. The arrows light in the current page's colour where there is a page to go to. `Tab` / `Shift+Tab` switch pages from the terminal too, and the on-screen pad map always shows the current page and its name.
+The 16 pads have five pages. The **Pad Bank ▲/▼** buttons left of the pads switch pages: ▼ goes to the next page, ▲ to the previous one, and they stop at the ends, so a few presses of ▲ always take you home to page 1. The arrows light in the current page's colour where there is a page to go to. `Tab` / `Shift+Tab` switch pages from the terminal too, and the on-screen pad map always shows the current page and its name.
 
 **Page 1 · Sections** (per-section colours, the original layout):
 
@@ -120,6 +120,37 @@ Pressing the current Main again plays its fill. With Auto Fill on, switching Mai
 - The on/off pads are lit while the part is on. The lit Edit pad is the part whose voice Voice −/+ (`9`/`0`) changes.
 - The accompaniment parts are muted with the buttons under the faders on the Style fader page, or `z`…`,`.
 
+**Page 4 · Registration** (orange): Registration Memory 1–10, Bank −/+, Memory, Freeze, Regist −/+ (docs/registration.md).
+
+**Page 5 · Multi Pads** (yellow):
+
+| pad | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 |
+|---|---|---|---|---|---|---|---|---|
+| top | Multi Pad 1 | Multi Pad 2 | Multi Pad 3 | Multi Pad 4 | STOP | – | – | – |
+| bottom | Select 1 | Select 2 | Select 3 | Select 4 | Stop 1 | Stop 2 | Stop 3 | Stop 4 |
+
+- Pads 1–4 light as the Genos lamps: blue has data, red plays, flashing red waits for Synchro Start, flashing amber waits for the bar line, dark is empty.
+- STOP stops every pad and cancels Synchro Start; it lights while a pad plays or waits.
+- Select *n* is the Genos SELECT + pad: Synchro Start standby for that pad (it flashes while armed). Stop *n* is STOP + pad: that pad stops now.
+- Like the section pads, the presses go straight to the engine.
+
+### Knobs
+
+The 8 encoders are the Genos LIVE CONTROL knobs, on Knob Assign pages. The **encoder page buttons ▲/▼** (right of the knobs) switch pages, as the Genos KNOB ASSIGN button does, stopping at the ends. The knobs are relative: a turn moves the value from where it is now, whoever set it last. Knob 8 is tempo on every page but Effects.
+
+| knob | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 |
+|---|---|---|---|---|---|---|---|---|
+| **1 · Style** | Dynamics | Retrigger length | Retrigger on/off | Style Track Mute A | Style Track Mute B | – | – | Tempo |
+| **2 · Parts** | Right 1 volume | Right 2 volume | Right 3 volume | Left volume | Harmony volume | Metronome volume | – | Tempo |
+| **3 · Pan** | Right 1 pan | Right 2 pan | Right 3 pan | Left pan | – | – | – | Tempo |
+| **4 · Effects** | Right 1 reverb | Right 2 reverb | Right 3 reverb | Left reverb | Right 1 chorus | Right 2 chorus | Right 3 chorus | Left chorus |
+
+- **Dynamics** is the Style Dynamics level (64 = as written), 2 a step. It only acts while Settings › Style › Dynamics Control is on.
+- **Retrigger length** turns shorter to the right (1/1 … 1/32), **Retrigger on/off** turns it on to the right and off to the left; both switch every 3 steps.
+- **Style Track Mute A/B** start fully right (every Style part on). Turning left takes parts out until one is left: A keeps Rhythm 2, then brings in Rhythm 1, Bass, Chord 1, Chord 2, Pad, Phrase 1, Phrase 2; B keeps Chord 1, then Chord 2, Pad, Bass, Phrase 1, Phrase 2, Rhythm 1, Rhythm 2 (RM p.148). They set the parts' on/off switches, as the Style fader buttons do.
+- **Tempo** moves 1 BPM a step; the volumes, pans and sends 2 a step (a part's volume is its CC7, as its fader; pan is its CC10, L64 … C … R63; Reverb and Chorus its CC91 and CC93, as in the Mixer drawer).
+- yahaha turns the encoders' relative output on when it puts the Launchkey in DAW mode. They also work in the Transport encoder mode (Shift + the pad under "Transport"), which is always relative.
+
 ### Buttons
 
 | button | does |
@@ -128,13 +159,18 @@ Pressing the current Main again plays its fill. With Auto Fill on, switching Mai
 | **Stop** | stop |
 | **< Track** / **Track >** | previous/next style, playing or stopped (folder, then name: the browser's order) |
 | **Pad Bank ▲ / ▼** (left of the pads) | previous/next pad page |
+| **▲ / ▼ right of the knobs** | previous/next Knob Assign page |
 | **Shift + Pad Bank ▲ / ▼** | Left part on/off / OTS Link on/off |
 | **> (Scene Launch)** / **Function** (right of the pads) | tempo + / − |
 | **Shift + Play** | Section Reset: the section starts again from its top |
 | **Shift + Stop** | Fade In/Out: stopped, arm a fade in; playing, fade out and stop |
 | **Shift + > / Shift + Function** | Retrigger length shorter / longer |
-| buttons under faders 1–8 | Panel page: Right 1–3, Left on/off (Shift: edit that part's voice), button 5 Harmony/Arpeggio on/off, button 6 reload the edited part's plugin (red while it stopped or failed to load) · Style page: mute/unmute the style parts |
+| buttons under faders 1–8 | Panel page: Right 1–3, Left on/off (Shift: edit that part's voice), button 5 Harmony/Arpeggio on/off, button 6 reload the edited part's plugin (red while it stopped or failed to load), button 7 Left Hold on/off (orange while on), button 8 Chord Looper ON/OFF (Shift: REC/STOP; dim green = a loop to play, dim yellow = armed, green = looping, dim red / red = recording armed / recording) · Style page: mute/unmute the style parts |
 | button under the master fader | fader page Panel / Style |
+
+### The Launchkey display
+
+Touch or move any control yahaha maps (a pad, a button, a fader, a fader button, a knob) and the Launchkey's display says what it did: where it is, the function's name and its new value, e.g. `Pads: Sections` / `MAIN B` / `Fill In BB`, `Knobs: Style` / `Dynamics Control` / `72`, `Faders: Panel` / `LEFT` / `96 > 80` (the level is 96 and the fader, not caught yet by soft takeover, is at 80). The Style and Multi Pad volumes on Panel faders 5 and 6 read in percent (`STYLE` / `85%`, 100% = as written). The value follows for a moment after the touch, so a tempo or section change shows once the band has it. The display then goes back to the normal screen after the Launchkey's own display timeout (Settings on the Launchkey). The faders' and knobs' own raw CC readouts are turned off while yahaha drives the Launchkey.
 
 The last Launchkey note or CC that nothing is mapped to shows at the bottom of the screen, e.g. `unmapped CC 103 = 127`. If a button does nothing, that shows the number it really sends.
 
@@ -169,7 +205,7 @@ The screen shows `sus` beside each part the pedal is holding.
 - `i o p` Ending I–III (again while it plays: ritardando)
 - `g` break
 - `A` `S` Fill Down / Fill Up (a fill, then the Main to the left / right) · `G` Fill Self · `N` Half Bar Fill In
-- `t` tap tempo (while the band plays: Section Reset, as on the Genos, unless Settings › Style › Tap: Section Reset is off)
+- `t` tap tempo (stopped: a bar of taps starts the style a beat after the last one; while the band plays: Section Reset, as on the Genos, unless Settings › Style › Tap: Section Reset is off)
 - `|` Section Reset · `F` Fade In/Out
 - `~` Retrigger on/off · `{ }` Retrigger length longer/shorter
 - `- =` tempo down/up
@@ -190,11 +226,13 @@ The screen shows `sus` beside each part the pedal is holding.
 - `←/→` previous/next style, in the style browser's order (folder, then name)
 - `enter` open the style browser (see below)
 - `tab` / `shift+tab` next/previous pad page
-- `Z X C V` Multi Pads 1–4 (shift+z…v) · `B` Multi Pad STOP (shift+b). The banks (the .pad files in the style folders) load from the app's Multi Pads drawer; yahaha pad --demo writes a synthetic bank to try. See docs/multipad.md, which also proposes a Launchkey Multi Pad page.
+- `Z X C V` Multi Pads 1–4 (shift+z…v) · `B` Multi Pad STOP (shift+b). The banks (the .pad files in the style folders) load from the app's Multi Pads drawer; yahaha pad --demo writes a synthetic bank to try. On the Launchkey they are pad page 5. See docs/multipad.md.
 - `a` next audio output pair · `k` mute the synth
 - `M` (shift+m) chart mode on/off · `( )` previous/next chart song (see "iReal Pro charts" below)
 - `r` Chord Looper REC/STOP · `^` Chord Looper ON/OFF (recording, looping and memory changes start at the next bar)
 - `.` metronome on/off (built-in synth only, never on the MIDI port)
+- `H` (shift+h) Accent on/off: a hard strike in the chord section plays the Main's fill · `&` (shift+7) Touch on/off: the band's Dynamics follow how hard the chord section is struck (see docs/genos-features.md, Style Dynamics Control)
+- `_` (shift+-) Left Hold on/off: Left rings on after you let go, until your next Left key or the style stops
 - `\` panic (all notes off)
 - `esc` twice (within 1.5 s) quit, or `ctrl+c`; one `esc` closes the style browser
 
@@ -265,6 +303,7 @@ The engine, the runtime and the app API are the `yahaha` library. A `Session` ow
 
 - `yahaha dump <style>`: sections, channels, and CASM rules.
 - `yahaha sim <style> "C Am7 F G7"`: offline render, one chord per bar, printed per part.
+- `yahaha render <style> "C Am7 F G7" <font.sf2> <out.wav>`: the same played through the built-in SoundFont synth into a 48 kHz WAV, for listening tests. Keep the WAVs off the repo (they are the style's patterns). `YAHAHA_VEL_FILTER=off` (here, with `play`, or for the app) turns off velocity → tone: the SF2 default velocity → filter cutoff modulator and the SoundFont's own, which the vendored rustysynth applies (#203).
 - `yahaha capture-kit <out-dir> [--clock-ppm N] [style]...`: writes the Genos-owner reference capture kit, with a chord-script MIDI file per style and instructions (`docs/capture-kit/`). `--clock-ppm` runs the files that much faster, for an instrument whose clock drifts past a style's tolerance.
 - `yahaha capture-import <recording.mid> <style>`: compares a hardware recording of that kit with what yahaha plays, bar by bar and part by part. `--golden tests/reference` turns a verified recording into a reference digest (`tests/reference/README.md`).
 - `yahaha oracle corpus/ [--pairs | --scores | --diff tests/oracle/scores.txt]`: scores our chord conversion against the authors' own major/minor source channels (docs/oracle.md). Counts only.
@@ -277,7 +316,7 @@ Tests: run `cargo test --release`. It covers the spec's transposition examples, 
 ## Known gaps
 
 - The NTT transposition tables are reconstructed from documentation and have not yet been checked against a real Genos (see PLAN.md §4).
-- Not done yet: ritardando on a second Ending press, Ableton Link, audio styles, OTS voice changes, and the Ctb2 bytes that are still undocumented.
+- Not done yet: ritardando on a second Ending press, Ableton Link, audio styles, the OTS filter, portamento, bend range and XG part settings (voice, volume, octave, pan and sends are recalled), and the Ctb2 bytes that are still undocumented.
 
 ## License
 

@@ -23,11 +23,11 @@ describe('the mock surface matches the engine (src/session.rs surface)', () => {
       'padBankUp', 'padBankDown', 'trackPrev', 'trackNext', 'play', 'stop', 'scene', 'function',
       'faderButton1', 'faderButton2', 'faderButton3', 'faderButton4', 'faderButton5', 'faderButton6', 'faderButton7', 'faderButton8', 'masterButton',
     ])
-    expect(labels(m)).toEqual(['', 'PAGE ▼', '◀ STYLE', 'STYLE ▶', 'PLAY', 'STOP', 'TEMPO +', 'TEMPO -', 'RIGHT 1', 'RIGHT 2', 'RIGHT 3', 'LEFT', 'HARM/ARP', 'PLUGIN', '', '', 'PANEL'])
+    expect(labels(m)).toEqual(['', 'PAGE ▼', '◀ STYLE', 'STYLE ▶', 'PLAY', 'STOP', 'TEMPO +', 'TEMPO -', 'RIGHT 1', 'RIGHT 2', 'RIGHT 3', 'LEFT', 'HARM/ARP', 'PLUGIN', 'L HOLD', 'LOOPER', 'PANEL'])
     expect(m.state.surface.controls.map((c) => c.shiftLabel).slice(0, 2)).toEqual(['LEFT', 'OTS LINK'])
     expect(m.state.surface.controls[8].shiftLabel).toBe('EDIT R1')
     expect(m.state.surface.faders).toHaveLength(9)
-    expect(m.state.surface.faders.map((f) => f.label)).toEqual(['RIGHT 1', 'RIGHT 2', 'RIGHT 3', 'LEFT', '', '', '', '', 'MASTER'])
+    expect(m.state.surface.faders.map((f) => f.label)).toEqual(['RIGHT 1', 'RIGHT 2', 'RIGHT 3', 'LEFT', 'STYLE', 'M.PAD', '', '', 'MASTER'])
     m.send({ type: 'toggleFaderPage' })
     expect(labels(m).slice(8)).toEqual(['RHYTHM 1', 'RHYTHM 2', 'BASS', 'CHORD 1', 'CHORD 2', 'PAD', 'PHRASE 1', 'PHRASE 2', 'STYLE'])
   })
@@ -80,7 +80,7 @@ describe('Shift layer, as the engine JSON arrives', () => {
     const wire = JSON.parse(JSON.stringify(m.state.surface)) as typeof m.state.surface
     expect(wire.controls.filter(hasShiftFunction).map((c) => c.id)).toEqual([
       'padBankUp', 'padBankDown', 'trackPrev', 'trackNext', 'play', 'stop', 'scene', 'function',
-      'faderButton1', 'faderButton2', 'faderButton3', 'faderButton4',
+      'faderButton1', 'faderButton2', 'faderButton3', 'faderButton4', 'faderButton8',
     ])
   })
 })

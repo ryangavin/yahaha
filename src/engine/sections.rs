@@ -15,6 +15,8 @@ pub enum Change {
     /// A fill under Half Bar Fill In (asked for on the first beat of a bar): from the
     /// middle of that bar.
     HalfBar,
+    /// A fill asked for while a fill plays (#229): at that fill's end, from its top.
+    AfterFill,
     /// The band stops (an Ending the style doesn't have).
     Stop,
     /// Another style takes over while the band plays (follows "To Main").
@@ -45,7 +47,8 @@ impl Engine {
     /// a style change while playing).
     ///
     /// Fills and breaks start at the next beat and play the rest of that bar, aligned so
-    /// the fill's beat matches the bar position. Mains and style changes follow Section
+    /// the fill's beat matches the bar position; a fill asked for while a fill plays waits
+    /// for that fill's end and plays from its top (#229). Mains and style changes follow Section
     /// Change Timing "To Main" (`MainTiming`; Auto Fill In on makes a Main change Next
     /// Bar). Changing from an Intro or Ending to another follows "Inside Intro/Ending"
     /// (`IntroEndingTiming`), except Intro to Intro (always Next Bar) and into Ending I;
@@ -60,6 +63,10 @@ impl Engine {
         let timing = self.features.settings;
         match change {
             Change::Fill => self.next_beat(now),
+            Change::AfterFill => {
+                let end = self.sec_start + self.style.sections[self.cur].as_ref().map_or(0, |s| s.len) as f64;
+                (end, end)
+            }
             Change::Main => match timing.main_timing {
                 MainTiming::Immediate if !self.auto_fill => self.next_beat(now),
                 _ => self.bar_or_now(now),
@@ -126,7 +133,7 @@ impl Engine {
 
     /// The tick a queued Ending (pressed, not playing yet) ends at, on the section
     /// timeline: its start plus its length in the style playing.
-    fn queued_ending_end(&self) -> Option<f64> {
+    pub(super) fn queued_ending_end(&self) -> Option<f64> {
         let q = self.queued?;
         if !(13..=15).contains(&q.slot) {
             return None;
@@ -159,13 +166,13 @@ impl Engine {
     pub(super) fn queue_at_bar(&mut self, slot: usize, now: u64) {
         let change = if matches!(id_of(slot), SectionId::Main(_)) { Change::Main } else { Change::IntroEnding(slot) };
         let (at, sec_start) = self.change_point(change, now);
-        self.queued = Some(Queued { slot, at, sec_start });
+        self.set_queued(Queued { slot, at, sec_start }, now);
     }
 
     /// Queue the band's stop (an Ending the style doesn't have).
     pub(super) fn queue_stop_at_bar(&mut self, now: u64) {
         let (at, sec_start) = self.change_point(Change::Stop, now);
-        self.queued = Some(Queued { slot: usize::MAX, at, sec_start });
+        self.set_queued(Queued { slot: usize::MAX, at, sec_start }, now);
     }
 
     /// Queue a fill or break.
@@ -176,7 +183,21 @@ impl Engine {
     /// Queue section `slot` for the change point of a `change`.
     pub(super) fn queue_change(&mut self, slot: usize, change: Change, now: u64) {
         let (at, sec_start) = self.change_point(change, now);
-        self.queued = Some(Queued { slot, at, sec_start });
+        self.set_queued(Queued { slot, at, sec_start }, now);
+    }
+
+    /// Queue `q` in place of whatever was queued. A style change waiting for a queued
+    /// Ending that this replaces (#175) no longer waits for it: it comes when a style
+    /// chosen now would (the new change, if it is an Ending, is waited for in turn).
+    fn set_queued(&mut self, q: Queued, now: u64) {
+        let was_ending = self.queued_ending_end().is_some();
+        self.queued = Some(q);
+        if was_ending && self.pending.is_some() {
+            let (at, _) = self.change_point(Change::Style, now);
+            if let Some(p) = self.pending.as_mut() {
+                p.at = at;
+            }
+        }
     }
 
     pub(super) fn seek(&mut self, pos: f64) {
