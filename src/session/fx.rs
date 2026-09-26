@@ -347,4 +347,32 @@ mod tests {
         assert_eq!(reverb(&s), hall);
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    /// #236: the delay's parameters: a type sets the note value and the ping-pong switch,
+    /// and they reach the audio thread.
+    #[test]
+    fn delay_parameters_follow_the_type_and_reach_the_bus() {
+        use crate::api::{FxBlock, FxCmd, FxParam, FxType};
+        let p = Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus/MOX_v2/SlowWalker.T552.sty");
+        if !p.exists() {
+            eprintln!("corpus missing; skipping");
+            return;
+        }
+        let s = Session::offline(Options { paths: vec![p], ..Options::default() }).unwrap();
+        s.offline_audio(None, 48_000).unwrap();
+        let delay = |s: &Session| s.state().effects.blocks[2].params.iter().map(|p| p.display.clone()).collect::<Vec<_>>();
+        assert_eq!(delay(&s), ["On", "1/8.", "375 ms", "38%", "5.0 kHz", "Off"]);
+        s.send(FxCmd::SetEffectType { block: FxBlock::Variation, effect: FxType::PingPong }).unwrap();
+        assert_eq!(delay(&s), ["On", "1/8", "375 ms", "38%", "5.0 kHz", "On"]);
+        s.send(FxCmd::SetEffectParam { block: FxBlock::Variation, param: FxParam::DelayNote, value: 1 }).unwrap();
+        s.send(FxCmd::SetEffectParam { block: FxBlock::Variation, param: FxParam::DelayFeedback, value: 95 }).unwrap();
+        s.send(FxCmd::SetEffectParam { block: FxBlock::Variation, param: FxParam::DelaySync, value: 0 }).unwrap();
+        s.send(FxCmd::SetEffectParam { block: FxBlock::Variation, param: FxParam::DelayTime, value: 5 }).unwrap();
+        assert!(s.send(FxCmd::SetEffectParam { block: FxBlock::Reverb, param: FxParam::PingPong, value: 1 }).is_err());
+        assert_eq!(delay(&s), ["Off", "1/8T", "10 ms", "90%", "5.0 kHz", "On"]);
+        let ctl = s.inner.lock();
+        let fx = &ctl.synth.as_ref().unwrap().control.fx;
+        let got = [FxParam::DelaySync, FxParam::DelayNote, FxParam::DelayTime, FxParam::DelayFeedback, FxParam::PingPong].map(|p| fx.params[p.index()].load(Relaxed));
+        assert_eq!(got, [0, 1, 10, 90, 1]);
+    }
 }

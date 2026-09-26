@@ -465,6 +465,19 @@ The effect parameters (`param`, its unit and range, and each type's own value):
 | Reverb | `preDelay` | ms | 0–200 | 22 / 4 / 12 / 1 |
 | Reverb | `reverbTone` | 100 Hz (the tail's high cut; lower is darker) | 10–200 (1–20 kHz) | 45 / 60 / 65 / 90 |
 
+| Block | `param` | Unit | Range | 1/8 / 1/8. / 1/4 / Ping-Pong |
+|---|---|---|---|---|
+| Variation | `delaySync` | switch: 1 = the time is `delayNote` at the style tempo, 0 = `delayTime` | 0–1 | 1 |
+| Variation | `delayNote` | note value: 0 `1/16`, 1 `1/8T`, 2 `1/8`, 3 `1/4T`, 4 `1/8.`, 5 `1/4`, 6 `1/4.`, 7 `1/2` | 0–7 | 2 / 4 / 5 / 2 |
+| Variation | `delayTime` | ms (with tempo sync off) | 10–2000 | 375 |
+| Variation | `delayFeedback` | % of each repeat that comes back | 0–90 | 38 |
+| Variation | `delayTone` | 100 Hz (the repeats' high cut) | 10–200 (1–20 kHz) | 50 |
+| Variation | `pingPong` | switch: 1 = the repeats alternate left and right | 0–1 | 0 / 0 / 0 / 1 |
+
+The Variation types are starting points: each sets the note value and the ping-pong switch,
+which can then be changed like any parameter (as a Genos type loads its own settings). A
+delay longer than 2 s repeats at 2 s.
+
 ### Knob Assign pages
 The Launchkey's 8 encoders as the Genos LIVE CONTROL knobs (#197; OM p.62–63, RM p.145–148;
 README › Knobs). A page gives each knob a function; the knobs are relative, so a turn moves
@@ -1763,7 +1776,15 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
         "types": [{ "effect": "chorus", "name": "Chorus" }, { "effect": "celeste", "name": "Celeste" }, { "effect": "flanger", "name": "Flanger" }]
       },
       {
-        "block": "variation", "name": "Variation", "effect": "dottedEighth", "effectName": "Delay 1/8.", "returnLevel": 64, "bandSend": 0, "params": [],
+        "block": "variation", "name": "Variation", "effect": "dottedEighth", "effectName": "Delay 1/8.", "returnLevel": 64, "bandSend": 0,
+        "params": [
+          { "param": "delaySync", "name": "Tempo sync", "value": 1, "min": 0, "max": 1, "default": 1, "display": "On" },
+          { "param": "delayNote", "name": "Note", "value": 4, "min": 0, "max": 7, "default": 4, "display": "1/8." },
+          { "param": "delayTime", "name": "Time", "value": 375, "min": 10, "max": 2000, "default": 375, "display": "375 ms" },
+          { "param": "delayFeedback", "name": "Feedback", "value": 38, "min": 0, "max": 90, "default": 38, "display": "38%" },
+          { "param": "delayTone", "name": "Tone", "value": 50, "min": 10, "max": 200, "default": 50, "display": "5.0 kHz" },
+          { "param": "pingPong", "name": "Ping-pong", "value": 0, "min": 0, "max": 1, "default": 0, "display": "Off" }
+        ],
         "types": [{ "effect": "eighth", "name": "Delay 1/8" }, { "effect": "dottedEighth", "name": "Delay 1/8." }, { "effect": "quarter", "name": "Delay 1/4" }, { "effect": "pingPong", "name": "Ping-Pong" }]
       }
     ]

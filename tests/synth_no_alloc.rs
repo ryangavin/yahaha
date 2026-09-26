@@ -99,6 +99,16 @@ fn the_audio_callback_does_not_allocate() {
             assert_eq!(run(&mut core, &mut feed, &[]), none, "effect parameters");
         }
     }
+    // The delay's parameters (#236): note values, free time, feedback, tone, ping-pong.
+    use yahaha::fx::Param as P;
+    for (sync, note, ms, fb, tone, pp) in [(1u16, 7u16, 375u16, 90u16, 20u16, 1u16), (0, 0, 60, 0, 200, 0), (1, 4, 375, 38, 50, 0)] {
+        for (p, v) in [(P::DelaySync, sync), (P::DelayNote, note), (P::DelayTime, ms), (P::DelayFeedback, fb), (P::DelayTone, tone), (P::PingPong, pp)] {
+            ctl.fx.params[p.index()].store(v, Ordering::Relaxed);
+        }
+        for _ in 0..3 {
+            assert_eq!(run(&mut core, &mut feed, &[]), none, "delay parameters");
+        }
+    }
     // The band send scales (#236) gliding up and back.
     for (b, level) in [(1, 100u8), (2, 127), (0, 50), (1, 0), (2, 0), (0, 100)] {
         ctl.fx.band_send[b].store(level, Ordering::Relaxed);
