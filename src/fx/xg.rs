@@ -15,6 +15,12 @@
 //!   dotted 1/8. Other variation types (reverbs, distortion, wah...) have no match: the
 //!   delay then stays at its default, and the band doesn't reach it anyway (#236).
 //!
+//! The style's return levels (`0C`, `2C`, `56`) and its reverb's time, initial delay and
+//! high cut (parameters 1, 3 and 4 or 5, #269) come with a matching type: the time and
+//! delay from the Data List's Table#1 and Table#2, the high cut (a Real Reverb's High Damp
+//! Frequency, another reverb's LPF Cutoff) from Table#3, as our Tone. The chorus's
+//! parameters are not read: no corpus style sets them on a chorus type yahaha has.
+//!
 //! No match leaves the block at its own default type. Only the control side uses this (at
 //! style load); nothing here runs on the audio thread.
 
@@ -22,6 +28,10 @@ use super::Param;
 
 /// XG Effect 1 (System Effects) parameter addresses within `02 01`.
 const REVERB_TYPE: usize = 0x00;
+/// Reverb parameters 1-10, one byte each, from 0x02.
+const REVERB_PARAM: usize = 0x02;
+/// The blocks' return levels: Reverb, Chorus, Variation.
+const RETURNS: [usize; 3] = [0x0C, 0x2C, 0x56];
 const CHORUS_TYPE: usize = 0x20;
 const VARIATION_TYPE: usize = 0x40;
 /// Variation parameters 1-10: two bytes each (MSB, LSB), from 0x42.
@@ -41,6 +51,9 @@ pub struct Choice {
     pub kind: Option<u8>,
     /// Parameters the style sets on top of that type's own (`Param`, value).
     pub params: Vec<(Param, u16)>,
+    /// The block's return level as the style sets it (0-127, 64 = 0 dB), with a match
+    /// only (#269).
+    pub ret: Option<u8>,
 }
 
 /// The style's choices: Reverb, Chorus, Variation (None: the style doesn't set it, or its
@@ -69,25 +82,21 @@ impl StyleFx {
             }
         }
         let pair = |a: usize| Some((mem[a]?, mem[a + 1]?));
-        let reverb = pair(REVERB_TYPE).filter(|t| t.0 != 0).map(|(msb, lsb)| Choice {
-            msb,
-            lsb,
-            name: name(REVERB_NAMES, msb, lsb),
-            kind: reverb_kind(msb),
-            params: Vec::new(),
+        let ret = |b: usize, kind: Option<u8>| kind.and(mem[RETURNS[b]]);
+        let reverb = pair(REVERB_TYPE).filter(|t| t.0 != 0).map(|(msb, lsb)| {
+            let kind = reverb_kind(msb);
+            let params = if kind.is_some() { reverb_params(msb, lsb, |n| mem[REVERB_PARAM + n - 1]) } else { Vec::new() };
+            Choice { msb, lsb, name: name(REVERB_NAMES, msb, lsb), kind, params, ret: ret(0, kind) }
         });
-        let chorus = pair(CHORUS_TYPE).filter(|t| t.0 != 0).map(|(msb, lsb)| Choice {
-            msb,
-            lsb,
-            name: name(CHORUS_NAMES, msb, lsb),
-            kind: chorus_kind(msb, lsb),
-            params: Vec::new(),
+        let chorus = pair(CHORUS_TYPE).filter(|t| t.0 != 0).map(|(msb, lsb)| {
+            let kind = chorus_kind(msb, lsb);
+            Choice { msb, lsb, name: name(CHORUS_NAMES, msb, lsb), kind, params: Vec::new(), ret: ret(1, kind) }
         });
         let system = mem[VARIATION_CONNECTION] == Some(1);
         let variation = pair(VARIATION_TYPE).filter(|t| t.0 != 0 && system).map(|(msb, lsb)| {
             let param = |n: usize| pair(VARIATION_PARAM + 2 * (n - 1)).map(|(a, b)| (a as u16) << 7 | b as u16);
             let (kind, params) = delay(msb, param);
-            Choice { msb, lsb, name: name(VARIATION_NAMES, msb, lsb), kind, params }
+            Choice { msb, lsb, name: name(VARIATION_NAMES, msb, lsb), kind, params, ret: ret(2, kind) }
         });
         StyleFx { blocks: [reverb, chorus, variation] }
     }
@@ -112,6 +121,51 @@ fn chorus_kind(msb: u8, lsb: u8) -> Option<u8> {
         (67, _) => Flanger,
         _ => return None,
     } as u8)
+}
+
+/// Data List Table#1 (reverb time), in our 0.1 s steps: 0-47 0.3-5.0 s by 0.1, 48-57
+/// 5.5-10 by 0.5, 58-67 11-20 by 1, 68 25, 69 30.
+fn table1_tenths(v: u8) -> u16 {
+    let v = v as u16;
+    match v {
+        0..=47 => 3 + v,
+        48..=57 => 50 + 5 * (v - 47),
+        58..=67 => 100 + 10 * (v - 57),
+        68 => 250,
+        _ => 300,
+    }
+}
+
+/// Data List Table#2 (delay 0.1-200 ms over 0-127), in whole ms.
+fn table2_ms(v: u8) -> u16 {
+    (0.1 + v.min(127) as f32 * (199.9 / 127.0)).round() as u16
+}
+
+/// Data List Table#3 (EQ frequencies) from 34 (1.0 kHz) up, in our 100 Hz steps; 60 and
+/// above is Thru (our 20 kHz).
+fn table3_tone(v: u8) -> u16 {
+    const FROM_1K: [u16; 26] = [10, 11, 12, 14, 16, 18, 20, 22, 25, 28, 32, 36, 40, 45, 50, 56, 63, 70, 80, 90, 100, 110, 120, 140, 160, 180];
+    match v {
+        0..=33 => 10,
+        34..=59 => FROM_1K[(v - 34) as usize],
+        _ => 200,
+    }
+}
+
+/// A reverb's time, pre-delay and tone as the style sets its parameters (`param(n)`,
+/// parameter n = 1..10). The Real Reverbs (LSB 32 and up) keep their high cut in
+/// parameter 4 (High Damp Frequency); the others in parameter 5 (LPF Cutoff).
+fn reverb_params(_msb: u8, lsb: u8, param: impl Fn(usize) -> Option<u8>) -> Vec<(Param, u16)> {
+    let tone = if lsb >= 32 { param(4) } else { param(5) };
+    [
+        param(1).map(|v| (Param::ReverbTime, table1_tenths(v))),
+        param(3).map(|v| (Param::PreDelay, table2_ms(v))),
+        tone.map(|v| (Param::ReverbTone, table3_tone(v))),
+    ]
+    .into_iter()
+    .flatten()
+    .map(|(p, v)| (p, p.clamp(v)))
+    .collect()
 }
 
 /// Data List Table#5 (tempo delay times): value -> beats, for the values up to 4thx6.
@@ -304,6 +358,33 @@ mod tests {
         assert_eq!(v.params, vec![(Param::DelayNote, 7)]);
     }
 
+    /// #269: the reverb's time (Table#1), initial delay (Table#2) and high cut (Table#3:
+    /// a Real Reverb's parameter 4, another's parameter 5), clamped to our ranges.
+    #[test]
+    fn reverb_parameters() {
+        // Real Medium Hall: time 13 (1.6 s), initial delay 7 (11 ms), high damp 54 (10 kHz).
+        let r = StyleFx::parse(&[msg(0x00, &[1, 33]), msg(0x02, &[13, 0, 7, 54])]).blocks[0].clone().unwrap();
+        assert_eq!(r.params, vec![(Param::ReverbTime, 16), (Param::PreDelay, 11), (Param::ReverbTone, 100)]);
+        // Hall 3 (a REVERB1): the LPF is parameter 5; Thru is our 20 kHz. 30 s is our 10 s.
+        let r = StyleFx::parse(&[msg(0x00, &[1, 17]), msg(0x02, &[69, 0, 127, 20, 60])]).blocks[0].clone().unwrap();
+        assert_eq!(r.params, vec![(Param::ReverbTime, 100), (Param::PreDelay, 200), (Param::ReverbTone, 200)]);
+        assert_eq!((table1_tenths(0), table1_tenths(47), table1_tenths(48), table1_tenths(57), table1_tenths(58)), (3, 50, 55, 100, 110));
+        assert_eq!((table2_ms(0), table2_ms(59), table3_tone(34), table3_tone(51)), (0, 93, 10, 70));
+        // Nothing set: no parameters (the type's own).
+        assert!(StyleFx::parse(&[msg(0x00, &[1, 33])]).blocks[0].as_ref().unwrap().params.is_empty());
+    }
+
+    /// #269: a block's return level, with a matching type only (an amp simulator's return
+    /// is not our delay's).
+    #[test]
+    fn return_levels() {
+        let fx = StyleFx::parse(&[msg(0x00, &[1, 33]), msg(0x0C, &[50]), msg(0x2C, &[90]), msg(0x20, &[66, 8]), msg(0x40, &[21, 0]), msg(0x56, &[127]), msg(0x5A, &[1])]);
+        assert_eq!(fx.blocks.iter().map(|b| b.as_ref().unwrap().ret).collect::<Vec<_>>(), vec![Some(50), Some(90), Some(127)]);
+        let amp = StyleFx::parse(&[msg(0x40, &[75, 8]), msg(0x56, &[127]), msg(0x5A, &[1])]);
+        assert_eq!(amp.blocks[2].as_ref().unwrap().ret, None);
+        assert_eq!(StyleFx::parse(&[msg(0x00, &[1, 33])]).blocks[0].as_ref().unwrap().ret, None, "none set");
+    }
+
     #[test]
     fn nothing_set_is_no_choice() {
         assert_eq!(StyleFx::parse(&[]), StyleFx::default());
@@ -334,6 +415,7 @@ mod tests {
             }
         }
         let mut counts = std::collections::BTreeMap::<(usize, String, Option<u8>), usize>::new();
+        let (mut with_params, mut with_ret) = (0, [0usize; 3]);
         let mut n = 0;
         for f in &files {
             let Ok(s) = crate::sff::Style::load(f) else { continue };
@@ -342,12 +424,15 @@ mod tests {
             if let Some(r) = &fx.blocks[0] {
                 assert!(r.kind.is_some(), "{f:?}: reverb {}", r.name);
             }
+            with_params += fx.blocks[0].as_ref().is_some_and(|r| !r.params.is_empty()) as usize;
             for (b, c) in fx.blocks.iter().enumerate() {
+                with_ret[b] += c.as_ref().is_some_and(|c| c.ret.is_some()) as usize;
                 let key = c.as_ref().map_or((b, "(none)".to_string(), None), |c| (b, c.name.clone(), c.kind));
                 *counts.entry(key).or_default() += 1;
             }
         }
         assert!(n > 100, "{n} styles");
+        eprintln!("{n} styles; reverb parameters in {with_params}; returns applied (reverb, chorus, variation) {with_ret:?}");
         for ((b, name, kind), c) in counts {
             eprintln!("{} {name:<22} -> {kind:?}: {c}", ["reverb", "chorus", "variation"][b]);
         }

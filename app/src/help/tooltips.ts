@@ -1080,7 +1080,7 @@ const catalog = {
   },
   'fx.follow_style': {
     title: 'Follow the style',
-    body: 'Lit, this effect takes the style\'s own type at every style change (the style\'s choice shows beside it, the nearest type yahaha has), with the style\'s delay time and feedback. Choosing a type yourself turns it off so your choice stays; press it to go back to the style\'s. Stored in a Registration Memory.',
+    body: 'Lit, this effect takes the style\'s own type at every style change (the style\'s choice shows beside it, the nearest type yahaha has), with the style\'s delay time and feedback, its reverb time, pre-delay and tone, and its return level where it sets one. Choosing a type yourself turns it off so your choice stays; press it to go back to the style\'s. Stored in a Registration Memory.',
     genos: 'Mixer › Effect (Style effect types)',
     keys: [],
     launchkey: null,
