@@ -83,6 +83,8 @@ const EVERY_CMD: &[&str] = &[
     // Mixer, Launchkey pages, synth
     r#"{"type":"setFaderPage","page":"style"}"#,
     r#"{"type":"toggleFaderPage"}"#,
+    r#"{"type":"setFaderLayer","layer":"reverb"}"#,
+    r#"{"type":"stepFaderLayer","delta":1}"#,
     r#"{"type":"setPadPage","page":"otsParts"}"#,
     r#"{"type":"cyclePadPage","delta":1}"#,
     r#"{"type":"setMasterVolume","volume":100}"#,

@@ -63,6 +63,52 @@ pub enum FaderPage {
     Style,
 }
 
+/// What the Launchkey faders control across the parts (the mixer's VOL / PAN / REV / CHO /
+/// DLY buttons, as Ableton's sends view): each part's CC7, or its pan or effect send (CC10,
+/// CC91, CC93, CC94), the same controls `setPartPan` / `setPartSend` set. Shift + the
+/// master fader's button steps through them. The master fader is always the master.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum FaderLayer {
+    #[default]
+    Volume,
+    Pan,
+    Reverb,
+    Chorus,
+    /// The Variation block, the tempo delay (CC94).
+    Delay,
+}
+
+impl FaderLayer {
+    pub const ALL: [FaderLayer; 5] = [FaderLayer::Volume, FaderLayer::Pan, FaderLayer::Reverb, FaderLayer::Chorus, FaderLayer::Delay];
+
+    /// Its index in `Parts::fx` (`PAN` .. `VARIATION`); None for Volume (the CC7).
+    pub fn fx_index(self) -> Option<usize> {
+        match self {
+            FaderLayer::Volume => None,
+            FaderLayer::Pan => Some(PAN),
+            FaderLayer::Reverb => Some(REVERB),
+            FaderLayer::Chorus => Some(CHORUS),
+            FaderLayer::Delay => Some(VARIATION),
+        }
+    }
+
+    /// The layer `d` steps on, wrapping (VOL -> PAN -> REV -> CHO -> DLY -> VOL).
+    pub fn step(self, d: i8) -> FaderLayer {
+        let n = Self::ALL.len() as i16;
+        Self::ALL[((self as i16 + d as i16).rem_euclid(n)) as usize]
+    }
+
+    fn from_u8(v: u8) -> FaderLayer {
+        Self::ALL.get(v as usize).copied().unwrap_or_default()
+    }
+
+    /// The short name the mixer's buttons show.
+    pub fn short(self) -> &'static str {
+        ["VOL", "PAN", "REV", "CHO", "DLY"][self as usize]
+    }
+}
+
 pub struct Parts {
     /// GM program per part.
     pub program: [AtomicU8; COUNT],
@@ -88,6 +134,14 @@ pub struct Parts {
     pub ots_applied: AtomicU8,
     /// `FaderPage::Panel` = 0, `Style` = 1.
     fader_page: AtomicU8,
+    /// The `FaderLayer` (as u8).
+    fader_layer: AtomicU8,
+    /// Bumped whenever the faders change what they control (layer or page): the input
+    /// thread binds a send fader's takeover afresh.
+    layer_gen: AtomicU8,
+    /// Keyboard parts whose Panel fader, in a send layer, has moved but not yet reached
+    /// the value (bit = part; the input thread keeps it).
+    pub send_waiting: AtomicU8,
     /// Where each Launchkey fader 1-8 physically is (`HW_UNKNOWN` until it moves). Faders
     /// are shared by both pages, so a page switch needs this for soft takeover.
     pub fader_hw: [AtomicU8; 8],
@@ -222,6 +276,9 @@ impl Parts {
             ots_link: AtomicBool::new(false),
             ots_applied: AtomicU8::new(0),
             fader_page: AtomicU8::new(0),
+            fader_layer: AtomicU8::new(0),
+            layer_gen: AtomicU8::new(0),
+            send_waiting: AtomicU8::new(0),
             fader_hw: [const { AtomicU8::new(HW_UNKNOWN) }; 8],
             rebind: AtomicBool::new(false),
             rebind_hw: [const { AtomicU8::new(HW_UNKNOWN) }; 8],
@@ -560,6 +617,36 @@ impl Parts {
             }
         }
         self.fader_page.store(page as u8, Relaxed);
+        self.layer_gen.fetch_add(1, Relaxed);
+    }
+
+    pub fn fader_layer(&self) -> FaderLayer {
+        FaderLayer::from_u8(self.fader_layer.load(Relaxed))
+    }
+
+    /// Switch the fader layer. Back on Volume, the faders pick their parts' levels up
+    /// afresh (they moved sends meanwhile), as after a page switch; a send layer's faders
+    /// pick their values up in the input thread.
+    pub fn set_fader_layer(&self, layer: FaderLayer) {
+        if self.fader_layer.swap(layer as u8, Relaxed) != layer as u8 {
+            self.send_waiting.store(0, Relaxed);
+            self.layer_gen.fetch_add(1, Relaxed);
+            if layer == FaderLayer::Volume {
+                self.set_fader_page(self.fader_page());
+            }
+        }
+    }
+
+    /// Changes each time the faders change what they control (see `layer_gen`).
+    pub fn fader_layer_gen(&self) -> u8 {
+        self.layer_gen.load(Relaxed)
+    }
+
+    /// Step the fader layer by `d` (Shift + the master fader's button: +1).
+    pub fn step_fader_layer(&self, d: i8) -> FaderLayer {
+        let l = self.fader_layer().step(d);
+        self.set_fader_layer(l);
+        l
     }
 
     pub fn toggle_fader_page(&self) -> FaderPage {
@@ -843,6 +930,20 @@ mod tests {
 
     /// A fader moving on the input thread while an OTS recall sets the level on the UI
     /// thread: the recall is never overwritten by a move judged against the old level.
+    #[test]
+    fn fader_layers_step_and_wrap() {
+        let parts = Parts::new();
+        assert_eq!(parts.fader_layer(), FaderLayer::Volume);
+        assert_eq!(parts.step_fader_layer(1), FaderLayer::Pan);
+        assert_eq!(parts.step_fader_layer(1), FaderLayer::Reverb);
+        assert_eq!(parts.step_fader_layer(-2), FaderLayer::Volume);
+        assert_eq!(parts.step_fader_layer(-1), FaderLayer::Delay);
+        assert_eq!(parts.step_fader_layer(1), FaderLayer::Volume);
+        assert_eq!(FaderLayer::Delay.fx_index(), Some(VARIATION));
+        assert_eq!(FaderLayer::Volume.fx_index(), None);
+        assert_eq!(serde_json::to_string(&FaderLayer::Reverb).unwrap(), r#""reverb""#);
+    }
+
     #[test]
     fn fader_move_never_overwrites_a_concurrent_recall() {
         for _ in 0..200 {

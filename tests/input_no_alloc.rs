@@ -111,6 +111,15 @@ fn keyboard_note_path_does_not_allocate() {
         use yahaha::live::TAG_PADS;
         input.packet(TAG_PADS, 0, &[0xB0, SCENE_CC, 127, 0xB0, SCENE_CC, 0]);
         input.packet(TAG_PADS, 0, &[0xB0, FUNCTION_CC, 127, 0xB0, SCENE_CC, 127, 0xB0, FUNCTION_CC, 0, 0xB0, SCENE_CC, 0]);
+        // The faders in a fader layer: Shift + the master fader's button steps VOL, PAN,
+        // REV, CHO, DLY; faders 1 and 3 move a part's pan or send, on either page.
+        use yahaha::launchkey::{FADER_BTN_CC, FADER_CC, SHIFT_CC};
+        let (f1, mb) = (*FADER_CC.start(), *FADER_BTN_CC.end());
+        input.packet(TAG_PADS, 0, &[0xB0, SHIFT_CC, 127, 0xB0, mb, 127, 0xB0, SHIFT_CC, 0]);
+        input.packet(TAG_PADS, 0, &[0xB0, f1, round, 0xB0, f1 + 2, 127 - round, 0xB0, f1, 64]);
+        if round % 7 == 0 {
+            input.packet(TAG_PADS, 0, &[0xB0, mb, 127]);
+        }
         input.end_of_list();
         ctl.reset(&mut |_| {});
     }
