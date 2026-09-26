@@ -1389,6 +1389,8 @@ mod rtr {
             sections: [bar(SectionId::Main(0), 0, true), bar(SectionId::Main(1), 0, false), bar(SectionId::Fill(0), 1440, true)].into(),
             casm: vec![],
             ots: vec![],
+            opaque_sections: vec![],
+            timing_changes: vec![],
             other_chunks: vec![],
         }
     }
@@ -1484,6 +1486,8 @@ mod rtr {
             sections: [(id, Section { id, start: 0, len: 1920, events })].into(),
             casm: vec![],
             ots: vec![],
+            opaque_sections: vec![],
+            timing_changes: vec![],
             other_chunks: vec![],
         };
         let prep = Box::new(Prepared::new(&style));
@@ -1687,6 +1691,8 @@ mod transpose {
             .into(),
             casm: vec![],
             ots: vec![],
+            opaque_sections: vec![],
+            timing_changes: vec![],
             other_chunks: vec![],
         };
         let p = Prepared::new(&style);
@@ -2023,6 +2029,8 @@ mod mixer {
             .into(),
             casm: vec![],
             ots: vec![],
+            opaque_sections: vec![],
+            timing_changes: vec![],
             other_chunks: vec![],
         }
     }
