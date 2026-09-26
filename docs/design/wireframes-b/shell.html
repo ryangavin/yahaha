@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>%%TITLE%%</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&amp;family=Archivo+Narrow:wght@500;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#0e0e10}
+button{font-family:inherit;cursor:pointer}
+.cap{font-family:'Archivo Narrow',sans-serif;font-size:11px;letter-spacing:.09em;text-transform:uppercase;color:#8d8d95}
+.hb{height:34px;min-width:34px;padding:0 12px;border-radius:4px;border:1px solid #2d2d32;background:#26262b;color:#f2f2f2;font-size:13px;font-weight:600}
+.chip{height:30px;padding:0 12px;border-radius:4px;border:1px solid #2d2d32;background:#1b1b20;color:#c9c9cf;font-size:12px;font-weight:600}
+.chip.on{background:#ff7a2f;border-color:#ff7a2f;color:#1a0a00}
+.tab{height:30px;padding:0 14px;border:0;border-radius:4px 4px 0 0;background:transparent;color:#8d8d95;font-size:13px;font-weight:600}
+</style>
+</helmet>
+<div style="width: 1440px; height: 900px; box-sizing: border-box; background: #0e0e10; color: #f2f2f2; font-family: Archivo, sans-serif; display: flex; flex-direction: column; gap: 8px; padding: 0 12px 10px 12px; position: relative">
+
+<header style="height: 52px; flex-shrink: 0; display: flex; align-items: center; gap: 10px; margin: 0 -12px; padding: 0 16px; background: #19191c; border-bottom: 1px solid #2d2d32">
+<div style="font-family: 'Archivo Narrow', sans-serif; font-size: 22px; font-weight: 700; margin-right: 14px">yahaha</div>
+<button class="hb" style="width: 72px; background: #ff7a2f; color: #1a0a00; border-color: #ff7a2f">▶ Start</button>
+<button class="hb">Sync Start</button>
+<button class="hb">Sync Stop</button>
+<div style="width: 1px; height: 30px; background: #2d2d32; margin: 0 4px"></div>
+<button class="hb" aria-label="Tempo down">−</button>
+<div style="display: flex; flex-direction: column; align-items: center; min-width: 60px"><span style="font-size: 20px; font-weight: 700; line-height: 1">112</span><span class="cap" style="font-size: 9px">BPM</span></div>
+<button class="hb" aria-label="Tempo up">+</button>
+<button class="hb">Tap</button>
+<div style="width: 1px; height: 30px; background: #2d2d32; margin: 0 4px"></div>
+<div style="display: flex; gap: 4px" aria-label="Beat"><span style="width: 12px; height: 12px; border-radius: 50%; background: #ff7a2f"></span><span style="width: 12px; height: 12px; border-radius: 50%; background: #2d2d32"></span><span style="width: 12px; height: 12px; border-radius: 50%; background: #2d2d32"></span><span style="width: 12px; height: 12px; border-radius: 50%; background: #2d2d32"></span></div>
+<span style="font-size: 14px; font-weight: 600; margin-left: 6px">17 · 1</span>
+<div style="flex-grow: 1"></div>
+<button class="hb" style="%%BROWSEBTN%%">Browse</button>
+<span class="cap">Master</span>
+<div style="width: 110px; height: 6px; border-radius: 3px; background: #2d2d32; position: relative"><div style="position: absolute; left: 0; top: 0; bottom: 0; width: 78%; border-radius: 3px; background: #f2f2f2"></div></div>
+</header>
+
+<section aria-label="Display" style="height: 400px; flex-shrink: 0; display: flex; flex-direction: column; border-radius: 8px; border: 1px solid #2d2d32; background: #121317; overflow: hidden">
+<div role="tablist" style="height: 34px; flex-shrink: 0; display: flex; align-items: flex-end; gap: 2px; padding: 0 12px; border-bottom: 1px solid #26262b">
+<sc-for list="{{tabs}}" as="t" hint-placeholder-count="7">
+<button role="tab" class="tab" aria-selected="{{t.on}}" style="background: {{t.bg}}; color: {{t.ink}}; border-bottom: 2px solid {{t.line}}">{{t.name}}</button>
+</sc-for>
+<div style="flex-grow: 1"></div>
+<span class="cap" style="padding-bottom: 8px">Cool 8Beat · Bank: Sunday Gig · Regist 3 · OTS 2</span>
+</div>
+<div style="flex-grow: 1; display: flex; min-height: 0">
+%%DISPLAY%%
+</div>
+</section>
+
+<div style="flex-grow: 1; display: flex; gap: 10px; min-height: 0">
+<section aria-label="Mixer" style="flex-grow: 1; display: flex; gap: 4px; padding: 8px; border-radius: 8px; background: #19191c; border: 1px solid #2d2d32">
+<sc-for list="{{parts}}" as="p" hint-placeholder-count="12">
+<div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; padding: 5px; border-radius: 4px; background: {{p.bg}}; outline: {{p.outline}}; opacity: {{p.op}}">
+<div style="height: 4px; border-radius: 2px; background: {{p.col}}"></div>
+<span class="cap" style="font-size: 10px; white-space: nowrap; overflow: hidden; color: {{p.col}}">{{p.name}}</span>
+<button style="height: 24px; padding: 0 4px; border-radius: 4px; border: 1px solid #2d2d32; background: #0e0e10; color: #f2f2f2; font-size: 11px; font-weight: 600; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{p.voice}} ▾</button>
+<div style="display: flex; justify-content: space-around">
+<sc-for list="{{p.minis}}" as="m" hint-placeholder-count="2">
+<div style="display: flex; flex-direction: column; align-items: center">
+<svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true"><path d="{{m.track}}" stroke="#2d2d32" stroke-width="3" fill="none" stroke-linecap="round"></path><path d="{{m.arc}}" stroke="{{m.col}}" stroke-width="3" fill="none" stroke-linecap="round"></path></svg>
+<span style="font-size: 8px; color: #8d8d95; letter-spacing: .05em">{{m.name}}</span>
+</div>
+</sc-for>
+</div>
+<div style="flex-grow: 1; display: flex; gap: 6px; justify-content: center; min-height: 0">
+<div style="width: 5px; border-radius: 2px; background: #2d2d32; position: relative"><div style="position: absolute; left: 0; right: 0; bottom: 0; height: {{p.meter}}%; border-radius: 2px; background: {{p.col}}"></div></div>
+<div style="width: 18px; position: relative"><div style="position: absolute; left: 8px; top: 0; bottom: 0; width: 2px; background: #2d2d32"></div><div style="position: absolute; left: 0; bottom: {{p.fader}}%; width: 18px; height: 9px; border-radius: 2px; background: #f2f2f2"></div></div>
+</div>
+<div style="display: flex; gap: 3px">
+<button aria-label="Mute {{p.name}}" style="flex: 1; height: 20px; padding: 0; border-radius: 3px; border: 1px solid #2d2d32; background: {{p.mBg}}; color: {{p.mInk}}; font-size: 10px; font-weight: 700">M</button>
+<button aria-label="Solo {{p.name}}" style="flex: 1; height: 20px; padding: 0; border-radius: 3px; border: 1px solid #2d2d32; background: #26262b; color: #8d8d95; font-size: 10px; font-weight: 700">S</button>
+</div>
+</div>
+</sc-for>
+</section>
+<section aria-label="Launchkey mirror" style="width: 350px; flex-shrink: 0; display: flex; flex-direction: column; gap: 8px; padding: 10px; border-radius: 8px; background: #19191c; border: 1px solid #2d2d32">
+<div style="display: flex; justify-content: space-between; align-items: baseline"><span class="cap">Launchkey</span><span style="font-size: 12px; font-weight: 600">Pads: Sections · Knobs: Style</span></div>
+<div style="display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 5px">
+<sc-for list="{{knobs}}" as="k" hint-placeholder-count="8">
+<div style="display: flex; flex-direction: column; align-items: center; gap: 2px">
+<svg width="30" height="30" viewBox="0 0 30 30" aria-hidden="true"><path d="{{k.track}}" stroke="#2d2d32" stroke-width="3.5" fill="none" stroke-linecap="round"></path><path d="{{k.arc}}" stroke="#f2f2f2" stroke-width="3.5" fill="none" stroke-linecap="round"></path></svg>
+<span style="font-size: 9px; color: #8d8d95; text-align: center; line-height: 1.1">{{k.name}}</span>
+</div>
+</sc-for>
+</div>
+<div style="display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 5px">
+<sc-for list="{{pads}}" as="d" hint-placeholder-count="16">
+<button style="height: 38px; padding: 0 2px; border-radius: 4px; border: 1px solid {{d.border}}; background: {{d.bg}}; color: {{d.ink}}; font-size: 9px; font-weight: 700; line-height: 1.1; box-shadow: {{d.glow}}">{{d.label}}</button>
+</sc-for>
+</div>
+</section>
+</div>
+
+<section aria-label="Registration and OTS" style="height: 40px; flex-shrink: 0; display: flex; align-items: center; gap: 6px">
+<span class="cap" style="margin-right: 4px">Registration</span>
+<button class="hb" style="min-width: 150px; text-align: left">Sunday Gig ▾</button>
+<sc-for list="{{regs}}" as="g" hint-placeholder-count="10">
+<button class="hb" style="width: 38px; padding: 0; background: {{g.bg}}; color: {{g.ink}}; border-color: {{g.border}}">{{g.n}}</button>
+</sc-for>
+<button class="hb">Memory</button>
+<button class="hb">Freeze</button>
+<div style="flex-grow: 1"></div>
+<span class="cap" style="margin-right: 4px">One Touch</span>
+<sc-for list="{{ots}}" as="o" hint-placeholder-count="4">
+<button class="hb" style="width: 44px; padding: 0; background: {{o.bg}}; color: {{o.ink}}; border-color: {{o.border}}">{{o.n}}</button>
+</sc-for>
+<button class="hb">Link</button>
+</section>
+
+<section aria-label="Keyboard" style="height: 104px; flex-shrink: 0; position: relative; border-radius: 4px; overflow: hidden; background: #19191c; border: 1px solid #2d2d32">
+<div style="position: absolute; inset: 6px; display: flex; gap: 1px">
+<sc-for list="{{white}}" as="w" hint-placeholder-count="36">
+<div style="flex: 1; border-radius: 0 0 3px 3px; background: {{w.bg}}"></div>
+</sc-for>
+</div>
+<sc-for list="{{black}}" as="b" hint-placeholder-count="25">
+<div style="position: absolute; top: 6px; left: {{b.x}}px; width: 22px; height: 58px; border-radius: 0 0 3px 3px; background: #0e0e10"></div>
+</sc-for>
+<div style="position: absolute; top: 0; bottom: 0; left: 470px; width: 2px; background: #ff7a2f"></div>
+<span class="cap" style="position: absolute; left: 478px; bottom: 8px; color: #ff7a2f">Split</span>
+</section>
+%%OVERLAY%%
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const A = '#ff7a2f', AI = '#1a0a00';
+    const COL = ['#ff5a5a','#ff9a3c','#ffd23f','#9be15d','#3fd6c6','#3fa9ff','#7a7dff','#c46bff','#ff6bd0','#ff8c8c','#5de0ff','#b8f05d'];
+    const arcPath = (cx, cy, r, v) => {
+      const a0 = -135 * Math.PI / 180, a1 = (-135 + 270 * v) * Math.PI / 180;
+      const x0 = cx + r * Math.sin(a0), y0 = cy - r * Math.cos(a0), x1 = cx + r * Math.sin(a1), y1 = cy - r * Math.cos(a1);
+      return 'M ' + x0.toFixed(1) + ' ' + y0.toFixed(1) + ' A ' + r + ' ' + r + ' 0 ' + (270 * v > 180 ? 1 : 0) + ' 1 ' + x1.toFixed(1) + ' ' + y1.toFixed(1);
+    };
+    const knob = (size, v, col, name, val) => ({ track: arcPath(size / 2, size / 2, size / 2 - 4, 1), arc: arcPath(size / 2, size / 2, size / 2 - 4, Math.max(0.01, v)), col, name, val });
+    const SEL = %%SEL%%;
+    const TAB = '%%TAB%%';
+    const tabs = ['Home', 'Channel', 'Effects', 'Multi Pads', 'Looper & Charts', 'Harmony / Arp', 'Settings'].map(n => { const on = n === TAB; return { name: n, on, bg: on ? '#222228' : 'transparent', ink: on ? '#ffffff' : '#8d8d95', line: on ? A : 'transparent' }; });
+    const P = [['Right 1','Grand Piano',86,70,1,.4,.2],['Right 2','Strings',60,55,1,.5,.1],['Right 3','Brass Sect',0,50,0,.3,0],['Left','Warm Pad',44,62,1,.4,0],['Rhythm 1','Live Kit',90,78,1,.3,0],['Rhythm 2','Percussion',50,60,1,.3,0],['Bass','Finger Bass',72,70,1,.1,0],['Chord 1','Steel Gtr',58,64,1,.35,0],['Chord 2','E.Piano',40,58,1,.4,0],['Pad','Warm Strings',30,52,1,.5,0],['Phrase 1','Brass',0,60,1,.3,0],['Phrase 2','Synth Lead',0,48,1,.3,.25]];
+    const parts = P.map((p, i) => ({ name: p[0], voice: p[1], meter: p[2], fader: p[3], op: p[4] ? 1 : 0.45, col: COL[i], mBg: p[4] ? '#26262b' : A, mInk: p[4] ? '#8d8d95' : AI, bg: i === SEL ? '#26262e' : '#141417', outline: i === SEL ? '2px solid ' + COL[i] : 'none', minis: [Object.assign(knob(24, p[5], COL[i]), { name: 'REV' }), Object.assign(knob(24, p[6], COL[i]), { name: 'DLY' })] }));
+    const knobs = ['Dynamics','Rtg len','Rtg on','Mute A','Mute B','—','—','Tempo'].map((n, i) => Object.assign(knob(30, [.5,.3,0,1,1,0,0,.45][i], '#f2f2f2'), { name: n }));
+    const PL = ['Intro I','Intro II','Main A','Main B','Main C','Main D','Break','Fill','End I','End II','End III','Sync St','Start','Tap','Acmp','Auto Fill'];
+    const PC = ['#ff5a5a','#ff9a3c','#ffd23f','#9be15d','#3fd6c6','#3fa9ff','#7a7dff','#c46bff'];
+    const pads = PL.map((l, i) => { const on = l === 'Main B', q = l === 'Fill'; const c = PC[Math.floor(i / 2) % 8]; return { label: l, bg: on ? A : (q ? 'rgba(255,122,47,.14)' : c), ink: on ? AI : '#0e0e10', border: on || q ? A : c, glow: on ? '0 0 16px rgba(255,122,47,.6)' : 'none' }; });
+    const regs = Array.from({ length: 10 }, (_, i) => ({ n: i + 1, bg: i === 2 ? A : '#26262b', ink: i === 2 ? AI : (i < 6 ? '#f2f2f2' : '#8d8d95'), border: i === 2 ? A : '#2d2d32' }));
+    const ots = [1, 2, 3, 4].map(n => ({ n, bg: n === 2 ? A : '#26262b', ink: n === 2 ? AI : '#f2f2f2', border: n === 2 ? A : '#2d2d32' }));
+    const held = [9, 12, 16, 21, 24];
+    const white = Array.from({ length: 36 }, (_, i) => ({ bg: held.includes(i) ? A : '#e9e9ec' }));
+    const kw = 1402 / 36, black = [];
+    for (let i = 0; i < 35; i++) if ([0, 1, 3, 4, 5].includes(i % 7)) black.push({ x: 6 + (i + 1) * kw - 11 });
+    const artFor = (seed, w, h, n) => { let s = seed; const r = () => { s = (s * 9301 + 49297) % 233280; return s / 233280; }; const pal = [COL[seed % 12], COL[(seed * 7 + 3) % 12], COL[(seed * 5 + 8) % 12]];
+      return { rings: Array.from({ length: n }, () => ({ x: (0.15 + r() * 0.7) * w, y: (0.1 + r() * 0.6) * h, r: (0.06 + r() * 0.35) * w, sw: 1 + r() * 8, col: pal[Math.floor(r() * 3)], o: 0.3 + r() * 0.5 })), bars: Array.from({ length: n + 4 }, (_, i) => ({ x: i * w / (n + 4), y: h * (0.2 + r() * 0.4), w: w / (n + 4) * 0.55, h: h * (0.2 + r() * 0.6), col: pal[i % 3], o: 0.15 + r() * 0.3 })) }; };
+    const base = { tabs, parts, knobs, pads, regs, ots, white, black, art: artFor(7, 300, 366, 9) };
+    %%JS%%
+    return Object.assign(base, extra);
+  }
+}
+</script>
+</body>
+</html>
