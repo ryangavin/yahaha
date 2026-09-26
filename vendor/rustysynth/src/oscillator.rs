@@ -88,6 +88,11 @@ impl Oscillator {
         }
     }
 
+    /// yahaha: `semitones` more on the pitch, after the scale tuning (`NoteParams::tune`).
+    pub(crate) fn add_tune(&mut self, semitones: f32) {
+        self.tune += semitones;
+    }
+
     pub(crate) fn process(&mut self, data: &[i16], block: &mut [f32], pitch: f32) -> bool {
         let pitch_change = self.pitch_change_scale * (pitch - self.root_key as f32) + self.tune;
         let pitch_ratio = self.sample_rate_ratio * 2_f32.powf(pitch_change / 12_f32);

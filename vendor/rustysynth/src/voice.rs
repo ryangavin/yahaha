@@ -5,11 +5,13 @@ use std::f32::consts;
 use crate::bi_quad_filter::BiQuadFilter;
 use crate::channel::Channel;
 use crate::lfo::Lfo;
+use crate::note_params::NoteParams;
 use crate::modulation_envelope::ModulationEnvelope;
 use crate::oscillator::Oscillator;
 use crate::region_ex::RegionEx;
 use crate::region_pair::RegionPair;
 use crate::soundfont_math::SoundFontMath;
+use crate::synthesizer::SEND_BUSES;
 use crate::synthesizer_settings::SynthesizerSettings;
 use crate::volume_envelope::VolumeEnvelope;
 
@@ -81,6 +83,11 @@ pub(crate) struct Voice {
     // yahaha: apply velocity -> filter cutoff modulators (`SynthesizerSettings`).
     velocity_to_filter: bool,
 
+    // yahaha: the voice's own scale of each send bus (`NoteParams::sends`), and whether
+    // any differs from 1 (the synthesizer then adds the difference to the buses).
+    pub(crate) note_sends: [f32; SEND_BUSES],
+    pub(crate) own_sends: bool,
+
     voice_state: VoiceState,
     /// Time elapsed in samples
     voice_length: usize,
@@ -125,13 +132,24 @@ impl Voice {
             instrument_chorus: 0_f32,
             smoothed_cutoff: 0_f32,
             velocity_to_filter: settings.velocity_to_filter,
+            note_sends: [1_f32; SEND_BUSES],
+            own_sends: false,
             voice_state: VoiceState::Playing,
             voice_length: 0,
             min_voice_length: (settings.sample_rate / 500) as usize,
         }
     }
 
-    pub(crate) fn start(&mut self, region: &RegionPair, channel: i32, key: i32, velocity: i32) {
+    // yahaha: `note` fixes the voice's own gain, tuning, pan, sends, filter and envelope
+    // times (`NoteParams::NEUTRAL`: upstream's voice).
+    pub(crate) fn start(
+        &mut self,
+        region: &RegionPair,
+        channel: i32,
+        key: i32,
+        velocity: i32,
+        note: &NoteParams,
+    ) {
         self.exclusive_class = region.get_exclusive_class();
         self.channel = channel;
         self.key = key;
@@ -145,7 +163,7 @@ impl Voice {
             let decibels = 2_f32 * SoundFontMath::linear_to_decibels(velocity as f32 / 127_f32)
                 - sample_attenuation
                 - filter_attenuation;
-            self.note_gain = SoundFontMath::decibels_to_linear(decibels);
+            self.note_gain = SoundFontMath::decibels_to_linear(decibels) * note.gain;
         } else {
             self.note_gain = 0_f32;
         }
@@ -161,7 +179,17 @@ impl Voice {
                     (self.cutoff * SoundFontMath::cents_to_multiplying_factor(cents)).max(floor);
             }
         }
-        self.resonance = SoundFontMath::decibels_to_linear(region.get_initial_filter_q());
+        // yahaha: the note's own cutoff (within the spec's range) and resonance.
+        if note.cutoff != 1_f32 {
+            self.cutoff = SoundFontMath::clamp(self.cutoff * note.cutoff, 19.45_f32, 20000_f32);
+        }
+        let q = region.get_initial_filter_q();
+        let q = if note.resonance_db != 0_f32 {
+            SoundFontMath::clamp(q + note.resonance_db, 0_f32, 96_f32)
+        } else {
+            q
+        };
+        self.resonance = SoundFontMath::decibels_to_linear(q);
 
         self.vib_lfo_to_pitch = 0.01_f32 * region.get_vibrato_lfo_to_pitch() as f32;
         self.mod_lfo_to_pitch = 0.01_f32 * region.get_modulation_lfo_to_pitch() as f32;
@@ -174,15 +202,20 @@ impl Voice {
         self.mod_lfo_to_volume = region.get_modulation_lfo_to_volume();
         self.dynamic_volume = self.mod_lfo_to_volume > 0.05_f32;
 
-        self.instrument_pan = SoundFontMath::clamp(region.get_pan(), -50_f32, 50_f32);
+        self.instrument_pan = SoundFontMath::clamp(note.pan.unwrap_or(region.get_pan()), -50_f32, 50_f32);
+        self.note_sends = note.sends;
+        self.own_sends = note.sends.iter().any(|&s| s != 1_f32);
         self.instrument_reverb = 0.01_f32 * region.get_reverb_effects_send();
         self.instrument_chorus = 0.01_f32 * region.get_chorus_effects_send();
 
-        RegionEx::start_volume_envelope(&mut self.vol_env, region, key, velocity);
+        RegionEx::start_volume_envelope(&mut self.vol_env, region, key, velocity, [note.attack, note.decay, note.release]);
         RegionEx::start_modulation_envelope(&mut self.mod_env, region, key, velocity);
         RegionEx::start_vibrato(&mut self.vib_lfo, region, key, velocity);
         RegionEx::start_modulation(&mut self.mod_lfo, region, key, velocity);
         RegionEx::start_oscillator(&mut self.oscillator, region);
+        if note.tune != 0_f32 {
+            self.oscillator.add_tune(note.tune);
+        }
         self.filter.clear_buffer();
         self.filter.set_low_pass_filter(self.cutoff, self.resonance);
 
@@ -273,16 +306,18 @@ impl Voice {
             self.current_mix_gain_right = mix_gain * angle.sin();
         }
 
+        // yahaha: scaled by the note's own sends (`NoteParams::sends`, bus 0 reverb, bus 1
+        // chorus), for the synthesizer's own effects.
         self.current_reverb_send = SoundFontMath::clamp(
             channel_info.get_reverb_send() + self.instrument_reverb,
             0_f32,
             1_f32,
-        );
+        ) * self.note_sends[0];
         self.current_chorus_send = SoundFontMath::clamp(
             channel_info.get_chorus_send() + self.instrument_chorus,
             0_f32,
             1_f32,
-        );
+        ) * self.note_sends[1];
 
         if self.voice_length == 0 {
             self.previous_mix_gain_left = self.current_mix_gain_left;
