@@ -31,11 +31,44 @@ pub(super) struct LooperCtl {
     stored: u32,
     /// The engine's `chart_yields` last seen: ON/OFF turned chart mode off to arm a loop.
     chart_yields: u16,
+    /// Bank files (looper_banks.rs).
+    pub(super) files: super::looper_banks::BankFiles,
 }
 
 impl LooperCtl {
-    pub(super) fn new(tx: Producer<ChordSeq>, rx: Consumer<ChordSeq>) -> LooperCtl {
-        LooperCtl { tx, rx, current: ChordSeq::EMPTY, memories: Default::default(), selected: None, pending: None, stored: 0, chart_yields: 0 }
+    /// `dir`: the ChordLooper folder (None: nothing is saved). The memories come back as
+    /// the last session left them.
+    pub(super) fn new(tx: Producer<ChordSeq>, rx: Consumer<ChordSeq>, dir: Option<std::path::PathBuf>) -> LooperCtl {
+        let mut l = LooperCtl {
+            tx,
+            rx,
+            current: ChordSeq::EMPTY,
+            memories: Default::default(),
+            selected: None,
+            pending: None,
+            stored: 0,
+            chart_yields: 0,
+            files: super::looper_banks::BankFiles::new(dir),
+        };
+        if let Some(b) = l.files.startup() {
+            l.set_memories(&b);
+        }
+        l
+    }
+
+    /// The memories of bank file `b`; the CLD_ count carries on after its highest.
+    pub(super) fn set_memories(&mut self, b: &crate::looper::BankFile) {
+        for (i, m) in b.memories(MEMORIES).into_iter().enumerate() {
+            self.memories[i] = m;
+        }
+        let top = self.memories.iter().flatten().filter_map(|(n, _)| n.strip_prefix("CLD_")?.parse::<u32>().ok()).max();
+        self.stored = self.stored.max(top.unwrap_or(0));
+        self.selected = None;
+        self.pending = None;
+    }
+
+    pub(super) fn memories(&self) -> &[Option<(String, ChordSeq)>] {
+        &self.memories
     }
 
     /// Tests: hand the engine an empty sequence (as a fresh engine has).
@@ -93,6 +126,7 @@ impl Control {
                 self.looper.stored += 1;
                 self.looper.memories[i] = Some((format!("CLD_{:03}", self.looper.stored), self.looper.current));
                 self.looper.selected = Some(i as u8);
+                self.looper_autosave();
                 Ok(())
             }
             LooperCmd::ClearLooperMemory { index } => {
@@ -101,14 +135,19 @@ impl Control {
                 if self.looper.pending.is_some_and(|(p, _)| p as usize == i) {
                     self.looper.pending = None;
                 }
+                self.looper_autosave();
                 Ok(())
             }
             LooperCmd::NewLooperBank => {
                 self.looper.memories = Default::default();
                 self.looper.selected = None;
                 self.looper.pending = None;
+                self.looper.files.detach();
+                self.looper_autosave();
                 Ok(())
             }
+            LooperCmd::SaveLooperBank { name, overwrite } => self.save_looper_bank(name, overwrite),
+            LooperCmd::LoadLooperBank { path } => self.load_looper_bank(&path),
         }
     }
 
@@ -182,6 +221,9 @@ impl Control {
                     None => LooperMemory::default(),
                 })
                 .collect(),
+            bank_name: l.files.name().to_string(),
+            bank_path: l.files.path().map(|p| p.to_string_lossy().to_string()),
+            banks: l.files.list(),
         }
     }
 }
@@ -243,6 +285,7 @@ pub(super) fn looper_recall(c: &mut Control, v: &serde_json::Value, g: Groups) -
                 if c.looper.memories[i].as_ref().is_none_or(|(_, m)| *m != seq) {
                     let name = r.name.clone().unwrap_or_else(|| format!("Registration {}", i + 1));
                     c.looper.memories[i] = Some((name, seq));
+                    c.looper_autosave();
                 }
             }
             c.looper_cmd(LooperCmd::SelectLooperMemory { index: i as u8 }).map_err(e)?;

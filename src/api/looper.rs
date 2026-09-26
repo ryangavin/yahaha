@@ -21,8 +21,20 @@ pub enum LooperCmd {
     StoreLooperMemory { index: u8 },
     /// Clear memory `index` (0-7).
     ClearLooperMemory { index: u8 },
-    /// Clear all eight memories (a new bank). The current sequence stays.
+    /// Clear all eight memories: a new, unsaved bank ("New Bank"). The current sequence
+    /// stays.
     NewLooperBank,
+    /// Save the bank: to its own file (`name` null), or as a file named `name` in the
+    /// data folder's ChordLooper folder, which becomes its file. A name another bank's file
+    /// has is refused unless `overwrite`.
+    SaveLooperBank {
+        name: Option<String>,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        overwrite: bool,
+    },
+    /// Load a bank file (`banks` lists them): its memories replace the eight. Nothing is
+    /// selected; a loop that plays goes on.
+    LoadLooperBank { path: String },
 }
 
 /// Where the Chord Looper is.
@@ -84,4 +96,13 @@ pub struct LooperState {
     pub pending_memory: Option<u8>,
     /// Memories 1-8 (always 8).
     pub memories: Vec<LooperMemory>,
+    /// The bank's name ("New Bank" until it is saved or loaded).
+    #[serde(default)]
+    pub bank_name: String,
+    /// Its file (null: not saved; the memories are still kept for the next session).
+    #[serde(default)]
+    pub bank_path: Option<String>,
+    /// The bank files in the ChordLooper folder, by name.
+    #[serde(default)]
+    pub banks: Vec<super::BankFile>,
 }

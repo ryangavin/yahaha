@@ -41,6 +41,7 @@ mod knobs;
 mod leds;
 mod library;
 mod looper;
+mod looper_banks;
 mod metronome;
 mod mixer;
 mod multipad;
@@ -689,7 +690,7 @@ fn assemble(opts: &Options, engine_out: live::Out, input_out: live::Out, offline
         style_settings: StyleSettings::default(),
         reg: registration::RegState::new(opts.data_dir.as_ref().map(|d| d.join("Registration"))),
         playlist: playlist::PlaylistCtl::new(opts.data_dir.as_ref().map(|d| d.join("Playlists"))),
-        looper: looper::LooperCtl::new(ch.looper_tx, ch.recorded_rx),
+        looper: looper::LooperCtl::new(ch.looper_tx, ch.recorded_rx, opts.data_dir.as_ref().map(|d| d.join("ChordLooper"))),
         metronome: Default::default(),
         pad_tx: ch.pad_tx,
         old_pad_rx: ch.old_pad_rx,
