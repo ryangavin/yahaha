@@ -59,6 +59,24 @@ fn drum_parts_take_the_drum_rule() {
     assert_eq!(resolve(&no_kit, None, true, 33).rule, RuleKind::Fallback, "a drum part never takes a melodic rule");
 }
 
+/// Bank 8 (MegaVoice, S.Art!) numbers its voices by the Genos Data List, not by GM (#228):
+/// they look up, and play, their instrument's GM program.
+#[test]
+fn genos_bank_8_voices_map_to_their_gm_instrument() {
+    let (chord1, bass) = (11, 10);
+    assert_eq!(map_program(chord1, 8, 0), 24, "NylonGuitar");
+    assert_eq!(FAMILY_NAMES[family_of(map_program(chord1, 8, 0))], "Guitar");
+    assert_eq!(FAMILY_NAMES[family_of(map_program(chord1, 8, 2))], "Guitar", "SolidGuitar2 (8/2/PC#4)");
+    assert_eq!(FAMILY_NAMES[family_of(map_program(chord1, 8, 17))], "Bass", "ElectricBass on a Chord part");
+    assert_eq!(FAMILY_NAMES[family_of(map_program(13, 8, 49))], "Strings", "SeattleStrings on the Pad");
+    assert_eq!(FAMILY_NAMES[family_of(map_program(14, 8, 100))], "Ensemble", "PopHaa: Choir Aahs");
+    assert_eq!(map_program(bass, 8, 18), 34, "PickBass");
+    assert_eq!(map_program(bass, 8, 20), 33, "ActiveBassSlap shares PC# 21 with the EPs; the Bass part plays a bass");
+    // GM banks are untouched.
+    assert_eq!(map_program(chord1, 0, 0), 0);
+    assert_eq!(map_program(chord1, 104, 0), 0);
+}
+
 #[test]
 fn bank_variations_collapse_onto_their_program() {
     // XG/GS variations of Finger Bass (MSB 0 LSB x, or a Yamaha bank that keeps GM
