@@ -1,4 +1,4 @@
-//! The engine thread must not allocate or free while it fades, retriggers, resets a
+//! The engine thread must not allocate or free while it fades (and the Style volume moves), retriggers, resets a
 //! section, slows an ending down, leaves an Ending for a Main or times the Synchro Stop
 //! Window. A counting global
 //! allocator (in this test binary only) checks `EngineLoop::step` through all of them.
@@ -75,6 +75,11 @@ fn fades_retrigger_reset_and_ritardando_do_not_allocate() {
     shared.chord.store(chords[0].pack(1), Ordering::Release);
     l.step(now);
     run(&mut l, snaps, &mut now, bar);
+    // The Style volume (#199) moves during the fade in and after it.
+    shared.parts.set_volume(yahaha::parts::STYLE_LEVEL, 60);
+    run(&mut l, snaps, &mut now, bar / 4);
+    shared.parts.set_volume(yahaha::parts::STYLE_LEVEL, 110);
+    run(&mut l, snaps, &mut now, bar / 4);
     // Chords retrigger the head; a Section Reset; the Main changes at the next beat.
     for (i, c) in chords.iter().enumerate().skip(1) {
         shared.chord.store(c.pack(1 + i as u16), Ordering::Release);
