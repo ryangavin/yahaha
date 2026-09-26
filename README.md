@@ -163,7 +163,7 @@ The 8 encoders are the Genos LIVE CONTROL knobs, on Knob Assign pages. The **enc
 | **Shift + Play** | Section Reset: the section starts again from its top |
 | **Shift + Stop** | Fade In/Out: stopped, arm a fade in; playing, fade out and stop |
 | **Shift + > / Shift + Function** | Retrigger length shorter / longer |
-| buttons under faders 1–8 | Panel page: Right 1–3, Left on/off (Shift: edit that part's voice), button 5 Harmony/Arpeggio on/off, button 6 reload the edited part's plugin (red while it stopped or failed to load), button 8 Chord Looper ON/OFF (Shift: REC/STOP; dim green = a loop to play, dim yellow = armed, green = looping, dim red / red = recording armed / recording) · Style page: mute/unmute the style parts |
+| buttons under faders 1–8 | Panel page: Right 1–3, Left on/off (Shift: edit that part's voice), button 5 Harmony/Arpeggio on/off, button 6 reload the edited part's plugin (red while it stopped or failed to load), button 7 Left Hold on/off (orange while on), button 8 Chord Looper ON/OFF (Shift: REC/STOP; dim green = a loop to play, dim yellow = armed, green = looping, dim red / red = recording armed / recording) · Style page: mute/unmute the style parts |
 | button under the master fader | fader page Panel / Style |
 
 ### The Launchkey display
@@ -230,6 +230,7 @@ The screen shows `sus` beside each part the pedal is holding.
 - `r` Chord Looper REC/STOP · `^` Chord Looper ON/OFF (recording, looping and memory changes start at the next bar)
 - `.` metronome on/off (built-in synth only, never on the MIDI port)
 - `H` (shift+h) Accent on/off: a hard strike in the chord section plays the Main's fill · `&` (shift+7) Touch on/off: the band's Dynamics follow how hard the chord section is struck (see docs/genos-features.md, Style Dynamics Control)
+- `_` (shift+-) Left Hold on/off: Left rings on after you let go, until your next Left key or the style stops
 - `\` panic (all notes off)
 - `esc` twice (within 1.5 s) quit, or `ctrl+c`; one `esc` closes the style browser
 

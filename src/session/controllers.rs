@@ -152,6 +152,28 @@ mod tests {
     /// Chord Looper On/Off and Rec/Stop (RM p.141, #201) are the CHORD LOOPER buttons: a
     /// pedal press arms recording (stopped: Sync Start) and a second one cancels it; the
     /// Launchkey's Panel fader button 8 runs the same functions.
+    /// Left Hold On/Off (RM p.140, #202) is a switch with a Control Type: a Hold A pedal
+    /// keeps Left Hold on while it is down; a Toggle pedal and Try switch it; Panel fader
+    /// button 7 switches it too.
+    #[test]
+    fn left_hold_is_assignable() {
+        let Some(s) = offline() else { return };
+        let hold = |s: &Session| s.state().chord.left_hold;
+        assert_eq!(Function::LeftHold.kind(), crate::controllers::Kind::Switch);
+        s.send(pedal(1, 66, Function::LeftHold)).unwrap();
+        s.midi_in(Port::Keys, &[0xB0, 66, 127]);
+        s.advance(1_000_000);
+        assert!(hold(&s), "Hold A: on while down");
+        s.midi_in(Port::Keys, &[0xB0, 66, 0]);
+        s.advance(1_000_000);
+        assert!(!hold(&s), "and off when let go");
+        s.send(ControllersCmd::TriggerFunction { function: Function::LeftHold }).unwrap();
+        assert!(hold(&s));
+        s.midi_in(Port::Pads, &[0xB0, 43, 127]); // Panel fader button 7
+        s.advance(1_000_000);
+        assert!(!hold(&s));
+    }
+
     #[test]
     fn chord_looper_is_assignable() {
         use crate::api::LooperMode;

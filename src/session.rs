@@ -405,6 +405,7 @@ impl Control {
             ots_link: parts.ots_link.load(Relaxed),
             harmony_arp: self.harmony_arp.on,
             plugin_fault: self.selected_plugin_fault(),
+            left_hold: self.shared.controllers.left_hold(),
             looper: self.looper_lamp(),
             parts_on: parts.sounding_mask(),
             selected: parts.selected() as u8,

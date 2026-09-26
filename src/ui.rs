@@ -146,6 +146,8 @@ fn key_cmd(code: KeyCode) -> Option<AppCmd> {
         // Style Dynamics (#180): Accent (shift+h) and Touch (shift+7).
         KeyCode::Char('H') => Some(AppCmd::Dynamics(DynamicsCmd::ToggleAccent)),
         KeyCode::Char('&') => Some(AppCmd::Dynamics(DynamicsCmd::ToggleDynamicsTouch)),
+        // Left Hold (#202): shift+-.
+        KeyCode::Char('_') => Some(AppCmd::Chord(yahaha::api::ChordCmd::ToggleLeftHold)),
         // Multi Pads 1-4 (Shift+z x c v, above the Style part keys) and their STOP (Shift+b).
         KeyCode::Char(c) if "ZXCV".contains(c) => {
             Some(AppCmd::MultiPad(MultiPadCmd::TriggerMultiPad { pad: "ZXCV".find(c).unwrap() as u8 }))
@@ -960,6 +962,7 @@ mod tests {
         assert_eq!(key_cmd(KeyCode::Char('K')), None);
         assert_eq!(key_cmd(KeyCode::Char('H')), Some(AppCmd::Dynamics(DynamicsCmd::ToggleAccent)));
         assert_eq!(key_cmd(KeyCode::Char('&')), Some(AppCmd::Dynamics(DynamicsCmd::ToggleDynamicsTouch)));
+        assert_eq!(key_cmd(KeyCode::Char('_')), Some(AppCmd::Chord(ChordCmd::ToggleLeftHold)));
     }
 
     /// Letters typed into the browser filter; they never reach the performance shortcuts
