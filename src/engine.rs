@@ -243,6 +243,10 @@ pub struct Snapshot {
     pub multipad: PadsSnap,
     /// The Dynamics level in effect, 0-127 (Touch moves it; engine/dynamics.rs).
     pub dynamics: u8,
+    /// Each Style part's send to each bus as it plays (#268, `[part][bus]`: CC91/93/94).
+    pub style_sends: [[u8; 3]; 8],
+    /// Each Style part's own send (#268), 255 where it follows the style.
+    pub style_send_own: [[u8; 3]; 8],
 }
 
 /// Where a style preview is: style `id` (the session's library id), bar `bar` of `bars`
@@ -573,6 +577,8 @@ impl Engine {
             style_solo: self.features.solo,
             multipad: self.pads_snapshot(),
             dynamics: self.features.dynamics.settings.level,
+            style_sends: self.style_sends().0,
+            style_send_own: self.style_sends().1,
         }
     }
 

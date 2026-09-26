@@ -1190,6 +1190,7 @@ mod tests {
             style_pending: false, section_bars: 0, audition: None, fade: FadeState::Off, retrigger: false, ritardando: false,
             looper: Default::default(), style_solo: None,
             multipad: Default::default(), chart_tag: 0, chart_bar: None, chart_override: false, dynamics: 64,
+            style_sends: [[40, 0, 0]; 8], style_send_own: [[255; 3]; 8],
         }
     }
 

@@ -1877,6 +1877,80 @@ mod mixer {
         }
     }
 
+    /// The CC `cc` values sent on Style part `part`'s channel.
+    fn sent_cc(rec: &Recorder, part: u8, cc: u8) -> Vec<u8> {
+        rec.out.iter().filter(|(_, m)| m.len() == 3 && m[0] == 0xB8 + part && m[1] == cc).map(|(_, m)| m[2]).collect()
+    }
+
+    /// #268: a Style part's own send goes out at once and replaces the style's CC91/93/94
+    /// on that part through a start, every section change and a style change; Reset hands
+    /// it back to the style's value (or the default where the style sets none).
+    #[test]
+    fn a_style_parts_own_send_replaces_the_styles() {
+        let Some(p) = prep("SmoothItOver.S930.STY") else { return };
+        let bar = bar_ns(&p);
+        let mut e = Engine::new(p);
+        let mut rec = Recorder::default();
+        e.send_init(&mut rec);
+        // Part 3 (Chord 1, ch 12): the style's own reverb send.
+        let style_rev = e.snapshot(0).style_sends[3][0];
+        assert_eq!(e.snapshot(0).style_send_own[3], [255u8; 3]);
+        rec.out.clear();
+        e.set_style_send(3, 0, 99, &mut rec);
+        e.set_style_send(3, 2, 70, &mut rec);
+        assert_eq!(rec.out.iter().map(|(_, m)| m.clone()).collect::<Vec<_>>(), vec![vec![0xBB, 91, 99], vec![0xBB, 94, 70]]);
+        let s = e.snapshot(0);
+        assert_eq!((s.style_sends[3], s.style_send_own[3]), ([99, s.style_sends[3][1], 70], [99, 255u8, 70]));
+        // The same again sends nothing.
+        rec.out.clear();
+        e.set_style_send(3, 0, 99, &mut rec);
+        assert!(rec.out.is_empty());
+
+        // Start, every Main and fill, stop, start: part 3's reverb and delay only ever go
+        // out at the player's values; the other parts keep the style's.
+        e.set_chord(Chord::new(0, 0), 0, &mut rec);
+        e.send_init(&mut rec);
+        let mut t = 0;
+        for m in [0u8, 1, 2, 3, 3, 0, 1, 2] {
+            e.button(Button::Main(m), t, &mut rec);
+            play(&mut e, &mut rec, t, t + 3 * bar);
+            t += 3 * bar;
+        }
+        let rev = sent_cc(&rec, 3, 91);
+        assert!(!rev.is_empty() && rev.iter().all(|&v| v == 99), "part 3's reverb: {rev:?}");
+        assert!(sent_cc(&rec, 3, 94).iter().all(|&v| v == 70));
+        let other = sent_cc(&rec, 0, 91);
+        assert!(other.last().is_none_or(|&v| v == e.snapshot(t).style_sends[0][0]), "the others are the style's: {other:?}");
+        assert_eq!(e.snapshot(t).style_send_own[0], [255; 3]);
+
+        // A style change: the new style's sends on part 3 go out at the player's too.
+        let Some(b) = prep("FunkyFinger.S930.STY") else { return };
+        rec.out.clear();
+        if e.snapshot(t).running {
+            e.button(Button::StartStop, t, &mut rec);
+        }
+        e.change_style(b, t + 1, &mut rec);
+        e.send_init(&mut rec);
+        let rev = sent_cc(&rec, 3, 91);
+        assert!(!rev.is_empty() && rev.iter().all(|&v| v == 99), "after a style change: {rev:?}");
+        assert_eq!(e.snapshot(t).style_send_own[3], [99, 255u8, 70], "per part, not per style");
+
+        // A resync (a preview played on the band's channels) keeps them.
+        rec.out.clear();
+        e.resync(&mut rec);
+        assert_eq!(sent_cc(&rec, 3, 94).last(), Some(&70));
+
+        // Reset: the style's value goes out, then the style's own CCs pass as written.
+        rec.out.clear();
+        e.set_style_sends([[255u8; 3]; 8], &mut rec);
+        let s = e.snapshot(t);
+        assert_eq!(s.style_send_own, [[255u8; 3]; 8]);
+        assert_eq!(sent_cc(&rec, 3, 91), vec![s.style_sends[3][0]]);
+        assert_eq!(sent_cc(&rec, 3, 94), vec![s.style_sends[3][2]]);
+        assert_ne!(s.style_sends[3][0], 99);
+        let _ = style_rev;
+    }
+
     /// A fader value goes out as that part's CC7, unchanged: no scaling by the style level.
     #[test]
     fn fader_sends_its_value_as_cc7() {

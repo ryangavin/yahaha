@@ -227,6 +227,7 @@ export function initialState(): AppState {
       styleParts: STYLE_PART_NAMES.map((name, i) => ({
         name, channel: 9 + i, on: true, mutedByManualBass: false,
         volume: [100, 100, 96, 80, 76, 70, 88, 84][i], waiting: false, fader: null,
+        reverb: MOCK_STYLE_SENDS[i][0], chorus: MOCK_STYLE_SENDS[i][1], variation: MOCK_STYLE_SENDS[i][2], sendsSet: [],
         voice: { bankMsb: STYLE_VOICES[i][0], bankLsb: STYLE_VOICES[i][1], program: STYLE_VOICES[i][2], kit: STYLE_VOICES[i][3], label: STYLE_VOICES[i][4] },
       })),
       master: 100,
@@ -1313,6 +1314,20 @@ export class MockSession implements Session {
       case 'toggleStylePart':
         st.mixer.styleParts[cmd.part].on = !st.mixer.styleParts[cmd.part].on
         break
+      case 'setStylePartSend': {
+        const p = st.mixer.styleParts[cmd.part]
+        if (!p) break
+        p[cmd.send] = vol(cmd.value)
+        if (!p.sendsSet.includes(cmd.send)) p.sendsSet = (['reverb', 'chorus', 'variation'] as const).filter((x) => x === cmd.send || p.sendsSet.includes(x))
+        break
+      }
+      case 'resetStylePartSends':
+        st.mixer.styleParts.forEach((p, i) => {
+          if (cmd.part !== null && cmd.part !== i) return
+          ;[p.reverb, p.chorus, p.variation] = MOCK_STYLE_SENDS[i]
+          p.sendsSet = []
+        })
+        break
       case 'setStylePartVolume':
         st.mixer.styleParts[cmd.part].volume = vol(cmd.volume)
         st.mixer.styleParts[cmd.part].waiting = false
@@ -1864,6 +1879,9 @@ function fxParams(block: FxBlock, effect: FxType): FxParamState[] {
       return { param, name, value, min, max, default: value, display: display(value) }
     })
 }
+
+/** The mock style's own sends per Style part (#268): reverb, chorus, variation (as the Rust mock's). */
+const MOCK_STYLE_SENDS: [number, number, number][] = [[30, 0, 0], [30, 0, 0], [20, 0, 0], [40, 10, 0], [40, 10, 0], [50, 20, 0], [50, 10, 20], [50, 10, 20]]
 
 /**
  * The effect bus as a session starts it: Hall, Chorus, the dotted 1/8 delay, every return 64;
