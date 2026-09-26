@@ -161,6 +161,9 @@ pub struct Rack {
     /// Per extra synthesizer: how many frames it has rendered silence with no channel on
     /// it. Past `IDLE_FRAMES` it is not rendered until a channel routes to it again.
     quiet: Vec<u32>,
+    /// The performance view is on: `render` times its synthesizers and reports each
+    /// channel's cost, voices and level to `perf::PERF`.
+    profile: bool,
 }
 
 /// An extra synthesizer no channel plays is rendered until its output (reverb and chorus
@@ -188,6 +191,7 @@ impl Rack {
             ch_slot: [0; 16],
             mapped: 0,
             quiet: Vec::new(),
+            profile: false,
         };
         // Rhythm 1 (ch 9) is a drum part too: on the drum bank.
         r.process(8, 0xB0, 0, 128);
@@ -199,6 +203,39 @@ impl Rack {
         let mut file = std::fs::File::open(sf2).with_context(|| format!("opening {}", sf2.display()))?;
         let font = Arc::new(SoundFont::new(&mut file).map_err(|e| anyhow!("{e:?}"))?);
         Ok(Box::new(Rack::new(&font, sample_rate as i32)?))
+    }
+
+    /// Measure for the performance view (`perf`), or stop.
+    fn set_profiling(&mut self, on: bool) {
+        if self.profile != on {
+            self.profile = on;
+            for s in self.synths() {
+                s.set_profiling(on);
+            }
+        }
+    }
+
+    /// The last render's per-channel costs and voices into `perf::PERF` (profiling only),
+    /// leaving out the channels in `skip` (a plugin plays them).
+    fn report_profile(&mut self, skip: u16) {
+        let perf = &crate::perf::PERF;
+        let (mut ns, mut voices) = ([0u64; 16], [0u32; 16]);
+        for s in self.synths() {
+            for (ch, (t, v)) in s.take_channel_ns().into_iter().zip(s.channel_voices()).enumerate() {
+                ns[ch] += t;
+                voices[ch] += v as u32;
+            }
+        }
+        let mut total = 0;
+        for ch in 0..16 {
+            total += voices[ch];
+            perf.channel_voices[ch].store(voices[ch], Relaxed);
+            if skip >> ch & 1 == 0 {
+                perf.channel[ch].add(ns[ch]);
+            }
+        }
+        perf.voices.store(total, Relaxed);
+        perf.voices_peak.fetch_max(total, Relaxed);
     }
 
     /// The voices sounding now, in every synthesizer of the rack.
@@ -258,7 +295,9 @@ impl Rack {
         let (left, right) = (&mut left[..n], &mut right[..n]);
         let sends = &mut sends[..2 * crate::fx::BUSES * n];
         sends.fill(0.0);
+        let mut clock = crate::perf::Lap::start(self.profile);
         self.band.render_with_sends(left, right, sends);
+        clock.lap(crate::perf::ST_BAND);
         let (l, r) = (&mut self.tmp_l[..n], &mut self.tmp_r[..n]);
         // The extra synthesizers some channel plays (slot k+1 = extra[k]).
         let mut used = 0u64;
@@ -286,6 +325,7 @@ impl Rack {
             if let Some(q) = quiet {
                 *q = if played || peak >= IDLE_LEVEL { 0 } else { q.saturating_add(n as u32) };
             }
+            clock.lap(if i == 0 { crate::perf::ST_KEYS } else { crate::perf::ST_EXTRA });
         }
         let mut most = 1f32;
         if let Some((a, b)) = fade {
@@ -304,6 +344,9 @@ impl Rack {
             for (ch, &p) in s.channel_peaks().iter().enumerate() {
                 if p > 0.0 {
                     peaks[ch].fetch_max((p * most).to_bits(), Relaxed);
+                    if self.profile {
+                        crate::perf::Perf::peak(&crate::perf::PERF.channel_peak[ch], p * most);
+                    }
                 }
             }
             s.reset_channel_peaks();
@@ -807,6 +850,9 @@ impl AudioCore {
     pub fn process(&mut self, out: &mut [f32]) {
         let channels = self.channels;
         let ctl = &*self.ctl;
+        // The performance view (`perf`): off, this load is all it costs.
+        let prof = crate::perf::PERF.on();
+        let mut clock = crate::perf::Lap::start(prof);
         // A rack still waiting to go back: try again.
         if let Some(p) = self.parked.take() {
             retire(&mut self.old_tx, &mut self.parked, p);
@@ -882,6 +928,9 @@ impl AudioCore {
         self.plugin_on = active;
 
         for (i, c) in self.consumers.iter_mut().enumerate() {
+            if prof && let Some(d) = crate::perf::PERF.ring_depth.get(i) {
+                d.fetch_max(c.slots() as u32, Relaxed);
+            }
             while let Ok(m) = c.pop() {
                 // The metronome's click voice: not a MIDI part.
                 if m[0] == CLICK {
@@ -982,8 +1031,22 @@ impl AudioCore {
         let (left, right) = (&mut self.left[..frames], &mut self.right[..frames]);
         let (left2, right2) = (&mut self.left2[..frames], &mut self.right2[..frames]);
         let sends = &mut self.sends[..2 * crate::fx::BUSES * frames];
+        if let Some(rack) = self.rack.as_mut() {
+            rack.set_profiling(prof);
+        }
+        if let Some(f) = self.fading.as_mut() {
+            // A rack fading out counts as a stage of its own, not as the parts'.
+            f.set_profiling(false);
+        }
+        clock.lap(crate::perf::ST_MIDI);
         match self.rack.as_mut() {
-            Some(rack) => rack.render(left, right, sends, &ctl.peaks, None),
+            Some(rack) => {
+                rack.render(left, right, sends, &ctl.peaks, None);
+                clock.skip();
+                if prof {
+                    rack.report_profile(active);
+                }
+            }
             None => {
                 left.fill(0.0);
                 right.fill(0.0);
@@ -1001,6 +1064,7 @@ impl AudioCore {
                 *a += *b;
             }
             retire(&mut self.old_tx, &mut self.parked, f);
+            clock.lap(crate::perf::ST_FADE);
         }
         // The plugin parts: their own CC7/CC11/CC10 applied in the rack, then the master
         // fader (rustysynth applies it inside its render; the rack does not).
@@ -1022,11 +1086,20 @@ impl AudioCore {
                 if p > 0.0 {
                     ctl.peaks[ch as usize].fetch_max(p.to_bits(), Relaxed);
                 }
+                if prof && active >> ch & 1 == 1 {
+                    crate::perf::PERF.channel[ch as usize].add(self.plugins.last_render_ns(ch));
+                    crate::perf::Perf::peak(&crate::perf::PERF.channel_peak[ch as usize], p);
+                }
             }
+            clock.lap(crate::perf::ST_PLUGINS);
+        }
+        if prof {
+            crate::perf::PERF.plugin_mask.store(active as u32, Relaxed);
         }
         if !self.legacy {
             self.fx.process_add(sends, frames, left, right, &ctl.fx);
         }
+        clock.lap(crate::perf::ST_FX);
         self.click.render_add(left, right, master_gain(master));
         let mute = ctl.muted.load(Relaxed);
         let lc = (ctl.out_ch.load(Relaxed) as usize).min(channels.saturating_sub(1));
@@ -1048,6 +1121,7 @@ impl AudioCore {
         if clipped {
             ctl.clips.fetch_add(1, Relaxed);
         }
+        clock.lap(crate::perf::ST_OUT);
     }
 }
 
@@ -1109,6 +1183,7 @@ pub fn start(sf2: &Path, consumers: Vec<Consumer<Msg>>, out_pair: Option<u8>, pa
     let rack = Box::new(Rack::with_fonts(&[(routing.font_id, font.clone())], sample_rate as i32)?);
     drop(font);
     let control = Arc::new(SynthControl::new(first));
+    crate::perf::register_synth(&control);
     let (mut core, swap, plugins) = AudioCore::new(Some(rack), consumers, parts, control.clone(), sample_rate, channels);
     core.set_routes(routing.routes);
     let range = match default.buffer_size() {

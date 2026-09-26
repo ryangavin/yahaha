@@ -279,6 +279,42 @@ fn fit(s: &str, w: usize) -> String {
     }
 }
 
+/// Run a live session with the performance view (`perf::top`) in place of the front
+/// panel: the keyboards, the Launchkey and the app API still play it. q, Esc or Ctrl-C
+/// quits.
+pub fn play_top(opts: Options, startup: Vec<AppCmd>) -> Result<()> {
+    yahaha::perf::enable();
+    let session = Session::start(opts)?;
+    for c in startup {
+        let _ = session.send(c);
+    }
+    crossterm::terminal::enable_raw_mode()?;
+    crossterm::execute!(std::io::stdout(), crossterm::terminal::EnterAlternateScreen, crossterm::cursor::Hide)?;
+    let quit = std::sync::atomic::AtomicBool::new(false);
+    std::thread::scope(|s| {
+        s.spawn(|| yahaha::perf::top::run(|| quit.load(std::sync::atomic::Ordering::Relaxed)));
+        loop {
+            match event::poll(Duration::from_millis(100)) {
+                Ok(true) => {}
+                Ok(false) => continue,
+                Err(_) => break,
+            }
+            if let Ok(Event::Key(k)) = event::read()
+                && k.kind == KeyEventKind::Press
+                && (matches!(k.code, KeyCode::Char('q') | KeyCode::Esc)
+                    || (k.modifiers.contains(KeyModifiers::CONTROL) && k.code == KeyCode::Char('c')))
+            {
+                break;
+            }
+        }
+        quit.store(true, std::sync::atomic::Ordering::Relaxed);
+    });
+    crossterm::execute!(std::io::stdout(), crossterm::cursor::Show, crossterm::terminal::LeaveAlternateScreen)?;
+    crossterm::terminal::disable_raw_mode()?;
+    drop(session);
+    Ok(())
+}
+
 /// Run the terminal front panel on a live session; `startup` commands run first (their
 /// errors show in the message line).
 pub fn play(opts: Options, startup: Vec<AppCmd>) -> Result<()> {

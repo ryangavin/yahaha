@@ -187,10 +187,18 @@ fn play(device: &cpal::Device, channels: u16, sample_rate: u32, buffer: Option<u
             }
             None => out.fill(0.0),
         }
-        if deadline.missed(out.len(), crate::rt::host_now().wrapping_sub(t0)) {
+        let dt = crate::rt::host_now().wrapping_sub(t0);
+        if deadline.missed(out.len(), dt) {
             late.late.fetch_add(1, Relaxed);
         }
+        // The performance view (`perf`): the whole callback against its deadline.
+        let perf = &crate::perf::PERF;
+        if perf.on() {
+            perf.callback.record(crate::rt::host_to_ns(dt));
+            perf.frames.store((out.len() / deadline.channels) as u32, Relaxed);
+        }
     };
+    crate::perf::PERF.sample_rate.store(sample_rate, Relaxed);
     // CoreAudio reports an overload from its own thread (cpal says the real-time one):
     // count it, never print there. A burst of them used to flood the console with "audio
     // error: A buffer underrun or overrun occurred."; the control side now says so once

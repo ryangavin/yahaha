@@ -1074,7 +1074,13 @@ impl InputHandler for Input {
             let t = rt::host_to_ns(host_time);
             if now >= t {
                 self.shared.input_lat.record(now - t);
+                if crate::perf::PERF.on() {
+                    crate::perf::PERF.midi_in.record(now - t);
+                }
             }
+        }
+        if crate::perf::PERF.on() {
+            crate::perf::PERF.midi_packets.fetch_add(1, Relaxed);
         }
         self.drain_releases();
         let slot = key_slot(tag);
@@ -1302,6 +1308,12 @@ impl EngineLoop {
         // a full ring can never leave Sync Stop on in a Full Keyboard type.
         self.engine.allow_sync_stop(shared.sync_stop_allowed());
         rebind_faders(&mut self.engine, &shared.parts);
+        // The performance view (`perf`): how deep the command rings got.
+        if crate::perf::PERF.on() {
+            let q = &crate::perf::PERF.engine_queue;
+            q[0].fetch_max(self.io.input.slots() as u32, Relaxed);
+            q[1].fetch_max(self.io.ui.slots() as u32, Relaxed);
+        }
         while let Ok(cmd) = self.io.input.pop() {
             if self.audition.is_some() && ends_audition(cmd) {
                 self.end_audition();
@@ -1439,9 +1451,16 @@ pub fn run_engine(engine: Engine, io: EngineIo, shared: Arc<Shared>) {
             }
             if t >= d {
                 shared.lateness.record(t - d);
+                if crate::perf::PERF.on() {
+                    crate::perf::PERF.engine_late.record(t - d);
+                }
             }
         }
-        l.step(rt::now_ns());
+        let t = rt::now_ns();
+        l.step(t);
+        if crate::perf::PERF.on() {
+            crate::perf::PERF.engine.record(rt::now_ns().saturating_sub(t));
+        }
     }
 }
 
