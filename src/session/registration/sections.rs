@@ -10,6 +10,7 @@
 //! Parameter Lock: a recall that sets an item of a Data List lock group (`LockItem`) asks
 //! `c.param_locked(item)` first and leaves the item alone when it is locked.
 
+use super::super::fx::{effects_capture, effects_recall};
 use super::super::harmony_arp::{harmony_arp_capture, harmony_arp_recall};
 use super::super::looper::{looper_capture, looper_recall};
 use super::super::style_settings::{style_settings_capture, style_settings_recall};
@@ -49,6 +50,8 @@ pub(in crate::session) const REGISTRABLES: &[Registrable] = &[
     Registrable { key: "chord", early: false, capture: chord_capture, recall: chord_recall },
     Registrable { key: "styleControl", early: false, capture: control_capture, recall: control_recall },
     Registrable { key: "styleMixer", early: false, capture: mixer_capture, recall: mixer_recall },
+    // The effect bus's types and return levels (#204): session/fx.rs.
+    Registrable { key: "effects", early: false, capture: effects_capture, recall: effects_recall },
     Registrable { key: "parts", early: false, capture: parts_capture, recall: parts_recall },
     Registrable { key: "transpose", early: false, capture: transpose_capture, recall: transpose_recall },
     // Keyboard Harmony/Arpeggio (#32/#33): session/harmony_arp.rs.

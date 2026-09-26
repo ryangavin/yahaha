@@ -198,12 +198,11 @@ impl Session {
     /// Tests: the effect bus's returns at 0, so a note's reverb tail doesn't ring into a
     /// check for silence (#204).
     #[cfg(test)]
+    #[cfg_attr(not(feature = "plugins"), allow(dead_code))] // the plugin tests use it
     pub(crate) fn fx_returns_off(&self) {
-        let ctl = self.inner.lock();
-        if let Some(synth) = ctl.synth.as_ref() {
-            synth.control.fx.reverb_return.store(0, std::sync::atomic::Ordering::Relaxed);
-            synth.control.fx.chorus_return.store(0, std::sync::atomic::Ordering::Relaxed);
-        }
+        let mut ctl = self.inner.lock();
+        ctl.fx.returns = [0; 3];
+        ctl.pump_fx();
     }
 
     /// Offline only, after [`Session::offline_audio`]: render `frames` of stereo (in

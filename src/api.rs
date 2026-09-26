@@ -22,6 +22,7 @@ mod controllers;
 mod dynamics;
 mod harmony_arp;
 mod keyboard;
+mod fx;
 mod knobs;
 mod library;
 mod looper;
@@ -51,6 +52,7 @@ pub use controllers::*;
 pub use dynamics::*;
 pub use harmony_arp::*;
 pub use keyboard::*;
+pub use fx::*;
 pub use knobs::*;
 pub use library::*;
 pub use looper::*;
@@ -179,6 +181,8 @@ app_cmd! {
     Dynamics(DynamicsCmd),
     /// Knob Assign pages for the Launchkey's encoders (#197).
     Knobs(KnobsCmd),
+    /// The effect bus's blocks: type and return level (#204).
+    Fx(FxCmd),
 }
 
 impl From<Button> for AppCmd {
@@ -372,6 +376,9 @@ pub struct AppState {
     /// Knob Assign pages for the Launchkey's encoders (#197).
     #[serde(default)]
     pub knobs: KnobsState,
+    /// The effect bus's Reverb, Chorus and Variation blocks (#204).
+    #[serde(default)]
+    pub effects: EffectsState,
 }
 
 // ---------------------------------------------------------------------------
