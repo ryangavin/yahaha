@@ -47,7 +47,7 @@ button{font-family:inherit;cursor:pointer}
 <button role="tab" class="tab" aria-selected="{{t.on}}" style="background: {{t.bg}}; color: {{t.ink}}; border-bottom: 2px solid {{t.line}}; padding: 0 {{t.pad}}px">{{t.name}}</button>
 </sc-for>
 <div style="flex-grow: 1"></div>
-<span class="cap" style="padding-bottom: 8px; display: {{hdr.tabCap}}">Cool 8Beat · Bank: Sunday Gig · Regist 3 · OTS 2</span>
+<span class="cap" style="padding-bottom: 8px; display: {{hdr.tabCap}}">Cool 8Beat · Bank A · Snapshot 3 · OTS 2</span>
 </div>
 <div style="flex-grow: 1; display: flex; min-height: 0">
 %%DISPLAY%%
@@ -110,10 +110,10 @@ button{font-family:inherit;cursor:pointer}
 </section>
 </div>
 
-<section aria-label="Registration and OTS" style="height: 40px; flex-shrink: 0; display: flex; align-items: center; gap: 6px">
-<span class="cap" style="margin-right: 4px; display: {{hdr.regCap}}">Registration</span>
-<button class="hb" style="min-width: {{hdr.bankW}}px; text-align: left">Sunday Gig ▾</button>
-<sc-for list="{{regs}}" as="g" hint-placeholder-count="10">
+<section aria-label="Snapshots and OTS" style="height: 40px; flex-shrink: 0; display: flex; align-items: center; gap: 6px">
+<span class="cap" style="margin-right: 4px; display: {{hdr.regCap}}">Snapshots</span>
+<button class="hb" style="min-width: {{hdr.bankW}}px; text-align: left">Bank A · Sunday Gig ▾</button>
+<sc-for list="{{regs}}" as="g" hint-placeholder-count="8">
 <button class="hb" style="width: {{hdr.regW}}px; min-width: 0; padding: 0; background: {{g.bg}}; color: {{g.ink}}; border-color: {{g.border}}">{{g.n}}</button>
 </sc-for>
 <button class="hb">{{hdr.memory}}</button>
@@ -160,7 +160,7 @@ class Component extends DCLogic {
     const SEL = %%SEL%%;
     const TAB = '%%TAB%%';
     const LAYER = '%%LAYER%%';
-    const hdr = { syncStart: COMPACT ? 'Sync ▶' : 'Sync Start', syncStop: COMPACT ? 'Sync ■' : 'Sync Stop', masterCap: COMPACT ? 'none' : 'inline', masterW: COMPACT ? 70 : 110, tabCap: COMPACT ? 'none' : 'inline', regCap: COMPACT ? 'none' : 'inline', bankW: COMPACT ? 110 : 150, regW: COMPACT ? 32 : 38, otsW: COMPACT ? 34 : 44, memory: COMPACT ? 'Mem' : 'Memory', freeze: COMPACT ? 'Frz' : 'Freeze' };
+    const hdr = { syncStart: COMPACT ? 'Sync ▶' : 'Sync Start', syncStop: COMPACT ? 'Sync ■' : 'Sync Stop', masterCap: COMPACT ? 'none' : 'inline', masterW: COMPACT ? 70 : 110, tabCap: COMPACT ? 'none' : 'inline', regCap: COMPACT ? 'none' : 'inline', bankW: COMPACT ? 150 : 190, regW: COMPACT ? 32 : 38, otsW: COMPACT ? 34 : 44, memory: 'Save', freeze: COMPACT ? 'Frz' : 'Freeze' };
     const tabs = ['Home', 'Channel', 'Effects', 'Multi Pads', 'Looper & Charts', 'Harmony / Arp', 'Settings'].map(n => { const on = n === TAB; return { name: n, on, bg: on ? '#222228' : 'transparent', ink: on ? '#ffffff' : '#8d8d95', line: on ? A : 'transparent', pad: COMPACT ? 9 : 14 }; });
     // name, voice, meter, volume, on, reverb, chorus, delay, pan (0-1)
     const P = [['Right 1','Grand Piano',86,70,1,.4,.1,.2,.5],['Right 2','Strings',60,55,1,.5,.2,.1,.35],['Right 3','Brass Sect',0,50,0,.3,.1,0,.6],['Left','Warm Pad',44,62,1,.4,.15,0,.5],['Rhythm 1','Live Kit',90,78,1,.3,0,0,.5],['Rhythm 2','Percussion',50,60,1,.3,0,0,.7],['Bass','Finger Bass',72,70,1,.1,0,0,.5],['Chord 1','Steel Gtr',58,64,1,.35,.15,0,.3],['Chord 2','E.Piano',40,58,1,.4,.3,0,.68],['Pad','Warm Strings',30,52,1,.5,.25,0,.5],['Phrase 1','Brass',0,60,1,.3,.1,0,.6],['Phrase 2','Synth Lead',0,48,1,.3,0,.25,.42]];
@@ -191,7 +191,7 @@ class Component extends DCLogic {
     const FPAGE = { VOL: 'Vol', PAN: 'Pan', REV: 'Rev', CHO: 'Cho', DLY: 'Dly' }[LAYER];
     const mirFaders = ['R1', 'R2', 'R3', 'L', 'STYLE', 'M.PAD', '', '', 'MSTR'].map((n, i) => ({ name: n, v: i < 4 ? parts[i].fader : [80, 67, 0, 0, 78][i - 4], col: i === 8 ? '#f2f2f2' : (i < 4 ? COL[i] : (i < 6 ? '#c9c9cf' : '#2d2d32')) }));
     const mir = { title: 'Pads: Sections · Knobs: Style · Faders: Panel ' + FPAGE, padH: W >= 1800 ? 44 : 36, fadersDisp: 'flex' };
-    const regs = Array.from({ length: 10 }, (_, i) => ({ n: i + 1, bg: i === 2 ? A : '#26262b', ink: i === 2 ? AI : (i < 6 ? '#f2f2f2' : '#8d8d95'), border: i === 2 ? A : '#2d2d32' }));
+    const regs = Array.from({ length: 8 }, (_, i) => ({ n: i + 1, bg: i === 2 ? A : '#26262b', ink: i === 2 ? AI : (i < 6 ? '#f2f2f2' : '#8d8d95'), border: i === 2 ? A : '#2d2d32' }));
     const ots = [1, 2, 3, 4].map(n => ({ n, bg: n === 2 ? A : '#26262b', ink: n === 2 ? AI : '#f2f2f2', border: n === 2 ? A : '#2d2d32' }));
     // Keyboard: NW white keys from C, the split at F#2-ish (white key 10 of a 36-key board, scaled).
     const held = [9, 12, 16, 21, 24].map(k => k + Math.floor((NW - 36) / 14) * 7);

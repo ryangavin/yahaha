@@ -48,6 +48,8 @@ The owner was asked short atomic questions. Keep doing that: they asked for it.
 - **Sends for everything via a fader layer**, as in Ableton: the faders swap between volume and sends. The **hardware should match**, with Launchkey faders that cycle through send layers too.
 - The artwork should be **smaller** and **look different**. The owner asked to see a few options.
 
+**Snapshots (2026-09-26 comment):** the owner finds "registration" a terrible word and wants **8 per bank**, to match the controllers' 8s; banks give more. The wireframes call them **Snapshots**: Bank A · 1–8 · Save · Freeze. The engine has 10 per bank and the Launchkey page uses 10 pads, so both need changing.
+
 **Look**
 - **A colour per part plus lit active states**: Maschine groups plus Genos lamps.
 - **"In between" feel:** mostly flat, with lit, glowing highlights. Direction B is near-black, vivid part colours and orange for active.

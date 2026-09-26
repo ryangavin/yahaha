@@ -36,7 +36,7 @@ def home(artW=200, fxW=220, wide=False):
 <svg width="%d" height="%d" viewBox="0 0 160 160" aria-hidden="true" style="flex-shrink: 0; border-radius: 8px; background: #15151a"><sc-for list="{{print}}" as="c" hint-placeholder-count="40"><rect x="{{c.x}}" y="{{c.y}}" width="{{c.w}}" height="{{c.h}}" rx="1.5" fill="{{c.col}}" opacity="{{c.o}}"></rect></sc-for></svg>
 <span class="cap" style="margin-top: 2px">Pop &amp; Rock · 4/4</span>
 <div style="font-family: 'Archivo Narrow', sans-serif; font-size: %dpx; font-weight: 700; line-height: 1">Cool 8Beat</div>
-<span style="font-size: 12px; color: #c9c9cf; white-space: nowrap; overflow: hidden; text-overflow: ellipsis"><b style="color: #ff7a2f">Regist 3</b> · Sunday Gig</span>
+<span style="font-size: 12px; color: #c9c9cf; white-space: nowrap; overflow: hidden; text-overflow: ellipsis"><b style="color: #ff7a2f">Snapshot 3</b> · Bank A</span>
 <span style="font-size: 12px; color: #c9c9cf; white-space: nowrap; overflow: hidden; text-overflow: ellipsis"><b style="color: #ff7a2f">OTS 2</b> · Piano &amp; Strings</span>
 <div style="flex-grow: 1"></div>
 <div style="display: flex; gap: 6px"><button class="chip" style="flex: 1">Browse</button><button class="chip" style="flex: 1">Edit…</button></div>
@@ -44,7 +44,7 @@ def home(artW=200, fxW=220, wide=False):
     # With no art column (narrow window) the style, registration and OTS move into the status line.
     mini = '' if artW else '''<div style="display: flex; gap: 10px; align-items: center; min-width: 0">
 <svg width="46" height="46" viewBox="0 0 160 160" aria-hidden="true" style="flex-shrink: 0; border-radius: 6px; background: #15151a"><sc-for list="{{print}}" as="c" hint-placeholder-count="40"><rect x="{{c.x}}" y="{{c.y}}" width="{{c.w}}" height="{{c.h}}" fill="{{c.col}}" opacity="{{c.o}}"></rect></sc-for></svg>
-<div style="display: flex; flex-direction: column; gap: 2px; min-width: 0"><span style="font-family: 'Archivo Narrow', sans-serif; font-size: 22px; font-weight: 700; line-height: 1; white-space: nowrap">Cool 8Beat</span><span style="font-size: 11px; color: #c9c9cf; white-space: nowrap"><b style="color: #ff7a2f">Regist 3</b> Sunday Gig · <b style="color: #ff7a2f">OTS 2</b></span></div>
+<div style="display: flex; flex-direction: column; gap: 2px; min-width: 0"><span style="font-family: 'Archivo Narrow', sans-serif; font-size: 22px; font-weight: 700; line-height: 1; white-space: nowrap">Cool 8Beat</span><span style="font-size: 11px; color: #c9c9cf; white-space: nowrap"><b style="color: #ff7a2f">Snapshot 3</b> Bank A · <b style="color: #ff7a2f">OTS 2</b></span></div>
 </div>'''
     fx = '' if not fxW else '''<aside aria-label="Band effects" style="width: %dpx; flex-shrink: 0; display: flex; flex-direction: column; gap: 10px; padding: 14px; border-left: 1px solid #26262b">
 <div style="display: flex; justify-content: space-between; align-items: baseline"><span class="cap">Band effects</span><button class="chip" style="height: 24px; padding: 0 8px; font-size: 11px">Effects ›</button></div>
