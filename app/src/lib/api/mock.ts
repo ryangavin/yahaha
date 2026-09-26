@@ -22,7 +22,7 @@ import { emptyPlaylist, emptyRegistration } from './registration'
 import type { Session } from './session'
 import {
   BREAK, CHORD_SETTLE_MAX_MS, ENDINGS, FILLS, FINGERINGS, INTROS, KEYBOARD_PART_NAMES, MAINS, PAD_PAGES, RETRIGGER_RATES,
-  STYLE_PART_NAMES, type AppCmd, type AppState, type LibraryEntry, type LibraryList, type OtsPart, type PreviewState, type StopAcmpMode,
+  STYLE_PART_NAMES, type AppCmd, type AppState, type EffectBlockState, type EffectsState, type FxBlock, type FxType, type LibraryEntry, type LibraryList, type OtsPart, type PreviewState, type StopAcmpMode,
   type SoundLibraryCmd, type StyleSettingsState, type StyleState,
 } from './types'
 
@@ -204,7 +204,7 @@ export function initialState(): AppState {
   const s = STYLES[0]
   const part = (i: number, program: number, on: boolean) => ({
     name: KEYBOARD_PART_NAMES[i], channel: [1, 3, 4, 2][i], on, sounding: on, selected: i === 0,
-    volume: 100, waiting: false, program, voiceName: GM[program], playsBass: false, octave: 0, pan: 64, reverb: i === 3 ? 40 : 50, chorus: 10, fader: null, patch: null as string | null,
+    volume: 100, waiting: false, program, voiceName: GM[program], playsBass: false, octave: 0, pan: 64, reverb: i === 3 ? 40 : 50, chorus: 10, variation: 0, fader: null, patch: null as string | null,
   })
   const state: AppState = {
     version: 1,
@@ -279,6 +279,7 @@ export function initialState(): AppState {
     sounds: initialSounds(),
     dynamics: { control: true, level: 64, touch: false, accent: false, accentThreshold: 110 },
     knobs: { page: 'style', pageName: 'Style', pageNumber: 1, pageCount: 4, knobs: [] },
+    effects: initialEffects(),
   }
   derive(state, LIBRARY)
   state.knobs = new MockKnobs().state(state)
@@ -1764,7 +1765,37 @@ export class MockSession implements Session {
         if (c) this.cmd(c)
         break
       }
+      // The effect bus (#204).
+      case 'setEffectType': {
+        const b = this.state.effects.blocks.find((x) => x.block === cmd.block)!
+        const t = b.types.find((x) => x.effect === cmd.effect)
+        if (!t) {
+          this.message(`${b.name} has no ${cmd.effect} type`, true)
+          break
+        }
+        b.effect = t.effect
+        b.effectName = t.name
+        break
+      }
+      case 'setEffectReturn':
+        this.state.effects.blocks.find((x) => x.block === cmd.block)!.returnLevel = clampLevel(cmd.level)
+        break
     }
+  }
+}
+
+/** The effect bus as a session starts it: Hall, Chorus, the dotted 1/8 delay, every return 64. */
+export function initialEffects(): EffectsState {
+  const block = (block: FxBlock, name: string, effect: FxType, types: [FxType, string][]): EffectBlockState => ({
+    block, name, effect, effectName: types.find(([t]) => t === effect)![1],
+    types: types.map(([effect, name]) => ({ effect, name })), returnLevel: 64,
+  })
+  return {
+    blocks: [
+      block('reverb', 'Reverb', 'hall', [['hall', 'Hall'], ['room', 'Room'], ['stage', 'Stage'], ['plate', 'Plate']]),
+      block('chorus', 'Chorus', 'chorus', [['chorus', 'Chorus'], ['celeste', 'Celeste'], ['flanger', 'Flanger']]),
+      block('variation', 'Variation', 'dottedEighth', [['eighth', 'Delay 1/8'], ['dottedEighth', 'Delay 1/8.'], ['quarter', 'Delay 1/4'], ['pingPong', 'Ping-Pong']]),
+    ],
   }
 }
 

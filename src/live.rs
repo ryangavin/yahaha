@@ -750,6 +750,12 @@ impl Input {
     fn key_msg_from(&mut self, slot: usize, m: &[u8]) {
         let split = self.shared.split.load(Relaxed);
         let st = m[0] & 0xF0;
+        // Reset All Controllers from the keyboard (sent on to the parts below): the parts'
+        // pan and sends go out again after it, from the engine thread (#204).
+        if st == 0xB0 && m.len() == 3 && m[1] == 121 {
+            self.shared.parts.resend_fx();
+            self.signal = true;
+        }
         match (st, m.len()) {
             // The keyboard-part note path: pipeline.rs.
             (0x90, 3) if m[2] > 0 => self.key_down(slot, m[1] & 0x7F, m[2], split),
@@ -1463,6 +1469,8 @@ fn apply(engine: &mut Engine, shared: &Shared, cmd: Cmd, now: u64, out: &mut Out
             for ch in 0..16u8 {
                 out.push(&[0xB0 | ch, 123, 0]);
             }
+            // The keyboard parts' pan and sends again, for a receiver that reset (#204).
+            shared.parts.resend_fx();
         }
     }
 }

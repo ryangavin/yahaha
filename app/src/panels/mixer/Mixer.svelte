@@ -13,8 +13,11 @@
     style sets the Style faders to the style's own levels.
   - Soft takeover: ↕ while a level waits for its Launchkey fader, and a dashed ghost cap
     where that fader physically sits (from the provisional `state.surface`).
-  - Panel strips have Pan, Reverb and Chorus knobs (the part's CC 10, 91, 93: `setPartPan`,
-    `setPartSend`, #198); double-click one to put it back to its default.
+  - Panel strips have Pan, Reverb, Chorus and Delay knobs (the part's CC 10, 91, 93, 94:
+    `setPartPan`, `setPartSend`, #198/#204); double-click one to put it back to its default.
+  - Effects (#204): the shared effect bus's Reverb, Chorus and Variation (tempo delay)
+    blocks, each with its type and return level (`setEffectType`, `setEffectReturn`). Every
+    part, Panel and Style, SoundFont and plugin, feeds them through its sends.
   - Solo (S): only that part plays, even if it is off; the Style tab solos a band part,
     the Panel tab a keyboard part (`setStyleSolo` / `setPartSolo`, #30). Press again to end.
   - The metronome (on/off, bell, its own volume) sits above the strips: it is the
@@ -23,7 +26,8 @@
   - No level meters yet.
 -->
 <script lang="ts">
-  import type { FaderPage, KeyboardPart, PartSend, StylePart, TrackMuteOrder } from '../../lib/api/types'
+  import type { FaderPage, FxBlock, FxType, KeyboardPart, PartSend, StylePart, TrackMuteOrder } from '../../lib/api/types'
+  import type { TipKey } from '../../help/tooltips'
   import { app, ui } from '../../lib/store.svelte'
   import { tipFor } from '../../help/actions'
   import { css } from '../../lib/leds'
@@ -42,6 +46,14 @@
   const surface = $derived(surfaceOf(app.state, app.library))
   const outPort = $derived(app.state.io.outputPort)
   const metronome = $derived(app.state.metronome)
+  const effects = $derived(app.state.effects.blocks)
+  const FX_TIPS: Record<FxBlock, [TipKey, TipKey]> = {
+    reverb: ['fx.reverb_type', 'fx.reverb_return'],
+    chorus: ['fx.chorus_type', 'fx.chorus_return'],
+    variation: ['fx.variation_type', 'fx.variation_return'],
+  }
+  /** A return level as the Genos shows it: 64 = 0 dB, 127 = +6 dB, 0 = off. */
+  const returnText = (v: number) => (v === 0 ? 'Off' : `${v >= 64 ? '+' : ''}${(20 * Math.log10(v / 64)).toFixed(1)} dB`)
 
   // Style Track Mute is a knob: the engine keeps only the parts' switches it sets, so the
   // knob's position and order are this drawer's. Choosing an order only chooses what the
@@ -113,6 +125,8 @@
       pan: p.pan,
       reverb: p.reverb,
       chorus: p.chorus,
+      variation: p.variation,
+      reverbDefault: i === 3 ? 40 : 50,
       onpan: (v: number) => app.send({ type: 'setPartPan', part: i, pan: v }),
       onsend: (send: PartSend, v: number) => app.send({ type: 'setPartSend', part: i, send, value: v }),
     },
@@ -229,6 +243,35 @@
       {/if}
     </div>
 
+    <div class="effects">
+      {#each effects as b (b.block)}
+        <div class="block">
+          <span class="engraved">{b.block === 'variation' ? 'Delay' : b.name}</span>
+          <select
+            class="field"
+            aria-label="{b.name} type"
+            use:tip={FX_TIPS[b.block][0]}
+            value={b.effect}
+            onchange={(e) => app.send({ type: 'setEffectType', block: b.block, effect: e.currentTarget.value as FxType })}
+          >
+            {#each b.types as t (t.effect)}
+              <option value={t.effect}>{t.name}</option>
+            {/each}
+          </select>
+          <div class="slider return">
+            <HSlider
+              value={b.returnLevel}
+              tip={FX_TIPS[b.block][1]}
+              label="{b.name} return"
+              unity={64}
+              format={returnText}
+              onchange={(v) => app.send({ type: 'setEffectReturn', block: b.block, level: v })}
+            />
+          </div>
+        </div>
+      {/each}
+    </div>
+
     <p class="info" use:tip={'mixer.info'}>
       <b>A fader is its channel’s CC 7</b>, 0–127, with no hidden gain. Loading a style sets the Style faders to the
       style’s own levels. <span class="wait">↕</span> waits for the Launchkey fader; the dashed cap is where it sits.
@@ -301,7 +344,7 @@
   }
   .mixer {
     display: grid;
-    grid-template-rows: auto auto auto 1fr;
+    grid-template-rows: auto auto auto auto 1fr;
     gap: 0.7rem;
     height: 100%;
     min-height: 27rem;
@@ -375,6 +418,30 @@
     gap: 0.6rem 1.4rem;
     align-items: center;
     font-size: 0.9rem;
+  }
+  .effects {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem 1.2rem;
+    align-items: center;
+    font-size: 0.9rem;
+  }
+  .block {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+  }
+  .field {
+    min-height: 2rem;
+    padding: 0 0.4rem;
+    border: 1px solid var(--seam);
+    border-radius: 4px;
+    background: var(--well);
+    color: var(--ink);
+    font: inherit;
+  }
+  .slider.return {
+    width: 7.5rem;
   }
   .metronome,
   .trackmute {

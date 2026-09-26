@@ -20,7 +20,8 @@ pub enum PartsCmd {
     SetPartOctave { part: u8, octave: i8 },
     /// A part's pan (its CC10: 0 = left, 64 = centre, 127 = right).
     SetPartPan { part: u8, pan: u8 },
-    /// A part's reverb or chorus send depth (its CC91 or CC93, 0-127).
+    /// A part's reverb, chorus or variation (delay) send depth (its CC91, CC93 or CC94,
+    /// 0-127).
     SetPartSend { part: u8, send: PartSend, value: u8 },
 }
 
@@ -32,6 +33,8 @@ pub enum PartSend {
     Reverb,
     /// CC93.
     Chorus,
+    /// CC94: the effect bus's Variation block, the tempo delay (#204).
+    Variation,
 }
 
 impl PartSend {
@@ -40,6 +43,7 @@ impl PartSend {
         match self {
             PartSend::Reverb => crate::parts::REVERB,
             PartSend::Chorus => crate::parts::CHORUS,
+            PartSend::Variation => crate::parts::VARIATION,
         }
     }
 }
@@ -79,6 +83,9 @@ pub struct KeyboardPart {
     pub reverb: u8,
     /// Chorus send depth (CC93), 0-127.
     pub chorus: u8,
+    /// Variation (tempo delay) send depth (CC94), 0-127 (#204).
+    #[serde(default)]
+    pub variation: u8,
     /// The instrument plugin the part plays instead of its SoundFont voice (absent: the
     /// SoundFont voice). Its fader is the same CC7.
     #[serde(default, skip_serializing_if = "Option::is_none")]

@@ -228,6 +228,7 @@ impl MockSession {
             pan: 64,
             reverb: yahaha::parts::FX_DEFAULT[i][yahaha::parts::REVERB],
             chorus: yahaha::parts::FX_DEFAULT[i][yahaha::parts::CHORUS],
+            variation: yahaha::parts::FX_DEFAULT[i][yahaha::parts::VARIATION],
             fader: None,
             plugin: None,
             patch: None,
@@ -364,6 +365,7 @@ impl MockSession {
             sounds: SoundsState::default(),
             dynamics: DynamicsState::default(),
             knobs: KnobsState::default(),
+            effects: EffectsState::initial(),
         };
         let songs: Vec<(String, String)> = library.entries.iter().filter(|e| e.status == "ok").map(|e| (e.path.clone(), e.name.clone())).collect();
         let mut m = MockSession {
@@ -615,8 +617,9 @@ impl MockSession {
             metronome_volume: s.metronome.volume,
             part_fx: [0, 1, 2, 3].map(|p| {
                 let k = &s.keyboard_parts[p];
-                [k.pan, k.reverb, k.chorus]
+                [k.pan, k.reverb, k.chorus, k.variation]
             }),
+            fx_return: [0, 1, 2].map(|b| s.effects.blocks[b].return_level),
         }
     }
 
@@ -1631,6 +1634,7 @@ impl MockSession {
                     match send {
                         PartSend::Reverb => p.reverb = vol(value),
                         PartSend::Chorus => p.chorus = vol(value),
+                        PartSend::Variation => p.variation = vol(value),
                     }
                 }
             }
@@ -1767,6 +1771,18 @@ impl MockSession {
                     }
                 }
             },
+            // The effect bus (#204), as the session: a type must be the block's own.
+            AppCmd::Fx(FxCmd::SetEffectType { block, effect }) => {
+                if block.types().contains(&effect) {
+                    let mut types: [FxType; 3] = std::array::from_fn(|b| self.state.effects.blocks[b].effect);
+                    types[block.index()] = effect;
+                    let returns = std::array::from_fn(|b| self.state.effects.blocks[b].return_level);
+                    self.state.effects = EffectsState::new(types, returns);
+                } else {
+                    self.message(format!("{} has no {} type", block.name(), effect.name()), true);
+                }
+            }
+            AppCmd::Fx(FxCmd::SetEffectReturn { block, level }) => self.state.effects.blocks[block.index()].return_level = level.min(127),
             AppCmd::Dynamics(c) => {
                 // As the session: the command applies to the settings in effect.
                 let d = &self.state.dynamics;

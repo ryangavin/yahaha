@@ -32,6 +32,7 @@ impl Control {
             harmony_volume: self.harmony_arp.harmony.volume,
             metronome_volume: self.metronome.volume,
             part_fx: [0, 1, 2, 3].map(|p| parts.fx(p)),
+            fx_return: self.fx.returns,
         }
     }
 

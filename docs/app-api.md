@@ -164,7 +164,7 @@ Style Section Reset, the Fade In/Out times and the Style Retrigger length. The s
 | `setPartVolume` | `part`, `volume` 0–127 | The part's CC7. The Launchkey fader has to reach it before it takes over. |
 | `setPartOctave` | `part`, `octave` −2..2 | Octave shift. |
 | `setPartPan` | `part`, `pan` 0–127 | The part's pan (CC10; 64 = centre), sent on its channel to the MIDI port and the synth. |
-| `setPartSend` | `part`, `send`: `reverb` \| `chorus`, `value` 0–127 | The part's reverb (CC91) or chorus (CC93) send depth. |
+| `setPartSend` | `part`, `send`: `reverb` \| `chorus` \| `variation`, `value` 0–127 | The part's reverb (CC91), chorus (CC93) or variation (CC94: the tempo delay) send depth to the effect bus (#204). |
 | `setPartSolo` | `part` 0–3 or null | Solos a keyboard part: only it sounds from the keys, even if it is switched off (Left soloed plays the left hand; another part soloed plays the whole keyboard when Left is not sounding). `null` ends it. The switches are not changed (`mixer.partSolo`). |
 
 ### Mixer, Launchkey pages, synth
@@ -438,13 +438,24 @@ Genos2 Style Dynamics Control (OM p.11, p.69; RM p.11, p.142, p.147), with Touch
 | `setAccent`, `toggleAccent` | `on` | Accent: a chord-section strike at or above the threshold, while a Main plays, starts that Main's own fill at the next beat, as Fill Self does. It is not a Main press, so OTS Link does not follow it. It does nothing during an Intro, fill, break or Ending, or while a change is queued. |
 | `setAccentThreshold` | `velocity` 1–127 | The Accent threshold (default 110). |
 
+### Effects
+The shared effect bus (#204): every part, SoundFont or plugin, feeds three System Effect blocks
+through its sends (CC91 Reverb, CC93 Chorus, CC94 Variation; `setPartSend` for the keyboard
+parts, the style's own for the Style parts). Each block's return comes back into the mix
+before the master fader.
+
+| Command | Fields | What it does |
+|---|---|---|
+| `setEffectType` | `block` `reverb` \| `chorus` \| `variation`, `effect` | The block's type. Reverb: `hall` (default), `room`, `stage`, `plate`. Chorus: `chorus` (default), `celeste`, `flanger`. Variation, a stereo delay at the style tempo: `eighth`, `dottedEighth` (default), `quarter`, `pingPong` (1/8, alternating sides). Another block's type is refused. |
+| `setEffectReturn` | `block`, `level` 0–127 | The block's return level: 64 = 0 dB (default), 127 = +6 dB, 0 = off (Genos). |
+
 ### Knob Assign pages
 The Launchkey's 8 encoders as the Genos LIVE CONTROL knobs (#197; OM p.62–63, RM p.145–148;
 README › Knobs). A page gives each knob a function; the knobs are relative, so a turn moves
 the value from where it is now, whoever set it last. A turn runs the command of the knob's
 function (`setDynamics`, `stepRetriggerRate`, `toggleRetrigger`, `styleTrackMute`,
 `setTempo`, `setPartVolume`, `setHarmonyVolume`, `setMetronomeVolume`, `setPartPan`,
-`setPartSend`), so it behaves
+`setPartSend`, `setEffectReturn`), so it behaves
 exactly as that command does.
 
 | Command | Fields | What it does |
@@ -577,7 +588,8 @@ Indices are 0-based unless a field says otherwise.
 | `playsBass` | bool | Left is playing the bass (Manual Bass). |
 | `octave` | −2..2 | The octave setting. It is not applied while `playsBass` is true. |
 | `pan` | 0–127 | Pan (CC10): 0 left, 64 centre, 127 right. 64 until something sets it (`setPartPan`, a library patch, an OTS). |
-| `reverb`, `chorus` | 0–127 | Reverb and chorus send depth (CC91, CC93). Until something sets them (`setPartSend`, a library patch, an OTS), Genos-like defaults sent at start: reverb 50 and chorus 10 on Right 1–3, reverb 40 and chorus 10 on Left. |
+| `reverb`, `chorus` | 0–127 | Reverb and chorus send depth (CC91, CC93). Until something sets them (`setPartSend`, a library patch, an OTS), Genos-like defaults sent at start: reverb 50 and chorus 10 on Right 1–3, reverb 40 and chorus 10 on Left. They go out again after a Panic, a Reset All Controllers from the keyboard, or a new synth. |
+| `variation` | 0–127 | Variation send depth (CC94): the effect bus's tempo delay. 0 until something sets it. |
 | `fader` | 0–127? | Where its Launchkey fader (Panel page, faders 1–4) physically is, as last reported. Null until that fader moves. |
 | `plugin` | PartPlugin? | The instrument plugin the part plays instead of its SoundFont voice. The key is absent when there is none. `id`, `name`, `manufacturer`, `status` (`loading` \| `playing` \| `failed` \| `muted`: still on the SoundFont, or the previous plugin, while loading; on the SoundFont after a failed load, keeping the choice so it is saved and can be retried; silent after the plugin crashed or produced bad audio), `stage` (while loading: `queued`, `instantiating`, `initializing`, `restoringState`), `error`, `outOfProcess` (runs in its own process), `inProcessFallback` (the system refused to host it in its own process, so it loaded in yahaha's process instead: a crash in it takes yahaha down; the app shows a warning badge), `cpu` (share of real time, updated once a second), `overruns` (renders slower than half the buffer, since it loaded), `recentOverruns` (those in the last 10 seconds, updated once a second: the live readout the mixer badge shows; a larger `setAudioBuffer` gives the plugin more time), `editor` (its window can be opened). Its volume is still `volume` (CC7), and its pan is CC10; the host applies both to the plugin's output. |
 | `patch` | string? | Its own sound library patch (`setPartPatch`). Null: its GM voice plays, through the program map; `voiceName` then names the patch the map sends it to, if any. |
@@ -1014,7 +1026,8 @@ The Knob Assign page: `{ page, pageName, pageNumber, pageCount, knobs }`.
 - `knobs`: always eight, knob 1 first: `{ function, name, short, value, level }`.
   - `function`: `none`, `dynamics`, `retriggerRate`, `retriggerOnOff`, `trackMuteA`,
     `trackMuteB`, `tempo`, `partVolume`, `harmonyVolume`, `metronomeVolume`, `partPan`,
-    `partReverb` or `partChorus`.
+    `partReverb`, `partChorus` or `fxReturn` (an effect block's return level; the `pan` page's
+    knobs 5–7 are Reverb, Chorus and Delay Return).
   - `name` is the full name ("Dynamics Control"); `short` is up to 8 characters ("DynCtrl",
     "---" for No Assign), as the Genos Live Control view and the Launchkey display show it.
   - `value`: the value as text ("64", "1/8", "On", "3 of 8", "All", "120 BPM", a pan "L20" /
@@ -1023,6 +1036,12 @@ The Knob Assign page: `{ page, pageName, pageNumber, pageCount, knobs }`.
   - `level`: where the knob is, 0–127, as the Genos LED ring shows it; null for tempo and No
     Assign. Track Mute A/B keep their own position (they only set the Style parts' switches),
     starting fully right.
+
+### `effects`
+`{ blocks }`: the effect bus's Reverb, Chorus and Variation blocks, in that order (#204).
+Each is `{ block, name, effect, effectName, types, returnLevel }`: `effect` is the type
+(`setEffectType`), `effectName` its name ("Hall", "Delay 1/8."), `types` the block's own
+types as `{ effect, name }`, `returnLevel` 0–127 (64 = 0 dB).
 
 ### `message`
 `{ seq, text, error }` or null. It holds the last notice or error, for example a style
@@ -1165,6 +1184,7 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
       "pan": 64,
       "reverb": 40,
       "chorus": 0,
+      "variation": 0,
       "plugin": {
         "id": "aumu dls  appl",
         "name": "DLSMusicDevice",
@@ -1197,6 +1217,7 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
       "pan": 64,
       "reverb": 40,
       "chorus": 0,
+      "variation": 0,
       "patch": null
     },
     {
@@ -1215,6 +1236,7 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
       "pan": 64,
       "reverb": 40,
       "chorus": 0,
+      "variation": 0,
       "patch": null
     },
     {
@@ -1233,6 +1255,7 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
       "pan": 64,
       "reverb": 40,
       "chorus": 0,
+      "variation": 0,
       "patch": null
     }
   ],
@@ -1701,6 +1724,22 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
       { "function": "none", "name": "No Assign", "short": "---", "value": "", "level": null },
       { "function": "none", "name": "No Assign", "short": "---", "value": "", "level": null },
       { "function": "tempo", "name": "Tempo", "short": "Tempo", "value": "92 BPM", "level": null }
+    ]
+  },
+  "effects": {
+    "blocks": [
+      {
+        "block": "reverb", "name": "Reverb", "effect": "hall", "effectName": "Hall", "returnLevel": 64,
+        "types": [{ "effect": "hall", "name": "Hall" }, { "effect": "room", "name": "Room" }, { "effect": "stage", "name": "Stage" }, { "effect": "plate", "name": "Plate" }]
+      },
+      {
+        "block": "chorus", "name": "Chorus", "effect": "chorus", "effectName": "Chorus", "returnLevel": 64,
+        "types": [{ "effect": "chorus", "name": "Chorus" }, { "effect": "celeste", "name": "Celeste" }, { "effect": "flanger", "name": "Flanger" }]
+      },
+      {
+        "block": "variation", "name": "Variation", "effect": "dottedEighth", "effectName": "Delay 1/8.", "returnLevel": 64,
+        "types": [{ "effect": "eighth", "name": "Delay 1/8" }, { "effect": "dottedEighth", "name": "Delay 1/8." }, { "effect": "quarter", "name": "Delay 1/4" }, { "effect": "pingPong", "name": "Ping-Pong" }]
+      }
     ]
   },
   "message": null

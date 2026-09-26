@@ -308,6 +308,8 @@ struct Control {
     dynamics: crate::engine::DynamicsSettings,
     /// Knob Assign pages (session/knobs.rs).
     knobs: crate::knobs::Knobs,
+    /// The effect bus's types and return levels (session/fx.rs).
+    fx: fx::FxSettings,
     /// The Launchkey display: what the control last touched did (session/display.rs).
     display: display::Display,
     /// Multi Pad banks to the engine thread, and replaced players back to free here.
@@ -391,6 +393,7 @@ impl Control {
             AppCmd::Sounds(c) => self.sounds_cmd(c),
             AppCmd::Dynamics(c) => self.dynamics_cmd(c),
             AppCmd::Knobs(c) => self.knobs_cmd(c),
+            AppCmd::Fx(c) => self.fx_cmd(c),
         }
     }
 
@@ -513,6 +516,7 @@ impl Control {
             sounds: self.sounds_state(),
             dynamics: self.dynamics_state(),
             knobs: self.knobs_state(),
+            effects: self.effects_state(),
         }
     }
 }
@@ -702,6 +706,7 @@ fn assemble(opts: &Options, engine_out: live::Out, input_out: live::Out, offline
         sounds: sounds::Sounds::open(sound_set.file()),
         dynamics: Default::default(),
         knobs: Default::default(),
+        fx: Default::default(),
         display: Default::default(),
         sound_set,
     };

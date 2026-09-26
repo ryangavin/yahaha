@@ -78,7 +78,7 @@ export function tipFor(cmd: AppCmd | null): TipKey {
     case 'setPartVolume': return PART_VOLUME[cmd.part]
     case 'setPartOctave': return 'part.octave_up'
     case 'setPartPan': return 'mixer.part.pan'
-    case 'setPartSend': return cmd.send === 'reverb' ? 'mixer.part.reverb' : 'mixer.part.chorus'
+    case 'setPartSend': return cmd.send === 'reverb' ? 'mixer.part.reverb' : cmd.send === 'chorus' ? 'mixer.part.chorus' : 'mixer.part.variation'
     case 'setFaderPage':
     case 'toggleFaderPage': return 'mixer.page'
     case 'setPadPage': return PAGE[cmd.page]
@@ -265,5 +265,8 @@ export function tipFor(cmd: AppCmd | null): TipKey {
     case 'setKnobPage':
     case 'stepKnobPage': return 'knobs.page'
     case 'turnKnob': return 'knobs.knob'
+    // The effect bus (#204).
+    case 'setEffectType': return `fx.${cmd.block}_type`
+    case 'setEffectReturn': return `fx.${cmd.block}_return`
   }
 }
