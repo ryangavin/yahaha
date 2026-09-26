@@ -21,6 +21,10 @@ use std::sync::atomic::Ordering::Relaxed;
 /// state a moment later; a fader keeps moving).
 const FOLLOW_NS: u64 = 600_000_000;
 
+/// The Panel faders whose level is a scale in percent (100 = as written), not a CC7: the
+/// Style volume (#199). The Multi Pad level (#196) joins here when it has its fader.
+const PERCENT_FADERS: [usize; 1] = [crate::parts::STYLE_LEVEL];
+
 /// What the display shows: title, name, value.
 pub(super) type Text = (String, String, String);
 
@@ -88,11 +92,14 @@ pub(super) fn display_text(t: Touch, st: &AppState) -> Option<Text> {
                 (_, FaderPage::Panel) => "Faders: Panel",
                 (_, FaderPage::Style) => "Faders: Style",
             };
+            // A level that scales a group of parts (100 = as written) reads as a percentage.
+            let pct = st.mixer.fader_page == FaderPage::Panel && PERCENT_FADERS.contains(&(i as usize));
+            let unit = if pct { "%" } else { "" };
             let (name, value) = match f.value {
                 None => (format!("Fader {}", i + 1), s("-")),
                 // Soft takeover still catching the fader: the level, and where the fader is.
-                Some(v) if f.waiting => (f.label.clone(), f.position.map_or(v.to_string(), |p| format!("{v} > {p}"))),
-                Some(v) => (f.label.clone(), v.to_string()),
+                Some(v) if f.waiting => (f.label.clone(), f.position.map_or(format!("{v}{unit}"), |p| format!("{v}{unit} > {p}{unit}"))),
+                Some(v) => (f.label.clone(), format!("{v}{unit}")),
             };
             Some((s(title), name, value))
         }
@@ -282,5 +289,21 @@ mod tests {
             st
         };
         assert_eq!(display_text(Touch::Fader(0), &st), Some(("Faders: Panel".into(), "LEFT".into(), "96 > 80".into())));
+    }
+
+    /// Panel fader 5, the Style volume (#199), reads in percent; the Style page's fader 5 is
+    /// a part's CC7.
+    #[test]
+    fn the_style_volume_fader_shows_percent() {
+        let mut st = AppState::default();
+        let f = |label: &str, v, waiting| crate::api::SurfaceFader { label: label.into(), value: Some(v), waiting, position: Some(60), set: None };
+        st.surface.faders = vec![f("", 0, false); 4];
+        st.surface.faders.push(f("STYLE", 85, false));
+        assert_eq!(display_text(Touch::Fader(4), &st), Some(("Faders: Panel".into(), "STYLE".into(), "85%".into())));
+        st.surface.faders[4] = f("STYLE", 100, true);
+        assert_eq!(display_text(Touch::Fader(4), &st).unwrap().2, "100% > 60%");
+        st.mixer.fader_page = FaderPage::Style;
+        st.surface.faders[4] = f("CHORD 2", 85, false);
+        assert_eq!(display_text(Touch::Fader(4), &st).unwrap().2, "85");
     }
 }
