@@ -1533,12 +1533,14 @@ fn chart_player_imports_selects_and_plays() {
     assert!(!st.chart.overridden);
     assert_eq!(st.chord.name.as_deref(), Some("Fmaj7"));
     assert_eq!(st.transport.section.as_deref(), Some("Main B"));
-    // Keyboard transpose moves the chart.
+    // Keyboard transpose moves the chart from its next chord (#264).
     s.send(ChordCmd::SetTranspose { keyboard: 2, master: 0 }).unwrap();
-    s.advance(20 * MS); // the change settles
-    assert_eq!(s.state().chord.name.as_deref(), Some("Gmaj7"));
+    s.advance(20 * MS);
+    assert_eq!(s.state().chord.name.as_deref(), Some("Fmaj7"));
+    s.advance(bar);
+    assert_eq!(s.state().chord.name.as_deref(), Some("A7"));
     // The loop goes round.
-    s.advance(2 * bar - 20 * MS);
+    s.advance(bar - 20 * MS);
     assert_eq!(s.state().chart.bar, Some(0));
     s.send(TransportCmd::StartStop).unwrap();
     assert_eq!(s.state().chart.bar, None);

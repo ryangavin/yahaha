@@ -552,7 +552,7 @@ const catalog = {
   // ── Transpose ───────────────────────────────────────────────────────────
   'transpose.display': {
     title: 'Transpose',
-    body: 'Keyboard transpose moves your keys and the chord the style follows. Master transpose moves everything that sounds, drums excepted.',
+    body: 'Keyboard transpose moves your keys at once, and the band from the next chord you play (a chord held keeps the band in the old key, as on the Genos). Master transpose moves everything that sounds, drums excepted.',
     genos: 'TRANSPOSE',
     keys: [],
     launchkey: null,
