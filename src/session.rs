@@ -115,7 +115,7 @@ pub struct Options {
     pub palette_leds: bool,
     /// 1-based left output channel for the synth (None = auto).
     pub audio_out: Option<u8>,
-    /// The synth's buffer size in frames, 64, 128 or 256 (None: the one saved by
+    /// The synth's buffer size in frames, 64, 128, 256, 512 or 1024 (None: the one saved by
     /// `SetAudioBuffer`, else 64).
     pub audio_buffer: Option<u32>,
     /// Chord fingering type at startup.
