@@ -29,6 +29,8 @@ export const BINDINGS: Record<string, Binding> = {
   t: c({ type: 'tapTempo' }),
   '-': c({ type: 'tempoDown' }),
   '=': c({ type: 'tempoUp' }),
+  // Shift+=: TEMPO − and + together.
+  '+': c({ type: 'resetTempo' }),
   y: c({ type: 'toggleSyncStart' }),
   u: c({ type: 'toggleAutoFill' }),
   j: c({ type: 'toggleSyncStop' }),
@@ -109,7 +111,6 @@ export function keyName(e: Pick<KeyboardEvent, 'key' | 'code' | 'shiftKey' | 'ct
   const digit = /^Digit([1-4])$/.exec(e.code)
   if (e.shiftKey && digit) return `shift+${digit[1]}`
   if (/^F\d+$/.test(e.key)) return e.key
-  if (e.key === '+') return '='
   return e.key.length === 1 ? e.key : null
 }
 
