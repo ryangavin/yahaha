@@ -1792,12 +1792,7 @@ impl MockSession {
                     let mut params = self.fx_params();
                     yahaha::fx::type_defaults(block.index(), block.type_index(effect), &mut params);
                     let kept = self.state.effects.blocks.clone();
-                    let kept = self.state.effects.blocks.clone();
                     self.state.effects = EffectsState::new(types, returns, band, params);
-                    for (b, k) in self.state.effects.blocks.iter_mut().zip(kept) {
-                        b.follow_style = k.follow_style;
-                        b.style_effect = k.style_effect;
-                    }
                     for (b, k) in self.state.effects.blocks.iter_mut().zip(kept) {
                         b.follow_style = k.follow_style;
                         b.style_effect = k.style_effect;
@@ -1821,7 +1816,12 @@ impl MockSession {
                     let types = std::array::from_fn(|b| e.blocks[b].effect);
                     let returns = std::array::from_fn(|b| e.blocks[b].return_level);
                     let band = std::array::from_fn(|b| e.blocks[b].band_send);
+                    let kept = self.state.effects.blocks.clone();
                     self.state.effects = EffectsState::new(types, returns, band, params);
+                    for (b, k) in self.state.effects.blocks.iter_mut().zip(kept) {
+                        b.follow_style = k.follow_style;
+                        b.style_effect = k.style_effect;
+                    }
                 }
             }
             AppCmd::Dynamics(c) => {
