@@ -232,6 +232,19 @@ impl Synthesizer {
                 0x4C => channel_info.set_sound(SOUND_VIBRATO_RATE, data2), // Vibrato Rate
                 0x4D => channel_info.set_sound(SOUND_VIBRATO_DEPTH, data2), // Vibrato Depth
                 0x4E => channel_info.set_sound(SOUND_VIBRATO_DELAY, data2), // Vibrato Delay
+                // yahaha: portamento and mono/poly (#246).
+                0x41 => channel_info.set_portamento(data2), // Portamento
+                0x05 => channel_info.set_portamento_time(data2), // Portamento Time
+                0x7E => {
+                    // Mono Mode On (with All Notes Off)
+                    channel_info.set_mono(true);
+                    self.note_off_all_channel(channel, false);
+                }
+                0x7F => {
+                    // Poly Mode On (with All Notes Off)
+                    channel_info.set_mono(false);
+                    self.note_off_all_channel(channel, false);
+                }
                 0x63 => channel_info.set_nrpn_coarse(data2), // NRPN Coarse
                 0x62 => channel_info.set_nrpn_fine(data2), // NRPN Fine
                 0x65 => channel_info.set_rpn_coarse(data2), // RPN Coarse
@@ -263,6 +276,33 @@ impl Synthesizer {
                 voice.end();
             }
         }
+
+        // yahaha: mono (#246): the sounding key up while others are held: back to the latest
+        // of them (gliding there with portamento), ending the note let go even under the
+        // hold pedal.
+        let channel_info = &mut self.channels[channel as usize];
+        if channel_info.is_mono() && channel_info.release_key(key) {
+            if let Some((held, velocity)) = channel_info.latest_held() {
+                channel_info.last_key = key;
+                // One note at a time, the hold pedal notwithstanding.
+                for voice in self.voices.get_active_voices().iter_mut() {
+                    if voice.channel() == channel {
+                        voice.end_now();
+                    }
+                }
+                self.start_note(channel, held, velocity, &NoteParams::NEUTRAL);
+            }
+        }
+    }
+
+    /// yahaha: one note at a time or any number (#246): the XG part's Mono/Poly Mode,
+    /// without the All Notes Off of CC126/127. Drum kits always play poly.
+    pub fn set_mono(&mut self, channel: i32, mono: bool) {
+        if let Some(c) = self.channels.get_mut(channel as usize) {
+            if c.get_mono() != mono {
+                c.set_mono(mono);
+            }
+        }
     }
 
     /// Starts a note.
@@ -289,6 +329,22 @@ impl Synthesizer {
             return;
         }
 
+        // yahaha: mono (#246): the new note ends the one sounding, whatever the hold pedal.
+        let channel_info = &mut self.channels[channel as usize];
+        if channel_info.is_mono() {
+            channel_info.hold_key(key, velocity);
+            for voice in self.voices.get_active_voices().iter_mut() {
+                if voice.channel() == channel {
+                    voice.end_now();
+                }
+            }
+        }
+        self.start_note(channel, key, velocity, note);
+    }
+
+    /// yahaha: start `key`'s voices (`note_on_with` without the mono bookkeeping), and
+    /// note it as the channel's latest key (where portamento glides from).
+    fn start_note(&mut self, channel: i32, key: i32, velocity: i32, note: &NoteParams) {
         let channel_info = &self.channels[channel as usize];
 
         let preset_id = (channel_info.get_bank_number() << 16) | channel_info.get_patch_number();
@@ -328,6 +384,9 @@ impl Synthesizer {
                 }
             }
         }
+        if self.channels[channel as usize].is_melodic() {
+            self.channels[channel as usize].last_key = key;
+        }
     }
 
     /// Stops all the notes in the specified channel.
@@ -336,6 +395,10 @@ impl Synthesizer {
     ///
     /// * `immediate` - If `true`, notes will stop immediately without the release sound.
     pub fn note_off_all(&mut self, immediate: bool) {
+        // yahaha: no key held (mono, #246).
+        for c in &mut self.channels {
+            c.clear_held();
+        }
         if immediate {
             self.voices.clear();
         } else {
@@ -352,6 +415,10 @@ impl Synthesizer {
     /// * `channel` - The channel in which the notes will be stopped.
     /// * `immediate` - If `true`, notes will stop immediately without the release sound.
     pub fn note_off_all_channel(&mut self, channel: i32, immediate: bool) {
+        // yahaha: no key held (mono, #246).
+        if let Some(c) = self.channels.get_mut(channel as usize) {
+            c.clear_held();
+        }
         if immediate {
             for voice in self.voices.get_active_voices().iter_mut() {
                 if voice.channel() == channel {

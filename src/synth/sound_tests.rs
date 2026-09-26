@@ -65,11 +65,14 @@ fn note(s: &mut Synthesizer, key: i32, hold: usize, tail: usize) -> (Vec<f32>, V
     (a, render(s, tail))
 }
 
-/// Everything at 64 plays exactly as no sound controller at all.
+/// Everything at 64 plays exactly as no sound controller at all, and so do portamento off
+/// and poly mode.
 #[test]
 fn neutral_sound_controllers_change_nothing() {
     let Some(font) = font() else { return };
-    let all: Vec<[i32; 2]> = (71..=78).map(|cc| [cc, 64]).collect();
+    // The sound controllers at 64, portamento off (its time set, #246), poly mode.
+    let mut all: Vec<[i32; 2]> = (71..=78).map(|cc| [cc, 64]).collect();
+    all.extend([[5, 40], [65, 0], [127, 0]]);
     for program in [0, 48, 73] {
         let (a, at) = note(&mut synth(&font, program, &[]), 60, 24_000, 24_000);
         let (b, bt) = note(&mut synth(&font, program, &all), 60, 24_000, 24_000);
@@ -211,3 +214,112 @@ fn vibrato_rate(x: &[f32]) -> f64 {
     best.0
 }
 
+
+/// Each `win`-frame window's zero crossings, from `from`.
+fn pitch_track(x: &[f32], from: usize, win: usize) -> Vec<f64> {
+    crossings(&x[from..], win)
+}
+
+/// CC65 on with a CC5 time: a note glides from the key played before at a fixed rate; with
+/// time 0 (or CC65 off) it starts on its own pitch.
+#[test]
+fn portamento_glides_the_pitch() {
+    let Some(font) = font() else { return };
+    // Flute C4, then C5: each 20 ms window's crossings over the first 0.6 s of C5.
+    let glide = |setup: &[[i32; 2]]| {
+        let mut s = synth(&font, 73, setup);
+        note(&mut s, 60, 14_400, 0);
+        s.note_off(0, 60);
+        s.note_on(0, 72, 100);
+        pitch_track(&render(&mut s, 28_800), 0, 960)
+    };
+    let mean = |p: &[f64]| p.iter().sum::<f64>() / p.len() as f64;
+    let plain = glide(&[[65, 127], [5, 0]]);
+    assert!(mean(&plain[..3]) > mean(&plain[20..]) * 0.85, "time 0: no glide {plain:?}");
+    assert_eq!(plain, glide(&[[65, 0], [5, 64]]), "CC65 off: no glide");
+    // Time 64: about 0.3 s an octave, so the first windows sound well below C5 and the
+    // pitch climbs.
+    let slow = glide(&[[65, 127], [5, 64]]);
+    let (start, mid, end) = (mean(&slow[..2]), mean(&slow[6..9]), mean(&slow[20..]));
+    assert!(start < end * 0.75 && start < mid && mid < end, "time 64: {start} -> {mid} -> {end}");
+    assert!((end / mean(&plain[20..]) - 1.0).abs() < 0.05, "it lands on C5: {end}");
+}
+
+/// Mono mode (CC126): a new note ends the one sounding (the hold pedal too), and letting
+/// go of it goes back to the key still held. CC127: poly again.
+#[test]
+fn mono_plays_one_note_at_a_time() {
+    let Some(font) = font() else { return };
+    // Flute C4 and G4 held together, then G4 let go: (energy of the last 0.5 s of both
+    // held, the last 0.5 s after G4 is up, and the crossings then).
+    let play = |setup: &[[i32; 2]]| {
+        let mut s = synth(&font, 73, setup);
+        s.note_on(0, 60, 100);
+        render(&mut s, 4800);
+        s.note_on(0, 67, 100);
+        let both = render(&mut s, 48_000);
+        s.note_off(0, 67);
+        let after = render(&mut s, 48_000);
+        (energy(&both[24_000..]), energy(&after[24_000..]), crossings(&after[24_000..], 24_000)[0])
+    };
+    let one = {
+        let mut s = synth(&font, 73, &[]);
+        s.note_on(0, 67, 100);
+        energy(&render(&mut s, 52_800)[28_800..])
+    };
+    let c4 = {
+        let mut s = synth(&font, 73, &[]);
+        s.note_on(0, 60, 100);
+        crossings(&render(&mut s, 48_000)[24_000..], 24_000)[0]
+    };
+    let (poly, _, _) = play(&[]);
+    assert!(poly > one * 1.5, "poly: two notes {poly} vs one {one}");
+    for setup in [&[[126, 1]][..], &[[64, 127], [126, 1]]] {
+        let (mono, back, pitch) = play(setup);
+        assert!((mono / one - 1.0).abs() < 0.25, "{setup:?}: one note {mono} vs {one}");
+        assert!(back > one * 0.3 && (pitch / c4 - 1.0).abs() < 0.03, "{setup:?}: back to C4 ({pitch} vs {c4} crossings)");
+    }
+    let (poly_again, _, _) = play(&[[126, 1], [127, 0]]);
+    assert!(poly_again > one * 1.5, "CC127: poly again");
+}
+
+/// Through the audio thread: a part's XG Mono/Poly SysEx (as an OTS recall sends it) makes
+/// the channel mono without cutting the notes sounding, and its XG filter cutoff darkens it
+/// as CC74 does.
+#[test]
+fn xg_part_mono_and_filter_reach_the_synth() {
+    let Some(font) = font() else { return };
+    let xg = |addr: u8, v: u8| super::sysex_msg(&[0xF0, 0x43, 0x10, 0x4C, 0x08, 0x01, addr, v, 0xF7]).unwrap();
+    let play = |setup: &[Msg]| -> (f64, f64, Vec<f32>) {
+        let rack = Box::new(Rack::with_fonts(&[(0, font.clone())], RATE).unwrap());
+        let (mut tx, rx) = RingBuffer::<Msg>::new(64);
+        let (mut core, _swap, _link) = AudioCore::new(Some(rack), vec![rx], Arc::new(Parts::new()), Arc::new(SynthControl::new(0)), RATE as u32, 2);
+        let mut out = vec![0f32; 2 * 480];
+        let mut run = |core: &mut AudioCore, n: usize| {
+            let mut mix = Vec::new();
+            for _ in 0..n {
+                core.process(&mut out);
+                mix.extend(out.chunks(2).map(|f| f[0] + f[1]));
+            }
+            mix
+        };
+        for m in [[0xC1, 73, 0], [0xB1, 91, 0], [0xB1, 93, 0], [0x91, 60, 100]] {
+            tx.push(m).unwrap();
+        }
+        run(&mut core, 10);
+        for m in setup {
+            tx.push(*m).unwrap();
+        }
+        let before = run(&mut core, 1);
+        tx.push([0x91, 67, 100]).unwrap();
+        let held = run(&mut core, 100);
+        (energy(&before), energy(&held[50 * 480..]), held)
+    };
+    let (_, poly, open) = play(&[]);
+    let (sounding, mono, _) = play(&[xg(0x05, 0)]);
+    let (_, poly_again, _) = play(&[xg(0x05, 0), xg(0x05, 1)]);
+    assert!(sounding > 0.0, "the Mono SysEx doesn't cut the note sounding");
+    assert!(mono < poly * 0.7 && poly_again > poly * 0.95, "mono {mono}, poly {poly}, poly again {poly_again}");
+    let (_, _, dark) = play(&[xg(0x18, 10)]);
+    assert!(brightness(&dark[24_000..]) < brightness(&open[24_000..]) * 0.7, "XG cutoff darkens");
+}

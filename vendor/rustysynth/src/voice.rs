@@ -92,6 +92,14 @@ pub(crate) struct Voice {
     resonance_db: f32,
     live_resonance: f32,
 
+    // yahaha: portamento (#246): semitones the pitch is still away from the key, and how
+    // far it moves each block. A mono channel's new note ends this voice whatever the
+    // hold pedal (`end_now`).
+    glide: f32,
+    glide_step: f32,
+    forced_end: bool,
+    block_seconds: f32,
+
     // yahaha: the voice's own scale of each send bus (`NoteParams::sends`), and whether
     // any differs from 1 (the synthesizer then adds the difference to the buses).
     pub(crate) note_sends: [f32; SEND_BUSES],
@@ -145,6 +153,10 @@ impl Voice {
             channel_resonance_db: 0_f32,
             resonance_db: 0_f32,
             live_resonance: 0_f32,
+            glide: 0_f32,
+            glide_step: 0_f32,
+            forced_end: false,
+            block_seconds: settings.block_size as f32 / settings.sample_rate as f32,
             note_sends: [1_f32; SEND_BUSES],
             own_sends: false,
             voice_state: VoiceState::Playing,
@@ -250,8 +262,21 @@ impl Voice {
 
         self.smoothed_cutoff = cutoff;
 
+        // yahaha: portamento from the latest key played on the channel.
+        (self.glide, self.glide_step) = match channel_info.glide(key) {
+            Some((from, rate)) => (from, rate * self.block_seconds),
+            None => (0_f32, 0_f32),
+        };
+        self.forced_end = false;
+
         self.voice_state = VoiceState::Playing;
         self.voice_length = 0;
+    }
+
+    /// yahaha: end the note even if the hold pedal is down (a mono channel's next note).
+    pub(crate) fn end_now(&mut self) {
+        self.end();
+        self.forced_end = true;
     }
 
     pub(crate) fn end(&mut self) {
@@ -291,7 +316,16 @@ impl Voice {
         let mod_pitch_change = self.mod_lfo_to_pitch * self.mod_lfo.get_value()
             + self.mod_env_to_pitch * self.mod_env.get_value();
         let channel_pitch_change = channel_info.get_tune() + channel_info.get_pitch_bend();
-        let pitch = self.key as f32 + vib_pitch_change + mod_pitch_change + channel_pitch_change;
+        let mut pitch = self.key as f32 + vib_pitch_change + mod_pitch_change + channel_pitch_change;
+        // yahaha: portamento: the pitch moves to the key at a fixed rate.
+        if self.glide != 0_f32 {
+            pitch += self.glide;
+            self.glide = if self.glide.abs() <= self.glide_step {
+                0_f32
+            } else {
+                self.glide - self.glide_step.copysign(self.glide)
+            };
+        }
         if !self.oscillator.process(data, &mut self.block[..], pitch) {
             return false;
         }
@@ -421,7 +455,9 @@ impl Voice {
             return;
         }
 
-        if self.voice_state == VoiceState::ReleaseRequested && !channel_info.get_hold_pedal() {
+        if self.voice_state == VoiceState::ReleaseRequested
+            && (!channel_info.get_hold_pedal() || self.forced_end)
+        {
             self.vol_env.release();
             self.mod_env.release();
             self.oscillator.release();
