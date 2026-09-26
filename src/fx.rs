@@ -37,7 +37,7 @@ mod params;
 mod reverb;
 
 pub use chorus::{Chorus, ChorusType};
-pub use delay::{Delay, DelayType};
+pub use delay::{Delay, DelayType, NOTES};
 pub use params::{PARAMS, Param, Spec};
 pub use reverb::{Reverb, ReverbType};
 
@@ -118,11 +118,11 @@ pub struct FxControl {
 impl FxControl {
     pub fn new() -> FxControl {
         FxControl {
-            reverb_type: AtomicU8::new(ReverbType::Hall as u8),
+            reverb_type: AtomicU8::new(DEFAULT_TYPES[REVERB]),
             reverb_return: AtomicU8::new(RETURN_UNITY),
-            chorus_type: AtomicU8::new(ChorusType::Chorus as u8),
+            chorus_type: AtomicU8::new(DEFAULT_TYPES[CHORUS]),
             chorus_return: AtomicU8::new(RETURN_UNITY),
-            variation_type: AtomicU8::new(DelayType::DottedEighth as u8),
+            variation_type: AtomicU8::new(DEFAULT_TYPES[VARIATION]),
             variation_return: AtomicU8::new(RETURN_UNITY),
             band_send: BAND_SEND_DEFAULT.map(AtomicU8::new),
             params: default_params().map(AtomicU16::new),
@@ -139,14 +139,20 @@ impl FxControl {
     }
 }
 
-/// Every parameter at its block's default type's value (Hall, ...).
+/// Each block's type before anything sets it: Hall, Chorus, the dotted 1/8 delay.
+pub const DEFAULT_TYPES: [u8; BUSES] = [ReverbType::Hall as u8, ChorusType::Chorus as u8, DelayType::DottedEighth as u8];
+
+/// Every parameter at its block's default type's value (`DEFAULT_TYPES`).
 pub fn default_params() -> [u16; PARAMS] {
     let mut v = [0u16; PARAMS];
-    for b in 0..BUSES {
-        type_defaults(b, 0, &mut v);
+    for (b, &t) in DEFAULT_TYPES.iter().enumerate() {
+        type_defaults(b, t, &mut v);
     }
     v
 }
+
+/// The Variation block's parameters, in `DelayType::defaults` order.
+const DELAY_PARAMS: [Param; 6] = [Param::DelaySync, Param::DelayNote, Param::DelayTime, Param::DelayFeedback, Param::DelayTone, Param::PingPong];
 
 /// Put bus `block`'s parameters in `v` at type `kind`'s own values (`ReverbType as u8`
 /// etc.): what a type change does.
@@ -154,6 +160,10 @@ pub fn type_defaults(block: usize, kind: u8, v: &mut [u16; PARAMS]) {
     if block == REVERB {
         let d = ReverbType::from_u8(kind).defaults();
         for (p, x) in [Param::ReverbTime, Param::PreDelay, Param::ReverbTone].into_iter().zip(d) {
+            v[p.index()] = x;
+        }
+    } else if block == VARIATION {
+        for (p, x) in DELAY_PARAMS.into_iter().zip(DelayType::from_u8(kind).defaults()) {
             v[p.index()] = x;
         }
     }
@@ -224,7 +234,9 @@ impl FxBus {
         );
         self.chorus.set_type(ChorusType::from_u8(ctl.chorus_type.load(Relaxed)));
         let bpm = ctl.tempo.load(Relaxed) as f32 / 100.0;
-        self.delay.set(DelayType::from_u8(ctl.variation_type.load(Relaxed)), bpm);
+        // The type is only where the parameters started (the control side puts them
+        // there on a type change): the delay plays its parameters.
+        self.delay.set(delay::Settings::from_params(DELAY_PARAMS.map(|p| p.clamp(ctl.params[p.index()].load(Relaxed)))), bpm);
         let returns = [ctl.reverb_return.load(Relaxed), ctl.chorus_return.load(Relaxed), ctl.variation_return.load(Relaxed)];
         for (b, block) in self.blocks.iter_mut().enumerate() {
             let (il, ir) = bus(b);
