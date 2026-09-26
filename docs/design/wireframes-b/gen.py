@@ -29,45 +29,66 @@ def krow(var, size=52, w=70):
 screens = {}
 
 # ---------- Home ----------
-screens["Home"] = dict(TAB="Home", SEL="-1", DISPLAY=ART + '''
-<div style="flex-grow: 1; display: flex; flex-direction: column; gap: 12px; padding: 14px 16px">
-<div style="display: flex; align-items: flex-end; gap: 28px">
-<div style="display: flex; flex-direction: column; gap: 2px"><span class="cap">Playing</span><span style="font-family: 'Archivo Narrow', sans-serif; font-size: 38px; font-weight: 700; line-height: 1">Main B</span></div>
-<div style="display: flex; flex-direction: column; gap: 2px"><span class="cap">Next</span><span style="font-family: 'Archivo Narrow', sans-serif; font-size: 38px; font-weight: 700; line-height: 1; color: #ff7a2f">Fill B</span></div>
-<div style="flex-grow: 1; display: flex; flex-direction: column; gap: 6px; padding-bottom: 4px"><span class="cap">Bar 3 of 4</span><div style="height: 8px; border-radius: 4px; background: #26262b; position: relative"><div style="position: absolute; left: 0; top: 0; bottom: 0; width: 62%; border-radius: 4px; background: #ff7a2f"></div></div></div>
-<div style="display: flex; flex-direction: column; gap: 2px; align-items: flex-end"><span class="cap">Chord</span><span style="font-family: 'Archivo Narrow', sans-serif; font-size: 58px; font-weight: 700; line-height: .9">Am<span style="font-size: 32px; color: #8d8d95">/G</span></span></div>
-</div>
-<div style="flex-grow: 1; display: flex; gap: 12px; min-height: 0">
-<div style="display: flex; flex-direction: column; gap: 6px; width: 120px"><span class="cap">Intro</span>
-<sc-for list="{{intros}}" as="s" hint-placeholder-count="3"><button style="flex: 1; border-radius: 6px; border: 1px solid {{s.border}}; background: {{s.bg}}; color: {{s.ink}}; font-size: 15px; font-weight: 700; display: flex; align-items: center; justify-content: space-between; padding: 0 12px">{{s.label}}<span style="font-size: 10px; font-weight: 600; opacity: .7">{{s.len}}</span></button></sc-for>
-</div>
-<div style="flex-grow: 1; display: flex; flex-direction: column; gap: 6px"><span class="cap">Main · tap again for its fill</span>
-<div style="flex-grow: 1; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px">
-<sc-for list="{{mains}}" as="m" hint-placeholder-count="4">
-<div style="display: flex; flex-direction: column; gap: 6px">
-<button style="flex-grow: 1; position: relative; overflow: hidden; border-radius: 8px; border: 2px solid {{m.border}}; background: {{m.bg}}; color: {{m.ink}}; text-align: left; padding: 10px 12px; display: flex; flex-direction: column; justify-content: space-between; box-shadow: {{m.glow}}">
-<span style="font-family: 'Archivo Narrow', sans-serif; font-size: 40px; font-weight: 700; line-height: 1">{{m.label}}</span>
-<span style="display: flex; gap: 2px; align-items: flex-end; height: 34px"><sc-for list="{{m.thumb}}" as="t" hint-placeholder-count="12"><span style="flex: 1; height: {{t}}%; border-radius: 1px; background: {{m.thumbCol}}"></span></sc-for></span>
-<span style="font-size: 11px; font-weight: 600; opacity: .8">{{m.len}}</span>
-</button>
-<button style="height: 34px; border-radius: 6px; border: 1px solid {{m.fBorder}}; background: {{m.fBg}}; color: {{m.fInk}}; font-size: 12px; font-weight: 700">Fill {{m.label}}</button>
+# The sections are the Launchkey Sections pad page, drawn big: same order, colours and
+# lights as the hardware. The Mains carry their real pattern (a row per drum/bass voice).
+def home(artW=200, fxW=220, wide=False):
+    art = '' if not artW else '''<aside aria-label="Style" style="width: %dpx; flex-shrink: 0; display: flex; flex-direction: column; gap: 6px; padding: 14px; border-right: 1px solid #26262b; min-height: 0">
+<svg width="%d" height="%d" viewBox="0 0 160 160" aria-hidden="true" style="flex-shrink: 0; border-radius: 8px; background: #15151a"><sc-for list="{{print}}" as="c" hint-placeholder-count="40"><rect x="{{c.x}}" y="{{c.y}}" width="{{c.w}}" height="{{c.h}}" rx="1.5" fill="{{c.col}}" opacity="{{c.o}}"></rect></sc-for></svg>
+<span class="cap" style="margin-top: 2px">Pop &amp; Rock · 4/4</span>
+<div style="font-family: 'Archivo Narrow', sans-serif; font-size: %dpx; font-weight: 700; line-height: 1">Cool 8Beat</div>
+<span style="font-size: 12px; color: #c9c9cf; white-space: nowrap; overflow: hidden; text-overflow: ellipsis"><b style="color: #ff7a2f">Regist 3</b> · Sunday Gig</span>
+<span style="font-size: 12px; color: #c9c9cf; white-space: nowrap; overflow: hidden; text-overflow: ellipsis"><b style="color: #ff7a2f">OTS 2</b> · Piano &amp; Strings</span>
+<div style="flex-grow: 1"></div>
+<div style="display: flex; gap: 6px"><button class="chip" style="flex: 1">Browse</button><button class="chip" style="flex: 1">Edit…</button></div>
+</aside>''' % (artW, artW - 28, artW - 28, 32 if wide else 26)
+    # With no art column (narrow window) the style, registration and OTS move into the status line.
+    mini = '' if artW else '''<div style="display: flex; gap: 10px; align-items: center; min-width: 0">
+<svg width="46" height="46" viewBox="0 0 160 160" aria-hidden="true" style="flex-shrink: 0; border-radius: 6px; background: #15151a"><sc-for list="{{print}}" as="c" hint-placeholder-count="40"><rect x="{{c.x}}" y="{{c.y}}" width="{{c.w}}" height="{{c.h}}" fill="{{c.col}}" opacity="{{c.o}}"></rect></sc-for></svg>
+<div style="display: flex; flex-direction: column; gap: 2px; min-width: 0"><span style="font-family: 'Archivo Narrow', sans-serif; font-size: 22px; font-weight: 700; line-height: 1; white-space: nowrap">Cool 8Beat</span><span style="font-size: 11px; color: #c9c9cf; white-space: nowrap"><b style="color: #ff7a2f">Regist 3</b> Sunday Gig · <b style="color: #ff7a2f">OTS 2</b></span></div>
+</div>'''
+    fx = '' if not fxW else '''<aside aria-label="Band effects" style="width: %dpx; flex-shrink: 0; display: flex; flex-direction: column; gap: 10px; padding: 14px; border-left: 1px solid #26262b">
+<div style="display: flex; justify-content: space-between; align-items: baseline"><span class="cap">Band effects</span><button class="chip" style="height: 24px; padding: 0 8px; font-size: 11px">Effects ›</button></div>
+<sc-for list="{{bandFx}}" as="f" hint-placeholder-count="3">
+<div style="display: flex; flex-direction: column; gap: 5px">
+<div style="display: flex; justify-content: space-between; align-items: center"><span style="font-size: 14px; font-weight: 700">{{f.name}}</span><span style="font-size: 11px; color: #8d8d95">{{f.type}}</span></div>
+<div style="display: flex; align-items: center; gap: 8px"><div style="flex-grow: 1; height: 10px; border-radius: 5px; background: #26262b; position: relative"><div style="position: absolute; left: 0; top: 0; bottom: 0; width: {{f.pct}}%%; border-radius: 5px; background: #ff7a2f"></div><div style="position: absolute; top: -3px; left: {{f.pct}}%%; width: 4px; height: 16px; margin-left: -2px; border-radius: 2px; background: #f2f2f2"></div></div><span style="width: 36px; text-align: right; font-size: 12px; font-weight: 700">{{f.val}}</span></div>
 </div>
 </sc-for>
+<div style="flex-grow: 1"></div>
+<span style="font-size: 11px; color: #8d8d95; line-height: 1.35">How much the whole band feeds each effect. Each part's own send: the mixer's REV, CHO and DLY layers.</span>
+</aside>''' % fxW
+    return dict(TAB="Home", SEL="-1", DISPLAY=art + '''
+<div style="flex-grow: 1; min-width: 0; display: flex; flex-direction: column; gap: 10px; padding: 12px 14px">
+<div style="display: flex; align-items: flex-end; gap: 24px">''' + mini + '''
+<div style="display: flex; flex-direction: column; gap: 2px"><span class="cap">Playing</span><span style="font-family: 'Archivo Narrow', sans-serif; font-size: 32px; font-weight: 700; line-height: 1; white-space: nowrap">Main B</span></div>
+<div style="display: flex; flex-direction: column; gap: 2px"><span class="cap">Next</span><span style="font-family: 'Archivo Narrow', sans-serif; font-size: 32px; font-weight: 700; line-height: 1; color: #ff7a2f; white-space: nowrap">Fill B</span></div>
+<div style="flex-grow: 1; min-width: 60px; display: flex; flex-direction: column; gap: 6px; padding-bottom: 4px"><span class="cap">Bar 3 of 4</span><div style="height: 8px; border-radius: 4px; background: #26262b; position: relative"><div style="position: absolute; left: 0; top: 0; bottom: 0; width: 62%; border-radius: 4px; background: #ff7a2f"></div></div></div>
+<div style="display: flex; flex-direction: column; gap: 2px; align-items: flex-end"><span class="cap">Chord</span><span style="font-family: 'Archivo Narrow', sans-serif; font-size: 50px; font-weight: 700; line-height: .9; white-space: nowrap">Am<span style="font-size: 28px; color: #8d8d95">/G</span></span></div>
 </div>
+<div role="group" aria-label="Sections (the Launchkey pads)" style="flex-grow: 1; min-height: 0; display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); grid-template-rows: minmax(0, 1fr) minmax(0, 1.35fr); gap: 7px">
+<sc-for list="{{homePads}}" as="d" hint-placeholder-count="16">
+<button title="{{d.tip}}" style="position: relative; overflow: hidden; min-height: 0; border-radius: 8px; border: 1px solid {{d.border}}; outline: {{d.outline}}; outline-offset: 2px; background: {{d.bg}}; color: {{d.ink}}; box-shadow: {{d.glow}}; text-align: left; padding: 8px 10px; display: flex; flex-direction: column; gap: 4px">
+<span style="font-family: 'Archivo Narrow', sans-serif; font-size: {{d.fs}}px; font-weight: 700; line-height: 1; white-space: nowrap">{{d.name}}</span>
+<span style="font-size: 10px; font-weight: 600; opacity: .75">{{d.len}}</span>
+<span style="flex-grow: 1"></span>
+<svg width="100%" height="{{d.patH}}" viewBox="0 0 160 40" preserveAspectRatio="none" aria-hidden="true" style="display: {{d.patDisp}}"><sc-for list="{{d.pat}}" as="c" hint-placeholder-count="30"><rect x="{{c.x}}" y="{{c.y}}" width="8" height="8" rx="1.5" fill="{{d.patCol}}" opacity="{{c.o}}"></rect></sc-for></svg>
+<span style="position: absolute; top: 7px; right: 7px; font-size: 9px; font-weight: 700; padding: 2px 5px; border-radius: 3px; background: #ffffff; color: #0e0e10; display: {{d.tagDisp}}">{{d.tag}}</span>
+</button>
+</sc-for>
 </div>
-<div style="display: flex; flex-direction: column; gap: 6px; width: 110px"><span class="cap">Break</span><button style="flex-grow: 1; border-radius: 8px; border: 1px solid #2d2d32; background: #1b1b20; color: #f2f2f2; font-size: 16px; font-weight: 700">Break<br><span style="font-size: 10px; opacity: .7">1 bar</span></button></div>
-<div style="display: flex; flex-direction: column; gap: 6px; width: 120px"><span class="cap">Ending</span>
-<sc-for list="{{endings}}" as="s" hint-placeholder-count="3"><button style="flex: 1; border-radius: 6px; border: 1px solid {{s.border}}; background: {{s.bg}}; color: {{s.ink}}; font-size: 15px; font-weight: 700; display: flex; align-items: center; justify-content: space-between; padding: 0 12px">{{s.label}}<span style="font-size: 10px; font-weight: 600; opacity: .7">{{s.len}}</span></button></sc-for>
-</div>
-</div>
-<div style="display: flex; gap: 6px"><button class="chip on">Auto Fill</button><button class="chip on">OTS Link</button><button class="chip">Sync Start</button><button class="chip on">ACMP</button><button class="chip">Left Hold</button><button class="chip">Accent</button><div style="flex-grow: 1"></div><span class="cap" style="align-self: center">Fingering: AI Fingered · Split: F#2</span></div>
-</div>''', JS='''
-    const sec = (label, len, st) => ({ label, len, bg: st === 'on' ? A : '#1b1b20', ink: st === 'on' ? AI : '#f2f2f2', border: st === 'on' ? A : '#2d2d32' });
-    const intros = [sec('I', '4 bars'), sec('II', '8 bars'), sec('III', '2 bars')];
-    const endings = [sec('I', '2 bars'), sec('II', '4 bars'), sec('III', '4 bars')];
-    let s2 = 3; const r2 = () => { s2 = (s2 * 9301 + 49297) % 233280; return s2 / 233280; };
-    const mains = ['A', 'B', 'C', 'D'].map((l, i) => { const on = i === 1; const c = COL[i * 3]; return { label: l, len: ['4 bars', '4 bars', '8 bars', '8 bars'][i], bg: on ? A : '#1b1b20', ink: on ? AI : '#f2f2f2', border: on ? A : c, glow: on ? '0 0 22px rgba(255,122,47,.45)' : 'none', thumbCol: on ? 'rgba(26,10,0,.55)' : c, thumb: Array.from({ length: 16 }, () => Math.round(20 + r2() * 80)), fBg: on ? 'rgba(255,122,47,.14)' : '#141417', fInk: on ? A : '#8d8d95', fBorder: on ? A : '#2d2d32' }; });
-    const extra = { intros, mains, endings };''', OVERLAY="")
+<div style="display: flex; gap: 6px; align-items: center"><button class="chip on">OTS Link</button><button class="chip on">ACMP</button><button class="chip">Left Hold</button><button class="chip">Accent</button><div style="flex-grow: 1"></div><span class="cap" style="white-space: nowrap">AI Fingered · Split F#2</span></div>
+</div>''' + fx, JS='''
+    // Each Main's own pattern: kick, snare, hats, bass across its first bar (16ths).
+    const PAT = { 8: ['x...x...x...x...', '....x.......x...', 'x.x.x.x.x.x.x.x.', 'x..x..x...x..x..'], 9: ['x.....x.x.......', '....x.......x..x', 'xxxxxxxxxxxxxxxx', 'x..x..x.x..x..x.'], 10: ['x..x..x...x.x...', '....x.......x...', 'x.xxx.xxx.xxx.xx', 'x...x.x...x...x.'], 11: ['x.x...x.x.x...x.', '....x..x....x..x', 'xxxxxxxxxxxxxxxx', 'x.xx..x.x.xx..x.'] };
+    const TIP = ['Intro I: press to arm it for the start', '', '', 'Sync Start: the band starts on your first chord', 'Ending I', '', '', 'Auto Fill: a fill plays whenever you change Main', 'Main A: press while it plays for its fill', 'Main B: playing. Its fill is queued (it flashes on the Launchkey)', 'Main C', 'Main D', 'Break', 'Tap tempo', 'Sync Stop: the band stops when you let go', 'Start / Stop'];
+    const homePads = secPads.map((d, i) => { const p = PAT[i]; const cells = [];
+      if (p) p.forEach((row, y) => row.split('').forEach((c, x) => { if (c === 'x') cells.push({ x: x * 10 + 1, y: y * 10 + 1, o: y === 2 ? .55 : 1 }); }));
+      return Object.assign({}, d, { tip: TIP[i] || d.name, fs: i >= 8 && i < 12 ? %d : %d, pat: cells, patDisp: p ? 'block' : 'none', patH: %d, patCol: d.ink, tag: i === 9 ? 'FILL ▸' : '', tagDisp: i === 9 ? 'block' : 'none' }); });
+    const bandFx = [['Reverb', 'Hall 2', 100], ['Chorus', 'Chorus 1', 0], ['Delay', '1/8 dotted', 20]].map(f => ({ name: f[0], type: f[1], pct: Math.round(f[2] / 127 * 100), val: f[2] + '%%' }));
+    const print = printFor(7, 160, 160, 16);
+    const extra = { homePads, bandFx, print };''' % ((30, 20, 44) if wide else (24, 16, 34)), OVERLAY="", LAYER="VOL")
+
+screens["Home"] = home()
 
 # ---------- Channel ----------
 screens["Channel"] = dict(TAB="Channel", SEL="7", DISPLAY='''
@@ -120,7 +141,7 @@ screens["Effects"] = dict(TAB="Effects", SEL="-1", DISPLAY='''<div style="flex-g
   fxcard("Reverb", "rev", ["Hall 2", "Hall", "Room", "Stage", "Plate"]) +
   fxcard("Chorus", "cho", ["Chorus 1", "Chorus", "Celeste", "Flanger"]) +
   fxcard("Delay", "dly", ["Tempo Echo", "1/16", "1/8T", "1/8", "1/8.", "1/4", "1/4T", "1/4.", "1/2"], '<div style="display: flex; gap: 6px"><button class="chip on">Tempo sync</button><button class="chip">Ping-pong</button></div>') +
-  '</div>', JS='''
+  '</div>', LAYER="REV", JS='''
     const K = (v, name, val, c) => Object.assign(knob(50, v, c || '#f2f2f2'), { name, val });
     const extra = { rev: { knobs: [K(.55, 'Return', '0 dB', A), K(.4, 'Time', '2.4 s'), K(.2, 'Pre-delay', '20 ms'), K(.6, 'Tone', 'Warm')], band: '100%', bandPct: 100 }, cho: { knobs: [K(.5, 'Return', '0 dB', A), K(.3, 'Rate', '0.8 Hz'), K(.45, 'Depth', '45%')], band: '0%', bandPct: 0 }, dly: { knobs: [K(.4, 'Return', '−3 dB', A), K(.35, 'Feedback', '35%'), K(.6, 'Tone', '6 kHz')], band: '0%', bandPct: 0 } };''', OVERLAY="")
 
@@ -177,7 +198,7 @@ screens["VoiceList"] = dict(TAB="Home", SEL="7", DISPLAY=screens["Home"]["DISPLA
 <div style="height: 1px; background: #2d2d32; margin: 4px 0"></div>
 <button style="height: 34px; border: 0; border-radius: 4px; background: #26262b; color: #ff7a2f; text-align: left; padding: 0 10px; font-size: 13px; font-weight: 700">More in the Browser…</button>
 </div>''')
-screens["VoiceList"]["JS"] = screens["Home"]["JS"].replace("const extra = { intros, mains, endings };", "const vl = [['Steel Gtr','current'],['Nylon Gtr','SoundFont'],['Clean Gtr','SoundFont'],['Jazz Gtr','SoundFont'],['12-String','SoundFont'],['★ Ample Guitar M','plugin'],['★ My Strum Gtr','patch'],['Muted Gtr','SoundFont']].map((v, i) => ({ name: v[0], src: v[1], bg: i === 0 ? '#2c2536' : 'transparent', w: i === 0 ? 700 : 500 }));\n    const extra = { intros, mains, endings, vl };")
+screens["VoiceList"]["JS"] = screens["Home"]["JS"].replace("const extra = { homePads, bandFx, print };", "const vl = [['Steel Gtr','current'],['Nylon Gtr','SoundFont'],['Clean Gtr','SoundFont'],['Jazz Gtr','SoundFont'],['12-String','SoundFont'],['★ Ample Guitar M','plugin'],['★ My Strum Gtr','patch'],['Muted Gtr','SoundFont']].map((v, i) => ({ name: v[0], src: v[1], bg: i === 0 ? '#2c2536' : 'transparent', w: i === 0 ? 700 : 500 }));\n    const extra = { homePads, bandFx, print, vl };")
 
 # ---------- Browser (full screen) ----------
 screens["Browser"] = dict(TAB="Home", SEL="-1", DISPLAY=screens["Home"]["DISPLAY"], BROWSEBTN="background: #ff7a2f; color: #1a0a00; border-color: #ff7a2f", OVERLAY='''
@@ -213,16 +234,38 @@ screens["Browser"] = dict(TAB="Home", SEL="-1", DISPLAY=screens["Home"]["DISPLAY
     const cats = CATS.map((c, i) => ({ name: c[0], n: c[1], col: COL[i % 12], bg: i === 4 ? '#222228' : 'transparent', ink: i === 4 ? '#ffffff' : '#c9c9cf' }));
     const S = [['Funky Pop', 'Dance · 118'], ['Disco Fever', 'Dance · 124'], ['Synth Pop', 'Dance · 124'], ['Club House', 'Dance · 126'], ['Dance Pop 2', 'Dance · 120'], ['Euro Beat', 'Dance · 140'], ['Nu Disco', 'Dance · 116'], ['Future Bass', 'Dance · 150'], ['Tropical', 'Dance · 102'], ['Electro Swing', 'Dance · 128'], ['Deep House', 'Dance · 122'], ['80s Dance', 'Dance · 120'], ['Funky Finger', 'Dance · 112'], ['Trance Pop', 'Dance · 132'], ['Latin House', 'Dance · 124']];
     const cards = S.map((s, i) => ({ name: s[0], meta: s[1] + ' bpm', border: i === 0 ? A : 'transparent', art: artFor(11 + i * 5, 200, 110, 6) }));
-    const extra = { cats, cards, sel: { art: artFor(11, 200, 132, 7) } };''')
+    const extra = Object.assign(homeExtra, { cats, cards, sel: { art: artFor(11, 200, 132, 7) } });''')
+screens["Browser"]["JS"] = screens["Home"]["JS"].replace("const extra =", "const homeExtra =") + screens["Browser"]["JS"]
+
+# ---------- Home at other window sizes ----------
+# The display stays about half the window. What gives way first: the Launchkey mirror,
+# then the art column (it folds into the status line), then the band-effects column.
+SIZES = {
+    "1440": dict(W=1440, H=900, DISPH=400, MIRW=350, MIRDISP="flex", KEYH=104, NW=36, COMPACT=0, WIDE=0),
+    "1280": dict(W=1280, H=800, DISPH=360, MIRW=270, MIRDISP="flex", KEYH=84, NW=36, COMPACT=0, WIDE=0),
+    "1024": dict(W=1024, H=768, DISPH=350, MIRW=0, MIRDISP="none", KEYH=80, NW=29, COMPACT=1, WIDE=0),
+    "1920": dict(W=1920, H=1080, DISPH=520, MIRW=440, MIRDISP="flex", KEYH=130, NW=52, COMPACT=0, WIDE=1),
+}
+screens["Home1280"] = dict(home(artW=180, fxW=200), SIZE="1280")
+screens["Home1024"] = dict(home(artW=0, fxW=0), SIZE="1024")
+screens["Home1920"] = dict(home(artW=300, fxW=300, wide=True), SIZE="1920")
+
+TITLES = {"Home": "B · Home", "Channel": "B · Channel (selected track)", "Effects": "B · Effects", "MultiPads": "B · Multi Pads", "Looper": "B · Looper & Charts", "VoiceList": "B · Voice quick list", "Browser": "B · Browser",
+          "Home1280": "B · Home at 1280×800", "Home1024": "B · Home at 1024×768", "Home1920": "B · Home at 1920×1080"}
 
 os.makedirs(os.path.join(D, "project"), exist_ok=True)
-order = ["Home", "Channel", "Effects", "MultiPads", "Looper", "VoiceList", "Browser"]
-for name in order:
+for name in TITLES:
     sc = screens[name]
+    size = SIZES[sc.get("SIZE", "1440")]
     out = shell
-    out = out.replace("%%TITLE%%", {"Home": "B · Home", "Channel": "B · Channel (selected track)", "Effects": "B · Effects", "MultiPads": "B · Multi Pads", "Looper": "B · Looper & Charts", "VoiceList": "B · Voice quick list", "Browser": "B · Browser"}[name])
+    for k, v in size.items():
+        out = out.replace("%%" + k + "%%", str(v))
+    out = out.replace("%%TITLE%%", TITLES[name]).replace("%%LAYER%%", sc.get("LAYER", "VOL"))
     out = out.replace("%%TAB%%", sc["TAB"]).replace("%%SEL%%", sc["SEL"]).replace("%%DISPLAY%%", sc["DISPLAY"]).replace("%%OVERLAY%%", sc.get("OVERLAY", "")).replace("%%BROWSEBTN%%", sc.get("BROWSEBTN", ""))
     out = out.replace("%%JS%%", sc["JS"])
-    assert "%%" not in out.replace("%;", "").replace("100%", ""), name
+    assert "%%" not in out, name
     open(os.path.join(D, "project", "B" + name + ".dc.html"), "w").write(out)
+
+# ---------- Style artwork options (standalone sheet) ----------
+exec(open(os.path.join(D, "art_options.py")).read())
 print("ok")

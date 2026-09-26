@@ -1,10 +1,11 @@
 # App redesign, direction B ("Maschine colour"): handoff
 
-Status 2026-09-26: **the owner picked direction B** and wants to keep refining it. Nothing is built yet; everything here is wireframes. Read this, open the canvas, then ask the owner what to refine.
+Status 2026-09-26 (round 2): **the owner picked direction B** and is refining it. Nothing is built yet; everything here is wireframes. Round 2 redrew Home, added mixer layers, a Home at four window sizes, and an artwork options sheet. Read this, open the canvas, then go through "Waiting on the owner".
 
 - **Canvas (private to the owner):** https://claude.ai/artifact/U3wyJmzqbr2WshAKhtG9UW
   - Row 1: the three original looks, A (Genos), B (Maschine) and C (Studio), all on the same layout.
-  - Row "Direction B: every screen": seven 1440×900 screens.
+  - Row "Direction B: every screen": seven 1440×900 screens, plus sheet 8 (style artwork options).
+  - Row "Home at other window sizes": 1024×768, 1280×800 and 1920×1080.
 - **Sources to regenerate the B screens:** `docs/design/wireframes-b/` (`shell.html` and `gen.py`). See "Editing the wireframes".
 
 ## Why a redesign
@@ -36,18 +37,33 @@ The owner was asked short atomic questions. Keep doing that: they asked for it.
 - **Clicking a voice name** on a strip opens a **quick list**. "More…" in that list opens the browser.
 - **Everything the Launchkey can do is also reachable by mouse.**
 
+**Round 2 answers (2026-09-26)**
+- The display stays **about half the window** on every tab, but the layout must adapt to **all** window sizes: smaller laptops, narrow windows and big monitors.
+- **Clicking a strip jumps to the Channel tab.**
+- The 12 strips are **readable** at about 83 px.
+- Home: the **section tiles were too big**. Replace them with the **Launchkey pad representation**, since the pads cover every section concept.
+- Home: the Main pattern previews must be **real**, drawn from the style's own pattern.
+- Home: show the **registration and OTS names**.
+- Home needs **quick effect controls**: band send levels.
+- **Sends for everything via a fader layer**, as in Ableton: the faders swap between volume and sends. The **hardware should match**, with Launchkey faders that cycle through send layers too.
+- The artwork should be **smaller** and **look different**. The owner asked to see a few options.
+
 **Look**
 - **A colour per part plus lit active states**: Maschine groups plus Genos lamps.
 - **"In between" feel:** mostly flat, with lit, glowing highlights. Direction B is near-black, vivid part colours and orange for active.
 
 ## Direction B, screen by screen (row 2 of the canvas)
 
-1. **Home.**
-   - Sections are big tiles: Intro I–III stacked, Main A–D as large tiles, Break, and Ending I–III stacked.
-   - Each Main tile shows a pattern preview, its length in bars, and a **Fill button under it**.
-   - A bar-progress line runs across the top.
-   - A toggle row holds Auto Fill, OTS Link, Sync Start, ACMP, Left Hold and Accent.
-   - This replaced the first B's small section buttons, because the owner wanted "better use of the space showing the sections".
+1. **Home** (round 2).
+   - **Left:** the art is smaller (pattern print for now), with the category, the style name, **Regist 3 · bank** and **OTS 2 · name**, and Browse and Edit.
+   - **Top line:** Playing, Next, bar progress and the chord.
+   - **Sections:** the **Launchkey Sections pad page drawn big**. It uses the same 2×8 order, colours and lights as `src/launchkey.rs` `section_looks`:
+     - top row: Intro 1–3, Sync Start, Ending 1–3, Auto Fill;
+     - bottom row: Main A–D, Break, Tap, Sync Stop, Start.
+     - The Main pads show their real first bar: kick, snare, hats and bass.
+     - A queued fill makes its Main flash, drawn with a dashed outline and a FILL tag.
+   - **Toggle row:** OTS Link, ACMP, Left Hold, Accent, fingering and split. Auto Fill and Sync are on the pads.
+   - **Right:** the **band effect sends** (Reverb, Chorus, Delay, with the type) and a link to Effects.
 2. **Channel.** Click any strip, or use the Launchkey page buttons, and the display becomes that part's full channel strip:
    - Level: fader, meter and pan.
    - Effect sends: Reverb, Chorus, Delay and Dry.
@@ -70,7 +86,37 @@ The owner was asked short atomic questions. Keep doing that: they asked for it.
    - Style cards with generated art.
    - A preview panel: Preview, Load, Favourite and "Edit a copy…".
 
-**Also changed from the first B:** every mixer strip has small **REV and DLY knobs**, so effects are one turn away ("I want the effects more easily accessible").
+**Mixer layers (round 2).** The REV/DLY mini knobs are gone. Buttons at the mixer's left edge (**VOL · PAN · REV · CHO · DLY**) switch what all 12 faders control, as in Ableton's sends view:
+- In a send layer, each fader fills in its part colour and shows the send value.
+- PAN turns the faders into bipolar knobs.
+- The Effects board shows the REV layer.
+- Engine: `setPartSend` already covers reverb, chorus and variation (delay) per part. The style parts' sends and the hardware layers are new work.
+
+**Launchkey mirror (round 2).** It shows the real Sections pad page (hardware colours, dim, bright and flash), the knob page, and the 9 faders with their page and layer.
+
+**Home at other window sizes (round 2).** The display stays at about half the window. As the window shrinks, things give way in this order:
+1. the Launchkey mirror (narrower at 1280, hidden at 1024);
+2. the art column, which folds into a thumbnail in the status line at 1024;
+3. the band-effects column, hidden at 1024 because sends stay on the mixer layers;
+4. at 1024, the header, tab and registration labels shorten.
+
+At 1920 everything grows, the keyboard shows 88 keys, and the mirror pads get taller.
+
+**Sheet 8: style artwork options.** Four generated looks, each at Home size and at browser-list size:
+1. **Pattern print:** a cell per 16th, a row per part;
+2. **Genre poster;**
+3. **Gradient + glyph;**
+4. **Contour lines.**
+
+The Browser board still uses the old rings and bars until the owner picks one.
+
+## Waiting on the owner (round 2 decisions made without them)
+
+1. Artwork look: pattern print is a placeholder default. Which of the four?
+2. Hardware layers: **Shift + the master fader button** steps VOL→PAN→REV→CHO→DLY, and the master button alone still switches Panel/Style. This needs an issue and engine work: soft takeover per layer, and LED colour per layer.
+3. The 1024 layout hides the mirror, the art column and the band-effects column. Is that the right order to give way?
+4. 1920 only grows; nothing new is added. Should the extra room show more (the next chords, or the mirror at full size)?
+5. Home's pads keep Tap, Start and the Sync buttons, because the hardware page has them, even though the header has them too.
 
 ## Open questions and not yet drawn
 
@@ -81,11 +127,8 @@ The owner was asked short atomic questions. Keep doing that: they asked for it.
   - what the Launchkey mirror shows on each page;
   - light mode (the app has one today);
   - the Style Editor entry (separate wireframes: https://claude.ai/artifact/SegsX9Qdg6xS6zzc6mac5H).
-- **Layout questions:**
-  - Does the display stay at about half the window, or grow and shrink per tab?
-  - Are 12 strips readable at about 83 px on a 1440-wide laptop? The owner hasn't said.
-- **Channel tab behaviour:** does it replace Home while a strip is selected, or only when the owner clicks the tab?
-- **Style artwork:** generated per style. Its look (rings and bars) is a placeholder; keep asking whether it feels right.
+- **Style artwork:** see sheet 8. The browser still uses the old placeholder.
+- **Other tabs at other sizes:** only Home is drawn at 1024, 1280 and 1920.
 
 ## What the screens map to in the engine
 
@@ -110,7 +153,17 @@ cd docs/design/wireframes-b && python3 gen.py   # writes project/B*.dc.html next
 
 **How the generator is built**
 - `shell.html` is the shared frame: header, the display frame with its tabs, the mixer strips with REV/DLY minis, the Launchkey mirror, the Registration/OTS row and the keyboard.
-- `gen.py` fills the placeholders for each screen: `%%TAB%%`, `%%SEL%%` (selected strip index, or -1), `%%DISPLAY%%` (display markup), `%%JS%%` (extra `renderVals` data) and `%%OVERLAY%%`.
+- `gen.py` fills the placeholders for each screen:
+  - `%%TAB%%`;
+  - `%%SEL%%`: the selected strip index, or -1;
+  - `%%LAYER%%`: the mixer layer, VOL, PAN, REV, CHO or DLY;
+  - `%%DISPLAY%%`: the display markup;
+  - `%%JS%%`: extra `renderVals` data, which must define `extra`;
+  - `%%OVERLAY%%`;
+  - the size keys from `SIZES` (`W`, `H`, `DISPH`, `MIRW`, `MIRDISP`, `KEYH`, `NW`, `COMPACT`, `WIDE`).
+- `home(artW, fxW, wide)` builds Home for any size. A screen's `SIZE` picks a size.
+- `art_options.py` writes the standalone artwork sheet, `BArtOptions.dc.html`.
+- `project/` is generated and git-ignored. Edit `canvas.json` from a fresh `read` of the live canvas, never from a local copy.
 
 **Palette:** bg `#0e0e10`, panels `#19191c`/`#141417`, edges `#2d2d32`, text `#f2f2f2`/`#8d8d95`, active orange `#ff7a2f`. Part colours are in `COL` in the shell's script. Fonts are Archivo and Archivo Narrow.
 

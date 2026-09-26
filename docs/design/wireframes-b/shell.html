@@ -13,40 +13,41 @@
 body{margin:0;background:#0e0e10}
 button{font-family:inherit;cursor:pointer}
 .cap{font-family:'Archivo Narrow',sans-serif;font-size:11px;letter-spacing:.09em;text-transform:uppercase;color:#8d8d95}
-.hb{height:34px;min-width:34px;padding:0 12px;border-radius:4px;border:1px solid #2d2d32;background:#26262b;color:#f2f2f2;font-size:13px;font-weight:600}
-.chip{height:30px;padding:0 12px;border-radius:4px;border:1px solid #2d2d32;background:#1b1b20;color:#c9c9cf;font-size:12px;font-weight:600}
+.hb{height:34px;min-width:34px;padding:0 12px;border-radius:4px;border:1px solid #2d2d32;background:#26262b;color:#f2f2f2;font-size:13px;font-weight:600;white-space:nowrap}
+.chip{height:30px;padding:0 12px;border-radius:4px;border:1px solid #2d2d32;background:#1b1b20;color:#c9c9cf;font-size:12px;font-weight:600;white-space:nowrap}
 .chip.on{background:#ff7a2f;border-color:#ff7a2f;color:#1a0a00}
-.tab{height:30px;padding:0 14px;border:0;border-radius:4px 4px 0 0;background:transparent;color:#8d8d95;font-size:13px;font-weight:600}
+.tab{height:30px;padding:0 14px;border:0;border-radius:4px 4px 0 0;background:transparent;color:#8d8d95;font-size:13px;font-weight:600;white-space:nowrap}
+.lay{height:28px;width:100%;padding:0;border-radius:4px;border:1px solid #2d2d32;background:#141417;color:#8d8d95;font-size:11px;font-weight:700;letter-spacing:.04em}
 </style>
 </helmet>
-<div style="width: 1440px; height: 900px; box-sizing: border-box; background: #0e0e10; color: #f2f2f2; font-family: Archivo, sans-serif; display: flex; flex-direction: column; gap: 8px; padding: 0 12px 10px 12px; position: relative">
+<div style="width: %%W%%px; height: %%H%%px; box-sizing: border-box; background: #0e0e10; color: #f2f2f2; font-family: Archivo, sans-serif; display: flex; flex-direction: column; gap: 8px; padding: 0 12px 10px 12px; position: relative; overflow: hidden">
 
 <header style="height: 52px; flex-shrink: 0; display: flex; align-items: center; gap: 10px; margin: 0 -12px; padding: 0 16px; background: #19191c; border-bottom: 1px solid #2d2d32">
-<div style="font-family: 'Archivo Narrow', sans-serif; font-size: 22px; font-weight: 700; margin-right: 14px">yahaha</div>
+<div style="font-family: 'Archivo Narrow', sans-serif; font-size: 22px; font-weight: 700; margin-right: 8px">yahaha</div>
 <button class="hb" style="width: 72px; background: #ff7a2f; color: #1a0a00; border-color: #ff7a2f">▶ Start</button>
-<button class="hb">Sync Start</button>
-<button class="hb">Sync Stop</button>
+<button class="hb">{{hdr.syncStart}}</button>
+<button class="hb">{{hdr.syncStop}}</button>
 <div style="width: 1px; height: 30px; background: #2d2d32; margin: 0 4px"></div>
 <button class="hb" aria-label="Tempo down">−</button>
-<div style="display: flex; flex-direction: column; align-items: center; min-width: 60px"><span style="font-size: 20px; font-weight: 700; line-height: 1">112</span><span class="cap" style="font-size: 9px">BPM</span></div>
+<div style="display: flex; flex-direction: column; align-items: center; min-width: 52px"><span style="font-size: 20px; font-weight: 700; line-height: 1">112</span><span class="cap" style="font-size: 9px">BPM</span></div>
 <button class="hb" aria-label="Tempo up">+</button>
 <button class="hb">Tap</button>
 <div style="width: 1px; height: 30px; background: #2d2d32; margin: 0 4px"></div>
 <div style="display: flex; gap: 4px" aria-label="Beat"><span style="width: 12px; height: 12px; border-radius: 50%; background: #ff7a2f"></span><span style="width: 12px; height: 12px; border-radius: 50%; background: #2d2d32"></span><span style="width: 12px; height: 12px; border-radius: 50%; background: #2d2d32"></span><span style="width: 12px; height: 12px; border-radius: 50%; background: #2d2d32"></span></div>
-<span style="font-size: 14px; font-weight: 600; margin-left: 6px">17 · 1</span>
+<span style="font-size: 14px; font-weight: 600; margin-left: 6px; white-space: nowrap">17 · 1</span>
 <div style="flex-grow: 1"></div>
 <button class="hb" style="%%BROWSEBTN%%">Browse</button>
-<span class="cap">Master</span>
-<div style="width: 110px; height: 6px; border-radius: 3px; background: #2d2d32; position: relative"><div style="position: absolute; left: 0; top: 0; bottom: 0; width: 78%; border-radius: 3px; background: #f2f2f2"></div></div>
+<span class="cap" style="display: {{hdr.masterCap}}">Master</span>
+<div style="width: {{hdr.masterW}}px; height: 6px; border-radius: 3px; background: #2d2d32; position: relative" aria-label="Master level"><div style="position: absolute; left: 0; top: 0; bottom: 0; width: 78%; border-radius: 3px; background: #f2f2f2"></div></div>
 </header>
 
-<section aria-label="Display" style="height: 400px; flex-shrink: 0; display: flex; flex-direction: column; border-radius: 8px; border: 1px solid #2d2d32; background: #121317; overflow: hidden">
+<section aria-label="Display" style="height: %%DISPH%%px; flex-shrink: 0; display: flex; flex-direction: column; border-radius: 8px; border: 1px solid #2d2d32; background: #121317; overflow: hidden">
 <div role="tablist" style="height: 34px; flex-shrink: 0; display: flex; align-items: flex-end; gap: 2px; padding: 0 12px; border-bottom: 1px solid #26262b">
 <sc-for list="{{tabs}}" as="t" hint-placeholder-count="7">
-<button role="tab" class="tab" aria-selected="{{t.on}}" style="background: {{t.bg}}; color: {{t.ink}}; border-bottom: 2px solid {{t.line}}">{{t.name}}</button>
+<button role="tab" class="tab" aria-selected="{{t.on}}" style="background: {{t.bg}}; color: {{t.ink}}; border-bottom: 2px solid {{t.line}}; padding: 0 {{t.pad}}px">{{t.name}}</button>
 </sc-for>
 <div style="flex-grow: 1"></div>
-<span class="cap" style="padding-bottom: 8px">Cool 8Beat · Bank: Sunday Gig · Regist 3 · OTS 2</span>
+<span class="cap" style="padding-bottom: 8px; display: {{hdr.tabCap}}">Cool 8Beat · Bank: Sunday Gig · Regist 3 · OTS 2</span>
 </div>
 <div style="flex-grow: 1; display: flex; min-height: 0">
 %%DISPLAY%%
@@ -54,24 +55,28 @@ button{font-family:inherit;cursor:pointer}
 </section>
 
 <div style="flex-grow: 1; display: flex; gap: 10px; min-height: 0">
-<section aria-label="Mixer" style="flex-grow: 1; display: flex; gap: 4px; padding: 8px; border-radius: 8px; background: #19191c; border: 1px solid #2d2d32">
+<section aria-label="Mixer" style="flex-grow: 1; min-width: 0; display: flex; gap: 4px; padding: 8px; border-radius: 8px; background: #19191c; border: 1px solid #2d2d32">
+<div role="radiogroup" aria-label="Fader layer" style="width: 46px; flex-shrink: 0; display: flex; flex-direction: column; gap: 4px; padding-right: 4px; border-right: 1px solid #26262b; margin-right: 2px">
+<span class="cap" style="font-size: 9px; text-align: center">Faders</span>
+<sc-for list="{{layers}}" as="y" hint-placeholder-count="5">
+<button role="radio" class="lay" aria-checked="{{y.on}}" title="{{y.tip}}" style="background: {{y.bg}}; color: {{y.ink}}; border-color: {{y.border}}; box-shadow: {{y.glow}}">{{y.name}}</button>
+</sc-for>
+<div style="flex-grow: 1"></div>
+<span style="font-size: 9px; color: #8d8d95; text-align: center; line-height: 1.2">⇧ + Master btn</span>
+</div>
 <sc-for list="{{parts}}" as="p" hint-placeholder-count="12">
 <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; padding: 5px; border-radius: 4px; background: {{p.bg}}; outline: {{p.outline}}; opacity: {{p.op}}">
 <div style="height: 4px; border-radius: 2px; background: {{p.col}}"></div>
 <span class="cap" style="font-size: 10px; white-space: nowrap; overflow: hidden; color: {{p.col}}">{{p.name}}</span>
 <button style="height: 24px; padding: 0 4px; border-radius: 4px; border: 1px solid #2d2d32; background: #0e0e10; color: #f2f2f2; font-size: 11px; font-weight: 600; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{p.voice}} ▾</button>
-<div style="display: flex; justify-content: space-around">
-<sc-for list="{{p.minis}}" as="m" hint-placeholder-count="2">
-<div style="display: flex; flex-direction: column; align-items: center">
-<svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true"><path d="{{m.track}}" stroke="#2d2d32" stroke-width="3" fill="none" stroke-linecap="round"></path><path d="{{m.arc}}" stroke="{{m.col}}" stroke-width="3" fill="none" stroke-linecap="round"></path></svg>
-<span style="font-size: 8px; color: #8d8d95; letter-spacing: .05em">{{m.name}}</span>
+<div style="flex-grow: 1; display: {{p.faderDisp}}; gap: 6px; justify-content: center; min-height: 0">
+<div style="width: 5px; border-radius: 2px; background: #2d2d32; position: relative; display: {{p.meterDisp}}"><div style="position: absolute; left: 0; right: 0; bottom: 0; height: {{p.meter}}%; border-radius: 2px; background: {{p.col}}"></div></div>
+<div style="width: 18px; position: relative"><div style="position: absolute; left: 6px; top: 0; bottom: 0; width: 6px; border-radius: 3px; background: #26262b"></div><div style="position: absolute; left: 6px; bottom: 0; width: 6px; height: {{p.fill}}%; border-radius: 3px; background: {{p.fillCol}}"></div><div style="position: absolute; left: 0; bottom: {{p.fader}}%; width: 18px; height: 9px; border-radius: 2px; background: #f2f2f2"></div></div>
 </div>
-</sc-for>
+<div style="flex-grow: 1; display: {{p.knobDisp}}; align-items: center; justify-content: center; min-height: 0">
+<svg width="40" height="40" viewBox="0 0 40 40" aria-hidden="true"><path d="{{p.kTrack}}" stroke="#2d2d32" stroke-width="4" fill="none" stroke-linecap="round"></path><path d="{{p.kArc}}" stroke="{{p.col}}" stroke-width="4" fill="none" stroke-linecap="round"></path><line x1="20" y1="4" x2="20" y2="9" stroke="#55555c" stroke-width="2"></line></svg>
 </div>
-<div style="flex-grow: 1; display: flex; gap: 6px; justify-content: center; min-height: 0">
-<div style="width: 5px; border-radius: 2px; background: #2d2d32; position: relative"><div style="position: absolute; left: 0; right: 0; bottom: 0; height: {{p.meter}}%; border-radius: 2px; background: {{p.col}}"></div></div>
-<div style="width: 18px; position: relative"><div style="position: absolute; left: 8px; top: 0; bottom: 0; width: 2px; background: #2d2d32"></div><div style="position: absolute; left: 0; bottom: {{p.fader}}%; width: 18px; height: 9px; border-radius: 2px; background: #f2f2f2"></div></div>
-</div>
+<span style="font-size: 11px; font-weight: 700; text-align: center; color: {{p.valInk}}">{{p.val}}</span>
 <div style="display: flex; gap: 3px">
 <button aria-label="Mute {{p.name}}" style="flex: 1; height: 20px; padding: 0; border-radius: 3px; border: 1px solid #2d2d32; background: {{p.mBg}}; color: {{p.mInk}}; font-size: 10px; font-weight: 700">M</button>
 <button aria-label="Solo {{p.name}}" style="flex: 1; height: 20px; padding: 0; border-radius: 3px; border: 1px solid #2d2d32; background: #26262b; color: #8d8d95; font-size: 10px; font-weight: 700">S</button>
@@ -79,84 +84,130 @@ button{font-family:inherit;cursor:pointer}
 </div>
 </sc-for>
 </section>
-<section aria-label="Launchkey mirror" style="width: 350px; flex-shrink: 0; display: flex; flex-direction: column; gap: 8px; padding: 10px; border-radius: 8px; background: #19191c; border: 1px solid #2d2d32">
-<div style="display: flex; justify-content: space-between; align-items: baseline"><span class="cap">Launchkey</span><span style="font-size: 12px; font-weight: 600">Pads: Sections · Knobs: Style</span></div>
-<div style="display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 5px">
+<section aria-label="Launchkey mirror" style="width: %%MIRW%%px; flex-shrink: 0; display: %%MIRDISP%%; flex-direction: column; gap: 7px; padding: 10px; border-radius: 8px; background: #19191c; border: 1px solid #2d2d32; min-height: 0; overflow: hidden">
+<div style="display: flex; justify-content: space-between; align-items: baseline; gap: 6px"><span class="cap">Launchkey</span><span style="font-size: 11px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{mir.title}}</span></div>
+<div style="display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 4px">
 <sc-for list="{{knobs}}" as="k" hint-placeholder-count="8">
-<div style="display: flex; flex-direction: column; align-items: center; gap: 2px">
-<svg width="30" height="30" viewBox="0 0 30 30" aria-hidden="true"><path d="{{k.track}}" stroke="#2d2d32" stroke-width="3.5" fill="none" stroke-linecap="round"></path><path d="{{k.arc}}" stroke="#f2f2f2" stroke-width="3.5" fill="none" stroke-linecap="round"></path></svg>
-<span style="font-size: 9px; color: #8d8d95; text-align: center; line-height: 1.1">{{k.name}}</span>
+<div style="display: flex; flex-direction: column; align-items: center; gap: 1px; min-width: 0">
+<svg width="26" height="26" viewBox="0 0 30 30" aria-hidden="true"><path d="{{k.track}}" stroke="#2d2d32" stroke-width="3.5" fill="none" stroke-linecap="round"></path><path d="{{k.arc}}" stroke="#f2f2f2" stroke-width="3.5" fill="none" stroke-linecap="round"></path></svg>
+<span style="font-size: 8px; color: #8d8d95; text-align: center; line-height: 1.1; white-space: nowrap; overflow: hidden; max-width: 100%">{{k.name}}</span>
 </div>
 </sc-for>
 </div>
-<div style="display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 5px">
-<sc-for list="{{pads}}" as="d" hint-placeholder-count="16">
-<button style="height: 38px; padding: 0 2px; border-radius: 4px; border: 1px solid {{d.border}}; background: {{d.bg}}; color: {{d.ink}}; font-size: 9px; font-weight: 700; line-height: 1.1; box-shadow: {{d.glow}}">{{d.label}}</button>
+<div style="display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 4px">
+<sc-for list="{{mirPads}}" as="d" hint-placeholder-count="16">
+<button style="height: {{mir.padH}}px; padding: 0 1px; border-radius: 4px; border: 1px solid {{d.border}}; outline: {{d.outline}}; outline-offset: 1px; background: {{d.bg}}; color: {{d.ink}}; font-size: 8px; font-weight: 700; line-height: 1.05; box-shadow: {{d.glow}}; overflow: hidden">{{d.label}}</button>
+</sc-for>
+</div>
+<div style="flex-grow: 1; min-height: 0; display: {{mir.fadersDisp}}; gap: 4px; align-items: stretch">
+<sc-for list="{{mirFaders}}" as="f" hint-placeholder-count="9">
+<div style="flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 2px">
+<div style="flex-grow: 1; width: 4px; border-radius: 2px; background: #2d2d32; position: relative"><div style="position: absolute; left: -4px; bottom: {{f.v}}%; width: 12px; height: 5px; border-radius: 1px; background: {{f.col}}"></div></div>
+<span style="font-size: 7px; color: #8d8d95; white-space: nowrap">{{f.name}}</span>
+</div>
 </sc-for>
 </div>
 </section>
 </div>
 
 <section aria-label="Registration and OTS" style="height: 40px; flex-shrink: 0; display: flex; align-items: center; gap: 6px">
-<span class="cap" style="margin-right: 4px">Registration</span>
-<button class="hb" style="min-width: 150px; text-align: left">Sunday Gig ▾</button>
+<span class="cap" style="margin-right: 4px; display: {{hdr.regCap}}">Registration</span>
+<button class="hb" style="min-width: {{hdr.bankW}}px; text-align: left">Sunday Gig ▾</button>
 <sc-for list="{{regs}}" as="g" hint-placeholder-count="10">
-<button class="hb" style="width: 38px; padding: 0; background: {{g.bg}}; color: {{g.ink}}; border-color: {{g.border}}">{{g.n}}</button>
+<button class="hb" style="width: {{hdr.regW}}px; min-width: 0; padding: 0; background: {{g.bg}}; color: {{g.ink}}; border-color: {{g.border}}">{{g.n}}</button>
 </sc-for>
-<button class="hb">Memory</button>
-<button class="hb">Freeze</button>
+<button class="hb">{{hdr.memory}}</button>
+<button class="hb">{{hdr.freeze}}</button>
 <div style="flex-grow: 1"></div>
-<span class="cap" style="margin-right: 4px">One Touch</span>
+<span class="cap" style="margin-right: 4px; display: {{hdr.regCap}}">One Touch</span>
 <sc-for list="{{ots}}" as="o" hint-placeholder-count="4">
-<button class="hb" style="width: 44px; padding: 0; background: {{o.bg}}; color: {{o.ink}}; border-color: {{o.border}}">{{o.n}}</button>
+<button class="hb" style="width: {{hdr.otsW}}px; min-width: 0; padding: 0; background: {{o.bg}}; color: {{o.ink}}; border-color: {{o.border}}">{{o.n}}</button>
 </sc-for>
 <button class="hb">Link</button>
 </section>
 
-<section aria-label="Keyboard" style="height: 104px; flex-shrink: 0; position: relative; border-radius: 4px; overflow: hidden; background: #19191c; border: 1px solid #2d2d32">
+<section aria-label="Keyboard" style="height: %%KEYH%%px; flex-shrink: 0; position: relative; border-radius: 4px; overflow: hidden; background: #19191c; border: 1px solid #2d2d32">
 <div style="position: absolute; inset: 6px; display: flex; gap: 1px">
 <sc-for list="{{white}}" as="w" hint-placeholder-count="36">
 <div style="flex: 1; border-radius: 0 0 3px 3px; background: {{w.bg}}"></div>
 </sc-for>
 </div>
 <sc-for list="{{black}}" as="b" hint-placeholder-count="25">
-<div style="position: absolute; top: 6px; left: {{b.x}}px; width: 22px; height: 58px; border-radius: 0 0 3px 3px; background: #0e0e10"></div>
+<div style="position: absolute; top: 6px; left: {{b.x}}px; width: {{kb.bw}}px; height: {{kb.bh}}px; border-radius: 0 0 3px 3px; background: #0e0e10"></div>
 </sc-for>
-<div style="position: absolute; top: 0; bottom: 0; left: 470px; width: 2px; background: #ff7a2f"></div>
-<span class="cap" style="position: absolute; left: 478px; bottom: 8px; color: #ff7a2f">Split</span>
+<div style="position: absolute; top: 0; bottom: 0; left: {{kb.split}}px; width: 2px; background: #ff7a2f"></div>
+<span class="cap" style="position: absolute; left: {{kb.splitLabel}}px; bottom: 8px; color: #ff7a2f">Split</span>
 </section>
 %%OVERLAY%%
 </div>
 </x-dc>
-<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":%%W%%,"height":%%H%%}}'>
 class Component extends DCLogic {
   renderVals() {
     const A = '#ff7a2f', AI = '#1a0a00';
+    const W = %%W%%, NW = %%NW%%, KEYH = %%KEYH%%, COMPACT = %%COMPACT%%, WIDE = %%WIDE%%;
     const COL = ['#ff5a5a','#ff9a3c','#ffd23f','#9be15d','#3fd6c6','#3fa9ff','#7a7dff','#c46bff','#ff6bd0','#ff8c8c','#5de0ff','#b8f05d'];
-    const arcPath = (cx, cy, r, v) => {
-      const a0 = -135 * Math.PI / 180, a1 = (-135 + 270 * v) * Math.PI / 180;
+    const arc2 = (cx, cy, r, v0, v1) => {
+      if (v1 < v0) { const t = v0; v0 = v1; v1 = t; }
+      if (v1 - v0 < 0.01) v1 = v0 + 0.01;
+      const a0 = (-135 + 270 * v0) * Math.PI / 180, a1 = (-135 + 270 * v1) * Math.PI / 180;
       const x0 = cx + r * Math.sin(a0), y0 = cy - r * Math.cos(a0), x1 = cx + r * Math.sin(a1), y1 = cy - r * Math.cos(a1);
-      return 'M ' + x0.toFixed(1) + ' ' + y0.toFixed(1) + ' A ' + r + ' ' + r + ' 0 ' + (270 * v > 180 ? 1 : 0) + ' 1 ' + x1.toFixed(1) + ' ' + y1.toFixed(1);
+      return 'M ' + x0.toFixed(1) + ' ' + y0.toFixed(1) + ' A ' + r + ' ' + r + ' 0 ' + (270 * (v1 - v0) > 180 ? 1 : 0) + ' 1 ' + x1.toFixed(1) + ' ' + y1.toFixed(1);
     };
+    const arcPath = (cx, cy, r, v) => arc2(cx, cy, r, 0, v);
     const knob = (size, v, col, name, val) => ({ track: arcPath(size / 2, size / 2, size / 2 - 4, 1), arc: arcPath(size / 2, size / 2, size / 2 - 4, Math.max(0.01, v)), col, name, val });
+    const rgb = (c, a) => 'rgba(' + c[0] * 2 + ',' + c[1] * 2 + ',' + c[2] * 2 + ',' + (a === undefined ? 1 : a) + ')';
     const SEL = %%SEL%%;
     const TAB = '%%TAB%%';
-    const tabs = ['Home', 'Channel', 'Effects', 'Multi Pads', 'Looper & Charts', 'Harmony / Arp', 'Settings'].map(n => { const on = n === TAB; return { name: n, on, bg: on ? '#222228' : 'transparent', ink: on ? '#ffffff' : '#8d8d95', line: on ? A : 'transparent' }; });
-    const P = [['Right 1','Grand Piano',86,70,1,.4,.2],['Right 2','Strings',60,55,1,.5,.1],['Right 3','Brass Sect',0,50,0,.3,0],['Left','Warm Pad',44,62,1,.4,0],['Rhythm 1','Live Kit',90,78,1,.3,0],['Rhythm 2','Percussion',50,60,1,.3,0],['Bass','Finger Bass',72,70,1,.1,0],['Chord 1','Steel Gtr',58,64,1,.35,0],['Chord 2','E.Piano',40,58,1,.4,0],['Pad','Warm Strings',30,52,1,.5,0],['Phrase 1','Brass',0,60,1,.3,0],['Phrase 2','Synth Lead',0,48,1,.3,.25]];
-    const parts = P.map((p, i) => ({ name: p[0], voice: p[1], meter: p[2], fader: p[3], op: p[4] ? 1 : 0.45, col: COL[i], mBg: p[4] ? '#26262b' : A, mInk: p[4] ? '#8d8d95' : AI, bg: i === SEL ? '#26262e' : '#141417', outline: i === SEL ? '2px solid ' + COL[i] : 'none', minis: [Object.assign(knob(24, p[5], COL[i]), { name: 'REV' }), Object.assign(knob(24, p[6], COL[i]), { name: 'DLY' })] }));
-    const knobs = ['Dynamics','Rtg len','Rtg on','Mute A','Mute B','—','—','Tempo'].map((n, i) => Object.assign(knob(30, [.5,.3,0,1,1,0,0,.45][i], '#f2f2f2'), { name: n }));
-    const PL = ['Intro I','Intro II','Main A','Main B','Main C','Main D','Break','Fill','End I','End II','End III','Sync St','Start','Tap','Acmp','Auto Fill'];
-    const PC = ['#ff5a5a','#ff9a3c','#ffd23f','#9be15d','#3fd6c6','#3fa9ff','#7a7dff','#c46bff'];
-    const pads = PL.map((l, i) => { const on = l === 'Main B', q = l === 'Fill'; const c = PC[Math.floor(i / 2) % 8]; return { label: l, bg: on ? A : (q ? 'rgba(255,122,47,.14)' : c), ink: on ? AI : '#0e0e10', border: on || q ? A : c, glow: on ? '0 0 16px rgba(255,122,47,.6)' : 'none' }; });
+    const LAYER = '%%LAYER%%';
+    const hdr = { syncStart: COMPACT ? 'Sync ▶' : 'Sync Start', syncStop: COMPACT ? 'Sync ■' : 'Sync Stop', masterCap: COMPACT ? 'none' : 'inline', masterW: COMPACT ? 70 : 110, tabCap: COMPACT ? 'none' : 'inline', regCap: COMPACT ? 'none' : 'inline', bankW: COMPACT ? 110 : 150, regW: COMPACT ? 32 : 38, otsW: COMPACT ? 34 : 44, memory: COMPACT ? 'Mem' : 'Memory', freeze: COMPACT ? 'Frz' : 'Freeze' };
+    const tabs = ['Home', 'Channel', 'Effects', 'Multi Pads', 'Looper & Charts', 'Harmony / Arp', 'Settings'].map(n => { const on = n === TAB; return { name: n, on, bg: on ? '#222228' : 'transparent', ink: on ? '#ffffff' : '#8d8d95', line: on ? A : 'transparent', pad: COMPACT ? 9 : 14 }; });
+    // name, voice, meter, volume, on, reverb, chorus, delay, pan (0-1)
+    const P = [['Right 1','Grand Piano',86,70,1,.4,.1,.2,.5],['Right 2','Strings',60,55,1,.5,.2,.1,.35],['Right 3','Brass Sect',0,50,0,.3,.1,0,.6],['Left','Warm Pad',44,62,1,.4,.15,0,.5],['Rhythm 1','Live Kit',90,78,1,.3,0,0,.5],['Rhythm 2','Percussion',50,60,1,.3,0,0,.7],['Bass','Finger Bass',72,70,1,.1,0,0,.5],['Chord 1','Steel Gtr',58,64,1,.35,.15,0,.3],['Chord 2','E.Piano',40,58,1,.4,.3,0,.68],['Pad','Warm Strings',30,52,1,.5,.25,0,.5],['Phrase 1','Brass',0,60,1,.3,.1,0,.6],['Phrase 2','Synth Lead',0,48,1,.3,0,.25,.42]];
+    const LAY = [['VOL', 'Faders set each part\'s volume'], ['PAN', 'Faders set each part\'s pan'], ['REV', 'Faders set each part\'s reverb send'], ['CHO', 'Faders set each part\'s chorus send'], ['DLY', 'Faders set each part\'s delay send']];
+    const layers = LAY.map(l => { const on = l[0] === LAYER; return { name: l[0], tip: l[1], on, bg: on ? A : '#141417', ink: on ? AI : '#8d8d95', border: on ? A : '#2d2d32', glow: on ? '0 0 10px rgba(255,122,47,.45)' : 'none' }; });
+    const panTxt = v => { const d = Math.round((v - .5) * 128); return d === 0 ? 'C' : (d < 0 ? 'L' + (-d) : 'R' + d); };
+    const parts = P.map((p, i) => {
+      const send = { REV: p[5], CHO: p[6], DLY: p[7] }[LAYER];
+      const isVol = LAYER === 'VOL', isPan = LAYER === 'PAN';
+      const v = isVol ? p[3] / 100 : (isPan ? p[8] : send);
+      const val = isVol ? String(Math.round(p[3] * 1.27)) : (isPan ? panTxt(p[8]) : String(Math.round(send * 127)));
+      return { name: p[0], voice: p[1], meter: p[2], op: p[4] ? 1 : 0.45, col: COL[i], mBg: p[4] ? '#26262b' : A, mInk: p[4] ? '#8d8d95' : AI, bg: i === SEL ? '#26262e' : '#141417', outline: i === SEL ? '2px solid ' + COL[i] : 'none',
+        faderDisp: isPan ? 'none' : 'flex', knobDisp: isPan ? 'flex' : 'none', meterDisp: isVol ? 'block' : 'none',
+        fader: Math.round(v * 92), fill: isVol ? 0 : Math.round(v * 92), fillCol: COL[i],
+        kTrack: arcPath(20, 20, 15, 1), kArc: arc2(20, 20, 15, .5, p[8]),
+        val, valInk: isVol ? '#c9c9cf' : COL[i] };
+    });
+    // The Launchkey Sections pad page (src/launchkey.rs section_looks), as the hardware lights it.
+    const LKC = { intro: [127, 95, 0], main: [0, 127, 16], ending: [127, 0, 0], brk: [90, 0, 127], sync: [127, 45, 0], fill: [0, 45, 127], tap: [100, 100, 100], stopsync: [0, 110, 110], run: [0, 127, 0] };
+    const PADS = [['INTRO 1', 'Intro I', LKC.intro, 'dim', '4 bars'], ['INTRO 2', 'Intro II', LKC.intro, 'dim', '8 bars'], ['INTRO 3', 'Intro III', LKC.intro, 'dim', '2 bars'], ['SYNC ST', 'Sync Start', LKC.sync, 'dim', ''], ['ENDING 1', 'Ending I', LKC.ending, 'dim', '2 bars'], ['ENDING 2', 'Ending II', LKC.ending, 'dim', '4 bars'], ['ENDING 3', 'Ending III', LKC.ending, 'dim', '4 bars'], ['AUTOFILL', 'Auto Fill', LKC.fill, 'bright', 'On'],
+      ['MAIN A', 'Main A', LKC.main, 'dim', '4 bars'], ['MAIN B', 'Main B', LKC.main, 'flash', '4 bars'], ['MAIN C', 'Main C', LKC.main, 'dim', '8 bars'], ['MAIN D', 'Main D', LKC.main, 'dim', '8 bars'], ['BREAK', 'Break', LKC.brk, 'dim', '1 bar'], ['TAP', 'Tap', LKC.tap, 'dim', ''], ['SYNC STP', 'Sync Stop', LKC.stopsync, 'dim', ''], ['START', 'Start / Stop', LKC.run, 'bright', 'Running']];
+    const padLook = (p) => { const c = p[2], st = p[3], lit = st !== 'dim';
+      return { label: p[0], name: p[1], len: p[4], bg: lit ? rgb(c) : rgb(c, .16), ink: lit ? '#0e0e10' : rgb(c), border: lit ? rgb(c) : rgb(c, .45), outline: st === 'flash' ? '2px dashed #ffffff' : 'none', glow: lit ? '0 0 14px ' + rgb(c, .55) : 'none', flash: st === 'flash' }; };
+    const secPads = PADS.map(padLook);
+    const mirPads = secPads;
+    const kn = ['Dynamics','Rtg len','Rtg on','Mute A','Mute B','—','—','Tempo'];
+    const knobs = kn.map((n, i) => Object.assign(knob(30, [.5,.3,0,1,1,0,0,.45][i], '#f2f2f2'), { name: n }));
+    const FPAGE = { VOL: 'Vol', PAN: 'Pan', REV: 'Rev', CHO: 'Cho', DLY: 'Dly' }[LAYER];
+    const mirFaders = ['R1', 'R2', 'R3', 'L', 'STYLE', 'M.PAD', '', '', 'MSTR'].map((n, i) => ({ name: n, v: i < 4 ? parts[i].fader : [80, 67, 0, 0, 78][i - 4], col: i === 8 ? '#f2f2f2' : (i < 4 ? COL[i] : (i < 6 ? '#c9c9cf' : '#2d2d32')) }));
+    const mir = { title: 'Pads: Sections · Knobs: Style · Faders: Panel ' + FPAGE, padH: W >= 1800 ? 44 : 36, fadersDisp: 'flex' };
     const regs = Array.from({ length: 10 }, (_, i) => ({ n: i + 1, bg: i === 2 ? A : '#26262b', ink: i === 2 ? AI : (i < 6 ? '#f2f2f2' : '#8d8d95'), border: i === 2 ? A : '#2d2d32' }));
     const ots = [1, 2, 3, 4].map(n => ({ n, bg: n === 2 ? A : '#26262b', ink: n === 2 ? AI : '#f2f2f2', border: n === 2 ? A : '#2d2d32' }));
-    const held = [9, 12, 16, 21, 24];
-    const white = Array.from({ length: 36 }, (_, i) => ({ bg: held.includes(i) ? A : '#e9e9ec' }));
-    const kw = 1402 / 36, black = [];
-    for (let i = 0; i < 35; i++) if ([0, 1, 3, 4, 5].includes(i % 7)) black.push({ x: 6 + (i + 1) * kw - 11 });
+    // Keyboard: NW white keys from C, the split at F#2-ish (white key 10 of a 36-key board, scaled).
+    const held = [9, 12, 16, 21, 24].map(k => k + Math.floor((NW - 36) / 14) * 7);
+    const white = Array.from({ length: NW }, (_, i) => ({ bg: held.includes(i) ? A : '#e9e9ec' }));
+    const kw = (W - 38) / NW, black = [];
+    for (let i = 0; i < NW - 1; i++) if ([0, 1, 3, 4, 5].includes(i % 7)) black.push({ x: 6 + (i + 1) * kw - kw * 0.28 });
+    const splitX = Math.round(6 + (12 + Math.floor((NW - 36) / 14) * 7) * kw);
+    const kb = { bw: Math.round(kw * 0.56), bh: Math.round((KEYH - 12) * 0.6), split: splitX, splitLabel: splitX + 8 };
     const artFor = (seed, w, h, n) => { let s = seed; const r = () => { s = (s * 9301 + 49297) % 233280; return s / 233280; }; const pal = [COL[seed % 12], COL[(seed * 7 + 3) % 12], COL[(seed * 5 + 8) % 12]];
       return { rings: Array.from({ length: n }, () => ({ x: (0.15 + r() * 0.7) * w, y: (0.1 + r() * 0.6) * h, r: (0.06 + r() * 0.35) * w, sw: 1 + r() * 8, col: pal[Math.floor(r() * 3)], o: 0.3 + r() * 0.5 })), bars: Array.from({ length: n + 4 }, (_, i) => ({ x: i * w / (n + 4), y: h * (0.2 + r() * 0.4), w: w / (n + 4) * 0.55, h: h * (0.2 + r() * 0.6), col: pal[i % 3], o: 0.15 + r() * 0.3 })) }; };
-    const base = { tabs, parts, knobs, pads, regs, ots, white, black, art: artFor(7, 300, 366, 9) };
+    // Pattern print art: one row per style part (Rhythm 1 … Phrase 2), a cell per 16th where it plays.
+    const printFor = (seed, w, h, cols) => { let s = seed; const r = () => { s = (s * 9301 + 49297) % 233280; return s / 233280; };
+      const rows = 8, cw = w / cols, ch = h / rows, dens = [.45, .3, .35, .5, .4, .2, .15, .12], cells = [];
+      for (let y = 0; y < rows; y++) for (let x = 0; x < cols; x++) { const on = (y === 0 && x % 4 === 0) || (y === 1 && x % 8 === 4) || r() < dens[y]; if (on) cells.push({ x: (x * cw + 1).toFixed(1), y: (y * ch + 1).toFixed(1), w: (cw - 2).toFixed(1), h: (ch - 2).toFixed(1), col: COL[4 + y], o: (0.45 + r() * 0.55).toFixed(2) }); }
+      return cells; };
+    const base = { hdr, tabs, layers, parts, knobs, mirPads, secPads, mirFaders, mir, regs, ots, white, black, kb, art: artFor(7, 300, 366, 9) };
     %%JS%%
     return Object.assign(base, extra);
   }
