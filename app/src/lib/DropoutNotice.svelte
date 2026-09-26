@@ -33,13 +33,14 @@
   .notice {
     position: fixed;
     left: 16px;
-    bottom: calc(var(--help-footer-space, 16px) + 2.2rem);
+    /* Over the status line, just above the help footer. */
+    bottom: calc(var(--help-footer-space, 16px) - 0.4rem);
     z-index: 30;
     display: flex;
     align-items: center;
     gap: 0.6rem;
     max-width: calc(100vw - 32px);
-    padding: 0.4rem 0.5rem 0.4rem 0.8rem;
+    padding: 0.15rem 0.4rem 0.15rem 0.8rem;
     border-radius: 6px;
     border-left: 3px solid var(--danger);
     font-size: 0.85rem;
