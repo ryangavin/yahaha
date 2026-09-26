@@ -609,6 +609,10 @@ impl MockSession {
             part_volume: [0, 1, 2, 3].map(|p| s.keyboard_parts[p].volume),
             harmony_volume: s.harmony_arp.volume,
             metronome_volume: s.metronome.volume,
+            part_fx: [0, 1, 2, 3].map(|p| {
+                let k = &s.keyboard_parts[p];
+                [k.pan, k.reverb, k.chorus]
+            }),
         }
     }
 

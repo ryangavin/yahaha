@@ -194,7 +194,7 @@ export type KnobsCmd =
   | { type: 'stepKnobPage'; delta: number }
   | { type: 'turnKnob'; knob: number; delta: number }
 
-export type KnobPage = 'style' | 'parts'
+export type KnobPage = 'style' | 'parts' | 'pan' | 'effects'
 export type KnobFunction =
   | 'none'
   | 'dynamics'
@@ -206,6 +206,9 @@ export type KnobFunction =
   | 'partVolume'
   | 'harmonyVolume'
   | 'metronomeVolume'
+  | 'partPan'
+  | 'partReverb'
+  | 'partChorus'
 
 /** The Knob Assign page and its eight knobs. */
 export interface KnobsState {

@@ -439,12 +439,13 @@ The Launchkey's 8 encoders as the Genos LIVE CONTROL knobs (#197; OM p.62–63, 
 README › Knobs). A page gives each knob a function; the knobs are relative, so a turn moves
 the value from where it is now, whoever set it last. A turn runs the command of the knob's
 function (`setDynamics`, `stepRetriggerRate`, `toggleRetrigger`, `styleTrackMute`,
-`setTempo`, `setPartVolume`, `setHarmonyVolume`, `setMetronomeVolume`), so it behaves
+`setTempo`, `setPartVolume`, `setHarmonyVolume`, `setMetronomeVolume`, `setPartPan`,
+`setPartSend`), so it behaves
 exactly as that command does.
 
 | Command | Fields | What it does |
 |---|---|---|
-| `setKnobPage` | `page` `style` \| `parts` | The Knob Assign page. |
+| `setKnobPage` | `page` `style` \| `parts` \| `pan` \| `effects` | The Knob Assign page. |
 | `stepKnobPage` | `delta` | Steps the page, stopping at the first and last (the encoder page buttons ▲/▼). |
 | `turnKnob` | `knob` 0–7, `delta` | Turns a knob `delta` steps (positive: clockwise). Levels move 2 a step, tempo 1 BPM; Retrigger Rate and On/Off switch every 3 steps (right: shorter, on); Track Mute A/B move their position 4 a step. A knob with No Assign does nothing. |
 
@@ -998,13 +999,15 @@ Style Dynamics: `{ control, level, touch, accent, accentThreshold }`.
 
 ### `knobs`
 The Knob Assign page: `{ page, pageName, pageNumber, pageCount, knobs }`.
-- `page`: `style` (the default) or `parts`. `pageNumber` is 1-based.
+- `page`: `style` (the default), `parts`, `pan` or `effects`. `pageNumber` is 1-based.
 - `knobs`: always eight, knob 1 first: `{ function, name, short, value, level }`.
   - `function`: `none`, `dynamics`, `retriggerRate`, `retriggerOnOff`, `trackMuteA`,
-    `trackMuteB`, `tempo`, `partVolume`, `harmonyVolume` or `metronomeVolume`.
+    `trackMuteB`, `tempo`, `partVolume`, `harmonyVolume`, `metronomeVolume`, `partPan`,
+    `partReverb` or `partChorus`.
   - `name` is the full name ("Dynamics Control"); `short` is up to 8 characters ("DynCtrl",
     "---" for No Assign), as the Genos Live Control view and the Launchkey display show it.
-  - `value`: the value as text ("64", "1/8", "On", "3 of 8", "All", "120 BPM"); empty for No
+  - `value`: the value as text ("64", "1/8", "On", "3 of 8", "All", "120 BPM", a pan "L20" /
+    "C" / "R20"); empty for No
     Assign.
   - `level`: where the knob is, 0–127, as the Genos LED ring shows it; null for tempo and No
     Assign. Track Mute A/B keep their own position (they only set the Style parts' switches),
@@ -1670,7 +1673,7 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
     "page": "style",
     "pageName": "Style",
     "pageNumber": 1,
-    "pageCount": 2,
+    "pageCount": 4,
     "knobs": [
       { "function": "dynamics", "name": "Dynamics Control", "short": "DynCtrl", "value": "72", "level": 72 },
       { "function": "retriggerRate", "name": "Retrigger Rate", "short": "RtgRate", "value": "1/8", "level": 76 },

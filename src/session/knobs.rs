@@ -31,6 +31,7 @@ impl Control {
             part_volume: [0, 1, 2, 3].map(|p| parts.volume(p)),
             harmony_volume: self.harmony_arp.harmony.volume,
             metronome_volume: self.metronome.volume,
+            part_fx: [0, 1, 2, 3].map(|p| parts.fx(p)),
         }
     }
 
@@ -71,7 +72,7 @@ mod tests {
         s.send(KnobsCmd::StepKnobPage { delta: 1 }).unwrap();
         s.send(KnobsCmd::TurnKnob { knob: 0, delta: -10 }).unwrap();
         let st = s.state();
-        assert_eq!((st.knobs.page_name.as_str(), st.knobs.page_number, st.knobs.page_count), ("Parts", 2, 2));
+        assert_eq!((st.knobs.page_name.as_str(), st.knobs.page_number, st.knobs.page_count), ("Parts", 2, 4));
         assert_eq!(st.knobs.knobs[0].value, st.keyboard_parts[0].volume.to_string());
         s.send(KnobsCmd::SetKnobPage { page: KnobPage::Style }).unwrap();
         assert_eq!(s.state().knobs.page, KnobPage::Style);
