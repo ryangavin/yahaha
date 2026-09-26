@@ -23,6 +23,8 @@ pub(super) struct Loaded {
     pub(super) has: [bool; NUM_SLOTS],
     pub(super) voices: [Option<(u8, u8, u8)>; 16],
     pub(super) ots: Vec<Ots>,
+    /// The style's own System Effect types (#237, from its SInt).
+    pub(super) effects: crate::fx::xg::StyleFx,
 }
 
 pub(super) fn load(path: &Path) -> Result<(Box<Prepared>, Loaded)> {
@@ -47,6 +49,7 @@ pub(super) fn load(path: &Path) -> Result<(Box<Prepared>, Loaded)> {
         has,
         voices: prep.setups[0].voices,
         ots: style.ots.clone(),
+        effects: crate::fx::xg::StyleFx::parse(&style.sint().sysex),
     };
     Ok((prep, info))
 }
@@ -170,6 +173,9 @@ impl Control {
         self.shared.parts.ots_applied.store(0, Relaxed);
         self.cur = id;
         self.info = info;
+        // The blocks that follow the style take its effect types (#237).
+        self.fx.apply_style(&self.info.effects, None);
+        self.pump_fx();
         // After `info`: the per-channel routes follow the new style's voices.
         self.sound_library_promoted(tag);
     }

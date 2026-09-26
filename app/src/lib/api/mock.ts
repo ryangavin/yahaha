@@ -1779,6 +1779,20 @@ export class MockSession implements Session {
           // A new type starts at its own parameters (#236).
           b.params = fxParams(b.block, b.effect)
         }
+        // The player's own choice: style changes leave it (#237).
+        b.followStyle = false
+        break
+      }
+      case 'setFollowStyle': {
+        const b = this.state.effects.blocks.find((x) => x.block === cmd.block)!
+        b.followStyle = cmd.on
+        // As the session: the style's own type at once (the mock's styles set none: the default).
+        if (cmd.on) {
+          const t = b.styleEffect?.effect ?? { reverb: 'hall', chorus: 'chorus', variation: 'dottedEighth' }[b.block] as FxType
+          b.effect = t
+          b.effectName = b.types.find((x) => x.effect === t)!.name
+          b.params = fxParams(b.block, t)
+        }
         break
       }
       case 'setEffectParam': {
@@ -1853,6 +1867,7 @@ export function initialEffects(): EffectsState {
   const block = (block: FxBlock, name: string, effect: FxType, types: [FxType, string][], bandSend: number): EffectBlockState => ({
     block, name, effect, effectName: types.find(([t]) => t === effect)![1],
     types: types.map(([effect, name]) => ({ effect, name })), returnLevel: 64, bandSend, params: fxParams(block, effect),
+    styleEffect: null, followStyle: true,
   })
   return {
     blocks: [

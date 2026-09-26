@@ -1071,6 +1071,13 @@ const catalog = {
     keys: [],
     launchkey: 'FX knob page, knob 7',
   },
+  'fx.follow_style': {
+    title: 'Follow the style',
+    body: 'Lit, this effect takes the style\'s own type at every style change (the style\'s choice shows beside it, the nearest type yahaha has), with the style\'s delay time and feedback. Choosing a type yourself turns it off so your choice stays; press it to go back to the style\'s. Stored in a Registration Memory.',
+    genos: 'Mixer › Effect (Style effect types)',
+    keys: [],
+    launchkey: null,
+  },
   'fx.reverb_band': {
     title: 'Band reverb',
     body: 'How much of the band (the eight Style parts) goes to the reverb: each Style part\'s own reverb send (CC 91) times this, in the built-in synth only. 100% plays the reverb the style wrote and 0% is none; your keyboard parts keep their own sends. Stored in a Registration Memory.',

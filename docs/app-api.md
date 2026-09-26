@@ -455,6 +455,7 @@ scaled. A change glides in over about 30 ms.
 | `setEffectType` | `block` `reverb` \| `chorus` \| `variation`, `effect` | The block's type. Reverb: `hall` (default), `room`, `stage`, `plate`. Chorus: `chorus` (default), `celeste`, `flanger`. Variation, a stereo delay at the style tempo: `eighth`, `dottedEighth` (default), `quarter`, `pingPong` (1/8, alternating sides). Another block's type is refused. |
 | `setEffectReturn` | `block`, `level` 0–127 | The block's return level: 64 = 0 dB (default), 127 = +6 dB, 0 = off (Genos). |
 | `setEffectParam` | `block`, `param`, `value` | One of the block's parameters (#236), in the parameter's own unit, clamped to its range (see the table below). A parameter of another block is refused. A change glides on the audio thread, so it never clicks. `setEffectType` puts the block's parameters back to the new type's own values. Stored in Registration with the effects. |
+| `setFollowStyle` | `block`, `on` | Whether the block follows the style's own effect type (#237). On (the default), each style load gives the block the style's type (and the delay's time, feedback and tone as the style sets them), or the block's default type if the style sets none that yahaha has. `setEffectType` turns it off, so the player's choice stays through style changes. Turning it on takes the loaded style's type at once. Stored in Registration with the effects. |
 | `setBandSend` | `block`, `level` 0–127 | The block's band send, in percent: 100 = the Style parts' sends as written, 0 = none of the band, above 100 up to 127 raises them (each part's send at most the whole signal). Defaults: reverb 100, chorus 0, variation 0. Stored in Registration with the effects. |
 
 The effect parameters (`param`, its unit and range, and each type's own value):
@@ -478,6 +479,29 @@ The effect parameters (`param`, its unit and range, and each type's own value):
 | Variation | `delayFeedback` | % of each repeat that comes back | 0–90 | 38 |
 | Variation | `delayTone` | 100 Hz (the repeats' high cut) | 10–200 (1–20 kHz) | 50 |
 | Variation | `pingPong` | switch: 1 = the repeats alternate left and right | 0–1 | 0 / 0 / 0 / 1 |
+
+**A style's own effects (#237).** A style's SInt carries XG System Effect SysEx
+(`F0 43 1n 4C 02 01 aa …`), which the Genos treats as Style data: the Reverb type (address
+00), Chorus type (20) and Variation type (40, counted only when `5A` VARIATION CONNECTION
+is 1, System). Each maps onto the nearest type here:
+
+| Block | XG type (MSB) | Plays as |
+|---|---|---|
+| Reverb | 1 Hall, 17–19 Tunnel/Canyon/Basement | `hall` |
+| Reverb | 2 Room, 16 White Room | `room` |
+| Reverb | 3 Stage | `stage` |
+| Reverb | 4 Plate | `plate` |
+| Chorus | 65, 66 Chorus (66/0 Celeste 1) | `chorus` (`celeste`) |
+| Chorus | 67 Flanger | `flanger` |
+| Chorus | 87 Ensemble Detune | `celeste` |
+| Variation | 21 Tempo Delay, Tempo Echo | `dottedEighth` with the style's delay time (Data List Table#5, nearest note), feedback and high damp |
+| Variation | 22 Tempo Cross | `pingPong`, the same |
+| Variation | 5 Delay LCR, 6 Delay LR | `dottedEighth` |
+
+Any other type (a phaser or a tempo delay in the chorus block, a distortion or a reverb as the
+variation) has no match: the block plays its default type. The MIDI port gets the SysEx as
+the style wrote it. The band sends (#236) still apply on top: by default the band doesn't
+reach the chorus or the delay, whatever their type.
 
 The Variation types are starting points: each sets the note value and the ping-pong switch,
 which can then be changed like any parameter (as a Genos type loads its own settings). A
@@ -1082,7 +1106,10 @@ types as `{ effect, name }`, `returnLevel` 0–127 (64 = 0 dB), `bandSend` 0–1
 at start), and `params` (#236), the block's parameters in order, each
 `{ param, name, value, min, max, default, display }`: `value` in the parameter's own unit
 (`setEffectParam`), `default` the type's own value, `display` the value as it reads
-("2.4 s", "22 ms", "4.5 kHz").
+("2.4 s", "22 ms", "4.5 kHz"); `styleEffect` (#237), the loaded style's own type for the
+block as `{ name, effect }` (`name` the XG type, "Real Medium Hall"; `effect` the type it
+plays as, null if nothing is near it), or null when the style sets none; and `followStyle`
+(`setFollowStyle`).
 
 ### `message`
 `{ seq, text, error }` or null. It holds the last notice or error, for example a style
@@ -1776,6 +1803,7 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
           { "param": "preDelay", "name": "Pre-delay", "value": 22, "min": 0, "max": 200, "default": 22, "display": "22 ms" },
           { "param": "reverbTone", "name": "Tone", "value": 45, "min": 10, "max": 200, "default": 45, "display": "4.5 kHz" }
         ],
+        "styleEffect": { "name": "Real Medium Hall", "effect": "hall" }, "followStyle": true,
         "types": [{ "effect": "hall", "name": "Hall" }, { "effect": "room", "name": "Room" }, { "effect": "stage", "name": "Stage" }, { "effect": "plate", "name": "Plate" }]
       },
       {
@@ -1784,6 +1812,7 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
           { "param": "chorusRate", "name": "Rate", "value": 55, "min": 5, "max": 500, "default": 55, "display": "0.55 Hz" },
           { "param": "chorusDepth", "name": "Depth", "value": 22, "min": 0, "max": 50, "default": 22, "display": "2.2 ms" }
         ],
+        "styleEffect": null, "followStyle": true,
         "types": [{ "effect": "chorus", "name": "Chorus" }, { "effect": "celeste", "name": "Celeste" }, { "effect": "flanger", "name": "Flanger" }]
       },
       {
@@ -1796,6 +1825,7 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
           { "param": "delayTone", "name": "Tone", "value": 50, "min": 10, "max": 200, "default": 50, "display": "5.0 kHz" },
           { "param": "pingPong", "name": "Ping-pong", "value": 0, "min": 0, "max": 1, "default": 0, "display": "Off" }
         ],
+        "styleEffect": null, "followStyle": true,
         "types": [{ "effect": "eighth", "name": "Delay 1/8" }, { "effect": "dottedEighth", "name": "Delay 1/8." }, { "effect": "quarter", "name": "Delay 1/4" }, { "effect": "pingPong", "name": "Ping-Pong" }]
       }
     ]
