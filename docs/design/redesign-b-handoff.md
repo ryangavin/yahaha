@@ -60,6 +60,12 @@ The owner was asked short atomic questions. Keep doing that: they asked for it.
 - **The song map artwork** (sheet 9) is the default: sections left to right, with height for energy, a gradient from calm to hot, and a contour line per style part. `SONGMAP_JS` and `SONGMAP_SVG` in `gen.py`.
 - Snapshots: Save is renamed **Store**.
 
+**Round 4 (canvas comments)**
+- **The canvas is in pages:** The app, Window sizes, Style artwork and Earlier directions.
+- **The song map** is coded by section type in the Launchkey pad colours and fills its space; energy shows as brightness, and each part is a flowing line. On the display, a playhead marks the section playing.
+- **Every strip has R/C/D send faders** on its right edge.
+- **Home's right column is the Master bus:** EQ, Glue, Room and Level. The owner rejects chorus or delay on the whole mix. Master EQ, compression and room are **new engine work**; model them on the Genos Master EQ and Compressor.
+
 **Look**
 - **A colour per part plus lit active states**: Maschine groups plus Genos lamps.
 - **"In between" feel:** mostly flat, with lit, glowing highlights. Direction B is near-black, vivid part colours and orange for active.

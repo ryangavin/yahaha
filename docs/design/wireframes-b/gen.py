@@ -74,17 +74,14 @@ def home(fxW=220, wide=False):
 <div style="display: flex; align-items: baseline; gap: 8px"><span style="font-family: 'Archivo Narrow', sans-serif; font-size: %dpx; font-weight: 700; line-height: 1; white-space: nowrap">Cool 8Beat</span><button class="chip" style="height: 22px; padding: 0 8px; font-size: 11px">Edit…</button></div>
 <span style="font-size: 12px; color: #c9c9cf; white-space: nowrap">Bank A · <b style="color: #ff7a2f">Snapshot 3</b> · <b style="color: #ff7a2f">OTS 2</b> Piano &amp; Strings</span>
 </div>''' % (36 if wide else 30)
-    fx = '' if not fxW else '''<aside aria-label="Band effects" style="width: %dpx; flex-shrink: 0; display: flex; flex-direction: column; gap: 10px; padding: 14px; border-left: 1px solid #26262b; background: rgba(18,19,23,.55)">
-<div style="display: flex; justify-content: space-between; align-items: baseline"><span class="cap">Band effects</span><button class="chip" style="height: 24px; padding: 0 8px; font-size: 11px">Effects ›</button></div>
-<sc-for list="{{bandFx}}" as="f" hint-placeholder-count="3">
-<div style="display: flex; flex-direction: column; gap: 5px">
-<div style="display: flex; justify-content: space-between; align-items: center"><span style="font-size: 14px; font-weight: 700">{{f.name}}</span><span style="font-size: 11px; color: #8d8d95">{{f.type}}</span></div>
-<div style="display: flex; align-items: center; gap: 8px"><div style="flex-grow: 1; height: 10px; border-radius: 5px; background: #26262b; position: relative"><div style="position: absolute; left: 0; top: 0; bottom: 0; width: {{f.pct}}%%; border-radius: 5px; background: #ff7a2f"></div><div style="position: absolute; top: -3px; left: {{f.pct}}%%; width: 4px; height: 16px; margin-left: -2px; border-radius: 2px; background: #f2f2f2"></div></div><span style="width: 36px; text-align: right; font-size: 12px; font-weight: 700">{{f.val}}</span></div>
-</div>
-</sc-for>
+    # Master bus, not effect sends: gentle processing on the whole mix. Chorus and delay stay per
+    # part (the send faders on every strip); the style's own send scaling lives on the Effects tab.
+    fx = '' if not fxW else '''<aside aria-label="Master bus" style="width: %dpx; flex-shrink: 0; display: flex; flex-direction: column; gap: 10px; padding: 14px; border-left: 1px solid #26262b; background: rgba(14,14,16,.6)">
+<div style="display: flex; justify-content: space-between; align-items: baseline"><span class="cap">Master bus</span><button class="chip" style="height: 24px; padding: 0 8px; font-size: 11px">On</button></div>
+<div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px 4px; justify-items: center">''' % fxW + krow("master", 44, 60) + '''</div>
 <div style="flex-grow: 1"></div>
-<span style="font-size: 11px; color: #8d8d95; line-height: 1.35">How much the whole band feeds each effect. Each part's own send: the mixer's REV, CHO and DLY layers.</span>
-</aside>''' % fxW
+<span style="font-size: 11px; color: #8d8d95; line-height: 1.35">Gentle, on the whole mix: tone, glue and a touch of room. Chorus and delay go on single parts, with the R C D sends on each strip.</span>
+</aside>'''
     return dict(TAB="Home", SEL="-1", PADRING="1", DISPLAY='''
 <div style="flex-grow: 1; min-width: 0; display: flex; flex-direction: column; gap: 10px; padding: 12px 14px">
 <div style="display: flex; align-items: flex-end; gap: 24px">''' + style + '''
@@ -113,8 +110,8 @@ def home(fxW=220, wide=False):
     const homePads = secPads.map((d, i) => { const p = PAT[i]; const cells = [];
       if (p) p.forEach((row, y) => row.split('').forEach((c, x) => { if (c === 'x') cells.push({ x: x * 10 + 1, y: y * 10 + 1, o: y === 2 ? .55 : 1 }); }));
       return Object.assign({}, d, { tip: TIP[i] || d.name, fs: i >= 8 && i < 12 ? %d : %d, pat: cells, patDisp: p ? 'block' : 'none', patH: %d, patCol: d.ink, tag: i === 9 ? 'FILL ▸' : '', tagDisp: i === 9 ? 'block' : 'none' }); });
-    const bandFx = [['Reverb', 'Hall 2', 100], ['Chorus', 'Chorus 1', 0], ['Delay', '1/8 dotted', 20]].map(f => ({ name: f[0], type: f[1], pct: Math.round(f[2] / 127 * 100), val: f[2] + '%%' }));
-    const extra = { homePads, bandFx };''' % ((30, 20, 44) if wide else (24, 16, 34)), OVERLAY="", LAYER="VOL")
+    const master = [[.5, 'Low', '0 dB'], [.45, 'Mid', '−1 dB'], [.58, 'High', '+2 dB'], [.35, 'Glue', '2:1'], [.2, 'Room', '12%%'], [.8, 'Level', '−2 dB']].map(m => Object.assign(knob(44, m[0], m[1] === 'Level' ? '#f2f2f2' : A), { name: m[1], val: m[2] }));
+    const extra = { homePads, master };''' % ((30, 20, 44) if wide else (24, 16, 34)), OVERLAY="", LAYER="VOL")
 
 screens["Home"] = home()
 
@@ -218,7 +215,7 @@ screens["VoiceList"] = dict(TAB="Home", SEL="7", PADRING="1", DISPLAY=screens["H
 <div style="height: 1px; background: #2d2d32; margin: 4px 0"></div>
 <button style="height: 34px; border: 0; border-radius: 4px; background: #26262b; color: #ff7a2f; text-align: left; padding: 0 10px; font-size: 13px; font-weight: 700">More in the Browser…</button>
 </div>''')
-screens["VoiceList"]["JS"] = screens["Home"]["JS"].replace("const extra = { homePads, bandFx };", "const vl = [['Steel Gtr','current'],['Nylon Gtr','SoundFont'],['Clean Gtr','SoundFont'],['Jazz Gtr','SoundFont'],['12-String','SoundFont'],['★ Ample Guitar M','plugin'],['★ My Strum Gtr','patch'],['Muted Gtr','SoundFont']].map((v, i) => ({ name: v[0], src: v[1], bg: i === 0 ? '#2c2536' : 'transparent', w: i === 0 ? 700 : 500 }));\n    const extra = { homePads, bandFx, vl };")
+screens["VoiceList"]["JS"] = screens["Home"]["JS"].replace("const extra = { homePads, master };", "const vl = [['Steel Gtr','current'],['Nylon Gtr','SoundFont'],['Clean Gtr','SoundFont'],['Jazz Gtr','SoundFont'],['12-String','SoundFont'],['★ Ample Guitar M','plugin'],['★ My Strum Gtr','patch'],['Muted Gtr','SoundFont']].map((v, i) => ({ name: v[0], src: v[1], bg: i === 0 ? '#2c2536' : 'transparent', w: i === 0 ? 700 : 500 }));\n    const extra = { homePads, master, vl };")
 
 # ---------- Browser (full screen) ----------
 screens["Browser"] = dict(TAB="Home", SEL="-1", PADRING="1", DISPLAY=screens["Home"]["DISPLAY"], BROWSEBTN="background: #ff7a2f; color: #1a0a00; border-color: #ff7a2f", OVERLAY='''
