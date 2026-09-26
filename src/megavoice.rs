@@ -26,6 +26,10 @@
 //! play their velocities as written. All their zones are pitched (legato, spiccato,
 //! scoops, falls) and roughly rise in intensity. Their noise keys are still left out.
 //!
+//! Only bank 8 LSB 0 holds MegaVoices: the Data List's MegaVoice Map lists no other bank.
+//! The Ensemble parts' bank 9 (S.Art!, S.Art2!) and bank 104 (Live!, Cool!, S.Art!,
+//! Regular) voices have no noise keys or noise zones, so they play as written (#270).
+//!
 //! The note's written key and velocity pick its articulation, as on the Genos. The pattern
 //! writes a noise key where the author heard one, so it is the source key that counts:
 //! a note transposed up past C6 on another chord is a pitch.
@@ -226,7 +230,21 @@ mod tests {
 
     #[test]
     fn other_voices_play_as_written() {
-        for voice in [None, Some((0, 0, 24)), Some((0, 115, 0)), Some((8, 34, 0)), Some((104, 0, 0))] {
+        // Banks 9 and 104 hold no MegaVoices (#270): their S.Art!, S.Art2!, Live!, Cool!
+        // and Regular voices have no noise keys, so they play as written.
+        let others = [
+            None,
+            Some((0, 0, 24)),
+            Some((0, 115, 0)),
+            Some((8, 34, 0)),
+            Some((9, 32, 43)),  // Seattle1stViolins
+            Some((9, 66, 80)),  // TenorSax
+            Some((9, 32, 39)),  // Haa
+            Some((104, 0, 0)),
+            Some((104, 0, 25)), // SteelAcoustic
+            Some((104, 0, 36)), // ActiveBassSlap
+        ];
+        for voice in others {
             for (key, vel) in [(100, 64), (60, 70), (60, 110)] {
                 assert_eq!(playable(voice, key, vel), Some(vel), "{voice:?} {key} {vel}");
             }
