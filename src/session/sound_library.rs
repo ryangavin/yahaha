@@ -703,7 +703,7 @@ impl Control {
                 kp.set_volume(part, v);
             }
             kp.octave[part].store(d.octave.clamp(-2, 2), Relaxed);
-            kp.set_fx(part, [d.pan, d.reverb, d.chorus]);
+            kp.set_fx(part, [d.pan, d.reverb, d.chorus, None]);
             self.wake_engine();
         }
         self.sound_library_changed();

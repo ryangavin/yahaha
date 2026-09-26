@@ -6,7 +6,7 @@
 //! This is the pure model: the session hands it the values in effect (`Now`) and runs the
 //! command a turn gives back, the same command the app's control for it sends.
 
-use crate::api::{AppCmd, DynamicsCmd, KnobState, KnobsState, HarmonyArpCmd, PartSend, MetronomeCmd, MixerCmd, PartsCmd, StyleSettingsCmd, TrackMuteOrder, TransportCmd};
+use crate::api::{AppCmd, DynamicsCmd, FxBlock, FxCmd, KnobState, KnobsState, HarmonyArpCmd, PartSend, MetronomeCmd, MixerCmd, PartsCmd, StyleSettingsCmd, TrackMuteOrder, TransportCmd};
 use crate::engine::RETRIGGER_RATES;
 use serde::{Deserialize, Serialize};
 
@@ -53,7 +53,7 @@ impl KnobPage {
         match self {
             KnobPage::Style => [Dynamics, RetriggerRate, RetriggerOnOff, TrackMuteA, TrackMuteB, None, None, Tempo],
             KnobPage::Parts => [PartVolume(0), PartVolume(1), PartVolume(2), PartVolume(3), HarmonyVolume, MetronomeVolume, None, Tempo],
-            KnobPage::Pan => [PartPan(0), PartPan(1), PartPan(2), PartPan(3), None, None, None, Tempo],
+            KnobPage::Pan => [PartPan(0), PartPan(1), PartPan(2), PartPan(3), FxReturn(0), FxReturn(1), FxReturn(2), Tempo],
             KnobPage::Effects => [PartReverb(0), PartReverb(1), PartReverb(2), PartReverb(3), PartChorus(0), PartChorus(1), PartChorus(2), PartChorus(3)],
         }
     }
@@ -86,6 +86,9 @@ pub enum KnobFn {
     /// Mixer Reverb / Chorus depth of a keyboard part (0-3): its CC91 / CC93.
     PartReverb(u8),
     PartChorus(u8),
+    /// The effect bus's return level (#204) of block 0-2: Reverb (the Genos Ambience
+    /// knob's job here), Chorus, Variation (the delay).
+    FxReturn(u8),
 }
 
 /// Knob steps per Retrigger length, and per Retrigger on/off switch.
@@ -115,6 +118,7 @@ impl KnobFn {
             KnobFn::PartPan(_) => "partPan",
             KnobFn::PartReverb(_) => "partReverb",
             KnobFn::PartChorus(_) => "partChorus",
+            KnobFn::FxReturn(_) => "fxReturn",
         }
     }
 
@@ -134,6 +138,7 @@ impl KnobFn {
             KnobFn::PartPan(p) => ["PanR1", "PanR2", "PanR3", "PanL"][(p & 3) as usize],
             KnobFn::PartReverb(p) => ["RevR1", "RevR2", "RevR3", "RevL"][(p & 3) as usize],
             KnobFn::PartChorus(p) => ["ChoR1", "ChoR2", "ChoR3", "ChoL"][(p & 3) as usize],
+            KnobFn::FxReturn(b) => ["RevRtn", "ChoRtn", "DlyRtn"][(b as usize).min(2)],
         }
     }
 
@@ -153,6 +158,7 @@ impl KnobFn {
             KnobFn::PartPan(p) => ["Right 1 Pan", "Right 2 Pan", "Right 3 Pan", "Left Pan"][(p & 3) as usize],
             KnobFn::PartReverb(p) => ["Right 1 Reverb", "Right 2 Reverb", "Right 3 Reverb", "Left Reverb"][(p & 3) as usize],
             KnobFn::PartChorus(p) => ["Right 1 Chorus", "Right 2 Chorus", "Right 3 Chorus", "Left Chorus"][(p & 3) as usize],
+            KnobFn::FxReturn(b) => ["Reverb Return", "Chorus Return", "Delay Return"][(b as usize).min(2)],
         }
     }
 }
@@ -167,8 +173,10 @@ pub struct Now {
     pub part_volume: [u8; 4],
     pub harmony_volume: u8,
     pub metronome_volume: u8,
-    /// Each keyboard part's pan, reverb and chorus (`parts::Parts::fx`).
-    pub part_fx: [[u8; 3]; 4],
+    /// Each keyboard part's pan and sends (`parts::Parts::fx`).
+    pub part_fx: [[u8; crate::parts::FX]; 4],
+    /// The effect bus's return levels: Reverb, Chorus, Variation (#204).
+    pub fx_return: [u8; 3],
 }
 
 /// A knob as it reads now: its value as text, and where it is (0-127) if it has a
@@ -253,6 +261,10 @@ impl Knobs {
             KnobFn::PartChorus(p) => {
                 PartsCmd::SetPartSend { part: p, send: PartSend::Chorus, value: level(now.part_fx[(p & 3) as usize][2]) }.into()
             }
+            KnobFn::FxReturn(b) => {
+                let b = (b as usize).min(2);
+                FxCmd::SetEffectReturn { block: FxBlock::ALL[b], level: level(now.fx_return[b]) }.into()
+            }
         };
         Some(cmd)
     }
@@ -313,6 +325,10 @@ impl Knobs {
                 let v = now.part_fx[(p & 3) as usize][if matches!(self.function(knob), KnobFn::PartReverb(_)) { 1 } else { 2 }];
                 r(v.to_string(), Some(v))
             }
+            KnobFn::FxReturn(b) => {
+                let v = now.fx_return[(b as usize).min(2)];
+                r(v.to_string(), Some(v))
+            }
         }
     }
 }
@@ -339,7 +355,8 @@ mod tests {
             part_volume: [100, 90, 80, 70],
             harmony_volume: 100,
             metronome_volume: 64,
-            part_fx: [[64, 40, 0], [30, 50, 10], [100, 0, 0], [64, 127, 5]],
+            part_fx: [[64, 40, 0, 0], [30, 50, 10, 0], [100, 0, 0, 0], [64, 127, 5, 0]],
+            fx_return: [64, 40, 0],
         }
     }
 
@@ -409,6 +426,11 @@ mod tests {
         assert_eq!(k.reading(1, &now()).value, "L34");
         assert_eq!(k.reading(2, &now()).value, "R36");
         assert_eq!(k.function(7), KnobFn::Tempo);
+        // Knobs 5-7: the effect bus's return levels (#204).
+        assert_eq!(k.turn(4, -2, &now()), Some(FxCmd::SetEffectReturn { block: FxBlock::Reverb, level: 60 }.into()));
+        assert_eq!(k.turn(6, 1, &now()), Some(FxCmd::SetEffectReturn { block: FxBlock::Variation, level: 2 }.into()));
+        assert_eq!(k.reading(5, &now()), Reading { value: "40".into(), level: Some(40) });
+        assert_eq!((k.function(4).short(), k.function(6).name()), ("RevRtn", "Delay Return"));
         k.set_page(KnobPage::Effects);
         assert_eq!(k.turn(3, 1, &now()), Some(PartsCmd::SetPartSend { part: 3, send: PartSend::Reverb, value: 127 }.into()));
         assert_eq!(k.turn(5, 2, &now()), Some(PartsCmd::SetPartSend { part: 1, send: PartSend::Chorus, value: 14 }.into()));

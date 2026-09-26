@@ -74,6 +74,7 @@ const EVERY_CMD: &[&str] = &[
     r#"{"type":"setPartPan","part":3,"pan":20}"#,
     r#"{"type":"setPartSend","part":0,"send":"reverb","value":64}"#,
     r#"{"type":"setPartSend","part":1,"send":"chorus","value":10}"#,
+    r#"{"type":"setPartSend","part":2,"send":"variation","value":30}"#,
     r#"{"type":"setPartSolo","part":1}"#,
     // Mixer, Launchkey pages, synth
     r#"{"type":"setFaderPage","page":"style"}"#,
@@ -280,6 +281,9 @@ const EVERY_CMD: &[&str] = &[
     r#"{"type":"setKnobPage","page":"parts"}"#,
     r#"{"type":"stepKnobPage","delta":-1}"#,
     r#"{"type":"turnKnob","knob":3,"delta":-2}"#,
+    r#"{"type":"setEffectType","block":"reverb","effect":"plate"}"#,
+    r#"{"type":"setEffectType","block":"variation","effect":"pingPong"}"#,
+    r#"{"type":"setEffectReturn","block":"chorus","level":90}"#,
 ];
 
 fn type_of(json: &str) -> String {
@@ -392,6 +396,8 @@ fn bad_commands_are_refused() {
         r#"{"type":"setParamLock","item":"masterEq","on":true}"#,
         r#"{"type":"setDynamics","level":300}"#,
         r#"{"type":"setKnobPage","page":"type9"}"#,
+        r#"{"type":"setEffectType","block":"delay","effect":"hall"}"#,
+        r#"{"type":"setEffectReturn","block":"reverb","level":300}"#,
         r#"[1,2]"#,
         r#""startStop""#,
     ] {

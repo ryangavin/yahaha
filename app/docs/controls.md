@@ -278,8 +278,9 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | **Right 3 volume** | Right 3's volume. The fader is channel 4's CC 7 itself, with no hidden gain behind it. | Mixer › Panel › Right 3 Volume | — | Panel fader page: fader 3 |
 | **Left volume** | Left's volume. The fader is channel 2's CC 7 itself, with no hidden gain behind it; under Manual Bass it is the bass's level too. | Mixer › Panel › Left Volume | — | Panel fader page: fader 4 |
 | **Pan** | Where this part sits left to right: its channel's CC 10 (64 = centre), on the MIDI port and in the synth. Drag up or down; double-click for centre. A sound library patch or a One Touch Setting sets it too. | Mixer › Panel › Pan/Volume › Pan | — | — |
-| **Reverb** | How much of this part goes to the reverb: its channel's CC 91 (40 is the power-on depth). Drag up or down; double-click for 40. A sound library patch or a One Touch Setting sets it too. | Mixer › Panel › Effect › Reverb | — | — |
-| **Chorus** | How much of this part goes to the chorus: its channel's CC 93 (0 is the power-on depth). Drag up or down; double-click for 0. A sound library patch or a One Touch Setting sets it too. | Mixer › Panel › Effect › Chorus | — | — |
+| **Reverb** | How much of this part goes to the shared reverb: its channel's CC 91 (50 on Right 1–3 and 40 on Left at start). Drag up or down; double-click for that default. A sound library patch or a One Touch Setting sets it too. | Mixer › Panel › Effect › Reverb | — | — |
+| **Chorus** | How much of this part goes to the shared chorus: its channel's CC 93 (10 at start). Drag up or down; double-click for 10. A sound library patch or a One Touch Setting sets it too. | Mixer › Panel › Effect › Chorus | — | — |
+| **Delay** | How much of this part goes to the tempo delay (the Variation effect): its channel's CC 94 (0 at start: no echo). Drag up or down; double-click for 0. The Delay type in Effects above sets the note length. | Mixer › Panel › Effect › Variation | — | — |
 | **Style volume** | The whole band against your hands, in one fader: 100 plays the Style parts at their own levels, lower scales every Style part's CC 7 down together (above 100 raises them, up to 127), the way a Fade In/Out does. The part faders stay where they are. A Registration stores it with the Style mixer. | Balance › Style (Mixer › Panel › Style) | — | Panel fader page: fader 5 |
 | **Multi Pad volume** | All four Multi Pads against the band, in one fader: 100 plays each pad at its own level, lower scales the pads' CC 7 down together (above 100 raises them, up to 127). A Registration stores it with the Multi Pad bank. | Balance › M.Pad (Mixer › Panel › Multi Pad) | — | Panel fader page: fader 6 |
 | **Style part volume** | This band part's volume. The fader is its channel's CC 7 itself (channels 9–16), with no hidden gain behind it, except that a Fade In/Out scales the CC 7 it sends while the fade runs (the fader stays put). Loading a style sets the faders to the style's own levels, and a pattern that changes its volume moves the fader too, until you move it yourself. | Mixer › Style › Volume | — | Style fader page: faders 1–8 (Rhythm 1 … Phrase 2) |
@@ -295,6 +296,17 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | **Voice** | Keyboard parts: the GM voice the part plays. Style parts: the Yamaha voice (bank MSB/LSB/program) the style was written for, and after ≈ the nearest voice the built-in synth plays for it. | Mixer › Voice | — | — |
 | **A fader is the channel's CC 7** | Each fader shows and sends exactly its channel's CC 7 (0–127), with no hidden gain anywhere, so the MIDI output and the synth hear the same level. Loading a style sets the Style faders to the style's own levels. While a Fade In/Out runs, the Style parts' CC 7 goes out scaled by the fade, and the faders stay where they are. | Mixer › Volume | — | The faders, on both fader pages |
 | **Waiting for the fader** | This level moved without the Launchkey fader (a style load, an OTS recall, a pattern, a page switch). The hardware fader does nothing until you move it to within 2 of the level, or across it. | — | — | Soft takeover on every fader |
+
+## Effects
+
+| control | what it does | Genos | key | Launchkey |
+|---|---|---|---|---|
+| **Reverb type** | The shared reverb every part sends to (CC 91): Hall (large, long), Room (small, short), Stage (in between, brighter) or Plate (dense and bright). | Mixer › Effect › Reverb type | — | — |
+| **Reverb return** | How loud the reverb comes back into the mix: 64 is 0 dB, 127 is +6 dB, 0 is off. Stored in a Registration Memory. | Mixer › Effect › Reverb Return Level | — | Pan knob page, knob 5 |
+| **Chorus type** | The shared chorus every part sends to (CC 93): Chorus (warm, wide), Celeste (a gentle detune) or Flanger (the sweeping comb). | Mixer › Effect › Chorus type | — | — |
+| **Chorus return** | How loud the chorus comes back into the mix: 64 is 0 dB, 127 is +6 dB, 0 is off. | Mixer › Effect › Chorus Return Level | — | Pan knob page, knob 6 |
+| **Delay type** | The tempo delay every part sends to (CC 94), in step with the style tempo: an echo every 1/8, dotted 1/8 or 1/4 note, or Ping-Pong (1/8, alternating left and right). | Mixer › Effect › Variation type (Tempo Delay) | — | — |
+| **Delay return** | How loud the echoes come back into the mix: 64 is 0 dB, 127 is +6 dB, 0 is off. | Mixer › Effect › Variation Return Level | — | Pan knob page, knob 7 |
 
 ## Metronome
 

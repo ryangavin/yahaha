@@ -9,7 +9,7 @@ const NONE: Fn = { fn: 'none' }
 const PAGES: Record<KnobPage, Fn[]> = {
   style: [{ fn: 'dynamics' }, { fn: 'retriggerRate' }, { fn: 'retriggerOnOff' }, { fn: 'trackMuteA' }, { fn: 'trackMuteB' }, NONE, NONE, { fn: 'tempo' }],
   parts: [0, 1, 2, 3].map((part): Fn => ({ fn: 'partVolume', part })).concat([{ fn: 'harmonyVolume' }, { fn: 'metronomeVolume' }, NONE, { fn: 'tempo' }]),
-  pan: [0, 1, 2, 3].map((part): Fn => ({ fn: 'partPan', part })).concat([NONE, NONE, NONE, { fn: 'tempo' }]),
+  pan: [0, 1, 2, 3].map((part): Fn => ({ fn: 'partPan', part })).concat([0, 1, 2].map((part): Fn => ({ fn: 'fxReturn', part })), [{ fn: 'tempo' }]),
   effects: [0, 1, 2, 3].map((part): Fn => ({ fn: 'partReverb', part })).concat([0, 1, 2, 3].map((part): Fn => ({ fn: 'partChorus', part }))),
 }
 const ORDER: KnobPage[] = ['style', 'parts', 'pan', 'effects']
@@ -18,7 +18,10 @@ const PART_FX: Partial<Record<KnobFunction, [string[], string[]]>> = {
   partPan: [['Right 1 Pan', 'Right 2 Pan', 'Right 3 Pan', 'Left Pan'], ['PanR1', 'PanR2', 'PanR3', 'PanL']],
   partReverb: [['Right 1 Reverb', 'Right 2 Reverb', 'Right 3 Reverb', 'Left Reverb'], ['RevR1', 'RevR2', 'RevR3', 'RevL']],
   partChorus: [['Right 1 Chorus', 'Right 2 Chorus', 'Right 3 Chorus', 'Left Chorus'], ['ChoR1', 'ChoR2', 'ChoR3', 'ChoL']],
+  // `part` is the effect block here: Reverb, Chorus, Variation (#204).
+  fxReturn: [['Reverb Return', 'Chorus Return', 'Delay Return'], ['RevRtn', 'ChoRtn', 'DlyRtn']],
 }
+const FX_BLOCKS = ['reverb', 'chorus', 'variation'] as const
 /** A pan as the Genos shows it: L63 … C … R63. */
 export function panText(v: number): string {
   const d = Math.min(127, v) - 64
@@ -40,6 +43,7 @@ const NAMES: Record<KnobFunction, [string, string]> = {
   partPan: ['', ''],
   partReverb: ['', ''],
   partChorus: ['', ''],
+  fxReturn: ['', ''],
 }
 const RATES = [1, 2, 4, 8, 16, 32]
 const RTG_STEPS = 3
@@ -103,6 +107,8 @@ export class MockKnobs {
         return { type: 'setPartSend', part: f.part!, send: 'reverb', value: level(s.keyboardParts[f.part!].reverb) }
       case 'partChorus':
         return { type: 'setPartSend', part: f.part!, send: 'chorus', value: level(s.keyboardParts[f.part!].chorus) }
+      case 'fxReturn':
+        return { type: 'setEffectReturn', block: FX_BLOCKS[f.part!], level: level(s.effects.blocks[f.part!].returnLevel) }
     }
   }
 
@@ -141,6 +147,7 @@ export class MockKnobs {
         case 'partPan': return r(panText(s.keyboardParts[f.part!].pan), s.keyboardParts[f.part!].pan)
         case 'partReverb': return r(String(s.keyboardParts[f.part!].reverb), s.keyboardParts[f.part!].reverb)
         case 'partChorus': return r(String(s.keyboardParts[f.part!].chorus), s.keyboardParts[f.part!].chorus)
+        case 'fxReturn': return r(String(s.effects.blocks[f.part!].returnLevel), s.effects.blocks[f.part!].returnLevel)
       }
     })
     return { page: this.page, pageName: PAGE_NAME[this.page], pageNumber: ORDER.indexOf(this.page) + 1, pageCount: ORDER.length, knobs }

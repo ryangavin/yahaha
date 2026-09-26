@@ -350,6 +350,7 @@
       "pan": 64,
       "reverb": 40,
       "chorus": 0,
+      "variation": 0,
       "patch": null
     },
     {
@@ -368,6 +369,7 @@
       "pan": 64,
       "reverb": 40,
       "chorus": 0,
+      "variation": 0,
       "patch": null
     },
     {
@@ -386,6 +388,7 @@
       "pan": 64,
       "reverb": 40,
       "chorus": 0,
+      "variation": 0,
       "patch": null
     },
     {
@@ -404,6 +407,7 @@
       "pan": 64,
       "reverb": 40,
       "chorus": 0,
+      "variation": 0,
       "patch": null
     }
   ],
@@ -2126,6 +2130,81 @@
         "short": "Tempo",
         "value": "75 BPM",
         "level": null
+      }
+    ]
+  },
+  "effects": {
+    "blocks": [
+      {
+        "block": "reverb",
+        "name": "Reverb",
+        "effect": "hall",
+        "effectName": "Hall",
+        "types": [
+          {
+            "effect": "hall",
+            "name": "Hall"
+          },
+          {
+            "effect": "room",
+            "name": "Room"
+          },
+          {
+            "effect": "stage",
+            "name": "Stage"
+          },
+          {
+            "effect": "plate",
+            "name": "Plate"
+          }
+        ],
+        "returnLevel": 64
+      },
+      {
+        "block": "chorus",
+        "name": "Chorus",
+        "effect": "chorus",
+        "effectName": "Chorus",
+        "types": [
+          {
+            "effect": "chorus",
+            "name": "Chorus"
+          },
+          {
+            "effect": "celeste",
+            "name": "Celeste"
+          },
+          {
+            "effect": "flanger",
+            "name": "Flanger"
+          }
+        ],
+        "returnLevel": 64
+      },
+      {
+        "block": "variation",
+        "name": "Variation",
+        "effect": "dottedEighth",
+        "effectName": "Delay 1/8.",
+        "types": [
+          {
+            "effect": "eighth",
+            "name": "Delay 1/8"
+          },
+          {
+            "effect": "dottedEighth",
+            "name": "Delay 1/8."
+          },
+          {
+            "effect": "quarter",
+            "name": "Delay 1/4"
+          },
+          {
+            "effect": "pingPong",
+            "name": "Ping-Pong"
+          }
+        ],
+        "returnLevel": 64
       }
     ]
   }
