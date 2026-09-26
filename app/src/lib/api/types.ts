@@ -205,8 +205,14 @@ export type FxCmd =
   /** #236: one of the block's parameters, in its own unit (see FxParamState). */
   | { type: 'setEffectParam'; block: FxBlock; param: FxParam; value: number }
 
-/** Reverb: reverbTime (0.1 s), preDelay (ms), reverbTone (100 Hz). */
-export type FxParam = 'reverbTime' | 'preDelay' | 'reverbTone'
+/**
+ * Reverb: reverbTime (0.1 s), preDelay (ms), reverbTone (100 Hz). Variation (delay): delaySync
+ * (0/1), delayNote (0-7: 1/16 … 1/2), delayTime (ms), delayFeedback (%), delayTone (100 Hz),
+ * pingPong (0/1).
+ */
+export type FxParam =
+  | 'reverbTime' | 'preDelay' | 'reverbTone'
+  | 'delaySync' | 'delayNote' | 'delayTime' | 'delayFeedback' | 'delayTone' | 'pingPong'
 
 /** One effect parameter (#236). */
 export interface FxParamState {
@@ -248,7 +254,7 @@ export interface EffectBlockState {
   returnLevel: number
   /** The band send (#236): every Style part's send to this block scaled, 0-127 % (100 = as written). Reverb 100, Chorus 0, Variation 0 at start. */
   bandSend: number
-  /** Its parameters (#236): Reverb time, pre-delay, tone. */
+  /** Its parameters (#236), in order. A 0–1 parameter is a switch. */
   params: FxParamState[]
 }
 

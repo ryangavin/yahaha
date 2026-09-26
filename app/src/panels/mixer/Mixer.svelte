@@ -30,7 +30,7 @@
   - No level meters yet.
 -->
 <script lang="ts">
-  import type { FaderPage, FxBlock, FxParam, FxType, KeyboardPart, PartSend, StylePart, TrackMuteOrder } from '../../lib/api/types'
+  import type { EffectBlockState, FaderPage, FxBlock, FxParam, FxType, KeyboardPart, PartSend, StylePart, TrackMuteOrder } from '../../lib/api/types'
   import type { TipKey } from '../../help/tooltips'
   import { app, ui } from '../../lib/store.svelte'
   import { tipFor } from '../../help/actions'
@@ -62,6 +62,18 @@
     reverbTime: 'fx.param.reverb_time',
     preDelay: 'fx.param.pre_delay',
     reverbTone: 'fx.param.reverb_tone',
+    delaySync: 'fx.param.delay_sync',
+    delayNote: 'fx.param.delay_note',
+    delayTime: 'fx.param.delay_time',
+    delayFeedback: 'fx.param.delay_feedback',
+    delayTone: 'fx.param.delay_tone',
+    pingPong: 'fx.param.ping_pong',
+  }
+  /** The delay's note value plays with tempo sync on, its free time with it off. */
+  function paramOff(b: EffectBlockState, p: FxParam): boolean {
+    const sync = b.params.find((x) => x.param === 'delaySync')
+    if (!sync) return false
+    return (p === 'delayTime' && sync.value === 1) || (p === 'delayNote' && sync.value === 0)
   }
   /** A return level as the Genos shows it: 64 = 0 dB, 127 = +6 dB, 0 = off. */
   const returnText = (v: number) => (v === 0 ? 'Off' : `${v >= 64 ? '+' : ''}${(20 * Math.log10(v / 64)).toFixed(1)} dB`)
@@ -307,9 +319,18 @@
         <span class="engraved">{b.block === 'variation' ? 'Delay' : b.name} · {b.effectName}</span>
         {#each b.params as p (p.param)}
           <div class="param">
+            {#if p.max - p.min === 1}
+              <Toggle
+                on={p.value === 1}
+                tip={PARAM_TIPS[p.param]}
+                onclick={() => app.send({ type: 'setEffectParam', block: b.block, param: p.param, value: p.value === 1 ? 0 : 1 })}
+                >{p.name}</Toggle
+              >
+            {:else}
             <span class="band-label">{p.name}</span>
             <div class="slider return">
               <HSlider
+                disabled={paramOff(b, p.param)}
                 value={p.value}
                 min={p.min}
                 max={p.max}
@@ -320,6 +341,7 @@
                 onchange={(v) => app.send({ type: 'setEffectParam', block: b.block, param: p.param, value: v })}
               />
             </div>
+            {/if}
           </div>
         {/each}
       </div>

@@ -122,6 +122,24 @@ describe('Mixer drawer', () => {
     expect(s.state.effects.blocks[0].params.map((p) => p.value)).toEqual([9, 4, 60])
   })
 
+  it('Effects: the delay editor, note or free time, and its switches (#236)', async () => {
+    const s = setup()
+    await fireEvent.click(document.querySelector<HTMLElement>('[aria-label="Variation settings"]')!)
+    flushSync()
+    const note = document.querySelector<HTMLElement>('[aria-label="Variation Note"]')!
+    const time = document.querySelector<HTMLElement>('[aria-label="Variation Time"]')!
+    expect(note.getAttribute('aria-valuetext')).toBe('1/8.')
+    expect(time.getAttribute('aria-disabled')).toBe('true')
+    const sync = [...document.querySelectorAll<HTMLElement>('[role="switch"]')].find((e) => e.textContent?.includes('Tempo sync'))!
+    await fireEvent.click(sync)
+    flushSync()
+    expect(s.state.effects.blocks[2].params[0].value).toBe(0)
+    expect(document.querySelector<HTMLElement>('[aria-label="Variation Time"]')!.getAttribute('aria-disabled')).toBeNull()
+    const pp = [...document.querySelectorAll<HTMLElement>('[role="switch"]')].find((e) => e.textContent?.includes('Ping-pong'))!
+    await fireEvent.click(pp)
+    expect(s.state.effects.blocks[2].params[5].display).toBe('On')
+  })
+
   it('Effects: a band send per block, the band\'s chorus and delay off at start (#236)', async () => {
     const s = setup()
     const band = (name: string) => document.querySelector<HTMLElement>(`[aria-label="${name} band send"]`)!

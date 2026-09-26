@@ -1807,7 +1807,14 @@ const FX_PARAMS: Record<FxParam, { block: FxBlock; name: string; min: number; ma
   reverbTime: { block: 'reverb', name: 'Time', min: 3, max: 100, display: (v) => `${(v / 10).toFixed(1)} s` },
   preDelay: { block: 'reverb', name: 'Pre-delay', min: 0, max: 200, display: (v) => `${v} ms` },
   reverbTone: { block: 'reverb', name: 'Tone', min: 10, max: 200, display: (v) => `${(v / 10).toFixed(1)} kHz` },
+  delaySync: { block: 'variation', name: 'Tempo sync', min: 0, max: 1, display: (v) => (v ? 'On' : 'Off') },
+  delayNote: { block: 'variation', name: 'Note', min: 0, max: 7, display: (v) => ['1/16', '1/8T', '1/8', '1/4T', '1/8.', '1/4', '1/4.', '1/2'][v] },
+  delayTime: { block: 'variation', name: 'Time', min: 10, max: 2000, display: (v) => `${v} ms` },
+  delayFeedback: { block: 'variation', name: 'Feedback', min: 0, max: 90, display: (v) => `${v}%` },
+  delayTone: { block: 'variation', name: 'Tone', min: 10, max: 200, display: (v) => `${(v / 10).toFixed(1)} kHz` },
+  pingPong: { block: 'variation', name: 'Ping-pong', min: 0, max: 1, display: (v) => (v ? 'On' : 'Off') },
 }
+const DELAY = { delaySync: 1, delayTime: 375, delayFeedback: 38, delayTone: 50 }
 
 /** Each type's own parameter values (the session's `type_defaults`). */
 const FX_TYPE_PARAMS: Partial<Record<FxType, Partial<Record<FxParam, number>>>> = {
@@ -1815,6 +1822,10 @@ const FX_TYPE_PARAMS: Partial<Record<FxType, Partial<Record<FxParam, number>>>> 
   room: { reverbTime: 9, preDelay: 4, reverbTone: 60 },
   stage: { reverbTime: 17, preDelay: 12, reverbTone: 65 },
   plate: { reverbTime: 18, preDelay: 1, reverbTone: 90 },
+  eighth: { ...DELAY, delayNote: 2, pingPong: 0 },
+  dottedEighth: { ...DELAY, delayNote: 4, pingPong: 0 },
+  quarter: { ...DELAY, delayNote: 5, pingPong: 0 },
+  pingPong: { ...DELAY, delayNote: 2, pingPong: 1 },
 }
 
 /** A block's parameters at type `effect`'s own values. */
