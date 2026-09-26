@@ -1,6 +1,9 @@
 //! The GM program for a Genos voice on a Genos-only bank: MSB 8 (MegaVoice, S.Art!,
-//! S.Art2!, #228), MSB 9 (the Ensemble parts' S.Art! and S.Art2! voices) and MSB 104
-//! (#270).
+//! S.Art2!, #228), MSB 9 (the Ensemble parts' S.Art! and S.Art2! voices), MSB 10 (Organ
+//! Flutes, #272), MSB 104 and MSB 109 (#270, #272).
+//!
+//! These are every non-zero melodic bank in the Data List's Voice List (126 and 127 are
+//! the drum and SFX kits).
 //!
 //! Yamaha's GM/XG banks (MSB 0) follow GM numbering. Bank 8 does not. The Genos Data List's
 //! Voice List numbers it by instrument: NylonGuitar is PC# 1, SteelGuitar PC# 2,
@@ -29,17 +32,30 @@
 //! and DX pianos, theatre and pipe organs, accordions, orchestral brass, synths) already
 //! follows GM numbering: each of its Data List voices sits in its number's GM family (CFX
 //! ConcertGrand PC# 1, DX Sweet PC# 6, ActiveBassSlap PC# 37, OrchTrumpets PC# 57,
-//! Applause PC# 127). Its program plays as it is.
+//! Applause PC# 127). Its program plays as it is. So does **bank 109**'s: the Ensemble
+//! parts' own Live!, Sweet! and Regular voices (OrchTrumpets PC# 57, Tuba PC# 59,
+//! Pizzicato PC# 46, PanPipes PC# 76). Its NoAssign (109/0/PC# 128) is an Ensemble slot
+//! with no voice; a Style or OTS never selects it, so it is not special-cased.
 //!
-//! A bank 8 or 9 number the Data List does not use plays as before (the number as a GM
-//! program).
+//! **Bank 10** holds the Organ Flutes voices, drawbar organs saved from the Organ Flutes
+//! screen, at PC# 1 (JazzStandard, RockOrgan, GospelOrgan...), 2 (the Home organs) and 3
+//! (the Euro organs). Played as GM numbers, they are pianos. Decision: all three play as
+//! Drawbar Organ, the GM organ the drawbar settings make, whatever the footage.
+//!
+//! A bank 8, 9 or 10 number the Data List does not use plays as before (the number as a
+//! GM program).
 
 /// The MegaVoice / S.Art! bank.
 pub const MSB: u8 = 8;
 /// The Ensemble parts' S.Art! / S.Art2! bank.
 pub const ENSEMBLE_MSB: u8 = 9;
-/// The Genos bank that follows GM numbering.
-pub const GM_NUMBERED_MSB: u8 = 104;
+/// The Organ Flutes bank.
+pub const ORGAN_FLUTES_MSB: u8 = 10;
+/// The Genos banks that follow GM numbering.
+pub const GM_NUMBERED_MSB: [u8; 2] = [104, 109];
+
+/// Bank 10 (Organ Flutes): (Data List PC#, 1-128; GM program, 0-127).
+const ORGAN_FLUTES: [(u8, u8); 3] = [(1, 16), (2, 16), (3, 16)];
 
 /// (Data List PC#, 1-128; GM program, 0-127).
 #[rustfmt::skip]
@@ -143,13 +159,15 @@ const ENSEMBLE: [(u8, u8); 28] = [
 ];
 
 /// The GM program (0-127) a voice on bank `msb` with program `program` (0-127, the Data
-/// List's PC# - 1) plays as: banks 8 and 9 by the Data List's tables, bank 104 as it is.
-/// None for another bank, or for a bank 8 or 9 number the Data List does not use.
+/// List's PC# - 1) plays as: banks 8, 9 and 10 by the Data List's tables, banks 104 and
+/// 109 as it is. None for another bank, or for a bank 8, 9 or 10 number the Data List does
+/// not use.
 pub fn gm_program(msb: u8, program: u8) -> Option<u8> {
     let table: &[(u8, u8)] = match msb {
         MSB => &PROGRAMS,
         ENSEMBLE_MSB => &ENSEMBLE,
-        GM_NUMBERED_MSB => return (program < 128).then_some(program),
+        ORGAN_FLUTES_MSB => &ORGAN_FLUTES,
+        m if GM_NUMBERED_MSB.contains(&m) => return (program < 128).then_some(program),
         _ => return None,
     };
     let pc = program.checked_add(1)?;
@@ -180,7 +198,7 @@ mod tests {
 
     #[test]
     fn the_tables_are_well_formed() {
-        for table in [&PROGRAMS[..], &ENSEMBLE[..]] {
+        for table in [&PROGRAMS[..], &ENSEMBLE[..], &ORGAN_FLUTES[..]] {
             for (i, p) in table.iter().enumerate() {
                 assert!(!table[..i].iter().any(|q| q.0 == p.0), "PC# {} twice", p.0);
                 assert!((1..=128).contains(&p.0) && p.1 <= 127);
@@ -229,6 +247,23 @@ mod tests {
             assert_eq!(gm_program(104, prog), Some(prog), "{voice}");
         }
         assert_eq!(gm_program(0, 5), None, "the GM/XG banks are not mapped here");
-        assert_eq!(gm_program(109, 5), None);
+        assert_eq!(gm_program(64, 5), None, "not a Genos bank");
+    }
+
+    #[test]
+    fn bank_109_is_gm_numbered() {
+        for (prog, voice) in [(45, "Pizzicato"), (56, "OrchTrumpets"), (58, "Tuba"), (75, "PanPipes")] {
+            assert_eq!(gm_program(109, prog), Some(prog), "{voice}");
+        }
+    }
+
+    #[test]
+    fn organ_flutes_play_as_a_drawbar_organ() {
+        // The #272 examples, 0-based: JazzStandard 10/0/1, HomeOrganJazz 10/3/2,
+        // EuroPercussion 10/0/3 played as Acoustic Grand, Bright Piano and Electric Grand.
+        assert_eq!(gm_program(10, 0), Some(16), "JazzStandard");
+        assert_eq!(gm_program(10, 1), Some(16), "HomeOrganJazz");
+        assert_eq!(gm_program(10, 2), Some(16), "EuroPercussion");
+        assert_eq!(gm_program(10, 3), None, "not a bank 10 number");
     }
 }
