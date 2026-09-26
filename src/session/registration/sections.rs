@@ -10,7 +10,7 @@
 //! Parameter Lock: a recall that sets an item of a Data List lock group (`LockItem`) asks
 //! `c.param_locked(item)` first and leaves the item alone when it is locked.
 
-use super::super::fx::{effects_capture, effects_recall};
+use super::super::fx::{effects_capture, effects_recall, PadSendsReg};
 use super::super::harmony_arp::{harmony_arp_capture, harmony_arp_recall};
 use super::super::looper::{looper_capture, looper_recall};
 use super::super::style_settings::{style_settings_capture, style_settings_recall};
@@ -123,6 +123,10 @@ struct MultiPadReg {
     /// Missing (a bank from an earlier build): left as it is.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     level: Option<u8>,
+    /// The Multi Pad send scales per effect block (#267). Missing (a bank from before
+    /// them): left as they are.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    sends: Option<PadSendsReg>,
 }
 
 fn multipad_capture(c: &Control, g: Groups) -> Option<Value> {
@@ -132,6 +136,7 @@ fn multipad_capture(c: &Control, g: Groups) -> Option<Value> {
     to_value(&MultiPadReg {
         bank: c.multipad_bank_path().map(|p| p.display().to_string()),
         level: Some(c.shared.parts.volume(parts::PAD_LEVEL)),
+        sends: Some(c.pad_sends_capture()),
     })
 }
 
@@ -144,6 +149,9 @@ fn multipad_recall(c: &mut Control, v: &Value, g: Groups) -> Result<(), String> 
         // Panel fader 6 picks it up; the engine thread scales the pads on its next wake.
         c.shared.parts.set_volume(parts::PAD_LEVEL, level);
         c.wake_engine();
+    }
+    if let Some(sends) = r.sends {
+        c.pad_sends_recall(sends);
     }
     let now = c.multipad_bank_path().map(Path::to_path_buf);
     let cmd = match r.bank {
