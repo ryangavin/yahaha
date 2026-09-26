@@ -13,6 +13,11 @@ impl Control {
         let parts = self.shared.parts.clone();
         match c {
             MixerCmd::SetStylePartVolume { part, volume } => return self.engine_cmd(Cmd::StyleVolume(part & 7, volume.min(127))),
+            // The engine thread scales the Style parts' CC7 on its next wake.
+            MixerCmd::SetStyleVolume { volume } => {
+                parts.set_volume(crate::parts::STYLE_LEVEL, volume);
+                self.wake_engine();
+            }
             MixerCmd::SetFaderPage { page } => {
                 if parts.fader_page() != page {
                     parts.set_fader_page(page);
@@ -84,6 +89,8 @@ impl Control {
                 .collect(),
             master: self.synth.as_ref().map(|s| s.control.master.load(Relaxed)),
             master_waiting: self.synth.as_ref().is_some_and(|s| s.control.master_waiting.load(Relaxed)),
+            style_volume: self.shared.parts.volume(crate::parts::STYLE_LEVEL),
+            style_volume_waiting: self.shared.parts.waiting(crate::parts::STYLE_LEVEL),
             style_solo: s.style_solo,
             part_solo: self.shared.parts.solo().map(|p| p as u8),
         }

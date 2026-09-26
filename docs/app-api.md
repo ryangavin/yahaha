@@ -115,6 +115,7 @@ state, and pressing the button is the action. For settings, a GUI checkbox can u
 | `setTempo` | `bpm` | Sets the tempo. The range is 5–500 BPM (Genos, OM p.46); values outside are clamped. |
 | `toggleStylePart` | `part` 0–7 | Mutes or unmutes a Style part. |
 | `setStylePartVolume` | `part` 0–7, `volume` 0–127 | The part's CC7. The Launchkey fader has to reach the new value before it takes over again. |
+| `setStyleVolume` | `volume` 0–127 | The Style volume (the Genos Balance page's Style slider), 100 = as written: every Style part's CC7 goes out multiplied by `volume`/100 (at most 127), as a Fade In/Out scales it; the part levels (`styleParts[].volume`) do not move. One of the two exceptions to the mixer rule, with the Fade. Launchkey Panel fader 5, with soft takeover. Registered with the Style mixer. |
 | `setStyleSolo` | `part` 0–7 or null | Solos a Style part: only it plays, even if it is switched off; the other parts' notes stop. `null` ends the solo. The on/off switches are not changed (`mixer.styleSolo`). |
 | `styleTrackMute` | `order` `a` \| `b`, `value` 0–127 | Style Track Mute, a Genos Live Control knob (RM p.148). `value` is the knob: fully left (0) leaves one part on, and turning up adds parts until all eight are on at 127. Order A: Rhythm 2, Rhythm 1, Bass, Chord 1, Chord 2, Pad, Phrase 1, Phrase 2. Order B: Chord 1, Chord 2, Pad, Bass, Phrase 1, Phrase 2, Rhythm 1, Rhythm 2. It sets the parts' on/off switches. |
 
@@ -580,10 +581,12 @@ Indices are 0-based unless a field says otherwise.
 ### `mixer`
 | Field | Type | Meaning |
 |---|---|---|
-| `faderPage` | `panel` \| `style` | What the Launchkey faders control. Panel: faders 1–4 are the keyboard parts. Style: faders 1–8 are the Style parts. |
+| `faderPage` | `panel` \| `style` | What the Launchkey faders control. Panel: faders 1–4 are the keyboard parts, fader 5 the Style volume. Style: faders 1–8 are the Style parts. |
 | `styleParts` | StylePart[8] | See the table below. |
 | `master` | 0–127? | The synth master level (100 = unity). Null without the synth. |
 | `masterWaiting` | bool | The master fader has not yet reached `master`. It turns on as soon as `setMasterVolume` moves the level away from the fader. |
+| `styleVolume` | 0–127 | The Style volume (`setStyleVolume`; Panel fader 5): 100 = the Style parts' CC7 as written. |
+| `styleVolumeWaiting` | bool | Panel fader 5 has not yet reached `styleVolume`. |
 | `styleSolo` | 0–7? | The Style part soloed (`setStyleSolo`): only it plays. Null when none. |
 | `partSolo` | 0–3? | The keyboard part soloed (`setPartSolo`). Null when none. |
 
@@ -729,7 +732,7 @@ Which button LEDs are lit, and in what colour:
 | `value` | 0–127? | The level it controls. Null when unused. |
 | `waiting` | bool | The level is waiting for the hardware fader (soft takeover). |
 | `position` | 0–127? | Where the hardware fader physically is, as last reported. It is the same physical fader on both pages. Null until it moves. |
-| `set` | AppCmd? | What moving it sends: this command with `volume` filled in (`setPartVolume`, `setStylePartVolume` or `setMasterVolume`; `volume` is 0 here). Null when unused. |
+| `set` | AppCmd? | What moving it sends: this command with `volume` filled in (`setPartVolume`, `setStylePartVolume`, `setStyleVolume` or `setMasterVolume`; `volume` is 0 here). Null when unused. |
 
 #### `surface.clock`
 Everything here is about time: the playing position, and the clock the pads flash on.
@@ -1264,6 +1267,8 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
     ],
     "master": 100,
     "masterWaiting": false,
+    "styleVolume": 100,
+    "styleVolumeWaiting": false,
     "styleSolo": null,
     "partSolo": null
   },

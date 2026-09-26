@@ -292,6 +292,10 @@ struct MixerReg {
     /// build): a level is set where it differs.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     set: Option<[bool; 8]>,
+    /// The Style volume (#199; the Genos's Style volume offset, DL p.83), 100 = as
+    /// written. Missing (a bank from an earlier build): left as it is.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    level: Option<u8>,
 }
 
 fn mixer_capture(c: &Control, g: Groups) -> Option<Value> {
@@ -303,6 +307,7 @@ fn mixer_capture(c: &Control, g: Groups) -> Option<Value> {
         volumes: s.volumes,
         on: std::array::from_fn(|p| s.parts & (1 << p) != 0),
         set: Some(std::array::from_fn(|p| s.user_set & (1 << p) != 0)),
+        level: Some(c.shared.parts.volume(parts::STYLE_LEVEL)),
     })
 }
 
@@ -311,6 +316,11 @@ fn mixer_recall(c: &mut Control, v: &Value, g: Groups) -> Result<(), String> {
         return Ok(());
     }
     let r: MixerReg = parse("styleMixer", v)?;
+    if let Some(level) = r.level {
+        // Panel fader 5 picks it up; the engine thread scales the parts on its next wake.
+        c.shared.parts.set_volume(parts::STYLE_LEVEL, level);
+        c.wake_engine();
+    }
     // Absolute levels and states only: the engine compares them with its own (the
     // snapshot may be behind an earlier recall's changes). It sets the player's levels and
     // hands every other part back to the style, so the patterns' CC7 move it as usual.

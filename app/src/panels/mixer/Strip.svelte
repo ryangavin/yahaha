@@ -72,7 +72,7 @@
 </script>
 
 <div class="strip" class:unused class:knobs={fx !== null || fxRow}>
-  <div class="ch" use:tip={unused ? 'launchkey.fader_unused' : 'mixer.channel'}>
+  <div class="ch" use:tip={unused ? 'launchkey.fader_unused' : channel === null ? faderTip : 'mixer.channel'}>
     {#if channel !== null}<span class="engraved">Ch</span> <b>{channel}</b>{:else}&nbsp;{/if}
   </div>
 

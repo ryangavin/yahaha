@@ -482,6 +482,44 @@ fn style_faders_and_software_volume() {
     assert!(st.mixer.style_parts[0].waiting);
 }
 
+/// The Style volume (#199): a scale on the Style parts' CC7 as they go out, like a fade;
+/// the part faders never move. Panel fader 5 controls it, with soft takeover.
+#[test]
+fn style_volume_scales_the_style_parts() {
+    let Some(s) = offline("SlowWalker.T552.sty") else { return };
+    let st = s.state();
+    assert_eq!((st.mixer.style_volume, st.mixer.style_volume_waiting), (100, false));
+    let vols: Vec<u8> = st.mixer.style_parts.iter().map(|p| p.volume).collect();
+    s.take_output();
+    s.send(MixerCmd::SetStyleVolume { volume: 50 }).unwrap();
+    let out = s.take_output();
+    for (p, &v) in vols.iter().enumerate() {
+        assert!(out.contains(&[0xB8 + p as u8, 7, (v as f32 / 2.0).round() as u8]), "part {p} at half: {out:?}");
+    }
+    let st = s.state();
+    assert_eq!(st.mixer.style_volume, 50);
+    assert_eq!(st.mixer.style_parts.iter().map(|p| p.volume).collect::<Vec<_>>(), vols, "the part faders stay");
+    // A part fader moved meanwhile goes out scaled too.
+    s.send(MixerCmd::SetStylePartVolume { part: 2, volume: 80 }).unwrap();
+    assert!(s.take_output().contains(&[0xBA, 7, 40]));
+    // Above 100 it raises them, up to 127.
+    s.send(MixerCmd::SetStyleVolume { volume: 127 }).unwrap();
+    let out = s.take_output();
+    assert!(out.contains(&[0xBA, 7, 102]), "{out:?}");
+    assert!(vols.iter().enumerate().all(|(p, &v)| p == 2 || v < 100 || out.contains(&[0xB8 + p as u8, 7, 127])), "{out:?}");
+    // Panel fader 5 (CC 9 on the pads port): soft takeover, as the part faders.
+    s.midi_in(Port::Pads, &[0xB0, 9, 20]);
+    assert_eq!(s.state().mixer.style_volume, 127, "no jump");
+    assert!(s.state().mixer.style_volume_waiting);
+    s.midi_in(Port::Pads, &[0xB0, 9, 126]);
+    s.midi_in(Port::Pads, &[0xB0, 9, 100]);
+    let st = s.state();
+    assert_eq!((st.mixer.style_volume, st.mixer.style_volume_waiting), (100, false));
+    assert!(s.take_output().contains(&[0xBA, 7, 80]), "back at 100: the parts as set");
+    let f = &st.surface.faders[4];
+    assert_eq!((f.label.as_str(), f.value), ("STYLE", Some(100)));
+}
+
 #[test]
 fn versions_and_events() {
     let Some(s) = offline("SlowWalker.T552.sty") else { return };

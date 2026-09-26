@@ -27,7 +27,7 @@ describe('the mock surface matches the engine (src/session.rs surface)', () => {
     expect(m.state.surface.controls.map((c) => c.shiftLabel).slice(0, 2)).toEqual(['LEFT', 'OTS LINK'])
     expect(m.state.surface.controls[8].shiftLabel).toBe('EDIT R1')
     expect(m.state.surface.faders).toHaveLength(9)
-    expect(m.state.surface.faders.map((f) => f.label)).toEqual(['RIGHT 1', 'RIGHT 2', 'RIGHT 3', 'LEFT', '', '', '', '', 'MASTER'])
+    expect(m.state.surface.faders.map((f) => f.label)).toEqual(['RIGHT 1', 'RIGHT 2', 'RIGHT 3', 'LEFT', 'STYLE', '', '', '', 'MASTER'])
     m.send({ type: 'toggleFaderPage' })
     expect(labels(m).slice(8)).toEqual(['RHYTHM 1', 'RHYTHM 2', 'BASS', 'CHORD 1', 'CHORD 2', 'PAD', 'PHRASE 1', 'PHRASE 2', 'STYLE'])
   })

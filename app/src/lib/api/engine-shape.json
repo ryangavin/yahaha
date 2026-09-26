@@ -169,6 +169,8 @@
   "mixer.styleParts[].volume: number",
   "mixer.styleParts[].waiting: boolean",
   "mixer.styleSolo: null",
+  "mixer.styleVolume: number",
+  "mixer.styleVolumeWaiting: boolean",
   "mixer: object",
   "multiPad.bank: null",
   "multiPad.banks: array",
