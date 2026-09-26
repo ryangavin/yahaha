@@ -157,6 +157,37 @@ fn memorize_and_recall_restore_the_panel() {
     let _ = std::fs::remove_dir_all(dir);
 }
 
+/// A registration keeps the parts' voice settings an OTS set, and their bend range (#238):
+/// after a voice change put them back to neutral, a recall sends them again.
+#[test]
+fn registration_recalls_the_ots_voice_settings_and_bend_range() {
+    let Some((s, dir)) = session("tone") else { return };
+    s.send(LibraryCmd::LoadStyle { id: style_id(&s, "SlowWalker") }).unwrap();
+    s.advance(MS);
+    s.send(OtsCmd::RecallOts { index: 0 }).unwrap();
+    s.send(ControllersCmd::SetBendRange { part: 1, semitones: 5 }).unwrap();
+    s.advance(MS);
+    let ots = crate::sff::Style::load(&corpus("SlowWalker.T552.sty").unwrap()).unwrap().ots[0].parts[0];
+    let bends = |s: &Session| s.state().controllers.parts.iter().map(|p| p.bend_range).collect::<Vec<_>>();
+    let want_bends = bends(&s);
+    assert_eq!(want_bends, vec![2, 5, 2, 0], "OTS 1: Left 0; Right 2 set by hand");
+    s.send(RegistrationCmd::MemorizeRegist { index: 0 }).unwrap();
+
+    s.send(PartsCmd::SetPartVoice { part: 0, program: 3 }).unwrap();
+    s.send(ControllersCmd::SetBendRange { part: 3, semitones: 12 }).unwrap();
+    s.advance(MS);
+    s.take_output();
+    s.send(RegistrationCmd::PressRegist { index: 0 }).unwrap();
+    s.advance(MS);
+    let out = s.take_output();
+    for (cc, v) in crate::parts::TONE_CC.into_iter().zip(ots.tone) {
+        let v = v.unwrap();
+        assert!(out.contains(&[0xB0, cc, v]), "Right 1 CC{cc} {v}: {out:?}");
+    }
+    assert_eq!(bends(&s), want_bends);
+    let _ = std::fs::remove_dir_all(dir);
+}
+
 #[test]
 fn memory_button_arms_memorize_for_the_next_press() {
     let Some((s, dir)) = session("memory") else { return };

@@ -383,6 +383,83 @@ struct PartReg {
     /// falls back to `voice`, which is the GM voice the part had underneath.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     patch: Option<PatchReg>,
+    /// The voice settings an OTS or the panel set (#238): filter, EG, vibrato and
+    /// portamento, and the XG part parameters. Missing: the voice's own (the voice recalled
+    /// above has already put them back to neutral).
+    #[serde(default, skip_serializing_if = "ToneReg::is_empty")]
+    tone: ToneReg,
+    /// Pitch Bend Range in semitones (RPN 0; Data List: Regist O, not a Voice Set
+    /// parameter). Missing (a bank from an earlier build): left as it is.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    bend_range: Option<u8>,
+}
+
+/// A part's `parts::TONE_CC` controllers by name, and its XG multi part parameters as
+/// `[hh, nn, vv]` (`F0 43 1n 4C hh pp nn vv F7`). None / empty: not set.
+#[derive(Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ToneReg {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    cutoff: Option<u8>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    resonance: Option<u8>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    attack: Option<u8>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    decay: Option<u8>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    release: Option<u8>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    vibrato_rate: Option<u8>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    vibrato_depth: Option<u8>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    vibrato_delay: Option<u8>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    portamento: Option<u8>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    portamento_time: Option<u8>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    xg: Vec<[u8; 3]>,
+}
+
+impl ToneReg {
+    fn is_empty(&self) -> bool {
+        *self == ToneReg::default()
+    }
+
+    fn capture(kp: &parts::Parts, p: usize) -> ToneReg {
+        let t = kp.tone(p);
+        ToneReg {
+            cutoff: t[parts::CUTOFF],
+            resonance: t[parts::RESONANCE],
+            attack: t[parts::ATTACK],
+            decay: t[parts::DECAY],
+            release: t[parts::RELEASE],
+            vibrato_rate: t[parts::VIBRATO_RATE],
+            vibrato_depth: t[parts::VIBRATO_DEPTH],
+            vibrato_delay: t[parts::VIBRATO_DELAY],
+            portamento: t[parts::PORTAMENTO],
+            portamento_time: t[parts::PORTAMENTO_TIME],
+            xg: kp.xg(p).into_iter().map(|(hh, nn, vv)| [hh, nn, vv]).collect(),
+        }
+    }
+
+    /// By `parts::TONE_CC` index.
+    fn controllers(&self) -> [Option<u8>; parts::TONE] {
+        let mut t = [None; parts::TONE];
+        t[parts::CUTOFF] = self.cutoff;
+        t[parts::RESONANCE] = self.resonance;
+        t[parts::ATTACK] = self.attack;
+        t[parts::DECAY] = self.decay;
+        t[parts::RELEASE] = self.release;
+        t[parts::VIBRATO_RATE] = self.vibrato_rate;
+        t[parts::VIBRATO_DEPTH] = self.vibrato_depth;
+        t[parts::VIBRATO_DELAY] = self.vibrato_delay;
+        t[parts::PORTAMENTO] = self.portamento;
+        t[parts::PORTAMENTO_TIME] = self.portamento_time;
+        t
+    }
 }
 
 /// A library patch in a registration: its id, and its name for Regist Bank Info (and the
@@ -423,6 +500,8 @@ fn parts_capture(c: &Control, g: Groups) -> Option<Value> {
             chorus: Some(kp.fx(p)[parts::CHORUS]),
             variation: Some(kp.fx(p)[parts::VARIATION]),
             patch: c.part_patch(p).map(|(id, name)| PatchReg { id, name }),
+            tone: ToneReg::capture(kp, p),
+            bend_range: Some(c.shared.controllers.bend_range(p)),
         })
     });
     to_value(&PartsReg { parts })
@@ -457,6 +536,13 @@ fn parts_recall(c: &mut Control, v: &Value, g: Groups) -> Result<(), String> {
         kp.set_volume(p, part.volume.min(127));
         kp.octave[p].store(part.octave.clamp(-2, 2), Relaxed);
         kp.set_fx(p, [part.pan, part.reverb, part.chorus, part.variation]);
+        // The voice settings (#238), after the voice (which put them back to neutral).
+        if !part.tone.is_empty() {
+            kp.set_tone(p, part.tone.controllers(), part.tone.xg.iter().map(|x| (x[0], x[1], x[2])));
+        }
+        if let Some(r) = part.bend_range {
+            c.shared.controllers.set_bend_range(p, r);
+        }
         // Left plays the bass under Manual Bass: its switch stays as it is.
         let locked_left = p == parts::LEFT && c.shared.manual_bass();
         if kp.is_on(p) != part.on && !locked_left {
