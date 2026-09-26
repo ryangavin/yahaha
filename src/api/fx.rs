@@ -17,6 +17,10 @@ pub enum FxCmd {
     /// One of a block's parameters (#236; `EffectBlockState::params`), in its own unit,
     /// clamped to its range. A parameter of another block is refused.
     SetEffectParam { block: FxBlock, param: FxParam, value: u16 },
+    /// Whether the block follows the style's own effect type (#237): on, it takes the
+    /// style's type now and at every style change; `setEffectType` turns it off (the
+    /// player's own choice stays).
+    SetFollowStyle { block: FxBlock, on: bool },
 }
 
 /// An effect parameter (#236): the bus's own (`crate::fx::Param`).
@@ -131,6 +135,8 @@ impl EffectsState {
                     return_level: returns[b.index()],
                     band_send: band[b.index()],
                     params: FxParamState::of_block(b, effect, &params),
+                    style_effect: None,
+                    follow_style: true,
                 }
             })
             .collect();
@@ -164,6 +170,21 @@ pub struct EffectBlockState {
     /// Its parameters (#236), in order. Reverb: time, pre-delay, tone. Chorus: rate,
     /// depth. Variation: tempo sync, note, time (ms), feedback, tone, ping-pong.
     pub params: Vec<FxParamState>,
+    /// The loaded style's own type for this block (#237), null if the style sets none.
+    pub style_effect: Option<StyleEffectState>,
+    /// The block takes the style's type at each style change (#237, `setFollowStyle`).
+    pub follow_style: bool,
+}
+
+/// A style's own effect type (#237).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StyleEffectState {
+    /// The XG type's name: "Real Medium Hall", "Tempo Cross 1" ("XG 96/0" for one yahaha
+    /// has no name for).
+    pub name: String,
+    /// The block's type it plays as; null: nothing near it here, so the block's default.
+    pub effect: Option<FxType>,
 }
 
 /// One effect parameter as the app shows it.
