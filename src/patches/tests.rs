@@ -93,6 +93,16 @@ fn genos_bank_9_and_104_voices_map_to_their_gm_instrument() {
     }
 }
 
+/// Bank 10 holds the Organ Flutes voices at PC# 1-3: organs, not pianos (#272).
+#[test]
+fn organ_flutes_map_to_an_organ() {
+    for prog in 0..3 {
+        assert_eq!(map_program(12, 10, prog), 16, "10/x/PC#{}", prog + 1);
+        assert_eq!(FAMILY_NAMES[family_of(map_program(12, 10, prog))], "Organ");
+    }
+    assert_eq!(map_program(14, 109, 56), 56, "bank 109 is GM numbered: OrchTrumpets");
+}
+
 #[test]
 fn bank_variations_collapse_onto_their_program() {
     // XG/GS variations of Finger Bass (MSB 0 LSB x, or a Yamaha bank that keeps GM
