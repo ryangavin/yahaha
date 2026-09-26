@@ -211,7 +211,7 @@ export function initialState(): AppState {
     style: styleState(s),
     transport: {
       running: false, syncStart: true, syncStop: false, syncStopAvailable: true, autoFill: false, stopAcmp: false,
-      section: null, queued: null, pendingIntro: null, main: 0, bar: 1, beat: 1,
+      section: null, queued: null, landing: null, pendingIntro: null, main: 0, bar: 1, beat: 1,
       beatsPerBar: beatsPerBar([s.timeSignature[0], s.timeSignature[1]]), tempo: s.tempo, lamps: [], sectionBars: null,
       halfBarFill: false, stopAcmpMode: 'off',
       fade: 'off', retrigger: false, ritardando: false,
@@ -334,6 +334,10 @@ function derive(st: AppState, lib: LibraryList, hw: MockHardware | null = null, 
   const page = PAD_PAGES.findIndex((p) => p.id === st.pads.page)
   st.pads.pageName = PAD_PAGES[page].name
   st.pads.pageNumber = page + 1
+  // Where a fill (or the Break) queued or playing lands (#282).
+  const fillLike = (x: string | null) => x !== null && (FILLS.includes(x) || x === BREAK)
+  const t = st.transport
+  t.landing = t.running && (fillLike(t.queued) || fillLike(t.section)) ? MAINS[t.main] : null
   st.transport.lamps = padsFor(st, 'sections')
   st.pads.pads = padsFor(st, st.pads.page)
   const h = hw ?? idleHardware(st)
@@ -1141,6 +1145,15 @@ export class MockSession implements Session {
         if (!t.running) {
           t.main = cmd.index
           if (st.ots.link && cmd.index < st.ots.settings.length) this.recallOts(cmd.index)
+        } else if (t.section && FILLS.includes(t.section)) {
+          // A fill playing (#282): its own Main again repeats it once; another Main only
+          // moves the landing and calls off a repeat.
+          if (t.section === FILLS[cmd.index]) t.queued = FILLS[cmd.index]
+          else if (t.queued && FILLS.includes(t.queued)) t.queued = null
+          t.main = cmd.index
+        } else if (t.queued && (FILLS.includes(t.queued) || t.queued === BREAK)) {
+          // A fill already queued: the first press picked it; this one moves the landing.
+          t.main = cmd.index
         } else if (t.section === m) {
           t.queued = FILLS[cmd.index]
         } else if (t.autoFill && t.main !== cmd.index) {

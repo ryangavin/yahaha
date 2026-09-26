@@ -41,7 +41,7 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | **Ending I** | Plays Ending I from the next bar, then stops the band. Press it again while it plays to slow down to the end (ritardando). | ENDING/rit. I | `I` | Pad page 1 (Sections), top row, pad 5 |
 | **Ending II** | Plays Ending II from the next bar, then stops the band. Press it again while it plays to slow down to the end (ritardando). | ENDING/rit. II | `O` | Pad page 1 (Sections), top row, pad 6 |
 | **Ending III** | Plays Ending III from the next bar, then stops the band. Press it again while it plays to slow down (ritardando); dark if the style has none. | ENDING/rit. III | `P` | Pad page 1 (Sections), top row, pad 7 |
-| **Section lamps** | Dim: available. Bright: playing, or on. Flashing: queued for the next bar (fills: the next beat). Pulsing: armed and waiting for you. Dark: this style doesn't have it. | Section lamp states | — | The pads light the same way, in the same colours |
+| **Section lamps** | Dim: available. Bright: playing, or on. Flashing: queued for the next bar (fills: the next beat). Pulsing: armed and waiting for you, or the Main a fill will land on. Dark: this style doesn't have it. | Section lamp states | — | The pads light the same way, in the same colours |
 
 ## Tempo
 
@@ -58,7 +58,7 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 |---|---|---|---|---|
 | **Tempo** | The current tempo in beats per minute. Loading a style sets the style's own tempo. | Tempo | — | — |
 | **Time signature** | The style's time signature, from the style file. | — | — | — |
-| **Bar and beat** | Where the band is: bar, and a light per beat. The section playing now and the one queued next are shown alongside. | — | — | — |
+| **Bar and beat** | Where the band is: bar, and a light per beat. The section playing now and the one queued next are shown alongside, and for a fill the Main it lands on (⤷). The first press picks the fill; later presses before it ends only change where it lands, and its own Main again repeats it. | — | — | — |
 | **Chord** | The chord the style is following. When Keyboard transpose is not zero, the chord as you fingered it is shown small underneath. | Chord (Home display, Style area) | — | — |
 | **Status line** | The last message: a loaded style, an error, or a Launchkey note or CC nothing is mapped to, which tells you what a button really sends. | — | — | — |
 

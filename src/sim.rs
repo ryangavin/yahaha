@@ -3146,3 +3146,7 @@ mod settle_tests;
 #[cfg(test)]
 #[path = "sim_setup_tests.rs"]
 mod setup_tests;
+
+#[cfg(test)]
+#[path = "sim_fill_landing_tests.rs"]
+mod fill_landing_tests;

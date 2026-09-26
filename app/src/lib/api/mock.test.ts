@@ -96,6 +96,18 @@ describe('mock session', () => {
     expect(m.state.transport.section).toBe('Fill In AA')
   })
 
+  it('with a fill queued, a later press moves only where it lands (#282)', () => {
+    const m = new MockSession({ manual: true })
+    m.send({ type: 'startStop' })
+    m.advance(bar(m) * 0.1)
+    m.send({ type: 'main', index: 0 })
+    m.send({ type: 'main', index: 2 })
+    expect(m.state.transport.queued).toBe('Fill In AA')
+    expect(m.state.transport.landing).toBe('Main C')
+    const lamp = m.state.transport.lamps.find((p) => p.note === 114)!
+    expect([lamp.level, lamp.anim]).toEqual(['bright', 'pulse'])
+  })
+
   it('Tap while the band plays resets the section by default (the Genos default)', () => {
     const m = new MockSession({ manual: true })
     expect(m.state.styleSettings.sectionReset).toBe(true)

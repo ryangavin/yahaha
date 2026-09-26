@@ -35,6 +35,8 @@ function sectionPads(s: AppState): Pad[] {
     const fill = FILLS[i]
     if (!has(id)) return look(C_MAIN, 'off')
     if (t.queued === id || t.queued === fill || t.section === fill) return look(C_MAIN, 'bright', 'flash')
+    // Where a fill queued or playing lands, when that's another Main (#282).
+    if (t.landing === id) return look(C_MAIN, 'bright', 'pulse')
     if (t.section === id || (t.main === i && !(t.section && MAINS.includes(t.section)))) return look(C_MAIN, 'bright')
     return look(C_MAIN, 'dim')
   }

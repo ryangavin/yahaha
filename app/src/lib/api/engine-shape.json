@@ -384,6 +384,7 @@
   "transport.lamps[].note: number",
   "transport.lamps[].palette: null",
   "transport.lamps[].rgb: array",
+  "transport.landing: null",
   "transport.main: number",
   "transport.pendingIntro: null",
   "transport.queued: null",
