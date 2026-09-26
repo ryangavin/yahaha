@@ -175,8 +175,8 @@ impl Engine {
             return;
         }
         // A pattern note written for a MegaVoice plays on a voice that is not one: its
-        // noise keys and dead notes are left out, and its other articulations play as
-        // plain notes (megavoice.rs). The written key and velocity pick the articulation.
+        // noise keys are left out, and its articulations play as plain notes
+        // (megavoice.rs). The written key and velocity pick the articulation.
         let vel = match src {
             STOP_ACMP_SRC => vel,
             _ => match crate::megavoice::playable(self.mirror.voice[dest as usize & 15], src_key, vel) {

@@ -10,11 +10,17 @@
 //! as a pitch and every velocity as a level, so a guitar's strum noises come out as high
 //! chromatic notes and its dead notes as loud open ones. yahaha never sounds a real
 //! MegaVoice, so on a part whose Style voice is a MegaVoice:
-//! - noise keys are left out;
-//! - notes in a zone without a pitch (dead notes, a key-off noise) are left out;
-//! - notes in the other articulation zones (mute, hammer-on, slide, harmonics, slap) play
+//! - noise keys are left out, and so is a velocity zone that is a noise (FlamencoGuitar's
+//!   key-off noise);
+//! - notes in the pitched articulation zones (mute, hammer-on, slide, harmonics, slap) play
 //!   as plain notes, their velocity capped at the top of the voice's plain zone, so they
-//!   sound like a hard plain note rather than a loud accent.
+//!   sound like a hard plain note rather than a loud accent;
+//! - dead notes play as ghost notes, at half the plain zone's top.
+//!
+//! Decision: dead notes are kept as ghost notes, not left out. They carry the groove (a
+//! seventh of the MegaVoice bass notes and one in 25 guitar notes in the corpus
+//! are dead notes), and on a Guitar part the NTT has already made them chord tones, so a
+//! quiet pitch is the closest a plain voice gets to a muted thump.
 //!
 //! Decision: the bowed, blown and sung MegaVoices (strings, brass, trumpet, sax, choirs)
 //! play their velocities as written. All their zones are pitched (legato, spiccato,
@@ -37,8 +43,10 @@ enum Zone {
     /// A pitched articulation (mute, hammer-on, slide, harmonics): a plain note, at most
     /// as loud as the top of the plain zone.
     Capped,
-    /// No pitch (a dead note, a key-off noise): left out.
-    Unpitched,
+    /// A dead note (a muted string, struck): a ghost note, at half the plain zone's top.
+    Dead,
+    /// A noise (a key-off noise): left out.
+    Noise,
 }
 use Zone::*;
 
@@ -48,19 +56,19 @@ type Zones = &'static [(u8, Zone)];
 /// 1-60 open, 61-75 dead, 76-90 mute, 91-105 hammer, 106-120 slide, 121-127 harmonics.
 /// Also the Twin guitars (both elements switch at the same velocities) and ActiveBassSlap
 /// (thumb and pop, dead, then thumb/pop combinations and harmonics).
-const GUITAR: Zones = &[(60, Plain), (75, Unpitched), (127, Capped)];
+const GUITAR: Zones = &[(60, Plain), (75, Dead), (127, Capped)];
 /// JazzGuitar: dead soft (61-75) and dead hard (76-90).
-const JAZZ: Zones = &[(60, Plain), (90, Unpitched), (127, Capped)];
+const JAZZ: Zones = &[(60, Plain), (90, Dead), (127, Capped)];
 /// FlamencoGuitar: finger 1-80, mute, hammer, slides, then a key-off noise at 121-127.
-const FLAMENCO: Zones = &[(80, Plain), (120, Capped), (127, Unpitched)];
+const FLAMENCO: Zones = &[(80, Plain), (120, Capped), (127, Noise)];
 /// OverdriveGuitar, DistortionGuitar: open 1-55, mute, pick harmonics.
 const DRIVE: Zones = &[(55, Plain), (127, Capped)];
 /// Open soft, open hard, dead, harmonics (or slap) at 121-127.
-const BASS: Zones = &[(80, Plain), (120, Unpitched), (127, Capped)];
+const BASS: Zones = &[(80, Plain), (120, Dead), (127, Capped)];
 /// PickBass, VintagePick, ActiveBassPick: open 1-40, mute 41-80, dead, harmonics.
-const BASS_PICK: Zones = &[(40, Plain), (80, Capped), (120, Unpitched), (127, Capped)];
+const BASS_PICK: Zones = &[(40, Plain), (80, Capped), (120, Dead), (127, Capped)];
 /// ActiveBassFingHmrOn, ActiveBassPickHmrOn: open, mute, dead 81-90, hammer-ons, harmonics.
-const BASS_HAMMER: Zones = &[(40, Plain), (80, Capped), (90, Unpitched), (127, Capped)];
+const BASS_HAMMER: Zones = &[(40, Plain), (80, Capped), (90, Dead), (127, Capped)];
 /// Every zone plays as written: HiStringGuitar and 12StringGuitar (soft, hard), and the
 /// bowed, blown and sung voices (see the module's Decision).
 const AS_WRITTEN: Zones = &[(127, Plain)];
@@ -181,7 +189,8 @@ pub fn playable(voice: Option<(u8, u8, u8)>, key: u8, vel: u8) -> Option<u8> {
     match zone {
         Plain => Some(vel),
         Capped => Some(vel.min(zones[0].0)),
-        Unpitched => None,
+        Dead => Some(zones[0].0 / 2),
+        Noise => None,
     }
 }
 
@@ -205,11 +214,11 @@ mod tests {
     }
 
     #[test]
-    fn noise_keys_and_dead_notes_are_left_out() {
+    fn noise_keys_are_left_out_and_articulations_play_plain() {
         assert_eq!(playable(Some(NYLON), 100, 64), None, "strum noise");
         assert_eq!(playable(Some(NYLON), 121, 64), None, "fret noise");
         assert_eq!(playable(Some(NYLON), 60, 50), Some(50), "open");
-        assert_eq!(playable(Some(NYLON), 60, 70), None, "dead");
+        assert_eq!(playable(Some(NYLON), 60, 70), Some(30), "dead: a ghost note");
         assert_eq!(playable(Some(NYLON), 60, 85), Some(60), "mute: played open, at the open zone's top");
         assert_eq!(playable(Some(NYLON), 60, 110), Some(60), "slide");
         assert_eq!(playable(Some(NYLON), 95, 127), Some(60), "harmonics, just under the noise keys");
@@ -231,27 +240,27 @@ mod tests {
     fn basses_and_the_odd_layouts() {
         let electric = Some((8, 0, 17));
         assert_eq!(playable(electric, 40, 70), Some(70), "open hard");
-        assert_eq!(playable(electric, 40, 100), None, "dead");
+        assert_eq!(playable(electric, 40, 100), Some(40), "dead");
         assert_eq!(playable(electric, 40, 125), Some(80), "slap");
         assert_eq!(playable(electric, 100, 50), None, "SE");
         let pick = Some((8, 0, 18));
         assert_eq!(playable(pick, 40, 60), Some(40), "mute");
-        assert_eq!(playable(pick, 40, 90), None, "dead");
+        assert_eq!(playable(pick, 40, 90), Some(20), "dead");
         let flamenco = Some((8, 3, 0));
         assert_eq!(playable(flamenco, 60, 75), Some(75), "finger");
         assert_eq!(playable(flamenco, 60, 125), None, "key off noise");
         assert_eq!(playable(Some((8, 0, 2)), 60, 120), Some(120), "HiStringGuitar: soft and hard only");
         assert_eq!(playable(Some((8, 0, 4)), 60, 100), Some(55), "OverdriveGuitar: mute");
-        assert_eq!(playable(Some((8, 0, 6)), 60, 85), None, "JazzGuitar: dead hard");
+        assert_eq!(playable(Some((8, 0, 6)), 60, 85), Some(30), "JazzGuitar: dead hard");
         assert_eq!(playable(Some((8, 0, 100)), 100, 64), None, "PopHaa: vocal articulations and breath");
     }
 
     /// Chord 1 (ch 12) on NylonGuitar and Chord 2 (ch 13) on a GM guitar play the same
     /// notes: a strum noise, an open note, a dead note and a slide. Chord 2 plays all four
-    /// as written; Chord 1 leaves out the noise and the dead note and plays the slide at
-    /// the open zone's top.
+    /// as written; Chord 1 leaves out the noise, plays the dead note as a ghost note and
+    /// the slide at the open zone's top.
     #[test]
-    fn a_megavoice_part_leaves_out_its_noises() {
+    fn a_megavoice_part_leaves_out_its_noises_on_other_voices() {
         let at = |tick, ev| TimedEv { tick, ev };
         let mut events = Vec::new();
         for ch in [11, 12] {
@@ -284,11 +293,11 @@ mod tests {
         };
         let gm = ons(12);
         assert_eq!(gm.len(), 4, "Chord 2 plays everything: {gm:?}");
-        let (noise, open, _dead, slide) = (gm[0], gm[1], gm[2], gm[3]);
+        let (noise, open, dead, slide) = (gm[0], gm[1], gm[2], gm[3]);
         assert_eq!((noise.1, open.1), (64, 50), "{gm:?}");
-        assert_eq!(ons(11), vec![open, (slide.0, 60)], "Chord 1 on NylonGuitar");
+        assert_eq!(ons(11), vec![open, (dead.0, 30), (slide.0, 60)], "Chord 1 on NylonGuitar");
         // Every note that went out also ended.
         let offs = rec.out.iter().filter(|(_, m)| m[0] & 0xF0 == 0x80 && m[0] & 0x0F == 11 || m[0] == 0x9B && m[2] == 0).count();
-        assert_eq!(offs, 2);
+        assert_eq!(offs, 3);
     }
 }

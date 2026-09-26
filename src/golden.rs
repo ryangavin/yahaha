@@ -351,7 +351,15 @@ fn committed_digests_hold_no_notes() {
 fn snapshots_do_not_list_parts_played_as_written() {
     let mut listings: Vec<(String, String)> = Vec::new();
     if let Some(path) = find_style("OrganCruise.S930.STY") {
-        let style = Style::load(&path).unwrap();
+        let mut style = Style::load(&path).unwrap();
+        // Its Phrase 1 voice is the ElectricBass MegaVoice and the fill plays only its
+        // sound effects (noise keys), which a non-MegaVoice voice leaves out (#223). On a
+        // GM bass they are notes, so the part has something to count.
+        for e in &mut style.init {
+            if let crate::sff::Ev::Cc { ch: 14, cc: 0, val } = e {
+                *val = 0;
+            }
+        }
         // Its fills route Phrase 1 (ch15) through Root Fixed + Bypass: a melodic part that
         // still plays as written.
         let prep = crate::engine::Prepared::new(&style);
