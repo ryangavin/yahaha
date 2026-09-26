@@ -1793,7 +1793,10 @@
         "bars": 0,
         "chords": []
       }
-    ]
+    ],
+    "bankName": "New Bank",
+    "bankPath": null,
+    "banks": []
   },
   "metronome": {
     "on": false,

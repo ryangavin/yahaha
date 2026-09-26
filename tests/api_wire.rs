@@ -181,6 +181,9 @@ const EVERY_CMD: &[&str] = &[
     r#"{"type":"storeLooperMemory","index":7}"#,
     r#"{"type":"clearLooperMemory","index":0}"#,
     r#"{"type":"newLooperBank"}"#,
+    r#"{"type":"saveLooperBank","name":"Songs","overwrite":true}"#,
+    r#"{"type":"saveLooperBank","name":null}"#,
+    r#"{"type":"loadLooperBank","path":"/data/ChordLooper/Songs.looper.json"}"#,
     // Metronome
     r#"{"type":"toggleMetronome"}"#,
     r#"{"type":"setMetronome","on":true}"#,

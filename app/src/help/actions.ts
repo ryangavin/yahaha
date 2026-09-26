@@ -178,6 +178,8 @@ export function tipFor(cmd: AppCmd | null): TipKey {
     case 'storeLooperMemory': return 'looper.store'
     case 'clearLooperMemory': return 'looper.clear'
     case 'newLooperBank': return 'looper.new_bank'
+    case 'saveLooperBank': return 'looper.save_bank'
+    case 'loadLooperBank': return 'looper.bank'
     case 'toggleMetronome':
     case 'setMetronome': return 'metronome.on'
     case 'setMetronomeVolume': return 'metronome.volume'

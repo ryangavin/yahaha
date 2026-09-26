@@ -1283,6 +1283,17 @@ export class MockSession implements Session {
       case 'newLooperBank':
         this.looper.newBank()
         break
+      case 'saveLooperBank': {
+        const err = this.looper.saveBank(cmd.name, cmd.overwrite ?? false)
+        if (err) this.message(err, true)
+        else this.message(`Saved Chord Looper bank ${this.state.looper.bankName}`)
+        break
+      }
+      case 'loadLooperBank': {
+        const err = this.looper.loadBank(cmd.path)
+        if (err) this.message(err, true)
+        break
+      }
       case 'toggleMetronome':
       case 'setMetronome':
         st.metronome.on = cmd.type === 'setMetronome' ? cmd.on : !st.metronome.on
