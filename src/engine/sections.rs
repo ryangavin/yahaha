@@ -86,7 +86,10 @@ impl Engine {
             }
             Change::Style => match id_of(self.cur) {
                 SectionId::Ending(_) => {
-                    let at = self.sec_start + self.style.sections[self.cur].as_ref().map_or(0, |s| s.len) as f64;
+                    let end = self.sec_start + self.style.sections[self.cur].as_ref().map_or(0, |s| s.len) as f64;
+                    // A section pressed during the Ending cuts it short (#187): the style
+                    // comes in with that section, not at the Ending's original end.
+                    let at = self.queued.map_or(end, |q| q.at.min(end));
                     (at, at)
                 }
                 SectionId::Main(_) => match timing.main_timing {
@@ -193,7 +196,8 @@ impl Engine {
     /// Ending that this replaces (#175) no longer waits for it: it comes when a style
     /// chosen now would (the new change, if it is an Ending, is waited for in turn).
     fn set_queued(&mut self, q: Queued, now: u64) {
-        let was_ending = self.queued_ending_end().is_some();
+        // A queued Ending, or the Ending playing (a press cuts it short, #187).
+        let was_ending = self.queued_ending_end().is_some() || matches!(id_of(self.cur), SectionId::Ending(_));
         self.queued = Some(q);
         if was_ending && self.pending.is_some() {
             let (at, _) = self.change_point(Change::Style, now);

@@ -3070,6 +3070,44 @@ mod style_queue {
         assert_eq!(e.snapshot(bar).style_tag, 3);
     }
 
+    /// A Main pressed while an Ending plays cuts the Ending at the next bar line; a style
+    /// change waiting for the Ending comes in there with the Main, not at the Ending's
+    /// original end in the middle of the Main (#187). Either order: style then Main, or
+    /// Main then style.
+    #[test]
+    fn a_main_cutting_an_ending_short_brings_the_waiting_style_with_it() {
+        for style_first in [true, false] {
+            // A style whose Ending I lasts past the bar line the Main cuts it at.
+            let long = |p: &Prepared| p.sections[slot_of(SectionId::Ending(0))].is_some() && bars_in(p, SectionId::Ending(0)) >= 2;
+            let Some(a) = ["SlowWalker.T552.sty", "FunkyFinger.S930.STY", "CoolRevibed.T552.sty"].into_iter().filter_map(|f| prep(f, 1)).find(|p| long(p)) else {
+                eprintln!("no style with a long Ending; skipping");
+                return;
+            };
+            let Some(b) = prep("TickingAway.T162.sty", 2) else { return };
+            let bar = bar_ns(&a);
+            let mut e = Engine::new(a);
+            let mut rec = Recorder::default();
+            e.set_chord(Chord::new(0, 0), 0, &mut rec);
+            drive(&mut e, &mut rec, 0, bar / 2);
+            e.button(Button::Ending(0), bar / 2, &mut rec);
+            let t = bar + bar / 4;
+            drive(&mut e, &mut rec, bar / 2, t);
+            assert_eq!(e.snapshot(t).cur, Some(SectionId::Ending(0)), "the Ending plays");
+            if style_first {
+                e.change_style(b, t, &mut rec);
+                e.button(Button::Main(0), t + 1, &mut rec);
+            } else {
+                e.button(Button::Main(0), t, &mut rec);
+                e.change_style(b, t + 1, &mut rec);
+            }
+            drive(&mut e, &mut rec, t + 1, 2 * bar + 1_000_000);
+            let s = e.snapshot(2 * bar + 1_000_000);
+            assert!(s.running, "style_first {style_first}: the band plays on");
+            assert_eq!((s.style_tag, s.style_pending), (2, false), "style_first {style_first}: the new style came in with the Main");
+            assert!(matches!(s.cur, Some(SectionId::Main(_))), "style_first {style_first}: a Main plays: {:?}", s.cur);
+        }
+    }
+
     /// An Ending queued for the bar line, then a style chosen (#111): the style waits for
     /// that Ending's end (owner rule: a style change waits for the Ending to finish), so
     /// the Ending plays in the old style and the band stops with the new one loaded.
