@@ -50,9 +50,11 @@ pub enum TransportCmd {
     /// TAP TEMPO: taps set the tempo. While the style plays with Style Section Reset on
     /// (`styleSettings.sectionReset`, the default), a tap rewinds the section instead.
     TapTempo,
-    /// Tempo up/down one step.
+    /// Tempo up/down one step (1 BPM).
     TempoUp,
     TempoDown,
+    /// TEMPO − and + together: back to the tempo the style came with (OM p.46).
+    ResetTempo,
     /// FADE IN/OUT: stopped, arm (or disarm) a fade in for the next start; playing, fade
     /// out and stop (`transport.fade`).
     ToggleFade,
@@ -86,6 +88,7 @@ impl TransportCmd {
             TransportCmd::TapTempo => Button::TapTempo,
             TransportCmd::TempoUp => Button::TempoUp,
             TransportCmd::TempoDown => Button::TempoDown,
+            TransportCmd::ResetTempo => Button::TempoReset,
             TransportCmd::SetTempo { bpm } => Button::SetTempo(bpm),
             TransportCmd::ToggleStopAcmp => Button::StopAcmp,
             TransportCmd::SetStopAcmp { mode } => Button::SetStopAcmp(mode.into()),

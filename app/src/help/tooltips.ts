@@ -271,17 +271,24 @@ const catalog = {
   },
   'tempo.down': {
     title: 'Tempo −',
-    body: 'Slows the tempo by 1 BPM.',
+    body: 'Slows the tempo by 1 BPM; hold it to keep going, faster the longer you hold. Press − and + together for the style\'s own tempo.',
     genos: 'TEMPO −',
     keys: ['-'],
     launchkey: 'Function button (right of the pads)',
   },
   'tempo.up': {
     title: 'Tempo +',
-    body: 'Speeds the tempo up by 1 BPM.',
+    body: 'Speeds the tempo up by 1 BPM; hold it to keep going, faster the longer you hold. Press − and + together for the style\'s own tempo.',
     genos: 'TEMPO +',
     keys: ['='],
     launchkey: '> (Scene Launch) button (right of the pads)',
+  },
+  'tempo.reset': {
+    title: 'Style tempo',
+    body: 'Back to the tempo the style came with, as pressing TEMPO − and + together does on the Genos. Hold one tempo button and press the other, here or on the Launchkey.',
+    genos: 'TEMPO − and + together',
+    keys: ['+'],
+    launchkey: 'Function and > (Scene Launch) pressed together',
   },
   'display.tempo': {
     title: 'Tempo',
@@ -1073,7 +1080,7 @@ const catalog = {
   },
   'fx.follow_style': {
     title: 'Follow the style',
-    body: 'Lit, this effect takes the style\'s own type at every style change (the style\'s choice shows beside it, the nearest type yahaha has), with the style\'s delay time and feedback. Choosing a type yourself turns it off so your choice stays; press it to go back to the style\'s. Stored in a Registration Memory.',
+    body: 'Lit, this effect takes the style\'s own type at every style change (the style\'s choice shows beside it, the nearest type yahaha has), with the style\'s delay time and feedback, its reverb time, pre-delay and tone, and its return level where it sets one. Choosing a type yourself turns it off so your choice stays; press it to go back to the style\'s. Stored in a Registration Memory.',
     genos: 'Mixer › Effect (Style effect types)',
     keys: [],
     launchkey: null,

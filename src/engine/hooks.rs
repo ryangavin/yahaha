@@ -75,6 +75,8 @@ pub(super) struct Features {
     pub(super) pads: super::multipad::PadDeck,
     /// Style Dynamics Control, Touch and Accent (dynamics.rs).
     pub(super) dynamics: super::dynamics::Dynamics,
+    /// A TEMPO button held down: tempo_repeat.rs.
+    pub(super) tempo_repeat: super::tempo_repeat::TempoRepeat,
 }
 
 /// The next beat line the bar and beat hooks wait for: a tick on the section's timeline
@@ -208,6 +210,7 @@ impl Engine {
         self.fade_wake(now, sink);
         self.sync_window_wake(now);
         self.rit_wake(now);
+        self.tempo_repeat_wake(now);
     }
 
     /// A tick (on the section's timeline) by which a feature needs `process` to run, if
@@ -224,7 +227,7 @@ impl Engine {
     /// `next_deadline` wakes the engine for it.
     #[inline]
     pub(super) fn hook_wake_ns(&self) -> Option<u64> {
-        [self.fade_deadline(), self.sync_window_deadline()].into_iter().flatten().min()
+        [self.fade_deadline(), self.sync_window_deadline(), self.tempo_repeat_deadline()].into_iter().flatten().min()
     }
 
     /// The tick of a feature's next timed action between lines, for `on_due`: the chart
