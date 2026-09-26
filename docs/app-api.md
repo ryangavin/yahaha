@@ -457,6 +457,7 @@ scaled. A change glides in over about 30 ms.
 | `setEffectParam` | `block`, `param`, `value` | One of the block's parameters (#236), in the parameter's own unit, clamped to its range (see the table below). A parameter of another block is refused. A change glides on the audio thread, so it never clicks. `setEffectType` puts the block's parameters back to the new type's own values. Stored in Registration with the effects. |
 | `setFollowStyle` | `block`, `on` | Whether the block follows the style's own effect type (#237). On (the default), each style load gives the block the style's type (and the delay's time, feedback and tone as the style sets them), or the block's default type if the style sets none that yahaha has. `setEffectType` turns it off, so the player's choice stays through style changes. Turning it on takes the loaded style's type at once. Stored in Registration with the effects. |
 | `setBandSend` | `block`, `level` 0–127 | The block's band send, in percent: 100 = the Style parts' sends as written, 0 = none of the band, above 100 up to 127 raises them (each part's send at most the whole signal). Defaults: reverb 100, chorus 0, variation 0. Stored in Registration with the effects. |
+| `setPadSend` | `block`, `level` 0–127 | The block's Multi Pad send (#267), in percent: the same scale as `setBandSend`, on the four Multi Pads' sends (channels 5–8). Defaults: reverb 100, chorus 0, variation 0. In the built-in synth only (the MIDI port carries the pads' CCs as written). Stored in Registration with the Multi Pad bank (group Multi Pad). |
 
 The effect parameters (`param`, its unit and range, and each type's own value):
 
@@ -1099,11 +1100,12 @@ The Knob Assign page: `{ page, pageName, pageNumber, pageCount, knobs }`.
 
 ### `effects`
 `{ blocks }`: the effect bus's Reverb, Chorus and Variation blocks, in that order (#204).
-Each is `{ block, name, effect, effectName, types, returnLevel, bandSend }`: `effect` is the type
+Each is `{ block, name, effect, effectName, types, returnLevel, bandSend, padSend }`: `effect` is the type
 (`setEffectType`), `effectName` its name ("Hall", "Delay 1/8."), `types` the block's own
 types as `{ effect, name }`, `returnLevel` 0–127 (64 = 0 dB), `bandSend` 0–127 % (#236,
 `setBandSend`: 100 = the Style parts' sends as written; reverb 100, chorus 0, variation 0
-at start), and `params` (#236), the block's parameters in order, each
+at start), `padSend` 0–127 % (#267, `setPadSend`: the same for the Multi Pads' sends;
+reverb 100, chorus 0, variation 0 at start), and `params` (#236), the block's parameters in order, each
 `{ param, name, value, min, max, default, display }`: `value` in the parameter's own unit
 (`setEffectParam`), `default` the type's own value, `display` the value as it reads
 ("2.4 s", "22 ms", "4.5 kHz"); `styleEffect` (#237), the loaded style's own type for the
@@ -1797,7 +1799,7 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
   "effects": {
     "blocks": [
       {
-        "block": "reverb", "name": "Reverb", "effect": "hall", "effectName": "Hall", "returnLevel": 64, "bandSend": 100,
+        "block": "reverb", "name": "Reverb", "effect": "hall", "effectName": "Hall", "returnLevel": 64, "bandSend": 100, "padSend": 100,
         "params": [
           { "param": "reverbTime", "name": "Time", "value": 24, "min": 3, "max": 100, "default": 24, "display": "2.4 s" },
           { "param": "preDelay", "name": "Pre-delay", "value": 22, "min": 0, "max": 200, "default": 22, "display": "22 ms" },
@@ -1807,7 +1809,7 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
         "types": [{ "effect": "hall", "name": "Hall" }, { "effect": "room", "name": "Room" }, { "effect": "stage", "name": "Stage" }, { "effect": "plate", "name": "Plate" }]
       },
       {
-        "block": "chorus", "name": "Chorus", "effect": "chorus", "effectName": "Chorus", "returnLevel": 64, "bandSend": 0,
+        "block": "chorus", "name": "Chorus", "effect": "chorus", "effectName": "Chorus", "returnLevel": 64, "bandSend": 0, "padSend": 0,
         "params": [
           { "param": "chorusRate", "name": "Rate", "value": 55, "min": 5, "max": 500, "default": 55, "display": "0.55 Hz" },
           { "param": "chorusDepth", "name": "Depth", "value": 22, "min": 0, "max": 50, "default": 22, "display": "2.2 ms" }
@@ -1816,7 +1818,7 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
         "types": [{ "effect": "chorus", "name": "Chorus" }, { "effect": "celeste", "name": "Celeste" }, { "effect": "flanger", "name": "Flanger" }]
       },
       {
-        "block": "variation", "name": "Variation", "effect": "dottedEighth", "effectName": "Delay 1/8.", "returnLevel": 64, "bandSend": 0,
+        "block": "variation", "name": "Variation", "effect": "dottedEighth", "effectName": "Delay 1/8.", "returnLevel": 64, "bandSend": 0, "padSend": 0,
         "params": [
           { "param": "delaySync", "name": "Tempo sync", "value": 1, "min": 0, "max": 1, "default": 1, "display": "On" },
           { "param": "delayNote", "name": "Note", "value": 4, "min": 0, "max": 7, "default": 4, "display": "1/8." },
