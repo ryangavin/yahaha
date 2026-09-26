@@ -35,6 +35,7 @@ mod delay;
 mod line;
 mod params;
 mod reverb;
+pub mod xg;
 
 pub use chorus::{Chorus, ChorusType};
 pub use delay::{Delay, DelayType, NOTES};

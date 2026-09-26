@@ -43,7 +43,20 @@ pub(crate) struct Channel {
     vibrato_rate_factor: f32,
     vibrato_depth: f32,
     vibrato_delay: f32,
+
+    // yahaha: portamento (CC65 switch, CC5 time) and mono mode (CC126/127, or
+    // `Synthesizer::set_mono`), #246: the latest note-on key (-1: none), and in mono the
+    // keys held, oldest first, with their velocities.
+    portamento: bool,
+    portamento_time: u8,
+    mono: bool,
+    pub(crate) last_key: i32,
+    held: [(u8, u8); HELD_KEYS],
+    held_count: usize,
 }
+
+/// yahaha: the keys a mono channel keeps to go back to (the oldest drop out beyond).
+const HELD_KEYS: usize = 16;
 
 /// yahaha: `Channel::sound` indices.
 pub(crate) const SOUND_CUTOFF: usize = 0;
@@ -94,6 +107,12 @@ impl Channel {
             vibrato_rate_factor: 1_f32,
             vibrato_depth: 0_f32,
             vibrato_delay: 0_f32,
+            portamento: false,
+            portamento_time: 0,
+            mono: false,
+            last_key: -1,
+            held: [(0, 0); HELD_KEYS],
+            held_count: 0,
         };
 
         channel.reset();
@@ -124,10 +143,17 @@ impl Channel {
         for i in 0..SOUND_CONTROLLERS {
             self.set_sound(i, 64);
         }
+        self.portamento = false;
+        self.portamento_time = 0;
+        self.mono = false;
+        self.last_key = -1;
+        self.held_count = 0;
     }
 
-    // yahaha: Reset All Controllers leaves the sound controllers as they are (GM2, XG).
+    // yahaha: Reset All Controllers leaves the sound controllers as they are and turns
+    // portamento off (GM2 RP-015, XG).
     pub(crate) fn reset_all_controllers(&mut self) {
+        self.portamento = false;
         self.modulation = 0;
         self.expression = 127 << 7;
         self.hold_pedal = false;
@@ -289,6 +315,84 @@ impl Channel {
     /// yahaha: seconds added to the vibrato delay (CC78).
     pub(crate) fn get_vibrato_delay(&self) -> f32 {
         self.vibrato_delay
+    }
+
+    /// yahaha: portamento on or off (CC65).
+    pub(crate) fn set_portamento(&mut self, value: i32) {
+        self.portamento = value >= 64;
+    }
+
+    /// yahaha: the portamento time (CC5).
+    pub(crate) fn set_portamento_time(&mut self, value: i32) {
+        self.portamento_time = value.clamp(0, 127) as u8;
+    }
+
+    /// yahaha: whether the channel plays a melodic voice (not a drum kit: portamento and
+    /// mono don't apply to drums, per XG).
+    pub(crate) fn is_melodic(&self) -> bool {
+        self.bank_number < 128
+    }
+
+    /// yahaha: a new note on `key` glides from the latest key played, with portamento on
+    /// and a time above 0: (semitones it starts away, semitones per second it moves).
+    /// Fixed rate (the XG and Genos default): the time for an octave is 20 ms x 2^(time /
+    /// 16), about 30 ms at 8, 0.3 s at 64, 5 s at 127.
+    pub(crate) fn glide(&self, key: i32) -> Option<(f32, f32)> {
+        if !self.portamento || self.portamento_time == 0 || self.last_key < 0 || self.last_key == key || !self.is_melodic() {
+            return None;
+        }
+        let octave = 0.02_f32 * (self.portamento_time as f32 / 16_f32).exp2();
+        Some(((self.last_key - key) as f32, 12_f32 / octave))
+    }
+
+    /// yahaha: mono (true) or poly mode.
+    pub(crate) fn set_mono(&mut self, mono: bool) {
+        self.mono = mono;
+        self.held_count = 0;
+    }
+
+    /// yahaha: whether mono mode is on (a drum kit plays poly all the same).
+    pub(crate) fn get_mono(&self) -> bool {
+        self.mono
+    }
+
+    /// yahaha: whether the channel plays one note at a time (mono, a melodic voice).
+    pub(crate) fn is_mono(&self) -> bool {
+        self.mono && self.is_melodic()
+    }
+
+    /// yahaha: mono: `key` goes down (the latest held).
+    pub(crate) fn hold_key(&mut self, key: i32, velocity: i32) {
+        self.release_key(key);
+        if self.held_count == HELD_KEYS {
+            self.held.copy_within(1.., 0);
+            self.held_count -= 1;
+        }
+        self.held[self.held_count] = (key as u8, velocity as u8);
+        self.held_count += 1;
+    }
+
+    /// yahaha: mono: `key` comes up; true if it was the latest held (the one sounding).
+    pub(crate) fn release_key(&mut self, key: i32) -> bool {
+        let n = self.held_count;
+        match self.held[..n].iter().position(|h| h.0 as i32 == key) {
+            Some(i) => {
+                self.held.copy_within(i + 1..n, i);
+                self.held_count -= 1;
+                i + 1 == n
+            }
+            None => false,
+        }
+    }
+
+    /// yahaha: mono: the latest key still held, and its velocity.
+    pub(crate) fn latest_held(&self) -> Option<(i32, i32)> {
+        self.held[..self.held_count].last().map(|h| (h.0 as i32, h.1 as i32))
+    }
+
+    /// yahaha: every key up (All Notes Off, All Sound Off).
+    pub(crate) fn clear_held(&mut self) {
+        self.held_count = 0;
     }
 
     /// yahaha: whether any sound controller differs from 64.

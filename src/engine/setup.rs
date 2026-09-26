@@ -19,9 +19,11 @@ impl Engine {
         self.bend_range = self.style.setup(self.cur).bend_range;
         self.rpn = [RPN_NULL; 16];
         self.reset_expression(0, sink);
+        self.reset_voice_settings(sink);
         for i in 0..self.style.setup(self.cur).init.len() {
             let m = self.style.setup(self.cur).init.get(i);
             if m[0] == 0xF0 || m.len() > 3 {
+                self.mirror.track(m);
                 sink.send(m);
                 continue;
             }
@@ -56,6 +58,31 @@ impl Engine {
             let v = self.mirror.cc[ch as usize][11];
             if keep & (1 << ch) == 0 && v != 127 && v != UNSENT {
                 self.mirror.send(sink, &[0xB0 | ch, 11, 127]);
+            }
+        }
+    }
+
+    /// The Style parts' voice settings back to the XG defaults (#253): the sound controllers
+    /// (CC71-78) to 64, portamento (CC65, CC5) off and poly mode, where the mirror knows
+    /// otherwise. A style's setup (SInt) begins with a system reset on the Genos, which puts
+    /// its parts back to these. yahaha drops the style's resets (they would reset the
+    /// keyboard parts, their OTS or Registration settings, and the effect bus too), so a
+    /// style that doesn't set one of these left the previous style's value on the part.
+    /// The setup goes out after this, so its own values have the last word. Nothing here
+    /// cuts a note: Poly goes as the XG part parameter, which (unlike CC127) carries no All
+    /// Notes Off. The keyboard parts (channels 1-4) and the Multi Pads are left alone.
+    pub(super) fn reset_voice_settings(&mut self, sink: &mut impl Sink) {
+        for ch in 8..16u8 {
+            for (cc, neutral) in (71..=78u8).map(|cc| (cc, 64)).chain([(65, 0), (5, 0)]) {
+                let v = self.mirror.cc[ch as usize][cc as usize];
+                if v != UNSENT && v != neutral {
+                    self.mirror.send(sink, &[0xB0 | ch, cc, neutral]);
+                }
+            }
+            if self.mirror.mono & (1 << ch) != 0 {
+                let poly = [0xF0, 0x43, 0x10, 0x4C, 0x08, ch, 0x05, 0x01, 0xF7];
+                self.mirror.track(&poly);
+                sink.send(&poly);
             }
         }
     }
@@ -114,6 +141,7 @@ impl Engine {
                     _ => false,
                 };
                 if send {
+                    self.mirror.track(m);
                     sink.send(m);
                 }
                 continue;
@@ -212,7 +240,14 @@ impl Engine {
         // The preview may have left any expression: taken as not full, so it goes back.
         for ch in 8..16 {
             self.mirror.cc[ch][11] = 0;
+            // And any voice settings (#253): taken as not neutral, so they go back.
+            for cc in 71..=78 {
+                self.mirror.cc[ch][cc] = 0;
+            }
+            self.mirror.cc[ch][65] = 127;
+            self.mirror.cc[ch][5] = 127;
         }
+        self.mirror.mono |= 0xFF00;
         self.send_init(sink);
     }
 }
