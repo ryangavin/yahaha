@@ -199,6 +199,33 @@ Tags: `[chord-following]` `[transport]` `[sections]` `[voices]` `[registration]`
 - **Spec:** 8 channels: Rhythm1, Rhythm2, Bass, Chord1, Chord2, Pad, Phrase1, Phrase2, plus "Audio" for Audio Styles. On a MIDI Song they map to ch9–16.
 - **Ref:** OM p.92; RM p.10, p.76
 
+### Drum Setup (per-note kit tuning) `[mixer]` `[voices]`
+- **Spec:** the Style Creator's Drum Setup edits a Rhythm part's kit note by note: instrument (from another kit), Level, Pan, Pitch (cents), Cutoff, Resonance, Attack, Decay 1/2, Alternate Group, Reverb/Chorus/Variation depth, Ambience depth, Rcv Note Off, and Insertion Effect bypass (RM p.32–33). The style stores these as XG Drum Setup SysEx in SInt: `F0 43 10 4C 3s rr pp vv F7`, setup s = 0/1, note rr, parameter pp (DL "MIDI Parameter Change table (DRUM SETUP)").
+  - A part plays setup 1 or 2 through its XG Part Mode (DRUMS1/DRUMS2; part 10 defaults to DRUMS1).
+  - A program change on that part initializes its setup, and so do Drum Setup Reset and the system resets.
+  - The Level default "depends on the note", and nothing lists it.
+- **Corpus (#239):** 170 of 208 styles, 2249 messages, up to 39 per style. All the corpus styles with Part Mode messages but one put ch 9 on DRUMS2 and ch 10 on DRUMS1 (setup 1: 1854 messages, setup 2: 395). No Drum Setup Reset and no source-kit (70H) messages.
+
+  | Parameter | Messages | Styles |
+  |---|---|---|
+  | Level (02) | 1021 | 152 |
+  | Reverb send (05) | 632 | 156 (154 of them set to 0) |
+  | EG Decay 1 (0E) | 224 | 73 |
+  | Pitch coarse (00) | 135 | 64 (mostly ±1–2 semitones, up to −20/+17) |
+  | EG Decay 2 (0F) | 77 | 30 |
+  | Pan (04) | 62 | 28 |
+  | Filter cutoff (0B) | 50 | 36 |
+  | Pitch fine (01) | 25 | 22 |
+  | Variation send (07) | 9 | 3 |
+  | Resonance (0C), Attack (0D) | 7 each | 5, 4 |
+
+  - Levels span 40–127, clustering at 72–127, mean ≈ 100. 100 is the most common value (117). Hi-hats average ≈ 96, kicks and snares ≈ 111–114.
+  - About 86% of the messages address a note the part actually plays.
+- **yahaha:**
+  - The port gets the SysEx as the style sends it (`engine::Prepared`), so an XG instrument applies all of it. yahaha also resends it after a program change that would reset it (`engine::setup`).
+  - The built-in synth applies **Level** as the drum note's velocity, on the same curve as CC7 (`synth::drum_setup`, in `live::Out` and `synth::render_offline`). Decision: the unset level counts as 100.
+  - Pitch, Pan, the sends, the filter and the EG need per-voice parameters inside the synthesizer. Channel controllers would move every note already ringing on the part. So they are not applied on the built-in synth (follow-up: a small per-voice offset patch in `vendor/rustysynth`).
+
 ---
 
 ## 2. Chord Looper `[chord-following]` `[transport]`
