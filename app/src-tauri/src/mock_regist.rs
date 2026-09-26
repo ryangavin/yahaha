@@ -33,6 +33,8 @@ struct Memory {
     /// Keyboard Harmony/Arpeggio (the session's `harmonyArp` section); its `pedalHold` is
     /// the pedal's and is never recalled.
     harmony_arp: Option<HarmonyArpState>,
+    /// The Chord Looper (the session's `chordLooper` section): memory, ON/OFF.
+    looper: Option<(Option<u8>, bool)>,
 }
 
 #[derive(Clone, Debug)]
@@ -54,6 +56,8 @@ pub enum Effect {
     LoadStyle(String),
     /// Press Main n (with OTS Link held off).
     Main(u8),
+    /// Run a command (the Chord Looper's memory and ON/OFF).
+    Cmd(AppCmd),
     Message(String, bool),
 }
 
@@ -108,6 +112,7 @@ fn demo(name: &str, style: &(String, String), tempo: f64, programs: [u8; 4], on:
         parts: Some((0..4).map(|i| Some((on[i], programs[i], 100, 0))).collect()),
         transpose: Some((0, 0)),
         harmony_arp: None,
+        looper: None,
     }
 }
 
@@ -126,7 +131,7 @@ impl MockRegist {
             freeze: false,
             frozen: Groups::NONE,
             seq_pos: None,
-            seq_on: true,
+            seq_on: false,
             list: Playlist::default(),
             list_path: None,
             list_dirty: false,
@@ -358,6 +363,7 @@ impl MockRegist {
             }),
             transpose: g.has(Group::Transpose).then_some((c.transpose_keyboard, c.transpose_master)),
             harmony_arp: g.has(Group::HarmonyArp).then(|| st.harmony_arp.clone()),
+            looper: g.has(Group::ChordLooper).then_some((st.looper.memory, matches!(st.looper.mode, LooperMode::LoopArmed | LooperMode::Looping))),
         };
         self.bank.memories[index as usize] = Some(m);
         self.selected = Some(index);
@@ -388,6 +394,14 @@ impl MockRegist {
                 if main != st.transport.main {
                     fx.push(Effect::Main(main));
                 }
+            }
+        }
+        if let (true, Some((memory, on))) = (allowed.has(Group::ChordLooper), m.looper) {
+            if let Some(index) = memory {
+                fx.push(Effect::Cmd(LooperCmd::SelectLooperMemory { index }.into()));
+            }
+            if on != matches!(st.looper.mode, LooperMode::LoopArmed | LooperMode::Looping) {
+                fx.push(Effect::Cmd(LooperCmd::LooperOnOff.into()));
             }
         }
         self.pending = Some((m.clone(), allowed));

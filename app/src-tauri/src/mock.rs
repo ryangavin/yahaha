@@ -1829,6 +1829,7 @@ impl MockSession {
                     self.state.ots.link = link;
                 }
                 Effect::Message(text, error) => self.message(text, error),
+                Effect::Cmd(c) => self.cmd(c),
             }
         }
         self.regist.apply_pending(&mut self.state, tempo);

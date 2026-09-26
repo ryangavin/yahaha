@@ -31,6 +31,8 @@ interface Memory {
   /** Keyboard Harmony/Arpeggio (the session's `harmonyArp` section); its `pedalHold` is the
    * pedal's and is never recalled. */
   harmonyArp?: HarmonyArpState
+  /** The Chord Looper (the session's `chordLooper` section): memory selected, ON/OFF. */
+  looper?: { memory: number | null; on: boolean }
 }
 
 interface Bank {
@@ -87,7 +89,7 @@ export class MockRegistration {
   private frozen: RegistGroup[] = []
   private seqPos: number | null = null
   /** Sequence On/Off: a panel setting, not part of the bank (Genos Data List). */
-  private seqOn = true
+  private seqOn = false
   private list: List = { name: 'New Playlist', records: [] }
   private listPath: string | null = null
   private listDirty = false
@@ -321,6 +323,7 @@ export class MockRegistration {
     if (g.includes('tempo')) m.tempo = st.transport.tempo
     if (g.includes('transpose')) m.transpose = [st.chord.transposeKeyboard, st.chord.transposeMaster]
     if (g.includes('harmonyArp')) m.harmonyArp = clone(st.harmonyArp)
+    if (g.includes('chordLooper')) m.looper = { memory: st.looper.memory, on: st.looper.mode === 'loopArmed' || st.looper.mode === 'looping' }
     m.name = m.style?.name ?? `Registration ${index + 1}`
     this.bank.memories[index] = m
     this.selected = index
@@ -393,6 +396,11 @@ export class MockRegistration {
     if (allowed('harmonyArp') && m.harmonyArp) {
       // A fresh object, so the published snapshots never share it.
       st.harmonyArp = { ...clone(m.harmonyArp), arp: { ...clone(m.harmonyArp.arp), pedalHold: st.harmonyArp.arp.pedalHold } }
+    }
+    if (allowed('chordLooper') && m.looper) {
+      if (m.looper.memory !== null) host.command({ type: 'selectLooperMemory', index: m.looper.memory })
+      const on = st.looper.mode === 'loopArmed' || st.looper.mode === 'looping'
+      if (on !== m.looper.on) host.command({ type: 'looperOnOff' })
     }
     const text = label ?? `Registration ${index + 1}: ${m.name || `Registration ${index + 1}`}`
     if (errors.length) host.message(`${text}: ${errors.join('; ')}`, true)

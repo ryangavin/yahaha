@@ -1689,6 +1689,55 @@ fn chord_looper_records_loops_and_keeps_memories() {
     assert!(s.send(LooperCmd::StoreLooperMemory { index: 9 }).is_ok(), "index wraps, the sequence is still there");
 }
 
+/// #201: a Registration Memory keeps the Chord Looper (group Chord Looper, DL p.82): the
+/// memory selected with its sequence, and ON/OFF. A recall puts the memory back even when
+/// the looper's memories were cleared, and arms the loop; one stored with the loop off
+/// stops it. Freeze Chord Looper leaves it alone.
+#[test]
+fn registration_stores_the_chord_looper() {
+    use crate::registration::Group;
+    let Some(s) = offline("SlowWalker.T552.sty") else { return };
+    let bar = bar_ns(&s);
+    s.send(LooperCmd::LooperRec).unwrap();
+    keys(&s, true, &[36, 40, 43]); // C, starts the band and the recording
+    s.advance(bar);
+    keys(&s, false, &[36, 40, 43]);
+    keys(&s, true, &[33, 36, 40]); // Am
+    s.advance(bar / 2);
+    s.send(LooperCmd::LooperOnOff).unwrap();
+    s.advance(bar);
+    assert_eq!(s.state().looper.mode, LooperMode::Looping);
+    s.send(LooperCmd::StoreLooperMemory { index: 3 }).unwrap();
+    // Registration 1: memory 4, looping. Registration 2: the loop off.
+    s.send(RegistrationCmd::MemorizeRegist { index: 0 }).unwrap();
+    s.send(LooperCmd::LooperOnOff).unwrap();
+    assert_eq!(s.state().looper.mode, LooperMode::Off);
+    s.send(RegistrationCmd::MemorizeRegist { index: 1 }).unwrap();
+    // The looper's memories go (a later session, say).
+    s.send(LooperCmd::NewLooperBank).unwrap();
+    assert!(s.state().looper.memories.iter().all(|m| m.name.is_none()));
+    s.send(RegistrationCmd::RecallRegist { index: 0 }).unwrap();
+    s.advance(bar / 8);
+    let st = s.state();
+    assert_eq!(st.looper.memory, Some(3));
+    assert_eq!(st.looper.memories[3].name.as_deref(), Some("CLD_001"));
+    let chords: Vec<_> = st.looper.memories[3].chords.iter().map(|c| c.chord.as_str()).collect();
+    assert_eq!(chords, ["C", "Am"]);
+    assert!(matches!(st.looper.mode, LooperMode::LoopArmed | LooperMode::Looping), "{:?}", st.looper.mode);
+    s.advance(bar);
+    assert_eq!(s.state().looper.mode, LooperMode::Looping);
+    // Registration 2 stops it.
+    s.send(RegistrationCmd::RecallRegist { index: 1 }).unwrap();
+    s.advance(bar / 8);
+    assert_eq!(s.state().looper.mode, LooperMode::Off);
+    // Freeze Chord Looper: Registration 1 leaves the looper alone.
+    s.send(RegistrationCmd::SetFreezeGroup { group: Group::ChordLooper, on: true }).unwrap();
+    s.send(RegistrationCmd::SetFreeze { on: true }).unwrap();
+    s.send(RegistrationCmd::RecallRegist { index: 0 }).unwrap();
+    s.advance(bar);
+    assert_eq!(s.state().looper.mode, LooperMode::Off);
+}
+
 #[test]
 fn solo_track_mute_tempo_and_metronome() {
     let Some(s) = offline("SlowWalker.T552.sty") else { return };
