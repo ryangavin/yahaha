@@ -55,7 +55,7 @@ button{font-family:inherit;cursor:pointer}
 
 <section aria-label="Display" style="height: %%DISPH%%px; flex-shrink: 0; display: flex; flex-direction: column; border-radius: 8px; border: 1px solid #2d2d32; background: #121317; overflow: hidden; position: relative">
 <svg width="100%" height="100%" viewBox="0 0 640 160" preserveAspectRatio="none" aria-hidden="true" style="position: absolute; inset: 0; opacity: {{bgArt.o}}">%%BGSVG%%</svg>
-<div aria-hidden="true" style="position: absolute; inset: 0; background: linear-gradient(180deg, rgba(18,19,23,.35) 0%, rgba(18,19,23,.72) 45%, rgba(18,19,23,.9) 100%)"></div>
+<div aria-hidden="true" style="position: absolute; inset: 0; background: linear-gradient(180deg, rgba(14,14,16,.2) 0%, rgba(14,14,16,.55) 40%, rgba(14,14,16,.78) 100%)"></div>
 <div role="tablist" style="position: relative; height: 34px; flex-shrink: 0; display: flex; align-items: flex-end; gap: 2px; padding: 0 12px; border-bottom: 1px solid #26262b">
 <sc-for list="{{tabs}}" as="t" hint-placeholder-count="7">
 <button role="tab" class="tab" aria-selected="{{t.on}}" style="background: {{t.bg}}; color: {{t.ink}}; border-bottom: 2px solid {{t.line}}; padding: 0 {{t.pad}}px">{{t.name}}</button>
@@ -86,6 +86,7 @@ button{font-family:inherit;cursor:pointer}
 <div style="height: 4px; border-radius: 2px; background: {{p.col}}"></div>
 <span class="cap" style="font-size: 10px; white-space: nowrap; overflow: hidden; color: {{p.col}}">{{p.name}}</span>
 <button style="height: 24px; padding: 0 4px; border-radius: 4px; border: 1px solid #2d2d32; background: #0e0e10; color: #f2f2f2; font-size: 11px; font-weight: 600; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{p.voice}} ▾</button>
+<div style="flex-grow: 1; min-height: 0; display: flex; gap: 3px">
 <div role="slider" aria-label="{{p.name}} {{p.layerName}}" aria-valuenow="{{p.val}}" style="flex-grow: 1; display: {{p.faderDisp}}; position: relative; min-height: 0; border-radius: 4px; overflow: hidden; background: #202025">
 <div style="position: absolute; left: 0; right: 0; bottom: 0; height: {{p.fader}}%; background: {{p.body}}"></div>
 <div style="position: absolute; left: 0; right: 0; bottom: 0; height: {{p.level}}%; background: {{p.col}}; opacity: .9"></div>
@@ -93,6 +94,10 @@ button{font-family:inherit;cursor:pointer}
 </div>
 <div style="flex-grow: 1; display: {{p.knobDisp}}; align-items: center; justify-content: center; min-height: 0">
 <svg width="40" height="40" viewBox="0 0 40 40" aria-hidden="true"><path d="{{p.kTrack}}" stroke="#2d2d32" stroke-width="4" fill="none" stroke-linecap="round"></path><path d="{{p.kArc}}" stroke="{{p.col}}" stroke-width="4" fill="none" stroke-linecap="round"></path><line x1="20" y1="4" x2="20" y2="9" stroke="#55555c" stroke-width="2"></line></svg>
+</div>
+<div aria-label="Sends" style="width: 15px; flex-shrink: 0; display: flex; flex-direction: column; gap: 2px">
+<sc-for list="{{p.sends}}" as="sd" hint-placeholder-count="3"><div role="slider" aria-label="{{sd.tip}}" title="{{sd.tip}}" style="flex: 1; position: relative; border-radius: 3px; overflow: hidden; background: #202025; outline: {{sd.ring}}; outline-offset: -1px"><div style="position: absolute; left: 0; right: 0; bottom: 0; height: {{sd.v}}%; background: {{sd.col}}"></div><span style="position: absolute; inset: 0; display: flex; align-items: flex-end; justify-content: center; padding-bottom: 2px; font-size: 8px; font-weight: 700; color: #ffffff">{{sd.n}}</span></div></sc-for>
+</div>
 </div>
 <span style="font-size: 11px; font-weight: 700; text-align: center; color: {{p.valInk}}">{{p.val}}</span>
 <div style="display: flex; gap: 3px">
@@ -172,6 +177,7 @@ class Component extends DCLogic {
         // The fader body is the part colour, dimmed; the level (post-fader) lights it from the bottom.
         fader: Math.round(v * 100), level: isVol ? Math.round(p[2] * p[3] / 100) : 0, body: COL[i] + '55',
         kTrack: arcPath(20, 20, 15, 1), kArc: arc2(20, 20, 15, .5, p[8]),
+        sends: [['R', 'Reverb', p[5], 'REV'], ['C', 'Chorus', p[6], 'CHO'], ['D', 'Delay', p[7], 'DLY']].map(x => ({ n: x[0], tip: p[0] + ' ' + x[1] + ' send ' + Math.round(x[2] * 127), v: Math.round(x[2] * 100), col: COL[i] + 'aa', ring: LAYER === x[3] ? '1px solid #ffffff' : 'none' })),
         val, valInk: isVol ? '#c9c9cf' : COL[i] };
     });
     // The Launchkey Sections pad page (src/launchkey.rs section_looks), as the hardware lights it.
@@ -209,7 +215,7 @@ class Component extends DCLogic {
       for (let y = 0; y < rows; y++) for (let x = 0; x < cols; x++) { const on = (y === 0 && x % 4 === 0) || (y === 1 && x % 8 === 4) || r() < dens[y]; if (on) cells.push({ x: (x * cw + 1).toFixed(1), y: (y * ch + 1).toFixed(1), w: (cw - 2).toFixed(1), h: (ch - 2).toFixed(1), col: COL[4 + y], o: (0.45 + r() * 0.55).toFixed(2) }); }
       return cells; };
 %%SONGMAP%%
-    const base = { hdr, tabs, layers, parts, knobs, mirPads, secPads, mirLegend, ring, bgArt: Object.assign(songMap(7, '#ffd23f', '#ff5a3c', 'pop', 'bgsm', 640, 160), { o: TAB === 'Home' ? .6 : .35 }), mir, regs, ots, white, black, kb, art: artFor(7, 300, 366, 9) };
+    const base = { hdr, tabs, layers, parts, knobs, mirPads, secPads, mirLegend, ring, bgArt: Object.assign(songMap(7, '#ffd23f', '#ff5a3c', 'pop', 'bgsm', 640, 160, 3), { o: TAB === 'Home' ? .7 : .4 }), mir, regs, ots, white, black, kb, art: artFor(7, 300, 366, 9) };
     %%JS%%
     return Object.assign(base, extra);
   }
