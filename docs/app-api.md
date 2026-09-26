@@ -239,18 +239,27 @@ left hand ([ireal.md](ireal.md), "Chart player"). Playlists live in the session'
 | `setChartEnding` | `index` | The Ending 0–2 after the last bar, or `null`: the band stops at the end of the last bar. |
 | `setChartAutoStyle` | `on` | Load the suggested style whenever a song is chosen. |
 
-### Registration Memory
+### Registration Memory (Snapshots)
 
-Buttons are 0-based (`index` 0–9 = the panel's [1]–[10]). Groups are `style`, `voice`,
+The Genos's Registration Memory buttons are **Snapshots**: eight per **snapshot bank**
+(Bank A, B, … up to H) in a bank file. `index` is a snapshot's place in the bank file,
+0-based: `bank * 8 + slot` (0 = A1, 9 = B2, up to 63 = H8). A bank file from before
+snapshots (ten buttons) loads with its buttons 1–8 as Bank A and 9–10 as B1–B2, the same
+indices, so its sequence and playlist records still point at them. The MEMORY button is
+**Store**; the wire names keep the Genos words (`pressRegist`, `toggleRegistMemory`,
+`registration.memory`). Groups are `style`, `voice`,
 `harmonyArp`, `multiPad`, `tempo`, `transpose`, `chordLooper`, `liveControl`, `assignable`
 (the Genos Freeze groups; docs/registration.md lists what each covers).
 
 | Command | Fields | Does |
 |---|---|---|
-| `pressRegist` | `index` | A REGISTRATION MEMORY button (the Launchkey pads send this): recalls it, or memorizes into it while MEMORY is armed. |
+| `pressRegist` | `index` | A snapshot button: recalls it, or stores into it while Store is armed. The pads follow to its snapshot bank. |
+| `pressSnapshot` | `slot` 0–7 | Snapshot `slot` of the snapshot bank on view (`snapshotBank`), as `pressRegist` (the Launchkey pads and the `regist1`–`regist8` assignable functions send this; `regist9`/`regist10` run on into the next bank's 1–2). |
+| `stepSnapshotBank` | `delta` | Snapshot bank −/+: views the previous/next eight. It stops at Bank A and at one empty bank past the last stored one (at most H), to store into. |
+| `selectSnapshotBank` | `bank` 0–7 | Views snapshot bank `bank` (0 = A). Refused past the one empty bank after the last stored one. |
 | `recallRegist` | `index` | Recalls a button: the groups it memorized, less the frozen ones while Freeze is on. The style comes first; when it changes, the rest follows once the new style plays (at once when stopped, at the next bar line when playing; `registration.pending` meanwhile). Refused if the button is empty. |
 | `memorizeRegist` | `index` | Stores the panel (the `memorizeGroups`) in a button, replacing what it held. A saved bank is written to its file at once. |
-| `toggleRegistMemory` | | The MEMORY button: the next `pressRegist` memorizes. |
+| `toggleRegistMemory` | | The STORE button (the Genos's MEMORY): the next `pressRegist`/`pressSnapshot` stores. |
 | `setMemorizeGroup` | `group`, `on` | Ticks a group in the Memory window. |
 | `clearRegist` | `index` | Empties a button. |
 | `renameRegist` | `index`, `name` | Renames a button. |
@@ -260,7 +269,7 @@ Buttons are 0-based (`index` 0–9 = the panel's [1]–[10]). Groups are `style`
 | `saveRegistBank` | `name` (null: its own file), `overwrite`? | Saves the bank; with a name, as a file of that name in the folder. Refused when another bank already has that file, unless `overwrite: true`. Fails without a data folder. |
 | `setFreeze` / `toggleFreeze` | `on` | Registration Freeze. |
 | `setFreezeGroup` | `group`, `on` | Ticks a group on the Freeze display: it stays unchanged on recall while Freeze is on. |
-| `setRegistSequence` | `steps` (buttons 0–9), `end`: `stop` \| `top` \| `next` | Programs the bank's Registration Sequence. |
+| `setRegistSequence` | `steps` (snapshot indices 0–63), `end`: `stop` \| `top` \| `next` | Programs the bank's Registration Sequence. |
 | `setRegistSequenceOn` / `toggleRegistSequence` | `on` | Registration Sequence on/off. A panel setting, not part of the bank (as on the Genos): it stays when the bank changes, and is kept in the Registration folder's `setup.json`. |
 | `stepRegistSequence` | `delta` | Regist +/−: recalls the next/previous step. Past the end: `stop` stays, `top` wraps, `next` loads the next bank and recalls its first step. Refused while the sequence is off. |
 | `stepRegist` | `delta` | Regist +/− from a pedal (the `registNext`/`registPrev` assignable functions): the sequence's next/previous step while it is on and has steps, else the bank's next/previous stored button (empty ones skipped; from none, + the first and − the last; it stops at either end). Refused when the bank has nothing stored. |
@@ -950,9 +959,11 @@ The settings the `Style settings` commands set.
 | `bank` | object | The bank in use: `name`, `path` (null until saved), `dirty` (changed since loaded or saved), `position` (its place in `banks`). |
 | `banks` | {name, path}[] | The bank files in the folder, in order. |
 | `folder` | string? | Where banks are saved (`<data dir>/Registration`); null when saving is off. |
-| `buttons` | RegistButton[10] | `index`, `stored`, `name`, `groups` (what it memorized), `style` (name)?, `tempo`?, `voices` ({name, on} for Right 1, Right 2, Right 3, Left; empty when it stores no parts). |
-| `selected` | 0–9? | The button last recalled or memorized (the red lamp). |
-| `memory` | bool | MEMORY is armed. |
+| `buttons` | RegistButton[] | Every snapshot of the bank file, by index: whole snapshot banks of eight, through the one on view. `index`, `stored`, `name`, `groups` (what it memorized), `style` (name)?, `tempo`?, `voices` ({name, on} for Right 1, Right 2, Right 3, Left; empty when it stores no parts). |
+| `selected` | 0–63? | The snapshot last recalled or stored (the red lamp), by index. |
+| `memory` | bool | Store is armed. |
+| `snapshotBank` | 0–7 | The snapshot bank on view (0 = Bank A): the pads press its eight. It follows a recall. |
+| `snapshotBanks` | 1–8 | Snapshot banks the file holds (enough for its last stored snapshot). |
 | `memorizeGroups`, `freezeGroups` | Group[] | The ticked groups. |
 | `freeze` | bool | Registration Freeze is on. |
 | `sequence` | object | `on`, `steps` (buttons), `end` (`stop` \| `top` \| `next`), `position` (the step last recalled)? |
@@ -1167,7 +1178,7 @@ Fill In BB queued, with OTS 1 recalled. Some lists are shortened here:
 - `styleParts` has 8.
 - `ots.settings` lists every OTS in the style.
 - `surface.controls` has 17 and `surface.faders` has 9.
-- `registration.buttons` has 10.
+- `registration.buttons` has 8.
 
 The `library`, `surface.trackPrev`/`trackNext`, the master fader and `io` show what a
 live session reports with a library folder, a Launchkey and the synth.
@@ -1623,6 +1634,8 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
     ],
     "selected": 0,
     "memory": false,
+    "snapshotBank": 0,
+    "snapshotBanks": 1,
     "memorizeGroups": ["style", "voice", "harmonyArp", "multiPad", "tempo", "transpose", "chordLooper", "liveControl", "assignable"],
     "freeze": false,
     "freezeGroups": ["tempo"],
