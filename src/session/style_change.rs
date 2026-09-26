@@ -314,7 +314,7 @@ mod tests {
 
     /// Step 5 ms at a time until `done`; at every step before it, the keyboard parts must
     /// still sound as `before` (no OTS reaches them early). Returns the state at `done`.
-    fn nothing_until(s: &Session, before: &PartSound, max_ms: u64, done: impl Fn(&AppState) -> bool) -> std::sync::Arc<AppState> {
+    fn nothing_until(s: &Session, before: &PartSound, max_ms: u64, mut done: impl FnMut(&AppState) -> bool) -> std::sync::Arc<AppState> {
         for _ in 0..max_ms / 5 {
             let st = s.state();
             if done(&st) {
@@ -369,6 +369,40 @@ mod tests {
         assert_eq!(st.ots.applied, 1, "the fill plays: still OTS 1");
         let st = nothing_until(&s, &before, 4000, |st| st.transport.section.as_deref() == Some("Main B"));
         assert_eq!(st.ots.applied, 2, "Main B starts: OTS 2");
+    }
+
+    /// #229 Decision: OTS Link recalls once, at the Main change, not per fill. Fills looped
+    /// by tapping Main A, and Main A coming back after them, recall nothing under either
+    /// timing: a keyboard part the player set meanwhile keeps its level throughout.
+    #[test]
+    fn ots_link_does_not_follow_looped_fills() {
+        for timing in [OtsLinkTiming::MainChange, OtsLinkTiming::Immediate] {
+            let Some((s, _)) = playing_main_a(true) else { return };
+            s.send(OtsCmd::SetOtsLinkTiming { timing }).unwrap();
+            s.send(PartsCmd::SetPartVolume { part: 0, volume: 11 }).unwrap();
+            s.advance(5 * MS);
+            let before = sounds(&s.state());
+            assert_eq!(before[0].2, 11, "{timing:?}: the player's level");
+            let fill = |st: &AppState| st.transport.section.as_deref() == Some("Fill In AA");
+            s.send(TransportCmd::Main { index: 0 }).unwrap();
+            nothing_until(&s, &before, 4000, fill);
+            // Tapped at the fill's start and again 2 s on (in the second fill, SlowWalker's
+            // bar being 3.2 s): three fills back to back, two whole ones, then Main A.
+            s.send(TransportCmd::Main { index: 0 }).unwrap();
+            let mut ms = 0;
+            nothing_until(&s, &before, 3000, |_| {
+                ms += 5;
+                ms > 2000
+            });
+            s.send(TransportCmd::Main { index: 0 }).unwrap();
+            let st = nothing_until(&s, &before, 12_000, |st| {
+                ms += 5;
+                !fill(st)
+            });
+            assert_eq!(st.transport.section.as_deref(), Some("Main A"), "{timing:?}");
+            assert!((6_400..9_700).contains(&ms), "{timing:?}: three fills, {ms} ms");
+            assert_eq!(st.ots.applied, 1, "{timing:?}");
+        }
     }
 
     /// A style queued at the next bar: its OTS reaches the keyboard parts as it takes over,

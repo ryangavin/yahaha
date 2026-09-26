@@ -34,8 +34,35 @@ sibling branches.)
   unless another Main is already queued; then it is the queued Main's fill, and the band
   still goes on to that Main. RM p.142 says only "plays a fill-in"; this keeps Fill Self
   a Main press with the fill forced, so it never cancels the Main the player chose.
-- During an Intro, fill or break, a fill function selects the Main that follows, as a Main
-  press does. During an Ending it queues the Main at the next bar.
+- During an Intro or break, a fill function selects the Main that follows, as a Main
+  press does. During a fill it plays the fill again right after it (below). During an
+  Ending it queues the Main at the next bar.
+
+## Repeated fills (#229)
+
+Owner decision (2026-09-25): "if i keep tapping a section i should just keep looping that
+fill every bar." A press during a fill that would play a fill from a Main (the Main the fill
+leads to, any Main with Auto Fill on, or a fill function) queues that Main's fill for the
+end of the fill playing, from its top, back to back (`Change::AfterFill`). Tapping once per
+fill loops the fills; the Main comes back after the first fill with no tap. Before, a press
+during a fill only selected the Main, so its bar 1 always played before a new fill. The
+manuals do not describe presses during a fill.
+
+- **Decision:** the rest is as before. Another Main pressed during a fill with Auto Fill off
+  just follows the fill. A press during an Intro or the Break selects the Main that follows
+  it (a Break is not a fill of a Main). The Break pressed during a fill comes in at the next
+  beat, and a style change during a fill still waits for the fill's end: a fill tapped again
+  then plays in the new style.
+- **Decision:** OTS Link recalls once, at the Main change, not per fill. A fill of the same
+  Main changes nothing on the keyboard, and the Main coming back after looped fills is no
+  Main change (either timing). Recalling per fill would undo the player's part changes every
+  bar.
+- **Decision:** Accent (#180) is unchanged: a hard strike plays the Main's fill while a Main
+  plays, and does nothing during a fill. The Accent is a touch reading, not a press; a loop
+  of fills from a hard-played passage would be a surprise.
+- A tap just after the fill's end (in the Main's first beat) is a press in the Main: the fill
+  starts at the next beat. The fill late-press grace is still an open question
+  (`docs/research/genos-parity/`).
 
 ## Half Bar Fill In (#24)
 
