@@ -1317,6 +1317,8 @@ impl EngineLoop {
         // The Multi Pad volume (Panel fader 6, #196): a scale on the pads' CC7.
         engine.set_pad_level(shared.parts.volume(parts::PAD_LEVEL), &mut io.out);
         shared.parts.send_fx(&mut |m| io.out.push(m));
+        // The keyboard parts' voice settings an OTS or Registration set (#238).
+        shared.parts.send_tone(&mut |m| io.out.push(m));
         let ctl = &shared.controllers;
         ctl.sync_ranges(&mut |m| io.out.push(m));
         // One thread sends the parts' controllers at a time (controllers.rs): when the

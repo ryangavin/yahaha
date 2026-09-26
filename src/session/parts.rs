@@ -23,12 +23,16 @@ impl Control {
                 parts.set_program(p, program);
                 self.end_picked_plugin(p);
                 self.sound_library_part_voice(p);
+                // The voice settings back to neutral (#238): the engine thread sends them.
+                self.wake_engine();
             }
             PartsCmd::StepVoice { delta } => {
                 parts.step_program(delta as i32);
                 let p = parts.selected();
                 self.end_picked_plugin(p);
                 self.sound_library_part_voice(p);
+                // The voice settings back to neutral (#238): the engine thread sends them.
+                self.wake_engine();
             }
             PartsCmd::SetPartVolume { part, volume } => {
                 parts.set_volume((part & 3) as usize, volume);

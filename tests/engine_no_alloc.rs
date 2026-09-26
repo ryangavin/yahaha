@@ -131,6 +131,14 @@ fn preview_and_next_bar_style_change_do_not_allocate() {
     shared.controllers.toggle_switch(yahaha::controllers::SUSTAIN);
     shared.parts.toggle(1);
     l.step(now + 1);
+    // An OTS recall's voice settings (#238), then a voice change putting them back.
+    let mut ots = yahaha::sff::Ots::default();
+    ots.parts[0].tone = [Some(80); yahaha::parts::TONE];
+    ots.parts[0].xg.set(0x08, 0x05, 0);
+    shared.parts.apply_ots(&ots, 1);
+    l.step(now + 1);
+    shared.parts.set_program(0, 3);
+    l.step(now + 1);
     ch.ui_tx.push(Cmd::Button(Button::FillUp)).ok().unwrap();
     ch.ui_tx.push(Cmd::KeysOff).ok().unwrap();
     l.step(now + 1);
