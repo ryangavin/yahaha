@@ -36,6 +36,7 @@ const EVERY_CMD: &[&str] = &[
     r#"{"type":"tapTempo"}"#,
     r#"{"type":"tempoUp"}"#,
     r#"{"type":"tempoDown"}"#,
+    r#"{"type":"resetTempo"}"#,
     r#"{"type":"toggleFade"}"#,
     r#"{"type":"sectionReset"}"#,
     r#"{"type":"toggleRetrigger"}"#,

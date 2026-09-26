@@ -76,6 +76,8 @@ pub enum Cmd {
     Strike(u8),
     /// A Dynamics Control pedal set the Dynamics level (controllers.rs).
     DynamicsLevel(u8),
+    /// A TEMPO button went down (−1, +1: a step now, repeating while held) or up (0).
+    TempoHold(i8),
 }
 
 /// A Multi Pad bank for the engine thread (`AppCmd::LoadMultiPad`): its player, built on
@@ -542,6 +544,8 @@ pub struct Input {
     actions: Option<Producer<Action>>,
     /// The Launchkey's Shift button is held.
     shift: bool,
+    /// The Launchkey's TEMPO buttons held down (bit 0: −, bit 1: +).
+    tempo_held: u8,
     /// Soft takeover of the Launchkey master fader (the synth master level).
     master_takeover: crate::engine::Takeover,
     /// The note pipeline's processor slot (Harmony or Arpeggio), from `Shared::kbd_fx`
@@ -588,6 +592,7 @@ impl Input {
             synth: None,
             actions: None,
             shift: false,
+            tempo_held: 0,
             master_takeover: crate::engine::Takeover::NEW,
             processor: Processor::Off,
             fx_word: FxConfig::default().pack(),
@@ -923,6 +928,12 @@ impl Input {
                 }
                 return;
             }
+            if let Some(dir) = launchkey::tempo_button(cc)
+                && (!self.shift || (v == 0 && self.tempo_held != 0))
+            {
+                self.tempo_button(cc, dir, v > 0);
+                return;
+            }
             match launchkey::cc_control(cc, self.shift) {
                 Some(Control::Page(d)) if v > 0 => {
                     // Here, not on the control side: the next pad press must already
@@ -987,6 +998,27 @@ impl Input {
             }
             FaderPage::Panel => {}
             FaderPage::Style => self.act(Action::Button(Button::TogglePart(i))),
+        }
+    }
+
+    /// TEMPO − (`dir` −1) or + (1) went down or up. Held, it repeats (the engine times it);
+    /// both down together go back to the style's tempo (OM p.46). With Shift the buttons are
+    /// something else, but a tempo button held when Shift went down still ends its repeat.
+    fn tempo_button(&mut self, cc: u8, dir: i8, down: bool) {
+        let bit = if dir < 0 { 1 } else { 2 };
+        let cmd = if down {
+            self.tempo_held |= bit;
+            self.touch(Touch::Button { cc, shift: false });
+            if self.tempo_held == 3 { Cmd::Button(Button::TempoReset) } else { Cmd::TempoHold(dir) }
+        } else {
+            if self.tempo_held & bit == 0 {
+                return;
+            }
+            self.tempo_held &= !bit;
+            Cmd::TempoHold(0)
+        };
+        if self.cmd.push(cmd).is_ok() {
+            self.signal = true;
         }
     }
 
@@ -1451,6 +1483,7 @@ fn apply(engine: &mut Engine, shared: &Shared, cmd: Cmd, now: u64, out: &mut Out
         Cmd::Dynamics(d) => engine.set_dynamics(d),
         Cmd::Strike(vel) => engine.strike(vel, now),
         Cmd::DynamicsLevel(v) => engine.set_dynamics_level(v),
+        Cmd::TempoHold(d) => engine.tempo_hold(d, now),
         Cmd::KeysOff => {
             // The source's pedal, wheels and pressure went to every keyboard part too, and
             // its releases will never come: with the pedal left down, All Notes Off would

@@ -200,6 +200,7 @@ impl From<Button> for AppCmd {
             Button::TapTempo => TransportCmd::TapTempo.into(),
             Button::TempoUp => TransportCmd::TempoUp.into(),
             Button::TempoDown => TransportCmd::TempoDown.into(),
+            Button::TempoReset => TransportCmd::ResetTempo.into(),
             Button::SetTempo(bpm) => TransportCmd::SetTempo { bpm }.into(),
             Button::TogglePart(p) => MixerCmd::ToggleStylePart { part: p }.into(),
             Button::StopAcmp => TransportCmd::ToggleStopAcmp.into(),
