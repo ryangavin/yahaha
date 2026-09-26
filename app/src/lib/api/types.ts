@@ -17,7 +17,7 @@ export type Fingering =
   | 'aiFingered' | 'fullKeyboard' | 'aiFullKeyboard'
 
 /** The Launchkey pad pages, switched with Pad Bank ▲/▼. */
-export type PadPage = 'sections' | 'chordSetup' | 'otsParts' | 'registration'
+export type PadPage = 'sections' | 'chordSetup' | 'otsParts' | 'registration' | 'multiPads'
 
 /** What the Launchkey faders control, like the Genos Mixer's Panel and Style tabs. */
 export type FaderPage = 'panel' | 'style'
@@ -1035,7 +1035,7 @@ export type BendRange = 'upper' | 'lower' | 'full'
 export interface AssignableFunction {
   id: FunctionId
   name: string
-  category: 'voice' | 'style' | 'ots' | 'registration' | 'overall'
+  category: 'voice' | 'style' | 'ots' | 'registration' | 'overall' | 'chordLooper'
   /** switch: Control Type applies; trigger: fires on the press; continuous: an expression pedal. */
   kind: 'switch' | 'trigger' | 'continuous'
   /** yahaha has it (Registration Bank +/− not yet). */
@@ -1238,6 +1238,7 @@ export const PAD_PAGES: { id: PadPage; name: string }[] = [
   { id: 'chordSetup', name: 'Chord/Setup' },
   { id: 'otsParts', name: 'OTS/Parts' },
   { id: 'registration', name: 'Registration' },
+  { id: 'multiPads', name: 'Multi Pads' },
 ]
 
 /** Section names as the engine reports them. */

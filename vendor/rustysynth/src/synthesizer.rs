@@ -47,7 +47,19 @@ pub struct Synthesizer {
     channel_left: Vec<f32>,
     channel_right: Vec<f32>,
     channel_peaks: [f32; 16],
+    // yahaha: the send buses (yahaha's shared effects): each channel's gain into each bus
+    // (`set_channel_sends`), and the block's buses (bus b, side s at (2 * b + s) *
+    // block_size), filled from the channel rows above. `internal_effects` turns the
+    // synthesizer's own reverb and chorus on or off.
+    send_gains: [[f32; SEND_BUSES]; 16],
+    send_block: Vec<f32>,
+    send_used: bool,
+    used_rows: u16,
+    internal_effects: bool,
 }
+
+/// yahaha: the number of send buses `render_with_sends` fills.
+pub const SEND_BUSES: usize = 3;
 
 impl Synthesizer {
     /// The number of channels.
@@ -132,6 +144,11 @@ impl Synthesizer {
             channel_left,
             channel_right,
             channel_peaks: [0_f32; Synthesizer::CHANNEL_COUNT],
+            send_gains: [[0_f32; SEND_BUSES]; Synthesizer::CHANNEL_COUNT],
+            send_block: vec![0_f32; 2 * SEND_BUSES * settings.block_size],
+            send_used: false,
+            used_rows: 0,
+            internal_effects: true,
         })
     }
 
@@ -146,6 +163,25 @@ impl Synthesizer {
     /// yahaha: start the channel peaks again from 0.
     pub fn reset_channel_peaks(&mut self) {
         self.channel_peaks = [0_f32; Synthesizer::CHANNEL_COUNT];
+    }
+
+    /// yahaha: channel `channel`'s gain (linear) into each send bus of
+    /// `render_with_sends`. The send taps the channel's dry mix (after its volume,
+    /// expression and pan and the master volume). Takes effect from the next block.
+    pub fn set_channel_sends(&mut self, channel: usize, gains: [f32; SEND_BUSES]) {
+        self.send_gains[channel & (Synthesizer::CHANNEL_COUNT - 1)] = gains;
+    }
+
+    /// yahaha: whether the synthesizer's own reverb and chorus play (they do by default,
+    /// if the settings enabled them). Turning them back on starts them from silence.
+    pub fn set_internal_effects(&mut self, on: bool) {
+        if on && !self.internal_effects {
+            if let Some(effects) = self.effects.as_mut() {
+                effects.reverb.mute();
+                effects.chorus.mute();
+            }
+        }
+        self.internal_effects = on;
     }
 
     /// Processes a MIDI message.
@@ -357,8 +393,25 @@ impl Synthesizer {
     ///
     /// The output buffers for the left and right must be the same length.
     pub fn render(&mut self, left: &mut [f32], right: &mut [f32]) {
+        self.render_inner(left, right, None);
+    }
+
+    /// yahaha: `render`, and **add** the send buses to `sends`: bus b's left side at
+    /// `sends[2 * b * n..]`, its right side at `sends[(2 * b + 1) * n..]`, `n` =
+    /// `left.len()` (so `sends` holds at least `2 * SEND_BUSES * n`).
+    pub fn render_with_sends(&mut self, left: &mut [f32], right: &mut [f32], sends: &mut [f32]) {
+        self.render_inner(left, right, Some(sends));
+    }
+
+    fn render_inner(&mut self, left: &mut [f32], right: &mut [f32], mut sends: Option<&mut [f32]>) {
         if left.len() != right.len() {
             panic!("The output buffers for the left and right must be the same length.");
+        }
+        let n = left.len();
+        if let Some(s) = sends.as_deref() {
+            if s.len() < 2 * SEND_BUSES * n {
+                panic!("The send buffer must hold every bus.");
+            }
         }
 
         let left_length = left.len();
@@ -377,6 +430,18 @@ impl Synthesizer {
             for t in 0..rem {
                 left[wrote + t] = self.block_left[self.block_read + t];
                 right[wrote + t] = self.block_right[self.block_read + t];
+            }
+
+            // yahaha: the send buses, when the block has any.
+            if let (Some(sends), true) = (sends.as_deref_mut(), self.send_used) {
+                let bs = self.block_size;
+                for row in 0..2 * SEND_BUSES {
+                    let src = &self.send_block[row * bs + self.block_read..row * bs + self.block_read + rem];
+                    let dst = &mut sends[row * n + wrote..row * n + wrote + rem];
+                    for (d, x) in dst.iter_mut().zip(src) {
+                        *d += *x;
+                    }
+                }
             }
 
             self.block_read += rem;
@@ -437,6 +502,7 @@ impl Synthesizer {
                 self.inverse_block_size,
             );
         }
+        self.used_rows = used;
         while used != 0 {
             let ch = used.trailing_zeros() as usize;
             used &= used - 1;
@@ -448,6 +514,30 @@ impl Synthesizer {
             self.channel_peaks[ch] = self.channel_peaks[ch].max(peak);
         }
 
+        // yahaha: the send buses, from the channel rows of the channels that sound.
+        self.send_used = false;
+        let mut sending = self.used_rows & self.send_mask();
+        if sending != 0 {
+            self.send_block.fill(0_f32);
+            self.send_used = true;
+        }
+        while sending != 0 {
+            let ch = sending.trailing_zeros() as usize;
+            sending &= sending - 1;
+            let row = ch * bs..(ch + 1) * bs;
+            for (b, &g) in self.send_gains[ch].iter().enumerate() {
+                if g <= 0_f32 {
+                    continue;
+                }
+                let (l, r) = self.send_block.split_at_mut((2 * b + 1) * bs);
+                ArrayMath::multiply_add(g, &self.channel_left[row.clone()], &mut l[2 * b * bs..]);
+                ArrayMath::multiply_add(g, &self.channel_right[row.clone()], &mut r[..bs]);
+            }
+        }
+
+        if !self.internal_effects {
+            return;
+        }
         if let Some(effects) = self.effects.as_mut() {
             let chorus = &mut effects.chorus;
             let chorus_input_left = &mut effects.chorus_input_left[..];
@@ -527,6 +617,17 @@ impl Synthesizer {
                 &mut self.block_right[..],
             );
         }
+    }
+
+    /// yahaha: the channels with a send gain above 0 (bit = channel).
+    fn send_mask(&self) -> u16 {
+        let mut m = 0_u16;
+        for (ch, g) in self.send_gains.iter().enumerate() {
+            if g.iter().any(|&x| x > 0_f32) {
+                m |= 1 << ch;
+            }
+        }
+        m
     }
 
     fn write_block(

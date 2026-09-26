@@ -446,5 +446,19 @@
     "category": "registration",
     "kind": "trigger",
     "available": true
+  },
+  {
+    "id": "chordLooperOnOff",
+    "name": "Chord Looper On/Off",
+    "category": "chordLooper",
+    "kind": "trigger",
+    "available": true
+  },
+  {
+    "id": "chordLooperRec",
+    "name": "Chord Looper Rec/Stop",
+    "category": "chordLooper",
+    "kind": "trigger",
+    "available": true
   }
 ]

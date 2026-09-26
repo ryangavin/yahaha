@@ -47,6 +47,8 @@ struct Panel {
     tempo: f64,
     main: u8,
     parts: Vec<(bool, u8, u8, i8)>,
+    /// Each keyboard part's pan, reverb and chorus (#198).
+    part_fx: Vec<(u8, u8, u8)>,
     transpose: (i8, i8),
     split: u8,
     fingering: Fingering,
@@ -71,6 +73,7 @@ fn panel(s: &Session) -> Panel {
         tempo: st.transport.tempo.round(),
         main: st.transport.main,
         parts: st.keyboard_parts.iter().map(|p| (p.on, p.program, p.volume, p.octave)).collect(),
+        part_fx: st.keyboard_parts.iter().map(|p| (p.pan, p.reverb, p.chorus)).collect(),
         transpose: (st.chord.transpose_keyboard, st.chord.transpose_master),
         split: st.chord.split,
         fingering: st.chord.fingering,
@@ -91,6 +94,9 @@ fn dress(s: &Session) {
     s.send(PartsCmd::SetPartVoice { part: 0, program: 40 }).unwrap();
     s.send(PartsCmd::SetPartVolume { part: 0, volume: 90 }).unwrap();
     s.send(PartsCmd::SetPartOctave { part: 0, octave: 1 }).unwrap();
+    s.send(PartsCmd::SetPartPan { part: 0, pan: 30 }).unwrap();
+    s.send(PartsCmd::SetPartSend { part: 0, send: PartSend::Reverb, value: 100 }).unwrap();
+    s.send(PartsCmd::SetPartSend { part: 3, send: PartSend::Chorus, value: 55 }).unwrap();
     s.send(PartsCmd::SetPartOn { part: 1, on: true }).unwrap();
     s.send(PartsCmd::SetPartVoice { part: 1, program: 11 }).unwrap();
     s.send(ChordCmd::SetTranspose { keyboard: 2, master: -1 }).unwrap();
@@ -111,6 +117,9 @@ fn scramble(s: &Session) {
     s.send(PartsCmd::SetPartVoice { part: 0, program: 1 }).unwrap();
     s.send(PartsCmd::SetPartVolume { part: 0, volume: 30 }).unwrap();
     s.send(PartsCmd::SetPartOctave { part: 0, octave: -1 }).unwrap();
+    s.send(PartsCmd::SetPartPan { part: 0, pan: 100 }).unwrap();
+    s.send(PartsCmd::SetPartSend { part: 0, send: PartSend::Reverb, value: 0 }).unwrap();
+    s.send(PartsCmd::SetPartSend { part: 3, send: PartSend::Chorus, value: 0 }).unwrap();
     s.send(PartsCmd::SetPartOn { part: 1, on: false }).unwrap();
     s.send(ChordCmd::ResetTranspose).unwrap();
     s.send(ChordCmd::SetSplit { note: 50 }).unwrap();
@@ -151,7 +160,7 @@ fn memory_button_arms_memorize_for_the_next_press() {
     s.send(RegistrationCmd::PressRegist { index: 3 }).unwrap();
     let st = s.state();
     assert!(!st.registration.memory && st.registration.buttons[3].stored);
-    assert_eq!(st.pads.page_count, 4);
+    assert_eq!(st.pads.page_count, 5);
     let _ = std::fs::remove_dir_all(dir);
 }
 

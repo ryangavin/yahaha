@@ -12,6 +12,7 @@ pub mod click;
 pub mod controllers;
 pub mod engine;
 pub mod fingering;
+pub mod fx;
 pub mod ireal;
 pub mod knobs;
 #[cfg(test)]
