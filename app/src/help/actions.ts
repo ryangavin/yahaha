@@ -269,5 +269,6 @@ export function tipFor(cmd: AppCmd | null): TipKey {
     case 'setEffectType': return `fx.${cmd.block}_type`
     case 'setEffectReturn': return `fx.${cmd.block}_return`
     case 'setBandSend': return `fx.${cmd.block}_band`
+    case 'setEffectParam': return ({ reverbTime: 'fx.param.reverb_time', preDelay: 'fx.param.pre_delay', reverbTone: 'fx.param.reverb_tone' } as const)[cmd.param]
   }
 }

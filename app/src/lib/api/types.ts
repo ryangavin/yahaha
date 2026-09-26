@@ -202,6 +202,26 @@ export type FxCmd =
   | { type: 'setEffectReturn'; block: FxBlock; level: number }
   /** #236: every Style part's send to the block scaled, 0-127 % (100 = as the style wrote it). */
   | { type: 'setBandSend'; block: FxBlock; level: number }
+  /** #236: one of the block's parameters, in its own unit (see FxParamState). */
+  | { type: 'setEffectParam'; block: FxBlock; param: FxParam; value: number }
+
+/** Reverb: reverbTime (0.1 s), preDelay (ms), reverbTone (100 Hz). */
+export type FxParam = 'reverbTime' | 'preDelay' | 'reverbTone'
+
+/** One effect parameter (#236). */
+export interface FxParamState {
+  param: FxParam
+  /** "Time". */
+  name: string
+  /** In the parameter's own unit, min–max. */
+  value: number
+  min: number
+  max: number
+  /** Where the block's type starts it (a type change goes back to it). */
+  default: number
+  /** "2.4 s". */
+  display: string
+}
 
 export type FxBlock = 'reverb' | 'chorus' | 'variation'
 /** Reverb: hall, room, stage, plate. Chorus: chorus, celeste, flanger. Variation (tempo delay): eighth, dottedEighth, quarter, pingPong. */
@@ -228,6 +248,8 @@ export interface EffectBlockState {
   returnLevel: number
   /** The band send (#236): every Style part's send to this block scaled, 0-127 % (100 = as written). Reverb 100, Chorus 0, Variation 0 at start. */
   bandSend: number
+  /** Its parameters (#236): Reverb time, pre-delay, tone. */
+  params: FxParamState[]
 }
 
 /** Knob Assign pages (#197; docs/app-api.md › Knob Assign pages). */

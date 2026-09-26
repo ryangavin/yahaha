@@ -1,5 +1,5 @@
 //! The audio callback (`synth::AudioCore::process`) must not allocate or free: SoundFont
-//! notes and controllers, a style's XG drum setup (#239), the effect bus (sends, band send scales, types, returns, legacy effects), the
+//! notes and controllers, a style's XG drum setup (#239), the effect bus (sends, band send scales, types, parameters, returns, legacy effects), the
 //! master fader, a SoundFont swap, and (feature `plugins`) a
 //! keyboard part going over to an Audio Unit instrument (Apple's DLSMusicDevice), playing
 //! it, crossfading to a second instance, and back to the SoundFont. SoundFont swaps while
@@ -89,6 +89,15 @@ fn the_audio_callback_does_not_allocate() {
         ctl.fx.variation_type.store(t, Ordering::Relaxed);
         ctl.fx.set_tempo(90.0 + t as f64 * 20.0);
         assert_eq!(run(&mut core, &mut feed, &[]), none, "effect types and returns");
+    }
+    // The effect parameters (#236): the reverb's time, pre-delay and tone, gliding.
+    for (time, pre, tone) in [(80u16, 150u16, 20u16), (5, 0, 180), (24, 22, 45)] {
+        ctl.fx.params[yahaha::fx::Param::ReverbTime.index()].store(time, Ordering::Relaxed);
+        ctl.fx.params[yahaha::fx::Param::PreDelay.index()].store(pre, Ordering::Relaxed);
+        ctl.fx.params[yahaha::fx::Param::ReverbTone.index()].store(tone, Ordering::Relaxed);
+        for _ in 0..3 {
+            assert_eq!(run(&mut core, &mut feed, &[]), none, "effect parameters");
+        }
     }
     // The band send scales (#236) gliding up and back.
     for (b, level) in [(1, 100u8), (2, 127), (0, 50), (1, 0), (2, 0), (0, 100)] {
