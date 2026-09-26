@@ -168,6 +168,10 @@ export type AppCmd =
   | { type: 'storeLooperMemory'; index: number }
   | { type: 'clearLooperMemory'; index: number }
   | { type: 'newLooperBank' }
+  /** Save the bank: to its file (`name` null), or as a new file named `name` (Save As). */
+  | { type: 'saveLooperBank'; name: string | null; overwrite?: boolean }
+  /** Load a bank file (`looper.banks`): its memories replace the eight. */
+  | { type: 'loadLooperBank'; path: string }
   // Metronome: the built-in synth's click voice, never on the MIDI port.
   | { type: 'toggleMetronome' }
   | { type: 'setMetronome'; on: boolean }
@@ -614,6 +618,11 @@ export interface LooperState {
   pendingMemory: number | null
   /** Always 8. */
   memories: LooperMemory[]
+  /** The bank's name ("New Bank" until saved or loaded), its file (null: unsaved), and the
+   * bank files in the ChordLooper folder. */
+  bankName: string
+  bankPath: string | null
+  banks: { name: string; path: string }[]
 }
 
 export interface MetronomeState {

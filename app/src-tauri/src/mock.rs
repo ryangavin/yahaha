@@ -1526,6 +1526,18 @@ impl MockSession {
             }
             AppCmd::Looper(LooperCmd::ClearLooperMemory { index }) => self.looper.clear(&mut self.state.looper, index as usize % 8),
             AppCmd::Looper(LooperCmd::NewLooperBank) => self.looper.new_bank(&mut self.state.looper),
+            AppCmd::Looper(LooperCmd::SaveLooperBank { name, overwrite }) => match self.looper.save_bank(&mut self.state.looper, name, overwrite) {
+                Ok(()) => {
+                    let text = format!("Saved Chord Looper bank {}", self.state.looper.bank_name);
+                    self.message(text, false)
+                }
+                Err(e) => self.message(e, true),
+            },
+            AppCmd::Looper(LooperCmd::LoadLooperBank { path }) => {
+                if let Err(e) = self.looper.load_bank(&mut self.state.looper, &path) {
+                    self.message(e, true);
+                }
+            }
             AppCmd::Metronome(MetronomeCmd::ToggleMetronome) => self.state.metronome.on = !self.state.metronome.on,
             AppCmd::Metronome(MetronomeCmd::SetMetronome { on }) => self.state.metronome.on = on,
             AppCmd::Metronome(MetronomeCmd::SetMetronomeVolume { volume }) => self.state.metronome.volume = vol(volume),

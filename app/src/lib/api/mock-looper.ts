@@ -16,8 +16,13 @@ export function emptyLooper(): LooperState {
     memory: null,
     pendingMemory: null,
     memories: Array.from({ length: MEMORIES }, (): LooperMemory => ({ name: null, bars: 0, chords: [] })),
+    bankName: 'New Bank',
+    bankPath: null,
+    banks: [],
   }
 }
+
+const BANK_DIR = '/mock/ChordLooper'
 
 interface Seq {
   bars: number
@@ -175,7 +180,50 @@ export class MockLooper {
     s.memories = emptyLooper().memories
     s.memory = null
     s.pendingMemory = null
+    s.bankName = 'New Bank'
+    s.bankPath = null
     this.pending = null
+  }
+
+  /** Bank files, in memory: path -> memories. */
+  private files = new Map<string, LooperMemory[]>()
+
+  /** Save to the bank's file, or as `name`. An error message, or null. */
+  saveBank(name: string | null, overwrite: boolean): string | null {
+    const s = this.s
+    let path = s.bankPath
+    if (name !== null) {
+      const n = name.trim()
+      if (!n) return 'Chord Looper: give the bank a name'
+      path = `${BANK_DIR}/${n.replace(/[/\\:]/g, '_')}.looper.json`
+      if (path !== s.bankPath && this.files.has(path) && !overwrite) return `a Chord Looper bank called ${n} already exists: save under another name, or overwrite it`
+      s.bankName = n
+    }
+    if (!path) return 'Chord Looper: give the bank a name to save it'
+    s.bankPath = path
+    this.files.set(path, structuredClone(s.memories))
+    this.list()
+    return null
+  }
+
+  loadBank(path: string): string | null {
+    const s = this.s
+    if (s.mode === 'recording' || s.mode === 'recArmed') return 'Chord Looper: stop recording before loading a bank'
+    const m = this.files.get(path)
+    if (!m) return `Chord Looper: reading ${path}: not found`
+    s.memories = structuredClone(m)
+    s.memory = null
+    s.pendingMemory = null
+    this.pending = null
+    s.bankPath = path
+    s.bankName = path.slice(path.lastIndexOf('/') + 1).replace(/\.looper\.json$/, '')
+    return null
+  }
+
+  private list() {
+    this.s.banks = [...this.files.keys()]
+      .map((path) => ({ name: path.slice(path.lastIndexOf('/') + 1).replace(/\.looper\.json$/, ''), path }))
+      .sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()))
   }
 
   /** Bring the derived fields up to date. */

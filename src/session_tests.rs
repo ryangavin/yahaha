@@ -1742,6 +1742,63 @@ fn registration_stores_the_chord_looper() {
     assert_eq!(s.state().looper.mode, LooperMode::Off);
 }
 
+/// #201: Chord Looper banks are files. Save As names one; every memory change saves itself
+/// (to the bank's file, or the autosave while it has none); the next session starts with
+/// the same bank; Load puts a bank's memories back; a name another bank has is refused
+/// unless overwritten.
+#[test]
+fn chord_looper_banks_save_load_and_come_back() {
+    let Some(p) = style("SlowWalker.T552.sty") else { return };
+    let dir = std::env::temp_dir().join(format!("yahaha-looper-banks-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let open = || Session::offline(Options { paths: vec![p.clone()], data_dir: Some(dir.clone()), ..Options::default() }).unwrap();
+    let s = open();
+    assert_eq!((s.state().looper.bank_name.as_str(), s.state().looper.bank_path.as_deref()), ("New Bank", None));
+    assert!(s.send(LooperCmd::SaveLooperBank { name: None, overwrite: false }).is_err(), "a bank with no file needs a name");
+    // Record one bar of C and store it in memory 2: the autosave keeps it.
+    let bar = bar_ns(&s);
+    s.send(LooperCmd::LooperRec).unwrap();
+    keys(&s, true, &[36, 40, 43]);
+    s.advance(bar);
+    keys(&s, false, &[36, 40, 43]);
+    s.send(LooperCmd::LooperOnOff).unwrap();
+    s.send(LooperCmd::LooperOnOff).unwrap();
+    s.send(LooperCmd::StoreLooperMemory { index: 1 }).unwrap();
+    s.send(TransportCmd::Stop).unwrap();
+    drop(s);
+    let s = open();
+    let st = s.state();
+    assert_eq!(st.looper.memories[1].name.as_deref(), Some("CLD_001"), "the autosave came back");
+    assert_eq!(st.looper.bank_name, "New Bank");
+    // Save As "Songs": its file is the bank's from now on.
+    s.send(LooperCmd::SaveLooperBank { name: Some("Songs".into()), overwrite: false }).unwrap();
+    let st = s.state();
+    let songs = dir.join("ChordLooper/Songs.looper.json");
+    assert!(songs.is_file());
+    assert_eq!((st.looper.bank_name.as_str(), st.looper.bank_path.as_deref()), ("Songs", Some(songs.to_str().unwrap())));
+    assert_eq!(st.looper.banks.iter().map(|b| b.name.as_str()).collect::<Vec<_>>(), ["Songs"]);
+    // A change saves itself to the file; the next session starts with "Songs".
+    s.send(LooperCmd::ClearLooperMemory { index: 1 }).unwrap();
+    s.send(LooperCmd::SelectLooperMemory { index: 1 }).unwrap();
+    drop(s);
+    let s = open();
+    let st = s.state();
+    assert_eq!(st.looper.bank_name, "Songs");
+    assert!(st.looper.memories.iter().all(|m| m.name.is_none()), "the cleared memory stayed cleared");
+    // A new bank, a memory, Save As "Songs" again: refused, then overwritten.
+    s.send(LooperCmd::NewLooperBank).unwrap();
+    s.send(LooperCmd::StoreLooperMemory { index: 4 }).unwrap_err(); // the current sequence came back empty
+    assert!(s.send(LooperCmd::SaveLooperBank { name: Some("songs".into()), overwrite: false }).is_err(), "another bank's name");
+    s.send(LooperCmd::SaveLooperBank { name: Some("Ballads".into()), overwrite: false }).unwrap();
+    let st = s.state();
+    assert_eq!(st.looper.banks.iter().map(|b| b.name.as_str()).collect::<Vec<_>>(), ["Ballads", "Songs"]);
+    // Load "Songs" back.
+    s.send(LooperCmd::LoadLooperBank { path: songs.to_string_lossy().into() }).unwrap();
+    assert_eq!(s.state().looper.bank_name, "Songs");
+    assert!(s.send(LooperCmd::LoadLooperBank { path: dir.join("nope.looper.json").to_string_lossy().into() }).is_err());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 #[test]
 fn solo_track_mute_tempo_and_metronome() {
     let Some(s) = offline("SlowWalker.T552.sty") else { return };

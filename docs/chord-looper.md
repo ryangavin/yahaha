@@ -75,7 +75,18 @@ The manuals leave these open (genos-features.md §G.4). What yahaha does, and wh
   back into that memory (keeping its name). Recalled ON arms the loop (next bar line, or
   with the style); recalled OFF stops a loop at once. A recording under way is left alone,
   so a recall never throws away what is being recorded.
-- **No .clb/.cld files.** The file formats are undocumented.
+- **Banks are yahaha's own JSON files (#201), not .clb/.cld** (those formats are
+  undocumented). A bank is the eight memories: `<name>.looper.json` in the data folder's
+  `ChordLooper` folder (`{"format":"yahaha.chord-looper-bank","version":1,"name",
+  "memories":[null | {"name","sequence":{"bars","chords":[{bar,at,root,type,bass?,name}]}}]}`).
+  The drawer's Bank section picks a file (Load) and saves (Save As with a name; Overwrite
+  when another bank has it). **Every change to the memories saves itself** (store, clear,
+  new bank, a registration putting a memory back): to the bank's file, or, while the bank
+  has none, to `ChordLooper/autosave.json`. `ChordLooper/setup.json` remembers the bank in
+  use, so the next session starts with it. Because: the Genos keeps its memories on the
+  instrument, and a performer shouldn't lose a progression to a forgotten Save (the same
+  rule as Registration banks). The current (unstored) sequence is not saved. Per-memory
+  export/import (.cld) is not built.
 - **Hands-on controls (#201):** every pad page is full, so the Launchkey's Panel fader
   page button 8 is the CHORD LOOPER: ON/OFF, and with Shift REC/STOP. Its lamp: dark with
   nothing recorded, dim green with a loop to play, dim yellow while a loop is armed, green

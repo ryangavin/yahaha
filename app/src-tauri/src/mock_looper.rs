@@ -2,12 +2,20 @@
 //! engine's rules (src/engine/looper.rs) on whole beats. Recording, loop playback and a
 //! memory change start at the next bar; stopping the loop is immediate.
 
-use yahaha::api::{LoopChord, LooperMemory, LooperMode, LooperState};
+use std::collections::BTreeMap;
+use yahaha::api::{BankFile, LoopChord, LooperMemory, LooperMode, LooperState};
 
 const MEMORIES: usize = 8;
+const BANK_DIR: &str = "/mock/ChordLooper";
+const NEW_BANK: &str = "New Bank";
 
 pub fn empty() -> LooperState {
-    LooperState { memories: vec![LooperMemory::default(); MEMORIES], ..LooperState::default() }
+    LooperState { memories: vec![LooperMemory::default(); MEMORIES], bank_name: NEW_BANK.into(), ..LooperState::default() }
+}
+
+fn bank_name(path: &str) -> String {
+    let n = path.rsplit('/').next().unwrap_or(path);
+    n.strip_suffix(".looper.json").unwrap_or(n).to_string()
 }
 
 #[derive(Clone, Default)]
@@ -25,6 +33,8 @@ pub struct MockLooper {
     loop_bar: u32,
     loop_start: u32,
     stored: u32,
+    /// Bank files, in memory: path -> memories.
+    files: BTreeMap<String, Vec<LooperMemory>>,
 }
 
 impl MockLooper {
@@ -171,7 +181,46 @@ impl MockLooper {
         s.memories = empty().memories;
         s.memory = None;
         s.pending_memory = None;
+        s.bank_name = NEW_BANK.into();
+        s.bank_path = None;
         self.pending = None;
+    }
+
+    /// Save to the bank's file, or as `name` (as the session's `save_looper_bank`).
+    pub fn save_bank(&mut self, s: &mut LooperState, name: Option<String>, overwrite: bool) -> Result<(), String> {
+        let mut path = s.bank_path.clone();
+        if let Some(name) = name {
+            let n = name.trim().to_string();
+            if n.is_empty() {
+                return Err("Chord Looper: give the bank a name".into());
+            }
+            let p = format!("{BANK_DIR}/{}.looper.json", n.replace(['/', '\\', ':'], "_"));
+            if Some(&p) != s.bank_path.as_ref() && self.files.contains_key(&p) && !overwrite {
+                return Err(format!("a Chord Looper bank called {n} already exists: save under another name, or overwrite it"));
+            }
+            s.bank_name = n;
+            path = Some(p);
+        }
+        let Some(path) = path else { return Err("Chord Looper: give the bank a name to save it".into()) };
+        self.files.insert(path.clone(), s.memories.clone());
+        s.bank_path = Some(path);
+        s.banks = self.files.keys().map(|p| BankFile { name: bank_name(p), path: p.clone() }).collect();
+        s.banks.sort_by_key(|b| b.name.to_lowercase());
+        Ok(())
+    }
+
+    pub fn load_bank(&mut self, s: &mut LooperState, path: &str) -> Result<(), String> {
+        if matches!(s.mode, LooperMode::Recording | LooperMode::RecArmed) {
+            return Err("Chord Looper: stop recording before loading a bank".into());
+        }
+        let m = self.files.get(path).ok_or_else(|| format!("Chord Looper: reading {path}: not found"))?;
+        s.memories = m.clone();
+        s.memory = None;
+        s.pending_memory = None;
+        self.pending = None;
+        s.bank_path = Some(path.to_string());
+        s.bank_name = bank_name(path);
+        Ok(())
     }
 
     /// Bring the derived fields up to date.

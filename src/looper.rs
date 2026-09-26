@@ -194,6 +194,66 @@ impl SeqFile {
     }
 }
 
+/// A Chord Looper bank file's `format` field, and its file extension (yahaha's own JSON:
+/// the Genos .clb format is undocumented).
+pub const BANK_FORMAT: &str = "yahaha.chord-looper-bank";
+pub const BANK_EXT: &str = ".looper.json";
+const BANK_VERSION: u32 = 1;
+
+/// A Chord Looper bank as a file: its eight memories (RM p.17).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BankFile {
+    pub format: String,
+    pub version: u32,
+    pub name: String,
+    /// Memories 1-8 (null: empty).
+    pub memories: Vec<Option<MemoryFile>>,
+}
+
+/// One memory of a [`BankFile`].
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MemoryFile {
+    /// "CLD_001", or the name it was given.
+    pub name: String,
+    pub sequence: SeqFile,
+}
+
+impl BankFile {
+    /// A bank named `name` from `memories` (name and sequence each; None: empty).
+    pub fn new(name: &str, memories: &[Option<(String, ChordSeq)>]) -> BankFile {
+        BankFile {
+            format: BANK_FORMAT.into(),
+            version: BANK_VERSION,
+            name: name.into(),
+            memories: memories.iter().map(|m| m.as_ref().map(|(n, s)| MemoryFile { name: n.clone(), sequence: SeqFile::of(s) })).collect(),
+        }
+    }
+
+    pub fn from_json(text: &str) -> anyhow::Result<BankFile> {
+        let b: BankFile = serde_json::from_str(text)?;
+        anyhow::ensure!(b.format == BANK_FORMAT, "not a yahaha Chord Looper bank (format {:?})", b.format);
+        Ok(b)
+    }
+
+    pub fn to_json(&self) -> String {
+        serde_json::to_string_pretty(self).expect("a bank serializes")
+    }
+
+    /// Its memories as the session keeps them, `n` of them (more are dropped, fewer are
+    /// empty); a memory whose sequence is empty is empty.
+    pub fn memories(&self, n: usize) -> Vec<Option<(String, ChordSeq)>> {
+        (0..n)
+            .map(|i| {
+                let m = self.memories.get(i)?.as_ref()?;
+                let seq = m.sequence.to_seq();
+                (!seq.is_empty()).then(|| (m.name.clone(), seq))
+            })
+            .collect()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -276,6 +336,16 @@ mod tests {
         let json = serde_json::to_string(&f).unwrap();
         let back: SeqFile = serde_json::from_str(&json).unwrap();
         assert_eq!(back.to_seq(), s);
+    }
+
+    #[test]
+    fn a_bank_round_trips_and_checks_its_format() {
+        let s = ChordSeq::from_events(2, &[LoopEvent { bar: 0, at: 0, chord: c("C") }, LoopEvent { bar: 1, at: 0, chord: c("Am") }]);
+        let mems = vec![None, Some(("Verse".to_string(), s)), None];
+        let b = BankFile::new("Songs", &mems);
+        let back = BankFile::from_json(&b.to_json()).unwrap();
+        assert_eq!(back.memories(8), [None, Some(("Verse".to_string(), s)), None, None, None, None, None, None]);
+        assert!(BankFile::from_json(r#"{"format":"x","version":1,"name":"n","memories":[]}"#).is_err());
     }
 
     #[test]

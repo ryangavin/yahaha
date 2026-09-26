@@ -300,7 +300,9 @@ Details and decisions: [chord-looper.md](chord-looper.md).
 | `selectLooperMemory` | `index` 0–7 | Selects a memory. One that holds a sequence replaces the current one; while looping, at the next bar line (`looper.pendingMemory` until then). Refused while recording. |
 | `storeLooperMemory` | `index` 0–7 | Stores the current sequence in the memory (named `CLD_001` and on). Refused with nothing recorded. |
 | `clearLooperMemory` | `index` 0–7 | Empties the memory. |
-| `newLooperBank` | | Empties all eight memories. The current sequence stays. |
+| `newLooperBank` | | Empties all eight memories: a new, unsaved bank ("New Bank"). The current sequence stays. |
+| `saveLooperBank` | `name` (null: its own file), `overwrite`? | Saves the eight memories as a bank file (`<name>.looper.json` in the data folder's `ChordLooper` folder), which becomes the bank's file. Refused when another bank has that file, unless `overwrite: true`; refused without a name for a bank that has no file yet, and without a data folder. |
+| `loadLooperBank` | `path` | Loads a bank file (`looper.banks`): its memories replace the eight, and it becomes the bank in use (also at the next start). Refused while recording. |
 
 ### Metronome
 
@@ -912,6 +914,9 @@ The Chord Looper.
 | `memory` | 0–7? | The memory selected. A new recording is in no memory until stored. |
 | `pendingMemory` | 0–7? | A memory selected while looping, taking over at the next bar line. |
 | `memories` | LooperMemory[8] | `name` (`CLD_001`…, null when empty), `bars`, `chords` (LoopChord[]). |
+| `bankName` | string | The bank's name: "New Bank" until it is saved or loaded. |
+| `bankPath` | string? | Its file; null while unsaved. Either way every change to the memories is written at once (to the file, or to `ChordLooper/autosave.json`), and the next session starts with this bank. |
+| `banks` | BankFile[] | The bank files in the `ChordLooper` folder: `name`, `path`. |
 
 ### `metronome`
 | Field | Type | Meaning |
@@ -1597,7 +1602,10 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
       { "name": null, "bars": 0, "chords": [] },
       { "name": null, "bars": 0, "chords": [] },
       { "name": null, "bars": 0, "chords": [] }
-    ]
+    ],
+    "bankName": "New Bank",
+    "bankPath": null,
+    "banks": []
   },
   "metronome": {
     "on": false,

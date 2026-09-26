@@ -342,7 +342,11 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | **Chord Looper memory** | One of eight memories. Selecting one that holds a sequence makes it the loop; while looping it takes over at the next bar line. | Chord Looper › Memory 1–8 | — | — |
 | **Memory** | Stores the current sequence: press it, then a memory number. The memory is named CLD_001 and on. | Chord Looper › [Memory] | — | — |
 | **Clear** | Empties a memory: press it, then a memory number. | Chord Looper › [Clear] | — | — |
-| **New bank** | Empties all eight memories. The current sequence stays. | Chord Looper › New Bank | — | — |
+| **New bank** | Empties all eight memories: a new bank with no file yet. The current sequence stays. | Chord Looper › New Bank | — | — |
+| **Chord Looper bank** | The bank of eight memories in use. Pick a bank file to load its memories. Every change to the memories saves itself (a bank with no file is kept until next time too), and the next session starts with this bank. | Chord Looper › bank (.clb) | — | — |
+| **Bank name** | Type a name, then Save, to save the eight memories as a new bank file. | Chord Looper › Save | — | — |
+| **Save bank** | Saves the memories to the bank's file, or under the name you typed as a new file. If another bank already has that name, nothing is saved: pick another name, or use Overwrite. | Chord Looper › Save | — | — |
+| **Overwrite bank** | Another Chord Looper bank has the name you typed: replace its file with these memories. | Chord Looper › Save (overwrite) | — | — |
 | **The sequence** | The chords the loop plays, bar by bar; the bar playing is lit. Chord times snap to 16th notes and the loop is whole bars. | Chord Looper (current data) | — | — |
 
 ## Multi Pads

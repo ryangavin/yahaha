@@ -201,6 +201,26 @@ describe('mock session', () => {
     expect(m.state.registration.sequence.on).toBe(false)
   })
 
+  it('Chord Looper banks: Save As, a clash refused unless overwritten, Load (#201)', () => {
+    const m = new MockSession({ manual: true })
+    expect([m.state.looper.bankName, m.state.looper.bankPath]).toEqual(['New Bank', null])
+    m.send({ type: 'saveLooperBank', name: null })
+    expect(m.state.message?.error).toBe(true)
+    m.send({ type: 'saveLooperBank', name: 'Songs' })
+    expect(m.state.looper.bankName).toBe('Songs')
+    const songs = m.state.looper.bankPath!
+    m.send({ type: 'newLooperBank' })
+    expect(m.state.looper.bankPath).toBe(null)
+    m.send({ type: 'saveLooperBank', name: 'Songs' })
+    expect(m.state.looper.bankPath).toBe(null)
+    m.send({ type: 'saveLooperBank', name: 'Songs', overwrite: true })
+    expect(m.state.looper.bankPath).toBe(songs)
+    m.send({ type: 'saveLooperBank', name: 'Ballads' })
+    expect(m.state.looper.banks.map((b) => b.name)).toEqual(['Ballads', 'Songs'])
+    m.send({ type: 'loadLooperBank', path: songs })
+    expect(m.state.looper.bankName).toBe('Songs')
+  })
+
   it('Parameter Lock keeps a locked group through a registration recall', () => {
     const m = new MockSession({ manual: true })
     m.send({ type: 'setSplit', note: 60 })
