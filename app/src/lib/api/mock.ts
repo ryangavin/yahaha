@@ -246,7 +246,7 @@ export function initialState(): AppState {
       inputs: MOCK_SOURCES.map((s) => (s.pads ? `${s.name} (pads)` : s.name)),
       synth: {
         soundFont: 'GeneralUser-GS', device: 'MacBook Pro Speakers', sampleRate: 48000, bufferFrames: 64,
-        channels: 2, outputPair: [1, 2], muted: false,
+        channels: 2, outputPair: [1, 2], muted: false, dropouts: 0,
       },
       engine: { realtime: true, wakeP99Us: 3, chordP99Us: 15, midiInP99Us: 120 },
       lastControl: 0,
@@ -523,6 +523,14 @@ export class MockSession implements Session {
   /** No audio: silent meters with no channels, as the engine without its synth. */
   meters() {
     return Promise.resolve({ atMs: this.now, channels: [], master: [0, 0] as [number, number], clips: 0 })
+  }
+
+  /** Audio dropouts, as a busy machine or a too-small buffer makes them (the engine counts
+   * the device's overload reports and its own late buffers in `io.synth.dropouts`). */
+  dropouts(n: number) {
+    if (!this.state.io.synth) return
+    this.state.io.synth.dropouts += n
+    this.publish()
   }
 
   pluginEditor(part: number, open: boolean) {

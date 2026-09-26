@@ -31,6 +31,7 @@
 <script lang="ts">
   import { onDestroy } from 'svelte'
   import type { Session } from './lib/api/session'
+  import DropoutNotice from './lib/DropoutNotice.svelte'
   import { handleBlur, handleKey, handleKeyUp } from './lib/shortcuts'
   import { app, clock, ui } from './lib/store.svelte'
   import HelpFooter from './lib/tooltip/HelpFooter.svelte'
@@ -95,6 +96,7 @@
   </footer>
 
   <HelpFooter />
+  <DropoutNotice />
 </div>
 
 {#if ui.parts}<Parts />{/if}

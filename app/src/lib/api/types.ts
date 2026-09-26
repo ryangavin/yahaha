@@ -150,9 +150,9 @@ export type AppCmd =
   | { type: 'setMidiInputs'; all: boolean; names: string[] }
   /** Launchkey LEDs in Novation palette colours instead of RGB. */
   | { type: 'setPaletteLeds'; on: boolean }
-  /** The synth's audio buffer, 64, 128 or 256 frames (`io.synth.bufferFrames`). The
+  /** The synth's audio buffer, 64, 128, 256, 512 or 1024 frames (`io.synth.bufferFrames`). The
    * output reopens; voices, plugins and held notes carry over. */
-  | { type: 'setAudioBuffer'; frames: 64 | 128 | 256 }
+  | { type: 'setAudioBuffer'; frames: 64 | 128 | 256 | 512 | 1024 }
   /** Re-walk the style folders (`library.roots`); `library.scanning` while it runs. */
   | { type: 'rescanLibrary' }
   // iReal Pro chart player: see ChartState below.
@@ -746,6 +746,10 @@ export interface SynthState {
   /** 1-based, e.g. [1, 2]. */
   outputPair: [number, number]
   muted: boolean
+  /** Audio dropouts since the synth started: the device reported an overload, or a buffer
+   * took longer to render than it lasts. The app suggests a larger buffer when they keep
+   * coming (lib/dropouts). */
+  dropouts: number
 }
 
 export interface IoState {
