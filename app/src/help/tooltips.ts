@@ -1070,7 +1070,7 @@ const catalog = {
   // ── Knob Assign pages (#197) ───────────────────────────────────────────
   'knobs.page': {
     title: 'Knob Assign page',
-    body: 'What the eight Launchkey knobs do. Style: Dynamics, Retrigger length and on/off, Style Track Mute A and B, tempo. Parts: the keyboard parts\' volumes, Harmony and metronome volume, tempo.',
+    body: 'What the eight Launchkey knobs do, on four pages. Style has Dynamics, Retrigger length and on/off, Style Track Mute A and B and tempo; Parts has the keyboard parts\' volumes, Harmony and metronome volume and tempo; Pan has the parts\' pan and tempo; Effects has their Reverb and Chorus sends.',
     genos: 'KNOB ASSIGN',
     keys: [],
     launchkey: '▲ / ▼ right of the knobs',

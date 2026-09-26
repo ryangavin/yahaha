@@ -9,9 +9,21 @@ const NONE: Fn = { fn: 'none' }
 const PAGES: Record<KnobPage, Fn[]> = {
   style: [{ fn: 'dynamics' }, { fn: 'retriggerRate' }, { fn: 'retriggerOnOff' }, { fn: 'trackMuteA' }, { fn: 'trackMuteB' }, NONE, NONE, { fn: 'tempo' }],
   parts: [0, 1, 2, 3].map((part): Fn => ({ fn: 'partVolume', part })).concat([{ fn: 'harmonyVolume' }, { fn: 'metronomeVolume' }, NONE, { fn: 'tempo' }]),
+  pan: [0, 1, 2, 3].map((part): Fn => ({ fn: 'partPan', part })).concat([NONE, NONE, NONE, { fn: 'tempo' }]),
+  effects: [0, 1, 2, 3].map((part): Fn => ({ fn: 'partReverb', part })).concat([0, 1, 2, 3].map((part): Fn => ({ fn: 'partChorus', part }))),
 }
-const ORDER: KnobPage[] = ['style', 'parts']
-const PAGE_NAME: Record<KnobPage, string> = { style: 'Style', parts: 'Parts' }
+const ORDER: KnobPage[] = ['style', 'parts', 'pan', 'effects']
+const PAGE_NAME: Record<KnobPage, string> = { style: 'Style', parts: 'Parts', pan: 'Pan', effects: 'Effects' }
+const PART_FX: Partial<Record<KnobFunction, [string[], string[]]>> = {
+  partPan: [['Right 1 Pan', 'Right 2 Pan', 'Right 3 Pan', 'Left Pan'], ['PanR1', 'PanR2', 'PanR3', 'PanL']],
+  partReverb: [['Right 1 Reverb', 'Right 2 Reverb', 'Right 3 Reverb', 'Left Reverb'], ['RevR1', 'RevR2', 'RevR3', 'RevL']],
+  partChorus: [['Right 1 Chorus', 'Right 2 Chorus', 'Right 3 Chorus', 'Left Chorus'], ['ChoR1', 'ChoR2', 'ChoR3', 'ChoL']],
+}
+/** A pan as the Genos shows it: L63 … C … R63. */
+export function panText(v: number): string {
+  const d = Math.min(127, v) - 64
+  return d === 0 ? 'C' : d < 0 ? `L${-d}` : `R${d}`
+}
 const PART_SHORT = ['Right1', 'Right2', 'Right3', 'Left']
 const PART_NAME = ['Right 1 Volume', 'Right 2 Volume', 'Right 3 Volume', 'Left Volume']
 const NAMES: Record<KnobFunction, [string, string]> = {
@@ -25,6 +37,9 @@ const NAMES: Record<KnobFunction, [string, string]> = {
   partVolume: ['', ''],
   harmonyVolume: ['Harmony Volume', 'HarmVol'],
   metronomeVolume: ['Metronome Volume', 'MetroVol'],
+  partPan: ['', ''],
+  partReverb: ['', ''],
+  partChorus: ['', ''],
 }
 const RATES = [1, 2, 4, 8, 16, 32]
 const RTG_STEPS = 3
@@ -82,6 +97,12 @@ export class MockKnobs {
         return { type: 'setHarmonyVolume', volume: level(s.harmonyArp.volume) }
       case 'metronomeVolume':
         return { type: 'setMetronomeVolume', volume: level(s.metronome.volume) }
+      case 'partPan':
+        return { type: 'setPartPan', part: f.part!, pan: level(s.keyboardParts[f.part!].pan) }
+      case 'partReverb':
+        return { type: 'setPartSend', part: f.part!, send: 'reverb', value: level(s.keyboardParts[f.part!].reverb) }
+      case 'partChorus':
+        return { type: 'setPartSend', part: f.part!, send: 'chorus', value: level(s.keyboardParts[f.part!].chorus) }
     }
   }
 
@@ -96,7 +117,8 @@ export class MockKnobs {
 
   state(s: AppState): KnobsState {
     const knobs = PAGES[this.page].map((f): KnobState => {
-      const [name, short] = f.fn === 'partVolume' ? [PART_NAME[f.part!], PART_SHORT[f.part!]] : NAMES[f.fn]
+      const fx = PART_FX[f.fn]
+      const [name, short] = f.fn === 'partVolume' ? [PART_NAME[f.part!], PART_SHORT[f.part!]] : fx ? [fx[0][f.part!], fx[1][f.part!]] : NAMES[f.fn]
       const r = (value: string, level: number | null) => ({ function: f.fn, name, short, value, level })
       switch (f.fn) {
         case 'none': return r('', null)
@@ -116,6 +138,9 @@ export class MockKnobs {
         case 'partVolume': return r(String(s.keyboardParts[f.part!].volume), s.keyboardParts[f.part!].volume)
         case 'harmonyVolume': return r(String(s.harmonyArp.volume), s.harmonyArp.volume)
         case 'metronomeVolume': return r(String(s.metronome.volume), s.metronome.volume)
+        case 'partPan': return r(panText(s.keyboardParts[f.part!].pan), s.keyboardParts[f.part!].pan)
+        case 'partReverb': return r(String(s.keyboardParts[f.part!].reverb), s.keyboardParts[f.part!].reverb)
+        case 'partChorus': return r(String(s.keyboardParts[f.part!].chorus), s.keyboardParts[f.part!].chorus)
       }
     })
     return { page: this.page, pageName: PAGE_NAME[this.page], pageNumber: ORDER.indexOf(this.page) + 1, pageCount: ORDER.length, knobs }
