@@ -323,13 +323,14 @@ fn keyboard_parts_mixer_and_pages() {
 
 /// Pan and the reverb/chorus sends (#198): the part's CC10/91/93 on its own channel, to
 /// the port and the synth, and in the state. Before anything sets them the state shows the
-/// power-on values.
+/// power-on values (#204: some reverb and chorus, sent at start).
 #[test]
 fn part_pan_and_sends() {
     let Some(s) = offline("SlowWalker.T552.sty") else { return };
     let left = &s.state().keyboard_parts[crate::parts::LEFT];
-    assert_eq!((left.pan, left.reverb, left.chorus), (64, 40, 0));
-    s.take_output();
+    assert_eq!((left.pan, left.reverb, left.chorus), (64, 40, 10));
+    let out = s.take_output();
+    assert!(out.contains(&[0xB0, 91, 50]) && out.contains(&[0xB1, 93, 10]), "sent at start: {out:?}");
     s.send(PartsCmd::SetPartPan { part: 3, pan: 20 }).unwrap();
     s.send(PartsCmd::SetPartSend { part: 3, send: PartSend::Reverb, value: 90 }).unwrap();
     s.send(PartsCmd::SetPartSend { part: 1, send: PartSend::Chorus, value: 200 }).unwrap();
@@ -340,8 +341,8 @@ fn part_pan_and_sends() {
     assert!(!out.contains(&[0xB1, 93, 0]), "a send not set is not sent: {out:?}");
     let st = s.state();
     let (l, r2) = (&st.keyboard_parts[3], &st.keyboard_parts[1]);
-    assert_eq!((l.pan, l.reverb, l.chorus), (20, 90, 0));
-    assert_eq!((r2.pan, r2.reverb, r2.chorus), (64, 40, 127));
+    assert_eq!((l.pan, l.reverb, l.chorus), (20, 90, 10));
+    assert_eq!((r2.pan, r2.reverb, r2.chorus), (64, 50, 127));
 }
 
 #[test]
