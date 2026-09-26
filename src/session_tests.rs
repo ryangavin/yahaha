@@ -352,17 +352,33 @@ fn ots_and_ots_link() {
     assert!(st.ots.settings.len() >= 2);
     assert_eq!(st.ots.settings[0].name, "OTS 1");
     assert_eq!(st.ots.applied, 0);
+    s.send(ControllersCmd::SetBendRange { part: 0, semitones: 7 }).unwrap();
     s.take_output();
     s.send(OtsCmd::RecallOts { index: 0 }).unwrap();
-    // Its pan and reverb/chorus sends go out on the parts' channels too (#198).
-    let fx = crate::sff::Style::load(&style("SlowWalker.T552.sty").unwrap()).unwrap().ots[0].parts[0].fx;
+    // Its pan and reverb/chorus sends go out on the parts' channels too (#198), and its
+    // filter, EG, vibrato and portamento (#238).
+    let ots = crate::sff::Style::load(&style("SlowWalker.T552.sty").unwrap()).unwrap().ots[0].parts[0];
     let out = s.take_output();
-    for (cc, v) in crate::parts::FX_CC.into_iter().zip(fx) {
+    let sets = crate::parts::FX_CC.into_iter().zip(ots.fx).chain(crate::parts::TONE_CC.into_iter().zip(ots.tone));
+    for (cc, v) in sets {
         if let Some(v) = v {
             assert!(out.contains(&[0xB0, cc, v]), "Right 1 CC{cc} {v}: {out:?}");
         }
     }
-    assert!(fx[0].is_some(), "SlowWalker's OTS 1 sets Right 1's pan");
+    assert!(ots.fx[0].is_some(), "SlowWalker's OTS 1 sets Right 1's pan");
+    assert_eq!(ots.tone[crate::parts::PORTAMENTO], Some(127), "and portamento on");
+    // Its pitch bend range, as RPN 0 on Right 1's channel.
+    assert_eq!(s.state().controllers.parts[0].bend_range, 2);
+    assert!(out.windows(3).any(|w| w == [[0xB0, 101, 0], [0xB0, 100, 0], [0xB0, 6, 2]]), "{out:?}");
+    // A voice change puts the voice settings back to the new voice's own (#238).
+    s.send(PartsCmd::SetPartVoice { part: 0, program: 0 }).unwrap();
+    s.advance(10 * MS);
+    let out = s.take_output();
+    for (cc, v) in crate::parts::TONE_CC.into_iter().zip(crate::parts::TONE_NEUTRAL) {
+        assert!(out.contains(&[0xB0, cc, v]), "Right 1 CC{cc} back to {v}: {out:?}");
+    }
+    assert_eq!(s.state().controllers.parts[0].bend_range, 2, "bend range is not a voice setting");
+    s.send(OtsCmd::RecallOts { index: 0 }).unwrap();
     let st = s.state();
     assert_eq!(st.ots.applied, 1);
     assert_eq!(st.keyboard_parts.iter().map(|p| p.on).collect::<Vec<_>>(), vec![true, true, false, true]);

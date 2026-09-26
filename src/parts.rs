@@ -107,6 +107,77 @@ pub struct Parts {
     /// The parts whose power-on pan and sends (`FX_DEFAULT`) the engine thread has not
     /// sent yet (bit = part): all of them at first, so a fresh start isn't dry (#204).
     fx_boot: AtomicU8,
+    /// Each part's voice settings as an OTS or a Registration set them (#238): the
+    /// `TONE_CC` controllers, and the XG multi part parameters (`xg_slot`) sent as SysEx to
+    /// the port. `NO_FX` = not set, so nothing is sent for it. The parts whose settings the
+    /// engine thread still has to send (bit = part).
+    tone: [[AtomicU8; TONE]; COUNT],
+    xg: [[AtomicU8; XG_SLOTS]; COUNT],
+    tone_dirty: AtomicU8,
+}
+
+/// The controllers `Parts::tone` holds (#238): filter cutoff and resonance, EG attack, decay
+/// and release, vibrato rate, depth and delay (all relative: 64 = the voice's own), then
+/// portamento switch and time. The Genos receives all of them on the keyboard parts (Data
+/// List, MIDI Data Format: Control Change).
+pub const TONE_CC: [u8; TONE] = [74, 71, 73, 75, 72, 76, 77, 78, 65, 5];
+pub const TONE: usize = 10;
+/// `Parts::tone` indices.
+pub const CUTOFF: usize = 0;
+pub const RESONANCE: usize = 1;
+pub const ATTACK: usize = 2;
+pub const DECAY: usize = 3;
+pub const RELEASE: usize = 4;
+pub const VIBRATO_RATE: usize = 5;
+pub const VIBRATO_DEPTH: usize = 6;
+pub const VIBRATO_DELAY: usize = 7;
+pub const PORTAMENTO: usize = 8;
+pub const PORTAMENTO_TIME: usize = 9;
+/// What a voice change puts the `TONE_CC` controllers a part has set back to: the new
+/// voice's own filter, EG and vibrato (64), portamento off and time 0 (XG defaults).
+pub const TONE_NEUTRAL: [u8; TONE] = [64, 64, 64, 64, 64, 64, 64, 64, 0, 0];
+/// XG multi part parameters per part: block 08 (0-127), then block 0A (128-255).
+const XG_SLOTS: usize = 256;
+
+/// A part's `Parts::xg` slot for XG multi part parameter (hh, nn).
+fn xg_slot(hh: u8, nn: u8) -> Option<usize> {
+    match hh {
+        0x08 => Some(nn as usize & 0x7F),
+        0x0A => Some(128 + (nn as usize & 0x7F)),
+        _ => None,
+    }
+}
+
+/// The XG default of multi part parameter (hh, nn) (Data List, MIDI Parameter Change table
+/// (MULTI PART)), for the parameters a voice change puts back; None for the others (bank,
+/// program, channel, part mode, levels and sends: not voice settings).
+pub fn xg_default(hh: u8, nn: u8) -> Option<u8> {
+    let v = match (hh, nn) {
+        (0x08, 0x05) => 0x01,
+        (0x08, 0x0C | 0x0D) => 0x40,
+        (0x08, 0x15..=0x1F) => 0x40,
+        (0x08, 0x20) => 0x0A,
+        (0x08, 0x21 | 0x22) => 0x00,
+        (0x08, 0x23) => 0x42,
+        (0x08, 0x24 | 0x25) => 0x40,
+        (0x08, 0x26..=0x28) => 0x00,
+        (0x08, 0x4D..=0x4F) => 0x40,
+        (0x08, 0x50..=0x52) => 0x00,
+        (0x08, 0x53..=0x55) => 0x40,
+        (0x08, 0x56..=0x58) => 0x00,
+        (0x08, 0x5A..=0x5C) => 0x40,
+        (0x08, 0x5D..=0x5F) => 0x00,
+        (0x08, 0x61..=0x63) => 0x40,
+        (0x08, 0x64..=0x68) => 0x00,
+        (0x08, 0x69..=0x6C) => 0x40,
+        (0x08, 0x72 | 0x73) => 0x40,
+        (0x08, 0x76) => 0x0C,
+        (0x08, 0x77) => 0x36,
+        (0x0A, 0x00..=0x03) => 0x00,
+        (0x0A, 0x40..=0x45) => 0x40,
+        _ => return None,
+    };
+    Some(v)
 }
 
 /// `Parts::fx`: not set.
@@ -158,6 +229,93 @@ impl Parts {
             fx: [const { [const { AtomicU8::new(NO_FX) }; FX] }; COUNT],
             fx_dirty: AtomicU8::new(0),
             fx_boot: AtomicU8::new((1 << COUNT) - 1),
+            tone: [const { [const { AtomicU8::new(NO_FX) }; TONE] }; COUNT],
+            xg: [const { [const { AtomicU8::new(NO_FX) }; XG_SLOTS] }; COUNT],
+            tone_dirty: AtomicU8::new(0),
+        }
+    }
+
+    /// A part's voice settings (#238): the `TONE_CC` controllers given (None: leave it),
+    /// and XG multi part parameters (hh, nn, vv). The engine thread sends them, the
+    /// controllers to the port and the synth, the XG SysEx to the port.
+    pub fn set_tone(&self, part: usize, tone: [Option<u8>; TONE], xg: impl IntoIterator<Item = (u8, u8, u8)>) {
+        let part = part % COUNT;
+        for (a, v) in self.tone[part].iter().zip(tone) {
+            if let Some(v) = v {
+                a.store(v.min(127), Relaxed);
+            }
+        }
+        for (hh, nn, vv) in xg {
+            if let Some(i) = xg_slot(hh, nn) {
+                self.xg[part][i].store(vv & 0x7F, Relaxed);
+            }
+        }
+        self.tone_dirty.fetch_or(1 << part, Release);
+    }
+
+    /// A part's `TONE_CC` controllers as last set (None: never set).
+    pub fn tone(&self, part: usize) -> [Option<u8>; TONE] {
+        self.tone[part % COUNT].each_ref().map(|a| Some(a.load(Relaxed)).filter(|&v| v != NO_FX))
+    }
+
+    /// A part's XG multi part parameters as last set, (hh, nn, vv) in address order.
+    pub fn xg(&self, part: usize) -> Vec<(u8, u8, u8)> {
+        (0..XG_SLOTS)
+            .filter_map(|i| {
+                let v = self.xg[part % COUNT][i].load(Relaxed);
+                (v != NO_FX).then(|| (if i < 128 { 0x08 } else { 0x0A }, (i & 0x7F) as u8, v))
+            })
+            .collect()
+    }
+
+    /// The part's voice changed: on the Genos the new voice brings its own filter, EG,
+    /// vibrato, portamento and mono/poly (its Voice Set, RM p.41); yahaha has no per-voice
+    /// data, so what an OTS or Registration set goes back to neutral (`TONE_NEUTRAL`, the
+    /// XG defaults), sent once. Pitch bend range is not a Voice Set parameter and stays.
+    pub fn voice_changed(&self, part: usize) {
+        let part = part % COUNT;
+        let mut any = false;
+        for (a, v) in self.tone[part].iter().zip(TONE_NEUTRAL) {
+            if a.load(Relaxed) != NO_FX {
+                a.store(v, Relaxed);
+                any = true;
+            }
+        }
+        for (i, a) in self.xg[part].iter().enumerate() {
+            if a.load(Relaxed) != NO_FX {
+                let (hh, nn) = if i < 128 { (0x08, i as u8) } else { (0x0A, (i - 128) as u8) };
+                match xg_default(hh, nn) {
+                    Some(v) => a.store(v, Relaxed),
+                    None => a.store(NO_FX, Relaxed),
+                }
+                any = true;
+            }
+        }
+        if any {
+            self.tone_dirty.fetch_or(1 << part, Release);
+        }
+    }
+
+    /// Engine thread: send the voice settings set since the last call (`set_tone`): the
+    /// controllers on the part's channel, the XG parameters as SysEx for the XG part of
+    /// that channel.
+    pub fn send_tone(&self, out: &mut impl FnMut(&[u8])) {
+        let dirty = self.tone_dirty.swap(0, Acquire);
+        for p in (0..COUNT).filter(|p| dirty & 1 << p != 0) {
+            let ch = CHANNEL[p];
+            for (a, cc) in self.tone[p].iter().zip(TONE_CC) {
+                let v = a.load(Relaxed);
+                if v != NO_FX {
+                    out(&[0xB0 | ch, cc, v]);
+                }
+            }
+            for (i, a) in self.xg[p].iter().enumerate() {
+                let v = a.load(Relaxed);
+                if v != NO_FX {
+                    let hh = if i < 128 { 0x08 } else { 0x0A };
+                    out(&[0xF0, 0x43, 0x10, 0x4C, hh, ch, (i & 0x7F) as u8, v, 0xF7]);
+                }
+            }
         }
     }
 
@@ -189,6 +347,8 @@ impl Parts {
     /// power-on sends.
     pub fn resend_fx(&self) {
         self.fx_boot.fetch_or((1 << COUNT) - 1, Release);
+        // The voice settings too (#238): only those set.
+        self.tone_dirty.fetch_or((1 << COUNT) - 1, Release);
     }
 
     /// Engine thread: send the pan and sends set since the last call; on the first call,
@@ -309,17 +469,20 @@ impl Parts {
         self.selected.load(Relaxed) as usize & 3
     }
 
-    /// Set a part's voice (GM program).
+    /// Set a part's voice (GM program). Its voice settings go back to neutral
+    /// (`voice_changed`).
     pub fn set_program(&self, part: usize, program: u8) {
         self.program[part & 3].store(program & 127, Relaxed);
+        self.voice_changed(part & 3);
         self.changed.store(true, Release);
     }
 
-    /// Previous/next voice for the selected part.
+    /// Previous/next voice for the selected part, as `set_program`.
     pub fn step_program(&self, delta: i32) {
         let p = self.selected();
         let v = (self.program[p].load(Relaxed) as i32 + delta).rem_euclid(128) as u8;
         self.program[p].store(v, Relaxed);
+        self.voice_changed(p);
         self.changed.store(true, Release);
     }
 
@@ -416,11 +579,17 @@ impl Parts {
     /// Load a One Touch Setting into Right 1-3 and Left: voice, on/off, volume, octave, and
     /// the pan and reverb/chorus sends the OTS sets (the engine thread sends them; one it
     /// doesn't set stays as it is). Drum-kit voices (bank MSB 126/127) keep the part's
-    /// current voice.
+    /// current voice. The voice settings (#238): a part the OTS gives a voice starts from
+    /// neutral (`voice_changed`), then takes the filter, EG, vibrato, portamento and XG
+    /// part parameters the OTS sets. Pitch bend range is the caller's (`Controllers`).
     pub fn apply_ots(&self, ots: &crate::sff::Ots, number: u8) {
         for (p, part) in ots.parts.iter().enumerate() {
             if let Some((_, _, pc)) = part.voice.filter(|v| v.0 < 126) {
                 self.program[p].store(pc, Relaxed);
+                self.voice_changed(p);
+            }
+            if part.tone.iter().any(Option::is_some) || !part.xg.is_empty() {
+                self.set_tone(p, part.tone, part.xg.iter());
             }
             self.on[p].store(part.on, Relaxed);
             self.set_volume(p, part.volume);
@@ -525,6 +694,75 @@ mod tests {
         }
         eprintln!("{settings} OTS, {with_pan} with pan");
         assert!(settings == 0 || with_pan * 2 > settings, "most OTS set pan ({with_pan} of {settings})");
+    }
+
+    /// An OTS recall sends each part's voice settings (#238): over the corpus, `send_tone`
+    /// after `apply_ots` sends exactly the `TONE_CC` controllers each OTS part sets, on the
+    /// part's channel, and its XG part parameters as SysEx for that channel's XG part.
+    #[test]
+    fn ots_recalls_voice_settings_across_the_corpus() {
+        let (mut settings, mut ccs, mut sysex) = (0, 0, 0);
+        for f in crate::library::corpus_styles() {
+            let Ok(style) = crate::sff::Style::load(&f) else { continue };
+            for (i, ots) in style.ots.iter().enumerate() {
+                let parts = Parts::new();
+                parts.apply_ots(ots, i as u8 + 1);
+                let mut got = Vec::new();
+                parts.send_tone(&mut |m| got.push(m.to_vec()));
+                let mut want = Vec::new();
+                for (p, q) in ots.parts.iter().enumerate() {
+                    let ch = CHANNEL[p];
+                    for (cc, v) in TONE_CC.into_iter().zip(q.tone) {
+                        want.extend(v.map(|v| vec![0xB0 | ch, cc, v]));
+                    }
+                    let mut xg: Vec<_> = q.xg.iter().collect();
+                    xg.sort();
+                    want.extend(xg.into_iter().map(|(hh, nn, vv)| vec![0xF0, 0x43, 0x10, 0x4C, hh, ch, nn, vv, 0xF7]));
+                }
+                got.sort();
+                want.sort();
+                assert_eq!(got, want, "{} OTS {}", f.display(), i + 1);
+                settings += 1;
+                sysex += got.iter().filter(|m| m[0] == 0xF0).count();
+                ccs += got.len();
+            }
+        }
+        ccs -= sysex;
+        eprintln!("{settings} OTS recalled: {ccs} controllers, {sysex} XG SysEx");
+        assert!(settings == 0 || (ccs > 0 && sysex > 0));
+    }
+
+    /// A voice change puts what an OTS set back to neutral, once (#238): the controllers to
+    /// `TONE_NEUTRAL`, XG parameters with a default to it, others forgotten; nothing that
+    /// was never set is sent.
+    #[test]
+    fn a_voice_change_resets_the_voice_settings() {
+        let parts = Parts::new();
+        let sent = |parts: &Parts| {
+            let mut v = Vec::new();
+            parts.send_tone(&mut |m| v.push(m.to_vec()));
+            v
+        };
+        parts.set_program(RIGHT2, 5);
+        assert!(sent(&parts).is_empty(), "nothing set, nothing to reset");
+        let mut tone = [None; TONE];
+        tone[CUTOFF] = Some(90);
+        tone[PORTAMENTO] = Some(127);
+        parts.set_tone(RIGHT2, tone, [(0x08, 0x05, 0), (0x08, 0x03, 7)]);
+        let ch = CHANNEL[RIGHT2];
+        assert_eq!(
+            sent(&parts),
+            vec![vec![0xB0 | ch, 74, 90], vec![0xB0 | ch, 65, 127], vec![0xF0, 0x43, 0x10, 0x4C, 0x08, ch, 0x03, 7, 0xF7], vec![0xF0, 0x43, 0x10, 0x4C, 0x08, ch, 0x05, 0, 0xF7]]
+        );
+        assert!(sent(&parts).is_empty(), "once");
+        parts.select(RIGHT2);
+        parts.step_program(1);
+        assert_eq!(sent(&parts), vec![vec![0xB0 | ch, 74, 64], vec![0xB0 | ch, 65, 0], vec![0xF0, 0x43, 0x10, 0x4C, 0x08, ch, 0x05, 1, 0xF7]]);
+        assert_eq!(parts.xg(RIGHT2), vec![(0x08, 0x05, 1)]);
+        // Other parts untouched; a reset (Panic) sends them all again.
+        assert!(parts.tone(RIGHT1).iter().all(Option::is_none));
+        parts.resend_fx();
+        assert_eq!(sent(&parts).len(), 3);
     }
 
     /// A fresh start isn't dry (#204): the first `send_fx` gives every keyboard part its
