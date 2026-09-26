@@ -67,6 +67,11 @@ impl FxSettings {
                     for &(p, v) in params {
                         self.params[p.index()] = p.clamp(v);
                     }
+                    // The style's return level (#269), where it sets one; else the
+                    // player's stays.
+                    if let Some(r) = choice.and_then(|c| c.ret) {
+                        self.returns[b.index()] = r.min(127);
+                    }
                 }
                 None => self.set_type(b, FxBlock::DEFAULT_TYPES[b.index()]),
             }
@@ -531,6 +536,40 @@ mod tests {
         assert_eq!((st.knobs.page_name.as_str(), st.knobs.knobs[4].short.as_str(), st.knobs.knobs[4].value.as_str()), ("FX", "DlyFdbk", "58%"));
         let ctl = s.inner.lock();
         assert_eq!(ctl.synth.as_ref().unwrap().control.fx.params[FxParam::ChorusDepth.index()].load(Relaxed), 12);
+    }
+
+    /// #269: a style's own reverb time, pre-delay and tone (its XG reverb parameters) come
+    /// with its type; a block not following keeps the player's.
+    #[test]
+    fn the_styles_own_reverb_parameters() {
+        use crate::api::{FxBlock, FxCmd, LibraryCmd};
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus");
+        let (icy, cumbia) = (dir.join("SX900Style for Genos/IcyBallad.T559.prs"), dir.join("T5Style/Cumbia.T158.sst"));
+        if !icy.exists() || !cumbia.exists() {
+            eprintln!("corpus missing; skipping");
+            return;
+        }
+        let s = Session::offline(Options { paths: vec![icy.clone(), cumbia.clone()], ..Options::default() }).unwrap();
+        s.offline_audio(None, 48_000).unwrap();
+        let load = |s: &Session, p: &Path| {
+            s.send(LibraryCmd::LoadStylePath { path: p.to_string_lossy().into() }).unwrap();
+            s.advance(1_000_000_000);
+        };
+        let reverb = |s: &Session| s.state().effects.blocks[0].params.iter().map(|p| p.display.clone()).collect::<Vec<_>>();
+        let atomic = |s: &Session, p: crate::fx::Param| s.inner.lock().synth.as_ref().unwrap().control.fx.params[p.index()].load(Relaxed);
+        // Real Large Hall +: time 27 (3.0 s), initial delay 59 (93 ms), high damp 54 (10 kHz).
+        load(&s, &icy);
+        assert_eq!(reverb(&s), ["3.0 s", "93 ms", "10.0 kHz"]);
+        assert_eq!(atomic(&s, crate::fx::Param::PreDelay), 93);
+        // Real Medium Hall: time 13 (1.6 s), initial delay 7 (11 ms); its own tone.
+        load(&s, &cumbia);
+        let st = s.state();
+        assert_eq!(reverb(&s)[..2], ["1.6 s", "11 ms"]);
+        assert_eq!(st.effects.blocks[0].params[2].value, st.effects.blocks[0].params[2].default);
+        // Not following: the player's reverb stays.
+        s.send(FxCmd::SetFollowStyle { block: FxBlock::Reverb, on: false }).unwrap();
+        load(&s, &icy);
+        assert_eq!(reverb(&s)[..2], ["1.6 s", "11 ms"]);
     }
 
     /// #237: a style's own effect types. Loading it sets them (and the delay's time and

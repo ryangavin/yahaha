@@ -1242,6 +1242,9 @@ export class MockSession implements Session {
       case 'tempoDown':
         t.tempo = clamp(t.tempo - 1, 5, 500)
         break
+      case 'resetTempo':
+        t.tempo = st.style.tempo
+        break
       case 'setTempo':
         t.tempo = clamp(Math.round(cmd.bpm), 5, 500)
         break

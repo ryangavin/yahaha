@@ -1502,6 +1502,7 @@ impl MockSession {
             }
             AppCmd::Transport(TransportCmd::TempoUp) => self.state.transport.tempo = (self.state.transport.tempo + 1.0).min(500.0),
             AppCmd::Transport(TransportCmd::TempoDown) => self.state.transport.tempo = (self.state.transport.tempo - 1.0).max(5.0),
+            AppCmd::Transport(TransportCmd::ResetTempo) => self.state.transport.tempo = self.state.style.tempo,
             AppCmd::Transport(TransportCmd::SetTempo { bpm }) => self.state.transport.tempo = (bpm as f64).clamp(5.0, 500.0),
             AppCmd::Mixer(MixerCmd::SetStyleSolo { part }) => self.state.mixer.style_solo = part.map(|p| p & 7),
             AppCmd::Mixer(MixerCmd::SetPartSolo { part }) => self.state.mixer.part_solo = part.map(|p| p & 3),

@@ -46,6 +46,7 @@ fn all_cmds() -> Vec<AppCmd> {
         AppCmd::Transport(TransportCmd::TapTempo),
         AppCmd::Transport(TransportCmd::TempoUp),
         AppCmd::Transport(TransportCmd::TempoDown),
+        AppCmd::Transport(TransportCmd::ResetTempo),
         AppCmd::Mixer(MixerCmd::ToggleStylePart { part: 5 }),
         AppCmd::Mixer(MixerCmd::SetStylePartVolume { part: 2, volume: 90 }),
         AppCmd::Chord(ChordCmd::SetFingering { fingering: Fingering::AiFullKeyboard }),
@@ -680,6 +681,37 @@ fn launchkey_hardware_matches_its_commands() {
         }
     }
     assert!(bad.is_empty(), "hardware and command differ:\n{}", bad.join("\n"));
+}
+
+/// The Launchkey's TEMPO buttons (#263): a press is 1 BPM, holding repeats until the
+/// release, − and + together go back to the style's tempo (OM p.46); `resetTempo` does too.
+#[test]
+fn launchkey_tempo_buttons_repeat_and_reset() {
+    use crate::launchkey::{FUNCTION_CC, SCENE_CC};
+    let Some(s) = offline("SlowWalker.T552.sty") else { return };
+    let tempo = |s: &Session| s.state().transport.tempo;
+    assert_eq!(tempo(&s), 75.0);
+    s.midi_in(Port::Pads, &[0xB0, SCENE_CC, 127]);
+    s.midi_in(Port::Pads, &[0xB0, SCENE_CC, 0]);
+    s.advance(2_000 * MS);
+    assert_eq!(tempo(&s), 76.0, "a press is one step");
+    s.midi_in(Port::Pads, &[0xB0, SCENE_CC, 127]);
+    s.advance(1_000 * MS);
+    let held = tempo(&s);
+    assert!(held >= 77.0 + 6.0, "held, it repeats: {held}");
+    s.midi_in(Port::Pads, &[0xB0, SCENE_CC, 0]);
+    s.advance(1_000 * MS);
+    assert!(tempo(&s) - held <= 1.0, "the release stops it");
+    // − held, then + with it: the style's tempo, and no more repeating.
+    s.midi_in(Port::Pads, &[0xB0, FUNCTION_CC, 127]);
+    s.midi_in(Port::Pads, &[0xB0, SCENE_CC, 127]);
+    s.advance(1_000 * MS);
+    assert_eq!(tempo(&s), 75.0);
+    s.midi_in(Port::Pads, &[0xB0, SCENE_CC, 0]);
+    s.midi_in(Port::Pads, &[0xB0, FUNCTION_CC, 0]);
+    s.send(TransportCmd::SetTempo { bpm: 140 }).unwrap();
+    s.send(TransportCmd::ResetTempo).unwrap();
+    assert_eq!(tempo(&s), 75.0);
 }
 
 /// A client can send any delta: no overflow, and the page wraps as it should.

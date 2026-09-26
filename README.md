@@ -163,7 +163,7 @@ The 8 encoders are the Genos LIVE CONTROL knobs, on Knob Assign pages. The **enc
 | **Pad Bank ▲ / ▼** (left of the pads) | previous/next pad page |
 | **▲ / ▼ right of the knobs** | previous/next Knob Assign page |
 | **Shift + Pad Bank ▲ / ▼** | Left part on/off / OTS Link on/off |
-| **> (Scene Launch)** / **Function** (right of the pads) | tempo + / − |
+| **> (Scene Launch)** / **Function** (right of the pads) | tempo + / − (1 BPM; hold to repeat, faster the longer it is held; both together: the style's own tempo) |
 | **Shift + Play** | Section Reset: the section starts again from its top |
 | **Shift + Stop** | Fade In/Out: stopped, arm a fade in; playing, fade out and stop |
 | **Shift + > / Shift + Function** | Retrigger length shorter / longer |
@@ -210,7 +210,7 @@ The screen shows `sus` beside each part the pedal is holding.
 - `t` tap tempo (stopped: a bar of taps starts the style a beat after the last one; while the band plays: Section Reset, as on the Genos, unless Settings › Style › Tap: Section Reset is off)
 - `|` Section Reset · `F` Fade In/Out
 - `~` Retrigger on/off · `{ }` Retrigger length longer/shorter
-- `- =` tempo down/up
+- `- =` tempo down/up (1 BPM; hold to repeat), `+` the style's own tempo (TEMPO − and + together)
 - `y` Sync Start · `u` Auto Fill · `j` Sync Stop
 - `h` Stop ACMP
 - `f` next fingering type · `d` Lower/Upper · `D` Manual Bass

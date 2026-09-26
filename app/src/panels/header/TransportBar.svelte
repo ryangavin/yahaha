@@ -12,7 +12,8 @@
 
   State: transport (running, syncStart, bar, beat, beatsPerBar, tempo, section, queued,
   pendingIntro, lamps). Commands: startStop, toggleSyncStart, toggleSyncStop, intro,
-  ending, tempoDown, tempoUp, tapTempo.
+  ending, tempoDown, tempoUp, resetTempo, tapTempo. TEMPO −/+ repeat while held, and both
+  held together send resetTempo (lib/tempoHold.ts), as on the Genos (OM p.46).
 -->
 <script lang="ts">
   import type { TipKey } from '../../help/tooltips'
@@ -22,6 +23,7 @@
   import { app, clock } from '../../lib/store.svelte'
   import { tip } from '../../lib/tooltip/tip.svelte'
   import HwButton from '../../lib/ui/HwButton.svelte'
+  import { TempoHold } from '../../lib/tempoHold'
 
   const t = $derived(app.state.transport)
   const beats = $derived(clock.beats)
@@ -48,7 +50,10 @@
   )
   const send = (cmd: AppCmd) => app.send(cmd)
   const tipOf = (cmd: AppCmd): TipKey => tipFor(cmd)
+  const tempoHold = new TempoHold(send)
 </script>
+
+<svelte:window onblur={() => tempoHold.releaseAll()} />
 
 <!-- svelte-ignore a11y_no_noninteractive_tabindex (readouts are focusable so their tooltips are reachable from the keyboard) -->
 <section class="tbar mat-chassis" aria-label="Transport" data-state={state}>
@@ -80,11 +85,11 @@
 
   <div class="group" role="group" aria-label="Tempo">
     <span class="engraved lbl tempo-lbl">Tempo</span>
-    <HwButton tip="tempo.down" label="Tempo −" onclick={() => send({ type: 'tempoDown' })}>−</HwButton>
+    <HwButton tip="tempo.down" label="Tempo −" onclick={() => send({ type: 'tempoDown' })} onhold={(d) => tempoHold.set(-1, d)}>−</HwButton>
     <span class="readout bpm mat-screen" tabindex="0" use:tip={'display.tempo'}>
       <span class="glow-text">{formatTempo(t.tempo)}</span><small>BPM</small>
     </span>
-    <HwButton tip="tempo.up" label="Tempo +" onclick={() => send({ type: 'tempoUp' })}>+</HwButton>
+    <HwButton tip="tempo.up" label="Tempo +" onclick={() => send({ type: 'tempoUp' })} onhold={(d) => tempoHold.set(1, d)}>+</HwButton>
     <HwButton tip={tipOf(tap)} led={lamp(tap)} {beats} onclick={() => send(tap)}>Tap</HwButton>
   </div>
 

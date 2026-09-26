@@ -50,6 +50,7 @@ export function tipFor(cmd: AppCmd | null): TipKey {
     case 'tapTempo': return 'tempo.tap'
     case 'tempoUp': return 'tempo.up'
     case 'tempoDown': return 'tempo.down'
+    case 'resetTempo': return 'tempo.reset'
     case 'toggleStylePart': return 'mixer.style.mute'
     case 'setStylePartVolume': return 'mixer.style.volume'
     case 'setStyleVolume': return 'mixer.style_level'
