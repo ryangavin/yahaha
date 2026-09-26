@@ -130,17 +130,9 @@ screens["Channel"] = dict(TAB="Channel", SEL="7", DISPLAY='''
 <div style="flex-grow: 1"></div>
 <span style="font-size: 12px; color: #8d8d95">Select any strip below, or turn the Launchkey's page buttons, to edit that part here.</span>
 </div>
-<div style="flex-grow: 1; display: grid; grid-template-columns: 170px repeat(3, minmax(0, 1fr)); gap: 10px; padding: 14px">
-<div style="display: flex; flex-direction: column; gap: 8px; padding: 12px; border-radius: 8px; background: #19191c"><span class="cap">Level</span>
-<div style="flex-grow: 1; display: flex; gap: 14px; justify-content: center">
-<div style="width: 8px; border-radius: 3px; background: #2d2d32; position: relative"><div style="position: absolute; left: 0; right: 0; bottom: 0; height: 58%; border-radius: 3px; background: #c46bff"></div></div>
-<div style="width: 34px; position: relative"><div style="position: absolute; left: 16px; top: 0; bottom: 0; width: 3px; background: #2d2d32"></div><div style="position: absolute; left: 0; bottom: 64%; width: 34px; height: 16px; border-radius: 3px; background: #f2f2f2"></div></div>
-</div>
-<span style="font-size: 20px; font-weight: 700; text-align: center">82</span>
-<div style="display: flex; justify-content: center">''' + krow("pan", 44, 60) + '''</div>
-</div>
-<div style="display: flex; flex-direction: column; gap: 8px; padding: 12px; border-radius: 8px; background: #19191c"><span class="cap">Effect sends</span>
-<div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; justify-items: center">''' + krow("sends") + '''</div>
+<div style="flex-grow: 1; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; padding: 14px">
+<div style="display: flex; flex-direction: column; gap: 8px; padding: 12px; border-radius: 8px; background: #19191c"><span class="cap">Mix · pan and sends (level is on the strip)</span>
+<div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; justify-items: center">''' + krow("sends") + '''</div>
 <span style="font-size: 11px; color: #8d8d95">Band sends are scaled by Effects › Band.</span>
 </div>
 <div style="display: flex; flex-direction: column; gap: 8px; padding: 12px; border-radius: 8px; background: #19191c"><span class="cap">Tone · from OTS / voice</span>
@@ -155,7 +147,7 @@ screens["Channel"] = dict(TAB="Channel", SEL="7", DISPLAY='''
 </div>''', JS='''
     const C = '#c46bff';
     const K = (v, name, val) => Object.assign(knob(52, v, C), { name, val });
-    const extra = { pan: [Object.assign(knob(44, .5, C), { name: 'Pan', val: 'C' })], sends: [K(.35, 'Reverb', '45'), K(.1, 'Chorus', '12'), K(0, 'Delay', '0'), K(.8, 'Dry', '100')], tone: [Object.assign(knob(46, .7, C), { name: 'Cutoff', val: '+10' }), Object.assign(knob(46, .5, C), { name: 'Reso', val: '0' }), Object.assign(knob(46, .45, C), { name: 'Attack', val: '−4' }), Object.assign(knob(46, .5, C), { name: 'Decay', val: '0' }), Object.assign(knob(46, .55, C), { name: 'Release', val: '+6' }), Object.assign(knob(46, .5, C), { name: 'Vibrato', val: '0' })], porta: [Object.assign(knob(44, 0, C), { name: 'Portamento', val: 'Off' })] };''', OVERLAY="")
+    const extra = { pan: [Object.assign(knob(44, .5, C), { name: 'Pan', val: 'C' })], sends: [K(.5, 'Pan', 'C'), K(.35, 'Reverb', '45'), K(.1, 'Chorus', '12'), K(0, 'Delay', '0'), K(.8, 'Dry', '100')], tone: [Object.assign(knob(46, .7, C), { name: 'Cutoff', val: '+10' }), Object.assign(knob(46, .5, C), { name: 'Reso', val: '0' }), Object.assign(knob(46, .45, C), { name: 'Attack', val: '−4' }), Object.assign(knob(46, .5, C), { name: 'Decay', val: '0' }), Object.assign(knob(46, .55, C), { name: 'Release', val: '+6' }), Object.assign(knob(46, .5, C), { name: 'Vibrato', val: '0' })], porta: [Object.assign(knob(44, 0, C), { name: 'Portamento', val: 'Off' })] };''', OVERLAY="")
 
 # ---------- Effects ----------
 def fxcard(name, var, types, extra_html=""):
