@@ -50,7 +50,7 @@ button{font-family:inherit;cursor:pointer}
 <div style="width: {{hdr.masterW}}px; height: 6px; border-radius: 3px; background: #2d2d32; position: relative" aria-label="Master level"><div style="position: absolute; left: 0; top: 0; bottom: 0; width: 78%; border-radius: 3px; background: #f2f2f2"></div></div>
 </header>
 
-<section aria-label="Display" style="height: %%DISPH%%px; flex-shrink: 0; display: flex; flex-direction: column; border-radius: 8px; border: 1px solid #2d2d32; background: #121317; overflow: hidden; position: relative">
+<section aria-label="Display" style="height: {{mm.dispH}}px; flex-shrink: 0; display: flex; flex-direction: column; border-radius: 8px; border: 1px solid #2d2d32; background: #121317; overflow: hidden; position: relative">
 <svg width="100%" height="100%" viewBox="0 0 640 160" preserveAspectRatio="none" aria-hidden="true" style="position: absolute; inset: 0; opacity: {{bgArt.o}}">%%BGSVG%%</svg>
 <div aria-hidden="true" style="position: absolute; inset: 0; background: linear-gradient(180deg, rgba(14,14,16,.2) 0%, rgba(14,14,16,.55) 40%, rgba(14,14,16,.78) 100%)"></div>
 <div role="tablist" style="position: relative; height: 34px; flex-shrink: 0; display: flex; align-items: flex-end; gap: 2px; padding: 0 12px; border-bottom: 2px solid #ff7a2f">
@@ -59,16 +59,15 @@ button{font-family:inherit;cursor:pointer}
 </sc-for>
 <div style="flex-grow: 1"></div>
 <span class="cap" style="padding-bottom: 8px; display: {{hdr.tabCap}}">Cool 8Beat · Bank A · Snapshot 3 · OTS 2</span>
-<div aria-label="Launchkey pads map" style="display: {{mm.disp}}; align-items: center; gap: 8px; align-self: center; padding: 2px 6px; border-radius: 5px; outline: 2px solid #ffffff; outline-offset: 0">
-<span style="font-size: 9px; font-weight: 700; letter-spacing: .06em; line-height: 1.1; text-align: right">PADS<br><span style="color: #a9a9b1">SECTIONS</span></span>
-<div style="display: grid; grid-template-columns: repeat(8, {{mm.w}}px); grid-auto-rows: 12px; gap: 2px">
-<sc-for list="{{mirPads}}" as="d" hint-placeholder-count="16"><span title="{{d.name}}" style="border-radius: 2px; background: {{d.bg}}; color: {{d.ink}}; outline: {{d.outline}}; outline-offset: 0; font-size: 7.5px; font-weight: 800; line-height: 12px; text-align: center; overflow: hidden; white-space: nowrap">{{d.short}}</span></sc-for>
-</div>
-</div>
 </div>
 <div style="flex-grow: 1; display: flex; min-height: 0; position: relative">
 %%DISPLAY%%
 </div>
+</section>
+
+<section aria-label="Launchkey pads" style="height: 40px; flex-shrink: 0; display: {{mm.disp}}; align-items: stretch; gap: 4px; padding: 3px; border-radius: 8px; border: 2px solid #ffffff; background: #141417">
+<div style="width: 76px; flex-shrink: 0; display: flex; flex-direction: column; justify-content: center; padding-left: 6px; font-size: 9px; font-weight: 800; letter-spacing: .06em; line-height: 1.2">PADS<span style="color: #a9a9b1">SECTIONS</span></div>
+<sc-for list="{{mirPads}}" as="d" hint-placeholder-count="16"><button title="{{d.name}}" style="flex: 1; min-width: 0; padding: 0 2px; border-radius: 4px; border: 1px solid {{d.border}}; outline: {{d.outline}}; outline-offset: 1px; background: {{d.bg}}; color: {{d.ink}}; box-shadow: {{d.glow}}; font-size: {{mm.fs}}px; font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{d.barLabel}}</button></sc-for>
 </section>
 
 <div style="flex-grow: 1; display: flex; gap: 10px; min-height: 0">
@@ -193,7 +192,7 @@ class Component extends DCLogic {
       ['MAIN A', 'Main A', LKC.main, 'dim', '4 bars'], ['MAIN B', 'Main B', LKC.main, 'flash', '4 bars'], ['MAIN C', 'Main C', LKC.main, 'dim', '8 bars'], ['MAIN D', 'Main D', LKC.main, 'dim', '8 bars'], ['BREAK', 'Break', LKC.brk, 'dim', '1 bar'], ['TAP', 'Tap', LKC.tap, 'dim', ''], ['SYNC STP', 'Sync Stop', LKC.stopsync, 'dim', ''], ['START', 'Start / Stop', LKC.run, 'bright', 'Running']];
     const SHORT = { 'INTRO 1': 'I1', 'INTRO 2': 'I2', 'INTRO 3': 'I3', 'SYNC ST': 'SYNC', 'ENDING 1': 'E1', 'ENDING 2': 'E2', 'ENDING 3': 'E3', 'AUTOFILL': 'AUTO', 'MAIN A': 'A', 'MAIN B': 'B', 'MAIN C': 'C', 'MAIN D': 'D', 'BREAK': 'BRK', 'TAP': 'TAP', 'SYNC STP': 'STOP', 'START': '▶' };
     const padLook = (p) => { const c = p[2], st = p[3], lit = st !== 'dim';
-      return { label: p[0], short: SHORT[p[0]], name: p[1], len: p[4], bg: lit ? rgb(c) : rgb(c, .16), ink: lit ? '#0e0e10' : rgb(c), border: lit ? rgb(c) : rgb(c, .45), outline: st === 'flash' ? '2px dashed #ffffff' : 'none', glow: lit ? '0 0 14px ' + rgb(c, .55) : 'none', flash: st === 'flash' }; };
+      return { label: p[0], short: SHORT[p[0]], barLabel: COMPACT ? SHORT[p[0]] : p[1], name: p[1], len: p[4], bg: lit ? rgb(c) : rgb(c, .16), ink: lit ? '#0e0e10' : rgb(c), border: lit ? rgb(c) : rgb(c, .45), outline: st === 'flash' ? '2px dashed #ffffff' : 'none', glow: lit ? '0 0 14px ' + rgb(c, .55) : 'none', flash: st === 'flash' }; };
     const secPads = PADS.map(padLook);
     const mirPads = secPads;
     const kn = ['Dynamics','Rtg len','Rtg on','Mute A','Mute B','—','—','Tempo'];
@@ -204,7 +203,7 @@ class Component extends DCLogic {
     // draws what has no place on the current screen.
     const PADRING = %%PADRING%%;
     const mir = {};
-    const mm = { disp: PADRING ? 'none' : 'flex', w: COMPACT ? 22 : 30 };
+    const mm = { disp: PADRING ? 'none' : 'flex', dispH: %%DISPH%% - (PADRING ? 0 : 48), fs: COMPACT ? 9 : 11 };
     const mirLegend = [{ what: 'PADS', page: 'Sections', disp: PADRING ? 'block' : 'none' }, { what: 'FADERS', page: 'Style ' + FPAGE, disp: 'block' }, { what: 'KNOBS', page: 'Style', disp: COMPACT ? 'none' : 'block' }];
     const regs = Array.from({ length: 8 }, (_, i) => ({ n: i + 1, bg: i === 2 ? A : '#26262b', ink: i === 2 ? AI : (i < 6 ? '#f2f2f2' : '#8d8d95'), border: i === 2 ? A : '#2d2d32' }));
     const ots = [1, 2, 3, 4].map(n => ({ n, bg: n === 2 ? A : '#26262b', ink: n === 2 ? AI : '#f2f2f2', border: n === 2 ? A : '#2d2d32' }));
