@@ -526,8 +526,8 @@ fn back_to_back_fills_do_not_allocate() {
     assert!(ch.old_rx.pop().is_ok(), "the new style took over");
 }
 
-/// The built-in synth's drum setup (#239): following a style's XG Drum Setup SysEx and
-/// scaling its drum notes on the way to the synth, on the engine thread.
+/// The built-in synth's drum setup (#239): a style's XG Drum Setup SysEx turned into drum
+/// messages for the synth, and its drum notes, on the engine thread.
 #[test]
 fn drum_setup_on_the_way_to_the_synth_does_not_allocate() {
     // Set up under the lock, as the other tests do: a test that just finished may still be

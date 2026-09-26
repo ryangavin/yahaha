@@ -266,14 +266,11 @@ pub struct Out {
     /// The band's program changes as the port gets them (#103: unchanged unless the sound
     /// library's "port sends mapped programs" is on).
     pub port_map: crate::patches::port::PortMap,
-    /// The style's XG Drum Setup as the built-in synth hears it (#239): the port gets the
-    /// SysEx, the synth gets the drum notes at their setup's Level.
-    pub drums: crate::synth::drum_setup::DrumSetups,
 }
 
 impl Out {
     pub fn new(midi: PacketSink, synth: Option<Producer<[u8; 3]>>) -> Out {
-        Out { midi, synth, port_map: Default::default(), drums: Default::default() }
+        Out { midi, synth, port_map: Default::default() }
     }
 
     #[inline]
@@ -281,15 +278,17 @@ impl Out {
         self.port_map.send(msg, |m| self.midi.push(m));
         let Some(s) = self.synth.as_mut() else { return };
         // The built-in synth takes channel messages only; SysEx (the style's XG effect
-        // setup) is for the port. Its drum setup levels reach the synth as velocity.
-        self.drums.observe(msg);
+        // setup) is for the port, but for its drum setup (#239), which reaches the synth
+        // as drum messages.
         if msg.first() == Some(&0xF0) {
+            if let Some(m) = crate::synth::drum_setup::encode(msg) {
+                let _ = s.push(m);
+            }
             return;
         }
         let mut m = [0u8; 3];
         let n = msg.len().min(3);
         m[..n].copy_from_slice(&msg[..n]);
-        self.drums.apply(&mut m);
         let _ = s.push(m);
     }
 
@@ -3033,41 +3032,33 @@ mod source_tests {
         assert_eq!(key_slot(key_tag(3)), Some(3));
     }
 
-    /// A style's XG Drum Setup Level reaches the built-in synth as the drum note's velocity
-    /// (#239): AustinCityBlues sets levels on its kits' notes in SInt.
+    /// A style's XG Drum Setup reaches the built-in synth (#239): AustinCityBlues tunes its
+    /// kits' notes in SInt. Each drum setup SysEx goes to the synth as a drum message, which
+    /// the synth's `DrumSetups` reads back as that note's settings; notes go as sent.
     #[test]
-    fn corpus_drum_setup_level_scales_the_synths_drum_notes() {
-        use crate::synth::drum_setup::DEFAULT_LEVEL;
+    fn corpus_drum_setup_reaches_the_synth() {
+        use crate::synth::drum_setup::{is_drum_msg, DrumSetups};
         let Some(path) = crate::library::corpus_styles().into_iter().find(|p| p.ends_with("AustinCityBlues.S930.STY")) else { return };
         let p = crate::engine::Prepared::new(&crate::sff::Style::load(&path).unwrap());
         let init: Vec<Vec<u8>> = (0..p.setups[0].init.len()).map(|i| p.setups[0].init.get(i).to_vec()).collect();
-        // A level the setup gives a note, and the channel that plays that setup.
-        let mode = |part: u8| init.iter().rev().find_map(|m| match m[..] {
-            [0xF0, 0x43, _, 0x4C, 0x08, pp, 0x07, v, 0xF7] if pp == part => Some(v),
-            _ => None,
-        });
-        let (setup, note, level) = init
-            .iter()
-            .rev()
-            .find_map(|m| match m[..] {
-                [0xF0, 0x43, _, 0x4C, s @ (0x30 | 0x31), n, 0x02, v, 0xF7] if v != DEFAULT_LEVEL => Some((s - 0x30, n, v)),
-                _ => None,
-            })
-            .expect("a drum setup level");
-        let ch = (8..10u8).find(|&c| mode(c).unwrap_or(if c == 9 { 2 } else { 0 }) == 2 + setup).expect("the setup's part");
+        let setup = init.iter().filter(|m| crate::sff::is_drum_setup(m)).count();
+        assert!(setup > 0);
         let (synth, mut heard) = RingBuffer::new(4096);
         let mut out = Out::new(PacketSink::new(rt::Target::Null), Some(synth));
         for m in &init {
             out.push(m);
         }
-        while heard.pop().is_ok() {}
-        out.push(&[0x90 | ch, note, 100]);
-        let want = ((100 * level as u32 + DEFAULT_LEVEL as u32 / 2) / DEFAULT_LEVEL as u32).min(127) as u8;
-        assert_eq!(heard.pop().ok(), Some([0x90 | ch, note, want]));
-        // A program change on the part initializes its setup: the note plays as sent.
-        out.push(&[0xC0 | ch, 0]);
-        out.push(&[0x90 | ch, note, 100]);
-        assert_eq!(heard.pop().ok(), Some([0xC0 | ch, 0, 0]));
-        assert_eq!(heard.pop().ok(), Some([0x90 | ch, note, 100]));
+        let mut d = DrumSetups::new();
+        let mut drum_msgs = 0;
+        while let Ok(m) = heard.pop() {
+            drum_msgs += is_drum_msg(&m) as usize;
+            d.observe(&m);
+        }
+        // Every drum setup parameter, plus the part modes.
+        assert!(drum_msgs >= setup, "{drum_msgs} drum messages for {setup} drum setup SysEx");
+        let tuned = (8..10u8).flat_map(|ch| (0..128u8).map(move |k| [0x90 | ch, k, 100])).filter(|m| d.note(m).is_some()).count();
+        assert!(tuned > 0, "some drum note plays with its own settings");
+        out.push(&[0x99, 38, 100]);
+        assert_eq!(heard.pop().ok(), Some([0x99, 38, 100]), "notes go as sent");
     }
 }

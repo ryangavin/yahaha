@@ -102,6 +102,13 @@ impl Rack {
 
     /// A channel message to the synthesizer(s) that take it (see the module docs).
     #[inline]
+    /// A note-on on `ch` whose voices start with `note`'s own settings (a drum setup's,
+    /// #239), on the synthesizer the channel plays.
+    pub(super) fn note_on_with(&mut self, ch: u8, key: u8, velocity: u8, note: &rustysynth::NoteParams) {
+        let slot = self.ch_slot[ch as usize & 15];
+        self.synth(slot, ch as i32).note_on_with(ch as i32, key as i32, velocity as i32, note);
+    }
+
     pub(super) fn process(&mut self, ch: i32, st: i32, d1: i32, d2: i32) {
         let routed = match st {
             0x90 => d2 > 0,
