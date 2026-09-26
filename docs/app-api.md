@@ -454,7 +454,16 @@ scaled. A change glides in over about 30 ms.
 |---|---|---|
 | `setEffectType` | `block` `reverb` \| `chorus` \| `variation`, `effect` | The block's type. Reverb: `hall` (default), `room`, `stage`, `plate`. Chorus: `chorus` (default), `celeste`, `flanger`. Variation, a stereo delay at the style tempo: `eighth`, `dottedEighth` (default), `quarter`, `pingPong` (1/8, alternating sides). Another block's type is refused. |
 | `setEffectReturn` | `block`, `level` 0–127 | The block's return level: 64 = 0 dB (default), 127 = +6 dB, 0 = off (Genos). |
+| `setEffectParam` | `block`, `param`, `value` | One of the block's parameters (#236), in the parameter's own unit, clamped to its range (see the table below). A parameter of another block is refused. A change glides on the audio thread, so it never clicks. `setEffectType` puts the block's parameters back to the new type's own values. Stored in Registration with the effects. |
 | `setBandSend` | `block`, `level` 0–127 | The block's band send, in percent: 100 = the Style parts' sends as written, 0 = none of the band, above 100 up to 127 raises them (each part's send at most the whole signal). Defaults: reverb 100, chorus 0, variation 0. Stored in Registration with the effects. |
+
+The effect parameters (`param`, its unit and range, and each type's own value):
+
+| Block | `param` | Unit | Range | Hall / Room / Stage / Plate |
+|---|---|---|---|---|
+| Reverb | `reverbTime` | 0.1 s (decay to −60 dB) | 3–100 (0.3–10 s) | 24 / 9 / 17 / 18 |
+| Reverb | `preDelay` | ms | 0–200 | 22 / 4 / 12 / 1 |
+| Reverb | `reverbTone` | 100 Hz (the tail's high cut; lower is darker) | 10–200 (1–20 kHz) | 45 / 60 / 65 / 90 |
 
 ### Knob Assign pages
 The Launchkey's 8 encoders as the Genos LIVE CONTROL knobs (#197; OM p.62–63, RM p.145–148;
@@ -1050,7 +1059,10 @@ Each is `{ block, name, effect, effectName, types, returnLevel, bandSend }`: `ef
 (`setEffectType`), `effectName` its name ("Hall", "Delay 1/8."), `types` the block's own
 types as `{ effect, name }`, `returnLevel` 0–127 (64 = 0 dB), `bandSend` 0–127 % (#236,
 `setBandSend`: 100 = the Style parts' sends as written; reverb 100, chorus 0, variation 0
-at start).
+at start), and `params` (#236), the block's parameters in order, each
+`{ param, name, value, min, max, default, display }`: `value` in the parameter's own unit
+(`setEffectParam`), `default` the type's own value, `display` the value as it reads
+("2.4 s", "22 ms", "4.5 kHz").
 
 ### `message`
 `{ seq, text, error }` or null. It holds the last notice or error, for example a style
@@ -1739,14 +1751,19 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
     "blocks": [
       {
         "block": "reverb", "name": "Reverb", "effect": "hall", "effectName": "Hall", "returnLevel": 64, "bandSend": 100,
+        "params": [
+          { "param": "reverbTime", "name": "Time", "value": 24, "min": 3, "max": 100, "default": 24, "display": "2.4 s" },
+          { "param": "preDelay", "name": "Pre-delay", "value": 22, "min": 0, "max": 200, "default": 22, "display": "22 ms" },
+          { "param": "reverbTone", "name": "Tone", "value": 45, "min": 10, "max": 200, "default": 45, "display": "4.5 kHz" }
+        ],
         "types": [{ "effect": "hall", "name": "Hall" }, { "effect": "room", "name": "Room" }, { "effect": "stage", "name": "Stage" }, { "effect": "plate", "name": "Plate" }]
       },
       {
-        "block": "chorus", "name": "Chorus", "effect": "chorus", "effectName": "Chorus", "returnLevel": 64, "bandSend": 0,
+        "block": "chorus", "name": "Chorus", "effect": "chorus", "effectName": "Chorus", "returnLevel": 64, "bandSend": 0, "params": [],
         "types": [{ "effect": "chorus", "name": "Chorus" }, { "effect": "celeste", "name": "Celeste" }, { "effect": "flanger", "name": "Flanger" }]
       },
       {
-        "block": "variation", "name": "Variation", "effect": "dottedEighth", "effectName": "Delay 1/8.", "returnLevel": 64, "bandSend": 0,
+        "block": "variation", "name": "Variation", "effect": "dottedEighth", "effectName": "Delay 1/8.", "returnLevel": 64, "bandSend": 0, "params": [],
         "types": [{ "effect": "eighth", "name": "Delay 1/8" }, { "effect": "dottedEighth", "name": "Delay 1/8." }, { "effect": "quarter", "name": "Delay 1/4" }, { "effect": "pingPong", "name": "Ping-Pong" }]
       }
     ]
