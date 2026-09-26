@@ -292,7 +292,7 @@ describe('mock knobs (#197)', () => {
     m.send({ type: 'turnKnob', knob: 2, delta: 1 })
     expect(m.state.transport.retrigger).toBe(true)
     m.send({ type: 'stepKnobPage', delta: 1 })
-    expect(m.state.knobs).toMatchObject({ page: 'parts', pageNumber: 2, pageCount: 4 })
+    expect(m.state.knobs).toMatchObject({ page: 'parts', pageNumber: 2, pageCount: 5 })
     const v = m.state.keyboardParts[1].volume
     m.send({ type: 'turnKnob', knob: 1, delta: -1 })
     expect(m.state.keyboardParts[1].volume).toBe(Math.max(0, v - 2))
@@ -307,5 +307,13 @@ describe('mock knobs (#197)', () => {
     m.send({ type: 'turnKnob', knob: 3, delta: -1 })
     expect(m.state.keyboardParts[3].reverb).toBe(Math.max(0, rev - 2))
     expect(m.state.knobs.knobs[3].value).toBe(String(m.state.keyboardParts[3].reverb))
+    // The FX page (#236): effect parameters in their own steps.
+    m.send({ type: 'setKnobPage', page: 'fx' })
+    expect(m.state.knobs.knobs.map((k) => k.short)).toEqual(['RevTime', 'PreDly', 'RevTone', 'DlyTime', 'DlyFdbk', 'ChoRate', 'ChoDepth', 'Tempo'])
+    m.send({ type: 'turnKnob', knob: 0, delta: 1 })
+    expect(m.state.effects.blocks[0].params[0].display).toBe('2.5 s')
+    expect(m.state.knobs.knobs[3].value).toBe('1/8.')
+    m.send({ type: 'turnKnob', knob: 3, delta: 3 })
+    expect(m.state.knobs.knobs[3].value).toBe('1/4')
   })
 })

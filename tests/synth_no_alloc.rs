@@ -1,5 +1,5 @@
 //! The audio callback (`synth::AudioCore::process`) must not allocate or free: SoundFont
-//! notes and controllers, the effect bus (sends, band send scales, types, returns, legacy effects), the
+//! notes and controllers, a style's XG drum setup (#239), a part's sound controllers (#246), the effect bus (sends, band send scales, types, parameters, returns, legacy effects), the
 //! master fader, a SoundFont swap, and (feature `plugins`) a
 //! keyboard part going over to an Audio Unit instrument (Apple's DLSMusicDevice), playing
 //! it, crossfading to a second instance, and back to the SoundFont. SoundFont swaps while
@@ -90,6 +90,32 @@ fn the_audio_callback_does_not_allocate() {
         ctl.fx.set_tempo(90.0 + t as f64 * 20.0);
         assert_eq!(run(&mut core, &mut feed, &[]), none, "effect types and returns");
     }
+    // The effect parameters (#236): the reverb's time, pre-delay and tone, gliding.
+    for (time, pre, tone) in [(80u16, 150u16, 20u16), (5, 0, 180), (24, 22, 45)] {
+        ctl.fx.params[yahaha::fx::Param::ReverbTime.index()].store(time, Ordering::Relaxed);
+        ctl.fx.params[yahaha::fx::Param::PreDelay.index()].store(pre, Ordering::Relaxed);
+        ctl.fx.params[yahaha::fx::Param::ReverbTone.index()].store(tone, Ordering::Relaxed);
+        for _ in 0..3 {
+            assert_eq!(run(&mut core, &mut feed, &[]), none, "effect parameters");
+        }
+    }
+    // The delay's parameters (#236): note values, free time, feedback, tone, ping-pong.
+    use yahaha::fx::Param as P;
+    for (sync, note, ms, fb, tone, pp) in [(1u16, 7u16, 375u16, 90u16, 20u16, 1u16), (0, 0, 60, 0, 200, 0), (1, 4, 375, 38, 50, 0)] {
+        for (p, v) in [(P::DelaySync, sync), (P::DelayNote, note), (P::DelayTime, ms), (P::DelayFeedback, fb), (P::DelayTone, tone), (P::PingPong, pp)] {
+            ctl.fx.params[p.index()].store(v, Ordering::Relaxed);
+        }
+        for _ in 0..3 {
+            assert_eq!(run(&mut core, &mut feed, &[]), none, "delay parameters");
+        }
+    }
+    // The chorus's rate and depth (#236), and every chorus type with them.
+    for (t, rate, depth) in [(0u8, 400u16, 50u16), (2, 5, 0), (1, 29, 9), (0, 55, 22)] {
+        ctl.fx.chorus_type.store(t, Ordering::Relaxed);
+        ctl.fx.params[yahaha::fx::Param::ChorusRate.index()].store(rate, Ordering::Relaxed);
+        ctl.fx.params[yahaha::fx::Param::ChorusDepth.index()].store(depth, Ordering::Relaxed);
+        assert_eq!(run(&mut core, &mut feed, &[[0xB0, 93, 127]]), none, "chorus parameters");
+    }
     // The band send scales (#236) gliding up and back.
     for (b, level) in [(1, 100u8), (2, 127), (0, 50), (1, 0), (2, 0), (0, 100)] {
         ctl.fx.band_send[b].store(level, Ordering::Relaxed);
@@ -104,6 +130,28 @@ fn the_audio_callback_does_not_allocate() {
     for _ in 0..20 {
         assert_eq!(run(&mut core, &mut feed, &[]), none, "tails");
     }
+    // The style's XG Drum Setup (#239): drum messages, drum notes starting with their own
+    // level, pitch, pan (random too), sends, filter and envelope, a program change resetting
+    // the setup, and a system reset.
+    let ds = |key: u8, p: u8, v: u8| synth::drum_setup::encode(&[0xF0, 0x43, 0x10, 0x4C, 0x30, key, p, v, 0xF7]).unwrap();
+    let mut drum: Vec<[u8; 3]> = (0..16u8).map(|p| ds(38, p, if p == 4 { 0 } else { 0x50 })).collect();
+    drum.extend([ds(36, 0x05, 0), ds(42, 0x02, 80), synth::drum_setup::encode(&[0xF0, 0x43, 0x10, 0x4C, 0x08, 0x08, 0x07, 0x03, 0xF7]).unwrap()]);
+    assert_eq!(run(&mut core, &mut feed, &drum), none, "drum setup");
+    assert_eq!(run(&mut core, &mut feed, &[[0xB9, 91, 100], [0x99, 38, 100], [0x99, 36, 110], [0x99, 42, 90], [0x98, 38, 90]]), none, "drum notes with their setup");
+    for _ in 0..10 {
+        assert_eq!(run(&mut core, &mut feed, &[[0x99, 38, 60]]), none, "drum notes ringing");
+    }
+    let reset = synth::drum_setup::encode(&[0xF0, 0x43, 0x10, 0x4C, 0x00, 0x00, 0x7E, 0x00, 0xF7]).unwrap();
+    assert_eq!(run(&mut core, &mut feed, &[[0xC9, 0, 0], [0x99, 38, 100], reset]), none, "drum setup resets");
+    // A part's voice settings (#246): the sound controllers on new notes, the filter moving
+    // on notes already sounding, vibrato.
+    let tone: Vec<[u8; 3]> = (71..=78u8).map(|cc| [0xB1, cc, 20 + cc]).chain([[0x91, 60, 100], [0x91, 64, 90], [0xB9, 74, 30], [0x99, 38, 100]]).collect();
+    assert_eq!(run(&mut core, &mut feed, &tone), none, "sound controllers");
+    for v in [0u8, 127, 64, 10] {
+        assert_eq!(run(&mut core, &mut feed, &[[0xB1, 74, v], [0xB1, 71, 127 - v]]), none, "the filter moving");
+        assert_eq!(run(&mut core, &mut feed, &[]), none, "the filter gliding");
+    }
+    assert_eq!(run(&mut core, &mut feed, &[[0x81, 60, 0], [0x81, 64, 0], [0xB1, 121, 0]]), none, "sound controllers: notes off");
     ctl.master.store(90, Ordering::Relaxed);
     parts.set_program(0, 5);
     assert_eq!(run(&mut core, &mut feed, &[[0xB0, 1, 30], [0xE0, 0, 80]]), none, "master, program, controllers");

@@ -106,6 +106,50 @@ describe('Mixer drawer', () => {
     expect(s.state.effects.blocks[0].returnLevel).toBe(0)
   })
 
+  it('Effects: a block\'s editor sets its parameters; a type change puts them back (#236)', async () => {
+    const s = setup()
+    const open = document.querySelector<HTMLElement>('[aria-label="Reverb settings"]')!
+    expect(open.getAttribute('aria-expanded')).toBe('false')
+    await fireEvent.click(open)
+    flushSync()
+    const time = document.querySelector<HTMLElement>('[aria-label="Reverb Time"]')!
+    expect(time.getAttribute('aria-valuetext')).toBe('2.4 s')
+    await fireEvent.keyDown(time, { key: 'End' })
+    expect(s.state.effects.blocks[0].params[0].value).toBe(100)
+    expect(s.state.effects.blocks[0].params[0].display).toBe('10.0 s')
+    const types = document.querySelectorAll<HTMLSelectElement>('select[aria-label$=" type"]')
+    await fireEvent.change(types[0], { target: { value: 'room' } })
+    expect(s.state.effects.blocks[0].params.map((p) => p.value)).toEqual([9, 4, 60])
+  })
+
+  it('Effects: the delay editor, note or free time, and its switches (#236)', async () => {
+    const s = setup()
+    await fireEvent.click(document.querySelector<HTMLElement>('[aria-label="Variation settings"]')!)
+    flushSync()
+    const note = document.querySelector<HTMLElement>('[aria-label="Variation Note"]')!
+    const time = document.querySelector<HTMLElement>('[aria-label="Variation Time"]')!
+    expect(note.getAttribute('aria-valuetext')).toBe('1/8.')
+    expect(time.getAttribute('aria-disabled')).toBe('true')
+    const sync = [...document.querySelectorAll<HTMLElement>('[role="switch"]')].find((e) => e.textContent?.includes('Tempo sync'))!
+    await fireEvent.click(sync)
+    flushSync()
+    expect(s.state.effects.blocks[2].params[0].value).toBe(0)
+    expect(document.querySelector<HTMLElement>('[aria-label="Variation Time"]')!.getAttribute('aria-disabled')).toBeNull()
+    const pp = [...document.querySelectorAll<HTMLElement>('[role="switch"]')].find((e) => e.textContent?.includes('Ping-pong'))!
+    await fireEvent.click(pp)
+    expect(s.state.effects.blocks[2].params[5].display).toBe('On')
+  })
+
+  it('Effects: the chorus editor has rate and depth (#236)', async () => {
+    const s = setup()
+    await fireEvent.click(document.querySelector<HTMLElement>('[aria-label="Chorus settings"]')!)
+    flushSync()
+    const depth = document.querySelector<HTMLElement>('[aria-label="Chorus Depth"]')!
+    expect(depth.getAttribute('aria-valuetext')).toBe('2.2 ms')
+    await fireEvent.keyDown(depth, { key: 'ArrowUp' })
+    expect(s.state.effects.blocks[1].params[1].display).toBe('2.3 ms')
+  })
+
   it('Effects: a band send per block, the band\'s chorus and delay off at start (#236)', async () => {
     const s = setup()
     const band = (name: string) => document.querySelector<HTMLElement>(`[aria-label="${name} band send"]`)!

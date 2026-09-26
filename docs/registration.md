@@ -95,11 +95,12 @@ Today's sections: `style` (early), `multiPad` (early: the bank file, or null for
 `tempo`, `chord` (fingering, Upper, Manual Bass, split), `styleControl` (Main, Intro, Sync
 Start/Stop, Stop ACMP and its mode `stopAcmpMode` (Data List p.91: group Style; a bank without it
 recalls only on/off), OTS Link), `styleMixer` (the 8 Style parts' CC7, on/off, and `set`:
-which levels the player had set, and `level`: the Style volume, #199, the Genos's Style volume offset; a bank without it leaves it), `parts` (Right 1–3 and Left: on, voice, CC7, octave, `pan`/`reverb`/`chorus`/`variation` (CC10/91/93/94, #198/#204; a bank without them leaves them as they are), and the part's own sound library
+which levels the player had set, and `level`: the Style volume, #199, the Genos's Style volume offset; a bank without it leaves it), `parts` (Right 1–3 and Left: on, voice, CC7, octave, `pan`/`reverb`/`chorus`/`variation` (CC10/91/93/94, #198/#204; a bank without them leaves them as they are), `tone` (#238: the voice settings an OTS or the panel set, `cutoff`, `resonance`, `attack`, `decay`, `release`, `vibratoRate`/`vibratoDepth`/`vibratoDelay`, `portamento`, `portamentoTime` as CC values and `xg`: XG multi part parameters `[hh, nn, vv]`; missing: the voice's own, as the recalled voice leaves them), `bendRange` (#238, RPN 0 semitones; missing: left as it is), and the part's own sound library
 patch `patch: { id, name }` (#109), recalled through `setPartPatch`),
 `effects` (#204, group Style: each effect block's `effect` type, `returnLevel` and
 `bandSend` (#236; a bank from before it recalls the defaults, reverb 100, chorus 0,
-variation 0), under `reverb`, `chorus`, `variation`; a bank without it leaves them), `transpose`, `harmonyArp` (Keyboard Harmony/Arpeggio: the switch, the type and pattern by
+variation 0) and `params` (#236, `{ reverbTime: 24, ... }`; one absent is the type's own
+value), under `reverb`, `chorus`, `variation`; a bank without it leaves them), `transpose`, `harmonyArp` (Keyboard Harmony/Arpeggio: the switch, the type and pattern by
 name, Volume, Speed, Assign, Chord Note Only, Touch Limit, and the arpeggio's Quantize, Hold
 setting, velocity and Keep Key On; not the Arpeggio Hold pedal function, which is the
 pedal's), `styleSettings` (#107: Section Change Timing To Main, Style Retrigger on/off and
@@ -177,7 +178,7 @@ first).
 | Group | Items here |
 |---|---|
 | Style | the style, section (Main, armed Intro), Sync Start/Stop, Stop ACMP, OTS Link, the Style part mixer and the Style volume, the **Left** part, split point, fingering, Chord Detection Area / Manual Bass, Left Hold, Section Change Timing To Main, Style Retrigger on/off and rate, Synchro Stop Window, Style Section Reset |
-| Voice | Right 1–3: voice, on/off, volume, octave, pan, reverb and chorus sends |
+| Voice | Right 1–3: voice, on/off, volume, octave, pan, reverb and chorus sends, voice settings (filter, EG, vibrato, portamento, XG part parameters) and pitch bend range (#238) |
 | Tempo | the tempo, in whole BPM as on the Genos panel (recalled as SET TEMPO) |
 | Transpose | Keyboard and Master transpose |
 | Multi Pad | the Multi Pad bank (Data List "Multi Pad File"; a bank already chosen is left playing) and the Multi Pad volume (#196; a bank without it leaves it). Not the pads' Synchro Start standby |

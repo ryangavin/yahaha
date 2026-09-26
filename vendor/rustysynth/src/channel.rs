@@ -32,7 +32,41 @@ pub(crate) struct Channel {
     pitch_bend: f32,
 
     last_data_type: DataType,
+
+    // yahaha: the GM2/XG sound controllers (#246), 64 = the voice's own: CC74 cutoff,
+    // CC71 resonance, CC73 attack, CC75 decay, CC72 release, CC76 vibrato rate, CC77
+    // depth, CC78 delay (`SOUND_*`); and what they come to, worked out when they change.
+    sound: [u8; SOUND_CONTROLLERS],
+    cutoff_factor: f32,
+    resonance_db: f32,
+    envelope_factors: [f32; 3],
+    vibrato_rate_factor: f32,
+    vibrato_depth: f32,
+    vibrato_delay: f32,
 }
+
+/// yahaha: `Channel::sound` indices.
+pub(crate) const SOUND_CUTOFF: usize = 0;
+pub(crate) const SOUND_RESONANCE: usize = 1;
+pub(crate) const SOUND_ATTACK: usize = 2;
+pub(crate) const SOUND_DECAY: usize = 3;
+pub(crate) const SOUND_RELEASE: usize = 4;
+pub(crate) const SOUND_VIBRATO_RATE: usize = 5;
+pub(crate) const SOUND_VIBRATO_DEPTH: usize = 6;
+pub(crate) const SOUND_VIBRATO_DELAY: usize = 7;
+pub(crate) const SOUND_CONTROLLERS: usize = 8;
+
+/// yahaha: steps of a sound controller per octave of cutoff, envelope time or vibrato rate:
+/// 16, so the -64..+63 range spans about 4 octaves each way (the XG Drum Setup's scale,
+/// yahaha's `drum_setup.rs`).
+const STEPS_PER_OCTAVE: f32 = 16_f32;
+/// yahaha: resonance, in decibels per step (about +-12 dB over the range).
+const RESONANCE_DB_PER_STEP: f32 = 0.2_f32;
+/// yahaha: vibrato depth, in semitones per step: +63 adds about half a semitone (the mod
+/// wheel's full depth), -64 takes as much away.
+const VIBRATO_DEPTH_PER_STEP: f32 = 0.5_f32 / 64_f32;
+/// yahaha: vibrato delay, in seconds per step.
+const VIBRATO_DELAY_PER_STEP: f32 = 0.02_f32;
 
 impl Channel {
     pub(crate) fn new(is_percussion_channel: bool) -> Self {
@@ -53,6 +87,13 @@ impl Channel {
             fine_tune: 0,
             pitch_bend: 0_f32,
             last_data_type: DataType::None,
+            sound: [64; SOUND_CONTROLLERS],
+            cutoff_factor: 1_f32,
+            resonance_db: 0_f32,
+            envelope_factors: [1_f32; 3],
+            vibrato_rate_factor: 1_f32,
+            vibrato_depth: 0_f32,
+            vibrato_delay: 0_f32,
         };
 
         channel.reset();
@@ -79,8 +120,13 @@ impl Channel {
         self.fine_tune = 8192;
 
         self.pitch_bend = 0_f32;
+
+        for i in 0..SOUND_CONTROLLERS {
+            self.set_sound(i, 64);
+        }
     }
 
+    // yahaha: Reset All Controllers leaves the sound controllers as they are (GM2, XG).
     pub(crate) fn reset_all_controllers(&mut self) {
         self.modulation = 0;
         self.expression = 127 << 7;
@@ -193,6 +239,61 @@ impl Channel {
 
     pub(crate) fn set_pitch_bend(&mut self, value1: i32, value2: i32) {
         self.pitch_bend = (1_f32 / 8192_f32) * ((value1 | (value2 << 7)) - 8192) as f32;
+    }
+
+    /// yahaha: sound controller `i` (`SOUND_*`) to `value` (64 = the voice's own).
+    pub(crate) fn set_sound(&mut self, i: usize, value: i32) {
+        let value = value.clamp(0, 127) as u8;
+        self.sound[i] = value;
+        let d = value as f32 - 64_f32;
+        let octaves = |d: f32| (d / STEPS_PER_OCTAVE).exp2();
+        match i {
+            SOUND_CUTOFF => self.cutoff_factor = octaves(d),
+            SOUND_RESONANCE => self.resonance_db = d * RESONANCE_DB_PER_STEP,
+            SOUND_ATTACK => self.envelope_factors[0] = octaves(d),
+            SOUND_DECAY => self.envelope_factors[1] = octaves(d),
+            SOUND_RELEASE => self.envelope_factors[2] = octaves(d),
+            SOUND_VIBRATO_RATE => self.vibrato_rate_factor = octaves(d),
+            SOUND_VIBRATO_DEPTH => self.vibrato_depth = d * VIBRATO_DEPTH_PER_STEP,
+            SOUND_VIBRATO_DELAY => self.vibrato_delay = d * VIBRATO_DELAY_PER_STEP,
+            _ => {}
+        }
+    }
+
+    /// yahaha: the filter cutoff scaled by this (CC74; 1 = the voice's own).
+    pub(crate) fn get_cutoff_factor(&self) -> f32 {
+        self.cutoff_factor
+    }
+
+    /// yahaha: decibels added to the filter resonance (CC71).
+    pub(crate) fn get_resonance_db(&self) -> f32 {
+        self.resonance_db
+    }
+
+    /// yahaha: the volume envelope's attack, decay and release times scaled by these
+    /// (CC73, CC75, CC72).
+    pub(crate) fn get_envelope_factors(&self) -> [f32; 3] {
+        self.envelope_factors
+    }
+
+    /// yahaha: the vibrato rate scaled by this (CC76).
+    pub(crate) fn get_vibrato_rate_factor(&self) -> f32 {
+        self.vibrato_rate_factor
+    }
+
+    /// yahaha: semitones added to the vibrato depth (CC77).
+    pub(crate) fn get_vibrato_depth(&self) -> f32 {
+        self.vibrato_depth
+    }
+
+    /// yahaha: seconds added to the vibrato delay (CC78).
+    pub(crate) fn get_vibrato_delay(&self) -> f32 {
+        self.vibrato_delay
+    }
+
+    /// yahaha: whether any sound controller differs from 64.
+    pub(crate) fn has_sound(&self) -> bool {
+        self.sound != [64; SOUND_CONTROLLERS]
     }
 
     pub(crate) fn get_bank_number(&self) -> i32 {

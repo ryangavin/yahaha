@@ -6,8 +6,13 @@ use std::sync::Arc;
 
 use crate::array_math::ArrayMath;
 use crate::channel::Channel;
+use crate::channel::{
+    SOUND_ATTACK, SOUND_CUTOFF, SOUND_DECAY, SOUND_RELEASE, SOUND_RESONANCE, SOUND_VIBRATO_DELAY,
+    SOUND_VIBRATO_DEPTH, SOUND_VIBRATO_RATE,
+};
 use crate::chorus::Chorus;
 use crate::error::SynthesizerError;
+use crate::note_params::NoteParams;
 use crate::region_pair::RegionPair;
 use crate::reverb::Reverb;
 use crate::soundfont::SoundFont;
@@ -218,6 +223,15 @@ impl Synthesizer {
                 0x40 => channel_info.set_hold_pedal(data2), // Hold Pedal
                 0x5B => channel_info.set_reverb_send(data2), // Reverb Send
                 0x5D => channel_info.set_chorus_send(data2), // Chorus Send
+                // yahaha: the sound controllers (#246).
+                0x4A => channel_info.set_sound(SOUND_CUTOFF, data2), // Brightness (Cutoff)
+                0x47 => channel_info.set_sound(SOUND_RESONANCE, data2), // Harmonic Content (Resonance)
+                0x49 => channel_info.set_sound(SOUND_ATTACK, data2), // Attack Time
+                0x4B => channel_info.set_sound(SOUND_DECAY, data2), // Decay Time
+                0x48 => channel_info.set_sound(SOUND_RELEASE, data2), // Release Time
+                0x4C => channel_info.set_sound(SOUND_VIBRATO_RATE, data2), // Vibrato Rate
+                0x4D => channel_info.set_sound(SOUND_VIBRATO_DEPTH, data2), // Vibrato Depth
+                0x4E => channel_info.set_sound(SOUND_VIBRATO_DELAY, data2), // Vibrato Delay
                 0x63 => channel_info.set_nrpn_coarse(data2), // NRPN Coarse
                 0x62 => channel_info.set_nrpn_fine(data2), // NRPN Fine
                 0x65 => channel_info.set_rpn_coarse(data2), // RPN Coarse
@@ -259,6 +273,13 @@ impl Synthesizer {
     /// * `key` - The key of the note.
     /// * `velocity` - The velocity of the note.
     pub fn note_on(&mut self, channel: i32, key: i32, velocity: i32) {
+        self.note_on_with(channel, key, velocity, &NoteParams::NEUTRAL);
+    }
+
+    /// yahaha: `note_on`, the note's voices taking `note`'s own gain, tuning, pan, sends,
+    /// filter and envelope times (an XG Drum Setup's per-note settings). They are fixed at
+    /// the note-on: voices already sounding keep theirs.
+    pub fn note_on_with(&mut self, channel: i32, key: i32, velocity: i32, note: &NoteParams) {
         if velocity == 0 {
             self.note_off(channel, key);
             return;
@@ -301,7 +322,7 @@ impl Synthesizer {
                         let region_pair = RegionPair::new(preset_region, instrument_region);
 
                         if let Some(value) = self.voices.request_new(instrument_region, channel) {
-                            value.start(&region_pair, channel, key, velocity)
+                            value.start(&region_pair, channel, key, velocity, note, channel_info)
                         }
                     }
                 }
@@ -534,6 +555,38 @@ impl Synthesizer {
                 ArrayMath::multiply_add(g, &self.channel_right[row.clone()], &mut r[..bs]);
             }
         }
+        // yahaha: a voice with its own sends (`NoteParams::sends`): the channel row above
+        // sent it at the channel's gain; add the difference to its own.
+        if self.send_used {
+            let master = self.master_volume;
+            for voice in self.voices.get_active_voices().iter() {
+                if !voice.own_sends {
+                    continue;
+                }
+                let ch = (voice.channel() as usize) & (Synthesizer::CHANNEL_COUNT - 1);
+                for (b, &g) in self.send_gains[ch].iter().enumerate() {
+                    let k = g * (voice.note_sends[b] - 1_f32);
+                    if g <= 0_f32 || k == 0_f32 {
+                        continue;
+                    }
+                    let (l, r) = self.send_block.split_at_mut((2 * b + 1) * bs);
+                    Synthesizer::add_block(
+                        k * master * voice.previous_mix_gain_left,
+                        k * master * voice.current_mix_gain_left,
+                        voice.block(),
+                        &mut l[2 * b * bs..],
+                        self.inverse_block_size,
+                    );
+                    Synthesizer::add_block(
+                        k * master * voice.previous_mix_gain_right,
+                        k * master * voice.current_mix_gain_right,
+                        voice.block(),
+                        &mut r[..bs],
+                        self.inverse_block_size,
+                    );
+                }
+            }
+        }
 
         if !self.internal_effects {
             return;
@@ -628,6 +681,25 @@ impl Synthesizer {
             }
         }
         m
+    }
+
+    /// yahaha: `write_block` for a gain of either sign (a send's correction).
+    fn add_block(
+        previous_gain: f32,
+        current_gain: f32,
+        source: &[f32],
+        destination: &mut [f32],
+        inverse_block_size: f32,
+    ) {
+        if SoundFontMath::max(previous_gain.abs(), current_gain.abs()) < SoundFontMath::NON_AUDIBLE {
+            return;
+        }
+        if (current_gain - previous_gain).abs() < 1.0E-3_f32 {
+            ArrayMath::multiply_add(current_gain, source, destination);
+        } else {
+            let step = inverse_block_size * (current_gain - previous_gain);
+            ArrayMath::multiply_add_slope(previous_gain, step, source, destination);
+        }
     }
 
     fn write_block(

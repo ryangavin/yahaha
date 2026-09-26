@@ -4,7 +4,7 @@
 //! The audio thread reads them from `SynthControl::fx`, which `pump_fx` keeps up to date.
 
 use super::Control;
-use crate::api::{CmdError, EffectsState, FxBlock, FxCmd, FxType};
+use crate::api::{CmdError, EffectsState, FxBlock, FxCmd, FxParam, FxType};
 use crate::registration::{Group, Groups};
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::Ordering::Relaxed;
@@ -16,25 +16,33 @@ pub(super) struct FxSettings {
     pub(super) returns: [u8; 3],
     /// The band send scales (#236), 0-127 %.
     pub(super) band: [u8; 3],
+    /// The effect parameters (#236, `crate::fx::Param::index`).
+    pub(super) params: [u16; crate::fx::PARAMS],
 }
 
 impl Default for FxSettings {
     /// The Genos defaults: Hall, Chorus, and here the dotted 1/8 delay; every return 0 dB.
     /// The band's reverb as the style wrote it, and no band chorus or delay (#236).
     fn default() -> FxSettings {
-        FxSettings { effect: FxBlock::DEFAULT_TYPES, returns: [crate::fx::RETURN_UNITY; 3], band: crate::fx::BAND_SEND_DEFAULT }
+        FxSettings { effect: FxBlock::DEFAULT_TYPES, returns: [crate::fx::RETURN_UNITY; 3], band: crate::fx::BAND_SEND_DEFAULT, params: crate::fx::default_params() }
     }
 }
 
 impl FxSettings {
     /// The type's number within its block (`crate::fx::ReverbType` etc.).
     fn type_index(&self, b: FxBlock) -> u8 {
-        b.types().iter().position(|t| *t == self.effect[b.index()]).unwrap_or(0) as u8
+        b.type_index(self.effect[b.index()])
+    }
+
+    /// Block `b` takes type `t`, and its parameters that type's own values.
+    fn set_type(&mut self, b: FxBlock, t: FxType) {
+        self.effect[b.index()] = t;
+        crate::fx::type_defaults(b.index(), b.type_index(t), &mut self.params);
     }
 }
 
 /// A block in a registration.
-#[derive(Clone, Copy, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct EffectReg {
     effect: FxType,
@@ -42,6 +50,9 @@ struct EffectReg {
     /// Absent in a registration from before #236: the block's default.
     #[serde(default)]
     band_send: Option<u8>,
+    /// The block's parameters (#236); one absent is the type's own value.
+    #[serde(default)]
+    params: std::collections::BTreeMap<FxParam, u16>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -66,10 +77,18 @@ impl Control {
                 if !block.types().contains(&effect) {
                     return self.fail(format!("{} has no {} type", block.name(), effect.name()));
                 }
-                self.fx.effect[block.index()] = effect;
+                if self.fx.effect[block.index()] != effect {
+                    self.fx.set_type(block, effect);
+                }
             }
             FxCmd::SetEffectReturn { block, level } => self.fx.returns[block.index()] = level.min(127),
             FxCmd::SetBandSend { block, level } => self.fx.band[block.index()] = level.min(127),
+            FxCmd::SetEffectParam { block, param, value } => {
+                if param.spec().block != block.index() {
+                    return self.fail(format!("{} has no {} parameter", block.name(), param.spec().name));
+                }
+                self.fx.params[param.index()] = param.clamp(value);
+            }
         }
         self.pump_fx();
         Ok(())
@@ -91,6 +110,9 @@ impl Control {
         for (a, &v) in fx.band_send.iter().zip(&s.band) {
             a.store(v, Relaxed);
         }
+        for (a, &v) in fx.params.iter().zip(&s.params) {
+            a.store(v, Relaxed);
+        }
     }
 
     /// The Registration's `effects` section (group Style, as the Genos Data List files
@@ -103,8 +125,10 @@ impl Control {
             effect: self.fx.effect[b.index()],
             return_level: self.fx.returns[b.index()],
             band_send: Some(self.fx.band[b.index()]),
+            params: FxParam::of_block(b.index()).map(|p| (p, self.fx.params[p.index()])).collect(),
         });
-        serde_json::to_value(EffectsReg { reverb: blocks[0], chorus: blocks[1], variation: blocks[2] }).ok()
+        let [reverb, chorus, variation] = blocks;
+        serde_json::to_value(EffectsReg { reverb, chorus, variation }).ok()
     }
 
     pub(super) fn effects_recall(&mut self, v: &serde_json::Value, g: Groups) -> Result<(), String> {
@@ -114,7 +138,12 @@ impl Control {
         let r: EffectsReg = serde_json::from_value(v.clone()).map_err(|e| format!("registration effects: {e}"))?;
         for (b, reg) in FxBlock::ALL.into_iter().zip([r.reverb, r.chorus, r.variation]) {
             if b.types().contains(&reg.effect) {
-                self.fx.effect[b.index()] = reg.effect;
+                self.fx.set_type(b, reg.effect);
+            }
+            for (p, v) in reg.params {
+                if p.spec().block == b.index() {
+                    self.fx.params[p.index()] = p.clamp(v);
+                }
             }
             self.fx.returns[b.index()] = reg.return_level.min(127);
             self.fx.band[b.index()] = reg.band_send.unwrap_or(crate::fx::BAND_SEND_DEFAULT[b.index()]).min(127);
@@ -124,7 +153,7 @@ impl Control {
     }
 
     pub(super) fn effects_state(&self) -> EffectsState {
-        EffectsState::new(self.fx.effect, self.fx.returns, self.fx.band)
+        EffectsState::new(self.fx.effect, self.fx.returns, self.fx.band, self.fx.params)
     }
 }
 
@@ -268,5 +297,112 @@ mod tests {
         s.advance(1_000_000_000);
         assert_eq!(band(&s), vec![100, 0, 0]);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// #236: the effect parameters: set in their range, refused on another block, back
+    /// to the type's own values on a type change, on the audio thread's atomics, and in a
+    /// Registration Memory.
+    #[test]
+    fn effect_parameters_reach_the_bus_and_the_registration() {
+        use crate::api::{FxBlock, FxCmd, FxParam, FxType, RegistrationCmd};
+        let p = Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus/MOX_v2/SlowWalker.T552.sty");
+        if !p.exists() {
+            eprintln!("corpus missing; skipping");
+            return;
+        }
+        let dir = std::env::temp_dir().join(format!("yahaha-fx-params-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let s = Session::offline(Options { paths: vec![p], data_dir: Some(dir.clone()), ..Options::default() }).unwrap();
+        s.offline_audio(None, 48_000).unwrap();
+        let reverb = |s: &Session| s.state().effects.blocks[0].params.iter().map(|p| (p.value, p.display.clone())).collect::<Vec<_>>();
+        let atomic = |s: &Session, p: FxParam| s.inner.lock().synth.as_ref().unwrap().control.fx.params[p.index()].load(Relaxed);
+        let hall = vec![(24, "2.4 s".to_string()), (22, "22 ms".to_string()), (45, "4.5 kHz".to_string())];
+        assert_eq!(reverb(&s), hall);
+        let st = s.state();
+        let time = &st.effects.blocks[0].params[0];
+        assert_eq!((time.param, time.min, time.max, time.default, time.name.as_str()), (FxParam::ReverbTime, 3, 100, 24, "Time"));
+        s.send(RegistrationCmd::MemorizeRegist { index: 0 }).unwrap();
+
+        s.send(FxCmd::SetEffectParam { block: FxBlock::Reverb, param: FxParam::ReverbTime, value: 500 }).unwrap();
+        s.send(FxCmd::SetEffectParam { block: FxBlock::Reverb, param: FxParam::PreDelay, value: 120 }).unwrap();
+        assert!(s.send(FxCmd::SetEffectParam { block: FxBlock::Chorus, param: FxParam::ReverbTime, value: 10 }).is_err(), "not the chorus's");
+        assert_eq!(reverb(&s)[..2], [(100, "10.0 s".to_string()), (120, "120 ms".to_string())]);
+        assert_eq!((atomic(&s, FxParam::ReverbTime), atomic(&s, FxParam::PreDelay)), (100, 120));
+        s.send(RegistrationCmd::MemorizeRegist { index: 1 }).unwrap();
+
+        // A type change: the Room's own values.
+        s.send(FxCmd::SetEffectType { block: FxBlock::Reverb, effect: FxType::Room }).unwrap();
+        assert_eq!(reverb(&s).iter().map(|p| p.0).collect::<Vec<_>>(), vec![9, 4, 60]);
+        assert_eq!(s.state().effects.blocks[0].params[0].default, 9);
+        // The same type again changes nothing.
+        s.send(FxCmd::SetEffectParam { block: FxBlock::Reverb, param: FxParam::ReverbTone, value: 30 }).unwrap();
+        s.send(FxCmd::SetEffectType { block: FxBlock::Reverb, effect: FxType::Room }).unwrap();
+        assert_eq!(reverb(&s)[2].0, 30);
+
+        s.send(RegistrationCmd::RecallRegist { index: 1 }).unwrap();
+        s.advance(1_000_000_000);
+        assert_eq!(reverb(&s).iter().map(|p| p.0).collect::<Vec<_>>(), vec![100, 120, 45]);
+        s.send(RegistrationCmd::RecallRegist { index: 0 }).unwrap();
+        s.advance(1_000_000_000);
+        assert_eq!(reverb(&s), hall);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// #236: the delay's parameters: a type sets the note value and the ping-pong switch,
+    /// and they reach the audio thread.
+    #[test]
+    fn delay_parameters_follow_the_type_and_reach_the_bus() {
+        use crate::api::{FxBlock, FxCmd, FxParam, FxType};
+        let p = Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus/MOX_v2/SlowWalker.T552.sty");
+        if !p.exists() {
+            eprintln!("corpus missing; skipping");
+            return;
+        }
+        let s = Session::offline(Options { paths: vec![p], ..Options::default() }).unwrap();
+        s.offline_audio(None, 48_000).unwrap();
+        let delay = |s: &Session| s.state().effects.blocks[2].params.iter().map(|p| p.display.clone()).collect::<Vec<_>>();
+        assert_eq!(delay(&s), ["On", "1/8.", "375 ms", "38%", "5.0 kHz", "Off"]);
+        s.send(FxCmd::SetEffectType { block: FxBlock::Variation, effect: FxType::PingPong }).unwrap();
+        assert_eq!(delay(&s), ["On", "1/8", "375 ms", "38%", "5.0 kHz", "On"]);
+        s.send(FxCmd::SetEffectParam { block: FxBlock::Variation, param: FxParam::DelayNote, value: 1 }).unwrap();
+        s.send(FxCmd::SetEffectParam { block: FxBlock::Variation, param: FxParam::DelayFeedback, value: 95 }).unwrap();
+        s.send(FxCmd::SetEffectParam { block: FxBlock::Variation, param: FxParam::DelaySync, value: 0 }).unwrap();
+        s.send(FxCmd::SetEffectParam { block: FxBlock::Variation, param: FxParam::DelayTime, value: 5 }).unwrap();
+        assert!(s.send(FxCmd::SetEffectParam { block: FxBlock::Reverb, param: FxParam::PingPong, value: 1 }).is_err());
+        assert_eq!(delay(&s), ["Off", "1/8T", "10 ms", "90%", "5.0 kHz", "On"]);
+        let ctl = s.inner.lock();
+        let fx = &ctl.synth.as_ref().unwrap().control.fx;
+        let got = [FxParam::DelaySync, FxParam::DelayNote, FxParam::DelayTime, FxParam::DelayFeedback, FxParam::PingPong].map(|p| fx.params[p.index()].load(Relaxed));
+        assert_eq!(got, [0, 1, 10, 90, 1]);
+    }
+
+    /// #236: the chorus's rate and depth start at the type's own and reach the bus; the
+    /// FX knob page turns them.
+    #[test]
+    fn chorus_parameters_and_the_fx_knobs() {
+        use crate::api::{FxBlock, FxCmd, FxParam, FxType, KnobsCmd};
+        use crate::knobs::KnobPage;
+        let p = Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus/MOX_v2/SlowWalker.T552.sty");
+        if !p.exists() {
+            eprintln!("corpus missing; skipping");
+            return;
+        }
+        let s = Session::offline(Options { paths: vec![p], ..Options::default() }).unwrap();
+        s.offline_audio(None, 48_000).unwrap();
+        let chorus = |s: &Session| s.state().effects.blocks[1].params.iter().map(|p| p.display.clone()).collect::<Vec<_>>();
+        assert_eq!(chorus(&s), ["0.55 Hz", "2.2 ms"]);
+        s.send(FxCmd::SetEffectType { block: FxBlock::Chorus, effect: FxType::Celeste }).unwrap();
+        assert_eq!(chorus(&s), ["0.29 Hz", "0.9 ms"]);
+        s.send(KnobsCmd::SetKnobPage { page: KnobPage::Fx }).unwrap();
+        s.send(KnobsCmd::TurnKnob { knob: 6, delta: 3 }).unwrap();
+        s.send(KnobsCmd::TurnKnob { knob: 0, delta: 6 }).unwrap();
+        s.send(KnobsCmd::TurnKnob { knob: 4, delta: 10 }).unwrap();
+        let st = s.state();
+        assert_eq!(chorus(&s)[1], "1.2 ms");
+        assert_eq!(st.effects.blocks[0].params[0].display, "3.0 s", "the reverb time, 0.1 s a step");
+        assert_eq!(st.effects.blocks[2].params[3].display, "58%", "the delay feedback, 2% a step");
+        assert_eq!((st.knobs.page_name.as_str(), st.knobs.knobs[4].short.as_str(), st.knobs.knobs[4].value.as_str()), ("FX", "DlyFdbk", "58%"));
+        let ctl = s.inner.lock();
+        assert_eq!(ctl.synth.as_ref().unwrap().control.fx.params[FxParam::ChorusDepth.index()].load(Relaxed), 12);
     }
 }

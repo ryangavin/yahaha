@@ -269,5 +269,6 @@ export function tipFor(cmd: AppCmd | null): TipKey {
     case 'setEffectType': return `fx.${cmd.block}_type`
     case 'setEffectReturn': return `fx.${cmd.block}_return`
     case 'setBandSend': return `fx.${cmd.block}_band`
+    case 'setEffectParam': return ({ reverbTime: 'fx.param.reverb_time', preDelay: 'fx.param.pre_delay', reverbTone: 'fx.param.reverb_tone', delaySync: 'fx.param.delay_sync', delayNote: 'fx.param.delay_note', delayTime: 'fx.param.delay_time', delayFeedback: 'fx.param.delay_feedback', delayTone: 'fx.param.delay_tone', pingPong: 'fx.param.ping_pong', chorusRate: 'fx.param.chorus_rate', chorusDepth: 'fx.param.chorus_depth' } as const)[cmd.param]
   }
 }

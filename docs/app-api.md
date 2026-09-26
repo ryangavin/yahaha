@@ -454,7 +454,34 @@ scaled. A change glides in over about 30 ms.
 |---|---|---|
 | `setEffectType` | `block` `reverb` \| `chorus` \| `variation`, `effect` | The block's type. Reverb: `hall` (default), `room`, `stage`, `plate`. Chorus: `chorus` (default), `celeste`, `flanger`. Variation, a stereo delay at the style tempo: `eighth`, `dottedEighth` (default), `quarter`, `pingPong` (1/8, alternating sides). Another block's type is refused. |
 | `setEffectReturn` | `block`, `level` 0–127 | The block's return level: 64 = 0 dB (default), 127 = +6 dB, 0 = off (Genos). |
+| `setEffectParam` | `block`, `param`, `value` | One of the block's parameters (#236), in the parameter's own unit, clamped to its range (see the table below). A parameter of another block is refused. A change glides on the audio thread, so it never clicks. `setEffectType` puts the block's parameters back to the new type's own values. Stored in Registration with the effects. |
 | `setBandSend` | `block`, `level` 0–127 | The block's band send, in percent: 100 = the Style parts' sends as written, 0 = none of the band, above 100 up to 127 raises them (each part's send at most the whole signal). Defaults: reverb 100, chorus 0, variation 0. Stored in Registration with the effects. |
+
+The effect parameters (`param`, its unit and range, and each type's own value):
+
+| Block | `param` | Unit | Range | Hall / Room / Stage / Plate |
+|---|---|---|---|---|
+| Reverb | `reverbTime` | 0.1 s (decay to −60 dB) | 3–100 (0.3–10 s) | 24 / 9 / 17 / 18 |
+| Reverb | `preDelay` | ms | 0–200 | 22 / 4 / 12 / 1 |
+| Reverb | `reverbTone` | 100 Hz (the tail's high cut; lower is darker) | 10–200 (1–20 kHz) | 45 / 60 / 65 / 90 |
+
+| Block | `param` | Unit | Range | Chorus / Celeste / Flanger |
+|---|---|---|---|---|
+| Chorus | `chorusRate` | 0.01 Hz (the LFO speed; the second tap keeps its type's ratio) | 5–500 (0.05–5 Hz) | 55 / 29 / 21 |
+| Chorus | `chorusDepth` | 0.1 ms (how far the taps swing) | 0–50 (0–5 ms) | 22 / 9 / 18 |
+
+| Block | `param` | Unit | Range | 1/8 / 1/8. / 1/4 / Ping-Pong |
+|---|---|---|---|---|
+| Variation | `delaySync` | switch: 1 = the time is `delayNote` at the style tempo, 0 = `delayTime` | 0–1 | 1 |
+| Variation | `delayNote` | note value: 0 `1/16`, 1 `1/8T`, 2 `1/8`, 3 `1/4T`, 4 `1/8.`, 5 `1/4`, 6 `1/4.`, 7 `1/2` | 0–7 | 2 / 4 / 5 / 2 |
+| Variation | `delayTime` | ms (with tempo sync off) | 10–2000 | 375 |
+| Variation | `delayFeedback` | % of each repeat that comes back | 0–90 | 38 |
+| Variation | `delayTone` | 100 Hz (the repeats' high cut) | 10–200 (1–20 kHz) | 50 |
+| Variation | `pingPong` | switch: 1 = the repeats alternate left and right | 0–1 | 0 / 0 / 0 / 1 |
+
+The Variation types are starting points: each sets the note value and the ping-pong switch,
+which can then be changed like any parameter (as a Genos type loads its own settings). A
+delay longer than 2 s repeats at 2 s.
 
 ### Knob Assign pages
 The Launchkey's 8 encoders as the Genos LIVE CONTROL knobs (#197; OM p.62–63, RM p.145–148;
@@ -462,14 +489,14 @@ README › Knobs). A page gives each knob a function; the knobs are relative, so
 the value from where it is now, whoever set it last. A turn runs the command of the knob's
 function (`setDynamics`, `stepRetriggerRate`, `toggleRetrigger`, `styleTrackMute`,
 `setTempo`, `setPartVolume`, `setHarmonyVolume`, `setMetronomeVolume`, `setPartPan`,
-`setPartSend`, `setEffectReturn`), so it behaves
+`setPartSend`, `setEffectReturn`, `setEffectParam`), so it behaves
 exactly as that command does.
 
 | Command | Fields | What it does |
 |---|---|---|
-| `setKnobPage` | `page` `style` \| `parts` \| `pan` \| `effects` | The Knob Assign page. |
+| `setKnobPage` | `page` `style` \| `parts` \| `pan` \| `effects` \| `fx` | The Knob Assign page. `fx` (#236): Reverb Time, Pre-delay, Tone, Delay Time, Feedback, Chorus Rate, Depth, Tempo. |
 | `stepKnobPage` | `delta` | Steps the page, stopping at the first and last (the encoder page buttons ▲/▼). |
-| `turnKnob` | `knob` 0–7, `delta` | Turns a knob `delta` steps (positive: clockwise). Levels move 2 a step, tempo 1 BPM; Retrigger Rate and On/Off switch every 3 steps (right: shorter, on); Track Mute A/B move their position 4 a step. A knob with No Assign does nothing. |
+| `turnKnob` | `knob` 0–7, `delta` | Turns a knob `delta` steps (positive: clockwise). Levels move 2 a step, tempo 1 BPM; Retrigger Rate and On/Off switch every 3 steps (right: shorter, on); Track Mute A/B move their position 4 a step. An effect parameter moves its own step (reverb time 0.1 s, pre-delay 2 ms, tones 200 Hz, feedback 2%, chorus rate 0.02 Hz and depth 0.1 ms); the Delay Time knob steps the note value every 3 steps with tempo sync on, or 10 ms a step with it off. A knob with No Assign does nothing. |
 
 ### Sound catalog
 One list of every sound for the Sound Browser (#117): every preset of every `.sf2` in the
@@ -1029,12 +1056,14 @@ Style Dynamics: `{ control, level, touch, accent, accentThreshold }`.
 
 ### `knobs`
 The Knob Assign page: `{ page, pageName, pageNumber, pageCount, knobs }`.
-- `page`: `style` (the default), `parts`, `pan` or `effects`. `pageNumber` is 1-based.
+- `page`: `style` (the default), `parts`, `pan`, `effects` or `fx`. `pageNumber` is 1-based.
 - `knobs`: always eight, knob 1 first: `{ function, name, short, value, level }`.
   - `function`: `none`, `dynamics`, `retriggerRate`, `retriggerOnOff`, `trackMuteA`,
     `trackMuteB`, `tempo`, `partVolume`, `harmonyVolume`, `metronomeVolume`, `partPan`,
-    `partReverb`, `partChorus` or `fxReturn` (an effect block's return level; the `pan` page's
-    knobs 5–7 are Reverb, Chorus and Delay Return).
+    `partReverb`, `partChorus`, `fxReturn` (an effect block's return level; the `pan` page's
+    knobs 5–7 are Reverb, Chorus and Delay Return), `fxParam` (an effect parameter, #236; the
+    `name` says which, "Reverb Time") or `delayTime` (the delay's note value, or its ms with
+    tempo sync off).
   - `name` is the full name ("Dynamics Control"); `short` is up to 8 characters ("DynCtrl",
     "---" for No Assign), as the Genos Live Control view and the Launchkey display show it.
   - `value`: the value as text ("64", "1/8", "On", "3 of 8", "All", "120 BPM", a pan "L20" /
@@ -1050,7 +1079,10 @@ Each is `{ block, name, effect, effectName, types, returnLevel, bandSend }`: `ef
 (`setEffectType`), `effectName` its name ("Hall", "Delay 1/8."), `types` the block's own
 types as `{ effect, name }`, `returnLevel` 0–127 (64 = 0 dB), `bandSend` 0–127 % (#236,
 `setBandSend`: 100 = the Style parts' sends as written; reverb 100, chorus 0, variation 0
-at start).
+at start), and `params` (#236), the block's parameters in order, each
+`{ param, name, value, min, max, default, display }`: `value` in the parameter's own unit
+(`setEffectParam`), `default` the type's own value, `display` the value as it reads
+("2.4 s", "22 ms", "4.5 kHz").
 
 ### `message`
 `{ seq, text, error }` or null. It holds the last notice or error, for example a style
@@ -1739,14 +1771,31 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
     "blocks": [
       {
         "block": "reverb", "name": "Reverb", "effect": "hall", "effectName": "Hall", "returnLevel": 64, "bandSend": 100,
+        "params": [
+          { "param": "reverbTime", "name": "Time", "value": 24, "min": 3, "max": 100, "default": 24, "display": "2.4 s" },
+          { "param": "preDelay", "name": "Pre-delay", "value": 22, "min": 0, "max": 200, "default": 22, "display": "22 ms" },
+          { "param": "reverbTone", "name": "Tone", "value": 45, "min": 10, "max": 200, "default": 45, "display": "4.5 kHz" }
+        ],
         "types": [{ "effect": "hall", "name": "Hall" }, { "effect": "room", "name": "Room" }, { "effect": "stage", "name": "Stage" }, { "effect": "plate", "name": "Plate" }]
       },
       {
         "block": "chorus", "name": "Chorus", "effect": "chorus", "effectName": "Chorus", "returnLevel": 64, "bandSend": 0,
+        "params": [
+          { "param": "chorusRate", "name": "Rate", "value": 55, "min": 5, "max": 500, "default": 55, "display": "0.55 Hz" },
+          { "param": "chorusDepth", "name": "Depth", "value": 22, "min": 0, "max": 50, "default": 22, "display": "2.2 ms" }
+        ],
         "types": [{ "effect": "chorus", "name": "Chorus" }, { "effect": "celeste", "name": "Celeste" }, { "effect": "flanger", "name": "Flanger" }]
       },
       {
         "block": "variation", "name": "Variation", "effect": "dottedEighth", "effectName": "Delay 1/8.", "returnLevel": 64, "bandSend": 0,
+        "params": [
+          { "param": "delaySync", "name": "Tempo sync", "value": 1, "min": 0, "max": 1, "default": 1, "display": "On" },
+          { "param": "delayNote", "name": "Note", "value": 4, "min": 0, "max": 7, "default": 4, "display": "1/8." },
+          { "param": "delayTime", "name": "Time", "value": 375, "min": 10, "max": 2000, "default": 375, "display": "375 ms" },
+          { "param": "delayFeedback", "name": "Feedback", "value": 38, "min": 0, "max": 90, "default": 38, "display": "38%" },
+          { "param": "delayTone", "name": "Tone", "value": 50, "min": 10, "max": 200, "default": 50, "display": "5.0 kHz" },
+          { "param": "pingPong", "name": "Ping-pong", "value": 0, "min": 0, "max": 1, "default": 0, "display": "Off" }
+        ],
         "types": [{ "effect": "eighth", "name": "Delay 1/8" }, { "effect": "dottedEighth", "name": "Delay 1/8." }, { "effect": "quarter", "name": "Delay 1/4" }, { "effect": "pingPong", "name": "Ping-Pong" }]
       }
     ]

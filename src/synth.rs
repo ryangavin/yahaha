@@ -41,6 +41,8 @@ pub const PLUGIN_MAX_BLOCK: usize = 1024;
 
 pub mod drum_setup;
 mod routing;
+#[cfg(test)]
+mod sound_tests;
 mod stream;
 pub use routing::Router;
 pub use stream::{BUFFER_CHOICES, DEFAULT_BUFFER};
@@ -508,21 +510,21 @@ pub fn render_offline(sf2: &Path, msgs: &[(u64, Vec<u8>)], end_ns: u64, sample_r
     let (mut left, mut right) = (Vec::with_capacity(frames), Vec::with_capacity(frames));
     let mut out = [0f32; 2 * BLOCK];
     let mut next = 0;
-    let mut drums = drum_setup::DrumSetups::new();
     for start in (0..frames).step_by(BLOCK) {
         let t = (start as f64 * 1e9 / sample_rate as f64) as u64;
         while let Some((at, m)) = msgs.get(next)
             && *at <= t
         {
             next += 1;
-            // Channel messages only (SysEx and the like don't reach the SoundFont live),
-            // with the style's drum setup levels applied as live (`live::Out`).
-            drums.observe(m);
-            if m.is_empty() || m[0] < 0x80 || m[0] >= 0xF0 {
+            // Channel messages only (SysEx and the like don't reach the SoundFont live), and
+            // the drum setup as drum messages, as live (`live::Out`).
+            let msg: Msg = if let Some(d) = m.first().filter(|&&b| b == 0xF0).and_then(|_| drum_setup::encode(m)) {
+                d
+            } else if m.is_empty() || m[0] < 0x80 || m[0] >= 0xF0 {
                 continue;
-            }
-            let mut msg: Msg = [m[0], m.get(1).copied().unwrap_or(0), m.get(2).copied().unwrap_or(0)];
-            drums.apply(&mut msg);
+            } else {
+                [m[0], m.get(1).copied().unwrap_or(0), m.get(2).copied().unwrap_or(0)]
+            };
             if tx.push(msg).is_err() {
                 // A burst larger than the ring: take it in without rendering.
                 core.process(&mut out[..0]);
@@ -646,6 +648,8 @@ pub struct AudioCore {
     channels: usize,
     bank: [u8; 16],
     shadow: Box<Shadow>,
+    /// The style's XG Drum Setup (#239): each drum note starts with its own settings.
+    drums: Box<drum_setup::DrumSetups>,
     last_master: u8,
     left: Vec<f32>,
     right: Vec<f32>,
@@ -711,6 +715,7 @@ impl AudioCore {
             channels: channels.max(1),
             bank: [0u8; 16],
             shadow: Box::new(Shadow::new()),
+            drums: Box::new(drum_setup::DrumSetups::new()),
             last_master: 255,
             left: vec![0f32; 8192],
             right: vec![0f32; 8192],
@@ -833,6 +838,11 @@ impl AudioCore {
                     self.click.trigger(m[1] != 0, ctl.click_volume.load(Relaxed));
                     continue;
                 }
+                // The style's drum setup (#239): not a MIDI message.
+                if drum_setup::is_drum_msg(&m) {
+                    self.drums.observe(&m);
+                    continue;
+                }
                 // The program map's own messages (a table bank switch, an audition; #103).
                 if let (Some(rack), Some(router)) = (self.rack.as_mut(), self.router.as_mut())
                     && routing::control_msg(&m, rack, &self.shadow, &mut self.bank, &self.parts, router)
@@ -865,8 +875,14 @@ impl AudioCore {
                         self.sends_dirty = true;
                     }
                 }
+                // A program change initializes its part's drum setup; a drum note starts with
+                // its setup's settings.
+                self.drums.observe(&m);
                 if let Some(rack) = self.rack.as_mut() {
-                    apply_routed(rack, &m, &mut self.bank, self.router.as_ref());
+                    match self.drums.note(&m) {
+                        Some(n) => rack.note_on_with(m[0] & 0x0F, m[1], m[2], &n),
+                        None => apply_routed(rack, &m, &mut self.bank, self.router.as_ref()),
+                    }
                 }
             }
         }
@@ -1387,6 +1403,97 @@ mod rack_tests {
         assert!(wet > dry * 100.0 + 1e-6, "the reverb rings on: {wet} vs {dry}");
         assert!((note - dry_note).abs() <= dry_note * 1e-9 && (muted - dry).abs() <= 1e-12, "no reverb inside the SoundFont");
         assert!(legacy > dry * 100.0 + 1e-6, "legacy: the SoundFont's own reverb");
+    }
+
+    /// #239: a drum note starts with its drum setup's own level, pan, pitch, send and
+    /// decay; a note already sounding keeps what it started with.
+    #[test]
+    fn a_drum_note_starts_with_its_drum_setup() {
+        use drum_setup::encode;
+        let Some(font) = font() else { return };
+        // Drum Setup 1 (part 10, ch index 9): note `key`, parameter `p` = `v`.
+        let ds = |key: u8, p: u8, v: u8| encode(&[0xF0, 0x43, 0x10, 0x4C, 0x30, key, p, v, 0xF7]).unwrap();
+        // (left energy, right energy, zero crossings) while the note sounds, and the energy
+        // of the tail after it, with `setup` before the note and `during` after it starts.
+        let play = |key: u8, setup: &[Msg], during: &[Msg]| -> (f64, f64, usize, f64) {
+            let rack = Box::new(Rack::new(&font, 48_000).unwrap());
+            let (mut tx, rx) = RingBuffer::<Msg>::new(64);
+            let ctl = Arc::new(SynthControl::new(0));
+            ctl.fx.reverb_return.store(64, Relaxed);
+            let (mut core, _swap, _link) = AudioCore::new(Some(rack), vec![rx], Arc::new(Parts::new()), ctl, 48_000, 2);
+            let mut out = vec![0f32; 256];
+            let mut run = |core: &mut AudioCore, buffers: usize| {
+                let (mut l, mut r, mut z, mut prev) = (0f64, 0f64, 0usize, 0f32);
+                for _ in 0..buffers {
+                    core.process(&mut out);
+                    for f in out.chunks(2) {
+                        l += (f[0] as f64).powi(2);
+                        r += (f[1] as f64).powi(2);
+                        if (f[0] + f[1] >= 0.0) != (prev >= 0.0) {
+                            z += 1;
+                        }
+                        prev = f[0] + f[1];
+                    }
+                }
+                (l, r, z)
+            };
+            for m in setup.iter().chain(&[[0xB9, 91, 127], [0xB9, 93, 0], [0x99, key, 100]]) {
+                tx.push(*m).unwrap();
+            }
+            run(&mut core, 1);
+            for m in during {
+                tx.push(*m).unwrap();
+            }
+            let (l, r, z) = run(&mut core, 40);
+            tx.push([0x89, key, 0]).unwrap();
+            run(&mut core, 150);
+            let (tl, tr, _) = run(&mut core, 300);
+            (l, r, z, tl + tr)
+        };
+        let snare = 38;
+        let (l, r, _, wet) = play(snare, &[], &[]);
+        assert!(l + r > 1e-3, "the snare sounds");
+        // Level 50 of 100: a quarter of the amplitude.
+        let (ql, qr, _, _) = play(snare, &[ds(snare, 0x02, 50)], &[]);
+        let ratio = (ql + qr) / (l + r);
+        assert!((ratio - 1.0 / 16.0).abs() < 0.01, "level 50: energy x{ratio}");
+        // Pan hard left.
+        let (pl, pr, _, _) = play(snare, &[ds(snare, 0x04, 1)], &[]);
+        assert!(pr < pl * 0.01, "panned left: {pl} / {pr}");
+        // No reverb send for this note, though the part sends fully.
+        let (_, _, _, dry) = play(snare, &[ds(snare, 0x05, 0)], &[]);
+        assert!(dry < wet * 0.1, "reverb send 0: tail {dry} vs {wet}");
+        // A faster decay: a shorter tail.
+        let (_, _, _, short) = play(snare, &[ds(snare, 0x0E, 0x7F), ds(snare, 0x05, 0)], &[]);
+        assert!(short <= dry, "decay 1 faster: tail {short} vs {dry}");
+        // Pitch: the note sounds otherwise (the tuning itself: `note_tune_shifts_the_pitch`).
+        let (tl, tr, _, _) = play(snare, &[ds(snare, 0x00, 0x40 + 7), ds(snare, 0x01, 0x40 + 30)], &[]);
+        assert!((tl, tr) != (l, r), "coarse +7, fine +30 cents");
+        // A setup change while the note sounds leaves it as it started.
+        let (cl, cr, _, _) = play(snare, &[], &[ds(snare, 0x02, 10), ds(snare, 0x04, 1)]);
+        assert_eq!((cl, cr), (l, r), "the sounding note is untouched");
+    }
+
+    /// #239: `NoteParams::tune` moves a voice's pitch by semitones: a piano C4 tuned an
+    /// octave up plays its sample twice as fast.
+    #[test]
+    fn note_tune_shifts_the_pitch() {
+        let Some(font) = font() else { return };
+        let crossings = |key: i32, tune: f32| {
+            let mut s = Synthesizer::new(&font, &SynthesizerSettings::new(48_000)).unwrap();
+            s.set_internal_effects(false);
+            s.process_midi_message(0, 0xC0, 0, 0);
+            let note = rustysynth::NoteParams { tune, ..rustysynth::NoteParams::NEUTRAL };
+            s.note_on_with(0, key, 100, &note);
+            let (mut l, mut r) = (vec![0f32; 9600], vec![0f32; 9600]);
+            s.render(&mut l, &mut r);
+            l.windows(2).filter(|w| (w[0] >= 0.0) != (w[1] >= 0.0)).count() as f64
+        };
+        // The same sample played twice (half) as fast: roughly twice (half) the zero
+        // crossings; the attack's noise keeps the count from being exact.
+        let (tuned, c4, down) = (crossings(60, 12.0), crossings(60, 0.0), crossings(60, -12.0));
+        assert!((1.6..2.6).contains(&(tuned / c4)), "C4 +12 {tuned} vs C4 {c4} crossings");
+        assert!((1.6..2.6).contains(&(c4 / down)), "C4 -12 {down} vs C4 {c4} crossings");
     }
 
     /// #236: the band send scales. A Style part's (channel 11) delay send reaches the

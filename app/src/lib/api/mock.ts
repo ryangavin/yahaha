@@ -22,7 +22,7 @@ import { emptyPlaylist, emptyRegistration } from './registration'
 import type { Session } from './session'
 import {
   BREAK, CHORD_SETTLE_MAX_MS, ENDINGS, FILLS, FINGERINGS, INTROS, KEYBOARD_PART_NAMES, MAINS, PAD_PAGES, RETRIGGER_RATES,
-  STYLE_PART_NAMES, type AppCmd, type AppState, type EffectBlockState, type EffectsState, type FxBlock, type FxType, type LibraryEntry, type LibraryList, type OtsPart, type PreviewState, type StopAcmpMode,
+  STYLE_PART_NAMES, type AppCmd, type AppState, type EffectBlockState, type EffectsState, type FxBlock, type FxParam, type FxParamState, type FxType, type LibraryEntry, type LibraryList, type OtsPart, type PreviewState, type StopAcmpMode,
   type SoundLibraryCmd, type StyleSettingsState, type StyleState,
 } from './types'
 
@@ -1773,8 +1773,23 @@ export class MockSession implements Session {
           this.message(`${b.name} has no ${cmd.effect} type`, true)
           break
         }
-        b.effect = t.effect
-        b.effectName = t.name
+        if (b.effect !== t.effect) {
+          b.effect = t.effect
+          b.effectName = t.name
+          // A new type starts at its own parameters (#236).
+          b.params = fxParams(b.block, b.effect)
+        }
+        break
+      }
+      case 'setEffectParam': {
+        const b = this.state.effects.blocks.find((x) => x.block === cmd.block)!
+        const p = b.params.find((x) => x.param === cmd.param)
+        if (!p) {
+          this.message(`${b.name} has no ${cmd.param} parameter`, true)
+          break
+        }
+        p.value = Math.max(p.min, Math.min(p.max, Math.round(cmd.value)))
+        p.display = FX_PARAMS[p.param].display(p.value)
         break
       }
       case 'setEffectReturn':
@@ -1787,6 +1802,49 @@ export class MockSession implements Session {
   }
 }
 
+/** Each effect parameter's block, name, range and reading, as the session's (#236). */
+export const FX_PARAMS: Record<FxParam, { block: FxBlock; name: string; min: number; max: number; display: (v: number) => string }> = {
+  reverbTime: { block: 'reverb', name: 'Time', min: 3, max: 100, display: (v) => `${(v / 10).toFixed(1)} s` },
+  preDelay: { block: 'reverb', name: 'Pre-delay', min: 0, max: 200, display: (v) => `${v} ms` },
+  reverbTone: { block: 'reverb', name: 'Tone', min: 10, max: 200, display: (v) => `${(v / 10).toFixed(1)} kHz` },
+  delaySync: { block: 'variation', name: 'Tempo sync', min: 0, max: 1, display: (v) => (v ? 'On' : 'Off') },
+  delayNote: { block: 'variation', name: 'Note', min: 0, max: 7, display: (v) => ['1/16', '1/8T', '1/8', '1/4T', '1/8.', '1/4', '1/4.', '1/2'][v] },
+  delayTime: { block: 'variation', name: 'Time', min: 10, max: 2000, display: (v) => `${v} ms` },
+  delayFeedback: { block: 'variation', name: 'Feedback', min: 0, max: 90, display: (v) => `${v}%` },
+  delayTone: { block: 'variation', name: 'Tone', min: 10, max: 200, display: (v) => `${(v / 10).toFixed(1)} kHz` },
+  pingPong: { block: 'variation', name: 'Ping-pong', min: 0, max: 1, display: (v) => (v ? 'On' : 'Off') },
+  chorusRate: { block: 'chorus', name: 'Rate', min: 5, max: 500, display: (v) => `${(v / 100).toFixed(2)} Hz` },
+  chorusDepth: { block: 'chorus', name: 'Depth', min: 0, max: 50, display: (v) => `${(v / 10).toFixed(1)} ms` },
+}
+const DELAY = { delaySync: 1, delayTime: 375, delayFeedback: 38, delayTone: 50 }
+
+/** Each type's own parameter values (the session's `type_defaults`). */
+const FX_TYPE_PARAMS: Partial<Record<FxType, Partial<Record<FxParam, number>>>> = {
+  hall: { reverbTime: 24, preDelay: 22, reverbTone: 45 },
+  room: { reverbTime: 9, preDelay: 4, reverbTone: 60 },
+  stage: { reverbTime: 17, preDelay: 12, reverbTone: 65 },
+  plate: { reverbTime: 18, preDelay: 1, reverbTone: 90 },
+  chorus: { chorusRate: 55, chorusDepth: 22 },
+  celeste: { chorusRate: 29, chorusDepth: 9 },
+  flanger: { chorusRate: 21, chorusDepth: 18 },
+  eighth: { ...DELAY, delayNote: 2, pingPong: 0 },
+  dottedEighth: { ...DELAY, delayNote: 4, pingPong: 0 },
+  quarter: { ...DELAY, delayNote: 5, pingPong: 0 },
+  pingPong: { ...DELAY, delayNote: 2, pingPong: 1 },
+}
+
+/** A block's parameters at type `effect`'s own values. */
+function fxParams(block: FxBlock, effect: FxType): FxParamState[] {
+  const own = FX_TYPE_PARAMS[effect] ?? {}
+  return (Object.keys(FX_PARAMS) as FxParam[])
+    .filter((p) => FX_PARAMS[p].block === block)
+    .map((param) => {
+      const { name, min, max, display } = FX_PARAMS[param]
+      const value = own[param] ?? min
+      return { param, name, value, min, max, default: value, display: display(value) }
+    })
+}
+
 /**
  * The effect bus as a session starts it: Hall, Chorus, the dotted 1/8 delay, every return 64;
  * the band's reverb as written (100), no band chorus or delay (#236).
@@ -1794,7 +1852,7 @@ export class MockSession implements Session {
 export function initialEffects(): EffectsState {
   const block = (block: FxBlock, name: string, effect: FxType, types: [FxType, string][], bandSend: number): EffectBlockState => ({
     block, name, effect, effectName: types.find(([t]) => t === effect)![1],
-    types: types.map(([effect, name]) => ({ effect, name })), returnLevel: 64, bandSend,
+    types: types.map(([effect, name]) => ({ effect, name })), returnLevel: 64, bandSend, params: fxParams(block, effect),
   })
   return {
     blocks: [

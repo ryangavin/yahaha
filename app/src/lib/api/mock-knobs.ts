@@ -2,18 +2,45 @@
 // steps and readings). A turn gives back the command it runs, which the mock then runs as
 // the session does. Only the mock uses this; with the real engine the knobs come in the state.
 
-import type { AppCmd, AppState, KnobFunction, KnobPage, KnobState, KnobsState } from './types'
+import type { AppCmd, AppState, FxBlock, FxParam, FxParamState, KnobFunction, KnobPage, KnobState, KnobsState } from './types'
 
-type Fn = { fn: KnobFunction; part?: number }
+type Fn = { fn: KnobFunction; part?: number; param?: FxParam }
 const NONE: Fn = { fn: 'none' }
 const PAGES: Record<KnobPage, Fn[]> = {
   style: [{ fn: 'dynamics' }, { fn: 'retriggerRate' }, { fn: 'retriggerOnOff' }, { fn: 'trackMuteA' }, { fn: 'trackMuteB' }, NONE, NONE, { fn: 'tempo' }],
   parts: [0, 1, 2, 3].map((part): Fn => ({ fn: 'partVolume', part })).concat([{ fn: 'harmonyVolume' }, { fn: 'metronomeVolume' }, NONE, { fn: 'tempo' }]),
   pan: [0, 1, 2, 3].map((part): Fn => ({ fn: 'partPan', part })).concat([0, 1, 2].map((part): Fn => ({ fn: 'fxReturn', part })), [{ fn: 'tempo' }]),
   effects: [0, 1, 2, 3].map((part): Fn => ({ fn: 'partReverb', part })).concat([0, 1, 2, 3].map((part): Fn => ({ fn: 'partChorus', part }))),
+  fx: [
+    { fn: 'fxParam', param: 'reverbTime' }, { fn: 'fxParam', param: 'preDelay' }, { fn: 'fxParam', param: 'reverbTone' }, { fn: 'delayTime' },
+    { fn: 'fxParam', param: 'delayFeedback' }, { fn: 'fxParam', param: 'chorusRate' }, { fn: 'fxParam', param: 'chorusDepth' }, { fn: 'tempo' },
+  ],
 }
-const ORDER: KnobPage[] = ['style', 'parts', 'pan', 'effects']
-const PAGE_NAME: Record<KnobPage, string> = { style: 'Style', parts: 'Parts', pan: 'Pan', effects: 'Effects' }
+const ORDER: KnobPage[] = ['style', 'parts', 'pan', 'effects', 'fx']
+const PAGE_NAME: Record<KnobPage, string> = { style: 'Style', parts: 'Parts', pan: 'Pan', effects: 'Effects', fx: 'FX' }
+/** The FX page's parameters (#236): full and short names, and how far a knob step moves each. */
+const PARAM_KNOB: Partial<Record<FxParam, [string, string, number]>> = {
+  reverbTime: ['Reverb Time', 'RevTime', 1],
+  preDelay: ['Reverb Pre-delay', 'PreDly', 2],
+  reverbTone: ['Reverb Tone', 'RevTone', 2],
+  delayNote: ['Delay Note', 'DlyNote', 1],
+  delayTime: ['Delay Time', 'DlyTime', 10],
+  delayFeedback: ['Delay Feedback', 'DlyFdbk', 2],
+  chorusRate: ['Chorus Rate', 'ChoRate', 2],
+  chorusDepth: ['Chorus Depth', 'ChoDepth', 1],
+}
+/** An effect parameter's state and its block. */
+function fxParam(s: AppState, p: FxParam): [FxBlock, FxParamState] {
+  for (const b of s.effects.blocks) {
+    const x = b.params.find((q) => q.param === p)
+    if (x) return [b.block, x]
+  }
+  throw new Error(`no ${p}`)
+}
+/** The delay time knob's parameter: the note value with tempo sync on, the ms with it off. */
+function delayParam(s: AppState): FxParam {
+  return fxParam(s, 'delaySync')[1].value ? 'delayNote' : 'delayTime'
+}
 const PART_FX: Partial<Record<KnobFunction, [string[], string[]]>> = {
   partPan: [['Right 1 Pan', 'Right 2 Pan', 'Right 3 Pan', 'Left Pan'], ['PanR1', 'PanR2', 'PanR3', 'PanL']],
   partReverb: [['Right 1 Reverb', 'Right 2 Reverb', 'Right 3 Reverb', 'Left Reverb'], ['RevR1', 'RevR2', 'RevR3', 'RevL']],
@@ -44,6 +71,8 @@ const NAMES: Record<KnobFunction, [string, string]> = {
   partReverb: ['', ''],
   partChorus: ['', ''],
   fxReturn: ['', ''],
+  fxParam: ['', ''],
+  delayTime: ['Delay Time', 'DlyTime'],
 }
 const RATES = [1, 2, 4, 8, 16, 32]
 const RTG_STEPS = 3
@@ -109,6 +138,20 @@ export class MockKnobs {
         return { type: 'setPartSend', part: f.part!, send: 'chorus', value: level(s.keyboardParts[f.part!].chorus) }
       case 'fxReturn':
         return { type: 'setEffectReturn', block: FX_BLOCKS[f.part!], level: level(s.effects.blocks[f.part!].returnLevel) }
+      case 'fxParam':
+      case 'delayTime': {
+        const p = f.fn === 'delayTime' ? delayParam(s) : f.param!
+        const [block, x] = fxParam(s, p)
+        let to: number
+        if (p === 'delayNote') {
+          const n = this.stepped(knob, delta)
+          if (!n) return null
+          to = clamp(x.value + n, x.min, x.max)
+        } else {
+          to = clamp(x.value + delta * PARAM_KNOB[p]![2], x.min, x.max)
+        }
+        return to === x.value ? null : { type: 'setEffectParam', block, param: p, value: to }
+      }
     }
   }
 
@@ -124,7 +167,11 @@ export class MockKnobs {
   state(s: AppState): KnobsState {
     const knobs = PAGES[this.page].map((f): KnobState => {
       const fx = PART_FX[f.fn]
-      const [name, short] = f.fn === 'partVolume' ? [PART_NAME[f.part!], PART_SHORT[f.part!]] : fx ? [fx[0][f.part!], fx[1][f.part!]] : NAMES[f.fn]
+      const [name, short] =
+        f.fn === 'partVolume' ? [PART_NAME[f.part!], PART_SHORT[f.part!]]
+        : fx ? [fx[0][f.part!], fx[1][f.part!]]
+        : f.fn === 'fxParam' ? PARAM_KNOB[f.param!]!.slice(0, 2) as [string, string]
+        : NAMES[f.fn]
       const r = (value: string, level: number | null) => ({ function: f.fn, name, short, value, level })
       switch (f.fn) {
         case 'none': return r('', null)
@@ -148,6 +195,11 @@ export class MockKnobs {
         case 'partReverb': return r(String(s.keyboardParts[f.part!].reverb), s.keyboardParts[f.part!].reverb)
         case 'partChorus': return r(String(s.keyboardParts[f.part!].chorus), s.keyboardParts[f.part!].chorus)
         case 'fxReturn': return r(String(s.effects.blocks[f.part!].returnLevel), s.effects.blocks[f.part!].returnLevel)
+        case 'fxParam':
+        case 'delayTime': {
+          const x = fxParam(s, f.fn === 'delayTime' ? delayParam(s) : f.param!)[1]
+          return r(x.display, Math.floor(((x.value - x.min) * 127) / Math.max(1, x.max - x.min)))
+        }
       }
     })
     return { page: this.page, pageName: PAGE_NAME[this.page], pageNumber: ORDER.indexOf(this.page) + 1, pageCount: ORDER.length, knobs }

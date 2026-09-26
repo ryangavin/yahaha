@@ -274,6 +274,81 @@ pub struct OtsPart {
     /// Pan, reverb, chorus and variation sends (CC10, CC91, CC93, CC94) as the track
     /// leaves them; None where it doesn't set one.
     pub fx: [Option<u8>; 4],
+    /// The voice's filter, EG, vibrato and portamento, by `parts::TONE_CC`: cutoff,
+    /// resonance, attack, decay, release, vibrato rate, depth and delay (relative, 64 = the
+    /// voice's own), portamento switch and time. None where the track sets none.
+    pub tone: [Option<u8>; crate::parts::TONE],
+    /// Pitch bend range in semitones (RPN 0 coarse).
+    pub bend_range: Option<u8>,
+    /// The XG multi part parameters the track sets for this part (mono/poly, velocity
+    /// sense, controller depths, EQ...).
+    pub xg: XgParams,
+}
+
+/// XG multi part parameters, `F0 43 1n 4C hh pp nn vv F7` (hh = 08 or 0A, pp = the part):
+/// (hh, nn, vv), one per parameter with the last value set, in the order first set.
+/// Fixed size so an `Ots` stays `Copy` and a recall never allocates.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct XgParams {
+    n: u8,
+    items: [(u8, u8, u8); XG_MAX],
+}
+
+/// The most XG parameters `XgParams` keeps per part (the corpus OTS set 22).
+pub const XG_MAX: usize = 32;
+
+impl XgParams {
+    /// Set a parameter (replacing its earlier value); false when it is new and there's no
+    /// room left.
+    pub fn set(&mut self, hh: u8, nn: u8, vv: u8) -> bool {
+        let n = self.n as usize;
+        if let Some(i) = self.items[..n].iter_mut().find(|i| (i.0, i.1) == (hh, nn)) {
+            i.2 = vv;
+            return true;
+        }
+        if n == XG_MAX {
+            return false;
+        }
+        self.items[n] = (hh, nn, vv);
+        self.n += 1;
+        true
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = (u8, u8, u8)> + '_ {
+        self.items[..self.n as usize].iter().copied()
+    }
+
+    pub fn len(&self) -> usize {
+        self.n as usize
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.n == 0
+    }
+}
+
+/// An XG multi part parameter change: (hh, part, nn, vv) for `F0 43 1n 4C hh pp nn vv F7`
+/// with hh = 08 (multi part) or 0A (its extension).
+pub fn xg_multi_part(v: &[u8]) -> Option<(u8, u8, u8, u8)> {
+    (v.len() == 9 && v[0] == 0xF0 && v[1] == 0x43 && v[2] & 0xF0 == 0x10 && v[3] == 0x4C && matches!(v[4], 0x08 | 0x0A) && v[8] == 0xF7)
+        .then(|| (v[4], v[5], v[6], v[7]))
+}
+
+/// XG NRPN (MSB 1) to its `parts::TONE_CC` index: the OTS tracks write decay, release and
+/// vibrato this way (and cutoff, resonance, attack could be).
+fn tone_nrpn(lsb: u8) -> Option<usize> {
+    let i = match lsb {
+        0x20 => 0,
+        0x21 => 1,
+        0x63 => 2,
+        0x64 => 3,
+        0x66 => 4,
+        0x08 => 5,
+        0x09 => 6,
+        0x0A => 7,
+        _ => return None,
+    };
+    Some(i)
 }
 
 /// A One Touch Setting: the panel voices a style suggests for your hands.
@@ -287,7 +362,11 @@ pub struct Ots {
 /// select + program change on channels 1-4; part on/off and octave are Yamaha SysEx
 /// `F0 43 73 01 50 08 <part> <param> <value> F7` (param 00 = on/off, 03 = octave, 0x40 centre).
 /// Pan and the reverb/chorus/variation sends are plain CC10/91/93/94 on the part's channel (the last one
-/// wins). The other controllers, RPNs and XG part SysEx the tracks carry are not read yet.
+/// wins). So are the filter, EG, vibrato and portamento (`OtsPart::tone`), except that the
+/// tracks write some of them as XG NRPNs (MSB 1) instead: both are read, the last wins, as a
+/// receiver would take them. Pitch bend range is RPN 0; the XG part SysEx is kept per part.
+/// Not read: fine tune (RPN 1, always centre in the corpus) and the Genos-own part SysEx
+/// (`43 73 01 5x`) beyond on/off and octave.
 pub fn parse_ots(data: &[u8]) -> Vec<Ots> {
     let mut out = Vec::new();
     let mut p = 0;
@@ -296,12 +375,36 @@ pub fn parse_ots(data: &[u8]) -> Vec<Ots> {
         let end = (p + 8 + len).min(data.len());
         let mut ots = Ots::default();
         let mut bank = [(0u8, 0u8); 4];
+        // Per channel: the RPN (101, 100) and NRPN (99, 98) selected, and whether an NRPN
+        // was selected last (data entry goes to it).
+        let mut rpn = [(0x7Fu8, 0x7Fu8); 4];
+        let mut nrpn = [(0x7Fu8, 0x7Fu8, false); 4];
         for part in ots.parts.iter_mut() {
             part.volume = 100;
         }
         if let Ok(evs) = parse_track(&data[p + 8..end]) {
             for e in evs {
                 match e.ev {
+                    Ev::Cc { ch, cc, val } if ch < 4 && crate::parts::TONE_CC.contains(&cc) => {
+                        let i = crate::parts::TONE_CC.iter().position(|&c| c == cc).unwrap_or(0);
+                        ots.parts[ch as usize].tone[i] = Some(val);
+                    }
+                    Ev::Cc { ch, cc, val } if ch < 4 && matches!(cc, 98..=101 | 6) => {
+                        let c = ch as usize;
+                        match cc {
+                            101 => (rpn[c].0, nrpn[c].2) = (val, false),
+                            100 => (rpn[c].1, nrpn[c].2) = (val, false),
+                            99 => (nrpn[c].0, nrpn[c].2) = (val, true),
+                            98 => (nrpn[c].1, nrpn[c].2) = (val, true),
+                            _ if nrpn[c].2 => {
+                                if let Some(i) = tone_nrpn(nrpn[c].1).filter(|_| nrpn[c].0 == 1) {
+                                    ots.parts[c].tone[i] = Some(val);
+                                }
+                            }
+                            _ if rpn[c] == (0, 0) => ots.parts[c].bend_range = Some(val),
+                            _ => {}
+                        }
+                    }
                     Ev::Cc { ch, cc, val } if ch < 4 => match cc {
                         0 => bank[ch as usize].0 = val,
                         32 => bank[ch as usize].1 = val,
@@ -315,6 +418,10 @@ pub fn parse_ots(data: &[u8]) -> Vec<Ots> {
                     Ev::Pc { ch, prog } if ch < 4 => {
                         let (m, l) = bank[ch as usize];
                         ots.parts[ch as usize].voice = Some((m, l, prog));
+                    }
+                    Ev::Sysex(ref v) if xg_multi_part(v).is_some_and(|x| x.1 < 4) => {
+                        let (hh, pp, nn, vv) = xg_multi_part(v).unwrap_or_default();
+                        ots.parts[pp as usize].xg.set(hh, nn, vv);
                     }
                     Ev::Sysex(ref v) if v.len() == 10 && v[1..6] == [0x43, 0x73, 0x01, 0x50, 0x08] && v[6] < 4 => {
                         let part = &mut ots.parts[v[6] as usize];
@@ -1377,6 +1484,67 @@ mod tests {
         let s = Style::load(&p).unwrap();
         let o = &s.ots[0];
         assert!(o.parts[0].on && o.parts[1].on && !o.parts[2].on && o.parts[3].on);
+        // Its Right 1 voice settings (#238): cutoff CC74 70; release CC72 0x60, then XG
+        // NRPN 1/66 0x40 (the last wins); decay and vibrato as NRPN; portamento on, time 8;
+        // bend range 2; mono (XG 08 05 = 0).
+        let r1 = &o.parts[0];
+        assert_eq!(r1.tone, [70, 64, 64, 64, 64, 74, 70, 63, 127, 8].map(Some));
+        assert_eq!(r1.bend_range, Some(2));
+        assert_eq!(r1.xg.len(), 22);
+        assert!(r1.xg.iter().any(|x| x == (0x08, 0x05, 0)), "mono");
+        assert!(o.parts[1].xg.iter().any(|x| x == (0x08, 0x05, 1)), "Right 2 poly");
+    }
+
+    /// Hand-made OTS track: CC and NRPN writes of the same setting, the last wins; an RPN
+    /// other than 0 and an NRPN outside MSB 1 set nothing; XG SysEx for another part.
+    #[test]
+    fn ots_voice_settings_parse() {
+        let cc = |cc: u8, v: u8| [0x00, 0xB1, cc, v];
+        let mut trk = Vec::new();
+        for m in [cc(74, 90), cc(99, 1), cc(98, 0x20), cc(6, 30), cc(72, 20), cc(99, 2), cc(98, 0x66), cc(6, 99)] {
+            trk.extend_from_slice(&m);
+        }
+        for m in [cc(101, 0), cc(100, 1), cc(6, 70), cc(101, 0), cc(100, 0), cc(6, 12), cc(65, 127)] {
+            trk.extend_from_slice(&m);
+        }
+        trk.extend_from_slice(&[0x00, 0xF0, 8, 0x43, 0x10, 0x4C, 0x08, 0x01, 0x05, 0x00, 0xF7]);
+        trk.extend_from_slice(&[0x00, 0xF0, 8, 0x43, 0x10, 0x4C, 0x0A, 0x01, 0x40, 0x50, 0xF7]);
+        trk.extend_from_slice(&[0x00, 0xF0, 8, 0x43, 0x10, 0x4C, 0x08, 0x07, 0x05, 0x00, 0xF7]);
+        trk.extend_from_slice(&[0x00, 0xFF, 0x2F, 0]);
+        let o = parse_ots(&chunk(b"MTrk", &trk));
+        let r2 = &o[0].parts[1];
+        let mut want = [None; crate::parts::TONE];
+        want[crate::parts::CUTOFF] = Some(30);
+        want[crate::parts::RELEASE] = Some(20);
+        want[crate::parts::PORTAMENTO] = Some(127);
+        assert_eq!(r2.tone, want);
+        assert_eq!(r2.bend_range, Some(12));
+        assert_eq!(r2.xg.iter().collect::<Vec<_>>(), vec![(0x08, 0x05, 0), (0x0A, 0x40, 0x50)]);
+        assert!(o[0].parts[0].xg.is_empty() && o[0].parts[0].tone == [None; crate::parts::TONE]);
+    }
+
+    /// Corpus counts (#238): how many OTS parts set each voice setting.
+    #[test]
+    fn corpus_ots_voice_settings() {
+        let (mut parts, mut tone, mut bend, mut xg, mut xg_max) = (0, [0; crate::parts::TONE], 0, 0, 0);
+        for p in crate::library::corpus_styles() {
+            let s = Style::load(&p).unwrap_or_else(|e| panic!("{}: {e:#}", p.display()));
+            for q in s.ots.iter().flat_map(|o| &o.parts) {
+                parts += 1;
+                for (n, v) in tone.iter_mut().zip(q.tone) {
+                    *n += v.is_some() as usize;
+                }
+                bend += q.bend_range.is_some() as usize;
+                xg += q.xg.len();
+                xg_max = xg_max.max(q.xg.len());
+            }
+        }
+        eprintln!("{parts} OTS parts: tone {tone:?} (by TONE_CC), bend range {bend}, {xg} XG part parameters (max {xg_max} per part)");
+        if parts == 0 {
+            return;
+        }
+        assert!(xg_max < XG_MAX, "room to spare for XG parameters: {xg_max}");
+        assert_eq!((tone, bend), ([parts; crate::parts::TONE], parts), "every corpus OTS part sets them all");
     }
 
     #[test]

@@ -605,6 +605,15 @@ impl MockSession {
     }
 
     /// The values the knobs turn from (the session's `knobs_now`).
+    /// The effect parameters (#236) as the state holds them.
+    fn fx_params(&self) -> [u16; yahaha::fx::PARAMS] {
+        let mut v = yahaha::fx::default_params();
+        for p in self.state.effects.blocks.iter().flat_map(|b| &b.params) {
+            v[p.param.index()] = p.value;
+        }
+        v
+    }
+
     fn knobs_now(&self) -> yahaha::knobs::Now {
         let s = &self.state;
         yahaha::knobs::Now {
@@ -620,6 +629,7 @@ impl MockSession {
                 [k.pan, k.reverb, k.chorus, k.variation]
             }),
             fx_return: [0, 1, 2].map(|b| s.effects.blocks[b].return_level),
+            fx_params: self.fx_params(),
         }
     }
 
@@ -1778,13 +1788,29 @@ impl MockSession {
                     types[block.index()] = effect;
                     let returns = std::array::from_fn(|b| self.state.effects.blocks[b].return_level);
                     let band = std::array::from_fn(|b| self.state.effects.blocks[b].band_send);
-                    self.state.effects = EffectsState::new(types, returns, band);
+                    // A type change puts the block's parameters back to the type's own.
+                    let mut params = self.fx_params();
+                    yahaha::fx::type_defaults(block.index(), block.type_index(effect), &mut params);
+                    self.state.effects = EffectsState::new(types, returns, band, params);
                 } else {
                     self.message(format!("{} has no {} type", block.name(), effect.name()), true);
                 }
             }
             AppCmd::Fx(FxCmd::SetEffectReturn { block, level }) => self.state.effects.blocks[block.index()].return_level = level.min(127),
             AppCmd::Fx(FxCmd::SetBandSend { block, level }) => self.state.effects.blocks[block.index()].band_send = level.min(127),
+            AppCmd::Fx(FxCmd::SetEffectParam { block, param, value }) => {
+                if param.spec().block != block.index() {
+                    self.message(format!("{} has no {} parameter", block.name(), param.spec().name), true);
+                } else {
+                    let mut params = self.fx_params();
+                    params[param.index()] = param.clamp(value);
+                    let e = &self.state.effects;
+                    let types = std::array::from_fn(|b| e.blocks[b].effect);
+                    let returns = std::array::from_fn(|b| e.blocks[b].return_level);
+                    let band = std::array::from_fn(|b| e.blocks[b].band_send);
+                    self.state.effects = EffectsState::new(types, returns, band, params);
+                }
+            }
             AppCmd::Dynamics(c) => {
                 // As the session: the command applies to the settings in effect.
                 let d = &self.state.dynamics;

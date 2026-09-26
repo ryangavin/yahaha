@@ -28,15 +28,17 @@
 //! allocates, locks or blocks (`tests/synth_no_alloc.rs`). A block with no input whose
 //! output has died away is skipped, so an idle bus costs next to nothing.
 
-use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU32, Ordering::Relaxed};
+use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU16, AtomicU32, Ordering::Relaxed};
 
 mod chorus;
 mod delay;
 mod line;
+mod params;
 mod reverb;
 
 pub use chorus::{Chorus, ChorusType};
-pub use delay::{Delay, DelayType};
+pub use delay::{Delay, DelayType, NOTES};
+pub use params::{PARAMS, Param, Spec};
 pub use reverb::{Reverb, ReverbType};
 
 /// The send buses: Reverb (CC91), Chorus (CC93), Variation (CC94).
@@ -105,6 +107,8 @@ pub struct FxControl {
     /// this, 0-127 % (100 = as the style wrote it). By bus (`REVERB`, `CHORUS`,
     /// `VARIATION`).
     pub band_send: [AtomicU8; BUSES],
+    /// Each effect parameter (#236, `Param::index`), in its own unit (`Param::spec`).
+    pub params: [AtomicU16; PARAMS],
     /// The style tempo the delay follows: BPM x 100.
     pub tempo: AtomicU32,
     /// The SoundFont's own reverb and chorus instead of the bus (the sound before #204).
@@ -114,13 +118,14 @@ pub struct FxControl {
 impl FxControl {
     pub fn new() -> FxControl {
         FxControl {
-            reverb_type: AtomicU8::new(ReverbType::Hall as u8),
+            reverb_type: AtomicU8::new(DEFAULT_TYPES[REVERB]),
             reverb_return: AtomicU8::new(RETURN_UNITY),
-            chorus_type: AtomicU8::new(ChorusType::Chorus as u8),
+            chorus_type: AtomicU8::new(DEFAULT_TYPES[CHORUS]),
             chorus_return: AtomicU8::new(RETURN_UNITY),
-            variation_type: AtomicU8::new(DelayType::DottedEighth as u8),
+            variation_type: AtomicU8::new(DEFAULT_TYPES[VARIATION]),
             variation_return: AtomicU8::new(RETURN_UNITY),
             band_send: BAND_SEND_DEFAULT.map(AtomicU8::new),
+            params: default_params().map(AtomicU16::new),
             tempo: AtomicU32::new(12_000),
             legacy: AtomicBool::new(false),
         }
@@ -131,6 +136,40 @@ impl FxControl {
     /// Follow the style tempo (BPM).
     pub fn set_tempo(&self, bpm: f64) {
         self.tempo.store((bpm.clamp(1.0, 1000.0) * 100.0).round() as u32, Relaxed);
+    }
+}
+
+/// Each block's type before anything sets it: Hall, Chorus, the dotted 1/8 delay.
+pub const DEFAULT_TYPES: [u8; BUSES] = [ReverbType::Hall as u8, ChorusType::Chorus as u8, DelayType::DottedEighth as u8];
+
+/// Every parameter at its block's default type's value (`DEFAULT_TYPES`).
+pub fn default_params() -> [u16; PARAMS] {
+    let mut v = [0u16; PARAMS];
+    for (b, &t) in DEFAULT_TYPES.iter().enumerate() {
+        type_defaults(b, t, &mut v);
+    }
+    v
+}
+
+/// The Variation block's parameters, in `DelayType::defaults` order.
+const DELAY_PARAMS: [Param; 6] = [Param::DelaySync, Param::DelayNote, Param::DelayTime, Param::DelayFeedback, Param::DelayTone, Param::PingPong];
+
+/// Put bus `block`'s parameters in `v` at type `kind`'s own values (`ReverbType as u8`
+/// etc.): what a type change does.
+pub fn type_defaults(block: usize, kind: u8, v: &mut [u16; PARAMS]) {
+    if block == REVERB {
+        let d = ReverbType::from_u8(kind).defaults();
+        for (p, x) in [Param::ReverbTime, Param::PreDelay, Param::ReverbTone].into_iter().zip(d) {
+            v[p.index()] = x;
+        }
+    } else if block == CHORUS {
+        for (p, x) in [Param::ChorusRate, Param::ChorusDepth].into_iter().zip(ChorusType::from_u8(kind).defaults()) {
+            v[p.index()] = x;
+        }
+    } else if block == VARIATION {
+        for (p, x) in DELAY_PARAMS.into_iter().zip(DelayType::from_u8(kind).defaults()) {
+            v[p.index()] = x;
+        }
     }
 }
 
@@ -190,10 +229,18 @@ impl FxBus {
             return;
         }
         let bus = |b: usize| (&sends[2 * b * n..(2 * b + 1) * n], &sends[(2 * b + 1) * n..(2 * b + 2) * n]);
-        self.reverb.set_type(ReverbType::from_u8(ctl.reverb_type.load(Relaxed)));
-        self.chorus.set_type(ChorusType::from_u8(ctl.chorus_type.load(Relaxed)));
+        let param = |p: Param| p.clamp(ctl.params[p.index()].load(Relaxed)) as f32;
+        self.reverb.set(
+            ReverbType::from_u8(ctl.reverb_type.load(Relaxed)),
+            param(Param::ReverbTime) / 10.0,
+            param(Param::PreDelay),
+            param(Param::ReverbTone) * 100.0,
+        );
+        self.chorus.set(ChorusType::from_u8(ctl.chorus_type.load(Relaxed)), param(Param::ChorusRate) / 100.0, param(Param::ChorusDepth) / 10.0);
         let bpm = ctl.tempo.load(Relaxed) as f32 / 100.0;
-        self.delay.set(DelayType::from_u8(ctl.variation_type.load(Relaxed)), bpm);
+        // The type is only where the parameters started (the control side puts them
+        // there on a type change): the delay plays its parameters.
+        self.delay.set(delay::Settings::from_params(DELAY_PARAMS.map(|p| p.clamp(ctl.params[p.index()].load(Relaxed)))), bpm);
         let returns = [ctl.reverb_return.load(Relaxed), ctl.chorus_return.load(Relaxed), ctl.variation_return.load(Relaxed)];
         for (b, block) in self.blocks.iter_mut().enumerate() {
             let (il, ir) = bus(b);
@@ -286,6 +333,11 @@ mod tests {
         for t in [ReverbType::Hall, ReverbType::Room, ReverbType::Stage, ReverbType::Plate] {
             let ctl = FxControl::new();
             ctl.reverb_type.store(t as u8, Relaxed);
+            let mut params = default_params();
+            type_defaults(REVERB, t as u8, &mut params);
+            for (a, v) in ctl.params.iter().zip(params) {
+                a.store(v, Relaxed);
+            }
             let mut bus = FxBus::new(48_000);
             let src = noise(1);
             let (l, r) = run(&mut bus, &ctl, |i| if i < 24_000 { src(i) } else { [0.0; 2] }, REVERB, 48_000 * 8);

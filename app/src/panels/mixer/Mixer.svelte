@@ -19,7 +19,9 @@
     blocks, each with its type and return level (`setEffectType`, `setEffectReturn`). Every
     part, Panel and Style, SoundFont and plugin, feeds them through its sends. Each block's
     Band send (#236, `setBandSend`) scales every Style part's send to it, in percent: the
-    band's reverb as written, its chorus and delay off until turned up.
+    band's reverb as written, its chorus and delay off until turned up. The ▸ button
+    opens a block's editor with its parameters (#236, `setEffectParam`), which a type
+    change puts back to that type's own values.
   - Solo (S): only that part plays, even if it is off; the Style tab solos a band part,
     the Panel tab a keyboard part (`setStyleSolo` / `setPartSolo`, #30). Press again to end.
   - The metronome (on/off, bell, its own volume) sits above the strips: it is the
@@ -28,7 +30,7 @@
   - No level meters yet.
 -->
 <script lang="ts">
-  import type { FaderPage, FxBlock, FxType, KeyboardPart, PartSend, StylePart, TrackMuteOrder } from '../../lib/api/types'
+  import type { EffectBlockState, FaderPage, FxBlock, FxParam, FxType, KeyboardPart, PartSend, StylePart, TrackMuteOrder } from '../../lib/api/types'
   import type { TipKey } from '../../help/tooltips'
   import { app, ui } from '../../lib/store.svelte'
   import { tipFor } from '../../help/actions'
@@ -53,6 +55,27 @@
     reverb: ['fx.reverb_type', 'fx.reverb_return', 'fx.reverb_band'],
     chorus: ['fx.chorus_type', 'fx.chorus_return', 'fx.chorus_band'],
     variation: ['fx.variation_type', 'fx.variation_return', 'fx.variation_band'],
+  }
+  /** Which blocks' editors are open. */
+  let editing = $state<Record<FxBlock, boolean>>({ reverb: false, chorus: false, variation: false })
+  const PARAM_TIPS: Record<FxParam, TipKey> = {
+    reverbTime: 'fx.param.reverb_time',
+    preDelay: 'fx.param.pre_delay',
+    reverbTone: 'fx.param.reverb_tone',
+    delaySync: 'fx.param.delay_sync',
+    delayNote: 'fx.param.delay_note',
+    delayTime: 'fx.param.delay_time',
+    delayFeedback: 'fx.param.delay_feedback',
+    delayTone: 'fx.param.delay_tone',
+    pingPong: 'fx.param.ping_pong',
+    chorusRate: 'fx.param.chorus_rate',
+    chorusDepth: 'fx.param.chorus_depth',
+  }
+  /** The delay's note value plays with tempo sync on, its free time with it off. */
+  function paramOff(b: EffectBlockState, p: FxParam): boolean {
+    const sync = b.params.find((x) => x.param === 'delaySync')
+    if (!sync) return false
+    return (p === 'delayTime' && sync.value === 1) || (p === 'delayNote' && sync.value === 0)
   }
   /** A return level as the Genos shows it: 64 = 0 dB, 127 = +6 dB, 0 = off. */
   const returnText = (v: number) => (v === 0 ? 'Off' : `${v >= 64 ? '+' : ''}${(20 * Math.log10(v / 64)).toFixed(1)} dB`)
@@ -248,6 +271,15 @@
     <div class="effects">
       {#each effects as b (b.block)}
         <div class="block">
+          <button
+            type="button"
+            class="expand mat-raised"
+            aria-expanded={editing[b.block]}
+            aria-label="{b.name} settings"
+            use:tip={'fx.edit'}
+            disabled={b.params.length === 0}
+            onclick={() => (editing[b.block] = !editing[b.block])}>{editing[b.block] ? '▾' : '▸'}</button
+          >
           <span class="engraved">{b.block === 'variation' ? 'Delay' : b.name}</span>
           <select
             class="field"
@@ -284,6 +316,38 @@
         </div>
       {/each}
     </div>
+    {#each effects.filter((b) => editing[b.block] && b.params.length > 0) as b (b.block)}
+      <div class="editor" role="group" aria-label="{b.name} parameters">
+        <span class="engraved">{b.block === 'variation' ? 'Delay' : b.name} · {b.effectName}</span>
+        {#each b.params as p (p.param)}
+          <div class="param">
+            {#if p.max - p.min === 1}
+              <Toggle
+                on={p.value === 1}
+                tip={PARAM_TIPS[p.param]}
+                onclick={() => app.send({ type: 'setEffectParam', block: b.block, param: p.param, value: p.value === 1 ? 0 : 1 })}
+                >{p.name}</Toggle
+              >
+            {:else}
+            <span class="band-label">{p.name}</span>
+            <div class="slider return">
+              <HSlider
+                disabled={paramOff(b, p.param)}
+                value={p.value}
+                min={p.min}
+                max={p.max}
+                unity={p.default}
+                tip={PARAM_TIPS[p.param]}
+                label="{b.name} {p.name}"
+                format={() => p.display}
+                onchange={(v) => app.send({ type: 'setEffectParam', block: b.block, param: p.param, value: v })}
+              />
+            </div>
+            {/if}
+          </div>
+        {/each}
+      </div>
+    {/each}
 
     <p class="info" use:tip={'mixer.info'}>
       <b>A fader is its channel’s CC 7</b>, 0–127, with no hidden gain. Loading a style sets the Style faders to the
@@ -455,6 +519,30 @@
   }
   .slider.return {
     width: 7.5rem;
+  }
+  .expand {
+    min-width: 1.8rem;
+    min-height: 2rem;
+    border-radius: 5px;
+    color: var(--ink);
+  }
+  .expand:disabled {
+    opacity: 0.35;
+  }
+  .editor {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem 1.2rem;
+    align-items: center;
+    padding: 0.4rem 0.6rem;
+    border: 1px solid var(--seam);
+    border-radius: 6px;
+    font-size: 0.9rem;
+  }
+  .param {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
   }
   .band-label {
     font-size: var(--fs-small);

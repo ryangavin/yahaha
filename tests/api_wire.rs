@@ -288,6 +288,9 @@ const EVERY_CMD: &[&str] = &[
     r#"{"type":"setEffectType","block":"variation","effect":"pingPong"}"#,
     r#"{"type":"setEffectReturn","block":"chorus","level":90}"#,
     r#"{"type":"setBandSend","block":"variation","level":100}"#,
+    r#"{"type":"setEffectParam","block":"reverb","param":"reverbTime","value":35}"#,
+    r#"{"type":"setEffectParam","block":"variation","param":"delayFeedback","value":60}"#,
+    r#"{"type":"setEffectParam","block":"chorus","param":"chorusDepth","value":30}"#,
 ];
 
 fn type_of(json: &str) -> String {
