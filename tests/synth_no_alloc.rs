@@ -1,5 +1,5 @@
 //! The audio callback (`synth::AudioCore::process`) must not allocate or free: SoundFont
-//! notes and controllers, a style's XG drum setup (#239), a part's sound controllers (#246), the effect bus (sends, band send scales, types, parameters, returns, legacy effects), the
+//! notes and controllers, a style's XG drum setup (#239), a part's sound controllers, portamento and mono (#246), the effect bus (sends, band send scales, types, parameters, returns, legacy effects), the
 //! master fader, a SoundFont swap, and (feature `plugins`) a
 //! keyboard part going over to an Audio Unit instrument (Apple's DLSMusicDevice), playing
 //! it, crossfading to a second instance, and back to the SoundFont. SoundFont swaps while
@@ -145,6 +145,16 @@ fn the_audio_callback_does_not_allocate() {
         assert_eq!(run(&mut core, &mut feed, &[]), none, "the filter gliding");
     }
     assert_eq!(run(&mut core, &mut feed, &[[0x81, 60, 0], [0x81, 64, 0], [0xB1, 121, 0]]), none, "sound controllers: notes off");
+    // Portamento and mono (#246): gliding notes, CC126/127, the XG part's Mono/Poly as a
+    // mono message, a mono note let go going back to the key still held (pedal down too).
+    let xg_mono = |v: u8| synth::sysex_msg(&[0xF0, 0x43, 0x10, 0x4C, 0x08, 0x02, 0x05, v, 0xF7]).unwrap();
+    assert_eq!(run(&mut core, &mut feed, &[[0xB2, 65, 127], [0xB2, 5, 40], [0x92, 60, 100], [0x92, 72, 100], xg_mono(0)]), none, "portamento");
+    for _ in 0..4 {
+        assert_eq!(run(&mut core, &mut feed, &[]), none, "gliding");
+    }
+    assert_eq!(run(&mut core, &mut feed, &[[0xB2, 64, 127], [0x92, 62, 90], [0x92, 65, 90], [0x92, 67, 90]]), none, "mono notes");
+    assert_eq!(run(&mut core, &mut feed, &[[0x82, 67, 0], [0x82, 60, 0], [0x82, 65, 0], [0xB2, 64, 0]]), none, "mono: back to the keys held");
+    assert_eq!(run(&mut core, &mut feed, &[[0xB3, 126, 1], [0x93, 60, 90], [0x93, 64, 90], [0xB3, 127, 0], xg_mono(1), [0x82, 62, 0]]), none, "mono/poly");
     ctl.master.store(90, Ordering::Relaxed);
     parts.set_program(0, 5);
     assert_eq!(run(&mut core, &mut feed, &[[0xB0, 1, 30], [0xE0, 0, 80]]), none, "master, program, controllers");

@@ -279,9 +279,9 @@ impl Out {
         let Some(s) = self.synth.as_mut() else { return };
         // The built-in synth takes channel messages only; SysEx (the style's XG effect
         // setup) is for the port, but for its drum setup (#239), which reaches the synth
-        // as drum messages.
+        // as drum messages, and the parts' XG voice settings (#246).
         if msg.first() == Some(&0xF0) {
-            if let Some(m) = crate::synth::drum_setup::encode(msg) {
+            if let Some(m) = crate::synth::sysex_msg(msg) {
                 let _ = s.push(m);
             }
             return;
