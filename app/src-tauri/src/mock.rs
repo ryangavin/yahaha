@@ -1791,12 +1791,20 @@ impl MockSession {
                     // A type change puts the block's parameters back to the type's own.
                     let mut params = self.fx_params();
                     yahaha::fx::type_defaults(block.index(), block.type_index(effect), &mut params);
+                    let kept = self.state.effects.blocks.clone();
                     self.state.effects = EffectsState::new(types, returns, band, params);
+                    for (b, k) in self.state.effects.blocks.iter_mut().zip(kept) {
+                        b.follow_style = k.follow_style;
+                        b.style_effect = k.style_effect;
+                    }
+                    // The player's own choice: style changes leave it (#237).
+                    self.state.effects.blocks[block.index()].follow_style = false;
                 } else {
                     self.message(format!("{} has no {} type", block.name(), effect.name()), true);
                 }
             }
             AppCmd::Fx(FxCmd::SetEffectReturn { block, level }) => self.state.effects.blocks[block.index()].return_level = level.min(127),
+            AppCmd::Fx(FxCmd::SetFollowStyle { block, on }) => self.state.effects.blocks[block.index()].follow_style = on,
             AppCmd::Fx(FxCmd::SetBandSend { block, level }) => self.state.effects.blocks[block.index()].band_send = level.min(127),
             AppCmd::Fx(FxCmd::SetEffectParam { block, param, value }) => {
                 if param.spec().block != block.index() {
@@ -1808,7 +1816,12 @@ impl MockSession {
                     let types = std::array::from_fn(|b| e.blocks[b].effect);
                     let returns = std::array::from_fn(|b| e.blocks[b].return_level);
                     let band = std::array::from_fn(|b| e.blocks[b].band_send);
+                    let kept = self.state.effects.blocks.clone();
                     self.state.effects = EffectsState::new(types, returns, band, params);
+                    for (b, k) in self.state.effects.blocks.iter_mut().zip(kept) {
+                        b.follow_style = k.follow_style;
+                        b.style_effect = k.style_effect;
+                    }
                 }
             }
             AppCmd::Dynamics(c) => {

@@ -204,6 +204,8 @@ export type FxCmd =
   | { type: 'setBandSend'; block: FxBlock; level: number }
   /** #236: one of the block's parameters, in its own unit (see FxParamState). */
   | { type: 'setEffectParam'; block: FxBlock; param: FxParam; value: number }
+  /** #237: the block takes the style's own effect type at each style change (on), or keeps the player's (off). */
+  | { type: 'setFollowStyle'; block: FxBlock; on: boolean }
 
 /**
  * Reverb: reverbTime (0.1 s), preDelay (ms), reverbTone (100 Hz). Chorus: chorusRate (0.01 Hz),
@@ -258,6 +260,10 @@ export interface EffectBlockState {
   bandSend: number
   /** Its parameters (#236), in order. A 0–1 parameter is a switch. */
   params: FxParamState[]
+  /** The loaded style's own type for this block (#237): the XG name and what it plays as (null: nothing near it). Null if the style sets none. */
+  styleEffect: { name: string; effect: FxType | null } | null
+  /** The block takes the style's type at each style change (#237). */
+  followStyle: boolean
 }
 
 /** Knob Assign pages (#197; docs/app-api.md › Knob Assign pages). */

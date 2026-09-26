@@ -2191,7 +2191,9 @@
             "default": 45,
             "display": "4.5 kHz"
           }
-        ]
+        ],
+        "styleEffect": null,
+        "followStyle": true
       },
       {
         "block": "chorus",
@@ -2233,7 +2235,9 @@
             "default": 22,
             "display": "2.2 ms"
           }
-        ]
+        ],
+        "styleEffect": null,
+        "followStyle": true
       },
       {
         "block": "variation",
@@ -2315,7 +2319,9 @@
             "default": 0,
             "display": "Off"
           }
-        ]
+        ],
+        "styleEffect": null,
+        "followStyle": true
       }
     ]
   }

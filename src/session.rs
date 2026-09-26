@@ -637,6 +637,7 @@ fn assemble(opts: &Options, engine_out: live::Out, input_out: live::Out, offline
     engine.set_chord_settle(chord_settle_ms as u64 * 1_000_000);
     let snap = engine.snapshot(0);
     let published = Arc::new(lib.clone());
+    let fx_settings = fx::FxSettings::for_style(&info.effects);
     let control = Control {
         shared: shared.clone(),
         lib,
@@ -706,7 +707,7 @@ fn assemble(opts: &Options, engine_out: live::Out, input_out: live::Out, offline
         sounds: sounds::Sounds::open(sound_set.file()),
         dynamics: Default::default(),
         knobs: Default::default(),
-        fx: Default::default(),
+        fx: fx_settings,
         display: Default::default(),
         sound_set,
     };
