@@ -37,6 +37,7 @@ const GROUPS: [string, string][] = [
   ['lead', 'Lead-sheet band'],
   ['keystrip', 'Keyboard strip'],
   ['chart', 'iReal Pro chart player'],
+  ['nav', 'Quick nav (app bar)'],
   ['drawer', 'Panels around the hardware view'],
   ['settings', 'Settings'],
   ['audio', 'Audio'],
