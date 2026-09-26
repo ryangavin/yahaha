@@ -6,6 +6,10 @@ use std::sync::Arc;
 
 use crate::array_math::ArrayMath;
 use crate::channel::Channel;
+use crate::channel::{
+    SOUND_ATTACK, SOUND_CUTOFF, SOUND_DECAY, SOUND_RELEASE, SOUND_RESONANCE, SOUND_VIBRATO_DELAY,
+    SOUND_VIBRATO_DEPTH, SOUND_VIBRATO_RATE,
+};
 use crate::chorus::Chorus;
 use crate::error::SynthesizerError;
 use crate::note_params::NoteParams;
@@ -219,6 +223,15 @@ impl Synthesizer {
                 0x40 => channel_info.set_hold_pedal(data2), // Hold Pedal
                 0x5B => channel_info.set_reverb_send(data2), // Reverb Send
                 0x5D => channel_info.set_chorus_send(data2), // Chorus Send
+                // yahaha: the sound controllers (#246).
+                0x4A => channel_info.set_sound(SOUND_CUTOFF, data2), // Brightness (Cutoff)
+                0x47 => channel_info.set_sound(SOUND_RESONANCE, data2), // Harmonic Content (Resonance)
+                0x49 => channel_info.set_sound(SOUND_ATTACK, data2), // Attack Time
+                0x4B => channel_info.set_sound(SOUND_DECAY, data2), // Decay Time
+                0x48 => channel_info.set_sound(SOUND_RELEASE, data2), // Release Time
+                0x4C => channel_info.set_sound(SOUND_VIBRATO_RATE, data2), // Vibrato Rate
+                0x4D => channel_info.set_sound(SOUND_VIBRATO_DEPTH, data2), // Vibrato Depth
+                0x4E => channel_info.set_sound(SOUND_VIBRATO_DELAY, data2), // Vibrato Delay
                 0x63 => channel_info.set_nrpn_coarse(data2), // NRPN Coarse
                 0x62 => channel_info.set_nrpn_fine(data2), // NRPN Fine
                 0x65 => channel_info.set_rpn_coarse(data2), // RPN Coarse
@@ -309,7 +322,7 @@ impl Synthesizer {
                         let region_pair = RegionPair::new(preset_region, instrument_region);
 
                         if let Some(value) = self.voices.request_new(instrument_region, channel) {
-                            value.start(&region_pair, channel, key, velocity, note)
+                            value.start(&region_pair, channel, key, velocity, note, channel_info)
                         }
                     }
                 }
