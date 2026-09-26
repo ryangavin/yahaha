@@ -465,6 +465,11 @@ The effect parameters (`param`, its unit and range, and each type's own value):
 | Reverb | `preDelay` | ms | 0–200 | 22 / 4 / 12 / 1 |
 | Reverb | `reverbTone` | 100 Hz (the tail's high cut; lower is darker) | 10–200 (1–20 kHz) | 45 / 60 / 65 / 90 |
 
+| Block | `param` | Unit | Range | Chorus / Celeste / Flanger |
+|---|---|---|---|---|
+| Chorus | `chorusRate` | 0.01 Hz (the LFO speed; the second tap keeps its type's ratio) | 5–500 (0.05–5 Hz) | 55 / 29 / 21 |
+| Chorus | `chorusDepth` | 0.1 ms (how far the taps swing) | 0–50 (0–5 ms) | 22 / 9 / 18 |
+
 | Block | `param` | Unit | Range | 1/8 / 1/8. / 1/4 / Ping-Pong |
 |---|---|---|---|---|
 | Variation | `delaySync` | switch: 1 = the time is `delayNote` at the style tempo, 0 = `delayTime` | 0–1 | 1 |
@@ -484,14 +489,14 @@ README › Knobs). A page gives each knob a function; the knobs are relative, so
 the value from where it is now, whoever set it last. A turn runs the command of the knob's
 function (`setDynamics`, `stepRetriggerRate`, `toggleRetrigger`, `styleTrackMute`,
 `setTempo`, `setPartVolume`, `setHarmonyVolume`, `setMetronomeVolume`, `setPartPan`,
-`setPartSend`, `setEffectReturn`), so it behaves
+`setPartSend`, `setEffectReturn`, `setEffectParam`), so it behaves
 exactly as that command does.
 
 | Command | Fields | What it does |
 |---|---|---|
-| `setKnobPage` | `page` `style` \| `parts` \| `pan` \| `effects` | The Knob Assign page. |
+| `setKnobPage` | `page` `style` \| `parts` \| `pan` \| `effects` \| `fx` | The Knob Assign page. `fx` (#236): Reverb Time, Pre-delay, Tone, Delay Time, Feedback, Chorus Rate, Depth, Tempo. |
 | `stepKnobPage` | `delta` | Steps the page, stopping at the first and last (the encoder page buttons ▲/▼). |
-| `turnKnob` | `knob` 0–7, `delta` | Turns a knob `delta` steps (positive: clockwise). Levels move 2 a step, tempo 1 BPM; Retrigger Rate and On/Off switch every 3 steps (right: shorter, on); Track Mute A/B move their position 4 a step. A knob with No Assign does nothing. |
+| `turnKnob` | `knob` 0–7, `delta` | Turns a knob `delta` steps (positive: clockwise). Levels move 2 a step, tempo 1 BPM; Retrigger Rate and On/Off switch every 3 steps (right: shorter, on); Track Mute A/B move their position 4 a step. An effect parameter moves its own step (reverb time 0.1 s, pre-delay 2 ms, tones 200 Hz, feedback 2%, chorus rate 0.02 Hz and depth 0.1 ms); the Delay Time knob steps the note value every 3 steps with tempo sync on, or 10 ms a step with it off. A knob with No Assign does nothing. |
 
 ### Sound catalog
 One list of every sound for the Sound Browser (#117): every preset of every `.sf2` in the
@@ -1051,12 +1056,14 @@ Style Dynamics: `{ control, level, touch, accent, accentThreshold }`.
 
 ### `knobs`
 The Knob Assign page: `{ page, pageName, pageNumber, pageCount, knobs }`.
-- `page`: `style` (the default), `parts`, `pan` or `effects`. `pageNumber` is 1-based.
+- `page`: `style` (the default), `parts`, `pan`, `effects` or `fx`. `pageNumber` is 1-based.
 - `knobs`: always eight, knob 1 first: `{ function, name, short, value, level }`.
   - `function`: `none`, `dynamics`, `retriggerRate`, `retriggerOnOff`, `trackMuteA`,
     `trackMuteB`, `tempo`, `partVolume`, `harmonyVolume`, `metronomeVolume`, `partPan`,
-    `partReverb`, `partChorus` or `fxReturn` (an effect block's return level; the `pan` page's
-    knobs 5–7 are Reverb, Chorus and Delay Return).
+    `partReverb`, `partChorus`, `fxReturn` (an effect block's return level; the `pan` page's
+    knobs 5–7 are Reverb, Chorus and Delay Return), `fxParam` (an effect parameter, #236; the
+    `name` says which, "Reverb Time") or `delayTime` (the delay's note value, or its ms with
+    tempo sync off).
   - `name` is the full name ("Dynamics Control"); `short` is up to 8 characters ("DynCtrl",
     "---" for No Assign), as the Genos Live Control view and the Launchkey display show it.
   - `value`: the value as text ("64", "1/8", "On", "3 of 8", "All", "120 BPM", a pan "L20" /
@@ -1772,7 +1779,11 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
         "types": [{ "effect": "hall", "name": "Hall" }, { "effect": "room", "name": "Room" }, { "effect": "stage", "name": "Stage" }, { "effect": "plate", "name": "Plate" }]
       },
       {
-        "block": "chorus", "name": "Chorus", "effect": "chorus", "effectName": "Chorus", "returnLevel": 64, "bandSend": 0, "params": [],
+        "block": "chorus", "name": "Chorus", "effect": "chorus", "effectName": "Chorus", "returnLevel": 64, "bandSend": 0,
+        "params": [
+          { "param": "chorusRate", "name": "Rate", "value": 55, "min": 5, "max": 500, "default": 55, "display": "0.55 Hz" },
+          { "param": "chorusDepth", "name": "Depth", "value": 22, "min": 0, "max": 50, "default": 22, "display": "2.2 ms" }
+        ],
         "types": [{ "effect": "chorus", "name": "Chorus" }, { "effect": "celeste", "name": "Celeste" }, { "effect": "flanger", "name": "Flanger" }]
       },
       {

@@ -1803,7 +1803,7 @@ export class MockSession implements Session {
 }
 
 /** Each effect parameter's block, name, range and reading, as the session's (#236). */
-const FX_PARAMS: Record<FxParam, { block: FxBlock; name: string; min: number; max: number; display: (v: number) => string }> = {
+export const FX_PARAMS: Record<FxParam, { block: FxBlock; name: string; min: number; max: number; display: (v: number) => string }> = {
   reverbTime: { block: 'reverb', name: 'Time', min: 3, max: 100, display: (v) => `${(v / 10).toFixed(1)} s` },
   preDelay: { block: 'reverb', name: 'Pre-delay', min: 0, max: 200, display: (v) => `${v} ms` },
   reverbTone: { block: 'reverb', name: 'Tone', min: 10, max: 200, display: (v) => `${(v / 10).toFixed(1)} kHz` },
@@ -1813,6 +1813,8 @@ const FX_PARAMS: Record<FxParam, { block: FxBlock; name: string; min: number; ma
   delayFeedback: { block: 'variation', name: 'Feedback', min: 0, max: 90, display: (v) => `${v}%` },
   delayTone: { block: 'variation', name: 'Tone', min: 10, max: 200, display: (v) => `${(v / 10).toFixed(1)} kHz` },
   pingPong: { block: 'variation', name: 'Ping-pong', min: 0, max: 1, display: (v) => (v ? 'On' : 'Off') },
+  chorusRate: { block: 'chorus', name: 'Rate', min: 5, max: 500, display: (v) => `${(v / 100).toFixed(2)} Hz` },
+  chorusDepth: { block: 'chorus', name: 'Depth', min: 0, max: 50, display: (v) => `${(v / 10).toFixed(1)} ms` },
 }
 const DELAY = { delaySync: 1, delayTime: 375, delayFeedback: 38, delayTone: 50 }
 
@@ -1822,6 +1824,9 @@ const FX_TYPE_PARAMS: Partial<Record<FxType, Partial<Record<FxParam, number>>>> 
   room: { reverbTime: 9, preDelay: 4, reverbTone: 60 },
   stage: { reverbTime: 17, preDelay: 12, reverbTone: 65 },
   plate: { reverbTime: 18, preDelay: 1, reverbTone: 90 },
+  chorus: { chorusRate: 55, chorusDepth: 22 },
+  celeste: { chorusRate: 29, chorusDepth: 9 },
+  flanger: { chorusRate: 21, chorusDepth: 18 },
   eighth: { ...DELAY, delayNote: 2, pingPong: 0 },
   dottedEighth: { ...DELAY, delayNote: 4, pingPong: 0 },
   quarter: { ...DELAY, delayNote: 5, pingPong: 0 },

@@ -142,13 +142,15 @@ The 8 encoders are the Genos LIVE CONTROL knobs, on Knob Assign pages. The **enc
 |---|---|---|---|---|---|---|---|---|
 | **1 · Style** | Dynamics | Retrigger length | Retrigger on/off | Style Track Mute A | Style Track Mute B | – | – | Tempo |
 | **2 · Parts** | Right 1 volume | Right 2 volume | Right 3 volume | Left volume | Harmony volume | Metronome volume | – | Tempo |
-| **3 · Pan** | Right 1 pan | Right 2 pan | Right 3 pan | Left pan | – | – | – | Tempo |
+| **3 · Pan** | Right 1 pan | Right 2 pan | Right 3 pan | Left pan | Reverb return | Chorus return | Delay return | Tempo |
 | **4 · Effects** | Right 1 reverb | Right 2 reverb | Right 3 reverb | Left reverb | Right 1 chorus | Right 2 chorus | Right 3 chorus | Left chorus |
+| **5 · FX** | Reverb time | Reverb pre-delay | Reverb tone | Delay time | Delay feedback | Chorus rate | Chorus depth | Tempo |
 
 - **Dynamics** is the Style Dynamics level (64 = as written), 2 a step. It only acts while Settings › Style › Dynamics Control is on.
 - **Retrigger length** turns shorter to the right (1/1 … 1/32), **Retrigger on/off** turns it on to the right and off to the left; both switch every 3 steps.
 - **Style Track Mute A/B** start fully right (every Style part on). Turning left takes parts out until one is left: A keeps Rhythm 2, then brings in Rhythm 1, Bass, Chord 1, Chord 2, Pad, Phrase 1, Phrase 2; B keeps Chord 1, then Chord 2, Pad, Bass, Phrase 1, Phrase 2, Rhythm 1, Rhythm 2 (RM p.148). They set the parts' on/off switches, as the Style fader buttons do.
 - **Tempo** moves 1 BPM a step; the volumes, pans and sends 2 a step (a part's volume is its CC7, as its fader; pan is its CC10, L64 … C … R63; Reverb and Chorus its CC91 and CC93, as in the Mixer drawer).
+- **FX** turns the effect blocks' parameters (#236), as the Mixer's effect editors do: reverb time 0.1 s a step, pre-delay 2 ms, tone 200 Hz, feedback 2%, chorus rate 0.02 Hz and depth 0.1 ms. **Delay time** steps the note value (1/16 … 1/2) every 3 steps with tempo sync on, or the time 10 ms a step with it off.
 - yahaha turns the encoders' relative output on when it puts the Launchkey in DAW mode. They also work in the Transport encoder mode (Shift + the pad under "Transport"), which is always relative.
 
 ### Buttons

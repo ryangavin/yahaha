@@ -8,6 +8,7 @@
 
 use crate::api::{AppCmd, DynamicsCmd, FxBlock, FxCmd, KnobState, KnobsState, HarmonyArpCmd, PartSend, MetronomeCmd, MixerCmd, PartsCmd, StyleSettingsCmd, TrackMuteOrder, TransportCmd};
 use crate::engine::RETRIGGER_RATES;
+use crate::fx::Param;
 use serde::{Deserialize, Serialize};
 
 /// A Knob Assign page.
@@ -23,10 +24,13 @@ pub enum KnobPage {
     Pan,
     /// The keyboard parts' Reverb and Chorus sends (Genos Mixer > Effect).
     Effects,
+    /// The effect blocks' parameters (#236): reverb time, pre-delay and tone, the delay's
+    /// time and feedback, the chorus's rate and depth, tempo.
+    Fx,
 }
 
 impl KnobPage {
-    pub const ALL: [KnobPage; 4] = [KnobPage::Style, KnobPage::Parts, KnobPage::Pan, KnobPage::Effects];
+    pub const ALL: [KnobPage; 5] = [KnobPage::Style, KnobPage::Parts, KnobPage::Pan, KnobPage::Effects, KnobPage::Fx];
 
     pub fn name(self) -> &'static str {
         match self {
@@ -34,6 +38,7 @@ impl KnobPage {
             KnobPage::Parts => "Parts",
             KnobPage::Pan => "Pan",
             KnobPage::Effects => "Effects",
+            KnobPage::Fx => "FX",
         }
     }
 
@@ -55,6 +60,16 @@ impl KnobPage {
             KnobPage::Parts => [PartVolume(0), PartVolume(1), PartVolume(2), PartVolume(3), HarmonyVolume, MetronomeVolume, None, Tempo],
             KnobPage::Pan => [PartPan(0), PartPan(1), PartPan(2), PartPan(3), FxReturn(0), FxReturn(1), FxReturn(2), Tempo],
             KnobPage::Effects => [PartReverb(0), PartReverb(1), PartReverb(2), PartReverb(3), PartChorus(0), PartChorus(1), PartChorus(2), PartChorus(3)],
+            KnobPage::Fx => [
+                FxParam(Param::ReverbTime),
+                FxParam(Param::PreDelay),
+                FxParam(Param::ReverbTone),
+                DelayTime,
+                FxParam(Param::DelayFeedback),
+                FxParam(Param::ChorusRate),
+                FxParam(Param::ChorusDepth),
+                Tempo,
+            ],
         }
     }
 }
@@ -89,6 +104,11 @@ pub enum KnobFn {
     /// The effect bus's return level (#204) of block 0-2: Reverb (the Genos Ambience
     /// knob's job here), Chorus, Variation (the delay).
     FxReturn(u8),
+    /// An effect parameter (#236), in its own unit and step (`Param::spec`).
+    FxParam(Param),
+    /// The delay's time: its note value with tempo sync on (a step every 3 knob steps),
+    /// its free time in ms with it off.
+    DelayTime,
 }
 
 /// Knob steps per Retrigger length, and per Retrigger on/off switch.
@@ -119,6 +139,8 @@ impl KnobFn {
             KnobFn::PartReverb(_) => "partReverb",
             KnobFn::PartChorus(_) => "partChorus",
             KnobFn::FxReturn(_) => "fxReturn",
+            KnobFn::FxParam(_) => "fxParam",
+            KnobFn::DelayTime => "delayTime",
         }
     }
 
@@ -139,6 +161,8 @@ impl KnobFn {
             KnobFn::PartReverb(p) => ["RevR1", "RevR2", "RevR3", "RevL"][(p & 3) as usize],
             KnobFn::PartChorus(p) => ["ChoR1", "ChoR2", "ChoR3", "ChoL"][(p & 3) as usize],
             KnobFn::FxReturn(b) => ["RevRtn", "ChoRtn", "DlyRtn"][(b as usize).min(2)],
+            KnobFn::FxParam(p) => p.spec().short,
+            KnobFn::DelayTime => "DlyTime",
         }
     }
 
@@ -159,6 +183,8 @@ impl KnobFn {
             KnobFn::PartReverb(p) => ["Right 1 Reverb", "Right 2 Reverb", "Right 3 Reverb", "Left Reverb"][(p & 3) as usize],
             KnobFn::PartChorus(p) => ["Right 1 Chorus", "Right 2 Chorus", "Right 3 Chorus", "Left Chorus"][(p & 3) as usize],
             KnobFn::FxReturn(b) => ["Reverb Return", "Chorus Return", "Delay Return"][(b as usize).min(2)],
+            KnobFn::FxParam(p) => p.spec().full,
+            KnobFn::DelayTime => "Delay Time",
         }
     }
 }
@@ -177,6 +203,8 @@ pub struct Now {
     pub part_fx: [[u8; crate::parts::FX]; 4],
     /// The effect bus's return levels: Reverb, Chorus, Variation (#204).
     pub fx_return: [u8; 3],
+    /// The effect parameters (#236, `Param::index`).
+    pub fx_params: [u16; crate::fx::PARAMS],
 }
 
 /// A knob as it reads now: its value as text, and where it is (0-127) if it has a
@@ -265,6 +293,33 @@ impl Knobs {
                 let b = (b as usize).min(2);
                 FxCmd::SetEffectReturn { block: FxBlock::ALL[b], level: level(now.fx_return[b]) }.into()
             }
+            KnobFn::FxParam(p) => {
+                let v = now.fx_params[p.index()];
+                let to = p.clamp((v as i32 + d as i32 * p.spec().step as i32).clamp(0, u16::MAX as i32) as u16);
+                if to == v {
+                    return None;
+                }
+                fx_param(p, to)
+            }
+            KnobFn::DelayTime => {
+                if now.fx_params[Param::DelaySync.index()] != 0 {
+                    let steps = self.stepped(k, d)?;
+                    let v = now.fx_params[Param::DelayNote.index()];
+                    let to = Param::DelayNote.clamp((v as i16 + steps as i16).max(0) as u16);
+                    if to == v {
+                        return None;
+                    }
+                    fx_param(Param::DelayNote, to)
+                } else {
+                    let p = Param::DelayTime;
+                    let v = now.fx_params[p.index()];
+                    let to = p.clamp((v as i32 + d as i32 * p.spec().step as i32).max(0) as u16);
+                    if to == v {
+                        return None;
+                    }
+                    fx_param(p, to)
+                }
+            }
         };
         Some(cmd)
     }
@@ -325,6 +380,8 @@ impl Knobs {
                 let v = now.part_fx[(p & 3) as usize][if matches!(self.function(knob), KnobFn::PartReverb(_)) { 1 } else { 2 }];
                 r(v.to_string(), Some(v))
             }
+            KnobFn::FxParam(p) => param_reading(p, now),
+            KnobFn::DelayTime => param_reading(if now.fx_params[Param::DelaySync.index()] != 0 { Param::DelayNote } else { Param::DelayTime }, now),
             KnobFn::FxReturn(b) => {
                 let v = now.fx_return[(b as usize).min(2)];
                 r(v.to_string(), Some(v))
@@ -342,6 +399,19 @@ pub fn pan_text(v: u8) -> String {
     }
 }
 
+/// The command that sets effect parameter `p` to `v` (#236).
+fn fx_param(p: Param, v: u16) -> AppCmd {
+    FxCmd::SetEffectParam { block: FxBlock::ALL[p.spec().block], param: p, value: v }.into()
+}
+
+/// An effect parameter as a knob reads: its value as text, and where it sits in its range.
+fn param_reading(p: Param, now: &Now) -> Reading {
+    let s = p.spec();
+    let v = p.clamp(now.fx_params[p.index()]);
+    let level = ((v - s.min) as u32 * 127 / (s.max - s.min).max(1) as u32) as u8;
+    Reading { value: p.display(v), level: Some(level) }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -357,6 +427,7 @@ mod tests {
             metronome_volume: 64,
             part_fx: [[64, 40, 0, 0], [30, 50, 10, 0], [100, 0, 0, 0], [64, 127, 5, 0]],
             fx_return: [64, 40, 0],
+            fx_params: crate::fx::default_params(),
         }
     }
 
@@ -364,7 +435,8 @@ mod tests {
     fn pages_step_and_stop_at_the_ends() {
         assert_eq!(KnobPage::Style.step(-1), KnobPage::Style);
         assert_eq!(KnobPage::Style.step(1), KnobPage::Parts);
-        assert_eq!(KnobPage::Effects.step(1), KnobPage::Effects);
+        assert_eq!(KnobPage::Effects.step(1), KnobPage::Fx);
+        assert_eq!(KnobPage::Fx.step(1), KnobPage::Fx);
         for p in KnobPage::ALL {
             assert!(p == KnobPage::Effects || p.functions()[7] == KnobFn::Tempo, "tempo is knob 8 on {p:?}");
             assert!(p.functions().iter().all(|f| f.short().len() <= 8));
@@ -448,5 +520,37 @@ mod tests {
         assert_eq!(k.reading(2, &now()).value, "Off");
         assert_eq!(k.reading(5, &now()), Reading { value: String::new(), level: None });
         assert_eq!(k.reading(7, &Now { bpm: 97.6, ..now() }).value, "98 BPM");
+    }
+
+    /// #236: the FX page turns the effect parameters in their own steps; the delay time
+    /// knob steps the note value with tempo sync on and the ms with it off.
+    #[test]
+    fn effect_parameter_knobs() {
+        use crate::api::FxParam;
+        let mut k = Knobs::default();
+        k.set_page(KnobPage::Fx);
+        let set = |block, param, value| Some(AppCmd::from(FxCmd::SetEffectParam { block, param, value }));
+        assert_eq!(k.turn(0, 1, &now()), set(FxBlock::Reverb, FxParam::ReverbTime, 25));
+        assert_eq!(k.turn(1, -20, &now()), set(FxBlock::Reverb, FxParam::PreDelay, 0));
+        assert_eq!(k.turn(4, 3, &now()), set(FxBlock::Variation, FxParam::DelayFeedback, 44));
+        assert_eq!(k.turn(5, -1, &now()), set(FxBlock::Chorus, FxParam::ChorusRate, 53));
+        assert_eq!(k.turn(6, 1, &now()), set(FxBlock::Chorus, FxParam::ChorusDepth, 23));
+        assert_eq!(k.reading(0, &now()), Reading { value: "2.4 s".into(), level: Some(27) });
+        assert_eq!((k.function(0).short(), k.function(0).name(), k.function(3).short()), ("RevTime", "Reverb Time", "DlyTime"));
+        assert_eq!(k.reading(4, &now()).value, "38%");
+        // Delay time: the note value, a step every 3 knob steps (1/8. -> 1/4).
+        assert_eq!(k.reading(3, &now()).value, "1/8.");
+        assert_eq!(k.turn(3, 2, &now()), None);
+        assert_eq!(k.turn(3, 1, &now()), set(FxBlock::Variation, FxParam::DelayNote, 5));
+        // With tempo sync off: ms, 10 a step.
+        let mut p = crate::fx::default_params();
+        p[FxParam::DelaySync.index()] = 0;
+        let free = Now { fx_params: p, ..now() };
+        assert_eq!(k.reading(3, &free).value, "375 ms");
+        assert_eq!(k.turn(3, -2, &free), set(FxBlock::Variation, FxParam::DelayTime, 355));
+        // At an end nothing changes.
+        let mut p = crate::fx::default_params();
+        p[FxParam::ReverbTime.index()] = 100;
+        assert_eq!(k.turn(0, 1, &Now { fx_params: p, ..now() }), None);
     }
 }

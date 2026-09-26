@@ -140,6 +140,16 @@ describe('Mixer drawer', () => {
     expect(s.state.effects.blocks[2].params[5].display).toBe('On')
   })
 
+  it('Effects: the chorus editor has rate and depth (#236)', async () => {
+    const s = setup()
+    await fireEvent.click(document.querySelector<HTMLElement>('[aria-label="Chorus settings"]')!)
+    flushSync()
+    const depth = document.querySelector<HTMLElement>('[aria-label="Chorus Depth"]')!
+    expect(depth.getAttribute('aria-valuetext')).toBe('2.2 ms')
+    await fireEvent.keyDown(depth, { key: 'ArrowUp' })
+    expect(s.state.effects.blocks[1].params[1].display).toBe('2.3 ms')
+  })
+
   it('Effects: a band send per block, the band\'s chorus and delay off at start (#236)', async () => {
     const s = setup()
     const band = (name: string) => document.querySelector<HTMLElement>(`[aria-label="${name} band send"]`)!

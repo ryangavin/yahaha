@@ -629,6 +629,7 @@ impl MockSession {
                 [k.pan, k.reverb, k.chorus, k.variation]
             }),
             fx_return: [0, 1, 2].map(|b| s.effects.blocks[b].return_level),
+            fx_params: self.fx_params(),
         }
     }
 
