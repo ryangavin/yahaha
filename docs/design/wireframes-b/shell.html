@@ -170,7 +170,7 @@ class Component extends DCLogic {
     const panTxt = v => { const d = Math.round((v - .5) * 128); return d === 0 ? 'C' : (d < 0 ? 'L' + (-d) : 'R' + d); };
     const FPAGE0 = { VOL: 'Vol', PAN: 'Pan', REV: 'Rev', CHO: 'Cho', DLY: 'Dly' }[LAYER];
     const ring = { i: 4, n: 8, label: 'LAUNCHKEY FADERS + BUTTONS · STYLE ' + FPAGE0.toUpperCase() };
-    const LED = i => i < 4 ? '#3d7dff' : '#2fd26a';
+    const LED = i => i < 4 ? COL[5] : COL[3];
     const parts = P.map((p, i) => {
       const send = { REV: p[5], CHO: p[6], DLY: p[7] }[LAYER];
       const isVol = LAYER === 'VOL', isPan = LAYER === 'PAN';
@@ -187,12 +187,14 @@ class Component extends DCLogic {
         val, valInk: isVol ? '#c9c9cf' : COL[i] };
     });
     // The Launchkey Sections pad page (src/launchkey.rs section_looks), as the hardware lights it.
-    const LKC = { intro: [127, 95, 0], main: [0, 127, 16], ending: [127, 0, 0], brk: [90, 0, 127], sync: [127, 45, 0], fill: [0, 45, 127], tap: [100, 100, 100], stopsync: [0, 110, 110], run: [0, 127, 0] };
+    // On screen the pads use the part palette's hue nearest each Launchkey LED colour, so they sit with the mixer.
+    const LKC = { intro: COL[2], main: COL[3], ending: COL[0], brk: COL[7], sync: COL[1], fill: COL[5], tap: '#c9c9cf', stopsync: COL[4], run: COL[3] };
+    const hexa = (h, a) => h + Math.round(a * 255).toString(16).padStart(2, '0');
     const PADS = [['INTRO 1', 'Intro I', LKC.intro, 'dim', '4 bars'], ['INTRO 2', 'Intro II', LKC.intro, 'dim', '8 bars'], ['INTRO 3', 'Intro III', LKC.intro, 'dim', '2 bars'], ['SYNC ST', 'Sync Start', LKC.sync, 'dim', ''], ['ENDING 1', 'Ending I', LKC.ending, 'dim', '2 bars'], ['ENDING 2', 'Ending II', LKC.ending, 'dim', '4 bars'], ['ENDING 3', 'Ending III', LKC.ending, 'dim', '4 bars'], ['AUTOFILL', 'Auto Fill', LKC.fill, 'bright', 'On'],
       ['MAIN A', 'Main A', LKC.main, 'dim', '4 bars'], ['MAIN B', 'Main B', LKC.main, 'flash', '4 bars'], ['MAIN C', 'Main C', LKC.main, 'dim', '8 bars'], ['MAIN D', 'Main D', LKC.main, 'dim', '8 bars'], ['BREAK', 'Break', LKC.brk, 'dim', '1 bar'], ['TAP', 'Tap', LKC.tap, 'dim', ''], ['SYNC STP', 'Sync Stop', LKC.stopsync, 'dim', ''], ['START', 'Start / Stop', LKC.run, 'bright', 'Running']];
     const SHORT = { 'INTRO 1': 'I1', 'INTRO 2': 'I2', 'INTRO 3': 'I3', 'SYNC ST': 'SYNC', 'ENDING 1': 'E1', 'ENDING 2': 'E2', 'ENDING 3': 'E3', 'AUTOFILL': 'AUTO', 'MAIN A': 'A', 'MAIN B': 'B', 'MAIN C': 'C', 'MAIN D': 'D', 'BREAK': 'BRK', 'TAP': 'TAP', 'SYNC STP': 'STOP', 'START': '▶' };
     const padLook = (p) => { const c = p[2], st = p[3], lit = st !== 'dim';
-      return { label: p[0], short: SHORT[p[0]], barLabel: COMPACT ? SHORT[p[0]] : p[1], name: p[1], len: p[4], bg: lit ? rgb(c) : rgb(c, .16), ink: lit ? '#0e0e10' : rgb(c), border: lit ? rgb(c) : rgb(c, .45), outline: st === 'flash' ? '2px dashed #ffffff' : 'none', glow: lit ? '0 0 14px ' + rgb(c, .55) : 'none', flash: st === 'flash' }; };
+      return { label: p[0], short: SHORT[p[0]], barLabel: COMPACT ? SHORT[p[0]] : p[1], name: p[1], len: p[4], bg: lit ? c : hexa(c, .16), ink: lit ? '#0e0e10' : c, border: lit ? c : hexa(c, .45), outline: st === 'flash' ? '2px dashed #ffffff' : 'none', glow: lit ? '0 0 14px ' + hexa(c, .55) : 'none', flash: st === 'flash' }; };
     const secPads = PADS.map(padLook);
     const mirPads = secPads;
     const kn = ['Dynamics','Rtg len','Rtg on','Mute A','Mute B','—','—','Tempo'];
