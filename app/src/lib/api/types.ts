@@ -200,6 +200,8 @@ export type AppCmd =
 export type FxCmd =
   | { type: 'setEffectType'; block: FxBlock; effect: FxType }
   | { type: 'setEffectReturn'; block: FxBlock; level: number }
+  /** #236: every Style part's send to the block scaled, 0-127 % (100 = as the style wrote it). */
+  | { type: 'setBandSend'; block: FxBlock; level: number }
 
 export type FxBlock = 'reverb' | 'chorus' | 'variation'
 /** Reverb: hall, room, stage, plate. Chorus: chorus, celeste, flanger. Variation (tempo delay): eighth, dottedEighth, quarter, pingPong. */
@@ -224,6 +226,8 @@ export interface EffectBlockState {
   types: { effect: FxType; name: string }[]
   /** 0-127: 64 = 0 dB, 127 = +6 dB, 0 = off. */
   returnLevel: number
+  /** The band send (#236): every Style part's send to this block scaled, 0-127 % (100 = as written). Reverb 100, Chorus 0, Variation 0 at start. */
+  bandSend: number
 }
 
 /** Knob Assign pages (#197; docs/app-api.md › Knob Assign pages). */

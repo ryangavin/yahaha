@@ -2161,7 +2161,8 @@
             "name": "Plate"
           }
         ],
-        "returnLevel": 64
+        "returnLevel": 64,
+        "bandSend": 100
       },
       {
         "block": "chorus",
@@ -2182,7 +2183,8 @@
             "name": "Flanger"
           }
         ],
-        "returnLevel": 64
+        "returnLevel": 64,
+        "bandSend": 0
       },
       {
         "block": "variation",
@@ -2207,7 +2209,8 @@
             "name": "Ping-Pong"
           }
         ],
-        "returnLevel": 64
+        "returnLevel": 64,
+        "bandSend": 0
       }
     ]
   }

@@ -1777,12 +1777,14 @@ impl MockSession {
                     let mut types: [FxType; 3] = std::array::from_fn(|b| self.state.effects.blocks[b].effect);
                     types[block.index()] = effect;
                     let returns = std::array::from_fn(|b| self.state.effects.blocks[b].return_level);
-                    self.state.effects = EffectsState::new(types, returns);
+                    let band = std::array::from_fn(|b| self.state.effects.blocks[b].band_send);
+                    self.state.effects = EffectsState::new(types, returns, band);
                 } else {
                     self.message(format!("{} has no {} type", block.name(), effect.name()), true);
                 }
             }
             AppCmd::Fx(FxCmd::SetEffectReturn { block, level }) => self.state.effects.blocks[block.index()].return_level = level.min(127),
+            AppCmd::Fx(FxCmd::SetBandSend { block, level }) => self.state.effects.blocks[block.index()].band_send = level.min(127),
             AppCmd::Dynamics(c) => {
                 // As the session: the command applies to the settings in effect.
                 let d = &self.state.dynamics;

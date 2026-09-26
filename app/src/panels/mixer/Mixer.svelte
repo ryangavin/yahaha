@@ -17,7 +17,9 @@
     `setPartPan`, `setPartSend`, #198/#204); double-click one to put it back to its default.
   - Effects (#204): the shared effect bus's Reverb, Chorus and Variation (tempo delay)
     blocks, each with its type and return level (`setEffectType`, `setEffectReturn`). Every
-    part, Panel and Style, SoundFont and plugin, feeds them through its sends.
+    part, Panel and Style, SoundFont and plugin, feeds them through its sends. Each block's
+    Band send (#236, `setBandSend`) scales every Style part's send to it, in percent: the
+    band's reverb as written, its chorus and delay off until turned up.
   - Solo (S): only that part plays, even if it is off; the Style tab solos a band part,
     the Panel tab a keyboard part (`setStyleSolo` / `setPartSolo`, #30). Press again to end.
   - The metronome (on/off, bell, its own volume) sits above the strips: it is the
@@ -47,10 +49,10 @@
   const outPort = $derived(app.state.io.outputPort)
   const metronome = $derived(app.state.metronome)
   const effects = $derived(app.state.effects.blocks)
-  const FX_TIPS: Record<FxBlock, [TipKey, TipKey]> = {
-    reverb: ['fx.reverb_type', 'fx.reverb_return'],
-    chorus: ['fx.chorus_type', 'fx.chorus_return'],
-    variation: ['fx.variation_type', 'fx.variation_return'],
+  const FX_TIPS: Record<FxBlock, [TipKey, TipKey, TipKey]> = {
+    reverb: ['fx.reverb_type', 'fx.reverb_return', 'fx.reverb_band'],
+    chorus: ['fx.chorus_type', 'fx.chorus_return', 'fx.chorus_band'],
+    variation: ['fx.variation_type', 'fx.variation_return', 'fx.variation_band'],
   }
   /** A return level as the Genos shows it: 64 = 0 dB, 127 = +6 dB, 0 = off. */
   const returnText = (v: number) => (v === 0 ? 'Off' : `${v >= 64 ? '+' : ''}${(20 * Math.log10(v / 64)).toFixed(1)} dB`)
@@ -268,6 +270,17 @@
               onchange={(v) => app.send({ type: 'setEffectReturn', block: b.block, level: v })}
             />
           </div>
+          <span class="band-label">Band</span>
+          <div class="slider return">
+            <HSlider
+              value={b.bandSend}
+              tip={FX_TIPS[b.block][2]}
+              label="{b.name} band send"
+              unity={100}
+              format={(v) => `${v}%`}
+              onchange={(v) => app.send({ type: 'setBandSend', block: b.block, level: v })}
+            />
+          </div>
         </div>
       {/each}
     </div>
@@ -442,6 +455,10 @@
   }
   .slider.return {
     width: 7.5rem;
+  }
+  .band-label {
+    font-size: var(--fs-small);
+    color: var(--muted);
   }
   .metronome,
   .trackmute {
