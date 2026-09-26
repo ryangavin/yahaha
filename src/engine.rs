@@ -607,6 +607,8 @@ mod perform_tests;
 mod overlap_tests;
 #[cfg(test)]
 mod ending_level_tests;
+#[cfg(test)]
+mod style_reset_tests;
 
 #[cfg(test)]
 mod tests {
