@@ -70,7 +70,7 @@ The owner was asked short atomic questions. Keep doing that: they asked for it.
 
 **Look**
 - **A colour per part plus lit active states**: Maschine groups plus Genos lamps.
-- **"In between" feel:** mostly flat, with lit, glowing highlights. Direction B is near-black, vivid part colours and orange for active.
+- **"In between" feel:** mostly flat, with lit, glowing highlights. Direction B is near-black, with vivid part colours and white for active.
 
 ## Direction B, screen by screen (row 2 of the canvas)
 
@@ -185,7 +185,7 @@ cd docs/design/wireframes-b && python3 gen.py   # writes project/B*.dc.html next
 - `art_options.py` writes the standalone artwork sheet, `BArtOptions.dc.html`.
 - `project/` is generated and git-ignored. Edit `canvas.json` from a fresh `read` of the live canvas, never from a local copy.
 
-**Palette:** bg `#0e0e10`, panels `#19191c`/`#141417`, edges `#2d2d32`, text `#f2f2f2`/`#8d8d95`, active orange `#ff7a2f`. Part colours are in `COL` in the shell's script. Fonts are Archivo and Archivo Narrow.
+**Palette:** bg `#0e0e10`, panels `#19191c`/`#141417`, edges `#2d2d32`, text `#f2f2f2`/`#8d8d95`. **The accent is white.** The owner rejected orange; avoid AI-typical accents. Colour only where it carries meaning: part colours, Launchkey LED colours, record red. Part colours are in `COL` in the shell's script. Fonts are Archivo and Archivo Narrow.
 
 **`.dc.html` rules that bite:**
 - keep `<script src="./support.js"></script>`;
