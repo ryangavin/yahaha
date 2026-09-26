@@ -84,6 +84,8 @@ export function tipFor(cmd: AppCmd | null): TipKey {
     case 'setPartSend': return cmd.send === 'reverb' ? 'mixer.part.reverb' : cmd.send === 'chorus' ? 'mixer.part.chorus' : 'mixer.part.variation'
     case 'setFaderPage':
     case 'toggleFaderPage': return 'mixer.page'
+    case 'setFaderLayer':
+    case 'stepFaderLayer': return 'mixer.layer'
     case 'setPadPage': return PAGE[cmd.page]
     case 'cyclePadPage': return cmd.delta < 0 ? 'padpage.prev' : 'padpage.next'
     case 'setMasterVolume': return 'mixer.master'

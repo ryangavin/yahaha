@@ -281,6 +281,8 @@ impl MockSession {
             keyboard_parts: vec![part(0, 0, true), part(1, 48, true), part(2, 61, false), part(3, 48, false)],
             mixer: MixerState {
                 fader_page: FaderPage::Panel,
+                fader_layer: yahaha::parts::FaderLayer::Volume,
+                send_waiting: 0,
                 style_parts: STYLE_PARTS
                     .iter()
                     .enumerate()
@@ -1215,7 +1217,9 @@ impl MockSession {
             FaderPage::Panel => "PANEL",
             FaderPage::Style => "STYLE",
         };
-        push("masterButton".into(), *lk::FADER_BTN_CC.end(), master, Some(AppCmd::Mixer(MixerCmd::ToggleFaderPage)), None);
+        let layer = self.state.mixer.fader_layer;
+        let master = if layer == yahaha::parts::FaderLayer::Volume { master.to_string() } else { format!("{master} {}", layer.short()) };
+        push("masterButton".into(), *lk::FADER_BTN_CC.end(), &master, Some(AppCmd::Mixer(MixerCmd::ToggleFaderPage)), Some(("LAYER", Some(AppCmd::Mixer(MixerCmd::StepFaderLayer { delta: 1 })))));
 
         // The faders: the parts they control on this page, and where they physically are.
         let mut faders: Vec<SurfaceFader> = (0..8u8)
@@ -1680,6 +1684,8 @@ impl MockSession {
                 }
             }
             AppCmd::Mixer(MixerCmd::SetFaderPage { page }) => self.set_fader_page(page),
+            AppCmd::Mixer(MixerCmd::SetFaderLayer { layer }) => self.state.mixer.fader_layer = layer,
+            AppCmd::Mixer(MixerCmd::StepFaderLayer { delta }) => self.state.mixer.fader_layer = self.state.mixer.fader_layer.step(delta.signum()),
             AppCmd::Mixer(MixerCmd::ToggleFaderPage) => {
                 let page = if self.state.mixer.fader_page == FaderPage::Panel { FaderPage::Style } else { FaderPage::Panel };
                 self.set_fader_page(page);
