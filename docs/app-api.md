@@ -455,7 +455,7 @@ scaled. A change glides in over about 30 ms.
 | `setEffectType` | `block` `reverb` \| `chorus` \| `variation`, `effect` | The block's type. Reverb: `hall` (default), `room`, `stage`, `plate`. Chorus: `chorus` (default), `celeste`, `flanger`. Variation, a stereo delay at the style tempo: `eighth`, `dottedEighth` (default), `quarter`, `pingPong` (1/8, alternating sides). Another block's type is refused. |
 | `setEffectReturn` | `block`, `level` 0–127 | The block's return level: 64 = 0 dB (default), 127 = +6 dB, 0 = off (Genos). |
 | `setEffectParam` | `block`, `param`, `value` | One of the block's parameters (#236), in the parameter's own unit, clamped to its range (see the table below). A parameter of another block is refused. A change glides on the audio thread, so it never clicks. `setEffectType` puts the block's parameters back to the new type's own values. Stored in Registration with the effects. |
-| `setFollowStyle` | `block`, `on` | Whether the block follows the style's own effect type (#237). On (the default), each style load gives the block the style's type (and the delay's time, feedback and tone as the style sets them), or the block's default type if the style sets none that yahaha has. `setEffectType` turns it off, so the player's choice stays through style changes. Turning it on takes the loaded style's type at once. Stored in Registration with the effects. |
+| `setFollowStyle` | `block`, `on` | Whether the block follows the style's own effect type (#237). On (the default), each style load gives the block the style's type (and the delay's time, feedback and tone, the reverb's time, pre-delay and tone, and the block's return level, as the style sets them; #269), or the block's default type if the style sets none that yahaha has. `setEffectType` turns it off, so the player's choice stays through style changes. Turning it on takes the loaded style's type at once. Stored in Registration with the effects. |
 | `setBandSend` | `block`, `level` 0–127 | The block's band send, in percent: 100 = the Style parts' sends as written, 0 = none of the band, above 100 up to 127 raises them (each part's send at most the whole signal). Defaults: reverb 100, chorus 0, variation 0. Stored in Registration with the effects. |
 
 The effect parameters (`param`, its unit and range, and each type's own value):
@@ -497,6 +497,14 @@ is 1, System). Each maps onto the nearest type here:
 | Variation | 21 Tempo Delay, Tempo Echo | `dottedEighth` with the style's delay time (Data List Table#5, nearest note), feedback and high damp |
 | Variation | 22 Tempo Cross | `pingPong`, the same |
 | Variation | 5 Delay LCR, 6 Delay LR | `dottedEighth` |
+
+With a matching type, the style's reverb parameters come too (#269): parameter 1 Reverb
+Time (Data List Table#1) as `reverbTime` (at most 10 s), 3 Initial Delay (Table#2) as
+`preDelay`, and the high cut (Table#3; a Real Reverb's 4 High Damp Frequency, another
+reverb's 5 LPF Cutoff; Thru = 20 kHz) as `reverbTone`. A block's return level (Reverb
+`0C`, Chorus `2C`, Variation `56`) comes where the style sets one; where it sets none, the
+return stays as it is. The chorus's parameters are not read (no corpus style sets them on
+a chorus type yahaha has).
 
 Any other type (a phaser or a tempo delay in the chorus block, a distortion or a reverb as the
 variation) has no match: the block plays its default type. The MIDI port gets the SysEx as
