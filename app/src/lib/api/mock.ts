@@ -1780,21 +1780,27 @@ export class MockSession implements Session {
       case 'setEffectReturn':
         this.state.effects.blocks.find((x) => x.block === cmd.block)!.returnLevel = clampLevel(cmd.level)
         break
+      case 'setBandSend':
+        this.state.effects.blocks.find((x) => x.block === cmd.block)!.bandSend = clampLevel(cmd.level)
+        break
     }
   }
 }
 
-/** The effect bus as a session starts it: Hall, Chorus, the dotted 1/8 delay, every return 64. */
+/**
+ * The effect bus as a session starts it: Hall, Chorus, the dotted 1/8 delay, every return 64;
+ * the band's reverb as written (100), no band chorus or delay (#236).
+ */
 export function initialEffects(): EffectsState {
-  const block = (block: FxBlock, name: string, effect: FxType, types: [FxType, string][]): EffectBlockState => ({
+  const block = (block: FxBlock, name: string, effect: FxType, types: [FxType, string][], bandSend: number): EffectBlockState => ({
     block, name, effect, effectName: types.find(([t]) => t === effect)![1],
-    types: types.map(([effect, name]) => ({ effect, name })), returnLevel: 64,
+    types: types.map(([effect, name]) => ({ effect, name })), returnLevel: 64, bandSend,
   })
   return {
     blocks: [
-      block('reverb', 'Reverb', 'hall', [['hall', 'Hall'], ['room', 'Room'], ['stage', 'Stage'], ['plate', 'Plate']]),
-      block('chorus', 'Chorus', 'chorus', [['chorus', 'Chorus'], ['celeste', 'Celeste'], ['flanger', 'Flanger']]),
-      block('variation', 'Variation', 'dottedEighth', [['eighth', 'Delay 1/8'], ['dottedEighth', 'Delay 1/8.'], ['quarter', 'Delay 1/4'], ['pingPong', 'Ping-Pong']]),
+      block('reverb', 'Reverb', 'hall', [['hall', 'Hall'], ['room', 'Room'], ['stage', 'Stage'], ['plate', 'Plate']], 100),
+      block('chorus', 'Chorus', 'chorus', [['chorus', 'Chorus'], ['celeste', 'Celeste'], ['flanger', 'Flanger']], 0),
+      block('variation', 'Variation', 'dottedEighth', [['eighth', 'Delay 1/8'], ['dottedEighth', 'Delay 1/8.'], ['quarter', 'Delay 1/4'], ['pingPong', 'Ping-Pong']], 0),
     ],
   }
 }

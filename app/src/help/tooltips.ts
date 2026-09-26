@@ -987,6 +987,27 @@ const catalog = {
     keys: [],
     launchkey: 'Pan knob page, knob 7',
   },
+  'fx.reverb_band': {
+    title: 'Band reverb',
+    body: 'How much of the band (the eight Style parts) goes to the reverb: each Style part\'s own reverb send (CC 91) times this, in the built-in synth only. 100% plays the reverb the style wrote and 0% is none; your keyboard parts keep their own sends. Stored in a Registration Memory.',
+    genos: 'Mixer › Style › Effect › Reverb (all parts)',
+    keys: [],
+    launchkey: null,
+  },
+  'fx.chorus_band': {
+    title: 'Band chorus',
+    body: 'How much of the band (the eight Style parts) goes to the chorus: each Style part\'s own chorus send (CC 93) times this, in the built-in synth only. 0% at start, so the chorus is for your keyboard parts; 100% plays the chorus the style wrote. Stored in a Registration Memory.',
+    genos: 'Mixer › Style › Effect › Chorus (all parts)',
+    keys: [],
+    launchkey: null,
+  },
+  'fx.variation_band': {
+    title: 'Band delay',
+    body: 'How much of the band (the eight Style parts) goes to the tempo delay: each Style part\'s own variation send (CC 94) times this, in the built-in synth only. 0% at start, because a style\'s CC 94 was meant for its own Variation effect, not this delay; turn it up to echo the band. Stored in a Registration Memory.',
+    genos: 'Mixer › Style › Effect › Variation (all parts)',
+    keys: [],
+    launchkey: null,
+  },
   'mixer.style_level': {
     title: 'Style volume',
     body: 'The whole band against your hands, in one fader: 100 plays the Style parts at their own levels, lower scales every Style part\'s CC 7 down together (above 100 raises them, up to 127), the way a Fade In/Out does. The part faders stay where they are. A Registration stores it with the Style mixer.',

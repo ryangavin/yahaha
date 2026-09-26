@@ -1,5 +1,6 @@
 //! The shared effect bus (#204; `crate::fx`): each System Effect block's type and return
-//! level. The parts' sends to it are `setPartSend` (CC91/93/94).
+//! level, and its band send (#236), the scale on every Style part's send to it. The
+//! keyboard parts' sends to it are `setPartSend` (CC91/93/94).
 
 use serde::{Deserialize, Serialize};
 
@@ -10,6 +11,9 @@ pub enum FxCmd {
     SetEffectType { block: FxBlock, effect: FxType },
     /// A block's return level, 0-127 (64 = 0 dB, 127 = +6 dB, 0 = off).
     SetEffectReturn { block: FxBlock, level: u8 },
+    /// A block's band send (#236): every Style part's send to it scaled, 0-127 % (100 =
+    /// as the style wrote it, 0 = none of the band).
+    SetBandSend { block: FxBlock, level: u8 },
 }
 
 /// A System Effect block.
@@ -100,8 +104,8 @@ pub struct EffectsState {
 }
 
 impl EffectsState {
-    /// The blocks with these types and return levels (by `FxBlock::index`).
-    pub fn new(effect: [FxType; 3], returns: [u8; 3]) -> EffectsState {
+    /// The blocks with these types, return levels and band sends (by `FxBlock::index`).
+    pub fn new(effect: [FxType; 3], returns: [u8; 3], band: [u8; 3]) -> EffectsState {
         let blocks = FxBlock::ALL
             .iter()
             .map(|&b| {
@@ -113,15 +117,17 @@ impl EffectsState {
                     effect_name: effect.name().into(),
                     types: b.types().iter().map(|&t| FxOption { effect: t, name: t.name().into() }).collect(),
                     return_level: returns[b.index()],
+                    band_send: band[b.index()],
                 }
             })
             .collect();
         EffectsState { blocks }
     }
 
-    /// As a session starts: Hall, Chorus, the dotted 1/8 delay, every return 64 (0 dB).
+    /// As a session starts: Hall, Chorus, the dotted 1/8 delay, every return 64 (0 dB);
+    /// the band's reverb as written, no band chorus or delay.
     pub fn initial() -> EffectsState {
-        EffectsState::new(FxBlock::DEFAULT_TYPES, [crate::fx::RETURN_UNITY; 3])
+        EffectsState::new(FxBlock::DEFAULT_TYPES, [crate::fx::RETURN_UNITY; 3], crate::fx::BAND_SEND_DEFAULT)
     }
 }
 
@@ -139,6 +145,9 @@ pub struct EffectBlockState {
     pub types: Vec<FxOption>,
     /// 0-127, 64 = 0 dB.
     pub return_level: u8,
+    /// The band send (#236): every Style part's send to this block scaled, 0-127 % (100 =
+    /// as written). Reverb 100, Chorus 0, Variation 0 until something sets it.
+    pub band_send: u8,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

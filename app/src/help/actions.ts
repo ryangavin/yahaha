@@ -268,5 +268,6 @@ export function tipFor(cmd: AppCmd | null): TipKey {
     // The effect bus (#204).
     case 'setEffectType': return `fx.${cmd.block}_type`
     case 'setEffectReturn': return `fx.${cmd.block}_return`
+    case 'setBandSend': return `fx.${cmd.block}_band`
   }
 }

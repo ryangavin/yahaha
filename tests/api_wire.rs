@@ -287,6 +287,7 @@ const EVERY_CMD: &[&str] = &[
     r#"{"type":"setEffectType","block":"reverb","effect":"plate"}"#,
     r#"{"type":"setEffectType","block":"variation","effect":"pingPong"}"#,
     r#"{"type":"setEffectReturn","block":"chorus","level":90}"#,
+    r#"{"type":"setBandSend","block":"variation","level":100}"#,
 ];
 
 fn type_of(json: &str) -> String {
