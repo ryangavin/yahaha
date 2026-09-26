@@ -51,7 +51,7 @@ pub use prepared::{id_of, slot_of, Msgs, PSection, Prepared, Setup, NUM_SLOTS};
 pub use ritardando::RIT_END;
 pub use settle::{CHORD_SETTLE_DEFAULT_MS, CHORD_SETTLE_MAX_MS};
 use settle::{Hold, Unsettled};
-pub use timing::{IntroEndingTiming, MainTiming, StyleSettings, MAX_FADE_HOLD_MS, MAX_FADE_MS, MAX_SYNC_STOP_WINDOW_MS, RETRIGGER_RATES};
+pub use timing::{IntroEndingTiming, MainTiming, StyleSettings, FILL_GRACE_MAX_MS, MAX_FADE_HOLD_MS, MAX_FADE_MS, MAX_SYNC_STOP_WINDOW_MS, RETRIGGER_RATES};
 
 use crate::sff::{ChannelRule, Ntr, Ntt, Rtr, SectionId, Style};
 use crate::theory::{is_drum_part, plays, transpose_group, Chord, CANCEL, GUITAR_NOISE};

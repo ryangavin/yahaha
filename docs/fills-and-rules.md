@@ -61,8 +61,18 @@ manuals do not describe presses during a fill.
   plays, and does nothing during a fill. The Accent is a touch reading, not a press; a loop
   of fills from a hard-played passage would be a surprise.
 - A tap just after the fill's end (in the Main's first beat) is a press in the Main: the fill
-  starts at the next beat. The fill late-press grace is still an open question
-  (`docs/research/genos-parity/`).
+  starts at the next beat, or at once within the late-press grace window (below).
+
+## Fill late-press grace window (#265)
+
+Owner decision (2026-09-26): a fill, Break or back-to-back fill pressed within a small window
+after a beat line counts as pressed on that beat. It starts at once, from that point in its
+pattern (aligned to the bar as any fill), and the notes already past are skipped, not
+crammed in. The window is a 32nd note at the tempo playing, capped at 60 ms
+(`FILL_GRACE_MAX_MS`, `Engine::fill_grace`, `Engine::fill_beat` in
+`src/engine/timing.rs`). The cap binds below 125 BPM; above it, a 32nd is shorter. A press
+later than that waits for the next beat, as before. A Half Bar Fill asked for just after
+the middle of the bar is a fill with the same window. There is no setting.
 
 ## Half Bar Fill In (#24)
 

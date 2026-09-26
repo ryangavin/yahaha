@@ -47,7 +47,9 @@ impl Engine {
     /// a style change while playing).
     ///
     /// Fills and breaks start at the next beat and play the rest of that bar, aligned so
-    /// the fill's beat matches the bar position; a fill asked for while a fill plays waits
+    /// the fill's beat matches the bar position; asked for within the grace window after a
+    /// beat line (`fill_grace`, #265), they start at once from that point of the bar. A
+    /// fill asked for while a fill plays waits
     /// for that fill's end and plays from its top (#229). Mains and style changes follow Section
     /// Change Timing "To Main" (`MainTiming`; Auto Fill In on makes a Main change Next
     /// Bar). Changing from an Intro or Ending to another follows "Inside Intro/Ending"
@@ -62,7 +64,7 @@ impl Engine {
     pub(super) fn change_point(&self, change: Change, now: u64) -> (f64, f64) {
         let timing = self.features.settings;
         match change {
-            Change::Fill => self.next_beat(now),
+            Change::Fill => self.fill_beat(now),
             Change::AfterFill => {
                 let end = self.sec_start + self.style.sections[self.cur].as_ref().map_or(0, |s| s.len) as f64;
                 (end, end)
@@ -121,11 +123,12 @@ impl Engine {
                 let tpb = self.style.tpb.max(1) as f64;
                 let bar_start = self.sec_start + ((t - self.sec_start) / tpb).floor() * tpb;
                 let half = self.style.half_bar as f64;
-                // Asked for after the middle (not on beat 1): the next beat, as a fill.
+                // Asked for after the middle (not on beat 1): as a fill, with its grace
+                // window (#265).
                 if bar_start + half + 1e-6 >= t {
                     (bar_start + half, bar_start)
                 } else {
-                    self.next_beat(now)
+                    self.fill_beat(now)
                 }
             }
         }

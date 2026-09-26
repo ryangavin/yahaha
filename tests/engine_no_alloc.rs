@@ -526,6 +526,48 @@ fn back_to_back_fills_do_not_allocate() {
     assert!(ch.old_rx.pop().is_ok(), "the new style took over");
 }
 
+/// Fills pressed just after a beat line (#265): inside the grace window they start at once
+/// from that point of their pattern; one tapped just after a fill ended too. No allocating
+/// or freeing on the engine thread.
+#[test]
+fn late_fill_presses_do_not_allocate() {
+    use yahaha::sff::SectionId::Fill;
+    let _one = count_here();
+    let Some(a) = prep("SlowWalker.T552.sty") else {
+        eprintln!("corpus missing; skipping");
+        return;
+    };
+    let bar = (60e9 / a.bpm * (a.tpb as f64 / a.ppq as f64)) as u64;
+    let shared = Arc::new(Shared::new(54));
+    let mut ch = live::channels(Out::new(PacketSink::new(Target::Null), None));
+    let mut l = EngineLoop::new(Engine::new(a), ch.io, shared.clone());
+    l.step(1);
+    let (allocs, frees) = (ALLOCS.load(Ordering::Relaxed), FREES.load(Ordering::Relaxed));
+    let mut now = 1_000;
+    shared.chord.store(yahaha::parse_chord("C").unwrap().pack(1), Ordering::Release);
+    l.step(now);
+    let t0 = now;
+    // 20 ms after beat 2 of bar 2, then 20 ms after the fill ended (bar 3's line).
+    for at in [t0 + bar + bar / 4 + 20_000_000, t0 + 2 * bar + 20_000_000] {
+        // Up to the press exactly (`run` may step past it).
+        while let Some(d) = l.next_deadline().filter(|&d| d < at) {
+            now = d.max(now + 1);
+            l.step(now);
+        }
+        now = at;
+        ch.ui_tx.push(Cmd::Button(Button::Main(0))).ok().unwrap();
+        l.step(now);
+    }
+    run(&mut l, &mut now, t0 + 4 * bar);
+    ch.ui_tx.push(Cmd::Button(Button::StartStop)).ok().unwrap();
+    now += 1;
+    l.step(now);
+    assert_eq!(ALLOCS.load(Ordering::Relaxed) - allocs, 0, "allocations on the engine thread");
+    assert_eq!(FREES.load(Ordering::Relaxed) - frees, 0, "frees on the engine thread");
+    let snaps: Vec<_> = std::iter::from_fn(|| ch.snap_rx.pop().ok()).collect();
+    assert!(snaps.iter().filter(|s| s.cur == Some(Fill(0))).count() >= 2, "the fills played");
+}
+
 /// The built-in synth's drum setup (#239): a style's XG Drum Setup SysEx turned into drum
 /// messages for the synth, and its drum notes, on the engine thread.
 #[test]
