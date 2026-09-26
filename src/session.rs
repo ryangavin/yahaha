@@ -33,6 +33,7 @@ mod chord;
 mod controllers;
 mod devices;
 mod dynamics;
+mod fx;
 mod harmony_arp;
 mod keyboard;
 mod knobs;
@@ -441,6 +442,7 @@ impl Control {
         self.pump_looper();
         self.pump_metronome();
         self.pump_chart();
+        self.pump_fx();
 
         // Free-running beat clock for flashing/pulsing, following the current tempo.
         let s = self.snap;
