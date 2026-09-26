@@ -27,6 +27,12 @@ impl Control {
     fn recall_ots(&mut self, index: u8) {
         if let Some(o) = self.info.ots.get(index as usize) {
             self.shared.parts.apply_ots(o, index + 1);
+            // Pitch bend range is the controllers' (the engine thread sends it as RPN 0).
+            for (p, q) in o.parts.iter().enumerate() {
+                if let Some(r) = q.bend_range {
+                    self.shared.controllers.set_bend_range(p, r);
+                }
+            }
             // The parts the OTS gives a voice play it (through the program map), not their
             // own library patch (#103), nor a plugin picked for them (#179).
             let voiced: Vec<usize> = o.parts.iter().enumerate().filter(|(_, q)| q.voice.is_some_and(|v| v.0 < 126)).map(|(p, _)| p).collect();
