@@ -131,6 +131,9 @@ impl Control {
         let mut out = PacketSink::new(Target::Port(port, d));
         out.push(&launchkey::ENTER_DAW);
         out.push(&launchkey::ENCODERS_RELATIVE);
+        for m in launchkey::analogue_displays_off() {
+            out.push(&m);
+        }
         out.flush();
         match self.leds.as_mut() {
             Some(l) => l.reconnect(out),

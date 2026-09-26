@@ -79,13 +79,15 @@ fn the_audio_callback_does_not_allocate() {
     for _ in 0..10 {
         assert_eq!(run(&mut core, &mut feed, &[]), none, "steady");
     }
-    // The effect bus (#204): sends on, every reverb and chorus type, the returns, the
+    // The effect bus (#204): sends on, every reverb, chorus and delay type, tempo changes, the returns, the
     // SoundFont's own effects instead (legacy) and back, and tails ringing out.
     assert_eq!(run(&mut core, &mut feed, &[[0xB0, 91, 100], [0xB0, 93, 80], [0xBA, 91, 127], [0xBA, 94, 60], [0x90, 64, 100]]), none, "sends");
     for t in 0..4u8 {
         ctl.fx.reverb_type.store(t, Ordering::Relaxed);
         ctl.fx.chorus_type.store(t % 3, Ordering::Relaxed);
         ctl.fx.reverb_return.store(40 + t * 20, Ordering::Relaxed);
+        ctl.fx.variation_type.store(t, Ordering::Relaxed);
+        ctl.fx.set_tempo(90.0 + t as f64 * 20.0);
         assert_eq!(run(&mut core, &mut feed, &[]), none, "effect types and returns");
     }
     ctl.fx.legacy.store(true, Ordering::Relaxed);
