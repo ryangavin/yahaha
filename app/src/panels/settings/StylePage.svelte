@@ -162,9 +162,9 @@
   <Toggle on={dyn.control} tip="dynamics.control" onclick={() => app.send({ type: 'setDynamicsControl', on: !dyn.control })}>{onOff(dyn.control)}</Toggle>
 </Field>
 
-<Field name="Dynamics" genos="Live Control › Style Dynamics" note="64 plays the Style as written. The mixer volumes stay as they are.">
+<Field name="Dynamics" genos="Live Control › Style Dynamics" note="127, the maximum and the default, plays the Style as written; lower is softer. The mixer volumes stay as they are.">
   <span class="gate" class:off={!dyn.control}>
-    <HSlider label="Dynamics" tip="dynamics.level" value={dyn.level} unity={64} disabled={!dyn.control} onchange={(level) => app.send({ type: 'setDynamics', level })} />
+    <HSlider label="Dynamics" tip="dynamics.level" value={dyn.level} unity={127} disabled={!dyn.control} onchange={(level) => app.send({ type: 'setDynamics', level })} />
   </span>
 </Field>
 

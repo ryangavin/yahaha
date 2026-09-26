@@ -5,7 +5,7 @@
 
 use super::Control;
 use crate::api::{CmdError, DynamicsCmd, DynamicsState};
-use crate::engine::DynamicsSettings;
+use crate::engine::{DynamicsSettings, DYNAMICS_NEUTRAL};
 use crate::live::Cmd;
 use std::sync::atomic::Ordering::Relaxed;
 
@@ -23,6 +23,13 @@ impl Control {
         self.snap.dynamics = s.level;
         self.shared.strikes.store(s.wants_strikes(), Relaxed);
         Ok(())
+    }
+
+    /// Back to the maximum level (as written): on every style load.
+    pub(super) fn dynamics_reset(&mut self) {
+        if self.dynamics_now().level != DYNAMICS_NEUTRAL {
+            let _ = self.dynamics_cmd(DynamicsCmd::SetDynamics { level: DYNAMICS_NEUTRAL });
+        }
     }
 
     pub(super) fn dynamics_state(&self) -> DynamicsState {

@@ -435,9 +435,9 @@ Genos2 Style Dynamics Control (OM p.11, p.69; RM p.11, p.142, p.147), with Touch
 | Command | Fields | What it does |
 |---|---|---|
 | `setDynamicsControl` | `on` | Style Setting › Dynamics Control. Off: the Style plays as written, whatever the level. |
-| `setDynamics` | `level` 0–127 | The Dynamics level (64: as written). |
+| `setDynamics` | `level` 0–127 | The Dynamics level (127, the default: as written; each style load sets 127). |
 | `stepDynamics` | `delta` | Moves the level by `delta`, clamped to 0–127. |
-| `setDynamicsTouch`, `toggleDynamicsTouch` | `on` | Touch: each chord-section strike sets the level to its velocity minus 36, so a strike at 100 plays as written. |
+| `setDynamicsTouch`, `toggleDynamicsTouch` | `on` | Touch: each chord-section strike sets the level to its velocity × 1.27, so a strike at 100 or harder plays as written. |
 | `setAccent`, `toggleAccent` | `on` | Accent: a chord-section strike at or above the threshold, while a Main plays, starts that Main's own fill at the next beat, as Fill Self does. It is not a Main press, so OTS Link does not follow it. It does nothing during an Intro, fill, break or Ending, or while a change is queued. |
 | `setAccentThreshold` | `velocity` 1–127 | The Accent threshold (default 110). |
 
@@ -1089,7 +1089,7 @@ default.
 ### `dynamics`
 Style Dynamics: `{ control, level, touch, accent, accentThreshold }`.
 - `control`: Style Setting › Dynamics Control. Default true.
-- `level`: the level in effect, 0–127. Touch moves it. Default 64.
+- `level`: the level in effect, 0–127. Touch moves it. Default 127 (as written); each style load sets it back to 127.
 - `touch`, `accent`: default false.
 - `accentThreshold`: a velocity from 1 to 127. Default 110.
 

@@ -122,6 +122,9 @@ impl Control {
                 // Only a style the engine has now names the pending bank.
                 self.sound.set_pending(pending);
                 self.pending_style = Some((id, self.style_seq, info));
+                // Dynamics starts at its maximum (as written) with every style; a
+                // registration that stored a level recalls it after the style.
+                self.dynamics_reset();
                 self.wake_engine();
                 self.message = None;
                 Ok(())

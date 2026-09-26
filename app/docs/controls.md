@@ -345,8 +345,8 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | control | what it does | Genos | key | Launchkey |
 |---|---|---|---|---|
 | **Dynamics Control** | On: the Dynamics level (and Touch) can change how hard the band plays. Off: the Style plays exactly as written. | Menu › Style Setting › Dynamics Control | — | — |
-| **Dynamics** | How hard the whole band plays, 0–127; at 64 the Style plays as written. It changes every Style note's velocity, so the drums and instruments get softer and darker or harder and brighter, not just quieter or louder. The mixer volumes stay as they are. | Live Control › Style Dynamics (DynCtrl) | — | Knob 1 on the Style knob page |
-| **Touch** | The band follows your left hand. Each key you strike in the chord section sets the Dynamics level from how hard you hit it, and a strike at velocity 100 plays the Style as written. | — | `&` | — |
+| **Dynamics** | How hard the whole band plays, 0–127; it starts at the maximum, 127, which plays the Style as written, and goes back there with each new style. Turning it down lowers every Style note's velocity, so the drums and instruments get softer and darker, not just quieter. The mixer volumes stay as they are. | Live Control › Style Dynamics (DynCtrl) | — | Knob 1 on the Style knob page |
+| **Touch** | The band follows your left hand. Each key you strike in the chord section sets the Dynamics level from how hard you hit it, and a strike at velocity 100 or harder plays the Style as written. | — | `&` | — |
 | **Accent** | Strike a chord-section key at least as hard as the threshold while a Main plays, and the Main plays its own fill from the next beat, so you can play the fills with your left hand. It is not a Main press, so OTS Link does not follow it, and nothing happens during an Intro, fill, break or Ending. | — | `Shift+H` | — |
 | **Accent threshold** | How hard (velocity 1–127) a chord-section strike must be to play the fill. The default is 110. | — | — | — |
 

@@ -61,10 +61,10 @@ mod tests {
         let st = s.state();
         assert_eq!(st.knobs.page, KnobPage::Style);
         assert_eq!(st.knobs.knobs.len(), 8);
-        assert_eq!((st.knobs.knobs[0].short.as_str(), st.knobs.knobs[0].value.as_str()), ("DynCtrl", "64"));
-        s.send(KnobsCmd::TurnKnob { knob: 0, delta: 5 }).unwrap();
-        assert_eq!(s.state().dynamics.level, 74);
-        assert_eq!(s.state().knobs.knobs[0].level, Some(74));
+        assert_eq!((st.knobs.knobs[0].short.as_str(), st.knobs.knobs[0].value.as_str()), ("DynCtrl", "127"));
+        s.send(KnobsCmd::TurnKnob { knob: 0, delta: -5 }).unwrap();
+        assert_eq!(s.state().dynamics.level, 117);
+        assert_eq!(s.state().knobs.knobs[0].level, Some(117));
         // Track Mute A fully left: only Rhythm 2 plays.
         s.send(KnobsCmd::TurnKnob { knob: 3, delta: -40 }).unwrap();
         s.send(KnobsCmd::TurnKnob { knob: 7, delta: 3 }).unwrap();

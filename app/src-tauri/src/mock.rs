@@ -1013,6 +1013,8 @@ impl MockSession {
         }
         let tempo = self.state.transport.tempo;
         self.set_style(id);
+        // Dynamics starts at its maximum (as written) with each style, as the session.
+        self.state.dynamics.level = yahaha::engine::DYNAMICS_NEUTRAL;
         // Change Behavior: Lock keeps, Hold keeps while playing, Reset takes the new style's.
         let running = self.state.transport.running;
         let rules = self.state.style_change;
@@ -2727,9 +2729,9 @@ mod tests {
     fn knobs_turn_their_functions_as_the_session() {
         let mut m = MockSession::new();
         assert_eq!((m.state.knobs.page_name.as_str(), m.state.knobs.knobs.len()), ("Style", 8));
-        m.send(KnobsCmd::TurnKnob { knob: 0, delta: 4 });
-        assert_eq!(m.state.dynamics.level, 72);
-        assert_eq!(m.state.knobs.knobs[0].value, "72");
+        m.send(KnobsCmd::TurnKnob { knob: 0, delta: -4 });
+        assert_eq!(m.state.dynamics.level, 119);
+        assert_eq!(m.state.knobs.knobs[0].value, "119");
         let bpm = m.state.transport.tempo.round();
         m.send(KnobsCmd::TurnKnob { knob: 7, delta: -3 });
         assert_eq!(m.state.transport.tempo, bpm - 3.0);
