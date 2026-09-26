@@ -1099,7 +1099,15 @@ impl MockSession {
         let parts_on = mask(st.keyboard_parts.iter().map(|p| p.sounding).collect());
         let style_on = lk::style_lit(mask(st.mixer.style_parts.iter().map(|p| p.on).collect()), st.chord.manual_bass_active);
         let fault = st.keyboard_parts.iter().find(|p| p.selected).and_then(|p| p.plugin.as_ref()).is_some_and(|p| matches!(p.status, PluginStatus::Muted | PluginStatus::Failed));
-        let colours = lk::button_colours(page, styles, fader_page, parts_on, style_on, st.harmony_arp.on, fault);
+        let looper = match st.looper.mode {
+            LooperMode::Off if st.looper.has_data => lk::LooperLamp::Ready,
+            LooperMode::Off => lk::LooperLamp::Empty,
+            LooperMode::RecArmed => lk::LooperLamp::RecArmed,
+            LooperMode::Recording => lk::LooperLamp::Recording,
+            LooperMode::LoopArmed => lk::LooperLamp::LoopArmed,
+            LooperMode::Looping => lk::LooperLamp::Looping,
+        };
+        let colours = lk::button_colours(page, styles, fader_page, parts_on, style_on, lk::PanelLamps { harmony_arp: st.harmony_arp.on, plugin_fault: fault, looper });
         let act = |cc: u8, shift: bool| -> Option<AppCmd> {
             match lk::cc_control(cc, shift)? {
                 Control::Page(d) => {
@@ -1163,6 +1171,9 @@ impl MockSession {
                 }
                 FaderPage::Panel if i == lk::PLUGIN_FADER_BTN => {
                     push(id, cc, "PLUGIN", Some(AppCmd::Plugins(PluginCmd::ReloadPartPlugin { part: None })), None)
+                }
+                FaderPage::Panel if i == lk::LOOPER_FADER_BTN => {
+                    push(id, cc, "LOOPER", Some(AppCmd::Looper(LooperCmd::LooperOnOff)), Some(("LOOP REC", Some(AppCmd::Looper(LooperCmd::LooperRec)))))
                 }
                 FaderPage::Panel => push(id, cc, "", None, None),
                 FaderPage::Style => {
@@ -2441,7 +2452,7 @@ mod tests {
         let s = &m.state.surface;
         assert_eq!(
             labels(&m),
-            ["", "PAGE ▼", "◀ STYLE", "STYLE ▶", "PLAY", "STOP", "TEMPO +", "TEMPO -", "RIGHT 1", "RIGHT 2", "RIGHT 3", "LEFT", "HARM/ARP", "PLUGIN", "", "", "PANEL"]
+            ["", "PAGE ▼", "◀ STYLE", "STYLE ▶", "PLAY", "STOP", "TEMPO +", "TEMPO -", "RIGHT 1", "RIGHT 2", "RIGHT 3", "LEFT", "HARM/ARP", "PLUGIN", "", "LOOPER", "PANEL"]
         );
         assert_eq!((s.controls[0].shift_label.as_str(), s.controls[1].shift_label.as_str()), ("LEFT", "OTS LINK"));
         assert_eq!(s.controls[0].action, None);

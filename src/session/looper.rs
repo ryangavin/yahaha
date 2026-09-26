@@ -5,6 +5,7 @@
 use super::Control;
 use crate::api::{CmdError, LoopChord, LooperCmd, LooperMemory, LooperMode, LooperState};
 use crate::engine::LoopState;
+use crate::launchkey::LooperLamp;
 use crate::live::Cmd;
 use crate::looper::{ChordSeq, SeqFile, LOOP_PPQ};
 use crate::registration::{Group, Groups};
@@ -138,6 +139,19 @@ impl Control {
                     l.current = *seq;
                 }
             }
+        }
+    }
+
+    /// The Chord Looper as the Launchkey's Panel fader button 8 shows it.
+    pub(super) fn looper_lamp(&self) -> LooperLamp {
+        let s = self.snap.looper;
+        match s.state {
+            LoopState::Off if s.has_data => LooperLamp::Ready,
+            LoopState::Off => LooperLamp::Empty,
+            LoopState::RecArmed => LooperLamp::RecArmed,
+            LoopState::Recording => LooperLamp::Recording,
+            LoopState::LoopArmed => LooperLamp::LoopArmed,
+            LoopState::Looping => LooperLamp::Looping,
         }
     }
 

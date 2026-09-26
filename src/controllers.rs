@@ -114,6 +114,8 @@ pub enum Category {
     Ots,
     Registration,
     Overall,
+    /// Chord Looper (RM p.141, #201).
+    ChordLooper,
 }
 
 /// Every function a pedal can be given. The order is the table's ([`FUNCTIONS`]) and the
@@ -202,6 +204,9 @@ pub enum Function {
     RegistFreeze,
     /// Registration Sequence On/Off (RM p.141).
     RegistSequence,
+    /// The CHORD LOOPER [ON/OFF] and [REC/STOP] buttons (RM p.141, #201).
+    ChordLooperOnOff,
+    ChordLooperRec,
 }
 
 /// One row of the assignable-function table.
@@ -230,7 +235,7 @@ use Kind::*;
 /// The assignable functions, in `Function` order: the Genos live-play list (RM p.139-144)
 /// as far as yahaha has the feature. app/src/lib/api/assignable-functions.json is this table
 /// as the app reads it (a test keeps the two equal).
-pub const FUNCTIONS: [FunctionInfo; 64] = [
+pub const FUNCTIONS: [FunctionInfo; 66] = [
     f(Function::None, "No Assign", Overall, Trigger),
     f(Function::Sustain, "Sustain", Voice, Switch),
     f(Function::Sostenuto, "Sostenuto", Voice, Switch),
@@ -295,6 +300,8 @@ pub const FUNCTIONS: [FunctionInfo; 64] = [
     f(Function::RegistMemory, "Registration Memory", Registration, Trigger),
     f(Function::RegistFreeze, "Registration Freeze On/Off", Registration, Trigger),
     f(Function::RegistSequence, "Registration Sequence On/Off", Registration, Trigger),
+    f(Function::ChordLooperOnOff, "Chord Looper On/Off", ChordLooper, Trigger),
+    f(Function::ChordLooperRec, "Chord Looper Rec/Stop", ChordLooper, Trigger),
 ];
 
 /// What running a function means, for the input thread.
