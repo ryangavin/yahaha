@@ -16,7 +16,7 @@ use crate::engine::{shift_key, AuditionPos, Button, ChangeRules, ChartPlan, Char
 use crate::multipad::MultiPadPlayer;
 use crate::fingering::{self, Fingering};
 use crate::harmony::{self, HarmonySettings};
-use crate::launchkey::{self, Action, Control, Page};
+use crate::launchkey::{self, Action, Control, Page, Touch};
 use crate::looper::ChordSeq;
 use crate::midi::{for_each_message, InputHandler};
 use crate::parts::{self, FaderPage, Parts};
@@ -150,6 +150,9 @@ pub struct Shared {
     /// Last Launchkey DAW-port note or CC that nothing is mapped to, packed 0x01SSDDVV
     /// (0 = none yet), so a wrong CC number shows on screen.
     pub last_unmapped: AtomicU32,
+    /// The Launchkey control last touched or moved (`launchkey::Touch::pack`; 0 = none):
+    /// the control side shows what it did on the Launchkey display (#213).
+    pub touched: AtomicU32,
     /// Launchkey pad page (`launchkey::Page::to_u8`): set by the Pad Bank buttons on the
     /// input thread and Tab on the UI thread, read by both.
     pub page: AtomicU8,
@@ -206,6 +209,7 @@ impl Shared {
             engine_rt: AtomicBool::new(false),
             last_daw: AtomicU32::new(0),
             last_unmapped: AtomicU32::new(0),
+            touched: AtomicU32::new(0),
             page: AtomicU8::new(0),
             flush_lat: Histogram::new(),
             work_lat: Histogram::new(),
@@ -504,6 +508,8 @@ impl Keys {
 
 pub struct Input {
     shared: Arc<Shared>,
+    /// Counts the controls touched (`Shared::touched`).
+    touch_seq: u16,
     rec: Recognizer,
     /// Which side of the split each held key went to (`R_LH` / `R_RH`, 0 = not held).
     route: [u8; 128],
@@ -561,6 +567,7 @@ impl Input {
     pub fn new(shared: Arc<Shared>, rec: Recognizer, cmd: Producer<Cmd>, out: Out) -> Input {
         Input {
             shared,
+            touch_seq: 0,
             rec,
             route: [0; 128],
             keys: Keys::new(),
@@ -857,10 +864,12 @@ impl Input {
             }
             // An encoder: a knob on the Knob Assign page (the control side runs it).
             if let Some((knob, delta)) = launchkey::encoder(m[0], cc, v) {
+                self.touch(Touch::Knob(knob));
                 self.act(Action::Knob(knob, delta));
                 return;
             }
             if launchkey::FADER_CC.contains(&cc) {
+                self.touch(Touch::Fader(cc - launchkey::FADER_CC.start()));
                 if cc == launchkey::MASTER_FADER_CC {
                     self.shared.master_hw.store(v, Relaxed);
                     self.ctl_signal = true;
@@ -899,7 +908,9 @@ impl Input {
             }
             if launchkey::FADER_BTN_CC.contains(&cc) {
                 if v > 0 {
-                    self.fader_button(cc - launchkey::FADER_BTN_CC.start());
+                    let index = cc - launchkey::FADER_BTN_CC.start();
+                    self.fader_button(index);
+                    self.touch(Touch::FaderButton { index, shift: self.shift });
                 }
                 return;
             }
@@ -909,8 +920,12 @@ impl Input {
                     // read the new page.
                     self.shared.step_page(|p| p.step(d));
                     self.ctl_signal = true;
+                    self.touch(Touch::Button { cc, shift: self.shift });
                 }
-                Some(Control::Act(a)) if v > 0 => self.act(a),
+                Some(Control::Act(a)) if v > 0 => {
+                    self.touch(Touch::Button { cc, shift: self.shift });
+                    self.act(a)
+                }
                 Some(_) => {}
                 None if v > 0 => self.unmapped(m),
                 None => {}
@@ -924,6 +939,7 @@ impl Input {
                 self.set_shift(false);
                 let page = Page::from_u8(self.shared.page.load(Relaxed));
                 if let Some(a) = launchkey::pad_action(page, m[1]) {
+                    self.touch(Touch::Pad(m[1]));
                     self.act(a);
                 }
             } else {
@@ -985,6 +1001,13 @@ impl Input {
                 }
             }
         }
+    }
+
+    /// A control touched: the control side shows what it did on the Launchkey display.
+    fn touch(&mut self, t: Touch) {
+        self.touch_seq = self.touch_seq.wrapping_add(1);
+        self.shared.touched.store(t.pack(self.touch_seq), Relaxed);
+        self.ctl_signal = true;
     }
 
     /// Shift pressed or released: mirrored for the screen when it changes.
