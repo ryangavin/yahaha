@@ -56,13 +56,16 @@
     badge?: { text: string; tip: TipKey } | null
     /** Solo: whether this part is the one soloed, and the command that toggles it. */
     solo?: { isSolo: boolean; onclick: () => void } | null
-    /** Pan and the reverb/chorus sends (0–127), and what moving them sends. */
+    /** Pan and the reverb/chorus/variation sends (0–127), what moving them sends, and the
+     *  part's default reverb send (a double-click goes back to it). */
     fx?: {
       pan: number
       reverb: number
       chorus: number
+      variation: number
+      reverbDefault: number
       onpan: (v: number) => void
-      onsend: (send: 'reverb' | 'chorus', v: number) => void
+      onsend: (send: 'reverb' | 'chorus' | 'variation', v: number) => void
     } | null
     /** Keep the knob row's space when there are no knobs. */
     fxRow?: boolean
@@ -79,8 +82,9 @@
   {#if fx}
     <div class="fx">
       <FxKnob value={fx.pan} tip="mixer.part.pan" label="{name} pan" caption="Pan" reset={64} centre format={panText} onchange={fx.onpan} />
-      <FxKnob value={fx.reverb} tip="mixer.part.reverb" label="{name} reverb" caption="Rev" reset={40} onchange={(v) => fx.onsend('reverb', v)} />
-      <FxKnob value={fx.chorus} tip="mixer.part.chorus" label="{name} chorus" caption="Cho" reset={0} onchange={(v) => fx.onsend('chorus', v)} />
+      <FxKnob value={fx.reverb} tip="mixer.part.reverb" label="{name} reverb" caption="Rev" reset={fx.reverbDefault} onchange={(v) => fx.onsend('reverb', v)} />
+      <FxKnob value={fx.chorus} tip="mixer.part.chorus" label="{name} chorus" caption="Cho" reset={10} onchange={(v) => fx.onsend('chorus', v)} />
+      <FxKnob value={fx.variation} tip="mixer.part.variation" label="{name} delay" caption="Dly" reset={0} onchange={(v) => fx.onsend('variation', v)} />
     </div>
   {:else if fxRow}
     <div class="fx" aria-hidden="true"></div>
@@ -141,7 +145,7 @@
   }
   .fx {
     display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: 0.1rem;
     width: 100%;
     height: var(--fx-h, 3.4rem);

@@ -114,9 +114,11 @@
     border-radius: 4px;
     user-select: none;
   }
+  /* Up to 1.7rem, smaller when four knobs share a narrow strip. */
   svg {
-    width: 1.7rem;
-    height: 1.7rem;
+    width: min(1.7rem, 100%);
+    height: auto;
+    aspect-ratio: 1;
     overflow: visible;
   }
   .track,
