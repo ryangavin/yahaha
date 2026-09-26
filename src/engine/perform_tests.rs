@@ -1158,3 +1158,154 @@ fn unsteady_taps_or_stop_while_counting_in_do_not_start() {
     play(&mut e, &mut rec, last + iv / 2, last + 4 * iv);
     assert!(!e.running, "STOP cancels the count-in");
 }
+
+/// The sections that came in, and the tick each started at.
+type Played = Vec<(SectionId, f64)>;
+
+/// Play from `from` to `to` as `play` does, noting each section that comes in: its slot
+/// and the tick (on the section timeline) it starts at.
+fn sections_played(e: &mut Engine, rec: &mut Rec, from: u64, to: u64, out: &mut Played) {
+    let mut now = from;
+    loop {
+        rec.now = now;
+        e.process(now, rec);
+        // A section entered mid-bar starts at its entry point.
+        let start = e.sec_start + e.entry;
+        if e.running && out.last().is_none_or(|&(id, s)| id != id_of(e.cur) || (s - start).abs() > 1e-6) {
+            out.push((id_of(e.cur), start));
+        }
+        if now >= to {
+            return;
+        }
+        now = e.next_deadline().unwrap_or(to).clamp(now + 1, now + 5_000_000).min(to);
+    }
+}
+
+/// #229 (owner): pressing the Main (or Fill Self) while its fill plays queues the fill again
+/// for the fill's end: tapped every bar, the fill loops back to back, with no bar 1 of the
+/// Main in between. Once the taps stop, the Main comes back. Taps in the fill's last beat,
+/// its first and its middle all count. An Accent strike during a fill still does nothing,
+/// and fires again once the Main is back (#180).
+#[test]
+fn tapping_during_a_fill_loops_the_fill_back_to_back() {
+    for press in [Button::Main(0), Button::FillSelf] {
+        let Some((mut e, mut rec)) = started(StyleSettings::default()) else { return };
+        e.set_dynamics(DynamicsSettings { accent: true, accent_min: 110, ..Default::default() });
+        let (ppq, tpb, _) = grid(&e);
+        let fill = slot_of(SectionId::Fill(0));
+        assert_eq!(e.style.sections[fill].as_ref().unwrap().len as f64, tpb, "a one-bar fill");
+        let mut seen = Vec::new();
+        // Bar 2, beat 2: Main A's fill from beat 3.
+        let t = e.ns_at(tpb + 1.5 * ppq);
+        sections_played(&mut e, &mut rec, 0, t, &mut seen);
+        e.button(press, t, &mut rec);
+        let mut last = t;
+        // A tap in each fill: in its last beat, its first, its middle.
+        for (bar, beat) in [(1.0, 3.5), (2.0, 0.5), (3.0, 2.0)] {
+            let tap = e.ns_at(bar * tpb + beat * ppq);
+            sections_played(&mut e, &mut rec, last, tap, &mut seen);
+            assert_eq!(id_of(e.cur), SectionId::Fill(0), "{press:?}: the fill plays at bar {bar} beat {beat}");
+            e.button(press, tap, &mut rec);
+            assert_eq!(e.snapshot(tap).queued, Some(SectionId::Fill(0)), "{press:?}: the fill again, queued");
+            last = tap;
+        }
+        // No tap in the last fill; an Accent strike there changes nothing.
+        let strike = e.ns_at(4.0 * tpb + 2.5 * ppq);
+        sections_played(&mut e, &mut rec, last, strike, &mut seen);
+        e.strike(127, strike);
+        assert_eq!(e.snapshot(strike).queued, None, "{press:?}: no Accent during a fill");
+        let back = e.ns_at(5.0 * tpb + 1.5 * ppq);
+        sections_played(&mut e, &mut rec, strike, back, &mut seen);
+        let want = [
+            (SectionId::Main(0), 0.0),
+            (SectionId::Fill(0), tpb + 2.0 * ppq),
+            (SectionId::Fill(0), 2.0 * tpb),
+            (SectionId::Fill(0), 3.0 * tpb),
+            (SectionId::Fill(0), 4.0 * tpb),
+            (SectionId::Main(0), 5.0 * tpb),
+        ];
+        assert_eq!(seen, want, "{press:?}: fills back to back, then the Main");
+        // The Main is back: an Accent strike plays its fill again.
+        e.strike(127, back);
+        assert_eq!(e.snapshot(back).queued, Some(SectionId::Fill(0)), "{press:?}: Accent in the Main");
+    }
+}
+
+/// #229: during a fill, a press that would play a fill from a Main queues it for the fill's
+/// end: Fill Up (and a Main press with Auto Fill) plays the next Main's fill, then that
+/// Main. Without Auto Fill, another Main pressed during a fill just follows it, as before.
+/// The Break pressed during a fill still comes in at the next beat, and a Main pressed
+/// during the Break follows it.
+#[test]
+fn presses_during_a_fill_queue_for_its_end() {
+    let setup = |auto_fill: bool| -> Option<(Engine, Rec, Played, u64)> {
+        let (mut e, mut rec) = started(StyleSettings::default())?;
+        if !auto_fill {
+            e.button(Button::AutoFill, 0, &mut rec);
+        }
+        let (ppq, tpb, _) = grid(&e);
+        let mut seen = Vec::new();
+        let t = e.ns_at(tpb + 1.5 * ppq);
+        sections_played(&mut e, &mut rec, 0, t, &mut seen);
+        e.button(Button::Main(0), t, &mut rec);
+        let in_fill = e.ns_at(tpb + 2.5 * ppq);
+        sections_played(&mut e, &mut rec, t, in_fill, &mut seen);
+        assert_eq!(id_of(e.cur), SectionId::Fill(0));
+        Some((e, rec, seen, in_fill))
+    };
+    let Some((e, ..)) = setup(true) else { return };
+    let (ppq, tpb, _) = grid(&e);
+    let bar3 = e.ns_at(3.0 * tpb + 0.5 * ppq);
+    let head = [(SectionId::Main(0), 0.0), (SectionId::Fill(0), tpb + 2.0 * ppq)];
+    for (auto_fill, press) in [(false, Button::FillUp), (true, Button::Main(1))] {
+        let Some((mut e, mut rec, mut seen, t)) = setup(auto_fill) else { return };
+        e.button(press, t, &mut rec);
+        sections_played(&mut e, &mut rec, t, bar3, &mut seen);
+        let want = [head[0], head[1], (SectionId::Fill(1), 2.0 * tpb), (SectionId::Main(1), 3.0 * tpb)];
+        assert_eq!(seen, want, "{press:?}, Auto Fill {auto_fill}");
+    }
+    // Auto Fill off: Main B during A's fill follows it, no fill.
+    let Some((mut e, mut rec, mut seen, t)) = setup(false) else { return };
+    e.button(Button::Main(1), t, &mut rec);
+    sections_played(&mut e, &mut rec, t, bar3, &mut seen);
+    assert_eq!(seen, [head[0], head[1], (SectionId::Main(1), 2.0 * tpb)]);
+    // The Break during a fill: at the next beat. A Main pressed in the Break follows it.
+    if !e.style.has(slot_of(SectionId::Break)) {
+        return;
+    }
+    let Some((mut e, mut rec, mut seen, t)) = setup(true) else { return };
+    e.button(Button::Break, t, &mut rec);
+    let in_break = e.ns_at(tpb + 3.5 * ppq);
+    sections_played(&mut e, &mut rec, t, in_break, &mut seen);
+    e.button(Button::Main(0), in_break, &mut rec);
+    sections_played(&mut e, &mut rec, in_break, bar3, &mut seen);
+    assert_eq!(seen, [head[0], head[1], (SectionId::Break, tpb + 3.0 * ppq), (SectionId::Main(0), 2.0 * tpb)]);
+}
+
+/// #229: a style chosen during a fill waits for the fill's end (its bar line); the fill
+/// tapped again meanwhile plays there in the new style, then the new style's Main.
+#[test]
+fn a_fill_tapped_again_with_a_style_waiting_plays_in_the_new_style() {
+    let Some((mut e, mut rec)) = started(StyleSettings::default()) else { return };
+    let Some(other) = other_style() else { return };
+    let new_bpm = other.bpm;
+    assert_ne!(e.style.bpm, new_bpm);
+    let (ppq, tpb, _) = grid(&e);
+    let t = e.ns_at(tpb + 1.5 * ppq);
+    play(&mut e, &mut rec, 0, t);
+    e.button(Button::Main(0), t, &mut rec);
+    let in_fill = e.ns_at(tpb + 2.5 * ppq);
+    play(&mut e, &mut rec, t, in_fill);
+    e.change_style(other, in_fill, &mut rec);
+    e.button(Button::Main(0), in_fill, &mut rec);
+    let bar2 = e.ns_at(2.0 * tpb);
+    play(&mut e, &mut rec, in_fill, bar2 + 1_000);
+    let s = e.snapshot(bar2 + 1_000);
+    assert!(!e.style_pending(), "the new style took over at the fill's end");
+    assert_eq!(e.style.bpm, new_bpm);
+    assert_eq!((s.cur, s.bar, s.beat), (Some(SectionId::Fill(0)), 0, 0), "the fill again, from its top, in the new style");
+    let (_, tpb2, _) = grid(&e);
+    let next = e.ns_at(e.sec_start + tpb2) + 1_000;
+    play(&mut e, &mut rec, bar2 + 1_000, next);
+    assert_eq!(e.snapshot(next).cur, Some(SectionId::Main(0)), "then the new style's Main");
+}

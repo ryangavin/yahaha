@@ -18,9 +18,12 @@ impl Engine {
     /// Main A-D (`i`) pressed, or a fill function aimed at it (`force_fill`). Stopped, it
     /// only selects the Main the band starts on. On a Main: the Main playing plays its own
     /// fill; another Main is entered through its fill when Auto Fill is on (or a fill is
-    /// forced), else at the next bar. On an Ending the Main comes at the next bar; during an
-    /// Intro, fill or break the selected Main follows when it ends.
+    /// forced), else at the next bar. During a fill, a press that would play a fill from a
+    /// Main plays it right after the fill (#229); other presses, and presses during an
+    /// Intro or break, select the Main that follows when it ends. On an Ending the Main
+    /// comes at the next bar.
     pub(super) fn press_main(&mut self, i: u8, force_fill: bool, now: u64) {
+        let led_to = self.main;
         self.main = i;
         self.features.fills.main_presses = self.features.fills.main_presses.wrapping_add(1);
         if !self.running {
@@ -41,12 +44,22 @@ impl Engine {
                     None => {}
                 }
             }
+            // A fill playing (#229, owner): a press that would play a fill from the Main it
+            // leads to plays that fill right after this one, back to back from its top, so
+            // tapping every bar loops fills. Other presses just select the Main to follow.
+            SectionId::Fill(_) => {
+                if (i == led_to || self.auto_fill || force_fill)
+                    && let Some(f) = self.style.resolve(8 + i as usize)
+                {
+                    self.queue_change(f, Change::AfterFill, now);
+                }
+            }
             SectionId::Ending(_) => {
                 if let Some(slot) = self.style.resolve(4 + i as usize) {
                     self.queue_at_bar(slot, now)
                 }
             }
-            // Intro / fill / break: they flow into self.main when done.
+            // Intro / break: they flow into self.main when done.
             _ => {}
         }
     }

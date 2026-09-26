@@ -15,6 +15,8 @@ pub enum Change {
     /// A fill under Half Bar Fill In (asked for on the first beat of a bar): from the
     /// middle of that bar.
     HalfBar,
+    /// A fill asked for while a fill plays (#229): at that fill's end, from its top.
+    AfterFill,
     /// The band stops (an Ending the style doesn't have).
     Stop,
     /// Another style takes over while the band plays (follows "To Main").
@@ -45,7 +47,8 @@ impl Engine {
     /// a style change while playing).
     ///
     /// Fills and breaks start at the next beat and play the rest of that bar, aligned so
-    /// the fill's beat matches the bar position. Mains and style changes follow Section
+    /// the fill's beat matches the bar position; a fill asked for while a fill plays waits
+    /// for that fill's end and plays from its top (#229). Mains and style changes follow Section
     /// Change Timing "To Main" (`MainTiming`; Auto Fill In on makes a Main change Next
     /// Bar). Changing from an Intro or Ending to another follows "Inside Intro/Ending"
     /// (`IntroEndingTiming`), except Intro to Intro (always Next Bar) and into Ending I;
@@ -60,6 +63,10 @@ impl Engine {
         let timing = self.features.settings;
         match change {
             Change::Fill => self.next_beat(now),
+            Change::AfterFill => {
+                let end = self.sec_start + self.style.sections[self.cur].as_ref().map_or(0, |s| s.len) as f64;
+                (end, end)
+            }
             Change::Main => match timing.main_timing {
                 MainTiming::Immediate if !self.auto_fill => self.next_beat(now),
                 _ => self.bar_or_now(now),
