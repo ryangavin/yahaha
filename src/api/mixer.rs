@@ -16,6 +16,10 @@ pub enum MixerCmd {
     /// scale on every Style part's CC7 as it goes out, like Fade In/Out; the part faders do
     /// not move. Panel fader 5 picks it up.
     SetStyleVolume { volume: u8 },
+    /// The Multi Pad volume (Genos Balance: M.Pad), 0-127, 100 = the pads' CC7 as
+    /// written: the same kind of scale on the Multi Pad channels 5-8. Panel fader 6 picks
+    /// it up.
+    SetMultiPadVolume { volume: u8 },
     /// What the Launchkey faders control: the keyboard parts (Panel) or the Style parts.
     SetFaderPage { page: FaderPage },
     ToggleFaderPage,
@@ -89,6 +93,10 @@ pub struct MixerState {
     pub style_volume: u8,
     /// Panel fader 5 has moved but not yet reached `style_volume`.
     pub style_volume_waiting: bool,
+    /// The Multi Pad volume (0-127, 100 = the pads' CC7 as written; `setMultiPadVolume`).
+    pub multi_pad_volume: u8,
+    /// Panel fader 6 has moved but not yet reached `multi_pad_volume`.
+    pub multi_pad_volume_waiting: bool,
     /// The Style part soloed (0-7), if any: only it plays.
     pub style_solo: Option<u8>,
     /// The keyboard part soloed (0-3), if any: only it sounds from the keys.

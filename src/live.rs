@@ -1302,6 +1302,8 @@ impl EngineLoop {
         sync_part_volumes(&mut io.out, &shared.parts, &mut self.last_part_vol);
         // The Style volume (Panel fader 5, #199): a scale on the Style parts' CC7.
         engine.set_style_level(shared.parts.volume(parts::STYLE_LEVEL), &mut io.out);
+        // The Multi Pad volume (Panel fader 6, #196): a scale on the pads' CC7.
+        engine.set_pad_level(shared.parts.volume(parts::PAD_LEVEL), &mut io.out);
         shared.parts.send_fx(&mut |m| io.out.push(m));
         let ctl = &shared.controllers;
         ctl.sync_ranges(&mut |m| io.out.push(m));

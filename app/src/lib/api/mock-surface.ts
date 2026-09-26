@@ -135,6 +135,8 @@ export function mockSurface(s: AppState, lib: LibraryList, hw: MockHardware): Su
 
   /** Panel fader 5 (0-based 4): the Style volume. */
   const STYLE_FADER = 4
+  /** Panel fader 6: the Multi Pad volume. */
+  const PAD_FADER = 5
   const faders: SurfaceFader[] = Array.from({ length: 8 }, (_, i): SurfaceFader => {
     const position = hw.faders[i] ?? null
     if (style) {
@@ -143,6 +145,9 @@ export function mockSurface(s: AppState, lib: LibraryList, hw: MockHardware): Su
     }
     if (i === STYLE_FADER) {
       return { label: 'STYLE', value: s.mixer.styleVolume, waiting: s.mixer.styleVolumeWaiting, position, set: { type: 'setStyleVolume', volume: 0 } }
+    }
+    if (i === PAD_FADER) {
+      return { label: 'M.PAD', value: s.mixer.multiPadVolume, waiting: s.mixer.multiPadVolumeWaiting, position, set: { type: 'setMultiPadVolume', volume: 0 } }
     }
     const p = s.keyboardParts[i]
     if (!p) return { label: '', value: null, waiting: false, position, set: null }

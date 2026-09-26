@@ -295,6 +295,8 @@ impl MockSession {
                 master_waiting: false,
                 style_volume: 100,
                 style_volume_waiting: false,
+                multi_pad_volume: 100,
+                multi_pad_volume_waiting: false,
                 style_solo: None,
                 part_solo: None,
             },
@@ -1214,6 +1216,13 @@ impl MockSession {
                         position,
                         set: Some(AppCmd::Mixer(MixerCmd::SetStyleVolume { volume: 0 })),
                     },
+                    FaderPage::Panel if p == parts::PAD_LEVEL => SurfaceFader {
+                        label: "M.PAD".into(),
+                        value: Some(st.mixer.multi_pad_volume),
+                        waiting: st.mixer.multi_pad_volume_waiting,
+                        position,
+                        set: Some(AppCmd::Mixer(MixerCmd::SetMultiPadVolume { volume: 0 })),
+                    },
                     FaderPage::Panel => SurfaceFader { position, ..SurfaceFader::default() },
                     FaderPage::Style => SurfaceFader {
                         label: STYLE_PART_NAMES[p].to_uppercase(),
@@ -1525,6 +1534,10 @@ impl MockSession {
             AppCmd::Mixer(MixerCmd::SetStyleVolume { volume }) => {
                 self.state.mixer.style_volume = vol(volume);
                 self.state.mixer.style_volume_waiting = false;
+            }
+            AppCmd::Mixer(MixerCmd::SetMultiPadVolume { volume }) => {
+                self.state.mixer.multi_pad_volume = vol(volume);
+                self.state.mixer.multi_pad_volume_waiting = false;
             }
             AppCmd::Mixer(MixerCmd::SetStylePartVolume { part, volume }) => {
                 if let Some(p) = self.state.mixer.style_parts.get_mut(part as usize) {
@@ -1873,6 +1886,7 @@ impl MockSession {
             FaderPage::Panel => {
                 self.state.keyboard_parts.iter_mut().for_each(|p| p.waiting = true);
                 self.state.mixer.style_volume_waiting = true;
+                self.state.mixer.multi_pad_volume_waiting = true;
             }
             FaderPage::Style => self.state.mixer.style_parts.iter_mut().for_each(|p| p.waiting = true),
         }
@@ -2484,10 +2498,11 @@ mod tests {
         assert!(s.controls[4..8].iter().all(|c| c.colour.is_none() && c.level == Level::Off));
         assert!(s.controls.iter().all(|c| c.anim == Anim::Solid));
         assert_eq!(s.controls[16].level, Level::Bright);
-        assert_eq!(faders(&m), ["RIGHT 1", "RIGHT 2", "RIGHT 3", "LEFT", "STYLE", "", "", "", "MASTER"]);
+        assert_eq!(faders(&m), ["RIGHT 1", "RIGHT 2", "RIGHT 3", "LEFT", "STYLE", "M.PAD", "", "", "MASTER"]);
         assert_eq!(s.faders.iter().map(|f| f.position).collect::<Vec<_>>(), HW_FADERS.map(Some));
         assert_eq!(s.faders[4].set, Some(AppCmd::Mixer(MixerCmd::SetStyleVolume { volume: 0 })));
-        assert_eq!(s.faders[5].set, None);
+        assert_eq!(s.faders[5].set, Some(AppCmd::Mixer(MixerCmd::SetMultiPadVolume { volume: 0 })));
+        assert_eq!(s.faders[6].set, None);
         assert_eq!(m.state.keyboard_parts[1].fader, Some(72));
         assert_eq!(m.state.mixer.style_parts[7].fader, Some(0));
 

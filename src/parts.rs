@@ -31,8 +31,12 @@ pub const DEFAULT_PROGRAMS: [u8; COUNT] = [0, 48, 61, 48];
 /// written), kept with the keyboard parts' levels (`Parts::volume(STYLE_LEVEL)`), with the
 /// same soft takeover.
 pub const STYLE_LEVEL: usize = 4;
-/// The levels the Panel page's faders control: the four keyboard parts, then the Style.
-pub const PANEL_FADERS: usize = 5;
+/// Panel fader 6: the Multi Pad volume (#196), the same kind of scale on the pads' CC7
+/// (channels 5-8).
+pub const PAD_LEVEL: usize = 5;
+/// The levels the Panel page's faders control: the four keyboard parts, then the Style
+/// and the Multi Pads.
+pub const PANEL_FADERS: usize = 6;
 
 /// The part on MIDI channel `ch`, if it is a keyboard part's.
 pub fn part_of_channel(ch: u8) -> Option<usize> {
@@ -51,7 +55,8 @@ fn pack(volume: u8, picked: bool) -> u8 {
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum FaderPage {
-    /// Faders 1-4: Right 1, Right 2, Right 3, Left; 5: the Style volume. 6-8 unused.
+    /// Faders 1-4: Right 1, Right 2, Right 3, Left; 5: the Style volume; 6: the Multi Pad
+    /// volume. 7-8 unused.
     #[default]
     Panel,
     /// Faders 1-8: the Style parts.
@@ -65,7 +70,7 @@ pub struct Parts {
     /// The part's volume (its CC7, sent unchanged on its channel) in bits 0-6, and in bit 7
     /// whether its Panel fader controls it (soft takeover). One atomic, so a fader move and
     /// an OTS recall on other threads can never mix one's volume with the other's pickup.
-    /// After the parts, the other Panel faders' levels (`STYLE_LEVEL`).
+    /// After the parts, the other Panel faders' levels (`STYLE_LEVEL`, `PAD_LEVEL`).
     level: [AtomicU8; PANEL_FADERS],
     /// Octave shift, -2..=2.
     pub octave: [AtomicI8; COUNT],
@@ -277,7 +282,8 @@ impl Parts {
         }
     }
 
-    /// The part's volume (its CC7), or another Panel fader's level (`STYLE_LEVEL`).
+    /// The part's volume (its CC7), or another Panel fader's level (`STYLE_LEVEL`,
+    /// `PAD_LEVEL`).
     pub fn volume(&self, part: usize) -> u8 {
         self.level[part].load(Relaxed) & VOLUME
     }
