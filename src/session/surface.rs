@@ -2,7 +2,7 @@
 //! clock), as `live::Input` runs it and `Leds` lights it.
 
 use super::Control;
-use crate::api::{ns_to_ms, AppCmd, ClockState, HarmonyArpCmd, LooperCmd, MixerCmd, Neighbour, PadsCmd, PartsCmd, PluginCmd, SurfaceControl, SurfaceFader, SurfaceState, STYLE_PART_NAMES};
+use crate::api::{ns_to_ms, AppCmd, ChordCmd, ClockState, HarmonyArpCmd, LooperCmd, MixerCmd, Neighbour, PadsCmd, PartsCmd, PluginCmd, SurfaceControl, SurfaceFader, SurfaceState, STYLE_PART_NAMES};
 use crate::launchkey::{self, Action, Panel};
 use crate::library::Library;
 use crate::parts::{self, FaderPage};
@@ -84,6 +84,7 @@ impl Control {
                 FaderPage::Panel if i == launchkey::PLUGIN_FADER_BTN => {
                     push(id, cc, "PLUGIN", Some(AppCmd::Plugins(PluginCmd::ReloadPartPlugin { part: None })), None)
                 }
+                FaderPage::Panel if i == launchkey::LEFT_HOLD_FADER_BTN => push(id, cc, "L HOLD", Some(AppCmd::Chord(ChordCmd::ToggleLeftHold)), None),
                 FaderPage::Panel if i == launchkey::LOOPER_FADER_BTN => {
                     push(id, cc, "LOOPER", Some(AppCmd::Looper(LooperCmd::LooperOnOff)), Some(("LOOP REC", Some(AppCmd::Looper(LooperCmd::LooperRec)))))
                 }
@@ -120,6 +121,13 @@ impl Control {
                         waiting: kp.waiting(p),
                         position,
                         set: Some(AppCmd::Mixer(MixerCmd::SetStyleVolume { volume: 0 })),
+                    },
+                    FaderPage::Panel if p == parts::PAD_LEVEL => SurfaceFader {
+                        label: "M.PAD".to_string(),
+                        value: Some(kp.volume(p)),
+                        waiting: kp.waiting(p),
+                        position,
+                        set: Some(AppCmd::Mixer(MixerCmd::SetMultiPadVolume { volume: 0 })),
                     },
                     FaderPage::Panel => SurfaceFader { position, ..SurfaceFader::default() },
                     FaderPage::Style => SurfaceFader {

@@ -69,6 +69,7 @@ export type AppCmd =
   | { type: 'toggleStylePart'; part: number }
   | { type: 'setStylePartVolume'; part: number; volume: number }
   | { type: 'setStyleVolume'; volume: number }
+  | { type: 'setMultiPadVolume'; volume: number }
   /** Solo a Style part 0–7 (only it plays, even if off); null ends the solo. */
   | { type: 'setStyleSolo'; part: number | null }
   /** Style Track Mute (a Genos Live Control knob): `value` 0–127 turns parts on in `order`. */
@@ -542,6 +543,10 @@ export interface MixerState {
   styleVolume: number
   /** Panel fader 5 hasn't reached `styleVolume` yet. */
   styleVolumeWaiting: boolean
+  /** The Multi Pad volume (Panel fader 6): 100 = the pads' CC 7 as written. */
+  multiPadVolume: number
+  /** Panel fader 6 hasn't reached `multiPadVolume` yet. */
+  multiPadVolumeWaiting: boolean
   /** The Style part soloed (0–7), or null. */
   styleSolo: number | null
   /** The keyboard part soloed (0–3), or null. */

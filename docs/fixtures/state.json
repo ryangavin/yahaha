@@ -537,6 +537,8 @@
     "masterWaiting": false,
     "styleVolume": 100,
     "styleVolumeWaiting": false,
+    "multiPadVolume": 100,
+    "multiPadVolumeWaiting": false,
     "styleSolo": null,
     "partSolo": null
   },

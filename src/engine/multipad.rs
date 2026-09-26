@@ -20,6 +20,12 @@
 //! wait for it, as the style's chord parts' do, band playing or not: `Engine::chord` only
 //! changes at the settle, and a pad note, once struck, is never re-voiced.
 //!
+//! **The level.** The Multi Pad volume (#196; the Genos Balance page's M.Pad slider, a
+//! Panel fader here) is a scale on the pads' CC7, like the Style volume and Fade: a pad's
+//! own CC7 stays as its phrase writes it (`PadDeck::raw`), and what goes out on channels 5-8
+//! is that times `level / 100` (at most 127). A pad channel whose phrase never set CC7 is
+//! taken as at 100, the GM power-on level, so the fader works on every pad.
+//!
 //! Everything here runs on the engine thread: no allocation (the player never allocates in
 //! `process`, and banks come in and go out as `Box`es through `live`'s rings).
 
@@ -90,7 +96,6 @@ impl Default for PadsSnap {
 }
 
 /// The engine's Multi Pad state (one field of `hooks::Features`).
-#[derive(Default)]
 pub(super) struct PadDeck {
     player: Option<Box<MultiPadPlayer>>,
     tag: u64,
@@ -105,6 +110,64 @@ pub(super) struct PadDeck {
     /// The band stopped: presses waiting for its bar line start now (or on the new band's
     /// bar line, if it started again), at the next `process_pads`.
     retime: bool,
+    /// The Multi Pad volume, 0-127 (100 = the pads' CC7 as written).
+    level: u8,
+    /// The CC7 each pad channel (5-8) last had from its phrase, before the scale.
+    raw: [u8; PADS],
+}
+
+impl Default for PadDeck {
+    fn default() -> PadDeck {
+        PadDeck {
+            player: None,
+            tag: 0,
+            synchro: SynchroStop::default(),
+            bpm: 0.0,
+            anchor_ns: 0,
+            anchor_tick: 0.0,
+            done: 0,
+            retime: false,
+            level: 100,
+            raw: [100; PADS],
+        }
+    }
+}
+
+/// A pad CC7 `v` as it goes out at Multi Pad volume `level`.
+#[inline]
+fn pad_scaled(v: u8, level: u8) -> u8 {
+    if level == 100 { v } else { (v as f32 * level as f32 / 100.0).round().min(127.0) as u8 }
+}
+
+/// The pads' sink: a CC7 on a pad channel is remembered as written and goes out scaled.
+struct PadLevelSink<'a, S: Sink> {
+    inner: &'a mut S,
+    level: u8,
+    raw: &'a mut [u8; PADS],
+}
+
+impl<S: Sink> Sink for PadLevelSink<'_, S> {
+    #[inline]
+    fn send(&mut self, msg: &[u8]) {
+        if let [st, 7, v] = *msg
+            && st & 0xF0 == 0xB0
+            && let Some(i) = DEFAULT_OUT_CH.iter().position(|&c| c == st & 0x0F)
+        {
+            self.raw[i] = v;
+            self.inner.send(&[st, 7, pad_scaled(v, self.level)]);
+        } else {
+            self.inner.send(msg);
+        }
+    }
+    fn retune(&mut self, ch: u8, semis: i8) {
+        self.inner.retune(ch, semis);
+    }
+    fn click(&mut self, accent: bool) {
+        self.inner.click(accent);
+    }
+    fn route_bank(&mut self, bank: u8) {
+        self.inner.route_bank(bank);
+    }
 }
 
 impl PadDeck {
@@ -234,8 +297,28 @@ impl Engine {
         p.set_hold(hold);
         // Always run it, even with no new tick: a press on the tick already played starts
         // now (the player plays whatever is due before the range's end).
-        p.process(d.done.min(end)..end, chord, sink);
+        let mut sink = PadLevelSink { inner: sink, level: d.level, raw: &mut d.raw };
+        p.process(d.done.min(end)..end, chord, &mut sink);
         d.done = d.done.max(end);
+    }
+
+    /// The Multi Pad volume (0-127, 100 = the pads' CC7 as written).
+    pub fn pad_level(&self) -> u8 {
+        self.features.pads.level
+    }
+
+    /// Set the Multi Pad volume (0-127, 100 = as written): each pad channel's CC7 goes out
+    /// again, scaled.
+    pub fn set_pad_level(&mut self, level: u8, sink: &mut impl Sink) {
+        let d = &mut self.features.pads;
+        let level = level.min(127);
+        if level == d.level {
+            return;
+        }
+        d.level = level;
+        for (&ch, &v) in DEFAULT_OUT_CH.iter().zip(&d.raw) {
+            sink.send(&[0xB0 | ch, 7, pad_scaled(v, level)]);
+        }
     }
 
     /// When the pads next need `process_pads`, if anything plays or waits.
@@ -672,6 +755,23 @@ mod tests {
         e.process_pads(stop, &mut rec);
         assert_eq!(e.pads_snapshot().states[3], PadState::Playing);
         assert_eq!(rec.ons(7).first().map(|x| x.0), Some(stop));
+    }
+
+    #[test]
+    fn the_pad_level_scales_the_pads_cc7_as_it_goes_out() {
+        let mut raw = [100; PADS];
+        let mut rec = Rec::default();
+        {
+            let mut sink = PadLevelSink { inner: &mut rec, level: 50, raw: &mut raw };
+            sink.send(&[0xB5, 7, 90]); // pad 2's own CC7
+            sink.send(&[0xB5, 11, 90]); // not a level
+            sink.send(&[0xB0, 7, 90]); // not a pad channel
+            sink.send(&[0x95, 60, 90]);
+        }
+        let got: Vec<[u8; 3]> = rec.0.iter().map(|m| m.1).collect();
+        assert_eq!(got, [[0xB5, 7, 45], [0xB5, 11, 90], [0xB0, 7, 90], [0x95, 60, 90]]);
+        assert_eq!(raw, [100, 90, 100, 100], "remembered as written");
+        assert_eq!((pad_scaled(90, 100), pad_scaled(100, 127), pad_scaled(0, 127)), (90, 127, 0));
     }
 
     #[test]

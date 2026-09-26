@@ -649,6 +649,7 @@ fn launchkey_hardware_matches_its_commands() {
                         (0..=3, FaderPage::Panel, false) => Some(AppCmd::Parts(PartsCmd::TogglePart { part: i })),
                         (4, FaderPage::Panel, _) => Some(AppCmd::HarmonyArp(HarmonyArpCmd::ToggleHarmonyArp)),
                         (5, FaderPage::Panel, _) => Some(AppCmd::Plugins(crate::api::PluginCmd::ReloadPartPlugin { part: None })),
+                        (6, FaderPage::Panel, _) => Some(AppCmd::Chord(ChordCmd::ToggleLeftHold)),
                         (7, FaderPage::Panel, false) => Some(AppCmd::Looper(crate::api::LooperCmd::LooperOnOff)),
                         (7, FaderPage::Panel, true) => Some(AppCmd::Looper(crate::api::LooperCmd::LooperRec)),
                         (_, FaderPage::Panel, _) => None,
@@ -808,7 +809,7 @@ fn launchkey_button_descriptions() {
     assert_eq!((f1.level, f1.rgb), (Level::Bright, [0, 0, 127]));
     assert_eq!(b(&s, "faderButton2").level, Level::Dim);
     // Button 5: HARMONY/ARPEGGIO, dim purple while off, bright while on. Button 6 reloads
-    // the selected part's plugin (dark while there is nothing to reload); 7 does nothing;
+    // the selected part's plugin (dark while there is nothing to reload); 7 is Left Hold;
     // 8 is the Chord Looper (ON/OFF, Shift: REC/STOP; dark with nothing recorded).
     let f5 = b(&s, "faderButton5");
     assert_eq!((f5.label.as_str(), f5.action, f5.level), ("HARM/ARP", Some(AppCmd::HarmonyArp(HarmonyArpCmd::ToggleHarmonyArp)), Level::Dim));
@@ -818,7 +819,10 @@ fn launchkey_button_descriptions() {
     let f6 = b(&s, "faderButton6");
     assert_eq!((f6.label.as_str(), f6.action, f6.level), ("PLUGIN", Some(AppCmd::Plugins(crate::api::PluginCmd::ReloadPartPlugin { part: None })), Level::Off));
     let f7 = b(&s, "faderButton7");
-    assert_eq!((f7.action, f7.level), (None, Level::Off));
+    assert_eq!((f7.label.as_str(), f7.action, f7.level), ("L HOLD", Some(AppCmd::Chord(ChordCmd::ToggleLeftHold)), Level::Dim));
+    s.send(ChordCmd::ToggleLeftHold).unwrap();
+    assert_eq!((b(&s, "faderButton7").level, b(&s, "faderButton7").rgb), (Level::Bright, [127, 60, 0]));
+    s.send(ChordCmd::ToggleLeftHold).unwrap();
     let f8 = b(&s, "faderButton8");
     assert_eq!((f8.label.as_str(), f8.action, f8.shift_action, f8.level), ("LOOPER", Some(AppCmd::Looper(LooperCmd::LooperOnOff)), Some(AppCmd::Looper(LooperCmd::LooperRec)), Level::Off));
     assert_eq!(b(&s, "masterButton").label, "PANEL");
@@ -950,7 +954,7 @@ fn fader_positions_and_master_takeover() {
     let f = &st.surface.faders[1];
     assert_eq!((f.label.as_str(), f.value, f.waiting, f.position), ("RIGHT 2", Some(100), true, Some(30)));
     assert_eq!(f.set, Some(AppCmd::Parts(PartsCmd::SetPartVolume { part: 1, volume: 0 })));
-    assert_eq!((st.surface.faders[5].label.as_str(), st.surface.faders[5].set.clone()), ("", None), "fader 6 unused on Panel");
+    assert_eq!((st.surface.faders[6].label.as_str(), st.surface.faders[6].set.clone()), ("", None), "fader 7 unused on Panel");
     assert_eq!(st.keyboard_parts[1].fader, Some(30));
     assert_eq!(st.mixer.style_parts[1].fader, Some(30), "the same physical fader");
     assert!(st.keyboard_parts[1].waiting && st.keyboard_parts[1].volume == 100);

@@ -969,6 +969,8 @@ impl Input {
             FaderPage::Panel if (i as usize) < parts::COUNT => self.act(Action::PartOnOff(i)),
             FaderPage::Panel if i == launchkey::HARM_ARP_FADER_BTN => self.act(Action::ToggleHarmonyArp),
             FaderPage::Panel if i == launchkey::PLUGIN_FADER_BTN => self.act(Action::ReloadPlugin),
+            // LEFT HOLD on/off (#202).
+            FaderPage::Panel if i == launchkey::LEFT_HOLD_FADER_BTN => self.act(Action::Assign(crate::controllers::Function::LeftHold)),
             // The CHORD LOOPER: ON/OFF, Shift: REC/STOP (#201).
             FaderPage::Panel if i == launchkey::LOOPER_FADER_BTN => {
                 let f = if self.shift { crate::controllers::Function::ChordLooperRec } else { crate::controllers::Function::ChordLooperOnOff };
@@ -1302,6 +1304,8 @@ impl EngineLoop {
         sync_part_volumes(&mut io.out, &shared.parts, &mut self.last_part_vol);
         // The Style volume (Panel fader 5, #199): a scale on the Style parts' CC7.
         engine.set_style_level(shared.parts.volume(parts::STYLE_LEVEL), &mut io.out);
+        // The Multi Pad volume (Panel fader 6, #196): a scale on the pads' CC7.
+        engine.set_pad_level(shared.parts.volume(parts::PAD_LEVEL), &mut io.out);
         shared.parts.send_fx(&mut |m| io.out.push(m));
         let ctl = &shared.controllers;
         ctl.sync_ranges(&mut |m| io.out.push(m));
@@ -2294,8 +2298,8 @@ mod tests {
         assert_eq!(acts.pop(), Ok(Action::ToggleHarmonyArp));
         input.pad_msg(&[0xB0, 42, 127]); // button 6: reload the selected part's plugin
         assert_eq!(acts.pop(), Ok(Action::ReloadPlugin));
-        input.pad_msg(&[0xB0, 43, 127]); // button 7: unused on Panel
-        assert!(acts.pop().is_err());
+        input.pad_msg(&[0xB0, 43, 127]); // button 7: Left Hold
+        assert_eq!(acts.pop(), Ok(Action::Assign(crate::controllers::Function::LeftHold)));
         input.pad_msg(&[0xB0, 44, 127]); // button 8: Chord Looper ON/OFF, Shift: REC/STOP
         assert_eq!(acts.pop(), Ok(Action::Assign(crate::controllers::Function::ChordLooperOnOff)));
         input.pad_msg(&[0xB0, launchkey::SHIFT_CC, 127]);

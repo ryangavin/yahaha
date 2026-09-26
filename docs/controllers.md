@@ -27,7 +27,7 @@ an expression pedal), `available`.
 
 | Category | Functions |
 |---|---|
-| Voice | Sustain, Sostenuto, Soft (switch); Modulation, Pitch Bend (continuous); Kbd Harmony/Arpeggio On/Off, Arpeggio Hold (switch, RM p.141) |
+| Voice | Sustain, Sostenuto, Soft (switch); Modulation, Pitch Bend (continuous); Kbd Harmony/Arpeggio On/Off, Arpeggio Hold (switch, RM p.141); Left Hold On/Off (switch, RM p.140: a control-side switch like Arpeggio Hold, see docs/app-api.md `setLeftHold`) |
 | Style | Start/Stop, Sync Start, Sync Stop, Intro 1-3, Main A-D, Fill Down, Fill Self, Fill Break, Fill Up, Ending 1-3, Auto Fill, Stop Acmp, Fingered/Fingered On Bass, Fade In/Out (the FADE IN/OUT button: stopped, arms a fade in; playing, fades out to the stop), Style Section Reset (yahaha's own: the section starts again from its top), Dynamics Control (a foot controller: its position is the Style Dynamics level, 0–127, 64 = as written; see docs/genos-features.md, Style Dynamics Control) |
 | OTS | OTS Link, OTS 1-4, OTS +, OTS − |
 | Chord Looper | Chord Looper On/Off, Chord Looper Rec/Stop (the CHORD LOOPER buttons, RM p.141; docs/chord-looper.md). |
@@ -143,5 +143,5 @@ bend stuck until that controller moved again.
 - **Transpose +/− is Master transpose.** RM p.144 makes it "the same as the TRANSPOSE
   [+]/[−] buttons", and those transpose the overall pitch (OM p.61), which is yahaha's Master
   transpose (the Launchkey's KBD TR pads stay Keyboard transpose).
-- **Not done**: Left Hold, Glide, Portamento, Mono/Poly, Pedal Wah, Organ Rotary, the
+- **Not done**: Glide, Portamento, Mono/Poly, Pedal Wah, Organ Rotary, the
   Assignable buttons A-F (the Launchkey has none free), Joystick Hold, a Volume pedal.

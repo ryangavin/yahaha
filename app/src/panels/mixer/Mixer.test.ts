@@ -43,7 +43,8 @@ describe('Mixer drawer', () => {
     expect(f[1].getAttribute('aria-valuenow')).toBe(String(s.state.keyboardParts[1].volume))
     expect(f[4].dataset.tip).toBe('mixer.style_level')
     expect(f[4].getAttribute('aria-label')).toBe('Style')
-    expect(f.slice(5, 8).every((e) => e.dataset.tip === 'launchkey.fader_unused')).toBe(true)
+    expect(f[5].dataset.tip).toBe('mixer.pad_level')
+    expect(f.slice(6, 8).every((e) => e.dataset.tip === 'launchkey.fader_unused')).toBe(true)
     expect(f[8].dataset.tip).toBe('mixer.master')
     const chans = [...document.querySelectorAll('.strips [data-tip="mixer.channel"]')].map((e) => e.textContent?.replace(/\s+/g, ' ').trim())
     expect(chans).toEqual(['Ch 1', 'Ch 3', 'Ch 4', 'Ch 2'])
@@ -57,6 +58,14 @@ describe('Mixer drawer', () => {
     expect(s.state.mixer.styleVolume).toBe(90)
     expect(s.state.mixer.styleParts.map((p) => p.volume)).toEqual(before)
     expect(s.state.surface.faders[4].label).toBe('STYLE')
+  })
+
+  it('Panel fader 6 is the Multi Pad volume', async () => {
+    const s = setup()
+    expect(sliders()[5].getAttribute('aria-label')).toBe('M.Pad')
+    await fireEvent.keyDown(sliders()[5], { key: 'Home' })
+    expect(s.state.mixer.multiPadVolume).toBe(0)
+    expect(s.state.surface.faders[5].label).toBe('M.PAD')
   })
 
   it('Panel strip 5 has the HARMONY/ARPEGGIO button, as the Launchkey button under fader 5', async () => {

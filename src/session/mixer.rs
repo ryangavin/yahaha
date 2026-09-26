@@ -18,6 +18,11 @@ impl Control {
                 parts.set_volume(crate::parts::STYLE_LEVEL, volume);
                 self.wake_engine();
             }
+            // The engine thread scales the pads' CC7 on its next wake.
+            MixerCmd::SetMultiPadVolume { volume } => {
+                parts.set_volume(crate::parts::PAD_LEVEL, volume);
+                self.wake_engine();
+            }
             MixerCmd::SetFaderPage { page } => {
                 if parts.fader_page() != page {
                     parts.set_fader_page(page);
@@ -91,6 +96,8 @@ impl Control {
             master_waiting: self.synth.as_ref().is_some_and(|s| s.control.master_waiting.load(Relaxed)),
             style_volume: self.shared.parts.volume(crate::parts::STYLE_LEVEL),
             style_volume_waiting: self.shared.parts.waiting(crate::parts::STYLE_LEVEL),
+            multi_pad_volume: self.shared.parts.volume(crate::parts::PAD_LEVEL),
+            multi_pad_volume_waiting: self.shared.parts.waiting(crate::parts::PAD_LEVEL),
             style_solo: s.style_solo,
             part_solo: self.shared.parts.solo().map(|p| p as u8),
         }

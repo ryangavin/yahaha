@@ -221,3 +221,36 @@ fn a_rescan_keeps_banks_loaded_by_path_outside_the_roots() {
     let _ = std::fs::remove_dir_all(dir);
     let _ = std::fs::remove_dir_all(out);
 }
+
+/// The Multi Pad volume (#196): a scale on the pads' CC7 (ch 5-8), like the Style volume.
+/// A pad whose phrase sets no CC7 counts as 100; Panel fader 6 picks it up softly; a
+/// Registration keeps it with the bank.
+#[test]
+fn the_multi_pad_volume_scales_the_pad_channels() {
+    let Some((s, dir)) = setup("level") else { return };
+    assert_eq!(s.state().mixer.multi_pad_volume, 100);
+    s.take_output();
+    s.send(MixerCmd::SetMultiPadVolume { volume: 60 }).unwrap();
+    let out = s.take_output();
+    for ch in 4..8u8 {
+        assert!(out.contains(&[0xB0 | ch, 7, 60]), "ch {}: {out:?}", ch + 1);
+    }
+    assert!(!out.iter().any(|m| m[0] & 0xF0 == 0xB0 && m[1] == 7 && !(4..8).contains(&(m[0] & 0x0F))), "only the pad channels: {out:?}");
+    assert_eq!(s.state().mixer.multi_pad_volume, 60);
+    // Panel fader 6 (CC 10 on the pads port): no jump, then it picks the level up.
+    s.midi_in(Port::Pads, &[0xB0, 10, 5]);
+    assert!(s.state().mixer.multi_pad_volume_waiting);
+    s.midi_in(Port::Pads, &[0xB0, 10, 61]);
+    s.midi_in(Port::Pads, &[0xB0, 10, 127]);
+    let st = s.state();
+    assert_eq!((st.mixer.multi_pad_volume, st.mixer.multi_pad_volume_waiting), (127, false));
+    assert!(s.take_output().contains(&[0xB4, 7, 127]));
+    assert_eq!(st.surface.faders[5].label, "M.PAD");
+    // A Registration memorizes it with the Multi Pad group, and recalls it.
+    s.send(RegistrationCmd::MemorizeRegist { index: 0 }).unwrap();
+    s.send(MixerCmd::SetMultiPadVolume { volume: 20 }).unwrap();
+    s.send(RegistrationCmd::RecallRegist { index: 0 }).unwrap();
+    s.advance(10 * MS);
+    assert_eq!(s.state().mixer.multi_pad_volume, 127);
+    let _ = std::fs::remove_dir_all(dir);
+}

@@ -93,6 +93,7 @@
         <div class="mb">
           <!-- Lit only when in effect: the engine ignores it in Lower, where the Launchkey pad is dark too. -->
           <Toggle on={chord.manualBassActive} tip="detection.manual_bass" onclick={() => app.send({ type: 'toggleManualBass' })}>Manual Bass</Toggle>
+          <Toggle on={chord.leftHold} tip="detection.left_hold" onclick={() => app.send({ type: 'toggleLeftHold' })}>Left Hold</Toggle>
           <span class="note engraved">
             {#if chord.manualBassActive}Left plays the style's Bass
             {:else if chord.upper}off

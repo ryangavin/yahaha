@@ -156,6 +156,8 @@
   "mixer.faderPage: string",
   "mixer.master: null",
   "mixer.masterWaiting: boolean",
+  "mixer.multiPadVolume: number",
+  "mixer.multiPadVolumeWaiting: boolean",
   "mixer.partSolo: null",
   "mixer.styleParts: array",
   "mixer.styleParts[].channel: number",

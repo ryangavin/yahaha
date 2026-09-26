@@ -53,6 +53,7 @@ export function tipFor(cmd: AppCmd | null): TipKey {
     case 'toggleStylePart': return 'mixer.style.mute'
     case 'setStylePartVolume': return 'mixer.style.volume'
     case 'setStyleVolume': return 'mixer.style_level'
+    case 'setMultiPadVolume': return 'mixer.pad_level'
     case 'setFingering': return FINGERING[cmd.fingering]
     case 'nextFingering': return 'fingering.next'
     case 'setUpper':

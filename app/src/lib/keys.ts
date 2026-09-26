@@ -91,6 +91,7 @@ export const BINDINGS: Record<string, Binding> = {
   '.': c({ type: 'toggleMetronome' }),
   H: c({ type: 'toggleAccent' }),
   '&': c({ type: 'toggleDynamicsTouch' }),
+  _: c({ type: 'toggleLeftHold' }),
   enter: { app: 'browser' },
   esc: { app: 'escape' },
   '?': { app: 'help' },

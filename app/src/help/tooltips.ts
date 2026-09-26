@@ -517,8 +517,8 @@ const catalog = {
     title: 'Left Hold',
     body: 'Left keeps sounding after you let go of its keys, until you play the next note on Left, stop the style, or turn Left Hold off. A string or organ Left holds your chord across the band. Stored in Registration (Style group).',
     genos: 'LEFT HOLD',
-    keys: [],
-    launchkey: null,
+    keys: ['_'],
+    launchkey: 'Panel fader page: button under fader 7 (orange while on)',
   },
   'split.display': {
     title: 'Split point',
@@ -944,6 +944,13 @@ const catalog = {
     genos: 'Balance › Style (Mixer › Panel › Style)',
     keys: [],
     launchkey: 'Panel fader page: fader 5',
+  },
+  'mixer.pad_level': {
+    title: 'Multi Pad volume',
+    body: 'All four Multi Pads against the band, in one fader: 100 plays each pad at its own level, lower scales the pads\' CC 7 down together (above 100 raises them, up to 127). A Registration stores it with the Multi Pad bank.',
+    genos: 'Balance › M.Pad (Mixer › Panel › Multi Pad)',
+    keys: [],
+    launchkey: 'Panel fader page: fader 6',
   },
   'mixer.style.volume': {
     title: 'Style part volume',

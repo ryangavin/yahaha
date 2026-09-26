@@ -22,8 +22,8 @@ use std::sync::atomic::Ordering::Relaxed;
 const FOLLOW_NS: u64 = 600_000_000;
 
 /// The Panel faders whose level is a scale in percent (100 = as written), not a CC7: the
-/// Style volume (#199). The Multi Pad level (#196) joins here when it has its fader.
-const PERCENT_FADERS: [usize; 1] = [crate::parts::STYLE_LEVEL];
+/// Style volume (#199) and the Multi Pad volume (#196).
+const PERCENT_FADERS: [usize; 2] = [crate::parts::STYLE_LEVEL, crate::parts::PAD_LEVEL];
 
 /// What the display shows: title, name, value.
 pub(super) type Text = (String, String, String);
@@ -302,6 +302,9 @@ mod tests {
         assert_eq!(display_text(Touch::Fader(4), &st), Some(("Faders: Panel".into(), "STYLE".into(), "85%".into())));
         st.surface.faders[4] = f("STYLE", 100, true);
         assert_eq!(display_text(Touch::Fader(4), &st).unwrap().2, "100% > 60%");
+        // Panel fader 6, the Multi Pad volume (#196), too.
+        st.surface.faders.push(f("M.PAD", 70, false));
+        assert_eq!(display_text(Touch::Fader(5), &st).unwrap().2, "70%");
         st.mixer.fader_page = FaderPage::Style;
         st.surface.faders[4] = f("CHORD 2", 85, false);
         assert_eq!(display_text(Touch::Fader(4), &st).unwrap().2, "85");

@@ -43,6 +43,7 @@ const EVERY_CMD: &[&str] = &[
     r#"{"type":"toggleStylePart","part":5}"#,
     r#"{"type":"setStylePartVolume","part":2,"volume":90}"#,
     r#"{"type":"setStyleVolume","volume":80}"#,
+    r#"{"type":"setMultiPadVolume","volume":70}"#,
     r#"{"type":"setStyleSolo","part":3}"#,
     r#"{"type":"setStyleSolo","part":null}"#,
     r#"{"type":"styleTrackMute","order":"b","value":64}"#,
