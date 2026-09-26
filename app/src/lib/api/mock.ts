@@ -1815,6 +1815,9 @@ export class MockSession implements Session {
       case 'setBandSend':
         this.state.effects.blocks.find((x) => x.block === cmd.block)!.bandSend = clampLevel(cmd.level)
         break
+      case 'setPadSend':
+        this.state.effects.blocks.find((x) => x.block === cmd.block)!.padSend = clampLevel(cmd.level)
+        break
     }
   }
 }
@@ -1864,12 +1867,13 @@ function fxParams(block: FxBlock, effect: FxType): FxParamState[] {
 
 /**
  * The effect bus as a session starts it: Hall, Chorus, the dotted 1/8 delay, every return 64;
- * the band's reverb as written (100), no band chorus or delay (#236).
+ * the band's reverb as written (100), no band chorus or delay (#236); the same for the Multi
+ * Pads (#267).
  */
 export function initialEffects(): EffectsState {
   const block = (block: FxBlock, name: string, effect: FxType, types: [FxType, string][], bandSend: number): EffectBlockState => ({
     block, name, effect, effectName: types.find(([t]) => t === effect)![1],
-    types: types.map(([effect, name]) => ({ effect, name })), returnLevel: 64, bandSend, params: fxParams(block, effect),
+    types: types.map(([effect, name]) => ({ effect, name })), returnLevel: 64, bandSend, padSend: bandSend, params: fxParams(block, effect),
     styleEffect: null, followStyle: true,
   })
   return {

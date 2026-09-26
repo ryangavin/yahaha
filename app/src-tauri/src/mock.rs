@@ -1797,6 +1797,7 @@ impl MockSession {
                     for (b, k) in self.state.effects.blocks.iter_mut().zip(kept) {
                         b.follow_style = k.follow_style;
                         b.style_effect = k.style_effect;
+                        b.pad_send = k.pad_send;
                     }
                     // The player's own choice: style changes leave it (#237).
                     self.state.effects.blocks[block.index()].follow_style = false;
@@ -1807,6 +1808,7 @@ impl MockSession {
             AppCmd::Fx(FxCmd::SetEffectReturn { block, level }) => self.state.effects.blocks[block.index()].return_level = level.min(127),
             AppCmd::Fx(FxCmd::SetFollowStyle { block, on }) => self.state.effects.blocks[block.index()].follow_style = on,
             AppCmd::Fx(FxCmd::SetBandSend { block, level }) => self.state.effects.blocks[block.index()].band_send = level.min(127),
+            AppCmd::Fx(FxCmd::SetPadSend { block, level }) => self.state.effects.blocks[block.index()].pad_send = level.min(127),
             AppCmd::Fx(FxCmd::SetEffectParam { block, param, value }) => {
                 if param.spec().block != block.index() {
                     self.message(format!("{} has no {} parameter", block.name(), param.spec().name), true);
@@ -1822,6 +1824,7 @@ impl MockSession {
                     for (b, k) in self.state.effects.blocks.iter_mut().zip(kept) {
                         b.follow_style = k.follow_style;
                         b.style_effect = k.style_effect;
+                        b.pad_send = k.pad_send;
                     }
                 }
             }

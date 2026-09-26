@@ -91,7 +91,9 @@ Registrable { key: "tempo", early: false, capture: tempo_capture, recall: tempo_
   is in `Groups` (what the button memorized, less the frozen groups).
 - One line in `REGISTRABLES` (the recall order).
 
-Today's sections: `style` (early), `multiPad` (early: the bank file, or null for none),
+Today's sections: `style` (early), `multiPad` (early: the bank file, or null for none,
+`level`, the Multi Pad volume, and `sends` (#267), the Multi Pad send per effect block as
+`{ reverb, chorus, variation }` in percent; a bank without them leaves them),
 `tempo`, `chord` (fingering, Upper, Manual Bass, split), `styleControl` (Main, Intro, Sync
 Start/Stop, Stop ACMP and its mode `stopAcmpMode` (Data List p.91: group Style; a bank without it
 recalls only on/off), OTS Link), `styleMixer` (the 8 Style parts' CC7, on/off, and `set`:
@@ -182,7 +184,7 @@ first).
 | Voice | Right 1–3: voice, on/off, volume, octave, pan, reverb and chorus sends, voice settings (filter, EG, vibrato, portamento, XG part parameters) and pitch bend range (#238) |
 | Tempo | the tempo, in whole BPM as on the Genos panel (recalled as SET TEMPO) |
 | Transpose | Keyboard and Master transpose |
-| Multi Pad | the Multi Pad bank (Data List "Multi Pad File"; a bank already chosen is left playing) and the Multi Pad volume (#196; a bank without it leaves it). Not the pads' Synchro Start standby |
+| Multi Pad | the Multi Pad bank (Data List "Multi Pad File"; a bank already chosen is left playing) the Multi Pad volume (#196; a bank without it leaves it) and the Multi Pad effect sends (#267; likewise). Not the pads' Synchro Start standby |
 | Assignable | the Fade In, Fade Out and Fade Out Hold times (Data List: Freeze group "Assignable Buttons") |
 | Keyboard Harmony/Arpeggio | the `harmonyArp` section |
 | Chord Looper | the Chord Looper's memory, its sequence and ON/OFF (a recall arms the loop, from the next bar line or with the style, or stops it at once; a recording under way is left alone) |

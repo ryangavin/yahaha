@@ -27,8 +27,9 @@
 //! scoops, falls) and roughly rise in intensity. Their noise keys are still left out.
 //!
 //! Only bank 8 LSB 0 holds MegaVoices: the Data List's MegaVoice Map lists no other bank.
-//! The Ensemble parts' bank 9 (S.Art!, S.Art2!) and bank 104 (Live!, Cool!, S.Art!,
-//! Regular) voices have no noise keys or noise zones, so they play as written (#270).
+//! The voices on banks 9 (S.Art!, S.Art2!), 10 (Organ Flutes), 104 and 109 (Live!, Cool!,
+//! Sweet!, S.Art!, Regular) have no noise keys or noise zones, so they play as written
+//! (#270, #272).
 //!
 //! The note's written key and velocity pick its articulation, as on the Genos. The pattern
 //! writes a noise key where the author heard one, so it is the source key that counts:
@@ -230,8 +231,8 @@ mod tests {
 
     #[test]
     fn other_voices_play_as_written() {
-        // Banks 9 and 104 hold no MegaVoices (#270): their S.Art!, S.Art2!, Live!, Cool!
-        // and Regular voices have no noise keys, so they play as written.
+        // Banks 9, 10, 104 and 109 hold no MegaVoices (#270, #272): their voices have no
+        // noise keys, so they play as written.
         let others = [
             None,
             Some((0, 0, 24)),
@@ -240,6 +241,8 @@ mod tests {
             Some((9, 32, 43)),  // Seattle1stViolins
             Some((9, 66, 80)),  // TenorSax
             Some((9, 32, 39)),  // Haa
+            Some((10, 0, 0)),   // JazzStandard (Organ Flutes)
+            Some((109, 3, 56)), // OrchTrumpets
             Some((104, 0, 0)),
             Some((104, 0, 25)), // SteelAcoustic
             Some((104, 0, 36)), // ActiveBassSlap

@@ -1,5 +1,6 @@
 //! The shared effect bus (#204; `crate::fx`): each System Effect block's type and return
-//! level, and its band send (#236), the scale on every Style part's send to it. The
+//! level, its band send (#236), the scale on every Style part's send to it, and its Multi
+//! Pad send (#267), the same for the pads. The
 //! keyboard parts' sends to it are `setPartSend` (CC91/93/94).
 
 use serde::{Deserialize, Serialize};
@@ -14,6 +15,9 @@ pub enum FxCmd {
     /// A block's band send (#236): every Style part's send to it scaled, 0-127 % (100 =
     /// as the style wrote it, 0 = none of the band).
     SetBandSend { block: FxBlock, level: u8 },
+    /// A block's Multi Pad send (#267): every Multi Pad's send to it scaled, 0-127 % (100
+    /// = as the pad wrote it, 0 = none of the pads).
+    SetPadSend { block: FxBlock, level: u8 },
     /// One of a block's parameters (#236; `EffectBlockState::params`), in its own unit,
     /// clamped to its range. A parameter of another block is refused.
     SetEffectParam { block: FxBlock, param: FxParam, value: u16 },
@@ -134,6 +138,7 @@ impl EffectsState {
                     types: b.types().iter().map(|&t| FxOption { effect: t, name: t.name().into() }).collect(),
                     return_level: returns[b.index()],
                     band_send: band[b.index()],
+                    pad_send: crate::fx::PAD_SEND_DEFAULT[b.index()],
                     params: FxParamState::of_block(b, effect, &params),
                     style_effect: None,
                     follow_style: true,
@@ -167,6 +172,9 @@ pub struct EffectBlockState {
     /// The band send (#236): every Style part's send to this block scaled, 0-127 % (100 =
     /// as written). Reverb 100, Chorus 0, Variation 0 until something sets it.
     pub band_send: u8,
+    /// The Multi Pad send (#267): every Multi Pad's send to this block scaled, 0-127 % (100
+    /// = as written). Reverb 100, Chorus 0, Variation 0 until something sets it.
+    pub pad_send: u8,
     /// Its parameters (#236), in order. Reverb: time, pre-delay, tone. Chorus: rate,
     /// depth. Variation: tempo sync, note, time (ms), feedback, tone, ping-pong.
     pub params: Vec<FxParamState>,

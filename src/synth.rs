@@ -470,10 +470,10 @@ pub fn feeds() -> Feeds {
 }
 
 /// GM program to use for a Yamaha voice. Yamaha's GM/XG banks (MSB 0) follow GM
-/// numbering, and so does the Genos's bank 104. Banks 8 (MegaVoice, S.Art!) and 9 (the
-/// Ensemble parts' S.Art! voices) number their voices by instrument, which the Data List's
-/// tables map to GM (`voice_gm`, #228, #270). For the other Genos-only banks, the part's
-/// role decides when the number would land in the wrong instrument family.
+/// numbering, and so do the Genos's banks 104 and 109. Banks 8 (MegaVoice, S.Art!), 9 (the
+/// Ensemble parts' S.Art! voices) and 10 (Organ Flutes) number their voices by instrument,
+/// which the Data List's tables map to GM (`voice_gm`, #228, #270, #272). After that, the
+/// part's role decides when the number would land in the wrong instrument family.
 pub fn gm_fallback(dest: u8, msb: u8, prog: u8) -> u8 {
     if msb == 0 {
         return prog;
@@ -707,6 +707,8 @@ pub struct AudioCore {
     legacy: bool,
     /// The band send scales (#236) as they glide towards `FxControl::band_send`.
     band_scale: [f32; crate::fx::BUSES],
+    /// The Multi Pad send scales (#267) as they glide towards `FxControl::pad_send`.
+    pad_scale: [f32; crate::fx::BUSES],
     sample_rate: f32,
 }
 
@@ -760,6 +762,7 @@ impl AudioCore {
             sends_dirty: true,
             legacy: false,
             band_scale: crate::fx::BAND_SEND_DEFAULT.map(crate::fx::band_scale),
+            pad_scale: crate::fx::PAD_SEND_DEFAULT.map(crate::fx::band_scale),
             sample_rate: sample_rate.max(1) as f32,
         };
         (core, RackSwap { tx: swap_tx, old: old_rx }, Some(link))
@@ -930,17 +933,11 @@ impl AudioCore {
             }
         }
         let frames = (out.len() / channels).min(self.left.len());
-        // The band send scales glide to where the control side set them (about 30 ms),
-        // one step a buffer, so a change never clicks.
+        // The band and Multi Pad send scales glide to where the control side set them
+        // (about 30 ms), one step a buffer, so a change never clicks.
         let k = 1.0 - (-(frames as f32) / (BAND_GLIDE_S * self.sample_rate)).exp();
-        for (b, scale) in self.band_scale.iter_mut().enumerate() {
-            let target = crate::fx::band_scale(ctl.fx.band_send[b].load(Relaxed));
-            if *scale != target {
-                let d = target - *scale;
-                *scale = if d.abs() < 1e-3 { target } else { *scale + d * k };
-                self.sends_dirty = true;
-            }
-        }
+        self.sends_dirty |= glide_scales(&mut self.band_scale, &ctl.fx.band_send, k);
+        self.sends_dirty |= glide_scales(&mut self.pad_scale, &ctl.fx.pad_send, k);
         if self.sends_dirty {
             self.sends_dirty = false;
             for (ch, (g, cc)) in self.send_gains.iter_mut().zip(&self.send_cc).enumerate() {
@@ -948,6 +945,8 @@ impl AudioCore {
                     [0.0; crate::fx::BUSES]
                 } else if crate::fx::BAND_CHANNELS.contains(&ch) {
                     std::array::from_fn(|b| crate::fx::band_send_gain(cc[b], self.band_scale[b]))
+                } else if crate::fx::PAD_CHANNELS.contains(&ch) {
+                    std::array::from_fn(|b| crate::fx::band_send_gain(cc[b], self.pad_scale[b]))
                 } else {
                     cc.map(crate::fx::send_gain)
                 };
@@ -1026,6 +1025,21 @@ impl AudioCore {
             ctl.clips.fetch_add(1, Relaxed);
         }
     }
+}
+
+/// Glide each send scale (`scales`, gains) a step `k` towards its control value
+/// (`targets`, 0-127 %), snapping when close. True: one moved.
+fn glide_scales(scales: &mut [f32; crate::fx::BUSES], targets: &[std::sync::atomic::AtomicU8; crate::fx::BUSES], k: f32) -> bool {
+    let mut moved = false;
+    for (scale, t) in scales.iter_mut().zip(targets) {
+        let target = crate::fx::band_scale(t.load(Relaxed));
+        if *scale != target {
+            let d = target - *scale;
+            *scale = if d.abs() < 1e-3 { target } else { *scale + d * k };
+            moved = true;
+        }
+    }
+    moved
 }
 
 /// Send a played-out rack back to the control side to be freed there. The ring is never
@@ -1533,36 +1547,45 @@ mod rack_tests {
     /// delay only as far as the Delay band send lets it: off by default, as written at
     /// 100%. A keyboard part's (channel 1) send is never scaled. A change glides in over
     /// a few buffers rather than jumping.
+    /// The energy of a note's delay echoes on `ch` (sent to the delay at `send`), with
+    /// `setup` run on the control first. Reverb and chorus returns are off.
+    fn delay_tail(font: &Arc<SoundFont>, ch: u8, send: u8, setup: impl Fn(&SynthControl)) -> f64 {
+        let rack = Box::new(Rack::new(font, 48_000).unwrap());
+        let (mut tx, rx) = RingBuffer::<Msg>::new(64);
+        let ctl = Arc::new(SynthControl::new(0));
+        ctl.fx.reverb_return.store(0, Relaxed);
+        ctl.fx.chorus_return.store(0, Relaxed);
+        setup(&ctl);
+        let (mut core, _swap, _link) = AudioCore::new(Some(rack), vec![rx], Arc::new(Parts::new()), ctl, 48_000, 2);
+        let mut out = vec![0f32; 256];
+        let mut energy = |core: &mut AudioCore, buffers: usize| {
+            let mut e = 0f64;
+            for _ in 0..buffers {
+                core.process(&mut out);
+                e += out.iter().map(|x| (*x as f64).powi(2)).sum::<f64>();
+            }
+            e
+        };
+        for m in [[0xC0 | ch, 0, 0], [0xB0 | ch, 94, send], [0x90 | ch, 60, 110]] {
+            tx.push(m).unwrap();
+        }
+        energy(&mut core, 40);
+        tx.push([0x80 | ch, 60, 0]).unwrap();
+        // Past the note's release, into the echoes (a dotted 1/8 at 120 is 375 ms).
+        energy(&mut core, 60);
+        energy(&mut core, 150)
+    }
+
     #[test]
     fn the_band_send_scales_only_the_style_parts() {
         let Some(font) = font() else { return };
         let play = |ch: u8, band: Option<u8>, send: u8| -> (f64, f64) {
-            let rack = Box::new(Rack::new(&font, 48_000).unwrap());
-            let (mut tx, rx) = RingBuffer::<Msg>::new(64);
-            let ctl = Arc::new(SynthControl::new(0));
-            ctl.fx.reverb_return.store(0, Relaxed);
-            ctl.fx.chorus_return.store(0, Relaxed);
-            if let Some(b) = band {
-                ctl.fx.band_send[crate::fx::VARIATION].store(b, Relaxed);
-            }
-            let (mut core, _swap, _link) = AudioCore::new(Some(rack), vec![rx], Arc::new(Parts::new()), ctl, 48_000, 2);
-            let mut out = vec![0f32; 256];
-            let mut energy = |core: &mut AudioCore, buffers: usize| {
-                let mut e = 0f64;
-                for _ in 0..buffers {
-                    core.process(&mut out);
-                    e += out.iter().map(|x| (*x as f64).powi(2)).sum::<f64>();
+            let e = delay_tail(&font, ch, send, |ctl| {
+                if let Some(b) = band {
+                    ctl.fx.band_send[crate::fx::VARIATION].store(b, Relaxed);
                 }
-                e
-            };
-            for m in [[0xC0 | ch, 0, 0], [0xB0 | ch, 94, send], [0x90 | ch, 60, 110]] {
-                tx.push(m).unwrap();
-            }
-            energy(&mut core, 40);
-            tx.push([0x80 | ch, 60, 0]).unwrap();
-            // Past the note's release, into the echoes (a dotted 1/8 at 120 is 375 ms).
-            energy(&mut core, 60);
-            (energy(&mut core, 150), energy(&mut core, 1))
+            });
+            (e, 0.0)
         };
         let (dry, _) = play(10, None, 0);
         let (style_default, _) = play(10, None, 127);
@@ -1590,6 +1613,28 @@ mod rack_tests {
         }
         assert_eq!(core.band_scale[crate::fx::CHORUS], 1.0, "and arrives");
         assert_eq!(core.send_gains[10][crate::fx::CHORUS], 0.0, "no send, no gain");
+    }
+
+    /// #267: the Multi Pad send scales. A pad's (channel 6) delay send reaches the delay
+    /// only as far as the pads' Delay scale lets it: off by default, as written at 100%.
+    /// The band's scale doesn't touch the pads, nor the pads' scale the band.
+    #[test]
+    fn the_pad_send_scales_only_the_pads() {
+        let Some(font) = font() else { return };
+        let v = crate::fx::VARIATION;
+        let dry = delay_tail(&font, 5, 0, |_| {});
+        let pad_default = delay_tail(&font, 5, 127, |_| {});
+        let pad_full = delay_tail(&font, 5, 127, |c| c.fx.pad_send[v].store(100, Relaxed));
+        let pad_band_full = delay_tail(&font, 5, 127, |c| c.fx.band_send[v].store(100, Relaxed));
+        let style_pad_full = delay_tail(&font, 10, 127, |c| c.fx.pad_send[v].store(100, Relaxed));
+        let style_dry = delay_tail(&font, 10, 0, |_| {});
+        assert!(dry > 0.0 && (pad_default - dry).abs() <= dry * 1e-6, "by default no delay on the pads: {pad_default} vs {dry}");
+        assert!(pad_full > dry * 2.0, "at 100% the pad's delay send plays: {pad_full} vs {dry}");
+        assert!((pad_band_full - dry).abs() <= dry * 1e-6, "the band's scale leaves the pads alone");
+        assert!((style_pad_full - style_dry).abs() <= style_dry * 1e-6, "the pads' scale leaves the band alone");
+        // Half way: less than full, more than none.
+        let pad_half = delay_tail(&font, 5, 127, |c| c.fx.pad_send[v].store(50, Relaxed));
+        assert!(pad_half > dry * 1.2 && pad_half < pad_full * 0.6, "{pad_half} between {dry} and {pad_full}");
     }
 
     #[test]
