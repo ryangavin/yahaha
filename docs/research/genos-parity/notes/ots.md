@@ -95,7 +95,7 @@ message), both pending.
 
 | Gap | Priority | Suggested next step |
 |---|---|---|
-| OTS recall drops the parts' pan, reverb/chorus sends, filter/EG, portamento, bend range and XG part parameters that the OTS tracks carry | P1 | Extend `parse_ots` to keep the per-part CC10/91/93/71–74/5/65, RPN/NRPN and XG part SysEx (as `ChannelInit` does for the style), and send them on recall on the part's channel; a recall test on a corpus style |
+| ~~OTS recall drops the parts' pan, sends, filter/EG, portamento, bend range and XG part parameters~~ Done (#198, #238). A voice change puts filter/EG/vibrato/portamento/XG back to neutral (Voice Set); bend range stays (DL: not Voice Set). The built-in synth only sounds the bend range (#246); plugins never get the XG SysEx (#247) | – | #246, #247 |
 | OTS doesn't switch Keyboard Harmony/Arpeggio or its type/volume (DL: OTS items) | P1 | Decode the unparsed `43 73 01 50/51` OTS SysEx against a Genos (Style Information / Harmony display after an OTS press); if they carry Harmony/Arp, apply them through the harmony_arp commands |
 | OTS doesn't recall a Multi Pad bank or its volume offset | P2 | After the SysEx is decoded: map to yahaha's pad banks by name when one exists, else leave pads alone and say so |
 | No user OTS memorize (MEMORY → OTS button) | P2 | Owner decision on storage: a yahaha sidecar keyed by style file, or writing a User copy of the `.sty` with a new OTSc chunk (Genos-like). Include plugin/patch voices (#104, #179) |

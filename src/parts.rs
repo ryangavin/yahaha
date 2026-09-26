@@ -263,7 +263,7 @@ impl Parts {
         (0..XG_SLOTS)
             .filter_map(|i| {
                 let v = self.xg[part % COUNT][i].load(Relaxed);
-                (v != NO_FX).then(|| (if i < 128 { 0x08 } else { 0x0A }, (i & 0x7F) as u8, v))
+                (v != NO_FX).then_some((if i < 128 { 0x08 } else { 0x0A }, (i & 0x7F) as u8, v))
             })
             .collect()
     }
