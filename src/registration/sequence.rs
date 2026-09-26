@@ -101,9 +101,9 @@ impl Sequence {
         (0..n).map(|i| (start + i) % n).find(|&i| self.steps[i] == button).or(pos)
     }
 
-    /// Keep only valid steps (buttons 0-9, at most `MAX_STEPS`).
+    /// Keep only valid steps (snapshot indices below `MAX_SLOTS`, at most `MAX_STEPS`).
     pub fn clean(mut self) -> Sequence {
-        self.steps.retain(|&b| (b as usize) < super::BUTTONS);
+        self.steps.retain(|&b| (b as usize) < super::MAX_SLOTS);
         self.steps.truncate(MAX_STEPS);
         self
     }
@@ -156,7 +156,7 @@ mod tests {
 
     #[test]
     fn clean_drops_bad_steps() {
-        let s = Sequence { steps: vec![1, 10, 9, 200], end: SequenceEnd::Stop }.clean();
-        assert_eq!(s.steps, [1, 9]);
+        let s = Sequence { steps: vec![1, 64, 10, 63, 200], end: SequenceEnd::Stop }.clean();
+        assert_eq!(s.steps, [1, 10, 63], "snapshots A1-H8 (0-63)");
     }
 }

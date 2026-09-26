@@ -290,10 +290,10 @@ impl Control {
     }
 }
 
-/// A record as stored: a name (its file's, if none), a button 0-9.
+/// A record as stored: a name (its file's, if none), a snapshot index.
 fn clean(mut r: Record) -> Record {
     if let RecordTarget::Bank { regist, .. } = &mut r.target {
-        *regist = regist.filter(|&i| (i as usize) < reg::BUTTONS);
+        *regist = regist.filter(|&i| (i as usize) < reg::MAX_SLOTS);
     }
     if r.name.trim().is_empty() {
         let p = Path::new(r.target.path());

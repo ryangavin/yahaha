@@ -125,7 +125,7 @@ pub fn function_run(f: Function, fingering: crate::fingering::Fingering, ots_cou
             | Function::Regist7
             | Function::Regist8
             | Function::Regist9
-            | Function::Regist10 => super::RegistrationCmd::PressRegist { index: f as u8 - Function::Regist1 as u8 }.into(),
+            | Function::Regist10 => super::RegistrationCmd::PressSnapshot { slot: f as u8 - Function::Regist1 as u8 }.into(),
             Function::RegistMemory => super::RegistrationCmd::ToggleRegistMemory.into(),
             Function::RegistFreeze => super::RegistrationCmd::ToggleFreeze.into(),
             Function::RegistSequence => super::RegistrationCmd::ToggleRegistSequence.into(),
