@@ -26,6 +26,9 @@ pub enum FxBlock {
 
 impl FxBlock {
     pub const ALL: [FxBlock; 3] = [FxBlock::Reverb, FxBlock::Chorus, FxBlock::Variation];
+    /// Each block's type before anything sets it (Genos: Hall, Chorus; here the dotted 1/8
+    /// delay).
+    pub const DEFAULT_TYPES: [FxType; 3] = [FxType::Hall, FxType::Chorus, FxType::DottedEighth];
 
     pub fn index(self) -> usize {
         self as usize
@@ -94,6 +97,32 @@ impl FxType {
 pub struct EffectsState {
     /// Reverb, Chorus, Variation.
     pub blocks: Vec<EffectBlockState>,
+}
+
+impl EffectsState {
+    /// The blocks with these types and return levels (by `FxBlock::index`).
+    pub fn new(effect: [FxType; 3], returns: [u8; 3]) -> EffectsState {
+        let blocks = FxBlock::ALL
+            .iter()
+            .map(|&b| {
+                let effect = effect[b.index()];
+                EffectBlockState {
+                    block: b,
+                    name: b.name().into(),
+                    effect,
+                    effect_name: effect.name().into(),
+                    types: b.types().iter().map(|&t| FxOption { effect: t, name: t.name().into() }).collect(),
+                    return_level: returns[b.index()],
+                }
+            })
+            .collect();
+        EffectsState { blocks }
+    }
+
+    /// As a session starts: Hall, Chorus, the dotted 1/8 delay, every return 64 (0 dB).
+    pub fn initial() -> EffectsState {
+        EffectsState::new(FxBlock::DEFAULT_TYPES, [crate::fx::RETURN_UNITY; 3])
+    }
 }
 
 /// One block.

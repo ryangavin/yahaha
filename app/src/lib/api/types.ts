@@ -188,6 +188,38 @@ export type AppCmd =
   | DynamicsCmd
   // Knob Assign pages for the Launchkey's encoders (#197): see KnobsState below.
   | KnobsCmd
+  // The effect bus (#204): see EffectsState below.
+  | FxCmd
+
+/** The effect bus's blocks (#204; docs/app-api.md › Effects). */
+export type FxCmd =
+  | { type: 'setEffectType'; block: FxBlock; effect: FxType }
+  | { type: 'setEffectReturn'; block: FxBlock; level: number }
+
+export type FxBlock = 'reverb' | 'chorus' | 'variation'
+/** Reverb: hall, room, stage, plate. Chorus: chorus, celeste, flanger. Variation (tempo delay): eighth, dottedEighth, quarter, pingPong. */
+export type FxType =
+  | 'hall' | 'room' | 'stage' | 'plate'
+  | 'chorus' | 'celeste' | 'flanger'
+  | 'eighth' | 'dottedEighth' | 'quarter' | 'pingPong'
+
+/** The effect bus: Reverb, Chorus and Variation, in that order. */
+export interface EffectsState {
+  blocks: EffectBlockState[]
+}
+
+export interface EffectBlockState {
+  block: FxBlock
+  /** "Reverb". */
+  name: string
+  effect: FxType
+  /** "Hall", "Delay 1/8.". */
+  effectName: string
+  /** The block's own types. */
+  types: { effect: FxType; name: string }[]
+  /** 0-127: 64 = 0 dB, 127 = +6 dB, 0 = off. */
+  returnLevel: number
+}
 
 /** Knob Assign pages (#197; docs/app-api.md › Knob Assign pages). */
 export type KnobsCmd =
@@ -210,6 +242,7 @@ export type KnobFunction =
   | 'partPan'
   | 'partReverb'
   | 'partChorus'
+  | 'fxReturn'
 
 /** The Knob Assign page and its eight knobs. */
 export interface KnobsState {
@@ -472,8 +505,8 @@ export interface ChordState {
 /** The widest chord-settle window, ms (`setChordSettle`). */
 export const CHORD_SETTLE_MAX_MS = 30
 
-/** A keyboard part's effect send (`setPartSend`): reverb (CC 91) or chorus (CC 93). */
-export type PartSend = 'reverb' | 'chorus'
+/** A keyboard part's effect send (`setPartSend`): reverb (CC 91), chorus (CC 93) or variation, the tempo delay (CC 94). */
+export type PartSend = 'reverb' | 'chorus' | 'variation'
 
 export interface KeyboardPart {
   /** "Right 1", "Right 2", "Right 3", "Left". */
@@ -493,10 +526,12 @@ export interface KeyboardPart {
   octave: number
   /** Pan (CC 10): 0 left, 64 centre, 127 right. 64 until something sets it. */
   pan: number
-  /** Reverb send depth (CC 91); 40, the GM power-on value, until something sets it. */
+  /** Reverb send depth (CC 91); 50 (Left 40) until something sets it. */
   reverb: number
-  /** Chorus send depth (CC 93); 0 until something sets it. */
+  /** Chorus send depth (CC 93); 10 until something sets it. */
   chorus: number
+  /** Variation (tempo delay) send depth (CC 94); 0 until something sets it. */
+  variation: number
   /** Where its Launchkey fader (Panel page, faders 1–4) physically is; null until it moves. */
   fader: number | null
   /** The instrument plugin it plays instead of its SoundFont voice (absent: the SoundFont). */
@@ -966,6 +1001,8 @@ export interface AppState {
   dynamics: DynamicsState
   /** Knob Assign pages for the Launchkey's encoders (#197). */
   knobs: KnobsState
+  /** The effect bus's Reverb, Chorus and Variation blocks (#204). */
+  effects: EffectsState
 }
 
 // ── Instrument plugins (docs/plugin-hosting.md) ──────────────────────────

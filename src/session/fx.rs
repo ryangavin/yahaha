@@ -4,7 +4,7 @@
 //! The audio thread reads them from `SynthControl::fx`, which `pump_fx` keeps up to date.
 
 use super::Control;
-use crate::api::{CmdError, EffectBlockState, EffectsState, FxBlock, FxCmd, FxOption, FxType};
+use crate::api::{CmdError, EffectsState, FxBlock, FxCmd, FxType};
 use crate::registration::{Group, Groups};
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::Ordering::Relaxed;
@@ -19,7 +19,7 @@ pub(super) struct FxSettings {
 impl Default for FxSettings {
     /// The Genos defaults: Hall, Chorus, and here the dotted 1/8 delay; every return 0 dB.
     fn default() -> FxSettings {
-        FxSettings { effect: [FxType::Hall, FxType::Chorus, FxType::DottedEighth], returns: [crate::fx::RETURN_UNITY; 3] }
+        FxSettings { effect: FxBlock::DEFAULT_TYPES, returns: [crate::fx::RETURN_UNITY; 3] }
     }
 }
 
@@ -109,21 +109,7 @@ impl Control {
     }
 
     pub(super) fn effects_state(&self) -> EffectsState {
-        let blocks = FxBlock::ALL
-            .iter()
-            .map(|&b| {
-                let effect = self.fx.effect[b.index()];
-                EffectBlockState {
-                    block: b,
-                    name: b.name().into(),
-                    effect,
-                    effect_name: effect.name().into(),
-                    types: b.types().iter().map(|&t| FxOption { effect: t, name: t.name().into() }).collect(),
-                    return_level: self.fx.returns[b.index()],
-                }
-            })
-            .collect();
-        EffectsState { blocks }
+        EffectsState::new(self.fx.effect, self.fx.returns)
     }
 }
 
