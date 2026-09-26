@@ -419,10 +419,6 @@
         "channel": 9,
         "on": true,
         "mutedByManualBass": false,
-        "reverb": 40,
-        "chorus": 0,
-        "variation": 0,
-        "sendsSet": [],
         "volume": 65,
         "waiting": false,
         "fader": null,
@@ -432,17 +428,17 @@
           "program": 57,
           "kit": true,
           "label": "drum kit 127/0/58"
-        }
+        },
+        "reverb": 40,
+        "chorus": 0,
+        "variation": 0,
+        "sendsSet": []
       },
       {
         "name": "Rhythm 2",
         "channel": 10,
         "on": true,
         "mutedByManualBass": false,
-        "reverb": 40,
-        "chorus": 0,
-        "variation": 0,
-        "sendsSet": [],
         "volume": 70,
         "waiting": false,
         "fader": null,
@@ -452,17 +448,17 @@
           "program": 56,
           "kit": true,
           "label": "drum kit 127/0/57"
-        }
+        },
+        "reverb": 40,
+        "chorus": 0,
+        "variation": 0,
+        "sendsSet": []
       },
       {
         "name": "Bass",
         "channel": 11,
         "on": true,
         "mutedByManualBass": false,
-        "reverb": 40,
-        "chorus": 0,
-        "variation": 0,
-        "sendsSet": [],
         "volume": 74,
         "waiting": false,
         "fader": null,
@@ -472,17 +468,17 @@
           "program": 87,
           "kit": false,
           "label": "≈ Finger Bass  [Yamaha 104/18/88]"
-        }
+        },
+        "reverb": 40,
+        "chorus": 0,
+        "variation": 0,
+        "sendsSet": []
       },
       {
         "name": "Chord 1",
         "channel": 12,
         "on": true,
         "mutedByManualBass": false,
-        "reverb": 40,
-        "chorus": 0,
-        "variation": 0,
-        "sendsSet": [],
         "volume": 60,
         "waiting": false,
         "fader": null,
@@ -492,31 +488,31 @@
           "program": 18,
           "kit": false,
           "label": "≈ Rock Organ  [Yamaha 0/117/19]"
-        }
+        },
+        "reverb": 40,
+        "chorus": 0,
+        "variation": 0,
+        "sendsSet": []
       },
       {
         "name": "Chord 2",
         "channel": 13,
         "on": true,
         "mutedByManualBass": false,
-        "reverb": 40,
-        "chorus": 0,
-        "variation": 0,
-        "sendsSet": [],
         "volume": 100,
         "waiting": false,
         "fader": null,
-        "voice": null
+        "voice": null,
+        "reverb": 40,
+        "chorus": 0,
+        "variation": 0,
+        "sendsSet": []
       },
       {
         "name": "Pad",
         "channel": 14,
         "on": true,
         "mutedByManualBass": false,
-        "reverb": 40,
-        "chorus": 0,
-        "variation": 0,
-        "sendsSet": [],
         "volume": 60,
         "waiting": false,
         "fader": null,
@@ -526,17 +522,17 @@
           "program": 89,
           "kit": false,
           "label": "≈ Warm Pad  [Yamaha 0/115/90]"
-        }
+        },
+        "reverb": 40,
+        "chorus": 0,
+        "variation": 0,
+        "sendsSet": []
       },
       {
         "name": "Phrase 1",
         "channel": 15,
         "on": true,
         "mutedByManualBass": false,
-        "reverb": 40,
-        "chorus": 0,
-        "variation": 0,
-        "sendsSet": [],
         "volume": 61,
         "waiting": false,
         "fader": null,
@@ -546,17 +542,17 @@
           "program": 7,
           "kit": false,
           "label": "≈ Clavinet  [Yamaha 0/113/8]"
-        }
+        },
+        "reverb": 40,
+        "chorus": 0,
+        "variation": 0,
+        "sendsSet": []
       },
       {
         "name": "Phrase 2",
         "channel": 16,
         "on": true,
         "mutedByManualBass": false,
-        "reverb": 40,
-        "chorus": 0,
-        "variation": 0,
-        "sendsSet": [],
         "volume": 65,
         "waiting": false,
         "fader": null,
@@ -566,7 +562,11 @@
           "program": 80,
           "kit": false,
           "label": "≈ Square Lead  [Yamaha 104/24/81]"
-        }
+        },
+        "reverb": 40,
+        "chorus": 0,
+        "variation": 0,
+        "sendsSet": []
       }
     ],
     "master": null,
