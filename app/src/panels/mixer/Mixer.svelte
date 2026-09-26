@@ -68,6 +68,8 @@
     delayFeedback: 'fx.param.delay_feedback',
     delayTone: 'fx.param.delay_tone',
     pingPong: 'fx.param.ping_pong',
+    chorusRate: 'fx.param.chorus_rate',
+    chorusDepth: 'fx.param.chorus_depth',
   }
   /** The delay's note value plays with tempo sync on, its free time with it off. */
   function paramOff(b: EffectBlockState, p: FxParam): boolean {

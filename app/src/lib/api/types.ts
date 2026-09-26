@@ -206,13 +206,15 @@ export type FxCmd =
   | { type: 'setEffectParam'; block: FxBlock; param: FxParam; value: number }
 
 /**
- * Reverb: reverbTime (0.1 s), preDelay (ms), reverbTone (100 Hz). Variation (delay): delaySync
+ * Reverb: reverbTime (0.1 s), preDelay (ms), reverbTone (100 Hz). Chorus: chorusRate (0.01 Hz),
+ * chorusDepth (0.1 ms). Variation (delay): delaySync
  * (0/1), delayNote (0-7: 1/16 … 1/2), delayTime (ms), delayFeedback (%), delayTone (100 Hz),
  * pingPong (0/1).
  */
 export type FxParam =
   | 'reverbTime' | 'preDelay' | 'reverbTone'
   | 'delaySync' | 'delayNote' | 'delayTime' | 'delayFeedback' | 'delayTone' | 'pingPong'
+  | 'chorusRate' | 'chorusDepth'
 
 /** One effect parameter (#236). */
 export interface FxParamState {
@@ -264,7 +266,7 @@ export type KnobsCmd =
   | { type: 'stepKnobPage'; delta: number }
   | { type: 'turnKnob'; knob: number; delta: number }
 
-export type KnobPage = 'style' | 'parts' | 'pan' | 'effects'
+export type KnobPage = 'style' | 'parts' | 'pan' | 'effects' | 'fx'
 export type KnobFunction =
   | 'none'
   | 'dynamics'
@@ -280,6 +282,8 @@ export type KnobFunction =
   | 'partReverb'
   | 'partChorus'
   | 'fxReturn'
+  | 'fxParam'
+  | 'delayTime'
 
 /** The Knob Assign page and its eight knobs. */
 export interface KnobsState {

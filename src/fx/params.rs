@@ -30,10 +30,14 @@ pub enum Param {
     DelayTone = 7,
     /// Delay ping-pong: 1 = the repeats alternate left and right.
     PingPong = 8,
+    /// Chorus rate: the LFO speed, 0.01 Hz steps: 5-500 (0.05-5 Hz).
+    ChorusRate = 9,
+    /// Chorus depth: how far the taps swing, 0.1 ms steps: 0-50 (0-5 ms).
+    ChorusDepth = 10,
 }
 
 /// How many parameters there are (`FxControl::params`).
-pub const PARAMS: usize = 9;
+pub const PARAMS: usize = 11;
 
 /// A parameter's block, range and names.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -46,6 +50,10 @@ pub struct Spec {
     pub name: &'static str,
     /// Up to 8 characters, for a knob: "RevTime".
     pub short: &'static str,
+    /// With its block, for a knob: "Reverb Time".
+    pub full: &'static str,
+    /// How far a knob step moves it.
+    pub step: u16,
 }
 
 impl Param {
@@ -59,6 +67,8 @@ impl Param {
         Param::DelayFeedback,
         Param::DelayTone,
         Param::PingPong,
+        Param::ChorusRate,
+        Param::ChorusDepth,
     ];
 
     pub fn index(self) -> usize {
@@ -66,17 +76,19 @@ impl Param {
     }
 
     pub fn spec(self) -> Spec {
-        let s = |block, min, max, name, short| Spec { block, min, max, name, short };
+        let s = |block, min, max, name, short, full, step| Spec { block, min, max, name, short, full, step };
         match self {
-            Param::ReverbTime => s(super::REVERB, 3, 100, "Time", "RevTime"),
-            Param::PreDelay => s(super::REVERB, 0, 200, "Pre-delay", "PreDly"),
-            Param::ReverbTone => s(super::REVERB, 10, 200, "Tone", "RevTone"),
-            Param::DelaySync => s(super::VARIATION, 0, 1, "Tempo sync", "DlySync"),
-            Param::DelayNote => s(super::VARIATION, 0, super::delay::NOTES.len() as u16 - 1, "Note", "DlyNote"),
-            Param::DelayTime => s(super::VARIATION, 10, 2000, "Time", "DlyTime"),
-            Param::DelayFeedback => s(super::VARIATION, 0, 90, "Feedback", "DlyFdbk"),
-            Param::DelayTone => s(super::VARIATION, 10, 200, "Tone", "DlyTone"),
-            Param::PingPong => s(super::VARIATION, 0, 1, "Ping-pong", "PingPong"),
+            Param::ReverbTime => s(super::REVERB, 3, 100, "Time", "RevTime", "Reverb Time", 1),
+            Param::PreDelay => s(super::REVERB, 0, 200, "Pre-delay", "PreDly", "Reverb Pre-delay", 2),
+            Param::ReverbTone => s(super::REVERB, 10, 200, "Tone", "RevTone", "Reverb Tone", 2),
+            Param::DelaySync => s(super::VARIATION, 0, 1, "Tempo sync", "DlySync", "Delay Tempo Sync", 1),
+            Param::DelayNote => s(super::VARIATION, 0, super::delay::NOTES.len() as u16 - 1, "Note", "DlyNote", "Delay Note", 1),
+            Param::DelayTime => s(super::VARIATION, 10, 2000, "Time", "DlyTime", "Delay Time", 10),
+            Param::DelayFeedback => s(super::VARIATION, 0, 90, "Feedback", "DlyFdbk", "Delay Feedback", 2),
+            Param::DelayTone => s(super::VARIATION, 10, 200, "Tone", "DlyTone", "Delay Tone", 2),
+            Param::PingPong => s(super::VARIATION, 0, 1, "Ping-pong", "PingPong", "Delay Ping-pong", 1),
+            Param::ChorusRate => s(super::CHORUS, 5, 500, "Rate", "ChoRate", "Chorus Rate", 2),
+            Param::ChorusDepth => s(super::CHORUS, 0, 50, "Depth", "ChoDepth", "Chorus Depth", 1),
         }
     }
 
@@ -102,6 +114,8 @@ impl Param {
             Param::DelayNote => super::delay::NOTES[v as usize].1.into(),
             Param::DelayTime => format!("{v} ms"),
             Param::DelayFeedback => format!("{v}%"),
+            Param::ChorusRate => format!("{:.2} Hz", v as f32 / 100.0),
+            Param::ChorusDepth => format!("{:.1} ms", v as f32 / 10.0),
         }
     }
 }

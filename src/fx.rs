@@ -162,6 +162,10 @@ pub fn type_defaults(block: usize, kind: u8, v: &mut [u16; PARAMS]) {
         for (p, x) in [Param::ReverbTime, Param::PreDelay, Param::ReverbTone].into_iter().zip(d) {
             v[p.index()] = x;
         }
+    } else if block == CHORUS {
+        for (p, x) in [Param::ChorusRate, Param::ChorusDepth].into_iter().zip(ChorusType::from_u8(kind).defaults()) {
+            v[p.index()] = x;
+        }
     } else if block == VARIATION {
         for (p, x) in DELAY_PARAMS.into_iter().zip(DelayType::from_u8(kind).defaults()) {
             v[p.index()] = x;
@@ -232,7 +236,7 @@ impl FxBus {
             param(Param::PreDelay),
             param(Param::ReverbTone) * 100.0,
         );
-        self.chorus.set_type(ChorusType::from_u8(ctl.chorus_type.load(Relaxed)));
+        self.chorus.set(ChorusType::from_u8(ctl.chorus_type.load(Relaxed)), param(Param::ChorusRate) / 100.0, param(Param::ChorusDepth) / 10.0);
         let bpm = ctl.tempo.load(Relaxed) as f32 / 100.0;
         // The type is only where the parameters started (the control side puts them
         // there on a type change): the delay plays its parameters.

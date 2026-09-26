@@ -2214,7 +2214,26 @@
         ],
         "returnLevel": 64,
         "bandSend": 0,
-        "params": []
+        "params": [
+          {
+            "param": "chorusRate",
+            "name": "Rate",
+            "value": 55,
+            "min": 5,
+            "max": 500,
+            "default": 55,
+            "display": "0.55 Hz"
+          },
+          {
+            "param": "chorusDepth",
+            "name": "Depth",
+            "value": 22,
+            "min": 0,
+            "max": 50,
+            "default": 22,
+            "display": "2.2 ms"
+          }
+        ]
       },
       {
         "block": "variation",

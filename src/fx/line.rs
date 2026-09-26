@@ -122,6 +122,25 @@ impl Lfo {
         Lfo { c: phase.cos(), s: phase.sin(), rc: w.cos(), rs: w.sin(), n: 0 }
     }
 
+    /// A new speed from here on, keeping the phase (no jump).
+    pub fn set_hz(&mut self, hz: f32, rate: f32) {
+        let w = std::f32::consts::TAU * hz / rate;
+        self.rc = w.cos();
+        self.rs = w.sin();
+    }
+
+    /// Its speed (Hz) at `rate`.
+    #[cfg(test)]
+    pub fn hz(&self, rate: f32) -> f32 {
+        self.rs.atan2(self.rc) * rate / std::f32::consts::TAU
+    }
+
+    /// Where it is in its turn: (sin, cos).
+    #[cfg(test)]
+    pub fn phase(&self) -> (f32, f32) {
+        (self.s, self.c)
+    }
+
     /// (sin, cos) now, then step on.
     #[inline]
     pub fn tick(&mut self) -> (f32, f32) {

@@ -109,6 +109,13 @@ fn the_audio_callback_does_not_allocate() {
             assert_eq!(run(&mut core, &mut feed, &[]), none, "delay parameters");
         }
     }
+    // The chorus's rate and depth (#236), and every chorus type with them.
+    for (t, rate, depth) in [(0u8, 400u16, 50u16), (2, 5, 0), (1, 29, 9), (0, 55, 22)] {
+        ctl.fx.chorus_type.store(t, Ordering::Relaxed);
+        ctl.fx.params[yahaha::fx::Param::ChorusRate.index()].store(rate, Ordering::Relaxed);
+        ctl.fx.params[yahaha::fx::Param::ChorusDepth.index()].store(depth, Ordering::Relaxed);
+        assert_eq!(run(&mut core, &mut feed, &[[0xB0, 93, 127]]), none, "chorus parameters");
+    }
     // The band send scales (#236) gliding up and back.
     for (b, level) in [(1, 100u8), (2, 127), (0, 50), (1, 0), (2, 0), (0, 100)] {
         ctl.fx.band_send[b].store(level, Ordering::Relaxed);
