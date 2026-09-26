@@ -648,6 +648,8 @@ fn launchkey_hardware_matches_its_commands() {
                         (0..=3, FaderPage::Panel, false) => Some(AppCmd::Parts(PartsCmd::TogglePart { part: i })),
                         (4, FaderPage::Panel, _) => Some(AppCmd::HarmonyArp(HarmonyArpCmd::ToggleHarmonyArp)),
                         (5, FaderPage::Panel, _) => Some(AppCmd::Plugins(crate::api::PluginCmd::ReloadPartPlugin { part: None })),
+                        (7, FaderPage::Panel, false) => Some(AppCmd::Looper(crate::api::LooperCmd::LooperOnOff)),
+                        (7, FaderPage::Panel, true) => Some(AppCmd::Looper(crate::api::LooperCmd::LooperRec)),
                         (_, FaderPage::Panel, _) => None,
                         (_, FaderPage::Style, _) => Some(AppCmd::Mixer(MixerCmd::ToggleStylePart { part: i })),
                     };
@@ -805,7 +807,8 @@ fn launchkey_button_descriptions() {
     assert_eq!((f1.level, f1.rgb), (Level::Bright, [0, 0, 127]));
     assert_eq!(b(&s, "faderButton2").level, Level::Dim);
     // Button 5: HARMONY/ARPEGGIO, dim purple while off, bright while on. Button 6 reloads
-    // the selected part's plugin (dark while there is nothing to reload); 7-8 do nothing.
+    // the selected part's plugin (dark while there is nothing to reload); 7 does nothing;
+    // 8 is the Chord Looper (ON/OFF, Shift: REC/STOP; dark with nothing recorded).
     let f5 = b(&s, "faderButton5");
     assert_eq!((f5.label.as_str(), f5.action, f5.level), ("HARM/ARP", Some(AppCmd::HarmonyArp(HarmonyArpCmd::ToggleHarmonyArp)), Level::Dim));
     s.send(HarmonyArpCmd::ToggleHarmonyArp).unwrap();
@@ -815,6 +818,8 @@ fn launchkey_button_descriptions() {
     assert_eq!((f6.label.as_str(), f6.action, f6.level), ("PLUGIN", Some(AppCmd::Plugins(crate::api::PluginCmd::ReloadPartPlugin { part: None })), Level::Off));
     let f7 = b(&s, "faderButton7");
     assert_eq!((f7.action, f7.level), (None, Level::Off));
+    let f8 = b(&s, "faderButton8");
+    assert_eq!((f8.label.as_str(), f8.action, f8.shift_action, f8.level), ("LOOPER", Some(AppCmd::Looper(LooperCmd::LooperOnOff)), Some(AppCmd::Looper(LooperCmd::LooperRec)), Level::Off));
     assert_eq!(b(&s, "masterButton").label, "PANEL");
     // Style page: the Style parts' mutes, green.
     s.send(MixerCmd::ToggleFaderPage).unwrap();

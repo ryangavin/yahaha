@@ -348,6 +348,14 @@ struct PartReg {
     volume: u8,
     /// -2..=2.
     octave: i8,
+    /// Pan, reverb send and chorus send (CC10, CC91, CC93; #198). Missing (a bank from an
+    /// earlier build): the part's are left as they are.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pan: Option<u8>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    reverb: Option<u8>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    chorus: Option<u8>,
     /// The part's own sound library patch (#103), played instead of `voice`. None: the
     /// GM voice (and a bank from an earlier build). A patch that is gone from the library
     /// falls back to `voice`, which is the GM voice the part had underneath.
@@ -388,6 +396,9 @@ fn parts_capture(c: &Control, g: Groups) -> Option<Value> {
             voice: Some(c.part_plugin_reg(p).unwrap_or_else(|| VoiceRef::gm(kp.program[p].load(Relaxed)))),
             volume: kp.volume(p),
             octave: kp.octave[p].load(Relaxed).clamp(-2, 2),
+            pan: Some(kp.fx(p)[parts::PAN]),
+            reverb: Some(kp.fx(p)[parts::REVERB]),
+            chorus: Some(kp.fx(p)[parts::CHORUS]),
             patch: c.part_patch(p).map(|(id, name)| PatchReg { id, name }),
         })
     });
@@ -418,9 +429,11 @@ fn parts_recall(c: &mut Control, v: &Value, g: Groups) -> Result<(), String> {
             }
             None => err = Some(format!("{}: voice not available", parts::NAMES[p])),
         }
-        // After the patch: its defaults give way to the registration's level and octave.
+        // After the patch: its defaults give way to the registration's level, octave, pan
+        // and sends (the engine thread sends the CCs).
         kp.set_volume(p, part.volume.min(127));
         kp.octave[p].store(part.octave.clamp(-2, 2), Relaxed);
+        kp.set_fx(p, [part.pan, part.reverb, part.chorus]);
         // Left plays the bass under Manual Bass: its switch stays as it is.
         let locked_left = p == parts::LEFT && c.shared.manual_bass();
         if kp.is_on(p) != part.on && !locked_left {
