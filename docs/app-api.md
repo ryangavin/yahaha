@@ -107,7 +107,7 @@ state, and pressing the button is the action. For settings, a GUI checkbox can u
 | `fillSelf` | | Fill Self: the Main's own fill, as pressing the Main playing. |
 | `fillBreak` | | Fill Break: the Break (the same as `break`). |
 | `setHalfBarFill` / `toggleHalfBarFill` | `on` | Half Bar Fill In: a Main change or fill asked for on the first beat of a bar plays a fill from the middle of that bar (beat 3 in 4/4), then the Main at the next bar line, even with Auto Fill off. |
-| `tapTempo` | | TAP TEMPO. Taps set the tempo, from the second tap (the last four averaged), stopped or playing. While the style plays with `styleSettings.sectionReset` on (the default, as on the Genos), a tap is a Style Section Reset instead and the tempo stays. |
+| `tapTempo` | | TAP TEMPO. Taps set the tempo, from the second tap (the last four averaged), stopped or playing. Stopped, a bar's worth of steady taps (four in 4/4) also starts the style one beat after the last tap, rhythm only until a chord (OM p.46); `stop` calls that count-in off. While the style plays with `styleSettings.sectionReset` on (the default, as on the Genos), a tap is a Style Section Reset instead and the tempo stays. |
 | `tempoUp`, `tempoDown` | | One tempo step. |
 | `toggleFade` | | FADE IN/OUT. Stopped: arms (or disarms) a fade in for the next start. Playing: fades out over `styleSettings.fadeOutMs`, then the band stops and the Style stays silent for `fadeHoldMs`. Only the Style fades: each Style part's CC7 (channels 9–16) goes out, on the port and to the built-in synth, as its fader value scaled by the fade; the faders don't move, and your playing and the Multi Pads never fade (docs/section-timing.md). `transport.fade` shows it. A fade out already running carries on; START/STOP mid-fade ends it at full volume. |
 | `sectionReset` | | Style Section Reset: the section playing starts again from its top, now. A change queued for the next bar line waits for the new bar grid's. Stopped: nothing. |
@@ -149,6 +149,7 @@ Style Section Reset, the Fade In/Out times and the Style Retrigger length. The s
 | `stepTranspose` | `keyboard`, `master` | Adds to the current transpose. |
 | `resetTranspose` | | Both back to 0. |
 | `setChordSettle` | `ms` | The chord-settle window, clamped to 0–30 ms (default 10). While the style plays (and, with it stopped, for Stop Accompaniment and Chord Match Multi Pads), a chord change reaches the accompaniment once the chord has held still this long (at most three windows after the first change), so a rolled chord is followed once. 0: at once. Not a Genos setting; see docs/genos-features.md (Chord settle). |
+| `setLeftHold`, `toggleLeftHold` | `on` | LEFT HOLD (OM p.49): while on, the Left part's notes ring on after its keys are let go (its channel is held as if by a sustain pedal). Each key that sounds on Left lets go of what was held first, so a chord rings until the next one; stopping the style lets go too (the setting stays on). The sustain pedal on Left wins. Stored in Registration (`chord.leftHold`, group Style). |
 
 ### Keyboard parts
 
@@ -169,7 +170,7 @@ Style Section Reset, the Fade In/Out times and the Style Retrigger length. The s
 | Command | Fields | Does |
 |---|---|---|
 | `setFaderPage` / `toggleFaderPage` | `page`: `panel` \| `style` | What the Launchkey faders control. |
-| `setPadPage` | `page`: `sections` \| `chordSetup` \| `otsParts` \| `registration` | The Launchkey pad page. |
+| `setPadPage` | `page`: `sections` \| `chordSetup` \| `otsParts` \| `registration` \| `multiPads` | The Launchkey pad page. |
 | `cyclePadPage` | `delta` | Steps the pad page, wrapping. |
 | `setMasterVolume` | `volume` 0–127 | Synth master (100 = unity). Fails when the synth is off. |
 | `setSynthMuted` / `toggleSynthMute` | `on` | Mutes the synth audio. |
@@ -554,6 +555,7 @@ Indices are 0-based unless a field says otherwise.
 | `splitName` | string | Yamaha octave numbering (C3 = 60), for example `F#2` or `Ab2`. |
 | `transposeKeyboard`, `transposeMaster` | −12..12 | Semitones. |
 | `settleMs` | 0–30 | The chord-settle window in ms (`setChordSettle`). |
+| `leftHold` | bool | Left Hold (`setLeftHold`). |
 
 ### `keyboardParts`: always four, Right 1, Right 2, Right 3, Left
 | Field | Type | Meaning |
@@ -604,7 +606,7 @@ control's meaning, and every LED as the hardware shows it.
 
 | Field | Type | Meaning |
 |---|---|---|
-| `page` | `sections` \| `chordSetup` \| `otsParts` | The current Launchkey pad page. |
+| `page` | `sections` \| `chordSetup` \| `otsParts` \| `registration` \| `multiPads` | The current Launchkey pad page. |
 | `pageName`, `pageNumber` (1-based), `pageCount` | | For example `Chord/Setup`, 2, 3. |
 | `pads` | Pad[16] | This page: the top row (notes 96–103), then the bottom row (112–119). |
 | `connected` | bool | A Launchkey DAW port is connected. It is set once, at start: see the limitation below. |
@@ -1129,7 +1131,8 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
     "splitName": "F#2",
     "transposeKeyboard": 0,
     "transposeMaster": 0,
-    "settleMs": 10
+    "settleMs": 10,
+    "leftHold": false
   },
   "keyboardParts": [
     {

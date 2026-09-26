@@ -218,7 +218,7 @@ export function initialState(): AppState {
     },
     chord: {
       name: null, fingered: null, fingering: 'fingeredOnBass', fingeringName: 'Fingered On Bass', upper: false,
-      manualBass: true, manualBassActive: false, split: 54, splitName: noteName(54), transposeKeyboard: 0, transposeMaster: 0, settleMs: 10,
+      manualBass: true, manualBassActive: false, split: 54, splitName: noteName(54), transposeKeyboard: 0, transposeMaster: 0, settleMs: 10, leftHold: false,
     },
     keyboardParts: [part(0, 0, true), part(1, 48, false), part(2, 61, false), part(3, 48, false)],
     keyboard: { held: [], leftSplit: 54, chordTones: [], chordBass: null, detection: [0, 54] },
@@ -368,6 +368,9 @@ export class MockSession implements Session {
   private clock = 0
   private sectionStart = 0
   private taps: number[] = []
+  /** Steady taps in a row (the engine's count), and when a bar of them starts the band. */
+  private tapRun = 0
+  private tapStart: number | null = null
   /** The Stop Accompaniment mode the toggle turns back on. */
   private lastStopAcmp: StopAcmpMode = 'style'
   private now = 0
@@ -578,6 +581,11 @@ export class MockSession implements Session {
     this.now += ms
     this.stepFade(ms)
     const t = this.state.transport
+    // A bar of taps while stopped: the band starts a beat after the last (OM p.46).
+    if (this.tapStart !== null && this.now >= this.tapStart) {
+      this.tapStart = null
+      if (!t.running) this.startBand()
+    }
     if (t.running) {
       const before = this.clock
       this.clock += (ms / 60000) * t.tempo
@@ -945,6 +953,7 @@ export class MockSession implements Session {
   }
 
   private startBand() {
+    this.tapStart = null
     const t = this.state.transport
     const c = this.state.chart
     if (t.fade === 'armed') {
@@ -1098,6 +1107,7 @@ export class MockSession implements Session {
         else this.startBand()
         break
       case 'stop':
+        this.tapStart = null
         if (t.running) this.stopBand()
         break
       case 'intro':
@@ -1201,16 +1211,24 @@ export class MockSession implements Session {
         // As the engine: taps up to 12.5 s apart count (down to 5 BPM); a jump in the
         // interval by more than half starts a fresh average from the tap before.
         const last = this.taps[this.taps.length - 1]
-        if (last !== undefined && this.now - last > 12500) this.taps = []
-        else if (this.taps.length >= 2) {
+        if (last !== undefined && this.now - last > 12500) {
+          this.taps = []
+          this.tapRun = 0
+        } else if (this.taps.length >= 2) {
           const r = (this.now - last) / Math.max(1, last - this.taps[this.taps.length - 2])
-          if (r > 1.5 || r < 1 / 1.5) this.taps = [last]
+          if (r > 1.5 || r < 1 / 1.5) {
+            this.taps = [last]
+            this.tapRun = 1
+          }
         }
         this.taps = [...this.taps, this.now].slice(-4)
+        this.tapRun++
         if (this.taps.length >= 2) {
           const avg = (this.taps[this.taps.length - 1] - this.taps[0]) / (this.taps.length - 1)
           if (avg > 0) t.tempo = clamp(Math.round(60000 / avg), 5, 500)
         }
+        // Stopped, a bar of steady taps starts the band a beat after the last one.
+        this.tapStart = !t.running && this.tapRun >= Math.max(1, t.beatsPerBar) ? this.now + 60000 / t.tempo : null
         break
       }
       case 'tempoUp':
@@ -1318,6 +1336,12 @@ export class MockSession implements Session {
         break
       case 'setChordSettle':
         c.settleMs = clamp(cmd.ms, 0, CHORD_SETTLE_MAX_MS)
+        break
+      case 'setLeftHold':
+        c.leftHold = cmd.on
+        break
+      case 'toggleLeftHold':
+        c.leftHold = !c.leftHold
         break
       case 'setPartOn':
       case 'togglePart': {

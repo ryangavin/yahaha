@@ -85,7 +85,7 @@ The screen shows a live map of the pads, in the same colours as the hardware:
 
 ### Pad pages
 
-The 16 pads have three pages. The **Pad Bank ▲/▼** buttons left of the pads switch pages: ▼ goes to the next page, ▲ to the previous one, and they stop at the ends, so a few presses of ▲ always take you home to page 1. The arrows light in the current page's colour where there is a page to go to. `Tab` / `Shift+Tab` switch pages from the terminal too, and the on-screen pad map always shows the current page and its name.
+The 16 pads have five pages. The **Pad Bank ▲/▼** buttons left of the pads switch pages: ▼ goes to the next page, ▲ to the previous one, and they stop at the ends, so a few presses of ▲ always take you home to page 1. The arrows light in the current page's colour where there is a page to go to. `Tab` / `Shift+Tab` switch pages from the terminal too, and the on-screen pad map always shows the current page and its name.
 
 **Page 1 · Sections** (per-section colours, the original layout):
 
@@ -120,6 +120,20 @@ Pressing the current Main again plays its fill. With Auto Fill on, switching Mai
 - The on/off pads are lit while the part is on. The lit Edit pad is the part whose voice Voice −/+ (`9`/`0`) changes.
 - The accompaniment parts are muted with the buttons under the faders on the Style fader page, or `z`…`,`.
 
+**Page 4 · Registration** (orange): Registration Memory 1–10, Bank −/+, Memory, Freeze, Regist −/+ (docs/registration.md).
+
+**Page 5 · Multi Pads** (yellow):
+
+| pad | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 |
+|---|---|---|---|---|---|---|---|---|
+| top | Multi Pad 1 | Multi Pad 2 | Multi Pad 3 | Multi Pad 4 | STOP | – | – | – |
+| bottom | Select 1 | Select 2 | Select 3 | Select 4 | Stop 1 | Stop 2 | Stop 3 | Stop 4 |
+
+- Pads 1–4 light as the Genos lamps: blue has data, red plays, flashing red waits for Synchro Start, flashing amber waits for the bar line, dark is empty.
+- STOP stops every pad and cancels Synchro Start; it lights while a pad plays or waits.
+- Select *n* is the Genos SELECT + pad: Synchro Start standby for that pad (it flashes while armed). Stop *n* is STOP + pad: that pad stops now.
+- Like the section pads, the presses go straight to the engine.
+
 ### Knobs
 
 The 8 encoders are the Genos LIVE CONTROL knobs, on Knob Assign pages. The **encoder page buttons ▲/▼** (right of the knobs) switch pages, as the Genos KNOB ASSIGN button does, stopping at the ends. The knobs are relative: a turn moves the value from where it is now, whoever set it last. Knob 8 is tempo on every page.
@@ -149,7 +163,7 @@ The 8 encoders are the Genos LIVE CONTROL knobs, on Knob Assign pages. The **enc
 | **Shift + Play** | Section Reset: the section starts again from its top |
 | **Shift + Stop** | Fade In/Out: stopped, arm a fade in; playing, fade out and stop |
 | **Shift + > / Shift + Function** | Retrigger length shorter / longer |
-| buttons under faders 1–8 | Panel page: Right 1–3, Left on/off (Shift: edit that part's voice), button 5 Harmony/Arpeggio on/off, button 6 reload the edited part's plugin (red while it stopped or failed to load) · Style page: mute/unmute the style parts |
+| buttons under faders 1–8 | Panel page: Right 1–3, Left on/off (Shift: edit that part's voice), button 5 Harmony/Arpeggio on/off, button 6 reload the edited part's plugin (red while it stopped or failed to load), button 8 Chord Looper ON/OFF (Shift: REC/STOP; dim green = a loop to play, dim yellow = armed, green = looping, dim red / red = recording armed / recording) · Style page: mute/unmute the style parts |
 | button under the master fader | fader page Panel / Style |
 
 The last Launchkey note or CC that nothing is mapped to shows at the bottom of the screen, e.g. `unmapped CC 103 = 127`. If a button does nothing, that shows the number it really sends.
@@ -185,7 +199,7 @@ The screen shows `sus` beside each part the pedal is holding.
 - `i o p` Ending I–III (again while it plays: ritardando)
 - `g` break
 - `A` `S` Fill Down / Fill Up (a fill, then the Main to the left / right) · `G` Fill Self · `N` Half Bar Fill In
-- `t` tap tempo (while the band plays: Section Reset, as on the Genos, unless Settings › Style › Tap: Section Reset is off)
+- `t` tap tempo (stopped: a bar of taps starts the style a beat after the last one; while the band plays: Section Reset, as on the Genos, unless Settings › Style › Tap: Section Reset is off)
 - `|` Section Reset · `F` Fade In/Out
 - `~` Retrigger on/off · `{ }` Retrigger length longer/shorter
 - `- =` tempo down/up
@@ -206,7 +220,7 @@ The screen shows `sus` beside each part the pedal is holding.
 - `←/→` previous/next style, in the style browser's order (folder, then name)
 - `enter` open the style browser (see below)
 - `tab` / `shift+tab` next/previous pad page
-- `Z X C V` Multi Pads 1–4 (shift+z…v) · `B` Multi Pad STOP (shift+b). The banks (the .pad files in the style folders) load from the app's Multi Pads drawer; yahaha pad --demo writes a synthetic bank to try. See docs/multipad.md, which also proposes a Launchkey Multi Pad page.
+- `Z X C V` Multi Pads 1–4 (shift+z…v) · `B` Multi Pad STOP (shift+b). The banks (the .pad files in the style folders) load from the app's Multi Pads drawer; yahaha pad --demo writes a synthetic bank to try. On the Launchkey they are pad page 5. See docs/multipad.md.
 - `a` next audio output pair · `k` mute the synth
 - `M` (shift+m) chart mode on/off · `( )` previous/next chart song (see "iReal Pro charts" below)
 - `r` Chord Looper REC/STOP · `^` Chord Looper ON/OFF (recording, looping and memory changes start at the next bar)

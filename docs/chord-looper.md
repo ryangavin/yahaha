@@ -69,6 +69,9 @@ The manuals leave these open (genos-features.md §G.4). What yahaha does, and wh
   section again.
 - **No .clb/.cld files, no Registration or Freeze yet.** The file formats are
   undocumented; memories last for the session. Registration Memory is not built yet.
-- **No Launchkey pads yet.** Page 2 and page 3 each have one free pad; REC/STOP and
-  ON/OFF belong together, so they wait for a pad-page rework. The terminal UI has `r`
-  (REC/STOP) and `^` (ON/OFF); the app has a Chord Looper drawer.
+- **Hands-on controls (#201):** every pad page is full, so the Launchkey's Panel fader
+  page button 8 is the CHORD LOOPER: ON/OFF, and with Shift REC/STOP. Its lamp: dark with
+  nothing recorded, dim green with a loop to play, dim yellow while a loop is armed, green
+  while looping, dim red / red while recording is armed / recording. "Chord Looper On/Off"
+  and "Chord Looper Rec/Stop" are assignable functions too (pedals, RM p.141). The
+  terminal UI has `r` (REC/STOP) and `^` (ON/OFF); the app has a Chord Looper drawer.

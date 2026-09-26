@@ -31,7 +31,27 @@ const P1 = 'Pad page 1 (Sections)'
 const P2 = 'Pad page 2 (Chord/Setup)'
 const P3 = 'Pad page 3 (OTS/Parts)'
 const P4 = 'Pad page 4 (Registration)'
+const P5 = 'Pad page 5 (Multi Pads)'
 const pad = (page: string, row: 'top' | 'bottom', n: number) => `${page}, ${row} row, pad ${n}`
+
+// The Multi Pad buttons (the drawer's, and pad page 5's, one entry per pad).
+const MP_PAD = {
+  title: 'Multi Pad',
+  body: 'Plays the pad\'s phrase from the top (keys Shift+Z, X, C, V): at once when the band is stopped, at the next bar line while it plays. With pads in Synchro Start standby, pressing one of them starts them all. Blue: has data; red: playing; flashing red: waiting for Synchro Start; amber: waiting for the bar line.',
+  genos: 'MULTI PAD CONTROL [1]–[4]',
+}
+const MP_ARM = {
+  title: 'Synchro Start',
+  body: 'Puts the pad in standby (flashing red): it starts with your next chord in the chord section, when the band starts, or when you press any pad in standby; while the band plays, at the next bar line. Press again to cancel.',
+  genos: '[SELECT] + pad (Synchro Start)',
+  keys: [],
+}
+const MP_STOP = {
+  title: 'Stop this pad',
+  body: 'Stops only this pad, now. The other pads keep playing.',
+  genos: '[STOP] + pad',
+  keys: [],
+}
 
 const catalog = {
   // ── Transport ───────────────────────────────────────────────────────────
@@ -244,7 +264,7 @@ const catalog = {
   // ── Tempo and display ───────────────────────────────────────────────────
   'tempo.tap': {
     title: 'Tap tempo',
-    body: 'Tap two or more times in time to set the tempo from your taps (the last four count). While the band plays, a tap restarts the section instead (Section Reset) and the tempo stays, unless you turn Tap: Section Reset off in Settings › Style. The pad lights on the downbeat while the band plays.',
+    body: 'Tap two or more times in time to set the tempo (the last four count); stopped, a whole bar of taps (four in 4/4) starts the style one beat after your last tap, rhythm only until you play a chord. While the band plays, a tap restarts the section instead (Section Reset) and the tempo stays, unless you turn Tap: Section Reset off in Settings › Style. The pad lights on the downbeat while the band plays.',
     genos: 'TAP TEMPO',
     keys: ['t'],
     launchkey: pad(P1, 'bottom', 6),
@@ -460,7 +480,7 @@ const catalog = {
   },
   'fingering.ai_fingered': {
     title: 'AI Fingered',
-    body: 'Like Fingered, but fewer than three keys can still give a chord, guessed from the chord before.',
+    body: 'Like Fingered, but fewer than three keys can still give a chord, guessed from the chord before. The lowest key is the bass: hold a chord note and add a key below it for a slash chord (C, then B+C is C/B).',
     genos: 'AI Fingered',
     keys: [],
     launchkey: pad(P2, 'top', 5),
@@ -492,6 +512,13 @@ const catalog = {
     genos: 'Manual Bass',
     keys: ['D'],
     launchkey: pad(P2, 'bottom', 1),
+  },
+  'detection.left_hold': {
+    title: 'Left Hold',
+    body: 'Left keeps sounding after you let go of its keys, until you play the next note on Left, stop the style, or turn Left Hold off. A string or organ Left holds your chord across the band. Stored in Registration (Style group).',
+    genos: 'LEFT HOLD',
+    keys: [],
+    launchkey: null,
   },
   'split.display': {
     title: 'Split point',
@@ -1055,14 +1082,14 @@ const catalog = {
     body: 'Records the chords you play, from the next bar line; stopped, it arms Sync Start and your first chord starts the band and the recording together. Press again to stop recording while the band plays on.',
     genos: 'CHORD LOOPER [REC/STOP]',
     keys: ['r'],
-    launchkey: null,
+    launchkey: 'Panel fader page: Shift + button under fader 8 (red while recording)',
   },
   'looper.on_off': {
     title: 'Chord Looper ON/OFF',
     body: 'Loops the recorded chords from the next bar line, feeding them to the band as if you played them, so both hands are free. While it loops your chords are ignored; press again to stop it at once. Arming a loop turns chart mode off.',
     genos: 'CHORD LOOPER [ON/OFF]',
     keys: ['^'],
-    launchkey: null,
+    launchkey: 'Panel fader page: button under fader 8 (green while looping)',
   },
   'looper.memory': {
     title: 'Chord Looper memory',
@@ -1726,6 +1753,14 @@ const catalog = {
     keys: [],
     launchkey: null,
   },
+  'padpage.multi_pads': {
+    title: 'Pad page 5: Multi Pads',
+    body: 'Multi Pads 1–4 in the Genos lamp colours (blue has data, red playing, flashing red Synchro Start standby, amber waiting for the bar line) and STOP on the top row; SELECT + pad (Synchro Start) and STOP + pad on the bottom row. The other pads are yellow.',
+    genos: 'MULTI PAD CONTROL',
+    keys: ['tab', 'shift+tab'],
+    app_keys: ['PgDn', 'PgUp'],
+    launchkey: 'Pad Bank ▲ / ▼ (left of the pads)',
+  },
   'padpage.registration': {
     title: 'Pad page 4: Registration',
     body: 'Registration buttons 1–10 in the Genos lamp colours (red in use, blue stored, dark empty), Bank −/+, Memory, Freeze and Regist −/+. The other pads are orange.',
@@ -2150,34 +2185,28 @@ const catalog = {
     keys: [],
     launchkey: null,
   },
-  'multipad.pad': {
-    title: 'Multi Pad',
-    body: 'Plays the pad\'s phrase from the top (keys Shift+Z, X, C, V): at once when the band is stopped, at the next bar line while it plays. With pads in Synchro Start standby, pressing one of them starts them all. Blue: has data; red: playing; flashing red: waiting for Synchro Start; amber: waiting for the bar line.',
-    genos: 'MULTI PAD CONTROL [1]–[4]',
-    keys: ['Z', 'X', 'C', 'V'],
-    launchkey: null,
-  },
+  'multipad.pad': { ...MP_PAD, keys: ['Z', 'X', 'C', 'V'], launchkey: `${P5}, top row, pads 1–4` },
+  'multipad.pad1': { ...MP_PAD, keys: ['Z'], launchkey: pad(P5, 'top', 1) },
+  'multipad.pad2': { ...MP_PAD, keys: ['X'], launchkey: pad(P5, 'top', 2) },
+  'multipad.pad3': { ...MP_PAD, keys: ['C'], launchkey: pad(P5, 'top', 3) },
+  'multipad.pad4': { ...MP_PAD, keys: ['V'], launchkey: pad(P5, 'top', 4) },
   'multipad.stop_all': {
     title: 'Stop all pads',
-    body: 'Stops every Multi Pad at once and cancels Synchro Start standby. The band keeps playing. Key: Shift+B.',
+    body: 'Stops every Multi Pad at once and cancels Synchro Start standby. The band keeps playing, and on the Launchkey it lights while a pad plays or waits. Key: Shift+B.',
     genos: 'MULTI PAD CONTROL [STOP]',
     keys: ['B'],
-    launchkey: null,
+    launchkey: pad(P5, 'top', 5),
   },
-  'multipad.stop': {
-    title: 'Stop this pad',
-    body: 'Stops only this pad, now. The other pads keep playing.',
-    genos: '[STOP] + pad',
-    keys: [],
-    launchkey: null,
-  },
-  'multipad.arm': {
-    title: 'Synchro Start',
-    body: 'Puts the pad in standby (flashing red): it starts with your next chord in the chord section, when the band starts, or when you press any pad in standby; while the band plays, at the next bar line. Press again to cancel.',
-    genos: '[SELECT] + pad (Synchro Start)',
-    keys: [],
-    launchkey: null,
-  },
+  'multipad.stop': { ...MP_STOP, launchkey: `${P5}, bottom row, pads 5–8` },
+  'multipad.stop1': { ...MP_STOP, launchkey: pad(P5, 'bottom', 5) },
+  'multipad.stop2': { ...MP_STOP, launchkey: pad(P5, 'bottom', 6) },
+  'multipad.stop3': { ...MP_STOP, launchkey: pad(P5, 'bottom', 7) },
+  'multipad.stop4': { ...MP_STOP, launchkey: pad(P5, 'bottom', 8) },
+  'multipad.arm': { ...MP_ARM, launchkey: `${P5}, bottom row, pads 1–4` },
+  'multipad.arm1': { ...MP_ARM, launchkey: pad(P5, 'bottom', 1) },
+  'multipad.arm2': { ...MP_ARM, launchkey: pad(P5, 'bottom', 2) },
+  'multipad.arm3': { ...MP_ARM, launchkey: pad(P5, 'bottom', 3) },
+  'multipad.arm4': { ...MP_ARM, launchkey: pad(P5, 'bottom', 4) },
   'multipad.repeat': {
     title: 'Repeat',
     body: 'On: the pad loops until you stop it. Off: it plays once. The bank file sets it; a change here lasts until another bank loads.',

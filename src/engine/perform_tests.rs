@@ -1061,3 +1061,100 @@ fn a_queued_ending_changes_nothing_before_its_bar_line() {
         }
     }
 }
+
+/// TAP TEMPO while the style is stopped (OM p.46): a bar's worth of steady taps (four in
+/// 4/4) sets the tempo and starts the style one beat after the last tap, like a drummer's
+/// count-in. With no chord it plays the rhythm parts only, as a START with no chord does;
+/// the first chord brings in the rest.
+#[test]
+fn a_bar_of_taps_while_stopped_starts_the_style() {
+    let Some(mut e) = engine() else { return };
+    let mut rec = Rec::default();
+    let beats = (e.style.tpb / e.style.ppq.max(1)) as u64;
+    assert!(beats >= 2);
+    let iv = 500_000_000; // 120 BPM
+    let t0 = 1_000_000_000;
+    let tap = |e: &mut Engine, rec: &mut Rec, t: u64| {
+        rec.now = t;
+        e.button(Button::TapTempo, t, rec);
+    };
+    // One tap short of a bar: the tempo, but no start.
+    play(&mut e, &mut rec, 0, t0);
+    for i in 0..beats - 1 {
+        if i > 0 {
+            play(&mut e, &mut rec, t0 + (i - 1) * iv, t0 + i * iv);
+        }
+        tap(&mut e, &mut rec, t0 + i * iv);
+    }
+    assert!((e.bpm - 120.0).abs() < 0.01, "{}", e.bpm);
+    let last = t0 + (beats - 2) * iv;
+    play(&mut e, &mut rec, last, last + 4 * iv);
+    assert!(!e.running, "fewer taps than a bar never start the style");
+
+    // A fresh count (after a pause past 12.5 s): the bar's last tap starts the style a beat
+    // later, on its downbeat.
+    let t1 = last + 20_000_000_000;
+    play(&mut e, &mut rec, last + 4 * iv, t1);
+    for i in 0..beats {
+        if i > 0 {
+            play(&mut e, &mut rec, t1 + (i - 1) * iv, t1 + i * iv);
+        }
+        tap(&mut e, &mut rec, t1 + i * iv);
+    }
+    let last = t1 + (beats - 1) * iv;
+    let start = last + iv;
+    play(&mut e, &mut rec, last, start - 1_000_000);
+    assert!(!e.running, "not before the beat after the last tap");
+    assert_eq!(e.next_deadline(), Some(start), "the engine wakes for the start");
+    let from = rec.msgs.len();
+    play(&mut e, &mut rec, start - 1_000_000, start + 2 * iv);
+    assert!(e.running, "a bar of taps starts the style");
+    assert!((e.bpm - 120.0).abs() < 0.01, "at the tapped tempo: {}", e.bpm);
+    assert!(e.tick_at(start).abs() < 1.0, "from its top, a beat after the last tap");
+    let notes = |msgs: &[(u64, Vec<u8>)]| -> Vec<u8> {
+        msgs.iter().filter(|(_, m)| m.len() == 3 && m[0] & 0xF0 == 0x90 && m[2] > 0).map(|(_, m)| m[0] & 0x0F).collect()
+    };
+    let played = notes(&rec.msgs[from..]);
+    assert!(!played.is_empty(), "the rhythm plays");
+    assert!(played.iter().all(|&ch| is_drum_part(ch)), "rhythm only until a chord: {played:?}");
+    // The first chord brings in the chord parts.
+    let from = rec.msgs.len();
+    let at = start + 2 * iv;
+    rec.now = at;
+    e.set_chord(chord("C"), at, &mut rec);
+    let two_bars = e.ns_at(e.tick_at(at) + 2.0 * e.style.tpb as f64);
+    play(&mut e, &mut rec, at, two_bars);
+    assert!(notes(&rec.msgs[from..]).iter().any(|&ch| !is_drum_part(ch)), "a chord brings in the band");
+}
+
+/// Taps that are not steady (a change of mind) count again from the tap before, and STOP
+/// cancels a start the taps have set up.
+#[test]
+fn unsteady_taps_or_stop_while_counting_in_do_not_start() {
+    let Some(mut e) = engine() else { return };
+    let mut rec = Rec::default();
+    let beats = (e.style.tpb / e.style.ppq.max(1)) as u64;
+    let iv = 500_000_000;
+    let t0 = 1_000_000_000;
+    let mut t = t0;
+    // A bar of taps less one, then one twice as far: the count starts again from the tap
+    // before it.
+    for _ in 0..beats - 1 {
+        e.button(Button::TapTempo, t, &mut rec);
+        t += iv;
+    }
+    t += iv;
+    e.button(Button::TapTempo, t, &mut rec);
+    play(&mut e, &mut rec, t0, t + 4 * iv);
+    assert!(!e.running, "an unsteady bar never starts the style");
+
+    // A steady bar, then STOP before the start: nothing starts.
+    let t1 = t + 20_000_000_000;
+    for i in 0..beats {
+        e.button(Button::TapTempo, t1 + i * iv, &mut rec);
+    }
+    let last = t1 + (beats - 1) * iv;
+    e.button(Button::Stop, last + iv / 2, &mut rec);
+    play(&mut e, &mut rec, last + iv / 2, last + 4 * iv);
+    assert!(!e.running, "STOP cancels the count-in");
+}

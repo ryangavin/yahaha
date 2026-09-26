@@ -139,6 +139,9 @@ pub struct MockSession {
     clock: f64,
     section_start: u32,
     taps: Vec<f64>,
+    /// Steady taps in a row (the engine's count), and when a bar of them starts the band.
+    tap_run: usize,
+    tap_start: Option<f64>,
     now: f64,
     progression: usize,
     message_seq: u64,
@@ -269,6 +272,7 @@ impl MockSession {
                 transpose_keyboard: 0,
                 transpose_master: 0,
                 settle_ms: yahaha::engine::CHORD_SETTLE_DEFAULT_MS,
+                left_hold: false,
             },
             keyboard_parts: vec![part(0, 0, true), part(1, 48, true), part(2, 61, false), part(3, 48, false)],
             mixer: MixerState {
@@ -366,6 +370,8 @@ impl MockSession {
             clock: 0.0,
             section_start: 0,
             taps: vec![],
+            tap_run: 0,
+            tap_start: None,
             now: 0.0,
             progression: 0,
             message_seq: 0,
@@ -633,6 +639,15 @@ impl MockSession {
 
     fn step(&mut self, ms: f64) {
         self.now += ms;
+        // A bar of taps while stopped: the band starts a beat after the last (OM p.46).
+        if let Some(t) = self.tap_start
+            && self.now >= t
+        {
+            self.tap_start = None;
+            if !self.state.transport.running {
+                self.start_band();
+            }
+        }
         self.step_fade(ms);
         self.pads.beats(&mut self.state.multi_pad, ms / 60000.0 * self.state.transport.tempo);
         self.sound.advance(ms, self.state.transport.running);
@@ -802,6 +817,7 @@ impl MockSession {
     }
 
     fn start_band(&mut self) {
+        self.tap_start = None;
         match self.state.transport.fade {
             FadeState::Armed => {
                 self.state.transport.fade = FadeState::FadingIn;
@@ -1083,7 +1099,15 @@ impl MockSession {
         let parts_on = mask(st.keyboard_parts.iter().map(|p| p.sounding).collect());
         let style_on = lk::style_lit(mask(st.mixer.style_parts.iter().map(|p| p.on).collect()), st.chord.manual_bass_active);
         let fault = st.keyboard_parts.iter().find(|p| p.selected).and_then(|p| p.plugin.as_ref()).is_some_and(|p| matches!(p.status, PluginStatus::Muted | PluginStatus::Failed));
-        let colours = lk::button_colours(page, styles, fader_page, parts_on, style_on, st.harmony_arp.on, fault);
+        let looper = match st.looper.mode {
+            LooperMode::Off if st.looper.has_data => lk::LooperLamp::Ready,
+            LooperMode::Off => lk::LooperLamp::Empty,
+            LooperMode::RecArmed => lk::LooperLamp::RecArmed,
+            LooperMode::Recording => lk::LooperLamp::Recording,
+            LooperMode::LoopArmed => lk::LooperLamp::LoopArmed,
+            LooperMode::Looping => lk::LooperLamp::Looping,
+        };
+        let colours = lk::button_colours(page, styles, fader_page, parts_on, style_on, lk::PanelLamps { harmony_arp: st.harmony_arp.on, plugin_fault: fault, looper });
         let act = |cc: u8, shift: bool| -> Option<AppCmd> {
             match lk::cc_control(cc, shift)? {
                 Control::Page(d) => {
@@ -1147,6 +1171,9 @@ impl MockSession {
                 }
                 FaderPage::Panel if i == lk::PLUGIN_FADER_BTN => {
                     push(id, cc, "PLUGIN", Some(AppCmd::Plugins(PluginCmd::ReloadPartPlugin { part: None })), None)
+                }
+                FaderPage::Panel if i == lk::LOOPER_FADER_BTN => {
+                    push(id, cc, "LOOPER", Some(AppCmd::Looper(LooperCmd::LooperOnOff)), Some(("LOOP REC", Some(AppCmd::Looper(LooperCmd::LooperRec)))))
                 }
                 FaderPage::Panel => push(id, cc, "", None, None),
                 FaderPage::Style => {
@@ -1254,6 +1281,7 @@ impl MockSession {
                 }
             }
             AppCmd::Transport(TransportCmd::Stop) => {
+                self.tap_start = None;
                 if running {
                     self.stop_band()
                 }
@@ -1412,14 +1440,17 @@ impl MockSession {
                 if let Some(&last) = self.taps.last() {
                     if now - last > 12_500.0 {
                         self.taps.clear();
+                        self.tap_run = 0;
                     } else if self.taps.len() >= 2 {
                         let r = (now - last) / (last - self.taps[self.taps.len() - 2]).max(1.0);
                         if !(1.0 / 1.5..=1.5).contains(&r) {
                             self.taps = vec![last];
+                            self.tap_run = 1;
                         }
                     }
                 }
                 self.taps.push(now);
+                self.tap_run += 1;
                 if self.taps.len() > 4 {
                     self.taps.remove(0);
                 }
@@ -1429,6 +1460,9 @@ impl MockSession {
                         self.state.transport.tempo = (60000.0 / avg).round().clamp(5.0, 500.0);
                     }
                 }
+                // Stopped, a bar of steady taps (its quarters) starts the band a beat later.
+                let bar = self.bar_quarters().floor().max(1.0) as usize;
+                self.tap_start = (!running && self.tap_run >= bar).then(|| now + 60000.0 / self.state.transport.tempo);
             }
             AppCmd::Transport(TransportCmd::TempoUp) => self.state.transport.tempo = (self.state.transport.tempo + 1.0).min(500.0),
             AppCmd::Transport(TransportCmd::TempoDown) => self.state.transport.tempo = (self.state.transport.tempo - 1.0).max(5.0),
@@ -1508,6 +1542,8 @@ impl MockSession {
                 self.state.chord.transpose_master = 0;
             }
             AppCmd::Chord(ChordCmd::SetChordSettle { ms }) => self.state.chord.settle_ms = ms.min(yahaha::engine::CHORD_SETTLE_MAX_MS),
+            AppCmd::Chord(ChordCmd::SetLeftHold { on }) => self.state.chord.left_hold = on,
+            AppCmd::Chord(ChordCmd::ToggleLeftHold) => self.state.chord.left_hold = !self.state.chord.left_hold,
             AppCmd::Parts(PartsCmd::SetPartOn { part, on }) => self.set_part_on(part, on),
             AppCmd::Parts(PartsCmd::TogglePart { part }) => {
                 let on = self.state.keyboard_parts.get(part as usize).is_some_and(|p| !p.on);
@@ -1946,7 +1982,7 @@ fn pads_for(s: &AppState, page: Page) -> Vec<Pad> {
             v
         }
         // Page 4 comes from the Registration mock (`MockRegist::pads`).
-        Page::Registration => vec![],
+        Page::Registration | Page::MultiPads => vec![],
     }
 }
 
@@ -2057,6 +2093,36 @@ mod tests {
         assert!(m.state.transport.retrigger);
         m.send(StyleSettingsCmd::StepRetriggerRate { delta: 1 });
         assert_eq!(m.state.style_settings.retrigger_rate, 16);
+    }
+
+    /// Stopped, a bar of steady taps starts the band a beat after the last tap, as the
+    /// engine does (#195, OM p.46); STOP during the count-in calls it off.
+    #[test]
+    fn a_bar_of_taps_while_stopped_starts_the_band() {
+        let mut m = MockSession::new();
+        let beats = quarters_per_bar(m.state.style.time_signature).floor() as usize;
+        let tap_bar = |m: &mut MockSession| {
+            for i in 0..beats {
+                if i > 0 {
+                    m.advance(500.0);
+                }
+                m.send(TransportCmd::TapTempo);
+            }
+        };
+        m.send(TransportCmd::Stop);
+        assert!(!m.state.transport.running, "stopped");
+        tap_bar(&mut m);
+        assert_eq!(m.state.transport.tempo, 120.0, "{beats} taps");
+        m.advance(480.0);
+        assert!(!m.state.transport.running);
+        m.advance(40.0);
+        assert!(m.state.transport.running);
+        m.send(TransportCmd::StartStop);
+        m.advance(20000.0);
+        tap_bar(&mut m);
+        m.send(TransportCmd::Stop);
+        m.advance(2000.0);
+        assert!(!m.state.transport.running);
     }
 
     /// `setPluginInProcess` sets the list's override; the next load runs in process (#104).
@@ -2386,7 +2452,7 @@ mod tests {
         let s = &m.state.surface;
         assert_eq!(
             labels(&m),
-            ["", "PAGE ▼", "◀ STYLE", "STYLE ▶", "PLAY", "STOP", "TEMPO +", "TEMPO -", "RIGHT 1", "RIGHT 2", "RIGHT 3", "LEFT", "HARM/ARP", "PLUGIN", "", "", "PANEL"]
+            ["", "PAGE ▼", "◀ STYLE", "STYLE ▶", "PLAY", "STOP", "TEMPO +", "TEMPO -", "RIGHT 1", "RIGHT 2", "RIGHT 3", "LEFT", "HARM/ARP", "PLUGIN", "", "LOOPER", "PANEL"]
         );
         assert_eq!((s.controls[0].shift_label.as_str(), s.controls[1].shift_label.as_str()), ("LEFT", "OTS LINK"));
         assert_eq!(s.controls[0].action, None);
@@ -2405,7 +2471,7 @@ mod tests {
 
         // Style page.
         m.send(MixerCmd::ToggleFaderPage);
-        m.send(PadsCmd::SetPadPage { page: Page::Registration });
+        m.send(PadsCmd::SetPadPage { page: Page::MultiPads });
         let s = &m.state.surface;
         assert_eq!(
             labels(&m),

@@ -47,7 +47,7 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 
 | control | what it does | Genos | key | Launchkey |
 |---|---|---|---|---|
-| **Tap tempo** | Tap two or more times in time to set the tempo from your taps (the last four count). While the band plays, a tap restarts the section instead (Section Reset) and the tempo stays, unless you turn Tap: Section Reset off in Settings › Style. The pad lights on the downbeat while the band plays. | TAP TEMPO | `T` | Pad page 1 (Sections), bottom row, pad 6 |
+| **Tap tempo** | Tap two or more times in time to set the tempo (the last four count); stopped, a whole bar of taps (four in 4/4) starts the style one beat after your last tap, rhythm only until you play a chord. While the band plays, a tap restarts the section instead (Section Reset) and the tempo stays, unless you turn Tap: Section Reset off in Settings › Style. The pad lights on the downbeat while the band plays. | TAP TEMPO | `T` | Pad page 1 (Sections), bottom row, pad 6 |
 | **Tempo −** | Slows the tempo by 1 BPM. | TEMPO − | `-` | Function button (right of the pads) |
 | **Tempo +** | Speeds the tempo up by 1 BPM. | TEMPO + | `=` | > (Scene Launch) button (right of the pads) |
 
@@ -97,7 +97,7 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | **Fingered** | Play the whole chord. The bass is always the chord's root. | Fingered | — | Pad page 2 (Chord/Setup), top row, pad 2 |
 | **Fingered On Bass** | Like Fingered, but the lowest note you play becomes the bass, so you can play slash chords. | Fingered On Bass | — | Pad page 2 (Chord/Setup), top row, pad 3 |
 | **Multi Finger** | Reads Single Finger and Fingered shapes both, without switching. | Multi Finger | — | Pad page 2 (Chord/Setup), top row, pad 4 |
-| **AI Fingered** | Like Fingered, but fewer than three keys can still give a chord, guessed from the chord before. | AI Fingered | — | Pad page 2 (Chord/Setup), top row, pad 5 |
+| **AI Fingered** | Like Fingered, but fewer than three keys can still give a chord, guessed from the chord before. The lowest key is the bass: hold a chord note and add a key below it for a slash chord (C, then B+C is C/B). | AI Fingered | — | Pad page 2 (Chord/Setup), top row, pad 5 |
 | **Full Keyboard** | Chords are read across the whole keyboard, even split between your hands. | Full Keyboard | — | Pad page 2 (Chord/Setup), top row, pad 6 |
 | **AI Full Keyboard** | Full Keyboard with AI Fingered's guessing from fewer keys. 9th, 11th and 13th chords can't be played. | AI Full Keyboard | — | Pad page 2 (Chord/Setup), top row, pad 7 |
 
@@ -107,6 +107,7 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 |---|---|---|---|---|
 | **Chord detection: Upper / Lower** | Lower: your left hand plays the chords. Upper: your right hand does (as Fingered*), and your left hand is free for a bass line. | Chord Detection Area | `D` | Pad page 2 (Chord/Setup), top row, pad 8 |
 | **Manual Bass** | In Upper, mutes the style's Bass and gives its voice to Left, so your left hand plays the bass. Left stays on while it's on. Dark in Lower, where it isn't available. | Manual Bass | `Shift+D` | Pad page 2 (Chord/Setup), bottom row, pad 1 |
+| **Left Hold** | Left keeps sounding after you let go of its keys, until you play the next note on Left, stop the style, or turn Left Hold off. A string or organ Left holds your chord across the band. Stored in Registration (Style group). | LEFT HOLD | — | — |
 
 ## Split point
 
@@ -322,8 +323,8 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 
 | control | what it does | Genos | key | Launchkey |
 |---|---|---|---|---|
-| **Chord Looper REC/STOP** | Records the chords you play, from the next bar line; stopped, it arms Sync Start and your first chord starts the band and the recording together. Press again to stop recording while the band plays on. | CHORD LOOPER [REC/STOP] | `R` | — |
-| **Chord Looper ON/OFF** | Loops the recorded chords from the next bar line, feeding them to the band as if you played them, so both hands are free. While it loops your chords are ignored; press again to stop it at once. Arming a loop turns chart mode off. | CHORD LOOPER [ON/OFF] | `^` | — |
+| **Chord Looper REC/STOP** | Records the chords you play, from the next bar line; stopped, it arms Sync Start and your first chord starts the band and the recording together. Press again to stop recording while the band plays on. | CHORD LOOPER [REC/STOP] | `R` | Panel fader page: Shift + button under fader 8 (red while recording) |
+| **Chord Looper ON/OFF** | Loops the recorded chords from the next bar line, feeding them to the band as if you played them, so both hands are free. While it loops your chords are ignored; press again to stop it at once. Arming a loop turns chart mode off. | CHORD LOOPER [ON/OFF] | `^` | Panel fader page: button under fader 8 (green while looping) |
 | **Chord Looper memory** | One of eight memories. Selecting one that holds a sequence makes it the loop; while looping it takes over at the next bar line. | Chord Looper › Memory 1–8 | — | — |
 | **Memory** | Stores the current sequence: press it, then a memory number. The memory is named CLD_001 and on. | Chord Looper › [Memory] | — | — |
 | **Clear** | Empties a memory: press it, then a memory number. | Chord Looper › [Clear] | — | — |
@@ -334,10 +335,22 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 
 | control | what it does | Genos | key | Launchkey |
 |---|---|---|---|---|
-| **Multi Pad** | Plays the pad's phrase from the top (keys Shift+Z, X, C, V): at once when the band is stopped, at the next bar line while it plays. With pads in Synchro Start standby, pressing one of them starts them all. Blue: has data; red: playing; flashing red: waiting for Synchro Start; amber: waiting for the bar line. | MULTI PAD CONTROL [1]–[4] | `Shift+Z` `Shift+X` `Shift+C` `Shift+V` | — |
-| **Stop all pads** | Stops every Multi Pad at once and cancels Synchro Start standby. The band keeps playing. Key: Shift+B. | MULTI PAD CONTROL [STOP] | `Shift+B` | — |
-| **Stop this pad** | Stops only this pad, now. The other pads keep playing. | [STOP] + pad | — | — |
-| **Synchro Start** | Puts the pad in standby (flashing red): it starts with your next chord in the chord section, when the band starts, or when you press any pad in standby; while the band plays, at the next bar line. Press again to cancel. | [SELECT] + pad (Synchro Start) | — | — |
+| **Multi Pad** | Plays the pad's phrase from the top (keys Shift+Z, X, C, V): at once when the band is stopped, at the next bar line while it plays. With pads in Synchro Start standby, pressing one of them starts them all. Blue: has data; red: playing; flashing red: waiting for Synchro Start; amber: waiting for the bar line. | MULTI PAD CONTROL [1]–[4] | `Shift+Z` `Shift+X` `Shift+C` `Shift+V` | Pad page 5 (Multi Pads), top row, pads 1–4 |
+| **Multi Pad** | Plays the pad's phrase from the top (keys Shift+Z, X, C, V): at once when the band is stopped, at the next bar line while it plays. With pads in Synchro Start standby, pressing one of them starts them all. Blue: has data; red: playing; flashing red: waiting for Synchro Start; amber: waiting for the bar line. | MULTI PAD CONTROL [1]–[4] | `Shift+Z` | Pad page 5 (Multi Pads), top row, pad 1 |
+| **Multi Pad** | Plays the pad's phrase from the top (keys Shift+Z, X, C, V): at once when the band is stopped, at the next bar line while it plays. With pads in Synchro Start standby, pressing one of them starts them all. Blue: has data; red: playing; flashing red: waiting for Synchro Start; amber: waiting for the bar line. | MULTI PAD CONTROL [1]–[4] | `Shift+X` | Pad page 5 (Multi Pads), top row, pad 2 |
+| **Multi Pad** | Plays the pad's phrase from the top (keys Shift+Z, X, C, V): at once when the band is stopped, at the next bar line while it plays. With pads in Synchro Start standby, pressing one of them starts them all. Blue: has data; red: playing; flashing red: waiting for Synchro Start; amber: waiting for the bar line. | MULTI PAD CONTROL [1]–[4] | `Shift+C` | Pad page 5 (Multi Pads), top row, pad 3 |
+| **Multi Pad** | Plays the pad's phrase from the top (keys Shift+Z, X, C, V): at once when the band is stopped, at the next bar line while it plays. With pads in Synchro Start standby, pressing one of them starts them all. Blue: has data; red: playing; flashing red: waiting for Synchro Start; amber: waiting for the bar line. | MULTI PAD CONTROL [1]–[4] | `Shift+V` | Pad page 5 (Multi Pads), top row, pad 4 |
+| **Stop all pads** | Stops every Multi Pad at once and cancels Synchro Start standby. The band keeps playing, and on the Launchkey it lights while a pad plays or waits. Key: Shift+B. | MULTI PAD CONTROL [STOP] | `Shift+B` | Pad page 5 (Multi Pads), top row, pad 5 |
+| **Stop this pad** | Stops only this pad, now. The other pads keep playing. | [STOP] + pad | — | Pad page 5 (Multi Pads), bottom row, pads 5–8 |
+| **Stop this pad** | Stops only this pad, now. The other pads keep playing. | [STOP] + pad | — | Pad page 5 (Multi Pads), bottom row, pad 5 |
+| **Stop this pad** | Stops only this pad, now. The other pads keep playing. | [STOP] + pad | — | Pad page 5 (Multi Pads), bottom row, pad 6 |
+| **Stop this pad** | Stops only this pad, now. The other pads keep playing. | [STOP] + pad | — | Pad page 5 (Multi Pads), bottom row, pad 7 |
+| **Stop this pad** | Stops only this pad, now. The other pads keep playing. | [STOP] + pad | — | Pad page 5 (Multi Pads), bottom row, pad 8 |
+| **Synchro Start** | Puts the pad in standby (flashing red): it starts with your next chord in the chord section, when the band starts, or when you press any pad in standby; while the band plays, at the next bar line. Press again to cancel. | [SELECT] + pad (Synchro Start) | — | Pad page 5 (Multi Pads), bottom row, pads 1–4 |
+| **Synchro Start** | Puts the pad in standby (flashing red): it starts with your next chord in the chord section, when the band starts, or when you press any pad in standby; while the band plays, at the next bar line. Press again to cancel. | [SELECT] + pad (Synchro Start) | — | Pad page 5 (Multi Pads), bottom row, pad 1 |
+| **Synchro Start** | Puts the pad in standby (flashing red): it starts with your next chord in the chord section, when the band starts, or when you press any pad in standby; while the band plays, at the next bar line. Press again to cancel. | [SELECT] + pad (Synchro Start) | — | Pad page 5 (Multi Pads), bottom row, pad 2 |
+| **Synchro Start** | Puts the pad in standby (flashing red): it starts with your next chord in the chord section, when the band starts, or when you press any pad in standby; while the band plays, at the next bar line. Press again to cancel. | [SELECT] + pad (Synchro Start) | — | Pad page 5 (Multi Pads), bottom row, pad 3 |
+| **Synchro Start** | Puts the pad in standby (flashing red): it starts with your next chord in the chord section, when the band starts, or when you press any pad in standby; while the band plays, at the next bar line. Press again to cancel. | [SELECT] + pad (Synchro Start) | — | Pad page 5 (Multi Pads), bottom row, pad 4 |
 | **Repeat** | On: the pad loops until you stop it. Off: it plays once. The bank file sets it; a change here lasts until another bank loads. | Repeat (Multi Pad Edit) | — | — |
 | **Chord Match** | On: the pad follows the chord you play, like the band does. Off: it plays exactly as recorded, as drum pads usually do. | Chord Match (Multi Pad Edit) | — | — |
 | **Multi Pad bank** | Loads this bank's four pads. Pads playing stop. The list is every .pad file in your style folders. | Multi Pad Bank Selection | — | — |
@@ -402,6 +415,7 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | **Pad page 3: OTS/Parts** | OTS 1–4 and OTS Link, voice −/+, keyboard parts on/off and which part to edit. All magenta. | — | `PgDn` `PgUp` (terminal: `Tab` `Shift+Tab`) | Pad Bank ▲ / ▼ (left of the pads) |
 | **Pad Bank ▲** | Goes to the previous pad page, stopping at page 1, so a few presses always take you home. Lit in the page's colour when there's a page to go to. With Shift: Left on/off. | — | `PgUp` (terminal: `Shift+Tab`) | Pad Bank ▲ (left of the pads) |
 | **Pad Bank ▼** | Goes to the next pad page, stopping at page 4. Lit in the page's colour when there's a page to go to. With Shift: OTS Link on/off. | — | `PgDn` (terminal: `Tab`) | Pad Bank ▼ (left of the pads) |
+| **Pad page 5: Multi Pads** | Multi Pads 1–4 in the Genos lamp colours (blue has data, red playing, flashing red Synchro Start standby, amber waiting for the bar line) and STOP on the top row; SELECT + pad (Synchro Start) and STOP + pad on the bottom row. The other pads are yellow. | MULTI PAD CONTROL | `PgDn` `PgUp` (terminal: `Tab` `Shift+Tab`) | Pad Bank ▲ / ▼ (left of the pads) |
 | **Pad page 4: Registration** | Registration buttons 1–10 in the Genos lamp colours (red in use, blue stored, dark empty), Bank −/+, Memory, Freeze and Regist −/+. The other pads are orange. | — | `PgDn` `PgUp` (terminal: `Tab` `Shift+Tab`) | Pad Bank ▲ / ▼ (left of the pads) |
 
 ## Launchkey

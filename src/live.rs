@@ -953,6 +953,11 @@ impl Input {
             FaderPage::Panel if (i as usize) < parts::COUNT => self.act(Action::PartOnOff(i)),
             FaderPage::Panel if i == launchkey::HARM_ARP_FADER_BTN => self.act(Action::ToggleHarmonyArp),
             FaderPage::Panel if i == launchkey::PLUGIN_FADER_BTN => self.act(Action::ReloadPlugin),
+            // The CHORD LOOPER: ON/OFF, Shift: REC/STOP (#201).
+            FaderPage::Panel if i == launchkey::LOOPER_FADER_BTN => {
+                let f = if self.shift { crate::controllers::Function::ChordLooperRec } else { crate::controllers::Function::ChordLooperOnOff };
+                self.act(Action::Assign(f))
+            }
             FaderPage::Panel => {}
             FaderPage::Style => self.act(Action::Button(Button::TogglePart(i))),
         }
@@ -964,6 +969,11 @@ impl Input {
         match a {
             Action::Button(b) => {
                 if self.cmd.push(Cmd::Button(b)).is_ok() {
+                    self.signal = true;
+                }
+            }
+            Action::MultiPad(c) => {
+                if self.cmd.push(Cmd::MultiPad(c)).is_ok() {
                     self.signal = true;
                 }
             }
@@ -1083,6 +1093,8 @@ pub struct EngineLoop {
     last_part_vol: [u8; parts::COUNT],
     last_snap: Option<Snapshot>,
     last_snap_ns: u64,
+    /// The band was running at the end of the last wake (a stop lets go of Left Hold).
+    was_running: bool,
     /// The style preview playing, and how many of its chords have been played.
     audition: Option<(Box<Audition>, u8)>,
 }
@@ -1107,6 +1119,7 @@ impl EngineLoop {
             last_part_vol: [255u8; parts::COUNT],
             last_snap: None,
             last_snap_ns: 0,
+            was_running: false,
             audition: None,
         }
     }
@@ -1242,6 +1255,12 @@ impl EngineLoop {
             apply(&mut self.engine, &shared, cmd, now, &mut self.io.out);
         }
         self.engine.process(now, &mut self.io.out);
+        // Stopping the style lets go of the Left notes Left Hold holds (OM p.49); the sync
+        // below sends it.
+        let running = self.engine.is_running();
+        if std::mem::replace(&mut self.was_running, running) && !running {
+            shared.controllers.release_left_hold();
+        }
         let looping = self.engine.looper_owns_chords();
         if shared.looping.swap(looping, Relaxed) != looping && looping {
             shared.loops.fetch_add(1, Relaxed);
@@ -1545,6 +1564,37 @@ mod tests {
             }
             assert_eq!(chord(&shared).as_deref(), Some("C"), "{mode:?}");
         }
+    }
+
+    /// AI Fingered published slash chords (#194): play C, let go of all but C, add B
+    /// below it, and the chord the engine and the display read is C/B. Then the A-minor
+    /// walk-down: Am, G+A = Am/G. Plain Fingered reads the same keys with the root bass.
+    #[test]
+    fn ai_fingered_publishes_the_slash_bass() {
+        let (mut inp, shared) = input(Fingering::AiFingered);
+        let press = |inp: &mut Input, keys: &[u8], on: bool| {
+            for &k in keys {
+                inp.key_msg(&[if on { 0x90 } else { 0x80 }, k, 100]);
+            }
+        };
+        press(&mut inp, &[36, 40, 43], true);
+        assert_eq!(chord(&shared).as_deref(), Some("C"));
+        press(&mut inp, &[40, 43], false);
+        assert_eq!(chord(&shared).as_deref(), Some("C"));
+        press(&mut inp, &[35], true);
+        assert_eq!(chord(&shared).as_deref(), Some("C/B"));
+        press(&mut inp, &[35, 36], false);
+        press(&mut inp, &[45, 48, 52], true);
+        assert_eq!(chord(&shared).as_deref(), Some("Am"));
+        press(&mut inp, &[48, 52], false);
+        press(&mut inp, &[43], true);
+        assert_eq!(chord(&shared).as_deref(), Some("Am/G"));
+
+        let (mut inp, shared) = input(Fingering::Fingered);
+        press(&mut inp, &[36, 40, 43], true);
+        press(&mut inp, &[40, 43], false);
+        press(&mut inp, &[35], true);
+        assert_eq!(chord(&shared).as_deref(), Some("C"));
     }
 
     #[test]
@@ -1963,6 +2013,29 @@ mod tests {
 
     const C_KEYS: [u8; 3] = [36, 40, 43];
 
+    /// Left Hold (OM p.49, #202): stopping the style lets go of the held Left notes; the
+    /// hold itself stays on.
+    #[test]
+    fn stopping_the_style_lets_go_of_left_hold() {
+        let Some((mut l, mut ui, mut input, bar)) = live_rig(StyleSettings::default()) else { return };
+        let sh = l.shared.clone();
+        let ctl = &sh.controllers;
+        let mut now = 1_000;
+        l.shared.controllers.set_left_hold(true);
+        keys_msg(&mut input, &C_KEYS, true);
+        l.step(now);
+        assert!(l.engine.is_running());
+        run_until(&mut l, &mut now, 1_000 + bar / 2);
+        let before = ctl.left_releases();
+        ui.push(Cmd::Button(Button::StartStop)).ok().unwrap();
+        l.step(now + 1);
+        assert!(!l.engine.is_running());
+        assert_eq!(ctl.left_releases(), before.wrapping_add(1), "the stop let go");
+        assert!(ctl.left_hold(), "Left Hold stays on");
+        l.step(now + 2);
+        assert_eq!(ctl.left_releases(), before.wrapping_add(1), "once");
+    }
+
     /// Review #94 r3: Style Retrigger restarts the Main at every chord played (RM p.147),
     /// the same chord struck again after letting go too, not only a different one.
     #[test]
@@ -2198,6 +2271,12 @@ mod tests {
         assert_eq!(acts.pop(), Ok(Action::ReloadPlugin));
         input.pad_msg(&[0xB0, 43, 127]); // button 7: unused on Panel
         assert!(acts.pop().is_err());
+        input.pad_msg(&[0xB0, 44, 127]); // button 8: Chord Looper ON/OFF, Shift: REC/STOP
+        assert_eq!(acts.pop(), Ok(Action::Assign(crate::controllers::Function::ChordLooperOnOff)));
+        input.pad_msg(&[0xB0, launchkey::SHIFT_CC, 127]);
+        input.pad_msg(&[0xB0, 44, 127]);
+        input.pad_msg(&[0xB0, launchkey::SHIFT_CC, 0]);
+        assert_eq!(acts.pop(), Ok(Action::Assign(crate::controllers::Function::ChordLooperRec)));
         assert!(cmds.pop().is_err());
 
         input.pad_msg(&[0xB0, 45, 127]); // master button: Style page
@@ -2346,10 +2425,23 @@ mod tests {
 
         input.pad_msg(&[0xB0, launchkey::PAD_DOWN_CC, 127]);
         input.pad_msg(&[0xB0, launchkey::PAD_DOWN_CC, 127]);
-        input.pad_msg(&[0xB0, launchkey::PAD_DOWN_CC, 127]); // stops at the last page
         assert_eq!(page(), Page::Registration);
         input.pad_msg(&[0x90, 113, 100]);
         assert_eq!(acts.pop(), Ok(Action::Regist(9)));
+        input.pad_msg(&[0xB0, launchkey::PAD_DOWN_CC, 127]);
+        input.pad_msg(&[0xB0, launchkey::PAD_DOWN_CC, 127]); // stops at the last page
+        assert_eq!(page(), Page::MultiPads);
+        // Multi Pads go straight to the engine, as the section pads do.
+        input.pad_msg(&[0x90, 97, 100]);
+        input.pad_msg(&[0x90, 100, 100]);
+        input.pad_msg(&[0x90, 114, 100]);
+        input.pad_msg(&[0x90, 119, 100]);
+        assert!(matches!(cmds.pop(), Ok(Cmd::MultiPad(PadCmd::Trigger(1)))));
+        assert!(matches!(cmds.pop(), Ok(Cmd::MultiPad(PadCmd::StopAll))));
+        assert!(matches!(cmds.pop(), Ok(Cmd::MultiPad(PadCmd::Arm(2)))));
+        assert!(matches!(cmds.pop(), Ok(Cmd::MultiPad(PadCmd::Stop(3)))));
+        assert!(acts.pop().is_err());
+        input.pad_msg(&[0xB0, launchkey::PAD_UP_CC, 127]);
         input.pad_msg(&[0xB0, launchkey::PAD_UP_CC, 127]);
         assert_eq!(page(), Page::OtsParts);
         input.pad_msg(&[0x90, 114, 100]);
@@ -2465,7 +2557,8 @@ mod tests {
         assert_eq!(Page::from_u8(shared.page.load(Relaxed)), Page::OtsParts);
         shared.step_page(|p| p.step(1));
         shared.step_page(|p| p.step(1));
-        assert_eq!(Page::from_u8(shared.page.load(Relaxed)), Page::Registration);
+        shared.step_page(|p| p.step(1));
+        assert_eq!(Page::from_u8(shared.page.load(Relaxed)), Page::MultiPads);
         shared.step_page(|p| p.cycle(1));
         assert_eq!(Page::from_u8(shared.page.load(Relaxed)), Page::Sections);
     }
@@ -2558,6 +2651,31 @@ mod detection_area {
             r.input.key_msg(&[0x90, chord_key, 90]);
             assert!(strikes(&mut r).is_empty(), "no chord section while the loop plays");
         }
+    }
+
+    /// Left Hold (OM p.49, #202): Left's channel is held while the hold is on; each key that
+    /// sounds on Left lets go of what was held first (a re-pedal before its note-on), so a
+    /// chord rings until the next one. Keys of the other hand don't.
+    #[test]
+    fn left_hold_rings_until_the_next_left_key() {
+        let mut r = rig(false);
+        r.shared.controllers.set_left_hold(true);
+        let (on, off) = (0x90 | LH_CH, 0xB0 | LH_CH);
+        r.on(&[36, 40]);
+        // A key added to the chord re-pedals too: the keys still down keep sounding, and a
+        // key let go before a legato change of chord stops.
+        assert_eq!(r.played(), vec![[off, 64, 127], [on, 36, 100], [off, 64, 0], [off, 64, 127], [on, 40, 100]]);
+        r.off(&[36, 40]);
+        r.on(&[72]);
+        let p = r.played();
+        assert!(!p.iter().any(|m| m[0] == off), "the right hand leaves Left held: {p:?}");
+        r.on(&[41]);
+        assert_eq!(r.played(), vec![[off, 64, 0], [off, 64, 127], [on, 41, 100]]);
+        r.shared.controllers.set_left_hold(false);
+        r.off(&[41]);
+        r.on(&[43]);
+        let p = r.played();
+        assert!(!p.iter().any(|m| m[0] == off && m[1] == 64 && m[2] == 127), "off: no hold: {p:?}");
     }
 
     /// Lower (default): the left hand is the chord section and sounds on the LH channel.

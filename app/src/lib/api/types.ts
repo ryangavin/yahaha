@@ -17,7 +17,7 @@ export type Fingering =
   | 'aiFingered' | 'fullKeyboard' | 'aiFullKeyboard'
 
 /** The Launchkey pad pages, switched with Pad Bank ▲/▼. */
-export type PadPage = 'sections' | 'chordSetup' | 'otsParts' | 'registration'
+export type PadPage = 'sections' | 'chordSetup' | 'otsParts' | 'registration' | 'multiPads'
 
 /** What the Launchkey faders control, like the Genos Mixer's Panel and Style tabs. */
 export type FaderPage = 'panel' | 'style'
@@ -86,6 +86,9 @@ export type AppCmd =
   | { type: 'resetTranspose' }
   /** The chord-settle window, ms (0–`CHORD_SETTLE_MAX_MS`). */
   | { type: 'setChordSettle'; ms: number }
+  /** LEFT HOLD: Left rings on after its keys are let go, until its next key, a stop, or off. */
+  | { type: 'setLeftHold'; on: boolean }
+  | { type: 'toggleLeftHold' }
   // Keyboard parts
   | { type: 'setPartOn'; part: number; on: boolean }
   | { type: 'togglePart'; part: number }
@@ -458,6 +461,8 @@ export interface ChordState {
   /** The chord-settle window in ms: while the style plays, a chord change reaches the
    * accompaniment once the chord has held still this long (a rolled chord is followed once). */
   settleMs: number
+  /** Left Hold (`setLeftHold`). */
+  leftHold: boolean
 }
 
 /** The widest chord-settle window, ms (`setChordSettle`). */
@@ -1030,7 +1035,7 @@ export type BendRange = 'upper' | 'lower' | 'full'
 export interface AssignableFunction {
   id: FunctionId
   name: string
-  category: 'voice' | 'style' | 'ots' | 'registration' | 'overall'
+  category: 'voice' | 'style' | 'ots' | 'registration' | 'overall' | 'chordLooper'
   /** switch: Control Type applies; trigger: fires on the press; continuous: an expression pedal. */
   kind: 'switch' | 'trigger' | 'continuous'
   /** yahaha has it (Registration Bank +/− not yet). */
@@ -1233,6 +1238,7 @@ export const PAD_PAGES: { id: PadPage; name: string }[] = [
   { id: 'chordSetup', name: 'Chord/Setup' },
   { id: 'otsParts', name: 'OTS/Parts' },
   { id: 'registration', name: 'Registration' },
+  { id: 'multiPads', name: 'Multi Pads' },
 ]
 
 /** Section names as the engine reports them. */
