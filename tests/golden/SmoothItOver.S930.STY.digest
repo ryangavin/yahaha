@@ -3,7 +3,6 @@ bars   44
 
 bar 1  Intro A  [IntroA]@1.0000  C@1.0000
   ch10 Rhythm2 3dcb140ae1fe4400
-  ch11 Bass    d41c4474ee9b9ea5
 
 bar 2  Main A  G7@1.0000
   ch9 Rhythm1  920302727d7d9f32
@@ -107,7 +106,7 @@ bar 21  Main B  F#m7b5@1.0000
 
 bar 22  Main B > Fill In BA@4.0000  Fmaj7@1.0000  [Break]@3.1919
   ch10 Rhythm2 26341dd1402e2716
-  ch11 Bass    457cea84b6ad8dba
+  ch11 Bass    f985262c1be1cc93
 
 bar 23  Main B  E7sus4@1.0000  E7@3.0000
   ch9 Rhythm1  474f9c70476dbf5c

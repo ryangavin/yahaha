@@ -22,6 +22,7 @@ pub mod launchkey;
 pub mod library;
 pub mod live;
 pub mod looper;
+pub mod megavoice;
 pub mod midi;
 pub mod multipad;
 pub mod oracle;
