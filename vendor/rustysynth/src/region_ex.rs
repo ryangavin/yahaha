@@ -94,11 +94,25 @@ impl RegionEx {
         envelope.start(delay, attack, hold, decay, sustain, release);
     }
 
-    pub(crate) fn start_vibrato(lfo: &mut Lfo, region: &RegionPair, _key: i32, _velocity: i32) {
-        lfo.start(
-            region.get_delay_vibrato_lfo(),
-            region.get_frequency_vibrato_lfo(),
-        );
+    // yahaha: the rate scaled by `rate` and `delay` seconds added (the channel's CC76 and
+    // CC78, #246; 1 and 0 leave the region's).
+    pub(crate) fn start_vibrato(
+        lfo: &mut Lfo,
+        region: &RegionPair,
+        _key: i32,
+        _velocity: i32,
+        rate: f32,
+        delay: f32,
+    ) {
+        let mut frequency = region.get_frequency_vibrato_lfo();
+        if rate != 1_f32 {
+            frequency *= rate;
+        }
+        let mut start = region.get_delay_vibrato_lfo();
+        if delay != 0_f32 {
+            start = SoundFontMath::max(start + delay, 0_f32);
+        }
+        lfo.start(start, frequency);
     }
 
     pub(crate) fn start_modulation(lfo: &mut Lfo, region: &RegionPair, _key: i32, _velocity: i32) {

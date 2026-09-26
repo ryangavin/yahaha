@@ -83,6 +83,15 @@ pub(crate) struct Voice {
     // yahaha: apply velocity -> filter cutoff modulators (`SynthesizerSettings`).
     velocity_to_filter: bool,
 
+    // yahaha: the channel's sound controllers (#246) as this voice plays them: the cutoff
+    // factor (CC74) and resonance offset (CC71) gliding towards the channel's (the filter
+    // moves live, as a Genos part's does), the filter's own resonance in dB before them,
+    // and the resonance they make.
+    channel_cutoff: f32,
+    channel_resonance_db: f32,
+    resonance_db: f32,
+    live_resonance: f32,
+
     // yahaha: the voice's own scale of each send bus (`NoteParams::sends`), and whether
     // any differs from 1 (the synthesizer then adds the difference to the buses).
     pub(crate) note_sends: [f32; SEND_BUSES],
@@ -132,6 +141,10 @@ impl Voice {
             instrument_chorus: 0_f32,
             smoothed_cutoff: 0_f32,
             velocity_to_filter: settings.velocity_to_filter,
+            channel_cutoff: 1_f32,
+            channel_resonance_db: 0_f32,
+            resonance_db: 0_f32,
+            live_resonance: 0_f32,
             note_sends: [1_f32; SEND_BUSES],
             own_sends: false,
             voice_state: VoiceState::Playing,
@@ -141,7 +154,8 @@ impl Voice {
     }
 
     // yahaha: `note` fixes the voice's own gain, tuning, pan, sends, filter and envelope
-    // times (`NoteParams::NEUTRAL`: upstream's voice).
+    // times (`NoteParams::NEUTRAL`: upstream's voice); `channel_info`'s sound controllers
+    // (#246) scale the filter, envelope and vibrato on top (all at 64: upstream's voice).
     pub(crate) fn start(
         &mut self,
         region: &RegionPair,
@@ -149,6 +163,7 @@ impl Voice {
         key: i32,
         velocity: i32,
         note: &NoteParams,
+        channel_info: &Channel,
     ) {
         self.exclusive_class = region.get_exclusive_class();
         self.channel = channel;
@@ -190,6 +205,10 @@ impl Voice {
             q
         };
         self.resonance = SoundFontMath::decibels_to_linear(q);
+        self.resonance_db = q;
+        self.channel_cutoff = channel_info.get_cutoff_factor();
+        self.channel_resonance_db = channel_info.get_resonance_db();
+        self.live_resonance = self.channel_resonance();
 
         self.vib_lfo_to_pitch = 0.01_f32 * region.get_vibrato_lfo_to_pitch() as f32;
         self.mod_lfo_to_pitch = 0.01_f32 * region.get_modulation_lfo_to_pitch() as f32;
@@ -208,18 +227,28 @@ impl Voice {
         self.instrument_reverb = 0.01_f32 * region.get_reverb_effects_send();
         self.instrument_chorus = 0.01_f32 * region.get_chorus_effects_send();
 
-        RegionEx::start_volume_envelope(&mut self.vol_env, region, key, velocity, [note.attack, note.decay, note.release]);
+        let eg = channel_info.get_envelope_factors();
+        let times = [note.attack * eg[0], note.decay * eg[1], note.release * eg[2]];
+        RegionEx::start_volume_envelope(&mut self.vol_env, region, key, velocity, times);
         RegionEx::start_modulation_envelope(&mut self.mod_env, region, key, velocity);
-        RegionEx::start_vibrato(&mut self.vib_lfo, region, key, velocity);
+        RegionEx::start_vibrato(
+            &mut self.vib_lfo,
+            region,
+            key,
+            velocity,
+            channel_info.get_vibrato_rate_factor(),
+            channel_info.get_vibrato_delay(),
+        );
         RegionEx::start_modulation(&mut self.mod_lfo, region, key, velocity);
         RegionEx::start_oscillator(&mut self.oscillator, region);
         if note.tune != 0_f32 {
             self.oscillator.add_tune(note.tune);
         }
         self.filter.clear_buffer();
-        self.filter.set_low_pass_filter(self.cutoff, self.resonance);
+        let cutoff = self.channel_cutoff_of(self.cutoff);
+        self.filter.set_low_pass_filter(cutoff, self.live_resonance);
 
-        self.smoothed_cutoff = self.cutoff;
+        self.smoothed_cutoff = cutoff;
 
         self.voice_state = VoiceState::Playing;
         self.voice_length = 0;
@@ -252,8 +281,13 @@ impl Voice {
         self.vib_lfo.process();
         self.mod_lfo.process();
 
-        let vib_pitch_change = (0.01_f32 * channel_info.get_modulation() + self.vib_lfo_to_pitch)
-            * self.vib_lfo.get_value();
+        // yahaha: the channel's vibrato depth (CC77) on top of the voice's, not past 0.
+        let vib_depth = match channel_info.get_vibrato_depth() {
+            0_f32 => self.vib_lfo_to_pitch,
+            d => (self.vib_lfo_to_pitch + d).max(self.vib_lfo_to_pitch.min(0_f32)),
+        };
+        let vib_pitch_change =
+            (0.01_f32 * channel_info.get_modulation() + vib_depth) * self.vib_lfo.get_value();
         let mod_pitch_change = self.mod_lfo_to_pitch * self.mod_lfo.get_value()
             + self.mod_env_to_pitch * self.mod_env.get_value();
         let channel_pitch_change = channel_info.get_tune() + channel_info.get_pitch_bend();
@@ -262,11 +296,13 @@ impl Voice {
             return false;
         }
 
+        // yahaha: the channel's cutoff and resonance (CC74, CC71) glide in.
+        let moved = self.follow_channel_filter(channel_info);
         if self.dynamic_cutoff {
             let cents = self.mod_lfo_to_cutoff as f32 * self.mod_lfo.get_value()
                 + self.mod_env_to_cutoff as f32 * self.mod_env.get_value();
             let factor = SoundFontMath::cents_to_multiplying_factor(cents);
-            let new_cutoff = factor * self.cutoff;
+            let new_cutoff = self.channel_cutoff_of(factor * self.cutoff);
 
             // The cutoff change is limited within x0.5 and x2 to reduce pop noise.
             let lower_limit = 0.5_f32 * self.smoothed_cutoff;
@@ -274,7 +310,11 @@ impl Voice {
             self.smoothed_cutoff = SoundFontMath::clamp(new_cutoff, lower_limit, upper_limit);
 
             self.filter
-                .set_low_pass_filter(self.smoothed_cutoff, self.resonance);
+                .set_low_pass_filter(self.smoothed_cutoff, self.live_resonance);
+        } else if moved {
+            self.smoothed_cutoff = self.channel_cutoff_of(self.cutoff);
+            self.filter
+                .set_low_pass_filter(self.smoothed_cutoff, self.live_resonance);
         }
         self.filter.process(&mut self.block[..]);
 
@@ -328,6 +368,51 @@ impl Voice {
 
         self.voice_length += self.block.len();
 
+        true
+    }
+
+    /// yahaha: `cutoff` scaled by the channel's cutoff factor as this voice has it (within
+    /// the spec's range).
+    fn channel_cutoff_of(&self, cutoff: f32) -> f32 {
+        if self.channel_cutoff == 1_f32 {
+            cutoff
+        } else {
+            SoundFontMath::clamp(cutoff * self.channel_cutoff, 19.45_f32, 20000_f32)
+        }
+    }
+
+    /// yahaha: the filter's resonance with the channel's offset as this voice has it.
+    fn channel_resonance(&self) -> f32 {
+        if self.channel_resonance_db == 0_f32 {
+            self.resonance
+        } else {
+            let db = SoundFontMath::clamp(self.resonance_db + self.channel_resonance_db, 0_f32, 96_f32);
+            SoundFontMath::decibels_to_linear(db)
+        }
+    }
+
+    /// yahaha: move this voice's cutoff factor and resonance offset a step towards the
+    /// channel's (at most a quarter octave and 1 dB a block, so a jump doesn't click);
+    /// true if they moved.
+    fn follow_channel_filter(&mut self, channel_info: &Channel) -> bool {
+        let (cutoff, db) = (channel_info.get_cutoff_factor(), channel_info.get_resonance_db());
+        if cutoff == self.channel_cutoff && db == self.channel_resonance_db {
+            return false;
+        }
+        const STEP: f32 = 1.189_207_1_f32; // 2^(1/4)
+        self.channel_cutoff = if cutoff > self.channel_cutoff * STEP {
+            self.channel_cutoff * STEP
+        } else if cutoff < self.channel_cutoff / STEP {
+            self.channel_cutoff / STEP
+        } else {
+            cutoff
+        };
+        self.channel_resonance_db = if (db - self.channel_resonance_db).abs() > 1_f32 {
+            self.channel_resonance_db + (db - self.channel_resonance_db).signum()
+        } else {
+            db
+        };
+        self.live_resonance = self.channel_resonance();
         true
     }
 

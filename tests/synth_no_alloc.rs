@@ -1,5 +1,5 @@
 //! The audio callback (`synth::AudioCore::process`) must not allocate or free: SoundFont
-//! notes and controllers, a style's XG drum setup (#239), the effect bus (sends, band send scales, types, parameters, returns, legacy effects), the
+//! notes and controllers, a style's XG drum setup (#239), a part's sound controllers (#246), the effect bus (sends, band send scales, types, parameters, returns, legacy effects), the
 //! master fader, a SoundFont swap, and (feature `plugins`) a
 //! keyboard part going over to an Audio Unit instrument (Apple's DLSMusicDevice), playing
 //! it, crossfading to a second instance, and back to the SoundFont. SoundFont swaps while
@@ -126,6 +126,15 @@ fn the_audio_callback_does_not_allocate() {
     }
     let reset = synth::drum_setup::encode(&[0xF0, 0x43, 0x10, 0x4C, 0x00, 0x00, 0x7E, 0x00, 0xF7]).unwrap();
     assert_eq!(run(&mut core, &mut feed, &[[0xC9, 0, 0], [0x99, 38, 100], reset]), none, "drum setup resets");
+    // A part's voice settings (#246): the sound controllers on new notes, the filter moving
+    // on notes already sounding, vibrato.
+    let tone: Vec<[u8; 3]> = (71..=78u8).map(|cc| [0xB1, cc, 20 + cc]).chain([[0x91, 60, 100], [0x91, 64, 90], [0xB9, 74, 30], [0x99, 38, 100]]).collect();
+    assert_eq!(run(&mut core, &mut feed, &tone), none, "sound controllers");
+    for v in [0u8, 127, 64, 10] {
+        assert_eq!(run(&mut core, &mut feed, &[[0xB1, 74, v], [0xB1, 71, 127 - v]]), none, "the filter moving");
+        assert_eq!(run(&mut core, &mut feed, &[]), none, "the filter gliding");
+    }
+    assert_eq!(run(&mut core, &mut feed, &[[0x81, 60, 0], [0x81, 64, 0], [0xB1, 121, 0]]), none, "sound controllers: notes off");
     ctl.master.store(90, Ordering::Relaxed);
     parts.set_program(0, 5);
     assert_eq!(run(&mut core, &mut feed, &[[0xB0, 1, 30], [0xE0, 0, 80]]), none, "master, program, controllers");

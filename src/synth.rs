@@ -41,6 +41,8 @@ pub const PLUGIN_MAX_BLOCK: usize = 1024;
 
 pub mod drum_setup;
 mod routing;
+#[cfg(test)]
+mod sound_tests;
 mod stream;
 pub use routing::Router;
 pub use stream::{BUFFER_CHOICES, DEFAULT_BUFFER};
