@@ -75,7 +75,7 @@ mod tests {
         s.send(KnobsCmd::StepKnobPage { delta: 1 }).unwrap();
         s.send(KnobsCmd::TurnKnob { knob: 0, delta: -10 }).unwrap();
         let st = s.state();
-        assert_eq!((st.knobs.page_name.as_str(), st.knobs.page_number, st.knobs.page_count), ("Parts", 2, 5));
+        assert_eq!((st.knobs.page_name.as_str(), st.knobs.page_number, st.knobs.page_count), ("Parts", 2, 6));
         assert_eq!(st.knobs.knobs[0].value, st.keyboard_parts[0].volume.to_string());
         s.send(KnobsCmd::SetKnobPage { page: KnobPage::Style }).unwrap();
         assert_eq!(s.state().knobs.page, KnobPage::Style);

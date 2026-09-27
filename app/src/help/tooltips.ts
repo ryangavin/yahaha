@@ -1150,7 +1150,7 @@ const catalog = {
   },
   'fx.follow_style': {
     title: 'Follow the style',
-    body: 'Lit, this effect takes the style\'s own type at every style change (the style\'s choice shows beside it, the nearest type yahaha has), with the style\'s delay time and feedback, its reverb time, pre-delay and tone, and its return level (0 dB where it sets none). Choosing a type yourself turns it off so your choice stays; press it to go back to the style\'s. Stored in a Registration Memory.',
+    body: 'Lit, this effect takes the style\'s own type at every style change (the style\'s choice shows beside it, the nearest type yahaha has), with the style\'s delay time and feedback, its reverb time, pre-delay and tone, and its return level (0 dB where it sets none). Choosing a type or changing one of its settings yourself (in the editor or on a Launchkey effect knob page) turns it off so your choice stays; press it to go back to the style\'s. Stored in a Registration Memory.',
     genos: 'Mixer › Effect (Style effect types)',
     keys: [],
     launchkey: null,
@@ -1371,7 +1371,7 @@ const catalog = {
   // ── Knob Assign pages (#197) ───────────────────────────────────────────
   'knobs.page': {
     title: 'Knob Assign page',
-    body: 'What the eight Launchkey knobs do, on four pages. Style has Dynamics, Retrigger length and on/off, Style Track Mute A and B and tempo; Parts has the keyboard parts\' volumes, Harmony and metronome volume and tempo; Pan has the parts\' pan and tempo; Effects has their Reverb and Chorus sends.',
+    body: 'What the eight Launchkey knobs do, on six pages. Style has Dynamics, Retrigger length and on/off, Style Track Mute A and B and tempo; Parts has the keyboard parts\' volumes, Harmony and metronome volume and tempo; Pan has the parts\' pan, the effect returns and tempo; Reverb, Chorus and Delay each have Right 1, Right 2, Right 3 and Left\'s send to that effect on knobs 1–4, then the effect\'s own settings and its return on knob 8: Reverb time, pre-delay and tone; Chorus rate and depth; Delay time, feedback and tone. Turning an effect setting keeps that effect as yours through style changes (its Style switch goes off).',
     genos: 'KNOB ASSIGN',
     keys: [],
     launchkey: '▲ / ▼ right of the knobs',

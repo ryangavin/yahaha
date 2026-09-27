@@ -809,11 +809,16 @@ pub struct AudioCore {
     fx: crate::fx::FxBus,
     sends: Vec<f32>,
     sends2: Vec<f32>,
-    /// Each channel's send controllers (CC91/93/94) as last sent, and their gains.
+    /// Each channel's send controllers (CC91/93/94) as last sent, the gains they make, and
+    /// the gains the racks have now: the keyboard parts' glide to theirs (a knob or fader
+    /// turning a send never zippers), the others' are set at once.
     send_cc: [[u8; crate::fx::BUSES]; 16],
+    send_target: [[f32; crate::fx::BUSES]; 16],
     send_gains: [[f32; crate::fx::BUSES]; 16],
     /// The racks' send gains need setting again (a send changed, a rack came in).
     sends_dirty: bool,
+    /// A keyboard part's send gain is still gliding to its target.
+    sends_gliding: bool,
     /// `FxControl::legacy` as last applied.
     legacy: bool,
     /// The Style parts' insertion effects (#269).
@@ -873,8 +878,10 @@ impl AudioCore {
             sends: vec![0f32; 2 * crate::fx::BUSES * 8192],
             sends2: vec![0f32; 2 * crate::fx::BUSES * 8192],
             send_cc: [crate::fx::DEFAULT_SENDS; 16],
+            send_target: [[0f32; crate::fx::BUSES]; 16],
             send_gains: [[0f32; crate::fx::BUSES]; 16],
             sends_dirty: true,
+            sends_gliding: false,
             legacy: false,
             inserts: Box::new(crate::fx::BandInserts::new(sample_rate.max(1) as f32)),
             band_scale: crate::fx::BAND_SEND_DEFAULT.map(crate::fx::band_scale),
@@ -1078,7 +1085,8 @@ impl AudioCore {
         }
         if self.sends_dirty {
             self.sends_dirty = false;
-            for (ch, (g, cc)) in self.send_gains.iter_mut().zip(&self.send_cc).enumerate() {
+            self.sends_gliding = true;
+            for (ch, (g, cc)) in self.send_target.iter_mut().zip(&self.send_cc).enumerate() {
                 *g = if legacy {
                     [0.0; crate::fx::BUSES]
                 } else if crate::fx::BAND_CHANNELS.contains(&ch) {
@@ -1093,6 +1101,9 @@ impl AudioCore {
                     cc.map(crate::fx::send_gain)
                 };
             }
+        }
+        if self.sends_gliding {
+            self.sends_gliding = glide_sends(&mut self.send_gains, &self.send_target, k);
             for r in [self.rack.as_mut(), self.fading.as_mut()].into_iter().flatten() {
                 r.set_sends(&self.send_gains);
             }
@@ -1209,6 +1220,26 @@ impl AudioCore {
 
 /// Glide each send scale (`scales`, gains) a step `k` towards its control value
 /// (`targets`, 0-127 %), snapping when close. True: one moved.
+/// The racks' send gains a buffer on towards their targets: the keyboard parts' glide
+/// (`k` of the way, as the band scales), every other channel's is set at once. True while
+/// any is still on its way.
+fn glide_sends(gains: &mut [[f32; crate::fx::BUSES]; 16], targets: &[[f32; crate::fx::BUSES]; 16], k: f32) -> bool {
+    let mut moving = false;
+    for (ch, (g, t)) in gains.iter_mut().zip(targets).enumerate() {
+        let keys = parts::part_of_channel(ch as u8).is_some();
+        for (g, &t) in g.iter_mut().zip(t) {
+            let d = t - *g;
+            if !keys || d.abs() < 1e-3 {
+                *g = t;
+            } else {
+                *g += d * k;
+                moving = true;
+            }
+        }
+    }
+    moving
+}
+
 fn glide_scales(scales: &mut [f32; crate::fx::BUSES], targets: &[std::sync::atomic::AtomicU8; crate::fx::BUSES], k: f32) -> bool {
     let mut moved = false;
     for (scale, t) in scales.iter_mut().zip(targets) {
@@ -1755,6 +1786,26 @@ mod rack_tests {
         // Past the note's release, into the echoes (a dotted 1/8 at 120 is 375 ms).
         energy(&mut core, 60);
         energy(&mut core, 150)
+    }
+
+    /// A keyboard part's send glides to a new value over a few buffers (a knob turning it
+    /// never zippers); a Style part's is set at once.
+    #[test]
+    fn keyboard_part_sends_glide() {
+        let mut gains = [[0f32; crate::fx::BUSES]; 16];
+        let mut targets = gains;
+        targets[parts::CHANNEL[parts::RIGHT1] as usize][crate::fx::REVERB] = 1.0;
+        targets[10][crate::fx::REVERB] = 1.0;
+        assert!(glide_sends(&mut gains, &targets, 0.25));
+        assert_eq!(gains[10][crate::fx::REVERB], 1.0, "a Style part: at once");
+        assert_eq!(gains[0][crate::fx::REVERB], 0.25, "Right 1: on its way");
+        let mut n = 1;
+        while glide_sends(&mut gains, &targets, 0.25) {
+            n += 1;
+            assert!(n < 100);
+        }
+        assert_eq!(gains[0][crate::fx::REVERB], 1.0);
+        assert!(n > 5, "{n} buffers");
     }
 
     #[test]

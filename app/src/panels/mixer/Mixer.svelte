@@ -28,7 +28,7 @@
     opens a block's editor with its parameters (#236, `setEffectParam`), which a type
     change puts back to that type's own values. The Style switch (#237, `setFollowStyle`):
     lit, the block takes the style's own effect type at each style change (its XG name shows
-    beside it); choosing a type turns it off. The editor ends with the block's Pads send
+    beside it); choosing a type or changing a parameter (here or on a Launchkey effect knob page) turns it off. The editor ends with the block's Pads send
     (#267, `setPadSend`): the same scale for the four Multi Pads' sends.
   - Inserts (#269, `setInsertsOn`): the style's insertion effects, each on one Style part
     (an amp simulator, a compressor, a wah, a tremolo or a rotary here), all on or off.

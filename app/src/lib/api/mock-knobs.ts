@@ -10,15 +10,20 @@ const PAGES: Record<KnobPage, Fn[]> = {
   style: [{ fn: 'dynamics' }, { fn: 'retriggerRate' }, { fn: 'retriggerOnOff' }, { fn: 'trackMuteA' }, { fn: 'trackMuteB' }, { fn: 'swing' }, NONE, { fn: 'tempo' }],
   parts: [0, 1, 2, 3].map((part): Fn => ({ fn: 'partVolume', part })).concat([{ fn: 'harmonyVolume' }, { fn: 'metronomeVolume' }, NONE, { fn: 'tempo' }]),
   pan: [0, 1, 2, 3].map((part): Fn => ({ fn: 'partPan', part })).concat([0, 1, 2].map((part): Fn => ({ fn: 'fxReturn', part })), [{ fn: 'tempo' }]),
-  effects: [0, 1, 2, 3].map((part): Fn => ({ fn: 'partReverb', part })).concat([0, 1, 2, 3].map((part): Fn => ({ fn: 'partChorus', part }))),
-  fx: [
-    { fn: 'fxParam', param: 'reverbTime' }, { fn: 'fxParam', param: 'preDelay' }, { fn: 'fxParam', param: 'reverbTone' }, { fn: 'delayTime' },
-    { fn: 'fxParam', param: 'delayFeedback' }, { fn: 'fxParam', param: 'chorusRate' }, { fn: 'fxParam', param: 'chorusDepth' }, { fn: 'tempo' },
-  ],
+  // One page per effect: the parts' sends to it, its parameters, its return on knob 8.
+  reverb: [0, 1, 2, 3].map((part): Fn => ({ fn: 'partReverb', part })).concat([
+    { fn: 'fxParam', param: 'reverbTime' }, { fn: 'fxParam', param: 'preDelay' }, { fn: 'fxParam', param: 'reverbTone' }, { fn: 'fxReturn', part: 0 },
+  ]),
+  chorus: [0, 1, 2, 3].map((part): Fn => ({ fn: 'partChorus', part })).concat([
+    { fn: 'fxParam', param: 'chorusRate' }, { fn: 'fxParam', param: 'chorusDepth' }, NONE, { fn: 'fxReturn', part: 1 },
+  ]),
+  delay: [0, 1, 2, 3].map((part): Fn => ({ fn: 'partDelay', part })).concat([
+    { fn: 'delayTime' }, { fn: 'fxParam', param: 'delayFeedback' }, { fn: 'fxParam', param: 'delayTone' }, { fn: 'fxReturn', part: 2 },
+  ]),
 }
-const ORDER: KnobPage[] = ['style', 'parts', 'pan', 'effects', 'fx']
-const PAGE_NAME: Record<KnobPage, string> = { style: 'Style', parts: 'Parts', pan: 'Pan', effects: 'Effects', fx: 'FX' }
-/** The FX page's parameters (#236): full and short names, and how far a knob step moves each. */
+const ORDER: KnobPage[] = ['style', 'parts', 'pan', 'reverb', 'chorus', 'delay']
+const PAGE_NAME: Record<KnobPage, string> = { style: 'Style', parts: 'Parts', pan: 'Pan', reverb: 'Reverb', chorus: 'Chorus', delay: 'Delay' }
+/** The effect pages' parameters (#236): full and short names, and how far a knob step moves each. */
 const PARAM_KNOB: Partial<Record<FxParam, [string, string, number]>> = {
   reverbTime: ['Reverb Time', 'RevTime', 1],
   preDelay: ['Reverb Pre-delay', 'PreDly', 2],
@@ -26,6 +31,7 @@ const PARAM_KNOB: Partial<Record<FxParam, [string, string, number]>> = {
   delayNote: ['Delay Note', 'DlyNote', 1],
   delayTime: ['Delay Time', 'DlyTime', 10],
   delayFeedback: ['Delay Feedback', 'DlyFdbk', 2],
+  delayTone: ['Delay Tone', 'DlyTone', 2],
   chorusRate: ['Chorus Rate', 'ChoRate', 2],
   chorusDepth: ['Chorus Depth', 'ChoDepth', 1],
 }
@@ -45,6 +51,7 @@ const PART_FX: Partial<Record<KnobFunction, [string[], string[]]>> = {
   partPan: [['Right 1 Pan', 'Right 2 Pan', 'Right 3 Pan', 'Left Pan'], ['PanR1', 'PanR2', 'PanR3', 'PanL']],
   partReverb: [['Right 1 Reverb', 'Right 2 Reverb', 'Right 3 Reverb', 'Left Reverb'], ['RevR1', 'RevR2', 'RevR3', 'RevL']],
   partChorus: [['Right 1 Chorus', 'Right 2 Chorus', 'Right 3 Chorus', 'Left Chorus'], ['ChoR1', 'ChoR2', 'ChoR3', 'ChoL']],
+  partDelay: [['Right 1 Delay', 'Right 2 Delay', 'Right 3 Delay', 'Left Delay'], ['DlyR1', 'DlyR2', 'DlyR3', 'DlyL']],
   // `part` is the effect block here: Reverb, Chorus, Variation (#204).
   fxReturn: [['Reverb Return', 'Chorus Return', 'Delay Return'], ['RevRtn', 'ChoRtn', 'DlyRtn']],
 }
@@ -71,6 +78,7 @@ const NAMES: Record<KnobFunction, [string, string]> = {
   partPan: ['', ''],
   partReverb: ['', ''],
   partChorus: ['', ''],
+  partDelay: ['', ''],
   fxReturn: ['', ''],
   fxParam: ['', ''],
   delayTime: ['Delay Time', 'DlyTime'],
@@ -141,6 +149,8 @@ export class MockKnobs {
         return { type: 'setPartSend', part: f.part!, send: 'reverb', value: level(s.keyboardParts[f.part!].reverb) }
       case 'partChorus':
         return { type: 'setPartSend', part: f.part!, send: 'chorus', value: level(s.keyboardParts[f.part!].chorus) }
+      case 'partDelay':
+        return { type: 'setPartSend', part: f.part!, send: 'variation', value: level(s.keyboardParts[f.part!].variation) }
       case 'fxReturn':
         return { type: 'setEffectReturn', block: FX_BLOCKS[f.part!], level: level(s.effects.blocks[f.part!].returnLevel) }
       case 'fxParam':
@@ -200,6 +210,7 @@ export class MockKnobs {
         case 'partPan': return r(panText(s.keyboardParts[f.part!].pan), s.keyboardParts[f.part!].pan)
         case 'partReverb': return r(String(s.keyboardParts[f.part!].reverb), s.keyboardParts[f.part!].reverb)
         case 'partChorus': return r(String(s.keyboardParts[f.part!].chorus), s.keyboardParts[f.part!].chorus)
+        case 'partDelay': return r(String(s.keyboardParts[f.part!].variation), s.keyboardParts[f.part!].variation)
         case 'fxReturn': return r(String(s.effects.blocks[f.part!].returnLevel), s.effects.blocks[f.part!].returnLevel)
         case 'fxParam':
         case 'delayTime': {

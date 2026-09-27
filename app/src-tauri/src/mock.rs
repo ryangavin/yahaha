@@ -1971,6 +1971,9 @@ impl MockSession {
                         b.style_effect = k.style_effect;
                         b.pad_send = k.pad_send;
                     }
+                    // The player's own setting: the block no longer follows the style
+                    // (#237), as the session's.
+                    self.state.effects.blocks[block.index()].follow_style = false;
                 }
             }
             AppCmd::Dynamics(c) => {
