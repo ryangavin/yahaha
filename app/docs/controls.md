@@ -578,6 +578,7 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | **Fade in time** | How long a fade in takes to reach full volume, from 0 to 20 seconds. | Fade In Time | — | — |
 | **Fade out time** | How long a fade out takes to reach silence before the band stops, from 0 to 20 seconds. | Fade Out Time | — | — |
 | **Fade out hold time** | How long the style stays silent after a fade out before its volume comes back, from 0 to 5 seconds. | Fade Out Hold Time | — | — |
+| **Written tempo changes** | Plays the tempo changes a style writes inside its sections, mostly the slow-downs at the end of Endings and Intros, scaled to the tempo you play at. The tempo comes back when the section ends or the band stops. | — | — | — |
 | **Tap: Section Reset** | On (the default, as on the Genos): Tap while the band plays restarts the section from its top and keeps the tempo. Off: Tap always sets the tempo. | Tap Tempo › Style Section Reset | — | — |
 | **Retrigger length** | How much of the Main's start Retrigger loops: a whole note (1) down to a 32nd (1/32). | Style Retrigger Rate (RtgRate) | — | Shift + > (Scene Launch) / Shift + Function buttons |
 | **Style folders** | The folders yahaha reads style files from (.sty, .prs, .sst and more), with subfolders as categories. Pass them on the command line or set YAHAHA_STYLES. | Style selection (User / USB) | — | — |

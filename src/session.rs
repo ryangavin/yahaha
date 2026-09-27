@@ -36,6 +36,7 @@ mod display;
 mod dynamics;
 mod fx;
 mod harmony_arp;
+mod home;
 mod keyboard;
 mod knobs;
 mod leds;
@@ -485,7 +486,7 @@ impl Control {
             fingering: Fingering::from_u8(shared.fingering.load(Relaxed)),
             split: shared.split.load(Relaxed),
         };
-        AppState {
+        let mut st = AppState {
             version: 0,
             style: self.style_state(),
             transport: self.transport_state(&v),
@@ -517,7 +518,10 @@ impl Control {
             dynamics: self.dynamics_state(),
             knobs: self.knobs_state(),
             effects: self.effects_state(),
-        }
+            home: Default::default(),
+        };
+        st.home = self.home_state(&st);
+        st
     }
 }
 

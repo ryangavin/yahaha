@@ -143,6 +143,7 @@ Style Section Reset, the Fade In/Out times and the Style Retrigger length. The s
 | `setSwing` | `amount` 0–100 | Live Swing: 0 plays the Style as written; 100 moves straight off-beats (8ths or 16ths, `swingGrid`) to the triplet position. A tick remap of the Style's events as they play (drums and all accompaniment parts; the player's keys are never moved). Parts already swung are not swung again: a triplet off-beat stays put, and positions between scale in proportion. Each style load sets it back to 0; registrations store it (group Style). |
 | `stepSwing` | `delta` | Swing moved by `delta` %, clamped to 0–100. |
 | `setSwingGrid` | `grid` | 8 (off-beat 8ths, the default) or 16 (off-beat 16ths). |
+| `setSectionTempo` | `on` | Play the tempo changes a style writes inside its sections, mostly the ritardandos at the end of Endings and Intros (#243). Default on. They play relative to the tempo playing: an Ending written to slow from the style's 120 to 90 slows from 100 to 75 at 100 BPM. The panel tempo comes back when the section ends or the band stops. TEMPO −/+, TAP and `setTempo` during one move the tempo it is read against; pressing the Ending again (its ritardando) takes over from the tempo reached. |
 
 ### Chord detection, split, transpose
 
@@ -985,6 +986,7 @@ The settings the `Style settings` commands set.
 | `retriggerRate` | 1, 2, 4, 8, 16, 32 | Style Retrigger length. Default 8 (an eighth note). |
 | `swing` | 0–100 | Live Swing (`setSwing`). Default 0; each style load sets 0. |
 | `swingGrid` | 8, 16 | The swing grid. Default 8. |
+| `sectionTempo` | bool | The tempo changes written inside sections play (`setSectionTempo`). Default on. |
 
 ### `registration`
 
@@ -1151,6 +1153,17 @@ The Knob Assign page: `{ page, pageName, pageNumber, pageCount, knobs }`.
   - `level`: where the knob is, 0–127, as the Genos LED ring shows it; null for tempo and No
     Assign. Track Mute A/B keep their own position (they only set the Style parts' switches),
     starting fully right.
+
+### `home`
+Read-only: what the Home screen shows, derived from the rest of the state (no commands).
+
+| Field | Type | Meaning |
+|---|---|---|
+| `mains` | HomeMain[4] | Main A–D: `name`, `present`, `bars` (pattern length), `stepsPerBar` (sixteenths: 16 in 4/4), `density` (note-ons per step over the whole pattern, `bars × stepsPerBar` entries), `lanes` (`kick`, `snare`, `hats`, `bass`: the first bar, the loudest velocity per step, 0 = none), `fill` (`name` "Fill In AA", `present`, `bars`, `active`: queued or playing), `current` (the Main the style is on). Worked out once when the style loads. |
+| `progress` | object | `running`, `bar`, `beat` (1-based), `bars` (the section's length; null when stopped), `beatsPerBar`, `fraction` (0–1 through the section, at beat resolution). |
+| `snapshot` | object? | The snapshot last recalled or stored: `index`, `label` ("A3"), `name`, `bank` (the bank file's name). |
+| `ots` | object? | The OTS applied last: `index` (0–3), `name`. |
+| `bandSends` | HomeSend[3] | Reverb, Chorus, Delay: `block`, `name`, `effectName`, `level` (the band send, as `setBandSend`). |
 
 ### `effects`
 `{ blocks }`: the effect bus's Reverb, Chorus and Variation blocks, in that order (#204).
@@ -1651,7 +1664,8 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
     "sectionReset": true,
     "retriggerRate": 8,
     "swing": 0,
-    "swingGrid": 8
+    "swingGrid": 8,
+    "sectionTempo": true
   },
   "registration": {
     "bank": { "name": "Friday Gig", "path": "/Users/me/Documents/yahaha/Registration/Friday Gig.regist.json", "dirty": false, "position": 0 },
@@ -1900,6 +1914,7 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
     ],
     "inserts": [], "insertsOn": true
   },
+  "home": { "mains": [], "progress": { "running": false, "bar": 1, "beat": 1, "bars": null, "beatsPerBar": 4, "fraction": 0.0 }, "snapshot": null, "ots": null, "bandSends": [] },
   "message": null
 }
 ```

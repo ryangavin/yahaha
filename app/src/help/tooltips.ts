@@ -1751,6 +1751,13 @@ const catalog = {
     keys: [],
     launchkey: null,
   },
+  'settings.section_tempo': {
+    title: 'Written tempo changes',
+    body: 'Plays the tempo changes a style writes inside its sections, mostly the slow-downs at the end of Endings and Intros, scaled to the tempo you play at. The tempo comes back when the section ends or the band stops.',
+    genos: null,
+    keys: [],
+    launchkey: null,
+  },
   'settings.section_reset': {
     title: 'Tap: Section Reset',
     body: 'On (the default, as on the Genos): Tap while the band plays restarts the section from its top and keeps the tempo. Off: Tap always sets the tempo.',

@@ -145,6 +145,7 @@ export function tipFor(cmd: AppCmd | null): TipKey {
     case 'setFadeOutTime': return 'settings.fade_out'
     case 'setFadeHoldTime': return 'settings.fade_hold'
     case 'setSectionReset': return 'settings.section_reset'
+    case 'setSectionTempo': return 'settings.section_tempo'
     // Registration Memory
     case 'pressRegist':
     case 'recallRegist': return REGIST[cmd.index % 8]

@@ -27,6 +27,8 @@ pub(super) struct Loaded {
     pub(super) effects: crate::fx::xg::StyleFx,
     /// Its insertion effects (#269), as its first setup routes them.
     pub(super) inserts: Vec<crate::fx::xg::StyleInsert>,
+    /// Main A-D and their fills for the Home screen, worked out once at load.
+    pub(super) home: super::home::Patterns,
 }
 
 pub(super) fn load(path: &Path) -> Result<(Box<Prepared>, Loaded)> {
@@ -53,6 +55,7 @@ pub(super) fn load(path: &Path) -> Result<(Box<Prepared>, Loaded)> {
         ots: style.ots.clone(),
         effects: crate::fx::xg::StyleFx::parse(&style.sint().sysex),
         inserts: crate::fx::xg::style_inserts(prep.setups[0].init.iter()),
+        home: super::home::Patterns::of(&prep, style.timesig),
     };
     Ok((prep, info))
 }

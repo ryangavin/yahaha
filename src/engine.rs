@@ -28,6 +28,7 @@ mod prepared;
 mod rules_tests;
 mod retrigger;
 mod ritardando;
+mod section_tempo;
 mod sections;
 mod settle;
 mod setup;
