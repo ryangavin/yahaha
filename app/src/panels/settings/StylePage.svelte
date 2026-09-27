@@ -55,6 +55,25 @@
   <Toggle on={t.halfBarFill} tip="transport.half_bar_fill" onclick={() => app.send({ type: 'toggleHalfBarFill' })}>{onOff(t.halfBarFill)}</Toggle>
 </Field>
 
+<Field name="Tempo" genos="Tempo" note="The tempo, 5–500 BPM; drag, or focus and use the arrows for ±1.">
+  <HSlider label="Tempo" tip="tempo.set" value={Math.round(t.tempo)} min={5} max={500} format={(v) => `${v} BPM`} onchange={(bpm) => app.send({ type: 'setTempo', bpm })} />
+</Field>
+
+<Field name="Sections" genos="Main A–D / Break / Stop" note="The Main variations and Break, Stop, and Section Reset: the section restarts from its top.">
+  <FillButtons
+    label="Sections"
+    buttons={[
+      { label: 'Main A', cmd: { type: 'main', index: 0 }, tip: 'section.main_a', playing: false },
+      { label: 'Main B', cmd: { type: 'main', index: 1 }, tip: 'section.main_b', playing: false },
+      { label: 'Main C', cmd: { type: 'main', index: 2 }, tip: 'section.main_c', playing: false },
+      { label: 'Main D', cmd: { type: 'main', index: 3 }, tip: 'section.main_d', playing: false },
+      { label: 'Break', cmd: { type: 'break' }, tip: 'section.break', playing: false },
+      { label: 'Stop', cmd: { type: 'stop' }, tip: 'transport.stop', playing: true },
+      { label: 'Section Reset', cmd: { type: 'sectionReset' }, tip: 'transport.section_reset', playing: true },
+    ]}
+  />
+</Field>
+
 <Field name="Fills" genos="Fill Down / Self / Up / Break" note="A fill, then the Main to the left or right; the Main's own fill; the Break.">
   <FillButtons />
 </Field>

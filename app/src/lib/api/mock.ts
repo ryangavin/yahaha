@@ -646,7 +646,7 @@ export class MockSession implements Session {
     this.position()
   }
 
-  private styleSettings(cmd: Extract<AppCmd, { type: `set${string}` | 'stepRetriggerRate' }>) {
+  private styleSettings(cmd: Extract<AppCmd, { type: `set${string}` | 'stepRetriggerRate' | 'stepSwing' }>) {
     const s = this.state.styleSettings
     const ms = (v: number, max: number) => Math.max(0, Math.min(max, Math.round(v)))
     switch (cmd.type) {
@@ -1221,6 +1221,9 @@ export class MockSession implements Session {
       case 'setSectionReset':
       case 'setRetriggerRate':
       case 'stepRetriggerRate':
+      case 'setSwing':
+      case 'stepSwing':
+      case 'setSwingGrid':
         this.styleSettings(cmd)
         break
       case 'toggleSyncStart':
