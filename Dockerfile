@@ -1,10 +1,12 @@
 # Linux build and test image, for developing on Linux (not for shipping).
-# The same packages as .github/workflows/linux.yml. See "Developing on Linux" in README.md.
+# The same packages as the linux job in .github/workflows/ci.yml. See "Developing on Linux"
+# in README.md, and AGENTS.md for the checks.
 #
 #   docker build -t yahaha-linux .
-#   docker run --rm yahaha-linux                  # the gate on the copied source
+#   docker run --rm yahaha-linux                  # the Linux checks on the copied source
 #   docker run --rm -v "$PWD":/work -v /work/app/node_modules yahaha-linux
-#                                                 # the gate on the live checkout
+#                                                 # the same on the live checkout
+#   docker run --rm yahaha-linux cargo test --profile test-fast <name>   # any one command
 FROM node:22-bookworm-slim AS node
 
 FROM rust:1-bookworm
@@ -40,4 +42,5 @@ RUN cd app && npm ci
 
 COPY . .
 
-CMD ["scripts/test-all.sh", "--all"]
+# The Linux checks from AGENTS.md, in order, stopping at the first failure.
+CMD ["bash", "-ec", "cargo check --all-targets; cargo check --no-default-features --lib; cargo test --profile test-fast; (cd app/src-tauri && cargo test); (cd app && npm run verify)"]
