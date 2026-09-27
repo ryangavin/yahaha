@@ -23,28 +23,23 @@ button{font-family:inherit;cursor:pointer}
 <div style="width: %%W%%px; height: %%H%%px; box-sizing: border-box; background: #0e0e10; color: #f2f2f2; font-family: Archivo, sans-serif; display: flex; flex-direction: column; gap: 8px; padding: 0 12px 10px 12px; position: relative; overflow: hidden">
 
 <header style="height: 52px; flex-shrink: 0; display: flex; align-items: center; gap: {{hdr.gap}}px; margin: 0 -12px; padding: 0 16px; background: #19191c; border-bottom: 1px solid #2d2d32">
-<div style="font-family: 'Archivo Narrow', sans-serif; font-size: 22px; font-weight: 700; margin-right: 8px">yahaha</div>
-<button class="hb" style="width: 72px; background: #ffffff; color: #0e0e10; border-color: #ffffff">▶ Start</button>
-<button class="hb">{{hdr.syncStart}}</button>
-<button class="hb">{{hdr.syncStop}}</button>
-<div style="width: 1px; height: 30px; background: #2d2d32; margin: 0 4px"></div>
-<button class="hb" aria-label="Tempo down">−</button>
-<div style="display: flex; flex-direction: column; align-items: center; min-width: 52px"><span style="font-size: 20px; font-weight: 700; line-height: 1">112</span><span class="cap" style="font-size: 9px">BPM</span></div>
-<button class="hb" aria-label="Tempo up">+</button>
-<button class="hb">Tap</button>
-<div style="width: 1px; height: 30px; background: #2d2d32; margin: 0 4px"></div>
-<div style="display: flex; gap: 4px" aria-label="Beat"><span style="width: 12px; height: 12px; border-radius: 50%; background: #ffffff"></span><span style="width: 12px; height: 12px; border-radius: 50%; background: #2d2d32"></span><span style="width: 12px; height: 12px; border-radius: 50%; background: #2d2d32"></span><span style="width: 12px; height: 12px; border-radius: 50%; background: #2d2d32"></span></div>
-<span style="font-size: 14px; font-weight: 600; margin-left: 6px; white-space: nowrap">17 · 1</span>
+<div style="font-family: 'Archivo Narrow', sans-serif; font-size: 22px; font-weight: 700; margin-right: 4px">yahaha</div>
+<button class="hb" aria-label="Start / Stop" title="Start / Stop" style="width: 36px; padding: 0; display: flex; align-items: center; justify-content: center; background: #ffffff; color: #0e0e10; border-color: #ffffff"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M4.5 2.5l9 5.5-9 5.5z" fill="currentColor"></path></svg></button><button class="hb" aria-label="Sync Start" title="Sync Start" style="width: 36px; padding: 0; display: flex; align-items: center; justify-content: center"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="3" width="2" height="10" rx="1" fill="currentColor"></rect><path d="M6.5 3l7.5 5-7.5 5z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"></path></svg></button><button class="hb" aria-label="Sync Stop" title="Sync Stop" style="width: 36px; padding: 0; display: flex; align-items: center; justify-content: center"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><rect x="2.5" y="3.5" width="8" height="9" rx="1" fill="none" stroke="currentColor" stroke-width="1.6"></rect><rect x="12" y="3" width="2" height="10" rx="1" fill="currentColor"></rect></svg></button>
+<div style="width: 1px; height: 30px; background: #2d2d32; margin: 0 2px"></div>
+<button class="hb" aria-label="Tempo down" style="width: 30px; min-width: 0; padding: 0">−</button>
+<div style="display: flex; flex-direction: column; align-items: center; min-width: 44px"><span style="font-size: 20px; font-weight: 700; line-height: 1">112</span><span class="cap" style="font-size: 9px">BPM</span></div>
+<button class="hb" aria-label="Tempo up" style="width: 30px; min-width: 0; padding: 0">+</button>
+<button class="hb" style="padding: 0 10px">Tap</button>
+<div style="display: flex; gap: 4px; margin-left: 4px" aria-label="Beat 1 of bar 17"><span style="width: 10px; height: 10px; border-radius: 50%; background: #ffffff"></span><span style="width: 10px; height: 10px; border-radius: 50%; background: #2d2d32"></span><span style="width: 10px; height: 10px; border-radius: 50%; background: #2d2d32"></span><span style="width: 10px; height: 10px; border-radius: 50%; background: #2d2d32"></span></div>
+<div style="width: 1px; height: 30px; background: #2d2d32; margin: 0 6px"></div>
+<nav role="tablist" aria-label="Display" style="display: flex; gap: 4px; min-width: 0">
+<sc-for list="{{tabs}}" as="t" hint-placeholder-count="5"><button role="tab" class="hb" aria-selected="{{t.on}}" style="padding: 0 {{t.pad}}px; background: {{t.bg}}; color: {{t.ink}}; border-color: {{t.border}}">{{t.name}}</button></sc-for>
+</nav>
 <div style="flex-grow: 1"></div>
-<button class="hb" style="%%BROWSEBTN%%">Browse</button>
+<button class="hb" aria-label="Browse" title="Browse" style="width: 36px; padding: 0; display: flex; align-items: center; justify-content: center; %%BROWSEBTN%%"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="4.5" fill="none" stroke="currentColor" stroke-width="1.8"></circle><path d="M10.5 10.5l3.5 3.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path></svg></button><button class="hb" aria-label="Settings" title="Settings" style="width: 36px; padding: 0; display: flex; align-items: center; justify-content: center; background: {{hdr.gearBg}}; color: {{hdr.gearInk}}; border-color: {{hdr.gearBg}}"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="2.4" fill="none" stroke="currentColor" stroke-width="1.6"></circle><path d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.4 3.4l1.4 1.4M11.2 11.2l1.4 1.4M3.4 12.6l1.4-1.4M11.2 4.8l1.4-1.4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"></path></svg></button>
 </header>
 
 <section aria-label="Display" style="height: {{mm.dispH}}px; flex-shrink: 0; display: flex; flex-direction: column; border-radius: 8px; border: 1px solid #2d2d32; background: #0e0e10; overflow: hidden; position: relative">
-<div role="tablist" style="height: 40px; flex-shrink: 0; display: flex; align-items: center; gap: 6px; padding: 0 8px; background: #19191c; border-bottom: 1px solid #2d2d32">
-<sc-for list="{{tabs}}" as="t" hint-placeholder-count="6">
-<button role="tab" class="hb" aria-selected="{{t.on}}" style="height: 28px; padding: 0 {{t.pad}}px; background: {{t.bg}}; color: {{t.ink}}; border-color: {{t.border}}">{{t.name}}</button>
-</sc-for>
-</div>
 <div style="flex-grow: 1; display: flex; min-height: 0; position: relative">
 %%DISPLAY%%
 </div>
@@ -167,7 +162,8 @@ class Component extends DCLogic {
     const TAB = '%%TAB%%';
     const LAYER = '%%LAYER%%';
     const hdr = { accent: COMPACT ? 'Acc' : 'Accent', hold: COMPACT ? 'Hold' : 'Left Hold', sendW: W < 1400 ? 32 : 42, sendK: W < 1400 ? 22 : 32, gap: COMPACT ? 6 : 10, lkCap: COMPACT ? 'none' : 'inline', lkKnobs: W >= 1400 ? 'flex' : 'none', syncStart: W < 1800 ? 'Sync ▶' : 'Sync Start', syncStop: W < 1800 ? 'Sync ■' : 'Sync Stop', masterCap: W < 1800 ? 'none' : 'inline', masterW: COMPACT ? 60 : 90, tabCap: COMPACT || !%%PADRING%% ? 'none' : 'inline', regCap: COMPACT ? 'none' : 'inline', bankW: COMPACT ? 150 : 190, regW: COMPACT ? 32 : 38, otsW: COMPACT ? 34 : 44, freeze: COMPACT ? 'Frz' : 'Freeze' };
-    const tabs = ['Home', 'Channel', 'Effects', 'Pads & Loops', 'Harmony / Arp', 'Settings'].map(n => { const on = n === TAB; return { name: n, on, bg: on ? A : '#26262b', ink: on ? AI : '#c9c9cf', border: on ? A : '#2d2d32', pad: COMPACT ? 9 : 16 }; });
+    const tabs = ['Home', 'Channel', 'Effects', 'Pads & Loops', 'Harmony / Arp'].map(n => { const on = n === TAB; return { name: n, on, bg: on ? A : '#26262b', ink: on ? AI : '#c9c9cf', border: on ? A : '#2d2d32', pad: COMPACT ? 8 : 14 }; });
+    Object.assign(hdr, { gearBg: TAB === 'Settings' ? A : '#26262b', gearInk: TAB === 'Settings' ? AI : '#f2f2f2' });
     // name, voice, meter, volume, on, reverb, chorus, delay, pan (0-1)
     const P = [['Right 1','Grand Piano',86,70,1,.4,.1,.2,.5],['Right 2','Strings',60,55,1,.5,.2,.1,.35],['Right 3','Brass Sect',0,50,0,.3,.1,0,.6],['Left','Warm Pad',44,62,1,.4,.15,0,.5],['Rhythm 1','Live Kit',90,78,1,.3,0,0,.5],['Rhythm 2','Percussion',50,60,1,.3,0,0,.7],['Bass','Finger Bass',72,70,1,.1,0,0,.5],['Chord 1','Steel Gtr',58,64,1,.35,.15,0,.3],['Chord 2','E.Piano',40,58,1,.4,.3,0,.68],['Pad','Warm Strings',30,52,1,.5,.25,0,.5],['Phrase 1','Brass',0,60,1,.3,.1,0,.6],['Phrase 2','Synth Lead',0,48,1,.3,0,.25,.42]];
     const LAY = [['VOL', 'Faders set each part\'s volume'], ['PAN', 'Faders set each part\'s pan'], ['REV', 'Faders set each part\'s reverb send'], ['CHO', 'Faders set each part\'s chorus send'], ['DLY', 'Faders set each part\'s delay send']];

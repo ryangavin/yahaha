@@ -89,6 +89,8 @@ The artwork fills only the Home "now playing" band, not the whole display. Home'
 
 **Sections pad layout (new):** top row Intro I–III · Ending I–III · Sync Start · Auto Fill; bottom row Main A–D · Break · Tap · Sync Stop · Start. The four meta pads form a 2×2 on the right. The hardware page needs the same change: `section_looks` currently has SYNC ST on 99 and ENDING 1–3 on 100–102.
 
+**One header (round 8):** icon transport, tempo, Tap, beats, then the tabs by full name (Home · Channel · Effects · Pads & Loops · Harmony / Arp), with Browse (magnifier) and Settings (gear) as icons on the right. There is no separate tab row.
+
 **No raw 0–127 numbers** on controls: the visual is enough, with the value in a tooltip. Show numbers only when they are musical (tempo, note lengths, dB).
 
 **Look**
