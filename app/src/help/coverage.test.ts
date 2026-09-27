@@ -15,6 +15,7 @@ import { MockSession } from '../lib/api/mock'
 import { ui } from '../lib/store.svelte'
 import { tips } from '../lib/tooltip/tip.svelte'
 import { nav as soundNav } from '../panels/sound/nav.svelte'
+import { browserNav } from '../panels/sounds/nav.svelte'
 import { TIPS, isTipKey } from './tooltips'
 
 export const INTERACTIVE = [
@@ -67,12 +68,24 @@ const STATES: [string, Setup][] = [
   ['style browser, previewing', (s) => (s.send({ type: 'stop' }), s.send({ type: 'auditionStyle', id: 1 }), (ui.browser = true))],
   ['style browser, style queued for the next bar', (s) => (s.send({ type: 'queueStyle', id: 1 }), (ui.browser = true))],
   ['sound browser open for Right 1', () => (ui.soundBrowser = 0)],
-  ['sound browser, stopped, a plugin part (audition, Edit, Rescan)', (s) => (
+  ['sound browser, stopped, a plugin part (audition)', (s) => (
     s.send({ type: 'stop' }),
     s.send({ type: 'setPartPlugin', part: 0, id: 'aumu dls  appl', state: null }),
     s.advance(1000),
     (ui.soundBrowser = 0)
   )],
+  ['sound browser, Instruments tab', () => ((browserNav.tab = 'instruments'), (ui.soundBrowser = 0))],
+  ['sound browser, Instruments: a font and a playing plugin open (presets, Edit, in process, New sound)', (s) => {
+    s.send({ type: 'setPartPlugin', part: 0, id: 'aumu Smp7 Fake', state: null })
+    s.send({ type: 'listPluginPresets', id: 'au:aumu Smp7 Fake' })
+    s.advance(1000)
+    s.send({ type: 'addToMySounds', id: 'au:aumu Smp7 Fake#f:1' })
+    browserNav.tab = 'instruments'
+    browserNav.open.add('font:GeneralUser-GS.sf2')
+    browserNav.open.add('au:aumu Smp7 Fake')
+    browserNav.open.add('au:aumu Mock Demo')
+    ui.soundBrowser = 0
+  }],
   ['sound browser picking for a map rule', () => (ui.soundPick = { title: 'Piano family', value: 'stage-grand', onpick: () => {} })],
   ['settings open', () => (ui.settings = true)],
   ['settings open, a pitch-bend pedal learning its CC', (s) => {
@@ -138,6 +151,8 @@ afterEach(() => {
   ui.browser = false
   ui.soundBrowser = null
   ui.soundPick = null
+  browserNav.tab = 'sounds'
+  browserNav.open.clear()
   ui.settings = false
   ui.parts = false
   ui.mixer = false

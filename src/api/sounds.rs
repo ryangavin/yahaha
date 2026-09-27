@@ -38,6 +38,10 @@ pub enum SoundsCmd {
     /// so a plugin never loaded yet is loaded once in the background (then cached). The
     /// catalog moves when they are in.
     ListPluginPresets { id: String },
+    /// Add catalog entry `id` (a font preset, a plugin, or one of a plugin's presets) to
+    /// My Sounds: the library's patch for it, added once (the Instruments tab's "Add to my
+    /// sounds"). A saved sound is in already.
+    AddToMySounds { id: String },
     /// Save what keyboard part `part`'s plugin plays now (as its editor left it) as a user
     /// preset: a standard `.aupreset` named `name` in
     /// `~/Library/Audio/Presets/<Manufacturer>/<Plugin>/` (Logic and MainStage read it
@@ -130,6 +134,37 @@ pub struct SoundCatalog {
     pub entries: Vec<SoundEntry>,
     /// The ids last assigned, most recent first (at most 20).
     pub recents: Vec<String>,
+    /// Each SoundFont in the folder, for the Instruments tab (the order of `entries`).
+    #[serde(default)]
+    pub fonts: Vec<FontSummary>,
+}
+
+/// A SoundFont file as the Instruments tab shows it: how many presets and kits it has and
+/// how GM-complete it is (`patches::gm::gm_completeness`, what auto-fill ranks fonts by).
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FontSummary {
+    pub file: String,
+    /// Melodic presets (banks below 128).
+    pub presets: u32,
+    /// Drum kits (bank 128).
+    pub kits: u32,
+    /// GM programs it has on bank 0, of 128.
+    pub gm_programs: u8,
+    /// It has a drum kit.
+    pub gm_kit: bool,
+}
+
+/// Each font's summary.
+pub fn font_summaries(fonts: &[(&str, &[Preset])]) -> Vec<FontSummary> {
+    fonts
+        .iter()
+        .map(|(file, presets)| {
+            let (gm_programs, gm_kit) = crate::patches::gm::gm_completeness(presets);
+            let kits = presets.iter().filter(|p| p.bank >= 128).count() as u32;
+            FontSummary { file: file.to_string(), presets: presets.len() as u32 - kits, kits, gm_programs, gm_kit }
+        })
+        .collect()
 }
 
 /// The catalog's summary in `AppState`.

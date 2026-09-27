@@ -65,7 +65,12 @@ impl MockSounds {
         let fonts = Self::fonts(st);
         let fonts: Vec<(&str, &[Preset])> = fonts.iter().map(|(f, p)| (f.as_str(), p.as_slice())).collect();
         let patches: Vec<_> = st.sound_library.patches.iter().map(|p| p.patch.clone()).collect();
-        SoundCatalog { revision: self.revision, entries: self.prefs.entries(&fonts, &st.plugins.list, &self.presets, &patches), recents: self.prefs.recents.clone() }
+        SoundCatalog {
+            revision: self.revision,
+            entries: self.prefs.entries(&fonts, &st.plugins.list, &self.presets, &patches),
+            recents: self.prefs.recents.clone(),
+            fonts: font_summaries(&fonts),
+        }
     }
 
     /// Preset `key` of plugin `id`, if the mock lists it.
@@ -159,6 +164,8 @@ impl MockSounds {
                 }
                 self.prefs.sound_categories.insert(id, category);
             }
+            // The mock itself adds the patch (`MockSession::rule_patch`), as a map rule's.
+            SoundsCmd::AddToMySounds { .. } => {}
             SoundsCmd::ListPluginPresets { id } => {
                 let Some((plugin, None)) = parse_plugin_id(&id) else { return Err(format!("{id} is not a plugin")) };
                 if !st.plugins.list.iter().any(|p| p.id == plugin) {

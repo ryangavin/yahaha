@@ -4,6 +4,8 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { MockSession } from '../../lib/api/mock'
 import { app, ui } from '../../lib/store.svelte'
 import { categoryCounts, playingId, visibleSounds } from './model'
+import { fontLine } from './instruments'
+import { browserNav } from './nav.svelte'
 import SoundBrowser from './SoundBrowser.svelte'
 
 async function setup(part = 0) {
@@ -90,25 +92,115 @@ describe('sound browser (#117)', () => {
     expect(broken.textContent).toContain('⚠')
   })
 
-  it('the footer files the selected plugin under another category (#172)', async () => {
+  it('the footer keeps no plugin housekeeping: it moved to Instruments (O2)', async () => {
     const s = await setup()
-    // A SoundFont preset's category is its GM family: no picker.
-    expect(tipped('sounds.set_category')).toHaveLength(0)
-    const plugin = app.sounds.entries.find((x) => x.source === 'plugin' && !x.plugin?.lastError)!
-    await fireEvent.input(input(), { target: { value: plugin.name } })
+    s.send({ type: 'setPartPlugin', part: 0, id: 'aumu dls  appl', state: null })
+    s.advance(1000)
+    flushSync()
+    for (const k of ['sounds.set_category', 'part.plugin_edit', 'part.plugin_rescan', 'part.plugin_in_process']) expect(tipped(k), k).toHaveLength(0)
+  })
+})
+
+describe('Instruments tab (O2)', () => {
+  const tab = (name: string) => [...document.querySelectorAll<HTMLElement>('[role="tab"]')].find((t) => t.textContent === name)!
+  const card = (name: string) => [...document.querySelectorAll<HTMLElement>('.card')].find((c) => c.querySelector('.tw')!.textContent!.includes(name))!
+  const expand = async (name: string) => {
+    await fireEvent.click(card(name).querySelector('.tw')!)
+    flushSync()
+  }
+  const preset = (c: HTMLElement, name: string) => [...c.querySelectorAll<HTMLElement>('.preset')].find((p) => p.querySelector('.pname')!.textContent === name)!
+
+  afterEach(() => {
+    browserNav.tab = 'sounds'
+    browserNav.open.clear()
+  })
+
+  it('lists each font with only its counts and GM completeness; expanding shows its presets', async () => {
+    const s = await setup(1)
+    await fireEvent.click(tab('Instruments'))
+    flushSync()
+    expect(tab('Instruments').getAttribute('aria-selected')).toBe('true')
+    const f = app.sounds.fonts!.find((x) => x.file === 'FluidR3_GM.sf2')!
+    const c = card('FluidR3_GM')
+    expect(c.querySelector('.meta')!.textContent).toBe(fontLine(f))
+    expect(c.querySelector('.tw')!.getAttribute('aria-expanded')).toBe('false')
+    expect(c.querySelectorAll('.preset')).toHaveLength(0)
+    await expand('FluidR3_GM')
+    expect(card('FluidR3_GM').querySelector('.tw')!.getAttribute('aria-expanded')).toBe('true')
+    const n = app.sounds.entries.filter((e) => e.source === 'soundFont' && e.detail === 'FluidR3_GM.sf2').length
+    expect(card('FluidR3_GM').querySelectorAll('.preset')).toHaveLength(n)
+    // Play now plays it on the part; Add to my sounds keeps it once.
+    const cello = preset(card('FluidR3_GM'), 'Cello (Fluid)')
+    await fireEvent.click(cello.querySelector('[data-tip="instruments.play"]')!)
+    expect(s.state.soundLibrary.patches.find((p) => p.id === s.state.keyboardParts[1].patch)?.source).toMatchObject({ kind: 'soundFont', file: 'FluidR3_GM.sf2', program: 42 })
+    const violin = preset(card('FluidR3_GM'), 'Violin (Fluid)')
+    const before = s.state.soundLibrary.patches.length
+    await fireEvent.click(violin.querySelector('[data-tip="instruments.add"]')!)
+    expect(s.state.soundLibrary.patches.length).toBe(before + 1)
+    flushSync()
+    const done = preset(card('FluidR3_GM'), 'Violin (Fluid)').querySelector<HTMLButtonElement>('[data-tip="instruments.add"]')!
+    expect(done.disabled).toBe(true)
+    expect(done.textContent).toContain('In My Sounds')
+    // Collapsing hides them again.
+    await expand('FluidR3_GM')
+    expect(card('FluidR3_GM').querySelectorAll('.preset')).toHaveLength(0)
+  })
+
+  it('expanding a plugin lists its factory presets and .aupreset files, with its housekeeping', async () => {
+    const s = await setup()
+    await fireEvent.click(tab('Instruments'))
+    flushSync()
+    expect(card('Broken Synth').querySelector('.meta')!.textContent).toContain('⚠ timed out')
+    await expand('Sampler Deluxe')
+    await refresh(s)
+    const c = card('Sampler Deluxe')
+    expect([...c.querySelectorAll('.pname')].map((x) => x.textContent)).toEqual(['Init', 'Bright Grand', 'Brass Stabs', 'Arco Strings', 'Upright Piano'])
+    // Play now: the part plays that preset.
+    await fireEvent.click(preset(c, 'Bright Grand').querySelector('[data-tip="instruments.play"]')!)
+    expect(s.state.keyboardParts[0].plugin).toMatchObject({ id: 'aumu Smp7 Fake', presetKey: 'f:1' })
+    // Category and in-process override.
+    const pick = c.querySelector<HTMLSelectElement>('[data-tip="sounds.set_category"]')!
+    await fireEvent.change(pick, { target: { value: 'sfx' } })
+    expect((await s.sounds()).entries.find((x) => x.id === 'au:aumu Smp7 Fake')!.category).toBe('sfx')
+    await fireEvent.click(c.querySelector('[data-tip="part.plugin_in_process"]')!)
+    expect(s.state.plugins.list.find((p) => p.id === 'aumu Smp7 Fake')!.inProcess).toBe(true)
+    // Rescan sits with the plugins.
+    expect(tipped('part.plugin_rescan')).toHaveLength(1)
+  })
+
+  it('New sound from a plugin loads its default state and opens its editor once it plays', async () => {
+    const s = await setup()
+    const opened: number[] = []
+    const orig = s.pluginEditor.bind(s)
+    s.pluginEditor = (part: number, open: boolean) => (open && opened.push(part), orig(part, open))
+    await fireEvent.click(tab('Instruments'))
+    flushSync()
+    await expand('Tiny Synth')
+    await fireEvent.click(card('Tiny Synth').querySelector('[data-tip="instruments.new_sound"]')!)
+    expect(s.state.keyboardParts[0].plugin).toMatchObject({ id: 'aumu Tiny Demo', status: 'loading', presetKey: null })
+    flushSync()
+    expect(opened).toEqual([])
+    s.advance(1000)
+    flushSync()
     await tick()
     flushSync()
-    const e = app.sounds.entries[Number(active().id.slice('sound-'.length))]
-    expect(e.id).toBe(plugin.id)
-    const pick = tipped('sounds.set_category')[0] as HTMLSelectElement
-    expect(pick.value).toBe(e.category)
-    const to = e.category === 'sfx' ? 'pad' : 'sfx'
-    await fireEvent.change(pick, { target: { value: to } })
-    const got = (await s.sounds()).entries.find((x) => x.id === e.id)!
-    expect(got.category).toBe(to)
-    await refresh(s)
-    expect((tipped('sounds.set_category')[0] as HTMLSelectElement).value).toBe(to)
-    expect(document.activeElement).toBe(input())
+    expect(s.state.keyboardParts[0].plugin?.status).toBe('playing')
+    expect(opened).toEqual([0])
+    expect(card('Tiny Synth').querySelector('[data-tip="part.plugin_edit"]')).not.toBe(null)
+  })
+
+  it('picking for a map rule shows no tabs', async () => {
+    const session = new MockSession({ manual: true, demo: false })
+    app.attach(session)
+    app.sounds = await session.sounds()
+    const pick = { title: 'Piano family', value: 'stage-grand', onpick: () => {} }
+    ui.soundPick = pick
+    browserNav.tab = 'instruments'
+    flushSync()
+    render(SoundBrowser, { props: { pick } })
+    flushSync()
+    expect(document.querySelectorAll('[role="tab"]')).toHaveLength(0)
+    expect(input()).toBeTruthy()
   })
 })
 

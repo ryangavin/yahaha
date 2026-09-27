@@ -591,6 +591,7 @@ folder.
 | `assignSound` | `part` 0–3, `id` | The keyboard part plays the sound. A preset of the synth's main font (`io.soundFontFile`, bank 0) becomes the part's voice (`setPartVoice`). A preset of another font becomes a saved sound (the library's patch for it, added once) and plays as `setPartPatch`. A plugin plays as `setPartPlugin` (its default preset), and a saved sound as `setPartPatch`. The sound goes to the top of the Recents (20 kept). |
 | `setSoundCategory` | `id`, `category` | A plugin's or plugin preset's category (until set: a plugin's is guessed from its name and maker, a preset's from its name and folder, else its plugin's), or a saved sound's (its patch's). A preset's category is its GM family: refused. |
 | `listPluginPresets` | `id` (`au:<component id>`) | The browser expanded a plugin: list its AU presets. Its `.aupreset` files (in `~/Library/Audio/Presets/<Manufacturer>/<Plugin>/` and `/Library/Audio/Presets/...`) are listed at every scan; its factory presets (`kAudioUnitProperty_FactoryPresets`) need an instance, so a plugin no load has read yet is loaded once in the background (`sounds.listingPresets` has it meanwhile) and they are cached with the scan. The catalog moves when they are in: presets are entries `au:<component id>#f:<number>` (factory) and `au:<component id>#u:<path>` (file), with `parent` the plugin's id; the plugin's `plugin.presets` counts them (null until the factory presets were read). A rescan (`rescanPlugins`) lists everything again. |
+| `addToMySounds` | `id` | The Instruments tab's "Add to my sounds": adds catalog entry `id` (a font preset `sf:…`, a plugin `au:<component id>`, or a plugin preset `au:<component id>#<key>`) to the sound library, once: the same patch a part or a map rule gets for it (a factory preset's state is captured when it first plays). Nothing plays it. A `saved:` id is in already, so nothing changes. Fails for an id not in the catalog. |
 | `savePartAsPluginPreset` | `part` 0–3, `name`, `category`, `overwrite`? | Saves what the part's plugin plays now (its editor's changes: a Kontakt instrument loaded there, say) as `<name>.aupreset` in `~/Library/Audio/Presets/<Manufacturer>/<Plugin>/`, the standard file Logic and MainStage read. A preset of that name that exists already is refused unless `overwrite` is true (the app asks "Replace '<name>'?" first, as Logic does). It lists under the plugin, filed under `category` (kept in `sound-settings.json`; the file is not changed), and the part then plays it. The state is read and written off the control thread. Fails when the part's plugin is not playing. |
 
 The list itself is fetched, not in the state: see [`sounds`](#sounds).
@@ -1122,8 +1123,12 @@ The sound catalog's summary (#117; the list is `sounds()`, see [Sound catalog](#
 | `auditioning` | string? | The id being auditioned (`sf:`, `au:` or `saved:`), or null. |
 
 The catalog itself: `session.sound_catalog()` (Tauri `sounds()`)
-returns `{ revision, entries, recents }`. Fetch it again when `sounds.revision` moves
-(`soundsChanged`). `recents` lists ids, most recent first. Each entry has:
+returns `{ revision, entries, recents, fonts }`. Fetch it again when `sounds.revision` moves
+(`soundsChanged`). `recents` lists ids, most recent first. `fonts` has one summary per
+SoundFont in the folder, for the Instruments tab: `file`, `presets` (melodic presets),
+`kits` (bank 128), `gmPrograms` (GM programs on bank 0, of 128) and `gmKit` (it has a
+kit): how GM-complete it is, as auto-fill ranks fonts (`patches::gm::gm_completeness`).
+Each entry has:
 
 | Field | Type | Meaning |
 |---|---|---|

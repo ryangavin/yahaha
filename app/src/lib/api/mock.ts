@@ -1819,6 +1819,16 @@ export class MockSession implements Session {
         else if (cmd.type === 'exportSoundLibrary') this.message(`Sound library exported to ${cmd.path ?? '/Users/me/Documents/yahaha/sound-library-export.json'}`)
         break
       }
+      case 'addToMySounds': {
+        // The entry's library patch, added once (a saved sound is in already).
+        if (!/^(saved|sf|au):/.test(cmd.id)) {
+          this.message(`no sound ${cmd.id}`, true)
+          break
+        }
+        const r = this.catalogMock.patchFor(this.state, cmd.id, (c) => this.cmd(c))
+        if ('error' in r) this.message(r.error, true)
+        break
+      }
       case 'setSoundFavourite':
       case 'auditionSound':
       case 'stopSoundAudition':

@@ -468,6 +468,16 @@ impl MockSession {
     }
 
     fn sounds_cmd(&mut self, c: SoundsCmd) {
+        // Add to my sounds: the entry's library patch, added once (a saved sound is in).
+        if let SoundsCmd::AddToMySounds { id } = &c {
+            if !id.starts_with("saved:") && !id.starts_with("sf:") && !id.starts_with("au:") {
+                return self.message(format!("no sound {id}"), true);
+            }
+            if let Err(e) = self.rule_patch(Some(id.clone())) {
+                self.message(e, true);
+            }
+            return;
+        }
         match self.sounds.cmd(&self.state, c) {
             Err(e) => self.message(e, true),
             Ok(sounds::Then::Nothing) => {}
@@ -2588,6 +2598,26 @@ mod tests {
         assert_eq!(m.state.sounds.auditioning.as_deref(), Some("sf:GeneralUser-GS.sf2:128:0"));
         m.advance(3100.0);
         assert_eq!(m.state.sounds.auditioning, None);
+    }
+
+    /// The Instruments tab, as mock-sounds.ts: a summary per font, and Add to my sounds
+    /// adds a preset's or plugin preset's patch once, without playing it.
+    #[test]
+    fn instruments_list_fonts_and_add_to_my_sounds() {
+        let mut m = MockSession::new();
+        let cat = m.sounds();
+        assert_eq!(cat.fonts.len(), m.state.io.sound_fonts.len());
+        assert!(cat.fonts.iter().all(|f| f.presets > 0 && f.gm_programs <= 128));
+        let n = m.state.sound_library.patches.len();
+        let before = m.state.keyboard_parts.clone();
+        let upright = format!("au:{}#u:/Users/mock/Library/Audio/Presets/Fake Instruments/Sampler Deluxe/Pianos/Upright Piano.aupreset", sounds::MOCK_PRESETS_ID);
+        for id in ["sf:FluidR3_GM.sf2:0:48", "sf:FluidR3_GM.sf2:0:48", upright.as_str(), upright.as_str(), "saved:stage-grand"] {
+            m.send(SoundsCmd::AddToMySounds { id: id.into() });
+        }
+        assert_eq!(m.state.sound_library.patches.len(), n + 2, "each added once");
+        assert_eq!(m.state.keyboard_parts, before, "nothing plays it");
+        m.send(SoundsCmd::AddToMySounds { id: "sf:FluidR3_GM.sf2:9:9".into() });
+        assert_eq!(m.state.sound_library.patches.len(), n + 2);
     }
 
     /// AU presets, as mock-sounds.ts: the fake sampler's .aupreset files list from the
