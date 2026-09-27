@@ -2525,6 +2525,30 @@ mod tests {
         assert_eq!(m.state.sounds.auditioning, None);
     }
 
+    /// AU presets, as mock-sounds.ts: the fake sampler's .aupreset files list from the
+    /// start, its factory presets once expanded; each part plays its own preset; Save as
+    /// preset lists a new one in the category picked.
+    #[test]
+    fn plugin_presets_list_assign_and_save() {
+        let mut m = MockSession::new();
+        let id = format!("au:{}", sounds::MOCK_PRESETS_ID);
+        let kids = |m: &MockSession| m.sounds().entries.into_iter().filter(|e| e.parent.as_deref() == Some(id.as_str())).collect::<Vec<_>>();
+        assert_eq!(kids(&m).iter().map(|e| e.name.as_str()).collect::<Vec<_>>(), ["Arco Strings", "Upright Piano"]);
+        assert_eq!(kids(&m).iter().map(|e| e.category).collect::<Vec<_>>(), [PatchCategory::Strings, PatchCategory::Piano]);
+        m.send(SoundsCmd::ListPluginPresets { id: id.clone() });
+        assert_eq!(kids(&m).len(), 5);
+        assert_eq!(m.sounds().entries.len() as u32, m.state.sounds.count);
+        m.send(SoundsCmd::AssignSound { part: 0, id: format!("{id}#f:1") });
+        let p = m.state.keyboard_parts[0].plugin.clone().unwrap();
+        assert_eq!((p.preset.as_deref(), p.preset_key.as_deref()), (Some("Bright Grand"), Some("f:1")));
+        m.send(SoundsCmd::AssignSound { part: 1, id: kids(&m)[3].id.clone() });
+        assert_eq!(m.state.keyboard_parts[1].plugin.clone().unwrap().preset.as_deref(), Some("Arco Strings"));
+        m.send(SoundsCmd::SavePartAsPluginPreset { part: 0, name: "My Grand".into(), category: PatchCategory::Organ });
+        let mine = kids(&m).into_iter().find(|e| e.name == "My Grand").expect("saved");
+        assert_eq!(mine.category, PatchCategory::Organ);
+        assert_eq!(m.state.keyboard_parts[0].plugin.clone().unwrap().preset.as_deref(), Some("My Grand"));
+    }
+
     /// Program map rules take catalog ids (#117): a preset or plugin becomes a patch once.
     #[test]
     fn map_rules_take_catalog_ids() {

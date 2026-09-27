@@ -808,3 +808,74 @@ fn a_plugin_part_feeds_the_effect_bus() {
     let (Some(wet), Some(dry)) = (tail(true), tail(false)) else { return };
     assert!(wet > dry * 4.0 + 1e-6, "the reverb rings on: {wet} vs {dry}");
 }
+
+/// AU presets: an `.aupreset` in the plugin's preset folder is a sound of its own in the
+/// catalog, under its plugin; picking it gives the part an instance loaded with it, while
+/// another part plays the same plugin plainly. "Save as preset" writes the part's plugin
+/// as a new `.aupreset`, files it under the category picked and makes it the part's
+/// preset; the part's saved voice keeps the preset, and an old plugin-parts.json (no
+/// preset) still reads.
+#[test]
+fn a_plugin_preset_is_a_sound_of_its_own() {
+    use crate::api::{PatchCategory, SoundsCmd};
+    use crate::plugin::{presets, LoadConfig, PluginHost, PluginId};
+    let p = Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus/MOX_v2/SlowWalker.T552.sty");
+    if !p.exists() {
+        eprintln!("corpus missing; skipping");
+        return;
+    }
+    let data = std::env::temp_dir().join(format!("yahaha-au-presets-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&data);
+    let root = data.join("Presets");
+    // A preset file for DLS, from a DLS instance's own state.
+    let host = PluginHost::with_preset_roots(Some(data.join("plugins.json")), vec![root.clone()]);
+    let info = host.info(&PluginId::DLS).unwrap();
+    let state = host.load(&PluginId::DLS, LoadConfig::default()).unwrap().get_state().unwrap();
+    let file = presets::write_user_preset(&root, &info, "Warm Strings", &state).unwrap();
+    host.rescan().unwrap();
+
+    let opts = Options { paths: vec![p], data_dir: Some(data.join("data")), ..Options::default() };
+    let s = Session::offline(opts).unwrap();
+    s.offline_audio(None, 48_000).unwrap();
+    s.inner.lock().plugins.host = Some(host);
+    wait_scanned(&s);
+    let key = format!("u:{}", file.path.display());
+    let id = format!("au:{DLS}#{key}");
+    let cat = s.sound_catalog();
+    let e = cat.entries.iter().find(|e| e.id == id).expect("the preset is in the catalog");
+    assert_eq!((e.name.as_str(), e.parent.as_deref(), e.category), ("Warm Strings", Some(format!("au:{DLS}").as_str()), PatchCategory::Strings));
+    assert!(cat.entries.iter().find(|e| e.id == format!("au:{DLS}")).unwrap().plugin.as_ref().unwrap().presets.is_some_and(|n| n >= 1));
+
+    s.send(SoundsCmd::AssignSound { part: 0, id: id.clone() }).unwrap();
+    s.send(SoundsCmd::AssignSound { part: 1, id: format!("au:{DLS}") }).unwrap();
+    assert_eq!(wait_playing(&s, 0), PluginStatus::Playing);
+    assert_eq!(wait_playing(&s, 1), PluginStatus::Playing);
+    let (p0, p1) = (s.state().keyboard_parts[0].plugin.clone().unwrap(), s.state().keyboard_parts[1].plugin.clone().unwrap());
+    assert_eq!((p0.preset.as_deref(), p0.preset_key.as_deref()), (Some("Warm Strings"), Some(key.as_str())));
+    assert_eq!(p1.preset, None);
+    assert!(s.inner.lock().saved_parts().parts[0].as_ref().unwrap().state.is_some(), "the file's settings are the part's state");
+    assert!(s.send(SoundsCmd::AssignSound { part: 2, id: format!("au:{DLS}#f:999") }).is_err(), "no such preset");
+
+    // Save as preset.
+    s.send(SoundsCmd::SavePartAsPluginPreset { part: 1, name: "My Organ".into(), category: PatchCategory::Organ }).unwrap();
+    let t0 = Instant::now();
+    while s.state().keyboard_parts[1].plugin.as_ref().and_then(|p| p.preset.clone()).is_none() {
+        assert!(t0.elapsed() < Duration::from_secs(20), "the preset was not saved");
+        s.advance(1_000_000);
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    let saved = root.join("Apple/DLSMusicDevice/My Organ.aupreset");
+    assert!(saved.exists());
+    let cat = s.sound_catalog();
+    let mine = cat.entries.iter().find(|e| e.name == "My Organ" && e.parent.is_some()).expect("listed under the plugin");
+    assert_eq!(mine.category, PatchCategory::Organ);
+    assert_eq!(s.state().keyboard_parts[1].plugin.clone().unwrap().preset_key, Some(format!("u:{}", saved.display())));
+
+    // The saved parts keep the preset; an old file without it still reads.
+    let json = serde_json::to_string(&s.inner.lock().saved_parts()).unwrap();
+    let back: super::Saved = serde_json::from_str(&json).unwrap();
+    assert_eq!(back.parts[1].as_ref().unwrap().preset.as_ref().unwrap().name, "My Organ");
+    let old: super::Saved = serde_json::from_str(r#"{"parts":[{"id":"aumu dls  appl","state":null},null,null,null]}"#).unwrap();
+    assert_eq!(old.parts[0].as_ref().unwrap().preset, None);
+    let _ = std::fs::remove_dir_all(&data);
+}
