@@ -2683,6 +2683,12 @@ mod tests {
         m.send(ControllersCmd::TriggerFunction { function: Function::RegistBankNext });
         assert!(m.state.registration.bank.path.is_some());
         assert_ne!(m.state.registration.bank.path, before);
+        // Snapshot Bank +/−: the BANK -/+ pads' command (`StepSnapshotBank`).
+        let view = m.state.registration.snapshot_bank;
+        m.send(ControllersCmd::TriggerFunction { function: Function::SnapshotBankNext });
+        assert_eq!(m.state.registration.snapshot_bank, view + 1);
+        m.send(ControllersCmd::TriggerFunction { function: Function::SnapshotBankPrev });
+        assert_eq!(m.state.registration.snapshot_bank, view);
         // Regist + (#200): the demo bank's first stored button, then the next one.
         m.send(RegistrationCmd::SetRegistSequenceOn { on: false });
         m.send(ControllersCmd::TriggerFunction { function: Function::RegistNext });

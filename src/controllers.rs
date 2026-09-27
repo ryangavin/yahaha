@@ -215,6 +215,10 @@ pub enum Function {
     /// ACMP On/Off (RM p.140: "Same as the [ACMP] button", #266). Last, so the pedal
     /// setups stored before it keep their numbers.
     Acmp,
+    /// Snapshot Bank +/− (yahaha's own rows): the page of eight snapshots on view, as the
+    /// Launchkey's BANK -/+ pads (page 4) and the Registration bar's ◀ ▶ step it.
+    SnapshotBankNext,
+    SnapshotBankPrev,
 }
 
 /// One row of the assignable-function table.
@@ -243,7 +247,7 @@ use Kind::*;
 /// The assignable functions, in `Function` order: the Genos live-play list (RM p.139-144)
 /// as far as yahaha has the feature. app/src/lib/api/assignable-functions.json is this table
 /// as the app reads it (a test keeps the two equal).
-pub const FUNCTIONS: [FunctionInfo; 68] = [
+pub const FUNCTIONS: [FunctionInfo; 70] = [
     f(Function::None, "No Assign", Overall, Trigger),
     f(Function::Sustain, "Sustain", Voice, Switch),
     f(Function::Sostenuto, "Sostenuto", Voice, Switch),
@@ -312,6 +316,8 @@ pub const FUNCTIONS: [FunctionInfo; 68] = [
     f(Function::ChordLooperRec, "Chord Looper Rec/Stop", ChordLooper, Trigger),
     f(Function::LeftHold, "Left Hold On/Off", Voice, Switch),
     f(Function::Acmp, "ACMP On/Off", Style, Trigger),
+    f(Function::SnapshotBankNext, "Snapshot Bank +", Registration, Trigger),
+    f(Function::SnapshotBankPrev, "Snapshot Bank −", Registration, Trigger),
 ];
 
 /// What running a function means, for the input thread.

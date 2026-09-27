@@ -95,6 +95,8 @@ export function functionCmd(id: FunctionId, st: { fingering: Fingering }): AppCm
     transposeDown: { type: 'stepTranspose', keyboard: 0, master: -1 },
     registBankNext: { type: 'stepRegistBank', delta: 1 },
     registBankPrev: { type: 'stepRegistBank', delta: -1 },
+    snapshotBankNext: { type: 'stepSnapshotBank', delta: 1 },
+    snapshotBankPrev: { type: 'stepSnapshotBank', delta: -1 },
     registNext: { type: 'stepRegist', delta: 1 },
     registPrev: { type: 'stepRegist', delta: -1 },
     registMemory: { type: 'toggleRegistMemory' },
