@@ -1836,6 +1836,33 @@ mod rack_tests {
             rack.render_dry(&mut l, &mut r, &p, None);
         }
         assert!(level(&p, 10) < bass * 0.5);
+        // RMS is measured where the peak is: a part that sounds has one below its peak,
+        // a silent one none.
+        rack.render_dry(&mut l, &mut r, &p, None);
+        let peak = level(&p, 10);
+        assert!(rack.rms[10] > 0.0 && rack.rms[10] <= peak, "bass rms {} peak {peak}", rack.rms[10]);
+        assert_eq!(rack.rms[1], 0.0);
+    }
+
+    /// The meters' take: each read hands out the levels since the last and starts them
+    /// from 0 again (one reader); an empty window reads 0.
+    #[test]
+    fn meters_take_and_reset() {
+        let c = SynthControl::new(0);
+        c.peaks[4].fetch_max(0.5f32.to_bits(), Relaxed);
+        c.peaks[4].fetch_max(0.25f32.to_bits(), Relaxed);
+        c.rms[4].fetch_max(0.2f32.to_bits(), Relaxed);
+        c.rms[4].fetch_max(0.3f32.to_bits(), Relaxed);
+        c.master_peaks[1].fetch_max(0.9f32.to_bits(), Relaxed);
+        c.master_rms[0].fetch_max(0.4f32.to_bits(), Relaxed);
+        let (peaks, master, _) = take_meters(&c);
+        let (rms, master_rms) = take_rms(&c);
+        assert_eq!((peaks[4], rms[4]), (0.5, 0.3), "the highest in the window: a Multi Pad channel");
+        assert_eq!((master, master_rms), ([0.0, 0.9], [0.4, 0.0]));
+        assert!(peaks.iter().enumerate().all(|(i, &p)| i == 4 || p == 0.0));
+        let (peaks, master, _) = take_meters(&c);
+        let (rms, master_rms) = take_rms(&c);
+        assert!(peaks.iter().chain(&rms).chain(&master).chain(&master_rms).all(|&v| v == 0.0), "reset by the take");
     }
 
     #[test]
