@@ -1,11 +1,10 @@
 <!--
   Audio: the built-in SoundFont synth (yahaha-only; the Genos has its own tone
   generator). On/off, the output pair (multi-output interfaces list every pair), the
-  SoundFont (`setSoundFont`, from the .sf2 files in the synth's folder), the buffer size
-  (`setAudioBuffer`, for heavy plugins) and master volume.
+  buffer size (`setAudioBuffer`, for heavy plugins) and master volume. There is no default
+  sound set: the GM map decides what every program plays (docs/sound-browser.md).
 -->
 <script lang="ts">
-  import { settings } from '../../lib/api/settings.svelte'
   import { app } from '../../lib/store.svelte'
   import Toggle from '../../lib/ui/Toggle.svelte'
   import Choice from './Choice.svelte'
@@ -21,21 +20,11 @@
     return v < 10 ? v.toFixed(1) : v.toFixed(0)
   }
   const master = $derived(app.state.mixer.master)
-  const view = $derived(settings.view(app.state))
-  // A setting the engine lacks (an older engine) is badged and inert: it never pretends to work.
-  const inert = $derived(view.mocked.soundFont)
 
   const pairs = $derived.by(() => {
     const n = synth ? Math.max(1, Math.floor(synth.channels / 2)) : 1
     return Array.from({ length: n }, (_, i) => ({ id: i * 2, label: `${i * 2 + 1}/${i * 2 + 2}`, tip: 'audio.output' as const }))
   })
-  // The default sound set (#117): Auto (the most GM-complete font), or any font in the folder.
-  const AUTO = ''
-  const bare = (f: string) => f.replace(/\.sf2$/i, '')
-  const setOptions = $derived([
-    { id: AUTO, label: view.autoSoundSet ? `Auto (${bare(view.autoSoundSet)})` : 'Auto', tip: 'audio.soundfont_auto' as const },
-    ...view.soundFonts.map((f) => ({ id: f, label: bare(f), tip: 'audio.soundfont' as const })),
-  ])
   const deviceLine = $derived(
     synth
       ? `${synth.device} · ${synth.channels} outputs · ${(synth.sampleRate / 1000).toFixed(1).replace(/\.0$/, '')} kHz${synth.bufferFrames ? ` · ${synth.bufferFrames}-frame buffer` : ''}`
@@ -49,7 +38,7 @@
   note={synth
     ? synth.muted
       ? 'Silent. The yahaha MIDI port still plays, for Ableton or your own sounds.'
-      : 'Plays the band and your parts through the SoundFont below.'
+      : 'Plays the band and your parts through the GM map (Sound Browser), from every .sf2 in soundfonts/.'
     : 'Not running: yahaha started with --no-synth, or found no SoundFont in soundfonts/.'}
 >
   <span class="gate" class:off={!synth}>
@@ -86,23 +75,6 @@
     columns={3}
     options={BUFFERS.map((n) => ({ id: n, label: `${n} · ${ms(n)} ms`, tip: 'audio.buffer' as const }))}
     onselect={(frames) => app.send({ type: 'setAudioBuffer', frames: frames as (typeof BUFFERS)[number] })}
-  />
-</Field>
-
-<Field
-  name="Default sound set"
-  mock={inert}
-  note={inert
-    ? 'The SoundFont the synth is playing. Switching needs an engine update.'
-    : `Plays whatever the program map leaves unmapped. Every .sf2 in soundfonts/ is a source of sounds.${view.soundFontLoading ? ' Loading…' : ''}`}
->
-  <Choice
-    label="Default sound set"
-    disabled={inert || view.soundFonts.length === 0}
-    value={view.defaultSoundSet ?? AUTO}
-    columns={1}
-    options={setOptions}
-    onselect={(id) => settings.send({ type: 'setDefaultSoundSet', file: id === AUTO ? null : id })}
   />
 </Field>
 

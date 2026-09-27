@@ -173,4 +173,9 @@ pub struct SoundLibraryState {
     pub extra_sound_fonts: Vec<String>,
     /// The id of the patch last created, duplicated or saved.
     pub last_added: Option<String>,
+    /// The GM map for the style playing (docs/sound-browser.md): 129 rows, the drums then
+    /// programs 0-127, each with its rules and what it resolves to (the Sound, the layer
+    /// that decided it, and the font preset behind it).
+    #[serde(default)]
+    pub gm_map: Vec<crate::patches::GmMapRow>,
 }

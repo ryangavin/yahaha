@@ -356,8 +356,6 @@ impl MockSession {
                 sound_fonts: MOCK_SOUND_FONTS.iter().map(|f| f.to_string()).collect(),
                 sound_font_file: Some(MOCK_SOUND_FONTS[0].into()),
                 sound_font_loading: false,
-                default_sound_set: None,
-                auto_sound_set: Some(MOCK_SOUND_FONTS[0].into()),
             },
             preview: PreviewState::default(),
             chart: ChartState::default(),
@@ -583,22 +581,6 @@ impl MockSession {
         } else if fallback {
             self.message(format!("{} can't run in its own process; loading it inside yahaha instead (if it crashes, yahaha goes with it)", e.name), false);
         }
-    }
-
-    /// The default sound set (#117): a font in the folder, or None for Auto.
-    fn set_default_sound_set(&mut self, file: Option<String>) {
-        if let Some(f) = &file
-            && !self.state.io.sound_fonts.contains(f)
-        {
-            return self.message(format!("no SoundFont {f} in the SoundFont folder"), true);
-        }
-        let io = &mut self.state.io;
-        io.default_sound_set = file.clone();
-        let Some(play) = file.or_else(|| io.auto_sound_set.clone()) else { return };
-        if let Some(s) = io.synth.as_mut() {
-            s.sound_font = play.trim_end_matches(".sf2").to_string();
-        }
-        io.sound_font_file = Some(play);
     }
 
     fn message(&mut self, text: impl Into<String>, error: bool) {
@@ -1929,8 +1911,6 @@ impl MockSession {
             }
             AppCmd::Preview(PreviewCmd::StopAudition) => self.state.preview.audition = None,
             AppCmd::Library(LibraryCmd::RescanLibrary) => self.message("Style folders rescanned", false),
-            AppCmd::Settings(SettingsCmd::SetSoundFont { file }) => self.set_default_sound_set(Some(file)),
-            AppCmd::Settings(SettingsCmd::SetDefaultSoundSet { file }) => self.set_default_sound_set(file),
             AppCmd::Settings(SettingsCmd::SetMidiInputs { all, names }) => {
                 let io = &mut self.state.io;
                 io.all_inputs = all;
@@ -2622,6 +2602,28 @@ mod tests {
         assert!(m.state.sound_library.map.overrides.iter().any(|o| o.program == 5 && o.patch == "stage-grand"));
         m.send(SoundLibraryCmd::SetDrumRule { patch: Some("sf:Nope.sf2:0:0".into()), style: false });
         assert!(m.state.message.as_ref().is_some_and(|x| x.error));
+    }
+
+    /// The GM map (docs/sound-browser.md): every program's resolved sound and deciding
+    /// layer, the style's rules first, auto-fill for the rest.
+    #[test]
+    fn the_gm_map_shows_each_programs_sound_and_layer() {
+        use yahaha::patches::Layer;
+        let mut m = MockSession::new();
+        let rows = &m.state.sound_library.gm_map;
+        assert_eq!(rows.len(), 129);
+        assert_eq!((rows[0].program, rows[0].resolved.layer), (None, Layer::Drums));
+        assert_eq!(rows[1 + 4].resolved.layer, Layer::Override);
+        assert_eq!(rows[1 + 4].resolved.sound.as_deref(), Some("saved:warm-rhodes"));
+        assert_eq!(rows[1 + 33].resolved.layer, Layer::Family);
+        // Organ has no rule: auto-fill from the most GM-complete font, with its provenance.
+        assert_eq!(rows[1 + 16].resolved.layer, Layer::Auto);
+        assert_eq!(rows[1 + 16].resolved.sound.as_deref(), Some("sf:GeneralUser-GS.sf2:0:16"));
+        assert_eq!(rows[1 + 16].resolved.font.as_ref().map(|f| f.program), Some(16));
+        // A style's own rule wins over the global one.
+        m.send(SoundLibraryCmd::SetFamilyRule { family: 2, patch: Some("saved:stage-grand".into()), style: true });
+        let row = &m.state.sound_library.gm_map[1 + 16];
+        assert_eq!((row.resolved.layer, row.resolved.from_style), (Layer::Family, true));
     }
 
     /// A style other than the one loaded, with OTS, Main A and Ending A (#111 tests).

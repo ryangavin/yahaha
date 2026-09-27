@@ -3,7 +3,7 @@
 // its commands and `derive` after every change (the usage list, part voice names).
 
 import fixture from './mock-fixture.json'
-import { CATEGORY_LABELS, FAMILY_NAMES, emptyMap, type PatchCategory, type PatchFields, type PatchInfo, type ProgramMap, type RuleKind, type SoundLibraryCmd, type SoundLibraryState } from './sound-library'
+import { CATEGORY_LABELS, FAMILY_NAMES, emptyMap, type FontPreset, type GmMapRow, type GmResolution, type PatchCategory, type PatchFields, type PatchInfo, type Preset, type ProgramMap, type RuleKind, type SoundLibraryCmd, type SoundLibraryState } from './sound-library'
 import type { AppState } from './types'
 
 const GM: string[] = fixture.gm
@@ -109,6 +109,7 @@ export function initialSoundLibrary(): SoundLibraryState {
     file: '/Users/me/Documents/yahaha/sound-library.json',
     extraSoundFonts: [],
     lastAdded: null,
+    gmMap: gmMapRows(patches, map, null, FONTS),
   }
 }
 
@@ -370,6 +371,7 @@ export class MockSoundLibrary {
         plays: name(r.patch) ?? p.voice.label,
       }]
     })
+    sl.gmMap = gmMapRows(sl.patches, sl.map, style, FONTS)
     st.keyboardParts.forEach((p, i) => {
       p.patch = this.parts[i]
       if (p.playsBass) return
@@ -380,11 +382,69 @@ export class MockSoundLibrary {
   }
 }
 
-/** The presets of a mock SoundFont: the GM set on bank 0 and a few kits on bank 128. */
+/** The presets of a mock SoundFont: the GM set on bank 0; GeneralUser also has a few kits
+ * on bank 128 (so it is the most GM-complete: the main font and the auto-fill's first). */
 export function presetsOf(file: string) {
-  const kits = ['Standard', 'Room', 'Power', 'Electronic', 'Jazz', 'Brush']
+  const kits = file === SF2 ? ['Standard', 'Room', 'Power', 'Electronic', 'Jazz', 'Brush'] : []
   return [
     ...GM.map((name, program) => ({ bank: 0, program, name: file === SF2 ? name : `${name} (Fluid)` })),
     ...kits.map((name, i) => ({ bank: 128, program: [0, 8, 16, 24, 32, 40][i], name })),
   ]
+}
+
+/** How GM-complete a font is, as `patches::gm_completeness`: bank-0 programs, then a kit. */
+function completeness(presets: Preset[]): [number, boolean] {
+  return [new Set(presets.filter((p) => p.bank === 0).map((p) => p.program & 127)).size, presets.some((p) => p.bank >= 128)]
+}
+
+/** The auto-fill (D4), as `AutoFill::build`: per program the most GM-complete font's
+ * bank-0 preset, else the first font with it on a melodic bank; the drums its kit 0. */
+export function autoFill(fonts: string[]): { programs: (FontPreset | null)[]; drums: FontPreset | null } {
+  const order = fonts
+    .map((file) => ({ file, presets: presetsOf(file) as Preset[] }))
+    .sort((a, b) => {
+      const [x, y] = [completeness(a.presets), completeness(b.presets)]
+      return y[0] - x[0] || Number(y[1]) - Number(x[1]) || (a.file < b.file ? -1 : a.file > b.file ? 1 : 0)
+    })
+  const pick = (want: (p: Preset) => boolean): FontPreset | null => {
+    for (const f of order) {
+      const hit = f.presets.filter(want).sort((a, b) => a.bank - b.bank || a.program - b.program)[0]
+      if (hit) return { file: f.file, bank: hit.bank, program: hit.program }
+    }
+    return null
+  }
+  const programs = Array.from({ length: 128 }, (_, prog) => pick((p) => p.bank === 0 && p.program === prog) ?? pick((p) => p.bank < 128 && p.program === prog))
+  return { programs, drums: pick((p) => p.bank >= 128 && p.program === 0) ?? pick((p) => p.bank >= 128) }
+}
+
+/** One program through the GM map, as `patches::resolve_gm`: the rules (style, then global),
+ * then the auto-fill. A rule naming a patch the library lacks falls through. */
+export function resolveGm(patches: PatchInfo[], global: ProgramMap, style: ProgramMap | null, auto: ReturnType<typeof autoFill>, drums: boolean, program: number): GmResolution {
+  const r = resolveProgram(global, style, drums, program)
+  const patch = r.patch ? patches.find((p) => p.id === r.patch) : undefined
+  if (patch) {
+    const s = patch.source
+    const font = s.kind === 'soundFont' ? { file: s.file, bank: s.bank, program: s.program } : null
+    return { sound: `saved:${patch.id}`, layer: r.rule === 'fallback' ? 'none' : r.rule, fromStyle: r.fromStyle, font }
+  }
+  const f = drums ? auto.drums : auto.programs[program & 127]
+  return f ? { sound: `sf:${f.file}:${f.bank}:${f.program}`, layer: 'auto', fromStyle: false, font: f } : { sound: null, layer: 'none', fromStyle: false, font: null }
+}
+
+/** The map page's rows, as `patches::gm_map_rows`: the drums, then programs 0–127. */
+export function gmMapRows(patches: PatchInfo[], global: ProgramMap, style: ProgramMap | null, fonts: string[]): GmMapRow[] {
+  const auto = autoFill(fonts)
+  const either = <T>(f: (m: ProgramMap) => T | null): T | null => (style ? f(style) : null) ?? f(global)
+  const rows: GmMapRow[] = [{ program: null, family: null, overrideRule: null, familyRule: either((m) => m.drums), resolved: resolveGm(patches, global, style, auto, true, 0) }]
+  for (let p = 0; p < 128; p++) {
+    const fam = Math.floor(p / 8)
+    rows.push({
+      program: p,
+      family: fam,
+      overrideRule: either((m) => m.overrides.find((o) => o.program === p)?.patch ?? null),
+      familyRule: either((m) => m.families[fam]),
+      resolved: resolveGm(patches, global, style, auto, false, p),
+    })
+  }
+  return rows
 }

@@ -1461,9 +1461,7 @@
     "allInputs": false,
     "soundFonts": [],
     "soundFontFile": null,
-    "soundFontLoading": false,
-    "defaultSoundSet": null,
-    "autoSoundSet": null
+    "soundFontLoading": false
   },
   "preview": {
     "audition": null,
@@ -2080,7 +2078,8 @@
     "browse": null,
     "file": null,
     "extraSoundFonts": [],
-    "lastAdded": null
+    "lastAdded": null,
+    "gmMap": []
   },
   "paramLocks": {
     "splitPoint": false,

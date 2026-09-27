@@ -15,7 +15,7 @@ use crate::api::{
 };
 use crate::engine::Prepared;
 use crate::patches::route::{AUDITION, AUDITION_CHANNEL, MAX_FONTS};
-use crate::patches::{self, Category, Patch, PatchDefaults, PatchSource, ProgramMap, Route, Routes, SoundLibrary};
+use crate::patches::{self, AutoFill, Category, GmResolution, Layer, Patch, PatchDefaults, PatchSource, ProgramMap, Route, Routes, SoundId, SoundLibrary};
 use crate::{parts, synth};
 use rtrb::Producer;
 use rustysynth::SoundFont;
@@ -145,6 +145,14 @@ pub(super) struct SoundLib {
     browse: Option<SoundFontBrowse>,
     last_added: Option<String>,
     save_fill: Option<SaveFill>,
+    /// The GM map's auto-fill layer from the scanned fonts (D4, session/gm_auto.rs).
+    pub(super) auto: AutoFill,
+    /// The most GM-complete font in the folder: the synth's main font unless `--sf2` pins
+    /// another.
+    pub(super) best: Option<String>,
+    /// The main font the synth plays (a channel with no route plays it): an auto-fill
+    /// from this font needs no route, so the style's own bank variations still play.
+    pub(super) native: Option<String>,
 }
 
 impl SoundLib {
@@ -179,6 +187,9 @@ impl SoundLib {
             browse: None,
             last_added: None,
             save_fill: None,
+            auto: AutoFill::default(),
+            best: None,
+            native: None,
         }
     }
 
@@ -217,6 +228,7 @@ impl SoundLib {
             || self.loading.as_deref().is_some_and(has)
             || self.audition.as_ref().is_some_and(|a| a.font.as_deref() == Some(file))
             || self.lib.patches.iter().any(|p| matches!(&p.source, PatchSource::SoundFont { file: f, .. } if f == file))
+            || self.auto.programs.iter().flatten().chain(self.auto.drums.as_ref()).any(|f| f.file == file)
     }
 
     /// The synth starts on `main`.
@@ -240,18 +252,61 @@ impl SoundLib {
         Some(Route::sound_font(self.font_id(&file)?, bank, program))
     }
 
-    /// Write table bank `bank` for the style stored under `key`.
-    fn write_bank(&mut self, routes: &Routes, bank: u8, key: &str, avail: &[String]) {
-        let style = self.lib.style_maps.get(key);
-        let ids: Vec<Option<String>> =
-            (0..128u8).map(|p| patches::resolve(&self.lib.map, style, false, p).patch.map(str::to_string)).collect();
-        let drum = patches::resolve(&self.lib.map, style, true, 0).patch.map(str::to_string);
-        let mut prog = [None; 128];
-        for (p, id) in ids.iter().enumerate() {
-            prog[p] = id.as_deref().and_then(|id| self.route_of(id, avail));
+    /// How the synth plays a GM map resolution (`patches::resolve_gm`): a rule's patch as
+    /// `route_of`; an auto-fill as its font preset, except one from the main font, which
+    /// needs no route (the main font plays the style's own bank and program, variations
+    /// included, as it always has).
+    fn route_of_gm(&mut self, r: &GmResolution, avail: &[String]) -> Option<Route> {
+        match r.layer {
+            Layer::Drums | Layer::Override | Layer::Family => match SoundId::parse(r.sound.as_deref()?)? {
+                SoundId::Library(id) => self.route_of(&id, avail),
+                SoundId::Font(_) => None,
+            },
+            Layer::Auto => {
+                let f = r.font.as_ref()?;
+                if self.native.as_deref() == Some(f.file.as_str()) || !avail.contains(&f.file) {
+                    return None;
+                }
+                Some(Route::sound_font(self.font_id(&f.file)?, f.bank, f.program))
+            }
+            Layer::None => None,
         }
-        let drum = drum.as_deref().and_then(|id| self.route_of(id, avail));
+    }
+
+    /// The GM map for the style stored under `key`: the drums, then programs 0-127, each
+    /// through its layers (drums, override, family, auto; the style's rules before the
+    /// global ones). Control side only.
+    fn resolve_all(&self, key: &str) -> (GmResolution, Vec<GmResolution>) {
+        let style = Some(key).filter(|k| self.lib.style_maps.contains_key(*k));
+        let drum = patches::resolve_gm(&self.lib, style, &self.auto, true, 0);
+        (drum, (0..128u8).map(|p| patches::resolve_gm(&self.lib, style, &self.auto, false, p)).collect())
+    }
+
+    /// Write table bank `bank` for the style stored under `key`: the GM map resolved off
+    /// the real-time threads (O8).
+    fn write_bank(&mut self, routes: &Routes, bank: u8, key: &str, avail: &[String]) {
+        let (drum, progs) = self.resolve_all(key);
+        let mut prog = [None; 128];
+        for (p, r) in progs.iter().enumerate() {
+            prog[p] = self.route_of_gm(r, avail);
+        }
+        let drum = self.route_of_gm(&drum, avail);
         routes.write_bank(bank, &prog, drum);
+    }
+
+    /// The map page's rows for the style playing (`patches::gm_map_rows`).
+    fn gm_map_rows(&self) -> Vec<patches::GmMapRow> {
+        let key = Some(self.cur_key.as_str()).filter(|k| self.lib.style_maps.contains_key(*k));
+        patches::gm_map_rows(&self.lib, key, &self.auto)
+    }
+
+    /// The fonts other than `main` the auto-fill plays (they need to be in the rack).
+    fn auto_fonts(&self, main: &str) -> Vec<String> {
+        let mut v: Vec<String> =
+            self.auto.programs.iter().flatten().chain(self.auto.drums.as_ref()).map(|f| f.file.clone()).filter(|f| f != main).collect();
+        v.sort();
+        v.dedup();
+        v
     }
 
     fn write_parts(&mut self, routes: &Routes, avail: &[String]) {
@@ -262,7 +317,7 @@ impl SoundLib {
 
     /// Rewrite everything the table holds: the playing style's bank, a pending style's, the
     /// parts'.
-    fn write_all(&mut self, routes: &Routes, avail: &[String]) {
+    pub(super) fn write_all(&mut self, routes: &Routes, avail: &[String]) {
         let (bank, key) = (self.cur_bank, self.cur_key.clone());
         self.write_bank(routes, bank, &key, avail);
         if let Some((b, k, _, _)) = self.pending.clone() {
@@ -295,7 +350,7 @@ impl SoundLib {
     }
 
     /// The SoundFonts the synth should have: the main one, then every other one a library
-    /// patch (or the audition) plays, if it is in the folder.
+    /// patch, the GM map's auto-fill (or the audition) plays, if it is in the folder.
     fn wanted_fonts(&self, main: &str, avail: &[String], dir: Option<&Path>) -> Vec<String> {
         let mut extra: Vec<String> = self
             .lib
@@ -305,6 +360,7 @@ impl SoundLib {
                 PatchSource::SoundFont { file, .. } => Some(file.clone()),
                 PatchSource::Plugin { .. } => None,
             })
+            .chain(self.auto_fonts(main))
             .chain(self.audition.as_ref().and_then(|a| a.font.clone()))
             .filter(|f| f != main && avail.contains(f) && !self.still_failed(f, dir))
             .collect();
@@ -381,7 +437,7 @@ fn stamp(path: &Path) -> Option<(std::time::SystemTime, u64)> {
 }
 
 impl Control {
-    fn avail_fonts(&self) -> Vec<String> {
+    pub(super) fn avail_fonts(&self) -> Vec<String> {
         if self.sf_dir.is_some() { self.sound_fonts.clone() } else { Vec::new() }
     }
 
@@ -1169,13 +1225,15 @@ impl Control {
         let dir = self.sf_dir.clone();
         if can_swap
             && self.sound.loading.is_none()
-            && let Some(main) = self.sf_file.clone()
+            && let Some(main) = self.wanted_main_font()
             && !self.sound.still_failed(&main, dir.as_deref())
             && self.sound.wanted_fonts(&main, &self.avail_fonts(), dir.as_deref()) != self.sound.rack_fonts
         {
-            // The folder as it is now (a file may have come or gone), then decide again.
+            // The folder as it is now (a file may have come or gone: the auto-fill and the
+            // main font follow it), then decide again.
             self.list_sound_fonts();
-            if self.sound.wanted_fonts(&main, &self.avail_fonts(), dir.as_deref()) != self.sound.rack_fonts
+            if let Some(main) = self.wanted_main_font()
+                && self.sound.wanted_fonts(&main, &self.avail_fonts(), dir.as_deref()) != self.sound.rack_fonts
                 && let Some(rx) = self.sound_library_rack(&main)
             {
                 self.sf_load = Some((main, rx));
@@ -1256,6 +1314,7 @@ impl Control {
             file: self.sound.path.as_ref().map(|p| p.display().to_string()),
             extra_sound_fonts: self.sound.rack_fonts.iter().skip(1).cloned().collect(),
             last_added: self.sound.last_added.clone(),
+            gm_map: self.sound.gm_map_rows(),
         }
     }
 }

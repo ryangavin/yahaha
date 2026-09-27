@@ -138,6 +138,43 @@ export interface SoundLibraryState {
   file: string | null
   extraSoundFonts: string[]
   lastAdded: string | null
+  /** The GM map for the style playing (docs/sound-browser.md): the drums row, then
+   * programs 0–127. */
+  gmMap: GmMapRow[]
+}
+
+/** The GM map layer that decided a program (`patches::Layer`). */
+export type GmLayer = 'drums' | 'override' | 'family' | 'auto' | 'none'
+
+/** A font preset: file, SoundFont bank (128 = kits) and program (D6 provenance). */
+export interface FontPreset {
+  file: string
+  bank: number
+  program: number
+}
+
+/** What a program resolved to (`patches::GmResolution`). */
+export interface GmResolution {
+  /** A Sound id (`saved:<patch>` for a rule, `sf:<file>:<bank>:<program>` for auto); null:
+   * nothing covers it. */
+  sound: string | null
+  layer: GmLayer
+  /** The rule is the style's own. */
+  fromStyle: boolean
+  /** The font preset that plays, when a font does. */
+  font: FontPreset | null
+}
+
+/** One row of the map page (`patches::GmMapRow`). */
+export interface GmMapRow {
+  /** 0–127; null for the drums row. */
+  program: number | null
+  /** 0–15; null for the drums row. */
+  family: number | null
+  overrideRule: string | null
+  /** The family's rule; on the drums row, the drum rule. */
+  familyRule: string | null
+  resolved: GmResolution
 }
 
 export type SoundLibraryCmd =

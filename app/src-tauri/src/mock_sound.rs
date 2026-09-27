@@ -4,7 +4,7 @@
 
 use std::collections::BTreeMap;
 use yahaha::api::*;
-use yahaha::patches::{self, Category, Patch, PatchDefaults, PatchSource, ProgramMap};
+use yahaha::patches::{self, AutoFill, Category, Patch, PatchDefaults, PatchSource, ProgramMap, SoundLibrary};
 
 const SF2: &str = "GeneralUser-GS.sf2";
 const FONTS: [&str; 2] = [SF2, "FluidR3_GM.sf2"];
@@ -68,10 +68,18 @@ impl Default for MockSound {
     }
 }
 
+/// A mock font's presets: the GM set on bank 0; GeneralUser also has kits (so it is the
+/// most GM-complete: the main font, and the auto-fill's first choice).
 pub fn presets(file: &str) -> Vec<Preset> {
     let gm: Vec<Preset> = (0..128u8).map(|p| Preset { bank: 0, program: p, name: format!("{}{}", gm_name(p), if file == SF2 { "" } else { " (Fluid)" }) }).collect();
     let kits = ["Standard", "Room", "Power", "Electronic", "Jazz", "Brush"].iter().enumerate().map(|(i, n)| Preset { bank: 128, program: i as u8 * 8, name: n.to_string() });
+    let kits: Vec<Preset> = if file == SF2 { kits.collect() } else { Vec::new() };
     gm.into_iter().chain(kits).collect()
+}
+
+/// The GM map's auto-fill from the mock's fonts (D4), as the session builds it.
+fn auto_fill() -> AutoFill {
+    AutoFill::build(&FONTS.map(|f| (f.to_string(), presets(f))))
 }
 
 impl MockSound {
@@ -352,6 +360,9 @@ impl MockSound {
             p.voice_name = own.or(mapped).unwrap_or_else(|| gm[p.program as usize].clone());
         }
         let fonts = FONTS.map(String::from);
+        // The GM map for the style playing, through the engine's own resolution.
+        let lib = SoundLibrary { patches: self.patches.clone(), map: self.map.clone(), style_maps: self.style_maps.clone(), ..SoundLibrary::default() };
+        let gm_map = patches::gm_map_rows(&lib, style.map(|_| key.as_str()), &auto_fill());
         st.sound_library = SoundLibraryState {
             patches: self
                 .patches
@@ -373,6 +384,7 @@ impl MockSound {
             file: Some("/Users/me/Documents/yahaha/sound-library.json".into()),
             extra_sound_fonts: vec![],
             last_added: self.last_added.clone(),
+            gm_map,
         };
     }
 }

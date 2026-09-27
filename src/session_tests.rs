@@ -1501,7 +1501,7 @@ fn midi_input_choice() {
 }
 
 #[test]
-fn sound_font_switch_needs_the_synth_and_a_file_in_its_folder() {
+fn the_main_font_loads_into_a_rack_once_there_is_a_synth() {
     let Some(p) = style("SlowWalker.T552.sty") else { return };
     let sf_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("soundfonts");
     let fonts = library::sound_font_files(&sf_dir);
@@ -1510,8 +1510,6 @@ fn sound_font_switch_needs_the_synth_and_a_file_in_its_folder() {
     let st = s.state();
     assert_eq!(st.io.sound_fonts, fonts);
     assert_eq!(st.io.sound_font_file, None, "no synth offline");
-    let r = s.send(SettingsCmd::SetSoundFont { file: "x.sf2".into() });
-    assert!(matches!(r, Err(CmdError::Failed(_))));
     assert_eq!(s.meters().channels.len(), 0, "no synth, no meters");
     let Some(file) = fonts.first().cloned() else { return };
     // A synth as a live session has one, with the rings its audio thread would drain.
@@ -1524,15 +1522,11 @@ fn sound_font_switch_needs_the_synth_and_a_file_in_its_folder() {
         plugins: None,
         thread: None,
     });
-    for bad in ["../x.sf2", "nope.sf2", "a/b.sf2"] {
-        assert!(s.send(SettingsCmd::SetSoundFont { file: bad.into() }).is_err(), "{bad}");
-    }
-    s.send(SettingsCmd::SetSoundFont { file: file.clone() }).unwrap();
-    assert!(s.state().io.sound_font_loading);
-    assert!(wait_for(&s, |st| !st.io.sound_font_loading), "loads in the background");
+    // The pump loads the (pinned) main font and the fonts the map needs in the background,
+    // and hands the rack to the audio thread.
+    assert!(wait_for(&s, |_| rx.pop().is_ok()), "the new rack went to the audio thread");
     let st = s.state();
     assert_eq!(st.io.sound_font_file.as_deref(), Some(file.as_str()));
-    assert!(rx.pop().is_ok(), "the new rack went to the audio thread");
     let m = s.meters();
     assert_eq!(m.channels.iter().map(|c| c.channel).collect::<Vec<_>>(), (1..=16).collect::<Vec<u8>>(), "every channel, the pads (5-8) too");
 }
@@ -1604,7 +1598,6 @@ fn new_state_and_commands_serialize_as_documented() {
         (AppCmd::Preview(PreviewCmd::StopAudition), json!({"type": "stopAudition"})),
         (AppCmd::Library(LibraryCmd::QueueStyle { id: 4 }), json!({"type": "queueStyle", "id": 4})),
         (AppCmd::Library(LibraryCmd::RescanLibrary), json!({"type": "rescanLibrary"})),
-        (AppCmd::Settings(SettingsCmd::SetSoundFont { file: "A.sf2".into() }), json!({"type": "setSoundFont", "file": "A.sf2"})),
         (AppCmd::Settings(SettingsCmd::SetMidiInputs { all: false, names: vec!["K".into()] }), json!({"type": "setMidiInputs", "all": false, "names": ["K"]})),
         (AppCmd::Settings(SettingsCmd::SetPaletteLeds { on: true }), json!({"type": "setPaletteLeds", "on": true})),
     ] {

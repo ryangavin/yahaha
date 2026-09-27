@@ -353,8 +353,8 @@ fn play_cmd(args: &[String]) -> Result<()> {
                 i += 1;
                 audio_out = args.get(i).and_then(|s| s.split('/').next()?.parse().ok());
             }
-            // Hidden override: play this SoundFont at start, whatever the default sound set
-            // setting says (#117).
+            // Hidden compatibility pin: this SoundFont is the synth's main font instead of
+            // the folder's most GM-complete. The GM map still decides every program.
             "--sf2" => {
                 i += 1;
                 sf2 = args.get(i).map(PathBuf::from);
@@ -418,9 +418,9 @@ fn play_cmd(args: &[String]) -> Result<()> {
     if paths.is_empty() {
         paths.push(PathBuf::from("corpus"));
     }
-    // Every .sf2 in the SoundFont folder is a source of sounds; the default sound set
-    // setting picks the one the band falls back to (#117). `--sf2` names a folder of its own
-    // only when there is no ./soundfonts.
+    // Every .sf2 in the SoundFont folder is a source of sounds; the GM map's auto-fill fills
+    // from them (docs/sound-browser.md). `--sf2` names a folder of its own only when there
+    // is no ./soundfonts.
     let sound_font_dir = (!no_synth && (sf2.is_none() || sf_dir.is_dir())).then_some(sf_dir);
     if no_synth {
         sf2 = None;

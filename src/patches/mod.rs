@@ -28,7 +28,7 @@ mod sound_tests;
 #[cfg(test)]
 mod tests;
 
-pub use gm::{gm_map_rows, resolve_gm, AutoFill, GmMapRow, GmResolution, Layer};
+pub use gm::{best_font, gm_completeness, gm_map_rows, resolve_gm, AutoFill, GmMapRow, GmResolution, Layer};
 pub use map::*;
 pub use route::{Route, Routes, Source};
 pub use sound::{FontPreset, PluginOrigin, SoundId, SoundTag};

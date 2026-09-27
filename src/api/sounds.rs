@@ -25,7 +25,7 @@ pub enum SoundsCmd {
     /// does (a plugin with its default preset).
     AuditionSound { id: String },
     StopSoundAudition,
-    /// Keyboard part `part` (0-3) plays the sound: a preset of the default sound set as its
+    /// Keyboard part `part` (0-3) plays the sound: a preset of the synth's main font as its
     /// voice (`setPartVoice`), a preset of another font as a saved sound (`setPartPatch`,
     /// adding the preset to the library once), a plugin (`setPartPlugin`), a saved sound
     /// (`setPartPatch`). It goes to the top of the Recents.
