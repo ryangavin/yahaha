@@ -244,7 +244,7 @@ cd docs/design/wireframes-b && python3 gen.py   # writes project/B*.dc.html next
 The owner wants the nested menus redesigned. They'll describe use cases and answer questions; they don't want to prescribe the design. The first use case is a sound browser that manages every playable sound, with GM mapping.
 
 Answers so far:
-- **Jobs:** find a sound to play, curate the library, and set up the GM map. Fixing a single style's sound was not picked.
+- **Jobs:** find a sound to play, curate the library, and set up the GM map. Changing a style's own sounds belongs to the **Style Editor**, which is the next design.
 - **Mapping:** both views: a GM table (the 128 programs by family) and "plays as…" shown on every sound.
 - **Tags:** not needed; categories and favourites are enough.
 - **Per-style overrides:** keep them, and show clearly where they differ from the global map.
