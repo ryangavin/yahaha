@@ -79,27 +79,37 @@ def home(fxW=260, wide=False):
 <div style="flex-grow: 1; min-width: 60px; display: flex; flex-direction: column; gap: 6px; padding-bottom: 4px"><span class="cap">Bar 3 of 4</span><div style="height: 8px; border-radius: 4px; background: #26262b; position: relative"><div style="position: absolute; left: 0; top: 0; bottom: 0; width: 62%; border-radius: 4px; background: #ffffff"></div></div></div>
 <div style="display: flex; flex-direction: column; gap: 2px; align-items: flex-end"><span class="cap">Chord</span><span style="font-family: 'Archivo Narrow', sans-serif; font-size: 50px; font-weight: 700; line-height: .9; white-space: nowrap">Am<span style="font-size: 28px; color: #8d8d95">/G</span></span></div>
 </div>
-<div role="group" aria-label="Sections (the Launchkey pads)" style="flex-grow: 1; min-height: 0; margin: 4px 0; position: relative; outline: 2px solid #ffffff; outline-offset: 5px; border-radius: 6px; display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); grid-template-rows: minmax(0, 1fr) minmax(0, 1.35fr); gap: 7px">
+<div role="group" aria-label="Sections (the Launchkey pads)" style="flex-shrink: 0; margin: 8px 0 4px; position: relative; outline: 2px solid #ffffff; outline-offset: 5px; border-radius: 6px; display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); grid-template-rows: ''' + ('64px 110px' if wide else '50px 78px') + '''; gap: 7px">
 <div style="position: absolute; top: -15px; right: 10px; z-index: 1; display: flex; align-items: center; gap: 3px; padding: 1px 4px; border-radius: 4px; background: #0e0e10; border: 1px solid #ffffff"><span style="font-size: 9px; font-weight: 800; letter-spacing: .06em; padding: 0 4px">LAUNCHKEY PADS</span><button aria-label="Pad bank up" title="Pad Bank ▲" style="height: 16px; padding: 0 4px; border-radius: 3px; border: 1px solid #3a3a40; background: #1f1f24; color: #f2f2f2; font-size: 8px">▲</button><button aria-label="Pad bank down" title="Pad Bank ▼" style="height: 16px; padding: 0 4px; border-radius: 3px; border: 1px solid #3a3a40; background: #1f1f24; color: #f2f2f2; font-size: 8px">▼</button><sc-for list="{{padPages}}" as="g" hint-placeholder-count="5"><button title="{{g.name}}" style="height: 16px; padding: 0 5px; border-radius: 3px; border: 1px solid {{g.border}}; background: {{g.bg}}; color: {{g.ink}}; font-size: 9px; font-weight: 700">{{g.short}}</button></sc-for></div>
 <sc-for list="{{homePads}}" as="d" hint-placeholder-count="16">
-<button title="{{d.tip}}" style="position: relative; overflow: hidden; min-height: 0; border-radius: 8px; border: 1px solid {{d.border}}; outline: {{d.outline}}; outline-offset: 2px; background: {{d.bg}}; color: {{d.ink}}; box-shadow: {{d.glow}}; text-align: left; padding: 8px 10px; display: flex; flex-direction: column; gap: 4px">
-<span style="font-family: 'Archivo Narrow', sans-serif; font-size: {{d.fs}}px; font-weight: 700; line-height: 1; white-space: nowrap">{{d.name}}</span>
-<span style="font-size: 10px; font-weight: 600; opacity: .75">{{d.len}}</span>
+<button title="{{d.tip}}" style="position: relative; overflow: hidden; min-height: 0; border-radius: 7px; border: 1px solid {{d.border}}; outline: {{d.outline}}; outline-offset: 2px; background: {{d.bg}}; color: {{d.ink}}; box-shadow: {{d.glow}}; text-align: left; padding: 6px 8px; display: flex; flex-direction: column; gap: 3px">
+<span style="display: flex; align-items: center; gap: 4px"><span style="font-family: 'Archivo Narrow', sans-serif; font-size: {{d.fs}}px; font-weight: 700; line-height: 1; white-space: nowrap">{{d.name}}</span><span style="flex-grow: 1"></span><span title="{{d.otsTip}}" style="display: {{d.otsDisp}}; font-size: 8px; font-weight: 800; padding: 1px 4px; border-radius: 3px; border: 1px solid currentColor; background: {{d.otsBg}}; color: {{d.otsInk}}">{{d.ots}}</span></span>
+<span style="font-size: 9px; font-weight: 600; opacity: .75; white-space: nowrap">{{d.len}}</span>
 <span style="flex-grow: 1"></span>
-<svg width="100%" height="{{d.patH}}" viewBox="0 0 160 40" preserveAspectRatio="none" aria-hidden="true" style="display: {{d.patDisp}}"><sc-for list="{{d.pat}}" as="c" hint-placeholder-count="30"><rect x="{{c.x}}" y="{{c.y}}" width="8" height="8" rx="1.5" fill="{{d.patCol}}" opacity="{{c.o}}"></rect></sc-for></svg>
-<span style="position: absolute; top: 7px; right: 7px; font-size: 9px; font-weight: 700; padding: 2px 5px; border-radius: 3px; background: #ffffff; color: #0e0e10; display: {{d.tagDisp}}">{{d.tag}}</span>
+<span aria-label="Parts playing" style="display: {{d.partsDisp}}; height: ''' + ('30' if wide else '22') + '''px; align-items: flex-end; gap: 2px; padding: 2px; border-radius: 3px; background: rgba(14,14,16,.6)"><sc-for list="{{d.parts}}" as="q" hint-placeholder-count="8"><span title="{{q.tip}}" style="flex: 1; height: {{q.h}}%; border-radius: 1px; background: {{q.c}}; opacity: {{q.o}}"></span></sc-for></span>
 </button>
 </sc-for>
 </div>
+<div aria-label="Style parts" style="display: flex; align-items: center; gap: 10px; flex-wrap: nowrap; overflow: hidden; padding-top: 4px">
+<span class="cap" style="white-space: nowrap">In this style</span>
+<sc-for list="{{legend}}" as="q" hint-placeholder-count="8"><span style="display: flex; align-items: center; gap: 4px; white-space: nowrap; font-size: 11px"><span style="width: 8px; height: 8px; border-radius: 2px; background: {{q.c}}"></span><span style="color: #c9c9cf">{{q.voice}}</span></span></sc-for>
+</div>
+<div style="flex-grow: 1"></div>
 </div>''' + fx, JS='''
-    // Each Main's own pattern: kick, snare, hats, bass across its first bar (16ths).
-    const PAT = { 8: ['x...x...x...x...', '....x.......x...', 'x.x.x.x.x.x.x.x.', 'x..x..x...x..x..'], 9: ['x.....x.x.......', '....x.......x..x', 'xxxxxxxxxxxxxxxx', 'x..x..x.x..x..x.'], 10: ['x..x..x...x.x...', '....x.......x...', 'x.xxx.xxx.xxx.xx', 'x...x.x...x...x.'], 11: ['x.x...x.x.x...x.', '....x..x....x..x', 'xxxxxxxxxxxxxxxx', 'x.xx..x.x.xx..x.'] };
+    // What each section plays: the 8 style parts (Rhythm 1 … Phrase 2) in their mixer colours,
+    // bar height = how busy the part is there. OTS Link: Main A–D recall OTS 1–4.
+    const ACT = { 0: [1, .4, .6, .5, .3, .8, 0, 0], 1: [1, .5, .8, .7, .5, .6, .3, 0], 2: [.6, 0, .5, .8, 0, .5, 0, 0], 4: [1, .3, .7, .6, .4, .6, 0, 0], 5: [1, .5, .8, .7, .5, .7, .5, 0], 6: [.5, 0, .4, .5, 0, .8, 0, 0],
+      8: [1, .3, .7, .6, 0, .5, 0, 0], 9: [1, .5, .8, .7, .5, .6, .3, 0], 10: [1, .7, .9, .8, .6, .7, .6, .3], 11: [1, .9, 1, .9, .8, .8, .9, .7], 12: [.3, .6, 0, 0, 0, .4, 0, 0] };
+    const SP = P.slice(4);
     const TIP = ['Intro I: press to arm it for the start', '', '', 'Sync Start: the band starts on your first chord', 'Ending I', '', '', 'Auto Fill: a fill plays whenever you change Main', 'Main A: press while it plays for its fill', 'Main B: playing. Its fill is queued (it flashes on the Launchkey)', 'Main C', 'Main D', 'Break', 'Tap tempo', 'Sync Stop: the band stops when you let go', 'Start / Stop'];
-    const homePads = secPads.map((d, i) => { const p = PAT[i]; const cells = [];
-      if (p) p.forEach((row, y) => row.split('').forEach((c, x) => { if (c === 'x') cells.push({ x: x * 10 + 1, y: y * 10 + 1, o: y === 2 ? .55 : 1 }); }));
-      return Object.assign({}, d, { tip: TIP[i] || d.name, fs: i >= 8 && i < 12 ? %d : %d, pat: cells, patDisp: p ? 'block' : 'none', patH: %d, patCol: d.ink, tag: i === 9 ? 'FILL ▸' : '', tagDisp: i === 9 ? 'block' : 'none' }); });
+    const homePads = secPads.map((d, i) => { const act = ACT[i], isMain = i >= 8 && i < 12, lit = d.ink === '#0e0e10';
+      return Object.assign({}, d, { tip: TIP[i] || d.name, fs: isMain ? %(fm)d : %(fo)d, len: i === 9 ? d.len + ' · fill next' : d.len,
+        partsDisp: act ? 'flex' : 'none', parts: (act || []).map((v, k) => ({ h: Math.max(8, Math.round(v * 100)), c: COL[4 + k], o: v ? 1 : .18, tip: SP[k][0] + ' · ' + SP[k][1] })),
+        ots: isMain ? 'OTS ' + (i - 7) : '', otsDisp: isMain ? 'inline' : 'none', otsTip: 'OTS Link: Main ' + 'ABCD'[i - 8] + ' recalls One Touch ' + (i - 7),
+        otsBg: i === 9 ? '#0e0e10' : 'transparent', otsInk: i === 9 ? '#ffffff' : (lit ? '#0e0e10' : d.ink) }); });
+    const legend = SP.map((p, k) => ({ c: COL[4 + k], voice: p[1] }));
     const master = [[.5, 'Low', '0 dB'], [.45, 'Mid', '−1 dB'], [.58, 'High', '+2 dB'], [.35, 'Glue', '2:1'], [.2, 'Room', '12%%'], [.8, 'Level', '−2 dB']].map(m => Object.assign(knob(44, m[0], m[1] === 'Level' ? '#f2f2f2' : A), { name: m[1], val: m[2] }));
-    const extra = { homePads, master };''' % ((30, 20, 44) if wide else (24, 16, 34)), OVERLAY="", LAYER="VOL")
+    const extra = { homePads, master, legend };''' % dict(r1=64 if wide else 50, r2=110 if wide else 78, ph=30 if wide else 22, fm=26 if wide else 20, fo=18 if wide else 14), OVERLAY="", LAYER="VOL")
 
 screens["Home"] = home()
 
@@ -233,7 +243,7 @@ screens["VoiceList"] = dict(TAB="Home", SEL="7", PADRING="1", DISPLAY=screens["H
 <div style="height: 1px; background: #2d2d32; margin: 4px 0"></div>
 <button style="height: 34px; border: 0; border-radius: 4px; background: #26262b; color: #ffffff; text-align: left; padding: 0 10px; font-size: 13px; font-weight: 700">More in the Browser…</button>
 </div>''')
-screens["VoiceList"]["JS"] = screens["Home"]["JS"].replace("const extra = { homePads, master };", "const vl = [['Steel Gtr','current'],['Nylon Gtr','SoundFont'],['Clean Gtr','SoundFont'],['Jazz Gtr','SoundFont'],['12-String','SoundFont'],['★ Ample Guitar M','plugin'],['★ My Strum Gtr','patch'],['Muted Gtr','SoundFont']].map((v, i) => ({ name: v[0], src: v[1], bg: i === 0 ? '#2c2536' : 'transparent', w: i === 0 ? 700 : 500 }));\n    const extra = { homePads, master, vl };")
+screens["VoiceList"]["JS"] = screens["Home"]["JS"].replace("const extra = { homePads, master, legend };", "const vl = [['Steel Gtr','current'],['Nylon Gtr','SoundFont'],['Clean Gtr','SoundFont'],['Jazz Gtr','SoundFont'],['12-String','SoundFont'],['★ Ample Guitar M','plugin'],['★ My Strum Gtr','patch'],['Muted Gtr','SoundFont']].map((v, i) => ({ name: v[0], src: v[1], bg: i === 0 ? '#2c2536' : 'transparent', w: i === 0 ? 700 : 500 }));\n    const extra = { homePads, master, legend, vl };")
 
 # ---------- Browser (full screen) ----------
 screens["Browser"] = dict(TAB="Home", SEL="-1", PADRING="1", DISPLAY=screens["Home"]["DISPLAY"], BROWSEBTN="background: #ffffff; color: #0e0e10; border-color: #ffffff", OVERLAY='''
