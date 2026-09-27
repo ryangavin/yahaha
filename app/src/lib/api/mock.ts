@@ -282,7 +282,7 @@ export function initialState(): AppState {
     soundLibrary: initialSoundLibrary(),
     paramLocks: { splitPoint: false, fingeringType: false },
     sounds: initialSounds(),
-    dynamics: { control: true, level: 127, touch: false, accent: false, accentThreshold: 110 },
+    dynamics: { control: true, level: 127, touch: false, accent: false, accentThreshold: 110, accentMode: 'hits', accentSource: 'left' },
     knobs: { page: 'style', pageName: 'Style', pageNumber: 1, pageCount: 6, knobs: [] },
     effects: initialEffects(),
     home: { mains: [], progress: { running: false, bar: 1, beat: 1, bars: null, beatsPerBar: 4, fraction: 0 }, snapshot: null, ots: null, bandSends: [] },
@@ -1855,6 +1855,12 @@ export class MockSession implements Session {
         break
       case 'setAccentThreshold':
         this.state.dynamics.accentThreshold = Math.max(1, clampLevel(cmd.velocity))
+        break
+      case 'setAccentMode':
+        this.state.dynamics.accentMode = cmd.mode
+        break
+      case 'setAccentSource':
+        this.state.dynamics.accentSource = cmd.source
         break
       // Knob Assign pages (#197): a turn runs its function's command, as the session does.
       case 'setKnobPage':

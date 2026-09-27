@@ -11,6 +11,7 @@ impl Engine {
         self.on_wake(now, sink);
         self.tap_start_due(now, sink);
         self.settle_due(now, sink);
+        self.accent_due(now, sink);
         self.play_due(now, sink);
     }
 

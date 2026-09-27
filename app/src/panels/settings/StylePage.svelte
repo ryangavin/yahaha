@@ -12,7 +12,7 @@
   import Field from './Field.svelte'
   import FillButtons from './FillButtons.svelte'
   import HSlider from './HSlider.svelte'
-  import { RETRIGGER_RATES, type FadeState, type IntroEndingTiming, type MainTiming } from '../../lib/api/types'
+  import { RETRIGGER_RATES, type AccentMode, type AccentSource, type FadeState, type IntroEndingTiming, type MainTiming } from '../../lib/api/types'
 
   const t = $derived(app.state.transport)
   const ots = $derived(app.state.ots)
@@ -208,7 +208,7 @@
   <Toggle on={dyn.touch} tip="dynamics.touch" onclick={() => app.send({ type: 'toggleDynamicsTouch' })}>{onOff(dyn.touch)}</Toggle>
 </Field>
 
-<Field name="Accent" genos={null} inline note="Hit a chord-section key at least as hard as the threshold and the Main plays its fill from the next beat.">
+<Field name="Accent" genos={null} inline note="Hit a key at least as hard as the threshold for a drum hit from the Style's kit (stopped or playing), or the Main's fill (Mode Fill).">
   <Toggle on={dyn.accent} tip="dynamics.accent" onclick={() => app.send({ type: 'toggleAccent' })}>{onOff(dyn.accent)}</Toggle>
 </Field>
 
@@ -218,6 +218,30 @@
     tip="dynamics.accent_threshold"
     value={dyn.accentThreshold}
     onchange={(velocity) => app.send({ type: 'setAccentThreshold', velocity: Math.max(1, velocity) })}
+  />
+</Field>
+
+<Field name="Accent mode" genos={null} note="Hits: kick + hat, kick + snare, or from 120 kick + crash, by how hard you strike. Fill: while a Main plays, its fill (stopped, still hits).">
+  <Choice
+    label="Accent mode"
+    value={dyn.accentMode}
+    options={[
+      { id: 'hits' as const, label: 'Hits', tip: 'dynamics.accent_mode_hits' as const },
+      { id: 'fill' as const, label: 'Fill', tip: 'dynamics.accent_mode_fill' as const },
+    ]}
+    onselect={(mode: AccentMode) => app.send({ type: 'setAccentMode', mode })}
+  />
+</Field>
+
+<Field name="Accent source" genos={null} note="Left: chord-section strikes accent. Both: right-hand strikes accent too.">
+  <Choice
+    label="Accent source"
+    value={dyn.accentSource}
+    options={[
+      { id: 'left' as const, label: 'Left', tip: 'dynamics.accent_source_left' as const },
+      { id: 'both' as const, label: 'Both', tip: 'dynamics.accent_source_both' as const },
+    ]}
+    onselect={(source: AccentSource) => app.send({ type: 'setAccentSource', source })}
   />
 </Field>
 

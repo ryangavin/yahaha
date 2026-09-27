@@ -49,7 +49,7 @@ pub use mixer::{Takeover, HW_UNKNOWN};
 pub use transport::StyleControls;
 pub use multipad::{PadCmd, PadsSnap, SynchroStop, PAD_PPQ};
 use prepared::PKind;
-pub use dynamics::{touch_level, DynamicsSettings, ACCENT_DEFAULT, DYNAMICS_NEUTRAL};
+pub use dynamics::{accent_hit, touch_level, AccentMode, AccentSource, DynamicsSettings, ACCENT_CRASH, ACCENT_DEFAULT, DYNAMICS_NEUTRAL};
 pub use fade::FadeState;
 pub use prepared::{id_of, slot_of, Msgs, PSection, Prepared, Setup, NUM_SLOTS};
 pub use ritardando::RIT_END;

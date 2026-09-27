@@ -299,6 +299,8 @@ const EVERY_CMD: &[&str] = &[
     r#"{"type":"setAccent","on":true}"#,
     r#"{"type":"toggleAccent"}"#,
     r#"{"type":"setAccentThreshold","velocity":110}"#,
+    r#"{"type":"setAccentMode","mode":"fill"}"#,
+    r#"{"type":"setAccentSource","source":"both"}"#,
     // Knob Assign pages (#197)
     r#"{"type":"setKnobPage","page":"parts"}"#,
     r#"{"type":"stepKnobPage","delta":-1}"#,

@@ -24,14 +24,14 @@ fn strike(s: &Session, key: u8, vel: u8) {
 fn settings_and_the_level() {
     let Some(s) = session() else { return };
     let d = s.state().dynamics.clone();
-    assert_eq!(d, DynamicsState { control: true, level: 127, touch: false, accent: false, accent_threshold: 110 });
+    assert_eq!(d, DynamicsState { control: true, level: 127, touch: false, accent: false, accent_threshold: 110, ..Default::default() });
     s.send(DynamicsCmd::SetDynamics { level: 100 }).unwrap();
     s.send(DynamicsCmd::StepDynamics { delta: -10 }).unwrap();
     s.send(DynamicsCmd::SetDynamicsControl { on: false }).unwrap();
     s.send(DynamicsCmd::SetAccentThreshold { velocity: 120 }).unwrap();
     s.send(DynamicsCmd::ToggleAccent).unwrap();
     let d = s.state().dynamics.clone();
-    assert_eq!(d, DynamicsState { control: false, level: 90, touch: false, accent: true, accent_threshold: 120 });
+    assert_eq!(d, DynamicsState { control: false, level: 90, touch: false, accent: true, accent_threshold: 120, ..Default::default() });
 }
 
 /// Touch: the left hand's strikes set the level (Touch off, they do not), and a later
@@ -78,11 +78,12 @@ fn a_style_load_maxes_dynamics() {
     assert_eq!(s.state().dynamics.level, 127);
 }
 
-/// Accent: a hard left-hand strike while a Main plays queues the Main's fill.
+/// Accent Mode Fill: a hard left-hand strike while a Main plays queues the Main's fill.
 #[test]
 fn a_hard_left_hand_strike_plays_the_fill() {
     let Some(s) = session() else { return };
     s.send(DynamicsCmd::SetAccent { on: true }).unwrap();
+    s.send(DynamicsCmd::SetAccentMode { mode: crate::engine::AccentMode::Fill }).unwrap();
     // Sync Start: the chord starts the band.
     for k in [36, 40, 43] {
         s.midi_in(Port::Keys, &[0x90, k, 90]);
@@ -95,4 +96,17 @@ fn a_hard_left_hand_strike_plays_the_fill() {
     s.midi_in(Port::Keys, &[0x90, 36, 120]);
     s.advance(MS);
     assert_eq!(s.state().transport.queued.as_deref(), Some("Fill In AA"));
+}
+
+/// Accent Mode and Source reach the state and survive other Dynamics commands.
+#[test]
+fn accent_mode_and_source() {
+    let Some(s) = session() else { return };
+    let d = s.state().dynamics.clone();
+    assert_eq!((d.accent_mode, d.accent_source), (crate::engine::AccentMode::Hits, crate::engine::AccentSource::Left));
+    s.send(DynamicsCmd::SetAccentMode { mode: crate::engine::AccentMode::Fill }).unwrap();
+    s.send(DynamicsCmd::SetAccentSource { source: crate::engine::AccentSource::Both }).unwrap();
+    s.send(DynamicsCmd::ToggleAccent).unwrap();
+    let d = s.state().dynamics.clone();
+    assert_eq!((d.accent_mode, d.accent_source, d.accent), (crate::engine::AccentMode::Fill, crate::engine::AccentSource::Both, true));
 }

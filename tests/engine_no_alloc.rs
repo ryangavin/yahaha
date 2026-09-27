@@ -415,7 +415,7 @@ fn looper_metronome_and_solo_do_not_allocate() {
     let (allocs, frees) = counts();
     let mut now = 1_000;
     ch.ui_tx.push(Cmd::Metronome { on: true, bell: true }).ok().unwrap();
-    ch.ui_tx.push(Cmd::Dynamics(DynamicsSettings { touch: true, accent: true, ..DynamicsSettings::default() })).ok().unwrap();
+    ch.ui_tx.push(Cmd::Dynamics(DynamicsSettings { touch: true, accent: true, accent_mode: yahaha::engine::AccentMode::Fill, ..DynamicsSettings::default() })).ok().unwrap();
     ch.ui_tx.push(Cmd::Looper(true)).ok().unwrap();
     l.step(now);
     // Stopped, REC arms Sync Start: this chord starts the band and the recording.
