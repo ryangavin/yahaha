@@ -79,6 +79,15 @@ fn the_audio_callback_does_not_allocate() {
     for _ in 0..10 {
         assert_eq!(run(&mut core, &mut feed, &[]), none, "steady");
     }
+    // The meters (peak and RMS per channel and the master) are measured in the callback,
+    // into atomics: with a SoundFont, the notes on channels 1 and 11 show.
+    if font.is_some() {
+        let (peaks, master, _) = synth::take_meters(&ctl);
+        let (rms, master_rms) = synth::take_rms(&ctl);
+        assert!(peaks[0] > 0.0 && rms[0] > 0.0 && rms[0] <= peaks[0], "Right 1: peak {} rms {}", peaks[0], rms[0]);
+        assert!(rms[10] > 0.0, "the Bass part's RMS");
+        assert!(master[0] > 0.0 && master_rms[0] > 0.0 && master_rms[0] <= master[0]);
+    }
     // The effect bus (#204): sends on, every reverb, chorus and delay type, tempo changes, the returns, the
     // SoundFont's own effects instead (legacy) and back, and tails ringing out.
     assert_eq!(run(&mut core, &mut feed, &[[0xB0, 91, 100], [0xB0, 93, 80], [0xBA, 91, 127], [0xBA, 94, 60], [0x90, 64, 100]]), none, "sends");

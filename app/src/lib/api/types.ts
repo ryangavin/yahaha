@@ -846,11 +846,14 @@ export interface IoState {
  * client applies its own decay and peak hold. */
 export interface Meters {
   atMs: number
-  /** Keyboard parts (ch 1–4) and Style parts (ch 9–16), before the soft clipper. Empty
+  /** Every channel: keyboard parts (ch 1–4), Multi Pads (5–8), Style parts (9–16), before
+   * the soft clipper. Linear peak and RMS, the loudest since the previous read. Empty
    * without the synth. */
-  channels: { channel: number; peak: number }[]
+  channels: { channel: number; peak: number; rms: number }[]
   /** Left, right after the soft clipper. */
   master: [number, number]
+  /** Left, right RMS after the soft clipper. */
+  masterRms: [number, number]
   /** Audio buffers in which the soft clipper worked, since start. */
   clips: number
 }

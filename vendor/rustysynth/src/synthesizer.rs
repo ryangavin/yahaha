@@ -62,6 +62,9 @@ pub struct Synthesizer {
     channel_left: Vec<f32>,
     channel_right: Vec<f32>,
     channel_peaks: [f32; 16],
+    // yahaha: each channel's sum of squares (both sides) and frames since the last reset, for RMS.
+    channel_sq: [f32; 16],
+    channel_frames: u32,
     // yahaha: the send buses (yahaha's shared effects): each channel's gain into each bus
     // (`set_channel_sends`), and the block's buses (bus b, side s at (2 * b + s) *
     // block_size), filled from the channel rows above. `internal_effects` turns the
@@ -162,6 +165,8 @@ impl Synthesizer {
             channel_left,
             channel_right,
             channel_peaks: [0_f32; Synthesizer::CHANNEL_COUNT],
+            channel_sq: [0_f32; Synthesizer::CHANNEL_COUNT],
+            channel_frames: 0,
             send_gains: [[0_f32; SEND_BUSES]; Synthesizer::CHANNEL_COUNT],
             send_block: vec![0_f32; 2 * SEND_BUSES * settings.block_size],
             send_used: false,
@@ -205,9 +210,18 @@ impl Synthesizer {
         &self.channel_peaks
     }
 
+    /// yahaha: each MIDI channel's RMS level (both sides averaged) over what has been
+    /// rendered since the last `reset_channel_peaks`, measured where `channel_peaks` is.
+    pub fn channel_rms(&self) -> [f32; 16] {
+        let n = (2 * self.channel_frames).max(1) as f32;
+        self.channel_sq.map(|q| (q / n).sqrt())
+    }
+
     /// yahaha: start the channel peaks again from 0.
     pub fn reset_channel_peaks(&mut self) {
         self.channel_peaks = [0_f32; Synthesizer::CHANNEL_COUNT];
+        self.channel_sq = [0_f32; Synthesizer::CHANNEL_COUNT];
+        self.channel_frames = 0;
     }
 
     /// yahaha: channel `channel`'s gain (linear) into each send bus of
@@ -673,12 +687,14 @@ impl Synthesizer {
             let ch = used.trailing_zeros() as usize;
             used &= used - 1;
             let row = ch * bs..(ch + 1) * bs;
-            let peak = self.channel_left[row.clone()]
+            let (peak, sq) = self.channel_left[row.clone()]
                 .iter()
                 .chain(&self.channel_right[row])
-                .fold(0_f32, |p, x| p.max(x.abs()));
+                .fold((0_f32, 0_f32), |(p, q), x| (p.max(x.abs()), q + x * x));
             self.channel_peaks[ch] = self.channel_peaks[ch].max(peak);
+            self.channel_sq[ch] += sq;
         }
+        self.channel_frames += bs as u32;
 
         // yahaha: the send buses, from the channel rows of the channels that sound.
         self.send_used = false;
