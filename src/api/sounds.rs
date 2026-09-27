@@ -137,7 +137,8 @@ pub struct SoundsState {
     /// The sound being auditioned (`auditionSound`).
     pub auditioning: Option<String>,
     /// Plugins (`au:<component id>`) whose presets are being listed (`listPluginPresets`).
-    #[serde(default)]
+    /// Left out of the JSON while none is.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub listing_presets: Vec<String>,
 }
 

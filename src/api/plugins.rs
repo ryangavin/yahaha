@@ -94,11 +94,12 @@ pub struct PartPlugin {
     pub recent_overruns: u32,
     /// Its editor window can be opened (the app shell has the plugin host).
     pub editor: bool,
-    /// The preset it was loaded with ("Upright"), if one was picked in the Sound Browser.
-    #[serde(default)]
+    /// The preset it was loaded with ("Upright"), if one was picked in the Sound Browser
+    /// (left out of the JSON otherwise).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub preset: Option<String>,
     /// That preset's catalog key (`f:3`, `u:<path>`).
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub preset_key: Option<String>,
 }
 

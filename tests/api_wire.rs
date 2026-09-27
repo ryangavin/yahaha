@@ -228,6 +228,7 @@ const EVERY_CMD: &[&str] = &[
     // Instrument plugins
     r#"{"type":"setPartPlugin","part":0,"id":"aumu dls  appl","state":null}"#,
     r#"{"type":"setPartPlugin","part":1,"id":"aumu Xf2X XFER","state":"YnBsaXN0MDA="}"#,
+    r#"{"type":"setPartPluginPreset","part":2,"id":"aumu Nik2 -NI-","preset":"f:3"}"#,
     r#"{"type":"clearPartPlugin","part":0}"#,
     r#"{"type":"savePartPluginState","part":3}"#,
     r#"{"type":"rescanPlugins"}"#,
@@ -286,6 +287,8 @@ const EVERY_CMD: &[&str] = &[
     r#"{"type":"stopSoundAudition"}"#,
     r#"{"type":"assignSound","part":0,"id":"saved:warm-pad"}"#,
     r#"{"type":"setSoundCategory","id":"au:aumu Xf2X XFER","category":"pad"}"#,
+    r#"{"type":"listPluginPresets","id":"au:aumu Nik2 -NI-"}"#,
+    r#"{"type":"savePartAsPluginPreset","part":0,"name":"Upright","category":"piano"}"#,
     // Style Dynamics Control, Touch, Accent
     r#"{"type":"setDynamicsControl","on":false}"#,
     r#"{"type":"setDynamics","level":90}"#,
