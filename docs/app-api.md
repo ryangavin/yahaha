@@ -1885,7 +1885,8 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
         "styleEffect": null, "followStyle": true,
         "types": [{ "effect": "eighth", "name": "Delay 1/8" }, { "effect": "dottedEighth", "name": "Delay 1/8." }, { "effect": "quarter", "name": "Delay 1/4" }, { "effect": "pingPong", "name": "Ping-Pong" }]
       }
-    ]
+    ],
+    "inserts": [], "insertsOn": true
   },
   "message": null
 }

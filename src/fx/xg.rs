@@ -398,7 +398,7 @@ pub fn insert_kind(msb: u8, lsb: u8) -> Option<(InsertKind, u8)> {
         (75, 27) | (75, 29) => amp(true, false),
         (75, _) => amp(false, false),
         // Multi FX: the distortions and the crunch wah (as a distortion).
-        (95, 32 | 33 | 34 | 35) => amp(false, lsb == 32),
+        (95, 32..=35) => amp(false, lsb == 32),
         // Small Stereo Dist, British Combo, V Distortion, US Combo, Jazz Combo, US High
         // Gain, British Lead, Tweed Guy, Y-Amp.
         (96, _) => amp(false, false),

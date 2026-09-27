@@ -2346,7 +2346,12 @@
       }
     ],
     "inserts": [
-      { "part": 3, "partName": "Chord 1", "name": "British Combo Classic", "effect": "distortion" }
+      {
+        "part": 3,
+        "partName": "Chord 1",
+        "name": "British Combo Classic",
+        "effect": "distortion"
+      }
     ],
     "insertsOn": true
   }
