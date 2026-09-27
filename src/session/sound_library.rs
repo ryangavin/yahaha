@@ -105,7 +105,7 @@ pub(super) type Pending = (u8, String, Usage, u64);
 
 /// The control side's sound library.
 pub(super) struct SoundLib {
-    lib: SoundLibrary,
+    pub(in crate::session) lib: SoundLibrary,
     /// Where it is saved (None: nowhere).
     path: Option<PathBuf>,
     /// The file there could not be read: it is never saved over (the text says why).
@@ -639,6 +639,7 @@ impl Control {
             }
             SoundLibraryCmd::ImportSoundLibrary { path, replace, maps } => return self.import_sound_library(&path, replace, maps),
             SoundLibraryCmd::ExportSoundLibrary { path } => return self.export_sound_library(path),
+            SoundLibraryCmd::ExportSoundPreset { id, overwrite } => return self.export_sound_preset(&id, overwrite),
         }
         self.sound_library_changed();
         Ok(())
@@ -1008,11 +1009,15 @@ impl Control {
             Ok(t) => t,
             Err(e) => return self.sl_fail(format!("{path}: {e}")),
         };
-        let other = match SoundLibrary::from_json(&text) {
+        let (other, fonts) = match SoundLibrary::read_bundle(&text) {
             Ok(l) => l,
             Err(e) => return self.sl_fail(format!("{path}: {e:#}")),
         };
         let n = other.patches.len();
+        // SoundFonts resolve by file name in this SoundFont folder. A missing one's sounds
+        // are kept (they play once the file is there) and reported, never dropped.
+        let avail = self.avail_fonts();
+        let missing: Vec<String> = fonts.into_iter().filter(|f| !avail.contains(f)).collect();
         if replace {
             // A library file that could not be read (a newer yahaha's, or damaged) is kept
             // beside the new one before the new one is saved over it.
@@ -1032,6 +1037,9 @@ impl Control {
             self.say(format!("Imported {added} of {n} patches{kept}"), self.sound.locked.is_some());
         }
         self.sound_library_changed();
+        if !missing.is_empty() {
+            self.say(format!("Imported; SoundFonts not in the SoundFont folder: {}. Their sounds are kept and play once the files are there", missing.join(", ")), true);
+        }
         Ok(())
     }
 
@@ -1040,12 +1048,36 @@ impl Control {
             Some(p) => p,
             None => return self.sl_fail("no data folder to export to"),
         };
-        match self.sound.lib.save(&path) {
+        let tmp = path.with_extension("json.tmp");
+        let written = path
+            .parent()
+            .map_or(Ok(()), std::fs::create_dir_all)
+            .and_then(|_| std::fs::write(&tmp, self.sound.lib.to_bundle_json()))
+            .and_then(|_| std::fs::rename(&tmp, &path))
+            .map_err(|e| anyhow::anyhow!("{}: {e}", path.display()));
+        match written {
             Ok(()) => {
                 self.say(format!("Sound library exported to {}", path.display()), false);
                 Ok(())
             }
             Err(e) => self.sl_fail(format!("{e:#}")),
+        }
+    }
+
+    fn export_sound_preset(&mut self, id: &str, overwrite: bool) -> Result<(), CmdError> {
+        let Some(p) = self.sound.lib.patch(id).cloned() else { return self.sl_fail(format!("no sound {id}")) };
+        let PatchSource::Plugin { component_id, state, .. } = &p.source else {
+            return self.sl_fail(format!("{} is a SoundFont preset, not a plugin sound", p.name));
+        };
+        let Some(bytes) = crate::api::base64_decode(state).filter(|b| !b.is_empty()) else {
+            return self.sl_fail(format!("{} has no settings yet: play it once first", p.name));
+        };
+        match self.export_state_as_preset(component_id, &p.name, &bytes, overwrite) {
+            Ok(path) => {
+                self.say(format!("{} exported to {}", p.name, path.display()), false);
+                Ok(())
+            }
+            Err(e) => self.sl_fail(e),
         }
     }
 

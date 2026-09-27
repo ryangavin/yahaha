@@ -272,6 +272,22 @@ describe('mock session', () => {
     expect(m.state.registration.sequence.on).toBe(false)
   })
 
+  it('a plugin sound exports as an .aupreset; a second export needs overwrite (D5, #307)', () => {
+    const m = new MockSession({ manual: true })
+    m.send({ type: 'exportSoundPreset', id: 'keys-au' })
+    expect(m.state.message?.text).toContain('no settings yet')
+    m.send({ type: 'exportSoundPreset', id: 'stage-grand' })
+    expect(m.state.message?.text).toContain('not a plugin sound')
+    const p = m.state.soundLibrary.patches.find((q) => q.id === 'keys-au')!
+    p.source = { kind: 'plugin', componentId: 'aumu Smp7 Fake', state: 'c2FtcGxlciBkZWx1eGU=' }
+    m.send({ type: 'exportSoundPreset', id: 'keys-au' })
+    expect(m.state.message).toMatchObject({ error: false, text: 'Keys (AU) exported to ~/Library/Audio/Presets' })
+    m.send({ type: 'exportSoundPreset', id: 'keys-au' })
+    expect(m.state.message?.text).toContain('already exists')
+    m.send({ type: 'exportSoundPreset', id: 'keys-au', overwrite: true })
+    expect(m.state.message?.error).toBe(false)
+  })
+
   it('Chord Looper banks: Save As, a clash refused unless overwritten, Load (#201)', () => {
     const m = new MockSession({ manual: true })
     expect([m.state.looper.bankName, m.state.looper.bankPath]).toEqual(['New Bank', null])
