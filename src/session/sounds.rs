@@ -9,7 +9,7 @@
 
 use super::sound_set::write_key;
 use super::Control;
-use crate::api::{parse_preset_id, CmdError, PartsCmd, PatchFields, PluginCmd, SoundCatalog, SoundLibraryCmd, SoundPrefs, SoundsCmd, SoundsState};
+use crate::api::{parse_plugin_id, parse_preset_id, CmdError, PartsCmd, PatchFields, PluginCmd, SoundCatalog, SoundLibraryCmd, SoundPrefs, SoundsCmd, SoundsState};
 use crate::patches::sf2::{self, Preset};
 use crate::patches::{Category, PatchSource};
 use std::collections::HashMap;
@@ -58,6 +58,7 @@ impl Control {
         for p in self.plugins_state().list {
             (p.id, p.name, p.manufacturer, p.format, p.last_error).hash(&mut h);
         }
+        serde_json::to_string(&self.plugin_preset_lists()).unwrap_or_default().hash(&mut h);
         for p in self.sound_patches() {
             (&p.id, &p.name, p.category as u8, p.favourite).hash(&mut h);
             serde_json::to_string(&p.source).unwrap_or_default().hash(&mut h);
@@ -88,7 +89,7 @@ impl Control {
         let s = &self.sounds;
         let fonts: Vec<(&str, &[Preset])> =
             self.sound_fonts.iter().map(|f| (f.as_str(), s.presets.get(f).map_or(&[][..], Vec::as_slice))).collect();
-        let entries = s.prefs.entries(&fonts, &self.plugins_state().list, self.sound_patches());
+        let entries = s.prefs.entries(&fonts, &self.plugins_state().list, &self.plugin_preset_lists(), self.sound_patches());
         SoundCatalog { revision: s.revision, entries, recents: s.prefs.recents.clone() }
     }
 
@@ -97,11 +98,13 @@ impl Control {
         let plugins = self.plugins_state();
         let auditioning =
             self.sound_audition().map(|l| if l.starts_with("sf:") || l.starts_with("au:") { l.to_string() } else { format!("saved:{l}") });
+        let plugin_presets: usize = self.plugin_preset_lists().iter().map(|l| l.presets.len()).sum();
         SoundsState {
             revision: self.sounds.revision,
-            count: (presets + plugins.list.len() + self.sound_patches().len()) as u32,
+            count: (presets + plugins.list.len() + plugin_presets + self.sound_patches().len()) as u32,
             scanning: plugins.scanning,
             auditioning: auditioning.filter(|a| a != "saved:preset"),
+            listing_presets: self.plugin_presets_listing().into_iter().map(|id| format!("au:{id}")).collect(),
         }
     }
 
@@ -123,10 +126,16 @@ impl Control {
                 if let Some(patch) = id.strip_prefix("saved:") {
                     return self.sound_library_cmd(SoundLibraryCmd::AuditionPatch { id: patch.into() });
                 }
-                if let Some(plugin) = id.strip_prefix("au:") {
+                if let Some((plugin, preset)) = parse_plugin_id(&id) {
                     self.need_sound(&id)?;
                     let (name, drums) = (self.sound_name(&id), self.plugin_category_of(&id) == Category::DrumsPerc);
-                    let voice = super::PluginVoice { id: plugin.to_string(), state: None };
+                    let voice = match preset {
+                        Some(key) => match self.preset_voice(plugin, key) {
+                            Ok(v) => v,
+                            Err(e) => return self.fail(e),
+                        },
+                        None => super::PluginVoice { id: plugin.to_string(), state: None, preset: None },
+                    };
                     return self.start_plugin_audition(id, &name, voice, drums, None);
                 }
                 let Some((file, bank, program)) = parse_preset_id(&id) else { return self.fail(format!("no sound {id}")) };
@@ -148,11 +157,31 @@ impl Control {
                     return self.fail("a preset's category is its GM family");
                 }
                 self.need_sound(&id)?;
-                self.sounds.prefs.sound_categories.insert(id, category);
-                self.save_sounds("soundCategories", serde_json::to_value(&self.sounds.prefs.sound_categories));
+                self.set_preset_category(id, category);
+            }
+            SoundsCmd::ListPluginPresets { id } => {
+                let Some((plugin, None)) = parse_plugin_id(&id) else { return self.fail(format!("{id} is not a plugin")) };
+                if let Err(e) = self.list_plugin_presets(plugin) {
+                    return self.fail(e);
+                }
+            }
+            SoundsCmd::SavePartAsPluginPreset { part, name, category } => {
+                if part > 3 {
+                    return self.fail(format!("no keyboard part {part} (0-3)"));
+                }
+                if let Err(e) = self.save_part_as_preset(crate::parts::CHANNEL[part as usize], &name, category) {
+                    return self.fail(e);
+                }
             }
         }
         Ok(())
+    }
+
+    /// File catalog entry `id` (a plugin or one of its presets) under `category`: the
+    /// user's choice, kept in `sound-settings.json` (the `.aupreset` itself is not touched).
+    pub(super) fn set_preset_category(&mut self, id: String, category: Category) {
+        self.sounds.prefs.sound_categories.insert(id, category);
+        self.save_sounds("soundCategories", serde_json::to_value(&self.sounds.prefs.sound_categories));
     }
 
     /// `AssignSound`: the part plays it through the command its source has.
@@ -162,9 +191,12 @@ impl Control {
         }
         if let Some(patch) = id.strip_prefix("saved:") {
             self.sound_library_cmd(SoundLibraryCmd::SetPartPatch { part, id: Some(patch.into()) })?;
-        } else if let Some(plugin) = id.strip_prefix("au:") {
+        } else if let Some((plugin, preset)) = parse_plugin_id(&id) {
             self.need_sound(&id)?;
-            self.plugins_cmd(PluginCmd::SetPartPlugin { part, id: plugin.into(), state: None })?;
+            match preset {
+                Some(key) => self.plugins_cmd(PluginCmd::SetPartPluginPreset { part, id: plugin.into(), preset: key.into() })?,
+                None => self.plugins_cmd(PluginCmd::SetPartPlugin { part, id: plugin.into(), state: None })?,
+            }
         } else if let Some((file, bank, program)) = parse_preset_id(&id) {
             self.need_sound(&id)?;
             if self.sf_file.as_deref() == Some(file) && bank == 0 {
@@ -192,8 +224,24 @@ impl Control {
         }
         let source = if let Some((file, bank, program)) = parse_preset_id(id) {
             PatchSource::SoundFont { file: file.to_string(), bank, program }
-        } else if let Some(plugin) = id.strip_prefix("au:") {
-            PatchSource::Plugin { component_id: plugin.to_string(), state: String::new() }
+        } else if let Some((plugin, preset)) = parse_plugin_id(id) {
+            // A preset as a patch keeps its settings: an `.aupreset`'s file, read now. A
+            // factory preset's settings are only known once an instance plays it.
+            let state = match preset {
+                None => String::new(),
+                Some(key) => match self.preset_voice(plugin, key).map(|v| v.state) {
+                    Ok(Some(st)) => crate::api::base64_encode(&st),
+                    Ok(None) => {
+                        self.fail("a factory preset can't be a rule's sound yet: play it on a part and Save as sound, then pick that")?;
+                        return Ok(String::new());
+                    }
+                    Err(e) => {
+                        self.fail(e)?;
+                        return Ok(String::new());
+                    }
+                },
+            };
+            PatchSource::Plugin { component_id: plugin.to_string(), state }
         } else {
             return Ok(id.to_string());
         };
@@ -223,25 +271,42 @@ impl Control {
     fn need_sound(&mut self, id: &str) -> Result<(), CmdError> {
         let known = if let Some((file, bank, program)) = parse_preset_id(id) {
             self.sounds.presets.get(file).is_some_and(|v| v.iter().any(|p| p.bank == bank && p.program == program))
-        } else if let Some(plugin) = id.strip_prefix("au:") {
-            self.plugins_state().list.iter().any(|p| p.id == plugin)
+        } else if let Some((plugin, preset)) = parse_plugin_id(id) {
+            match preset {
+                None => self.plugins_state().list.iter().any(|p| p.id == plugin),
+                Some(key) => self.plugin_preset_lists().iter().any(|l| l.plugin == plugin && l.presets.iter().any(|p| p.key == key)),
+            }
         } else {
             false
         };
         if known { Ok(()) } else { self.fail(format!("no sound {id}")) }
     }
 
-    /// A plugin's category: the user's, else the guess.
+    /// A plugin's (or plugin preset's) category: the user's, else the guess.
     fn plugin_category_of(&self, id: &str) -> Category {
-        let plugin = id.strip_prefix("au:").unwrap_or(id);
+        let (plugin, preset) = parse_plugin_id(id).unwrap_or((id, None));
         let list = self.plugins_state().list;
         let p = list.iter().find(|p| p.id == plugin);
-        self.sounds.prefs.plugin_category(id, p.map_or("", |p| &p.name), p.map_or("", |p| &p.manufacturer))
+        let pid = format!("au:{plugin}");
+        let cat = self.sounds.prefs.plugin_category(&pid, p.map_or("", |p| &p.name), p.map_or("", |p| &p.manufacturer));
+        match preset.and_then(|k| self.plugin_preset(plugin, k)) {
+            Some(q) => self.sounds.prefs.preset_category(id, &q.name, q.folder.as_deref(), cat),
+            None => cat,
+        }
     }
 
+    fn plugin_preset(&self, plugin: &str, key: &str) -> Option<crate::api::PluginPresetEntry> {
+        self.plugin_preset_lists().into_iter().find(|l| l.plugin == plugin)?.presets.into_iter().find(|p| p.key == key)
+    }
+
+    /// A plugin's name, or "Plugin · Preset" for one of its presets.
     fn sound_name(&self, id: &str) -> String {
-        let plugin = id.strip_prefix("au:").unwrap_or(id);
-        self.plugins_state().list.into_iter().find(|p| p.id == plugin).map_or_else(|| id.to_string(), |p| p.name)
+        let (plugin, preset) = parse_plugin_id(id).unwrap_or((id, None));
+        let name = self.plugins_state().list.into_iter().find(|p| p.id == plugin).map_or_else(|| plugin.to_string(), |p| p.name);
+        match preset.and_then(|k| self.plugin_preset(plugin, k)) {
+            Some(q) => format!("{name} · {}", q.name),
+            None => name,
+        }
     }
 
     fn save_sounds(&mut self, key: &str, value: serde_json::Result<serde_json::Value>) {

@@ -28,8 +28,8 @@ use objc2_audio_toolbox::{
     AudioComponentInstance, AudioComponentInstanceDispose, AudioComponentInstanceNew,
     AudioComponentInstantiate, AudioComponentInstantiationOptions, AudioUnitGetProperty,
     AudioUnitGetPropertyInfo, AudioUnitInitialize, AudioUnitRender, AudioUnitRenderActionFlags,
-    AudioUnitSetProperty, AudioUnitUninitialize, AURenderCallbackStruct, MusicDeviceMIDIEvent,
-    kAudioUnitProperty_ClassInfo, kAudioUnitProperty_ElementCount, kAudioUnitProperty_Latency,
+    AudioUnitSetProperty, AudioUnitUninitialize, AURenderCallbackStruct, AUPreset, MusicDeviceMIDIEvent,
+    kAudioUnitProperty_ClassInfo, kAudioUnitProperty_FactoryPresets, kAudioUnitProperty_PresentPreset, kAudioUnitProperty_ElementCount, kAudioUnitProperty_Latency,
     kAudioUnitProperty_MaximumFramesPerSlice, kAudioUnitProperty_SampleRate,
     kAudioUnitProperty_SetRenderCallback, kAudioUnitProperty_StreamFormat, kAudioUnitScope_Global,
     kAudioUnitScope_Input, kAudioUnitScope_Output, kAudioUnitType_MusicDevice,
@@ -572,6 +572,58 @@ impl Unit {
         let p: *const CFPropertyList = CFRetained::as_ptr(&plist).as_ptr();
         check(unsafe { set_prop(self.raw, kAudioUnitProperty_ClassInfo, kAudioUnitScope_Global, &p) }, "set ClassInfo")
     }
+}
+
+// Plain CoreFoundation calls the generated bindings leave out (the `CFArray` feature is
+// not enabled for one array read).
+#[link(name = "CoreFoundation", kind = "framework")]
+unsafe extern "C" {
+    fn CFArrayGetCount(a: *const c_void) -> isize;
+    fn CFArrayGetValueAtIndex(a: *const c_void, i: isize) -> *const c_void;
+    fn CFRelease(cf: *const c_void);
+}
+
+impl Unit {
+    /// The unit's factory presets (`kAudioUnitProperty_FactoryPresets`): (number, name), in
+    /// the unit's order. Empty when it has none. Not RT-safe.
+    pub fn factory_presets(&self) -> Vec<(i32, String)> {
+        let mut arr: *const c_void = ptr::null();
+        if unsafe { get_prop(self.raw, kAudioUnitProperty_FactoryPresets, kAudioUnitScope_Global, &mut arr) } != 0 || arr.is_null() {
+            return Vec::new();
+        }
+        let mut out = Vec::new();
+        unsafe {
+            let n = CFArrayGetCount(arr);
+            for i in 0..n {
+                let p = CFArrayGetValueAtIndex(arr, i) as *const AUPreset;
+                if p.is_null() {
+                    continue;
+                }
+                let preset = ptr::read(p);
+                let name = if preset.presetName.is_null() { format!("Preset {}", preset.presetNumber) } else { (*preset.presetName).to_string() };
+                out.push((preset.presetNumber, name));
+            }
+            // The property hands over a retained array (AUBase retains it for the caller).
+            CFRelease(arr);
+        }
+        out
+    }
+
+    /// Select factory preset `number` (`kAudioUnitProperty_PresentPreset`). Not RT-safe.
+    pub fn set_factory_preset(&self, number: i32, name: &str) -> Result<()> {
+        let name = CFString::from_str(name);
+        let p = AUPreset { presetNumber: number, presetName: CFRetained::as_ptr(&name).as_ptr() };
+        check(unsafe { set_prop(self.raw, kAudioUnitProperty_PresentPreset, kAudioUnitScope_Global, &p) }, "set PresentPreset")
+    }
+}
+
+/// A property list (XML or binary) as XML: `.aupreset` files are written in the XML form
+/// Logic writes, and read whichever form they are in. None if it is not a property list.
+pub fn plist_to_xml(bytes: &[u8]) -> Option<Vec<u8>> {
+    let data = CFData::from_bytes(bytes);
+    let plist = unsafe { CFPropertyListCreateWithData(None, Some(&data), 0, ptr::null_mut(), ptr::null_mut()) }?;
+    let xml = unsafe { CFPropertyListCreateData(None, Some(&plist), CFPropertyListFormat::XMLFormat_v1_0, 0, ptr::null_mut()) }?;
+    Some(xml.to_vec())
 }
 
 /// A borrowed unit handle for the editor's property calls (the editor keeps the owning

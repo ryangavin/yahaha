@@ -67,7 +67,7 @@ mod transport;
 
 pub use chart::chart_song;
 pub use library::library_entry;
-pub use plugins::PluginVoice;
+pub use plugins::{PluginVoice, VoicePreset};
 pub use preview::AUDITION_CHORDS;
 pub use settings::choose_keys;
 

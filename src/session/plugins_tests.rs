@@ -263,7 +263,7 @@ fn a_missing_plugin_is_named_by_its_id() {
     let Some(s) = session() else { return };
     s.offline_audio(None, 48_000).unwrap();
     let mut saved = super::Saved::default();
-    saved.parts[2] = Some(super::PluginVoice { id: "aumu Nope Gone".into(), state: None });
+    saved.parts[2] = Some(super::PluginVoice { id: "aumu Nope Gone".into(), state: None, preset: None });
     s.inner.lock().restore_saved(saved);
     assert_eq!(wait_playing(&s, 2), PluginStatus::Failed);
     let p = s.state().keyboard_parts[2].plugin.clone().unwrap();
@@ -279,8 +279,8 @@ fn a_restore_keeps_a_missing_plugin_and_never_falls_back_in_process() {
     let Some(s) = session() else { return };
     s.offline_audio(None, 48_000).unwrap();
     let mut saved = super::Saved::default();
-    saved.parts[0] = Some(super::PluginVoice { id: "aumu Nope Gone".into(), state: Some(vec![1, 2, 3]) });
-    saved.parts[3] = Some(super::PluginVoice { id: DLS.into(), state: None });
+    saved.parts[0] = Some(super::PluginVoice { id: "aumu Nope Gone".into(), state: Some(vec![1, 2, 3]), preset: None });
+    saved.parts[3] = Some(super::PluginVoice { id: DLS.into(), state: None, preset: None });
     {
         let mut ctl = s.inner.lock();
         ctl.restore_saved(saved);
@@ -594,6 +594,8 @@ fn the_in_process_override_picks_the_load_mode() {
         sandbox_safe: true,
         last_load: None,
         in_process,
+        factory_presets: None,
+        user_presets: Vec::new(),
     };
     let mode = super::imp::load_mode;
     assert_eq!(mode(&info("aumu Xf2X XFER", PluginFormat::Au2, false, false)), LoadMode::OutOfProcess);
@@ -646,7 +648,7 @@ fn the_in_process_override_refills_the_warm_pool() {
         }
         s.inner.lock().plugins.warm.entries.iter().map(|w| w.mode).collect::<Vec<_>>()
     };
-    s.inner.lock().warm_plugins(vec![PluginVoice { id: DLS.into(), state: None }]);
+    s.inner.lock().warm_plugins(vec![PluginVoice { id: DLS.into(), state: None, preset: None }]);
     let was = info().in_process;
     let before = warm(&s, 1);
     s.send(PluginCmd::SetPluginInProcess { id: DLS.into(), in_process: !was }).unwrap();

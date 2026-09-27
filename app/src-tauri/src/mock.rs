@@ -476,6 +476,13 @@ impl MockSession {
                 let id = self.state.sound_library.last_added.clone();
                 self.cmd(SoundLibraryCmd::SetPartPatch { part, id }.into());
             }
+            Ok(sounds::Then::PresetSaved(part, key, name)) => {
+                if let Some(p) = self.state.keyboard_parts[part as usize].plugin.as_mut() {
+                    p.preset = Some(name.clone());
+                    p.preset_key = Some(key);
+                }
+                self.message(format!("Saved the preset “{name}”"), false);
+            }
         }
     }
 
@@ -490,6 +497,17 @@ impl MockSession {
             PluginCmd::SetPartPlugin { part, id, .. } => {
                 self.sound.part_plugin(part as usize, true);
                 self.set_part_plugin(part as usize, id);
+            }
+            PluginCmd::SetPartPluginPreset { part, id, preset } => {
+                let Some(name) = self.sounds.preset(&id, &preset).map(|p| p.name.clone()) else {
+                    return self.message(format!("{id} has no preset {preset}"), true);
+                };
+                self.sound.part_plugin(part as usize, true);
+                self.set_part_plugin(part as usize, id);
+                if let Some(p) = self.state.keyboard_parts[(part & 3) as usize].plugin.as_mut() {
+                    p.preset = Some(name);
+                    p.preset_key = Some(preset);
+                }
             }
             PluginCmd::ClearPartPlugin { part } => {
                 self.sound.part_plugin(part as usize, false);
@@ -549,6 +567,8 @@ impl MockSession {
             overruns: if heavy { 4 } else { 0 },
             recent_overruns: if heavy { 4 } else { 0 },
             editor: failed.is_none(),
+            preset: None,
+            preset_key: None,
         });
         if let Some(err) = failed {
             self.message(format!("{} didn't load: {err}", e.name), true);
@@ -3198,6 +3218,7 @@ fn mock_plugins() -> PluginsState {
             e("aumu samp appl", "AUSampler", "Apple", "AUv2", None),
             e("aumu Mock Demo", "Broken Synth", "Example Audio", "AUv3", Some("timed out after 20.0 s")),
             e(MOCK_FALLBACK_ID, "Tiny Synth", "Example Audio", "AUv2", None),
+            e(sounds::MOCK_PRESETS_ID, "Sampler Deluxe", "Fake Instruments", "AUv2", None),
         ],
     }
 }

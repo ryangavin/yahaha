@@ -15,6 +15,7 @@ use std::fmt;
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 
+use super::presets::{FactoryPreset, UserPreset};
 use super::sys::{self, Component};
 
 /// An Audio Unit's identity: component type, subtype and manufacturer, the triple
@@ -101,6 +102,13 @@ pub struct PluginInfo {
     /// updates of the plugin (`PluginHost::set_in_process`).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub in_process: bool,
+    /// Its factory presets, read from an instance (a load, or `PluginHost::list_presets`):
+    /// None until one was read at this version.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub factory_presets: Option<Vec<FactoryPreset>>,
+    /// Its `.aupreset` files, listed at each scan.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub user_presets: Vec<UserPreset>,
 }
 
 impl PluginInfo {
@@ -136,6 +144,8 @@ impl PluginInfo {
             sandbox_safe: c.flags & sys::FLAG_SANDBOX_SAFE != 0,
             last_load: None,
             in_process: false,
+            factory_presets: None,
+            user_presets: Vec::new(),
         }
     }
 }
