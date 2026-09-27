@@ -245,7 +245,12 @@ pub struct Now {
     pub fx_return: [u8; 3],
     /// The effect parameters (#236, `Param::index`).
     pub fx_params: [u16; crate::fx::PARAMS],
+    /// The effect parameters' defaults for each block's current type (what a reset goes to).
+    pub fx_defaults: [u16; crate::fx::PARAMS],
 }
+
+/// A keyboard part's, and the Harmony's, volume a double-click puts back (the Genos default).
+pub const DEFAULT_VOLUME: u8 = 100;
 
 /// A knob as it reads now: its value as text, and where it is (0-127) if it has a
 /// position (the Genos LED ring; Tempo has none).
@@ -374,6 +379,53 @@ impl Knobs {
         Some(cmd)
     }
 
+    /// Knob `knob` (0-7) put back to its default (a double-click in the app): the command
+    /// that makes the change, or None when it is there already. Dynamics goes to max,
+    /// sends dry, pan centre, returns unity, Tempo the style's, effect parameters the
+    /// current type's own.
+    pub fn reset(&mut self, knob: u8, now: &Now) -> Option<AppCmd> {
+        let k = knob as usize;
+        let f = self.function(knob);
+        let d = crate::engine::StyleSettings::default();
+        let cmd: AppCmd = match f {
+            KnobFn::None => return None,
+            KnobFn::Dynamics => (now.dynamics != 127).then(|| DynamicsCmd::SetDynamics { level: 127 }.into())?,
+            KnobFn::RetriggerRate => {
+                self.acc[k] = 0;
+                (now.retrigger_rate != d.retrigger_rate).then(|| StyleSettingsCmd::SetRetriggerRate { rate: d.retrigger_rate }.into())?
+            }
+            KnobFn::RetriggerOnOff => {
+                self.acc[k] = 0;
+                now.retrigger.then(|| TransportCmd::ToggleRetrigger.into())?
+            }
+            KnobFn::TrackMuteA | KnobFn::TrackMuteB => {
+                let (i, order) = if f == KnobFn::TrackMuteA { (0, TrackMuteOrder::A) } else { (1, TrackMuteOrder::B) };
+                if self.mute[i] == 127 {
+                    return None;
+                }
+                self.mute[i] = 127;
+                MixerCmd::StyleTrackMute { order, value: 127 }.into()
+            }
+            KnobFn::Tempo => TransportCmd::ResetTempo.into(),
+            KnobFn::Swing => (now.swing != d.swing).then(|| StyleSettingsCmd::SetSwing { amount: d.swing }.into())?,
+            KnobFn::PartVolume(p) => PartsCmd::SetPartVolume { part: p, volume: DEFAULT_VOLUME }.into(),
+            KnobFn::HarmonyVolume => HarmonyArpCmd::SetHarmonyVolume { volume: DEFAULT_VOLUME }.into(),
+            KnobFn::MetronomeVolume => MetronomeCmd::SetMetronomeVolume { volume: crate::click::DEFAULT_VOLUME }.into(),
+            KnobFn::PartPan(p) => PartsCmd::SetPartPan { part: p, pan: 64 }.into(),
+            KnobFn::PartReverb(p) => PartsCmd::SetPartSend { part: p, send: PartSend::Reverb, value: 0 }.into(),
+            KnobFn::PartChorus(p) => PartsCmd::SetPartSend { part: p, send: PartSend::Chorus, value: 0 }.into(),
+            KnobFn::PartDelay(p) => PartsCmd::SetPartSend { part: p, send: PartSend::Variation, value: 0 }.into(),
+            KnobFn::FxReturn(b) => FxCmd::SetEffectReturn { block: FxBlock::ALL[(b as usize).min(2)], level: crate::fx::RETURN_UNITY }.into(),
+            KnobFn::FxParam(p) => fx_param(p, now.fx_defaults[p.index()]),
+            KnobFn::DelayTime => {
+                self.acc[k] = 0;
+                let p = if now.fx_params[Param::DelaySync.index()] != 0 { Param::DelayNote } else { Param::DelayTime };
+                fx_param(p, now.fx_defaults[p.index()])
+            }
+        };
+        Some(cmd)
+    }
+
     /// A stepped function's knob turned `d`: the whole switches (±1) it has turned
     /// through, if any. Turning back starts the count again.
     fn stepped(&mut self, k: usize, d: i16) -> Option<i8> {
@@ -485,7 +537,26 @@ mod tests {
             part_fx: [[64, 40, 0, 0], [30, 50, 10, 0], [100, 0, 0, 0], [64, 127, 5, 0]],
             fx_return: [64, 40, 0],
             fx_params: crate::fx::default_params(),
+            fx_defaults: crate::fx::default_params(),
         }
+    }
+
+    /// A double-click puts a knob back: Dynamics to max, sends dry, pan centre, effect
+    /// parameters their type's own.
+    #[test]
+    fn a_reset_goes_to_the_default() {
+        let mut k = Knobs::default();
+        assert_eq!(k.reset(0, &now()), Some(DynamicsCmd::SetDynamics { level: 127 }.into()));
+        assert_eq!(k.reset(0, &Now { dynamics: 127, ..now() }), None);
+        assert_eq!(k.reset(6, &now()), None);
+        assert_eq!(k.reset(7, &now()), Some(TransportCmd::ResetTempo.into()));
+        k.set_page(KnobPage::Pan);
+        assert_eq!(k.reset(1, &now()), Some(PartsCmd::SetPartPan { part: 1, pan: 64 }.into()));
+        k.set_page(KnobPage::Reverb);
+        assert_eq!(k.reset(3, &now()), Some(PartsCmd::SetPartSend { part: 3, send: PartSend::Reverb, value: 0 }.into()));
+        let mut p = crate::fx::default_params();
+        p[Param::ReverbTime.index()] = 90;
+        assert_eq!(k.reset(4, &Now { fx_params: p, ..now() }), Some(fx_param(Param::ReverbTime, crate::fx::default_params()[Param::ReverbTime.index()])));
     }
 
     #[test]

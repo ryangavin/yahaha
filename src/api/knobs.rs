@@ -14,6 +14,9 @@ pub enum KnobsCmd {
     /// Turn knob `knob` (0-7) by `delta` steps (positive: clockwise). It runs the command
     /// of the knob's function on the page, from the value in effect.
     TurnKnob { knob: u8, delta: i8 },
+    /// Put knob `knob` (0-7) back to its function's default (a double-click in the app):
+    /// Dynamics to max, sends dry, pan centre, returns unity, Tempo the style's.
+    ResetKnob { knob: u8 },
 }
 
 /// The knobs.

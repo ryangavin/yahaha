@@ -1868,6 +1868,11 @@ export class MockSession implements Session {
         if (c) this.cmd(c)
         break
       }
+      case 'resetKnob': {
+        const c = this.knobs.reset(cmd.knob, this.state)
+        if (c) this.cmd(c)
+        break
+      }
       // The effect bus (#204).
       case 'setEffectType': {
         const b = this.state.effects.blocks.find((x) => x.block === cmd.block)!
