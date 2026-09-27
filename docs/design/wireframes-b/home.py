@@ -32,7 +32,9 @@ MAIN = '''
 </div>
 <div style="position: relative; display: flex; flex-direction: column; gap: 2px"><span class="cap">Playing</span><span style="font-family: 'Archivo Narrow', sans-serif; font-size: 26px; font-weight: 700; line-height: 1; white-space: nowrap">Main B</span></div>
 <div style="position: relative; display: flex; flex-direction: column; gap: 2px"><span class="cap">Next</span><span style="font-family: 'Archivo Narrow', sans-serif; font-size: 26px; font-weight: 700; line-height: 1; white-space: nowrap">Fill B</span></div>
-<div style="position: relative; flex-grow: 1; min-width: 60px; display: flex; flex-direction: column; gap: 5px"><span class="cap">Bar 3 of 4</span><div style="height: 6px; border-radius: 3px; background: rgba(255,255,255,.18); position: relative"><div style="position: absolute; left: 0; top: 0; bottom: 0; width: 62%; border-radius: 3px; background: #ffffff"></div></div></div>
+<div aria-label="Bar 3, beat 2 of a 4-bar Main" style="position: relative; flex-grow: 1; min-width: 60px; display: flex; flex-direction: column; gap: 4px"><span class="cap">Bar 3 · Beat 2 <span style="color: #8d8d95">of 4 bars</span></span>
+<div style="display: flex; gap: 10px; align-items: flex-end"><sc-for list="{{barsRow}}" as="b" hint-placeholder-count="4"><div style="flex: 1; display: flex; flex-direction: column; gap: 3px"><div style="display: flex; gap: 3px; align-items: flex-end"><sc-for list="{{b.beats}}" as="t" hint-placeholder-count="4"><span style="flex: 1; height: {{t.h}}px; border-radius: 2px; background: {{t.bg}}; box-shadow: {{t.glow}}"></span></sc-for></div><span style="font-size: 8px; font-weight: 700; color: {{b.ink}}">{{b.n}}</span></div></sc-for></div>
+</div>
 <div style="position: relative; display: flex; flex-direction: column; gap: 2px; align-items: flex-end"><span class="cap">Chord</span><span style="font-family: 'Archivo Narrow', sans-serif; font-size: @CHORDFS@px; font-weight: 700; line-height: .9; white-space: nowrap">Am<span style="font-size: 60%; color: #c9c9cf">/G</span></span></div>
 </section>
 <div style="flex-grow: 1; min-height: 0; display: flex; gap: 8px">
@@ -72,7 +74,11 @@ HOME_JS = '''
     const mk = (v, name, tip) => ({ track: arcPath(11, 11, 7.5, 1), arc: arcPath(11, 11, 7.5, Math.max(0.01, v)), name, tip, op: name ? 1 : .35 });
     const master = [[.5, 'LOW', 'Low 0 dB'], [.45, 'MID', 'Mid −1 dB'], [.58, 'HIGH', 'High +2 dB'], [.35, 'GLUE', 'Glue 2:1'], [.2, 'ROOM', 'Room 12%'], [.8, 'LEVEL', 'Level −2 dB']].map(m => mk(m[0], m[1], m[2]));
     const lkKnobs = knobs.map((k, i) => mk([.5, .3, 0, 1, 1, 0, 0, .45][i], k.name === '—' ? '' : k.name.toUpperCase(), k.name));
-    const extra = { homePads, master, legend, lkKnobs };'''
+    // Bar and beat of the section playing: 4 bars of 4 beats, now at bar 3 beat 2.
+    const NOWB = 2, NOWT = 1;
+    const barsRow = [0, 1, 2, 3].map(b => ({ n: b + 1, ink: b === NOWB ? '#ffffff' : '#8d8d95', beats: [0, 1, 2, 3].map(t => { const past = b < NOWB || (b === NOWB && t < NOWT), now = b === NOWB && t === NOWT;
+      return { h: t === 0 ? 14 : 9, bg: now ? '#ffffff' : (past ? 'rgba(255,255,255,.55)' : 'rgba(255,255,255,.16)'), glow: now ? '0 0 8px rgba(255,255,255,.8)' : 'none' }; }) }));
+    const extra = { homePads, master, legend, lkKnobs, barsRow };'''
 
 
 def home(fxW=260, wide=False):

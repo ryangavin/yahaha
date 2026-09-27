@@ -186,7 +186,7 @@ screens["VoiceList"] = dict(TAB="Home", SEL="7", PADRING="1", DISPLAY=screens["H
 <div style="height: 1px; background: #2d2d32; margin: 4px 0"></div>
 <button style="height: 34px; border: 0; border-radius: 4px; background: #26262b; color: #ffffff; text-align: left; padding: 0 10px; font-size: 13px; font-weight: 700">More in the Browser…</button>
 </div>''')
-screens["VoiceList"]["JS"] = screens["Home"]["JS"].replace("const extra = { homePads, master, legend, lkKnobs };", "const vl = [['Steel Gtr','current'],['Nylon Gtr','SoundFont'],['Clean Gtr','SoundFont'],['Jazz Gtr','SoundFont'],['12-String','SoundFont'],['★ Ample Guitar M','plugin'],['★ My Strum Gtr','patch'],['Muted Gtr','SoundFont']].map((v, i) => ({ name: v[0], src: v[1], bg: i === 0 ? '#2c2536' : 'transparent', w: i === 0 ? 700 : 500 }));\n    const extra = { homePads, master, legend, lkKnobs, vl };")
+screens["VoiceList"]["JS"] = screens["Home"]["JS"].replace("const extra = { homePads, master, legend, lkKnobs, barsRow };", "const vl = [['Steel Gtr','current'],['Nylon Gtr','SoundFont'],['Clean Gtr','SoundFont'],['Jazz Gtr','SoundFont'],['12-String','SoundFont'],['★ Ample Guitar M','plugin'],['★ My Strum Gtr','patch'],['Muted Gtr','SoundFont']].map((v, i) => ({ name: v[0], src: v[1], bg: i === 0 ? '#2c2536' : 'transparent', w: i === 0 ? 700 : 500 }));\n    const extra = { homePads, master, legend, lkKnobs, barsRow, vl };")
 
 # ---------- Browser (full screen) ----------
 screens["Browser"] = dict(TAB="Home", SEL="-1", PADRING="1", DISPLAY=screens["Home"]["DISPLAY"], BROWSEBTN="background: #ffffff; color: #0e0e10; border-color: #ffffff", OVERLAY='''
