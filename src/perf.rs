@@ -379,6 +379,7 @@ pub fn take(secs: f64) -> Snapshot {
 }
 
 /// The process's resident memory (bytes), from the kernel's task info.
+#[cfg(target_os = "macos")]
 pub fn rss_bytes() -> u64 {
     use mach2::task_info::{mach_task_basic_info, MACH_TASK_BASIC_INFO, MACH_TASK_BASIC_INFO_COUNT};
     let mut info: mach_task_basic_info = unsafe { std::mem::zeroed() };
@@ -387,6 +388,15 @@ pub fn rss_bytes() -> u64 {
         mach2::task::task_info(mach2::traps::mach_task_self(), MACH_TASK_BASIC_INFO, &mut info as *mut _ as *mut i32, &mut count)
     };
     if kr == mach2::kern_return::KERN_SUCCESS { info.resident_size } else { 0 }
+}
+
+/// The process's resident memory (bytes), from /proc/self/statm (0 if unreadable).
+#[cfg(not(target_os = "macos"))]
+pub fn rss_bytes() -> u64 {
+    let Ok(s) = std::fs::read_to_string("/proc/self/statm") else { return 0 };
+    let pages: u64 = s.split_whitespace().nth(1).and_then(|v| v.parse().ok()).unwrap_or(0);
+    let page = unsafe { libc::sysconf(libc::_SC_PAGESIZE) };
+    pages * if page > 0 { page as u64 } else { 4096 }
 }
 
 #[cfg(test)]
