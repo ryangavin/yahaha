@@ -17,7 +17,7 @@ fn style(name: &str) -> Option<PathBuf> {
     }
 }
 
-fn offline(name: &str) -> Option<Session> {
+pub(crate) fn offline(name: &str) -> Option<Session> {
     let p = style(name)?;
     Some(Session::offline(Options { paths: vec![p], ..Options::default() }).unwrap())
 }

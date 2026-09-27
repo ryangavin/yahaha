@@ -1129,6 +1129,17 @@ The Knob Assign page: `{ page, pageName, pageNumber, pageCount, knobs }`.
     Assign. Track Mute A/B keep their own position (they only set the Style parts' switches),
     starting fully right.
 
+### `home`
+Read-only: what the Home screen shows, derived from the rest of the state (no commands).
+
+| Field | Type | Meaning |
+|---|---|---|
+| `mains` | HomeMain[4] | Main A–D: `name`, `present`, `bars` (pattern length), `stepsPerBar` (sixteenths: 16 in 4/4), `density` (note-ons per step over the whole pattern, `bars × stepsPerBar` entries), `lanes` (`kick`, `snare`, `hats`, `bass`: the first bar, the loudest velocity per step, 0 = none), `fill` (`name` "Fill In AA", `present`, `bars`, `active`: queued or playing), `current` (the Main the style is on). Worked out once when the style loads. |
+| `progress` | object | `running`, `bar`, `beat` (1-based), `bars` (the section's length; null when stopped), `beatsPerBar`, `fraction` (0–1 through the section, at beat resolution). |
+| `snapshot` | object? | The snapshot last recalled or stored: `index`, `label` ("A3"), `name`, `bank` (the bank file's name). |
+| `ots` | object? | The OTS applied last: `index` (0–3), `name`. |
+| `bandSends` | HomeSend[3] | Reverb, Chorus, Delay: `block`, `name`, `effectName`, `level` (the band send, as `setBandSend`). |
+
 ### `effects`
 `{ blocks }`: the effect bus's Reverb, Chorus and Variation blocks, in that order (#204).
 Each is `{ block, name, effect, effectName, types, returnLevel, bandSend, padSend }`: `effect` is the type
@@ -1869,6 +1880,7 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
       }
     ]
   },
+  "home": { "mains": [], "progress": { "running": false, "bar": 1, "beat": 1, "bars": null, "beatsPerBar": 4, "fraction": 0.0 }, "snapshot": null, "ots": null, "bandSends": [] },
   "message": null
 }
 ```

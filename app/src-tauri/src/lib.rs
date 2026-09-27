@@ -27,6 +27,7 @@
 //! On exit the engine is stopped, which puts the Launchkey back in standalone mode.
 
 pub mod mock;
+mod mock_home;
 mod mock_regist;
 mod mock_looper;
 
