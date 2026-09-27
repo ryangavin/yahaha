@@ -387,6 +387,8 @@ impl MockSession {
                     part_name: "Chord 1".into(),
                     name: "British Combo Classic".into(),
                     effect: Some(InsertEffect::Distortion),
+                    on: true,
+                    amount: 64,
                 }],
                 ..EffectsState::initial()
             },
@@ -1948,6 +1950,16 @@ impl MockSession {
             }
             AppCmd::Fx(FxCmd::SetEffectReturn { block, level }) => self.state.effects.blocks[block.index()].return_level = level.min(127),
             AppCmd::Fx(FxCmd::SetInsertsOn { on }) => self.state.effects.inserts_on = on,
+            AppCmd::Fx(FxCmd::SetPartInsertOn { part, on }) => {
+                if let Some(i) = self.state.effects.inserts.iter_mut().find(|i| i.part == part) {
+                    i.on = on;
+                }
+            }
+            AppCmd::Fx(FxCmd::SetPartInsertAmount { part, amount }) => match self.state.effects.inserts.iter_mut().find(|i| i.part == part && i.effect.is_some()) {
+                Some(i) => i.amount = amount.min(127),
+                None => self.message(format!("Style part {part} has no insertion effect"), true),
+            },
+            AppCmd::Fx(FxCmd::SetRotaryFast { on }) => self.state.effects.rotary_fast = on,
             AppCmd::Fx(FxCmd::SetFollowStyle { block, on }) => self.state.effects.blocks[block.index()].follow_style = on,
             AppCmd::Fx(FxCmd::SetBandSend { block, level }) => self.state.effects.blocks[block.index()].band_send = level.min(127),
             AppCmd::Fx(FxCmd::SetPadSend { block, level }) => self.state.effects.blocks[block.index()].pad_send = level.min(127),

@@ -313,6 +313,9 @@ const EVERY_CMD: &[&str] = &[
     r#"{"type":"setEffectParam","block":"chorus","param":"chorusDepth","value":30}"#,
     r#"{"type":"setFollowStyle","block":"variation","on":false}"#,
     r#"{"type":"setInsertsOn","on":false}"#,
+    r#"{"type":"setPartInsertOn","part":3,"on":false}"#,
+    r#"{"type":"setPartInsertAmount","part":3,"amount":100}"#,
+    r#"{"type":"setRotaryFast","on":true}"#,
 ];
 
 fn type_of(json: &str) -> String {

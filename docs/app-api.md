@@ -476,6 +476,9 @@ scaled. A change glides in over about 30 ms.
 | `setEffectReturn` | `block`, `level` 0–127 | The block's return level: 64 = 0 dB (default), 127 = +6 dB, 0 = off (Genos). |
 | `setEffectParam` | `block`, `param`, `value` | One of the block's parameters (#236), in the parameter's own unit, clamped to its range (see the table below). A parameter of another block is refused. A change glides on the audio thread, so it never clicks. `setEffectType` puts the block's parameters back to the new type's own values. Stored in Registration with the effects. |
 | `setInsertsOn` | `on` | The style's insertion effects (#269, `effects.inserts`) on or off, all together (default on). Off, every Style part plays dry. Stored in Registration with the effects (`insertsOn`). |
+| `setPartInsertOn` | `part`, `on` | One Style part's (0–7) insertion effect on or off, until the next style. |
+| `setPartInsertAmount` | `part`, `amount` | One Style part's insertion effect amount, 0–127 (drive, squeeze, wah sensitivity, tremolo/rotary depth), until the next style. A part with no insert is refused. |
+| `setRotaryFast` | `on` | Every rotary insert at its fast speed or its slow one; it glides between them (about 1 s up, 2 s down). |
 | `setFollowStyle` | `block`, `on` | Whether the block follows the style's own effect type (#237). On (the default), each style load gives the block the style's type (and the delay's time, feedback and tone, the reverb's time, pre-delay and tone, and the block's return level, as the style sets them; #269), or the block's default type if the style sets none that yahaha has. `setEffectType` turns it off, so the player's choice stays through style changes. Turning it on takes the loaded style's type at once. Stored in Registration with the effects. |
 | `setBandSend` | `block`, `level` 0–127 | The block's band send, in percent: 100 = the Style parts' sends as written, 0 = none of the band, above 100 up to 127 raises them (each part's send at most the whole signal). Defaults: reverb 100, chorus 0, variation 0. Stored in Registration with the effects. |
 | `setPadSend` | `block`, `level` 0–127 | The block's Multi Pad send (#267), in percent: the same scale as `setBandSend`, on the four Multi Pads' sends (channels 5–8). Defaults: reverb 100, chorus 0, variation 0. In the built-in synth only (the MIDI port carries the pads' CCs as written). Stored in Registration with the Multi Pad bank (group Multi Pad). |
@@ -1184,9 +1187,10 @@ block as `{ name, effect }` (`name` the XG type, "Real Medium Hall"; `effect` th
 plays as, null if nothing is near it), or null when the style sets none; and `followStyle`
 (`setFollowStyle`).
 `inserts` (#269): the loaded style's insertion effects, one per Style part at most, each
-`{ part, partName, name, effect }`: `part` 0–7, `name` the XG type ("British Combo
+`{ part, partName, name, effect, on, amount }`: `part` 0–7, `name` the XG type ("British Combo
 Classic"), `effect` what plays it here (`distortion`, `compressor`, `autoWah`, `tremolo`,
-`rotary`) or null (the part plays dry); `insertsOn` (`setInsertsOn`).
+`rotary`) or null (the part plays dry), `on` (`setPartInsertOn`), `amount` 0–127
+(`setPartInsertAmount`); `insertsOn` (`setInsertsOn`); `rotaryFast` (`setRotaryFast`).
 
 ### `message`
 `{ seq, text, error }` or null. It holds the last notice or error, for example a style
@@ -1921,7 +1925,7 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
         "types": [{ "effect": "eighth", "name": "Delay 1/8" }, { "effect": "dottedEighth", "name": "Delay 1/8." }, { "effect": "quarter", "name": "Delay 1/4" }, { "effect": "pingPong", "name": "Ping-Pong" }]
       }
     ],
-    "inserts": [], "insertsOn": true
+    "inserts": [], "insertsOn": true, "rotaryFast": false
   },
   "home": { "mains": [], "progress": { "running": false, "bar": 1, "beat": 1, "bars": null, "beatsPerBar": 4, "fraction": 0.0 }, "snapshot": null, "ots": null, "bandSends": [] },
   "message": null

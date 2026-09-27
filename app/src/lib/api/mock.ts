@@ -1918,6 +1918,19 @@ export class MockSession implements Session {
       case 'setInsertsOn':
         this.state.effects.insertsOn = cmd.on
         break
+      case 'setPartInsertOn': {
+        const i = this.state.effects.inserts.find((x) => x.part === cmd.part)
+        if (i) i.on = cmd.on
+        break
+      }
+      case 'setPartInsertAmount': {
+        const i = this.state.effects.inserts.find((x) => x.part === cmd.part && x.effect !== null)
+        if (i) i.amount = clampLevel(cmd.amount)
+        break
+      }
+      case 'setRotaryFast':
+        this.state.effects.rotaryFast = cmd.on
+        break
       case 'setBandSend':
         this.state.effects.blocks.find((x) => x.block === cmd.block)!.bandSend = clampLevel(cmd.level)
         break
@@ -1992,8 +2005,9 @@ export function initialEffects(): EffectsState {
       block('variation', 'Variation', 'dottedEighth', [['eighth', 'Delay 1/8'], ['dottedEighth', 'Delay 1/8.'], ['quarter', 'Delay 1/4'], ['pingPong', 'Ping-Pong']], 0),
     ],
     // The mock style's insertion effect (#269) on Chord 1, as the Rust mock's.
-    inserts: [{ part: 3, partName: 'Chord 1', name: 'British Combo Classic', effect: 'distortion' }],
+    inserts: [{ part: 3, partName: 'Chord 1', name: 'British Combo Classic', effect: 'distortion', on: true, amount: 64 }],
     insertsOn: true,
+    rotaryFast: false,
   }
 }
 

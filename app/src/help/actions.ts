@@ -289,6 +289,9 @@ export function tipFor(cmd: AppCmd | null): TipKey {
     case 'setPadSend': return `fx.${cmd.block}_pad`
     case 'setFollowStyle': return 'fx.follow_style'
     case 'setInsertsOn': return 'fx.inserts'
+    case 'setPartInsertOn': return 'fx.insert_part'
+    case 'setPartInsertAmount': return 'fx.insert_amount'
+    case 'setRotaryFast': return 'fx.rotary_fast'
     case 'setEffectParam': return ({ reverbTime: 'fx.param.reverb_time', preDelay: 'fx.param.pre_delay', reverbTone: 'fx.param.reverb_tone', delaySync: 'fx.param.delay_sync', delayNote: 'fx.param.delay_note', delayTime: 'fx.param.delay_time', delayFeedback: 'fx.param.delay_feedback', delayTone: 'fx.param.delay_tone', pingPong: 'fx.param.ping_pong', chorusRate: 'fx.param.chorus_rate', chorusDepth: 'fx.param.chorus_depth' } as const)[cmd.param]
   }
 }

@@ -9,8 +9,8 @@
 //! - [`InsertKind::AutoWah`]: Auto Wah, Tempo Auto Wah, VCM Auto/Pedal Wah: a resonant
 //!   low-pass swept by the part's own envelope;
 //! - [`InsertKind::Tremolo`]: a volume tremolo at a 1/8 note of the style tempo;
-//! - [`InsertKind::Rotary`]: a rotary speaker at its slow speed (horn and drum, with a
-//!   little Doppler).
+//! - [`InsertKind::Rotary`]: a rotary speaker, slow or fast (`FxControl::rotary_fast`,
+//!   gliding between them), horn and drum, with a little Doppler.
 //!
 //! The effect sees the part as if at full volume: `process` divides the part's level out
 //! before it and puts it back after, so a fader or expression move doesn't change how hard
@@ -56,6 +56,13 @@ impl InsertKind {
 const FADE_S: f32 = 0.02;
 /// The rotary's Doppler line (s): the longest swing of its taps.
 const ROTARY_LINE_S: f32 = 0.004;
+/// The rotary's horn and drum rates (Hz), slow and fast (a Leslie 122's chorale and
+/// tremolo speeds).
+const HORN_HZ: [f32; 2] = [0.8, 6.7];
+const DRUM_HZ: [f32; 2] = [0.67, 5.7];
+/// How long the rotary takes to reach fast, and to come back to slow (s).
+const ROTARY_UP_S: f32 = 1.0;
+const ROTARY_DOWN_S: f32 = 2.0;
 
 /// A one-pole coefficient for cutoff `hz` at `rate`.
 fn one_pole(hz: f32, rate: f32) -> f32 {
@@ -91,6 +98,11 @@ pub struct Insert {
     /// The rotary's Doppler lines, one per side, and their write position.
     line: [Vec<f32>; 2],
     pos: usize,
+    /// The rotary's speed, 0 = slow .. 1 = fast, gliding toward `InsertSettings::fast`.
+    spin: f32,
+    /// The glide per sample: speeding up, slowing down.
+    spin_up: f32,
+    spin_down: f32,
 }
 
 /// What the control side asks of an insert, read once per buffer.
@@ -102,6 +114,9 @@ pub struct InsertSettings {
     pub amount: u8,
     /// The style tempo (BPM): the tremolo's rate.
     pub bpm: f32,
+    /// The rotary at its fast speed (the Leslie switch): it speeds up and slows down
+    /// gradually, as a real rotor does.
+    pub fast: bool,
 }
 
 impl Insert {
@@ -120,6 +135,9 @@ impl Insert {
             phase: [0.0, 0.25],
             line: [vec![0.0; n], vec![0.0; n]],
             pos: 0,
+            spin: 0.0,
+            spin_up: 1.0 / (ROTARY_UP_S * rate),
+            spin_down: 1.0 / (ROTARY_DOWN_S * rate),
         }
     }
 
@@ -224,8 +242,11 @@ impl Insert {
                     }
                 }
                 InsertKind::Rotary => {
-                    self.phase[0] = (self.phase[0] + 0.8 / rate).fract();
-                    self.phase[1] = (self.phase[1] + 0.67 / rate).fract();
+                    self.spin = if s.fast { (self.spin + self.spin_up).min(1.0) } else { (self.spin - self.spin_down).max(0.0) };
+                    let horn_hz = HORN_HZ[0] + (HORN_HZ[1] - HORN_HZ[0]) * self.spin;
+                    let drum_hz = DRUM_HZ[0] + (DRUM_HZ[1] - DRUM_HZ[0]) * self.spin;
+                    self.phase[0] = (self.phase[0] + horn_hz / rate).fract();
+                    self.phase[1] = (self.phase[1] + drum_hz / rate).fract();
                     let (h, d) = ((TAU * self.phase[0]).sin(), (TAU * self.phase[1]).sin());
                     let mono = 0.5 * (x[0] + x[1]);
                     for c in 0..2 {
@@ -266,7 +287,7 @@ impl BandInserts {
     pub fn new(rate: f32) -> BandInserts {
         BandInserts {
             slots: std::array::from_fn(|_| Insert::new(rate)),
-            settings: [InsertSettings { kind: InsertKind::None, amount: 64, bpm: 120.0 }; 8],
+            settings: [InsertSettings { kind: InsertKind::None, amount: 64, bpm: 120.0, fast: false }; 8],
         }
     }
 
@@ -274,8 +295,9 @@ impl BandInserts {
     pub fn update(&mut self, ctl: &super::FxControl) {
         use std::sync::atomic::Ordering::Relaxed;
         let bpm = ctl.tempo.load(Relaxed) as f32 / 100.0;
+        let fast = ctl.rotary_fast.load(Relaxed);
         for (p, s) in self.settings.iter_mut().enumerate() {
-            *s = InsertSettings { kind: InsertKind::from_u8(ctl.insert[p].load(Relaxed)), amount: ctl.insert_amount[p].load(Relaxed), bpm };
+            *s = InsertSettings { kind: InsertKind::from_u8(ctl.insert[p].load(Relaxed)), amount: ctl.insert_amount[p].load(Relaxed), bpm, fast };
         }
     }
 }
@@ -318,7 +340,7 @@ mod tests {
 
     fn run(kind: InsertKind, amount: u8, input: &[f32], level: f32) -> Vec<f32> {
         let mut ins = Insert::new(RATE);
-        let s = InsertSettings { kind, amount, bpm: 120.0 };
+        let s = InsertSettings { kind, amount, bpm: 120.0, fast: false };
         let (mut l, mut r) = (input.iter().map(|x| x * level).collect::<Vec<_>>(), input.iter().map(|x| x * level).collect::<Vec<_>>());
         for (a, b) in l.chunks_mut(64).zip(r.chunks_mut(64)) {
             ins.process(a, b, level, &s);
@@ -395,7 +417,7 @@ mod tests {
     #[test]
     fn the_rotary_spins() {
         let mut ins = Insert::new(RATE);
-        let s = InsertSettings { kind: InsertKind::Rotary, amount: 64, bpm: 120.0 };
+        let s = InsertSettings { kind: InsertKind::Rotary, amount: 64, bpm: 120.0, fast: false };
         let x = sine(440.0, 0.5, 96_000);
         let (mut l, mut r) = (x.clone(), x.clone());
         for (a, b) in l.chunks_mut(64).zip(r.chunks_mut(64)) {
@@ -404,6 +426,30 @@ mod tests {
         let diff = l[4800..].iter().zip(&r[4800..]).map(|(a, b)| (a - b).abs()).fold(0f32, f32::max);
         assert!(diff > 0.1, "the sides differ: {diff}");
         assert!(l.iter().chain(&r).all(|v| v.is_finite() && v.abs() < 2.0));
+    }
+
+    /// The fast speed spins the horn quicker: the sides cross over far more often, and
+    /// the rotor glides there instead of jumping.
+    #[test]
+    fn the_rotary_goes_fast() {
+        let crossings = |fast: bool| {
+            let mut ins = Insert::new(RATE);
+            let s = InsertSettings { kind: InsertKind::Rotary, amount: 100, bpm: 120.0, fast };
+            let x = vec![0.5; 3 * RATE as usize];
+            let (mut l, mut r) = (x.clone(), x.clone());
+            for (a, b) in l.chunks_mut(64).zip(r.chunks_mut(64)) {
+                ins.process(a, b, 1.0, &s);
+            }
+            let d: Vec<f32> = l.iter().zip(&r).map(|(a, b)| a - b).skip(2 * RATE as usize).collect();
+            (d.windows(2).filter(|w| w[0] < 0.0 && w[1] >= 0.0).count(), ins.spin)
+        };
+        let ((slow, s0), (fast, s1)) = (crossings(false), crossings(true));
+        assert_eq!((s0, s1), (0.0, 1.0));
+        assert!(slow <= 2 && fast >= 5, "slow {slow}, fast {fast} in 1 s");
+        let mut ins = Insert::new(RATE);
+        let (mut a, mut b) = (vec![0.5; 4800], vec![0.5; 4800]);
+        ins.process(&mut a, &mut b, 1.0, &InsertSettings { kind: InsertKind::Rotary, amount: 64, bpm: 120.0, fast: true });
+        assert!(ins.spin > 0.0 && ins.spin < 0.2, "it glides: {}", ins.spin);
     }
 
     /// A kind change fades, never jumps: the steepest step in the output stays near the
@@ -416,7 +462,7 @@ mod tests {
         let kinds = [InsertKind::None, InsertKind::Distortion, InsertKind::Tremolo, InsertKind::None, InsertKind::Compressor];
         for (i, (a, b)) in l.chunks_mut(64).zip(r.chunks_mut(64)).enumerate() {
             let kind = kinds[(i / 150) % kinds.len()];
-            ins.process(a, b, 1.0, &InsertSettings { kind, amount: 90, bpm: 120.0 });
+            ins.process(a, b, 1.0, &InsertSettings { kind, amount: 90, bpm: 120.0, fast: false });
         }
         // Around each change (the fade, 20 ms) no step is steeper than the steepest the
         // effects make anyway.

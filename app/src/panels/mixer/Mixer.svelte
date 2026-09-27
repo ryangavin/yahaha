@@ -31,7 +31,9 @@
     beside it); choosing a type or changing a parameter (here or on a Launchkey effect knob page) turns it off. The editor ends with the block's Pads send
     (#267, `setPadSend`): the same scale for the four Multi Pads' sends.
   - Inserts (#269, `setInsertsOn`): the style's insertion effects, each on one Style part
-    (an amp simulator, a compressor, a wah, a tremolo or a rotary here), all on or off.
+    (an amp simulator, a compressor, a wah, a tremolo or a rotary here), all on or off;
+    each part's on/off (`setPartInsertOn`) and amount (`setPartInsertAmount`), and the
+    rotary's fast/slow switch (`setRotaryFast`).
   - Solo (S): only that part plays, even if it is off; the Style tab solos a band part,
     the Panel tab a keyboard part (`setStyleSolo` / `setPartSolo`, #30). Press again to end.
   - The metronome (on/off, bell, its own volume) sits above the strips: it is the
@@ -52,6 +54,7 @@
   import Toggle from '../../lib/ui/Toggle.svelte'
   import HSlider from '../settings/HSlider.svelte'
   import Strip from './Strip.svelte'
+  import FxKnob from './FxKnob.svelte'
   import { FADER_LAYERS, type FaderLayer } from '../../lib/api/types'
   const LAYER_NAMES: Record<FaderLayer, string> = { volume: 'VOL', pan: 'PAN', reverb: 'REV', chorus: 'CHO', delay: 'DLY' }
   import { partVoice, pluginBadge, pluginTip, styleVoice } from './voice'
@@ -367,13 +370,33 @@
         tip="fx.inserts"
         onclick={() => app.send({ type: 'setInsertsOn', on: !app.state.effects.insertsOn })}>Inserts</Toggle
       >
+      <Toggle
+        on={app.state.effects.rotaryFast}
+        tip="fx.rotary_fast"
+        onclick={() => app.send({ type: 'setRotaryFast', on: !app.state.effects.rotaryFast })}>Rotary Fast</Toggle
+      >
       {#if inserts.length === 0}
         <span class="style-name">The style has none</span>
       {:else}
         {#each inserts as i (i.part)}
-          <span class="insert" class:dry={!i.effect || !app.state.effects.insertsOn} title={i.name}
-            ><b>{i.partName}</b> {i.name} → {i.effect ? INSERT_NAMES[i.effect] : 'dry'}</span
-          >
+          <span class="insert" class:dry={!i.effect || !i.on || !app.state.effects.insertsOn} title={i.name}>
+            <Toggle
+              on={i.on}
+              tip="fx.insert_part"
+              onclick={() => app.send({ type: 'setPartInsertOn', part: i.part, on: !i.on })}>{i.partName}</Toggle
+            >
+            {i.name} → {i.effect ? INSERT_NAMES[i.effect] : 'dry'}
+            {#if i.effect}
+              <FxKnob
+                value={i.amount}
+                tip="fx.insert_amount"
+                label={`${i.partName} insert amount`}
+                caption="Amt"
+                reset={64}
+                onchange={(v) => app.send({ type: 'setPartInsertAmount', part: i.part, amount: v })}
+              />
+            {/if}
+          </span>
         {/each}
       {/if}
     </div>
@@ -634,9 +657,10 @@
     font-size: 0.8rem;
     color: var(--muted);
   }
-  .insert b {
-    color: var(--ink);
-    font-weight: 600;
+  .insert {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
   }
   .insert.dry {
     opacity: 0.6;
