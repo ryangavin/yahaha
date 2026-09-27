@@ -61,10 +61,10 @@ HOME_JS = '''
     // What each section plays: the 8 style parts (Rhythm 1 … Phrase 2) in their mixer colours,
     // bar height = how busy the part is there. OTS Link: Main A–D recall OTS 1–4.
     const FSM = @FSM@, FSO = @FSO@;
-    const ACT = { 0: [1, .4, .6, .5, .3, .8, 0, 0], 1: [1, .5, .8, .7, .5, .6, .3, 0], 2: [.6, 0, .5, .8, 0, .5, 0, 0], 4: [1, .3, .7, .6, .4, .6, 0, 0], 5: [1, .5, .8, .7, .5, .7, .5, 0], 6: [.5, 0, .4, .5, 0, .8, 0, 0],
+    const ACT = { 0: [1, .4, .6, .5, .3, .8, 0, 0], 1: [1, .5, .8, .7, .5, .6, .3, 0], 2: [.6, 0, .5, .8, 0, .5, 0, 0], 3: [1, .3, .7, .6, .4, .6, 0, 0], 4: [1, .5, .8, .7, .5, .7, .5, 0], 5: [.5, 0, .4, .5, 0, .8, 0, 0],
       8: [1, .3, .7, .6, 0, .5, 0, 0], 9: [1, .5, .8, .7, .5, .6, .3, 0], 10: [1, .7, .9, .8, .6, .7, .6, .3], 11: [1, .9, 1, .9, .8, .8, .9, .7], 12: [.3, .6, 0, 0, 0, .4, 0, 0] };
     const SP = P.slice(4);
-    const TIP = ['Intro I: press to arm it for the start', '', '', 'Sync Start: the band starts on your first chord', 'Ending I', '', '', 'Auto Fill: a fill plays whenever you change Main', 'Main A: press while it plays for its fill', 'Main B: playing. Its fill is queued (it flashes on the Launchkey)', 'Main C', 'Main D', 'Break', 'Tap tempo', 'Sync Stop: the band stops when you let go', 'Start / Stop'];
+    const TIP = ['Intro I: press to arm it for the start', '', '', 'Ending I', '', '', 'Sync Start: the band starts on your first chord', 'Auto Fill: a fill plays whenever you change Main', 'Main A: press while it plays for its fill', 'Main B: playing. Its fill is queued (it flashes on the Launchkey)', 'Main C', 'Main D', 'Break', 'Tap tempo', 'Sync Stop: the band stops when you let go', 'Start / Stop'];
     // A section's pad is filled edge to edge with its parts smeared together: each part a band in
     // its mixer colour, as wide as it is loud there, blended into one gradient. Playing = full strength.
     const smear = (act, lit) => { const tot = act.reduce((a, v) => a + v, 0); let x = 0; const stops = [];

@@ -87,6 +87,8 @@ The artwork fills only the Home "now playing" band, not the whole display. Home'
 - The mixer ends in a **MASTER** section: master bus knobs (Low, Mid, High, Glue, Room); the STYLE and PADS faders (Panel faders 5 and 6); the MAIN master fader; and Bus on/off.
 - The header's master bar is gone.
 
+**Sections pad layout (new):** top row Intro I–III · Ending I–III · Sync Start · Auto Fill; bottom row Main A–D · Break · Tap · Sync Stop · Start. The four meta pads form a 2×2 on the right. The hardware page needs the same change: `section_looks` currently has SYNC ST on 99 and ENDING 1–3 on 100–102.
+
 **No raw 0–127 numbers** on controls: the visual is enough, with the value in a tooltip. Show numbers only when they are musical (tempo, note lengths, dB).
 
 **Look**
