@@ -225,7 +225,8 @@ pub struct Unit {
 }
 
 /// One lock per component (type, subtype, manufacturer), held around
-/// `AudioUnitInitialize`, `AudioUnitUninitialize` and `AudioComponentInstanceDispose`.
+/// `AudioUnitInitialize`, `AudioUnitUninitialize`, `AudioComponentInstanceDispose` and the
+/// property sets that reload the instrument (state restore, factory preset).
 ///
 /// Instances of the same component can share process-wide state behind those calls:
 /// DLSMusicDevice asserts inside CoreAudio (`CAAssertRtn` under `AudioUnitInitialize`) or
@@ -570,7 +571,15 @@ impl Unit {
         let plist = unsafe { CFPropertyListCreateWithData(None, Some(&data), 0, ptr::null_mut(), ptr::null_mut()) }
             .ok_or_else(|| anyhow!("the state is not a property list"))?;
         let p: *const CFPropertyList = CFRetained::as_ptr(&plist).as_ptr();
-        check(unsafe { set_prop(self.raw, kAudioUnitProperty_ClassInfo, kAudioUnitScope_Global, &p) }, "set ClassInfo")
+        // Under the component's lifecycle lock: restoring a state reloads the instrument's
+        // sample bank, which for DLSMusicDevice is the same process-wide state
+        // `AudioUnitInitialize` builds; racing another instance's initialize asserts
+        // (`CAAssertRtn` under `AudioUnitInitialize`, SIGTRAP).
+        let st = {
+            let _g = self.lifecycle();
+            unsafe { set_prop(self.raw, kAudioUnitProperty_ClassInfo, kAudioUnitScope_Global, &p) }
+        };
+        check(st, "set ClassInfo")
     }
 }
 
@@ -613,7 +622,12 @@ impl Unit {
     pub fn set_factory_preset(&self, number: i32, name: &str) -> Result<()> {
         let name = CFString::from_str(name);
         let p = AUPreset { presetNumber: number, presetName: CFRetained::as_ptr(&name).as_ptr() };
-        check(unsafe { set_prop(self.raw, kAudioUnitProperty_PresentPreset, kAudioUnitScope_Global, &p) }, "set PresentPreset")
+        // Under the lifecycle lock, like a state restore: a preset reloads the bank too.
+        let st = {
+            let _g = self.lifecycle();
+            unsafe { set_prop(self.raw, kAudioUnitProperty_PresentPreset, kAudioUnitScope_Global, &p) }
+        };
+        check(st, "set PresentPreset")
     }
 }
 
