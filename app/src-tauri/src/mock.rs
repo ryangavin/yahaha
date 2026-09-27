@@ -251,6 +251,7 @@ impl MockSession {
                 stop_acmp: false,
                 section: Some("Main B".into()),
                 queued: None,
+                landing: None,
                 pending_intro: None,
                 main: 1,
                 bar: 12,
@@ -1137,6 +1138,10 @@ impl MockSession {
         }
         st.pads.page_name = st.pads.page.name().into();
         st.pads.page_number = st.pads.page as u8 + 1;
+        // Where a fill (or the Break) queued or playing lands (#282).
+        let fill_like = |x: &Option<String>| x.as_deref().is_some_and(|x| FILLS.contains(&x) || x == BREAK);
+        let t = &mut st.transport;
+        t.landing = (t.running && (fill_like(&t.queued) || fill_like(&t.section))).then(|| MAINS[t.main as usize % 4].into());
         st.transport.lamps = pads_for(st, Page::Sections);
         self.regist.fill(st);
         st.pads.pads = if st.pads.page == Page::Registration { self.regist.pads() } else { pads_for(st, st.pads.page) };
@@ -1394,7 +1399,20 @@ impl MockSession {
                     return;
                 }
                 let t = &mut self.state.transport;
+                let fill_like = |x: &Option<String>| x.as_deref().is_some_and(|x| FILLS.contains(&x) || x == BREAK);
                 if !running {
+                    t.main = i;
+                } else if t.section.as_deref().is_some_and(|x| FILLS.contains(&x)) {
+                    // A fill playing (#282): its own Main again repeats it once; another Main
+                    // only moves the landing and calls off a repeat.
+                    if t.section.as_deref() == Some(FILLS[i as usize]) {
+                        t.queued = Some(FILLS[i as usize].into());
+                    } else if fill_like(&t.queued) {
+                        t.queued = None;
+                    }
+                    t.main = i;
+                } else if fill_like(&t.queued) {
+                    // A fill already queued: the first press picked it; this one moves the landing.
                     t.main = i;
                 } else if t.section.as_deref() == Some(m) {
                     t.queued = Some(FILLS[i as usize].into());
@@ -2095,6 +2113,8 @@ fn pads_for(s: &AppState, page: Page) -> Vec<Pad> {
                     (C_MAIN, Level::Off, Anim::Solid)
                 } else if is(&t.queued, id) || is(&t.queued, fill) || is(&t.section, fill) {
                     (C_MAIN, Level::Bright, Anim::Flash)
+                } else if is(&t.landing, id) {
+                    (C_MAIN, Level::Bright, Anim::Pulse)
                 } else if is(&t.section, id) || (t.main as usize == i && !t.section.as_deref().is_some_and(|x| MAINS.contains(&x))) {
                     (C_MAIN, Level::Bright, Anim::Solid)
                 } else {
@@ -2534,6 +2554,18 @@ mod tests {
         assert_eq!(m.state.transport.queued.as_deref(), Some("Fill In BB"));
         let lamp = m.state.transport.lamps.iter().find(|p| p.note == 113).unwrap();
         assert_eq!((lamp.level, lamp.anim), (Level::Bright, Anim::Flash));
+    }
+
+    /// #282: with a fill queued, a later press moves only where it lands; that Main pulses.
+    #[test]
+    fn a_later_press_moves_the_landing_not_the_fill() {
+        let mut m = MockSession::new();
+        m.send(TransportCmd::Main { index: 1 });
+        m.send(TransportCmd::Main { index: 0 });
+        let t = &m.state.transport;
+        assert_eq!((t.queued.as_deref(), t.landing.as_deref()), (Some("Fill In BB"), Some("Main A")));
+        let lamp = t.lamps.iter().find(|p| p.note == 112).unwrap();
+        assert_eq!((lamp.level, lamp.anim), (Level::Bright, Anim::Pulse));
     }
 
     #[test]

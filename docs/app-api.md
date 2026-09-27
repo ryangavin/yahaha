@@ -153,7 +153,7 @@ Style Section Reset, the Fade In/Out times and the Style Retrigger length. The s
 | `setManualBass` / `toggleManualBass` | `on` | The Manual Bass setting. Ignored in Lower. |
 | `setSplit` | `note` (MIDI) | Split point, clamped to 24–96. |
 | `moveSplit` | `delta` | Moves the split by `delta` keys. |
-| `setTranspose` | `keyboard`, `master` | Semitones, each clamped to −12..12. |
+| `setTranspose` | `keyboard`, `master` | Semitones, each clamped to −12..12. Keyboard moves the keyboard parts at once, but the chord the style follows only from the next chord input (a chord held, or an Intro playing, stays in the old key, as on the Genos; #264). Master moves every note started from now on. |
 | `stepTranspose` | `keyboard`, `master` | Adds to the current transpose. |
 | `resetTranspose` | | Both back to 0. |
 | `setChordSettle` | `ms` | The chord-settle window, clamped to 0–30 ms (default 10). While the style plays (and, with it stopped, for Stop Accompaniment and Chord Match Multi Pads), a chord change reaches the accompaniment once the chord has held still this long (at most three windows after the first change), so a rolled chord is followed once. 0: at once. Not a Genos setting; see docs/genos-features.md (Chord settle). |
@@ -627,6 +627,7 @@ Indices are 0-based unless a field says otherwise.
 | `autoFill`, `stopAcmp` | bool | Auto Fill In, and Stop Accompaniment sounding (`stopAcmpMode` is not `off`). |
 | `section` | string? | The section playing, for example `Main A` or `Fill In AA`. Null when stopped. |
 | `queued` | string? | The section queued next: at the next bar, or for a fill, at the next beat. |
+| `landing` | string? | The Main a fill (or the Break) queued or playing lands on, e.g. `"Main A"`; null when none is (#282). The first press picks the fill; every later Main press before the fill ends only changes this. Pressing the fill's own Main while it plays queues it once more (`queued` names it), so mashing keeps the fill going. The Launchkey and the app pulse this Main's pad when it is not the fill's own. |
 | `pendingIntro` | 0–2? | The Intro armed to play at the start. |
 | `main` | 0–3 | The Main (A–D) that is playing or queued to follow. Changes as soon as a Main is pressed. |
 | `bar`, `beat` | 1-based | Position within the section playing. Both are 1 when stopped. |
@@ -1217,6 +1218,7 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
     "stopAcmp": false,
     "section": "Main A",
     "queued": "Fill In BB",
+    "landing": "Main B",
     "pendingIntro": null,
     "main": 1,
     "bar": 1,

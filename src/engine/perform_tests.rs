@@ -1257,18 +1257,19 @@ fn presses_during_a_fill_queue_for_its_end() {
     let (ppq, tpb, _) = grid(&e);
     let bar3 = e.ns_at(3.0 * tpb + 0.5 * ppq);
     let head = [(SectionId::Main(0), 0.0), (SectionId::Fill(0), tpb + 2.0 * ppq)];
-    for (auto_fill, press) in [(false, Button::FillUp), (true, Button::Main(1))] {
-        let Some((mut e, mut rec, mut seen, t)) = setup(auto_fill) else { return };
-        e.button(press, t, &mut rec);
-        sections_played(&mut e, &mut rec, t, bar3, &mut seen);
-        let want = [head[0], head[1], (SectionId::Fill(1), 2.0 * tpb), (SectionId::Main(1), 3.0 * tpb)];
-        assert_eq!(seen, want, "{press:?}, Auto Fill {auto_fill}");
-    }
-    // Auto Fill off: Main B during A's fill follows it, no fill.
+    // A forced fill (Fill Up) during a fill: its fill right after, then its Main.
     let Some((mut e, mut rec, mut seen, t)) = setup(false) else { return };
-    e.button(Button::Main(1), t, &mut rec);
+    e.button(Button::FillUp, t, &mut rec);
     sections_played(&mut e, &mut rec, t, bar3, &mut seen);
-    assert_eq!(seen, [head[0], head[1], (SectionId::Main(1), 2.0 * tpb)]);
+    assert_eq!(seen, [head[0], head[1], (SectionId::Fill(1), 2.0 * tpb), (SectionId::Main(1), 3.0 * tpb)]);
+    // Main B during A's fill, Auto Fill on or off: it only changes where the fill lands
+    // (#282), no fill of its own.
+    for auto_fill in [false, true] {
+        let Some((mut e, mut rec, mut seen, t)) = setup(auto_fill) else { return };
+        e.button(Button::Main(1), t, &mut rec);
+        sections_played(&mut e, &mut rec, t, bar3, &mut seen);
+        assert_eq!(seen, [head[0], head[1], (SectionId::Main(1), 2.0 * tpb)], "Auto Fill {auto_fill}");
+    }
     // The Break during a fill: at the next beat. A Main pressed in the Break follows it.
     if !e.style.has(slot_of(SectionId::Break)) {
         return;
@@ -1280,6 +1281,43 @@ fn presses_during_a_fill_queue_for_its_end() {
     e.button(Button::Main(0), in_break, &mut rec);
     sections_played(&mut e, &mut rec, in_break, bar3, &mut seen);
     assert_eq!(seen, [head[0], head[1], (SectionId::Break, tpb + 3.0 * ppq), (SectionId::Main(0), 2.0 * tpb)]);
+}
+
+/// #264: a Keyboard transpose with a chord held (a Main playing, or an Intro) leaves the
+/// band in the old key; the next chord input, the same keys too, is read in the new key.
+#[test]
+fn a_keyboard_transpose_waits_for_the_next_chord() {
+    let Some((mut e, mut rec)) = started(StyleSettings::default()) else { return };
+    let (_, tpb, _) = grid(&e);
+    let t = e.ns_at(tpb + 10.0);
+    play(&mut e, &mut rec, 0, t);
+    let from = rec.msgs.len();
+    e.set_transpose(Transpose::new(2, 0), t, &mut rec);
+    let bar3 = e.ns_at(3.0 * tpb);
+    play(&mut e, &mut rec, t, bar3);
+    assert_eq!(e.snapshot(bar3).chord, Some(chord("C")), "still C two bars on");
+    let mut b = engine().unwrap();
+    let mut rb = Rec::default();
+    b.set_chord(chord("C"), 0, &mut rb);
+    play(&mut b, &mut rb, 0, bar3);
+    let tail = |r: &Rec, from: usize| r.msgs[from..].iter().map(|(t, m)| (*t, m.clone())).collect::<Vec<_>>();
+    let from_b = rb.msgs.iter().position(|(tt, _)| *tt >= t).unwrap();
+    assert_eq!(tail(&rec, from).into_iter().filter(|(tt, _)| *tt > t).collect::<Vec<_>>(), tail(&rb, from_b).into_iter().filter(|(tt, _)| *tt > t).collect::<Vec<_>>(), "the band played on in C");
+    // C played again: D.
+    e.set_chord(chord("C"), bar3, &mut rec);
+    play(&mut e, &mut rec, bar3, bar3 + 50_000_000);
+    assert_eq!(e.snapshot(bar3 + 50_000_000).chord, Some(chord("D")));
+
+    // An Intro playing: transposed during it, the Intro and the Main after it stay in C.
+    let mut e = engine().unwrap();
+    let mut rec = Rec::default();
+    e.button(Button::Intro(0), 0, &mut rec);
+    e.set_chord(chord("C"), 0, &mut rec);
+    assert!(e.running);
+    e.set_transpose(Transpose::new(-3, 0), 1_000_000, &mut rec);
+    let two = e.ns_at(tpb * 2.0);
+    play(&mut e, &mut rec, 0, two);
+    assert_eq!(e.snapshot(0).chord, Some(chord("C")));
 }
 
 /// #229: a style chosen during a fill waits for the fill's end (its bar line); the fill

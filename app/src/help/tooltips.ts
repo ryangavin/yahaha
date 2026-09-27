@@ -255,7 +255,7 @@ const catalog = {
   },
   'section.lamps': {
     title: 'Section lamps',
-    body: 'Dim: available. Bright: playing, or on. Flashing: queued for the next bar (fills: the next beat). Pulsing: armed and waiting for you. Dark: this style doesn\'t have it.',
+    body: 'Dim: available. Bright: playing, or on. Flashing: queued for the next bar (fills: the next beat). Pulsing: armed and waiting for you, or the Main a fill will land on. Dark: this style doesn\'t have it.',
     genos: 'Section lamp states',
     keys: [],
     launchkey: 'The pads light the same way, in the same colours',
@@ -306,7 +306,7 @@ const catalog = {
   },
   'display.position': {
     title: 'Bar and beat',
-    body: 'Where the band is: bar, and a light per beat. The section playing now and the one queued next are shown alongside.',
+    body: 'Where the band is: bar, and a light per beat. The section playing now and the one queued next are shown alongside, and for a fill the Main it lands on (⤷). The first press picks the fill; later presses before it ends only change where it lands, and its own Main again repeats it.',
     genos: null,
     keys: [],
     launchkey: null,
@@ -552,7 +552,7 @@ const catalog = {
   // ── Transpose ───────────────────────────────────────────────────────────
   'transpose.display': {
     title: 'Transpose',
-    body: 'Keyboard transpose moves your keys and the chord the style follows. Master transpose moves everything that sounds, drums excepted.',
+    body: 'Keyboard transpose moves your keys at once, and the band from the next chord you play (a chord held keeps the band in the old key, as on the Genos). Master transpose moves everything that sounds, drums excepted.',
     genos: 'TRANSPOSE',
     keys: [],
     launchkey: null,

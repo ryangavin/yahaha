@@ -41,7 +41,7 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | **Ending I** | Plays Ending I from the next bar, then stops the band. Press it again while it plays to slow down to the end (ritardando). | ENDING/rit. I | `I` | Pad page 1 (Sections), top row, pad 5 |
 | **Ending II** | Plays Ending II from the next bar, then stops the band. Press it again while it plays to slow down to the end (ritardando). | ENDING/rit. II | `O` | Pad page 1 (Sections), top row, pad 6 |
 | **Ending III** | Plays Ending III from the next bar, then stops the band. Press it again while it plays to slow down (ritardando); dark if the style has none. | ENDING/rit. III | `P` | Pad page 1 (Sections), top row, pad 7 |
-| **Section lamps** | Dim: available. Bright: playing, or on. Flashing: queued for the next bar (fills: the next beat). Pulsing: armed and waiting for you. Dark: this style doesn't have it. | Section lamp states | — | The pads light the same way, in the same colours |
+| **Section lamps** | Dim: available. Bright: playing, or on. Flashing: queued for the next bar (fills: the next beat). Pulsing: armed and waiting for you, or the Main a fill will land on. Dark: this style doesn't have it. | Section lamp states | — | The pads light the same way, in the same colours |
 
 ## Tempo
 
@@ -59,7 +59,7 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 |---|---|---|---|---|
 | **Tempo** | The current tempo in beats per minute. Loading a style sets the style's own tempo. | Tempo | — | — |
 | **Time signature** | The style's time signature, from the style file. | — | — | — |
-| **Bar and beat** | Where the band is: bar, and a light per beat. The section playing now and the one queued next are shown alongside. | — | — | — |
+| **Bar and beat** | Where the band is: bar, and a light per beat. The section playing now and the one queued next are shown alongside, and for a fill the Main it lands on (⤷). The first press picks the fill; later presses before it ends only change where it lands, and its own Main again repeats it. | — | — | — |
 | **Chord** | The chord the style is following. When Keyboard transpose is not zero, the chord as you fingered it is shown small underneath. | Chord (Home display, Style area) | — | — |
 | **Status line** | The last message: a loaded style, an error, or a Launchkey note or CC nothing is mapped to, which tells you what a button really sends. | — | — | — |
 
@@ -125,7 +125,7 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 
 | control | what it does | Genos | key | Launchkey |
 |---|---|---|---|---|
-| **Transpose** | Keyboard transpose moves your keys and the chord the style follows. Master transpose moves everything that sounds, drums excepted. | TRANSPOSE | — | — |
+| **Transpose** | Keyboard transpose moves your keys at once, and the band from the next chord you play (a chord held keeps the band in the old key, as on the Genos). Master transpose moves everything that sounds, drums excepted. | TRANSPOSE | — | — |
 | **Keyboard transpose −** | Moves your keys and the chord the style follows down a semitone. The pad lights while it's below zero. | TRANSPOSE − (Keyboard) | `;` | Pad page 2 (Chord/Setup), bottom row, pad 5 |
 | **Keyboard transpose +** | Moves your keys and the chord the style follows up a semitone. The pad lights while it's above zero. | TRANSPOSE + (Keyboard) | `'` | Pad page 2 (Chord/Setup), bottom row, pad 6 |
 | **Master transpose −** | Moves everything that sounds down a semitone, the band included (not the drums). | TRANSPOSE − (Master) | `:` | — |

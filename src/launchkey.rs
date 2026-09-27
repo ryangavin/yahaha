@@ -732,6 +732,13 @@ pub fn pad_leds(s: &Snapshot, has: &[bool], panel: &Panel) -> [(u8, Led); 16] {
     })
 }
 
+/// The Main (0-3) a fill or the Break, queued or playing, lands on (#282): the Main
+/// selected. None when no fill is queued or playing.
+pub fn landing(s: &Snapshot) -> Option<u8> {
+    let fill_like = |x: Option<SectionId>| matches!(x, Some(SectionId::Fill(_) | SectionId::Break));
+    (s.running && (fill_like(s.queued) || fill_like(s.cur))).then_some(s.main)
+}
+
 /// Page 1 in palette mode, given engine state and which sections exist.
 fn section_leds(s: &Snapshot, has: &[bool]) -> [(u8, Led); 16] {
     let cur = s.cur;
@@ -756,6 +763,9 @@ fn section_leds(s: &Snapshot, has: &[bool]) -> [(u8, Led); 16] {
         let fill = SectionId::Fill(i);
         if queued == Some(id) || queued == Some(fill) || cur == Some(fill) {
             Led::Flash(DIM_GREEN, GREEN)
+        } else if landing(s) == Some(i) {
+            // Where the fill lands, when that's another Main (#282).
+            Led::Pulse(GREEN)
         } else if cur == Some(id) || (s.main == i && !matches!(cur, Some(SectionId::Main(_)))) {
             Led::Solid(GREEN)
         } else {
@@ -956,6 +966,8 @@ fn section_looks(s: &Snapshot, has: &[bool]) -> [(u8, Look); 16] {
             l(label, key, C_MAIN, Level::Off, Anim::Solid)
         } else if s.queued == Some(id) || s.queued == Some(fill) || s.cur == Some(fill) {
             l(label, key, C_MAIN, Level::Bright, Anim::Flash)
+        } else if landing(s) == Some(i) {
+            l(label, key, C_MAIN, Level::Bright, Anim::Pulse)
         } else if s.cur == Some(id) || (s.main == i && !matches!(s.cur, Some(SectionId::Main(_)))) {
             l(label, key, C_MAIN, Level::Bright, Anim::Solid)
         } else {

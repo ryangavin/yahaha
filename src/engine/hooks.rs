@@ -19,7 +19,7 @@
 //! | `on_bar`, `on_beat` | `process` reached a bar line / beat (quarter note) of the section playing |
 //! | `before_section_change` | at a section boundary, before anything changes (the old notes still sound) |
 //! | `after_section_change` | after it: the new section is set up, its first events not yet played |
-//! | `on_chord` | the chord the style follows changed (a new chord, or a Keyboard transpose) |
+//! | `on_chord` | the chord the style follows changed (a new chord, read in the Keyboard transpose of its input) |
 //! | `on_style_loaded` | a new style took over (at once when stopped, at the bar line when playing) |
 //! | `on_wake` | every `process` call, first, band running or not (features on engine nanoseconds) |
 //! | `hook_deadline` | a tick by which a feature needs `process` to run (see below) |
