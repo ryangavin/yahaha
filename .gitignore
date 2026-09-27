@@ -1,6 +1,7 @@
 target/
 /corpus
 /soundfonts
+*.sf2
 docs/manuals/
 tests/golden/local/
 /.claude/worktrees/

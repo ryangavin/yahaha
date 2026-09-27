@@ -78,46 +78,48 @@ mach2 = "0.7.0"
 
 # Plugin hosting only (the `plugins` feature). The objc2 project's generated bindings to
 # AudioToolbox, CoreAudioKit and AppKit; cpal already depends on objc2 / audio-toolbox.
-[dependencies.objc2]
+# macOS only: elsewhere the feature pulls in nothing and src/lib.rs stops with a
+# compile_error.
+[target.'cfg(target_os = "macos")'.dependencies.objc2]
 version = "0.6.4"
 optional = true
 features = ["exception"]
 
-[dependencies.block2]
+[target.'cfg(target_os = "macos")'.dependencies.block2]
 version = "0.6.2"
 optional = true
 
-[dependencies.objc2-foundation]
+[target.'cfg(target_os = "macos")'.dependencies.objc2-foundation]
 version = "0.3.2"
 optional = true
 default-features = false
 features = ["std", "NSString", "NSBundle", "NSURL", "NSObject", "NSDate", "NSRunLoop", "NSGeometry", "NSThread"]
 
-[dependencies.objc2-core-foundation]
+[target.'cfg(target_os = "macos")'.dependencies.objc2-core-foundation]
 version = "0.3.2"
 optional = true
 default-features = false
 features = ["std", "CFString", "CFData", "CFError", "CFPropertyList"]
 
-[dependencies.objc2-core-audio-types]
+[target.'cfg(target_os = "macos")'.dependencies.objc2-core-audio-types]
 version = "0.3.2"
 optional = true
 default-features = false
 features = ["std", "CoreAudioBaseTypes"]
 
-[dependencies.objc2-audio-toolbox]
+[target.'cfg(target_os = "macos")'.dependencies.objc2-audio-toolbox]
 version = "0.3.2"
 optional = true
 default-features = false
 features = ["std", "AudioComponent", "AUComponent", "AudioUnitProperties", "MusicDevice", "block2", "objc2-core-audio-types", "objc2-core-foundation"]
 
-[dependencies.objc2-app-kit]
+[target.'cfg(target_os = "macos")'.dependencies.objc2-app-kit]
 version = "0.3.2"
 optional = true
 default-features = false
 features = ["std", "NSApplication", "NSResponder", "NSRunningApplication", "NSWindow", "NSView", "NSViewController", "NSGraphics", "NSEvent", "objc2-core-foundation"]
 
-[dependencies.objc2-core-audio-kit]
+[target.'cfg(target_os = "macos")'.dependencies.objc2-core-audio-kit]
 version = "0.3.2"
 optional = true
 default-features = false
