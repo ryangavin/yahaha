@@ -172,6 +172,26 @@ thread's route table off-thread (O8).
   hidden compatibility pin: that font is the main font and fills every program it has at
   the auto layer (other fonts fill only its gaps); the map's rules still come first.
 
+### The map page (PR 6)
+
+The Sound Library drawer's **GM map** tab (`app/src/panels/sound/GmMapPage.svelte`)
+replaces its old Program Map and This style tabs. It draws `soundLibrary.gmMap`:
+
+- The drums, then the 16 families. Each family's header has its rule; each program row
+  has its override, the sound it resolves to (the small line), and a badge for the layer
+  that decided it (Drums, Override, Family, Auto or Unset). Auto rows and badges are
+  tinted, and the tab counts the auto slots, so what nobody chose stands out.
+- **Global / This style** switches which map the pickers edit. In the style's map an
+  unset rule shows what it falls through to (↳). The resolved sound and its badge are
+  always what plays now, for the style playing, so a style's own rule is marked "style"
+  in either view.
+- Rows a style part uses name the part (what the old This style tab showed).
+- Every rule is set by picking from Sounds (the Sound Browser's pick mode, so every
+  plugin sound and font preset is eligible) and cleared with ✕. No new commands:
+  `setDrumRule`, `setFamilyRule`, `setProgramOverride`, `clearStyleMap`.
+- Every control is a native button with a tooltip, reached with Tab; the drawer's tab
+  strip takes the arrow keys.
+
 ## Migration
 
 Each migration has a test in `src/patches/sound_tests.rs`.

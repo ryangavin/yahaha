@@ -84,7 +84,7 @@
 {#if sl.patches.length === 0}
   <p class="explain">
     Your library is empty. Add presets from a SoundFont (Add from SoundFont), or save a keyboard part's sound below.
-    About 20 patches, reused by every style through the Program Map, is the idea.
+    About 20 patches, reused by every style through the GM map, is the idea.
   </p>
 {:else if shown.length === 0}
   <p class="explain">No patch matches.</p>

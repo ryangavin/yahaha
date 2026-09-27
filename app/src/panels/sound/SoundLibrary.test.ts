@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render } from '@testing-library/svelte'
 import { flushSync } from 'svelte'
 import { afterEach, describe, expect, it } from 'vitest'
-import { MockSession } from '../../lib/api/mock'
+import { GM, MockSession } from '../../lib/api/mock'
 import { app, ui } from '../../lib/store.svelte'
 import SoundLibrary from './SoundLibrary.svelte'
 import { byCategory, filterPatches, nav, sourceText } from './nav.svelte'
@@ -124,55 +124,81 @@ describe('Sound Library drawer', () => {
     expect(s.state.message?.error).toBe(true)
   })
 
-  it('the program map sets family rules, overrides and the drum rule, globally or for this style', async () => {
+  it('the GM map page: drums and 128 programs by family, each with its deciding layer', async () => {
     const s = setup()
-    await fireEvent.click(tab('map'))
+    await fireEvent.click(tab('gm'))
+    flushSync()
+    const page = document.querySelector('#sound-page-gm')!
+    expect(tipped('sound.family')).toHaveLength(16)
+    expect(tipped('sound.drums')).toHaveLength(1)
+    expect(tipped('sound.override_patch')).toHaveLength(128)
+    const badges = tipped('sound.map_layer')
+    expect(badges).toHaveLength(129)
+    // Every badge is the row's deciding layer; auto slots are marked.
+    const layers = s.state.soundLibrary.gmMap.map((r) => r.resolved.layer)
+    expect(badges.map((b) => b.classList[1])).toEqual(layers)
+    expect(page.querySelectorAll('.row.auto')).toHaveLength(layers.filter((l) => l === 'auto').length)
+    expect(layers).toContain('auto')
+    expect(badges[0].textContent).toBe('Drums')
+    // The tab counts the auto slots.
+    expect(tab('gm').querySelector('small')!.textContent).toBe(String(layers.filter((l) => l === 'auto').length))
+  })
+
+  it('the GM map page sets and clears family, override and drum rules, globally or for this style', async () => {
+    const s = setup()
+    await fireEvent.click(tab('gm'))
     flushSync()
     const families = tipped('sound.family')
-    expect(families).toHaveLength(16)
     await pickIn(families[10], 'saved:warm-rhodes')
     expect(s.state.soundLibrary.map.families[10]).toBe('warm-rhodes')
+    flushSync()
+    // Program 81 (family 10) now resolves by its family rule.
+    expect(tipped('sound.map_layer')[1 + 80].textContent).toBe('Family')
     await pickIn(tipped('sound.drums')[0], null)
     expect(s.state.soundLibrary.map.drums).toBe(null)
-    // An override.
-    await change(tipped('sound.override_program')[0] as HTMLSelectElement, '0')
-    const pickers = tipped('sound.override_patch')
-    await pickIn(pickers[pickers.length - 1], 'saved:warm-rhodes')
-    await fireEvent.click(tipped('sound.override_add')[0])
+    // An override on program 1: the badge says so, and ✕ clears it.
+    await pickIn(tipped('sound.override_patch')[0], 'saved:warm-rhodes')
     expect(s.state.soundLibrary.map.overrides.find((o) => o.program === 0)?.patch).toBe('warm-rhodes')
-    await fireEvent.click(tipped('sound.override_remove')[0])
+    flushSync()
+    expect(tipped('sound.map_layer')[1].textContent).toBe('Override')
+    expect(document.querySelector('#sound-page-gm .plays')!.textContent).toBe('Warm Rhodes')
+    await pickIn(tipped('sound.override_patch')[0], null)
     expect(s.state.soundLibrary.map.overrides.some((o) => o.program === 0)).toBe(false)
-    // This style's own rule; the global map is untouched.
+    // Any sound: a SoundFont preset becomes a library patch the rule names.
+    const n = s.state.soundLibrary.patches.length
+    await pickIn(tipped('sound.override_patch')[48], 'sf:FluidR3_GM.sf2:0:48')
+    expect(s.state.soundLibrary.patches.length).toBe(n + 1)
+    expect(s.state.soundLibrary.map.overrides.find((o) => o.program === 48)?.patch).toBe(s.state.soundLibrary.lastAdded)
+    // This style's own rule; the global map is untouched, and the badge marks it.
     await fireEvent.click(tipped('sound.scope')[1])
     flushSync()
+    expect(tipped('sound.family')[4].textContent).toContain('↳ Finger Bass')
     await pickIn(tipped('sound.family')[4], 'saved:soft-pad')
     expect(s.state.soundLibrary.styleMap.families[4]).toBe('soft-pad')
     expect(s.state.soundLibrary.map.families[4]).toBe('finger-bass')
     flushSync()
+    expect(tipped('sound.map_layer')[1 + 32].textContent).toBe('Familystyle')
     await fireEvent.click(tipped('sound.clear_style_map')[0])
     expect(s.state.soundLibrary.styleMap.families[4]).toBe(null)
   })
 
-  it('this style lists what each part sends and remaps it', async () => {
-    const s = setup()
-    await fireEvent.click(tab('style'))
+  it('the GM map page is keyboard-reachable: the tab strip and every rule picker', async () => {
+    setup()
+    tab('patches').focus()
+    await fireEvent.keyDown(tab('patches'), { key: 'ArrowRight' })
     flushSync()
-    const rows = document.querySelectorAll('#sound-page-style .tr:not(.head)')
-    expect(rows).toHaveLength(8)
-    const bass = s.state.soundLibrary.usage.find((u) => u.part === 'Bass')!
-    expect(bass.plays).toBe('Finger Bass')
-    const remaps = tipped('sound.remap')
-    await pickIn(remaps[2], 'saved:soft-pad')
-    expect(s.state.soundLibrary.map.overrides.find((o) => o.program === bass.gmProgram)?.patch).toBe('soft-pad')
-    expect(s.state.soundLibrary.usage.find((u) => u.part === 'Bass')!.plays).toBe('Soft Pad')
-    // A drum part's remap is the drum rule.
-    await pickIn(remaps[0], 'saved:finger-bass')
-    expect(s.state.soundLibrary.map.drums).toBe('finger-bass')
-    // Any sound: a SoundFont preset becomes a library patch the rule names.
-    const n = s.state.soundLibrary.patches.length
-    await pickIn(tipped('sound.remap')[2], 'sf:FluidR3_GM.sf2:0:48')
-    expect(s.state.soundLibrary.patches.length).toBe(n + 1)
-    expect(s.state.soundLibrary.usage.find((u) => u.part === 'Bass')!.patch).toBe(s.state.soundLibrary.lastAdded)
+    expect(nav.tab).toBe('gm')
+    expect(document.activeElement).toBe(tab('gm'))
+    const page = document.querySelector('#sound-page-gm')!
+    const controls = [...page.querySelectorAll<HTMLElement>('button, select, input')]
+    expect(controls.length).toBeGreaterThan(145)
+    for (const c of controls) {
+      expect(c.tabIndex, c.outerHTML).toBeGreaterThanOrEqual(0)
+      expect(c.dataset.tip, c.outerHTML).toBeTruthy()
+    }
+    // Enter on a picker opens Sounds (a native button: Enter clicks it).
+    await fireEvent.click(tipped('sound.override_patch')[5])
+    expect(ui.soundPick?.title).toBe(`Override for ${GM[5]}`)
   })
 
   it('browses a SoundFont and adds a preset as a patch', async () => {
