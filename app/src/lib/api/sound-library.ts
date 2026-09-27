@@ -17,11 +17,46 @@ export type PatchCategory =
   | 'drumsPerc'
   | 'sfx'
 
+/** Where a plugin sound came from (docs/sound-browser.md): made in yahaha (absent or
+ * `user`), a factory preset by number, or an imported `.aupreset` file by path. */
+export type PluginOrigin = { kind: 'user' } | { kind: 'factory'; number: number } | { kind: 'file'; path: string }
+
 /** Where a patch's sound comes from: a SoundFont preset (bank 128 = drum kits), or an
- * Audio Unit with its saved state (base64). */
+ * Audio Unit with its saved state (base64). A plugin source is the one kind of plugin
+ * sound; an empty state on a factory preset means it has not played yet (it is captured
+ * the first time it does). */
 export type PatchSource =
   | { kind: 'soundFont'; file: string; bank: number; program: number }
-  | { kind: 'plugin'; componentId: string; state: string }
+  | { kind: 'plugin'; componentId: string; state: string; origin?: PluginOrigin }
+
+/** A SoundFont preset as a map resolution records it (D6 provenance). */
+export interface FontPreset {
+  file: string
+  bank: number
+  program: number
+}
+
+/** A record's Sound: its id (`sf:<file>:<bank>:<program>` or `saved:<patch id>`) and name. */
+export interface SoundTag {
+  id: string
+  name: string
+}
+
+/** The origin a Sound Browser preset key names: `f:<number>` or `u:<path>`. */
+export function originOfPresetKey(key: string): PluginOrigin | undefined {
+  if (key.startsWith('f:')) {
+    const number = Number(key.slice(2))
+    return Number.isInteger(number) ? { kind: 'factory', number } : undefined
+  }
+  return key.startsWith('u:') && key.length > 2 ? { kind: 'file', path: key.slice(2) } : undefined
+}
+
+/** Same factory preset or file (a `user` origin never matches: two sounds made in yahaha
+ * are two sounds). */
+export function sameOrigin(a: PluginOrigin | undefined, b: PluginOrigin): boolean {
+  if (!a || a.kind === 'user' || b.kind === 'user') return false
+  return a.kind === 'factory' ? b.kind === 'factory' && a.number === b.number : b.kind === 'file' && a.path === b.path
+}
 
 /** Sent as CCs when the patch is picked (0–127 or null: leave as is). */
 export interface PatchDefaults {

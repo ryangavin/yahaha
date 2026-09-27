@@ -163,6 +163,11 @@ impl Input {
         let note = self.process(k, note);
         let now = self.sound(k, note, full);
         self.track_key(slot, k, r, now);
+        // Unison: each right-hand key also goes to the engine (engine/unison.rs).
+        if !left && self.shared.unison.load(Relaxed) && self.cmd.push(Cmd::UnisonKey { key: k, vel }).is_ok() {
+            self.unison_keys[(k >> 6) as usize] |= 1 << (k & 63);
+            self.signal = true;
+        }
         // Dynamics Touch / Accent: the engine hears each strike in the chord section (not
         // while the Chord Looper loops: then there is no chord section).
         if chord
@@ -171,6 +176,10 @@ impl Input {
             && !self.shared.looping.load(Relaxed)
             && self.cmd.push(Cmd::Strike(vel)).is_ok()
         {
+            self.signal = true;
+        }
+        // Accent Source Both: the right hand's strikes accent too.
+        if !chord && self.shared.strikes_right.load(Relaxed) && self.cmd.push(Cmd::AccentStrike(vel)).is_ok() {
             self.signal = true;
         }
         // The Full Keyboard types (Lower only) read both hands.
@@ -187,6 +196,11 @@ impl Input {
         // Stage 4: stop what the key sounded, where it sounded.
         for (ch, note) in self.keys.release(k).iter() {
             self.out.push(&[0x80 | ch, note, 0]);
+        }
+        let bit = 1u64 << (k & 63);
+        if self.unison_keys[(k >> 6) as usize] & bit != 0 && self.cmd.push(Cmd::UnisonKey { key: k, vel: 0 }).is_ok() {
+            self.unison_keys[(k >> 6) as usize] &= !bit;
+            self.signal = true;
         }
         let r = std::mem::take(&mut self.route[k as usize]);
         self.track_key(slot, k, 0, Sounded::default());

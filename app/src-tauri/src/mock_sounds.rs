@@ -228,18 +228,26 @@ impl MockSounds {
         let source = if let Some((file, bank, program)) = parse_preset_id(id) {
             PatchSource::SoundFont { file: file.into(), bank, program }
         } else if let Some((plugin, preset)) = parse_plugin_id(id) {
-            if preset.is_some_and(|k| k.starts_with("f:")) {
-                return Err("a factory preset can't be a rule's sound yet: play it on a part and Save as sound, then pick that".into());
-            }
-            // A user preset's patch keeps the file's settings (the mock has none to read).
-            PatchSource::Plugin { component_id: plugin.into(), state: preset.map_or(String::new(), |_| "bW9jaw==".into()) }
+            // The one plugin sound for the preset (its origin finds it again): a user
+            // preset's keeps the file's settings (the mock has none to read); a factory
+            // preset's state is captured when it plays, so it starts empty.
+            let origin = preset.and_then(yahaha::patches::PluginOrigin::from_preset_key).unwrap_or_default();
+            let state = match &origin {
+                yahaha::patches::PluginOrigin::File { .. } => "bW9jaw==".to_string(),
+                _ => String::new(),
+            };
+            PatchSource::Plugin { component_id: plugin.into(), state, origin }
         } else {
             return Ok(Ok(id.into()));
         };
         if !self.known(st, id) {
             return Err(format!("no sound {id}"));
         }
-        if let Some(p) = st.sound_library.patches.iter().find(|p| p.patch.source == source) {
+        let same = |p: &&PatchInfo| match &source {
+            PatchSource::Plugin { component_id, origin, .. } if !origin.is_user() => p.patch.source.same_plugin_origin(component_id, origin),
+            _ => p.patch.source == source,
+        };
+        if let Some(p) = st.sound_library.patches.iter().find(same) {
             return Ok(Ok(p.patch.id.clone()));
         }
         Ok(Err(match source {

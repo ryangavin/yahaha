@@ -68,6 +68,13 @@ export type AppCmd =
   /** [ACMP] on/off (`transport.acmp`). */
   | { type: 'toggleAcmp' }
   | { type: 'setAcmp'; on: boolean }
+  /** Unison latched on/off (`transport.unisonLatched`). */
+  | { type: 'toggleUnison' }
+  | { type: 'setUnison'; on: boolean }
+  /** A Hold pedal given Unison is down or up: engaged while held. */
+  | { type: 'setUnisonHeld'; on: boolean }
+  /** What the Bass plays in Unison. */
+  | { type: 'setUnisonType'; unisonType: UnisonType }
   /** Tempo in BPM, 5–500 (clamped). */
   | { type: 'setTempo'; bpm: number }
   | { type: 'toggleStylePart'; part: number }
@@ -221,6 +228,12 @@ export type FxCmd =
   | { type: 'setFollowStyle'; block: FxBlock; on: boolean }
   /** #269: the style's insertion effects on or off, all together. */
   | { type: 'setInsertsOn'; on: boolean }
+  /** One Style part's insertion effect on or off, until the next style. */
+  | { type: 'setPartInsertOn'; part: number; on: boolean }
+  /** One Style part's insertion effect amount, 0–127, until the next style. */
+  | { type: 'setPartInsertAmount'; part: number; amount: number }
+  /** Every rotary insert fast or slow (the Leslie switch). */
+  | { type: 'setRotaryFast'; on: boolean }
 
 /**
  * Reverb: reverbTime (0.1 s), preDelay (ms), reverbTone (100 Hz). Chorus: chorusRate (0.01 Hz),
@@ -262,6 +275,8 @@ export interface EffectsState {
   inserts: InsertState[]
   /** Whether they play (`setInsertsOn`). */
   insertsOn: boolean
+  /** The rotary inserts at their fast speed (`setRotaryFast`). */
+  rotaryFast: boolean
 }
 
 /** What plays a style's insertion effect here (#269). */
@@ -277,6 +292,10 @@ export interface InsertState {
   name: string
   /** What plays it; null: nothing near it, the part plays dry. */
   effect: InsertEffect | null
+  /** This part's insert on (`setPartInsertOn`). */
+  on: boolean
+  /** Its amount, 0–127 (`setPartInsertAmount`): drive, squeeze, sensitivity or depth. */
+  amount: number
 }
 
 export interface EffectBlockState {
@@ -307,6 +326,8 @@ export type KnobsCmd =
   | { type: 'setKnobPage'; page: KnobPage }
   | { type: 'stepKnobPage'; delta: number }
   | { type: 'turnKnob'; knob: number; delta: number }
+  /** Knob `knob` back to its function's default (a double-click): Dynamics max, sends dry, pan centre. */
+  | { type: 'resetKnob'; knob: number }
 
 export type KnobPage = 'style' | 'parts' | 'pan' | 'reverb' | 'chorus' | 'delay'
 export type KnobFunction =
@@ -361,6 +382,13 @@ export type DynamicsCmd =
   | { type: 'setAccent'; on: boolean }
   | { type: 'toggleAccent' }
   | { type: 'setAccentThreshold'; velocity: number }
+  | { type: 'setAccentMode'; mode: AccentMode }
+  | { type: 'setAccentSource'; source: AccentSource }
+
+/** Accent: a drum hit (also stopped), or the Main's fill while a Main plays. */
+export type AccentMode = 'hits' | 'fill'
+/** Accent hears the chord section only, or both hands. */
+export type AccentSource = 'left' | 'both'
 
 /** Style Dynamics: System settings, not in Registration. */
 export interface DynamicsState {
@@ -370,10 +398,14 @@ export interface DynamicsState {
   level: number
   /** Chord-section strikes set the level. */
   touch: boolean
-  /** A hard chord-section strike plays the Main's fill. */
+  /** A hard strike accents (a drum hit, or the Main's fill). */
   accent: boolean
   /** The Accent threshold (velocity 1-127). */
   accentThreshold: number
+  /** Default 'hits'. */
+  accentMode: AccentMode
+  /** Default 'left'. */
+  accentSource: AccentSource
 }
 
 /** A Parameter Lock group (the Genos Data List's lock groups that yahaha has). */
@@ -419,6 +451,9 @@ export type CmdError = { kind: 'busy' } | { kind: 'failed'; message: string }
 
 /** Stop Accompaniment: what a chord sounds on with the band stopped and Sync Start off. */
 export type StopAcmpMode = 'off' | 'style' | 'fixed'
+
+/** Unison's Bass: the chord's root, or the played line in the bass range. */
+export type UnisonType = 'root' | 'melody'
 /** OTS Link Timing: as the Main is pressed, or when that Main starts playing. */
 export type OtsLinkTiming = 'immediate' | 'mainChange'
 /** Change Behavior: keep the old style's value, keep it only while playing, or take the new one's. */
@@ -573,6 +608,12 @@ export interface TransportState {
   /** Half Bar Fill In. */
   halfBarFill: boolean
   stopAcmpMode: StopAcmpMode
+  /** Unison is engaged (latched, or held by a pedal). */
+  unison: boolean
+  /** Unison's latched switch (the app's toggle). */
+  unisonLatched: boolean
+  /** What the Bass plays in Unison. */
+  unisonType: UnisonType
   /** Fade In/Out. */
   fade: FadeState
   /** Style Retrigger is on. */

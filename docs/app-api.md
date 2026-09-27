@@ -114,6 +114,7 @@ state, and pressing the button is the action. For settings, a GUI checkbox can u
 | `sectionReset` | | Style Section Reset: the section playing starts again from its top, now. A change queued for the next bar line waits for the new bar grid's. Stopped: nothing. |
 | `toggleRetrigger` | | Style Retrigger on/off (`transport.retrigger`). While on, each chord played in a Main restarts the Main at the chord and loops its first `4 / styleSettings.retriggerRate` beats (a whole note .. a 32nd) until a section change, a style change or Retrigger goes off; off, the Main plays on from there. The same chord struck again (after letting go) counts as a chord played. Only Mains retrigger. |
 | `toggleAcmp`, `setAcmp` | `on` | [ACMP] on/off (OM p.44, p.47; `transport.acmp`, default on). Off: START plays the rhythm only, chords played change nothing (the chord parts end their notes), Sync Start starts on any key, Sync Stop and Stop Accompaniment have nothing to act on, and the whole keyboard plays the Right parts (with Left on, Left below the split). Turned on, the chord parts come in with the next chord. An OTS recall and Chord Looper REC turn it on. Stored in Registration (group Style). Launchkey: Shift + encoder page ▼; key `%`; assignable function `acmp`. |
+| `toggleUnison`, `setUnison`, `setUnisonHeld`, `setUnisonType` | `on`; `unisonType` (`root`, `melody`) | Unison (a PSR-SX feature, not a Genos2 one: docs/genos-features.md §C.9). While engaged (latched with `toggleUnison`/`setUnison`, or held with `setUnisonHeld`), each right-hand key also sounds on the Style's pitched parts in the player's rhythm, and note-offs follow the player's: the Bass plays the chord root (on-bass note if any) in C2–B2, or with `melody` the played key folded there; Chord 1, Chord 2 and Pad play the chord tones just below the played key; Phrase 1 and 2 double the key; the drums play on. Those parts' pattern notes rest while it is engaged and come back at their next notes. Works stopped or playing. Not stored. Assignable function `unison` (Hold A: on while held; Toggle: latches). No Launchkey mapping (the pad pages are full). |
 | `setTempo` | `bpm` | Sets the tempo. The range is 5–500 BPM (Genos, OM p.46); values outside are clamped. |
 | `toggleStylePart` | `part` 0–7 | Mutes or unmutes a Style part. |
 | `setStylePartVolume` | `part` 0–7, `volume` 0–127 | The part's CC7. The Launchkey fader has to reach the new value before it takes over again. |
@@ -369,7 +370,7 @@ with the `plugins` feature (the desktop app has it) and the built-in synth
 | Command | Fields | Does |
 |---|---|---|
 | `setPartPlugin` | `part` 0–3, `id`, `state`? | Plays the part on an instrument plugin: `id` from `plugins.list` (for example `"aumu dls  appl"`), `state` a saved preset (base64) or null for the plugin's default. It loads in the background (`keyboardParts[i].plugin.status` `loading`, with the `stage`). The part keeps its SoundFont voice until the plugin is ready, then switches without a click. If the load fails, a plugin that was playing keeps the part; otherwise the part plays its SoundFont voice (`failed`, with the `error`), and picking the plugin again with a null `state` retries it with the state it kept (a restore that timed out, or a plugin reinstalled since, comes back as saved; go back to the SoundFont voice first to start it fresh). A state over 64 MB is refused. Fails at once for an unknown id or with no synth. |
-| `setPartPluginPreset` | `part` 0–3, `id`, `preset` | Plays the part on one of plugin `id`'s AU presets: `preset` is its key (`f:<number>` for a factory preset, set with `kAudioUnitProperty_PresentPreset`; `u:<path>` for an `.aupreset` the scan listed, restored as the plugin's ClassInfo state). The part gets an instance of its own, so one plugin can play a different preset on every part. Loads as `setPartPlugin` does; `keyboardParts[i].plugin.preset` / `presetKey` name it. The part's saved voice keeps it (plugin-parts.json, with the state read once it plays); Registration, OTS and Snapshots store the plugin's state as for any plugin. `assignSound` with a preset id sends it. |
+| `setPartPluginPreset` | `part` 0–3, `id`, `preset` | Plays the part on one of plugin `id`'s AU presets: `preset` is its key (`f:<number>` for a factory preset, set with `kAudioUnitProperty_PresentPreset`; `u:<path>` for an `.aupreset` the scan listed, restored as the plugin's ClassInfo state). The part gets an instance of its own, so one plugin can play a different preset on every part. Loads as `setPartPlugin` does; `keyboardParts[i].plugin.preset` / `presetKey` name it. The part's saved voice keeps it (plugin-parts.json, with the state read once it plays); Registration, OTS and Snapshots store the plugin's state as for any plugin. Once it plays, the preset is a library sound (docs/sound-browser.md): the part's saved voice names it (`sound`: `{ id, name }`), and a factory preset's state is captured into it. `assignSound` with a preset id sends it. |
 | `clearPartPlugin` | `part` 0–3 | Back to the part's SoundFont voice (a 5 ms fade). |
 | `savePartPluginState` | `part` 0–3 | Stores the plugin's current preset (what its editor changed) with the part, so it is kept across restarts. Send it when the editor window closes. The state is read on a thread of its own and lands a moment later; a failed read shows in `message`. |
 | `rescanPlugins` | | Scans the installed instruments again, ignoring the cache (`plugins.scanning` meanwhile). |
@@ -446,7 +447,7 @@ groups are the Data List's lock groups that yahaha has: `splitPoint` (the split 
 Genos2 Style Dynamics Control (OM p.11, p.69; RM p.11, p.142, p.147), with Touch and Accent (#180; docs/genos-features.md, Style Dynamics Control).
 - **Level.** A value from 0 to 127 that scales the velocity of every Style note. At 64 the Style plays as written. The level changes the band's intensity; the parts' CC7 volumes are never touched.
 - **Touch.** Each key struck in the chord section sets the level from that key's velocity.
-- **Accent.** A chord-section key struck at or above the threshold, while a Main plays, starts that Main's fill from the next beat. yahaha's Accent stands in for the PSR-SX Unison & Accent feature: no style carries Yamaha's accent data.
+- **Accent.** A key struck at or above the threshold (a chord-section key; with Source `both`, a right-hand key too) accents. Mode `hits` (the default) plays a one-shot hit from the Style's drum kit on its drum channel, with the style stopped or playing; mode `fill` starts the playing Main's fill from the next beat (stopped, it plays hits). yahaha's Accent stands in for the PSR-SX Unison & Accent feature: no style carries Yamaha's accent data.
 - **Storage.** All of these are System settings. Registration does not store them.
 
 | Command | Fields | What it does |
@@ -457,6 +458,8 @@ Genos2 Style Dynamics Control (OM p.11, p.69; RM p.11, p.142, p.147), with Touch
 | `setDynamicsTouch`, `toggleDynamicsTouch` | `on` | Touch: each chord-section strike sets the level to its velocity × 1.27, so a strike at 100 or harder plays as written. |
 | `setAccent`, `toggleAccent` | `on` | Accent: a chord-section strike at or above the threshold, while a Main plays, starts that Main's own fill at the next beat, as Fill Self does. It is not a Main press, so OTS Link does not follow it. It does nothing during an Intro, fill, break or Ending, or while a change is queued. |
 | `setAccentThreshold` | `velocity` 1–127 | The Accent threshold (default 110). |
+| `setAccentMode` | `mode`: `hits` or `fill` | Accent Mode. `hits` (default): each accent plays two GM drum notes on the Style's kit (channel 10), picked by the strike's velocity: below the midpoint of threshold..120 kick + closed hat, above it kick + snare, from 120 kick + crash; each note's velocity scales with the strike's, retriggers rather than stacks, and ends 150 ms later. Nothing while Rhythm 2 is muted. `fill`: while a Main plays, the Main's own fill as above (stopped, hits). |
+| `setAccentSource` | `source`: `left` or `both` | Accent Source. `left` (default): chord-section strikes accent. `both`: right-hand strikes accent too (Touch still hears the chord section only). |
 
 ### Effects
 The shared effect bus (#204): every part, SoundFont or plugin, feeds three System Effect blocks
@@ -476,6 +479,9 @@ scaled. A change glides in over about 30 ms.
 | `setEffectReturn` | `block`, `level` 0–127 | The block's return level: 64 = 0 dB (default), 127 = +6 dB, 0 = off (Genos). |
 | `setEffectParam` | `block`, `param`, `value` | One of the block's parameters (#236), in the parameter's own unit, clamped to its range (see the table below). A parameter of another block is refused. A change glides on the audio thread, so it never clicks. `setEffectType` puts the block's parameters back to the new type's own values. Stored in Registration with the effects. |
 | `setInsertsOn` | `on` | The style's insertion effects (#269, `effects.inserts`) on or off, all together (default on). Off, every Style part plays dry. Stored in Registration with the effects (`insertsOn`). |
+| `setPartInsertOn` | `part`, `on` | One Style part's (0–7) insertion effect on or off, until the next style. |
+| `setPartInsertAmount` | `part`, `amount` | One Style part's insertion effect amount, 0–127 (drive, squeeze, wah sensitivity, tremolo/rotary depth), until the next style. A part with no insert is refused. |
+| `setRotaryFast` | `on` | Every rotary insert at its fast speed or its slow one; it glides between them (about 1 s up, 2 s down). |
 | `setFollowStyle` | `block`, `on` | Whether the block follows the style's own effect type (#237). On (the default), each style load gives the block the style's type (and the delay's time, feedback and tone, the reverb's time, pre-delay and tone, and the block's return level, as the style sets them; #269), or the block's default type if the style sets none that yahaha has. `setEffectType` turns it off, so the player's choice stays through style changes. Turning it on takes the loaded style's type at once. Stored in Registration with the effects. |
 | `setBandSend` | `block`, `level` 0–127 | The block's band send, in percent: 100 = the Style parts' sends as written, 0 = none of the band, above 100 up to 127 raises them (each part's send at most the whole signal). Defaults: reverb 100, chorus 0, variation 0. Stored in Registration with the effects. |
 | `setPadSend` | `block`, `level` 0–127 | The block's Multi Pad send (#267), in percent: the same scale as `setBandSend`, on the four Multi Pads' sends (channels 5–8). Defaults: reverb 100, chorus 0, variation 0. In the built-in synth only (the MIDI port carries the pads' CCs as written). Stored in Registration with the Multi Pad bank (group Multi Pad). |
@@ -567,6 +573,7 @@ exactly as that command does.
 |---|---|---|
 | `setKnobPage` | `page` `style` \| `parts` \| `pan` \| `reverb` \| `chorus` \| `delay` | The Knob Assign page. One page per effect: knobs 1–4 are Right 1, Right 2, Right 3 and Left's send to it (`setPartSend`, CC91/93/94), knob 8 its return (`setEffectReturn`), knobs 5–7 its parameters (`setEffectParam`, #236): `reverb` Time, Pre-delay, Tone; `chorus` Rate, Depth, (none); `delay` Time, Feedback, Tone. A parameter turn pins its block to the player's own (`followStyle` off, #237). The old names `effects` and `fx` are read as `reverb` and `delay`. |
 | `stepKnobPage` | `delta` | Steps the page, stopping at the first and last (the encoder page buttons ▲/▼). |
+| `resetKnob` | `knob` 0–7 | Puts a knob's function back to its default (the app's double-click): Dynamics to 127, part and Harmony volumes 100, Metronome 90, pan centre, sends dry (0), returns 64, Swing 0, Retrigger off at 1/8, Track Mute all on, Tempo the style's (`resetTempo`), an effect parameter its current type's own. No Assign does nothing. |
 | `turnKnob` | `knob` 0–7, `delta` | Turns a knob `delta` steps (positive: clockwise). Levels move 2 a step, tempo 1 BPM; Retrigger Rate and On/Off switch every 3 steps (right: shorter, on); Track Mute A/B move their position 4 a step. An effect parameter moves its own step (reverb time 0.1 s, pre-delay 2 ms, tones 200 Hz, feedback 2%, chorus rate 0.02 Hz and depth 0.1 ms); the Delay Time knob steps the note value every 3 steps with tempo sync on, or 10 ms a step with it off. A knob with No Assign does nothing. |
 
 ### Sound catalog
@@ -653,6 +660,8 @@ Indices are 0-based unless a field says otherwise.
 | `queued` | string? | The section queued next: at the next bar, or for a fill, at the next beat. |
 | `landing` | string? | The Main a fill (or the Break) queued or playing lands on, e.g. `"Main A"`; null when none is (#282). The first press picks the fill; every later Main press before the fill ends only changes this. Pressing the fill's own Main while it plays queues it once more (`queued` names it), so mashing keeps the fill going. The Launchkey and the app pulse this Main's pad when it is not the fill's own. |
 | `acmp` | bool | [ACMP] is on (the default; `toggleAcmp`). Off: no chord section. |
+| `unison`, `unisonLatched` | bool | Unison is engaged (latched or held by a pedal), and its latched switch (`toggleUnison`). |
+| `unisonType` | `root` \| `melody` | What the Bass plays in Unison (default `root`). |
 | `pendingIntro` | 0–2? | The Intro armed to play at the start. |
 | `main` | 0–3 | The Main (A–D) that is playing or queued to follow. Changes as soon as a Main is pressed. |
 | `bar`, `beat` | 1-based | Position within the section playing. Both are 1 when stopped. |
@@ -1087,7 +1096,7 @@ The sound library (docs/sound-library.md).
 
 | Field | Type | Meaning |
 |---|---|---|
-| `patches` | PatchInfo[] | In the user's order: `id`, `name`, `category`, `tags`, `favourite`, `source`, `defaults`, `available` (false: it plays the SoundFont fallback) and `note` (why, e.g. "needs plugin hosting (#91)"). `source` is `{ "kind": "soundFont", "file", "bank", "program" }` (bank 128 = drum kits) or `{ "kind": "plugin", "componentId", "state" }` (the Audio Unit's id, as #91 writes it, and its state, base64). `defaults`: `volume`, `pan`, `reverb`, `chorus` (0–127 or null) and `octave` (−2..2). |
+| `patches` | PatchInfo[] | In the user's order: `id`, `name`, `category`, `tags`, `favourite`, `source`, `defaults`, `available` (false: it plays the SoundFont fallback) and `note` (why, e.g. "needs plugin hosting (#91)"). `source` is `{ "kind": "soundFont", "file", "bank", "program" }` (bank 128 = drum kits) or `{ "kind": "plugin", "componentId", "state", "origin"? }` (the Audio Unit's id, as #91 writes it, and its state, base64). A plugin source is the one kind of plugin sound (docs/sound-browser.md): `origin` (absent = made in yahaha) is `{ "kind": "factory", "number" }` or `{ "kind": "file", "path" }` (an `.aupreset`). A factory preset's `state` is empty until it first plays, when it is captured. A rule command naming a plugin preset id (`au:<id>#f:<n>` or `#u:<path>`) uses that preset's one library sound, adding it once. `defaults`: `volume`, `pan`, `reverb`, `chorus` (0–127 or null) and `octave` (−2..2). |
 | `categories` | object[] | The Genos voice categories in display order: `id` (`piano`, `ePiano`, `organ`, `guitar`, `bass`, `strings`, `brass`, `saxWoodwind`, `synthLead`, `pad`, `choir`, `drumsPerc`, `sfx`) and `label`. |
 | `families` | string[16] | The GM family names; family `i` is programs 8i … 8i+7. |
 | `map` | ProgramMap | The global map: `families` (16 patch ids or null), `overrides` (`{ program, patch }`, by program) and `drums` (a patch id or null). |
@@ -1133,11 +1142,13 @@ Parameter Lock: `{ splitPoint, fingeringType }`, each a bool (true: locked). All
 default.
 
 ### `dynamics`
-Style Dynamics: `{ control, level, touch, accent, accentThreshold }`.
+Style Dynamics: `{ control, level, touch, accent, accentThreshold, accentMode, accentSource }`.
 - `control`: Style Setting › Dynamics Control. Default true.
 - `level`: the level in effect, 0–127. Touch moves it. Default 127 (as written); each style load sets it back to 127.
 - `touch`, `accent`: default false.
 - `accentThreshold`: a velocity from 1 to 127. Default 110.
+- `accentMode`: `hits` (default) or `fill`.
+- `accentSource`: `left` (default) or `both`.
 
 ### `knobs`
 The Knob Assign page: `{ page, pageName, pageNumber, pageCount, knobs }`.
@@ -1184,9 +1195,10 @@ block as `{ name, effect }` (`name` the XG type, "Real Medium Hall"; `effect` th
 plays as, null if nothing is near it), or null when the style sets none; and `followStyle`
 (`setFollowStyle`).
 `inserts` (#269): the loaded style's insertion effects, one per Style part at most, each
-`{ part, partName, name, effect }`: `part` 0–7, `name` the XG type ("British Combo
+`{ part, partName, name, effect, on, amount }`: `part` 0–7, `name` the XG type ("British Combo
 Classic"), `effect` what plays it here (`distortion`, `compressor`, `autoWah`, `tremolo`,
-`rotary`) or null (the part plays dry); `insertsOn` (`setInsertsOn`).
+`rotary`) or null (the part plays dry), `on` (`setPartInsertOn`), `amount` 0–127
+(`setPartInsertAmount`); `insertsOn` (`setInsertsOn`); `rotaryFast` (`setRotaryFast`).
 
 ### `message`
 `{ seq, text, error }` or null. It holds the last notice or error, for example a style
@@ -1299,6 +1311,9 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
     ],
     "halfBarFill": false,
     "stopAcmpMode": "off",
+    "unison": false,
+    "unisonLatched": false,
+    "unisonType": "root",
     "fade": "off",
     "retrigger": false,
     "ritardando": false
@@ -1869,7 +1884,7 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
   },
   "paramLocks": { "splitPoint": false, "fingeringType": true },
   "sounds": { "revision": 3, "count": 1219, "scanning": false, "auditioning": null },
-  "dynamics": { "control": true, "level": 72, "touch": true, "accent": true, "accentThreshold": 110 },
+  "dynamics": { "control": true, "level": 72, "touch": true, "accent": true, "accentThreshold": 110, "accentMode": "hits", "accentSource": "left" },
   "knobs": {
     "page": "style",
     "pageName": "Style",
@@ -1921,7 +1936,7 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
         "types": [{ "effect": "eighth", "name": "Delay 1/8" }, { "effect": "dottedEighth", "name": "Delay 1/8." }, { "effect": "quarter", "name": "Delay 1/4" }, { "effect": "pingPong", "name": "Ping-Pong" }]
       }
     ],
-    "inserts": [], "insertsOn": true
+    "inserts": [], "insertsOn": true, "rotaryFast": false
   },
   "home": { "mains": [], "progress": { "running": false, "bar": 1, "beat": 1, "bars": null, "beatsPerBar": 4, "fraction": 0.0 }, "snapshot": null, "ots": null, "bandSends": [] },
   "message": null

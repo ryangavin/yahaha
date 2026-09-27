@@ -16,6 +16,12 @@ impl Control {
                     return self.apply(cmd);
                 }
             }
+            KnobsCmd::ResetKnob { knob } => {
+                let now = self.knobs_now();
+                if let Some(cmd) = self.knobs.reset(knob, &now) {
+                    return self.apply(cmd);
+                }
+            }
         }
         Ok(())
     }
@@ -35,6 +41,13 @@ impl Control {
             part_fx: [0, 1, 2, 3].map(|p| parts.fx(p)),
             fx_return: self.fx.returns,
             fx_params: self.fx.params,
+            fx_defaults: {
+                let mut d = crate::fx::default_params();
+                for b in crate::api::FxBlock::ALL {
+                    crate::fx::type_defaults(b.index(), b.type_index(self.fx.effect[b.index()]), &mut d);
+                }
+                d
+            },
         }
     }
 

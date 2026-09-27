@@ -39,6 +39,10 @@ const EVERY_CMD: &[&str] = &[
     r#"{"type":"resetTempo"}"#,
     r#"{"type":"toggleAcmp"}"#,
     r#"{"type":"setAcmp","on":false}"#,
+    r#"{"type":"toggleUnison"}"#,
+    r#"{"type":"setUnison","on":true}"#,
+    r#"{"type":"setUnisonHeld","on":true}"#,
+    r#"{"type":"setUnisonType","unisonType":"melody"}"#,
     r#"{"type":"toggleFade"}"#,
     r#"{"type":"sectionReset"}"#,
     r#"{"type":"toggleRetrigger"}"#,
@@ -299,10 +303,13 @@ const EVERY_CMD: &[&str] = &[
     r#"{"type":"setAccent","on":true}"#,
     r#"{"type":"toggleAccent"}"#,
     r#"{"type":"setAccentThreshold","velocity":110}"#,
+    r#"{"type":"setAccentMode","mode":"fill"}"#,
+    r#"{"type":"setAccentSource","source":"both"}"#,
     // Knob Assign pages (#197)
     r#"{"type":"setKnobPage","page":"parts"}"#,
     r#"{"type":"stepKnobPage","delta":-1}"#,
     r#"{"type":"turnKnob","knob":3,"delta":-2}"#,
+    r#"{"type":"resetKnob","knob":3}"#,
     r#"{"type":"setEffectType","block":"reverb","effect":"plate"}"#,
     r#"{"type":"setEffectType","block":"variation","effect":"pingPong"}"#,
     r#"{"type":"setEffectReturn","block":"chorus","level":90}"#,
@@ -313,6 +320,9 @@ const EVERY_CMD: &[&str] = &[
     r#"{"type":"setEffectParam","block":"chorus","param":"chorusDepth","value":30}"#,
     r#"{"type":"setFollowStyle","block":"variation","on":false}"#,
     r#"{"type":"setInsertsOn","on":false}"#,
+    r#"{"type":"setPartInsertOn","part":3,"on":false}"#,
+    r#"{"type":"setPartInsertAmount","part":3,"amount":100}"#,
+    r#"{"type":"setRotaryFast","on":true}"#,
 ];
 
 fn type_of(json: &str) -> String {

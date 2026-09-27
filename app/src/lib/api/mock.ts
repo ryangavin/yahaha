@@ -216,6 +216,7 @@ export function initialState(): AppState {
       beatsPerBar: beatsPerBar([s.timeSignature[0], s.timeSignature[1]]), tempo: s.tempo, lamps: [], sectionBars: null,
       halfBarFill: false, stopAcmpMode: 'off',
       fade: 'off', retrigger: false, ritardando: false, acmp: true,
+      unison: false, unisonLatched: false, unisonType: 'root',
     },
     chord: {
       name: null, fingered: null, fingering: 'fingeredOnBass', fingeringName: 'Fingered On Bass', upper: false,
@@ -282,7 +283,7 @@ export function initialState(): AppState {
     soundLibrary: initialSoundLibrary(),
     paramLocks: { splitPoint: false, fingeringType: false },
     sounds: initialSounds(),
-    dynamics: { control: true, level: 127, touch: false, accent: false, accentThreshold: 110 },
+    dynamics: { control: true, level: 127, touch: false, accent: false, accentThreshold: 110, accentMode: 'hits', accentSource: 'left' },
     knobs: { page: 'style', pageName: 'Style', pageNumber: 1, pageCount: 6, knobs: [] },
     effects: initialEffects(),
     home: { mains: [], progress: { running: false, bar: 1, beat: 1, bars: null, beatsPerBar: 4, fraction: 0 }, snapshot: null, ots: null, bandSends: [] },
@@ -390,6 +391,8 @@ export class MockSession implements Session {
   private tapStart: number | null = null
   /** The Stop Accompaniment mode the toggle turns back on. */
   private lastStopAcmp: StopAcmpMode = 'style'
+  /** A Hold pedal holds Unison on. */
+  private unisonHeld = false
   private now = 0
   private progression = 0
   private messageSeq = 0
@@ -1241,6 +1244,18 @@ export class MockSession implements Session {
       case 'setAcmp':
         t.acmp = cmd.type === 'setAcmp' ? cmd.on : !t.acmp
         break
+      case 'toggleUnison':
+      case 'setUnison':
+        t.unisonLatched = cmd.type === 'setUnison' ? cmd.on : !t.unisonLatched
+        t.unison = t.unisonLatched || this.unisonHeld
+        break
+      case 'setUnisonHeld':
+        this.unisonHeld = cmd.on
+        t.unison = t.unisonLatched || cmd.on
+        break
+      case 'setUnisonType':
+        t.unisonType = cmd.unisonType
+        break
       case 'setMainTiming':
       case 'setIntroEndingTiming':
       case 'setSyncStopWindow':
@@ -1856,6 +1871,12 @@ export class MockSession implements Session {
       case 'setAccentThreshold':
         this.state.dynamics.accentThreshold = Math.max(1, clampLevel(cmd.velocity))
         break
+      case 'setAccentMode':
+        this.state.dynamics.accentMode = cmd.mode
+        break
+      case 'setAccentSource':
+        this.state.dynamics.accentSource = cmd.source
+        break
       // Knob Assign pages (#197): a turn runs its function's command, as the session does.
       case 'setKnobPage':
         this.knobs.setPage(cmd.page)
@@ -1865,6 +1886,11 @@ export class MockSession implements Session {
         break
       case 'turnKnob': {
         const c = this.knobs.turn(cmd.knob, cmd.delta, this.state)
+        if (c) this.cmd(c)
+        break
+      }
+      case 'resetKnob': {
+        const c = this.knobs.reset(cmd.knob, this.state)
         if (c) this.cmd(c)
         break
       }
@@ -1917,6 +1943,19 @@ export class MockSession implements Session {
         break
       case 'setInsertsOn':
         this.state.effects.insertsOn = cmd.on
+        break
+      case 'setPartInsertOn': {
+        const i = this.state.effects.inserts.find((x) => x.part === cmd.part)
+        if (i) i.on = cmd.on
+        break
+      }
+      case 'setPartInsertAmount': {
+        const i = this.state.effects.inserts.find((x) => x.part === cmd.part && x.effect !== null)
+        if (i) i.amount = clampLevel(cmd.amount)
+        break
+      }
+      case 'setRotaryFast':
+        this.state.effects.rotaryFast = cmd.on
         break
       case 'setBandSend':
         this.state.effects.blocks.find((x) => x.block === cmd.block)!.bandSend = clampLevel(cmd.level)
@@ -1992,8 +2031,9 @@ export function initialEffects(): EffectsState {
       block('variation', 'Variation', 'dottedEighth', [['eighth', 'Delay 1/8'], ['dottedEighth', 'Delay 1/8.'], ['quarter', 'Delay 1/4'], ['pingPong', 'Ping-Pong']], 0),
     ],
     // The mock style's insertion effect (#269) on Chord 1, as the Rust mock's.
-    inserts: [{ part: 3, partName: 'Chord 1', name: 'British Combo Classic', effect: 'distortion' }],
+    inserts: [{ part: 3, partName: 'Chord 1', name: 'British Combo Classic', effect: 'distortion', on: true, amount: 64 }],
     insertsOn: true,
+    rotaryFast: false,
   }
 }
 

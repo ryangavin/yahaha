@@ -16,6 +16,7 @@ use super::sections::part_group;
 use crate::api::{base64_decode, PluginStatus};
 use crate::parts;
 use crate::registration::{Bank, Groups, VoiceRef};
+use crate::patches::SoundTag;
 use crate::session::PluginVoice;
 use serde_json::Value;
 use std::sync::atomic::Ordering::Relaxed;
@@ -51,7 +52,7 @@ pub(super) fn bank_plugin_voices(b: &Bank) -> Vec<PluginVoice> {
         for part in parts {
             let Some(Ok(VoiceRef::Plugin { id, state, .. })) = part.get("voice").map(|v| serde_json::from_value::<VoiceRef>(v.clone())) else { continue };
             let Some(state) = state.map(|s| base64_decode(&s)).map_or(Some(None), |d| d.map(Some)) else { continue };
-            let v = PluginVoice { id, state, preset: None };
+            let v = PluginVoice { id, state, preset: None, sound: None };
             match here.iter_mut().find(|(w, _)| *w == v) {
                 Some((_, n)) => *n += 1,
                 None => here.push((v, 1)),
@@ -83,14 +84,17 @@ impl Control {
         let (id, state) = self.part_plugin_voice(p)?;
         let name = self.channel_plugin_state(parts::CHANNEL[p]).map(|s| s.name).unwrap_or_default();
         let state = state.filter(|s| s.len() <= MAX_STATE_B64);
-        Some(VoiceRef::Plugin { id, name, state, program: self.shared.parts.program[p].load(Relaxed) & 127 })
+        Some(VoiceRef::Plugin { id, name, state, program: self.shared.parts.program[p].load(Relaxed) & 127, sound: None })
     }
 
     /// Recall part `p`'s plugin: nothing when it already plays that plugin with that
     /// state (playing or loading); else load it as `setPartPlugin` does (the part's library
     /// patch ends). A plugin that can't play (not installed, no plugin host in this build)
     /// leaves the part on its GM voice, and says so.
-    pub(super) fn recall_part_plugin(&mut self, p: usize, id: &str, name: &str, state: Option<&str>) -> Result<(), String> {
+    ///
+    /// `sound` is the Sound the record names; a record from before sounds had ids names
+    /// none, and gets the library's sound with exactly that state, if there is one.
+    pub(super) fn recall_part_plugin(&mut self, p: usize, id: &str, name: &str, state: Option<&str>, sound: Option<&SoundTag>) -> Result<(), String> {
         let ch = parts::CHANNEL[p];
         let same = !self.part_has_patch_plugin(p)
             && self.part_plugin_voice(p).is_some_and(|(i, s)| i == id && s.as_deref() == state)
@@ -106,7 +110,8 @@ impl Control {
         self.sound_library_part_plugin(p, true);
         // A preloaded instance is used up: the pool refills at the next pump.
         self.reg.warm_dirty = true;
-        let r = self.assign_channel_plugin(ch, PluginVoice { id: id.to_string(), state: bytes, preset: None });
+        let sound = sound.cloned().or_else(|| self.sound_tag_for_state(id, state.unwrap_or_default()));
+        let r = self.assign_channel_plugin(ch, PluginVoice { id: id.to_string(), state: bytes, preset: None, sound });
         if r.is_err() {
             self.clear_channel_plugin(ch);
         }

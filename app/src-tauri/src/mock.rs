@@ -168,6 +168,8 @@ pub struct MockSession {
     /// left (ms).
     settings: StyleSettings,
     fade_left: f64,
+    /// A Hold pedal holds Unison on (`setUnisonHeld`).
+    unison_held: bool,
     /// Registration Memory and the Playlist (in memory).
     regist: MockRegist,
     /// The Chord Looper, as the engine runs it (mock_looper.rs).
@@ -262,6 +264,9 @@ impl MockSession {
                 lamps: vec![],
                 half_bar_fill: false,
                 stop_acmp_mode: StopAcmpMode::Off,
+                unison: false,
+                unison_latched: false,
+                unison_type: Default::default(),
                 fade: FadeState::Off,
                 retrigger: false,
                 acmp: true,
@@ -387,6 +392,8 @@ impl MockSession {
                     part_name: "Chord 1".into(),
                     name: "British Combo Classic".into(),
                     effect: Some(InsertEffect::Distortion),
+                    on: true,
+                    amount: 64,
                 }],
                 ..EffectsState::initial()
             },
@@ -416,6 +423,7 @@ impl MockSession {
             chart_end: false,
             settings: StyleSettings::default(),
             fade_left: 0.0,
+            unison_held: false,
             regist: MockRegist::new(&songs),
             looper: MockLooper::default(),
             pads: multipad::MockPads::default(),
@@ -677,6 +685,15 @@ impl MockSession {
             }),
             fx_return: [0, 1, 2].map(|b| s.effects.blocks[b].return_level),
             fx_params: self.fx_params(),
+            fx_defaults: {
+                let mut d = [0u16; yahaha::fx::PARAMS];
+                for b in &s.effects.blocks {
+                    for p in &b.params {
+                        d[p.param.index()] = p.default;
+                    }
+                }
+                d
+            },
         }
     }
 
@@ -1558,6 +1575,22 @@ impl MockSession {
             AppCmd::Transport(TransportCmd::ToggleRetrigger) => self.state.transport.retrigger = !self.state.transport.retrigger,
             AppCmd::Transport(TransportCmd::ToggleAcmp) => self.state.transport.acmp = !self.state.transport.acmp,
             AppCmd::Transport(TransportCmd::SetAcmp { on }) => self.state.transport.acmp = on,
+            AppCmd::Transport(TransportCmd::ToggleUnison) => {
+                let t = &mut self.state.transport;
+                t.unison_latched = !t.unison_latched;
+                t.unison = t.unison_latched || self.unison_held;
+            }
+            AppCmd::Transport(TransportCmd::SetUnison { on }) => {
+                let t = &mut self.state.transport;
+                t.unison_latched = on;
+                t.unison = on || self.unison_held;
+            }
+            AppCmd::Transport(TransportCmd::SetUnisonHeld { on }) => {
+                self.unison_held = on;
+                let t = &mut self.state.transport;
+                t.unison = t.unison_latched || on;
+            }
+            AppCmd::Transport(TransportCmd::SetUnisonType { unison_type }) => self.state.transport.unison_type = unison_type,
             AppCmd::Transport(TransportCmd::TapTempo) if running && self.settings.section_reset => self.reset_section(),
             AppCmd::StyleSettings(c) => {
                 self.settings = c.apply(self.settings);
@@ -1919,6 +1952,12 @@ impl MockSession {
                         self.cmd(cmd);
                     }
                 }
+                KnobsCmd::ResetKnob { knob } => {
+                    let now = self.knobs_now();
+                    if let Some(cmd) = self.knobs.reset(knob, &now) {
+                        self.cmd(cmd);
+                    }
+                }
             },
             // The effect bus (#204), as the session: a type must be the block's own.
             AppCmd::Fx(FxCmd::SetEffectType { block, effect }) => {
@@ -1948,6 +1987,16 @@ impl MockSession {
             }
             AppCmd::Fx(FxCmd::SetEffectReturn { block, level }) => self.state.effects.blocks[block.index()].return_level = level.min(127),
             AppCmd::Fx(FxCmd::SetInsertsOn { on }) => self.state.effects.inserts_on = on,
+            AppCmd::Fx(FxCmd::SetPartInsertOn { part, on }) => {
+                if let Some(i) = self.state.effects.inserts.iter_mut().find(|i| i.part == part) {
+                    i.on = on;
+                }
+            }
+            AppCmd::Fx(FxCmd::SetPartInsertAmount { part, amount }) => match self.state.effects.inserts.iter_mut().find(|i| i.part == part && i.effect.is_some()) {
+                Some(i) => i.amount = amount.min(127),
+                None => self.message(format!("Style part {part} has no insertion effect"), true),
+            },
+            AppCmd::Fx(FxCmd::SetRotaryFast { on }) => self.state.effects.rotary_fast = on,
             AppCmd::Fx(FxCmd::SetFollowStyle { block, on }) => self.state.effects.blocks[block.index()].follow_style = on,
             AppCmd::Fx(FxCmd::SetBandSend { block, level }) => self.state.effects.blocks[block.index()].band_send = level.min(127),
             AppCmd::Fx(FxCmd::SetPadSend { block, level }) => self.state.effects.blocks[block.index()].pad_send = level.min(127),
@@ -1985,6 +2034,8 @@ impl MockSession {
                     touch: d.touch,
                     accent: d.accent,
                     accent_min: d.accent_threshold,
+                    accent_mode: d.accent_mode,
+                    accent_source: d.accent_source,
                 };
                 self.state.dynamics = c.apply(now).into();
             }
@@ -2668,6 +2719,12 @@ mod tests {
         m.send(ControllersCmd::TriggerFunction { function: Function::RegistBankNext });
         assert!(m.state.registration.bank.path.is_some());
         assert_ne!(m.state.registration.bank.path, before);
+        // Snapshot Bank +/−: the BANK -/+ pads' command (`StepSnapshotBank`).
+        let view = m.state.registration.snapshot_bank;
+        m.send(ControllersCmd::TriggerFunction { function: Function::SnapshotBankNext });
+        assert_eq!(m.state.registration.snapshot_bank, view + 1);
+        m.send(ControllersCmd::TriggerFunction { function: Function::SnapshotBankPrev });
+        assert_eq!(m.state.registration.snapshot_bank, view);
         // Regist + (#200): the demo bank's first stored button, then the next one.
         m.send(RegistrationCmd::SetRegistSequenceOn { on: false });
         m.send(ControllersCmd::TriggerFunction { function: Function::RegistNext });
@@ -2948,6 +3005,12 @@ mod tests {
         m.send(KnobsCmd::TurnKnob { knob: 3, delta: -1 });
         assert_eq!(m.state.keyboard_parts[3].volume, v.saturating_sub(2));
         assert_eq!(m.state.knobs.page_number, 2);
+        // A double-click puts it back: volume 100, then Dynamics to max.
+        m.send(KnobsCmd::ResetKnob { knob: 3 });
+        assert_eq!(m.state.keyboard_parts[3].volume, 100);
+        m.send(KnobsCmd::SetKnobPage { page: yahaha::knobs::KnobPage::Style });
+        m.send(KnobsCmd::ResetKnob { knob: 0 });
+        assert_eq!(m.state.dynamics.level, 127);
     }
 
     /// Style Dynamics (#180): commands apply to the settings in effect and clamp, as the
@@ -2961,8 +3024,11 @@ mod tests {
         m.send(DynamicsCmd::ToggleAccent);
         m.send(DynamicsCmd::SetAccentThreshold { velocity: 0 });
         m.send(DynamicsCmd::SetDynamicsTouch { on: true });
+        m.send(DynamicsCmd::SetAccentMode { mode: yahaha::engine::AccentMode::Fill });
+        m.send(DynamicsCmd::SetAccentSource { source: yahaha::engine::AccentSource::Both });
         let d = &m.state.dynamics;
         assert_eq!((d.level, d.accent, d.accent_threshold, d.touch, d.control), (127, true, 1, true, true));
+        assert_eq!((d.accent_mode, d.accent_source), (yahaha::engine::AccentMode::Fill, yahaha::engine::AccentSource::Both));
     }
 
     /// As the session's Parameter Lock: a locked group keeps the player's setting through

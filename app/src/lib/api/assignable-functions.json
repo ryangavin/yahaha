@@ -474,5 +474,26 @@
     "category": "style",
     "kind": "trigger",
     "available": true
+  },
+  {
+    "id": "snapshotBankNext",
+    "name": "Snapshot Bank +",
+    "category": "registration",
+    "kind": "trigger",
+    "available": true
+  },
+  {
+    "id": "snapshotBankPrev",
+    "name": "Snapshot Bank −",
+    "category": "registration",
+    "kind": "trigger",
+    "available": true
+  },
+  {
+    "id": "unison",
+    "name": "Unison",
+    "category": "style",
+    "kind": "switch",
+    "available": true
   }
 ]

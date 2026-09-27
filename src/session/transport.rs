@@ -36,6 +36,9 @@ impl Control {
             fade: s.fade,
             retrigger: s.retrigger,
             ritardando: s.ritardando,
+            unison: s.unison,
+            unison_latched: s.unison_latched,
+            unison_type: s.unison_type,
         }
     }
 }

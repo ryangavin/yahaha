@@ -77,6 +77,8 @@ pub(super) struct Features {
     pub(super) dynamics: super::dynamics::Dynamics,
     /// [ACMP] on/off: acmp.rs.
     pub(super) acmp: super::acmp::Acmp,
+    /// Unison: unison.rs.
+    pub(super) unison: super::unison::Unison,
     /// A TEMPO button held down: tempo_repeat.rs.
     pub(super) tempo_repeat: super::tempo_repeat::TempoRepeat,
     /// Tempo changes written inside a section: section_tempo.rs.

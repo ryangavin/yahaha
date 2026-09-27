@@ -318,7 +318,10 @@
     "retrigger": false,
     "ritardando": false,
     "halfBarFill": false,
-    "stopAcmpMode": "off"
+    "stopAcmpMode": "off",
+    "unison": false,
+    "unisonLatched": false,
+    "unisonType": "root"
   },
   "chord": {
     "name": "G7",
@@ -2094,7 +2097,9 @@
     "level": 64,
     "touch": false,
     "accent": false,
-    "accentThreshold": 110
+    "accentThreshold": 110,
+    "accentMode": "hits",
+    "accentSource": "left"
   },
   "knobs": {
     "page": "style",
@@ -2356,10 +2361,13 @@
         "part": 3,
         "partName": "Chord 1",
         "name": "British Combo Classic",
-        "effect": "distortion"
+        "effect": "distortion",
+        "on": true,
+        "amount": 64
       }
     ],
-    "insertsOn": true
+    "insertsOn": true,
+    "rotaryFast": false
   },
   "home": {
     "mains": [],

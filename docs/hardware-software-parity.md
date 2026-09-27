@@ -34,7 +34,7 @@ Audited 2026-09-26 against `develop` at e54b512.
 | OTS/Parts | Fade | `toggleFade` | StylePage |
 | OTS/Parts | Voice −/+ | `stepVoice` | mirror only |
 | OTS/Parts | Part on/off, part select | `togglePart` / `selectPart` | parts/PartStrip.svelte; mixer/Mixer.svelte |
-| Registration | Regist 1–10, Bank −/+, Memory, Freeze, Sequence −/+ | `pressRegist` / `stepRegistBank` / `toggleRegistMemory` / `toggleFreeze` / `stepRegistSequence` | registration/RegistBar.svelte, Registration.svelte |
+| Registration | Snapshots 1–8, Snapshot Bank −/+ (BANK -/+), File −/+, Memory, Freeze, Sequence −/+ | `pressSnapshot` / `stepSnapshotBank` / `stepRegistBank` / `toggleRegistMemory` / `toggleFreeze` / `stepRegistSequence` | registration/RegistBar.svelte, Registration.svelte |
 | Multi Pads | Pads 1–4, STOP, arm, stop one | `triggerMultiPad` / `stopAllMultiPads` / `armMultiPad` / `stopMultiPad` | multipad/MultiPad.svelte |
 
 ## Buttons
@@ -97,7 +97,8 @@ function with its "Try" button (`triggerFunction`).
 | Fill Down/Self/Break/Up | `fillDown` / `fillSelf` / `fillBreak` / `fillUp` | settings/FillButtons.svelte |
 | Section Reset | `sectionReset` | mirror only |
 | OTS Link, OTS 1–4, OTS next/prev | `toggleOtsLink` / `recallOts` | Parts |
-| Regist Bank ±, Regist 1–10, Memory, Freeze, Sequence | as the pads | RegistBar, Registration |
+| Unison (pedal function `unison`; no Launchkey pad) | `toggleUnison` / `setUnisonHeld` / `setUnisonType` | settings/StylePage.svelte (`transport.unison`, `settings.unison_type` tips) |
+| Regist Bank ±, Snapshot Bank ± (pedal functions `snapshotBankNext`/`snapshotBankPrev`), Regist 1–10, Memory, Freeze, Sequence | as the pads | RegistBar (◀ letter ▶ readout, `regist.snap_bank*` tips), Registration, PedalsPage |
 | Regist next/prev | `stepRegist` | **MISSING** (RegistBar sends `stepRegistSequence`) |
 | Transpose ±, part on/off, Fingered On Bass, Harmony/Arp, Chord Looper, Left Hold | as above | TransposePage, PartStrip, ChordPage, Harmony, Looper, Parts |
 | Arp Hold (pedal) | `toggleArpPedalHold` | **MISSING** (Harmony's "Arp Hold" is the panel switch `toggleArpHold`) |
@@ -118,6 +119,18 @@ Mirror only, which needs a dedicated control:
 7. `sectionReset`: in TransportBar or FillButtons.
 8. `stepVoice`: in PartStrip.
 9. `reloadPartPlugin`: in PartStrip, next to the plugin toggle.
+
+## Insertion effects
+
+The style's per-part insertion effects (#269) have no Launchkey control; the app has them
+all, in mixer/Mixer.svelte (Inserts row):
+
+| Function | AppCmd | App control |
+|---|---|---|
+| All inserts on/off | `setInsertsOn` | Mixer "Inserts" |
+| One part's insert on/off | `setPartInsertOn` | Mixer, the part's name toggle |
+| One part's insert amount (drive, squeeze, sensitivity, depth) | `setPartInsertAmount` | Mixer, the part's "Amt" knob |
+| Rotary speaker fast/slow | `setRotaryFast` | Mixer "Rotary Fast" |
 
 ## AU presets (sound browser)
 

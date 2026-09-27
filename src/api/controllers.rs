@@ -89,6 +89,7 @@ pub fn function_run(f: Function, fingering: crate::fingering::Fingering, ots_cou
             Function::KbdHarmonyArp => super::HarmonyArpCmd::ToggleHarmonyArp.into(),
             Function::ArpHold => super::HarmonyArpCmd::ToggleArpPedalHold.into(),
             Function::LeftHold => super::ChordCmd::ToggleLeftHold.into(),
+            Function::Unison => super::TransportCmd::ToggleUnison.into(),
             _ => return Err(format!("{} can't be run here", info.name)),
         },
         Effect::Control => match f {
@@ -112,6 +113,9 @@ pub fn function_run(f: Function, fingering: crate::fingering::Fingering, ots_cou
             // The REGIST BANK [+]/[−] buttons (RM p.144).
             Function::RegistBankNext => super::RegistrationCmd::StepRegistBank { delta: 1 }.into(),
             Function::RegistBankPrev => super::RegistrationCmd::StepRegistBank { delta: -1 }.into(),
+            // The snapshot bank on view: the Launchkey's BANK -/+ pads (`Action::SnapshotBank`).
+            Function::SnapshotBankNext => super::RegistrationCmd::StepSnapshotBank { delta: 1 }.into(),
+            Function::SnapshotBankPrev => super::RegistrationCmd::StepSnapshotBank { delta: -1 }.into(),
             // Regist +/− (RM p.114 Pedal Control), the REGISTRATION MEMORY buttons, MEMORY,
             // and the Freeze and Sequence switches (RM p.141).
             Function::RegistNext => super::RegistrationCmd::StepRegist { delta: 1 }.into(),
@@ -156,6 +160,7 @@ pub fn function_set(f: Function, on: bool) -> Option<super::AppCmd> {
         Function::KbdHarmonyArp => Some(super::HarmonyArpCmd::SetHarmonyArpOn { on }.into()),
         Function::ArpHold => Some(super::HarmonyArpCmd::SetArpPedalHold { on }.into()),
         Function::LeftHold => Some(super::ChordCmd::SetLeftHold { on }.into()),
+        Function::Unison => Some(super::TransportCmd::SetUnisonHeld { on }.into()),
         _ => None,
     }
 }

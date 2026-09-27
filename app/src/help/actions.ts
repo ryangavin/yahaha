@@ -133,6 +133,10 @@ export function tipFor(cmd: AppCmd | null): TipKey {
     case 'toggleRetrigger': return 'transport.retrigger'
     case 'toggleAcmp':
     case 'setAcmp': return 'transport.acmp'
+    case 'toggleUnison':
+    case 'setUnison':
+    case 'setUnisonHeld': return 'transport.unison'
+    case 'setUnisonType': return 'settings.unison_type'
     case 'stepRetriggerRate': return cmd.delta < 0 ? 'transport.retrigger_longer' : 'transport.retrigger_shorter'
     case 'setRetriggerRate': return 'settings.retrigger_rate'
     case 'setSwing':
@@ -278,10 +282,13 @@ export function tipFor(cmd: AppCmd | null): TipKey {
     case 'setAccent':
     case 'toggleAccent': return 'dynamics.accent'
     case 'setAccentThreshold': return 'dynamics.accent_threshold'
+    case 'setAccentMode': return cmd.mode === 'fill' ? 'dynamics.accent_mode_fill' : 'dynamics.accent_mode_hits'
+    case 'setAccentSource': return cmd.source === 'both' ? 'dynamics.accent_source_both' : 'dynamics.accent_source_left'
     // Knob Assign pages (#197).
     case 'setKnobPage':
     case 'stepKnobPage': return 'knobs.page'
     case 'turnKnob': return 'knobs.knob'
+    case 'resetKnob': return 'knobs.knob'
     // The effect bus (#204).
     case 'setEffectType': return `fx.${cmd.block}_type`
     case 'setEffectReturn': return `fx.${cmd.block}_return`
@@ -289,6 +296,9 @@ export function tipFor(cmd: AppCmd | null): TipKey {
     case 'setPadSend': return `fx.${cmd.block}_pad`
     case 'setFollowStyle': return 'fx.follow_style'
     case 'setInsertsOn': return 'fx.inserts'
+    case 'setPartInsertOn': return 'fx.insert_part'
+    case 'setPartInsertAmount': return 'fx.insert_amount'
+    case 'setRotaryFast': return 'fx.rotary_fast'
     case 'setEffectParam': return ({ reverbTime: 'fx.param.reverb_time', preDelay: 'fx.param.pre_delay', reverbTone: 'fx.param.reverb_tone', delaySync: 'fx.param.delay_sync', delayNote: 'fx.param.delay_note', delayTime: 'fx.param.delay_time', delayFeedback: 'fx.param.delay_feedback', delayTone: 'fx.param.delay_tone', pingPong: 'fx.param.ping_pong', chorusRate: 'fx.param.chorus_rate', chorusDepth: 'fx.param.chorus_depth' } as const)[cmd.param]
   }
 }

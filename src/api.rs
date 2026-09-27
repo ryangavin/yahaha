@@ -217,6 +217,10 @@ impl From<Button> for AppCmd {
             Button::Retrigger => TransportCmd::ToggleRetrigger.into(),
             Button::Acmp => TransportCmd::ToggleAcmp.into(),
             Button::SetAcmp(on) => TransportCmd::SetAcmp { on }.into(),
+            Button::Unison => TransportCmd::ToggleUnison.into(),
+            Button::SetUnison(on) => TransportCmd::SetUnison { on }.into(),
+            Button::UnisonHeld(on) => TransportCmd::SetUnisonHeld { on }.into(),
+            Button::SetUnisonType(unison_type) => TransportCmd::SetUnisonType { unison_type }.into(),
         }
     }
 }
