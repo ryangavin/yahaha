@@ -6,3 +6,8 @@ docs/manuals/
 tests/golden/local/
 /.claude/worktrees/
 .DS_Store
+# bacon, the agent feedback loop (bacon.toml, scripts/agent-feedback.sh)
+.bacon-result.json
+.bacon.log
+.bacon.pid
+.bacon.job
