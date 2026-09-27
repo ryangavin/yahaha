@@ -43,7 +43,7 @@ MAIN = '''
 <div style="flex-grow: 1; min-height: 0; display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); grid-template-rows: 36px minmax(0, 1fr) minmax(0, 1.25fr); gap: 5px">
 <sc-for list="{{lkKnobs}}" as="k" hint-placeholder-count="8"><div title="{{k.tip}}" style="display: flex; align-items: center; justify-content: center; gap: 6px; opacity: {{k.op}}"><svg width="28" height="28" viewBox="0 0 22 22" aria-hidden="true"><path d="{{k.track}}" stroke="#2d2d32" stroke-width="2.6" fill="none" stroke-linecap="round"></path><path d="{{k.arc}}" stroke="#f2f2f2" stroke-width="2.6" fill="none" stroke-linecap="round"></path></svg><span style="font-size: 8px; font-weight: 700; letter-spacing: .05em; color: #a9a9b1; white-space: nowrap">{{k.name}}</span></div></sc-for>
 <sc-for list="{{homePads}}" as="d" hint-placeholder-count="16">
-<button title="{{d.tip}}" style="position: relative; overflow: hidden; min-height: 0; border-radius: 4px; border: 1px solid {{d.border}}; outline: {{d.outline}}; outline-offset: 1px; background: {{d.bg}}; color: {{d.ink}}; box-shadow: {{d.glow}}; text-align: left; padding: 7px 7px 5px; display: flex; flex-direction: column; gap: 2px">
+<button title="{{d.tip}}" style="position: relative; overflow: hidden; min-height: 0; border-radius: 4px; border: 1px solid {{d.border}}; outline: {{d.outline}}; outline-offset: 1px; background: {{d.fill}}; color: {{d.ink}}; box-shadow: {{d.glow}}; text-align: left; padding: 7px 7px 5px; display: flex; flex-direction: column; gap: 2px">
 <span style="display: flex; align-items: center; gap: 4px"><span style="font-size: {{d.fs}}px; font-weight: 700; line-height: 1.05; white-space: nowrap">{{d.name}}</span><span style="flex-grow: 1"></span><span title="{{d.otsTip}}" style="display: {{d.otsDisp}}; font-size: 8px; font-weight: 800; padding: 1px 4px; border-radius: 3px; border: 1px solid currentColor; background: {{d.otsBg}}; color: {{d.otsInk}}">{{d.ots}}</span></span>
 <span style="font-size: 8px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: {{d.sub}}; white-space: nowrap">{{d.len}}</span>
 <span style="flex-grow: 1"></span>
@@ -65,9 +65,15 @@ HOME_JS = '''
       8: [1, .3, .7, .6, 0, .5, 0, 0], 9: [1, .5, .8, .7, .5, .6, .3, 0], 10: [1, .7, .9, .8, .6, .7, .6, .3], 11: [1, .9, 1, .9, .8, .8, .9, .7], 12: [.3, .6, 0, 0, 0, .4, 0, 0] };
     const SP = P.slice(4);
     const TIP = ['Intro I: press to arm it for the start', '', '', 'Sync Start: the band starts on your first chord', 'Ending I', '', '', 'Auto Fill: a fill plays whenever you change Main', 'Main A: press while it plays for its fill', 'Main B: playing. Its fill is queued (it flashes on the Launchkey)', 'Main C', 'Main D', 'Break', 'Tap tempo', 'Sync Stop: the band stops when you let go', 'Start / Stop'];
+    // A section's pad is filled edge to edge with its parts smeared together: each part a band in
+    // its mixer colour, as wide as it is loud there, blended into one gradient. Playing = full strength.
+    const smear = (act, lit) => { const tot = act.reduce((a, v) => a + v, 0); let x = 0; const stops = [];
+      act.forEach((v, k) => { if (!v) return; stops.push(COL[4 + k] + ' ' + (x + v / tot * 50).toFixed(0) + '%'); x += v / tot * 100; });
+      const dim = lit ? 0 : .42;
+      return 'linear-gradient(180deg, rgba(14,14,16,.55) 0%, rgba(14,14,16,0) 55%), linear-gradient(rgba(14,14,16,' + dim + '), rgba(14,14,16,' + dim + ')), linear-gradient(90deg, ' + stops.join(', ') + ')'; };
     const homePads = secPads.map((d, i) => { const act = ACT[i], isMain = i >= 8 && i < 12, lit = d.ink === '#0e0e10';
       return Object.assign({}, d, { tip: TIP[i] || d.name, fs: isMain ? FSM : FSO, len: i === 9 ? d.len + ' · fill next' : d.len, well: lit ? 'rgba(14,14,16,.55)' : 'transparent',
-        partsDisp: act ? 'flex' : 'none', parts: (act || []).map((v, k) => ({ h: Math.max(8, Math.round(v * 100)), c: COL[4 + k], o: v ? 1 : .18, tip: SP[k][0] + ' · ' + SP[k][1] })),
+        partsDisp: 'none', fill: act ? smear(act, lit) : d.bg, ink: act ? '#ffffff' : d.ink, sub: act ? 'rgba(255,255,255,.75)' : d.sub, border: act ? (lit ? '#ffffff' : '#2d2d32') : d.border, glow: act ? (lit ? '0 0 14px rgba(255,255,255,.35)' : 'inset 0 3px 0 ' + d.bar) : d.glow, parts: (act || []).map((v, k) => ({ h: Math.max(8, Math.round(v * 100)), c: COL[4 + k], o: v ? 1 : .18, tip: SP[k][0] + ' · ' + SP[k][1] })),
         ots: isMain ? 'OTS ' + (i - 7) : '', otsDisp: isMain ? 'inline' : 'none', otsTip: 'OTS Link: Main ' + 'ABCD'[i - 8] + ' recalls One Touch ' + (i - 7),
         otsBg: i === 9 ? '#0e0e10' : 'transparent', otsInk: i === 9 ? '#ffffff' : (lit ? '#0e0e10' : '#a9a9b1') }); });
     const legend = SP.map((p, k) => ({ c: COL[4 + k], voice: p[1] }));
