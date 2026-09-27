@@ -67,13 +67,17 @@ HOME_JS = '''
     const TIP = ['Intro I: press to arm it for the start', '', '', 'Ending I', '', '', 'Sync Start: the band starts on your first chord', 'Auto Fill: a fill plays whenever you change Main', 'Main A: press while it plays for its fill', 'Main B: playing. Its fill is queued (it flashes on the Launchkey)', 'Main C', 'Main D', 'Break', 'Tap tempo', 'Sync Stop: the band stops when you let go', 'Start / Stop'];
     // A section's pad is filled edge to edge with its parts smeared together: each part a band in
     // its mixer colour, as wide as it is loud there, blended into one gradient. Playing = full strength.
-    const smear = (act, lit) => { const tot = act.reduce((a, v) => a + v, 0); let x = 0; const stops = [];
-      act.forEach((v, k) => { if (!v) return; stops.push(COL[4 + k] + ' ' + (x + v / tot * 50).toFixed(0) + '%'); x += v / tot * 100; });
-      const dim = lit ? 0 : .42;
-      return 'linear-gradient(180deg, rgba(14,14,16,.55) 0%, rgba(14,14,16,0) 55%), linear-gradient(rgba(14,14,16,' + dim + '), rgba(14,14,16,' + dim + ')), linear-gradient(90deg, ' + stops.join(', ') + ')'; };
+    // A section's pad is filled edge to edge with its parts smeared together: each part a band in
+    // its mixer colour, as wide as it is loud there, pulled toward the pad's own colour (Intro yellow,
+    // Main green, Ending red, Break violet) so the pad still reads as its section. Playing = full strength.
+    const mix = (a, b, t) => { const p = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16)); const x = p(a), y = p(b); return '#' + x.map((v, i) => Math.round(v + (y[i] - v) * t).toString(16).padStart(2, '0')).join(''); };
+    const smear = (act, lit, padCol) => { const tot = act.reduce((a, v) => a + v, 0); let x = 0; const stops = [];
+      act.forEach((v, k) => { if (!v) return; stops.push(mix(COL[4 + k], padCol, .5) + ' ' + (x + v / tot * 50).toFixed(0) + '%'); x += v / tot * 100; });
+      const dim = lit ? 0 : .4;
+      return 'linear-gradient(180deg, rgba(14,14,16,.5) 0%, rgba(14,14,16,0) 55%), linear-gradient(rgba(14,14,16,' + dim + '), rgba(14,14,16,' + dim + ')), linear-gradient(90deg, ' + stops.join(', ') + ')'; };
     const homePads = secPads.map((d, i) => { const act = ACT[i], isMain = i >= 8 && i < 12, lit = d.ink === '#0e0e10';
       return Object.assign({}, d, { tip: TIP[i] || d.name, fs: isMain ? FSM : FSO, len: i === 9 ? d.len + ' · fill next' : d.len, well: lit ? 'rgba(14,14,16,.55)' : 'transparent',
-        partsDisp: 'none', fill: act ? smear(act, lit) : d.bg, ink: act ? '#ffffff' : d.ink, sub: act ? 'rgba(255,255,255,.75)' : d.sub, border: act ? (lit ? '#ffffff' : '#2d2d32') : d.border, glow: act ? (lit ? '0 0 14px rgba(255,255,255,.35)' : 'inset 0 3px 0 ' + d.bar) : d.glow, parts: (act || []).map((v, k) => ({ h: Math.max(8, Math.round(v * 100)), c: COL[4 + k], o: v ? 1 : .18, tip: SP[k][0] + ' · ' + SP[k][1] })),
+        partsDisp: 'none', fill: act ? smear(act, lit, d.bar) : d.bg, ink: act ? '#ffffff' : d.ink, sub: act ? 'rgba(255,255,255,.75)' : d.sub, border: act ? (lit ? '#ffffff' : hexa(d.bar, .45)) : d.border, glow: act && lit ? '0 0 14px rgba(255,255,255,.35)' : d.glow, parts: (act || []).map((v, k) => ({ h: Math.max(8, Math.round(v * 100)), c: COL[4 + k], o: v ? 1 : .18, tip: SP[k][0] + ' · ' + SP[k][1] })),
         ots: isMain ? 'OTS ' + (i - 7) : '', otsDisp: isMain ? 'inline' : 'none', otsTip: 'OTS Link: Main ' + 'ABCD'[i - 8] + ' recalls One Touch ' + (i - 7),
         otsBg: i === 9 ? '#0e0e10' : 'transparent', otsInk: i === 9 ? '#ffffff' : (lit ? '#0e0e10' : '#a9a9b1') }); });
     const legend = SP.map((p, k) => ({ c: COL[4 + k], voice: p[1] }));
