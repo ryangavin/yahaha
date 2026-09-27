@@ -155,6 +155,8 @@ the nearest Main the style has when it lacks that one (RM p.12: D missing → C)
   starts (its change point from `Engine::change_point`, which follows Section Change
   Timing; after its fill with Auto Fill), never while the old section still plays.
   Immediate stays available in Settings › Style.
+  (#111: the Reference Manual (p.11) and the Data List give no factory value, and there is
+  no hardware to check, so the default stays as decided.)
 - **Style changes:** a style chosen while the band plays takes over at its change point
   (the next bar line, or the next beat with Section Change Timing Immediate; a style chosen
   during an Ending waits for the Ending to finish, #94). With OTS Link on, the new style's

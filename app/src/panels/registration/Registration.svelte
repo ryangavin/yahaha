@@ -1,9 +1,10 @@
 <!--
   The Registration panel (right-side drawer, open while `ui.regist`), four pages:
 
-  - Bank: the bank file (pick, new, save / save as) and its ten buttons as Regist Bank
-    Info shows them (style, tempo, voices): recall, memorize here, rename, clear.
-  - Groups: what Memory stores (the Memory window) and what Freeze keeps (Regist Freeze).
+  - Bank: the bank file (pick, new, save / save as) and its snapshots, bank by bank (A,
+    B, …), as Regist Bank Info shows them (style, tempo, voices): recall, store here,
+    rename, clear.
+  - Groups: what Store stores (the Genos's Memory window) and what Freeze keeps.
   - Sequence: the bank's Registration Sequence (steps, what happens at the end, on/off).
   - Playlist: the set list: files, records (load, button to recall, move, delete),
     sorting, adding the bank or style in use.
@@ -12,7 +13,7 @@
   (lib/api/registration.ts).
 -->
 <script lang="ts">
-  import { REGIST_GROUPS, SEQUENCE_ENDS, sameFile, type PlaylistRecord, type PlaylistSort, type RegistGroup } from '../../lib/api/registration'
+  import { REGIST_GROUPS, SEQUENCE_ENDS, sameFile, snapshotLabel, type PlaylistRecord, type PlaylistSort, type RegistGroup } from '../../lib/api/registration'
   import { app, clock, ui } from '../../lib/store.svelte'
   import { tip } from '../../lib/tooltip/tip.svelte'
   import HwButton from '../../lib/ui/HwButton.svelte'
@@ -26,7 +27,7 @@
 
   const TABS = [
     { id: 'bank', name: 'Bank' },
-    { id: 'groups', name: 'Memory & Freeze' },
+    { id: 'groups', name: 'Store & Freeze' },
     { id: 'sequence', name: 'Sequence' },
     { id: 'playlist', name: 'Playlist' },
   ] as const
@@ -98,25 +99,25 @@
     <ol class="buttons">
       {#each r.buttons as b, i (b.index)}
         <li class="button" class:current={r.selected === i}>
-          <HwButton tip={REGIST_TIPS[i]} led={buttonLook(r, i)} {beats} shape="square" label="Registration {i + 1}" onclick={() => app.send({ type: 'pressRegist', index: i })}>{i + 1}</HwButton>
+          <HwButton tip={REGIST_TIPS[i % 8]} led={buttonLook(r, i)} {beats} shape="square" label="Snapshot {snapshotLabel(i)}" onclick={() => app.send({ type: 'pressRegist', index: i })}>{snapshotLabel(i)}</HwButton>
           <div class="info">
             {#if b.stored}
-              <input class="field name" type="text" aria-label="Name of Registration {i + 1}" value={b.name} use:tip={'regist.rename'} onchange={(e) => rename(i, e)} />
+              <input class="field name" type="text" aria-label="Name of Snapshot {snapshotLabel(i)}" value={b.name} use:tip={'regist.rename'} onchange={(e) => rename(i, e)} />
               <button type="button" class="summary" use:tip={'regist.info'} onclick={() => app.send({ type: 'recallRegist', index: i })}>{buttonSummary(r, i)}</button>
             {:else}
               <span class="empty engraved">empty</span>
             {/if}
           </div>
           <div class="actions">
-            <HwButton tip="regist.memorize_here" onclick={() => app.send({ type: 'memorizeRegist', index: i })}>Memorize</HwButton>
+            <HwButton tip="regist.memorize_here" onclick={() => app.send({ type: 'memorizeRegist', index: i })}>Store</HwButton>
             {#if b.stored}<HwButton tip="regist.clear" onclick={() => app.send({ type: 'clearRegist', index: i })}>Clear</HwButton>{/if}
           </div>
         </li>
       {/each}
     </ol>
   {:else if ui.registTab === 'groups'}
-    <section class="block" aria-label="Memory groups">
-      <h3 class="engraved">Memory stores</h3>
+    <section class="block" aria-label="Store groups">
+      <h3 class="engraved">Store keeps</h3>
       <div class="grid">
         {#each REGIST_GROUPS as g (g.id)}
           <Toggle tip="regist.memorize_group" on={has(r.memorizeGroups, g.id)} onclick={() => app.send({ type: 'setMemorizeGroup', group: g.id, on: !has(r.memorizeGroups, g.id) })}>{g.name}</Toggle>
@@ -143,7 +144,7 @@
       <h3 class="engraved">Order</h3>
       <div class="steps">
         {#each r.sequence.steps as b, k (k)}
-          <button type="button" class="step mat-raised" class:at={r.sequence.position === k} use:tip={'regist.sequence_step'} aria-label="Step {k + 1}: Registration {b + 1}" onclick={() => removeStep(k)}>{b + 1}</button>
+          <button type="button" class="step mat-raised" class:at={r.sequence.position === k} use:tip={'regist.sequence_step'} aria-label="Step {k + 1}: Snapshot {snapshotLabel(b)}" onclick={() => removeStep(k)}>{snapshotLabel(b)}</button>
         {:else}
           <span class="note">No steps yet: add buttons below in the order to play them.</span>
         {/each}
@@ -151,7 +152,7 @@
       <h3 class="engraved">Add</h3>
       <div class="steps">
         {#each r.buttons as b, i (b.index)}
-          <button type="button" class="step mat-raised" class:dark={!b.stored} use:tip={'regist.sequence_steps'} aria-label="Add Registration {i + 1}" onclick={() => app.send({ type: 'setRegistSequence', steps: [...r.sequence.steps, i], end: r.sequence.end })}>{i + 1}</button>
+          <button type="button" class="step mat-raised" class:dark={!b.stored} use:tip={'regist.sequence_steps'} aria-label="Add Snapshot {snapshotLabel(i)}" onclick={() => app.send({ type: 'setRegistSequence', steps: [...r.sequence.steps, i], end: r.sequence.end })}>{snapshotLabel(i)}</button>
         {/each}
         <HwButton tip="regist.sequence_clear" onclick={() => app.send({ type: 'setRegistSequence', steps: [], end: r.sequence.end })}>Clear</HwButton>
       </div>
@@ -204,7 +205,7 @@
           {#if row.record.kind === 'bank'}
             <select class="field tiny" aria-label="Button to recall" use:tip={'playlist.edit'} value={row.record.regist == null ? '' : String(row.record.regist)} onchange={(e) => setRegist(row.index, row.record, e.currentTarget.value)}>
               <option value="">—</option>
-              {#each r.buttons as b (b.index)}<option value={String(b.index)}>{b.index + 1}</option>{/each}
+              {#each r.buttons as b (b.index)}<option value={String(b.index)}>{snapshotLabel(b.index)}</option>{/each}
             </select>
           {/if}
           {#if !sorted}

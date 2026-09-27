@@ -9,8 +9,8 @@
 //!                  ManBass  StopAcmp  Split -    Split +   | Kbd tr -  Kbd tr +  Tr reset    Retrigger
 //!   3 OTS/Parts    OTS 1    OTS 2     OTS 3      OTS 4     | OTS Link  Fade      Voice -/+
 //!                  Right 1  Right 2   Right 3    Left      | Select R1 Select R2 Select R3   Select Left
-//!   4 Registration Regist 1 Regist 2  Regist 3   Regist 4  | Regist 5  Regist 6  Regist 7    Regist 8
-//!                  Regist 9 Regist 10 Bank -     Bank +    | Memory    Freeze    Regist -    Regist +
+//!   4 Snapshots    Snap 1   Snap 2    Snap 3     Snap 4    | Snap 5    Snap 6    Snap 7      Snap 8
+//!                  Bank -   Bank +    File -     File +    | Store     Freeze    Regist -    Regist +
 //!   5 Multi Pads   Pad 1    Pad 2     Pad 3      Pad 4     | STOP      -         -           -
 //!                  Select 1 Select 2  Select 3   Select 4  | Stop 1    Stop 2    Stop 3      Stop 4
 //!
@@ -245,7 +245,8 @@ pub enum Page {
     Sections,
     ChordSetup,
     OtsParts,
-    /// Registration Memory buttons 1-10, banks, Memory, Freeze, the Registration Sequence.
+    /// Snapshots 1-8 of the snapshot bank on view, snapshot bank -/+, bank file -/+, Store,
+    /// Freeze, the Registration Sequence.
     Registration,
     /// Multi Pads 1-4, STOP, SELECT + pad (Synchro Start) and STOP + pad (#196).
     MultiPads,
@@ -259,7 +260,7 @@ impl Page {
             Page::Sections => "Sections",
             Page::ChordSetup => "Chord/Setup",
             Page::OtsParts => "OTS/Parts",
-            Page::Registration => "Registration",
+            Page::Registration => "Snapshots",
             Page::MultiPads => "Multi Pads",
         }
     }
@@ -331,14 +332,16 @@ pub enum Action {
     Style(i8),
     /// Style Retrigger length shorter (+1) / longer (-1) (`}` `{`).
     RetriggerRate(i8),
-    /// A Registration Memory button 1-10 (0-based; `Q`-`P` with Shift): recall, or
-    /// memorize while Memory is armed.
+    /// Snapshot 1-8 of the snapshot bank on view (0-based; `Q`-`I` with Shift): recall, or
+    /// store while Store is armed.
     Regist(u8),
-    /// The MEMORY button (`F5`): the next Regist button memorizes.
+    /// Snapshot bank -/+ (`O` `P` with Shift): the previous/next eight snapshots.
+    SnapshotBank(i8),
+    /// The STORE button (`F5`; the Genos's MEMORY): the next snapshot button stores.
     RegistMemory,
     /// FREEZE on/off (`F6`).
     RegistFreeze,
-    /// REGIST BANK -/+ (`F11` `F12`).
+    /// REGIST BANK -/+: the previous/next bank file (`F11` `F12`).
     RegistBank(i8),
     /// Regist -/+: the Registration Sequence (`F7` `F8`).
     RegistSeq(i8),
@@ -385,7 +388,8 @@ pub fn pad_action(page: Page, note: u8) -> Option<Action> {
         (Page::OtsParts, 112..=115) => Action::PartOnOff(note - 112),
         (Page::OtsParts, 116..=119) => Action::SelectPart(note - 116),
         (Page::Registration, 96..=103) => Action::Regist(note - 96),
-        (Page::Registration, 112..=113) => Action::Regist(note - 112 + 8),
+        (Page::Registration, 112) => Action::SnapshotBank(-1),
+        (Page::Registration, 113) => Action::SnapshotBank(1),
         (Page::Registration, 114) => Action::RegistBank(-1),
         (Page::Registration, 115) => Action::RegistBank(1),
         (Page::Registration, 116) => Action::RegistMemory,
@@ -624,23 +628,27 @@ pub struct Panel {
     /// Keyboard parts that are on (bit = `parts::RIGHT1`..`LEFT`), and the selected one.
     pub parts_on: u8,
     pub selected: u8,
-    /// Registration Memory, for page 4.
+    /// The Snapshots, for page 4.
     pub regist: RegistPanel,
 }
 
-/// Registration Memory as page 4 shows it.
+/// The snapshot bank on view, as page 4 shows it.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub struct RegistPanel {
-    /// Buttons holding a registration (bit 0 = button 1).
-    pub stored: u16,
-    /// The button last recalled or memorized, 1-based (0 = none).
+    /// Its snapshots that hold a registration (bit 0 = Snapshot 1).
+    pub stored: u8,
+    /// Its snapshot last recalled or stored, 1-based (0 = none, or in another bank).
     pub selected: u8,
-    /// MEMORY armed.
+    /// The snapshot bank on view (0 = A).
+    pub bank: u8,
+    /// Snapshot bank + can go further.
+    pub more_banks: bool,
+    /// Store armed.
     pub memory: bool,
     pub freeze: bool,
     /// The Registration Sequence is on and has steps.
     pub sequence: bool,
-    /// There are bank files to step to.
+    /// There are bank files to step to (File -/+).
     pub banks: bool,
 }
 
@@ -810,8 +818,8 @@ fn regist_leds(r: &RegistPanel) -> [(u8, Led); 16] {
         (101, button(5)),
         (102, button(6)),
         (103, button(7)),
-        (112, button(8)),
-        (113, button(9)),
+        (112, tog(r.bank > 0, false)),
+        (113, tog(r.more_banks, false)),
         (114, tog(r.banks, false)),
         (115, tog(r.banks, false)),
         (116, if r.memory { Led::Flash(DIM_RED, RED) } else { tog(true, false) }),
@@ -1050,8 +1058,8 @@ fn ots_looks(s: &Snapshot, p: &Panel) -> [(u8, Look); 16] {
     ]
 }
 
-const REGIST_LABELS: [&str; 10] = ["REGIST 1", "REGIST 2", "REGIST 3", "REGIST 4", "REGIST 5", "REGIST 6", "REGIST 7", "REGIST 8", "REGIST 9", "REGIST 10"];
-const REGIST_KEYS: [&str; 10] = ["Q", "W", "E", "R", "T", "Y", "U", "I", "O", "P"];
+const REGIST_LABELS: [&str; 8] = ["SNAP 1", "SNAP 2", "SNAP 3", "SNAP 4", "SNAP 5", "SNAP 6", "SNAP 7", "SNAP 8"];
+const REGIST_KEYS: [&str; 8] = ["Q", "W", "E", "R", "T", "Y", "U", "I"];
 
 fn regist_looks(r: &RegistPanel) -> [(u8, Look); 16] {
     let pl = |label, key, available, on| page_look(Page::Registration, label, key, available, on);
@@ -1060,7 +1068,7 @@ fn regist_looks(r: &RegistPanel) -> [(u8, Look); 16] {
         let stored = r.stored & (1 << i) != 0;
         let look = |rgb, level, anim| Look { label, key, rgb, level, anim };
         if r.memory {
-            // Armed: every button waits to be memorized into.
+            // Armed: every button waits to be stored into.
             look(C_REGIST_SELECTED, Level::Bright, Anim::Flash)
         } else if stored && r.selected == i + 1 {
             look(C_REGIST_SELECTED, Level::Bright, Anim::Solid)
@@ -1071,9 +1079,9 @@ fn regist_looks(r: &RegistPanel) -> [(u8, Look); 16] {
         }
     };
     let memory = if r.memory {
-        Look { label: "MEMORY", key: "F5", rgb: C_REGIST_SELECTED, level: Level::Bright, anim: Anim::Flash }
+        Look { label: "STORE", key: "F5", rgb: C_REGIST_SELECTED, level: Level::Bright, anim: Anim::Flash }
     } else {
-        pl("MEMORY", "F5", true, false)
+        pl("STORE", "F5", true, false)
     };
     [
         (96, button(0)),
@@ -1084,10 +1092,10 @@ fn regist_looks(r: &RegistPanel) -> [(u8, Look); 16] {
         (101, button(5)),
         (102, button(6)),
         (103, button(7)),
-        (112, button(8)),
-        (113, button(9)),
-        (114, pl("BANK -", "F11", r.banks, false)),
-        (115, pl("BANK +", "F12", r.banks, false)),
+        (112, pl("BANK -", "O", r.bank > 0, false)),
+        (113, pl("BANK +", "P", r.more_banks, false)),
+        (114, pl("FILE -", "F11", r.banks, false)),
+        (115, pl("FILE +", "F12", r.banks, false)),
         (116, memory),
         (117, pl("FREEZE", "F6", true, r.freeze)),
         (118, pl("REGIST -", "F7", r.sequence, false)),
@@ -1314,8 +1322,8 @@ mod tests {
         for n in 0..8u8 {
             assert_eq!(pad_action(p, 96 + n), Some(Action::Regist(n)));
         }
-        assert_eq!(pad_action(p, 112), Some(Action::Regist(8)));
-        assert_eq!(pad_action(p, 113), Some(Action::Regist(9)));
+        assert_eq!(pad_action(p, 112), Some(Action::SnapshotBank(-1)));
+        assert_eq!(pad_action(p, 113), Some(Action::SnapshotBank(1)));
         assert_eq!(pad_action(p, 114), Some(Action::RegistBank(-1)));
         assert_eq!(pad_action(p, 115), Some(Action::RegistBank(1)));
         assert_eq!(pad_action(p, 116), Some(Action::RegistMemory));
@@ -1373,7 +1381,7 @@ mod tests {
     /// flashing while Memory is armed.
     #[test]
     fn page_4_lamps() {
-        let regist = RegistPanel { stored: 0b101, selected: 3, memory: false, freeze: true, sequence: false, banks: true };
+        let regist = RegistPanel { stored: 0b101, selected: 3, bank: 0, more_banks: true, memory: false, freeze: true, sequence: false, banks: true };
         let panel = Panel { page: Page::Registration, regist, ..Panel::default() };
         let l = looks(&snap(), &[true; 32], &panel);
         assert_eq!((l[0].1.rgb, l[0].1.level), (C_REGIST_STORED, Level::Bright));
@@ -1381,12 +1389,15 @@ mod tests {
         assert_eq!((l[2].1.rgb, l[2].1.level), (C_REGIST_SELECTED, Level::Bright));
         assert_eq!(l[13].1.level, Level::Bright); // Freeze on
         assert_eq!(l[14].1.level, Level::Off); // no sequence
+        assert_eq!(l[8].1.level, Level::Off, "Bank - is dark on Bank A");
+        assert_eq!(l[9].1.level, Level::Dim, "Bank + is lit while there are more");
+        assert_eq!((l[12].1.label, l[8].1.label), ("STORE", "BANK -"));
         let leds = pad_leds(&snap(), &[true; 32], &panel);
         assert_eq!(leds[0].1, Led::Solid(BLUE));
         assert_eq!(leds[1].1, Led::Solid(OFF));
         assert_eq!(leds[2].1, Led::Solid(RED));
         let armed = Panel { regist: RegistPanel { memory: true, ..regist }, ..panel };
-        assert!(looks(&snap(), &[true; 32], &armed)[..10].iter().all(|(_, l)| l.anim == Anim::Flash));
+        assert!(looks(&snap(), &[true; 32], &armed)[..8].iter().all(|(_, l)| l.anim == Anim::Flash));
         assert_eq!(pad_leds(&snap(), &[true; 32], &armed)[12].1, Led::Flash(DIM_RED, RED));
     }
 

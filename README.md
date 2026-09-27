@@ -120,7 +120,7 @@ Pressing the current Main again plays its fill. With Auto Fill on, switching Mai
 - The on/off pads are lit while the part is on. The lit Edit pad is the part whose voice Voice −/+ (`9`/`0`) changes.
 - The accompaniment parts are muted with the buttons under the faders on the Style fader page, or `z`…`,`.
 
-**Page 4 · Registration** (orange): Registration Memory 1–10, Bank −/+, Memory, Freeze, Regist −/+ (docs/registration.md).
+**Page 4 · Snapshots** (orange): Snapshots 1–8 of the snapshot bank on view (top row); Bank −/+ (the snapshot bank: A, B, …), File −/+ (the bank file), Store, Freeze, Regist −/+ (bottom row) (docs/registration.md).
 
 **Page 5 · Multi Pads** (yellow):
 
@@ -223,8 +223,8 @@ The screen shows `sus` beside each part the pedal is holding.
 - `F9` fader page Panel / Style
 - `J` Harmony/Arpeggio on/off · `L` next Harmony type or arpeggio · `*` Arpeggio Hold
 - `s` reload the edited part's plugin after it stopped or failed to load (the Panel mixer shows each part's plugin, its CPU and slow renders)
-- `Q W E R T Y U I O P` (with Shift) Registration Memory 1–10 · `F5` Memory (the next button memorizes) · `F6` Freeze
-- `F7 F8` Regist −/+ (the Registration Sequence) · `F11 F12` Registration bank −/+ (on macOS, F11 is Show Desktop until you turn that shortcut off in System Settings › Keyboard) · `< >` previous/next Playlist record
+- `Q W E R T Y U I` (with Shift) Snapshots 1–8 · `O P` (with Shift) snapshot bank −/+ · `F5` Store (the next snapshot stores) · `F6` Freeze
+- `F7 F8` Regist −/+ (the Registration Sequence) · `F11 F12` bank file −/+ (on macOS, F11 is Show Desktop until you turn that shortcut off in System Settings › Keyboard) · `< >` previous/next Playlist record
 - `←/→` previous/next style, in the style browser's order (folder, then name)
 - `enter` open the style browser (see below)
 - `tab` / `shift+tab` next/previous pad page

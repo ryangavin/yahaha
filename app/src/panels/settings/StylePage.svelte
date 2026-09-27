@@ -55,6 +55,25 @@
   <Toggle on={t.halfBarFill} tip="transport.half_bar_fill" onclick={() => app.send({ type: 'toggleHalfBarFill' })}>{onOff(t.halfBarFill)}</Toggle>
 </Field>
 
+<Field name="Tempo" genos="Tempo" note="The tempo, 5–500 BPM; drag, or focus and use the arrows for ±1.">
+  <HSlider label="Tempo" tip="tempo.set" value={Math.round(t.tempo)} min={5} max={500} format={(v) => `${v} BPM`} onchange={(bpm) => app.send({ type: 'setTempo', bpm })} />
+</Field>
+
+<Field name="Sections" genos="Main A–D / Break / Stop" note="The Main variations and Break, Stop, and Section Reset: the section restarts from its top.">
+  <FillButtons
+    label="Sections"
+    buttons={[
+      { label: 'Main A', cmd: { type: 'main', index: 0 }, tip: 'section.main_a', playing: false },
+      { label: 'Main B', cmd: { type: 'main', index: 1 }, tip: 'section.main_b', playing: false },
+      { label: 'Main C', cmd: { type: 'main', index: 2 }, tip: 'section.main_c', playing: false },
+      { label: 'Main D', cmd: { type: 'main', index: 3 }, tip: 'section.main_d', playing: false },
+      { label: 'Break', cmd: { type: 'break' }, tip: 'section.break', playing: false },
+      { label: 'Stop', cmd: { type: 'stop' }, tip: 'transport.stop', playing: true },
+      { label: 'Section Reset', cmd: { type: 'sectionReset' }, tip: 'transport.section_reset', playing: true },
+    ]}
+  />
+</Field>
+
 <Field name="Fills" genos="Fill Down / Self / Up / Break" note="A fill, then the Main to the left or right; the Main's own fill; the Break.">
   <FillButtons />
 </Field>
@@ -158,13 +177,26 @@
   />
 </Field>
 
+<Field name="Swing" genos={null} note="0 plays the Style as written; 100 moves the off-beats to a heavy triplet feel. Drums and every accompaniment part follow it; each new style starts at 0.">
+  <HSlider label="Swing" tip="style.swing" value={st.swing} max={100} unity={0} format={(v) => `${v}%`} onchange={(amount) => app.send({ type: 'setSwing', amount })} />
+</Field>
+
+<Field name="Swing grid" genos={null}>
+  <Choice
+    label="Swing grid"
+    value={st.swingGrid}
+    options={[8, 16].map((g) => ({ id: g, label: `1/${g}`, tip: 'style.swing_grid' as const }))}
+    onselect={(grid: number) => app.send({ type: 'setSwingGrid', grid })}
+  />
+</Field>
+
 <Field name="Dynamics Control" genos="Style Setting › Dynamics Control" inline note="On: the Dynamics level below (and Touch) sets how hard the band plays. Off: the Style plays as written.">
   <Toggle on={dyn.control} tip="dynamics.control" onclick={() => app.send({ type: 'setDynamicsControl', on: !dyn.control })}>{onOff(dyn.control)}</Toggle>
 </Field>
 
-<Field name="Dynamics" genos="Live Control › Style Dynamics" note="64 plays the Style as written. The mixer volumes stay as they are.">
+<Field name="Dynamics" genos="Live Control › Style Dynamics" note="127, the maximum and the default, plays the Style as written; lower is softer. The mixer volumes stay as they are.">
   <span class="gate" class:off={!dyn.control}>
-    <HSlider label="Dynamics" tip="dynamics.level" value={dyn.level} unity={64} disabled={!dyn.control} onchange={(level) => app.send({ type: 'setDynamics', level })} />
+    <HSlider label="Dynamics" tip="dynamics.level" value={dyn.level} unity={127} disabled={!dyn.control} onchange={(level) => app.send({ type: 'setDynamics', level })} />
   </span>
 </Field>
 

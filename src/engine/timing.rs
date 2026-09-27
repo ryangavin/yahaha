@@ -58,6 +58,11 @@ pub struct StyleSettings {
     pub section_reset: bool,
     /// Style Retrigger length: 1, 2, 4, 8, 16 or 32 (a whole note .. a 32nd).
     pub retrigger_rate: u8,
+    /// Swing, 0-100 %: 0 plays the Style as written, 100 moves straight off-beats to the
+    /// triplet position (engine/swing.rs).
+    pub swing: u8,
+    /// The swing grid: 8 (off-beat 8ths) or 16 (off-beat 16ths).
+    pub swing_grid: u8,
 }
 
 impl Default for StyleSettings {
@@ -71,6 +76,8 @@ impl Default for StyleSettings {
             fade_hold_ms: 2_000,
             section_reset: true,
             retrigger_rate: 8,
+            swing: 0,
+            swing_grid: 8,
         }
     }
 }
@@ -86,6 +93,8 @@ impl StyleSettings {
             fade_out_ms: self.fade_out_ms.min(MAX_FADE_MS),
             fade_hold_ms: self.fade_hold_ms.min(MAX_FADE_HOLD_MS),
             retrigger_rate: rate,
+            swing: self.swing.min(100),
+            swing_grid: if self.swing_grid >= 12 { 16 } else { 8 },
             ..self
         }
     }
