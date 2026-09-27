@@ -33,6 +33,23 @@
   const CATS = Object.keys(CATEGORY_LABELS) as PatchCategory[]
   const SHORT = ['R1', 'R2', 'R3', 'L']
 
+  // Export a plugin sound as an .aupreset. A preset of that name the plugin has already
+  // (the file is shared with Logic) is only replaced after Replace (#307).
+  let askReplace = $state<string | null>(null)
+  const fileName = (n: string) => n.replace(/[/:\\]/g, '-').trim().replace(/^\.+/, '').trim() || 'Untitled'
+  function exportPreset(overwrite: boolean) {
+    if (!sel || sel.source.kind !== 'plugin') return
+    const parent = `au:${sel.source.componentId}`
+    const n = fileName(sel.name).toLowerCase()
+    const clash = app.sounds.entries.some((e) => e.parent === parent && e.id.startsWith(`${parent}#u:`) && e.name.toLowerCase() === n)
+    if (clash && !overwrite) {
+      askReplace = sel.id
+      return
+    }
+    askReplace = null
+    app.send({ type: 'exportSoundPreset', id: sel.id, overwrite })
+  }
+
   // A new patch (added, duplicated, saved) opens in the editor.
   let lastSeen: string | null = null
   $effect(() => {
@@ -67,7 +84,7 @@
 {#if sl.patches.length === 0}
   <p class="explain">
     Your library is empty. Add presets from a SoundFont (Add from SoundFont), or save a keyboard part's sound below.
-    About 20 patches, reused by every style through the Program Map, is the idea.
+    About 20 patches, reused by every style through the GM map, is the idea.
   </p>
 {:else if shown.length === 0}
   <p class="explain">No patch matches.</p>
@@ -140,6 +157,15 @@
       <HwButton tip="sound.move_down" label="Move down" onclick={() => app.send({ type: 'movePatch', id: sel.id, to: selIndex + 1 })}>↓</HwButton>
       <HwButton tip="sound.duplicate" onclick={() => app.send({ type: 'duplicatePatch', id: sel.id })}>Duplicate</HwButton>
       <HwButton tip="sound.delete" onclick={() => app.send({ type: 'deletePatch', id: sel.id })}>Delete</HwButton>
+      {#if sel.source.kind === 'plugin'}
+        {#if askReplace === sel.id}
+          <span class="ask" role="alert">Replace ‘{fileName(sel.name)}’?</span>
+          <HwButton tip="sound.export_preset_replace" onclick={() => exportPreset(true)}>Replace</HwButton>
+          <HwButton tip="sound.export_preset_cancel" onclick={() => (askReplace = null)}>Cancel</HwButton>
+        {:else}
+          <HwButton tip="sound.export_preset" onclick={() => exportPreset(false)}>Export .aupreset</HwButton>
+        {/if}
+      {/if}
     </div>
   </section>
 {/if}
@@ -187,6 +213,10 @@
     color: var(--screen-ink);
     font: inherit;
     font-size: 0.9rem;
+  }
+  .ask {
+    color: var(--accent);
+    white-space: nowrap;
   }
   .explain {
     margin: 0;

@@ -282,6 +282,7 @@ const EVERY_CMD: &[&str] = &[
     r#"{"type":"browseSoundFont","file":null}"#,
     r#"{"type":"importSoundLibrary","path":"/tmp/lib.json","replace":false,"maps":true}"#,
     r#"{"type":"exportSoundLibrary","path":null}"#,
+    r#"{"type":"exportSoundPreset","id":"deluxe-keys","overwrite":true}"#,
     // Parameter Lock
     r#"{"type":"setParamLock","item":"splitPoint","on":true}"#,
     r#"{"type":"setParamLock","item":"fingeringType","on":false}"#,

@@ -172,6 +172,26 @@ thread's route table off-thread (O8).
   hidden compatibility pin: that font is the main font and fills every program it has at
   the auto layer (other fonts fill only its gaps); the map's rules still come first.
 
+### The map page (PR 6)
+
+The Sound Library drawer's **GM map** tab (`app/src/panels/sound/GmMapPage.svelte`)
+replaces its old Program Map and This style tabs. It draws `soundLibrary.gmMap`:
+
+- The drums, then the 16 families. Each family's header has its rule; each program row
+  has its override, the sound it resolves to (the small line), and a badge for the layer
+  that decided it (Drums, Override, Family, Auto or Unset). Auto rows and badges are
+  tinted, and the tab counts the auto slots, so what nobody chose stands out.
+- **Global / This style** switches which map the pickers edit. In the style's map an
+  unset rule shows what it falls through to (↳). The resolved sound and its badge are
+  always what plays now, for the style playing, so a style's own rule is marked "style"
+  in either view.
+- Rows a style part uses name the part (what the old This style tab showed).
+- Every rule is set by picking from Sounds (the Sound Browser's pick mode, so every
+  plugin sound and font preset is eligible) and cleared with ✕. No new commands:
+  `setDrumRule`, `setFamilyRule`, `setProgramOverride`, `clearStyleMap`.
+- Every control is a native button with a tooltip, reached with Tab; the drawer's tab
+  strip takes the arrow keys.
+
 ## Migration
 
 Each migration has a test in `src/patches/sound_tests.rs`.
@@ -191,6 +211,23 @@ Each migration has a test in `src/patches/sound_tests.rs`.
 - **OTS.** OTS voices are GM voices from the style file: there is no plugin state or
   sound to store, the record is unchanged, and they resolve through the map as before.
 
+## Export and import (D5, PR 7)
+
+- **A plugin sound as `.aupreset`** (`exportSoundPreset`): its state is written with
+  `presets::write_user_preset`, the writer Save as preset uses, into
+  `~/Library/Audio/Presets/<Manufacturer>/<Plugin>/<name>.aupreset`, where Logic reads it.
+  An existing preset of that name is replaced only with `overwrite` (#307); the app asks
+  Replace/Cancel. A factory sound that has not played yet has no state to export.
+- **The library and GM map as a bundle** (`exportSoundLibrary`):
+  `{ "kind": "yahaha-sound-bundle", "fonts": [...], "library": {...} }`. The library holds
+  every sound's metadata and every plugin sound's state, and the global and per-style
+  maps. SoundFonts are listed by file name, never copied.
+- **Import** (`importSoundLibrary`) reads a bundle or a plain library file. It merges by
+  default: sounds are added under new ids where they clash, and with `maps` the map rules
+  come too. `replace` swaps the whole library. SoundFonts resolve by file name in the
+  SoundFont folder. Any that are missing are reported by name, and their sounds are kept
+  so they play once the file is there.
+- Rendering a `.sf2` from the map (D6) is issue #322.
 ## The Instruments tab (PR 5, O2)
 
 The Sound Browser's second tab (`app/src/panels/sounds/Instruments.svelte`, model in

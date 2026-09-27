@@ -264,6 +264,7 @@ export function tipFor(cmd: AppCmd | null): TipKey {
     case 'browseSoundFont': return 'sound.soundfont'
     case 'importSoundLibrary': return 'sound.import'
     case 'exportSoundLibrary': return 'sound.export'
+    case 'exportSoundPreset': return 'sound.export_preset'
     // The Sound Browser (#117).
     case 'setSoundFavourite': return 'sounds.favourite'
     case 'auditionSound': return 'sounds.audition'

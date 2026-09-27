@@ -431,7 +431,8 @@ every change. A patch id that doesn't exist fails the command.
 | `setPortSendsMapped` | `on` | The `yahaha` MIDI port gets the mapped bank and program for the band's program changes the map sends to a SoundFont patch, instead of the style's own (default off: the port mirrors the style). |
 | `browseSoundFont` | `file` or null | Lists a SoundFont's presets in `soundLibrary.browse` (a file in `io.soundFonts`); null closes the list. |
 | `importSoundLibrary` | `path`, `replace`, `maps` | Reads a library file (a full library, or a bare list of patches). Its patches are added (ids that clash get new ones); `maps`: its program maps' rules are added too; `replace`: it replaces the library instead. `replace` and `maps` may be left out (false). |
-| `exportSoundLibrary` | `path` or null | Writes the library to `path` (null: `sound-library-export.json` in the data folder). |
+| `exportSoundLibrary` | `path` or null | Writes the library as a bundle to `path` (null: `sound-library-export.json` in the data folder): `{ "kind": "yahaha-sound-bundle", "fonts": [...], "library": {...} }`, the library (patches with every plugin sound's state, the global and per-style maps) and the SoundFont file names it plays. Fonts are never copied. `importSoundLibrary` reads a bundle or a plain library file; it resolves fonts by file name in the SoundFont folder and reports (as an error message) any that are missing, keeping their sounds. |
+| `exportSoundPreset` | `id`, `overwrite` | Writes plugin sound `id` as `<name>.aupreset` in its plugin's user preset folder (`~/Library/Audio/Presets/<Manufacturer>/<Plugin>/`, which Logic reads). Refused for a SoundFont sound, a factory sound not yet played (no state), or when a preset of that name exists and `overwrite` is not set (the app asks Replace/Cancel). `overwrite` may be left out (false). |
 
 ### Parameter Lock
 Genos Menu › Utility › Parameter Lock (RM p.163): a locked group changes only from the

@@ -127,12 +127,13 @@ const STATES: [string, Setup][] = [
     ui.sound = true
     s.send({ type: 'duplicatePatch', id: 'stage-grand' })
   }],
-  ['sound library drawer: program map, this style', () => {
+  ['sound library drawer: GM map, global', () => ((ui.sound = true), (soundNav.tab = 'gm'))],
+  ['sound library drawer: GM map, this style with its own rules', (s) => {
     ui.sound = true
-    soundNav.tab = 'map'
+    soundNav.tab = 'gm'
     soundNav.styleScope = true
+    s.send({ type: 'setFamilyRule', family: 4, patch: 'soft-pad', style: true })
   }],
-  ['sound library drawer: this style', () => ((ui.sound = true), (soundNav.tab = 'style'))],
   ['sound library drawer: SoundFont presets, auditioning', (s) => {
     ui.sound = true
     soundNav.tab = 'add'

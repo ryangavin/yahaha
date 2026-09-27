@@ -33,6 +33,15 @@ pub use rack::{DEFAULT_FADE_FRAMES, PluginRack, RackControl, RackEvent, SLOTS, S
 pub use presets::{FactoryPreset, UserPreset};
 pub use scan::{LoadRecord, PluginFormat, PluginId, PluginInfo, default_cache_path};
 
+/// Tests: a host whose scan cache (at `cache`) lists exactly `plugins` (made-up ones such
+/// as "Sampler Deluxe"), with user presets under `roots`. No real plugin is loaded.
+#[cfg(test)]
+pub(crate) fn mock_host(cache: &std::path::Path, roots: Vec<std::path::PathBuf>, plugins: Vec<PluginInfo>) -> PluginHost {
+    let mock = scan::ScanCache { schema: scan::SCHEMA, fingerprint: scan::fingerprint(&sys::instruments()), plugins };
+    scan::write_cache(cache, &mock).unwrap();
+    PluginHost::with_preset_roots(Some(cache.to_path_buf()), roots)
+}
+
 /// Whether a failed **out-of-process** load may be retried in process: only when the
 /// system refused to host the unit out of process at all, i.e. `AudioComponentInstantiate`
 /// failed with `kAudioComponentErr_NotPermitted` (-66748) or `kAudioComponentErr_UnsupportedType`
