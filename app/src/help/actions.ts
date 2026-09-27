@@ -131,6 +131,9 @@ export function tipFor(cmd: AppCmd | null): TipKey {
     case 'toggleRetrigger': return 'transport.retrigger'
     case 'stepRetriggerRate': return cmd.delta < 0 ? 'transport.retrigger_longer' : 'transport.retrigger_shorter'
     case 'setRetriggerRate': return 'settings.retrigger_rate'
+    case 'setSwing':
+    case 'stepSwing': return 'style.swing'
+    case 'setSwingGrid': return 'style.swing_grid'
     case 'setMainTiming': return 'settings.section_timing'
     case 'setIntroEndingTiming': return 'settings.intro_ending_timing'
     case 'setSyncStopWindow': return 'settings.synchro_stop_window'

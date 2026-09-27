@@ -31,7 +31,7 @@ impl Engine {
             let line = self.lines.next;
             if line <= target
                 && line < boundary - 1e-6
-                && sec.events.get(self.ev_idx).is_none_or(|e| line <= self.sec_start + e.tick as f64 + 1e-6)
+                && sec.events.get(self.ev_idx).is_none_or(|e| line <= self.sec_start + self.ev_tick(e.tick) + 1e-6)
             {
                 self.beat_line(now, sink);
                 continue;
@@ -40,13 +40,13 @@ impl Engine {
             if let Some(t) = self.hook_due()
                 && t <= target
                 && t < boundary - 1e-6
-                && sec.events.get(self.ev_idx).is_none_or(|e| t <= self.sec_start + e.tick as f64 + 1e-6)
+                && sec.events.get(self.ev_idx).is_none_or(|e| t <= self.sec_start + self.ev_tick(e.tick) + 1e-6)
             {
                 self.on_due(t, now, sink);
                 continue;
             }
             if let Some(e) = sec.events.get(self.ev_idx) {
-                let t = self.sec_start + e.tick as f64;
+                let t = self.sec_start + self.ev_tick(e.tick);
                 let before = if inclusive { t <= boundary + 1e-6 } else { t < boundary - 1e-6 };
                 if before && t <= target {
                     self.emit_at_index(now, sink);

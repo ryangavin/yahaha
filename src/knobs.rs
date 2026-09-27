@@ -56,7 +56,7 @@ impl KnobPage {
     pub fn functions(self) -> [KnobFn; 8] {
         use KnobFn::*;
         match self {
-            KnobPage::Style => [Dynamics, RetriggerRate, RetriggerOnOff, TrackMuteA, TrackMuteB, None, None, Tempo],
+            KnobPage::Style => [Dynamics, RetriggerRate, RetriggerOnOff, TrackMuteA, TrackMuteB, Swing, None, Tempo],
             KnobPage::Parts => [PartVolume(0), PartVolume(1), PartVolume(2), PartVolume(3), HarmonyVolume, MetronomeVolume, None, Tempo],
             KnobPage::Pan => [PartPan(0), PartPan(1), PartPan(2), PartPan(3), FxReturn(0), FxReturn(1), FxReturn(2), Tempo],
             KnobPage::Effects => [PartReverb(0), PartReverb(1), PartReverb(2), PartReverb(3), PartChorus(0), PartChorus(1), PartChorus(2), PartChorus(3)],
@@ -90,6 +90,8 @@ pub enum KnobFn {
     TrackMuteB,
     /// Tempo (Master Tempo), 1 BPM a step.
     Tempo,
+    /// Swing, 0-100 % (engine/swing.rs), 2 % a step. Not a Genos Live Control function.
+    Swing,
     /// Mixer Volume of a keyboard part (0-3: Right 1-3, Left): its CC7.
     PartVolume(u8),
     /// HarmVol: the Keyboard Harmony volume.
@@ -132,6 +134,7 @@ impl KnobFn {
             KnobFn::TrackMuteA => "trackMuteA",
             KnobFn::TrackMuteB => "trackMuteB",
             KnobFn::Tempo => "tempo",
+            KnobFn::Swing => "swing",
             KnobFn::PartVolume(_) => "partVolume",
             KnobFn::HarmonyVolume => "harmonyVolume",
             KnobFn::MetronomeVolume => "metronomeVolume",
@@ -154,6 +157,7 @@ impl KnobFn {
             KnobFn::TrackMuteA => "StyMuteA",
             KnobFn::TrackMuteB => "StyMuteB",
             KnobFn::Tempo => "Tempo",
+            KnobFn::Swing => "Swing",
             KnobFn::PartVolume(p) => ["Right1", "Right2", "Right3", "Left"][(p & 3) as usize],
             KnobFn::HarmonyVolume => "HarmVol",
             KnobFn::MetronomeVolume => "MetroVol",
@@ -176,6 +180,7 @@ impl KnobFn {
             KnobFn::TrackMuteA => "Style Track Mute A",
             KnobFn::TrackMuteB => "Style Track Mute B",
             KnobFn::Tempo => "Tempo",
+            KnobFn::Swing => "Swing",
             KnobFn::PartVolume(p) => ["Right 1 Volume", "Right 2 Volume", "Right 3 Volume", "Left Volume"][(p & 3) as usize],
             KnobFn::HarmonyVolume => "Harmony Volume",
             KnobFn::MetronomeVolume => "Metronome Volume",
@@ -195,6 +200,8 @@ pub struct Now {
     pub dynamics: u8,
     pub retrigger: bool,
     pub retrigger_rate: u8,
+    /// Swing, 0-100 %.
+    pub swing: u8,
     pub bpm: f64,
     pub part_volume: [u8; 4],
     pub harmony_volume: u8,
@@ -278,6 +285,13 @@ impl Knobs {
             KnobFn::Tempo => {
                 let bpm = (now.bpm.round() as i32 + d as i32).clamp(MIN_BPM, MAX_BPM);
                 TransportCmd::SetTempo { bpm: bpm as u16 }.into()
+            }
+            KnobFn::Swing => {
+                let v = (now.swing as i16 + d * 2).clamp(0, 100) as u8;
+                if v == now.swing {
+                    return None;
+                }
+                StyleSettingsCmd::SetSwing { amount: v }.into()
             }
             KnobFn::PartVolume(p) => PartsCmd::SetPartVolume { part: p, volume: level(now.part_volume[(p & 3) as usize]) }.into(),
             KnobFn::HarmonyVolume => HarmonyArpCmd::SetHarmonyVolume { volume: level(now.harmony_volume) }.into(),
@@ -366,6 +380,7 @@ impl Knobs {
                 r(if n == 8 { "All".into() } else { format!("{n} of 8") }, Some(v))
             }
             KnobFn::Tempo => r(format!("{} BPM", now.bpm.round() as i32), None),
+            KnobFn::Swing => r(format!("{}%", now.swing), Some((now.swing.min(100) as u16 * 127 / 100) as u8)),
             KnobFn::PartVolume(p) => {
                 let v = now.part_volume[(p & 3) as usize];
                 r(v.to_string(), Some(v))
@@ -421,6 +436,7 @@ mod tests {
             dynamics: 64,
             retrigger: false,
             retrigger_rate: 8,
+            swing: 0,
             bpm: 120.0,
             part_volume: [100, 90, 80, 70],
             harmony_volume: 100,
@@ -452,7 +468,9 @@ mod tests {
         assert_eq!(k.turn(0, -64, &n), Some(DynamicsCmd::SetDynamics { level: 0 }.into()));
         assert_eq!(k.turn(7, -2, &now()), Some(TransportCmd::SetTempo { bpm: 118 }.into()));
         assert_eq!(k.turn(7, 1, &Now { bpm: 500.0, ..now() }), Some(TransportCmd::SetTempo { bpm: 500 }.into()));
-        assert_eq!(k.turn(5, 1, &now()), None, "knob 6 is unassigned on the Style page");
+        assert_eq!(k.turn(5, 1, &now()), Some(StyleSettingsCmd::SetSwing { amount: 2 }.into()), "knob 6 is Swing");
+        assert_eq!(k.turn(5, -1, &now()), None, "swing stops at 0");
+        assert_eq!(k.turn(6, 1, &now()), None, "knob 7 is unassigned on the Style page");
         k.set_page(KnobPage::Parts);
         assert_eq!(k.turn(1, -1, &now()), Some(PartsCmd::SetPartVolume { part: 1, volume: 88 }.into()));
         assert_eq!(k.turn(4, 1, &now()), Some(HarmonyArpCmd::SetHarmonyVolume { volume: 102 }.into()));
@@ -518,7 +536,8 @@ mod tests {
         assert_eq!(k.reading(0, &now()), Reading { value: "64".into(), level: Some(64) });
         assert_eq!(k.reading(1, &now()), Reading { value: "1/8".into(), level: Some(76) });
         assert_eq!(k.reading(2, &now()).value, "Off");
-        assert_eq!(k.reading(5, &now()), Reading { value: String::new(), level: None });
+        assert_eq!(k.reading(5, &Now { swing: 50, ..now() }), Reading { value: "50%".into(), level: Some(63) });
+        assert_eq!(k.reading(6, &now()), Reading { value: String::new(), level: None });
         assert_eq!(k.reading(7, &Now { bpm: 97.6, ..now() }).value, "98 BPM");
     }
 

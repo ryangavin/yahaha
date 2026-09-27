@@ -139,6 +139,9 @@ Style Section Reset, the Fade In/Out times and the Style Retrigger length. The s
 | `setSectionReset` | `on` | TAP TEMPO while the style plays: Section Reset (on, the Genos default) or set the tempo (off, yahaha's default). |
 | `setRetriggerRate` | `rate` | Style Retrigger length: 1, 2, 4, 8, 16 or 32 (a whole note .. a 32nd). Other values snap down to one of these. |
 | `stepRetriggerRate` | `delta` | Steps along 1, 2, 4, 8, 16, 32; positive is shorter. Stops at the ends. |
+| `setSwing` | `amount` 0–100 | Live Swing: 0 plays the Style as written; 100 moves straight off-beats (8ths or 16ths, `swingGrid`) to the triplet position. A tick remap of the Style's events as they play (drums and all accompaniment parts; the player's keys are never moved). Parts already swung are not swung again: a triplet off-beat stays put, and positions between scale in proportion. Each style load sets it back to 0; registrations store it (group Style). |
+| `stepSwing` | `delta` | Swing moved by `delta` %, clamped to 0–100. |
+| `setSwingGrid` | `grid` | 8 (off-beat 8ths, the default) or 16 (off-beat 16ths). |
 
 ### Chord detection, split, transpose
 
@@ -534,7 +537,7 @@ The Launchkey's 8 encoders as the Genos LIVE CONTROL knobs (#197; OM p.62–63, 
 README › Knobs). A page gives each knob a function; the knobs are relative, so a turn moves
 the value from where it is now, whoever set it last. A turn runs the command of the knob's
 function (`setDynamics`, `stepRetriggerRate`, `toggleRetrigger`, `styleTrackMute`,
-`setTempo`, `setPartVolume`, `setHarmonyVolume`, `setMetronomeVolume`, `setPartPan`,
+`setTempo`, `setSwing`, `setPartVolume`, `setHarmonyVolume`, `setMetronomeVolume`, `setPartPan`,
 `setPartSend`, `setEffectReturn`, `setEffectParam`), so it behaves
 exactly as that command does.
 
@@ -957,6 +960,8 @@ The settings the `Style settings` commands set.
 | `fadeHoldMs` | 0–5000 | Default 2000. |
 | `sectionReset` | bool | TAP TEMPO while playing resets the section. Default on (the Genos default). |
 | `retriggerRate` | 1, 2, 4, 8, 16, 32 | Style Retrigger length. Default 8 (an eighth note). |
+| `swing` | 0–100 | Live Swing (`setSwing`). Default 0; each style load sets 0. |
+| `swingGrid` | 8, 16 | The swing grid. Default 8. |
 
 ### `registration`
 
@@ -1110,7 +1115,7 @@ The Knob Assign page: `{ page, pageName, pageNumber, pageCount, knobs }`.
 - `page`: `style` (the default), `parts`, `pan`, `effects` or `fx`. `pageNumber` is 1-based.
 - `knobs`: always eight, knob 1 first: `{ function, name, short, value, level }`.
   - `function`: `none`, `dynamics`, `retriggerRate`, `retriggerOnOff`, `trackMuteA`,
-    `trackMuteB`, `tempo`, `partVolume`, `harmonyVolume`, `metronomeVolume`, `partPan`,
+    `trackMuteB`, `tempo`, `swing`, `partVolume`, `harmonyVolume`, `metronomeVolume`, `partPan`,
     `partReverb`, `partChorus`, `fxReturn` (an effect block's return level; the `pan` page's
     knobs 5–7 are Reverb, Chorus and Delay Return), `fxParam` (an effect parameter, #236; the
     `name` says which, "Reverb Time") or `delayTime` (the delay's note value, or its ms with
@@ -1613,7 +1618,9 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
     "fadeOutMs": 5000,
     "fadeHoldMs": 2000,
     "sectionReset": true,
-    "retriggerRate": 8
+    "retriggerRate": 8,
+    "swing": 0,
+    "swingGrid": 8
   },
   "registration": {
     "bank": { "name": "Friday Gig", "path": "/Users/me/Documents/yahaha/Registration/Friday Gig.regist.json", "dirty": false, "position": 0 },
@@ -1820,7 +1827,7 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
       { "function": "retriggerOnOff", "name": "Retrigger On/Off", "short": "RtgOnOff", "value": "Off", "level": 0 },
       { "function": "trackMuteA", "name": "Style Track Mute A", "short": "StyMuteA", "value": "All", "level": 127 },
       { "function": "trackMuteB", "name": "Style Track Mute B", "short": "StyMuteB", "value": "All", "level": 127 },
-      { "function": "none", "name": "No Assign", "short": "---", "value": "", "level": null },
+      { "function": "swing", "name": "Swing", "short": "Swing", "value": "0%", "level": 0 },
       { "function": "none", "name": "No Assign", "short": "---", "value": "", "level": null },
       { "function": "tempo", "name": "Tempo", "short": "Tempo", "value": "92 BPM", "level": null }
     ]

@@ -290,6 +290,7 @@ export type KnobFunction =
   | 'trackMuteA'
   | 'trackMuteB'
   | 'tempo'
+  | 'swing'
   | 'partVolume'
   | 'harmonyVolume'
   | 'metronomeVolume'
@@ -426,6 +427,11 @@ export type StyleSettingsCmd =
   | { type: 'setRetriggerRate'; rate: number }
   /** Positive: shorter. */
   | { type: 'stepRetriggerRate'; delta: number }
+  /** Swing 0–100 % (0: as written). Each style load sets it back to 0. */
+  | { type: 'setSwing'; amount: number }
+  | { type: 'stepSwing'; delta: number }
+  /** 8 (off-beat 8ths) or 16 (off-beat 16ths). */
+  | { type: 'setSwingGrid'; grid: number }
 
 export interface StyleSettingsState {
   mainTiming: MainTiming
@@ -439,6 +445,10 @@ export interface StyleSettingsState {
   sectionReset: boolean
   /** 1, 2, 4, 8, 16 or 32. */
   retriggerRate: number
+  /** Swing, 0–100 %. */
+  swing: number
+  /** The swing grid, 8 or 16. */
+  swingGrid: number
 }
 
 /** Fade In/Out: armed = stopped, START fades in; holding = faded out, silent for the hold. */

@@ -110,6 +110,9 @@ const EVERY_CMD: &[&str] = &[
     r#"{"type":"setSectionReset","on":false}"#,
     r#"{"type":"setRetriggerRate","rate":16}"#,
     r#"{"type":"stepRetriggerRate","delta":-1}"#,
+    r#"{"type":"setSwing","amount":50}"#,
+    r#"{"type":"stepSwing","delta":-2}"#,
+    r#"{"type":"setSwingGrid","grid":16}"#,
     // One Touch Settings and styles
     r#"{"type":"recallOts","index":3}"#,
     r#"{"type":"setOtsLink","on":true}"#,
