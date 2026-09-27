@@ -222,6 +222,7 @@ impl Engine {
             // A tempo set outright during a ritardando becomes the tempo it slows from.
             Button::SetTempo(bpm) => {
                 self.set_bpm_internal(bpm as f64, now);
+                self.section_tempo_retempo();
                 self.rit_retempo(now);
             }
             Button::TapTempo => self.tap(now),

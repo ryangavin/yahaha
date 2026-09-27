@@ -58,6 +58,9 @@ pub struct StyleSettings {
     pub section_reset: bool,
     /// Style Retrigger length: 1, 2, 4, 8, 16 or 32 (a whole note .. a 32nd).
     pub retrigger_rate: u8,
+    /// Play the tempo changes written inside a section (Intro/Ending ritardandos, #243),
+    /// relative to the tempo playing. Default on.
+    pub section_tempo: bool,
     /// Swing, 0-100 %: 0 plays the Style as written, 100 moves straight off-beats to the
     /// triplet position (engine/swing.rs).
     pub swing: u8,
@@ -76,6 +79,7 @@ impl Default for StyleSettings {
             fade_hold_ms: 2_000,
             section_reset: true,
             retrigger_rate: 8,
+            section_tempo: true,
             swing: 0,
             swing_grid: 8,
         }

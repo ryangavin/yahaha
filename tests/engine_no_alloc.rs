@@ -66,6 +66,43 @@ fn prep(name: &str) -> Option<Box<Prepared>> {
     p.exists().then(|| Box::new(Prepared::new(&Style::load(&p).unwrap())))
 }
 
+/// An Ending with written tempo changes (#243) plays them on the engine thread, and the
+/// tempo comes back at the stop, without allocating or freeing.
+#[test]
+fn written_section_tempo_does_not_allocate() {
+    use yahaha::sff::{SectionId, Timing, TimingChange};
+    let p = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus/MOX_v2/SlowWalker.T552.sty");
+    if !p.exists() {
+        eprintln!("corpus missing; skipping");
+        return;
+    }
+    let mut s = Style::load(&p).unwrap();
+    let bar = s.ticks_per_bar();
+    let name = SectionId::Ending(0).name();
+    s.timing_changes = (0..8).map(|i| TimingChange { section: name.clone(), tick: bar + i * bar / 8, change: Timing::Tempo(800_000 + i * 50_000) }).collect();
+    let a = Box::new(Prepared::new(&s));
+    let bar_ns = (60e9 / a.bpm * (a.tpb as f64 / a.ppq as f64)) as u64;
+    let _one = count_here();
+    let shared = Arc::new(Shared::new(54));
+    let mut ch = live::channels(Out::new(PacketSink::new(Target::Null), None));
+    let mut l = EngineLoop::new(Engine::new(a), ch.io, shared.clone());
+    l.step(1);
+    let (allocs, frees) = counts();
+    let mut now = 1_000;
+    shared.chord.store(yahaha::parse_chord("C").unwrap().pack(1), Ordering::Release);
+    l.step(now);
+    ch.ui_tx.push(Cmd::Button(Button::Ending(0))).ok().unwrap();
+    now += 1;
+    l.step(now);
+    run(&mut l, &mut now, 3 * bar_ns);
+    ch.ui_tx.push(Cmd::Button(Button::TempoUp)).ok().unwrap();
+    run(&mut l, &mut now, 8 * bar_ns);
+    assert_eq!(counts().0 - allocs, 0, "allocations on the engine thread");
+    assert_eq!(counts().1 - frees, 0, "frees on the engine thread");
+    let snaps: Vec<_> = std::iter::from_fn(|| ch.snap_rx.pop().ok()).collect();
+    assert!(snaps.iter().any(|s| s.bpm < 70.0), "the written ritardando played");
+}
+
 #[test]
 fn preview_and_next_bar_style_change_do_not_allocate() {
     let (Some(a), Some(b), Some(c), Some(d)) = (prep("SlowWalker.T552.sty"), prep("TickingAway.T162.sty"), prep("CoolRevibed.T552.sty"), prep("SlowWalker.T552.sty")) else {

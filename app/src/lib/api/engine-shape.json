@@ -327,6 +327,7 @@
   "styleSettings.mainTiming: string",
   "styleSettings.retriggerRate: number",
   "styleSettings.sectionReset: boolean",
+  "styleSettings.sectionTempo: boolean",
   "styleSettings.swing: number",
   "styleSettings.swingGrid: number",
   "styleSettings.syncStopWindowMs: number",

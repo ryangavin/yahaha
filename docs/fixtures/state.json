@@ -1527,7 +1527,8 @@
     "sectionReset": true,
     "retriggerRate": 8,
     "swing": 0,
-    "swingGrid": 8
+    "swingGrid": 8,
+    "sectionTempo": true
   },
   "registration": {
     "bank": {

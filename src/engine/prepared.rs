@@ -105,6 +105,9 @@ pub struct Prepared {
     /// notated beats, rounded down (beat 3 of 4/4, beat 2 of 3/4, the 4th eighth of 6/8).
     pub half_bar: u32,
     pub sections: Vec<Option<PSection>>,
+    /// Each section slot's written tempo changes (#243): (tick in the section, tempo as a
+    /// ratio of the style's own), in order. Mostly empty.
+    pub section_tempo: Vec<Vec<(f64, f64)>>,
     /// The style's channel setup (SInt), routed through each section's channel rules
     /// (CASM): one per distinct routing, the first through Main A's (or the first
     /// section's). A section that routes a source channel to a part differently brings
@@ -305,8 +308,20 @@ impl Prepared {
         }
         let shift_room: [u8; 16] = std::array::from_fn(|c| out_bend_range(narrowest[c], pat_bend_max[c]) - pat_bend_max[c]);
         let setups = routes.iter().zip(&ranges).map(|(route, &bend_range)| Setup::new(&sint, route, bend_range, &pat_bend_max)).collect();
+        let mut section_tempo = vec![Vec::new(); NUM_SLOTS];
+        for c in &style.timing_changes {
+            let crate::sff::Timing::Tempo(us) = c.change else { continue };
+            let Some(slot) = (0..NUM_SLOTS).find(|&k| id_of(k).name() == c.section) else { continue };
+            if us > 0 {
+                section_tempo[slot].push((c.tick as f64, style.tempo_us as f64 / us as f64));
+            }
+        }
+        for v in &mut section_tempo {
+            v.sort_by(|a: &(f64, f64), b| a.0.total_cmp(&b.0));
+        }
         Prepared {
             name: style.name.clone(),
+            section_tempo,
             ppq: style.ppq as u32,
             bpm: style.bpm(),
             tpb: style.ticks_per_bar(),

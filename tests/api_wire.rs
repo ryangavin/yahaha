@@ -113,6 +113,7 @@ const EVERY_CMD: &[&str] = &[
     r#"{"type":"setSwing","amount":50}"#,
     r#"{"type":"stepSwing","delta":-2}"#,
     r#"{"type":"setSwingGrid","grid":16}"#,
+    r#"{"type":"setSectionTempo","on":false}"#,
     // One Touch Settings and styles
     r#"{"type":"recallOts","index":3}"#,
     r#"{"type":"setOtsLink","on":true}"#,
