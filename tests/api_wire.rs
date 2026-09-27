@@ -303,6 +303,7 @@ const EVERY_CMD: &[&str] = &[
     r#"{"type":"setKnobPage","page":"parts"}"#,
     r#"{"type":"stepKnobPage","delta":-1}"#,
     r#"{"type":"turnKnob","knob":3,"delta":-2}"#,
+    r#"{"type":"resetKnob","knob":3}"#,
     r#"{"type":"setEffectType","block":"reverb","effect":"plate"}"#,
     r#"{"type":"setEffectType","block":"variation","effect":"pingPong"}"#,
     r#"{"type":"setEffectReturn","block":"chorus","level":90}"#,
