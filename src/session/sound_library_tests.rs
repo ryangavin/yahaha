@@ -471,7 +471,7 @@ fn a_bad_soundfont_does_not_loop_or_block_the_others() {
 fn a_merge_import_keeps_a_newer_file() {
     let Some((_, data)) = session("b5", &["SlowWalker.T552.sty"], false) else { return };
     let file = data.join(patches::FILE_NAME);
-    let newer = r#"{"version": 2, "patches": [], "fancyNewThing": [1,2,3]}"#;
+    let newer = r#"{"version": 3, "patches": [], "fancyNewThing": [1,2,3]}"#;
     std::fs::write(&file, newer).unwrap();
     let small = data.join("share.json");
     std::fs::write(&small, r#"[{"id":"x","name":"X","source":{"kind":"soundFont","file":"a.sf2","bank":0,"program":1}}]"#).unwrap();
@@ -482,7 +482,7 @@ fn a_merge_import_keeps_a_newer_file() {
     assert_eq!(s.state().sound_library.patches.len(), 1, "the import is in the session");
     s.send(SoundLibraryCmd::ImportSoundLibrary { path: small.display().to_string(), replace: true, maps: false }).unwrap();
     assert_eq!(std::fs::read_to_string(file.with_extension("json.bak")).unwrap(), newer, "kept beside");
-    assert!(std::fs::read_to_string(&file).unwrap().contains("\"version\": 1"));
+    assert!(std::fs::read_to_string(&file).unwrap().contains("\"version\": 2"));
     let _ = std::fs::remove_dir_all(&data);
 }
 
