@@ -1524,7 +1524,9 @@
     "fadeOutMs": 5000,
     "fadeHoldMs": 2000,
     "sectionReset": true,
-    "retriggerRate": 8
+    "retriggerRate": 8,
+    "swing": 0,
+    "swingGrid": 8
   },
   "registration": {
     "bank": {

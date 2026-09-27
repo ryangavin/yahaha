@@ -468,7 +468,9 @@ mod tests {
         assert_eq!(k.turn(0, -64, &n), Some(DynamicsCmd::SetDynamics { level: 0 }.into()));
         assert_eq!(k.turn(7, -2, &now()), Some(TransportCmd::SetTempo { bpm: 118 }.into()));
         assert_eq!(k.turn(7, 1, &Now { bpm: 500.0, ..now() }), Some(TransportCmd::SetTempo { bpm: 500 }.into()));
-        assert_eq!(k.turn(5, 1, &now()), None, "knob 6 is unassigned on the Style page");
+        assert_eq!(k.turn(5, 1, &now()), Some(StyleSettingsCmd::SetSwing { amount: 2 }.into()), "knob 6 is Swing");
+        assert_eq!(k.turn(5, -1, &now()), None, "swing stops at 0");
+        assert_eq!(k.turn(6, 1, &now()), None, "knob 7 is unassigned on the Style page");
         k.set_page(KnobPage::Parts);
         assert_eq!(k.turn(1, -1, &now()), Some(PartsCmd::SetPartVolume { part: 1, volume: 88 }.into()));
         assert_eq!(k.turn(4, 1, &now()), Some(HarmonyArpCmd::SetHarmonyVolume { volume: 102 }.into()));
@@ -534,7 +536,8 @@ mod tests {
         assert_eq!(k.reading(0, &now()), Reading { value: "64".into(), level: Some(64) });
         assert_eq!(k.reading(1, &now()), Reading { value: "1/8".into(), level: Some(76) });
         assert_eq!(k.reading(2, &now()).value, "Off");
-        assert_eq!(k.reading(5, &now()), Reading { value: String::new(), level: None });
+        assert_eq!(k.reading(5, &Now { swing: 50, ..now() }), Reading { value: "50%".into(), level: Some(63) });
+        assert_eq!(k.reading(6, &now()), Reading { value: String::new(), level: None });
         assert_eq!(k.reading(7, &Now { bpm: 97.6, ..now() }).value, "98 BPM");
     }
 
