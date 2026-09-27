@@ -386,10 +386,14 @@ pub struct Engine {
     entry: f64,
     ev_idx: usize,
     queued: Option<Queued>,
-    /// The chord the style follows: `played` moved by Keyboard transpose.
+    /// The chord the style follows: `played` moved by the Keyboard transpose it was played
+    /// under (`chord_kbd`).
     chord: Option<Chord>,
     played: Option<Chord>,
     transpose: Transpose,
+    /// The Keyboard transpose in force when `played` came in (#264): a transpose changed
+    /// with a chord held reaches the style only with the next chord input.
+    chord_kbd: i8,
     bpm: f64,
     anchor_ns: u64,
     anchor_tick: f64,
@@ -475,6 +479,7 @@ impl Engine {
             chord: None,
             played: None,
             transpose: Transpose::default(),
+            chord_kbd: 0,
             bpm,
             anchor_ns: 0,
             anchor_tick: 0.0,

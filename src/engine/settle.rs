@@ -1,5 +1,4 @@
-//! Chord settling: while the band plays, a chord change (a new chord, or a Keyboard
-//! transpose that moves the held one) does not reach the notes at once. It waits until
+//! Chord settling: while the band plays, a chord change does not reach the notes at once. It waits until
 //! `process` runs, and then until the chord has held still for the chord-settle window
 //! (`Engine::set_chord_settle`), and the band follows the chord it settled on, once.
 //!
@@ -77,8 +76,7 @@ impl Engine {
         self.settle_ns
     }
 
-    /// A chord change at `now` (a chord played, or only a Keyboard transpose) for the band
-    /// to follow once it settles.
+    /// A chord change at `now` for the band to follow once it settles.
     pub(super) fn unsettle(&mut self, now: u64, chord: bool) {
         self.unsettled = Some(match self.unsettled {
             Some(u) => Unsettled { first: u.first, last: now.max(u.last), chord: u.chord || chord },
@@ -150,7 +148,7 @@ impl Engine {
             self.hold = None;
             return;
         };
-        let chord = shift_chord(played, self.transpose.keyboard);
+        let chord = shift_chord(played, self.chord_kbd);
         let prev = self.chord;
         self.chord = Some(chord);
         if self.running {
@@ -183,7 +181,7 @@ impl Engine {
         self.hold = None;
         let Some(played) = self.played else { return };
         let prev = self.chord;
-        let chord = shift_chord(played, self.transpose.keyboard);
+        let chord = shift_chord(played, self.chord_kbd);
         self.chord = Some(chord);
         if prev != Some(chord) {
             self.on_chord(prev, u.last, sink);

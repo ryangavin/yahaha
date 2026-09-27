@@ -129,6 +129,10 @@ pub struct TransportState {
     pub section: Option<String>,
     /// The section queued to play next (at the next bar; a fill at the next beat).
     pub queued: Option<String>,
+    /// The Main a fill (or the Break) queued or playing lands on, e.g. "Main A" (#282);
+    /// None when none is. The first press picks the fill; later presses move this.
+    #[serde(default)]
+    pub landing: Option<String>,
     /// [ACMP] is on (the default): chords played in the chord section drive the band.
     #[serde(default = "acmp_on")]
     pub acmp: bool,

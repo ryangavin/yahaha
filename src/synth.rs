@@ -89,6 +89,12 @@ pub struct SynthControl {
     pub clips: AtomicU64,
     /// Racks swapped in (`SetSoundFont`).
     pub swaps: AtomicU64,
+    /// Dropouts the audio device reported (CoreAudio's processor overload: an IO cycle
+    /// missed its deadline, whoever's fault), since start. Counted, never logged, where
+    /// they are reported (`stream.rs`); the control side tells the user.
+    pub xruns: AtomicU64,
+    /// Buffers our own callback took longer to render than the buffer lasts, since start.
+    pub late: AtomicU64,
     /// The metronome's click volume (0-127), read when a click starts.
     pub click_volume: AtomicU8,
     /// Which engine renders each MIDI channel: the SoundFont or the plugin rack
@@ -193,6 +199,11 @@ impl Rack {
         let mut file = std::fs::File::open(sf2).with_context(|| format!("opening {}", sf2.display()))?;
         let font = Arc::new(SoundFont::new(&mut file).map_err(|e| anyhow!("{e:?}"))?);
         Ok(Box::new(Rack::new(&font, sample_rate as i32)?))
+    }
+
+    /// The voices sounding now, in every synthesizer of the rack.
+    pub fn voices(&self) -> usize {
+        self.band.active_voice_count() + self.player.active_voice_count() + self.extra.iter().map(|s| s.active_voice_count()).sum::<usize>()
     }
 
     fn synths(&mut self) -> impl Iterator<Item = &mut Synthesizer> {
@@ -428,6 +439,12 @@ pub struct Feeds {
 }
 
 impl SynthControl {
+    /// Audio dropouts since start: the device's reports and our own late buffers. (One
+    /// dropout can show as both; the count is for noticing that they happen, not exact.)
+    pub fn dropouts(&self) -> u64 {
+        self.xruns.load(Relaxed) + self.late.load(Relaxed)
+    }
+
     pub fn new(out_ch: u8) -> SynthControl {
         SynthControl {
             master: AtomicU8::new(MASTER_UNITY),
@@ -438,6 +455,8 @@ impl SynthControl {
             master_peaks: std::array::from_fn(|_| AtomicU32::new(0)),
             clips: AtomicU64::new(0),
             swaps: AtomicU64::new(0),
+            xruns: AtomicU64::new(0),
+            late: AtomicU64::new(0),
             click_volume: AtomicU8::new(crate::click::DEFAULT_VOLUME),
             routes: ChannelRoutes::new(),
             fx: crate::fx::FxControl::new(),
@@ -777,6 +796,11 @@ impl AudioCore {
         self.router = Some(Router::new(routes));
     }
 
+    /// The SoundFont voices sounding now (0 without a rack).
+    pub fn voices(&self) -> usize {
+        self.rack.as_ref().map_or(0, |r| r.voices())
+    }
+
     /// The channels playing a plugin as of the last buffer (bit per MIDI channel).
     pub fn plugin_channels(&self) -> u16 {
         self.plugin_on
@@ -1108,7 +1132,7 @@ pub fn start(sf2: &Path, consumers: Vec<Consumer<Msg>>, out_pair: Option<u8>, pa
         cpal::SupportedBufferSize::Range { min, max } => Some((*min, *max)),
         _ => None,
     };
-    let output = stream::Output::open(device, channels as u16, sample_rate, range, core, buffer.unwrap_or(DEFAULT_BUFFER))?;
+    let output = stream::Output::open(device, channels as u16, sample_rate, range, core, buffer.unwrap_or(DEFAULT_BUFFER), control.clone())?;
     let buffer = output.buffer;
     let name = sf2.file_stem().unwrap_or_default().to_string_lossy().to_string();
     Ok(Synth {

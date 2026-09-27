@@ -18,18 +18,22 @@ impl Engine {
     /// Main A-D (`i`) pressed, or a fill function aimed at it (`force_fill`). Stopped, it
     /// only selects the Main the band starts on. On a Main: the Main playing plays its own
     /// fill; another Main is entered through its fill when Auto Fill is on (or a fill is
-    /// forced), else at the next bar. During a fill, a press that would play a fill from a
-    /// Main plays it right after the fill (#229); other presses, and presses during an
-    /// Intro or break, select the Main that follows when it ends. On an Ending the Main
-    /// comes at the next bar.
+    /// forced), else at the next bar. The first press picks the fill: with a fill (or the
+    /// Break) queued, a later press only changes the Main it lands on (#282). During a
+    /// fill, pressing the fill's own Main again plays that fill once more right after it
+    /// (mashing keeps it going, #282, #229); another Main only changes the landing and
+    /// calls off such a repeat. A forced fill (Fill Up/Down/Self) during a fill plays its
+    /// fill right after (#229). Presses during an Intro or the Break select the Main that
+    /// follows it. On an Ending the Main comes at the next bar.
     pub(super) fn press_main(&mut self, i: u8, force_fill: bool, now: u64) {
-        let led_to = self.main;
         self.main = i;
         self.features.fills.main_presses = self.features.fills.main_presses.wrapping_add(1);
         if !self.running {
             return;
         }
         match id_of(self.cur) {
+            // A fill or the Break already queued: this press only moves the landing (#282).
+            SectionId::Main(_) if !force_fill && self.queued.is_some_and(|q| (8..=12).contains(&q.slot)) => {}
             SectionId::Main(m) => {
                 let half = self.half_bar_due(now);
                 let fill = if i == m || self.auto_fill || force_fill || half { self.style.resolve(8 + i as usize) } else { None };
@@ -44,14 +48,18 @@ impl Engine {
                     None => {}
                 }
             }
-            // A fill playing (#229, owner): a press that would play a fill from the Main it
-            // leads to plays that fill right after this one, back to back from its top, so
-            // tapping every bar loops fills. Other presses just select the Main to follow.
+            // A fill playing (#229, #282, owner): its own Main pressed again queues it once
+            // more, back to back from its top (one repeat at most: mashing keeps the fill
+            // going). Another Main only changes the landing and calls off a repeat. A forced
+            // fill plays its fill right after this one.
             SectionId::Fill(_) => {
-                if (i == led_to || self.auto_fill || force_fill)
-                    && let Some(f) = self.style.resolve(8 + i as usize)
-                {
-                    self.queue_change(f, Change::AfterFill, now);
+                let fill = self.style.resolve(8 + i as usize);
+                if force_fill || fill == Some(self.cur) {
+                    if let Some(f) = fill {
+                        self.queue_change(f, Change::AfterFill, now);
+                    }
+                } else if self.queued.is_some_and(|q| (8..=12).contains(&q.slot)) {
+                    self.queued = None;
                 }
             }
             SectionId::Ending(_) => {

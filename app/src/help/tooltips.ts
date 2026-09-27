@@ -262,7 +262,7 @@ const catalog = {
   },
   'section.lamps': {
     title: 'Section lamps',
-    body: 'Dim: available. Bright: playing, or on. Flashing: queued for the next bar (fills: the next beat). Pulsing: armed and waiting for you. Dark: this style doesn\'t have it.',
+    body: 'Dim: available. Bright: playing, or on. Flashing: queued for the next bar (fills: the next beat). Pulsing: armed and waiting for you, or the Main a fill will land on. Dark: this style doesn\'t have it.',
     genos: 'Section lamp states',
     keys: [],
     launchkey: 'The pads light the same way, in the same colours',
@@ -313,7 +313,7 @@ const catalog = {
   },
   'display.position': {
     title: 'Bar and beat',
-    body: 'Where the band is: bar, and a light per beat. The section playing now and the one queued next are shown alongside.',
+    body: 'Where the band is: bar, and a light per beat. The section playing now and the one queued next are shown alongside, and for a fill the Main it lands on (⤷). The first press picks the fill; later presses before it ends only change where it lands, and its own Main again repeats it.',
     genos: null,
     keys: [],
     launchkey: null,
@@ -559,7 +559,7 @@ const catalog = {
   // ── Transpose ───────────────────────────────────────────────────────────
   'transpose.display': {
     title: 'Transpose',
-    body: 'Keyboard transpose moves your keys and the chord the style follows. Master transpose moves everything that sounds, drums excepted.',
+    body: 'Keyboard transpose moves your keys at once, and the band from the next chord you play (a chord held keeps the band in the old key, as on the Genos). Master transpose moves everything that sounds, drums excepted.',
     genos: 'TRANSPOSE',
     keys: [],
     launchkey: null,
@@ -1515,7 +1515,21 @@ const catalog = {
   },
   'audio.buffer': {
     title: 'Audio buffer',
-    body: 'Frames the built-in synth renders at a time: 64 (1.3 ms at 48 kHz) feels tightest, while 128 or 256 give heavy plugins more time per block for up to 5 ms more latency. Changing it reopens the output with a moment of silence; held notes and plugins carry over. It is remembered, and `--buffer N` sets it at launch.',
+    body: 'Frames the built-in synth renders at a time: 64 (1.3 ms at 48 kHz) feels tightest; 128 or 256 give heavy plugins and a busy computer more time per block, and 512 (10.7 ms) or 1024 (21.3 ms) stop stubborn dropouts at a latency you will feel. Changing it reopens the output with a moment of silence; held notes and plugins carry over. It is remembered, and `--buffer N` sets it at launch.',
+    genos: null,
+    keys: [],
+    launchkey: null,
+  },
+  'audio.dropouts': {
+    title: 'Audio dropouts',
+    body: 'The audio device missed buffers several times in a short while: clicks or gaps in the sound, from a heavy plugin, a busy computer or a buffer too small for either. Opens Settings › Audio, where a larger buffer size gives each block more time, at a little more latency.',
+    genos: null,
+    keys: [],
+    launchkey: null,
+  },
+  'audio.dropouts_dismiss': {
+    title: 'Dismiss',
+    body: 'Hides the dropout notice for ten minutes. Choosing a new buffer size also clears it.',
     genos: null,
     keys: [],
     launchkey: null,

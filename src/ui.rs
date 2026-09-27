@@ -850,6 +850,7 @@ pub fn screen_html(style: &Path, out: &Path) -> Result<()> {
         channels: 14,
         output_pair: [11, 12],
         muted: false,
+        dropouts: 0,
     });
     st.mixer.master = Some(110);
     st.io.inputs = vec!["Launchkey MK4 61 MIDI Out".into()];

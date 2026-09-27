@@ -128,6 +128,7 @@ const STATES: [string, Setup][] = [
     s.send({ type: 'auditionPreset', file: 'GeneralUser-GS.sf2', bank: 0, program: 4 })
   }],
   ['parts drawer, a part on a library patch', (s) => ((ui.parts = true), s.send({ type: 'setPartPatch', part: 0, id: 'warm-rhodes' }))],
+  ['audio dropout notice', (s) => s.dropouts(5)],
   ['Shift layer on', () => (ui.shiftLatched = true)],
   ['Shift layer on, fader page Style', (s) => ((ui.shiftLatched = true), s.send({ type: 'toggleFaderPage' }))],
 ]

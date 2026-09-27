@@ -14,7 +14,12 @@
 
   const synth = $derived(app.state.io.synth)
   /** `setAudioBuffer`'s sizes, in frames. */
-  const BUFFERS = [64, 128, 256] as const
+  const BUFFERS = [64, 128, 256, 512, 1024] as const
+  /** A buffer's latency at the device's rate (48 kHz before the synth reports one). */
+  const ms = (frames: number) => {
+    const v = (frames / (synth?.sampleRate || 48000)) * 1000
+    return v < 10 ? v.toFixed(1) : v.toFixed(0)
+  }
   const master = $derived(app.state.mixer.master)
   const view = $derived(settings.view(app.state))
   // A setting the engine lacks (an older engine) is badged and inert: it never pretends to work.
@@ -71,7 +76,7 @@
 <Field
   name="Buffer size"
   note={synth
-    ? `${synth.bufferFrames ? `${((synth.bufferFrames / synth.sampleRate) * 1000).toFixed(1)} ms per buffer. ` : ''}Raise it if a heavy plugin crackles or shows overruns.`
+    ? `${synth.bufferFrames ? `${((synth.bufferFrames / synth.sampleRate) * 1000).toFixed(1)} ms per buffer. ` : ''}Raise it if the sound crackles, a heavy plugin shows overruns, or yahaha reports dropouts${synth.dropouts ? ` (${synth.dropouts} since start)` : ''}.`
     : null}
 >
   <Choice
@@ -79,7 +84,7 @@
     disabled={!synth}
     value={synth?.bufferFrames ?? null}
     columns={3}
-    options={BUFFERS.map((n) => ({ id: n, label: `${n}`, tip: 'audio.buffer' as const }))}
+    options={BUFFERS.map((n) => ({ id: n, label: `${n} · ${ms(n)} ms`, tip: 'audio.buffer' as const }))}
     onselect={(frames) => app.send({ type: 'setAudioBuffer', frames: frames as (typeof BUFFERS)[number] })}
   />
 </Field>

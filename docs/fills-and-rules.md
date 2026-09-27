@@ -63,6 +63,35 @@ manuals do not describe presses during a fill.
 - A tap just after the fill's end (in the Main's first beat) is a press in the Main: the fill
   starts at the next beat, or at once within the late-press grace window (below).
 
+## The fill and where it lands (#282)
+
+Owner playtest (2026-09-26). This narrows #229 above. **The first press picks the fill;
+every later Main press before the fill ends only changes the Main it lands on**
+(`transport.landing`). With a fill (or the Break) queued, a Main press moves the landing
+and leaves the fill queued. While a fill plays:
+
+- **Its own Main pressed again** queues the same fill once more, right after it, from its
+  top. It is one repeat at most, so presses don't stack: mashing keeps the fill going, and
+  when the presses stop, it lands.
+- **Another Main pressed** only changes the landing and calls off a pending repeat. Before
+  this, with Auto Fill on, it queued that Main's fill after the current one.
+
+| Playing | Presses | Fill played | Lands on |
+|---|---|---|---|
+| A | B | B's fill | B |
+| A | B, B | B's fill | B |
+| A | B, A | B's fill | A |
+| A | B, C | B's fill | C |
+| A | B, then B during each fill (×2) | B's fill ×3 | B |
+| A | B, B, B, then A during the last fill | B's fill ×2 | A |
+
+- **Decision:** the fill functions (Fill Up / Down / Self) still force their fill: during a
+  fill it plays right after, as in #229, and with a fill queued it replaces it. They name a
+  fill, not a landing.
+- The Launchkey and the app pulse the landing Main's pad while it isn't the fill's own (the
+  fill's own flashes). The transport bar shows it after the queued section (`⤷ Main A`).
+- Tests: `src/sim_fill_landing_tests.rs` (one per row).
+
 ## Fill late-press grace window (#265)
 
 Owner decision (2026-09-26): a fill, Break or back-to-back fill pressed within a small window
