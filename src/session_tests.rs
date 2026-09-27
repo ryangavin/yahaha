@@ -1470,7 +1470,7 @@ fn sound_font_switch_needs_the_synth_and_a_file_in_its_folder() {
     assert_eq!(st.io.sound_font_file.as_deref(), Some(file.as_str()));
     assert!(rx.pop().is_ok(), "the new rack went to the audio thread");
     let m = s.meters();
-    assert_eq!(m.channels.iter().map(|c| c.channel).collect::<Vec<_>>(), vec![1, 2, 3, 4, 9, 10, 11, 12, 13, 14, 15, 16]);
+    assert_eq!(m.channels.iter().map(|c| c.channel).collect::<Vec<_>>(), (1..=16).collect::<Vec<u8>>(), "every channel, the pads (5-8) too");
 }
 
 /// The audio buffer (#104): 64, 128, 256, 512 or 1024 only. Offline it sets the render block; a note
