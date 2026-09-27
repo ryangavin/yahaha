@@ -68,6 +68,8 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 |---|---|---|---|---|
 | **Previous style** | Loads the previous style in the browser's order (folder, then name). While the band plays it keeps playing and follows your next chord in the new style. | — | `←` | < Track button |
 | **Next style** | Loads the next style in the browser's order (folder, then name). While the band plays it keeps playing and follows your next chord in the new style. | — | `→` | Track > button |
+| **Swing** | Swings the Style live, 0–100 %: 0 plays it as written and 100 moves each straight off-beat to the triplet position, a heavy shuffle. Drums and every accompaniment part follow it, parts already swung are not swung again, and your own keys are never moved. Each new style starts at 0; a registration stores it. | — | — | Knob 6 on the Style knob page |
+| **Swing grid** | Which off-beats Swing moves: 1/8 swings the off-beat 8ths (the usual shuffle), 1/16 the off-beat 16ths (a funk or hip-hop swing). | — | — | — |
 
 ## Style browser
 
