@@ -20,6 +20,11 @@ pub enum PluginCmd {
         #[serde(default)]
         state: Option<String>,
     },
+    /// Play a keyboard part on one of plugin `id`'s presets: `preset` is its key in the
+    /// sound catalog (`f:<number>`, a factory preset, or `u:<path>`, an `.aupreset` file;
+    /// `au:<id>#<key>` there). The part gets an instance of its own, loaded with that preset,
+    /// so one plugin can play a different preset on every part.
+    SetPartPluginPreset { part: u8, id: String, preset: String },
     /// Back to the part's SoundFont voice.
     ClearPartPlugin { part: u8 },
     /// Save the plugin's current preset (what its editor changed) into the part, so it is
@@ -89,6 +94,13 @@ pub struct PartPlugin {
     pub recent_overruns: u32,
     /// Its editor window can be opened (the app shell has the plugin host).
     pub editor: bool,
+    /// The preset it was loaded with ("Upright"), if one was picked in the Sound Browser
+    /// (left out of the JSON otherwise).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preset: Option<String>,
+    /// That preset's catalog key (`f:3`, `u:<path>`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preset_key: Option<String>,
 }
 
 /// One installed instrument plugin.

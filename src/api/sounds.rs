@@ -6,7 +6,9 @@
 //! `sounds()`), since a 2,000-preset list does not belong in `AppState`. `AppState::sounds`
 //! is a small summary whose `revision` says when to fetch again.
 //!
-//! Entry ids: `sf:<file>:<bank>:<program>`, `au:<component id>`, `saved:<patch id>`.
+//! Entry ids: `sf:<file>:<bank>:<program>`, `au:<component id>`, `saved:<patch id>`, and a
+//! plugin's preset `au:<component id>#<preset key>` (a key is `f:<number>` for a factory
+//! preset, `u:<path>` for an `.aupreset` file).
 
 use super::{PatchCategory, PluginEntry};
 use crate::patches::sf2::Preset;
@@ -28,8 +30,19 @@ pub enum SoundsCmd {
     /// adding the preset to the library once), a plugin (`setPartPlugin`), a saved sound
     /// (`setPartPatch`). It goes to the top of the Recents.
     AssignSound { part: u8, id: String },
-    /// A plugin's (or a saved sound's) category. A preset's comes from its GM family.
+    /// A plugin's, a plugin preset's (or a saved sound's) category. A SoundFont preset's
+    /// comes from its GM family.
     SetSoundCategory { id: String, category: PatchCategory },
+    /// List plugin `id`'s (`au:<component id>`) presets: the browser expanded it. Its
+    /// `.aupreset` files are listed at every scan; its factory presets need an instance,
+    /// so a plugin never loaded yet is loaded once in the background (then cached). The
+    /// catalog moves when they are in.
+    ListPluginPresets { id: String },
+    /// Save what keyboard part `part`'s plugin plays now (as its editor left it) as a user
+    /// preset: a standard `.aupreset` named `name` in
+    /// `~/Library/Audio/Presets/<Manufacturer>/<Plugin>/` (Logic and MainStage read it
+    /// too), filed under `category` in the browser. The part then plays that preset.
+    SavePartAsPluginPreset { part: u8, name: String, category: PatchCategory },
 }
 
 /// Where a sound comes from.
@@ -50,6 +63,10 @@ pub struct SoundPluginInfo {
     pub format: String,
     /// The last load's error, so the browser can warn.
     pub last_error: Option<String>,
+    /// How many presets it has in the catalog (entries whose `parent` is it); None while
+    /// its factory presets were never read (`listPluginPresets` reads them).
+    #[serde(default)]
+    pub presets: Option<u32>,
 }
 
 /// One sound in the catalog.
@@ -66,8 +83,33 @@ pub struct SoundEntry {
     pub favourite: bool,
     /// In the Recents (`SoundCatalog::recents` has their order).
     pub recent: bool,
-    /// Plugins only.
+    /// Plugins (and plugin presets) only.
     pub plugin: Option<SoundPluginInfo>,
+    /// A plugin preset's plugin (`au:<component id>`): the browser lists it under it.
+    #[serde(default)]
+    pub parent: Option<String>,
+}
+
+/// One preset of a plugin, for the catalog.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginPresetEntry {
+    /// `f:<number>` or `u:<path>`.
+    pub key: String,
+    pub name: String,
+    /// The sub-folder of an `.aupreset` ("Pianos").
+    pub folder: Option<String>,
+}
+
+/// A plugin's presets, for the catalog.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginPresetList {
+    /// The component id ("aumu Nik2 -NI-").
+    pub plugin: String,
+    /// Its factory presets were read (else only its `.aupreset` files are here).
+    pub listed: bool,
+    pub presets: Vec<PluginPresetEntry>,
 }
 
 /// The whole catalog: presets by file then bank and program, plugins by maker then name,
@@ -94,6 +136,10 @@ pub struct SoundsState {
     pub scanning: bool,
     /// The sound being auditioned (`auditionSound`).
     pub auditioning: Option<String>,
+    /// Plugins (`au:<component id>`) whose presets are being listed (`listPluginPresets`).
+    /// Left out of the JSON while none is.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub listing_presets: Vec<String>,
 }
 
 /// How many Recents are kept.
@@ -128,8 +174,15 @@ impl SoundPrefs {
         self.sound_categories.get(id).copied().unwrap_or_else(|| plugin_category(name, maker))
     }
 
-    /// The catalog's entries: each font's presets, the plugins, the saved sounds.
-    pub fn entries(&self, fonts: &[(&str, &[Preset])], plugins: &[PluginEntry], patches: &[Patch]) -> Vec<SoundEntry> {
+    /// A plugin preset's category: the user's, else a guess from its name and folder, else
+    /// its plugin's.
+    pub fn preset_category(&self, id: &str, name: &str, folder: Option<&str>, plugin: Category) -> Category {
+        self.sound_categories.get(id).copied().or_else(|| guess_category(&format!("{name} {}", folder.unwrap_or("")))).unwrap_or(plugin)
+    }
+
+    /// The catalog's entries: each font's presets, the plugins (each followed by its
+    /// presets), the saved sounds.
+    pub fn entries(&self, fonts: &[(&str, &[Preset])], plugins: &[PluginEntry], presets: &[PluginPresetList], patches: &[Patch]) -> Vec<SoundEntry> {
         let recent = |id: &str| self.recents.iter().any(|r| r == id);
         let mut entries = Vec::new();
         for (f, presets) in fonts {
@@ -143,22 +196,44 @@ impl SoundPrefs {
                     favourite: self.favourites.contains(&id),
                     recent: recent(&id),
                     plugin: None,
+                    parent: None,
                     id,
                 });
             }
         }
         for p in plugins {
             let id = format!("au:{}", p.id);
+            let list = presets.iter().find(|l| l.plugin == p.id);
+            let category = self.plugin_category(&id, &p.name, &p.manufacturer);
+            let info = |presets| Some(SoundPluginInfo { format: p.format.clone(), last_error: p.last_error.clone(), presets });
             entries.push(SoundEntry {
-                category: self.plugin_category(&id, &p.name, &p.manufacturer),
+                category,
                 source: SoundSource::Plugin,
                 detail: p.manufacturer.clone(),
                 favourite: self.favourites.contains(&id),
                 recent: recent(&id),
-                plugin: Some(SoundPluginInfo { format: p.format.clone(), last_error: p.last_error.clone() }),
+                plugin: info(list.filter(|l| l.listed || !l.presets.is_empty()).map(|l| l.presets.len() as u32)),
                 name: p.name.clone(),
-                id,
+                parent: None,
+                id: id.clone(),
             });
+            for q in list.map_or(&[][..], |l| l.presets.as_slice()) {
+                let pid = plugin_preset_id(&p.id, &q.key);
+                entries.push(SoundEntry {
+                    category: self.preset_category(&pid, &q.name, q.folder.as_deref(), category),
+                    source: SoundSource::Plugin,
+                    detail: match &q.folder {
+                        Some(f) => format!("{} · {f}", p.name),
+                        None => p.name.clone(),
+                    },
+                    favourite: self.favourites.contains(&pid),
+                    recent: recent(&pid),
+                    plugin: info(None),
+                    name: q.name.clone(),
+                    parent: Some(id.clone()),
+                    id: pid,
+                });
+            }
         }
         for p in patches {
             let id = format!("saved:{}", p.id);
@@ -174,6 +249,7 @@ impl SoundPrefs {
                 favourite: p.favourite,
                 recent: recent(&id),
                 plugin: None,
+                parent: None,
                 id,
             });
         }
@@ -195,12 +271,32 @@ pub fn parse_preset_id(id: &str) -> Option<(&str, u16, u8)> {
     Some((file, bank.parse().ok()?, program.parse().ok().filter(|&p: &u8| p < 128)?))
 }
 
+/// A plugin preset's catalog id: `au:<component id>#<key>`.
+pub fn plugin_preset_id(component: &str, key: &str) -> String {
+    format!("au:{component}#{key}")
+}
+
+/// A plugin entry id's component id and preset key (`au:<component>` or
+/// `au:<component>#<key>`). None if it is not a plugin's.
+pub fn parse_plugin_id(id: &str) -> Option<(&str, Option<&str>)> {
+    let rest = id.strip_prefix("au:")?;
+    Some(match rest.split_once('#') {
+        Some((c, k)) => (c, Some(k)),
+        None => (rest, None),
+    })
+}
+
 /// A plugin's likely category, from its name and maker: most instrument plugins are
 /// synths, so anything else is Synth Lead.
 pub fn plugin_category(name: &str, maker: &str) -> Category {
-    let n = format!("{name} {maker}").to_lowercase();
+    guess_category(&format!("{name} {maker}")).unwrap_or(Category::SynthLead)
+}
+
+/// The category words in `text` suggest ("Upright Piano": Piano), if any.
+pub fn guess_category(text: &str) -> Option<Category> {
+    let n = text.to_lowercase();
     let has = |words: &[&str]| words.iter().any(|w| n.contains(w));
-    if has(&["rhodes", "wurli", "e.piano", "epiano", "electric piano", "e-piano", "ep-", "clav"]) {
+    Some(if has(&["rhodes", "wurli", "e.piano", "epiano", "electric piano", "e-piano", "ep-", "clav"]) {
         Category::EPiano
     } else if has(&["piano", "grand", "keyscape", "pianoteq"]) {
         Category::Piano
@@ -222,8 +318,10 @@ pub fn plugin_category(name: &str, maker: &str) -> Category {
         Category::Choir
     } else if has(&["pad", "ambient", "atmos"]) {
         Category::Pad
-    } else {
+    } else if has(&["synth", "lead"]) {
         Category::SynthLead
-    }
+    } else {
+        return None;
+    })
 }
 

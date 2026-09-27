@@ -289,6 +289,12 @@ impl PluginInstance {
         sys::guard("reading the state", || self.unit.class_info())
     }
 
+    /// Select factory preset `number` (`kAudioUnitProperty_PresentPreset`). Not RT-safe:
+    /// before the instance plays.
+    pub fn set_factory_preset(&mut self, number: i32, name: &str) -> Result<()> {
+        sys::guard("selecting the preset", || self.unit.set_factory_preset(number, name))
+    }
+
     /// Restore a state from [`PluginInstance::get_state`]. Not RT-safe: call it off the audio
     /// thread on an instance that is not playing (a preloaded one), then swap it in.
     pub fn set_state(&mut self, bytes: &[u8]) -> Result<()> {

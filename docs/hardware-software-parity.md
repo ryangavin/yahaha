@@ -118,3 +118,12 @@ Mirror only, which needs a dedicated control:
 7. `sectionReset`: in TransportBar or FillButtons.
 8. `stepVoice`: in PartStrip.
 9. `reloadPartPlugin`: in PartStrip, next to the plugin toggle.
+
+## AU presets (sound browser)
+
+The Launchkey has no sound-catalog browser (its Voice −/+ steps the GM voices, `stepVoice`),
+so it has no way to browse AU presets either; nothing about them is hardware-only. A
+preset reaches the Launchkey the way every catalog sound does: store the part in a
+Registration Memory or an OTS and recall that from the pads. The recall restores the
+plugin's state, which is the preset.
+

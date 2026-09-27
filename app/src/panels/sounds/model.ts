@@ -20,8 +20,12 @@ export function categoryCounts(entries: SoundEntry[]): { id: PatchCategory; labe
  * The entries shown, as indices into `catalog.entries`: the sidebar's choice, then the
  * filter (every word must be in the name, the detail or the source badge). Recents come
  * in their order (most recent first); everything else in the catalog's order.
+ *
+ * A plugin's presets (entries with a `parent`) sit under their plugin: in All sounds with
+ * no filter they show only while the plugin is `expanded`, as Logic's plugin preset menu
+ * opens. Filtered, or in any other view, they show like any other sound.
  */
-export function visibleSounds(catalog: SoundCatalog, view: SoundView, query: string): number[] {
+export function visibleSounds(catalog: SoundCatalog, view: SoundView, query: string, expanded: ReadonlySet<string> = new Set()): number[] {
   const words = query.toLowerCase().split(/\s+/).filter(Boolean)
   const match = (e: SoundEntry) => {
     if (!words.length) return true
@@ -36,7 +40,9 @@ export function visibleSounds(catalog: SoundCatalog, view: SoundView, query: str
       return i !== undefined && match(entries[i]) ? [i] : []
     })
   }
+  const tree = view.kind === 'all' && !words.length
   const keep = (e: SoundEntry) => {
+    if (tree && e.parent && !expanded.has(e.parent)) return false
     switch (view.kind) {
       case 'favourites': return e.favourite
       case 'saved': return e.source === 'saved'
@@ -47,10 +53,16 @@ export function visibleSounds(catalog: SoundCatalog, view: SoundView, query: str
   return entries.flatMap((e, i) => (keep(e) && match(e) ? [i] : []))
 }
 
+/** Whether a plugin row can be expanded: it has presets, or they were never listed. */
+export function expandable(e: SoundEntry): boolean {
+  return e.source === 'plugin' && !e.parent && !!e.plugin && !e.plugin.lastError && e.plugin.presets !== 0
+}
+
 /** The entry a keyboard part plays now, if the catalog has it: its saved sound, its
  * plugin, or its voice on the default sound set. */
-export function playingId(p: { program: number; patch: string | null; plugin?: { id: string } | null; playsBass: boolean }, soundFontFile: string | null): string | null {
+export function playingId(p: { program: number; patch: string | null; plugin?: { id: string; presetKey?: string | null } | null; playsBass: boolean }, soundFontFile: string | null): string | null {
   if (p.patch) return `saved:${p.patch}`
+  if (p.plugin?.presetKey) return `au:${p.plugin.id}#${p.plugin.presetKey}`
   if (p.plugin) return `au:${p.plugin.id}`
   return soundFontFile ? `sf:${soundFontFile}:0:${p.program}` : null
 }

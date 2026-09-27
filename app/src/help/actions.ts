@@ -216,6 +216,7 @@ export function tipFor(cmd: AppCmd | null): TipKey {
     case 'triggerFunction': return 'pedal.try'
     case 'setPartControllers': return 'pedal.part_sustain'
     case 'setBendRange': return 'pedal.bend_up'
+    case 'setPartPluginPreset':
     case 'setPartPlugin':
     case 'clearPartPlugin':
     case 'savePartPluginState': return 'part.plugin'
@@ -265,6 +266,8 @@ export function tipFor(cmd: AppCmd | null): TipKey {
     case 'stopSoundAudition': return 'sounds.audition_stop'
     case 'assignSound': return 'sounds.row'
     case 'setSoundCategory': return 'sound.category'
+    case 'listPluginPresets': return 'sounds.presets'
+    case 'savePartAsPluginPreset': return 'sounds.save_preset'
     case 'setParamLock': return cmd.item === 'splitPoint' ? 'settings.param_lock_split_point' : 'settings.param_lock_fingering_type'
     // Style Dynamics (#180).
     case 'setDynamicsControl': return 'dynamics.control'

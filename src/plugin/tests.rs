@@ -541,3 +541,75 @@ fn an_instance_at_another_sample_rate_is_refused() {
     let (_rack, mut ctl) = rack(256, 44_100.0);
     assert!(ctl.assign(0, dls(256), Swap::default()).is_err(), "a 48 kHz instance in a 44.1 kHz rack");
 }
+
+/// AU presets are cached with the scan: a mock cache (the real fingerprint, a made-up
+/// plugin with factory and user presets) is served back as written, so the list is stable
+/// whatever is installed; an old cache without the preset fields still reads.
+#[test]
+fn presets_round_trip_through_a_mock_cache() {
+    use super::scan::{self, ScanCache};
+    let dir = std::env::temp_dir().join(format!("yahaha-plugin-presets-{}", std::process::id()));
+    let path = dir.join("plugins.json");
+    let _ = std::fs::remove_dir_all(&dir);
+    let fake = PluginInfo {
+        id: PluginId::parse("aumu Smp7 Fake").unwrap(),
+        name: "Sampler Deluxe".into(),
+        manufacturer: "Fake Instruments".into(),
+        version: 0x10000,
+        format: PluginFormat::Au2,
+        requires_async: false,
+        can_load_in_process: false,
+        sandbox_safe: true,
+        last_load: None,
+        in_process: false,
+        factory_presets: Some(vec![FactoryPreset { number: 0, name: "Init".into() }, FactoryPreset { number: 7, name: "Bright Grand".into() }]),
+        user_presets: vec![UserPreset { name: "Upright".into(), path: dir.join("Upright.aupreset"), folder: Some("Pianos".into()) }],
+    };
+    let mock = ScanCache { schema: scan::SCHEMA, fingerprint: scan::fingerprint(&super::sys::instruments()), plugins: vec![fake.clone()] };
+    scan::write_cache(&path, &mock).unwrap();
+    assert_eq!(scan::read_cache(&path).unwrap().plugins, vec![fake.clone()]);
+    let h = PluginHost::with_preset_roots(Some(path.clone()), vec![dir.join("presets")]);
+    assert_eq!(h.scan().unwrap(), vec![fake.clone()], "served from the mock cache");
+    assert!(h.has_factory_presets(&fake.id));
+    assert_eq!(h.cached(&fake.id).unwrap().user_presets[0].folder.as_deref(), Some("Pianos"));
+    // Old caches (no preset fields) still read.
+    let old = std::fs::read_to_string(&path).unwrap().replace("factory_presets", "x_factory").replace("user_presets", "x_user");
+    std::fs::write(&path, old).unwrap();
+    let plain = scan::read_cache(&path).unwrap();
+    assert_eq!(plain.plugins[0].factory_presets, None);
+    assert!(plain.plugins[0].user_presets.is_empty());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A load reads the factory presets into the cache (once per version); an `.aupreset`
+/// saved from a playing instance lists under the plugin and loads back as its state.
+#[test]
+fn a_load_lists_factory_presets_and_a_saved_aupreset_loads_back() {
+    let dir = std::env::temp_dir().join(format!("yahaha-plugin-aupreset-{}", std::process::id()));
+    let path = dir.join("plugins.json");
+    let _ = std::fs::remove_dir_all(&dir);
+    let root = dir.join("Presets");
+    let h = PluginHost::with_preset_roots(Some(path.clone()), vec![root.clone()]);
+    h.scan().unwrap();
+    assert!(!h.has_factory_presets(&PluginId::DLS));
+    let inst = h.load(&PluginId::DLS, LoadConfig::default()).unwrap();
+    assert!(h.has_factory_presets(&PluginId::DLS), "the load read them (DLS may have none)");
+    let state = inst.get_state().unwrap();
+    let saved = h.save_user_preset(&PluginId::DLS, "My DLS", &state).unwrap();
+    assert!(saved.path.starts_with(root.join("Apple").join("DLSMusicDevice")));
+    assert!(h.cached(&PluginId::DLS).unwrap().user_presets.iter().any(|p| p.name == "My DLS"));
+    // A new host (the next launch) lists it from the cache, and the file loads as a state.
+    let next = PluginHost::with_preset_roots(Some(path.clone()), vec![root.clone()]);
+    assert!(next.info(&PluginId::DLS).unwrap().user_presets.iter().any(|p| p.name == "My DLS"));
+    let bytes = std::fs::read(&saved.path).unwrap();
+    assert!(bytes.starts_with(b"<?xml"), "Logic's XML form");
+    let again = next.load(&PluginId::DLS, LoadConfig { state: Some(bytes), ..Default::default() }).unwrap();
+    assert!(again.get_state().is_ok());
+    // A rescan reads the factory presets again (at the next load) and lists the files.
+    let fresh = next.rescan().unwrap();
+    let d = fresh.iter().find(|p| p.id == PluginId::DLS).unwrap();
+    assert_eq!(d.factory_presets, None);
+    assert!(d.user_presets.iter().any(|p| p.name == "My DLS"));
+    drop((inst, again));
+    let _ = std::fs::remove_dir_all(&dir);
+}
