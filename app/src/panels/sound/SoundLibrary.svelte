@@ -2,11 +2,12 @@
   The Sound Library drawer (right side, not modal: performance keys keep working), #103.
   Your short list of patches, and the program map that makes every style play them:
 
-  1. Patches: the list by category, search, favourites, audition, the editor, save a
-     part's sound, the library file.
-  2. GM map: the drums and 128 programs by family, each with its rule, override, the
+  1. GM map: the drums and 128 programs by family, each with its rule, override, the
      sound it resolves to and the deciding layer; the global map or this style's own.
-  3. Add from SoundFont: browse a SoundFont's presets, audition, add.
+  2. Add from SoundFont: browse a SoundFont's presets, audition, add.
+
+  Under them, the library file. The patches themselves (the old Patches tab) are in the
+  Sound Browser's Sounds tab: My Sounds, and the edit strip under its list.
 
   All pages stay mounted (inactive ones `hidden`), so switching is instant and the
   tooltip coverage test sees every control. docs/sound-library.md has the behaviour.
@@ -17,7 +18,7 @@
   import Overlay from '../../lib/ui/Overlay.svelte'
   import AddPage from './AddPage.svelte'
   import GmMapPage from './GmMapPage.svelte'
-  import PatchesPage from './PatchesPage.svelte'
+  import LibraryFile from './LibraryFile.svelte'
   import { nav, TABS, type SoundTab } from './nav.svelte'
 
   const sl = $derived(app.state.soundLibrary)
@@ -33,7 +34,7 @@
     nav.tab = next.id
     strip?.querySelector<HTMLElement>(`#sound-tab-${next.id}`)?.focus()
   }
-  const count = (id: SoundTab) => (id === 'patches' ? sl.patches.length : id === 'gm' ? sl.gmMap.filter((r) => r.resolved.layer === 'auto').length || null : null)
+  const count = (id: SoundTab) => (id === 'gm' ? sl.gmMap.filter((r) => r.resolved.layer === 'auto').length || null : null)
 </script>
 
 <Overlay id="sound" title="Sound Library" closeTip="drawer.close" onclose={() => (ui.sound = false)}>
@@ -64,14 +65,14 @@
       <p class="fonts engraved">Also loaded: {sl.extraSoundFonts.map((f) => f.replace(/\.sf2$/i, '')).join(', ')}</p>
     {/if}
 
-    {#snippet page(id: SoundTab, Body: typeof PatchesPage)}
+    {#snippet page(id: SoundTab, Body: typeof GmMapPage)}
       <div class="page" id="sound-page-{id}" role="tabpanel" aria-labelledby="sound-tab-{id}" hidden={nav.tab !== id}>
         <Body />
       </div>
     {/snippet}
-    {@render page('patches', PatchesPage)}
     {@render page('gm', GmMapPage)}
     {@render page('add', AddPage)}
+    <LibraryFile />
   </div>
 </Overlay>
 
@@ -83,7 +84,7 @@
   }
   .tabs {
     display: grid;
-    grid-template-columns: 0.8fr 0.8fr 1.4fr;
+    grid-template-columns: 1fr 1.5fr;
     gap: 2px;
     padding: 3px;
     border-radius: 6px;

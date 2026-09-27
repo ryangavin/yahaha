@@ -11,7 +11,10 @@ plugin rack once that is merged; until then they play the SoundFont fallback.
   `src/synth/routing.rs` (the synth's side), `src/session/sound_library.rs` (commands,
   state, style hand-off, SoundFont loading, auditions).
 - API: `SoundLibraryCmd` and `state.soundLibrary` (docs/app-api.md, "Sound library").
-- App: the Sound Library drawer, and the Library tab of the voice picker.
+- App: the Sound Browser's Sounds tab (My Sounds: rename, recategorise, tags, defaults,
+  duplicate, delete; docs/sound-browser.md "The Sounds tab"), and the Sound Library drawer
+  (the map, this style, adding from a SoundFont, the library file). The drawer's old
+  Patches tab folded into the Sounds tab.
 
 ## Patches
 

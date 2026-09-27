@@ -15,8 +15,8 @@ Status: the model, migrations, first-play capture and the map's data shape are i
 Now playing, the "edited" check, Save / Save as… and the sound in Registrations are in
 (PR 2). The session and the synth resolve every program through the map with auto-fill,
 and the default sound set is gone (PR 3, see "Resolution in the session"). The map's rows
-are in the state (`soundLibrary.gmMap`) for the map page. The Sounds tab that shows all
-this comes in PR 4.
+are in the state (`soundLibrary.gmMap`) for the map page. The Sounds tab shows all this
+(PR 4, see "The Sounds tab").
 
 ## Sounds
 
@@ -192,6 +192,38 @@ replaces its old Program Map and This style tabs. It draws `soundLibrary.gmMap`:
 - Every control is a native button with a tooltip, reached with Tab; the drawer's tab
   strip takes the arrow keys.
 
+## The Sounds tab
+
+The Sound Browser overlay's list (`app/src/panels/sounds/`). It is all client-side: the
+wire is unchanged.
+
+- **All sounds** is the GM map's resolved sounds (one row per program and the kit,
+  whichever layer decided it; the row's detail says "GM 5 · …"), every plugin sound and
+  everything in My Sounds (the library's patches). About 150 rows, not 1,200.
+- **Chips:** All sounds, Favourites, Recent, My Sounds, one per category (within All
+  sounds), and **one per instrument**: a SoundFont chip lists every preset of that font; a
+  plugin chip lists the plugin, its factory presets (asked for with `listPluginPresets`
+  when the chip opens), its `.aupreset` files and the library sounds made with it. The
+  filter searches the chip's rows.
+- **What plays:** ▶ marks the part's `sound` (else its plugin preset, else the map's row
+  for its program). The footer reads "<Part> plays <instrument> · <sound>", with an
+  **edited** badge while `soundEdited`.
+- **One Save flow:** **Save** (`saveSound`) and **Save as…**, which asks for a name
+  (`saveSoundAs`) and, on a plugin part, can also write an `.aupreset` with a category
+  (`savePartAsPluginPreset`, asking before it replaces a file of that name). The new sound
+  shows selected in My Sounds.
+- **Your sounds:** selecting a library sound shows its strip under the list: rename,
+  category, Details (tags and the defaults a part takes), Duplicate and Delete… (asked
+  first). A plugin's category is set on the Instruments tab. A library sound made with a
+  plugin can also be exported as an `.aupreset` from the strip (`exportSoundPreset`).
+- **Keys** (the filter keeps focus): ↑/↓ PgUp/PgDn Home/End, Enter plays, Shift+Enter
+  auditions, Ctrl/⌘+D stars, Ctrl/⌘+S saves, Ctrl/⌘+Shift+S saves as…, F2 renames,
+  Ctrl/⌘+Delete deletes (asked), Esc closes. Tab reaches every chip and button.
+- The Sound Library drawer's **Patches** tab is gone: its list is My Sounds, its editor
+  is the strip, "Save a part's sound" is Save as…, and the library file moved under the
+  drawer's other pages. Plugin housekeeping (rescan, retry, hide) lives on the
+  Instruments tab, not in this tab's footer.
+
 ## Migration
 
 Each migration has a test in `src/patches/sound_tests.rs`.
@@ -315,3 +347,21 @@ Sounds tab only, because Play now needs a part.
   layer beats a global rule, and auto comes after both. Existing maps play unchanged.
 - **Decision: a rule naming a patch that is gone falls through** to the next layer (then
   auto), instead of the old "fallback" to the main font's own voice.
+
+## Decisions made in PR 4 (the Sounds tab)
+
+- **Decision: "every plugin sound" is the library's plugin sounds.** A factory preset or
+  `.aupreset` file becomes one when first played; until then it is under its plugin's
+  chip, like a font's unmapped presets.
+- **Decision: a category chip narrows All sounds**, not the whole catalog, so it stays
+  short; Favourites and Recent hold whatever you starred or picked, from any chip.
+- **Decision: the chips stay in the side column** (as the Genos category tabs), with an
+  Instruments group under Categories, rather than a wrapping chip bar above the list.
+- **Decision: the `.aupreset` export is an option of Save as…**, so there is one save
+  flow; it keeps #307's replace question.
+- **Decision: the Patches tab's editor moved whole into the strip** (tags and defaults
+  under Details), and its "move up/down" and "play on R1–L" went: the browser is per part
+  and sorts by the catalog. The library file (export, import, "port sends mapped") moved
+  under the drawer's pages.
+- **Decision: Edit… and Rescan stay in the footer for now**; the Instruments tab (PR 5)
+  takes them.
