@@ -278,6 +278,8 @@ export function tipFor(cmd: AppCmd | null): TipKey {
     case 'setAccent':
     case 'toggleAccent': return 'dynamics.accent'
     case 'setAccentThreshold': return 'dynamics.accent_threshold'
+    case 'setAccentMode': return cmd.mode === 'fill' ? 'dynamics.accent_mode_fill' : 'dynamics.accent_mode_hits'
+    case 'setAccentSource': return cmd.source === 'both' ? 'dynamics.accent_source_both' : 'dynamics.accent_source_left'
     // Knob Assign pages (#197).
     case 'setKnobPage':
     case 'stepKnobPage': return 'knobs.page'

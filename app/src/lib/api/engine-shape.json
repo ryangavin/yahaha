@@ -45,6 +45,8 @@
   "controllers.sustain: boolean",
   "controllers: object",
   "dynamics.accent: boolean",
+  "dynamics.accentMode: string",
+  "dynamics.accentSource: string",
   "dynamics.accentThreshold: number",
   "dynamics.control: boolean",
   "dynamics.level: number",

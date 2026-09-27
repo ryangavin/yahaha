@@ -1190,7 +1190,7 @@ fn sections_played(e: &mut Engine, rec: &mut Rec, from: u64, to: u64, out: &mut 
 fn tapping_during_a_fill_loops_the_fill_back_to_back() {
     for press in [Button::Main(0), Button::FillSelf] {
         let Some((mut e, mut rec)) = started(StyleSettings::default()) else { return };
-        e.set_dynamics(DynamicsSettings { accent: true, accent_min: 110, ..Default::default() });
+        e.set_dynamics(DynamicsSettings { accent: true, accent_min: 110, accent_mode: AccentMode::Fill, ..Default::default() });
         let (ppq, tpb, _) = grid(&e);
         let fill = slot_of(SectionId::Fill(0));
         assert_eq!(e.style.sections[fill].as_ref().unwrap().len as f64, tpb, "a one-bar fill");
@@ -1212,7 +1212,7 @@ fn tapping_during_a_fill_loops_the_fill_back_to_back() {
         // No tap in the last fill; an Accent strike there changes nothing.
         let strike = e.ns_at(4.0 * tpb + 2.5 * ppq);
         sections_played(&mut e, &mut rec, last, strike, &mut seen);
-        e.strike(127, strike);
+        e.strike(127, strike, &mut rec);
         assert_eq!(e.snapshot(strike).queued, None, "{press:?}: no Accent during a fill");
         let back = e.ns_at(5.0 * tpb + 1.5 * ppq);
         sections_played(&mut e, &mut rec, strike, back, &mut seen);
@@ -1226,7 +1226,7 @@ fn tapping_during_a_fill_loops_the_fill_back_to_back() {
         ];
         assert_eq!(seen, want, "{press:?}: fills back to back, then the Main");
         // The Main is back: an Accent strike plays its fill again.
-        e.strike(127, back);
+        e.strike(127, back, &mut rec);
         assert_eq!(e.snapshot(back).queued, Some(SectionId::Fill(0)), "{press:?}: Accent in the Main");
     }
 }

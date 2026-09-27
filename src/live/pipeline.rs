@@ -173,6 +173,10 @@ impl Input {
         {
             self.signal = true;
         }
+        // Accent Source Both: the right hand's strikes accent too.
+        if !chord && self.shared.strikes_right.load(Relaxed) && self.cmd.push(Cmd::AccentStrike(vel)).is_ok() {
+            self.signal = true;
+        }
         // The Full Keyboard types (Lower only) read both hands.
         if chord || full {
             self.recompute();

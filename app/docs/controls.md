@@ -368,8 +368,12 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | **Dynamics Control** | On: the Dynamics level (and Touch) can change how hard the band plays. Off: the Style plays exactly as written. | Menu › Style Setting › Dynamics Control | — | — |
 | **Dynamics** | How hard the whole band plays, 0–127; it starts at the maximum, 127, which plays the Style as written, and goes back there with each new style. Turning it down lowers every Style note's velocity, so the drums and instruments get softer and darker, not just quieter. The mixer volumes stay as they are. | Live Control › Style Dynamics (DynCtrl) | — | Knob 1 on the Style knob page |
 | **Touch** | The band follows your left hand. Each key you strike in the chord section sets the Dynamics level from how hard you hit it, and a strike at velocity 100 or harder plays the Style as written. | — | `&` | — |
-| **Accent** | Strike a chord-section key at least as hard as the threshold while a Main plays, and the Main plays its own fill from the next beat, so you can play the fills with your left hand. It is not a Main press, so OTS Link does not follow it, and nothing happens during an Intro, fill, break or Ending. | — | `Shift+H` | — |
-| **Accent threshold** | How hard (velocity 1–127) a chord-section strike must be to play the fill. The default is 110. | — | — | — |
+| **Accent** | Strike a key at least as hard as the threshold for an accent: with Mode Hits, a drum hit from the Style's kit, with the style stopped or playing; with Mode Fill, while a Main plays, the Main's own fill from the next beat. Source picks which hand accents. | — | `Shift+H` | — |
+| **Accent threshold** | How hard (velocity 1–127) a strike must be to accent. The default is 110. | — | — | — |
+| **Accent mode: Hits** | Each accent plays a one-shot hit from the Style's drum kit, stopped or playing: kick + closed hat, kick + snare when harder, kick + crash from velocity 120. The hit is as loud as you strike. The default. | — | — | — |
+| **Accent mode: Fill** | While a Main plays, an accent plays that Main's own fill from the next beat (as Fill Self; OTS Link does not follow it). With the style stopped, accents play drum hits. | — | — | — |
+| **Accent source: Left** | Only chord-section strikes accent. The default. | — | — | — |
+| **Accent source: Both** | Chord-section and right-hand strikes both accent. | — | — | — |
 
 ## Knob Assign pages
 

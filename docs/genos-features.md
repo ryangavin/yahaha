@@ -174,13 +174,13 @@ Tags: `[chord-following]` `[transport]` `[sections]` `[voices]` `[registration]`
     - Scaling velocity rather than volume changes intensity, as the manual describes. CC7 is never touched.
     - With Dynamics Control off, the Style plays as written.
   - **Touch** (reading OM p.69 literally). Each strike in the chord section sets the level to its velocity minus 36, so a strike at velocity 100 plays the Style as written.
-  - **Accent** (a stand-in for the PSR-SX Unison & Accent, §C.9). A chord-section strike at or above the threshold (default 110) makes the Main that is playing play its own fill from the next beat, as Fill Self does.
+  - **Accent** (a stand-in for the PSR-SX Unison & Accent, §C.9). A strike at or above the threshold (default 110) accents. **Mode** Hits (default): a one-shot hit from the Style's drum kit on its drum channel (Rhythm 2), with the style stopped or playing, for a freeform jam with Manual Bass and Stop ACMP. The strike's velocity picks the band: kick + closed hat, kick + snare, or from 120 kick + crash; each note's velocity scales with the strike's, and a note retriggers rather than stacks. **Mode** Fill: while a Main plays, the Main plays its own fill from the next beat, as Fill Self does (stopped, hits). **Source** Left (default): chord-section strikes; Both: right-hand strikes too.
     - It is not a Main press, so OTS Link does not follow it.
     - It does nothing during an Intro, a fill, a break or an Ending, or while a change is queued.
   - **Pedal.** The assignable function "Dynamics Control" (RM p.142 marks it pedal-assignable) turns a foot controller's position into the level, 0–127. With Dynamics Control off the pedal does nothing. A pedal that is given another function leaves the level where it was.
   - **Storage.** System settings, not Registration (DL p.91: Dynamics Control is System only).
-  - **Defaults.** Dynamics Control on, level 64, Touch off, Accent off.
-  - **Controls.** The app's Settings › Style page (Dynamics Control, level, Touch, Accent, threshold). TUI and app keys: `H` toggles Accent, `&` toggles Touch. There is no Launchkey mapping: every pad page is full and yahaha does not read the encoders yet.
+  - **Defaults.** Dynamics Control on, level 64, Touch off, Accent off (Mode Hits, Source Left).
+  - **Controls.** The app's Settings › Style page (Dynamics Control, level, Touch, Accent, threshold, Accent mode, Accent source). TUI and app keys: `H` toggles Accent, `&` toggles Touch. There is no Launchkey mapping: every pad page is full and yahaha does not read the encoders yet.
 - **Ref:** OM p.11, p.69; RM p.11, p.142, p.147
 
 ### Ambience Depth `[mixer]`
@@ -989,7 +989,7 @@ With NTR = Guitar:
   - FM voice 2/4 Unison mode (RM p.55).
   - Style Creator "Dynamics / Accent Type" (an editor feature, RM p.27).
 - If yahaha wants Unison & Accent, the spec must come from another source.
-- **Corpus (#180).** 0 of 208 styles carry any Unison & Accent data. The only chunks present are MThd, MTrk, CASM, OTSc and FNRc, and the only markers are the standard section markers. yahaha therefore cannot play Yamaha's accent figures. Its Accent plays the Main's own fill instead (see Style Dynamics Control).
+- **Corpus (#180).** 0 of 208 styles carry any Unison & Accent data. The only chunks present are MThd, MTrk, CASM, OTSc and FNRc, and the only markers are the standard section markers. yahaha therefore cannot play Yamaha's accent figures. Its Accent plays GM drum hits on the Style's kit, or the Main's own fill, instead (see Style Dynamics Control).
 
 ### C.10 Chord identity numbering (MIDI Chord SysEx and Song chord meta)
 - **Chord SysEx:** `F0 43 7E 02 cr ct bn bt F7`. The same data appears in the Song meta event `FF 7F 07 43 7B 01 cr ct bn bt`.

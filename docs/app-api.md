@@ -446,7 +446,7 @@ groups are the Data List's lock groups that yahaha has: `splitPoint` (the split 
 Genos2 Style Dynamics Control (OM p.11, p.69; RM p.11, p.142, p.147), with Touch and Accent (#180; docs/genos-features.md, Style Dynamics Control).
 - **Level.** A value from 0 to 127 that scales the velocity of every Style note. At 64 the Style plays as written. The level changes the band's intensity; the parts' CC7 volumes are never touched.
 - **Touch.** Each key struck in the chord section sets the level from that key's velocity.
-- **Accent.** A chord-section key struck at or above the threshold, while a Main plays, starts that Main's fill from the next beat. yahaha's Accent stands in for the PSR-SX Unison & Accent feature: no style carries Yamaha's accent data.
+- **Accent.** A key struck at or above the threshold (a chord-section key; with Source `both`, a right-hand key too) accents. Mode `hits` (the default) plays a one-shot hit from the Style's drum kit on its drum channel, with the style stopped or playing; mode `fill` starts the playing Main's fill from the next beat (stopped, it plays hits). yahaha's Accent stands in for the PSR-SX Unison & Accent feature: no style carries Yamaha's accent data.
 - **Storage.** All of these are System settings. Registration does not store them.
 
 | Command | Fields | What it does |
@@ -457,6 +457,8 @@ Genos2 Style Dynamics Control (OM p.11, p.69; RM p.11, p.142, p.147), with Touch
 | `setDynamicsTouch`, `toggleDynamicsTouch` | `on` | Touch: each chord-section strike sets the level to its velocity × 1.27, so a strike at 100 or harder plays as written. |
 | `setAccent`, `toggleAccent` | `on` | Accent: a chord-section strike at or above the threshold, while a Main plays, starts that Main's own fill at the next beat, as Fill Self does. It is not a Main press, so OTS Link does not follow it. It does nothing during an Intro, fill, break or Ending, or while a change is queued. |
 | `setAccentThreshold` | `velocity` 1–127 | The Accent threshold (default 110). |
+| `setAccentMode` | `mode`: `hits` or `fill` | Accent Mode. `hits` (default): each accent plays two GM drum notes on the Style's kit (channel 10), picked by the strike's velocity: below the midpoint of threshold..120 kick + closed hat, above it kick + snare, from 120 kick + crash; each note's velocity scales with the strike's, retriggers rather than stacks, and ends 150 ms later. Nothing while Rhythm 2 is muted. `fill`: while a Main plays, the Main's own fill as above (stopped, hits). |
+| `setAccentSource` | `source`: `left` or `both` | Accent Source. `left` (default): chord-section strikes accent. `both`: right-hand strikes accent too (Touch still hears the chord section only). |
 
 ### Effects
 The shared effect bus (#204): every part, SoundFont or plugin, feeds three System Effect blocks
@@ -1137,11 +1139,13 @@ Parameter Lock: `{ splitPoint, fingeringType }`, each a bool (true: locked). All
 default.
 
 ### `dynamics`
-Style Dynamics: `{ control, level, touch, accent, accentThreshold }`.
+Style Dynamics: `{ control, level, touch, accent, accentThreshold, accentMode, accentSource }`.
 - `control`: Style Setting › Dynamics Control. Default true.
 - `level`: the level in effect, 0–127. Touch moves it. Default 127 (as written); each style load sets it back to 127.
 - `touch`, `accent`: default false.
 - `accentThreshold`: a velocity from 1 to 127. Default 110.
+- `accentMode`: `hits` (default) or `fill`.
+- `accentSource`: `left` (default) or `both`.
 
 ### `knobs`
 The Knob Assign page: `{ page, pageName, pageNumber, pageCount, knobs }`.
@@ -1874,7 +1878,7 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
   },
   "paramLocks": { "splitPoint": false, "fingeringType": true },
   "sounds": { "revision": 3, "count": 1219, "scanning": false, "auditioning": null },
-  "dynamics": { "control": true, "level": 72, "touch": true, "accent": true, "accentThreshold": 110 },
+  "dynamics": { "control": true, "level": 72, "touch": true, "accent": true, "accentThreshold": 110, "accentMode": "hits", "accentSource": "left" },
   "knobs": {
     "page": "style",
     "pageName": "Style",

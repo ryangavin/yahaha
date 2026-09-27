@@ -22,6 +22,7 @@ impl Control {
         // The level shows at once, before the engine's next snapshot.
         self.snap.dynamics = s.level;
         self.shared.strikes.store(s.wants_strikes(), Relaxed);
+        self.shared.strikes_right.store(s.wants_right_strikes(), Relaxed);
         Ok(())
     }
 
