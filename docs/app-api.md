@@ -565,7 +565,7 @@ exactly as that command does.
 
 | Command | Fields | What it does |
 |---|---|---|
-| `setKnobPage` | `page` `style` \| `parts` \| `pan` \| `effects` \| `fx` | The Knob Assign page. `fx` (#236): Reverb Time, Pre-delay, Tone, Delay Time, Feedback, Chorus Rate, Depth, Tempo. |
+| `setKnobPage` | `page` `style` \| `parts` \| `pan` \| `reverb` \| `chorus` \| `delay` | The Knob Assign page. One page per effect: knobs 1–4 are Right 1, Right 2, Right 3 and Left's send to it (`setPartSend`, CC91/93/94), knob 8 its return (`setEffectReturn`), knobs 5–7 its parameters (`setEffectParam`, #236): `reverb` Time, Pre-delay, Tone; `chorus` Rate, Depth, (none); `delay` Time, Feedback, Tone. A parameter turn pins its block to the player's own (`followStyle` off, #237). The old names `effects` and `fx` are read as `reverb` and `delay`. |
 | `stepKnobPage` | `delta` | Steps the page, stopping at the first and last (the encoder page buttons ▲/▼). |
 | `turnKnob` | `knob` 0–7, `delta` | Turns a knob `delta` steps (positive: clockwise). Levels move 2 a step, tempo 1 BPM; Retrigger Rate and On/Off switch every 3 steps (right: shorter, on); Track Mute A/B move their position 4 a step. An effect parameter moves its own step (reverb time 0.1 s, pre-delay 2 ms, tones 200 Hz, feedback 2%, chorus rate 0.02 Hz and depth 0.1 ms); the Delay Time knob steps the note value every 3 steps with tempo sync on, or 10 ms a step with it off. A knob with No Assign does nothing. |
 
@@ -1141,11 +1141,11 @@ Style Dynamics: `{ control, level, touch, accent, accentThreshold }`.
 
 ### `knobs`
 The Knob Assign page: `{ page, pageName, pageNumber, pageCount, knobs }`.
-- `page`: `style` (the default), `parts`, `pan`, `effects` or `fx`. `pageNumber` is 1-based.
+- `page`: `style` (the default), `parts`, `pan`, `reverb`, `chorus` or `delay`. `pageNumber` is 1-based.
 - `knobs`: always eight, knob 1 first: `{ function, name, short, value, level }`.
   - `function`: `none`, `dynamics`, `retriggerRate`, `retriggerOnOff`, `trackMuteA`,
     `trackMuteB`, `tempo`, `swing`, `partVolume`, `harmonyVolume`, `metronomeVolume`, `partPan`,
-    `partReverb`, `partChorus`, `fxReturn` (an effect block's return level; the `pan` page's
+    `partReverb`, `partChorus`, `partDelay`, `fxReturn` (an effect block's return level; the `pan` page's
     knobs 5–7 are Reverb, Chorus and Delay Return), `fxParam` (an effect parameter, #236; the
     `name` says which, "Reverb Time") or `delayTime` (the delay's note value, or its ms with
     tempo sync off).

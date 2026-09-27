@@ -308,7 +308,7 @@ export type KnobsCmd =
   | { type: 'stepKnobPage'; delta: number }
   | { type: 'turnKnob'; knob: number; delta: number }
 
-export type KnobPage = 'style' | 'parts' | 'pan' | 'effects' | 'fx'
+export type KnobPage = 'style' | 'parts' | 'pan' | 'reverb' | 'chorus' | 'delay'
 export type KnobFunction =
   | 'none'
   | 'dynamics'
@@ -324,6 +324,7 @@ export type KnobFunction =
   | 'partPan'
   | 'partReverb'
   | 'partChorus'
+  | 'partDelay'
   | 'fxReturn'
   | 'fxParam'
   | 'delayTime'

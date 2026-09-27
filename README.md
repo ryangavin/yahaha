@@ -137,15 +137,16 @@ Pressing the current Main again plays its fill. With Auto Fill on, switching Mai
 
 ### Knobs
 
-The 8 encoders are the Genos LIVE CONTROL knobs, on Knob Assign pages. The **encoder page buttons ▲/▼** (right of the knobs) switch pages, as the Genos KNOB ASSIGN button does, stopping at the ends. The knobs are relative: a turn moves the value from where it is now, whoever set it last. Knob 8 is tempo on every page but Effects.
+The 8 encoders are the Genos LIVE CONTROL knobs, on Knob Assign pages. The **encoder page buttons ▲/▼** (right of the knobs) switch pages, as the Genos KNOB ASSIGN button does, stopping at the ends. The knobs are relative: a turn moves the value from where it is now, whoever set it last. Knob 8 is tempo on the Style, Parts and Pan pages; each effect page (Reverb, Chorus, Delay) has Right 1, Right 2, Right 3 and Left's send to that effect on knobs 1-4, the effect's own settings on 5-7 and its return on 8. Turning an effect setting pins that effect to your own (its Style switch in the mixer goes off), as the mixer's editor does. The same pages, names and values are in the app's knob strip.
 
 | knob | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 |
 |---|---|---|---|---|---|---|---|---|
 | **1 · Style** | Dynamics | Retrigger length | Retrigger on/off | Style Track Mute A | Style Track Mute B | – | – | Tempo |
 | **2 · Parts** | Right 1 volume | Right 2 volume | Right 3 volume | Left volume | Harmony volume | Metronome volume | – | Tempo |
 | **3 · Pan** | Right 1 pan | Right 2 pan | Right 3 pan | Left pan | Reverb return | Chorus return | Delay return | Tempo |
-| **4 · Effects** | Right 1 reverb | Right 2 reverb | Right 3 reverb | Left reverb | Right 1 chorus | Right 2 chorus | Right 3 chorus | Left chorus |
-| **5 · FX** | Reverb time | Reverb pre-delay | Reverb tone | Delay time | Delay feedback | Chorus rate | Chorus depth | Tempo |
+| **4 · Reverb** | Right 1 reverb | Right 2 reverb | Right 3 reverb | Left reverb | Reverb time | Reverb pre-delay | Reverb tone | Reverb return |
+| **5 · Chorus** | Right 1 chorus | Right 2 chorus | Right 3 chorus | Left chorus | Chorus rate | Chorus depth | – | Chorus return |
+| **6 · Delay** | Right 1 delay | Right 2 delay | Right 3 delay | Left delay | Delay time | Delay feedback | Delay tone | Delay return |
 
 - **Dynamics** is the Style Dynamics level (64 = as written), 2 a step. It only acts while Settings › Style › Dynamics Control is on.
 - **Retrigger length** turns shorter to the right (1/1 … 1/32), **Retrigger on/off** turns it on to the right and off to the left; both switch every 3 steps.

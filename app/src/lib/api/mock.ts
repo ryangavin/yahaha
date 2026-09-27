@@ -283,7 +283,7 @@ export function initialState(): AppState {
     paramLocks: { splitPoint: false, fingeringType: false },
     sounds: initialSounds(),
     dynamics: { control: true, level: 127, touch: false, accent: false, accentThreshold: 110 },
-    knobs: { page: 'style', pageName: 'Style', pageNumber: 1, pageCount: 4, knobs: [] },
+    knobs: { page: 'style', pageName: 'Style', pageNumber: 1, pageCount: 6, knobs: [] },
     effects: initialEffects(),
     home: { mains: [], progress: { running: false, bar: 1, beat: 1, bars: null, beatsPerBar: 4, fraction: 0 }, snapshot: null, ots: null, bandSends: [] },
   }
@@ -1907,6 +1907,9 @@ export class MockSession implements Session {
         }
         p.value = Math.max(p.min, Math.min(p.max, Math.round(cmd.value)))
         p.display = FX_PARAMS[p.param].display(p.value)
+        // The player's own setting: the block no longer follows the style (#237), as a
+        // type change.
+        b.followStyle = false
         break
       }
       case 'setEffectReturn':
