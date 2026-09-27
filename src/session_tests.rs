@@ -326,14 +326,14 @@ fn keyboard_parts_mixer_and_pages() {
 
 /// Pan and the reverb/chorus sends (#198): the part's CC10/91/93 on its own channel, to
 /// the port and the synth, and in the state. Before anything sets them the state shows the
-/// power-on values (#204: some reverb and chorus, sent at start).
+/// power-on values: dry (every send 0), sent at start.
 #[test]
 fn part_pan_and_sends() {
     let Some(s) = offline("SlowWalker.T552.sty") else { return };
     let left = &s.state().keyboard_parts[crate::parts::LEFT];
-    assert_eq!((left.pan, left.reverb, left.chorus), (64, 40, 10));
+    assert_eq!((left.pan, left.reverb, left.chorus), (64, 0, 0));
     let out = s.take_output();
-    assert!(out.contains(&[0xB0, 91, 50]) && out.contains(&[0xB1, 93, 10]), "sent at start: {out:?}");
+    assert!(out.contains(&[0xB0, 91, 0]) && out.contains(&[0xB1, 93, 0]), "sent at start: {out:?}");
     s.send(PartsCmd::SetPartPan { part: 3, pan: 20 }).unwrap();
     s.send(PartsCmd::SetPartSend { part: 3, send: PartSend::Reverb, value: 90 }).unwrap();
     s.send(PartsCmd::SetPartSend { part: 1, send: PartSend::Chorus, value: 200 }).unwrap();
@@ -344,8 +344,8 @@ fn part_pan_and_sends() {
     assert!(!out.contains(&[0xB1, 93, 0]), "a send not set is not sent: {out:?}");
     let st = s.state();
     let (l, r2) = (&st.keyboard_parts[3], &st.keyboard_parts[1]);
-    assert_eq!((l.pan, l.reverb, l.chorus), (20, 90, 10));
-    assert_eq!((r2.pan, r2.reverb, r2.chorus), (64, 50, 127));
+    assert_eq!((l.pan, l.reverb, l.chorus), (20, 90, 0));
+    assert_eq!((r2.pan, r2.reverb, r2.chorus), (64, 0, 127));
 }
 
 #[test]
@@ -396,6 +396,70 @@ fn ots_and_ots_link() {
     assert_eq!(st.ots.applied, 2);
     s.send(OtsCmd::ToggleOtsLink).unwrap();
     assert!(!s.state().ots.link);
+}
+
+/// The sends the player dials in stick while playing: a style start, section changes, a
+/// fill, a voice change and OTS Link firing by itself (a style start, Main B) leave a
+/// keyboard part's reverb, chorus and delay as dialled; an explicit recall of an OTS that
+/// stores sends applies them; one that stores none leaves them (`parts` tests).
+#[test]
+fn keyboard_sends_stick_while_playing() {
+    let Some(s) = offline("SlowWalker.T552.sty") else { return };
+    let sends = |s: &Session, p: usize| {
+        let k = &s.state().keyboard_parts[p];
+        (k.reverb, k.chorus, k.variation)
+    };
+    assert_eq!(sends(&s, 0), (0, 0, 0), "dry by default");
+    s.send(OtsCmd::SetOtsLink { on: true }).unwrap();
+    s.send(PartsCmd::SetPartSend { part: 0, send: PartSend::Reverb, value: 81 }).unwrap();
+    s.send(PartsCmd::SetPartSend { part: 0, send: PartSend::Chorus, value: 17 }).unwrap();
+    s.send(PartsCmd::SetPartSend { part: 0, send: PartSend::Variation, value: 45 }).unwrap();
+    s.send(PartsCmd::SetPartSend { part: 3, send: PartSend::Reverb, value: 12 }).unwrap();
+    s.take_output();
+    let check = |s: &Session, what: &str| {
+        assert_eq!((sends(s, 0), sends(s, 3)), ((81, 17, 45), (12, 0, 0)), "after {what}");
+        let out = s.take_output();
+        let sent: Vec<_> = out.iter().filter(|m| m[0] & 0xF0 == 0xB0 && m[0] & 0x0F < 4 && [91, 93, 94].contains(&m[1])).collect();
+        let fine = |m: &&[u8; 3]| match (m[0] & 0x0F, m[1]) {
+            (0, 91) => m[2] == 81,
+            (0, 93) => m[2] == 17,
+            (0, 94) => m[2] == 45,
+            (1, 91) => m[2] == 12,
+            _ => m[2] == 0,
+        };
+        assert!(sent.iter().all(fine), "a keyboard send went out changed after {what}: {sent:?}");
+    };
+    let bar = {
+        let st = s.state();
+        (60e9 / st.style.tempo * st.transport.beats_per_bar as f64) as u64
+    };
+    // Style start (Sync Start; OTS Link recalls OTS 1).
+    keys(&s, true, &[36, 40, 43]);
+    s.advance(bar);
+    assert!(s.state().transport.running);
+    check(&s, "the style start");
+    // A section change (OTS Link: OTS 2).
+    s.send(TransportCmd::Main { index: 1 }).unwrap();
+    s.advance(3 * bar);
+    assert_eq!(s.state().ots.applied, 2, "OTS Link fired");
+    check(&s, "Main B");
+    // A fill.
+    s.send(TransportCmd::FillSelf).unwrap();
+    s.advance(2 * bar);
+    check(&s, "a fill");
+    // A voice change.
+    s.send(PartsCmd::SetPartVoice { part: 0, program: 11 }).unwrap();
+    s.advance(10 * MS);
+    check(&s, "a voice change");
+    s.send(TransportCmd::StartStop).unwrap();
+    s.advance(bar);
+    check(&s, "stop");
+
+    // An OTS the player recalls, with sends: they apply.
+    let ots = crate::sff::Style::load(&style("SlowWalker.T552.sty").unwrap()).unwrap().ots[0].parts[0];
+    let rev = ots.fx[crate::parts::REVERB].expect("SlowWalker's OTS 1 sets Right 1's reverb");
+    s.send(OtsCmd::RecallOts { index: 0 }).unwrap();
+    assert_eq!(sends(&s, 0).0, rev, "an explicit recall with sends applies them");
 }
 
 #[test]
