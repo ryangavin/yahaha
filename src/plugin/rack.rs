@@ -414,6 +414,13 @@ impl PluginRack {
         self.slots.iter().any(|s| s.cur.is_some() || s.old.is_some())
     }
 
+    /// How long `channel`'s plugin took to render its last block, in ns (0: none there),
+    /// for the performance view. RT-safe.
+    #[inline]
+    pub fn last_render_ns(&self, channel: u8) -> u64 {
+        self.slots[(channel & 0x0F) as usize].cur.as_ref().map_or(0, |i| i.last_render_ns())
+    }
+
     /// `channel`'s output peak (linear, both sides; after its gain and pan) since the last
     /// call, and start again from 0. RT-safe.
     #[inline]

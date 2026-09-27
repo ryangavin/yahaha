@@ -50,6 +50,7 @@ Options:
 - `--all-inputs` merges every connected keyboard.
 - `--no-pads` leaves the Launchkey pads alone.
 - Keyboards and the Launchkey can be plugged in and out while yahaha runs: a new keyboard is heard (by the `--input`/`--all-inputs` rules), and a Launchkey plugged back in goes back to DAW mode with its pads and LEDs. `yahaha fake-device` makes a Launchkey-like device from another process for trying it.
+- `--top` (or `YAHAHA_TOP=1`) shows a live performance view instead of the front panel. Its header has the process's memory; the audio callback's average, p99 and worst time against the buffer's deadline and its load; the dropout counts; the voices; the callback's stages; the synth rings' depth; the engine's wake timing and queues; and MIDI input latency. Below that is one row per part (the keyboard parts, the Style parts, the Multi Pads) with its source (SoundFont or plugin), voices, peak level and render time, and one row per effect block. It refreshes every second, and `q` quits. The desktop app launched from a terminal takes the same flag or variable and draws the view in that terminal. Collection costs nothing measurable while the view is off. `yahaha bench-audio <style> <font.sf2> --top` prints one frame of the view for an offline run.
 - `--chord-settle MS` sets the chord-settle window (0–30 ms, default 10): while the style plays, it follows a chord once the chord has held still this long, so a rolled chord is one change, not two. Also in the app's Settings › Chord.
 
 ## Ableton setup (once)

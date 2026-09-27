@@ -70,7 +70,9 @@ impl VoiceCollection {
         Some(&mut self.voices[candidate])
     }
 
-    pub(crate) fn process(&mut self, data: &[i16], channels: &[Channel]) {
+    /// yahaha: `channel_ns`, when given, adds each voice's rendering time (ns) to its
+    /// channel's slot (the performance view).
+    pub(crate) fn process(&mut self, data: &[i16], channels: &[Channel], mut channel_ns: Option<&mut [u64; 16]>) {
         let mut i: usize = 0;
 
         loop {
@@ -78,7 +80,16 @@ impl VoiceCollection {
                 return;
             }
 
-            if self.voices[i].process(data, channels) {
+            let alive = match channel_ns.as_deref_mut() {
+                None => self.voices[i].process(data, channels),
+                Some(ns) => {
+                    let t = std::time::Instant::now();
+                    let alive = self.voices[i].process(data, channels);
+                    ns[(self.voices[i].channel() as usize) & 15] += t.elapsed().as_nanos() as u64;
+                    alive
+                }
+            };
+            if alive {
                 i += 1;
             } else {
                 self.active_voice_count -= 1;

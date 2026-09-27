@@ -145,6 +145,20 @@ fn the_audio_callback_does_not_allocate() {
     for _ in 0..20 {
         assert_eq!(run(&mut core, &mut feed, &[]), none, "tails");
     }
+    // The performance view (`perf`, `--top`) collecting: per-stage, per-channel and
+    // per-effect timing, voices and levels, the rings' depths. The view's own reads (and
+    // their resets) run on its thread, outside `process`.
+    yahaha::perf::enable();
+    assert_eq!(run(&mut core, &mut feed, &[[0xB0, 91, 100], [0x90, 60, 100], [0x9A, 40, 100], [0x95, 64, 100]]), none, "profiling, notes");
+    for _ in 0..10 {
+        assert_eq!(run(&mut core, &mut feed, &[]), none, "profiling");
+    }
+    let snap = yahaha::perf::take(0.01);
+    if font.is_some() {
+        assert!(snap.voices > 0 && snap.stages[yahaha::perf::ST_BAND].0 > 0, "it measured: {snap:?}");
+        assert!(snap.channels[0].sum_ns > 0 && snap.channels[0].voices > 0, "Right 1's voices: {:?}", snap.channels[0]);
+    }
+    assert_eq!(run(&mut core, &mut feed, &[[0x80, 60, 0], [0x8A, 40, 0], [0x85, 64, 0]]), none, "profiling, note offs");
     // The style's XG Drum Setup (#239): drum messages, drum notes starting with their own
     // level, pitch, pan (random too), sends, filter and envelope, a program change resetting
     // the setup, and a system reset.

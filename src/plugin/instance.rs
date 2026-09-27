@@ -202,6 +202,12 @@ impl PluginInstance {
         self.stats.clone()
     }
 
+    /// How long the last render took, in ns. RT-safe (no reference count touched).
+    #[inline]
+    pub fn last_render_ns(&self) -> u64 {
+        self.stats.last_ns.load(Relaxed)
+    }
+
     /// Queue one short MIDI message `offset` frames into the next render (which must be
     /// longer than `offset`). RT-safe.
     #[inline]
