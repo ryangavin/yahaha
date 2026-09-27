@@ -417,6 +417,7 @@
     "faderPage": "panel",
     "faderLayer": "volume",
     "sendWaiting": 0,
+    "styleSendWaiting": 0,
     "styleParts": [
       {
         "name": "Rhythm 1",

@@ -172,6 +172,7 @@
   "mixer.multiPadVolume: number",
   "mixer.multiPadVolumeWaiting: boolean",
  "mixer.sendWaiting: number",
+ "mixer.styleSendWaiting: number",
   "mixer.partSolo: null",
   "mixer.styleParts: array",
   "mixer.styleParts[].channel: number",

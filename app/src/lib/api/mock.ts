@@ -227,6 +227,7 @@ export function initialState(): AppState {
       faderPage: 'panel',
       faderLayer: 'volume',
       sendWaiting: 0,
+      styleSendWaiting: 0,
       styleParts: STYLE_PART_NAMES.map((name, i) => ({
         name, channel: 9 + i, on: true, mutedByManualBass: false,
         volume: [100, 100, 96, 80, 76, 70, 88, 84][i], waiting: false, fader: null,

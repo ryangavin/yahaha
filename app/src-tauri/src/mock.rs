@@ -287,6 +287,7 @@ impl MockSession {
                 fader_page: FaderPage::Panel,
                 fader_layer: yahaha::parts::FaderLayer::Volume,
                 send_waiting: 0,
+                style_send_waiting: 0,
                 style_parts: STYLE_PARTS
                     .iter()
                     .enumerate()

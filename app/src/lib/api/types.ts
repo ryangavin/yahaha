@@ -660,6 +660,8 @@ export interface MixerState {
   faderLayer: FaderLayer
   /** Keyboard parts (bit = part) whose fader, in a send layer, hasn't reached the value yet. */
   sendWaiting: number
+  /** Style parts (bit = part) whose fader, in a send layer, hasn't reached the send yet. */
+  styleSendWaiting: number
   styleParts: StylePart[]
   /** Synth master volume (100 = unity); null without the synth. */
   master: number | null

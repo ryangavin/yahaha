@@ -180,7 +180,7 @@ Style Section Reset, the Fade In/Out times and the Style Retrigger length. The s
 | Command | Fields | Does |
 |---|---|---|
 | `setFaderPage` / `toggleFaderPage` | `page`: `panel` \| `style` | What the Launchkey faders control. |
-| `setFaderLayer` | `layer`: `volume` \| `pan` \| `reverb` \| `chorus` \| `delay` | The fader layer (the mixer's VOL · PAN · REV · CHO · DLY): what the faders move across the parts. Volume: each part's CC7 (as always). A send layer: Panel faders 1–4 move Right 1–3 and Left's pan / CC91 / CC93 / CC94 (as `setPartPan` / `setPartSend`, with soft takeover); Style faders 1–8 move the Style parts' reverb / chorus / delay sends (as `setStylePartSend`; the Style parts have no pan, so PAN leaves them alone). Faders 5–6 on the Panel page stay the Style and Multi Pad levels, and the master fader stays the master. On the Launchkey, **Shift + the master fader's button** steps the layer; the button alone still switches the page. |
+| `setFaderLayer` | `layer`: `volume` \| `pan` \| `reverb` \| `chorus` \| `delay` | The fader layer (the mixer's VOL · PAN · REV · CHO · DLY): what the faders move across the parts. Volume: each part's CC7 (as always). A send layer: Panel faders 1–4 move Right 1–3 and Left's pan / CC91 / CC93 / CC94 (as `setPartPan` / `setPartSend`, with soft takeover); Style faders 1–8 move the Style parts' reverb / chorus / delay sends (as `setStylePartSend`, with soft takeover; the Style parts have no pan, so PAN leaves them alone). Faders 5–6 on the Panel page stay the Style and Multi Pad levels, and the master fader stays the master. On the Launchkey, **Shift + the master fader's button** steps the layer; the button alone still switches the page. |
 | `stepFaderLayer` | `delta` | The next/previous fader layer, wrapping (VOL → PAN → REV → CHO → DLY → VOL). |
 | `setPadPage` | `page`: `sections` \| `chordSetup` \| `otsParts` \| `registration` \| `multiPads` | The Launchkey pad page. |
 | `cyclePadPage` | `delta` | Steps the pad page, wrapping. |
@@ -688,6 +688,7 @@ Indices are 0-based unless a field says otherwise.
 |---|---|---|
 | `faderPage` | `panel` \| `style` | What the Launchkey faders control. Panel: faders 1–4 are the keyboard parts, fader 5 the Style volume, fader 6 the Multi Pad volume. Style: faders 1–8 are the Style parts. |
 | `faderLayer` | `volume` \| `pan` \| `reverb` \| `chorus` \| `delay` | What the faders move across the parts (`setFaderLayer`). |
+| `styleSendWaiting` | number | Style parts (bit = part 0–7) whose fader, in a send layer, has moved but not yet reached the send. |
 | `sendWaiting` | number | Keyboard parts (bit = part 0–3) whose fader, in a send layer, has moved but not yet reached the value. |
 | `styleParts` | StylePart[8] | See the table below. |
 | `master` | 0–127? | The synth master level (100 = unity). Null without the synth. |
@@ -1385,6 +1386,7 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
     "faderPage": "panel",
     "faderLayer": "volume",
     "sendWaiting": 0,
+    "styleSendWaiting": 0,
     "styleParts": [
       {
         "name": "Rhythm 1",
