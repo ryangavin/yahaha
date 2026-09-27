@@ -1,6 +1,8 @@
 # Sound library and program map (#103)
 
-A short list of sounds you choose, about 20. The owner wants every style to play those
+A list of sounds you choose. Since the Sound Browser rethink (docs/sound-browser.md) it
+also holds every plugin sound: factory presets once played, imported `.aupreset` files and
+sounds saved in yahaha, one kind each (at most 4,096 patches). The owner wants every style to play those
 same patches, the way a Genos player has favourite voices, instead of the 128 GM sounds
 a style asks for. This phase covers SoundFont patches. Plugin patches play through #91's
 plugin rack once that is merged; until then they play the SoundFont fallback.
@@ -23,7 +25,8 @@ A patch has a name, a category, tags, a favourite flag, a source and defaults.
 - **Defaults** are MIDI settings sent as CCs, so the mixer shows them and there is no
   hidden gain: volume (CC7), pan (CC10), reverb (CC91), chorus (CC93) and octave.
 
-The library is saved as versioned JSON, `sound-library.json` in the data folder
+The library is saved as versioned JSON (format 2 since plugin sounds gained an origin; a
+format 1 file reads unchanged), `sound-library.json` in the data folder
 (`~/Documents/yahaha`, the folder Registration (#99) uses; `--data-dir` changes it). It is
 saved after every change. Export writes the same format, and import accepts it or a bare
 list of patches. A file written by a newer yahaha is not read and never saved over.

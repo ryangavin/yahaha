@@ -2034,6 +2034,8 @@ impl MockSession {
                     touch: d.touch,
                     accent: d.accent,
                     accent_min: d.accent_threshold,
+                    accent_mode: d.accent_mode,
+                    accent_source: d.accent_source,
                 };
                 self.state.dynamics = c.apply(now).into();
             }
@@ -3022,8 +3024,11 @@ mod tests {
         m.send(DynamicsCmd::ToggleAccent);
         m.send(DynamicsCmd::SetAccentThreshold { velocity: 0 });
         m.send(DynamicsCmd::SetDynamicsTouch { on: true });
+        m.send(DynamicsCmd::SetAccentMode { mode: yahaha::engine::AccentMode::Fill });
+        m.send(DynamicsCmd::SetAccentSource { source: yahaha::engine::AccentSource::Both });
         let d = &m.state.dynamics;
         assert_eq!((d.level, d.accent, d.accent_threshold, d.touch, d.control), (127, true, 1, true, true));
+        assert_eq!((d.accent_mode, d.accent_source), (yahaha::engine::AccentMode::Fill, yahaha::engine::AccentSource::Both));
     }
 
     /// As the session's Parameter Lock: a locked group keeps the player's setting through

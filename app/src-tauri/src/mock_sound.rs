@@ -46,7 +46,7 @@ impl Default for MockSound {
             sf("brass-section", "Brass Section", 0, 61),
             sf("soft-pad", "Soft Pad", 0, 89),
             Patch {
-                source: PatchSource::Plugin { component_id: "aumu dls  appl".into(), state: String::new() },
+                source: PatchSource::plugin("aumu dls  appl", String::new()),
                 category: Category::EPiano,
                 ..sf("keys-au", "Keys (AU)", 0, 4)
             },
@@ -117,7 +117,7 @@ impl MockSound {
         let mut out = Vec::new();
         for p in 0..4 {
             let want = self.parts[p].as_ref().and_then(|id| self.at(id)).and_then(|i| match &self.patches[i].source {
-                PatchSource::Plugin { component_id, state } => Some((self.patches[i].id.clone(), (component_id.clone(), state.clone()))),
+                PatchSource::Plugin { component_id, state, .. } => Some((self.patches[i].id.clone(), (component_id.clone(), state.clone()))),
                 PatchSource::SoundFont { .. } => None,
             });
             if want.as_ref().map(|w| &w.0) == self.plugin_parts[p].as_ref() {
@@ -194,7 +194,7 @@ impl MockSound {
                     .and_then(|id| self.at(&id))
                     .map(|i| self.patches[i].clone());
                 let plugin = kp.plugin.as_ref().filter(|p| p.status != PluginStatus::Failed).map(|p| {
-                    let source = PatchSource::Plugin { component_id: p.id.clone(), state: String::new() };
+                    let source = PatchSource::plugin(p.id.clone(), String::new());
                     match plays.clone() {
                         Some(q) if matches!(&q.source, PatchSource::Plugin { component_id, .. } if *component_id == p.id) => Patch { source, ..q },
                         q => Patch {

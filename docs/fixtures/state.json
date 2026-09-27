@@ -2097,7 +2097,9 @@
     "level": 64,
     "touch": false,
     "accent": false,
-    "accentThreshold": 110
+    "accentThreshold": 110,
+    "accentMode": "hits",
+    "accentSource": "left"
   },
   "knobs": {
     "page": "style",

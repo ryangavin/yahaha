@@ -9,21 +9,29 @@
 //! - [`SoundLibrary`] (store.rs): the patches and maps as one versioned JSON file in the
 //!   data folder, with import and export.
 //! - route.rs: the resolved map as the real-time threads read it (atomics, no allocation).
+//! - sound.rs: the unified Sound model (ids, [`SoundTag`], [`PluginOrigin`], [`FontPreset`]).
+//! - gm.rs: the GM map's layers with auto-fill and font provenance ([`resolve_gm`]).
 //! - sf2.rs: the presets of a `.sf2` file (its PHDR chunk only), for "Add from SoundFont".
 //!
 //! Everything here but route.rs runs on the control side. docs/sound-library.md has the
 //! behaviour and the decisions.
 
+pub mod gm;
 pub mod map;
 pub mod port;
 pub mod route;
 pub mod sf2;
+pub mod sound;
 pub mod store;
+#[cfg(test)]
+mod sound_tests;
 #[cfg(test)]
 mod tests;
 
+pub use gm::{gm_map_rows, resolve_gm, AutoFill, GmMapRow, GmResolution, Layer};
 pub use map::*;
 pub use route::{Route, Routes, Source};
+pub use sound::{FontPreset, PluginOrigin, SoundId, SoundTag};
 pub use store::*;
 
 use serde::{Deserialize, Serialize};
@@ -126,7 +134,38 @@ pub enum PatchSource {
     /// and saved state (its ClassInfo bytes, base64, as #91 stores it). Plugin patches play
     /// through #91's per-channel plugin rack when the build has it; otherwise the
     /// SoundFont fallback.
-    Plugin { component_id: String, #[serde(default)] state: String },
+    ///
+    /// This is the one kind of plugin sound (docs/sound-browser.md): factory presets,
+    /// `.aupreset` files and sounds saved in yahaha all are one, told apart by `origin`.
+    /// An empty `state` on a factory preset means it has not played yet: its state is
+    /// captured the first time it does ([`SoundLibrary::capture_state`]).
+    Plugin {
+        component_id: String,
+        #[serde(default)]
+        state: String,
+        #[serde(default, skip_serializing_if = "PluginOrigin::is_user")]
+        origin: PluginOrigin,
+    },
+}
+
+impl PatchSource {
+    /// A plugin source made in yahaha (origin `user`).
+    pub fn plugin(component_id: impl Into<String>, state: impl Into<String>) -> PatchSource {
+        PatchSource::Plugin { component_id: component_id.into(), state: state.into(), origin: PluginOrigin::User }
+    }
+
+    /// The font preset this source plays, if it is one (D6 provenance).
+    pub fn font_preset(&self) -> Option<FontPreset> {
+        match self {
+            PatchSource::SoundFont { file, bank, program } => Some(FontPreset::new(file.clone(), *bank, *program)),
+            PatchSource::Plugin { .. } => None,
+        }
+    }
+
+    /// Same instrument and origin (the state aside): the same factory preset or file.
+    pub fn same_plugin_origin(&self, component: &str, from: &PluginOrigin) -> bool {
+        matches!(self, PatchSource::Plugin { component_id, origin, .. } if component_id == component && origin == from)
+    }
 }
 
 /// What a patch brings with it when it is picked: plain MIDI settings, sent as CCs so the
@@ -175,6 +214,19 @@ pub struct Patch {
     pub source: PatchSource,
     #[serde(default)]
     pub defaults: PatchDefaults,
+}
+
+impl Patch {
+    /// A plugin sound whose state was never captured: a factory preset that has not
+    /// played yet (it loads by number until then).
+    pub fn awaits_capture(&self) -> bool {
+        matches!(&self.source, PatchSource::Plugin { state, origin: PluginOrigin::Factory { .. }, .. } if state.is_empty())
+    }
+
+    /// Its [`SoundTag`] (`saved:<id>` and its name).
+    pub fn tag(&self) -> SoundTag {
+        SoundTag { id: SoundId::Library(self.id.clone()).to_string(), name: self.name.clone() }
+    }
 }
 
 /// Why a patch plays its SoundFont fallback instead of itself, if it does.

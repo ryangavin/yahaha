@@ -82,6 +82,9 @@ pub enum Cmd {
     /// A chord-section key went down with this velocity (sent only while
     /// `Shared::strikes`): Touch and Accent.
     Strike(u8),
+    /// A right-hand key went down with this velocity (sent only while
+    /// `Shared::strikes_right`): Accent with Source Both.
+    AccentStrike(u8),
     /// A Dynamics Control pedal set the Dynamics level (controllers.rs).
     DynamicsLevel(u8),
     /// A key went down with [ACMP] off: Sync Start starts on any key.
@@ -198,6 +201,9 @@ pub struct Shared {
     /// Dynamics Touch or Accent is on: the input thread sends the engine each chord-section
     /// strike (`Cmd::Strike`; engine/dynamics.rs).
     pub strikes: AtomicBool,
+    /// Accent with Source Both: the input thread sends each right-hand strike too
+    /// (`Cmd::AccentStrike`).
+    pub strikes_right: AtomicBool,
     /// Unison is engaged, as the engine last had it (the engine loop stores it after each
     /// step): the input thread sends the engine each right-hand key (`Cmd::UnisonKey`).
     pub unison: AtomicBool,
@@ -243,6 +249,7 @@ impl Shared {
             fx_held: [AtomicU64::new(0), AtomicU64::new(0)],
             controllers: Controllers::new(),
             strikes: AtomicBool::new(false),
+            strikes_right: AtomicBool::new(false),
             unison: AtomicBool::new(false),
             routes: Arc::new(crate::patches::Routes::new()),
         }
@@ -1610,7 +1617,8 @@ fn apply(engine: &mut Engine, shared: &Shared, cmd: Cmd, now: u64, out: &mut Out
         Cmd::Metronome { on, bell } => engine.set_metronome(on, bell, now),
         Cmd::MultiPad(c) => engine.pad_cmd(c, now, out),
         Cmd::Dynamics(d) => engine.set_dynamics(d),
-        Cmd::Strike(vel) => engine.strike(vel, now),
+        Cmd::Strike(vel) => engine.strike(vel, now, out),
+        Cmd::AccentStrike(vel) => engine.accent_strike(vel, now, out),
         Cmd::DynamicsLevel(v) => engine.set_dynamics_level(v),
         Cmd::TempoHold(d) => engine.tempo_hold(d, now),
         Cmd::AnyKey => engine.any_key(now, out),
@@ -2897,6 +2905,22 @@ mod detection_area {
             r.input.key_msg(&[0x90, chord_key, 90]);
             assert!(strikes(&mut r).is_empty(), "no chord section while the loop plays");
         }
+    }
+
+    /// Accent Source Both: right-hand strikes go to the engine as `Cmd::AccentStrike`.
+    #[test]
+    fn right_hand_strikes_go_to_the_engine_with_source_both() {
+        let rights = |r: &mut Rig| -> Vec<u8> {
+            std::iter::from_fn(|| r.cmds.pop().ok()).filter_map(|c| if let Cmd::AccentStrike(v) = c { Some(v) } else { None }).collect()
+        };
+        let mut r = rig(false);
+        r.input.key_msg(&[0x90, 72, 90]);
+        assert!(rights(&mut r).is_empty(), "off by default");
+        r.off(&[72]);
+        r.shared.strikes_right.store(true, Relaxed);
+        r.input.key_msg(&[0x90, 72, 90]);
+        r.input.key_msg(&[0x90, 36, 120]);
+        assert_eq!(rights(&mut r), [90], "the right hand only");
     }
 
     /// Unison (engine/unison.rs): with `Shared::unison` on, each right-hand key and its

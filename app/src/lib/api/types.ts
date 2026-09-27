@@ -382,6 +382,13 @@ export type DynamicsCmd =
   | { type: 'setAccent'; on: boolean }
   | { type: 'toggleAccent' }
   | { type: 'setAccentThreshold'; velocity: number }
+  | { type: 'setAccentMode'; mode: AccentMode }
+  | { type: 'setAccentSource'; source: AccentSource }
+
+/** Accent: a drum hit (also stopped), or the Main's fill while a Main plays. */
+export type AccentMode = 'hits' | 'fill'
+/** Accent hears the chord section only, or both hands. */
+export type AccentSource = 'left' | 'both'
 
 /** Style Dynamics: System settings, not in Registration. */
 export interface DynamicsState {
@@ -391,10 +398,14 @@ export interface DynamicsState {
   level: number
   /** Chord-section strikes set the level. */
   touch: boolean
-  /** A hard chord-section strike plays the Main's fill. */
+  /** A hard strike accents (a drum hit, or the Main's fill). */
   accent: boolean
   /** The Accent threshold (velocity 1-127). */
   accentThreshold: number
+  /** Default 'hits'. */
+  accentMode: AccentMode
+  /** Default 'left'. */
+  accentSource: AccentSource
 }
 
 /** A Parameter Lock group (the Genos Data List's lock groups that yahaha has). */

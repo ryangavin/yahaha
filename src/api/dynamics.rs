@@ -4,12 +4,14 @@
 //! - **Dynamics level** (0-127, 127, the default = as written): scales the velocity of every Style note.
 //! - **Dynamics Control** (Style Setting, on/off): whether the level acts on the Style.
 //! - **Touch**: each key struck in the chord section sets the level from its velocity.
-//! - **Accent**: a chord-section key struck at or above the threshold plays the Main's fill.
+//! - **Accent**: a key struck at or above the threshold plays a drum hit (Mode Hits, also
+//!   with the style stopped) or, while a Main plays, the Main's fill (Mode Fill). Source:
+//!   the chord section (Left) or both hands.
 //!
 //! All of them are System settings, not stored in Registration (Genos Data List, Parameter
 //! Chart: Dynamics Control is System only).
 
-use crate::engine::DynamicsSettings;
+use crate::engine::{AccentMode, AccentSource, DynamicsSettings};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -30,6 +32,10 @@ pub enum DynamicsCmd {
     ToggleAccent,
     /// The Accent threshold, a velocity 1-127.
     SetAccentThreshold { velocity: u8 },
+    /// Accent Mode: `hits` (default) or `fill`.
+    SetAccentMode { mode: AccentMode },
+    /// Accent Source: `left` (default, the chord section) or `both`.
+    SetAccentSource { source: AccentSource },
 }
 
 /// Style Dynamics Control, Touch and Accent.
@@ -44,6 +50,8 @@ pub struct DynamicsState {
     pub accent: bool,
     /// The Accent threshold (velocity).
     pub accent_threshold: u8,
+    pub accent_mode: AccentMode,
+    pub accent_source: AccentSource,
 }
 
 impl Default for DynamicsState {
@@ -54,7 +62,7 @@ impl Default for DynamicsState {
 
 impl From<DynamicsSettings> for DynamicsState {
     fn from(s: DynamicsSettings) -> DynamicsState {
-        DynamicsState { control: s.control, level: s.level, touch: s.touch, accent: s.accent, accent_threshold: s.accent_min }
+        DynamicsState { control: s.control, level: s.level, touch: s.touch, accent: s.accent, accent_threshold: s.accent_min, accent_mode: s.accent_mode, accent_source: s.accent_source }
     }
 }
 
@@ -71,6 +79,8 @@ impl DynamicsCmd {
             DynamicsCmd::SetAccent { on } => s.accent = on,
             DynamicsCmd::ToggleAccent => s.accent = !s.accent,
             DynamicsCmd::SetAccentThreshold { velocity } => s.accent_min = velocity,
+            DynamicsCmd::SetAccentMode { mode } => s.accent_mode = mode,
+            DynamicsCmd::SetAccentSource { source } => s.accent_source = source,
         }
         s.clamped()
     }
@@ -88,6 +98,8 @@ mod tests {
         assert_eq!(DynamicsCmd::SetDynamics { level: 200 }.apply(s).level, 127);
         assert_eq!(DynamicsCmd::SetAccentThreshold { velocity: 0 }.apply(s).accent_min, 1);
         assert!(DynamicsCmd::ToggleAccent.apply(s).accent);
+        assert_eq!(DynamicsCmd::SetAccentMode { mode: AccentMode::Fill }.apply(s).accent_mode, AccentMode::Fill);
+        assert_eq!(DynamicsCmd::SetAccentSource { source: AccentSource::Both }.apply(s).accent_source, AccentSource::Both);
         assert!(DynamicsCmd::ToggleDynamicsTouch.apply(s).touch);
         assert!(!DynamicsCmd::SetDynamicsControl { on: false }.apply(s).control);
     }

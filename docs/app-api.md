@@ -370,7 +370,7 @@ with the `plugins` feature (the desktop app has it) and the built-in synth
 | Command | Fields | Does |
 |---|---|---|
 | `setPartPlugin` | `part` 0–3, `id`, `state`? | Plays the part on an instrument plugin: `id` from `plugins.list` (for example `"aumu dls  appl"`), `state` a saved preset (base64) or null for the plugin's default. It loads in the background (`keyboardParts[i].plugin.status` `loading`, with the `stage`). The part keeps its SoundFont voice until the plugin is ready, then switches without a click. If the load fails, a plugin that was playing keeps the part; otherwise the part plays its SoundFont voice (`failed`, with the `error`), and picking the plugin again with a null `state` retries it with the state it kept (a restore that timed out, or a plugin reinstalled since, comes back as saved; go back to the SoundFont voice first to start it fresh). A state over 64 MB is refused. Fails at once for an unknown id or with no synth. |
-| `setPartPluginPreset` | `part` 0–3, `id`, `preset` | Plays the part on one of plugin `id`'s AU presets: `preset` is its key (`f:<number>` for a factory preset, set with `kAudioUnitProperty_PresentPreset`; `u:<path>` for an `.aupreset` the scan listed, restored as the plugin's ClassInfo state). The part gets an instance of its own, so one plugin can play a different preset on every part. Loads as `setPartPlugin` does; `keyboardParts[i].plugin.preset` / `presetKey` name it. The part's saved voice keeps it (plugin-parts.json, with the state read once it plays); Registration, OTS and Snapshots store the plugin's state as for any plugin. `assignSound` with a preset id sends it. |
+| `setPartPluginPreset` | `part` 0–3, `id`, `preset` | Plays the part on one of plugin `id`'s AU presets: `preset` is its key (`f:<number>` for a factory preset, set with `kAudioUnitProperty_PresentPreset`; `u:<path>` for an `.aupreset` the scan listed, restored as the plugin's ClassInfo state). The part gets an instance of its own, so one plugin can play a different preset on every part. Loads as `setPartPlugin` does; `keyboardParts[i].plugin.preset` / `presetKey` name it. The part's saved voice keeps it (plugin-parts.json, with the state read once it plays); Registration, OTS and Snapshots store the plugin's state as for any plugin. Once it plays, the preset is a library sound (docs/sound-browser.md): the part's saved voice names it (`sound`: `{ id, name }`), and a factory preset's state is captured into it. `assignSound` with a preset id sends it. |
 | `clearPartPlugin` | `part` 0–3 | Back to the part's SoundFont voice (a 5 ms fade). |
 | `savePartPluginState` | `part` 0–3 | Stores the plugin's current preset (what its editor changed) with the part, so it is kept across restarts. Send it when the editor window closes. The state is read on a thread of its own and lands a moment later; a failed read shows in `message`. |
 | `rescanPlugins` | | Scans the installed instruments again, ignoring the cache (`plugins.scanning` meanwhile). |
@@ -447,7 +447,7 @@ groups are the Data List's lock groups that yahaha has: `splitPoint` (the split 
 Genos2 Style Dynamics Control (OM p.11, p.69; RM p.11, p.142, p.147), with Touch and Accent (#180; docs/genos-features.md, Style Dynamics Control).
 - **Level.** A value from 0 to 127 that scales the velocity of every Style note. At 64 the Style plays as written. The level changes the band's intensity; the parts' CC7 volumes are never touched.
 - **Touch.** Each key struck in the chord section sets the level from that key's velocity.
-- **Accent.** A chord-section key struck at or above the threshold, while a Main plays, starts that Main's fill from the next beat. yahaha's Accent stands in for the PSR-SX Unison & Accent feature: no style carries Yamaha's accent data.
+- **Accent.** A key struck at or above the threshold (a chord-section key; with Source `both`, a right-hand key too) accents. Mode `hits` (the default) plays a one-shot hit from the Style's drum kit on its drum channel, with the style stopped or playing; mode `fill` starts the playing Main's fill from the next beat (stopped, it plays hits). yahaha's Accent stands in for the PSR-SX Unison & Accent feature: no style carries Yamaha's accent data.
 - **Storage.** All of these are System settings. Registration does not store them.
 
 | Command | Fields | What it does |
@@ -458,6 +458,8 @@ Genos2 Style Dynamics Control (OM p.11, p.69; RM p.11, p.142, p.147), with Touch
 | `setDynamicsTouch`, `toggleDynamicsTouch` | `on` | Touch: each chord-section strike sets the level to its velocity × 1.27, so a strike at 100 or harder plays as written. |
 | `setAccent`, `toggleAccent` | `on` | Accent: a chord-section strike at or above the threshold, while a Main plays, starts that Main's own fill at the next beat, as Fill Self does. It is not a Main press, so OTS Link does not follow it. It does nothing during an Intro, fill, break or Ending, or while a change is queued. |
 | `setAccentThreshold` | `velocity` 1–127 | The Accent threshold (default 110). |
+| `setAccentMode` | `mode`: `hits` or `fill` | Accent Mode. `hits` (default): each accent plays two GM drum notes on the Style's kit (channel 10), picked by the strike's velocity: below the midpoint of threshold..120 kick + closed hat, above it kick + snare, from 120 kick + crash; each note's velocity scales with the strike's, retriggers rather than stacks, and ends 150 ms later. Nothing while Rhythm 2 is muted. `fill`: while a Main plays, the Main's own fill as above (stopped, hits). |
+| `setAccentSource` | `source`: `left` or `both` | Accent Source. `left` (default): chord-section strikes accent. `both`: right-hand strikes accent too (Touch still hears the chord section only). |
 
 ### Effects
 The shared effect bus (#204): every part, SoundFont or plugin, feeds three System Effect blocks
@@ -1094,7 +1096,7 @@ The sound library (docs/sound-library.md).
 
 | Field | Type | Meaning |
 |---|---|---|
-| `patches` | PatchInfo[] | In the user's order: `id`, `name`, `category`, `tags`, `favourite`, `source`, `defaults`, `available` (false: it plays the SoundFont fallback) and `note` (why, e.g. "needs plugin hosting (#91)"). `source` is `{ "kind": "soundFont", "file", "bank", "program" }` (bank 128 = drum kits) or `{ "kind": "plugin", "componentId", "state" }` (the Audio Unit's id, as #91 writes it, and its state, base64). `defaults`: `volume`, `pan`, `reverb`, `chorus` (0–127 or null) and `octave` (−2..2). |
+| `patches` | PatchInfo[] | In the user's order: `id`, `name`, `category`, `tags`, `favourite`, `source`, `defaults`, `available` (false: it plays the SoundFont fallback) and `note` (why, e.g. "needs plugin hosting (#91)"). `source` is `{ "kind": "soundFont", "file", "bank", "program" }` (bank 128 = drum kits) or `{ "kind": "plugin", "componentId", "state", "origin"? }` (the Audio Unit's id, as #91 writes it, and its state, base64). A plugin source is the one kind of plugin sound (docs/sound-browser.md): `origin` (absent = made in yahaha) is `{ "kind": "factory", "number" }` or `{ "kind": "file", "path" }` (an `.aupreset`). A factory preset's `state` is empty until it first plays, when it is captured. A rule command naming a plugin preset id (`au:<id>#f:<n>` or `#u:<path>`) uses that preset's one library sound, adding it once. `defaults`: `volume`, `pan`, `reverb`, `chorus` (0–127 or null) and `octave` (−2..2). |
 | `categories` | object[] | The Genos voice categories in display order: `id` (`piano`, `ePiano`, `organ`, `guitar`, `bass`, `strings`, `brass`, `saxWoodwind`, `synthLead`, `pad`, `choir`, `drumsPerc`, `sfx`) and `label`. |
 | `families` | string[16] | The GM family names; family `i` is programs 8i … 8i+7. |
 | `map` | ProgramMap | The global map: `families` (16 patch ids or null), `overrides` (`{ program, patch }`, by program) and `drums` (a patch id or null). |
@@ -1140,11 +1142,13 @@ Parameter Lock: `{ splitPoint, fingeringType }`, each a bool (true: locked). All
 default.
 
 ### `dynamics`
-Style Dynamics: `{ control, level, touch, accent, accentThreshold }`.
+Style Dynamics: `{ control, level, touch, accent, accentThreshold, accentMode, accentSource }`.
 - `control`: Style Setting › Dynamics Control. Default true.
 - `level`: the level in effect, 0–127. Touch moves it. Default 127 (as written); each style load sets it back to 127.
 - `touch`, `accent`: default false.
 - `accentThreshold`: a velocity from 1 to 127. Default 110.
+- `accentMode`: `hits` (default) or `fill`.
+- `accentSource`: `left` (default) or `both`.
 
 ### `knobs`
 The Knob Assign page: `{ page, pageName, pageNumber, pageCount, knobs }`.
@@ -1880,7 +1884,7 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
   },
   "paramLocks": { "splitPoint": false, "fingeringType": true },
   "sounds": { "revision": 3, "count": 1219, "scanning": false, "auditioning": null },
-  "dynamics": { "control": true, "level": 72, "touch": true, "accent": true, "accentThreshold": 110 },
+  "dynamics": { "control": true, "level": 72, "touch": true, "accent": true, "accentThreshold": 110, "accentMode": "hits", "accentSource": "left" },
   "knobs": {
     "page": "style",
     "pageName": "Style",

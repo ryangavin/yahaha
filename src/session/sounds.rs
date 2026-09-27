@@ -134,7 +134,7 @@ impl Control {
                             Ok(v) => v,
                             Err(e) => return self.fail(e),
                         },
-                        None => super::PluginVoice { id: plugin.to_string(), state: None, preset: None },
+                        None => super::PluginVoice { id: plugin.to_string(), state: None, preset: None, sound: None },
                     };
                     return self.start_plugin_audition(id, &name, voice, drums, None);
                 }
@@ -225,28 +225,31 @@ impl Control {
         let source = if let Some((file, bank, program)) = parse_preset_id(id) {
             PatchSource::SoundFont { file: file.to_string(), bank, program }
         } else if let Some((plugin, preset)) = parse_plugin_id(id) {
-            // A preset as a patch keeps its settings: an `.aupreset`'s file, read now. A
-            // factory preset's settings are only known once an instance plays it.
+            // A preset as a patch is the one plugin sound for it (its origin finds it
+            // again): an `.aupreset` keeps the file's settings, read now; a factory
+            // preset's are captured the first time it plays (docs/sound-browser.md).
+            let origin = preset.and_then(crate::patches::PluginOrigin::from_preset_key).unwrap_or_default();
             let state = match preset {
                 None => String::new(),
                 Some(key) => match self.preset_voice(plugin, key).map(|v| v.state) {
                     Ok(Some(st)) => crate::api::base64_encode(&st),
-                    Ok(None) => {
-                        self.fail("a factory preset can't be a rule's sound yet: play it on a part and Save as sound, then pick that")?;
-                        return Ok(String::new());
-                    }
+                    Ok(None) => String::new(),
                     Err(e) => {
                         self.fail(e)?;
                         return Ok(String::new());
                     }
                 },
             };
-            PatchSource::Plugin { component_id: plugin.to_string(), state }
+            PatchSource::Plugin { component_id: plugin.to_string(), state, origin }
         } else {
             return Ok(id.to_string());
         };
         self.need_sound(id)?;
-        if let Some(p) = self.sound_patches().iter().find(|p| p.source == source) {
+        let same = |p: &&crate::patches::Patch| match &source {
+            PatchSource::Plugin { component_id, origin, .. } if !origin.is_user() => p.source.same_plugin_origin(component_id, origin),
+            _ => p.source == source,
+        };
+        if let Some(p) = self.sound_patches().iter().find(same) {
             return Ok(p.id.clone());
         }
         match source {
