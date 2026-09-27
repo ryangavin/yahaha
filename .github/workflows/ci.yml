@@ -37,8 +37,13 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
+      # A stable key per job, so PRs read the cache develop's own run seeds (the first
+      # develop run after a merge populates it for later PRs to reuse); cache-on-failure
+      # so a run that fails partway through still saves what it built.
       - uses: Swatinem/rust-cache@v2
         with:
+          shared-key: linux
+          cache-on-failure: true
           workspaces: |
             . -> target
             app/src-tauri -> target
@@ -63,7 +68,15 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
+      # Same idea as the linux job's cache (stable key, cache-on-failure); this job only
+      # runs cargo at the repo root (app/src-tauri's own tests run in the linux job), so
+      # the root mapping alone covers it.
       - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: macos
+          cache-on-failure: true
+          workspaces: |
+            . -> target
 
       - name: cargo check --all-targets --features plugins
         run: cargo check --all-targets --features plugins
