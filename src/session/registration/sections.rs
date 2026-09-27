@@ -589,7 +589,7 @@ fn parts_recall(c: &mut Control, v: &Value, g: Groups) -> Result<(), String> {
             Some(v) => {
                 kp.set_program(p, v.program().unwrap_or(0));
                 let r = match v {
-                    VoiceRef::Plugin { id, name, state, .. } => c.recall_part_plugin(p, id, name, state.as_deref()),
+                    VoiceRef::Plugin { id, name, state, sound, .. } => c.recall_part_plugin(p, id, name, state.as_deref(), sound.as_ref()),
                     VoiceRef::Gm { .. } => {
                         // A GM voice: no plugin from the Plugins tab (a library patch's own
                         // plugin is the patch's business, below).

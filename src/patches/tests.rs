@@ -166,7 +166,7 @@ fn ids_are_readable_and_unique() {
     assert_eq!(new_id("!!!", taken.iter().copied()), "patch");
 }
 
-fn library() -> SoundLibrary {
+pub(super) fn library() -> SoundLibrary {
     let mut lib = SoundLibrary { patches: vec![sf("bass", 33), sf("piano", 0), sf("rhodes", 4), sf("kit", 0)], ..SoundLibrary::default() };
     lib.patches[3].source = PatchSource::SoundFont { file: "GeneralUser-GS.sf2".into(), bank: 128, program: 25 };
     lib.patches[0].defaults = PatchDefaults { volume: Some(90), pan: Some(64), reverb: Some(20), chorus: None, octave: -1 };
@@ -176,7 +176,7 @@ fn library() -> SoundLibrary {
         category: Category::EPiano,
         tags: vec!["plugin".into()],
         favourite: true,
-        source: PatchSource::Plugin { component_id: "aumu:abcd:manu".into(), state: "00ff".into() },
+        source: PatchSource::plugin("aumu:abcd:manu", "00ff"),
         defaults: PatchDefaults::default(),
     });
     lib.map = global();

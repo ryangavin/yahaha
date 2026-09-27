@@ -6,7 +6,7 @@
 import { guessCategory, presetsOf } from './mock-sound-library'
 import { MOCK_PRESETS_ID } from './mock-plugins'
 import { guessCategory as guessWords, MAX_RECENTS, parsePluginId, parsePresetId, pluginCategory, pluginPresetId, presetId, type PluginPresetList, type SoundCatalog, type SoundEntry, type SoundsCmd, type SoundsState } from './sounds'
-import type { PatchCategory } from './sound-library'
+import { originOfPresetKey, sameOrigin, type PatchCategory } from './sound-library'
 import type { AppCmd, AppState } from './types'
 
 export function initialSounds(): SoundsState {
@@ -178,12 +178,16 @@ export class MockSounds {
     if (!pre && !id.startsWith('au:')) return { patch: id }
     if (!this.known(st, id)) return { error: `no sound ${id}` }
     const au = pre ? null : parsePluginId(id)
-    if (au?.key?.startsWith('f:')) return { error: "a factory preset can't be a rule's sound yet: play it on a part and Save as sound, then pick that" }
     const plugin = au?.plugin ?? null
-    // A user preset's patch keeps the file's settings (the mock has none to read).
-    const state = au?.key ? 'bW9jaw==' : ''
+    // The one plugin sound for the preset (its origin finds it again): a user preset's
+    // keeps the file's settings (the mock has none to read); a factory preset's state is
+    // captured when it plays, so it starts empty.
+    const origin = au?.key ? originOfPresetKey(au.key) : undefined
+    const state = origin?.kind === 'file' ? 'bW9jaw==' : ''
     const have = st.soundLibrary.patches.find((p) =>
-      pre ? p.source.kind === 'soundFont' && p.source.file === pre.file && p.source.bank === pre.bank && p.source.program === pre.program : p.source.kind === 'plugin' && p.source.componentId === plugin && p.source.state === state,
+      pre
+        ? p.source.kind === 'soundFont' && p.source.file === pre.file && p.source.bank === pre.bank && p.source.program === pre.program
+        : p.source.kind === 'plugin' && p.source.componentId === plugin && (origin ? sameOrigin(p.source.origin, origin) : p.source.state === state && !p.source.origin),
     )
     if (have) return { patch: have.id }
     if (pre) run({ type: 'addPresetAsPatch', file: pre.file, bank: pre.bank, program: pre.program, name: null })
@@ -196,7 +200,7 @@ export class MockSounds {
         category = this.categories.get(id) ?? guessWords(`${q.name} ${q.folder ?? ''}`) ?? category
         name = `${e.name} · ${q.name}`
       }
-      run({ type: 'createPatch', patch: { name, category, tags: [], favourite: false, source: { kind: 'plugin', componentId: e.id, state }, defaults: { volume: null, pan: null, reverb: null, chorus: null, octave: 0 } } })
+      run({ type: 'createPatch', patch: { name, category, tags: [], favourite: false, source: { kind: 'plugin', componentId: e.id, state, ...(origin ? { origin } : {}) }, defaults: { volume: null, pan: null, reverb: null, chorus: null, octave: 0 } } })
     }
     return { patch: st.soundLibrary.lastAdded ?? '' }
   }

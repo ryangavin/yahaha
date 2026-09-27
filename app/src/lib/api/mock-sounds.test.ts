@@ -169,4 +169,21 @@ describe('savePartAsPatch (#109)', () => {
     m.send({ type: 'savePartAsPluginPreset', part: 3, name: 'x', category: 'organ' })
     expect(m.state.message?.error).toBe(true)
   })
+
+  it('a factory preset is a plugin sound that can be a map rule, found again by its origin', async () => {
+    const m = new MockSession({ manual: true })
+    const id = 'au:aumu Smp7 Fake'
+    m.send({ type: 'listPluginPresets', id })
+    await m.sounds()
+    m.send({ type: 'setFamilyRule', family: 0, patch: `${id}#f:1`, style: false })
+    expect(m.state.message?.error ?? false).toBe(false)
+    const p = m.state.soundLibrary.patches.at(-1)!
+    expect(p.source).toEqual({ kind: 'plugin', componentId: 'aumu Smp7 Fake', state: '', origin: { kind: 'factory', number: 1 } })
+    expect(m.state.soundLibrary.map.families[0]).toBe(p.id)
+    // The same preset again is the same sound, not a copy.
+    const n = m.state.soundLibrary.patches.length
+    m.send({ type: 'setProgramOverride', program: 40, patch: `${id}#f:1`, style: false })
+    expect(m.state.soundLibrary.patches.length).toBe(n)
+    expect(m.state.soundLibrary.map.overrides.find((o) => o.program === 40)?.patch).toBe(p.id)
+  })
 })

@@ -6,26 +6,31 @@
 //! - no `version` field, a bare array: a list of patches (the simplest thing to write by
 //!   hand or share). It becomes a library with those patches and empty maps.
 //! - 1: `{ "version": 1, "patches": [...], "map": {...}, "styleMaps": {...},
-//!   "portSendsMapped": false }`, this module's [`SoundLibrary`].
+//!   "portSendsMapped": false }`.
+//! - 2: the same, and a plugin patch's source may carry its `origin` (a factory preset by
+//!   number, or an `.aupreset` file by path; docs/sound-browser.md). A version 1 file
+//!   reads as it is: every plugin patch in it is a `user` sound. Version 2 is written so a
+//!   version-1 build refuses the file instead of saving over it and dropping the origins.
 //!
 //! A file from a newer yahaha (a higher version) is refused rather than half read, and
 //! never overwritten.
 
-use super::{new_id, Patch, ProgramMap};
+use super::{new_id, Patch, PatchSource, PluginOrigin, ProgramMap, SoundTag};
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::Path;
 
 /// The format version this build writes.
-pub const VERSION: u32 = 1;
+pub const VERSION: u32 = 2;
 
 /// The file name in the data folder.
 pub const FILE_NAME: &str = "sound-library.json";
 
-/// How many patches a library holds at most. It is meant to be small (about 20): the
-/// limit only stops a runaway import.
-pub const MAX_PATCHES: usize = 256;
+/// How many patches a library holds at most. Every plugin sound lives here (D1: factory
+/// presets once played, imported `.aupreset` files), so it is no longer small; the limit
+/// only stops a runaway import.
+pub const MAX_PATCHES: usize = 4096;
 
 /// The library: patches in the user's order, the global program map, the per-style maps
 /// and the port setting.
@@ -108,6 +113,63 @@ impl SoundLibrary {
 
     pub fn index_of(&self, id: &str) -> Option<usize> {
         self.patches.iter().position(|p| p.id == id)
+    }
+
+    /// The plugin sound for `component`'s preset from `origin` (a factory preset or an
+    /// `.aupreset` file), if the library has it. A `user` origin never matches: two sounds
+    /// made in yahaha are two sounds.
+    pub fn plugin_sound(&self, component: &str, origin: &PluginOrigin) -> Option<&Patch> {
+        if origin.is_user() {
+            return None;
+        }
+        self.patches.iter().find(|p| p.source.same_plugin_origin(component, origin))
+    }
+
+    /// The library's sound for a plugin preset, added if it has none (the migration of a
+    /// part that played a preset before the library held plugin sounds, and the first play
+    /// of a preset). `state` (base64) is its state if known: an `.aupreset`'s, read from
+    /// the file; a factory preset's is left empty to be captured when it plays. Returns
+    /// its id, or None when the library is full.
+    pub fn add_plugin_preset(&mut self, component: &str, origin: PluginOrigin, name: &str, category: super::Category, state: Option<String>) -> Option<String> {
+        if let Some(p) = self.plugin_sound(component, &origin) {
+            return Some(p.id.clone());
+        }
+        if self.patches.len() >= MAX_PATCHES {
+            return None;
+        }
+        let name = if name.trim().is_empty() { "Sound".to_string() } else { name.to_string() };
+        let id = new_id(&name, self.patches.iter().map(|p| p.id.as_str()));
+        let source = PatchSource::Plugin { component_id: component.to_string(), state: state.unwrap_or_default(), origin };
+        self.patches.push(Patch { id: id.clone(), name, category, tags: Vec::new(), favourite: false, source, defaults: Default::default() });
+        Some(id)
+    }
+
+    /// Capture a factory preset's state the first time it plays: patch `id` takes `state`
+    /// (base64) if it is a plugin sound still waiting for one. Returns whether it changed
+    /// (the caller saves the library). A sound with a state keeps it: later edits are the
+    /// user's to save (Save / Save as…).
+    pub fn capture_state(&mut self, id: &str, state: &str) -> bool {
+        let Some(p) = self.patches.iter_mut().find(|p| p.id == id) else { return false };
+        if state.is_empty() || !p.awaits_capture() {
+            return false;
+        }
+        if let PatchSource::Plugin { state: s, .. } = &mut p.source {
+            *s = state.to_string();
+        }
+        true
+    }
+
+    /// The sound a recalled plugin state is (a Registration or OTS record from before
+    /// records named their sound): the library's plugin sound with exactly that instrument
+    /// and state (base64), if there is one.
+    pub fn tag_for_state(&self, component: &str, state: &str) -> Option<SoundTag> {
+        if state.is_empty() {
+            return None;
+        }
+        self.patches
+            .iter()
+            .find(|p| matches!(&p.source, PatchSource::Plugin { component_id, state: s, .. } if component_id == component && s == state))
+            .map(Patch::tag)
     }
 
     /// Ids unique and non-empty, names non-empty, defaults in range, every rule naming a
