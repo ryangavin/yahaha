@@ -90,7 +90,7 @@ impl Control {
         let fonts: Vec<(&str, &[Preset])> =
             self.sound_fonts.iter().map(|f| (f.as_str(), s.presets.get(f).map_or(&[][..], Vec::as_slice))).collect();
         let entries = s.prefs.entries(&fonts, &self.plugins_state().list, &self.plugin_preset_lists(), self.sound_patches());
-        SoundCatalog { revision: s.revision, entries, recents: s.prefs.recents.clone() }
+        SoundCatalog { revision: s.revision, entries, recents: s.prefs.recents.clone(), fonts: crate::api::font_summaries(&fonts) }
     }
 
     pub(super) fn sounds_state(&self) -> SoundsState {
@@ -164,6 +164,15 @@ impl Control {
                 if let Err(e) = self.list_plugin_presets(plugin) {
                     return self.fail(e);
                 }
+            }
+            SoundsCmd::AddToMySounds { id } => {
+                if id.starts_with("saved:") {
+                    return Ok(());
+                }
+                if !id.starts_with("sf:") && !id.starts_with("au:") {
+                    return self.fail(format!("no sound {id}"));
+                }
+                self.patch_for_sound(&id)?;
             }
             SoundsCmd::SavePartAsPluginPreset { part, name, category, overwrite } => {
                 if part > 3 {

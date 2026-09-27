@@ -200,6 +200,23 @@ describe('savePartAsPatch (#109)', () => {
     expect(m.state.message?.error).toBe(true)
   })
 
+  it('the Instruments tab: a summary per font, and Add to my sounds adds once without playing', async () => {
+    const m = new MockSession({ manual: true })
+    const cat = await m.sounds()
+    expect(cat.fonts?.map((f) => f.file)).toEqual(m.state.io.soundFonts)
+    expect(cat.fonts?.every((f) => f.presets > 0 && f.gmPrograms <= 128)).toBe(true)
+    const n = m.state.soundLibrary.patches.length
+    const parts = JSON.stringify(m.state.keyboardParts)
+    const upright = 'au:aumu Smp7 Fake#u:/Users/mock/Library/Audio/Presets/Fake Instruments/Sampler Deluxe/Pianos/Upright Piano.aupreset'
+    for (const id of ['sf:FluidR3_GM.sf2:0:48', 'sf:FluidR3_GM.sf2:0:48', upright, upright, 'saved:stage-grand']) m.send({ type: 'addToMySounds', id })
+    expect(m.state.message?.error ?? false).toBe(false)
+    expect(m.state.soundLibrary.patches.length).toBe(n + 2)
+    expect(m.state.soundLibrary.patches.at(-1)!.source).toMatchObject({ kind: 'plugin', origin: { kind: 'file' } })
+    expect(JSON.stringify(m.state.keyboardParts)).toBe(parts)
+    m.send({ type: 'addToMySounds', id: 'sf:FluidR3_GM.sf2:9:9' })
+    expect(m.state.message?.error).toBe(true)
+  })
+
   it('a factory preset is a plugin sound that can be a map rule, found again by its origin', async () => {
     const m = new MockSession({ manual: true })
     const id = 'au:aumu Smp7 Fake'

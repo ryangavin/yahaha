@@ -19,6 +19,8 @@ export type SoundsCmd =
   | { type: 'setSoundCategory'; id: string; category: PatchCategory }
   /** List a plugin's (`au:<id>`) presets: the browser expanded it. */
   | { type: 'listPluginPresets'; id: string }
+  /** Add a font preset, plugin or plugin preset to My Sounds (the library), once; nothing plays it. */
+  | { type: 'addToMySounds'; id: string }
   /** Save the part's plugin as it plays now as an .aupreset (Logic reads it too), filed under `category`. */
   | { type: 'savePartAsPluginPreset'; part: number; name: string; category: PatchCategory; overwrite?: boolean }
 
@@ -53,6 +55,29 @@ export interface SoundCatalog {
   entries: SoundEntry[]
   /** Ids last assigned, most recent first (at most 20). */
   recents: string[]
+  /** Each SoundFont in the folder, for the Instruments tab (absent: an engine before it). */
+  fonts?: FontSummary[]
+}
+
+/** A SoundFont as the Instruments tab shows it (as `api::FontSummary`). */
+export interface FontSummary {
+  file: string
+  /** Melodic presets (banks below 128). */
+  presets: number
+  /** Drum kits (bank 128). */
+  kits: number
+  /** GM programs it has on bank 0, of 128. */
+  gmPrograms: number
+  gmKit: boolean
+}
+
+/** Each font's summary, as `api::font_summaries` (`patches::gm::gm_completeness`). */
+export function fontSummaries(fonts: [string, { bank: number; program: number }[]][]): FontSummary[] {
+  return fonts.map(([file, presets]) => {
+    const kits = presets.filter((p) => p.bank >= 128).length
+    const gm = new Set(presets.filter((p) => p.bank === 0).map((p) => p.program & 127))
+    return { file, presets: presets.length - kits, kits, gmPrograms: gm.size, gmKit: kits > 0 }
+  })
 }
 
 /** `state.sounds`: the catalog's summary. */
