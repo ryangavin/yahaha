@@ -66,6 +66,11 @@
     {/each}
   </div>
 
+  <div class="group" role="group" aria-label="Previous or next Snapshot">
+    <HwButton tip="regist.prev" label="Previous Snapshot" onclick={() => app.send({ type: 'stepRegist', delta: -1 })}>◀</HwButton>
+    <HwButton tip="regist.next" label="Next Snapshot" onclick={() => app.send({ type: 'stepRegist', delta: 1 })}>▶</HwButton>
+  </div>
+
   <div class="group">
     <HwButton tip="regist.memory" led={r.memory ? armed : null} {beats} pressed={r.memory} onclick={() => app.send({ type: 'toggleRegistMemory' })}>Store</HwButton>
     <HwButton tip="regist.freeze" led={r.freeze ? amber : null} pressed={r.freeze} onclick={() => app.send({ type: 'toggleFreeze' })}>Freeze</HwButton>
