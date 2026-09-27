@@ -1798,7 +1798,8 @@ export class MockSession implements Session {
       case 'setPortSendsMapped':
       case 'browseSoundFont':
       case 'importSoundLibrary':
-      case 'exportSoundLibrary': {
+      case 'exportSoundLibrary':
+      case 'exportSoundPreset': {
         // A rule may name a catalog entry (#117): it gets that sound's library patch.
         let sc: SoundLibraryCmd = cmd
         if ((cmd.type === 'setFamilyRule' || cmd.type === 'setProgramOverride' || cmd.type === 'setDrumRule') && cmd.patch) {
@@ -1817,6 +1818,7 @@ export class MockSession implements Session {
         const err = this.sound.cmd(sc, t.running)
         if (err) this.message(err, true)
         else if (cmd.type === 'exportSoundLibrary') this.message(`Sound library exported to ${cmd.path ?? '/Users/me/Documents/yahaha/sound-library-export.json'}`)
+        else if (cmd.type === 'exportSoundPreset') this.message(`${this.state.soundLibrary.patches.find((p) => p.id === cmd.id)?.name} exported to ~/Library/Audio/Presets`)
         break
       }
       case 'setSoundFavourite':

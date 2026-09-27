@@ -2061,6 +2061,10 @@ impl MockSession {
                     c => c,
                 };
                 let export = matches!(c, SoundLibraryCmd::ExportSoundLibrary { .. });
+                let preset = match &c {
+                    SoundLibraryCmd::ExportSoundPreset { id, .. } => self.state.sound_library.patches.iter().find(|p| &p.patch.id == id).map(|p| p.patch.name.clone()),
+                    _ => None,
+                };
                 // A SoundFont patch picked over a Plugins-tab plugin ends that plugin.
                 if let SoundLibraryCmd::SetPartPatch { part, id: Some(id) } = &c
                     && self.state.sound_library.patches.iter().any(|p| &p.patch.id == id && matches!(p.patch.source, PatchSource::SoundFont { .. }))
@@ -2071,6 +2075,7 @@ impl MockSession {
                 match self.sound.cmd(&mut self.state, c) {
                     Some(e) => self.message(e, true),
                     None if export => self.message("Sound library exported to /Users/me/Documents/yahaha/sound-library-export.json", false),
+                    None if preset.is_some() => self.message(format!("{} exported to ~/Library/Audio/Presets", preset.unwrap_or_default()), false),
                     None => {}
                 }
             }

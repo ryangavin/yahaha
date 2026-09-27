@@ -37,6 +37,9 @@ pub struct MockSound {
     pub plugin_sound: [Option<SoundTag>; 4],
     /// The part's plugin was edited since its sound loaded (the editor closed, O3).
     pub edited: [bool; 4],
+    /// The `.aupreset` names `exportSoundPreset` wrote (a second export of one needs
+    /// `overwrite`, as the real preset folder does).
+    exported: Vec<String>,
 }
 
 impl Default for MockSound {
@@ -68,7 +71,7 @@ impl Default for MockSound {
         map.set_override(4, Some("warm-rhodes".into()));
         map.set_override(5, Some("warm-rhodes".into()));
         map.drums = Some("studio-kit".into());
-        MockSound { patches, map, style_maps: BTreeMap::new(), parts: Default::default(), plugin_parts: Default::default(), port: false, audition: None, browse: None, last_added: None, plugin_sound: Default::default(), edited: [false; 4] }
+        MockSound { patches, map, style_maps: BTreeMap::new(), parts: Default::default(), plugin_parts: Default::default(), port: false, audition: None, browse: None, last_added: None, plugin_sound: Default::default(), edited: [false; 4], exported: Vec::new() }
     }
 }
 
@@ -367,6 +370,21 @@ impl MockSound {
             }
             SoundLibraryCmd::ImportSoundLibrary { path, .. } => return Some(format!("{path}: the mock has no files to import")),
             SoundLibraryCmd::ExportSoundLibrary { .. } => {}
+            SoundLibraryCmd::ExportSoundPreset { id, overwrite } => {
+                let Some(i) = self.at(&id) else { return nope(&id) };
+                let p = &self.patches[i];
+                match &p.source {
+                    PatchSource::Plugin { state, .. } if state.is_empty() => return Some(format!("{} has no settings yet: play it once first", p.name)),
+                    PatchSource::Plugin { .. } => {}
+                    PatchSource::SoundFont { .. } => return Some(format!("{} is a SoundFont preset, not a plugin sound", p.name)),
+                }
+                if self.exported.contains(&p.name) && !overwrite {
+                    return Some(format!("a preset called {} already exists: save under another name, or replace it", p.name));
+                }
+                if !self.exported.contains(&p.name) {
+                    self.exported.push(p.name.clone());
+                }
+            }
         }
         None
     }
@@ -460,5 +478,27 @@ impl MockSound {
             last_added: self.last_added.clone(),
             gm_map,
         };
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `exportSoundPreset` as the engine: a plugin sound with a state exports, a second
+    /// export of the name needs `overwrite` (#307); no state, a SoundFont sound or an
+    /// unknown id are refused.
+    #[test]
+    fn a_plugin_sound_exports_as_an_aupreset() {
+        let (mut m, mut st) = (MockSound::default(), AppState::default());
+        let export = |m: &mut MockSound, st: &mut AppState, id: &str, overwrite: bool| m.cmd(st, SoundLibraryCmd::ExportSoundPreset { id: id.into(), overwrite });
+        assert!(export(&mut m, &mut st, "keys-au", false).unwrap().contains("no settings yet"));
+        assert!(export(&mut m, &mut st, "stage-grand", false).unwrap().contains("not a plugin sound"));
+        assert!(export(&mut m, &mut st, "nope", false).is_some());
+        let i = m.at("keys-au").unwrap();
+        m.patches[i].source = PatchSource::plugin("aumu Smp7 Fake", "c2FtcGxlciBkZWx1eGU=");
+        assert_eq!(export(&mut m, &mut st, "keys-au", false), None);
+        assert!(export(&mut m, &mut st, "keys-au", false).unwrap().contains("already exists"));
+        assert_eq!(export(&mut m, &mut st, "keys-au", true), None);
     }
 }

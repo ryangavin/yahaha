@@ -754,6 +754,26 @@ mod imp {
             Ok(())
         }
 
+        /// Write a plugin sound's `state` as the user preset `name` of its plugin (the
+        /// `.aupreset` Save as preset writes, in the folder Logic reads). An existing preset
+        /// of that name is refused unless `overwrite` (the app asks Replace/Cancel, #307).
+        /// The file is small and written at once; no instance is needed.
+        pub(crate) fn export_state_as_preset(&mut self, component_id: &str, name: &str, state: &[u8], overwrite: bool) -> Result<std::path::PathBuf, String> {
+            let name = name.trim();
+            if name.is_empty() {
+                return Err("name the preset".into());
+            }
+            let pid = PluginId::parse(component_id).ok_or("the sound's plugin has no valid id")?;
+            let host = self.plugins.host();
+            if host.cached(&pid).is_none() {
+                return Err("the sound's plugin is not installed".into());
+            }
+            if !overwrite && host.user_preset_exists(&pid, name) {
+                return Err(crate::plugin::presets::PresetExists(crate::plugin::presets::safe_name(name)).to_string());
+            }
+            host.save_user_preset(&pid, name, state, overwrite).map(|p| p.path).map_err(|e| format!("{e:#}"))
+        }
+
         /// Preset listings and saves that finished.
         fn pump_presets(&mut self) {
             let mut done = Vec::new();
@@ -1171,6 +1191,9 @@ impl Control {
         Err("this build has no plugin host".into())
     }
     pub(crate) fn save_part_as_preset(&mut self, _ch: u8, _name: &str, _category: crate::api::PatchCategory, _overwrite: bool) -> Result<(), String> {
+        Err("this build has no plugin host".into())
+    }
+    pub(crate) fn export_state_as_preset(&mut self, _component_id: &str, _name: &str, _state: &[u8], _overwrite: bool) -> Result<std::path::PathBuf, String> {
         Err("this build has no plugin host".into())
     }
 }

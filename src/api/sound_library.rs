@@ -90,8 +90,18 @@ pub enum SoundLibraryCmd {
         #[serde(default)]
         maps: bool,
     },
-    /// Write the library to a file (None: `sound-library-export.json` in the data folder).
+    /// Write the library as an export bundle (metadata, maps and every plugin sound's
+    /// state; SoundFonts by file name) to a file (None: `sound-library-export.json` in the
+    /// data folder).
     ExportSoundLibrary { path: Option<String> },
+    /// Export plugin sound `id` as an `.aupreset` named after it, in the plugin's user
+    /// preset folder (`~/Library/Audio/Presets/<Manufacturer>/<Plugin>/`, where Logic
+    /// reads it). A preset of that name that exists is refused unless `overwrite`.
+    ExportSoundPreset {
+        id: String,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        overwrite: bool,
+    },
 }
 
 /// A patch as the state shows it.

@@ -3100,7 +3100,28 @@ const catalog = {
   },
   'sound.export': {
     title: 'Export',
-    body: 'Writes your library to sound-library-export.json in the data folder, to back it up or share it.',
+    body: 'Writes your library and GM map as a bundle (sound-library-export.json in the data folder): every sound\'s name, category and settings, plugin sounds\' states included. SoundFonts are named by file, not copied: copy them yourself.',
+    genos: null,
+    keys: [],
+    launchkey: null,
+  },
+  'sound.export_preset': {
+    title: 'Export .aupreset',
+    body: 'Writes this plugin sound as a standard .aupreset in ~/Library/Audio/Presets, under its plugin, so Logic and MainStage can load it.',
+    genos: null,
+    keys: [],
+    launchkey: null,
+  },
+  'sound.export_preset_replace': {
+    title: 'Replace',
+    body: 'Replaces the plugin\'s existing preset of this name with this sound. Logic and MainStage see the new one too.',
+    genos: null,
+    keys: [],
+    launchkey: null,
+  },
+  'sound.export_preset_cancel': {
+    title: 'Keep the existing preset',
+    body: 'Leaves the existing preset as it is; rename the sound to export it as a new one.',
     genos: null,
     keys: [],
     launchkey: null,
@@ -3114,7 +3135,7 @@ const catalog = {
   },
   'sound.import': {
     title: 'Import',
-    body: 'Adds the file\'s patches to your library (clashing ids get new ones) and its map rules too.',
+    body: 'Adds a bundle\'s (or library file\'s) sounds to your library, clashing ids getting new ones, and its map rules too; nothing you have is replaced. SoundFonts are found by file name in your SoundFont folder; any that are missing are listed, and their sounds are kept for when you add the files.',
     genos: null,
     keys: [],
     launchkey: null,

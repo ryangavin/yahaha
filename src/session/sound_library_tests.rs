@@ -465,6 +465,57 @@ fn a_bad_soundfont_does_not_loop_or_block_the_others() {
     let _ = std::fs::remove_dir_all(&data);
 }
 
+/// D5/O7: the library exports as a bundle (metadata, maps, every plugin sound's state,
+/// SoundFonts by file name) and imports into another data folder. A SoundFont that folder
+/// lacks is reported and its sounds are kept.
+#[test]
+fn a_bundle_round_trips_into_another_data_folder() {
+    let Some((a, data_a)) = session("bundle-a", &["SlowWalker.T552.sty"], true) else { return };
+    let Some((b, data_b)) = session("bundle-b", &["SlowWalker.T552.sty"], true) else { return };
+    let piano = add(&a, "Piano", 0, 0);
+    let state = crate::api::base64_encode(b"sampler deluxe state");
+    let fake = patches::Patch {
+        id: "deluxe".into(),
+        name: "Deluxe Keys".into(),
+        category: patches::Category::guess(0, 4),
+        tags: vec!["mine".into()],
+        favourite: true,
+        source: patches::PatchSource::plugin("aumu Smp7 Fake", state.clone()),
+        defaults: Default::default(),
+    };
+    let gone = patches::Patch { id: "gone".into(), name: "Gone Pad".into(), source: patches::PatchSource::SoundFont { file: "Gone.sf2".into(), bank: 0, program: 88 }, ..fake.clone() };
+    a.inner.lock().sound.lib.patches.extend([fake.clone(), gone.clone()]);
+    a.send(SoundLibraryCmd::SetFamilyRule { family: 0, patch: Some("deluxe".into()), style: false }).unwrap();
+    let out = data_a.join("share").join("bundle.json");
+    a.send(SoundLibraryCmd::ExportSoundLibrary { path: Some(out.display().to_string()) }).unwrap();
+    let text = std::fs::read_to_string(&out).unwrap();
+    let v: serde_json::Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(v["kind"], patches::store::BUNDLE_KIND);
+    assert_eq!(v["fonts"], serde_json::json!(["Gone.sf2", SF2]), "fonts by file name");
+    assert!(!data_a.join("share").join(SF2).exists(), "no font is copied");
+
+    b.send(SoundLibraryCmd::ImportSoundLibrary { path: out.display().to_string(), replace: false, maps: true }).unwrap();
+    let msg = b.state().message.clone().unwrap();
+    assert!(msg.error && msg.text.contains("Gone.sf2") && !msg.text.contains(SF2), "the missing font is reported: {msg:?}");
+    let lib = b.inner.lock().sound.lib.clone();
+    assert_eq!(lib.patches.len(), 3, "every sound is kept, the missing font's too");
+    let got = lib.patches.iter().find(|p| p.name == "Deluxe Keys").unwrap();
+    assert_eq!(got.source, fake.source, "the plugin sound's state comes over unchanged");
+    assert!(got.favourite && got.tags == fake.tags);
+    assert_eq!(lib.map.families[0].as_deref(), Some(got.id.as_str()), "the map comes with it");
+    assert!(lib.patches.iter().any(|p| p.name == "Gone Pad"));
+    assert!(lib.patches.iter().any(|p| p.name == "Piano"), "{piano}");
+    // Written to the other folder's library file.
+    let saved = patches::SoundLibrary::load(&data_b.join(patches::FILE_NAME)).unwrap();
+    assert_eq!(saved.patches.len(), 3);
+    // A replace import takes the bundle's library as it is.
+    b.send(SoundLibraryCmd::ImportSoundLibrary { path: out.display().to_string(), replace: true, maps: false }).unwrap();
+    assert_eq!(b.inner.lock().sound.lib.patches.len(), 3);
+    assert!(patches::SoundLibrary::read_bundle(r#"{"kind":"something-else"}"#).is_err());
+    let _ = std::fs::remove_dir_all(&data_a);
+    let _ = std::fs::remove_dir_all(&data_b);
+}
+
 /// B5 (review of #106): a merge import never saves over a library file a newer yahaha
 /// wrote; a replace import keeps it as `.bak`.
 #[test]
