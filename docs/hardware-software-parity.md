@@ -97,6 +97,7 @@ function with its "Try" button (`triggerFunction`).
 | Fill Down/Self/Break/Up | `fillDown` / `fillSelf` / `fillBreak` / `fillUp` | settings/FillButtons.svelte |
 | Section Reset | `sectionReset` | mirror only |
 | OTS Link, OTS 1–4, OTS next/prev | `toggleOtsLink` / `recallOts` | Parts |
+| Unison (pedal function `unison`; no Launchkey pad) | `toggleUnison` / `setUnisonHeld` / `setUnisonType` | settings/StylePage.svelte (`transport.unison`, `settings.unison_type` tips) |
 | Regist Bank ±, Snapshot Bank ± (pedal functions `snapshotBankNext`/`snapshotBankPrev`), Regist 1–10, Memory, Freeze, Sequence | as the pads | RegistBar (◀ letter ▶ readout, `regist.snap_bank*` tips), Registration, PedalsPage |
 | Regist next/prev | `stepRegist` | **MISSING** (RegistBar sends `stepRegistSequence`) |
 | Transpose ±, part on/off, Fingered On Bass, Harmony/Arp, Chord Looper, Left Hold | as above | TransposePage, PartStrip, ChordPage, Harmony, Looper, Parts |

@@ -168,6 +168,8 @@ pub struct MockSession {
     /// left (ms).
     settings: StyleSettings,
     fade_left: f64,
+    /// A Hold pedal holds Unison on (`setUnisonHeld`).
+    unison_held: bool,
     /// Registration Memory and the Playlist (in memory).
     regist: MockRegist,
     /// The Chord Looper, as the engine runs it (mock_looper.rs).
@@ -262,6 +264,9 @@ impl MockSession {
                 lamps: vec![],
                 half_bar_fill: false,
                 stop_acmp_mode: StopAcmpMode::Off,
+                unison: false,
+                unison_latched: false,
+                unison_type: Default::default(),
                 fade: FadeState::Off,
                 retrigger: false,
                 acmp: true,
@@ -418,6 +423,7 @@ impl MockSession {
             chart_end: false,
             settings: StyleSettings::default(),
             fade_left: 0.0,
+            unison_held: false,
             regist: MockRegist::new(&songs),
             looper: MockLooper::default(),
             pads: multipad::MockPads::default(),
@@ -1569,6 +1575,22 @@ impl MockSession {
             AppCmd::Transport(TransportCmd::ToggleRetrigger) => self.state.transport.retrigger = !self.state.transport.retrigger,
             AppCmd::Transport(TransportCmd::ToggleAcmp) => self.state.transport.acmp = !self.state.transport.acmp,
             AppCmd::Transport(TransportCmd::SetAcmp { on }) => self.state.transport.acmp = on,
+            AppCmd::Transport(TransportCmd::ToggleUnison) => {
+                let t = &mut self.state.transport;
+                t.unison_latched = !t.unison_latched;
+                t.unison = t.unison_latched || self.unison_held;
+            }
+            AppCmd::Transport(TransportCmd::SetUnison { on }) => {
+                let t = &mut self.state.transport;
+                t.unison_latched = on;
+                t.unison = on || self.unison_held;
+            }
+            AppCmd::Transport(TransportCmd::SetUnisonHeld { on }) => {
+                self.unison_held = on;
+                let t = &mut self.state.transport;
+                t.unison = t.unison_latched || on;
+            }
+            AppCmd::Transport(TransportCmd::SetUnisonType { unison_type }) => self.state.transport.unison_type = unison_type,
             AppCmd::Transport(TransportCmd::TapTempo) if running && self.settings.section_reset => self.reset_section(),
             AppCmd::StyleSettings(c) => {
                 self.settings = c.apply(self.settings);

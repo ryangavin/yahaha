@@ -35,6 +35,7 @@ mod setup;
 mod style_change;
 mod sync_stop;
 mod tempo_repeat;
+mod unison;
 mod timing;
 mod swing;
 mod transport;
@@ -51,6 +52,8 @@ pub use multipad::{PadCmd, PadsSnap, SynchroStop, PAD_PPQ};
 use prepared::PKind;
 pub use dynamics::{accent_hit, touch_level, AccentMode, AccentSource, DynamicsSettings, ACCENT_CRASH, ACCENT_DEFAULT, DYNAMICS_NEUTRAL};
 pub use fade::FadeState;
+pub use unison::UnisonType;
+use unison::UNISON_SRC;
 pub use prepared::{id_of, slot_of, Msgs, PSection, Prepared, Setup, NUM_SLOTS};
 pub use ritardando::RIT_END;
 pub use tempo_repeat::{repeat_interval_ms, MAX_HOLD_MS, REPEAT_DELAY_MS, TEMPO_STEP};
@@ -179,6 +182,13 @@ pub enum Button {
     /// keyboard is for playing (engine/acmp.rs).
     Acmp,
     SetAcmp(bool),
+    /// Unison (engine/unison.rs): the latched switch on/off, and set.
+    Unison,
+    SetUnison(bool),
+    /// A Hold pedal given Unison is down (on while held).
+    UnisonHeld(bool),
+    /// What the Bass plays in Unison.
+    SetUnisonType(UnisonType),
 }
 
 
@@ -258,6 +268,10 @@ pub struct Snapshot {
     pub style_send_own: [[u8; 3]; 8],
     /// [ACMP] is on (engine/acmp.rs).
     pub acmp: bool,
+    /// Unison is engaged (latched or held), its latched switch, and its type (unison.rs).
+    pub unison: bool,
+    pub unison_latched: bool,
+    pub unison_type: UnisonType,
 }
 
 /// Where a style preview is: style `id` (the session's library id), bar `bar` of `bars`
@@ -606,6 +620,9 @@ impl Engine {
             style_sends: self.style_sends().0,
             style_send_own: self.style_sends().1,
             acmp: self.acmp(),
+            unison: self.unison(),
+            unison_latched: self.unison_latched(),
+            unison_type: self.unison_type(),
         }
     }
 

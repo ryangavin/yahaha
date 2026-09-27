@@ -318,7 +318,10 @@
     "retrigger": false,
     "ritardando": false,
     "halfBarFill": false,
-    "stopAcmpMode": "off"
+    "stopAcmpMode": "off",
+    "unison": false,
+    "unisonLatched": false,
+    "unisonType": "root"
   },
   "chord": {
     "name": "G7",

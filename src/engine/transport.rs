@@ -240,6 +240,10 @@ impl Engine {
             Button::Retrigger => self.toggle_retrigger(),
             Button::Acmp => self.set_acmp(!self.acmp(), sink),
             Button::SetAcmp(on) => self.set_acmp(on, sink),
+            Button::Unison => self.set_unison_latched(!self.unison_latched(), sink),
+            Button::SetUnison(on) => self.set_unison_latched(on, sink),
+            Button::UnisonHeld(on) => self.set_unison_held(on, sink),
+            Button::SetUnisonType(ty) => self.set_unison_type(ty),
             Button::Intro(i) => {
                 if !self.running {
                     self.pending_intro = if self.pending_intro == Some(i) { None } else { Some(i) };

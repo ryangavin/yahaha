@@ -12,7 +12,7 @@
   import Field from './Field.svelte'
   import FillButtons from './FillButtons.svelte'
   import HSlider from './HSlider.svelte'
-  import { RETRIGGER_RATES, type AccentMode, type AccentSource, type FadeState, type IntroEndingTiming, type MainTiming } from '../../lib/api/types'
+  import { RETRIGGER_RATES, type AccentMode, type AccentSource, type FadeState, type IntroEndingTiming, type MainTiming, type UnisonType } from '../../lib/api/types'
 
   const t = $derived(app.state.transport)
   const ots = $derived(app.state.ots)
@@ -170,6 +170,22 @@
 
 <Field name="Retrigger" genos="Style Retrigger" inline note="On: each chord you play restarts the Main and loops its head.">
   <Toggle on={t.retrigger} tip="transport.retrigger" onclick={() => app.send({ type: 'toggleRetrigger' })}>{onOff(t.retrigger)}</Toggle>
+</Field>
+
+<Field name="Unison" genos={null} inline note="On: the band's Bass, Chord, Pad and Phrase parts play your right-hand notes with you; their patterns rest. A pedal given Unison works while held.">
+  <Toggle on={t.unisonLatched} tip="transport.unison" onclick={() => app.send({ type: 'toggleUnison' })}>{onOff(t.unisonLatched)}</Toggle>
+</Field>
+
+<Field name="Unison bass" genos={null}>
+  <Choice
+    label="Unison bass"
+    value={t.unisonType}
+    options={[
+      { id: 'root', label: 'Root', tip: 'settings.unison_type' as const },
+      { id: 'melody', label: 'Melody', tip: 'settings.unison_type' as const },
+    ]}
+    onselect={(unisonType: UnisonType) => app.send({ type: 'setUnisonType', unisonType })}
+  />
 </Field>
 
 <Field name="Retrigger length" genos="Style Retrigger Rate">
