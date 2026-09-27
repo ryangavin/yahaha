@@ -89,7 +89,6 @@ def home(fxW=220, wide=False):
 </button>
 </sc-for>
 </div>
-<div style="display: flex; gap: 6px; align-items: center"><button class="chip on">OTS Link</button><button class="chip on">ACMP</button><button class="chip">Left Hold</button><button class="chip">Accent</button><div style="flex-grow: 1"></div><span class="cap" style="white-space: nowrap">AI Fingered · Split F#2</span></div>
 </div>''' + fx, JS='''
     // Each Main's own pattern: kick, snare, hats, bass across its first bar (16ths).
     const PAT = { 8: ['x...x...x...x...', '....x.......x...', 'x.x.x.x.x.x.x.x.', 'x..x..x...x..x..'], 9: ['x.....x.x.......', '....x.......x..x', 'xxxxxxxxxxxxxxxx', 'x..x..x.x..x..x.'], 10: ['x..x..x...x.x...', '....x.......x...', 'x.xxx.xxx.xxx.xx', 'x...x.x...x...x.'], 11: ['x.x...x.x.x...x.', '....x..x....x..x', 'xxxxxxxxxxxxxxxx', 'x.xx..x.x.xx..x.'] };

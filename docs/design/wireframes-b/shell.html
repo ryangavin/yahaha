@@ -133,7 +133,11 @@ button{font-family:inherit;cursor:pointer}
 <sc-for list="{{ots}}" as="o" hint-placeholder-count="4">
 <button class="hb" style="width: {{hdr.otsW}}px; min-width: 0; padding: 0; background: {{o.bg}}; color: {{o.ink}}; border-color: {{o.border}}">{{o.n}}</button>
 </sc-for>
-<button class="hb">Link</button>
+<button class="hb" style="background: #ffffff; color: #0e0e10; border-color: #ffffff">Link</button>
+<div style="width: 1px; height: 26px; background: #2d2d32; margin: 0 2px"></div>
+<button class="hb" style="background: #ffffff; color: #0e0e10; border-color: #ffffff" title="Accompaniment on: the left hand plays chords for the band">ACMP</button>
+<button class="hb" title="Left Hold: the Left part keeps sounding after you let go">{{hdr.hold}}</button>
+<button class="hb" title="Accent: the band follows your playing's dynamics">{{hdr.accent}}</button>
 </section>
 
 <section aria-label="Keyboard" style="height: %%KEYH%%px; flex-shrink: 0; position: relative; border-radius: 4px; overflow: hidden; background: #19191c; border: 1px solid #2d2d32">
@@ -146,7 +150,7 @@ button{font-family:inherit;cursor:pointer}
 <div style="position: absolute; top: 6px; left: {{b.x}}px; width: {{kb.bw}}px; height: {{kb.bh}}px; border-radius: 0 0 3px 3px; background: #0e0e10"></div>
 </sc-for>
 <div style="position: absolute; top: 0; bottom: 0; left: {{kb.split}}px; width: 2px; background: #3a3a40"></div>
-<span class="cap" style="position: absolute; left: {{kb.splitLabel}}px; bottom: 8px; color: #3a3a40">Split</span>
+<span class="cap" style="position: absolute; left: {{kb.splitLabel}}px; bottom: 8px; color: #3a3a40">Split F#2 · AI Fingered</span>
 </section>
 %%OVERLAY%%
 </div>
@@ -170,7 +174,7 @@ class Component extends DCLogic {
     const SEL = %%SEL%%;
     const TAB = '%%TAB%%';
     const LAYER = '%%LAYER%%';
-    const hdr = { sendW: COMPACT ? 30 : 42, sendK: COMPACT ? 22 : 32, gap: COMPACT ? 6 : 10, lkCap: COMPACT ? 'none' : 'inline', lkKnobs: W >= 1400 ? 'flex' : 'none', syncStart: W < 1800 ? 'Sync ▶' : 'Sync Start', syncStop: W < 1800 ? 'Sync ■' : 'Sync Stop', masterCap: W < 1800 ? 'none' : 'inline', masterW: COMPACT ? 60 : 90, tabCap: COMPACT || !%%PADRING%% ? 'none' : 'inline', regCap: COMPACT ? 'none' : 'inline', bankW: COMPACT ? 150 : 190, regW: COMPACT ? 32 : 38, otsW: COMPACT ? 34 : 44, freeze: COMPACT ? 'Frz' : 'Freeze' };
+    const hdr = { accent: COMPACT ? 'Acc' : 'Accent', hold: COMPACT ? 'Hold' : 'Left Hold', sendW: COMPACT ? 30 : 42, sendK: COMPACT ? 22 : 32, gap: COMPACT ? 6 : 10, lkCap: COMPACT ? 'none' : 'inline', lkKnobs: W >= 1400 ? 'flex' : 'none', syncStart: W < 1800 ? 'Sync ▶' : 'Sync Start', syncStop: W < 1800 ? 'Sync ■' : 'Sync Stop', masterCap: W < 1800 ? 'none' : 'inline', masterW: COMPACT ? 60 : 90, tabCap: COMPACT || !%%PADRING%% ? 'none' : 'inline', regCap: COMPACT ? 'none' : 'inline', bankW: COMPACT ? 150 : 190, regW: COMPACT ? 32 : 38, otsW: COMPACT ? 34 : 44, freeze: COMPACT ? 'Frz' : 'Freeze' };
     const tabs = ['Home', 'Channel', 'Effects', 'Pads & Loops', 'Harmony / Arp', 'Settings'].map(n => { const on = n === TAB; return { name: n, on, bg: on ? A : 'rgba(14,14,16,.55)', ink: on ? AI : '#a9a9b1', line: on ? A : 'transparent', weight: on ? 800 : 600, glow: on ? '0 -2px 14px rgba(255,255,255,.55)' : 'none', pad: COMPACT ? 9 : 14 }; });
     // name, voice, meter, volume, on, reverb, chorus, delay, pan (0-1)
     const P = [['Right 1','Grand Piano',86,70,1,.4,.1,.2,.5],['Right 2','Strings',60,55,1,.5,.2,.1,.35],['Right 3','Brass Sect',0,50,0,.3,.1,0,.6],['Left','Warm Pad',44,62,1,.4,.15,0,.5],['Rhythm 1','Live Kit',90,78,1,.3,0,0,.5],['Rhythm 2','Percussion',50,60,1,.3,0,0,.7],['Bass','Finger Bass',72,70,1,.1,0,0,.5],['Chord 1','Steel Gtr',58,64,1,.35,.15,0,.3],['Chord 2','E.Piano',40,58,1,.4,.3,0,.68],['Pad','Warm Strings',30,52,1,.5,.25,0,.5],['Phrase 1','Brass',0,60,1,.3,.1,0,.6],['Phrase 2','Synth Lead',0,48,1,.3,0,.25,.42]];
