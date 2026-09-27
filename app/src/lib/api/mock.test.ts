@@ -27,6 +27,65 @@ describe('mock session', () => {
     expect(m.state.transport.bar).toBe(1)
   })
 
+  // #111: with OTS Link on, a queued style's OTS comes as it takes over in a Main, and
+  // waits for the Main after a Break. A queued style waits for an Ending.
+  const otherStyle = (m: MockSession) => {
+    const styles = (m as unknown as { styles: { id: number; ots: number; sections: string[]; error?: string }[] }).styles
+    return styles.find((s) => s.id !== m.state.style.id && s.ots > 0 && !s.error && s.sections.includes('Fill In BA') && s.sections.includes('Ending A') && s.sections.includes('Main A'))!
+  }
+
+  it('a queued style recalls its OTS as it takes over in a Main', () => {
+    const m = new MockSession({ manual: true })
+    m.send({ type: 'setOtsLink', on: true })
+    m.send({ type: 'startStop' })
+    m.advance(bar(m) * 0.3)
+    const s = otherStyle(m)
+    m.send({ type: 'queueStyle', id: s.id })
+    expect(m.state.style.id).not.toBe(s.id)
+    m.state.ots.applied = 0
+    m.advance(bar(m) * 0.8)
+    expect(m.state.style.id).toBe(s.id)
+    expect(m.state.ots.applied).toBe(1)
+  })
+
+  it('a queued style taking over in a Break recalls its OTS when the Main starts', () => {
+    const m = new MockSession({ manual: true })
+    m.send({ type: 'setOtsLink', on: true })
+    m.send({ type: 'setOtsLinkTiming', timing: 'immediate' })
+    m.send({ type: 'startStop' })
+    m.advance(bar(m) * 0.3)
+    m.send({ type: 'break' })
+    m.advance(bar(m) * 0.8)
+    expect(m.state.transport.section).toBe('Fill In BA')
+    const s = otherStyle(m)
+    m.send({ type: 'queueStyle', id: s.id })
+    m.state.ots.applied = 0
+    for (let i = 0; i < 40 && m.state.style.id !== s.id; i++) {
+      m.advance(bar(m) * 0.05)
+      if (m.state.style.id !== s.id) expect(m.state.ots.applied).toBe(0)
+    }
+    // It took over at the Break's end, where Main A starts: the OTS comes with the Main,
+    // under Immediate too.
+    expect(m.state.style.id).toBe(s.id)
+    expect(m.state.transport.section).toBe('Main A')
+    expect(m.state.ots.applied).toBe(1)
+  })
+
+  it('a queued style waits for an Ending, and loads at the stop', () => {
+    const m = new MockSession({ manual: true })
+    m.send({ type: 'startStop' })
+    m.advance(bar(m) * 0.3)
+    m.send({ type: 'ending', index: 0 })
+    const s = otherStyle(m)
+    m.send({ type: 'queueStyle', id: s.id })
+    for (let i = 0; i < 8 && m.state.transport.running; i++) {
+      m.advance(bar(m) * 0.5)
+      if (m.state.transport.running) expect(m.state.style.id).not.toBe(s.id)
+    }
+    expect(m.state.transport.running).toBe(false)
+    expect(m.state.style.id).toBe(s.id)
+  })
+
   it('pressing the Main that plays queues its fill, which plays from the next beat', () => {
     const m = new MockSession({ manual: true })
     m.send({ type: 'startStop' })
