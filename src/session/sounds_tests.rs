@@ -107,6 +107,27 @@ fn assigning_a_sound_picks_the_route_its_source_has() {
 }
 
 #[test]
+fn the_instruments_tab_gets_font_summaries_and_adds_to_my_sounds() {
+    let data = folder("instruments");
+    let Some(s) = offline(&data) else { return };
+    let cat = s.sound_catalog();
+    let f: Vec<_> = cat.fonts.iter().map(|f| (f.file.as_str(), f.presets, f.kits, f.gm_programs, f.gm_kit)).collect();
+    assert_eq!(f, [("A.sf2", 2, 1, 2, true), ("B.sf2", 1, 0, 1, false)]);
+    // Add to my sounds: the preset's patch, added once, and nothing plays it.
+    s.send(SoundsCmd::AddToMySounds { id: "sf:B.sf2:0:88".into() }).unwrap();
+    s.send(SoundsCmd::AddToMySounds { id: "sf:B.sf2:0:88".into() }).unwrap();
+    let st = s.state();
+    assert_eq!(st.sound_library.patches.len(), 1);
+    assert!(st.keyboard_parts.iter().all(|p| p.patch.is_none()));
+    let id = st.sound_library.patches[0].patch.id.clone();
+    s.send(SoundsCmd::AddToMySounds { id: format!("saved:{id}") }).unwrap();
+    assert_eq!(s.state().sound_library.patches.len(), 1);
+    assert!(s.send(SoundsCmd::AddToMySounds { id: "sf:B.sf2:0:1".into() }).is_err());
+    assert!(s.send(SoundsCmd::AddToMySounds { id: "nope".into() }).is_err());
+    let _ = std::fs::remove_dir_all(&data);
+}
+
+#[test]
 fn favourites_and_recents_are_saved() {
     let data = folder("saved");
     let Some(s) = offline(&data) else { return };

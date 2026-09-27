@@ -1821,6 +1821,16 @@ export class MockSession implements Session {
         else if (cmd.type === 'exportSoundPreset') this.message(`${this.state.soundLibrary.patches.find((p) => p.id === cmd.id)?.name} exported to ~/Library/Audio/Presets`)
         break
       }
+      case 'addToMySounds': {
+        // The entry's library patch, added once (a saved sound is in already).
+        if (!/^(saved|sf|au):/.test(cmd.id)) {
+          this.message(`no sound ${cmd.id}`, true)
+          break
+        }
+        const r = this.catalogMock.patchFor(this.state, cmd.id, (c) => this.cmd(c))
+        if ('error' in r) this.message(r.error, true)
+        break
+      }
       case 'setSoundFavourite':
       case 'auditionSound':
       case 'stopSoundAudition':

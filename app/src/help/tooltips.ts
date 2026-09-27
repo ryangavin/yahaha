@@ -899,6 +899,48 @@ const catalog = {
     keys: [],
     launchkey: null,
   },
+  'sounds.tab_sounds': {
+    title: 'Sounds',
+    body: 'Your sounds to pick from: favourites, recents, saved sounds and every preset, by category.',
+    genos: 'Voice Selection',
+    keys: [],
+    launchkey: null,
+  },
+  'sounds.tab_instruments': {
+    title: 'Instruments',
+    body: 'The SoundFonts and instrument plugins found in your folders, each with its own presets. Plugin housekeeping (category, in process, Edit…, Rescan) lives here too.',
+    genos: null,
+    keys: [],
+    launchkey: null,
+  },
+  'sounds.inst_expand': {
+    title: 'Show presets',
+    body: 'Opens or closes this instrument\'s preset list (Enter or Space). A plugin\'s factory presets are read the first time it opens, next to its .aupreset files; an open plugin also shows its settings.',
+    genos: null,
+    keys: [],
+    launchkey: null,
+  },
+  'sounds.inst_play': {
+    title: 'Play now',
+    body: 'The part plays this preset now, without adding it to your sounds.',
+    genos: null,
+    keys: [],
+    launchkey: null,
+  },
+  'sounds.inst_add': {
+    title: 'Add to my sounds',
+    body: 'Keeps this preset in your sounds (the sound library), once, so it shows in Sounds and can be a map rule. Nothing changes on the part.',
+    genos: null,
+    keys: [],
+    launchkey: null,
+  },
+  'sounds.inst_new': {
+    title: 'New sound from plugin',
+    body: 'Loads the plugin with its default settings on the part and opens its editor, to build a sound from scratch. Save as… keeps it.',
+    genos: null,
+    keys: [],
+    launchkey: null,
+  },
 
   // ── Keyboard parts drawer ──────────────────────────────────────────────
   'part.plugin': {

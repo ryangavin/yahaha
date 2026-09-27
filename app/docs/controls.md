@@ -262,6 +262,12 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | **Star** | Adds the sound to your Favourites, or takes it out. | Voice Selection › Favorite | — | — |
 | **Audition** | Plays the sound on its own for a few seconds, without changing the part. Only while the band is stopped. | Voice Selection › Demo | — | — |
 | **Stop audition** | Stops the audition. | — | — | — |
+| **Sounds** | Your sounds to pick from: favourites, recents, saved sounds and every preset, by category. | Voice Selection | — | — |
+| **Instruments** | The SoundFonts and instrument plugins found in your folders, each with its own presets. Plugin housekeeping (category, in process, Edit…, Rescan) lives here too. | — | — | — |
+| **Show presets** | Opens or closes this instrument's preset list (Enter or Space). A plugin's factory presets are read the first time it opens, next to its .aupreset files; an open plugin also shows its settings. | — | — | — |
+| **Play now** | The part plays this preset now, without adding it to your sounds. | — | — | — |
+| **Add to my sounds** | Keeps this preset in your sounds (the sound library), once, so it shows in Sounds and can be a map rule. Nothing changes on the part. | — | — | — |
+| **New sound from plugin** | Loads the plugin with its default settings on the part and opens its editor, to build a sound from scratch. Save as… keeps it. | — | — | — |
 
 ## Keyboard Harmony / Arpeggio
 

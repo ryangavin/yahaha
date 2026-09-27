@@ -8,10 +8,11 @@
   │ ★ Favourites ││ ☆ Grand Piano      SF  GeneralUser-GS.sf2      ▶ │  virtualised
   │ ↺ Recent     ││ ☆ Serum            AU  Xfer Records  ⚠         ▶ │
   │ CATEGORIES   ││ …                                                 │
-  └──────────────┘└ Right 1 plays: Grand Piano · [Synth Lead ▾] · Edit… · Rescan ┘
+  └──────────────┘└ Right 1 plays: Grand Piano ──────── Save as sound ┘
 
-  The footer's category picker shows while the selected row is a plugin: its category is
-  guessed from its name, and the picker corrects it (`setSoundCategory`).
+  Two tabs (docs/sound-browser.md, D2): Sounds (this list) and Instruments
+  (Instruments.svelte: each font and plugin with its presets, and the plugin housekeeping,
+  category, Edit…, in process and Rescan, that used to sit in this footer).
 
   Keys (the filter keeps focus): ↑/↓ PgUp/PgDn Home/End move; Enter plays the sound on
   the part (the browser stays open, as the Genos Voice Selection does); Shift+Enter
@@ -34,7 +35,8 @@
   import { CATEGORY_LABELS } from '../../lib/api/sound-library'
   import type { PatchCategory } from '../../lib/api/types'
   import { moveCursor } from '../browser/model'
-  import { pluginStatusLine } from '../parts/parts'
+  import Instruments from './Instruments.svelte'
+  import { browserNav, type BrowserTab } from './nav.svelte'
   import { SOURCE_BADGE, categoryCounts, expandable, playingId, visibleSounds, type SoundView } from './model'
 
   let { part = 0, pick = null }: { part?: number; pick?: SoundPick | null } = $props()
@@ -88,7 +90,12 @@
   const playing = $derived(pick ? (pick.value ? `saved:${pick.value}` : null) : kp ? playingId(kp, app.state.io.soundFontFile) : null)
   const auditioning = $derived(app.state.sounds?.auditioning ?? null)
   const running = $derived(app.state.transport.running)
-  const plugins = $derived(app.state.plugins)
+  // Instruments (O2) plays on a part: picking for a map rule shows Sounds only.
+  const tab = $derived(pick ? 'sounds' : browserNav.tab)
+  function showTab(t: BrowserTab) {
+    browserNav.tab = t
+    if (t === 'sounds') void tick().then(() => (input?.focus(), ensureVisible(cursor, true)))
+  }
 
   // Save as preset (AU presets): the part's plugin as it plays now, as an .aupreset.
   let presetForm = $state<{ name: string; category: PatchCategory; replace: boolean } | null>(null)
@@ -123,19 +130,6 @@
 
   let cursorId = $state<string | null>(null)
   const cursor = $derived(Math.max(0, cursorId === null ? rows.findIndex((i) => entries[i].id === playing) : rows.findIndex((i) => entries[i].id === cursorId)))
-
-  // The selected row's plugin: the footer's category picker files it (#172).
-  const selPlugin = $derived.by(() => {
-    const e = rows[cursor] === undefined ? undefined : entries[rows[cursor]]
-    return e?.source === 'plugin' ? e : null
-  })
-  function setCategory(id: string, category: PatchCategory) {
-    cursorId = id
-    app.send({ type: 'setSoundCategory', id, category })
-    // In a category view the sound moves with its category, so it stays selected.
-    if (view.kind === 'category') show({ kind: 'category', id: category })
-    input?.focus()
-  }
 
   let list: HTMLDivElement | undefined = $state()
   let input: HTMLInputElement | undefined = $state()
@@ -233,6 +227,16 @@
 </script>
 
 <Overlay id="sounds" title="Sounds · {pick ? pick.title : (kp?.name ?? '')}" side="center" modal closeTip="sounds.close" onclose={close}>
+  <div class="wrap">
+  {#if !pick}
+    <div class="tabs" role="tablist" aria-label="Sound Browser">
+      <button type="button" role="tab" class="tab" class:on={tab === 'sounds'} aria-selected={tab === 'sounds'} use:tip={'sounds.tab_sounds'} onclick={() => showTab('sounds')}>Sounds</button>
+      <button type="button" role="tab" class="tab" class:on={tab === 'instruments'} aria-selected={tab === 'instruments'} use:tip={'sounds.tab_instruments'} onclick={() => showTab('instruments')}>Instruments</button>
+    </div>
+  {/if}
+  {#if tab === 'instruments'}
+    <Instruments {part} />
+  {:else}
   <div class="sb">
     <nav class="side" aria-label="Sound categories">
       <button type="button" class="cat" class:on={is({ kind: 'all' })} aria-pressed={is({ kind: 'all' })} use:tip={'sounds.all'} onclick={() => show({ kind: 'all' })}>
@@ -344,29 +348,51 @@
       {/if}
 
       <footer class="foot">
-        {#if pick}<span class="now">Pick the sound for <b>{pick.title}</b></span>{:else}<span class="now">{kp?.name} plays <b>{kp?.voiceName}</b>{#if kp?.plugin}&nbsp;· {pluginStatusLine(kp.plugin, plugins.available).replace(/ ▾$/, '')}{#if kp.plugin.status === 'playing'}&nbsp;· CPU {Math.round(kp.plugin.cpu * 100)}%{/if}{/if}</span>{/if}
-        {#if selPlugin}
-          {@const e = selPlugin}
-          <label class="catpick">
-            <span class="engraved">{e.name} is</span>
-            <select aria-label="Category of {e.name}" value={e.category} use:tip={'sounds.set_category'} onchange={(ev) => setCategory(e.id, ev.currentTarget.value as PatchCategory)}>
-              {#each Object.entries(CATEGORY_LABELS) as [id, label] (id)}<option value={id}>{label}</option>{/each}
-            </select>
-          </label>
-        {/if}
+        {#if pick}<span class="now">Pick the sound for <b>{pick.title}</b></span>{:else}<span class="now">{kp?.name} plays <b>{kp?.voiceName}</b></span>{/if}
         {#if auditioning}<HwButton tip="sounds.audition_stop" onclick={() => app.send({ type: 'stopSoundAudition' })}>■ Stop</HwButton>{/if}
         {#if kp}<HwButton tip="sounds.save_over" onclick={saveSound}>Save</HwButton><HwButton tip="sounds.save" onclick={saveAsSound}>Save as…</HwButton>{/if}
         {#if kp?.plugin?.status === 'playing'}<HwButton tip="sounds.save_preset" onclick={openPresetForm}>Save as preset…</HwButton>{/if}
-        {#if kp?.plugin?.editor}<HwButton tip="part.plugin_edit" onclick={() => app.pluginEditor(part, true)}>Edit…</HwButton>{/if}
-        {#if plugins.available}
-          <HwButton tip="part.plugin_rescan" onclick={() => !plugins.scanning && app.send({ type: 'rescanPlugins' })}>{plugins.scanning ? 'Scanning' : 'Rescan'}</HwButton>
-        {/if}
       </footer>
     </section>
+  </div>
+  {/if}
   </div>
 </Overlay>
 
 <style>
+  .wrap {
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+    height: 100%;
+    min-height: 0;
+  }
+  .wrap > :global(*:last-child) {
+    flex: 1;
+    min-height: 0;
+  }
+  .tabs {
+    display: flex;
+    gap: 0.3rem;
+  }
+  .tab {
+    min-height: 2.1rem;
+    padding: 0 0.9rem;
+    border: 1px solid transparent;
+    border-radius: 5px;
+    background: none;
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: 0.95rem;
+    color: var(--ink);
+  }
+  .tab:hover {
+    background: rgb(127 127 127 / 0.1);
+  }
+  .tab.on {
+    border-color: color-mix(in srgb, var(--accent) 60%, transparent);
+    background: color-mix(in srgb, var(--accent) 16%, transparent);
+  }
   .sb {
     display: grid;
     grid-template-columns: 12rem minmax(0, 1fr);
@@ -600,26 +626,5 @@
   }
   .now b {
     color: var(--ink);
-  }
-  .catpick {
-    display: flex;
-    align-items: center;
-    gap: 0.4rem;
-    min-width: 0;
-    max-width: 22rem;
-  }
-  .catpick .engraved {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .catpick select {
-    min-height: 2.2rem;
-    padding: 0 0.45rem;
-    border: 1px solid var(--well-edge);
-    border-radius: 4px;
-    background: var(--screen-bg);
-    color: var(--screen-ink);
-    font-size: 0.9rem;
   }
 </style>

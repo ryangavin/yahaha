@@ -293,6 +293,7 @@ const EVERY_CMD: &[&str] = &[
     r#"{"type":"assignSound","part":0,"id":"saved:warm-pad"}"#,
     r#"{"type":"setSoundCategory","id":"au:aumu Xf2X XFER","category":"pad"}"#,
     r#"{"type":"listPluginPresets","id":"au:aumu Nik2 -NI-"}"#,
+    r#"{"type":"addToMySounds","id":"sf:GM.sf2:0:5"}"#,
     r#"{"type":"savePartAsPluginPreset","part":0,"name":"Upright","category":"piano"}"#,
     r#"{"type":"savePartAsPluginPreset","part":1,"name":"Upright","category":"piano","overwrite":true}"#,
     // Style Dynamics Control, Touch, Accent

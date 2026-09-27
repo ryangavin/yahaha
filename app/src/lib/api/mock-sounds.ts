@@ -5,7 +5,7 @@
 
 import { guessCategory, presetsOf } from './mock-sound-library'
 import { MOCK_PRESETS_ID } from './mock-plugins'
-import { guessCategory as guessWords, MAX_RECENTS, parsePluginId, parsePresetId, pluginCategory, pluginPresetId, presetId, type PluginPresetList, type SoundCatalog, type SoundEntry, type SoundsCmd, type SoundsState } from './sounds'
+import { fontSummaries, guessCategory as guessWords, MAX_RECENTS, parsePluginId, parsePresetId, pluginCategory, pluginPresetId, presetId, type PluginPresetList, type SoundCatalog, type SoundEntry, type SoundsCmd, type SoundsState } from './sounds'
 import { originOfPresetKey, sameOrigin, type PatchCategory } from './sound-library'
 import type { AppCmd, AppState } from './types'
 
@@ -86,7 +86,8 @@ export class MockSounds {
       const detail = p.source.kind === 'soundFont' ? p.source.file : p.source.componentId
       entries.push({ id, name: p.name, category: p.category, source: 'saved', detail, favourite: p.favourite, recent: recent(id), plugin: null })
     }
-    return { revision: this.revision, entries, recents: [...this.recents] }
+    const fonts = fontSummaries(st.io.soundFonts.map((f) => [f, presetsOf(f)]))
+    return { revision: this.revision, entries, recents: [...this.recents], fonts }
   }
 
   private known(st: AppState, id: string): boolean {
@@ -105,6 +106,8 @@ export class MockSounds {
       this.audition = null
       return {}
     }
+    // The session mock adds the patch itself (`patchFor`), as a map rule's.
+    if (c.type === 'addToMySounds') return {}
     if (c.type === 'listPluginPresets') {
       const au = parsePluginId(c.id)
       if (!au || au.key !== null) return { error: `${c.id} is not a plugin` }

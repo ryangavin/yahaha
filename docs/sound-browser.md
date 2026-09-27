@@ -228,6 +228,31 @@ Each migration has a test in `src/patches/sound_tests.rs`.
   SoundFont folder. Any that are missing are reported by name, and their sounds are kept
   so they play once the file is there.
 - Rendering a `.sf2` from the map (D6) is issue #322.
+## The Instruments tab (PR 5, O2)
+
+The Sound Browser's second tab (`app/src/panels/sounds/Instruments.svelte`, model in
+`instruments.ts`). It lists what the scanned folders hold: each SoundFont, then each
+instrument plugin. Every row opens (▸/▾, Enter or Space) to its own preset list.
+
+- **A font row** shows only its preset and kit counts and how GM-complete it is
+  (`SoundCatalog.fonts`, from `patches::gm::gm_completeness`: GM programs on bank 0, of
+  128, and whether it has a kit). Its presets are listed by bank and program.
+- **A plugin row** shows its maker, format, the scan's word (how many presets, or the
+  last load's ⚠ error) and, for each part playing it, its load status and CPU. Open, it
+  has its housekeeping: New sound from <plugin>, Edit… (while the browser's part plays
+  it), its default category (`setSoundCategory`) and the in-process override
+  (`setPluginInProcess`, where it can run in process). Rescan sits over the plugin list.
+  Opening a plugin lists its factory presets (`listPluginPresets`) beside its
+  `.aupreset` files.
+- **Each preset** has two actions. **Play now** plays it on the browser's part
+  (`assignSound`). **Add to my sounds** (`addToMySounds`) adds its library patch once,
+  the same patch a part or map rule gets for it, without playing it; a preset already
+  in the library shows "✓ In My Sounds".
+- **New sound from <plugin>** loads the plugin's default state on the part
+  (`setPartPlugin` with no state) and opens its editor once it plays. Save as… keeps it.
+
+None of this housekeeping stays in the Sounds footer. Picking for a map rule shows the
+Sounds tab only, because Play now needs a part.
 
 ## Decisions (binding, from the owner)
 
