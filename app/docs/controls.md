@@ -52,6 +52,7 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | **Tempo −** | Slows the tempo by 1 BPM; hold it to keep going, faster the longer you hold. Press − and + together for the style's own tempo. | TEMPO − | `-` | Function button (right of the pads) |
 | **Tempo +** | Speeds the tempo up by 1 BPM; hold it to keep going, faster the longer you hold. Press − and + together for the style's own tempo. | TEMPO + | `=` | > (Scene Launch) button (right of the pads) |
 | **Style tempo** | Back to the tempo the style came with, as pressing TEMPO − and + together does on the Genos. Hold one tempo button and press the other, here or on the Launchkey. | TEMPO − and + together | `+` | Function and > (Scene Launch) pressed together |
+| **Tempo** | Sets the tempo directly, 5–500 BPM, as the Tempo knob on the Launchkey does. With focus, the arrow keys move it by 1 BPM. | Tempo | — | Knob 8 on most knob pages |
 
 ## Displays
 
@@ -147,6 +148,8 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 
 | control | what it does | Genos | key | Launchkey |
 |---|---|---|---|---|
+| **Previous Snapshot** | Recalls the Snapshot before the one selected: the Sequence order when Registration Sequence is on, else the previous stored button. | Registration − (foot pedal) | — | — |
+| **Next Snapshot** | Recalls the Snapshot after the one selected: the Sequence order when Registration Sequence is on, else the next stored button. | Registration + (foot pedal) | — | — |
 | **Snapshot 1** | Recalls the panel stored in this snapshot of the bank on view (Bank A, B, …): style, section, tempo, your parts, the mixer, split and more (the groups it stored, less any you froze). Blue when it holds a setup, red when it is the one in use, dark when empty. With Store armed, stores the panel here instead. | REGISTRATION MEMORY [1] | `Shift+Q` | Pad page 4 (Snapshots), top row, pad 1 |
 | **Snapshot 2** | Recalls the panel stored in this snapshot of the bank on view (Bank A, B, …): style, section, tempo, your parts, the mixer, split and more (the groups it stored, less any you froze). Blue when it holds a setup, red when it is the one in use, dark when empty. With Store armed, stores the panel here instead. | REGISTRATION MEMORY [2] | `Shift+W` | Pad page 4 (Snapshots), top row, pad 2 |
 | **Snapshot 3** | Recalls the panel stored in this snapshot of the bank on view (Bank A, B, …): style, section, tempo, your parts, the mixer, split and more (the groups it stored, less any you froze). Blue when it holds a setup, red when it is the one in use, dark when empty. With Store armed, stores the panel here instead. | REGISTRATION MEMORY [3] | `Shift+E` | Pad page 4 (Snapshots), top row, pad 3 |
@@ -254,6 +257,7 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 
 | control | what it does | Genos | key | Launchkey |
 |---|---|---|---|---|
+| **Arpeggio Hold pedal** | The Arpeggio Hold pedal switch, from the app. On: the arpeggio plays on after you let go, as with the pedal held down. | Arpeggio Hold (foot pedal) | — | — |
 | **Harmony/Arpeggio** | Turns the selected Keyboard Harmony type or arpeggio on or off for the keys right of the split. Turning it off stops the arpeggio at once; keys you hold keep their harmony notes until you let go. | HARMONY/ARPEGGIO | `Shift+J` | Panel fader page: button under fader 5 |
 | **Harmony types** | Shows the Keyboard Harmony types and selects the one last used: duets, trios, block and 4-way voicings, 1+5, Octave, Strum, Multi Assign, Echo, Tremolo and Trill. | Keyboard Harmony | — | — |
 | **Arpeggio patterns** | Shows the arpeggio patterns and selects the one last used. They are yahaha's own patterns, not Yamaha's. | Arpeggio | — | — |
