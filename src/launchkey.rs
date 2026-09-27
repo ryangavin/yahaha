@@ -444,6 +444,8 @@ pub fn cc_control(cc: u8, shift: bool) -> Option<Control> {
         // Shift + Pad Bank ▲/▼: the toggles these buttons had before pages (also on page 3).
         PAD_UP_CC if shift => act(Action::PartOnOff(parts::LEFT as u8)),
         PAD_DOWN_CC if shift => act(Action::ToggleOtsLink),
+        // Shift + encoder page ▼: [ACMP] on/off (#266). Every pad is taken.
+        KNOB_DOWN_CC if shift => act(Action::Button(Button::Acmp)),
         KNOB_UP_CC => act(Action::KnobPage(-1)),
         KNOB_DOWN_CC => act(Action::KnobPage(1)),
         PAD_UP_CC => Some(Control::Page(-1)),
@@ -1210,7 +1212,7 @@ mod tests {
             style_pending: false, section_bars: 0, audition: None, fade: FadeState::Off, retrigger: false, ritardando: false,
             looper: Default::default(), style_solo: None,
             multipad: Default::default(), chart_tag: 0, chart_bar: None, chart_override: false, dynamics: 64,
-            style_sends: [[40, 0, 0]; 8], style_send_own: [[255; 3]; 8],
+            style_sends: [[40, 0, 0]; 8], style_send_own: [[255; 3]; 8], acmp: true,
         }
     }
 
@@ -1428,7 +1430,10 @@ mod tests {
         assert_eq!(cc_control(116, false), Some(Control::Act(Action::Button(Button::Stop))));
         assert_eq!(cc_control(SHIFT_CC, false), None);
         assert_eq!(cc_control(51, false), Some(Control::Act(Action::KnobPage(-1))));
-        assert_eq!(cc_control(52, true), Some(Control::Act(Action::KnobPage(1))));
+        assert_eq!(cc_control(52, false), Some(Control::Act(Action::KnobPage(1))));
+        assert_eq!(cc_control(51, true), Some(Control::Act(Action::KnobPage(-1))));
+        // Shift + ▼: [ACMP] (#266).
+        assert_eq!(cc_control(52, true), Some(Control::Act(Action::Button(Button::Acmp))));
         assert_eq!(cc_control(53, false), None);
 
         // ▲/▼ stop at the ends; Tab wraps.

@@ -37,6 +37,7 @@ export const BINDINGS: Record<string, Binding> = {
   h: c({ type: 'toggleStopAcmp' }),
   '|': c({ type: 'sectionReset' }),
   '~': c({ type: 'toggleRetrigger' }),
+  '%': c({ type: 'toggleAcmp' }),
   F: c({ type: 'toggleFade' }),
   '{': c({ type: 'stepRetriggerRate', delta: -1 }),
   '}': c({ type: 'stepRetriggerRate', delta: 1 }),

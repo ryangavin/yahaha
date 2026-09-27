@@ -55,8 +55,11 @@ fn keyboard_note_path_does_not_allocate() {
     // Warm up: nothing sized lazily later on.
     input.packet(1, 0, &[0x90, 60, 100, 0x80, 60, 0]);
     input.end_of_list();
+    // With the performance view collecting (`perf`): packets and their latency.
+    yahaha::perf::enable();
 
     let (allocs, frees) = (ALLOCS.load(Ordering::Relaxed), FREES.load(Ordering::Relaxed));
+    input.packet(1, yahaha::rt::host_now(), &[0x90, 62, 100, 0x80, 62, 0]);
     let (mut assigned, mut strikes, mut levels, mut holds) = (0, 0, 0, 0);
     for round in 0..50u8 {
         // Dynamics Touch / Accent on in some rounds: chord-section strikes go to the engine.
@@ -81,6 +84,8 @@ fn keyboard_note_path_does_not_allocate() {
             assigned += 1;
         }
         shared.key_shift.store((round % 5) as i8 - 2, Ordering::Relaxed);
+        // [ACMP] off in some rounds (#266): no chord section, any key for Sync Start.
+        shared.acmp.store(round % 3 != 0, Ordering::Relaxed);
         // Some rounds with a keyboard part soloed (Left, Right 2, none).
         shared.parts.set_solo([None, Some(3), Some(1)][round as usize % 3]);
         // Left on in some rounds, with Left Hold (#202) on in some: its keys re-pedal Left.
@@ -111,6 +116,15 @@ fn keyboard_note_path_does_not_allocate() {
         use yahaha::live::TAG_PADS;
         input.packet(TAG_PADS, 0, &[0xB0, SCENE_CC, 127, 0xB0, SCENE_CC, 0]);
         input.packet(TAG_PADS, 0, &[0xB0, FUNCTION_CC, 127, 0xB0, SCENE_CC, 127, 0xB0, FUNCTION_CC, 0, 0xB0, SCENE_CC, 0]);
+        // The faders in a fader layer: Shift + the master fader's button steps VOL, PAN,
+        // REV, CHO, DLY; faders 1 and 3 move a part's pan or send, on either page.
+        use yahaha::launchkey::{FADER_BTN_CC, FADER_CC, SHIFT_CC};
+        let (f1, mb) = (*FADER_CC.start(), *FADER_BTN_CC.end());
+        input.packet(TAG_PADS, 0, &[0xB0, SHIFT_CC, 127, 0xB0, mb, 127, 0xB0, SHIFT_CC, 0]);
+        input.packet(TAG_PADS, 0, &[0xB0, f1, round, 0xB0, f1 + 2, 127 - round, 0xB0, f1, 64]);
+        if round % 7 == 0 {
+            input.packet(TAG_PADS, 0, &[0xB0, mb, 127]);
+        }
         input.end_of_list();
         ctl.reset(&mut |_| {});
     }

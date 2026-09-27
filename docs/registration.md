@@ -52,7 +52,7 @@ yahaha's own JSON, never Yamaha's `.rgt`. By default in `~/Documents/yahaha`
           "style": { "path": "/Users/me/Styles/SlowWalker.T552.sty", "name": "SlowWalker" },
           "tempo": { "bpm": 96.0 },
           "chord": { "fingering": "fingeredOnBass", "upper": false, "manualBass": true, "split": 54, "leftHold": true },
-          "styleControl": { "main": 1, "intro": null, "syncStart": true, "syncStop": false, "stopAcmp": false, "stopAcmpMode": "off", "otsLink": false },
+          "styleControl": { "main": 1, "intro": null, "syncStart": true, "syncStop": false, "stopAcmp": false, "stopAcmpMode": "off", "otsLink": false, "acmp": true },
           "styleMixer": { "volumes": [100, 100, 96, 64, 76, 70, 88, 84], "on": [true, true, true, true, true, true, true, true], "set": [false, false, false, true, false, false, false, false] },
           "parts": { "parts": [
             { "on": true, "voice": { "kind": "gm", "program": 4, "bankMsb": 0, "bankLsb": 0 }, "volume": 100, "octave": 0 },
@@ -104,7 +104,7 @@ Today's sections: `style` (early), `multiPad` (early: the bank file, or null for
 `{ reverb, chorus, variation }` in percent; a bank without them leaves them),
 `tempo`, `chord` (fingering, Upper, Manual Bass, split), `styleControl` (Main, Intro, Sync
 Start/Stop, Stop ACMP and its mode `stopAcmpMode` (Data List p.91: group Style; a bank without it
-recalls only on/off), OTS Link), `styleMixer` (the 8 Style parts' CC7, on/off, and `set`:
+recalls only on/off), OTS Link, and `acmp` (#266, [ACMP] on/off, Data List group Style; a bank without it: on)), `styleMixer` (the 8 Style parts' CC7, on/off, and `set`:
 which levels the player had set, and `level`: the Style volume, #199, the Genos's Style volume offset; a bank without it leaves it; and `sends` (#268): each part's own sends as `{ reverb, chorus, variation }`, a send absent where it follows the style; a bank without it leaves them), `parts` (Right 1–3 and Left: on, voice, CC7, octave, `pan`/`reverb`/`chorus`/`variation` (CC10/91/93/94, #198/#204; a bank without them leaves them as they are), `tone` (#238: the voice settings an OTS or the panel set, `cutoff`, `resonance`, `attack`, `decay`, `release`, `vibratoRate`/`vibratoDepth`/`vibratoDelay`, `portamento`, `portamentoTime` as CC values and `xg`: XG multi part parameters `[hh, nn, vv]`; missing: the voice's own, as the recalled voice leaves them), `bendRange` (#238, RPN 0 semitones; missing: left as it is), and the part's own sound library
 patch `patch: { id, name }` (#109), recalled through `setPartPatch`),
 `effects` (#204, group Style: each effect block's `effect` type, `returnLevel` and

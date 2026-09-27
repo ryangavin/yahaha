@@ -21,7 +21,7 @@ import { MockRegistration } from './mock-registration'
 import { emptyPlaylist, emptyRegistration } from './registration'
 import type { Session } from './session'
 import {
-  BREAK, CHORD_SETTLE_MAX_MS, ENDINGS, FILLS, FINGERINGS, INTROS, KEYBOARD_PART_NAMES, MAINS, PAD_PAGES, RETRIGGER_RATES,
+  BREAK, CHORD_SETTLE_MAX_MS, ENDINGS, FADER_LAYERS, FILLS, FINGERINGS, INTROS, KEYBOARD_PART_NAMES, MAINS, PAD_PAGES, RETRIGGER_RATES,
   STYLE_PART_NAMES, type AppCmd, type AppState, type EffectBlockState, type EffectsState, type FxBlock, type FxParam, type FxParamState, type FxType, type LibraryEntry, type LibraryList, type OtsPart, type PreviewState, type StopAcmpMode,
   type SoundLibraryCmd, type StyleSettingsState, type StyleState,
 } from './types'
@@ -214,7 +214,7 @@ export function initialState(): AppState {
       section: null, queued: null, landing: null, pendingIntro: null, main: 0, bar: 1, beat: 1,
       beatsPerBar: beatsPerBar([s.timeSignature[0], s.timeSignature[1]]), tempo: s.tempo, lamps: [], sectionBars: null,
       halfBarFill: false, stopAcmpMode: 'off',
-      fade: 'off', retrigger: false, ritardando: false,
+      fade: 'off', retrigger: false, ritardando: false, acmp: true,
     },
     chord: {
       name: null, fingered: null, fingering: 'fingeredOnBass', fingeringName: 'Fingered On Bass', upper: false,
@@ -224,6 +224,8 @@ export function initialState(): AppState {
     keyboard: { held: [], leftSplit: 54, chordTones: [], chordBass: null, detection: [0, 54] },
     mixer: {
       faderPage: 'panel',
+      faderLayer: 'volume',
+      sendWaiting: 0,
       styleParts: STYLE_PART_NAMES.map((name, i) => ({
         name, channel: 9 + i, on: true, mutedByManualBass: false,
         volume: [100, 100, 96, 80, 76, 70, 88, 84][i], waiting: false, fader: null,
@@ -1048,6 +1050,8 @@ export class MockSession implements Session {
   }
 
   private recallOts(n: number) {
+    // An OTS recall turns [ACMP] on.
+    this.state.transport.acmp = true
     const panel = this.state.mixer.faderPage === 'panel'
     this.state.ots.settings[n].parts.forEach((o, i) => {
       const p = this.state.keyboardParts[i]
@@ -1227,6 +1231,10 @@ export class MockSession implements Session {
         break
       case 'toggleRetrigger':
         t.retrigger = !t.retrigger
+        break
+      case 'toggleAcmp':
+      case 'setAcmp':
+        t.acmp = cmd.type === 'setAcmp' ? cmd.on : !t.acmp
         break
       case 'setMainTiming':
       case 'setIntroEndingTiming':
@@ -1472,6 +1480,14 @@ export class MockSession implements Session {
         // The hardware faders are wherever they were: every level on the new page waits.
         for (const p of page === 'panel' ? st.keyboardParts : st.mixer.styleParts) p.waiting = true
         if (page === 'panel') st.mixer.styleVolumeWaiting = st.mixer.multiPadVolumeWaiting = true
+        break
+      }
+      case 'setFaderLayer':
+        st.mixer.faderLayer = cmd.layer
+        break
+      case 'stepFaderLayer': {
+        const i = FADER_LAYERS.indexOf(st.mixer.faderLayer)
+        st.mixer.faderLayer = FADER_LAYERS[(i + Math.sign(cmd.delta) + FADER_LAYERS.length) % FADER_LAYERS.length]
         break
       }
       case 'setPadPage':

@@ -104,6 +104,10 @@ pub(super) fn display_text(t: Touch, st: &AppState) -> Option<Text> {
             Some((s(title), name, value))
         }
         Touch::Button { cc, shift } => {
+            // Shift + encoder page ▼: [ACMP].
+            if cc == launchkey::KNOB_DOWN_CC && shift {
+                return Some((s("Buttons"), s("ACMP"), if st.transport.acmp { s("On") } else { s("Off") }));
+            }
             // The encoder page buttons are the knobs' KNOB ASSIGN.
             if cc == launchkey::KNOB_UP_CC || cc == launchkey::KNOB_DOWN_CC {
                 return Some((s("Knobs"), s("KNOB ASSIGN"), st.knobs.page_name.clone()));

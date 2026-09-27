@@ -11,8 +11,8 @@
   takes that pad's catalog entry. Space is Start/Stop everywhere (lib/keys.ts).
 
   State: transport (running, syncStart, bar, beat, beatsPerBar, tempo, section, queued,
-  pendingIntro, landing, lamps). Commands: startStop, toggleSyncStart, toggleSyncStop, intro,
-  ending, tempoDown, tempoUp, resetTempo, tapTempo. TEMPO −/+ repeat while held, and both
+  pendingIntro, landing, acmp, lamps). Commands: startStop, toggleSyncStart, toggleSyncStop, intro,
+  ending, tempoDown, tempoUp, resetTempo, tapTempo, toggleAcmp ([ACMP], lit while on). TEMPO −/+ repeat while held, and both
   held together send resetTempo (lib/tempoHold.ts), as on the Genos (OM p.46).
 -->
 <script lang="ts">
@@ -67,6 +67,7 @@
     <HwButton tip={tipOf(syncStop)} led={lamp(syncStop)} {beats} pressed={t.syncStop} onclick={() => send(syncStop)}>
       <span class="long">Sync Stop</span><span class="short">Sync<br />Stop</span>
     </HwButton>
+    <HwButton tip="transport.acmp" pressed={t.acmp} label="ACMP" onclick={() => send({ type: 'toggleAcmp' })}>ACMP</HwButton>
   </div>
 
   <div class="group" role="group" aria-label="Intro">

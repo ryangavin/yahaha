@@ -22,6 +22,7 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | **Fade In/Out** | Stopped, it arms a fade in: the next start comes up from silence. Playing, the band fades out and stops, and stays silent for the hold time before its volume comes back (only the style fades, not what you play). The fade times are in Settings › Style. | Fade In/Out (Assignable) | `Shift+F` | Pad page 3 (OTS/Parts), top row, pad 6; Shift + Stop button |
 | **Section Reset** | Starts the section playing again from its top, right now, for stutter effects. With Tap: Section Reset on in Settings › Style (the default, as on the Genos), Tap does the same while the band plays. A pedal can run it too (Style Section Reset). | Style Section Reset (TAP TEMPO) | `\|` | Shift + Play button |
 | **Retrigger** | While on, each chord you play restarts the Main and loops its first few beats (the Retrigger length) until you change section or turn it off. Only Mains retrigger. | Style Retrigger (RtgOnOff) | `~` | Pad page 2 (Chord/Setup), bottom row, pad 8 |
+| **ACMP** | Auto Accompaniment on or off. Off, the style plays its rhythm only, your chords change nothing, Sync Start starts on any key, and the whole keyboard plays your Right voices (Left below the split when Left is on). One Touch Settings and Chord Looper REC turn it back on. | ACMP | `%` | Shift + encoder page ▼ (right of the knobs) |
 | **Retrigger length shorter** | Makes the Retrigger loop one step shorter: 1, 1/2, 1/4, 1/8, 1/16, 1/32 of a whole note. | Style Retrigger Rate (RtgRate) | `}` | Shift + > (Scene Launch) button |
 | **Retrigger length longer** | Makes the Retrigger loop one step longer, up to a whole note. | Style Retrigger Rate (RtgRate) | `{` | Shift + Function button |
 | **Panic** | Sends all notes off on every part, for a stuck note. | — | `\` | — |
@@ -281,6 +282,7 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | control | what it does | Genos | key | Launchkey |
 |---|---|---|---|---|
 | **Fader page: Panel / Style** | Switches what the Launchkey faders control: Panel is your four keyboard parts, Style is the band's eight parts. The button lights blue on Panel, green on Style. | Mixer tabs (Panel / Style) | `F9` | Button under the master fader |
+| **Fader layer: VOL / PAN / REV / CHO / DLY** | Switches what the faders move across the parts, as in a DAW's sends view: each part's volume, or its pan, reverb, chorus or delay send. A fader picks a value up before it moves it. The master fader stays the master. | — | — | Shift + button under the master fader |
 | **Right 1 volume** | Right 1's volume. The fader is channel 1's CC 7 itself, with no hidden gain behind it. | Mixer › Panel › Right 1 Volume | — | Panel fader page: fader 1 |
 | **Right 2 volume** | Right 2's volume. The fader is channel 3's CC 7 itself, with no hidden gain behind it. | Mixer › Panel › Right 2 Volume | — | Panel fader page: fader 2 |
 | **Right 3 volume** | Right 3's volume. The fader is channel 4's CC 7 itself, with no hidden gain behind it. | Mixer › Panel › Right 3 Volume | — | Panel fader page: fader 3 |

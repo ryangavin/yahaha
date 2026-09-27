@@ -2,7 +2,7 @@
 //! and mute, and the output meters.
 
 use crate::engine::Button;
-use crate::parts::FaderPage;
+use crate::parts::{FaderLayer, FaderPage};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -29,6 +29,13 @@ pub enum MixerCmd {
     /// What the Launchkey faders control: the keyboard parts (Panel) or the Style parts.
     SetFaderPage { page: FaderPage },
     ToggleFaderPage,
+    /// What the faders control across the parts (the mixer's VOL / PAN / REV / CHO / DLY):
+    /// the parts' CC7, or their pan or effect sends (`setPartPan`, `setPartSend`,
+    /// `setStylePartSend`). The master fader stays the master.
+    SetFaderLayer { layer: FaderLayer },
+    /// The next (`delta` 1) or previous fader layer, wrapping (Shift + the master fader's
+    /// button steps forward).
+    StepFaderLayer { delta: i8 },
     /// The built-in synth's master volume (0-127; 100 = unity). The master fader picks it up.
     SetMasterVolume { volume: u8 },
     /// Mute/unmute the built-in synth's audio.
@@ -89,6 +96,13 @@ impl MixerCmd {
 pub struct MixerState {
     /// What the Launchkey faders 1-8 control.
     pub fader_page: FaderPage,
+    /// What the faders control: `volume`, `pan`, `reverb`, `chorus` or `delay`.
+    #[serde(default)]
+    pub fader_layer: FaderLayer,
+    /// Keyboard parts (bit = part 0-3) whose fader, in a send layer, has moved but not yet
+    /// reached the value (soft takeover).
+    #[serde(default)]
+    pub send_waiting: u8,
     /// The 8 Style parts.
     pub style_parts: Vec<StylePart>,
     /// The built-in synth's master volume (0-127, 100 = unity). None without the synth.

@@ -65,6 +65,11 @@ pub enum TransportCmd {
     ToggleRetrigger,
     /// Set the tempo, in BPM (5-500; clamped).
     SetTempo { bpm: u16 },
+    /// [ACMP] on/off, and set (OM p.44): off, START plays the rhythm only, the whole
+    /// keyboard plays the Right parts (or Left below the split), and Sync Start starts on
+    /// any key. An OTS recall and Chord Looper REC turn it back on (`transport.acmp`).
+    ToggleAcmp,
+    SetAcmp { on: bool },
 }
 
 impl TransportCmd {
@@ -101,6 +106,8 @@ impl TransportCmd {
             TransportCmd::ToggleFade => Button::Fade,
             TransportCmd::SectionReset => Button::SectionReset,
             TransportCmd::ToggleRetrigger => Button::Retrigger,
+            TransportCmd::ToggleAcmp => Button::Acmp,
+            TransportCmd::SetAcmp { on } => Button::SetAcmp(on),
         }
     }
 }
@@ -126,6 +133,9 @@ pub struct TransportState {
     /// None when none is. The first press picks the fill; later presses move this.
     #[serde(default)]
     pub landing: Option<String>,
+    /// [ACMP] is on (the default): chords played in the chord section drive the band.
+    #[serde(default = "acmp_on")]
+    pub acmp: bool,
     /// The Intro (0-2) armed to play when the style starts.
     pub pending_intro: Option<u8>,
     /// The Main section (0-3 = A-D) the style is on, or returns to after a fill.
@@ -187,4 +197,8 @@ impl From<StopAcmp> for StopAcmpMode {
             StopAcmp::Fixed => StopAcmpMode::Fixed,
         }
     }
+}
+
+fn acmp_on() -> bool {
+    true
 }

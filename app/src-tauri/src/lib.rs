@@ -291,6 +291,15 @@ fn shutdown(backend: &Backend) {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // The performance view (`--top` or YAHAHA_TOP=1, from a terminal): it draws on stdout
+    // beside the window. Collection starts before the engine does.
+    let args: Vec<String> = std::env::args().collect();
+    if yahaha::perf::requested(&args) {
+        yahaha::perf::enable();
+        if let Err(e) = yahaha::perf::top::spawn() {
+            eprintln!("yahaha: no performance view ({e})");
+        }
+    }
     let shared: Shared = Arc::new(backend());
     let app = tauri::Builder::default()
         .manage(shared)

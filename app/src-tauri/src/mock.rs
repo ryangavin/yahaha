@@ -264,6 +264,7 @@ impl MockSession {
                 stop_acmp_mode: StopAcmpMode::Off,
                 fade: FadeState::Off,
                 retrigger: false,
+                acmp: true,
                 ritardando: false,
             },
             chord: ChordState {
@@ -284,6 +285,8 @@ impl MockSession {
             keyboard_parts: vec![part(0, 0, true), part(1, 48, true), part(2, 61, false), part(3, 48, false)],
             mixer: MixerState {
                 fader_page: FaderPage::Panel,
+                fader_layer: yahaha::parts::FaderLayer::Volume,
+                send_waiting: 0,
                 style_parts: STYLE_PARTS
                     .iter()
                     .enumerate()
@@ -935,6 +938,8 @@ impl MockSession {
     }
 
     fn recall_ots(&mut self, n: usize) {
+        // An OTS recall turns [ACMP] on.
+        self.state.transport.acmp = true;
         let panel = self.state.mixer.fader_page == FaderPage::Panel;
         let setting = self.state.ots.settings[n].clone();
         for (i, (p, o)) in self.state.keyboard_parts.iter_mut().zip(&setting.parts).enumerate() {
@@ -1267,7 +1272,9 @@ impl MockSession {
             FaderPage::Panel => "PANEL",
             FaderPage::Style => "STYLE",
         };
-        push("masterButton".into(), *lk::FADER_BTN_CC.end(), master, Some(AppCmd::Mixer(MixerCmd::ToggleFaderPage)), None);
+        let layer = self.state.mixer.fader_layer;
+        let master = if layer == yahaha::parts::FaderLayer::Volume { master.to_string() } else { format!("{master} {}", layer.short()) };
+        push("masterButton".into(), *lk::FADER_BTN_CC.end(), &master, Some(AppCmd::Mixer(MixerCmd::ToggleFaderPage)), Some(("LAYER", Some(AppCmd::Mixer(MixerCmd::StepFaderLayer { delta: 1 })))));
 
         // The faders: the parts they control on this page, and where they physically are.
         let mut faders: Vec<SurfaceFader> = (0..8u8)
@@ -1517,6 +1524,8 @@ impl MockSession {
             }
             AppCmd::Transport(TransportCmd::SectionReset) => self.reset_section(),
             AppCmd::Transport(TransportCmd::ToggleRetrigger) => self.state.transport.retrigger = !self.state.transport.retrigger,
+            AppCmd::Transport(TransportCmd::ToggleAcmp) => self.state.transport.acmp = !self.state.transport.acmp,
+            AppCmd::Transport(TransportCmd::SetAcmp { on }) => self.state.transport.acmp = on,
             AppCmd::Transport(TransportCmd::TapTempo) if running && self.settings.section_reset => self.reset_section(),
             AppCmd::StyleSettings(c) => {
                 self.settings = c.apply(self.settings);
@@ -1745,6 +1754,8 @@ impl MockSession {
                 }
             }
             AppCmd::Mixer(MixerCmd::SetFaderPage { page }) => self.set_fader_page(page),
+            AppCmd::Mixer(MixerCmd::SetFaderLayer { layer }) => self.state.mixer.fader_layer = layer,
+            AppCmd::Mixer(MixerCmd::StepFaderLayer { delta }) => self.state.mixer.fader_layer = self.state.mixer.fader_layer.step(delta.signum()),
             AppCmd::Mixer(MixerCmd::ToggleFaderPage) => {
                 let page = if self.state.mixer.fader_page == FaderPage::Panel { FaderPage::Style } else { FaderPage::Panel };
                 self.set_fader_page(page);

@@ -75,6 +75,8 @@ pub(super) struct Features {
     pub(super) pads: super::multipad::PadDeck,
     /// Style Dynamics Control, Touch and Accent (dynamics.rs).
     pub(super) dynamics: super::dynamics::Dynamics,
+    /// [ACMP] on/off: acmp.rs.
+    pub(super) acmp: super::acmp::Acmp,
     /// A TEMPO button held down: tempo_repeat.rs.
     pub(super) tempo_repeat: super::tempo_repeat::TempoRepeat,
     /// Tempo changes written inside a section: section_tempo.rs.

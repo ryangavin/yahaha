@@ -44,6 +44,8 @@ fn fades_retrigger_reset_and_ritardando_do_not_allocate() {
     let chords = ["C", "F", "G7", "Am"].map(|s| yahaha::parse_chord(s).unwrap());
     let settings = StyleSettings { main_timing: MainTiming::Immediate, fade_in_ms: 300, fade_out_ms: 300, fade_hold_ms: 100, sync_stop_window_ms: 200, retrigger_rate: 16, ..StyleSettings::default() };
     l.step(1);
+    // With the performance view collecting (`perf`): the command rings' depths.
+    yahaha::perf::enable();
 
     let (allocs, frees) = (ALLOCS.load(Ordering::Relaxed), FREES.load(Ordering::Relaxed));
     let mut now = 1_000;

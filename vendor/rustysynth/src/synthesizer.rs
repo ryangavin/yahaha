@@ -61,6 +61,9 @@ pub struct Synthesizer {
     send_used: bool,
     used_rows: u16,
     internal_effects: bool,
+    // yahaha: the performance view (`set_profiling`): each channel's voice rendering
+    // time, in ns, since the last `take_channel_ns`. None: not measured (the default).
+    channel_ns: Option<[u64; 16]>,
 }
 
 /// yahaha: the number of send buses `render_with_sends` fills.
@@ -154,7 +157,34 @@ impl Synthesizer {
             send_used: false,
             used_rows: 0,
             internal_effects: true,
+            channel_ns: None,
         })
+    }
+
+    /// yahaha: measure each channel's voice rendering time (for the performance view), or
+    /// stop. Off (the default), rendering reads no clock.
+    pub fn set_profiling(&mut self, on: bool) {
+        if on != self.channel_ns.is_some() {
+            self.channel_ns = on.then_some([0; Synthesizer::CHANNEL_COUNT]);
+        }
+    }
+
+    /// yahaha: each channel's voice rendering time in ns since the last call (zeros when
+    /// not profiling), and start again from 0.
+    pub fn take_channel_ns(&mut self) -> [u64; 16] {
+        match self.channel_ns.as_mut() {
+            Some(ns) => std::mem::replace(ns, [0; Synthesizer::CHANNEL_COUNT]),
+            None => [0; Synthesizer::CHANNEL_COUNT],
+        }
+    }
+
+    /// yahaha: the voices sounding on each channel now.
+    pub fn channel_voices(&mut self) -> [u16; 16] {
+        let mut n = [0_u16; Synthesizer::CHANNEL_COUNT];
+        for v in self.voices.get_active_voices().iter() {
+            n[(v.channel() as usize) & (Synthesizer::CHANNEL_COUNT - 1)] += 1;
+        }
+        n
     }
 
     /// yahaha: each MIDI channel's peak (linear, both sides) in what has been rendered
@@ -539,7 +569,7 @@ impl Synthesizer {
 
     fn render_block(&mut self) {
         self.voices
-            .process(&self.sound_font.wave_data, &self.channels);
+            .process(&self.sound_font.wave_data, &self.channels, self.channel_ns.as_mut());
 
         self.block_left.fill(0_f32);
         self.block_right.fill(0_f32);

@@ -153,6 +153,13 @@ const catalog = {
     keys: ['~'],
     launchkey: pad(P2, 'bottom', 8),
   },
+  'transport.acmp': {
+    title: 'ACMP',
+    body: 'Auto Accompaniment on or off. Off, the style plays its rhythm only, your chords change nothing, Sync Start starts on any key, and the whole keyboard plays your Right voices (Left below the split when Left is on). One Touch Settings and Chord Looper REC turn it back on.',
+    genos: 'ACMP',
+    keys: ['%'],
+    launchkey: 'Shift + encoder page ▼ (right of the knobs)',
+  },
   'transport.retrigger_shorter': {
     title: 'Retrigger length shorter',
     body: 'Makes the Retrigger loop one step shorter: 1, 1/2, 1/4, 1/8, 1/16, 1/32 of a whole note.',
@@ -895,6 +902,13 @@ const catalog = {
     genos: 'Mixer tabs (Panel / Style)',
     keys: ['F9'],
     launchkey: 'Button under the master fader',
+  },
+  'mixer.layer': {
+    title: 'Fader layer: VOL / PAN / REV / CHO / DLY',
+    body: 'Switches what the faders move across the parts, as in a DAW\'s sends view: each part\'s volume, or its pan, reverb, chorus or delay send. A fader picks a value up before it moves it. The master fader stays the master.',
+    genos: null,
+    keys: [],
+    launchkey: 'Shift + button under the master fader',
   },
   'mixer.panel.right1': {
     title: 'Right 1 volume',

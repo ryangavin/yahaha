@@ -78,6 +78,7 @@ fn key_action(code: KeyCode) -> Option<Action> {
         KeyCode::Char('+') => b(Button::TempoReset),
         KeyCode::Char('-') => b(Button::TempoDown),
         KeyCode::Char('h') => b(Button::StopAcmp),
+        KeyCode::Char('%') => b(Button::Acmp),
         KeyCode::Char('|') => b(Button::SectionReset),
         KeyCode::Char('F') => b(Button::Fade),
         KeyCode::Char('~') => b(Button::Retrigger),
@@ -279,6 +280,42 @@ fn fit(s: &str, w: usize) -> String {
     } else {
         format!("{s}{}", " ".repeat(w - n))
     }
+}
+
+/// Run a live session with the performance view (`perf::top`) in place of the front
+/// panel: the keyboards, the Launchkey and the app API still play it. q, Esc or Ctrl-C
+/// quits.
+pub fn play_top(opts: Options, startup: Vec<AppCmd>) -> Result<()> {
+    yahaha::perf::enable();
+    let session = Session::start(opts)?;
+    for c in startup {
+        let _ = session.send(c);
+    }
+    crossterm::terminal::enable_raw_mode()?;
+    crossterm::execute!(std::io::stdout(), crossterm::terminal::EnterAlternateScreen, crossterm::cursor::Hide)?;
+    let quit = std::sync::atomic::AtomicBool::new(false);
+    std::thread::scope(|s| {
+        s.spawn(|| yahaha::perf::top::run(|| quit.load(std::sync::atomic::Ordering::Relaxed)));
+        loop {
+            match event::poll(Duration::from_millis(100)) {
+                Ok(true) => {}
+                Ok(false) => continue,
+                Err(_) => break,
+            }
+            if let Ok(Event::Key(k)) = event::read()
+                && k.kind == KeyEventKind::Press
+                && (matches!(k.code, KeyCode::Char('q') | KeyCode::Esc)
+                    || (k.modifiers.contains(KeyModifiers::CONTROL) && k.code == KeyCode::Char('c')))
+            {
+                break;
+            }
+        }
+        quit.store(true, std::sync::atomic::Ordering::Relaxed);
+    });
+    crossterm::execute!(std::io::stdout(), crossterm::cursor::Show, crossterm::terminal::LeaveAlternateScreen)?;
+    crossterm::terminal::disable_raw_mode()?;
+    drop(session);
+    Ok(())
 }
 
 /// Run the terminal front panel on a live session; `startup` commands run first (their
@@ -837,6 +874,7 @@ pub fn screen_html(style: &Path, out: &Path) -> Result<()> {
         dynamics: crate::engine::DYNAMICS_NEUTRAL,
         style_sends: [[40, 0, 0]; 8],
         style_send_own: [[255; 3]; 8],
+        acmp: true,
     });
     // What a live session with the synth and a Launchkey would add.
     let mut st = (*session.state()).clone();
@@ -972,6 +1010,7 @@ mod tests {
         assert_eq!(key_cmd(KeyCode::Char('V')), Some(AppCmd::MultiPad(MultiPadCmd::TriggerMultiPad { pad: 3 })));
         assert_eq!(key_cmd(KeyCode::Char('B')), Some(AppCmd::MultiPad(MultiPadCmd::StopAllMultiPads)));
         assert_eq!(key_cmd(KeyCode::Char('K')), None);
+        assert_eq!(key_cmd(KeyCode::Char('%')), Some(AppCmd::Transport(TransportCmd::ToggleAcmp)));
         assert_eq!(key_cmd(KeyCode::Char('H')), Some(AppCmd::Dynamics(DynamicsCmd::ToggleAccent)));
         assert_eq!(key_cmd(KeyCode::Char('&')), Some(AppCmd::Dynamics(DynamicsCmd::ToggleDynamicsTouch)));
         assert_eq!(key_cmd(KeyCode::Char('_')), Some(AppCmd::Chord(ChordCmd::ToggleLeftHold)));

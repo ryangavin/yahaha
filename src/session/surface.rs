@@ -99,7 +99,10 @@ impl Control {
             FaderPage::Panel => "PANEL",
             FaderPage::Style => "STYLE",
         };
-        push("masterButton".into(), *launchkey::FADER_BTN_CC.end(), master, Some(AppCmd::Mixer(MixerCmd::ToggleFaderPage)), None);
+        // Shift: the next fader layer (VOL, PAN, REV, CHO, DLY).
+        let layer = kp.fader_layer();
+        let master = if layer == crate::parts::FaderLayer::Volume { master.to_string() } else { format!("{master} {}", layer.short()) };
+        push("masterButton".into(), *launchkey::FADER_BTN_CC.end(), &master, Some(AppCmd::Mixer(MixerCmd::ToggleFaderPage)), Some(("LAYER", Some(AppCmd::Mixer(MixerCmd::StepFaderLayer { delta: 1 })))));
 
         // The faders: the parts they control on this page, and where they physically are.
         let s = &self.snap;
