@@ -1346,3 +1346,69 @@ fn a_fill_tapped_again_with_a_style_waiting_plays_in_the_new_style() {
     play(&mut e, &mut rec, bar2 + 1_000, next);
     assert_eq!(e.snapshot(next).cur, Some(SectionId::Main(0)), "then the new style's Main");
 }
+
+/// Note-ons sent on the Style channels (9-16) since message `from`.
+fn style_note_ons(rec: &Rec, from: usize) -> Vec<(u64, u8, u8)> {
+    rec.msgs[from..].iter().filter(|(_, m)| m.len() == 3 && m[0] & 0xF0 == 0x90 && m[0] & 0x0F >= 8 && m[2] > 0).map(|(t, m)| (*t, m[0] & 0x0F, m[1])).collect()
+}
+
+/// #265: a fill pressed just after a beat line (within a 32nd, at most 60 ms) counts as
+/// pressed on that beat: it starts at once, from that point of its pattern, with the notes
+/// before it skipped (none crammed in). A press later than that waits for the next beat.
+#[test]
+fn a_fill_pressed_just_late_starts_at_once() {
+    let Some((mut e, mut rec)) = started(StyleSettings::default()) else { return };
+    let (ppq, tpb, beat_ns) = grid(&e);
+    // 75 BPM: a 32nd is 100 ms, so the window is the 60 ms cap.
+    assert!(beat_ns / 8 > 60 * MS_);
+    let beat2 = e.ns_at(tpb + ppq);
+    let late = beat2 + 40 * MS_;
+    play(&mut e, &mut rec, 0, late);
+    let from = rec.msgs.len();
+    e.button(Button::Main(0), late, &mut rec);
+    play(&mut e, &mut rec, late, late + 1_000);
+    let s = e.snapshot(late + 1_000);
+    assert_eq!((s.cur, s.bar, s.beat), (Some(SectionId::Fill(0)), 0, 1), "the fill at once, on beat 2 of its bar");
+    // Nothing of the fill's beat 2 downbeat was crammed in at the press.
+    let crammed = style_note_ons(&rec, from).into_iter().filter(|&(t, _, _)| t < late + 5 * MS_).count();
+    assert_eq!(crammed, 0, "no notes crammed in at the press");
+    // The same press 80 ms after the beat: the next beat, as before.
+    let Some((mut e, mut rec)) = started(StyleSettings::default()) else { return };
+    let later = beat2 + 80 * MS_;
+    play(&mut e, &mut rec, 0, later);
+    e.button(Button::Main(0), later, &mut rec);
+    play(&mut e, &mut rec, later, later + 1_000);
+    assert_eq!(e.snapshot(later + 1_000).cur, Some(SectionId::Main(0)));
+    assert_eq!(e.queued.map(|q| q.at), Some(tpb + 2.0 * ppq), "queued for beat 3");
+}
+
+/// #265: tapped just after a fill ended (the Main's first beat already sounding), the next
+/// fill starts at once: the Main plays only those few ms, not its whole first beat.
+#[test]
+fn a_back_to_back_fill_tapped_just_after_the_fill_ended_starts_at_once() {
+    let Some((mut e, mut rec)) = started(StyleSettings::default()) else { return };
+    let (ppq, tpb, _) = grid(&e);
+    let t = e.ns_at(tpb + 1.5 * ppq);
+    play(&mut e, &mut rec, 0, t);
+    e.button(Button::Main(0), t, &mut rec);
+    let bar2 = e.ns_at(2.0 * tpb);
+    let tap = bar2 + 30 * MS_;
+    play(&mut e, &mut rec, t, tap);
+    assert_eq!(e.snapshot(tap).cur, Some(SectionId::Main(0)), "the fill ended at the bar line");
+    e.button(Button::Main(0), tap, &mut rec);
+    play(&mut e, &mut rec, tap, tap + 1_000);
+    let s = e.snapshot(tap + 1_000);
+    assert_eq!((s.cur, s.bar, s.beat), (Some(SectionId::Fill(0)), 0, 0), "the next fill at once, from its first beat");
+}
+
+/// The fill grace window: a 32nd note, at most 60 ms.
+#[test]
+fn the_fill_grace_window() {
+    let Some((mut e, _)) = started(StyleSettings::default()) else { return };
+    let ppq = e.style.ppq as f64;
+    assert!((e.ns_at(e.fill_grace()) - e.ns_at(0.0)).abs_diff(60 * MS_) < 1_000);
+    e.button(Button::SetTempo(240), 0, &mut Rec::default());
+    assert!((e.fill_grace() - ppq / 8.0).abs() < 1e-9, "at 240 BPM a 32nd is shorter: 31 ms");
+}
+
+const MS_: u64 = 1_000_000;

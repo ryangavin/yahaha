@@ -123,6 +123,12 @@ fn the_audio_callback_does_not_allocate() {
             assert_eq!(run(&mut core, &mut feed, &[]), none, "band send scales");
         }
     }
+    // The Style parts' own sends (#268) set, changed and handed back to the style.
+    for (p, b, v) in [(2usize, 0usize, 100u8), (2, 2, 127), (7, 1, 0), (2, 0, 255), (2, 2, 255), (7, 1, 255)] {
+        ctl.fx.part_send[p][b].store(v, Ordering::Relaxed);
+        assert_eq!(run(&mut core, &mut feed, &[[0xBA, 91, 60], [0x9A, 50, 90]]), none, "own sends");
+    }
+    assert_eq!(run(&mut core, &mut feed, &[[0x8A, 50, 0]]), none, "own sends, note off");
     // The Multi Pad send scales (#267) gliding up and back, a pad sending to every block.
     assert_eq!(run(&mut core, &mut feed, &[[0xB5, 91, 100], [0xB5, 93, 100], [0xB5, 94, 100], [0x95, 64, 100]]), none, "a pad's sends");
     for (b, level) in [(1, 100u8), (2, 127), (0, 50), (1, 0), (2, 0), (0, 100)] {

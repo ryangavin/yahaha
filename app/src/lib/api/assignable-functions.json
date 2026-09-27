@@ -358,77 +358,77 @@
   },
   {
     "id": "regist1",
-    "name": "Registration Memory 1",
+    "name": "Snapshot 1",
     "category": "registration",
     "kind": "trigger",
     "available": true
   },
   {
     "id": "regist2",
-    "name": "Registration Memory 2",
+    "name": "Snapshot 2",
     "category": "registration",
     "kind": "trigger",
     "available": true
   },
   {
     "id": "regist3",
-    "name": "Registration Memory 3",
+    "name": "Snapshot 3",
     "category": "registration",
     "kind": "trigger",
     "available": true
   },
   {
     "id": "regist4",
-    "name": "Registration Memory 4",
+    "name": "Snapshot 4",
     "category": "registration",
     "kind": "trigger",
     "available": true
   },
   {
     "id": "regist5",
-    "name": "Registration Memory 5",
+    "name": "Snapshot 5",
     "category": "registration",
     "kind": "trigger",
     "available": true
   },
   {
     "id": "regist6",
-    "name": "Registration Memory 6",
+    "name": "Snapshot 6",
     "category": "registration",
     "kind": "trigger",
     "available": true
   },
   {
     "id": "regist7",
-    "name": "Registration Memory 7",
+    "name": "Snapshot 7",
     "category": "registration",
     "kind": "trigger",
     "available": true
   },
   {
     "id": "regist8",
-    "name": "Registration Memory 8",
+    "name": "Snapshot 8",
     "category": "registration",
     "kind": "trigger",
     "available": true
   },
   {
     "id": "regist9",
-    "name": "Registration Memory 9",
+    "name": "Snapshot 1 of the next bank",
     "category": "registration",
     "kind": "trigger",
     "available": true
   },
   {
     "id": "regist10",
-    "name": "Registration Memory 10",
+    "name": "Snapshot 2 of the next bank",
     "category": "registration",
     "kind": "trigger",
     "available": true
   },
   {
     "id": "registMemory",
-    "name": "Registration Memory",
+    "name": "Snapshot Store",
     "category": "registration",
     "kind": "trigger",
     "available": true

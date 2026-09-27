@@ -1436,7 +1436,7 @@ mod rtr {
         let prep = Box::new(Prepared::new(&bend_style()));
         let bar = bar_ns(&prep);
         let change = bar * 4 / 5;
-        let script = [(0, Step::Chord(Chord::new(0, 0))), (bar / 2 + 1_000_000, Step::Button(Button::Main(0))),
+        let script = [(0, Step::Chord(Chord::new(0, 0))), (bar / 2 + bar / 16, Step::Button(Button::Main(0))),
                       (change, Step::Chord(Chord::new(5, 0)))];
         let (e, rec) = run(prep, &script, change + 1);
         assert_eq!(e.snapshot(change).cur, Some(SectionId::Fill(0)));
@@ -1894,6 +1894,80 @@ mod mixer {
         }
     }
 
+    /// The CC `cc` values sent on Style part `part`'s channel.
+    fn sent_cc(rec: &Recorder, part: u8, cc: u8) -> Vec<u8> {
+        rec.out.iter().filter(|(_, m)| m.len() == 3 && m[0] == 0xB8 + part && m[1] == cc).map(|(_, m)| m[2]).collect()
+    }
+
+    /// #268: a Style part's own send goes out at once and replaces the style's CC91/93/94
+    /// on that part through a start, every section change and a style change; Reset hands
+    /// it back to the style's value (or the default where the style sets none).
+    #[test]
+    fn a_style_parts_own_send_replaces_the_styles() {
+        let Some(p) = prep("SmoothItOver.S930.STY") else { return };
+        let bar = bar_ns(&p);
+        let mut e = Engine::new(p);
+        let mut rec = Recorder::default();
+        e.send_init(&mut rec);
+        // Part 3 (Chord 1, ch 12): the style's own reverb send.
+        let style_rev = e.snapshot(0).style_sends[3][0];
+        assert_eq!(e.snapshot(0).style_send_own[3], [255u8; 3]);
+        rec.out.clear();
+        e.set_style_send(3, 0, 99, &mut rec);
+        e.set_style_send(3, 2, 70, &mut rec);
+        assert_eq!(rec.out.iter().map(|(_, m)| m.clone()).collect::<Vec<_>>(), vec![vec![0xBB, 91, 99], vec![0xBB, 94, 70]]);
+        let s = e.snapshot(0);
+        assert_eq!((s.style_sends[3], s.style_send_own[3]), ([99, s.style_sends[3][1], 70], [99, 255u8, 70]));
+        // The same again sends nothing.
+        rec.out.clear();
+        e.set_style_send(3, 0, 99, &mut rec);
+        assert!(rec.out.is_empty());
+
+        // Start, every Main and fill, stop, start: part 3's reverb and delay only ever go
+        // out at the player's values; the other parts keep the style's.
+        e.set_chord(Chord::new(0, 0), 0, &mut rec);
+        e.send_init(&mut rec);
+        let mut t = 0;
+        for m in [0u8, 1, 2, 3, 3, 0, 1, 2] {
+            e.button(Button::Main(m), t, &mut rec);
+            play(&mut e, &mut rec, t, t + 3 * bar);
+            t += 3 * bar;
+        }
+        let rev = sent_cc(&rec, 3, 91);
+        assert!(!rev.is_empty() && rev.iter().all(|&v| v == 99), "part 3's reverb: {rev:?}");
+        assert!(sent_cc(&rec, 3, 94).iter().all(|&v| v == 70));
+        let other = sent_cc(&rec, 0, 91);
+        assert!(other.last().is_none_or(|&v| v == e.snapshot(t).style_sends[0][0]), "the others are the style's: {other:?}");
+        assert_eq!(e.snapshot(t).style_send_own[0], [255; 3]);
+
+        // A style change: the new style's sends on part 3 go out at the player's too.
+        let Some(b) = prep("FunkyFinger.S930.STY") else { return };
+        rec.out.clear();
+        if e.snapshot(t).running {
+            e.button(Button::StartStop, t, &mut rec);
+        }
+        e.change_style(b, t + 1, &mut rec);
+        e.send_init(&mut rec);
+        let rev = sent_cc(&rec, 3, 91);
+        assert!(!rev.is_empty() && rev.iter().all(|&v| v == 99), "after a style change: {rev:?}");
+        assert_eq!(e.snapshot(t).style_send_own[3], [99, 255u8, 70], "per part, not per style");
+
+        // A resync (a preview played on the band's channels) keeps them.
+        rec.out.clear();
+        e.resync(&mut rec);
+        assert_eq!(sent_cc(&rec, 3, 94).last(), Some(&70));
+
+        // Reset: the style's value goes out, then the style's own CCs pass as written.
+        rec.out.clear();
+        e.set_style_sends([[255u8; 3]; 8], &mut rec);
+        let s = e.snapshot(t);
+        assert_eq!(s.style_send_own, [[255u8; 3]; 8]);
+        assert_eq!(sent_cc(&rec, 3, 91), vec![s.style_sends[3][0]]);
+        assert_eq!(sent_cc(&rec, 3, 94), vec![s.style_sends[3][2]]);
+        assert_ne!(s.style_sends[3][0], 99);
+        let _ = style_rev;
+    }
+
     /// A fader value goes out as that part's CC7, unchanged: no scaling by the style level.
     #[test]
     fn fader_sends_its_value_as_cc7() {
@@ -2314,10 +2388,11 @@ mod mixer {
         let mut e = Engine::new(p);
         let mut rec = Recorder::default();
         e.set_chord(Chord::new(0, 0), 0, &mut rec);
-        play(&mut e, &mut rec, 0, bar / 2 + 1_000_000);
-        // Just after beat 2: the Fill comes in on beat 3.
-        e.button(Button::Main(0), bar / 2 + 1_000_000, &mut rec);
-        play(&mut e, &mut rec, bar / 2 + 1_000_000, bar);
+        play(&mut e, &mut rec, 0, bar / 2 + bar / 16);
+        // A 16th after beat 3 (past the late-press grace window, #265): the Fill comes in
+        // on beat 4.
+        e.button(Button::Main(0), bar / 2 + bar / 16, &mut rec);
+        play(&mut e, &mut rec, bar / 2 + bar / 16, bar);
         let entry = 3 * bar / 4;
         let at = |want: &dyn Fn(&[u8]) -> bool| rec.out.iter().position(|(t, m)| *t >= entry && *t < bar && want(m));
         assert_eq!(at(&|m| m == [0xCC, 5]), None, "the SInt's voice, replaced at once");
@@ -2339,8 +2414,8 @@ mod mixer {
         let mut e = Engine::new(p);
         let mut rec = Recorder::default();
         e.set_chord(Chord::new(0, 0), 0, &mut rec); // Sync Start
-        play(&mut e, &mut rec, 0, bar / 2 + 1_000_000);
-        e.button(Button::Main(0), bar / 2 + 1_000_000, &mut rec);
+        play(&mut e, &mut rec, 0, bar / 2 + bar / 16);
+        e.button(Button::Main(0), bar / 2 + bar / 16, &mut rec);
         play(&mut e, &mut rec, bar / 2 + 1_000_000, bar - 1_000_000);
         assert_eq!(e.snapshot(bar - 1_000_000).cur, Some(crate::sff::SectionId::Fill(0)));
         assert_eq!(voice_after(rec.out.iter().map(|(_, m)| &m[..]), 14), (104, 8, 4));
@@ -3010,6 +3085,44 @@ mod style_queue {
         let Some(c) = prep("CoolRevibed.T552.sty", 3) else { return };
         e.change_style(c, bar, &mut rec);
         assert_eq!(e.snapshot(bar).style_tag, 3);
+    }
+
+    /// A Main pressed while an Ending plays cuts the Ending at the next bar line; a style
+    /// change waiting for the Ending comes in there with the Main, not at the Ending's
+    /// original end in the middle of the Main (#187). Either order: style then Main, or
+    /// Main then style.
+    #[test]
+    fn a_main_cutting_an_ending_short_brings_the_waiting_style_with_it() {
+        for style_first in [true, false] {
+            // A style whose Ending I lasts past the bar line the Main cuts it at.
+            let long = |p: &Prepared| p.sections[slot_of(SectionId::Ending(0))].is_some() && bars_in(p, SectionId::Ending(0)) >= 2;
+            let Some(a) = ["SlowWalker.T552.sty", "FunkyFinger.S930.STY", "CoolRevibed.T552.sty"].into_iter().filter_map(|f| prep(f, 1)).find(|p| long(p)) else {
+                eprintln!("no style with a long Ending; skipping");
+                return;
+            };
+            let Some(b) = prep("TickingAway.T162.sty", 2) else { return };
+            let bar = bar_ns(&a);
+            let mut e = Engine::new(a);
+            let mut rec = Recorder::default();
+            e.set_chord(Chord::new(0, 0), 0, &mut rec);
+            drive(&mut e, &mut rec, 0, bar / 2);
+            e.button(Button::Ending(0), bar / 2, &mut rec);
+            let t = bar + bar / 4;
+            drive(&mut e, &mut rec, bar / 2, t);
+            assert_eq!(e.snapshot(t).cur, Some(SectionId::Ending(0)), "the Ending plays");
+            if style_first {
+                e.change_style(b, t, &mut rec);
+                e.button(Button::Main(0), t + 1, &mut rec);
+            } else {
+                e.button(Button::Main(0), t, &mut rec);
+                e.change_style(b, t + 1, &mut rec);
+            }
+            drive(&mut e, &mut rec, t + 1, 2 * bar + 1_000_000);
+            let s = e.snapshot(2 * bar + 1_000_000);
+            assert!(s.running, "style_first {style_first}: the band plays on");
+            assert_eq!((s.style_tag, s.style_pending), (2, false), "style_first {style_first}: the new style came in with the Main");
+            assert!(matches!(s.cur, Some(SectionId::Main(_))), "style_first {style_first}: a Main plays: {:?}", s.cur);
+        }
     }
 
     /// An Ending queued for the bar line, then a style chosen (#111): the style waits for

@@ -128,7 +128,7 @@ impl Engine {
         }
         let mut k = self.ev_idx;
         while let Some(e) = sec.events.get(k) {
-            let t = self.sec_start + e.tick as f64;
+            let t = self.sec_start + self.ev_tick(e.tick);
             let before = if inclusive { t <= boundary + 1e-6 } else { t < boundary - 1e-6 };
             if !before || t > target {
                 break;
@@ -202,7 +202,7 @@ impl Engine {
         let lo = (self.tick_at(at.saturating_sub(LATE_CHORD_NS)) - self.sec_start).max(self.entry);
         let end = self.ev_idx.min(sec.events.len());
         let mut i = end;
-        while i > 0 && (sec.events[i - 1].tick as f64 >= lo || held.is_some_and(|h| i > h)) {
+        while i > 0 && (self.ev_tick(sec.events[i - 1].tick) >= lo || held.is_some_and(|h| i > h)) {
             i -= 1;
         }
         // (src, src key, dest, out, vel): room for 8 parts x 8 notes; beyond that the
@@ -257,7 +257,7 @@ impl Engine {
             // A note is started only if no more of it is lost than is still to come: not if
             // the section boundary, its own note-off or a new attack on its key ends it
             // sooner than it should have started ago.
-            let missed = now.saturating_sub(self.ns_at(self.sec_start + e.tick as f64));
+            let missed = now.saturating_sub(self.ns_at(self.sec_start + self.ev_tick(e.tick)));
             let Some(due) = self.due_within(now, missed) else { continue };
             for k in 0..n {
                 let released = sec.events[j..end]

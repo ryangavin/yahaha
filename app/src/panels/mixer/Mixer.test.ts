@@ -210,7 +210,7 @@ describe('Mixer drawer', () => {
     expect(s.state.mixer.styleParts[0].on).toBe(false)
   })
 
-  it('Panel strips have Pan, Reverb, Chorus and Delay knobs that send the part\'s CC 10/91/93/94; the Style tab has none', async () => {
+  it('Panel strips have Pan, Reverb, Chorus and Delay knobs that send the part\'s CC 10/91/93/94', async () => {
     const s = setup()
     const k = knobs()
     expect(k).toHaveLength(16)
@@ -230,9 +230,37 @@ describe('Mixer drawer', () => {
     expect(s.state.keyboardParts[0].variation).toBe(10)
     await fireEvent.dblClick(k[1])
     expect(s.state.keyboardParts[0].reverb).toBe(50)
+  })
+
+  it('Style strips have Reverb, Chorus and Delay knobs: the style\'s until turned, then the part\'s own (#268)', async () => {
+    const s = setup()
     await fireEvent.click(tab('Style'))
     flushSync()
-    expect(knobs()).toHaveLength(0)
+    const k = knobs()
+    expect(k).toHaveLength(24)
+    expect(k.slice(9, 12).map((e) => e.getAttribute('aria-label'))).toEqual(['Chord 1 reverb', 'Chord 1 chorus', 'Chord 1 delay'])
+    expect(k[9].dataset.tip).toBe('mixer.style.reverb')
+    const style = s.state.mixer.styleParts[3].chorus
+    expect(k[10].getAttribute('aria-valuenow')).toBe(String(style))
+    const reset = document.querySelector<HTMLButtonElement>('button[data-tip="mixer.style.reset_sends"]')!
+    expect(reset.disabled).toBe(true)
+    await fireEvent.keyDown(k[10], { key: 'PageUp' })
+    expect(s.state.mixer.styleParts[3].chorus).toBe(style + 10)
+    expect(s.state.mixer.styleParts[3].sendsSet).toEqual(['chorus'])
+    flushSync()
+    expect(knobs()[10].classList.contains('own')).toBe(true)
+    expect(knobs()[9].classList.contains('own')).toBe(false)
+    // Double-click: the part back to the style.
+    await fireEvent.dblClick(knobs()[10])
+    expect(s.state.mixer.styleParts[3].chorus).toBe(style)
+    expect(s.state.mixer.styleParts[3].sendsSet).toEqual([])
+    // Sends: style resets every part.
+    await fireEvent.keyDown(knobs()[0], { key: 'End' })
+    await fireEvent.keyDown(knobs()[23], { key: 'End' })
+    flushSync()
+    expect(reset.disabled).toBe(false)
+    await fireEvent.click(reset)
+    expect(s.state.mixer.styleParts.every((p) => p.sendsSet.length === 0)).toBe(true)
   })
 
   it('shows the soft-takeover mark and the ghost of the hardware fader while a level waits', async () => {

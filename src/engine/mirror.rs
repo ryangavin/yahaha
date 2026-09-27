@@ -31,6 +31,10 @@ pub(super) struct Mirror {
     pub(super) bend: [Option<u16>; 16],
     /// Channels in mono mode (#253): CC126/127, or the XG part's Mono/Poly (08 pp 05).
     pub(super) mono: u16,
+    /// Each Style part's own send (#268, `[part][bus]`: CC91/93/94), or `UNSENT`: the
+    /// style's. A style's CC91/93/94 on channels 9-16 goes out as the part's own value;
+    /// `cc` keeps the style's, so a section change still compares with the style.
+    pub(super) send_own: [[u8; 3]; 8],
 }
 
 impl Mirror {
@@ -43,6 +47,7 @@ impl Mirror {
         params: [[(NO_PARAM, UNSENT, UNSENT); MIRROR_PARAMS]; 16],
         bend: [None; 16],
         mono: 0,
+        send_own: [[UNSENT; 3]; 8],
     };
 
     /// The (N)RPN a data entry on `ch` sets, if any (the null RPN/NRPN sets nothing).
@@ -135,11 +140,37 @@ impl Mirror {
         }
     }
 
-    /// Send `m` and note it.
+    /// Send `m` and note it. A Style part's send the player owns (#268) goes out at the
+    /// player's value; the mirror notes the style's.
     #[inline]
     pub(super) fn send(&mut self, sink: &mut impl Sink, m: &[u8]) {
         self.track(m);
-        sink.send(m);
+        match self.own_send(m) {
+            Some(v) => sink.send(&[m[0], m[1], v]),
+            None => sink.send(m),
+        }
+    }
+
+    /// The player's own value for `m`, if it is a send controller on a Style part the
+    /// player owns.
+    #[inline]
+    fn own_send(&self, m: &[u8]) -> Option<u8> {
+        if m.len() != 3 || m[0] & 0xF0 != 0xB0 {
+            return None;
+        }
+        let ch = (m[0] & 0x0F) as usize;
+        let b = crate::fx::SEND_CC.iter().position(|&c| c == m[1])?;
+        let v = *self.send_own.get(ch.checked_sub(8)?)?.get(b)?;
+        (v != UNSENT).then_some(v)
+    }
+
+    /// Part `p`'s (0-7) send to bus `b` as the receiver has it: the player's own, else
+    /// the style's last, else the default (`fx::DEFAULT_SENDS`).
+    pub(super) fn send_in_effect(&self, p: usize, b: usize) -> u8 {
+        match (self.send_own[p][b], self.cc[8 + p][crate::fx::SEND_CC[b] as usize]) {
+            (UNSENT, UNSENT) => crate::fx::DEFAULT_SENDS[b],
+            (UNSENT, v) | (v, _) => v,
+        }
     }
 
     /// Select parameter `p` (as `selected` returns it; `None` = the null RPN) on `ch`.

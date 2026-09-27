@@ -3,6 +3,7 @@
 // button, arrows on a fader or tab). Overlays take keys while open.
 
 import { binding } from './keys'
+import { NAV } from './nav'
 import type { AppCmd } from './api/types'
 import { app, ui } from './store.svelte'
 import { tips } from './tooltip/tip.svelte'
@@ -34,10 +35,16 @@ export function handleKey(e: KeyboardEvent) {
   }
   // The style and sound browsers own the keyboard while open (their filters take typed
   // keys). Side drawers don't: performance keys keep working next to them.
+  // The quick-nav keys (Alt + a letter) work everywhere, even over those.
+  const b = binding(e)
+  if (b && 'nav' in b) {
+    e.preventDefault()
+    if (!e.repeat) NAV.find((n) => n.key === b.nav)?.toggle()
+    return
+  }
   if (ui.browser || ui.soundBrowser !== null || ui.soundPick !== null) return
   if (isTextField(target)) return
   if (target instanceof HTMLButtonElement && (e.key === ' ' || e.key === 'Enter')) return
-  const b = binding(e)
   if (!b) return
   e.preventDefault()
   if ('app' in b) {

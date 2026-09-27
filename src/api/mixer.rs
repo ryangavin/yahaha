@@ -12,6 +12,12 @@ pub enum MixerCmd {
     ToggleStylePart { part: u8 },
     /// Set a Style part's volume (its CC7, 0-127). The Launchkey fader picks it up.
     SetStylePartVolume { part: u8, volume: u8 },
+    /// A Style part's own reverb, chorus or variation send (#268; `part` 0-7, `value`
+    /// 0-127): it replaces the style's CC91/93/94 on that part, through section and style
+    /// changes, until `resetStylePartSends`. The band send scale doesn't apply to it.
+    SetStylePartSend { part: u8, send: crate::api::PartSend, value: u8 },
+    /// Hand a Style part's sends (`part` 0-7; null: every part's) back to the style.
+    ResetStylePartSends { part: Option<u8> },
     /// The Style volume (Genos Balance: Style), 0-127, 100 = the parts' CC7 as written: a
     /// scale on every Style part's CC7 as it goes out, like Fade In/Out; the part faders do
     /// not move. Panel fader 5 picks it up.
@@ -123,6 +129,17 @@ pub struct StylePart {
     pub fader: Option<u8>,
     /// The voice the style was written for.
     pub voice: Option<Voice>,
+    /// Its reverb, chorus and variation sends as they play (CC91/93/94, #268): its own
+    /// where `sends_set` says so, else the style's.
+    #[serde(default)]
+    pub reverb: u8,
+    #[serde(default)]
+    pub chorus: u8,
+    #[serde(default)]
+    pub variation: u8,
+    /// The sends the player set (`setStylePartSend`); the others follow the style.
+    #[serde(default)]
+    pub sends_set: Vec<crate::api::PartSend>,
 }
 
 /// A Yamaha voice as the style names it.

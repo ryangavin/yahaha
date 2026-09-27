@@ -44,6 +44,8 @@ impl Engine {
         }
         self.pattern_pc = 0;
         self.sync_rpn();
+        // The Style parts' own sends (#268), also where the style's setup sets none.
+        self.send_own_sends(sink);
     }
 
     /// Expression (CC11) back to full on every Style part where the engine left it lower
@@ -236,7 +238,9 @@ impl Engine {
     /// Something else played on these channels (a style preview): forget what was sent
     /// and send the style's setup again, all of it.
     pub fn resync(&mut self, sink: &mut impl Sink) {
+        let own = self.mirror.send_own;
         *self.mirror = Mirror::NEW;
+        self.mirror.send_own = own;
         // The preview may have left any expression: taken as not full, so it goes back.
         for ch in 8..16 {
             self.mirror.cc[ch][11] = 0;
