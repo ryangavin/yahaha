@@ -325,7 +325,7 @@ mod tests {
         let s = Session::offline(Options { paths: vec![p], ..Options::default() }).unwrap();
         s.send(PartsCmd::SetPartSend { part: 0, send: PartSend::Reverb, value: 70 }).unwrap();
         s.take_output();
-        let resent = |out: &[[u8; 3]]| out.contains(&[0xB0, 91, 70]) && out.contains(&[0xB1, 91, 40]) && out.contains(&[0xB2, 93, 10]);
+        let resent = |out: &[[u8; 3]]| out.contains(&[0xB0, 91, 70]) && out.contains(&[0xB1, 91, 0]) && out.contains(&[0xB2, 93, 0]);
         s.send(SystemCmd::Panic).unwrap();
         let out = s.take_output();
         assert!(resent(&out), "Panic: {out:?}");

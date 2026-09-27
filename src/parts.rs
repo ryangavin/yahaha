@@ -246,12 +246,13 @@ pub const PAN: usize = 0;
 pub const REVERB: usize = 1;
 pub const CHORUS: usize = 2;
 pub const VARIATION: usize = 3;
-/// What each part's pan and sends are before anything sets them (#204): pan centre and,
-/// like a Genos keyboard voice, some reverb and a touch of chorus (Right 1-3: reverb 50,
-/// chorus 10; Left: reverb 40, chorus 10), where GM's power-on values (reverb 40, chorus
-/// 0) sound dry; no variation (delay) send. The engine thread sends them at start and
-/// again after anything that may have reset them (`resend_fx`).
-pub const FX_DEFAULT: [[u8; FX]; COUNT] = [[64, 50, 10, 0], [64, 50, 10, 0], [64, 50, 10, 0], [64, 40, 10, 0]];
+/// What each part's pan and sends are before anything sets them: pan centre and every
+/// send dry (reverb, chorus and delay 0). The keyboard parts only get a send from the
+/// player, or from data that stores one (an OTS, a Registration, a library patch's own
+/// defaults); GM's power-on reverb of 40 is not data, so it never applies. The engine
+/// thread sends them at start and again after anything that may have reset them
+/// (`resend_fx`), so a receiver's own power-on sends never linger.
+pub const FX_DEFAULT: [[u8; FX]; COUNT] = [[64, 0, 0, 0]; COUNT];
 
 /// `Parts::solo`: no part soloed.
 pub const NO_SOLO: u8 = 255;
@@ -669,7 +670,11 @@ impl Parts {
     /// current voice. The voice settings (#238): a part the OTS gives a voice starts from
     /// neutral (`voice_changed`), then takes the filter, EG, vibrato, portamento and XG
     /// part parameters the OTS sets. Pitch bend range is the caller's (`Controllers`).
-    pub fn apply_ots(&self, ots: &crate::sff::Ots, number: u8) {
+    ///
+    /// `sends`: whether the OTS's reverb, chorus and delay sends apply. An explicit recall
+    /// (an OTS button, the app) applies them; OTS Link firing on its own (a style start, a
+    /// section change) leaves the sends the player dialled in, and applies only the pan.
+    pub fn apply_ots(&self, ots: &crate::sff::Ots, number: u8, sends: bool) {
         for (p, part) in ots.parts.iter().enumerate() {
             if let Some((_, _, pc)) = part.voice.filter(|v| v.0 < 126) {
                 self.program[p].store(pc, Relaxed);
@@ -681,8 +686,12 @@ impl Parts {
             self.on[p].store(part.on, Relaxed);
             self.set_volume(p, part.volume);
             self.octave[p].store(part.octave, Relaxed);
-            if part.fx.iter().any(Option::is_some) {
-                self.set_fx(p, part.fx);
+            let mut fx = part.fx;
+            if !sends {
+                fx[REVERB..].fill(None);
+            }
+            if fx.iter().any(Option::is_some) {
+                self.set_fx(p, fx);
             }
         }
         self.selected.store(RIGHT1 as u8, Relaxed);
@@ -719,7 +728,7 @@ mod tests {
         let style = crate::sff::Style::load(&p).unwrap();
         let parts = Parts::new();
         parts.select(LEFT);
-        parts.apply_ots(&style.ots[0], 1);
+        parts.apply_ots(&style.ots[0], 1, true);
         assert_eq!(parts.on_mask(), 0b1011, "Right 1 + Right 2 + Left");
         assert_eq!(parts.program[RIGHT1].load(Relaxed), 80);
         assert_eq!(parts.program[RIGHT2].load(Relaxed), 94);
@@ -768,7 +777,7 @@ mod tests {
                 }
                 let parts = Parts::new();
                 parts.send_fx(&mut |_| {});
-                parts.apply_ots(ots, i as u8 + 1);
+                parts.apply_ots(ots, i as u8 + 1, true);
                 let mut got = [[None; FX]; COUNT];
                 parts.send_fx(&mut |m| {
                     let p = part_of_channel(m[0] & 0x0F).unwrap();
@@ -793,7 +802,7 @@ mod tests {
             let Ok(style) = crate::sff::Style::load(&f) else { continue };
             for (i, ots) in style.ots.iter().enumerate() {
                 let parts = Parts::new();
-                parts.apply_ots(ots, i as u8 + 1);
+                parts.apply_ots(ots, i as u8 + 1, true);
                 let mut got = Vec::new();
                 parts.send_tone(&mut |m| got.push(m.to_vec()));
                 let mut want = Vec::new();
@@ -852,8 +861,35 @@ mod tests {
         assert_eq!(sent(&parts).len(), 3);
     }
 
-    /// A fresh start isn't dry (#204): the first `send_fx` gives every keyboard part its
-    /// power-on pan and sends, once; what a patch or OTS set before it wins.
+    /// The player's sends stick: an OTS recall with sends applies them; one without
+    /// leaves them; OTS Link firing by itself (`sends` false) keeps them too, with only
+    /// the pan applied; a voice change keeps them.
+    #[test]
+    fn ots_sends_apply_only_on_an_explicit_recall_that_has_them() {
+        let parts = Parts::new();
+        parts.set_fx(RIGHT1, [None, Some(77), Some(33), Some(22)]);
+        let mut with = crate::sff::Ots::default();
+        with.parts[RIGHT1].fx = [Some(20), Some(100), Some(50), Some(10)];
+        let mut without = crate::sff::Ots::default();
+        without.parts[RIGHT1].voice = Some((0, 0, 5));
+        // Without sends: unchanged, a voice change too.
+        parts.apply_ots(&without, 1, true);
+        assert_eq!(parts.fx(RIGHT1), [64, 77, 33, 22]);
+        parts.select(RIGHT1);
+        parts.step_program(1);
+        assert_eq!(parts.fx(RIGHT1), [64, 77, 33, 22], "a voice change keeps the sends");
+        // OTS Link by itself: the pan, not the sends.
+        parts.apply_ots(&with, 2, false);
+        assert_eq!(parts.fx(RIGHT1), [20, 77, 33, 22]);
+        // An explicit recall with sends: they apply.
+        parts.apply_ots(&with, 2, true);
+        assert_eq!(parts.fx(RIGHT1), [20, 100, 50, 10]);
+        assert_eq!(parts.fx(RIGHT2), [64, 0, 0, 0], "dry by default");
+    }
+
+    /// The first `send_fx` gives every keyboard part its power-on pan and sends, once: dry,
+    /// so a receiver's own power-on reverb never lingers; what a patch or OTS set before it
+    /// wins.
     #[test]
     fn the_first_send_gives_every_part_its_default_sends() {
         let parts = Parts::new();
@@ -861,13 +897,13 @@ mod tests {
         let mut sent = Vec::new();
         parts.send_fx(&mut |m| sent.push([m[0], m[1], m[2]]));
         for p in 0..COUNT {
-            let want = if p == LEFT { [64, 90, 10, 0] } else { FX_DEFAULT[p] };
+            let want = if p == LEFT { [64, 90, 0, 0] } else { FX_DEFAULT[p] };
             for (cc, v) in FX_CC.into_iter().zip(want) {
                 assert!(sent.contains(&[0xB0 | CHANNEL[p], cc, v]), "part {p} CC{cc} {v}: {sent:?}");
             }
         }
         assert_eq!(sent.len(), COUNT * FX, "once each: {sent:?}");
-        assert_eq!(parts.fx(RIGHT1), [64, 50, 10, 0]);
+        assert_eq!(parts.fx(RIGHT1), [64, 0, 0, 0], "dry");
         let mut again = 0;
         parts.send_fx(&mut |_| again += 1);
         assert_eq!(again, 0, "only once");
@@ -876,7 +912,7 @@ mod tests {
         let mut sent = Vec::new();
         parts.send_fx(&mut |m| sent.push([m[0], m[1], m[2]]));
         assert_eq!(sent.len(), COUNT * FX);
-        assert!(sent.contains(&[0xB1, 91, 90]) && sent.contains(&[0xB0, 91, 50]), "{sent:?}");
+        assert!(sent.contains(&[0xB1, 91, 90]) && sent.contains(&[0xB0, 91, 0]), "{sent:?}");
     }
 
     #[test]

@@ -88,7 +88,7 @@
         <FxKnob value={fx.pan} tip="mixer.part.pan" label="{name} pan" caption="Pan" reset={64} centre format={panText} onchange={fx.onpan} />
       {/if}
       <FxKnob value={fx.reverb} tip={fx.style ? 'mixer.style.reverb' : 'mixer.part.reverb'} label="{name} reverb" caption="Rev" reset={fx.reverbDefault} onchange={(v) => fx.onsend('reverb', v)} onreset={fx.style?.onreset} own={fx.style?.set.includes('reverb')} />
-      <FxKnob value={fx.chorus} tip={fx.style ? 'mixer.style.chorus' : 'mixer.part.chorus'} label="{name} chorus" caption="Cho" reset={10} onchange={(v) => fx.onsend('chorus', v)} onreset={fx.style?.onreset} own={fx.style?.set.includes('chorus')} />
+      <FxKnob value={fx.chorus} tip={fx.style ? 'mixer.style.chorus' : 'mixer.part.chorus'} label="{name} chorus" caption="Cho" reset={fx.style ? 10 : 0} onchange={(v) => fx.onsend('chorus', v)} onreset={fx.style?.onreset} own={fx.style?.set.includes('chorus')} />
       <FxKnob value={fx.variation} tip={fx.style ? 'mixer.style.variation' : 'mixer.part.variation'} label="{name} delay" caption="Dly" reset={0} onchange={(v) => fx.onsend('variation', v)} onreset={fx.style?.onreset} own={fx.style?.set.includes('variation')} />
     </div>
   {:else if fxRow}

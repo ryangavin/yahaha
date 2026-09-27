@@ -10,7 +10,7 @@ impl Control {
     pub(super) fn ots_cmd(&mut self, c: OtsCmd) -> Result<(), CmdError> {
         let parts = self.shared.parts.clone();
         match c {
-            OtsCmd::RecallOts { index } => self.recall_ots(index),
+            OtsCmd::RecallOts { index } => self.recall_ots(index, true),
             OtsCmd::SetOtsLink { on } => parts.ots_link.store(on, Relaxed),
             OtsCmd::ToggleOtsLink => {
                 parts.ots_link.fetch_xor(true, Relaxed);
@@ -24,9 +24,12 @@ impl Control {
     /// volumes as CC7 on its next wake. A recall also turns Sync Start on (ACMP is always
     /// on here), so the next chord starts a stopped band (OM p.47; DL: OTS stores "ACMP
     /// on, Sync Start on"). The engine ignores it while the band plays.
-    fn recall_ots(&mut self, index: u8) {
+    ///
+    /// `sends`: an explicit recall applies the OTS's reverb/chorus/delay sends; OTS Link
+    /// firing on its own (a style start, a section change) keeps the player's.
+    fn recall_ots(&mut self, index: u8, sends: bool) {
         if let Some(o) = self.info.ots.get(index as usize) {
-            self.shared.parts.apply_ots(o, index + 1);
+            self.shared.parts.apply_ots(o, index + 1, sends);
             // Pitch bend range is the controllers' (the engine thread sends it as RPN 0).
             for (p, q) in o.parts.iter().enumerate() {
                 if let Some(r) = q.bend_range {
@@ -89,7 +92,8 @@ impl Control {
         }
         let due = link && (self.last_ots_key != Some(key) || !self.last_link);
         if due && (main as usize) < self.info.ots.len() {
-            self.recall_ots(main);
+            // OTS Link fires by itself: the sends the player dialled in stay.
+            self.recall_ots(main, false);
         }
         self.last_ots_key = Some(key);
         self.last_link = link;

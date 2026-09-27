@@ -165,7 +165,8 @@
       reverb: p.reverb,
       chorus: p.chorus,
       variation: p.variation,
-      reverbDefault: i === 3 ? 40 : 50,
+      // Dry by default: a keyboard part's sends are 0 until the player or data sets one.
+      reverbDefault: 0,
       onpan: (v: number) => app.send({ type: 'setPartPan', part: i, pan: v }),
       onsend: (send: PartSend, v: number) => app.send({ type: 'setPartSend', part: i, send, value: v }),
     },
