@@ -222,7 +222,7 @@ fn a_plugin_patch_is_stored_as_the_patch() {
         category: Default::default(),
         tags: vec![],
         favourite: false,
-        source: PatchSource::Plugin { component_id: DLS.into(), state: String::new() },
+        source: PatchSource::plugin(DLS, String::new()),
         defaults: PatchDefaults::default(),
     };
     s.send(SoundLibraryCmd::CreatePatch { patch: fields }).unwrap();
@@ -318,7 +318,7 @@ fn a_banks_plugin_voices() {
     let Some((s, dir)) = session("warm-cap", None) else { return };
     s.inner.lock().warm_plugins(super::bank_plugin_voices(&b));
     assert!(s.inner.lock().plugins.warm.entries.is_empty(), "unknown plugins are not loaded");
-    let dls: Vec<crate::session::PluginVoice> = (0..10).map(|_| crate::session::PluginVoice { id: DLS.into(), state: None, preset: None }).collect();
+    let dls: Vec<crate::session::PluginVoice> = (0..10).map(|_| crate::session::PluginVoice { id: DLS.into(), state: None, preset: None, sound: None }).collect();
     s.inner.lock().warm_plugins(dls);
     assert_eq!(s.inner.lock().plugins.warm.entries.len(), crate::session::plugins::pool::MAX_WARM, "bounded");
     let _ = std::fs::remove_dir_all(&dir);

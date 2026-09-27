@@ -263,7 +263,7 @@ fn a_missing_plugin_is_named_by_its_id() {
     let Some(s) = session() else { return };
     s.offline_audio(None, 48_000).unwrap();
     let mut saved = super::Saved::default();
-    saved.parts[2] = Some(super::PluginVoice { id: "aumu Nope Gone".into(), state: None, preset: None });
+    saved.parts[2] = Some(super::PluginVoice { id: "aumu Nope Gone".into(), state: None, preset: None, sound: None });
     s.inner.lock().restore_saved(saved);
     assert_eq!(wait_playing(&s, 2), PluginStatus::Failed);
     let p = s.state().keyboard_parts[2].plugin.clone().unwrap();
@@ -279,8 +279,8 @@ fn a_restore_keeps_a_missing_plugin_and_never_falls_back_in_process() {
     let Some(s) = session() else { return };
     s.offline_audio(None, 48_000).unwrap();
     let mut saved = super::Saved::default();
-    saved.parts[0] = Some(super::PluginVoice { id: "aumu Nope Gone".into(), state: Some(vec![1, 2, 3]), preset: None });
-    saved.parts[3] = Some(super::PluginVoice { id: DLS.into(), state: None, preset: None });
+    saved.parts[0] = Some(super::PluginVoice { id: "aumu Nope Gone".into(), state: Some(vec![1, 2, 3]), preset: None, sound: None });
+    saved.parts[3] = Some(super::PluginVoice { id: DLS.into(), state: None, preset: None, sound: None });
     {
         let mut ctl = s.inner.lock();
         ctl.restore_saved(saved);
@@ -425,7 +425,7 @@ fn a_plugin_patch_plays_on_a_keyboard_part() {
         category: Default::default(),
         tags: vec![],
         favourite: false,
-        source: PatchSource::Plugin { component_id: DLS.into(), state: state.clone() },
+        source: PatchSource::plugin(DLS, state.clone()),
         defaults: PatchDefaults { volume: Some(90), ..PatchDefaults::default() },
     };
     s.send(SoundLibraryCmd::CreatePatch { patch: fields }).unwrap();
@@ -481,7 +481,7 @@ fn saving_a_part_saves_its_plugin_and_its_state_now() {
     let id = s.state().sound_library.last_added.clone().unwrap();
     let source = |s: &Session| s.state().sound_library.patches.iter().find(|p| p.patch.id == id).unwrap().patch.source.clone();
     let state = |src: PatchSource| match src {
-        PatchSource::Plugin { component_id, state } => (component_id, state),
+        PatchSource::Plugin { component_id, state, .. } => (component_id, state),
         other => panic!("not a plugin patch: {other:?}"),
     };
     let (component, _) = state(source(&s));
@@ -522,7 +522,7 @@ fn a_plugin_patch_auditions_on_channel_16() {
         category: Default::default(),
         tags: vec![],
         favourite: false,
-        source: PatchSource::Plugin { component_id: DLS.into(), state: String::new() },
+        source: PatchSource::plugin(DLS, String::new()),
         defaults: PatchDefaults::default(),
     };
     s.send(SoundLibraryCmd::CreatePatch { patch: fields }).unwrap();
@@ -648,7 +648,7 @@ fn the_in_process_override_refills_the_warm_pool() {
         }
         s.inner.lock().plugins.warm.entries.iter().map(|w| w.mode).collect::<Vec<_>>()
     };
-    s.inner.lock().warm_plugins(vec![PluginVoice { id: DLS.into(), state: None, preset: None }]);
+    s.inner.lock().warm_plugins(vec![PluginVoice { id: DLS.into(), state: None, preset: None, sound: None }]);
     let was = info().in_process;
     let before = warm(&s, 1);
     s.send(PluginCmd::SetPluginInProcess { id: DLS.into(), in_process: !was }).unwrap();

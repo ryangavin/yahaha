@@ -207,6 +207,10 @@ pub enum VoiceRef {
         state: Option<String>,
         #[serde(default)]
         program: u8,
+        /// The library Sound the state is (docs/sound-browser.md). A registration saved
+        /// before sounds had ids has none; `SoundLibrary::tag_for_state` finds it again.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        sound: Option<crate::patches::SoundTag>,
     },
 }
 
@@ -633,7 +637,7 @@ mod tests {
         assert_eq!(back.program(), Some(5));
         assert!(serde_json::from_str::<VoiceRef>(r#"{"kind":"clap","id":"x"}"#).is_err());
         let p: VoiceRef = serde_json::from_str(r#"{"kind":"plugin","id":"aumu dls  appl","program":4}"#).unwrap();
-        assert_eq!(p, VoiceRef::Plugin { id: "aumu dls  appl".into(), name: String::new(), state: None, program: 4 });
+        assert_eq!(p, VoiceRef::Plugin { id: "aumu dls  appl".into(), name: String::new(), state: None, program: 4, sound: None });
         assert_eq!(p.program(), Some(4));
     }
 

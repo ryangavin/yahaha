@@ -388,6 +388,10 @@ and each preset is a sound of its own.
 - **Categories.** A preset's is the player's choice, else a guess from its name and
   folder ("Pianos/Upright": Piano), else its plugin's.
 - **Old files.** plugin-parts.json without `preset` loads as before.
+- **Sounds (docs/sound-browser.md).** A part's voice also names its library Sound
+  (`sound`: `{ id, name }`). A voice saved before that (a preset key and no `sound`) gets
+  the library's sound for its preset when it plays, added once; a factory preset's state
+  is captured into that sound the first time it plays.
 
 ## Phase 2: wiring plan
 
