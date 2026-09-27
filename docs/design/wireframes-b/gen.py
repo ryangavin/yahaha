@@ -239,6 +239,9 @@ screens["Home1280"] = dict(home(fxW=240), SIZE="1280")
 screens["Home1024"] = dict(home(fxW=0), SIZE="1024")
 screens["Home1920"] = dict(home(fxW=300, wide=True), SIZE="1920")
 
+for _n in ("VoiceList", "Browser"):
+    screens[_n].update(STRIP=screens["Home"]["STRIP"], STRIPH=screens["Home"]["STRIPH"])
+
 TITLES = {"Home": "B · Home", "Channel": "B · Channel (selected track)", "Effects": "B · Effects", "PadsLoops": "B · Pads & Loops", "VoiceList": "B · Voice quick list", "Browser": "B · Browser",
           "Home1280": "B · Home at 1280×800", "Home1024": "B · Home at 1024×768", "Home1920": "B · Home at 1920×1080"}
 
@@ -249,7 +252,7 @@ for name in TITLES:
     out = shell
     for k, v in size.items():
         out = out.replace("%%" + k + "%%", str(v))
-    out = out.replace("%%TITLE%%", TITLES[name]).replace("%%LAYER%%", sc.get("LAYER", "VOL")).replace("%%PADRING%%", sc.get("PADRING", "0")).replace("%%PADPAGE%%", sc.get("PADPAGE", "sections"))
+    out = out.replace("%%TITLE%%", TITLES[name]).replace("%%LAYER%%", sc.get("LAYER", "VOL")).replace("%%PADRING%%", sc.get("PADRING", "0")).replace("%%PADPAGE%%", sc.get("PADPAGE", "sections")).replace("%%STRIP%%", sc.get("STRIP", "")).replace("%%STRIPH%%", sc.get("STRIPH", "50"))
     out = out.replace("%%TAB%%", sc["TAB"]).replace("%%SEL%%", sc["SEL"]).replace("%%DISPLAY%%", sc["DISPLAY"]).replace("%%OVERLAY%%", sc.get("OVERLAY", "")).replace("%%BROWSEBTN%%", sc.get("BROWSEBTN", ""))
     out = out.replace("%%JS%%", sc["JS"]).replace("%%SONGMAP%%", SONGMAP_JS).replace("%%BGSVG%%", SONGMAP_SVG % {"v": "bgArt"})
     assert "%%" not in out, name

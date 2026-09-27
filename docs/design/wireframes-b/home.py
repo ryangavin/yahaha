@@ -20,11 +20,7 @@ RIGHT = '''<div style="width: @FXW@px; flex-shrink: 0; display: flex; flex-direc
 </section>
 </div>'''
 
-MAIN = '''
-<div style="flex-grow: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px; padding: 8px">
-<section aria-label="Now playing" style="height: @BANDH@px; flex-shrink: 0; position: relative; overflow: hidden; @PANEL@; display: flex; align-items: center; gap: 28px; padding: 0 16px">
-<svg width="100%" height="100%" viewBox="0 0 640 160" preserveAspectRatio="none" aria-hidden="true" style="position: absolute; inset: 0">@ART@</svg>
-<div aria-hidden="true" style="position: absolute; inset: 0; background: linear-gradient(90deg, rgba(14,14,16,.85) 0%, rgba(14,14,16,.6) 45%, rgba(14,14,16,.25) 100%)"></div>
+STRIP = '''<div style="flex-grow: 1; min-height: 0; display: flex; align-items: center; gap: 28px; padding: 0 4px">
 <div style="position: relative; display: flex; flex-direction: column; gap: 3px; min-width: 0">
 <span class="cap" style="color: #c9c9cf">Pop &amp; Rock · 4/4</span>
 <div style="display: flex; align-items: baseline; gap: 8px"><span style="font-family: 'Archivo Narrow', sans-serif; font-size: @NAMEFS@px; font-weight: 700; line-height: 1; white-space: nowrap">Cool 8Beat</span><button class="hb" style="height: 20px; padding: 0 8px; font-size: 10px">Edit…</button></div>
@@ -36,7 +32,10 @@ MAIN = '''
 <div style="display: flex; gap: 10px; align-items: flex-end"><sc-for list="{{barsRow}}" as="b" hint-placeholder-count="4"><div style="flex: 1; display: flex; flex-direction: column; gap: 3px"><div style="display: flex; gap: 3px; align-items: flex-end"><sc-for list="{{b.beats}}" as="t" hint-placeholder-count="4"><span style="flex: 1; height: {{t.h}}px; border-radius: 2px; background: {{t.bg}}; box-shadow: {{t.glow}}"></span></sc-for></div><span style="font-size: 8px; font-weight: 700; color: {{b.ink}}">{{b.n}}</span></div></sc-for></div>
 </div>
 <div style="position: relative; display: flex; flex-direction: column; gap: 2px; align-items: flex-end"><span class="cap">Chord</span><span style="font-family: 'Archivo Narrow', sans-serif; font-size: @CHORDFS@px; font-weight: 700; line-height: .9; white-space: nowrap">Am<span style="font-size: 60%; color: #c9c9cf">/G</span></span></div>
-</section>
+</div>'''
+
+MAIN = '''
+<div style="flex-grow: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px; padding: 8px">
 <div style="flex-grow: 1; min-height: 0; display: flex; gap: 8px">
 <section aria-label="The Launchkey: knobs over pads" style="flex-grow: 1; min-width: 0; @PANEL@; padding: 8px; position: relative; outline: 2px solid #ffffff; outline-offset: -1px; display: flex; flex-direction: column; gap: 7px">
 
@@ -98,4 +97,7 @@ def home(fxW=260, wide=False):
     for k, v in {"@PANEL@": PANEL, "@CHIP@": CHIP, "@BANDH@": "96" if wide else "76", "@NAMEFS@": "40" if wide else "32", "@CHORDFS@": "64" if wide else "50"}.items():
         display = display.replace(k, v)
     js = HOME_JS.replace("@FSM@", "18" if wide else "15").replace("@FSO@", "15" if wide else "12")
-    return dict(TAB="Home", SEL="-1", PADRING="1", DISPLAY=display, JS=js, OVERLAY="", LAYER="VOL")
+    strip = STRIP
+    for k, v in {"@NAMEFS@": "40" if wide else "32", "@CHORDFS@": "64" if wide else "50"}.items():
+        strip = strip.replace(k, v)
+    return dict(TAB="Home", SEL="-1", PADRING="1", DISPLAY=display, STRIP=strip, STRIPH="170" if wide else "136", JS=js, OVERLAY="", LAYER="VOL")
