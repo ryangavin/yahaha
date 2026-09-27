@@ -78,7 +78,7 @@ def home(fxW=220, wide=False):
 <div style="display: flex; flex-direction: column; gap: 2px; align-items: flex-end"><span class="cap">Chord</span><span style="font-family: 'Archivo Narrow', sans-serif; font-size: 50px; font-weight: 700; line-height: .9; white-space: nowrap">Am<span style="font-size: 28px; color: #8d8d95">/G</span></span></div>
 </div>
 <div role="group" aria-label="Sections (the Launchkey pads)" style="flex-grow: 1; min-height: 0; margin: 4px 0; position: relative; outline: 2px solid #ffffff; outline-offset: 5px; border-radius: 6px; display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); grid-template-rows: minmax(0, 1fr) minmax(0, 1.35fr); gap: 7px">
-<span style="position: absolute; top: -13px; right: 10px; z-index: 1; font-size: 9px; font-weight: 700; letter-spacing: .06em; padding: 1px 6px; border-radius: 3px; background: #ffffff; color: #0e0e10">LAUNCHKEY PADS · SECTIONS</span>
+<div style="position: absolute; top: -15px; right: 10px; z-index: 1; display: flex; align-items: center; gap: 3px; padding: 1px 4px; border-radius: 4px; background: #0e0e10; border: 1px solid #ffffff"><span style="font-size: 9px; font-weight: 800; letter-spacing: .06em; padding: 0 4px">LAUNCHKEY PADS</span><button aria-label="Pad bank up" title="Pad Bank ▲" style="height: 16px; padding: 0 4px; border-radius: 3px; border: 1px solid #3a3a40; background: #1f1f24; color: #f2f2f2; font-size: 8px">▲</button><button aria-label="Pad bank down" title="Pad Bank ▼" style="height: 16px; padding: 0 4px; border-radius: 3px; border: 1px solid #3a3a40; background: #1f1f24; color: #f2f2f2; font-size: 8px">▼</button><sc-for list="{{padPages}}" as="g" hint-placeholder-count="5"><button title="{{g.name}}" style="height: 16px; padding: 0 5px; border-radius: 3px; border: 1px solid {{g.border}}; background: {{g.bg}}; color: {{g.ink}}; font-size: 9px; font-weight: 700">{{g.short}}</button></sc-for></div>
 <sc-for list="{{homePads}}" as="d" hint-placeholder-count="16">
 <button title="{{d.tip}}" style="position: relative; overflow: hidden; min-height: 0; border-radius: 8px; border: 1px solid {{d.border}}; outline: {{d.outline}}; outline-offset: 2px; background: {{d.bg}}; color: {{d.ink}}; box-shadow: {{d.glow}}; text-align: left; padding: 8px 10px; display: flex; flex-direction: column; gap: 4px">
 <span style="font-family: 'Archivo Narrow', sans-serif; font-size: {{d.fs}}px; font-weight: 700; line-height: 1; white-space: nowrap">{{d.name}}</span>
@@ -194,6 +194,36 @@ screens["Looper"] = dict(TAB="Looper & Charts", SEL="-1", DISPLAY='''
     const bars = CH.map((c, i) => ({ n: i + 1, ch: c, bg: i === 9 ? 'rgba(255,255,255,.18)' : (i % 8 === 0 ? '#1b1b20' : '#141417'), border: i === 9 ? A : '#26262b', ink: i === 9 ? A : '#f2f2f2' }));
     const extra = { mem, seq, bars };''', OVERLAY="")
 
+# ---------- Pads & Loops (Multi Pads, Chord Looper and the chart in one tab) ----------
+screens["PadsLoops"] = dict(TAB="Pads & Loops", SEL="-1", PADPAGE="multi", DISPLAY='''
+<div style="width: 330px; flex-shrink: 0; display: flex; flex-direction: column; gap: 8px; padding: 12px; border-right: 1px solid #26262b; background: rgba(14,14,16,.55)">
+<div style="display: flex; align-items: center; gap: 6px"><span style="font-family: 'Archivo Narrow', sans-serif; font-size: 20px; font-weight: 700">Multi Pads</span><div style="flex-grow: 1"></div><button class="chip" style="height: 24px">Pop Hits 2 ▾</button></div>
+<div style="flex-grow: 1; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px">
+<sc-for list="{{mp}}" as="p" hint-placeholder-count="4"><button style="border-radius: 8px; border: 2px solid {{p.col}}; outline: {{p.outline}}; outline-offset: 1px; background: {{p.bg}}; color: {{p.ink}}; text-align: left; padding: 8px 10px; display: flex; flex-direction: column; gap: 2px; box-shadow: {{p.glow}}"><span style="font-size: 14px; font-weight: 800">{{p.n}} · {{p.name}}</span><span style="font-size: 11px; font-weight: 600; opacity: .8">{{p.state}}</span><span style="flex-grow: 1"></span><span style="font-size: 9px; font-weight: 700; letter-spacing: .05em; opacity: .75">{{p.flags}}</span></button></sc-for>
+</div>
+<div style="display: flex; align-items: center; gap: 8px"><span class="cap">Level</span><div style="flex-grow: 1; height: 8px; border-radius: 4px; background: #26262b; position: relative"><div style="position: absolute; left: 0; top: 0; bottom: 0; width: 67%; border-radius: 4px; background: #ffffff"></div></div><button class="chip" style="height: 24px">■ Stop all</button></div>
+</div>
+<div style="width: 470px; flex-shrink: 0; display: flex; flex-direction: column; gap: 8px; padding: 12px; border-right: 1px solid #26262b; background: rgba(14,14,16,.55)">
+<div style="display: flex; align-items: center; gap: 6px"><span style="font-family: 'Archivo Narrow', sans-serif; font-size: 20px; font-weight: 700">Chord Looper</span><div style="flex-grow: 1"></div><button class="chip" style="height: 24px">Ballad Set ▾</button><button class="chip" style="height: 24px">Save</button></div>
+<div style="display: flex; gap: 4px"><sc-for list="{{mem}}" as="m" hint-placeholder-count="8"><button style="flex: 1; height: 30px; border-radius: 5px; border: 1px solid {{m.border}}; background: {{m.bg}}; color: {{m.ink}}; font-weight: 700">{{m.n}}</button></sc-for></div>
+<div style="display: flex; gap: 4px; flex-wrap: wrap"><sc-for list="{{seq}}" as="c" hint-placeholder-count="8"><span style="min-width: 50px; height: 36px; border-radius: 5px; display: flex; align-items: center; justify-content: center; font-size: 15px; font-weight: 700; background: {{c.bg}}; color: {{c.ink}}; border: 1px solid {{c.border}}">{{c.ch}}</span></sc-for></div>
+<div style="flex-grow: 1"></div>
+<div style="display: flex; gap: 6px"><button class="hb" style="height: 38px; flex: 1; background: #ff5a5a; border-color: #ff5a5a; color: #0e0e10">● Rec / Stop</button><button class="hb" style="height: 38px; flex: 1; background: #ffffff; border-color: #ffffff; color: #0e0e10">Loop: On</button><button class="hb" style="height: 38px; flex: 1">Clear</button></div>
+</div>
+<div style="flex-grow: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px; padding: 12px">
+<div style="display: flex; align-items: center; gap: 6px"><span style="font-family: 'Archivo Narrow', sans-serif; font-size: 20px; font-weight: 700">Autumn Leaves</span><span class="cap">Chart</span><div style="flex-grow: 1"></div><button class="chip" style="height: 24px">Songs ▾</button><button class="chip on" style="height: 24px">Follow</button></div>
+<div style="flex-grow: 1; display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); grid-auto-rows: minmax(0, 1fr); gap: 3px">
+<sc-for list="{{bars}}" as="b" hint-placeholder-count="32"><div style="border-radius: 3px; padding: 3px 4px; background: {{b.bg}}; border: 1px solid {{b.border}}; display: flex; flex-direction: column; justify-content: space-between; min-height: 0"><span style="font-size: 8px; color: #8d8d95">{{b.n}}</span><span style="font-size: 12px; font-weight: 700; color: {{b.ink}}">{{b.ch}}</span></div></sc-for>
+</div>
+</div>''', JS='''
+    const MP = [['Guitar Riff', 'Playing · bar 2 of 4', 'SYNC · REPEAT · CHORD', 'play'], ['Horn Stab', 'Armed: starts at the next bar', 'SYNC · CHORD', 'arm'], ['Shaker Loop', 'Ready', 'REPEAT', ''], ['Crash + FX', 'Ready', '', '']];
+    const mp = MP.map((p, i) => { const st = p[3], c = st ? COL[0] : COL[5]; return { n: i + 1, name: p[0], state: p[1], flags: p[2], col: c, outline: st === 'arm' ? '2px dashed #ffffff' : 'none', bg: st === 'play' ? c : '#141417', ink: st === 'play' ? '#0e0e10' : '#f2f2f2', glow: st === 'play' ? '0 0 18px ' + c : 'none' }; });
+    const mem = Array.from({ length: 8 }, (_, i) => ({ n: i + 1, bg: i === 1 ? A : '#1b1b20', ink: i === 1 ? AI : (i < 4 ? '#f2f2f2' : '#55555c'), border: i === 1 ? A : '#2d2d32' }));
+    const seq = ['C', 'Am', 'F', 'G7', 'C', 'Am', 'Dm7', 'G7'].map((c, i) => ({ ch: c, bg: i === 5 ? '#26262e' : '#141417', ink: '#f2f2f2', border: i === 5 ? A : '#2d2d32' }));
+    const CH = ['Cm7','F7','BbM7','EbM7','Am7b5','D7','Gm','Gm','Am7b5','D7','Gm','Gm','Cm7','F7','BbM7','EbM7','Am7b5','D7','Gm','G7','Cm7','F7','Bb','Eb','Am7b5','D7','Gm7','C7','Fm7','Bb7','EbM7','D7'];
+    const bars = CH.map((c, i) => ({ n: i + 1, ch: c, bg: i === 9 ? 'rgba(255,255,255,.16)' : (i % 8 === 0 ? '#1b1b20' : '#141417'), border: i === 9 ? A : '#26262b', ink: '#f2f2f2' }));
+    const extra = { mp, mem, seq, bars };''', OVERLAY="")
+
 # ---------- Voice quick list ----------
 screens["VoiceList"] = dict(TAB="Home", SEL="7", PADRING="1", DISPLAY=screens["Home"]["DISPLAY"], JS=screens["Home"]["JS"], OVERLAY='''
 <div role="dialog" aria-label="Voices for Chord 1" style="position: absolute; left: 800px; top: 250px; width: 300px; padding: 8px; border-radius: 8px; background: #1f1f24; border: 1px solid #c46bff; box-shadow: 0 18px 40px rgba(0,0,0,.6); display: flex; flex-direction: column; gap: 2px">
@@ -255,7 +285,7 @@ screens["Home1280"] = dict(home(fxW=200), SIZE="1280")
 screens["Home1024"] = dict(home(fxW=0), SIZE="1024")
 screens["Home1920"] = dict(home(fxW=300, wide=True), SIZE="1920")
 
-TITLES = {"Home": "B · Home", "Channel": "B · Channel (selected track)", "Effects": "B · Effects", "MultiPads": "B · Multi Pads", "Looper": "B · Looper & Charts", "VoiceList": "B · Voice quick list", "Browser": "B · Browser",
+TITLES = {"Home": "B · Home", "Channel": "B · Channel (selected track)", "Effects": "B · Effects", "PadsLoops": "B · Pads & Loops", "VoiceList": "B · Voice quick list", "Browser": "B · Browser",
           "Home1280": "B · Home at 1280×800", "Home1024": "B · Home at 1024×768", "Home1920": "B · Home at 1920×1080"}
 
 os.makedirs(os.path.join(D, "project"), exist_ok=True)
@@ -265,7 +295,7 @@ for name in TITLES:
     out = shell
     for k, v in size.items():
         out = out.replace("%%" + k + "%%", str(v))
-    out = out.replace("%%TITLE%%", TITLES[name]).replace("%%LAYER%%", sc.get("LAYER", "VOL")).replace("%%PADRING%%", sc.get("PADRING", "0"))
+    out = out.replace("%%TITLE%%", TITLES[name]).replace("%%LAYER%%", sc.get("LAYER", "VOL")).replace("%%PADRING%%", sc.get("PADRING", "0")).replace("%%PADPAGE%%", sc.get("PADPAGE", "sections"))
     out = out.replace("%%TAB%%", sc["TAB"]).replace("%%SEL%%", sc["SEL"]).replace("%%DISPLAY%%", sc["DISPLAY"]).replace("%%OVERLAY%%", sc.get("OVERLAY", "")).replace("%%BROWSEBTN%%", sc.get("BROWSEBTN", ""))
     out = out.replace("%%JS%%", sc["JS"]).replace("%%SONGMAP%%", SONGMAP_JS).replace("%%BGSVG%%", SONGMAP_SVG % {"v": "bgArt"})
     assert "%%" not in out, name

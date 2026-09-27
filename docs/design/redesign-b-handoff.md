@@ -66,6 +66,12 @@ The owner was asked short atomic questions. Keep doing that: they asked for it.
 - **Every strip has R/C/D send faders** on its right edge.
 - **Home's right column is the Master bus:** EQ, Glue, Room and Level. The owner rejects chorus or delay on the whole mix. Master EQ, compression and room are **new engine work**; model them on the Genos Master EQ and Compressor.
 
+**Round 5 (canvas comments)**
+- **Pads bar:** off Home it has two rows of 8 like the hardware, with row numbers and a pad-bed frame.
+- **Pad banking:** Pad Bank ▲▼ plus page chips (Sections · Chord · OTS · Snap · Multi), both on the bar and on Home's grid label. This follows the software parity rule: no hardware-only functions.
+- **Multi Pads is no longer its own tab.** It merged with the Chord Looper and the chart into **Pads & Loops**. The tabs are Home · Channel · Effects · Pads & Loops · Harmony / Arp · Settings.
+- The pads and strip LEDs use the part palette, the nearest hue to each Launchkey LED colour.
+
 **No raw 0–127 numbers** on controls: the visual is enough, with the value in a tooltip. Show numbers only when they are musical (tempo, note lengths, dB).
 
 **Look**
