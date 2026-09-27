@@ -53,7 +53,6 @@ MAIN = '''
 </button>
 </sc-for>
 </div>
-<div aria-label="Style parts" style="display: flex; align-items: center; gap: 12px; overflow: hidden"><span class="cap" style="font-size: 9px; white-space: nowrap">In this style</span><sc-for list="{{legend}}" as="q" hint-placeholder-count="8"><span style="display: flex; align-items: center; gap: 4px; white-space: nowrap; font-size: 10px; color: #c9c9cf"><span style="width: 8px; height: 8px; border-radius: 2px; background: {{q.c}}"></span>{{q.voice}}</span></sc-for></div>
 </section>
 @RIGHT@
 </div>
