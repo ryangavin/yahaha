@@ -37,8 +37,6 @@ button{font-family:inherit;cursor:pointer}
 <span style="font-size: 14px; font-weight: 600; margin-left: 6px; white-space: nowrap">17 · 1</span>
 <div style="flex-grow: 1"></div>
 <button class="hb" style="%%BROWSEBTN%%">Browse</button>
-<span class="cap" style="display: {{hdr.masterCap}}">Master</span>
-<div style="width: {{hdr.masterW}}px; height: 6px; border-radius: 3px; background: #2d2d32; position: relative" aria-label="Master level"><div style="position: absolute; left: 0; top: 0; bottom: 0; width: 78%; border-radius: 3px; background: #f2f2f2"></div></div>
 </header>
 
 <section aria-label="Display" style="height: {{mm.dispH}}px; flex-shrink: 0; display: flex; flex-direction: column; border-radius: 8px; border: 1px solid #2d2d32; background: #0e0e10; overflow: hidden; position: relative">
@@ -52,21 +50,15 @@ button{font-family:inherit;cursor:pointer}
 </div>
 </section>
 
-<section aria-label="Launchkey pads" style="height: 58px; flex-shrink: 0; display: {{mm.disp}}; align-items: stretch; gap: 8px; padding: 4px 6px; border-radius: 8px; border: 2px solid #ffffff; background: #141417">
-<div style="width: {{mm.navW}}px; flex-shrink: 0; display: flex; flex-direction: column; justify-content: space-between; padding: 2px 0">
-<div style="display: flex; align-items: center; gap: 4px"><button aria-label="Pad bank up" title="Pad Bank ▲ (the Launchkey button)" style="width: 22px; height: 20px; padding: 0; border-radius: 3px; border: 1px solid #3a3a40; background: #1f1f24; color: #f2f2f2; font-size: 9px">▲</button><button aria-label="Pad bank down" title="Pad Bank ▼ (the Launchkey button)" style="width: 22px; height: 20px; padding: 0; border-radius: 3px; border: 1px solid #3a3a40; background: #1f1f24; color: #f2f2f2; font-size: 9px">▼</button><span style="font-size: 9px; font-weight: 800; letter-spacing: .06em">PADS</span></div>
-<div style="display: flex; gap: 2px; flex-wrap: nowrap">
-<sc-for list="{{padPages}}" as="g" hint-placeholder-count="5"><button title="{{g.name}}" style="height: 18px; padding: 0 5px; border-radius: 3px; border: 1px solid {{g.border}}; background: {{g.bg}}; color: {{g.ink}}; font-size: 9px; font-weight: 700; white-space: nowrap">{{g.short}}</button></sc-for>
+<section aria-label="Launchkey" style="height: 88px; flex-shrink: 0; display: {{mm.disp}}; align-items: stretch; gap: 8px; padding: 4px 6px; border-radius: 8px; border: 2px solid #ffffff; background: #141417">
+<div style="width: {{mm.navW}}px; flex-shrink: 0; display: flex; flex-direction: column; justify-content: space-around">
+<div style="display: flex; align-items: center; gap: 3px"><span style="width: 44px; font-size: 9px; font-weight: 800; letter-spacing: .06em">KNOBS</span><sc-for list="{{knobPages}}" as="g" hint-placeholder-count="4"><button title="{{g.name}}" style="height: 17px; padding: 0 5px; border-radius: 3px; border: 1px solid {{g.border}}; background: {{g.bg}}; color: {{g.ink}}; font-size: 9px; font-weight: 700">{{g.short}}</button></sc-for></div>
+<div style="display: flex; align-items: center; gap: 3px"><span style="width: 44px; font-size: 9px; font-weight: 800; letter-spacing: .06em">PADS</span><button aria-label="Pad bank up" title="Pad Bank ▲ (the Launchkey button)" style="height: 17px; padding: 0 5px; border-radius: 3px; border: 1px solid #3a3a40; background: #26262b; color: #f2f2f2; font-size: 8px">▲</button><button aria-label="Pad bank down" title="Pad Bank ▼ (the Launchkey button)" style="height: 17px; padding: 0 5px; border-radius: 3px; border: 1px solid #3a3a40; background: #26262b; color: #f2f2f2; font-size: 8px">▼</button></div>
+<div style="display: flex; gap: 2px; flex-wrap: nowrap"><sc-for list="{{padPages}}" as="g" hint-placeholder-count="5"><button title="{{g.name}}" style="height: 17px; padding: 0 5px; border-radius: 3px; border: 1px solid {{g.border}}; background: {{g.bg}}; color: {{g.ink}}; font-size: 9px; font-weight: 700; white-space: nowrap">{{g.short}}</button></sc-for></div>
 </div>
-</div>
-<div style="flex-grow: 1; min-width: 0; display: grid; grid-template-columns: 14px repeat(8, minmax(0, 1fr)); grid-template-rows: repeat(2, minmax(0, 1fr)); gap: 3px 4px; padding: 3px; border-radius: 6px; background: #0b0b0d; border: 1px solid #2d2d32">
-<span style="grid-row: 1; grid-column: 1; align-self: center; font-size: 8px; font-weight: 700; color: #6d6d75">1</span>
-<span style="grid-row: 2; grid-column: 1; align-self: center; font-size: 8px; font-weight: 700; color: #6d6d75">2</span>
+<div style="flex-grow: 1; min-width: 0; display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); grid-template-rows: 30px repeat(2, minmax(0, 1fr)); gap: 2px 4px; padding: 3px; border-radius: 6px; background: #0b0b0d; border: 1px solid #2d2d32">
+<sc-for list="{{knobs}}" as="k" hint-placeholder-count="8"><div title="{{k.name}}" style="grid-row: 1; display: flex; align-items: center; justify-content: center; gap: 5px; opacity: {{k.op}}"><svg width="22" height="22" viewBox="0 0 30 30" aria-hidden="true"><path d="{{k.track}}" stroke="#2d2d32" stroke-width="3.5" fill="none" stroke-linecap="round"></path><path d="{{k.arc}}" stroke="#f2f2f2" stroke-width="3.5" fill="none" stroke-linecap="round"></path></svg><span style="font-size: 8px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: #a9a9b1; white-space: nowrap; overflow: hidden">{{k.name}}</span></div></sc-for>
 <sc-for list="{{mirPads}}" as="d" hint-placeholder-count="16"><button title="{{d.name}}" style="grid-row: {{d.row}}; grid-column: {{d.col}}; min-width: 0; padding: 0 2px; border-radius: 4px; border: 1px solid {{d.border}}; outline: {{d.outline}}; outline-offset: 1px; background: {{d.bg}}; color: {{d.ink}}; box-shadow: {{d.glow}}; font-size: {{mm.fs}}px; font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{d.barLabel}}</button></sc-for>
-</div>
-<div aria-label="Launchkey knobs" style="display: {{kk.disp}}; flex-shrink: 0; align-items: center; gap: 6px; padding-left: 8px; border-left: 1px solid #2d2d32">
-<div style="display: flex; flex-direction: column; gap: 3px"><span style="font-size: 9px; font-weight: 800; letter-spacing: .06em">KNOBS</span><div style="display: flex; gap: 2px"><sc-for list="{{knobPages}}" as="g" hint-placeholder-count="4"><button title="{{g.name}}" style="height: 16px; padding: 0 4px; border-radius: 3px; border: 1px solid {{g.border}}; background: {{g.bg}}; color: {{g.ink}}; font-size: 8px; font-weight: 700">{{g.short}}</button></sc-for></div></div>
-<sc-for list="{{knobs}}" as="k" hint-placeholder-count="8"><div title="{{k.name}}" style="width: 40px; display: flex; flex-direction: column; align-items: center; gap: 1px; opacity: {{k.op}}"><svg width="28" height="28" viewBox="0 0 30 30" aria-hidden="true"><path d="{{k.track}}" stroke="#2d2d32" stroke-width="3.5" fill="none" stroke-linecap="round"></path><path d="{{k.arc}}" stroke="#f2f2f2" stroke-width="3.5" fill="none" stroke-linecap="round"></path></svg><span style="font-size: 8px; font-weight: 600; color: #a9a9b1; white-space: nowrap">{{k.name}}</span></div></sc-for>
 </div>
 </section>
 
@@ -107,6 +99,15 @@ button{font-family:inherit;cursor:pointer}
 </div>
 </div>
 </sc-for>
+</div>
+<div aria-label="Master" style="width: {{ms.w}}px; flex-shrink: 0; display: flex; flex-direction: column; gap: 4px; padding: 5px; margin-left: 6px; border-radius: 4px; background: #141417">
+<div style="height: 4px; border-radius: 2px; background: #ffffff"></div>
+<span class="cap" style="font-size: 10px; color: #f2f2f2">Master</span>
+<div style="flex-grow: 1; min-height: 0; display: flex; gap: 6px">
+<div aria-label="Master bus" style="display: grid; grid-template-columns: repeat(2, 24px); grid-auto-rows: min-content; gap: 4px 2px; align-content: space-around; justify-items: center"><sc-for list="{{msKnobs}}" as="k" hint-placeholder-count="5"><div title="{{k.tip}}" style="display: flex; flex-direction: column; align-items: center; gap: 1px"><svg width="22" height="22" viewBox="0 0 22 22" aria-hidden="true"><path d="{{k.track}}" stroke="#2d2d32" stroke-width="2.6" fill="none" stroke-linecap="round"></path><path d="{{k.arc}}" stroke="#f2f2f2" stroke-width="2.6" fill="none" stroke-linecap="round"></path></svg><span style="font-size: 7px; font-weight: 700; letter-spacing: .05em; color: #a9a9b1">{{k.name}}</span></div></sc-for></div>
+<sc-for list="{{msFaders}}" as="f" hint-placeholder-count="3"><div style="width: {{f.w}}px; display: flex; flex-direction: column; gap: 3px"><div role="slider" aria-label="{{f.tip}}" title="{{f.tip}}" style="flex-grow: 1; position: relative; border-radius: 4px; overflow: hidden; background: #202025"><div style="position: absolute; left: 0; right: 0; bottom: 0; height: {{f.fader}}%; background: {{f.body}}"></div><div style="position: absolute; left: 0; right: 0; bottom: 0; height: {{f.level}}%; background: {{f.col}}"></div><div style="position: absolute; left: 0; right: 0; bottom: {{f.fader}}%; height: 3px; margin-bottom: -1px; background: #ffffff"></div></div><span style="font-size: 7px; font-weight: 700; letter-spacing: .05em; color: #a9a9b1; text-align: center">{{f.name}}</span></div></sc-for>
+</div>
+<button aria-label="Master bus on/off" title="Master bus: EQ, glue and room on the whole mix" style="height: 20px; padding: 0; border-radius: 3px; border: 1px solid #ffffff; background: #ffffff; color: #0e0e10; font-size: 9px; font-weight: 800">BUS ON</button>
 </div>
 </section>
 </div>
@@ -207,7 +208,7 @@ class Component extends DCLogic {
     const MPC = { ready: COL[5], play: COL[0], queued: COL[1] };
     const MPADS = [['PAD 1', 'Pad 1 · Guitar Riff', MPC.play, 'bright', ''], ['PAD 2', 'Pad 2 · Horn Stab', MPC.play, 'flash', ''], ['PAD 3', 'Pad 3 · Shaker Loop', MPC.ready, 'bright', ''], ['PAD 4', 'Pad 4 · Crash + FX', MPC.ready, 'bright', ''], ['STOP', 'Stop all pads', '#c9c9cf', 'bright', ''], ['', '', '#2d2d32', 'dim', ''], ['', '', '#2d2d32', 'dim', ''], ['', '', '#2d2d32', 'dim', ''],
       ['SEL 1', 'Select pad 1', MPC.ready, 'dim', ''], ['SEL 2', 'Select pad 2', MPC.ready, 'dim', ''], ['SEL 3', 'Select pad 3', MPC.ready, 'dim', ''], ['SEL 4', 'Select pad 4', MPC.ready, 'dim', ''], ['STOP 1', 'Stop pad 1', COL[0], 'dim', ''], ['STOP 2', 'Stop pad 2', COL[0], 'dim', ''], ['STOP 3', 'Stop pad 3', COL[0], 'dim', ''], ['STOP 4', 'Stop pad 4', COL[0], 'dim', '']];
-    const pos = (d, i) => Object.assign(d, { row: i < 8 ? 1 : 2, col: (i % 8) + 2 });
+    const pos = (d, i) => Object.assign(d, { row: i < 8 ? 2 : 3, col: (i % 8) + 1 });
     const mirPads = (PADPAGE === 'multi' ? MPADS.map(p => Object.assign(padLook(p), { barLabel: p[0], short: p[0] })) : secPads).map(pos);
     // The Launchkey's 8 encoders on the Style knob page (Knob Assign, #197). Parts/Pan/Effects pages drive the mixer.
     const kn = ['Dynamics', 'Retrig', 'Retrig on', 'Mute A', 'Mute B', '', '', 'Tempo'];
@@ -220,7 +221,12 @@ class Component extends DCLogic {
     // draws what has no place on the current screen.
     const PADRING = %%PADRING%%;
     const mir = {};
-    const mm = { disp: PADRING ? 'none' : 'flex', dispH: %%DISPH%% - (PADRING ? 0 : 66), fs: COMPACT ? 9 : 10, navW: COMPACT ? 170 : 250 };
+    const mm = { disp: PADRING ? 'none' : 'flex', dispH: %%DISPH%% - (PADRING ? 0 : 96), fs: COMPACT ? 9 : 10, navW: COMPACT ? 170 : 250 };
+    const sk = (v, name, tip) => ({ track: arcPath(11, 11, 7.5, 1), arc: arcPath(11, 11, 7.5, Math.max(0.01, v)), name, tip });
+    const msKnobs = [[.5, 'LOW', 'Master EQ low 0 dB'], [.45, 'MID', 'Master EQ mid −1 dB'], [.58, 'HIGH', 'Master EQ high +2 dB'], [.35, 'GLUE', 'Glue (gentle compressor) 2:1'], [.2, 'ROOM', 'Room (a touch of reverb) 12%']].map(k => sk(k[0], k[1], k[2]));
+    // Style and Multi Pad volume are the Launchkey's Panel faders 5 and 6; MAIN is the master fader.
+    const msFaders = [['STYLE', 80, 62, 'Style volume (Panel fader 5)', 24], ['PADS', 67, 30, 'Multi Pad volume (Panel fader 6)', 24], ['MAIN', 78, 70, 'Master volume (the master fader)', 30]].map(f => ({ name: f[0], fader: f[1], level: f[2], tip: f[3], w: f[4], body: 'rgba(255,255,255,.22)', col: '#e9e9ec' }));
+    const ms = { w: COMPACT ? 150 : 166 };
     const mirLegend = [{ what: 'PADS', page: PP.find(p => p[0] === PADPAGE)[1], disp: PADRING ? 'block' : 'none' }, { what: 'FADERS', page: 'Style ' + FPAGE, disp: 'block' }, { what: 'KNOBS', page: 'Style', disp: COMPACT ? 'none' : 'block' }];
     const regs = Array.from({ length: 8 }, (_, i) => ({ n: i + 1, bg: i === 2 ? A : '#26262b', ink: i === 2 ? AI : (i < 6 ? '#f2f2f2' : '#8d8d95'), border: i === 2 ? A : '#2d2d32' }));
     const ots = [1, 2, 3, 4].map(n => ({ n, bg: n === 2 ? A : '#26262b', ink: n === 2 ? AI : '#f2f2f2', border: n === 2 ? A : '#2d2d32' }));
@@ -239,7 +245,7 @@ class Component extends DCLogic {
       for (let y = 0; y < rows; y++) for (let x = 0; x < cols; x++) { const on = (y === 0 && x % 4 === 0) || (y === 1 && x % 8 === 4) || r() < dens[y]; if (on) cells.push({ x: (x * cw + 1).toFixed(1), y: (y * ch + 1).toFixed(1), w: (cw - 2).toFixed(1), h: (ch - 2).toFixed(1), col: COL[4 + y], o: (0.45 + r() * 0.55).toFixed(2) }); }
       return cells; };
 %%SONGMAP%%
-    const base = { hdr, tabs, layers, parts, knobs, mirPads, secPads, mirLegend, ring, mm, padPages, knobPages, kk, bgArt: Object.assign(songMap(7, '#ffd23f', '#ff5a3c', 'pop', 'bgsm', 640, 160, 3), { o: TAB === 'Home' ? .7 : .4 }), mir, regs, ots, white, black, kb, art: artFor(7, 300, 366, 9) };
+    const base = { hdr, tabs, layers, parts, knobs, mirPads, secPads, mirLegend, ring, mm, msKnobs, msFaders, ms, padPages, knobPages, kk, bgArt: Object.assign(songMap(7, '#ffd23f', '#ff5a3c', 'pop', 'bgsm', 640, 160, 3), { o: TAB === 'Home' ? .7 : .4 }), mir, regs, ots, white, black, kb, art: artFor(7, 300, 366, 9) };
     %%JS%%
     return Object.assign(base, extra);
   }

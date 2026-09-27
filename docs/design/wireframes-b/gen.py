@@ -65,7 +65,7 @@ screens["Channel"] = dict(TAB="Channel", SEL="7", DISPLAY='''
 <button style="height: 44px; border-radius: 6px; border: 1px solid #c46bff; background: #1b1b20; color: #f2f2f2; font-size: 15px; font-weight: 700; text-align: left; padding: 0 12px">Steel Gtr ▾<span style="display: block; font-size: 10px; font-weight: 500; color: #8d8d95">SoundFont · from Yamaha 8/1/2</span></button>
 <div style="display: flex; gap: 6px"><button class="chip on">On</button><button class="chip">Mute</button><button class="chip">Solo</button></div>
 <div style="flex-grow: 1"></div>
-<span style="font-size: 12px; color: #8d8d95">Select any strip below, or turn the Launchkey's page buttons, to edit that part here.</span>
+<span style="font-size: 11px; color: #8d8d95">Click any strip below to edit it here.</span>
 </div>
 <div style="flex-grow: 1; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; padding: 8px">
 <div style="display: flex; flex-direction: column; gap: 8px; padding: 12px; border-radius: 8px; border: 1px solid #2d2d32; background: #19191c"><span class="cap">Mix · pan and sends (level is on the strip)</span>

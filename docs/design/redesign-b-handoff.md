@@ -82,6 +82,11 @@ The artwork fills only the Home "now playing" band, not the whole display. Home'
 
 **Rendering locally:** `./render.sh BHome` expands a board statically (`render.js`) and screenshots it with headless Chrome to `/tmp/BHome.png`. Use this to check looks, because the canvas needs a claude.ai sign-in.
 
+**Round 7:**
+- The Launchkey is drawn like the hardware: 8 knobs in a row over the 8 pad columns, on Home and in the off-Home bar.
+- The mixer ends in a **MASTER** section: master bus knobs (Low, Mid, High, Glue, Room); the STYLE and PADS faders (Panel faders 5 and 6); the MAIN master fader; and Bus on/off.
+- The header's master bar is gone.
+
 **No raw 0–127 numbers** on controls: the visual is enough, with the value in a tooltip. Show numbers only when they are musical (tempo, note lengths, dB).
 
 **Look**
