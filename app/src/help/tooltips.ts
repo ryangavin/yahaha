@@ -1099,6 +1099,13 @@ const catalog = {
     keys: [],
     launchkey: null,
   },
+  'fx.inserts': {
+    title: 'Style inserts',
+    body: 'The style\'s own insertion effects: an effect the style puts on one of its parts, such as an amp simulator on the guitar or a compressor on the bass (listed beside it: the part, the style\'s effect, and what plays it here, or dry where yahaha has nothing near it). Lit, they play in the built-in synth, before the part\'s sends; off, every Style part plays dry. Stored in a Registration Memory with the effects.',
+    genos: 'Mixer › Effect › Insertion (Style parts)',
+    keys: [],
+    launchkey: null,
+  },
   'fx.reverb_band': {
     title: 'Band reverb',
     body: 'How much of the band (the eight Style parts) goes to the reverb: each Style part\'s own reverb send (CC 91) times this, in the built-in synth only. 100% plays the reverb the style wrote and 0% is none; your keyboard parts keep their own sends. Stored in a Registration Memory.',

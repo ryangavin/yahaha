@@ -21,6 +21,9 @@ pub const CHANNELS: usize = 16;
 
 /// The audio callback's stages, as [`Perf::stage`] indexes them.
 pub const STAGES: [&str; 8] = ["midi", "band", "keys", "extra", "fade", "plugins", "fx", "out"];
+/// Insertion effect slots: one per Style part (#269).
+pub const INSERTS: usize = 8;
+
 pub const ST_MIDI: usize = 0;
 pub const ST_BAND: usize = 1;
 pub const ST_KEYS: usize = 2;
@@ -154,6 +157,10 @@ pub struct Perf {
     /// peak.
     pub bus: [Cost; crate::fx::BUSES],
     pub bus_peak: [AtomicU32; crate::fx::BUSES],
+    /// The Style parts' insertion effects (#269, by part 0-7): time per callback and
+    /// output peak, while one runs.
+    pub insert: [Cost; INSERTS],
+    pub insert_peak: [AtomicU32; INSERTS],
     /// SoundFont voices sounding (last callback), and the most in the window.
     pub voices: AtomicU32,
     pub voices_peak: AtomicU32,
@@ -227,6 +234,8 @@ impl Perf {
             plugin_mask: AtomicU32::new(0),
             bus: [const { Cost::new() }; crate::fx::BUSES],
             bus_peak: [const { AtomicU32::new(0) }; crate::fx::BUSES],
+            insert: [const { Cost::new() }; INSERTS],
+            insert_peak: [const { AtomicU32::new(0) }; INSERTS],
             voices: AtomicU32::new(0),
             voices_peak: AtomicU32::new(0),
             ring_depth: [const { AtomicU32::new(0) }; RINGS.len()],
@@ -285,6 +294,8 @@ pub struct Snapshot {
     pub stages: [(u64, u64); STAGES.len()],
     pub channels: [ChannelRow; CHANNELS],
     pub buses: [(u64, u64, f32); crate::fx::BUSES],
+    /// Each Style part's insertion effect (#269): sum, max, peak (zeros: none ran).
+    pub inserts: [(u64, u64, f32); INSERTS],
     pub voices: u32,
     pub voices_peak: u32,
     pub rings: [u32; RINGS.len()],
@@ -353,6 +364,10 @@ pub fn take(secs: f64) -> Snapshot {
     for (b, d) in s.buses.iter_mut().enumerate() {
         let (sum, max) = p.bus[b].take();
         *d = (sum, max, f32::from_bits(p.bus_peak[b].swap(0, Relaxed)));
+    }
+    for (i, d) in s.inserts.iter_mut().enumerate() {
+        let (sum, max) = p.insert[i].take();
+        *d = (sum, max, f32::from_bits(p.insert_peak[i].swap(0, Relaxed)));
     }
     for (d, a) in s.rings.iter_mut().zip(&p.ring_depth) {
         *d = a.swap(0, Relaxed);

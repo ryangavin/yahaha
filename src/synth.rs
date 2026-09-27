@@ -295,20 +295,32 @@ impl Rack {
     #[cfg(test)]
     fn render_dry(&mut self, left: &mut [f32], right: &mut [f32], peaks: &[AtomicU32; 16], fade: Option<(f32, f32)>) {
         let mut sends = vec![0f32; 2 * crate::fx::BUSES * left.len()];
-        self.render(left, right, &mut sends, peaks, fade);
+        self.render(left, right, &mut sends, peaks, fade, None);
     }
 
     /// Render `left.len()` frames of the mix into `left`/`right` and the effect bus's send
     /// buses into `sends` (all overwritten; bus b's left side at `2 * b * n`, its right at
     /// `(2 * b + 1) * n`), noting each channel's peak in `peaks`. `fade` ramps the whole
-    /// from one gain to another over the buffer.
-    fn render(&mut self, left: &mut [f32], right: &mut [f32], sends: &mut [f32], peaks: &[AtomicU32; 16], fade: Option<(f32, f32)>) {
+    /// from one gain to another over the buffer. `inserts`: the Style parts' insertion
+    /// effects (#269), on the band's synthesizer.
+    fn render(
+        &mut self,
+        left: &mut [f32],
+        right: &mut [f32],
+        sends: &mut [f32],
+        peaks: &[AtomicU32; 16],
+        fade: Option<(f32, f32)>,
+        inserts: Option<&mut dyn rustysynth::ChannelInsert>,
+    ) {
         let n = left.len().min(self.tmp_l.len()).min(sends.len() / (2 * crate::fx::BUSES));
         let (left, right) = (&mut left[..n], &mut right[..n]);
         let sends = &mut sends[..2 * crate::fx::BUSES * n];
         sends.fill(0.0);
         let mut clock = crate::perf::Lap::start(self.profile);
-        self.band.render_with_sends(left, right, sends);
+        match inserts {
+            Some(ins) => self.band.render_with_inserts(left, right, sends, ins),
+            None => self.band.render_with_sends(left, right, sends),
+        }
         clock.lap(crate::perf::ST_BAND);
         let (l, r) = (&mut self.tmp_l[..n], &mut self.tmp_r[..n]);
         // The extra synthesizers some channel plays (slot k+1 = extra[k]).
@@ -607,13 +619,26 @@ pub fn legacy_fx() -> bool {
 /// and the safety clipper; the delay at `bpm`) into stereo at `sample_rate`, for `end_ns` plus three seconds
 /// of tails. Messages take effect at the start of the 64-frame block they fall in, as
 /// live. For listening tests (`yahaha render`); not the audio thread.
-pub fn render_offline(sf2: &Path, msgs: &[(u64, Vec<u8>)], end_ns: u64, sample_rate: u32, bpm: f64) -> Result<(Vec<f32>, Vec<f32>)> {
+///
+/// `inserts`: the style's insertion effects (#269) as `(Style part 0-7, kind, amount)`.
+pub fn render_offline(
+    sf2: &Path,
+    msgs: &[(u64, Vec<u8>)],
+    end_ns: u64,
+    sample_rate: u32,
+    bpm: f64,
+    inserts: &[(u8, crate::fx::InsertKind, u8)],
+) -> Result<(Vec<f32>, Vec<f32>)> {
     const BLOCK: usize = 64;
     let rack = Rack::load(sf2, sample_rate)?;
     let (mut tx, rx) = RingBuffer::<Msg>::new(4096);
     let ctl = Arc::new(SynthControl::new(0));
     ctl.fx.legacy.store(legacy_fx(), Relaxed);
     ctl.fx.set_tempo(bpm);
+    for &(p, kind, amount) in inserts {
+        ctl.fx.insert[p as usize & 7].store(kind as u8, Relaxed);
+        ctl.fx.insert_amount[p as usize & 7].store(amount, Relaxed);
+    }
     let (mut core, _swap, _plugins) = AudioCore::new(Some(rack), vec![rx], Arc::new(Parts::new()), ctl, sample_rate, 2);
     let frames = ((end_ns as f64 / 1e9 + 3.0) * sample_rate as f64) as usize;
     let (mut left, mut right) = (Vec::with_capacity(frames), Vec::with_capacity(frames));
@@ -791,6 +816,8 @@ pub struct AudioCore {
     sends_dirty: bool,
     /// `FxControl::legacy` as last applied.
     legacy: bool,
+    /// The Style parts' insertion effects (#269).
+    inserts: Box<crate::fx::BandInserts>,
     /// The band send scales (#236) as they glide towards `FxControl::band_send`.
     band_scale: [f32; crate::fx::BUSES],
     /// The Style parts' own sends (#268, `FxControl::part_send`) as last applied.
@@ -849,6 +876,7 @@ impl AudioCore {
             send_gains: [[0f32; crate::fx::BUSES]; 16],
             sends_dirty: true,
             legacy: false,
+            inserts: Box::new(crate::fx::BandInserts::new(sample_rate.max(1) as f32)),
             band_scale: crate::fx::BAND_SEND_DEFAULT.map(crate::fx::band_scale),
             part_send: [[crate::fx::SEND_STYLE; crate::fx::BUSES]; 8],
             pad_scale: crate::fx::PAD_SEND_DEFAULT.map(crate::fx::band_scale),
@@ -1072,6 +1100,7 @@ impl AudioCore {
         let (left, right) = (&mut self.left[..frames], &mut self.right[..frames]);
         let (left2, right2) = (&mut self.left2[..frames], &mut self.right2[..frames]);
         let sends = &mut self.sends[..2 * crate::fx::BUSES * frames];
+        self.inserts.update(&ctl.fx);
         if let Some(rack) = self.rack.as_mut() {
             rack.set_profiling(prof);
         }
@@ -1082,7 +1111,8 @@ impl AudioCore {
         clock.lap(crate::perf::ST_MIDI);
         match self.rack.as_mut() {
             Some(rack) => {
-                rack.render(left, right, sends, &ctl.peaks, None);
+                let ins: Option<&mut dyn rustysynth::ChannelInsert> = if self.legacy { None } else { Some(&mut *self.inserts) };
+                rack.render(left, right, sends, &ctl.peaks, None, ins);
                 for (a, &r) in ctl.rms.iter().zip(&rack.rms) {
                     if r > 0.0 {
                         a.fetch_max(r.to_bits(), Relaxed);
@@ -1101,7 +1131,7 @@ impl AudioCore {
         }
         if let Some(mut f) = self.fading.take() {
             let sends2 = &mut self.sends2[..2 * crate::fx::BUSES * frames];
-            f.render(left2, right2, sends2, &self.unmetered, Some((1.0, 0.0)));
+            f.render(left2, right2, sends2, &self.unmetered, Some((1.0, 0.0)), None);
             for i in 0..frames {
                 left[i] += left2[i];
                 right[i] += right2[i];
@@ -1810,6 +1840,60 @@ mod rack_tests {
         // Half way: less than full, more than none.
         let pad_half = delay_tail(&font, 5, 127, |c| c.fx.pad_send[v].store(50, Relaxed));
         assert!(pad_half > dry * 1.2 && pad_half < pad_full * 0.6, "{pad_half} between {dry} and {pad_full}");
+    }
+
+    /// #269: a Style part's insertion effect. A sustained note on channel 12 with a
+    /// distortion on Chord 1 (part 3) has more high harmonics than without, at a similar
+    /// level; its reverb send carries the distorted sound; a note on channel 13 is
+    /// untouched; the insert off again plays exactly the dry part.
+    #[test]
+    fn a_style_parts_insert_runs_on_that_part_only() {
+        let Some(font) = font() else { return };
+        let play = |ch: u8, kind: crate::fx::InsertKind, reverb: bool| -> (Vec<f32>, f32) {
+            let rack = Box::new(Rack::new(&font, 48_000).unwrap());
+            let (mut tx, rx) = RingBuffer::<Msg>::new(64);
+            let ctl = Arc::new(SynthControl::new(0));
+            if !reverb {
+                ctl.fx.reverb_return.store(0, Relaxed);
+            }
+            ctl.fx.chorus_return.store(0, Relaxed);
+            ctl.fx.insert[3].store(kind as u8, Relaxed);
+            ctl.fx.insert_amount[3].store(100, Relaxed);
+            let (mut core, _swap, _link) = AudioCore::new(Some(rack), vec![rx], Arc::new(Parts::new()), ctl, 48_000, 2);
+            // A plain organ, full reverb send (or none).
+            for m in [[0xC0 | ch, 16, 0], [0xB0 | ch, 91, if reverb { 127 } else { 0 }], [0xB0 | ch, 93, 0], [0x90 | ch, 45, 100]] {
+                tx.push(m).unwrap();
+            }
+            let mut out = vec![0f32; 256];
+            let mut left = Vec::new();
+            for _ in 0..200 {
+                core.process(&mut out);
+                left.extend(out.iter().step_by(2));
+            }
+            let rms = (left[9600..].iter().map(|x| x * x).sum::<f32>() / (left.len() - 9600) as f32).sqrt();
+            (left, rms)
+        };
+        // High frequencies: the energy of the first difference, per unit of level.
+        let bright = |x: &[f32], rms: f32| (x[9600..].windows(2).map(|w| (w[1] - w[0]).powi(2)).sum::<f32>() / (x.len() - 9600) as f32).sqrt() / rms;
+        let (dry, dry_rms) = play(11, crate::fx::InsertKind::None, false);
+        let (dist, dist_rms) = play(11, crate::fx::InsertKind::Distortion, false);
+        assert!(dry_rms > 1e-3);
+        assert!(bright(&dist, dist_rms) > 1.5 * bright(&dry, dry_rms), "distorted: {} vs {}", bright(&dist, dist_rms), bright(&dry, dry_rms));
+        assert!(dist_rms > dry_rms * 0.3 && dist_rms < dry_rms * 3.0, "a similar level: {dist_rms} vs {dry_rms}");
+        // Another part: untouched.
+        let (other, _) = play(12, crate::fx::InsertKind::None, false);
+        let (other_ins, _) = play(12, crate::fx::InsertKind::Distortion, false);
+        assert_eq!(other, other_ins, "only the part it is on");
+        // The reverb hears the distorted part: the wet difference is brighter too.
+        let (dry_w, _) = play(11, crate::fx::InsertKind::None, true);
+        let (dist_w, _) = play(11, crate::fx::InsertKind::Distortion, true);
+        let wet = |a: &[f32], b: &[f32]| a.iter().zip(b).map(|(x, y)| x - y).collect::<Vec<f32>>();
+        let (w_dry, w_dist) = (wet(&dry_w, &dry), wet(&dist_w, &dist));
+        let r = |x: &[f32]| (x[9600..].iter().map(|v| v * v).sum::<f32>() / (x.len() - 9600) as f32).sqrt();
+        assert!(bright(&w_dist, r(&w_dist)) > 1.2 * bright(&w_dry, r(&w_dry)), "the send is after the insert");
+        // None on the part: exactly the dry part.
+        let (none, _) = play(11, crate::fx::InsertKind::None, false);
+        assert_eq!(none, dry);
     }
 
     #[test]

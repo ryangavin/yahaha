@@ -219,6 +219,8 @@ export type FxCmd =
   | { type: 'setEffectParam'; block: FxBlock; param: FxParam; value: number }
   /** #237: the block takes the style's own effect type at each style change (on), or keeps the player's (off). */
   | { type: 'setFollowStyle'; block: FxBlock; on: boolean }
+  /** #269: the style's insertion effects on or off, all together. */
+  | { type: 'setInsertsOn'; on: boolean }
 
 /**
  * Reverb: reverbTime (0.1 s), preDelay (ms), reverbTone (100 Hz). Chorus: chorusRate (0.01 Hz),
@@ -256,6 +258,25 @@ export type FxType =
 /** The effect bus: Reverb, Chorus and Variation, in that order. */
 export interface EffectsState {
   blocks: EffectBlockState[]
+  /** The loaded style's insertion effects (#269), one per Style part at most. */
+  inserts: InsertState[]
+  /** Whether they play (`setInsertsOn`). */
+  insertsOn: boolean
+}
+
+/** What plays a style's insertion effect here (#269). */
+export type InsertEffect = 'distortion' | 'compressor' | 'autoWah' | 'tremolo' | 'rotary'
+
+/** A style's insertion effect on one of its parts (#269). */
+export interface InsertState {
+  /** The Style part, 0–7. */
+  part: number
+  /** "Chord 1". */
+  partName: string
+  /** The XG type: "British Combo Classic". */
+  name: string
+  /** What plays it; null: nothing near it, the part plays dry. */
+  effect: InsertEffect | null
 }
 
 export interface EffectBlockState {

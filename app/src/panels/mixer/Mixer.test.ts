@@ -190,6 +190,18 @@ describe('Mixer drawer', () => {
     expect(s.state.effects.blocks[0].padSend).toBe(0)
   })
 
+  it('Effects: the style\'s inserts listed, with one switch for them all (#269)', async () => {
+    const s = setup()
+    const group = document.querySelector<HTMLElement>('[aria-label="Style inserts"]')!
+    expect(group.textContent).toContain('Chord 1')
+    expect(group.textContent).toContain('British Combo Classic → Distortion')
+    const sw = group.querySelector<HTMLElement>('[data-tip="fx.inserts"]')!
+    await fireEvent.click(sw)
+    expect(s.state.effects.insertsOn).toBe(false)
+    await fireEvent.click(sw)
+    expect(s.state.effects.insertsOn).toBe(true)
+  })
+
   it('follows the page when the Launchkey switches it', () => {
     const s = setup()
     s.send({ type: 'toggleFaderPage' })

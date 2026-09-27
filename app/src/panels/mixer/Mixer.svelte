@@ -30,6 +30,8 @@
     lit, the block takes the style's own effect type at each style change (its XG name shows
     beside it); choosing a type turns it off. The editor ends with the block's Pads send
     (#267, `setPadSend`): the same scale for the four Multi Pads' sends.
+  - Inserts (#269, `setInsertsOn`): the style's insertion effects, each on one Style part
+    (an amp simulator, a compressor, a wah, a tremolo or a rotary here), all on or off.
   - Solo (S): only that part plays, even if it is off; the Style tab solos a band part,
     the Panel tab a keyboard part (`setStyleSolo` / `setPartSolo`, #30). Press again to end.
   - The metronome (on/off, bell, its own volume) sits above the strips: it is the
@@ -38,7 +40,7 @@
   - No level meters yet.
 -->
 <script lang="ts">
-  import type { EffectBlockState, FaderPage, FxBlock, FxParam, FxType, KeyboardPart, PartSend, StylePart, TrackMuteOrder } from '../../lib/api/types'
+  import type { EffectBlockState, FaderPage, FxBlock, InsertEffect, FxParam, FxType, KeyboardPart, PartSend, StylePart, TrackMuteOrder } from '../../lib/api/types'
   import type { TipKey } from '../../help/tooltips'
   import { app, ui } from '../../lib/store.svelte'
   import { tipFor } from '../../help/actions'
@@ -61,6 +63,8 @@
   const outPort = $derived(app.state.io.outputPort)
   const metronome = $derived(app.state.metronome)
   const effects = $derived(app.state.effects.blocks)
+  const inserts = $derived(app.state.effects.inserts)
+  const INSERT_NAMES: Record<InsertEffect, string> = { distortion: 'Distortion', compressor: 'Compressor', autoWah: 'Auto Wah', tremolo: 'Tremolo', rotary: 'Rotary' }
   const FX_TIPS: Record<FxBlock, [TipKey, TipKey, TipKey, TipKey]> = {
     reverb: ['fx.reverb_type', 'fx.reverb_return', 'fx.reverb_band', 'fx.reverb_pad'],
     chorus: ['fx.chorus_type', 'fx.chorus_return', 'fx.chorus_band', 'fx.chorus_pad'],
@@ -356,6 +360,22 @@
         </div>
       {/each}
     </div>
+    <div class="inserts" role="group" aria-label="Style inserts">
+      <Toggle
+        on={app.state.effects.insertsOn}
+        tip="fx.inserts"
+        onclick={() => app.send({ type: 'setInsertsOn', on: !app.state.effects.insertsOn })}>Inserts</Toggle
+      >
+      {#if inserts.length === 0}
+        <span class="style-name">The style has none</span>
+      {:else}
+        {#each inserts as i (i.part)}
+          <span class="insert" class:dry={!i.effect || !app.state.effects.insertsOn} title={i.name}
+            ><b>{i.partName}</b> {i.name} → {i.effect ? INSERT_NAMES[i.effect] : 'dry'}</span
+          >
+        {/each}
+      {/if}
+    </div>
     {#each effects.filter((b) => editing[b.block] && b.params.length > 0) as b (b.block)}
       <div class="editor" role="group" aria-label="{b.name} parameters">
         <span class="engraved">{b.block === 'variation' ? 'Delay' : b.name} · {b.effectName}</span>
@@ -604,6 +624,21 @@
     white-space: nowrap;
     font-size: var(--fs-small);
     color: var(--muted);
+  }
+  .inserts {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.35rem 0.8rem;
+    font-size: 0.8rem;
+    color: var(--muted);
+  }
+  .insert b {
+    color: var(--ink);
+    font-weight: 600;
+  }
+  .insert.dry {
+    opacity: 0.6;
   }
   .band-label {
     font-size: var(--fs-small);

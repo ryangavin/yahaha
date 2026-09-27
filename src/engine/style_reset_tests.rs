@@ -148,7 +148,7 @@ fn the_keyboard_parts_sound_the_same_after_a_style_change() {
             msgs.extend(load.0.iter().map(|m| (50 * MS, m.clone())));
         }
         msgs.extend(notes.iter().cloned());
-        crate::synth::render_offline(&sf2, &msgs, 2000 * MS, 48_000, 120.0).unwrap()
+        crate::synth::render_offline(&sf2, &msgs, 2000 * MS, 48_000, 120.0, &[]).unwrap()
     };
     let with = render(&tone, true);
     assert!(with.0.iter().any(|v| v.abs() > 1e-3), "the part sounds");

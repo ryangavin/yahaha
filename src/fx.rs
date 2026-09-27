@@ -30,6 +30,11 @@
 //! The Multi Pad send scales (#267) do the same for the pads (channels 5-8,
 //! `FxControl::pad_send`): by default the pads' reverb as written, and no chorus or delay.
 //!
+//! Insertion effects (#269, [`insert`]): a style's XG Insertion Effect on one of its parts
+//! (a distortion or amp simulator, a compressor, a wah, a tremolo, a rotary speaker) runs
+//! on that part's own signal inside the band's synthesizer, before its sends and the mix
+//! ([`BandInserts`], `rustysynth::ChannelInsert`).
+//!
 //! [`FxBus`] allocates everything in [`FxBus::new`]; [`FxBus::process_add`] never
 //! allocates, locks or blocks (`tests/synth_no_alloc.rs`). A block with no input whose
 //! output has died away is skipped, so an idle bus costs next to nothing.
@@ -38,6 +43,7 @@ use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU16, AtomicU32, Ordering::Re
 
 mod chorus;
 mod delay;
+pub mod insert;
 mod line;
 mod params;
 mod reverb;
@@ -45,6 +51,7 @@ pub mod xg;
 
 pub use chorus::{Chorus, ChorusType};
 pub use delay::{Delay, DelayType, NOTES};
+pub use insert::{BandInserts, Insert, InsertKind, InsertSettings};
 pub use params::{PARAMS, Param, Spec};
 pub use reverb::{Reverb, ReverbType};
 
@@ -134,6 +141,10 @@ pub struct FxControl {
     pub part_send: [[AtomicU8; BUSES]; 8],
     /// Each effect parameter (#236, `Param::index`), in its own unit (`Param::spec`).
     pub params: [AtomicU16; PARAMS],
+    /// Each Style part's insertion effect (#269, `InsertKind as u8`, 0 = none) and its
+    /// amount (0-127), from the style's XG Insertion SysEx.
+    pub insert: [AtomicU8; 8],
+    pub insert_amount: [AtomicU8; 8],
     /// The style tempo the delay follows: BPM x 100.
     pub tempo: AtomicU32,
     /// The SoundFont's own reverb and chorus instead of the bus (the sound before #204).
@@ -153,6 +164,8 @@ impl FxControl {
             pad_send: PAD_SEND_DEFAULT.map(AtomicU8::new),
             part_send: std::array::from_fn(|_| std::array::from_fn(|_| AtomicU8::new(SEND_STYLE))),
             params: default_params().map(AtomicU16::new),
+            insert: std::array::from_fn(|_| AtomicU8::new(0)),
+            insert_amount: std::array::from_fn(|_| AtomicU8::new(64)),
             tempo: AtomicU32::new(12_000),
             legacy: AtomicBool::new(false),
         }

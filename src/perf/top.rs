@@ -21,6 +21,8 @@ pub const PART_NAMES: [&str; CHANNELS] = [
 const ROW_ORDER: [usize; CHANNELS] = [0, 2, 3, 1, 8, 9, 10, 11, 12, 13, 14, 15, 4, 5, 6, 7];
 
 const BUS_NAMES: [&str; crate::fx::BUSES] = ["Reverb", "Chorus", "Variation"];
+/// The insertion effect rows (#269), by Style part.
+const INSERT_NAMES: [&str; crate::perf::INSERTS] = ["Ins Rhythm1", "Ins Rhythm2", "Ins Bass", "Ins Chord1", "Ins Chord2", "Ins Pad", "Ins Phrase1", "Ins Phrase2"];
 
 fn us(ns: u64) -> String {
     format!("{:.0}", ns as f64 / 1000.0)
@@ -127,6 +129,24 @@ pub fn render(s: &Snapshot, uptime: Duration) -> Vec<String> {
             pct(avg)
         ));
     }
+    // The insertion effects that ran in the window.
+    for (i, (sum, max, peak)) in s.inserts.iter().enumerate() {
+        if *sum == 0 && *max == 0 {
+            continue;
+        }
+        let avg = sum / calls;
+        out.push(format!(
+            "{:<12} {:>3}  {:<6} {:>6}  {:>7}  {:>8}  {:>8}  {:>6.1}",
+            INSERT_NAMES[i],
+            i + 9,
+            "insert",
+            "-",
+            db(*peak),
+            format!("{:.1}", avg as f64 / 1000.0),
+            us(*max),
+            pct(avg)
+        ));
+    }
     out
 }
 
@@ -207,5 +227,11 @@ mod tests {
         assert!(lines.iter().any(|l| l.starts_with("Right 2") && l.contains("plugin")), "{text}");
         assert_eq!(lines.iter().filter(|l| l.contains(" fx  bus")).count(), 3, "reverb, chorus, variation");
         assert_eq!(lines.len(), 10 + CHANNELS + 3);
+        // An insertion effect that ran gets its own row (#269).
+        s.inserts[3] = (750 * 8_000, 20_000, 0.5);
+        let lines = render(&s, Duration::from_secs(1));
+        let ins = lines.iter().find(|l| l.starts_with("Ins Chord1")).expect("the Chord 1 insert row");
+        assert!(ins.contains(" 12  insert") && ins.contains("8.0") && ins.contains("-6.0"), "{ins}");
+        assert_eq!(lines.len(), 10 + CHANNELS + 4);
     }
 }
