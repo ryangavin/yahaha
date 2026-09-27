@@ -251,6 +251,7 @@ impl MockSession {
                 stop_acmp: false,
                 section: Some("Main B".into()),
                 queued: None,
+                landing: None,
                 pending_intro: None,
                 main: 1,
                 bar: 12,
