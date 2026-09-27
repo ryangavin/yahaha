@@ -36,3 +36,43 @@ Don't comment on style or naming. Put small edge cases in a follow-up issue rath
 ## Linux
 
 See "Developing on Linux" in README.md.
+
+## Branches
+
+PRs target `develop`. `develop` merges into `main` only when the owner says so, with a merge commit.
+
+## Never commit
+
+Style data, manual text, soundfonts, or real plugin state. Research transcripts and frames live in `../yahaha-research`, not this repo. Mocks use the fake "Sampler Deluxe" plugin.
+
+## Corpus
+
+It's git-ignored. In a worktree, symlink it: `ln -s "<main checkout>/corpus" corpus`.
+
+## Engine rules
+
+No allocation, locks or panics on the engine, MIDI or audio threads. Mixer levels are CC7 plus master only; the approved exceptions are Fade, Style volume and Multi Pad volume.
+
+## Controls
+
+Every control has a tooltip in `app/src/help/tooltips.ts`. Every command is in both mocks (TS and the Rust dev mock), in `docs/app-api.md`, and in `EVERY_CMD` in `tests/api_wire.rs`. Nothing is hardware-only: every Launchkey function has an app control.
+
+## rustysynth
+
+`vendor/rustysynth` carries `yahaha:` patches. Keep them.
+
+## Layering
+
+No new upward imports between modules. A workspace split is planned: core → sff → dsp → engine → plugin, with the facade on top.
+
+## Genos behaviour
+
+Answer from the manuals in `docs/manuals` (git-ignored, local only), not by asking the owner. If the manuals are silent, pick the behaviour closest to the Genos and record "Decision: ..." in the PR body.
+
+## Tests
+
+Tests may use the real plugin cache, but a test that needs a stable plugin list uses a mock cache.
+
+## Disk
+
+`app/src-tauri` test builds are large. Remove `target/debug` after them if disk is tight. Keep at least 8 GB free.
