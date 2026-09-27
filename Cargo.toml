@@ -119,3 +119,19 @@ version = "0.3.2"
 optional = true
 default-features = false
 features = ["std", "AUGenericView", "objc2-app-kit", "objc2-audio-toolbox"]
+
+# The test gates: `cargo test --profile test-fast` (scripts/test-all.sh). Release semantics
+# (no debug assertions, no overflow checks) so the tests see what ships, but our own crate
+# builds incrementally with light optimisation, and the dependencies (vendored rustysynth
+# included) at full optimisation, where sccache caches them. An edit rebuilds in seconds
+# instead of a full release compile of the crate and every test binary.
+[profile.test-fast]
+inherits = "release"
+opt-level = 2
+incremental = true
+codegen-units = 256
+debug = 0
+
+[profile.test-fast.package."*"]
+opt-level = 3
+codegen-units = 16

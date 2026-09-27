@@ -240,14 +240,21 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | control | what it does | Genos | key | Launchkey |
 |---|---|---|---|---|
 | **Close** | Closes the Sound Browser. The part keeps the sound you picked. | EXIT | — | — |
-| **Filter sounds** | Type to filter by name, SoundFont file or plugin maker (SF, AU or Saved narrows by source). ↑/↓ move, Enter plays the sound on the part, Shift+Enter auditions it, Ctrl+D stars it. | Voice Selection › Search | — | — |
-| **All sounds** | Every sound: the presets of every SoundFont in the soundfonts folder, your instrument plugins and your saved sounds. | Voice Selection | — | — |
+| **Filter sounds** | Type to filter the chip's sounds by name, SoundFont file or plugin maker (SF, AU or Mine narrows by source). ↑/↓ move, Enter plays the sound on the part, Shift+Enter auditions it, Ctrl+D stars it. Ctrl+S saves, Ctrl+Shift+S saves as…, F2 renames and Ctrl+Delete deletes a sound of yours. | Voice Selection › Search | — | — |
+| **All sounds** | The sounds the GM map plays for each program and the drums, every plugin sound and everything in My Sounds. A font's other presets and a plugin's factory presets are under that instrument's chip. | Voice Selection | — | — |
 | **Favourites** | The sounds you starred. | Voice Selection › Favorite tab | — | — |
 | **Recent** | The last 20 sounds you picked for a part, most recent first. | Voice Selection › history | — | — |
-| **Saved** | Your saved sounds: the sound library's patches, each a preset or plugin with its volume, octave, pan and sends (and a plugin's own settings). Edit them in the Sound Library drawer. | Voice Selection › User tab | — | — |
-| **Save as sound** | Saves what this part plays now as a new saved sound: its preset or plugin (with the plugin's current settings), volume and octave. It appears under Saved, ready to rename in the Sound Library drawer. | Voice Setting › Save | — | — |
-| **Plugin presets** | Shows or hides this plugin's presets: its factory presets and the .aupreset files in ~/Library/Audio/Presets, as Logic lists them. Each preset is a sound of its own: every part that picks one gets its own copy of the plugin, so one plugin can play piano on Right 1 and strings on Right 2. The first time, a plugin loads once in the background to list them (→ and ← open and close it too). | — | — | — |
-| **Save as preset** | Keeps what this part's plugin plays now (with its editor's changes: a Kontakt instrument you loaded, say) as a preset of the plugin: a standard .aupreset in ~/Library/Audio/Presets that Logic and MainStage read too. Name it and pick a category; it appears under the plugin and in that category. | Voice Setting › Save | — | — |
+| **My Sounds** | Your sounds: every plugin sound and every preset you added, each with its volume, octave, pan and sends (and a plugin's own settings). Select one to rename, recategorise or delete it under the list. | Voice Selection › User tab | — | — |
+| **Save as…** | Names what this part plays now and saves it as a new sound: its preset or plugin (with the plugin's current settings), volume and octave. The part then plays the new sound, shown selected in My Sounds. | Voice Setting › Save | — | — |
+| **Save** | Saves what this part plays now over the sound it plays: the plugin's current settings (what its editor changed), volume and octave. The "edited" mark goes. A factory preset or an .aupreset file is never overwritten: Save keeps it as a new sound instead, as Save as… does. | Voice Setting › Save | — | — |
+| **Instrument** | Every sound of one SoundFont or plugin: all the font's presets, or the plugin's factory presets, its .aupreset files and your sounds made with it. The first time, a plugin loads once in the background to list its factory presets. | Voice Selection › sub-category | — | — |
+| **Edited** | The part's plugin no longer plays the sound as it was loaded: its editor changed it. Save keeps the change in the sound (or as a new one for a factory preset), Save as… keeps it as a new sound. | Voice Edit (unsaved) | — | — |
+| **New sound's name** | The name of the new sound Save as… makes. Enter saves it, Esc cancels. | Voice Setting › Save › Name | — | — |
+| **Save as a new sound** | Saves what the part plays now as a new sound in My Sounds, which the part then plays. | Voice Setting › Save | — | — |
+| **Delete** | Deletes the sound for good. Map rules that name it are removed. | — | — | — |
+| **Keep** | Keeps the sound and goes back to the list. | — | — | — |
+| **Details** | Shows the sound's tags and the defaults a part takes when it picks it: volume, pan, reverb, chorus and octave. | Voice Setting | — | — |
+| **Also as .aupreset** | Also keeps what this part's plugin plays now as a preset of the plugin: a standard .aupreset in ~/Library/Audio/Presets that Logic and MainStage read too. Pick its category; if a preset of that name exists, yahaha asks before replacing it. | Voice Setting › Save | — | — |
 | **Preset name** | The new preset's name, also its file name. If a preset of that name exists, yahaha asks before replacing it (the file is shared with Logic and MainStage). Enter saves, Esc cancels. | — | — | — |
 | **Preset category** | The category the new preset is listed under in the browser. Kept by yahaha; the .aupreset file itself is not changed. | — | — | — |
 | **Save the preset** | Writes the .aupreset and lists it under the plugin. The part then plays that preset. | — | — | — |
@@ -256,11 +263,17 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | **Cancel** | Closes the form without saving. | — | — | — |
 | **Category** | The sounds of one Genos voice category. A preset's category is its General MIDI family, and a plugin's is guessed from its name. | VOICE category buttons | — | — |
 | **Plugin category** | The category the selected plugin or plugin preset is listed under. yahaha guesses it from the name (a preset it can't place goes with its plugin); pick another to file it where you look for it. | — | — | — |
-| **Sound** | Click or Enter plays this sound on the part. SF is a SoundFont preset, AU an instrument plugin, Saved a sound from your library. ▶ marks what the part plays. | Voice Selection | — | — |
+| **Sound** | Click or Enter plays this sound on the part. SF is a SoundFont preset, AU a plugin or its preset, Mine a sound in My Sounds; in All sounds, "GM 5" says which program the map plays it for. ▶ marks what the part plays. | Voice Selection | — | — |
 | **Plugin that failed** | This plugin failed to load last time (⚠ says why). Picking it tries again; until it loads, the part plays its SoundFont voice. | — | — | — |
 | **Star** | Adds the sound to your Favourites, or takes it out. | Voice Selection › Favorite | — | — |
 | **Audition** | Plays the sound on its own for a few seconds, without changing the part. Only while the band is stopped. | Voice Selection › Demo | — | — |
 | **Stop audition** | Stops the audition. | — | — | — |
+| **Sounds** | Your sounds to pick from: favourites, recents, saved sounds and every preset, by category. | Voice Selection | — | — |
+| **Instruments** | The SoundFonts and instrument plugins found in your folders, each with its own presets. Plugin housekeeping (category, in process, Edit…, Rescan) lives here too. | — | — | — |
+| **Show presets** | Opens or closes this instrument's preset list (Enter or Space). A plugin's factory presets are read the first time it opens, next to its .aupreset files; an open plugin also shows its settings. | — | — | — |
+| **Play now** | The part plays this preset now, without adding it to your sounds. | — | — | — |
+| **Add to my sounds** | Keeps this preset in your sounds (the sound library), once, so it shows in Sounds and can be a map rule. Nothing changes on the part. | — | — | — |
+| **New sound from plugin** | Loads the plugin with its default settings on the part and opens its editor, to build a sound from scratch. Save as… keeps it. | — | — | — |
 
 ## Keyboard Harmony / Arpeggio
 
@@ -430,9 +443,8 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 
 | control | what it does | Genos | key | Launchkey |
 |---|---|---|---|---|
-| **Patches** | Your patches, by category: search, favourites, audition, edit and reorder them. | Voice Selection | — | — |
-| **Program Map** | Which patch each GM family, program and drum kit plays, for every style or for this style only. | — | — | — |
-| **This style** | Every program the current style sends its parts, and the patch each one plays now. Remap one with a click. | — | — | — |
+| **GM map** | The drums and all 128 GM programs by family: each rule, the sound each program plays now and which layer decided it. The number counts the programs still on auto. | — | — | — |
+| **Deciding layer** | Which rule decided what this program plays: Drums, Override, Family, or Auto (the best preset in your SoundFonts, nobody chose it). "Style" marks this style's own rule. | — | — | — |
 | **Add from SoundFont** | Browse the presets of the SoundFonts in the SoundFont folder, audition one, and add it as a patch. | — | — | — |
 | **Search** | Shows only the patches whose name, category or tags contain the text. | — | — | — |
 | **Category** | Shows one category of patches, like the tabs of the Genos Voice Selection display. All shows every patch. | Voice category tabs | — | — |
@@ -444,9 +456,9 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | **Move up** | Moves the patch one place up in your list. | — | — | — |
 | **Move down** | Moves the patch one place down in your list. | — | — | — |
 | **Duplicate** | Adds a copy of the patch right after it, for example the same sound with other defaults. | — | — | — |
-| **Delete** | Deletes the patch. Map rules that name it are removed, and a part playing it goes back to its GM voice. | — | — | — |
-| **Name** | The patch's name, as the voice picker and the map show it. Press Enter to rename. | — | — | — |
-| **Category** | The Genos voice category the patch is listed under. | Voice category | — | — |
+| **Delete** | Asks (Ctrl/⌘+Delete in the Sound Browser too), then deletes the sound from My Sounds. Map rules that name it are removed, and a part playing it goes back to its GM voice. | — | — | — |
+| **Name** | The sound's name, as the Sound Browser, the parts and the map show it. F2 in the Sound Browser gets here; Enter renames it, Esc keeps the old name. | — | — | — |
+| **Category** | The Genos voice category the sound is listed under. | Voice category | — | — |
 | **Tags** | Words to find the patch by, separated by commas. Press Enter to keep them. | — | — | — |
 | **Volume** | The part's CC7 when you pick the patch for a keyboard part; a Style part takes it only when the style sets no level of its own. Blank leaves the level alone. | Voice Set: Volume | — | — |
 | **Pan** | The pan (CC10, 64 = centre) a keyboard part takes when it picks the patch. Blank leaves it alone. | Voice Set: Pan | — | — |
@@ -454,25 +466,24 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | **Chorus** | The chorus send (CC93) a keyboard part takes when it picks the patch. Blank leaves it alone. | Voice Set: Chorus | — | — |
 | **Octave** | The octave shift a keyboard part takes when it picks the patch. | Voice Set: Octave | — | — |
 | **Play on a part** | Picks the patch for that keyboard part, with its defaults. The part's voice picker has the same list. | Voice Selection | — | — |
-| **Save part's sound** | Saves a keyboard part's sound as a new patch: its own patch, or its GM voice on the synth's SoundFont, with its volume and octave. | — | — | — |
-| **Every style / this style** | Which map you edit: the one every style uses, or this style's own rules, which win over it. This style's map is kept in your library, not in the style file. | — | — | — |
-| **Family rule** | The sound these eight GM programs play, with every bank variation of them. Click to pick one in the Sound Browser: a saved sound, a SoundFont preset or a plugin. Blank: the voice the style asks for. | — | — | — |
-| **Clear rule** | Clears this rule: the programs it covered play what the rule below it gives them, or the style's own voice. | — | — | — |
-| **Drum rule** | The drum kit sound for Rhythm 1 and 2 and any part on a Yamaha drum kit bank. Click to pick one in the Sound Browser. Blank: the kit the style asks for. | — | — | — |
-| **Program** | The GM program for a new override, when its family rule is too coarse (for example E.Piano 1 inside Piano). | — | — | — |
-| **Override patch** | The sound this one program plays, whatever its family rule says. Click to pick one in the Sound Browser. | — | — | — |
-| **Add override** | Adds the override: the program plays the patch chosen next to it. | — | — | — |
-| **Remove override** | Removes the override: the program follows its family rule again. | — | — | — |
+| **Save part's sound** | Saves a keyboard part's sound as a new patch (Save as…): its plugin with its current settings, its own patch, or its GM voice on the synth's SoundFont, with its volume and octave. | — | — | — |
+| **Global / this style** | Which map the rules edit: the global one every style uses, or this style's own rules, which win over it. This style's map is kept in your library, not in the style file. | — | — | — |
+| **Family rule** | The sound these eight GM programs play, with every bank variation of them. Click to pick one from Sounds: any SoundFont preset or plugin sound. Blank: the program falls through to auto, the best preset in your SoundFonts. | — | — | — |
+| **Clear rule** | Clears this rule: the programs it covered play what the next layer gives them: the family rule, the global map, or auto. | — | — | — |
+| **Drum rule** | The drum kit sound for Rhythm 1 and 2 and any part on a Yamaha drum kit bank. Click to pick one from Sounds. Blank: auto, the best kit in your SoundFonts. | — | — | — |
+| **Program override** | The sound this one program plays, whatever its family rule says. Click to pick one from Sounds; the small line below is what it plays now. | — | — | — |
 | **Clear this style's rules** | Forgets this style's own rules: it plays by the map every style uses. | — | — | — |
 | **Port sends mapped programs** | Off, the yahaha MIDI port carries the style's own program changes, so a DAW records the style as written. On, it carries the mapped patch's bank and program instead. | — | — | — |
-| **Remap** | Picks the sound this program plays in the Sound Browser: an override for this program, for every style or for this style only (the switch above). Clear it (✕) to fall back to the family rule. | — | — | — |
 | **SoundFont** | The SoundFont in the SoundFont folder whose presets are listed. | — | — | — |
 | **Search presets** | Shows only the presets whose name contains the text. | — | — | — |
 | **Preset** | Plays the preset on its own for a moment, while the band is stopped. | — | — | — |
 | **Add as patch** | Adds the preset to your library as a patch, named after it and filed under its likely category. | — | — | — |
-| **Export** | Writes your library to sound-library-export.json in the data folder, to back it up or share it. | — | — | — |
+| **Export** | Writes your library and GM map as a bundle (sound-library-export.json in the data folder): every sound's name, category and settings, plugin sounds' states included. SoundFonts are named by file, not copied: copy them yourself. | — | — | — |
+| **Export .aupreset** | Writes this plugin sound as a standard .aupreset in ~/Library/Audio/Presets, under its plugin, so Logic and MainStage can load it. | — | — | — |
+| **Replace** | Replaces the plugin's existing preset of this name with this sound. Logic and MainStage see the new one too. | — | — | — |
+| **Keep the existing preset** | Leaves the existing preset as it is; rename the sound to export it as a new one. | — | — | — |
 | **Library file** | The path of a sound library file to import: a full library, or a list of patches. | — | — | — |
-| **Import** | Adds the file's patches to your library (clashing ids get new ones) and its map rules too. | — | — | — |
+| **Import** | Adds a bundle's (or library file's) sounds to your library, clashing ids getting new ones, and its map rules too; nothing you have is replaced. SoundFonts are found by file name in your SoundFont folder; any that are missing are listed, and their sounds are kept for when you add the files. | — | — | — |
 
 ## Launchkey pad pages
 
@@ -610,8 +621,6 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | **Audio buffer** | Frames the built-in synth renders at a time: 64 (1.3 ms at 48 kHz) feels tightest; 128 or 256 give heavy plugins and a busy computer more time per block, and 512 (10.7 ms) or 1024 (21.3 ms) stop stubborn dropouts at a latency you will feel. Changing it reopens the output with a moment of silence; held notes and plugins carry over. It is remembered, and `--buffer N` sets it at launch. | — | — | — |
 | **Audio dropouts** | The audio device missed buffers several times in a short while: clicks or gaps in the sound, from a heavy plugin, a busy computer or a buffer too small for either. Opens Settings › Audio, where a larger buffer size gives each block more time, at a little more latency. | — | — | — |
 | **Dismiss** | Hides the dropout notice for ten minutes. Choosing a new buffer size also clears it. | — | — | — |
-| **Default sound set** | The SoundFont that plays every sound nothing else is chosen for: style parts the program map leaves unmapped, and GM voices. Every .sf2 in the soundfonts folder is a source of sounds; this picks the fallback. | — | — | — |
-| **Auto sound set** | Picks the most complete General MIDI SoundFont in the soundfonts folder: the most GM programs, then a drum kit. Follows the folder as fonts come and go. | — | — | — |
 | **Mute synth** | Silences the built-in synth, for when you play Ableton's sounds from the yahaha MIDI port instead. | — | `K` | — |
 | **Built-in synth** | Turns the built-in SoundFont synth's sound on or off. The yahaha MIDI port keeps playing either way, for Ableton or other sounds. | — | `K` | — |
 

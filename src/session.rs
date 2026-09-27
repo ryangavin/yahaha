@@ -58,7 +58,7 @@ mod registration;
 mod settings;
 mod style_change;
 mod sound_library;
-mod sound_set;
+mod gm_auto;
 mod sounds;
 mod style_settings;
 mod surface;
@@ -104,13 +104,14 @@ pub struct Options {
     pub inputs: Vec<String>,
     /// Leave the Launchkey DAW port alone (no pads, buttons, faders or LEDs).
     pub no_pads: bool,
-    /// A SoundFont the built-in synth plays at start, whatever the default sound set
-    /// setting says (the hidden `--sf2` override). Its folder is the SoundFont folder when
+    /// The hidden `--sf2` compatibility pin: the synth's main font (the one it plays a
+    /// channel no route covers), instead of the folder's most GM-complete. The GM map and
+    /// its auto-fill still decide every program. Its folder is the SoundFont folder when
     /// `sound_font_dir` is None.
     pub sf2: Option<PathBuf>,
-    /// The SoundFont folder: every `.sf2` there is a source of sounds, and the default
-    /// sound set (#117, session/sound_set.rs) is one of them. The synth runs when there is
-    /// a font to play (here or `sf2`); None and no `sf2`: no synth.
+    /// The SoundFont folder: every `.sf2` there is a source of sounds, and the GM map's
+    /// auto-fill (session/gm_auto.rs) fills from them. The synth runs when there is a font
+    /// to play (here or `sf2`); None and no `sf2`: no synth.
     pub sound_font_dir: Option<PathBuf>,
     /// Use Novation palette colours (and hardware flashing) instead of RGB SysEx.
     pub palette_leds: bool,
@@ -273,11 +274,15 @@ struct Control {
     roots: Vec<PathBuf>,
     /// A rescan running (`RescanLibrary`).
     scan_rx: Option<mpsc::Receiver<Library>>,
-    /// The SoundFont folder, the file the synth plays, and the `.sf2` files there.
+    /// The SoundFont folder, the file the synth plays as its main font, and the `.sf2`
+    /// files there.
     sf_dir: Option<PathBuf>,
     sf_file: Option<String>,
     sound_fonts: Vec<String>,
-    /// A SoundFont loading (`SetSoundFont`): its file and the loader's result.
+    /// The hidden `--sf2` pin: the synth's main font whatever the folder's best is.
+    sf_pin: Option<String>,
+    /// A rack loading (a new main font, or the fonts the map needs): its main file and the
+    /// loader's result.
     sf_load: Option<(String, mpsc::Receiver<RackLoad>)>,
     /// A loaded rack waiting for room in the swap ring.
     sf_ready: Option<(String, Box<synth::Rack>)>,
@@ -325,8 +330,8 @@ struct Control {
     harmony_arp: live::FxConfig,
     /// The sound library (#103).
     sound: sound_library::SoundLib,
-    /// The default sound set (#117).
-    sound_set: sound_set::SoundSet,
+    /// `sound-settings.json` (session/gm_auto.rs), where the catalog keeps its settings.
+    sound_settings: Option<PathBuf>,
     /// The sound catalog (#117).
     sounds: sounds::Sounds,
 }
@@ -616,12 +621,14 @@ fn assemble(opts: &Options, engine_out: live::Out, input_out: live::Out, offline
     });
     let mut sound = sound_library::SoundLib::open(opts.data_dir.as_deref());
     let avail = sf_dir.as_deref().map(crate::library::sound_font_files).unwrap_or_default();
-    let sound_set = sound_set::SoundSet::open(opts.data_dir.as_deref(), sf_dir.as_deref(), &avail);
-    // The synth's main font: the override, else the default sound set.
-    let sf_file = match &opts.sf2 {
-        Some(p) => p.file_name().map(|n| n.to_string_lossy().to_string()),
-        None => sound_set.resolve(&avail),
-    };
+    // The GM map's auto-fill from the folder's fonts (D4), and the synth's main font: the
+    // hidden `--sf2` pin, else the most GM-complete font there.
+    let sf_pin = opts.sf2.as_ref().and_then(|p| p.file_name()).map(|n| n.to_string_lossy().to_string());
+    let (auto, best) = gm_auto::build(sf_dir.as_deref(), &avail, sf_pin.as_deref());
+    let sf_file = sf_pin.clone().or_else(|| best.clone());
+    sound.auto = auto;
+    sound.best = best;
+    sound.native = sf_file.clone();
     Control::sound_library_first_style(&mut sound, &shared.routes, &mut prep, &info.path, &avail);
     shared.fingering.store(opts.fingering.to_u8(), Relaxed);
     shared.upper.store(opts.upper, Relaxed);
@@ -688,6 +695,7 @@ fn assemble(opts: &Options, engine_out: live::Out, input_out: live::Out, offline
         sf_dir,
         sf_file,
         sound_fonts: avail,
+        sf_pin,
         sf_load: None,
         sf_ready: None,
         all_inputs: opts.all_inputs,
@@ -708,12 +716,12 @@ fn assemble(opts: &Options, engine_out: live::Out, input_out: live::Out, offline
         plugins: Default::default(),
         harmony_arp: live::FxConfig::default(),
         sound,
-        sounds: sounds::Sounds::open(sound_set.file()),
+        sounds: sounds::Sounds::open(gm_auto::settings_file(opts.data_dir.as_deref()).as_deref()),
         dynamics: Default::default(),
         knobs: Default::default(),
         fx: fx_settings,
         display: Default::default(),
-        sound_set,
+        sound_settings: gm_auto::settings_file(opts.data_dir.as_deref()),
     };
     let mut control = control;
     control.list_sound_fonts();
@@ -748,7 +756,7 @@ impl Session {
             (shared, p)
         };
         let mut synth_thread = None;
-        // The override, else the default sound set from the folder.
+        // The `--sf2` pin, else the folder's most GM-complete font.
         let main_font = opts.sf2.clone().or_else(|| p.control.sf_dir.as_ref().zip(p.control.sf_file.as_ref()).map(|(d, f)| d.join(f)));
         if let Some(sf2) = &main_font {
             let main = sf2.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();

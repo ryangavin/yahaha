@@ -263,8 +263,6 @@ export function initialState(): AppState {
       soundFonts: [...MOCK_SOUND_FONTS],
       soundFontFile: MOCK_SOUND_FONTS[0],
       soundFontLoading: false,
-      defaultSoundSet: null,
-      autoSoundSet: MOCK_SOUND_FONTS[0],
     },
     message: null,
     styleChange: { tempo: 'hold', parts: 'hold', sectionSet: null },
@@ -1597,20 +1595,6 @@ export class MockSession implements Session {
           st.io.synth.outputPair = next < st.io.synth.channels ? [next, next + 1] : [1, 2]
         }
         break
-      case 'setSoundFont':
-      case 'setDefaultSoundSet': {
-        if (cmd.file !== null && !st.io.soundFonts.includes(cmd.file)) {
-          this.message(`no SoundFont ${cmd.file} in the SoundFont folder`, true)
-          break
-        }
-        st.io.defaultSoundSet = cmd.file
-        const play = cmd.file ?? st.io.autoSoundSet
-        if (play) {
-          st.io.soundFontFile = play
-          if (st.io.synth) st.io.synth.soundFont = play.replace(/\.sf2$/i, '')
-        }
-        break
-      }
       case 'setMidiInputs': {
         st.io.allInputs = cmd.all
         for (const s of st.io.sources) s.listening = s.pads || cmd.all || cmd.names.some((n) => n && s.name.includes(n))
@@ -1760,6 +1744,7 @@ export class MockSession implements Session {
           break
         }
         this.sound.partPlugin(cmd.part, true)
+        this.sound.presetSound(cmd.part, cmd.id, cmd.preset, this.catalogMock.preset(cmd.id, cmd.preset)?.name ?? cmd.preset)
         this.plugins.cmd(cmd)
         break
       case 'setPartPlugin':
@@ -1769,6 +1754,10 @@ export class MockSession implements Session {
         this.plugins.cmd(cmd)
         break
       case 'savePartPluginState':
+        // The editor closed: the mock takes it as an edit (O3's "edited" badge).
+        if (st.keyboardParts[cmd.part & 3].plugin?.status === 'playing') this.sound.pluginEdited(cmd.part)
+        this.plugins.cmd(cmd)
+        break
       case 'rescanPlugins':
       case 'setPluginInProcess':
       case 'reloadPartPlugin':
@@ -1795,6 +1784,8 @@ export class MockSession implements Session {
       case 'movePatch':
       case 'setPatchFavourite':
       case 'savePartAsPatch':
+      case 'saveSound':
+      case 'saveSoundAs':
       case 'addPresetAsPatch':
       case 'auditionPatch':
       case 'auditionPreset':
@@ -1807,7 +1798,8 @@ export class MockSession implements Session {
       case 'setPortSendsMapped':
       case 'browseSoundFont':
       case 'importSoundLibrary':
-      case 'exportSoundLibrary': {
+      case 'exportSoundLibrary':
+      case 'exportSoundPreset': {
         // A rule may name a catalog entry (#117): it gets that sound's library patch.
         let sc: SoundLibraryCmd = cmd
         if ((cmd.type === 'setFamilyRule' || cmd.type === 'setProgramOverride' || cmd.type === 'setDrumRule') && cmd.patch) {
@@ -1826,6 +1818,17 @@ export class MockSession implements Session {
         const err = this.sound.cmd(sc, t.running)
         if (err) this.message(err, true)
         else if (cmd.type === 'exportSoundLibrary') this.message(`Sound library exported to ${cmd.path ?? '/Users/me/Documents/yahaha/sound-library-export.json'}`)
+        else if (cmd.type === 'exportSoundPreset') this.message(`${this.state.soundLibrary.patches.find((p) => p.id === cmd.id)?.name} exported to ~/Library/Audio/Presets`)
+        break
+      }
+      case 'addToMySounds': {
+        // The entry's library patch, added once (a saved sound is in already).
+        if (!/^(saved|sf|au):/.test(cmd.id)) {
+          this.message(`no sound ${cmd.id}`, true)
+          break
+        }
+        const r = this.catalogMock.patchFor(this.state, cmd.id, (c) => this.cmd(c))
+        if ('error' in r) this.message(r.error, true)
         break
       }
       case 'setSoundFavourite':

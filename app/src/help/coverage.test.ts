@@ -15,6 +15,7 @@ import { MockSession } from '../lib/api/mock'
 import { ui } from '../lib/store.svelte'
 import { tips } from '../lib/tooltip/tip.svelte'
 import { nav as soundNav } from '../panels/sound/nav.svelte'
+import { browserNav } from '../panels/sounds/nav.svelte'
 import { TIPS, isTipKey } from './tooltips'
 
 export const INTERACTIVE = [
@@ -53,6 +54,14 @@ export function untipped(root: ParentNode): string[] {
 
 type Setup = (s: MockSession) => void
 
+/** Clicks the first control with tooltip `key` (a state that needs a click to show). */
+function click(key: string) {
+  const el = document.querySelector<HTMLElement>(`[data-tip="${key}"]`)
+  if (!el) throw new Error(`no control with tooltip ${key}`)
+  el.click()
+  flushSync()
+}
+
 const STATES: [string, Setup][] = [
   ['main screen, playing (demo)', () => {}],
   ['stopped, Sync Start armed', (s) => s.send({ type: 'toggleSyncStart' })],
@@ -67,12 +76,50 @@ const STATES: [string, Setup][] = [
   ['style browser, previewing', (s) => (s.send({ type: 'stop' }), s.send({ type: 'auditionStyle', id: 1 }), (ui.browser = true))],
   ['style browser, style queued for the next bar', (s) => (s.send({ type: 'queueStyle', id: 1 }), (ui.browser = true))],
   ['sound browser open for Right 1', () => (ui.soundBrowser = 0)],
-  ['sound browser, stopped, a plugin part (audition, Edit, Rescan)', (s) => (
+  ['sound browser, stopped, a plugin part (audition)', (s) => (
     s.send({ type: 'stop' }),
     s.send({ type: 'setPartPlugin', part: 0, id: 'aumu dls  appl', state: null }),
     s.advance(1000),
     (ui.soundBrowser = 0)
   )],
+  ['sound browser, Instruments tab', () => ((browserNav.tab = 'instruments'), (ui.soundBrowser = 0))],
+  ['sound browser, Instruments: a font and a playing plugin open (presets, Edit, in process, New sound)', (s) => {
+    s.send({ type: 'setPartPlugin', part: 0, id: 'aumu Smp7 Fake', state: null })
+    s.send({ type: 'listPluginPresets', id: 'au:aumu Smp7 Fake' })
+    s.advance(1000)
+    s.send({ type: 'addToMySounds', id: 'au:aumu Smp7 Fake#f:1' })
+    browserNav.tab = 'instruments'
+    browserNav.open.add('font:GeneralUser-GS.sf2')
+    browserNav.open.add('au:aumu Smp7 Fake')
+    browserNav.open.add('au:aumu Mock Demo')
+    ui.soundBrowser = 0
+  }],
+  // The Sounds tab's Save flow (O3): Save as… open on a plugin part, with the .aupreset
+  // option and its replace question; the edited badge; a library sound selected, with its
+  // details and the delete question; an instrument chip.
+  ['sound browser, Save as… on an edited plugin sound, with .aupreset', (s) => {
+    s.send({ type: 'stop' })
+    s.send({ type: 'listPluginPresets', id: 'au:aumu Smp7 Fake' })
+    s.send({ type: 'setPartPluginPreset', part: 0, id: 'aumu Smp7 Fake', preset: 'f:1' })
+    s.advance(5000)
+    s.send({ type: 'savePartPluginState', part: 0 })
+    ui.soundBrowser = 0
+    flushSync()
+    click('sounds.save')
+    click('sounds.save_preset')
+  }],
+  ['sound browser, a library sound selected: details, delete asked', (s) => {
+    s.send({ type: 'setPartPatch', part: 0, id: 'warm-rhodes' })
+    ui.soundBrowser = 0
+    flushSync()
+    click('sounds.more')
+    click('sound.delete')
+  }],
+  ['sound browser, an instrument chip', () => {
+    ui.soundBrowser = 0
+    flushSync()
+    click('sounds.instrument')
+  }],
   ['sound browser picking for a map rule', () => (ui.soundPick = { title: 'Piano family', value: 'stage-grand', onpick: () => {} })],
   ['settings open', () => (ui.settings = true)],
   ['settings open, a pitch-bend pedal learning its CC', (s) => {
@@ -110,16 +157,13 @@ const STATES: [string, Setup][] = [
     s.send({ type: 'triggerMultiPad', pad: 0 }),
     s.send({ type: 'armMultiPad', pad: 3 })
   )],
-  ['sound library drawer: patches, a patch selected', (s) => {
+  ['sound library drawer: GM map, global, library file', () => ((ui.sound = true), (soundNav.tab = 'gm'))],
+  ['sound library drawer: GM map, this style with its own rules', (s) => {
     ui.sound = true
-    s.send({ type: 'duplicatePatch', id: 'stage-grand' })
-  }],
-  ['sound library drawer: program map, this style', () => {
-    ui.sound = true
-    soundNav.tab = 'map'
+    soundNav.tab = 'gm'
     soundNav.styleScope = true
+    s.send({ type: 'setFamilyRule', family: 4, patch: 'soft-pad', style: true })
   }],
-  ['sound library drawer: this style', () => ((ui.sound = true), (soundNav.tab = 'style'))],
   ['sound library drawer: SoundFont presets, auditioning', (s) => {
     ui.sound = true
     soundNav.tab = 'add'
@@ -138,6 +182,8 @@ afterEach(() => {
   ui.browser = false
   ui.soundBrowser = null
   ui.soundPick = null
+  browserNav.tab = 'sounds'
+  browserNav.open.clear()
   ui.settings = false
   ui.parts = false
   ui.mixer = false
@@ -148,9 +194,8 @@ afterEach(() => {
   ui.multipad = false
   ui.harmony = false
   ui.sound = false
-  soundNav.tab = 'patches'
+  soundNav.tab = 'gm'
   soundNav.styleScope = false
-  soundNav.selected = null
   ui.shiftLatched = false
   tips.help = false
   tips.setFloating(false)

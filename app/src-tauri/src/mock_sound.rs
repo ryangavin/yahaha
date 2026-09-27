@@ -4,7 +4,7 @@
 
 use std::collections::BTreeMap;
 use yahaha::api::*;
-use yahaha::patches::{self, Category, Patch, PatchDefaults, PatchSource, ProgramMap};
+use yahaha::patches::{self, AutoFill, Category, Patch, PatchDefaults, PatchSource, PluginOrigin, ProgramMap, SoundLibrary, SoundTag};
 
 const SF2: &str = "GeneralUser-GS.sf2";
 const FONTS: [&str; 2] = [SF2, "FluidR3_GM.sf2"];
@@ -33,6 +33,13 @@ pub struct MockSound {
     audition: Option<(String, f64)>,
     browse: Option<SoundFontBrowse>,
     last_added: Option<String>,
+    /// The Sound a Plugins-tab plugin plays on each part (a preset's, or Save as…'s).
+    pub plugin_sound: [Option<SoundTag>; 4],
+    /// The part's plugin was edited since its sound loaded (the editor closed, O3).
+    pub edited: [bool; 4],
+    /// The `.aupreset` names `exportSoundPreset` wrote (a second export of one needs
+    /// `overwrite`, as the real preset folder does).
+    exported: Vec<String>,
 }
 
 impl Default for MockSound {
@@ -64,14 +71,22 @@ impl Default for MockSound {
         map.set_override(4, Some("warm-rhodes".into()));
         map.set_override(5, Some("warm-rhodes".into()));
         map.drums = Some("studio-kit".into());
-        MockSound { patches, map, style_maps: BTreeMap::new(), parts: Default::default(), plugin_parts: Default::default(), port: false, audition: None, browse: None, last_added: None }
+        MockSound { patches, map, style_maps: BTreeMap::new(), parts: Default::default(), plugin_parts: Default::default(), port: false, audition: None, browse: None, last_added: None, plugin_sound: Default::default(), edited: [false; 4], exported: Vec::new() }
     }
 }
 
+/// A mock font's presets: the GM set on bank 0; GeneralUser also has kits (so it is the
+/// most GM-complete: the main font, and the auto-fill's first choice).
 pub fn presets(file: &str) -> Vec<Preset> {
     let gm: Vec<Preset> = (0..128u8).map(|p| Preset { bank: 0, program: p, name: format!("{}{}", gm_name(p), if file == SF2 { "" } else { " (Fluid)" }) }).collect();
     let kits = ["Standard", "Room", "Power", "Electronic", "Jazz", "Brush"].iter().enumerate().map(|(i, n)| Preset { bank: 128, program: i as u8 * 8, name: n.to_string() });
+    let kits: Vec<Preset> = if file == SF2 { kits.collect() } else { Vec::new() };
     gm.into_iter().chain(kits).collect()
+}
+
+/// The GM map's auto-fill from the mock's fonts (D4), as the session builds it.
+fn auto_fill() -> AutoFill {
+    AutoFill::build(&FONTS.map(|f| (f.to_string(), presets(f))))
 }
 
 impl MockSound {
@@ -104,6 +119,35 @@ impl MockSound {
             self.plugin_parts[p] = None;
             self.parts[p] = None;
         }
+        self.plugin_sound[p] = None;
+        self.edited[p] = false;
+    }
+
+    /// A plugin preset picked on part `part`: its one library sound (added once, found
+    /// again by its origin), as the session's `link_voice_sound`.
+    pub fn preset_sound(&mut self, part: usize, component: &str, key: &str, name: &str) {
+        let Some(origin) = PluginOrigin::from_preset_key(key) else { return };
+        let i = match self.patches.iter().position(|p| p.source.same_plugin_origin(component, &origin)) {
+            Some(i) => i,
+            None => {
+                let source = PatchSource::Plugin { component_id: component.into(), state: String::new(), origin };
+                self.add(Patch { id: String::new(), name: name.into(), category: Category::SynthLead, tags: vec![], favourite: false, source, defaults: PatchDefaults::default() });
+                self.patches.len() - 1
+            }
+        };
+        self.plugin_sound[part & 3] = Some(self.patches[i].tag());
+    }
+
+    /// The part's plugin's editor closed: its sound counts as edited (the mock has no
+    /// state to fingerprint).
+    pub fn plugin_edited(&mut self, part: usize) {
+        let p = part & 3;
+        self.edited[p] = self.plugin_parts[p].is_some() || self.plugin_sound[p].is_some();
+    }
+
+    /// The library sound part `p` plays through its plugin, if any.
+    fn plugin_sound_id(&self, p: usize) -> Option<String> {
+        self.plugin_parts[p].clone().or_else(|| self.plugin_sound[p].as_ref().map(|t| t.id.strip_prefix("saved:").unwrap_or(&t.id).to_string()))
     }
 
     /// Whether part `part` plays a plugin the Plugins tab picked (not a plugin patch's).
@@ -183,7 +227,23 @@ impl MockSound {
                 let Some(i) = self.at(&id) else { return nope(&id) };
                 self.patches[i].favourite = favourite;
             }
-            SoundLibraryCmd::SavePartAsPatch { part, name } => {
+            SoundLibraryCmd::SaveSound { part } => {
+                // Save (O3): over the user's own sound it plays, else Save as….
+                let p = (part & 3) as usize;
+                let kp = &st.keyboard_parts[p];
+                let current = if kp.plugin.is_some() { self.plugin_sound_id(p) } else { self.parts[p].clone() };
+                let own = current.as_deref().and_then(|id| self.at(id)).filter(|&i| match &self.patches[i].source {
+                    PatchSource::Plugin { component_id, origin, .. } => origin.is_user() && kp.plugin.as_ref().is_some_and(|q| q.id == *component_id),
+                    PatchSource::SoundFont { .. } => kp.plugin.is_none(),
+                });
+                let Some(i) = own else { return self.cmd(st, SoundLibraryCmd::SaveSoundAs { part, name: None }) };
+                let (volume, octave) = (kp.volume, kp.octave);
+                let q = &mut self.patches[i];
+                q.defaults.volume = Some(volume);
+                q.defaults.octave = octave;
+                self.edited[p] = false;
+            }
+            SoundLibraryCmd::SaveSoundAs { part, name } | SoundLibraryCmd::SavePartAsPatch { part, name } => {
                 // What the part plays: its plugin, else its own patch, else the patch the
                 // map sends its GM voice to, else its GM voice (as the session's).
                 let kp = &st.keyboard_parts[(part & 3) as usize];
@@ -222,7 +282,19 @@ impl MockSound {
                 if let Some(n) = name.filter(|n| !n.trim().is_empty()) {
                     p.name = n;
                 }
+                let plugin = matches!(p.source, PatchSource::Plugin { .. });
                 self.add(p);
+                // A part playing a plugin plays the new sound, not edited (O3).
+                let i = (part & 3) as usize;
+                if plugin && let Some(new) = self.patches.last() {
+                    if self.plugin_parts[i].is_some() {
+                        self.parts[i] = Some(new.id.clone());
+                        self.plugin_parts[i] = Some(new.id.clone());
+                    } else {
+                        self.plugin_sound[i] = Some(new.tag());
+                    }
+                    self.edited[i] = false;
+                }
             }
             SoundLibraryCmd::AddPresetAsPatch { file, bank, program, name } => {
                 if !FONTS.contains(&file.as_str()) {
@@ -298,6 +370,21 @@ impl MockSound {
             }
             SoundLibraryCmd::ImportSoundLibrary { path, .. } => return Some(format!("{path}: the mock has no files to import")),
             SoundLibraryCmd::ExportSoundLibrary { .. } => {}
+            SoundLibraryCmd::ExportSoundPreset { id, overwrite } => {
+                let Some(i) = self.at(&id) else { return nope(&id) };
+                let p = &self.patches[i];
+                match &p.source {
+                    PatchSource::Plugin { state, .. } if state.is_empty() => return Some(format!("{} has no settings yet: play it once first", p.name)),
+                    PatchSource::Plugin { .. } => {}
+                    PatchSource::SoundFont { .. } => return Some(format!("{} is a SoundFont preset, not a plugin sound", p.name)),
+                }
+                if self.exported.contains(&p.name) && !overwrite {
+                    return Some(format!("a preset called {} already exists: save under another name, or replace it", p.name));
+                }
+                if !self.exported.contains(&p.name) {
+                    self.exported.push(p.name.clone());
+                }
+            }
         }
         None
     }
@@ -342,8 +429,21 @@ impl MockSound {
                 })
             })
             .collect();
+        let tag = |id: Option<&str>| id.and_then(|id| self.patches.iter().find(|p| p.id == id)).map(Patch::tag);
         for (i, p) in st.keyboard_parts.iter_mut().enumerate() {
             p.patch = self.parts[i].clone();
+            // Now playing (O3): the plugin's sound, else its own or the map's patch.
+            (p.sound, p.sound_edited) = if p.plugin.is_some() {
+                let s = match &self.plugin_parts[i] {
+                    Some(id) => tag(Some(id)),
+                    None => self.plugin_sound[i].clone(),
+                };
+                let edited = self.edited[i] && s.is_some();
+                (s, edited)
+            } else {
+                let own = self.parts[i].clone().filter(|_| !p.plays_bass);
+                (tag(own.as_deref().or(patches::resolve(&self.map, style, false, p.program).patch)), false)
+            };
             if p.plays_bass {
                 continue;
             }
@@ -352,6 +452,9 @@ impl MockSound {
             p.voice_name = own.or(mapped).unwrap_or_else(|| gm[p.program as usize].clone());
         }
         let fonts = FONTS.map(String::from);
+        // The GM map for the style playing, through the engine's own resolution.
+        let lib = SoundLibrary { patches: self.patches.clone(), map: self.map.clone(), style_maps: self.style_maps.clone(), ..SoundLibrary::default() };
+        let gm_map = patches::gm_map_rows(&lib, style.map(|_| key.as_str()), &auto_fill());
         st.sound_library = SoundLibraryState {
             patches: self
                 .patches
@@ -373,6 +476,29 @@ impl MockSound {
             file: Some("/Users/me/Documents/yahaha/sound-library.json".into()),
             extra_sound_fonts: vec![],
             last_added: self.last_added.clone(),
+            gm_map,
         };
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `exportSoundPreset` as the engine: a plugin sound with a state exports, a second
+    /// export of the name needs `overwrite` (#307); no state, a SoundFont sound or an
+    /// unknown id are refused.
+    #[test]
+    fn a_plugin_sound_exports_as_an_aupreset() {
+        let (mut m, mut st) = (MockSound::default(), AppState::default());
+        let export = |m: &mut MockSound, st: &mut AppState, id: &str, overwrite: bool| m.cmd(st, SoundLibraryCmd::ExportSoundPreset { id: id.into(), overwrite });
+        assert!(export(&mut m, &mut st, "keys-au", false).unwrap().contains("no settings yet"));
+        assert!(export(&mut m, &mut st, "stage-grand", false).unwrap().contains("not a plugin sound"));
+        assert!(export(&mut m, &mut st, "nope", false).is_some());
+        let i = m.at("keys-au").unwrap();
+        m.patches[i].source = PatchSource::plugin("aumu Smp7 Fake", "c2FtcGxlciBkZWx1eGU=");
+        assert_eq!(export(&mut m, &mut st, "keys-au", false), None);
+        assert!(export(&mut m, &mut st, "keys-au", false).unwrap().contains("already exists"));
+        assert_eq!(export(&mut m, &mut st, "keys-au", true), None);
     }
 }

@@ -102,6 +102,36 @@ describe('sound catalog (#117)', () => {
   })
 })
 
+describe('now playing, Save and Save as… (O3)', () => {
+  it('a preset names its sound; the editor closing marks it edited; Save and Save as… clear it', () => {
+    const m = new MockSession({ manual: true })
+    m.send({ type: 'listPluginPresets', id: 'au:aumu Smp7 Fake' })
+    m.send({ type: 'setPartPluginPreset', part: 0, id: 'aumu Smp7 Fake', preset: 'f:1' })
+    m.advance(5000)
+    const kp = () => m.state.keyboardParts[0]
+    expect(kp().sound).toMatchObject({ name: 'Bright Grand' })
+    expect(kp().soundEdited).toBeUndefined()
+    const factory = kp().sound!
+    m.send({ type: 'savePartPluginState', part: 0 })
+    expect(kp().soundEdited).toBe(true)
+    // A factory preset's sound is never overwritten: Save is Save as….
+    const n = m.state.soundLibrary.patches.length
+    m.send({ type: 'saveSound', part: 0 })
+    expect(m.state.soundLibrary.patches.length).toBe(n + 1)
+    const mine = kp().sound!
+    expect(mine.id).not.toBe(factory.id)
+    expect(kp().soundEdited).toBeUndefined()
+    // Now the user's own: Save overwrites it.
+    m.send({ type: 'savePartPluginState', part: 0 })
+    m.send({ type: 'saveSound', part: 0 })
+    expect(m.state.soundLibrary.patches.length).toBe(n + 1)
+    expect(kp().sound).toEqual(mine)
+    expect(kp().soundEdited).toBeUndefined()
+    m.send({ type: 'saveSoundAs', part: 0, name: 'Mine 2' })
+    expect(kp().sound?.name).toBe('Mine 2')
+  })
+})
+
 describe('savePartAsPatch (#109)', () => {
   it('saves what the part plays: the mapped patch, else its plugin', () => {
     const m = new MockSession({ manual: true })
@@ -132,12 +162,12 @@ describe('savePartAsPatch (#109)', () => {
     expect(cat.entries.find((e) => e.id === id)?.plugin?.presets).toBe(2)
     // Categories: guessed from the name and folder.
     expect(kids().map((e) => e.category)).toEqual(['strings', 'piano'])
-    // Collapsed in All sounds; open, filtered, or in a category they show.
+    // Not in All sounds (O6): under the plugin's own chip, filtered too.
     const at = (ids: number[]) => ids.map((i) => cat.entries[i].id)
-    expect(at(visibleSounds(cat, { kind: 'all' }, '')).some((x) => x.startsWith(`${id}#`))).toBe(false)
-    expect(at(visibleSounds(cat, { kind: 'all' }, '', new Set([id]))).filter((x) => x.startsWith(`${id}#`)).length).toBe(2)
-    expect(at(visibleSounds(cat, { kind: 'all' }, 'upright'))).toEqual([`${id}#${kids()[1].id.split('#')[1]}`])
-    expect(at(visibleSounds(cat, { kind: 'category', id: 'strings' }, '')).includes(kids()[0].id)).toBe(true)
+    const ctx = { patches: m.state.soundLibrary.patches, gmMap: m.state.soundLibrary.gmMap }
+    expect(at(visibleSounds(cat, { kind: 'all' }, '', ctx)).some((x) => x.startsWith(`${id}#`))).toBe(false)
+    expect(at(visibleSounds(cat, { kind: 'instrument', id }, '', ctx)).filter((x) => x.startsWith(`${id}#`)).length).toBe(2)
+    expect(at(visibleSounds(cat, { kind: 'instrument', id }, 'upright', ctx))).toEqual([`${id}#${kids()[1].id.split('#')[1]}`])
 
     m.send({ type: 'listPluginPresets', id })
     cat = await m.sounds()
@@ -170,6 +200,23 @@ describe('savePartAsPatch (#109)', () => {
     expect(m.state.message?.error).toBe(true)
   })
 
+  it('the Instruments tab: a summary per font, and Add to my sounds adds once without playing', async () => {
+    const m = new MockSession({ manual: true })
+    const cat = await m.sounds()
+    expect(cat.fonts?.map((f) => f.file)).toEqual(m.state.io.soundFonts)
+    expect(cat.fonts?.every((f) => f.presets > 0 && f.gmPrograms <= 128)).toBe(true)
+    const n = m.state.soundLibrary.patches.length
+    const parts = JSON.stringify(m.state.keyboardParts)
+    const upright = 'au:aumu Smp7 Fake#u:/Users/mock/Library/Audio/Presets/Fake Instruments/Sampler Deluxe/Pianos/Upright Piano.aupreset'
+    for (const id of ['sf:FluidR3_GM.sf2:0:48', 'sf:FluidR3_GM.sf2:0:48', upright, upright, 'saved:stage-grand']) m.send({ type: 'addToMySounds', id })
+    expect(m.state.message?.error ?? false).toBe(false)
+    expect(m.state.soundLibrary.patches.length).toBe(n + 2)
+    expect(m.state.soundLibrary.patches.at(-1)!.source).toMatchObject({ kind: 'plugin', origin: { kind: 'file' } })
+    expect(JSON.stringify(m.state.keyboardParts)).toBe(parts)
+    m.send({ type: 'addToMySounds', id: 'sf:FluidR3_GM.sf2:9:9' })
+    expect(m.state.message?.error).toBe(true)
+  })
+
   it('a factory preset is a plugin sound that can be a map rule, found again by its origin', async () => {
     const m = new MockSession({ manual: true })
     const id = 'au:aumu Smp7 Fake'
@@ -185,5 +232,21 @@ describe('savePartAsPatch (#109)', () => {
     m.send({ type: 'setProgramOverride', program: 40, patch: `${id}#f:1`, style: false })
     expect(m.state.soundLibrary.patches.length).toBe(n)
     expect(m.state.soundLibrary.map.overrides.find((o) => o.program === 40)?.patch).toBe(p.id)
+  })
+})
+
+describe('GM map (docs/sound-browser.md)', () => {
+  it("shows each program's sound and deciding layer, the style's rules first", () => {
+    const m = new MockSession({ manual: true })
+    const rows = m.state.soundLibrary.gmMap
+    expect(rows).toHaveLength(129)
+    expect(rows[0].program).toBe(null)
+    expect(rows[0].resolved.layer).toBe('drums')
+    expect(rows[1 + 4].resolved).toMatchObject({ layer: 'override', sound: 'saved:warm-rhodes' })
+    expect(rows[1 + 33].resolved.layer).toBe('family')
+    // Organ has no rule: auto-fill from the most GM-complete font, with its provenance.
+    expect(rows[1 + 16].resolved).toMatchObject({ layer: 'auto', sound: 'sf:GeneralUser-GS.sf2:0:16', font: { file: 'GeneralUser-GS.sf2', bank: 0, program: 16 } })
+    m.send({ type: 'setFamilyRule', family: 2, patch: 'stage-grand', style: true })
+    expect(m.state.soundLibrary.gmMap[1 + 16].resolved).toMatchObject({ layer: 'family', fromStyle: true })
   })
 })

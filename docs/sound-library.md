@@ -11,7 +11,10 @@ plugin rack once that is merged; until then they play the SoundFont fallback.
   `src/synth/routing.rs` (the synth's side), `src/session/sound_library.rs` (commands,
   state, style hand-off, SoundFont loading, auditions).
 - API: `SoundLibraryCmd` and `state.soundLibrary` (docs/app-api.md, "Sound library").
-- App: the Sound Library drawer, and the Library tab of the voice picker.
+- App: the Sound Browser's Sounds tab (My Sounds: rename, recategorise, tags, defaults,
+  duplicate, delete; docs/sound-browser.md "The Sounds tab"), and the Sound Library drawer
+  (the map, this style, adding from a SoundFont, the library file). The drawer's old
+  Patches tab folded into the Sounds tab.
 
 ## Patches
 
@@ -82,7 +85,8 @@ programs they have.
 
 The synth holds one synthesizer per SoundFont the library uses: the main font's two, as
 before, plus one more per extra font (`Rack::with_fonts`). These load on a thread of
-their own, reusing fonts that are already parsed, and swap in like `setSoundFont`.
+their own, reusing fonts that are already parsed, and swap in between two audio buffers.
+The GM map's auto-fill adds any font it fills from (docs/sound-browser.md).
 
 Where each message goes on the audio thread:
 
@@ -134,7 +138,7 @@ value as it is.
   from the per-program table: a small real-time read, no allocation.
 - **Decision: the synth loads every SoundFont a library patch uses**, not just the ones
   the current map needs. The library is small, so assigning a patch never waits for a
-  load. A new font swaps the rack in the same way as `setSoundFont`.
+  load. A new font swaps the rack in between two audio buffers.
 - **Decision: auditions play on channel 16 while the band is stopped**, like the style
   preview. Every channel is taken by a part, and channel 16 (Phrase 2) is silent when the
   band is stopped. Its setup comes back afterwards from the synth's record of it.

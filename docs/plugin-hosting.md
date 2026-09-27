@@ -24,8 +24,8 @@ Status:
 ## Phase 1: the library
 
 ```sh
-cargo test --features plugins plugin                        # unit tests (Apple's DLSMusicDevice)
-cargo test --features plugins --test plugin_rack_no_alloc   # the rack's audio path never allocates
+cargo test --profile test-fast --features plugins plugin                        # unit tests (Apple's DLSMusicDevice)
+cargo test --profile test-fast --features plugins --test plugin_rack_no_alloc   # the rack's audio path never allocates
 cargo build --release --features plugins
 ./target/release/yahaha plugin-test --list                  # installed instruments (cached scan)
 ./target/release/yahaha plugin-test "Serum 2" --bench       # load, state, CPU, swap latency; no audio device
@@ -359,8 +359,8 @@ ctl.channel_plugin(ch) -> Option<api::PartPlugin> // loading | playing | failed 
 ### AU presets (`src/plugin/presets.rs`)
 
 A plugin is not one sound: Kontakt can be a piano on Right 1 and strings on Right 2. The
-Sound Browser lists each plugin's AU presets under it, as Logic and MainStage show them,
-and each preset is a sound of its own.
+Sound Browser lists each plugin's AU presets under its instrument chip, as Logic and
+MainStage list them, and each preset is a sound of its own.
 
 - **Listing.** Factory presets come from `kAudioUnitProperty_FactoryPresets` on an
   instance: every load reads them once per plugin version (a property read on the load
@@ -392,6 +392,14 @@ and each preset is a sound of its own.
   (`sound`: `{ id, name }`). A voice saved before that (a preset key and no `sound`) gets
   the library's sound for its preset when it plays, added once; a factory preset's state
   is captured into that sound the first time it plays.
+- **Edited and Save.** The first state read after a part's sound loads is the baseline;
+  a later read (the autosave's) whose fingerprint differs marks the part edited. Save
+  (`saveSound`) writes the state over the user's own sound; Save as… (`saveSoundAs`) adds
+  a new one. The `.aupreset` export is an option of Save as… ("also as .aupreset", with a
+  category) and keeps its overwrite check; the separate "Save as preset…" button is gone.
+- **In the browser.** A plugin is an instrument chip on the Sounds tab: its chip lists its
+  factory presets (listed on first open), its `.aupreset` files and the sounds made with
+  it. All sounds holds only the library's plugin sounds, not every preset.
 
 ## Phase 2: wiring plan
 

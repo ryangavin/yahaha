@@ -35,8 +35,14 @@ pub enum SoundLibraryCmd {
     MovePatch { id: String, to: u32 },
     /// Mark or unmark a favourite.
     SetPatchFavourite { id: String, favourite: bool },
-    /// Save keyboard part `part`'s sound (its patch, else its GM voice on the synth's
-    /// SoundFont, with its volume and octave) as a new patch.
+    /// Save: keyboard part `part`'s sound as it plays now (its plugin's state, volume and
+    /// octave) over the Sound it plays. A sound that isn't the user's own (a factory
+    /// preset, an `.aupreset` file) or none at all is saved as a new one (`saveSoundAs`).
+    SaveSound { part: u8 },
+    /// Save as…: keyboard part `part`'s sound as a new Sound (named `name`, else after what
+    /// it plays), which the part then plays.
+    SaveSoundAs { part: u8, name: Option<String> },
+    /// The old "Save as patch": `saveSoundAs` (kept for older clients).
     SavePartAsPatch { part: u8, name: Option<String> },
     /// Add a SoundFont preset (`browseSoundFont`) as a new patch.
     AddPresetAsPatch { file: String, bank: u16, program: u8, name: Option<String> },
@@ -84,8 +90,18 @@ pub enum SoundLibraryCmd {
         #[serde(default)]
         maps: bool,
     },
-    /// Write the library to a file (None: `sound-library-export.json` in the data folder).
+    /// Write the library as an export bundle (metadata, maps and every plugin sound's
+    /// state; SoundFonts by file name) to a file (None: `sound-library-export.json` in the
+    /// data folder).
     ExportSoundLibrary { path: Option<String> },
+    /// Export plugin sound `id` as an `.aupreset` named after it, in the plugin's user
+    /// preset folder (`~/Library/Audio/Presets/<Manufacturer>/<Plugin>/`, where Logic
+    /// reads it). A preset of that name that exists is refused unless `overwrite`.
+    ExportSoundPreset {
+        id: String,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        overwrite: bool,
+    },
 }
 
 /// A patch as the state shows it.
@@ -173,4 +189,9 @@ pub struct SoundLibraryState {
     pub extra_sound_fonts: Vec<String>,
     /// The id of the patch last created, duplicated or saved.
     pub last_added: Option<String>,
+    /// The GM map for the style playing (docs/sound-browser.md): 129 rows, the drums then
+    /// programs 0-127, each with its rules and what it resolves to (the Sound, the layer
+    /// that decided it, and the font preset behind it).
+    #[serde(default)]
+    pub gm_map: Vec<crate::patches::GmMapRow>,
 }

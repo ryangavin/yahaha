@@ -159,6 +159,13 @@ mod imp {
         /// The system refused to host it out of process, so it was loaded in process
         /// instead (a crash in it would take yahaha down): the app shows it.
         pub(crate) fell_back: bool,
+        /// The fingerprint of the plugin's own state as its sound left it: the first read
+        /// after it loaded (or after a Save), taken on a `plugin-state` thread. None until
+        /// then, or when the voice names no sound (docs/sound-browser.md, "Edited").
+        pub(crate) sound_fp: Option<u64>,
+        /// The plugin's state no longer matches the sound it was loaded from. It stays set
+        /// until a Save, Save as… or another sound.
+        pub(crate) edited: bool,
     }
 
     impl ChannelPlugin {
@@ -181,6 +188,8 @@ mod imp {
                 recent: OverrunWindow::default(),
                 allow_fallback: false,
                 fell_back: false,
+                sound_fp: None,
+                edited: false,
             }
         }
 
@@ -254,8 +263,20 @@ mod imp {
         /// The instance read (it applies only if the channel still plays it).
         inst: InstanceRef,
         state: Result<Vec<u8>, String>,
+        /// The state's fingerprint ([`state_fingerprint`]), taken on the reading thread.
+        fp: u64,
         /// Say it in the message line if it fails (an explicit save, not the autosave).
         report: bool,
+    }
+
+    /// A plugin state's fingerprint: what the "edited" check compares, so it never holds
+    /// or compares whole states. Taken on the `plugin-state` thread that read the state,
+    /// never on the control or audio threads.
+    pub(crate) fn state_fingerprint(state: &[u8]) -> u64 {
+        use std::hash::{Hash, Hasher};
+        let mut h = std::hash::DefaultHasher::new();
+        state.hash(&mut h);
+        h.finish()
     }
 
     fn stage_name(p: &LoadProgress) -> Option<String> {
@@ -334,6 +355,8 @@ mod imp {
             {
                 self.plugins.playing[ch as usize] = Some(prev);
             }
+            // A recalled or restored state that isn't its sound's is edited from the start.
+            let edited = self.sound_state_differs(voice.sound.as_ref(), voice.state.as_deref());
             self.plugins.channels[ch as usize] = Some(ChannelPlugin {
                 voice,
                 info,
@@ -350,6 +373,8 @@ mod imp {
                 recent: OverrunWindow::default(),
                 allow_fallback,
                 fell_back: false,
+                sound_fp: None,
+                edited,
             });
             Ok(())
         }
@@ -429,11 +454,12 @@ mod imp {
             let ok = std::thread::Builder::new().name("plugin-state".into()).spawn(move || {
                 for (ch, e) in targets {
                     let state = e.state().map_err(|e| format!("{e:#}"));
+                    let fp = state.as_deref().map_or(0, state_fingerprint);
                     let inst = e.instance();
                     // The editor handle goes first: if it held the unit's last reference,
                     // the unit is disposed of here, not on the control thread.
                     drop(e);
-                    if tx.send(StateRead { ch, inst, state, report }).is_err() {
+                    if tx.send(StateRead { ch, inst, state, fp, report }).is_err() {
                         return;
                     }
                 }
@@ -467,6 +493,15 @@ mod imp {
                         if c.voice.state.as_ref() != Some(&s) {
                             c.voice.state = Some(s.clone());
                             self.plugins.dirty = true;
+                        }
+                        // Edited: the first read after the sound loaded is its baseline
+                        // (a plugin's own serialization, not the stored bytes); a later
+                        // read that differs means the editor changed it.
+                        if c.voice.sound.is_some() {
+                            match c.sound_fp {
+                                None => c.sound_fp = Some(r.fp),
+                                Some(fp) => c.edited |= fp != r.fp,
+                            }
                         }
                         // A factory preset's first play: its sound keeps the state.
                         if let Some(tag) = c.voice.sound.clone() {
@@ -511,6 +546,22 @@ mod imp {
                 preset: c.voice.preset.as_ref().map(|p| p.name.clone()),
                 preset_key: c.voice.preset.as_ref().map(|p| p.key.clone()),
             })
+        }
+
+        /// The Sound channel `ch`'s plugin plays, and whether it is edited (O3).
+        pub(crate) fn channel_sound(&self, ch: u8) -> Option<(Option<crate::patches::SoundTag>, bool)> {
+            let c = self.plugins.channels[(ch & 15) as usize].as_ref()?;
+            Some((c.voice.sound.clone(), c.edited && c.voice.sound.is_some()))
+        }
+
+        /// Channel `ch`'s plugin now plays `tag` as it is (a Save or Save as…): not edited,
+        /// and the next state read is the new baseline.
+        pub(crate) fn adopt_channel_sound(&mut self, ch: u8, tag: Option<crate::patches::SoundTag>) {
+            let Some(c) = self.plugins.channels[(ch & 15) as usize].as_mut() else { return };
+            c.voice.sound = tag;
+            c.sound_fp = None;
+            c.edited = false;
+            self.plugins.dirty |= parts::part_of_channel(ch).is_some();
         }
 
         pub(crate) fn plugins_list(&self) -> PluginsState {
@@ -701,6 +752,26 @@ mod imp {
                 .map_err(|e| format!("could not start saving the preset: {e}"))?;
             self.plugins.preset_saves.push(PresetSave { ch: ch & 15, inst, category, rx });
             Ok(())
+        }
+
+        /// Write a plugin sound's `state` as the user preset `name` of its plugin (the
+        /// `.aupreset` Save as preset writes, in the folder Logic reads). An existing preset
+        /// of that name is refused unless `overwrite` (the app asks Replace/Cancel, #307).
+        /// The file is small and written at once; no instance is needed.
+        pub(crate) fn export_state_as_preset(&mut self, component_id: &str, name: &str, state: &[u8], overwrite: bool) -> Result<std::path::PathBuf, String> {
+            let name = name.trim();
+            if name.is_empty() {
+                return Err("name the preset".into());
+            }
+            let pid = PluginId::parse(component_id).ok_or("the sound's plugin has no valid id")?;
+            let host = self.plugins.host();
+            if host.cached(&pid).is_none() {
+                return Err("the sound's plugin is not installed".into());
+            }
+            if !overwrite && host.user_preset_exists(&pid, name) {
+                return Err(crate::plugin::presets::PresetExists(crate::plugin::presets::safe_name(name)).to_string());
+            }
+            host.save_user_preset(&pid, name, state, overwrite).map(|p| p.path).map_err(|e| format!("{e:#}"))
         }
 
         /// Preset listings and saves that finished.
@@ -894,7 +965,10 @@ mod imp {
                             }
                             let c = self.plugins.channels[ch as usize].as_ref().unwrap();
                             let id = c.voice.id.clone();
-                            if c.voice.preset.is_some() && c.voice.state.is_none() {
+                            // A keyboard part's sound: that first read is also the "edited"
+                            // check's baseline.
+                            let baseline = parts::part_of_channel(ch).is_some() && c.voice.sound.is_some();
+                            if (c.voice.preset.is_some() && c.voice.state.is_none()) || baseline {
                                 let e = c.editor.clone().unwrap();
                                 self.read_states(vec![(ch, e)], false);
                             }
@@ -1086,6 +1160,10 @@ impl Control {
     pub(crate) fn plugin_state_reads_pending(&self) -> bool {
         false
     }
+    pub(crate) fn channel_sound(&self, _ch: u8) -> Option<(Option<crate::patches::SoundTag>, bool)> {
+        None
+    }
+    pub(crate) fn adopt_channel_sound(&mut self, _ch: u8, _tag: Option<crate::patches::SoundTag>) {}
     pub(crate) fn warm_plugins(&mut self, _want: Vec<PluginVoice>) {}
     pub(crate) fn plugins_list(&self) -> PluginsState {
         PluginsState::default()
@@ -1113,6 +1191,9 @@ impl Control {
         Err("this build has no plugin host".into())
     }
     pub(crate) fn save_part_as_preset(&mut self, _ch: u8, _name: &str, _category: crate::api::PatchCategory, _overwrite: bool) -> Result<(), String> {
+        Err("this build has no plugin host".into())
+    }
+    pub(crate) fn export_state_as_preset(&mut self, _component_id: &str, _name: &str, _state: &[u8], _overwrite: bool) -> Result<std::path::PathBuf, String> {
         Err("this build has no plugin host".into())
     }
 }

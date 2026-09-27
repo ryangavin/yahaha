@@ -72,6 +72,7 @@ impl Control {
                 let plays_bass = p == parts::LEFT && kp.manual_bass.load(Relaxed);
                 // Its own sound library patch, and the patch its channel plays (#103).
                 let (patch, plays) = self.part_sound(p);
+                let (sound, sound_edited) = self.part_sound_tag(p);
                 KeyboardPart {
                     name: parts::NAMES[p].to_string(),
                     channel: parts::CHANNEL[p] + 1,
@@ -91,6 +92,8 @@ impl Control {
                     fader: v.fader_hw[p],
                     plugin: self.channel_plugin_state(parts::CHANNEL[p]),
                     patch,
+                    sound,
+                    sound_edited,
                 }
             })
             .collect()

@@ -15,7 +15,7 @@ use crate::api::{
 };
 use crate::engine::Prepared;
 use crate::patches::route::{AUDITION, AUDITION_CHANNEL, MAX_FONTS};
-use crate::patches::{self, Category, Patch, PatchDefaults, PatchSource, ProgramMap, Route, Routes, SoundLibrary};
+use crate::patches::{self, AutoFill, Category, GmResolution, Layer, Patch, PatchDefaults, PatchSource, ProgramMap, Route, Routes, SoundId, SoundLibrary};
 use crate::{parts, synth};
 use rtrb::Producer;
 use rustysynth::SoundFont;
@@ -105,7 +105,7 @@ pub(super) type Pending = (u8, String, Usage, u64);
 
 /// The control side's sound library.
 pub(super) struct SoundLib {
-    lib: SoundLibrary,
+    pub(in crate::session) lib: SoundLibrary,
     /// Where it is saved (None: nowhere).
     path: Option<PathBuf>,
     /// The file there could not be read: it is never saved over (the text says why).
@@ -145,6 +145,14 @@ pub(super) struct SoundLib {
     browse: Option<SoundFontBrowse>,
     last_added: Option<String>,
     save_fill: Option<SaveFill>,
+    /// The GM map's auto-fill layer from the scanned fonts (D4, session/gm_auto.rs).
+    pub(super) auto: AutoFill,
+    /// The most GM-complete font in the folder: the synth's main font unless `--sf2` pins
+    /// another.
+    pub(super) best: Option<String>,
+    /// The main font the synth plays (a channel with no route plays it): an auto-fill
+    /// from this font needs no route, so the style's own bank variations still play.
+    pub(super) native: Option<String>,
 }
 
 impl SoundLib {
@@ -179,6 +187,9 @@ impl SoundLib {
             browse: None,
             last_added: None,
             save_fill: None,
+            auto: AutoFill::default(),
+            best: None,
+            native: None,
         }
     }
 
@@ -217,6 +228,7 @@ impl SoundLib {
             || self.loading.as_deref().is_some_and(has)
             || self.audition.as_ref().is_some_and(|a| a.font.as_deref() == Some(file))
             || self.lib.patches.iter().any(|p| matches!(&p.source, PatchSource::SoundFont { file: f, .. } if f == file))
+            || self.auto.programs.iter().flatten().chain(self.auto.drums.as_ref()).any(|f| f.file == file)
     }
 
     /// The synth starts on `main`.
@@ -240,18 +252,61 @@ impl SoundLib {
         Some(Route::sound_font(self.font_id(&file)?, bank, program))
     }
 
-    /// Write table bank `bank` for the style stored under `key`.
-    fn write_bank(&mut self, routes: &Routes, bank: u8, key: &str, avail: &[String]) {
-        let style = self.lib.style_maps.get(key);
-        let ids: Vec<Option<String>> =
-            (0..128u8).map(|p| patches::resolve(&self.lib.map, style, false, p).patch.map(str::to_string)).collect();
-        let drum = patches::resolve(&self.lib.map, style, true, 0).patch.map(str::to_string);
-        let mut prog = [None; 128];
-        for (p, id) in ids.iter().enumerate() {
-            prog[p] = id.as_deref().and_then(|id| self.route_of(id, avail));
+    /// How the synth plays a GM map resolution (`patches::resolve_gm`): a rule's patch as
+    /// `route_of`; an auto-fill as its font preset, except one from the main font, which
+    /// needs no route (the main font plays the style's own bank and program, variations
+    /// included, as it always has).
+    fn route_of_gm(&mut self, r: &GmResolution, avail: &[String]) -> Option<Route> {
+        match r.layer {
+            Layer::Drums | Layer::Override | Layer::Family => match SoundId::parse(r.sound.as_deref()?)? {
+                SoundId::Library(id) => self.route_of(&id, avail),
+                SoundId::Font(_) => None,
+            },
+            Layer::Auto => {
+                let f = r.font.as_ref()?;
+                if self.native.as_deref() == Some(f.file.as_str()) || !avail.contains(&f.file) {
+                    return None;
+                }
+                Some(Route::sound_font(self.font_id(&f.file)?, f.bank, f.program))
+            }
+            Layer::None => None,
         }
-        let drum = drum.as_deref().and_then(|id| self.route_of(id, avail));
+    }
+
+    /// The GM map for the style stored under `key`: the drums, then programs 0-127, each
+    /// through its layers (drums, override, family, auto; the style's rules before the
+    /// global ones). Control side only.
+    fn resolve_all(&self, key: &str) -> (GmResolution, Vec<GmResolution>) {
+        let style = Some(key).filter(|k| self.lib.style_maps.contains_key(*k));
+        let drum = patches::resolve_gm(&self.lib, style, &self.auto, true, 0);
+        (drum, (0..128u8).map(|p| patches::resolve_gm(&self.lib, style, &self.auto, false, p)).collect())
+    }
+
+    /// Write table bank `bank` for the style stored under `key`: the GM map resolved off
+    /// the real-time threads (O8).
+    fn write_bank(&mut self, routes: &Routes, bank: u8, key: &str, avail: &[String]) {
+        let (drum, progs) = self.resolve_all(key);
+        let mut prog = [None; 128];
+        for (p, r) in progs.iter().enumerate() {
+            prog[p] = self.route_of_gm(r, avail);
+        }
+        let drum = self.route_of_gm(&drum, avail);
         routes.write_bank(bank, &prog, drum);
+    }
+
+    /// The map page's rows for the style playing (`patches::gm_map_rows`).
+    fn gm_map_rows(&self) -> Vec<patches::GmMapRow> {
+        let key = Some(self.cur_key.as_str()).filter(|k| self.lib.style_maps.contains_key(*k));
+        patches::gm_map_rows(&self.lib, key, &self.auto)
+    }
+
+    /// The fonts other than `main` the auto-fill plays (they need to be in the rack).
+    fn auto_fonts(&self, main: &str) -> Vec<String> {
+        let mut v: Vec<String> =
+            self.auto.programs.iter().flatten().chain(self.auto.drums.as_ref()).map(|f| f.file.clone()).filter(|f| f != main).collect();
+        v.sort();
+        v.dedup();
+        v
     }
 
     fn write_parts(&mut self, routes: &Routes, avail: &[String]) {
@@ -262,7 +317,7 @@ impl SoundLib {
 
     /// Rewrite everything the table holds: the playing style's bank, a pending style's, the
     /// parts'.
-    fn write_all(&mut self, routes: &Routes, avail: &[String]) {
+    pub(super) fn write_all(&mut self, routes: &Routes, avail: &[String]) {
         let (bank, key) = (self.cur_bank, self.cur_key.clone());
         self.write_bank(routes, bank, &key, avail);
         if let Some((b, k, _, _)) = self.pending.clone() {
@@ -295,7 +350,7 @@ impl SoundLib {
     }
 
     /// The SoundFonts the synth should have: the main one, then every other one a library
-    /// patch (or the audition) plays, if it is in the folder.
+    /// patch, the GM map's auto-fill (or the audition) plays, if it is in the folder.
     fn wanted_fonts(&self, main: &str, avail: &[String], dir: Option<&Path>) -> Vec<String> {
         let mut extra: Vec<String> = self
             .lib
@@ -305,6 +360,7 @@ impl SoundLib {
                 PatchSource::SoundFont { file, .. } => Some(file.clone()),
                 PatchSource::Plugin { .. } => None,
             })
+            .chain(self.auto_fonts(main))
             .chain(self.audition.as_ref().and_then(|a| a.font.clone()))
             .filter(|f| f != main && avail.contains(f) && !self.still_failed(f, dir))
             .collect();
@@ -381,7 +437,7 @@ fn stamp(path: &Path) -> Option<(std::time::SystemTime, u64)> {
 }
 
 impl Control {
-    fn avail_fonts(&self) -> Vec<String> {
+    pub(super) fn avail_fonts(&self) -> Vec<String> {
         if self.sf_dir.is_some() { self.sound_fonts.clone() } else { Vec::new() }
     }
 
@@ -502,7 +558,8 @@ impl Control {
                 let i = self.need_patch(&id)?;
                 self.sound.lib.patches[i].favourite = favourite;
             }
-            SoundLibraryCmd::SavePartAsPatch { part, name } => return self.save_part_as_patch(part as usize & 3, name),
+            SoundLibraryCmd::SaveSound { part } => return self.save_part_sound(part as usize & 3),
+            SoundLibraryCmd::SaveSoundAs { part, name } | SoundLibraryCmd::SavePartAsPatch { part, name } => return self.save_part_sound_as(part as usize & 3, name),
             SoundLibraryCmd::AddPresetAsPatch { file, bank, program, name } => {
                 self.need_sound_font(&file)?;
                 let name = name.filter(|n| !n.trim().is_empty()).unwrap_or_else(|| self.preset_name(&file, bank, program));
@@ -582,6 +639,7 @@ impl Control {
             }
             SoundLibraryCmd::ImportSoundLibrary { path, replace, maps } => return self.import_sound_library(&path, replace, maps),
             SoundLibraryCmd::ExportSoundLibrary { path } => return self.export_sound_library(path),
+            SoundLibraryCmd::ExportSoundPreset { id, overwrite } => return self.export_sound_preset(&id, overwrite),
         }
         self.sound_library_changed();
         Ok(())
@@ -663,6 +721,118 @@ impl Control {
         Ok(())
     }
 
+    /// Save as… (O3): what the part plays as a new Sound (`save_part_as_patch`), which a
+    /// part playing a plugin then plays: its name shows, and it is no longer edited.
+    fn save_part_sound_as(&mut self, part: usize, name: Option<String>) -> Result<(), CmdError> {
+        self.save_part_as_patch(part, name)?;
+        if let Some(id) = self.sound.last_added.clone() {
+            self.adopt_part_sound(part, &id);
+        }
+        Ok(())
+    }
+
+    /// Save (O3): the part's sound as it plays now over the Sound it plays: a plugin
+    /// sound's state (read fresh, as Save as… does), and its volume and octave. Only the
+    /// user's own sounds are overwritten; a factory preset, an `.aupreset` file's sound, a
+    /// part playing no sound, or a sound of another plugin is saved as a new one instead.
+    fn save_part_sound(&mut self, part: usize) -> Result<(), CmdError> {
+        let ch = parts::CHANNEL[part];
+        let current = match self.channel_sound(ch) {
+            Some((tag, _)) => tag.and_then(|t| match patches::SoundId::parse(&t.id) {
+                Some(patches::SoundId::Library(id)) => Some(id),
+                _ => None,
+            }),
+            None => self.sound.part_patch[part].clone(),
+        };
+        let voice = self.part_plugin_voice(part);
+        let own = current.as_deref().and_then(|id| self.sound.lib.patch(id)).is_some_and(|p| match &p.source {
+            PatchSource::Plugin { component_id, origin, .. } => origin.is_user() && voice.as_ref().is_some_and(|(v, _)| v == component_id),
+            PatchSource::SoundFont { .. } => voice.is_none(),
+        });
+        let (Some(id), true) = (current, own) else { return self.save_part_sound_as(part, None) };
+        let Some(i) = self.sound.lib.index_of(&id) else { return self.save_part_sound_as(part, None) };
+        let kp = self.shared.parts.clone();
+        let mut p = self.sound.lib.patches[i].clone();
+        p.defaults.volume = Some(kp.volume(part));
+        p.defaults.octave = kp.octave[part].load(Relaxed).clamp(-2, 2);
+        p.defaults = p.defaults.clamped();
+        let mut fill = None;
+        if let (PatchSource::Plugin { component_id, state, .. }, Some((_, now))) = (&mut p.source, &voice) {
+            if let Some(now) = now {
+                *state = now.clone();
+            }
+            if self.channel_plugin_state(ch).is_some_and(|s| s.status == PluginStatus::Playing) {
+                fill = Some((component_id.clone(), state.clone()));
+            }
+        }
+        let (name, tag) = (p.name.clone(), p.tag());
+        self.sound.lib.patches[i] = p;
+        self.refresh_part_plugin_voices(&id);
+        self.sound_library_changed();
+        if voice.is_some() {
+            self.adopt_channel_sound(ch, Some(tag));
+        }
+        if let Some((component_id, old)) = fill
+            && self.save_channel_state(ch).is_ok()
+        {
+            self.sound.save_fill = Some(SaveFill { patch: id, part, component_id, old, since: 0 });
+        }
+        self.say(format!("Saved {name}"), false);
+        Ok(())
+    }
+
+    /// After Save as…: a part playing a plugin plays the new Sound `id` (a part whose own
+    /// patch it was plays the new patch, keeping its instance).
+    fn adopt_part_sound(&mut self, part: usize, id: &str) {
+        let ch = parts::CHANNEL[part];
+        let Some(p) = self.sound.lib.patch(id).cloned() else { return };
+        if !matches!(p.source, PatchSource::Plugin { .. }) || self.channel_sound(ch).is_none() {
+            return;
+        }
+        if self.sound.part_plugin[part].is_some() {
+            self.sound.part_patch[part] = Some(p.id.clone());
+            self.sound.part_plugin[part] = Some((p.id.clone(), plugin_voice(&p)));
+            let (avail, routes) = (self.avail_fonts(), self.shared.routes.clone());
+            self.sound.write_parts(&routes, &avail);
+        }
+        self.adopt_channel_sound(ch, Some(p.tag()));
+    }
+
+    /// The parts playing library sound `id` as their own patch keep their instance when
+    /// its state changes (a capture, a Save): their remembered voice is updated in place,
+    /// so `sync_part_plugins` doesn't load it again.
+    fn refresh_part_plugin_voices(&mut self, id: &str) {
+        let voice = self.sound.lib.patch(id).map(plugin_voice);
+        for pp in self.sound.part_plugin.iter_mut().flatten() {
+            if pp.0 == id
+                && let Some(v) = &voice
+            {
+                pp.1 = v.clone();
+            }
+        }
+    }
+
+    /// The Sound keyboard part `part` plays (O3), and whether its plugin's state was
+    /// edited: its plugin's sound, else its own patch or the one the map gives its voice.
+    pub(super) fn part_sound_tag(&self, part: usize) -> (Option<patches::SoundTag>, bool) {
+        if let Some((tag, edited)) = self.channel_sound(parts::CHANNEL[part]) {
+            return (tag, edited);
+        }
+        (self.part_plays(part).and_then(|id| self.sound.lib.patch(&id).map(Patch::tag)), false)
+    }
+
+    /// A plugin voice's state is not its sound's (a recalled or restored edit): the stored
+    /// sound has a state, and it is another. Compared once, when the voice is assigned.
+    #[cfg_attr(not(feature = "plugins"), allow(dead_code))]
+    pub(crate) fn sound_state_differs(&self, tag: Option<&patches::SoundTag>, state: Option<&[u8]>) -> bool {
+        let (Some(tag), Some(state)) = (tag, state) else { return false };
+        let Some(patches::SoundId::Library(id)) = patches::SoundId::parse(&tag.id) else { return false };
+        match self.sound.lib.patch(&id).map(|p| &p.source) {
+            Some(PatchSource::Plugin { state: saved, .. }) if !saved.is_empty() => *saved != crate::api::base64_encode(state),
+            _ => false,
+        }
+    }
+
     /// Every pump: once the fresh read of a saved plugin patch's plugin state is done, the
     /// state goes into the patch, if the part still plays that plugin and the patch still
     /// has the state it was saved with.
@@ -688,6 +858,8 @@ impl Control {
             && *state == f.old
         {
             *state = new;
+            // A part playing it as its own patch keeps its instance (Save, Save as…).
+            self.refresh_part_plugin_voices(&f.patch);
             self.sound_library_changed();
         }
     }
@@ -837,11 +1009,15 @@ impl Control {
             Ok(t) => t,
             Err(e) => return self.sl_fail(format!("{path}: {e}")),
         };
-        let other = match SoundLibrary::from_json(&text) {
+        let (other, fonts) = match SoundLibrary::read_bundle(&text) {
             Ok(l) => l,
             Err(e) => return self.sl_fail(format!("{path}: {e:#}")),
         };
         let n = other.patches.len();
+        // SoundFonts resolve by file name in this SoundFont folder. A missing one's sounds
+        // are kept (they play once the file is there) and reported, never dropped.
+        let avail = self.avail_fonts();
+        let missing: Vec<String> = fonts.into_iter().filter(|f| !avail.contains(f)).collect();
         if replace {
             // A library file that could not be read (a newer yahaha's, or damaged) is kept
             // beside the new one before the new one is saved over it.
@@ -861,6 +1037,9 @@ impl Control {
             self.say(format!("Imported {added} of {n} patches{kept}"), self.sound.locked.is_some());
         }
         self.sound_library_changed();
+        if !missing.is_empty() {
+            self.say(format!("Imported; SoundFonts not in the SoundFont folder: {}. Their sounds are kept and play once the files are there", missing.join(", ")), true);
+        }
         Ok(())
     }
 
@@ -869,12 +1048,36 @@ impl Control {
             Some(p) => p,
             None => return self.sl_fail("no data folder to export to"),
         };
-        match self.sound.lib.save(&path) {
+        let tmp = path.with_extension("json.tmp");
+        let written = path
+            .parent()
+            .map_or(Ok(()), std::fs::create_dir_all)
+            .and_then(|_| std::fs::write(&tmp, self.sound.lib.to_bundle_json()))
+            .and_then(|_| std::fs::rename(&tmp, &path))
+            .map_err(|e| anyhow::anyhow!("{}: {e}", path.display()));
+        match written {
             Ok(()) => {
                 self.say(format!("Sound library exported to {}", path.display()), false);
                 Ok(())
             }
             Err(e) => self.sl_fail(format!("{e:#}")),
+        }
+    }
+
+    fn export_sound_preset(&mut self, id: &str, overwrite: bool) -> Result<(), CmdError> {
+        let Some(p) = self.sound.lib.patch(id).cloned() else { return self.sl_fail(format!("no sound {id}")) };
+        let PatchSource::Plugin { component_id, state, .. } = &p.source else {
+            return self.sl_fail(format!("{} is a SoundFont preset, not a plugin sound", p.name));
+        };
+        let Some(bytes) = crate::api::base64_decode(state).filter(|b| !b.is_empty()) else {
+            return self.sl_fail(format!("{} has no settings yet: play it once first", p.name));
+        };
+        match self.export_state_as_preset(component_id, &p.name, &bytes, overwrite) {
+            Ok(path) => {
+                self.say(format!("{} exported to {}", p.name, path.display()), false);
+                Ok(())
+            }
+            Err(e) => self.sl_fail(e),
         }
     }
 
@@ -1169,13 +1372,15 @@ impl Control {
         let dir = self.sf_dir.clone();
         if can_swap
             && self.sound.loading.is_none()
-            && let Some(main) = self.sf_file.clone()
+            && let Some(main) = self.wanted_main_font()
             && !self.sound.still_failed(&main, dir.as_deref())
             && self.sound.wanted_fonts(&main, &self.avail_fonts(), dir.as_deref()) != self.sound.rack_fonts
         {
-            // The folder as it is now (a file may have come or gone), then decide again.
+            // The folder as it is now (a file may have come or gone: the auto-fill and the
+            // main font follow it), then decide again.
             self.list_sound_fonts();
-            if self.sound.wanted_fonts(&main, &self.avail_fonts(), dir.as_deref()) != self.sound.rack_fonts
+            if let Some(main) = self.wanted_main_font()
+                && self.sound.wanted_fonts(&main, &self.avail_fonts(), dir.as_deref()) != self.sound.rack_fonts
                 && let Some(rx) = self.sound_library_rack(&main)
             {
                 self.sf_load = Some((main, rx));
@@ -1256,6 +1461,7 @@ impl Control {
             file: self.sound.path.as_ref().map(|p| p.display().to_string()),
             extra_sound_fonts: self.sound.rack_fonts.iter().skip(1).cloned().collect(),
             last_added: self.sound.last_added.clone(),
+            gm_map: self.sound.gm_map_rows(),
         }
     }
 }
@@ -1286,14 +1492,7 @@ impl Control {
         if !self.sound.lib.capture_state(&id, &crate::api::base64_encode(state)) {
             return;
         }
-        let voice = self.sound.lib.patch(&id).map(plugin_voice);
-        for pp in self.sound.part_plugin.iter_mut().flatten() {
-            if pp.0 == id
-                && let Some(v) = &voice
-            {
-                pp.1 = v.clone();
-            }
-        }
+        self.refresh_part_plugin_voices(&id);
         self.save_library();
     }
 

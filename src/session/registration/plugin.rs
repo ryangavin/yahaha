@@ -84,7 +84,10 @@ impl Control {
         let (id, state) = self.part_plugin_voice(p)?;
         let name = self.channel_plugin_state(parts::CHANNEL[p]).map(|s| s.name).unwrap_or_default();
         let state = state.filter(|s| s.len() <= MAX_STATE_B64);
-        Some(VoiceRef::Plugin { id, name, state, program: self.shared.parts.program[p].load(Relaxed) & 127, sound: None })
+        // The Sound it plays, so recall shows its name (O4). An edited sound is still
+        // named: the state stored is the edit, and recall shows it edited.
+        let sound = self.channel_sound(parts::CHANNEL[p]).and_then(|(s, _)| s);
+        Some(VoiceRef::Plugin { id, name, state, program: self.shared.parts.program[p].load(Relaxed) & 127, sound })
     }
 
     /// Recall part `p`'s plugin: nothing when it already plays that plugin with that

@@ -138,6 +138,43 @@ export interface SoundLibraryState {
   file: string | null
   extraSoundFonts: string[]
   lastAdded: string | null
+  /** The GM map for the style playing (docs/sound-browser.md): the drums row, then
+   * programs 0–127. */
+  gmMap: GmMapRow[]
+}
+
+/** The GM map layer that decided a program (`patches::Layer`). */
+export type GmLayer = 'drums' | 'override' | 'family' | 'auto' | 'none'
+
+/** A font preset: file, SoundFont bank (128 = kits) and program (D6 provenance). */
+export interface FontPreset {
+  file: string
+  bank: number
+  program: number
+}
+
+/** What a program resolved to (`patches::GmResolution`). */
+export interface GmResolution {
+  /** A Sound id (`saved:<patch>` for a rule, `sf:<file>:<bank>:<program>` for auto); null:
+   * nothing covers it. */
+  sound: string | null
+  layer: GmLayer
+  /** The rule is the style's own. */
+  fromStyle: boolean
+  /** The font preset that plays, when a font does. */
+  font: FontPreset | null
+}
+
+/** One row of the map page (`patches::GmMapRow`). */
+export interface GmMapRow {
+  /** 0–127; null for the drums row. */
+  program: number | null
+  /** 0–15; null for the drums row. */
+  family: number | null
+  overrideRule: string | null
+  /** The family's rule; on the drums row, the drum rule. */
+  familyRule: string | null
+  resolved: GmResolution
 }
 
 export type SoundLibraryCmd =
@@ -147,7 +184,12 @@ export type SoundLibraryCmd =
   | { type: 'duplicatePatch'; id: string }
   | { type: 'movePatch'; id: string; to: number }
   | { type: 'setPatchFavourite'; id: string; favourite: boolean }
-  /** A keyboard part's sound as a new patch. */
+  /** Save: the part's sound as it plays now over the user's own Sound it plays (else as
+   * a new one, as `saveSoundAs`). */
+  | { type: 'saveSound'; part: number }
+  /** Save as…: the part's sound as a new Sound, which the part then plays. */
+  | { type: 'saveSoundAs'; part: number; name: string | null }
+  /** The old "Save as patch": `saveSoundAs` (kept for older clients). */
   | { type: 'savePartAsPatch'; part: number; name: string | null }
   | { type: 'addPresetAsPatch'; file: string; bank: number; program: number; name: string | null }
   /** Plays it on its own for a moment (the band must be stopped). */
@@ -164,7 +206,10 @@ export type SoundLibraryCmd =
   | { type: 'setPortSendsMapped'; on: boolean }
   | { type: 'browseSoundFont'; file: string | null }
   | { type: 'importSoundLibrary'; path: string; replace?: boolean; maps?: boolean }
+  /** Writes the library as a bundle (metadata, maps, every plugin sound's state; SoundFonts by file name). */
   | { type: 'exportSoundLibrary'; path: string | null }
+  /** Exports a plugin sound as an `.aupreset` in its plugin's preset folder (Logic reads it); an existing one needs `overwrite`. */
+  | { type: 'exportSoundPreset'; id: string; overwrite?: boolean }
 
 export const CATEGORY_LABELS: Record<PatchCategory, string> = {
   piano: 'Piano',

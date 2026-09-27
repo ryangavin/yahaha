@@ -94,4 +94,13 @@ pub struct KeyboardPart {
     /// plays, through the program map (`voiceName` names the patch it resolves to).
     #[serde(default)]
     pub patch: Option<String>,
+    /// The Sound it plays (docs/sound-browser.md): its plugin's sound, else its own patch
+    /// or the patch the map gives its voice. Absent: an unnamed plugin state or a bare GM
+    /// voice. The footer reads "<name> plays <instrument> · <sound>".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sound: Option<crate::patches::SoundTag>,
+    /// Its plugin's state no longer matches `sound` (edited in the plugin's editor, or a
+    /// recalled edit): Save or Save as… keeps it. Left out when false.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub sound_edited: bool,
 }

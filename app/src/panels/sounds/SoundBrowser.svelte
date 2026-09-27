@@ -1,32 +1,33 @@
 <!--
-  The Sound Browser (#117): one list of every sound for a keyboard part, whatever it
-  comes from: SoundFont presets, instrument plugins, saved sounds (a modal over the
-  mirror, open while `ui.soundBrowser` is a part). With `pick` it picks for something else
-  instead, a program map rule: Enter or a click hands the sound over and closes.
+  The Sound Browser's Sounds tab (#117, docs/sound-browser.md "The Sounds tab"): the
+  sounds a keyboard part can play (a modal over the mirror, open while `ui.soundBrowser`
+  is a part). With `pick` it picks for something else instead, a program map rule: Enter
+  or a click hands the sound over and closes.
 
-  ┌ All sounds   ┐┌ Filter ─────────────────────────── 1,219 of 1,219 ┐
-  │ ★ Favourites ││ ☆ Grand Piano      SF  GeneralUser-GS.sf2      ▶ │  virtualised
-  │ ↺ Recent     ││ ☆ Serum            AU  Xfer Records  ⚠         ▶ │
-  │ CATEGORIES   ││ …                                                 │
-  └──────────────┘└ Right 1 plays: Grand Piano · [Synth Lead ▾] · Edit… · Rescan ┘
+  ┌ All sounds   ┐┌ Filter ─────────────────────────────── 142 of 1,219 ┐
+  │ ★ Favourites ││ ☆ Grand Piano      SF  GeneralUser-GS · GM 1      ▶ │  virtualised
+  │ ↺ Recent     ││ ☆ Silk Strings     Mine Sampler Deluxe            ▶ │
+  │ ● My Sounds  ││ …                                                   │
+  │ CATEGORIES   │├ [Silk Strings] [Strings ▾] Details Duplicate Delete… ┤  a library sound
+  │ INSTRUMENTS  │└ Right 1 plays Sampler Deluxe · Silk Strings  edited  Save  Save as… ┘
+  └──────────────┘
 
-  The footer's category picker shows while the selected row is a plugin: its category is
-  guessed from its name, and the picker corrects it (`setSoundCategory`).
+  Chips: All sounds is the GM map's resolved sounds (one row per program and the kit),
+  every plugin sound and everything in My Sounds. Every other preset of a font, and a
+  plugin's factory presets and .aupreset files, are under that instrument's chip.
+
+  Two tabs (docs/sound-browser.md, D2): Sounds (this list) and Instruments
+  (Instruments.svelte: each font and plugin with its presets, and the plugin housekeeping,
+  category, Edit…, in process and Rescan, that used to sit in this footer).
 
   Keys (the filter keeps focus): ↑/↓ PgUp/PgDn Home/End move; Enter plays the sound on
   the part (the browser stays open, as the Genos Voice Selection does); Shift+Enter
-  auditions (the band stopped); Ctrl/⌘+D stars; Esc closes; → / ← open and close a
-  plugin's presets.
-
-  AU presets: a plugin row's ▸ lists its presets under it (factory presets and the
-  `.aupreset` files in ~/Library/Audio/Presets, as Logic shows them). A preset is a sound
-  of its own: each part that picks one gets an instance of the plugin with that preset.
-  "Save as preset…" keeps what the part's plugin plays now (a Kontakt instrument loaded
-  in its editor, say) as an `.aupreset`, filed under a category.
+  auditions (the band stopped); Ctrl/⌘+D stars; Ctrl/⌘+S saves; Ctrl/⌘+Shift+S saves
+  as…; F2 renames the selected library sound; Ctrl/⌘+Delete deletes it (asked first); Esc
+  closes. Tab reaches every chip and button.
 -->
 <script lang="ts">
   import { onDestroy, onMount, tick } from 'svelte'
-  import { SvelteSet } from 'svelte/reactivity'
   import { app, ui, type SoundPick } from '../../lib/store.svelte'
   import { tip, tips } from '../../lib/tooltip/tip.svelte'
   import HwButton from '../../lib/ui/HwButton.svelte'
@@ -35,7 +36,10 @@
   import type { PatchCategory } from '../../lib/api/types'
   import { moveCursor } from '../browser/model'
   import { pluginStatusLine } from '../parts/parts'
-  import { SOURCE_BADGE, categoryCounts, expandable, playingId, visibleSounds, type SoundView } from './model'
+  import Instruments from './Instruments.svelte'
+  import { browserNav, type BrowserTab } from './nav.svelte'
+  import SoundEdit from './SoundEdit.svelte'
+  import { SOURCE_BADGE, allSoundIds, categoryCounts, instrumentName, instruments, mapSlots, patchesById, playingId, presetFileName, visibleSounds, type SoundView } from './model'
 
   let { part = 0, pick = null }: { part?: number; pick?: SoundPick | null } = $props()
 
@@ -44,94 +48,97 @@
 
   const catalog = $derived(app.sounds)
   const entries = $derived(catalog.entries)
+  const sl = $derived(app.state.soundLibrary)
+  const ctx = $derived({ patches: sl.patches, gmMap: sl.gmMap ?? [] })
   let view = $state<SoundView>({ kind: 'all' })
   let query = $state('')
-  // Plugins whose presets are open (All sounds, unfiltered).
-  const expanded = new SvelteSet<string>()
-  const rows = $derived(visibleSounds(catalog, view, query, expanded))
+  const rows = $derived(visibleSounds(catalog, view, query, ctx))
   const listing = $derived(new Set(app.state.sounds?.listingPresets ?? []))
-  function toggle(id: string, open?: boolean) {
-    const e = entries.find((x) => x.id === id)
-    const on = open ?? !expanded.has(id)
-    if (on === expanded.has(id)) return
-    if (on) {
-      expanded.add(id)
-      // Factory presets need a plugin instance: listed once, then cached.
-      if (e?.plugin && e.plugin.presets == null) app.send({ type: 'listPluginPresets', id })
-    } else expanded.delete(id)
-  }
-  const cats = $derived(categoryCounts(entries))
+  const byId = $derived(patchesById(sl.patches))
+  const slots = $derived(mapSlots(ctx.gmMap))
+  const allIds = $derived(allSoundIds(ctx))
+  const allCount = $derived(entries.reduce((n, e) => n + (allIds.has(e.id) ? 1 : 0), 0))
+  const cats = $derived(categoryCounts(entries.filter((e) => allIds.has(e.id))))
+  const insts = $derived(instruments(catalog))
   const favourites = $derived(entries.reduce((n, e) => n + (e.favourite ? 1 : 0), 0))
-  const saved = $derived(entries.reduce((n, e) => n + (e.source === 'saved' ? 1 : 0), 0))
-  // Save as sound (#117): what the part plays, with its volume and octave, as a saved sound.
-  // It shows under Saved, highlighted, once the catalog has it.
+  const mine = $derived(entries.reduce((n, e) => n + (e.source === 'saved' ? 1 : 0), 0))
+
+  const kp = $derived(pick ? undefined : app.state.keyboardParts[part])
+  const plugins = $derived(app.state.plugins)
+  const playing = $derived(pick ? (pick.value ? `saved:${pick.value}` : null) : kp ? playingId(kp, app.state.io.soundFontFile, ctx.gmMap) : null)
+  const auditioning = $derived(app.state.sounds?.auditioning ?? null)
+  const running = $derived(app.state.transport.running)
+
+  // ── The Save flow (O3): Save over the part's own sound, Save as… a new one. ──────────
+  // Save as… names the new sound; a plugin part can also keep it as an .aupreset that
+  // Logic reads (asking before it replaces a file of that name, #307).
   let justSaved = $state(false)
-  function saveAsSound() {
-    if (!kp) return
-    app.send({ type: 'savePartAsPatch', part, name: null })
-    justSaved = true
+  let saveForm = $state<{ name: string; aupreset: boolean; category: PatchCategory; replace: boolean } | null>(null)
+  let saveName: HTMLInputElement | undefined = $state()
+  function save() {
+    if (kp) app.send({ type: 'saveSound', part })
   }
+  function openSaveAs() {
+    if (!kp) return
+    const cur = kp.sound ? byId.get(kp.sound.id) : undefined
+    saveForm = { name: kp.sound?.name ?? kp.voiceName, aupreset: false, category: cur?.category ?? 'synthLead', replace: false }
+    void tick().then(() => (saveName?.focus(), saveName?.select()))
+  }
+  const closeSaveAs = () => ((saveForm = null), input?.focus())
+  const canPreset = $derived(kp?.plugin?.status === 'playing')
+  // A user preset of this plugin with that name exists: ask before replacing it, as Logic
+  // does (the file is shared with Logic and MainStage).
+  const clash = $derived.by(() => {
+    if (!saveForm?.aupreset || !kp?.plugin) return false
+    const parent = `au:${kp.plugin.id}`
+    const n = presetFileName(saveForm.name).toLowerCase()
+    return entries.some((e) => e.parent === parent && e.id.startsWith(`${parent}#u:`) && e.name.toLowerCase() === n)
+  })
+  function saveAs(overwrite = false) {
+    if (!saveForm || !kp) return
+    const name = saveForm.name.trim()
+    if (!name) return
+    if (saveForm.aupreset && canPreset) {
+      if (clash && !overwrite) {
+        saveForm.replace = true
+        return
+      }
+      app.send({ type: 'savePartAsPluginPreset', part, name, category: saveForm.category, overwrite })
+    }
+    app.send({ type: 'saveSoundAs', part, name })
+    justSaved = true
+    closeSaveAs()
+  }
+  function saveFormKey(e: KeyboardEvent) {
+    if (e.key !== 'Escape') return
+    e.preventDefault()
+    e.stopPropagation()
+    closeSaveAs()
+  }
+  // The new sound shows in My Sounds, selected, once the catalog has it.
   $effect(() => {
-    const id = app.state.soundLibrary.lastAdded
+    const id = sl.lastAdded
     if (!justSaved || !id || !entries.some((e) => e.id === `saved:${id}`)) return
     justSaved = false
-    view = { kind: 'saved' }
+    view = { kind: 'mine' }
     cursorId = `saved:${id}`
     void tick().then(() => ensureVisible(cursor, true))
   })
 
-  const kp = $derived(pick ? undefined : app.state.keyboardParts[part])
-  const playing = $derived(pick ? (pick.value ? `saved:${pick.value}` : null) : kp ? playingId(kp, app.state.io.soundFontFile) : null)
-  const auditioning = $derived(app.state.sounds?.auditioning ?? null)
-  const running = $derived(app.state.transport.running)
-  const plugins = $derived(app.state.plugins)
-
-  // Save as preset (AU presets): the part's plugin as it plays now, as an .aupreset.
-  let presetForm = $state<{ name: string; category: PatchCategory; replace: boolean } | null>(null)
-  let presetName: HTMLInputElement | undefined = $state()
-  function openPresetForm() {
-    if (!kp?.plugin) return
-    presetForm = { replace: false, name: kp.plugin.preset ?? '', category: entries.find((e) => e.id === `au:${kp.plugin?.id}`)?.category ?? 'synthLead' }
-    void tick().then(() => presetName?.focus())
-  }
-  // The file name a preset name saves as (as `presets::safe_name`).
-  const fileName = (n: string) => n.replace(/[/:\\]/g, '-').trim().replace(/^\.+/, '').trim() || 'Untitled'
-  // A user preset of this plugin with that name exists: ask before replacing it, as Logic
-  // does (the file is shared with Logic and MainStage).
-  const clash = $derived.by(() => {
-    if (!presetForm || !kp?.plugin) return false
-    const parent = `au:${kp.plugin.id}`
-    const n = fileName(presetForm.name).toLowerCase()
-    return entries.some((e) => e.parent === parent && e.id.startsWith(`${parent}#u:`) && e.name.toLowerCase() === n)
-  })
-  function savePreset(overwrite = false) {
-    if (!presetForm || !presetForm.name.trim()) return
-    if (clash && !overwrite) {
-      presetForm.replace = true
-      return
-    }
-    app.send({ type: 'savePartAsPluginPreset', part, name: presetForm.name.trim(), category: presetForm.category, overwrite })
-    const id = kp?.plugin ? `au:${kp.plugin.id}` : null
-    if (id && view.kind === 'all' && !query) toggle(id, true)
-    presetForm = null
-    input?.focus()
+  // Instruments (O2) plays on a part: picking for a map rule shows Sounds only.
+  const tab = $derived(pick ? 'sounds' : browserNav.tab)
+  function showTab(t: BrowserTab) {
+    browserNav.tab = t
+    if (t === 'sounds') void tick().then(() => (input?.focus(), ensureVisible(cursor, true)))
   }
 
   let cursorId = $state<string | null>(null)
   const cursor = $derived(Math.max(0, cursorId === null ? rows.findIndex((i) => entries[i].id === playing) : rows.findIndex((i) => entries[i].id === cursorId)))
-
-  // The selected row's plugin: the footer's category picker files it (#172).
-  const selPlugin = $derived.by(() => {
-    const e = rows[cursor] === undefined ? undefined : entries[rows[cursor]]
-    return e?.source === 'plugin' ? e : null
-  })
-  function setCategory(id: string, category: PatchCategory) {
-    cursorId = id
-    app.send({ type: 'setSoundCategory', id, category })
-    // In a category view the sound moves with its category, so it stays selected.
-    if (view.kind === 'category') show({ kind: 'category', id: category })
-    input?.focus()
-  }
+  const selected = $derived(rows[cursor] === undefined ? undefined : entries[rows[cursor]])
+  // The selected library sound: rename, recategorise, delete (SoundEdit). A plugin's
+  // category is filed on the Instruments tab (O2), with the rest of its housekeeping.
+  const selPatch = $derived(!pick && selected?.source === 'saved' ? byId.get(selected.id) : undefined)
+  let editor: SoundEdit | undefined = $state()
 
   let list: HTMLDivElement | undefined = $state()
   let input: HTMLInputElement | undefined = $state()
@@ -168,6 +175,12 @@
 
   function show(v: SoundView) {
     view = v
+    // A plugin's factory presets need an instance: the engine lists them once, then
+    // answers from its cache (a count from its .aupreset files alone says nothing).
+    if (v.kind === 'instrument' && v.id.startsWith('au:')) {
+      const e = entries.find((x) => x.id === v.id)
+      if (e?.plugin && !e.plugin.lastError && !listing.has(v.id)) app.send({ type: 'listPluginPresets', id: v.id })
+    }
     void tick().then(() => ensureVisible(cursor, true))
   }
 
@@ -180,26 +193,23 @@
       return
     }
     const i = rows[cursor]
-    const cur = i === undefined ? undefined : entries[i]
-    if ((e.key === 'ArrowRight' || e.key === 'ArrowLeft') && cur && !query && view.kind === 'all') {
-      if (cur.parent && e.key === 'ArrowLeft') {
-        e.preventDefault()
-        cursorId = cur.parent
-        toggle(cur.parent, false)
-        return
-      }
-      if (expandable(cur)) {
-        e.preventDefault()
-        toggle(cur.id, e.key === 'ArrowRight')
-        return
-      }
-    }
+    const mod = e.ctrlKey || e.metaKey
     if (e.key === 'Enter') {
       e.preventDefault()
       if (i !== undefined) (e.shiftKey ? audition : assign)(i)
-    } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'd') {
+    } else if (mod && e.key.toLowerCase() === 'd') {
       e.preventDefault()
       if (i !== undefined) star(i)
+    } else if (mod && e.key.toLowerCase() === 's' && kp) {
+      e.preventDefault()
+      if (e.shiftKey) openSaveAs()
+      else save()
+    } else if (e.key === 'F2' && selPatch) {
+      e.preventDefault()
+      editor?.rename()
+    } else if (mod && (e.key === 'Delete' || e.key === 'Backspace') && selPatch) {
+      e.preventDefault()
+      void editor?.askDelete()
     }
   }
 
@@ -225,14 +235,31 @@
     if (app.state.sounds?.auditioning) app.send({ type: 'stopSoundAudition' })
   })
 
-  const is = (v: SoundView) => v.kind === view.kind && (v.kind !== 'category' || (view.kind === 'category' && view.id === v.id))
+  const is = (v: SoundView) => v.kind === view.kind && (v.kind !== 'category' || (view.kind === 'category' && view.id === v.id)) && (v.kind !== 'instrument' || (view.kind === 'instrument' && view.id === v.id))
+  const slotText = (id: string) => {
+    const s = slots.get(id)
+    return s === undefined ? '' : s === 'drums' ? 'GM drums · ' : `GM ${s + 1} · `
+  }
+  const chipId = $derived(view.kind === 'instrument' ? view.id : null)
+  const shownName = $derived(chipId ? (insts.find((x) => x.id === chipId)?.name ?? '') : '')
+  const listingChip = $derived(!!chipId && listing.has(chipId))
 </script>
 
 <Overlay id="sounds" title="Sounds · {pick ? pick.title : (kp?.name ?? '')}" side="center" modal closeTip="sounds.close" onclose={close}>
+  <div class="wrap">
+  {#if !pick}
+    <div class="tabs" role="tablist" aria-label="Sound Browser">
+      <button type="button" role="tab" class="tab" class:on={tab === 'sounds'} aria-selected={tab === 'sounds'} use:tip={'sounds.tab_sounds'} onclick={() => showTab('sounds')}>Sounds</button>
+      <button type="button" role="tab" class="tab" class:on={tab === 'instruments'} aria-selected={tab === 'instruments'} use:tip={'sounds.tab_instruments'} onclick={() => showTab('instruments')}>Instruments</button>
+    </div>
+  {/if}
+  {#if tab === 'instruments'}
+    <Instruments {part} />
+  {:else}
   <div class="sb">
-    <nav class="side" aria-label="Sound categories">
+    <nav class="side" aria-label="Sound chips">
       <button type="button" class="cat" class:on={is({ kind: 'all' })} aria-pressed={is({ kind: 'all' })} use:tip={'sounds.all'} onclick={() => show({ kind: 'all' })}>
-        <span>All sounds</span><span class="n">{entries.length.toLocaleString()}</span>
+        <span>All sounds</span><span class="n">{allCount.toLocaleString()}</span>
       </button>
       <button type="button" class="cat" class:on={is({ kind: 'favourites' })} aria-pressed={is({ kind: 'favourites' })} use:tip={'sounds.favourites'} onclick={() => show({ kind: 'favourites' })}>
         <span><span class="ico" aria-hidden="true">★</span> Favourites</span><span class="n">{favourites}</span>
@@ -240,8 +267,8 @@
       <button type="button" class="cat" class:on={is({ kind: 'recents' })} aria-pressed={is({ kind: 'recents' })} use:tip={'sounds.recents'} onclick={() => show({ kind: 'recents' })}>
         <span><span class="ico" aria-hidden="true">↺</span> Recent</span><span class="n">{catalog.recents.length}</span>
       </button>
-      <button type="button" class="cat" class:on={is({ kind: 'saved' })} aria-pressed={is({ kind: 'saved' })} use:tip={'sounds.saved'} onclick={() => show({ kind: 'saved' })}>
-        <span><span class="ico" aria-hidden="true">●</span> Saved</span><span class="n">{saved}</span>
+      <button type="button" class="cat" class:on={is({ kind: 'mine' })} aria-pressed={is({ kind: 'mine' })} use:tip={'sounds.saved'} onclick={() => show({ kind: 'mine' })}>
+        <span><span class="ico" aria-hidden="true">●</span> My Sounds</span><span class="n">{mine}</span>
       </button>
       <h3 class="engraved">Categories</h3>
       {#each cats as c (c.id)}
@@ -250,6 +277,15 @@
           <span>{c.label}</span><span class="n">{c.count.toLocaleString()}</span>
         </button>
       {/each}
+      {#if insts.length}
+        <h3 class="engraved">Instruments</h3>
+        {#each insts as ins (ins.id)}
+          {@const v: SoundView = { kind: 'instrument', id: ins.id }}
+          <button type="button" class="cat sub inst" class:on={is(v)} aria-pressed={is(v)} use:tip={'sounds.instrument'} onclick={() => show(v)}>
+            <span class="iname">{ins.name}</span><span class="n">{ins.kind === 'soundFont' ? 'SF' : 'AU'}</span>
+          </button>
+        {/each}
+      {/if}
     </nav>
 
     <section class="main">
@@ -273,7 +309,7 @@
           oninput={() => void tick().then(() => ensureVisible(cursor, true))}
           onfocus={() => queueMicrotask(() => input && tips.hide(input))}
         />
-        <span class="count engraved">{rows.length.toLocaleString()} of {entries.length.toLocaleString()}{#if app.state.sounds?.scanning}&nbsp;· scanning plugins{/if}</span>
+        <span class="count engraved">{rows.length.toLocaleString()} of {entries.length.toLocaleString()}{#if listingChip}&nbsp;· listing presets{:else if app.state.sounds?.scanning}&nbsp;· scanning plugins{/if}</span>
       </div>
 
       <div class="screen mat-screen">
@@ -296,11 +332,9 @@
               >
                 <button type="button" class="star" class:on={e.favourite} tabindex="-1" aria-label={e.favourite ? 'Unstar' : 'Star'} aria-pressed={e.favourite} use:tip={'sounds.favourite'} onclick={(ev) => (ev.stopPropagation(), star(i))}>{e.favourite ? '★' : '☆'}</button>
                 <span class="mark" aria-hidden="true">{e.id === playing ? '▶' : ''}</span>
-                <span class="name" class:child={!!e.parent && view.kind === 'all' && !query}>
-                  {#if expandable(e) && view.kind === 'all' && !query}<button type="button" class="tw" tabindex="-1" aria-expanded={expanded.has(e.id)} aria-label={expanded.has(e.id) ? `Hide ${e.name}'s presets` : `Show ${e.name}'s presets`} use:tip={'sounds.presets'} onclick={(ev) => (ev.stopPropagation(), (cursorId = e.id), toggle(e.id))}>{expanded.has(e.id) ? '▾' : '▸'}</button>{/if}{e.name}{#if expandable(e) && e.plugin?.presets}<span class="np"> · {e.plugin.presets} presets</span>{:else if listing.has(e.id)}<span class="np"> · listing presets…</span>{/if}
-                </span>
+                <span class="name">{e.name}</span>
                 <span class="badge {e.source}">{SOURCE_BADGE[e.source]}</span>
-                <span class="detail">{e.detail}{#if e.plugin?.lastError}<span class="warn" title={e.plugin.lastError}> ⚠ {e.plugin.lastError}</span>{/if}</span>
+                <span class="detail">{view.kind === 'all' || view.kind === 'category' ? slotText(e.id) : ''}{e.detail}{#if e.plugin?.lastError}<span class="warn" title={e.plugin.lastError}> ⚠ {e.plugin.lastError}</span>{/if}</span>
                 <span class="act">
                   {#if !running}
                     <button type="button" class="pv" class:on={auditioning === e.id} tabindex="-1" aria-label={auditioning === e.id ? 'Stop audition' : 'Audition'} use:tip={auditioning === e.id ? 'sounds.audition_stop' : 'sounds.audition'} onclick={(ev) => (ev.stopPropagation(), audition(i))}>{auditioning === e.id ? '■' : '▶'}</button>
@@ -314,55 +348,91 @@
               {#if entries.length === 0}No sounds yet: no SoundFonts, plugins or saved sounds.
               {:else if view.kind === 'favourites' && !query}No favourites yet: star a sound with ☆ (or Ctrl+D).
               {:else if view.kind === 'recents' && !query}Nothing picked yet.
-              {:else if view.kind === 'saved' && !query}No saved sounds yet: Save as sound keeps what a part plays.
+              {:else if view.kind === 'mine' && !query}Nothing in My Sounds yet: Save as… keeps what a part plays.
+              {:else if chipId && !query}{listingChip ?`Listing ${shownName}'s presets…` : `${shownName} has no presets.`}
               {:else}No sound matches “{query}”.{/if}
             </p>
           {/if}
         </div>
       </div>
 
-      {#if presetForm && kp?.plugin}
-        <form class="presetform" onsubmit={(ev) => (ev.preventDefault(), savePreset())}>
-          <span class="engraved">{kp.plugin.name} preset</span>
-          <input bind:this={presetName} bind:value={presetForm.name} oninput={() => presetForm && (presetForm.replace = false)} class="mat-well" type="text" placeholder="Preset name" aria-label="Preset name" spellcheck="false" use:tip={'sounds.preset_name'} onkeydown={(ev) => ev.key === 'Escape' && (ev.stopPropagation(), (presetForm = null), input?.focus())} />
-          <select aria-label="Category of the preset" bind:value={presetForm.category} use:tip={'sounds.preset_category'}>
-            {#each Object.entries(CATEGORY_LABELS) as [id, label] (id)}<option value={id}>{label}</option>{/each}
-          </select>
-          {#if presetForm.replace && clash}
-            <span class="ask" role="alert">Replace ‘{fileName(presetForm.name)}’?</span>
-            <HwButton tip="sounds.preset_replace" onclick={() => savePreset(true)}>Replace</HwButton>
-            <HwButton tip="sounds.preset_replace_cancel" onclick={() => presetForm && ((presetForm.replace = false), presetName?.focus())}>Cancel</HwButton>
+      {#if selPatch}
+        <SoundEdit bind:this={editor} patch={selPatch} onback={() => input?.focus()} />
+      {/if}
+
+      {#if saveForm && kp}
+        <!-- svelte-ignore a11y_no_noninteractive_element_interactions (Esc anywhere in the form closes it, not the browser) -->
+        <form class="saveform" aria-label="Save as a new sound" onsubmit={(ev) => (ev.preventDefault(), saveAs())} onkeydown={saveFormKey}>
+          <span class="engraved">Save as</span>
+          <input bind:this={saveName} value={saveForm.name} oninput={(ev) => saveForm && ((saveForm.name = ev.currentTarget.value), (saveForm.replace = false))} class="mat-well" type="text" placeholder="Sound name" aria-label="New sound's name" spellcheck="false" use:tip={'sounds.save_as_name'} />
+          {#if canPreset}
+            <label class="check"><input type="checkbox" checked={saveForm.aupreset} onchange={(ev) => saveForm && ((saveForm.aupreset = ev.currentTarget.checked), (saveForm.replace = false))} use:tip={'sounds.save_preset'} /> .aupreset</label>
+            {#if saveForm.aupreset}
+              <select aria-label="Category of the preset" value={saveForm.category} onchange={(ev) => saveForm && (saveForm.category = ev.currentTarget.value as PatchCategory)} use:tip={'sounds.preset_category'}>
+                {#each Object.entries(CATEGORY_LABELS) as [id, label] (id)}<option value={id}>{label}</option>{/each}
+              </select>
+            {/if}
+          {/if}
+          {#if saveForm.replace && clash}
+            <span class="ask" role="alert">Replace ‘{presetFileName(saveForm.name)}’?</span>
+            <HwButton tip="sounds.preset_replace" onclick={() => saveAs(true)}>Replace</HwButton>
+            <HwButton tip="sounds.preset_replace_cancel" onclick={() => saveForm && ((saveForm.replace = false), saveName?.focus())}>Cancel</HwButton>
           {:else}
-            <HwButton tip="sounds.preset_save" onclick={() => savePreset()}>Save</HwButton>
-            <HwButton tip="sounds.preset_cancel" onclick={() => ((presetForm = null), input?.focus())}>Cancel</HwButton>
+            <HwButton tip="sounds.save_as_confirm" onclick={() => saveAs()}>Save</HwButton>
+            <HwButton tip="sounds.preset_cancel" onclick={closeSaveAs}>Cancel</HwButton>
           {/if}
         </form>
       {/if}
 
       <footer class="foot">
-        {#if pick}<span class="now">Pick the sound for <b>{pick.title}</b></span>{:else}<span class="now">{kp?.name} plays <b>{kp?.voiceName}</b>{#if kp?.plugin}&nbsp;· {pluginStatusLine(kp.plugin, plugins.available).replace(/ ▾$/, '')}{#if kp.plugin.status === 'playing'}&nbsp;· CPU {Math.round(kp.plugin.cpu * 100)}%{/if}{/if}</span>{/if}
-        {#if selPlugin}
-          {@const e = selPlugin}
-          <label class="catpick">
-            <span class="engraved">{e.name} is</span>
-            <select aria-label="Category of {e.name}" value={e.category} use:tip={'sounds.set_category'} onchange={(ev) => setCategory(e.id, ev.currentTarget.value as PatchCategory)}>
-              {#each Object.entries(CATEGORY_LABELS) as [id, label] (id)}<option value={id}>{label}</option>{/each}
-            </select>
-          </label>
+        {#if pick}<span class="now">Pick the sound for <b>{pick.title}</b></span>
+        {:else if kp}
+          <span class="now">{kp.name} plays <b>{instrumentName(kp, ctx, plugins.list, app.state.io.soundFontFile)}</b> · <b>{kp.sound?.name ?? kp.voiceName}</b>{#if kp.plugin && kp.plugin.status !== 'playing'}&nbsp;· {pluginStatusLine(kp.plugin, plugins.available).replace(/ ▾$/, '')}{/if}</span>
+          {#if kp.soundEdited}<span class="edited" use:tip={'sounds.edited'}>edited</span>{/if}
         {/if}
         {#if auditioning}<HwButton tip="sounds.audition_stop" onclick={() => app.send({ type: 'stopSoundAudition' })}>■ Stop</HwButton>{/if}
-        {#if kp}<HwButton tip="sounds.save" onclick={saveAsSound}>Save as sound</HwButton>{/if}
-        {#if kp?.plugin?.status === 'playing'}<HwButton tip="sounds.save_preset" onclick={openPresetForm}>Save as preset…</HwButton>{/if}
-        {#if kp?.plugin?.editor}<HwButton tip="part.plugin_edit" onclick={() => app.pluginEditor(part, true)}>Edit…</HwButton>{/if}
-        {#if plugins.available}
-          <HwButton tip="part.plugin_rescan" onclick={() => !plugins.scanning && app.send({ type: 'rescanPlugins' })}>{plugins.scanning ? 'Scanning' : 'Rescan'}</HwButton>
-        {/if}
+        {#if kp}<HwButton tip="sounds.save_over" onclick={save}>Save</HwButton><HwButton tip="sounds.save" pressed={!!saveForm} onclick={() => (saveForm ? closeSaveAs() : openSaveAs())}>Save as…</HwButton>{/if}
       </footer>
     </section>
+  </div>
+  {/if}
   </div>
 </Overlay>
 
 <style>
+  .wrap {
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+    height: 100%;
+    min-height: 0;
+  }
+  .wrap > :global(*:last-child) {
+    flex: 1;
+    min-height: 0;
+  }
+  .tabs {
+    display: flex;
+    gap: 0.3rem;
+  }
+  .tab {
+    min-height: 2.1rem;
+    padding: 0 0.9rem;
+    border: 1px solid transparent;
+    border-radius: 5px;
+    background: none;
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: 0.95rem;
+    color: var(--ink);
+  }
+  .tab:hover {
+    background: rgb(127 127 127 / 0.1);
+  }
+  .tab.on {
+    border-color: color-mix(in srgb, var(--accent) 60%, transparent);
+    background: color-mix(in srgb, var(--accent) 16%, transparent);
+  }
   .sb {
     display: grid;
     grid-template-columns: 12rem minmax(0, 1fr);
@@ -408,6 +478,12 @@
   .cat.on {
     border-color: color-mix(in srgb, var(--accent) 60%, transparent);
     background: color-mix(in srgb, var(--accent) 16%, transparent);
+  }
+  .iname {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .ico {
     color: var(--accent);
@@ -499,27 +575,13 @@
   .warn {
     color: var(--danger);
   }
-  .name.child {
-    padding-left: 1.4rem;
-  }
-  button.tw {
-    border: 0;
-    background: none;
-    padding: 0 0.35rem 0 0;
-    color: var(--screen-dim);
-    font-size: 0.85rem;
-  }
-  .np {
-    color: var(--screen-dim);
-    font-size: var(--fs-small);
-  }
-  .presetform {
+  .saveform {
     display: flex;
     align-items: center;
     gap: 0.5rem;
     min-width: 0;
   }
-  .presetform input {
+  .saveform input[type='text'] {
     flex: 1;
     min-width: 6rem;
     height: 2.2rem;
@@ -528,17 +590,25 @@
     border-radius: 5px;
     color: var(--screen-ink);
   }
+  .check {
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+    white-space: nowrap;
+    font-size: var(--fs-small);
+  }
   .ask {
     color: var(--accent);
     white-space: nowrap;
   }
-  .presetform select {
+  .saveform select {
     min-height: 2.2rem;
     padding: 0 0.45rem;
     border: 1px solid var(--well-edge);
     border-radius: 4px;
     background: var(--screen-bg);
     color: var(--screen-ink);
+    font-size: 0.9rem;
   }
   .badge {
     justify-self: start;
@@ -597,25 +667,15 @@
   .now b {
     color: var(--ink);
   }
-  .catpick {
-    display: flex;
-    align-items: center;
-    gap: 0.4rem;
-    min-width: 0;
-    max-width: 22rem;
-  }
-  .catpick .engraved {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .catpick select {
-    min-height: 2.2rem;
-    padding: 0 0.45rem;
-    border: 1px solid var(--well-edge);
-    border-radius: 4px;
-    background: var(--screen-bg);
-    color: var(--screen-ink);
-    font-size: 0.9rem;
+  .edited {
+    padding: 1px 6px;
+    border: 1px solid color-mix(in srgb, var(--accent) 70%, transparent);
+    border-radius: 3px;
+    color: var(--accent);
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: 0.72rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
   }
 </style>

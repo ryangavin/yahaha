@@ -101,9 +101,6 @@ const EVERY_CMD: &[&str] = &[
     r#"{"type":"panic"}"#,
     r#"{"type":"clearMessage"}"#,
     // Settings
-    r#"{"type":"setSoundFont","file":"FluidR3_GM.sf2"}"#,
-    r#"{"type":"setDefaultSoundSet","file":"FluidR3_GM.sf2"}"#,
-    r#"{"type":"setDefaultSoundSet","file":null}"#,
     r#"{"type":"setMidiInputs","all":false,"names":["Launchkey 49 MK4 LKMK4 MIDI Out"]}"#,
     r#"{"type":"setPaletteLeds","on":true}"#,
     r#"{"type":"setAudioBuffer","frames":128}"#,
@@ -264,6 +261,9 @@ const EVERY_CMD: &[&str] = &[
     r#"{"type":"duplicatePatch","id":"my-bass"}"#,
     r#"{"type":"movePatch","id":"my-bass","to":0}"#,
     r#"{"type":"setPatchFavourite","id":"my-bass","favourite":true}"#,
+    r#"{"type":"saveSound","part":1}"#,
+    r#"{"type":"saveSoundAs","part":2,"name":"Stage Piano"}"#,
+    r#"{"type":"saveSoundAs","part":0,"name":null}"#,
     r#"{"type":"savePartAsPatch","part":0,"name":"Stage Piano"}"#,
     r#"{"type":"savePartAsPatch","part":3,"name":null}"#,
     r#"{"type":"addPresetAsPatch","file":"GeneralUser-GS.sf2","bank":128,"program":0,"name":null}"#,
@@ -282,6 +282,7 @@ const EVERY_CMD: &[&str] = &[
     r#"{"type":"browseSoundFont","file":null}"#,
     r#"{"type":"importSoundLibrary","path":"/tmp/lib.json","replace":false,"maps":true}"#,
     r#"{"type":"exportSoundLibrary","path":null}"#,
+    r#"{"type":"exportSoundPreset","id":"deluxe-keys","overwrite":true}"#,
     // Parameter Lock
     r#"{"type":"setParamLock","item":"splitPoint","on":true}"#,
     r#"{"type":"setParamLock","item":"fingeringType","on":false}"#,
@@ -292,6 +293,7 @@ const EVERY_CMD: &[&str] = &[
     r#"{"type":"assignSound","part":0,"id":"saved:warm-pad"}"#,
     r#"{"type":"setSoundCategory","id":"au:aumu Xf2X XFER","category":"pad"}"#,
     r#"{"type":"listPluginPresets","id":"au:aumu Nik2 -NI-"}"#,
+    r#"{"type":"addToMySounds","id":"sf:GM.sf2:0:5"}"#,
     r#"{"type":"savePartAsPluginPreset","part":0,"name":"Upright","category":"piano"}"#,
     r#"{"type":"savePartAsPluginPreset","part":1,"name":"Upright","category":"piano","overwrite":true}"#,
     // Style Dynamics Control, Touch, Accent

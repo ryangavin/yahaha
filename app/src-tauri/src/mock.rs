@@ -239,6 +239,8 @@ impl MockSession {
             fader: None,
             plugin: None,
             patch: None,
+            sound: None,
+            sound_edited: false,
         };
         let s0 = &f.styles[0];
         let state = AppState {
@@ -356,8 +358,6 @@ impl MockSession {
                 sound_fonts: MOCK_SOUND_FONTS.iter().map(|f| f.to_string()).collect(),
                 sound_font_file: Some(MOCK_SOUND_FONTS[0].into()),
                 sound_font_loading: false,
-                default_sound_set: None,
-                auto_sound_set: Some(MOCK_SOUND_FONTS[0].into()),
             },
             preview: PreviewState::default(),
             chart: ChartState::default(),
@@ -468,6 +468,16 @@ impl MockSession {
     }
 
     fn sounds_cmd(&mut self, c: SoundsCmd) {
+        // Add to my sounds: the entry's library patch, added once (a saved sound is in).
+        if let SoundsCmd::AddToMySounds { id } = &c {
+            if !id.starts_with("saved:") && !id.starts_with("sf:") && !id.starts_with("au:") {
+                return self.message(format!("no sound {id}"), true);
+            }
+            if let Err(e) = self.rule_patch(Some(id.clone())) {
+                self.message(e, true);
+            }
+            return;
+        }
         match self.sounds.cmd(&self.state, c) {
             Err(e) => self.message(e, true),
             Ok(sounds::Then::Nothing) => {}
@@ -511,6 +521,7 @@ impl MockSession {
                     return self.message(format!("{id} has no preset {preset}"), true);
                 };
                 self.sound.part_plugin(part as usize, true);
+                self.sound.preset_sound(part as usize, &id, &preset, &name);
                 self.set_part_plugin(part as usize, id);
                 if let Some(p) = self.state.keyboard_parts[(part & 3) as usize].plugin.as_mut() {
                     p.preset = Some(name);
@@ -521,7 +532,9 @@ impl MockSession {
                 self.sound.part_plugin(part as usize, false);
                 self.state.keyboard_parts[(part & 3) as usize].plugin = None;
             }
-            PluginCmd::SavePartPluginState { .. } | PluginCmd::RescanPlugins => {}
+            // The editor closed: the mock takes it as an edit (O3's "edited" badge).
+            PluginCmd::SavePartPluginState { part } => self.sound.plugin_edited(part as usize),
+            PluginCmd::RescanPlugins => {}
             PluginCmd::ReloadPartPlugin { part } => {
                 let part = match part {
                     Some(p) => (p & 3) as usize,
@@ -583,22 +596,6 @@ impl MockSession {
         } else if fallback {
             self.message(format!("{} can't run in its own process; loading it inside yahaha instead (if it crashes, yahaha goes with it)", e.name), false);
         }
-    }
-
-    /// The default sound set (#117): a font in the folder, or None for Auto.
-    fn set_default_sound_set(&mut self, file: Option<String>) {
-        if let Some(f) = &file
-            && !self.state.io.sound_fonts.contains(f)
-        {
-            return self.message(format!("no SoundFont {f} in the SoundFont folder"), true);
-        }
-        let io = &mut self.state.io;
-        io.default_sound_set = file.clone();
-        let Some(play) = file.or_else(|| io.auto_sound_set.clone()) else { return };
-        if let Some(s) = io.synth.as_mut() {
-            s.sound_font = play.trim_end_matches(".sf2").to_string();
-        }
-        io.sound_font_file = Some(play);
     }
 
     fn message(&mut self, text: impl Into<String>, error: bool) {
@@ -1929,8 +1926,6 @@ impl MockSession {
             }
             AppCmd::Preview(PreviewCmd::StopAudition) => self.state.preview.audition = None,
             AppCmd::Library(LibraryCmd::RescanLibrary) => self.message("Style folders rescanned", false),
-            AppCmd::Settings(SettingsCmd::SetSoundFont { file }) => self.set_default_sound_set(Some(file)),
-            AppCmd::Settings(SettingsCmd::SetDefaultSoundSet { file }) => self.set_default_sound_set(file),
             AppCmd::Settings(SettingsCmd::SetMidiInputs { all, names }) => {
                 let io = &mut self.state.io;
                 io.all_inputs = all;
@@ -2076,6 +2071,10 @@ impl MockSession {
                     c => c,
                 };
                 let export = matches!(c, SoundLibraryCmd::ExportSoundLibrary { .. });
+                let preset = match &c {
+                    SoundLibraryCmd::ExportSoundPreset { id, .. } => self.state.sound_library.patches.iter().find(|p| &p.patch.id == id).map(|p| p.patch.name.clone()),
+                    _ => None,
+                };
                 // A SoundFont patch picked over a Plugins-tab plugin ends that plugin.
                 if let SoundLibraryCmd::SetPartPatch { part, id: Some(id) } = &c
                     && self.state.sound_library.patches.iter().any(|p| &p.patch.id == id && matches!(p.patch.source, PatchSource::SoundFont { .. }))
@@ -2086,6 +2085,7 @@ impl MockSession {
                 match self.sound.cmd(&mut self.state, c) {
                     Some(e) => self.message(e, true),
                     None if export => self.message("Sound library exported to /Users/me/Documents/yahaha/sound-library-export.json", false),
+                    None if preset.is_some() => self.message(format!("{} exported to ~/Library/Audio/Presets", preset.unwrap_or_default()), false),
                     None => {}
                 }
             }
@@ -2382,6 +2382,32 @@ mod tests {
         60000.0 / m.state.transport.tempo * m.state.transport.beats_per_bar as f64
     }
 
+    /// Now playing (O3): a preset names its sound; the editor closing marks it edited;
+    /// Save as… plays the new sound, not edited; Save keeps the same one.
+    #[test]
+    fn a_part_shows_its_sound_edited_and_saved() {
+        let mut m = MockSession::new();
+        m.send(SoundsCmd::ListPluginPresets { id: format!("au:{}", sounds::MOCK_PRESETS_ID) });
+        m.send(PluginCmd::SetPartPluginPreset { part: 0, id: sounds::MOCK_PRESETS_ID.into(), preset: "f:1".into() });
+        let tag = m.state.keyboard_parts[0].sound.clone().expect("the preset's sound");
+        assert_eq!(tag.name, "Bright Grand");
+        assert!(tag.id.starts_with("saved:") && !m.state.keyboard_parts[0].sound_edited);
+        m.send(PluginCmd::SavePartPluginState { part: 0 });
+        assert!(m.state.keyboard_parts[0].sound_edited);
+        // A factory preset's sound is not overwritten: Save is Save as….
+        let n = m.state.sound_library.patches.len();
+        m.send(SoundLibraryCmd::SaveSound { part: 0 });
+        assert_eq!(m.state.sound_library.patches.len(), n + 1);
+        let mine = m.state.keyboard_parts[0].sound.clone().unwrap();
+        assert!(mine.id != tag.id && !m.state.keyboard_parts[0].sound_edited);
+        m.send(PluginCmd::SavePartPluginState { part: 0 });
+        m.send(SoundLibraryCmd::SaveSound { part: 0 });
+        assert_eq!((m.state.sound_library.patches.len(), m.state.keyboard_parts[0].sound.clone()), (n + 1, Some(mine)));
+        assert!(!m.state.keyboard_parts[0].sound_edited);
+        m.send(SoundLibraryCmd::SaveSoundAs { part: 0, name: Some("Mine 2".into()) });
+        assert_eq!(m.state.keyboard_parts[0].sound.as_ref().map(|t| t.name.as_str()), Some("Mine 2"));
+    }
+
     #[test]
     fn fade_out_stops_the_band_then_holds_and_settings_apply() {
         let mut m = MockSession::new();
@@ -2579,6 +2605,26 @@ mod tests {
         assert_eq!(m.state.sounds.auditioning, None);
     }
 
+    /// The Instruments tab, as mock-sounds.ts: a summary per font, and Add to my sounds
+    /// adds a preset's or plugin preset's patch once, without playing it.
+    #[test]
+    fn instruments_list_fonts_and_add_to_my_sounds() {
+        let mut m = MockSession::new();
+        let cat = m.sounds();
+        assert_eq!(cat.fonts.len(), m.state.io.sound_fonts.len());
+        assert!(cat.fonts.iter().all(|f| f.presets > 0 && f.gm_programs <= 128));
+        let n = m.state.sound_library.patches.len();
+        let before = m.state.keyboard_parts.clone();
+        let upright = format!("au:{}#u:/Users/mock/Library/Audio/Presets/Fake Instruments/Sampler Deluxe/Pianos/Upright Piano.aupreset", sounds::MOCK_PRESETS_ID);
+        for id in ["sf:FluidR3_GM.sf2:0:48", "sf:FluidR3_GM.sf2:0:48", upright.as_str(), upright.as_str(), "saved:stage-grand"] {
+            m.send(SoundsCmd::AddToMySounds { id: id.into() });
+        }
+        assert_eq!(m.state.sound_library.patches.len(), n + 2, "each added once");
+        assert_eq!(m.state.keyboard_parts, before, "nothing plays it");
+        m.send(SoundsCmd::AddToMySounds { id: "sf:FluidR3_GM.sf2:9:9".into() });
+        assert_eq!(m.state.sound_library.patches.len(), n + 2);
+    }
+
     /// AU presets, as mock-sounds.ts: the fake sampler's .aupreset files list from the
     /// start, its factory presets once expanded; each part plays its own preset; Save as
     /// preset lists a new one in the category picked.
@@ -2622,6 +2668,28 @@ mod tests {
         assert!(m.state.sound_library.map.overrides.iter().any(|o| o.program == 5 && o.patch == "stage-grand"));
         m.send(SoundLibraryCmd::SetDrumRule { patch: Some("sf:Nope.sf2:0:0".into()), style: false });
         assert!(m.state.message.as_ref().is_some_and(|x| x.error));
+    }
+
+    /// The GM map (docs/sound-browser.md): every program's resolved sound and deciding
+    /// layer, the style's rules first, auto-fill for the rest.
+    #[test]
+    fn the_gm_map_shows_each_programs_sound_and_layer() {
+        use yahaha::patches::Layer;
+        let mut m = MockSession::new();
+        let rows = &m.state.sound_library.gm_map;
+        assert_eq!(rows.len(), 129);
+        assert_eq!((rows[0].program, rows[0].resolved.layer), (None, Layer::Drums));
+        assert_eq!(rows[1 + 4].resolved.layer, Layer::Override);
+        assert_eq!(rows[1 + 4].resolved.sound.as_deref(), Some("saved:warm-rhodes"));
+        assert_eq!(rows[1 + 33].resolved.layer, Layer::Family);
+        // Organ has no rule: auto-fill from the most GM-complete font, with its provenance.
+        assert_eq!(rows[1 + 16].resolved.layer, Layer::Auto);
+        assert_eq!(rows[1 + 16].resolved.sound.as_deref(), Some("sf:GeneralUser-GS.sf2:0:16"));
+        assert_eq!(rows[1 + 16].resolved.font.as_ref().map(|f| f.program), Some(16));
+        // A style's own rule wins over the global one.
+        m.send(SoundLibraryCmd::SetFamilyRule { family: 2, patch: Some("saved:stage-grand".into()), style: true });
+        let row = &m.state.sound_library.gm_map[1 + 16];
+        assert_eq!((row.resolved.layer, row.resolved.from_style), (Layer::Family, true));
     }
 
     /// A style other than the one loaded, with OTS, Main A and Ending A (#111 tests).

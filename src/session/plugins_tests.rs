@@ -886,3 +886,136 @@ fn a_plugin_preset_is_a_sound_of_its_own() {
     assert_eq!(old.parts[0].as_ref().unwrap().preset, None);
     let _ = std::fs::remove_dir_all(&data);
 }
+
+/// Pump until no plugin state read is running, then twice more (a save fill lands after).
+fn wait_reads(s: &Session) {
+    let t0 = Instant::now();
+    while s.inner.lock().plugin_state_reads_pending() && t0.elapsed() < Duration::from_secs(10) {
+        s.advance(1_000_000);
+        std::thread::sleep(Duration::from_millis(2));
+    }
+    s.advance(1_000_000);
+    s.advance(1_000_000);
+}
+
+/// Now playing and the one save flow (O3): Save as… names the part's plugin sound; an
+/// autosave-schedule read whose fingerprint differs from the baseline marks it edited;
+/// Save writes the state over the sound, clears the mark and keeps the instance.
+#[test]
+fn a_part_shows_its_sound_and_when_it_was_edited() {
+    use crate::api::SoundLibraryCmd;
+    use crate::patches::PatchSource;
+    let Some(s) = session() else { return };
+    s.offline_audio(None, 48_000).unwrap();
+    s.send(PluginCmd::SetPartPlugin { part: 0, id: DLS.into(), state: None }).unwrap();
+    assert_eq!(wait_playing(&s, 0), PluginStatus::Playing);
+    assert_eq!(s.state().keyboard_parts[0].sound, None, "a bare plugin plays no named sound");
+    // Save with no sound is Save as….
+    s.send(SoundLibraryCmd::SaveSound { part: 0 }).unwrap();
+    let id = s.state().sound_library.last_added.clone().unwrap();
+    wait_reads(&s);
+    let p0 = s.state().keyboard_parts[0].clone();
+    let tag = p0.sound.clone().expect("the part plays the new sound");
+    assert_eq!((tag.id.as_str(), tag.name.as_str(), p0.sound_edited), (format!("saved:{id}").as_str(), "DLSMusicDevice", false));
+    let state = |s: &Session| match s.state().sound_library.patches.iter().find(|p| p.patch.id == id).unwrap().patch.source.clone() {
+        PatchSource::Plugin { state, .. } => state,
+        other => panic!("not a plugin sound: {other:?}"),
+    };
+    assert!(!state(&s).is_empty(), "the fresh read landed in the sound");
+
+    // The editor changes it: the next read's fingerprint is not the baseline's.
+    let ch = crate::parts::CHANNEL[0] as usize;
+    let editor = |s: &Session| s.inner.lock().plugins.channels[ch].as_ref().unwrap().editor.clone().unwrap();
+    let before = editor(&s).instance();
+    s.inner.lock().plugins.channels[ch].as_mut().unwrap().sound_fp = Some(1);
+    s.inner.lock().save_channel_state(ch as u8).unwrap();
+    wait_reads(&s);
+    assert!(s.state().keyboard_parts[0].sound_edited, "edited");
+    // Save: the same sound, not edited, the same instance.
+    s.send(SoundLibraryCmd::SaveSound { part: 0 }).unwrap();
+    wait_reads(&s);
+    let p0 = s.state().keyboard_parts[0].clone();
+    assert_eq!((p0.sound, p0.sound_edited), (Some(tag.clone()), false));
+    assert_eq!(s.state().sound_library.patches.iter().filter(|p| matches!(&p.patch.source, PatchSource::Plugin { .. })).count(), 1, "overwritten, not added");
+    assert!(before.is(&editor(&s)), "Save doesn't reload the plugin");
+
+    // Save as… on a part playing it as its own patch: the copy plays, on the same instance.
+    s.send(SoundLibraryCmd::SetPartPatch { part: 1, id: Some(id.clone()) }).unwrap();
+    assert_eq!(wait_playing(&s, 1), PluginStatus::Playing);
+    wait_reads(&s);
+    assert_eq!(s.state().keyboard_parts[1].sound, Some(tag));
+    s.send(SoundLibraryCmd::SaveSoundAs { part: 1, name: Some("Mine".into()) }).unwrap();
+    let copy = s.state().sound_library.last_added.clone().unwrap();
+    wait_reads(&s);
+    let p1 = s.state().keyboard_parts[1].clone();
+    assert_eq!((p1.patch.as_deref(), p1.sound.map(|t| t.name), p1.sound_edited), (Some(copy.as_str()), Some("Mine".to_string()), false));
+    assert_eq!(p1.plugin.map(|p| p.status), Some(PluginStatus::Playing));
+}
+
+/// D5/O7: a plugin sound in the library exports as an `.aupreset` in its plugin's preset
+/// folder (where Logic reads it), with #307's overwrite rule. The plugin is the made-up
+/// "Sampler Deluxe" from a mock scan cache; no real plugin state is used.
+#[test]
+fn a_plugin_sound_exports_as_an_aupreset() {
+    use crate::api::{base64_encode, SoundLibraryCmd};
+    use crate::patches::{Category, Patch, PatchSource};
+    use crate::plugin::{presets, PluginFormat, PluginId, PluginInfo};
+    let Some(s) = session() else { return };
+    let dir = std::env::temp_dir().join(format!("yahaha-sound-aupreset-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let root = dir.join("Presets");
+    let id = PluginId::parse("aumu Smp7 Fake").unwrap();
+    let fake = PluginInfo {
+        id,
+        name: "Sampler Deluxe".into(),
+        manufacturer: "Fake Instruments".into(),
+        version: 0x10000,
+        format: PluginFormat::Au2,
+        requires_async: false,
+        can_load_in_process: false,
+        sandbox_safe: true,
+        last_load: None,
+        in_process: false,
+        factory_presets: None,
+        user_presets: Vec::new(),
+    };
+    let host = crate::plugin::mock_host(&dir.join("plugins.json"), vec![root.clone()], vec![fake.clone()]);
+    host.scan().unwrap();
+    s.inner.lock().plugins.host = Some(host);
+    let state = format!(
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict><key>manufacturer</key><integer>{}</integer><key>name</key><string>Deluxe Keys</string><key>subtype</key><integer>{}</integer><key>type</key><integer>{}</integer><key>version</key><integer>0</integer></dict></plist>"#,
+        id.manufacturer, id.subtype, id.kind
+    );
+    let sound = |pid: &str, name: &str, st: &str| Patch {
+        id: pid.into(),
+        name: name.into(),
+        category: Category::guess(0, 4),
+        tags: Vec::new(),
+        favourite: false,
+        source: PatchSource::plugin(id.to_string(), base64_encode(st.as_bytes())),
+        defaults: Default::default(),
+    };
+    let mut font = sound("font", "Font", "");
+    font.source = PatchSource::SoundFont { file: "Test.sf2".into(), bank: 0, program: 0 };
+    s.inner.lock().sound.lib.patches.extend([sound("deluxe", "Deluxe Keys", &state), sound("empty", "Unplayed", ""), font]);
+
+    s.send(SoundLibraryCmd::ExportSoundPreset { id: "deluxe".into(), overwrite: false }).unwrap();
+    let file = presets::user_preset_path(&root, &fake, "Deluxe Keys");
+    assert_eq!(file, root.join("Fake Instruments/Sampler Deluxe/Deluxe Keys.aupreset"));
+    let h = presets::parse_aupreset(&std::fs::read(&file).unwrap()).unwrap();
+    assert_eq!((h.name.as_deref(), h.id), (Some("Deluxe Keys"), Some(id)), "Logic reads the unit and name");
+    // #307: an existing preset of that name is never replaced silently.
+    std::fs::write(&file, b"logic's own").unwrap();
+    assert!(s.send(SoundLibraryCmd::ExportSoundPreset { id: "deluxe".into(), overwrite: false }).is_err());
+    assert_eq!(std::fs::read(&file).unwrap(), b"logic's own");
+    s.send(SoundLibraryCmd::ExportSoundPreset { id: "deluxe".into(), overwrite: true }).unwrap();
+    assert!(presets::parse_aupreset(&std::fs::read(&file).unwrap()).is_some());
+    // Nothing to write: no state yet, a SoundFont preset, no such sound.
+    for bad in ["empty", "font", "nope"] {
+        assert!(s.send(SoundLibraryCmd::ExportSoundPreset { id: bad.into(), overwrite: false }).is_err(), "{bad}");
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}

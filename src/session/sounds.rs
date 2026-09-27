@@ -5,9 +5,9 @@
 //! moves. Each publish works out a cheap fingerprint of what the list is made of (the
 //! folder, the plugins, the patches, the favourites); a new one bumps the revision and
 //! sends `Event::SoundsChanged`. Favourites, Recents and plugin categories are saved in
-//! `sound-settings.json` next to the default sound set.
+//! `sound-settings.json` (session/gm_auto.rs).
 
-use super::sound_set::write_key;
+use super::gm_auto::write_key;
 use super::Control;
 use crate::api::{parse_plugin_id, parse_preset_id, CmdError, PartsCmd, PatchFields, PluginCmd, SoundCatalog, SoundLibraryCmd, SoundPrefs, SoundsCmd, SoundsState};
 use crate::patches::sf2::{self, Preset};
@@ -90,7 +90,7 @@ impl Control {
         let fonts: Vec<(&str, &[Preset])> =
             self.sound_fonts.iter().map(|f| (f.as_str(), s.presets.get(f).map_or(&[][..], Vec::as_slice))).collect();
         let entries = s.prefs.entries(&fonts, &self.plugins_state().list, &self.plugin_preset_lists(), self.sound_patches());
-        SoundCatalog { revision: s.revision, entries, recents: s.prefs.recents.clone() }
+        SoundCatalog { revision: s.revision, entries, recents: s.prefs.recents.clone(), fonts: crate::api::font_summaries(&fonts) }
     }
 
     pub(super) fn sounds_state(&self) -> SoundsState {
@@ -164,6 +164,15 @@ impl Control {
                 if let Err(e) = self.list_plugin_presets(plugin) {
                     return self.fail(e);
                 }
+            }
+            SoundsCmd::AddToMySounds { id } => {
+                if id.starts_with("saved:") {
+                    return Ok(());
+                }
+                if !id.starts_with("sf:") && !id.starts_with("au:") {
+                    return self.fail(format!("no sound {id}"));
+                }
+                self.patch_for_sound(&id)?;
             }
             SoundsCmd::SavePartAsPluginPreset { part, name, category, overwrite } => {
                 if part > 3 {
@@ -313,7 +322,7 @@ impl Control {
     }
 
     fn save_sounds(&mut self, key: &str, value: serde_json::Result<serde_json::Value>) {
-        let r = value.map_err(anyhow::Error::from).and_then(|v| write_key(self.sound_set.file(), key, v));
+        let r = value.map_err(anyhow::Error::from).and_then(|v| write_key(self.sound_settings.as_deref(), key, v));
         if let Err(e) = r {
             self.say(format!("The sound browser settings were not saved: {e:#}"), true);
         }
