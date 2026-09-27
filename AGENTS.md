@@ -18,6 +18,21 @@ The corpus tests need the git-ignored `corpus/` folder; in a worktree, symlink i
 
 For quick results while editing, see the bacon section once it lands (build/bacon).
 
+## Review
+
+Every PR gets one review, posted on the PR itself (`gh pr review --comment` plus line comments). The review runs as soon as the PR opens, alongside CI rather than after it. A PR merges when CI passes and every review comment is addressed.
+
+Reviewers flag only these, each with the file, the line and a one-line reason:
+
+- **Real-time safety:** no allocation, locks, panics or blocking I/O on the audio, engine or MIDI threads.
+- **Mixer:** a part's level is only its CC7 plus master. There's no hidden gain.
+- **Parity:** nothing is hardware-only. Every Launchkey function has an app control; every new control has a tooltip; every new command is in both mocks (TS and the Rust dev mock), in docs/app-api.md and in EVERY_CMD in tests/api_wire.rs.
+- **Layering:** no new upward imports (for example, sff or theory reaching into engine or session; synth reaching into session or plugin). Move shared types down instead.
+- **Public repo:** no style data, soundfonts, manual text or real plugin state blobs committed.
+- **Bugs:** wrong logic, broken migrations of saved files, and tests that would pass without the code under test working.
+
+Don't comment on style or naming. Put small edge cases in a follow-up issue rather than blocking the PR.
+
 ## Linux
 
 See "Developing on Linux" in README.md.
