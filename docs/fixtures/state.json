@@ -415,6 +415,8 @@
   ],
   "mixer": {
     "faderPage": "panel",
+    "faderLayer": "volume",
+    "sendWaiting": 0,
     "styleParts": [
       {
         "name": "Rhythm 1",

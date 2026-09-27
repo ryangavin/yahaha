@@ -903,6 +903,13 @@ const catalog = {
     keys: ['F9'],
     launchkey: 'Button under the master fader',
   },
+  'mixer.layer': {
+    title: 'Fader layer: VOL / PAN / REV / CHO / DLY',
+    body: 'Switches what the faders move across the parts, as in a DAW\'s sends view: each part\'s volume, or its pan, reverb, chorus or delay send. A fader picks a value up before it moves it. The master fader stays the master.',
+    genos: null,
+    keys: [],
+    launchkey: 'Shift + button under the master fader',
+  },
   'mixer.panel.right1': {
     title: 'Right 1 volume',
     body: 'Right 1\'s volume. The fader is channel 1\'s CC 7 itself, with no hidden gain behind it.',

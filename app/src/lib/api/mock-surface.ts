@@ -137,7 +137,8 @@ export function mockSurface(s: AppState, lib: LibraryList, hw: MockHardware): Su
       controls.push(control(id, cc, 'LOOPER', { type: 'looperOnOff' }, colour, { label: 'LOOP REC', action: { type: 'looperRec' } }))
     } else controls.push(control(id, cc, '', null, OFF))
   }
-  controls.push(control('masterButton', 45, style ? 'STYLE' : 'PANEL', { type: 'toggleFaderPage' }, style ? GREEN : BLUE))
+  const layer = { volume: '', pan: ' PAN', reverb: ' REV', chorus: ' CHO', delay: ' DLY' }[s.mixer.faderLayer]
+  controls.push(control('masterButton', 45, (style ? 'STYLE' : 'PANEL') + layer, { type: 'toggleFaderPage' }, style ? GREEN : BLUE, { label: 'LAYER', action: { type: 'stepFaderLayer', delta: 1 } }))
 
   /** Panel fader 5 (0-based 4): the Style volume. */
   const STYLE_FADER = 4

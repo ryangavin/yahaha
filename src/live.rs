@@ -19,7 +19,7 @@ use crate::harmony::{self, HarmonySettings};
 use crate::launchkey::{self, Action, Control, Page, Touch};
 use crate::looper::ChordSeq;
 use crate::midi::{for_each_message, InputHandler};
-use crate::parts::{self, FaderPage, Parts};
+use crate::parts::{self, FaderLayer, FaderPage, Parts};
 use crate::rt::{self, Histogram, PacketSink, Wakeup};
 use crate::theory::{Chord, Recognizer, CANCEL, ONE_PLUS_EIGHT, ONE_PLUS_FIVE};
 use rtrb::{Consumer, Producer, RingBuffer};
@@ -558,6 +558,12 @@ pub struct Input {
     tempo_held: u8,
     /// Soft takeover of the Launchkey master fader (the synth master level).
     master_takeover: crate::engine::Takeover,
+    /// The Panel faders 1-4 in a send layer (`FaderLayer`): soft takeover per fader, the
+    /// `Parts::fader_layer_gen` it was bound in, and the value it last wrote (a
+    /// different value since means software moved it: pick it up again).
+    send_take: [crate::engine::Takeover; parts::COUNT],
+    send_bound: [u8; parts::COUNT],
+    send_last: [u8; parts::COUNT],
     /// The note pipeline's processor slot (Harmony or Arpeggio), from `Shared::kbd_fx`
     /// (`fx_word`: the word it was read from).
     processor: Processor,
@@ -604,6 +610,9 @@ impl Input {
             shift: false,
             tempo_held: 0,
             master_takeover: crate::engine::Takeover::NEW,
+            send_take: [crate::engine::Takeover::NEW; parts::COUNT],
+            send_bound: [u8::MAX; parts::COUNT],
+            send_last: [0; parts::COUNT],
             processor: Processor::Off,
             fx_word: FxConfig::default().pack(),
             fx_tx: None,
@@ -911,10 +920,30 @@ impl Input {
                     let f = (cc - launchkey::FADER_CC.start()) as usize;
                     let parts = &self.shared.parts;
                     let prev = parts.fader_hw[f].swap(v, Relaxed);
+                    let layer = parts.fader_layer();
                     match parts.fader_page() {
-                        // The engine thread sends the new volume as the part's CC7.
+                        // A send layer: faders 1-4 move their part's pan or send (the
+                        // engine thread sends it as the part's CC10/91/93/94).
+                        FaderPage::Panel if f < parts::COUNT && layer != FaderLayer::Volume => {
+                            if self.send_fader(f, layer, prev, v) {
+                                self.signal = true;
+                            }
+                        }
+                        // The engine thread sends the new volume as the part's CC7. Faders
+                        // 5-6 (Style and Multi Pad level) are levels in every layer.
                         FaderPage::Panel => {
                             if f < parts::PANEL_FADERS && parts.hw_fader(f, prev, v) {
+                                self.signal = true;
+                            }
+                        }
+                        // A send layer on the Style page: the part's own Reverb/Chorus/Delay
+                        // send (#268, `setStylePartSend`), set as the fader goes (no
+                        // takeover yet). The Style parts have no pan control: PAN does
+                        // nothing there.
+                        FaderPage::Style if layer != FaderLayer::Volume => {
+                            if let Some(fx) = layer.fx_index().filter(|&i| i >= parts::REVERB)
+                                && self.cmd.push(Cmd::StyleSend(f as u8, (fx - parts::REVERB) as u8, v)).is_ok()
+                            {
                                 self.signal = true;
                             }
                         }
@@ -984,6 +1013,14 @@ impl Input {
     /// they mute the Style parts.
     fn fader_button(&mut self, i: u8) {
         let parts = &self.shared.parts;
+        if i == 8 && self.shift {
+            // Shift + the master fader's button: the next fader layer (VOL, PAN, REV, CHO,
+            // DLY). The next fader move must already go to it.
+            parts.step_fader_layer(1);
+            self.signal = true;
+            self.ctl_signal = true;
+            return;
+        }
         if i == 8 {
             // Here rather than on the control side: the next fader move must already go
             // to the new page. The engine rebinds the Style faders on its next wake
@@ -1009,6 +1046,40 @@ impl Input {
             FaderPage::Panel => {}
             FaderPage::Style => self.act(Action::Button(Button::TogglePart(i))),
         }
+    }
+
+    /// Panel fader `f` (a keyboard part) moved to `v` (from `prev`) in send layer `layer`:
+    /// the part's pan or send follows once the fader has picked it up. True if it changed.
+    /// No allocation: atomics and the input thread's own takeover state.
+    fn send_fader(&mut self, f: usize, layer: FaderLayer, prev: u8, v: u8) -> bool {
+        let parts = &self.shared.parts;
+        let Some(fx) = layer.fx_index() else { return false };
+        let cur = parts.fx(f)[fx];
+        let generation = parts.fader_layer_gen();
+        if self.send_bound[f] != generation {
+            // First move in this layer: the fader controls the send once it gets there.
+            self.send_take[f] = crate::engine::Takeover::at(prev, cur);
+            self.send_bound[f] = generation;
+            self.send_last[f] = cur;
+        } else if self.send_last[f] != cur {
+            // Software (an OTS, a Registration, the app) moved it since.
+            self.send_take[f].software_moved(cur);
+            self.send_last[f] = cur;
+        }
+        let ok = self.send_take[f].hardware(cur, v);
+        if ok {
+            let mut set = [None; parts::FX];
+            set[fx] = Some(v);
+            parts.set_fx(f, set);
+            self.send_last[f] = v;
+        }
+        let bit = 1u8 << f;
+        if self.send_take[f].waiting() {
+            parts.send_waiting.fetch_or(bit, Relaxed);
+        } else {
+            parts.send_waiting.fetch_and(!bit, Relaxed);
+        }
+        ok
     }
 
     /// TEMPO − (`dir` −1) or + (1) went down or up. Held, it repeats (the engine times it);
@@ -2515,6 +2586,46 @@ mod tests {
     /// Through `Input`: Pad Bank ▼/▲ switch pages, pads follow the page, engine buttons go
     /// to the engine and the rest to the UI ring, Shift turns ▲/▼ into the old toggles, and
     /// anything unmapped is recorded for the screen.
+    #[test]
+    fn fader_layers_move_pan_and_sends_with_takeover() {
+        let shared = Arc::new(Shared::new(54));
+        let (cmd, mut cmds) = RingBuffer::new(16);
+        let mut input = Input::new(shared.clone(), Recognizer::new(), cmd, Out::new(PacketSink::new(rt::Target::Virtual(0)), None));
+        let parts = shared.parts.clone();
+        let fader1 = *launchkey::FADER_CC.start();
+        let master_btn = *launchkey::FADER_BTN_CC.end();
+        // Shift + the master fader's button: VOL -> PAN.
+        input.pad_msg(&[0xB0, launchkey::SHIFT_CC, 127]);
+        input.pad_msg(&[0xB0, master_btn, 127]);
+        input.pad_msg(&[0xB0, launchkey::SHIFT_CC, 0]);
+        assert_eq!(parts.fader_layer(), FaderLayer::Pan);
+        assert_eq!(parts.fader_page(), FaderPage::Panel, "the page stays");
+        let vol = parts.volume(0);
+        // Right 1's pan is 64: a fader far away waits, then picks it up on the way.
+        input.pad_msg(&[0xB0, fader1, 10]);
+        assert_eq!(parts.fx(0)[parts::PAN], 64);
+        assert_eq!(parts.send_waiting.load(Relaxed) & 1, 1);
+        input.pad_msg(&[0xB0, fader1, 64]);
+        input.pad_msg(&[0xB0, fader1, 30]);
+        assert_eq!(parts.fx(0)[parts::PAN], 30);
+        assert_eq!(parts.send_waiting.load(Relaxed) & 1, 0);
+        assert_eq!(parts.volume(0), vol, "the CC7 is untouched");
+        // REV on the Style page: the Style part's own reverb send.
+        parts.set_fader_layer(FaderLayer::Reverb);
+        parts.set_fader_page(FaderPage::Style);
+        while cmds.pop().is_ok() {}
+        input.pad_msg(&[0xB0, fader1 + 2, 90]);
+        assert!(matches!(cmds.pop(), Ok(Cmd::StyleSend(2, 0, 90))));
+        // Five steps come back to VOL; the master button alone still switches pages.
+        parts.set_fader_page(FaderPage::Panel);
+        for _ in 0..3 {
+            parts.step_fader_layer(1);
+        }
+        assert_eq!(parts.fader_layer(), FaderLayer::Volume);
+        input.pad_msg(&[0xB0, master_btn, 127]);
+        assert_eq!(parts.fader_page(), FaderPage::Style);
+    }
+
     #[test]
     fn launchkey_pages_route_pads_and_buttons() {
         use crate::engine::Button;

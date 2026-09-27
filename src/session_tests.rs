@@ -702,7 +702,8 @@ fn launchkey_hardware_matches_its_commands() {
             for shift in [false, true] {
                 for fp in [FaderPage::Panel, FaderPage::Style] {
                     let cmd = match (i, fp, shift) {
-                        (8, _, _) => Some(AppCmd::Mixer(MixerCmd::ToggleFaderPage)),
+                        (8, _, true) => Some(AppCmd::Mixer(MixerCmd::StepFaderLayer { delta: 1 })),
+                        (8, _, false) => Some(AppCmd::Mixer(MixerCmd::ToggleFaderPage)),
                         (0..=3, FaderPage::Panel, true) => Some(AppCmd::Parts(PartsCmd::SelectPart { part: i })),
                         (0..=3, FaderPage::Panel, false) => Some(AppCmd::Parts(PartsCmd::TogglePart { part: i })),
                         (4, FaderPage::Panel, _) => Some(AppCmd::HarmonyArp(HarmonyArpCmd::ToggleHarmonyArp)),
