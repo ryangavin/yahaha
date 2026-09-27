@@ -99,6 +99,14 @@ describe('Pedals page', () => {
     expect(opt.disabled).toBe(false)
     expect(functionCmd('registBankPrev', { fingering: 'fingered' })).toEqual({ type: 'stepRegistBank', delta: -1 })
   })
+
+  it('Snapshot Bank +/− are selectable (the Launchkey BANK -/+ pads)', () => {
+    setup()
+    const opt = byTip<HTMLSelectElement>('pedal.function')[0].querySelector<HTMLOptionElement>('option[value="snapshotBankNext"]')!
+    expect(opt.disabled).toBe(false)
+    expect(functionCmd('snapshotBankNext', { fingering: 'fingered' })).toEqual({ type: 'stepSnapshotBank', delta: 1 })
+    expect(functionCmd('snapshotBankPrev', { fingering: 'fingered' })).toEqual({ type: 'stepSnapshotBank', delta: -1 })
+  })
 })
 
 describe('assignable functions', () => {

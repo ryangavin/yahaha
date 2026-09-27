@@ -389,6 +389,11 @@ fn launchkey_page_4_recalls_and_memorizes() {
     s.midi_in(Port::Pads, &[0x90, 112, 100]);
     s.midi_in(Port::Pads, &[0x90, 112, 100]);
     assert_eq!(s.state().registration.snapshot_bank, 0);
+    // Snapshot Bank +/- as assignable functions (a pedal): the same path as the pads.
+    s.send(crate::api::ControllersCmd::TriggerFunction { function: crate::controllers::Function::SnapshotBankNext }).unwrap();
+    assert_eq!(s.state().registration.snapshot_bank, 1);
+    s.send(crate::api::ControllersCmd::TriggerFunction { function: crate::controllers::Function::SnapshotBankPrev }).unwrap();
+    assert_eq!(s.state().registration.snapshot_bank, 0);
     // Recalling B2 by index (a sequence step, the app) brings the pads to Bank B.
     s.send(RegistrationCmd::RecallRegist { index: 9 }).unwrap();
     assert_eq!(s.state().registration.snapshot_bank, 1);
