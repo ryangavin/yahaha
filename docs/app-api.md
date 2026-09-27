@@ -458,6 +458,7 @@ scaled. A change glides in over about 30 ms.
 | `setEffectType` | `block` `reverb` \| `chorus` \| `variation`, `effect` | The block's type. Reverb: `hall` (default), `room`, `stage`, `plate`. Chorus: `chorus` (default), `celeste`, `flanger`. Variation, a stereo delay at the style tempo: `eighth`, `dottedEighth` (default), `quarter`, `pingPong` (1/8, alternating sides). Another block's type is refused. |
 | `setEffectReturn` | `block`, `level` 0–127 | The block's return level: 64 = 0 dB (default), 127 = +6 dB, 0 = off (Genos). |
 | `setEffectParam` | `block`, `param`, `value` | One of the block's parameters (#236), in the parameter's own unit, clamped to its range (see the table below). A parameter of another block is refused. A change glides on the audio thread, so it never clicks. `setEffectType` puts the block's parameters back to the new type's own values. Stored in Registration with the effects. |
+| `setInsertsOn` | `on` | The style's insertion effects (#269, `effects.inserts`) on or off, all together (default on). Off, every Style part plays dry. Stored in Registration with the effects (`insertsOn`). |
 | `setFollowStyle` | `block`, `on` | Whether the block follows the style's own effect type (#237). On (the default), each style load gives the block the style's type (and the delay's time, feedback and tone, the reverb's time, pre-delay and tone, and the block's return level, as the style sets them; #269), or the block's default type if the style sets none that yahaha has. `setEffectType` turns it off, so the player's choice stays through style changes. Turning it on takes the loaded style's type at once. Stored in Registration with the effects. |
 | `setBandSend` | `block`, `level` 0–127 | The block's band send, in percent: 100 = the Style parts' sends as written, 0 = none of the band, above 100 up to 127 raises them (each part's send at most the whole signal). Defaults: reverb 100, chorus 0, variation 0. Stored in Registration with the effects. |
 | `setPadSend` | `block`, `level` 0–127 | The block's Multi Pad send (#267), in percent: the same scale as `setBandSend`, on the four Multi Pads' sends (channels 5–8). Defaults: reverb 100, chorus 0, variation 0. In the built-in synth only (the MIDI port carries the pads' CCs as written). Stored in Registration with the Multi Pad bank (group Multi Pad). |
@@ -501,6 +502,22 @@ is 1, System). Each maps onto the nearest type here:
 | Variation | 21 Tempo Delay, Tempo Echo | `dottedEighth` with the style's delay time (Data List Table#5, nearest note), feedback and high damp |
 | Variation | 22 Tempo Cross | `pingPong`, the same |
 | Variation | 5 Delay LCR, 6 Delay LR | `dottedEighth` |
+
+A style's **insertion effects** (#269: an XG Insertion block `03 nn`, or a Variation
+connected as Insertion, assigned to a Style part as its first setup routes it; the first
+per part) play in the built-in synth on that part's own signal, before its sends. By the
+type's family (Genos Data List Effect Type List):
+
+| XG types (MSB/LSB) | Plays as |
+|---|---|
+| 73 Distortion, 74 Overdrive, 75 Stereo Amp Sim, 83/36 Uni Comp Clipper Dist, 95/32–35 Multi FX distortions, 96 Small Stereo Dist, 97 British Combo, 98 V Distortion, 99/32+ US Combo, 100 Jazz Combo, 101 US High Gain, 102 British Lead, 103 Tweed Guy, 105/32+ Y-Amp | `distortion`, drive by the type: clean (Clean, Jazz Combo, Y-Amp Live Clean), crunch, or lead (Lead, High Gain, Metal, Distortion) |
+| 83 Uni Comp, 105/0–31 Multi Band Comp, 124/4 VCM Compressor | `compressor` |
+| 78 Auto Wah, 79 Tempo Auto Wah, 124/5 VCM Auto Wah, 125 VCM Pedal Wah | `autoWah` (the part's envelope moves it) |
+| 70 Tremolo, 120 Tempo Tremolo | `tremolo` (a 1/8 note of the style tempo) |
+| 69 Rotary Speaker, 99/16–31 Dual Rotary Speaker | `rotary` (slow) |
+
+Anything else (THRU, EQ, chorus, reverbs, delays) leaves the part dry. The type's own
+parameters are not read. The MIDI port gets the style's SysEx as written.
 
 With a matching type, the style's reverb parameters come too (#269): parameter 1 Reverb
 Time (Data List Table#1) as `reverbTime` (at most 10 s), 3 Initial Delay (Table#2) as
@@ -1125,6 +1142,10 @@ reverb 100, chorus 0, variation 0 at start), and `params` (#236), the block's pa
 block as `{ name, effect }` (`name` the XG type, "Real Medium Hall"; `effect` the type it
 plays as, null if nothing is near it), or null when the style sets none; and `followStyle`
 (`setFollowStyle`).
+`inserts` (#269): the loaded style's insertion effects, one per Style part at most, each
+`{ part, partName, name, effect }`: `part` 0–7, `name` the XG type ("British Combo
+Classic"), `effect` what plays it here (`distortion`, `compressor`, `autoWah`, `tremolo`,
+`rotary`) or null (the part plays dry); `insertsOn` (`setInsertsOn`).
 
 ### `message`
 `{ seq, text, error }` or null. It holds the last notice or error, for example a style

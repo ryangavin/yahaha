@@ -102,7 +102,7 @@ patch `patch: { id, name }` (#109), recalled through `setPartPatch`),
 `effects` (#204, group Style: each effect block's `effect` type, `returnLevel` and
 `bandSend` (#236; a bank from before it recalls the defaults, reverb 100, chorus 0,
 variation 0), `params` (#236, `{ reverbTime: 24, ... }`; one absent is the type's own
-value) and `followStyle` (#237; absent: true). The effects are recalled after the style, so
+value) and `followStyle` (#237; absent: true), and `insertsOn` (#269, the style's insertion effects; absent: on). The effects are recalled after the style, so
 a memory's own types win over the style's), under `reverb`, `chorus`, `variation`; a bank without it leaves them), `transpose`, `harmonyArp` (Keyboard Harmony/Arpeggio: the switch, the type and pattern by
 name, Volume, Speed, Assign, Chord Note Only, Touch Limit, and the arpeggio's Quantize, Hold
 setting, velocity and Keep Key On; not the Arpeggio Hold pedal function, which is the

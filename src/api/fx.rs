@@ -25,6 +25,9 @@ pub enum FxCmd {
     /// style's type now and at every style change; `setEffectType` turns it off (the
     /// player's own choice stays).
     SetFollowStyle { block: FxBlock, on: bool },
+    /// The style's insertion effects (#269, `EffectsState::inserts`) on or off, all
+    /// together.
+    SetInsertsOn { on: bool },
 }
 
 /// An effect parameter (#236): the bus's own (`crate::fx::Param`).
@@ -121,6 +124,54 @@ impl FxType {
 pub struct EffectsState {
     /// Reverb, Chorus, Variation.
     pub blocks: Vec<EffectBlockState>,
+    /// The loaded style's insertion effects (#269), one per Style part at most.
+    #[serde(default)]
+    pub inserts: Vec<InsertState>,
+    /// Whether they play (`setInsertsOn`).
+    #[serde(default = "yes")]
+    pub inserts_on: bool,
+}
+
+fn yes() -> bool {
+    true
+}
+
+/// A style's insertion effect on one of its parts (#269).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InsertState {
+    /// The Style part, 0-7 (Rhythm 1 ... Phrase 2).
+    pub part: u8,
+    /// "Chord 1".
+    pub part_name: String,
+    /// The XG type: "British Combo Classic".
+    pub name: String,
+    /// What plays it here; null: nothing near it, the part plays dry.
+    pub effect: Option<InsertEffect>,
+}
+
+/// An insertion effect yahaha plays (`crate::fx::InsertKind`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum InsertEffect {
+    Distortion,
+    Compressor,
+    AutoWah,
+    Tremolo,
+    Rotary,
+}
+
+impl From<crate::fx::InsertKind> for InsertEffect {
+    fn from(k: crate::fx::InsertKind) -> InsertEffect {
+        use crate::fx::InsertKind as K;
+        match k {
+            K::Distortion | K::None => InsertEffect::Distortion,
+            K::Compressor => InsertEffect::Compressor,
+            K::AutoWah => InsertEffect::AutoWah,
+            K::Tremolo => InsertEffect::Tremolo,
+            K::Rotary => InsertEffect::Rotary,
+        }
+    }
 }
 
 impl EffectsState {
@@ -145,7 +196,7 @@ impl EffectsState {
                 }
             })
             .collect();
-        EffectsState { blocks }
+        EffectsState { blocks, inserts: Vec::new(), inserts_on: true }
     }
 
     /// As a session starts: Hall, Chorus, the dotted 1/8 delay, every return 64 (0 dB);

@@ -210,7 +210,16 @@ fn render_cmd(args: &[String]) -> Result<()> {
     let script = if path.is_file() { std::fs::read_to_string(path)? } else { script.clone() };
     let (rec, end) = sim::record(&style, &script)?;
     const RATE: u32 = 48_000;
-    let (l, r) = yahaha::synth::render_offline(std::path::Path::new(sf2), &rec.out, end, RATE, style.bpm())?;
+    // The style's insertion effects (#269), as its first setup routes them;
+    // `YAHAHA_INSERTS=off` renders without them.
+    let off = std::env::var("YAHAHA_INSERTS").is_ok_and(|v| v == "off");
+    let prep = yahaha::engine::Prepared::new(&style);
+    let found = yahaha::fx::xg::style_inserts(prep.setups[0].init.iter());
+    let inserts: Vec<_> = found.iter().filter_map(|i| i.kind.map(|(k, a)| (i.channel - 8, k, a))).filter(|_| !off).collect();
+    for i in &found {
+        println!("insert: ch {} {} -> {}", i.channel + 1, i.name, i.kind.map_or("dry", |(k, _)| k.name()));
+    }
+    let (l, r) = yahaha::synth::render_offline(std::path::Path::new(sf2), &rec.out, end, RATE, style.bpm(), &inserts)?;
     let mut data = Vec::with_capacity(l.len() * 4);
     for (a, b) in l.iter().zip(&r) {
         for x in [a, b] {
@@ -231,10 +240,11 @@ fn render_cmd(args: &[String]) -> Result<()> {
     let rms = |x: &[f32]| (x.iter().map(|v| (*v as f64).powi(2)).sum::<f64>() / x.len().max(1) as f64).sqrt();
     let peak = l.iter().chain(&r).fold(0f32, |m, v| m.max(v.abs()));
     println!(
-        "{out}: {:.1} s, velocity -> tone {}, effects {}, RMS {:.1} dBFS, peak {:.1} dBFS",
+        "{out}: {:.1} s, velocity -> tone {}, effects {}, inserts {}, RMS {:.1} dBFS, peak {:.1} dBFS",
         l.len() as f64 / RATE as f64,
         if yahaha::synth::velocity_to_filter() { "on" } else { "off" },
         if yahaha::synth::legacy_fx() { "legacy (the SoundFont's own)" } else { "bus" },
+        if off { "off".to_string() } else { format!("{} on", inserts.len()) },
         20.0 * ((rms(&l) + rms(&r)) / 2.0).log10(),
         20.0 * (peak as f64).log10()
     );

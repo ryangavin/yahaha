@@ -25,6 +25,8 @@ pub(super) struct Loaded {
     pub(super) ots: Vec<Ots>,
     /// The style's own System Effect types (#237, from its SInt).
     pub(super) effects: crate::fx::xg::StyleFx,
+    /// Its insertion effects (#269), as its first setup routes them.
+    pub(super) inserts: Vec<crate::fx::xg::StyleInsert>,
 }
 
 pub(super) fn load(path: &Path) -> Result<(Box<Prepared>, Loaded)> {
@@ -50,6 +52,7 @@ pub(super) fn load(path: &Path) -> Result<(Box<Prepared>, Loaded)> {
         voices: prep.setups[0].voices,
         ots: style.ots.clone(),
         effects: crate::fx::xg::StyleFx::parse(&style.sint().sysex),
+        inserts: crate::fx::xg::style_inserts(prep.setups[0].init.iter()),
     };
     Ok((prep, info))
 }

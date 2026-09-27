@@ -138,6 +138,19 @@ fn the_audio_callback_does_not_allocate() {
         }
     }
     assert_eq!(run(&mut core, &mut feed, &[[0x85, 64, 0]]), none, "a pad's note off");
+    // The Style parts' insertion effects (#269): every kind on two parts playing, a change
+    // (it fades), and off again.
+    assert_eq!(run(&mut core, &mut feed, &[[0x9B, 60, 100], [0x9C, 64, 100]]), none, "notes for the inserts");
+    for kind in [1u8, 2, 3, 4, 5, 0] {
+        ctl.fx.insert[3].store(kind, Ordering::Relaxed);
+        ctl.fx.insert[4].store((kind + 2) % 6, Ordering::Relaxed);
+        ctl.fx.insert_amount[3].store(kind * 25, Ordering::Relaxed);
+        for _ in 0..3 {
+            assert_eq!(run(&mut core, &mut feed, &[]), none, "insertion effects");
+        }
+    }
+    ctl.fx.insert[4].store(0, Ordering::Relaxed);
+    assert_eq!(run(&mut core, &mut feed, &[[0x8B, 60, 0], [0x8C, 64, 0]]), none, "inserts off");
     ctl.fx.legacy.store(true, Ordering::Relaxed);
     assert_eq!(run(&mut core, &mut feed, &[[0x90, 67, 100]]), none, "the SoundFont's own effects");
     ctl.fx.legacy.store(false, Ordering::Relaxed);

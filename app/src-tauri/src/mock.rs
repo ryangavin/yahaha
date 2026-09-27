@@ -372,7 +372,16 @@ impl MockSession {
             sounds: SoundsState::default(),
             dynamics: DynamicsState::default(),
             knobs: KnobsState::default(),
-            effects: EffectsState::initial(),
+            effects: EffectsState {
+                // The mock style's insertion effect (#269) on Chord 1.
+                inserts: vec![InsertState {
+                    part: 3,
+                    part_name: "Chord 1".into(),
+                    name: "British Combo Classic".into(),
+                    effect: Some(InsertEffect::Distortion),
+                }],
+                ..EffectsState::initial()
+            },
         };
         let songs: Vec<(String, String)> = library.entries.iter().filter(|e| e.status == "ok").map(|e| (e.path.clone(), e.name.clone())).collect();
         let mut m = MockSession {
@@ -1823,7 +1832,10 @@ impl MockSession {
                     let mut params = self.fx_params();
                     yahaha::fx::type_defaults(block.index(), block.type_index(effect), &mut params);
                     let kept = self.state.effects.blocks.clone();
+                    let (inserts, inserts_on) = (self.state.effects.inserts.clone(), self.state.effects.inserts_on);
                     self.state.effects = EffectsState::new(types, returns, band, params);
+                    self.state.effects.inserts = inserts;
+                    self.state.effects.inserts_on = inserts_on;
                     for (b, k) in self.state.effects.blocks.iter_mut().zip(kept) {
                         b.follow_style = k.follow_style;
                         b.style_effect = k.style_effect;
@@ -1836,6 +1848,7 @@ impl MockSession {
                 }
             }
             AppCmd::Fx(FxCmd::SetEffectReturn { block, level }) => self.state.effects.blocks[block.index()].return_level = level.min(127),
+            AppCmd::Fx(FxCmd::SetInsertsOn { on }) => self.state.effects.inserts_on = on,
             AppCmd::Fx(FxCmd::SetFollowStyle { block, on }) => self.state.effects.blocks[block.index()].follow_style = on,
             AppCmd::Fx(FxCmd::SetBandSend { block, level }) => self.state.effects.blocks[block.index()].band_send = level.min(127),
             AppCmd::Fx(FxCmd::SetPadSend { block, level }) => self.state.effects.blocks[block.index()].pad_send = level.min(127),
@@ -1850,7 +1863,10 @@ impl MockSession {
                     let returns = std::array::from_fn(|b| e.blocks[b].return_level);
                     let band = std::array::from_fn(|b| e.blocks[b].band_send);
                     let kept = self.state.effects.blocks.clone();
+                    let (inserts, inserts_on) = (self.state.effects.inserts.clone(), self.state.effects.inserts_on);
                     self.state.effects = EffectsState::new(types, returns, band, params);
+                    self.state.effects.inserts = inserts;
+                    self.state.effects.inserts_on = inserts_on;
                     for (b, k) in self.state.effects.blocks.iter_mut().zip(kept) {
                         b.follow_style = k.follow_style;
                         b.style_effect = k.style_effect;

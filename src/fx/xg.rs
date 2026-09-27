@@ -21,10 +21,17 @@
 //! Frequency, another reverb's LPF Cutoff) from Table#3, as our Tone. The chorus's
 //! parameters are not read: no corpus style sets them on a chorus type yahaha has.
 //!
+//! Insertion effects (#269, [`style_inserts`]): an XG Insertion Effect block (`03 nn`) or a
+//! Variation connected as Insertion, on one of the Style parts, plays as the nearest
+//! [`InsertKind`] by its type's family (`insert_kind`): the amp simulators and distortions
+//! as a distortion (clean, crunch or lead by the type), the compressors, the wahs, the
+//! tremolos and the rotary speakers. The rest (THRU, EQ, chorus, reverbs, delays) leaves
+//! the part dry.
+//!
 //! No match leaves the block at its own default type. Only the control side uses this (at
 //! style load); nothing here runs on the audio thread.
 
-use super::Param;
+use super::{InsertKind, Param};
 
 /// XG Effect 1 (System Effects) parameter addresses within `02 01`.
 const REVERB_TYPE: usize = 0x00;
@@ -300,6 +307,165 @@ fn name(table: &[(u8, u8, &str)], msb: u8, lsb: u8) -> String {
     table.iter().find(|t| t.0 == msb && t.1 == lsb).map_or_else(|| format!("XG {msb}/{lsb}"), |t| t.2.to_string())
 }
 
+/// A style's insertion effect on one of its parts (#269): an XG Insertion Effect block
+/// (`03 nn`) or a Variation connected as Insertion (`5A` = 0), with the part it is
+/// assigned to.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct StyleInsert {
+    /// The MIDI channel (0-15) of the part it is on, as the setup routes it.
+    pub channel: u8,
+    pub msb: u8,
+    pub lsb: u8,
+    /// The type's name ("British Combo Classic"), or "XG msb/lsb".
+    pub name: String,
+    /// What plays it here, and how hard (`InsertSettings::amount`), or None: no match
+    /// (the part plays dry).
+    pub kind: Option<(InsertKind, u8)>,
+}
+
+/// The insertion effects in a style's setup (`sysex`: its SysEx as the setup sends them,
+/// the parts already routed to their channels, `engine::Setup::init`), one per channel:
+/// the first block assigned to it wins. Only the Style parts' channels (9-16) count.
+pub fn style_inserts<'a>(sysex: impl IntoIterator<Item = &'a [u8]>) -> Vec<StyleInsert> {
+    let mut blocks: Vec<(u8, [Option<u8>; 0x0D])> = Vec::new();
+    let mut var = [None::<u8>; 0x80];
+    for m in sysex {
+        if m.len() < 9 || m[0] != 0xF0 || m[1] != 0x43 || m[2] & 0xF0 != 0x10 || m[3] != 0x4C {
+            continue;
+        }
+        let data = &m[7..m.len() - 1];
+        let (mem, base): (&mut [Option<u8>], usize) = match (m[4], m[5]) {
+            (0x03, n) => {
+                let i = match blocks.iter().position(|b| b.0 == n) {
+                    Some(i) => i,
+                    None => {
+                        blocks.push((n, [None; 0x0D]));
+                        blocks.len() - 1
+                    }
+                };
+                (&mut blocks[i].1[..], m[6] as usize)
+            }
+            (0x02, 0x01) => (&mut var[..], m[6] as usize),
+            _ => continue,
+        };
+        for (k, &d) in data.iter().enumerate() {
+            if let Some(slot) = mem.get_mut(base + k) {
+                *slot = Some(d & 0x7F);
+            }
+        }
+    }
+    let mut out: Vec<StyleInsert> = Vec::new();
+    let mut add = |msb: Option<u8>, lsb: Option<u8>, part: Option<u8>| {
+        let (Some(msb), Some(part)) = (msb, part) else { return };
+        let lsb = lsb.unwrap_or(0);
+        if msb == 0 || !(8..16).contains(&part) || out.iter().any(|i| i.channel == part) {
+            return;
+        }
+        out.push(StyleInsert { channel: part, msb, lsb, name: name(INSERT_NAMES, msb, lsb), kind: insert_kind(msb, lsb) });
+    };
+    for (_, b) in &blocks {
+        add(b[0x00], b[0x01], b[0x0C]);
+    }
+    // A Variation the style connects as Insertion (`5A` 0) on a part (`5B`).
+    if var[VARIATION_CONNECTION] == Some(0) {
+        add(var[VARIATION_TYPE], var[VARIATION_TYPE + 1], var[VARIATION_CONNECTION + 1]);
+    }
+    out
+}
+
+/// The insertion kind that plays XG type `msb`/`lsb`, and its amount, by the type's
+/// family (Genos Data List Effect Type List); None: no match here (THRU, EQ, reverbs,
+/// delays, chorus...).
+pub fn insert_kind(msb: u8, lsb: u8) -> Option<(InsertKind, u8)> {
+    use InsertKind::{AutoWah, Compressor, Distortion, Rotary, Tremolo};
+    // The amp simulators and distortions: drive by the type's character.
+    let amp = |clean: bool, lead: bool| (Distortion, if clean { 20 } else if lead { 105 } else { 60 });
+    Some(match (msb, lsb) {
+        // Rotary speakers (Dual Rotary Speaker, Rotary Speaker, Real Rotary).
+        (69, _) | (99, 16..=31) => (Rotary, 64),
+        // Tremolo, Tempo Tremolo.
+        (70, _) | (120, _) => (Tremolo, 64),
+        // Auto wahs and pedal wahs (no pedal here: its envelope moves it).
+        (78, _) | (79, _) | (124, 5) | (125, _) => (AutoWah, 64),
+        // Compressors: Uni Comp, Multi Band Comp, VCM Compressor.
+        (83, 32..=35) | (83, 37) => (Compressor, 64),
+        (105, 0..=31) | (124, 4) => (Compressor, 64),
+        // Uni Comp Clipper Dist: a distortion.
+        (83, 36) => amp(false, false),
+        // Distortion, Overdrive, Stereo Amp Sim.
+        (73, _) => amp(false, true),
+        (74, _) => amp(false, false),
+        (75, 27) | (75, 29) => amp(true, false),
+        (75, _) => amp(false, false),
+        // Multi FX: the distortions and the crunch wah (as a distortion).
+        (95, 32 | 33 | 34 | 35) => amp(false, lsb == 32),
+        // Small Stereo Dist, British Combo, V Distortion, US Combo, Jazz Combo, US High
+        // Gain, British Lead, Tweed Guy, Y-Amp.
+        (96, _) => amp(false, false),
+        (97, _) => amp(false, false),
+        (98, 17) => amp(true, false),
+        (98, 24) => amp(false, true),
+        (98, _) => amp(false, false),
+        (99, 33 | 34) => amp(true, false),
+        (99, _) => amp(false, false),
+        (100, _) => amp(true, false),
+        (101, _) | (102, _) => amp(false, true),
+        (103, _) => amp(false, false),
+        (105, 32) => amp(true, false),
+        (105, _) => amp(false, false),
+        _ => return None,
+    })
+}
+
+/// Names of the insertion types seen in styles (Genos Data List Effect Type List).
+const INSERT_NAMES: &[(u8, u8, &str)] = &[
+    (64, 0, "Thru"),
+    (65, 16, "Chorus Fast"),
+    (69, 16, "Rotary Speaker 1"),
+    (69, 32, "Real Rotary"),
+    (70, 16, "Tremolo 1"),
+    (70, 18, "E-Piano Tremolo"),
+    (75, 27, "Stereo Amp Sim Clean"),
+    (75, 28, "Stereo Amp Sim Blues"),
+    (75, 29, "Stereo Amp Sim Solid"),
+    (76, 32, "Presence Clearly Natural"),
+    (79, 0, "Tempo Auto Wah"),
+    (83, 32, "EQ & Comp"),
+    (83, 33, "Uni Comp Drums Acoustic"),
+    (83, 34, "Uni Comp Drums Electric"),
+    (83, 36, "Uni Comp Clipper Dist"),
+    (83, 37, "Uni Comp Bass Electric"),
+    (95, 32, "Multi FX Distortion Solo"),
+    (95, 35, "Multi FX Crunch Wah"),
+    (95, 36, "Multi FX Oldies Delay"),
+    (95, 37, "Multi FX Vintage Echo"),
+    (96, 34, "Small Stereo Vintage Amp"),
+    (97, 32, "British Combo Classic"),
+    (98, 16, "V Distortion Twin"),
+    (98, 17, "V Distortion Clean 1"),
+    (98, 18, "V Distortion Crunch"),
+    (98, 24, "V Distortion Metal"),
+    (99, 16, "Dual Rotary Speaker Bright"),
+    (99, 17, "Dual Rotary Speaker Warm"),
+    (99, 33, "US Combo Rich Clean"),
+    (99, 34, "US Combo Thin Clean"),
+    (99, 35, "US Combo Crunch"),
+    (100, 32, "Jazz Combo Basic"),
+    (100, 33, "Jazz Combo Warm Chorus"),
+    (101, 33, "US High Gain Riff"),
+    (101, 34, "US High Gain Burn"),
+    (102, 33, "British Lead Drive"),
+    (102, 34, "British Lead Gainer"),
+    (103, 32, "Tweed Guy Warm Bass"),
+    (105, 0, "Multiband Compressor"),
+    (105, 16, "Compressor Melody"),
+    (105, 17, "Compressor Bass"),
+    (105, 32, "Y-Amp Live Clean"),
+    (124, 4, "VCM Compressor"),
+    (124, 5, "VCM Auto Wah"),
+    (125, 1, "VCM Pedal Wah Basic"),
+];
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -385,6 +551,57 @@ mod tests {
         assert_eq!(StyleFx::parse(&[msg(0x00, &[1, 33])]).blocks[0].as_ref().unwrap().ret, None, "none set");
     }
 
+    fn ins(n: u8, addr: u8, data: &[u8]) -> Vec<u8> {
+        let mut m = vec![0xF0, 0x43, 0x10, 0x4C, 0x03, n, addr];
+        m.extend_from_slice(data);
+        m.push(0xF7);
+        m
+    }
+
+    /// #269: insertion blocks on the Style parts, their types' families, one per part (the
+    /// first), and a Variation connected as Insertion.
+    #[test]
+    fn the_styles_inserts() {
+        let sx = [
+            ins(0, 0x00, &[97, 32]),
+            ins(0, 0x0C, &[11]),
+            ins(1, 0x00, &[105, 16, 64]),
+            ins(1, 0x0C, &[13]),
+            // Thru: named, dry.
+            ins(2, 0x00, &[64, 0]),
+            ins(2, 0x0C, &[14]),
+            // Another on part 11: the first stays.
+            ins(3, 0x00, &[70, 18]),
+            ins(3, 0x0C, &[11]),
+            // A keyboard part's, and one on no part: not the style's.
+            ins(4, 0x00, &[73, 0]),
+            ins(4, 0x0C, &[2]),
+            ins(5, 0x00, &[73, 0]),
+            ins(5, 0x0C, &[0x7F]),
+            msg(0x40, &[99, 17]),
+            msg(0x5A, &[0]),
+            msg(0x5B, &[15]),
+        ];
+        let got = style_inserts(sx.iter().map(|v| v.as_slice()));
+        let summary: Vec<_> = got.iter().map(|i| (i.channel, i.name.as_str(), i.kind.map(|k| k.0))).collect();
+        assert_eq!(
+            summary,
+            vec![
+                (11, "British Combo Classic", Some(InsertKind::Distortion)),
+                (13, "Compressor Melody", Some(InsertKind::Compressor)),
+                (14, "Thru", None),
+                (15, "Dual Rotary Speaker Warm", Some(InsertKind::Rotary)),
+            ]
+        );
+        // The drive by the type's character: clean, crunch, lead.
+        let drive = |m, l| insert_kind(m, l).unwrap().1;
+        assert!(drive(99, 34) < drive(99, 35) && drive(99, 35) < drive(102, 33));
+        assert_eq!(insert_kind(125, 1).map(|k| k.0), Some(InsertKind::AutoWah));
+        assert_eq!(insert_kind(76, 32), None, "an EQ plays dry");
+        // A system variation (connection 1) is not an insert.
+        assert!(style_inserts([msg(0x40, &[99, 17]), msg(0x5A, &[1]), msg(0x5B, &[15])].iter().map(|v| v.as_slice())).is_empty());
+    }
+
     #[test]
     fn nothing_set_is_no_choice() {
         assert_eq!(StyleFx::parse(&[]), StyleFx::default());
@@ -432,6 +649,24 @@ mod tests {
             }
         }
         assert!(n > 100, "{n} styles");
+        // #269: the insertion effects, as each style's first setup routes them.
+        let mut ins = std::collections::BTreeMap::<(String, String), usize>::new();
+        let (mut blocks, mut styles) = (0, 0);
+        for f in &files {
+            let Ok(s) = crate::sff::Style::load(f) else { continue };
+            let prep = crate::engine::Prepared::new(&s);
+            let found = style_inserts(prep.setups[0].init.iter());
+            styles += !found.is_empty() as usize;
+            blocks += found.len();
+            for i in found {
+                *ins.entry((i.kind.map_or("(dry)", |k| k.0.name()).to_string(), i.name)).or_default() += 1;
+            }
+        }
+        eprintln!("inserts: {blocks} on the Style parts of {styles} styles");
+        for ((kind, name), c) in &ins {
+            eprintln!("insert {kind:<11} {name:<26} {c}");
+        }
+        assert!(blocks > 100, "{blocks} inserts");
         eprintln!("{n} styles; reverb parameters in {with_params}; returns applied (reverb, chorus, variation) {with_ret:?}");
         for ((b, name, kind), c) in counts {
             eprintln!("{} {name:<22} -> {kind:?}: {c}", ["reverb", "chorus", "variation"][b]);

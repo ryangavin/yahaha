@@ -1827,6 +1827,9 @@ export class MockSession implements Session {
       case 'setEffectReturn':
         this.state.effects.blocks.find((x) => x.block === cmd.block)!.returnLevel = clampLevel(cmd.level)
         break
+      case 'setInsertsOn':
+        this.state.effects.insertsOn = cmd.on
+        break
       case 'setBandSend':
         this.state.effects.blocks.find((x) => x.block === cmd.block)!.bandSend = clampLevel(cmd.level)
         break
@@ -1900,6 +1903,9 @@ export function initialEffects(): EffectsState {
       block('chorus', 'Chorus', 'chorus', [['chorus', 'Chorus'], ['celeste', 'Celeste'], ['flanger', 'Flanger']], 0),
       block('variation', 'Variation', 'dottedEighth', [['eighth', 'Delay 1/8'], ['dottedEighth', 'Delay 1/8.'], ['quarter', 'Delay 1/4'], ['pingPong', 'Ping-Pong']], 0),
     ],
+    // The mock style's insertion effect (#269) on Chord 1, as the Rust mock's.
+    inserts: [{ part: 3, partName: 'Chord 1', name: 'British Combo Classic', effect: 'distortion' }],
+    insertsOn: true,
   }
 }
 
