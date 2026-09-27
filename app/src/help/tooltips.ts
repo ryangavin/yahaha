@@ -1003,14 +1003,14 @@ const catalog = {
   },
   'mixer.part.reverb': {
     title: 'Reverb',
-    body: 'How much of this part goes to the shared reverb: its channel\'s CC 91 (50 on Right 1–3 and 40 on Left at start). Drag up or down; double-click for that default. A sound library patch or a One Touch Setting sets it too.',
+    body: 'How much of this part goes to the shared reverb: its channel\'s CC 91 (0 at start: dry). Drag up or down; double-click for 0. It stays where you set it through style starts, section changes, fills and voice changes; only recalling a One Touch Setting or Registration that stores sends (or a sound library patch that sets one) changes it.',
     genos: 'Mixer › Panel › Effect › Reverb',
     keys: [],
     launchkey: null,
   },
   'mixer.part.chorus': {
     title: 'Chorus',
-    body: 'How much of this part goes to the shared chorus: its channel\'s CC 93 (10 at start). Drag up or down; double-click for 10. A sound library patch or a One Touch Setting sets it too.',
+    body: 'How much of this part goes to the shared chorus: its channel\'s CC 93 (0 at start: dry). Drag up or down; double-click for 0. It stays where you set it while you play; only recalling a One Touch Setting or Registration that stores sends (or a sound library patch that sets one) changes it.',
     genos: 'Mixer › Panel › Effect › Chorus',
     keys: [],
     launchkey: null,
