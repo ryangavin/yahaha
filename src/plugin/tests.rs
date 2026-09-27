@@ -402,11 +402,14 @@ fn pan_is_a_host_side_balance() {
             el += energy(&l, &[]);
             er += energy(&[], &r);
         }
-        (el, er, rack.take_peak(0))
+        let rms = rack.take_rms(0);
+        assert!(rms > 0.0 && rack.take_rms(0) == 0.0, "rms metered, reset by the take");
+        (el, er, rack.take_peak(0), rms)
     };
-    let (cl, cr, peak) = side(64);
+    let (cl, cr, peak, rms) = side(64);
     assert!(cl > 0.0 && cr > 0.0 && peak > 0.0, "centre: both sides, metered");
-    let (ll, lr, _) = side(0);
+    assert!(rms <= peak, "rms {rms} below the peak {peak}");
+    let (ll, lr, _, _) = side(0);
     assert!(ll > 0.0 && lr == 0.0, "hard left: left only ({ll} / {lr})");
     assert!((ll - cl).abs() < cl * 0.01, "the left side at hard left is the centre's left: a balance, not a boost");
 }

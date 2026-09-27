@@ -212,6 +212,9 @@ struct Slot {
     bal: (f32, f32),
     /// Output peak since the last `take_peak`.
     peak: f32,
+    /// Sum of squares (both sides) and frames since the last `take_rms`.
+    sq: f32,
+    frames: u32,
     ctl: Controllers,
     /// Sample count at the last overrun event, for rate limiting (`u64::MAX`: none yet).
     last_overrun: u64,
@@ -234,6 +237,8 @@ impl Slot {
             pan: 64,
             bal: (1.0, 1.0),
             peak: 0.0,
+            sq: 0.0,
+            frames: 0,
             ctl: Controllers::new(),
             last_overrun: u64::MAX,
             pending: None,
@@ -426,6 +431,16 @@ impl PluginRack {
     #[inline]
     pub fn take_peak(&mut self, channel: u8) -> f32 {
         std::mem::take(&mut self.slots[(channel & 0x0F) as usize].peak)
+    }
+
+    /// `channel`'s output RMS (linear, both sides; after its gain and pan) since the last
+    /// call, and start again from 0: measured like the SoundFont parts'
+    /// (`Synthesizer::channel_rms`), for the same meters. RT-safe.
+    #[inline]
+    pub fn take_rms(&mut self, channel: u8) -> f32 {
+        let s = &mut self.slots[(channel & 0x0F) as usize];
+        let n = (2 * std::mem::take(&mut s.frames)).max(1) as f32;
+        (std::mem::take(&mut s.sq) / n).sqrt()
     }
 
     /// Track a message on a channel the caller's synth plays (the rack keeps the part's
@@ -663,6 +678,7 @@ impl PluginRack {
         slot.bal = (bl1, br1);
         let (dl, dr) = ((bl1 - bl0) / n.max(1) as f32, (br1 - br0) / n.max(1) as f32);
         let mut peak = slot.peak;
+        let mut sq = 0f32;
         for i in 0..n {
             let g = gain.at(i);
             let (gl, gr) = (g * (bl0 + dl * (i + 1) as f32), g * (br0 + dr * (i + 1) as f32));
@@ -686,6 +702,7 @@ impl PluginRack {
             }
             let (yl, yr) = (sl * gl, sr * gr);
             peak = peak.max(yl.abs()).max(yr.abs());
+            sq += yl * yl + yr * yr;
             out_l[i] += yl;
             out_r[i] += yr;
             if let Some(s) = send.as_mut() {
@@ -693,6 +710,8 @@ impl PluginRack {
             }
         }
         slot.peak = peak;
+        slot.sq += sq;
+        slot.frames = slot.frames.saturating_add(n as u32);
 
         let mut retire = None;
         if slot.old.is_some() {

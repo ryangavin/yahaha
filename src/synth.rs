@@ -1173,6 +1173,10 @@ impl AudioCore {
                 if p > 0.0 {
                     ctl.peaks[ch as usize].fetch_max(p.to_bits(), Relaxed);
                 }
+                let r = self.plugins.take_rms(ch) * g;
+                if r > 0.0 {
+                    ctl.rms[ch as usize].fetch_max(r.to_bits(), Relaxed);
+                }
                 if prof && active >> ch & 1 == 1 {
                     crate::perf::PERF.channel[ch as usize].add(self.plugins.last_render_ns(ch));
                     crate::perf::Perf::peak(&crate::perf::PERF.channel_peak[ch as usize], p);
