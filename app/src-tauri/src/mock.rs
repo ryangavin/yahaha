@@ -239,6 +239,8 @@ impl MockSession {
             fader: None,
             plugin: None,
             patch: None,
+            sound: None,
+            sound_edited: false,
         };
         let s0 = &f.styles[0];
         let state = AppState {
@@ -509,6 +511,7 @@ impl MockSession {
                     return self.message(format!("{id} has no preset {preset}"), true);
                 };
                 self.sound.part_plugin(part as usize, true);
+                self.sound.preset_sound(part as usize, &id, &preset, &name);
                 self.set_part_plugin(part as usize, id);
                 if let Some(p) = self.state.keyboard_parts[(part & 3) as usize].plugin.as_mut() {
                     p.preset = Some(name);
@@ -519,7 +522,9 @@ impl MockSession {
                 self.sound.part_plugin(part as usize, false);
                 self.state.keyboard_parts[(part & 3) as usize].plugin = None;
             }
-            PluginCmd::SavePartPluginState { .. } | PluginCmd::RescanPlugins => {}
+            // The editor closed: the mock takes it as an edit (O3's "edited" badge).
+            PluginCmd::SavePartPluginState { part } => self.sound.plugin_edited(part as usize),
+            PluginCmd::RescanPlugins => {}
             PluginCmd::ReloadPartPlugin { part } => {
                 let part = match part {
                     Some(p) => (p & 3) as usize,
@@ -2360,6 +2365,32 @@ mod tests {
 
     fn bar_ms(m: &MockSession) -> f64 {
         60000.0 / m.state.transport.tempo * m.state.transport.beats_per_bar as f64
+    }
+
+    /// Now playing (O3): a preset names its sound; the editor closing marks it edited;
+    /// Save as… plays the new sound, not edited; Save keeps the same one.
+    #[test]
+    fn a_part_shows_its_sound_edited_and_saved() {
+        let mut m = MockSession::new();
+        m.send(SoundsCmd::ListPluginPresets { id: format!("au:{}", sounds::MOCK_PRESETS_ID) });
+        m.send(PluginCmd::SetPartPluginPreset { part: 0, id: sounds::MOCK_PRESETS_ID.into(), preset: "f:1".into() });
+        let tag = m.state.keyboard_parts[0].sound.clone().expect("the preset's sound");
+        assert_eq!(tag.name, "Bright Grand");
+        assert!(tag.id.starts_with("saved:") && !m.state.keyboard_parts[0].sound_edited);
+        m.send(PluginCmd::SavePartPluginState { part: 0 });
+        assert!(m.state.keyboard_parts[0].sound_edited);
+        // A factory preset's sound is not overwritten: Save is Save as….
+        let n = m.state.sound_library.patches.len();
+        m.send(SoundLibraryCmd::SaveSound { part: 0 });
+        assert_eq!(m.state.sound_library.patches.len(), n + 1);
+        let mine = m.state.keyboard_parts[0].sound.clone().unwrap();
+        assert!(mine.id != tag.id && !m.state.keyboard_parts[0].sound_edited);
+        m.send(PluginCmd::SavePartPluginState { part: 0 });
+        m.send(SoundLibraryCmd::SaveSound { part: 0 });
+        assert_eq!((m.state.sound_library.patches.len(), m.state.keyboard_parts[0].sound.clone()), (n + 1, Some(mine)));
+        assert!(!m.state.keyboard_parts[0].sound_edited);
+        m.send(SoundLibraryCmd::SaveSoundAs { part: 0, name: Some("Mine 2".into()) });
+        assert_eq!(m.state.keyboard_parts[0].sound.as_ref().map(|t| t.name.as_str()), Some("Mine 2"));
     }
 
     #[test]

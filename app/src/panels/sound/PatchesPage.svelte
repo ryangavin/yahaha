@@ -6,7 +6,7 @@
 
   State: soundLibrary, keyboardParts, transport.running. Commands: auditionPatch,
   stopPatchAudition, setPatchFavourite, updatePatch, movePatch, duplicatePatch,
-  deletePatch, setPartPatch, savePartAsPatch, setPortSendsMapped, exportSoundLibrary,
+  deletePatch, setPartPatch, saveSoundAs, setPortSendsMapped, exportSoundLibrary,
   importSoundLibrary.
 -->
 <script lang="ts">
@@ -150,7 +150,7 @@
     <select aria-label="Keyboard part" bind:value={savePart} use:tip={'sound.save_part'}>
       {#each parts as p, i (i)}<option value={i}>{p.name} · {p.voiceName}</option>{/each}
     </select>
-    <HwButton tip="sound.save_part" onclick={() => app.send({ type: 'savePartAsPatch', part: savePart, name: null })}>Save as patch</HwButton>
+    <HwButton tip="sound.save_part" onclick={() => app.send({ type: 'saveSoundAs', part: savePart, name: null })}>Save as patch</HwButton>
   </div>
 </section>
 

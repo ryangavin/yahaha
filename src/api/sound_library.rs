@@ -35,8 +35,14 @@ pub enum SoundLibraryCmd {
     MovePatch { id: String, to: u32 },
     /// Mark or unmark a favourite.
     SetPatchFavourite { id: String, favourite: bool },
-    /// Save keyboard part `part`'s sound (its patch, else its GM voice on the synth's
-    /// SoundFont, with its volume and octave) as a new patch.
+    /// Save: keyboard part `part`'s sound as it plays now (its plugin's state, volume and
+    /// octave) over the Sound it plays. A sound that isn't the user's own (a factory
+    /// preset, an `.aupreset` file) or none at all is saved as a new one (`saveSoundAs`).
+    SaveSound { part: u8 },
+    /// Save as…: keyboard part `part`'s sound as a new Sound (named `name`, else after what
+    /// it plays), which the part then plays.
+    SaveSoundAs { part: u8, name: Option<String> },
+    /// The old "Save as patch": `saveSoundAs` (kept for older clients).
     SavePartAsPatch { part: u8, name: Option<String> },
     /// Add a SoundFont preset (`browseSoundFont`) as a new patch.
     AddPresetAsPatch { file: String, bank: u16, program: u8, name: Option<String> },

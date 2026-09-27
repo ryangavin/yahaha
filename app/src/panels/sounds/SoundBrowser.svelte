@@ -63,13 +63,17 @@
   const cats = $derived(categoryCounts(entries))
   const favourites = $derived(entries.reduce((n, e) => n + (e.favourite ? 1 : 0), 0))
   const saved = $derived(entries.reduce((n, e) => n + (e.source === 'saved' ? 1 : 0), 0))
-  // Save as sound (#117): what the part plays, with its volume and octave, as a saved sound.
-  // It shows under Saved, highlighted, once the catalog has it.
+  // Save as… (#117, O3): what the part plays, with its volume and octave, as a new sound
+  // the part then plays. It shows under Saved, highlighted, once the catalog has it.
   let justSaved = $state(false)
   function saveAsSound() {
     if (!kp) return
-    app.send({ type: 'savePartAsPatch', part, name: null })
+    app.send({ type: 'saveSoundAs', part, name: null })
     justSaved = true
+  }
+  // Save (O3): over the part's own sound (a factory preset or file is saved as a new one).
+  function saveSound() {
+    if (kp) app.send({ type: 'saveSound', part })
   }
   $effect(() => {
     const id = app.state.soundLibrary.lastAdded
@@ -314,7 +318,7 @@
               {#if entries.length === 0}No sounds yet: no SoundFonts, plugins or saved sounds.
               {:else if view.kind === 'favourites' && !query}No favourites yet: star a sound with ☆ (or Ctrl+D).
               {:else if view.kind === 'recents' && !query}Nothing picked yet.
-              {:else if view.kind === 'saved' && !query}No saved sounds yet: Save as sound keeps what a part plays.
+              {:else if view.kind === 'saved' && !query}No saved sounds yet: Save as… keeps what a part plays.
               {:else}No sound matches “{query}”.{/if}
             </p>
           {/if}
@@ -351,7 +355,7 @@
           </label>
         {/if}
         {#if auditioning}<HwButton tip="sounds.audition_stop" onclick={() => app.send({ type: 'stopSoundAudition' })}>■ Stop</HwButton>{/if}
-        {#if kp}<HwButton tip="sounds.save" onclick={saveAsSound}>Save as sound</HwButton>{/if}
+        {#if kp}<HwButton tip="sounds.save_over" onclick={saveSound}>Save</HwButton><HwButton tip="sounds.save" onclick={saveAsSound}>Save as…</HwButton>{/if}
         {#if kp?.plugin?.status === 'playing'}<HwButton tip="sounds.save_preset" onclick={openPresetForm}>Save as preset…</HwButton>{/if}
         {#if kp?.plugin?.editor}<HwButton tip="part.plugin_edit" onclick={() => app.pluginEditor(part, true)}>Edit…</HwButton>{/if}
         {#if plugins.available}

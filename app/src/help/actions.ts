@@ -245,6 +245,8 @@ export function tipFor(cmd: AppCmd | null): TipKey {
     case 'createPatch':
     case 'addPresetAsPatch': return 'sound.preset_add'
     case 'savePartAsPatch': return 'sound.save_part'
+    case 'saveSound': return 'sounds.save_over'
+    case 'saveSoundAs': return 'sounds.save'
     case 'updatePatch': return 'sound.name'
     case 'deletePatch': return 'sound.delete'
     case 'duplicatePatch': return 'sound.duplicate'
