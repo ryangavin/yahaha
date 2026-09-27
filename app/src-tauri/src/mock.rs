@@ -2543,7 +2543,11 @@ mod tests {
         assert_eq!((p.preset.as_deref(), p.preset_key.as_deref()), (Some("Bright Grand"), Some("f:1")));
         m.send(SoundsCmd::AssignSound { part: 1, id: kids(&m)[3].id.clone() });
         assert_eq!(m.state.keyboard_parts[1].plugin.clone().unwrap().preset.as_deref(), Some("Arco Strings"));
-        m.send(SoundsCmd::SavePartAsPluginPreset { part: 0, name: "My Grand".into(), category: PatchCategory::Organ });
+        m.send(SoundsCmd::SavePartAsPluginPreset { part: 0, name: "My Grand".into(), category: PatchCategory::Organ, overwrite: false });
+        // The same name again: refused unless replacing.
+        m.send(SoundsCmd::SavePartAsPluginPreset { part: 0, name: "My Grand".into(), category: PatchCategory::Pad, overwrite: false });
+        assert!(m.state.message.as_ref().is_some_and(|x| x.error && x.text.contains("already exists")));
+        m.send(SoundsCmd::SavePartAsPluginPreset { part: 0, name: "My Grand".into(), category: PatchCategory::Organ, overwrite: true });
         let mine = kids(&m).into_iter().find(|e| e.name == "My Grand").expect("saved");
         assert_eq!(mine.category, PatchCategory::Organ);
         assert_eq!(m.state.keyboard_parts[0].plugin.clone().unwrap().preset.as_deref(), Some("My Grand"));

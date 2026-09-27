@@ -87,16 +87,30 @@
   const plugins = $derived(app.state.plugins)
 
   // Save as preset (AU presets): the part's plugin as it plays now, as an .aupreset.
-  let presetForm = $state<{ name: string; category: PatchCategory } | null>(null)
+  let presetForm = $state<{ name: string; category: PatchCategory; replace: boolean } | null>(null)
   let presetName: HTMLInputElement | undefined = $state()
   function openPresetForm() {
     if (!kp?.plugin) return
-    presetForm = { name: kp.plugin.preset ?? '', category: entries.find((e) => e.id === `au:${kp.plugin?.id}`)?.category ?? 'synthLead' }
+    presetForm = { replace: false, name: kp.plugin.preset ?? '', category: entries.find((e) => e.id === `au:${kp.plugin?.id}`)?.category ?? 'synthLead' }
     void tick().then(() => presetName?.focus())
   }
-  function savePreset() {
+  // The file name a preset name saves as (as `presets::safe_name`).
+  const fileName = (n: string) => n.replace(/[/:\\]/g, '-').trim().replace(/^\.+/, '').trim() || 'Untitled'
+  // A user preset of this plugin with that name exists: ask before replacing it, as Logic
+  // does (the file is shared with Logic and MainStage).
+  const clash = $derived.by(() => {
+    if (!presetForm || !kp?.plugin) return false
+    const parent = `au:${kp.plugin.id}`
+    const n = fileName(presetForm.name).toLowerCase()
+    return entries.some((e) => e.parent === parent && e.id.startsWith(`${parent}#u:`) && e.name.toLowerCase() === n)
+  })
+  function savePreset(overwrite = false) {
     if (!presetForm || !presetForm.name.trim()) return
-    app.send({ type: 'savePartAsPluginPreset', part, name: presetForm.name.trim(), category: presetForm.category })
+    if (clash && !overwrite) {
+      presetForm.replace = true
+      return
+    }
+    app.send({ type: 'savePartAsPluginPreset', part, name: presetForm.name.trim(), category: presetForm.category, overwrite })
     const id = kp?.plugin ? `au:${kp.plugin.id}` : null
     if (id && view.kind === 'all' && !query) toggle(id, true)
     presetForm = null
@@ -310,12 +324,18 @@
       {#if presetForm && kp?.plugin}
         <form class="presetform" onsubmit={(ev) => (ev.preventDefault(), savePreset())}>
           <span class="engraved">{kp.plugin.name} preset</span>
-          <input bind:this={presetName} bind:value={presetForm.name} class="mat-well" type="text" placeholder="Preset name" aria-label="Preset name" spellcheck="false" use:tip={'sounds.preset_name'} onkeydown={(ev) => ev.key === 'Escape' && (ev.stopPropagation(), (presetForm = null), input?.focus())} />
+          <input bind:this={presetName} bind:value={presetForm.name} oninput={() => presetForm && (presetForm.replace = false)} class="mat-well" type="text" placeholder="Preset name" aria-label="Preset name" spellcheck="false" use:tip={'sounds.preset_name'} onkeydown={(ev) => ev.key === 'Escape' && (ev.stopPropagation(), (presetForm = null), input?.focus())} />
           <select aria-label="Category of the preset" bind:value={presetForm.category} use:tip={'sounds.preset_category'}>
             {#each Object.entries(CATEGORY_LABELS) as [id, label] (id)}<option value={id}>{label}</option>{/each}
           </select>
-          <HwButton tip="sounds.preset_save" onclick={savePreset}>Save</HwButton>
-          <HwButton tip="sounds.preset_cancel" onclick={() => ((presetForm = null), input?.focus())}>Cancel</HwButton>
+          {#if presetForm.replace && clash}
+            <span class="ask" role="alert">Replace ‘{fileName(presetForm.name)}’?</span>
+            <HwButton tip="sounds.preset_replace" onclick={() => savePreset(true)}>Replace</HwButton>
+            <HwButton tip="sounds.preset_replace_cancel" onclick={() => presetForm && ((presetForm.replace = false), presetName?.focus())}>Cancel</HwButton>
+          {:else}
+            <HwButton tip="sounds.preset_save" onclick={() => savePreset()}>Save</HwButton>
+            <HwButton tip="sounds.preset_cancel" onclick={() => ((presetForm = null), input?.focus())}>Cancel</HwButton>
+          {/if}
         </form>
       {/if}
 
@@ -507,6 +527,10 @@
     border: 1px solid var(--well-edge);
     border-radius: 5px;
     color: var(--screen-ink);
+  }
+  .ask {
+    color: var(--accent);
+    white-space: nowrap;
   }
   .presetform select {
     min-height: 2.2rem;

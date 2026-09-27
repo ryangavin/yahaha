@@ -41,8 +41,16 @@ pub enum SoundsCmd {
     /// Save what keyboard part `part`'s plugin plays now (as its editor left it) as a user
     /// preset: a standard `.aupreset` named `name` in
     /// `~/Library/Audio/Presets/<Manufacturer>/<Plugin>/` (Logic and MainStage read it
-    /// too), filed under `category` in the browser. The part then plays that preset.
-    SavePartAsPluginPreset { part: u8, name: String, category: PatchCategory },
+    /// too), filed under `category` in the browser. The part then plays that preset. A
+    /// preset of that name that exists already (the file is shared with Logic) is refused
+    /// unless `overwrite` is set.
+    SavePartAsPluginPreset {
+        part: u8,
+        name: String,
+        category: PatchCategory,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        overwrite: bool,
+    },
 }
 
 /// Where a sound comes from.

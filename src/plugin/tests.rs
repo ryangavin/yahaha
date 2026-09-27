@@ -595,7 +595,11 @@ fn a_load_lists_factory_presets_and_a_saved_aupreset_loads_back() {
     let inst = h.load(&PluginId::DLS, LoadConfig::default()).unwrap();
     assert!(h.has_factory_presets(&PluginId::DLS), "the load read them (DLS may have none)");
     let state = inst.get_state().unwrap();
-    let saved = h.save_user_preset(&PluginId::DLS, "My DLS", &state).unwrap();
+    assert!(!h.user_preset_exists(&PluginId::DLS, "My DLS"));
+    let saved = h.save_user_preset(&PluginId::DLS, "My DLS", &state, false).unwrap();
+    assert!(h.user_preset_exists(&PluginId::DLS, "My DLS"));
+    assert!(h.save_user_preset(&PluginId::DLS, "My DLS", &state, false).is_err(), "no silent replace");
+    h.save_user_preset(&PluginId::DLS, "My DLS", &state, true).unwrap();
     assert!(saved.path.starts_with(root.join("Apple").join("DLSMusicDevice")));
     assert!(h.cached(&PluginId::DLS).unwrap().user_presets.iter().any(|p| p.name == "My DLS"));
     // A new host (the next launch) lists it from the cache, and the file loads as a state.

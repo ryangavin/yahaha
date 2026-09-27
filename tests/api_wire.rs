@@ -289,6 +289,7 @@ const EVERY_CMD: &[&str] = &[
     r#"{"type":"setSoundCategory","id":"au:aumu Xf2X XFER","category":"pad"}"#,
     r#"{"type":"listPluginPresets","id":"au:aumu Nik2 -NI-"}"#,
     r#"{"type":"savePartAsPluginPreset","part":0,"name":"Upright","category":"piano"}"#,
+    r#"{"type":"savePartAsPluginPreset","part":1,"name":"Upright","category":"piano","overwrite":true}"#,
     // Style Dynamics Control, Touch, Accent
     r#"{"type":"setDynamicsControl","on":false}"#,
     r#"{"type":"setDynamics","level":90}"#,

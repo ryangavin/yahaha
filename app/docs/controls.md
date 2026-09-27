@@ -247,9 +247,11 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | **Save as sound** | Saves what this part plays now as a new saved sound: its preset or plugin (with the plugin's current settings), volume and octave. It appears under Saved, ready to rename in the Sound Library drawer. | Voice Setting › Save | — | — |
 | **Plugin presets** | Shows or hides this plugin's presets: its factory presets and the .aupreset files in ~/Library/Audio/Presets, as Logic lists them. Each preset is a sound of its own: every part that picks one gets its own copy of the plugin, so one plugin can play piano on Right 1 and strings on Right 2. The first time, a plugin loads once in the background to list them (→ and ← open and close it too). | — | — | — |
 | **Save as preset** | Keeps what this part's plugin plays now (with its editor's changes: a Kontakt instrument you loaded, say) as a preset of the plugin: a standard .aupreset in ~/Library/Audio/Presets that Logic and MainStage read too. Name it and pick a category; it appears under the plugin and in that category. | Voice Setting › Save | — | — |
-| **Preset name** | The new preset's name, also its file name. A preset of the same name is replaced. Enter saves, Esc cancels. | — | — | — |
+| **Preset name** | The new preset's name, also its file name. If a preset of that name exists, yahaha asks before replacing it (the file is shared with Logic and MainStage). Enter saves, Esc cancels. | — | — | — |
 | **Preset category** | The category the new preset is listed under in the browser. Kept by yahaha; the .aupreset file itself is not changed. | — | — | — |
 | **Save the preset** | Writes the .aupreset and lists it under the plugin. The part then plays that preset. | — | — | — |
+| **Replace** | Replaces the existing preset of this name with what the part's plugin plays now. Logic and MainStage see the new one too. | — | — | — |
+| **Keep the existing preset** | Leaves the existing preset as it is; change the name to save a new one. | — | — | — |
 | **Cancel** | Closes the form without saving. | — | — | — |
 | **Category** | The sounds of one Genos voice category. A preset's category is its General MIDI family, and a plugin's is guessed from its name. | VOICE category buttons | — | — |
 | **Plugin category** | The category the selected plugin or plugin preset is listed under. yahaha guesses it from the name (a preset it can't place goes with its plugin); pick another to file it where you look for it. | — | — | — |

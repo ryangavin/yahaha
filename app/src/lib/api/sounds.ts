@@ -20,7 +20,7 @@ export type SoundsCmd =
   /** List a plugin's (`au:<id>`) presets: the browser expanded it. */
   | { type: 'listPluginPresets'; id: string }
   /** Save the part's plugin as it plays now as an .aupreset (Logic reads it too), filed under `category`. */
-  | { type: 'savePartAsPluginPreset'; part: number; name: string; category: PatchCategory }
+  | { type: 'savePartAsPluginPreset'; part: number; name: string; category: PatchCategory; overwrite?: boolean }
 
 export type SoundSource = 'soundFont' | 'plugin' | 'saved'
 
