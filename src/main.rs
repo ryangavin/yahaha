@@ -24,6 +24,7 @@ fn main() -> Result<()> {
         Some("drive") => bench::drive()?,
         Some("fake-device") => bench::fake_device(args.get(2).map_or("Launchkey Fake", |s| s.as_str()), args.get(3).and_then(|s| s.parse().ok()).unwrap_or(30.0))?,
         Some("screen") => ui::screen_html(std::path::Path::new(&args[2]), std::path::Path::new(&args[3]))?,
+        Some("bench-audio") => bench::audio(&args[2..])?,
         Some("bench") => bench::run(std::path::Path::new(&args[2]), args.get(3).and_then(|s| s.parse().ok()))?,
         Some("state-json") => state_json(&args[2..])?,
         Some("pad") if args.get(2).is_some_and(|a| a == "--demo") => {
@@ -41,7 +42,7 @@ fn main() -> Result<()> {
         #[cfg(feature = "plugins")]
         Some("plugin-test") => yahaha::plugin::cli::run(&args[2..])?,
         _ => eprintln!(
-            "usage:\n  yahaha play <style or folder>... [--split F#2] [--input <name>] [--all-inputs] [--no-pads] [--soundfonts DIR | --no-synth] [--palette-leds] [--audio-out 11] [--buffer 64|128|256] [--data-dir DIR]\n      [--fingering single|multi|fingered|on-bass|ai|full|ai-full] [--upper [--no-manual-bass]] [--transpose N] [--master-transpose N] [--chord-settle MS] [--ireal <playlist.html or irealb:// link>]\n  yahaha bench <style> [spin_us]\n  yahaha sim <style> <\"C Am F G7\" | script file>\n  yahaha render <style> <\"C Am F G7\" | script file> <font.sf2> <out.wav>   (YAHAHA_VEL_FILTER=off: without velocity -> tone; YAHAHA_FX=legacy: the SoundFont's own reverb and chorus, not the effect bus)\n  yahaha capture-kit <out-dir> [--clock-ppm N] [style]...\n  yahaha capture-import <recording.mid> <style> [--tolerance-ms N] [--offset-ms N] [--clock-ppm N] [--listing FILE] [--golden DIR [--force]]\n  yahaha oracle <style or folder>... [--pairs | --scores | --diff scores.txt]\n  yahaha dump <style>...\n  yahaha pad <multi pad bank.pad>... | yahaha pad --demo [out.pad]\n  yahaha state-json <style or folder> [\"C Am\"] [--library]\n  yahaha plugin-test [name] [--list | --rescan] [--bench] [--swap-to name] [--oop] [--gui] [--channel N] [--sf2 file | --no-sf2]   (needs --features plugins)\n  yahaha ireal <file or irealb:// link> [--choruses N]\n  yahaha fake-device [name] [secs]   (a Launchkey-like MIDI device from another process, for hot-plug tests)"
+            "usage:\n  yahaha play <style or folder>... [--split F#2] [--input <name>] [--all-inputs] [--no-pads] [--soundfonts DIR | --no-synth] [--palette-leds] [--audio-out 11] [--buffer 64|128|256|512|1024] [--data-dir DIR] [--top]\n      [--fingering single|multi|fingered|on-bass|ai|full|ai-full] [--upper [--no-manual-bass]] [--transpose N] [--master-transpose N] [--chord-settle MS] [--ireal <playlist.html or irealb:// link>]\n  yahaha bench <style> [spin_us]\n  yahaha bench-audio <style> <font.sf2> [\"C Am F G7\" | script] [--frames N] [--keys] [--paced] [--top] [--rate HZ]\n  yahaha sim <style> <\"C Am F G7\" | script file>\n  yahaha render <style> <\"C Am F G7\" | script file> <font.sf2> <out.wav>   (YAHAHA_VEL_FILTER=off: without velocity -> tone; YAHAHA_FX=legacy: the SoundFont's own reverb and chorus, not the effect bus)\n  yahaha capture-kit <out-dir> [--clock-ppm N] [style]...\n  yahaha capture-import <recording.mid> <style> [--tolerance-ms N] [--offset-ms N] [--clock-ppm N] [--listing FILE] [--golden DIR [--force]]\n  yahaha oracle <style or folder>... [--pairs | --scores | --diff scores.txt]\n  yahaha dump <style>...\n  yahaha pad <multi pad bank.pad>... | yahaha pad --demo [out.pad]\n  yahaha state-json <style or folder> [\"C Am\"] [--library]\n  yahaha plugin-test [name] [--list | --rescan] [--bench] [--swap-to name] [--oop] [--gui] [--channel N] [--sf2 file | --no-sf2]   (needs --features plugins)\n  yahaha ireal <file or irealb:// link> [--choruses N]\n  yahaha fake-device [name] [secs]   (a Launchkey-like MIDI device from another process, for hot-plug tests)"
         ),
     }
     Ok(())
@@ -210,7 +211,16 @@ fn render_cmd(args: &[String]) -> Result<()> {
     let script = if path.is_file() { std::fs::read_to_string(path)? } else { script.clone() };
     let (rec, end) = sim::record(&style, &script)?;
     const RATE: u32 = 48_000;
-    let (l, r) = yahaha::synth::render_offline(std::path::Path::new(sf2), &rec.out, end, RATE, style.bpm())?;
+    // The style's insertion effects (#269), as its first setup routes them;
+    // `YAHAHA_INSERTS=off` renders without them.
+    let off = std::env::var("YAHAHA_INSERTS").is_ok_and(|v| v == "off");
+    let prep = yahaha::engine::Prepared::new(&style);
+    let found = yahaha::fx::xg::style_inserts(prep.setups[0].init.iter());
+    let inserts: Vec<_> = found.iter().filter_map(|i| i.kind.map(|(k, a)| (i.channel - 8, k, a))).filter(|_| !off).collect();
+    for i in &found {
+        println!("insert: ch {} {} -> {}", i.channel + 1, i.name, i.kind.map_or("dry", |(k, _)| k.name()));
+    }
+    let (l, r) = yahaha::synth::render_offline(std::path::Path::new(sf2), &rec.out, end, RATE, style.bpm(), &inserts)?;
     let mut data = Vec::with_capacity(l.len() * 4);
     for (a, b) in l.iter().zip(&r) {
         for x in [a, b] {
@@ -231,10 +241,11 @@ fn render_cmd(args: &[String]) -> Result<()> {
     let rms = |x: &[f32]| (x.iter().map(|v| (*v as f64).powi(2)).sum::<f64>() / x.len().max(1) as f64).sqrt();
     let peak = l.iter().chain(&r).fold(0f32, |m, v| m.max(v.abs()));
     println!(
-        "{out}: {:.1} s, velocity -> tone {}, effects {}, RMS {:.1} dBFS, peak {:.1} dBFS",
+        "{out}: {:.1} s, velocity -> tone {}, effects {}, inserts {}, RMS {:.1} dBFS, peak {:.1} dBFS",
         l.len() as f64 / RATE as f64,
         if yahaha::synth::velocity_to_filter() { "on" } else { "off" },
         if yahaha::synth::legacy_fx() { "legacy (the SoundFont's own)" } else { "bus" },
+        if off { "off".to_string() } else { format!("{} on", inserts.len()) },
         20.0 * ((rms(&l) + rms(&r)) / 2.0).log10(),
         20.0 * (peak as f64).log10()
     );
@@ -317,6 +328,8 @@ fn play_cmd(args: &[String]) -> Result<()> {
     let mut startup: Vec<yahaha::AppCmd> = Vec::new();
     let mut chord_settle_ms = engine::CHORD_SETTLE_DEFAULT_MS;
     let mut data_dir = yahaha::session::default_data_dir();
+    // The performance view in place of the front panel (`--top`, or YAHAHA_TOP=1).
+    let top = yahaha::perf::requested(args);
     let mut i = 0;
     while i < args.len() {
         match args[i].as_str() {
@@ -330,6 +343,7 @@ fn play_cmd(args: &[String]) -> Result<()> {
                     .ok_or_else(|| anyhow::anyhow!("--split wants a note like F#2 or a MIDI number"))?;
             }
             "--all-inputs" => all_inputs = true,
+            "--top" => {}
             "--no-pads" => no_pads = true,
             "--no-synth" => no_synth = true,
             "--palette-leds" => palette_leds = true,
@@ -349,7 +363,7 @@ fn play_cmd(args: &[String]) -> Result<()> {
                 i += 1;
                 audio_buffer = Some(
                     args.get(i).and_then(|s| s.parse::<u32>().ok()).filter(|n| yahaha::synth::BUFFER_CHOICES.contains(n))
-                        .ok_or_else(|| anyhow::anyhow!("--buffer wants 64, 128 or 256 (frames)"))?,
+                        .ok_or_else(|| anyhow::anyhow!("--buffer wants 64, 128, 256, 512 or 1024 (frames)"))?,
                 );
             }
             "--soundfonts" => {
@@ -411,9 +425,7 @@ fn play_cmd(args: &[String]) -> Result<()> {
     if no_synth {
         sf2 = None;
     }
-    ui::play(
-        yahaha::Options { paths, split, all_inputs, inputs, no_pads, sf2, sound_font_dir, palette_leds, audio_out, audio_buffer, fingering, upper, manual_bass, transpose, chord_settle_ms, data_dir },
-        startup,
-    )
+    let opts = yahaha::Options { paths, split, all_inputs, inputs, no_pads, sf2, sound_font_dir, palette_leds, audio_out, audio_buffer, fingering, upper, manual_bass, transpose, chord_settle_ms, data_dir };
+    if top { ui::play_top(opts, startup) } else { ui::play(opts, startup) }
 }
 

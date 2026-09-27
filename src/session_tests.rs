@@ -17,7 +17,7 @@ fn style(name: &str) -> Option<PathBuf> {
     }
 }
 
-fn offline(name: &str) -> Option<Session> {
+pub(crate) fn offline(name: &str) -> Option<Session> {
     let p = style(name)?;
     Some(Session::offline(Options { paths: vec![p], ..Options::default() }).unwrap())
 }
@@ -47,6 +47,8 @@ fn all_cmds() -> Vec<AppCmd> {
         AppCmd::Transport(TransportCmd::TempoUp),
         AppCmd::Transport(TransportCmd::TempoDown),
         AppCmd::Transport(TransportCmd::ResetTempo),
+        AppCmd::Transport(TransportCmd::ToggleAcmp),
+        AppCmd::Transport(TransportCmd::SetAcmp { on: true }),
         AppCmd::Mixer(MixerCmd::ToggleStylePart { part: 5 }),
         AppCmd::Mixer(MixerCmd::SetStylePartVolume { part: 2, volume: 90 }),
         AppCmd::Chord(ChordCmd::SetFingering { fingering: Fingering::AiFullKeyboard }),
@@ -324,14 +326,14 @@ fn keyboard_parts_mixer_and_pages() {
 
 /// Pan and the reverb/chorus sends (#198): the part's CC10/91/93 on its own channel, to
 /// the port and the synth, and in the state. Before anything sets them the state shows the
-/// power-on values (#204: some reverb and chorus, sent at start).
+/// power-on values: dry (every send 0), sent at start.
 #[test]
 fn part_pan_and_sends() {
     let Some(s) = offline("SlowWalker.T552.sty") else { return };
     let left = &s.state().keyboard_parts[crate::parts::LEFT];
-    assert_eq!((left.pan, left.reverb, left.chorus), (64, 40, 10));
+    assert_eq!((left.pan, left.reverb, left.chorus), (64, 0, 0));
     let out = s.take_output();
-    assert!(out.contains(&[0xB0, 91, 50]) && out.contains(&[0xB1, 93, 10]), "sent at start: {out:?}");
+    assert!(out.contains(&[0xB0, 91, 0]) && out.contains(&[0xB1, 93, 0]), "sent at start: {out:?}");
     s.send(PartsCmd::SetPartPan { part: 3, pan: 20 }).unwrap();
     s.send(PartsCmd::SetPartSend { part: 3, send: PartSend::Reverb, value: 90 }).unwrap();
     s.send(PartsCmd::SetPartSend { part: 1, send: PartSend::Chorus, value: 200 }).unwrap();
@@ -342,8 +344,8 @@ fn part_pan_and_sends() {
     assert!(!out.contains(&[0xB1, 93, 0]), "a send not set is not sent: {out:?}");
     let st = s.state();
     let (l, r2) = (&st.keyboard_parts[3], &st.keyboard_parts[1]);
-    assert_eq!((l.pan, l.reverb, l.chorus), (20, 90, 10));
-    assert_eq!((r2.pan, r2.reverb, r2.chorus), (64, 50, 127));
+    assert_eq!((l.pan, l.reverb, l.chorus), (20, 90, 0));
+    assert_eq!((r2.pan, r2.reverb, r2.chorus), (64, 0, 127));
 }
 
 #[test]
@@ -394,6 +396,70 @@ fn ots_and_ots_link() {
     assert_eq!(st.ots.applied, 2);
     s.send(OtsCmd::ToggleOtsLink).unwrap();
     assert!(!s.state().ots.link);
+}
+
+/// The sends the player dials in stick while playing: a style start, section changes, a
+/// fill, a voice change and OTS Link firing by itself (a style start, Main B) leave a
+/// keyboard part's reverb, chorus and delay as dialled; an explicit recall of an OTS that
+/// stores sends applies them; one that stores none leaves them (`parts` tests).
+#[test]
+fn keyboard_sends_stick_while_playing() {
+    let Some(s) = offline("SlowWalker.T552.sty") else { return };
+    let sends = |s: &Session, p: usize| {
+        let k = &s.state().keyboard_parts[p];
+        (k.reverb, k.chorus, k.variation)
+    };
+    assert_eq!(sends(&s, 0), (0, 0, 0), "dry by default");
+    s.send(OtsCmd::SetOtsLink { on: true }).unwrap();
+    s.send(PartsCmd::SetPartSend { part: 0, send: PartSend::Reverb, value: 81 }).unwrap();
+    s.send(PartsCmd::SetPartSend { part: 0, send: PartSend::Chorus, value: 17 }).unwrap();
+    s.send(PartsCmd::SetPartSend { part: 0, send: PartSend::Variation, value: 45 }).unwrap();
+    s.send(PartsCmd::SetPartSend { part: 3, send: PartSend::Reverb, value: 12 }).unwrap();
+    s.take_output();
+    let check = |s: &Session, what: &str| {
+        assert_eq!((sends(s, 0), sends(s, 3)), ((81, 17, 45), (12, 0, 0)), "after {what}");
+        let out = s.take_output();
+        let sent: Vec<_> = out.iter().filter(|m| m[0] & 0xF0 == 0xB0 && m[0] & 0x0F < 4 && [91, 93, 94].contains(&m[1])).collect();
+        let fine = |m: &&[u8; 3]| match (m[0] & 0x0F, m[1]) {
+            (0, 91) => m[2] == 81,
+            (0, 93) => m[2] == 17,
+            (0, 94) => m[2] == 45,
+            (1, 91) => m[2] == 12,
+            _ => m[2] == 0,
+        };
+        assert!(sent.iter().all(fine), "a keyboard send went out changed after {what}: {sent:?}");
+    };
+    let bar = {
+        let st = s.state();
+        (60e9 / st.style.tempo * st.transport.beats_per_bar as f64) as u64
+    };
+    // Style start (Sync Start; OTS Link recalls OTS 1).
+    keys(&s, true, &[36, 40, 43]);
+    s.advance(bar);
+    assert!(s.state().transport.running);
+    check(&s, "the style start");
+    // A section change (OTS Link: OTS 2).
+    s.send(TransportCmd::Main { index: 1 }).unwrap();
+    s.advance(3 * bar);
+    assert_eq!(s.state().ots.applied, 2, "OTS Link fired");
+    check(&s, "Main B");
+    // A fill.
+    s.send(TransportCmd::FillSelf).unwrap();
+    s.advance(2 * bar);
+    check(&s, "a fill");
+    // A voice change.
+    s.send(PartsCmd::SetPartVoice { part: 0, program: 11 }).unwrap();
+    s.advance(10 * MS);
+    check(&s, "a voice change");
+    s.send(TransportCmd::StartStop).unwrap();
+    s.advance(bar);
+    check(&s, "stop");
+
+    // An OTS the player recalls, with sends: they apply.
+    let ots = crate::sff::Style::load(&style("SlowWalker.T552.sty").unwrap()).unwrap().ots[0].parts[0];
+    let rev = ots.fx[crate::parts::REVERB].expect("SlowWalker's OTS 1 sets Right 1's reverb");
+    s.send(OtsCmd::RecallOts { index: 0 }).unwrap();
+    assert_eq!(sends(&s, 0).0, rev, "an explicit recall with sends applies them");
 }
 
 #[test]
@@ -474,8 +540,8 @@ fn launchkey_pads_are_commands() {
     assert_eq!(s.state().io.unmapped, "unmapped CC 53 = 127");
     // Knob 1 (an encoder on channel 16) turns Dynamics; the encoder page ▼ steps the
     // Knob Assign page.
-    s.midi_in(Port::Pads, &[0xBF, 21, 67]);
-    assert_eq!(s.state().dynamics.level, 70);
+    s.midi_in(Port::Pads, &[0xBF, 21, 61]);
+    assert_eq!(s.state().dynamics.level, 121);
     s.midi_in(Port::Pads, &[0xB0, 52, 127]);
     assert_eq!(s.state().knobs.page_name, "Parts");
 }
@@ -497,6 +563,44 @@ fn style_faders_and_software_volume() {
     let st = s.state();
     assert_eq!(st.mixer.style_parts[0].volume, 100, "no jump");
     assert!(st.mixer.style_parts[0].waiting);
+}
+
+/// #268: a Style part's own send: out on the MIDI port at once, in the state (and on the
+/// audio thread's atomics), in a Registration Memory, and Reset hands it back to the style.
+#[test]
+fn a_style_parts_own_sends() {
+    use crate::api::{PartSend, RegistrationCmd};
+    let Some(s) = offline("SlowWalker.T552.sty") else { return };
+    let style = s.state().mixer.style_parts[3].clone();
+    assert!(style.sends_set.is_empty());
+    s.take_output();
+    s.send(MixerCmd::SetStylePartSend { part: 3, send: PartSend::Chorus, value: 200 }).unwrap();
+    s.advance(1_000_000);
+    assert!(s.take_output().contains(&[0xBB, 93, 127]), "clamped, out at once");
+    let st = s.state();
+    let p = &st.mixer.style_parts[3];
+    assert_eq!((p.reverb, p.chorus, p.variation, p.sends_set.clone()), (style.reverb, 127, style.variation, vec![PartSend::Chorus]));
+    assert_eq!(st.mixer.style_parts[2].sends_set, vec![]);
+    s.send(RegistrationCmd::MemorizeRegist { index: 0 }).unwrap();
+    // Reset: the style's value goes out.
+    s.send(MixerCmd::ResetStylePartSends { part: None }).unwrap();
+    s.advance(1_000_000);
+    assert!(s.take_output().contains(&[0xBB, 93, style.chorus]));
+    assert!(s.state().mixer.style_parts.iter().all(|p| p.sends_set.is_empty()));
+    // Registration brings the part's own chorus back.
+    s.send(RegistrationCmd::RecallRegist { index: 0 }).unwrap();
+    for _ in 0..3 {
+        s.advance(1_000_000_000);
+    }
+    let p = s.state().mixer.style_parts[3].clone();
+    assert_eq!((p.chorus, p.sends_set), (127, vec![PartSend::Chorus]));
+    // One part's reset leaves the others.
+    s.send(MixerCmd::SetStylePartSend { part: 5, send: PartSend::Reverb, value: 10 }).unwrap();
+    s.send(MixerCmd::ResetStylePartSends { part: Some(3) }).unwrap();
+    s.advance(1_000_000);
+    let st = s.state();
+    assert!(st.mixer.style_parts[3].sends_set.is_empty());
+    assert_eq!((st.mixer.style_parts[5].reverb, st.mixer.style_parts[5].sends_set.clone()), (10, vec![PartSend::Reverb]));
 }
 
 /// The Style volume (#199): a scale on the Style parts' CC7 as they go out, like a fade;
@@ -649,6 +753,7 @@ fn launchkey_hardware_matches_its_commands() {
             (TRACK_LEFT_CC, false, AppCmd::Library(LibraryCmd::StepStyle { delta: -1 })),
             (TRACK_RIGHT_CC, false, AppCmd::Library(LibraryCmd::StepStyle { delta: 1 })),
             (PAD_UP_CC, true, AppCmd::Parts(PartsCmd::TogglePart { part: 3 })),
+            (crate::launchkey::KNOB_DOWN_CC, true, AppCmd::Transport(TransportCmd::ToggleAcmp)),
             (PAD_DOWN_CC, true, AppCmd::Ots(OtsCmd::ToggleOtsLink)),
             (PAD_UP_CC, false, AppCmd::Pads(PadsCmd::CyclePadPage { delta: -1 })),
             (PAD_DOWN_CC, false, AppCmd::Pads(PadsCmd::CyclePadPage { delta: 1 })),
@@ -661,7 +766,8 @@ fn launchkey_hardware_matches_its_commands() {
             for shift in [false, true] {
                 for fp in [FaderPage::Panel, FaderPage::Style] {
                     let cmd = match (i, fp, shift) {
-                        (8, _, _) => Some(AppCmd::Mixer(MixerCmd::ToggleFaderPage)),
+                        (8, _, true) => Some(AppCmd::Mixer(MixerCmd::StepFaderLayer { delta: 1 })),
+                        (8, _, false) => Some(AppCmd::Mixer(MixerCmd::ToggleFaderPage)),
                         (0..=3, FaderPage::Panel, true) => Some(AppCmd::Parts(PartsCmd::SelectPart { part: i })),
                         (0..=3, FaderPage::Panel, false) => Some(AppCmd::Parts(PartsCmd::TogglePart { part: i })),
                         (4, FaderPage::Panel, _) => Some(AppCmd::HarmonyArp(HarmonyArpCmd::ToggleHarmonyArp)),
@@ -712,6 +818,38 @@ fn launchkey_tempo_buttons_repeat_and_reset() {
     s.send(TransportCmd::SetTempo { bpm: 140 }).unwrap();
     s.send(TransportCmd::ResetTempo).unwrap();
     assert_eq!(tempo(&s), 75.0);
+}
+
+/// [ACMP] off (#266): no chord section. Sync Start starts on any key, the rhythm plays
+/// alone, the left hand plays the Right parts, and an OTS recall turns ACMP back on.
+#[test]
+fn acmp_off_rhythm_only_any_key_and_ots_turns_it_on() {
+    let Some(s) = offline("SlowWalker.T552.sty") else { return };
+    assert!(s.state().transport.acmp);
+    s.send(TransportCmd::ToggleAcmp).unwrap();
+    s.advance(MS);
+    let st = s.state();
+    assert!(!st.transport.acmp);
+    assert!(st.transport.sync_start);
+    // One key in the left hand: the band starts, and the key sounds on Right 1.
+    s.take_output();
+    keys(&s, true, &[40]);
+    s.advance(20 * MS);
+    let st = s.state();
+    assert!(st.transport.running, "any key starts it");
+    assert_eq!(st.chord.name, None, "no chord");
+    let out = s.take_output();
+    let r1 = crate::parts::CHANNEL[crate::parts::RIGHT1];
+    assert!(out.iter().any(|m| m[0] == 0x90 | r1 && m[1] == 40), "the left hand plays Right 1");
+    keys(&s, false, &[40]);
+    keys(&s, true, &[36, 40, 43]);
+    s.advance(2_000 * MS);
+    assert_eq!(s.state().chord.name, None, "chords don't reach the band");
+    keys(&s, false, &[36, 40, 43]);
+    // An OTS recall turns it on again.
+    s.send(OtsCmd::RecallOts { index: 0 }).unwrap();
+    s.advance(20 * MS);
+    assert!(s.state().transport.acmp);
 }
 
 /// A client can send any delta: no overflow, and the page wraps as it should.
@@ -1396,10 +1534,10 @@ fn sound_font_switch_needs_the_synth_and_a_file_in_its_folder() {
     assert_eq!(st.io.sound_font_file.as_deref(), Some(file.as_str()));
     assert!(rx.pop().is_ok(), "the new rack went to the audio thread");
     let m = s.meters();
-    assert_eq!(m.channels.iter().map(|c| c.channel).collect::<Vec<_>>(), vec![1, 2, 3, 4, 9, 10, 11, 12, 13, 14, 15, 16]);
+    assert_eq!(m.channels.iter().map(|c| c.channel).collect::<Vec<_>>(), (1..=16).collect::<Vec<u8>>(), "every channel, the pads (5-8) too");
 }
 
-/// The audio buffer (#104): 64, 128 or 256 only. Offline it sets the render block; a note
+/// The audio buffer (#104): 64, 128, 256, 512 or 1024 only. Offline it sets the render block; a note
 /// held across the change sounds on and releases (nothing sticks). Live, the synth thread
 /// reopens the stream and the size it reports is the one shown.
 #[test]
@@ -1415,7 +1553,7 @@ fn audio_buffer_changes_keep_notes_and_report_the_size() {
     let energy = |(l, r): (Vec<f32>, Vec<f32>)| l.iter().chain(&r).map(|x| (*x as f64).powi(2)).sum::<f64>();
     s.midi_in(Port::Keys, &[0x90, 72, 110]);
     assert!(energy(s.render(4800)) > 1e-4);
-    for bad in [0, 100, 512] {
+    for bad in [0, 100, 2048] {
         assert!(s.send(SettingsCmd::SetAudioBuffer { frames: bad }).is_err(), "{bad}");
     }
     s.send(SettingsCmd::SetAudioBuffer { frames: 256 }).unwrap();
@@ -1445,6 +1583,14 @@ fn audio_buffer_changes_keep_notes_and_report_the_size() {
     assert_eq!(s.state().io.synth.as_ref().unwrap().buffer_frames, Some(256));
     s.send(SettingsCmd::SetAudioBuffer { frames: 64 }).unwrap();
     assert_eq!(s.state().io.synth.as_ref().unwrap().buffer_frames, Some(128), "the nearest the device allows");
+    // The dropouts the stream counted (the device's and our own late buffers) show in the
+    // state, for the app's larger-buffer hint.
+    let ctl = s.inner.lock().synth.as_ref().unwrap().control.clone();
+    ctl.xruns.fetch_add(2, std::sync::atomic::Ordering::Relaxed);
+    ctl.late.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    s.send(SettingsCmd::SetAudioBuffer { frames: 1024 }).unwrap();
+    let st = s.state();
+    assert_eq!(st.io.synth.as_ref().map(|y| (y.buffer_frames, y.dropouts)), Some((Some(1024), 3)));
     let _ = tx.send(SynthMsg::Stop);
     s.inner.lock().synth = None;
     t.join().unwrap();
@@ -1533,12 +1679,14 @@ fn chart_player_imports_selects_and_plays() {
     assert!(!st.chart.overridden);
     assert_eq!(st.chord.name.as_deref(), Some("Fmaj7"));
     assert_eq!(st.transport.section.as_deref(), Some("Main B"));
-    // Keyboard transpose moves the chart.
+    // Keyboard transpose moves the chart from its next chord (#264).
     s.send(ChordCmd::SetTranspose { keyboard: 2, master: 0 }).unwrap();
-    s.advance(20 * MS); // the change settles
-    assert_eq!(s.state().chord.name.as_deref(), Some("Gmaj7"));
+    s.advance(20 * MS);
+    assert_eq!(s.state().chord.name.as_deref(), Some("Fmaj7"));
+    s.advance(bar);
+    assert_eq!(s.state().chord.name.as_deref(), Some("A7"));
     // The loop goes round.
-    s.advance(2 * bar - 20 * MS);
+    s.advance(bar - 20 * MS);
     assert_eq!(s.state().chart.bar, Some(0));
     s.send(TransportCmd::StartStop).unwrap();
     assert_eq!(s.state().chart.bar, None);

@@ -65,10 +65,17 @@ export type AppCmd =
   | { type: 'sectionReset' }
   /** Style Retrigger on/off (`transport.retrigger`). */
   | { type: 'toggleRetrigger' }
+  /** [ACMP] on/off (`transport.acmp`). */
+  | { type: 'toggleAcmp' }
+  | { type: 'setAcmp'; on: boolean }
   /** Tempo in BPM, 5–500 (clamped). */
   | { type: 'setTempo'; bpm: number }
   | { type: 'toggleStylePart'; part: number }
   | { type: 'setStylePartVolume'; part: number; volume: number }
+  /** #268: a Style part's own reverb/chorus/variation send (0–127), over the style's CC 91/93/94 until reset. */
+  | { type: 'setStylePartSend'; part: number; send: PartSend; value: number }
+  /** #268: hand a Style part's sends (null: every part's) back to the style. */
+  | { type: 'resetStylePartSends'; part: number | null }
   | { type: 'setStyleVolume'; volume: number }
   | { type: 'setMultiPadVolume'; volume: number }
   /** Solo a Style part 0–7 (only it plays, even if off); null ends the solo. */
@@ -107,6 +114,9 @@ export type AppCmd =
   // Mixer and Launchkey pages
   | { type: 'setFaderPage'; page: FaderPage }
   | { type: 'toggleFaderPage' }
+  /** What the faders move across the parts: CC7, or pan / reverb / chorus / delay sends. */
+  | { type: 'setFaderLayer'; layer: FaderLayer }
+  | { type: 'stepFaderLayer'; delta: number }
   | { type: 'setPadPage'; page: PadPage }
   | { type: 'cyclePadPage'; delta: number }
   | { type: 'setMasterVolume'; volume: number }
@@ -150,9 +160,9 @@ export type AppCmd =
   | { type: 'setMidiInputs'; all: boolean; names: string[] }
   /** Launchkey LEDs in Novation palette colours instead of RGB. */
   | { type: 'setPaletteLeds'; on: boolean }
-  /** The synth's audio buffer, 64, 128 or 256 frames (`io.synth.bufferFrames`). The
+  /** The synth's audio buffer, 64, 128, 256, 512 or 1024 frames (`io.synth.bufferFrames`). The
    * output reopens; voices, plugins and held notes carry over. */
-  | { type: 'setAudioBuffer'; frames: 64 | 128 | 256 }
+  | { type: 'setAudioBuffer'; frames: 64 | 128 | 256 | 512 | 1024 }
   /** Re-walk the style folders (`library.roots`); `library.scanning` while it runs. */
   | { type: 'rescanLibrary' }
   // iReal Pro chart player: see ChartState below.
@@ -209,6 +219,8 @@ export type FxCmd =
   | { type: 'setEffectParam'; block: FxBlock; param: FxParam; value: number }
   /** #237: the block takes the style's own effect type at each style change (on), or keeps the player's (off). */
   | { type: 'setFollowStyle'; block: FxBlock; on: boolean }
+  /** #269: the style's insertion effects on or off, all together. */
+  | { type: 'setInsertsOn'; on: boolean }
 
 /**
  * Reverb: reverbTime (0.1 s), preDelay (ms), reverbTone (100 Hz). Chorus: chorusRate (0.01 Hz),
@@ -246,6 +258,25 @@ export type FxType =
 /** The effect bus: Reverb, Chorus and Variation, in that order. */
 export interface EffectsState {
   blocks: EffectBlockState[]
+  /** The loaded style's insertion effects (#269), one per Style part at most. */
+  inserts: InsertState[]
+  /** Whether they play (`setInsertsOn`). */
+  insertsOn: boolean
+}
+
+/** What plays a style's insertion effect here (#269). */
+export type InsertEffect = 'distortion' | 'compressor' | 'autoWah' | 'tremolo' | 'rotary'
+
+/** A style's insertion effect on one of its parts (#269). */
+export interface InsertState {
+  /** The Style part, 0–7. */
+  part: number
+  /** "Chord 1". */
+  partName: string
+  /** The XG type: "British Combo Classic". */
+  name: string
+  /** What plays it; null: nothing near it, the part plays dry. */
+  effect: InsertEffect | null
 }
 
 export interface EffectBlockState {
@@ -277,7 +308,7 @@ export type KnobsCmd =
   | { type: 'stepKnobPage'; delta: number }
   | { type: 'turnKnob'; knob: number; delta: number }
 
-export type KnobPage = 'style' | 'parts' | 'pan' | 'effects' | 'fx'
+export type KnobPage = 'style' | 'parts' | 'pan' | 'reverb' | 'chorus' | 'delay'
 export type KnobFunction =
   | 'none'
   | 'dynamics'
@@ -286,12 +317,14 @@ export type KnobFunction =
   | 'trackMuteA'
   | 'trackMuteB'
   | 'tempo'
+  | 'swing'
   | 'partVolume'
   | 'harmonyVolume'
   | 'metronomeVolume'
   | 'partPan'
   | 'partReverb'
   | 'partChorus'
+  | 'partDelay'
   | 'fxReturn'
   | 'fxParam'
   | 'delayTime'
@@ -422,6 +455,13 @@ export type StyleSettingsCmd =
   | { type: 'setRetriggerRate'; rate: number }
   /** Positive: shorter. */
   | { type: 'stepRetriggerRate'; delta: number }
+  /** Swing 0–100 % (0: as written). Each style load sets it back to 0. */
+  | { type: 'setSwing'; amount: number }
+  | { type: 'stepSwing'; delta: number }
+  /** 8 (off-beat 8ths) or 16 (off-beat 16ths). */
+  | { type: 'setSwingGrid'; grid: number }
+  /** Play the tempo changes written inside Intros/Endings, relative to the tempo (#243). */
+  | { type: 'setSectionTempo'; on: boolean }
 
 export interface StyleSettingsState {
   mainTiming: MainTiming
@@ -435,6 +475,12 @@ export interface StyleSettingsState {
   sectionReset: boolean
   /** 1, 2, 4, 8, 16 or 32. */
   retriggerRate: number
+  /** Swing, 0–100 %. */
+  swing: number
+  /** The swing grid, 8 or 16. */
+  swingGrid: number
+  /** The tempo changes written inside sections play (#243). Default on. */
+  sectionTempo: boolean
 }
 
 /** Fade In/Out: armed = stopped, START fades in; holding = faded out, silent for the hold. */
@@ -504,6 +550,11 @@ export interface TransportState {
   section: string | null
   /** The section queued next (at the next bar; a fill at the next beat). */
   queued: string | null
+  /** The Main a fill (or the Break) queued or playing lands on, e.g. "Main A" (#282);
+   *  null when none is. The first press picks the fill, later presses move this. */
+  landing: string | null
+  /** [ACMP] is on (the default). Off: no chord section, rhythm only, Sync Start on any key. */
+  acmp: boolean
   /** The Intro (0–2) armed to play when the style starts. */
   pendingIntro: number | null
   /** The Main (0–3 = A–D) playing, or returned to after a fill. */
@@ -613,10 +664,26 @@ export interface StylePart {
   voice: Voice | null
   /** Where its Launchkey fader (Style page, faders 1–8) physically is; null until it moves. */
   fader: number | null
+  /** Its sends as they play (CC 91/93/94, #268): its own where `sendsSet` lists them, else the style's. */
+  reverb: number
+  chorus: number
+  variation: number
+  /** The sends the player set (`setStylePartSend`); the others follow the style. */
+  sendsSet: PartSend[]
 }
+
+/** The mixer's VOL · PAN · REV · CHO · DLY fader layers. */
+export type FaderLayer = 'volume' | 'pan' | 'reverb' | 'chorus' | 'delay'
+export const FADER_LAYERS: FaderLayer[] = ['volume', 'pan', 'reverb', 'chorus', 'delay']
 
 export interface MixerState {
   faderPage: FaderPage
+  /** What the faders move (Shift + the master fader's button steps it). */
+  faderLayer: FaderLayer
+  /** Keyboard parts (bit = part) whose fader, in a send layer, hasn't reached the value yet. */
+  sendWaiting: number
+  /** Style parts (bit = part) whose fader, in a send layer, hasn't reached the send yet. */
+  styleSendWaiting: number
   styleParts: StylePart[]
   /** Synth master volume (100 = unity); null without the synth. */
   master: number | null
@@ -746,6 +813,10 @@ export interface SynthState {
   /** 1-based, e.g. [1, 2]. */
   outputPair: [number, number]
   muted: boolean
+  /** Audio dropouts since the synth started: the device reported an overload, or a buffer
+   * took longer to render than it lasts. The app suggests a larger buffer when they keep
+   * coming (lib/dropouts). */
+  dropouts: number
 }
 
 export interface IoState {
@@ -778,11 +849,14 @@ export interface IoState {
  * client applies its own decay and peak hold. */
 export interface Meters {
   atMs: number
-  /** Keyboard parts (ch 1–4) and Style parts (ch 9–16), before the soft clipper. Empty
+  /** Every channel: keyboard parts (ch 1–4), Multi Pads (5–8), Style parts (9–16), before
+   * the soft clipper. Linear peak and RMS, the loudest since the previous read. Empty
    * without the synth. */
-  channels: { channel: number; peak: number }[]
+  channels: { channel: number; peak: number; rms: number }[]
   /** Left, right after the soft clipper. */
   master: [number, number]
+  /** Left, right RMS after the soft clipper. */
+  masterRms: [number, number]
   /** Audio buffers in which the soft clipper worked, since start. */
   clips: number
 }
@@ -1064,6 +1138,8 @@ export interface AppState {
   knobs: KnobsState
   /** The effect bus's Reverb, Chorus and Variation blocks (#204). */
   effects: EffectsState
+  /** What the Home screen shows: read-only, derived from the rest. */
+  home: HomeState
 }
 
 // ── Instrument plugins (docs/plugin-hosting.md) ──────────────────────────
@@ -1071,6 +1147,9 @@ export interface AppState {
 export type PluginCmd =
   /** Play a keyboard part (0-3) on a plugin from `plugins.list`; `state` a saved preset (base64). */
   | { type: 'setPartPlugin'; part: number; id: string; state: string | null }
+  /** Play a keyboard part on one of plugin `id`'s presets (`preset`: its catalog key,
+   * `f:<number>` or `u:<path>`). Each part gets its own instance with its own preset. */
+  | { type: 'setPartPluginPreset'; part: number; id: string; preset: string }
   /** Back to the part's SoundFont voice. */
   | { type: 'clearPartPlugin'; part: number }
   /** Keep the plugin's current preset with the part (send when its editor closes). */
@@ -1104,6 +1183,10 @@ export interface PartPlugin {
   recentOverruns: number
   /** Its editor window can be opened. */
   editor: boolean
+  /** The AU preset it was loaded with, if one was picked in the Sound Browser. */
+  preset?: string | null
+  /** That preset's catalog key (`f:3`, `u:<path>`). */
+  presetKey?: string | null
 }
 
 export interface PluginEntry {
@@ -1343,7 +1426,7 @@ export const PAD_PAGES: { id: PadPage; name: string }[] = [
   { id: 'sections', name: 'Sections' },
   { id: 'chordSetup', name: 'Chord/Setup' },
   { id: 'otsParts', name: 'OTS/Parts' },
-  { id: 'registration', name: 'Registration' },
+  { id: 'registration', name: 'Snapshots' },
   { id: 'multiPads', name: 'Multi Pads' },
 ]
 
@@ -1367,3 +1450,25 @@ export function sectionLabel(name: string): string {
 
 export const STYLE_PART_NAMES = ['Rhythm 1', 'Rhythm 2', 'Bass', 'Chord 1', 'Chord 2', 'Pad', 'Phrase 1', 'Phrase 2']
 export const KEYBOARD_PART_NAMES = ['Right 1', 'Right 2', 'Right 3', 'Left']
+
+/** The Home screen's data (docs/app-api.md `home`). */
+export interface HomeState {
+  mains: HomeMain[]
+  progress: { running: boolean; bar: number; beat: number; bars: number | null; beatsPerBar: number; fraction: number }
+  snapshot: { index: number; label: string; name: string; bank: string } | null
+  ots: { index: number; name: string } | null
+  bandSends: { block: FxBlock; name: string; effectName: string; level: number }[]
+}
+
+export interface HomeMain {
+  name: string
+  present: boolean
+  bars: number
+  stepsPerBar: number
+  /** Note-ons per step over the whole pattern. */
+  density: number[]
+  /** The first bar: loudest velocity per step (0 = none). */
+  lanes: { kick: number[]; snare: number[]; hats: number[]; bass: number[] }
+  fill: { name: string; present: boolean; bars: number; active: boolean }
+  current: boolean
+}

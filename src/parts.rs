@@ -63,6 +63,52 @@ pub enum FaderPage {
     Style,
 }
 
+/// What the Launchkey faders control across the parts (the mixer's VOL / PAN / REV / CHO /
+/// DLY buttons, as Ableton's sends view): each part's CC7, or its pan or effect send (CC10,
+/// CC91, CC93, CC94), the same controls `setPartPan` / `setPartSend` set. Shift + the
+/// master fader's button steps through them. The master fader is always the master.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum FaderLayer {
+    #[default]
+    Volume,
+    Pan,
+    Reverb,
+    Chorus,
+    /// The Variation block, the tempo delay (CC94).
+    Delay,
+}
+
+impl FaderLayer {
+    pub const ALL: [FaderLayer; 5] = [FaderLayer::Volume, FaderLayer::Pan, FaderLayer::Reverb, FaderLayer::Chorus, FaderLayer::Delay];
+
+    /// Its index in `Parts::fx` (`PAN` .. `VARIATION`); None for Volume (the CC7).
+    pub fn fx_index(self) -> Option<usize> {
+        match self {
+            FaderLayer::Volume => None,
+            FaderLayer::Pan => Some(PAN),
+            FaderLayer::Reverb => Some(REVERB),
+            FaderLayer::Chorus => Some(CHORUS),
+            FaderLayer::Delay => Some(VARIATION),
+        }
+    }
+
+    /// The layer `d` steps on, wrapping (VOL -> PAN -> REV -> CHO -> DLY -> VOL).
+    pub fn step(self, d: i8) -> FaderLayer {
+        let n = Self::ALL.len() as i16;
+        Self::ALL[((self as i16 + d as i16).rem_euclid(n)) as usize]
+    }
+
+    fn from_u8(v: u8) -> FaderLayer {
+        Self::ALL.get(v as usize).copied().unwrap_or_default()
+    }
+
+    /// The short name the mixer's buttons show.
+    pub fn short(self) -> &'static str {
+        ["VOL", "PAN", "REV", "CHO", "DLY"][self as usize]
+    }
+}
+
 pub struct Parts {
     /// GM program per part.
     pub program: [AtomicU8; COUNT],
@@ -88,6 +134,14 @@ pub struct Parts {
     pub ots_applied: AtomicU8,
     /// `FaderPage::Panel` = 0, `Style` = 1.
     fader_page: AtomicU8,
+    /// The `FaderLayer` (as u8).
+    fader_layer: AtomicU8,
+    /// Bumped whenever the faders change what they control (layer or page): the input
+    /// thread binds a send fader's takeover afresh.
+    layer_gen: AtomicU8,
+    /// Keyboard parts whose Panel fader, in a send layer, has moved but not yet reached
+    /// the value (bit = part; the input thread keeps it).
+    pub send_waiting: AtomicU8,
     /// Where each Launchkey fader 1-8 physically is (`HW_UNKNOWN` until it moves). Faders
     /// are shared by both pages, so a page switch needs this for soft takeover.
     pub fader_hw: [AtomicU8; 8],
@@ -192,12 +246,13 @@ pub const PAN: usize = 0;
 pub const REVERB: usize = 1;
 pub const CHORUS: usize = 2;
 pub const VARIATION: usize = 3;
-/// What each part's pan and sends are before anything sets them (#204): pan centre and,
-/// like a Genos keyboard voice, some reverb and a touch of chorus (Right 1-3: reverb 50,
-/// chorus 10; Left: reverb 40, chorus 10), where GM's power-on values (reverb 40, chorus
-/// 0) sound dry; no variation (delay) send. The engine thread sends them at start and
-/// again after anything that may have reset them (`resend_fx`).
-pub const FX_DEFAULT: [[u8; FX]; COUNT] = [[64, 50, 10, 0], [64, 50, 10, 0], [64, 50, 10, 0], [64, 40, 10, 0]];
+/// What each part's pan and sends are before anything sets them: pan centre and every
+/// send dry (reverb, chorus and delay 0). The keyboard parts only get a send from the
+/// player, or from data that stores one (an OTS, a Registration, a library patch's own
+/// defaults); GM's power-on reverb of 40 is not data, so it never applies. The engine
+/// thread sends them at start and again after anything that may have reset them
+/// (`resend_fx`), so a receiver's own power-on sends never linger.
+pub const FX_DEFAULT: [[u8; FX]; COUNT] = [[64, 0, 0, 0]; COUNT];
 
 /// `Parts::solo`: no part soloed.
 pub const NO_SOLO: u8 = 255;
@@ -222,6 +277,9 @@ impl Parts {
             ots_link: AtomicBool::new(false),
             ots_applied: AtomicU8::new(0),
             fader_page: AtomicU8::new(0),
+            fader_layer: AtomicU8::new(0),
+            layer_gen: AtomicU8::new(0),
+            send_waiting: AtomicU8::new(0),
             fader_hw: [const { AtomicU8::new(HW_UNKNOWN) }; 8],
             rebind: AtomicBool::new(false),
             rebind_hw: [const { AtomicU8::new(HW_UNKNOWN) }; 8],
@@ -560,6 +618,36 @@ impl Parts {
             }
         }
         self.fader_page.store(page as u8, Relaxed);
+        self.layer_gen.fetch_add(1, Relaxed);
+    }
+
+    pub fn fader_layer(&self) -> FaderLayer {
+        FaderLayer::from_u8(self.fader_layer.load(Relaxed))
+    }
+
+    /// Switch the fader layer. Back on Volume, the faders pick their parts' levels up
+    /// afresh (they moved sends meanwhile), as after a page switch; a send layer's faders
+    /// pick their values up in the input thread.
+    pub fn set_fader_layer(&self, layer: FaderLayer) {
+        if self.fader_layer.swap(layer as u8, Relaxed) != layer as u8 {
+            self.send_waiting.store(0, Relaxed);
+            self.layer_gen.fetch_add(1, Relaxed);
+            if layer == FaderLayer::Volume {
+                self.set_fader_page(self.fader_page());
+            }
+        }
+    }
+
+    /// Changes each time the faders change what they control (see `layer_gen`).
+    pub fn fader_layer_gen(&self) -> u8 {
+        self.layer_gen.load(Relaxed)
+    }
+
+    /// Step the fader layer by `d` (Shift + the master fader's button: +1).
+    pub fn step_fader_layer(&self, d: i8) -> FaderLayer {
+        let l = self.fader_layer().step(d);
+        self.set_fader_layer(l);
+        l
     }
 
     pub fn toggle_fader_page(&self) -> FaderPage {
@@ -582,7 +670,11 @@ impl Parts {
     /// current voice. The voice settings (#238): a part the OTS gives a voice starts from
     /// neutral (`voice_changed`), then takes the filter, EG, vibrato, portamento and XG
     /// part parameters the OTS sets. Pitch bend range is the caller's (`Controllers`).
-    pub fn apply_ots(&self, ots: &crate::sff::Ots, number: u8) {
+    ///
+    /// `sends`: whether the OTS's reverb, chorus and delay sends apply. An explicit recall
+    /// (an OTS button, the app) applies them; OTS Link firing on its own (a style start, a
+    /// section change) leaves the sends the player dialled in, and applies only the pan.
+    pub fn apply_ots(&self, ots: &crate::sff::Ots, number: u8, sends: bool) {
         for (p, part) in ots.parts.iter().enumerate() {
             if let Some((_, _, pc)) = part.voice.filter(|v| v.0 < 126) {
                 self.program[p].store(pc, Relaxed);
@@ -594,8 +686,12 @@ impl Parts {
             self.on[p].store(part.on, Relaxed);
             self.set_volume(p, part.volume);
             self.octave[p].store(part.octave, Relaxed);
-            if part.fx.iter().any(Option::is_some) {
-                self.set_fx(p, part.fx);
+            let mut fx = part.fx;
+            if !sends {
+                fx[REVERB..].fill(None);
+            }
+            if fx.iter().any(Option::is_some) {
+                self.set_fx(p, fx);
             }
         }
         self.selected.store(RIGHT1 as u8, Relaxed);
@@ -632,7 +728,7 @@ mod tests {
         let style = crate::sff::Style::load(&p).unwrap();
         let parts = Parts::new();
         parts.select(LEFT);
-        parts.apply_ots(&style.ots[0], 1);
+        parts.apply_ots(&style.ots[0], 1, true);
         assert_eq!(parts.on_mask(), 0b1011, "Right 1 + Right 2 + Left");
         assert_eq!(parts.program[RIGHT1].load(Relaxed), 80);
         assert_eq!(parts.program[RIGHT2].load(Relaxed), 94);
@@ -681,7 +777,7 @@ mod tests {
                 }
                 let parts = Parts::new();
                 parts.send_fx(&mut |_| {});
-                parts.apply_ots(ots, i as u8 + 1);
+                parts.apply_ots(ots, i as u8 + 1, true);
                 let mut got = [[None; FX]; COUNT];
                 parts.send_fx(&mut |m| {
                     let p = part_of_channel(m[0] & 0x0F).unwrap();
@@ -706,7 +802,7 @@ mod tests {
             let Ok(style) = crate::sff::Style::load(&f) else { continue };
             for (i, ots) in style.ots.iter().enumerate() {
                 let parts = Parts::new();
-                parts.apply_ots(ots, i as u8 + 1);
+                parts.apply_ots(ots, i as u8 + 1, true);
                 let mut got = Vec::new();
                 parts.send_tone(&mut |m| got.push(m.to_vec()));
                 let mut want = Vec::new();
@@ -765,8 +861,35 @@ mod tests {
         assert_eq!(sent(&parts).len(), 3);
     }
 
-    /// A fresh start isn't dry (#204): the first `send_fx` gives every keyboard part its
-    /// power-on pan and sends, once; what a patch or OTS set before it wins.
+    /// The player's sends stick: an OTS recall with sends applies them; one without
+    /// leaves them; OTS Link firing by itself (`sends` false) keeps them too, with only
+    /// the pan applied; a voice change keeps them.
+    #[test]
+    fn ots_sends_apply_only_on_an_explicit_recall_that_has_them() {
+        let parts = Parts::new();
+        parts.set_fx(RIGHT1, [None, Some(77), Some(33), Some(22)]);
+        let mut with = crate::sff::Ots::default();
+        with.parts[RIGHT1].fx = [Some(20), Some(100), Some(50), Some(10)];
+        let mut without = crate::sff::Ots::default();
+        without.parts[RIGHT1].voice = Some((0, 0, 5));
+        // Without sends: unchanged, a voice change too.
+        parts.apply_ots(&without, 1, true);
+        assert_eq!(parts.fx(RIGHT1), [64, 77, 33, 22]);
+        parts.select(RIGHT1);
+        parts.step_program(1);
+        assert_eq!(parts.fx(RIGHT1), [64, 77, 33, 22], "a voice change keeps the sends");
+        // OTS Link by itself: the pan, not the sends.
+        parts.apply_ots(&with, 2, false);
+        assert_eq!(parts.fx(RIGHT1), [20, 77, 33, 22]);
+        // An explicit recall with sends: they apply.
+        parts.apply_ots(&with, 2, true);
+        assert_eq!(parts.fx(RIGHT1), [20, 100, 50, 10]);
+        assert_eq!(parts.fx(RIGHT2), [64, 0, 0, 0], "dry by default");
+    }
+
+    /// The first `send_fx` gives every keyboard part its power-on pan and sends, once: dry,
+    /// so a receiver's own power-on reverb never lingers; what a patch or OTS set before it
+    /// wins.
     #[test]
     fn the_first_send_gives_every_part_its_default_sends() {
         let parts = Parts::new();
@@ -774,13 +897,13 @@ mod tests {
         let mut sent = Vec::new();
         parts.send_fx(&mut |m| sent.push([m[0], m[1], m[2]]));
         for p in 0..COUNT {
-            let want = if p == LEFT { [64, 90, 10, 0] } else { FX_DEFAULT[p] };
+            let want = if p == LEFT { [64, 90, 0, 0] } else { FX_DEFAULT[p] };
             for (cc, v) in FX_CC.into_iter().zip(want) {
                 assert!(sent.contains(&[0xB0 | CHANNEL[p], cc, v]), "part {p} CC{cc} {v}: {sent:?}");
             }
         }
         assert_eq!(sent.len(), COUNT * FX, "once each: {sent:?}");
-        assert_eq!(parts.fx(RIGHT1), [64, 50, 10, 0]);
+        assert_eq!(parts.fx(RIGHT1), [64, 0, 0, 0], "dry");
         let mut again = 0;
         parts.send_fx(&mut |_| again += 1);
         assert_eq!(again, 0, "only once");
@@ -789,7 +912,7 @@ mod tests {
         let mut sent = Vec::new();
         parts.send_fx(&mut |m| sent.push([m[0], m[1], m[2]]));
         assert_eq!(sent.len(), COUNT * FX);
-        assert!(sent.contains(&[0xB1, 91, 90]) && sent.contains(&[0xB0, 91, 50]), "{sent:?}");
+        assert!(sent.contains(&[0xB1, 91, 90]) && sent.contains(&[0xB0, 91, 0]), "{sent:?}");
     }
 
     #[test]
@@ -843,6 +966,20 @@ mod tests {
 
     /// A fader moving on the input thread while an OTS recall sets the level on the UI
     /// thread: the recall is never overwritten by a move judged against the old level.
+    #[test]
+    fn fader_layers_step_and_wrap() {
+        let parts = Parts::new();
+        assert_eq!(parts.fader_layer(), FaderLayer::Volume);
+        assert_eq!(parts.step_fader_layer(1), FaderLayer::Pan);
+        assert_eq!(parts.step_fader_layer(1), FaderLayer::Reverb);
+        assert_eq!(parts.step_fader_layer(-2), FaderLayer::Volume);
+        assert_eq!(parts.step_fader_layer(-1), FaderLayer::Delay);
+        assert_eq!(parts.step_fader_layer(1), FaderLayer::Volume);
+        assert_eq!(FaderLayer::Delay.fx_index(), Some(VARIATION));
+        assert_eq!(FaderLayer::Volume.fx_index(), None);
+        assert_eq!(serde_json::to_string(&FaderLayer::Reverb).unwrap(), r#""reverb""#);
+    }
+
     #[test]
     fn fader_move_never_overwrites_a_concurrent_recall() {
         for _ in 0..200 {

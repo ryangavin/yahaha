@@ -20,7 +20,7 @@ const PART_ON: TipKey[] = ['part.right1.on', 'part.right2.on', 'part.right3.on',
 const PART_SELECT: TipKey[] = ['part.right1.select', 'part.right2.select', 'part.right3.select', 'part.left.select']
 const PART_VOLUME: TipKey[] = ['mixer.panel.right1', 'mixer.panel.right2', 'mixer.panel.right3', 'mixer.panel.left']
 const OTS: TipKey[] = ['ots.1', 'ots.2', 'ots.3', 'ots.4']
-const REGIST: TipKey[] = ['regist.1', 'regist.2', 'regist.3', 'regist.4', 'regist.5', 'regist.6', 'regist.7', 'regist.8', 'regist.9', 'regist.10']
+const REGIST: TipKey[] = ['regist.1', 'regist.2', 'regist.3', 'regist.4', 'regist.5', 'regist.6', 'regist.7', 'regist.8']
 const MP_PAD: TipKey[] = ['multipad.pad1', 'multipad.pad2', 'multipad.pad3', 'multipad.pad4']
 const MP_ARM: TipKey[] = ['multipad.arm1', 'multipad.arm2', 'multipad.arm3', 'multipad.arm4']
 const MP_STOP: TipKey[] = ['multipad.stop1', 'multipad.stop2', 'multipad.stop3', 'multipad.stop4']
@@ -53,6 +53,8 @@ export function tipFor(cmd: AppCmd | null): TipKey {
     case 'resetTempo': return 'tempo.reset'
     case 'toggleStylePart': return 'mixer.style.mute'
     case 'setStylePartVolume': return 'mixer.style.volume'
+    case 'setStylePartSend': return `mixer.style.${cmd.send}`
+    case 'resetStylePartSends': return 'mixer.style.reset_sends'
     case 'setStyleVolume': return 'mixer.style_level'
     case 'setMultiPadVolume': return 'mixer.pad_level'
     case 'setFingering': return FINGERING[cmd.fingering]
@@ -82,6 +84,8 @@ export function tipFor(cmd: AppCmd | null): TipKey {
     case 'setPartSend': return cmd.send === 'reverb' ? 'mixer.part.reverb' : cmd.send === 'chorus' ? 'mixer.part.chorus' : 'mixer.part.variation'
     case 'setFaderPage':
     case 'toggleFaderPage': return 'mixer.page'
+    case 'setFaderLayer':
+    case 'stepFaderLayer': return 'mixer.layer'
     case 'setPadPage': return PAGE[cmd.page]
     case 'cyclePadPage': return cmd.delta < 0 ? 'padpage.prev' : 'padpage.next'
     case 'setMasterVolume': return 'mixer.master'
@@ -127,8 +131,13 @@ export function tipFor(cmd: AppCmd | null): TipKey {
     case 'toggleFade': return 'transport.fade'
     case 'sectionReset': return 'transport.section_reset'
     case 'toggleRetrigger': return 'transport.retrigger'
+    case 'toggleAcmp':
+    case 'setAcmp': return 'transport.acmp'
     case 'stepRetriggerRate': return cmd.delta < 0 ? 'transport.retrigger_longer' : 'transport.retrigger_shorter'
     case 'setRetriggerRate': return 'settings.retrigger_rate'
+    case 'setSwing':
+    case 'stepSwing': return 'style.swing'
+    case 'setSwingGrid': return 'style.swing_grid'
     case 'setMainTiming': return 'settings.section_timing'
     case 'setIntroEndingTiming': return 'settings.intro_ending_timing'
     case 'setSyncStopWindow': return 'settings.synchro_stop_window'
@@ -136,9 +145,13 @@ export function tipFor(cmd: AppCmd | null): TipKey {
     case 'setFadeOutTime': return 'settings.fade_out'
     case 'setFadeHoldTime': return 'settings.fade_hold'
     case 'setSectionReset': return 'settings.section_reset'
+    case 'setSectionTempo': return 'settings.section_tempo'
     // Registration Memory
     case 'pressRegist':
-    case 'recallRegist': return REGIST[cmd.index]
+    case 'recallRegist': return REGIST[cmd.index % 8]
+    case 'pressSnapshot': return REGIST[cmd.slot % 8]
+    case 'stepSnapshotBank': return cmd.delta < 0 ? 'regist.snap_bank_prev' : 'regist.snap_bank_next'
+    case 'selectSnapshotBank': return 'regist.snap_bank'
     case 'memorizeRegist':
     case 'toggleRegistMemory': return 'regist.memory'
     case 'setMemorizeGroup': return 'regist.memorize_group'
@@ -154,8 +167,8 @@ export function tipFor(cmd: AppCmd | null): TipKey {
     case 'setRegistSequence': return 'regist.sequence_steps'
     case 'setRegistSequenceOn':
     case 'toggleRegistSequence': return 'regist.sequence_on'
-    case 'stepRegistSequence':
-    case 'stepRegist': return cmd.delta < 0 ? 'regist.seq_prev' : 'regist.seq_next'
+    case 'stepRegistSequence': return cmd.delta < 0 ? 'regist.seq_prev' : 'regist.seq_next'
+    case 'stepRegist': return cmd.delta < 0 ? 'regist.prev' : 'regist.next'
     // Playlist
     case 'newPlaylist': return 'playlist.new'
     case 'loadPlaylist': return 'playlist.file'
@@ -170,7 +183,7 @@ export function tipFor(cmd: AppCmd | null): TipKey {
     case 'setPlaylistSort': return 'playlist.sort'
     case 'loadPlaylistRecord': return 'playlist.record'
     case 'stepPlaylist': return cmd.delta < 0 ? 'playlist.prev' : 'playlist.next'
-    case 'setTempo': return 'display.tempo'
+    case 'setTempo': return 'tempo.set'
     case 'setStyleSolo':
     case 'setPartSolo': return 'mixer.solo'
     case 'styleTrackMute': return 'mixer.track_mute'
@@ -203,6 +216,7 @@ export function tipFor(cmd: AppCmd | null): TipKey {
     case 'triggerFunction': return 'pedal.try'
     case 'setPartControllers': return 'pedal.part_sustain'
     case 'setBendRange': return 'pedal.bend_up'
+    case 'setPartPluginPreset':
     case 'setPartPlugin':
     case 'clearPartPlugin':
     case 'savePartPluginState': return 'part.plugin'
@@ -221,9 +235,9 @@ export function tipFor(cmd: AppCmd | null): TipKey {
     case 'setTouchLimit': return 'harmony.touch_limit'
     case 'setArpQuantize': return 'harmony.arp_quantize'
     case 'setArpHold':
-    case 'toggleArpHold':
+    case 'toggleArpHold': return 'harmony.arp_hold'
     case 'setArpPedalHold':
-    case 'toggleArpPedalHold': return 'harmony.arp_hold'
+    case 'toggleArpPedalHold': return 'harmony.arp_pedal_hold'
     case 'setArpVelocity': return 'harmony.arp_velocity'
     case 'setArpKeepKeyOn': return 'harmony.arp_keep_key_on'
     case 'createPatch':
@@ -252,6 +266,8 @@ export function tipFor(cmd: AppCmd | null): TipKey {
     case 'stopSoundAudition': return 'sounds.audition_stop'
     case 'assignSound': return 'sounds.row'
     case 'setSoundCategory': return 'sound.category'
+    case 'listPluginPresets': return 'sounds.presets'
+    case 'savePartAsPluginPreset': return 'sounds.save_preset'
     case 'setParamLock': return cmd.item === 'splitPoint' ? 'settings.param_lock_split_point' : 'settings.param_lock_fingering_type'
     // Style Dynamics (#180).
     case 'setDynamicsControl': return 'dynamics.control'
@@ -272,6 +288,7 @@ export function tipFor(cmd: AppCmd | null): TipKey {
     case 'setBandSend': return `fx.${cmd.block}_band`
     case 'setPadSend': return `fx.${cmd.block}_pad`
     case 'setFollowStyle': return 'fx.follow_style'
+    case 'setInsertsOn': return 'fx.inserts'
     case 'setEffectParam': return ({ reverbTime: 'fx.param.reverb_time', preDelay: 'fx.param.pre_delay', reverbTone: 'fx.param.reverb_tone', delaySync: 'fx.param.delay_sync', delayNote: 'fx.param.delay_note', delayTime: 'fx.param.delay_time', delayFeedback: 'fx.param.delay_feedback', delayTone: 'fx.param.delay_tone', pingPong: 'fx.param.ping_pong', chorusRate: 'fx.param.chorus_rate', chorusDepth: 'fx.param.chorus_depth' } as const)[cmd.param]
   }
 }

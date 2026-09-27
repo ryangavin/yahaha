@@ -15,6 +15,11 @@
     where that fader physically sits (from the provisional `state.surface`).
   - Panel strips have Pan, Reverb, Chorus and Delay knobs (the part's CC 10, 91, 93, 94:
     `setPartPan`, `setPartSend`, #198/#204); double-click one to put it back to its default.
+    Style strips have Reverb, Chorus and Delay (#268, `setStylePartSend`): they show the
+    style's own sends until turned, then the part's own (marked •), which the engine sends in
+    place of the style's through section and style changes. Double-click hands that part's
+    sends back to the style; "Sends: style" by Track Mute resets every part
+    (`resetStylePartSends`).
   - Effects (#204): the shared effect bus's Reverb, Chorus and Variation (tempo delay)
     blocks, each with its type and return level (`setEffectType`, `setEffectReturn`). Every
     part, Panel and Style, SoundFont and plugin, feeds them through its sends. Each block's
@@ -23,8 +28,10 @@
     opens a block's editor with its parameters (#236, `setEffectParam`), which a type
     change puts back to that type's own values. The Style switch (#237, `setFollowStyle`):
     lit, the block takes the style's own effect type at each style change (its XG name shows
-    beside it); choosing a type turns it off. The editor ends with the block's Pads send
+    beside it); choosing a type or changing a parameter (here or on a Launchkey effect knob page) turns it off. The editor ends with the block's Pads send
     (#267, `setPadSend`): the same scale for the four Multi Pads' sends.
+  - Inserts (#269, `setInsertsOn`): the style's insertion effects, each on one Style part
+    (an amp simulator, a compressor, a wah, a tremolo or a rotary here), all on or off.
   - Solo (S): only that part plays, even if it is off; the Style tab solos a band part,
     the Panel tab a keyboard part (`setStyleSolo` / `setPartSolo`, #30). Press again to end.
   - The metronome (on/off, bell, its own volume) sits above the strips: it is the
@@ -33,7 +40,7 @@
   - No level meters yet.
 -->
 <script lang="ts">
-  import type { EffectBlockState, FaderPage, FxBlock, FxParam, FxType, KeyboardPart, PartSend, StylePart, TrackMuteOrder } from '../../lib/api/types'
+  import type { EffectBlockState, FaderPage, FxBlock, InsertEffect, FxParam, FxType, KeyboardPart, PartSend, StylePart, TrackMuteOrder } from '../../lib/api/types'
   import type { TipKey } from '../../help/tooltips'
   import { app, ui } from '../../lib/store.svelte'
   import { tipFor } from '../../help/actions'
@@ -45,6 +52,8 @@
   import Toggle from '../../lib/ui/Toggle.svelte'
   import HSlider from '../settings/HSlider.svelte'
   import Strip from './Strip.svelte'
+  import { FADER_LAYERS, type FaderLayer } from '../../lib/api/types'
+  const LAYER_NAMES: Record<FaderLayer, string> = { volume: 'VOL', pan: 'PAN', reverb: 'REV', chorus: 'CHO', delay: 'DLY' }
   import { partVoice, pluginBadge, pluginTip, styleVoice } from './voice'
 
   const mixer = $derived(app.state.mixer)
@@ -54,6 +63,8 @@
   const outPort = $derived(app.state.io.outputPort)
   const metronome = $derived(app.state.metronome)
   const effects = $derived(app.state.effects.blocks)
+  const inserts = $derived(app.state.effects.inserts)
+  const INSERT_NAMES: Record<InsertEffect, string> = { distortion: 'Distortion', compressor: 'Compressor', autoWah: 'Auto Wah', tremolo: 'Tremolo', rotary: 'Rotary' }
   const FX_TIPS: Record<FxBlock, [TipKey, TipKey, TipKey, TipKey]> = {
     reverb: ['fx.reverb_type', 'fx.reverb_return', 'fx.reverb_band', 'fx.reverb_pad'],
     chorus: ['fx.chorus_type', 'fx.chorus_return', 'fx.chorus_band', 'fx.chorus_pad'],
@@ -154,7 +165,8 @@
       reverb: p.reverb,
       chorus: p.chorus,
       variation: p.variation,
-      reverbDefault: i === 3 ? 40 : 50,
+      // Dry by default: a keyboard part's sends are 0 until the player or data sets one.
+      reverbDefault: 0,
       onpan: (v: number) => app.send({ type: 'setPartPan', part: i, pan: v }),
       onsend: (send: PartSend, v: number) => app.send({ type: 'setPartSend', part: i, send, value: v }),
     },
@@ -193,6 +205,16 @@
       onclick: () => app.send({ type: 'toggleStylePart', part: i }),
     },
     voice: styleVoice(p.voice),
+    fx: {
+      pan: null,
+      reverb: p.reverb,
+      chorus: p.chorus,
+      variation: p.variation,
+      reverbDefault: 40,
+      onpan: () => {},
+      onsend: (send: PartSend, v: number) => app.send({ type: 'setStylePartSend', part: i, send, value: v }),
+      style: { set: p.sendsSet, onreset: () => app.send({ type: 'resetStylePartSends', part: i }) },
+    },
     badge: p.mutedByManualBass ? { text: 'Manual Bass', tip: 'detection.manual_bass' as const } : null,
     solo: {
       isSolo: mixer.styleSolo === i,
@@ -221,6 +243,11 @@
           >
             <span class="dot" class:on={page === t.id} aria-hidden="true"></span>{t.name}
           </button>
+        {/each}
+      </div>
+      <div class="layers" role="group" aria-label="Fader layer">
+        {#each FADER_LAYERS as l (l)}
+          <Toggle on={app.state.mixer.faderLayer === l} tip="mixer.layer" onclick={() => app.send({ type: 'setFaderLayer', layer: l })}>{LAYER_NAMES[l]}</Toggle>
         {/each}
       </div>
       <div class="follows engraved" use:tip={'mixer.page'}>
@@ -267,6 +294,13 @@
           <div class="slider">
             <HSlider value={muteValue} tip="mixer.track_mute" label="Style Track Mute" onchange={trackMute} />
           </div>
+          <button
+            type="button"
+            class="order mat-raised"
+            disabled={mixer.styleParts.every((p) => p.sendsSet.length === 0)}
+            use:tip={'mixer.style.reset_sends'}
+            onclick={() => app.send({ type: 'resetStylePartSends', part: null })}>Sends: style</button
+          >
         </div>
       {/if}
     </div>
@@ -326,6 +360,22 @@
           </div>
         </div>
       {/each}
+    </div>
+    <div class="inserts" role="group" aria-label="Style inserts">
+      <Toggle
+        on={app.state.effects.insertsOn}
+        tip="fx.inserts"
+        onclick={() => app.send({ type: 'setInsertsOn', on: !app.state.effects.insertsOn })}>Inserts</Toggle
+      >
+      {#if inserts.length === 0}
+        <span class="style-name">The style has none</span>
+      {:else}
+        {#each inserts as i (i.part)}
+          <span class="insert" class:dry={!i.effect || !app.state.effects.insertsOn} title={i.name}
+            ><b>{i.partName}</b> {i.name} → {i.effect ? INSERT_NAMES[i.effect] : 'dry'}</span
+          >
+        {/each}
+      {/if}
     </div>
     {#each effects.filter((b) => editing[b.block] && b.params.length > 0) as b (b.block)}
       <div class="editor" role="group" aria-label="{b.name} parameters">
@@ -412,9 +462,9 @@
         {/each}
       {/if}
 
-      <div class="master" class:knobs={page === 'panel'}>
+      <div class="master knobs">
         <div class="ch engraved">Synth</div>
-        {#if page === 'panel'}<div class="fx-space" aria-hidden="true"></div>{/if}
+        <div class="fx-space" aria-hidden="true"></div>
         <div class="fader">
           <Fader
             value={mixer.master ?? 0}
@@ -576,6 +626,21 @@
     font-size: var(--fs-small);
     color: var(--muted);
   }
+  .inserts {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.35rem 0.8rem;
+    font-size: 0.8rem;
+    color: var(--muted);
+  }
+  .insert b {
+    color: var(--ink);
+    font-weight: 600;
+  }
+  .insert.dry {
+    opacity: 0.6;
+  }
   .band-label {
     font-size: var(--fs-small);
     color: var(--muted);
@@ -670,5 +735,9 @@
     /* The height of a strip's buttons, voice and badge, so the master fader lines up. */
     min-height: 6.4rem;
     padding-top: 0.2rem;
+  }
+  .layers {
+    display: flex;
+    gap: 0.25em;
   }
 </style>

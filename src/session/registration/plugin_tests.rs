@@ -312,13 +312,13 @@ fn a_banks_plugin_voices() {
     let ids: Vec<(&str, Option<&[u8]>)> = v.iter().map(|v| (v.id.as_str(), v.state.as_deref())).collect();
     assert_eq!(ids, [("aumu a", None), ("aumu a", None), ("aumu b", Some(&[1u8, 2, 3][..]))]);
     for i in 0..10 {
-        b.memories[i] = button(vec![voice(&format!("aumu {i}"), None)]);
+        b.set(i, button(vec![voice(&format!("aumu {i}"), None)]));
     }
     assert_eq!(super::bank_plugin_voices(&b).len(), 10);
     let Some((s, dir)) = session("warm-cap", None) else { return };
     s.inner.lock().warm_plugins(super::bank_plugin_voices(&b));
     assert!(s.inner.lock().plugins.warm.entries.is_empty(), "unknown plugins are not loaded");
-    let dls: Vec<crate::session::PluginVoice> = (0..10).map(|_| crate::session::PluginVoice { id: DLS.into(), state: None }).collect();
+    let dls: Vec<crate::session::PluginVoice> = (0..10).map(|_| crate::session::PluginVoice { id: DLS.into(), state: None, preset: None }).collect();
     s.inner.lock().warm_plugins(dls);
     assert_eq!(s.inner.lock().plugins.warm.entries.len(), crate::session::plugins::pool::MAX_WARM, "bounded");
     let _ = std::fs::remove_dir_all(&dir);

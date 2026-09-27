@@ -5,7 +5,7 @@
 import type { AppCmd } from './api/types'
 
 export type AppAction = 'browser' | 'help' | 'escape'
-export type Binding = { cmd: AppCmd } | { app: AppAction }
+export type Binding = { cmd: AppCmd } | { app: AppAction } | { nav: string }
 
 const c = (cmd: AppCmd): Binding => ({ cmd })
 
@@ -37,6 +37,7 @@ export const BINDINGS: Record<string, Binding> = {
   h: c({ type: 'toggleStopAcmp' }),
   '|': c({ type: 'sectionReset' }),
   '~': c({ type: 'toggleRetrigger' }),
+  '%': c({ type: 'toggleAcmp' }),
   F: c({ type: 'toggleFade' }),
   '{': c({ type: 'stepRetriggerRate', delta: -1 }),
   '}': c({ type: 'stepRetriggerRate', delta: 1 }),
@@ -66,8 +67,10 @@ export const BINDINGS: Record<string, Binding> = {
   s: c({ type: 'reloadPartPlugin', part: null }),
   L: c({ type: 'stepHarmonyArpType', delta: 1 }),
   '*': c({ type: 'toggleArpHold' }),
-  // Registration Memory: Shift + the top letter row = buttons 1–10.
-  ...Object.fromEntries([...'QWERTYUIOP'].map((k, i) => [k, c({ type: 'pressRegist', index: i })])),
+  // Snapshots: Shift + Q–I = Snapshots 1–8 of the bank on view, O/P = snapshot bank −/+.
+  ...Object.fromEntries([...'QWERTYUI'].map((k, i) => [k, c({ type: 'pressSnapshot', slot: i })])),
+  O: c({ type: 'stepSnapshotBank', delta: -1 }),
+  P: c({ type: 'stepSnapshotBank', delta: 1 }),
   F5: c({ type: 'toggleRegistMemory' }),
   F6: c({ type: 'toggleFreeze' }),
   F7: c({ type: 'stepRegistSequence', delta: -1 }),
@@ -97,6 +100,8 @@ export const BINDINGS: Record<string, Binding> = {
   enter: { app: 'browser' },
   esc: { app: 'escape' },
   '?': { app: 'help' },
+  // The app bar's quick-nav strip (lib/nav.ts): Alt + a letter, by physical key.
+  ...Object.fromEntries([...'bsropemlchyt'].map((k) => [`alt+${k}`, { nav: `alt+${k}` }])),
 }
 
 const NAMED: Record<string, string> = {
@@ -105,7 +110,12 @@ const NAMED: Record<string, string> = {
 
 /** A key event in README notation, or null for keys we don't bind (with Ctrl/Alt/Cmd, say). */
 export function keyName(e: Pick<KeyboardEvent, 'key' | 'code' | 'shiftKey' | 'ctrlKey' | 'altKey' | 'metaKey'>): string | null {
-  if (e.ctrlKey || e.altKey || e.metaKey) return null
+  if (e.ctrlKey || e.metaKey) return null
+  // Alt by physical key: on a Mac, Alt+letter types a symbol.
+  if (e.altKey) {
+    const letter = /^Key([A-Z])$/.exec(e.code)
+    return letter && !e.shiftKey ? `alt+${letter[1].toLowerCase()}` : null
+  }
   if (NAMED[e.key]) return NAMED[e.key]
   // Shift+digit by physical key, so OTS works on any layout (`!` on US, `+` on Swiss …).
   const digit = /^Digit([1-4])$/.exec(e.code)

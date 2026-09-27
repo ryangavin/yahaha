@@ -30,6 +30,7 @@
   import Control from './Control.svelte'
   import FaderBank from './FaderBank.svelte'
   import HwPad from './HwPad.svelte'
+  import KnobStrip from './KnobStrip.svelte'
   import StatusDisplay from './StatusDisplay.svelte'
 
   const s = $derived(app.state)
@@ -121,6 +122,7 @@
       <Control {surface} id="play" legend="▶" shape="square" caption={surface.controls.find((c) => c.id === 'play')?.label} />
     </div>
   </div>
+  <KnobStrip />
 </section>
 
 <style>

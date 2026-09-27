@@ -21,6 +21,7 @@ mod chord;
 mod controllers;
 mod dynamics;
 mod harmony_arp;
+mod home;
 mod keyboard;
 mod fx;
 mod knobs;
@@ -51,6 +52,7 @@ pub use chord::*;
 pub use controllers::*;
 pub use dynamics::*;
 pub use harmony_arp::*;
+pub use home::*;
 pub use keyboard::*;
 pub use fx::*;
 pub use knobs::*;
@@ -213,6 +215,8 @@ impl From<Button> for AppCmd {
             Button::Fade => TransportCmd::ToggleFade.into(),
             Button::SectionReset => TransportCmd::SectionReset.into(),
             Button::Retrigger => TransportCmd::ToggleRetrigger.into(),
+            Button::Acmp => TransportCmd::ToggleAcmp.into(),
+            Button::SetAcmp(on) => TransportCmd::SetAcmp { on }.into(),
         }
     }
 }
@@ -248,7 +252,8 @@ impl From<Action> for AppCmd {
             Action::ToggleFaderPage => MixerCmd::ToggleFaderPage.into(),
             Action::Style(d) => LibraryCmd::StepStyle { delta: d }.into(),
             Action::RetriggerRate(d) => StyleSettingsCmd::StepRetriggerRate { delta: d }.into(),
-            Action::Regist(i) => RegistrationCmd::PressRegist { index: i }.into(),
+            Action::Regist(i) => RegistrationCmd::PressSnapshot { slot: i }.into(),
+            Action::SnapshotBank(d) => RegistrationCmd::StepSnapshotBank { delta: d }.into(),
             Action::RegistMemory => RegistrationCmd::ToggleRegistMemory.into(),
             Action::RegistFreeze => RegistrationCmd::ToggleFreeze.into(),
             Action::RegistBank(d) => RegistrationCmd::StepRegistBank { delta: d }.into(),
@@ -380,6 +385,9 @@ pub struct AppState {
     /// The effect bus's Reverb, Chorus and Variation blocks (#204).
     #[serde(default)]
     pub effects: EffectsState,
+    /// What the Home screen shows (read-only, derived from the rest).
+    #[serde(default)]
+    pub home: HomeState,
 }
 
 // ---------------------------------------------------------------------------

@@ -37,6 +37,8 @@
     "stopAcmp": false,
     "section": "Main A",
     "queued": null,
+    "landing": null,
+    "acmp": true,
     "pendingIntro": null,
     "main": 0,
     "bar": 1,
@@ -413,6 +415,9 @@
   ],
   "mixer": {
     "faderPage": "panel",
+    "faderLayer": "volume",
+    "sendWaiting": 0,
+    "styleSendWaiting": 0,
     "styleParts": [
       {
         "name": "Rhythm 1",
@@ -428,7 +433,11 @@
           "program": 57,
           "kit": true,
           "label": "drum kit 127/0/58"
-        }
+        },
+        "reverb": 40,
+        "chorus": 0,
+        "variation": 0,
+        "sendsSet": []
       },
       {
         "name": "Rhythm 2",
@@ -444,7 +453,11 @@
           "program": 56,
           "kit": true,
           "label": "drum kit 127/0/57"
-        }
+        },
+        "reverb": 40,
+        "chorus": 0,
+        "variation": 0,
+        "sendsSet": []
       },
       {
         "name": "Bass",
@@ -460,7 +473,11 @@
           "program": 87,
           "kit": false,
           "label": "≈ Finger Bass  [Yamaha 104/18/88]"
-        }
+        },
+        "reverb": 40,
+        "chorus": 0,
+        "variation": 0,
+        "sendsSet": []
       },
       {
         "name": "Chord 1",
@@ -476,7 +493,11 @@
           "program": 18,
           "kit": false,
           "label": "≈ Rock Organ  [Yamaha 0/117/19]"
-        }
+        },
+        "reverb": 40,
+        "chorus": 0,
+        "variation": 0,
+        "sendsSet": []
       },
       {
         "name": "Chord 2",
@@ -486,7 +507,11 @@
         "volume": 100,
         "waiting": false,
         "fader": null,
-        "voice": null
+        "voice": null,
+        "reverb": 40,
+        "chorus": 0,
+        "variation": 0,
+        "sendsSet": []
       },
       {
         "name": "Pad",
@@ -502,7 +527,11 @@
           "program": 89,
           "kit": false,
           "label": "≈ Warm Pad  [Yamaha 0/115/90]"
-        }
+        },
+        "reverb": 40,
+        "chorus": 0,
+        "variation": 0,
+        "sendsSet": []
       },
       {
         "name": "Phrase 1",
@@ -518,7 +547,11 @@
           "program": 7,
           "kit": false,
           "label": "≈ Clavinet  [Yamaha 0/113/8]"
-        }
+        },
+        "reverb": 40,
+        "chorus": 0,
+        "variation": 0,
+        "sendsSet": []
       },
       {
         "name": "Phrase 2",
@@ -534,7 +567,11 @@
           "program": 80,
           "kit": false,
           "label": "≈ Square Lead  [Yamaha 104/24/81]"
-        }
+        },
+        "reverb": 40,
+        "chorus": 0,
+        "variation": 0,
+        "sendsSet": []
       }
     ],
     "master": null,
@@ -1492,7 +1529,10 @@
     "fadeOutMs": 5000,
     "fadeHoldMs": 2000,
     "sectionReset": true,
-    "retriggerRate": 8
+    "retriggerRate": 8,
+    "swing": 0,
+    "swingGrid": 8,
+    "sectionTempo": true
   },
   "registration": {
     "bank": {
@@ -1575,28 +1615,12 @@
         "style": null,
         "tempo": null,
         "voices": []
-      },
-      {
-        "index": 8,
-        "stored": false,
-        "name": "",
-        "groups": [],
-        "style": null,
-        "tempo": null,
-        "voices": []
-      },
-      {
-        "index": 9,
-        "stored": false,
-        "name": "",
-        "groups": [],
-        "style": null,
-        "tempo": null,
-        "voices": []
       }
     ],
     "selected": null,
     "memory": false,
+    "snapshotBank": 0,
+    "snapshotBanks": 1,
     "memorizeGroups": [
       "style",
       "voice",
@@ -2326,6 +2350,29 @@
         "styleEffect": null,
         "followStyle": true
       }
-    ]
+    ],
+    "inserts": [
+      {
+        "part": 3,
+        "partName": "Chord 1",
+        "name": "British Combo Classic",
+        "effect": "distortion"
+      }
+    ],
+    "insertsOn": true
+  },
+  "home": {
+    "mains": [],
+    "progress": {
+      "running": false,
+      "bar": 1,
+      "beat": 1,
+      "bars": null,
+      "beatsPerBar": 4,
+      "fraction": 0.0
+    },
+    "snapshot": null,
+    "ots": null,
+    "bandSends": []
   }
 }

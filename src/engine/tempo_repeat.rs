@@ -46,6 +46,7 @@ impl Engine {
         let d = TEMPO_STEP * dir.signum() as f64;
         self.rit_tempo(d);
         self.set_bpm_internal(self.bpm + d, now);
+        self.section_tempo_retempo();
     }
 
     /// A tempo button went down (`dir` −1 or +1: one step now, then repeating while it is
@@ -86,7 +87,10 @@ impl Engine {
     /// ritardando slows from it.
     pub(super) fn reset_tempo(&mut self, now: u64) {
         self.features.tempo_repeat = TempoRepeat::default();
-        self.set_bpm_internal(self.style.bpm, now);
+        // Inside a section with written tempo changes, the style's tempo is what they scale.
+        let ratio = if self.features.section_tempo.active { self.bpm / self.section_tempo_base().unwrap_or(self.bpm) } else { 1.0 };
+        self.set_bpm_internal(self.style.bpm * ratio, now);
+        self.section_tempo_retempo();
         self.rit_retempo(now);
     }
 }

@@ -36,6 +36,7 @@ mod display;
 mod dynamics;
 mod fx;
 mod harmony_arp;
+mod home;
 mod keyboard;
 mod knobs;
 mod leds;
@@ -66,7 +67,7 @@ mod transport;
 
 pub use chart::chart_song;
 pub use library::library_entry;
-pub use plugins::PluginVoice;
+pub use plugins::{PluginVoice, VoicePreset};
 pub use preview::AUDITION_CHORDS;
 pub use settings::choose_keys;
 
@@ -115,7 +116,7 @@ pub struct Options {
     pub palette_leds: bool,
     /// 1-based left output channel for the synth (None = auto).
     pub audio_out: Option<u8>,
-    /// The synth's buffer size in frames, 64, 128 or 256 (None: the one saved by
+    /// The synth's buffer size in frames, 64, 128, 256, 512 or 1024 (None: the one saved by
     /// `SetAudioBuffer`, else 64).
     pub audio_buffer: Option<u32>,
     /// Chord fingering type at startup.
@@ -485,7 +486,7 @@ impl Control {
             fingering: Fingering::from_u8(shared.fingering.load(Relaxed)),
             split: shared.split.load(Relaxed),
         };
-        AppState {
+        let mut st = AppState {
             version: 0,
             style: self.style_state(),
             transport: self.transport_state(&v),
@@ -517,7 +518,10 @@ impl Control {
             dynamics: self.dynamics_state(),
             knobs: self.knobs_state(),
             effects: self.effects_state(),
-        }
+            home: Default::default(),
+        };
+        st.home = self.home_state(&st);
+        st
     }
 }
 
@@ -892,10 +896,12 @@ impl Session {
         let now = ctl.offline.as_ref().map_or_else(rt::now_ns, |o| o.now);
         let Some(sy) = &ctl.synth else { return Meters { at_ms: ns_to_ms(now), ..Meters::default() } };
         let (peaks, master, clips) = synth::take_meters(&sy.control);
+        let (rms, master_rms) = synth::take_rms(&sy.control);
         Meters {
             at_ms: ns_to_ms(now),
-            channels: synth::RACK_CHANNELS.iter().map(|&c| ChannelMeter { channel: c + 1, peak: peaks[c as usize] }).collect(),
+            channels: synth::METER_CHANNELS.iter().map(|&c| ChannelMeter { channel: c + 1, peak: peaks[c as usize], rms: rms[c as usize] }).collect(),
             master,
+            master_rms,
             clips,
         }
     }

@@ -322,7 +322,7 @@ Per buffer:
 
 ```rust
 // src/session/plugins.rs, `impl Control` (the Session's control side), pub(crate):
-pub struct PluginVoice { pub id: String, pub state: Option<Vec<u8>> } // yahaha::session::PluginVoice
+pub struct PluginVoice { pub id: String, pub state: Option<Vec<u8>>, pub preset: Option<VoicePreset> } // yahaha::session::PluginVoice
 ctl.assign_channel_plugin(ch, PluginVoice { id, state }) -> Result<(), String> // async load
 ctl.clear_channel_plugin(ch)                   // back to the SoundFont (5 ms fade); forgets it
 ctl.route_channel_sound_font(ch, font)         // Source::SoundFont(font), clearing a plugin
@@ -355,6 +355,39 @@ ctl.channel_plugin(ch) -> Option<api::PartPlugin> // loading | playing | failed 
 - The keyboard-part commands (`setPartPlugin`, `clearPartPlugin`) are thin wrappers that
   map a part to its channel. Style channels (#103's program map) call the same functions
   with channels 8-15.
+
+### AU presets (`src/plugin/presets.rs`)
+
+A plugin is not one sound: Kontakt can be a piano on Right 1 and strings on Right 2. The
+Sound Browser lists each plugin's AU presets under it, as Logic and MainStage show them,
+and each preset is a sound of its own.
+
+- **Listing.** Factory presets come from `kAudioUnitProperty_FactoryPresets` on an
+  instance: every load reads them once per plugin version (a property read on the load
+  thread) and `PluginHost::list_presets` loads an instance for a plugin never loaded yet
+  (`listPluginPresets`, a `plugin-presets` thread). User presets are the `.aupreset` files
+  in `~/Library/Audio/Presets/<Manufacturer>/<Plugin>/` and `/Library/Audio/Presets/...`
+  (sub-folders too; a file naming another unit is skipped), listed at each scan. Both are
+  kept in the scan cache (`PluginInfo::factory_presets` / `user_presets`, optional fields,
+  so older caches still read); a rescan lists them again.
+- **Loading.** `PluginVoice::preset` names the preset (`f:<number>` or `u:<path>`, and its
+  name). A factory preset loads by number (`LoadConfig::factory_preset`,
+  `kAudioUnitProperty_PresentPreset`) while the voice has no state; once it plays, its
+  state is read (as the autosave does) so the part, a Registration and plugin-parts.json
+  keep the sound itself. An `.aupreset` is the unit's ClassInfo dictionary, so it is read
+  on the control side and restored as the voice's state. Each part has its own instance
+  through the usual load, rack swap and 5 ms crossfade; nothing new touches the audio
+  thread.
+- **Saving.** `savePartAsPluginPreset` reads the playing instance's ClassInfo on a thread
+  of its own and writes it unchanged, as an XML property list, to
+  `~/Library/Audio/Presets/<Manufacturer>/<Plugin>/<name>.aupreset` (Logic reads it). The
+  category the player picks is kept in `sound-settings.json` (`soundCategories`, by
+  catalog id); the file is not changed. This is the Kontakt workflow: Kontakt has almost
+  no factory presets (its instruments are `.nki` files), so open its editor, load an
+  instrument, then Save as preset.
+- **Categories.** A preset's is the player's choice, else a guess from its name and
+  folder ("Pianos/Upright": Piano), else its plugin's.
+- **Old files.** plugin-parts.json without `preset` loads as before.
 
 ## Phase 2: wiring plan
 

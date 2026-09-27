@@ -10,17 +10,19 @@
 //! loaded for `PLUGIN_MAX_BLOCK` frames, more than any buffer offered here, and the
 //! sample rate does not change, so the instances need no reload.
 
-use super::AudioCore;
+use super::{AudioCore, SynthControl};
 use anyhow::{anyhow, Result};
 use cpal::traits::{DeviceTrait, StreamTrait};
 use std::ptr::null_mut;
-use std::sync::atomic::{AtomicPtr, Ordering::{Acquire, Release}};
+use std::sync::atomic::{AtomicPtr, Ordering::{Acquire, Relaxed, Release}};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 /// The buffer sizes `SetAudioBuffer` offers, in frames. 64 is the default: 1.3 ms at
-/// 48 kHz. Heavy plugins may need 128 or 256.
-pub const BUFFER_CHOICES: [u32; 3] = [64, 128, 256];
+/// 48 kHz. Heavy plugins, or a busy machine, may need 128 or 256; 512 (10.7 ms) and 1024
+/// (21.3 ms) are for when nothing else stops the dropouts, at a latency you will feel.
+/// All fit `PLUGIN_MAX_BLOCK` and the callback's 8192-frame scratch buffers.
+pub const BUFFER_CHOICES: [u32; 5] = [64, 128, 256, 512, 1024];
 
 /// The buffer size a stream asks for when nothing else is chosen.
 pub const DEFAULT_BUFFER: u32 = 64;
@@ -73,6 +75,8 @@ pub(super) struct Output {
     slot: Arc<CoreSlot>,
     /// The buffer size asked for (None: the device default).
     pub(super) buffer: Option<u32>,
+    /// Where the callback counts dropouts.
+    health: Arc<SynthControl>,
 }
 
 /// The buffer size to ask a device for: `want`, within the device's range.
@@ -83,11 +87,11 @@ pub(super) fn fit(range: Option<(u32, u32)>, want: u32) -> Option<u32> {
 impl Output {
     /// Open `device` at `sample_rate` with `channels` outputs and play `core`, asking for
     /// `want` frames per buffer.
-    pub(super) fn open(device: cpal::Device, channels: u16, sample_rate: u32, range: Option<(u32, u32)>, core: AudioCore, want: u32) -> Result<Output> {
+    pub(super) fn open(device: cpal::Device, channels: u16, sample_rate: u32, range: Option<(u32, u32)>, core: AudioCore, want: u32, health: Arc<SynthControl>) -> Result<Output> {
         let slot = CoreSlot::new(Box::new(core));
         let buffer = fit(range, want);
-        let stream = play(&device, channels, sample_rate, buffer, slot.clone())?;
-        Ok(Output { device, channels, sample_rate, range, stream, slot, buffer })
+        let stream = play(&device, channels, sample_rate, buffer, slot.clone(), health.clone())?;
+        Ok(Output { device, channels, sample_rate, range, stream, slot, buffer, health })
     }
 
     /// Reopen the stream with `frames` per buffer (within the device's range); the core
@@ -105,14 +109,14 @@ impl Output {
         let _ = self.stream.pause();
         let slot = CoreSlot::new(core);
         let old = std::mem::replace(&mut self.slot, slot.clone());
-        let (stream, buffer, err) = match play(&self.device, self.channels, self.sample_rate, want, slot.clone()) {
+        let (stream, buffer, err) = match play(&self.device, self.channels, self.sample_rate, want, slot.clone(), self.health.clone()) {
             Ok(s) => (Some(s), want, None),
             Err(e) => (None, self.buffer, Some(e)),
         };
         let stream = match stream {
             Some(s) => s,
             // Back to the size that worked.
-            None => play(&self.device, self.channels, self.sample_rate, self.buffer, slot)?,
+            None => play(&self.device, self.channels, self.sample_rate, self.buffer, slot, self.health.clone())?,
         };
         drop(std::mem::replace(&mut self.stream, stream));
         drop(old);
@@ -121,6 +125,31 @@ impl Output {
             Some(e) => Err(e),
             None => Ok(buffer),
         }
+    }
+}
+
+/// How long a buffer lasts, in host clock ticks, to tell a late render with no division
+/// on the audio thread.
+#[derive(Clone, Copy)]
+struct Deadline {
+    /// Host ticks per frame, 16.16 fixed point.
+    ticks_per_frame: u64,
+    channels: usize,
+}
+
+impl Deadline {
+    fn new(sample_rate: u32, channels: u16) -> Deadline {
+        let per_frame_ns = 1e9 / sample_rate.max(1) as f64;
+        let ticks = crate::rt::ns_to_host(1_000_000_000) as f64 / 1e9 * per_frame_ns;
+        Deadline { ticks_per_frame: (ticks * 65536.0) as u64, channels: channels.max(1) as usize }
+    }
+
+    /// A render of `samples` interleaved samples that took `ticks` missed the buffer's
+    /// deadline.
+    #[inline]
+    fn missed(&self, samples: usize, ticks: u64) -> bool {
+        let frames = (samples / self.channels) as u64;
+        frames > 0 && ticks > (frames * self.ticks_per_frame) >> 16
     }
 }
 
@@ -138,21 +167,49 @@ fn reclaim(slot: &CoreSlot, wait: Duration) -> Option<Box<AudioCore>> {
     }
 }
 
-/// Build and start a stream whose callback renders the core in `slot`.
-fn play(device: &cpal::Device, channels: u16, sample_rate: u32, buffer: Option<u32>, slot: Arc<CoreSlot>) -> Result<cpal::Stream> {
+/// Build and start a stream whose callback renders the core in `slot`, counting dropouts
+/// in `health`: the device's reports (`xruns`) and the buffers the callback itself took
+/// longer to render than they last (`late`).
+fn play(device: &cpal::Device, channels: u16, sample_rate: u32, buffer: Option<u32>, slot: Arc<CoreSlot>, health: Arc<SynthControl>) -> Result<cpal::Stream> {
     let cfg = cpal::StreamConfig {
         channels,
         sample_rate,
         buffer_size: buffer.map(cpal::BufferSize::Fixed).unwrap_or(cpal::BufferSize::Default),
     };
-    let callback = move |out: &mut [f32], _: &cpal::OutputCallbackInfo| match slot.take() {
-        Some(mut core) => {
-            core.process(out);
-            slot.put(core);
+    let late = health.clone();
+    let deadline = Deadline::new(sample_rate, channels);
+    let callback = move |out: &mut [f32], _: &cpal::OutputCallbackInfo| {
+        let t0 = crate::rt::host_now();
+        match slot.take() {
+            Some(mut core) => {
+                core.process(out);
+                slot.put(core);
+            }
+            None => out.fill(0.0),
         }
-        None => out.fill(0.0),
+        let dt = crate::rt::host_now().wrapping_sub(t0);
+        if deadline.missed(out.len(), dt) {
+            late.late.fetch_add(1, Relaxed);
+        }
+        // The performance view (`perf`): the whole callback against its deadline.
+        let perf = &crate::perf::PERF;
+        if perf.on() {
+            perf.callback.record(crate::rt::host_to_ns(dt));
+            perf.frames.store((out.len() / deadline.channels) as u32, Relaxed);
+        }
     };
-    let stream = device.build_output_stream(cfg, callback, |e| eprintln!("audio error: {e}"), None)?;
+    crate::perf::PERF.sample_rate.store(sample_rate, Relaxed);
+    // CoreAudio reports an overload from its own thread (cpal says the real-time one):
+    // count it, never print there. A burst of them used to flood the console with "audio
+    // error: A buffer underrun or overrun occurred."; the control side now says so once
+    // in a while (session/settings.rs) and the app offers a larger buffer.
+    let on_error = move |e: cpal::Error| match e.kind() {
+        cpal::ErrorKind::Xrun => {
+            health.xruns.fetch_add(1, Relaxed);
+        }
+        _ => eprintln!("audio error: {e}"),
+    };
+    let stream = device.build_output_stream(cfg, callback, on_error, None)?;
     stream.play()?;
     Ok(stream)
 }
@@ -160,6 +217,19 @@ fn play(device: &cpal::Device, channels: u16, sample_rate: u32, buffer: Option<u
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A render is late when it takes longer than its buffer lasts: 64 frames at 48 kHz
+    /// is 1333 µs, whatever the channel count.
+    #[test]
+    fn a_render_longer_than_its_buffer_is_late() {
+        let d = Deadline::new(48_000, 4);
+        let ticks = |us: u64| crate::rt::ns_to_host(us * 1000);
+        assert!(!d.missed(64 * 4, ticks(1300)));
+        assert!(d.missed(64 * 4, ticks(1370)));
+        assert!(!d.missed(256 * 4, ticks(5000)));
+        assert!(d.missed(256 * 4, ticks(5400)));
+        assert!(!d.missed(0, ticks(10_000)), "an empty buffer has no deadline");
+    }
 
     #[test]
     fn buffer_fits_the_device_range() {

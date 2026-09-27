@@ -29,6 +29,16 @@ pub enum StyleSettingsCmd {
     SetRetriggerRate { rate: u8 },
     /// Style Retrigger length `delta` steps along 1, 2, 4, 8, 16, 32 (positive: shorter).
     StepRetriggerRate { delta: i8 },
+    /// Swing, 0-100 % (0: as written; 100: straight off-beats on the triplet). Each style
+    /// load sets it back to 0.
+    SetSwing { amount: u8 },
+    /// Swing moved by `delta` %, clamped to 0-100.
+    StepSwing { delta: i8 },
+    /// The swing grid: 8 (off-beat 8ths) or 16 (off-beat 16ths).
+    SetSwingGrid { grid: u8 },
+    /// Play the tempo changes written inside Intros and Endings (their ritardandos, #243),
+    /// relative to the tempo playing. Default on.
+    SetSectionTempo { on: bool },
 }
 
 /// The Style settings in use.
@@ -45,6 +55,17 @@ pub struct StyleSettingsState {
     pub section_reset: bool,
     /// 1, 2, 4, 8, 16 or 32.
     pub retrigger_rate: u8,
+    /// Swing, 0-100 %.
+    pub swing: u8,
+    /// The swing grid, 8 or 16.
+    pub swing_grid: u8,
+    /// The tempo changes written inside sections play (#243).
+    #[serde(default = "section_tempo_on")]
+    pub section_tempo: bool,
+}
+
+fn section_tempo_on() -> bool {
+    true
 }
 
 impl Default for StyleSettingsState {
@@ -64,6 +85,9 @@ impl From<StyleSettings> for StyleSettingsState {
             fade_hold_ms: s.fade_hold_ms,
             section_reset: s.section_reset,
             retrigger_rate: s.retrigger_rate,
+            swing: s.swing,
+            swing_grid: s.swing_grid,
+            section_tempo: s.section_tempo,
         }
     }
 }
@@ -82,6 +106,10 @@ impl StyleSettingsCmd {
             StyleSettingsCmd::SetSectionReset { on } => s.section_reset = on,
             StyleSettingsCmd::SetRetriggerRate { rate } => s.retrigger_rate = rate,
             StyleSettingsCmd::StepRetriggerRate { delta } => s.retrigger_rate = StyleSettings::step_rate(s.retrigger_rate, delta),
+            StyleSettingsCmd::SetSwing { amount } => s.swing = amount,
+            StyleSettingsCmd::StepSwing { delta } => s.swing = (s.swing as i16 + delta as i16).clamp(0, 100) as u8,
+            StyleSettingsCmd::SetSwingGrid { grid } => s.swing_grid = grid,
+            StyleSettingsCmd::SetSectionTempo { on } => s.section_tempo = on,
         }
         s.clamped()
     }

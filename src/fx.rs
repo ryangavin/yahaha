@@ -16,6 +16,9 @@
 //! Variation, a stereo delay synced to the style tempo ([`Delay`]: 1/8, dotted 1/8, 1/4,
 //! ping-pong). The control side keeps `FxControl::tempo` at the style's tempo.
 //!
+//! A Style part's own send (#268, `FxControl::part_send`, the mixer's per-part Rev/Cho/Dly)
+//! replaces its style's CC for that block and is not scaled.
+//!
 //! The band send scales (#236): every Style part's (channels 9-16) send to a block is
 //! its CC times that block's scale (`FxControl::band_send`, 100% = as the style wrote
 //! it). By default the reverb is as written and the chorus and delay are off; the keyboard
@@ -27,6 +30,11 @@
 //! The Multi Pad send scales (#267) do the same for the pads (channels 5-8,
 //! `FxControl::pad_send`): by default the pads' reverb as written, and no chorus or delay.
 //!
+//! Insertion effects (#269, [`insert`]): a style's XG Insertion Effect on one of its parts
+//! (a distortion or amp simulator, a compressor, a wah, a tremolo, a rotary speaker) runs
+//! on that part's own signal inside the band's synthesizer, before its sends and the mix
+//! ([`BandInserts`], `rustysynth::ChannelInsert`).
+//!
 //! [`FxBus`] allocates everything in [`FxBus::new`]; [`FxBus::process_add`] never
 //! allocates, locks or blocks (`tests/synth_no_alloc.rs`). A block with no input whose
 //! output has died away is skipped, so an idle bus costs next to nothing.
@@ -35,6 +43,7 @@ use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU16, AtomicU32, Ordering::Re
 
 mod chorus;
 mod delay;
+pub mod insert;
 mod line;
 mod params;
 mod reverb;
@@ -42,6 +51,7 @@ pub mod xg;
 
 pub use chorus::{Chorus, ChorusType};
 pub use delay::{Delay, DelayType, NOTES};
+pub use insert::{BandInserts, Insert, InsertKind, InsertSettings};
 pub use params::{PARAMS, Param, Spec};
 pub use reverb::{Reverb, ReverbType};
 
@@ -72,6 +82,9 @@ pub const PAD_CHANNELS: std::ops::Range<usize> = 4..8;
 /// Each block's Multi Pad send scale before anything sets it (#267): as the band's, the
 /// pads' reverb as written, but no chorus and no delay.
 pub const PAD_SEND_DEFAULT: [u8; BUSES] = BAND_SEND_DEFAULT;
+
+/// `FxControl::part_send`: the Style part's send follows the style (#268).
+pub const SEND_STYLE: u8 = 255;
 
 /// A band send scale that leaves the Style's sends as it wrote them (100%).
 pub const BAND_SEND_UNITY: u8 = 100;
@@ -122,8 +135,16 @@ pub struct FxControl {
     /// Each block's Multi Pad send scale (#267): every pad's (channels 5-8) send to the
     /// block times this, 0-127 % (100 = as the pad wrote it). By bus.
     pub pad_send: [AtomicU8; BUSES],
+    /// Each Style part's own send to each block (#268, `[part][bus]`), 0-127, or
+    /// `SEND_STYLE`: the style's CC as the band send scales it. An own send is the part's
+    /// send as it plays: the band send scale doesn't touch it.
+    pub part_send: [[AtomicU8; BUSES]; 8],
     /// Each effect parameter (#236, `Param::index`), in its own unit (`Param::spec`).
     pub params: [AtomicU16; PARAMS],
+    /// Each Style part's insertion effect (#269, `InsertKind as u8`, 0 = none) and its
+    /// amount (0-127), from the style's XG Insertion SysEx.
+    pub insert: [AtomicU8; 8],
+    pub insert_amount: [AtomicU8; 8],
     /// The style tempo the delay follows: BPM x 100.
     pub tempo: AtomicU32,
     /// The SoundFont's own reverb and chorus instead of the bus (the sound before #204).
@@ -141,7 +162,10 @@ impl FxControl {
             variation_return: AtomicU8::new(RETURN_UNITY),
             band_send: BAND_SEND_DEFAULT.map(AtomicU8::new),
             pad_send: PAD_SEND_DEFAULT.map(AtomicU8::new),
+            part_send: std::array::from_fn(|_| std::array::from_fn(|_| AtomicU8::new(SEND_STYLE))),
             params: default_params().map(AtomicU16::new),
+            insert: std::array::from_fn(|_| AtomicU8::new(0)),
+            insert_amount: std::array::from_fn(|_| AtomicU8::new(64)),
             tempo: AtomicU32::new(12_000),
             legacy: AtomicBool::new(false),
         }
@@ -258,7 +282,11 @@ impl FxBus {
         // there on a type change): the delay plays its parameters.
         self.delay.set(delay::Settings::from_params(DELAY_PARAMS.map(|p| p.clamp(ctl.params[p.index()].load(Relaxed)))), bpm);
         let returns = [ctl.reverb_return.load(Relaxed), ctl.chorus_return.load(Relaxed), ctl.variation_return.load(Relaxed)];
+        // The performance view (`perf`): each block's time and output level.
+        let perf = &crate::perf::PERF;
+        let prof = perf.on();
         for (b, block) in self.blocks.iter_mut().enumerate() {
+            let t0 = if prof { crate::rt::host_now() } else { 0 };
             let (il, ir) = bus(b);
             let input = il.iter().chain(ir).any(|x| *x != 0.0);
             let target = return_gain(returns[b]);
@@ -285,6 +313,10 @@ impl FxBus {
             }
             block.quiet = if input || peak >= IDLE_LEVEL { 0 } else { block.quiet.saturating_add(n as u32) };
             block.idle = block.quiet > block.hold;
+            if prof {
+                perf.bus[b].add(crate::rt::host_to_ns(crate::rt::host_now().wrapping_sub(t0)));
+                crate::perf::Perf::peak(&perf.bus_peak[b], peak * block.gain);
+            }
         }
     }
 }

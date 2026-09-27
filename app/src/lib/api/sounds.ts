@@ -2,7 +2,8 @@
 // instrument plugin and saved sound as one list for the Sound Browser. The list is fetched
 // (`session.sounds()`) whenever `state.sounds.revision` moves; it is not in the state.
 //
-// Entry ids: `sf:<file>:<bank>:<program>`, `au:<component id>`, `saved:<patch id>`.
+// Entry ids: `sf:<file>:<bank>:<program>`, `au:<component id>`, `saved:<patch id>`, and a
+// plugin's preset `au:<component id>#<key>` (`f:<number>` factory, `u:<path>` .aupreset).
 
 import type { PatchCategory } from './sound-library'
 
@@ -14,8 +15,12 @@ export type SoundsCmd =
   | { type: 'stopSoundAudition' }
   /** Keyboard part `part` (0-3) plays the sound, by the route its source has. */
   | { type: 'assignSound'; part: number; id: string }
-  /** A plugin's or a saved sound's category (a preset's is its GM family). */
+  /** A plugin's, plugin preset's or saved sound's category (a SoundFont preset's is its GM family). */
   | { type: 'setSoundCategory'; id: string; category: PatchCategory }
+  /** List a plugin's (`au:<id>`) presets: the browser expanded it. */
+  | { type: 'listPluginPresets'; id: string }
+  /** Save the part's plugin as it plays now as an .aupreset (Logic reads it too), filed under `category`. */
+  | { type: 'savePartAsPluginPreset'; part: number; name: string; category: PatchCategory; overwrite?: boolean }
 
 export type SoundSource = 'soundFont' | 'plugin' | 'saved'
 
@@ -28,8 +33,18 @@ export interface SoundEntry {
   detail: string
   favourite: boolean
   recent: boolean
-  /** Plugins only. */
-  plugin: { format: string; lastError: string | null } | null
+  /** Plugins (and plugin presets) only. `presets`: how many it has, null while its factory
+   * presets were never listed (listPluginPresets). */
+  plugin: { format: string; lastError: string | null; presets?: number | null } | null
+  /** A plugin preset's plugin (`au:<id>`): listed under it. */
+  parent?: string | null
+}
+
+/** A plugin's presets, for the catalog (as `api::PluginPresetList`). */
+export interface PluginPresetList {
+  plugin: string
+  listed: boolean
+  presets: { key: string; name: string; folder: string | null }[]
 }
 
 export interface SoundCatalog {
@@ -48,6 +63,8 @@ export interface SoundsState {
   scanning: boolean
   /** The id being auditioned. */
   auditioning: string | null
+  /** Plugins (`au:<id>`) whose presets are being listed. */
+  listingPresets?: string[]
 }
 
 export const MAX_RECENTS = 20
@@ -64,9 +81,27 @@ export function parsePresetId(id: string): { file: string; bank: number; program
   return program < 128 ? { file: m[1], bank: Number(m[2]), program } : null
 }
 
+/** A plugin preset's catalog id. */
+export function pluginPresetId(component: string, key: string): string {
+  return `au:${component}#${key}`
+}
+
+/** A plugin entry id's component id and preset key, as `api::parse_plugin_id`. */
+export function parsePluginId(id: string): { plugin: string; key: string | null } | null {
+  if (!id.startsWith('au:')) return null
+  const rest = id.slice(3)
+  const i = rest.indexOf('#')
+  return i < 0 ? { plugin: rest, key: null } : { plugin: rest.slice(0, i), key: rest.slice(i + 1) }
+}
+
 /** A plugin's likely category from its name and maker, as `api::plugin_category`. */
 export function pluginCategory(name: string, maker: string): PatchCategory {
-  const n = `${name} ${maker}`.toLowerCase()
+  return guessCategory(`${name} ${maker}`) ?? 'synthLead'
+}
+
+/** The category words in `text` suggest, if any, as `api::guess_category`. */
+export function guessCategory(text: string): PatchCategory | null {
+  const n = text.toLowerCase()
   const has = (words: string[]) => words.some((w) => n.includes(w))
   if (has(['rhodes', 'wurli', 'e.piano', 'epiano', 'electric piano', 'e-piano', 'ep-', 'clav'])) return 'ePiano'
   if (has(['piano', 'grand', 'keyscape', 'pianoteq'])) return 'piano'
@@ -79,5 +114,6 @@ export function pluginCategory(name: string, maker: string): PatchCategory {
   if (has(['sax', 'flute', 'clarinet', 'oboe', 'wind'])) return 'saxWoodwind'
   if (has(['choir', 'vocal', 'voice', 'vox'])) return 'choir'
   if (has(['pad', 'ambient', 'atmos'])) return 'pad'
-  return 'synthLead'
+  if (has(['synth', 'lead'])) return 'synthLead'
+  return null
 }

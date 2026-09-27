@@ -79,6 +79,15 @@ fn the_audio_callback_does_not_allocate() {
     for _ in 0..10 {
         assert_eq!(run(&mut core, &mut feed, &[]), none, "steady");
     }
+    // The meters (peak and RMS per channel and the master) are measured in the callback,
+    // into atomics: with a SoundFont, the notes on channels 1 and 11 show.
+    if font.is_some() {
+        let (peaks, master, _) = synth::take_meters(&ctl);
+        let (rms, master_rms) = synth::take_rms(&ctl);
+        assert!(peaks[0] > 0.0 && rms[0] > 0.0 && rms[0] <= peaks[0], "Right 1: peak {} rms {}", peaks[0], rms[0]);
+        assert!(rms[10] > 0.0, "the Bass part's RMS");
+        assert!(master[0] > 0.0 && master_rms[0] > 0.0 && master_rms[0] <= master[0]);
+    }
     // The effect bus (#204): sends on, every reverb, chorus and delay type, tempo changes, the returns, the
     // SoundFont's own effects instead (legacy) and back, and tails ringing out.
     assert_eq!(run(&mut core, &mut feed, &[[0xB0, 91, 100], [0xB0, 93, 80], [0xBA, 91, 127], [0xBA, 94, 60], [0x90, 64, 100]]), none, "sends");
@@ -123,6 +132,12 @@ fn the_audio_callback_does_not_allocate() {
             assert_eq!(run(&mut core, &mut feed, &[]), none, "band send scales");
         }
     }
+    // The Style parts' own sends (#268) set, changed and handed back to the style.
+    for (p, b, v) in [(2usize, 0usize, 100u8), (2, 2, 127), (7, 1, 0), (2, 0, 255), (2, 2, 255), (7, 1, 255)] {
+        ctl.fx.part_send[p][b].store(v, Ordering::Relaxed);
+        assert_eq!(run(&mut core, &mut feed, &[[0xBA, 91, 60], [0x9A, 50, 90]]), none, "own sends");
+    }
+    assert_eq!(run(&mut core, &mut feed, &[[0x8A, 50, 0]]), none, "own sends, note off");
     // The Multi Pad send scales (#267) gliding up and back, a pad sending to every block.
     assert_eq!(run(&mut core, &mut feed, &[[0xB5, 91, 100], [0xB5, 93, 100], [0xB5, 94, 100], [0x95, 64, 100]]), none, "a pad's sends");
     for (b, level) in [(1, 100u8), (2, 127), (0, 50), (1, 0), (2, 0), (0, 100)] {
@@ -132,6 +147,19 @@ fn the_audio_callback_does_not_allocate() {
         }
     }
     assert_eq!(run(&mut core, &mut feed, &[[0x85, 64, 0]]), none, "a pad's note off");
+    // The Style parts' insertion effects (#269): every kind on two parts playing, a change
+    // (it fades), and off again.
+    assert_eq!(run(&mut core, &mut feed, &[[0x9B, 60, 100], [0x9C, 64, 100]]), none, "notes for the inserts");
+    for kind in [1u8, 2, 3, 4, 5, 0] {
+        ctl.fx.insert[3].store(kind, Ordering::Relaxed);
+        ctl.fx.insert[4].store((kind + 2) % 6, Ordering::Relaxed);
+        ctl.fx.insert_amount[3].store(kind * 25, Ordering::Relaxed);
+        for _ in 0..3 {
+            assert_eq!(run(&mut core, &mut feed, &[]), none, "insertion effects");
+        }
+    }
+    ctl.fx.insert[4].store(0, Ordering::Relaxed);
+    assert_eq!(run(&mut core, &mut feed, &[[0x8B, 60, 0], [0x8C, 64, 0]]), none, "inserts off");
     ctl.fx.legacy.store(true, Ordering::Relaxed);
     assert_eq!(run(&mut core, &mut feed, &[[0x90, 67, 100]]), none, "the SoundFont's own effects");
     ctl.fx.legacy.store(false, Ordering::Relaxed);
@@ -139,6 +167,20 @@ fn the_audio_callback_does_not_allocate() {
     for _ in 0..20 {
         assert_eq!(run(&mut core, &mut feed, &[]), none, "tails");
     }
+    // The performance view (`perf`, `--top`) collecting: per-stage, per-channel and
+    // per-effect timing, voices and levels, the rings' depths. The view's own reads (and
+    // their resets) run on its thread, outside `process`.
+    yahaha::perf::enable();
+    assert_eq!(run(&mut core, &mut feed, &[[0xB0, 91, 100], [0x90, 60, 100], [0x9A, 40, 100], [0x95, 64, 100]]), none, "profiling, notes");
+    for _ in 0..10 {
+        assert_eq!(run(&mut core, &mut feed, &[]), none, "profiling");
+    }
+    let snap = yahaha::perf::take(0.01);
+    if font.is_some() {
+        assert!(snap.voices > 0 && snap.stages[yahaha::perf::ST_BAND].0 > 0, "it measured: {snap:?}");
+        assert!(snap.channels[0].sum_ns > 0 && snap.channels[0].voices > 0, "Right 1's voices: {:?}", snap.channels[0]);
+    }
+    assert_eq!(run(&mut core, &mut feed, &[[0x80, 60, 0], [0x8A, 40, 0], [0x85, 64, 0]]), none, "profiling, note offs");
     // The style's XG Drum Setup (#239): drum messages, drum notes starting with their own
     // level, pitch, pan (random too), sends, filter and envelope, a program change resetting
     // the setup, and a system reset.
@@ -233,5 +275,43 @@ fn the_audio_callback_does_not_allocate() {
         }
         assert_eq!(core.plugin_channels(), 0);
         let _ = link.take_retired();
+    }
+}
+
+/// The meters on their own: every channel's peak and RMS, the Multi Pads' included, and
+/// the master's are measured in the callback without allocating, reading after reading
+/// (the app shell takes them at 30 Hz). Without a SoundFont the path still runs (silent).
+#[test]
+fn the_meters_do_not_allocate() {
+    let font = sound_font();
+    let rack = font.as_ref().map(|f| Rack::load(f, 48_000).unwrap());
+    let (mut feed, rx) = rtrb::RingBuffer::<synth::Msg>::new(256);
+    let ctl = Arc::new(SynthControl::new(0));
+    let (mut core, _swap, _link) = AudioCore::new(rack, vec![rx], Arc::new(Parts::new()), ctl.clone(), 48_000, 2);
+    let mut out = vec![0f32; 128];
+    // Right 1, a Multi Pad (ch 5) and the Bass part.
+    for m in [[0x90u8, 60, 100], [0x94, 64, 100], [0x9A, 40, 100]] {
+        feed.push(m).unwrap();
+    }
+    let (a, f) = (ALLOCS.load(Ordering::Relaxed), FREES.load(Ordering::Relaxed));
+    let mut seen = [0f32; 16];
+    let mut seen_rms = [0f32; 16];
+    for _ in 0..30 {
+        COUNT.with(|c| c.set(true));
+        core.process(&mut out);
+        COUNT.with(|c| c.set(false));
+        let (peaks, _, _) = synth::take_meters(&ctl);
+        let (rms, _) = synth::take_rms(&ctl);
+        for ch in 0..16 {
+            seen[ch] = seen[ch].max(peaks[ch]);
+            seen_rms[ch] = seen_rms[ch].max(rms[ch]);
+        }
+    }
+    assert_eq!((ALLOCS.load(Ordering::Relaxed) - a, FREES.load(Ordering::Relaxed) - f), (0, 0), "metering allocated");
+    if font.is_some() {
+        for ch in [0, 4, 10] {
+            assert!(seen[ch] > 0.0 && seen_rms[ch] > 0.0 && seen_rms[ch] <= seen[ch], "ch {}: peak {} rms {}", ch + 1, seen[ch], seen_rms[ch]);
+        }
+        assert_eq!(seen_rms[1], 0.0, "a silent channel reads 0");
     }
 }

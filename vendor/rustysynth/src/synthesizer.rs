@@ -20,6 +20,16 @@ use crate::soundfont_math::SoundFontMath;
 use crate::synthesizer_settings::SynthesizerSettings;
 use crate::voice_collection::VoiceCollection;
 
+/// yahaha: insertion effects on a synthesizer's channels (#269, `render_with_inserts`).
+pub trait ChannelInsert {
+    /// The channels (bit = channel) whose row runs through `process` before the mix.
+    fn mask(&self) -> u16;
+    /// Run channel `channel`'s block (its own mix, `left`/`right`) through its effect in
+    /// place. `level` is the channel's gain in that mix (volume x expression, squared, x
+    /// the master volume).
+    fn process(&mut self, channel: usize, left: &mut [f32], right: &mut [f32], level: f32);
+}
+
 /// An instance of the SoundFont synthesizer.
 #[derive(Debug)]
 #[non_exhaustive]
@@ -52,6 +62,9 @@ pub struct Synthesizer {
     channel_left: Vec<f32>,
     channel_right: Vec<f32>,
     channel_peaks: [f32; 16],
+    // yahaha: each channel's sum of squares (both sides) and frames since the last reset, for RMS.
+    channel_sq: [f32; 16],
+    channel_frames: u32,
     // yahaha: the send buses (yahaha's shared effects): each channel's gain into each bus
     // (`set_channel_sends`), and the block's buses (bus b, side s at (2 * b + s) *
     // block_size), filled from the channel rows above. `internal_effects` turns the
@@ -61,6 +74,9 @@ pub struct Synthesizer {
     send_used: bool,
     used_rows: u16,
     internal_effects: bool,
+    // yahaha: the performance view (`set_profiling`): each channel's voice rendering
+    // time, in ns, since the last `take_channel_ns`. None: not measured (the default).
+    channel_ns: Option<[u64; 16]>,
 }
 
 /// yahaha: the number of send buses `render_with_sends` fills.
@@ -149,12 +165,41 @@ impl Synthesizer {
             channel_left,
             channel_right,
             channel_peaks: [0_f32; Synthesizer::CHANNEL_COUNT],
+            channel_sq: [0_f32; Synthesizer::CHANNEL_COUNT],
+            channel_frames: 0,
             send_gains: [[0_f32; SEND_BUSES]; Synthesizer::CHANNEL_COUNT],
             send_block: vec![0_f32; 2 * SEND_BUSES * settings.block_size],
             send_used: false,
             used_rows: 0,
             internal_effects: true,
+            channel_ns: None,
         })
+    }
+
+    /// yahaha: measure each channel's voice rendering time (for the performance view), or
+    /// stop. Off (the default), rendering reads no clock.
+    pub fn set_profiling(&mut self, on: bool) {
+        if on != self.channel_ns.is_some() {
+            self.channel_ns = on.then_some([0; Synthesizer::CHANNEL_COUNT]);
+        }
+    }
+
+    /// yahaha: each channel's voice rendering time in ns since the last call (zeros when
+    /// not profiling), and start again from 0.
+    pub fn take_channel_ns(&mut self) -> [u64; 16] {
+        match self.channel_ns.as_mut() {
+            Some(ns) => std::mem::replace(ns, [0; Synthesizer::CHANNEL_COUNT]),
+            None => [0; Synthesizer::CHANNEL_COUNT],
+        }
+    }
+
+    /// yahaha: the voices sounding on each channel now.
+    pub fn channel_voices(&mut self) -> [u16; 16] {
+        let mut n = [0_u16; Synthesizer::CHANNEL_COUNT];
+        for v in self.voices.get_active_voices().iter() {
+            n[(v.channel() as usize) & (Synthesizer::CHANNEL_COUNT - 1)] += 1;
+        }
+        n
     }
 
     /// yahaha: each MIDI channel's peak (linear, both sides) in what has been rendered
@@ -165,9 +210,18 @@ impl Synthesizer {
         &self.channel_peaks
     }
 
+    /// yahaha: each MIDI channel's RMS level (both sides averaged) over what has been
+    /// rendered since the last `reset_channel_peaks`, measured where `channel_peaks` is.
+    pub fn channel_rms(&self) -> [f32; 16] {
+        let n = (2 * self.channel_frames).max(1) as f32;
+        self.channel_sq.map(|q| (q / n).sqrt())
+    }
+
     /// yahaha: start the channel peaks again from 0.
     pub fn reset_channel_peaks(&mut self) {
         self.channel_peaks = [0_f32; Synthesizer::CHANNEL_COUNT];
+        self.channel_sq = [0_f32; Synthesizer::CHANNEL_COUNT];
+        self.channel_frames = 0;
     }
 
     /// yahaha: channel `channel`'s gain (linear) into each send bus of
@@ -481,17 +535,29 @@ impl Synthesizer {
     ///
     /// The output buffers for the left and right must be the same length.
     pub fn render(&mut self, left: &mut [f32], right: &mut [f32]) {
-        self.render_inner(left, right, None);
+        self.render_inner(left, right, None, None);
     }
 
     /// yahaha: `render`, and **add** the send buses to `sends`: bus b's left side at
     /// `sends[2 * b * n..]`, its right side at `sends[(2 * b + 1) * n..]`, `n` =
     /// `left.len()` (so `sends` holds at least `2 * SEND_BUSES * n`).
     pub fn render_with_sends(&mut self, left: &mut [f32], right: &mut [f32], sends: &mut [f32]) {
-        self.render_inner(left, right, Some(sends));
+        self.render_inner(left, right, Some(sends), None);
     }
 
-    fn render_inner(&mut self, left: &mut [f32], right: &mut [f32], mut sends: Option<&mut [f32]>) {
+    /// yahaha: `render_with_sends`, the channels in `inserts.mask()` each run through
+    /// their insertion effect (#269) before they reach the mix and the sends.
+    pub fn render_with_inserts(&mut self, left: &mut [f32], right: &mut [f32], sends: &mut [f32], inserts: &mut dyn ChannelInsert) {
+        self.render_inner(left, right, Some(sends), Some(inserts));
+    }
+
+    fn render_inner(
+        &mut self,
+        left: &mut [f32],
+        right: &mut [f32],
+        mut sends: Option<&mut [f32]>,
+        mut inserts: Option<&mut dyn ChannelInsert>,
+    ) {
         if left.len() != right.len() {
             panic!("The output buffers for the left and right must be the same length.");
         }
@@ -507,7 +573,7 @@ impl Synthesizer {
         let mut wrote = 0;
         while wrote < left_length {
             if self.block_read == self.block_size {
-                self.render_block();
+                self.render_block(inserts.as_deref_mut());
                 self.block_read = 0;
             }
 
@@ -537,9 +603,12 @@ impl Synthesizer {
         }
     }
 
-    fn render_block(&mut self) {
+    fn render_block<'a>(&mut self, inserts: Option<&mut (dyn ChannelInsert + 'a)>) {
         self.voices
-            .process(&self.sound_font.wave_data, &self.channels);
+            .process(&self.sound_font.wave_data, &self.channels, self.channel_ns.as_mut());
+        // yahaha: the channels with an insertion effect (#269) reach the mix from their
+        // row, after the effect.
+        let insert_mask = inserts.as_ref().map_or(0, |i| i.mask());
 
         self.block_left.fill(0_f32);
         self.block_right.fill(0_f32);
@@ -550,25 +619,27 @@ impl Synthesizer {
         for voice in self.voices.get_active_voices().iter_mut() {
             let previous_gain_left = self.master_volume * voice.previous_mix_gain_left;
             let current_gain_left = self.master_volume * voice.current_mix_gain_left;
-            Synthesizer::write_block(
-                previous_gain_left,
-                current_gain_left,
-                voice.block(),
-                &mut self.block_left[..],
-                self.inverse_block_size,
-            );
             let previous_gain_right = self.master_volume * voice.previous_mix_gain_right;
             let current_gain_right = self.master_volume * voice.current_mix_gain_right;
-            Synthesizer::write_block(
-                previous_gain_right,
-                current_gain_right,
-                voice.block(),
-                &mut self.block_right[..],
-                self.inverse_block_size,
-            );
+            let ch = (voice.channel() as usize) & (Synthesizer::CHANNEL_COUNT - 1);
+            if insert_mask & (1 << ch) == 0 {
+                Synthesizer::write_block(
+                    previous_gain_left,
+                    current_gain_left,
+                    voice.block(),
+                    &mut self.block_left[..],
+                    self.inverse_block_size,
+                );
+                Synthesizer::write_block(
+                    previous_gain_right,
+                    current_gain_right,
+                    voice.block(),
+                    &mut self.block_right[..],
+                    self.inverse_block_size,
+                );
+            }
             // yahaha: the same again into the voice's channel row, for its meter. The mix
             // above is untouched, so the output is exactly upstream's.
-            let ch = (voice.channel() as usize) & (Synthesizer::CHANNEL_COUNT - 1);
             let row = ch * bs..(ch + 1) * bs;
             if used & (1 << ch) == 0 {
                 used |= 1 << ch;
@@ -590,17 +661,40 @@ impl Synthesizer {
                 self.inverse_block_size,
             );
         }
+        // yahaha: each inserted channel's row through its effect (a silent row too: the
+        // effect may still ring), then into the mix.
+        if let Some(ins) = inserts {
+            let mut m = insert_mask;
+            while m != 0 {
+                let ch = m.trailing_zeros() as usize;
+                m &= m - 1;
+                let row = ch * bs..(ch + 1) * bs;
+                if used & (1 << ch) == 0 {
+                    used |= 1 << ch;
+                    self.channel_left[row.clone()].fill(0_f32);
+                    self.channel_right[row.clone()].fill(0_f32);
+                }
+                let c = &self.channels[ch];
+                let ve = c.get_volume() * c.get_expression();
+                let level = ve * ve * self.master_volume;
+                ins.process(ch, &mut self.channel_left[row.clone()], &mut self.channel_right[row.clone()], level);
+                ArrayMath::multiply_add(1_f32, &self.channel_left[row.clone()], &mut self.block_left[..]);
+                ArrayMath::multiply_add(1_f32, &self.channel_right[row], &mut self.block_right[..]);
+            }
+        }
         self.used_rows = used;
         while used != 0 {
             let ch = used.trailing_zeros() as usize;
             used &= used - 1;
             let row = ch * bs..(ch + 1) * bs;
-            let peak = self.channel_left[row.clone()]
+            let (peak, sq) = self.channel_left[row.clone()]
                 .iter()
                 .chain(&self.channel_right[row])
-                .fold(0_f32, |p, x| p.max(x.abs()));
+                .fold((0_f32, 0_f32), |(p, q), x| (p.max(x.abs()), q + x * x));
             self.channel_peaks[ch] = self.channel_peaks[ch].max(peak);
+            self.channel_sq[ch] += sq;
         }
+        self.channel_frames += bs as u32;
 
         // yahaha: the send buses, from the channel rows of the channels that sound.
         self.send_used = false;
@@ -811,6 +905,11 @@ impl Synthesizer {
     /// Gets the value indicating whether reverb and chorus are enabled.
     pub fn get_enable_reverb_and_chorus(&self) -> bool {
         self.effects.is_some()
+    }
+
+    /// yahaha: the voices sounding now (for the performance view and the audio bench).
+    pub fn active_voice_count(&self) -> usize {
+        self.voices.active_voice_count
     }
 
     /// Gets the master volume.

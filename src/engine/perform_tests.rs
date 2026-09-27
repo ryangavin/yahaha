@@ -1257,18 +1257,19 @@ fn presses_during_a_fill_queue_for_its_end() {
     let (ppq, tpb, _) = grid(&e);
     let bar3 = e.ns_at(3.0 * tpb + 0.5 * ppq);
     let head = [(SectionId::Main(0), 0.0), (SectionId::Fill(0), tpb + 2.0 * ppq)];
-    for (auto_fill, press) in [(false, Button::FillUp), (true, Button::Main(1))] {
-        let Some((mut e, mut rec, mut seen, t)) = setup(auto_fill) else { return };
-        e.button(press, t, &mut rec);
-        sections_played(&mut e, &mut rec, t, bar3, &mut seen);
-        let want = [head[0], head[1], (SectionId::Fill(1), 2.0 * tpb), (SectionId::Main(1), 3.0 * tpb)];
-        assert_eq!(seen, want, "{press:?}, Auto Fill {auto_fill}");
-    }
-    // Auto Fill off: Main B during A's fill follows it, no fill.
+    // A forced fill (Fill Up) during a fill: its fill right after, then its Main.
     let Some((mut e, mut rec, mut seen, t)) = setup(false) else { return };
-    e.button(Button::Main(1), t, &mut rec);
+    e.button(Button::FillUp, t, &mut rec);
     sections_played(&mut e, &mut rec, t, bar3, &mut seen);
-    assert_eq!(seen, [head[0], head[1], (SectionId::Main(1), 2.0 * tpb)]);
+    assert_eq!(seen, [head[0], head[1], (SectionId::Fill(1), 2.0 * tpb), (SectionId::Main(1), 3.0 * tpb)]);
+    // Main B during A's fill, Auto Fill on or off: it only changes where the fill lands
+    // (#282), no fill of its own.
+    for auto_fill in [false, true] {
+        let Some((mut e, mut rec, mut seen, t)) = setup(auto_fill) else { return };
+        e.button(Button::Main(1), t, &mut rec);
+        sections_played(&mut e, &mut rec, t, bar3, &mut seen);
+        assert_eq!(seen, [head[0], head[1], (SectionId::Main(1), 2.0 * tpb)], "Auto Fill {auto_fill}");
+    }
     // The Break during a fill: at the next beat. A Main pressed in the Break follows it.
     if !e.style.has(slot_of(SectionId::Break)) {
         return;
@@ -1280,6 +1281,43 @@ fn presses_during_a_fill_queue_for_its_end() {
     e.button(Button::Main(0), in_break, &mut rec);
     sections_played(&mut e, &mut rec, in_break, bar3, &mut seen);
     assert_eq!(seen, [head[0], head[1], (SectionId::Break, tpb + 3.0 * ppq), (SectionId::Main(0), 2.0 * tpb)]);
+}
+
+/// #264: a Keyboard transpose with a chord held (a Main playing, or an Intro) leaves the
+/// band in the old key; the next chord input, the same keys too, is read in the new key.
+#[test]
+fn a_keyboard_transpose_waits_for_the_next_chord() {
+    let Some((mut e, mut rec)) = started(StyleSettings::default()) else { return };
+    let (_, tpb, _) = grid(&e);
+    let t = e.ns_at(tpb + 10.0);
+    play(&mut e, &mut rec, 0, t);
+    let from = rec.msgs.len();
+    e.set_transpose(Transpose::new(2, 0), t, &mut rec);
+    let bar3 = e.ns_at(3.0 * tpb);
+    play(&mut e, &mut rec, t, bar3);
+    assert_eq!(e.snapshot(bar3).chord, Some(chord("C")), "still C two bars on");
+    let mut b = engine().unwrap();
+    let mut rb = Rec::default();
+    b.set_chord(chord("C"), 0, &mut rb);
+    play(&mut b, &mut rb, 0, bar3);
+    let tail = |r: &Rec, from: usize| r.msgs[from..].iter().map(|(t, m)| (*t, m.clone())).collect::<Vec<_>>();
+    let from_b = rb.msgs.iter().position(|(tt, _)| *tt >= t).unwrap();
+    assert_eq!(tail(&rec, from).into_iter().filter(|(tt, _)| *tt > t).collect::<Vec<_>>(), tail(&rb, from_b).into_iter().filter(|(tt, _)| *tt > t).collect::<Vec<_>>(), "the band played on in C");
+    // C played again: D.
+    e.set_chord(chord("C"), bar3, &mut rec);
+    play(&mut e, &mut rec, bar3, bar3 + 50_000_000);
+    assert_eq!(e.snapshot(bar3 + 50_000_000).chord, Some(chord("D")));
+
+    // An Intro playing: transposed during it, the Intro and the Main after it stay in C.
+    let mut e = engine().unwrap();
+    let mut rec = Rec::default();
+    e.button(Button::Intro(0), 0, &mut rec);
+    e.set_chord(chord("C"), 0, &mut rec);
+    assert!(e.running);
+    e.set_transpose(Transpose::new(-3, 0), 1_000_000, &mut rec);
+    let two = e.ns_at(tpb * 2.0);
+    play(&mut e, &mut rec, 0, two);
+    assert_eq!(e.snapshot(0).chord, Some(chord("C")));
 }
 
 /// #229: a style chosen during a fill waits for the fill's end (its bar line); the fill
@@ -1308,4 +1346,99 @@ fn a_fill_tapped_again_with_a_style_waiting_plays_in_the_new_style() {
     let next = e.ns_at(e.sec_start + tpb2) + 1_000;
     play(&mut e, &mut rec, bar2 + 1_000, next);
     assert_eq!(e.snapshot(next).cur, Some(SectionId::Main(0)), "then the new style's Main");
+}
+
+/// Note-ons sent on the Style channels (9-16) since message `from`.
+fn style_note_ons(rec: &Rec, from: usize) -> Vec<(u64, u8, u8)> {
+    rec.msgs[from..].iter().filter(|(_, m)| m.len() == 3 && m[0] & 0xF0 == 0x90 && m[0] & 0x0F >= 8 && m[2] > 0).map(|(t, m)| (*t, m[0] & 0x0F, m[1])).collect()
+}
+
+/// #265: a fill pressed just after a beat line (within a 32nd, at most 60 ms) counts as
+/// pressed on that beat: it starts at once, from that point of its pattern, with the notes
+/// before it skipped (none crammed in). A press later than that waits for the next beat.
+#[test]
+fn a_fill_pressed_just_late_starts_at_once() {
+    let Some((mut e, mut rec)) = started(StyleSettings::default()) else { return };
+    let (ppq, tpb, beat_ns) = grid(&e);
+    // 75 BPM: a 32nd is 100 ms, so the window is the 60 ms cap.
+    assert!(beat_ns / 8 > 60 * MS_);
+    let beat2 = e.ns_at(tpb + ppq);
+    let late = beat2 + 40 * MS_;
+    play(&mut e, &mut rec, 0, late);
+    let from = rec.msgs.len();
+    e.button(Button::Main(0), late, &mut rec);
+    play(&mut e, &mut rec, late, late + 1_000);
+    let s = e.snapshot(late + 1_000);
+    assert_eq!((s.cur, s.bar, s.beat), (Some(SectionId::Fill(0)), 0, 1), "the fill at once, on beat 2 of its bar");
+    // Nothing of the fill's beat 2 downbeat was crammed in at the press.
+    let crammed = style_note_ons(&rec, from).into_iter().filter(|&(t, _, _)| t < late + 5 * MS_).count();
+    assert_eq!(crammed, 0, "no notes crammed in at the press");
+    // The same press 80 ms after the beat: the next beat, as before.
+    let Some((mut e, mut rec)) = started(StyleSettings::default()) else { return };
+    let later = beat2 + 80 * MS_;
+    play(&mut e, &mut rec, 0, later);
+    e.button(Button::Main(0), later, &mut rec);
+    play(&mut e, &mut rec, later, later + 1_000);
+    assert_eq!(e.snapshot(later + 1_000).cur, Some(SectionId::Main(0)));
+    assert_eq!(e.queued.map(|q| q.at), Some(tpb + 2.0 * ppq), "queued for beat 3");
+}
+
+/// #265: tapped just after a fill ended (the Main's first beat already sounding), the next
+/// fill starts at once: the Main plays only those few ms, not its whole first beat.
+#[test]
+fn a_back_to_back_fill_tapped_just_after_the_fill_ended_starts_at_once() {
+    let Some((mut e, mut rec)) = started(StyleSettings::default()) else { return };
+    let (ppq, tpb, _) = grid(&e);
+    let t = e.ns_at(tpb + 1.5 * ppq);
+    play(&mut e, &mut rec, 0, t);
+    e.button(Button::Main(0), t, &mut rec);
+    let bar2 = e.ns_at(2.0 * tpb);
+    let tap = bar2 + 30 * MS_;
+    play(&mut e, &mut rec, t, tap);
+    assert_eq!(e.snapshot(tap).cur, Some(SectionId::Main(0)), "the fill ended at the bar line");
+    e.button(Button::Main(0), tap, &mut rec);
+    play(&mut e, &mut rec, tap, tap + 1_000);
+    let s = e.snapshot(tap + 1_000);
+    assert_eq!((s.cur, s.bar, s.beat), (Some(SectionId::Fill(0)), 0, 0), "the next fill at once, from its first beat");
+}
+
+/// The fill grace window: a 32nd note, at most 60 ms.
+#[test]
+fn the_fill_grace_window() {
+    let Some((mut e, _)) = started(StyleSettings::default()) else { return };
+    let ppq = e.style.ppq as f64;
+    assert!((e.ns_at(e.fill_grace()) - e.ns_at(0.0)).abs_diff(60 * MS_) < 1_000);
+    e.button(Button::SetTempo(240), 0, &mut Rec::default());
+    assert!((e.fill_grace() - ppq / 8.0).abs() < 1e-9, "at 240 BPM a 32nd is shorter: 31 ms");
+}
+
+const MS_: u64 = 1_000_000;
+
+/// A Style-page fader in a send layer picks the send up before it moves it (soft
+/// takeover, as the volume faders), and a new binding (layer or page change) rebinds it.
+#[test]
+fn style_send_faders_pick_up_before_they_move() {
+    let Some(mut e) = engine() else { return };
+    let mut out = Rec::default();
+    e.set_style_send(3, 0, 64, &mut out);
+    let send = |e: &Engine| e.snapshot(0).style_sends[3][0];
+    // Far below: waits.
+    e.style_send_fader(3, 0, 255, 10, 1, &mut out);
+    assert_eq!(send(&e), 64);
+    assert_eq!(e.snapshot(0).send_pickup & 1 << 3, 1 << 3);
+    e.style_send_fader(3, 0, 10, 40, 1, &mut out);
+    assert_eq!(send(&e), 64, "still below");
+    // Crossing it picks it up.
+    e.style_send_fader(3, 0, 40, 70, 1, &mut out);
+    assert_eq!(send(&e), 70);
+    assert_eq!(e.snapshot(0).send_pickup, 0);
+    e.style_send_fader(3, 0, 70, 90, 1, &mut out);
+    assert_eq!(send(&e), 90);
+    // Software moves it: the fader must come back to it.
+    e.set_style_send(3, 0, 20, &mut out);
+    e.style_send_fader(3, 0, 90, 100, 1, &mut out);
+    assert_eq!(send(&e), 20);
+    // A new binding with the fader already there takes over at once.
+    e.style_send_fader(3, 0, 20, 21, 2, &mut out);
+    assert_eq!(send(&e), 21);
 }

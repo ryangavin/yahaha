@@ -62,6 +62,9 @@ const BREAK: &str = "Fill In BA";
 const ENDINGS: [&str; 3] = ["Ending A", "Ending B", "Ending C"];
 const PROGRESSION: [&str; 12] = ["C", "Am7", "Fmaj7", "G7", "Em7", "A7", "Dm7", "G7sus4", "C/E", "F", "Fm6", "C"];
 const NOTE_NAMES: [&str; 12] = ["C", "C#", "D", "Eb", "E", "F", "F#", "G", "Ab", "A", "Bb", "B"];
+/// The mock style's own sends per Style part (#268): reverb, chorus, variation.
+const MOCK_STYLE_SENDS: [[u8; 3]; 8] = [[30, 0, 0], [30, 0, 0], [20, 0, 0], [40, 10, 0], [40, 10, 0], [50, 20, 0], [50, 10, 20], [50, 10, 20]];
+
 const STYLE_PARTS: [(&str, u8, u8, u8, bool, &str, u8); 8] = [
     ("Rhythm 1", 127, 0, 0, true, "drum kit 127/0/1", 100),
     ("Rhythm 2", 127, 0, 25, true, "drum kit 127/0/26", 100),
@@ -138,6 +141,8 @@ pub struct MockSession {
     library: LibraryList,
     clock: f64,
     section_start: u32,
+    /// A style took over mid-Intro, -Fill or -Break: its OTS comes when the Main starts (#111).
+    ots_due: bool,
     taps: Vec<f64>,
     /// Steady taps in a row (the engine's count), and when a bar of them starts the band.
     tap_run: usize,
@@ -246,6 +251,7 @@ impl MockSession {
                 stop_acmp: false,
                 section: Some("Main B".into()),
                 queued: None,
+                landing: None,
                 pending_intro: None,
                 main: 1,
                 bar: 12,
@@ -258,6 +264,7 @@ impl MockSession {
                 stop_acmp_mode: StopAcmpMode::Off,
                 fade: FadeState::Off,
                 retrigger: false,
+                acmp: true,
                 ritardando: false,
             },
             chord: ChordState {
@@ -278,6 +285,9 @@ impl MockSession {
             keyboard_parts: vec![part(0, 0, true), part(1, 48, true), part(2, 61, false), part(3, 48, false)],
             mixer: MixerState {
                 fader_page: FaderPage::Panel,
+                fader_layer: yahaha::parts::FaderLayer::Volume,
+                send_waiting: 0,
+                style_send_waiting: 0,
                 style_parts: STYLE_PARTS
                     .iter()
                     .enumerate()
@@ -290,6 +300,10 @@ impl MockSession {
                         waiting: false,
                         fader: None,
                         voice: Some(Voice { bank_msb: *msb, bank_lsb: *lsb, program: *program, kit: *kit, label: label.to_string() }),
+                        reverb: MOCK_STYLE_SENDS[i][0],
+                        chorus: MOCK_STYLE_SENDS[i][1],
+                        variation: MOCK_STYLE_SENDS[i][2],
+                        sends_set: Vec::new(),
                     })
                     .collect(),
                 master: Some(100),
@@ -323,6 +337,7 @@ impl MockSession {
                     channels: 2,
                     output_pair: [1, 2],
                     muted: false,
+                    dropouts: 0,
                 }),
                 engine: EngineStats { realtime: true, wake_p99_us: 3, chord_p99_us: 15, midi_in_p99_us: 120 },
                 last_control: 0,
@@ -365,7 +380,17 @@ impl MockSession {
             sounds: SoundsState::default(),
             dynamics: DynamicsState::default(),
             knobs: KnobsState::default(),
-            effects: EffectsState::initial(),
+            effects: EffectsState {
+                // The mock style's insertion effect (#269) on Chord 1.
+                inserts: vec![InsertState {
+                    part: 3,
+                    part_name: "Chord 1".into(),
+                    name: "British Combo Classic".into(),
+                    effect: Some(InsertEffect::Distortion),
+                }],
+                ..EffectsState::initial()
+            },
+            home: HomeState::default(),
         };
         let songs: Vec<(String, String)> = library.entries.iter().filter(|e| e.status == "ok").map(|e| (e.path.clone(), e.name.clone())).collect();
         let mut m = MockSession {
@@ -375,6 +400,7 @@ impl MockSession {
             library,
             clock: 0.0,
             section_start: 0,
+            ots_due: false,
             taps: vec![],
             tap_run: 0,
             tap_start: None,
@@ -450,6 +476,13 @@ impl MockSession {
                 let id = self.state.sound_library.last_added.clone();
                 self.cmd(SoundLibraryCmd::SetPartPatch { part, id }.into());
             }
+            Ok(sounds::Then::PresetSaved(part, key, name)) => {
+                if let Some(p) = self.state.keyboard_parts[part as usize].plugin.as_mut() {
+                    p.preset = Some(name.clone());
+                    p.preset_key = Some(key);
+                }
+                self.message(format!("Saved the preset “{name}”"), false);
+            }
         }
     }
 
@@ -464,6 +497,17 @@ impl MockSession {
             PluginCmd::SetPartPlugin { part, id, .. } => {
                 self.sound.part_plugin(part as usize, true);
                 self.set_part_plugin(part as usize, id);
+            }
+            PluginCmd::SetPartPluginPreset { part, id, preset } => {
+                let Some(name) = self.sounds.preset(&id, &preset).map(|p| p.name.clone()) else {
+                    return self.message(format!("{id} has no preset {preset}"), true);
+                };
+                self.sound.part_plugin(part as usize, true);
+                self.set_part_plugin(part as usize, id);
+                if let Some(p) = self.state.keyboard_parts[(part & 3) as usize].plugin.as_mut() {
+                    p.preset = Some(name);
+                    p.preset_key = Some(preset);
+                }
             }
             PluginCmd::ClearPartPlugin { part } => {
                 self.sound.part_plugin(part as usize, false);
@@ -523,6 +567,8 @@ impl MockSession {
             overruns: if heavy { 4 } else { 0 },
             recent_overruns: if heavy { 4 } else { 0 },
             editor: failed.is_none(),
+            preset: None,
+            preset_key: None,
         });
         if let Some(err) = failed {
             self.message(format!("{} didn't load: {err}", e.name), true);
@@ -620,6 +666,7 @@ impl MockSession {
             dynamics: s.dynamics.level,
             retrigger: s.transport.retrigger,
             retrigger_rate: s.style_settings.retrigger_rate,
+            swing: s.style_settings.swing,
             bpm: s.transport.tempo,
             part_volume: [0, 1, 2, 3].map(|p| s.keyboard_parts[p].volume),
             harmony_volume: s.harmony_arp.volume,
@@ -716,6 +763,15 @@ impl MockSession {
             return;
         }
         self.pads.bar(&mut self.state.multi_pad);
+        // A queued style takes over at the bar line, but waits for an Ending, playing or
+        // queued: it loads at the stop (#111).
+        let t = &self.state.transport;
+        let ending = [&t.section, &t.queued].iter().any(|s| s.as_deref().is_some_and(|s| ENDINGS.contains(&s)));
+        if !ending {
+            if let Some(id) = self.state.preview.queued.take() {
+                self.load_style_at(id, true);
+            }
+        }
         let t = &self.state.transport;
         let main = MAINS[t.main as usize];
         let section = t.section.clone();
@@ -792,9 +848,10 @@ impl MockSession {
             self.state.transport.main = m as u8;
             // OTS Link Timing "At Main Section Change": as the Main starts playing.
             let ots = &self.state.ots;
-            if ots.link && ots.link_timing == OtsLinkTiming::MainChange && m < ots.settings.len() && ots.applied as usize != m + 1 {
+            if ots.link && m < ots.settings.len() && (self.ots_due || (ots.link_timing == OtsLinkTiming::MainChange && ots.applied as usize != m + 1)) {
                 self.recall_ots(m);
             }
+            self.ots_due = false;
         }
     }
 
@@ -878,6 +935,10 @@ impl MockSession {
     }
 
     fn stop_band(&mut self) {
+        // A style queued for the next bar loads when the band stops first.
+        if let Some(id) = self.state.preview.queued.take() {
+            self.load_style(id);
+        }
         self.state.chart.bar = None;
         self.chart_end = false;
         if self.state.transport.running {
@@ -908,6 +969,8 @@ impl MockSession {
     }
 
     fn recall_ots(&mut self, n: usize) {
+        // An OTS recall turns [ACMP] on.
+        self.state.transport.acmp = true;
         let panel = self.state.mixer.fader_page == FaderPage::Panel;
         let setting = self.state.ots.settings[n].clone();
         for (i, (p, o)) in self.state.keyboard_parts.iter_mut().zip(&setting.parts).enumerate() {
@@ -998,6 +1061,20 @@ impl MockSession {
     }
 
     fn load_style(&mut self, id: usize) {
+        self.load_style_at(id, false);
+    }
+
+    /// A style while the band plays (QueueStyle): it waits for the next bar line.
+    fn queue_style(&mut self, id: usize) {
+        if self.state.transport.running {
+            self.state.preview.queued = Some(id);
+        } else {
+            self.load_style(id);
+        }
+    }
+
+    /// `at_bar`: a queued style taking over while the band plays (its OTS waits for a Main).
+    fn load_style_at(&mut self, id: usize, at_bar: bool) {
         let Some(s) = self.styles.get(id) else { return };
         if let Some(e) = &s.error {
             let text = format!("{}/{}: {e}", s.folder, s.file);
@@ -1006,6 +1083,11 @@ impl MockSession {
         }
         let tempo = self.state.transport.tempo;
         self.set_style(id);
+        // Dynamics starts at its maximum (as written) with each style, as the session.
+        self.state.dynamics.level = yahaha::engine::DYNAMICS_NEUTRAL;
+        // Swing starts at 0 (as written) with each style, as the session.
+        self.settings.swing = 0;
+        self.state.style_settings = self.settings.into();
         // Change Behavior: Lock keeps, Hold keeps while playing, Reset takes the new style's.
         let running = self.state.transport.running;
         let rules = self.state.style_change;
@@ -1028,8 +1110,17 @@ impl MockSession {
             p.waiting = style_page;
         }
         let main = self.state.transport.main as usize;
+        self.ots_due = false;
         if self.state.ots.link && main < self.state.ots.settings.len() {
-            self.recall_ots(main);
+            // Taking over while the band plays: the new style's OTS comes with a Main (#111).
+            let t = &self.state.transport;
+            let is_main = |s: &Option<String>| s.as_deref().is_some_and(|s| MAINS.contains(&s));
+            let in_main = is_main(&t.section) && (t.queued.is_none() || is_main(&t.queued));
+            if at_bar && !in_main {
+                self.ots_due = true;
+            } else {
+                self.recall_ots(main);
+            }
         }
         if self.state.transport.section.as_deref().is_some_and(|s| !self.has(s)) {
             self.state.transport.section = MAINS.iter().find(|m| self.has(m)).map(|m| m.to_string());
@@ -1083,8 +1174,13 @@ impl MockSession {
         }
         st.pads.page_name = st.pads.page.name().into();
         st.pads.page_number = st.pads.page as u8 + 1;
+        // Where a fill (or the Break) queued or playing lands (#282).
+        let fill_like = |x: &Option<String>| x.as_deref().is_some_and(|x| FILLS.contains(&x) || x == BREAK);
+        let t = &mut st.transport;
+        t.landing = (t.running && (fill_like(&t.queued) || fill_like(&t.section))).then(|| MAINS[t.main as usize % 4].into());
         st.transport.lamps = pads_for(st, Page::Sections);
         self.regist.fill(st);
+        st.home = crate::mock_home::home(st);
         st.pads.pads = if st.pads.page == Page::Registration { self.regist.pads() } else { pads_for(st, st.pads.page) };
         self.anchor_clocks();
         self.state.surface = self.surface();
@@ -1208,7 +1304,9 @@ impl MockSession {
             FaderPage::Panel => "PANEL",
             FaderPage::Style => "STYLE",
         };
-        push("masterButton".into(), *lk::FADER_BTN_CC.end(), master, Some(AppCmd::Mixer(MixerCmd::ToggleFaderPage)), None);
+        let layer = self.state.mixer.fader_layer;
+        let master = if layer == yahaha::parts::FaderLayer::Volume { master.to_string() } else { format!("{master} {}", layer.short()) };
+        push("masterButton".into(), *lk::FADER_BTN_CC.end(), &master, Some(AppCmd::Mixer(MixerCmd::ToggleFaderPage)), Some(("LAYER", Some(AppCmd::Mixer(MixerCmd::StepFaderLayer { delta: 1 })))));
 
         // The faders: the parts they control on this page, and where they physically are.
         let mut faders: Vec<SurfaceFader> = (0..8u8)
@@ -1340,7 +1438,20 @@ impl MockSession {
                     return;
                 }
                 let t = &mut self.state.transport;
+                let fill_like = |x: &Option<String>| x.as_deref().is_some_and(|x| FILLS.contains(&x) || x == BREAK);
                 if !running {
+                    t.main = i;
+                } else if t.section.as_deref().is_some_and(|x| FILLS.contains(&x)) {
+                    // A fill playing (#282): its own Main again repeats it once; another Main
+                    // only moves the landing and calls off a repeat.
+                    if t.section.as_deref() == Some(FILLS[i as usize]) {
+                        t.queued = Some(FILLS[i as usize].into());
+                    } else if fill_like(&t.queued) {
+                        t.queued = None;
+                    }
+                    t.main = i;
+                } else if fill_like(&t.queued) {
+                    // A fill already queued: the first press picked it; this one moves the landing.
                     t.main = i;
                 } else if t.section.as_deref() == Some(m) {
                     t.queued = Some(FILLS[i as usize].into());
@@ -1445,6 +1556,8 @@ impl MockSession {
             }
             AppCmd::Transport(TransportCmd::SectionReset) => self.reset_section(),
             AppCmd::Transport(TransportCmd::ToggleRetrigger) => self.state.transport.retrigger = !self.state.transport.retrigger,
+            AppCmd::Transport(TransportCmd::ToggleAcmp) => self.state.transport.acmp = !self.state.transport.acmp,
+            AppCmd::Transport(TransportCmd::SetAcmp { on }) => self.state.transport.acmp = on,
             AppCmd::Transport(TransportCmd::TapTempo) if running && self.settings.section_reset => self.reset_section(),
             AppCmd::StyleSettings(c) => {
                 self.settings = c.apply(self.settings);
@@ -1566,6 +1679,29 @@ impl MockSession {
                 self.state.mixer.multi_pad_volume = vol(volume);
                 self.state.mixer.multi_pad_volume_waiting = false;
             }
+            // #268: a Style part's own send; reset hands them back to the (mock) style's.
+            AppCmd::Mixer(MixerCmd::SetStylePartSend { part, send, value }) => {
+                if let Some(p) = self.state.mixer.style_parts.get_mut(part as usize) {
+                    let v = value.min(127);
+                    match send {
+                        PartSend::Reverb => p.reverb = v,
+                        PartSend::Chorus => p.chorus = v,
+                        PartSend::Variation => p.variation = v,
+                    }
+                    if !p.sends_set.contains(&send) {
+                        p.sends_set.push(send);
+                        p.sends_set.sort_by_key(|s| s.index());
+                    }
+                }
+            }
+            AppCmd::Mixer(MixerCmd::ResetStylePartSends { part }) => {
+                for (i, p) in self.state.mixer.style_parts.iter_mut().enumerate() {
+                    if part.is_none_or(|x| x as usize == i) {
+                        [p.reverb, p.chorus, p.variation] = MOCK_STYLE_SENDS[i];
+                        p.sends_set.clear();
+                    }
+                }
+            }
             AppCmd::Mixer(MixerCmd::SetStylePartVolume { part, volume }) => {
                 if let Some(p) = self.state.mixer.style_parts.get_mut(part as usize) {
                     p.volume = vol(volume);
@@ -1650,6 +1786,8 @@ impl MockSession {
                 }
             }
             AppCmd::Mixer(MixerCmd::SetFaderPage { page }) => self.set_fader_page(page),
+            AppCmd::Mixer(MixerCmd::SetFaderLayer { layer }) => self.state.mixer.fader_layer = layer,
+            AppCmd::Mixer(MixerCmd::StepFaderLayer { delta }) => self.state.mixer.fader_layer = self.state.mixer.fader_layer.step(delta.signum()),
             AppCmd::Mixer(MixerCmd::ToggleFaderPage) => {
                 let page = if self.state.mixer.fader_page == FaderPage::Panel { FaderPage::Style } else { FaderPage::Panel };
                 self.set_fader_page(page);
@@ -1719,8 +1857,8 @@ impl MockSession {
                 }
             }
             AppCmd::Settings(SettingsCmd::SetAudioBuffer { frames }) => match &mut self.state.io.synth {
-                Some(s) if matches!(frames, 64 | 128 | 256) => s.buffer_frames = Some(frames),
-                Some(_) => self.message(format!("the audio buffer is 64, 128 or 256 frames, not {frames}"), true),
+                Some(s) if yahaha::synth::BUFFER_CHOICES.contains(&frames) => s.buffer_frames = Some(frames),
+                Some(_) => self.message(format!("the audio buffer is 64, 128, 256, 512 or 1024 frames, not {frames}"), true),
                 None => self.message("the synth is off", true),
             },
             AppCmd::Settings(SettingsCmd::NextAudioOutput) => {
@@ -1748,7 +1886,7 @@ impl MockSession {
             }
             AppCmd::System(SystemCmd::ClearMessage) => self.state.message = None,
             // Without a clock of its own for the bar line, the mock loads at once.
-            AppCmd::Library(LibraryCmd::QueueStyle { id }) => self.load_style(id),
+            AppCmd::Library(LibraryCmd::QueueStyle { id }) => self.queue_style(id),
             AppCmd::Preview(PreviewCmd::AuditionStyle { id }) => {
                 if self.state.transport.running {
                     self.message("Stop the band to preview a style", true);
@@ -1793,7 +1931,10 @@ impl MockSession {
                     let mut params = self.fx_params();
                     yahaha::fx::type_defaults(block.index(), block.type_index(effect), &mut params);
                     let kept = self.state.effects.blocks.clone();
+                    let (inserts, inserts_on) = (self.state.effects.inserts.clone(), self.state.effects.inserts_on);
                     self.state.effects = EffectsState::new(types, returns, band, params);
+                    self.state.effects.inserts = inserts;
+                    self.state.effects.inserts_on = inserts_on;
                     for (b, k) in self.state.effects.blocks.iter_mut().zip(kept) {
                         b.follow_style = k.follow_style;
                         b.style_effect = k.style_effect;
@@ -1806,6 +1947,7 @@ impl MockSession {
                 }
             }
             AppCmd::Fx(FxCmd::SetEffectReturn { block, level }) => self.state.effects.blocks[block.index()].return_level = level.min(127),
+            AppCmd::Fx(FxCmd::SetInsertsOn { on }) => self.state.effects.inserts_on = on,
             AppCmd::Fx(FxCmd::SetFollowStyle { block, on }) => self.state.effects.blocks[block.index()].follow_style = on,
             AppCmd::Fx(FxCmd::SetBandSend { block, level }) => self.state.effects.blocks[block.index()].band_send = level.min(127),
             AppCmd::Fx(FxCmd::SetPadSend { block, level }) => self.state.effects.blocks[block.index()].pad_send = level.min(127),
@@ -1820,12 +1962,18 @@ impl MockSession {
                     let returns = std::array::from_fn(|b| e.blocks[b].return_level);
                     let band = std::array::from_fn(|b| e.blocks[b].band_send);
                     let kept = self.state.effects.blocks.clone();
+                    let (inserts, inserts_on) = (self.state.effects.inserts.clone(), self.state.effects.inserts_on);
                     self.state.effects = EffectsState::new(types, returns, band, params);
+                    self.state.effects.inserts = inserts;
+                    self.state.effects.inserts_on = inserts_on;
                     for (b, k) in self.state.effects.blocks.iter_mut().zip(kept) {
                         b.follow_style = k.follow_style;
                         b.style_effect = k.style_effect;
                         b.pad_send = k.pad_send;
                     }
+                    // The player's own setting: the block no longer follows the style
+                    // (#237), as the session's.
+                    self.state.effects.blocks[block.index()].follow_style = false;
                 }
             }
             AppCmd::Dynamics(c) => {
@@ -2018,6 +2166,8 @@ fn pads_for(s: &AppState, page: Page) -> Vec<Pad> {
                     (C_MAIN, Level::Off, Anim::Solid)
                 } else if is(&t.queued, id) || is(&t.queued, fill) || is(&t.section, fill) {
                     (C_MAIN, Level::Bright, Anim::Flash)
+                } else if is(&t.landing, id) {
+                    (C_MAIN, Level::Bright, Anim::Pulse)
                 } else if is(&t.section, id) || (t.main as usize == i && !t.section.as_deref().is_some_and(|x| MAINS.contains(&x))) {
                     (C_MAIN, Level::Bright, Anim::Solid)
                 } else {
@@ -2378,6 +2528,34 @@ mod tests {
         assert_eq!(m.state.sounds.auditioning, None);
     }
 
+    /// AU presets, as mock-sounds.ts: the fake sampler's .aupreset files list from the
+    /// start, its factory presets once expanded; each part plays its own preset; Save as
+    /// preset lists a new one in the category picked.
+    #[test]
+    fn plugin_presets_list_assign_and_save() {
+        let mut m = MockSession::new();
+        let id = format!("au:{}", sounds::MOCK_PRESETS_ID);
+        let kids = |m: &MockSession| m.sounds().entries.into_iter().filter(|e| e.parent.as_deref() == Some(id.as_str())).collect::<Vec<_>>();
+        assert_eq!(kids(&m).iter().map(|e| e.name.as_str()).collect::<Vec<_>>(), ["Arco Strings", "Upright Piano"]);
+        assert_eq!(kids(&m).iter().map(|e| e.category).collect::<Vec<_>>(), [PatchCategory::Strings, PatchCategory::Piano]);
+        m.send(SoundsCmd::ListPluginPresets { id: id.clone() });
+        assert_eq!(kids(&m).len(), 5);
+        assert_eq!(m.sounds().entries.len() as u32, m.state.sounds.count);
+        m.send(SoundsCmd::AssignSound { part: 0, id: format!("{id}#f:1") });
+        let p = m.state.keyboard_parts[0].plugin.clone().unwrap();
+        assert_eq!((p.preset.as_deref(), p.preset_key.as_deref()), (Some("Bright Grand"), Some("f:1")));
+        m.send(SoundsCmd::AssignSound { part: 1, id: kids(&m)[3].id.clone() });
+        assert_eq!(m.state.keyboard_parts[1].plugin.clone().unwrap().preset.as_deref(), Some("Arco Strings"));
+        m.send(SoundsCmd::SavePartAsPluginPreset { part: 0, name: "My Grand".into(), category: PatchCategory::Organ, overwrite: false });
+        // The same name again: refused unless replacing.
+        m.send(SoundsCmd::SavePartAsPluginPreset { part: 0, name: "My Grand".into(), category: PatchCategory::Pad, overwrite: false });
+        assert!(m.state.message.as_ref().is_some_and(|x| x.error && x.text.contains("already exists")));
+        m.send(SoundsCmd::SavePartAsPluginPreset { part: 0, name: "My Grand".into(), category: PatchCategory::Organ, overwrite: true });
+        let mine = kids(&m).into_iter().find(|e| e.name == "My Grand").expect("saved");
+        assert_eq!(mine.category, PatchCategory::Organ);
+        assert_eq!(m.state.keyboard_parts[0].plugin.clone().unwrap().preset.as_deref(), Some("My Grand"));
+    }
+
     /// Program map rules take catalog ids (#117): a preset or plugin becomes a patch once.
     #[test]
     fn map_rules_take_catalog_ids() {
@@ -2393,6 +2571,51 @@ mod tests {
         assert!(m.state.sound_library.map.overrides.iter().any(|o| o.program == 5 && o.patch == "stage-grand"));
         m.send(SoundLibraryCmd::SetDrumRule { patch: Some("sf:Nope.sf2:0:0".into()), style: false });
         assert!(m.state.message.as_ref().is_some_and(|x| x.error));
+    }
+
+    /// A style other than the one loaded, with OTS, Main A and Ending A (#111 tests).
+    fn other_style(m: &MockSession) -> usize {
+        let cur = m.state.style.id;
+        m.styles.iter().position(|s| s.error.is_none() && s.ots > 0 && ["Main A", "Ending A"].iter().all(|n| s.sections.iter().any(|x| x == n)) && s.id != cur).unwrap()
+    }
+
+    /// QueueStyle while the band plays waits for the bar line, and with OTS Link on the
+    /// new style's OTS comes as it takes over in a Main (#111).
+    #[test]
+    fn a_queued_style_takes_over_at_the_bar_line_with_its_ots() {
+        let mut m = MockSession::new();
+        m.send(OtsCmd::SetOtsLink { on: true });
+        m.advance(bar_ms(&m) * 0.3);
+        let id = other_style(&m);
+        m.send(LibraryCmd::QueueStyle { id });
+        assert_eq!(m.state.preview.queued, Some(id), "it waits for the bar line");
+        assert_ne!(m.state.style.id, id);
+        m.state.ots.applied = 0;
+        m.advance(bar_ms(&m) * 0.8);
+        assert_eq!(m.state.style.id, id);
+        assert_eq!(m.state.preview.queued, None);
+        assert_eq!(m.state.ots.applied, m.state.transport.main + 1);
+    }
+
+    /// A queued style waits for an Ending and loads at the stop (#111).
+    #[test]
+    fn a_queued_style_waits_for_the_ending() {
+        let mut m = MockSession::new();
+        m.advance(bar_ms(&m) * 0.3);
+        m.send(TransportCmd::Ending { index: 0 });
+        let id = other_style(&m);
+        m.send(LibraryCmd::QueueStyle { id });
+        for _ in 0..16 {
+            if !m.state.transport.running {
+                break;
+            }
+            m.advance(bar_ms(&m) * 0.5);
+            if m.state.transport.running {
+                assert_ne!(m.state.style.id, id, "the Ending plays in the old style");
+            }
+        }
+        assert!(!m.state.transport.running);
+        assert_eq!(m.state.style.id, id, "loaded at the stop");
     }
 
     #[test]
@@ -2412,6 +2635,18 @@ mod tests {
         assert_eq!(m.state.transport.queued.as_deref(), Some("Fill In BB"));
         let lamp = m.state.transport.lamps.iter().find(|p| p.note == 113).unwrap();
         assert_eq!((lamp.level, lamp.anim), (Level::Bright, Anim::Flash));
+    }
+
+    /// #282: with a fill queued, a later press moves only where it lands; that Main pulses.
+    #[test]
+    fn a_later_press_moves_the_landing_not_the_fill() {
+        let mut m = MockSession::new();
+        m.send(TransportCmd::Main { index: 1 });
+        m.send(TransportCmd::Main { index: 0 });
+        let t = &m.state.transport;
+        assert_eq!((t.queued.as_deref(), t.landing.as_deref()), (Some("Fill In BB"), Some("Main A")));
+        let lamp = t.lamps.iter().find(|p| p.note == 112).unwrap();
+        assert_eq!((lamp.level, lamp.anim), (Level::Bright, Anim::Pulse));
     }
 
     #[test]
@@ -2640,7 +2875,7 @@ mod tests {
     fn registration_recalls_lights_page_4_and_the_playlist_steps() {
         let mut m = MockSession::new();
         assert_eq!(m.state.registration.bank.name, "Friday Gig");
-        assert_eq!(m.state.registration.buttons.len(), 10);
+        assert_eq!(m.state.registration.buttons.len(), 16, "Friday Gig has Banks A and B");
         m.send(RegistrationCmd::RecallRegist { index: 3 });
         assert_eq!(m.state.registration.selected, Some(3));
         assert_eq!(m.state.transport.tempo, 132.0);
@@ -2648,12 +2883,17 @@ mod tests {
         m.send(PadsCmd::SetPadPage { page: Page::Registration });
         assert_eq!(m.state.pads.pads.len(), 16);
         assert_eq!((m.state.pads.pads[3].rgb, m.state.pads.pads[0].rgb), ([127, 0, 0], [0, 40, 127]));
-        assert_eq!(m.state.pads.pads[9].level, Level::Off);
-        // Memory, then button 10.
+        assert_eq!(m.state.pads.pads[7].level, Level::Off);
+        assert_eq!((m.state.pads.pads[0].label.as_str(), m.state.pads.pads[12].label.as_str()), ("SNAP 1", "STORE"));
+        // Bank +, Store, then snapshot 2: B2.
+        m.send(RegistrationCmd::StepSnapshotBank { delta: 1 });
+        assert_eq!(m.state.registration.snapshot_bank, 1);
+        assert_eq!(m.state.pads.pads[0].level, Level::Bright, "B1 (a ten-button bank's 9) is stored");
         m.send(RegistrationCmd::ToggleRegistMemory);
-        assert!(m.state.pads.pads.iter().take(10).all(|p| p.anim == Anim::Flash));
-        m.send(RegistrationCmd::PressRegist { index: 9 });
+        assert!(m.state.pads.pads.iter().take(8).all(|p| p.anim == Anim::Flash));
+        m.send(RegistrationCmd::PressSnapshot { slot: 1 });
         assert!(m.state.registration.buttons[9].stored);
+        assert_eq!(m.state.registration.selected, Some(9));
         // Shift + Track steps the playlist: its first record recalls Friday Gig [1].
         let tl = m.state.surface.controls.iter().find(|c| c.id == "trackNext").unwrap().clone();
         assert_eq!((tl.shift_label.as_str(), tl.shift_action.clone()), ("SONG ▶", Some(AppCmd::Playlist(PlaylistCmd::StepPlaylist { delta: 1 }))));
@@ -2697,9 +2937,9 @@ mod tests {
     fn knobs_turn_their_functions_as_the_session() {
         let mut m = MockSession::new();
         assert_eq!((m.state.knobs.page_name.as_str(), m.state.knobs.knobs.len()), ("Style", 8));
-        m.send(KnobsCmd::TurnKnob { knob: 0, delta: 4 });
-        assert_eq!(m.state.dynamics.level, 72);
-        assert_eq!(m.state.knobs.knobs[0].value, "72");
+        m.send(KnobsCmd::TurnKnob { knob: 0, delta: -4 });
+        assert_eq!(m.state.dynamics.level, 119);
+        assert_eq!(m.state.knobs.knobs[0].value, "119");
         let bpm = m.state.transport.tempo.round();
         m.send(KnobsCmd::TurnKnob { knob: 7, delta: -3 });
         assert_eq!(m.state.transport.tempo, bpm - 3.0);
@@ -3009,6 +3249,7 @@ fn mock_plugins() -> PluginsState {
             e("aumu samp appl", "AUSampler", "Apple", "AUv2", None),
             e("aumu Mock Demo", "Broken Synth", "Example Audio", "AUv3", Some("timed out after 20.0 s")),
             e(MOCK_FALLBACK_ID, "Tiny Synth", "Example Audio", "AUv2", None),
+            e(sounds::MOCK_PRESETS_ID, "Sampler Deluxe", "Fake Instruments", "AUv2", None),
         ],
     }
 }

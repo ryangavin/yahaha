@@ -25,6 +25,10 @@ pub(super) struct Loaded {
     pub(super) ots: Vec<Ots>,
     /// The style's own System Effect types (#237, from its SInt).
     pub(super) effects: crate::fx::xg::StyleFx,
+    /// Its insertion effects (#269), as its first setup routes them.
+    pub(super) inserts: Vec<crate::fx::xg::StyleInsert>,
+    /// Main A-D and their fills for the Home screen, worked out once at load.
+    pub(super) home: super::home::Patterns,
 }
 
 pub(super) fn load(path: &Path) -> Result<(Box<Prepared>, Loaded)> {
@@ -50,6 +54,8 @@ pub(super) fn load(path: &Path) -> Result<(Box<Prepared>, Loaded)> {
         voices: prep.setups[0].voices,
         ots: style.ots.clone(),
         effects: crate::fx::xg::StyleFx::parse(&style.sint().sysex),
+        inserts: crate::fx::xg::style_inserts(prep.setups[0].init.iter()),
+        home: super::home::Patterns::of(&prep, style.timesig),
     };
     Ok((prep, info))
 }
@@ -122,6 +128,11 @@ impl Control {
                 // Only a style the engine has now names the pending bank.
                 self.sound.set_pending(pending);
                 self.pending_style = Some((id, self.style_seq, info));
+                // Dynamics starts at its maximum (as written) with every style; a
+                // registration that stored a level recalls it after the style.
+                self.dynamics_reset();
+                // Swing starts at 0 (as written) with every style.
+                self.swing_reset();
                 self.wake_engine();
                 self.message = None;
                 Ok(())

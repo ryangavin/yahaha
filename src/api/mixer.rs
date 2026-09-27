@@ -2,7 +2,7 @@
 //! and mute, and the output meters.
 
 use crate::engine::Button;
-use crate::parts::FaderPage;
+use crate::parts::{FaderLayer, FaderPage};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -12,6 +12,12 @@ pub enum MixerCmd {
     ToggleStylePart { part: u8 },
     /// Set a Style part's volume (its CC7, 0-127). The Launchkey fader picks it up.
     SetStylePartVolume { part: u8, volume: u8 },
+    /// A Style part's own reverb, chorus or variation send (#268; `part` 0-7, `value`
+    /// 0-127): it replaces the style's CC91/93/94 on that part, through section and style
+    /// changes, until `resetStylePartSends`. The band send scale doesn't apply to it.
+    SetStylePartSend { part: u8, send: crate::api::PartSend, value: u8 },
+    /// Hand a Style part's sends (`part` 0-7; null: every part's) back to the style.
+    ResetStylePartSends { part: Option<u8> },
     /// The Style volume (Genos Balance: Style), 0-127, 100 = the parts' CC7 as written: a
     /// scale on every Style part's CC7 as it goes out, like Fade In/Out; the part faders do
     /// not move. Panel fader 5 picks it up.
@@ -23,6 +29,13 @@ pub enum MixerCmd {
     /// What the Launchkey faders control: the keyboard parts (Panel) or the Style parts.
     SetFaderPage { page: FaderPage },
     ToggleFaderPage,
+    /// What the faders control across the parts (the mixer's VOL / PAN / REV / CHO / DLY):
+    /// the parts' CC7, or their pan or effect sends (`setPartPan`, `setPartSend`,
+    /// `setStylePartSend`). The master fader stays the master.
+    SetFaderLayer { layer: FaderLayer },
+    /// The next (`delta` 1) or previous fader layer, wrapping (Shift + the master fader's
+    /// button steps forward).
+    StepFaderLayer { delta: i8 },
     /// The built-in synth's master volume (0-127; 100 = unity). The master fader picks it up.
     SetMasterVolume { volume: u8 },
     /// Mute/unmute the built-in synth's audio.
@@ -83,6 +96,17 @@ impl MixerCmd {
 pub struct MixerState {
     /// What the Launchkey faders 1-8 control.
     pub fader_page: FaderPage,
+    /// What the faders control: `volume`, `pan`, `reverb`, `chorus` or `delay`.
+    #[serde(default)]
+    pub fader_layer: FaderLayer,
+    /// Keyboard parts (bit = part 0-3) whose fader, in a send layer, has moved but not yet
+    /// reached the value (soft takeover).
+    #[serde(default)]
+    pub send_waiting: u8,
+    /// Style parts (bit = part 0-7) whose fader, in a send layer, has moved but not yet
+    /// reached the send (soft takeover).
+    #[serde(default)]
+    pub style_send_waiting: u8,
     /// The 8 Style parts.
     pub style_parts: Vec<StylePart>,
     /// The built-in synth's master volume (0-127, 100 = unity). None without the synth.
@@ -123,6 +147,17 @@ pub struct StylePart {
     pub fader: Option<u8>,
     /// The voice the style was written for.
     pub voice: Option<Voice>,
+    /// Its reverb, chorus and variation sends as they play (CC91/93/94, #268): its own
+    /// where `sends_set` says so, else the style's.
+    #[serde(default)]
+    pub reverb: u8,
+    #[serde(default)]
+    pub chorus: u8,
+    #[serde(default)]
+    pub variation: u8,
+    /// The sends the player set (`setStylePartSend`); the others follow the style.
+    #[serde(default)]
+    pub sends_set: Vec<crate::api::PartSend>,
 }
 
 /// A Yamaha voice as the style names it.
@@ -153,6 +188,10 @@ pub struct Meters {
     pub channels: Vec<ChannelMeter>,
     /// Left and right after the soft clipper.
     pub master: [f32; 2],
+    /// Left and right RMS after the soft clipper (the loudest audio buffer's since the
+    /// previous read).
+    #[serde(default)]
+    pub master_rms: [f32; 2],
     /// Audio buffers in which the soft clipper was working (above -1 dBFS), since start.
     pub clips: u64,
 }
@@ -163,6 +202,9 @@ pub struct ChannelMeter {
     /// MIDI channel, 1-based.
     pub channel: u8,
     pub peak: f32,
+    /// RMS (linear), the loudest audio buffer's since the previous read.
+    #[serde(default)]
+    pub rms: f32,
 }
 
 #[cfg(test)]

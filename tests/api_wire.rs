@@ -37,12 +37,17 @@ const EVERY_CMD: &[&str] = &[
     r#"{"type":"tempoUp"}"#,
     r#"{"type":"tempoDown"}"#,
     r#"{"type":"resetTempo"}"#,
+    r#"{"type":"toggleAcmp"}"#,
+    r#"{"type":"setAcmp","on":false}"#,
     r#"{"type":"toggleFade"}"#,
     r#"{"type":"sectionReset"}"#,
     r#"{"type":"toggleRetrigger"}"#,
     r#"{"type":"setTempo","bpm":480}"#,
     r#"{"type":"toggleStylePart","part":5}"#,
     r#"{"type":"setStylePartVolume","part":2,"volume":90}"#,
+    r#"{"type":"setStylePartSend","part":3,"send":"chorus","value":70}"#,
+    r#"{"type":"resetStylePartSends","part":null}"#,
+    r#"{"type":"resetStylePartSends","part":5}"#,
     r#"{"type":"setStyleVolume","volume":80}"#,
     r#"{"type":"setMultiPadVolume","volume":70}"#,
     r#"{"type":"setStyleSolo","part":3}"#,
@@ -80,6 +85,8 @@ const EVERY_CMD: &[&str] = &[
     // Mixer, Launchkey pages, synth
     r#"{"type":"setFaderPage","page":"style"}"#,
     r#"{"type":"toggleFaderPage"}"#,
+    r#"{"type":"setFaderLayer","layer":"reverb"}"#,
+    r#"{"type":"stepFaderLayer","delta":1}"#,
     r#"{"type":"setPadPage","page":"otsParts"}"#,
     r#"{"type":"cyclePadPage","delta":1}"#,
     r#"{"type":"setMasterVolume","volume":100}"#,
@@ -107,6 +114,10 @@ const EVERY_CMD: &[&str] = &[
     r#"{"type":"setSectionReset","on":false}"#,
     r#"{"type":"setRetriggerRate","rate":16}"#,
     r#"{"type":"stepRetriggerRate","delta":-1}"#,
+    r#"{"type":"setSwing","amount":50}"#,
+    r#"{"type":"stepSwing","delta":-2}"#,
+    r#"{"type":"setSwingGrid","grid":16}"#,
+    r#"{"type":"setSectionTempo","on":false}"#,
     // One Touch Settings and styles
     r#"{"type":"recallOts","index":3}"#,
     r#"{"type":"setOtsLink","on":true}"#,
@@ -144,6 +155,9 @@ const EVERY_CMD: &[&str] = &[
     r#"{"type":"recallRegist","index":9}"#,
     r#"{"type":"memorizeRegist","index":2}"#,
     r#"{"type":"toggleRegistMemory"}"#,
+    r#"{"type":"pressSnapshot","slot":7}"#,
+    r#"{"type":"stepSnapshotBank","delta":-1}"#,
+    r#"{"type":"selectSnapshotBank","bank":1}"#,
     r#"{"type":"setMemorizeGroup","group":"voice","on":false}"#,
     r#"{"type":"clearRegist","index":3}"#,
     r#"{"type":"renameRegist","index":3,"name":"Verse"}"#,
@@ -214,6 +228,7 @@ const EVERY_CMD: &[&str] = &[
     // Instrument plugins
     r#"{"type":"setPartPlugin","part":0,"id":"aumu dls  appl","state":null}"#,
     r#"{"type":"setPartPlugin","part":1,"id":"aumu Xf2X XFER","state":"YnBsaXN0MDA="}"#,
+    r#"{"type":"setPartPluginPreset","part":2,"id":"aumu Nik2 -NI-","preset":"f:3"}"#,
     r#"{"type":"clearPartPlugin","part":0}"#,
     r#"{"type":"savePartPluginState","part":3}"#,
     r#"{"type":"rescanPlugins"}"#,
@@ -272,6 +287,9 @@ const EVERY_CMD: &[&str] = &[
     r#"{"type":"stopSoundAudition"}"#,
     r#"{"type":"assignSound","part":0,"id":"saved:warm-pad"}"#,
     r#"{"type":"setSoundCategory","id":"au:aumu Xf2X XFER","category":"pad"}"#,
+    r#"{"type":"listPluginPresets","id":"au:aumu Nik2 -NI-"}"#,
+    r#"{"type":"savePartAsPluginPreset","part":0,"name":"Upright","category":"piano"}"#,
+    r#"{"type":"savePartAsPluginPreset","part":1,"name":"Upright","category":"piano","overwrite":true}"#,
     // Style Dynamics Control, Touch, Accent
     r#"{"type":"setDynamicsControl","on":false}"#,
     r#"{"type":"setDynamics","level":90}"#,
@@ -294,6 +312,7 @@ const EVERY_CMD: &[&str] = &[
     r#"{"type":"setEffectParam","block":"variation","param":"delayFeedback","value":60}"#,
     r#"{"type":"setEffectParam","block":"chorus","param":"chorusDepth","value":30}"#,
     r#"{"type":"setFollowStyle","block":"variation","on":false}"#,
+    r#"{"type":"setInsertsOn","on":false}"#,
 ];
 
 fn type_of(json: &str) -> String {

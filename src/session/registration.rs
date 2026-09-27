@@ -1,5 +1,5 @@
-//! Registration Memory: the ten buttons, banks, Memorize, Freeze, the Registration
-//! Sequence (docs/registration.md).
+//! Snapshots (Registration Memory): eight per snapshot bank, bank files, Store, Freeze,
+//! the Registration Sequence (docs/registration.md).
 //!
 //! A registration is recalled in two phases. The style comes first (`Registrable::early`);
 //! when it changes, the rest waits until the engine plays the new style (at once when
@@ -16,7 +16,7 @@ pub(super) use sections::REGISTRABLES;
 use super::Control;
 use crate::api::{ParamLockState, BankFile, BankState, CmdError, RegistButton, RegistVoice, RegistrationCmd, RegistrationState, SequenceState};
 use crate::launchkey::RegistPanel;
-use crate::registration::{self as reg, Bank, Group, Groups, Memory, SeqMove, BANK_EXT, BUTTONS};
+use crate::registration::{self as reg, Bank, Group, Groups, Memory, SeqMove, BANK_EXT, MAX_BANKS, MAX_SLOTS, SLOTS};
 use std::path::{Path, PathBuf};
 
 /// How long OTS Link waits for a recall to settle at most (a section that never comes,
@@ -61,6 +61,9 @@ pub(super) struct RegState {
     /// Bank files in `dir`, in order (refreshed when banks are stepped, saved or loaded).
     banks: Vec<PathBuf>,
     selected: Option<u8>,
+    /// The snapshot bank on view (0 = A): the pads press its eight. At most one past the
+    /// file's last bank (an empty one to store into).
+    view: u8,
     memory: bool,
     memorize: Groups,
     freeze: bool,
@@ -95,6 +98,7 @@ impl RegState {
             dirty: false,
             banks: Vec::new(),
             selected: None,
+            view: 0,
             memory: false,
             memorize: Groups::all(),
             freeze: false,
@@ -135,11 +139,19 @@ impl RegState {
         self.bank = b;
         self.path = path;
         self.plugin_fill = None;
+        self.view = 0;
     }
 
-    /// Rebuild Regist Bank Info from the bank.
+    /// The last snapshot bank that can be viewed: one empty bank past the file's last.
+    fn last_view(&self) -> u8 {
+        self.bank.banks().min(MAX_BANKS - 1) as u8
+    }
+
+    /// Rebuild Regist Bank Info from the bank: every snapshot, through the bank on view.
     fn summarize(&mut self) {
-        self.buttons = (0..BUTTONS).map(|i| summary(i as u8, self.bank.memories[i].as_ref())).collect();
+        self.view = self.view.min(self.last_view());
+        let n = self.bank.banks().max(self.view as usize + 1) * SLOTS;
+        self.buttons = (0..n).map(|i| summary(i as u8, self.bank.get(i))).collect();
     }
 
     fn position(&self) -> Option<usize> {
@@ -171,11 +183,23 @@ fn summary(index: u8, m: Option<&Memory>) -> RegistButton {
 impl Control {
     pub(super) fn registration_cmd(&mut self, c: RegistrationCmd) -> Result<(), CmdError> {
         match c {
-            RegistrationCmd::PressRegist { index } => {
-                if self.reg.memory {
-                    return self.memorize(index);
+            RegistrationCmd::PressRegist { index } => return self.press(index),
+            RegistrationCmd::PressSnapshot { slot } => {
+                let index = self.reg.view as usize * SLOTS + slot as usize;
+                if index >= MAX_SLOTS {
+                    return self.fail(format!("no Snapshot {}", slot as usize + 1));
                 }
-                return self.recall_button(index);
+                return self.press(index as u8);
+            }
+            RegistrationCmd::StepSnapshotBank { delta } => {
+                let v = (self.reg.view as i16 + delta.signum() as i16).clamp(0, self.reg.last_view() as i16) as u8;
+                return self.view_snapshot_bank(v);
+            }
+            RegistrationCmd::SelectSnapshotBank { bank } => {
+                if bank > self.reg.last_view() {
+                    return self.fail(format!("no Bank {}", reg::bank_letter(bank as usize)));
+                }
+                return self.view_snapshot_bank(bank);
             }
             RegistrationCmd::RecallRegist { index } => return self.recall_button(index),
             RegistrationCmd::MemorizeRegist { index } => return self.memorize(index),
@@ -183,7 +207,7 @@ impl Control {
             RegistrationCmd::SetMemorizeGroup { group, on } => self.reg.memorize.set(group, on),
             RegistrationCmd::ClearRegist { index } => {
                 let i = self.button(index)?;
-                self.reg.bank.memories[i] = None;
+                self.reg.bank.set(i, None);
                 if self.reg.selected == Some(index) {
                     self.reg.selected = None;
                 }
@@ -191,9 +215,9 @@ impl Control {
             }
             RegistrationCmd::RenameRegist { index, name } => {
                 let i = self.button(index)?;
-                match self.reg.bank.memories[i].as_mut() {
+                match self.reg.bank.get_mut(i) {
                     Some(m) => m.name = name.trim().to_string(),
-                    None => return self.fail(format!("Registration {} is empty", index + 1)),
+                    None => return self.fail(format!("Snapshot {} is empty", reg::snapshot_label(i))),
                 }
                 return self.bank_changed();
             }
@@ -234,14 +258,30 @@ impl Control {
     }
 
     fn button(&mut self, index: u8) -> Result<usize, CmdError> {
-        if (index as usize) < BUTTONS {
+        if (index as usize) < MAX_SLOTS {
             Ok(index as usize)
         } else {
-            Err(self.fail(format!("no Registration button {}", index as usize + 1)).unwrap_err())
+            Err(self.fail(format!("no Snapshot {}", index as usize + 1)).unwrap_err())
         }
     }
 
-    /// Memorize the panel into button `index` (the Memory window's groups).
+    /// A snapshot button: recall it, or store into it while Store is armed.
+    fn press(&mut self, index: u8) -> Result<(), CmdError> {
+        if self.reg.memory {
+            return self.memorize(index);
+        }
+        self.recall_button(index)
+    }
+
+    /// Show snapshot bank `bank` (0 = A) on the pads, and say so.
+    fn view_snapshot_bank(&mut self, bank: u8) -> Result<(), CmdError> {
+        self.reg.view = bank;
+        self.reg.summarize();
+        self.say(format!("Snapshot Bank {}", reg::bank_letter(bank as usize)), false);
+        Ok(())
+    }
+
+    /// Store the panel into snapshot `index` (the Store window's groups).
     fn memorize(&mut self, index: u8) -> Result<(), CmdError> {
         let i = self.button(index)?;
         self.reg.memory = false;
@@ -256,12 +296,13 @@ impl Control {
             }
         }
         // Named after its style, as Regist Bank Info shows a button (rename to change).
-        m.name = sections::info(&m).style.unwrap_or_else(|| format!("Registration {}", i + 1));
-        self.reg.bank.memories[i] = Some(m);
+        m.name = sections::info(&m).style.unwrap_or_else(|| format!("Snapshot {}", reg::snapshot_label(i)));
+        self.reg.bank.set(i, Some(m));
         // The parts' plugins as they sound now, not as last autosaved: read, then filled in.
         self.start_plugin_fill(i, groups);
         self.reg.selected = Some(index);
-        self.say(format!("Memorized to Registration {}", i + 1), false);
+        self.reg.view = (i / SLOTS) as u8;
+        self.say(format!("Stored to Snapshot {}", reg::snapshot_label(i)), false);
         self.bank_changed()
     }
 
@@ -428,22 +469,28 @@ impl Control {
         }
     }
 
-    /// Recall button `index` without a message: its label ("Registration 3: Ballad") and
+    /// Recall button `index` without a message: its label ("Snapshot A3: Ballad") and
     /// what could not be recalled now (a recall waiting for its style reports later).
     pub(super) fn recall_quiet(&mut self, index: u8, follow: bool) -> Result<(String, Vec<String>), CmdError> {
         let i = self.button(index)?;
-        let Some(m) = self.reg.bank.memories[i].clone() else {
-            return Err(self.fail(format!("Registration {} is empty", i + 1)).unwrap_err());
+        let Some(m) = self.reg.bank.get(i).cloned() else {
+            return Err(self.fail(format!("Snapshot {} is empty", reg::snapshot_label(i))).unwrap_err());
         };
         self.reg.memory = false;
         self.reg.selected = Some(index);
+        // The pads follow to the recalled snapshot's bank (a sequence step, Regist +/-).
+        if self.reg.view as usize != i / SLOTS {
+            self.reg.view = (i / SLOTS) as u8;
+            self.reg.summarize();
+        }
         if follow {
             self.reg.seq_pos = self.reg.bank.sequence.follow(self.reg.seq_pos, index);
         }
         let groups = self.reg.recall_groups(&m);
-        let name = if m.name.is_empty() { format!("Registration {}", i + 1) } else { m.name.clone() };
+        let label = reg::snapshot_label(i);
+        let name = if m.name.is_empty() { format!("Snapshot {label}") } else { m.name.clone() };
         let errors = self.recall(m, groups);
-        Ok((format!("Registration {}: {name}", i + 1), errors))
+        Ok((format!("Snapshot {label}: {name}"), errors))
     }
 
     /// Recall a memory's sections in `groups`: the early ones now; the rest now, or once
@@ -552,12 +599,15 @@ impl Control {
         self.reg.selected
     }
 
-    /// Page 4 of the Launchkey.
+    /// Page 4 of the Launchkey: the snapshot bank on view.
     pub(super) fn regist_panel(&self) -> RegistPanel {
         let r = &self.reg;
+        let first = r.view as usize * SLOTS;
         RegistPanel {
-            stored: r.bank.stored_mask(),
-            selected: r.selected.map_or(0, |s| s + 1),
+            stored: (r.bank.stored_mask() >> first & 0xff) as u8,
+            selected: r.selected.map(usize::from).filter(|s| (first..first + SLOTS).contains(s)).map_or(0, |s| (s - first) as u8 + 1),
+            bank: r.view,
+            more_banks: r.view < r.last_view(),
             memory: r.memory,
             freeze: r.freeze,
             sequence: r.seq_on && !r.bank.sequence.steps.is_empty(),
@@ -579,6 +629,8 @@ impl Control {
             buttons: r.buttons.clone(),
             selected: r.selected,
             memory: r.memory,
+            snapshot_bank: r.view,
+            snapshot_banks: r.bank.banks() as u8,
             memorize_groups: r.memorize,
             freeze: r.freeze,
             freeze_groups: r.frozen,

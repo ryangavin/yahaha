@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { MockSession } from './mock'
-import { parsePresetId, pluginCategory, presetId } from './sounds'
+import { parsePluginId, parsePresetId, pluginCategory, presetId } from './sounds'
+import { visibleSounds } from '../../panels/sounds/model'
 
 describe('sound catalog (#117)', () => {
   it('ids round-trip, even with a colon in the file', () => {
@@ -117,5 +118,55 @@ describe('savePartAsPatch (#109)', () => {
     const p = m.state.soundLibrary.patches.at(-1)!
     expect(p.name).toBe('Mine')
     expect(p.source).toMatchObject({ kind: 'plugin', componentId: 'aumu dls  appl' })
+  })
+
+  it('a plugin expands into its AU presets; each part plays its own preset (AU presets)', async () => {
+    const m = new MockSession({ manual: true })
+    const id = 'au:aumu Smp7 Fake'
+    expect(parsePluginId(`${id}#f:1`)).toEqual({ plugin: 'aumu Smp7 Fake', key: 'f:1' })
+    let cat = await m.sounds()
+    expect(cat.entries.length).toBe(m.state.sounds.count)
+    // The .aupreset files are listed from the start; the factory presets once expanded.
+    const kids = () => cat.entries.filter((e) => e.parent === id)
+    expect(kids().map((e) => e.name)).toEqual(['Arco Strings', 'Upright Piano'])
+    expect(cat.entries.find((e) => e.id === id)?.plugin?.presets).toBe(2)
+    // Categories: guessed from the name and folder.
+    expect(kids().map((e) => e.category)).toEqual(['strings', 'piano'])
+    // Collapsed in All sounds; open, filtered, or in a category they show.
+    const at = (ids: number[]) => ids.map((i) => cat.entries[i].id)
+    expect(at(visibleSounds(cat, { kind: 'all' }, '')).some((x) => x.startsWith(`${id}#`))).toBe(false)
+    expect(at(visibleSounds(cat, { kind: 'all' }, '', new Set([id]))).filter((x) => x.startsWith(`${id}#`)).length).toBe(2)
+    expect(at(visibleSounds(cat, { kind: 'all' }, 'upright'))).toEqual([`${id}#${kids()[1].id.split('#')[1]}`])
+    expect(at(visibleSounds(cat, { kind: 'category', id: 'strings' }, '')).includes(kids()[0].id)).toBe(true)
+
+    m.send({ type: 'listPluginPresets', id })
+    cat = await m.sounds()
+    expect(kids().map((e) => e.name)).toEqual(['Init', 'Bright Grand', 'Brass Stabs', 'Arco Strings', 'Upright Piano'])
+    expect(cat.entries.length).toBe(m.state.sounds.count)
+
+    m.send({ type: 'assignSound', part: 0, id: `${id}#f:1` })
+    m.send({ type: 'assignSound', part: 1, id: kids()[3].id })
+    expect(m.state.keyboardParts[0].plugin).toMatchObject({ id: 'aumu Smp7 Fake', preset: 'Bright Grand', presetKey: 'f:1' })
+    expect(m.state.keyboardParts[1].plugin).toMatchObject({ id: 'aumu Smp7 Fake', preset: 'Arco Strings' })
+    m.send({ type: 'assignSound', part: 2, id: `${id}#f:9` })
+    expect(m.state.message?.error).toBe(true)
+
+    // Save as preset: a new .aupreset under the plugin, in the category picked.
+    m.send({ type: 'savePartAsPluginPreset', part: 0, name: 'My Grand', category: 'organ' })
+    expect(m.state.message?.error).toBe(true) // still loading
+    m.advance(1000)
+    m.send({ type: 'savePartAsPluginPreset', part: 0, name: 'My Grand', category: 'organ' })
+    cat = await m.sounds()
+    const mine = kids().find((e) => e.name === 'My Grand')
+    expect(mine?.category).toBe('organ')
+    expect(m.state.keyboardParts[0].plugin?.preset).toBe('My Grand')
+    // The same name again: refused unless replacing (Logic's presets are shared).
+    m.send({ type: 'savePartAsPluginPreset', part: 0, name: 'My Grand', category: 'pad' })
+    expect(m.state.message?.error).toBe(true)
+    expect((await m.sounds()).entries.find((e) => e.name === 'My Grand' && e.parent)?.category).toBe('organ')
+    m.send({ type: 'savePartAsPluginPreset', part: 0, name: 'My Grand', category: 'pad', overwrite: true })
+    expect((await m.sounds()).entries.find((e) => e.name === 'My Grand' && e.parent)?.category).toBe('pad')
+    m.send({ type: 'savePartAsPluginPreset', part: 3, name: 'x', category: 'organ' })
+    expect(m.state.message?.error).toBe(true)
   })
 })

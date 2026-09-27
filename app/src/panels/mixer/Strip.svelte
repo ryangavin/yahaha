@@ -59,13 +59,16 @@
     /** Pan and the reverb/chorus/variation sends (0–127), what moving them sends, and the
      *  part's default reverb send (a double-click goes back to it). */
     fx?: {
-      pan: number
+      /** Null: no pan knob (a Style part). */
+      pan: number | null
       reverb: number
       chorus: number
       variation: number
       reverbDefault: number
       onpan: (v: number) => void
       onsend: (send: 'reverb' | 'chorus' | 'variation', v: number) => void
+      /** A Style part (#268): its knobs' tooltips, the sends the player set, and what a double-click does. */
+      style?: { set: ('reverb' | 'chorus' | 'variation')[]; onreset: () => void } | null
     } | null
     /** Keep the knob row's space when there are no knobs. */
     fxRow?: boolean
@@ -80,11 +83,13 @@
   </div>
 
   {#if fx}
-    <div class="fx">
-      <FxKnob value={fx.pan} tip="mixer.part.pan" label="{name} pan" caption="Pan" reset={64} centre format={panText} onchange={fx.onpan} />
-      <FxKnob value={fx.reverb} tip="mixer.part.reverb" label="{name} reverb" caption="Rev" reset={fx.reverbDefault} onchange={(v) => fx.onsend('reverb', v)} />
-      <FxKnob value={fx.chorus} tip="mixer.part.chorus" label="{name} chorus" caption="Cho" reset={10} onchange={(v) => fx.onsend('chorus', v)} />
-      <FxKnob value={fx.variation} tip="mixer.part.variation" label="{name} delay" caption="Dly" reset={0} onchange={(v) => fx.onsend('variation', v)} />
+    <div class="fx" class:three={fx.pan === null}>
+      {#if fx.pan !== null}
+        <FxKnob value={fx.pan} tip="mixer.part.pan" label="{name} pan" caption="Pan" reset={64} centre format={panText} onchange={fx.onpan} />
+      {/if}
+      <FxKnob value={fx.reverb} tip={fx.style ? 'mixer.style.reverb' : 'mixer.part.reverb'} label="{name} reverb" caption="Rev" reset={fx.reverbDefault} onchange={(v) => fx.onsend('reverb', v)} onreset={fx.style?.onreset} own={fx.style?.set.includes('reverb')} />
+      <FxKnob value={fx.chorus} tip={fx.style ? 'mixer.style.chorus' : 'mixer.part.chorus'} label="{name} chorus" caption="Cho" reset={fx.style ? 10 : 0} onchange={(v) => fx.onsend('chorus', v)} onreset={fx.style?.onreset} own={fx.style?.set.includes('chorus')} />
+      <FxKnob value={fx.variation} tip={fx.style ? 'mixer.style.variation' : 'mixer.part.variation'} label="{name} delay" caption="Dly" reset={0} onchange={(v) => fx.onsend('variation', v)} onreset={fx.style?.onreset} own={fx.style?.set.includes('variation')} />
     </div>
   {:else if fxRow}
     <div class="fx" aria-hidden="true"></div>
@@ -150,6 +155,9 @@
     width: 100%;
     height: var(--fx-h, 3.4rem);
     align-items: start;
+  }
+  .fx.three {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
   .unused {
     opacity: 0.55;

@@ -78,6 +78,7 @@ fn key_action(code: KeyCode) -> Option<Action> {
         KeyCode::Char('+') => b(Button::TempoReset),
         KeyCode::Char('-') => b(Button::TempoDown),
         KeyCode::Char('h') => b(Button::StopAcmp),
+        KeyCode::Char('%') => b(Button::Acmp),
         KeyCode::Char('|') => b(Button::SectionReset),
         KeyCode::Char('F') => b(Button::Fade),
         KeyCode::Char('~') => b(Button::Retrigger),
@@ -108,9 +109,11 @@ fn key_action(code: KeyCode) -> Option<Action> {
         KeyCode::Char('J') => Some(Action::ToggleHarmonyArp),
         // Load the selected part's plugin again after it stopped or failed to load.
         KeyCode::Char('s') => Some(Action::ReloadPlugin),
-        // Registration Memory: Shift + the top letter row = buttons 1-10 (a row of ten, as
-        // on the panel), F5 Memory, F6 Freeze, F7/F8 Regist -/+, F11/F12 Bank -/+.
-        KeyCode::Char(c) if "QWERTYUIOP".contains(c) => Some(Action::Regist("QWERTYUIOP".find(c).unwrap() as u8)),
+        // Snapshots: Shift + Q-I = Snapshots 1-8 of the bank on view, O/P snapshot bank -/+,
+        // F5 Store, F6 Freeze, F7/F8 Regist -/+, F11/F12 bank file -/+.
+        KeyCode::Char(c) if "QWERTYUI".contains(c) => Some(Action::Regist("QWERTYUI".find(c).unwrap() as u8)),
+        KeyCode::Char('O') => Some(Action::SnapshotBank(-1)),
+        KeyCode::Char('P') => Some(Action::SnapshotBank(1)),
         KeyCode::F(5) => Some(Action::RegistMemory),
         KeyCode::F(6) => Some(Action::RegistFreeze),
         KeyCode::F(7) => Some(Action::RegistSeq(-1)),
@@ -277,6 +280,42 @@ fn fit(s: &str, w: usize) -> String {
     } else {
         format!("{s}{}", " ".repeat(w - n))
     }
+}
+
+/// Run a live session with the performance view (`perf::top`) in place of the front
+/// panel: the keyboards, the Launchkey and the app API still play it. q, Esc or Ctrl-C
+/// quits.
+pub fn play_top(opts: Options, startup: Vec<AppCmd>) -> Result<()> {
+    yahaha::perf::enable();
+    let session = Session::start(opts)?;
+    for c in startup {
+        let _ = session.send(c);
+    }
+    crossterm::terminal::enable_raw_mode()?;
+    crossterm::execute!(std::io::stdout(), crossterm::terminal::EnterAlternateScreen, crossterm::cursor::Hide)?;
+    let quit = std::sync::atomic::AtomicBool::new(false);
+    std::thread::scope(|s| {
+        s.spawn(|| yahaha::perf::top::run(|| quit.load(std::sync::atomic::Ordering::Relaxed)));
+        loop {
+            match event::poll(Duration::from_millis(100)) {
+                Ok(true) => {}
+                Ok(false) => continue,
+                Err(_) => break,
+            }
+            if let Ok(Event::Key(k)) = event::read()
+                && k.kind == KeyEventKind::Press
+                && (matches!(k.code, KeyCode::Char('q') | KeyCode::Esc)
+                    || (k.modifiers.contains(KeyModifiers::CONTROL) && k.code == KeyCode::Char('c')))
+            {
+                break;
+            }
+        }
+        quit.store(true, std::sync::atomic::Ordering::Relaxed);
+    });
+    crossterm::execute!(std::io::stdout(), crossterm::cursor::Show, crossterm::terminal::LeaveAlternateScreen)?;
+    crossterm::terminal::disable_raw_mode()?;
+    drop(session);
+    Ok(())
 }
 
 /// Run the terminal front panel on a live session; `startup` commands run first (their
@@ -595,12 +634,14 @@ fn draw(f: &mut ratatui::Frame, st: &AppState, message: &str, beats: f64) {
                 v
             }),
             Line::from({
-                // Registration: the bank, its ten lamps ([n] stored, >n< selected), Memory,
-                // Freeze, the sequence and the playlist.
+                // Snapshots: the bank file, the snapshot bank on view and its eight lamps ([n]
+                // stored, >n< selected), Store, Freeze, the sequence and the playlist.
                 let r = &st.registration;
-                let mut v = vec![Span::raw(format!(" regist {}{} ", r.bank.name, if r.bank.dirty { "*" } else { "" }))];
-                for b in &r.buttons {
-                    let n = b.index + 1;
+                let bank = yahaha::registration::bank_letter(r.snapshot_bank as usize);
+                let mut v = vec![Span::raw(format!(" snap {}{} {bank} ", r.bank.name, if r.bank.dirty { "*" } else { "" }))];
+                let first = r.snapshot_bank as usize * yahaha::registration::SLOTS;
+                for b in r.buttons.iter().skip(first).take(yahaha::registration::SLOTS) {
+                    let n = b.index as usize - first + 1;
                     let (text, style) = if r.selected == Some(b.index) && b.stored {
                         (format!(">{n}<"), St::default().fg(Color::Black).bg(Color::Red))
                     } else if b.stored {
@@ -610,15 +651,15 @@ fn draw(f: &mut ratatui::Frame, st: &AppState, message: &str, beats: f64) {
                     };
                     v.push(Span::styled(text, if r.memory { style.add_modifier(Modifier::SLOW_BLINK) } else { style }));
                 }
-                v.push(Span::styled(" ⇧Q-P", dim));
-                v.push(flag(r.memory, "MEMORY [F5]"));
+                v.push(Span::styled(" ⇧Q-I bank ⇧O ⇧P", dim));
+                v.push(flag(r.memory, "STORE [F5]"));
                 v.push(flag(r.freeze, "FREEZE [F6]"));
                 let seq = &r.sequence;
                 if seq.on && !seq.steps.is_empty() {
                     let pos = seq.position.map_or("-".to_string(), |p| (p + 1).to_string());
                     v.push(Span::raw(format!(" seq {pos}/{} [F7 F8]", seq.steps.len())));
                 }
-                v.push(Span::styled(" bank [F11 F12]", dim));
+                v.push(Span::styled(" file [F11 F12]", dim));
                 let pl = &st.playlist;
                 if !pl.records.is_empty() {
                     let cur = pl.current.and_then(|c| pl.records.iter().position(|row| row.index == c)).map_or("-".into(), |p| (p + 1).to_string());
@@ -809,6 +850,7 @@ pub fn screen_html(style: &Path, out: &Path) -> Result<()> {
         volumes: [127, 110, 96, 127, 80, 64, 127, 100],
         user_set: 0,
         pickup: 1 << 4,
+        send_pickup: 0,
         stop_acmp: false,
         stop_acmp_mode: yahaha::engine::StopAcmp::Off,
         half_bar_fill: false,
@@ -831,6 +873,9 @@ pub fn screen_html(style: &Path, out: &Path) -> Result<()> {
         style_solo: None,
         multipad: Default::default(),
         dynamics: crate::engine::DYNAMICS_NEUTRAL,
+        style_sends: [[40, 0, 0]; 8],
+        style_send_own: [[255; 3]; 8],
+        acmp: true,
     });
     // What a live session with the synth and a Launchkey would add.
     let mut st = (*session.state()).clone();
@@ -842,6 +887,7 @@ pub fn screen_html(style: &Path, out: &Path) -> Result<()> {
         channels: 14,
         output_pair: [11, 12],
         muted: false,
+        dropouts: 0,
     });
     st.mixer.master = Some(110);
     st.io.inputs = vec!["Launchkey MK4 61 MIDI Out".into()];
@@ -913,7 +959,8 @@ mod tests {
                 assert!(keys.contains(&a), "{a:?}");
             }
         }
-        assert_eq!(key_action(KeyCode::Char('P')), Some(Action::Regist(9)));
+        assert_eq!(key_action(KeyCode::Char('I')), Some(Action::Regist(7)));
+        assert_eq!(key_action(KeyCode::Char('P')), Some(Action::SnapshotBank(1)));
         assert_eq!(key_action(KeyCode::Char('s')), Some(Action::ReloadPlugin));
         assert_eq!(key_action(KeyCode::Right), Some(Action::Style(1)));
         assert_eq!(key_action(KeyCode::Char('f')), Some(Action::NextFingering));
@@ -946,7 +993,7 @@ mod tests {
         assert_eq!(key_cmd(KeyCode::Char('r')), Some(AppCmd::Looper(LooperCmd::LooperRec)));
         assert_eq!(key_cmd(KeyCode::Char('^')), Some(AppCmd::Looper(LooperCmd::LooperOnOff)));
         // Shift+R belongs to Registration (#99): the looper leaves it alone.
-        assert_eq!(key_cmd(KeyCode::Char('R')), Some(AppCmd::Registration(yahaha::api::RegistrationCmd::PressRegist { index: 3 })));
+        assert_eq!(key_cmd(KeyCode::Char('R')), Some(AppCmd::Registration(yahaha::api::RegistrationCmd::PressSnapshot { slot: 3 })));
         assert_eq!(key_cmd(KeyCode::Char('.')), Some(AppCmd::Metronome(MetronomeCmd::ToggleMetronome)));
         assert_eq!(key_cmd(KeyCode::Char('J')), Some(AppCmd::HarmonyArp(HarmonyArpCmd::ToggleHarmonyArp)));
         assert_eq!(key_cmd(KeyCode::Char('L')), Some(AppCmd::HarmonyArp(HarmonyArpCmd::StepHarmonyArpType { delta: 1 })));
@@ -964,6 +1011,7 @@ mod tests {
         assert_eq!(key_cmd(KeyCode::Char('V')), Some(AppCmd::MultiPad(MultiPadCmd::TriggerMultiPad { pad: 3 })));
         assert_eq!(key_cmd(KeyCode::Char('B')), Some(AppCmd::MultiPad(MultiPadCmd::StopAllMultiPads)));
         assert_eq!(key_cmd(KeyCode::Char('K')), None);
+        assert_eq!(key_cmd(KeyCode::Char('%')), Some(AppCmd::Transport(TransportCmd::ToggleAcmp)));
         assert_eq!(key_cmd(KeyCode::Char('H')), Some(AppCmd::Dynamics(DynamicsCmd::ToggleAccent)));
         assert_eq!(key_cmd(KeyCode::Char('&')), Some(AppCmd::Dynamics(DynamicsCmd::ToggleDynamicsTouch)));
         assert_eq!(key_cmd(KeyCode::Char('_')), Some(AppCmd::Chord(ChordCmd::ToggleLeftHold)));

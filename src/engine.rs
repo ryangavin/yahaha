@@ -9,6 +9,7 @@
 //! hooks in hooks.rs; when a queued section change happens is `Engine::change_point`
 //! (sections.rs). See docs/architecture.md.
 
+mod acmp;
 mod change_rules;
 mod chart;
 mod chords;
@@ -27,6 +28,7 @@ mod prepared;
 mod rules_tests;
 mod retrigger;
 mod ritardando;
+mod section_tempo;
 mod sections;
 mod settle;
 mod setup;
@@ -34,6 +36,7 @@ mod style_change;
 mod sync_stop;
 mod tempo_repeat;
 mod timing;
+mod swing;
 mod transport;
 
 pub use chart::{ChartPlan, ChartSettings, PlanBar, CHART_CHORDS};
@@ -53,7 +56,7 @@ pub use ritardando::RIT_END;
 pub use tempo_repeat::{repeat_interval_ms, MAX_HOLD_MS, REPEAT_DELAY_MS, TEMPO_STEP};
 pub use settle::{CHORD_SETTLE_DEFAULT_MS, CHORD_SETTLE_MAX_MS};
 use settle::{Hold, Unsettled};
-pub use timing::{IntroEndingTiming, MainTiming, StyleSettings, MAX_FADE_HOLD_MS, MAX_FADE_MS, MAX_SYNC_STOP_WINDOW_MS, RETRIGGER_RATES};
+pub use timing::{IntroEndingTiming, MainTiming, StyleSettings, FILL_GRACE_MAX_MS, MAX_FADE_HOLD_MS, MAX_FADE_MS, MAX_SYNC_STOP_WINDOW_MS, RETRIGGER_RATES};
 
 use crate::sff::{ChannelRule, Ntr, Ntt, Rtr, SectionId, Style};
 use crate::theory::{is_drum_part, plays, transpose_group, Chord, CANCEL, GUITAR_NOISE};
@@ -172,6 +175,10 @@ pub enum Button {
     SectionReset,
     /// Style Retrigger on/off.
     Retrigger,
+    /// [ACMP] on/off, and set (OM p.44): off, the band plays its rhythm only and the whole
+    /// keyboard is for playing (engine/acmp.rs).
+    Acmp,
+    SetAcmp(bool),
 }
 
 
@@ -197,6 +204,8 @@ pub struct Snapshot {
     pub user_set: u8,
     /// Parts whose hardware fader is waiting to pick up the software value (soft takeover).
     pub pickup: u8,
+    /// Style parts whose fader, in a send layer, is waiting to pick up the send.
+    pub send_pickup: u8,
     /// Stop Accompaniment sounds the chord (`stop_acmp_mode` is not Off).
     pub stop_acmp: bool,
     pub stop_acmp_mode: StopAcmp,
@@ -243,6 +252,12 @@ pub struct Snapshot {
     pub multipad: PadsSnap,
     /// The Dynamics level in effect, 0-127 (Touch moves it; engine/dynamics.rs).
     pub dynamics: u8,
+    /// Each Style part's send to each bus as it plays (#268, `[part][bus]`: CC91/93/94).
+    pub style_sends: [[u8; 3]; 8],
+    /// Each Style part's own send (#268), 255 where it follows the style.
+    pub style_send_own: [[u8; 3]; 8],
+    /// [ACMP] is on (engine/acmp.rs).
+    pub acmp: bool,
 }
 
 /// Where a style preview is: style `id` (the session's library id), bar `bar` of `bars`
@@ -374,10 +389,14 @@ pub struct Engine {
     entry: f64,
     ev_idx: usize,
     queued: Option<Queued>,
-    /// The chord the style follows: `played` moved by Keyboard transpose.
+    /// The chord the style follows: `played` moved by the Keyboard transpose it was played
+    /// under (`chord_kbd`).
     chord: Option<Chord>,
     played: Option<Chord>,
     transpose: Transpose,
+    /// The Keyboard transpose in force when `played` came in (#264): a transpose changed
+    /// with a chord held reaches the style only with the next chord input.
+    chord_kbd: i8,
     bpm: f64,
     anchor_ns: u64,
     anchor_tick: f64,
@@ -391,6 +410,12 @@ pub struct Engine {
     user_set: u8,
     /// Soft takeover state of each part's hardware fader.
     takeover: [Takeover; 8],
+    /// The Style-page faders in a send layer: soft takeover per fader, the fader binding
+    /// it was bound in (`u8::MAX`: none), and the send it last wrote (another value since
+    /// means software moved it).
+    send_take: [Takeover; 8],
+    send_bound: [u8; 8],
+    send_last: [u8; 8],
     stop_acmp: StopAcmp,
     /// Manual Bass (Upper detection mode): the Style's Bass part is muted; the player's
     /// left hand plays the bass instead.
@@ -463,6 +488,7 @@ impl Engine {
             chord: None,
             played: None,
             transpose: Transpose::default(),
+            chord_kbd: 0,
             bpm,
             anchor_ns: 0,
             anchor_tick: 0.0,
@@ -471,6 +497,9 @@ impl Engine {
             mixer,
             user_set: 0,
             takeover: [Takeover::NEW; 8],
+            send_take: [Takeover::NEW; 8],
+            send_bound: [u8::MAX; 8],
+            send_last: [0; 8],
             stop_acmp: StopAcmp::Off,
             manual_bass: false,
             taps: [0; 4],
@@ -548,6 +577,7 @@ impl Engine {
             volumes: self.mixer,
             user_set: self.user_set,
             pickup: self.pickup_waiting(),
+            send_pickup: self.send_take.iter().enumerate().fold(0, |m, (p, t)| if t.waiting() { m | 1 << p } else { m }),
             stop_acmp: self.stop_acmp != StopAcmp::Off,
             stop_acmp_mode: self.stop_acmp,
             half_bar_fill: self.features.fills.half_bar,
@@ -573,6 +603,9 @@ impl Engine {
             style_solo: self.features.solo,
             multipad: self.pads_snapshot(),
             dynamics: self.features.dynamics.settings.level,
+            style_sends: self.style_sends().0,
+            style_send_own: self.style_sends().1,
+            acmp: self.acmp(),
         }
     }
 
@@ -595,7 +628,7 @@ impl Engine {
             t = t.min(p.at);
         }
         if let Some(e) = sec.events.get(self.ev_idx) {
-            t = t.min(self.sec_start + e.tick as f64);
+            t = t.min(self.sec_start + self.ev_tick(e.tick));
         }
         if let Some(h) = self.hook_deadline() {
             t = t.min(h);

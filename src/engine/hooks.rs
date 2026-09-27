@@ -19,7 +19,7 @@
 //! | `on_bar`, `on_beat` | `process` reached a bar line / beat (quarter note) of the section playing |
 //! | `before_section_change` | at a section boundary, before anything changes (the old notes still sound) |
 //! | `after_section_change` | after it: the new section is set up, its first events not yet played |
-//! | `on_chord` | the chord the style follows changed (a new chord, or a Keyboard transpose) |
+//! | `on_chord` | the chord the style follows changed (a new chord, read in the Keyboard transpose of its input) |
 //! | `on_style_loaded` | a new style took over (at once when stopped, at the bar line when playing) |
 //! | `on_wake` | every `process` call, first, band running or not (features on engine nanoseconds) |
 //! | `hook_deadline` | a tick by which a feature needs `process` to run (see below) |
@@ -75,8 +75,12 @@ pub(super) struct Features {
     pub(super) pads: super::multipad::PadDeck,
     /// Style Dynamics Control, Touch and Accent (dynamics.rs).
     pub(super) dynamics: super::dynamics::Dynamics,
+    /// [ACMP] on/off: acmp.rs.
+    pub(super) acmp: super::acmp::Acmp,
     /// A TEMPO button held down: tempo_repeat.rs.
     pub(super) tempo_repeat: super::tempo_repeat::TempoRepeat,
+    /// Tempo changes written inside a section: section_tempo.rs.
+    pub(super) section_tempo: super::section_tempo::SectionTempo,
 }
 
 /// The next beat line the bar and beat hooks wait for: a tick on the section's timeline
@@ -121,6 +125,7 @@ impl Engine {
         self.chart_start(now);
         self.fade_on_start(now, sink);
         self.pads_on_start(now);
+        self.section_tempo_enter(now);
     }
 
     /// The band stopped: every note is off.
@@ -131,6 +136,7 @@ impl Engine {
         self.chart_stop();
         self.fade_on_stop(sink);
         self.end_rit(self.anchor_ns);
+        self.section_tempo_end(self.anchor_ns);
         self.retrigger_on_stop();
         self.looper_on_stop();
         self.metronome_on_stop();
@@ -180,6 +186,7 @@ impl Engine {
         }
         self.rit_after_section(now);
         self.retrigger_after_section(from);
+        self.section_tempo_enter(now);
     }
 
     /// The chord the style follows (`self.chord`) changed from `_prev`, and the band has
@@ -200,6 +207,7 @@ impl Engine {
         self.stop_acmp_setup_sent();
         _sink.route_bank(self.style.route_bank);
         self.retrigger_on_style_loaded();
+        self.section_tempo_drop();
     }
 
     /// Every `process` call, before anything else, whether the band runs or not: features
@@ -211,6 +219,7 @@ impl Engine {
         self.sync_window_wake(now);
         self.rit_wake(now);
         self.tempo_repeat_wake(now);
+        self.section_tempo_wake(now);
     }
 
     /// A tick (on the section's timeline) by which a feature needs `process` to run, if
@@ -220,7 +229,7 @@ impl Engine {
     /// none, the engine wakes only for pattern events and boundaries.
     #[inline]
     pub(super) fn hook_deadline(&self) -> Option<f64> {
-        [self.metronome_line(), self.chart_deadline(), self.hook_due(), self.rit_deadline()].into_iter().flatten().reduce(f64::min)
+        [self.metronome_line(), self.chart_deadline(), self.hook_due(), self.rit_deadline(), self.section_tempo_deadline()].into_iter().flatten().reduce(f64::min)
     }
 
     /// A time (engine ns) by which a feature needs `process` to run, band running or not:

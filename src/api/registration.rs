@@ -1,21 +1,34 @@
-//! Registration Memory: the ten buttons, banks, Memorize, Freeze and the Registration
-//! Sequence (docs/registration.md).
+//! Snapshots (the Genos's Registration Memory): eight per snapshot bank (Bank A, B, ...
+//! in a bank file), Store (the Genos's MEMORY), Freeze and the Registration Sequence
+//! (docs/registration.md). The wire names keep the Genos words (`pressRegist`,
+//! `toggleRegistMemory`, `memory`) so older clients and saved controller maps still work.
 
 use crate::registration::{Group, Groups, SequenceEnd};
 use serde::{Deserialize, Serialize};
 
-/// Button indices are 0-based (0-9 = the panel's [1]-[10]).
+/// `index` is a snapshot's index in the bank file, 0-based: `bank * 8 + slot` (0 = A1, 9 =
+/// B2). `slot` is 0-7 within the snapshot bank on view (`snapshotBank`).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum RegistrationCmd {
-    /// A REGISTRATION MEMORY button as the panel has it: recalls the button, or, while
-    /// MEMORY is armed (`toggleRegistMemory`), memorizes the panel into it.
+    /// A snapshot button as the panel has it: recalls the snapshot, or, while Store is
+    /// armed (`toggleRegistMemory`), stores the panel into it.
     PressRegist { index: u8 },
+    /// Snapshot button `slot` (0-7) of the snapshot bank on view, as `pressRegist` does
+    /// (the Launchkey pads and the Regist 1-8 assignable functions send this). Slots past
+    /// 7 run on into the next banks (Regist 9-10: the next bank's 1-2).
+    PressSnapshot { slot: u8 },
+    /// Snapshot bank -/+: view (and so press) the previous/next eight. It stops at Bank A
+    /// and at one empty bank past the last stored one (at most Bank H).
+    StepSnapshotBank { delta: i8 },
+    /// View snapshot bank `bank` (0 = A).
+    SelectSnapshotBank { bank: u8 },
     /// Recall a button (refused if it is empty).
     RecallRegist { index: u8 },
     /// Memorize the panel into a button (the `memorizeGroups`), replacing what it held.
     MemorizeRegist { index: u8 },
-    /// The MEMORY button: arm (or disarm) Memorize for the next button press.
+    /// The STORE button (the Genos's MEMORY): arm (or disarm) Store for the next button
+    /// press.
     ToggleRegistMemory,
     /// Tick or untick a group in the Memory window (what Memorize stores).
     SetMemorizeGroup { group: Group, on: bool },
@@ -64,12 +77,20 @@ pub struct RegistrationState {
     pub banks: Vec<BankFile>,
     /// The folder bank files are saved to (None: saving is off, e.g. an offline session).
     pub folder: Option<String>,
-    /// Always 10: buttons [1]-[10] (Regist Bank Info).
+    /// Every snapshot of the bank file, by index (Regist Bank Info): whole snapshot banks
+    /// of eight, through the bank on view (`snapshotBank`).
     pub buttons: Vec<RegistButton>,
-    /// The button last recalled or memorized (lit red), 0-based.
+    /// The snapshot last recalled or stored (lit red): its index.
     pub selected: Option<u8>,
-    /// MEMORY is armed: the next button press memorizes.
+    /// Store is armed: the next button press stores.
     pub memory: bool,
+    /// The snapshot bank on view, 0-based (0 = Bank A): the Launchkey pads and
+    /// `pressSnapshot` press its eight.
+    #[serde(default)]
+    pub snapshot_bank: u8,
+    /// Snapshot banks the file holds (at least 1); `stepSnapshotBank` goes one past.
+    #[serde(default = "one")]
+    pub snapshot_banks: u8,
     /// The Memory window's ticked groups.
     pub memorize_groups: Groups,
     /// Registration Freeze is on.
@@ -81,6 +102,10 @@ pub struct RegistrationState {
     /// A recall is waiting for the style it loads to take over (the bar line when playing);
     /// the rest of the registration follows then.
     pub pending: bool,
+}
+
+fn one() -> u8 {
+    1
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -102,11 +127,11 @@ pub struct BankFile {
     pub path: String,
 }
 
-/// One Registration Memory button, as Regist Bank Info shows it.
+/// One snapshot, as Regist Bank Info shows it.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RegistButton {
-    /// 0-based.
+    /// Its index in the bank file, 0-based (`bank * 8 + slot`).
     pub index: u8,
     /// It holds a registration (lit blue, or red when selected).
     pub stored: bool,
@@ -131,7 +156,7 @@ pub struct RegistVoice {
 #[serde(rename_all = "camelCase")]
 pub struct SequenceState {
     pub on: bool,
-    /// Buttons (0-based) in order.
+    /// Snapshot indices in order.
     pub steps: Vec<u8>,
     pub end: SequenceEnd,
     /// The step last recalled (0-based into `steps`); None before the first.

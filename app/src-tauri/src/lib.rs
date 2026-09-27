@@ -4,7 +4,9 @@
 //! - command `state() -> AppState`
 //! - command `library() -> LibraryList`
 //! - command `sounds() -> SoundCatalog` (the Sound Browser's list, #117)
-//! - command `meters() -> Meters` (output levels since the last call; poll at display rate)
+//! - command `meters() -> Meters` (the latest `meters` event's levels)
+//! - event `meters` (`Meters`): every part's peak and RMS, the pads and the master, at
+//!   about 30 Hz (`METER_PERIOD`)
 //! - commands `open_plugin_editor(part)` / `close_plugin_editor(part)`: a keyboard part's
 //!   instrument plugin window, opened on the main thread (AppKit); closing it keeps the
 //!   plugin's settings with the part (`savePartPluginState`)
@@ -27,6 +29,7 @@
 //! On exit the engine is stopped, which puts the Launchkey back in standalone mode.
 
 pub mod mock;
+mod mock_home;
 mod mock_regist;
 mod mock_looper;
 
@@ -103,13 +106,33 @@ fn sounds(backend: State<'_, Shared>) -> Value {
     }
 }
 
-/// Output levels: each part's and the master's peak since the last call, and the clip
-/// count. The mock has no audio: zero levels, no channels.
+/// How often the `meters` event goes out: about 30 Hz.
+const METER_PERIOD: Duration = Duration::from_micros(33_333);
+
+/// The levels the last `meters` event carried (the meter thread is the one reader of the
+/// session's meters; the command hands out its latest frame).
+static LAST_METERS: std::sync::Mutex<Option<yahaha::api::Meters>> = std::sync::Mutex::new(None);
+
+/// Output levels: the latest `meters` event's (each part's and the pads' peak and RMS, the
+/// master's, the clip count). The mock has no audio: zero levels, no channels.
 #[tauri::command]
 fn meters(backend: State<'_, Shared>) -> Value {
     match &**backend {
-        Backend::Live(s) => serde_json::to_value(s.meters()).unwrap_or(Value::Null),
+        Backend::Live(_) => serde_json::to_value(LAST_METERS.lock().unwrap_or_else(|e| e.into_inner()).clone().unwrap_or_default()).unwrap_or(Value::Null),
         Backend::Mock(_) => serde_json::to_value(yahaha::api::Meters::default()).unwrap_or(Value::Null),
+    }
+}
+
+/// Read the session's meters at `METER_PERIOD` and send them as the `meters` event.
+fn emit_meters(app: tauri::AppHandle, backend: Shared) {
+    let Backend::Live(s) = &*backend else { return };
+    loop {
+        std::thread::sleep(METER_PERIOD);
+        let m = s.meters();
+        *LAST_METERS.lock().unwrap_or_else(|e| e.into_inner()) = Some(m.clone());
+        if app.emit("meters", m).is_err() {
+            break;
+        }
     }
 }
 
@@ -291,6 +314,15 @@ fn shutdown(backend: &Backend) {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // The performance view (`--top` or YAHAHA_TOP=1, from a terminal): it draws on stdout
+    // beside the window. Collection starts before the engine does.
+    let args: Vec<String> = std::env::args().collect();
+    if yahaha::perf::requested(&args) {
+        yahaha::perf::enable();
+        if let Err(e) = yahaha::perf::top::spawn() {
+            eprintln!("yahaha: no performance view ({e})");
+        }
+    }
     let shared: Shared = Arc::new(backend());
     let app = tauri::Builder::default()
         .manage(shared)
@@ -301,6 +333,10 @@ pub fn run() {
             std::thread::Builder::new()
                 .name(if live { "session-events" } else { "mock-tick" }.into())
                 .spawn(move || if live { forward_events(handle, b) } else { tick_mock(handle, b) })?;
+            if live {
+                let (handle, b) = (app.handle().clone(), app.state::<Shared>().inner().clone());
+                std::thread::Builder::new().name("meters".into()).spawn(move || emit_meters(handle, b))?;
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![send, state, library, sounds, meters, open_plugin_editor, close_plugin_editor])

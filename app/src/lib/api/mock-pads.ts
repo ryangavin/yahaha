@@ -35,6 +35,8 @@ function sectionPads(s: AppState): Pad[] {
     const fill = FILLS[i]
     if (!has(id)) return look(C_MAIN, 'off')
     if (t.queued === id || t.queued === fill || t.section === fill) return look(C_MAIN, 'bright', 'flash')
+    // Where a fill queued or playing lands, when that's another Main (#282).
+    if (t.landing === id) return look(C_MAIN, 'bright', 'pulse')
     if (t.section === id || (t.main === i && !(t.section && MAINS.includes(t.section)))) return look(C_MAIN, 'bright')
     return look(C_MAIN, 'dim')
   }
@@ -99,30 +101,35 @@ function otsPads(s: AppState): Pad[] {
   ]
 }
 
-const REGIST_KEYS = ['Q', 'W', 'E', 'R', 'T', 'Y', 'U', 'I', 'O', 'P']
+const REGIST_KEYS = ['Q', 'W', 'E', 'R', 'T', 'Y', 'U', 'I']
 
 function registPads(s: AppState): Pad[] {
   const r = s.registration
   const p = (note: number, label: string, key: string, action: AppCmd | null, available: boolean, on: boolean) =>
     pagePad('registration', note, label, key, action, available, on)
+  // The snapshot bank on view: Snapshots 1–8 on the top row (src/launchkey.rs regist_looks).
+  const first = r.snapshotBank * 8
   const button = (i: number): Pad => {
-    const stored = r.buttons[i]?.stored ?? false
+    const stored = r.buttons[first + i]?.stored ?? false
     const l = r.memory
       ? look(C_REGIST_SELECTED, 'bright', 'flash')
-      : stored && r.selected === i
+      : stored && r.selected === first + i
         ? look(C_REGIST_SELECTED, 'bright')
         : look(C_REGIST_STORED, stored ? 'bright' : 'off')
-    return pad(i < 8 ? 96 + i : 104 + i, `REGIST ${i + 1}`, REGIST_KEYS[i], { type: 'pressRegist', index: i }, l)
+    return pad(96 + i, `SNAP ${i + 1}`, REGIST_KEYS[i], { type: 'pressSnapshot', slot: i }, l)
   }
   const seq = r.sequence.on && r.sequence.steps.length > 0
   const banks = r.banks.length > 0
+  const moreBanks = r.snapshotBank < Math.min(r.snapshotBanks, 7)
   return [
-    ...Array.from({ length: 10 }, (_, i) => button(i)),
-    p(114, 'BANK -', 'F11', { type: 'stepRegistBank', delta: -1 }, banks, false),
-    p(115, 'BANK +', 'F12', { type: 'stepRegistBank', delta: 1 }, banks, false),
+    ...Array.from({ length: 8 }, (_, i) => button(i)),
+    p(112, 'BANK -', 'O', { type: 'stepSnapshotBank', delta: -1 }, r.snapshotBank > 0, false),
+    p(113, 'BANK +', 'P', { type: 'stepSnapshotBank', delta: 1 }, moreBanks, false),
+    p(114, 'FILE -', 'F11', { type: 'stepRegistBank', delta: -1 }, banks, false),
+    p(115, 'FILE +', 'F12', { type: 'stepRegistBank', delta: 1 }, banks, false),
     r.memory
-      ? pad(116, 'MEMORY', 'F5', { type: 'toggleRegistMemory' }, look(C_REGIST_SELECTED, 'bright', 'flash'))
-      : p(116, 'MEMORY', 'F5', { type: 'toggleRegistMemory' }, true, false),
+      ? pad(116, 'STORE', 'F5', { type: 'toggleRegistMemory' }, look(C_REGIST_SELECTED, 'bright', 'flash'))
+      : p(116, 'STORE', 'F5', { type: 'toggleRegistMemory' }, true, false),
     p(117, 'FREEZE', 'F6', { type: 'toggleFreeze' }, true, r.freeze),
     p(118, 'REGIST -', 'F7', { type: 'stepRegistSequence', delta: -1 }, seq, false),
     p(119, 'REGIST +', 'F8', { type: 'stepRegistSequence', delta: 1 }, seq, false),

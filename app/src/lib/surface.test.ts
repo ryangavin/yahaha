@@ -80,7 +80,7 @@ describe('Shift layer, as the engine JSON arrives', () => {
     const wire = JSON.parse(JSON.stringify(m.state.surface)) as typeof m.state.surface
     expect(wire.controls.filter(hasShiftFunction).map((c) => c.id)).toEqual([
       'padBankUp', 'padBankDown', 'trackPrev', 'trackNext', 'play', 'stop', 'scene', 'function',
-      'faderButton1', 'faderButton2', 'faderButton3', 'faderButton4', 'faderButton8',
+      'faderButton1', 'faderButton2', 'faderButton3', 'faderButton4', 'faderButton8', 'masterButton',
     ])
   })
 })

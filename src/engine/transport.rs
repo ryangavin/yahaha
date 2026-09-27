@@ -31,6 +31,10 @@ pub struct StyleControls {
     pub player_set: Option<u8>,
     /// Style Retrigger on/off.
     pub retrigger: Option<bool>,
+    /// [ACMP] on/off.
+    pub acmp: Option<bool>,
+    /// The Style parts' own sends (#268, `[part][bus]`, 255 = the style's).
+    pub sends: Option<[[u8; 3]; 8]>,
 }
 
 impl Engine {
@@ -81,12 +85,18 @@ impl Engine {
         {
             self.toggle_retrigger();
         }
+        if let Some(on) = c.acmp {
+            self.set_acmp(on, sink);
+        }
         if let Some(parts) = c.parts {
             for p in 0..8u8 {
                 if (self.parts ^ parts) & (1 << p) != 0 {
                     self.button(Button::TogglePart(p), now, sink);
                 }
             }
+        }
+        if let Some(sends) = c.sends {
+            self.set_style_sends(sends, sink);
         }
         if let Some(volumes) = c.volumes {
             let set = c.player_set.unwrap_or(0xFF);
@@ -160,6 +170,10 @@ impl Engine {
 
     /// Chord-zone keys all released (for Sync Stop).
     pub fn chord_released(&mut self, now: u64, sink: &mut impl Sink) {
+        // ACMP off: there is no chord section to let go of.
+        if !self.acmp() {
+            return;
+        }
         self.sync_window_released();
         // The Chord Looper plays the chords: the keyboard's releases don't count either.
         if self.sync_stop && self.running && !self.looper_owns_chords() {
@@ -217,12 +231,15 @@ impl Engine {
             // A tempo set outright during a ritardando becomes the tempo it slows from.
             Button::SetTempo(bpm) => {
                 self.set_bpm_internal(bpm as f64, now);
+                self.section_tempo_retempo();
                 self.rit_retempo(now);
             }
             Button::TapTempo => self.tap(now),
             Button::SectionReset => self.reset_section(now, sink),
             Button::Fade => self.fade_button(now, sink),
             Button::Retrigger => self.toggle_retrigger(),
+            Button::Acmp => self.set_acmp(!self.acmp(), sink),
+            Button::SetAcmp(on) => self.set_acmp(on, sink),
             Button::Intro(i) => {
                 if !self.running {
                     self.pending_intro = if self.pending_intro == Some(i) { None } else { Some(i) };
@@ -395,12 +412,15 @@ mod tests {
             volumes: None,
             player_set: None,
             retrigger: Some(true),
+            sends: None,
+            acmp: Some(true),
         };
         for _ in 0..2 {
             e.set_style_controls(set, 1, &mut Nop);
             let s = e.snapshot(1);
             assert_eq!((s.main, s.pending_intro, s.sync_armed, s.sync_stop, s.stop_acmp, s.parts), (2, Some(1), true, true, true, 0b1101_0111));
             assert!(s.retrigger);
+            assert!(s.acmp);
         }
         // None leaves a control as it is.
         e.set_style_controls(StyleControls { parts: Some(0xff), ..StyleControls::default() }, 1, &mut Nop);

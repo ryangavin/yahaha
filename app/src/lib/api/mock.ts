@@ -17,11 +17,12 @@ import { padsFor } from './mock-pads'
 import { MockKnobs } from './mock-knobs'
 import { initialPlugins, MockPlugins } from './mock-plugins'
 import { ARP_PATTERNS, HARMONY_TYPES, harmonyArpCmd, initialHarmonyArp } from './mock-harmony'
+import { mockHome } from './mock-home'
 import { MockRegistration } from './mock-registration'
 import { emptyPlaylist, emptyRegistration } from './registration'
 import type { Session } from './session'
 import {
-  BREAK, CHORD_SETTLE_MAX_MS, ENDINGS, FILLS, FINGERINGS, INTROS, KEYBOARD_PART_NAMES, MAINS, PAD_PAGES, RETRIGGER_RATES,
+  BREAK, CHORD_SETTLE_MAX_MS, ENDINGS, FADER_LAYERS, FILLS, FINGERINGS, INTROS, KEYBOARD_PART_NAMES, MAINS, PAD_PAGES, RETRIGGER_RATES,
   STYLE_PART_NAMES, type AppCmd, type AppState, type EffectBlockState, type EffectsState, type FxBlock, type FxParam, type FxParamState, type FxType, type LibraryEntry, type LibraryList, type OtsPart, type PreviewState, type StopAcmpMode,
   type SoundLibraryCmd, type StyleSettingsState, type StyleState,
 } from './types'
@@ -196,7 +197,7 @@ function patternBars(s: string): number {
 /** The engine's default Style settings (src/engine/timing.rs). */
 export const DEFAULT_STYLE_SETTINGS: StyleSettingsState = {
   mainTiming: 'nextBar', introEndingTiming: 'nextBar', syncStopWindowMs: 0,
-  fadeInMs: 5000, fadeOutMs: 5000, fadeHoldMs: 2000, sectionReset: true, retriggerRate: 8,
+  fadeInMs: 5000, fadeOutMs: 5000, fadeHoldMs: 2000, sectionReset: true, retriggerRate: 8, swing: 0, swingGrid: 8, sectionTempo: true,
 }
 
 /** A stopped session with the first style loaded and Sync Start armed. */
@@ -204,17 +205,17 @@ export function initialState(): AppState {
   const s = STYLES[0]
   const part = (i: number, program: number, on: boolean) => ({
     name: KEYBOARD_PART_NAMES[i], channel: [1, 3, 4, 2][i], on, sounding: on, selected: i === 0,
-    volume: 100, waiting: false, program, voiceName: GM[program], playsBass: false, octave: 0, pan: 64, reverb: i === 3 ? 40 : 50, chorus: 10, variation: 0, fader: null, patch: null as string | null,
+    volume: 100, waiting: false, program, voiceName: GM[program], playsBass: false, octave: 0, pan: 64, reverb: 0, chorus: 0, variation: 0, fader: null, patch: null as string | null,
   })
   const state: AppState = {
     version: 1,
     style: styleState(s),
     transport: {
       running: false, syncStart: true, syncStop: false, syncStopAvailable: true, autoFill: false, stopAcmp: false,
-      section: null, queued: null, pendingIntro: null, main: 0, bar: 1, beat: 1,
+      section: null, queued: null, landing: null, pendingIntro: null, main: 0, bar: 1, beat: 1,
       beatsPerBar: beatsPerBar([s.timeSignature[0], s.timeSignature[1]]), tempo: s.tempo, lamps: [], sectionBars: null,
       halfBarFill: false, stopAcmpMode: 'off',
-      fade: 'off', retrigger: false, ritardando: false,
+      fade: 'off', retrigger: false, ritardando: false, acmp: true,
     },
     chord: {
       name: null, fingered: null, fingering: 'fingeredOnBass', fingeringName: 'Fingered On Bass', upper: false,
@@ -224,9 +225,13 @@ export function initialState(): AppState {
     keyboard: { held: [], leftSplit: 54, chordTones: [], chordBass: null, detection: [0, 54] },
     mixer: {
       faderPage: 'panel',
+      faderLayer: 'volume',
+      sendWaiting: 0,
+      styleSendWaiting: 0,
       styleParts: STYLE_PART_NAMES.map((name, i) => ({
         name, channel: 9 + i, on: true, mutedByManualBass: false,
         volume: [100, 100, 96, 80, 76, 70, 88, 84][i], waiting: false, fader: null,
+        reverb: MOCK_STYLE_SENDS[i][0], chorus: MOCK_STYLE_SENDS[i][1], variation: MOCK_STYLE_SENDS[i][2], sendsSet: [],
         voice: { bankMsb: STYLE_VOICES[i][0], bankLsb: STYLE_VOICES[i][1], program: STYLE_VOICES[i][2], kit: STYLE_VOICES[i][3], label: STYLE_VOICES[i][4] },
       })),
       master: 100,
@@ -246,7 +251,7 @@ export function initialState(): AppState {
       inputs: MOCK_SOURCES.map((s) => (s.pads ? `${s.name} (pads)` : s.name)),
       synth: {
         soundFont: 'GeneralUser-GS', device: 'MacBook Pro Speakers', sampleRate: 48000, bufferFrames: 64,
-        channels: 2, outputPair: [1, 2], muted: false,
+        channels: 2, outputPair: [1, 2], muted: false, dropouts: 0,
       },
       engine: { realtime: true, wakeP99Us: 3, chordP99Us: 15, midiInP99Us: 120 },
       lastControl: 0,
@@ -277,9 +282,10 @@ export function initialState(): AppState {
     soundLibrary: initialSoundLibrary(),
     paramLocks: { splitPoint: false, fingeringType: false },
     sounds: initialSounds(),
-    dynamics: { control: true, level: 64, touch: false, accent: false, accentThreshold: 110 },
-    knobs: { page: 'style', pageName: 'Style', pageNumber: 1, pageCount: 4, knobs: [] },
+    dynamics: { control: true, level: 127, touch: false, accent: false, accentThreshold: 110 },
+    knobs: { page: 'style', pageName: 'Style', pageNumber: 1, pageCount: 6, knobs: [] },
     effects: initialEffects(),
+    home: { mains: [], progress: { running: false, bar: 1, beat: 1, bars: null, beatsPerBar: 4, fraction: 0 }, snapshot: null, ots: null, bandSends: [] },
   }
   derive(state, LIBRARY)
   state.knobs = new MockKnobs().state(state)
@@ -333,6 +339,10 @@ function derive(st: AppState, lib: LibraryList, hw: MockHardware | null = null, 
   const page = PAD_PAGES.findIndex((p) => p.id === st.pads.page)
   st.pads.pageName = PAD_PAGES[page].name
   st.pads.pageNumber = page + 1
+  // Where a fill (or the Break) queued or playing lands (#282).
+  const fillLike = (x: string | null) => x !== null && (FILLS.includes(x) || x === BREAK)
+  const t = st.transport
+  t.landing = t.running && (fillLike(t.queued) || fillLike(t.section)) ? MAINS[t.main] : null
   st.transport.lamps = padsFor(st, 'sections')
   st.pads.pads = padsFor(st, st.pads.page)
   const h = hw ?? idleHardware(st)
@@ -372,6 +382,8 @@ export class MockSession implements Session {
   /** Fractional beats since the band started. */
   private clock = 0
   private sectionStart = 0
+  /** A style took over mid-Intro, -Fill or -Break: its OTS comes when the Main starts (#111). */
+  private otsDue = false
   private taps: number[] = []
   /** Steady taps in a row (the engine's count), and when a bar of them starts the band. */
   private tapRun = 0
@@ -436,6 +448,7 @@ export class MockSession implements Session {
   private plugins = new MockPlugins(
     () => this.state,
     (t, e) => this.message(t, e),
+    (id, key) => this.catalogMock.preset(id, key)?.name ?? null,
   )
   /** The sound library (mock-sound-library.ts). */
   private sound = new MockSoundLibrary(() => this.state)
@@ -522,7 +535,15 @@ export class MockSession implements Session {
 
   /** No audio: silent meters with no channels, as the engine without its synth. */
   meters() {
-    return Promise.resolve({ atMs: this.now, channels: [], master: [0, 0] as [number, number], clips: 0 })
+    return Promise.resolve({ atMs: this.now, channels: [], master: [0, 0] as [number, number], masterRms: [0, 0] as [number, number], clips: 0 })
+  }
+
+  /** Audio dropouts, as a busy machine or a too-small buffer makes them (the engine counts
+   * the device's overload reports and its own late buffers in `io.synth.dropouts`). */
+  dropouts(n: number) {
+    if (!this.state.io.synth) return
+    this.state.io.synth.dropouts += n
+    this.publish()
   }
 
   pluginEditor(part: number, open: boolean) {
@@ -551,6 +572,7 @@ export class MockSession implements Session {
     this.state.version++
     this.reg.fill(this.state)
     this.looper.publish()
+    this.state.home = mockHome(this.state)
     derive(this.state, this.lib, this.hardware(), [...this.leftHand, ...this.rightHand])
     this.sound.derive(this.state)
     this.catalogMock.derive(this.state)
@@ -635,7 +657,7 @@ export class MockSession implements Session {
     this.position()
   }
 
-  private styleSettings(cmd: Extract<AppCmd, { type: `set${string}` | 'stepRetriggerRate' }>) {
+  private styleSettings(cmd: Extract<AppCmd, { type: `set${string}` | 'stepRetriggerRate' | 'stepSwing' }>) {
     const s = this.state.styleSettings
     const ms = (v: number, max: number) => Math.max(0, Math.min(max, Math.round(v)))
     switch (cmd.type) {
@@ -668,6 +690,18 @@ export class MockSession implements Session {
         s.retriggerRate = RETRIGGER_RATES[Math.max(0, Math.min(RETRIGGER_RATES.length - 1, (i < 0 ? 3 : i) + Math.sign(cmd.delta)))]
         break
       }
+      case 'setSwing':
+        s.swing = Math.max(0, Math.min(100, Math.round(cmd.amount)))
+        break
+      case 'stepSwing':
+        s.swing = Math.max(0, Math.min(100, s.swing + Math.round(cmd.delta)))
+        break
+      case 'setSectionTempo':
+        s.sectionTempo = cmd.on
+        break
+      case 'setSwingGrid':
+        s.swingGrid = cmd.grid >= 12 ? 16 : 8
+        break
     }
   }
 
@@ -727,10 +761,12 @@ export class MockSession implements Session {
       return
     }
     this.multiPads.bar()
+    // A queued style waits for an Ending, playing or queued: it loads at the stop (#111).
     const q = this.preview.queued
-    if (q !== null) {
+    const ending = [t.section, t.queued].some((s) => s !== null && ENDINGS.includes(s))
+    if (q !== null && !ending) {
       this.preview.queued = null
-      this.loadStyle(q)
+      this.loadStyle(q, true)
     }
     const played = bar - this.sectionStart
     const main = MAINS[t.main]
@@ -917,7 +953,8 @@ export class MockSession implements Session {
       t.main = m
       // OTS Link Timing "At Main Section Change": as the Main starts playing.
       const ots = this.state.ots
-      if (ots.link && ots.linkTiming === 'mainChange' && m < ots.settings.length && ots.applied !== m + 1) this.recallOts(m)
+      if (ots.link && m < ots.settings.length && (this.otsDue || (ots.linkTiming === 'mainChange' && ots.applied !== m + 1))) this.recallOts(m)
+      this.otsDue = false
     }
   }
 
@@ -1018,6 +1055,8 @@ export class MockSession implements Session {
   }
 
   private recallOts(n: number) {
+    // An OTS recall turns [ACMP] on.
+    this.state.transport.acmp = true
     const panel = this.state.mixer.faderPage === 'panel'
     this.state.ots.settings[n].parts.forEach((o, i) => {
       const p = this.state.keyboardParts[i]
@@ -1053,7 +1092,8 @@ export class MockSession implements Session {
     if (this.state.ots.link && this.state.ots.linkTiming === 'immediate' && target < this.state.ots.settings.length) this.recallOts(target)
   }
 
-  private loadStyle(id: number) {
+  /** `atBar`: a queued style taking over while the band plays (its OTS waits for a Main). */
+  private loadStyle(id: number, atBar = false) {
     const s = this.styles[id]
     if (!s) return
     // Loading hands over cleanly from an audition: it ends, the band stays as it was.
@@ -1065,6 +1105,10 @@ export class MockSession implements Session {
     const st = this.state
     const t = st.transport
     st.style = styleState(s)
+    // Dynamics starts at its maximum (as written) with each style, as the session.
+    st.dynamics.level = 127
+    // Swing starts at 0 (as written) with each style, as the session.
+    st.styleSettings.swing = 0
     // Change Behavior: Lock keeps, Hold keeps while playing, Reset takes the new style's.
     const resets = (rule: string) => rule === 'reset' || (rule === 'hold' && !t.running)
     if (resets(st.styleChange.tempo)) t.tempo = s.tempo
@@ -1073,7 +1117,13 @@ export class MockSession implements Session {
     if (!t.running && set !== null) t.main = [0, 1, 2, 3].map((d) => [set - d, set + d]).flat().find((j) => j >= 0 && j < 4 && s.sections.includes(MAINS[j])) ?? set
     t.beatsPerBar = beatsPerBar(st.style.timeSignature)
     st.ots = { settings: otsSettings(s.ots), applied: 0, link: st.ots.link, linkTiming: st.ots.linkTiming }
-    if (st.ots.link && t.main < s.ots) this.recallOts(t.main)
+    this.otsDue = false
+    if (st.ots.link && t.main < s.ots) {
+      // Taking over while the band plays: the new style's OTS comes with a Main (#111).
+      const inMain = t.section !== null && MAINS.includes(t.section) && !(t.queued !== null && !MAINS.includes(t.queued))
+      if (atBar && !inMain) this.otsDue = true
+      else this.recallOts(t.main)
+    }
     for (const p of st.mixer.styleParts) {
       p.volume = 100
       p.waiting = st.mixer.faderPage === 'style'
@@ -1126,6 +1176,15 @@ export class MockSession implements Session {
         if (!t.running) {
           t.main = cmd.index
           if (st.ots.link && cmd.index < st.ots.settings.length) this.recallOts(cmd.index)
+        } else if (t.section && FILLS.includes(t.section)) {
+          // A fill playing (#282): its own Main again repeats it once; another Main only
+          // moves the landing and calls off a repeat.
+          if (t.section === FILLS[cmd.index]) t.queued = FILLS[cmd.index]
+          else if (t.queued && FILLS.includes(t.queued)) t.queued = null
+          t.main = cmd.index
+        } else if (t.queued && (FILLS.includes(t.queued) || t.queued === BREAK)) {
+          // A fill already queued: the first press picked it; this one moves the landing.
+          t.main = cmd.index
         } else if (t.section === m) {
           t.queued = FILLS[cmd.index]
         } else if (t.autoFill && t.main !== cmd.index) {
@@ -1178,6 +1237,10 @@ export class MockSession implements Session {
       case 'toggleRetrigger':
         t.retrigger = !t.retrigger
         break
+      case 'toggleAcmp':
+      case 'setAcmp':
+        t.acmp = cmd.type === 'setAcmp' ? cmd.on : !t.acmp
+        break
       case 'setMainTiming':
       case 'setIntroEndingTiming':
       case 'setSyncStopWindow':
@@ -1187,6 +1250,10 @@ export class MockSession implements Session {
       case 'setSectionReset':
       case 'setRetriggerRate':
       case 'stepRetriggerRate':
+      case 'setSwing':
+      case 'stepSwing':
+      case 'setSwingGrid':
+      case 'setSectionTempo':
         this.styleSettings(cmd)
         break
       case 'toggleSyncStart':
@@ -1313,6 +1380,20 @@ export class MockSession implements Session {
       case 'toggleStylePart':
         st.mixer.styleParts[cmd.part].on = !st.mixer.styleParts[cmd.part].on
         break
+      case 'setStylePartSend': {
+        const p = st.mixer.styleParts[cmd.part]
+        if (!p) break
+        p[cmd.send] = vol(cmd.value)
+        if (!p.sendsSet.includes(cmd.send)) p.sendsSet = (['reverb', 'chorus', 'variation'] as const).filter((x) => x === cmd.send || p.sendsSet.includes(x))
+        break
+      }
+      case 'resetStylePartSends':
+        st.mixer.styleParts.forEach((p, i) => {
+          if (cmd.part !== null && cmd.part !== i) return
+          ;[p.reverb, p.chorus, p.variation] = MOCK_STYLE_SENDS[i]
+          p.sendsSet = []
+        })
+        break
       case 'setStylePartVolume':
         st.mixer.styleParts[cmd.part].volume = vol(cmd.volume)
         st.mixer.styleParts[cmd.part].waiting = false
@@ -1404,6 +1485,14 @@ export class MockSession implements Session {
         // The hardware faders are wherever they were: every level on the new page waits.
         for (const p of page === 'panel' ? st.keyboardParts : st.mixer.styleParts) p.waiting = true
         if (page === 'panel') st.mixer.styleVolumeWaiting = st.mixer.multiPadVolumeWaiting = true
+        break
+      }
+      case 'setFaderLayer':
+        st.mixer.faderLayer = cmd.layer
+        break
+      case 'stepFaderLayer': {
+        const i = FADER_LAYERS.indexOf(st.mixer.faderLayer)
+        st.mixer.faderLayer = FADER_LAYERS[(i + Math.sign(cmd.delta) + FADER_LAYERS.length) % FADER_LAYERS.length]
         break
       }
       case 'setPadPage':
@@ -1650,6 +1739,14 @@ export class MockSession implements Session {
       case 'setChartAutoStyle':
         this.chartCmd(cmd)
         break
+      case 'setPartPluginPreset':
+        if (!this.catalogMock.preset(cmd.id, cmd.preset)) {
+          this.message(`${cmd.id} has no preset ${cmd.preset}`, true)
+          break
+        }
+        this.sound.partPlugin(cmd.part, true)
+        this.plugins.cmd(cmd)
+        break
       case 'setPartPlugin':
       case 'clearPartPlugin':
         // A plugin picked here ends the part's own library patch.
@@ -1720,9 +1817,12 @@ export class MockSession implements Session {
       case 'auditionSound':
       case 'stopSoundAudition':
       case 'assignSound':
-      case 'setSoundCategory': {
+      case 'setSoundCategory':
+      case 'listPluginPresets':
+      case 'savePartAsPluginPreset': {
         const r = this.catalogMock.cmd(this.state, cmd)
         if (r.error) this.message(r.error, true)
+        if (r.saved) this.message(`Saved the preset “${r.saved}”`)
         // A preset from the synth's own font is the part's GM voice (setPartVoice): it ends
         // a plugin picked for the part, as a SoundFont patch does.
         for (const c of r.run ?? []) this.cmd(c)
@@ -1807,10 +1907,16 @@ export class MockSession implements Session {
         }
         p.value = Math.max(p.min, Math.min(p.max, Math.round(cmd.value)))
         p.display = FX_PARAMS[p.param].display(p.value)
+        // The player's own setting: the block no longer follows the style (#237), as a
+        // type change.
+        b.followStyle = false
         break
       }
       case 'setEffectReturn':
         this.state.effects.blocks.find((x) => x.block === cmd.block)!.returnLevel = clampLevel(cmd.level)
+        break
+      case 'setInsertsOn':
+        this.state.effects.insertsOn = cmd.on
         break
       case 'setBandSend':
         this.state.effects.blocks.find((x) => x.block === cmd.block)!.bandSend = clampLevel(cmd.level)
@@ -1865,6 +1971,9 @@ function fxParams(block: FxBlock, effect: FxType): FxParamState[] {
     })
 }
 
+/** The mock style's own sends per Style part (#268): reverb, chorus, variation (as the Rust mock's). */
+const MOCK_STYLE_SENDS: [number, number, number][] = [[30, 0, 0], [30, 0, 0], [20, 0, 0], [40, 10, 0], [40, 10, 0], [50, 20, 0], [50, 10, 20], [50, 10, 20]]
+
 /**
  * The effect bus as a session starts it: Hall, Chorus, the dotted 1/8 delay, every return 64;
  * the band's reverb as written (100), no band chorus or delay (#236); the same for the Multi
@@ -1882,6 +1991,9 @@ export function initialEffects(): EffectsState {
       block('chorus', 'Chorus', 'chorus', [['chorus', 'Chorus'], ['celeste', 'Celeste'], ['flanger', 'Flanger']], 0),
       block('variation', 'Variation', 'dottedEighth', [['eighth', 'Delay 1/8'], ['dottedEighth', 'Delay 1/8.'], ['quarter', 'Delay 1/4'], ['pingPong', 'Ping-Pong']], 0),
     ],
+    // The mock style's insertion effect (#269) on Chord 1, as the Rust mock's.
+    inserts: [{ part: 3, partName: 'Chord 1', name: 'British Combo Classic', effect: 'distortion' }],
+    insertsOn: true,
   }
 }
 

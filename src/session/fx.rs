@@ -4,7 +4,7 @@
 //! The audio thread reads them from `SynthControl::fx`, which `pump_fx` keeps up to date.
 
 use super::Control;
-use crate::api::{CmdError, EffectsState, FxBlock, FxCmd, FxParam, FxType, StyleEffectState};
+use crate::api::{CmdError, EffectsState, FxBlock, FxCmd, FxParam, FxType, InsertEffect, InsertState, StyleEffectState};
 use crate::fx::xg::StyleFx;
 use crate::registration::{Group, Groups};
 use serde::{Deserialize, Serialize};
@@ -23,13 +23,15 @@ pub(super) struct FxSettings {
     pub(super) params: [u16; crate::fx::PARAMS],
     /// Each block follows the style's own type (#237).
     pub(super) follow: [bool; 3],
+    /// The style's insertion effects play (#269).
+    pub(super) inserts_on: bool,
 }
 
 impl Default for FxSettings {
     /// The Genos defaults: Hall, Chorus, and here the dotted 1/8 delay; every return 0 dB.
     /// The band's reverb as the style wrote it, and no band chorus or delay (#236).
     fn default() -> FxSettings {
-        FxSettings { effect: FxBlock::DEFAULT_TYPES, returns: [crate::fx::RETURN_UNITY; 3], band: crate::fx::BAND_SEND_DEFAULT, pad: crate::fx::PAD_SEND_DEFAULT, params: crate::fx::default_params(), follow: [true; 3] }
+        FxSettings { effect: FxBlock::DEFAULT_TYPES, returns: [crate::fx::RETURN_UNITY; 3], band: crate::fx::BAND_SEND_DEFAULT, pad: crate::fx::PAD_SEND_DEFAULT, params: crate::fx::default_params(), follow: [true; 3], inserts_on: true }
     }
 }
 
@@ -54,7 +56,8 @@ impl FxSettings {
 
     /// Each block that follows the style (or only `only`) takes the style's type and the
     /// parameters it sets; a block the style sets nothing near takes its default type.
-    /// The type's own parameters come back either way, as a Genos style load does.
+    /// The type's own parameters come back either way, as a Genos style load does, and
+    /// its return level is the style's, or 0 dB (64) where the style sets none (#269).
     pub(super) fn apply_style(&mut self, style: &StyleFx, only: Option<FxBlock>) {
         for b in FxBlock::ALL {
             if !self.follow[b.index()] || only.is_some_and(|o| o != b) {
@@ -67,13 +70,14 @@ impl FxSettings {
                     for &(p, v) in params {
                         self.params[p.index()] = p.clamp(v);
                     }
-                    // The style's return level (#269), where it sets one; else the
-                    // player's stays.
-                    if let Some(r) = choice.and_then(|c| c.ret) {
-                        self.returns[b.index()] = r.min(127);
-                    }
+                    // The style's return level (#269), where it sets one; else 0 dB, so
+                    // the last style's return doesn't carry into this one.
+                    self.returns[b.index()] = choice.and_then(|c| c.ret).map_or(crate::fx::RETURN_UNITY, |r| r.min(127));
                 }
-                None => self.set_type(b, FxBlock::DEFAULT_TYPES[b.index()]),
+                None => {
+                    self.set_type(b, FxBlock::DEFAULT_TYPES[b.index()]);
+                    self.returns[b.index()] = crate::fx::RETURN_UNITY;
+                }
             }
         }
     }
@@ -101,6 +105,9 @@ struct EffectsReg {
     reverb: EffectReg,
     chorus: EffectReg,
     variation: EffectReg,
+    /// The style's insertion effects on (#269); absent (before #269): on.
+    #[serde(default, rename = "insertsOn", skip_serializing_if = "Option::is_none")]
+    inserts_on: Option<bool>,
 }
 
 /// The Multi Pad send scales (#267), stored in the Registration's `multiPad` section
@@ -151,6 +158,7 @@ impl Control {
                     self.fx.apply_style(&self.info.effects, Some(block));
                 }
             }
+            FxCmd::SetInsertsOn { on } => self.fx.inserts_on = on,
             FxCmd::SetEffectReturn { block, level } => self.fx.returns[block.index()] = level.min(127),
             FxCmd::SetBandSend { block, level } => self.fx.band[block.index()] = level.min(127),
             FxCmd::SetPadSend { block, level } => self.fx.pad[block.index()] = level.min(127),
@@ -159,6 +167,10 @@ impl Control {
                     return self.fail(format!("{} has no {} parameter", block.name(), param.spec().name));
                 }
                 self.fx.params[param.index()] = param.clamp(value);
+                // The player's own setting (the editor's or a knob's): the block no longer
+                // follows the style (#237), so the next style change keeps it, as after a
+                // type change.
+                self.fx.follow[block.index()] = false;
             }
         }
         self.pump_fx();
@@ -187,6 +199,25 @@ impl Control {
         for (a, &v) in fx.params.iter().zip(&s.params) {
             a.store(v, Relaxed);
         }
+        // The style's insertion effects (#269), on the Style parts they are on.
+        let mut kinds = [(0u8, 64u8); 8];
+        if s.inserts_on {
+            for i in &self.info.inserts {
+                if let (Some((k, a)), Some(p)) = (i.kind, (i.channel as usize).checked_sub(8).filter(|&p| p < 8)) {
+                    kinds[p] = (k as u8, a);
+                }
+            }
+        }
+        for (p, (k, a)) in kinds.into_iter().enumerate() {
+            fx.insert[p].store(k, Relaxed);
+            fx.insert_amount[p].store(a, Relaxed);
+        }
+        // The Style parts' own sends (#268): the engine owns them.
+        for (a, own) in fx.part_send.iter().zip(&self.snap.style_send_own) {
+            for (a, &v) in a.iter().zip(own) {
+                a.store(v, Relaxed);
+            }
+        }
     }
 
     /// The Registration's `effects` section (group Style, as the Genos Data List files
@@ -203,7 +234,7 @@ impl Control {
             follow_style: Some(self.fx.follow[b.index()]),
         });
         let [reverb, chorus, variation] = blocks;
-        serde_json::to_value(EffectsReg { reverb, chorus, variation }).ok()
+        serde_json::to_value(EffectsReg { reverb, chorus, variation, inserts_on: Some(self.fx.inserts_on) }).ok()
     }
 
     pub(super) fn effects_recall(&mut self, v: &serde_json::Value, g: Groups) -> Result<(), String> {
@@ -211,6 +242,7 @@ impl Control {
             return Ok(());
         }
         let r: EffectsReg = serde_json::from_value(v.clone()).map_err(|e| format!("registration effects: {e}"))?;
+        self.fx.inserts_on = r.inserts_on.unwrap_or(true);
         for (b, reg) in FxBlock::ALL.into_iter().zip([r.reverb, r.chorus, r.variation]) {
             if b.types().contains(&reg.effect) {
                 self.fx.set_type(b, reg.effect);
@@ -230,6 +262,18 @@ impl Control {
 
     pub(super) fn effects_state(&self) -> EffectsState {
         let mut s = EffectsState::new(self.fx.effect, self.fx.returns, self.fx.band, self.fx.params);
+        s.inserts_on = self.fx.inserts_on;
+        s.inserts = self
+            .info
+            .inserts
+            .iter()
+            .map(|i| InsertState {
+                part: i.channel - 8,
+                part_name: crate::api::STYLE_PART_NAMES[(i.channel - 8) as usize & 7].to_string(),
+                name: i.name.clone(),
+                effect: i.kind.map(|k| InsertEffect::from(k.0)),
+            })
+            .collect();
         for (b, st) in s.blocks.iter_mut().enumerate() {
             st.pad_send = self.fx.pad[b];
             st.follow_style = self.fx.follow[b];
@@ -285,7 +329,7 @@ mod tests {
         let s = Session::offline(Options { paths: vec![p], ..Options::default() }).unwrap();
         s.send(PartsCmd::SetPartSend { part: 0, send: PartSend::Reverb, value: 70 }).unwrap();
         s.take_output();
-        let resent = |out: &[[u8; 3]]| out.contains(&[0xB0, 91, 70]) && out.contains(&[0xB1, 91, 40]) && out.contains(&[0xB2, 93, 10]);
+        let resent = |out: &[[u8; 3]]| out.contains(&[0xB0, 91, 70]) && out.contains(&[0xB1, 91, 0]) && out.contains(&[0xB2, 93, 0]);
         s.send(SystemCmd::Panic).unwrap();
         let out = s.take_output();
         assert!(resent(&out), "Panic: {out:?}");
@@ -525,17 +569,83 @@ mod tests {
         assert_eq!(chorus(&s), ["0.55 Hz", "2.2 ms"]);
         s.send(FxCmd::SetEffectType { block: FxBlock::Chorus, effect: FxType::Celeste }).unwrap();
         assert_eq!(chorus(&s), ["0.29 Hz", "0.9 ms"]);
-        s.send(KnobsCmd::SetKnobPage { page: KnobPage::Fx }).unwrap();
-        s.send(KnobsCmd::TurnKnob { knob: 6, delta: 3 }).unwrap();
-        s.send(KnobsCmd::TurnKnob { knob: 0, delta: 6 }).unwrap();
-        s.send(KnobsCmd::TurnKnob { knob: 4, delta: 10 }).unwrap();
+        s.send(KnobsCmd::SetKnobPage { page: KnobPage::Chorus }).unwrap();
+        s.send(KnobsCmd::TurnKnob { knob: 5, delta: 3 }).unwrap();
+        s.send(KnobsCmd::SetKnobPage { page: KnobPage::Reverb }).unwrap();
+        s.send(KnobsCmd::TurnKnob { knob: 4, delta: 6 }).unwrap();
+        s.send(KnobsCmd::SetKnobPage { page: KnobPage::Delay }).unwrap();
+        s.send(KnobsCmd::TurnKnob { knob: 5, delta: 10 }).unwrap();
         let st = s.state();
         assert_eq!(chorus(&s)[1], "1.2 ms");
         assert_eq!(st.effects.blocks[0].params[0].display, "2.4 s", "the reverb time (the style's plate, 1.8 s), 0.1 s a step");
         assert_eq!(st.effects.blocks[2].params[3].display, "58%", "the delay feedback, 2% a step");
-        assert_eq!((st.knobs.page_name.as_str(), st.knobs.knobs[4].short.as_str(), st.knobs.knobs[4].value.as_str()), ("FX", "DlyFdbk", "58%"));
+        assert_eq!((st.knobs.page_name.as_str(), st.knobs.knobs[5].short.as_str(), st.knobs.knobs[5].value.as_str()), ("Delay", "DlyFdbk", "58%"));
+        // A parameter knob pins its block to the player's own (#237), as the editor does.
+        assert!(st.effects.blocks.iter().all(|b| !b.follow_style), "every block turned is Mine");
         let ctl = s.inner.lock();
         assert_eq!(ctl.synth.as_ref().unwrap().control.fx.params[FxParam::ChorusDepth.index()].load(Relaxed), 12);
+    }
+
+    /// #269: a style's insertion effects reach the audio thread on the parts they are on,
+    /// show in the state, go off together, and another style brings its own.
+    #[test]
+    fn the_styles_inserts_reach_the_bus() {
+        use crate::api::{FxCmd, InsertEffect, LibraryCmd, RegistrationCmd};
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus");
+        let mut files: Vec<_> = std::fs::read_dir(dir.join("T5Style")).into_iter().flatten().flatten().map(|e| e.path()).collect();
+        files.sort();
+        let inserts = |p: &Path| {
+            crate::sff::Style::load(p).map(|s| {
+                let prep = crate::engine::Prepared::new(&s);
+                crate::fx::xg::style_inserts(prep.setups[0].init.iter())
+            })
+        };
+        // A style with an insert yahaha plays, and one with none.
+        let with = files.iter().find(|p| inserts(p).is_ok_and(|i| i.iter().any(|i| i.kind.is_some())));
+        let slow = files.iter().find(|p| inserts(p).is_ok_and(|i| i.is_empty()));
+        let (Some(with), Some(slow)) = (with.cloned(), slow.cloned()) else {
+            eprintln!("corpus missing; skipping");
+            return;
+        };
+        let data = std::env::temp_dir().join(format!("yahaha-fx-inserts-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&data);
+        let s = Session::offline(Options { paths: vec![with.clone(), slow.clone()], data_dir: Some(data.clone()), ..Options::default() }).unwrap();
+        s.offline_audio(None, 48_000).unwrap();
+        let load = |s: &Session, p: &Path| {
+            s.send(LibraryCmd::LoadStylePath { path: p.to_string_lossy().into() }).unwrap();
+            s.advance(1_000_000_000);
+        };
+        let atomics = |s: &Session| {
+            let ctl = s.inner.lock();
+            ctl.synth.as_ref().unwrap().control.fx.insert.iter().map(|a| a.load(Relaxed)).collect::<Vec<_>>()
+        };
+        load(&s, &with);
+        let st = s.state();
+        assert!(st.effects.inserts_on);
+        let played: Vec<_> = st.effects.inserts.iter().filter(|i| i.effect.is_some()).collect();
+        assert!(!played.is_empty(), "{:?}", st.effects.inserts);
+        let a = atomics(&s);
+        for i in &st.effects.inserts {
+            assert_eq!(a[i.part as usize] != 0, i.effect.is_some(), "{i:?} on the atomics {a:?}");
+        }
+        let first = played[0].clone();
+        let kind = crate::fx::InsertKind::from_u8(a[first.part as usize]);
+        assert_eq!(InsertEffect::from(kind), first.effect.unwrap());
+        s.send(RegistrationCmd::MemorizeRegist { index: 0 }).unwrap();
+        // Off: every part dry.
+        s.send(FxCmd::SetInsertsOn { on: false }).unwrap();
+        assert!(atomics(&s).iter().all(|&k| k == 0));
+        assert!(!s.state().effects.inserts_on);
+        // Registration: on again.
+        s.send(RegistrationCmd::RecallRegist { index: 0 }).unwrap();
+        s.advance(1_000_000_000);
+        assert!(s.state().effects.inserts_on);
+        assert_eq!(atomics(&s), a);
+        // A style with none: every part dry.
+        load(&s, &slow);
+        assert!(atomics(&s).iter().all(|&k| k == 0));
+        assert!(s.state().effects.inserts.iter().all(|i| i.effect.is_none()));
+        let _ = std::fs::remove_dir_all(&data);
     }
 
     /// #269: a style's own reverb time, pre-delay and tone (its XG reverb parameters) come
@@ -566,10 +676,19 @@ mod tests {
         let st = s.state();
         assert_eq!(reverb(&s)[..2], ["1.6 s", "11 ms"]);
         assert_eq!(st.effects.blocks[0].params[2].value, st.effects.blocks[0].params[2].default);
-        // Not following: the player's reverb stays.
-        s.send(FxCmd::SetFollowStyle { block: FxBlock::Reverb, on: false }).unwrap();
+        // A return the player set: a style that sets none puts a following block back at
+        // 0 dB (64), so one style's return never carries into the next.
+        s.send(FxCmd::SetEffectReturn { block: FxBlock::Chorus, level: 20 }).unwrap();
+        s.send(FxCmd::SetEffectReturn { block: FxBlock::Reverb, level: 100 }).unwrap();
         load(&s, &icy);
-        assert_eq!(reverb(&s)[..2], ["1.6 s", "11 ms"]);
+        let rets = |s: &Session| s.state().effects.blocks.iter().map(|b| b.return_level).collect::<Vec<_>>();
+        assert_eq!(rets(&s), vec![64, 64, 64]);
+        // Not following: the player's reverb and its return stay.
+        s.send(FxCmd::SetFollowStyle { block: FxBlock::Reverb, on: false }).unwrap();
+        s.send(FxCmd::SetEffectReturn { block: FxBlock::Reverb, level: 100 }).unwrap();
+        load(&s, &cumbia);
+        assert_eq!(reverb(&s)[..2], ["3.0 s", "93 ms"], "IcyBallad's, pinned");
+        assert_eq!(rets(&s)[0], 100);
     }
 
     /// #237: a style's own effect types. Loading it sets them (and the delay's time and

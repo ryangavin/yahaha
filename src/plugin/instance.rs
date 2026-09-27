@@ -202,6 +202,12 @@ impl PluginInstance {
         self.stats.clone()
     }
 
+    /// How long the last render took, in ns. RT-safe (no reference count touched).
+    #[inline]
+    pub fn last_render_ns(&self) -> u64 {
+        self.stats.last_ns.load(Relaxed)
+    }
+
     /// Queue one short MIDI message `offset` frames into the next render (which must be
     /// longer than `offset`). RT-safe.
     #[inline]
@@ -281,6 +287,12 @@ impl PluginInstance {
     /// thread and deadlocks if called there.
     pub fn get_state(&self) -> Result<Vec<u8>> {
         sys::guard("reading the state", || self.unit.class_info())
+    }
+
+    /// Select factory preset `number` (`kAudioUnitProperty_PresentPreset`). Not RT-safe:
+    /// before the instance plays.
+    pub fn set_factory_preset(&mut self, number: i32, name: &str) -> Result<()> {
+        sys::guard("selecting the preset", || self.unit.set_factory_preset(number, name))
     }
 
     /// Restore a state from [`PluginInstance::get_state`]. Not RT-safe: call it off the audio

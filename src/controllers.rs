@@ -187,7 +187,9 @@ pub enum Function {
     /// previous stored button (`RegistrationCmd::StepRegist`, #200).
     RegistNext,
     RegistPrev,
-    /// Regist 1-10 (RM p.141): the REGISTRATION MEMORY buttons.
+    /// Regist 1-10 (RM p.141): the REGISTRATION MEMORY buttons, now Snapshots 1-8 of the
+    /// snapshot bank on view; 9 and 10 run on into the next bank's 1 and 2 (where a
+    /// ten-button bank's 9 and 10 went), so an old assignment still finds them.
     Regist1,
     Regist2,
     Regist3,
@@ -198,7 +200,7 @@ pub enum Function {
     Regist8,
     Regist9,
     Regist10,
-    /// The MEMORY button (RM p.141).
+    /// The MEMORY button (RM p.141): Snapshot Store.
     RegistMemory,
     /// Freeze On/Off (RM p.141).
     RegistFreeze,
@@ -210,6 +212,9 @@ pub enum Function {
     /// Left Hold On/Off (RM p.140: "Same as the [LEFT HOLD] button", with a Control Type):
     /// a control-side switch like Arpeggio Hold (#202).
     LeftHold,
+    /// ACMP On/Off (RM p.140: "Same as the [ACMP] button", #266). Last, so the pedal
+    /// setups stored before it keep their numbers.
+    Acmp,
 }
 
 /// One row of the assignable-function table.
@@ -238,7 +243,7 @@ use Kind::*;
 /// The assignable functions, in `Function` order: the Genos live-play list (RM p.139-144)
 /// as far as yahaha has the feature. app/src/lib/api/assignable-functions.json is this table
 /// as the app reads it (a test keeps the two equal).
-pub const FUNCTIONS: [FunctionInfo; 67] = [
+pub const FUNCTIONS: [FunctionInfo; 68] = [
     f(Function::None, "No Assign", Overall, Trigger),
     f(Function::Sustain, "Sustain", Voice, Switch),
     f(Function::Sostenuto, "Sostenuto", Voice, Switch),
@@ -290,22 +295,23 @@ pub const FUNCTIONS: [FunctionInfo; 67] = [
     f(Function::DynamicsControl, "Dynamics Control", Style, Continuous),
     f(Function::RegistNext, "Regist +", Registration, Trigger),
     f(Function::RegistPrev, "Regist −", Registration, Trigger),
-    f(Function::Regist1, "Registration Memory 1", Registration, Trigger),
-    f(Function::Regist2, "Registration Memory 2", Registration, Trigger),
-    f(Function::Regist3, "Registration Memory 3", Registration, Trigger),
-    f(Function::Regist4, "Registration Memory 4", Registration, Trigger),
-    f(Function::Regist5, "Registration Memory 5", Registration, Trigger),
-    f(Function::Regist6, "Registration Memory 6", Registration, Trigger),
-    f(Function::Regist7, "Registration Memory 7", Registration, Trigger),
-    f(Function::Regist8, "Registration Memory 8", Registration, Trigger),
-    f(Function::Regist9, "Registration Memory 9", Registration, Trigger),
-    f(Function::Regist10, "Registration Memory 10", Registration, Trigger),
-    f(Function::RegistMemory, "Registration Memory", Registration, Trigger),
+    f(Function::Regist1, "Snapshot 1", Registration, Trigger),
+    f(Function::Regist2, "Snapshot 2", Registration, Trigger),
+    f(Function::Regist3, "Snapshot 3", Registration, Trigger),
+    f(Function::Regist4, "Snapshot 4", Registration, Trigger),
+    f(Function::Regist5, "Snapshot 5", Registration, Trigger),
+    f(Function::Regist6, "Snapshot 6", Registration, Trigger),
+    f(Function::Regist7, "Snapshot 7", Registration, Trigger),
+    f(Function::Regist8, "Snapshot 8", Registration, Trigger),
+    f(Function::Regist9, "Snapshot 1 of the next bank", Registration, Trigger),
+    f(Function::Regist10, "Snapshot 2 of the next bank", Registration, Trigger),
+    f(Function::RegistMemory, "Snapshot Store", Registration, Trigger),
     f(Function::RegistFreeze, "Registration Freeze On/Off", Registration, Trigger),
     f(Function::RegistSequence, "Registration Sequence On/Off", Registration, Trigger),
     f(Function::ChordLooperOnOff, "Chord Looper On/Off", ChordLooper, Trigger),
     f(Function::ChordLooperRec, "Chord Looper Rec/Stop", ChordLooper, Trigger),
     f(Function::LeftHold, "Left Hold On/Off", Voice, Switch),
+    f(Function::Acmp, "ACMP On/Off", Style, Trigger),
 ];
 
 /// What running a function means, for the input thread.
@@ -363,6 +369,7 @@ impl Function {
             F::FillBreak => Effect::Engine(Button::Break),
             F::Ending1 | F::Ending2 | F::Ending3 => Effect::Engine(Button::Ending(self as u8 - F::Ending1 as u8)),
             F::AutoFill => Effect::Engine(Button::AutoFill),
+            F::Acmp => Effect::Engine(Button::Acmp),
             F::StopAcmp => Effect::Engine(Button::StopAcmp),
             F::TempoUp => Effect::Engine(Button::TempoUp),
             F::TempoDown => Effect::Engine(Button::TempoDown),

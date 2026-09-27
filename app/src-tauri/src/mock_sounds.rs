@@ -7,14 +7,43 @@ use yahaha::patches::PatchSource;
 
 use super::sound::presets;
 
+/// The made-up sampler whose AU presets the mock lists (as mock-plugins.ts): a user
+/// preset folder from the start, factory presets once the browser expands it.
+pub const MOCK_PRESETS_ID: &str = "aumu Smp7 Fake";
+
+/// Its user presets' folder.
+const MOCK_PRESET_DIR: &str = "/Users/mock/Library/Audio/Presets/Fake Instruments/Sampler Deluxe";
+
 /// The catalog's settings, its revision and the audition.
-#[derive(Default)]
 pub struct MockSounds {
     prefs: SoundPrefs,
     audition: Option<(String, f64)>,
     /// What the catalog was last built from, and its revision.
     key: String,
     revision: u64,
+    /// The plugins' presets (`listPluginPresets` adds the factory ones).
+    presets: Vec<PluginPresetList>,
+}
+
+impl Default for MockSounds {
+    fn default() -> MockSounds {
+        let user = |name: &str, folder: Option<&str>| PluginPresetEntry {
+            key: format!("u:{MOCK_PRESET_DIR}/{}{name}.aupreset", folder.map_or(String::new(), |f| format!("{f}/"))),
+            name: name.into(),
+            folder: folder.map(Into::into),
+        };
+        MockSounds {
+            prefs: SoundPrefs::default(),
+            audition: None,
+            key: String::new(),
+            revision: 0,
+            presets: vec![PluginPresetList {
+                plugin: MOCK_PRESETS_ID.into(),
+                listed: false,
+                presets: vec![user("Arco Strings", None), user("Upright Piano", Some("Pianos"))],
+            }],
+        }
+    }
 }
 
 /// What a `SoundsCmd` asks of the rest of the mock.
@@ -23,6 +52,8 @@ pub enum Then {
     Run(Vec<AppCmd>),
     /// Add a preset to the library, then give keyboard part `.1` the patch added.
     AddThenAssign(AppCmd, u8),
+    /// Part `.0` plays the preset just saved (key `.1`, name `.2`).
+    PresetSaved(u8, String, String),
 }
 
 impl MockSounds {
@@ -34,14 +65,22 @@ impl MockSounds {
         let fonts = Self::fonts(st);
         let fonts: Vec<(&str, &[Preset])> = fonts.iter().map(|(f, p)| (f.as_str(), p.as_slice())).collect();
         let patches: Vec<_> = st.sound_library.patches.iter().map(|p| p.patch.clone()).collect();
-        SoundCatalog { revision: self.revision, entries: self.prefs.entries(&fonts, &st.plugins.list, &patches), recents: self.prefs.recents.clone() }
+        SoundCatalog { revision: self.revision, entries: self.prefs.entries(&fonts, &st.plugins.list, &self.presets, &patches), recents: self.prefs.recents.clone() }
+    }
+
+    /// Preset `key` of plugin `id`, if the mock lists it.
+    pub fn preset(&self, id: &str, key: &str) -> Option<&PluginPresetEntry> {
+        self.presets.iter().find(|l| l.plugin == id)?.presets.iter().find(|p| p.key == key)
     }
 
     fn known(&self, st: &AppState, id: &str) -> bool {
         if let Some((file, bank, program)) = parse_preset_id(id) {
             st.io.sound_fonts.iter().any(|f| f == file) && presets(file).iter().any(|p| p.bank == bank && p.program == program)
-        } else if let Some(plugin) = id.strip_prefix("au:") {
-            st.plugins.list.iter().any(|p| p.id == plugin)
+        } else if let Some((plugin, preset)) = parse_plugin_id(id) {
+            match preset {
+                None => st.plugins.list.iter().any(|p| p.id == plugin),
+                Some(key) => self.preset(plugin, key).is_some(),
+            }
         } else if let Some(patch) = id.strip_prefix("saved:") {
             st.sound_library.patches.iter().any(|p| p.patch.id == patch)
         } else {
@@ -84,8 +123,11 @@ impl MockSounds {
                 }
                 let then = if let Some(patch) = id.strip_prefix("saved:") {
                     Then::Run(vec![SoundLibraryCmd::SetPartPatch { part, id: Some(patch.into()) }.into()])
-                } else if let Some(plugin) = id.strip_prefix("au:") {
-                    Then::Run(vec![PluginCmd::SetPartPlugin { part, id: plugin.into(), state: None }.into()])
+                } else if let Some((plugin, preset)) = parse_plugin_id(&id) {
+                    match preset {
+                        Some(key) => Then::Run(vec![PluginCmd::SetPartPluginPreset { part, id: plugin.into(), preset: key.into() }.into()]),
+                        None => Then::Run(vec![PluginCmd::SetPartPlugin { part, id: plugin.into(), state: None }.into()]),
+                    }
                 } else {
                     let (file, bank, program) = parse_preset_id(&id).ok_or_else(|| no(&id))?;
                     if st.io.sound_font_file.as_deref() == Some(file) && bank == 0 {
@@ -117,6 +159,60 @@ impl MockSounds {
                 }
                 self.prefs.sound_categories.insert(id, category);
             }
+            SoundsCmd::ListPluginPresets { id } => {
+                let Some((plugin, None)) = parse_plugin_id(&id) else { return Err(format!("{id} is not a plugin")) };
+                if !st.plugins.list.iter().any(|p| p.id == plugin) {
+                    return Err(format!("no instrument Audio Unit {plugin} is installed"));
+                }
+                let at = match self.presets.iter().position(|l| l.plugin == plugin) {
+                    Some(i) => i,
+                    None => {
+                        self.presets.push(PluginPresetList { plugin: plugin.into(), listed: false, presets: vec![] });
+                        self.presets.len() - 1
+                    }
+                };
+                let l = &mut self.presets[at];
+                if !l.listed {
+                    l.listed = true;
+                    if plugin == MOCK_PRESETS_ID {
+                        let factory = ["Init", "Bright Grand", "Brass Stabs"]
+                            .iter()
+                            .enumerate()
+                            .map(|(n, name)| PluginPresetEntry { key: format!("f:{n}"), name: (*name).into(), folder: None });
+                        l.presets.splice(0..0, factory);
+                    }
+                }
+            }
+            SoundsCmd::SavePartAsPluginPreset { part, name, category, overwrite } => {
+                if part > 3 {
+                    return Err(format!("no keyboard part {part} (0-3)"));
+                }
+                let name = name.trim();
+                if name.is_empty() {
+                    return Err("name the preset".into());
+                }
+                let kp = &st.keyboard_parts[part as usize];
+                let Some(pl) = kp.plugin.as_ref().filter(|p| p.status == PluginStatus::Playing) else {
+                    return Err("the part plays its SoundFont voice, not a plugin".into());
+                };
+                let file: String = name.chars().map(|c| if matches!(c, '/' | ':') { '-' } else { c }).collect();
+                let key = format!("u:/Users/mock/Library/Audio/Presets/{}/{}/{file}.aupreset", pl.manufacturer, pl.name);
+                let at = match self.presets.iter().position(|l| l.plugin == pl.id) {
+                    Some(i) => i,
+                    None => {
+                        self.presets.push(PluginPresetList { plugin: pl.id.clone(), listed: false, presets: vec![] });
+                        self.presets.len() - 1
+                    }
+                };
+                let list = &mut self.presets[at].presets;
+                if !overwrite && list.iter().any(|p| p.key == key) {
+                    return Err(format!("a preset called {file} already exists: save under another name, or replace it"));
+                }
+                list.retain(|p| p.key != key);
+                list.push(PluginPresetEntry { key: key.clone(), name: file.clone(), folder: None });
+                self.prefs.sound_categories.insert(plugin_preset_id(&pl.id, &key), category);
+                return Ok(Then::PresetSaved(part, key, file));
+            }
         }
         Ok(Then::Nothing)
     }
@@ -131,8 +227,12 @@ impl MockSounds {
         }
         let source = if let Some((file, bank, program)) = parse_preset_id(id) {
             PatchSource::SoundFont { file: file.into(), bank, program }
-        } else if let Some(plugin) = id.strip_prefix("au:") {
-            PatchSource::Plugin { component_id: plugin.into(), state: String::new() }
+        } else if let Some((plugin, preset)) = parse_plugin_id(id) {
+            if preset.is_some_and(|k| k.starts_with("f:")) {
+                return Err("a factory preset can't be a rule's sound yet: play it on a part and Save as sound, then pick that".into());
+            }
+            // A user preset's patch keeps the file's settings (the mock has none to read).
+            PatchSource::Plugin { component_id: plugin.into(), state: preset.map_or(String::new(), |_| "bW9jaw==".into()) }
         } else {
             return Ok(Ok(id.into()));
         };
@@ -145,9 +245,16 @@ impl MockSounds {
         Ok(Err(match source {
             PatchSource::SoundFont { file, bank, program } => SoundLibraryCmd::AddPresetAsPatch { file, bank, program, name: None }.into(),
             source @ PatchSource::Plugin { .. } => {
-                let e = st.plugins.list.iter().find(|p| format!("au:{}", p.id) == id).ok_or_else(|| format!("no sound {id}"))?;
-                let category = self.prefs.plugin_category(id, &e.name, &e.manufacturer);
-                let patch = PatchFields { name: e.name.clone(), category, tags: vec![], favourite: false, source, defaults: Default::default() };
+                let (plugin, preset) = parse_plugin_id(id).ok_or_else(|| format!("no sound {id}"))?;
+                let e = st.plugins.list.iter().find(|p| p.id == plugin).ok_or_else(|| format!("no sound {id}"))?;
+                let pid = format!("au:{plugin}");
+                let mut category = self.prefs.plugin_category(&pid, &e.name, &e.manufacturer);
+                let mut name = e.name.clone();
+                if let Some(q) = preset.and_then(|k| self.preset(plugin, k)) {
+                    category = self.prefs.preset_category(id, &q.name, q.folder.as_deref(), category);
+                    name = format!("{} · {}", e.name, q.name);
+                }
+                let patch = PatchFields { name, category, tags: vec![], favourite: false, source, defaults: Default::default() };
                 SoundLibraryCmd::CreatePatch { patch }.into()
             }
         }))
@@ -165,17 +272,20 @@ impl MockSounds {
     /// `state.sounds`: a new revision whenever what the catalog is built from changed.
     pub fn derive(&mut self, st: &mut AppState) {
         let patches: Vec<_> = st.sound_library.patches.iter().map(|p| &p.patch).collect();
-        let key = serde_json::to_string(&(&st.io.sound_fonts, &st.io.sound_font_file, &st.plugins.list, patches, &self.prefs)).unwrap_or_default();
+        let key = serde_json::to_string(&(&st.io.sound_fonts, &st.io.sound_font_file, &st.plugins.list, patches, &self.prefs, &self.presets)).unwrap_or_default();
         if key != self.key || self.revision == 0 {
             self.key = key;
             self.revision += 1;
         }
         let presets: usize = st.io.sound_fonts.iter().map(|f| presets(f).len()).sum();
+        let plugin_presets: usize = self.presets.iter().filter(|l| st.plugins.list.iter().any(|p| p.id == l.plugin)).map(|l| l.presets.len()).sum();
         st.sounds = SoundsState {
             revision: self.revision,
-            count: (presets + st.plugins.list.len() + st.sound_library.patches.len()) as u32,
+            count: (presets + st.plugins.list.len() + plugin_presets + st.sound_library.patches.len()) as u32,
             scanning: st.plugins.scanning,
             auditioning: self.audition.as_ref().map(|(id, _)| id.clone()),
+            // The mock lists at once.
+            listing_presets: Vec::new(),
         };
     }
 }

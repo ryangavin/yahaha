@@ -174,7 +174,7 @@ impl Control {
     /// the stream) and remember it.
     fn set_audio_buffer(&mut self, frames: u32) -> Result<(), CmdError> {
         if !synth::BUFFER_CHOICES.contains(&frames) {
-            return self.fail(format!("the audio buffer is 64, 128 or 256 frames, not {frames}"));
+            return self.fail(format!("the audio buffer is 64, 128, 256, 512 or 1024 frames, not {frames}"));
         }
         let Some(sy) = self.synth.as_mut() else { return self.fail("the synth is off") };
         let Some(thread) = &sy.thread else {
@@ -348,6 +348,7 @@ impl Control {
                     channels: sy.info.channels as u32,
                     output_pair: [c + 1, c + 2],
                     muted: sy.control.muted.load(Relaxed),
+                    dropouts: sy.control.dropouts(),
                 }
             }),
             engine: EngineStats {

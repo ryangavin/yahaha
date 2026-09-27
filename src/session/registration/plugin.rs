@@ -51,7 +51,7 @@ pub(super) fn bank_plugin_voices(b: &Bank) -> Vec<PluginVoice> {
         for part in parts {
             let Some(Ok(VoiceRef::Plugin { id, state, .. })) = part.get("voice").map(|v| serde_json::from_value::<VoiceRef>(v.clone())) else { continue };
             let Some(state) = state.map(|s| base64_decode(&s)).map_or(Some(None), |d| d.map(Some)) else { continue };
-            let v = PluginVoice { id, state };
+            let v = PluginVoice { id, state, preset: None };
             match here.iter_mut().find(|(w, _)| *w == v) {
                 Some((_, n)) => *n += 1,
                 None => here.push((v, 1)),
@@ -106,7 +106,7 @@ impl Control {
         self.sound_library_part_plugin(p, true);
         // A preloaded instance is used up: the pool refills at the next pump.
         self.reg.warm_dirty = true;
-        let r = self.assign_channel_plugin(ch, PluginVoice { id: id.to_string(), state: bytes });
+        let r = self.assign_channel_plugin(ch, PluginVoice { id: id.to_string(), state: bytes, preset: None });
         if r.is_err() {
             self.clear_channel_plugin(ch);
         }
@@ -170,7 +170,7 @@ impl Control {
                 self.say(format!("{}: the plugin's settings are larger than {} MB: the registration keeps its default preset", parts::NAMES[p], MAX_STATE_BYTES >> 20), true);
                 continue;
             }
-            let Some(m) = self.reg.bank.memories[f.button].as_mut() else { break };
+            let Some(m) = self.reg.bank.get_mut(f.button) else { break };
             let Some(Value::Object(v)) = m.sections.get_mut("parts").and_then(|s| s.pointer_mut(&format!("/parts/{p}/voice"))) else { continue };
             let stored = (v.get("kind"), v.get("id"), v.get("state"));
             if stored.0.and_then(Value::as_str) != Some("plugin") || stored.1.and_then(Value::as_str) != Some(id.as_str()) || stored.2.and_then(Value::as_str) != old.as_deref() {

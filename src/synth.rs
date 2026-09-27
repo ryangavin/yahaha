@@ -85,10 +85,21 @@ pub struct SynthControl {
     pub peaks: [AtomicU32; 16],
     /// Left and right peaks after the soft clipper.
     pub master_peaks: [AtomicU32; 2],
+    /// RMS level per MIDI channel (f32 bits): the loudest audio buffer's since the last
+    /// `take_meters`.
+    pub rms: [AtomicU32; 16],
+    /// Left and right RMS after the soft clipper, the same way.
+    pub master_rms: [AtomicU32; 2],
     /// Buffers in which the soft clipper worked.
     pub clips: AtomicU64,
     /// Racks swapped in (`SetSoundFont`).
     pub swaps: AtomicU64,
+    /// Dropouts the audio device reported (CoreAudio's processor overload: an IO cycle
+    /// missed its deadline, whoever's fault), since start. Counted, never logged, where
+    /// they are reported (`stream.rs`); the control side tells the user.
+    pub xruns: AtomicU64,
+    /// Buffers our own callback took longer to render than the buffer lasts, since start.
+    pub late: AtomicU64,
     /// The metronome's click volume (0-127), read when a click starts.
     pub click_volume: AtomicU8,
     /// Which engine renders each MIDI channel: the SoundFont or the plugin rack
@@ -127,8 +138,11 @@ pub struct RackSwap {
     pub old: Consumer<Box<Rack>>,
 }
 
-/// The channels the meters report: the keyboard parts and the Style parts.
+/// The channels the rack's parts play: the keyboard parts and the Style parts.
 pub const RACK_CHANNELS: [u8; 12] = [0, 1, 2, 3, 8, 9, 10, 11, 12, 13, 14, 15];
+/// The channels the meters report: the keyboard parts, the Multi Pads (5-8) and the Style
+/// parts, in channel order.
+pub const METER_CHANNELS: [u8; 16] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
 
 /// The built-in synth's synthesizers, one SoundFont: the band's (ch 9-16) and your
 /// playing's (the keyboard parts, ch 1-4), 128 voices each. Each measures its channels'
@@ -155,6 +169,12 @@ pub struct Rack {
     /// Per extra synthesizer: how many frames it has rendered silence with no channel on
     /// it. Past `IDLE_FRAMES` it is not rendered until a channel routes to it again.
     quiet: Vec<u32>,
+    /// The performance view is on: `render` times its synthesizers and reports each
+    /// channel's cost, voices and level to `perf::PERF`.
+    profile: bool,
+    /// Each channel's RMS in the last `render` (the loudest synthesizer's, after a fade),
+    /// for the meters: the audio thread folds it into `SynthControl::rms`.
+    pub rms: [f32; 16],
 }
 
 /// An extra synthesizer no channel plays is rendered until its output (reverb and chorus
@@ -182,6 +202,8 @@ impl Rack {
             ch_slot: [0; 16],
             mapped: 0,
             quiet: Vec::new(),
+            profile: false,
+            rms: [0.0; 16],
         };
         // Rhythm 1 (ch 9) is a drum part too: on the drum bank.
         r.process(8, 0xB0, 0, 128);
@@ -193,6 +215,44 @@ impl Rack {
         let mut file = std::fs::File::open(sf2).with_context(|| format!("opening {}", sf2.display()))?;
         let font = Arc::new(SoundFont::new(&mut file).map_err(|e| anyhow!("{e:?}"))?);
         Ok(Box::new(Rack::new(&font, sample_rate as i32)?))
+    }
+
+    /// Measure for the performance view (`perf`), or stop.
+    fn set_profiling(&mut self, on: bool) {
+        if self.profile != on {
+            self.profile = on;
+            for s in self.synths() {
+                s.set_profiling(on);
+            }
+        }
+    }
+
+    /// The last render's per-channel costs and voices into `perf::PERF` (profiling only),
+    /// leaving out the channels in `skip` (a plugin plays them).
+    fn report_profile(&mut self, skip: u16) {
+        let perf = &crate::perf::PERF;
+        let (mut ns, mut voices) = ([0u64; 16], [0u32; 16]);
+        for s in self.synths() {
+            for (ch, (t, v)) in s.take_channel_ns().into_iter().zip(s.channel_voices()).enumerate() {
+                ns[ch] += t;
+                voices[ch] += v as u32;
+            }
+        }
+        let mut total = 0;
+        for ch in 0..16 {
+            total += voices[ch];
+            perf.channel_voices[ch].store(voices[ch], Relaxed);
+            if skip >> ch & 1 == 0 {
+                perf.channel[ch].add(ns[ch]);
+            }
+        }
+        perf.voices.store(total, Relaxed);
+        perf.voices_peak.fetch_max(total, Relaxed);
+    }
+
+    /// The voices sounding now, in every synthesizer of the rack.
+    pub fn voices(&self) -> usize {
+        self.band.active_voice_count() + self.player.active_voice_count() + self.extra.iter().map(|s| s.active_voice_count()).sum::<usize>()
     }
 
     fn synths(&mut self) -> impl Iterator<Item = &mut Synthesizer> {
@@ -235,19 +295,33 @@ impl Rack {
     #[cfg(test)]
     fn render_dry(&mut self, left: &mut [f32], right: &mut [f32], peaks: &[AtomicU32; 16], fade: Option<(f32, f32)>) {
         let mut sends = vec![0f32; 2 * crate::fx::BUSES * left.len()];
-        self.render(left, right, &mut sends, peaks, fade);
+        self.render(left, right, &mut sends, peaks, fade, None);
     }
 
     /// Render `left.len()` frames of the mix into `left`/`right` and the effect bus's send
     /// buses into `sends` (all overwritten; bus b's left side at `2 * b * n`, its right at
     /// `(2 * b + 1) * n`), noting each channel's peak in `peaks`. `fade` ramps the whole
-    /// from one gain to another over the buffer.
-    fn render(&mut self, left: &mut [f32], right: &mut [f32], sends: &mut [f32], peaks: &[AtomicU32; 16], fade: Option<(f32, f32)>) {
+    /// from one gain to another over the buffer. `inserts`: the Style parts' insertion
+    /// effects (#269), on the band's synthesizer.
+    fn render(
+        &mut self,
+        left: &mut [f32],
+        right: &mut [f32],
+        sends: &mut [f32],
+        peaks: &[AtomicU32; 16],
+        fade: Option<(f32, f32)>,
+        inserts: Option<&mut dyn rustysynth::ChannelInsert>,
+    ) {
         let n = left.len().min(self.tmp_l.len()).min(sends.len() / (2 * crate::fx::BUSES));
         let (left, right) = (&mut left[..n], &mut right[..n]);
         let sends = &mut sends[..2 * crate::fx::BUSES * n];
         sends.fill(0.0);
-        self.band.render_with_sends(left, right, sends);
+        let mut clock = crate::perf::Lap::start(self.profile);
+        match inserts {
+            Some(ins) => self.band.render_with_inserts(left, right, sends, ins),
+            None => self.band.render_with_sends(left, right, sends),
+        }
+        clock.lap(crate::perf::ST_BAND);
         let (l, r) = (&mut self.tmp_l[..n], &mut self.tmp_r[..n]);
         // The extra synthesizers some channel plays (slot k+1 = extra[k]).
         let mut used = 0u64;
@@ -275,6 +349,7 @@ impl Rack {
             if let Some(q) = quiet {
                 *q = if played || peak >= IDLE_LEVEL { 0 } else { q.saturating_add(n as u32) };
             }
+            clock.lap(if i == 0 { crate::perf::ST_KEYS } else { crate::perf::ST_EXTRA });
         }
         let mut most = 1f32;
         if let Some((a, b)) = fade {
@@ -289,10 +364,17 @@ impl Rack {
                 *x *= a + (b - a) * k as f32 / n as f32;
             }
         }
+        self.rms = [0.0; 16];
         for s in [&mut self.band, &mut self.player].into_iter().chain(self.extra.iter_mut()) {
+            for (ch, r) in s.channel_rms().into_iter().enumerate() {
+                self.rms[ch] = self.rms[ch].max(r * most);
+            }
             for (ch, &p) in s.channel_peaks().iter().enumerate() {
                 if p > 0.0 {
                     peaks[ch].fetch_max((p * most).to_bits(), Relaxed);
+                    if self.profile {
+                        crate::perf::Perf::peak(&crate::perf::PERF.channel_peak[ch], p * most);
+                    }
                 }
             }
             s.reset_channel_peaks();
@@ -412,6 +494,12 @@ impl Shadow {
 
 /// Take the meters: each channel's and the master's peak since the last take, and the
 /// clip count. For one reader.
+/// Take the RMS levels: each channel's and the master's (the loudest buffer's) since the
+/// last take. For one reader, alongside `take_meters`.
+pub fn take_rms(c: &SynthControl) -> ([f32; 16], [f32; 2]) {
+    (std::array::from_fn(|i| f32::from_bits(c.rms[i].swap(0, Relaxed))), std::array::from_fn(|i| f32::from_bits(c.master_rms[i].swap(0, Relaxed))))
+}
+
 pub fn take_meters(c: &SynthControl) -> ([f32; 16], [f32; 2], u64) {
     let peaks = std::array::from_fn(|i| f32::from_bits(c.peaks[i].swap(0, Relaxed)));
     let master = std::array::from_fn(|i| f32::from_bits(c.master_peaks[i].swap(0, Relaxed)));
@@ -428,6 +516,12 @@ pub struct Feeds {
 }
 
 impl SynthControl {
+    /// Audio dropouts since start: the device's reports and our own late buffers. (One
+    /// dropout can show as both; the count is for noticing that they happen, not exact.)
+    pub fn dropouts(&self) -> u64 {
+        self.xruns.load(Relaxed) + self.late.load(Relaxed)
+    }
+
     pub fn new(out_ch: u8) -> SynthControl {
         SynthControl {
             master: AtomicU8::new(MASTER_UNITY),
@@ -436,8 +530,12 @@ impl SynthControl {
             master_waiting: AtomicBool::new(false),
             peaks: std::array::from_fn(|_| AtomicU32::new(0)),
             master_peaks: std::array::from_fn(|_| AtomicU32::new(0)),
+            rms: std::array::from_fn(|_| AtomicU32::new(0)),
+            master_rms: std::array::from_fn(|_| AtomicU32::new(0)),
             clips: AtomicU64::new(0),
             swaps: AtomicU64::new(0),
+            xruns: AtomicU64::new(0),
+            late: AtomicU64::new(0),
             click_volume: AtomicU8::new(crate::click::DEFAULT_VOLUME),
             routes: ChannelRoutes::new(),
             fx: crate::fx::FxControl::new(),
@@ -521,13 +619,26 @@ pub fn legacy_fx() -> bool {
 /// and the safety clipper; the delay at `bpm`) into stereo at `sample_rate`, for `end_ns` plus three seconds
 /// of tails. Messages take effect at the start of the 64-frame block they fall in, as
 /// live. For listening tests (`yahaha render`); not the audio thread.
-pub fn render_offline(sf2: &Path, msgs: &[(u64, Vec<u8>)], end_ns: u64, sample_rate: u32, bpm: f64) -> Result<(Vec<f32>, Vec<f32>)> {
+///
+/// `inserts`: the style's insertion effects (#269) as `(Style part 0-7, kind, amount)`.
+pub fn render_offline(
+    sf2: &Path,
+    msgs: &[(u64, Vec<u8>)],
+    end_ns: u64,
+    sample_rate: u32,
+    bpm: f64,
+    inserts: &[(u8, crate::fx::InsertKind, u8)],
+) -> Result<(Vec<f32>, Vec<f32>)> {
     const BLOCK: usize = 64;
     let rack = Rack::load(sf2, sample_rate)?;
     let (mut tx, rx) = RingBuffer::<Msg>::new(4096);
     let ctl = Arc::new(SynthControl::new(0));
     ctl.fx.legacy.store(legacy_fx(), Relaxed);
     ctl.fx.set_tempo(bpm);
+    for &(p, kind, amount) in inserts {
+        ctl.fx.insert[p as usize & 7].store(kind as u8, Relaxed);
+        ctl.fx.insert_amount[p as usize & 7].store(amount, Relaxed);
+    }
     let (mut core, _swap, _plugins) = AudioCore::new(Some(rack), vec![rx], Arc::new(Parts::new()), ctl, sample_rate, 2);
     let frames = ((end_ns as f64 / 1e9 + 3.0) * sample_rate as f64) as usize;
     let (mut left, mut right) = (Vec::with_capacity(frames), Vec::with_capacity(frames));
@@ -698,15 +809,24 @@ pub struct AudioCore {
     fx: crate::fx::FxBus,
     sends: Vec<f32>,
     sends2: Vec<f32>,
-    /// Each channel's send controllers (CC91/93/94) as last sent, and their gains.
+    /// Each channel's send controllers (CC91/93/94) as last sent, the gains they make, and
+    /// the gains the racks have now: the keyboard parts' glide to theirs (a knob or fader
+    /// turning a send never zippers), the others' are set at once.
     send_cc: [[u8; crate::fx::BUSES]; 16],
+    send_target: [[f32; crate::fx::BUSES]; 16],
     send_gains: [[f32; crate::fx::BUSES]; 16],
     /// The racks' send gains need setting again (a send changed, a rack came in).
     sends_dirty: bool,
+    /// A keyboard part's send gain is still gliding to its target.
+    sends_gliding: bool,
     /// `FxControl::legacy` as last applied.
     legacy: bool,
+    /// The Style parts' insertion effects (#269).
+    inserts: Box<crate::fx::BandInserts>,
     /// The band send scales (#236) as they glide towards `FxControl::band_send`.
     band_scale: [f32; crate::fx::BUSES],
+    /// The Style parts' own sends (#268, `FxControl::part_send`) as last applied.
+    part_send: [[u8; crate::fx::BUSES]; 8],
     /// The Multi Pad send scales (#267) as they glide towards `FxControl::pad_send`.
     pad_scale: [f32; crate::fx::BUSES],
     sample_rate: f32,
@@ -758,10 +878,14 @@ impl AudioCore {
             sends: vec![0f32; 2 * crate::fx::BUSES * 8192],
             sends2: vec![0f32; 2 * crate::fx::BUSES * 8192],
             send_cc: [crate::fx::DEFAULT_SENDS; 16],
+            send_target: [[0f32; crate::fx::BUSES]; 16],
             send_gains: [[0f32; crate::fx::BUSES]; 16],
             sends_dirty: true,
+            sends_gliding: false,
             legacy: false,
+            inserts: Box::new(crate::fx::BandInserts::new(sample_rate.max(1) as f32)),
             band_scale: crate::fx::BAND_SEND_DEFAULT.map(crate::fx::band_scale),
+            part_send: [[crate::fx::SEND_STYLE; crate::fx::BUSES]; 8],
             pad_scale: crate::fx::PAD_SEND_DEFAULT.map(crate::fx::band_scale),
             sample_rate: sample_rate.max(1) as f32,
         };
@@ -774,6 +898,11 @@ impl AudioCore {
         self.router = Some(Router::new(routes));
     }
 
+    /// The SoundFont voices sounding now (0 without a rack).
+    pub fn voices(&self) -> usize {
+        self.rack.as_ref().map_or(0, |r| r.voices())
+    }
+
     /// The channels playing a plugin as of the last buffer (bit per MIDI channel).
     pub fn plugin_channels(&self) -> u16 {
         self.plugin_on
@@ -783,6 +912,9 @@ impl AudioCore {
     pub fn process(&mut self, out: &mut [f32]) {
         let channels = self.channels;
         let ctl = &*self.ctl;
+        // The performance view (`perf`): off, this load is all it costs.
+        let prof = crate::perf::PERF.on();
+        let mut clock = crate::perf::Lap::start(prof);
         // A rack still waiting to go back: try again.
         if let Some(p) = self.parked.take() {
             retire(&mut self.old_tx, &mut self.parked, p);
@@ -858,6 +990,9 @@ impl AudioCore {
         self.plugin_on = active;
 
         for (i, c) in self.consumers.iter_mut().enumerate() {
+            if prof && let Some(d) = crate::perf::PERF.ring_depth.get(i) {
+                d.fetch_max(c.slots() as u32, Relaxed);
+            }
             while let Ok(m) = c.pop() {
                 // The metronome's click voice: not a MIDI part.
                 if m[0] == CLICK {
@@ -938,19 +1073,37 @@ impl AudioCore {
         let k = 1.0 - (-(frames as f32) / (BAND_GLIDE_S * self.sample_rate)).exp();
         self.sends_dirty |= glide_scales(&mut self.band_scale, &ctl.fx.band_send, k);
         self.sends_dirty |= glide_scales(&mut self.pad_scale, &ctl.fx.pad_send, k);
+        // The Style parts' own sends (#268).
+        for (own, a) in self.part_send.iter_mut().zip(&ctl.fx.part_send) {
+            for (v, a) in own.iter_mut().zip(a) {
+                let x = a.load(Relaxed);
+                if *v != x {
+                    *v = x;
+                    self.sends_dirty = true;
+                }
+            }
+        }
         if self.sends_dirty {
             self.sends_dirty = false;
-            for (ch, (g, cc)) in self.send_gains.iter_mut().zip(&self.send_cc).enumerate() {
+            self.sends_gliding = true;
+            for (ch, (g, cc)) in self.send_target.iter_mut().zip(&self.send_cc).enumerate() {
                 *g = if legacy {
                     [0.0; crate::fx::BUSES]
                 } else if crate::fx::BAND_CHANNELS.contains(&ch) {
-                    std::array::from_fn(|b| crate::fx::band_send_gain(cc[b], self.band_scale[b]))
+                    let own = self.part_send[ch - crate::fx::BAND_CHANNELS.start];
+                    std::array::from_fn(|b| match own[b] {
+                        crate::fx::SEND_STYLE => crate::fx::band_send_gain(cc[b], self.band_scale[b]),
+                        v => crate::fx::send_gain(v),
+                    })
                 } else if crate::fx::PAD_CHANNELS.contains(&ch) {
                     std::array::from_fn(|b| crate::fx::band_send_gain(cc[b], self.pad_scale[b]))
                 } else {
                     cc.map(crate::fx::send_gain)
                 };
             }
+        }
+        if self.sends_gliding {
+            self.sends_gliding = glide_sends(&mut self.send_gains, &self.send_target, k);
             for r in [self.rack.as_mut(), self.fading.as_mut()].into_iter().flatten() {
                 r.set_sends(&self.send_gains);
             }
@@ -958,8 +1111,29 @@ impl AudioCore {
         let (left, right) = (&mut self.left[..frames], &mut self.right[..frames]);
         let (left2, right2) = (&mut self.left2[..frames], &mut self.right2[..frames]);
         let sends = &mut self.sends[..2 * crate::fx::BUSES * frames];
+        self.inserts.update(&ctl.fx);
+        if let Some(rack) = self.rack.as_mut() {
+            rack.set_profiling(prof);
+        }
+        if let Some(f) = self.fading.as_mut() {
+            // A rack fading out counts as a stage of its own, not as the parts'.
+            f.set_profiling(false);
+        }
+        clock.lap(crate::perf::ST_MIDI);
         match self.rack.as_mut() {
-            Some(rack) => rack.render(left, right, sends, &ctl.peaks, None),
+            Some(rack) => {
+                let ins: Option<&mut dyn rustysynth::ChannelInsert> = if self.legacy { None } else { Some(&mut *self.inserts) };
+                rack.render(left, right, sends, &ctl.peaks, None, ins);
+                for (a, &r) in ctl.rms.iter().zip(&rack.rms) {
+                    if r > 0.0 {
+                        a.fetch_max(r.to_bits(), Relaxed);
+                    }
+                }
+                clock.skip();
+                if prof {
+                    rack.report_profile(active);
+                }
+            }
             None => {
                 left.fill(0.0);
                 right.fill(0.0);
@@ -968,7 +1142,7 @@ impl AudioCore {
         }
         if let Some(mut f) = self.fading.take() {
             let sends2 = &mut self.sends2[..2 * crate::fx::BUSES * frames];
-            f.render(left2, right2, sends2, &self.unmetered, Some((1.0, 0.0)));
+            f.render(left2, right2, sends2, &self.unmetered, Some((1.0, 0.0)), None);
             for i in 0..frames {
                 left[i] += left2[i];
                 right[i] += right2[i];
@@ -977,6 +1151,7 @@ impl AudioCore {
                 *a += *b;
             }
             retire(&mut self.old_tx, &mut self.parked, f);
+            clock.lap(crate::perf::ST_FADE);
         }
         // The plugin parts: their own CC7/CC11/CC10 applied in the rack, then the master
         // fader (rustysynth applies it inside its render; the rack does not).
@@ -998,22 +1173,34 @@ impl AudioCore {
                 if p > 0.0 {
                     ctl.peaks[ch as usize].fetch_max(p.to_bits(), Relaxed);
                 }
+                if prof && active >> ch & 1 == 1 {
+                    crate::perf::PERF.channel[ch as usize].add(self.plugins.last_render_ns(ch));
+                    crate::perf::Perf::peak(&crate::perf::PERF.channel_peak[ch as usize], p);
+                }
             }
+            clock.lap(crate::perf::ST_PLUGINS);
+        }
+        if prof {
+            crate::perf::PERF.plugin_mask.store(active as u32, Relaxed);
         }
         if !self.legacy {
             self.fx.process_add(sends, frames, left, right, &ctl.fx);
         }
+        clock.lap(crate::perf::ST_FX);
         self.click.render_add(left, right, master_gain(master));
         let mute = ctl.muted.load(Relaxed);
         let lc = (ctl.out_ch.load(Relaxed) as usize).min(channels.saturating_sub(1));
         let rc = (lc + 1).min(channels - 1);
         let (mut pl, mut pr, mut clipped) = (0f32, 0f32, false);
+        let (mut ql, mut qr) = (0f32, 0f32);
         for (i, frame) in out.chunks_mut(channels).take(frames).enumerate() {
             frame.fill(0.0);
             clipped |= left[i].abs() > CLIP_KNEE || right[i].abs() > CLIP_KNEE;
             let (l, r) = (soft_clip(left[i]), soft_clip(right[i]));
             pl = pl.max(l.abs());
             pr = pr.max(r.abs());
+            ql += l * l;
+            qr += r * r;
             if !mute {
                 frame[lc] += l;
                 frame[rc] += r;
@@ -1021,14 +1208,38 @@ impl AudioCore {
         }
         ctl.master_peaks[0].fetch_max(pl.to_bits(), Relaxed);
         ctl.master_peaks[1].fetch_max(pr.to_bits(), Relaxed);
+        let nf = frames.max(1) as f32;
+        ctl.master_rms[0].fetch_max((ql / nf).sqrt().to_bits(), Relaxed);
+        ctl.master_rms[1].fetch_max((qr / nf).sqrt().to_bits(), Relaxed);
         if clipped {
             ctl.clips.fetch_add(1, Relaxed);
         }
+        clock.lap(crate::perf::ST_OUT);
     }
 }
 
 /// Glide each send scale (`scales`, gains) a step `k` towards its control value
 /// (`targets`, 0-127 %), snapping when close. True: one moved.
+/// The racks' send gains a buffer on towards their targets: the keyboard parts' glide
+/// (`k` of the way, as the band scales), every other channel's is set at once. True while
+/// any is still on its way.
+fn glide_sends(gains: &mut [[f32; crate::fx::BUSES]; 16], targets: &[[f32; crate::fx::BUSES]; 16], k: f32) -> bool {
+    let mut moving = false;
+    for (ch, (g, t)) in gains.iter_mut().zip(targets).enumerate() {
+        let keys = parts::part_of_channel(ch as u8).is_some();
+        for (g, &t) in g.iter_mut().zip(t) {
+            let d = t - *g;
+            if !keys || d.abs() < 1e-3 {
+                *g = t;
+            } else {
+                *g += d * k;
+                moving = true;
+            }
+        }
+    }
+    moving
+}
+
 fn glide_scales(scales: &mut [f32; crate::fx::BUSES], targets: &[std::sync::atomic::AtomicU8; crate::fx::BUSES], k: f32) -> bool {
     let mut moved = false;
     for (scale, t) in scales.iter_mut().zip(targets) {
@@ -1085,13 +1296,14 @@ pub fn start(sf2: &Path, consumers: Vec<Consumer<Msg>>, out_pair: Option<u8>, pa
     let rack = Box::new(Rack::with_fonts(&[(routing.font_id, font.clone())], sample_rate as i32)?);
     drop(font);
     let control = Arc::new(SynthControl::new(first));
+    crate::perf::register_synth(&control);
     let (mut core, swap, plugins) = AudioCore::new(Some(rack), consumers, parts, control.clone(), sample_rate, channels);
     core.set_routes(routing.routes);
     let range = match default.buffer_size() {
         cpal::SupportedBufferSize::Range { min, max } => Some((*min, *max)),
         _ => None,
     };
-    let output = stream::Output::open(device, channels as u16, sample_rate, range, core, buffer.unwrap_or(DEFAULT_BUFFER))?;
+    let output = stream::Output::open(device, channels as u16, sample_rate, range, core, buffer.unwrap_or(DEFAULT_BUFFER), control.clone())?;
     let buffer = output.buffer;
     let name = sf2.file_stem().unwrap_or_default().to_string_lossy().to_string();
     Ok(Synth {
@@ -1576,6 +1788,26 @@ mod rack_tests {
         energy(&mut core, 150)
     }
 
+    /// A keyboard part's send glides to a new value over a few buffers (a knob turning it
+    /// never zippers); a Style part's is set at once.
+    #[test]
+    fn keyboard_part_sends_glide() {
+        let mut gains = [[0f32; crate::fx::BUSES]; 16];
+        let mut targets = gains;
+        targets[parts::CHANNEL[parts::RIGHT1] as usize][crate::fx::REVERB] = 1.0;
+        targets[10][crate::fx::REVERB] = 1.0;
+        assert!(glide_sends(&mut gains, &targets, 0.25));
+        assert_eq!(gains[10][crate::fx::REVERB], 1.0, "a Style part: at once");
+        assert_eq!(gains[0][crate::fx::REVERB], 0.25, "Right 1: on its way");
+        let mut n = 1;
+        while glide_sends(&mut gains, &targets, 0.25) {
+            n += 1;
+            assert!(n < 100);
+        }
+        assert_eq!(gains[0][crate::fx::REVERB], 1.0);
+        assert!(n > 5, "{n} buffers");
+    }
+
     #[test]
     fn the_band_send_scales_only_the_style_parts() {
         let Some(font) = font() else { return };
@@ -1615,6 +1847,30 @@ mod rack_tests {
         assert_eq!(core.send_gains[10][crate::fx::CHORUS], 0.0, "no send, no gain");
     }
 
+    /// #268: a Style part's own send replaces its style's CC and is not scaled by the band
+    /// send: with the band's delay at 0% (the default), an own delay send of 127 plays the
+    /// echoes as a scale of 100% does; the style's own CC on the part then plays nothing.
+    #[test]
+    fn a_style_parts_own_send_is_not_scaled() {
+        let Some(font) = font() else { return };
+        let v = crate::fx::VARIATION;
+        let dry = delay_tail(&font, 10, 127, |_| {});
+        let scaled = delay_tail(&font, 10, 127, |c| c.fx.band_send[v].store(100, Relaxed));
+        let own = delay_tail(&font, 10, 0, |c| c.fx.part_send[2][v].store(127, Relaxed));
+        let own_zero = delay_tail(&font, 10, 127, |c| {
+            c.fx.band_send[v].store(100, Relaxed);
+            c.fx.part_send[2][v].store(0, Relaxed);
+        });
+        let other_part = delay_tail(&font, 11, 127, |c| c.fx.part_send[2][v].store(127, Relaxed));
+        assert!(scaled > dry * 2.0);
+        // As loud as the style's 127 at 100% (a little more: the band scale glides up from
+        // 0% at the start, under the note's attack; the own send is there at once).
+        assert!(own >= scaled * 0.95 && own <= scaled * 1.5, "own 127 unscaled = style 127 at 100%: {own} vs {scaled}");
+        assert!((own_zero - dry).abs() <= dry * 1e-6, "an own 0 silences the style's 127");
+        let dry11 = delay_tail(&font, 11, 0, |_| {});
+        assert!((other_part - dry11).abs() <= dry11 * 1e-6, "only that part");
+    }
+
     /// #267: the Multi Pad send scales. A pad's (channel 6) delay send reaches the delay
     /// only as far as the pads' Delay scale lets it: off by default, as written at 100%.
     /// The band's scale doesn't touch the pads, nor the pads' scale the band.
@@ -1635,6 +1891,60 @@ mod rack_tests {
         // Half way: less than full, more than none.
         let pad_half = delay_tail(&font, 5, 127, |c| c.fx.pad_send[v].store(50, Relaxed));
         assert!(pad_half > dry * 1.2 && pad_half < pad_full * 0.6, "{pad_half} between {dry} and {pad_full}");
+    }
+
+    /// #269: a Style part's insertion effect. A sustained note on channel 12 with a
+    /// distortion on Chord 1 (part 3) has more high harmonics than without, at a similar
+    /// level; its reverb send carries the distorted sound; a note on channel 13 is
+    /// untouched; the insert off again plays exactly the dry part.
+    #[test]
+    fn a_style_parts_insert_runs_on_that_part_only() {
+        let Some(font) = font() else { return };
+        let play = |ch: u8, kind: crate::fx::InsertKind, reverb: bool| -> (Vec<f32>, f32) {
+            let rack = Box::new(Rack::new(&font, 48_000).unwrap());
+            let (mut tx, rx) = RingBuffer::<Msg>::new(64);
+            let ctl = Arc::new(SynthControl::new(0));
+            if !reverb {
+                ctl.fx.reverb_return.store(0, Relaxed);
+            }
+            ctl.fx.chorus_return.store(0, Relaxed);
+            ctl.fx.insert[3].store(kind as u8, Relaxed);
+            ctl.fx.insert_amount[3].store(100, Relaxed);
+            let (mut core, _swap, _link) = AudioCore::new(Some(rack), vec![rx], Arc::new(Parts::new()), ctl, 48_000, 2);
+            // A plain organ, full reverb send (or none).
+            for m in [[0xC0 | ch, 16, 0], [0xB0 | ch, 91, if reverb { 127 } else { 0 }], [0xB0 | ch, 93, 0], [0x90 | ch, 45, 100]] {
+                tx.push(m).unwrap();
+            }
+            let mut out = vec![0f32; 256];
+            let mut left = Vec::new();
+            for _ in 0..200 {
+                core.process(&mut out);
+                left.extend(out.iter().step_by(2));
+            }
+            let rms = (left[9600..].iter().map(|x| x * x).sum::<f32>() / (left.len() - 9600) as f32).sqrt();
+            (left, rms)
+        };
+        // High frequencies: the energy of the first difference, per unit of level.
+        let bright = |x: &[f32], rms: f32| (x[9600..].windows(2).map(|w| (w[1] - w[0]).powi(2)).sum::<f32>() / (x.len() - 9600) as f32).sqrt() / rms;
+        let (dry, dry_rms) = play(11, crate::fx::InsertKind::None, false);
+        let (dist, dist_rms) = play(11, crate::fx::InsertKind::Distortion, false);
+        assert!(dry_rms > 1e-3);
+        assert!(bright(&dist, dist_rms) > 1.5 * bright(&dry, dry_rms), "distorted: {} vs {}", bright(&dist, dist_rms), bright(&dry, dry_rms));
+        assert!(dist_rms > dry_rms * 0.3 && dist_rms < dry_rms * 3.0, "a similar level: {dist_rms} vs {dry_rms}");
+        // Another part: untouched.
+        let (other, _) = play(12, crate::fx::InsertKind::None, false);
+        let (other_ins, _) = play(12, crate::fx::InsertKind::Distortion, false);
+        assert_eq!(other, other_ins, "only the part it is on");
+        // The reverb hears the distorted part: the wet difference is brighter too.
+        let (dry_w, _) = play(11, crate::fx::InsertKind::None, true);
+        let (dist_w, _) = play(11, crate::fx::InsertKind::Distortion, true);
+        let wet = |a: &[f32], b: &[f32]| a.iter().zip(b).map(|(x, y)| x - y).collect::<Vec<f32>>();
+        let (w_dry, w_dist) = (wet(&dry_w, &dry), wet(&dist_w, &dist));
+        let r = |x: &[f32]| (x[9600..].iter().map(|v| v * v).sum::<f32>() / (x.len() - 9600) as f32).sqrt();
+        assert!(bright(&w_dist, r(&w_dist)) > 1.2 * bright(&w_dry, r(&w_dry)), "the send is after the insert");
+        // None on the part: exactly the dry part.
+        let (none, _) = play(11, crate::fx::InsertKind::None, false);
+        assert_eq!(none, dry);
     }
 
     #[test]
@@ -1661,6 +1971,33 @@ mod rack_tests {
             rack.render_dry(&mut l, &mut r, &p, None);
         }
         assert!(level(&p, 10) < bass * 0.5);
+        // RMS is measured where the peak is: a part that sounds has one below its peak,
+        // a silent one none.
+        rack.render_dry(&mut l, &mut r, &p, None);
+        let peak = level(&p, 10);
+        assert!(rack.rms[10] > 0.0 && rack.rms[10] <= peak, "bass rms {} peak {peak}", rack.rms[10]);
+        assert_eq!(rack.rms[1], 0.0);
+    }
+
+    /// The meters' take: each read hands out the levels since the last and starts them
+    /// from 0 again (one reader); an empty window reads 0.
+    #[test]
+    fn meters_take_and_reset() {
+        let c = SynthControl::new(0);
+        c.peaks[4].fetch_max(0.5f32.to_bits(), Relaxed);
+        c.peaks[4].fetch_max(0.25f32.to_bits(), Relaxed);
+        c.rms[4].fetch_max(0.2f32.to_bits(), Relaxed);
+        c.rms[4].fetch_max(0.3f32.to_bits(), Relaxed);
+        c.master_peaks[1].fetch_max(0.9f32.to_bits(), Relaxed);
+        c.master_rms[0].fetch_max(0.4f32.to_bits(), Relaxed);
+        let (peaks, master, _) = take_meters(&c);
+        let (rms, master_rms) = take_rms(&c);
+        assert_eq!((peaks[4], rms[4]), (0.5, 0.3), "the highest in the window: a Multi Pad channel");
+        assert_eq!((master, master_rms), ([0.0, 0.9], [0.4, 0.0]));
+        assert!(peaks.iter().enumerate().all(|(i, &p)| i == 4 || p == 0.0));
+        let (peaks, master, _) = take_meters(&c);
+        let (rms, master_rms) = take_rms(&c);
+        assert!(peaks.iter().chain(&rms).chain(&master).chain(&master_rms).all(|&v| v == 0.0), "reset by the take");
     }
 
     #[test]

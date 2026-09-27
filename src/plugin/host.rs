@@ -13,6 +13,7 @@ use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use super::instance::{LoadTimes, PluginInstance};
+use super::presets::{self, FactoryPreset, UserPreset};
 use super::scan::{self, LoadRecord, PluginFormat, PluginId, PluginInfo, ScanCache};
 use super::sys::{self, Component};
 
@@ -46,11 +47,13 @@ pub struct LoadConfig {
     /// a caller that does not know the plugin yet (the scan still running, say) never scans
     /// to find out.
     pub choose_mode: Option<fn(&PluginInfo) -> LoadMode>,
+    /// A factory preset (number, name) to select once loaded, when there is no `state`.
+    pub factory_preset: Option<(i32, String)>,
 }
 
 impl Default for LoadConfig {
     fn default() -> Self {
-        LoadConfig { sample_rate: 48_000.0, max_frames: 4096, state: None, mode: LoadMode::Auto, timeout: Duration::from_secs(20), choose_mode: None }
+        LoadConfig { sample_rate: 48_000.0, max_frames: 4096, state: None, mode: LoadMode::Auto, timeout: Duration::from_secs(20), choose_mode: None, factory_preset: None }
     }
 }
 
@@ -195,6 +198,10 @@ impl Drop for LoadHandle {
 struct Inner {
     cache_path: Option<PathBuf>,
     cache: Mutex<Option<ScanCache>>,
+    /// Where `.aupreset` files are looked for.
+    preset_roots: Vec<PathBuf>,
+    /// The next scan reads everything again (`rescan`): factory presets too.
+    refresh: std::sync::atomic::AtomicBool,
 }
 
 /// The plugin host: scanning and loading. Cheap to clone (one `Arc`); share it between the
@@ -207,7 +214,25 @@ pub struct PluginHost {
 impl PluginHost {
     /// A host whose scan is cached at `cache_path` (None: no cache, always scan).
     pub fn new(cache_path: Option<PathBuf>) -> PluginHost {
-        PluginHost { inner: Arc::new(Inner { cache_path, cache: Mutex::new(None) }) }
+        PluginHost::with_preset_roots(cache_path, presets::default_preset_roots())
+    }
+
+    /// A host whose user presets are looked for under `roots` (tests; the default is
+    /// `~/Library/Audio/Presets` and `/Library/Audio/Presets`).
+    pub fn with_preset_roots(cache_path: Option<PathBuf>, roots: Vec<PathBuf>) -> PluginHost {
+        PluginHost { inner: Arc::new(Inner { cache_path, cache: Mutex::new(None), preset_roots: roots, refresh: Default::default() }) }
+    }
+
+    /// Whether user preset `name` of `id` exists where it would be saved (no scan: from
+    /// the cache). Cheap: one file check.
+    pub fn user_preset_exists(&self, id: &PluginId, name: &str) -> bool {
+        let (Some(info), Some(root)) = (self.cached(id), self.inner.preset_roots.first()) else { return false };
+        presets::user_preset_path(root, &info, name).exists()
+    }
+
+    /// Where user presets are looked for; the first is where they are saved.
+    pub fn preset_roots(&self) -> &[PathBuf] {
+        &self.inner.preset_roots
     }
 
     /// A host with its cache in `~/Library/Caches/yahaha/plugins.json`.
@@ -230,12 +255,19 @@ impl PluginHost {
             return Ok(c.plugins.clone());
         }
         let mut plugins = scan::scan_live(&comps);
+        let refresh = self.inner.refresh.swap(false, std::sync::atomic::Ordering::Relaxed);
         if let Some(old) = cache.as_ref() {
             for p in &mut plugins {
-                p.last_load = old.plugins.iter().find(|o| o.id == p.id && o.version == p.version).and_then(|o| o.last_load.clone());
+                let same = old.plugins.iter().find(|o| o.id == p.id && o.version == p.version);
+                p.last_load = same.and_then(|o| o.last_load.clone());
+                // Factory presets belong to a version; a rescan reads them again.
+                p.factory_presets = if refresh { None } else { same.and_then(|o| o.factory_presets.clone()) };
                 // The player's choice outlives an update.
                 p.in_process = old.plugins.iter().any(|o| o.id == p.id && o.in_process) && p.can_run_in_process();
             }
+        }
+        for p in &mut plugins {
+            p.user_presets = presets::user_presets(p, &self.inner.preset_roots);
         }
         let fresh = ScanCache { schema: scan::SCHEMA, fingerprint: fp, plugins: plugins.clone() };
         if let Some(path) = &self.inner.cache_path {
@@ -256,6 +288,7 @@ impl PluginHost {
             if let Some(c) = cache.as_mut() {
                 c.fingerprint = 0;
             }
+            self.inner.refresh.store(true, std::sync::atomic::Ordering::Relaxed);
         }
         self.scan()
     }
@@ -304,6 +337,62 @@ impl PluginHost {
         Ok(out)
     }
 
+    /// Keep `list` as `info`'s factory presets (at its version) in the cache.
+    fn record_factory_presets(&self, info: &PluginInfo, list: Vec<FactoryPreset>) {
+        let mut cache = self.inner.cache.lock().unwrap();
+        let Some(c) = cache.as_mut() else { return };
+        let Some(p) = c.plugins.iter_mut().find(|p| p.id == info.id && p.version == info.version) else { return };
+        if p.factory_presets.as_ref() == Some(&list) {
+            return;
+        }
+        p.factory_presets = Some(list);
+        if let Some(path) = &self.inner.cache_path {
+            let _ = scan::write_cache(path, c);
+        }
+    }
+
+    /// `id` as the cache has it now, without scanning (None before the first scan, or if
+    /// it is not installed). Cheap: for the control thread.
+    pub fn cached(&self, id: &PluginId) -> Option<PluginInfo> {
+        let cache = self.inner.cache.lock().unwrap();
+        cache.as_ref()?.plugins.iter().find(|p| p.id == *id).cloned()
+    }
+
+    /// Whether `id`'s factory presets are known (read from an instance at this version).
+    pub fn has_factory_presets(&self, id: &PluginId) -> bool {
+        let cache = self.inner.cache.lock().unwrap();
+        cache.as_ref().and_then(|c| c.plugins.iter().find(|p| p.id == *id)).is_some_and(|p| p.factory_presets.is_some())
+    }
+
+    /// List `id`'s presets: its factory presets are read from an instance loaded for the
+    /// purpose (and cached) unless the cache has them. Blocking: run it on a thread of its
+    /// own. Returns the plugin as now cached.
+    pub fn list_presets(&self, id: &PluginId, cfg: LoadConfig) -> Result<PluginInfo> {
+        if !self.has_factory_presets(id) {
+            // The load reads them (`load_blocking`); the instance goes to the dispose thread.
+            drop(self.load(id, LoadConfig { state: None, factory_preset: None, ..cfg })?);
+        }
+        self.info(id)
+    }
+
+    /// Write the state as a user preset of `id` (`presets::write_user_preset`, in the first
+    /// preset folder) and list it. Returns the preset written.
+    pub fn save_user_preset(&self, id: &PluginId, name: &str, state: &[u8], overwrite: bool) -> Result<UserPreset> {
+        let info = self.info(id)?;
+        let root = self.inner.preset_roots.first().ok_or_else(|| anyhow!("no preset folder"))?;
+        let saved = presets::write_user_preset(root, &info, name, state, overwrite)?;
+        let mut cache = self.inner.cache.lock().unwrap();
+        if let Some(c) = cache.as_mut()
+            && let Some(p) = c.plugins.iter_mut().find(|p| p.id == *id)
+        {
+            p.user_presets = presets::user_presets(p, &self.inner.preset_roots);
+            if let Some(path) = &self.inner.cache_path {
+                let _ = scan::write_cache(path, c);
+            }
+        }
+        Ok(saved)
+    }
+
     fn record(&self, info: &PluginInfo, ms: Option<f64>, error: Option<String>) {
         let at = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
         let mut cache = self.inner.cache.lock().unwrap();
@@ -343,7 +432,7 @@ impl PluginHost {
                 };
                 let mode = cfg.choose_mode.map_or(cfg.mode, |f| f(&info));
                 shared.state.lock().unwrap().info = Some((info.clone(), mode));
-                let r = sys::guard("loading", || load_blocking(&comp, &info, mode, &cfg, &shared));
+                let r = sys::guard("loading", || load_blocking(&host, &comp, &info, mode, &cfg, &shared));
                 match &r {
                     Ok(inst) => host.record(&info, Some(inst.load_times().total().as_secs_f64() * 1000.0), None),
                     Err(e) if !shared.state.lock().unwrap().abandoned => host.record(&info, None, Some(format!("{e:#}"))),
@@ -388,7 +477,7 @@ fn set_progress(shared: &LoadShared, p: LoadProgress) -> Result<()> {
 }
 
 /// The load itself, on the load thread.
-fn load_blocking(comp: &Component, info: &PluginInfo, mode: LoadMode, cfg: &LoadConfig, shared: &LoadShared) -> Result<PluginInstance> {
+fn load_blocking(host: &PluginHost, comp: &Component, info: &PluginInfo, mode: LoadMode, cfg: &LoadConfig, shared: &LoadShared) -> Result<PluginInstance> {
     let out_of_process = match mode {
         LoadMode::Auto => info.format == PluginFormat::Au3,
         LoadMode::InProcess => {
@@ -415,12 +504,24 @@ fn load_blocking(comp: &Component, info: &PluginInfo, mode: LoadMode, cfg: &Load
     unit.configure_and_initialize(cfg.sample_rate, cfg.max_frames)?;
     let initialize = t1.elapsed();
 
+    // The factory presets, once per version, for the browser (a property read).
+    if !host.has_factory_presets(&info.id) {
+        let list = unit.factory_presets().into_iter().map(|(number, name)| FactoryPreset { number, name }).collect();
+        host.record_factory_presets(info, list);
+    }
+
     let mut times = LoadTimes { instantiate, initialize, restore: Duration::ZERO };
     let mut inst = PluginInstance::new(unit, info.clone(), cfg.sample_rate, cfg.max_frames, out_of_process, times);
     if let Some(state) = &cfg.state {
         set_progress(shared, LoadProgress::RestoringState)?;
         let t2 = Instant::now();
         inst.set_state(state)?;
+        times.restore = t2.elapsed();
+        inst = inst.with_load_times(times);
+    } else if let Some((number, name)) = &cfg.factory_preset {
+        set_progress(shared, LoadProgress::RestoringState)?;
+        let t2 = Instant::now();
+        inst.set_factory_preset(*number, name)?;
         times.restore = t2.elapsed();
         inst = inst.with_load_times(times);
     }

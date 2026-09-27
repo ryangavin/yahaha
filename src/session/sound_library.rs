@@ -1258,7 +1258,7 @@ impl Control {
 /// base64); none (or none readable) is the plugin's default preset.
 fn plugin_voice(component_id: &str, state: &str) -> super::PluginVoice {
     let state = crate::api::base64_decode(state).filter(|b| !b.is_empty());
-    super::PluginVoice { id: component_id.to_string(), state }
+    super::PluginVoice { id: component_id.to_string(), state, preset: None }
 }
 
 fn from_fields(id: String, f: PatchFields) -> Patch {

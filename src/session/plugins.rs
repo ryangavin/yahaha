@@ -45,9 +45,28 @@ use std::path::PathBuf;
 pub struct PluginVoice {
     /// "aumu dls  appl" (the phase-1 `PluginId` string form).
     pub id: String,
-    /// The plugin's full state (ClassInfo bytes); None = its default preset.
+    /// The plugin's full state (ClassInfo bytes); None = its default preset (or `preset`).
     #[serde(default, with = "b64opt")]
     pub state: Option<Vec<u8>>,
+    /// The preset picked in the Sound Browser (AU presets), if any. A factory preset with
+    /// no `state` yet loads by number; once the state is read it restores from that.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preset: Option<VoicePreset>,
+}
+
+/// A plugin preset a part plays: its catalog key and name.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct VoicePreset {
+    /// `f:<number>` (a factory preset) or `u:<path>` (an `.aupreset`).
+    pub key: String,
+    pub name: String,
+}
+
+impl VoicePreset {
+    /// A factory preset's number.
+    pub fn factory_number(&self) -> Option<i32> {
+        self.key.strip_prefix("f:")?.parse().ok()
+    }
 }
 
 mod b64opt {
@@ -88,6 +107,27 @@ mod imp {
     use std::sync::mpsc;
     use std::sync::Arc;
     use std::time::Duration;
+
+    /// The factory preset a voice loads by number: only while it has no state of its own.
+    fn factory_preset(v: &PluginVoice) -> Option<(i32, String)> {
+        let p = v.preset.as_ref().filter(|_| v.state.is_none())?;
+        Some((p.factory_number()?, p.name.clone()))
+    }
+
+    /// A `listPluginPresets` running: the plugin, and the listing thread's answer.
+    pub(crate) type PresetListing = (String, mpsc::Receiver<Result<PluginInfo, String>>);
+
+    /// What a `savePartAsPluginPreset` thread hands back: the file written, the state it
+    /// holds, and the plugin as the cache now lists it.
+    type SaveResult = Result<(crate::plugin::UserPreset, Vec<u8>, Option<PluginInfo>), String>;
+
+    /// A `savePartAsPluginPreset` running on a `plugin-preset` thread.
+    pub(crate) struct PresetSave {
+        ch: u8,
+        inst: InstanceRef,
+        category: crate::api::PatchCategory,
+        rx: mpsc::Receiver<SaveResult>,
+    }
 
     /// Apple's manufacturer code: its units load in process.
     const APPLE: u32 = u32::from_be_bytes(*b"appl");
@@ -197,6 +237,10 @@ mod imp {
         pub(crate) state_reads: Vec<mpsc::Receiver<StateRead>>,
         /// Plugins preloaded for the Registration bank's buttons (plugins/pool.rs).
         pub(crate) warm: super::pool::WarmPool,
+        /// Preset listings running (`listPluginPresets`).
+        pub(crate) listing: Vec<PresetListing>,
+        /// Saves as a user preset running (`savePartAsPluginPreset`).
+        pub(crate) preset_saves: Vec<PresetSave>,
     }
 
     /// A plugin state read on a `plugin-state` thread.
@@ -264,6 +308,7 @@ mod imp {
                 && let Some(prev) = self.plugins.channels[ch as usize].as_ref()
                 && prev.status == PluginStatus::Failed
                 && prev.voice.id == voice.id
+                && prev.voice.preset == voice.preset
             {
                 voice.state = prev.voice.state.clone();
             }
@@ -329,6 +374,7 @@ mod imp {
                 mode,
                 timeout: Duration::from_secs(20),
                 choose_mode,
+                factory_preset: factory_preset(voice),
             };
             let load = self.plugins.host().load_async(&id, cfg).map_err(|e| format!("{e:#}"))?;
             Ok((info, mode, load))
@@ -449,6 +495,8 @@ mod imp {
                 overruns,
                 recent_overruns: c.recent.count(),
                 editor: c.status == PluginStatus::Playing,
+                preset: c.voice.preset.as_ref().map(|p| p.name.clone()),
+                preset_key: c.voice.preset.as_ref().map(|p| p.key.clone()),
             })
         }
 
@@ -517,6 +565,189 @@ mod imp {
             }
         }
 
+        /// The voice that plays preset `key` of plugin `id` (a catalog key, `f:<n>` or
+        /// `u:<path>`): a factory preset loads by number; an `.aupreset` file (only one the
+        /// scan listed for the plugin) is read here as the state it is.
+        pub(crate) fn preset_voice(&self, id: &str, key: &str) -> Result<PluginVoice, String> {
+            let pid = PluginId::parse(id).ok_or_else(|| format!("{id:?} is not a plugin id"))?;
+            let info = self.plugins.list.iter().find(|p| p.id == pid).ok_or_else(|| format!("no instrument Audio Unit {id} is installed"))?;
+            if let Some(n) = key.strip_prefix("f:").and_then(|n| n.parse::<i32>().ok()) {
+                let p = info.factory_presets.iter().flatten().find(|p| p.number == n).ok_or_else(|| format!("{} has no preset {key}", info.name))?;
+                return Ok(PluginVoice { id: id.to_string(), state: None, preset: Some(VoicePreset { key: key.to_string(), name: p.name.clone() }) });
+            }
+            let path = key.strip_prefix("u:").ok_or_else(|| format!("{key:?} is not a preset key"))?;
+            let p = info.user_presets.iter().find(|p| p.path.to_str() == Some(path)).ok_or_else(|| format!("{} has no preset file {path}", info.name))?;
+            let len = std::fs::metadata(&p.path).map(|m| m.len()).map_err(|e| format!("{}: {e}", p.path.display()))?;
+            if len as usize > MAX_STATE_BYTES {
+                return Err(format!("the preset is larger than {} MB", MAX_STATE_BYTES >> 20));
+            }
+            let bytes = std::fs::read(&p.path).map_err(|e| format!("{}: {e}", p.path.display()))?;
+            Ok(PluginVoice { id: id.to_string(), state: Some(bytes), preset: Some(VoicePreset { key: key.to_string(), name: p.name.clone() }) })
+        }
+
+        /// Every plugin's presets as the catalog lists them: factory presets (once read),
+        /// then `.aupreset` files.
+        pub(crate) fn plugin_preset_lists(&self) -> Vec<crate::api::PluginPresetList> {
+            use crate::api::{PluginPresetEntry, PluginPresetList};
+            self.plugins
+                .list
+                .iter()
+                .filter(|p| p.factory_presets.is_some() || !p.user_presets.is_empty())
+                .map(|p| PluginPresetList {
+                    plugin: p.id.to_string(),
+                    listed: p.factory_presets.is_some(),
+                    presets: p
+                        .factory_presets
+                        .iter()
+                        .flatten()
+                        .map(|f| PluginPresetEntry { key: format!("f:{}", f.number), name: f.name.clone(), folder: None })
+                        .chain(p.user_presets.iter().map(|u| PluginPresetEntry { key: format!("u:{}", u.path.display()), name: u.name.clone(), folder: u.folder.clone() }))
+                        .collect(),
+                })
+                .collect()
+        }
+
+        /// `listPluginPresets`: read plugin `id`'s factory presets on a thread (loading an
+        /// instance once if no load has read them yet). Nothing to do when they are known.
+        pub(crate) fn list_plugin_presets(&mut self, id: &str) -> Result<(), String> {
+            let pid = PluginId::parse(id).ok_or_else(|| format!("{id:?} is not a plugin id"))?;
+            let Some(info) = self.plugins.list.iter().find(|p| p.id == pid) else {
+                return Err(format!("no instrument Audio Unit {id} is installed"));
+            };
+            if info.factory_presets.is_some() || self.plugins.listing.iter().any(|(l, _)| l == id) {
+                return Ok(());
+            }
+            let cfg = LoadConfig {
+                sample_rate: self.plugin_rate(),
+                max_frames: crate::synth::PLUGIN_MAX_BLOCK as u32,
+                mode: load_mode(info),
+                timeout: Duration::from_secs(20),
+                ..LoadConfig::default()
+            };
+            let host = self.plugins.host();
+            let (tx, rx) = mpsc::channel();
+            std::thread::Builder::new()
+                .name("plugin-presets".into())
+                .spawn(move || {
+                    let _ = tx.send(host.list_presets(&pid, cfg).map_err(|e| format!("{e:#}")));
+                })
+                .map_err(|e| format!("could not start the preset listing: {e}"))?;
+            self.plugins.listing.push((id.to_string(), rx));
+            Ok(())
+        }
+
+        /// Preset listings running (`listPluginPresets`), by plugin id.
+        pub(crate) fn plugin_presets_listing(&self) -> Vec<String> {
+            self.plugins.listing.iter().map(|(id, _)| id.clone()).collect()
+        }
+
+        /// The list's copy of plugin `id` from the host's cache (which a load just gave its
+        /// factory presets).
+        fn refresh_listed_presets(&mut self, id: &str) {
+            let Some(pid) = PluginId::parse(id) else { return };
+            let Some(i) = self.plugins.list.iter().position(|p| p.id == pid) else { return };
+            if self.plugins.list[i].factory_presets.is_some() {
+                return;
+            }
+            if let Some(fresh) = self.plugins.host().cached(&pid) {
+                self.plugins.list[i] = fresh;
+            }
+        }
+
+        /// `savePartAsPluginPreset`: read the part's plugin state, write it as an
+        /// `.aupreset`, list it, file it under `category`, and make it the part's preset.
+        /// The read and the write run on a thread; the pump finishes.
+        pub(crate) fn save_part_as_preset(&mut self, ch: u8, name: &str, category: crate::api::PatchCategory, overwrite: bool) -> Result<(), String> {
+            let name = name.trim();
+            if name.is_empty() {
+                return Err("name the preset".into());
+            }
+            let c = self.plugins.channels[(ch & 15) as usize].as_ref().ok_or("the part plays its SoundFont voice, not a plugin")?;
+            let ed = c.editor.clone().filter(|_| c.status == PluginStatus::Playing).ok_or("the plugin is not playing yet")?;
+            let pid = PluginId::parse(&c.voice.id).ok_or("the part's plugin has no valid id")?;
+            let (host, name) = (self.plugins.host(), name.to_string());
+            // Refused at once (the app asks "Replace?" and sends `overwrite`); the write
+            // checks again, in case the file appeared meanwhile.
+            if !overwrite && host.user_preset_exists(&pid, &name) {
+                return Err(crate::plugin::presets::PresetExists(crate::plugin::presets::safe_name(&name)).to_string());
+            }
+            let inst = ed.instance();
+            let (tx, rx) = mpsc::channel();
+            std::thread::Builder::new()
+                .name("plugin-preset".into())
+                .spawn(move || {
+                    let r = ed.state().and_then(|state| {
+                        let saved = host.save_user_preset(&pid, &name, &state, overwrite)?;
+                        Ok((saved, state, host.cached(&pid)))
+                    });
+                    // The editor handle goes here: if it held the unit's last reference, the
+                    // unit is disposed of on the dispose thread, not the control thread.
+                    drop(ed);
+                    let _ = tx.send(r.map_err(|e| format!("{e:#}")));
+                })
+                .map_err(|e| format!("could not start saving the preset: {e}"))?;
+            self.plugins.preset_saves.push(PresetSave { ch: ch & 15, inst, category, rx });
+            Ok(())
+        }
+
+        /// Preset listings and saves that finished.
+        fn pump_presets(&mut self) {
+            let mut done = Vec::new();
+            self.plugins.listing.retain(|(id, rx)| match rx.try_recv() {
+                Ok(r) => {
+                    done.push((id.clone(), r));
+                    false
+                }
+                Err(mpsc::TryRecvError::Empty) => true,
+                Err(mpsc::TryRecvError::Disconnected) => false,
+            });
+            for (id, r) in done {
+                match r {
+                    Ok(info) => {
+                        if let Some(p) = self.plugins.list.iter_mut().find(|p| p.id == info.id) {
+                            *p = info;
+                        }
+                    }
+                    Err(e) => self.say(format!("{id}: could not list its presets ({e})"), true),
+                }
+            }
+            let mut saves = Vec::new();
+            self.plugins.preset_saves.retain(|s| match s.rx.try_recv() {
+                Ok(r) => {
+                    saves.push((s.ch, s.inst.clone(), s.category, r));
+                    false
+                }
+                Err(mpsc::TryRecvError::Empty) => true,
+                Err(mpsc::TryRecvError::Disconnected) => false,
+            });
+            for (ch, inst, category, r) in saves {
+                let (saved, state, info) = match r {
+                    Ok(x) => x,
+                    Err(e) => {
+                        self.say(format!("The preset was not saved: {e}"), true);
+                        continue;
+                    }
+                };
+                let key = format!("u:{}", saved.path.display());
+                if let Some(info) = info
+                    && let Some(p) = self.plugins.list.iter_mut().find(|p| p.id == info.id)
+                {
+                    let id = info.id.to_string();
+                    *p = info;
+                    self.set_preset_category(crate::api::plugin_preset_id(&id, &key), category);
+                }
+                // The part plays it now, if it still plays the instance saved.
+                if let Some(c) = self.plugins.channels[ch as usize].as_mut()
+                    && c.editor.as_ref().is_some_and(|e| inst.is(e))
+                {
+                    c.voice.preset = Some(VoicePreset { key, name: saved.name.clone() });
+                    c.voice.state = Some(state);
+                    self.plugins.dirty = true;
+                }
+                self.say(format!("Saved the preset “{}” ({})", saved.name, saved.path.display()), false);
+            }
+        }
+
         /// Loads finishing, rack events, the CPU readout, the saved parts.
         pub(crate) fn pump_plugins(&mut self, now: u64) {
             if let Some(rx) = &self.plugins.scan_rx {
@@ -536,6 +767,7 @@ mod imp {
             for ch in 0..16u8 {
                 self.pump_channel_load(ch);
             }
+            self.pump_presets();
             self.pump_warm();
             let events = match self.synth.as_mut().and_then(|s| s.plugins.as_mut()) {
                 Some(link) => link.poll(),
@@ -636,6 +868,16 @@ mod imp {
                             c.out_of_process = oop;
                             self.plugins.playing[ch as usize] = None;
                             self.plugins.dirty |= parts::part_of_channel(ch).is_some();
+                            // A preset picked by number: read the state it gives, so the part
+                            // (and a Registration memorized now) keeps the sound itself.
+                            let c = self.plugins.channels[ch as usize].as_ref().unwrap();
+                            let id = c.voice.id.clone();
+                            if c.voice.preset.is_some() && c.voice.state.is_none() {
+                                let e = c.editor.clone().unwrap();
+                                self.read_states(vec![(ch, e)], false);
+                            }
+                            // Its load read the factory presets, if they were not known.
+                            self.refresh_listed_presets(&id);
                         }
                         Err(inst) => {
                             dispose_later(inst);
@@ -652,7 +894,7 @@ mod imp {
                         let voice = c.voice.clone();
                         if let Some(id) = PluginId::parse(&voice.id) {
                             let rate = self.synth.as_ref().map_or(48_000, |s| s.info.sample_rate) as f64;
-                            let cfg = LoadConfig { sample_rate: rate, max_frames: crate::synth::PLUGIN_MAX_BLOCK as u32, state: voice.state.clone(), mode: LoadMode::InProcess, timeout: Duration::from_secs(20), choose_mode: None };
+                            let cfg = LoadConfig { sample_rate: rate, max_frames: crate::synth::PLUGIN_MAX_BLOCK as u32, state: voice.state.clone(), mode: LoadMode::InProcess, timeout: Duration::from_secs(20), choose_mode: None, factory_preset: factory_preset(&voice) };
                             if let Ok(h) = self.plugins.host().load_async(&id, cfg) {
                                 let c = self.plugins.channels[ch as usize].as_mut().unwrap();
                                 c.load = Some(h);
@@ -836,6 +1078,21 @@ impl Control {
     pub(crate) fn save_channel_state(&mut self, _ch: u8) -> Result<(), String> {
         Err("this build has no plugin host".into())
     }
+    pub(crate) fn preset_voice(&self, _id: &str, _key: &str) -> Result<PluginVoice, String> {
+        Err("this build has no plugin host".into())
+    }
+    pub(crate) fn plugin_preset_lists(&self) -> Vec<crate::api::PluginPresetList> {
+        Vec::new()
+    }
+    pub(crate) fn plugin_presets_listing(&self) -> Vec<String> {
+        Vec::new()
+    }
+    pub(crate) fn list_plugin_presets(&mut self, _id: &str) -> Result<(), String> {
+        Err("this build has no plugin host".into())
+    }
+    pub(crate) fn save_part_as_preset(&mut self, _ch: u8, _name: &str, _category: crate::api::PatchCategory, _overwrite: bool) -> Result<(), String> {
+        Err("this build has no plugin host".into())
+    }
 }
 
 impl Control {
@@ -870,7 +1127,17 @@ impl Control {
                 };
                 // A plugin picked here ends the part's own library patch (#103).
                 self.sound_library_part_plugin(part as usize, true);
-                if let Err(e) = self.assign_channel_plugin(ch(part), PluginVoice { id, state }) {
+                if let Err(e) = self.assign_channel_plugin(ch(part), PluginVoice { id, state, preset: None }) {
+                    return self.fail(e);
+                }
+            }
+            PluginCmd::SetPartPluginPreset { part, id, preset } => {
+                let voice = match self.preset_voice(&id, &preset) {
+                    Ok(v) => v,
+                    Err(e) => return self.fail(e),
+                };
+                self.sound_library_part_plugin(part as usize, true);
+                if let Err(e) = self.assign_channel_plugin(ch(part), voice) {
                     return self.fail(e);
                 }
             }
