@@ -1,18 +1,138 @@
 //! Real-time plumbing: host time, Mach time-constraint scheduling, a wait-free wakeup
 //! semaphore, and an allocation-free CoreMIDI packet sink.
 
+//!
+//! On Linux (agentic development only) host time is CLOCK_MONOTONIC in nanoseconds, the
+//! real-time policy is a no-op, the wakeup is an eventfd semaphore and the packet sink
+//! counts and drops.
+
+#[cfg(target_os = "macos")]
 use coremidi_sys::{
     MIDIEndpointRef, MIDIPacketList, MIDIPacketListAdd, MIDIPacketListInit, MIDIPortRef, MIDIReceived,
     MIDISend,
 };
+#[cfg(target_os = "macos")]
 use mach2::kern_return::KERN_SUCCESS;
+#[cfg(target_os = "macos")]
 use mach2::mach_time::{mach_absolute_time, mach_timebase_info};
+#[cfg(target_os = "macos")]
 use std::sync::OnceLock;
+
+#[cfg(not(target_os = "macos"))]
+pub use linux::*;
+
+#[cfg(not(target_os = "macos"))]
+mod linux {
+    /// Monotonic host time in nanoseconds.
+    #[inline]
+    pub fn now_ns() -> u64 {
+        let mut ts = libc::timespec { tv_sec: 0, tv_nsec: 0 };
+        unsafe { libc::clock_gettime(libc::CLOCK_MONOTONIC, &mut ts) };
+        ts.tv_sec as u64 * 1_000_000_000 + ts.tv_nsec as u64
+    }
+
+    /// The host clock, raw: on Linux its ticks are nanoseconds.
+    #[inline]
+    pub fn host_now() -> u64 {
+        now_ns()
+    }
+
+    #[inline]
+    pub fn host_to_ns(t: u64) -> u64 {
+        t
+    }
+
+    pub fn ns_to_host(ns: u64) -> u64 {
+        ns
+    }
+
+    /// No real-time scheduling on Linux (development only); reports failure.
+    pub fn make_realtime(_period_ns: u64, _computation_ns: u64, _constraint_ns: u64) -> bool {
+        false
+    }
+
+    /// eventfd in semaphore mode. `signal` never blocks and never allocates; only the
+    /// engine thread waits on it.
+    #[derive(Clone, Copy)]
+    pub struct Wakeup(i32);
+
+    impl Default for Wakeup {
+        fn default() -> Wakeup {
+            Wakeup::new()
+        }
+    }
+
+    impl Wakeup {
+        pub fn new() -> Wakeup {
+            Wakeup(unsafe { libc::eventfd(0, libc::EFD_SEMAPHORE | libc::EFD_NONBLOCK | libc::EFD_CLOEXEC) })
+        }
+
+        #[inline]
+        pub fn signal(&self) {
+            let one: u64 = 1;
+            unsafe { libc::write(self.0, &one as *const u64 as *const libc::c_void, 8) };
+        }
+
+        /// Wait until signalled or `timeout_ns` elapses. Returns true if signalled.
+        #[inline]
+        pub fn wait(&self, timeout_ns: u64) -> bool {
+            let mut v: u64 = 0;
+            let take = |v: &mut u64| unsafe { libc::read(self.0, v as *mut u64 as *mut libc::c_void, 8) } == 8;
+            if take(&mut v) {
+                return true;
+            }
+            let ts = libc::timespec {
+                tv_sec: (timeout_ns / 1_000_000_000) as libc::time_t,
+                tv_nsec: (timeout_ns % 1_000_000_000) as libc::c_long,
+            };
+            let mut pfd = libc::pollfd { fd: self.0, events: libc::POLLIN, revents: 0 };
+            let n = unsafe { libc::ppoll(&mut pfd, 1, &ts, std::ptr::null()) };
+            n > 0 && take(&mut v)
+        }
+    }
+
+    pub enum Target {
+        /// Distribute from one of our virtual sources.
+        Virtual(u32),
+        /// Send through an output port to a destination.
+        Port(u32, u32),
+        /// Nowhere: flushing drops the messages (offline sessions, tests).
+        Null,
+    }
+
+    /// Without CoreMIDI the sink counts messages and drops them. No heap allocation.
+    pub struct PacketSink {
+        pending: u64,
+        #[allow(dead_code)]
+        target: Target,
+        pub sent: u64,
+    }
+
+    impl PacketSink {
+        pub fn new(target: Target) -> PacketSink {
+            PacketSink { pending: 0, target, sent: 0 }
+        }
+
+        pub fn is_empty(&self) -> bool {
+            self.pending == 0
+        }
+
+        pub fn push(&mut self, _msg: &[u8]) {
+            self.pending += 1;
+        }
+
+        pub fn flush(&mut self) {
+            self.sent += self.pending;
+            self.pending = 0;
+        }
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Time
 // ---------------------------------------------------------------------------
 
+#[cfg(target_os = "macos")]
 fn timebase() -> (u64, u64) {
     static TB: OnceLock<(u64, u64)> = OnceLock::new();
     *TB.get_or_init(|| {
@@ -23,6 +143,7 @@ fn timebase() -> (u64, u64) {
 }
 
 /// Monotonic host time in nanoseconds (same clock CoreMIDI timestamps use).
+#[cfg(target_os = "macos")]
 #[inline]
 pub fn now_ns() -> u64 {
     let (n, d) = timebase();
@@ -35,6 +156,7 @@ pub fn now_ns() -> u64 {
 }
 
 /// The host clock, raw (ticks; see [`host_to_ns`]): the cheapest timestamp there is.
+#[cfg(target_os = "macos")]
 #[inline]
 pub fn host_now() -> u64 {
     unsafe { mach_absolute_time() }
@@ -49,12 +171,14 @@ pub fn thread_cpu_ns() -> u64 {
     ts.tv_sec as u64 * 1_000_000_000 + ts.tv_nsec as u64
 }
 
+#[cfg(target_os = "macos")]
 #[inline]
 pub fn host_to_ns(t: u64) -> u64 {
     let (n, d) = timebase();
     (t as u128 * n as u128 / d as u128) as u64
 }
 
+#[cfg(target_os = "macos")]
 pub fn ns_to_host(ns: u64) -> u64 {
     let (n, d) = timebase();
     (ns as u128 * d as u128 / n as u128) as u64
@@ -66,6 +190,7 @@ pub fn ns_to_host(ns: u64) -> u64 {
 
 /// Put the calling thread in the Mach time-constraint class (the class CoreAudio's IO
 /// threads use). `period`/`computation`/`constraint` are in nanoseconds.
+#[cfg(target_os = "macos")]
 pub fn make_realtime(period_ns: u64, computation_ns: u64, constraint_ns: u64) -> bool {
     use mach2::mach_init::mach_thread_self;
     use mach2::thread_policy::{
@@ -95,18 +220,23 @@ pub fn make_realtime(period_ns: u64, computation_ns: u64, constraint_ns: u64) ->
 
 /// Mach semaphore. `signal` never blocks and is safe from any thread, including
 /// CoreMIDI's receive thread; only the engine thread waits on it.
+#[cfg(target_os = "macos")]
 #[derive(Clone, Copy)]
 pub struct Wakeup(mach2::mach_types::semaphore_t);
 
+#[cfg(target_os = "macos")]
 impl Default for Wakeup {
     fn default() -> Wakeup {
         Wakeup::new()
     }
 }
 
+#[cfg(target_os = "macos")]
 unsafe impl Send for Wakeup {}
+#[cfg(target_os = "macos")]
 unsafe impl Sync for Wakeup {}
 
+#[cfg(target_os = "macos")]
 impl Wakeup {
     pub fn new() -> Wakeup {
         let mut s = 0;
@@ -142,11 +272,14 @@ impl Wakeup {
 // Packet sink
 // ---------------------------------------------------------------------------
 
+#[cfg(target_os = "macos")]
 const BUF: usize = 4096;
 
+#[cfg(target_os = "macos")]
 #[repr(C, align(8))]
 struct Aligned([u8; BUF]);
 
+#[cfg(target_os = "macos")]
 pub enum Target {
     /// Distribute from one of our virtual sources.
     Virtual(MIDIEndpointRef),
@@ -158,6 +291,7 @@ pub enum Target {
 
 /// Collects MIDI messages into a stack-style CoreMIDI packet list and flushes them in
 /// one call. No heap allocation.
+#[cfg(target_os = "macos")]
 pub struct PacketSink {
     buf: Box<Aligned>,
     cur: *mut coremidi_sys::MIDIPacket,
@@ -165,8 +299,10 @@ pub struct PacketSink {
     pub sent: u64,
 }
 
+#[cfg(target_os = "macos")]
 unsafe impl Send for PacketSink {}
 
+#[cfg(target_os = "macos")]
 impl PacketSink {
     pub fn new(target: Target) -> PacketSink {
         let mut s = PacketSink { buf: Box::new(Aligned([0; BUF])), cur: std::ptr::null_mut(), target, sent: 0 };
