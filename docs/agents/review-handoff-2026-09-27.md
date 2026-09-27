@@ -5,7 +5,7 @@ You are the ORCHESTRATOR for a code-quality wave. This page gives you the findin
 ## 0. Read first
 - `docs/agents/wave-brief.md` and `docs/agents/wave2/wave2-brief.md`: the hard rules (small PRs, gates, READY handoff, both mocks, no copyrighted data). They all apply here.
 - `docs/architecture.md`: the thread model and the add-a-feature checklist. Refactors must not move work across threads.
-- `docs/agents/review-2026-09-27.md`: the findings this page is built from. Round 1 covers idiom, single responsibility and error handling; Round 2 covers duplication.
+- `docs/agents/review-2026-09-27.md`: the findings this page is built from. Round 1 covers idiom, single responsibility and error handling; Round 2 covers duplication. `docs/agents/testing-2026-09-27.md` covers test organisation, fixtures and CI.
 
 ## 1. What this wave is, and is not
 - **It is a quality wave.** No PR in it changes behaviour the user can hear or see: the band plays the same notes, the JSON wire format stays byte-identical, LEDs light the same. The exceptions are the six latent bugs in Track A, each of which changes behaviour only on an input that panics or corrupts today.
@@ -33,7 +33,7 @@ Measured on `develop` at `724686d` (merge of #319). Re-measure with the commands
 | Fields on `session::Control` | read `src/session.rs` | 71 | about 40 (loose fields grouped) |
 
 ## 3. Tracks
-Each track is a chain of small PRs. Spawn one agent per track; tracks A, C and D are independent of everything and can start at once. Order inside a track matters where marked.
+Each track is a chain of small PRs. Spawn one agent per track; tracks A, C and T are independent of everything and can start at once. Track H's H1 waits for T1 (it needs the synthetic style) and for the owner's decision. Order inside a track matters where marked.
 
 For every PR the agent's report must state: what changed, the OUTCOME below restated as a checklist with each item ticked, and the exact commands run. You validate against the OUTCOME, not against the diff.
 
@@ -75,12 +75,23 @@ Outcome: `cargo clippy --all-targets` on macOS reports the counts per lint in th
 **C3. SAFETY comments.** `src/rt.rs` (16 blocks, 0 comments), `src/midi.rs` (19, 2), `src/plugin/sys.rs` (33, 3), `src/bench.rs` (2, 0), `src/perf.rs`.
 Outcome: `undocumented_unsafe_blocks` reports zero; each comment states the invariant, not the operation; `Wakeup::new` checks `semaphore_create`'s return (debug assert at minimum) and the `Copy` semaphore handle is either documented as never destroyed or made non-`Copy`; `midi::init()` returns the CoreMIDI status instead of swallowing it.
 
-### Track D: test scaffolding (two PRs; the Round 2 section refines D1)
-**D1. `testkit`.** One `#[cfg(test)] pub(crate) mod testkit` (`src/testkit.rs`) holding the corpus path helpers, `offline()`/`session()`, `Rec`/`Nop` sinks, the stepping helpers and `bar_ns`, plus `tests/common/mod.rs` for the nine `*_no_alloc.rs` counting allocators.
-Outcome: `SlowWalker.T552` appears in one file; "corpus missing" appears once, as a macro or helper that marks the test skipped visibly (the agent proposes `#[ignore]`-by-feature or a printed SKIP count; the owner's rule "the corpus actually runs" in the gates stays true on the owner's machine); `fn bar_ns` defined once; test count unchanged (`cargo test -- --list | wc -l` before and after in the PR body).
+### Track T: testing (replaces the old Track D; details in `testing-2026-09-27.md`)
+Order: T1, then T2 and T3 in parallel, then T4.
 
-**D2. Extract inline test giants.** `src/sim.rs` (seven inline modules, 2602 lines), `src/live.rs` (1588), `src/session/fx.rs`, `src/session/style_change.rs` (its tests are OTS-Link tests and move under `ots`), `src/session/controllers.rs`, `src/synth.rs`, `src/theory.rs`, `src/capture.rs`, `src/sff.rs`.
-Outcome: no production file carries an inline test module over 100 lines; `#[cfg(test)] #[path = "..._tests.rs"]` used as the existing convention; `git diff --stat` shows moves (`-M` detects them); test count unchanged.
+**T1. Shippable fixtures.** `sff::synthetic::StyleBuilder` writing SFF1 and SFF2 (after the `smf::write` merge in H4), a set of generated styles under `tests/fixtures/styles/`, generated SoundFonts under `tests/fixtures/soundfonts/` from an extended `tiny_sound_font`, and full golden listings for the synthetic styles.
+Outcome: each fixture file has a regeneration test that byte-compares it; `docs/fixtures/README.md` says what each exercises (every NTR, every NTT table, chord mute, fills mid-bar, in-pattern program and volume changes, bend, SInt with RPN and XG SysEx, 3/4 and 6/8, OTS, no CASM, SFF1); a golden listing per synthetic style is committed in full and diffed by the existing golden harness; breaking `theory::transpose` on a scratch branch turns Linux CI red.
+
+**T2. Explicit skips.** The 107 early returns become either the synthetic fixture (tests that need *a* style) or `#[ignore = "corpus: <style>"]` (tests that need that Yamaha style); `testkit::corpus()` panics when a corpus file is missing.
+Outcome: `grep -rn 'skipping' src tests` is empty; the vacuous-test count (script in the testing doc §1) is 0; `cargo test` prints the ignored count; the owner's gate runs `--include-ignored`; `.config/nextest.toml` (if nextest is adopted) names the `corpus`, `soundfont` and `hardware` tiers.
+
+**T3. `testkit` and `tests/common`.** One in-crate `#[cfg(test)] pub(crate) mod testkit` and one `tests/common/mod.rs` with the surface listed in the review (D7): fixture loaders, `offline()`, one `Recorder` with `ons/offs/cc`, `Null`, `bar_ns`, the three stepping helpers, `until`, MIDI byte builders, `chord()`, `temp_dir()`, the per-thread counting allocator, `energy()`; plus `impl Default for engine::Snapshot`.
+Outcome: `fn bar_ns`/`let bar_ns` defined once; `const MS` once; `impl Sink for` in test code at most 3 (Recorder, Null, the click recorder); the SlowWalker path in one file; five byte-identical allocator preambles gone; test count unchanged (`cargo test -- --list | wc -l` before and after in the PR body).
+
+**T4. Placement and virtual time.** Apply the one placement rule (inline only under about 100 lines and needing private items; otherwise `<module>/tests.rs`): `sim.rs` splits into `sim/{mod,recorder,script}.rs` plus tests, and `live.rs`, `synth.rs`, `theory.rs`, `capture.rs`, `sff.rs`, `session/fx.rs`, `session/style_change.rs` (its tests move under `ots`), `session/controllers.rs` move theirs out. The six `wait_*` loops and the `Instant::now()` pumps in the plugin tests drive the offline clock instead.
+Outcome: no production file carries an inline test module over 100 lines; `git diff -M --stat` shows moves; `grep -rn 'Instant::now' src/**/*_tests.rs tests` is limited to the one bounded helper; test count unchanged.
+
+**CI (with T1 to T3).** The Linux job runs T0 and T1 with real assertions; the macOS job runs `--features plugins` restricted to the plugin and `cfg(target_os = "macos")` tests.
+Outcome: macOS job under ten minutes; both jobs print the ignored count; `AGENTS.md`'s sentence about the corpus becomes "the corpus tests are ignored on CI; run `--include-ignored` locally".
 
 ### Track E: persistence and paths (three PRs, E1 first)
 **E1. One atomic writer.** `crate::fsutil::write_atomic(path, bytes) -> Result<()>` using the pid-plus-sequence tmp naming from `plugin/scan.rs:186`; replaces `registration/mod.rs:490`, `patches/store.rs:101`, `plugin/presets.rs:238`, `session/sound_set.rs:99`, `session/plugins.rs:1055`, and `session/settings.rs:56` (today a plain `fs::write` that swallows errors).
@@ -123,8 +134,30 @@ Outcome: the roughly 60 `1e-6`/`1e-9` literals in `src/engine` reduce to the one
 **G4. `SynthMsg`.** One decoder for the ring's non-MIDI messages (`click.rs:12`, `patches/route.rs:214,219`, `synth/xg_part.rs:21`, `synth/drum_setup.rs:62`), consumed by a `match` in `process`.
 Outcome: a `const _: () = assert!` proves the byte ranges are disjoint; the `if ... continue` chain at `synth.rs:996-1057` is gone; `tests/synth_no_alloc.rs` unchanged.
 
-## 4. Round 2: duplication
-See §8 of `docs/agents/review-2026-09-27.md`. (Filled in below once the duplication pass completes.)
+## 4. Track H: duplication (Round 2 of the review, §Round 2 in `review-2026-09-27.md`)
+Ranked by drift already observed. H1 needs an owner decision; the rest are mechanical.
+
+**H1 (decision needed). The desktop app's Rust mock is a second engine.** `app/src-tauri/src/mock*.rs` is 5,316 lines re-implementing transport, sections, OTS, registration, playlist, chart, looper, sound library and pads; 44 of the last 60 commits to `src/session` also touched it, and it has already drifted (registration mock stores 6 of 9 groups; `StepStyle` implemented twice with different bounds; a different suggest-style algorithm; the looper name counter; several messages). The library's `Session::offline` runs the real engine with no threads, no audio and a virtual clock; the only missing piece is a style file, which T1's synthetic styles supply.
+Recommended: replace `Backend::Mock` with `Session::offline(Options { paths: [demo style], data_dir: Some(tmp), .. })`, a ~60-line demo player that sends chords and section presses on a timer, and delete `mock*.rs`. Alternative if the owner prefers a smaller step: move the pure `AppState`-level logic the mock copies (`surface`, pad looks, harmony/arp, knobs, home tail, `sections_text`, the colour and part tables) into `src/api` so both call it; this removes 600 to 700 lines but leaves the engine copy.
+Outcome (recommended path): `app/src-tauri/src/mock*.rs` deleted; `Backend` collapses to `Session`; `YAHAHA_MOCK`, no-styles and start-failure all run the offline session on the synthetic style; `cargo test` in `app/src-tauri` green; `docs/agents/wave-brief.md` rule 6 says "update the TS mock"; the two production Svelte imports from `app/src/lib/api/mock.ts` (`GM`, `noteName`) move to non-mock modules. Outcome (alternative): the eight listed copies gone from the mock; `mock.rs` under 2,500 lines; no colour, label or part-name literal in `app/src-tauri` that also exists in `launchkey.rs` or `parts.rs`.
+
+**H2. One boundary policy for wire enums.** Eleven enums and five structs are defined twice with hand-written conversion (`HarmonySpeed`, `HarmonyAssign`, `ArpQuantize`, `ArpVelocityMode`, `HarmonyArpMode`, `LooperMode`, `PadLamp`, `StopAcmpMode`, `ChangeRuleMode`, `InsertEffect`, `FxType`; `TransportCmd`/`Button` 68 arms; `MultiPadCmd`/`PadCmd`; `MultiPadSynchroStop`, `StyleSettingsState`, `DynamicsState`, `PedalState`, `StyleChangeState`). About 28 others already follow "define once in the owner, derive serde, re-export from `api`". `InsertKind::None` currently reports as `Distortion` on the wire.
+Outcome: no `match` or `From` between two enums with the same variant set anywhere in `src/api` or `src/session` (list the 16 in the PR body, each deleted or justified); `tests/api_wire.rs` byte-identical except where a bug is fixed (the insert `None` case gets its own wire value and a doc update); the wrong "plays the Main's fill" sentence exists nowhere; `knobs.rs` uses `engine::MIN_BPM/MAX_BPM`; one `MAX_BEND_RANGE` renamed; validation clamps live in the owner's setter only (`Parts::set_octave` added, eight scattered `clamp(-2, 2)` gone).
+
+**H3. One per-channel MIDI state tracker.** `engine/mirror.rs` `Mirror::track`, `synth.rs` `Shadow`, `plugin/rack.rs` `Controllers`, `sff.rs` `parse_ots` and the local arrays in `engine/setup.rs` disagree on tracked CCs, CC121 reset, mono and bend storage.
+Outcome: `midi::state::ChannelState { observe, selected, replay }` used by all five; one RPN replay loop; a table test that feeds the same message stream to the tracker and asserts the replay for each former caller's filter; `tests/synth_no_alloc.rs` and `plugin_rack_no_alloc.rs` unchanged.
+
+**H4. `smf` and `fs_util` modules.** SMF reading (three MThd parsers, four chunk walks, three tempo decoders; `capture.rs`'s lacks the length and zero-tempo guards) and two production SMF writers; six atomic-write copies plus one plain `fs::write` (this is E1, folded here), the JSON load/save trios and `is_hidden`.
+Outcome: `smf::read::{header, chunks, parse_track, tempo_us, timesig}` and `smf::write::{vlq, chunk, header, track, meta}` with `sff.rs`, `multipad/file.rs`, `multipad/synthetic.rs`, `capture.rs` and the test writer as callers; `fs_util::{write_atomic, read_json, check_format, is_hidden}`; `grep -rn 'fs::rename(&tmp' src` finds one site; the corrupt-SMF tests in `sff.rs` and `multipad/file.rs` now also run against the shared reader.
+
+**H5. `midi::msg` helpers.** 119 status-byte constructions and about 60 parses; the "controllers to neutral" triple in four places with two orders; `BEND_CENTRE` twice; the 14-bit split five times.
+Outcome: `midi::msg::{cc, note_on, note_off, pc, bend, bend_split, bend_join, status, channel, neutral_controls, rpn_select, xg_part_param, BEND_CENTRE}`; no `0x[89ABCDE]0 | ` left in `src/engine`, `src/controllers.rs`, `src/multipad`, `src/plugin` (grep in the PR body); `neutral_controls` sends in one documented order and the four former sites cite it; goldens unchanged.
+
+**H6. One Launchkey lamp model.** `section_leds`/`section_looks` and `regist_leds`/`regist_looks` are the same state machine twice; `multipad_leds` already derives from looks.
+Outcome: `section_leds` and `regist_leds` deleted; `led_of(look, palette)` derives every page; a pinning test asserts `pad_leds(page) == looks(page).map(led_of)` for pages 1 and 4 across a set of snapshots; `page_1_leds_unchanged_by_panel` still passes.
+
+**H7. Small shared helpers, one PR each or grouped by module.** `cli::Args` for the five flag loops (and `--data-dir` stops accepting a missing value); `engine::timing::TickClock` for `transport.rs:128` and `multipad.rs:174` plus the four `60e9 / (bpm * ppq)` sites; `Engine::load_stopped` and `apply_setup_msg` for `send_init`/`reapply_init` and the three-line tail in `style_change.rs`; `KnobFn` spec table; `rt::lock` replacing 18 spelled-out poison-tolerant locks; `rt::Handoff` for the five ring pairs; `step_clamped`/`step_wrapping`; delete `multipad/player.rs::default_rule`; move `fingering.rs:270-274` chord-type consts into `theory` and drop the two redeclarations; `theory::note_index` replacing the two tables in `lib.rs`; one "Model 16" rule; `perf/top.rs` `row()`.
+Outcome per helper: every caller listed in the review converted in the same PR; the old definitions gone; no behaviour change (goldens, no-alloc tests, `api_wire.rs` unchanged).
 
 ## 5. Rules for every agent in this wave
 - A refactor PR body has three sections: **What moved**, **Proof of no change** (the tests and goldens that cover it, and the metric from §2 it moves), **Follow-ups** (anything noticed, not fixed).
