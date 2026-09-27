@@ -38,6 +38,11 @@
   const entry = $derived(plugin ? plugins.list.find((p) => p.id === plugin.id) : undefined)
   // Changed since the plugin loaded: it applies from the next load (#176).
   const pending = $derived(inProcessPending(plugin, entry))
+  /** Voice −/+ (the Launchkey's pads step the selected part's voice): select this part, then step. */
+  function stepVoice(delta: number) {
+    app.send({ type: 'selectPart', part: index })
+    app.send({ type: 'stepVoice', delta })
+  }
   function toggleInProcess() {
     if (entry?.canRunInProcess) app.send({ type: 'setPluginInProcess', id: entry.id, inProcess: !entry.inProcess })
   }
@@ -97,8 +102,14 @@
       {:else}Sounds ▾{/if}
     </span>
   </button>
+  <div class="octave">
+    <button type="button" class="mini mat-raised" aria-label="{part.name} previous voice" use:tip={'part.voice_down'} onclick={() => stepVoice(-1)}>−</button>
+    <span class="oval"><small class="engraved">Voice</small></span>
+    <button type="button" class="mini mat-raised" aria-label="{part.name} next voice" use:tip={'part.voice_up'} onclick={() => stepVoice(1)}>+</button>
+  </div>
   {#if plugin}
     <div class="prow">
+      <button type="button" class="mini mat-raised wide" use:tip={'part.plugin_reload'} onclick={() => app.send({ type: 'reloadPartPlugin', part: index })}>Reload</button>
       <button type="button" class="mini mat-raised wide" aria-disabled={!plugin.editor} use:tip={'part.plugin_edit'} onclick={() => plugin.editor && app.pluginEditor(index, true)}>Edit…</button>
       <button type="button" class="mini mat-raised wide" class:on={!!entry?.inProcess} class:pending aria-pressed={!!entry?.inProcess} aria-disabled={!entry?.canRunInProcess} aria-label={pending ? 'In proc (applies on next load)' : undefined} use:tip={'part.plugin_in_process'} onclick={toggleInProcess}>In proc{pending ? ' ↻' : ''}</button>
     </div>

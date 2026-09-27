@@ -159,8 +159,8 @@ export function tipFor(cmd: AppCmd | null): TipKey {
     case 'setRegistSequence': return 'regist.sequence_steps'
     case 'setRegistSequenceOn':
     case 'toggleRegistSequence': return 'regist.sequence_on'
-    case 'stepRegistSequence':
-    case 'stepRegist': return cmd.delta < 0 ? 'regist.seq_prev' : 'regist.seq_next'
+    case 'stepRegistSequence': return cmd.delta < 0 ? 'regist.seq_prev' : 'regist.seq_next'
+    case 'stepRegist': return cmd.delta < 0 ? 'regist.prev' : 'regist.next'
     // Playlist
     case 'newPlaylist': return 'playlist.new'
     case 'loadPlaylist': return 'playlist.file'
@@ -175,7 +175,7 @@ export function tipFor(cmd: AppCmd | null): TipKey {
     case 'setPlaylistSort': return 'playlist.sort'
     case 'loadPlaylistRecord': return 'playlist.record'
     case 'stepPlaylist': return cmd.delta < 0 ? 'playlist.prev' : 'playlist.next'
-    case 'setTempo': return 'display.tempo'
+    case 'setTempo': return 'tempo.set'
     case 'setStyleSolo':
     case 'setPartSolo': return 'mixer.solo'
     case 'styleTrackMute': return 'mixer.track_mute'
@@ -226,9 +226,9 @@ export function tipFor(cmd: AppCmd | null): TipKey {
     case 'setTouchLimit': return 'harmony.touch_limit'
     case 'setArpQuantize': return 'harmony.arp_quantize'
     case 'setArpHold':
-    case 'toggleArpHold':
+    case 'toggleArpHold': return 'harmony.arp_hold'
     case 'setArpPedalHold':
-    case 'toggleArpPedalHold': return 'harmony.arp_hold'
+    case 'toggleArpPedalHold': return 'harmony.arp_pedal_hold'
     case 'setArpVelocity': return 'harmony.arp_velocity'
     case 'setArpKeepKeyOn': return 'harmony.arp_keep_key_on'
     case 'createPatch':

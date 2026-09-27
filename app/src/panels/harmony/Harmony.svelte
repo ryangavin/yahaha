@@ -161,6 +161,9 @@
           >
             <Toggle on={h.arp.hold} tip="harmony.arp_hold" onclick={() => app.send({ type: 'toggleArpHold' })}>{onOff(h.arp.hold)}</Toggle>
           </Field>
+          <Field name="Hold pedal" genos="Arpeggio Hold (foot pedal)" inline note="The Arpeggio Hold pedal's switch, from the app: on holds the pattern as the pedal down does.">
+            <Toggle on={h.arp.pedalHold} tip="harmony.arp_pedal_hold" onclick={() => app.send({ type: 'toggleArpPedalHold' })}>{onOff(h.arp.pedalHold)}</Toggle>
+          </Field>
           <Field name="Velocity">
             <Choice
               label="Arpeggio velocity"
