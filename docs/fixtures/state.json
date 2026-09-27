@@ -2350,5 +2350,19 @@
         "followStyle": true
       }
     ]
+  },
+  "home": {
+    "mains": [],
+    "progress": {
+      "running": false,
+      "bar": 1,
+      "beat": 1,
+      "bars": null,
+      "beatsPerBar": 4,
+      "fraction": 0.0
+    },
+    "snapshot": null,
+    "ots": null,
+    "bandSends": []
   }
 }

@@ -380,6 +380,7 @@ impl MockSession {
             dynamics: DynamicsState::default(),
             knobs: KnobsState::default(),
             effects: EffectsState::initial(),
+            home: HomeState::default(),
         };
         let songs: Vec<(String, String)> = library.entries.iter().filter(|e| e.status == "ok").map(|e| (e.path.clone(), e.name.clone())).collect();
         let mut m = MockSession {
@@ -1149,6 +1150,7 @@ impl MockSession {
         t.landing = (t.running && (fill_like(&t.queued) || fill_like(&t.section))).then(|| MAINS[t.main as usize % 4].into());
         st.transport.lamps = pads_for(st, Page::Sections);
         self.regist.fill(st);
+        st.home = crate::mock_home::home(st);
         st.pads.pads = if st.pads.page == Page::Registration { self.regist.pads() } else { pads_for(st, st.pads.page) };
         self.anchor_clocks();
         self.state.surface = self.surface();

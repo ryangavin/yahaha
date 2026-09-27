@@ -29,6 +29,15 @@ pub struct PSection {
 }
 
 impl PSection {
+    /// Every note-on as written, for previews: (tick, destination channel 8-15, key, velocity).
+    /// Notes of a source channel with no rule are left out.
+    pub fn notes(&self) -> impl Iterator<Item = (u32, u8, u8, u8)> + '_ {
+        self.events.iter().filter_map(|e| match e.kind {
+            PKind::On { key, vel } if vel > 0 => self.rules[e.src as usize & 15].as_ref().map(|r| (e.tick, r.dest_ch, key, vel)),
+            _ => None,
+        })
+    }
+
     pub fn first_note_tick(&self) -> Option<u32> {
         self.events.iter().find(|e| matches!(e.kind, PKind::On { .. })).map(|e| e.tick)
     }

@@ -17,6 +17,7 @@ import { padsFor } from './mock-pads'
 import { MockKnobs } from './mock-knobs'
 import { initialPlugins, MockPlugins } from './mock-plugins'
 import { ARP_PATTERNS, HARMONY_TYPES, harmonyArpCmd, initialHarmonyArp } from './mock-harmony'
+import { mockHome } from './mock-home'
 import { MockRegistration } from './mock-registration'
 import { emptyPlaylist, emptyRegistration } from './registration'
 import type { Session } from './session'
@@ -283,6 +284,7 @@ export function initialState(): AppState {
     dynamics: { control: true, level: 127, touch: false, accent: false, accentThreshold: 110 },
     knobs: { page: 'style', pageName: 'Style', pageNumber: 1, pageCount: 4, knobs: [] },
     effects: initialEffects(),
+    home: { mains: [], progress: { running: false, bar: 1, beat: 1, bars: null, beatsPerBar: 4, fraction: 0 }, snapshot: null, ots: null, bandSends: [] },
   }
   derive(state, LIBRARY)
   state.knobs = new MockKnobs().state(state)
@@ -568,6 +570,7 @@ export class MockSession implements Session {
     this.state.version++
     this.reg.fill(this.state)
     this.looper.publish()
+    this.state.home = mockHome(this.state)
     derive(this.state, this.lib, this.hardware(), [...this.leftHand, ...this.rightHand])
     this.sound.derive(this.state)
     this.catalogMock.derive(this.state)

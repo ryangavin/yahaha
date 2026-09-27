@@ -1111,6 +1111,8 @@ export interface AppState {
   knobs: KnobsState
   /** The effect bus's Reverb, Chorus and Variation blocks (#204). */
   effects: EffectsState
+  /** What the Home screen shows: read-only, derived from the rest. */
+  home: HomeState
 }
 
 // ── Instrument plugins (docs/plugin-hosting.md) ──────────────────────────
@@ -1414,3 +1416,25 @@ export function sectionLabel(name: string): string {
 
 export const STYLE_PART_NAMES = ['Rhythm 1', 'Rhythm 2', 'Bass', 'Chord 1', 'Chord 2', 'Pad', 'Phrase 1', 'Phrase 2']
 export const KEYBOARD_PART_NAMES = ['Right 1', 'Right 2', 'Right 3', 'Left']
+
+/** The Home screen's data (docs/app-api.md `home`). */
+export interface HomeState {
+  mains: HomeMain[]
+  progress: { running: boolean; bar: number; beat: number; bars: number | null; beatsPerBar: number; fraction: number }
+  snapshot: { index: number; label: string; name: string; bank: string } | null
+  ots: { index: number; name: string } | null
+  bandSends: { block: FxBlock; name: string; effectName: string; level: number }[]
+}
+
+export interface HomeMain {
+  name: string
+  present: boolean
+  bars: number
+  stepsPerBar: number
+  /** Note-ons per step over the whole pattern. */
+  density: number[]
+  /** The first bar: loudest velocity per step (0 = none). */
+  lanes: { kick: number[]; snare: number[]; hats: number[]; bass: number[] }
+  fill: { name: string; present: boolean; bars: number; active: boolean }
+  current: boolean
+}
