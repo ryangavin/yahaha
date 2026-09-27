@@ -531,7 +531,7 @@ export class MockSession implements Session {
 
   /** No audio: silent meters with no channels, as the engine without its synth. */
   meters() {
-    return Promise.resolve({ atMs: this.now, channels: [], master: [0, 0] as [number, number], clips: 0 })
+    return Promise.resolve({ atMs: this.now, channels: [], master: [0, 0] as [number, number], masterRms: [0, 0] as [number, number], clips: 0 })
   }
 
   /** Audio dropouts, as a busy machine or a too-small buffer makes them (the engine counts

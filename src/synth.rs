@@ -85,6 +85,11 @@ pub struct SynthControl {
     pub peaks: [AtomicU32; 16],
     /// Left and right peaks after the soft clipper.
     pub master_peaks: [AtomicU32; 2],
+    /// RMS level per MIDI channel (f32 bits): the loudest audio buffer's since the last
+    /// `take_meters`.
+    pub rms: [AtomicU32; 16],
+    /// Left and right RMS after the soft clipper, the same way.
+    pub master_rms: [AtomicU32; 2],
     /// Buffers in which the soft clipper worked.
     pub clips: AtomicU64,
     /// Racks swapped in (`SetSoundFont`).
@@ -133,8 +138,11 @@ pub struct RackSwap {
     pub old: Consumer<Box<Rack>>,
 }
 
-/// The channels the meters report: the keyboard parts and the Style parts.
+/// The channels the rack's parts play: the keyboard parts and the Style parts.
 pub const RACK_CHANNELS: [u8; 12] = [0, 1, 2, 3, 8, 9, 10, 11, 12, 13, 14, 15];
+/// The channels the meters report: the keyboard parts, the Multi Pads (5-8) and the Style
+/// parts, in channel order.
+pub const METER_CHANNELS: [u8; 16] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
 
 /// The built-in synth's synthesizers, one SoundFont: the band's (ch 9-16) and your
 /// playing's (the keyboard parts, ch 1-4), 128 voices each. Each measures its channels'
@@ -164,6 +172,9 @@ pub struct Rack {
     /// The performance view is on: `render` times its synthesizers and reports each
     /// channel's cost, voices and level to `perf::PERF`.
     profile: bool,
+    /// Each channel's RMS in the last `render` (the loudest synthesizer's, after a fade),
+    /// for the meters: the audio thread folds it into `SynthControl::rms`.
+    pub rms: [f32; 16],
 }
 
 /// An extra synthesizer no channel plays is rendered until its output (reverb and chorus
@@ -192,6 +203,7 @@ impl Rack {
             mapped: 0,
             quiet: Vec::new(),
             profile: false,
+            rms: [0.0; 16],
         };
         // Rhythm 1 (ch 9) is a drum part too: on the drum bank.
         r.process(8, 0xB0, 0, 128);
@@ -340,7 +352,11 @@ impl Rack {
                 *x *= a + (b - a) * k as f32 / n as f32;
             }
         }
+        self.rms = [0.0; 16];
         for s in [&mut self.band, &mut self.player].into_iter().chain(self.extra.iter_mut()) {
+            for (ch, r) in s.channel_rms().into_iter().enumerate() {
+                self.rms[ch] = self.rms[ch].max(r * most);
+            }
             for (ch, &p) in s.channel_peaks().iter().enumerate() {
                 if p > 0.0 {
                     peaks[ch].fetch_max((p * most).to_bits(), Relaxed);
@@ -466,6 +482,12 @@ impl Shadow {
 
 /// Take the meters: each channel's and the master's peak since the last take, and the
 /// clip count. For one reader.
+/// Take the RMS levels: each channel's and the master's (the loudest buffer's) since the
+/// last take. For one reader, alongside `take_meters`.
+pub fn take_rms(c: &SynthControl) -> ([f32; 16], [f32; 2]) {
+    (std::array::from_fn(|i| f32::from_bits(c.rms[i].swap(0, Relaxed))), std::array::from_fn(|i| f32::from_bits(c.master_rms[i].swap(0, Relaxed))))
+}
+
 pub fn take_meters(c: &SynthControl) -> ([f32; 16], [f32; 2], u64) {
     let peaks = std::array::from_fn(|i| f32::from_bits(c.peaks[i].swap(0, Relaxed)));
     let master = std::array::from_fn(|i| f32::from_bits(c.master_peaks[i].swap(0, Relaxed)));
@@ -496,6 +518,8 @@ impl SynthControl {
             master_waiting: AtomicBool::new(false),
             peaks: std::array::from_fn(|_| AtomicU32::new(0)),
             master_peaks: std::array::from_fn(|_| AtomicU32::new(0)),
+            rms: std::array::from_fn(|_| AtomicU32::new(0)),
+            master_rms: std::array::from_fn(|_| AtomicU32::new(0)),
             clips: AtomicU64::new(0),
             swaps: AtomicU64::new(0),
             xruns: AtomicU64::new(0),
@@ -1059,6 +1083,11 @@ impl AudioCore {
         match self.rack.as_mut() {
             Some(rack) => {
                 rack.render(left, right, sends, &ctl.peaks, None);
+                for (a, &r) in ctl.rms.iter().zip(&rack.rms) {
+                    if r > 0.0 {
+                        a.fetch_max(r.to_bits(), Relaxed);
+                    }
+                }
                 clock.skip();
                 if prof {
                     rack.report_profile(active);
@@ -1122,12 +1151,15 @@ impl AudioCore {
         let lc = (ctl.out_ch.load(Relaxed) as usize).min(channels.saturating_sub(1));
         let rc = (lc + 1).min(channels - 1);
         let (mut pl, mut pr, mut clipped) = (0f32, 0f32, false);
+        let (mut ql, mut qr) = (0f32, 0f32);
         for (i, frame) in out.chunks_mut(channels).take(frames).enumerate() {
             frame.fill(0.0);
             clipped |= left[i].abs() > CLIP_KNEE || right[i].abs() > CLIP_KNEE;
             let (l, r) = (soft_clip(left[i]), soft_clip(right[i]));
             pl = pl.max(l.abs());
             pr = pr.max(r.abs());
+            ql += l * l;
+            qr += r * r;
             if !mute {
                 frame[lc] += l;
                 frame[rc] += r;
@@ -1135,6 +1167,9 @@ impl AudioCore {
         }
         ctl.master_peaks[0].fetch_max(pl.to_bits(), Relaxed);
         ctl.master_peaks[1].fetch_max(pr.to_bits(), Relaxed);
+        let nf = frames.max(1) as f32;
+        ctl.master_rms[0].fetch_max((ql / nf).sqrt().to_bits(), Relaxed);
+        ctl.master_rms[1].fetch_max((qr / nf).sqrt().to_bits(), Relaxed);
         if clipped {
             ctl.clips.fetch_add(1, Relaxed);
         }

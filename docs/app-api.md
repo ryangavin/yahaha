@@ -1162,18 +1162,22 @@ twice counts as two messages. A successful style change clears it, and so does
 the audio thread as the synthesizer mixes each part (its voices after the part's volume,
 expression and pan; the reverb and chorus are shared by the parts, so a part's level does
 not include them). It is not part of `AppState`: levels change with
-every audio buffer, and republishing the state for them would flood the clients. Poll it
-at display rate.
+every audio buffer, and republishing the state for them would flood the clients. The app
+shell reads it at about 30 Hz and sends each frame as the Tauri event `meters` (payload:
+this object); the `meters` command returns the latest frame.
 
 | Field | Type | Meaning |
 |---|---|---|
 | `atMs` | ms | The session clock at the read. |
-| `channels` | `{ channel, peak }[]` | Channels 1–4 (the keyboard parts) and 9–16 (the Style parts): the peak since the last call, linear (1.0 = full scale), after the master level, before the soft clipper. Empty without the synth. |
+| `channels` | `{ channel, peak, rms }[]` | All 16 channels: 1–4 the keyboard parts, 5–8 the Multi Pads, 9–16 the Style parts. `peak`: the highest since the last read; `rms`: the loudest audio buffer's RMS since the last read. Linear (1.0 = full scale), after the master level, before the soft clipper. Empty without the synth. |
 | `master` | [l, r] | The peaks after the soft clipper. |
+| `masterRms` | [l, r] | The RMS after the soft clipper, the loudest buffer's since the last read. |
 | `clips` | number | Audio buffers in which the soft clipper worked (above −1 dBFS), since start. |
 
-Each call takes the peaks (they restart from 0), so use one reader, and do the decay and
-peak hold in the client.
+Each read takes the levels (they restart from 0), so there is one reader (the app shell's
+meter thread); the client does the decay and peak hold. Measuring costs no allocation or
+lock on the audio thread: the synthesizer sums each channel's squares as it mixes it (a
+`yahaha:` patch in vendor/rustysynth) and the callback folds the result into atomics.
 
 ## Events
 

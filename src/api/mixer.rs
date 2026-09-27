@@ -184,6 +184,10 @@ pub struct Meters {
     pub channels: Vec<ChannelMeter>,
     /// Left and right after the soft clipper.
     pub master: [f32; 2],
+    /// Left and right RMS after the soft clipper (the loudest audio buffer's since the
+    /// previous read).
+    #[serde(default)]
+    pub master_rms: [f32; 2],
     /// Audio buffers in which the soft clipper was working (above -1 dBFS), since start.
     pub clips: u64,
 }
@@ -194,6 +198,9 @@ pub struct ChannelMeter {
     /// MIDI channel, 1-based.
     pub channel: u8,
     pub peak: f32,
+    /// RMS (linear), the loudest audio buffer's since the previous read.
+    #[serde(default)]
+    pub rms: f32,
 }
 
 #[cfg(test)]

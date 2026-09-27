@@ -892,10 +892,12 @@ impl Session {
         let now = ctl.offline.as_ref().map_or_else(rt::now_ns, |o| o.now);
         let Some(sy) = &ctl.synth else { return Meters { at_ms: ns_to_ms(now), ..Meters::default() } };
         let (peaks, master, clips) = synth::take_meters(&sy.control);
+        let (rms, master_rms) = synth::take_rms(&sy.control);
         Meters {
             at_ms: ns_to_ms(now),
-            channels: synth::RACK_CHANNELS.iter().map(|&c| ChannelMeter { channel: c + 1, peak: peaks[c as usize] }).collect(),
+            channels: synth::METER_CHANNELS.iter().map(|&c| ChannelMeter { channel: c + 1, peak: peaks[c as usize], rms: rms[c as usize] }).collect(),
             master,
+            master_rms,
             clips,
         }
     }
