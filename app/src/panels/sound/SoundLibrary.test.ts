@@ -19,9 +19,8 @@ afterEach(() => {
   cleanup()
   app.detach()
   ui.sound = false
-  nav.tab = 'patches'
+  nav.tab = 'map'
   nav.styleScope = false
-  nav.selected = null
   ui.soundPick = null
 })
 
@@ -46,23 +45,16 @@ const change = async (el: HTMLSelectElement | HTMLInputElement, value: string) =
 }
 
 describe('Sound Library drawer', () => {
-  it('lists the patches by category; search, the category and favourites filter them', async () => {
+  it('opens on the Program Map; the Patches tab folded into the Sound Browser', () => {
     const s = setup()
-    const names = () => tipped('sound.patch').map((b) => b.querySelector('.n')!.textContent)
-    expect(names()).toHaveLength(s.state.soundLibrary.patches.length)
-    expect([...document.querySelectorAll('.group')].map((g) => g.textContent)[0]).toBe('Piano')
-    const search = tipped('sound.search')[0] as HTMLInputElement
-    search.value = 'warm'
-    await fireEvent.input(search)
-    flushSync()
-    expect(names()).toEqual(['Warm Rhodes', 'Silk Strings']) // a name and a tag
-    search.value = ''
-    await fireEvent.input(search)
-    await fireEvent.click(tipped('sound.favourites')[0])
-    flushSync()
-    expect(names()).toEqual(['Stage Grand', 'Warm Rhodes'])
+    expect(document.querySelector('#sound-tab-patches')).toBe(null)
+    expect(tab('map').getAttribute('aria-selected')).toBe('true')
+    expect(tipped('sound.export')).toHaveLength(1)
+    const ps = s.state.soundLibrary.patches
+    expect(filterPatches(ps, 'warm', 'all', false).map((p) => p.name)).toEqual(['Warm Rhodes', 'Silk Strings']) // a name and a tag
+    expect(filterPatches(ps, '', 'all', true).map((p) => p.name)).toEqual(['Stage Grand', 'Warm Rhodes'])
     // A plugin patch plays itself (the app builds with plugin hosting).
-    expect(filterPatches(s.state.soundLibrary.patches, 'keys', 'all', false)[0].available).toBe(true)
+    expect(filterPatches(ps, 'keys', 'all', false)[0].available).toBe(true)
   })
 
   it('a plugin patch on a part plays its plugin, until the part leaves the patch', () => {
@@ -83,45 +75,6 @@ describe('Sound Library drawer', () => {
     s.send({ type: 'setPartPatch', part: 0, id: 'keys-au' })
     s.send({ type: 'setPartPlugin', part: 0, id: 'aumu dls  appl', state: null })
     expect([r1().patch, r1().plugin?.id]).toEqual([null, 'aumu dls  appl'])
-  })
-
-  it('edits a patch, plays it on a part, reorders, duplicates and deletes', async () => {
-    const s = setup()
-    await fireEvent.click(tipped('sound.patch')[0])
-    flushSync()
-    await change(tipped('sound.name')[0] as HTMLInputElement, 'Concert Grand')
-    expect(s.state.soundLibrary.patches[0].name).toBe('Concert Grand')
-    await change(tipped('sound.default_volume')[0] as HTMLInputElement, '90')
-    expect(s.state.soundLibrary.patches[0].defaults.volume).toBe(90)
-    await change(tipped('sound.default_volume')[0] as HTMLInputElement, '')
-    expect(s.state.soundLibrary.patches[0].defaults.volume).toBe(null)
-    await fireEvent.click(tipped('sound.use_on_part')[1])
-    expect(s.state.keyboardParts[1].patch).toBe('stage-grand')
-    expect(s.state.keyboardParts[1].voiceName).toBe('Concert Grand')
-    await fireEvent.click(tipped('sound.move_down')[0])
-    expect(s.state.soundLibrary.patches[1].id).toBe('stage-grand')
-    await fireEvent.click(tipped('sound.duplicate')[0])
-    flushSync()
-    expect(s.state.soundLibrary.patches[2].name).toBe('Concert Grand copy')
-    expect(nav.selected).toBe(s.state.soundLibrary.patches[2].id)
-    await fireEvent.click(tipped('sound.delete')[0])
-    expect(s.state.soundLibrary.patches.some((p) => p.name === 'Concert Grand copy')).toBe(false)
-  })
-
-  it('auditions while stopped, and not while the band plays', async () => {
-    const s = setup()
-    s.send({ type: 'stop' })
-    flushSync()
-    await fireEvent.click(tipped('sound.audition')[0])
-    expect(s.state.soundLibrary.auditioning).toBe('stage-grand')
-    flushSync()
-    expect(document.querySelector('.aud')!.textContent).toContain('Stage Grand')
-    s.advance(3500)
-    expect(s.state.soundLibrary.auditioning).toBe(null)
-    s.send({ type: 'startStop' })
-    await fireEvent.click(tipped('sound.audition')[0])
-    expect(s.state.soundLibrary.auditioning).toBe(null)
-    expect(s.state.message?.error).toBe(true)
   })
 
   it('the program map sets family rules, overrides and the drum rule, globally or for this style', async () => {

@@ -240,15 +240,21 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | control | what it does | Genos | key | Launchkey |
 |---|---|---|---|---|
 | **Close** | Closes the Sound Browser. The part keeps the sound you picked. | EXIT | — | — |
-| **Filter sounds** | Type to filter by name, SoundFont file or plugin maker (SF, AU or Saved narrows by source). ↑/↓ move, Enter plays the sound on the part, Shift+Enter auditions it, Ctrl+D stars it. | Voice Selection › Search | — | — |
-| **All sounds** | Every sound: the presets of every SoundFont in the soundfonts folder, your instrument plugins and your saved sounds. | Voice Selection | — | — |
+| **Filter sounds** | Type to filter the chip's sounds by name, SoundFont file or plugin maker (SF, AU or Mine narrows by source). ↑/↓ move, Enter plays the sound on the part, Shift+Enter auditions it, Ctrl+D stars it. Ctrl+S saves, Ctrl+Shift+S saves as…, F2 renames and Ctrl+Delete deletes a sound of yours. | Voice Selection › Search | — | — |
+| **All sounds** | The sounds the GM map plays for each program and the drums, every plugin sound and everything in My Sounds. A font's other presets and a plugin's factory presets are under that instrument's chip. | Voice Selection | — | — |
 | **Favourites** | The sounds you starred. | Voice Selection › Favorite tab | — | — |
 | **Recent** | The last 20 sounds you picked for a part, most recent first. | Voice Selection › history | — | — |
-| **Saved** | Your saved sounds: the sound library's patches, each a preset or plugin with its volume, octave, pan and sends (and a plugin's own settings). Edit them in the Sound Library drawer. | Voice Selection › User tab | — | — |
-| **Save as…** | Saves what this part plays now as a new sound: its preset or plugin (with the plugin's current settings), volume and octave. The part then plays the new sound, and it appears under Saved, ready to rename in the Sound Library drawer. | Voice Setting › Save | — | — |
+| **My Sounds** | Your sounds: every plugin sound and every preset you added, each with its volume, octave, pan and sends (and a plugin's own settings). Select one to rename, recategorise or delete it under the list. | Voice Selection › User tab | — | — |
+| **Save as…** | Names what this part plays now and saves it as a new sound: its preset or plugin (with the plugin's current settings), volume and octave. The part then plays the new sound, shown selected in My Sounds. | Voice Setting › Save | — | — |
 | **Save** | Saves what this part plays now over the sound it plays: the plugin's current settings (what its editor changed), volume and octave. The "edited" mark goes. A factory preset or an .aupreset file is never overwritten: Save keeps it as a new sound instead, as Save as… does. | Voice Setting › Save | — | — |
-| **Plugin presets** | Shows or hides this plugin's presets: its factory presets and the .aupreset files in ~/Library/Audio/Presets, as Logic lists them. Each preset is a sound of its own: every part that picks one gets its own copy of the plugin, so one plugin can play piano on Right 1 and strings on Right 2. The first time, a plugin loads once in the background to list them (→ and ← open and close it too). | — | — | — |
-| **Save as preset** | Keeps what this part's plugin plays now (with its editor's changes: a Kontakt instrument you loaded, say) as a preset of the plugin: a standard .aupreset in ~/Library/Audio/Presets that Logic and MainStage read too. Name it and pick a category; it appears under the plugin and in that category. | Voice Setting › Save | — | — |
+| **Instrument** | Every sound of one SoundFont or plugin: all the font's presets, or the plugin's factory presets, its .aupreset files and your sounds made with it. The first time, a plugin loads once in the background to list its factory presets. | Voice Selection › sub-category | — | — |
+| **Edited** | The part's plugin no longer plays the sound as it was loaded: its editor changed it. Save keeps the change in the sound (or as a new one for a factory preset), Save as… keeps it as a new sound. | Voice Edit (unsaved) | — | — |
+| **New sound's name** | The name of the new sound Save as… makes. Enter saves it, Esc cancels. | Voice Setting › Save › Name | — | — |
+| **Save as a new sound** | Saves what the part plays now as a new sound in My Sounds, which the part then plays. | Voice Setting › Save | — | — |
+| **Delete** | Deletes the sound for good. Map rules that name it are removed. | — | — | — |
+| **Keep** | Keeps the sound and goes back to the list. | — | — | — |
+| **Details** | Shows the sound's tags and the defaults a part takes when it picks it: volume, pan, reverb, chorus and octave. | Voice Setting | — | — |
+| **Also as .aupreset** | Also keeps what this part's plugin plays now as a preset of the plugin: a standard .aupreset in ~/Library/Audio/Presets that Logic and MainStage read too. Pick its category; if a preset of that name exists, yahaha asks before replacing it. | Voice Setting › Save | — | — |
 | **Preset name** | The new preset's name, also its file name. If a preset of that name exists, yahaha asks before replacing it (the file is shared with Logic and MainStage). Enter saves, Esc cancels. | — | — | — |
 | **Preset category** | The category the new preset is listed under in the browser. Kept by yahaha; the .aupreset file itself is not changed. | — | — | — |
 | **Save the preset** | Writes the .aupreset and lists it under the plugin. The part then plays that preset. | — | — | — |
@@ -257,7 +263,7 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | **Cancel** | Closes the form without saving. | — | — | — |
 | **Category** | The sounds of one Genos voice category. A preset's category is its General MIDI family, and a plugin's is guessed from its name. | VOICE category buttons | — | — |
 | **Plugin category** | The category the selected plugin or plugin preset is listed under. yahaha guesses it from the name (a preset it can't place goes with its plugin); pick another to file it where you look for it. | — | — | — |
-| **Sound** | Click or Enter plays this sound on the part. SF is a SoundFont preset, AU an instrument plugin, Saved a sound from your library. ▶ marks what the part plays. | Voice Selection | — | — |
+| **Sound** | Click or Enter plays this sound on the part. SF is a SoundFont preset, AU a plugin or its preset, Mine a sound in My Sounds; in All sounds, "GM 5" says which program the map plays it for. ▶ marks what the part plays. | Voice Selection | — | — |
 | **Plugin that failed** | This plugin failed to load last time (⚠ says why). Picking it tries again; until it loads, the part plays its SoundFont voice. | — | — | — |
 | **Star** | Adds the sound to your Favourites, or takes it out. | Voice Selection › Favorite | — | — |
 | **Audition** | Plays the sound on its own for a few seconds, without changing the part. Only while the band is stopped. | Voice Selection › Demo | — | — |
@@ -431,7 +437,6 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 
 | control | what it does | Genos | key | Launchkey |
 |---|---|---|---|---|
-| **Patches** | Your patches, by category: search, favourites, audition, edit and reorder them. | Voice Selection | — | — |
 | **Program Map** | Which patch each GM family, program and drum kit plays, for every style or for this style only. | — | — | — |
 | **This style** | Every program the current style sends its parts, and the patch each one plays now. Remap one with a click. | — | — | — |
 | **Add from SoundFont** | Browse the presets of the SoundFonts in the SoundFont folder, audition one, and add it as a patch. | — | — | — |
@@ -445,9 +450,9 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | **Move up** | Moves the patch one place up in your list. | — | — | — |
 | **Move down** | Moves the patch one place down in your list. | — | — | — |
 | **Duplicate** | Adds a copy of the patch right after it, for example the same sound with other defaults. | — | — | — |
-| **Delete** | Deletes the patch. Map rules that name it are removed, and a part playing it goes back to its GM voice. | — | — | — |
-| **Name** | The patch's name, as the voice picker and the map show it. Press Enter to rename. | — | — | — |
-| **Category** | The Genos voice category the patch is listed under. | Voice category | — | — |
+| **Delete** | Asks (Ctrl/⌘+Delete in the Sound Browser too), then deletes the sound from My Sounds. Map rules that name it are removed, and a part playing it goes back to its GM voice. | — | — | — |
+| **Name** | The sound's name, as the Sound Browser, the parts and the map show it. F2 in the Sound Browser gets here; Enter renames it, Esc keeps the old name. | — | — | — |
+| **Category** | The Genos voice category the sound is listed under. | Voice category | — | — |
 | **Tags** | Words to find the patch by, separated by commas. Press Enter to keep them. | — | — | — |
 | **Volume** | The part's CC7 when you pick the patch for a keyboard part; a Style part takes it only when the style sets no level of its own. Blank leaves the level alone. | Voice Set: Volume | — | — |
 | **Pan** | The pan (CC10, 64 = centre) a keyboard part takes when it picks the patch. Blank leaves it alone. | Voice Set: Pan | — | — |
