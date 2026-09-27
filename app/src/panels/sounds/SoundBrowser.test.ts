@@ -131,14 +131,14 @@ describe('Instruments tab (O2)', () => {
     expect(card('FluidR3_GM').querySelectorAll('.preset')).toHaveLength(n)
     // Play now plays it on the part; Add to my sounds keeps it once.
     const cello = preset(card('FluidR3_GM'), 'Cello (Fluid)')
-    await fireEvent.click(cello.querySelector('[data-tip="instruments.play"]')!)
+    await fireEvent.click(cello.querySelector('[data-tip="sounds.inst_play"]')!)
     expect(s.state.soundLibrary.patches.find((p) => p.id === s.state.keyboardParts[1].patch)?.source).toMatchObject({ kind: 'soundFont', file: 'FluidR3_GM.sf2', program: 42 })
     const violin = preset(card('FluidR3_GM'), 'Violin (Fluid)')
     const before = s.state.soundLibrary.patches.length
-    await fireEvent.click(violin.querySelector('[data-tip="instruments.add"]')!)
+    await fireEvent.click(violin.querySelector('[data-tip="sounds.inst_add"]')!)
     expect(s.state.soundLibrary.patches.length).toBe(before + 1)
     flushSync()
-    const done = preset(card('FluidR3_GM'), 'Violin (Fluid)').querySelector<HTMLButtonElement>('[data-tip="instruments.add"]')!
+    const done = preset(card('FluidR3_GM'), 'Violin (Fluid)').querySelector<HTMLButtonElement>('[data-tip="sounds.inst_add"]')!
     expect(done.disabled).toBe(true)
     expect(done.textContent).toContain('In My Sounds')
     // Collapsing hides them again.
@@ -156,7 +156,7 @@ describe('Instruments tab (O2)', () => {
     const c = card('Sampler Deluxe')
     expect([...c.querySelectorAll('.pname')].map((x) => x.textContent)).toEqual(['Init', 'Bright Grand', 'Brass Stabs', 'Arco Strings', 'Upright Piano'])
     // Play now: the part plays that preset.
-    await fireEvent.click(preset(c, 'Bright Grand').querySelector('[data-tip="instruments.play"]')!)
+    await fireEvent.click(preset(c, 'Bright Grand').querySelector('[data-tip="sounds.inst_play"]')!)
     expect(s.state.keyboardParts[0].plugin).toMatchObject({ id: 'aumu Smp7 Fake', presetKey: 'f:1' })
     // Category and in-process override.
     const pick = c.querySelector<HTMLSelectElement>('[data-tip="sounds.set_category"]')!
@@ -176,7 +176,7 @@ describe('Instruments tab (O2)', () => {
     await fireEvent.click(tab('Instruments'))
     flushSync()
     await expand('Tiny Synth')
-    await fireEvent.click(card('Tiny Synth').querySelector('[data-tip="instruments.new_sound"]')!)
+    await fireEvent.click(card('Tiny Synth').querySelector('[data-tip="sounds.inst_new"]')!)
     expect(s.state.keyboardParts[0].plugin).toMatchObject({ id: 'aumu Tiny Demo', status: 'loading', presetKey: null })
     flushSync()
     expect(opened).toEqual([])

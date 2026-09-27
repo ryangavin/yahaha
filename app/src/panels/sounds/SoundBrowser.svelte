@@ -231,7 +231,7 @@
   {#if !pick}
     <div class="tabs" role="tablist" aria-label="Sound Browser">
       <button type="button" role="tab" class="tab" class:on={tab === 'sounds'} aria-selected={tab === 'sounds'} use:tip={'sounds.tab_sounds'} onclick={() => showTab('sounds')}>Sounds</button>
-      <button type="button" role="tab" class="tab" class:on={tab === 'instruments'} aria-selected={tab === 'instruments'} use:tip={'instruments.tab'} onclick={() => showTab('instruments')}>Instruments</button>
+      <button type="button" role="tab" class="tab" class:on={tab === 'instruments'} aria-selected={tab === 'instruments'} use:tip={'sounds.tab_instruments'} onclick={() => showTab('instruments')}>Instruments</button>
     </div>
   {/if}
   {#if tab === 'instruments'}

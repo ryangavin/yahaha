@@ -74,7 +74,7 @@
         {@const open = browserNav.open.has(inst.id)}
         <section class="card" class:open>
           <div class="head">
-            <button type="button" class="tw" aria-expanded={open} aria-controls="presets-{inst.id}" use:tip={'instruments.expand'} onclick={() => toggle(inst)}>
+            <button type="button" class="tw" aria-expanded={open} aria-controls="presets-{inst.id}" use:tip={'sounds.inst_expand'} onclick={() => toggle(inst)}>
               <span aria-hidden="true">{open ? '▾' : '▸'}</span> {inst.name}
             </button>
             <span class="badge">SF</span>
@@ -101,7 +101,7 @@
           {@const here = loads.find((l) => l.part === part)}
           <section class="card" class:open>
             <div class="head">
-              <button type="button" class="tw" aria-expanded={open} aria-controls="presets-{inst.id}" use:tip={'instruments.expand'} onclick={() => toggle(inst)}>
+              <button type="button" class="tw" aria-expanded={open} aria-controls="presets-{inst.id}" use:tip={'sounds.inst_expand'} onclick={() => toggle(inst)}>
                 <span aria-hidden="true">{open ? '▾' : '▸'}</span> {inst.name}
               </button>
               <span class="badge au">AU</span>
@@ -112,7 +112,7 @@
             </div>
             {#if open}
               <div class="house">
-                <HwButton tip="instruments.new_sound" onclick={() => newSound(p.id)}>New sound from {p.name}</HwButton>
+                <HwButton tip="sounds.inst_new" onclick={() => newSound(p.id)}>New sound from {p.name}</HwButton>
                 {#if here?.editor && here.status === 'playing'}<HwButton tip="part.plugin_edit" onclick={() => app.pluginEditor(part, true)}>Edit…</HwButton>{/if}
                 <label class="field">
                   <span class="engraved">Category</span>
@@ -149,8 +149,8 @@
       <li class="preset">
         <span class="pname">{e.name}</span>
         <span class="where">{inst.kind === 'font' ? presetPlace(e.id) : e.detail.includes(' · ') ? e.detail.split(' · ').slice(1).join(' · ') : e.id.includes('#f:') ? 'Factory' : ''}</span>
-        <button type="button" class="act" use:tip={'instruments.play'} aria-label="Play {e.name} now" onclick={() => play(e.id)}>Play now</button>
-        <button type="button" class="act" class:done={mine} use:tip={'instruments.add'} aria-label={mine ? `${e.name} is in My Sounds` : `Add ${e.name} to my sounds`} disabled={mine} onclick={() => add(e.id)}>{mine ? '✓ In My Sounds' : 'Add to my sounds'}</button>
+        <button type="button" class="act" use:tip={'sounds.inst_play'} aria-label="Play {e.name} now" onclick={() => play(e.id)}>Play now</button>
+        <button type="button" class="act" class:done={mine} use:tip={'sounds.inst_add'} aria-label={mine ? `${e.name} is in My Sounds` : `Add ${e.name} to my sounds`} disabled={mine} onclick={() => add(e.id)}>{mine ? '✓ In My Sounds' : 'Add to my sounds'}</button>
       </li>
     {/each}
   </ul>
