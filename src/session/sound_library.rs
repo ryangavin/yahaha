@@ -766,6 +766,7 @@ impl Control {
 
     /// A plugin voice's state is not its sound's (a recalled or restored edit): the stored
     /// sound has a state, and it is another. Compared once, when the voice is assigned.
+    #[cfg_attr(not(feature = "plugins"), allow(dead_code))]
     pub(crate) fn sound_state_differs(&self, tag: Option<&patches::SoundTag>, state: Option<&[u8]>) -> bool {
         let (Some(tag), Some(state)) = (tag, state) else { return false };
         let Some(patches::SoundId::Library(id)) = patches::SoundId::parse(&tag.id) else { return false };

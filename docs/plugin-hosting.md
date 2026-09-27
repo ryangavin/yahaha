@@ -392,6 +392,10 @@ and each preset is a sound of its own.
   (`sound`: `{ id, name }`). A voice saved before that (a preset key and no `sound`) gets
   the library's sound for its preset when it plays, added once; a factory preset's state
   is captured into that sound the first time it plays.
+- **Edited and Save.** The first state read after a part's sound loads is the baseline;
+  a later read (the autosave's) whose fingerprint differs marks the part edited. Save
+  (`saveSound`) writes the state over the user's own sound; Save as… (`saveSoundAs`) adds
+  a new one. "Save as preset…" stays the `.aupreset` export, with its overwrite check.
 
 ## Phase 2: wiring plan
 
