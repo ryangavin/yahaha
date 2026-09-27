@@ -561,7 +561,7 @@ fn late_fill_presses_do_not_allocate() {
     let mut ch = live::channels(Out::new(PacketSink::new(Target::Null), None));
     let mut l = EngineLoop::new(Engine::new(a), ch.io, shared.clone());
     l.step(1);
-    let (allocs, frees) = (ALLOCS.load(Ordering::Relaxed), FREES.load(Ordering::Relaxed));
+    let (allocs, frees) = counts();
     let mut now = 1_000;
     shared.chord.store(yahaha::parse_chord("C").unwrap().pack(1), Ordering::Release);
     l.step(now);
@@ -581,8 +581,8 @@ fn late_fill_presses_do_not_allocate() {
     ch.ui_tx.push(Cmd::Button(Button::StartStop)).ok().unwrap();
     now += 1;
     l.step(now);
-    assert_eq!(ALLOCS.load(Ordering::Relaxed) - allocs, 0, "allocations on the engine thread");
-    assert_eq!(FREES.load(Ordering::Relaxed) - frees, 0, "frees on the engine thread");
+    assert_eq!(counts().0 - allocs, 0, "allocations on the engine thread");
+    assert_eq!(counts().1 - frees, 0, "frees on the engine thread");
     let snaps: Vec<_> = std::iter::from_fn(|| ch.snap_rx.pop().ok()).collect();
     assert!(snaps.iter().filter(|s| s.cur == Some(Fill(0))).count() >= 2, "the fills played");
 }
