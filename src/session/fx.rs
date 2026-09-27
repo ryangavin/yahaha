@@ -25,17 +25,29 @@ pub(super) struct FxSettings {
     pub(super) follow: [bool; 3],
     /// The style's insertion effects play (#269).
     pub(super) inserts_on: bool,
+    /// Each Style part's insert switched off by the player, and its amount set by the
+    /// player (None: the style's); both until the next style (`clear_part_inserts`).
+    pub(super) insert_off: [bool; 8],
+    pub(super) insert_amount: [Option<u8>; 8],
+    /// The rotary inserts fast.
+    pub(super) rotary_fast: bool,
 }
 
 impl Default for FxSettings {
     /// The Genos defaults: Hall, Chorus, and here the dotted 1/8 delay; every return 0 dB.
     /// The band's reverb as the style wrote it, and no band chorus or delay (#236).
     fn default() -> FxSettings {
-        FxSettings { effect: FxBlock::DEFAULT_TYPES, returns: [crate::fx::RETURN_UNITY; 3], band: crate::fx::BAND_SEND_DEFAULT, pad: crate::fx::PAD_SEND_DEFAULT, params: crate::fx::default_params(), follow: [true; 3], inserts_on: true }
+        FxSettings { effect: FxBlock::DEFAULT_TYPES, returns: [crate::fx::RETURN_UNITY; 3], band: crate::fx::BAND_SEND_DEFAULT, pad: crate::fx::PAD_SEND_DEFAULT, params: crate::fx::default_params(), follow: [true; 3], inserts_on: true, insert_off: [false; 8], insert_amount: [None; 8], rotary_fast: false }
     }
 }
 
 impl FxSettings {
+    /// A new style: its inserts as it wrote them.
+    pub(super) fn clear_part_inserts(&mut self) {
+        self.insert_off = [false; 8];
+        self.insert_amount = [None; 8];
+    }
+
     /// The type's number within its block (`crate::fx::ReverbType` etc.).
     fn type_index(&self, b: FxBlock) -> u8 {
         b.type_index(self.effect[b.index()])
@@ -159,6 +171,19 @@ impl Control {
                 }
             }
             FxCmd::SetInsertsOn { on } => self.fx.inserts_on = on,
+            FxCmd::SetPartInsertOn { part, on } => {
+                if part > 7 {
+                    return self.fail(format!("no Style part {part}"));
+                }
+                self.fx.insert_off[part as usize] = !on;
+            }
+            FxCmd::SetPartInsertAmount { part, amount } => {
+                if part > 7 || !self.info.inserts.iter().any(|i| i.channel == part + 8 && i.kind.is_some()) {
+                    return self.fail(format!("Style part {part} has no insertion effect"));
+                }
+                self.fx.insert_amount[part as usize] = Some(amount.min(127));
+            }
+            FxCmd::SetRotaryFast { on } => self.fx.rotary_fast = on,
             FxCmd::SetEffectReturn { block, level } => self.fx.returns[block.index()] = level.min(127),
             FxCmd::SetBandSend { block, level } => self.fx.band[block.index()] = level.min(127),
             FxCmd::SetPadSend { block, level } => self.fx.pad[block.index()] = level.min(127),
@@ -204,7 +229,9 @@ impl Control {
         if s.inserts_on {
             for i in &self.info.inserts {
                 if let (Some((k, a)), Some(p)) = (i.kind, (i.channel as usize).checked_sub(8).filter(|&p| p < 8)) {
-                    kinds[p] = (k as u8, a);
+                    if !s.insert_off[p] {
+                        kinds[p] = (k as u8, s.insert_amount[p].unwrap_or(a));
+                    }
                 }
             }
         }
@@ -212,6 +239,7 @@ impl Control {
             fx.insert[p].store(k, Relaxed);
             fx.insert_amount[p].store(a, Relaxed);
         }
+        fx.rotary_fast.store(s.rotary_fast, Relaxed);
         // The Style parts' own sends (#268): the engine owns them.
         for (a, own) in fx.part_send.iter().zip(&self.snap.style_send_own) {
             for (a, &v) in a.iter().zip(own) {
@@ -263,6 +291,7 @@ impl Control {
     pub(super) fn effects_state(&self) -> EffectsState {
         let mut s = EffectsState::new(self.fx.effect, self.fx.returns, self.fx.band, self.fx.params);
         s.inserts_on = self.fx.inserts_on;
+        s.rotary_fast = self.fx.rotary_fast;
         s.inserts = self
             .info
             .inserts
@@ -272,6 +301,8 @@ impl Control {
                 part_name: crate::api::STYLE_PART_NAMES[(i.channel - 8) as usize & 7].to_string(),
                 name: i.name.clone(),
                 effect: i.kind.map(|k| InsertEffect::from(k.0)),
+                on: !self.fx.insert_off[(i.channel - 8) as usize & 7],
+                amount: self.fx.insert_amount[(i.channel - 8) as usize & 7].or(i.kind.map(|k| k.1)).unwrap_or(64),
             })
             .collect();
         for (b, st) in s.blocks.iter_mut().enumerate() {
@@ -631,6 +662,22 @@ mod tests {
         let first = played[0].clone();
         let kind = crate::fx::InsertKind::from_u8(a[first.part as usize]);
         assert_eq!(InsertEffect::from(kind), first.effect.unwrap());
+        // One part off, then its amount, then the Leslie switch (software parity).
+        let p = first.part as usize;
+        s.send(FxCmd::SetPartInsertOn { part: first.part, on: false }).unwrap();
+        assert_eq!(atomics(&s)[p], 0);
+        assert!(!s.state().effects.inserts.iter().find(|i| i.part == first.part).unwrap().on);
+        s.send(FxCmd::SetPartInsertOn { part: first.part, on: true }).unwrap();
+        assert_eq!(atomics(&s), a);
+        s.send(FxCmd::SetPartInsertAmount { part: first.part, amount: 120 }).unwrap();
+        assert_eq!(s.inner.lock().synth.as_ref().unwrap().control.fx.insert_amount[p].load(Relaxed), 120);
+        assert_eq!(s.state().effects.inserts.iter().find(|i| i.part == first.part).unwrap().amount, 120);
+        let bare = (0..8u8).find(|q| !played.iter().any(|i| i.part == *q)).unwrap();
+        assert!(s.send(FxCmd::SetPartInsertAmount { part: bare, amount: 10 }).is_err());
+        s.send(FxCmd::SetRotaryFast { on: true }).unwrap();
+        assert!(s.state().effects.rotary_fast);
+        assert!(s.inner.lock().synth.as_ref().unwrap().control.fx.rotary_fast.load(Relaxed));
+        s.send(FxCmd::SetRotaryFast { on: false }).unwrap();
         s.send(RegistrationCmd::MemorizeRegist { index: 0 }).unwrap();
         // Off: every part dry.
         s.send(FxCmd::SetInsertsOn { on: false }).unwrap();
@@ -641,8 +688,9 @@ mod tests {
         s.advance(1_000_000_000);
         assert!(s.state().effects.inserts_on);
         assert_eq!(atomics(&s), a);
-        // A style with none: every part dry.
+        // A style with none: every part dry, and the player's amount gone with the style.
         load(&s, &slow);
+        assert_eq!(s.inner.lock().fx.insert_amount, [None; 8]);
         assert!(atomics(&s).iter().all(|&k| k == 0));
         assert!(s.state().effects.inserts.iter().all(|i| i.effect.is_none()));
         let _ = std::fs::remove_dir_all(&data);

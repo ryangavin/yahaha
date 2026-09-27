@@ -28,6 +28,14 @@ pub enum FxCmd {
     /// The style's insertion effects (#269, `EffectsState::inserts`) on or off, all
     /// together.
     SetInsertsOn { on: bool },
+    /// One Style part's insertion effect (0-7) on or off; until the next style.
+    SetPartInsertOn { part: u8, on: bool },
+    /// One Style part's insertion effect amount (0-127: the distortion's drive, the
+    /// compressor's squeeze, the wah's sensitivity, the tremolo's and rotary's depth); until
+    /// the next style, which brings its own. A part with no insert is refused.
+    SetPartInsertAmount { part: u8, amount: u8 },
+    /// Every rotary insert at its fast speed or its slow one (the Leslie switch).
+    SetRotaryFast { on: bool },
 }
 
 /// An effect parameter (#236): the bus's own (`crate::fx::Param`).
@@ -130,6 +138,9 @@ pub struct EffectsState {
     /// Whether they play (`setInsertsOn`).
     #[serde(default = "yes")]
     pub inserts_on: bool,
+    /// The rotary inserts at their fast speed (`setRotaryFast`).
+    #[serde(default)]
+    pub rotary_fast: bool,
 }
 
 fn yes() -> bool {
@@ -148,6 +159,16 @@ pub struct InsertState {
     pub name: String,
     /// What plays it here; null: nothing near it, the part plays dry.
     pub effect: Option<InsertEffect>,
+    /// This part's insert on (`setPartInsertOn`; the style's inserts also need `insertsOn`).
+    #[serde(default = "yes")]
+    pub on: bool,
+    /// Its amount, 0-127 (`setPartInsertAmount`): the style's, or the player's.
+    #[serde(default = "mid")]
+    pub amount: u8,
+}
+
+fn mid() -> u8 {
+    64
 }
 
 /// An insertion effect yahaha plays (`crate::fx::InsertKind`).
@@ -196,7 +217,7 @@ impl EffectsState {
                 }
             })
             .collect();
-        EffectsState { blocks, inserts: Vec::new(), inserts_on: true }
+        EffectsState { blocks, inserts: Vec::new(), inserts_on: true, rotary_fast: false }
     }
 
     /// As a session starts: Hall, Chorus, the dotted 1/8 delay, every return 64 (0 dB);

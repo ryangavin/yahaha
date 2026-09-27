@@ -145,6 +145,8 @@ pub struct FxControl {
     /// amount (0-127), from the style's XG Insertion SysEx.
     pub insert: [AtomicU8; 8],
     pub insert_amount: [AtomicU8; 8],
+    /// Every rotary insert at its fast speed (`FxCmd::SetRotaryFast`).
+    pub rotary_fast: AtomicBool,
     /// The style tempo the delay follows: BPM x 100.
     pub tempo: AtomicU32,
     /// The SoundFont's own reverb and chorus instead of the bus (the sound before #204).
@@ -166,6 +168,7 @@ impl FxControl {
             params: default_params().map(AtomicU16::new),
             insert: std::array::from_fn(|_| AtomicU8::new(0)),
             insert_amount: std::array::from_fn(|_| AtomicU8::new(64)),
+            rotary_fast: AtomicBool::new(false),
             tempo: AtomicU32::new(12_000),
             legacy: AtomicBool::new(false),
         }

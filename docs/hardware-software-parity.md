@@ -119,6 +119,18 @@ Mirror only, which needs a dedicated control:
 8. `stepVoice`: in PartStrip.
 9. `reloadPartPlugin`: in PartStrip, next to the plugin toggle.
 
+## Insertion effects
+
+The style's per-part insertion effects (#269) have no Launchkey control; the app has them
+all, in mixer/Mixer.svelte (Inserts row):
+
+| Function | AppCmd | App control |
+|---|---|---|
+| All inserts on/off | `setInsertsOn` | Mixer "Inserts" |
+| One part's insert on/off | `setPartInsertOn` | Mixer, the part's name toggle |
+| One part's insert amount (drive, squeeze, sensitivity, depth) | `setPartInsertAmount` | Mixer, the part's "Amt" knob |
+| Rotary speaker fast/slow | `setRotaryFast` | Mixer "Rotary Fast" |
+
 ## AU presets (sound browser)
 
 The Launchkey has no sound-catalog browser (its Voice −/+ steps the GM voices, `stepVoice`),

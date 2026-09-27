@@ -221,6 +221,12 @@ export type FxCmd =
   | { type: 'setFollowStyle'; block: FxBlock; on: boolean }
   /** #269: the style's insertion effects on or off, all together. */
   | { type: 'setInsertsOn'; on: boolean }
+  /** One Style part's insertion effect on or off, until the next style. */
+  | { type: 'setPartInsertOn'; part: number; on: boolean }
+  /** One Style part's insertion effect amount, 0–127, until the next style. */
+  | { type: 'setPartInsertAmount'; part: number; amount: number }
+  /** Every rotary insert fast or slow (the Leslie switch). */
+  | { type: 'setRotaryFast'; on: boolean }
 
 /**
  * Reverb: reverbTime (0.1 s), preDelay (ms), reverbTone (100 Hz). Chorus: chorusRate (0.01 Hz),
@@ -262,6 +268,8 @@ export interface EffectsState {
   inserts: InsertState[]
   /** Whether they play (`setInsertsOn`). */
   insertsOn: boolean
+  /** The rotary inserts at their fast speed (`setRotaryFast`). */
+  rotaryFast: boolean
 }
 
 /** What plays a style's insertion effect here (#269). */
@@ -277,6 +285,10 @@ export interface InsertState {
   name: string
   /** What plays it; null: nothing near it, the part plays dry. */
   effect: InsertEffect | null
+  /** This part's insert on (`setPartInsertOn`). */
+  on: boolean
+  /** Its amount, 0–127 (`setPartInsertAmount`): drive, squeeze, sensitivity or depth. */
+  amount: number
 }
 
 export interface EffectBlockState {

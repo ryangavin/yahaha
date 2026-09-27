@@ -1162,6 +1162,27 @@ const catalog = {
     keys: [],
     launchkey: null,
   },
+  'fx.insert_part': {
+    title: 'Part insert',
+    body: 'This Style part\'s own insertion effect on or off, leaving the other parts\' as they are. Lasts until the next style, which brings its own inserts; the Inserts switch still turns them all off together.',
+    genos: 'Mixer › Effect › Insertion (part on/off)',
+    keys: [],
+    launchkey: null,
+  },
+  'fx.insert_amount': {
+    title: 'Insert amount',
+    body: 'How hard this Style part\'s insertion effect works: the amp simulator\'s drive, the compressor\'s squeeze, the wah\'s sensitivity, or the tremolo\'s and rotary\'s depth. Starts at the style\'s own value and lasts until the next style.',
+    genos: 'Mixer › Effect › Insertion › Parameter',
+    keys: [],
+    launchkey: null,
+  },
+  'fx.rotary_fast': {
+    title: 'Rotary fast',
+    body: 'The rotary speaker switch: lit, every rotary insert spins at its fast speed; off, its slow one. The horn and drum speed up and slow down gradually, as a real rotary speaker does.',
+    genos: 'Rotary Speaker speed (Slow/Fast)',
+    keys: [],
+    launchkey: null,
+  },
   'fx.reverb_band': {
     title: 'Band reverb',
     body: 'How much of the band (the eight Style parts) goes to the reverb: each Style part\'s own reverb send (CC 91) times this, in the built-in synth only. 100% plays the reverb the style wrote and 0% is none; your keyboard parts keep their own sends. Stored in a Registration Memory.',

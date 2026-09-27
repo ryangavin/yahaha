@@ -2356,10 +2356,13 @@
         "part": 3,
         "partName": "Chord 1",
         "name": "British Combo Classic",
-        "effect": "distortion"
+        "effect": "distortion",
+        "on": true,
+        "amount": 64
       }
     ],
-    "insertsOn": true
+    "insertsOn": true,
+    "rotaryFast": false
   },
   "home": {
     "mains": [],
