@@ -831,7 +831,7 @@ fn a_plugin_preset_is_a_sound_of_its_own() {
     let host = PluginHost::with_preset_roots(Some(data.join("plugins.json")), vec![root.clone()]);
     let info = host.info(&PluginId::DLS).unwrap();
     let state = host.load(&PluginId::DLS, LoadConfig::default()).unwrap().get_state().unwrap();
-    let file = presets::write_user_preset(&root, &info, "Warm Strings", &state).unwrap();
+    let file = presets::write_user_preset(&root, &info, "Warm Strings", &state, false).unwrap();
     host.rescan().unwrap();
 
     let opts = Options { paths: vec![p], data_dir: Some(data.join("data")), ..Options::default() };
@@ -857,7 +857,14 @@ fn a_plugin_preset_is_a_sound_of_its_own() {
     assert!(s.send(SoundsCmd::AssignSound { part: 2, id: format!("au:{DLS}#f:999") }).is_err(), "no such preset");
 
     // Save as preset.
-    s.send(SoundsCmd::SavePartAsPluginPreset { part: 1, name: "My Organ".into(), category: PatchCategory::Organ }).unwrap();
+    // The file's name exists already: refused without `overwrite` (Logic's presets are
+    // never replaced silently), then replaced when asked to.
+    let clash = presets::user_preset_path(&root, &info, "My Organ");
+    std::fs::write(&clash, b"logic's own").unwrap();
+    s.inner.lock().plugins.host.as_ref().unwrap().rescan().unwrap();
+    assert!(s.send(SoundsCmd::SavePartAsPluginPreset { part: 1, name: "My Organ".into(), category: PatchCategory::Organ, overwrite: false }).is_err());
+    assert_eq!(std::fs::read(&clash).unwrap(), b"logic's own");
+    s.send(SoundsCmd::SavePartAsPluginPreset { part: 1, name: "My Organ".into(), category: PatchCategory::Organ, overwrite: true }).unwrap();
     let t0 = Instant::now();
     while s.state().keyboard_parts[1].plugin.as_ref().and_then(|p| p.preset.clone()).is_none() {
         assert!(t0.elapsed() < Duration::from_secs(20), "the preset was not saved");

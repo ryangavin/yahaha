@@ -125,6 +125,7 @@ export class MockSounds {
       const file = name.replace(/[/:]/g, '-')
       const key = `u:/Users/mock/Library/Audio/Presets/${pl.manufacturer}/${pl.name}/${file}.aupreset`
       const l = this.list(pl.id)
+      if (!c.overwrite && l.presets.some((p) => p.key === key)) return { error: `a preset called ${file} already exists: save under another name, or replace it` }
       l.presets = [...l.presets.filter((p) => p.key !== key), { key, name: file, folder: null }]
       this.categories.set(pluginPresetId(pl.id, key), c.category)
       pl.preset = file

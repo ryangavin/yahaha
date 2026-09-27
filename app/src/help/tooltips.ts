@@ -789,7 +789,7 @@ const catalog = {
   },
   'sounds.preset_name': {
     title: 'Preset name',
-    body: 'The new preset\'s name, also its file name. A preset of the same name is replaced. Enter saves, Esc cancels.',
+    body: 'The new preset\'s name, also its file name. If a preset of that name exists, yahaha asks before replacing it (the file is shared with Logic and MainStage). Enter saves, Esc cancels.',
     genos: null,
     keys: [],
     launchkey: null,
@@ -804,6 +804,20 @@ const catalog = {
   'sounds.preset_save': {
     title: 'Save the preset',
     body: 'Writes the .aupreset and lists it under the plugin. The part then plays that preset.',
+    genos: null,
+    keys: [],
+    launchkey: null,
+  },
+  'sounds.preset_replace': {
+    title: 'Replace',
+    body: 'Replaces the existing preset of this name with what the part\'s plugin plays now. Logic and MainStage see the new one too.',
+    genos: null,
+    keys: [],
+    launchkey: null,
+  },
+  'sounds.preset_replace_cancel': {
+    title: 'Keep the existing preset',
+    body: 'Leaves the existing preset as it is; change the name to save a new one.',
     genos: null,
     keys: [],
     launchkey: null,

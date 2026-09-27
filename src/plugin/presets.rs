@@ -157,6 +157,23 @@ fn unescape(s: &str) -> String {
     s.replace("&lt;", "<").replace("&gt;", ">").replace("&quot;", "\"").replace("&apos;", "'").replace("&amp;", "&")
 }
 
+/// Where the user preset `name` of `info` is (or would be) under `root`.
+pub fn user_preset_path(root: &Path, info: &PluginInfo, name: &str) -> PathBuf {
+    plugin_preset_dir(root, info).join(format!("{}.aupreset", safe_name(name)))
+}
+
+/// A save refused because a preset of that name exists (and `overwrite` was not set).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PresetExists(pub String);
+
+impl std::fmt::Display for PresetExists {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "a preset called {} already exists: save under another name, or replace it", self.0)
+    }
+}
+
+impl std::error::Error for PresetExists {}
+
 /// The largest `.aupreset` read while listing (a sampler's can embed its samples' paths,
 /// rarely more than a few MB).
 const MAX_PRESET_BYTES: u64 = 64 << 20;
@@ -207,8 +224,12 @@ fn walk(dir: &Path, folder: Option<&str>, depth: usize, id: PluginId, out: &mut 
 
 /// Write `state` (the unit's ClassInfo, as `PluginInstance::get_state` reads it) as
 /// `<root>/<Manufacturer>/<Plugin>/<name>.aupreset`, in XML as Logic writes it. The
-/// dictionary is written unchanged. A preset of the same name is replaced. Returns it.
-pub fn write_user_preset(root: &Path, info: &PluginInfo, name: &str, state: &[u8]) -> Result<UserPreset> {
+/// dictionary is written unchanged. A preset of the same name is replaced only with
+/// `overwrite` (the files are shared with Logic and MainStage). Returns it.
+pub fn write_user_preset(root: &Path, info: &PluginInfo, name: &str, state: &[u8], overwrite: bool) -> Result<UserPreset> {
+    if !overwrite && user_preset_path(root, info, name).exists() {
+        return Err(anyhow!(PresetExists(safe_name(name))));
+    }
     let dir = plugin_preset_dir(root, info);
     std::fs::create_dir_all(&dir).with_context(|| format!("creating {}", dir.display()))?;
     let xml = super::sys::plist_to_xml(state).ok_or_else(|| anyhow!("the plugin's settings are not a property list"))?;
@@ -318,13 +339,19 @@ mod tests {
         assert_eq!(names, [("Arco Strings", None), ("Upright", Some("Pianos"))]);
 
         // Saving writes a standard XML .aupreset there, and it lists.
-        let saved = write_user_preset(&root, &info, "My: Piano/1", mine.as_bytes()).unwrap();
+        let saved = write_user_preset(&root, &info, "My: Piano/1", mine.as_bytes(), false).unwrap();
+        // The same name again: refused unless replacing, and the file is untouched.
+        let before = std::fs::read(&saved.path).unwrap();
+        let e = write_user_preset(&root, &info, "My: Piano/1", b"<plist><dict/></plist>", false).unwrap_err();
+        assert!(e.downcast_ref::<PresetExists>().is_some(), "{e}");
+        assert_eq!(std::fs::read(&saved.path).unwrap(), before, "the existing file is untouched");
+        write_user_preset(&root, &info, "My: Piano/1", mine.as_bytes(), true).unwrap();
         assert_eq!(saved.name, "My- Piano-1");
         let back = std::fs::read(&saved.path).unwrap();
         assert!(back.starts_with(b"<?xml"));
         assert_eq!(parse_aupreset(&back).unwrap().id, Some(info.id));
         assert!(user_presets(&info, std::slice::from_ref(&root)).iter().any(|p| p.name == "My- Piano-1"));
-        assert!(write_user_preset(&root, &info, "bad", b"not a plist").is_err());
+        assert!(write_user_preset(&root, &info, "bad", b"not a plist", true).is_err());
         let _ = std::fs::remove_dir_all(&root);
     }
 }

@@ -160,6 +160,12 @@ describe('savePartAsPatch (#109)', () => {
     const mine = kids().find((e) => e.name === 'My Grand')
     expect(mine?.category).toBe('organ')
     expect(m.state.keyboardParts[0].plugin?.preset).toBe('My Grand')
+    // The same name again: refused unless replacing (Logic's presets are shared).
+    m.send({ type: 'savePartAsPluginPreset', part: 0, name: 'My Grand', category: 'pad' })
+    expect(m.state.message?.error).toBe(true)
+    expect((await m.sounds()).entries.find((e) => e.name === 'My Grand' && e.parent)?.category).toBe('organ')
+    m.send({ type: 'savePartAsPluginPreset', part: 0, name: 'My Grand', category: 'pad', overwrite: true })
+    expect((await m.sounds()).entries.find((e) => e.name === 'My Grand' && e.parent)?.category).toBe('pad')
     m.send({ type: 'savePartAsPluginPreset', part: 3, name: 'x', category: 'organ' })
     expect(m.state.message?.error).toBe(true)
   })

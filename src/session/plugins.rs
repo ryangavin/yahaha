@@ -657,7 +657,7 @@ mod imp {
         /// `savePartAsPluginPreset`: read the part's plugin state, write it as an
         /// `.aupreset`, list it, file it under `category`, and make it the part's preset.
         /// The read and the write run on a thread; the pump finishes.
-        pub(crate) fn save_part_as_preset(&mut self, ch: u8, name: &str, category: crate::api::PatchCategory) -> Result<(), String> {
+        pub(crate) fn save_part_as_preset(&mut self, ch: u8, name: &str, category: crate::api::PatchCategory, overwrite: bool) -> Result<(), String> {
             let name = name.trim();
             if name.is_empty() {
                 return Err("name the preset".into());
@@ -666,13 +666,18 @@ mod imp {
             let ed = c.editor.clone().filter(|_| c.status == PluginStatus::Playing).ok_or("the plugin is not playing yet")?;
             let pid = PluginId::parse(&c.voice.id).ok_or("the part's plugin has no valid id")?;
             let (host, name) = (self.plugins.host(), name.to_string());
+            // Refused at once (the app asks "Replace?" and sends `overwrite`); the write
+            // checks again, in case the file appeared meanwhile.
+            if !overwrite && host.user_preset_exists(&pid, &name) {
+                return Err(crate::plugin::presets::PresetExists(crate::plugin::presets::safe_name(&name)).to_string());
+            }
             let inst = ed.instance();
             let (tx, rx) = mpsc::channel();
             std::thread::Builder::new()
                 .name("plugin-preset".into())
                 .spawn(move || {
                     let r = ed.state().and_then(|state| {
-                        let saved = host.save_user_preset(&pid, &name, &state)?;
+                        let saved = host.save_user_preset(&pid, &name, &state, overwrite)?;
                         Ok((saved, state, host.cached(&pid)))
                     });
                     // The editor handle goes here: if it held the unit's last reference, the
@@ -1085,7 +1090,7 @@ impl Control {
     pub(crate) fn list_plugin_presets(&mut self, _id: &str) -> Result<(), String> {
         Err("this build has no plugin host".into())
     }
-    pub(crate) fn save_part_as_preset(&mut self, _ch: u8, _name: &str, _category: crate::api::PatchCategory) -> Result<(), String> {
+    pub(crate) fn save_part_as_preset(&mut self, _ch: u8, _name: &str, _category: crate::api::PatchCategory, _overwrite: bool) -> Result<(), String> {
         Err("this build has no plugin host".into())
     }
 }

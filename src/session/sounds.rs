@@ -165,11 +165,11 @@ impl Control {
                     return self.fail(e);
                 }
             }
-            SoundsCmd::SavePartAsPluginPreset { part, name, category } => {
+            SoundsCmd::SavePartAsPluginPreset { part, name, category, overwrite } => {
                 if part > 3 {
                     return self.fail(format!("no keyboard part {part} (0-3)"));
                 }
-                if let Err(e) = self.save_part_as_preset(crate::parts::CHANNEL[part as usize], &name, category) {
+                if let Err(e) = self.save_part_as_preset(crate::parts::CHANNEL[part as usize], &name, category, overwrite) {
                     return self.fail(e);
                 }
             }

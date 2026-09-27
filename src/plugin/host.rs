@@ -223,6 +223,13 @@ impl PluginHost {
         PluginHost { inner: Arc::new(Inner { cache_path, cache: Mutex::new(None), preset_roots: roots, refresh: Default::default() }) }
     }
 
+    /// Whether user preset `name` of `id` exists where it would be saved (no scan: from
+    /// the cache). Cheap: one file check.
+    pub fn user_preset_exists(&self, id: &PluginId, name: &str) -> bool {
+        let (Some(info), Some(root)) = (self.cached(id), self.inner.preset_roots.first()) else { return false };
+        presets::user_preset_path(root, &info, name).exists()
+    }
+
     /// Where user presets are looked for; the first is where they are saved.
     pub fn preset_roots(&self) -> &[PathBuf] {
         &self.inner.preset_roots
@@ -370,10 +377,10 @@ impl PluginHost {
 
     /// Write the state as a user preset of `id` (`presets::write_user_preset`, in the first
     /// preset folder) and list it. Returns the preset written.
-    pub fn save_user_preset(&self, id: &PluginId, name: &str, state: &[u8]) -> Result<UserPreset> {
+    pub fn save_user_preset(&self, id: &PluginId, name: &str, state: &[u8], overwrite: bool) -> Result<UserPreset> {
         let info = self.info(id)?;
         let root = self.inner.preset_roots.first().ok_or_else(|| anyhow!("no preset folder"))?;
-        let saved = presets::write_user_preset(root, &info, name, state)?;
+        let saved = presets::write_user_preset(root, &info, name, state, overwrite)?;
         let mut cache = self.inner.cache.lock().unwrap();
         if let Some(c) = cache.as_mut()
             && let Some(p) = c.plugins.iter_mut().find(|p| p.id == *id)

@@ -183,7 +183,7 @@ impl MockSounds {
                     }
                 }
             }
-            SoundsCmd::SavePartAsPluginPreset { part, name, category } => {
+            SoundsCmd::SavePartAsPluginPreset { part, name, category, overwrite } => {
                 if part > 3 {
                     return Err(format!("no keyboard part {part} (0-3)"));
                 }
@@ -205,6 +205,9 @@ impl MockSounds {
                     }
                 };
                 let list = &mut self.presets[at].presets;
+                if !overwrite && list.iter().any(|p| p.key == key) {
+                    return Err(format!("a preset called {file} already exists: save under another name, or replace it"));
+                }
                 list.retain(|p| p.key != key);
                 list.push(PluginPresetEntry { key: key.clone(), name: file.clone(), folder: None });
                 self.prefs.sound_categories.insert(plugin_preset_id(&pl.id, &key), category);
