@@ -22,6 +22,7 @@ impl Control {
             section: s.cur.map(|c| c.name()),
             queued: s.queued.map(|q| q.name()),
             landing: crate::launchkey::landing(s).map(|i| crate::sff::SectionId::Main(i).name()),
+            acmp: s.acmp,
             pending_intro: s.pending_intro,
             main: s.main,
             bar: s.bar + 1,

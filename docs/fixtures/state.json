@@ -38,6 +38,7 @@
     "section": "Main A",
     "queued": null,
     "landing": null,
+    "acmp": true,
     "pendingIntro": null,
     "main": 0,
     "bar": 1,

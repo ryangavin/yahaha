@@ -151,7 +151,12 @@ impl Input {
         // with Left off).
         let left = k <= split;
         let r = if left { R_LH } else { R_RH };
+        let acmp = self.shared.acmp.load(Relaxed);
         let chord = r == self.chord_side();
+        // [ACMP] off: Sync Start starts the rhythm on any key (OM p.44).
+        if !acmp && self.cmd.push(Cmd::AnyKey).is_ok() {
+            self.signal = true;
+        }
         self.route[k as usize] = r;
         let full = !self.shared.upper.load(Relaxed) && Fingering::from_u8(self.shared.fingering.load(Relaxed)).full_keyboard();
         let note = self.transpose(Note { key: k, vel, left, shift: 0, parts: ALL_RIGHT });
@@ -161,6 +166,7 @@ impl Input {
         // Dynamics Touch / Accent: the engine hears each strike in the chord section (not
         // while the Chord Looper loops: then there is no chord section).
         if chord
+            && acmp
             && self.shared.strikes.load(Relaxed)
             && !self.shared.looping.load(Relaxed)
             && self.cmd.push(Cmd::Strike(vel)).is_ok()
@@ -346,7 +352,8 @@ impl Input {
                 // section is the chord section alone (Lower, not Full Keyboard). While
                 // the Chord Looper loops there is no chord section: the whole keyboard
                 // is for performance (RM p.15, p.19).
-                let chord_only = !self.shared.upper.load(Relaxed) && !full && !self.shared.looping.load(Relaxed);
+                // With [ACMP] off there is no chord section either (OM p.56).
+                let chord_only = !self.shared.upper.load(Relaxed) && !full && !self.shared.looping.load(Relaxed) && self.shared.acmp.load(Relaxed);
                 (sounds_on(&self.shared.parts, n.left, chord_only, n.key, n.shift, n.parts), n.vel)
             }
             None => (Sounded::default(), 0),

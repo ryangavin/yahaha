@@ -37,6 +37,8 @@ const EVERY_CMD: &[&str] = &[
     r#"{"type":"tempoUp"}"#,
     r#"{"type":"tempoDown"}"#,
     r#"{"type":"resetTempo"}"#,
+    r#"{"type":"toggleAcmp"}"#,
+    r#"{"type":"setAcmp","on":false}"#,
     r#"{"type":"toggleFade"}"#,
     r#"{"type":"sectionReset"}"#,
     r#"{"type":"toggleRetrigger"}"#,

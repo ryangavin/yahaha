@@ -107,6 +107,8 @@ impl Engine {
     /// OTS recall turns Sync Start on (OM p.47): stopped, the next chord starts the band.
     /// Playing, nothing changes (Sync Start pressed while playing would stop the band).
     pub fn sync_start_on(&mut self) {
+        // An OTS recall turns [ACMP] on too (DL: OTS column, ACMP On).
+        self.features.acmp = Default::default();
         if !self.running {
             self.sync_armed = true;
         }

@@ -214,7 +214,7 @@ export function initialState(): AppState {
       section: null, queued: null, landing: null, pendingIntro: null, main: 0, bar: 1, beat: 1,
       beatsPerBar: beatsPerBar([s.timeSignature[0], s.timeSignature[1]]), tempo: s.tempo, lamps: [], sectionBars: null,
       halfBarFill: false, stopAcmpMode: 'off',
-      fade: 'off', retrigger: false, ritardando: false,
+      fade: 'off', retrigger: false, ritardando: false, acmp: true,
     },
     chord: {
       name: null, fingered: null, fingering: 'fingeredOnBass', fingeringName: 'Fingered On Bass', upper: false,
@@ -1045,6 +1045,8 @@ export class MockSession implements Session {
   }
 
   private recallOts(n: number) {
+    // An OTS recall turns [ACMP] on.
+    this.state.transport.acmp = true
     const panel = this.state.mixer.faderPage === 'panel'
     this.state.ots.settings[n].parts.forEach((o, i) => {
       const p = this.state.keyboardParts[i]
@@ -1224,6 +1226,10 @@ export class MockSession implements Session {
         break
       case 'toggleRetrigger':
         t.retrigger = !t.retrigger
+        break
+      case 'toggleAcmp':
+      case 'setAcmp':
+        t.acmp = cmd.type === 'setAcmp' ? cmd.on : !t.acmp
         break
       case 'setMainTiming':
       case 'setIntroEndingTiming':

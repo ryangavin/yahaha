@@ -212,6 +212,9 @@ pub enum Function {
     /// Left Hold On/Off (RM p.140: "Same as the [LEFT HOLD] button", with a Control Type):
     /// a control-side switch like Arpeggio Hold (#202).
     LeftHold,
+    /// ACMP On/Off (RM p.140: "Same as the [ACMP] button", #266). Last, so the pedal
+    /// setups stored before it keep their numbers.
+    Acmp,
 }
 
 /// One row of the assignable-function table.
@@ -240,7 +243,7 @@ use Kind::*;
 /// The assignable functions, in `Function` order: the Genos live-play list (RM p.139-144)
 /// as far as yahaha has the feature. app/src/lib/api/assignable-functions.json is this table
 /// as the app reads it (a test keeps the two equal).
-pub const FUNCTIONS: [FunctionInfo; 67] = [
+pub const FUNCTIONS: [FunctionInfo; 68] = [
     f(Function::None, "No Assign", Overall, Trigger),
     f(Function::Sustain, "Sustain", Voice, Switch),
     f(Function::Sostenuto, "Sostenuto", Voice, Switch),
@@ -308,6 +311,7 @@ pub const FUNCTIONS: [FunctionInfo; 67] = [
     f(Function::ChordLooperOnOff, "Chord Looper On/Off", ChordLooper, Trigger),
     f(Function::ChordLooperRec, "Chord Looper Rec/Stop", ChordLooper, Trigger),
     f(Function::LeftHold, "Left Hold On/Off", Voice, Switch),
+    f(Function::Acmp, "ACMP On/Off", Style, Trigger),
 ];
 
 /// What running a function means, for the input thread.
@@ -365,6 +369,7 @@ impl Function {
             F::FillBreak => Effect::Engine(Button::Break),
             F::Ending1 | F::Ending2 | F::Ending3 => Effect::Engine(Button::Ending(self as u8 - F::Ending1 as u8)),
             F::AutoFill => Effect::Engine(Button::AutoFill),
+            F::Acmp => Effect::Engine(Button::Acmp),
             F::StopAcmp => Effect::Engine(Button::StopAcmp),
             F::TempoUp => Effect::Engine(Button::TempoUp),
             F::TempoDown => Effect::Engine(Button::TempoDown),

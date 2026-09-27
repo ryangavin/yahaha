@@ -129,6 +129,8 @@ export function tipFor(cmd: AppCmd | null): TipKey {
     case 'toggleFade': return 'transport.fade'
     case 'sectionReset': return 'transport.section_reset'
     case 'toggleRetrigger': return 'transport.retrigger'
+    case 'toggleAcmp':
+    case 'setAcmp': return 'transport.acmp'
     case 'stepRetriggerRate': return cmd.delta < 0 ? 'transport.retrigger_longer' : 'transport.retrigger_shorter'
     case 'setRetriggerRate': return 'settings.retrigger_rate'
     case 'setSwing':
