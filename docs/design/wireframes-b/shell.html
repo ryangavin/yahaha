@@ -38,9 +38,6 @@ button{font-family:inherit;cursor:pointer}
 <div style="flex-grow: 1"></div>
 <section aria-label="Launchkey" style="display: flex; align-items: center; gap: 10px; height: 40px; padding: 0 10px; border-radius: 6px; background: #141417; border: 1px solid #2d2d32">
 <span class="cap" style="font-size: 9px; color: #c9c9cf; display: {{hdr.lkCap}}">Launchkey</span>
-<div style="display: {{hdr.lkKnobs}}; gap: 2px" aria-label="Knobs: Style page">
-<sc-for list="{{knobs}}" as="k" hint-placeholder-count="8"><svg width="20" height="20" viewBox="0 0 30 30" aria-hidden="true"><title>{{k.name}}</title><path d="{{k.track}}" stroke="#2d2d32" stroke-width="4" fill="none" stroke-linecap="round"></path><path d="{{k.arc}}" stroke="#f2f2f2" stroke-width="4" fill="none" stroke-linecap="round"></path></svg></sc-for>
-</div>
 <div style="display: flex; flex-direction: column; gap: 1px; font-size: 10px; line-height: 1.25; white-space: nowrap">
 <sc-for list="{{mirLegend}}" as="g" hint-placeholder-count="3"><span style="display: {{g.disp}}"><b style="color: #8d8d95; font-size: 9px; letter-spacing: .05em">{{g.what}}</b> {{g.page}}</span></sc-for>
 </div>
@@ -76,6 +73,10 @@ button{font-family:inherit;cursor:pointer}
 <span style="grid-row: 1; grid-column: 1; align-self: center; font-size: 8px; font-weight: 700; color: #6d6d75">1</span>
 <span style="grid-row: 2; grid-column: 1; align-self: center; font-size: 8px; font-weight: 700; color: #6d6d75">2</span>
 <sc-for list="{{mirPads}}" as="d" hint-placeholder-count="16"><button title="{{d.name}}" style="grid-row: {{d.row}}; grid-column: {{d.col}}; min-width: 0; padding: 0 2px; border-radius: 4px; border: 1px solid {{d.border}}; outline: {{d.outline}}; outline-offset: 1px; background: {{d.bg}}; color: {{d.ink}}; box-shadow: {{d.glow}}; font-size: {{mm.fs}}px; font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{d.barLabel}}</button></sc-for>
+</div>
+<div aria-label="Launchkey knobs" style="display: {{kk.disp}}; flex-shrink: 0; align-items: center; gap: 6px; padding-left: 8px; border-left: 1px solid #2d2d32">
+<div style="display: flex; flex-direction: column; gap: 3px"><span style="font-size: 9px; font-weight: 800; letter-spacing: .06em">KNOBS</span><div style="display: flex; gap: 2px"><sc-for list="{{knobPages}}" as="g" hint-placeholder-count="4"><button title="{{g.name}}" style="height: 16px; padding: 0 4px; border-radius: 3px; border: 1px solid {{g.border}}; background: {{g.bg}}; color: {{g.ink}}; font-size: 8px; font-weight: 700">{{g.short}}</button></sc-for></div></div>
+<sc-for list="{{knobs}}" as="k" hint-placeholder-count="8"><div title="{{k.name}}" style="width: 40px; display: flex; flex-direction: column; align-items: center; gap: 1px; opacity: {{k.op}}"><svg width="28" height="28" viewBox="0 0 30 30" aria-hidden="true"><path d="{{k.track}}" stroke="#2d2d32" stroke-width="3.5" fill="none" stroke-linecap="round"></path><path d="{{k.arc}}" stroke="#f2f2f2" stroke-width="3.5" fill="none" stroke-linecap="round"></path></svg><span style="font-size: 8px; font-weight: 600; color: #a9a9b1; white-space: nowrap">{{k.name}}</span></div></sc-for>
 </div>
 </section>
 
@@ -218,8 +219,11 @@ class Component extends DCLogic {
       ['SEL 1', 'Select pad 1', MPC.ready, 'dim', ''], ['SEL 2', 'Select pad 2', MPC.ready, 'dim', ''], ['SEL 3', 'Select pad 3', MPC.ready, 'dim', ''], ['SEL 4', 'Select pad 4', MPC.ready, 'dim', ''], ['STOP 1', 'Stop pad 1', COL[0], 'dim', ''], ['STOP 2', 'Stop pad 2', COL[0], 'dim', ''], ['STOP 3', 'Stop pad 3', COL[0], 'dim', ''], ['STOP 4', 'Stop pad 4', COL[0], 'dim', '']];
     const pos = (d, i) => Object.assign(d, { row: i < 8 ? 1 : 2, col: (i % 8) + 2 });
     const mirPads = (PADPAGE === 'multi' ? MPADS.map(p => Object.assign(padLook(p), { barLabel: p[0], short: p[0] })) : secPads).map(pos);
-    const kn = ['Dynamics','Rtg len','Rtg on','Mute A','Mute B','—','—','Tempo'];
-    const knobs = kn.map((n, i) => Object.assign(knob(30, [.5,.3,0,1,1,0,0,.45][i], '#f2f2f2'), { name: n }));
+    // The Launchkey's 8 encoders on the Style knob page (Knob Assign, #197). Parts/Pan/Effects pages drive the mixer.
+    const kn = ['Dynamics', 'Retrig', 'Retrig on', 'Mute A', 'Mute B', '', '', 'Tempo'];
+    const knobs = kn.map((n, i) => Object.assign(knob(30, [.5, .3, 0, 1, 1, 0, 0, .45][i], '#f2f2f2'), { name: n || '—', op: n ? 1 : .35 }));
+    const knobPages = [['Style', 'Style'], ['Parts', 'Parts'], ['Pan', 'Pan'], ['FX', 'Effects']].map((p, i) => ({ short: p[0], name: p[1], bg: i ? 'transparent' : A, ink: i ? '#a9a9b1' : AI, border: i ? '#3a3a40' : A }));
+    const kk = { disp: COMPACT ? 'none' : 'flex' };
     const FPAGE = { VOL: 'Vol', PAN: 'Pan', REV: 'Rev', CHO: 'Cho', DLY: 'Dly' }[LAYER];
     // What the Launchkey drives is outlined where it lives on screen (Ableton's session ring):
     // the faders around their 8 strips, the pads around the Home section grid. The mirror only
@@ -245,7 +249,7 @@ class Component extends DCLogic {
       for (let y = 0; y < rows; y++) for (let x = 0; x < cols; x++) { const on = (y === 0 && x % 4 === 0) || (y === 1 && x % 8 === 4) || r() < dens[y]; if (on) cells.push({ x: (x * cw + 1).toFixed(1), y: (y * ch + 1).toFixed(1), w: (cw - 2).toFixed(1), h: (ch - 2).toFixed(1), col: COL[4 + y], o: (0.45 + r() * 0.55).toFixed(2) }); }
       return cells; };
 %%SONGMAP%%
-    const base = { hdr, tabs, layers, parts, knobs, mirPads, secPads, mirLegend, ring, mm, padPages, bgArt: Object.assign(songMap(7, '#ffd23f', '#ff5a3c', 'pop', 'bgsm', 640, 160, 3), { o: TAB === 'Home' ? .7 : .4 }), mir, regs, ots, white, black, kb, art: artFor(7, 300, 366, 9) };
+    const base = { hdr, tabs, layers, parts, knobs, mirPads, secPads, mirLegend, ring, mm, padPages, knobPages, kk, bgArt: Object.assign(songMap(7, '#ffd23f', '#ff5a3c', 'pop', 'bgsm', 640, 160, 3), { o: TAB === 'Home' ? .7 : .4 }), mir, regs, ots, white, black, kb, art: artFor(7, 300, 366, 9) };
     %%JS%%
     return Object.assign(base, extra);
   }

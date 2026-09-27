@@ -53,7 +53,7 @@ screens = {}
 # ---------- Home ----------
 # The sections are the Launchkey Sections pad page, drawn big: same order, colours and
 # lights as the hardware. The Mains carry their real pattern (a row per drum/bass voice).
-def home(fxW=220, wide=False):
+def home(fxW=260, wide=False):
     # The style's artwork is the display's background (shell.html); the style, bank, snapshot
     # and OTS lead the status line.
     style = '''<div style="display: flex; flex-direction: column; gap: 3px; min-width: 0; margin-right: 8px">
@@ -64,10 +64,12 @@ def home(fxW=220, wide=False):
     # Master bus, not effect sends: gentle processing on the whole mix. Chorus and delay stay per
     # part (the send faders on every strip); the style's own send scaling lives on the Effects tab.
     fx = '' if not fxW else '''<aside aria-label="Master bus" style="width: %dpx; flex-shrink: 0; display: flex; flex-direction: column; gap: 10px; padding: 14px; border-left: 1px solid #26262b; background: rgba(14,14,16,.6)">
-<div style="display: flex; justify-content: space-between; align-items: baseline"><span class="cap">Master bus</span><button class="chip" style="height: 24px; padding: 0 8px; font-size: 11px">On</button></div>
-<div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px 4px; justify-items: center">''' % fxW + krow("master", 44, 60) + '''</div>
-<div style="flex-grow: 1"></div>
-<span style="font-size: 11px; color: #8d8d95; line-height: 1.35">Gentle, on the whole mix: tone, glue and a touch of room. Chorus and delay go on single parts, with the R C D sends on each strip.</span>
+<div aria-label="Launchkey knobs" style="position: relative; display: flex; flex-direction: column; gap: 6px; padding: 16px 6px 6px; border-radius: 6px; outline: 2px solid #ffffff">
+<div style="position: absolute; top: -9px; left: 8px; display: flex; align-items: center; gap: 3px; padding: 1px 4px; border-radius: 4px; background: #0e0e10; border: 1px solid #ffffff"><span style="font-size: 9px; font-weight: 800; letter-spacing: .06em; padding: 0 3px">LAUNCHKEY KNOBS</span><sc-for list="{{knobPages}}" as="g" hint-placeholder-count="4"><button title="{{g.name}}" style="height: 15px; padding: 0 4px; border-radius: 3px; border: 1px solid {{g.border}}; background: {{g.bg}}; color: {{g.ink}}; font-size: 8px; font-weight: 700">{{g.short}}</button></sc-for></div>
+<div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px; justify-items: center"><sc-for list="{{knobs}}" as="k" hint-placeholder-count="8"><div title="{{k.name}}" style="display: flex; flex-direction: column; align-items: center; gap: 1px; opacity: {{k.op}}"><svg width="34" height="34" viewBox="0 0 30 30" aria-hidden="true"><path d="{{k.track}}" stroke="#2d2d32" stroke-width="3.5" fill="none" stroke-linecap="round"></path><path d="{{k.arc}}" stroke="#f2f2f2" stroke-width="3.5" fill="none" stroke-linecap="round"></path></svg><span style="font-size: 9px; font-weight: 600; color: #a9a9b1; white-space: nowrap">{{k.name}}</span></div></sc-for></div>
+</div>
+<div style="display: flex; justify-content: space-between; align-items: baseline; margin-top: 2px"><span class="cap">Master bus</span><button class="chip" style="height: 22px; padding: 0 8px; font-size: 11px">On</button></div>
+<div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 2px 4px; justify-items: center">''' % fxW + krow("master", 36, 56) + '''</div>
 </aside>'''
     return dict(TAB="Home", SEL="-1", PADRING="1", DISPLAY='''
 <div style="flex-grow: 1; min-width: 0; display: flex; flex-direction: column; gap: 10px; padding: 12px 14px">
