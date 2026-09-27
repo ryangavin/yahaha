@@ -277,3 +277,41 @@ fn the_audio_callback_does_not_allocate() {
         let _ = link.take_retired();
     }
 }
+
+/// The meters on their own: every channel's peak and RMS, the Multi Pads' included, and
+/// the master's are measured in the callback without allocating, reading after reading
+/// (the app shell takes them at 30 Hz). Without a SoundFont the path still runs (silent).
+#[test]
+fn the_meters_do_not_allocate() {
+    let font = sound_font();
+    let rack = font.as_ref().map(|f| Rack::load(f, 48_000).unwrap());
+    let (mut feed, rx) = rtrb::RingBuffer::<synth::Msg>::new(256);
+    let ctl = Arc::new(SynthControl::new(0));
+    let (mut core, _swap, _link) = AudioCore::new(rack, vec![rx], Arc::new(Parts::new()), ctl.clone(), 48_000, 2);
+    let mut out = vec![0f32; 128];
+    // Right 1, a Multi Pad (ch 5) and the Bass part.
+    for m in [[0x90u8, 60, 100], [0x94, 64, 100], [0x9A, 40, 100]] {
+        feed.push(m).unwrap();
+    }
+    let (a, f) = (ALLOCS.load(Ordering::Relaxed), FREES.load(Ordering::Relaxed));
+    let mut seen = [0f32; 16];
+    let mut seen_rms = [0f32; 16];
+    for _ in 0..30 {
+        COUNT.with(|c| c.set(true));
+        core.process(&mut out);
+        COUNT.with(|c| c.set(false));
+        let (peaks, _, _) = synth::take_meters(&ctl);
+        let (rms, _) = synth::take_rms(&ctl);
+        for ch in 0..16 {
+            seen[ch] = seen[ch].max(peaks[ch]);
+            seen_rms[ch] = seen_rms[ch].max(rms[ch]);
+        }
+    }
+    assert_eq!((ALLOCS.load(Ordering::Relaxed) - a, FREES.load(Ordering::Relaxed) - f), (0, 0), "metering allocated");
+    if font.is_some() {
+        for ch in [0, 4, 10] {
+            assert!(seen[ch] > 0.0 && seen_rms[ch] > 0.0 && seen_rms[ch] <= seen[ch], "ch {}: peak {} rms {}", ch + 1, seen[ch], seen_rms[ch]);
+        }
+        assert_eq!(seen_rms[1], 0.0, "a silent channel reads 0");
+    }
+}
