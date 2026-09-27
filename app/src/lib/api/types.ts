@@ -307,6 +307,8 @@ export type KnobsCmd =
   | { type: 'setKnobPage'; page: KnobPage }
   | { type: 'stepKnobPage'; delta: number }
   | { type: 'turnKnob'; knob: number; delta: number }
+  /** Knob `knob` back to its function's default (a double-click): Dynamics max, sends dry, pan centre. */
+  | { type: 'resetKnob'; knob: number }
 
 export type KnobPage = 'style' | 'parts' | 'pan' | 'reverb' | 'chorus' | 'delay'
 export type KnobFunction =

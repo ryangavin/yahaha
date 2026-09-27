@@ -282,6 +282,7 @@ export function tipFor(cmd: AppCmd | null): TipKey {
     case 'setKnobPage':
     case 'stepKnobPage': return 'knobs.page'
     case 'turnKnob': return 'knobs.knob'
+    case 'resetKnob': return 'knobs.knob'
     // The effect bus (#204).
     case 'setEffectType': return `fx.${cmd.block}_type`
     case 'setEffectReturn': return `fx.${cmd.block}_return`

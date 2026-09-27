@@ -677,6 +677,15 @@ impl MockSession {
             }),
             fx_return: [0, 1, 2].map(|b| s.effects.blocks[b].return_level),
             fx_params: self.fx_params(),
+            fx_defaults: {
+                let mut d = [0u16; yahaha::fx::PARAMS];
+                for b in &s.effects.blocks {
+                    for p in &b.params {
+                        d[p.param.index()] = p.default;
+                    }
+                }
+                d
+            },
         }
     }
 
@@ -1919,6 +1928,12 @@ impl MockSession {
                         self.cmd(cmd);
                     }
                 }
+                KnobsCmd::ResetKnob { knob } => {
+                    let now = self.knobs_now();
+                    if let Some(cmd) = self.knobs.reset(knob, &now) {
+                        self.cmd(cmd);
+                    }
+                }
             },
             // The effect bus (#204), as the session: a type must be the block's own.
             AppCmd::Fx(FxCmd::SetEffectType { block, effect }) => {
@@ -2948,6 +2963,12 @@ mod tests {
         m.send(KnobsCmd::TurnKnob { knob: 3, delta: -1 });
         assert_eq!(m.state.keyboard_parts[3].volume, v.saturating_sub(2));
         assert_eq!(m.state.knobs.page_number, 2);
+        // A double-click puts it back: volume 100, then Dynamics to max.
+        m.send(KnobsCmd::ResetKnob { knob: 3 });
+        assert_eq!(m.state.keyboard_parts[3].volume, 100);
+        m.send(KnobsCmd::SetKnobPage { page: yahaha::knobs::KnobPage::Style });
+        m.send(KnobsCmd::ResetKnob { knob: 0 });
+        assert_eq!(m.state.dynamics.level, 127);
     }
 
     /// Style Dynamics (#180): commands apply to the settings in effect and clamp, as the

@@ -1378,7 +1378,7 @@ const catalog = {
   },
   'knobs.knob': {
     title: 'Knob',
-    body: 'Turns what the knob has on the Knob Assign page, from where it is now: levels 2 a step, tempo 1 BPM, Retrigger every 3 steps. Drag up or down to turn it (Shift for fine), use the mouse wheel, or focus it and press the arrow keys. The knobs are endless like the Launchkey\'s: with no level to show, the pointer shows the last movement.',
+    body: 'Turns what the knob has on the Knob Assign page, from where it is now: levels 2 a step, tempo 1 BPM, Retrigger every 3 steps. Drag up or down to turn it (Shift for fine), use the mouse wheel, or focus it and press the arrow keys; double-click puts it back to its default (Dynamics max, sends dry, pan centre, Tempo the style\'s). The knobs are endless like the Launchkey\'s: with no level to show, the pointer shows the last movement.',
     genos: 'LIVE CONTROL knobs',
     keys: [],
     launchkey: 'The eight knobs',

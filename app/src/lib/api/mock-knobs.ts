@@ -87,6 +87,8 @@ const RATES = [1, 2, 4, 8, 16, 32]
 const RTG_STEPS = 3
 const MUTE_STEP = 4
 const LEVEL_STEP = 2
+/** A part's and the Harmony's volume after a reset (the Genos default; `knobs::DEFAULT_VOLUME`). */
+const DEFAULT_VOLUME = 100
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v))
 
 export class MockKnobs {
@@ -166,6 +168,57 @@ export class MockKnobs {
           to = clamp(x.value + delta * PARAM_KNOB[p]![2], x.min, x.max)
         }
         return to === x.value ? null : { type: 'setEffectParam', block, param: p, value: to }
+      }
+    }
+  }
+
+  /** Knob `knob` put back to its default (a double-click): the command, or null (`src/knobs.rs` reset). */
+  reset(knob: number, s: AppState): AppCmd | null {
+    const f = PAGES[this.page][knob] ?? NONE
+    switch (f.fn) {
+      case 'none':
+        return null
+      case 'dynamics':
+        return s.dynamics.level === 127 ? null : { type: 'setDynamics', level: 127 }
+      case 'retriggerRate':
+        this.acc[knob] = 0
+        return s.styleSettings.retriggerRate === 8 ? null : { type: 'setRetriggerRate', rate: 8 }
+      case 'retriggerOnOff':
+        this.acc[knob] = 0
+        return s.transport.retrigger ? { type: 'toggleRetrigger' } : null
+      case 'trackMuteA':
+      case 'trackMuteB': {
+        const i = f.fn === 'trackMuteA' ? 0 : 1
+        if (this.mute[i] === 127) return null
+        this.mute[i] = 127
+        return { type: 'styleTrackMute', order: i === 0 ? 'a' : 'b', value: 127 }
+      }
+      case 'tempo':
+        return { type: 'resetTempo' }
+      case 'swing':
+        return s.styleSettings.swing === 0 ? null : { type: 'setSwing', amount: 0 }
+      case 'partVolume':
+        return { type: 'setPartVolume', part: f.part!, volume: DEFAULT_VOLUME }
+      case 'harmonyVolume':
+        return { type: 'setHarmonyVolume', volume: DEFAULT_VOLUME }
+      case 'metronomeVolume':
+        return { type: 'setMetronomeVolume', volume: 90 }
+      case 'partPan':
+        return { type: 'setPartPan', part: f.part!, pan: 64 }
+      case 'partReverb':
+        return { type: 'setPartSend', part: f.part!, send: 'reverb', value: 0 }
+      case 'partChorus':
+        return { type: 'setPartSend', part: f.part!, send: 'chorus', value: 0 }
+      case 'partDelay':
+        return { type: 'setPartSend', part: f.part!, send: 'variation', value: 0 }
+      case 'fxReturn':
+        return { type: 'setEffectReturn', block: FX_BLOCKS[f.part!], level: 64 }
+      case 'fxParam':
+      case 'delayTime': {
+        if (f.fn === 'delayTime') this.acc[knob] = 0
+        const p = f.fn === 'delayTime' ? delayParam(s) : f.param!
+        const [block, x] = fxParam(s, p)
+        return { type: 'setEffectParam', block, param: p, value: x.default }
       }
     }
   }

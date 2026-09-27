@@ -373,7 +373,7 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | control | what it does | Genos | key | Launchkey |
 |---|---|---|---|---|
 | **Knob Assign page** | What the eight Launchkey knobs do, on six pages. Style has Dynamics, Retrigger length and on/off, Style Track Mute A and B and tempo; Parts has the keyboard parts' volumes, Harmony and metronome volume and tempo; Pan has the parts' pan, the effect returns and tempo; Reverb, Chorus and Delay each have Right 1, Right 2, Right 3 and Left's send to that effect on knobs 1–4, then the effect's own settings and its return on knob 8: Reverb time, pre-delay and tone; Chorus rate and depth; Delay time, feedback and tone. Turning an effect setting keeps that effect as yours through style changes (its Style switch goes off). | KNOB ASSIGN | — | ▲ / ▼ right of the knobs |
-| **Knob** | Turns what the knob has on the Knob Assign page, from where it is now: levels 2 a step, tempo 1 BPM, Retrigger every 3 steps. Drag up or down to turn it (Shift for fine), use the mouse wheel, or focus it and press the arrow keys. The knobs are endless like the Launchkey's: with no level to show, the pointer shows the last movement. | LIVE CONTROL knobs | — | The eight knobs |
+| **Knob** | Turns what the knob has on the Knob Assign page, from where it is now: levels 2 a step, tempo 1 BPM, Retrigger every 3 steps. Drag up or down to turn it (Shift for fine), use the mouse wheel, or focus it and press the arrow keys; double-click puts it back to its default (Dynamics max, sends dry, pan centre, Tempo the style's). The knobs are endless like the Launchkey's: with no level to show, the pointer shows the last movement. | LIVE CONTROL knobs | — | The eight knobs |
 
 ## Chord Looper
 

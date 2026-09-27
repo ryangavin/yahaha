@@ -3,7 +3,7 @@
   steps with ◀ ▶, and each knob is a rotary Knob (drag, wheel or arrow keys). The knobs are relative, so
   this sends the same turnKnob a hardware turn does. Nothing here is hardware-only.
 
-  State: knobs. Commands: stepKnobPage, turnKnob.
+  State: knobs. Commands: stepKnobPage, turnKnob, resetKnob (double-click).
 -->
 <script lang="ts">
   import { app } from '../../lib/store.svelte'
@@ -28,6 +28,7 @@
         disabled={knob.function === 'none'}
         tipKey="knobs.knob"
         onturn={(delta) => app.send({ type: 'turnKnob', knob: i, delta })}
+        onreset={() => app.send({ type: 'resetKnob', knob: i })}
       />
       <span class="val">{knob.value}</span>
     </div>
