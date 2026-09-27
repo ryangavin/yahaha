@@ -72,6 +72,16 @@ The owner was asked short atomic questions. Keep doing that: they asked for it.
 - **Multi Pads is no longer its own tab.** It merged with the Chord Looper and the chart into **Pads & Loops**. The tabs are Home · Channel · Effects · Pads & Loops · Harmony / Arp · Settings.
 - The pads and strip LEDs use the part palette, the nearest hue to each Launchkey LED colour.
 
+**One visual system (round 6).** The top half follows the mixer's language:
+- panels `#19191c`, 1px `#2d2d32` edge, 8px radius, 8px gaps;
+- tabs styled like the Snapshot buttons;
+- pads like strips: dark cell with a 3px colour bar on top, filled when lit;
+- small knobs with caps labels.
+
+The artwork fills only the Home "now playing" band, not the whole display. Home's builder lives in `home.py`.
+
+**Rendering locally:** the scratchpad `render.js` expands a `.dc.html` statically, and headless Chrome screenshots it. Use this to check looks, because the canvas needs a claude.ai sign-in.
+
 **No raw 0–127 numbers** on controls: the visual is enough, with the value in a tooltip. Show numbers only when they are musical (tempo, note lengths, dB).
 
 **Look**

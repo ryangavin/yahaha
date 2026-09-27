@@ -18,9 +18,9 @@ ART = '''<div style="width: 280px; flex-shrink: 0; position: relative; overflow:
 
 KNOBROW = '''<sc-for list="{{%s}}" as="k" hint-placeholder-count="4">
 <div style="display: flex; flex-direction: column; align-items: center; gap: 4px; width: %dpx">
-<svg width="%d" height="%d" viewBox="0 0 %d %d" aria-hidden="true"><path d="{{k.track}}" stroke="#2d2d32" stroke-width="5" fill="none" stroke-linecap="round"></path><path d="{{k.arc}}" stroke="{{k.col}}" stroke-width="5" fill="none" stroke-linecap="round"></path></svg>
-<span style="font-size: 13px; font-weight: 700">{{k.val}}</span>
-<span class="cap" style="font-size: 10px">{{k.name}}</span>
+<svg width="%d" height="%d" viewBox="0 0 %d %d" aria-hidden="true"><path d="{{k.track}}" stroke="#2d2d32" stroke-width="4" fill="none" stroke-linecap="round"></path><path d="{{k.arc}}" stroke="{{k.col}}" stroke-width="4" fill="none" stroke-linecap="round"></path></svg>
+<span style="font-size: 8px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: #a9a9b1">{{k.name}}</span>
+<span style="font-size: 10px; font-weight: 600; color: #c9c9cf; min-height: 12px">{{k.val}}</span>
 </div>
 </sc-for>'''
 def krow(var, size=52, w=70):
@@ -53,69 +53,12 @@ screens = {}
 # ---------- Home ----------
 # The sections are the Launchkey Sections pad page, drawn big: same order, colours and
 # lights as the hardware. The Mains carry their real pattern (a row per drum/bass voice).
-def home(fxW=260, wide=False):
-    # The style's artwork is the display's background (shell.html); the style, bank, snapshot
-    # and OTS lead the status line.
-    style = '''<div style="display: flex; flex-direction: column; gap: 3px; min-width: 0; margin-right: 8px">
-<span class="cap" style="color: #c9c9cf">Pop &amp; Rock · 4/4</span>
-<div style="display: flex; align-items: baseline; gap: 8px"><span style="font-family: 'Archivo Narrow', sans-serif; font-size: %dpx; font-weight: 700; line-height: 1; white-space: nowrap">Cool 8Beat</span><button class="chip" style="height: 22px; padding: 0 8px; font-size: 11px">Edit…</button></div>
-<span style="font-size: 12px; color: #c9c9cf; white-space: nowrap">Bank A · <b style="color: #ffffff">Snapshot 3</b> · <b style="color: #ffffff">OTS 2</b> Piano &amp; Strings</span>
-</div>''' % (36 if wide else 30)
-    # Master bus, not effect sends: gentle processing on the whole mix. Chorus and delay stay per
-    # part (the send faders on every strip); the style's own send scaling lives on the Effects tab.
-    fx = '' if not fxW else '''<aside aria-label="Master bus" style="width: %dpx; flex-shrink: 0; display: flex; flex-direction: column; gap: 10px; padding: 14px; border-left: 1px solid #26262b; background: rgba(14,14,16,.6)">
-<div aria-label="Launchkey knobs" style="position: relative; display: flex; flex-direction: column; gap: 6px; padding: 16px 6px 6px; border-radius: 6px; outline: 2px solid #ffffff">
-<div style="position: absolute; top: -9px; left: 8px; display: flex; align-items: center; gap: 3px; padding: 1px 4px; border-radius: 4px; background: #0e0e10; border: 1px solid #ffffff"><span style="font-size: 9px; font-weight: 800; letter-spacing: .06em; padding: 0 3px">LAUNCHKEY KNOBS</span><sc-for list="{{knobPages}}" as="g" hint-placeholder-count="4"><button title="{{g.name}}" style="height: 15px; padding: 0 4px; border-radius: 3px; border: 1px solid {{g.border}}; background: {{g.bg}}; color: {{g.ink}}; font-size: 8px; font-weight: 700">{{g.short}}</button></sc-for></div>
-<div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px; justify-items: center"><sc-for list="{{knobs}}" as="k" hint-placeholder-count="8"><div title="{{k.name}}" style="display: flex; flex-direction: column; align-items: center; gap: 1px; opacity: {{k.op}}"><svg width="34" height="34" viewBox="0 0 30 30" aria-hidden="true"><path d="{{k.track}}" stroke="#2d2d32" stroke-width="3.5" fill="none" stroke-linecap="round"></path><path d="{{k.arc}}" stroke="#f2f2f2" stroke-width="3.5" fill="none" stroke-linecap="round"></path></svg><span style="font-size: 9px; font-weight: 600; color: #a9a9b1; white-space: nowrap">{{k.name}}</span></div></sc-for></div>
-</div>
-<div style="display: flex; justify-content: space-between; align-items: baseline; margin-top: 2px"><span class="cap">Master bus</span><button class="chip" style="height: 22px; padding: 0 8px; font-size: 11px">On</button></div>
-<div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 2px 4px; justify-items: center">''' % fxW + krow("master", 36, 56) + '''</div>
-</aside>'''
-    return dict(TAB="Home", SEL="-1", PADRING="1", DISPLAY='''
-<div style="flex-grow: 1; min-width: 0; display: flex; flex-direction: column; gap: 10px; padding: 12px 14px">
-<div style="display: flex; align-items: flex-end; gap: 24px">''' + style + '''
-<div style="display: flex; flex-direction: column; gap: 2px"><span class="cap">Playing</span><span style="font-family: 'Archivo Narrow', sans-serif; font-size: 32px; font-weight: 700; line-height: 1; white-space: nowrap">Main B</span></div>
-<div style="display: flex; flex-direction: column; gap: 2px"><span class="cap">Next</span><span style="font-family: 'Archivo Narrow', sans-serif; font-size: 32px; font-weight: 700; line-height: 1; color: #ffffff; white-space: nowrap">Fill B</span></div>
-<div style="flex-grow: 1; min-width: 60px; display: flex; flex-direction: column; gap: 6px; padding-bottom: 4px"><span class="cap">Bar 3 of 4</span><div style="height: 8px; border-radius: 4px; background: #26262b; position: relative"><div style="position: absolute; left: 0; top: 0; bottom: 0; width: 62%; border-radius: 4px; background: #ffffff"></div></div></div>
-<div style="display: flex; flex-direction: column; gap: 2px; align-items: flex-end"><span class="cap">Chord</span><span style="font-family: 'Archivo Narrow', sans-serif; font-size: 50px; font-weight: 700; line-height: .9; white-space: nowrap">Am<span style="font-size: 28px; color: #8d8d95">/G</span></span></div>
-</div>
-<div role="group" aria-label="Sections (the Launchkey pads)" style="flex-shrink: 0; margin: 8px 0 4px; position: relative; outline: 2px solid #ffffff; outline-offset: 5px; border-radius: 6px; display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); grid-template-rows: ''' + ('64px 110px' if wide else '50px 78px') + '''; gap: 7px">
-<div style="position: absolute; top: -15px; right: 10px; z-index: 1; display: flex; align-items: center; gap: 3px; padding: 1px 4px; border-radius: 4px; background: #0e0e10; border: 1px solid #ffffff"><span style="font-size: 9px; font-weight: 800; letter-spacing: .06em; padding: 0 4px">LAUNCHKEY PADS</span><button aria-label="Pad bank up" title="Pad Bank ▲" style="height: 16px; padding: 0 4px; border-radius: 3px; border: 1px solid #3a3a40; background: #1f1f24; color: #f2f2f2; font-size: 8px">▲</button><button aria-label="Pad bank down" title="Pad Bank ▼" style="height: 16px; padding: 0 4px; border-radius: 3px; border: 1px solid #3a3a40; background: #1f1f24; color: #f2f2f2; font-size: 8px">▼</button><sc-for list="{{padPages}}" as="g" hint-placeholder-count="5"><button title="{{g.name}}" style="height: 16px; padding: 0 5px; border-radius: 3px; border: 1px solid {{g.border}}; background: {{g.bg}}; color: {{g.ink}}; font-size: 9px; font-weight: 700">{{g.short}}</button></sc-for></div>
-<sc-for list="{{homePads}}" as="d" hint-placeholder-count="16">
-<button title="{{d.tip}}" style="position: relative; overflow: hidden; min-height: 0; border-radius: 7px; border: 1px solid {{d.border}}; outline: {{d.outline}}; outline-offset: 2px; background: {{d.bg}}; color: {{d.ink}}; box-shadow: {{d.glow}}; text-align: left; padding: 6px 8px; display: flex; flex-direction: column; gap: 3px">
-<span style="display: flex; align-items: center; gap: 4px"><span style="font-family: 'Archivo Narrow', sans-serif; font-size: {{d.fs}}px; font-weight: 700; line-height: 1; white-space: nowrap">{{d.name}}</span><span style="flex-grow: 1"></span><span title="{{d.otsTip}}" style="display: {{d.otsDisp}}; font-size: 8px; font-weight: 800; padding: 1px 4px; border-radius: 3px; border: 1px solid currentColor; background: {{d.otsBg}}; color: {{d.otsInk}}">{{d.ots}}</span></span>
-<span style="font-size: 9px; font-weight: 600; opacity: .75; white-space: nowrap">{{d.len}}</span>
-<span style="flex-grow: 1"></span>
-<span aria-label="Parts playing" style="display: {{d.partsDisp}}; height: ''' + ('30' if wide else '22') + '''px; align-items: flex-end; gap: 2px; padding: 2px; border-radius: 3px; background: rgba(14,14,16,.6)"><sc-for list="{{d.parts}}" as="q" hint-placeholder-count="8"><span title="{{q.tip}}" style="flex: 1; height: {{q.h}}%; border-radius: 1px; background: {{q.c}}; opacity: {{q.o}}"></span></sc-for></span>
-</button>
-</sc-for>
-</div>
-<div aria-label="Style parts" style="display: flex; align-items: center; gap: 10px; flex-wrap: nowrap; overflow: hidden; padding-top: 4px">
-<span class="cap" style="white-space: nowrap">In this style</span>
-<sc-for list="{{legend}}" as="q" hint-placeholder-count="8"><span style="display: flex; align-items: center; gap: 4px; white-space: nowrap; font-size: 11px"><span style="width: 8px; height: 8px; border-radius: 2px; background: {{q.c}}"></span><span style="color: #c9c9cf">{{q.voice}}</span></span></sc-for>
-</div>
-<div style="flex-grow: 1"></div>
-</div>''' + fx, JS='''
-    // What each section plays: the 8 style parts (Rhythm 1 … Phrase 2) in their mixer colours,
-    // bar height = how busy the part is there. OTS Link: Main A–D recall OTS 1–4.
-    const ACT = { 0: [1, .4, .6, .5, .3, .8, 0, 0], 1: [1, .5, .8, .7, .5, .6, .3, 0], 2: [.6, 0, .5, .8, 0, .5, 0, 0], 4: [1, .3, .7, .6, .4, .6, 0, 0], 5: [1, .5, .8, .7, .5, .7, .5, 0], 6: [.5, 0, .4, .5, 0, .8, 0, 0],
-      8: [1, .3, .7, .6, 0, .5, 0, 0], 9: [1, .5, .8, .7, .5, .6, .3, 0], 10: [1, .7, .9, .8, .6, .7, .6, .3], 11: [1, .9, 1, .9, .8, .8, .9, .7], 12: [.3, .6, 0, 0, 0, .4, 0, 0] };
-    const SP = P.slice(4);
-    const TIP = ['Intro I: press to arm it for the start', '', '', 'Sync Start: the band starts on your first chord', 'Ending I', '', '', 'Auto Fill: a fill plays whenever you change Main', 'Main A: press while it plays for its fill', 'Main B: playing. Its fill is queued (it flashes on the Launchkey)', 'Main C', 'Main D', 'Break', 'Tap tempo', 'Sync Stop: the band stops when you let go', 'Start / Stop'];
-    const homePads = secPads.map((d, i) => { const act = ACT[i], isMain = i >= 8 && i < 12, lit = d.ink === '#0e0e10';
-      return Object.assign({}, d, { tip: TIP[i] || d.name, fs: isMain ? %(fm)d : %(fo)d, len: i === 9 ? d.len + ' · fill next' : d.len,
-        partsDisp: act ? 'flex' : 'none', parts: (act || []).map((v, k) => ({ h: Math.max(8, Math.round(v * 100)), c: COL[4 + k], o: v ? 1 : .18, tip: SP[k][0] + ' · ' + SP[k][1] })),
-        ots: isMain ? 'OTS ' + (i - 7) : '', otsDisp: isMain ? 'inline' : 'none', otsTip: 'OTS Link: Main ' + 'ABCD'[i - 8] + ' recalls One Touch ' + (i - 7),
-        otsBg: i === 9 ? '#0e0e10' : 'transparent', otsInk: i === 9 ? '#ffffff' : (lit ? '#0e0e10' : d.ink) }); });
-    const legend = SP.map((p, k) => ({ c: COL[4 + k], voice: p[1] }));
-    const master = [[.5, 'Low', '0 dB'], [.45, 'Mid', '−1 dB'], [.58, 'High', '+2 dB'], [.35, 'Glue', '2:1'], [.2, 'Room', '12%%'], [.8, 'Level', '−2 dB']].map(m => Object.assign(knob(44, m[0], m[1] === 'Level' ? '#f2f2f2' : A), { name: m[1], val: m[2] }));
-    const extra = { homePads, master, legend };''' % dict(r1=64 if wide else 50, r2=110 if wide else 78, ph=30 if wide else 22, fm=26 if wide else 20, fo=18 if wide else 14), OVERLAY="", LAYER="VOL")
-
+exec(open(os.path.join(D, "home.py")).read())
 screens["Home"] = home()
 
 # ---------- Channel ----------
 screens["Channel"] = dict(TAB="Channel", SEL="7", DISPLAY='''
-<div style="width: 280px; flex-shrink: 0; display: flex; flex-direction: column; gap: 10px; padding: 16px; background: linear-gradient(180deg, rgba(196,107,255,.22), rgba(196,107,255,0) 60%)">
+<div style="width: 280px; flex-shrink: 0; display: flex; flex-direction: column; gap: 10px; padding: 16px; margin: 8px 0 8px 8px; border-radius: 8px; border: 1px solid #2d2d32; background: #19191c; box-shadow: inset 0 4px 0 #c46bff">
 <div style="display: flex; justify-content: space-between; align-items: center"><button class="chip" aria-label="Previous part">‹ Bass</button><button class="chip" aria-label="Next part">Chord 2 ›</button></div>
 <span class="cap" style="color: #c46bff">Style part · ch 12</span>
 <div style="font-family: 'Archivo Narrow', sans-serif; font-size: 40px; font-weight: 700; line-height: 1">Chord 1</div>
@@ -124,15 +67,15 @@ screens["Channel"] = dict(TAB="Channel", SEL="7", DISPLAY='''
 <div style="flex-grow: 1"></div>
 <span style="font-size: 12px; color: #8d8d95">Select any strip below, or turn the Launchkey's page buttons, to edit that part here.</span>
 </div>
-<div style="flex-grow: 1; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; padding: 14px">
-<div style="display: flex; flex-direction: column; gap: 8px; padding: 12px; border-radius: 8px; background: #19191c"><span class="cap">Mix · pan and sends (level is on the strip)</span>
+<div style="flex-grow: 1; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; padding: 8px">
+<div style="display: flex; flex-direction: column; gap: 8px; padding: 12px; border-radius: 8px; border: 1px solid #2d2d32; background: #19191c"><span class="cap">Mix · pan and sends (level is on the strip)</span>
 <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; justify-items: center">''' + krow("sends") + '''</div>
 <span style="font-size: 11px; color: #8d8d95">Band sends are scaled by Effects › Band.</span>
 </div>
-<div style="display: flex; flex-direction: column; gap: 8px; padding: 12px; border-radius: 8px; background: #19191c"><span class="cap">Tone · from OTS / voice</span>
+<div style="display: flex; flex-direction: column; gap: 8px; padding: 12px; border-radius: 8px; border: 1px solid #2d2d32; background: #19191c"><span class="cap">Tone · from OTS / voice</span>
 <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; justify-items: center">''' + krow("tone", 46, 64) + '''</div>
 </div>
-<div style="display: flex; flex-direction: column; gap: 10px; padding: 12px; border-radius: 8px; background: #19191c"><span class="cap">Play</span>
+<div style="display: flex; flex-direction: column; gap: 10px; padding: 12px; border-radius: 8px; border: 1px solid #2d2d32; background: #19191c"><span class="cap">Play</span>
 <div style="display: flex; align-items: center; justify-content: space-between"><span style="font-size: 13px">Octave</span><div style="display: flex; gap: 4px; align-items: center"><button class="chip">−</button><span style="width: 26px; text-align: center; font-weight: 700">0</span><button class="chip">+</button></div></div>
 <div style="display: flex; align-items: center; justify-content: space-between"><span style="font-size: 13px">Mono / Poly</span><div style="display: flex; gap: 4px"><button class="chip">Mono</button><button class="chip on">Poly</button></div></div>
 <div style="display: flex; align-items: center; justify-content: space-between"><span style="font-size: 13px">Bend range</span><div style="display: flex; gap: 4px; align-items: center"><button class="chip">−</button><span style="width: 26px; text-align: center; font-weight: 700">2</span><button class="chip">+</button></div></div>
@@ -141,18 +84,18 @@ screens["Channel"] = dict(TAB="Channel", SEL="7", DISPLAY='''
 </div>''', JS='''
     const C = '#c46bff';
     const K = (v, name, val) => Object.assign(knob(52, v, C), { name, val });
-    const extra = { pan: [Object.assign(knob(44, .5, C), { name: 'Pan', val: 'C' })], sends: [K(.5, 'Pan', 'C'), K(.35, 'Reverb', '45'), K(.1, 'Chorus', '12'), K(0, 'Delay', '0'), K(.8, 'Dry', '100')], tone: [Object.assign(knob(46, .7, C), { name: 'Cutoff', val: '+10' }), Object.assign(knob(46, .5, C), { name: 'Reso', val: '0' }), Object.assign(knob(46, .45, C), { name: 'Attack', val: '−4' }), Object.assign(knob(46, .5, C), { name: 'Decay', val: '0' }), Object.assign(knob(46, .55, C), { name: 'Release', val: '+6' }), Object.assign(knob(46, .5, C), { name: 'Vibrato', val: '0' })], porta: [Object.assign(knob(44, 0, C), { name: 'Portamento', val: 'Off' })] };''', OVERLAY="")
+    const extra = { pan: [Object.assign(knob(44, .5, C), { name: 'Pan', val: 'C' })], sends: [K(.5, 'Pan', 'C'), K(.35, 'Reverb', ''), K(.1, 'Chorus', ''), K(0, 'Delay', ''), K(.8, 'Dry', '')], tone: [Object.assign(knob(46, .7, C), { name: 'Cutoff', val: '' }), Object.assign(knob(46, .5, C), { name: 'Reso', val: '' }), Object.assign(knob(46, .45, C), { name: 'Attack', val: '' }), Object.assign(knob(46, .5, C), { name: 'Decay', val: '' }), Object.assign(knob(46, .55, C), { name: 'Release', val: '' }), Object.assign(knob(46, .5, C), { name: 'Vibrato', val: '' })], porta: [Object.assign(knob(44, 0, C), { name: 'Portamento', val: 'Off' })] };''', OVERLAY="")
 
 # ---------- Effects ----------
 def fxcard(name, var, types, extra_html=""):
-    return '''<div style="flex: 1; display: flex; flex-direction: column; gap: 10px; padding: 12px; border-radius: 8px; background: #19191c">
+    return '''<div style="flex: 1; display: flex; flex-direction: column; gap: 10px; padding: 12px; border-radius: 8px; border: 1px solid #2d2d32; background: #19191c">
 <div style="display: flex; align-items: center; justify-content: space-between"><span style="font-family: 'Archivo Narrow', sans-serif; font-size: 24px; font-weight: 700">%s</span><div style="display: flex; gap: 4px"><button class="chip">From style: %s</button><button class="chip on">Mine</button></div></div>
 <div style="display: flex; gap: 4px; flex-wrap: wrap">%s</div>
 <div style="display: flex; justify-content: space-around">%s</div>
 %s
 <div style="display: flex; flex-direction: column; gap: 4px; margin-top: auto"><div style="display: flex; justify-content: space-between"><span class="cap">Band send</span><span style="font-size: 12px; font-weight: 700">{{%s.band}}</span></div><div style="height: 8px; border-radius: 4px; background: #26262b; position: relative"><div style="position: absolute; left: 0; top: 0; bottom: 0; width: {{%s.bandPct}}%%; border-radius: 4px; background: #ffffff"></div></div><span style="font-size: 11px; color: #8d8d95">How much the band's parts feed this effect. Your keyboard parts use their own sends.</span></div>
 </div>''' % (name, types[0], "".join('<button class="chip%s">%s</button>' % (" on" if i == 0 else "", t) for i, t in enumerate(types[1:])), krow(var + ".knobs", 50, 64), extra_html, var, var)
-screens["Effects"] = dict(TAB="Effects", SEL="-1", DISPLAY='''<div style="flex-grow: 1; display: flex; gap: 10px; padding: 14px">''' +
+screens["Effects"] = dict(TAB="Effects", SEL="-1", DISPLAY='''<div style="flex-grow: 1; display: flex; gap: 8px; padding: 8px">''' +
   fxcard("Reverb", "rev", ["Hall 2", "Hall", "Room", "Stage", "Plate"]) +
   fxcard("Chorus", "cho", ["Chorus 1", "Chorus", "Celeste", "Flanger"]) +
   fxcard("Delay", "dly", ["Tempo Echo", "1/16", "1/8T", "1/8", "1/8.", "1/4", "1/4T", "1/4.", "1/2"], '<div style="display: flex; gap: 6px"><button class="chip on">Tempo sync</button><button class="chip">Ping-pong</button></div>') +
@@ -207,28 +150,28 @@ screens["Looper"] = dict(TAB="Looper & Charts", SEL="-1", DISPLAY='''
 
 # ---------- Pads & Loops (Multi Pads, Chord Looper and the chart in one tab) ----------
 screens["PadsLoops"] = dict(TAB="Pads & Loops", SEL="-1", PADPAGE="multi", DISPLAY='''
-<div style="width: 330px; flex-shrink: 0; display: flex; flex-direction: column; gap: 8px; padding: 12px; border-right: 1px solid #26262b; background: rgba(14,14,16,.55)">
+<div style="width: 330px; flex-shrink: 0; display: flex; flex-direction: column; gap: 8px; padding: 12px; margin: 8px 0 8px 8px; border-radius: 8px; border: 1px solid #2d2d32; background: #19191c">
 <div style="display: flex; align-items: center; gap: 6px"><span style="font-family: 'Archivo Narrow', sans-serif; font-size: 20px; font-weight: 700">Multi Pads</span><div style="flex-grow: 1"></div><button class="chip" style="height: 24px">Pop Hits 2 ▾</button></div>
 <div style="flex-grow: 1; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px">
-<sc-for list="{{mp}}" as="p" hint-placeholder-count="4"><button style="border-radius: 8px; border: 2px solid {{p.col}}; outline: {{p.outline}}; outline-offset: 1px; background: {{p.bg}}; color: {{p.ink}}; text-align: left; padding: 8px 10px; display: flex; flex-direction: column; gap: 2px; box-shadow: {{p.glow}}"><span style="font-size: 14px; font-weight: 800">{{p.n}} · {{p.name}}</span><span style="font-size: 11px; font-weight: 600; opacity: .8">{{p.state}}</span><span style="flex-grow: 1"></span><span style="font-size: 9px; font-weight: 700; letter-spacing: .05em; opacity: .75">{{p.flags}}</span></button></sc-for>
+<sc-for list="{{mp}}" as="p" hint-placeholder-count="4"><button style="border-radius: 4px; border: 1px solid {{p.border}}; outline: {{p.outline}}; outline-offset: 1px; background: {{p.bg}}; color: {{p.ink}}; text-align: left; padding: 9px 10px 8px; display: flex; flex-direction: column; gap: 2px; box-shadow: {{p.glow}}"><span style="font-size: 14px; font-weight: 800">{{p.n}} · {{p.name}}</span><span style="font-size: 11px; font-weight: 600; opacity: .8">{{p.state}}</span><span style="flex-grow: 1"></span><span style="font-size: 9px; font-weight: 700; letter-spacing: .05em; opacity: .75">{{p.flags}}</span></button></sc-for>
 </div>
 <div style="display: flex; align-items: center; gap: 8px"><span class="cap">Level</span><div style="flex-grow: 1; height: 8px; border-radius: 4px; background: #26262b; position: relative"><div style="position: absolute; left: 0; top: 0; bottom: 0; width: 67%; border-radius: 4px; background: #ffffff"></div></div><button class="chip" style="height: 24px">■ Stop all</button></div>
 </div>
-<div style="width: 470px; flex-shrink: 0; display: flex; flex-direction: column; gap: 8px; padding: 12px; border-right: 1px solid #26262b; background: rgba(14,14,16,.55)">
+<div style="width: 470px; flex-shrink: 0; display: flex; flex-direction: column; gap: 8px; padding: 12px; margin: 8px 0 8px 8px; border-radius: 8px; border: 1px solid #2d2d32; background: #19191c">
 <div style="display: flex; align-items: center; gap: 6px"><span style="font-family: 'Archivo Narrow', sans-serif; font-size: 20px; font-weight: 700">Chord Looper</span><div style="flex-grow: 1"></div><button class="chip" style="height: 24px">Ballad Set ▾</button><button class="chip" style="height: 24px">Save</button></div>
 <div style="display: flex; gap: 4px"><sc-for list="{{mem}}" as="m" hint-placeholder-count="8"><button style="flex: 1; height: 30px; border-radius: 5px; border: 1px solid {{m.border}}; background: {{m.bg}}; color: {{m.ink}}; font-weight: 700">{{m.n}}</button></sc-for></div>
 <div style="display: flex; gap: 4px; flex-wrap: wrap"><sc-for list="{{seq}}" as="c" hint-placeholder-count="8"><span style="min-width: 50px; height: 36px; border-radius: 5px; display: flex; align-items: center; justify-content: center; font-size: 15px; font-weight: 700; background: {{c.bg}}; color: {{c.ink}}; border: 1px solid {{c.border}}">{{c.ch}}</span></sc-for></div>
 <div style="flex-grow: 1"></div>
 <div style="display: flex; gap: 6px"><button class="hb" style="height: 38px; flex: 1; background: #ff5a5a; border-color: #ff5a5a; color: #0e0e10">● Rec / Stop</button><button class="hb" style="height: 38px; flex: 1; background: #ffffff; border-color: #ffffff; color: #0e0e10">Loop: On</button><button class="hb" style="height: 38px; flex: 1">Clear</button></div>
 </div>
-<div style="flex-grow: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px; padding: 12px">
+<div style="flex-grow: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px; padding: 12px; margin: 8px; border-radius: 8px; border: 1px solid #2d2d32; background: #19191c">
 <div style="display: flex; align-items: center; gap: 6px"><span style="font-family: 'Archivo Narrow', sans-serif; font-size: 20px; font-weight: 700">Autumn Leaves</span><span class="cap">Chart</span><div style="flex-grow: 1"></div><button class="chip" style="height: 24px">Songs ▾</button><button class="chip on" style="height: 24px">Follow</button></div>
 <div style="flex-grow: 1; display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); grid-auto-rows: minmax(0, 1fr); gap: 3px">
 <sc-for list="{{bars}}" as="b" hint-placeholder-count="32"><div style="border-radius: 3px; padding: 3px 4px; background: {{b.bg}}; border: 1px solid {{b.border}}; display: flex; flex-direction: column; justify-content: space-between; min-height: 0"><span style="font-size: 8px; color: #8d8d95">{{b.n}}</span><span style="font-size: 12px; font-weight: 700; color: {{b.ink}}">{{b.ch}}</span></div></sc-for>
 </div>
 </div>''', JS='''
     const MP = [['Guitar Riff', 'Playing · bar 2 of 4', 'SYNC · REPEAT · CHORD', 'play'], ['Horn Stab', 'Armed: starts at the next bar', 'SYNC · CHORD', 'arm'], ['Shaker Loop', 'Ready', 'REPEAT', ''], ['Crash + FX', 'Ready', '', '']];
-    const mp = MP.map((p, i) => { const st = p[3], c = st ? COL[0] : COL[5]; return { n: i + 1, name: p[0], state: p[1], flags: p[2], col: c, outline: st === 'arm' ? '2px dashed #ffffff' : 'none', bg: st === 'play' ? c : '#141417', ink: st === 'play' ? '#0e0e10' : '#f2f2f2', glow: st === 'play' ? '0 0 18px ' + c : 'none' }; });
+    const mp = MP.map((p, i) => { const st = p[3], c = st ? COL[0] : COL[5]; return { n: i + 1, name: p[0], state: p[1], flags: p[2], col: c, border: st === 'play' ? c : '#2d2d32', outline: st === 'arm' ? '2px dashed #ffffff' : 'none', bg: st === 'play' ? c : '#1b1b20', ink: st === 'play' ? '#0e0e10' : '#f2f2f2', glow: st === 'play' ? '0 0 12px ' + c + '80' : 'inset 0 3px 0 ' + c }; });
     const mem = Array.from({ length: 8 }, (_, i) => ({ n: i + 1, bg: i === 1 ? A : '#1b1b20', ink: i === 1 ? AI : (i < 4 ? '#f2f2f2' : '#55555c'), border: i === 1 ? A : '#2d2d32' }));
     const seq = ['C', 'Am', 'F', 'G7', 'C', 'Am', 'Dm7', 'G7'].map((c, i) => ({ ch: c, bg: i === 5 ? '#26262e' : '#141417', ink: '#f2f2f2', border: i === 5 ? A : '#2d2d32' }));
     const CH = ['Cm7','F7','BbM7','EbM7','Am7b5','D7','Gm','Gm','Am7b5','D7','Gm','Gm','Cm7','F7','BbM7','EbM7','Am7b5','D7','Gm','G7','Cm7','F7','Bb','Eb','Am7b5','D7','Gm7','C7','Fm7','Bb7','EbM7','D7'];
@@ -243,7 +186,7 @@ screens["VoiceList"] = dict(TAB="Home", SEL="7", PADRING="1", DISPLAY=screens["H
 <div style="height: 1px; background: #2d2d32; margin: 4px 0"></div>
 <button style="height: 34px; border: 0; border-radius: 4px; background: #26262b; color: #ffffff; text-align: left; padding: 0 10px; font-size: 13px; font-weight: 700">More in the Browser…</button>
 </div>''')
-screens["VoiceList"]["JS"] = screens["Home"]["JS"].replace("const extra = { homePads, master, legend };", "const vl = [['Steel Gtr','current'],['Nylon Gtr','SoundFont'],['Clean Gtr','SoundFont'],['Jazz Gtr','SoundFont'],['12-String','SoundFont'],['★ Ample Guitar M','plugin'],['★ My Strum Gtr','patch'],['Muted Gtr','SoundFont']].map((v, i) => ({ name: v[0], src: v[1], bg: i === 0 ? '#2c2536' : 'transparent', w: i === 0 ? 700 : 500 }));\n    const extra = { homePads, master, legend, vl };")
+screens["VoiceList"]["JS"] = screens["Home"]["JS"].replace("const extra = { homePads, master, legend, lkKnobs };", "const vl = [['Steel Gtr','current'],['Nylon Gtr','SoundFont'],['Clean Gtr','SoundFont'],['Jazz Gtr','SoundFont'],['12-String','SoundFont'],['★ Ample Guitar M','plugin'],['★ My Strum Gtr','patch'],['Muted Gtr','SoundFont']].map((v, i) => ({ name: v[0], src: v[1], bg: i === 0 ? '#2c2536' : 'transparent', w: i === 0 ? 700 : 500 }));\n    const extra = { homePads, master, legend, lkKnobs, vl };")
 
 # ---------- Browser (full screen) ----------
 screens["Browser"] = dict(TAB="Home", SEL="-1", PADRING="1", DISPLAY=screens["Home"]["DISPLAY"], BROWSEBTN="background: #ffffff; color: #0e0e10; border-color: #ffffff", OVERLAY='''
@@ -292,7 +235,7 @@ SIZES = {
     "1024": dict(W=1024, H=768, DISPH=350, KEYH=80, NW=29, COMPACT=1, WIDE=0),
     "1920": dict(W=1920, H=1080, DISPH=520, KEYH=130, NW=52, COMPACT=0, WIDE=1),
 }
-screens["Home1280"] = dict(home(fxW=200), SIZE="1280")
+screens["Home1280"] = dict(home(fxW=240), SIZE="1280")
 screens["Home1024"] = dict(home(fxW=0), SIZE="1024")
 screens["Home1920"] = dict(home(fxW=300, wide=True), SIZE="1920")
 
