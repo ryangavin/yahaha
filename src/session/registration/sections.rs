@@ -687,6 +687,8 @@ pub(in crate::session) fn info(m: &Memory) -> Info {
                 .map(|p| match p {
                     Some(p) => match (&p.patch, &p.voice) {
                         (Some(patch), _) => (patch.name.clone(), p.on),
+                        // The Sound's name first (O4), then the plugin's.
+                        (None, Some(VoiceRef::Plugin { sound: Some(s), .. })) if !s.name.is_empty() => (s.name.clone(), p.on),
                         (None, Some(VoiceRef::Plugin { id, name, .. })) => (if name.is_empty() { id.clone() } else { name.clone() }, p.on),
                         (None, v) => (v.as_ref().and_then(VoiceRef::program).map_or("?", gm_name).to_string(), p.on),
                     },
