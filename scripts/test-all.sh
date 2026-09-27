@@ -35,7 +35,8 @@ step() {
 }
 
 step core "$ROOT" cargo test --profile test-fast -- --test-threads="$THREADS"
-step plugins "$ROOT" cargo test --profile test-fast --features plugins -- --test-threads="$THREADS"
+# Plugin hosting (Audio Units) is macOS only.
+[[ $(uname -s) == Darwin ]] && step plugins "$ROOT" cargo test --profile test-fast --features plugins -- --test-threads="$THREADS"
 step app-rust "$ROOT/app/src-tauri" cargo test -- --test-threads="$THREADS"
 step app-web "$ROOT/app" npm run verify
 echo "all gates passed"

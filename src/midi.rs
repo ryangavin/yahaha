@@ -1,6 +1,21 @@
 //! Thin CoreMIDI wrapper (raw coremidi-sys) so endpoint refs stay plain `u32`s that can
 //! move between threads freely.
+//!
+//! On Linux (agentic development only) the backend is a no-op with the same API: no
+//! devices, and ports and virtual endpoints that never carry anything.
 
+#[cfg(target_os = "macos")]
+pub use coremidi::*;
+#[cfg(not(target_os = "macos"))]
+pub use null::*;
+
+#[cfg(not(target_os = "macos"))]
+mod null;
+
+/// The CoreMIDI backend (macOS).
+#[cfg(target_os = "macos")]
+mod coremidi {
+use super::InputHandler;
 use anyhow::{bail, Result};
 use core_foundation::base::TCFType;
 use core_foundation::string::{CFString, CFStringRef};
@@ -197,13 +212,6 @@ impl InputPort {
     }
 }
 
-pub trait InputHandler: Send {
-    /// Called on CoreMIDI's receive thread. `host_time` is the packet's host timestamp.
-    fn packet(&mut self, tag: usize, host_time: u64, data: &[u8]);
-    /// Called once after all packets in a list.
-    fn end_of_list(&mut self) {}
-}
-
 unsafe extern "C" fn read_proc(list: *const MIDIPacketList, ctx: *mut c_void, src: *mut c_void) {
     // SAFETY: `ctx` is the leaked Box<Box<dyn InputHandler>> from `input_port`; CoreMIDI
     // calls this serially on its receive thread, and `list` is valid for the call.
@@ -220,6 +228,14 @@ unsafe extern "C" fn read_proc(list: *const MIDIPacketList, ctx: *mut c_void, sr
         }
         handler.end_of_list();
     }
+}
+}
+
+pub trait InputHandler: Send {
+    /// Called on CoreMIDI's receive thread. `host_time` is the packet's host timestamp.
+    fn packet(&mut self, tag: usize, host_time: u64, data: &[u8]);
+    /// Called once after all packets in a list.
+    fn end_of_list(&mut self) {}
 }
 
 /// Split a MIDI byte stream into messages (handles running status, skips sysex/realtime).
