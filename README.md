@@ -319,6 +319,15 @@ The engine, the runtime and the app API are the `yahaha` library. A `Session` ow
 
 Tests: run `scripts/test-all.sh` for the gate, one step at a time, stopping at the first failure: a compile-only `cargo check --no-default-features --lib`, the Rust tests once (with `--features plugins` on macOS, without elsewhere), and the app's Rust and web tests only when the diff against `origin/develop` touches `app/`, `src/api` or `src/session` (`--all` forces them). It uses cargo's defaults (all cores). For the engine alone, run `cargo test --profile test-fast` (add a test name to filter). The `test-fast` profile keeps release semantics but builds our crate incrementally, so an edit rebuilds in seconds rather than a minute or more; `cargo test --release` still works and runs the same tests. The suite covers the spec's transposition examples, chord recognition, and a full performance of every style in `corpus/`, checking for stuck notes. The oracle scores in `tests/oracle/scores.txt` are pinned too: a change to note conversion fails `oracle::tests::corpus_scores` with the score delta until you regenerate them with `UPDATE_GOLDEN=1`.
 
+## Developing on Linux
+
+yahaha runs on macOS only, but it builds and tests on Linux so that development (mostly agents) can happen there. On Linux there is no MIDI (a no-op backend) and no plugin hosting, and `scripts/test-all.sh` skips the plugins run.
+
+- **Docker:** `docker build -t yahaha-linux .` then `docker run --rm yahaha-linux` runs `scripts/test-all.sh --all` on the copied source. To test the live checkout instead, run `docker run --rm -v "$PWD":/work -v /work/app/node_modules yahaha-linux`. The second volume keeps the image's Linux `node_modules`, and Linux build output goes to `target/linux`, apart from the macOS `target/`.
+- **Native:** install Rust, Node 22, and the packages listed in the `Dockerfile` (`pkg-config`, `libasound2-dev`, `build-essential`, and the Tauri WebKitGTK packages). Then run `npm ci` in `app/` and `scripts/test-all.sh --all`.
+- **CI:** `.github/workflows/linux.yml` runs the same gate on every pull request and on pushes to `develop` and `main`.
+- **Signing:** the macOS setup signs commits with 1Password (`op-ssh-sign`), which agents on Linux can't use. Commits made there are unsigned or signed with that machine's own key.
+
 ## Known gaps
 
 - The NTT transposition tables are reconstructed from documentation and have not yet been checked against a real Genos (see PLAN.md §4).

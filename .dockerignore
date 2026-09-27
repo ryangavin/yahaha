@@ -1,0 +1,12 @@
+.git
+.claude
+target
+**/target
+app/node_modules
+app/dist
+corpus
+soundfonts
+*.sf2
+docs/manuals
+tests/golden/local
+.DS_Store
