@@ -80,7 +80,7 @@ The owner was asked short atomic questions. Keep doing that: they asked for it.
 
 The artwork fills only the Home "now playing" band, not the whole display. Home's builder lives in `home.py`.
 
-**Rendering locally:** the scratchpad `render.js` expands a `.dc.html` statically, and headless Chrome screenshots it. Use this to check looks, because the canvas needs a claude.ai sign-in.
+**Rendering locally:** `./render.sh BHome` expands a board statically (`render.js`) and screenshots it with headless Chrome to `/tmp/BHome.png`. Use this to check looks, because the canvas needs a claude.ai sign-in.
 
 **No raw 0–127 numbers** on controls: the visual is enough, with the value in a tooltip. Show numbers only when they are musical (tempo, note lengths, dB).
 
