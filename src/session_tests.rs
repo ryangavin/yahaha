@@ -1437,7 +1437,7 @@ fn sound_font_switch_needs_the_synth_and_a_file_in_its_folder() {
     assert_eq!(m.channels.iter().map(|c| c.channel).collect::<Vec<_>>(), vec![1, 2, 3, 4, 9, 10, 11, 12, 13, 14, 15, 16]);
 }
 
-/// The audio buffer (#104): 64, 128 or 256 only. Offline it sets the render block; a note
+/// The audio buffer (#104): 64, 128, 256, 512 or 1024 only. Offline it sets the render block; a note
 /// held across the change sounds on and releases (nothing sticks). Live, the synth thread
 /// reopens the stream and the size it reports is the one shown.
 #[test]
@@ -1453,7 +1453,7 @@ fn audio_buffer_changes_keep_notes_and_report_the_size() {
     let energy = |(l, r): (Vec<f32>, Vec<f32>)| l.iter().chain(&r).map(|x| (*x as f64).powi(2)).sum::<f64>();
     s.midi_in(Port::Keys, &[0x90, 72, 110]);
     assert!(energy(s.render(4800)) > 1e-4);
-    for bad in [0, 100, 512] {
+    for bad in [0, 100, 2048] {
         assert!(s.send(SettingsCmd::SetAudioBuffer { frames: bad }).is_err(), "{bad}");
     }
     s.send(SettingsCmd::SetAudioBuffer { frames: 256 }).unwrap();
@@ -1483,6 +1483,14 @@ fn audio_buffer_changes_keep_notes_and_report_the_size() {
     assert_eq!(s.state().io.synth.as_ref().unwrap().buffer_frames, Some(256));
     s.send(SettingsCmd::SetAudioBuffer { frames: 64 }).unwrap();
     assert_eq!(s.state().io.synth.as_ref().unwrap().buffer_frames, Some(128), "the nearest the device allows");
+    // The dropouts the stream counted (the device's and our own late buffers) show in the
+    // state, for the app's larger-buffer hint.
+    let ctl = s.inner.lock().synth.as_ref().unwrap().control.clone();
+    ctl.xruns.fetch_add(2, std::sync::atomic::Ordering::Relaxed);
+    ctl.late.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    s.send(SettingsCmd::SetAudioBuffer { frames: 1024 }).unwrap();
+    let st = s.state();
+    assert_eq!(st.io.synth.as_ref().map(|y| (y.buffer_frames, y.dropouts)), Some((Some(1024), 3)));
     let _ = tx.send(SynthMsg::Stop);
     s.inner.lock().synth = None;
     t.join().unwrap();

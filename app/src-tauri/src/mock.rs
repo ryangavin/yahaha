@@ -332,6 +332,7 @@ impl MockSession {
                     channels: 2,
                     output_pair: [1, 2],
                     muted: false,
+                    dropouts: 0,
                 }),
                 engine: EngineStats { realtime: true, wake_p99_us: 3, chord_p99_us: 15, midi_in_p99_us: 120 },
                 last_control: 0,
@@ -1795,8 +1796,8 @@ impl MockSession {
                 }
             }
             AppCmd::Settings(SettingsCmd::SetAudioBuffer { frames }) => match &mut self.state.io.synth {
-                Some(s) if matches!(frames, 64 | 128 | 256) => s.buffer_frames = Some(frames),
-                Some(_) => self.message(format!("the audio buffer is 64, 128 or 256 frames, not {frames}"), true),
+                Some(s) if yahaha::synth::BUFFER_CHOICES.contains(&frames) => s.buffer_frames = Some(frames),
+                Some(_) => self.message(format!("the audio buffer is 64, 128, 256, 512 or 1024 frames, not {frames}"), true),
                 None => self.message("the synth is off", true),
             },
             AppCmd::Settings(SettingsCmd::NextAudioOutput) => {

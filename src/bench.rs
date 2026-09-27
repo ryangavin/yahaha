@@ -320,3 +320,140 @@ pub fn fake_device(name: &str, secs: f64) -> Result<()> {
     println!("gone");
     Ok(())
 }
+
+/// `yahaha bench-audio <style> <font.sf2> ["C Am F G7" | script] [--frames N] [--keys]`:
+/// what one audio callback costs. Plays the script's engine output through the audio
+/// callback ([`crate::synth::AudioCore`]: the SoundFont rack, the effect bus, the clipper)
+/// offline, as fast as it goes, timing every `process` call against the buffer's
+/// deadline. `--keys` adds a right-hand part on the keyboard synth (piano, sustain pedal
+/// down, a note every 16th), the heaviest thing a player adds to the band.
+pub fn audio(args: &[String]) -> Result<()> {
+    use crate::synth::{self, AudioCore, Msg, Rack, SynthControl};
+    let usage = "usage: yahaha bench-audio <style> <font.sf2> [\"C Am F G7\" | script] [--frames N] [--keys] [--paced] [--rate HZ]";
+    let (mut pos, mut frames, mut keys, mut rate, mut paced) = (Vec::new(), 64usize, false, 48_000u32, false);
+    let mut it = args.iter();
+    while let Some(a) = it.next() {
+        match a.as_str() {
+            "--frames" => frames = it.next().and_then(|s| s.parse().ok()).ok_or_else(|| anyhow::anyhow!("{usage}"))?,
+            "--rate" => rate = it.next().and_then(|s| s.parse().ok()).ok_or_else(|| anyhow::anyhow!("{usage}"))?,
+            "--keys" => keys = true,
+            "--paced" => paced = true,
+            _ => pos.push(a.clone()),
+        }
+    }
+    let (Some(style), Some(sf2)) = (pos.first(), pos.get(1)) else {
+        anyhow::bail!("{usage}");
+    };
+    let script = pos.get(2).cloned().unwrap_or_else(|| "C Am F G7 C Am Dm G7 C Am F G7 C Am Dm G7".into());
+    let script = if std::path::Path::new(&script).is_file() { std::fs::read_to_string(&script)? } else { script };
+    let style = Style::load(std::path::Path::new(style))?;
+    let (rec, end) = crate::sim::record(&style, &script)?;
+    let mut msgs: Vec<(u64, Msg)> = Vec::new();
+    for (at, m) in &rec.out {
+        let msg = if let Some(d) = m.first().filter(|&&b| b == 0xF0).and_then(|_| synth::sysex_msg(m)) {
+            d
+        } else if m.is_empty() || m[0] < 0x80 || m[0] >= 0xF0 {
+            continue;
+        } else {
+            [m[0], m.get(1).copied().unwrap_or(0), m.get(2).copied().unwrap_or(0)]
+        };
+        msgs.push((*at, msg));
+    }
+    if keys {
+        // Right 1 (ch 1): a piano, pedal down, a 16th-note run over two octaves.
+        msgs.push((0, [0xC0, 0, 0]));
+        msgs.push((0, [0xB0, 64, 127]));
+        let step = (60e9 / style.bpm() / 4.0) as u64;
+        let (mut t, mut k) = (step, 0usize);
+        while t < end {
+            let note = 60 + [0u8, 4, 7, 12, 16, 19, 24, 19, 16, 12, 7, 4][k % 12];
+            msgs.push((t, [0x90, note, 100]));
+            msgs.push((t + step / 2, [0x80, note, 0]));
+            if k % 16 == 15 {
+                // The pedal lifts and goes down again each bar.
+                msgs.push((t, [0xB0, 64, 0]));
+                msgs.push((t + 1, [0xB0, 64, 127]));
+            }
+            t += step;
+            k += 1;
+        }
+    }
+    msgs.sort_by_key(|m| m.0);
+
+    let t0 = std::time::Instant::now();
+    let rack = Rack::load(std::path::Path::new(sf2), rate)?;
+    println!("loaded {sf2} in {:.1} s", t0.elapsed().as_secs_f64());
+    let (mut tx, rx) = RingBuffer::<Msg>::new(4096);
+    let ctl = Arc::new(SynthControl::new(0));
+    ctl.fx.set_tempo(style.bpm());
+    let (mut core, _swap, _plugins) = AudioCore::new(Some(rack), vec![rx], Arc::new(crate::parts::Parts::new()), ctl, rate, 2);
+    let total = ((end as f64 / 1e9 + 3.0) * rate as f64) as usize;
+    let deadline_ns = frames as f64 * 1e9 / rate as f64;
+    // Paced: woken once a buffer in the time-constraint class CoreAudio's IO thread runs
+    // in, so the wall times are what a device would see. (Unpaced, a real-time thread that
+    // never sleeps overruns its constraint and the kernel demotes it, so it isn't one.)
+    // The CPU times are the work itself, preemption left out.
+    let period = deadline_ns as u64;
+    let rt_ok = paced && rt::make_realtime(period, period / 2, period);
+    let mut wake = rt::now_ns();
+    let mut out = vec![0f32; 2 * frames];
+    // (wall, cpu, callback index, voices, messages taken)
+    let mut calls: Vec<(u64, u64, usize, usize, usize)> = Vec::with_capacity(total / frames + 1);
+    let (mut next, mut max_voices) = (0, 0);
+    for (i, start) in (0..total).step_by(frames).enumerate() {
+        let t = (start as f64 * 1e9 / rate as f64) as u64;
+        let mut n_msgs = 0;
+        while let Some((at, m)) = msgs.get(next)
+            && *at <= t
+            && tx.push(*m).is_ok()
+        {
+            next += 1;
+            n_msgs += 1;
+        }
+        if paced {
+            wake += period;
+            unsafe { mach2::mach_time::mach_wait_until(rt::ns_to_host(wake)) };
+        }
+        let (a, c) = (rt::now_ns(), rt::thread_cpu_ns());
+        core.process(&mut out);
+        let (dt, dc) = (rt::now_ns() - a, rt::thread_cpu_ns() - c);
+        let v = core.voices();
+        max_voices = max_voices.max(v);
+        calls.push((dt, dc, i, v, n_msgs));
+    }
+    let n = calls.len();
+    println!(
+        "{n} callbacks of {frames} frames at {rate} Hz: deadline {:.0} µs, peak voices {max_voices}, real-time policy {}",
+        deadline_ns / 1000.0,
+        if rt_ok { "yes" } else { "NO" }
+    );
+    for (name, cpu) in [("wall", false), ("cpu", true)] {
+        let mut v: Vec<u64> = calls.iter().map(|c| if cpu { c.1 } else { c.0 }).collect();
+        v.sort();
+        let p = |q: f64| v[((n as f64 - 1.0) * q).round() as usize] as f64 / 1000.0;
+        let mean = v.iter().sum::<u64>() as f64 / n as f64 / 1000.0;
+        let over = |f: f64| v.iter().filter(|&&t| t as f64 > deadline_ns * f).count();
+        println!(
+            "  {name:<4} mean {mean:>6.1} µs ({:>2.0}% load)  p50 {:>6.1}  p99 {:>6.1}  p99.9 {:>6.1}  max {:>7.1} µs  over 50/80/100% of the deadline: {}/{}/{}",
+            mean * 1000.0 / deadline_ns * 100.0,
+            p(0.5),
+            p(0.99),
+            p(0.999),
+            p(1.0),
+            over(0.5),
+            over(0.8),
+            over(1.0)
+        );
+    }
+    calls.sort_by(|a, b| b.1.cmp(&a.1));
+    println!("  the most CPU-hungry callbacks (cpu, wall, at, voices, messages taken):");
+    for (dt, dc, i, v, m) in calls.iter().take(8) {
+        println!(
+            "    {:>7.1} µs cpu  {:>7.1} µs wall  at {:>6.2} s  {v:>3} voices  {m:>3} msgs",
+            *dc as f64 / 1000.0,
+            *dt as f64 / 1000.0,
+            (*i * frames) as f64 / rate as f64
+        );
+    }
+    Ok(())
+}

@@ -1508,7 +1508,21 @@ const catalog = {
   },
   'audio.buffer': {
     title: 'Audio buffer',
-    body: 'Frames the built-in synth renders at a time: 64 (1.3 ms at 48 kHz) feels tightest, while 128 or 256 give heavy plugins more time per block for up to 5 ms more latency. Changing it reopens the output with a moment of silence; held notes and plugins carry over. It is remembered, and `--buffer N` sets it at launch.',
+    body: 'Frames the built-in synth renders at a time: 64 (1.3 ms at 48 kHz) feels tightest; 128 or 256 give heavy plugins and a busy computer more time per block, and 512 (10.7 ms) or 1024 (21.3 ms) stop stubborn dropouts at a latency you will feel. Changing it reopens the output with a moment of silence; held notes and plugins carry over. It is remembered, and `--buffer N` sets it at launch.',
+    genos: null,
+    keys: [],
+    launchkey: null,
+  },
+  'audio.dropouts': {
+    title: 'Audio dropouts',
+    body: 'The audio device missed buffers several times in a short while: clicks or gaps in the sound, from a heavy plugin, a busy computer or a buffer too small for either. Opens Settings › Audio, where a larger buffer size gives each block more time, at a little more latency.',
+    genos: null,
+    keys: [],
+    launchkey: null,
+  },
+  'audio.dropouts_dismiss': {
+    title: 'Dismiss',
+    body: 'Hides the dropout notice for ten minutes. Choosing a new buffer size also clears it.',
     genos: null,
     keys: [],
     launchkey: null,

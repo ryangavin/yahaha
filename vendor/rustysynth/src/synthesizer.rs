@@ -813,6 +813,11 @@ impl Synthesizer {
         self.effects.is_some()
     }
 
+    /// yahaha: the voices sounding now (for the performance view and the audio bench).
+    pub fn active_voice_count(&self) -> usize {
+        self.voices.active_voice_count
+    }
+
     /// Gets the master volume.
     pub fn get_master_volume(&self) -> f32 {
         self.master_volume
