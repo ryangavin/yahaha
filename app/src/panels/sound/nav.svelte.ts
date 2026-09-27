@@ -6,10 +6,11 @@ import type { TipKey } from '../../help/tooltips'
 import type { FontPreset, GmLayer, PatchInfo, SoundEntry, SoundLibraryState } from '../../lib/api/types'
 import { CATEGORY_LABELS, type PatchCategory } from '../../lib/api/sound-library'
 
-export type SoundTab = 'patches' | 'gm' | 'add'
+// The Patches tab folded into the Sound Browser's Sounds tab (My Sounds, and the edit
+// strip under its list).
+export type SoundTab = 'gm' | 'add'
 
 export const TABS: { id: SoundTab; label: string; tip: TipKey }[] = [
-  { id: 'patches', label: 'Patches', tip: 'sound.tab_patches' },
   { id: 'gm', label: 'GM map', tip: 'sound.tab_gm' },
   { id: 'add', label: 'Add from SoundFont', tip: 'sound.tab_add' },
 ]
@@ -17,16 +18,14 @@ export const TABS: { id: SoundTab; label: string; tip: TipKey }[] = [
 function fromUrl(): SoundTab {
   try {
     const t = new URLSearchParams(location.search).get('tab')
-    return TABS.find((x) => x.id === t)?.id ?? 'patches'
+    return TABS.find((x) => x.id === t)?.id ?? 'gm'
   } catch {
-    return 'patches'
+    return 'gm'
   }
 }
 
 class SoundNav {
   tab = $state<SoundTab>(fromUrl())
-  /** The patch the editor shows. */
-  selected = $state<string | null>(null)
   /** The rule controls edit this style's own map instead of the global one. */
   styleScope = $state(false)
 }

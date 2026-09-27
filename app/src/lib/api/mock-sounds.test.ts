@@ -162,12 +162,12 @@ describe('savePartAsPatch (#109)', () => {
     expect(cat.entries.find((e) => e.id === id)?.plugin?.presets).toBe(2)
     // Categories: guessed from the name and folder.
     expect(kids().map((e) => e.category)).toEqual(['strings', 'piano'])
-    // Collapsed in All sounds; open, filtered, or in a category they show.
+    // Not in All sounds (O6): under the plugin's own chip, filtered too.
     const at = (ids: number[]) => ids.map((i) => cat.entries[i].id)
-    expect(at(visibleSounds(cat, { kind: 'all' }, '')).some((x) => x.startsWith(`${id}#`))).toBe(false)
-    expect(at(visibleSounds(cat, { kind: 'all' }, '', new Set([id]))).filter((x) => x.startsWith(`${id}#`)).length).toBe(2)
-    expect(at(visibleSounds(cat, { kind: 'all' }, 'upright'))).toEqual([`${id}#${kids()[1].id.split('#')[1]}`])
-    expect(at(visibleSounds(cat, { kind: 'category', id: 'strings' }, '')).includes(kids()[0].id)).toBe(true)
+    const ctx = { patches: m.state.soundLibrary.patches, gmMap: m.state.soundLibrary.gmMap }
+    expect(at(visibleSounds(cat, { kind: 'all' }, '', ctx)).some((x) => x.startsWith(`${id}#`))).toBe(false)
+    expect(at(visibleSounds(cat, { kind: 'instrument', id }, '', ctx)).filter((x) => x.startsWith(`${id}#`)).length).toBe(2)
+    expect(at(visibleSounds(cat, { kind: 'instrument', id }, 'upright', ctx))).toEqual([`${id}#${kids()[1].id.split('#')[1]}`])
 
     m.send({ type: 'listPluginPresets', id })
     cat = await m.sounds()

@@ -271,7 +271,7 @@ export function tipFor(cmd: AppCmd | null): TipKey {
     case 'stopSoundAudition': return 'sounds.audition_stop'
     case 'assignSound': return 'sounds.row'
     case 'setSoundCategory': return 'sound.category'
-    case 'listPluginPresets': return 'sounds.presets'
+    case 'listPluginPresets': return 'sounds.instrument'
     case 'addToMySounds': return 'sounds.inst_add'
     case 'savePartAsPluginPreset': return 'sounds.save_preset'
     case 'setParamLock': return cmd.item === 'splitPoint' ? 'settings.param_lock_split_point' : 'settings.param_lock_fingering_type'
