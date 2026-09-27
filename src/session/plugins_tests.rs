@@ -886,3 +886,68 @@ fn a_plugin_preset_is_a_sound_of_its_own() {
     assert_eq!(old.parts[0].as_ref().unwrap().preset, None);
     let _ = std::fs::remove_dir_all(&data);
 }
+
+/// Pump until no plugin state read is running, then twice more (a save fill lands after).
+fn wait_reads(s: &Session) {
+    let t0 = Instant::now();
+    while s.inner.lock().plugin_state_reads_pending() && t0.elapsed() < Duration::from_secs(10) {
+        s.advance(1_000_000);
+        std::thread::sleep(Duration::from_millis(2));
+    }
+    s.advance(1_000_000);
+    s.advance(1_000_000);
+}
+
+/// Now playing and the one save flow (O3): Save as… names the part's plugin sound; an
+/// autosave-schedule read whose fingerprint differs from the baseline marks it edited;
+/// Save writes the state over the sound, clears the mark and keeps the instance.
+#[test]
+fn a_part_shows_its_sound_and_when_it_was_edited() {
+    use crate::api::SoundLibraryCmd;
+    use crate::patches::PatchSource;
+    let Some(s) = session() else { return };
+    s.offline_audio(None, 48_000).unwrap();
+    s.send(PluginCmd::SetPartPlugin { part: 0, id: DLS.into(), state: None }).unwrap();
+    assert_eq!(wait_playing(&s, 0), PluginStatus::Playing);
+    assert_eq!(s.state().keyboard_parts[0].sound, None, "a bare plugin plays no named sound");
+    // Save with no sound is Save as….
+    s.send(SoundLibraryCmd::SaveSound { part: 0 }).unwrap();
+    let id = s.state().sound_library.last_added.clone().unwrap();
+    wait_reads(&s);
+    let p0 = s.state().keyboard_parts[0].clone();
+    let tag = p0.sound.clone().expect("the part plays the new sound");
+    assert_eq!((tag.id.as_str(), tag.name.as_str(), p0.sound_edited), (format!("saved:{id}").as_str(), "DLSMusicDevice", false));
+    let state = |s: &Session| match s.state().sound_library.patches.iter().find(|p| p.patch.id == id).unwrap().patch.source.clone() {
+        PatchSource::Plugin { state, .. } => state,
+        other => panic!("not a plugin sound: {other:?}"),
+    };
+    assert!(!state(&s).is_empty(), "the fresh read landed in the sound");
+
+    // The editor changes it: the next read's fingerprint is not the baseline's.
+    let ch = crate::parts::CHANNEL[0] as usize;
+    let editor = |s: &Session| s.inner.lock().plugins.channels[ch].as_ref().unwrap().editor.clone().unwrap();
+    let before = editor(&s).instance();
+    s.inner.lock().plugins.channels[ch].as_mut().unwrap().sound_fp = Some(1);
+    s.inner.lock().save_channel_state(ch as u8).unwrap();
+    wait_reads(&s);
+    assert!(s.state().keyboard_parts[0].sound_edited, "edited");
+    // Save: the same sound, not edited, the same instance.
+    s.send(SoundLibraryCmd::SaveSound { part: 0 }).unwrap();
+    wait_reads(&s);
+    let p0 = s.state().keyboard_parts[0].clone();
+    assert_eq!((p0.sound, p0.sound_edited), (Some(tag.clone()), false));
+    assert_eq!(s.state().sound_library.patches.iter().filter(|p| matches!(&p.patch.source, PatchSource::Plugin { .. })).count(), 1, "overwritten, not added");
+    assert!(before.is(&editor(&s)), "Save doesn't reload the plugin");
+
+    // Save as… on a part playing it as its own patch: the copy plays, on the same instance.
+    s.send(SoundLibraryCmd::SetPartPatch { part: 1, id: Some(id.clone()) }).unwrap();
+    assert_eq!(wait_playing(&s, 1), PluginStatus::Playing);
+    wait_reads(&s);
+    assert_eq!(s.state().keyboard_parts[1].sound, Some(tag));
+    s.send(SoundLibraryCmd::SaveSoundAs { part: 1, name: Some("Mine".into()) }).unwrap();
+    let copy = s.state().sound_library.last_added.clone().unwrap();
+    wait_reads(&s);
+    let p1 = s.state().keyboard_parts[1].clone();
+    assert_eq!((p1.patch.as_deref(), p1.sound.map(|t| t.name), p1.sound_edited), (Some(copy.as_str()), Some("Mine".to_string()), false));
+    assert_eq!(p1.plugin.map(|p| p.status), Some(PluginStatus::Playing));
+}

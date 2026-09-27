@@ -12,8 +12,9 @@ owner's decisions D1–D6 are binding and listed at the end.
   docs/plugin-hosting.md ("AU presets").
 
 Status: the model, migrations, first-play capture and the map's data shape are in (PR 1).
-The session still resolves through the default sound set; the map with auto-fill
-replaces it next (PR 3). No UI uses any of this yet.
+Now playing, the "edited" check, Save / Save as… and the sound in Registrations are in
+(PR 2). The session still resolves through the default sound set; the map with auto-fill
+replaces it next (PR 3). The Sounds tab that shows all this comes in PR 4.
 
 ## Sounds
 
@@ -71,8 +72,40 @@ when stored, so recall can show the name even if the sound has since been delete
 appears in:
 
 - `PluginVoice.sound`: a part's plugin voice, as plugin-parts.json saves it.
-- `VoiceRef::Plugin.sound`: a Registration's (and an OTS's) plugin voice. PR 2 fills it
-  at Memorize.
+- `VoiceRef::Plugin.sound`: a Registration's (a Snapshot's) plugin voice, filled at
+  Memorize, even when the sound is edited (the state stored is the edit, and recall
+  shows it edited). Regist Bank Info shows the sound's name.
+- `keyboardParts[i].sound`: what the part plays now (O3).
+
+## Now playing and "edited"
+
+A keyboard part's state names the Sound it plays (`KeyboardPart.sound`,
+`Control::part_sound_tag`): its plugin's sound (the channel voice's `sound`), else its
+own patch, else the patch the map gives its GM voice. A plugin state no sound names (a
+bare plugin, a recalled state that matches no sound) has none.
+
+**Edited** (`KeyboardPart.sound_edited`, `ChannelPlugin::edited`) means the plugin's
+state no longer matches the sound it was loaded from:
+
+- The baseline is the plugin's own state read right after it loads (a `plugin-state`
+  read, as the factory-preset read always was), not the stored bytes: a plugin may
+  serialize the same sound differently from how it was stored.
+- Every later read (the 30-second autosave, an explicit save, a Memorize's fill) is
+  compared by fingerprint (`state_fingerprint`, hashed on the `plugin-state` thread that
+  read it). One that differs marks the part edited. Nothing is added to the audio, engine
+  or MIDI threads.
+- A voice whose state is not its sound's when it is assigned (a Registration memorized
+  with an edit, a plugin-parts.json autosaved after one) is edited from the start: one
+  string compare against the library on the control thread.
+- The mark stays until Save, Save as… or another sound.
+
+**Save** (`saveSound`) writes the part's state (read afresh), volume and octave over the
+sound, but only over the user's own sound. A factory preset, an `.aupreset` file, a
+sound of another plugin or no sound at all goes to **Save as…** (`saveSoundAs`), which
+adds a new `user` sound that the part then plays. A part playing a library plugin patch
+keeps its instance through both (`refresh_part_plugin_voices`). `savePartAsPatch` is
+kept as Save as… for older clients; `.aupreset` export (`savePartAsPluginPreset`, with
+#307's overwrite confirmation) is unchanged.
 
 ## The GM map
 
@@ -126,9 +159,10 @@ Each migration has a test in `src/patches/sound_tests.rs`.
   that preset (added once), and a factory preset's state is then captured into it.
 - **Registrations.** A plugin voice with no `sound` loads as before. On recall it gets
   the library sound with exactly that instrument and state, if there is one
-  (`tag_for_state`). Otherwise it plays with no sound (PR 2 shows it as edited).
-- **OTS.** OTS voices are GM voices: the record is unchanged, and they resolve through
-  the map as before.
+  (`tag_for_state`). Otherwise it plays with no sound: the part shows no sound name
+  (an unnamed state), not "edited", since there is no sound it was edited from.
+- **OTS.** OTS voices are GM voices from the style file: there is no plugin state or
+  sound to store, the record is unchanged, and they resolve through the map as before.
 
 ## Decisions (binding, from the owner)
 
@@ -163,7 +197,17 @@ Each migration has a test in `src/patches/sound_tests.rs`.
 - **Decision: capture happens once.** A factory sound's state is filled only while it
   is empty. Every later change is an edit, saved deliberately.
 - **Decision: a recalled state with no sound matches only an identical state.** A
-  near match is not the same sound. It plays unnamed, and PR 2 shows it as edited.
+  near match is not the same sound. It plays unnamed (PR 2: no sound, not "edited").
+- **Decision (PR 2): the edited baseline is the plugin's first read after it loads**,
+  compared by fingerprint on the autosave's schedule. It is not the stored bytes, which a
+  plugin may serialize differently; a recalled edit is caught by comparing the recalled
+  state with the sound's once, at assign.
+- **Decision (PR 2): Save never overwrites a factory or `.aupreset` sound**, as Logic
+  won't overwrite a factory preset: it becomes Save as…. So does Save with no sound.
+- **Decision (PR 2): Save as… makes the part play the new sound** (a plugin part), so its
+  name shows at once. A SoundFont part keeps what it played, as before.
+- **Decision (PR 2): Memorize stores the sound even when it is edited**, with the edited
+  state: recall names it and marks it edited.
 - **Decision: a factory preset can now be a map rule.** Its sound is added with an
   empty state, and the state is captured when the rule first plays it. The old refusal
   ("play it on a part and Save as sound") is gone, in the session and in both mocks.

@@ -147,7 +147,12 @@ export type SoundLibraryCmd =
   | { type: 'duplicatePatch'; id: string }
   | { type: 'movePatch'; id: string; to: number }
   | { type: 'setPatchFavourite'; id: string; favourite: boolean }
-  /** A keyboard part's sound as a new patch. */
+  /** Save: the part's sound as it plays now over the user's own Sound it plays (else as
+   * a new one, as `saveSoundAs`). */
+  | { type: 'saveSound'; part: number }
+  /** Save as…: the part's sound as a new Sound, which the part then plays. */
+  | { type: 'saveSoundAs'; part: number; name: string | null }
+  /** The old "Save as patch": `saveSoundAs` (kept for older clients). */
   | { type: 'savePartAsPatch'; part: number; name: string | null }
   | { type: 'addPresetAsPatch'; file: string; bank: number; program: number; name: string | null }
   /** Plays it on its own for a moment (the band must be stopped). */

@@ -7,7 +7,7 @@
 // types and the `Session` interface.
 
 import type { PlaylistCmd, PlaylistState, RegistrationCmd, RegistrationState } from './registration'
-import type { SoundLibraryCmd, SoundLibraryState } from './sound-library'
+import type { SoundLibraryCmd, SoundLibraryState, SoundTag } from './sound-library'
 import type { SoundsCmd, SoundsState } from './sounds'
 export type * from './sound-library'
 export type * from './sounds'
@@ -682,6 +682,11 @@ export interface KeyboardPart {
   plugin?: PartPlugin
   /** Its own sound library patch (`setPartPatch`); null: its GM voice, through the map. */
   patch: string | null
+  /** The Sound it plays: its plugin's sound, else its own or the map's patch. Absent: an
+   * unnamed plugin state or a bare GM voice. "<name> plays <instrument> · <sound.name>". */
+  sound?: SoundTag
+  /** Its plugin's state no longer matches `sound` (the "edited" badge). Absent: false. */
+  soundEdited?: boolean
 }
 
 export interface Voice {

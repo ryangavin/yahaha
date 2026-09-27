@@ -360,3 +360,37 @@ fn a_memorize_fill_never_lands_in_another_bank() {
     assert!(v.get("state").is_none(), "nor its file");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// Recall shows the name (O4): Memorize stores the part's Sound beside its state, a
+/// recall shows it again, and a button stored before sounds had ids finds its sound by
+/// the state.
+#[test]
+fn a_recalled_plugin_shows_its_sound() {
+    let Some((s, dir)) = session("sound-tag", None) else { return };
+    s.send(PluginCmd::SetPartPlugin { part: 0, id: DLS.into(), state: None }).unwrap();
+    assert_eq!(wait_loaded(&s, 0), Some(PluginStatus::Playing));
+    s.send(crate::api::SoundLibraryCmd::SaveSoundAs { part: 0, name: Some("Mine".into()) }).unwrap();
+    wait_reads(&s);
+    let tag = s.state().keyboard_parts[0].sound.clone().expect("the part plays Mine");
+    s.send(RegistrationCmd::MemorizeRegist { index: 0 }).unwrap();
+    wait_reads(&s);
+    let v = stored_voice(&s, 0);
+    assert_eq!((v["sound"]["id"].as_str(), v["sound"]["name"].as_str()), (Some(tag.id.as_str()), Some("Mine")));
+
+    for old in [false, true] {
+        if old {
+            // A button from before sounds had ids.
+            let mut ctl = s.inner.lock();
+            let m = ctl.reg.bank.memories[0].as_mut().unwrap();
+            m.sections.get_mut("parts").unwrap().pointer_mut("/parts/0/voice").unwrap().as_object_mut().unwrap().remove("sound");
+        }
+        s.send(PluginCmd::ClearPartPlugin { part: 0 }).unwrap();
+        assert_eq!(s.state().keyboard_parts[0].sound, None);
+        s.send(RegistrationCmd::RecallRegist { index: 0 }).unwrap();
+        assert_eq!(wait_loaded(&s, 0), Some(PluginStatus::Playing));
+        wait_reads(&s);
+        let p = s.state().keyboard_parts[0].clone();
+        assert_eq!((p.sound.as_ref(), p.sound_edited), (Some(&tag), false), "old file: {old}");
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
