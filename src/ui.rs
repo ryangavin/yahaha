@@ -875,6 +875,9 @@ pub fn screen_html(style: &Path, out: &Path) -> Result<()> {
         dynamics: crate::engine::DYNAMICS_NEUTRAL,
         style_sends: [[40, 0, 0]; 8],
         style_send_own: [[255; 3]; 8],
+        unison: false,
+        unison_latched: false,
+        unison_type: Default::default(),
         acmp: true,
     });
     // What a live session with the synth and a Launchkey would add.

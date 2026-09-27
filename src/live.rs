@@ -88,6 +88,9 @@ pub enum Cmd {
     AnyKey,
     /// A TEMPO button went down (−1, +1: a step now, repeating while held) or up (0).
     TempoHold(i8),
+    /// A right-hand key went down (`vel` > 0) while `Shared::unison`, or a key that was
+    /// sent down went up (`vel` 0): engine/unison.rs.
+    UnisonKey { key: u8, vel: u8 },
 }
 
 /// A Multi Pad bank for the engine thread (`AppCmd::LoadMultiPad`): its player, built on
@@ -195,6 +198,9 @@ pub struct Shared {
     /// Dynamics Touch or Accent is on: the input thread sends the engine each chord-section
     /// strike (`Cmd::Strike`; engine/dynamics.rs).
     pub strikes: AtomicBool,
+    /// Unison is engaged, as the engine last had it (the engine loop stores it after each
+    /// step): the input thread sends the engine each right-hand key (`Cmd::UnisonKey`).
+    pub unison: AtomicBool,
     /// The sound library's program map, as the synth and the port read it (#103).
     pub routes: Arc<crate::patches::Routes>,
 }
@@ -237,6 +243,7 @@ impl Shared {
             fx_held: [AtomicU64::new(0), AtomicU64::new(0)],
             controllers: Controllers::new(),
             strikes: AtomicBool::new(false),
+            unison: AtomicBool::new(false),
             routes: Arc::new(crate::patches::Routes::new()),
         }
     }
@@ -576,6 +583,9 @@ pub struct Input {
     fx_tx: Option<Producer<FxKey>>,
     /// How each held key went through the processor (`pipeline::PATH_*`).
     fx_path: [u8; 128],
+    /// Keys sent down to the engine for Unison (bit k of word k / 64): their key-up goes
+    /// too, whatever `Shared::unison` says by then.
+    unison_keys: [u64; 2],
     /// The harmony notes each melody key sounds.
     harmonized: Box<[Harmonized; 128]>,
     /// Multi Assign: the part each key went to.
@@ -621,6 +631,7 @@ impl Input {
             fx_word: FxConfig::default().pack(),
             fx_tx: None,
             fx_path: [PATH_PLAIN; 128],
+            unison_keys: [0; 2],
             harmonized: Box::new([Harmonized::default(); 128]),
             multi: harmony::MultiAssign::new(),
             pedal_edges: [0; MAX_KEY_SOURCES],
@@ -1422,6 +1433,7 @@ impl EngineLoop {
         }
         self.engine.process(now, &mut self.io.out);
         shared.acmp.store(self.engine.acmp(), Relaxed);
+        shared.unison.store(self.engine.unison(), Relaxed);
         // Stopping the style lets go of the Left notes Left Hold holds (OM p.49); the sync
         // below sends it.
         let running = self.engine.is_running();
@@ -1602,6 +1614,7 @@ fn apply(engine: &mut Engine, shared: &Shared, cmd: Cmd, now: u64, out: &mut Out
         Cmd::DynamicsLevel(v) => engine.set_dynamics_level(v),
         Cmd::TempoHold(d) => engine.tempo_hold(d, now),
         Cmd::AnyKey => engine.any_key(now, out),
+        Cmd::UnisonKey { key, vel } => engine.unison_key(key, vel, now, out),
         Cmd::KeysOff => {
             // The source's pedal, wheels and pressure went to every keyboard part too, and
             // its releases will never come: with the pedal left down, All Notes Off would
@@ -2884,6 +2897,29 @@ mod detection_area {
             r.input.key_msg(&[0x90, chord_key, 90]);
             assert!(strikes(&mut r).is_empty(), "no chord section while the loop plays");
         }
+    }
+
+    /// Unison (engine/unison.rs): with `Shared::unison` on, each right-hand key and its
+    /// release go to the engine; a key sent down still sends its release after Unison ends.
+    #[test]
+    fn unison_keys_go_to_the_engine() {
+        let keys = |r: &mut Rig| -> Vec<(u8, u8)> {
+            std::iter::from_fn(|| r.cmds.pop().ok()).filter_map(|c| if let Cmd::UnisonKey { key, vel } = c { Some((key, vel)) } else { None }).collect()
+        };
+        let mut r = rig(false);
+        r.input.key_msg(&[0x90, 72, 90]);
+        r.off(&[72]);
+        assert!(keys(&mut r).is_empty(), "off by default");
+        r.shared.unison.store(true, Relaxed);
+        r.input.key_msg(&[0x90, 36, 90]);
+        r.input.key_msg(&[0x90, 72, 100]);
+        assert_eq!(keys(&mut r), [(72, 100)], "the right hand only");
+        r.shared.unison.store(false, Relaxed);
+        r.off(&[36, 72]);
+        assert_eq!(keys(&mut r), [(72, 0)], "the release follows");
+        r.input.key_msg(&[0x90, 74, 100]);
+        r.off(&[74]);
+        assert!(keys(&mut r).is_empty());
     }
 
     /// Left Hold (OM p.49, #202): Left's channel is held while the hold is on; each key that

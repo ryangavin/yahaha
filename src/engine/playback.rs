@@ -174,11 +174,15 @@ impl Engine {
         if self.manual_bass && dest == BASS_CH {
             return;
         }
+        // Unison has the part: its pattern rests (unison.rs).
+        if self.unison_mutes(src, dest) {
+            return;
+        }
         // A pattern note written for a MegaVoice plays on a voice that is not one: its
         // noise keys are left out, and its articulations play as plain notes
         // (megavoice.rs). The written key and velocity pick the articulation.
         let vel = match src {
-            STOP_ACMP_SRC => vel,
+            STOP_ACMP_SRC | UNISON_SRC => vel,
             _ => match crate::megavoice::playable(self.mirror.voice[dest as usize & 15], src_key, vel) {
                 Some(v) => v,
                 None => return,
@@ -343,7 +347,8 @@ impl Engine {
     /// they are not already there, so the new section's first notes are not queued behind
     /// 24 messages that change nothing.
     pub(super) fn notes_off(&mut self, changed_only: bool, sink: &mut impl Sink) {
-        self.off_where(sink, |_| true);
+        // At a section change the player's Unison notes sound on (unison.rs).
+        self.off_where(sink, |n| !changed_only || n.src != UNISON_SRC);
         // Notes held back for a settling chord belong to what just ended.
         self.hold = None;
         for ch in 8..16u8 {

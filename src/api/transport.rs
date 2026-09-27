@@ -1,6 +1,6 @@
 //! Sections and transport: the Genos panel buttons the engine runs.
 
-use crate::engine::{Button, FadeState, StopAcmp};
+use crate::engine::{Button, FadeState, StopAcmp, UnisonType};
 use serde::{Deserialize, Serialize};
 
 use super::Pad;
@@ -70,6 +70,16 @@ pub enum TransportCmd {
     /// any key. An OTS recall and Chord Looper REC turn it back on (`transport.acmp`).
     ToggleAcmp,
     SetAcmp { on: bool },
+    /// Unison (a PSR-SX feature, §C.9) latched on/off, and set: while engaged, each
+    /// right-hand key also sounds on the Style's pitched parts (Bass, Chord, Pad, Phrase)
+    /// and their patterns rest (`transport.unison`).
+    ToggleUnison,
+    SetUnison { on: bool },
+    /// A Hold pedal given Unison is down (`on`) or up: engaged while held.
+    SetUnisonHeld { on: bool },
+    /// What the Bass plays in Unison: "root" (the chord's root, the default) or "melody"
+    /// (the played key, in the bass range).
+    SetUnisonType { unison_type: UnisonType },
 }
 
 impl TransportCmd {
@@ -108,6 +118,10 @@ impl TransportCmd {
             TransportCmd::ToggleRetrigger => Button::Retrigger,
             TransportCmd::ToggleAcmp => Button::Acmp,
             TransportCmd::SetAcmp { on } => Button::SetAcmp(on),
+            TransportCmd::ToggleUnison => Button::Unison,
+            TransportCmd::SetUnison { on } => Button::SetUnison(on),
+            TransportCmd::SetUnisonHeld { on } => Button::UnisonHeld(on),
+            TransportCmd::SetUnisonType { unison_type } => Button::SetUnisonType(unison_type),
         }
     }
 }
@@ -164,6 +178,15 @@ pub struct TransportState {
     pub half_bar_fill: bool,
     /// Stop Accompaniment: what a chord sounds on with the band stopped and Sync Start off.
     pub stop_acmp_mode: StopAcmpMode,
+    /// Unison is engaged (latched, or held by a pedal).
+    #[serde(default)]
+    pub unison: bool,
+    /// Unison's latched switch (the app's toggle).
+    #[serde(default)]
+    pub unison_latched: bool,
+    /// What the Bass plays in Unison.
+    #[serde(default)]
+    pub unison_type: UnisonType,
 }
 
 /// Stop Accompaniment (Style Setting > Stop ACMP, RM p.11).
