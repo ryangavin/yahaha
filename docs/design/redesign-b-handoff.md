@@ -238,3 +238,16 @@ cd docs/design/wireframes-b && python3 gen.py   # writes project/B*.dc.html next
    - the voice quick list.
 
    Follow `docs/agents/ui-brief.md`: tooltips on every control, both mocks updated, `npm run verify`.
+
+## Next: menus redesign, starting with the sound browser (2026-09-27)
+
+The owner wants the nested menus redesigned. They'll describe use cases and answer questions; they don't want to prescribe the design. The first use case is a sound browser that manages every playable sound, with GM mapping.
+
+Answers so far:
+- **Jobs:** find a sound to play, curate the library, and set up the GM map. Fixing a single style's sound was not picked.
+- **Mapping:** both views: a GM table (the 128 programs by family) and "plays as…" shown on every sound.
+- **Tags:** not needed; categories and favourites are enough.
+- **Per-style overrides:** keep them, and show clearly where they differ from the global map.
+- **Not answered yet (a second set of questions was dismissed):** how the target part is chosen, click-to-audition behaviour, how far drum mapping goes, and the owner's worst pain points.
+
+Engine: the sound catalog (#117), the program map (#103, docs/sound-library.md) and `setDefaultSoundSet` already exist.
