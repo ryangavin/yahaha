@@ -448,6 +448,7 @@ export class MockSession implements Session {
   private plugins = new MockPlugins(
     () => this.state,
     (t, e) => this.message(t, e),
+    (id, key) => this.catalogMock.preset(id, key)?.name ?? null,
   )
   /** The sound library (mock-sound-library.ts). */
   private sound = new MockSoundLibrary(() => this.state)
@@ -1738,6 +1739,14 @@ export class MockSession implements Session {
       case 'setChartAutoStyle':
         this.chartCmd(cmd)
         break
+      case 'setPartPluginPreset':
+        if (!this.catalogMock.preset(cmd.id, cmd.preset)) {
+          this.message(`${cmd.id} has no preset ${cmd.preset}`, true)
+          break
+        }
+        this.sound.partPlugin(cmd.part, true)
+        this.plugins.cmd(cmd)
+        break
       case 'setPartPlugin':
       case 'clearPartPlugin':
         // A plugin picked here ends the part's own library patch.
@@ -1808,9 +1817,12 @@ export class MockSession implements Session {
       case 'auditionSound':
       case 'stopSoundAudition':
       case 'assignSound':
-      case 'setSoundCategory': {
+      case 'setSoundCategory':
+      case 'listPluginPresets':
+      case 'savePartAsPluginPreset': {
         const r = this.catalogMock.cmd(this.state, cmd)
         if (r.error) this.message(r.error, true)
+        if (r.saved) this.message(`Saved the preset “${r.saved}”`)
         // A preset from the synth's own font is the part's GM voice (setPartVoice): it ends
         // a plugin picked for the part, as a SoundFont patch does.
         for (const c of r.run ?? []) this.cmd(c)

@@ -11,7 +11,11 @@ export const MOCK_PLUGINS: PluginEntry[] = [
   { id: 'aumu samp appl', name: 'AUSampler', manufacturer: 'Apple', version: '1.0.0', format: 'AUv2', lastError: null, inProcess: false, canRunInProcess: true },
   { id: 'aumu Mock Demo', name: 'Broken Synth', manufacturer: 'Example Audio', version: '0.9.0', format: 'AUv3', lastError: 'timed out after 20.0 s', inProcess: false, canRunInProcess: false },
   { id: 'aumu Tiny Demo', name: 'Tiny Synth', manufacturer: 'Example Audio', version: '0.9.0', format: 'AUv2', lastError: null, inProcess: false, canRunInProcess: true },
+  { id: 'aumu Smp7 Fake', name: 'Sampler Deluxe', manufacturer: 'Fake Instruments', version: '0.9.0', format: 'AUv2', lastError: null, inProcess: false, canRunInProcess: true },
 ]
+
+/** The made-up sampler whose AU presets the mock lists (mock-sounds.ts). */
+export const MOCK_PRESETS_ID = 'aumu Smp7 Fake'
 
 /** The mock plugin the system won't host out of process: it loads in process instead. */
 export const MOCK_FALLBACK_ID = 'aumu Tiny Demo'
@@ -36,11 +40,14 @@ export class MockPlugins {
   constructor(
     private state: () => AppState,
     private say: (text: string, error: boolean) => void,
+    /** A preset's name (the catalog mock lists them). */
+    private presetName?: (id: string, key: string) => string | null,
   ) {}
 
   cmd(cmd: PluginCmd) {
     const st = this.state()
     switch (cmd.type) {
+      case 'setPartPluginPreset':
       case 'setPartPlugin': {
         if (!st.plugins.available) return this.say('plugins play through the built-in synth, which is off', true)
         const e = st.plugins.list.find((p) => p.id === cmd.id)
@@ -59,6 +66,8 @@ export class MockPlugins {
           overruns: 0,
           recentOverruns: 0,
           editor: false,
+          preset: cmd.type === 'setPartPluginPreset' ? (this.presetName?.(cmd.id, cmd.preset) ?? cmd.preset) : null,
+          presetKey: cmd.type === 'setPartPluginPreset' ? cmd.preset : null,
         }
         this.loading[cmd.part & 3] = 0
         break

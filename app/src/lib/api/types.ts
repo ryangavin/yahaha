@@ -1146,6 +1146,9 @@ export interface AppState {
 export type PluginCmd =
   /** Play a keyboard part (0-3) on a plugin from `plugins.list`; `state` a saved preset (base64). */
   | { type: 'setPartPlugin'; part: number; id: string; state: string | null }
+  /** Play a keyboard part on one of plugin `id`'s presets (`preset`: its catalog key,
+   * `f:<number>` or `u:<path>`). Each part gets its own instance with its own preset. */
+  | { type: 'setPartPluginPreset'; part: number; id: string; preset: string }
   /** Back to the part's SoundFont voice. */
   | { type: 'clearPartPlugin'; part: number }
   /** Keep the plugin's current preset with the part (send when its editor closes). */
@@ -1179,6 +1182,10 @@ export interface PartPlugin {
   recentOverruns: number
   /** Its editor window can be opened. */
   editor: boolean
+  /** The AU preset it was loaded with, if one was picked in the Sound Browser. */
+  preset?: string | null
+  /** That preset's catalog key (`f:3`, `u:<path>`). */
+  presetKey?: string | null
 }
 
 export interface PluginEntry {
