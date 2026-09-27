@@ -84,6 +84,7 @@ impl Control {
             fader_page: self.shared.parts.fader_page(),
             fader_layer: self.shared.parts.fader_layer(),
             send_waiting: self.shared.parts.send_waiting.load(Relaxed),
+            style_send_waiting: s.send_pickup,
             style_parts: (0..8u8)
                 .map(|p| {
                     // Manual Bass mutes the Style's Bass part (its voice moves to the left hand).

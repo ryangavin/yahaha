@@ -1413,3 +1413,32 @@ fn the_fill_grace_window() {
 }
 
 const MS_: u64 = 1_000_000;
+
+/// A Style-page fader in a send layer picks the send up before it moves it (soft
+/// takeover, as the volume faders), and a new binding (layer or page change) rebinds it.
+#[test]
+fn style_send_faders_pick_up_before_they_move() {
+    let Some(mut e) = engine() else { return };
+    let mut out = Rec::default();
+    e.set_style_send(3, 0, 64, &mut out);
+    let send = |e: &Engine| e.snapshot(0).style_sends[3][0];
+    // Far below: waits.
+    e.style_send_fader(3, 0, 255, 10, 1, &mut out);
+    assert_eq!(send(&e), 64);
+    assert_eq!(e.snapshot(0).send_pickup & 1 << 3, 1 << 3);
+    e.style_send_fader(3, 0, 10, 40, 1, &mut out);
+    assert_eq!(send(&e), 64, "still below");
+    // Crossing it picks it up.
+    e.style_send_fader(3, 0, 40, 70, 1, &mut out);
+    assert_eq!(send(&e), 70);
+    assert_eq!(e.snapshot(0).send_pickup, 0);
+    e.style_send_fader(3, 0, 70, 90, 1, &mut out);
+    assert_eq!(send(&e), 90);
+    // Software moves it: the fader must come back to it.
+    e.set_style_send(3, 0, 20, &mut out);
+    e.style_send_fader(3, 0, 90, 100, 1, &mut out);
+    assert_eq!(send(&e), 20);
+    // A new binding with the fader already there takes over at once.
+    e.style_send_fader(3, 0, 20, 21, 2, &mut out);
+    assert_eq!(send(&e), 21);
+}

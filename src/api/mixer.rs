@@ -103,6 +103,10 @@ pub struct MixerState {
     /// reached the value (soft takeover).
     #[serde(default)]
     pub send_waiting: u8,
+    /// Style parts (bit = part 0-7) whose fader, in a send layer, has moved but not yet
+    /// reached the send (soft takeover).
+    #[serde(default)]
+    pub style_send_waiting: u8,
     /// The 8 Style parts.
     pub style_parts: Vec<StylePart>,
     /// The built-in synth's master volume (0-127, 100 = unity). None without the synth.

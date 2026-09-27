@@ -204,6 +204,8 @@ pub struct Snapshot {
     pub user_set: u8,
     /// Parts whose hardware fader is waiting to pick up the software value (soft takeover).
     pub pickup: u8,
+    /// Style parts whose fader, in a send layer, is waiting to pick up the send.
+    pub send_pickup: u8,
     /// Stop Accompaniment sounds the chord (`stop_acmp_mode` is not Off).
     pub stop_acmp: bool,
     pub stop_acmp_mode: StopAcmp,
@@ -408,6 +410,12 @@ pub struct Engine {
     user_set: u8,
     /// Soft takeover state of each part's hardware fader.
     takeover: [Takeover; 8],
+    /// The Style-page faders in a send layer: soft takeover per fader, the fader binding
+    /// it was bound in (`u8::MAX`: none), and the send it last wrote (another value since
+    /// means software moved it).
+    send_take: [Takeover; 8],
+    send_bound: [u8; 8],
+    send_last: [u8; 8],
     stop_acmp: StopAcmp,
     /// Manual Bass (Upper detection mode): the Style's Bass part is muted; the player's
     /// left hand plays the bass instead.
@@ -489,6 +497,9 @@ impl Engine {
             mixer,
             user_set: 0,
             takeover: [Takeover::NEW; 8],
+            send_take: [Takeover::NEW; 8],
+            send_bound: [u8::MAX; 8],
+            send_last: [0; 8],
             stop_acmp: StopAcmp::Off,
             manual_bass: false,
             taps: [0; 4],
@@ -566,6 +577,7 @@ impl Engine {
             volumes: self.mixer,
             user_set: self.user_set,
             pickup: self.pickup_waiting(),
+            send_pickup: self.send_take.iter().enumerate().fold(0, |m, (p, t)| if t.waiting() { m | 1 << p } else { m }),
             stop_acmp: self.stop_acmp != StopAcmp::Off,
             stop_acmp_mode: self.stop_acmp,
             half_bar_fill: self.features.fills.half_bar,

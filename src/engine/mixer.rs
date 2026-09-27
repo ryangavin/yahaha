@@ -112,6 +112,26 @@ impl Engine {
         sink.send(&[0xB8 + p as u8, crate::fx::SEND_CC[b], self.mirror.send_in_effect(p, b)]);
     }
 
+    /// A Style-page fader in a send layer moved from `prev` to `v`: part `part`'s send to
+    /// bus `b` follows once the fader has picked it up, as the volume faders do. A new
+    /// `generation` (the layer or page changed) binds the fader afresh.
+    pub fn style_send_fader(&mut self, part: u8, b: u8, prev: u8, v: u8, generation: u8, sink: &mut impl Sink) {
+        let (p, b) = ((part & 7) as usize, b.min(2));
+        let cur = self.mirror.send_in_effect(p, b as usize);
+        if self.send_bound[p] != generation {
+            self.send_take[p] = Takeover::at(prev, cur);
+            self.send_bound[p] = generation;
+            self.send_last[p] = cur;
+        } else if self.send_last[p] != cur {
+            self.send_take[p].software_moved(cur);
+            self.send_last[p] = cur;
+        }
+        if self.send_take[p].hardware(cur, v) {
+            self.set_style_send(p as u8, b, v, sink);
+            self.send_last[p] = self.mirror.send_in_effect(p, b as usize);
+        }
+    }
+
     /// Every Style part's own sends at once (`[part][bus]`, `UNSENT` = the style's): a
     /// Registration recall, or Reset to the style.
     pub fn set_style_sends(&mut self, sends: [[u8; 3]; 8], sink: &mut impl Sink) {

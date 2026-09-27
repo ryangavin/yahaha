@@ -36,6 +36,10 @@ pub enum Cmd {
     StyleVolume(u8, u8),
     /// A Style part's (0-7) own send to a bus (0-2), 0-127, or 255: the style's (#268).
     StyleSend(u8, u8, u8),
+    /// A Style-page fader in a send layer: part (0-7), bus (0-2), the fader's previous
+    /// position, its new one, and the fader binding (`Parts::fader_layer_gen`). The engine
+    /// applies it with soft takeover.
+    StyleSendFader { part: u8, bus: u8, prev: u8, v: u8, generation: u8 },
     /// Hand these Style parts' sends (bit = part 0-7) back to the style (#268).
     ResetStyleSends(u8),
     /// Manual Bass in effect: mute the Style's Bass part.
@@ -942,7 +946,10 @@ impl Input {
                         // nothing there.
                         FaderPage::Style if layer != FaderLayer::Volume => {
                             if let Some(fx) = layer.fx_index().filter(|&i| i >= parts::REVERB)
-                                && self.cmd.push(Cmd::StyleSend(f as u8, (fx - parts::REVERB) as u8, v)).is_ok()
+                                && self
+                                    .cmd
+                                    .push(Cmd::StyleSendFader { part: f as u8, bus: (fx - parts::REVERB) as u8, prev, v, generation: parts.fader_layer_gen() })
+                                    .is_ok()
                             {
                                 self.signal = true;
                             }
@@ -1567,6 +1574,7 @@ fn apply(engine: &mut Engine, shared: &Shared, cmd: Cmd, now: u64, out: &mut Out
         }
         Cmd::StyleVolume(p, v) => engine.set_volume_from_software(p, v, out),
         Cmd::StyleSend(p, b, v) => engine.set_style_send(p, b, v, out),
+        Cmd::StyleSendFader { part, bus, prev, v, generation } => engine.style_send_fader(part, bus, prev, v, generation, out),
         Cmd::ResetStyleSends(mask) => {
             for p in (0..8u8).filter(|p| mask & (1 << p) != 0) {
                 for b in 0..3 {
@@ -2615,7 +2623,7 @@ mod tests {
         parts.set_fader_page(FaderPage::Style);
         while cmds.pop().is_ok() {}
         input.pad_msg(&[0xB0, fader1 + 2, 90]);
-        assert!(matches!(cmds.pop(), Ok(Cmd::StyleSend(2, 0, 90))));
+        assert!(matches!(cmds.pop(), Ok(Cmd::StyleSendFader { part: 2, bus: 0, v: 90, .. })));
         // Five steps come back to VOL; the master button alone still switches pages.
         parts.set_fader_page(FaderPage::Panel);
         for _ in 0..3 {
