@@ -1307,3 +1307,20 @@ fn registration_recalls_the_dynamics_level() {
     assert_eq!(s.state().dynamics.level, 50);
     let _ = std::fs::remove_dir_all(dir);
 }
+
+/// Swing: a Snapshot stores the amount and grid; a style load sets swing back to 0.
+#[test]
+fn snapshot_recalls_the_swing() {
+    let Some((s, dir)) = session("swing") else { return };
+    s.send(StyleSettingsCmd::SetSwing { amount: 60 }).unwrap();
+    s.send(StyleSettingsCmd::SetSwingGrid { grid: 16 }).unwrap();
+    s.send(RegistrationCmd::MemorizeRegist { index: 0 }).unwrap();
+    s.send(LibraryCmd::StepStyle { delta: 1 }).unwrap();
+    s.advance(50 * MS);
+    assert_eq!(s.state().style_settings.swing, 0, "a style load plays as written");
+    s.send(RegistrationCmd::PressRegist { index: 0 }).unwrap();
+    s.advance(50 * MS);
+    let st = s.state().style_settings.clone();
+    assert_eq!((st.swing, st.swing_grid), (60, 16));
+    let _ = std::fs::remove_dir_all(dir);
+}

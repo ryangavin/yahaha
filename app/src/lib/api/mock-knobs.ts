@@ -7,7 +7,7 @@ import type { AppCmd, AppState, FxBlock, FxParam, FxParamState, KnobFunction, Kn
 type Fn = { fn: KnobFunction; part?: number; param?: FxParam }
 const NONE: Fn = { fn: 'none' }
 const PAGES: Record<KnobPage, Fn[]> = {
-  style: [{ fn: 'dynamics' }, { fn: 'retriggerRate' }, { fn: 'retriggerOnOff' }, { fn: 'trackMuteA' }, { fn: 'trackMuteB' }, NONE, NONE, { fn: 'tempo' }],
+  style: [{ fn: 'dynamics' }, { fn: 'retriggerRate' }, { fn: 'retriggerOnOff' }, { fn: 'trackMuteA' }, { fn: 'trackMuteB' }, { fn: 'swing' }, NONE, { fn: 'tempo' }],
   parts: [0, 1, 2, 3].map((part): Fn => ({ fn: 'partVolume', part })).concat([{ fn: 'harmonyVolume' }, { fn: 'metronomeVolume' }, NONE, { fn: 'tempo' }]),
   pan: [0, 1, 2, 3].map((part): Fn => ({ fn: 'partPan', part })).concat([0, 1, 2].map((part): Fn => ({ fn: 'fxReturn', part })), [{ fn: 'tempo' }]),
   effects: [0, 1, 2, 3].map((part): Fn => ({ fn: 'partReverb', part })).concat([0, 1, 2, 3].map((part): Fn => ({ fn: 'partChorus', part }))),
@@ -64,6 +64,7 @@ const NAMES: Record<KnobFunction, [string, string]> = {
   trackMuteA: ['Style Track Mute A', 'StyMuteA'],
   trackMuteB: ['Style Track Mute B', 'StyMuteB'],
   tempo: ['Tempo', 'Tempo'],
+  swing: ['Swing', 'Swing'],
   partVolume: ['', ''],
   harmonyVolume: ['Harmony Volume', 'HarmVol'],
   metronomeVolume: ['Metronome Volume', 'MetroVol'],
@@ -106,6 +107,10 @@ export class MockKnobs {
         return null
       case 'dynamics':
         return { type: 'setDynamics', level: level(s.dynamics.level) }
+      case 'swing': {
+        const v = clamp(s.styleSettings.swing + delta * 2, 0, 100)
+        return v === s.styleSettings.swing ? null : { type: 'setSwing', amount: v }
+      }
       case 'retriggerRate': {
         const n = this.stepped(knob, delta)
         return n ? { type: 'stepRetriggerRate', delta: n } : null
@@ -188,6 +193,7 @@ export class MockKnobs {
           return r(n === 8 ? 'All' : `${n} of 8`, v)
         }
         case 'tempo': return r(`${Math.round(s.transport.tempo)} BPM`, null)
+        case 'swing': return r(`${s.styleSettings.swing}%`, Math.floor((s.styleSettings.swing * 127) / 100))
         case 'partVolume': return r(String(s.keyboardParts[f.part!].volume), s.keyboardParts[f.part!].volume)
         case 'harmonyVolume': return r(String(s.harmonyArp.volume), s.harmonyArp.volume)
         case 'metronomeVolume': return r(String(s.metronome.volume), s.metronome.volume)

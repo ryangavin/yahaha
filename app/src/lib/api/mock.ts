@@ -196,7 +196,7 @@ function patternBars(s: string): number {
 /** The engine's default Style settings (src/engine/timing.rs). */
 export const DEFAULT_STYLE_SETTINGS: StyleSettingsState = {
   mainTiming: 'nextBar', introEndingTiming: 'nextBar', syncStopWindowMs: 0,
-  fadeInMs: 5000, fadeOutMs: 5000, fadeHoldMs: 2000, sectionReset: true, retriggerRate: 8,
+  fadeInMs: 5000, fadeOutMs: 5000, fadeHoldMs: 2000, sectionReset: true, retriggerRate: 8, swing: 0, swingGrid: 8,
 }
 
 /** A stopped session with the first style loaded and Sync Start armed. */
@@ -671,6 +671,15 @@ export class MockSession implements Session {
         s.retriggerRate = RETRIGGER_RATES[Math.max(0, Math.min(RETRIGGER_RATES.length - 1, (i < 0 ? 3 : i) + Math.sign(cmd.delta)))]
         break
       }
+      case 'setSwing':
+        s.swing = Math.max(0, Math.min(100, Math.round(cmd.amount)))
+        break
+      case 'stepSwing':
+        s.swing = Math.max(0, Math.min(100, s.swing + Math.round(cmd.delta)))
+        break
+      case 'setSwingGrid':
+        s.swingGrid = cmd.grid >= 12 ? 16 : 8
+        break
     }
   }
 
@@ -1074,6 +1083,8 @@ export class MockSession implements Session {
     st.style = styleState(s)
     // Dynamics starts at its maximum (as written) with each style, as the session.
     st.dynamics.level = 127
+    // Swing starts at 0 (as written) with each style, as the session.
+    st.styleSettings.swing = 0
     // Change Behavior: Lock keeps, Hold keeps while playing, Reset takes the new style's.
     const resets = (rule: string) => rule === 'reset' || (rule === 'hold' && !t.running)
     if (resets(st.styleChange.tempo)) t.tempo = s.tempo

@@ -125,6 +125,8 @@ impl Control {
                 // Dynamics starts at its maximum (as written) with every style; a
                 // registration that stored a level recalls it after the style.
                 self.dynamics_reset();
+                // Swing starts at 0 (as written) with every style.
+                self.swing_reset();
                 self.wake_engine();
                 self.message = None;
                 Ok(())
