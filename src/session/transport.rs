@@ -21,6 +21,7 @@ impl Control {
             stop_acmp: s.stop_acmp,
             section: s.cur.map(|c| c.name()),
             queued: s.queued.map(|q| q.name()),
+            acmp: s.acmp,
             pending_intro: s.pending_intro,
             main: s.main,
             bar: s.bar + 1,

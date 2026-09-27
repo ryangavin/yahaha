@@ -84,6 +84,7 @@ export function functionCmd(id: FunctionId, st: { fingering: Fingering }): AppCm
     fillBreak: { type: 'break' },
     autoFill: { type: 'toggleAutoFill' },
     stopAcmp: { type: 'toggleStopAcmp' },
+    acmp: { type: 'toggleAcmp' },
     otsLink: { type: 'toggleOtsLink' },
     tempoUp: { type: 'tempoUp' },
     tempoDown: { type: 'tempoDown' },

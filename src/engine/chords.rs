@@ -25,6 +25,10 @@ impl Engine {
     /// playback when sync start is armed. While the Chord Looper plays, it is ignored (and
     /// while it records, recorded): see looper.rs.
     pub fn set_chord(&mut self, played: Chord, now: u64, sink: &mut impl Sink) {
+        // ACMP off: no chord section; chords reach the band only once it is back on.
+        if !self.acmp() {
+            return;
+        }
         if self.looper_keyboard_chord(played, now) {
             self.apply_chord(played, now, sink);
         }

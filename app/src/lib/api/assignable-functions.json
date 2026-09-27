@@ -467,5 +467,12 @@
     "category": "voice",
     "kind": "switch",
     "available": true
+  },
+  {
+    "id": "acmp",
+    "name": "ACMP On/Off",
+    "category": "style",
+    "kind": "trigger",
+    "available": true
   }
 ]

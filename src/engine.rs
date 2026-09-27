@@ -9,6 +9,7 @@
 //! hooks in hooks.rs; when a queued section change happens is `Engine::change_point`
 //! (sections.rs). See docs/architecture.md.
 
+mod acmp;
 mod change_rules;
 mod chart;
 mod chords;
@@ -173,6 +174,10 @@ pub enum Button {
     SectionReset,
     /// Style Retrigger on/off.
     Retrigger,
+    /// [ACMP] on/off, and set (OM p.44): off, the band plays its rhythm only and the whole
+    /// keyboard is for playing (engine/acmp.rs).
+    Acmp,
+    SetAcmp(bool),
 }
 
 
@@ -248,6 +253,8 @@ pub struct Snapshot {
     pub style_sends: [[u8; 3]; 8],
     /// Each Style part's own send (#268), 255 where it follows the style.
     pub style_send_own: [[u8; 3]; 8],
+    /// [ACMP] is on (engine/acmp.rs).
+    pub acmp: bool,
 }
 
 /// Where a style preview is: style `id` (the session's library id), bar `bar` of `bars`
@@ -580,6 +587,7 @@ impl Engine {
             dynamics: self.features.dynamics.settings.level,
             style_sends: self.style_sends().0,
             style_send_own: self.style_sends().1,
+            acmp: self.acmp(),
         }
     }
 

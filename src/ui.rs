@@ -78,6 +78,7 @@ fn key_action(code: KeyCode) -> Option<Action> {
         KeyCode::Char('+') => b(Button::TempoReset),
         KeyCode::Char('-') => b(Button::TempoDown),
         KeyCode::Char('h') => b(Button::StopAcmp),
+        KeyCode::Char('%') => b(Button::Acmp),
         KeyCode::Char('|') => b(Button::SectionReset),
         KeyCode::Char('F') => b(Button::Fade),
         KeyCode::Char('~') => b(Button::Retrigger),
@@ -837,6 +838,7 @@ pub fn screen_html(style: &Path, out: &Path) -> Result<()> {
         dynamics: crate::engine::DYNAMICS_NEUTRAL,
         style_sends: [[40, 0, 0]; 8],
         style_send_own: [[255; 3]; 8],
+        acmp: true,
     });
     // What a live session with the synth and a Launchkey would add.
     let mut st = (*session.state()).clone();
@@ -971,6 +973,7 @@ mod tests {
         assert_eq!(key_cmd(KeyCode::Char('V')), Some(AppCmd::MultiPad(MultiPadCmd::TriggerMultiPad { pad: 3 })));
         assert_eq!(key_cmd(KeyCode::Char('B')), Some(AppCmd::MultiPad(MultiPadCmd::StopAllMultiPads)));
         assert_eq!(key_cmd(KeyCode::Char('K')), None);
+        assert_eq!(key_cmd(KeyCode::Char('%')), Some(AppCmd::Transport(TransportCmd::ToggleAcmp)));
         assert_eq!(key_cmd(KeyCode::Char('H')), Some(AppCmd::Dynamics(DynamicsCmd::ToggleAccent)));
         assert_eq!(key_cmd(KeyCode::Char('&')), Some(AppCmd::Dynamics(DynamicsCmd::ToggleDynamicsTouch)));
         assert_eq!(key_cmd(KeyCode::Char('_')), Some(AppCmd::Chord(ChordCmd::ToggleLeftHold)));

@@ -263,6 +263,7 @@ impl MockSession {
                 stop_acmp_mode: StopAcmpMode::Off,
                 fade: FadeState::Off,
                 retrigger: false,
+                acmp: true,
                 ritardando: false,
             },
             chord: ChordState {
@@ -933,6 +934,8 @@ impl MockSession {
     }
 
     fn recall_ots(&mut self, n: usize) {
+        // An OTS recall turns [ACMP] on.
+        self.state.transport.acmp = true;
         let panel = self.state.mixer.fader_page == FaderPage::Panel;
         let setting = self.state.ots.settings[n].clone();
         for (i, (p, o)) in self.state.keyboard_parts.iter_mut().zip(&setting.parts).enumerate() {
@@ -1498,6 +1501,8 @@ impl MockSession {
             }
             AppCmd::Transport(TransportCmd::SectionReset) => self.reset_section(),
             AppCmd::Transport(TransportCmd::ToggleRetrigger) => self.state.transport.retrigger = !self.state.transport.retrigger,
+            AppCmd::Transport(TransportCmd::ToggleAcmp) => self.state.transport.acmp = !self.state.transport.acmp,
+            AppCmd::Transport(TransportCmd::SetAcmp { on }) => self.state.transport.acmp = on,
             AppCmd::Transport(TransportCmd::TapTempo) if running && self.settings.section_reset => self.reset_section(),
             AppCmd::StyleSettings(c) => {
                 self.settings = c.apply(self.settings);

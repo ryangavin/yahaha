@@ -65,6 +65,9 @@ export type AppCmd =
   | { type: 'sectionReset' }
   /** Style Retrigger on/off (`transport.retrigger`). */
   | { type: 'toggleRetrigger' }
+  /** [ACMP] on/off (`transport.acmp`). */
+  | { type: 'toggleAcmp' }
+  | { type: 'setAcmp'; on: boolean }
   /** Tempo in BPM, 5–500 (clamped). */
   | { type: 'setTempo'; bpm: number }
   | { type: 'toggleStylePart'; part: number }
@@ -518,6 +521,8 @@ export interface TransportState {
   section: string | null
   /** The section queued next (at the next bar; a fill at the next beat). */
   queued: string | null
+  /** [ACMP] is on (the default). Off: no chord section, rhythm only, Sync Start on any key. */
+  acmp: boolean
   /** The Intro (0–2) armed to play when the style starts. */
   pendingIntro: number | null
   /** The Main (0–3 = A–D) playing, or returned to after a fill. */

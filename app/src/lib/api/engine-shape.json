@@ -369,6 +369,7 @@
   "surface.trackNext: null",
   "surface.trackPrev: null",
   "surface: object",
+  "transport.acmp: boolean",
   "transport.autoFill: boolean",
   "transport.bar: number",
   "transport.beat: number",

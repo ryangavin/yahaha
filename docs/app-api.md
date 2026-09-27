@@ -113,6 +113,7 @@ state, and pressing the button is the action. For settings, a GUI checkbox can u
 | `toggleFade` | | FADE IN/OUT. Stopped: arms (or disarms) a fade in for the next start. Playing: fades out over `styleSettings.fadeOutMs`, then the band stops and the Style stays silent for `fadeHoldMs`. Only the Style fades: each Style part's CC7 (channels 9–16) goes out, on the port and to the built-in synth, as its fader value scaled by the fade; the faders don't move, and your playing and the Multi Pads never fade (docs/section-timing.md). `transport.fade` shows it. A fade out already running carries on; START/STOP mid-fade ends it at full volume. |
 | `sectionReset` | | Style Section Reset: the section playing starts again from its top, now. A change queued for the next bar line waits for the new bar grid's. Stopped: nothing. |
 | `toggleRetrigger` | | Style Retrigger on/off (`transport.retrigger`). While on, each chord played in a Main restarts the Main at the chord and loops its first `4 / styleSettings.retriggerRate` beats (a whole note .. a 32nd) until a section change, a style change or Retrigger goes off; off, the Main plays on from there. The same chord struck again (after letting go) counts as a chord played. Only Mains retrigger. |
+| `toggleAcmp`, `setAcmp` | `on` | [ACMP] on/off (OM p.44, p.47; `transport.acmp`, default on). Off: START plays the rhythm only, chords played change nothing (the chord parts end their notes), Sync Start starts on any key, Sync Stop and Stop Accompaniment have nothing to act on, and the whole keyboard plays the Right parts (with Left on, Left below the split). Turned on, the chord parts come in with the next chord. An OTS recall and Chord Looper REC turn it on. Stored in Registration (group Style). Launchkey: Shift + encoder page ▼; key `%`; assignable function `acmp`. |
 | `setTempo` | `bpm` | Sets the tempo. The range is 5–500 BPM (Genos, OM p.46); values outside are clamped. |
 | `toggleStylePart` | `part` 0–7 | Mutes or unmutes a Style part. |
 | `setStylePartVolume` | `part` 0–7, `volume` 0–127 | The part's CC7. The Launchkey fader has to reach the new value before it takes over again. |
@@ -627,6 +628,7 @@ Indices are 0-based unless a field says otherwise.
 | `autoFill`, `stopAcmp` | bool | Auto Fill In, and Stop Accompaniment sounding (`stopAcmpMode` is not `off`). |
 | `section` | string? | The section playing, for example `Main A` or `Fill In AA`. Null when stopped. |
 | `queued` | string? | The section queued next: at the next bar, or for a fill, at the next beat. |
+| `acmp` | bool | [ACMP] is on (the default; `toggleAcmp`). Off: no chord section. |
 | `pendingIntro` | 0–2? | The Intro armed to play at the start. |
 | `main` | 0–3 | The Main (A–D) that is playing or queued to follow. Changes as soon as a Main is pressed. |
 | `bar`, `beat` | 1-based | Position within the section playing. Both are 1 when stopped. |
@@ -1217,6 +1219,7 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
     "stopAcmp": false,
     "section": "Main A",
     "queued": "Fill In BB",
+    "acmp": true,
     "pendingIntro": null,
     "main": 1,
     "bar": 1,

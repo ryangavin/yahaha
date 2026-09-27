@@ -111,7 +111,7 @@ fn preview_and_next_bar_style_change_do_not_allocate() {
     ch.ui_tx.push(Cmd::StyleSend(2, 1, 90)).ok().unwrap();
     ch.ui_tx.push(Cmd::StyleSend(6, 2, 50)).ok().unwrap();
     ch.ui_tx.push(Cmd::ResetStyleSends(1 << 6)).ok().unwrap();
-    let controls = StyleControls { main: Some(1), intro: None, sync_start: None, sync_stop: Some(true), stop_acmp: Some(true), stop_acmp_mode: None, parts: Some(0b1011_1111), volumes: Some([90, 80, 100, 64, 100, 100, 100, 70]), player_set: Some(0b1000_0001), retrigger: Some(true), sends: Some([[255, 60, 255], [255; 3], [255; 3], [100, 255, 40], [255; 3], [255; 3], [255; 3], [0, 0, 0]]) };
+    let controls = StyleControls { acmp: None, main: Some(1), intro: None, sync_start: None, sync_stop: Some(true), stop_acmp: Some(true), stop_acmp_mode: None, parts: Some(0b1011_1111), volumes: Some([90, 80, 100, 64, 100, 100, 100, 70]), player_set: Some(0b1000_0001), retrigger: Some(true), sends: Some([[255, 60, 255], [255; 3], [255; 3], [100, 255, 40], [255; 3], [255; 3], [255; 3], [0, 0, 0]]) };
     // Part 4 (moved above) goes back to the style: the player_set mask leaves it out.
     ch.ui_tx.push(Cmd::StyleControls(controls)).ok().unwrap();
     while now < t0 + 2 * bar {
@@ -482,6 +482,11 @@ fn fills_stop_acmp_and_change_rules_do_not_allocate() {
     run_to(t0 + 5 * bar, &mut now, &mut l);
     // A TEMPO button held (repeating on the engine's own deadlines), let go, then − and +
     // together (#263).
+    // [ACMP] off (the chord parts stop), a key, and on again (#266).
+    cmd(Cmd::Button(Button::SetAcmp(false)), &mut now, &mut l);
+    cmd(Cmd::AnyKey, &mut now, &mut l);
+    run_to(now + 500_000_000, &mut now, &mut l);
+    cmd(Cmd::Button(Button::Acmp), &mut now, &mut l);
     cmd(Cmd::TempoHold(1), &mut now, &mut l);
     run_to(now + 1_500_000_000, &mut now, &mut l);
     cmd(Cmd::TempoHold(0), &mut now, &mut l);

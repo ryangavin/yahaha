@@ -22,6 +22,7 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | **Fade In/Out** | Stopped, it arms a fade in: the next start comes up from silence. Playing, the band fades out and stops, and stays silent for the hold time before its volume comes back (only the style fades, not what you play). The fade times are in Settings › Style. | Fade In/Out (Assignable) | `Shift+F` | Pad page 3 (OTS/Parts), top row, pad 6; Shift + Stop button |
 | **Section Reset** | Starts the section playing again from its top, right now, for stutter effects. With Tap: Section Reset on in Settings › Style (the default, as on the Genos), Tap does the same while the band plays. A pedal can run it too (Style Section Reset). | Style Section Reset (TAP TEMPO) | `\|` | Shift + Play button |
 | **Retrigger** | While on, each chord you play restarts the Main and loops its first few beats (the Retrigger length) until you change section or turn it off. Only Mains retrigger. | Style Retrigger (RtgOnOff) | `~` | Pad page 2 (Chord/Setup), bottom row, pad 8 |
+| **ACMP** | Auto Accompaniment on or off. Off, the style plays its rhythm only, your chords change nothing, Sync Start starts on any key, and the whole keyboard plays your Right voices (Left below the split when Left is on). One Touch Settings and Chord Looper REC turn it back on. | ACMP | `%` | Shift + encoder page ▼ (right of the knobs) |
 | **Retrigger length shorter** | Makes the Retrigger loop one step shorter: 1, 1/2, 1/4, 1/8, 1/16, 1/32 of a whole note. | Style Retrigger Rate (RtgRate) | `}` | Shift + > (Scene Launch) button |
 | **Retrigger length longer** | Makes the Retrigger loop one step longer, up to a whole note. | Style Retrigger Rate (RtgRate) | `{` | Shift + Function button |
 | **Panic** | Sends all notes off on every part, for a stuck note. | — | `\` | — |
@@ -68,6 +69,8 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 |---|---|---|---|---|
 | **Previous style** | Loads the previous style in the browser's order (folder, then name). While the band plays it keeps playing and follows your next chord in the new style. | — | `←` | < Track button |
 | **Next style** | Loads the next style in the browser's order (folder, then name). While the band plays it keeps playing and follows your next chord in the new style. | — | `→` | Track > button |
+| **Swing** | Swings the Style live, 0–100 %: 0 plays it as written and 100 moves each straight off-beat to the triplet position, a heavy shuffle. Drums and every accompaniment part follow it, parts already swung are not swung again, and your own keys are never moved. Each new style starts at 0; a registration stores it. | — | — | Knob 6 on the Style knob page |
+| **Swing grid** | Which off-beats Swing moves: 1/8 swings the off-beat 8ths (the usual shuffle), 1/16 the off-beat 16ths (a funk or hip-hop swing). | — | — | — |
 
 ## Style browser
 

@@ -80,6 +80,8 @@ pub enum Cmd {
     Strike(u8),
     /// A Dynamics Control pedal set the Dynamics level (controllers.rs).
     DynamicsLevel(u8),
+    /// A key went down with [ACMP] off: Sync Start starts on any key.
+    AnyKey,
     /// A TEMPO button went down (−1, +1: a step now, repeating while held) or up (0).
     TempoHold(i8),
 }
@@ -144,6 +146,9 @@ pub struct Shared {
     /// Keyboard + Master transpose: the shift applied to played notes. The engine gets
     /// the individual values through `Cmd::Transpose`.
     pub key_shift: AtomicI8,
+    /// [ACMP] is on, as the engine last had it (the engine loop stores it after each step):
+    /// off, there is no chord section (live/pipeline.rs).
+    pub acmp: AtomicBool,
     /// Engine wake lateness vs. its deadline.
     pub lateness: Histogram,
     /// CoreMIDI packet timestamp -> our callback.
@@ -209,6 +214,7 @@ impl Shared {
             loops: AtomicU32::new(0),
             loop_chord: AtomicU32::new(0),
             key_shift: AtomicI8::new(0),
+            acmp: AtomicBool::new(true),
             lateness: Histogram::new(),
             input_lat: Histogram::new(),
             chord_lat: Histogram::new(),
@@ -1325,6 +1331,7 @@ impl EngineLoop {
             apply(&mut self.engine, &shared, cmd, now, &mut self.io.out);
         }
         self.engine.process(now, &mut self.io.out);
+        shared.acmp.store(self.engine.acmp(), Relaxed);
         // Stopping the style lets go of the Left notes Left Hold holds (OM p.49); the sync
         // below sends it.
         let running = self.engine.is_running();
@@ -1496,6 +1503,7 @@ fn apply(engine: &mut Engine, shared: &Shared, cmd: Cmd, now: u64, out: &mut Out
         Cmd::Strike(vel) => engine.strike(vel, now),
         Cmd::DynamicsLevel(v) => engine.set_dynamics_level(v),
         Cmd::TempoHold(d) => engine.tempo_hold(d, now),
+        Cmd::AnyKey => engine.any_key(now, out),
         Cmd::KeysOff => {
             // The source's pedal, wheels and pressure went to every keyboard part too, and
             // its releases will never come: with the pedal left down, All Notes Off would

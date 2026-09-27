@@ -163,6 +163,7 @@ The 8 encoders are the Genos LIVE CONTROL knobs, on Knob Assign pages. The **enc
 | **Pad Bank ▲ / ▼** (left of the pads) | previous/next pad page |
 | **▲ / ▼ right of the knobs** | previous/next Knob Assign page |
 | **Shift + Pad Bank ▲ / ▼** | Left part on/off / OTS Link on/off |
+| **Shift + encoder page ▼** | ACMP on/off |
 | **> (Scene Launch)** / **Function** (right of the pads) | tempo + / − (1 BPM; hold to repeat, faster the longer it is held; both together: the style's own tempo) |
 | **Shift + Play** | Section Reset: the section starts again from its top |
 | **Shift + Stop** | Fade In/Out: stopped, arm a fade in; playing, fade out and stop |
@@ -213,6 +214,7 @@ The screen shows `sus` beside each part the pedal is holding.
 - `- =` tempo down/up (1 BPM; hold to repeat), `+` the style's own tempo (TEMPO − and + together)
 - `y` Sync Start · `u` Auto Fill · `j` Sync Stop
 - `h` Stop ACMP
+- `%` ACMP on/off (off: rhythm only, the whole keyboard plays, Sync Start on any key)
 - `f` next fingering type · `d` Lower/Upper · `D` Manual Bass
 - `[ ]` split point down/up
 - `; '` Keyboard transpose −/+ · `: "` Master transpose −/+ · `/` reset both

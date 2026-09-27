@@ -47,6 +47,8 @@ fn all_cmds() -> Vec<AppCmd> {
         AppCmd::Transport(TransportCmd::TempoUp),
         AppCmd::Transport(TransportCmd::TempoDown),
         AppCmd::Transport(TransportCmd::ResetTempo),
+        AppCmd::Transport(TransportCmd::ToggleAcmp),
+        AppCmd::Transport(TransportCmd::SetAcmp { on: true }),
         AppCmd::Mixer(MixerCmd::ToggleStylePart { part: 5 }),
         AppCmd::Mixer(MixerCmd::SetStylePartVolume { part: 2, volume: 90 }),
         AppCmd::Chord(ChordCmd::SetFingering { fingering: Fingering::AiFullKeyboard }),
@@ -687,6 +689,7 @@ fn launchkey_hardware_matches_its_commands() {
             (TRACK_LEFT_CC, false, AppCmd::Library(LibraryCmd::StepStyle { delta: -1 })),
             (TRACK_RIGHT_CC, false, AppCmd::Library(LibraryCmd::StepStyle { delta: 1 })),
             (PAD_UP_CC, true, AppCmd::Parts(PartsCmd::TogglePart { part: 3 })),
+            (crate::launchkey::KNOB_DOWN_CC, true, AppCmd::Transport(TransportCmd::ToggleAcmp)),
             (PAD_DOWN_CC, true, AppCmd::Ots(OtsCmd::ToggleOtsLink)),
             (PAD_UP_CC, false, AppCmd::Pads(PadsCmd::CyclePadPage { delta: -1 })),
             (PAD_DOWN_CC, false, AppCmd::Pads(PadsCmd::CyclePadPage { delta: 1 })),
@@ -750,6 +753,38 @@ fn launchkey_tempo_buttons_repeat_and_reset() {
     s.send(TransportCmd::SetTempo { bpm: 140 }).unwrap();
     s.send(TransportCmd::ResetTempo).unwrap();
     assert_eq!(tempo(&s), 75.0);
+}
+
+/// [ACMP] off (#266): no chord section. Sync Start starts on any key, the rhythm plays
+/// alone, the left hand plays the Right parts, and an OTS recall turns ACMP back on.
+#[test]
+fn acmp_off_rhythm_only_any_key_and_ots_turns_it_on() {
+    let Some(s) = offline("SlowWalker.T552.sty") else { return };
+    assert!(s.state().transport.acmp);
+    s.send(TransportCmd::ToggleAcmp).unwrap();
+    s.advance(MS);
+    let st = s.state();
+    assert!(!st.transport.acmp);
+    assert!(st.transport.sync_start);
+    // One key in the left hand: the band starts, and the key sounds on Right 1.
+    s.take_output();
+    keys(&s, true, &[40]);
+    s.advance(20 * MS);
+    let st = s.state();
+    assert!(st.transport.running, "any key starts it");
+    assert_eq!(st.chord.name, None, "no chord");
+    let out = s.take_output();
+    let r1 = crate::parts::CHANNEL[crate::parts::RIGHT1];
+    assert!(out.iter().any(|m| m[0] == 0x90 | r1 && m[1] == 40), "the left hand plays Right 1");
+    keys(&s, false, &[40]);
+    keys(&s, true, &[36, 40, 43]);
+    s.advance(2_000 * MS);
+    assert_eq!(s.state().chord.name, None, "chords don't reach the band");
+    keys(&s, false, &[36, 40, 43]);
+    // An OTS recall turns it on again.
+    s.send(OtsCmd::RecallOts { index: 0 }).unwrap();
+    s.advance(20 * MS);
+    assert!(s.state().transport.acmp);
 }
 
 /// A client can send any delta: no overflow, and the page wraps as it should.

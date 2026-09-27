@@ -262,6 +262,14 @@ struct ControlReg {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     stop_acmp_mode: Option<StopAcmpMode>,
     ots_link: bool,
+    /// [ACMP] on/off (Data List: registrable, group Style). Missing (a bank from an
+    /// earlier build): on.
+    #[serde(default = "acmp_on")]
+    acmp: bool,
+}
+
+fn acmp_on() -> bool {
+    true
 }
 
 fn control_capture(c: &Control, g: Groups) -> Option<Value> {
@@ -277,6 +285,7 @@ fn control_capture(c: &Control, g: Groups) -> Option<Value> {
         stop_acmp: s.stop_acmp,
         stop_acmp_mode: Some(s.stop_acmp_mode.into()),
         ots_link: c.shared.parts.ots_link.load(Relaxed),
+        acmp: s.acmp,
     })
 }
 
@@ -304,6 +313,7 @@ fn control_recall(c: &mut Control, v: &Value, g: Groups) -> Result<(), String> {
         player_set: None,
         retrigger: None,
         sends: None,
+        acmp: Some(r.acmp),
     };
     c.engine_cmd(Cmd::StyleControls(set)).map_err(|e| e.to_string())
 }
