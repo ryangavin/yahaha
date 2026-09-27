@@ -57,9 +57,11 @@ jobs:
       - name: cargo test --profile test-fast
         run: cargo test --profile test-fast
 
-      - name: cargo test (app/src-tauri)
+      # The app shell's tests run once, in the macos job (with plugins, as the real app
+      # builds). Here we only prove the Linux (no-plugins) variant compiles.
+      - name: cargo check --all-targets (app/src-tauri)
         working-directory: app/src-tauri
-        run: cargo test
+        run: cargo check --all-targets
 
   macos:
     runs-on: macos-latest
@@ -68,21 +70,24 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
-      # Same idea as the linux job's cache (stable key, cache-on-failure); this job only
-      # runs cargo at the repo root (app/src-tauri's own tests run in the linux job), so
-      # the root mapping alone covers it.
+      # Same idea as the linux job's cache (stable key, cache-on-failure).
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: macos
           cache-on-failure: true
           workspaces: |
             . -> target
+            app/src-tauri -> target
 
       - name: cargo check --all-targets --features plugins
         run: cargo check --all-targets --features plugins
 
       - name: cargo test --profile test-fast --features plugins
         run: cargo test --profile test-fast --features plugins
+
+      - name: cargo test (app/src-tauri)
+        working-directory: app/src-tauri
+        run: cargo test
 
       - uses: actions/setup-node@v4
         with:
