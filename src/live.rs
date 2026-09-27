@@ -34,6 +34,10 @@ pub enum Cmd {
     PartVolume(u8, u8),
     /// A Style part's volume set from software (0..8, 0-127): the fader picks it up.
     StyleVolume(u8, u8),
+    /// A Style part's (0-7) own send to a bus (0-2), 0-127, or 255: the style's (#268).
+    StyleSend(u8, u8, u8),
+    /// Hand these Style parts' sends (bit = part 0-7) back to the style (#268).
+    ResetStyleSends(u8),
     /// Manual Bass in effect: mute the Style's Bass part.
     ManualBass(bool),
     Transpose(Transpose),
@@ -1484,6 +1488,14 @@ fn apply(engine: &mut Engine, shared: &Shared, cmd: Cmd, now: u64, out: &mut Out
             engine.hw_fader(p, v, out)
         }
         Cmd::StyleVolume(p, v) => engine.set_volume_from_software(p, v, out),
+        Cmd::StyleSend(p, b, v) => engine.set_style_send(p, b, v, out),
+        Cmd::ResetStyleSends(mask) => {
+            for p in (0..8u8).filter(|p| mask & (1 << p) != 0) {
+                for b in 0..3 {
+                    engine.set_style_send(p, b, 255, out);
+                }
+            }
+        }
         Cmd::ManualBass(on) => engine.set_manual_bass(on, out),
         Cmd::Transpose(t) => engine.set_transpose(t, now, out),
         Cmd::StopAudition => {}
@@ -2521,7 +2533,7 @@ mod tests {
         input.pad_msg(&[0xB0, launchkey::PAD_DOWN_CC, 127]);
         assert_eq!(page(), Page::Registration);
         input.pad_msg(&[0x90, 113, 100]);
-        assert_eq!(acts.pop(), Ok(Action::Regist(9)));
+        assert_eq!(acts.pop(), Ok(Action::SnapshotBank(1)));
         input.pad_msg(&[0xB0, launchkey::PAD_DOWN_CC, 127]);
         input.pad_msg(&[0xB0, launchkey::PAD_DOWN_CC, 127]); // stops at the last page
         assert_eq!(page(), Page::MultiPads);

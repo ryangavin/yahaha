@@ -1,9 +1,14 @@
 //! Registration Memory, Registration Freeze, Registration Sequence and the Playlist: the
 //! file formats and the logic that needs no session (Genos OM p.96-103, RM p.113-119).
 //!
-//! - A **bank** ([`Bank`]) is ten Registration Memory buttons plus the bank's Registration
-//!   Sequence, saved as one JSON file (`<name>.regist.json`). yahaha does not read or write
-//!   Yamaha's `.rgt`.
+//! - A **bank file** ([`Bank`]) holds Snapshots (the Genos's Registration Memory buttons)
+//!   in **snapshot banks of eight** (Bank A: Snapshots 1-8, Bank B: the next eight, ...;
+//!   the controllers have eights), plus the file's Registration Sequence, saved as one JSON
+//!   file (`<name>.regist.json`). A snapshot is addressed by its index in the file
+//!   (`bank * 8 + slot`). yahaha does not read or write Yamaha's `.rgt`.
+//! - Version 1 files had ten buttons: they load as Bank A = buttons 1-8 and Bank B =
+//!   buttons 9-10 (the same indices, so sequences and playlist records still point at the
+//!   same registrations), and save as version 2.
 //! - A **memory** ([`Memory`]) is the panel as it was memorized: a name, the groups that were
 //!   memorized, and one JSON section per registrable feature (`"style"`, `"parts"`, ...). The
 //!   session's registrables (src/session/registration/sections.rs) capture and recall the
@@ -29,14 +34,29 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-/// Registration Memory buttons per bank (OM p.133).
-pub const BUTTONS: usize = 10;
+/// Snapshots per snapshot bank (the controllers' eight pads).
+pub const SLOTS: usize = 8;
+/// Snapshot banks a bank file holds at most (A-H).
+pub const MAX_BANKS: usize = 8;
+/// Snapshots a bank file holds at most: indices are 0..MAX_SLOTS.
+pub const MAX_SLOTS: usize = SLOTS * MAX_BANKS;
+
+/// The name of snapshot bank `bank` (0-based): 'A', 'B', ...
+pub fn bank_letter(bank: usize) -> char {
+    (b'A' + (bank.min(25) as u8)) as char
+}
+
+/// A snapshot's short label: "A1" for index 0, "B2" for index 9.
+pub fn snapshot_label(index: usize) -> String {
+    format!("{}{}", bank_letter(index / SLOTS), index % SLOTS + 1)
+}
 
 /// A bank file's `format` field.
 pub const BANK_FORMAT: &str = "yahaha.registration-bank";
 /// A bank file's name ends with this.
 pub const BANK_EXT: &str = ".regist.json";
-pub const BANK_VERSION: u32 = 1;
+/// 2: snapshot banks of eight (a list of whole banks). 1: ten buttons per file.
+pub const BANK_VERSION: u32 = 2;
 
 /// A Registration Freeze / Memorize group (Genos Data List, "Freeze Group" column). Only
 /// the groups yahaha has (or plans) features for; the Genos's Line Out, Song, Text and
@@ -258,15 +278,16 @@ impl From<Memory> for MemoryFile {
     }
 }
 
-/// A Registration Memory bank: ten buttons and the bank's Registration Sequence.
+/// A bank file: its snapshots, in snapshot banks of eight, and its Registration Sequence.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Bank {
     pub format: String,
     pub version: u32,
     pub name: String,
-    /// Always `BUTTONS` long; None = an empty button.
-    #[serde(deserialize_with = "ten")]
+    /// Every snapshot, by index (None = empty): whole snapshot banks, just enough to hold
+    /// the last stored one (at least one bank). Change it with `set`, which keeps it so.
+    #[serde(deserialize_with = "slots")]
     pub memories: Vec<Option<Memory>>,
     #[serde(default)]
     pub sequence: Sequence,
@@ -275,10 +296,19 @@ pub struct Bank {
     pub tags: Vec<String>,
 }
 
-fn ten<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<Option<Memory>>, D::Error> {
+fn slots<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<Option<Memory>>, D::Error> {
     let mut v = Vec::<Option<Memory>>::deserialize(d)?;
-    v.resize(BUTTONS, None);
+    normalize(&mut v);
     Ok(v)
+}
+
+/// Whole snapshot banks, just enough for the last stored snapshot (at least one, at most
+/// `MAX_BANKS`). A version 1 file's ten buttons become Bank A and, when button 9 or 10 is
+/// stored, Bank B.
+fn normalize(v: &mut Vec<Option<Memory>>) {
+    v.truncate(MAX_SLOTS);
+    let used = v.iter().rposition(Option::is_some).map_or(0, |i| i + 1);
+    v.resize(used.div_ceil(SLOTS).max(1) * SLOTS, None);
 }
 
 impl Default for Bank {
@@ -293,16 +323,19 @@ impl Bank {
             format: BANK_FORMAT.into(),
             version: BANK_VERSION,
             name: name.into(),
-            memories: vec![None; BUTTONS],
+            memories: vec![None; SLOTS],
             sequence: Sequence::default(),
             tags: Vec::new(),
         }
     }
 
     pub fn from_json(text: &str) -> Result<Bank> {
-        let b: Bank = serde_json::from_str(text)?;
+        let mut b: Bank = serde_json::from_str(text)?;
         anyhow::ensure!(b.format == BANK_FORMAT, "not a yahaha registration bank (format {:?})", b.format);
         anyhow::ensure!(b.version <= BANK_VERSION, "made by a newer yahaha (bank version {})", b.version);
+        // An older file is this version once read (its ten buttons are Banks A and B), so
+        // it saves as one: an older build then refuses it rather than dropping Bank B.
+        b.version = BANK_VERSION;
         Ok(b)
     }
 
@@ -319,23 +352,51 @@ impl Bank {
         write_atomic(path, &self.to_json())
     }
 
-    /// Buttons with data, as a bit mask (bit 0 = button 1).
-    pub fn stored_mask(&self) -> u16 {
+    /// Snapshots with data, as a bit mask (bit 0 = snapshot A1).
+    pub fn stored_mask(&self) -> u64 {
         self.memories.iter().enumerate().filter(|(_, m)| m.is_some()).fold(0, |a, (i, _)| a | 1 << i)
+    }
+
+    /// Snapshot banks the file holds (1..=MAX_BANKS).
+    pub fn banks(&self) -> usize {
+        self.memories.len() / SLOTS
+    }
+
+    /// The snapshot at `index`, if stored.
+    pub fn get(&self, index: usize) -> Option<&Memory> {
+        self.memories.get(index).and_then(Option::as_ref)
+    }
+
+    /// The snapshot at `index`, if stored, to change.
+    pub fn get_mut(&mut self, index: usize) -> Option<&mut Memory> {
+        self.memories.get_mut(index).and_then(Option::as_mut)
+    }
+
+    /// Store (Some) or empty (None) snapshot `index` (below MAX_SLOTS; others are
+    /// ignored), growing or shrinking the file by whole snapshot banks.
+    pub fn set(&mut self, index: usize, m: Option<Memory>) {
+        if index >= MAX_SLOTS {
+            return;
+        }
+        if index >= self.memories.len() {
+            self.memories.resize(index + 1, None);
+        }
+        self.memories[index] = m;
+        normalize(&mut self.memories);
     }
 }
 
 /// Regist +/- without a sequence (`RegistrationCmd::StepRegist`): the next (`delta` > 0) or
-/// previous button in `stored` (a `Bank::stored_mask`) after `from` (None: none recalled
-/// yet, so + is the first stored button and - the last). None at either end, or with
-/// nothing stored.
-pub fn step_stored(stored: u16, from: Option<u8>, delta: i8) -> Option<u8> {
+/// previous snapshot in `stored` (a `Bank::stored_mask`) after `from` (None: none recalled
+/// yet, so + is the first stored snapshot and - the last), across the file's snapshot
+/// banks. None at either end, or with nothing stored.
+pub fn step_stored(stored: u64, from: Option<u8>, delta: i8) -> Option<u8> {
     let has = |b: usize| stored >> b & 1 != 0;
     match (delta.signum(), from.map(usize::from)) {
-        (1, None) => (0..BUTTONS).find(|&b| has(b)),
-        (1, Some(f)) => (f + 1..BUTTONS).find(|&b| has(b)),
-        (-1, None) => (0..BUTTONS).rev().find(|&b| has(b)),
-        (-1, Some(f)) => (0..f.min(BUTTONS)).rev().find(|&b| has(b)),
+        (1, None) => (0..MAX_SLOTS).find(|&b| has(b)),
+        (1, Some(f)) => (f + 1..MAX_SLOTS).find(|&b| has(b)),
+        (-1, None) => (0..MAX_SLOTS).rev().find(|&b| has(b)),
+        (-1, Some(f)) => (0..f.min(MAX_SLOTS)).rev().find(|&b| has(b)),
         _ => None,
     }
     .map(|b| b as u8)
@@ -477,7 +538,78 @@ mod tests {
     }
 
     #[test]
-    fn bank_round_trips_and_pads_to_ten_buttons() {
+    fn snapshot_labels() {
+        assert_eq!(snapshot_label(0), "A1");
+        assert_eq!(snapshot_label(7), "A8");
+        assert_eq!(snapshot_label(9), "B2");
+        assert_eq!(snapshot_label(MAX_SLOTS - 1), "H8");
+    }
+
+    #[test]
+    fn stepping_crosses_snapshot_banks() {
+        let stored = 1u64 << 6 | 1 << 12;
+        assert_eq!(step_stored(stored, Some(6), 1), Some(12), "A7 -> B5");
+        assert_eq!(step_stored(stored, Some(12), -1), Some(6));
+        assert_eq!(step_stored(stored, None, -1), Some(12));
+    }
+
+    /// A version 1 file (ten buttons) loads losslessly: buttons 1-8 are Bank A, 9-10 flow
+    /// into Bank B at the same indices (so the sequence and a playlist record still point
+    /// at them), and it saves as version 2 and loads back the same.
+    #[test]
+    fn a_ten_button_bank_migrates_into_snapshot_banks_and_round_trips() {
+        let mem = |name: &str, bpm: f64| {
+            serde_json::json!({ "name": name, "groups": ["style", "tempo"], "sections": { "tempo": { "bpm": bpm } } })
+        };
+        let v1 = serde_json::json!({
+            "format": BANK_FORMAT, "version": 1, "name": "Gig",
+            "memories": [mem("One", 90.0), null, null, null, null, null, null, mem("Eight", 100.0), mem("Nine", 110.0), mem("Ten", 120.0)],
+            "sequence": { "steps": [0, 8, 9, 7], "end": "top" },
+        });
+        let b = Bank::from_json(&v1.to_string()).unwrap();
+        assert_eq!(b.version, BANK_VERSION);
+        assert_eq!(b.banks(), 2, "Bank A and Bank B");
+        assert_eq!(b.memories.len(), 2 * SLOTS);
+        let name = |i: usize| b.get(i).map(|m| m.name.clone());
+        assert_eq!(name(0).as_deref(), Some("One"));
+        assert_eq!(name(7).as_deref(), Some("Eight"), "A8");
+        assert_eq!(name(8).as_deref(), Some("Nine"), "old button 9 is B1");
+        assert_eq!(name(9).as_deref(), Some("Ten"), "old button 10 is B2");
+        assert!(b.memories[10..].iter().all(Option::is_none));
+        assert_eq!(b.sequence.clone().clean().steps, [0, 8, 9, 7], "the sequence still points at them");
+        assert_eq!(b.stored_mask(), 1 | 1 << 7 | 1 << 8 | 1 << 9);
+        // Saved as version 2, and back.
+        let text = b.to_json();
+        let v: serde_json::Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(v["version"], 2);
+        assert_eq!(v["memories"].as_array().unwrap().len(), 16);
+        let back = Bank::from_json(&text).unwrap();
+        assert_eq!(back, b);
+        // Every stored snapshot is exactly what the version 1 file held, contents and all.
+        for i in [0, 7, 8, 9] {
+            let orig: Memory = serde_json::from_value(v1["memories"][i].clone()).unwrap();
+            assert_eq!(back.get(i), Some(&orig));
+        }
+        // A version 1 file with buttons 9 and 10 empty is just Bank A.
+        let short = serde_json::json!({ "format": BANK_FORMAT, "version": 1, "name": "x",
+            "memories": [mem("One", 90.0), null, null, null, null, null, null, null, null, null] });
+        assert_eq!(Bank::from_json(&short.to_string()).unwrap().banks(), 1);
+    }
+
+    #[test]
+    fn storing_grows_and_clearing_shrinks_by_whole_banks() {
+        let mut b = Bank::new("x");
+        assert_eq!(b.banks(), 1);
+        b.set(17, Some(Memory::default()));
+        assert_eq!((b.banks(), b.memories.len()), (3, 24), "C2 needs Banks A-C");
+        b.set(17, None);
+        assert_eq!(b.banks(), 1);
+        b.set(MAX_SLOTS, Some(Memory::default()));
+        assert_eq!(b.banks(), 1, "beyond Bank H is refused");
+    }
+
+    #[test]
+    fn bank_round_trips_and_pads_to_whole_snapshot_banks() {
         let mut b = Bank::new("Set 1");
         let mut m = Memory { name: "Ballad".into(), groups: Groups::all(), ..Memory::default() };
         m.sections.insert("tempo".into(), serde_json::json!({ "bpm": 72.0 }));
@@ -489,7 +621,7 @@ mod tests {
         assert_eq!(back.stored_mask(), 1 << 3);
         // A short list is padded; a wrong format is refused.
         let short = r#"{"format":"yahaha.registration-bank","version":1,"name":"x","memories":[null]}"#;
-        assert_eq!(Bank::from_json(short).unwrap().memories.len(), BUTTONS);
+        assert_eq!(Bank::from_json(short).unwrap().memories.len(), SLOTS);
         assert!(Bank::from_json(r#"{"format":"other","version":1,"name":"x","memories":[]}"#).is_err());
     }
 

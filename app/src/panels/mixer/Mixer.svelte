@@ -15,6 +15,11 @@
     where that fader physically sits (from the provisional `state.surface`).
   - Panel strips have Pan, Reverb, Chorus and Delay knobs (the part's CC 10, 91, 93, 94:
     `setPartPan`, `setPartSend`, #198/#204); double-click one to put it back to its default.
+    Style strips have Reverb, Chorus and Delay (#268, `setStylePartSend`): they show the
+    style's own sends until turned, then the part's own (marked •), which the engine sends in
+    place of the style's through section and style changes. Double-click hands that part's
+    sends back to the style; "Sends: style" by Track Mute resets every part
+    (`resetStylePartSends`).
   - Effects (#204): the shared effect bus's Reverb, Chorus and Variation (tempo delay)
     blocks, each with its type and return level (`setEffectType`, `setEffectReturn`). Every
     part, Panel and Style, SoundFont and plugin, feeds them through its sends. Each block's
@@ -193,6 +198,16 @@
       onclick: () => app.send({ type: 'toggleStylePart', part: i }),
     },
     voice: styleVoice(p.voice),
+    fx: {
+      pan: null,
+      reverb: p.reverb,
+      chorus: p.chorus,
+      variation: p.variation,
+      reverbDefault: 40,
+      onpan: () => {},
+      onsend: (send: PartSend, v: number) => app.send({ type: 'setStylePartSend', part: i, send, value: v }),
+      style: { set: p.sendsSet, onreset: () => app.send({ type: 'resetStylePartSends', part: i }) },
+    },
     badge: p.mutedByManualBass ? { text: 'Manual Bass', tip: 'detection.manual_bass' as const } : null,
     solo: {
       isSolo: mixer.styleSolo === i,
@@ -267,6 +282,13 @@
           <div class="slider">
             <HSlider value={muteValue} tip="mixer.track_mute" label="Style Track Mute" onchange={trackMute} />
           </div>
+          <button
+            type="button"
+            class="order mat-raised"
+            disabled={mixer.styleParts.every((p) => p.sendsSet.length === 0)}
+            use:tip={'mixer.style.reset_sends'}
+            onclick={() => app.send({ type: 'resetStylePartSends', part: null })}>Sends: style</button
+          >
         </div>
       {/if}
     </div>
@@ -412,9 +434,9 @@
         {/each}
       {/if}
 
-      <div class="master" class:knobs={page === 'panel'}>
+      <div class="master knobs">
         <div class="ch engraved">Synth</div>
-        {#if page === 'panel'}<div class="fx-space" aria-hidden="true"></div>{/if}
+        <div class="fx-space" aria-hidden="true"></div>
         <div class="fader">
           <Fader
             value={mixer.master ?? 0}

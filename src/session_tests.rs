@@ -474,8 +474,8 @@ fn launchkey_pads_are_commands() {
     assert_eq!(s.state().io.unmapped, "unmapped CC 53 = 127");
     // Knob 1 (an encoder on channel 16) turns Dynamics; the encoder page ▼ steps the
     // Knob Assign page.
-    s.midi_in(Port::Pads, &[0xBF, 21, 67]);
-    assert_eq!(s.state().dynamics.level, 70);
+    s.midi_in(Port::Pads, &[0xBF, 21, 61]);
+    assert_eq!(s.state().dynamics.level, 121);
     s.midi_in(Port::Pads, &[0xB0, 52, 127]);
     assert_eq!(s.state().knobs.page_name, "Parts");
 }
@@ -497,6 +497,44 @@ fn style_faders_and_software_volume() {
     let st = s.state();
     assert_eq!(st.mixer.style_parts[0].volume, 100, "no jump");
     assert!(st.mixer.style_parts[0].waiting);
+}
+
+/// #268: a Style part's own send: out on the MIDI port at once, in the state (and on the
+/// audio thread's atomics), in a Registration Memory, and Reset hands it back to the style.
+#[test]
+fn a_style_parts_own_sends() {
+    use crate::api::{PartSend, RegistrationCmd};
+    let Some(s) = offline("SlowWalker.T552.sty") else { return };
+    let style = s.state().mixer.style_parts[3].clone();
+    assert!(style.sends_set.is_empty());
+    s.take_output();
+    s.send(MixerCmd::SetStylePartSend { part: 3, send: PartSend::Chorus, value: 200 }).unwrap();
+    s.advance(1_000_000);
+    assert!(s.take_output().contains(&[0xBB, 93, 127]), "clamped, out at once");
+    let st = s.state();
+    let p = &st.mixer.style_parts[3];
+    assert_eq!((p.reverb, p.chorus, p.variation, p.sends_set.clone()), (style.reverb, 127, style.variation, vec![PartSend::Chorus]));
+    assert_eq!(st.mixer.style_parts[2].sends_set, vec![]);
+    s.send(RegistrationCmd::MemorizeRegist { index: 0 }).unwrap();
+    // Reset: the style's value goes out.
+    s.send(MixerCmd::ResetStylePartSends { part: None }).unwrap();
+    s.advance(1_000_000);
+    assert!(s.take_output().contains(&[0xBB, 93, style.chorus]));
+    assert!(s.state().mixer.style_parts.iter().all(|p| p.sends_set.is_empty()));
+    // Registration brings the part's own chorus back.
+    s.send(RegistrationCmd::RecallRegist { index: 0 }).unwrap();
+    for _ in 0..3 {
+        s.advance(1_000_000_000);
+    }
+    let p = s.state().mixer.style_parts[3].clone();
+    assert_eq!((p.chorus, p.sends_set), (127, vec![PartSend::Chorus]));
+    // One part's reset leaves the others.
+    s.send(MixerCmd::SetStylePartSend { part: 5, send: PartSend::Reverb, value: 10 }).unwrap();
+    s.send(MixerCmd::ResetStylePartSends { part: Some(3) }).unwrap();
+    s.advance(1_000_000);
+    let st = s.state();
+    assert!(st.mixer.style_parts[3].sends_set.is_empty());
+    assert_eq!((st.mixer.style_parts[5].reverb, st.mixer.style_parts[5].sends_set.clone()), (10, vec![PartSend::Reverb]));
 }
 
 /// The Style volume (#199): a scale on the Style parts' CC7 as they go out, like a fade;

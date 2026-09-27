@@ -187,7 +187,9 @@ pub enum Function {
     /// previous stored button (`RegistrationCmd::StepRegist`, #200).
     RegistNext,
     RegistPrev,
-    /// Regist 1-10 (RM p.141): the REGISTRATION MEMORY buttons.
+    /// Regist 1-10 (RM p.141): the REGISTRATION MEMORY buttons, now Snapshots 1-8 of the
+    /// snapshot bank on view; 9 and 10 run on into the next bank's 1 and 2 (where a
+    /// ten-button bank's 9 and 10 went), so an old assignment still finds them.
     Regist1,
     Regist2,
     Regist3,
@@ -198,7 +200,7 @@ pub enum Function {
     Regist8,
     Regist9,
     Regist10,
-    /// The MEMORY button (RM p.141).
+    /// The MEMORY button (RM p.141): Snapshot Store.
     RegistMemory,
     /// Freeze On/Off (RM p.141).
     RegistFreeze,
@@ -290,17 +292,17 @@ pub const FUNCTIONS: [FunctionInfo; 67] = [
     f(Function::DynamicsControl, "Dynamics Control", Style, Continuous),
     f(Function::RegistNext, "Regist +", Registration, Trigger),
     f(Function::RegistPrev, "Regist −", Registration, Trigger),
-    f(Function::Regist1, "Registration Memory 1", Registration, Trigger),
-    f(Function::Regist2, "Registration Memory 2", Registration, Trigger),
-    f(Function::Regist3, "Registration Memory 3", Registration, Trigger),
-    f(Function::Regist4, "Registration Memory 4", Registration, Trigger),
-    f(Function::Regist5, "Registration Memory 5", Registration, Trigger),
-    f(Function::Regist6, "Registration Memory 6", Registration, Trigger),
-    f(Function::Regist7, "Registration Memory 7", Registration, Trigger),
-    f(Function::Regist8, "Registration Memory 8", Registration, Trigger),
-    f(Function::Regist9, "Registration Memory 9", Registration, Trigger),
-    f(Function::Regist10, "Registration Memory 10", Registration, Trigger),
-    f(Function::RegistMemory, "Registration Memory", Registration, Trigger),
+    f(Function::Regist1, "Snapshot 1", Registration, Trigger),
+    f(Function::Regist2, "Snapshot 2", Registration, Trigger),
+    f(Function::Regist3, "Snapshot 3", Registration, Trigger),
+    f(Function::Regist4, "Snapshot 4", Registration, Trigger),
+    f(Function::Regist5, "Snapshot 5", Registration, Trigger),
+    f(Function::Regist6, "Snapshot 6", Registration, Trigger),
+    f(Function::Regist7, "Snapshot 7", Registration, Trigger),
+    f(Function::Regist8, "Snapshot 8", Registration, Trigger),
+    f(Function::Regist9, "Snapshot 1 of the next bank", Registration, Trigger),
+    f(Function::Regist10, "Snapshot 2 of the next bank", Registration, Trigger),
+    f(Function::RegistMemory, "Snapshot Store", Registration, Trigger),
     f(Function::RegistFreeze, "Registration Freeze On/Off", Registration, Trigger),
     f(Function::RegistSequence, "Registration Sequence On/Off", Registration, Trigger),
     f(Function::ChordLooperOnOff, "Chord Looper On/Off", ChordLooper, Trigger),

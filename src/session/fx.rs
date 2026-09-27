@@ -54,7 +54,8 @@ impl FxSettings {
 
     /// Each block that follows the style (or only `only`) takes the style's type and the
     /// parameters it sets; a block the style sets nothing near takes its default type.
-    /// The type's own parameters come back either way, as a Genos style load does.
+    /// The type's own parameters come back either way, as a Genos style load does, and
+    /// its return level is the style's, or 0 dB (64) where the style sets none (#269).
     pub(super) fn apply_style(&mut self, style: &StyleFx, only: Option<FxBlock>) {
         for b in FxBlock::ALL {
             if !self.follow[b.index()] || only.is_some_and(|o| o != b) {
@@ -67,13 +68,14 @@ impl FxSettings {
                     for &(p, v) in params {
                         self.params[p.index()] = p.clamp(v);
                     }
-                    // The style's return level (#269), where it sets one; else the
-                    // player's stays.
-                    if let Some(r) = choice.and_then(|c| c.ret) {
-                        self.returns[b.index()] = r.min(127);
-                    }
+                    // The style's return level (#269), where it sets one; else 0 dB, so
+                    // the last style's return doesn't carry into this one.
+                    self.returns[b.index()] = choice.and_then(|c| c.ret).map_or(crate::fx::RETURN_UNITY, |r| r.min(127));
                 }
-                None => self.set_type(b, FxBlock::DEFAULT_TYPES[b.index()]),
+                None => {
+                    self.set_type(b, FxBlock::DEFAULT_TYPES[b.index()]);
+                    self.returns[b.index()] = crate::fx::RETURN_UNITY;
+                }
             }
         }
     }
@@ -186,6 +188,12 @@ impl Control {
         }
         for (a, &v) in fx.params.iter().zip(&s.params) {
             a.store(v, Relaxed);
+        }
+        // The Style parts' own sends (#268): the engine owns them.
+        for (a, own) in fx.part_send.iter().zip(&self.snap.style_send_own) {
+            for (a, &v) in a.iter().zip(own) {
+                a.store(v, Relaxed);
+            }
         }
     }
 
@@ -566,10 +574,19 @@ mod tests {
         let st = s.state();
         assert_eq!(reverb(&s)[..2], ["1.6 s", "11 ms"]);
         assert_eq!(st.effects.blocks[0].params[2].value, st.effects.blocks[0].params[2].default);
-        // Not following: the player's reverb stays.
-        s.send(FxCmd::SetFollowStyle { block: FxBlock::Reverb, on: false }).unwrap();
+        // A return the player set: a style that sets none puts a following block back at
+        // 0 dB (64), so one style's return never carries into the next.
+        s.send(FxCmd::SetEffectReturn { block: FxBlock::Chorus, level: 20 }).unwrap();
+        s.send(FxCmd::SetEffectReturn { block: FxBlock::Reverb, level: 100 }).unwrap();
         load(&s, &icy);
-        assert_eq!(reverb(&s)[..2], ["1.6 s", "11 ms"]);
+        let rets = |s: &Session| s.state().effects.blocks.iter().map(|b| b.return_level).collect::<Vec<_>>();
+        assert_eq!(rets(&s), vec![64, 64, 64]);
+        // Not following: the player's reverb and its return stay.
+        s.send(FxCmd::SetFollowStyle { block: FxBlock::Reverb, on: false }).unwrap();
+        s.send(FxCmd::SetEffectReturn { block: FxBlock::Reverb, level: 100 }).unwrap();
+        load(&s, &cumbia);
+        assert_eq!(reverb(&s)[..2], ["3.0 s", "93 ms"], "IcyBallad's, pinned");
+        assert_eq!(rets(&s)[0], 100);
     }
 
     /// #237: a style's own effect types. Loading it sets them (and the delay's time and

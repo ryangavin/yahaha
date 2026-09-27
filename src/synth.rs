@@ -769,6 +769,8 @@ pub struct AudioCore {
     legacy: bool,
     /// The band send scales (#236) as they glide towards `FxControl::band_send`.
     band_scale: [f32; crate::fx::BUSES],
+    /// The Style parts' own sends (#268, `FxControl::part_send`) as last applied.
+    part_send: [[u8; crate::fx::BUSES]; 8],
     /// The Multi Pad send scales (#267) as they glide towards `FxControl::pad_send`.
     pad_scale: [f32; crate::fx::BUSES],
     sample_rate: f32,
@@ -824,6 +826,7 @@ impl AudioCore {
             sends_dirty: true,
             legacy: false,
             band_scale: crate::fx::BAND_SEND_DEFAULT.map(crate::fx::band_scale),
+            part_send: [[crate::fx::SEND_STYLE; crate::fx::BUSES]; 8],
             pad_scale: crate::fx::PAD_SEND_DEFAULT.map(crate::fx::band_scale),
             sample_rate: sample_rate.max(1) as f32,
         };
@@ -1011,13 +1014,27 @@ impl AudioCore {
         let k = 1.0 - (-(frames as f32) / (BAND_GLIDE_S * self.sample_rate)).exp();
         self.sends_dirty |= glide_scales(&mut self.band_scale, &ctl.fx.band_send, k);
         self.sends_dirty |= glide_scales(&mut self.pad_scale, &ctl.fx.pad_send, k);
+        // The Style parts' own sends (#268).
+        for (own, a) in self.part_send.iter_mut().zip(&ctl.fx.part_send) {
+            for (v, a) in own.iter_mut().zip(a) {
+                let x = a.load(Relaxed);
+                if *v != x {
+                    *v = x;
+                    self.sends_dirty = true;
+                }
+            }
+        }
         if self.sends_dirty {
             self.sends_dirty = false;
             for (ch, (g, cc)) in self.send_gains.iter_mut().zip(&self.send_cc).enumerate() {
                 *g = if legacy {
                     [0.0; crate::fx::BUSES]
                 } else if crate::fx::BAND_CHANNELS.contains(&ch) {
-                    std::array::from_fn(|b| crate::fx::band_send_gain(cc[b], self.band_scale[b]))
+                    let own = self.part_send[ch - crate::fx::BAND_CHANNELS.start];
+                    std::array::from_fn(|b| match own[b] {
+                        crate::fx::SEND_STYLE => crate::fx::band_send_gain(cc[b], self.band_scale[b]),
+                        v => crate::fx::send_gain(v),
+                    })
                 } else if crate::fx::PAD_CHANNELS.contains(&ch) {
                     std::array::from_fn(|b| crate::fx::band_send_gain(cc[b], self.pad_scale[b]))
                 } else {
@@ -1712,6 +1729,30 @@ mod rack_tests {
         }
         assert_eq!(core.band_scale[crate::fx::CHORUS], 1.0, "and arrives");
         assert_eq!(core.send_gains[10][crate::fx::CHORUS], 0.0, "no send, no gain");
+    }
+
+    /// #268: a Style part's own send replaces its style's CC and is not scaled by the band
+    /// send: with the band's delay at 0% (the default), an own delay send of 127 plays the
+    /// echoes as a scale of 100% does; the style's own CC on the part then plays nothing.
+    #[test]
+    fn a_style_parts_own_send_is_not_scaled() {
+        let Some(font) = font() else { return };
+        let v = crate::fx::VARIATION;
+        let dry = delay_tail(&font, 10, 127, |_| {});
+        let scaled = delay_tail(&font, 10, 127, |c| c.fx.band_send[v].store(100, Relaxed));
+        let own = delay_tail(&font, 10, 0, |c| c.fx.part_send[2][v].store(127, Relaxed));
+        let own_zero = delay_tail(&font, 10, 127, |c| {
+            c.fx.band_send[v].store(100, Relaxed);
+            c.fx.part_send[2][v].store(0, Relaxed);
+        });
+        let other_part = delay_tail(&font, 11, 127, |c| c.fx.part_send[2][v].store(127, Relaxed));
+        assert!(scaled > dry * 2.0);
+        // As loud as the style's 127 at 100% (a little more: the band scale glides up from
+        // 0% at the start, under the note's attack; the own send is there at once).
+        assert!(own >= scaled * 0.95 && own <= scaled * 1.5, "own 127 unscaled = style 127 at 100%: {own} vs {scaled}");
+        assert!((own_zero - dry).abs() <= dry * 1e-6, "an own 0 silences the style's 127");
+        let dry11 = delay_tail(&font, 11, 0, |_| {});
+        assert!((other_part - dry11).abs() <= dry11 * 1e-6, "only that part");
     }
 
     /// #267: the Multi Pad send scales. A pad's (channel 6) delay send reaches the delay

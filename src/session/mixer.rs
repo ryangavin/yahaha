@@ -1,7 +1,7 @@
 //! The mixer: Style part mute and levels, the fader page, the synth's master and mute.
 
 use super::{Control, View};
-use crate::api::{voice_label, CmdError, MixerCmd, MixerState, StylePart, Voice, STYLE_PART_NAMES};
+use crate::api::{voice_label, CmdError, MixerCmd, MixerState, PartSend, StylePart, Voice, STYLE_PART_NAMES};
 use crate::live::Cmd;
 use std::sync::atomic::Ordering::Relaxed;
 
@@ -13,6 +13,11 @@ impl Control {
         let parts = self.shared.parts.clone();
         match c {
             MixerCmd::SetStylePartVolume { part, volume } => return self.engine_cmd(Cmd::StyleVolume(part & 7, volume.min(127))),
+            MixerCmd::SetStylePartSend { part, send, value } => {
+                return self.engine_cmd(Cmd::StyleSend(part & 7, (send.index() - crate::parts::REVERB) as u8, value.min(127)));
+            }
+            // The engine resets its own state (a snapshot here may be behind).
+            MixerCmd::ResetStylePartSends { part } => return self.engine_cmd(Cmd::ResetStyleSends(part.map_or(0xFF, |p| 1 << (p & 7)))),
             // The engine thread scales the Style parts' CC7 on its next wake.
             MixerCmd::SetStyleVolume { volume } => {
                 parts.set_volume(crate::parts::STYLE_LEVEL, volume);
@@ -89,6 +94,10 @@ impl Control {
                             kit: msb >= 126 || p < 2,
                             label: voice_label(8 + p, voice),
                         }),
+                        reverb: s.style_sends[p as usize][0],
+                        chorus: s.style_sends[p as usize][1],
+                        variation: s.style_sends[p as usize][2],
+                        sends_set: [PartSend::Reverb, PartSend::Chorus, PartSend::Variation].into_iter().filter(|b| s.style_send_own[p as usize][b.index() - crate::parts::REVERB] != crate::fx::SEND_STYLE).collect(),
                     }
                 })
                 .collect(),

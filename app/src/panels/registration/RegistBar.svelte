@@ -3,20 +3,22 @@
   buttons by the keys): the Genos REGISTRATION MEMORY section and the Playlist, always in
   reach while you play. It is on the stage, so every size is in em of `--u`.
 
-  [◀ Bank ▶] [1]…[10] [Memory] [Freeze] [Regist − 3/6 +] [◀ Song ▶] [Panel]
+  [◀ File ▶] [◀ A ▶] [1]…[8] [Store] [Freeze] [Regist − 3/6 +] [◀ Song ▶] [Panel]
 
-  The ten buttons light like pad page 4 (red in use, blue stored, dark empty; flashing
-  while Memory is armed). Everything here is a command the Launchkey page 4, the terminal
-  keys and the engine share; the Registration panel (`Registration.svelte`) has the rest.
+  The eight snapshots of the snapshot bank on view light like pad page 4 (red in use, blue
+  stored, dark empty; flashing while Store is armed). Everything here is a command the
+  Launchkey page 4, the terminal keys and the engine share; the Registration panel
+  (`Registration.svelte`) has the rest.
 
-  State: registration, playlist. Commands: pressRegist, stepRegistBank, toggleRegistMemory,
-  toggleFreeze, stepRegistSequence, stepPlaylist.
+  State: registration, playlist. Commands: pressSnapshot, stepSnapshotBank, stepRegistBank,
+  toggleRegistMemory, toggleFreeze, stepRegistSequence, stepPlaylist.
 -->
 <script lang="ts">
   import { app, clock, ui } from '../../lib/store.svelte'
   import { tip } from '../../lib/tooltip/tip.svelte'
   import HwButton from '../../lib/ui/HwButton.svelte'
-  import { REGIST_TIPS, buttonLook, buttonName, sequenceText } from './regist'
+  import { bankLetter } from '../../lib/api/registration'
+  import { REGIST_TIPS, buttonLook, buttonName, sequenceText, viewIndices } from './regist'
 
   const r = $derived(app.state.registration)
   const pl = $derived(app.state.playlist)
@@ -40,7 +42,7 @@
 
 <section class="rbar" aria-label="Registration">
   <div class="group bank">
-    <span class="engraved lbl">Regist bank</span>
+    <span class="engraved lbl">File</span>
     <HwButton tip="regist.bank_prev" label="Previous bank" onclick={() => app.send({ type: 'stepRegistBank', delta: -1 })}>◀</HwButton>
     <button type="button" class="name mat-screen" use:tip={'regist.bank'} onclick={() => openPanel('bank')}>
       <span class="glow-text">{r.bank.name}{r.bank.dirty ? ' *' : ''}</span>
@@ -48,17 +50,24 @@
     <HwButton tip="regist.bank_next" label="Next bank" onclick={() => app.send({ type: 'stepRegistBank', delta: 1 })}>▶</HwButton>
   </div>
 
-  <div class="group buttons" role="group" aria-label="Registration Memory 1 to 10">
-    {#each r.buttons as b, i (b.index)}
+  <div class="group">
+    <span class="engraved lbl">Bank</span>
+    <HwButton tip="regist.snap_bank_prev" label="Previous snapshot bank" onclick={() => app.send({ type: 'stepSnapshotBank', delta: -1 })}>◀</HwButton>
+    <span class="letter mat-screen" use:tip={'regist.snap_bank'}><span class="glow-text">{bankLetter(r.snapshotBank)}</span></span>
+    <HwButton tip="regist.snap_bank_next" label="Next snapshot bank" onclick={() => app.send({ type: 'stepSnapshotBank', delta: 1 })}>▶</HwButton>
+  </div>
+
+  <div class="group buttons" role="group" aria-label="Snapshots 1 to 8">
+    {#each viewIndices(r) as i, k (i)}
       <div class="slot" title={buttonName(r, i)}>
-        <HwButton tip={REGIST_TIPS[i]} led={buttonLook(r, i)} {beats} shape="square" label="Registration {i + 1}" onclick={() => app.send({ type: 'pressRegist', index: i })}>{i + 1}</HwButton>
+        <HwButton tip={REGIST_TIPS[k]} led={buttonLook(r, i)} {beats} shape="square" label="Snapshot {k + 1}" onclick={() => app.send({ type: 'pressSnapshot', slot: k })}>{k + 1}</HwButton>
         <span class="bname engraved">{buttonName(r, i)}</span>
       </div>
     {/each}
   </div>
 
   <div class="group">
-    <HwButton tip="regist.memory" led={r.memory ? armed : null} {beats} pressed={r.memory} onclick={() => app.send({ type: 'toggleRegistMemory' })}>Memory</HwButton>
+    <HwButton tip="regist.memory" led={r.memory ? armed : null} {beats} pressed={r.memory} onclick={() => app.send({ type: 'toggleRegistMemory' })}>Store</HwButton>
     <HwButton tip="regist.freeze" led={r.freeze ? amber : null} pressed={r.freeze} onclick={() => app.send({ type: 'toggleFreeze' })}>Freeze</HwButton>
   </div>
 
@@ -96,7 +105,7 @@
     row-gap: 0.4em;
     min-width: 0;
   }
-  /* Level with the middle of the square 1–10 buttons (2.6em of their 0.9em print). */
+  /* Level with the middle of the square 1–8 buttons (2.6em of their 0.9em print). */
   .group {
     display: flex;
     align-items: center;
@@ -156,6 +165,16 @@
   .song .name {
     flex: 0 1 8.5em;
     min-width: 4.5em;
+  }
+  .letter {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2em;
+    height: 2.2em;
+    border-radius: 0.3em;
+    font-family: var(--font-display);
+    font-size: 0.95em;
   }
   .pos {
     width: 4em;

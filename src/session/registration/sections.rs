@@ -49,6 +49,8 @@ pub(in crate::session) const REGISTRABLES: &[Registrable] = &[
     Registrable { key: "tempo", early: false, capture: tempo_capture, recall: tempo_recall },
     Registrable { key: "chord", early: false, capture: chord_capture, recall: chord_recall },
     Registrable { key: "styleControl", early: false, capture: control_capture, recall: control_recall },
+    // The Style Dynamics level. A bank without it: the style load's maximum stands.
+    Registrable { key: "dynamics", early: false, capture: dynamics_capture, recall: dynamics_recall },
     Registrable { key: "styleMixer", early: false, capture: mixer_capture, recall: mixer_recall },
     // The effect bus's types and return levels (#204): session/fx.rs.
     Registrable { key: "effects", early: false, capture: effects_capture, recall: effects_recall },
@@ -301,8 +303,32 @@ fn control_recall(c: &mut Control, v: &Value, g: Groups) -> Result<(), String> {
         volumes: None,
         player_set: None,
         retrigger: None,
+        sends: None,
     };
     c.engine_cmd(Cmd::StyleControls(set)).map_err(|e| e.to_string())
+}
+
+// ----- the Style Dynamics level (group Style) -----
+
+#[derive(Serialize, Deserialize)]
+struct DynamicsReg {
+    /// The Dynamics level, 0-127 (127: as written).
+    level: u8,
+}
+
+fn dynamics_capture(c: &Control, g: Groups) -> Option<Value> {
+    if !g.has(Group::Style) {
+        return None;
+    }
+    to_value(&DynamicsReg { level: c.dynamics_state().level })
+}
+
+fn dynamics_recall(c: &mut Control, v: &Value, g: Groups) -> Result<(), String> {
+    if !g.has(Group::Style) {
+        return Ok(());
+    }
+    let d: DynamicsReg = parse("dynamics", v)?;
+    c.dynamics_cmd(crate::api::DynamicsCmd::SetDynamics { level: d.level.min(127) }).map_err(|e| e.to_string())
 }
 
 // ----- the Style part mixer (group Style) -----
@@ -323,6 +349,32 @@ struct MixerReg {
     /// written. Missing (a bank from an earlier build): left as it is.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     level: Option<u8>,
+    /// Rhythm 1 .. Phrase 2: the sends the player set (#268); one absent follows the
+    /// style. Missing (a bank from an earlier build): left as they are.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    sends: Option<[StyleSendsReg; 8]>,
+}
+
+/// A Style part's own sends (#268), each absent where it follows the style.
+#[derive(Clone, Copy, Default, Serialize, Deserialize)]
+struct StyleSendsReg {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    reverb: Option<u8>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    chorus: Option<u8>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    variation: Option<u8>,
+}
+
+impl StyleSendsReg {
+    fn of(own: [u8; 3]) -> StyleSendsReg {
+        let v = |x: u8| (x != crate::fx::SEND_STYLE).then_some(x);
+        StyleSendsReg { reverb: v(own[0]), chorus: v(own[1]), variation: v(own[2]) }
+    }
+
+    fn own(self) -> [u8; 3] {
+        [self.reverb, self.chorus, self.variation].map(|x| x.map_or(crate::fx::SEND_STYLE, |v| v.min(127)))
+    }
 }
 
 fn mixer_capture(c: &Control, g: Groups) -> Option<Value> {
@@ -335,6 +387,7 @@ fn mixer_capture(c: &Control, g: Groups) -> Option<Value> {
         on: std::array::from_fn(|p| s.parts & (1 << p) != 0),
         set: Some(std::array::from_fn(|p| s.user_set & (1 << p) != 0)),
         level: Some(c.shared.parts.volume(parts::STYLE_LEVEL)),
+        sends: Some(s.style_send_own.map(StyleSendsReg::of)),
     })
 }
 
@@ -356,6 +409,7 @@ fn mixer_recall(c: &mut Control, v: &Value, g: Groups) -> Result<(), String> {
         parts: Some(mask(r.on)),
         volumes: Some(r.volumes),
         player_set: r.set.map(mask),
+        sends: r.sends.map(|s| s.map(StyleSendsReg::own)),
         ..StyleControls::default()
     };
     c.engine_cmd(Cmd::StyleControls(set)).map_err(|e| e.to_string())

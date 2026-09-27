@@ -33,7 +33,9 @@
   import type { Session } from './lib/api/session'
   import DropoutNotice from './lib/DropoutNotice.svelte'
   import { handleBlur, handleKey, handleKeyUp } from './lib/shortcuts'
+  import { NAV } from './lib/nav'
   import { app, clock, ui } from './lib/store.svelte'
+  import DrawerButton from './lib/ui/DrawerButton.svelte'
   import HelpFooter from './lib/tooltip/HelpFooter.svelte'
   import Tooltip from './lib/tooltip/Tooltip.svelte'
   import { tip, tips } from './lib/tooltip/tip.svelte'
@@ -79,6 +81,12 @@
 
 <div class="app">
   <Header />
+  <!-- Quick nav (lib/nav.ts): every panel and drawer, one click or Alt+letter away. -->
+  <nav class="quick-nav" aria-label="Panels">
+    {#each NAV as n (n.tip)}
+      <DrawerButton tip={n.tip} open={n.open()} onclick={n.toggle}>{n.label}</DrawerButton>
+    {/each}
+  </nav>
 
   <main class="stage">
     <div class="stack">
@@ -167,6 +175,12 @@
       --h: 67.4;
       --top: 7.4em;
     }
+  }
+  .quick-nav {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.3rem;
+    font-size: 13px;
   }
   .status {
     display: flex;

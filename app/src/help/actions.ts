@@ -20,7 +20,7 @@ const PART_ON: TipKey[] = ['part.right1.on', 'part.right2.on', 'part.right3.on',
 const PART_SELECT: TipKey[] = ['part.right1.select', 'part.right2.select', 'part.right3.select', 'part.left.select']
 const PART_VOLUME: TipKey[] = ['mixer.panel.right1', 'mixer.panel.right2', 'mixer.panel.right3', 'mixer.panel.left']
 const OTS: TipKey[] = ['ots.1', 'ots.2', 'ots.3', 'ots.4']
-const REGIST: TipKey[] = ['regist.1', 'regist.2', 'regist.3', 'regist.4', 'regist.5', 'regist.6', 'regist.7', 'regist.8', 'regist.9', 'regist.10']
+const REGIST: TipKey[] = ['regist.1', 'regist.2', 'regist.3', 'regist.4', 'regist.5', 'regist.6', 'regist.7', 'regist.8']
 const MP_PAD: TipKey[] = ['multipad.pad1', 'multipad.pad2', 'multipad.pad3', 'multipad.pad4']
 const MP_ARM: TipKey[] = ['multipad.arm1', 'multipad.arm2', 'multipad.arm3', 'multipad.arm4']
 const MP_STOP: TipKey[] = ['multipad.stop1', 'multipad.stop2', 'multipad.stop3', 'multipad.stop4']
@@ -53,6 +53,8 @@ export function tipFor(cmd: AppCmd | null): TipKey {
     case 'resetTempo': return 'tempo.reset'
     case 'toggleStylePart': return 'mixer.style.mute'
     case 'setStylePartVolume': return 'mixer.style.volume'
+    case 'setStylePartSend': return `mixer.style.${cmd.send}`
+    case 'resetStylePartSends': return 'mixer.style.reset_sends'
     case 'setStyleVolume': return 'mixer.style_level'
     case 'setMultiPadVolume': return 'mixer.pad_level'
     case 'setFingering': return FINGERING[cmd.fingering]
@@ -129,6 +131,9 @@ export function tipFor(cmd: AppCmd | null): TipKey {
     case 'toggleRetrigger': return 'transport.retrigger'
     case 'stepRetriggerRate': return cmd.delta < 0 ? 'transport.retrigger_longer' : 'transport.retrigger_shorter'
     case 'setRetriggerRate': return 'settings.retrigger_rate'
+    case 'setSwing':
+    case 'stepSwing': return 'style.swing'
+    case 'setSwingGrid': return 'style.swing_grid'
     case 'setMainTiming': return 'settings.section_timing'
     case 'setIntroEndingTiming': return 'settings.intro_ending_timing'
     case 'setSyncStopWindow': return 'settings.synchro_stop_window'
@@ -138,7 +143,10 @@ export function tipFor(cmd: AppCmd | null): TipKey {
     case 'setSectionReset': return 'settings.section_reset'
     // Registration Memory
     case 'pressRegist':
-    case 'recallRegist': return REGIST[cmd.index]
+    case 'recallRegist': return REGIST[cmd.index % 8]
+    case 'pressSnapshot': return REGIST[cmd.slot % 8]
+    case 'stepSnapshotBank': return cmd.delta < 0 ? 'regist.snap_bank_prev' : 'regist.snap_bank_next'
+    case 'selectSnapshotBank': return 'regist.snap_bank'
     case 'memorizeRegist':
     case 'toggleRegistMemory': return 'regist.memory'
     case 'setMemorizeGroup': return 'regist.memorize_group'

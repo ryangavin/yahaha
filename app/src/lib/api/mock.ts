@@ -196,7 +196,7 @@ function patternBars(s: string): number {
 /** The engine's default Style settings (src/engine/timing.rs). */
 export const DEFAULT_STYLE_SETTINGS: StyleSettingsState = {
   mainTiming: 'nextBar', introEndingTiming: 'nextBar', syncStopWindowMs: 0,
-  fadeInMs: 5000, fadeOutMs: 5000, fadeHoldMs: 2000, sectionReset: true, retriggerRate: 8,
+  fadeInMs: 5000, fadeOutMs: 5000, fadeHoldMs: 2000, sectionReset: true, retriggerRate: 8, swing: 0, swingGrid: 8,
 }
 
 /** A stopped session with the first style loaded and Sync Start armed. */
@@ -227,6 +227,7 @@ export function initialState(): AppState {
       styleParts: STYLE_PART_NAMES.map((name, i) => ({
         name, channel: 9 + i, on: true, mutedByManualBass: false,
         volume: [100, 100, 96, 80, 76, 70, 88, 84][i], waiting: false, fader: null,
+        reverb: MOCK_STYLE_SENDS[i][0], chorus: MOCK_STYLE_SENDS[i][1], variation: MOCK_STYLE_SENDS[i][2], sendsSet: [],
         voice: { bankMsb: STYLE_VOICES[i][0], bankLsb: STYLE_VOICES[i][1], program: STYLE_VOICES[i][2], kit: STYLE_VOICES[i][3], label: STYLE_VOICES[i][4] },
       })),
       master: 100,
@@ -277,7 +278,7 @@ export function initialState(): AppState {
     soundLibrary: initialSoundLibrary(),
     paramLocks: { splitPoint: false, fingeringType: false },
     sounds: initialSounds(),
-    dynamics: { control: true, level: 64, touch: false, accent: false, accentThreshold: 110 },
+    dynamics: { control: true, level: 127, touch: false, accent: false, accentThreshold: 110 },
     knobs: { page: 'style', pageName: 'Style', pageNumber: 1, pageCount: 4, knobs: [] },
     effects: initialEffects(),
   }
@@ -372,6 +373,8 @@ export class MockSession implements Session {
   /** Fractional beats since the band started. */
   private clock = 0
   private sectionStart = 0
+  /** A style took over mid-Intro, -Fill or -Break: its OTS comes when the Main starts (#111). */
+  private otsDue = false
   private taps: number[] = []
   /** Steady taps in a row (the engine's count), and when a bar of them starts the band. */
   private tapRun = 0
@@ -676,6 +679,15 @@ export class MockSession implements Session {
         s.retriggerRate = RETRIGGER_RATES[Math.max(0, Math.min(RETRIGGER_RATES.length - 1, (i < 0 ? 3 : i) + Math.sign(cmd.delta)))]
         break
       }
+      case 'setSwing':
+        s.swing = Math.max(0, Math.min(100, Math.round(cmd.amount)))
+        break
+      case 'stepSwing':
+        s.swing = Math.max(0, Math.min(100, s.swing + Math.round(cmd.delta)))
+        break
+      case 'setSwingGrid':
+        s.swingGrid = cmd.grid >= 12 ? 16 : 8
+        break
     }
   }
 
@@ -735,10 +747,12 @@ export class MockSession implements Session {
       return
     }
     this.multiPads.bar()
+    // A queued style waits for an Ending, playing or queued: it loads at the stop (#111).
     const q = this.preview.queued
-    if (q !== null) {
+    const ending = [t.section, t.queued].some((s) => s !== null && ENDINGS.includes(s))
+    if (q !== null && !ending) {
       this.preview.queued = null
-      this.loadStyle(q)
+      this.loadStyle(q, true)
     }
     const played = bar - this.sectionStart
     const main = MAINS[t.main]
@@ -925,7 +939,8 @@ export class MockSession implements Session {
       t.main = m
       // OTS Link Timing "At Main Section Change": as the Main starts playing.
       const ots = this.state.ots
-      if (ots.link && ots.linkTiming === 'mainChange' && m < ots.settings.length && ots.applied !== m + 1) this.recallOts(m)
+      if (ots.link && m < ots.settings.length && (this.otsDue || (ots.linkTiming === 'mainChange' && ots.applied !== m + 1))) this.recallOts(m)
+      this.otsDue = false
     }
   }
 
@@ -1061,7 +1076,8 @@ export class MockSession implements Session {
     if (this.state.ots.link && this.state.ots.linkTiming === 'immediate' && target < this.state.ots.settings.length) this.recallOts(target)
   }
 
-  private loadStyle(id: number) {
+  /** `atBar`: a queued style taking over while the band plays (its OTS waits for a Main). */
+  private loadStyle(id: number, atBar = false) {
     const s = this.styles[id]
     if (!s) return
     // Loading hands over cleanly from an audition: it ends, the band stays as it was.
@@ -1073,6 +1089,10 @@ export class MockSession implements Session {
     const st = this.state
     const t = st.transport
     st.style = styleState(s)
+    // Dynamics starts at its maximum (as written) with each style, as the session.
+    st.dynamics.level = 127
+    // Swing starts at 0 (as written) with each style, as the session.
+    st.styleSettings.swing = 0
     // Change Behavior: Lock keeps, Hold keeps while playing, Reset takes the new style's.
     const resets = (rule: string) => rule === 'reset' || (rule === 'hold' && !t.running)
     if (resets(st.styleChange.tempo)) t.tempo = s.tempo
@@ -1081,7 +1101,13 @@ export class MockSession implements Session {
     if (!t.running && set !== null) t.main = [0, 1, 2, 3].map((d) => [set - d, set + d]).flat().find((j) => j >= 0 && j < 4 && s.sections.includes(MAINS[j])) ?? set
     t.beatsPerBar = beatsPerBar(st.style.timeSignature)
     st.ots = { settings: otsSettings(s.ots), applied: 0, link: st.ots.link, linkTiming: st.ots.linkTiming }
-    if (st.ots.link && t.main < s.ots) this.recallOts(t.main)
+    this.otsDue = false
+    if (st.ots.link && t.main < s.ots) {
+      // Taking over while the band plays: the new style's OTS comes with a Main (#111).
+      const inMain = t.section !== null && MAINS.includes(t.section) && !(t.queued !== null && !MAINS.includes(t.queued))
+      if (atBar && !inMain) this.otsDue = true
+      else this.recallOts(t.main)
+    }
     for (const p of st.mixer.styleParts) {
       p.volume = 100
       p.waiting = st.mixer.faderPage === 'style'
@@ -1320,6 +1346,20 @@ export class MockSession implements Session {
         break
       case 'toggleStylePart':
         st.mixer.styleParts[cmd.part].on = !st.mixer.styleParts[cmd.part].on
+        break
+      case 'setStylePartSend': {
+        const p = st.mixer.styleParts[cmd.part]
+        if (!p) break
+        p[cmd.send] = vol(cmd.value)
+        if (!p.sendsSet.includes(cmd.send)) p.sendsSet = (['reverb', 'chorus', 'variation'] as const).filter((x) => x === cmd.send || p.sendsSet.includes(x))
+        break
+      }
+      case 'resetStylePartSends':
+        st.mixer.styleParts.forEach((p, i) => {
+          if (cmd.part !== null && cmd.part !== i) return
+          ;[p.reverb, p.chorus, p.variation] = MOCK_STYLE_SENDS[i]
+          p.sendsSet = []
+        })
         break
       case 'setStylePartVolume':
         st.mixer.styleParts[cmd.part].volume = vol(cmd.volume)
@@ -1872,6 +1912,9 @@ function fxParams(block: FxBlock, effect: FxType): FxParamState[] {
       return { param, name, value, min, max, default: value, display: display(value) }
     })
 }
+
+/** The mock style's own sends per Style part (#268): reverb, chorus, variation (as the Rust mock's). */
+const MOCK_STYLE_SENDS: [number, number, number][] = [[30, 0, 0], [30, 0, 0], [20, 0, 0], [40, 10, 0], [40, 10, 0], [50, 20, 0], [50, 10, 20], [50, 10, 20]]
 
 /**
  * The effect bus as a session starts it: Hall, Chorus, the dotted 1/8 delay, every return 64;

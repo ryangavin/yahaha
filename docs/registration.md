@@ -6,13 +6,21 @@ Issues #36 and #38. The Genos behaviour is in [genos-features.md](genos-features
 
 ## What it does
 
-- **Ten buttons per bank.** A button stores the panel: pressing it recalls it. MEMORY
-  then a button stores the panel on that button, replacing what it held. Lamps as on the
-  Genos: red = the button in use, blue = stored, dark = empty (and all flashing red while
-  MEMORY waits for a button).
-- **Banks** are files: all ten buttons and the bank's Registration Sequence in one file.
-  REGIST BANK −/+ step through the bank files in the folder, in name order. Loading a
-  bank recalls nothing; its buttons light up.
+- **Snapshots, eight per snapshot bank.** The Genos's Registration Memory buttons are
+  called Snapshots (Snapshot 1–8, in Bank A, B, … H). A snapshot stores the panel:
+  pressing it recalls it. STORE (the Genos's MEMORY) then a snapshot stores the panel
+  there, replacing what it held. Lamps as on the Genos: red = the snapshot in use, blue =
+  stored, dark = empty (and all flashing red while Store waits for a button). Bank −/+
+  view the previous/next eight: up to one empty bank past the last stored one, to store
+  into. A recall (a sequence step, Regist +/−) brings the view to its bank.
+- **Bank files** hold every snapshot bank and the file's Registration Sequence. REGIST
+  BANK −/+ (File −/+ on the pads) step through the bank files in the folder, in name
+  order. Loading a bank file recalls nothing; its snapshots light up, on Bank A.
+- **Snapshot indices** run through the file: A1 = 0, A8 = 7, B1 = 8 … H8 = 63. The
+  sequence, playlist records and `pressRegist` use them. A file written before snapshots
+  (version 1, ten buttons) loads with buttons 1–8 as Bank A and 9–10 as B1–B2: the same
+  indices, so nothing moves; it is saved as version 2 (which an older build refuses
+  rather than dropping Bank B).
 - **Memorize groups** (the Memory window's checkboxes) choose what a button stores; a
   recall changes only what the button stored.
 - **Freeze** (the FREEZE button, and the ticked Freeze groups) leaves groups unchanged on
@@ -34,7 +42,7 @@ yahaha's own JSON, never Yamaha's `.rgt`. By default in `~/Documents/yahaha`
   ```json
   {
     "format": "yahaha.registration-bank",
-    "version": 1,
+    "version": 2,
     "name": "Friday Gig",
     "memories": [
       {
@@ -54,7 +62,7 @@ yahaha's own JSON, never Yamaha's `.rgt`. By default in `~/Documents/yahaha`
           "transpose": { "keyboard": 0, "master": 0 }
         }
       },
-      null, null, null, null, null, null, null, null, null
+      null, null, null, null, null, null, null
     ],
     "sequence": { "steps": [0, 1, 2, 1], "end": "next" }
   }
@@ -97,7 +105,7 @@ Today's sections: `style` (early), `multiPad` (early: the bank file, or null for
 `tempo`, `chord` (fingering, Upper, Manual Bass, split), `styleControl` (Main, Intro, Sync
 Start/Stop, Stop ACMP and its mode `stopAcmpMode` (Data List p.91: group Style; a bank without it
 recalls only on/off), OTS Link), `styleMixer` (the 8 Style parts' CC7, on/off, and `set`:
-which levels the player had set, and `level`: the Style volume, #199, the Genos's Style volume offset; a bank without it leaves it), `parts` (Right 1–3 and Left: on, voice, CC7, octave, `pan`/`reverb`/`chorus`/`variation` (CC10/91/93/94, #198/#204; a bank without them leaves them as they are), `tone` (#238: the voice settings an OTS or the panel set, `cutoff`, `resonance`, `attack`, `decay`, `release`, `vibratoRate`/`vibratoDepth`/`vibratoDelay`, `portamento`, `portamentoTime` as CC values and `xg`: XG multi part parameters `[hh, nn, vv]`; missing: the voice's own, as the recalled voice leaves them), `bendRange` (#238, RPN 0 semitones; missing: left as it is), and the part's own sound library
+which levels the player had set, and `level`: the Style volume, #199, the Genos's Style volume offset; a bank without it leaves it; and `sends` (#268): each part's own sends as `{ reverb, chorus, variation }`, a send absent where it follows the style; a bank without it leaves them), `parts` (Right 1–3 and Left: on, voice, CC7, octave, `pan`/`reverb`/`chorus`/`variation` (CC10/91/93/94, #198/#204; a bank without them leaves them as they are), `tone` (#238: the voice settings an OTS or the panel set, `cutoff`, `resonance`, `attack`, `decay`, `release`, `vibratoRate`/`vibratoDepth`/`vibratoDelay`, `portamento`, `portamentoTime` as CC values and `xg`: XG multi part parameters `[hh, nn, vv]`; missing: the voice's own, as the recalled voice leaves them), `bendRange` (#238, RPN 0 semitones; missing: left as it is), and the part's own sound library
 patch `patch: { id, name }` (#109), recalled through `setPartPatch`),
 `effects` (#204, group Style: each effect block's `effect` type, `returnLevel` and
 `bandSend` (#236; a bank from before it recalls the defaults, reverb 100, chorus 0,
@@ -214,23 +222,34 @@ Sequence On/Off, never in a bank.
 
 ## Launchkey, keys, app
 
-- **Pad page 4 (Registration)**: top row Regist 1–8; bottom row Regist 9, 10, Bank −,
-  Bank +, Memory, Freeze, Regist −, Regist +. Lamps in the Genos colours; the other pads
-  orange. **Shift + Track ◀/▶** = previous/next Playlist record.
-- **Terminal**: Shift + `Q`…`P` = buttons 1–10, `F5` Memory, `F6` Freeze, `F7`/`F8`
-  Regist −/+, `F11`/`F12` bank −/+, `<`/`>` playlist. A status line shows the bank, the
-  ten lamps, Memory, Freeze, the sequence and the playlist. On macOS, F11 is Show Desktop
-  by default: turn that shortcut off (System Settings › Keyboard › Keyboard Shortcuts ›
-  Mission Control), or use the app's Registration bar / pad page 4 for Bank −.
-- **Pedals** (Settings › Pedals, docs/controllers.md): Regist +/−, Registration Memory
-  1–10, Registration Memory (MEMORY), Registration Bank +/−, Registration Freeze On/Off
-  and Registration Sequence On/Off. A Regist +/− pedal steps the sequence while it is on
-  and programmed, and otherwise the bank's stored buttons in order (`stepRegist`).
-- **App**: the Registration bar under the keyboard strip (bank, the ten buttons with their
-  names, Memory, Freeze, the sequence, the playlist) and the Registration panel (Bank,
-  Memory & Freeze, Sequence, Playlist pages).
+- **Pad page 4 (Snapshots)**: top row Snapshots 1–8 of the bank on view; bottom row
+  Bank −, Bank + (snapshot banks), File −, File + (bank files), Store, Freeze, Regist −,
+  Regist +. Lamps in the Genos colours; the other pads orange (dark when they can't go
+  further). **Shift + Track ◀/▶** = previous/next Playlist record.
+- **Terminal**: Shift + `Q`…`I` = Snapshots 1–8, Shift + `O`/`P` = snapshot bank −/+,
+  `F5` Store, `F6` Freeze, `F7`/`F8` Regist −/+, `F11`/`F12` bank file −/+, `<`/`>`
+  playlist. A status line shows the bank file, the snapshot bank and its eight lamps,
+  Store, Freeze, the sequence and the playlist. On macOS, F11 is Show Desktop by default:
+  turn that shortcut off (System Settings › Keyboard › Keyboard Shortcuts › Mission
+  Control), or use the app's Registration bar / pad page 4 for File −.
+- **Pedals** (Settings › Pedals, docs/controllers.md): Regist +/−, Snapshot 1–8 (of the
+  bank on view; the old Registration Memory 9 and 10 are the next bank's 1 and 2, where a
+  ten-button bank's 9 and 10 went), Snapshot Store, Registration Bank +/−, Registration
+  Freeze On/Off and Registration Sequence On/Off. A Regist +/− pedal steps the sequence
+  while it is on and programmed, and otherwise the file's stored snapshots in order
+  across its banks (`stepRegist`).
+- **App**: the Registration bar under the keyboard strip (bank file, snapshot bank −/+,
+  the eight snapshots with their names, Store, Freeze, the sequence, the playlist) and
+  the Registration panel (Bank, Store & Freeze, Sequence, Playlist pages).
 
 ## Decisions (where the manuals are silent)
+
+- **Eight per bank, called Snapshots** (owner, 2026-09-26: "registration" is a hard
+  word, and the controllers have eights). Snapshot banks live inside a bank file rather
+  than being separate files, so a ten-button file migrates without writing new files,
+  and its sequence and playlist records keep pointing at the same registrations. At most
+  eight snapshot banks (A–H, 64 snapshots) per file. The wire names (`pressRegist`,
+  `toggleRegistMemory`, `memory`) stay, so saved controller maps and older clients work.
 
 - **File format**: JSON with a `format`/`version` header and one section per feature.
   Because: readable, diffable, and each feature adds its section without a format change.

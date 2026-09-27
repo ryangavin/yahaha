@@ -364,15 +364,39 @@ fn launchkey_page_4_recalls_and_memorizes() {
     let Some((s, dir)) = session("pads") else { return };
     s.send(PadsCmd::SetPadPage { page: Page::Registration }).unwrap();
     let st = s.state();
-    assert_eq!(st.pads.pads[0].label, "REGIST 1");
-    assert_eq!(st.pads.pads[0].action, Some(AppCmd::Registration(RegistrationCmd::PressRegist { index: 0 })));
-    // The Memory pad, then pad 10.
+    assert_eq!(st.pads.pads[0].label, "SNAP 1");
+    assert_eq!(st.pads.pads[0].action, Some(AppCmd::Registration(RegistrationCmd::PressSnapshot { slot: 0 })));
+    assert_eq!((st.registration.snapshot_bank, st.registration.snapshot_banks), (0, 1));
+    assert_eq!(st.registration.buttons.len(), 8, "Bank A");
+    // Bank +, then Store and pad 2: Snapshot B2 (index 9).
+    s.midi_in(Port::Pads, &[0x90, 113, 100]);
+    assert_eq!(s.state().registration.snapshot_bank, 1);
     s.midi_in(Port::Pads, &[0x90, 116, 100]);
     assert!(s.state().registration.memory);
-    s.midi_in(Port::Pads, &[0x90, 113, 100]);
+    s.midi_in(Port::Pads, &[0x90, 97, 100]);
     let st = s.state();
+    assert!(!st.registration.memory);
     assert!(st.registration.buttons[9].stored);
-    assert_eq!(st.pads.pads[9].level, Level::Bright);
+    assert_eq!((st.registration.snapshot_banks, st.registration.buttons.len()), (2, 16));
+    assert_eq!(st.registration.selected, Some(9));
+    assert_eq!(st.pads.pads[1].level, Level::Bright, "B2 lit on the pads");
+    assert_eq!(st.pads.pads[0].level, Level::Off, "B1 is empty");
+    // Bank + again: one empty bank past the last (C), and no further.
+    s.midi_in(Port::Pads, &[0x90, 113, 100]);
+    s.midi_in(Port::Pads, &[0x90, 113, 100]);
+    assert_eq!(s.state().registration.snapshot_bank, 2);
+    // Bank - twice: A; pressing pad 1 there does not touch B.
+    s.midi_in(Port::Pads, &[0x90, 112, 100]);
+    s.midi_in(Port::Pads, &[0x90, 112, 100]);
+    assert_eq!(s.state().registration.snapshot_bank, 0);
+    // Recalling B2 by index (a sequence step, the app) brings the pads to Bank B.
+    s.send(RegistrationCmd::RecallRegist { index: 9 }).unwrap();
+    assert_eq!(s.state().registration.snapshot_bank, 1);
+    // Emptying B2 shrinks the file back to Bank A, and the view with it.
+    s.send(RegistrationCmd::ClearRegist { index: 9 }).unwrap();
+    let st = s.state();
+    assert_eq!((st.registration.snapshot_banks, st.registration.snapshot_bank), (1, 1), "B stays on view, as the one empty bank");
+    assert!(s.send(RegistrationCmd::SelectSnapshotBank { bank: 2 }).is_err());
     // The Freeze pad.
     s.midi_in(Port::Pads, &[0x90, 117, 100]);
     assert!(s.state().registration.freeze);
@@ -387,7 +411,7 @@ fn playlist_records_load_banks_buttons_and_styles() {
     s.send(RegistrationCmd::MemorizeRegist { index: 6 }).unwrap();
     s.send(RegistrationCmd::SaveRegistBank { name: Some("Gig".into()), overwrite: false }).unwrap();
     s.send(PlaylistCmd::AddCurrentBank).unwrap();
-    s.send(LibraryCmd::LoadStyle { id: style_id(&s, "BubblyDub") }).unwrap();
+    s.send(LibraryCmd::StepStyle { delta: 1 }).unwrap();
     s.advance(MS);
     s.send(PlaylistCmd::AddCurrentStyle).unwrap();
     let st = s.state();
@@ -437,7 +461,7 @@ fn without_a_data_dir_banks_cannot_be_saved() {
     let s = Session::offline(Options { paths: vec![p], ..Options::default() }).unwrap();
     let st = s.state();
     assert_eq!((st.registration.folder.clone(), st.playlist.folder.clone()), (None, None));
-    assert_eq!(st.registration.buttons.len(), 10);
+    assert_eq!(st.registration.buttons.len(), 8);
     assert_eq!(st.registration.memorize_groups, Groups::all());
     s.send(RegistrationCmd::MemorizeRegist { index: 0 }).unwrap();
     assert!(s.send(RegistrationCmd::SaveRegistBank { name: Some("x".into()), overwrite: false }).is_err());
@@ -502,7 +526,7 @@ fn missing_style_is_reported() {
     s.send(RegistrationCmd::RecallRegist { index: 0 }).unwrap();
     s.advance(MS);
     let (text, error) = message(&s);
-    assert!(error && text.contains("Registration 1") && text.contains("style not found: /gone/Nope.sty"), "{text}");
+    assert!(error && text.contains("Snapshot A1") && text.contains("style not found: /gone/Nope.sty"), "{text}");
     assert_eq!(s.state().keyboard_parts[0].program, 61, "the rest is recalled");
     // Through a Playlist record too.
     s.send(PlaylistCmd::AddCurrentBank).unwrap();
@@ -1266,5 +1290,37 @@ fn a_pedal_steps_the_registrations() {
     assert!(!st.registration.memory && st.registration.buttons[9].stored, "Memory, then Regist 10, memorizes");
     trigger(Function::RegistFreeze).unwrap();
     assert!(s.state().registration.freeze);
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+/// Style Dynamics: a stored level recalls, across the style load that maxes it.
+#[test]
+fn registration_recalls_the_dynamics_level() {
+    let Some((s, dir)) = session("dynamics") else { return };
+    s.send(DynamicsCmd::SetDynamics { level: 50 }).unwrap();
+    s.send(RegistrationCmd::MemorizeRegist { index: 0 }).unwrap();
+    s.send(LibraryCmd::StepStyle { delta: 1 }).unwrap();
+    s.advance(50 * MS);
+    assert_eq!(s.state().dynamics.level, 127, "a style load maxes Dynamics");
+    s.send(RegistrationCmd::PressRegist { index: 0 }).unwrap();
+    s.advance(50 * MS);
+    assert_eq!(s.state().dynamics.level, 50);
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+/// Swing: a Snapshot stores the amount and grid; a style load sets swing back to 0.
+#[test]
+fn snapshot_recalls_the_swing() {
+    let Some((s, dir)) = session("swing") else { return };
+    s.send(StyleSettingsCmd::SetSwing { amount: 60 }).unwrap();
+    s.send(StyleSettingsCmd::SetSwingGrid { grid: 16 }).unwrap();
+    s.send(RegistrationCmd::MemorizeRegist { index: 0 }).unwrap();
+    s.send(LibraryCmd::StepStyle { delta: 1 }).unwrap();
+    s.advance(50 * MS);
+    assert_eq!(s.state().style_settings.swing, 0, "a style load plays as written");
+    s.send(RegistrationCmd::PressRegist { index: 0 }).unwrap();
+    s.advance(50 * MS);
+    let st = s.state().style_settings.clone();
+    assert_eq!((st.swing, st.swing_grid), (60, 16));
     let _ = std::fs::remove_dir_all(dir);
 }

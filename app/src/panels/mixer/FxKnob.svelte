@@ -17,6 +17,8 @@
     reset,
     centre = false,
     format = String,
+    onreset = null,
+    own = false,
   }: {
     value: number
     tip: TipKey
@@ -28,6 +30,10 @@
     reset: number
     centre?: boolean
     format?: (v: number) => string
+    /** What a double-click does instead of going back to `reset` (a Style part: back to the style). */
+    onreset?: (() => void) | null
+    /** The player set this value (a Style part's own send, #268): marked. */
+    own?: boolean
   } = $props()
 
   const MAX = 127
@@ -78,6 +84,7 @@
 
 <div
   class="knob"
+  class:own
   role="slider"
   tabindex="0"
   aria-label={label}
@@ -90,7 +97,7 @@
   onpointermove={move}
   onpointerup={up}
   onpointercancel={up}
-  ondblclick={() => set(reset)}
+  ondblclick={() => (onreset ? onreset() : set(reset))}
   onkeydown={key}
 >
   <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -132,6 +139,13 @@
   }
   .lit {
     stroke: var(--accent);
+  }
+  /* A Style part's own send (#268): not the style's. */
+  .own .caption {
+    color: var(--accent);
+  }
+  .own .caption::after {
+    content: '•';
   }
   .cap {
     fill: var(--raised-lo);

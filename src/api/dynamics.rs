@@ -1,7 +1,7 @@
 //! Style Dynamics Control (Genos2: Menu > Style Setting > Dynamics Control; the Live
 //! Control / Assignable "Dynamics Control"), Touch and Accent (#180; engine/dynamics.rs).
 //!
-//! - **Dynamics level** (0-127, 64 = as written): scales the velocity of every Style note.
+//! - **Dynamics level** (0-127, 127, the default = as written): scales the velocity of every Style note.
 //! - **Dynamics Control** (Style Setting, on/off): whether the level acts on the Style.
 //! - **Touch**: each key struck in the chord section sets the level from its velocity.
 //! - **Accent**: a chord-section key struck at or above the threshold plays the Main's fill.
@@ -18,7 +18,7 @@ pub enum DynamicsCmd {
     /// Style Setting > Dynamics Control: the level may act on the Style (on) or the Style
     /// plays as written (off).
     SetDynamicsControl { on: bool },
-    /// The Dynamics level, 0-127 (64: as written).
+    /// The Dynamics level, 0-127 (127, the default: as written).
     SetDynamics { level: u8 },
     /// The Dynamics level moved by `delta` (clamped to 0-127).
     StepDynamics { delta: i8 },
@@ -38,7 +38,7 @@ pub enum DynamicsCmd {
 pub struct DynamicsState {
     /// Style Setting > Dynamics Control.
     pub control: bool,
-    /// The level in effect, 0-127 (64: as written); Touch moves it.
+    /// The level in effect, 0-127 (127, the default: as written); Touch moves it.
     pub level: u8,
     pub touch: bool,
     pub accent: bool,
@@ -83,7 +83,7 @@ mod tests {
     #[test]
     fn commands_apply_and_clamp() {
         let s = DynamicsSettings::default();
-        assert_eq!(DynamicsCmd::StepDynamics { delta: -100 }.apply(s).level, 0);
+        assert_eq!(DynamicsCmd::StepDynamics { delta: -128 }.apply(s).level, 0);
         assert_eq!(DynamicsCmd::StepDynamics { delta: 100 }.apply(s).level, 127);
         assert_eq!(DynamicsCmd::SetDynamics { level: 200 }.apply(s).level, 127);
         assert_eq!(DynamicsCmd::SetAccentThreshold { velocity: 0 }.apply(s).accent_min, 1);

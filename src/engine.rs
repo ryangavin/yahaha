@@ -34,6 +34,7 @@ mod style_change;
 mod sync_stop;
 mod tempo_repeat;
 mod timing;
+mod swing;
 mod transport;
 
 pub use chart::{ChartPlan, ChartSettings, PlanBar, CHART_CHORDS};
@@ -53,7 +54,7 @@ pub use ritardando::RIT_END;
 pub use tempo_repeat::{repeat_interval_ms, MAX_HOLD_MS, REPEAT_DELAY_MS, TEMPO_STEP};
 pub use settle::{CHORD_SETTLE_DEFAULT_MS, CHORD_SETTLE_MAX_MS};
 use settle::{Hold, Unsettled};
-pub use timing::{IntroEndingTiming, MainTiming, StyleSettings, MAX_FADE_HOLD_MS, MAX_FADE_MS, MAX_SYNC_STOP_WINDOW_MS, RETRIGGER_RATES};
+pub use timing::{IntroEndingTiming, MainTiming, StyleSettings, FILL_GRACE_MAX_MS, MAX_FADE_HOLD_MS, MAX_FADE_MS, MAX_SYNC_STOP_WINDOW_MS, RETRIGGER_RATES};
 
 use crate::sff::{ChannelRule, Ntr, Ntt, Rtr, SectionId, Style};
 use crate::theory::{is_drum_part, plays, transpose_group, Chord, CANCEL, GUITAR_NOISE};
@@ -243,6 +244,10 @@ pub struct Snapshot {
     pub multipad: PadsSnap,
     /// The Dynamics level in effect, 0-127 (Touch moves it; engine/dynamics.rs).
     pub dynamics: u8,
+    /// Each Style part's send to each bus as it plays (#268, `[part][bus]`: CC91/93/94).
+    pub style_sends: [[u8; 3]; 8],
+    /// Each Style part's own send (#268), 255 where it follows the style.
+    pub style_send_own: [[u8; 3]; 8],
 }
 
 /// Where a style preview is: style `id` (the session's library id), bar `bar` of `bars`
@@ -573,6 +578,8 @@ impl Engine {
             style_solo: self.features.solo,
             multipad: self.pads_snapshot(),
             dynamics: self.features.dynamics.settings.level,
+            style_sends: self.style_sends().0,
+            style_send_own: self.style_sends().1,
         }
     }
 
@@ -595,7 +602,7 @@ impl Engine {
             t = t.min(p.at);
         }
         if let Some(e) = sec.events.get(self.ev_idx) {
-            t = t.min(self.sec_start + e.tick as f64);
+            t = t.min(self.sec_start + self.ev_tick(e.tick));
         }
         if let Some(h) = self.hook_deadline() {
             t = t.min(h);

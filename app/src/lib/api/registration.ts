@@ -16,13 +16,19 @@ export type PlaylistRecord =
   | { name: string; kind: 'bank'; path: string; regist?: number | null }
   | { name: string; kind: 'style'; path: string }
 
-/** Registration Memory commands. Buttons are 0-based (0–9 = the panel's [1]–[10]). */
+/** Snapshot (Registration Memory) commands. `index` is a snapshot's place in the bank
+ * file: `bank * 8 + slot` (0 = A1, 9 = B2, up to 63 = H8). */
 export type RegistrationCmd =
-  /** A REGISTRATION MEMORY button: recall, or memorize while MEMORY is armed. */
+  /** A snapshot button: recall, or store while Store is armed. */
   | { type: 'pressRegist'; index: number }
+  /** Snapshot `slot` (0–7) of the snapshot bank on view, as `pressRegist`. */
+  | { type: 'pressSnapshot'; slot: number }
+  /** Snapshot bank −/+: view the previous/next eight (up to one empty bank past the last). */
+  | { type: 'stepSnapshotBank'; delta: number }
+  | { type: 'selectSnapshotBank'; bank: number }
   | { type: 'recallRegist'; index: number }
   | { type: 'memorizeRegist'; index: number }
-  /** The MEMORY button: the next button press memorizes. */
+  /** The STORE button (the Genos's MEMORY): the next button press stores. */
   | { type: 'toggleRegistMemory' }
   | { type: 'setMemorizeGroup'; group: RegistGroup; on: boolean }
   | { type: 'clearRegist'; index: number }
@@ -79,12 +85,16 @@ export interface RegistrationState {
   banks: { name: string; path: string }[]
   /** Where banks are saved; null when saving is off. */
   folder: string | null
-  /** Always 10. */
+  /** Every snapshot of the bank file, by index: whole banks of eight, through the one on view. */
   buttons: RegistButton[]
-  /** The button last recalled or memorized. */
+  /** The snapshot last recalled or stored (its index). */
   selected: number | null
-  /** MEMORY is armed. */
+  /** Store is armed. */
   memory: boolean
+  /** The snapshot bank on view (0 = Bank A): the pads press its eight. */
+  snapshotBank: number
+  /** Snapshot banks the file holds (at least 1). */
+  snapshotBanks: number
   memorizeGroups: RegistGroup[]
   freeze: boolean
   freezeGroups: RegistGroup[]
@@ -145,14 +155,39 @@ export const SEQUENCE_ENDS: { id: SequenceEnd; name: string }[] = [
   { id: 'next', name: 'Next bank' },
 ]
 
+/** Snapshots per snapshot bank, and snapshot banks per bank file (A–H). */
+export const SLOTS = 8
+export const MAX_BANKS = 8
+
+/** Snapshot bank `bank` (0-based): 'A', 'B', … */
+export const bankLetter = (bank: number) => String.fromCharCode(65 + bank)
+
+/** A snapshot's short label: 'A1' for index 0, 'B2' for index 9. */
+export const snapshotLabel = (index: number) => `${bankLetter(Math.floor(index / SLOTS))}${(index % SLOTS) + 1}`
+
+/** Whole snapshot banks, just enough for the last stored snapshot (at least one, at most
+ * MAX_BANKS): the backend's `registration::Bank` shape. */
+export function normalizeSlots<T>(v: (T | null)[]): (T | null)[] {
+  const out = v.slice(0, SLOTS * MAX_BANKS)
+  let used = 0
+  out.forEach((m, i) => {
+    if (m !== null) used = i + 1
+  })
+  const n = Math.max(1, Math.ceil(used / SLOTS)) * SLOTS
+  while (out.length < n) out.push(null)
+  return out.slice(0, n)
+}
+
 export function emptyRegistration(): RegistrationState {
   return {
     bank: { name: 'New Bank', path: null, dirty: false, position: null },
     banks: [],
     folder: null,
-    buttons: Array.from({ length: 10 }, (_, index) => ({ index, stored: false, name: '', groups: [], style: null, tempo: null, voices: [] })),
+    buttons: Array.from({ length: SLOTS }, (_, index) => ({ index, stored: false, name: '', groups: [], style: null, tempo: null, voices: [] })),
     selected: null,
     memory: false,
+    snapshotBank: 0,
+    snapshotBanks: 1,
     memorizeGroups: REGIST_GROUPS.map((g) => g.id),
     freeze: false,
     freezeGroups: [],
