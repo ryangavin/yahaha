@@ -709,11 +709,12 @@ mod tests {
         assert_eq!(s.played.unwrap().name(), "Em7");
     }
 
-    /// Keyboard transpose moves the chart's chords.
+    /// Keyboard transpose moves the chart's chords: set before the start, from the first;
+    /// changed while it plays, from its next chord (#264).
     #[test]
     fn keyboard_transpose_applies_to_the_chart() {
         let Some(mut e) = engine() else { return };
-        e.set_chart(plan("*A[C |F Z", 1), 0);
+        e.set_chart(plan("*A[C |F |Bb Z", 1), 0);
         e.set_chart_settings(settings(None, None), 0);
         e.set_transpose(Transpose::new(2, 0), 0, &mut Nop);
         start(&mut e);
@@ -726,8 +727,10 @@ mod tests {
         assert_eq!(e.chord.unwrap().name(), "G");
         e.set_transpose(Transpose::new(-1, 0), bar + bar / 2, &mut Nop);
         e.process(bar + bar / 2, &mut Nop);
-        assert_eq!(e.chord.unwrap().name(), "E");
+        assert_eq!(e.chord.unwrap().name(), "G");
         assert!(!e.snapshot(bar + bar / 2).chart_override);
+        e.process(2 * bar + bar / 4, &mut Nop);
+        assert_eq!(e.chord.unwrap().name(), "A", "Bb, the next chord, moved");
     }
 
     /// A loop plays its bars over and over, with no Ending.

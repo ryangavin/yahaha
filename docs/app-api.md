@@ -153,7 +153,7 @@ Style Section Reset, the Fade In/Out times and the Style Retrigger length. The s
 | `setManualBass` / `toggleManualBass` | `on` | The Manual Bass setting. Ignored in Lower. |
 | `setSplit` | `note` (MIDI) | Split point, clamped to 24–96. |
 | `moveSplit` | `delta` | Moves the split by `delta` keys. |
-| `setTranspose` | `keyboard`, `master` | Semitones, each clamped to −12..12. |
+| `setTranspose` | `keyboard`, `master` | Semitones, each clamped to −12..12. Keyboard moves the keyboard parts at once, but the chord the style follows only from the next chord input (a chord held, or an Intro playing, stays in the old key, as on the Genos; #264). Master moves every note started from now on. |
 | `stepTranspose` | `keyboard`, `master` | Adds to the current transpose. |
 | `resetTranspose` | | Both back to 0. |
 | `setChordSettle` | `ms` | The chord-settle window, clamped to 0–30 ms (default 10). While the style plays (and, with it stopped, for Stop Accompaniment and Chord Match Multi Pads), a chord change reaches the accompaniment once the chord has held still this long (at most three windows after the first change), so a rolled chord is followed once. 0: at once. Not a Genos setting; see docs/genos-features.md (Chord settle). |

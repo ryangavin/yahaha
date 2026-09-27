@@ -125,7 +125,7 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 
 | control | what it does | Genos | key | Launchkey |
 |---|---|---|---|---|
-| **Transpose** | Keyboard transpose moves your keys and the chord the style follows. Master transpose moves everything that sounds, drums excepted. | TRANSPOSE | — | — |
+| **Transpose** | Keyboard transpose moves your keys at once, and the band from the next chord you play (a chord held keeps the band in the old key, as on the Genos). Master transpose moves everything that sounds, drums excepted. | TRANSPOSE | — | — |
 | **Keyboard transpose −** | Moves your keys and the chord the style follows down a semitone. The pad lights while it's below zero. | TRANSPOSE − (Keyboard) | `;` | Pad page 2 (Chord/Setup), bottom row, pad 5 |
 | **Keyboard transpose +** | Moves your keys and the chord the style follows up a semitone. The pad lights while it's above zero. | TRANSPOSE + (Keyboard) | `'` | Pad page 2 (Chord/Setup), bottom row, pad 6 |
 | **Master transpose −** | Moves everything that sounds down a semitone, the band included (not the drums). | TRANSPOSE − (Master) | `:` | — |
