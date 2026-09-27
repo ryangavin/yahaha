@@ -438,6 +438,8 @@ export type StyleSettingsCmd =
   | { type: 'stepSwing'; delta: number }
   /** 8 (off-beat 8ths) or 16 (off-beat 16ths). */
   | { type: 'setSwingGrid'; grid: number }
+  /** Play the tempo changes written inside Intros/Endings, relative to the tempo (#243). */
+  | { type: 'setSectionTempo'; on: boolean }
 
 export interface StyleSettingsState {
   mainTiming: MainTiming
@@ -455,6 +457,8 @@ export interface StyleSettingsState {
   swing: number
   /** The swing grid, 8 or 16. */
   swingGrid: number
+  /** The tempo changes written inside sections play (#243). Default on. */
+  sectionTempo: boolean
 }
 
 /** Fade In/Out: armed = stopped, START fades in; holding = faded out, silent for the hold. */

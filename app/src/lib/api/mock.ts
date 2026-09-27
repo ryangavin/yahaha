@@ -196,7 +196,7 @@ function patternBars(s: string): number {
 /** The engine's default Style settings (src/engine/timing.rs). */
 export const DEFAULT_STYLE_SETTINGS: StyleSettingsState = {
   mainTiming: 'nextBar', introEndingTiming: 'nextBar', syncStopWindowMs: 0,
-  fadeInMs: 5000, fadeOutMs: 5000, fadeHoldMs: 2000, sectionReset: true, retriggerRate: 8, swing: 0, swingGrid: 8,
+  fadeInMs: 5000, fadeOutMs: 5000, fadeHoldMs: 2000, sectionReset: true, retriggerRate: 8, swing: 0, swingGrid: 8, sectionTempo: true,
 }
 
 /** A stopped session with the first style loaded and Sync Start armed. */
@@ -690,6 +690,9 @@ export class MockSession implements Session {
         break
       case 'stepSwing':
         s.swing = Math.max(0, Math.min(100, s.swing + Math.round(cmd.delta)))
+        break
+      case 'setSectionTempo':
+        s.sectionTempo = cmd.on
         break
       case 'setSwingGrid':
         s.swingGrid = cmd.grid >= 12 ? 16 : 8
@@ -1245,6 +1248,7 @@ export class MockSession implements Session {
       case 'setSwing':
       case 'stepSwing':
       case 'setSwingGrid':
+      case 'setSectionTempo':
         this.styleSettings(cmd)
         break
       case 'toggleSyncStart':

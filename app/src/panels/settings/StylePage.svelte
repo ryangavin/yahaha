@@ -148,6 +148,10 @@
   <Toggle on={st.sectionReset} tip="settings.section_reset" onclick={() => app.send({ type: 'setSectionReset', on: !st.sectionReset })}>{onOff(st.sectionReset)}</Toggle>
 </Field>
 
+<Field name="Written tempo changes" genos="—" inline note="On: the slow-downs a style writes into its Endings and Intros play, scaled to your tempo.">
+  <Toggle on={st.sectionTempo} tip="settings.section_tempo" onclick={() => app.send({ type: 'setSectionTempo', on: !st.sectionTempo })}>{onOff(st.sectionTempo)}</Toggle>
+</Field>
+
 <Field name="Fade In/Out" genos="Fade In/Out" inline note={FADE_NOTE[t.fade]}>
   <Toggle on={t.fade !== 'off'} tip="transport.fade" onclick={() => app.send({ type: 'toggleFade' })}>{FADE_LABEL[t.fade]}</Toggle>
 </Field>

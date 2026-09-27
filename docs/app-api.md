@@ -143,6 +143,7 @@ Style Section Reset, the Fade In/Out times and the Style Retrigger length. The s
 | `setSwing` | `amount` 0–100 | Live Swing: 0 plays the Style as written; 100 moves straight off-beats (8ths or 16ths, `swingGrid`) to the triplet position. A tick remap of the Style's events as they play (drums and all accompaniment parts; the player's keys are never moved). Parts already swung are not swung again: a triplet off-beat stays put, and positions between scale in proportion. Each style load sets it back to 0; registrations store it (group Style). |
 | `stepSwing` | `delta` | Swing moved by `delta` %, clamped to 0–100. |
 | `setSwingGrid` | `grid` | 8 (off-beat 8ths, the default) or 16 (off-beat 16ths). |
+| `setSectionTempo` | `on` | Play the tempo changes a style writes inside its sections, mostly the ritardandos at the end of Endings and Intros (#243). Default on. They play relative to the tempo playing: an Ending written to slow from the style's 120 to 90 slows from 100 to 75 at 100 BPM. The panel tempo comes back when the section ends or the band stops. TEMPO −/+, TAP and `setTempo` during one move the tempo it is read against; pressing the Ending again (its ritardando) takes over from the tempo reached. |
 
 ### Chord detection, split, transpose
 
@@ -968,6 +969,7 @@ The settings the `Style settings` commands set.
 | `retriggerRate` | 1, 2, 4, 8, 16, 32 | Style Retrigger length. Default 8 (an eighth note). |
 | `swing` | 0–100 | Live Swing (`setSwing`). Default 0; each style load sets 0. |
 | `swingGrid` | 8, 16 | The swing grid. Default 8. |
+| `sectionTempo` | bool | The tempo changes written inside sections play (`setSectionTempo`). Default on. |
 
 ### `registration`
 
@@ -1630,7 +1632,8 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
     "sectionReset": true,
     "retriggerRate": 8,
     "swing": 0,
-    "swingGrid": 8
+    "swingGrid": 8,
+    "sectionTempo": true
   },
   "registration": {
     "bank": { "name": "Friday Gig", "path": "/Users/me/Documents/yahaha/Registration/Friday Gig.regist.json", "dirty": false, "position": 0 },
