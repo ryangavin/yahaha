@@ -52,6 +52,8 @@
   import Toggle from '../../lib/ui/Toggle.svelte'
   import HSlider from '../settings/HSlider.svelte'
   import Strip from './Strip.svelte'
+  import { FADER_LAYERS, type FaderLayer } from '../../lib/api/types'
+  const LAYER_NAMES: Record<FaderLayer, string> = { volume: 'VOL', pan: 'PAN', reverb: 'REV', chorus: 'CHO', delay: 'DLY' }
   import { partVoice, pluginBadge, pluginTip, styleVoice } from './voice'
 
   const mixer = $derived(app.state.mixer)
@@ -240,6 +242,11 @@
           >
             <span class="dot" class:on={page === t.id} aria-hidden="true"></span>{t.name}
           </button>
+        {/each}
+      </div>
+      <div class="layers" role="group" aria-label="Fader layer">
+        {#each FADER_LAYERS as l (l)}
+          <Toggle on={app.state.mixer.faderLayer === l} tip="mixer.layer" onclick={() => app.send({ type: 'setFaderLayer', layer: l })}>{LAYER_NAMES[l]}</Toggle>
         {/each}
       </div>
       <div class="follows engraved" use:tip={'mixer.page'}>
@@ -727,5 +734,9 @@
     /* The height of a strip's buttons, voice and badge, so the master fader lines up. */
     min-height: 6.4rem;
     padding-top: 0.2rem;
+  }
+  .layers {
+    display: flex;
+    gap: 0.25em;
   }
 </style>

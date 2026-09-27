@@ -27,8 +27,9 @@ pub enum SettingsCmd {
     SetMidiInputs { all: bool, names: Vec<String> },
     /// Launchkey LEDs in Novation palette colours (and hardware flashing) instead of RGB.
     SetPaletteLeds { on: bool },
-    /// The synth's audio buffer: 64, 128 or 256 frames (`io.synth.bufferFrames`). Larger
-    /// buffers give heavy plugins more time per block, at the cost of latency. The output
+    /// The synth's audio buffer: 64, 128, 256, 512 or 1024 frames
+    /// (`io.synth.bufferFrames`). Larger buffers give heavy plugins, and a busy machine,
+    /// more time per block, at the cost of latency. The output
     /// reopens with a moment of silence; voices, plugins and held notes carry over. A live
     /// session remembers it.
     SetAudioBuffer { frames: u32 },
@@ -97,6 +98,11 @@ pub struct SynthState {
     /// The stereo pair it plays on, 1-based, e.g. [1, 2].
     pub output_pair: [u8; 2],
     pub muted: bool,
+    /// Audio dropouts since the synth started: the device reported an overload (an IO
+    /// cycle missed its deadline), or the callback took longer than its buffer lasts. The
+    /// app suggests a larger buffer when they keep coming.
+    #[serde(default)]
+    pub dropouts: u64,
 }
 
 /// Real-time health.

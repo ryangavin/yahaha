@@ -8,6 +8,7 @@
 //   ?shift=1       latch the Launchkey mirror's Shift layer
 //   ?styles=N      mock: add N synthetic styles to the library (e.g. 60000; read in api/session.ts)
 //   ?chart=1       mock: import the demo chart playlist, chart mode on (read in api/session.ts)
+//   ?dropouts=N    mock: N audio dropouts after half a second, raising the dropout notice (api/session.ts)
 
 import { isTipKey } from '../help/tooltips'
 import { ui } from './store.svelte'

@@ -251,6 +251,7 @@ impl MockSession {
                 stop_acmp: false,
                 section: Some("Main B".into()),
                 queued: None,
+                landing: None,
                 pending_intro: None,
                 main: 1,
                 bar: 12,
@@ -263,6 +264,7 @@ impl MockSession {
                 stop_acmp_mode: StopAcmpMode::Off,
                 fade: FadeState::Off,
                 retrigger: false,
+                acmp: true,
                 ritardando: false,
             },
             chord: ChordState {
@@ -283,6 +285,8 @@ impl MockSession {
             keyboard_parts: vec![part(0, 0, true), part(1, 48, true), part(2, 61, false), part(3, 48, false)],
             mixer: MixerState {
                 fader_page: FaderPage::Panel,
+                fader_layer: yahaha::parts::FaderLayer::Volume,
+                send_waiting: 0,
                 style_parts: STYLE_PARTS
                     .iter()
                     .enumerate()
@@ -332,6 +336,7 @@ impl MockSession {
                     channels: 2,
                     output_pair: [1, 2],
                     muted: false,
+                    dropouts: 0,
                 }),
                 engine: EngineStats { realtime: true, wake_p99_us: 3, chord_p99_us: 15, midi_in_p99_us: 120 },
                 last_control: 0,
@@ -942,6 +947,8 @@ impl MockSession {
     }
 
     fn recall_ots(&mut self, n: usize) {
+        // An OTS recall turns [ACMP] on.
+        self.state.transport.acmp = true;
         let panel = self.state.mixer.fader_page == FaderPage::Panel;
         let setting = self.state.ots.settings[n].clone();
         for (i, (p, o)) in self.state.keyboard_parts.iter_mut().zip(&setting.parts).enumerate() {
@@ -1145,6 +1152,10 @@ impl MockSession {
         }
         st.pads.page_name = st.pads.page.name().into();
         st.pads.page_number = st.pads.page as u8 + 1;
+        // Where a fill (or the Break) queued or playing lands (#282).
+        let fill_like = |x: &Option<String>| x.as_deref().is_some_and(|x| FILLS.contains(&x) || x == BREAK);
+        let t = &mut st.transport;
+        t.landing = (t.running && (fill_like(&t.queued) || fill_like(&t.section))).then(|| MAINS[t.main as usize % 4].into());
         st.transport.lamps = pads_for(st, Page::Sections);
         self.regist.fill(st);
         st.pads.pads = if st.pads.page == Page::Registration { self.regist.pads() } else { pads_for(st, st.pads.page) };
@@ -1270,7 +1281,9 @@ impl MockSession {
             FaderPage::Panel => "PANEL",
             FaderPage::Style => "STYLE",
         };
-        push("masterButton".into(), *lk::FADER_BTN_CC.end(), master, Some(AppCmd::Mixer(MixerCmd::ToggleFaderPage)), None);
+        let layer = self.state.mixer.fader_layer;
+        let master = if layer == yahaha::parts::FaderLayer::Volume { master.to_string() } else { format!("{master} {}", layer.short()) };
+        push("masterButton".into(), *lk::FADER_BTN_CC.end(), &master, Some(AppCmd::Mixer(MixerCmd::ToggleFaderPage)), Some(("LAYER", Some(AppCmd::Mixer(MixerCmd::StepFaderLayer { delta: 1 })))));
 
         // The faders: the parts they control on this page, and where they physically are.
         let mut faders: Vec<SurfaceFader> = (0..8u8)
@@ -1402,7 +1415,20 @@ impl MockSession {
                     return;
                 }
                 let t = &mut self.state.transport;
+                let fill_like = |x: &Option<String>| x.as_deref().is_some_and(|x| FILLS.contains(&x) || x == BREAK);
                 if !running {
+                    t.main = i;
+                } else if t.section.as_deref().is_some_and(|x| FILLS.contains(&x)) {
+                    // A fill playing (#282): its own Main again repeats it once; another Main
+                    // only moves the landing and calls off a repeat.
+                    if t.section.as_deref() == Some(FILLS[i as usize]) {
+                        t.queued = Some(FILLS[i as usize].into());
+                    } else if fill_like(&t.queued) {
+                        t.queued = None;
+                    }
+                    t.main = i;
+                } else if fill_like(&t.queued) {
+                    // A fill already queued: the first press picked it; this one moves the landing.
                     t.main = i;
                 } else if t.section.as_deref() == Some(m) {
                     t.queued = Some(FILLS[i as usize].into());
@@ -1507,6 +1533,8 @@ impl MockSession {
             }
             AppCmd::Transport(TransportCmd::SectionReset) => self.reset_section(),
             AppCmd::Transport(TransportCmd::ToggleRetrigger) => self.state.transport.retrigger = !self.state.transport.retrigger,
+            AppCmd::Transport(TransportCmd::ToggleAcmp) => self.state.transport.acmp = !self.state.transport.acmp,
+            AppCmd::Transport(TransportCmd::SetAcmp { on }) => self.state.transport.acmp = on,
             AppCmd::Transport(TransportCmd::TapTempo) if running && self.settings.section_reset => self.reset_section(),
             AppCmd::StyleSettings(c) => {
                 self.settings = c.apply(self.settings);
@@ -1735,6 +1763,8 @@ impl MockSession {
                 }
             }
             AppCmd::Mixer(MixerCmd::SetFaderPage { page }) => self.set_fader_page(page),
+            AppCmd::Mixer(MixerCmd::SetFaderLayer { layer }) => self.state.mixer.fader_layer = layer,
+            AppCmd::Mixer(MixerCmd::StepFaderLayer { delta }) => self.state.mixer.fader_layer = self.state.mixer.fader_layer.step(delta.signum()),
             AppCmd::Mixer(MixerCmd::ToggleFaderPage) => {
                 let page = if self.state.mixer.fader_page == FaderPage::Panel { FaderPage::Style } else { FaderPage::Panel };
                 self.set_fader_page(page);
@@ -1804,8 +1834,8 @@ impl MockSession {
                 }
             }
             AppCmd::Settings(SettingsCmd::SetAudioBuffer { frames }) => match &mut self.state.io.synth {
-                Some(s) if matches!(frames, 64 | 128 | 256) => s.buffer_frames = Some(frames),
-                Some(_) => self.message(format!("the audio buffer is 64, 128 or 256 frames, not {frames}"), true),
+                Some(s) if yahaha::synth::BUFFER_CHOICES.contains(&frames) => s.buffer_frames = Some(frames),
+                Some(_) => self.message(format!("the audio buffer is 64, 128, 256, 512 or 1024 frames, not {frames}"), true),
                 None => self.message("the synth is off", true),
             },
             AppCmd::Settings(SettingsCmd::NextAudioOutput) => {
@@ -2110,6 +2140,8 @@ fn pads_for(s: &AppState, page: Page) -> Vec<Pad> {
                     (C_MAIN, Level::Off, Anim::Solid)
                 } else if is(&t.queued, id) || is(&t.queued, fill) || is(&t.section, fill) {
                     (C_MAIN, Level::Bright, Anim::Flash)
+                } else if is(&t.landing, id) {
+                    (C_MAIN, Level::Bright, Anim::Pulse)
                 } else if is(&t.section, id) || (t.main as usize == i && !t.section.as_deref().is_some_and(|x| MAINS.contains(&x))) {
                     (C_MAIN, Level::Bright, Anim::Solid)
                 } else {
@@ -2549,6 +2581,18 @@ mod tests {
         assert_eq!(m.state.transport.queued.as_deref(), Some("Fill In BB"));
         let lamp = m.state.transport.lamps.iter().find(|p| p.note == 113).unwrap();
         assert_eq!((lamp.level, lamp.anim), (Level::Bright, Anim::Flash));
+    }
+
+    /// #282: with a fill queued, a later press moves only where it lands; that Main pulses.
+    #[test]
+    fn a_later_press_moves_the_landing_not_the_fill() {
+        let mut m = MockSession::new();
+        m.send(TransportCmd::Main { index: 1 });
+        m.send(TransportCmd::Main { index: 0 });
+        let t = &m.state.transport;
+        assert_eq!((t.queued.as_deref(), t.landing.as_deref()), (Some("Fill In BB"), Some("Main A")));
+        let lamp = t.lamps.iter().find(|p| p.note == 112).unwrap();
+        assert_eq!((lamp.level, lamp.anim), (Level::Bright, Anim::Pulse));
     }
 
     #[test]

@@ -153,6 +153,13 @@ const catalog = {
     keys: ['~'],
     launchkey: pad(P2, 'bottom', 8),
   },
+  'transport.acmp': {
+    title: 'ACMP',
+    body: 'Auto Accompaniment on or off. Off, the style plays its rhythm only, your chords change nothing, Sync Start starts on any key, and the whole keyboard plays your Right voices (Left below the split when Left is on). One Touch Settings and Chord Looper REC turn it back on.',
+    genos: 'ACMP',
+    keys: ['%'],
+    launchkey: 'Shift + encoder page ▼ (right of the knobs)',
+  },
   'transport.retrigger_shorter': {
     title: 'Retrigger length shorter',
     body: 'Makes the Retrigger loop one step shorter: 1, 1/2, 1/4, 1/8, 1/16, 1/32 of a whole note.',
@@ -255,7 +262,7 @@ const catalog = {
   },
   'section.lamps': {
     title: 'Section lamps',
-    body: 'Dim: available. Bright: playing, or on. Flashing: queued for the next bar (fills: the next beat). Pulsing: armed and waiting for you. Dark: this style doesn\'t have it.',
+    body: 'Dim: available. Bright: playing, or on. Flashing: queued for the next bar (fills: the next beat). Pulsing: armed and waiting for you, or the Main a fill will land on. Dark: this style doesn\'t have it.',
     genos: 'Section lamp states',
     keys: [],
     launchkey: 'The pads light the same way, in the same colours',
@@ -306,7 +313,7 @@ const catalog = {
   },
   'display.position': {
     title: 'Bar and beat',
-    body: 'Where the band is: bar, and a light per beat. The section playing now and the one queued next are shown alongside.',
+    body: 'Where the band is: bar, and a light per beat. The section playing now and the one queued next are shown alongside, and for a fill the Main it lands on (⤷). The first press picks the fill; later presses before it ends only change where it lands, and its own Main again repeats it.',
     genos: null,
     keys: [],
     launchkey: null,
@@ -552,7 +559,7 @@ const catalog = {
   // ── Transpose ───────────────────────────────────────────────────────────
   'transpose.display': {
     title: 'Transpose',
-    body: 'Keyboard transpose moves your keys and the chord the style follows. Master transpose moves everything that sounds, drums excepted.',
+    body: 'Keyboard transpose moves your keys at once, and the band from the next chord you play (a chord held keeps the band in the old key, as on the Genos). Master transpose moves everything that sounds, drums excepted.',
     genos: 'TRANSPOSE',
     keys: [],
     launchkey: null,
@@ -895,6 +902,13 @@ const catalog = {
     genos: 'Mixer tabs (Panel / Style)',
     keys: ['F9'],
     launchkey: 'Button under the master fader',
+  },
+  'mixer.layer': {
+    title: 'Fader layer: VOL / PAN / REV / CHO / DLY',
+    body: 'Switches what the faders move across the parts, as in a DAW\'s sends view: each part\'s volume, or its pan, reverb, chorus or delay send. A fader picks a value up before it moves it. The master fader stays the master.',
+    genos: null,
+    keys: [],
+    launchkey: 'Shift + button under the master fader',
   },
   'mixer.panel.right1': {
     title: 'Right 1 volume',
@@ -1515,7 +1529,21 @@ const catalog = {
   },
   'audio.buffer': {
     title: 'Audio buffer',
-    body: 'Frames the built-in synth renders at a time: 64 (1.3 ms at 48 kHz) feels tightest, while 128 or 256 give heavy plugins more time per block for up to 5 ms more latency. Changing it reopens the output with a moment of silence; held notes and plugins carry over. It is remembered, and `--buffer N` sets it at launch.',
+    body: 'Frames the built-in synth renders at a time: 64 (1.3 ms at 48 kHz) feels tightest; 128 or 256 give heavy plugins and a busy computer more time per block, and 512 (10.7 ms) or 1024 (21.3 ms) stop stubborn dropouts at a latency you will feel. Changing it reopens the output with a moment of silence; held notes and plugins carry over. It is remembered, and `--buffer N` sets it at launch.',
+    genos: null,
+    keys: [],
+    launchkey: null,
+  },
+  'audio.dropouts': {
+    title: 'Audio dropouts',
+    body: 'The audio device missed buffers several times in a short while: clicks or gaps in the sound, from a heavy plugin, a busy computer or a buffer too small for either. Opens Settings › Audio, where a larger buffer size gives each block more time, at a little more latency.',
+    genos: null,
+    keys: [],
+    launchkey: null,
+  },
+  'audio.dropouts_dismiss': {
+    title: 'Dismiss',
+    body: 'Hides the dropout notice for ten minutes. Choosing a new buffer size also clears it.',
     genos: null,
     keys: [],
     launchkey: null,

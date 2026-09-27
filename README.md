@@ -27,7 +27,7 @@ Play a chord left of **F#2** (Yamaha numbering, C3 = middle C) and the band star
 Every `.sf2` file in `soundfonts/` is a source of sounds. The built-in synth's default sound set (Settings › Audio) is the most complete General MIDI one there, unless you pick another. Put at least one General MIDI font there, for example GeneralUser GS (downloaded separately; SoundFonts are not in git). It plays on your default audio output with a 64-frame buffer (about 1.3 ms at 48 kHz).
 - **Keyboard parts:** like the Genos, you play four parts: **Right 1**, **Right 2** and **Right 3** right of the split, and **Left** left of it. Each part has its own voice, volume, octave shift and on/off. The Right parts that are on sound together, which is how you layer (Piano + Strings = Right 1 + Right 2 on). At start only Right 1 (Grand Piano) is on; Right 2 is Strings, Right 3 Brass, Left Strings. Turn parts on/off with the buttons under faders 1–4 (fader Panel page), the bottom-left pads on pad page 3, or `5` `6` `7` `8` (`l` also toggles Left). Pick the part whose voice you want to change with `F1`–`F4`, the EDIT pads on pad page 3, or Shift + the button under its fader, then step its voice with `9`/`0` or the VOICE −/+ pads.
 - **Where your parts go:** each part has its own channel, on the `yahaha` port and in the built-in synth alike: Right 1 = ch 1, Left = ch 2 (the channels your right and left hand always had), Right 2 = ch 3, Right 3 = ch 4. A part that is off sends nothing. With Left off, the Right parts play over the whole keyboard, as on the Genos, except that in Lower chord detection (outside the Full Keyboard fingerings) the keys left of the split only drive the chords. Each part's octave shift is applied to the notes it sends. The sustain pedal and the wheels go to the parts that are on (which parts each reaches is a setting: see Pedals and wheels below); other controllers and pressure go to all four parts (polyphonic aftertouch to the notes its key sounds); the keyboard's own volume (CC 7), bank select and program changes are ignored, because each part's voice and volume are its own.
-- **Mixer:** the faders have two pages, like the Genos Mixer's Panel and Style tabs. The button under the master fader (or `F9`) switches between them; it lights blue on Panel and green on Style, and the screen outlines the active page in yellow.
+- **Mixer:** the faders have two pages, like the Genos Mixer's Panel and Style tabs. The button under the master fader (or `F9`) switches between them; it lights blue on Panel and green on Style, and the screen outlines the active page in yellow. **Shift + that button** steps the fader layer, VOL → PAN → REV → CHO → DLY: in a send layer the faders move each part's pan or reverb/chorus/delay send instead of its volume (Panel faders 1–4 and Style faders 1–8; the Style parts have no pan), picking each value up before they move it.
   - **Panel:** faders 1–4 are the volumes of Right 1, Right 2, Right 3 and Left; their buttons turn the parts on/off (lit while on). Fader 5 is the **Style volume**, the whole band against your hands (the Genos Balance page's Style slider): at 100 the Style parts play at their own levels, and it scales every Style part's CC7 as it goes out, as a Fade In/Out does, without moving their faders; a Registration stores it. The button under fader 5 is the HARMONY/ARPEGGIO switch (purple, bright while on). The button under fader 6 reloads the edited part's plugin (red while it has stopped or failed to load), and the button under fader 8 is the Chord Looper (see Controls). Fader 6 is the **Multi Pad volume**, the same kind of scale on the four pads' CC7 (the Genos Balance page's M.Pad slider), also stored in a Registration. Faders 7–8 and button 7 do nothing on this page.
   - **Style:** faders 1–8 are the band's eight part volumes; their buttons mute and unmute the parts (lit while they play).
   - Every level is its part's CC 7, sent unchanged to the `yahaha` port and the built-in synth; there is no other per-part gain. Under Manual Bass, Left plays the Style's Bass voice at Left's own level (Panel fader 4), at the pitch you play (Left's octave shift is for its own voice), and Left can't be switched off until Manual Bass is. The master fader is always the synth's output level (100 = unity); a safety soft clipper above -1 dBFS keeps the output from hard clipping.
@@ -42,7 +42,7 @@ Every `.sf2` file in `soundfonts/` is a source of sounds. The built-in synth's d
 Options:
 - `--soundfonts DIR` uses another SoundFont folder.
 - `--audio-out N` sends the synth to outputs N/N+1.
-- `--buffer 64|128|256` sets the synth's audio buffer in frames (default 64, or the size last chosen in Settings › Audio). Heavy plugins may need 128 or 256.
+- `--buffer 64|128|256|512|1024` sets the synth's audio buffer in frames (default 64, or the size last chosen in Settings › Audio). Heavy plugins, or a busy machine, may need 128 or 256; 512 and 1024 trade 10–21 ms of latency for the most headroom.
 - `--no-synth` turns the synth off, leaving MIDI out only.
 - `--palette-leds` uses the Launchkey's built-in palette colours instead of RGB SysEx.
 - `--split C3` moves the split point. You can also use `[` and `]` while playing.
@@ -50,6 +50,7 @@ Options:
 - `--all-inputs` merges every connected keyboard.
 - `--no-pads` leaves the Launchkey pads alone.
 - Keyboards and the Launchkey can be plugged in and out while yahaha runs: a new keyboard is heard (by the `--input`/`--all-inputs` rules), and a Launchkey plugged back in goes back to DAW mode with its pads and LEDs. `yahaha fake-device` makes a Launchkey-like device from another process for trying it.
+- `--top` (or `YAHAHA_TOP=1`) shows a live performance view instead of the front panel. Its header has the process's memory; the audio callback's average, p99 and worst time against the buffer's deadline and its load; the dropout counts; the voices; the callback's stages; the synth rings' depth; the engine's wake timing and queues; and MIDI input latency. Below that is one row per part (the keyboard parts, the Style parts, the Multi Pads) with its source (SoundFont or plugin), voices, peak level and render time, and one row per effect block. It refreshes every second, and `q` quits. The desktop app launched from a terminal takes the same flag or variable and draws the view in that terminal. Collection costs nothing measurable while the view is off. `yahaha bench-audio <style> <font.sf2> --top` prints one frame of the view for an offline run.
 - `--chord-settle MS` sets the chord-settle window (0–30 ms, default 10): while the style plays, it follows a chord once the chord has held still this long, so a rolled chord is one change, not two. Also in the app's Settings › Chord.
 
 ## Ableton setup (once)
@@ -163,12 +164,13 @@ The 8 encoders are the Genos LIVE CONTROL knobs, on Knob Assign pages. The **enc
 | **Pad Bank ▲ / ▼** (left of the pads) | previous/next pad page |
 | **▲ / ▼ right of the knobs** | previous/next Knob Assign page |
 | **Shift + Pad Bank ▲ / ▼** | Left part on/off / OTS Link on/off |
+| **Shift + encoder page ▼** | ACMP on/off |
 | **> (Scene Launch)** / **Function** (right of the pads) | tempo + / − (1 BPM; hold to repeat, faster the longer it is held; both together: the style's own tempo) |
 | **Shift + Play** | Section Reset: the section starts again from its top |
 | **Shift + Stop** | Fade In/Out: stopped, arm a fade in; playing, fade out and stop |
 | **Shift + > / Shift + Function** | Retrigger length shorter / longer |
 | buttons under faders 1–8 | Panel page: Right 1–3, Left on/off (Shift: edit that part's voice), button 5 Harmony/Arpeggio on/off, button 6 reload the edited part's plugin (red while it stopped or failed to load), button 7 Left Hold on/off (orange while on), button 8 Chord Looper ON/OFF (Shift: REC/STOP; dim green = a loop to play, dim yellow = armed, green = looping, dim red / red = recording armed / recording) · Style page: mute/unmute the style parts |
-| button under the master fader | fader page Panel / Style |
+| button under the master fader | fader page Panel / Style (Shift: next fader layer VOL/PAN/REV/CHO/DLY) |
 
 ### The Launchkey display
 
@@ -213,6 +215,7 @@ The screen shows `sus` beside each part the pedal is holding.
 - `- =` tempo down/up (1 BPM; hold to repeat), `+` the style's own tempo (TEMPO − and + together)
 - `y` Sync Start · `u` Auto Fill · `j` Sync Stop
 - `h` Stop ACMP
+- `%` ACMP on/off (off: rhythm only, the whole keyboard plays, Sync Start on any key)
 - `f` next fingering type · `d` Lower/Upper · `D` Manual Bass
 - `[ ]` split point down/up
 - `; '` Keyboard transpose −/+ · `: "` Master transpose −/+ · `/` reset both

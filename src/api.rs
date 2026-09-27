@@ -213,6 +213,8 @@ impl From<Button> for AppCmd {
             Button::Fade => TransportCmd::ToggleFade.into(),
             Button::SectionReset => TransportCmd::SectionReset.into(),
             Button::Retrigger => TransportCmd::ToggleRetrigger.into(),
+            Button::Acmp => TransportCmd::ToggleAcmp.into(),
+            Button::SetAcmp(on) => TransportCmd::SetAcmp { on }.into(),
         }
     }
 }

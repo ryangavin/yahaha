@@ -65,6 +65,9 @@ export type AppCmd =
   | { type: 'sectionReset' }
   /** Style Retrigger on/off (`transport.retrigger`). */
   | { type: 'toggleRetrigger' }
+  /** [ACMP] on/off (`transport.acmp`). */
+  | { type: 'toggleAcmp' }
+  | { type: 'setAcmp'; on: boolean }
   /** Tempo in BPM, 5–500 (clamped). */
   | { type: 'setTempo'; bpm: number }
   | { type: 'toggleStylePart'; part: number }
@@ -111,6 +114,9 @@ export type AppCmd =
   // Mixer and Launchkey pages
   | { type: 'setFaderPage'; page: FaderPage }
   | { type: 'toggleFaderPage' }
+  /** What the faders move across the parts: CC7, or pan / reverb / chorus / delay sends. */
+  | { type: 'setFaderLayer'; layer: FaderLayer }
+  | { type: 'stepFaderLayer'; delta: number }
   | { type: 'setPadPage'; page: PadPage }
   | { type: 'cyclePadPage'; delta: number }
   | { type: 'setMasterVolume'; volume: number }
@@ -154,9 +160,9 @@ export type AppCmd =
   | { type: 'setMidiInputs'; all: boolean; names: string[] }
   /** Launchkey LEDs in Novation palette colours instead of RGB. */
   | { type: 'setPaletteLeds'; on: boolean }
-  /** The synth's audio buffer, 64, 128 or 256 frames (`io.synth.bufferFrames`). The
+  /** The synth's audio buffer, 64, 128, 256, 512 or 1024 frames (`io.synth.bufferFrames`). The
    * output reopens; voices, plugins and held notes carry over. */
-  | { type: 'setAudioBuffer'; frames: 64 | 128 | 256 }
+  | { type: 'setAudioBuffer'; frames: 64 | 128 | 256 | 512 | 1024 }
   /** Re-walk the style folders (`library.roots`); `library.scanning` while it runs. */
   | { type: 'rescanLibrary' }
   // iReal Pro chart player: see ChartState below.
@@ -539,6 +545,11 @@ export interface TransportState {
   section: string | null
   /** The section queued next (at the next bar; a fill at the next beat). */
   queued: string | null
+  /** The Main a fill (or the Break) queued or playing lands on, e.g. "Main A" (#282);
+   *  null when none is. The first press picks the fill, later presses move this. */
+  landing: string | null
+  /** [ACMP] is on (the default). Off: no chord section, rhythm only, Sync Start on any key. */
+  acmp: boolean
   /** The Intro (0–2) armed to play when the style starts. */
   pendingIntro: number | null
   /** The Main (0–3 = A–D) playing, or returned to after a fill. */
@@ -656,8 +667,16 @@ export interface StylePart {
   sendsSet: PartSend[]
 }
 
+/** The mixer's VOL · PAN · REV · CHO · DLY fader layers. */
+export type FaderLayer = 'volume' | 'pan' | 'reverb' | 'chorus' | 'delay'
+export const FADER_LAYERS: FaderLayer[] = ['volume', 'pan', 'reverb', 'chorus', 'delay']
+
 export interface MixerState {
   faderPage: FaderPage
+  /** What the faders move (Shift + the master fader's button steps it). */
+  faderLayer: FaderLayer
+  /** Keyboard parts (bit = part) whose fader, in a send layer, hasn't reached the value yet. */
+  sendWaiting: number
   styleParts: StylePart[]
   /** Synth master volume (100 = unity); null without the synth. */
   master: number | null
@@ -787,6 +806,10 @@ export interface SynthState {
   /** 1-based, e.g. [1, 2]. */
   outputPair: [number, number]
   muted: boolean
+  /** Audio dropouts since the synth started: the device reported an overload, or a buffer
+   * took longer to render than it lasts. The app suggests a larger buffer when they keep
+   * coming (lib/dropouts). */
+  dropouts: number
 }
 
 export interface IoState {

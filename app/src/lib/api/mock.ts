@@ -21,7 +21,7 @@ import { MockRegistration } from './mock-registration'
 import { emptyPlaylist, emptyRegistration } from './registration'
 import type { Session } from './session'
 import {
-  BREAK, CHORD_SETTLE_MAX_MS, ENDINGS, FILLS, FINGERINGS, INTROS, KEYBOARD_PART_NAMES, MAINS, PAD_PAGES, RETRIGGER_RATES,
+  BREAK, CHORD_SETTLE_MAX_MS, ENDINGS, FADER_LAYERS, FILLS, FINGERINGS, INTROS, KEYBOARD_PART_NAMES, MAINS, PAD_PAGES, RETRIGGER_RATES,
   STYLE_PART_NAMES, type AppCmd, type AppState, type EffectBlockState, type EffectsState, type FxBlock, type FxParam, type FxParamState, type FxType, type LibraryEntry, type LibraryList, type OtsPart, type PreviewState, type StopAcmpMode,
   type SoundLibraryCmd, type StyleSettingsState, type StyleState,
 } from './types'
@@ -211,10 +211,10 @@ export function initialState(): AppState {
     style: styleState(s),
     transport: {
       running: false, syncStart: true, syncStop: false, syncStopAvailable: true, autoFill: false, stopAcmp: false,
-      section: null, queued: null, pendingIntro: null, main: 0, bar: 1, beat: 1,
+      section: null, queued: null, landing: null, pendingIntro: null, main: 0, bar: 1, beat: 1,
       beatsPerBar: beatsPerBar([s.timeSignature[0], s.timeSignature[1]]), tempo: s.tempo, lamps: [], sectionBars: null,
       halfBarFill: false, stopAcmpMode: 'off',
-      fade: 'off', retrigger: false, ritardando: false,
+      fade: 'off', retrigger: false, ritardando: false, acmp: true,
     },
     chord: {
       name: null, fingered: null, fingering: 'fingeredOnBass', fingeringName: 'Fingered On Bass', upper: false,
@@ -224,6 +224,8 @@ export function initialState(): AppState {
     keyboard: { held: [], leftSplit: 54, chordTones: [], chordBass: null, detection: [0, 54] },
     mixer: {
       faderPage: 'panel',
+      faderLayer: 'volume',
+      sendWaiting: 0,
       styleParts: STYLE_PART_NAMES.map((name, i) => ({
         name, channel: 9 + i, on: true, mutedByManualBass: false,
         volume: [100, 100, 96, 80, 76, 70, 88, 84][i], waiting: false, fader: null,
@@ -247,7 +249,7 @@ export function initialState(): AppState {
       inputs: MOCK_SOURCES.map((s) => (s.pads ? `${s.name} (pads)` : s.name)),
       synth: {
         soundFont: 'GeneralUser-GS', device: 'MacBook Pro Speakers', sampleRate: 48000, bufferFrames: 64,
-        channels: 2, outputPair: [1, 2], muted: false,
+        channels: 2, outputPair: [1, 2], muted: false, dropouts: 0,
       },
       engine: { realtime: true, wakeP99Us: 3, chordP99Us: 15, midiInP99Us: 120 },
       lastControl: 0,
@@ -334,6 +336,10 @@ function derive(st: AppState, lib: LibraryList, hw: MockHardware | null = null, 
   const page = PAD_PAGES.findIndex((p) => p.id === st.pads.page)
   st.pads.pageName = PAD_PAGES[page].name
   st.pads.pageNumber = page + 1
+  // Where a fill (or the Break) queued or playing lands (#282).
+  const fillLike = (x: string | null) => x !== null && (FILLS.includes(x) || x === BREAK)
+  const t = st.transport
+  t.landing = t.running && (fillLike(t.queued) || fillLike(t.section)) ? MAINS[t.main] : null
   st.transport.lamps = padsFor(st, 'sections')
   st.pads.pads = padsFor(st, st.pads.page)
   const h = hw ?? idleHardware(st)
@@ -526,6 +532,14 @@ export class MockSession implements Session {
   /** No audio: silent meters with no channels, as the engine without its synth. */
   meters() {
     return Promise.resolve({ atMs: this.now, channels: [], master: [0, 0] as [number, number], clips: 0 })
+  }
+
+  /** Audio dropouts, as a busy machine or a too-small buffer makes them (the engine counts
+   * the device's overload reports and its own late buffers in `io.synth.dropouts`). */
+  dropouts(n: number) {
+    if (!this.state.io.synth) return
+    this.state.io.synth.dropouts += n
+    this.publish()
   }
 
   pluginEditor(part: number, open: boolean) {
@@ -1033,6 +1047,8 @@ export class MockSession implements Session {
   }
 
   private recallOts(n: number) {
+    // An OTS recall turns [ACMP] on.
+    this.state.transport.acmp = true
     const panel = this.state.mixer.faderPage === 'panel'
     this.state.ots.settings[n].parts.forEach((o, i) => {
       const p = this.state.keyboardParts[i]
@@ -1152,6 +1168,15 @@ export class MockSession implements Session {
         if (!t.running) {
           t.main = cmd.index
           if (st.ots.link && cmd.index < st.ots.settings.length) this.recallOts(cmd.index)
+        } else if (t.section && FILLS.includes(t.section)) {
+          // A fill playing (#282): its own Main again repeats it once; another Main only
+          // moves the landing and calls off a repeat.
+          if (t.section === FILLS[cmd.index]) t.queued = FILLS[cmd.index]
+          else if (t.queued && FILLS.includes(t.queued)) t.queued = null
+          t.main = cmd.index
+        } else if (t.queued && (FILLS.includes(t.queued) || t.queued === BREAK)) {
+          // A fill already queued: the first press picked it; this one moves the landing.
+          t.main = cmd.index
         } else if (t.section === m) {
           t.queued = FILLS[cmd.index]
         } else if (t.autoFill && t.main !== cmd.index) {
@@ -1203,6 +1228,10 @@ export class MockSession implements Session {
         break
       case 'toggleRetrigger':
         t.retrigger = !t.retrigger
+        break
+      case 'toggleAcmp':
+      case 'setAcmp':
+        t.acmp = cmd.type === 'setAcmp' ? cmd.on : !t.acmp
         break
       case 'setMainTiming':
       case 'setIntroEndingTiming':
@@ -1447,6 +1476,14 @@ export class MockSession implements Session {
         // The hardware faders are wherever they were: every level on the new page waits.
         for (const p of page === 'panel' ? st.keyboardParts : st.mixer.styleParts) p.waiting = true
         if (page === 'panel') st.mixer.styleVolumeWaiting = st.mixer.multiPadVolumeWaiting = true
+        break
+      }
+      case 'setFaderLayer':
+        st.mixer.faderLayer = cmd.layer
+        break
+      case 'stepFaderLayer': {
+        const i = FADER_LAYERS.indexOf(st.mixer.faderLayer)
+        st.mixer.faderLayer = FADER_LAYERS[(i + Math.sign(cmd.delta) + FADER_LAYERS.length) % FADER_LAYERS.length]
         break
       }
       case 'setPadPage':

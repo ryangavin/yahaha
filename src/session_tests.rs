@@ -47,6 +47,8 @@ fn all_cmds() -> Vec<AppCmd> {
         AppCmd::Transport(TransportCmd::TempoUp),
         AppCmd::Transport(TransportCmd::TempoDown),
         AppCmd::Transport(TransportCmd::ResetTempo),
+        AppCmd::Transport(TransportCmd::ToggleAcmp),
+        AppCmd::Transport(TransportCmd::SetAcmp { on: true }),
         AppCmd::Mixer(MixerCmd::ToggleStylePart { part: 5 }),
         AppCmd::Mixer(MixerCmd::SetStylePartVolume { part: 2, volume: 90 }),
         AppCmd::Chord(ChordCmd::SetFingering { fingering: Fingering::AiFullKeyboard }),
@@ -687,6 +689,7 @@ fn launchkey_hardware_matches_its_commands() {
             (TRACK_LEFT_CC, false, AppCmd::Library(LibraryCmd::StepStyle { delta: -1 })),
             (TRACK_RIGHT_CC, false, AppCmd::Library(LibraryCmd::StepStyle { delta: 1 })),
             (PAD_UP_CC, true, AppCmd::Parts(PartsCmd::TogglePart { part: 3 })),
+            (crate::launchkey::KNOB_DOWN_CC, true, AppCmd::Transport(TransportCmd::ToggleAcmp)),
             (PAD_DOWN_CC, true, AppCmd::Ots(OtsCmd::ToggleOtsLink)),
             (PAD_UP_CC, false, AppCmd::Pads(PadsCmd::CyclePadPage { delta: -1 })),
             (PAD_DOWN_CC, false, AppCmd::Pads(PadsCmd::CyclePadPage { delta: 1 })),
@@ -699,7 +702,8 @@ fn launchkey_hardware_matches_its_commands() {
             for shift in [false, true] {
                 for fp in [FaderPage::Panel, FaderPage::Style] {
                     let cmd = match (i, fp, shift) {
-                        (8, _, _) => Some(AppCmd::Mixer(MixerCmd::ToggleFaderPage)),
+                        (8, _, true) => Some(AppCmd::Mixer(MixerCmd::StepFaderLayer { delta: 1 })),
+                        (8, _, false) => Some(AppCmd::Mixer(MixerCmd::ToggleFaderPage)),
                         (0..=3, FaderPage::Panel, true) => Some(AppCmd::Parts(PartsCmd::SelectPart { part: i })),
                         (0..=3, FaderPage::Panel, false) => Some(AppCmd::Parts(PartsCmd::TogglePart { part: i })),
                         (4, FaderPage::Panel, _) => Some(AppCmd::HarmonyArp(HarmonyArpCmd::ToggleHarmonyArp)),
@@ -750,6 +754,38 @@ fn launchkey_tempo_buttons_repeat_and_reset() {
     s.send(TransportCmd::SetTempo { bpm: 140 }).unwrap();
     s.send(TransportCmd::ResetTempo).unwrap();
     assert_eq!(tempo(&s), 75.0);
+}
+
+/// [ACMP] off (#266): no chord section. Sync Start starts on any key, the rhythm plays
+/// alone, the left hand plays the Right parts, and an OTS recall turns ACMP back on.
+#[test]
+fn acmp_off_rhythm_only_any_key_and_ots_turns_it_on() {
+    let Some(s) = offline("SlowWalker.T552.sty") else { return };
+    assert!(s.state().transport.acmp);
+    s.send(TransportCmd::ToggleAcmp).unwrap();
+    s.advance(MS);
+    let st = s.state();
+    assert!(!st.transport.acmp);
+    assert!(st.transport.sync_start);
+    // One key in the left hand: the band starts, and the key sounds on Right 1.
+    s.take_output();
+    keys(&s, true, &[40]);
+    s.advance(20 * MS);
+    let st = s.state();
+    assert!(st.transport.running, "any key starts it");
+    assert_eq!(st.chord.name, None, "no chord");
+    let out = s.take_output();
+    let r1 = crate::parts::CHANNEL[crate::parts::RIGHT1];
+    assert!(out.iter().any(|m| m[0] == 0x90 | r1 && m[1] == 40), "the left hand plays Right 1");
+    keys(&s, false, &[40]);
+    keys(&s, true, &[36, 40, 43]);
+    s.advance(2_000 * MS);
+    assert_eq!(s.state().chord.name, None, "chords don't reach the band");
+    keys(&s, false, &[36, 40, 43]);
+    // An OTS recall turns it on again.
+    s.send(OtsCmd::RecallOts { index: 0 }).unwrap();
+    s.advance(20 * MS);
+    assert!(s.state().transport.acmp);
 }
 
 /// A client can send any delta: no overflow, and the page wraps as it should.
@@ -1437,7 +1473,7 @@ fn sound_font_switch_needs_the_synth_and_a_file_in_its_folder() {
     assert_eq!(m.channels.iter().map(|c| c.channel).collect::<Vec<_>>(), vec![1, 2, 3, 4, 9, 10, 11, 12, 13, 14, 15, 16]);
 }
 
-/// The audio buffer (#104): 64, 128 or 256 only. Offline it sets the render block; a note
+/// The audio buffer (#104): 64, 128, 256, 512 or 1024 only. Offline it sets the render block; a note
 /// held across the change sounds on and releases (nothing sticks). Live, the synth thread
 /// reopens the stream and the size it reports is the one shown.
 #[test]
@@ -1453,7 +1489,7 @@ fn audio_buffer_changes_keep_notes_and_report_the_size() {
     let energy = |(l, r): (Vec<f32>, Vec<f32>)| l.iter().chain(&r).map(|x| (*x as f64).powi(2)).sum::<f64>();
     s.midi_in(Port::Keys, &[0x90, 72, 110]);
     assert!(energy(s.render(4800)) > 1e-4);
-    for bad in [0, 100, 512] {
+    for bad in [0, 100, 2048] {
         assert!(s.send(SettingsCmd::SetAudioBuffer { frames: bad }).is_err(), "{bad}");
     }
     s.send(SettingsCmd::SetAudioBuffer { frames: 256 }).unwrap();
@@ -1483,6 +1519,14 @@ fn audio_buffer_changes_keep_notes_and_report_the_size() {
     assert_eq!(s.state().io.synth.as_ref().unwrap().buffer_frames, Some(256));
     s.send(SettingsCmd::SetAudioBuffer { frames: 64 }).unwrap();
     assert_eq!(s.state().io.synth.as_ref().unwrap().buffer_frames, Some(128), "the nearest the device allows");
+    // The dropouts the stream counted (the device's and our own late buffers) show in the
+    // state, for the app's larger-buffer hint.
+    let ctl = s.inner.lock().synth.as_ref().unwrap().control.clone();
+    ctl.xruns.fetch_add(2, std::sync::atomic::Ordering::Relaxed);
+    ctl.late.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    s.send(SettingsCmd::SetAudioBuffer { frames: 1024 }).unwrap();
+    let st = s.state();
+    assert_eq!(st.io.synth.as_ref().map(|y| (y.buffer_frames, y.dropouts)), Some((Some(1024), 3)));
     let _ = tx.send(SynthMsg::Stop);
     s.inner.lock().synth = None;
     t.join().unwrap();
@@ -1571,12 +1615,14 @@ fn chart_player_imports_selects_and_plays() {
     assert!(!st.chart.overridden);
     assert_eq!(st.chord.name.as_deref(), Some("Fmaj7"));
     assert_eq!(st.transport.section.as_deref(), Some("Main B"));
-    // Keyboard transpose moves the chart.
+    // Keyboard transpose moves the chart from its next chord (#264).
     s.send(ChordCmd::SetTranspose { keyboard: 2, master: 0 }).unwrap();
-    s.advance(20 * MS); // the change settles
-    assert_eq!(s.state().chord.name.as_deref(), Some("Gmaj7"));
+    s.advance(20 * MS);
+    assert_eq!(s.state().chord.name.as_deref(), Some("Fmaj7"));
+    s.advance(bar);
+    assert_eq!(s.state().chord.name.as_deref(), Some("A7"));
     // The loop goes round.
-    s.advance(2 * bar - 20 * MS);
+    s.advance(bar - 20 * MS);
     assert_eq!(s.state().chart.bar, Some(0));
     s.send(TransportCmd::StartStop).unwrap();
     assert_eq!(s.state().chart.bar, None);

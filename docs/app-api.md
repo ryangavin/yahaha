@@ -113,6 +113,7 @@ state, and pressing the button is the action. For settings, a GUI checkbox can u
 | `toggleFade` | | FADE IN/OUT. Stopped: arms (or disarms) a fade in for the next start. Playing: fades out over `styleSettings.fadeOutMs`, then the band stops and the Style stays silent for `fadeHoldMs`. Only the Style fades: each Style part's CC7 (channels 9–16) goes out, on the port and to the built-in synth, as its fader value scaled by the fade; the faders don't move, and your playing and the Multi Pads never fade (docs/section-timing.md). `transport.fade` shows it. A fade out already running carries on; START/STOP mid-fade ends it at full volume. |
 | `sectionReset` | | Style Section Reset: the section playing starts again from its top, now. A change queued for the next bar line waits for the new bar grid's. Stopped: nothing. |
 | `toggleRetrigger` | | Style Retrigger on/off (`transport.retrigger`). While on, each chord played in a Main restarts the Main at the chord and loops its first `4 / styleSettings.retriggerRate` beats (a whole note .. a 32nd) until a section change, a style change or Retrigger goes off; off, the Main plays on from there. The same chord struck again (after letting go) counts as a chord played. Only Mains retrigger. |
+| `toggleAcmp`, `setAcmp` | `on` | [ACMP] on/off (OM p.44, p.47; `transport.acmp`, default on). Off: START plays the rhythm only, chords played change nothing (the chord parts end their notes), Sync Start starts on any key, Sync Stop and Stop Accompaniment have nothing to act on, and the whole keyboard plays the Right parts (with Left on, Left below the split). Turned on, the chord parts come in with the next chord. An OTS recall and Chord Looper REC turn it on. Stored in Registration (group Style). Launchkey: Shift + encoder page ▼; key `%`; assignable function `acmp`. |
 | `setTempo` | `bpm` | Sets the tempo. The range is 5–500 BPM (Genos, OM p.46); values outside are clamped. |
 | `toggleStylePart` | `part` 0–7 | Mutes or unmutes a Style part. |
 | `setStylePartVolume` | `part` 0–7, `volume` 0–127 | The part's CC7. The Launchkey fader has to reach the new value before it takes over again. |
@@ -153,7 +154,7 @@ Style Section Reset, the Fade In/Out times and the Style Retrigger length. The s
 | `setManualBass` / `toggleManualBass` | `on` | The Manual Bass setting. Ignored in Lower. |
 | `setSplit` | `note` (MIDI) | Split point, clamped to 24–96. |
 | `moveSplit` | `delta` | Moves the split by `delta` keys. |
-| `setTranspose` | `keyboard`, `master` | Semitones, each clamped to −12..12. |
+| `setTranspose` | `keyboard`, `master` | Semitones, each clamped to −12..12. Keyboard moves the keyboard parts at once, but the chord the style follows only from the next chord input (a chord held, or an Intro playing, stays in the old key, as on the Genos; #264). Master moves every note started from now on. |
 | `stepTranspose` | `keyboard`, `master` | Adds to the current transpose. |
 | `resetTranspose` | | Both back to 0. |
 | `setChordSettle` | `ms` | The chord-settle window, clamped to 0–30 ms (default 10). While the style plays (and, with it stopped, for Stop Accompaniment and Chord Match Multi Pads), a chord change reaches the accompaniment once the chord has held still this long (at most three windows after the first change), so a rolled chord is followed once. 0: at once. Not a Genos setting; see docs/genos-features.md (Chord settle). |
@@ -178,6 +179,8 @@ Style Section Reset, the Fade In/Out times and the Style Retrigger length. The s
 | Command | Fields | Does |
 |---|---|---|
 | `setFaderPage` / `toggleFaderPage` | `page`: `panel` \| `style` | What the Launchkey faders control. |
+| `setFaderLayer` | `layer`: `volume` \| `pan` \| `reverb` \| `chorus` \| `delay` | The fader layer (the mixer's VOL · PAN · REV · CHO · DLY): what the faders move across the parts. Volume: each part's CC7 (as always). A send layer: Panel faders 1–4 move Right 1–3 and Left's pan / CC91 / CC93 / CC94 (as `setPartPan` / `setPartSend`, with soft takeover); Style faders 1–8 move the Style parts' reverb / chorus / delay sends (as `setStylePartSend`; the Style parts have no pan, so PAN leaves them alone). Faders 5–6 on the Panel page stay the Style and Multi Pad levels, and the master fader stays the master. On the Launchkey, **Shift + the master fader's button** steps the layer; the button alone still switches the page. |
+| `stepFaderLayer` | `delta` | The next/previous fader layer, wrapping (VOL → PAN → REV → CHO → DLY → VOL). |
 | `setPadPage` | `page`: `sections` \| `chordSetup` \| `otsParts` \| `registration` \| `multiPads` | The Launchkey pad page. |
 | `cyclePadPage` | `delta` | Steps the pad page, wrapping. |
 | `setMasterVolume` | `volume` 0–127 | Synth master (100 = unity). Fails when the synth is off. |
@@ -195,7 +198,7 @@ Style Section Reset, the Fade In/Out times and the Style Retrigger length. The s
 | `setSoundFont` | `file` | `setDefaultSoundSet` with that file, kept for older clients. Fails when the synth is off. |
 | `setMidiInputs` | `all`, `names` | Which MIDI sources play the keyboard: every one (`all`), or the ones whose name contains one of `names`. `all` false with no names is the default: a Launchkey's keys when there is one, else every source. yahaha's own port and DAW ports are never keyboards; the Launchkey DAW port is always the pads. Sources connect and disconnect at once. Keys held on a source that is dropped are released: their notes stop at once (All Notes Off on the keyboard parts' channels, which also stops notes other sources hold) and the chord section lets go. |
 | `setPaletteLeds` | `on` | Launchkey LEDs in Novation palette colours (and hardware flashing) instead of RGB. Every pad is sent again. |
-| `setAudioBuffer` | `frames` 64, 128 or 256 | The synth's audio buffer (`io.synth.bufferFrames`; within what the device allows, and a message says so when it differs). The output reopens with a moment of silence; the voices, the plugins and held notes carry over, and messages sent meanwhile wait for the new stream (nothing sticks). Plugins are loaded for larger blocks already, so none reloads. A live session remembers it (`~/Library/Application Support/yahaha/audio.json`; `--buffer N` at launch wins). Fails when the synth is off or for another size. |
+| `setAudioBuffer` | `frames` 64, 128, 256, 512 or 1024 | The synth's audio buffer (`io.synth.bufferFrames`; within what the device allows, and a message says so when it differs). The output reopens with a moment of silence; the voices, the plugins and held notes carry over, and messages sent meanwhile wait for the new stream (nothing sticks). Plugins are loaded for larger blocks already, so none reloads. A live session remembers it (`~/Library/Application Support/yahaha/audio.json`; `--buffer N` at launch wins). Fails when the synth is off or for another size. |
 | `rescanLibrary` | | Walks the style folders (`library.roots`) again on a thread of its own (`library.scanning`). A file still there keeps its id and index; new files are added and indexed; a file gone leaves the list (its id stays valid). |
 
 ### One Touch Settings and styles
@@ -644,6 +647,8 @@ Indices are 0-based unless a field says otherwise.
 | `autoFill`, `stopAcmp` | bool | Auto Fill In, and Stop Accompaniment sounding (`stopAcmpMode` is not `off`). |
 | `section` | string? | The section playing, for example `Main A` or `Fill In AA`. Null when stopped. |
 | `queued` | string? | The section queued next: at the next bar, or for a fill, at the next beat. |
+| `landing` | string? | The Main a fill (or the Break) queued or playing lands on, e.g. `"Main A"`; null when none is (#282). The first press picks the fill; every later Main press before the fill ends only changes this. Pressing the fill's own Main while it plays queues it once more (`queued` names it), so mashing keeps the fill going. The Launchkey and the app pulse this Main's pad when it is not the fill's own. |
+| `acmp` | bool | [ACMP] is on (the default; `toggleAcmp`). Off: no chord section. |
 | `pendingIntro` | 0–2? | The Intro armed to play at the start. |
 | `main` | 0–3 | The Main (A–D) that is playing or queued to follow. Changes as soon as a Main is pressed. |
 | `bar`, `beat` | 1-based | Position within the section playing. Both are 1 when stopped. |
@@ -698,6 +703,8 @@ Indices are 0-based unless a field says otherwise.
 | Field | Type | Meaning |
 |---|---|---|
 | `faderPage` | `panel` \| `style` | What the Launchkey faders control. Panel: faders 1–4 are the keyboard parts, fader 5 the Style volume, fader 6 the Multi Pad volume. Style: faders 1–8 are the Style parts. |
+| `faderLayer` | `volume` \| `pan` \| `reverb` \| `chorus` \| `delay` | What the faders move across the parts (`setFaderLayer`). |
+| `sendWaiting` | number | Keyboard parts (bit = part 0–3) whose fader, in a send layer, has moved but not yet reached the value. |
 | `styleParts` | StylePart[8] | See the table below. |
 | `master` | 0–127? | The synth master level (100 = unity). Null without the synth. |
 | `masterWaiting` | bool | The master fader has not yet reached `master`. It turns on as soon as `setMasterVolume` moves the level away from the fader. |
@@ -908,7 +915,7 @@ led   = ledAnchorBeats + (t − ledAnchorMs) · tempo / 60000        // `beats` 
 | `soundFontLoading` | bool | A `setDefaultSoundSet` is loading. |
 | `defaultSoundSet` | string? | The default sound set chosen (`setDefaultSoundSet`). Null: Auto. |
 | `autoSoundSet` | string? | The font Auto picks from the folder. Null when there are no fonts. |
-| `synth` | SynthState? | `soundFont`, `device`, `sampleRate` (Hz), `bufferFrames`, `channels`, `outputPair` (1-based, for example [1, 2]), `muted`. Null when the synth is off. |
+| `synth` | SynthState? | `soundFont`, `device`, `sampleRate` (Hz), `bufferFrames`, `channels`, `outputPair` (1-based, for example [1, 2]), `muted`, `dropouts` (audio dropouts since the synth started: CoreAudio reported an overload, or the audio callback took longer than its buffer lasts; counted on the audio side with atomics, never logged there. The app suggests a larger buffer when 3 come within 30 seconds). Null when the synth is off. |
 | `engine` | EngineStats | `realtime` (the engine thread got real-time scheduling), and 99th percentiles in µs: `wakeP99Us` (wake versus deadline), `chordP99Us` (chord to engine), `midiInP99Us` (MIDI in to callback). |
 | `lastControl` | number | The last Launchkey DAW-port message, packed 0x00SSDDVV. |
 | `unmapped` | string | The last Launchkey control nothing is mapped to, for example `unmapped CC 51 = 127`. |
@@ -1238,6 +1245,8 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
     "stopAcmp": false,
     "section": "Main A",
     "queued": "Fill In BB",
+    "landing": "Main B",
+    "acmp": true,
     "pendingIntro": null,
     "main": 1,
     "bar": 1,
@@ -1382,6 +1391,8 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
   ],
   "mixer": {
     "faderPage": "panel",
+    "faderLayer": "volume",
+    "sendWaiting": 0,
     "styleParts": [
       {
         "name": "Rhythm 1",
@@ -1583,7 +1594,8 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
       "bufferFrames": 64,
       "channels": 2,
       "outputPair": [1, 2],
-      "muted": false
+      "muted": false,
+      "dropouts": 0
     },
     "engine": { "realtime": true, "wakeP99Us": 1, "chordP99Us": 12, "midiInP99Us": 90 },
     "lastControl": 0,

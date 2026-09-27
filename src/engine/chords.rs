@@ -25,6 +25,10 @@ impl Engine {
     /// playback when sync start is armed. While the Chord Looper plays, it is ignored (and
     /// while it records, recorded): see looper.rs.
     pub fn set_chord(&mut self, played: Chord, now: u64, sink: &mut impl Sink) {
+        // ACMP off: no chord section; chords reach the band only once it is back on.
+        if !self.acmp() {
+            return;
+        }
         if self.looper_keyboard_chord(played, now) {
             self.apply_chord(played, now, sink);
         }
@@ -44,6 +48,7 @@ impl Engine {
     /// keys: it neither starts the Synchro Stop Window nor retriggers the Main.
     pub(super) fn apply_chord_from(&mut self, played: Chord, held: bool, now: u64, sink: &mut impl Sink) {
         self.played = Some(played);
+        self.chord_kbd = self.transpose.keyboard;
         let sync_start = self.starts_on_chord() && played.ty != CANCEL;
         // A chord played: the Synchro Stop Window times the hold; Retrigger restarts the
         // Main at it, at once (the restart follows the player; the new pass's chord-part
@@ -58,7 +63,7 @@ impl Engine {
             self.unsettle(now, true);
             return;
         }
-        let chord = shift_chord(played, self.transpose.keyboard);
+        let chord = shift_chord(played, self.chord_kbd);
         let prev = self.chord;
         self.chord = Some(chord);
         if sync_start {
@@ -72,26 +77,14 @@ impl Engine {
         self.on_chord(prev, now, sink);
     }
 
-    /// New transpose settings. They apply to notes started from now on; sounding notes keep
-    /// their pitch until they end or the next chord change revoices them. A Keyboard change
-    /// moves the held chord, so the band follows as if the same keys had been played in the
-    /// new key (while it plays: once the change settles, as a chord change does). Stop
-    /// Accompaniment notes move only if they are still sounding.
-    pub fn set_transpose(&mut self, t: Transpose, now: u64, sink: &mut impl Sink) {
-        let old = self.transpose;
+    /// New transpose settings. Master applies to notes started from now on; sounding notes
+    /// keep their pitch until they end or the next chord change revoices them. A Keyboard
+    /// change leaves the chord the style follows alone (#264, as the Genos does): the band
+    /// stays in the old key, through an Intro too, until the next chord input, which is
+    /// read in the new key (the same keys played again move it). The keyboard parts' own
+    /// notes follow at once (the input thread's key shift).
+    pub fn set_transpose(&mut self, t: Transpose, _now: u64, _sink: &mut impl Sink) {
         self.transpose = Transpose::new(t.keyboard, t.master);
-        if self.transpose.keyboard == old.keyboard {
-            return;
-        }
-        let Some(played) = self.played else { return };
-        if self.running || self.stop_acmp != StopAcmp::Off {
-            self.unsettle(now, false);
-            return;
-        }
-        let chord = shift_chord(played, self.transpose.keyboard);
-        let prev = self.chord;
-        self.chord = Some(chord);
-        self.on_chord(prev, now, sink);
     }
 
     /// Master transpose for a note on `dest` (never on drum/SFX kits).

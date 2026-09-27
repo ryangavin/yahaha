@@ -37,6 +37,8 @@
     "stopAcmp": false,
     "section": "Main A",
     "queued": null,
+    "landing": null,
+    "acmp": true,
     "pendingIntro": null,
     "main": 0,
     "bar": 1,
@@ -413,6 +415,8 @@
   ],
   "mixer": {
     "faderPage": "panel",
+    "faderLayer": "volume",
+    "sendWaiting": 0,
     "styleParts": [
       {
         "name": "Rhythm 1",

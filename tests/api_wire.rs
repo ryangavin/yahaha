@@ -37,6 +37,8 @@ const EVERY_CMD: &[&str] = &[
     r#"{"type":"tempoUp"}"#,
     r#"{"type":"tempoDown"}"#,
     r#"{"type":"resetTempo"}"#,
+    r#"{"type":"toggleAcmp"}"#,
+    r#"{"type":"setAcmp","on":false}"#,
     r#"{"type":"toggleFade"}"#,
     r#"{"type":"sectionReset"}"#,
     r#"{"type":"toggleRetrigger"}"#,
@@ -83,6 +85,8 @@ const EVERY_CMD: &[&str] = &[
     // Mixer, Launchkey pages, synth
     r#"{"type":"setFaderPage","page":"style"}"#,
     r#"{"type":"toggleFaderPage"}"#,
+    r#"{"type":"setFaderLayer","layer":"reverb"}"#,
+    r#"{"type":"stepFaderLayer","delta":1}"#,
     r#"{"type":"setPadPage","page":"otsParts"}"#,
     r#"{"type":"cyclePadPage","delta":1}"#,
     r#"{"type":"setMasterVolume","volume":100}"#,

@@ -34,6 +34,21 @@ pub fn now_ns() -> u64 {
     }
 }
 
+/// The host clock, raw (ticks; see [`host_to_ns`]): the cheapest timestamp there is.
+#[inline]
+pub fn host_now() -> u64 {
+    unsafe { mach_absolute_time() }
+}
+
+/// CPU time the calling thread has used, in nanoseconds: unlike [`now_ns`], it does not
+/// run on while the thread is preempted.
+#[inline]
+pub fn thread_cpu_ns() -> u64 {
+    let mut ts = libc::timespec { tv_sec: 0, tv_nsec: 0 };
+    unsafe { libc::clock_gettime(libc::CLOCK_THREAD_CPUTIME_ID, &mut ts) };
+    ts.tv_sec as u64 * 1_000_000_000 + ts.tv_nsec as u64
+}
+
 #[inline]
 pub fn host_to_ns(t: u64) -> u64 {
     let (n, d) = timebase();

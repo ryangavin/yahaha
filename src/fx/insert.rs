@@ -293,7 +293,15 @@ impl rustysynth::ChannelInsert for BandInserts {
 
     fn process(&mut self, channel: usize, left: &mut [f32], right: &mut [f32], level: f32) {
         if let Some(p) = channel.checked_sub(super::BAND_CHANNELS.start).filter(|&p| p < 8) {
+            let perf = &crate::perf::PERF;
+            let t0 = perf.on().then(crate::rt::host_now);
             self.slots[p].process(left, right, level, &self.settings[p]);
+            // The top view (#296): its time and output peak, atomics only.
+            if let Some(t0) = t0 {
+                perf.insert[p].add(crate::rt::host_to_ns(crate::rt::host_now().wrapping_sub(t0)));
+                let peak = left.iter().chain(right.iter()).fold(0f32, |m, x| m.max(x.abs()));
+                crate::perf::Perf::peak(&perf.insert_peak[p], peak);
+            }
         }
     }
 }

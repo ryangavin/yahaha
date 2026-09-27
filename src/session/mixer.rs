@@ -63,6 +63,14 @@ impl Control {
             MixerCmd::SetPartSolo { part } => {
                 parts.set_solo(part.map(|p| (p & 3) as usize));
             }
+            MixerCmd::SetFaderLayer { layer } => {
+                parts.set_fader_layer(layer);
+                self.wake_engine();
+            }
+            MixerCmd::StepFaderLayer { delta } => {
+                parts.step_fader_layer(delta.signum());
+                self.wake_engine();
+            }
             MixerCmd::StyleTrackMute { order, value } => return self.engine_cmd(Cmd::StyleParts(order.mask(value))),
             // An engine button, handled above.
             MixerCmd::ToggleStylePart { .. } => {}
@@ -74,6 +82,8 @@ impl Control {
         let s = &self.snap;
         MixerState {
             fader_page: self.shared.parts.fader_page(),
+            fader_layer: self.shared.parts.fader_layer(),
+            send_waiting: self.shared.parts.send_waiting.load(Relaxed),
             style_parts: (0..8u8)
                 .map(|p| {
                     // Manual Bass mutes the Style's Bass part (its voice moves to the left hand).

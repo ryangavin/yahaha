@@ -1568,14 +1568,25 @@ mod transpose {
         assert_eq!(a.out, b.out);
     }
 
-    /// Changing Keyboard transpose with a chord held is the same as playing the moved chord then.
+    /// Changing Keyboard transpose with a chord held changes nothing in the band (#264, as
+    /// the Genos does); the same keys played again then are the moved chord.
     #[test]
-    fn keyboard_transpose_change_moves_held_chord() {
+    fn keyboard_transpose_change_waits_for_the_next_chord() {
         let Some(p) = funky() else { return };
         let bar = bar_ns(&p);
-        let (_, a) = run(p, &[(0, Step::Chord(Chord::new(0, 0))), (bar + bar / 3, Step::Transpose(Transpose::new(5, 0)))], bar * 3);
-        let (_, b) = run(funky().unwrap(), &[(0, Step::Chord(Chord::new(0, 0))), (bar + bar / 3, Step::Chord(Chord::new(5, 0)))], bar * 3);
+        let (e, a) = run(p, &[(0, Step::Chord(Chord::new(0, 0))), (bar + bar / 3, Step::Transpose(Transpose::new(5, 0)))], bar * 3);
+        assert_eq!(snap(&e).chord, Some(Chord::new(0, 0)), "still C");
+        let (_, b) = run(funky().unwrap(), &[(0, Step::Chord(Chord::new(0, 0)))], bar * 3);
         assert!(a.out.len() > 50);
+        assert_eq!(a.out, b.out);
+        // C played again after the transpose: F, as fingering F would be.
+        let (e, a) = run(
+            funky().unwrap(),
+            &[(0, Step::Chord(Chord::new(0, 0))), (bar + bar / 3, Step::Transpose(Transpose::new(5, 0))), (2 * bar, Step::Chord(Chord::new(0, 0)))],
+            bar * 3,
+        );
+        assert_eq!(snap(&e).chord, Some(Chord::new(5, 0)));
+        let (_, b) = run(funky().unwrap(), &[(0, Step::Chord(Chord::new(0, 0))), (2 * bar, Step::Chord(Chord::new(5, 0)))], bar * 3);
         assert_eq!(a.out, b.out);
     }
 
@@ -1625,9 +1636,10 @@ mod transpose {
         assert!(on.values().all(|&n| n == 0), "{on:?}");
     }
 
-    /// Stop Accompaniment follows a Keyboard transpose change with the band stopped.
+    /// Stop Accompaniment waits for the next chord after a Keyboard transpose change, as
+    /// the band does (#264); that chord is read in the new key.
     #[test]
-    fn stop_accompaniment_follows_keyboard_transpose() {
+    fn stop_accompaniment_follows_keyboard_transpose_from_the_next_chord() {
         let Some(p) = funky() else { return };
         let mut e = Engine::new(p);
         let mut rec = Recorder::default();
@@ -1638,13 +1650,18 @@ mod transpose {
         rec.out.clear();
         e.set_transpose(Transpose::new(-1, 2), 2, &mut rec);
         e.process(2, &mut rec);
-        // Chord is now B; the bass sounds B + 2 = C#.
+        assert!(!rec.out.iter().any(|(_, m)| m[0] & 0xF0 == 0x90), "nothing moves: {:?}", rec.out);
+        assert_eq!(snap(&e).chord, Some(Chord::new(0, 0)));
+        // C again: B; the bass sounds B + 2 = C#.
+        e.set_chord(Chord::new(0, 0), 3, &mut rec);
+        e.process(3, &mut rec);
+        e.process(50_000_000, &mut rec);
         assert!(rec.out.iter().any(|(_, m)| m[0] == 0x9A && m[1] % 12 == 1), "{:?}", rec.out);
         assert_eq!(snap(&e).chord, Some(Chord::new(11, 0)));
     }
 
     /// With the band stopped and the Stop Accompaniment notes already silenced, a Keyboard
-    /// change moves the remembered chord but does not sound it again.
+    /// change neither moves the remembered chord (#264) nor sounds it again.
     #[test]
     fn stop_accompaniment_silent_stays_silent() {
         let Some(p) = funky() else { return };
@@ -1661,7 +1678,7 @@ mod transpose {
         e.set_transpose(Transpose::new(4, 0), 4, &mut rec);
         e.process(4, &mut rec);
         assert!(!rec.out.iter().any(|(_, m)| m[0] & 0xF0 == 0x90), "{:?}", rec.out);
-        assert_eq!(snap(&e).chord, Some(Chord::new(4, 0)));
+        assert_eq!(snap(&e).chord, Some(Chord::new(0, 0)));
     }
 
     /// A part whose voice is a drum/SFX kit (bank MSB 126/127) outside the drum channels is
@@ -3146,3 +3163,7 @@ mod settle_tests;
 #[cfg(test)]
 #[path = "sim_setup_tests.rs"]
 mod setup_tests;
+
+#[cfg(test)]
+#[path = "sim_fill_landing_tests.rs"]
+mod fill_landing_tests;

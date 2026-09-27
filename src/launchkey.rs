@@ -444,6 +444,8 @@ pub fn cc_control(cc: u8, shift: bool) -> Option<Control> {
         // Shift + Pad Bank ▲/▼: the toggles these buttons had before pages (also on page 3).
         PAD_UP_CC if shift => act(Action::PartOnOff(parts::LEFT as u8)),
         PAD_DOWN_CC if shift => act(Action::ToggleOtsLink),
+        // Shift + encoder page ▼: [ACMP] on/off (#266). Every pad is taken.
+        KNOB_DOWN_CC if shift => act(Action::Button(Button::Acmp)),
         KNOB_UP_CC => act(Action::KnobPage(-1)),
         KNOB_DOWN_CC => act(Action::KnobPage(1)),
         PAD_UP_CC => Some(Control::Page(-1)),
@@ -732,6 +734,13 @@ pub fn pad_leds(s: &Snapshot, has: &[bool], panel: &Panel) -> [(u8, Led); 16] {
     })
 }
 
+/// The Main (0-3) a fill or the Break, queued or playing, lands on (#282): the Main
+/// selected. None when no fill is queued or playing.
+pub fn landing(s: &Snapshot) -> Option<u8> {
+    let fill_like = |x: Option<SectionId>| matches!(x, Some(SectionId::Fill(_) | SectionId::Break));
+    (s.running && (fill_like(s.queued) || fill_like(s.cur))).then_some(s.main)
+}
+
 /// Page 1 in palette mode, given engine state and which sections exist.
 fn section_leds(s: &Snapshot, has: &[bool]) -> [(u8, Led); 16] {
     let cur = s.cur;
@@ -756,6 +765,9 @@ fn section_leds(s: &Snapshot, has: &[bool]) -> [(u8, Led); 16] {
         let fill = SectionId::Fill(i);
         if queued == Some(id) || queued == Some(fill) || cur == Some(fill) {
             Led::Flash(DIM_GREEN, GREEN)
+        } else if landing(s) == Some(i) {
+            // Where the fill lands, when that's another Main (#282).
+            Led::Pulse(GREEN)
         } else if cur == Some(id) || (s.main == i && !matches!(cur, Some(SectionId::Main(_)))) {
             Led::Solid(GREEN)
         } else {
@@ -956,6 +968,8 @@ fn section_looks(s: &Snapshot, has: &[bool]) -> [(u8, Look); 16] {
             l(label, key, C_MAIN, Level::Off, Anim::Solid)
         } else if s.queued == Some(id) || s.queued == Some(fill) || s.cur == Some(fill) {
             l(label, key, C_MAIN, Level::Bright, Anim::Flash)
+        } else if landing(s) == Some(i) {
+            l(label, key, C_MAIN, Level::Bright, Anim::Pulse)
         } else if s.cur == Some(id) || (s.main == i && !matches!(s.cur, Some(SectionId::Main(_)))) {
             l(label, key, C_MAIN, Level::Bright, Anim::Solid)
         } else {
@@ -1198,7 +1212,7 @@ mod tests {
             style_pending: false, section_bars: 0, audition: None, fade: FadeState::Off, retrigger: false, ritardando: false,
             looper: Default::default(), style_solo: None,
             multipad: Default::default(), chart_tag: 0, chart_bar: None, chart_override: false, dynamics: 64,
-            style_sends: [[40, 0, 0]; 8], style_send_own: [[255; 3]; 8],
+            style_sends: [[40, 0, 0]; 8], style_send_own: [[255; 3]; 8], acmp: true,
         }
     }
 
@@ -1416,7 +1430,10 @@ mod tests {
         assert_eq!(cc_control(116, false), Some(Control::Act(Action::Button(Button::Stop))));
         assert_eq!(cc_control(SHIFT_CC, false), None);
         assert_eq!(cc_control(51, false), Some(Control::Act(Action::KnobPage(-1))));
-        assert_eq!(cc_control(52, true), Some(Control::Act(Action::KnobPage(1))));
+        assert_eq!(cc_control(52, false), Some(Control::Act(Action::KnobPage(1))));
+        assert_eq!(cc_control(51, true), Some(Control::Act(Action::KnobPage(-1))));
+        // Shift + ▼: [ACMP] (#266).
+        assert_eq!(cc_control(52, true), Some(Control::Act(Action::Button(Button::Acmp))));
         assert_eq!(cc_control(53, false), None);
 
         // ▲/▼ stop at the ends; Tab wraps.

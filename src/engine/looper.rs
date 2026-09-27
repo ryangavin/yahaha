@@ -85,6 +85,8 @@ impl Engine {
 
     /// Chord Looper REC/STOP.
     pub fn looper_rec(&mut self) {
+        // REC turns [ACMP] on (RM p.15).
+        self.features.acmp = Default::default();
         let l = &mut self.features.looper;
         match l.state {
             LoopState::Off | LoopState::LoopArmed | LoopState::Looping => {
