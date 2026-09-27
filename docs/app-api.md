@@ -114,6 +114,7 @@ state, and pressing the button is the action. For settings, a GUI checkbox can u
 | `sectionReset` | | Style Section Reset: the section playing starts again from its top, now. A change queued for the next bar line waits for the new bar grid's. Stopped: nothing. |
 | `toggleRetrigger` | | Style Retrigger on/off (`transport.retrigger`). While on, each chord played in a Main restarts the Main at the chord and loops its first `4 / styleSettings.retriggerRate` beats (a whole note .. a 32nd) until a section change, a style change or Retrigger goes off; off, the Main plays on from there. The same chord struck again (after letting go) counts as a chord played. Only Mains retrigger. |
 | `toggleAcmp`, `setAcmp` | `on` | [ACMP] on/off (OM p.44, p.47; `transport.acmp`, default on). Off: START plays the rhythm only, chords played change nothing (the chord parts end their notes), Sync Start starts on any key, Sync Stop and Stop Accompaniment have nothing to act on, and the whole keyboard plays the Right parts (with Left on, Left below the split). Turned on, the chord parts come in with the next chord. An OTS recall and Chord Looper REC turn it on. Stored in Registration (group Style). Launchkey: Shift + encoder page ▼; key `%`; assignable function `acmp`. |
+| `toggleUnison`, `setUnison`, `setUnisonHeld`, `setUnisonType` | `on`; `unisonType` (`root`, `melody`) | Unison (a PSR-SX feature, not a Genos2 one: docs/genos-features.md §C.9). While engaged (latched with `toggleUnison`/`setUnison`, or held with `setUnisonHeld`), each right-hand key also sounds on the Style's pitched parts in the player's rhythm, and note-offs follow the player's: the Bass plays the chord root (on-bass note if any) in C2–B2, or with `melody` the played key folded there; Chord 1, Chord 2 and Pad play the chord tones just below the played key; Phrase 1 and 2 double the key; the drums play on. Those parts' pattern notes rest while it is engaged and come back at their next notes. Works stopped or playing. Not stored. Assignable function `unison` (Hold A: on while held; Toggle: latches). No Launchkey mapping (the pad pages are full). |
 | `setTempo` | `bpm` | Sets the tempo. The range is 5–500 BPM (Genos, OM p.46); values outside are clamped. |
 | `toggleStylePart` | `part` 0–7 | Mutes or unmutes a Style part. |
 | `setStylePartVolume` | `part` 0–7, `volume` 0–127 | The part's CC7. The Launchkey fader has to reach the new value before it takes over again. |
@@ -657,6 +658,8 @@ Indices are 0-based unless a field says otherwise.
 | `queued` | string? | The section queued next: at the next bar, or for a fill, at the next beat. |
 | `landing` | string? | The Main a fill (or the Break) queued or playing lands on, e.g. `"Main A"`; null when none is (#282). The first press picks the fill; every later Main press before the fill ends only changes this. Pressing the fill's own Main while it plays queues it once more (`queued` names it), so mashing keeps the fill going. The Launchkey and the app pulse this Main's pad when it is not the fill's own. |
 | `acmp` | bool | [ACMP] is on (the default; `toggleAcmp`). Off: no chord section. |
+| `unison`, `unisonLatched` | bool | Unison is engaged (latched or held by a pedal), and its latched switch (`toggleUnison`). |
+| `unisonType` | `root` \| `melody` | What the Bass plays in Unison (default `root`). |
 | `pendingIntro` | 0–2? | The Intro armed to play at the start. |
 | `main` | 0–3 | The Main (A–D) that is playing or queued to follow. Changes as soon as a Main is pressed. |
 | `bar`, `beat` | 1-based | Position within the section playing. Both are 1 when stopped. |
@@ -1304,6 +1307,9 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
     ],
     "halfBarFill": false,
     "stopAcmpMode": "off",
+    "unison": false,
+    "unisonLatched": false,
+    "unisonType": "root",
     "fade": "off",
     "retrigger": false,
     "ritardando": false

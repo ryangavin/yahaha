@@ -989,6 +989,13 @@ With NTR = Guitar:
   - FM voice 2/4 Unison mode (RM p.55).
   - Style Creator "Dynamics / Accent Type" (an editor feature, RM p.27).
 - If yahaha wants Unison & Accent, the spec must come from another source.
+- **yahaha's Unison** (engine/unison.rs), built from the PSR-SX videos (docs/research/genos-parity/notes/unison-accent.md):
+  - While engaged, each right-hand key also sounds on the Style's pitched parts, in the player's rhythm; note-offs follow the player's.
+  - Bass: the chord's root (its on-bass note, if any) in C2–B2; with Unison Type **Melody**, the played key folded into that octave. Default Root. With no chord yet it plays the played key.
+  - Chord 1, Chord 2, Pad: the chord's tones voiced just below the played key. Phrase 1, 2: the played key. Parts switched off (or not soloed) stay silent; Manual Bass keeps the Bass muted.
+  - The drums play on (Accent is their feature). Works with the style stopped or playing; playing, the pitched parts' pattern notes stop when it engages and rest until it ends, then come back at their next notes. A section change keeps the held notes.
+  - **Engaging.** The assignable function "Unison" (last in the list, so saved assignments keep their numbers): a Hold pedal engages it while held, a Toggle pedal latches it. The app's Settings › Style page has the latched toggle and Unison bass (Root / Melody). Engaged = latched or held. Not stored in Registration.
+  - **Launchkey:** none (every pad page is full).
 - **Corpus (#180).** 0 of 208 styles carry any Unison & Accent data. The only chunks present are MThd, MTrk, CASM, OTSc and FNRc, and the only markers are the standard section markers. yahaha therefore cannot play Yamaha's accent figures. Its Accent plays the Main's own fill instead (see Style Dynamics Control).
 
 ### C.10 Chord identity numbering (MIDI Chord SysEx and Song chord meta)

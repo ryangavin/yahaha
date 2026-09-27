@@ -68,6 +68,13 @@ export type AppCmd =
   /** [ACMP] on/off (`transport.acmp`). */
   | { type: 'toggleAcmp' }
   | { type: 'setAcmp'; on: boolean }
+  /** Unison latched on/off (`transport.unisonLatched`). */
+  | { type: 'toggleUnison' }
+  | { type: 'setUnison'; on: boolean }
+  /** A Hold pedal given Unison is down or up: engaged while held. */
+  | { type: 'setUnisonHeld'; on: boolean }
+  /** What the Bass plays in Unison. */
+  | { type: 'setUnisonType'; unisonType: UnisonType }
   /** Tempo in BPM, 5–500 (clamped). */
   | { type: 'setTempo'; bpm: number }
   | { type: 'toggleStylePart'; part: number }
@@ -433,6 +440,9 @@ export type CmdError = { kind: 'busy' } | { kind: 'failed'; message: string }
 
 /** Stop Accompaniment: what a chord sounds on with the band stopped and Sync Start off. */
 export type StopAcmpMode = 'off' | 'style' | 'fixed'
+
+/** Unison's Bass: the chord's root, or the played line in the bass range. */
+export type UnisonType = 'root' | 'melody'
 /** OTS Link Timing: as the Main is pressed, or when that Main starts playing. */
 export type OtsLinkTiming = 'immediate' | 'mainChange'
 /** Change Behavior: keep the old style's value, keep it only while playing, or take the new one's. */
@@ -587,6 +597,12 @@ export interface TransportState {
   /** Half Bar Fill In. */
   halfBarFill: boolean
   stopAcmpMode: StopAcmpMode
+  /** Unison is engaged (latched, or held by a pedal). */
+  unison: boolean
+  /** Unison's latched switch (the app's toggle). */
+  unisonLatched: boolean
+  /** What the Bass plays in Unison. */
+  unisonType: UnisonType
   /** Fade In/Out. */
   fade: FadeState
   /** Style Retrigger is on. */

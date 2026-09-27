@@ -219,6 +219,9 @@ pub enum Function {
     /// Launchkey's BANK -/+ pads (page 4) and the Registration bar's ◀ ▶ step it.
     SnapshotBankNext,
     SnapshotBankPrev,
+    /// Unison (a PSR-SX feature, engine/unison.rs): a Hold pedal engages it while held, a
+    /// Toggle pedal latches it. Last, so older setups keep their numbers.
+    Unison,
 }
 
 /// One row of the assignable-function table.
@@ -247,7 +250,7 @@ use Kind::*;
 /// The assignable functions, in `Function` order: the Genos live-play list (RM p.139-144)
 /// as far as yahaha has the feature. app/src/lib/api/assignable-functions.json is this table
 /// as the app reads it (a test keeps the two equal).
-pub const FUNCTIONS: [FunctionInfo; 70] = [
+pub const FUNCTIONS: [FunctionInfo; 71] = [
     f(Function::None, "No Assign", Overall, Trigger),
     f(Function::Sustain, "Sustain", Voice, Switch),
     f(Function::Sostenuto, "Sostenuto", Voice, Switch),
@@ -318,6 +321,7 @@ pub const FUNCTIONS: [FunctionInfo; 70] = [
     f(Function::Acmp, "ACMP On/Off", Style, Trigger),
     f(Function::SnapshotBankNext, "Snapshot Bank +", Registration, Trigger),
     f(Function::SnapshotBankPrev, "Snapshot Bank −", Registration, Trigger),
+    f(Function::Unison, "Unison", Style, Switch),
 ];
 
 /// What running a function means, for the input thread.
@@ -384,7 +388,7 @@ impl Function {
             // The FADE IN/OUT button (OM p.67): stopped, arms a fade in; playing, fades
             // out to the stop.
             F::FadeInOut => Effect::Engine(Button::Fade),
-            F::KbdHarmonyArp | F::ArpHold | F::LeftHold => Effect::ControlSwitch,
+            F::KbdHarmonyArp | F::ArpHold | F::LeftHold | F::Unison => Effect::ControlSwitch,
             _ => Effect::Control,
         }
     }

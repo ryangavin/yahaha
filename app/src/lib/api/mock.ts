@@ -216,6 +216,7 @@ export function initialState(): AppState {
       beatsPerBar: beatsPerBar([s.timeSignature[0], s.timeSignature[1]]), tempo: s.tempo, lamps: [], sectionBars: null,
       halfBarFill: false, stopAcmpMode: 'off',
       fade: 'off', retrigger: false, ritardando: false, acmp: true,
+      unison: false, unisonLatched: false, unisonType: 'root',
     },
     chord: {
       name: null, fingered: null, fingering: 'fingeredOnBass', fingeringName: 'Fingered On Bass', upper: false,
@@ -390,6 +391,8 @@ export class MockSession implements Session {
   private tapStart: number | null = null
   /** The Stop Accompaniment mode the toggle turns back on. */
   private lastStopAcmp: StopAcmpMode = 'style'
+  /** A Hold pedal holds Unison on. */
+  private unisonHeld = false
   private now = 0
   private progression = 0
   private messageSeq = 0
@@ -1240,6 +1243,18 @@ export class MockSession implements Session {
       case 'toggleAcmp':
       case 'setAcmp':
         t.acmp = cmd.type === 'setAcmp' ? cmd.on : !t.acmp
+        break
+      case 'toggleUnison':
+      case 'setUnison':
+        t.unisonLatched = cmd.type === 'setUnison' ? cmd.on : !t.unisonLatched
+        t.unison = t.unisonLatched || this.unisonHeld
+        break
+      case 'setUnisonHeld':
+        this.unisonHeld = cmd.on
+        t.unison = t.unisonLatched || cmd.on
+        break
+      case 'setUnisonType':
+        t.unisonType = cmd.unisonType
         break
       case 'setMainTiming':
       case 'setIntroEndingTiming':

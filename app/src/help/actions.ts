@@ -133,6 +133,10 @@ export function tipFor(cmd: AppCmd | null): TipKey {
     case 'toggleRetrigger': return 'transport.retrigger'
     case 'toggleAcmp':
     case 'setAcmp': return 'transport.acmp'
+    case 'toggleUnison':
+    case 'setUnison':
+    case 'setUnisonHeld': return 'transport.unison'
+    case 'setUnisonType': return 'settings.unison_type'
     case 'stepRetriggerRate': return cmd.delta < 0 ? 'transport.retrigger_longer' : 'transport.retrigger_shorter'
     case 'setRetriggerRate': return 'settings.retrigger_rate'
     case 'setSwing':

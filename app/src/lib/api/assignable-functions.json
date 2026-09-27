@@ -488,5 +488,12 @@
     "category": "registration",
     "kind": "trigger",
     "available": true
+  },
+  {
+    "id": "unison",
+    "name": "Unison",
+    "category": "style",
+    "kind": "switch",
+    "available": true
   }
 ]

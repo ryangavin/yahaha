@@ -153,6 +153,20 @@ const catalog = {
     keys: ['~'],
     launchkey: pad(P2, 'bottom', 8),
   },
+  'transport.unison': {
+    title: 'Unison',
+    body: 'While on, each note your right hand plays also sounds on the band: the Bass, Chord, Pad and Phrase parts play with you, in your rhythm, and their own patterns rest. The drums play on, stopped or playing. A pedal given the Unison function turns it on while held.',
+    genos: null,
+    keys: [],
+    launchkey: null,
+  },
+  'settings.unison_type': {
+    title: 'Unison bass',
+    body: 'What the Bass plays in Unison. Root: the chord\'s root under your line. Melody: your line itself, down in the bass range.',
+    genos: null,
+    keys: [],
+    launchkey: null,
+  },
   'transport.acmp': {
     title: 'ACMP',
     body: 'Auto Accompaniment on or off. Off, the style plays its rhythm only, your chords change nothing, Sync Start starts on any key, and the whole keyboard plays your Right voices (Left below the split when Left is on). One Touch Settings and Chord Looper REC turn it back on.',
