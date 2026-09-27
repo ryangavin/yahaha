@@ -205,7 +205,7 @@ mod tests {
         let right1 = lines.iter().find(|l| l.starts_with("Right 1")).unwrap();
         assert!(right1.contains("sf2") && right1.contains("12") && right1.contains("-12.0") && right1.contains("14.0"), "{right1}");
         assert!(lines.iter().any(|l| l.starts_with("Right 2") && l.contains("plugin")), "{text}");
-        assert_eq!(lines.iter().filter(|l| l.contains(" fx ")).count(), 3, "reverb, chorus, variation");
+        assert_eq!(lines.iter().filter(|l| l.contains(" fx  bus")).count(), 3, "reverb, chorus, variation");
         assert_eq!(lines.len(), 10 + CHANNELS + 3);
     }
 }
