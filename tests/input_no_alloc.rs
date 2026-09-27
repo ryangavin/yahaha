@@ -55,8 +55,11 @@ fn keyboard_note_path_does_not_allocate() {
     // Warm up: nothing sized lazily later on.
     input.packet(1, 0, &[0x90, 60, 100, 0x80, 60, 0]);
     input.end_of_list();
+    // With the performance view collecting (`perf`): packets and their latency.
+    yahaha::perf::enable();
 
     let (allocs, frees) = (ALLOCS.load(Ordering::Relaxed), FREES.load(Ordering::Relaxed));
+    input.packet(1, yahaha::rt::host_now(), &[0x90, 62, 100, 0x80, 62, 0]);
     let (mut assigned, mut strikes, mut levels, mut holds) = (0, 0, 0, 0);
     for round in 0..50u8 {
         // Dynamics Touch / Accent on in some rounds: chord-section strikes go to the engine.

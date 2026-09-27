@@ -329,8 +329,8 @@ pub fn fake_device(name: &str, secs: f64) -> Result<()> {
 /// down, a note every 16th), the heaviest thing a player adds to the band.
 pub fn audio(args: &[String]) -> Result<()> {
     use crate::synth::{self, AudioCore, Msg, Rack, SynthControl};
-    let usage = "usage: yahaha bench-audio <style> <font.sf2> [\"C Am F G7\" | script] [--frames N] [--keys] [--paced] [--rate HZ]";
-    let (mut pos, mut frames, mut keys, mut rate, mut paced) = (Vec::new(), 64usize, false, 48_000u32, false);
+    let usage = "usage: yahaha bench-audio <style> <font.sf2> [\"C Am F G7\" | script] [--frames N] [--keys] [--paced] [--top] [--rate HZ]";
+    let (mut pos, mut frames, mut keys, mut rate, mut paced, mut top) = (Vec::new(), 64usize, false, 48_000u32, false, false);
     let mut it = args.iter();
     while let Some(a) = it.next() {
         match a.as_str() {
@@ -338,6 +338,7 @@ pub fn audio(args: &[String]) -> Result<()> {
             "--rate" => rate = it.next().and_then(|s| s.parse().ok()).ok_or_else(|| anyhow::anyhow!("{usage}"))?,
             "--keys" => keys = true,
             "--paced" => paced = true,
+            "--top" => top = true,
             _ => pos.push(a.clone()),
         }
     }
@@ -397,6 +398,16 @@ pub fn audio(args: &[String]) -> Result<()> {
     let rt_ok = paced && rt::make_realtime(period, period / 2, period);
     let mut wake = rt::now_ns();
     let mut out = vec![0f32; 2 * frames];
+    // `--top`: collect for the performance view as the device callback does (the cost of
+    // collecting is then in the times), and print its frame at the end.
+    let perf = &crate::perf::PERF;
+    if top {
+        crate::perf::enable();
+        perf.sample_rate.store(rate, Relaxed);
+        perf.frames.store(frames as u32, Relaxed);
+        let _ = crate::perf::take(0.0);
+    }
+    let started = std::time::Instant::now();
     // (wall, cpu, callback index, voices, messages taken)
     let mut calls: Vec<(u64, u64, usize, usize, usize)> = Vec::with_capacity(total / frames + 1);
     let (mut next, mut max_voices) = (0, 0);
@@ -417,6 +428,9 @@ pub fn audio(args: &[String]) -> Result<()> {
         let (a, c) = (rt::now_ns(), rt::thread_cpu_ns());
         core.process(&mut out);
         let (dt, dc) = (rt::now_ns() - a, rt::thread_cpu_ns() - c);
+        if top {
+            perf.callback.record(dt);
+        }
         let v = core.voices();
         max_voices = max_voices.max(v);
         calls.push((dt, dc, i, v, n_msgs));
@@ -444,6 +458,15 @@ pub fn audio(args: &[String]) -> Result<()> {
             over(0.8),
             over(1.0)
         );
+    }
+    if top {
+        // The view's last refresh window is the whole run here; its peak levels too.
+        let snap = crate::perf::take(started.elapsed().as_secs_f64());
+        println!();
+        for l in crate::perf::top::render(&snap, started.elapsed()) {
+            println!("{l}");
+        }
+        println!();
     }
     calls.sort_by(|a, b| b.1.cmp(&a.1));
     println!("  the most CPU-hungry callbacks (cpu, wall, at, voices, messages taken):");
