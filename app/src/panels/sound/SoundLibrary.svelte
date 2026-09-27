@@ -4,10 +4,9 @@
 
   1. Patches: the list by category, search, favourites, audition, the editor, save a
      part's sound, the library file.
-  2. Program Map: the drum rule, the 16 GM families, program overrides; every style's map
-     or this style's own.
-  3. This style: what the current style sends each part, and what it plays; remap here.
-  4. Add from SoundFont: browse a SoundFont's presets, audition, add.
+  2. GM map: the drums and 128 programs by family, each with its rule, override, the
+     sound it resolves to and the deciding layer; the global map or this style's own.
+  3. Add from SoundFont: browse a SoundFont's presets, audition, add.
 
   All pages stay mounted (inactive ones `hidden`), so switching is instant and the
   tooltip coverage test sees every control. docs/sound-library.md has the behaviour.
@@ -17,9 +16,8 @@
   import { tip } from '../../lib/tooltip/tip.svelte'
   import Overlay from '../../lib/ui/Overlay.svelte'
   import AddPage from './AddPage.svelte'
-  import MapPage from './MapPage.svelte'
+  import GmMapPage from './GmMapPage.svelte'
   import PatchesPage from './PatchesPage.svelte'
-  import StyleUsePage from './StyleUsePage.svelte'
   import { nav, TABS, type SoundTab } from './nav.svelte'
 
   const sl = $derived(app.state.soundLibrary)
@@ -35,7 +33,7 @@
     nav.tab = next.id
     strip?.querySelector<HTMLElement>(`#sound-tab-${next.id}`)?.focus()
   }
-  const count = (id: SoundTab) => (id === 'patches' ? sl.patches.length : id === 'style' ? sl.usage.length : null)
+  const count = (id: SoundTab) => (id === 'patches' ? sl.patches.length : id === 'gm' ? sl.gmMap.filter((r) => r.resolved.layer === 'auto').length || null : null)
 </script>
 
 <Overlay id="sound" title="Sound Library" closeTip="drawer.close" onclose={() => (ui.sound = false)}>
@@ -72,8 +70,7 @@
       </div>
     {/snippet}
     {@render page('patches', PatchesPage)}
-    {@render page('map', MapPage)}
-    {@render page('style', StyleUsePage)}
+    {@render page('gm', GmMapPage)}
     {@render page('add', AddPage)}
   </div>
 </Overlay>
@@ -86,7 +83,7 @@
   }
   .tabs {
     display: grid;
-    grid-template-columns: 0.8fr 1fr 0.9fr 1.5fr;
+    grid-template-columns: 0.8fr 0.8fr 1.4fr;
     gap: 2px;
     padding: 3px;
     border-radius: 6px;
