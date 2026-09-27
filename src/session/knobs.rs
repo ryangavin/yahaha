@@ -27,6 +27,7 @@ impl Control {
             dynamics: self.snap.dynamics,
             retrigger: self.snap.retrigger,
             retrigger_rate: self.style_settings.retrigger_rate,
+            swing: self.style_settings.swing,
             bpm: self.snap.bpm,
             part_volume: [0, 1, 2, 3].map(|p| parts.volume(p)),
             harmony_volume: self.harmony_arp.harmony.volume,

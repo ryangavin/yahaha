@@ -34,6 +34,7 @@ mod style_change;
 mod sync_stop;
 mod tempo_repeat;
 mod timing;
+mod swing;
 mod transport;
 
 pub use chart::{ChartPlan, ChartSettings, PlanBar, CHART_CHORDS};
@@ -601,7 +602,7 @@ impl Engine {
             t = t.min(p.at);
         }
         if let Some(e) = sec.events.get(self.ev_idx) {
-            t = t.min(self.sec_start + e.tick as f64);
+            t = t.min(self.sec_start + self.ev_tick(e.tick));
         }
         if let Some(h) = self.hook_deadline() {
             t = t.min(h);

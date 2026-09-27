@@ -1758,6 +1758,20 @@ const catalog = {
     keys: [],
     launchkey: null,
   },
+  'style.swing': {
+    title: 'Swing',
+    body: 'Swings the Style live, 0–100 %: 0 plays it as written and 100 moves each straight off-beat to the triplet position, a heavy shuffle. Drums and every accompaniment part follow it, parts already swung are not swung again, and your own keys are never moved. Each new style starts at 0; a registration stores it.',
+    genos: null,
+    keys: [],
+    launchkey: 'Knob 6 on the Style knob page',
+  },
+  'style.swing_grid': {
+    title: 'Swing grid',
+    body: 'Which off-beats Swing moves: 1/8 swings the off-beat 8ths (the usual shuffle), 1/16 the off-beat 16ths (a funk or hip-hop swing).',
+    genos: null,
+    keys: [],
+    launchkey: null,
+  },
   'audio.synth_on': {
     title: 'Built-in synth',
     body: 'Turns the built-in SoundFont synth\'s sound on or off. The yahaha MIDI port keeps playing either way, for Ableton or other sounds.',
