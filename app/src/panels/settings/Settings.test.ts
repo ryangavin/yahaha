@@ -63,6 +63,19 @@ describe('Settings drawer', () => {
     expect(s.state.dynamics).toMatchObject({ control: false, touch: true, accent: true })
   })
 
+  it('Style page: Tempo and the section buttons the Launchkey has (hardware parity)', async () => {
+    const s = setup()
+    await fireEvent.click(q('#settings-tab-style'))
+    const style = page('style')
+    const at = (key: string) => style.querySelector<HTMLElement>(`[data-tip="${key}"]`)!
+    for (const k of ['tempo.set', 'section.main_a', 'section.main_d', 'section.break', 'transport.stop', 'transport.section_reset']) {
+      expect(at(k), k).not.toBeNull()
+    }
+    const sent = vi.spyOn(s, 'send')
+    await fireEvent.click(at('section.main_c'))
+    expect(sent).toHaveBeenCalledWith({ type: 'main', index: 2 })
+  })
+
   it('Lock page: a toggle per Parameter Lock group, wired to setParamLock', async () => {
     const s = setup()
     await fireEvent.click(q('#settings-tab-lock'))

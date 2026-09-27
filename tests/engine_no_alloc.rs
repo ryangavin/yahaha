@@ -3,7 +3,7 @@
 //! this test binary only) checks `EngineLoop::step` through both.
 
 use std::alloc::{GlobalAlloc, Layout, System};
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use yahaha::engine::{Button, DynamicsSettings, Engine, PadCmd, Prepared, StyleControls, StyleSettings, Transpose, PAD_PPQ};
 use yahaha::live::{self, Audition, Cmd, EngineLoop, FxConfig, FxKey, FxMode, Out, PadBank, Shared};
@@ -12,30 +12,29 @@ use yahaha::rt::{PacketSink, Target};
 use yahaha::sff::Style;
 
 struct Counting;
-static ALLOCS: AtomicUsize = AtomicUsize::new(0);
-static FREES: AtomicUsize = AtomicUsize::new(0);
 
 thread_local! {
-    /// Count on this thread: the test's own (the test harness allocates on its threads
-    /// while another test runs).
+    /// Count on this thread only: the test's own. The counts are per thread too, so the
+    /// harness's own work on another test's thread (freeing that test's captured output
+    /// after it ends) never lands in this test's window (#188).
     static COUNT: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    static ALLOCS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    static FREES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
-fn counting() -> bool {
-    COUNT.try_with(|c| c.get()).unwrap_or(false)
+fn bump(n: &'static std::thread::LocalKey<std::cell::Cell<usize>>) {
+    if COUNT.try_with(|c| c.get()).unwrap_or(false) {
+        let _ = n.try_with(|n| n.set(n.get() + 1));
+    }
 }
 
 unsafe impl GlobalAlloc for Counting {
     unsafe fn alloc(&self, l: Layout) -> *mut u8 {
-        if counting() {
-            ALLOCS.fetch_add(1, Ordering::Relaxed);
-        }
+        bump(&ALLOCS);
         unsafe { System.alloc(l) }
     }
     unsafe fn dealloc(&self, p: *mut u8, l: Layout) {
-        if counting() {
-            FREES.fetch_add(1, Ordering::Relaxed);
-        }
+        bump(&FREES);
         unsafe { System.dealloc(p, l) }
     }
 }
@@ -43,13 +42,23 @@ unsafe impl GlobalAlloc for Counting {
 #[global_allocator]
 static A: Counting = Counting;
 
-/// The counters are global: one test at a time, each counting on its own thread.
-static ONE_AT_A_TIME: std::sync::Mutex<()> = std::sync::Mutex::new(());
+/// This thread's allocations and frees so far.
+fn counts() -> (usize, usize) {
+    (ALLOCS.with(|n| n.get()), FREES.with(|n| n.get()))
+}
 
-fn count_here() -> std::sync::MutexGuard<'static, ()> {
-    let g = ONE_AT_A_TIME.lock().unwrap_or_else(|e| e.into_inner());
+/// Counting on, for this thread, until the guard drops.
+struct Counted;
+
+impl Drop for Counted {
+    fn drop(&mut self) {
+        COUNT.with(|c| c.set(false));
+    }
+}
+
+fn count_here() -> Counted {
     COUNT.with(|c| c.set(true));
-    g
+    Counted
 }
 
 fn prep(name: &str) -> Option<Box<Prepared>> {
@@ -77,7 +86,7 @@ fn preview_and_next_bar_style_change_do_not_allocate() {
     // Warm up: the first step sizes nothing lazily later on.
     l.step(1);
 
-    let (allocs, frees) = (ALLOCS.load(Ordering::Relaxed), FREES.load(Ordering::Relaxed));
+    let (allocs, frees) = counts();
     let mut now = 1_000;
     ch.audition_tx.push(preview).ok().unwrap();
     let end = now + 4 * preview_bar + 50_000_000;
@@ -168,8 +177,8 @@ fn preview_and_next_bar_style_change_do_not_allocate() {
         now = l.next_deadline().unwrap_or(now + 5_000_000).max(now + 1);
         l.step(now);
     }
-    assert_eq!(ALLOCS.load(Ordering::Relaxed) - allocs, 0, "allocations on the engine thread");
-    assert_eq!(FREES.load(Ordering::Relaxed) - frees, 0, "frees on the engine thread");
+    assert_eq!(counts().0 - allocs, 0, "allocations on the engine thread");
+    assert_eq!(counts().1 - frees, 0, "frees on the engine thread");
     let snaps: Vec<_> = std::iter::from_fn(|| ch.snap_rx.pop().ok()).collect();
     assert!(snaps.iter().any(|s| s.running && (s.bpm - 120.0).abs() < 1e-6), "the taps started the band");
     assert!(snaps.iter().any(|s| s.audition.is_some_and(|a| a.bar == 4)), "the preview played its 4 bars");
@@ -205,7 +214,7 @@ fn harmony_and_arpeggio_do_not_allocate() {
     let chord = yahaha::parse_chord("C").unwrap();
     l.step(1);
 
-    let (allocs, frees) = (ALLOCS.load(Ordering::Relaxed), FREES.load(Ordering::Relaxed));
+    let (allocs, frees) = counts();
     let mut now = 1_000;
     let mut ons = [0usize; 4];
     let mut play = |l: &mut EngineLoop, now: &mut u64, ns: u64| {
@@ -257,8 +266,8 @@ fn harmony_and_arpeggio_do_not_allocate() {
     ch.fx_tx.push(FxKey::StrumOff { melody: 72 }).ok().unwrap();
     ch.ui_tx.push(Cmd::Panic).ok().unwrap();
     play(&mut l, &mut now, 100_000_000);
-    assert_eq!(ALLOCS.load(Ordering::Relaxed) - allocs, 0, "allocations on the engine thread");
-    assert_eq!(FREES.load(Ordering::Relaxed) - frees, 0, "frees on the engine thread");
+    assert_eq!(counts().0 - allocs, 0, "allocations on the engine thread");
+    assert_eq!(counts().1 - frees, 0, "frees on the engine thread");
     assert!(ch.old_rx.pop().is_ok(), "the style change happened");
     assert!(ons.iter().sum::<usize>() > 50, "the arpeggio and the trill played: {ons:?}");
 }
@@ -281,7 +290,7 @@ fn chord_settling_does_not_allocate() {
     let pads = Box::new(MultiPadPlayer::new(&parse(&synthetic::demo_bank()).unwrap(), PAD_PPQ));
     l.step(1);
 
-    let (allocs, frees) = (ALLOCS.load(Ordering::Relaxed), FREES.load(Ordering::Relaxed));
+    let (allocs, frees) = counts();
     let mut now = 1_000;
     ch.ui_tx.push(Cmd::ChordSettle(10)).ok().unwrap();
     ch.pad_tx.push(PadBank { player: Some(pads), tag: 1 }).ok().unwrap();
@@ -327,8 +336,8 @@ fn chord_settling_does_not_allocate() {
     play("E7", now, &mut l);
     let to = now + 50_000_000;
         run(&mut l, &mut now, to);
-    assert_eq!(ALLOCS.load(Ordering::Relaxed) - allocs, 0, "allocations on the engine thread");
-    assert_eq!(FREES.load(Ordering::Relaxed) - frees, 0, "frees on the engine thread");
+    assert_eq!(counts().0 - allocs, 0, "allocations on the engine thread");
+    assert_eq!(counts().1 - frees, 0, "frees on the engine thread");
     let snaps: Vec<_> = std::iter::from_fn(|| ch.snap_rx.pop().ok()).collect();
     assert!(snaps.iter().any(|s| s.running && s.played.is_some_and(|c| c.name() == "Dm")), "the band followed the rolls");
 }
@@ -365,7 +374,7 @@ fn looper_metronome_and_solo_do_not_allocate() {
     );
     l.step(1);
 
-    let (allocs, frees) = (ALLOCS.load(Ordering::Relaxed), FREES.load(Ordering::Relaxed));
+    let (allocs, frees) = counts();
     let mut now = 1_000;
     ch.ui_tx.push(Cmd::Metronome { on: true, bell: true }).ok().unwrap();
     ch.ui_tx.push(Cmd::Dynamics(DynamicsSettings { touch: true, accent: true, ..DynamicsSettings::default() })).ok().unwrap();
@@ -394,12 +403,12 @@ fn looper_metronome_and_solo_do_not_allocate() {
     ch.ui_tx.push(Cmd::Button(Button::StartStop)).ok().unwrap();
     l.step(now + 1);
     run(&mut l, &mut now, t0 + 9 * bar);
-    assert_eq!(ALLOCS.load(Ordering::Relaxed) - allocs, 0, "allocations on the engine thread");
-    assert_eq!(FREES.load(Ordering::Relaxed) - frees, 0, "frees on the engine thread");
+    assert_eq!(counts().0 - allocs, 0, "allocations on the engine thread");
+    assert_eq!(counts().1 - frees, 0, "frees on the engine thread");
 
     let snaps: Vec<_> = std::iter::from_fn(|| ch.snap_rx.pop().ok()).collect();
     assert!(snaps.iter().any(|s| s.looper.state == LoopState::Recording));
-    assert!(snaps.iter().any(|s| s.dynamics == 4), "Touch set the level");
+    assert!(snaps.iter().any(|s| s.dynamics == 50), "Touch set the level");
     assert!(snaps.iter().any(|s| matches!(s.cur, Some(yahaha::sff::SectionId::Fill(_)))), "the Accent fill played");
     assert!(snaps.iter().any(|s| s.looper.state == LoopState::Looping && s.style_solo == Some(2)));
     assert!(snaps.iter().any(|s| s.looper.state == LoopState::Looping && s.played == Some(chord("A"))), "the memory took over");
@@ -425,7 +434,7 @@ fn fills_stop_acmp_and_change_rules_do_not_allocate() {
     let mut ch = live::channels(Out::new(PacketSink::new(Target::Null), None));
     let mut l = EngineLoop::new(Engine::new(a), ch.io, shared.clone());
     l.step(1);
-    let (allocs, frees) = (ALLOCS.load(Ordering::Relaxed), FREES.load(Ordering::Relaxed));
+    let (allocs, frees) = counts();
     let mut now = 1_000;
     let mut cmd = |c: Cmd, now: &mut u64, l: &mut EngineLoop| {
         ch.ui_tx.push(c).ok().unwrap();
@@ -478,8 +487,8 @@ fn fills_stop_acmp_and_change_rules_do_not_allocate() {
     cmd(Cmd::TempoHold(0), &mut now, &mut l);
     cmd(Cmd::Button(Button::TempoReset), &mut now, &mut l);
     cmd(Cmd::Button(Button::StartStop), &mut now, &mut l);
-    assert_eq!(ALLOCS.load(Ordering::Relaxed) - allocs, 0, "allocations on the engine thread");
-    assert_eq!(FREES.load(Ordering::Relaxed) - frees, 0, "frees on the engine thread");
+    assert_eq!(counts().0 - allocs, 0, "allocations on the engine thread");
+    assert_eq!(counts().1 - frees, 0, "frees on the engine thread");
     let snaps: Vec<_> = std::iter::from_fn(|| ch.snap_rx.pop().ok()).collect();
     assert!(snaps.iter().any(|s| s.half_bar_fill), "Half Bar Fill on");
     assert!(snaps.iter().any(|s| s.cur == Some(yahaha::sff::SectionId::Fill(1))), "Fill Up played B's fill");
@@ -502,7 +511,7 @@ fn back_to_back_fills_do_not_allocate() {
     let mut ch = live::channels(Out::new(PacketSink::new(Target::Null), None));
     let mut l = EngineLoop::new(Engine::new(a), ch.io, shared.clone());
     l.step(1);
-    let (allocs, frees) = (ALLOCS.load(Ordering::Relaxed), FREES.load(Ordering::Relaxed));
+    let (allocs, frees) = counts();
     let mut now = 1_000;
     // Sync Start is armed: the chord starts the band on Main A.
     shared.chord.store(yahaha::parse_chord("C").unwrap().pack(1), Ordering::Release);
@@ -526,8 +535,8 @@ fn back_to_back_fills_do_not_allocate() {
     ch.ui_tx.push(Cmd::Button(Button::StartStop)).ok().unwrap();
     now += 1;
     l.step(now);
-    assert_eq!(ALLOCS.load(Ordering::Relaxed) - allocs, 0, "allocations on the engine thread");
-    assert_eq!(FREES.load(Ordering::Relaxed) - frees, 0, "frees on the engine thread");
+    assert_eq!(counts().0 - allocs, 0, "allocations on the engine thread");
+    assert_eq!(counts().1 - frees, 0, "frees on the engine thread");
     let snaps: Vec<_> = std::iter::from_fn(|| ch.snap_rx.pop().ok()).collect();
     let first = snaps.iter().position(|s| s.cur == Some(Fill(0))).expect("the fill played");
     let last = snaps.iter().rposition(|s| s.cur == Some(Fill(0))).unwrap();
@@ -552,7 +561,7 @@ fn late_fill_presses_do_not_allocate() {
     let mut ch = live::channels(Out::new(PacketSink::new(Target::Null), None));
     let mut l = EngineLoop::new(Engine::new(a), ch.io, shared.clone());
     l.step(1);
-    let (allocs, frees) = (ALLOCS.load(Ordering::Relaxed), FREES.load(Ordering::Relaxed));
+    let (allocs, frees) = counts();
     let mut now = 1_000;
     shared.chord.store(yahaha::parse_chord("C").unwrap().pack(1), Ordering::Release);
     l.step(now);
@@ -572,8 +581,8 @@ fn late_fill_presses_do_not_allocate() {
     ch.ui_tx.push(Cmd::Button(Button::StartStop)).ok().unwrap();
     now += 1;
     l.step(now);
-    assert_eq!(ALLOCS.load(Ordering::Relaxed) - allocs, 0, "allocations on the engine thread");
-    assert_eq!(FREES.load(Ordering::Relaxed) - frees, 0, "frees on the engine thread");
+    assert_eq!(counts().0 - allocs, 0, "allocations on the engine thread");
+    assert_eq!(counts().1 - frees, 0, "frees on the engine thread");
     let snaps: Vec<_> = std::iter::from_fn(|| ch.snap_rx.pop().ok()).collect();
     assert!(snaps.iter().filter(|s| s.cur == Some(Fill(0))).count() >= 2, "the fills played");
 }
@@ -608,8 +617,8 @@ fn drum_setup_on_the_way_to_the_synth_does_not_allocate() {
     };
     // Warm up (the port side's first packets), then count a second pass.
     pass(&mut out);
-    let (allocs, frees) = (ALLOCS.load(Ordering::Relaxed), FREES.load(Ordering::Relaxed));
+    let (allocs, frees) = counts();
     pass(&mut out);
-    assert_eq!(ALLOCS.load(Ordering::Relaxed) - allocs, 0, "allocations on the engine thread");
-    assert_eq!(FREES.load(Ordering::Relaxed) - frees, 0, "frees on the engine thread");
+    assert_eq!(counts().0 - allocs, 0, "allocations on the engine thread");
+    assert_eq!(counts().1 - frees, 0, "frees on the engine thread");
 }

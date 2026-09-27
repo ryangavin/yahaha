@@ -70,7 +70,8 @@ export function functionCmd(id: FunctionId, st: { fingering: Fingering }): AppCm
   if (/^main[ABCD]$/.test(id)) return { type: 'main', index: letter('main') }
   if (/^ending[123]$/.test(id)) return { type: 'ending', index: n('ending') - 1 }
   if (/^ots[1234]$/.test(id)) return { type: 'recallOts', index: n('ots') - 1 }
-  if (/^regist([1-9]|10)$/.test(id)) return { type: 'pressRegist', index: n('regist') - 1 }
+  // Snapshots 1–8 of the bank on view; 9 and 10 run on into the next bank's 1 and 2.
+  if (/^regist([1-9]|10)$/.test(id)) return { type: 'pressSnapshot', slot: n('regist') - 1 }
   const parts: Record<string, number> = { right1OnOff: 0, right2OnOff: 1, right3OnOff: 2, leftOnOff: 3 }
   if (id in parts) return { type: 'togglePart', part: parts[id] }
   const simple: Record<string, AppCmd> = {

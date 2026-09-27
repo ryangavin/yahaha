@@ -141,6 +141,8 @@ pub struct MockSession {
     library: LibraryList,
     clock: f64,
     section_start: u32,
+    /// A style took over mid-Intro, -Fill or -Break: its OTS comes when the Main starts (#111).
+    ots_due: bool,
     taps: Vec<f64>,
     /// Steady taps in a row (the engine's count), and when a bar of them starts the band.
     tap_run: usize,
@@ -391,6 +393,7 @@ impl MockSession {
             library,
             clock: 0.0,
             section_start: 0,
+            ots_due: false,
             taps: vec![],
             tap_run: 0,
             tap_start: None,
@@ -636,6 +639,7 @@ impl MockSession {
             dynamics: s.dynamics.level,
             retrigger: s.transport.retrigger,
             retrigger_rate: s.style_settings.retrigger_rate,
+            swing: s.style_settings.swing,
             bpm: s.transport.tempo,
             part_volume: [0, 1, 2, 3].map(|p| s.keyboard_parts[p].volume),
             harmony_volume: s.harmony_arp.volume,
@@ -732,6 +736,15 @@ impl MockSession {
             return;
         }
         self.pads.bar(&mut self.state.multi_pad);
+        // A queued style takes over at the bar line, but waits for an Ending, playing or
+        // queued: it loads at the stop (#111).
+        let t = &self.state.transport;
+        let ending = [&t.section, &t.queued].iter().any(|s| s.as_deref().is_some_and(|s| ENDINGS.contains(&s)));
+        if !ending {
+            if let Some(id) = self.state.preview.queued.take() {
+                self.load_style_at(id, true);
+            }
+        }
         let t = &self.state.transport;
         let main = MAINS[t.main as usize];
         let section = t.section.clone();
@@ -808,9 +821,10 @@ impl MockSession {
             self.state.transport.main = m as u8;
             // OTS Link Timing "At Main Section Change": as the Main starts playing.
             let ots = &self.state.ots;
-            if ots.link && ots.link_timing == OtsLinkTiming::MainChange && m < ots.settings.len() && ots.applied as usize != m + 1 {
+            if ots.link && m < ots.settings.len() && (self.ots_due || (ots.link_timing == OtsLinkTiming::MainChange && ots.applied as usize != m + 1)) {
                 self.recall_ots(m);
             }
+            self.ots_due = false;
         }
     }
 
@@ -894,6 +908,10 @@ impl MockSession {
     }
 
     fn stop_band(&mut self) {
+        // A style queued for the next bar loads when the band stops first.
+        if let Some(id) = self.state.preview.queued.take() {
+            self.load_style(id);
+        }
         self.state.chart.bar = None;
         self.chart_end = false;
         if self.state.transport.running {
@@ -1014,6 +1032,20 @@ impl MockSession {
     }
 
     fn load_style(&mut self, id: usize) {
+        self.load_style_at(id, false);
+    }
+
+    /// A style while the band plays (QueueStyle): it waits for the next bar line.
+    fn queue_style(&mut self, id: usize) {
+        if self.state.transport.running {
+            self.state.preview.queued = Some(id);
+        } else {
+            self.load_style(id);
+        }
+    }
+
+    /// `at_bar`: a queued style taking over while the band plays (its OTS waits for a Main).
+    fn load_style_at(&mut self, id: usize, at_bar: bool) {
         let Some(s) = self.styles.get(id) else { return };
         if let Some(e) = &s.error {
             let text = format!("{}/{}: {e}", s.folder, s.file);
@@ -1022,6 +1054,11 @@ impl MockSession {
         }
         let tempo = self.state.transport.tempo;
         self.set_style(id);
+        // Dynamics starts at its maximum (as written) with each style, as the session.
+        self.state.dynamics.level = yahaha::engine::DYNAMICS_NEUTRAL;
+        // Swing starts at 0 (as written) with each style, as the session.
+        self.settings.swing = 0;
+        self.state.style_settings = self.settings.into();
         // Change Behavior: Lock keeps, Hold keeps while playing, Reset takes the new style's.
         let running = self.state.transport.running;
         let rules = self.state.style_change;
@@ -1044,8 +1081,17 @@ impl MockSession {
             p.waiting = style_page;
         }
         let main = self.state.transport.main as usize;
+        self.ots_due = false;
         if self.state.ots.link && main < self.state.ots.settings.len() {
-            self.recall_ots(main);
+            // Taking over while the band plays: the new style's OTS comes with a Main (#111).
+            let t = &self.state.transport;
+            let is_main = |s: &Option<String>| s.as_deref().is_some_and(|s| MAINS.contains(&s));
+            let in_main = is_main(&t.section) && (t.queued.is_none() || is_main(&t.queued));
+            if at_bar && !in_main {
+                self.ots_due = true;
+            } else {
+                self.recall_ots(main);
+            }
         }
         if self.state.transport.section.as_deref().is_some_and(|s| !self.has(s)) {
             self.state.transport.section = MAINS.iter().find(|m| self.has(m)).map(|m| m.to_string());
@@ -1787,7 +1833,7 @@ impl MockSession {
             }
             AppCmd::System(SystemCmd::ClearMessage) => self.state.message = None,
             // Without a clock of its own for the bar line, the mock loads at once.
-            AppCmd::Library(LibraryCmd::QueueStyle { id }) => self.load_style(id),
+            AppCmd::Library(LibraryCmd::QueueStyle { id }) => self.queue_style(id),
             AppCmd::Preview(PreviewCmd::AuditionStyle { id }) => {
                 if self.state.transport.running {
                     self.message("Stop the band to preview a style", true);
@@ -2441,6 +2487,51 @@ mod tests {
         assert!(m.state.message.as_ref().is_some_and(|x| x.error));
     }
 
+    /// A style other than the one loaded, with OTS, Main A and Ending A (#111 tests).
+    fn other_style(m: &MockSession) -> usize {
+        let cur = m.state.style.id;
+        m.styles.iter().position(|s| s.error.is_none() && s.ots > 0 && ["Main A", "Ending A"].iter().all(|n| s.sections.iter().any(|x| x == n)) && s.id != cur).unwrap()
+    }
+
+    /// QueueStyle while the band plays waits for the bar line, and with OTS Link on the
+    /// new style's OTS comes as it takes over in a Main (#111).
+    #[test]
+    fn a_queued_style_takes_over_at_the_bar_line_with_its_ots() {
+        let mut m = MockSession::new();
+        m.send(OtsCmd::SetOtsLink { on: true });
+        m.advance(bar_ms(&m) * 0.3);
+        let id = other_style(&m);
+        m.send(LibraryCmd::QueueStyle { id });
+        assert_eq!(m.state.preview.queued, Some(id), "it waits for the bar line");
+        assert_ne!(m.state.style.id, id);
+        m.state.ots.applied = 0;
+        m.advance(bar_ms(&m) * 0.8);
+        assert_eq!(m.state.style.id, id);
+        assert_eq!(m.state.preview.queued, None);
+        assert_eq!(m.state.ots.applied, m.state.transport.main + 1);
+    }
+
+    /// A queued style waits for an Ending and loads at the stop (#111).
+    #[test]
+    fn a_queued_style_waits_for_the_ending() {
+        let mut m = MockSession::new();
+        m.advance(bar_ms(&m) * 0.3);
+        m.send(TransportCmd::Ending { index: 0 });
+        let id = other_style(&m);
+        m.send(LibraryCmd::QueueStyle { id });
+        for _ in 0..16 {
+            if !m.state.transport.running {
+                break;
+            }
+            m.advance(bar_ms(&m) * 0.5);
+            if m.state.transport.running {
+                assert_ne!(m.state.style.id, id, "the Ending plays in the old style");
+            }
+        }
+        assert!(!m.state.transport.running);
+        assert_eq!(m.state.style.id, id, "loaded at the stop");
+    }
+
     #[test]
     fn a_queued_main_takes_over_at_the_next_bar() {
         let mut m = MockSession::new();
@@ -2686,7 +2777,7 @@ mod tests {
     fn registration_recalls_lights_page_4_and_the_playlist_steps() {
         let mut m = MockSession::new();
         assert_eq!(m.state.registration.bank.name, "Friday Gig");
-        assert_eq!(m.state.registration.buttons.len(), 10);
+        assert_eq!(m.state.registration.buttons.len(), 16, "Friday Gig has Banks A and B");
         m.send(RegistrationCmd::RecallRegist { index: 3 });
         assert_eq!(m.state.registration.selected, Some(3));
         assert_eq!(m.state.transport.tempo, 132.0);
@@ -2694,12 +2785,17 @@ mod tests {
         m.send(PadsCmd::SetPadPage { page: Page::Registration });
         assert_eq!(m.state.pads.pads.len(), 16);
         assert_eq!((m.state.pads.pads[3].rgb, m.state.pads.pads[0].rgb), ([127, 0, 0], [0, 40, 127]));
-        assert_eq!(m.state.pads.pads[9].level, Level::Off);
-        // Memory, then button 10.
+        assert_eq!(m.state.pads.pads[7].level, Level::Off);
+        assert_eq!((m.state.pads.pads[0].label.as_str(), m.state.pads.pads[12].label.as_str()), ("SNAP 1", "STORE"));
+        // Bank +, Store, then snapshot 2: B2.
+        m.send(RegistrationCmd::StepSnapshotBank { delta: 1 });
+        assert_eq!(m.state.registration.snapshot_bank, 1);
+        assert_eq!(m.state.pads.pads[0].level, Level::Bright, "B1 (a ten-button bank's 9) is stored");
         m.send(RegistrationCmd::ToggleRegistMemory);
-        assert!(m.state.pads.pads.iter().take(10).all(|p| p.anim == Anim::Flash));
-        m.send(RegistrationCmd::PressRegist { index: 9 });
+        assert!(m.state.pads.pads.iter().take(8).all(|p| p.anim == Anim::Flash));
+        m.send(RegistrationCmd::PressSnapshot { slot: 1 });
         assert!(m.state.registration.buttons[9].stored);
+        assert_eq!(m.state.registration.selected, Some(9));
         // Shift + Track steps the playlist: its first record recalls Friday Gig [1].
         let tl = m.state.surface.controls.iter().find(|c| c.id == "trackNext").unwrap().clone();
         assert_eq!((tl.shift_label.as_str(), tl.shift_action.clone()), ("SONG ▶", Some(AppCmd::Playlist(PlaylistCmd::StepPlaylist { delta: 1 }))));
@@ -2743,9 +2839,9 @@ mod tests {
     fn knobs_turn_their_functions_as_the_session() {
         let mut m = MockSession::new();
         assert_eq!((m.state.knobs.page_name.as_str(), m.state.knobs.knobs.len()), ("Style", 8));
-        m.send(KnobsCmd::TurnKnob { knob: 0, delta: 4 });
-        assert_eq!(m.state.dynamics.level, 72);
-        assert_eq!(m.state.knobs.knobs[0].value, "72");
+        m.send(KnobsCmd::TurnKnob { knob: 0, delta: -4 });
+        assert_eq!(m.state.dynamics.level, 119);
+        assert_eq!(m.state.knobs.knobs[0].value, "119");
         let bpm = m.state.transport.tempo.round();
         m.send(KnobsCmd::TurnKnob { knob: 7, delta: -3 });
         assert_eq!(m.state.transport.tempo, bpm - 3.0);

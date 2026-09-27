@@ -87,7 +87,10 @@ impl Control {
                 return self.add_record(Record { name, target: RecordTarget::Bank { path: path.display().to_string(), regist } });
             }
             PlaylistCmd::AddCurrentStyle => {
-                let (name, path) = (self.info.name.clone(), self.info.path.display().to_string());
+                // The style the player chose: the one waiting for the engine (or the bar
+                // line), else the one playing; as a registration stores it.
+                let info = self.pending_style.as_ref().map_or(&self.info, |p| &p.2);
+                let (name, path) = (info.name.clone(), info.path.display().to_string());
                 return self.add_record(Record { name, target: RecordTarget::Style { path } });
             }
             PlaylistCmd::AppendPlaylist { path } => {
@@ -290,10 +293,10 @@ impl Control {
     }
 }
 
-/// A record as stored: a name (its file's, if none), a button 0-9.
+/// A record as stored: a name (its file's, if none), a snapshot index.
 fn clean(mut r: Record) -> Record {
     if let RecordTarget::Bank { regist, .. } = &mut r.target {
-        *regist = regist.filter(|&i| (i as usize) < reg::BUTTONS);
+        *regist = regist.filter(|&i| (i as usize) < reg::MAX_SLOTS);
     }
     if r.name.trim().is_empty() {
         let p = Path::new(r.target.path());

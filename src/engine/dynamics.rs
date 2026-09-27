@@ -1,14 +1,17 @@
 //! Style Dynamics Control (Genos2 OM p.11, p.69; RM p.11, p.142, p.147), Touch, and Accent
 //! (#180).
 //!
-//! - **Dynamics**: a level 0-127, where 64 plays the Style as written. It scales the
-//!   velocity of every Style note-on, on all eight parts. That changes the band's intensity
+//! - **Dynamics**: a level 0-127. The maximum, 127, plays the Style as written and is the
+//!   default (the owner: Dynamics "should always be maxed out"); lower levels soften the
+//!   band down to ×0.35. There is no boost above the Style as authored, so the maximum
+//!   never pins velocities at 127. It scales the velocity of every Style note-on, on all
+//!   eight parts. That changes the band's intensity
 //!   (the synth's velocity layers and filters), not only its level. CC7 is never touched
 //!   (the mixer rule). Style Setting > Dynamics Control (`control`) gates it: off, the Style
 //!   plays as written whatever the level.
 //! - **Touch**: OM p.69 says the Style's level follows your playing strength. With Touch
 //!   on, each strike in the chord section sets the level from its velocity
-//!   ([`touch_level`]). A strike at velocity 100 plays the Style as written.
+//!   ([`touch_level`]). A strike at velocity 100 or more plays the Style as written.
 //! - **Accent**: a stand-in for the PSR-SX "Unison & Accent" Accent, which needs accent
 //!   data no style yahaha has carries. With it on, a chord-section strike at or above the
 //!   threshold, while a Main plays, starts that Main's own Fill In from the next beat
@@ -20,8 +23,8 @@
 
 use super::*;
 
-/// The Dynamics level that plays the Style as written.
-pub const DYNAMICS_NEUTRAL: u8 = 64;
+/// The Dynamics level that plays the Style as written: the maximum, and the default.
+pub const DYNAMICS_NEUTRAL: u8 = 127;
 /// The default Accent threshold (velocity).
 pub const ACCENT_DEFAULT: u8 = 110;
 
@@ -31,7 +34,7 @@ pub const ACCENT_DEFAULT: u8 = 110;
 pub struct DynamicsSettings {
     /// Style Setting > Dynamics Control: the level may act on the Style.
     pub control: bool,
-    /// The Dynamics level, 0-127 (64: as written).
+    /// The Dynamics level, 0-127 (127, the default: as written).
     pub level: u8,
     /// Touch: chord-section strikes set the level.
     pub touch: bool,
@@ -59,17 +62,15 @@ impl DynamicsSettings {
     }
 }
 
-/// The level a chord-section strike at velocity `vel` sets with Touch on: velocity − 36,
-/// so a strike at 100 plays the Style as written.
+/// The level a chord-section strike at velocity `vel` sets with Touch on: velocity × 1.27,
+/// so a strike at 100 or harder plays the Style as written.
 pub fn touch_level(vel: u8) -> u8 {
-    vel.saturating_sub(36).min(127)
+    (vel as u16 * 127 / 100).min(127) as u8
 }
 
-/// The velocity factor at Dynamics level `level`: ×0.35 at 0, ×1 at 64, ×1.6 at 127.
+/// The velocity factor at Dynamics level `level`: ×0.35 at 0 up to ×1 (as written) at 127.
 fn factor(level: u8) -> f32 {
-    let l = level.min(127) as f32;
-    let n = DYNAMICS_NEUTRAL as f32;
-    if l <= n { 0.35 + 0.65 * l / n } else { 1.0 + 0.6 * (l - n) / (127.0 - n) }
+    0.35 + 0.65 * level.min(127) as f32 / 127.0
 }
 
 /// Engine-side Dynamics state: the settings and the level in effect.
@@ -200,11 +201,12 @@ mod tests {
         let Some(written) = velocities(DynamicsSettings::default()) else { return };
         let soft = velocities(DynamicsSettings { level: 0, ..Default::default() }).unwrap();
         let hard = velocities(DynamicsSettings { level: 127, ..Default::default() }).unwrap();
+        let mid = velocities(DynamicsSettings { level: 64, ..Default::default() }).unwrap();
         assert_eq!((soft.len(), hard.len()), (written.len(), written.len()), "no note is left out");
-        for ((&w, &s), &h) in written.iter().zip(&soft).zip(&hard) {
-            assert!(s >= 1 && s <= w && h >= w, "{w}: {s} / {h}");
+        assert_eq!(hard, written, "the maximum plays the Style as written: no boost, no pinning at 127");
+        for ((&w, &s), &m) in written.iter().zip(&soft).zip(&mid) {
+            assert!(s >= 1 && s <= m && m <= w, "{w}: {s} / {m}");
             assert_eq!(s, ((w as f32 * 0.35).round() as u8).max(1));
-            assert_eq!(h, ((w as f32 * 1.6).round() as u8).min(127));
         }
         assert_ne!(soft, written, "the level changed the velocities");
     }
@@ -216,14 +218,14 @@ mod tests {
         assert_eq!(e.dynamics().level, DYNAMICS_NEUTRAL, "Touch off: strikes change nothing");
         e.set_dynamics(DynamicsSettings { touch: true, ..Default::default() });
         e.strike(100, 0);
-        assert_eq!(e.dynamics().level, 64);
+        assert_eq!(e.dynamics().level, 127);
         assert_eq!(e.dynamics_vel(90), 90, "a strike at 100 plays the Style as written");
         e.strike(20, 0);
-        assert_eq!(e.dynamics().level, 0);
-        assert!(e.dynamics_vel(100) < 40);
+        assert_eq!(e.dynamics().level, 25);
+        assert!(e.dynamics_vel(100) < 50);
         e.strike(127, 0);
-        assert_eq!(e.dynamics().level, 91);
-        assert!(e.dynamics_vel(100) > 100);
+        assert_eq!(e.dynamics().level, 127);
+        assert_eq!(e.dynamics_vel(100), 100, "never above the Style as written");
     }
 
     #[test]

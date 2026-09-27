@@ -66,8 +66,10 @@ export const BINDINGS: Record<string, Binding> = {
   s: c({ type: 'reloadPartPlugin', part: null }),
   L: c({ type: 'stepHarmonyArpType', delta: 1 }),
   '*': c({ type: 'toggleArpHold' }),
-  // Registration Memory: Shift + the top letter row = buttons 1–10.
-  ...Object.fromEntries([...'QWERTYUIOP'].map((k, i) => [k, c({ type: 'pressRegist', index: i })])),
+  // Snapshots: Shift + Q–I = Snapshots 1–8 of the bank on view, O/P = snapshot bank −/+.
+  ...Object.fromEntries([...'QWERTYUI'].map((k, i) => [k, c({ type: 'pressSnapshot', slot: i })])),
+  O: c({ type: 'stepSnapshotBank', delta: -1 }),
+  P: c({ type: 'stepSnapshotBank', delta: 1 }),
   F5: c({ type: 'toggleRegistMemory' }),
   F6: c({ type: 'toggleFreeze' }),
   F7: c({ type: 'stepRegistSequence', delta: -1 }),

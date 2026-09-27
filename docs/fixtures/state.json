@@ -1524,7 +1524,9 @@
     "fadeOutMs": 5000,
     "fadeHoldMs": 2000,
     "sectionReset": true,
-    "retriggerRate": 8
+    "retriggerRate": 8,
+    "swing": 0,
+    "swingGrid": 8
   },
   "registration": {
     "bank": {
@@ -1607,28 +1609,12 @@
         "style": null,
         "tempo": null,
         "voices": []
-      },
-      {
-        "index": 8,
-        "stored": false,
-        "name": "",
-        "groups": [],
-        "style": null,
-        "tempo": null,
-        "voices": []
-      },
-      {
-        "index": 9,
-        "stored": false,
-        "name": "",
-        "groups": [],
-        "style": null,
-        "tempo": null,
-        "voices": []
       }
     ],
     "selected": null,
     "memory": false,
+    "snapshotBank": 0,
+    "snapshotBanks": 1,
     "memorizeGroups": [
       "style",
       "voice",

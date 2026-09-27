@@ -179,10 +179,14 @@ fn value_of(cmd: &AppCmd, level: Level, st: &AppState) -> String {
         AppCmd::Ots(OtsCmd::RecallOts { index }) => format!("OTS {}", index + 1),
         AppCmd::Ots(OtsCmd::ToggleOtsLink) => on(st.ots.link),
         AppCmd::Registration(c) => match c {
-            RegistrationCmd::PressRegist { index } if st.registration.memory => format!("Memorize {}", index + 1),
-            RegistrationCmd::PressRegist { .. } | RegistrationCmd::StepRegistSequence { .. } => {
-                st.registration.selected.map_or_else(|| "-".into(), |i| format!("Regist {}", i + 1))
+            RegistrationCmd::PressRegist { index } if st.registration.memory => format!("Store {}", crate::registration::snapshot_label(*index as usize)),
+            RegistrationCmd::PressSnapshot { slot } if st.registration.memory => {
+                format!("Store {}", crate::registration::snapshot_label(st.registration.snapshot_bank as usize * crate::registration::SLOTS + *slot as usize))
             }
+            RegistrationCmd::PressRegist { .. } | RegistrationCmd::PressSnapshot { .. } | RegistrationCmd::StepRegistSequence { .. } => {
+                st.registration.selected.map_or_else(|| "-".into(), |i| format!("Snap {}", crate::registration::snapshot_label(i as usize)))
+            }
+            RegistrationCmd::StepSnapshotBank { .. } => format!("Bank {}", crate::registration::bank_letter(st.registration.snapshot_bank as usize)),
             RegistrationCmd::ToggleRegistMemory => on(st.registration.memory),
             RegistrationCmd::ToggleFreeze => on(st.registration.freeze),
             RegistrationCmd::StepRegistBank { .. } => st.registration.bank.name.clone(),
@@ -254,8 +258,8 @@ mod tests {
         s.midi_in(Port::Pads, &[0x90, 119, 100]);
         assert_eq!(shown(&s), text("Pads: Sections", "START", "Main A"));
         // A knob.
-        s.midi_in(Port::Pads, &[0xBF, 21, 66]);
-        assert_eq!(shown(&s), text("Knobs: Style", "Dynamics Control", "68"));
+        s.midi_in(Port::Pads, &[0xBF, 21, 62]);
+        assert_eq!(shown(&s), text("Knobs: Style", "Dynamics Control", "123"));
         // A Panel fader: Right 2's level.
         s.midi_in(Port::Pads, &[0xB0, 6, 90]);
         let v = s.state().keyboard_parts[1].volume;

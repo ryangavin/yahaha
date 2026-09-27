@@ -139,6 +139,9 @@ Style Section Reset, the Fade In/Out times and the Style Retrigger length. The s
 | `setSectionReset` | `on` | TAP TEMPO while the style plays: Section Reset (on, the Genos default) or set the tempo (off, yahaha's default). |
 | `setRetriggerRate` | `rate` | Style Retrigger length: 1, 2, 4, 8, 16 or 32 (a whole note .. a 32nd). Other values snap down to one of these. |
 | `stepRetriggerRate` | `delta` | Steps along 1, 2, 4, 8, 16, 32; positive is shorter. Stops at the ends. |
+| `setSwing` | `amount` 0–100 | Live Swing: 0 plays the Style as written; 100 moves straight off-beats (8ths or 16ths, `swingGrid`) to the triplet position. A tick remap of the Style's events as they play (drums and all accompaniment parts; the player's keys are never moved). Parts already swung are not swung again: a triplet off-beat stays put, and positions between scale in proportion. Each style load sets it back to 0; registrations store it (group Style). |
+| `stepSwing` | `delta` | Swing moved by `delta` %, clamped to 0–100. |
+| `setSwingGrid` | `grid` | 8 (off-beat 8ths, the default) or 16 (off-beat 16ths). |
 
 ### Chord detection, split, transpose
 
@@ -241,18 +244,27 @@ left hand ([ireal.md](ireal.md), "Chart player"). Playlists live in the session'
 | `setChartEnding` | `index` | The Ending 0–2 after the last bar, or `null`: the band stops at the end of the last bar. |
 | `setChartAutoStyle` | `on` | Load the suggested style whenever a song is chosen. |
 
-### Registration Memory
+### Registration Memory (Snapshots)
 
-Buttons are 0-based (`index` 0–9 = the panel's [1]–[10]). Groups are `style`, `voice`,
+The Genos's Registration Memory buttons are **Snapshots**: eight per **snapshot bank**
+(Bank A, B, … up to H) in a bank file. `index` is a snapshot's place in the bank file,
+0-based: `bank * 8 + slot` (0 = A1, 9 = B2, up to 63 = H8). A bank file from before
+snapshots (ten buttons) loads with its buttons 1–8 as Bank A and 9–10 as B1–B2, the same
+indices, so its sequence and playlist records still point at them. The MEMORY button is
+**Store**; the wire names keep the Genos words (`pressRegist`, `toggleRegistMemory`,
+`registration.memory`). Groups are `style`, `voice`,
 `harmonyArp`, `multiPad`, `tempo`, `transpose`, `chordLooper`, `liveControl`, `assignable`
 (the Genos Freeze groups; docs/registration.md lists what each covers).
 
 | Command | Fields | Does |
 |---|---|---|
-| `pressRegist` | `index` | A REGISTRATION MEMORY button (the Launchkey pads send this): recalls it, or memorizes into it while MEMORY is armed. |
+| `pressRegist` | `index` | A snapshot button: recalls it, or stores into it while Store is armed. The pads follow to its snapshot bank. |
+| `pressSnapshot` | `slot` 0–7 | Snapshot `slot` of the snapshot bank on view (`snapshotBank`), as `pressRegist` (the Launchkey pads and the `regist1`–`regist8` assignable functions send this; `regist9`/`regist10` run on into the next bank's 1–2). |
+| `stepSnapshotBank` | `delta` | Snapshot bank −/+: views the previous/next eight. It stops at Bank A and at one empty bank past the last stored one (at most H), to store into. |
+| `selectSnapshotBank` | `bank` 0–7 | Views snapshot bank `bank` (0 = A). Refused past the one empty bank after the last stored one. |
 | `recallRegist` | `index` | Recalls a button: the groups it memorized, less the frozen ones while Freeze is on. The style comes first; when it changes, the rest follows once the new style plays (at once when stopped, at the next bar line when playing; `registration.pending` meanwhile). Refused if the button is empty. |
 | `memorizeRegist` | `index` | Stores the panel (the `memorizeGroups`) in a button, replacing what it held. A saved bank is written to its file at once. |
-| `toggleRegistMemory` | | The MEMORY button: the next `pressRegist` memorizes. |
+| `toggleRegistMemory` | | The STORE button (the Genos's MEMORY): the next `pressRegist`/`pressSnapshot` stores. |
 | `setMemorizeGroup` | `group`, `on` | Ticks a group in the Memory window. |
 | `clearRegist` | `index` | Empties a button. |
 | `renameRegist` | `index`, `name` | Renames a button. |
@@ -262,7 +274,7 @@ Buttons are 0-based (`index` 0–9 = the panel's [1]–[10]). Groups are `style`
 | `saveRegistBank` | `name` (null: its own file), `overwrite`? | Saves the bank; with a name, as a file of that name in the folder. Refused when another bank already has that file, unless `overwrite: true`. Fails without a data folder. |
 | `setFreeze` / `toggleFreeze` | `on` | Registration Freeze. |
 | `setFreezeGroup` | `group`, `on` | Ticks a group on the Freeze display: it stays unchanged on recall while Freeze is on. |
-| `setRegistSequence` | `steps` (buttons 0–9), `end`: `stop` \| `top` \| `next` | Programs the bank's Registration Sequence. |
+| `setRegistSequence` | `steps` (snapshot indices 0–63), `end`: `stop` \| `top` \| `next` | Programs the bank's Registration Sequence. |
 | `setRegistSequenceOn` / `toggleRegistSequence` | `on` | Registration Sequence on/off. A panel setting, not part of the bank (as on the Genos): it stays when the bank changes, and is kept in the Registration folder's `setup.json`. |
 | `stepRegistSequence` | `delta` | Regist +/−: recalls the next/previous step. Past the end: `stop` stays, `top` wraps, `next` loads the next bank and recalls its first step. Refused while the sequence is off. |
 | `stepRegist` | `delta` | Regist +/− from a pedal (the `registNext`/`registPrev` assignable functions): the sequence's next/previous step while it is on and has steps, else the bank's next/previous stored button (empty ones skipped; from none, + the first and − the last; it stops at either end). Refused when the bank has nothing stored. |
@@ -435,9 +447,9 @@ Genos2 Style Dynamics Control (OM p.11, p.69; RM p.11, p.142, p.147), with Touch
 | Command | Fields | What it does |
 |---|---|---|
 | `setDynamicsControl` | `on` | Style Setting › Dynamics Control. Off: the Style plays as written, whatever the level. |
-| `setDynamics` | `level` 0–127 | The Dynamics level (64: as written). |
+| `setDynamics` | `level` 0–127 | The Dynamics level (127, the default: as written; each style load sets 127). |
 | `stepDynamics` | `delta` | Moves the level by `delta`, clamped to 0–127. |
-| `setDynamicsTouch`, `toggleDynamicsTouch` | `on` | Touch: each chord-section strike sets the level to its velocity minus 36, so a strike at 100 plays as written. |
+| `setDynamicsTouch`, `toggleDynamicsTouch` | `on` | Touch: each chord-section strike sets the level to its velocity × 1.27, so a strike at 100 or harder plays as written. |
 | `setAccent`, `toggleAccent` | `on` | Accent: a chord-section strike at or above the threshold, while a Main plays, starts that Main's own fill at the next beat, as Fill Self does. It is not a Main press, so OTS Link does not follow it. It does nothing during an Intro, fill, break or Ending, or while a change is queued. |
 | `setAccentThreshold` | `velocity` 1–127 | The Accent threshold (default 110). |
 
@@ -523,8 +535,9 @@ With a matching type, the style's reverb parameters come too (#269): parameter 1
 Time (Data List Table#1) as `reverbTime` (at most 10 s), 3 Initial Delay (Table#2) as
 `preDelay`, and the high cut (Table#3; a Real Reverb's 4 High Damp Frequency, another
 reverb's 5 LPF Cutoff; Thru = 20 kHz) as `reverbTone`. A block's return level (Reverb
-`0C`, Chorus `2C`, Variation `56`) comes where the style sets one; where it sets none, the
-return stays as it is. The chorus's parameters are not read (no corpus style sets them on
+`0C`, Chorus `2C`, Variation `56`) comes where the style sets one; where it sets none (or
+the block has no match), a following block's return goes back to 64 (0 dB), so one style's
+return never carries into the next. A block that doesn't follow keeps the player's. The chorus's parameters are not read (no corpus style sets them on
 a chorus type yahaha has).
 
 Any other type (a phaser or a tempo delay in the chorus block, a distortion or a reverb as the
@@ -541,7 +554,7 @@ The Launchkey's 8 encoders as the Genos LIVE CONTROL knobs (#197; OM p.62–63, 
 README › Knobs). A page gives each knob a function; the knobs are relative, so a turn moves
 the value from where it is now, whoever set it last. A turn runs the command of the knob's
 function (`setDynamics`, `stepRetriggerRate`, `toggleRetrigger`, `styleTrackMute`,
-`setTempo`, `setPartVolume`, `setHarmonyVolume`, `setMetronomeVolume`, `setPartPan`,
+`setTempo`, `setSwing`, `setPartVolume`, `setHarmonyVolume`, `setMetronomeVolume`, `setPartPan`,
 `setPartSend`, `setEffectReturn`, `setEffectParam`), so it behaves
 exactly as that command does.
 
@@ -963,6 +976,8 @@ The settings the `Style settings` commands set.
 | `fadeHoldMs` | 0–5000 | Default 2000. |
 | `sectionReset` | bool | TAP TEMPO while playing resets the section. Default on (the Genos default). |
 | `retriggerRate` | 1, 2, 4, 8, 16, 32 | Style Retrigger length. Default 8 (an eighth note). |
+| `swing` | 0–100 | Live Swing (`setSwing`). Default 0; each style load sets 0. |
+| `swingGrid` | 8, 16 | The swing grid. Default 8. |
 
 ### `registration`
 
@@ -971,9 +986,11 @@ The settings the `Style settings` commands set.
 | `bank` | object | The bank in use: `name`, `path` (null until saved), `dirty` (changed since loaded or saved), `position` (its place in `banks`). |
 | `banks` | {name, path}[] | The bank files in the folder, in order. |
 | `folder` | string? | Where banks are saved (`<data dir>/Registration`); null when saving is off. |
-| `buttons` | RegistButton[10] | `index`, `stored`, `name`, `groups` (what it memorized), `style` (name)?, `tempo`?, `voices` ({name, on} for Right 1, Right 2, Right 3, Left; empty when it stores no parts). |
-| `selected` | 0–9? | The button last recalled or memorized (the red lamp). |
-| `memory` | bool | MEMORY is armed. |
+| `buttons` | RegistButton[] | Every snapshot of the bank file, by index: whole snapshot banks of eight, through the one on view. `index`, `stored`, `name`, `groups` (what it memorized), `style` (name)?, `tempo`?, `voices` ({name, on} for Right 1, Right 2, Right 3, Left; empty when it stores no parts). |
+| `selected` | 0–63? | The snapshot last recalled or stored (the red lamp), by index. |
+| `memory` | bool | Store is armed. |
+| `snapshotBank` | 0–7 | The snapshot bank on view (0 = Bank A): the pads press its eight. It follows a recall. |
+| `snapshotBanks` | 1–8 | Snapshot banks the file holds (enough for its last stored snapshot). |
 | `memorizeGroups`, `freezeGroups` | Group[] | The ticked groups. |
 | `freeze` | bool | Registration Freeze is on. |
 | `sequence` | object | `on`, `steps` (buttons), `end` (`stop` \| `top` \| `next`), `position` (the step last recalled)? |
@@ -1105,7 +1122,7 @@ default.
 ### `dynamics`
 Style Dynamics: `{ control, level, touch, accent, accentThreshold }`.
 - `control`: Style Setting › Dynamics Control. Default true.
-- `level`: the level in effect, 0–127. Touch moves it. Default 64.
+- `level`: the level in effect, 0–127. Touch moves it. Default 127 (as written); each style load sets it back to 127.
 - `touch`, `accent`: default false.
 - `accentThreshold`: a velocity from 1 to 127. Default 110.
 
@@ -1114,7 +1131,7 @@ The Knob Assign page: `{ page, pageName, pageNumber, pageCount, knobs }`.
 - `page`: `style` (the default), `parts`, `pan`, `effects` or `fx`. `pageNumber` is 1-based.
 - `knobs`: always eight, knob 1 first: `{ function, name, short, value, level }`.
   - `function`: `none`, `dynamics`, `retriggerRate`, `retriggerOnOff`, `trackMuteA`,
-    `trackMuteB`, `tempo`, `partVolume`, `harmonyVolume`, `metronomeVolume`, `partPan`,
+    `trackMuteB`, `tempo`, `swing`, `partVolume`, `harmonyVolume`, `metronomeVolume`, `partPan`,
     `partReverb`, `partChorus`, `fxReturn` (an effect block's return level; the `pan` page's
     knobs 5–7 are Reverb, Chorus and Delay Return), `fxParam` (an effect parameter, #236; the
     `name` says which, "Reverb Time") or `delayTime` (the delay's note value, or its ms with
@@ -1192,7 +1209,7 @@ Fill In BB queued, with OTS 1 recalled. Some lists are shortened here:
 - `styleParts` has 8.
 - `ots.settings` lists every OTS in the style.
 - `surface.controls` has 17 and `surface.faders` has 9.
-- `registration.buttons` has 10.
+- `registration.buttons` has 8.
 
 The `library`, `surface.trackPrev`/`trackNext`, the master fader and `io` show what a
 live session reports with a library folder, a Launchkey and the synth.
@@ -1620,7 +1637,9 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
     "fadeOutMs": 5000,
     "fadeHoldMs": 2000,
     "sectionReset": true,
-    "retriggerRate": 8
+    "retriggerRate": 8,
+    "swing": 0,
+    "swingGrid": 8
   },
   "registration": {
     "bank": { "name": "Friday Gig", "path": "/Users/me/Documents/yahaha/Registration/Friday Gig.regist.json", "dirty": false, "position": 0 },
@@ -1648,6 +1667,8 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
     ],
     "selected": 0,
     "memory": false,
+    "snapshotBank": 0,
+    "snapshotBanks": 1,
     "memorizeGroups": ["style", "voice", "harmonyArp", "multiPad", "tempo", "transpose", "chordLooper", "liveControl", "assignable"],
     "freeze": false,
     "freezeGroups": ["tempo"],
@@ -1825,7 +1846,7 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
       { "function": "retriggerOnOff", "name": "Retrigger On/Off", "short": "RtgOnOff", "value": "Off", "level": 0 },
       { "function": "trackMuteA", "name": "Style Track Mute A", "short": "StyMuteA", "value": "All", "level": 127 },
       { "function": "trackMuteB", "name": "Style Track Mute B", "short": "StyMuteB", "value": "All", "level": 127 },
-      { "function": "none", "name": "No Assign", "short": "---", "value": "", "level": null },
+      { "function": "swing", "name": "Swing", "short": "Swing", "value": "0%", "level": 0 },
       { "function": "none", "name": "No Assign", "short": "---", "value": "", "level": null },
       { "function": "tempo", "name": "Tempo", "short": "Tempo", "value": "92 BPM", "level": null }
     ]
