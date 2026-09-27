@@ -319,6 +319,19 @@ The engine, the runtime and the app API are the `yahaha` library. A `Session` ow
 
 Tests: run `scripts/test-all.sh` for the gate, one step at a time, stopping at the first failure: a compile-only `cargo check --no-default-features --lib`, the Rust tests once (with `--features plugins` on macOS, without elsewhere), and the app's Rust and web tests only when the diff against `origin/develop` touches `app/`, `src/api` or `src/session` (`--all` forces them). It uses cargo's defaults (all cores). For the engine alone, run `cargo test --profile test-fast` (add a test name to filter). The `test-fast` profile keeps release semantics but builds our crate incrementally, so an edit rebuilds in seconds rather than a minute or more; `cargo test --release` still works and runs the same tests. The suite covers the spec's transposition examples, chord recognition, and a full performance of every style in `corpus/`, checking for stuck notes. The oracle scores in `tests/oracle/scores.txt` are pinned too: a change to note conversion fails `oracle::tests::corpus_scores` with the score delta until you regenerate them with `UPDATE_GOLDEN=1`.
 
+## Agent feedback loop
+
+Each worktree can run [bacon](https://dystroy.org/bacon) headless (`cargo install --locked bacon`). It re-runs a job on every source change and, after every run, writes `.bacon-result.json` (git-ignored): the exit code, error/warning/failed-test counts and each item's location and message. The file's mtime is the run's finish time. An agent edits, then reads the result; it doesn't run cargo itself or poll.
+
+```sh
+scripts/agent-feedback.sh start                        # the `check` job: cargo check --all-targets --features plugins
+scripts/agent-feedback.sh start test -- --lib fx::     # or targeted tests (test-quick profile); drop --lib for integration tests
+scripts/agent-feedback.sh result                       # PASS/FAIL line, then each error or failed test
+scripts/agent-feedback.sh stop                         # before switching job, and when done
+```
+
+`result` waits (at most 60 s, `WAIT=` to change) only while the export is older than the newest edit under `src/`, `tests/`, `vendor/`, `Cargo.toml`, `Cargo.lock` or `bacon.toml`, then prints `stale` (exit 2) or the result (exit 0 pass, 1 fail). The jobs (`bacon.toml`): `check` (default), `check-portable` (no plugins, for Linux), `clippy`, `test`. The `test-quick` profile (Cargo.toml) builds our crate unoptimised with optimised dependencies, for an agent's targeted tests only; the batch gate stays on `test-fast` (`scripts/test-all.sh`). Measured on the development Mac, warm, after a one-line edit in `src/fx.rs`: `check` result in about 3 s; one lib test in 5.5 s under `test-quick` against 8.2 s under `test-fast` (all test targets: 10.3 s against 14.4 s).
+
 ## Known gaps
 
 - The NTT transposition tables are reconstructed from documentation and have not yet been checked against a real Genos (see PLAN.md §4).

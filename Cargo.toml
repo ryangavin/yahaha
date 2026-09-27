@@ -140,3 +140,17 @@ debug = 0
 [profile.test-fast.package."*"]
 opt-level = 3
 codegen-units = 16
+
+# An agent's targeted tests while it works (`cargo test --profile test-quick <filter>`, the
+# bacon `test` job): our crate unoptimised and incremental, so a one-line edit relinks in the
+# least time; the dependencies at full optimisation so audio-rendering tests still run
+# quickly. Debug semantics (debug assertions, overflow checks). The batch gate stays on
+# test-fast.
+[profile.test-quick]
+inherits = "dev"
+opt-level = 0
+incremental = true
+debug = 0
+
+[profile.test-quick.package."*"]
+opt-level = 3
