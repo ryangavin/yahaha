@@ -471,9 +471,12 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | **Search presets** | Shows only the presets whose name contains the text. | — | — | — |
 | **Preset** | Plays the preset on its own for a moment, while the band is stopped. | — | — | — |
 | **Add as patch** | Adds the preset to your library as a patch, named after it and filed under its likely category. | — | — | — |
-| **Export** | Writes your library to sound-library-export.json in the data folder, to back it up or share it. | — | — | — |
+| **Export** | Writes your library and GM map as a bundle (sound-library-export.json in the data folder): every sound's name, category and settings, plugin sounds' states included. SoundFonts are named by file, not copied: copy them yourself. | — | — | — |
+| **Export .aupreset** | Writes this plugin sound as a standard .aupreset in ~/Library/Audio/Presets, under its plugin, so Logic and MainStage can load it. | — | — | — |
+| **Replace** | Replaces the plugin's existing preset of this name with this sound. Logic and MainStage see the new one too. | — | — | — |
+| **Keep the existing preset** | Leaves the existing preset as it is; rename the sound to export it as a new one. | — | — | — |
 | **Library file** | The path of a sound library file to import: a full library, or a list of patches. | — | — | — |
-| **Import** | Adds the file's patches to your library (clashing ids get new ones) and its map rules too. | — | — | — |
+| **Import** | Adds a bundle's (or library file's) sounds to your library, clashing ids getting new ones, and its map rules too; nothing you have is replaced. SoundFonts are found by file name in your SoundFont folder; any that are missing are listed, and their sounds are kept for when you add the files. | — | — | — |
 
 ## Launchkey pad pages
 

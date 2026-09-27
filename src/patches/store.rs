@@ -12,6 +12,10 @@
 //!   reads as it is: every plugin patch in it is a `user` sound. Version 2 is written so a
 //!   version-1 build refuses the file instead of saving over it and dropping the origins.
 //!
+//! Export writes a bundle (`{ "kind": "yahaha-sound-bundle", "fonts": [...], "library":
+//! {...} }`): the library as above plus the SoundFont file names it plays. Import reads a
+//! bundle or any library file.
+//!
 //! A file from a newer yahaha (a higher version) is refused rather than half read, and
 //! never overwritten.
 
@@ -26,6 +30,18 @@ pub const VERSION: u32 = 2;
 
 /// The file name in the data folder.
 pub const FILE_NAME: &str = "sound-library.json";
+
+/// The `kind` of an export bundle (`SoundLibrary::to_bundle_json`).
+pub const BUNDLE_KIND: &str = "yahaha-sound-bundle";
+
+/// An export bundle: `{ "kind": "yahaha-sound-bundle", "fonts": [file names], "library":
+/// {...} }`. SoundFonts are referenced by file name, never copied.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+struct Bundle {
+    kind: String,
+    fonts: Vec<String>,
+    library: SoundLibrary,
+}
 
 /// How many patches a library holds at most. Every plugin sound lives here (D1: factory
 /// presets once played, imported `.aupreset` files), so it is no longer small; the limit
@@ -86,6 +102,48 @@ impl SoundLibrary {
 
     pub fn to_json(&self) -> String {
         serde_json::to_string_pretty(self).unwrap_or_default()
+    }
+
+    /// The SoundFont files the library's patches play, sorted, each once.
+    pub fn fonts_used(&self) -> Vec<String> {
+        let mut v: Vec<String> = self
+            .patches
+            .iter()
+            .filter_map(|p| match &p.source {
+                PatchSource::SoundFont { file, .. } => Some(file.clone()),
+                PatchSource::Plugin { .. } => None,
+            })
+            .collect();
+        v.sort();
+        v.dedup();
+        v
+    }
+
+    /// The library as an export bundle (D5): its metadata and maps, every plugin sound's
+    /// state (it is in the patches), and the SoundFonts it plays, by file name only.
+    pub fn to_bundle_json(&self) -> String {
+        let b = Bundle { kind: BUNDLE_KIND.into(), fonts: self.fonts_used(), library: self.clone() };
+        serde_json::to_string_pretty(&b).unwrap_or_default()
+    }
+
+    /// Read an export bundle, or any library file [`SoundLibrary::from_json`] reads: the
+    /// library, and the SoundFont files it names (the bundle's list and every file a
+    /// patch plays).
+    pub fn read_bundle(text: &str) -> Result<(SoundLibrary, Vec<String>)> {
+        let v: serde_json::Value = serde_json::from_str(text).context("not JSON")?;
+        let (lib, mut fonts) = match v.get("kind").and_then(|k| k.as_str()) {
+            Some(BUNDLE_KIND) => {
+                let listed: Vec<String> = v.get("fonts").cloned().map(serde_json::from_value).transpose().context("the bundle's fonts")?.unwrap_or_default();
+                let inner = v.get("library").context("the bundle has no library")?.to_string();
+                (SoundLibrary::from_json(&inner)?, listed)
+            }
+            Some(k) => bail!("not a sound bundle ({k})"),
+            None => (SoundLibrary::from_json(text)?, Vec::new()),
+        };
+        fonts.extend(lib.fonts_used());
+        fonts.sort();
+        fonts.dedup();
+        Ok((lib, fonts))
     }
 
     /// Load from `path`; a missing file is an empty library.

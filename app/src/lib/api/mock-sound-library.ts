@@ -137,6 +137,9 @@ export class MockSoundLibrary {
   parts: (string | null)[] = [null, null, null, null]
   private auditionLeft = 0
 
+  /** The `.aupreset` names `exportSoundPreset` wrote (a second export needs `overwrite`). */
+  private exported = new Set<string>()
+
   constructor(private get: () => AppState) {}
 
   private get sl() {
@@ -386,6 +389,15 @@ export class MockSoundLibrary {
         return `${c.path}: the mock has no files to import`
       case 'exportSoundLibrary':
         return null
+      case 'exportSoundPreset': {
+        const p = sl.patches.find((q) => q.id === c.id)
+        if (!p) return `no patch ${c.id} in the sound library`
+        if (p.source.kind !== 'plugin') return `${p.name} is a SoundFont preset, not a plugin sound`
+        if (!p.source.state) return `${p.name} has no settings yet: play it once first`
+        if (this.exported.has(p.name) && !c.overwrite) return `a preset called ${p.name} already exists: save under another name, or replace it`
+        this.exported.add(p.name)
+        return null
+      }
     }
     return null
   }

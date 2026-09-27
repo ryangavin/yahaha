@@ -206,7 +206,10 @@ export type SoundLibraryCmd =
   | { type: 'setPortSendsMapped'; on: boolean }
   | { type: 'browseSoundFont'; file: string | null }
   | { type: 'importSoundLibrary'; path: string; replace?: boolean; maps?: boolean }
+  /** Writes the library as a bundle (metadata, maps, every plugin sound's state; SoundFonts by file name). */
   | { type: 'exportSoundLibrary'; path: string | null }
+  /** Exports a plugin sound as an `.aupreset` in its plugin's preset folder (Logic reads it); an existing one needs `overwrite`. */
+  | { type: 'exportSoundPreset'; id: string; overwrite?: boolean }
 
 export const CATEGORY_LABELS: Record<PatchCategory, string> = {
   piano: 'Piano',
