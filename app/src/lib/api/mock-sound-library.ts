@@ -3,7 +3,7 @@
 // its commands and `derive` after every change (the usage list, part voice names).
 
 import fixture from './mock-fixture.json'
-import { CATEGORY_LABELS, FAMILY_NAMES, emptyMap, type PatchCategory, type PatchFields, type PatchInfo, type ProgramMap, type RuleKind, type SoundLibraryCmd, type SoundLibraryState } from './sound-library'
+import { CATEGORY_LABELS, FAMILY_NAMES, emptyMap, originOfPresetKey, sameOrigin, type SoundTag, type PatchCategory, type PatchFields, type PatchInfo, type ProgramMap, type RuleKind, type SoundLibraryCmd, type SoundLibraryState } from './sound-library'
 import type { AppState } from './types'
 
 const GM: string[] = fixture.gm
@@ -177,9 +177,37 @@ export class MockSoundLibrary {
   /** A plugin picked (or, while a plugin patch plays, cleared) on the Plugins tab: the
    * part's own patch goes. */
   partPlugin(part: number, picked: boolean) {
+    this.pluginSound[part & 3] = null
+    this.edited[part & 3] = false
     if (!picked && !this.pluginParts[part & 3]) return
     this.pluginParts[part & 3] = null
     this.parts[part & 3] = null
+  }
+
+  /** The Sound a Plugins-tab plugin plays on each part (a preset's, or Save as…'s). */
+  private pluginSound: (SoundTag | null)[] = [null, null, null, null]
+  /** The part's plugin was edited since its sound loaded (the editor closed, O3). */
+  private edited = [false, false, false, false]
+
+  /** A plugin preset picked on a part: its one library sound (added once, found again by
+   * its origin), as the session's `link_voice_sound`. */
+  presetSound(part: number, componentId: string, key: string, name: string) {
+    const origin = originOfPresetKey(key)
+    if (!origin) return
+    const found = this.sl.patches.find((p) => p.source.kind === 'plugin' && p.source.componentId === componentId && sameOrigin(p.source.origin, origin))
+    const id = found?.id ?? this.add({ name, category: 'synthLead', tags: [], favourite: false, source: { kind: 'plugin', componentId, state: '', origin }, defaults: { volume: null, pan: null, reverb: null, chorus: null, octave: 0 } })
+    this.pluginSound[part & 3] = { id: `saved:${id}`, name: found?.name ?? name }
+  }
+
+  /** The part's plugin editor closed: its sound counts as edited (no state to fingerprint). */
+  pluginEdited(part: number) {
+    const p = part & 3
+    this.edited[p] = !!this.pluginParts[p] || !!this.pluginSound[p]
+  }
+
+  /** The library sound part `p` plays through its plugin, if any. */
+  private pluginSoundId(p: number): string | null {
+    return this.pluginParts[p] ?? this.pluginSound[p]?.id.replace(/^saved:/, '') ?? null
   }
 
   /** Whether part `part` plays a plugin the Plugins tab picked (not a plugin patch's). */
@@ -247,6 +275,22 @@ export class MockSoundLibrary {
         sl.patches[i].favourite = c.favourite
         break
       }
+      case 'saveSound': {
+        // Save (O3): over the user's own sound the part plays, else Save as….
+        const p = c.part & 3
+        const kp = this.get().keyboardParts[p]
+        const current = kp.plugin ? this.pluginSoundId(p) : this.parts[p]
+        const q = current ? sl.patches.find((x) => x.id === current) : undefined
+        const own = q && (q.source.kind === 'plugin'
+          ? (q.source.origin?.kind ?? 'user') === 'user' && kp.plugin?.id === q.source.componentId
+          : !kp.plugin)
+        if (!q || !own) return this.cmd({ type: 'saveSoundAs', part: c.part, name: null }, running)
+        q.defaults.volume = kp.volume
+        q.defaults.octave = kp.octave
+        this.edited[p] = false
+        break
+      }
+      case 'saveSoundAs':
       case 'savePartAsPatch': {
         // What the part plays: its plugin, else its own patch, else the patch the map
         // sends its GM voice to, else its GM voice (as the session's).
@@ -268,7 +312,14 @@ export class MockSoundLibrary {
         f.defaults.volume = kp.volume
         f.defaults.octave = kp.octave
         if (c.name?.trim()) f.name = c.name
-        this.add(f)
+        const added = this.add(f)
+        // A part playing a plugin plays the new sound, not edited (O3).
+        if (f.source.kind === 'plugin') {
+          const i = c.part & 3
+          if (this.pluginParts[i]) this.parts[i] = this.pluginParts[i] = added
+          else this.pluginSound[i] = { id: `saved:${added}`, name: f.name }
+          this.edited[i] = false
+        }
         break
       }
       case 'addPresetAsPatch': {
@@ -370,8 +421,20 @@ export class MockSoundLibrary {
         plays: name(r.patch) ?? p.voice.label,
       }]
     })
+    const tag = (id: string | null): SoundTag | null => {
+      const q = id ? sl.patches.find((x) => x.id === id) : undefined
+      return q ? { id: `saved:${q.id}`, name: q.name } : null
+    }
     st.keyboardParts.forEach((p, i) => {
       p.patch = this.parts[i]
+      // Now playing (O3): the plugin's sound, else its own or the map's patch.
+      const sound = p.plugin
+        ? (this.pluginParts[i] ? tag(this.pluginParts[i]) : this.pluginSound[i])
+        : tag((p.playsBass ? null : this.parts[i]) ?? resolveProgram(sl.map, style, false, p.program).patch)
+      if (sound) p.sound = sound
+      else delete p.sound
+      if (sound && p.plugin && this.edited[i]) p.soundEdited = true
+      else delete p.soundEdited
       if (p.playsBass) return
       const own = name(this.parts[i])
       const mapped = name(resolveProgram(sl.map, style, false, p.program).patch)

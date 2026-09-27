@@ -1760,6 +1760,7 @@ export class MockSession implements Session {
           break
         }
         this.sound.partPlugin(cmd.part, true)
+        this.sound.presetSound(cmd.part, cmd.id, cmd.preset, this.catalogMock.preset(cmd.id, cmd.preset)?.name ?? cmd.preset)
         this.plugins.cmd(cmd)
         break
       case 'setPartPlugin':
@@ -1769,6 +1770,10 @@ export class MockSession implements Session {
         this.plugins.cmd(cmd)
         break
       case 'savePartPluginState':
+        // The editor closed: the mock takes it as an edit (O3's "edited" badge).
+        if (st.keyboardParts[cmd.part & 3].plugin?.status === 'playing') this.sound.pluginEdited(cmd.part)
+        this.plugins.cmd(cmd)
+        break
       case 'rescanPlugins':
       case 'setPluginInProcess':
       case 'reloadPartPlugin':
@@ -1795,6 +1800,8 @@ export class MockSession implements Session {
       case 'movePatch':
       case 'setPatchFavourite':
       case 'savePartAsPatch':
+      case 'saveSound':
+      case 'saveSoundAs':
       case 'addPresetAsPatch':
       case 'auditionPatch':
       case 'auditionPreset':

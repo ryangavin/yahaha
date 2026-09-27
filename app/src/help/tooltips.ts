@@ -781,8 +781,15 @@ const catalog = {
     launchkey: null,
   },
   'sounds.save': {
-    title: 'Save as sound',
-    body: 'Saves what this part plays now as a new saved sound: its preset or plugin (with the plugin\'s current settings), volume and octave. It appears under Saved, ready to rename in the Sound Library drawer.',
+    title: 'Save as…',
+    body: 'Saves what this part plays now as a new sound: its preset or plugin (with the plugin\'s current settings), volume and octave. The part then plays the new sound, and it appears under Saved, ready to rename in the Sound Library drawer.',
+    genos: 'Voice Setting › Save',
+    keys: [],
+    launchkey: null,
+  },
+  'sounds.save_over': {
+    title: 'Save',
+    body: 'Saves what this part plays now over the sound it plays: the plugin\'s current settings (what its editor changed), volume and octave. The "edited" mark goes. A factory preset or an .aupreset file is never overwritten: Save keeps it as a new sound instead, as Save as… does.',
     genos: 'Voice Setting › Save',
     keys: [],
     launchkey: null,
@@ -2995,7 +3002,7 @@ const catalog = {
   },
   'sound.save_part': {
     title: 'Save part\'s sound',
-    body: 'Saves a keyboard part\'s sound as a new patch: its own patch, or its GM voice on the synth\'s SoundFont, with its volume and octave.',
+    body: 'Saves a keyboard part\'s sound as a new patch (Save as…): its plugin with its current settings, its own patch, or its GM voice on the synth\'s SoundFont, with its volume and octave.',
     genos: null,
     keys: [],
     launchkey: null,
