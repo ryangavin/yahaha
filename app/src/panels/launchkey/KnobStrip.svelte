@@ -1,6 +1,6 @@
 <!--
   The Launchkey's eight encoders and its Knob Assign ▲/▼ buttons, clickable: the page
-  steps with ◀ ▶, and each knob turns one step with − / +. The knobs are relative, so
+  steps with ◀ ▶, and each knob is a rotary Knob (drag, wheel or arrow keys). The knobs are relative, so
   this sends the same turnKnob a hardware turn does. Nothing here is hardware-only.
 
   State: knobs. Commands: stepKnobPage, turnKnob.
@@ -8,6 +8,7 @@
 <script lang="ts">
   import { app } from '../../lib/store.svelte'
   import { tip } from '../../lib/tooltip/tip.svelte'
+  import Knob from '../../lib/ui/Knob.svelte'
 
   const k = $derived(app.state.knobs)
 </script>
@@ -21,11 +22,14 @@
   {#each k.knobs as knob, i (i)}
     <div class="knob" title={knob.name}>
       <span class="engraved">{knob.short}</span>
+      <Knob
+        label={knob.name}
+        level={knob.level}
+        disabled={knob.function === 'none'}
+        tipKey="knobs.knob"
+        onturn={(delta) => app.send({ type: 'turnKnob', knob: i, delta })}
+      />
       <span class="val">{knob.value}</span>
-      <span class="turn">
-        <button type="button" class="mini mat-raised" aria-label="{knob.name} down" aria-disabled={knob.function === 'none' || undefined} use:tip={'knobs.knob'} onclick={() => app.send({ type: 'turnKnob', knob: i, delta: -1 })}>−</button>
-        <button type="button" class="mini mat-raised" aria-label="{knob.name} up" aria-disabled={knob.function === 'none' || undefined} use:tip={'knobs.knob'} onclick={() => app.send({ type: 'turnKnob', knob: i, delta: 1 })}>+</button>
-      </span>
     </div>
   {/each}
 </div>
@@ -58,10 +62,6 @@
     overflow: hidden;
     text-overflow: ellipsis;
     max-width: 100%;
-  }
-  .turn {
-    display: flex;
-    gap: 2px;
   }
   .mini {
     min-width: 1.6rem;
