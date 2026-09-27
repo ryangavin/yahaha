@@ -217,3 +217,19 @@ describe('savePartAsPatch (#109)', () => {
     expect(m.state.soundLibrary.map.overrides.find((o) => o.program === 40)?.patch).toBe(p.id)
   })
 })
+
+describe('GM map (docs/sound-browser.md)', () => {
+  it("shows each program's sound and deciding layer, the style's rules first", () => {
+    const m = new MockSession({ manual: true })
+    const rows = m.state.soundLibrary.gmMap
+    expect(rows).toHaveLength(129)
+    expect(rows[0].program).toBe(null)
+    expect(rows[0].resolved.layer).toBe('drums')
+    expect(rows[1 + 4].resolved).toMatchObject({ layer: 'override', sound: 'saved:warm-rhodes' })
+    expect(rows[1 + 33].resolved.layer).toBe('family')
+    // Organ has no rule: auto-fill from the most GM-complete font, with its provenance.
+    expect(rows[1 + 16].resolved).toMatchObject({ layer: 'auto', sound: 'sf:GeneralUser-GS.sf2:0:16', font: { file: 'GeneralUser-GS.sf2', bank: 0, program: 16 } })
+    m.send({ type: 'setFamilyRule', family: 2, patch: 'stage-grand', style: true })
+    expect(m.state.soundLibrary.gmMap[1 + 16].resolved).toMatchObject({ layer: 'family', fromStyle: true })
+  })
+})

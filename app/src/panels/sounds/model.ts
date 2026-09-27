@@ -59,7 +59,7 @@ export function expandable(e: SoundEntry): boolean {
 }
 
 /** The entry a keyboard part plays now, if the catalog has it: its saved sound, its
- * plugin, or its voice on the default sound set. */
+ * plugin, or its voice on the synth's main font. */
 export function playingId(p: { program: number; patch: string | null; plugin?: { id: string; presetKey?: string | null } | null; playsBass: boolean }, soundFontFile: string | null): string | null {
   if (p.patch) return `saved:${p.patch}`
   if (p.plugin?.presetKey) return `au:${p.plugin.id}#${p.plugin.presetKey}`

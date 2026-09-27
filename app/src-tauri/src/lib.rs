@@ -20,9 +20,9 @@
 //! - `YAHAHA_STYLES=path[:path…]`: the engine, with those style files/folders. Without it,
 //!   the repo's `corpus/` folder when it exists (a dev checkout), else the mock.
 //! - `YAHAHA_SOUNDFONTS=dir`: the SoundFont folder; else the repo's `soundfonts/`. Every
-//!   `.sf2` there is a source of sounds, and the default sound set setting (#117) picks the
-//!   synth's main one. No fonts: no synth.
-//! - `YAHAHA_SF2=file.sf2`: a hidden override, the synth's main SoundFont at start.
+//!   `.sf2` there is a source of sounds: the GM map's auto-fill fills from them, and the
+//!   most GM-complete is the synth's main one. No fonts: no synth.
+//! - `YAHAHA_SF2=file.sf2`: a hidden compatibility pin, the synth's main SoundFont.
 //!
 //! If the engine can't start (no CoreMIDI, say), the shell falls back to the mock, which then
 //! reports an offline session with no Launchkey and the reason in the status line.

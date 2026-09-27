@@ -7,7 +7,7 @@
 //! The band and your playing each have a synthesizer (a [`Rack`]), with the same
 //! SoundFont. They measure each channel's level as they mix it, for the meters. A new
 //! SoundFont is loaded into a new rack off the audio thread and swapped in between two
-//! buffers (`SetSoundFont`).
+//! buffers (a new main font, or the fonts the GM map needs).
 //!
 //! Each MIDI channel renders from the SoundFont or, with the `plugins` feature, from an
 //! Audio Unit instrument in the plugin rack: the per-channel route table
@@ -92,7 +92,7 @@ pub struct SynthControl {
     pub master_rms: [AtomicU32; 2],
     /// Buffers in which the soft clipper worked.
     pub clips: AtomicU64,
-    /// Racks swapped in (`SetSoundFont`).
+    /// Racks swapped in.
     pub swaps: AtomicU64,
     /// Dropouts the audio device reported (CoreAudio's processor overload: an IO cycle
     /// missed its deadline, whoever's fault), since start. Counted, never logged, where
@@ -115,7 +115,7 @@ pub struct Synth {
     pub info: SynthInfo,
     pub control: Arc<SynthControl>,
     /// The ends of the rings that swap racks: new ones to the audio thread, old ones back
-    /// to be freed off it. Taken by whoever runs `SetSoundFont`.
+    /// to be freed off it. Taken by whoever swaps racks (the control side's rack loader).
     pub swap: Option<RackSwap>,
     /// The plugin rack's control half (`plugins` feature). Taken by the Session.
     pub plugins: Option<PluginLink>,
@@ -382,7 +382,7 @@ impl Rack {
     }
 }
 
-/// What the audio thread last sent each channel, so a new rack (`SetSoundFont`) takes over
+/// What the audio thread last sent each channel, so a new rack takes over
 /// with the same voices and controllers.
 struct Shadow {
     cc: [[u8; 128]; 16],

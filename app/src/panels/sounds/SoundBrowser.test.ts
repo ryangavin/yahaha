@@ -41,7 +41,7 @@ describe('sound browser (#117)', () => {
   it('opens on what the part plays, with the filter focused', async () => {
     const s = await setup()
     expect(document.activeElement).toBe(input())
-    // Right 1's GM voice on the default sound set (the program map plays it as a patch).
+    // Right 1's GM voice on the main font (the program map plays it as a patch).
     expect(s.state.keyboardParts[0].patch).toBe(null)
     expect(active().textContent).toContain('Grand Piano')
     expect(active().textContent).toContain('GeneralUser-GS.sf2')

@@ -155,13 +155,6 @@ export type AppCmd =
   // Style preview and queue: see PreviewState below.
   | PreviewCmd
   // Settings (docs/app-api.md)
-  /** Make a `.sf2` in the folder (`io.soundFonts`) the default sound set; as
-   * `setDefaultSoundSet` with a file (kept for older clients). */
-  | { type: 'setSoundFont'; file: string }
-  /** The default sound set (#117): the SoundFont whatever the program map leaves unmapped
-   * plays. A file in the folder, or null for Auto (`io.autoSoundSet`). Saved; a new font
-   * loads in the background (`io.soundFontLoading`). */
-  | { type: 'setDefaultSoundSet'; file: string | null }
   /** Keyboard sources: every one (`all`), or those whose name contains one of `names`
    * (`all` false, no names: a Launchkey's keys, else every source). */
   | { type: 'setMidiInputs'; all: boolean; names: string[] }
@@ -881,14 +874,12 @@ export interface IoState {
   allInputs: boolean
   /** The `.sf2` files in the SoundFont folder. */
   soundFonts: string[]
-  /** The file the synth plays as its default sound set; null without the synth. */
+  /** The synth's main font: the most GM-complete in the folder, which plays a channel no
+   * route covers; null without the synth. Not a setting: the GM map decides what every
+   * program plays (`soundLibrary.gmMap`). */
   soundFontFile: string | null
-  /** A `setDefaultSoundSet` is loading. */
+  /** A rack of SoundFonts is loading (a new main font, or fonts the map needs). */
   soundFontLoading: boolean
-  /** The default sound set chosen; null: Auto. */
-  defaultSoundSet: string | null
-  /** The font Auto picks: the most GM-complete in the folder (null: no fonts). */
-  autoSoundSet: string | null
 }
 
 /** Output levels (`meters()`): peaks since the last call, linear (1 = full scale). The

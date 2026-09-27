@@ -80,7 +80,7 @@ fn the_catalog_lists_every_preset_and_saved_sound() {
 fn assigning_a_sound_picks_the_route_its_source_has() {
     let data = folder("assign");
     let Some(s) = offline(&data) else { return };
-    // The default sound set's preset: the part's GM voice.
+    // The main font's preset: the part's GM voice.
     s.send(SoundsCmd::AssignSound { part: 1, id: "sf:A.sf2:0:33".into() }).unwrap();
     let st = s.state();
     assert_eq!((st.keyboard_parts[1].program, st.keyboard_parts[1].patch.clone()), (33, None));

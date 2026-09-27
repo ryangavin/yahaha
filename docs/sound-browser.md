@@ -13,8 +13,10 @@ owner's decisions D1–D6 are binding and listed at the end.
 
 Status: the model, migrations, first-play capture and the map's data shape are in (PR 1).
 Now playing, the "edited" check, Save / Save as… and the sound in Registrations are in
-(PR 2). The session still resolves through the default sound set; the map with auto-fill
-replaces it next (PR 3). The Sounds tab that shows all this comes in PR 4.
+(PR 2). The session and the synth resolve every program through the map with auto-fill,
+and the default sound set is gone (PR 3, see "Resolution in the session"). The map's rows
+are in the state (`soundLibrary.gmMap`) for the map page. The Sounds tab that shows all
+this comes in PR 4.
 
 ## Sounds
 
@@ -145,6 +147,31 @@ it has one), and the resolution with its deciding layer.
 Everything here runs off the real-time threads. The map still resolves into the audio
 thread's route table off-thread (O8).
 
+### Resolution in the session
+
+- **The auto-fill** is built on the control side from the SoundFont folder's fonts (their
+  preset lists only) at start and whenever the folder's files change
+  (`session/gm_auto.rs`).
+- **The synth's main font** is the most GM-complete font (`best_font`: the auto-fill's
+  first choice). It is not a setting. It plays any channel that has no route. When the
+  folder changes and another font becomes the best, it loads in the background and swaps
+  in between two audio buffers.
+- **Routes.** `SoundLib::write_bank` resolves the drums and all 128 programs with
+  `resolve_gm` for the style's bank of the table (`patches::Routes`). A rule's patch
+  routes as before. An auto-fill from another font routes to that font's preset (the
+  font joins the rack). An auto-fill from the main font needs no route: the main font
+  plays the style's own bank and program, so Yamaha/XG bank variations sound as they
+  always did. Style parts, keyboard parts' GM voices and OTS voices (which are GM voices
+  on the keyboard parts) all read this table. Nothing new runs on the audio, engine or
+  MIDI threads.
+- **The map page's data** is `soundLibrary.gmMap` (`gm_map_rows` for the style playing),
+  in the engine and in both mocks.
+- **Removed:** `setSoundFont`, `setDefaultSoundSet`, `io.defaultSoundSet`,
+  `io.autoSoundSet` and Settings › Audio "Default sound set". A `defaultSoundSet` key left
+  in `sound-settings.json` is ignored. `--sf2` (and the app's `YAHAHA_SF2`) stays as a
+  hidden compatibility pin: that font is the main font and fills every program it has at
+  the auto layer (other fonts fill only its gaps); the map's rules still come first.
+
 ## Migration
 
 Each migration has a test in `src/patches/sound_tests.rs`.
@@ -211,3 +238,17 @@ Each migration has a test in `src/patches/sound_tests.rs`.
 - **Decision: a factory preset can now be a map rule.** Its sound is added with an
   empty state, and the state is captured when the rule first plays it. The old refusal
   ("play it on a part and Save as sound") is gone, in the session and in both mocks.
+
+## Decisions made in PR 3 (map resolution)
+
+- **Decision: the old commands are removed, not shimmed.** `setSoundFont` and
+  `setDefaultSoundSet` are gone from the wire (an old client's command is refused like any
+  unknown command), with `io.defaultSoundSet` and `io.autoSoundSet`. Only `--sf2` stays,
+  hidden, because scripts and tests use it to pick a font file.
+- **Decision: an auto-fill from the main font has no route.** Routing it would pin every
+  part to bank 0 of the program and lose the style's bank variations, which the main font
+  has always played. Only fills from other fonts are routed.
+- **Decision: the style-then-global order stays as PR 1 kept it**: the style's rule at any
+  layer beats a global rule, and auto comes after both. Existing maps play unchanged.
+- **Decision: a rule naming a patch that is gone falls through** to the next layer (then
+  auto), instead of the old "fallback" to the main font's own voice.

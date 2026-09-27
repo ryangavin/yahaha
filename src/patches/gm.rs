@@ -15,8 +15,8 @@
 //! built) can render the map without changing this data.
 //!
 //! Nothing here runs on a real-time thread: the session resolves the map into
-//! `patches::Routes` off-thread, as before. The session does not use [`resolve_gm`] yet
-//! (the default sound set still plays what no rule covers); it replaces that next.
+//! `patches::Routes` off-thread (session/sound_library.rs `write_bank`), with the auto-fill
+//! built from the scanned fonts (session/gm_auto.rs). There is no default sound set.
 
 use super::sf2::Preset;
 use super::{family_of, ProgramMap, RuleKind, SoundId, SoundLibrary};
@@ -65,6 +65,13 @@ pub fn gm_completeness(presets: &[Preset]) -> (u8, bool) {
         have[p.program as usize & 127] = true;
     }
     (have.iter().filter(|&&h| h).count() as u8, presets.iter().any(|p| p.bank >= 128))
+}
+
+/// The most GM-complete of `fonts` (file name, its presets), the first file name on a tie:
+/// the font the auto-fill tries first, and the synth's main font (it plays a channel no
+/// route covers). None when there are no fonts.
+pub fn best_font(fonts: &[(String, Vec<Preset>)]) -> Option<String> {
+    fonts.iter().min_by(|a, b| gm_completeness(&b.1).cmp(&gm_completeness(&a.1)).then_with(|| a.0.cmp(&b.0))).map(|f| f.0.clone())
 }
 
 impl AutoFill {

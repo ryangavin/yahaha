@@ -234,20 +234,10 @@ describe('Settings drawer', () => {
     expect(s.state.mixer.master).toBe(90)
   })
 
-  it('picks the default sound set, or Auto', async () => {
-    const s = setup()
-    const auto = byTip('audio.soundfont_auto')[0]
-    const fonts = byTip('audio.soundfont')
-    expect(fonts.length).toBe(s.state.io.soundFonts.length)
-    expect(auto.getAttribute('aria-checked')).toBe('true') // Auto, the default
-    expect(auto.textContent).toContain('Auto (GeneralUser-GS)')
-    await fireEvent.click(fonts[1])
-    expect(s.state.io.defaultSoundSet).toBe('FluidR3_GM.sf2')
-    expect(s.state.io.soundFontFile).toBe('FluidR3_GM.sf2')
-    expect(fonts[1].getAttribute('aria-checked')).toBe('true')
-    await fireEvent.click(auto)
-    expect(s.state.io.defaultSoundSet).toBe(null)
-    expect(s.state.io.soundFontFile).toBe('GeneralUser-GS.sf2')
+  it('has no default sound set: the GM map decides (docs/sound-browser.md)', () => {
+    setup()
+    expect(page('audio').textContent).not.toContain('Default sound set')
+    expect(document.querySelector('[data-tip^="audio.soundfont"]')).toBeNull()
   })
 
   it('MIDI: merging all inputs, or picking sources', async () => {
@@ -285,11 +275,8 @@ describe('Settings drawer', () => {
     ui.settings = true
     flushSync()
     render(Settings)
-    expect(document.querySelectorAll('.badge.mock').length).toBe(4) // SoundFont, Inputs, Palette LEDs, Style folders
+    expect(document.querySelectorAll('.badge.mock').length).toBe(3) // Inputs, Palette LEDs, Style folders
 
-    const fonts = byTip('audio.soundfont')
-    expect(fonts).toHaveLength(1) // only the one the synth plays, no made-up files
-    await fireEvent.click(fonts[0])
     const sources = byTip('midi.input')
     expect(sources).toHaveLength(s.state.io.inputs.length) // the inputs it has open
     await fireEvent.click(sources[0])

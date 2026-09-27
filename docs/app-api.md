@@ -196,8 +196,6 @@ Style Section Reset, the Fade In/Out times and the Style Retrigger length. The s
 
 | Command | Fields | Does |
 |---|---|---|
-| `setDefaultSoundSet` | `file` (string or null) | The default sound set (#117): the SoundFont that plays whatever the program map leaves unmapped (Style parts' and keyboard parts' GM voices). A `.sf2` in the SoundFont folder (`io.soundFonts`, by file name), or null for Auto: the most GM-complete font there (`io.autoSoundSet`: the most GM programs on bank 0, then a drum kit on bank 128, then the first file name). The choice is saved in `sound-settings.json` in the data folder. When the synth plays another font, the new one loads on a thread of its own (`io.soundFontLoading`) and swaps in between two audio buffers: the voices and controllers every channel has carry over, notes sounding fade out over one buffer. Fails when the file isn't in the folder. Without the synth it is only saved. |
-| `setSoundFont` | `file` | `setDefaultSoundSet` with that file, kept for older clients. Fails when the synth is off. |
 | `setMidiInputs` | `all`, `names` | Which MIDI sources play the keyboard: every one (`all`), or the ones whose name contains one of `names`. `all` false with no names is the default: a Launchkey's keys when there is one, else every source. yahaha's own port and DAW ports are never keyboards; the Launchkey DAW port is always the pads. Sources connect and disconnect at once. Keys held on a source that is dropped are released: their notes stop at once (All Notes Off on the keyboard parts' channels, which also stops notes other sources hold) and the chord section lets go. |
 | `setPaletteLeds` | `on` | Launchkey LEDs in Novation palette colours (and hardware flashing) instead of RGB. Every pad is sent again. |
 | `setAudioBuffer` | `frames` 64, 128, 256, 512 or 1024 | The synth's audio buffer (`io.synth.bufferFrames`; within what the device allows, and a message says so when it differs). The output reopens with a moment of silence; the voices, the plugins and held notes carry over, and messages sent meanwhile wait for the new stream (nothing sticks). Plugins are loaded for larger blocks already, so none reloads. A live session remembers it (`~/Library/Application Support/yahaha/audio.json`; `--buffer N` at launch wins). Fails when the synth is off or for another size. |
@@ -590,7 +588,7 @@ folder.
 | `setSoundFavourite` | `id`, `on` | Marks or unmarks a favourite. A saved sound's favourite is its patch's `favourite`. |
 | `auditionSound` | `id` | Plays the sound on its own for about 3 s, as `auditionPatch` does (a plugin plays its default preset). Refused while the band plays. `sounds.auditioning` names it. |
 | `stopSoundAudition` | | Stops the audition. |
-| `assignSound` | `part` 0–3, `id` | The keyboard part plays the sound. A preset of the default sound set (bank 0) becomes the part's voice (`setPartVoice`). A preset of another font becomes a saved sound (the library's patch for it, added once) and plays as `setPartPatch`. A plugin plays as `setPartPlugin` (its default preset), and a saved sound as `setPartPatch`. The sound goes to the top of the Recents (20 kept). |
+| `assignSound` | `part` 0–3, `id` | The keyboard part plays the sound. A preset of the synth's main font (`io.soundFontFile`, bank 0) becomes the part's voice (`setPartVoice`). A preset of another font becomes a saved sound (the library's patch for it, added once) and plays as `setPartPatch`. A plugin plays as `setPartPlugin` (its default preset), and a saved sound as `setPartPatch`. The sound goes to the top of the Recents (20 kept). |
 | `setSoundCategory` | `id`, `category` | A plugin's or plugin preset's category (until set: a plugin's is guessed from its name and maker, a preset's from its name and folder, else its plugin's), or a saved sound's (its patch's). A preset's category is its GM family: refused. |
 | `listPluginPresets` | `id` (`au:<component id>`) | The browser expanded a plugin: list its AU presets. Its `.aupreset` files (in `~/Library/Audio/Presets/<Manufacturer>/<Plugin>/` and `/Library/Audio/Presets/...`) are listed at every scan; its factory presets (`kAudioUnitProperty_FactoryPresets`) need an instance, so a plugin no load has read yet is loaded once in the background (`sounds.listingPresets` has it meanwhile) and they are cached with the scan. The catalog moves when they are in: presets are entries `au:<component id>#f:<number>` (factory) and `au:<component id>#u:<path>` (file), with `parent` the plugin's id; the plugin's `plugin.presets` counts them (null until the factory presets were read). A rescan (`rescanPlugins`) lists everything again. |
 | `savePartAsPluginPreset` | `part` 0–3, `name`, `category`, `overwrite`? | Saves what the part's plugin plays now (its editor's changes: a Kontakt instrument loaded there, say) as `<name>.aupreset` in `~/Library/Audio/Presets/<Manufacturer>/<Plugin>/`, the standard file Logic and MainStage read. A preset of that name that exists already is refused unless `overwrite` is true (the app asks "Replace '<name>'?" first, as Logic does). It lists under the plugin, filed under `category` (kept in `sound-settings.json`; the file is not changed), and the part then plays it. The state is read and written off the control thread. Fails when the part's plugin is not playing. |
@@ -929,10 +927,8 @@ led   = ledAnchorBeats + (t − ledAnchorMs) · tempo / 60000        // `beats` 
 | `sources` | MidiSource[] | Every MIDI source but yahaha's own: `name` (as `setMidiInputs` matches it), `listening` (yahaha listens to it, as a keyboard or as the pads), `pads` (the Launchkey DAW port). Empty offline. |
 | `allInputs` | bool | Every source is a keyboard (`setMidiInputs { all: true }`, `--all-inputs`). |
 | `soundFonts` | string[] | The `.sf2` files in the SoundFont folder (`--soundfonts DIR`, the app's `YAHAHA_SOUNDFONTS`; `soundfonts/` by default). |
-| `soundFontFile` | string? | The file the synth plays as its default sound set. Null without the synth. |
-| `soundFontLoading` | bool | A `setDefaultSoundSet` is loading. |
-| `defaultSoundSet` | string? | The default sound set chosen (`setDefaultSoundSet`). Null: Auto. |
-| `autoSoundSet` | string? | The font Auto picks from the folder. Null when there are no fonts. |
+| `soundFontFile` | string? | The synth's main font: the most GM-complete in the folder (the most GM programs on bank 0, then a drum kit, then the first file name), which plays a channel no route covers. Not a setting: the GM map (`soundLibrary.gmMap`) decides what every program plays, and when the folder changes the main font follows it (it loads on a thread of its own and swaps in between two audio buffers). Null without the synth. |
+| `soundFontLoading` | bool | A rack of SoundFonts is loading: a new main font, or fonts the map needs. |
 | `synth` | SynthState? | `soundFont`, `device`, `sampleRate` (Hz), `bufferFrames`, `channels`, `outputPair` (1-based, for example [1, 2]), `muted`, `dropouts` (audio dropouts since the synth started: CoreAudio reported an overload, or the audio callback took longer than its buffer lasts; counted on the audio side with atomics, never logged there. The app suggests a larger buffer when 3 come within 30 seconds). Null when the synth is off. |
 | `engine` | EngineStats | `realtime` (the engine thread got real-time scheduling), and 99th percentiles in µs: `wakeP99Us` (wake versus deadline), `chordP99Us` (chord to engine), `midiInP99Us` (MIDI in to callback). |
 | `lastControl` | number | The last Launchkey DAW-port message, packed 0x00SSDDVV. |
@@ -1113,6 +1109,7 @@ The sound library (docs/sound-library.md).
 | `file` | string? | Where the library is saved; null when it isn't (an offline session, `state-json`). |
 | `extraSoundFonts` | string[] | The SoundFonts the synth has loaded for library patches besides its own. |
 | `lastAdded` | string? | The id of the patch last created, duplicated or saved. |
+| `gmMap` | GmMapRow[] | The GM map for the style playing (docs/sound-browser.md): 129 rows, the drums first, then programs 0–127. Each row: `program` (null on the drums row), `family` (0–15, null on the drums row), `overrideRule` and `familyRule` (patch ids, the style's own where it has one; on the drums row `familyRule` is the drum rule) and `resolved`: `sound` (a Sound id: `saved:<patch>` for a rule, `sf:<file>:<bank>:<program>` for auto; null when nothing covers it), `layer` (`drums` \| `override` \| `family` \| `auto` \| `none`: the layer that decided it), `fromStyle` (the rule is the style's own) and `font` (`{ file, bank, program }`, the font preset that plays when a font does; null for a plugin sound). Layers, most specific first: drums, override, family (the style's rule before the global one), then auto: the best-matching preset in the scanned fonts, the most GM-complete font first. There is no default sound set. |
 
 ### `sounds`
 The sound catalog's summary (#117; the list is `sounds()`, see [Sound catalog](#sound-catalog)).
@@ -1650,9 +1647,7 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
     "allInputs": false,
     "soundFonts": ["GeneralUser-GS.sf2", "MuseScore_General.sf2"],
     "soundFontFile": "GeneralUser-GS.sf2",
-    "soundFontLoading": false,
-    "defaultSoundSet": null,
-    "autoSoundSet": null
+    "soundFontLoading": false
   },
   "preview": { "audition": null, "queued": null },
   "keyboard": {
@@ -1884,7 +1879,11 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
     "browse": null,
     "file": "/Users/me/Documents/yahaha/sound-library.json",
     "extraSoundFonts": [],
-    "lastAdded": "my-bass"
+    "lastAdded": "my-bass",
+    "gmMap": [
+      { "program": null, "family": null, "overrideRule": null, "familyRule": "studio-kit", "resolved": { "sound": "saved:studio-kit", "layer": "drums", "fromStyle": false, "font": { "file": "GeneralUser-GS.sf2", "bank": 128, "program": 0 } } },
+      { "program": 16, "family": 2, "overrideRule": null, "familyRule": null, "resolved": { "sound": "sf:GeneralUser-GS.sf2:0:16", "layer": "auto", "fromStyle": false, "font": { "file": "GeneralUser-GS.sf2", "bank": 0, "program": 16 } } }
+    ]
   },
   "paramLocks": { "splitPoint": false, "fingeringType": true },
   "sounds": { "revision": 3, "count": 1219, "scanning": false, "auditioning": null },
@@ -1968,7 +1967,8 @@ These are for maintainers.
   - The input thread keeps each key's state (held, side, parts) and each source's held
     keys in atomics for the key strip; the control side reads them.
 - The audio thread measures each part's and the master's peak into atomics (`meters`).
-  A new SoundFont (`setSoundFont`) loads on a thread of its own into a new pair of
+  A new rack of SoundFonts (a new main font, or fonts the GM map needs) loads on a thread
+  of its own into a new pair of
   synthesizers (the band's and the keyboard parts'), which the control side hands to the
   audio thread through a ring; the old pair comes back through another ring and is freed
   on the control side.

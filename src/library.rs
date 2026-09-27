@@ -68,8 +68,8 @@ fn walk(root: &Path, seen: &mut std::collections::HashSet<PathBuf>) -> Vec<PathB
     out
 }
 
-/// The SoundFonts (`.sf2`, any case) directly in `dir`, by file name, sorted: what
-/// `SetSoundFont` can switch to.
+/// The SoundFonts (`.sf2`, any case) directly in `dir`, by file name, sorted: the scanned
+/// fonts the GM map's auto-fill fills from.
 pub fn sound_font_files(dir: &Path) -> Vec<String> {
     let mut v: Vec<String> = std::fs::read_dir(dir)
         .into_iter()
