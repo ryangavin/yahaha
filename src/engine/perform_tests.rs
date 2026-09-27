@@ -1257,18 +1257,19 @@ fn presses_during_a_fill_queue_for_its_end() {
     let (ppq, tpb, _) = grid(&e);
     let bar3 = e.ns_at(3.0 * tpb + 0.5 * ppq);
     let head = [(SectionId::Main(0), 0.0), (SectionId::Fill(0), tpb + 2.0 * ppq)];
-    for (auto_fill, press) in [(false, Button::FillUp), (true, Button::Main(1))] {
-        let Some((mut e, mut rec, mut seen, t)) = setup(auto_fill) else { return };
-        e.button(press, t, &mut rec);
-        sections_played(&mut e, &mut rec, t, bar3, &mut seen);
-        let want = [head[0], head[1], (SectionId::Fill(1), 2.0 * tpb), (SectionId::Main(1), 3.0 * tpb)];
-        assert_eq!(seen, want, "{press:?}, Auto Fill {auto_fill}");
-    }
-    // Auto Fill off: Main B during A's fill follows it, no fill.
+    // A forced fill (Fill Up) during a fill: its fill right after, then its Main.
     let Some((mut e, mut rec, mut seen, t)) = setup(false) else { return };
-    e.button(Button::Main(1), t, &mut rec);
+    e.button(Button::FillUp, t, &mut rec);
     sections_played(&mut e, &mut rec, t, bar3, &mut seen);
-    assert_eq!(seen, [head[0], head[1], (SectionId::Main(1), 2.0 * tpb)]);
+    assert_eq!(seen, [head[0], head[1], (SectionId::Fill(1), 2.0 * tpb), (SectionId::Main(1), 3.0 * tpb)]);
+    // Main B during A's fill, Auto Fill on or off: it only changes where the fill lands
+    // (#282), no fill of its own.
+    for auto_fill in [false, true] {
+        let Some((mut e, mut rec, mut seen, t)) = setup(auto_fill) else { return };
+        e.button(Button::Main(1), t, &mut rec);
+        sections_played(&mut e, &mut rec, t, bar3, &mut seen);
+        assert_eq!(seen, [head[0], head[1], (SectionId::Main(1), 2.0 * tpb)], "Auto Fill {auto_fill}");
+    }
     // The Break during a fill: at the next beat. A Main pressed in the Break follows it.
     if !e.style.has(slot_of(SectionId::Break)) {
         return;

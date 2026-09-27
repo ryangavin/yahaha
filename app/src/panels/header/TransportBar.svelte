@@ -11,7 +11,7 @@
   takes that pad's catalog entry. Space is Start/Stop everywhere (lib/keys.ts).
 
   State: transport (running, syncStart, bar, beat, beatsPerBar, tempo, section, queued,
-  pendingIntro, lamps). Commands: startStop, toggleSyncStart, toggleSyncStop, intro,
+  pendingIntro, landing, lamps). Commands: startStop, toggleSyncStart, toggleSyncStop, intro,
   ending, tempoDown, tempoUp, resetTempo, tapTempo. TEMPO −/+ repeat while held, and both
   held together send resetTempo (lib/tempoHold.ts), as on the Genos (OM p.46).
 -->
@@ -101,7 +101,7 @@
       {/each}
     </span>
     <span class="now">{now}</span>
-    <span class="next">{t.queued ? `→ ${sectionLabel(t.queued)}` : ''}</span>
+    <span class="next">{t.queued ? `→ ${sectionLabel(t.queued)}` : ''}{t.landing ? ` ⤷ ${sectionLabel(t.landing)}` : ''}</span>
   </span>
 </section>
 
