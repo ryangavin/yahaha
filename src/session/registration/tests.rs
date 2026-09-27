@@ -421,6 +421,7 @@ fn playlist_records_load_banks_buttons_and_styles() {
     assert_eq!(recs[0].record.target, RecordTarget::Bank { path: bank, regist: Some(6) });
     assert_eq!(recs[0].record.name, "Gig [7]");
     assert!(!recs[0].missing);
+    assert!(matches!(&recs[1].record.target, RecordTarget::Style { path } if path.contains("SlowWalker")), "the style chosen, not the one it replaces");
     s.send(PlaylistCmd::SavePlaylist { name: Some("Friday".into()), overwrite: false }).unwrap();
     let file = dir.join("Playlists/Friday.playlist.json");
     assert!(file.is_file());
@@ -437,7 +438,9 @@ fn playlist_records_load_banks_buttons_and_styles() {
     assert_eq!(st.keyboard_parts[0].program, 22);
     s.send(PlaylistCmd::StepPlaylist { delta: 1 }).unwrap();
     s.advance(MS);
-    assert!(s.state().style.path.contains("BubblyDub"));
+    // The style record is the style chosen after the bank (SlowWalker; the session opens on
+    // BubblyDub, the bank's style), so the step changes the style.
+    assert!(s.state().style.path.contains("SlowWalker"));
     // Sorted: no moving or deleting; saving keeps the displayed order.
     let r = Record { name: "Aardvark".into(), target: RecordTarget::Style { path: "/nowhere.sty".into() } };
     s.send(PlaylistCmd::AddPlaylistRecord { record: r }).unwrap();

@@ -87,7 +87,10 @@ impl Control {
                 return self.add_record(Record { name, target: RecordTarget::Bank { path: path.display().to_string(), regist } });
             }
             PlaylistCmd::AddCurrentStyle => {
-                let (name, path) = (self.info.name.clone(), self.info.path.display().to_string());
+                // The style the player chose: the one waiting for the engine (or the bar
+                // line), else the one playing; as a registration stores it.
+                let info = self.pending_style.as_ref().map_or(&self.info, |p| &p.2);
+                let (name, path) = (info.name.clone(), info.path.display().to_string());
                 return self.add_record(Record { name, target: RecordTarget::Style { path } });
             }
             PlaylistCmd::AppendPlaylist { path } => {
