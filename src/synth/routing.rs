@@ -230,7 +230,7 @@ mod tests {
 
     /// Two tiny test SoundFonts (built in code: they run whatever the checkout has).
     fn fonts() -> Option<Vec<(String, Arc<SoundFont>)>> {
-        let font = || Arc::new(SoundFont::new(&mut &crate::patches::sf2::tiny_gm_sound_font()[..]).unwrap());
+        let font = || Arc::new(crate::synth::font::read(&mut std::io::Cursor::new(crate::patches::sf2::tiny_gm_sound_font())).unwrap());
         Some(vec![("A.sf2".into(), font()), ("B.sf2".into(), font())])
     }
 

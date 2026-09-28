@@ -1,6 +1,8 @@
-//! Velocity changes tone, not only level (#203, #127): the vendored rustysynth applies the
-//! SF2 2.01 default modulator "note-on velocity to initial filter cutoff" (-2400 cents,
-//! negative concave), so a soft hit is darker than a hard hit on the same note.
+//! Velocity changes tone, not only level (#203, #127): the SF2 2.01 default modulator
+//! "note-on velocity to initial filter cutoff" (-2400 cents, negative concave), baked into
+//! the SoundFont's velocity layers as `yahaha::synth::font` loads it (#346 step 5), so a
+//! soft hit is darker than a hard hit on the same note. rustysynth itself plays no
+//! modulators.
 //!
 //! A SoundFont's own velocity -> filter modulators count too: one that switches the default
 //! off (amount 0, as Polyphone and FluidSynth write it) leaves the tone alone, and one of
@@ -11,6 +13,7 @@
 //! SoundFont file is needed.
 
 use std::alloc::{GlobalAlloc, Layout, System};
+use std::io::Cursor;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use yahaha_test_font::{noise_font, noise_font_with};
@@ -45,12 +48,17 @@ const RATE: i32 = 48_000;
 const HELD: usize = 12_000;
 const TAIL: usize = 12_000;
 
+/// The SoundFont `sf2` as the built-in synth loads it, velocity -> tone baked in or not.
+fn load(sf2: &[u8], velocity_tone: bool) -> Arc<SoundFont> {
+    Arc::new(yahaha::synth::font::read_as(&mut Cursor::new(sf2), velocity_tone).unwrap())
+}
+
 /// Render one note on a fresh synthesizer: the left channel, dry (no reverb or chorus).
-fn hit(font: &Arc<SoundFont>, velocity: i32, velocity_to_filter: bool) -> Vec<f32> {
+fn hit(sf2: &[u8], velocity: i32, velocity_tone: bool) -> Vec<f32> {
+    let font = load(sf2, velocity_tone);
     let mut settings = SynthesizerSettings::new(RATE);
     settings.enable_reverb_and_chorus = false;
-    settings.velocity_to_filter = velocity_to_filter;
-    let mut s = Synthesizer::new(font, &settings).unwrap();
+    let mut s = Synthesizer::new(&font, &settings).unwrap();
     let (mut l, mut r) = (vec![0f32; HELD], vec![0f32; HELD]);
     s.note_on(0, 60, velocity);
     s.render(&mut l, &mut r);
@@ -158,9 +166,10 @@ fn a_presets_own_modulator_adds_to_the_default() {
 #[test]
 fn velocity_to_tone_does_not_allocate() {
     // The default, a switched-off default and a preset's own modulator, on the audio path:
-    // note-ons (where the modulators are summed) and renders.
+    // note-ons (which find the velocity layer) and renders.
     let font = noise_font_with(&[modulator(0x0102, 8, 0, 0x0D02)], &[modulator(0x0102, 8, -3600, 0), modulator(0x0202, 8, 600, 0)]);
     for font in [noise_font(), font] {
+        let font = load(&font, true);
         let mut s = Synthesizer::new(&font, &SynthesizerSettings::new(RATE)).unwrap();
         let (mut l, mut r) = (vec![0f32; 64], vec![0f32; 64]);
         s.render(&mut l, &mut r);
@@ -208,12 +217,12 @@ mod yahaha_test_font {
         xs.iter().flat_map(|x| x.to_le_bytes()).collect()
     }
 
-    pub fn noise_font() -> Arc<SoundFont> {
+    pub fn noise_font() -> Vec<u8> {
         noise_font_with(&[], &[])
     }
 
     /// With these modulators on its instrument zone and its preset zone.
-    pub fn noise_font_with(imods: &[[u8; 10]], pmods: &[[u8; 10]]) -> Arc<SoundFont> {
+    pub fn noise_font_with(imods: &[[u8; 10]], pmods: &[[u8; 10]]) -> Vec<u8> {
         const LEN: u32 = 48_000;
         // A fixed LCG, so every run renders the same noise.
         let mut seed = 0x1234_5678u32;
@@ -280,6 +289,6 @@ mod yahaha_test_font {
         body.extend(sdta);
         body.extend(pdta);
         let riff = chunk(b"RIFF", &body);
-        Arc::new(SoundFont::new(&mut &riff[..]).unwrap())
+        riff
     }
 }
