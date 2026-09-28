@@ -82,30 +82,76 @@ fn neutral_sound_controllers_change_nothing() {
     }
 }
 
-/// CC74: a lower cutoff is darker, a higher one (on a voice whose filter is closed some)
-/// no darker; CC71 raises a resonant peak.
+/// A rack (the tone controls as yahaha plays them, #346 step 3) with `program` on channel
+/// 0 and `setup` controllers sent (`[cc, value]`).
+fn rack(font: &Arc<SoundFont>, program: i32, setup: &[[i32; 2]]) -> Rack {
+    let mut r = Rack::new(font, RATE).unwrap();
+    r.process(0, 0xC0, program, 0);
+    for &[cc, v] in setup {
+        r.process(0, 0xB0, cc, v);
+    }
+    r
+}
+
+/// `frames` frames of a rack's mix (left + right), in 10 ms buffers as the audio thread
+/// renders them.
+fn rack_render(r: &mut Rack, frames: usize) -> Vec<f32> {
+    let peaks: [AtomicU32; 16] = std::array::from_fn(|_| AtomicU32::new(0));
+    let (mut l, mut rr) = (vec![0f32; 480], vec![0f32; 480]);
+    let mut out = Vec::with_capacity(frames);
+    while out.len() < frames {
+        let n = (frames - out.len()).min(480);
+        r.render_dry(&mut l[..n], &mut rr[..n], &peaks, None);
+        out.extend(l[..n].iter().zip(&rr[..n]).map(|(a, b)| a + b));
+    }
+    out
+}
+
+/// A note held on a rack for `hold` frames.
+fn rack_note(r: &mut Rack, key: i32, hold: usize) -> Vec<f32> {
+    r.process(0, 0x90, key, 100);
+    rack_render(r, hold)
+}
+
+/// The tone controllers at 64 and the mod wheel at 0 play exactly as none at all, through
+/// the rack (its stem filter out of the signal).
+#[test]
+fn neutral_tone_controls_change_nothing_on_the_stem() {
+    let Some(font) = font() else { return };
+    let all: Vec<[i32; 2]> = [1, 71, 74, 76, 77, 78].iter().map(|&cc| [cc, if cc == 1 { 0 } else { 64 }]).collect();
+    for program in [0, 48, 81] {
+        let a = rack_note(&mut rack(&font, program, &[]), 60, 24_000);
+        let b = rack_note(&mut rack(&font, program, &all), 60, 24_000);
+        assert!(energy(&a) > 1e-3, "program {program} sounds");
+        assert!(a == b, "program {program}: bit-identical");
+    }
+}
+
+/// CC74: a lower cutoff is darker, a higher one no darker; CC71 raises a resonant peak.
+/// (#346 step 3: the part's stem filter plays them, from 20 kHz down.)
 #[test]
 fn cutoff_and_resonance_shape_new_notes() {
     let Some(font) = font() else { return };
     // A saw lead: bright enough to darken.
-    let play = |setup: &[[i32; 2]]| note(&mut synth(&font, 81, setup), 60, 24_000, 0).0;
+    let play = |setup: &[[i32; 2]]| rack_note(&mut rack(&font, 81, setup), 60, 24_000);
     let open = brightness(&play(&[]));
     let dark = brightness(&play(&[[74, 10]]));
     assert!(dark < open * 0.5, "CC74 10: brightness {dark} vs {open}");
     let bright = brightness(&play(&[[74, 110]]));
     assert!(bright >= open * 0.99, "CC74 110: brightness {bright} vs {open}");
     // A resonant peak at a low cutoff: more energy near it than without.
-    let flat = energy(&play(&[[74, 30]]));
-    let peak = energy(&play(&[[74, 30], [71, 127]]));
+    let flat = energy(&play(&[[74, 20]]));
+    let peak = energy(&play(&[[74, 20], [71, 127]]));
     assert!(peak > flat * 1.2, "CC71 127: energy {peak} vs {flat}");
-    // A note with a cutoff of its own (a drum setup's, #239): the channel's scales it too.
+    // A note with a cutoff of its own (a drum setup's, #239): the part's filter darkens it
+    // further.
     let own = |setup: &[[i32; 2]]| {
-        let mut s = synth(&font, 81, setup);
-        s.note_on_with(0, 60, 100, &rustysynth::NoteParams { cutoff: 0.25, ..rustysynth::NoteParams::NEUTRAL });
-        brightness(&render(&mut s, 24_000))
+        let mut r = rack(&font, 81, setup);
+        r.note_on_with(0, 60, 100, &rustysynth::NoteParams { cutoff: 0.25, ..rustysynth::NoteParams::NEUTRAL });
+        brightness(&rack_render(&mut r, 24_000))
     };
-    let (note_only, both) = (own(&[]), own(&[[74, 40]]));
-    assert!(note_only < open * 0.9 && both < note_only * 0.7, "note cutoff {note_only}, with CC74 40 {both}");
+    let (note_only, both) = (own(&[]), own(&[[74, 20]]));
+    assert!(note_only < open * 0.9 && both < note_only * 0.7, "note cutoff {note_only}, with CC74 20 {both}");
 }
 
 /// The filter moves on notes already sounding, as on the Genos, and glides there rather
@@ -113,15 +159,15 @@ fn cutoff_and_resonance_shape_new_notes() {
 #[test]
 fn cutoff_moves_a_ringing_note_smoothly() {
     let Some(font) = font() else { return };
-    let mut s = synth(&font, 81, &[]);
-    s.note_on(0, 72, 100);
-    let before = render(&mut s, 12_000);
-    s.process_midi_message(0, 0xB0, 74, 10);
-    let after = render(&mut s, 12_000);
-    let mut still = synth(&font, 81, &[]);
-    still.note_on(0, 72, 100);
-    render(&mut still, 12_000);
-    let open = render(&mut still, 12_000);
+    let mut s = rack(&font, 81, &[]);
+    s.process(0, 0x90, 72, 100);
+    let before = rack_render(&mut s, 12_000);
+    s.process(0, 0xB0, 74, 10);
+    let after = rack_render(&mut s, 12_000);
+    let mut still = rack(&font, 81, &[]);
+    still.process(0, 0x90, 72, 100);
+    rack_render(&mut still, 12_000);
+    let open = rack_render(&mut still, 12_000);
     assert!(brightness(&after[4800..]) < brightness(&open[4800..]) * 0.5, "the held note darkens");
     // No step at the change: the largest sample-to-sample jump around it stays within
     // what the note has anyway.
@@ -160,59 +206,24 @@ fn wobble(p: &[f64]) -> f64 {
     (p.iter().map(|v| (v - m).powi(2)).sum::<f64>() / p.len() as f64).sqrt() / m
 }
 
-/// CC77 adds vibrato, CC78 holds it off for a while, CC76 slows or speeds it.
+/// CC77 adds vibrato, CC78 holds it off for a while (#346 step 3: through the mod wheel,
+/// on the rack). CC76 isn't played (upstream rustysynth's vibrato keeps the voice's rate).
 #[test]
-fn vibrato_depth_delay_and_rate() {
+fn vibrato_depth_and_delay() {
     let Some(font) = font() else { return };
     // A steady tone (recorder) held for 2 s.
-    let pitch = |setup: &[[i32; 2]]| crossings(&note(&mut synth(&font, 74, setup), 72, 96_000, 0).0[9600..], 960);
+    let pitch = |setup: &[[i32; 2]]| crossings(&rack_note(&mut rack(&font, 74, setup), 72, 96_000)[9600..], 960);
     let (own, deep) = (wobble(&pitch(&[])), wobble(&pitch(&[[77, 127]])));
     assert!(deep > own * 2.0 && deep > 0.004, "depth: wobble {deep} vs {own}");
+    // On top of the player's mod wheel.
+    let (wheel, both) = (wobble(&pitch(&[[1, 64]])), wobble(&pitch(&[[1, 64], [77, 127]])));
+    assert!(both > wheel * 1.2, "CC77 on the mod wheel: wobble {both} vs {wheel}");
     let delayed = pitch(&[[77, 127], [78, 127]]);
-    // A 1.26 s delay: the first second as steady as without vibrato.
+    // A 1.26 s delay: the first second has only the voice's own vibrato (upstream can't
+    // delay that), then CC77's comes in.
     let (early, later) = (wobble(&delayed[..40]), wobble(&delayed[60..]));
-    assert!(early < deep * 0.5 && later > early * 2.0, "delay: {early} then {later}");
-    // A flute's own vibrato rate, half as fast at -16 (an octave down), about 1.4x at +8.
-    let rate = |setup: &[[i32; 2]]| vibrato_rate(&note(&mut synth(&font, 73, setup), 84, 96_000, 0).0[9600..]);
-    let (base, slow, fast) = (rate(&[[77, 127]]), rate(&[[77, 127], [76, 48]]), rate(&[[77, 127], [76, 72]]));
-    assert!(slow < base * 0.7 && fast > base * 1.2, "rate: {slow} / {base} / {fast} Hz");
-}
-
-/// The vibrato's rate (Hz): the strongest frequency (1-40 Hz) in the pitch, measured
-/// period by period (upward zero crossings, interpolated) in 10 ms bins.
-fn vibrato_rate(x: &[f32]) -> f64 {
-    let mut ups = Vec::new();
-    for (i, w) in x.windows(2).enumerate() {
-        if w[0] < 0.0 && w[1] >= 0.0 {
-            ups.push(i as f64 + (-w[0] / (w[1] - w[0])) as f64);
-        }
-    }
-    let bin = RATE as f64 / 100.0;
-    let bins = (x.len() as f64 / bin) as usize;
-    let (mut sum, mut n) = (vec![0f64; bins], vec![0f64; bins]);
-    for w in ups.windows(2) {
-        let b = ((w[0] / bin) as usize).min(bins - 1);
-        sum[b] += w[1] - w[0];
-        n[b] += 1.0;
-    }
-    let p: Vec<f64> = sum.iter().zip(&n).filter(|(_, n)| **n > 0.0).map(|(s, n)| s / n).collect();
-    let m = p.iter().sum::<f64>() / p.len() as f64;
-    let mut best = (0.0, 0.0);
-    let mut f = 1.0;
-    while f <= 40.0 {
-        let (mut re, mut im) = (0.0, 0.0);
-        for (k, v) in p.iter().enumerate() {
-            let a = 2.0 * std::f64::consts::PI * f * k as f64 / 100.0;
-            re += (v - m) * a.cos();
-            im += (v - m) * a.sin();
-        }
-        let mag = re * re + im * im;
-        if mag > best.1 {
-            best = (f, mag);
-        }
-        f += 0.25;
-    }
-    best.0
+    let mid = (own + deep) / 2.0;
+    assert!(early < mid && later > mid, "delay: {early} then {later} (own {own}, deep {deep})");
 }
 
 
@@ -322,5 +333,6 @@ fn xg_part_mono_and_filter_reach_the_synth() {
     assert!(sounding > 0.0, "the Mono SysEx doesn't cut the note sounding");
     assert!(mono < poly * 0.7 && poly_again > poly * 0.95, "mono {mono}, poly {poly}, poly again {poly_again}");
     let (_, _, dark) = play(&[xg(0x18, 10)]);
-    assert!(brightness(&dark[24_000..]) < brightness(&open[24_000..]) * 0.7, "XG cutoff darkens");
+    let (dark, open) = (brightness(&dark[24_000..]), brightness(&open[24_000..]));
+    assert!(dark < open * 0.7, "XG cutoff darkens: {dark} vs {open}");
 }

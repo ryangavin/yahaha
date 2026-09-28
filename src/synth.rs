@@ -40,6 +40,7 @@ pub type PluginLink = ();
 pub const PLUGIN_MAX_BLOCK: usize = 1024;
 
 pub mod drum_setup;
+mod part_tone;
 mod rack;
 mod routing;
 pub mod xg_part;

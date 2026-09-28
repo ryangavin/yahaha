@@ -3,8 +3,8 @@
 //! chorus off (`SynthesizerSettings::enable_reverb_and_chorus`).
 //!
 //! Each MIDI channel is a part and renders its own stereo stem. Everything that works on a
-//! part's signal runs here, on its stem, in yahaha code: the Style parts' insertion effects
-//! (#269), the meters (peak and RMS), the sends into the effect bus (#204) and the
+//! part's signal runs here, on its stem, in yahaha code: the live tone filter (CC74/71,
+//! #346 step 3; part_tone.rs), the Style parts' insertion effects (#269), the meters (peak and RMS), the sends into the effect bus (#204) and the
 //! performance view's per-part cost. Upstream rustysynth has no public voice count, so the
 //! notes a part holds are counted here, from the messages it gets ([`Part::track`]).
 //!
@@ -27,6 +27,7 @@
 //! All memory is allocated when the rack is built, off the audio thread; `render` never
 //! allocates, locks or panics.
 
+use super::part_tone::PartTone;
 use super::*;
 use crate::fx::BUSES;
 
@@ -68,11 +69,37 @@ pub(super) struct Part {
     held: u128,
     sustained: u128,
     pedal: bool,
+    /// Its live tone controls (#346 step 3): the stem filter (CC74/71) and the mod wheel
+    /// with CC77/78 (part_tone.rs).
+    tone: PartTone,
 }
 
 impl Part {
-    fn new(lanes: Vec<Lane>) -> Part {
-        Part { lanes, volume: 100 << 7, expression: 127 << 7, held: 0, sustained: 0, pedal: false }
+    fn new(lanes: Vec<Lane>, sample_rate: f32) -> Part {
+        Part { lanes, volume: 100 << 7, expression: 127 << 7, held: 0, sustained: 0, pedal: false, tone: PartTone::new(sample_rate) }
+    }
+
+    /// A message to the part's tone (part_tone.rs), before its synthesizers get it. True
+    /// if it is the tone's own and goes no further.
+    #[inline]
+    fn tone_msg(&mut self, ch: i32, st: i32, d1: i32, d2: i32) -> bool {
+        let own = self.tone.follow(st, d1, d2);
+        if st == 0xB0 && d1 == 121 {
+            // The synthesizers reset their mod wheel: send them the tone's after.
+            self.lanes.iter_mut().for_each(|l| l.synth.process_midi_message(ch, st, d1, d2));
+            self.send_modulation(ch);
+            return true;
+        }
+        self.send_modulation(ch);
+        own
+    }
+
+    /// The mod wheel to every lane, if the tone's has changed.
+    #[inline]
+    fn send_modulation(&mut self, ch: i32) {
+        if let Some(v) = self.tone.modulation() {
+            self.lanes.iter_mut().for_each(|l| l.synth.process_midi_message(ch, 0xB0, 1, v));
+        }
     }
 
     /// Follow a message to this part, as rustysynth's channel does: its volume and
@@ -207,7 +234,7 @@ impl Rack {
             for _ in 0..NOTE_LANES {
                 lanes.push(lane(main, 0, NOTE_POLYPHONY)?);
             }
-            parts.push(Part::new(lanes));
+            parts.push(Part::new(lanes, sample_rate as f32));
         }
         let mut r = Rack {
             parts,
@@ -302,6 +329,9 @@ impl Rack {
         let slot = self.ch_slot[c];
         let part = &mut self.parts[c];
         part.track(st, d1, d2);
+        if part.tone_msg(ch, st, d1, d2) {
+            return;
+        }
         match st {
             0x90 if d2 > 0 => {
                 let l = &mut part.lanes[slot as usize];
@@ -322,7 +352,8 @@ impl Rack {
         let slots = self.slots;
         let part = &mut self.parts[c];
         part.track(0x90, key as i32, velocity as i32);
-        let i = if slot == 0 && note.sends != PART_SENDS { part.note_lane(slots, note.sends) } else { slot as usize };
+        part.tone_msg(ch as i32, 0x90, key as i32, velocity as i32);
+        let i =if slot == 0 && note.sends != PART_SENDS { part.note_lane(slots, note.sends) } else { slot as usize };
         let l = &mut part.lanes[i];
         l.quiet = 0;
         l.synth.note_on_with(ch as i32, key as i32, velocity as i32, note);
@@ -383,6 +414,8 @@ impl Rack {
             let mut ns = 0u64;
             // A part with no note sounding whose lanes have gone quiet renders nothing.
             let holds = part.notes() > 0;
+            // The mod wheel as the tone has it now (a vibrato delay fading in).
+            part.send_modulation(ch as i32);
             for (i, lane) in part.lanes.iter_mut().enumerate() {
                 let is_live = i == live;
                 if lane.quiet >= IDLE_FRAMES && !(is_live && holds) {
@@ -418,6 +451,18 @@ impl Rack {
                     add_scaled(1.0, tr, sr);
                 }
                 first = false;
+            }
+            // The part's filter (CC74/71, part_tone.rs) on its stem, before its insert,
+            // meters and sends, as the voices' own filter was.
+            part.tone.advance(n);
+            if first {
+                part.tone.filter.clear();
+            } else if part.tone.filter.active() {
+                let t0 = if profile { crate::rt::host_now() } else { 0 };
+                part.tone.filter.process(sl, sr);
+                if profile {
+                    ns += crate::rt::host_to_ns(crate::rt::host_now().wrapping_sub(t0));
+                }
             }
             self.ch_ns[ch] = ns;
             // The part's insert runs on its stem, silent too (the effect may still ring).
@@ -570,7 +615,7 @@ mod tests {
     /// part's volume and expression on rustysynth's curve, for an insert's level.
     #[test]
     fn a_part_counts_its_notes_and_keeps_its_level() {
-        let mut p = Part::new(Vec::new());
+        let mut p = Part::new(Vec::new(), 48_000.0);
         p.track(0x90, 60, 100);
         p.track(0x90, 64, 100);
         assert_eq!(p.notes(), 2);
@@ -597,6 +642,54 @@ mod tests {
         assert_eq!(p.level(), curve((64 << 7) as f32, ((32 << 7) | 5) as f32));
         p.track(0xB0, 121, 0);
         assert_eq!(p.level(), curve((64 << 7) as f32, (127 << 7) as f32), "Reset All Controllers: expression, not volume");
+    }
+
+    /// #346 step 3: CC74 swept down on a held note darkens the part's stem (the rack's
+    /// filter, not rustysynth's), gliding rather than stepping; back at 64 the stem is
+    /// exactly what it would have been with no sweep at all.
+    #[test]
+    fn a_cutoff_sweep_on_a_held_note_darkens_the_stem() {
+        let p = peaks();
+        let block = |r: &mut Rack| {
+            let (mut l, mut rr) = (vec![0f32; 480], vec![0f32; 480]);
+            r.render_dry(&mut l, &mut rr, &p, None);
+            l
+        };
+        let bright = |x: &[f32]| {
+            let hf: f32 = x.windows(2).map(|w| (w[1] - w[0]).powi(2)).sum();
+            hf / x.iter().map(|v| v * v).sum::<f32>().max(1e-30)
+        };
+        let jump = |x: &[f32]| x.windows(2).map(|w| (w[1] - w[0]).abs()).fold(0f32, f32::max);
+        let (mut swept, mut still) = (rack(), rack());
+        let (mut a, mut b) = (Vec::new(), Vec::new());
+        for r in [&mut swept, &mut still] {
+            r.process(3, 0x90, 60, 100);
+        }
+        for i in 0..40 {
+            if i < 16 {
+                swept.process(3, 0xB0, 74, 64 - 4 * i);
+            }
+            a.extend(block(&mut swept));
+            b.extend(block(&mut still));
+        }
+        let (dark, open) = (bright(&a[a.len() - 4800..]), bright(&b[b.len() - 4800..]));
+        assert!(dark < open * 0.3, "the held note darkens: {dark} vs {open}");
+        // The part's synthesizer never got CC74: what it renders is untouched.
+        let raw = |r: &mut Rack| {
+            let (mut l, mut rr) = (vec![0f32; 480], vec![0f32; 480]);
+            r.parts[3].lanes[0].synth.render(&mut l, &mut rr);
+            l
+        };
+        assert_eq!(raw(&mut swept), raw(&mut still), "rustysynth plays no CC74");
+        // The square wave's own edges are its largest steps; the sweep adds none.
+        assert!(jump(&a) <= jump(&b) * 1.01, "no click: {} vs {}", jump(&a), jump(&b));
+        swept.process(3, 0xB0, 74, 64);
+        for _ in 0..20 {
+            block(&mut swept);
+            block(&mut still);
+        }
+        assert_eq!(block(&mut swept), block(&mut still), "at 64 again: bit-identical");
+        assert_eq!(swept.voices(), 1);
     }
 
     /// A drum note with sends of its own (#239) plays in a note lane with those sends: the
