@@ -45,6 +45,7 @@ pub mod sff;
 pub mod sim;
 pub mod synth;
 pub mod theory;
+pub mod tone;
 pub mod voice_gm;
 
 pub use api::{AppCmd, AppState, Event};

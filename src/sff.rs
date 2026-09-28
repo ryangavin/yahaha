@@ -274,10 +274,10 @@ pub struct OtsPart {
     /// Pan, reverb, chorus and variation sends (CC10, CC91, CC93, CC94) as the track
     /// leaves them; None where it doesn't set one.
     pub fx: [Option<u8>; 4],
-    /// The voice's filter, EG, vibrato and portamento, by `parts::TONE_CC`: cutoff,
+    /// The voice's filter, EG, vibrato and portamento, by `tone::TONE_CC`: cutoff,
     /// resonance, attack, decay, release, vibrato rate, depth and delay (relative, 64 = the
     /// voice's own), portamento switch and time. None where the track sets none.
-    pub tone: [Option<u8>; crate::parts::TONE],
+    pub tone: [Option<u8>; crate::tone::TONE],
     /// Pitch bend range in semitones (RPN 0 coarse).
     pub bend_range: Option<u8>,
     /// The XG multi part parameters the track sets for this part (mono/poly, velocity
@@ -334,7 +334,7 @@ pub fn xg_multi_part(v: &[u8]) -> Option<(u8, u8, u8, u8)> {
         .then(|| (v[4], v[5], v[6], v[7]))
 }
 
-/// XG NRPN (MSB 1) to its `parts::TONE_CC` index: the OTS tracks write decay, release and
+/// XG NRPN (MSB 1) to its `tone::TONE_CC` index: the OTS tracks write decay, release and
 /// vibrato this way (and cutoff, resonance, attack could be).
 fn tone_nrpn(lsb: u8) -> Option<usize> {
     let i = match lsb {
@@ -385,8 +385,8 @@ pub fn parse_ots(data: &[u8]) -> Vec<Ots> {
         if let Ok(evs) = parse_track(&data[p + 8..end]) {
             for e in evs {
                 match e.ev {
-                    Ev::Cc { ch, cc, val } if ch < 4 && crate::parts::TONE_CC.contains(&cc) => {
-                        let i = crate::parts::TONE_CC.iter().position(|&c| c == cc).unwrap_or(0);
+                    Ev::Cc { ch, cc, val } if ch < 4 && crate::tone::TONE_CC.contains(&cc) => {
+                        let i = crate::tone::TONE_CC.iter().position(|&c| c == cc).unwrap_or(0);
                         ots.parts[ch as usize].tone[i] = Some(val);
                     }
                     Ev::Cc { ch, cc, val } if ch < 4 && matches!(cc, 98..=101 | 6) => {
@@ -1513,20 +1513,20 @@ mod tests {
         trk.extend_from_slice(&[0x00, 0xFF, 0x2F, 0]);
         let o = parse_ots(&chunk(b"MTrk", &trk));
         let r2 = &o[0].parts[1];
-        let mut want = [None; crate::parts::TONE];
-        want[crate::parts::CUTOFF] = Some(30);
-        want[crate::parts::RELEASE] = Some(20);
-        want[crate::parts::PORTAMENTO] = Some(127);
+        let mut want = [None; crate::tone::TONE];
+        want[crate::tone::CUTOFF] = Some(30);
+        want[crate::tone::RELEASE] = Some(20);
+        want[crate::tone::PORTAMENTO] = Some(127);
         assert_eq!(r2.tone, want);
         assert_eq!(r2.bend_range, Some(12));
         assert_eq!(r2.xg.iter().collect::<Vec<_>>(), vec![(0x08, 0x05, 0), (0x0A, 0x40, 0x50)]);
-        assert!(o[0].parts[0].xg.is_empty() && o[0].parts[0].tone == [None; crate::parts::TONE]);
+        assert!(o[0].parts[0].xg.is_empty() && o[0].parts[0].tone == [None; crate::tone::TONE]);
     }
 
     /// Corpus counts (#238): how many OTS parts set each voice setting.
     #[test]
     fn corpus_ots_voice_settings() {
-        let (mut parts, mut tone, mut bend, mut xg, mut xg_max) = (0, [0; crate::parts::TONE], 0, 0, 0);
+        let (mut parts, mut tone, mut bend, mut xg, mut xg_max) = (0, [0; crate::tone::TONE], 0, 0, 0);
         for p in crate::library::corpus_styles() {
             let s = Style::load(&p).unwrap_or_else(|e| panic!("{}: {e:#}", p.display()));
             for q in s.ots.iter().flat_map(|o| &o.parts) {
@@ -1544,7 +1544,7 @@ mod tests {
             return;
         }
         assert!(xg_max < XG_MAX, "room to spare for XG parameters: {xg_max}");
-        assert_eq!((tone, bend), ([parts; crate::parts::TONE], parts), "every corpus OTS part sets them all");
+        assert_eq!((tone, bend), ([parts; crate::tone::TONE], parts), "every corpus OTS part sets them all");
     }
 
     #[test]
