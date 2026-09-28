@@ -22,7 +22,7 @@ While editing, run [bacon](https://dystroy.org/bacon) headless in your worktree 
 - `bacon --headless test -- <filter>` runs targeted tests under the `test-quick` profile. Add `--lib` before the filter for library tests only.
 - `jq '{error_code, stats}' .bacon-result.json` shows the latest result. `error_code` is null when the command exited 0; `stats` counts errors, warnings and failed tests.
 - `jq -r '.lines[] | [.content.strings[].raw] | join("")' .bacon-result.json` lists each error, warning and failed test with its location.
-- `find src tests vendor Cargo.toml -newer .bacon-result.json` prints nothing when the result covers your last edit. If it prints a file, the run hasn't finished yet; read the result once, later, rather than looping.
+- `find src tests Cargo.toml -newer .bacon-result.json` prints nothing when the result covers your last edit. If it prints a file, the run hasn't finished yet; read the result once, later, rather than looping.
 
 The jobs are in `bacon.toml`: `check`, `check-portable`, `clippy` and `test`. bacon is only for fast feedback; the checks above and CI decide.
 
@@ -69,7 +69,7 @@ Every control has a tooltip in `app/src/help/tooltips.ts`. Every command is in b
 
 ## rustysynth
 
-`vendor/rustysynth` carries `yahaha:` patches. Keep them.
+rustysynth is an unmodified dependency from crates.io (`rustysynth = "1.3.6"`). Never vendor or patch it. Build what it lacks in yahaha, on its public API (see `src/synth/`).
 
 ## Layering
 
