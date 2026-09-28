@@ -20,7 +20,9 @@ For quick results while editing, see the bacon section once it lands (build/baco
 
 ## Review
 
-Every PR gets one review, posted on the PR itself (`gh pr review --comment` plus line comments). The review runs as soon as the PR opens, alongside CI rather than after it. A PR merges when CI passes and every review comment is addressed.
+Every PR gets one review, posted on the PR itself as line comments plus a verdict (`gh pr review --approve` or `--request-changes`). The review runs as soon as the PR opens, alongside CI rather than after it. A PR merges when CI passes and the review is addressed.
+
+**Review account:** `satori-miyamoto`. Post reviews with `GH_CONFIG_DIR=~/.config/gh-yahaha-bot gh …`, and check first that `gh api user --jq .login` prints `satori-miyamoto`. Its token can only read code and review PRs: it can't push or merge. Everything else (commits, PRs, merges) uses the owner's default `gh` login. `main` requires CI plus an approval from this account, with no admin bypass.
 
 Reviewers flag only these, each with the file, the line and a one-line reason:
 
