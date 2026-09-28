@@ -125,7 +125,7 @@ optional = true
 default-features = false
 features = ["std", "AUGenericView", "objc2-app-kit", "objc2-audio-toolbox"]
 
-# The test gates: `cargo test --profile test-fast` (scripts/test-all.sh). Release semantics
+# The test profile: `cargo test --profile test-fast` (see AGENTS.md). Release semantics
 # (no debug assertions, no overflow checks) so the tests see what ships, but our own crate
 # builds incrementally with light optimisation, and the dependencies (vendored rustysynth
 # included) at full optimisation, where sccache caches them. An edit rebuilds in seconds
