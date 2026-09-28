@@ -2,7 +2,7 @@
 //! instrument's ACMP and records what the style parts send over MIDI. We then compare that
 //! recording with what our engine plays for the same script.
 //!
-//! - `yahaha capture-kit <dir>` writes the script (docs/capture-kit/capture.script) as one
+//! - `yahaha capture-kit <dir>` writes the script (src/capture-kit/capture.script) as one
 //!   MIDI file per kit style, at that style's tempo, plus the owner instructions. The files
 //!   hold only our own chord script, so they can be shared freely.
 //! - `yahaha capture-import <recording.mid> <style>` lines the recording up with our
@@ -32,9 +32,9 @@ use std::collections::{BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
 
 /// The chord script every capture plays.
-pub const SCRIPT: &str = include_str!("../docs/capture-kit/capture.script");
+pub const SCRIPT: &str = include_str!("capture-kit/capture.script");
 /// Owner instructions; `capture-kit` adds a table of the files it wrote.
-const INSTRUCTIONS: &str = include_str!("../docs/capture-kit/README.md");
+const INSTRUCTIONS: &str = include_str!("capture-kit/README.md");
 
 /// A chord that comes this soon after a note started revoices that note outright rather than
 /// by its Retrigger Rule: our engine's window (`engine::LATE_CHORD_NS`) when the kit was
@@ -1878,7 +1878,7 @@ mod tests {
     /// so what owners read asks for it privately and never for a public post or issue.
     #[test]
     fn owner_docs_ask_for_recordings_privately() {
-        let forum = include_str!("../docs/capture-kit/forum-post.md");
+        let forum = include_str!("capture-kit/forum-post.md");
         for (name, text) in [("README", INSTRUCTIONS), ("forum post", forum)] {
             let t = text.to_lowercase();
             assert!(t.contains("private message"), "{name} should ask for recordings by private message");

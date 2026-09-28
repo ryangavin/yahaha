@@ -1261,7 +1261,7 @@ Fill In BB queued, with OTS 1 recalled. Some lists are shortened here:
 The `library`, `surface.trackPrev`/`trackNext`, the master fader and `io` show what a
 live session reports with a library folder, a Launchkey and the synth.
 
-Unabridged fixtures from `yahaha state-json` are in `docs/fixtures/`: `state.json` (SlowWalker,
+Unabridged fixtures from `yahaha state-json` are in `tests/fixtures/`: `state.json` (SlowWalker,
 after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
 
 ```json

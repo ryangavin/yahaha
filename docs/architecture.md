@@ -114,8 +114,9 @@ rename_all_fields = "camelCase")]`) and its state (one struct). Then:
 `AppCmd` is grouped in Rust only: on the wire a command is its group's JSON
 (`{"type":"main","index":1}`), and `Session::send` takes a group's command directly
 (`send(TransportCmd::Main { index: 1 })`). Command `type` names must be unique across
-groups. `tests/api_wire.rs` pins the wire format (every documented command round-trips,
-the fixtures round-trip byte for byte): extend it, never loosen it.
+groups. `tests/api_wire.rs` pins the wire format (every command in `EVERY_CMD` round-trips,
+the fixtures in `tests/fixtures` round-trip byte for byte): extend it, never loosen it. CI
+checks that `EVERY_CMD` lists exactly the commands docs/app-api.md documents (AGENTS.md).
 
 ### 2. Session handler: `src/session/<feature>.rs`
 
@@ -219,7 +220,7 @@ without a case there shows On/Off from its light).
 | Types | `app/src/lib/api/types.ts` (the `AppCmd` union and `AppState`, as docs/app-api.md) |
 | Browser mock | `app/src/lib/api/mock.ts` (and `mock-*.ts`) |
 | Tauri mock | `app/src-tauri/src/mock.rs` (matches on `AppCmd` groups) |
-| Recorded engine shape | `app/src/lib/api/engine-shape.json`, re-recorded from `docs/fixtures` (`yahaha state-json`) |
+| Recorded engine shape | `app/src/lib/api/engine-shape.json`, re-recorded from `tests/fixtures` (`yahaha state-json`) |
 | Tooltips | `app/src/help/tooltips.ts` (a section per panel); `coverage.test.ts`; `app/docs/controls.md` is generated (`npm run docs:controls`) |
 | Panels | `app/src/panels/<panel>/` |
 | Shortcuts | `app/src/lib/shortcuts.ts`, `keys.ts` |
@@ -227,7 +228,7 @@ without a case there shows On/Off from its light).
 
 ### 9. Docs
 
-`docs/app-api.md` (commands and state, with an example), `docs/fixtures/*.json`
+`docs/app-api.md` (commands and state, with an example), `tests/fixtures/*.json`
 (regenerate with `yahaha state-json`, see app-api.md), and a feature doc of its own
 (`docs/<feature>.md`) for the Genos behaviour it implements and what is a guess.
 
@@ -254,7 +255,7 @@ Rules:
 
 - **Claim before editing** anything in a hotspot beyond the one-line additions above; post
   a CHANGED line when done and release the claim.
-- **Keep the wire format.** `tests/api_wire.rs` and `docs/fixtures` must keep passing; a
+- **Keep the wire format.** `tests/api_wire.rs` and `tests/fixtures` must keep passing; a
   change to the JSON is a change to docs/app-api.md and both mocks in the same PR.
 - **Keep the order.** `apply`, `pump`, `build_state` and the engine hooks run in a fixed
   order; add to the end of a group unless there's a reason (and say it).
@@ -287,7 +288,7 @@ Rules:
 7. **Front ends.** A TUI key in `src/ui.rs`; a Launchkey `Action` if it has a pad; in the
    app: `types.ts`, both mocks, a panel, tooltips, `coverage.test.ts`, regenerated
    `app/docs/controls.md`.
-8. **Docs.** docs/app-api.md (commands, state, example), regenerated `docs/fixtures`,
+8. **Docs.** docs/app-api.md (commands, state, example), regenerated `tests/fixtures`,
    `app/src/lib/api/engine-shape.json`, and `docs/<feature>.md`.
 9. **Verify.** The commands in [AGENTS.md](../AGENTS.md) that cover the change (goldens
    unchanged unless on purpose, no-alloc tests), no new clippy warnings, and
