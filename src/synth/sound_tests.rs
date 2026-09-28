@@ -47,17 +47,6 @@ fn brightness(x: &[f32]) -> f64 {
     hf / energy(x).max(1e-30)
 }
 
-/// Each `win`-frame window's RMS.
-fn envelope(x: &[f32], win: usize) -> Vec<f64> {
-    x.chunks(win).map(|c| (energy(c) / c.len() as f64).sqrt()).collect()
-}
-
-/// The first window whose RMS reaches `frac` of the loudest.
-fn rise(env: &[f64], frac: f64) -> usize {
-    let max = env.iter().cloned().fold(0.0, f64::max);
-    env.iter().position(|&e| e >= frac * max).unwrap()
-}
-
 /// A note held for `hold` frames, then released for `tail` frames.
 fn note(s: &mut Synthesizer, key: i32, hold: usize, tail: usize) -> (Vec<f32>, Vec<f32>) {
     s.note_on(0, key, 100);
@@ -118,7 +107,7 @@ fn rack_note(r: &mut Rack, key: i32, hold: usize) -> Vec<f32> {
 #[test]
 fn neutral_tone_controls_change_nothing_on_the_stem() {
     let Some(font) = font() else { return };
-    let all: Vec<[i32; 2]> = [1, 71, 74, 76, 77, 78].iter().map(|&cc| [cc, if cc == 1 { 0 } else { 64 }]).collect();
+    let all: Vec<[i32; 2]> = [1, 71, 72, 73, 74, 75, 76, 77, 78].iter().map(|&cc| [cc, if cc == 1 { 0 } else { 64 }]).collect();
     for program in [0, 48, 81] {
         let a = rack_note(&mut rack(&font, program, &[]), 60, 24_000);
         let b = rack_note(&mut rack(&font, program, &all), 60, 24_000);
@@ -177,20 +166,30 @@ fn cutoff_moves_a_ringing_note_smoothly() {
 }
 
 /// CC73: a slower attack peaks later; CC75: a shorter decay dies away sooner while held;
-/// CC72: a shorter (longer) release, a shorter (longer) tail.
+/// CC72: a shorter (longer) release, a shorter (longer) tail. (#346 step 4: the rack shapes
+/// the notes' level (envelope.rs). A faster attack and a longer decay would need gain above
+/// the player's expression, so they are lost: they change nothing.)
 #[test]
 fn envelope_times_scale() {
     let Some(font) = font() else { return };
-    // Slow strings: an attack of their own to slow down or speed up.
-    let rise_at = |setup: &[[i32; 2]]| rise(&envelope(&note(&mut synth(&font, 49, setup), 60, 48_000, 0).0, 480), 0.5);
-    let (own, slow, fast) = (rise_at(&[]), rise_at(&[[73, 127]]), rise_at(&[[73, 0]]));
-    assert!(slow > own * 2 && fast * 2 < own, "attack: {fast} / {own} / {slow} windows");
-    // An electric piano: its decay while held.
-    let late = |setup: &[[i32; 2]]| energy(&note(&mut synth(&font, 4, setup), 60, 96_000, 0).0[48_000..]);
+    // Slow strings: an attack of their own to slow down (not speed up). Measured as the
+    // energy of 0.1-0.5 s against the note's own, not as the rise to half of the first
+    // second's peak: with a 7.7 s attack that peak is the slowed note's, and the sample's
+    // own swell sets where half of it falls.
+    let early = |setup: &[[i32; 2]]| energy(&rack_note(&mut rack(&font, 49, setup), 60, 24_000)[4800..]);
+    let (own, slow, fast) = (early(&[]), early(&[[73, 127]]), early(&[[73, 0]]));
+    assert!(slow < own * 0.1 && fast == own, "attack: {fast} / {own} / {slow}");
+    // An electric piano: its decay while held (shorter, not longer).
+    let late = |setup: &[[i32; 2]]| energy(&rack_note(&mut rack(&font, 4, setup), 60, 96_000)[48_000..]);
     let (own, short, long) = (late(&[]), late(&[[75, 0]]), late(&[[75, 127]]));
-    assert!(short < own * 0.5 && long > own * 2.0, "decay: {short} / {own} / {long}");
+    assert!(short < own * 0.5 && long == own, "decay: {short} / {own} / {long}");
     // Strings: the tail after the release.
-    let tail = |setup: &[[i32; 2]]| energy(&note(&mut synth(&font, 48, setup), 60, 24_000, 48_000).1[2400..]);
+    let tail = |setup: &[[i32; 2]]| {
+        let mut r = rack(&font, 48, setup);
+        rack_note(&mut r, 60, 24_000);
+        r.process(0, 0x80, 60, 0);
+        energy(&rack_render(&mut r, 48_000)[2400..])
+    };
     let (own, short, long) = (tail(&[]), tail(&[[72, 0]]), tail(&[[72, 127]]));
     assert!(short < own * 0.5 && long > own * 1.5, "release: {short} / {own} / {long}");
 }
