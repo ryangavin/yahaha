@@ -31,8 +31,10 @@
 //! as it does the voice's own.
 //!
 //! A note is shaped only on a channel it has to itself for its whole life: the drum part
-//! (MIDI channel 10, its only one) is never shaped, a note starting where another still
-//! sounds (a tail, or past 15 notes at once) plays unshaped, and a note arriving on a shaped
+//! (MIDI channel 10, its only one) is never shaped, a note starting where another may still
+//! sound (a tail, or past 15 notes at once) plays unshaped (the notes sounding on each
+//! channel are counted here from the note-ons and note-offs, each until its longest release
+//! has passed after its note-off and the pedal), and a note arriving on a shaped
 //! note's channel ends that shaping: the channel goes back to the player's expression and
 //! a held-back note-off goes at once. So All Sound Off only ever reaches a channel with its
 //! shaped note alone on it. At 64 (or only in the directions that can't be played) nothing
@@ -57,6 +59,9 @@ const SLOPE: f32 = -9.226;
 const MIN_RELEASE: f32 = 0.01;
 /// Expression at full (14-bit), as rustysynth resets it.
 const FULL: i32 = 127 << 7;
+/// How long a note whose envelope isn't known may sound on after its note-off (s): above
+/// the longest release a SoundFont can give (8000 timecents, about 101.6 s).
+const MAX_TAIL: f32 = 200.0;
 
 /// A note's volume envelope, as rustysynth plays it: times in seconds, sustain linear.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -68,6 +73,9 @@ pub(super) struct Env {
     pub(super) sustain: f32,
     /// Before rustysynth's floor (`MIN_RELEASE`), so a scaled release keeps it too.
     pub(super) release: f32,
+    /// The longest release of any of the note's layers (s): how long it may sound on
+    /// after its note-off.
+    pub(super) tail: f32,
 }
 
 /// `exp(x)`, 0 below rustysynth's cut-off (`SoundFontMath::exp_cutoff`).
@@ -89,11 +97,16 @@ impl Env {
             (0..presets.len()).min_by_key(|&i| (presets[i].get_bank_number(), presets[i].get_patch_number()))
         })?;
         let instruments = font.get_instruments();
+        let (mut first, mut tail) = (None, MIN_RELEASE);
         for p in presets[i].get_regions().iter().filter(|p| p.contains(key, velocity)) {
             let Some(inst) = instruments.get(p.get_instrument_id()) else { continue };
-            if let Some(r) = inst.get_regions().iter().find(|r| r.contains(key, velocity)) {
+            for r in inst.get_regions().iter().filter(|r| r.contains(key, velocity)) {
+                tail = tail.max(r.get_release_volume_envelope() * p.get_release_volume_envelope());
+                if first.is_some() {
+                    continue;
+                }
                 let by_key = |cents: i32| ((cents * (60 - key)) as f32 / 1200.0).exp2();
-                return Some(Env {
+                first = Some(Env {
                     delay: r.get_delay_volume_envelope() * p.get_delay_volume_envelope(),
                     attack: r.get_attack_volume_envelope() * p.get_attack_volume_envelope(),
                     hold: r.get_hold_volume_envelope()
@@ -104,10 +117,11 @@ impl Env {
                         * by_key(r.get_key_number_to_volume_envelope_decay() + p.get_key_number_to_volume_envelope_decay()),
                     sustain: 10f32.powf(-0.05 * (r.get_sustain_volume_envelope() + p.get_sustain_volume_envelope())).clamp(0.0, 1.0),
                     release: r.get_release_volume_envelope() * p.get_release_volume_envelope(),
+                    tail: 0.0,
                 });
             }
         }
-        None
+        first.map(|e| Env { tail: tail.max(MIN_RELEASE), ..e })
     }
 
     /// With the attack, decay and release times scaled by `f`.
@@ -227,6 +241,15 @@ pub(super) struct PartEnvelope {
     /// Channels with a shaped note (bit = channel).
     shaping: u16,
     notes: [Note; 16],
+    /// The notes sounding on each channel, in any of the part's lanes, shaped or not:
+    /// the keys down, the keys up under the pedal, the longest tail among them (s), and
+    /// the frame until which released notes may still sound. Erring long, never short.
+    held: [u128; 16],
+    kept: [u128; 16],
+    tail: [f32; 16],
+    quiet_at: [u64; 16],
+    /// Frames rendered.
+    now: u64,
 }
 
 impl PartEnvelope {
@@ -241,7 +264,40 @@ impl PartEnvelope {
             pedal: false,
             shaping: 0,
             notes: [Note::default(); 16],
+            held: [0; 16],
+            kept: [0; 16],
+            tail: [0.0; 16],
+            quiet_at: [0; 16],
+            now: 0,
         }
+    }
+
+    /// `frames` rendered.
+    #[inline]
+    pub(super) fn tick(&mut self, frames: usize) {
+        self.now = self.now.wrapping_add(frames as u64);
+    }
+
+    /// Whether a note may still sound on channel `c`.
+    #[inline]
+    fn busy(&self, c: usize) -> bool {
+        self.held[c] | self.kept[c] != 0 || self.now < self.quiet_at[c]
+    }
+
+    /// The channels a note may still sound on.
+    fn busy_mask(&self) -> u16 {
+        (0..16).filter(|&c| self.busy(c)).fold(0, |m, c| m | 1 << c)
+    }
+
+    /// Channel `c`'s notes released now: they may sound for their longest tail.
+    fn release_at(&mut self, c: usize) {
+        let end = self.now + (self.tail[c] as f64 * self.rate as f64).ceil() as u64 + self.block as u64;
+        self.quiet_at[c] = self.quiet_at[c].max(end);
+    }
+
+    /// Channel `c`'s sound cut: nothing sounds on it.
+    fn cut(&mut self, c: usize) {
+        (self.held[c], self.kept[c], self.quiet_at[c]) = (0, 0, self.now);
     }
 
     /// Follow a message to the part. True if it is an envelope controller (the part's
@@ -272,11 +328,12 @@ impl PartEnvelope {
     /// be, or None: notes on the part's own channel.
     #[inline]
     pub(super) fn spread(&self) -> Option<u16> {
-        (self.on() || self.shaping != 0).then_some(self.shaping)
+        (self.on() || self.shaping != 0).then(|| self.shaping | self.busy_mask())
     }
 
     /// Whether channel `c` has a shaped note.
     #[inline]
+    #[cfg(test)]
     pub(super) fn shapes(&self, c: u8) -> bool {
         self.shaping >> (c & 15) & 1 == 1
     }
@@ -327,34 +384,46 @@ impl PartEnvelope {
         }
     }
 
-    /// A note-on for `key` on channel `c` in lane `lane`, before the synthesizers get it;
-    /// `own`: the SoundFont's envelope for it (None: not shaped); `busy`: another note
-    /// sounds on the channel in its lane (it is then not shaped). A note is shaped only on
-    /// a channel it has to itself for its whole life, never on the drum channel (MIDI 10).
-    /// A note shaped on the channel before ends its shaping now: an inaudible one is cut;
-    /// a sounding one gets its held-back note-off at once and the player's expression back,
-    /// so it is neither cut nor re-shaped, and the new note plays unshaped.
-    pub(super) fn note_on(&mut self, c: u8, lane: u8, key: u8, own: Option<Env>, busy: bool, emit: &mut impl FnMut(To, u16, i32, i32, i32)) {
-        let c = c as usize & 15;
-        let mut busy = busy;
-        if self.shaping >> c & 1 == 1 {
+    /// Every note-on for `key` on the channels `chans` (lane `lane` plays it), before the
+    /// synthesizers get it; `own`: the SoundFont's envelope for it (None: unknown, never
+    /// shaped). It is counted as sounding on those channels. A note is shaped only on a
+    /// channel it has to itself for its whole life, never on the drum channel (MIDI 10):
+    /// where another note may still sound, it plays unshaped. A note shaped on the channel
+    /// before ends its shaping now: an inaudible one is cut; a sounding one gets its
+    /// held-back note-off at once and the player's expression back, so it is neither cut
+    /// nor re-shaped.
+    pub(super) fn note_on(&mut self, chans: u16, lane: u8, key: u8, own: Option<Env>, emit: &mut impl FnMut(To, u16, i32, i32, i32)) {
+        let mut m = chans & self.shaping;
+        while m != 0 {
+            let c = m.trailing_zeros() as usize;
+            m &= m - 1;
             let old = self.notes[c];
             if old.closing {
                 // Inaudible, and alone on its channel: its pending cut goes now.
                 emit(To::Lane(old.lane), 1 << c, 0xB0, 120, 0);
-                if old.lane == lane {
-                    // Its voices were the ones there.
-                    busy = false;
-                }
-            } else {
-                if matches!(old.stage, Stage::KeyUp | Stage::Withheld) {
-                    emit(To::All, 1 << c, 0x80, old.key as i32, 0);
-                }
-                busy = true;
+                self.cut(c);
+            } else if matches!(old.stage, Stage::KeyUp | Stage::Withheld) {
+                emit(To::All, 1 << c, 0x80, old.key as i32, 0);
+                self.release_at(c);
             }
             self.unshape(c, emit);
         }
-        if busy || c == 9 {
+        let tail = own.map_or(MAX_TAIL, |e| e.tail);
+        let mut busy = false;
+        let mut m = chans;
+        while m != 0 {
+            let c = m.trailing_zeros() as usize;
+            m &= m - 1;
+            if self.busy(c) {
+                busy = true;
+            } else {
+                self.tail[c] = 0.0;
+            }
+            self.tail[c] = self.tail[c].max(tail);
+            self.held[c] |= 1 << (key & 127);
+        }
+        let c = chans.trailing_zeros() as usize & 15;
+        if busy || chans.count_ones() != 1 || c == 9 {
             return;
         }
         let Some(own) = own.filter(|_| self.on()) else { return };
@@ -369,6 +438,20 @@ impl PartEnvelope {
     /// A note-off for `key` on the channels `chans`, before the synthesizers get it. The
     /// channels it should still go to (a shaped note's is played here).
     pub(super) fn note_off(&mut self, chans: u16, key: i32, emit: &mut impl FnMut(To, u16, i32, i32, i32)) -> u16 {
+        let bit = 1u128 << (key & 127);
+        let mut m = chans;
+        while m != 0 {
+            let c = m.trailing_zeros() as usize;
+            m &= m - 1;
+            if self.held[c] & bit != 0 {
+                self.held[c] &= !bit;
+                if self.pedal {
+                    self.kept[c] |= bit;
+                } else {
+                    self.release_at(c);
+                }
+            }
+        }
         let mut rest = chans;
         let mut m = chans & self.shaping;
         while m != 0 {
@@ -411,6 +494,12 @@ impl PartEnvelope {
         self.pedal = down;
         if down {
             return;
+        }
+        for c in 0..16 {
+            if self.kept[c] != 0 {
+                self.kept[c] = 0;
+                self.release_at(c);
+            }
         }
         let mut m = self.shaping;
         while m != 0 {
@@ -457,6 +546,12 @@ impl PartEnvelope {
 
     /// After the synthesizers have had All Sound Off on `chans`: nothing left to shape.
     pub(super) fn sound_off(&mut self, chans: u16, emit: &mut impl FnMut(To, u16, i32, i32, i32)) {
+        let mut m = chans;
+        while m != 0 {
+            let c = m.trailing_zeros() as usize;
+            m &= m - 1;
+            self.cut(c);
+        }
         let mut m = chans & self.shaping;
         while m != 0 {
             let c = m.trailing_zeros() as usize;
@@ -468,6 +563,17 @@ impl PartEnvelope {
     /// After the synthesizers have had All Notes Off on `chans`: the shaped notes release
     /// on their own release (or a shorter one).
     pub(super) fn notes_off(&mut self, chans: u16) {
+        let mut m = chans;
+        while m != 0 {
+            let c = m.trailing_zeros() as usize;
+            m &= m - 1;
+            if self.pedal {
+                self.kept[c] |= self.held[c];
+            } else if self.held[c] != 0 {
+                self.release_at(c);
+            }
+            self.held[c] = 0;
+        }
         let mut m = chans & self.shaping;
         while m != 0 {
             let c = m.trailing_zeros() as usize;
@@ -497,6 +603,8 @@ impl PartEnvelope {
             }
             if self.notes[c].closing {
                 emit(c as i32, 0xB0, 120, 0);
+                // Its note was alone on the channel (any other ends the shaping).
+                self.cut(c);
                 self.unshape(c, &mut |_, _, st, d1, d2| emit(c as i32, st, d1, d2));
                 continue;
             }
@@ -521,7 +629,7 @@ mod tests {
     type Out = (To, u16, i32, i32, i32);
 
     /// A slow pad: 0.1 s attack, 0.5 s decay to -20 dB, 0.3 s release.
-    const PAD: Env = Env { delay: 0.0, attack: 0.1, hold: 0.0, decay: 0.5, sustain: 0.1, release: 0.3 };
+    const PAD: Env = Env { delay: 0.0, attack: 0.1, hold: 0.0, decay: 0.5, sustain: 0.1, release: 0.3, tail: 0.3 };
     /// Strings: 0.1 s attack, held at full.
     const STRINGS: Env = Env { sustain: 1.0, ..PAD };
 
@@ -568,7 +676,7 @@ mod tests {
 
     fn start(e: &mut PartEnvelope, c: u8, env: Env) -> Vec<Out> {
         let mut out = Vec::new();
-        e.note_on(c, 0, 60, Some(env), false, &mut |to, ch, st, a, b| out.push((to, ch, st, a, b)));
+        e.note_on(1 << c, 0, 60, Some(env), &mut |to, ch, st, a, b| out.push((to, ch, st, a, b)));
         out
     }
 
@@ -707,17 +815,18 @@ mod tests {
         off(&mut e, 1 << 2);
         run(&mut e, 2, 0.3);
         let mut out = Vec::new();
-        e.note_on(2, 0, 62, Some(PAD), false, &mut |to, ch, st, a, b| out.push((to, ch, st, a, b)));
+        e.note_on(1 << 2, 0, 62, Some(PAD), &mut |to, ch, st, a, b| out.push((to, ch, st, a, b)));
         assert_eq!(out[0], (To::All, 1 << 2, 0x80, 60, 0), "{out:?}");
         let rest: Vec<_> = out[1..].iter().map(|o| (2, o.2, o.3, o.4)).collect();
         assert_eq!(expr_of(&rest, 2).unwrap_or(e.notes[2].sent), FULL, "the player's expression back: {out:?}");
         assert!(!e.shapes(2) && !out.iter().any(|o| o.3 == 120), "unshaped, nothing cut");
         // A third note where the others still sound: not shaped either.
-        e.note_on(2, 0, 64, Some(PAD), true, &mut |_, _, _, _, _| {});
+        e.note_on(1 << 2, 0, 64, Some(PAD), &mut |_, _, _, _, _| {});
         assert!(!e.shapes(2));
         let (_, msgs) = run(&mut e, 2, 10.0);
         assert!(msgs.is_empty(), "no CC120, no gain: {msgs:?}");
         assert_eq!(e.note_off(1 << 2, 62, &mut |_, _, _, _, _| {}), 1 << 2, "a normal note-off");
+        assert_ne!(e.spread().unwrap() & 1 << 2, 0, "still sounding: new notes kept away");
         // Inaudible and alone, then taken over: its cut goes first, the new note is shaped.
         let mut e = part(&[[72, 0]]);
         start(&mut e, 2, PAD);
@@ -738,8 +847,8 @@ mod tests {
     fn overlapping_drum_hits_are_not_shaped() {
         let mut e = part(&[[72, 127], [73, 127], [75, 0]]);
         let mut out = Vec::new();
-        for (key, busy) in [(36, false), (38, true), (42, true)] {
-            e.note_on(9, 0, key, Some(PAD), busy, &mut |to, ch, st, a, b| out.push((to, ch, st, a, b)));
+        for key in [36, 38, 42] {
+            e.note_on(1 << 9, 0, key, Some(PAD), &mut |to, ch, st, a, b| out.push((to, ch, st, a, b)));
             assert!(!e.shapes(9), "drums: not shaped");
         }
         assert!(out.is_empty(), "{out:?}");
@@ -750,6 +859,41 @@ mod tests {
         let (_, more) = run(&mut e, 9, 10.0);
         assert!(msgs.is_empty() && more.is_empty(), "the first hit is never cut");
         assert_eq!(e.note_off(1 << 9, 36, &mut |_, _, _, _, _| {}), 1 << 9);
+    }
+
+    /// A note is counted as sounding from its note-on until its longest release has passed
+    /// after its note-off (the pedal holding it): a note starting on its channel before then
+    /// isn't shaped; after, it is. A note of unknown envelope counts for the longest tail.
+    #[test]
+    fn a_tail_keeps_the_channel_shared() {
+        let mut e = part(&[[72, 127]]);
+        let secs = |s: f32| (s * RATE) as usize;
+        let none = &mut |_, _, _, _, _| {};
+        // An unshaped note sounding (CC72 was set after it, say): held, then released.
+        e.follow(0xB0, 72, 64);
+        e.note_on(1 << 3, 0, 50, Some(PAD), none);
+        e.follow(0xB0, 72, 127);
+        e.pedal(true, none);
+        e.note_off(1 << 3, 50, none);
+        e.tick(secs(5.0));
+        start(&mut e, 3, PAD);
+        assert!(!e.shapes(3), "held by the pedal");
+        e.note_off(1 << 3, 60, none);
+        e.pedal(false, none);
+        e.tick(secs(0.29));
+        start(&mut e, 3, PAD);
+        assert!(!e.shapes(3), "within its release");
+        e.note_off(1 << 3, 60, none);
+        e.tick(secs(0.32));
+        start(&mut e, 3, PAD);
+        assert!(e.shapes(3), "its release over: shaped");
+        // Unknown envelope (a drum setup's note): the longest tail.
+        e.sound_off(0xFFFF, none);
+        e.note_on(1 << 4, 0, 50, None, none);
+        e.note_off(1 << 4, 50, none);
+        e.tick(secs(150.0));
+        start(&mut e, 4, PAD);
+        assert!(!e.shapes(4));
     }
 
     /// The envelope rustysynth plays, read from the SoundFont through its public API.

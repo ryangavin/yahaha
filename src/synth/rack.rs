@@ -386,11 +386,10 @@ impl Rack {
         let melodic = part.melodic(slot);
         part.voicing.note_elsewhere(key, melodic);
         let i = if slot == 0 && note.sends != PART_SENDS { part.note_lane(slots, note.sends) } else { slot as usize };
-        if part.env.shapes(ch) {
-            // A shaped note on the channel ends its shaping: the channel is shared now.
-            let lanes = &mut part.lanes;
-            part.env.note_on(ch, i as u8, key, None, true, &mut |to, m, st, a, b| send(lanes, slot, to, m, st, a, b));
-        }
+        // Counted as sounding (its envelope unknown: the longest tail), never shaped; a
+        // shaped note on the channel ends its shaping.
+        let lanes = &mut part.lanes;
+        part.env.note_on(1 << c, i as u8, key, None, &mut |to, m, st, a, b| send(lanes, slot, to, m, st, a, b));
         let l = &mut part.lanes[i];
         l.quiet = 0;
         l.synth.note_on_with(ch as i32, key as i32, velocity as i32, note);
@@ -453,6 +452,8 @@ impl Rack {
             let holds = part.notes() > 0;
             // The mod wheel as the tone has it now (a vibrato delay fading in).
             part.send_modulation();
+            // The envelope shaping's clock, for how long released notes may still sound.
+            part.env.tick(n);
             for (i, lane) in part.lanes.iter_mut().enumerate() {
                 let is_live = i == live;
                 // A shaped note's lane renders until its shaping is done (envelope.rs).
@@ -632,16 +633,13 @@ fn route(env: &mut PartEnvelope, lanes: &mut [Lane], slot: u8, to: To, chans: u1
     match st {
         0x90 if d2 & 127 > 0 => {
             let c = chans.trailing_zeros() as u8 & 15;
-            if env.on() || env.shapes(c) {
-                // As rustysynth finds the preset: MIDI channel 10 adds 128 to the bank.
-                let own = env.on().then(|| lanes.get(slot as usize)).flatten().and_then(|l| {
-                    let bank = if c == 9 { l.bank + 128 } else { l.bank };
-                    Env::of(l.synth.get_sound_font(), bank, l.program, d1 & 127, d2 & 127)
-                });
-                // Another note sounding on the channel (a tail, or sharing): not shaped.
-                let busy = lanes.get_mut(slot as usize).is_some_and(|l| l.synth.channel_voices()[c as usize] > 0);
-                env.note_on(c, slot, d1 as u8, own, busy, &mut |to, m, st, a, b| send(lanes, slot, to, m, st, a, b));
-            }
+            // Every note is counted (how long it may sound), and shaped where it can be.
+            // As rustysynth finds the preset: MIDI channel 10 adds 128 to the bank.
+            let own = lanes.get(slot as usize).and_then(|l| {
+                let bank = if c == 9 { l.bank + 128 } else { l.bank };
+                Env::of(l.synth.get_sound_font(), bank, l.program, d1 & 127, d2 & 127)
+            });
+            env.note_on(chans, slot, d1 as u8, own, &mut |to, m, st, a, b| send(lanes, slot, to, m, st, a, b));
             send(lanes, slot, to, chans, st, d1, d2);
         }
         0x80 | 0x90 => {
