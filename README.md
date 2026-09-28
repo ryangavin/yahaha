@@ -330,16 +330,9 @@ yahaha runs on macOS only, but it builds and tests on Linux so that development 
 
 ## Agent feedback loop
 
-Each worktree can run [bacon](https://dystroy.org/bacon) headless (`cargo install --locked bacon`). It re-runs a job on every source change and, after every run, writes `.bacon-result.json` (git-ignored): the exit code, error/warning/failed-test counts and each item's location and message. The file's mtime is the run's finish time. An agent edits, then reads the result; it doesn't run cargo itself or poll.
+Each worktree can run [bacon](https://dystroy.org/bacon) headless (`bacon --headless`). It re-runs a job on every source change and, after every run, writes `.bacon-result.json` (git-ignored): the exit code, error/warning/failed-test counts and each item's location and message. The file's mtime is the run's finish time. The commands to start it and read the result are in [AGENTS.md](AGENTS.md) under "Feedback loop".
 
-```sh
-scripts/agent-feedback.sh start                        # the `check` job: cargo check --all-targets --features plugins
-scripts/agent-feedback.sh start test -- --lib fx::     # or targeted tests (test-quick profile); drop --lib for integration tests
-scripts/agent-feedback.sh result                       # PASS/FAIL line, then each error or failed test
-scripts/agent-feedback.sh stop                         # before switching job, and when done
-```
-
-`result` waits (at most 60 s, `WAIT=` to change) only while the export is older than the newest edit under `src/`, `tests/`, `vendor/`, `Cargo.toml`, `Cargo.lock` or `bacon.toml`, then prints `stale` (exit 2) or the result (exit 0 pass, 1 fail). The jobs (`bacon.toml`): `check` (default), `check-portable` (no plugins, for Linux), `clippy`, `test`. The `test-quick` profile (Cargo.toml) builds our crate unoptimised with optimised dependencies, for an agent's targeted tests only; the batch gate stays on `test-fast` (`scripts/test-all.sh`). Measured on the development Mac, warm, after a one-line edit in `src/fx.rs`: `check` result in about 3 s; one lib test in 5.5 s under `test-quick` against 8.2 s under `test-fast` (all test targets: 10.3 s against 14.4 s).
+The jobs (`bacon.toml`): `check` (default), `check-portable` (no plugins, for Linux), `clippy`, `test`. The `test-quick` profile (Cargo.toml) builds our crate unoptimised with optimised dependencies, for an agent's targeted tests only; the full suite and CI stay on `test-fast`. Measured on the development Mac, warm, after a one-line edit in `src/fx.rs`: `check` result in about 3 s; one lib test in 5.5 s under `test-quick` against 8.2 s under `test-fast` (all test targets: 10.3 s against 14.4 s).
 
 ## Known gaps
 
