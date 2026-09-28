@@ -1,18 +1,20 @@
 //! The app API's JSON wire format (docs/app-api.md) is a contract with the app's
 //! TypeScript types and its fixtures: however `AppCmd` and `AppState` are organised in
-//! Rust, what goes over the wire must not change. These tests read the documented forms
-//! and check that they go through the Rust types and come back out byte for byte.
+//! Rust, what goes over the wire must not change. These tests take one of every command
+//! and the fixtures in tests/fixtures, and check that they go through the Rust types and
+//! come back out byte for byte. Nothing here reads docs/: CI checks separately that
+//! EVERY_CMD names exactly the commands docs/app-api.md documents (AGENTS.md, Checks).
 
 use serde_json::Value;
 use yahaha::api::{AppState, LibraryList};
 use yahaha::{AppCmd, Event};
 
-const DOC: &str = include_str!("../docs/app-api.md");
-const STATE: &str = include_str!("../docs/fixtures/state.json");
-const LIBRARY: &str = include_str!("../docs/fixtures/library.json");
+const STATE: &str = include_str!("fixtures/state.json");
+const LIBRARY: &str = include_str!("fixtures/library.json");
 
 /// One of every command, in the exact form `serde_json::to_string` writes it (the tag
-/// first, then the fields in declaration order).
+/// first, then the fields in declaration order). Keep one command per line, starting
+/// `r#"{"type":"<name>"`: CI's docs check reads the names from these lines.
 const EVERY_CMD: &[&str] = &[
     // Sections and transport
     r#"{"type":"intro","index":1}"#,
@@ -327,60 +329,6 @@ const EVERY_CMD: &[&str] = &[
     r#"{"type":"setRotaryFast","on":true}"#,
 ];
 
-fn type_of(json: &str) -> String {
-    let v: Value = serde_json::from_str(json).unwrap();
-    v["type"].as_str().unwrap().to_string()
-}
-
-/// The command names in the doc's AppCmd tables (the first column of each row).
-fn documented_cmds() -> Vec<String> {
-    let start = DOC.find("\n## AppCmd").expect("AppCmd section");
-    let end = start + DOC[start..].find("\n### Result").expect("Result section");
-    let mut names = Vec::new();
-    for line in DOC[start..end].lines().filter(|l| l.starts_with("| `")) {
-        let first = line[2..].split('|').next().unwrap();
-        for name in first.split('`').skip(1).step_by(2) {
-            names.push(name.to_string());
-        }
-    }
-    names
-}
-
-/// Every `{"type": ...}` object written out in the doc (inline examples and the example
-/// state's actions), as its text.
-fn documented_objects() -> Vec<&'static str> {
-    let mut out = Vec::new();
-    let b = DOC.as_bytes();
-    let mut i = 0;
-    while let Some(off) = DOC[i..].find('{') {
-        let s = i + off;
-        let rest = DOC[s + 1..].trim_start();
-        if rest.starts_with("\"type\"") {
-            let mut depth = 0;
-            let mut j = s;
-            while j < b.len() {
-                match b[j] {
-                    b'{' => depth += 1,
-                    b'}' => {
-                        depth -= 1;
-                        if depth == 0 {
-                            break;
-                        }
-                    }
-                    _ => {}
-                }
-                j += 1;
-            }
-            let text = &DOC[s..=j];
-            if serde_json::from_str::<Value>(text).is_ok() {
-                out.push(text);
-            }
-        }
-        i = s + 1;
-    }
-    out
-}
-
 #[test]
 fn every_command_round_trips_byte_for_byte() {
     for json in EVERY_CMD {
@@ -392,35 +340,6 @@ fn every_command_round_trips_byte_for_byte() {
         assert_eq!(cmd2, cmd);
         assert_eq!(serde_json::to_value(&cmd2).unwrap(), v);
     }
-}
-
-#[test]
-fn the_command_list_is_the_documented_one() {
-    let mut doc = documented_cmds();
-    doc.sort();
-    doc.dedup();
-    let mut ours: Vec<String> = EVERY_CMD.iter().map(|j| type_of(j)).collect();
-    ours.sort();
-    ours.dedup();
-    assert_eq!(ours, doc, "EVERY_CMD must list exactly the commands docs/app-api.md documents");
-}
-
-#[test]
-fn documented_examples_round_trip() {
-    let objs = documented_objects();
-    assert!(objs.len() >= 10, "found {} examples", objs.len());
-    let mut cmds = 0;
-    for text in objs {
-        let v: Value = serde_json::from_str(text).unwrap();
-        if let Ok(cmd) = serde_json::from_value::<AppCmd>(v.clone()) {
-            assert_eq!(serde_json::to_value(&cmd).unwrap(), v, "{text}");
-            cmds += 1;
-        } else {
-            let e: Event = serde_json::from_value(v.clone()).unwrap_or_else(|e| panic!("{text}: neither AppCmd nor Event: {e}"));
-            assert_eq!(serde_json::to_value(e).unwrap(), v, "{text}");
-        }
-    }
-    assert!(cmds >= 10);
 }
 
 #[test]
@@ -463,16 +382,6 @@ fn state_fixture_round_trips_byte_for_byte() {
     assert_eq!(strip(&out), strip(LIBRARY));
 }
 
-#[test]
-fn example_state_in_the_doc_round_trips() {
-    let start = DOC.find("## Example `AppState`").unwrap();
-    let body = &DOC[start..];
-    let s = body.find("```json\n").unwrap() + "```json\n".len();
-    let e = s + body[s..].find("```").unwrap();
-    let v: Value = serde_json::from_str(&body[s..e]).unwrap();
-    let st: AppState = serde_json::from_value(v.clone()).unwrap();
-    assert_eq!(serde_json::to_value(&st).unwrap(), v);
-}
 
 #[test]
 fn events_keep_their_form() {

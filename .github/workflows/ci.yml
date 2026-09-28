@@ -25,8 +25,9 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # Whether anything but docs changed. Docs = Markdown files, except the ones the code
-  # compiles in (docs/app-api.md; docs/capture-kit/). With no usable base (a new branch),
+  # Whether anything but docs changed. Docs = Markdown files, except the ones code reads:
+  # anything under src/ (the capture kit) or app/ (app/docs/controls.md), and README.md
+  # (app/src/help/readme.test.ts). Nothing reads committed files under docs/. With no usable base (a new branch),
   # everything counts as changed.
   changes:
     runs-on: ubuntu-latest
@@ -46,11 +47,22 @@ jobs:
             echo "$files"
             if [ -n "$files" ] \
               && ! printf '%s\n' "$files" | grep -qvE '\.md$' \
-              && ! printf '%s\n' "$files" | grep -qE '^docs/(app-api\.md|capture-kit/)'; then
+              && ! printf '%s\n' "$files" | grep -qE '^(src/|app/|README\.md$)'; then
               code=false
             fi
           fi
           echo "code=$code" | tee -a "$GITHUB_OUTPUT"
+
+  # EVERY_CMD in tests/api_wire.rs names exactly the commands in docs/app-api.md's AppCmd
+  # tables. Runs on every PR, docs-only ones included; the command is in AGENTS.md.
+  api-doc:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: EVERY_CMD matches docs/app-api.md
+        shell: bash
+        run: |
+          diff <(awk '/^## AppCmd/{f=1} /^### Result/{f=0} f && /^\| `/' docs/app-api.md | cut -d'|' -f2 | grep -o '`[^`]*`' | tr -d '`' | sort -u) <(awk '/^const EVERY_CMD/,/^\];/' tests/api_wire.rs | sed -n 's/^ *r#"{"type":"\([^"]*\)".*/\1/p' | sort -u)
 
   linux:
     needs: changes

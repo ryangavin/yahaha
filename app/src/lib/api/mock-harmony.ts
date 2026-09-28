@@ -1,5 +1,5 @@
 // The mock's Keyboard Harmony / Arpeggio: the type lists the engine publishes in
-// `LibraryList` (docs/fixtures/library.json) and the settings commands, as
+// `LibraryList` (tests/fixtures/library.json) and the settings commands, as
 // src/session/harmony_arp.rs runs them. The mock plays no notes.
 
 import type { HarmonyArpCmd, HarmonyArpState, HarmonyTypeInfo } from './types'
