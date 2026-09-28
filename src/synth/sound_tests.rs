@@ -132,11 +132,16 @@ fn cutoff_and_resonance_shape_new_notes() {
     let flat = energy(&play(&[[74, 20]]));
     let peak = energy(&play(&[[74, 20], [71, 127]]));
     assert!(peak > flat * 1.2, "CC71 127: energy {peak} vs {flat}");
-    // A note with a cutoff of its own (a drum setup's, #239): the part's filter darkens it
-    // further.
+    // A note with a cutoff of its own (a drum setup's, #239; two octaves down, in its
+    // kit): the part's filter darkens it further.
     let own = |setup: &[[i32; 2]]| {
         let mut r = rack(&font, 81, setup);
-        r.note_on_with(0, 60, 100, &rustysynth::NoteParams { cutoff: 0.25, ..rustysynth::NoteParams::NEUTRAL });
+        let mut params = [[super::drum_setup::NONE; super::drum_setup::PARAMS]; 128];
+        params[60][0x0B] = 0x40 - 32;
+        let kit = super::kit::for_part(&r, 0, &params);
+        drop(r.install_kit(0, kit));
+        let live = r.kits(0).live;
+        r.drum_note(0, 60, 100, super::rack::PART_SENDS, live);
         brightness(&rack_render(&mut r, 24_000))
     };
     let (note_only, both) = (own(&[]), own(&[[74, 20]]));

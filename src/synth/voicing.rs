@@ -262,16 +262,6 @@ impl Voicing {
         self.refresh(melodic, emit);
     }
 
-    /// A note started elsewhere (a drum setup's, #239) on the part's own channel.
-    pub(super) fn note_elsewhere(&mut self, key: u8, melodic: bool) {
-        let k = key as usize & 127;
-        self.on |= 1 << k;
-        self.key_chans[k] |= 1 << self.home;
-        if melodic {
-            self.last_key = k as i32;
-        }
-    }
-
     /// Mono on a melodic voice or not: on the way to poly, the synthesizers take the
     /// player's hold pedal again, and the note-offs it held here.
     fn refresh(&mut self, melodic: bool, emit: &mut impl FnMut(To, u16, i32, i32, i32)) {

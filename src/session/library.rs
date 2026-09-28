@@ -122,6 +122,7 @@ impl Control {
                 self.style_seq += 1;
                 p.tag = self.style_seq;
                 let pending = self.sound_library_on_style(&mut p, &info.path);
+                self.prebuild_drum_kits(&p);
                 if self.style_tx.push(p).is_err() {
                     return Err(CmdError::Busy);
                 }
