@@ -53,15 +53,17 @@ SoundRef = Library(id) | Font { file, bank, program }  // GM voices are font pre
 
 ## Files
 
-All under the data folder (`~/Documents/yahaha` by default).
+The user's things live in the data folder (`~/Documents/yahaha` by default). The live
+rack is app state, so it sits next to today's `plugin-parts.json` in
+`~/Library/Application Support/yahaha`.
 
 | File | Holds |
 |---|---|
-| `Racks/<name>.rack.json` | One user rack, format `yahaha.rack`, version 1. |
-| `quick-racks.json` | Banks A–H of 8 buttons, each a rack id or empty. |
-| `style-racks.json` | Per style file name: which of OTS 1–4 load a user rack instead. |
-| `live-rack.json` | The live rack, with unsaved edits and plugin states. Replaces `plugin-parts.json`. |
-| `sound-library.json` | Sounds (version 3: no defaults), the GM maps. |
+| `<data>/Racks/<name>.rack.json` | One user rack, format `yahaha.rack`, version 1. |
+| `<data>/quick-racks.json` | Banks A–H of 8 buttons, each a rack id or empty. |
+| `<data>/style-racks.json` | Per style file name: which of OTS 1–4 load a user rack instead. |
+| `<data>/sound-library.json` | Sounds (version 3: no defaults), the GM maps. |
+| `<app support>/live-rack.json` | The live rack, with unsaved edits and plugin states. Replaces `plugin-parts.json` in the same folder. |
 
 Every write is atomic. A file with a newer version than we know is refused and never
 saved over (the rule the sound library and Registration banks already follow).
@@ -111,7 +113,10 @@ saved over (the rule the sound library and Registration banks already follow).
 - **Rack panel** replaces Parts & OTS: a right-hand drawer on Stage (same button, Alt+O)
   and docked in Library.
 - **Quick Racks bar** replaces the Registration bar in the same place: bank ◀ ▶, 1–8,
-  Store. Freeze goes. Pad page 4 is renamed Quick Racks with the same layout.
+  Store. Freeze goes. Pad page 4 is renamed Quick Racks. Top row: Quick Racks 1–8
+  (were Snapshots 1–8). Bottom row: bank − / + (were snapshot bank − / +), Store, and
+  previous / next rack in the bank (were Regist Seq − / +). The bank-file and Freeze
+  pads go dark, because there are no bank files and nothing to freeze.
 - The Launchkey mirror's part faders show their sound's name; clicking it opens Library
   on that part. The Parts knob page becomes the **Rack** page, driven by the rack's
   controller map.
@@ -121,7 +126,13 @@ saved over (the rule the sound library and Registration banks already follow).
 ## Migration
 
 - **Sounds are kept.** `sound-library.json` v2 → v3 drops each sound's `defaults`. The
-  v2 file is copied to `sound-library.v2.json` first.
+  v2 file is copied to `sound-library.v2.json` first, so nothing is discarded.
+- **Style part levels don't change.** Today a sound's `defaults.volume` sets a Style
+  part's CC7 when the style sets none. That level moves onto the GM map rules: the
+  migration copies it onto every map rule (global or per style) that names the sound, and
+  a rule's level is used exactly where the sound's default was. Pan, reverb, chorus and
+  octave defaults only ever applied to keyboard parts; those parts' current values go
+  into the "Restored" rack.
 - **The live setup is kept.** On the first boot, `plugin-parts.json` and the current
   parts become the live rack, named "Restored". The old file stays.
 - **Registration banks are dropped**, as the goal allows. The files stay on disk,
@@ -137,6 +148,7 @@ saved over (the rule the sound library and Registration banks already follow).
 - **Plugin macros in the controller map** ("learn" a plugin parameter) come last and may
   ship after the journeys if AU parameter learn doesn't fit the sprint.
 - The bar's **Sequence** and **Playlist** go, because they stepped through Registrations.
+- Pad page 4 has no **FILE − / +** pads: Quick Racks banks live in one file.
 
 ## Order of work
 
