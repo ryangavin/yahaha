@@ -227,7 +227,7 @@ fn the_audio_callback_does_not_allocate() {
         // The control side stops taking old racks back (busy, or not pumping): the return
         // ring fills. The callback holds further swaps until there is room again, rather
         // than freeing a rack itself.
-        let sf = Arc::new(rustysynth::SoundFont::new(&mut std::fs::File::open(f).unwrap()).unwrap());
+        let sf = yahaha::synth::font::open(f).unwrap();
         let cap = swap.old.buffer().capacity();
         let before = ctl.swaps.load(Ordering::Relaxed);
         let mut sent = 0;

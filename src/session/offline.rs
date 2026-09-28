@@ -162,7 +162,7 @@ impl Session {
             let font_id = main.as_deref().and_then(|m| ctl.sound.font_id(m)).unwrap_or(0);
             let rack = match sf2 {
                 Some(p) => {
-                    let font = Arc::new(rustysynth::SoundFont::new(&mut std::fs::File::open(p)?).map_err(|e| anyhow::anyhow!("{e:?}"))?);
+                    let font = synth::font::open(p)?;
                     Some(Box::new(synth::Rack::with_fonts(&[(font_id, font)], sample_rate as i32)?))
                 }
                 None => None,

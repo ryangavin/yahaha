@@ -12,7 +12,7 @@ fn font() -> Option<Arc<SoundFont>> {
         eprintln!("no SoundFont; skipping");
         return None;
     };
-    Some(Arc::new(SoundFont::new(&mut std::fs::File::open(f).unwrap()).unwrap()))
+    Some(crate::synth::font::open(&f).unwrap())
 }
 
 const RATE: i32 = 48_000;

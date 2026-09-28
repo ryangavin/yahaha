@@ -206,7 +206,6 @@ fn settings(sample_rate: i32, polyphony: usize, legacy: bool) -> SynthesizerSett
     let mut s = SynthesizerSettings::new(sample_rate);
     s.maximum_polyphony = polyphony;
     s.enable_reverb_and_chorus = legacy;
-    s.velocity_to_filter = velocity_to_filter();
     s
 }
 
@@ -276,9 +275,9 @@ impl Rack {
         Ok(Box::new(Rack::new_legacy(&Rack::read(sf2)?, sample_rate as i32)?))
     }
 
+    /// The SoundFont at `sf2`, velocity -> filter cutoff baked in (font.rs).
     fn read(sf2: &Path) -> Result<Arc<SoundFont>> {
-        let mut file = std::fs::File::open(sf2).with_context(|| format!("opening {}", sf2.display()))?;
-        Ok(Arc::new(SoundFont::new(&mut file).map_err(|e| anyhow!("{e:?}"))?))
+        super::font::open(sf2)
     }
 
     /// Measure for the performance view (`perf`), or stop.
@@ -633,7 +632,7 @@ mod tests {
 
     /// The tiny test SoundFont (built in code): a looped square wave on every program.
     fn rack() -> Rack {
-        let font = Arc::new(SoundFont::new(&mut &crate::patches::sf2::tiny_gm_sound_font()[..]).unwrap());
+        let font = Arc::new(crate::synth::font::read(&mut std::io::Cursor::new(crate::patches::sf2::tiny_gm_sound_font())).unwrap());
         Rack::new(&font, 48_000).unwrap()
     }
 

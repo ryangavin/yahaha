@@ -404,9 +404,7 @@ impl SoundLib {
                 for (i, (id, file, cached)) in jobs.into_iter().enumerate() {
                     let font = match cached {
                         Some(f) => Ok(f),
-                        None => std::fs::File::open(dir.join(&file))
-                            .map_err(|e| format!("{e}"))
-                            .and_then(|mut r| SoundFont::new(&mut r).map(Arc::new).map_err(|e| format!("{e:?}"))),
+                        None => crate::synth::font::open(&dir.join(&file)).map_err(|e| format!("{e:#}")),
                     };
                     match font {
                         Ok(font) => fonts.push((id, file, font)),

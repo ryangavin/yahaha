@@ -12,7 +12,7 @@
 use anyhow::{Context, Result, anyhow, bail};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use rtrb::RingBuffer;
-use rustysynth::{SoundFont, Synthesizer, SynthesizerSettings};
+use rustysynth::{Synthesizer, SynthesizerSettings};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering::Relaxed};
@@ -485,8 +485,7 @@ fn play(host: &PluginHost, info: &PluginInfo, swap_info: Option<&PluginInfo>, o:
 
     let mut synth = match &sf2 {
         Some(p) => {
-            let mut f = std::fs::File::open(p).with_context(|| format!("opening {}", p.display()))?;
-            let font = Arc::new(SoundFont::new(&mut f).map_err(|e| anyhow!("{e:?}"))?);
+            let font = crate::synth::font::open(p)?;
             let mut s = SynthesizerSettings::new(sample_rate as i32);
             s.maximum_polyphony = 64;
             Some(Synthesizer::new(&font, &s).map_err(|e| anyhow!("{e:?}"))?)

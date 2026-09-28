@@ -15,7 +15,7 @@
 //! callback as a plain struct, so offline renders (tests, `Session::render`) run exactly
 //! the code the audio device does.
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{anyhow, Result};
 use cpal::traits::{DeviceTrait, HostTrait};
 use rtrb::{Consumer, Producer, RingBuffer};
 use rustysynth::{SoundFont, Synthesizer, SynthesizerSettings};
@@ -40,6 +40,7 @@ pub type PluginLink = ();
 pub const PLUGIN_MAX_BLOCK: usize = 1024;
 
 pub mod drum_setup;
+pub mod font;
 mod part_tone;
 mod rack;
 mod routing;
@@ -365,10 +366,10 @@ pub fn style_bass_program(voice: Option<(u8, u8, u8)>) -> u8 {
 /// standard GM curves (rustysynth: gain = (vel/127)² · ((CC7/127)·(CC11/127))²).
 pub const MASTER_UNITY: u8 = 100;
 
-/// Whether a note's velocity lowers its filter cutoff, the SF2 default modulator the
-/// vendored rustysynth applies (#203): on, unless the environment has
+/// Whether a note's velocity lowers its filter cutoff, the SF2 default modulator (#203),
+/// which [`font`] bakes into a SoundFont as it loads it: on, unless the environment has
 /// `YAHAHA_VEL_FILTER=off` (or `0`), which renders the old flat tone for A/B listening.
-/// Read when a rack is built, never on the audio thread.
+/// Read when a SoundFont is loaded, never on the audio thread.
 pub fn velocity_to_filter() -> bool {
     std::env::var("YAHAHA_VEL_FILTER").map_or(true, |v| v != "off" && v != "0")
 }
@@ -1037,8 +1038,7 @@ fn retire(old_tx: &mut Producer<Box<Rack>>, parked: &mut Option<Box<Rack>>, rack
 /// Start the synth on the default output device. `buffer`: frames per buffer to ask for
 /// (None: [`DEFAULT_BUFFER`]), within what the device allows.
 pub fn start(sf2: &Path, consumers: Vec<Consumer<Msg>>, out_pair: Option<u8>, parts: Arc<Parts>, routing: Routing, buffer: Option<u32>) -> Result<Synth> {
-    let mut file = std::fs::File::open(sf2).with_context(|| format!("opening {}", sf2.display()))?;
-    let font = Arc::new(SoundFont::new(&mut file).map_err(|e| anyhow!("{e:?}"))?);
+    let font = font::open(sf2)?;
 
     let host = cpal::default_host();
     let device = host.default_output_device().ok_or_else(|| anyhow!("no audio output device"))?;
@@ -1115,7 +1115,7 @@ mod tests {
             eprintln!("soundfont or corpus missing; skipping");
             return;
         }
-        let font = Arc::new(SoundFont::new(&mut std::fs::File::open(&sf2).unwrap()).unwrap());
+        let font = crate::synth::font::open(&sf2).unwrap();
         let style = Style::load(&style_path).unwrap();
         let prep = Box::new(Prepared::new(&style));
         let bar = (60e9 / prep.bpm * (prep.tpb as f64 / prep.ppq as f64)) as u64;
@@ -1194,7 +1194,7 @@ mod parts_tests {
             eprintln!("soundfont missing; skipping");
             return;
         }
-        let font = Arc::new(SoundFont::new(&mut std::fs::File::open(&sf2).unwrap()).unwrap());
+        let font = crate::synth::font::open(&sf2).unwrap();
         let parts = Parts::new();
         for p in 0..parts::COUNT {
             let mut synth = Synthesizer::new(&font, &SynthesizerSettings::new(48_000)).unwrap();
@@ -1269,7 +1269,7 @@ mod curve_tests {
             eprintln!("soundfont missing; skipping");
             return;
         }
-        let font = Arc::new(SoundFont::new(&mut std::fs::File::open(&sf2).unwrap()).unwrap());
+        let font = crate::synth::font::open(&sf2).unwrap();
         let gm = |v: f64| 40.0 * (v / 127.0).log10();
         let full = level(&font, &[[0xBA, 7, 127], [0xBA, 11, 127]], 127);
         let cases: [(&[Msg], u8, f64); 6] = [
@@ -1299,7 +1299,7 @@ mod loudness_probe {
     #[ignore]
     fn part_loudness() {
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
-        let font = Arc::new(SoundFont::new(&mut std::fs::File::open(root.join("soundfonts/GeneralUser-GS.sf2")).unwrap()).unwrap());
+        let font = crate::synth::font::open(&root.join("soundfonts/GeneralUser-GS.sf2")).unwrap();
         let files = crate::library::corpus_styles();
         for f in &files {
             let style = Style::load(f).unwrap();
@@ -1378,7 +1378,7 @@ mod rack_tests {
             eprintln!("no SoundFont; skipping");
             return None;
         };
-        Some(Arc::new(SoundFont::new(&mut std::fs::File::open(f).unwrap()).unwrap()))
+        Some(crate::synth::font::open(&f).unwrap())
     }
 
     fn peaks() -> [AtomicU32; 16] {
