@@ -6,22 +6,22 @@
 //! real-time policy is a no-op, the wakeup is an eventfd semaphore and the packet sink
 //! counts and drops.
 
-#[cfg(target_os = "macos")]
+#[cfg(target_vendor = "apple")]
 use coremidi_sys::{
     MIDIEndpointRef, MIDIPacketList, MIDIPacketListAdd, MIDIPacketListInit, MIDIPortRef, MIDIReceived,
     MIDISend,
 };
-#[cfg(target_os = "macos")]
+#[cfg(target_vendor = "apple")]
 use mach2::kern_return::KERN_SUCCESS;
-#[cfg(target_os = "macos")]
+#[cfg(target_vendor = "apple")]
 use mach2::mach_time::{mach_absolute_time, mach_timebase_info};
-#[cfg(target_os = "macos")]
+#[cfg(target_vendor = "apple")]
 use std::sync::OnceLock;
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(target_vendor = "apple"))]
 pub use linux::*;
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(target_vendor = "apple"))]
 mod linux {
     /// Monotonic host time in nanoseconds.
     #[inline]
@@ -132,7 +132,7 @@ mod linux {
 // Time
 // ---------------------------------------------------------------------------
 
-#[cfg(target_os = "macos")]
+#[cfg(target_vendor = "apple")]
 fn timebase() -> (u64, u64) {
     static TB: OnceLock<(u64, u64)> = OnceLock::new();
     *TB.get_or_init(|| {
@@ -143,7 +143,7 @@ fn timebase() -> (u64, u64) {
 }
 
 /// Monotonic host time in nanoseconds (same clock CoreMIDI timestamps use).
-#[cfg(target_os = "macos")]
+#[cfg(target_vendor = "apple")]
 #[inline]
 pub fn now_ns() -> u64 {
     let (n, d) = timebase();
@@ -156,7 +156,7 @@ pub fn now_ns() -> u64 {
 }
 
 /// The host clock, raw (ticks; see [`host_to_ns`]): the cheapest timestamp there is.
-#[cfg(target_os = "macos")]
+#[cfg(target_vendor = "apple")]
 #[inline]
 pub fn host_now() -> u64 {
     unsafe { mach_absolute_time() }
@@ -171,14 +171,14 @@ pub fn thread_cpu_ns() -> u64 {
     ts.tv_sec as u64 * 1_000_000_000 + ts.tv_nsec as u64
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(target_vendor = "apple")]
 #[inline]
 pub fn host_to_ns(t: u64) -> u64 {
     let (n, d) = timebase();
     (t as u128 * n as u128 / d as u128) as u64
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(target_vendor = "apple")]
 pub fn ns_to_host(ns: u64) -> u64 {
     let (n, d) = timebase();
     (ns as u128 * d as u128 / n as u128) as u64
@@ -190,7 +190,7 @@ pub fn ns_to_host(ns: u64) -> u64 {
 
 /// Put the calling thread in the Mach time-constraint class (the class CoreAudio's IO
 /// threads use). `period`/`computation`/`constraint` are in nanoseconds.
-#[cfg(target_os = "macos")]
+#[cfg(target_vendor = "apple")]
 pub fn make_realtime(period_ns: u64, computation_ns: u64, constraint_ns: u64) -> bool {
     use mach2::mach_init::mach_thread_self;
     use mach2::thread_policy::{
@@ -220,23 +220,23 @@ pub fn make_realtime(period_ns: u64, computation_ns: u64, constraint_ns: u64) ->
 
 /// Mach semaphore. `signal` never blocks and is safe from any thread, including
 /// CoreMIDI's receive thread; only the engine thread waits on it.
-#[cfg(target_os = "macos")]
+#[cfg(target_vendor = "apple")]
 #[derive(Clone, Copy)]
 pub struct Wakeup(mach2::mach_types::semaphore_t);
 
-#[cfg(target_os = "macos")]
+#[cfg(target_vendor = "apple")]
 impl Default for Wakeup {
     fn default() -> Wakeup {
         Wakeup::new()
     }
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(target_vendor = "apple")]
 unsafe impl Send for Wakeup {}
-#[cfg(target_os = "macos")]
+#[cfg(target_vendor = "apple")]
 unsafe impl Sync for Wakeup {}
 
-#[cfg(target_os = "macos")]
+#[cfg(target_vendor = "apple")]
 impl Wakeup {
     pub fn new() -> Wakeup {
         let mut s = 0;
@@ -272,14 +272,14 @@ impl Wakeup {
 // Packet sink
 // ---------------------------------------------------------------------------
 
-#[cfg(target_os = "macos")]
+#[cfg(target_vendor = "apple")]
 const BUF: usize = 4096;
 
-#[cfg(target_os = "macos")]
+#[cfg(target_vendor = "apple")]
 #[repr(C, align(8))]
 struct Aligned([u8; BUF]);
 
-#[cfg(target_os = "macos")]
+#[cfg(target_vendor = "apple")]
 pub enum Target {
     /// Distribute from one of our virtual sources.
     Virtual(MIDIEndpointRef),
@@ -291,7 +291,7 @@ pub enum Target {
 
 /// Collects MIDI messages into a stack-style CoreMIDI packet list and flushes them in
 /// one call. No heap allocation.
-#[cfg(target_os = "macos")]
+#[cfg(target_vendor = "apple")]
 pub struct PacketSink {
     buf: Box<Aligned>,
     cur: *mut coremidi_sys::MIDIPacket,
@@ -299,10 +299,10 @@ pub struct PacketSink {
     pub sent: u64,
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(target_vendor = "apple")]
 unsafe impl Send for PacketSink {}
 
-#[cfg(target_os = "macos")]
+#[cfg(target_vendor = "apple")]
 impl PacketSink {
     pub fn new(target: Target) -> PacketSink {
         let mut s = PacketSink { buf: Box::new(Aligned([0; BUF])), cur: std::ptr::null_mut(), target, sent: 0 };
