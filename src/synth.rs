@@ -47,6 +47,7 @@ pub mod xg_part;
 #[cfg(test)]
 mod sound_tests;
 mod stream;
+mod voicing;
 pub use rack::Rack;
 pub use routing::Router;
 pub use stream::{BUFFER_CHOICES, DEFAULT_BUFFER};
