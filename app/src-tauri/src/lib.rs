@@ -33,7 +33,10 @@ mod mock_home;
 mod mock_regist;
 mod mock_looper;
 
-use std::path::{Path, PathBuf};
+#[cfg(not(target_os = "ios"))]
+use std::path::Path;
+use std::path::PathBuf;
+#[cfg(target_os = "macos")]
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -326,10 +329,8 @@ fn backend() -> Backend {
     let paths: Vec<PathBuf> = match std::env::var_os("YAHAHA_STYLES") {
         Some(v) => std::env::split_paths(&v).collect(),
         // An empty folder is no styles (the iPad's is created empty).
-        None => match std::fs::read_dir(&style_dir) {
-            Ok(mut d) if d.next().is_some() => vec![style_dir],
-            _ => vec![],
-        },
+        None if std::fs::read_dir(&style_dir).is_ok_and(|mut d| d.next().is_some()) => vec![style_dir],
+        None => vec![],
     };
     if paths.is_empty() {
         eprintln!("yahaha: no styles ({hint}); running the mock session");
