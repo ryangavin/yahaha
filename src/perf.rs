@@ -147,9 +147,9 @@ pub struct Perf {
     pub stage: [Cost; STAGES.len()],
     /// Each channel's render time per callback: its SoundFont voices, or its plugin.
     pub channel: [Cost; CHANNELS],
-    /// Each channel's voices (last callback) and peak level (f32 bits, since the view's
-    /// last read).
-    pub channel_voices: [AtomicU32; CHANNELS],
+    /// Each channel's notes sounding (last callback; held or kept by the pedal, counted by
+    /// the synth's rack) and peak level (f32 bits, since the view's last read).
+    pub channel_notes: [AtomicU32; CHANNELS],
     pub channel_peak: [AtomicU32; CHANNELS],
     /// Channels playing a plugin (bit per channel), as of the last callback.
     pub plugin_mask: AtomicU32,
@@ -161,7 +161,8 @@ pub struct Perf {
     /// output peak, while one runs.
     pub insert: [Cost; INSERTS],
     pub insert_peak: [AtomicU32; INSERTS],
-    /// SoundFont voices sounding (last callback), and the most in the window.
+    /// SoundFont notes sounding (last callback; see `channel_notes`), and the most in the
+    /// window.
     pub voices: AtomicU32,
     pub voices_peak: AtomicU32,
     /// The deepest each synth ring was when a callback started draining it ([`RINGS`]).
@@ -199,6 +200,16 @@ impl Lap {
         }
     }
 
+    /// `lap`, less `ns` of the time that was charged to another stage already.
+    #[inline]
+    pub fn lap_less(&mut self, stage: usize, ns: u64) {
+        if self.on {
+            let t = crate::rt::host_now();
+            PERF.stage[stage].add(crate::rt::host_to_ns(t.wrapping_sub(self.mark)).saturating_sub(ns));
+            self.mark = t;
+        }
+    }
+
     /// Start the next lap from now (the time since was charged elsewhere).
     #[inline]
     pub fn skip(&mut self) {
@@ -229,7 +240,7 @@ impl Perf {
             sample_rate: AtomicU32::new(0),
             stage: [const { Cost::new() }; STAGES.len()],
             channel: [const { Cost::new() }; CHANNELS],
-            channel_voices: [const { AtomicU32::new(0) }; CHANNELS],
+            channel_notes: [const { AtomicU32::new(0) }; CHANNELS],
             channel_peak: [const { AtomicU32::new(0) }; CHANNELS],
             plugin_mask: AtomicU32::new(0),
             bus: [const { Cost::new() }; crate::fx::BUSES],
@@ -356,7 +367,7 @@ pub fn take(secs: f64) -> Snapshot {
         *row = ChannelRow {
             sum_ns,
             max_ns,
-            voices: p.channel_voices[ch].load(Relaxed),
+            voices: p.channel_notes[ch].load(Relaxed),
             peak: f32::from_bits(p.channel_peak[ch].swap(0, Relaxed)),
             plugin: plugins >> ch & 1 == 1,
         };

@@ -19,8 +19,9 @@ const RATE: i32 = 48_000;
 
 /// A synthesizer on channel 0 with `program`, `setup` controllers sent (`[cc, value]`).
 fn synth(font: &Arc<SoundFont>, program: i32, setup: &[[i32; 2]]) -> Synthesizer {
-    let mut s = Synthesizer::new(font, &SynthesizerSettings::new(RATE)).unwrap();
-    s.set_internal_effects(false);
+    let mut settings = SynthesizerSettings::new(RATE);
+    settings.enable_reverb_and_chorus = false;
+    let mut s = Synthesizer::new(font, &settings).unwrap();
     s.process_midi_message(0, 0xC0, program, 0);
     for &[cc, v] in setup {
         s.process_midi_message(0, 0xB0, cc, v);
