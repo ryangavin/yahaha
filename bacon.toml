@@ -1,8 +1,8 @@
-# bacon (https://dystroy.org/bacon): the agent feedback loop. See README "Agent feedback loop".
+# bacon (https://dystroy.org/bacon): the feedback loop. See AGENTS.md "Feedback loop".
 #
-# Run headless in a worktree with `scripts/agent-feedback.sh start`: bacon re-runs the job on
-# every source change and rewrites the exports below after EVERY run, so an agent reads the
-# result instead of running cargo itself (`scripts/agent-feedback.sh result`).
+# Run headless in a worktree with `bacon --headless`: bacon re-runs the job on every source
+# change and rewrites the exports below after EVERY run, so an agent reads the result instead
+# of running cargo itself.
 
 default_job = "check"
 # An edit during a run cancels it and starts over, so an export always covers every edit
@@ -25,7 +25,7 @@ need_stdout = false
 
 # An agent's targeted tests: `bacon test -- <filter>` (the filter goes after `--`). Built with
 # the `test-quick` profile (Cargo.toml): our crate unoptimised, so a rebuild is quick. The
-# batch gate stays on `test-fast` (scripts/test-all.sh).
+# full suite and CI stay on `test-fast`.
 [jobs.test]
 command = ["cargo", "test", "--profile", "test-quick", "--features", "plugins", "--color", "always"]
 need_stdout = true

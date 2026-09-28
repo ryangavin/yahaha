@@ -16,7 +16,15 @@ The corpus tests need the git-ignored `corpus/` folder; in a worktree, symlink i
 
 ## Feedback loop
 
-For quick results while editing, see the bacon section once it lands (build/bacon).
+While editing, run [bacon](https://dystroy.org/bacon) headless in your worktree (`cargo install --locked bacon`). It re-runs its job on every source change and, after every run, rewrites `.bacon-result.json` (git-ignored). Start it as a background command, and stop it when you're done or before switching job.
+
+- `bacon --headless` runs the `check` job: `cargo check --all-targets --features plugins`. On Linux, use `bacon --headless check-portable`.
+- `bacon --headless test -- <filter>` runs targeted tests under the `test-quick` profile. Add `--lib` before the filter for library tests only.
+- `jq '{error_code, stats}' .bacon-result.json` shows the latest result. `error_code` is null when the command exited 0; `stats` counts errors, warnings and failed tests.
+- `jq -r '.lines[] | [.content.strings[].raw] | join("")' .bacon-result.json` lists each error, warning and failed test with its location.
+- `find src tests vendor Cargo.toml -newer .bacon-result.json` prints nothing when the result covers your last edit. If it prints a file, the run hasn't finished yet; read the result once, later, rather than looping.
+
+The jobs are in `bacon.toml`: `check`, `check-portable`, `clippy` and `test`. bacon is only for fast feedback; the checks above and CI decide.
 
 ## Review
 
