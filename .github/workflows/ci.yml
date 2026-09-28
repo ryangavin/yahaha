@@ -53,8 +53,10 @@ jobs:
           fi
           echo "code=$code" | tee -a "$GITHUB_OUTPUT"
 
-  # EVERY_CMD in tests/api_wire.rs names exactly the commands in docs/app-api.md's AppCmd
-  # tables. Runs on every PR, docs-only ones included; the command is in AGENTS.md.
+  # docs/app-api.md against the code: EVERY_CMD in tests/api_wire.rs names exactly the
+  # commands in its AppCmd tables, and its JSON examples parse into the app API's types
+  # (examples/api_doc_check.rs, which reads the doc at run time). Runs on every PR,
+  # docs-only ones included; the commands are in AGENTS.md.
   api-doc:
     runs-on: ubuntu-latest
     steps:
@@ -63,6 +65,23 @@ jobs:
         shell: bash
         run: |
           diff <(awk '/^## AppCmd/{f=1} /^### Result/{f=0} f && /^\| `/' docs/app-api.md | cut -d'|' -f2 | grep -o '`[^`]*`' | tr -d '`' | sort -u) <(awk '/^const EVERY_CMD/,/^\];/' tests/api_wire.rs | sed -n 's/^ *r#"{"type":"\([^"]*\)".*/\1/p' | sort -u)
+
+      # cpal (a library dependency) links ALSA on Linux.
+      - name: System packages (ALSA headers)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends pkg-config libasound2-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      # Its own key: this job builds only the library without features and one example.
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: api-doc
+          cache-on-failure: true
+
+      - name: JSON examples in docs/app-api.md parse into the Rust types
+        run: cargo run --no-default-features --example api_doc_check -- docs/app-api.md
 
   linux:
     needs: changes

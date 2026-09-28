@@ -3,7 +3,8 @@
 //! Rust, what goes over the wire must not change. These tests take one of every command
 //! and the fixtures in tests/fixtures, and check that they go through the Rust types and
 //! come back out byte for byte. Nothing here reads docs/: CI checks separately that
-//! EVERY_CMD names exactly the commands docs/app-api.md documents (AGENTS.md, Checks).
+//! EVERY_CMD names exactly the commands docs/app-api.md documents, and
+//! examples/api_doc_check.rs checks the doc's JSON examples (AGENTS.md, Checks).
 
 use serde_json::Value;
 use yahaha::api::{AppState, LibraryList};
