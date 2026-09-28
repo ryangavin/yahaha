@@ -22,6 +22,7 @@ mod metronome;
 mod mirror;
 mod mixer;
 mod multipad;
+mod part_state;
 mod playback;
 mod prepared;
 #[cfg(test)]
@@ -49,6 +50,7 @@ pub use looper::{LoopState, LooperSnap};
 pub use mixer::{Takeover, HW_UNKNOWN};
 pub use transport::StyleControls;
 pub use multipad::{PadCmd, PadsSnap, SynchroStop, PAD_PPQ};
+pub use part_state::Parts;
 use prepared::PKind;
 pub use dynamics::{accent_hit, touch_level, AccentMode, AccentSource, DynamicsSettings, ACCENT_CRASH, ACCENT_DEFAULT, DYNAMICS_NEUTRAL};
 pub use fade::FadeState;
