@@ -26,11 +26,14 @@
 //! Mono mode and portamento are played on the way in (voicing.rs): a part's messages go to
 //! all of its synthesizer's MIDI channels, and a gliding note plays on a channel of its own
 //! whose pitch bend steps once a synthesizer block, so a lane with a glide renders a block
-//! at a time.
+//! at a time. The envelope controllers (CC73/75/72, #346 step 4) are played on the way out
+//! of the voicing (envelope.rs, `route`): a shaped note plays on a channel of its own
+//! whose expression steps once a block, so its lane renders a block at a time too.
 //!
 //! All memory is allocated when the rack is built, off the audio thread; `render` never
 //! allocates, locks or panics.
 
+use super::envelope::{Env, PartEnvelope};
 use super::part_tone::PartTone;
 use super::voicing::{To, Voicing};
 use super::*;
@@ -61,8 +64,9 @@ pub(super) struct Lane {
     sends: [f32; BUSES],
     /// Frames it has rendered below `IDLE_LEVEL` (a note-on starts it again).
     pub(super) quiet: u32,
-    /// The part's bank there (CC0; 128 and up: a drum kit).
+    /// The part's bank there (CC0; 128 and up: a drum kit), and its program.
     bank: i32,
+    program: i32,
     /// Frames into the synthesizer's block (0: the next frame renders a new block).
     phase: usize,
 }
@@ -83,11 +87,24 @@ pub(super) struct Part {
     /// Its live tone controls (#346 step 3): the stem filter (CC74/71) and the mod wheel
     /// with CC77/78 (part_tone.rs).
     tone: PartTone,
+    /// Its envelope controllers (CC73/75/72, #346 step 4) and the notes they shape
+    /// (envelope.rs).
+    env: PartEnvelope,
 }
 
 impl Part {
-    fn new(lanes: Vec<Lane>, voicing: Voicing, sample_rate: f32) -> Part {
-        Part { lanes, voicing, volume: 100 << 7, expression: 127 << 7, held: 0, sustained: 0, pedal: false, tone: PartTone::new(sample_rate) }
+    fn new(lanes: Vec<Lane>, voicing: Voicing, sample_rate: f32, block: usize) -> Part {
+        Part {
+            lanes,
+            voicing,
+            volume: 100 << 7,
+            expression: 127 << 7,
+            held: 0,
+            sustained: 0,
+            pedal: false,
+            tone: PartTone::new(sample_rate),
+            env: PartEnvelope::new(sample_rate, block),
+        }
     }
 
     /// The mod wheel to every lane, on every channel the part's notes play on (a glide's
@@ -226,7 +243,7 @@ impl Rack {
     pub(super) fn build(main: &Arc<SoundFont>, extras: &[&Arc<SoundFont>], sample_rate: i32, legacy: bool) -> Result<Rack> {
         let lane = |font: &Arc<SoundFont>, slot: u8, polyphony: usize| -> Result<Lane> {
             let synth = Synthesizer::new(font, &settings(sample_rate, polyphony, legacy)).map_err(|e| anyhow!("{e:?}"))?;
-            Ok(Lane { synth, slot, sends: PART_SENDS, quiet: IDLE_FRAMES, bank: 0, phase: 0 })
+            Ok(Lane { synth, slot, sends: PART_SENDS, quiet: IDLE_FRAMES, bank: 0, program: 0, phase: 0 })
         };
         let block = settings(sample_rate, MAIN_POLYPHONY, legacy).block_size;
         let mut parts = Vec::with_capacity(16);
@@ -239,7 +256,7 @@ impl Rack {
             for _ in 0..NOTE_LANES {
                 lanes.push(lane(main, 0, NOTE_POLYPHONY)?);
             }
-            parts.push(Part::new(lanes, Voicing::new(ch, block, sample_rate), sample_rate as f32));
+            parts.push(Part::new(lanes, Voicing::new(ch, block, sample_rate), sample_rate as f32, block));
         }
         let mut r = Rack {
             parts,
@@ -317,8 +334,8 @@ impl Rack {
         let slot = self.ch_slot[ch as usize & 15];
         let part = &mut self.parts[ch as usize & 15];
         let melodic = part.melodic(slot);
-        let lanes = &mut part.lanes;
-        part.voicing.set_mono(mono, melodic, &mut |to, chans, st, d1, d2| send(lanes, slot, to, chans, st, d1, d2));
+        let (lanes, env) = (&mut part.lanes, &mut part.env);
+        part.voicing.set_mono(mono, melodic, &mut |to, chans, st, d1, d2| route(env, lanes, slot, to, chans, st, d1, d2));
     }
 
     pub(super) fn set_master_volume(&mut self, v: f32) {
@@ -337,8 +354,9 @@ impl Rack {
         let slot = self.ch_slot[c];
         let part = &mut self.parts[c];
         part.track(st, d1, d2);
-        // The part's tone first (part_tone.rs): its own controllers go no further.
-        let own = part.tone.follow(st, d1, d2);
+        // The part's tone and envelope first (part_tone.rs, envelope.rs): their own
+        // controllers go no further.
+        let own = part.tone.follow(st, d1, d2) || part.env.follow(st, d1, d2);
         // Reset All Controllers zeroes the synthesizers' mod wheel: the tone's goes after.
         let reset = st == 0xB0 && d1 == 121;
         if !reset {
@@ -346,8 +364,9 @@ impl Rack {
         }
         if !own {
             let melodic = part.melodic(slot);
-            let lanes = &mut part.lanes;
-            part.voicing.process(st, d1, d2, melodic, slot, &mut |to, chans, st, d1, d2| send(lanes, slot, to, chans, st, d1, d2));
+            part.voicing.set_spread(part.env.spread());
+            let (lanes, env) = (&mut part.lanes, &mut part.env);
+            part.voicing.process(st, d1, d2, melodic, slot, &mut |to, chans, st, d1, d2| route(env, lanes, slot, to, chans, st, d1, d2));
         }
         if reset {
             part.send_modulation();
@@ -431,13 +450,14 @@ impl Rack {
             part.send_modulation();
             for (i, lane) in part.lanes.iter_mut().enumerate() {
                 let is_live = i == live;
-                if lane.quiet >= IDLE_FRAMES && !(is_live && holds) {
+                // A shaped note's lane renders until its shaping is done (envelope.rs).
+                if lane.quiet >= IDLE_FRAMES && !(is_live && holds) && !part.env.on_lane(i) {
                     continue;
                 }
                 let t0 = if profile { crate::rt::host_now() } else { 0 };
                 // The first lane renders straight into the stem; any other beside it.
                 let (l, r): (&mut [f32], &mut [f32]) = if first { (&mut *sl, &mut *sr) } else { (&mut *tl, &mut *tr) };
-                render_lane(lane, i, &mut part.voicing, block, l, r);
+                render_lane(lane, i, &mut part.voicing, &mut part.env, block, l, r);
                 if profile {
                     let dt = crate::rt::host_to_ns(crate::rt::host_now().wrapping_sub(t0));
                     ns += dt;
@@ -575,6 +595,7 @@ fn send(lanes: &mut [Lane], slot: u8, to: To, chans: u16, st: i32, d1: i32, d2: 
             To::Slot => l.slot == slot,
             To::All => true,
             To::Lane(k) => i == k as usize,
+            To::AllBut(k) => i != k as usize,
         };
         if !take {
             continue;
@@ -585,6 +606,9 @@ fn send(lanes: &mut [Lane], slot: u8, to: To, chans: u16, st: i32, d1: i32, d2: 
         if st == 0xB0 && d1 == 0 {
             l.bank = d2;
         }
+        if st == 0xC0 {
+            l.program = d1;
+        }
         let mut m = chans;
         while m != 0 {
             let c = m.trailing_zeros() as i32;
@@ -594,12 +618,53 @@ fn send(lanes: &mut [Lane], slot: u8, to: To, chans: u16, st: i32, d1: i32, d2: 
     }
 }
 
-/// Render lane `i` of a part into `l`/`r`: at once, or with a glide in it a block at a
-/// time, each glide stepping before the block (voicing.rs).
+/// A message from a part's voicing on to its lanes (`send`), through the part's envelope
+/// shaping (envelope.rs): a note-on looks up the SoundFont's envelope for a shaped note,
+/// and a shaped note's note-off, the player's expression, the hold pedal and the channel
+/// mode messages are played there.
+#[allow(clippy::too_many_arguments)]
+fn route(env: &mut PartEnvelope, lanes: &mut [Lane], slot: u8, to: To, chans: u16, st: i32, d1: i32, d2: i32) {
+    match st {
+        0x90 if d2 & 127 > 0 => {
+            let c = chans.trailing_zeros() as u8 & 15;
+            if env.on() || env.shapes(c) {
+                // As rustysynth finds the preset: MIDI channel 10 adds 128 to the bank.
+                let own = env.on().then(|| lanes.get(slot as usize)).flatten().and_then(|l| {
+                    let bank = if c == 9 { l.bank + 128 } else { l.bank };
+                    Env::of(l.synth.get_sound_font(), bank, l.program, d1 & 127, d2 & 127)
+                });
+                env.note_on(c, slot, d1 as u8, own, &mut |to, m, st, a, b| send(lanes, slot, to, m, st, a, b));
+            }
+            send(lanes, slot, to, chans, st, d1, d2);
+        }
+        0x80 | 0x90 => {
+            let rest = env.note_off(chans, d1, &mut |to, m, st, a, b| send(lanes, slot, to, m, st, a, b));
+            if rest != 0 {
+                send(lanes, slot, to, rest, st, d1, d2);
+            }
+        }
+        0xB0 if d1 == 11 || d1 == 43 => env.expression(chans, d1, d2, &mut |to, m, st, a, b| send(lanes, slot, to, m, st, a, b)),
+        0xB0 if matches!(d1, 64 | 120 | 121 | 123) => {
+            send(lanes, slot, to, chans, st, d1, d2);
+            let emit = &mut |to, m, st, a, b| send(lanes, slot, to, m, st, a, b);
+            match d1 {
+                64 => env.pedal(d2 >= 64, emit),
+                120 => env.sound_off(chans, emit),
+                121 => env.reset(emit),
+                _ => env.notes_off(chans),
+            }
+        }
+        _ => send(lanes, slot, to, chans, st, d1, d2),
+    }
+}
+
+/// Render lane `i` of a part into `l`/`r`: at once, or with a glide or a shaped note in it
+/// a block at a time, each glide and shaped note stepping before the block (voicing.rs,
+/// envelope.rs).
 #[inline]
-fn render_lane(lane: &mut Lane, i: usize, voicing: &mut Voicing, block: usize, l: &mut [f32], r: &mut [f32]) {
+fn render_lane(lane: &mut Lane, i: usize, voicing: &mut Voicing, env: &mut PartEnvelope, block: usize, l: &mut [f32], r: &mut [f32]) {
     let n = l.len();
-    if !voicing.glides_in(i) {
+    if !voicing.glides_in(i) && !env.on_lane(i) {
         lane.synth.render(l, r);
         lane.phase = (lane.phase + n) % block;
         return;
@@ -609,6 +674,7 @@ fn render_lane(lane: &mut Lane, i: usize, voicing: &mut Voicing, block: usize, l
         if lane.phase == 0 {
             let synth = &mut lane.synth;
             voicing.block(i, &mut |c, st, d1, d2| synth.process_midi_message(c, st, d1, d2));
+            env.block(i, &mut |c, st, d1, d2| synth.process_midi_message(c, st, d1, d2));
         }
         let m = (block - lane.phase).min(n - k);
         lane.synth.render(&mut l[k..k + m], &mut r[k..k + m]);
@@ -673,7 +739,7 @@ mod tests {
     /// part's volume and expression on rustysynth's curve, for an insert's level.
     #[test]
     fn a_part_counts_its_notes_and_keeps_its_level() {
-        let mut p = Part::new(Vec::new(), Voicing::new(0, 64, 48_000), 48_000.0);
+        let mut p = Part::new(Vec::new(), Voicing::new(0, 64, 48_000), 48_000.0, 64);
         p.track(0x90, 60, 100);
         p.track(0x90, 64, 100);
         assert_eq!(p.notes(), 2);
@@ -908,6 +974,168 @@ mod tests {
         };
         let early = crossings(&rest[..960], 960)[0];
         assert!(early * 2 < c5, "the new note glides up: {early} crossings in its first 20 ms vs C5's {c5}");
+    }
+
+    /// A rack on the tiny font with these instrument generators.
+    fn font_rack(gens: &[(u16, i16)]) -> Rack {
+        let font = Arc::new(SoundFont::new(&mut &crate::patches::sf2::tiny_sound_font_with(&[(0, 0, "Tone")], gens)[..]).unwrap());
+        Rack::new(&font, 48_000).unwrap()
+    }
+
+    /// A pad: 0.1 s attack, 0.5 s decay to -20 dB, 0.3 s release.
+    fn pad_rack() -> Rack {
+        font_rack(&[(34, -3986), (36, -1200), (37, 200), (38, -2084)])
+    }
+
+    /// Strings: 0.1 s attack, held at full, 0.3 s release.
+    fn strings_rack() -> Rack {
+        font_rack(&[(34, -3986), (38, -2084)])
+    }
+
+    /// Each `win`-frame window's RMS.
+    fn rms(x: &[f32], win: usize) -> Vec<f32> {
+        x.chunks(win).map(|c| (c.iter().map(|v| v * v).sum::<f32>() / c.len() as f32).sqrt()).collect()
+    }
+
+    /// A note on part 3 of `r` after `setup`, held `hold` frames, then let go for `tail`.
+    fn pad_note(r: &mut Rack, setup: &[[i32; 2]], hold: usize, tail: usize) -> Vec<f32> {
+        for &[cc, v] in setup {
+            r.process(3, 0xB0, cc, v);
+        }
+        r.process(3, 0x90, 60, 100);
+        let mut out = play(r, hold, 480);
+        r.process(3, 0x80, 60, 0);
+        out.extend(play(r, tail, 480));
+        out
+    }
+
+    /// #346 step 4: CC73/75/72 never reach rustysynth: a note played straight on the
+    /// part's synthesizer after them sounds as on a rack that never had them.
+    #[test]
+    fn envelope_controllers_never_reach_rustysynth() {
+        let raw = |setup: &[[i32; 2]]| {
+            let mut r = pad_rack();
+            for &[cc, v] in setup {
+                r.process(3, 0xB0, cc, v);
+            }
+            let synth = &mut r.parts[3].lanes[0].synth;
+            synth.note_on(3, 60, 100);
+            let (mut l, mut rr) = (vec![0f32; 24_000], vec![0f32; 24_000]);
+            synth.render(&mut l, &mut rr);
+            synth.note_off(3, 60);
+            let mut tail = (vec![0f32; 24_000], vec![0f32; 24_000]);
+            synth.render(&mut tail.0, &mut tail.1);
+            l.extend(tail.0);
+            l
+        };
+        assert_eq!(raw(&[[73, 127], [75, 0], [72, 0]]), raw(&[]));
+        assert_eq!(raw(&[[72, 127]]), raw(&[]));
+    }
+
+    /// At 64, and in the directions that can't be played (a faster attack, a longer
+    /// decay), the envelope controllers change nothing: bit-identical.
+    #[test]
+    fn neutral_envelope_controllers_change_nothing() {
+        let plain = pad_note(&mut pad_rack(), &[], 48_000, 48_000);
+        assert!(plain.iter().any(|v| v.abs() > 1e-3));
+        for setup in [&[[73, 64], [75, 64], [72, 64]][..], &[[73, 0], [75, 127]]] {
+            assert_eq!(pad_note(&mut pad_rack(), setup, 48_000, 48_000), plain, "{setup:?}");
+        }
+    }
+
+    /// CC73 127: the note fades in over about 15x its attack (1.5 s), never louder than
+    /// without it, then plays as without it.
+    #[test]
+    fn a_slower_attack_fades_the_note_in() {
+        let own = rms(&pad_note(&mut strings_rack(), &[], 144_000, 0), 4800);
+        let slow = rms(&pad_note(&mut strings_rack(), &[[73, 127]], 144_000, 0), 4800);
+        assert!(slow[1] < own[1] * 0.2 && slow[5] < own[5] * 0.6, "fades in: {:?} vs {:?}", &slow[..6], &own[..6]);
+        assert!(slow[5] > slow[1] && slow[10] > slow[5], "climbing: {slow:?}");
+        assert!(slow.iter().zip(&own).all(|(s, o)| *s <= o * 1.001), "never louder: {slow:?} vs {own:?}");
+        assert!((slow[25] / own[25] - 1.0).abs() < 0.01, "then as without it: {} vs {}", slow[25], own[25]);
+    }
+
+    /// CC75 0: the note falls to its sustain level sooner while held.
+    #[test]
+    fn a_shorter_decay_falls_sooner() {
+        let own = rms(&pad_note(&mut pad_rack(), &[], 48_000, 0), 2400);
+        let short = rms(&pad_note(&mut pad_rack(), &[[75, 0]], 48_000, 0), 2400);
+        // 0.15-0.2 s: the own decay is half way down, the short one at its sustain.
+        assert!(short[3] < own[3] * 0.6, "{} vs {}", short[3], own[3]);
+        assert!((short[19] / own[19] - 1.0).abs() < 0.01, "both at the sustain level");
+    }
+
+    /// CC72: a shorter release dies away sooner, a longer one later (the note-off held
+    /// back while the note fades); neither is louder than the note was.
+    #[test]
+    fn the_release_is_shorter_or_longer() {
+        let tail = |setup: &[[i32; 2]]| {
+            let x = pad_note(&mut pad_rack(), setup, 48_000, 96_000);
+            (rms(&x[45_600..48_000], 2400)[0], rms(&x[48_000..], 2400))
+        };
+        let ((held, own), (_, short), (_, long)) = (tail(&[]), tail(&[[72, 0]]), tail(&[[72, 127]]));
+        let sum = |x: &[f32]| x.iter().map(|v| v * v).sum::<f32>();
+        assert!(sum(&short) < sum(&own) * 0.3, "shorter: {short:?} vs {own:?}");
+        assert!(sum(&long) > sum(&own) * 3.0, "longer: {long:?} vs {own:?}");
+        assert!(long[0] <= held * 1.001 && long[4] > own[4] * 2.0, "{long:?} (held {held})");
+        // The long tail ends: its channel is cut once inaudible, and the lane goes idle.
+        let mut r = pad_rack();
+        pad_note(&mut r, &[[72, 127]], 48_000, 5 * 48_000);
+        assert!(!r.parts[3].env.on_lane(0), "done shaping");
+        assert!(play(&mut r, 4800, 480).iter().all(|&v| v == 0.0), "silent");
+    }
+
+    /// The player's CC11 still works with the shaping: a shaped note's level follows it as
+    /// an unshaped note's does.
+    #[test]
+    fn the_players_expression_combines_with_the_shaping() {
+        // A longer release shapes nothing while the note is held: CC11 plays as without.
+        let held = |setup: &[[i32; 2]]| {
+            let mut r = pad_rack();
+            for &[cc, v] in setup {
+                r.process(3, 0xB0, cc, v);
+            }
+            r.process(3, 0x90, 60, 100);
+            let mut out = play(&mut r, 9600, 480);
+            r.process(3, 0xB0, 11, 64);
+            out.extend(play(&mut r, 9600, 480));
+            out
+        };
+        let (plain, shaped) = (held(&[]), held(&[[72, 127]]));
+        assert!(plain.iter().zip(&shaped).all(|(a, b)| (a - b).abs() < 1e-6), "CC11 plays as without the shaping");
+        // During a slow attack: CC11 64 takes the level down by (64 / 127)², as it would.
+        let attack = |cc11: bool| {
+            let mut r = strings_rack();
+            r.process(3, 0xB0, 73, 127);
+            if cc11 {
+                r.process(3, 0xB0, 11, 64);
+            }
+            r.process(3, 0x90, 60, 100);
+            rms(&play(&mut r, 48_000, 480), 4800)
+        };
+        let (full, less) = (attack(false), attack(true));
+        let want = (64.0f32 / 127.0).powi(2);
+        assert!((less[6] / full[6] / want - 1.0).abs() < 0.02, "{} vs {}", less[6] / full[6], want);
+    }
+
+    /// Each note is shaped on its own: a new note's slow attack leaves a note already at
+    /// full untouched (they play on channels of their own).
+    #[test]
+    fn a_new_notes_attack_leaves_the_others_alone() {
+        let run = |second: bool| {
+            let mut r = strings_rack();
+            r.process(3, 0xB0, 73, 127);
+            r.process(3, 0x90, 60, 100);
+            play(&mut r, 96_000, 480);
+            if second {
+                r.process(3, 0x90, 67, 100);
+            }
+            play(&mut r, 2400, 480)
+        };
+        let (alone, both) = (run(false), run(true));
+        let diff: Vec<f32> = both.iter().zip(&alone).map(|(a, b)| a - b).collect();
+        let (d, a) = (rms(&diff, 2400)[0], rms(&alone, 2400)[0]);
+        assert!(a > 1e-3 && d < a * 0.05, "the held note keeps its level: the new one adds {d} to {a}");
     }
 
     /// A drum note with sends of its own (#239) plays in a note lane with those sends: the

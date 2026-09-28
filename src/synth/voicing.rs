@@ -4,8 +4,9 @@
 //!
 //! Each part (MIDI channel) has its own synthesizer, so its 16 MIDI channels are free: a
 //! part's messages go to all of them (but rustysynth's percussion channel 10), and its
-//! notes play on its own channel unless portamento is on. Then each note takes a channel of
-//! its own, the one used longest ago, so each note can have a pitch bend of its own.
+//! notes play on its own channel unless portamento is on (or the part shapes its notes'
+//! envelopes, envelope.rs). Then each note takes a channel of its own, the one used longest
+//! ago, so each note can have a pitch bend (or an expression) of its own.
 //!
 //! - **Mono** (CC126/127, or the XG part's Mono/Poly): a held-key stack, last-note
 //!   priority. A new note ends the one sounding; letting go of it goes back to the latest
@@ -31,8 +32,10 @@ pub(super) enum To {
     Slot,
     /// Every lane.
     All,
-    /// Lane `i` (a glide's).
+    /// Lane `i` (a glide's, or a shaped note's: envelope.rs).
     Lane(u8),
+    /// Every lane but lane `i`.
+    AllBut(u8),
 }
 
 /// The keys a mono part keeps to go back to (the oldest drop out beyond).
@@ -70,6 +73,9 @@ pub(super) struct Voicing {
     mono_now: bool,
     porta: bool,
     porta_time: u8,
+    /// Each note on a channel of its own, away from these channels if it can be (the
+    /// part's envelope shaping, envelope.rs), or None.
+    spread: Option<u16>,
     /// The latest melodic key played (-1: none), where a glide starts.
     last_key: i32,
     /// Mono: the keys held, oldest first, with their velocities.
@@ -109,6 +115,7 @@ impl Voicing {
             mono_now: false,
             porta: false,
             porta_time: 0,
+            spread: None,
             last_key: -1,
             held: [(0, 0); HELD_KEYS],
             n_held: 0,
@@ -138,6 +145,13 @@ impl Voicing {
     #[inline]
     pub(super) fn chans(&self) -> u16 {
         self.chans
+    }
+
+    /// Each note on a channel of its own, away from the channels in `avoid` if it can be
+    /// (Some), or on the part's own channel unless it glides (None).
+    #[inline]
+    pub(super) fn set_spread(&mut self, spread: Option<u16>) {
+        self.spread = spread;
     }
 
     /// Whether a glide plays in lane `lane` (it renders a block at a time then).
@@ -310,11 +324,11 @@ impl Voicing {
         self.end(key as usize, emit);
     }
 
-    /// Start `key`'s note: on the part's own channel, or with portamento on a channel of its
-    /// own, gliding from the key played before.
+    /// Start `key`'s note: on the part's own channel, or with portamento (or envelope
+    /// shaping) on a channel of its own, gliding from the key played before.
     fn start(&mut self, key: i32, velocity: i32, melodic: bool, live: u8, emit: &mut impl FnMut(To, u16, i32, i32, i32)) {
         let porta = self.porta && melodic;
-        let c = if porta { self.pick() } else { self.home as usize };
+        let c = if porta || self.spread.is_some() { self.pick() } else { self.home as usize };
         let bit = 1u16 << c;
         // A glide left on the channel (its note gone) ends first.
         if self.gliding & bit != 0 {
@@ -391,7 +405,7 @@ impl Voicing {
     }
 
     /// The channel for a note of its own: the one used longest ago, among those with no
-    /// note held if there are any.
+    /// note held (and none shaped, `spread`) if there are any.
     fn pick(&self) -> usize {
         let mut busy = 0u16;
         let mut on = self.on;
@@ -400,7 +414,14 @@ impl Voicing {
             on &= on - 1;
             busy |= self.key_chans[k];
         }
-        let free = if self.chans & !busy != 0 { self.chans & !busy } else { self.chans };
+        let quiet = self.chans & !busy & !self.spread.unwrap_or(0);
+        let free = if quiet != 0 {
+            quiet
+        } else if self.chans & !busy != 0 {
+            self.chans & !busy
+        } else {
+            self.chans
+        };
         let (mut best, mut age) = (self.home as usize, None);
         let mut m = free;
         while m != 0 {

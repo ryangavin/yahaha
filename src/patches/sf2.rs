@@ -85,6 +85,13 @@ fn parse_pdta(data: &[u8]) -> Result<Vec<Preset>> {
 /// depend on which `.sf2` files a checkout happens to have.
 #[doc(hidden)]
 pub fn tiny_sound_font(presets: &[(u16, u8, &str)]) -> Vec<u8> {
+    tiny_sound_font_with(presets, &[])
+}
+
+/// `tiny_sound_font`, its instrument with these generators (`(generator, value)`, e.g.
+/// the volume envelope's) besides the sample's.
+#[doc(hidden)]
+pub fn tiny_sound_font_with(presets: &[(u16, u8, &str)], generators: &[(u16, i16)]) -> Vec<u8> {
     fn chunk(id: &[u8], body: &[u8]) -> Vec<u8> {
         let mut c = id.to_vec();
         c.extend((body.len() as u32).to_le_bytes());
@@ -134,10 +141,12 @@ pub fn tiny_sound_font(presets: &[(u16, u8, &str)]) -> Vec<u8> {
     inst.extend(u16s(&[0]));
     inst.extend(name("EOI"));
     inst.extend(u16s(&[1]));
-    let ibag = u16s(&[0, 0, 2, 0]);
+    let ibag = u16s(&[0, 0, 2 + generators.len() as u16, 0]);
     let imod = vec![0u8; 10];
-    // Loop continuously (sampleModes 1), then the sample (sampleID must come last).
-    let igen = u16s(&[54, 1, 53, 0, 0, 0]);
+    // The generators asked for, loop continuously (sampleModes 1), then the sample
+    // (sampleID must come last).
+    let mut igen: Vec<u8> = generators.iter().flat_map(|&(g, v)| u16s(&[g, v as u16])).collect();
+    igen.extend(u16s(&[54, 1, 53, 0, 0, 0]));
     let mut shdr = name("Square").to_vec();
     for v in [0u32, 100, 0, 100, 48_000] {
         shdr.extend(v.to_le_bytes());
