@@ -96,7 +96,7 @@ pub struct Routes {
     banks: [RouteBank; BANKS],
     /// A keyboard part's own patch (Right 1, Right 2, Right 3, Left); 0 = none: the part's
     /// GM voice goes through the map like a Style part's.
-    part: [AtomicU32; crate::parts::COUNT],
+    part: [AtomicU32; crate::parts_data::COUNT],
     /// Moves when a part's patch changes.
     parts_gen: AtomicU32,
     /// The `yahaha` port gets the mapped bank and program instead of the style's own.
@@ -118,7 +118,7 @@ impl Routes {
     pub fn new() -> Routes {
         Routes {
             banks: [RouteBank::new(), RouteBank::new()],
-            part: [const { AtomicU32::new(0) }; crate::parts::COUNT],
+            part: [const { AtomicU32::new(0) }; crate::parts_data::COUNT],
             parts_gen: AtomicU32::new(0),
             port_mapped: AtomicBool::new(false),
             audition: AtomicU32::new(0),
@@ -149,7 +149,7 @@ impl Routes {
 
     #[inline]
     pub fn part(&self, part: usize) -> Option<Route> {
-        Route::unpack(self.part[part % crate::parts::COUNT].load(Relaxed))
+        Route::unpack(self.part[part % crate::parts_data::COUNT].load(Relaxed))
     }
 
     #[inline]
@@ -184,7 +184,7 @@ impl Routes {
     }
 
     /// Set the keyboard parts' own patches.
-    pub fn set_parts(&self, routes: [Option<Route>; crate::parts::COUNT]) {
+    pub fn set_parts(&self, routes: [Option<Route>; crate::parts_data::COUNT]) {
         let mut changed = false;
         for (a, r) in self.part.iter().zip(routes) {
             changed |= a.swap(pack(r), Relaxed) != pack(r);

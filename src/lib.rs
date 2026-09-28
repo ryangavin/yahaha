@@ -27,6 +27,7 @@ pub mod midi;
 pub mod multipad;
 pub mod oracle;
 pub mod parts;
+pub mod parts_data;
 pub mod patches;
 pub mod perf;
 #[cfg(feature = "plugins")]

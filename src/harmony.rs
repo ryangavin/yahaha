@@ -18,7 +18,7 @@
 //!
 //! Keys are MIDI note numbers; times are nanoseconds on the engine's clock.
 
-use crate::parts::{RIGHT1, RIGHT2, RIGHT3};
+use crate::parts_data::{RIGHT1, RIGHT2, RIGHT3};
 use crate::theory::{chord_tones, Chord, CANCEL};
 
 /// Most notes one melody key can add (Full Chord adds five).
