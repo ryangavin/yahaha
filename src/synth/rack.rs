@@ -386,6 +386,11 @@ impl Rack {
         let melodic = part.melodic(slot);
         part.voicing.note_elsewhere(key, melodic);
         let i = if slot == 0 && note.sends != PART_SENDS { part.note_lane(slots, note.sends) } else { slot as usize };
+        if part.env.shapes(ch) {
+            // A shaped note on the channel ends its shaping: the channel is shared now.
+            let lanes = &mut part.lanes;
+            part.env.note_on(ch, i as u8, key, None, true, &mut |to, m, st, a, b| send(lanes, slot, to, m, st, a, b));
+        }
         let l = &mut part.lanes[i];
         l.quiet = 0;
         l.synth.note_on_with(ch as i32, key as i32, velocity as i32, note);
@@ -633,7 +638,9 @@ fn route(env: &mut PartEnvelope, lanes: &mut [Lane], slot: u8, to: To, chans: u1
                     let bank = if c == 9 { l.bank + 128 } else { l.bank };
                     Env::of(l.synth.get_sound_font(), bank, l.program, d1 & 127, d2 & 127)
                 });
-                env.note_on(c, slot, d1 as u8, own, &mut |to, m, st, a, b| send(lanes, slot, to, m, st, a, b));
+                // Another note sounding on the channel (a tail, or sharing): not shaped.
+                let busy = lanes.get_mut(slot as usize).is_some_and(|l| l.synth.channel_voices()[c as usize] > 0);
+                env.note_on(c, slot, d1 as u8, own, busy, &mut |to, m, st, a, b| send(lanes, slot, to, m, st, a, b));
             }
             send(lanes, slot, to, chans, st, d1, d2);
         }

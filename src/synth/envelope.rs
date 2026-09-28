@@ -30,10 +30,12 @@
 //! gets it, times sqrt(m). The hold pedal holds a shaped note's release until it comes up,
 //! as it does the voice's own.
 //!
-//! A note is shaped only on a channel it has to itself: where it must share one with a
-//! note still sounding (the drum part on MIDI channel 10 has only that one, and past 15
-//! notes at once channels are shared), the channel goes back to the player's expression and
-//! both play unshaped, with no held-back note-off and no All Sound Off. At 64 (or only in the directions that can't be played) nothing
+//! A note is shaped only on a channel it has to itself for its whole life: the drum part
+//! (MIDI channel 10, its only one) is never shaped, a note starting where another still
+//! sounds (a tail, or past 15 notes at once) plays unshaped, and a note arriving on a shaped
+//! note's channel ends that shaping: the channel goes back to the player's expression and
+//! a held-back note-off goes at once. So All Sound Off only ever reaches a channel with its
+//! shaped note alone on it. At 64 (or only in the directions that can't be played) nothing
 //! is shaped and a note plays exactly as without the controllers. Nothing here allocates,
 //! locks or panics.
 
@@ -326,28 +328,37 @@ impl PartEnvelope {
     }
 
     /// A note-on for `key` on channel `c` in lane `lane`, before the synthesizers get it;
-    /// `own`: the SoundFont's envelope for it (None: not shaped). A note shaped on the
-    /// channel before gives way: its note-off, if held back, goes now. If that note still
-    /// sounds, the channel is shared: it goes back to the player's expression (so the
-    /// earlier note is neither cut nor re-shaped) and the new note plays unshaped.
-    pub(super) fn note_on(&mut self, c: u8, lane: u8, key: u8, own: Option<Env>, emit: &mut impl FnMut(To, u16, i32, i32, i32)) {
+    /// `own`: the SoundFont's envelope for it (None: not shaped); `busy`: another note
+    /// sounds on the channel in its lane (it is then not shaped). A note is shaped only on
+    /// a channel it has to itself for its whole life, never on the drum channel (MIDI 10).
+    /// A note shaped on the channel before ends its shaping now: an inaudible one is cut;
+    /// a sounding one gets its held-back note-off at once and the player's expression back,
+    /// so it is neither cut nor re-shaped, and the new note plays unshaped.
+    pub(super) fn note_on(&mut self, c: u8, lane: u8, key: u8, own: Option<Env>, busy: bool, emit: &mut impl FnMut(To, u16, i32, i32, i32)) {
         let c = c as usize & 15;
+        let mut busy = busy;
         if self.shaping >> c & 1 == 1 {
             let old = self.notes[c];
-            if matches!(old.stage, Stage::KeyUp | Stage::Withheld) {
-                emit(To::All, 1 << c, 0x80, old.key as i32, 0);
+            if old.closing {
+                // Inaudible, and alone on its channel: its pending cut goes now.
+                emit(To::Lane(old.lane), 1 << c, 0xB0, 120, 0);
+                if old.lane == lane {
+                    // Its voices were the ones there.
+                    busy = false;
+                }
+            } else {
+                if matches!(old.stage, Stage::KeyUp | Stage::Withheld) {
+                    emit(To::All, 1 << c, 0x80, old.key as i32, 0);
+                }
+                busy = true;
             }
-            if !old.closing {
-                // Still sounding: shared, so neither note is shaped.
-                self.unshape(c, emit);
-                return;
-            }
-            if old.lane != lane || own.is_none() || !self.on() {
-                self.unshape(c, emit);
-            }
+            self.unshape(c, emit);
+        }
+        if busy || c == 9 {
+            return;
         }
         let Some(own) = own.filter(|_| self.on()) else { return };
-        let sent = if self.shaping >> c & 1 == 1 { self.notes[c].sent } else { self.expr };
+        let sent = self.expr;
         let mut n = Note { lane, key, own, to: own.scaled(self.factors()), sent, ..Note::default() };
         n.m = n.gain(self.block as f32 / self.rate, 0.0).0;
         self.notes[c] = n;
@@ -557,7 +568,7 @@ mod tests {
 
     fn start(e: &mut PartEnvelope, c: u8, env: Env) -> Vec<Out> {
         let mut out = Vec::new();
-        e.note_on(c, 0, 60, Some(env), &mut |to, ch, st, a, b| out.push((to, ch, st, a, b)));
+        e.note_on(c, 0, 60, Some(env), false, &mut |to, ch, st, a, b| out.push((to, ch, st, a, b)));
         out
     }
 
@@ -684,53 +695,61 @@ mod tests {
         assert_eq!((out[0].4 << 7) | out[1].4, (FULL as f32 * m.sqrt()).round() as i32);
     }
 
-    /// A note on a channel whose shaped note still sounds (its note-off held back): that
-    /// note-off goes first, the channel gets the player's expression back, and the new note
-    /// plays unshaped. Once the old note is inaudible, a new note takes the channel over.
+    /// An overflow note on a shaped note's channel: the shaped note's held-back note-off goes
+    /// at once, the channel gets the player's expression back, and the new note plays
+    /// unshaped; nothing is ever cut. A note starting where another sounds isn't shaped.
+    /// Once the old note is inaudible (and alone), a new note takes the channel over.
     #[test]
-    fn a_shared_channel_is_not_shaped() {
+    fn an_overflow_note_ends_the_shaping() {
         let mut e = part(&[[72, 127]]);
-        start(&mut e, 9, PAD);
-        run(&mut e, 9, 0.2);
-        off(&mut e, 1 << 9);
-        run(&mut e, 9, 0.1);
+        start(&mut e, 2, PAD);
+        run(&mut e, 2, 0.2);
+        off(&mut e, 1 << 2);
+        run(&mut e, 2, 0.3);
         let mut out = Vec::new();
-        e.note_on(9, 0, 62, Some(PAD), &mut |to, ch, st, a, b| out.push((to, ch, st, a, b)));
-        assert_eq!(out[0], (To::All, 1 << 9, 0x80, 60, 0), "{out:?}");
-        let rest: Vec<_> = out[1..].iter().map(|o| (9, o.2, o.3, o.4)).collect();
-        assert_eq!(expr_of(&rest, 9).unwrap_or(e.notes[9].sent), FULL, "the player's expression back: {out:?}");
-        assert!(!e.shapes(9));
-        let mut out = Vec::new();
-        assert_eq!(e.note_off(1 << 9, 62, &mut |to, ch, st, a, b| out.push((to, ch, st, a, b))), 1 << 9, "a normal note-off");
-        // Inaudible, then taken over: the new note is shaped.
+        e.note_on(2, 0, 62, Some(PAD), false, &mut |to, ch, st, a, b| out.push((to, ch, st, a, b)));
+        assert_eq!(out[0], (To::All, 1 << 2, 0x80, 60, 0), "{out:?}");
+        let rest: Vec<_> = out[1..].iter().map(|o| (2, o.2, o.3, o.4)).collect();
+        assert_eq!(expr_of(&rest, 2).unwrap_or(e.notes[2].sent), FULL, "the player's expression back: {out:?}");
+        assert!(!e.shapes(2) && !out.iter().any(|o| o.3 == 120), "unshaped, nothing cut");
+        // A third note where the others still sound: not shaped either.
+        e.note_on(2, 0, 64, Some(PAD), true, &mut |_, _, _, _, _| {});
+        assert!(!e.shapes(2));
+        let (_, msgs) = run(&mut e, 2, 10.0);
+        assert!(msgs.is_empty(), "no CC120, no gain: {msgs:?}");
+        assert_eq!(e.note_off(1 << 2, 62, &mut |_, _, _, _, _| {}), 1 << 2, "a normal note-off");
+        // Inaudible and alone, then taken over: its cut goes first, the new note is shaped.
         let mut e = part(&[[72, 0]]);
-        start(&mut e, 9, PAD);
-        off(&mut e, 1 << 9);
-        run(&mut e, 9, 0.02);
-        while !e.notes[9].closing {
-            run(&mut e, 9, 0.002);
+        start(&mut e, 2, PAD);
+        off(&mut e, 1 << 2);
+        while !e.notes[2].closing {
+            run(&mut e, 2, 0.002);
         }
-        start(&mut e, 9, PAD);
-        assert!(e.shapes(9) && !e.notes[9].closing);
+        let out = start(&mut e, 2, PAD);
+        assert_eq!(out[0], (To::Lane(0), 1 << 2, 0xB0, 120, 0), "{out:?}");
+        assert!(e.shapes(2) && !e.notes[2].closing);
         e.sound_off(0xFFFF, &mut |_, _, _, _, _| {});
-        assert!(!e.shapes(9) && e.spread() == Some(0));
+        assert!(!e.shapes(2) && e.spread() == Some(0));
     }
 
-    /// Two drum hits at once on channel 10 with CC72 set: the second shares the channel, so
-    /// neither is shaped, and the second ending never cuts the first (no All Sound Off).
+    /// Three overlapping drum hits on channel 10 with CC72/73/75 set: the drum part is
+    /// never shaped, so each note-off goes at once and no hit is ever cut.
     #[test]
-    fn simultaneous_drum_hits_share_unshaped() {
-        let mut e = part(&[[72, 127]]);
+    fn overlapping_drum_hits_are_not_shaped() {
+        let mut e = part(&[[72, 127], [73, 127], [75, 0]]);
         let mut out = Vec::new();
-        e.note_on(9, 0, 36, Some(PAD), &mut |to, ch, st, a, b| out.push((to, ch, st, a, b)));
-        e.note_on(9, 0, 38, Some(PAD), &mut |to, ch, st, a, b| out.push((to, ch, st, a, b)));
-        assert!(!e.shapes(9), "shared: not shaped");
-        assert_eq!(expr_of(&out.iter().map(|o| (9, o.2, o.3, o.4)).collect::<Vec<_>>(), 9).unwrap_or(FULL), FULL, "{out:?}");
+        for (key, busy) in [(36, false), (38, true), (42, true)] {
+            e.note_on(9, 0, key, Some(PAD), busy, &mut |to, ch, st, a, b| out.push((to, ch, st, a, b)));
+            assert!(!e.shapes(9), "drums: not shaped");
+        }
+        assert!(out.is_empty(), "{out:?}");
         let (_, msgs) = run(&mut e, 9, 0.1);
-        assert_eq!(e.note_off(1 << 9, 38, &mut |_, _, _, _, _| {}), 1 << 9, "the second's note-off goes at once");
+        for key in [38, 42] {
+            assert_eq!(e.note_off(1 << 9, key, &mut |_, _, _, _, _| {}), 1 << 9, "note-off at once");
+        }
         let (_, more) = run(&mut e, 9, 10.0);
-        assert!(!msgs.iter().chain(&more).any(|m| m.2 == 120), "the first hit is never cut");
-        assert_eq!(e.note_off(1 << 9, 36, &mut |_, _, _, _, _| {}), 1 << 9, "the first's too");
+        assert!(msgs.is_empty() && more.is_empty(), "the first hit is never cut");
+        assert_eq!(e.note_off(1 << 9, 36, &mut |_, _, _, _, _| {}), 1 << 9);
     }
 
     /// The envelope rustysynth plays, read from the SoundFont through its public API.
