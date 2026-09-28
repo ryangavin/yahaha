@@ -42,6 +42,7 @@ pub const PLUGIN_MAX_BLOCK: usize = 1024;
 pub mod drum_setup;
 mod envelope;
 pub mod font;
+pub mod kit;
 mod part_tone;
 mod rack;
 mod routing;
@@ -138,10 +139,12 @@ impl Synth {
 }
 
 /// Swapping SoundFonts: `tx` hands a new rack to the audio thread, `old` brings back the
-/// one it replaced (drop it there, not on the audio thread).
+/// one it replaced (drop it there, not on the audio thread). `kits` builds the drum setup
+/// kits the audio thread asks for (kit.rs): pump it from the same loop.
 pub struct RackSwap {
     pub tx: Producer<Box<Rack>>,
     pub old: Consumer<Box<Rack>>,
+    pub kits: kit::KitLink,
 }
 
 /// The channels the rack's parts play: the keyboard parts and the Style parts.
@@ -407,7 +410,13 @@ pub fn render_offline(
         ctl.fx.insert[p as usize & 7].store(kind as u8, Relaxed);
         ctl.fx.insert_amount[p as usize & 7].store(amount, Relaxed);
     }
-    let (mut core, _swap, _plugins) = AudioCore::new(Some(rack), vec![rx], Arc::new(Parts::new()), ctl, sample_rate, 2);
+    let (mut core, mut swap, _plugins) = AudioCore::new(Some(rack), vec![rx], Arc::new(Parts::new()), ctl, sample_rate, 2);
+    // The drum setup kits the setup at the start plays, built first, as a style's are when
+    // it loads (kit.rs).
+    let setup = msgs.iter().map(|(_, m)| &m[..]).take_while(|m| !(m.len() == 3 && m[0] & 0xF0 == 0x90 && m[2] > 0));
+    swap.kits.prebuild(drum_setup::prebuilds(setup));
+    core.process(&mut []);
+    swap.kits.serve();
     let frames = ((end_ns as f64 / 1e9 + 3.0) * sample_rate as f64) as usize;
     let (mut left, mut right) = (Vec::with_capacity(frames), Vec::with_capacity(frames));
     let mut out = [0f32; 2 * BLOCK];
@@ -435,6 +444,8 @@ pub fn render_offline(
         }
         let n = (frames - start).min(BLOCK);
         core.process(&mut out[..2 * n]);
+        // A kit asked for later (a setup changing) is there from the next block.
+        swap.kits.serve();
         for f in out[..2 * n].chunks(2) {
             left.push(f[0]);
             right.push(f[1]);
@@ -552,6 +563,8 @@ pub struct AudioCore {
     shadow: Box<Shadow>,
     /// The style's XG Drum Setup (#239): each drum note starts with its own settings.
     drums: Box<drum_setup::DrumSetups>,
+    /// The drum setups' kits: asked for, built and not playing (kit.rs).
+    kits: Box<kit::KitCore>,
     last_master: u8,
     left: Vec<f32>,
     right: Vec<f32>,
@@ -618,6 +631,7 @@ impl AudioCore {
         let (plugins, link) = crate::plugin::rack(PLUGIN_MAX_BLOCK, sample_rate as f64);
         #[cfg(not(feature = "plugins"))]
         let link = ();
+        let (kits_link, kits) = kit::link();
         let core = AudioCore {
             rack,
             swap_rx,
@@ -629,6 +643,7 @@ impl AudioCore {
             bank: [0u8; 16],
             shadow: Box::new(Shadow::new()),
             drums: Box::new(drum_setup::DrumSetups::new()),
+            kits: Box::new(kits),
             last_master: 255,
             left: vec![0f32; 8192],
             right: vec![0f32; 8192],
@@ -657,7 +672,7 @@ impl AudioCore {
             pad_scale: crate::fx::PAD_SEND_DEFAULT.map(crate::fx::band_scale),
             sample_rate: sample_rate.max(1) as f32,
         };
-        (core, RackSwap { tx: swap_tx, old: old_rx }, Some(link))
+        (core, RackSwap { tx: swap_tx, old: old_rx, kits: kits_link }, Some(link))
     }
 
     /// Play the sound library's program map (#103): band program changes and the
@@ -756,6 +771,8 @@ impl AudioCore {
         }
         self.plugin_on = active;
 
+        // The drum setup kits built since the last buffer, before this one's notes (kit.rs).
+        update_kits(self.rack.as_deref_mut(), &self.drums, &mut self.kits, self.router.as_ref());
         for (i, c) in self.consumers.iter_mut().enumerate() {
             if prof && let Some(d) = crate::perf::PERF.ring_depth.get(i) {
                 d.fetch_max(c.slots() as u32, Relaxed);
@@ -813,17 +830,23 @@ impl AudioCore {
                         self.sends_dirty = true;
                     }
                 }
-                // A program change initializes its part's drum setup; a drum note starts with
-                // its setup's settings.
+                // A program change initializes its part's drum setup; a drum note on a part
+                // playing a drum setup starts with its settings: its sends, and its kit's.
                 self.drums.observe(&m);
-                if let Some(rack) = self.rack.as_mut() {
-                    match self.drums.note(&m) {
-                        Some(n) => rack.note_on_with(m[0] & 0x0F, m[1], m[2], &n),
-                        None => apply_routed(rack, &m, &mut self.bank, self.router.as_ref()),
+                if let Some(rack) = self.rack.as_deref_mut() {
+                    let ch = m[0] & 0x0F;
+                    if m[0] & 0xF0 == 0x90 && m[2] > 0 && self.drums.setup_of(ch).is_some() {
+                        let kit = kit_for(rack, &self.drums, &mut self.kits, ch);
+                        let sends = self.drums.note(&m).map_or(rack::PART_SENDS, |n| n.sends);
+                        rack.drum_note(ch, m[1], m[2], sends, kit);
+                    } else {
+                        apply_routed(rack, &m, &mut self.bank, self.router.as_ref());
                     }
                 }
             }
         }
+        // The parts whose drum setup changed play their kits or ask for them (kit.rs).
+        update_kits(self.rack.as_deref_mut(), &self.drums, &mut self.kits, self.router.as_ref());
         // The effect bus (#204) off, for a before/after comparison with a rack that plays
         // the SoundFont's own reverb and chorus (`Rack::new_legacy`); each channel's send
         // gains.
@@ -1032,6 +1055,74 @@ fn retire(old_tx: &mut Producer<Box<Rack>>, parked: &mut Option<Box<Rack>>, rack
         // freeing it here.
         if let Some(stray) = parked.replace(rack) {
             std::mem::forget(stray);
+        }
+    }
+}
+
+/// The kit lane set part `ch` plays its drum notes in (kit.rs), if its drum setup needs a
+/// kit and the kit is built: the part's own, or one built and waiting (it goes in now).
+/// Otherwise the kit is asked for, and the notes play on the part's font meanwhile. Worked
+/// out again only when the setups, or the part's font, bank or program, have changed.
+/// Nothing here allocates.
+fn kit_for(rack: &mut Rack, drums: &drum_setup::DrumSetups, kits: &mut kit::KitCore, ch: u8) -> Option<usize> {
+    let (slot, bank, program) = rack.voice_of(ch);
+    let seen = Some((drums.changes(), slot, bank, program));
+    let k = rack.kits(ch);
+    if k.seen == seen {
+        return k.live;
+    }
+    k.seen = seen;
+    k.live = None;
+    let setup = drums.setup_of(ch)?;
+    if !drums.kit_params(setup, &mut kits.want.params) {
+        return None;
+    }
+    let source = rack.kit_source(slot)?.clone();
+    let preset = kit::preset_index(source.font(), bank, program)?;
+    let mut want = std::mem::replace(&mut kits.want, kit::KitKey::EMPTY);
+    rack.kit_key(&mut want, &source, preset);
+    let live = rack.play_kit(ch, &want).or_else(|| {
+        let kit = kits.take(&want)?;
+        let old = rack.install_kit(ch, kit);
+        kits.retire(old);
+        rack.kits(ch).live
+    });
+    if live.is_none() && !kits.ask(&source, &want) {
+        // No room to ask: again on the next buffer.
+        rack.kits(ch).seen = None;
+    }
+    kits.want = want;
+    // `source` goes out of scope here: the rack still holds the font, so this is never
+    // the last reference (nothing is freed).
+    live
+}
+
+/// Once a buffer, after the messages: the kits the control side asked to build ahead (a
+/// style loading) are asked for, the kits built come in, and each part playing a drum
+/// setup plays its kit if it has changed.
+fn update_kits(rack: Option<&mut Rack>, drums: &drum_setup::DrumSetups, kits: &mut kit::KitCore, router: Option<&Router>) {
+    let Some(rack) = rack else {
+        while kits.prebuilds.pop().is_ok() {}
+        return;
+    };
+    while let Ok(p) = kits.prebuilds.pop() {
+        let (slot, bank, program) = routing::voice_after(rack, p.ch, p.msb, p.program, router);
+        let Some(source) = rack.kit_source(slot).cloned() else { continue };
+        let Some(preset) = kit::preset_index(source.font(), bank, program) else { continue };
+        let mut want = std::mem::replace(&mut kits.want, kit::KitKey::EMPTY);
+        want.params = p.params;
+        rack.kit_key(&mut want, &source, preset);
+        if !rack.holds_kit(&want) {
+            kits.ask(&source, &want);
+        }
+        kits.want = want;
+    }
+    if kits.receive() {
+        rack.forget_kits_seen();
+    }
+    for ch in 0..16u8 {
+        if drums.setup_of(ch).is_some() {
+            kit_for(rack, drums, kits, ch);
         }
     }
 }
@@ -1434,7 +1525,8 @@ mod rack_tests {
     }
 
     /// #239: a drum note starts with its drum setup's own level, pan, pitch, send and
-    /// decay; a note already sounding keeps what it started with.
+    /// decay (the setup's kit built before the note, as a style's are when it loads); a
+    /// note already sounding keeps what it started with.
     #[test]
     fn a_drum_note_starts_with_its_drum_setup() {
         use drum_setup::encode;
@@ -1448,12 +1540,22 @@ mod rack_tests {
             let (mut tx, rx) = RingBuffer::<Msg>::new(64);
             let ctl = Arc::new(SynthControl::new(0));
             ctl.fx.reverb_return.store(64, Relaxed);
-            let (mut core, _swap, _link) = AudioCore::new(Some(rack), vec![rx], Arc::new(Parts::new()), ctl, 48_000, 2);
+            let (mut core, mut swap, _link) = AudioCore::new(Some(rack), vec![rx], Arc::new(Parts::new()), ctl, 48_000, 2);
             let mut out = vec![0f32; 256];
+            for m in setup.iter().chain(&[[0xB9, 91, 127], [0xB9, 93, 0]]) {
+                tx.push(*m).unwrap();
+            }
+            // The setup's kit asked for, built, and in before the note.
+            core.process(&mut out[..0]);
+            swap.kits.serve();
+            core.process(&mut out[..0]);
+            tx.push([0x99, key, 100]).unwrap();
             let mut run = |core: &mut AudioCore, buffers: usize| {
                 let (mut l, mut r, mut z, mut prev) = (0f64, 0f64, 0usize, 0f32);
                 for _ in 0..buffers {
                     core.process(&mut out);
+                    // A kit a change asks for comes in as soon as it can.
+                    swap.kits.serve();
                     for f in out.chunks(2) {
                         l += (f[0] as f64).powi(2);
                         r += (f[1] as f64).powi(2);
@@ -1465,9 +1567,6 @@ mod rack_tests {
                 }
                 (l, r, z)
             };
-            for m in setup.iter().chain(&[[0xB9, 91, 127], [0xB9, 93, 0], [0x99, key, 100]]) {
-                tx.push(*m).unwrap();
-            }
             run(&mut core, 1);
             for m in during {
                 tx.push(*m).unwrap();
@@ -1497,30 +1596,97 @@ mod rack_tests {
         // Pitch: the note sounds otherwise (the tuning itself: `note_tune_shifts_the_pitch`).
         let (tl, tr, _, _) = play(snare, &[ds(snare, 0x00, 0x40 + 7), ds(snare, 0x01, 0x40 + 30)], &[]);
         assert!((tl, tr) != (l, r), "coarse +7, fine +30 cents");
-        // A setup change while the note sounds leaves it as it started.
+        // A setup change while the note sounds leaves it as it started (its kit comes in
+        // while it sounds, beside it).
         let (cl, cr, _, _) = play(snare, &[], &[ds(snare, 0x02, 10), ds(snare, 0x04, 1)]);
         assert_eq!((cl, cr), (l, r), "the sounding note is untouched");
     }
 
-    /// #239: `NoteParams::tune` moves a voice's pitch by semitones: a piano C4 tuned an
-    /// octave up plays its sample twice as fast.
+    /// #239, #346 step 5: a style's kits are built as it loads (`KitLink::prebuild`), so the
+    /// setup and the first note arriving in the same buffer, as `Transport::start` sends
+    /// them, play with the setup. A setup no kit was built for plays from once its kit is
+    /// in: the first note without its settings, the next with them.
+    #[test]
+    fn a_styles_kits_are_ready_for_its_first_note() {
+        use drum_setup::encode;
+        let Some(font) = font() else { return };
+        let level = encode(&[0xF0, 0x43, 0x10, 0x4C, 0x30, 38, 0x02, 50, 0xF7]).unwrap();
+        let sysex = [0xF0, 0x43, 0x10, 0x4C, 0x30, 38, 0x02, 50, 0xF7];
+        // The dry mix only: no hit's reverb rings into the next.
+        let dry = || {
+            let ctl = Arc::new(SynthControl::new(0));
+            ctl.fx.reverb_return.store(0, Relaxed);
+            ctl.fx.chorus_return.store(0, Relaxed);
+            ctl
+        };
+        // The energy of the snare's first 0.1 s, twice: `ahead` its kit built as the style
+        // loads.
+        let hits = |ahead: bool| -> (f64, f64) {
+            let (mut tx, rx) = RingBuffer::<Msg>::new(64);
+            let (mut core, mut swap, _link) = AudioCore::new(Some(Box::new(Rack::new(&font, 48_000).unwrap())), vec![rx], Arc::new(Parts::new()), dry(), 48_000, 2);
+            let mut out = vec![0f32; 256];
+            if ahead {
+                let setup: [&[u8]; 2] = [&[0xC9, 0, 0], &sysex];
+                swap.kits.prebuild(drum_setup::prebuilds(setup));
+                core.process(&mut out[..0]);
+                swap.kits.serve();
+            }
+            // The setup, then the first note in the same buffer.
+            for m in [[0xC9, 0, 0], level] {
+                tx.push(m).unwrap();
+            }
+            let mut hit = |core: &mut AudioCore, swap: &mut RackSwap| {
+                tx.push([0x99, 38, 100]).unwrap();
+                let mut e = 0f64;
+                for _ in 0..40 {
+                    core.process(&mut out);
+                    swap.kits.serve();
+                    e += out.iter().map(|x| (*x as f64).powi(2)).sum::<f64>();
+                }
+                tx.push([0xB9, 120, 0]).unwrap();
+                core.process(&mut out);
+                e
+            };
+            (hit(&mut core, &mut swap), hit(&mut core, &mut swap))
+        };
+        let plain = {
+            let (mut tx, rx) = RingBuffer::<Msg>::new(64);
+            let (mut core, _swap, _link) = AudioCore::new(Some(Box::new(Rack::new(&font, 48_000).unwrap())), vec![rx], Arc::new(Parts::new()), dry(), 48_000, 2);
+            let mut out = vec![0f32; 256];
+            tx.push([0x99, 38, 100]).unwrap();
+            (0..40).map(|_| {
+                core.process(&mut out);
+                out.iter().map(|x| (*x as f64).powi(2)).sum::<f64>()
+            }).sum::<f64>()
+        };
+        let quarter = |e: f64| (e / plain - 1.0 / 16.0).abs() < 0.01;
+        let (first, second) = hits(true);
+        assert!(quarter(first) && quarter(second), "built ahead: level 50 from the first note ({first} {second} vs {plain})");
+        let (first, second) = hits(false);
+        assert!((first / plain - 1.0).abs() < 0.01 && quarter(second), "built late: from the second note ({first} {second} vs {plain})");
+    }
+
+    /// #239: a drum setup's coarse tune moves the note's pitch by semitones (in its kit): a
+    /// piano C4 tuned an octave up plays its sample twice as fast.
     #[test]
     fn note_tune_shifts_the_pitch() {
         let Some(font) = font() else { return };
-        let crossings = |key: i32, tune: f32| {
-            let mut settings = SynthesizerSettings::new(48_000);
-            settings.enable_reverb_and_chorus = false;
-            let mut s = Synthesizer::new(&font, &settings).unwrap();
-            s.process_midi_message(0, 0xC0, 0, 0);
-            let note = rustysynth::NoteParams { tune, ..rustysynth::NoteParams::NEUTRAL };
-            s.note_on_with(0, key, 100, &note);
+        let crossings = |key: u8, coarse: u8| {
+            let mut rack = Rack::new(&font, 48_000).unwrap();
+            rack.process(0, 0xC0, 0, 0);
+            let mut params = [[drum_setup::NONE; drum_setup::PARAMS]; 128];
+            params[key as usize][0] = coarse;
+            let kit = kit::for_part(&rack, 0, &params);
+            drop(rack.install_kit(0, kit));
+            let live = rack.kits(0).live;
+            rack.drum_note(0, key, 100, rack::PART_SENDS, live);
             let (mut l, mut r) = (vec![0f32; 9600], vec![0f32; 9600]);
-            s.render(&mut l, &mut r);
+            rack.render_dry(&mut l, &mut r, &std::array::from_fn(|_| AtomicU32::new(0)), None);
             l.windows(2).filter(|w| (w[0] >= 0.0) != (w[1] >= 0.0)).count() as f64
         };
         // The same sample played twice (half) as fast: roughly twice (half) the zero
         // crossings; the attack's noise keeps the count from being exact.
-        let (tuned, c4, down) = (crossings(60, 12.0), crossings(60, 0.0), crossings(60, -12.0));
+        let (tuned, c4, down) = (crossings(60, 0x40 + 12), crossings(60, 0x40), crossings(60, 0x40 - 12));
         assert!((1.6..2.6).contains(&(tuned / c4)), "C4 +12 {tuned} vs C4 {c4} crossings");
         assert!((1.6..2.6).contains(&(c4 / down)), "C4 -12 {down} vs C4 {c4} crossings");
     }

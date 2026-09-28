@@ -34,33 +34,63 @@
 //! Every instrument zone written carries the default modulator switched off (amount 0): the
 //! SF2 way to say the default is replaced, as the cutoff is baked in already. A player that
 //! reads modulators (the vendored rustysynth, until #346 step 6) adds nothing again.
+//!
+//! The preset data a font was loaded with is kept beside it ([`preset_data`]): an XG Drum
+//! Setup's kit is derived from it (kit.rs, #239).
 
 use anyhow::{anyhow, bail, Context, Result};
 use rustysynth::SoundFont;
 use std::io::{BufReader, Read, Seek, SeekFrom};
 use std::path::Path;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, Weak};
 
 /// Generator numbers (SF2 2.01 section 8.1.2).
-const INITIAL_FILTER_FC: u16 = 8;
-const INSTRUMENT: u16 = 41;
-const KEY_RANGE: u16 = 43;
-const VEL_RANGE: u16 = 44;
-const SAMPLE_ID: u16 = 53;
+pub(super) const INITIAL_FILTER_FC: u16 = 8;
+pub(super) const INSTRUMENT: u16 = 41;
+pub(super) const KEY_RANGE: u16 = 43;
+pub(super) const VEL_RANGE: u16 = 44;
+pub(super) const SAMPLE_ID: u16 = 53;
 /// The generators rustysynth knows; it ignores the rest.
-const GENERATORS: u16 = 61;
+pub(super) const GENERATORS: u16 = 61;
 /// A zone's key or velocity range when it sets none: 0-127.
 const FULL_RANGE: u16 = 0x7F00;
 /// The most zones or generators a font can index (16 bits).
-const MAX_RECORDS: usize = 65_535;
+pub(super) const MAX_RECORDS: usize = 65_535;
 /// The cutoff tolerances tried, in cents, finest first. 0.5 is exact to the cent.
 pub const TOLERANCES: [f32; 10] = [0.5, 2.0, 5.0, 10.0, 15.0, 25.0, 50.0, 100.0, 200.0, 2400.0];
+
+/// The preset data each font [`open`] or [`read_arc`] loaded was built from, for as long
+/// as the font lives (kit.rs derives drum kits from it). Only the control side and the
+/// loaders touch it, never the audio thread.
+static PRESET_DATA: Mutex<Vec<(Weak<SoundFont>, Arc<Vec<u8>>)>> = Mutex::new(Vec::new());
+
+/// The preset data `font` was loaded with (as rustysynth read it: velocity -> cutoff
+/// baked), if [`open`] or [`read_arc`] loaded it.
+pub fn preset_data(font: &Arc<SoundFont>) -> Option<Arc<Vec<u8>>> {
+    let list = PRESET_DATA.lock().unwrap_or_else(|e| e.into_inner());
+    list.iter().find(|(f, _)| std::ptr::eq(f.as_ptr(), Arc::as_ptr(font))).map(|(_, p)| p.clone())
+}
+
+/// `font`, its preset data kept for [`preset_data`]; fonts gone since are forgotten.
+fn keep(font: SoundFont, pdta: Vec<u8>) -> Arc<SoundFont> {
+    let font = Arc::new(font);
+    let mut list = PRESET_DATA.lock().unwrap_or_else(|e| e.into_inner());
+    list.retain(|(f, _)| f.strong_count() > 0);
+    list.push((Arc::downgrade(&font), Arc::new(pdta)));
+    font
+}
 
 /// The SoundFont at `path`, velocity -> cutoff baked in unless `YAHAHA_VEL_FILTER=off`
 /// ([`super::velocity_to_filter`]). Slow: off the audio thread.
 pub fn open(path: &Path) -> Result<Arc<SoundFont>> {
     let file = std::fs::File::open(path).with_context(|| format!("opening {}", path.display()))?;
-    Ok(Arc::new(read(&mut BufReader::new(file)).with_context(|| format!("loading {}", path.display()))?))
+    read_arc(&mut BufReader::new(file)).with_context(|| format!("loading {}", path.display()))
+}
+
+/// [`read`], shared and with its preset data kept, as [`open`] loads a file.
+pub fn read_arc<R: Read + Seek>(r: &mut R) -> Result<Arc<SoundFont>> {
+    let (font, pdta) = load(r, super::velocity_to_filter())?;
+    Ok(keep(font, pdta))
 }
 
 /// The SoundFont `r` holds (from its current position), as [`open`] loads it.
@@ -70,6 +100,11 @@ pub fn read<R: Read + Seek>(r: &mut R) -> Result<SoundFont> {
 
 /// [`read`], velocity -> cutoff baked in (`velocity_tone`) or not.
 pub fn read_as<R: Read + Seek>(r: &mut R, velocity_tone: bool) -> Result<SoundFont> {
+    Ok(load(r, velocity_tone)?.0)
+}
+
+/// The SoundFont `r` holds, and the preset data it was built from.
+fn load<R: Read + Seek>(r: &mut R, velocity_tone: bool) -> Result<(SoundFont, Vec<u8>)> {
     let start = r.stream_position()?;
     let (pdta_at, pdta) = find_pdta(r)?;
     let (out, _) = bake(&pdta, velocity_tone)?;
@@ -83,7 +118,8 @@ pub fn read_as<R: Read + Seek>(r: &mut R, velocity_tone: bool) -> Result<SoundFo
     let mut list = b"LIST".to_vec();
     list.extend((out.len() as u32).to_le_bytes());
     let mut stream = (&head[..]).chain(r.take(pdta_at - 12)).chain(&list[..]).chain(&out[..]);
-    SoundFont::new(&mut stream).map_err(|e| anyhow!("{e:?}"))
+    let font = SoundFont::new(&mut stream).map_err(|e| anyhow!("{e:?}"))?;
+    Ok((font, out))
 }
 
 /// The offset of the `pdta` LIST from the start of the SoundFont, and its body (from its
@@ -176,7 +212,7 @@ fn bake_within(pdta: &[u8], velocity_tone: bool, limit: usize) -> Result<(Vec<u8
 
 /// A modulator record (SF2 2.01 sections 7.4 and 7.8).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct Modulator {
+pub(super) struct Modulator {
     src: u16,
     dest: u16,
     amount: i16,
@@ -189,14 +225,14 @@ impl Modulator {
     /// velocity, unipolar negative concave (0x0502), -2400 cents.
     const DEFAULT: Modulator = Modulator { src: 0x0502, dest: INITIAL_FILTER_FC, amount: -2400, amount_src: 0, transform: 0 };
     /// The default switched off (amount 0), written on every instrument zone.
-    const DEFAULT_OFF: Modulator = Modulator { amount: 0, ..Modulator::DEFAULT };
+    pub(super) const DEFAULT_OFF: Modulator = Modulator { amount: 0, ..Modulator::DEFAULT };
 
     fn from(r: &[u8]) -> Modulator {
         let u = |i: usize| u16::from_le_bytes([r[i], r[i + 1]]);
         Modulator { src: u(0), dest: u(2), amount: u(4) as i16, amount_src: u(6), transform: u(8) }
     }
 
-    fn bytes(&self) -> [u8; 10] {
+    pub(super) fn bytes(&self) -> [u8; 10] {
         let mut b = [0u8; 10];
         for (i, v) in [self.src, self.dest, self.amount as u16, self.amount_src, self.transform].into_iter().enumerate() {
             b[2 * i..2 * i + 2].copy_from_slice(&v.to_le_bytes());
@@ -286,18 +322,18 @@ impl Modulator {
 }
 
 /// A font's preset data as records (terminal records included).
-struct Pdta {
-    phdr: Vec<[u8; 38]>,
+pub(super) struct Pdta {
+    pub(super) phdr: Vec<[u8; 38]>,
     /// (generator index, modulator index) per zone.
-    pbag: Vec<[u16; 2]>,
-    pmod: Vec<Modulator>,
+    pub(super) pbag: Vec<[u16; 2]>,
+    pub(super) pmod: Vec<Modulator>,
     /// (generator, amount) records.
-    pgen: Vec<[u16; 2]>,
-    inst: Vec<[u8; 22]>,
-    ibag: Vec<[u16; 2]>,
-    imod: Vec<Modulator>,
-    igen: Vec<[u16; 2]>,
-    shdr: Vec<u8>,
+    pub(super) pgen: Vec<[u16; 2]>,
+    pub(super) inst: Vec<[u8; 22]>,
+    pub(super) ibag: Vec<[u16; 2]>,
+    pub(super) imod: Vec<Modulator>,
+    pub(super) igen: Vec<[u16; 2]>,
+    pub(super) shdr: Vec<u8>,
 }
 
 /// The instruments as written: the font's, in order, then those split off them.
@@ -329,7 +365,7 @@ fn pairs(body: &[u8]) -> Vec<[u16; 2]> {
 }
 
 impl Pdta {
-    fn parse(data: &[u8]) -> Result<Pdta> {
+    pub(super) fn parse(data: &[u8]) -> Result<Pdta> {
         if data.get(..4) != Some(b"pdta") {
             bail!("not preset data");
         }
@@ -364,7 +400,7 @@ impl Pdta {
 
     /// Zone `z`'s generators (`gens` without its terminal record) and modulators, as
     /// rustysynth reads them.
-    fn zone<'a>(bags: &[[u16; 2]], gens: &'a [[u16; 2]], mods: &'a [Modulator], z: usize) -> Result<(&'a [[u16; 2]], &'a [Modulator])> {
+    pub(super) fn zone<'a>(bags: &[[u16; 2]], gens: &'a [[u16; 2]], mods: &'a [Modulator], z: usize) -> Result<(&'a [[u16; 2]], &'a [Modulator])> {
         let (g0, g1) = (bags[z][0] as usize, bags[z + 1][0] as usize);
         let g = gens.get(g0..g1).filter(|_| g1 < gens.len()).context("zone generators out of range")?;
         let (m0, m1) = (bags[z][1] as usize, bags[z + 1][1] as usize);
@@ -372,7 +408,7 @@ impl Pdta {
     }
 
     /// Record `i`'s first zone (the `u16` at byte `at` of a header).
-    fn first_zone<const N: usize>(headers: &[[u8; N]], i: usize, at: usize) -> usize {
+    pub(super) fn first_zone<const N: usize>(headers: &[[u8; N]], i: usize, at: usize) -> usize {
         u16::from_le_bytes([headers[i][at], headers[i][at + 1]]) as usize
     }
 

@@ -140,6 +140,37 @@ pub(super) fn apply_routed(rack: &mut Rack, m: &Msg, bank: &mut [u8; 16], router
     translate(m, bank, |c, st, a, b| rack.process(c, st, a, b));
 }
 
+/// The font slot, bank and program (as `Rack::voice_of` gives them) the part on `ch` will
+/// play after a program change to `program` under the style's bank select `msb`, as
+/// `apply_routed` would play it; nothing changes. For a drum setup's kit built ahead of
+/// the style's setup (kit.rs).
+pub(super) fn voice_after(rack: &Rack, ch: u8, msb: u8, program: u8, router: Option<&Router>) -> (u8, i32, i32) {
+    let c = ch & 15;
+    // As rustysynth finds the preset: MIDI channel 10 adds 128 to the bank.
+    let voice = |slot: u8, bank: i32, program: i32| (slot, if c == 9 { bank + 128 } else { bank }, program);
+    if let Some(r) = router
+        && c >= 8
+        && !(r.audition && c == AUDITION_CHANNEL)
+        && let Some(route) = r.routes.lookup(r.active, c, msb, program)
+        && let Some(slot) = rack.slot_for(route)
+    {
+        let bank = if c == 9 { route.bank.saturating_sub(128) } else { route.bank };
+        return voice(slot, bank as i32, route.program as i32);
+    }
+    // Back on the main font (a channel routed before gets bank 0 there first), then as
+    // `translate` plays it.
+    let bank = if rack.mapped >> c & 1 == 1 && c != 8 { 0 } else { rack.main_bank(c) };
+    if parts::part_of_channel(c).is_some() {
+        return voice(0, bank, program as i32);
+    }
+    match c {
+        8 => voice(0, 128, program as i32),
+        4..8 if msb >= 126 => voice(0, 128, program as i32),
+        4..8 => voice(0, 0, gm_fallback(c, msb, program) as i32),
+        _ => voice(0, bank, gm_fallback(c, msb, program) as i32),
+    }
+}
+
 /// The keyboard parts' voices: a part's own patch, else its GM voice through the map
 /// (the band's current bank), else the GM voice on the main font.
 pub(super) fn sync_parts(rack: &mut Rack, parts: &Parts, router: Option<&Router>) {

@@ -223,10 +223,10 @@ Tags: `[chord-following]` `[transport]` `[sections]` `[voices]` `[registration]`
   - About 86% of the messages address a note the part actually plays.
 - **yahaha:**
   - The port gets the SysEx as the style sends it (`engine::Prepared`), so an XG instrument applies all of it. yahaha also resends it after a program change that would reset it (`engine::setup`).
-  - The built-in synth gets it too (`synth::drum_setup`). `live::Out` passes each drum setup SysEx to the audio thread as a 3-byte drum message. There, each drum note starts with its own settings through a vendored rustysynth patch, `Synthesizer::note_on_with(NoteParams)`. The settings are fixed at the note-on, so a change never moves a note already sounding.
+  - The built-in synth gets it too (`synth::drum_setup`). `live::Out` passes each drum setup SysEx to the audio thread as a 3-byte drum message. There, each drum note starts with its own settings, on upstream rustysynth's primitives (#346 step 5): its sends through a lane of the part with those sends, and the rest through a *kit*, a small SoundFont derived from the part's drum kit with each set note's settings baked into its generators (`synth::kit`). Kits are built off the audio thread, as the style loads, so its first downbeat has them; a setup that changes later plays from once its kit is built. The settings are fixed at the note-on, so a change never moves a note already sounding.
     - Level as gain: (level/100)², the CC7 curve. Decision: an unset level counts as 100.
     - Pitch coarse and fine, in semitones and cents.
-    - Pan, in place of the kit's own. 0 is random per note.
+    - Pan, in place of the kit's own. 0 is random per note on the Genos; the built-in synth plays the kit's own pan there (no corpus style uses it).
     - Reverb, chorus and variation send: value/127 of the part's send into yahaha's effect bus, per voice.
     - Cutoff and resonance, and EG attack, decay 1 and decay 2 (attack, decay and release times). Decision: 16 steps per octave for the rates and the cutoff, and 0.2 dB per step for resonance. The DL gives only the ranges.
   - Not applied: Alternate Group, Key Assign and Rcv Note Off/On. No corpus style sets them.
