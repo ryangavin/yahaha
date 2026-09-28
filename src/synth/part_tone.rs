@@ -4,7 +4,9 @@
 //! - **CC74 cutoff, CC71 resonance:** a low-pass filter on the part's stem
 //!   ([`StemFilter`]). It moves on the notes already sounding, gliding (no clicks). At
 //!   CC74 64 and up it is out of the signal, so a part with its cutoff at 64 sounds exactly
-//!   as without the filter, and it adds no gain. Below 64 its cutoff is 20 kHz x 2^((v -
+//!   as without the filter, and it adds no gain. Above 64 a high shelf brightens the stem
+//!   instead: 0 dB at 64, up to +6 dB at 127 above a one-pole split at 2.5 kHz, gliding
+//!   the same way, with nothing added below the split. Below 64 its cutoff is 20 kHz x 2^((v -
 //!   64) / 10), down to about 240 Hz at 0. (The vendored rustysynth scaled each voice's
 //!   own cutoff, 16 steps an octave; from 20 kHz that scale hardly darkens a voice whose
 //!   own filter is already low, so the stem's spans more.) CC71 raises (lowers) the
@@ -44,6 +46,9 @@ const DELAY_PER_STEP_S: f32 = 0.02;
 const DELAY_FADE_S: f32 = 0.1;
 /// The filter's settings glide to a change with this time constant (s).
 const GLIDE_S: f32 = 0.01;
+/// The high shelf at CC74 127 (dB above the split), and where it splits (Hz).
+const SHELF_DB_AT_127: f32 = 6.0;
+const SHELF_HZ: f32 = 2_500.0;
 /// Frames between two updates of the filter's coefficients.
 const SUB: usize = 16;
 
@@ -67,6 +72,12 @@ pub(super) struct StemFilter {
     /// The two integrators' state, per side.
     s1: [f32; 2],
     s2: [f32; 2],
+    /// The high shelf (CC74 above 64): its one-pole split coefficient, the boost above the
+    /// split as a linear gain minus 1 (target and now), and the split's low side, per side.
+    shelf_a: f32,
+    to_boost: f32,
+    boost: f32,
+    lp: [f32; 2],
 }
 
 impl StemFilter {
@@ -85,6 +96,10 @@ impl StemFilter {
             mix: 0.0,
             s1: [0.0; 2],
             s2: [0.0; 2],
+            shelf_a: 1.0 - (-2.0 * std::f32::consts::PI * SHELF_HZ.min(0.45 * sample_rate) / sample_rate).exp(),
+            to_boost: 0.0,
+            boost: 0.0,
+            lp: [0.0; 2],
         }
     }
 
@@ -100,6 +115,8 @@ impl StemFilter {
             self.to_k = 1.0 / Q_NEUTRAL;
             self.to_mix = 0.0;
         }
+        let db = (cutoff as f32 - 64.0).max(0.0) * SHELF_DB_AT_127 / 63.0;
+        self.to_boost = if db > 0.0 { 10f32.powf(db / 20.0) - 1.0 } else { 0.0 };
         if self.mix == 0.0 {
             // Out of the signal: no cutoff to glide from (the wet share still glides in).
             self.oct = self.to_oct;
@@ -110,7 +127,7 @@ impl StemFilter {
     /// Whether it changes the signal now (it is in, or on its way in or out).
     #[inline]
     pub(super) fn active(&self) -> bool {
-        self.mix > 0.0 || self.to_mix > 0.0
+        self.mix > 0.0 || self.to_mix > 0.0 || self.boost > 0.0 || self.to_boost > 0.0
     }
 
     /// The part fell silent: forget what rang, and take the settings as they are.
@@ -120,6 +137,8 @@ impl StemFilter {
         self.oct = self.to_oct;
         self.k = self.to_k;
         self.mix = self.to_mix;
+        self.lp = [0.0; 2];
+        self.boost = self.to_boost;
     }
 
     /// Filter the stem in place. Out of the signal, it leaves the stem untouched.
@@ -137,13 +156,21 @@ impl StemFilter {
             if (self.mix - self.to_mix).abs() < 1e-3 {
                 self.mix = self.to_mix;
             }
+            self.boost += self.glide * (self.to_boost - self.boost);
+            if (self.boost - self.to_boost).abs() < 1e-4 {
+                self.boost = self.to_boost;
+            }
             let hz = self.oct.exp2();
             let g = (std::f32::consts::PI * hz / self.sample_rate).tan();
             let a1 = 1.0 / (1.0 + g * (g + self.k));
             let a2 = g * a1;
             let a3 = g * a2;
             let mix = self.mix;
+            let lowpass = mix > 0.0 || self.to_mix > 0.0;
             for (side, x) in [&mut left[i..end], &mut right[i..end]].into_iter().enumerate() {
+                if !lowpass {
+                    continue;
+                }
                 let (mut s1, mut s2) = (self.s1[side], self.s2[side]);
                 for v in x.iter_mut() {
                     let v3 = *v - s2;
@@ -157,12 +184,28 @@ impl StemFilter {
                 self.s1[side] = if s1.abs() < 1e-20 { 0.0 } else { s1 };
                 self.s2[side] = if s2.abs() < 1e-20 { 0.0 } else { s2 };
             }
+            // The high shelf: the signal plus `boost` times what lies above the split (the
+            // signal less its one-pole low side), so below the split it adds nothing.
+            let (a, boost) = (self.shelf_a, self.boost);
+            if boost > 0.0 || self.to_boost > 0.0 {
+                for (side, x) in [&mut left[i..end], &mut right[i..end]].into_iter().enumerate() {
+                    let mut lp = self.lp[side];
+                    for v in x.iter_mut() {
+                        lp += a * (*v - lp);
+                        *v += boost * (*v - lp);
+                    }
+                    self.lp[side] = if lp.abs() < 1e-20 { 0.0 } else { lp };
+                }
+            }
             i = end;
         }
         if self.mix == 0.0 {
             // Fully out again: start from rest next time.
             self.s1 = [0.0; 2];
             self.s2 = [0.0; 2];
+        }
+        if self.boost == 0.0 {
+            self.lp = [0.0; 2];
         }
     }
 }
@@ -178,7 +221,8 @@ pub(super) struct PartTone {
     wheel: u8,
     /// The CC1 the part's synthesizers have (what [`PartTone::modulation`] last gave).
     sent: u8,
-    /// Frames since the last note-on (saturating; `u32::MAX`: none yet).
+    /// Frames since the last note-on (saturating; 0 before the first, so CC78 holds the
+    /// first note's vibrato off too).
     since_on: u32,
     /// Frames a step of CC78 above 64 holds the vibrato off, and the fade-in's length.
     frames_per_step: f32,
@@ -195,7 +239,7 @@ impl PartTone {
             delay: 64,
             wheel: 0,
             sent: 0,
-            since_on: u32::MAX,
+            since_on: 0,
             frames_per_step: DELAY_PER_STEP_S * sample_rate,
             fade_frames: DELAY_FADE_S * sample_rate,
             filter: StemFilter::new(sample_rate),
@@ -289,14 +333,39 @@ mod tests {
     }
 
     #[test]
-    fn at_64_and_up_the_filter_is_out_of_the_signal() {
+    fn at_64_the_filter_is_out_of_the_signal() {
         let mut f = StemFilter::new(RATE);
-        for (c, r) in [(64, 64), (64, 127), (100, 0), (127, 127)] {
+        for (c, r) in [(64, 64), (64, 127)] {
             f.set(c, r);
             let (mut l, mut r) = (square(4800), square(4800));
             f.process(&mut l, &mut r);
             assert!(l == square(4800) && r == square(4800), "bit-identical");
         }
+        assert!(!f.active());
+    }
+
+    /// Above 64 a high shelf brightens, gliding in and out, and adds nothing at DC.
+    #[test]
+    fn above_64_a_shelf_brightens_and_comes_back_out() {
+        let mut f = StemFilter::new(RATE);
+        let open = hf(&square(4800)[2400..]);
+        f.set(127, 64);
+        let (mut l, mut r) = (square(4800), square(4800));
+        f.process(&mut l, &mut r);
+        let bright = hf(&l[2400..]);
+        assert!(bright > open * 1.5, "brighter: {bright} vs {open}");
+        let mut dc = vec![0.5f32; 4800];
+        f.process(&mut dc.clone(), &mut dc);
+        assert!((dc[4799] - 0.5).abs() < 1e-3, "no broadband gain: {}", dc[4799]);
+        f.set(64, 64);
+        for _ in 0..10 {
+            let (mut l, mut r) = (square(4800), square(4800));
+            f.process(&mut l, &mut r);
+        }
+        assert!(!f.active(), "out again once it has glided back");
+        let (mut l, mut r) = (square(4800), square(4800));
+        f.process(&mut l, &mut r);
+        assert!(l == square(4800), "and bit-identical");
     }
 
     #[test]
@@ -335,9 +404,9 @@ mod tests {
         assert_eq!(t.modulation(), Some(126), "CC77 alone");
         // CC78 +10: 0.2 s off after each note-on, then a fade in.
         t.follow(0xB0, 78, 74);
-        assert_eq!(t.modulation(), None, "no note yet");
+        assert_eq!(t.modulation(), Some(0), "no note yet: the first note is held off too");
         t.follow(0x90, 60, 100);
-        assert_eq!(t.modulation(), Some(0), "held off");
+        assert_eq!(t.modulation(), None, "held off");
         t.advance(9000);
         assert_eq!(t.modulation(), None, "still");
         t.advance(600 + 2400);

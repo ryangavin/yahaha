@@ -692,6 +692,38 @@ mod tests {
         assert_eq!(swept.voices(), 1);
     }
 
+    /// CC74 127 on a held note brightens the stem (the high shelf), without a click.
+    #[test]
+    fn cutoff_127_on_a_held_note_brightens_the_stem() {
+        let p = peaks();
+        let block = |r: &mut Rack| {
+            let (mut l, mut rr) = (vec![0f32; 480], vec![0f32; 480]);
+            r.render_dry(&mut l, &mut rr, &p, None);
+            l
+        };
+        let bright = |x: &[f32]| {
+            let hf: f32 = x.windows(2).map(|w| (w[1] - w[0]).powi(2)).sum();
+            hf / x.iter().map(|v| v * v).sum::<f32>().max(1e-30)
+        };
+        let jump = |x: &[f32]| x.windows(2).map(|w| (w[1] - w[0]).abs()).fold(0f32, f32::max);
+        let (mut up, mut still) = (rack(), rack());
+        let (mut a, mut b) = (Vec::new(), Vec::new());
+        for r in [&mut up, &mut still] {
+            r.process(3, 0x90, 72, 100);
+        }
+        for i in 0..40 {
+            if i == 10 {
+                up.process(3, 0xB0, 74, 127);
+            }
+            a.extend(block(&mut up));
+            b.extend(block(&mut still));
+        }
+        let (lit, open) = (bright(&a[a.len() - 4800..]), bright(&b[b.len() - 4800..]));
+        assert!(lit > open * 1.3, "the held note brightens: {lit} vs {open}");
+        let edge = &a[4800 - 64..4800 + 480];
+        assert!(jump(edge) <= jump(&b[..4800]) * 2.0, "no click: {} vs {}", jump(edge), jump(&b[..4800]));
+    }
+
     /// A drum note with sends of its own (#239) plays in a note lane with those sends: the
     /// same sends share a lane, other sends take an idle one, and with none idle the
     /// nearest. A note with the part's sends plays on the part's own synthesizer.
