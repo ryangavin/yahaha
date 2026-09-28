@@ -434,8 +434,8 @@ impl PluginRack {
     }
 
     /// `channel`'s output RMS (linear, both sides; after its gain and pan) since the last
-    /// call, and start again from 0: measured like the SoundFont parts'
-    /// (`Synthesizer::channel_rms`), for the same meters. RT-safe.
+    /// call, and start again from 0: measured like the SoundFont parts' stems
+    /// (`synth::Rack::render`), for the same meters. RT-safe.
     #[inline]
     pub fn take_rms(&mut self, channel: u8) -> f32 {
         let s = &mut self.slots[(channel & 0x0F) as usize];
