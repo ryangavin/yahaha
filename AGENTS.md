@@ -49,7 +49,7 @@ See "Developing on Linux" in README.md.
 
 ## Branches
 
-PRs target `develop`. `develop` merges into `main` only when the owner says so, with a merge commit.
+PRs target `develop` and are squash-merged. `develop` merges into `main` only when the owner says so, with a rebase merge (both branches require linear history, so no merge commits).
 
 ## Never commit
 
