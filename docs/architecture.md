@@ -17,7 +17,7 @@ This document is about the inside.
 | `src/session.rs`, `src/session/*` | `Session`: owns the runtime, runs commands, builds `AppState`. One module per feature. |
 | `src/engine.rs`, `src/engine/*` | `Engine`: the arranger (sections, pattern playback, chord following). Deterministic, allocation-free. |
 | `src/live.rs`, `src/live/*` | The real-time threads' code: MIDI input (`Input`, the key pipeline) and the engine loop (`EngineLoop`). |
-| `src/synth.rs`, `vendor/rustysynth` | The built-in SoundFont synth (cpal audio thread). |
+| `src/synth.rs`, `src/synth/` | The built-in SoundFont synth (cpal audio thread), on upstream rustysynth. |
 | `src/midi.rs`, `src/rt.rs` | CoreMIDI, real-time helpers (clock, wakeups, packet sink, histograms). |
 | `src/sff.rs`, `src/library.rs` | Style files (SFF1/SFF2) and the style library index. |
 | `src/theory.rs`, `src/fingering.rs` | Chords, chord recognition, fingering types. |
