@@ -58,6 +58,8 @@ rtrb = "0.4.0"
 #   scales (added to the send buses per voice), filter cutoff/resonance and envelope
 #   times, fixed for the voice's life (voice.rs, oscillator.rs, region_ex.rs,
 #   synthesizer.rs). `note_on` is `note_on_with(NoteParams::NEUTRAL)`, as upstream.
+#   yahaha no longer calls it (#346 step 5): a drum setup plays a kit derived from the
+#   SoundFont (src/synth/kit.rs).
 # - the GM2/XG sound controllers (#246): CC74 cutoff and CC71 resonance (new notes, and
 #   gliding on the notes sounding), CC73/75/72 attack, decay and release times and CC76/78
 #   vibrato rate and delay (new notes), CC77 vibrato depth (live), each relative to the

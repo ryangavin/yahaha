@@ -20,6 +20,11 @@
 //!   #239): a note whose sends differ from the part's plays in a lane with those sends, so
 //!   its stem can be sent at its own level. Such a lane is claimed while idle and rendered
 //!   only while it sounds.
+//! - a drum setup's kit's lanes (kit.rs, #239): once the kit its setup needs is built, the
+//!   part's drum notes play in them, the first with the part's sends, the others claimed
+//!   by sends as the note lanes are. A part keeps two kits' lanes, so a kit that the setup
+//!   no longer wants rings out while the next plays. A kit's lanes start from what the
+//!   part's synthesizers have had of its controllers, bend and RPNs ([`Heard`]).
 //!
 //! Every lane of a part gets the part's controllers, pitch bend and note-offs; a note-on,
 //! program change or bank select goes to the lanes of the font the channel plays now.
@@ -34,6 +39,7 @@
 //! allocates, locks or panics.
 
 use super::envelope::{Env, PartEnvelope};
+use super::kit::{Kit, KitKey, KitSource};
 use super::part_tone::PartTone;
 use super::voicing::{To, Voicing};
 use super::*;
@@ -47,8 +53,15 @@ const EXTRA_POLYPHONY: usize = 64;
 /// Lanes per part for drum notes with sends of their own, and their voices each.
 const NOTE_LANES: usize = 4;
 const NOTE_POLYPHONY: usize = 32;
+/// A kit's lanes: one with the part's sends (with the main font's voices), then one for
+/// each note lane.
+pub(super) const KIT_LANES: usize = 1 + NOTE_LANES;
+/// The kits a part keeps lanes for: the one playing, and the one before it ringing out.
+const KITS: usize = 2;
+/// A kit lane's `slot`: no font slot (a program change or bank select never reaches it).
+const KIT_SLOT: u8 = 0xFE;
 /// A lane's sends when they are the part's own.
-const PART_SENDS: [f32; BUSES] = [1.0; BUSES];
+pub(super) const PART_SENDS: [f32; BUSES] = [1.0; BUSES];
 
 /// A lane with no note held is rendered until its output has been below `IDLE_LEVEL` for
 /// this long (a tail ringing out), then skipped.
@@ -58,7 +71,7 @@ const IDLE_LEVEL: f32 = 1e-6;
 /// One synthesizer of a part.
 pub(super) struct Lane {
     synth: Synthesizer,
-    /// The rack slot (SoundFont) it plays: 0 = the main font.
+    /// The rack slot (SoundFont) it plays: 0 = the main font; `KIT_SLOT`: a kit.
     slot: u8,
     /// Its notes' sends, as a factor on the part's (1: the part's own).
     sends: [f32; BUSES],
@@ -69,11 +82,120 @@ pub(super) struct Lane {
     program: i32,
     /// Frames into the synthesizer's block (0: the next frame renders a new block).
     phase: usize,
+    /// What it has had of the part's controllers.
+    heard: Heard,
+}
+
+/// Not heard (`Heard::cc`).
+const UNHEARD: u8 = 0xFF;
+
+/// What a lane's synthesizer has had of its part's controllers, pitch bend and RPNs (the
+/// part-wide messages, not a gliding or shaped note's own), so a kit's new lanes can start
+/// from the same: rustysynth has no way to read a channel's state back.
+#[derive(Clone, Copy)]
+struct Heard {
+    /// The last value of each controller (0-119, bank select aside; `UNHEARD`: none).
+    cc: [u8; 120],
+    /// RPN 0-2's data entry (MSB, LSB): bend range, fine and coarse tuning.
+    rpn: [[u8; 2]; 3],
+    /// An NRPN was selected after the last RPN.
+    nrpn: bool,
+    /// The pitch bend (LSB, MSB).
+    bend: Option<[u8; 2]>,
+}
+
+impl Heard {
+    const NONE: Heard = Heard { cc: [UNHEARD; 120], rpn: [[UNHEARD; 2]; 3], nrpn: false, bend: None };
+
+    /// Follow a message the lane gets on all of its part's channels.
+    #[inline]
+    fn follow(&mut self, st: i32, d1: i32, d2: i32) {
+        let v = (d2 & 127) as u8;
+        match st {
+            0xB0 => match d1 {
+                0 | 32 => {}
+                // Reset All Controllers, as rustysynth's channel takes it.
+                121 => {
+                    for cc in [1, 33, 11, 43, 64, 100, 101] {
+                        self.cc[cc] = UNHEARD;
+                    }
+                    self.bend = None;
+                }
+                6 | 38 => {
+                    self.cc[d1 as usize] = v;
+                    let (msb, lsb) = (self.cc[101], self.cc[100]);
+                    if !self.nrpn && msb == 0 && lsb < 3 {
+                        self.rpn[lsb as usize][(d1 == 38) as usize] = v;
+                    }
+                }
+                1..=119 => {
+                    self.cc[d1 as usize] = v;
+                    match d1 {
+                        98 | 99 => self.nrpn = true,
+                        100 | 101 => self.nrpn = false,
+                        _ => {}
+                    }
+                }
+                _ => {}
+            },
+            0xE0 => self.bend = Some([(d1 & 127) as u8, v]),
+            _ => {}
+        }
+    }
+
+    /// Bring `synth` to what was heard, on `chans`.
+    fn replay(&self, synth: &mut Synthesizer, chans: u16) {
+        let mut m = chans;
+        while m != 0 {
+            let c = m.trailing_zeros() as i32;
+            m &= m - 1;
+            let mut cc = |n: i32, v: u8| synth.process_midi_message(c, 0xB0, n, v as i32);
+            for (n, &v) in self.cc.iter().enumerate().skip(1) {
+                if v != UNHEARD && !matches!(n, 6 | 38 | 98..=101) {
+                    cc(n as i32, v);
+                }
+            }
+            for (n, d) in self.rpn.iter().enumerate() {
+                if *d != [UNHEARD; 2] {
+                    cc(101, 0);
+                    cc(100, n as u8);
+                    for (k, &v) in d.iter().enumerate() {
+                        if v != UNHEARD {
+                            cc(if k == 0 { 6 } else { 38 }, v);
+                        }
+                    }
+                }
+            }
+            let select = if self.nrpn { [99, 98] } else { [101, 100] };
+            for n in select {
+                if self.cc[n] != UNHEARD {
+                    cc(n as i32, self.cc[n]);
+                }
+            }
+            if let Some([lo, hi]) = self.bend {
+                synth.process_midi_message(c, 0xE0, lo as i32, hi as i32);
+            }
+        }
+    }
+}
+
+/// A part's drum-setup kits (kit.rs): what each of its two kit lane sets holds, which one
+/// its setup plays now, and what that was worked out from.
+pub(super) struct PartKits {
+    /// Each kit lane set's kit (None: no lanes there yet).
+    keys: [Option<KitKey>; KITS],
+    /// The set played last (the other is replaced next).
+    newest: usize,
+    /// The set the part's setup plays now (None: no kit; its notes play on its font).
+    pub(super) live: Option<usize>,
+    /// The drum setups' changes, the slot, bank and program `live` was worked out for.
+    pub(super) seen: Option<(u32, u8, i32, i32)>,
 }
 
 /// A part (a MIDI channel): its lanes, and what the rack keeps of its state.
 pub(super) struct Part {
-    /// Slot k's lane at k (0 = the main font); then the main font's note lanes.
+    /// Slot k's lane at k (0 = the main font); then the main font's note lanes; then its
+    /// kits' lanes, `KIT_LANES` each, once they have come (`Rack::install_kit`).
     pub(super) lanes: Vec<Lane>,
     /// Its mono mode and portamento, and the channels its notes play on.
     voicing: Voicing,
@@ -90,6 +212,8 @@ pub(super) struct Part {
     /// Its envelope controllers (CC73/75/72, #346 step 4) and the notes they shape
     /// (envelope.rs).
     env: PartEnvelope,
+    /// Its drum setup's kits (kit.rs, #239).
+    pub(super) kits: PartKits,
 }
 
 impl Part {
@@ -104,6 +228,7 @@ impl Part {
             pedal: false,
             tone: PartTone::new(sample_rate),
             env: PartEnvelope::new(sample_rate, block),
+            kits: PartKits { keys: [None, None], newest: 0, live: None, seen: None },
         }
     }
 
@@ -215,6 +340,11 @@ pub struct Rack {
     /// Each channel's RMS in the last `render` (after a fade), for the meters: the audio
     /// thread folds it into `SynthControl::rms`.
     pub rms: [f32; 16],
+    /// Each slot's SoundFont as kits are derived from it (None: its preset data wasn't
+    /// kept; its parts play no kits), and what the lanes are built for.
+    sources: Vec<Option<Arc<KitSource>>>,
+    sample_rate: i32,
+    legacy: bool,
 }
 
 /// The settings every lane is built with. `legacy`: rustysynth's own reverb and chorus on
@@ -224,6 +354,17 @@ fn settings(sample_rate: i32, polyphony: usize, legacy: bool) -> SynthesizerSett
     s.maximum_polyphony = polyphony;
     s.enable_reverb_and_chorus = legacy;
     s
+}
+
+/// A lane on `font`, for `slot`.
+fn new_lane(font: &Arc<SoundFont>, slot: u8, polyphony: usize, sample_rate: i32, legacy: bool) -> Result<Lane> {
+    let synth = Synthesizer::new(font, &settings(sample_rate, polyphony, legacy)).map_err(|e| anyhow!("{e:?}"))?;
+    Ok(Lane { synth, slot, sends: PART_SENDS, quiet: IDLE_FRAMES, bank: 0, program: 0, phase: 0, heard: Heard::NONE })
+}
+
+/// A kit's lanes on its SoundFont (kit.rs). Slow: off the audio thread.
+pub(super) fn kit_lanes(font: &Arc<SoundFont>, sample_rate: i32, legacy: bool) -> Result<Vec<Lane>> {
+    (0..KIT_LANES).map(|i| new_lane(font, KIT_SLOT, if i == 0 { MAIN_POLYPHONY } else { NOTE_POLYPHONY }, sample_rate, legacy)).collect()
 }
 
 impl Rack {
@@ -241,14 +382,12 @@ impl Rack {
 
     /// Every part's lanes on `main` and `extras` (slots 1..). Slow: off the audio thread.
     pub(super) fn build(main: &Arc<SoundFont>, extras: &[&Arc<SoundFont>], sample_rate: i32, legacy: bool) -> Result<Rack> {
-        let lane = |font: &Arc<SoundFont>, slot: u8, polyphony: usize| -> Result<Lane> {
-            let synth = Synthesizer::new(font, &settings(sample_rate, polyphony, legacy)).map_err(|e| anyhow!("{e:?}"))?;
-            Ok(Lane { synth, slot, sends: PART_SENDS, quiet: IDLE_FRAMES, bank: 0, program: 0, phase: 0 })
-        };
+        let lane = |font: &Arc<SoundFont>, slot: u8, polyphony: usize| new_lane(font, slot, polyphony, sample_rate, legacy);
         let block = settings(sample_rate, MAIN_POLYPHONY, legacy).block_size;
         let mut parts = Vec::with_capacity(16);
         for ch in 0..16u8 {
-            let mut lanes = Vec::with_capacity(1 + extras.len() + NOTE_LANES);
+            // Room for the kits' lanes too: they are moved in on the audio thread.
+            let mut lanes = Vec::with_capacity(1 + extras.len() + NOTE_LANES + KITS * KIT_LANES);
             lanes.push(lane(main, 0, MAIN_POLYPHONY)?);
             for (i, f) in extras.iter().enumerate() {
                 lanes.push(lane(f, i as u8 + 1, EXTRA_POLYPHONY)?);
@@ -274,6 +413,9 @@ impl Rack {
             profile: false,
             ch_ns: [0; 16],
             rms: [0.0; 16],
+            sources: std::iter::once(main).chain(extras.iter().copied()).map(KitSource::of).collect(),
+            sample_rate,
+            legacy,
         };
         // Rhythm 1 (ch 9) is a drum part too: on the drum bank, on every font.
         let p = &mut r.parts[8];
@@ -373,26 +515,127 @@ impl Rack {
         }
     }
 
-    /// A note-on on `ch` whose voices start with `note`'s own settings (a drum setup's,
-    /// #239), on the font the channel plays. Sends of its own put it in a note lane.
-    pub(super) fn note_on_with(&mut self, ch: u8, key: u8, velocity: u8, note: &rustysynth::NoteParams) {
+    /// A drum note-on on `ch` (a part playing a drum setup, #239) with `sends` of its own
+    /// (as a factor on the part's): in the lanes of the part's kit `kit` if its setup has
+    /// one (`PartKits::live`), else in a note lane with those sends (on the main font), else
+    /// as any note. It goes through the part's voicing and envelope as any note does.
+    pub(super) fn drum_note(&mut self, ch: u8, key: u8, velocity: u8, sends: [f32; BUSES], kit: Option<usize>) {
         let c = ch as usize & 15;
-        let slot = self.ch_slot[c];
-        let slots = self.slots;
+        let slot = self.ch_slot[c] as usize;
+        let base = self.slots + NOTE_LANES;
         let part = &mut self.parts[c];
-        part.track(0x90, key as i32, velocity as i32);
-        part.tone.follow(0x90, key as i32, velocity as i32);
+        let lane = match kit {
+            Some(k) if part.lanes.len() >= base + (k + 1) * KIT_LANES => part.kit_lane(base + k * KIT_LANES, sends),
+            _ if slot == 0 && sends != PART_SENDS => part.note_lane(self.slots, sends),
+            _ => slot,
+        };
+        self.note_on_in(c, key as i32, velocity as i32, lane);
+    }
+
+    /// A note-on on part `c`, played in lane `lane` rather than the live font's: through
+    /// the part's tone, voicing and envelope as `process` plays a note-on.
+    fn note_on_in(&mut self, c: usize, key: i32, velocity: i32, lane: usize) {
+        let slot = self.ch_slot[c];
+        let part = &mut self.parts[c];
+        part.track(0x90, key, velocity);
+        part.tone.follow(0x90, key, velocity);
+        part.env.follow(0x90, key, velocity);
         part.send_modulation();
         let melodic = part.melodic(slot);
-        part.voicing.note_elsewhere(key, melodic);
-        let i = if slot == 0 && note.sends != PART_SENDS { part.note_lane(slots, note.sends) } else { slot as usize };
-        // Counted as sounding (its envelope unknown: the longest tail), never shaped; a
-        // shaped note on the channel ends its shaping.
-        let lanes = &mut part.lanes;
-        part.env.note_on(1 << c, i as u8, key, None, &mut |to, m, st, a, b| send(lanes, slot, to, m, st, a, b));
-        let l = &mut part.lanes[i];
-        l.quiet = 0;
-        l.synth.note_on_with(ch as i32, key as i32, velocity as i32, note);
+        part.voicing.set_spread(part.env.spread());
+        let (lanes, env) = (&mut part.lanes, &mut part.env);
+        let live = lane as u8;
+        part.voicing.process(0x90, key, velocity, melodic, live, &mut |to, chans, st, d1, d2| route(env, lanes, live, to, chans, st, d1, d2));
+    }
+
+    /// The font slot the part on `ch` plays, and its bank and program there as rustysynth
+    /// finds its preset (MIDI channel 10 adds 128 to the bank).
+    pub(super) fn voice_of(&self, ch: u8) -> (u8, i32, i32) {
+        let c = ch as usize & 15;
+        let slot = self.ch_slot[c];
+        let part = &self.parts[c];
+        let l = &part.lanes[slot as usize];
+        (slot, if part.voicing.home() == 9 { l.bank + 128 } else { l.bank }, l.program)
+    }
+
+    /// The bank (CC0) the part on `ch` has on the main font.
+    pub(super) fn main_bank(&self, ch: u8) -> i32 {
+        self.parts[ch as usize & 15].lanes[0].bank
+    }
+
+    /// Slot `slot`'s font as kits are derived from it, if they can be.
+    pub(super) fn kit_source(&self, slot: u8) -> Option<&Arc<KitSource>> {
+        self.sources.get(slot as usize)?.as_ref()
+    }
+
+    /// The key a kit for this rack's parts has: `want` with the lanes' sample rate and
+    /// effects.
+    pub(super) fn kit_key(&self, want: &mut KitKey, source: &KitSource, preset: usize) {
+        want.font = source.id();
+        want.preset = preset as u32;
+        want.sample_rate = self.sample_rate;
+        want.legacy = self.legacy;
+    }
+
+    /// Part `ch`'s kits.
+    pub(super) fn kits(&mut self, ch: u8) -> &mut PartKits {
+        &mut self.parts[ch as usize & 15].kits
+    }
+
+    /// Whether any part holds the kit `key` is.
+    pub(super) fn holds_kit(&self, key: &KitKey) -> bool {
+        self.parts.iter().any(|p| p.kits.keys.iter().flatten().any(|k| k == key))
+    }
+
+    /// Every part looks for its kit again (a kit has come).
+    pub(super) fn forget_kits_seen(&mut self) {
+        for p in &mut self.parts {
+            p.kits.seen = None;
+        }
+    }
+
+    /// Play part `ch`'s kit `want` if one of its kit lane sets holds it; which set.
+    pub(super) fn play_kit(&mut self, ch: u8, want: &KitKey) -> Option<usize> {
+        let k = &mut self.parts[ch as usize & 15].kits;
+        let i = k.keys.iter().position(|x| x.as_ref() == Some(want))?;
+        k.newest = i;
+        k.live = Some(i);
+        Some(i)
+    }
+
+    /// Put `kit`'s lanes in part `ch`'s kit lane set played least lately and play it; the
+    /// lanes they replace (a kit before the last, cut if it still rings) come back in the
+    /// kit's box, to be freed off the audio thread. Its lanes start from what the part's
+    /// synthesizers have had of its controllers. No allocation: the part has room for them.
+    pub(super) fn install_kit(&mut self, ch: u8, mut kit: Box<Kit>) -> Box<Kit> {
+        let base = self.slots + NOTE_LANES;
+        let master = self.master;
+        let part = &mut self.parts[ch as usize & 15];
+        let chans = part.voicing.chans();
+        let heard = part.lanes[0].heard;
+        for l in &mut kit.lanes {
+            heard.replay(&mut l.synth, chans);
+            l.heard = heard;
+            l.synth.set_master_volume(master);
+        }
+        let i = match part.kits.keys.iter().position(|k| k.is_none()) {
+            Some(i) => i,
+            None => 1 - part.kits.newest,
+        };
+        let at = base + i * KIT_LANES;
+        if part.lanes.len() == at && kit.lanes.len() == KIT_LANES {
+            part.lanes.extend(kit.lanes.drain(..));
+        } else {
+            for (j, l) in kit.lanes.iter_mut().enumerate().take(KIT_LANES) {
+                if let Some(old) = part.lanes.get_mut(at + j) {
+                    std::mem::swap(old, l);
+                }
+            }
+        }
+        part.kits.keys[i] = Some(kit.key.clone());
+        part.kits.newest = i;
+        part.kits.live = Some(i);
+        kit
     }
 
     /// Channel `ch`'s bank and program on the lanes of `slot` (a route, #103).
@@ -467,7 +710,7 @@ impl Rack {
                 if profile {
                     let dt = crate::rt::host_to_ns(crate::rt::host_now().wrapping_sub(t0));
                     ns += dt;
-                    if lane.slot != 0 {
+                    if lane.slot != 0 && lane.slot != KIT_SLOT {
                         extra_ns += dt;
                     }
                 }
@@ -572,29 +815,42 @@ impl Part {
     /// The note lane for a note with `sends` of its own: the one with those sends, else an
     /// idle one (it takes them), else the one whose sends are nearest.
     fn note_lane(&mut self, slots: usize, sends: [f32; BUSES]) -> usize {
-        let lanes = &mut self.lanes[slots..];
-        let i = if let Some(i) = lanes.iter().position(|l| l.sends == sends) {
-            i
-        } else if let Some(i) = lanes.iter().position(|l| l.quiet >= IDLE_FRAMES) {
-            lanes[i].sends = sends;
-            i
-        } else {
-            let dist = |l: &Lane| l.sends.iter().zip(&sends).map(|(a, b)| (a - b).abs()).sum::<f32>();
-            let mut best = 0;
-            for (i, l) in lanes.iter().enumerate() {
-                if dist(l) < dist(&lanes[best]) {
-                    best = i;
-                }
+        slots + claim(&mut self.lanes[slots..slots + NOTE_LANES], sends)
+    }
+
+    /// The lane of the kit whose lanes start at `at` for a note with `sends`: its first
+    /// with the part's own, else one of the others as `note_lane` finds one.
+    fn kit_lane(&mut self, at: usize, sends: [f32; BUSES]) -> usize {
+        if sends == PART_SENDS { at } else { at + 1 + claim(&mut self.lanes[at + 1..at + KIT_LANES], sends) }
+    }
+}
+
+/// Of `lanes`, the one for a note with `sends`: the one with those sends, else an idle one
+/// (it takes them), else the one whose sends are nearest.
+fn claim(lanes: &mut [Lane], sends: [f32; BUSES]) -> usize {
+    if let Some(i) = lanes.iter().position(|l| l.sends == sends) {
+        i
+    } else if let Some(i) = lanes.iter().position(|l| l.quiet >= IDLE_FRAMES) {
+        lanes[i].sends = sends;
+        i
+    } else {
+        let dist = |l: &Lane| l.sends.iter().zip(&sends).map(|(a, b)| (a - b).abs()).sum::<f32>();
+        let mut best = 0;
+        for (i, l) in lanes.iter().enumerate() {
+            if dist(l) < dist(&lanes[best]) {
+                best = i;
             }
-            best
-        };
-        slots + i
+        }
+        best
     }
 }
 
 /// A message to the lanes of a part that `to` names (`slot`: the font the part plays), on
 /// each of the synthesizer channels in `chans`.
 fn send(lanes: &mut [Lane], slot: u8, to: To, chans: u16, st: i32, d1: i32, d2: i32) {
+    // A message to all of the part's channels (MIDI channel 10's part has only that one):
+    // the part's own, not a gliding or shaped note's.
+    let part_wide = chans == 1 << 9 || chans.count_ones() > 1;
     for (i, l) in lanes.iter_mut().enumerate() {
         let take = match to {
             To::Live => i == slot as usize,
@@ -614,6 +870,9 @@ fn send(lanes: &mut [Lane], slot: u8, to: To, chans: u16, st: i32, d1: i32, d2: 
         }
         if st == 0xC0 {
             l.program = d1;
+        }
+        if part_wide {
+            l.heard.follow(st, d1, d2);
         }
         let mut m = chans;
         while m != 0 {
@@ -699,7 +958,6 @@ fn add_scaled(k: f32, src: &[f32], dst: &mut [f32]) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rustysynth::NoteParams;
 
     /// The tiny test SoundFont (built in code): a looped square wave on every program.
     fn rack() -> Rack {
@@ -1149,25 +1407,78 @@ mod tests {
     #[test]
     fn notes_with_their_own_sends_play_in_a_lane_of_their_own() {
         let mut rack = rack();
-        let with = |r: f32, c: f32| NoteParams { sends: [r, c, 1.0], ..NoteParams::NEUTRAL };
         let lane = |rack: &Rack, sends: [f32; BUSES]| rack.parts[9].lanes.iter().position(|l| l.sends == sends && l.quiet == 0);
-        rack.note_on_with(9, 36, 100, &with(0.0, 1.0));
+        rack.drum_note(9, 36, 100, [0.0, 1.0, 1.0], None);
         assert_eq!(lane(&rack, [0.0, 1.0, 1.0]), Some(1), "the first note lane");
-        rack.note_on_with(9, 38, 100, &with(0.0, 1.0));
+        rack.drum_note(9, 38, 100, [0.0, 1.0, 1.0], None);
         assert_eq!(rack.parts[9].lanes.iter().filter(|l| l.quiet == 0).count(), 1, "the same sends, the same lane");
-        rack.note_on_with(9, 42, 100, &with(0.5, 1.0));
-        rack.note_on_with(9, 44, 100, &with(0.5, 0.0));
-        rack.note_on_with(9, 46, 100, &with(1.0, 0.25));
+        rack.drum_note(9, 42, 100, [0.5, 1.0, 1.0], None);
+        rack.drum_note(9, 44, 100, [0.5, 0.0, 1.0], None);
+        rack.drum_note(9, 46, 100, [1.0, 0.25, 1.0], None);
         assert_eq!(lane(&rack, [1.0, 0.25, 1.0]), Some(4), "each new sends in an idle lane");
-        rack.note_on_with(9, 49, 100, &with(0.1, 1.0));
+        rack.drum_note(9, 49, 100, [0.1, 1.0, 1.0], None);
         assert_eq!(rack.parts[9].lanes[1].sends, [0.0, 1.0, 1.0], "none idle: the nearest lane, as it is");
         assert_eq!(rack.voices(), 6);
-        rack.note_on_with(9, 51, 100, &NoteParams { gain: 0.5, ..NoteParams::NEUTRAL });
+        rack.drum_note(9, 51, 100, PART_SENDS, None);
         assert_eq!(rack.parts[9].lanes[0].quiet, 0, "the part's own sends: its own synthesizer");
         // Every lane gets the part's note-offs.
         for key in [36, 38, 42, 44, 46, 49, 51] {
             rack.process(9, 0x80, key, 0);
         }
         assert_eq!(rack.voices(), 0);
+    }
+
+    /// The tiny font, its preset data kept, so kits can be derived from it.
+    fn kit_rack() -> Rack {
+        let font = crate::synth::font::read_arc(&mut std::io::Cursor::new(crate::patches::sf2::tiny_gm_sound_font())).unwrap();
+        Rack::new(&font, 48_000).unwrap()
+    }
+
+    /// A kit (#239): once in, the part's drum notes play in its lanes, which start from
+    /// the controllers the part had (a kit of nothing set plays exactly as the part's own
+    /// synthesizer). A second kit goes beside it; a third replaces the one played least
+    /// lately, whose lanes come back to be freed. Every kit lane gets the part's note-offs.
+    #[test]
+    fn a_kit_plays_the_parts_drum_notes_from_the_parts_controllers() {
+        let none = [[crate::synth::drum_setup::NONE; crate::synth::drum_setup::PARAMS]; 128];
+        let setup = |r: &mut Rack| {
+            for cc in [[7, 50], [10, 20], [11, 90], [101, 0], [100, 1], [6, 70], [101, 127]] {
+                r.process(9, 0xB0, cc[0], cc[1]);
+            }
+            r.process(9, 0xE0, 0, 80);
+        };
+        let (mut own, mut kitted) = (kit_rack(), kit_rack());
+        setup(&mut own);
+        setup(&mut kitted);
+        let first = crate::synth::kit::for_part(&kitted, 9, &none);
+        let shell = kitted.install_kit(9, first);
+        assert!(shell.lanes.is_empty(), "moved in, nothing replaced");
+        assert_eq!(kitted.parts[9].kits.live, Some(0));
+        own.drum_note(9, 38, 100, PART_SENDS, None);
+        kitted.drum_note(9, 38, 100, PART_SENDS, Some(0));
+        let base = kitted.slots + NOTE_LANES;
+        assert_eq!(kitted.parts[9].lanes[base].quiet, 0, "in the kit's first lane");
+        assert!(kitted.parts[9].lanes[..base].iter().all(|l| l.quiet > 0), "not on the font's");
+        let (a, b) = (play(&mut own, 9600, 480), play(&mut kitted, 9600, 480));
+        assert!(a.iter().any(|&x| x != 0.0));
+        assert_eq!(a, b, "the kit plays as the part's own synthesizer, from its controllers");
+        // Its own sends: the kit's other lanes.
+        kitted.drum_note(9, 40, 100, [0.0, 1.0, 1.0], Some(0));
+        assert_eq!(kitted.parts[9].lanes[base + 1].quiet, 0);
+
+        let mut level = none;
+        level[38][2] = 50;
+        let second = crate::synth::kit::for_part(&kitted, 9, &level);
+        assert!(kitted.install_kit(9, second).lanes.is_empty());
+        assert_eq!((kitted.parts[9].kits.live, kitted.parts[9].lanes.len()), (Some(1), base + 2 * KIT_LANES));
+        assert!(kitted.play_kit(9, &crate::synth::kit::for_part(&kitted, 9, &none).key) == Some(0), "the first is still there");
+        level[38][2] = 60;
+        let third = crate::synth::kit::for_part(&kitted, 9, &level);
+        let back = kitted.install_kit(9, third);
+        assert_eq!((back.lanes.len(), kitted.parts[9].kits.live), (KIT_LANES, Some(1)), "the second's set, played least lately");
+        for key in [38, 40] {
+            kitted.process(9, 0x80, key, 0);
+        }
+        assert_eq!(kitted.voices(), 0);
     }
 }

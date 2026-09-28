@@ -183,17 +183,33 @@ fn the_audio_callback_does_not_allocate() {
     assert_eq!(run(&mut core, &mut feed, &[[0x80, 60, 0], [0x8A, 40, 0], [0x85, 64, 0]]), none, "profiling, note offs");
     // The style's XG Drum Setup (#239): drum messages, drum notes starting with their own
     // level, pitch, pan (random too), sends, filter and envelope, a program change resetting
-    // the setup, and a system reset.
+    // the setup, and a system reset. The setup's kits (#346 step 5): asked for, built off
+    // the callback (`serve`, here between buffers), taken in and played, and a later setup's
+    // kit replacing them, the old ones going back to be freed.
     let ds = |key: u8, p: u8, v: u8| synth::drum_setup::encode(&[0xF0, 0x43, 0x10, 0x4C, 0x30, key, p, v, 0xF7]).unwrap();
     let mut drum: Vec<[u8; 3]> = (0..16u8).map(|p| ds(38, p, if p == 4 { 0 } else { 0x50 })).collect();
     drum.extend([ds(36, 0x05, 0), ds(42, 0x02, 80), synth::drum_setup::encode(&[0xF0, 0x43, 0x10, 0x4C, 0x08, 0x08, 0x07, 0x03, 0xF7]).unwrap()]);
     assert_eq!(run(&mut core, &mut feed, &drum), none, "drum setup");
     assert_eq!(run(&mut core, &mut feed, &[[0xB9, 91, 100], [0x99, 38, 100], [0x99, 36, 110], [0x99, 42, 90], [0x98, 38, 90]]), none, "drum notes with their setup");
+    let built = swap.kits.serve();
     for _ in 0..10 {
-        assert_eq!(run(&mut core, &mut feed, &[[0x99, 38, 60]]), none, "drum notes ringing");
+        assert_eq!(run(&mut core, &mut feed, &[[0x99, 38, 60], [0x99, 36, 60]]), none, "drum notes in their kit, ringing");
     }
+    for level in [60u8, 70, 80, 90, 100, 110] {
+        assert_eq!(run(&mut core, &mut feed, &[ds(42, 0x02, level), [0x99, 42, 100]]), none, "a setup change");
+        swap.kits.serve();
+        assert_eq!(run(&mut core, &mut feed, &[[0x99, 42, 100], [0x99, 38, 100]]), none, "its kit in, the one before it back");
+    }
+    // Style kits built as it loads.
+    let plan = synth::drum_setup::prebuilds([&[0xC9u8, 1][..], &[0xF0, 0x43, 0x10, 0x4C, 0x30, 38, 0x02, 40, 0xF7]]);
+    swap.kits.prebuild(plan);
+    assert_eq!(run(&mut core, &mut feed, &[]), none, "a style's kits asked for");
+    swap.kits.serve();
     let reset = synth::drum_setup::encode(&[0xF0, 0x43, 0x10, 0x4C, 0x00, 0x00, 0x7E, 0x00, 0xF7]).unwrap();
     assert_eq!(run(&mut core, &mut feed, &[[0xC9, 0, 0], [0x99, 38, 100], reset]), none, "drum setup resets");
+    if font.is_some() {
+        assert!(built > 0, "the setup's kits were built");
+    }
     // A part's voice settings (#246): the sound controllers on new notes, the filter moving
     // on notes already sounding, vibrato.
     let tone: Vec<[u8; 3]> = (71..=78u8).map(|cc| [0xB1, cc, 20 + cc]).chain([[0x91, 60, 100], [0x91, 64, 90], [0xB9, 74, 30], [0x99, 38, 100]]).collect();

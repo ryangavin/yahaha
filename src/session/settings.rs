@@ -237,6 +237,19 @@ impl Control {
         let Some(sy) = self.synth.as_mut() else { return };
         let Some(swap) = sy.swap.as_mut() else { return };
         while swap.old.pop().is_ok() {} // old racks are freed here, off the audio thread
+        // The drum setup kits the audio thread asks for (synth/kit.rs): built on a thread
+        // of their own live, at once offline (no device waits on it).
+        let failed = if self.offline.is_some() {
+            swap.kits.serve();
+            None
+        } else {
+            swap.kits.pump()
+        };
+        if let Some(e) = failed {
+            self.say(format!("Drum setup: {e}"), true);
+        }
+        let Some(sy) = self.synth.as_mut() else { return };
+        let Some(swap) = sy.swap.as_mut() else { return };
         if let Some((file, rack)) = self.sf_ready.take() {
             match swap.tx.push(rack) {
                 Ok(()) => {
@@ -252,6 +265,22 @@ impl Control {
                 Err(rtrb::PushError::Full(rack)) => self.sf_ready = Some((file, rack)),
             }
         }
+    }
+
+    /// Build the drum setup kits (synth/kit.rs) that a style's setup leaves its drum parts
+    /// playing as it loads, so its first downbeat has them: each section's setup, as the
+    /// synth will take it.
+    pub(super) fn prebuild_drum_kits(&mut self, p: &crate::engine::Prepared) {
+        let Some(swap) = self.synth.as_mut().and_then(|s| s.swap.as_mut()) else { return };
+        let mut plan: Vec<synth::drum_setup::Prebuild> = Vec::new();
+        for s in &p.setups {
+            for k in synth::drum_setup::prebuilds((0..s.init.len()).map(|i| s.init.get(i))) {
+                if !plan.iter().any(|q| q.ch == k.ch && q.msb == k.msb && q.program == k.program && q.params == k.params) {
+                    plan.push(k);
+                }
+            }
+        }
+        swap.kits.prebuild(plan);
     }
 
     /// Connect the keyboard sources `all_inputs`/`input_names` choose and disconnect the

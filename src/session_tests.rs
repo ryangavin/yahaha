@@ -1518,7 +1518,7 @@ fn the_main_font_loads_into_a_rack_once_there_is_a_synth() {
     s.inner.lock().synth = Some(SynthRef {
         info: SynthInfo { name: "test".into(), sample_rate: 48000, buffer: None, device: "none".into(), channels: 2 },
         control: Arc::new(SynthControl::new(0)),
-        swap: Some(synth::RackSwap { tx, old }),
+        swap: Some(synth::RackSwap { tx, old, kits: synth::kit::link().0 }),
         plugins: None,
         thread: None,
     });
