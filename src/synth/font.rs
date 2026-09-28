@@ -33,7 +33,7 @@
 //!
 //! Every instrument zone written carries the default modulator switched off (amount 0): the
 //! SF2 way to say the default is replaced, as the cutoff is baked in already. A player that
-//! reads modulators (the vendored rustysynth, until #346 step 6) adds nothing again.
+//! reads modulators adds nothing again (upstream rustysynth reads none).
 //!
 //! The preset data a font was loaded with is kept beside it ([`preset_data`]): an XG Drum
 //! Setup's kit is derived from it (kit.rs, #239).

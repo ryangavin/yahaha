@@ -1233,8 +1233,8 @@ this object); the `meters` command returns the latest frame.
 
 Each read takes the levels (they restart from 0), so there is one reader (the app shell's
 meter thread); the client does the decay and peak hold. Measuring costs no allocation or
-lock on the audio thread: the synthesizer sums each channel's squares as it mixes it (a
-`yahaha:` patch in vendor/rustysynth) and the callback folds the result into atomics.
+lock on the audio thread: the rack sums the squares of each part's stem as it mixes it
+(`src/synth/rack.rs`) and the callback folds the result into atomics.
 
 ## Events
 
